@@ -121,56 +121,63 @@ def test_search_all_matches_no_match_errors(monkeypatch):
     assert res["message"].startswith("Replaced 0 occurrence"), res
 
 
-# --- data-lo-para is a read report, not an instruction --------------------------------------
+# --- data-lo-para warning annotations on write --------------------------------------
 
 
-def test_read_only_attribute_sent_back_is_flagged():
-    """The write path drops data-lo-para. Say so: a silent no-op is the failure this tool's
-    callers already get bitten by."""
-    from plugin.writer.apply_document_content import _note_read_only_attrs
+def test_mapped_data_lo_para_full_document_has_no_warnings():
+    """Clean write with no unapplied properties produces no warnings."""
+    from plugin.writer.apply_document_content import _attach_para_warnings
 
-    res = _note_read_only_attrs(
+    res = _attach_para_warnings(
         {"status": "ok", "message": "Replaced entire document."},
-        ['<p data-lo-para="margin-left:3.25cm">A quoted clause.</p>'])
+        [],
+    )
+    assert "warnings" not in res
 
-    assert res["ignored_attributes"] == ["data-lo-para"]
-    assert "apply_style" in res["message"]
 
+def test_unmapped_data_lo_para_full_document_warns_for_unmapped_property():
+    """Unmapped properties report one warning per dropped property name."""
+    from plugin.writer.apply_document_content import _attach_para_warnings
 
-@pytest.mark.parametrize(
-    "value",
-    [
-        pytest.param("<p>A quoted clause.</p>", id="test_content_without_the_attribute_is_untouched"),
-        # Substring 'data-lo-para' in body text is not the attribute; do not flag ignored_attributes.
-        pytest.param("<p>The words data-lo-para describe a read-only report.</p>", id="test_body_text_mentioning_data_lo_para_is_not_a_false_positive"),
-    ],
-)
-def test_content_without_the_attribute_is_untouched(value):
-    from plugin.writer.apply_document_content import _note_read_only_attrs
-
-    original = {"status": "ok", "message": "Replaced entire document."}
-    res = _note_read_only_attrs(original, [value])
-
-    assert res == original
-    assert "ignored_attributes" not in res
+    res = _attach_para_warnings(
+        {"status": "ok", "message": "Replaced entire document."},
+        ["font-size"],
+    )
+    assert res.get("warnings") == ["data-lo-para property 'font-size' was not applied"]
 
 
 def test_failed_write_is_not_annotated():
-    """Nothing was written, so there is nothing to say about what was ignored."""
-    from plugin.writer.apply_document_content import _note_read_only_attrs
+    """Nothing was written, so there is nothing to say about what was not applied."""
+    from plugin.writer.apply_document_content import _attach_para_warnings
 
     original = {"status": "error", "message": "old_content not found."}
+    assert _attach_para_warnings(original, ["margin-left"]) == original
 
-    assert _note_read_only_attrs(original, ['<p data-lo-para="margin-left:3cm">x</p>']) == original
+
+def test_search_target_warns_for_mapped_property(monkeypatch):
+    """Search replacement does not apply data-lo-para; every property warns."""
+    monkeypatch.setattr(search_mod, "find_first_range", lambda doc, s: MockRange())
+    res = ApplyDocumentContent().execute(
+        _ctx(),
+        target="search",
+        old_content="foo",
+        content='<p data-lo-para="text-align:center">x</p>',
+    )
+    assert res.get("status") == "ok", res
+    assert res.get("warnings") == ["data-lo-para property 'text-align' was not applied"]
 
 
-def test_plain_string_content_is_accepted():
-    """content is normally a list, but the checker must not choke on a bare string."""
-    from plugin.writer.apply_document_content import _note_read_only_attrs
-
-    res = _note_read_only_attrs({"status": "ok"}, '<p data-lo-para="text-align:center">x</p>')
-
-    assert res["ignored_attributes"] == ["data-lo-para"]
+def test_content_without_the_attribute_is_untouched(monkeypatch):
+    """Content without data-lo-para or body text mentioning the words produces no warnings."""
+    monkeypatch.setattr(search_mod, "find_first_range", lambda doc, s: MockRange())
+    res = ApplyDocumentContent().execute(
+        _ctx(),
+        target="search",
+        old_content="foo",
+        content="<p>The words data-lo-para describe a read-only report.</p>",
+    )
+    assert res.get("status") == "ok", res
+    assert "warnings" not in res
 
 def test_search_occurrence_selects_requested_match(monkeypatch):
     first = MockRange()

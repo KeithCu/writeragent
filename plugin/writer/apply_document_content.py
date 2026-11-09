@@ -302,28 +302,14 @@ def _find_ranges(
 # ------------------------------------------------------------------
 
 
-# get_document_content reports a paragraph's hand-set formatting as data-lo-para. It is a read
-# report, not an instruction: the import path cannot restore Para* when applying a named style,
-# so the attribute is dropped. Say so instead of accepting it and doing nothing — a silent no-op
-# is exactly the failure this tool's callers get bitten by.
-_READ_ONLY_ATTR = "data-lo-para"
-# Attribute assignment on a start tag — not body text that happens to mention the name.
-_READ_ONLY_ATTR_RE = re.compile(r"""<[A-Za-z][^>]*\bdata-lo-para\s*=""", re.IGNORECASE)
-
-
-def _note_read_only_attrs(result: Any, content: Any) -> dict[str, Any]:
-    """Flag a successful write whose content carried the read-only ``data-lo-para``."""
-    if not isinstance(result, dict) or result.get("status") != "ok":
+def _attach_para_warnings(result: dict[str, Any], unapplied: list[str]) -> dict[str, Any]:
+    """Attach warnings for unapplied data-lo-para properties on a successful edit result."""
+    if not unapplied or result.get("status") != "ok":
         return result
-    items = content if isinstance(content, (list, tuple)) else [content]
-    if not any(isinstance(item, str) and _READ_ONLY_ATTR_RE.search(item) for item in items):
-        return result
-    result = dict(result)
-    result["ignored_attributes"] = [_READ_ONLY_ATTR]
-    result["message"] = (result.get("message") or "") + (
-        " Note: %s in the content was ignored — it is a read-only report of a paragraph's hand-set"
-        " formatting. To change an indent or a font, apply a named style (apply_style;"
-        " default clear_direct lets the style's font and size show)." % _READ_ONLY_ATTR)
+    deduped = list(dict.fromkeys(unapplied))
+    result["warnings"] = [
+        f"data-lo-para property '{name}' was not applied" for name in deduped
+    ]
     return result
 
 
@@ -896,9 +882,7 @@ class ApplyDocumentContent(ToolBase):
             log.exception("apply_document_content: review session cleanup failed")
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        # Thin wrapper so every return path gets the read-only-attribute note, including the
-        # review-wait branch that does not go through annotate_review_status.
-        return _note_read_only_attrs(self._execute(ctx, **kwargs), kwargs.get("content"))
+        return self._execute(ctx, **kwargs)
 
     def _execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         on_main = main.is_current()
@@ -1141,14 +1125,15 @@ class ApplyDocumentContent(ToolBase):
         has_table = params.has_table
         with session:
             # Delete-then-import: make it atomic so a failed import can't strand a cleared document.
-            record_html_atomically(
+            failed = record_html_atomically(
                 session, ctx.doc,
                 lambda: format_support.replace_full_document(ctx.doc, ctx.ctx, content),
-                proposed_preview=plain)
+                proposed_preview=plain) or []
         err = self._table_insert_error(ctx.doc, has_table, None)
         if err:
             return err
-        return {"status": "ok", "message": "Replaced entire document."}
+        res: dict[str, Any] = {"status": "ok", "message": "Replaced entire document."}
+        return _attach_para_warnings(res, failed)
 
     def _edit_insert_at(
         self, ctx: ToolContext, session: EditReviewSession, params: EditParams,
@@ -1160,9 +1145,9 @@ class ApplyDocumentContent(ToolBase):
         target = params.target
         tables_before = _doc_table_count(ctx.doc) if has_table else None
         with session:
-            session.record_mutation(
+            failed = session.record_mutation(
                 lambda: format_support.insert_content_at_position(ctx.doc, ctx.ctx, content, target),
-                proposed_preview=plain)
+                proposed_preview=plain) or []
         err = self._table_insert_error(ctx.doc, has_table, tables_before)
         if err:
             return err
@@ -1172,8 +1157,9 @@ class ApplyDocumentContent(ToolBase):
         else:
             msg = "Inserted content at beginning."
             anchor = collapsed_anchor(ctx.doc.getText().getStart())
-        return attach_edited_context(
+        res = attach_edited_context(
             {"status": "ok", "message": msg}, anchor)
+        return _attach_para_warnings(res, failed)
 
     def _edit_selection(
         self, ctx: ToolContext, session: EditReviewSession, params: EditParams,
@@ -1188,15 +1174,16 @@ class ApplyDocumentContent(ToolBase):
         tables_before = _doc_table_count(ctx.doc) if has_table else None
         with session:
             # Selection insert clears the selection first, then imports -> atomic (full_document above).
-            record_html_atomically(
+            failed = record_html_atomically(
                 session, ctx.doc,
                 lambda: format_support.insert_content_at_position(ctx.doc, ctx.ctx, content, "selection"),
-                proposed_preview=plain)
+                proposed_preview=plain) or []
         err = self._table_insert_error(ctx.doc, has_table, tables_before)
         if err:
             return err
-        return attach_edited_context(
+        res = attach_edited_context(
             {"status": "ok", "message": "Inserted content at selection."}, anchor)
+        return _attach_para_warnings(res, failed)
 
 
     def _edit_replace_all(
@@ -1323,26 +1310,35 @@ class ApplyDocumentContent(ToolBase):
         self, ctx: ToolContext, session: EditReviewSession, params: EditParams,
     ) -> dict[str, Any]:
         if params.all_matches:
-            return self._edit_replace_all(ctx, session, params)
-        doc = ctx.doc
-        if params.occurrence is not None:
-            # Index the same replaceable list the edit path uses. Empty ranges fall
-            # through to the existing miss / drawing-shape path (models often send 0).
-            ranges = _find_ranges(
-                doc, params.pattern, params.regex, params.case_sensitive, params.use_opts, all_matches=True)
-            if ranges and params.occurrence >= len(ranges):
-                return self._occurrence_oor(params.occurrence, len(ranges))
-            found = ranges[params.occurrence] if ranges else None
+            res = self._edit_replace_all(ctx, session, params)
         else:
-            found = _find_ranges(
-                doc, params.pattern, params.regex, params.case_sensitive, params.use_opts, all_matches=False)
-        if found is None:
-            return self._finish_search_miss(
-                doc, params.search_string, params.pattern, params.regex, params.case_sensitive,
-                params.track_reviewable, params.plain, all_matches=False)
-        if params.position in ("before", "after"):
-            return self._edit_insert_next_to_match(ctx, session, params, found)
-        return self._edit_replace_one(ctx, session, params, found)
+            doc = ctx.doc
+            if params.occurrence is not None:
+                # Index the same replaceable list the edit path uses. Empty ranges fall
+                # through to the existing miss / drawing-shape path (models often send 0).
+                ranges = _find_ranges(
+                    doc, params.pattern, params.regex, params.case_sensitive, params.use_opts, all_matches=True)
+                if ranges and params.occurrence >= len(ranges):
+                    return self._occurrence_oor(params.occurrence, len(ranges))
+                found = ranges[params.occurrence] if ranges else None
+            else:
+                found = _find_ranges(
+                    doc, params.pattern, params.regex, params.case_sensitive, params.use_opts, all_matches=False)
+            if found is None:
+                return self._finish_search_miss(
+                    doc, params.search_string, params.pattern, params.regex, params.case_sensitive,
+                    params.track_reviewable, params.plain, all_matches=False)
+            if params.position in ("before", "after"):
+                res = self._edit_insert_next_to_match(ctx, session, params, found)
+            else:
+                res = self._edit_replace_one(ctx, session, params, found)
+
+        if res.get("status") == "ok" and "data-lo-para" in params.content:
+            from . import html_import_styles
+
+            unapplied = html_import_styles.unapplied_para_names_for_content(params.content)
+            return _attach_para_warnings(res, unapplied)
+        return res
 
     def _edit_insert_next_to_match(
         self, ctx: ToolContext, session: EditReviewSession, params: EditParams, found: Any,
