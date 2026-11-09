@@ -127,30 +127,28 @@ def _make_handler(model: Any, detach: Callable[[Any], Any | None]) -> Any:
                 main.post(_fire)
 
             def on_mouse_pressed(self, e: Any) -> bool:
+                # Reset coordinates on unreadable event attributes so release does not match a stale press.
                 try:
                     self._press = (e.X, e.Y)
                     self._click_gen += 1
-                except Exception:
+                except AttributeError:
                     self._press = None
                 return False
 
             def on_mouse_released(self, e: Any) -> bool:
-                try:
-                    if e.ClickCount == 1 and e.Buttons == 1 and not e.PopupTrigger:
-                        if not _same_click_point(self._press, e.X, e.Y):
-                            return False
-                        from plugin.framework.worker_pool import run_in_background
+                if e.ClickCount == 1 and e.Buttons == 1 and not e.PopupTrigger:
+                    if not _same_click_point(self._press, e.X, e.Y):
+                        return False
+                    from plugin.framework.worker_pool import run_in_background
 
-                        run_in_background(
-                            self._deferred,
-                            self._click_gen,
-                            e.Source,
-                            e.X,
-                            e.Y,
-                            name="review-click-popup",
-                        )
-                except Exception:
-                    log.debug("review_click_popup: mouseReleased failed", exc_info=True)
+                    run_in_background(
+                        self._deferred,
+                        self._click_gen,
+                        e.Source,
+                        e.X,
+                        e.Y,
+                        name="review-click-popup",
+                    )
                 return False
 
             def on_disposing(self, Source: Any) -> None:  # noqa: N803 -- UNO API

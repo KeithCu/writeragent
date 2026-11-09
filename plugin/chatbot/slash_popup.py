@@ -346,7 +346,7 @@ def _create_ask_peer_listbox(
     return win, host, offset
 
 
-def _make_slash_key_handler(host: Any, label: str) -> Any:
+def _make_slash_key_handler(host: Any, label: str) -> BaseKeyHandler:
     class _Handler(BaseKeyHandler):
         def on_key_pressed(self, e: Any) -> bool:
             code = int(getattr(e, "KeyCode", 0) or 0)
@@ -746,8 +746,6 @@ class SlashPopupController:
             _ovlog("%s key handler: no addKeyHandler", label)
             return None
         handler = _make_slash_key_handler(self, label)
-        if handler is None:
-            return None
         try:
             add(handler)
             _ovlog("%s key handler attached", label)
