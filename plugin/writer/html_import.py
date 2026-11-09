@@ -593,7 +593,7 @@ def _deletion_author() -> Any:
 
 
 def _drop_absorb_paragraph_props(cursor: Any) -> None:
-    """Drop direct paragraph geometry from the absorb paragraph before HTML import.
+    """Drop direct paragraph formatting from the absorb paragraph before HTML import.
 
     In LibreOffice's HTML parser (`SwHTMLParser::CallParser` and `SetTextCollAttrs`
     in `sw/source/filter/html/swhtml.cxx`), `GetParaAttr` captures the cursor's
@@ -634,6 +634,9 @@ def replace_full_document(model: Any, ctx: Any, content: str) -> list[str]:
         # the break.
         text.insertControlCharacter(cursor, 0, False)  # 0 == ControlCharacter.PARAGRAPH_BREAK
         cursor.goLeft(1, False)
+        # Untracked: the fresh absorb paragraph is new, so a recorded reset
+        # would add a FORMAT redline; the deleted paragraph below keeps its
+        # direct props for Reject.
         with record_changes.record_changes(model, False):
             _drop_absorb_paragraph_props(cursor)
         leftover = text.createTextCursorByRange(cursor.getStart())
