@@ -3662,3 +3662,38 @@ def test_observe_provider_http_error_redacts_api_key_query_param(client, caplog)
     assert "key=" not in msg
     assert "path=/v1/chat/completions" in msg
 
+
+def test_llm_client_passes_cache_session_id(mock_ctx):
+    cfg = {
+        "endpoint": "https://openrouter.ai/api",
+        "api_key": "sk-or-test",
+        "model": "openai/gpt-4o",
+    }
+    llm = LlmClient(cfg, mock_ctx)
+    sent_bodies = []
+
+    def fake_send(method, path, body, headers, **kwargs):
+        sent_bodies.append(json.loads(body))
+        return create_mock_http_response(sse_lines=[b"data: [DONE]"])
+
+    llm._transport.send = fake_send
+
+    # 1. stream_request_with_tools passes cache_session_id through to body session_id
+    llm.stream_request_with_tools(
+        [{"role": "user", "content": "hi"}],
+        max_tokens=100,
+        cache_session_id="k",
+    )
+    assert len(sent_bodies) == 1
+    assert sent_bodies[0]["session_id"] == "k"
+
+    # 2. stream_chat_response passes cache_session_id through to body session_id
+    llm.stream_chat_response(
+        [{"role": "user", "content": "hi"}],
+        max_tokens=100,
+        append_callback=lambda text: None,
+        cache_session_id="k2",
+    )
+    assert len(sent_bodies) == 2
+    assert sent_bodies[1]["session_id"] == "k2"
+

@@ -100,31 +100,104 @@ def _is_tail_block(block: Any) -> bool:
     return False
 
 
+def split_snapshot_text(content: Any) -> tuple[Any, str | None]:
+    """Split message content into (content_without_snapshot, snapshot_text)."""
+    snap = extract_snapshot_text(content)
+    if not snap:
+        return content, None
+    if isinstance(content, str):
+        if content.startswith(SNAPSHOT_HEADER):
+            return "", snap
+        sep = f"\n\n{SNAPSHOT_HEADER}"
+        if sep in content:
+            return content[: content.find(sep)], snap
+        idx = content.find(SNAPSHOT_HEADER)
+        return content[:idx].rstrip("\r\n"), snap
+    if isinstance(content, list) and content:
+        last = content[-1]
+        if isinstance(last, dict) and last.get("type") == "text":
+            txt = last.get("text")
+            if isinstance(txt, str) and SNAPSHOT_HEADER in txt:
+                sub_body, _ = split_snapshot_text(txt)
+                if sub_body:
+                    new_parts = list(content[:-1]) + [dict(last, text=sub_body)]
+                else:
+                    new_parts = list(content[:-1])
+                return new_parts, snap
+    return content, snap
+
+
+def _mark_part(messages: list[dict[str, Any]], msg_i: int, part_i: int) -> list[dict[str, Any]]:
+    """Return a shallow copy of messages with an ephemeral cache marker on the chosen block."""
+    msg = messages[msg_i]
+    content = msg.get("content")
+    if not isinstance(content, list):
+        return messages
+    part = content[part_i]
+    if isinstance(part, dict):
+        new_part = dict(part, cache_control={"type": "ephemeral"})
+    elif isinstance(part, str):
+        new_part = {"type": "text", "text": part, "cache_control": {"type": "ephemeral"}}
+    else:
+        new_part = {"type": "text", "text": str(part or ""), "cache_control": {"type": "ephemeral"}}
+    new_content = list(content)
+    new_content[part_i] = new_part
+    new_msg = dict(msg, content=new_content)
+    new_messages = list(messages)
+    new_messages[msg_i] = new_msg
+    return new_messages
+
+
 def annotate_anthropic_cache(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Place Anthropic ephemeral cache marker on the block before the trailing tail text."""
+    """Place Anthropic ephemeral cache marker on the block before the snapshot.
+
+    For a user send (or native Anthropic tool round where the snapshot is
+    placed as a trailing text block), the marker is set on the block preceding
+    the tail block. For an OpenRouter Claude tool round ending in a tool
+    message with a snapshot, the snapshot is stripped into a trailing user
+    message and the tool result is marked.
+    """
     if not messages:
         return messages
+
     last_msg = messages[-1]
-    if not isinstance(last_msg, dict) or last_msg.get("role") != "user":
+    if not isinstance(last_msg, dict):
         return messages
 
-    # User send: content list has block(s) followed by the tail block.
-    c = last_msg.get("content")
-    if isinstance(c, list) and len(c) >= 2:
-        last_block = c[-1]
-        if _is_tail_block(last_block):
-            prev_part = c[-2]
-            if isinstance(prev_part, dict):
-                new_prev = dict(prev_part, cache_control={"type": "ephemeral"})
-            elif isinstance(prev_part, str):
-                new_prev = {"type": "text", "text": prev_part, "cache_control": {"type": "ephemeral"}}
-            else:
-                new_prev = {"type": "text", "text": str(prev_part or ""), "cache_control": {"type": "ephemeral"}}
-            new_parts = list(c[:-2]) + [new_prev, last_block]
-            new_last = dict(last_msg, content=new_parts)
-            return list(messages[:-1]) + [new_last]
+    last_role = last_msg.get("role")
 
-    return messages
+    # User send (or native Anthropic tool round where _convert_messages already
+    # appended the snapshot as a trailing text block to the user tool_result message):
+    # content list has block(s) followed by the tail snapshot block.
+    if last_role == "user":
+        c = last_msg.get("content")
+        if isinstance(c, list) and len(c) >= 2 and _is_tail_block(c[-1]):
+            return _mark_part(messages, -1, -2)
+        return messages
+
+    # OpenRouter Claude tool round: the last message is role:"tool" carrying the
+    # snapshot. Strip the snapshot from that tool result, mark its text with
+    # cache_control, and append the snapshot as a trailing user message so the
+    # live snapshot stays outside the cached prefix.
+    if last_role == "tool":
+        body_content, snap = split_snapshot_text(last_msg.get("content"))
+        if not snap:
+            return messages
+
+        if isinstance(body_content, list):
+            new_tool_content = [dict(b) if isinstance(b, dict) else {"type": "text", "text": str(b or "")} for b in body_content]
+            if new_tool_content:
+                last_part = new_tool_content[-1]
+                new_tool_content[-1] = dict(last_part, cache_control={"type": "ephemeral"})
+            else:
+                new_tool_content = [{"type": "text", "text": "", "cache_control": {"type": "ephemeral"}}]
+        elif isinstance(body_content, str):
+            new_tool_content = [{"type": "text", "text": body_content, "cache_control": {"type": "ephemeral"}}]
+        else:
+            new_tool_content = [{"type": "text", "text": str(body_content or ""), "cache_control": {"type": "ephemeral"}}]
+
+        marked_tool = dict(last_msg, content=new_tool_content)
+        return list(messages[:-1]) + [marked_tool, {"role": "user", "content": snap}]
 
     return messages
 

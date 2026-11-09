@@ -135,7 +135,8 @@ class AudioRecorder:
         self._epoch: int = 0
         self._start_job: BackgroundHandle | None = None
         self._stop_job: BackgroundHandle | None = None
-        self._commit_pending: bool = False
+        # Epoch of the start job that owes on_capture_stopped(None); older jobs cannot consume newer stops.
+        self._commit_epoch: int | None = None
         self._discard_take: bool = False
         self.stream: Any = None
         self.wav_file: Any = None
@@ -225,12 +226,38 @@ class AudioRecorder:
             handoff=handoff,
         )
 
-    def _take_new_temp_wav(self) -> str:
-        # New takes delete any abandoned temp_filename first so error paths do not leak WAV files.
-        self._delete_wav()
-        path = make_temp_wav_path()
-        self.temp_filename = path
-        return path
+    def _take_new_temp_wav(self, epoch: int) -> str | None:
+        """Create a unique temporary WAV file for this recording epoch.
+
+        Takes ownership of any abandoned temp_filename under the lifecycle lock
+        so failed or aborted takes do not leak files. Creating the path and deleting
+        the previous file run outside the lock. A second epoch check confirms this
+        take was not cancelled while creating the path before publishing it,
+        discarding the path if stale so a newer take's file is not overwritten.
+        """
+        with self._lifecycle_lock:
+            if self._epoch != epoch:
+                return None
+            old_path = self.temp_filename
+            self.temp_filename = None
+
+        if old_path:
+            best_effort(lambda: os.remove(old_path), "delete previous temp wav")
+
+        new_path = make_temp_wav_path()
+
+        with self._lifecycle_lock:
+            if self._epoch != epoch:
+                stale = True
+            else:
+                stale = False
+                self.temp_filename = new_path
+
+        if stale:
+            best_effort(lambda: os.remove(new_path), "delete stale temp wav")
+            return None
+
+        return new_path
 
     def _teardown_capture(self) -> None:
         """Idempotent teardown of child process, stream, and WAV file."""
@@ -307,7 +334,6 @@ class AudioRecorder:
                     path = None
         finally:
             with self._lifecycle_lock:
-                self._commit_pending = False
                 discard = self._discard_take
             if discard:
                 if path:
@@ -319,32 +345,37 @@ class AudioRecorder:
 
     def _handle_stale_start_exit(
         self,
+        epoch: int,
         temp_path: str | None = None,
         proc: ManagedSubprocess | None = None,
+        wav: Any = None,
     ) -> None:
         """Clean up resources when start_capture exits early due to cancellation, stop, or error.
 
-        Reads and clears commit_pending under the lifecycle lock, terminates the process,
-        deletes the temp WAV, and notifies on_capture_stopped(None) if a commit was pending
-        and take was not discarded.
+        Under the lifecycle lock, delivers stop completion only when this start job's epoch matches
+        the stop commit token. Terminates only the passed process, deletes only the passed temp WAV,
+        and closes only the passed host WAV.
         """
         with self._lifecycle_lock:
-            commit = self._commit_pending
-            self._commit_pending = False
-            discard = self._discard_take
-            reap_proc = self._proc
-            self._proc = None
+            deliver = self._commit_epoch == epoch
+            if deliver:
+                self._commit_epoch = None
+            if proc is not None and self._proc is proc:
+                self._proc = None
+            if wav is not None and self.wav_file is wav:
+                self.wav_file = None
 
-        target_proc = proc or reap_proc
-        if target_proc is not None:
-            terminate_recording_process(target_proc)
+        if proc is not None:
+            terminate_recording_process(proc)
 
         if temp_path:
             best_effort(lambda: os.remove(temp_path), "delete stale start wav")
 
-        self._close_host_wav()
+        if wav is not None:
+            with self._wav_lock:
+                best_effort(wav.close, "close stale host wav")
 
-        if commit and not discard:
+        if deliver:
             callback = self._on_capture_stopped
             if callback is not None:
                 best_effort(lambda: callback(None), "on_capture_stopped")
@@ -359,10 +390,13 @@ class AudioRecorder:
         if exe:
             proc: ManagedSubprocess | None = None
             try:
-                temp_path = self._take_new_temp_wav()
+                temp_path = self._take_new_temp_wav(epoch)
+                if temp_path is None:
+                    self._handle_stale_start_exit(epoch, None, None)
+                    return
                 proc = spawn_recording_process(exe, temp_path, silence_config=silence_config)
                 if not self._if_start_epoch_current(epoch, lambda: setattr(self, "_proc", proc)):
-                    self._handle_stale_start_exit(temp_path, proc)
+                    self._handle_stale_start_exit(epoch, temp_path, proc)
                     return
 
                 log.info(
@@ -371,36 +405,40 @@ class AudioRecorder:
                 )
                 wait_for_recording_ready(proc)
                 if not self._if_start_epoch_current(epoch, self._start_stdout_monitor):
-                    self._handle_stale_start_exit(temp_path, proc)
+                    self._handle_stale_start_exit(epoch, temp_path, proc)
                     return
 
                 self._notify_device_ready()
             except Exception as exc:
                 with self._lifecycle_lock:
                     stale = (self._epoch != epoch)
-                self._handle_stale_start_exit(temp_path, proc)
+                self._handle_stale_start_exit(epoch, temp_path, proc)
                 if not stale:
                     msg = str(exc) if isinstance(exc, RuntimeError) else f"Venv audio recording failed to start: {exc}"
                     self._notify_recording_error(msg)
         else:
             # Host-side capture via downloaded sounddevice binaries (no venv).
+            wav: Any = None
+            stream: Any = None
             try:
                 ensure_native_binaries_on_path()
                 import sounddevice as sd
 
-                temp_path = self._take_new_temp_wav()
+                temp_path = self._take_new_temp_wav(epoch)
+                if temp_path is None:
+                    self._handle_stale_start_exit(epoch, None, None)
+                    return
                 wav = wave.open(temp_path, "wb")
                 wav.setnchannels(self.channels)
                 wav.setsampwidth(2)  # 16-bit
                 wav.setframerate(self.fs)
-                self.wav_file = wav
-                self._silence_detector = SilenceDetector(silence_config, sample_rate=self.fs)
+                detector = SilenceDetector(silence_config, sample_rate=self.fs)
                 log.info(
                     "audio recorder: host sounddevice path (silence_stop_ms=%d)",
                     silence_config.silence_stop_ms,
                 )
 
-                self._host_stream_start_time = time.monotonic()
+                stream_start_time = time.monotonic()
 
                 def callback(indata: Any, frames: int, time_info: Any, status: Any) -> None:
                     if status:
@@ -426,8 +464,7 @@ class AudioRecorder:
                             # abort the PortAudio thread and drop later chunks.
                             log.debug("host recording writeframes failed", exc_info=True)
                             return
-                    detector = self._silence_detector
-                    if detector is None or not silence_config.enabled:
+                    if not silence_config.enabled:
                         return
                     result = detector.process_chunk(pcm)
                     if detector.should_emit_silence_progress(result):
@@ -438,18 +475,25 @@ class AudioRecorder:
                 stream = sd.RawInputStream(
                     samplerate=self.fs, channels=self.channels, dtype="int16", callback=callback
                 )
-                if not self._if_start_epoch_current(epoch, lambda: setattr(self, "stream", stream)):
+
+                def publish_host_state() -> None:
+                    self.stream = stream
+                    self.wav_file = wav
+                    self._silence_detector = detector
+                    self._host_stream_start_time = stream_start_time
+
+                if not self._if_start_epoch_current(epoch, publish_host_state):
                     best_effort(stream.close, "close stream")
-                    self._close_host_wav()
-                    self._handle_stale_start_exit(temp_path)
+                    self._handle_stale_start_exit(epoch, temp_path, None, wav=wav)
                     return
 
                 self._notify_device_ready()
             except Exception as exc:
-                self._close_host_wav()
+                if stream is not None:
+                    best_effort(stream.close, "close stream")
                 with self._lifecycle_lock:
                     stale = (self._epoch != epoch)
-                self._handle_stale_start_exit(temp_path)
+                self._handle_stale_start_exit(epoch, temp_path, None, wav=wav)
                 if not stale:
                     self._notify_recording_error(
                         f"Audio recording failed to start. "
@@ -471,7 +515,7 @@ class AudioRecorder:
             with self._lifecycle_lock:
                 self._epoch += 1
                 epoch = self._epoch
-                self._commit_pending = False
+                self._commit_epoch = None
                 self._discard_take = False
 
             self._start_job = run_in_background(
@@ -495,7 +539,8 @@ class AudioRecorder:
 
                 if try_stub_stop(self):
                     return
-            if self.stream is not None:
+            stream_published = self.stream is not None
+            if stream_published:
                 self._teardown_capture()
 
             with self._lifecycle_lock:
@@ -513,13 +558,16 @@ class AudioRecorder:
 
                 # If the start job is alive and _stop_handoff is None, bump epoch,
                 # kill_process_tree without waiting on UI thread; the start job reaps.
-                if start_alive and handoff is None:
+                if start_alive and handoff is None and not stream_published:
+                    invalidated = self._epoch
                     self._epoch += 1
                     if proc is not None:
                         self._background_rec_stop(kill_process_tree, proc.popen)
                     if not self._discard_take:
-                        self._commit_pending = True
+                        self._commit_epoch = invalidated
                         self.stop_deferred = True
+                    else:
+                        self._commit_epoch = None
                     self.temp_filename = None
                     return
 
@@ -530,7 +578,6 @@ class AudioRecorder:
                         except Exception as exc:
                             log.warning("signal_recording_stop failed: %s", exc)
                     if not self._discard_take:
-                        self._commit_pending = True
                         self.stop_deferred = True
                     self.temp_filename = None
                     self._stop_job = self._background_rec_stop(
@@ -552,9 +599,9 @@ class AudioRecorder:
                         )
 
             if self.state.status == "error":
-                # Failed start still deletes an empty file. A child error
-                # after ready hits this same branch, and _cleanup_failed_start
-                # Only delete empty WAV on error; non-empty files remain for transcription.
+                # An empty WAV from a failed start is deleted immediately here.
+                # A non-empty WAV stays on temp_filename until cleanup or the
+                # next take's _take_new_temp_wav cleans it up.
                 if not _wav_file_has_bytes(self.temp_filename):
                     self._teardown_capture()
                     self._delete_wav()
@@ -597,7 +644,7 @@ class AudioRecorder:
         """Terminate an in-flight recording child (panel teardown)."""
         with self._lifecycle_lock:
             self._discard_take = True
-            self._commit_pending = False
+            self._commit_epoch = None
 
         if self._proc is not None or self.stream is not None or self.state.status in ("initializing", "recording"):
             try:

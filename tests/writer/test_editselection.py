@@ -673,4 +673,3 @@ def test_extend_selection_stop_scope_finishes_and_appends():
     assert fake_client.stopped is True
     assert call_order == ["append_chunk", "finish"]
     assert not session.abort_and_restore.called
-
