@@ -16,6 +16,7 @@ from typing import Any, Sequence
 from model_configs import DEFAULT_EVAL_STUDENT_MODEL
 
 DEFAULT_API_BASE = "https://openrouter.ai/api/v1"
+ANTHROPIC_API_BASE = "https://api.anthropic.com/v1"
 # Same OpenRouter :nitro routing as the default student (retired grok-4.1-fast 404s).
 OPENROUTER_DEFAULT_JUDGE = DEFAULT_EVAL_STUDENT_MODEL
 
@@ -46,9 +47,91 @@ def resolve_api_base(*, cli_base: str | None = None) -> str:
     return DEFAULT_API_BASE
 
 
+def is_anthropic_model_id(model: str) -> bool:
+    """Check whether a model identifier represents an Anthropic Claude model."""
+    mid = str(model or "").strip()
+    if mid.startswith("openrouter/"):
+        mid = mid[len("openrouter/") :]
+    from plugin.framework.openrouter_model_id import resolve_openrouter_catalog_id
+
+    mid = resolve_openrouter_catalog_id(mid)
+    if mid.startswith("anthropic/"):
+        return len(mid) > len("anthropic/")
+    if mid.startswith("claude-"):
+        return len(mid) > len("claude-")
+    return False
+
+
+def native_anthropic_model_id(model: str) -> str:
+    """Convert an OpenRouter or bare Claude model id to its native Anthropic name."""
+    mid = str(model or "").strip()
+    if mid.startswith("openrouter/"):
+        mid = mid[len("openrouter/") :]
+    from plugin.framework.openrouter_model_id import resolve_openrouter_catalog_id
+
+    mid = resolve_openrouter_catalog_id(mid)
+    if mid.startswith("anthropic/"):
+        mid = mid[len("anthropic/") :]
+    return mid
+
+
+def route_eval_llm(endpoint: str, api_key: str, model: str) -> tuple[str, str, str]:
+    """Route an eval LLM call to native Anthropic when appropriate.
+
+    Each call's model identifier determines whether to dispatch to Anthropic rather than
+    the shared base. An existing non-OpenRouter endpoint base is never rewritten to Anthropic.
+    """
+    from plugin.framework.client.provider_detection import get_provider_from_endpoint
+
+    if not model or not is_anthropic_model_id(model):
+        return endpoint, api_key, model
+
+    provider = get_provider_from_endpoint(endpoint)
+    env_key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
+
+    if provider == "openrouter":
+        if env_key:
+            return ANTHROPIC_API_BASE, env_key, native_anthropic_model_id(model)
+        return endpoint, api_key, model
+
+    if provider == "anthropic":
+        effective_key = api_key if (api_key and api_key.strip()) else env_key
+        return endpoint, effective_key, native_anthropic_model_id(model)
+
+    return endpoint, api_key, model
+
+
+def require_eval_keys(*, endpoint: str, api_key: str, models: Sequence[str]) -> None:
+    """Validate that necessary API keys are present for the models being evaluated."""
+    from plugin.framework.client.provider_detection import get_provider_from_endpoint
+
+    has_anthropic = False
+    has_non_anthropic = False
+
+    for mid in models:
+        routed_base, _, _ = route_eval_llm(endpoint, api_key, mid)
+        if get_provider_from_endpoint(routed_base) == "anthropic":
+            has_anthropic = True
+        else:
+            has_non_anthropic = True
+
+    if has_non_anthropic or not models:
+        require_api_key(api_key, endpoint)
+
+    if has_anthropic:
+        env_key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
+        shared_provider = get_provider_from_endpoint(endpoint)
+        if shared_provider == "openrouter":
+            anthropic_key = env_key
+        else:
+            anthropic_key = (api_key.strip() if api_key else "") or env_key
+        require_api_key(anthropic_key, ANTHROPIC_API_BASE)
+
+
 def require_api_key(api_key: str, endpoint: str) -> None:
     """Exit with a clear message if the endpoint requires auth and no key was given."""
     from plugin.framework.client.auth import AuthError, resolve_auth_for_config
+    from plugin.framework.client.provider_detection import get_provider_from_endpoint
 
     cfg: dict[str, Any] = {
         "endpoint": endpoint,
@@ -58,9 +141,12 @@ def require_api_key(api_key: str, endpoint: str) -> None:
     try:
         resolve_auth_for_config(cfg)
     except AuthError as exc:
+        if get_provider_from_endpoint(endpoint) == "anthropic":
+            hint = "Set --api-key / -k or export ANTHROPIC_API_KEY, WRITERAGENT_API_KEY, OPENAI_API_KEY, or OPENROUTER_API_KEY."
+        else:
+            hint = "Set --api-key / -k or export WRITERAGENT_API_KEY, OPENAI_API_KEY, or OPENROUTER_API_KEY."
         print(
-            f"Error: {exc}\n"
-            "Set --api-key / -k or export WRITERAGENT_API_KEY, OPENAI_API_KEY, or OPENROUTER_API_KEY.",
+            f"Error: {exc}\n{hint}",
             file=sys.stderr,
         )
         raise SystemExit(1) from exc

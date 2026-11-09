@@ -86,6 +86,9 @@ def _build_api_config(
     max_tool_rounds: int,
     request_timeout: int = 120,
 ) -> dict[str, Any]:
+    from eval_auth import route_eval_llm
+
+    endpoint, api_key, model = route_eval_llm(endpoint, api_key, model)
     ep = normalize_endpoint_url(endpoint)
     return {
         "endpoint": ep,
@@ -314,6 +317,7 @@ def _run_specialized_inner(
     if student == "scripted":
         inner_client = client
         messages: list[dict[str, Any]] = []
+        send_model = model
     else:
         cfg = _build_api_config(
             endpoint=endpoint,
@@ -322,6 +326,7 @@ def _run_specialized_inner(
             max_tool_rounds=INNER_MAX_ROUNDS,
         )
         inner_client = LlmClient(cfg, _EvalMockContext())
+        send_model = str(cfg["model"])
         messages = [
             {
                 "role": "system",
@@ -349,7 +354,7 @@ def _run_specialized_inner(
             max_tokens=max_tokens,
             tools=tools,
             stream=False,
-            model=model,
+            model=send_model,
         )
         _merge_usage(usage_acc, resp.get("usage"))
         content = (resp.get("content") or "") or ""
@@ -619,6 +624,7 @@ def _run_llm_chat_eval_impl(
         from scripted_student import ScriptedStudent
 
         client: Any = ScriptedStudent(task_id)
+        send_model = model
     else:
         cfg = _build_api_config(
             endpoint=endpoint,
@@ -627,6 +633,7 @@ def _run_llm_chat_eval_impl(
             max_tool_rounds=max_tool_rounds,
         )
         client = LlmClient(cfg, _EvalMockContext())
+        send_model = str(cfg["model"])
 
     if backend == "lo":
         import tools_lo as tl
@@ -642,7 +649,7 @@ def _run_llm_chat_eval_impl(
                 max_tokens=max_tokens,
                 tools=tools,
                 stream=False,
-                model=model,
+                model=send_model,
             )
             _merge_usage(usage_acc, resp.get("usage"))
 

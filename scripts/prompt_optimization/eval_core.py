@@ -240,7 +240,7 @@ def score_with_judge_llm(
             max_tokens=2048,
             tools=None,
             stream=False,
-            model=judge_model,
+            model=str(cfg["model"]),
             prepend_dev_build_system_prefix=False,
         )
         content = (resp.get("content") or "") if isinstance(resp, dict) else ""

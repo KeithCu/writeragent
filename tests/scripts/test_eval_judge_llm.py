@@ -8,8 +8,6 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-pytest.importorskip("dspy")
-
 _PO = Path(__file__).resolve().parents[2] / "scripts" / "prompt_optimization"
 if str(_PO) not in sys.path:
     sys.path.insert(0, str(_PO))
@@ -90,6 +88,58 @@ def test_score_with_judge_llm_uses_cli_config(mock_client_cls: MagicMock) -> Non
     instance.request_with_tools.assert_called_once()
     call_kw = instance.request_with_tools.call_args.kwargs
     assert call_kw.get("prepend_dev_build_system_prefix") is False
+
+
+@patch("plugin.framework.client.llm_client.LlmClient")
+def test_score_with_judge_llm_routes_anthropic(
+    mock_client_cls: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "env-ant-key")
+    instance = MagicMock()
+    mock_client_cls.return_value = instance
+    instance.request_with_tools.return_value = {
+        "content": json.dumps({
+            "thought_process": "ok",
+            "accuracy_score": 5,
+            "formatting_score": 5,
+            "naturalness_score": None,
+        }),
+    }
+
+    # Call 1: non-Anthropic judge on OpenRouter base builds OpenRouter config
+    score_with_judge_llm(
+        endpoint="https://openrouter.ai/api/v1",
+        api_key="cli-or-key",
+        judge_model="openai/gpt-oss-120b:nitro",
+        document_content="a",
+        user_question="q",
+        model_answer="ans",
+        task_category="structural",
+    )
+    cfg1 = mock_client_cls.call_args[0][0]
+    assert cfg1["api_key"] == "cli-or-key"
+    assert cfg1["is_openrouter"] is True
+    assert instance.request_with_tools.call_args.kwargs["model"] == "openai/gpt-oss-120b:nitro"
+
+    mock_client_cls.reset_mock()
+    instance.reset_mock()
+
+    # Call 2: Anthropic judge on OpenRouter base builds Anthropic config with env key
+    score_with_judge_llm(
+        endpoint="https://openrouter.ai/api/v1",
+        api_key="cli-or-key",
+        judge_model="anthropic/claude-sonnet-4.5:nitro",
+        document_content="a",
+        user_question="q",
+        model_answer="ans",
+        task_category="structural",
+    )
+    cfg2 = mock_client_cls.call_args[0][0]
+    assert "api.anthropic.com" in cfg2["endpoint"]
+    assert cfg2["api_key"] == "env-ant-key"
+    assert cfg2["is_openrouter"] is False
+    assert instance.request_with_tools.call_args.kwargs["model"] == "claude-sonnet-4.5"
 
 
 @patch("plugin.framework.client.llm_client.LlmClient")

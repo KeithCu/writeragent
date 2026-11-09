@@ -67,6 +67,25 @@ def test_nitro_student_reuses_base_catalog_pricing() -> None:
     assert cfg.output_cost_per_million == base.output_cost_per_million
 
 
+def test_model_config_for_anthropic_zero_pricing() -> None:
+    cfg = run_eval_multi._model_config_for_id(
+        "anthropic/claude-sonnet-4.5", allow_unknown=False
+    )
+    assert cfg.input_cost_per_million == 0.0
+    assert cfg.output_cost_per_million == 0.0
+    with pytest.raises(KeyError):
+        run_eval_multi._model_config_for_id("not-a-model", allow_unknown=False)
+
+
+def test_filter_unknown_models_accepts_anthropic() -> None:
+    unknown = run_eval_multi._filter_unknown_models([
+        "claude-sonnet-4-5",
+        "anthropic/claude-sonnet-4.5:nitro",
+        "not-a-model",
+    ])
+    assert unknown == ["not-a-model"]
+
+
 def test_refuse_catalog_sweep_without_models(monkeypatch, capsys) -> None:
     monkeypatch.setattr(
         sys, "argv", ["run_eval_multi.py", "--student", "scripted"]

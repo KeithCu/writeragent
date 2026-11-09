@@ -67,3 +67,62 @@ def test_build_eval_argv_repeats_and_yes_all_models() -> None:
 def test_build_eval_argv_task_not_implemented() -> None:
     with pytest.raises(ValueError, match="not implemented"):
         build_eval_argv(task="x", document="y")
+
+
+def test_benchmark_main_anthropic_no_judge(monkeypatch: pytest.MonkeyPatch) -> None:
+    from unittest.mock import MagicMock
+    import benchmark
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "ant-key")
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("WRITERAGENT_API_KEY", raising=False)
+
+    called = False
+
+    def mock_run(cmd, **kwargs):
+        nonlocal called
+        called = True
+        mock_res = MagicMock()
+        mock_res.returncode = 0
+        return mock_res
+
+    monkeypatch.setattr("subprocess.run", mock_run)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["benchmark.py", "--model", "anthropic/claude-sonnet-4.5", "--no-judge"],
+    )
+    rc = benchmark.main()
+    assert rc == 0
+    assert called
+
+
+def test_benchmark_main_anthropic_with_default_judge_missing_key_exits(monkeypatch: pytest.MonkeyPatch) -> None:
+    import benchmark
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "ant-key")
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("WRITERAGENT_API_KEY", raising=False)
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["benchmark.py", "--model", "anthropic/claude-sonnet-4.5"],
+    )
+    with pytest.raises(SystemExit):
+        benchmark.main()
+
+
+def test_benchmark_main_no_models_missing_key_exits(monkeypatch: pytest.MonkeyPatch) -> None:
+    import benchmark
+
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("WRITERAGENT_API_KEY", raising=False)
+
+    monkeypatch.setattr(sys, "argv", ["benchmark.py"])
+    with pytest.raises(SystemExit):
+        benchmark.main()

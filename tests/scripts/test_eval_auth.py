@@ -13,8 +13,11 @@ if str(_PO) not in sys.path:
 from eval_auth import (  # noqa: E402
     OPENROUTER_DEFAULT_JUDGE,
     build_eval_api_config,
+    is_anthropic_model_id,
     is_openrouter_endpoint,
+    native_anthropic_model_id,
     require_api_key,
+    require_eval_keys,
     resolve_api_base,
     resolve_api_key,
     resolve_judge_model,
@@ -86,3 +89,158 @@ def test_require_api_key_openrouter_empty_exits() -> None:
 
 def test_require_api_key_openrouter_accepts_key() -> None:
     require_api_key("sk-test", "https://openrouter.ai/api/v1")
+
+
+def test_is_anthropic_model_id() -> None:
+    assert is_anthropic_model_id("anthropic/claude-sonnet-4.5:nitro")
+    assert is_anthropic_model_id("openrouter/anthropic/claude-opus-4:exacto")
+    assert is_anthropic_model_id("claude-haiku-4-5:nitro:online")
+    assert not is_anthropic_model_id("openai/gpt-oss-120b:nitro")
+    assert not is_anthropic_model_id("foo/claude-3")
+    assert not is_anthropic_model_id("claude")
+    assert not is_anthropic_model_id("claude-")
+    assert not is_anthropic_model_id("anthropic/")
+    assert not is_anthropic_model_id("")
+
+
+def test_native_anthropic_model_id() -> None:
+    assert native_anthropic_model_id("anthropic/claude-sonnet-4.5:nitro") == "claude-sonnet-4.5"
+    assert native_anthropic_model_id("claude-haiku-4-5:nitro:online") == "claude-haiku-4-5"
+    assert native_anthropic_model_id("openrouter/anthropic/claude-opus-4:exacto") == "claude-opus-4"
+    assert native_anthropic_model_id("anthropic/claude-sonnet-4.5:thinking") == "claude-sonnet-4.5:thinking"
+    assert native_anthropic_model_id("anthropic/anthropic/claude-x") == "anthropic/claude-x"
+
+
+def test_build_eval_api_config_claude_routes_to_anthropic(monkeypatch: pytest.MonkeyPatch) -> None:
+    from plugin.framework.client.auth import resolve_auth_for_config
+    from plugin.framework.client.openai_shim import AnthropicShim, get_provider_shim_class
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "ant-key-123")
+    cfg = build_eval_api_config(
+        endpoint="https://openrouter.ai/api/v1",
+        api_key="or-key",
+        model="anthropic/claude-sonnet-4.5:nitro",
+    )
+    assert "api.anthropic.com" in cfg["endpoint"]
+    assert cfg["api_key"] == "ant-key-123"
+    assert cfg["is_openrouter"] is False
+    assert cfg["model"] == "claude-sonnet-4.5"
+
+    auth = resolve_auth_for_config(cfg)
+    assert auth["provider"] == "anthropic"
+    assert get_provider_shim_class(auth["provider"]) is AnthropicShim
+
+
+def test_build_eval_api_config_variants(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "ant-key-123")
+    cfg1 = build_eval_api_config(
+        endpoint="https://openrouter.ai/api/v1",
+        api_key="or-key",
+        model="claude-haiku-4-5:nitro:online",
+    )
+    assert cfg1["model"] == "claude-haiku-4-5"
+
+    cfg2 = build_eval_api_config(
+        endpoint="https://openrouter.ai/api/v1",
+        api_key="or-key",
+        model="openrouter/anthropic/claude-opus-4:exacto",
+    )
+    assert cfg2["model"] == "claude-opus-4"
+
+
+def test_build_eval_api_config_env_deleted_stays_openrouter(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    cfg = build_eval_api_config(
+        endpoint="https://openrouter.ai/api/v1",
+        api_key="or-key",
+        model="anthropic/claude-sonnet-4.5:nitro",
+    )
+    assert "openrouter.ai" in cfg["endpoint"]
+    assert cfg["api_key"] == "or-key"
+    assert cfg["model"] == "anthropic/claude-sonnet-4.5:nitro"
+    assert cfg["is_openrouter"] is True
+
+
+def test_build_eval_api_config_non_anthropic_model(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "ant-key-123")
+    cfg = build_eval_api_config(
+        endpoint="https://openrouter.ai/api/v1",
+        api_key="or-key",
+        model="openai/gpt-oss-120b:nitro",
+    )
+    assert "openrouter.ai" in cfg["endpoint"]
+    assert cfg["api_key"] == "or-key"
+    assert cfg["model"] == "openai/gpt-oss-120b:nitro"
+
+
+def test_build_eval_api_config_local_endpoint_unchanged(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "ant-key-123")
+    cfg = build_eval_api_config(
+        endpoint="http://127.0.0.1:8080/v1",
+        api_key="loc-key",
+        model="claude-sonnet-4-5",
+    )
+    assert cfg["endpoint"] == "http://127.0.0.1:8080"
+    assert cfg["api_key"] == "loc-key"
+    assert cfg["model"] == "claude-sonnet-4-5"
+
+
+def test_build_eval_api_config_already_anthropic_base(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "env-key")
+    cfg1 = build_eval_api_config(
+        endpoint="https://api.anthropic.com/v1",
+        api_key="cli-key",
+        model="anthropic/claude-sonnet-4.5:nitro",
+    )
+    assert cfg1["api_key"] == "cli-key"
+    assert cfg1["model"] == "claude-sonnet-4.5"
+
+    cfg2 = build_eval_api_config(
+        endpoint="https://api.anthropic.com/v1",
+        api_key="",
+        model="anthropic/claude-sonnet-4.5:nitro",
+    )
+    assert cfg2["api_key"] == "env-key"
+    assert cfg2["model"] == "claude-sonnet-4.5"
+
+
+def test_require_eval_keys_all_claude_no_openrouter_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "ant-key")
+    require_eval_keys(
+        endpoint="https://openrouter.ai/api/v1",
+        api_key="",
+        models=["anthropic/claude-sonnet-4.5"],
+    )
+
+
+def test_require_eval_keys_claude_and_openrouter_judge_missing_key_exits(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "ant-key")
+    with pytest.raises(SystemExit):
+        require_eval_keys(
+            endpoint="https://openrouter.ai/api/v1",
+            api_key="",
+            models=["anthropic/claude-sonnet-4.5", "openai/gpt-oss-120b:nitro"],
+        )
+
+
+def test_require_eval_keys_mixed_models(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "ant-key")
+    with pytest.raises(SystemExit):
+        require_eval_keys(
+            endpoint="https://openrouter.ai/api/v1",
+            api_key="",
+            models=["anthropic/claude-sonnet-4.5", "openai/gpt-4o"],
+        )
+
+    require_eval_keys(
+        endpoint="https://openrouter.ai/api/v1",
+        api_key="or-key",
+        models=["anthropic/claude-sonnet-4.5", "openai/gpt-4o"],
+    )
+
+
+def test_require_api_key_anthropic_hint(capsys: pytest.CaptureFixture[str]) -> None:
+    with pytest.raises(SystemExit):
+        require_api_key("", "https://api.anthropic.com/v1")
+    err = capsys.readouterr().err
+    assert "ANTHROPIC_API_KEY" in err

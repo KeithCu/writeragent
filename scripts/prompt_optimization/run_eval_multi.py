@@ -29,10 +29,12 @@ from typing import Any, Iterable, Sequence
 
 from dataset import ALL_EXAMPLES, to_dspy_examples, to_eval_examples
 from eval_auth import (
-    require_api_key,
+    is_anthropic_model_id,
+    require_eval_keys,
     resolve_api_base,
     resolve_api_key,
     resolve_judge_model,
+    route_eval_llm,
 )
 from eval_catalog import add_eval_tool_sweep_arguments
 from eval_core import ExampleEval, example_passed, run_eval_on_examples_llm
@@ -69,6 +71,17 @@ def _model_id_for_llm_client(model_id: str) -> str:
     return m
 
 
+def _filter_unknown_models(model_ids: Iterable[str]) -> list[str]:
+    """Return ids not present in MODEL_BY_ID and not recognized Anthropic models."""
+    return [
+        mid
+        for mid in model_ids
+        if mid not in MODEL_BY_ID
+        and resolve_openrouter_catalog_id(mid, set(MODEL_BY_ID)) not in MODEL_BY_ID
+        and not is_anthropic_model_id(mid)
+    ]
+
+
 def _model_config_for_id(model_id: str, *, allow_unknown: bool) -> ModelConfig:
     model_id = MODEL_ALIASES.get(model_id, model_id)
     if model_id in MODEL_BY_ID:
@@ -87,7 +100,7 @@ def _model_config_for_id(model_id: str, *, allow_unknown: bool) -> ModelConfig:
             output_cost_per_million=base.output_cost_per_million,
             notes=base.notes,
         )
-    if allow_unknown:
+    if allow_unknown or is_anthropic_model_id(model_id):
         return ModelConfig(
             openrouter_id=model_id,
             display_name=model_id,
@@ -700,8 +713,6 @@ def main(argv: list[str] | None = None) -> int:
 
     api_base = resolve_api_base(cli_base=args.api_base)
     api_key = resolve_api_key(cli_key=args.api_key)
-    if args.student != "scripted":
-        require_api_key(api_key, api_base)
 
     model_summaries: list[dict[str, Any]] = []
     all_details: list[dict[str, Any]] = []
@@ -714,12 +725,7 @@ def main(argv: list[str] | None = None) -> int:
             file=sys.stderr,
         )
         return 1
-    unknown = [
-        mid
-        for mid in model_ids
-        if mid not in MODEL_BY_ID
-        and resolve_openrouter_catalog_id(mid, set(MODEL_BY_ID)) not in MODEL_BY_ID
-    ]
+    unknown = _filter_unknown_models(model_ids)
     if unknown and not args.allow_unknown_model:
         print(f"Unknown model id(s): {unknown}", file=sys.stderr)
         print(f"Known ids: {sorted(MODEL_BY_ID.keys())}", file=sys.stderr)
@@ -733,7 +739,18 @@ def main(argv: list[str] | None = None) -> int:
             endpoint=api_base,
             model_ids=model_ids,
         )
-        print(f"Judge model: {judge_model_id} @ {api_base}")
+        judge_endpoint, _, _ = route_eval_llm(api_base, api_key, judge_model_id)
+        print(f"Judge model: {judge_model_id} @ {judge_endpoint}")
+
+    if args.student == "scripted":
+        pass
+    elif args.generate_golds:
+        require_eval_keys(endpoint=api_base, api_key=api_key, models=[DEFAULT_GOLD_MODEL])
+    else:
+        check_ids = list(model_ids)
+        if judge_model_id:
+            check_ids.append(judge_model_id)
+        require_eval_keys(endpoint=api_base, api_key=api_key, models=check_ids)
 
     # Dataset selection. Gold generation must not import dspy.
     if args.generate_golds:
@@ -904,7 +921,8 @@ def main(argv: list[str] | None = None) -> int:
                     )
                 else:
                     print("  Pricing: n/a (--allow-unknown-model)")
-                print(f"  Using model id: {model_id} @ {api_base}\n")
+                routed_base, _, _ = route_eval_llm(api_base, api_key, model_id)
+                print(f"  Using model id: {model_id} @ {routed_base}\n")
 
                 res = _run_one_model(model_id, api_base, api_key, **worker_kw)
                 model_summaries.append(res["summary"])
