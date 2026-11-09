@@ -47,6 +47,7 @@ def test_later_apply_uno_skips_windows_leftover_hidden_apply() -> None:
         "test_content_style_model_uno.py",
         "test_format_uno.py",
         "test_track_changes_reviewable_uno.py",
+        "test_apply_document_content_anchor_uno.py",
     ):
         src = (writer / name).read_text(encoding="utf-8")
         # Suites that share native_writer_tool_context pass the reason in;
@@ -723,6 +724,258 @@ def test_build_search_replace_response():
     multi_preserve = build_search_replace_response(3, use_preserve=True)
     assert multi_preserve["status"] == "ok"
     assert "formatting preserved" in multi_preserve["message"]
+
+
+def test_build_search_replace_response_custom_message():
+    resp = build_search_replace_response(1, message="Replaced the range from start_anchor through end_anchor.")
+    assert resp["status"] == "ok"
+    assert resp["replaced_count"] == 1
+    assert resp["message"] == "Replaced the range from start_anchor through end_anchor."
+
+    resp_preserve = build_search_replace_response(
+        1, use_preserve=True, message="Replaced the range from start_anchor through end_anchor."
+    )
+    assert resp_preserve["status"] == "ok"
+    assert resp_preserve["replaced_count"] == 1
+    assert resp_preserve["message"] == "Replaced the range from start_anchor through end_anchor. (formatting preserved)"
+
+
+def test_search_target_requires_old_content_or_anchors():
+    tool = ApplyDocumentContent()
+    res = tool.execute(_ctx(), target="search", content="new")
+    assert res["status"] == "error"
+    assert res["message"] == "target='search' requires old_content or start_anchor and end_anchor."
+
+
+def test_anchor_both_required():
+    tool = ApplyDocumentContent()
+    res1 = tool.execute(_ctx(), start_anchor="foo", content="new")
+    assert res1["status"] == "error"
+    assert "start_anchor and end_anchor are both required" in res1["message"]
+
+    res2 = tool.execute(_ctx(), end_anchor="bar", content="new")
+    assert res2["status"] == "error"
+    assert "start_anchor and end_anchor are both required" in res2["message"]
+
+
+def test_anchor_non_strings():
+    tool = ApplyDocumentContent()
+    res1 = tool.execute(_ctx(), start_anchor=123, end_anchor="bar", content="new")
+    assert res1["status"] == "error"
+    assert "start_anchor and end_anchor must both be strings" in res1["message"]
+
+    res2 = tool.execute(_ctx(), start_anchor="foo", end_anchor=456, content="new")
+    assert res2["status"] == "error"
+    assert "start_anchor and end_anchor must both be strings" in res2["message"]
+
+
+def test_anchor_empty_after_normalization(monkeypatch):
+    monkeypatch.setattr(search_mod, "normalize_search_string_for_find", lambda s: s.strip())
+    tool = ApplyDocumentContent()
+    res1 = tool.execute(_ctx(), start_anchor="   ", end_anchor="bar", content="new")
+    assert res1["status"] == "error"
+    assert res1["message"] == "start_anchor is empty after normalization."
+
+    res2 = tool.execute(_ctx(), start_anchor="foo", end_anchor="   ", content="new")
+    assert res2["status"] == "error"
+    assert res2["message"] == "end_anchor is empty after normalization."
+
+
+def test_anchor_conflict_with_old_content():
+    tool = ApplyDocumentContent()
+    res = tool.execute(_ctx(), old_content="x", start_anchor="foo", end_anchor="bar", content="new")
+    assert res["status"] == "error"
+    assert res["message"] == "Pass old_content or start_anchor and end_anchor, not both."
+
+
+def test_anchor_non_search_target():
+    tool = ApplyDocumentContent()
+    res = tool.execute(_ctx(), target="full_document", start_anchor="foo", end_anchor="bar", content="new")
+    assert res["status"] == "error"
+    assert res["message"] == "start_anchor and end_anchor require target='search'."
+
+
+def test_anchor_rejects_regex_and_all_matches_and_position_and_dry_run():
+    tool = ApplyDocumentContent()
+    res_regex = tool.execute(_ctx(), start_anchor="foo", end_anchor="bar", content="new", regex=True)
+    assert res_regex["status"] == "error"
+    assert res_regex["message"] == "regex does not apply to start_anchor and end_anchor."
+
+    res_all = tool.execute(_ctx(), start_anchor="foo", end_anchor="bar", content="new", all_matches=True)
+    assert res_all["status"] == "error"
+    assert res_all["message"] == "all_matches cannot be combined with start_anchor and end_anchor."
+
+    res_pos = tool.execute(_ctx(), start_anchor="foo", end_anchor="bar", content="new", position="before")
+    assert res_pos["status"] == "error"
+    assert res_pos["message"] == "position='before'/'after' does not apply to an anchor range."
+
+    res_dry = tool.execute(_ctx(), start_anchor="foo", end_anchor="bar", content="new", dry_run=True)
+    assert res_dry["status"] == "error"
+    assert res_dry["message"] == "dry_run does not apply to start_anchor and end_anchor."
+
+    res_url = tool.execute(
+        _ctx(), start_anchor="foo", end_anchor="bar", content="new", hyperlink_url="http://example.com"
+    )
+    assert res_url["status"] == "error"
+    assert res_url["message"] == "hyperlink_url does not apply to start_anchor and end_anchor."
+
+
+def test_anchor_omitted_target_and_success_messages(monkeypatch):
+    monkeypatch.setattr(search_mod, "find_anchor_span", lambda doc, s, e, **k: (MockRange(), None))
+    tool = ApplyDocumentContent()
+
+    # Plain text:
+    res_plain = tool.execute(_ctx(), start_anchor="foo", end_anchor="bar", content="new")
+    assert res_plain["status"] == "ok"
+    assert res_plain["replaced_count"] == 1
+    assert res_plain["message"] == "Replaced the range from start_anchor through end_anchor."
+
+    # HTML path (use_preserve=False):
+    monkeypatch.setattr(format_mod, "content_has_markup", lambda *a, **k: True)
+    res_html = tool.execute(_ctx(), target="search", start_anchor="foo", end_anchor="bar", content="<p>new</p>")
+    assert res_html["status"] == "ok"
+    assert res_html["replaced_count"] == 1
+    assert res_html["message"] == "Replaced the range from start_anchor through end_anchor."
+
+
+def test_anchor_miss_start(monkeypatch):
+    monkeypatch.setattr(search_mod, "find_anchor_span", lambda doc, s, e, **k: (None, "start"))
+    tool = ApplyDocumentContent()
+    res = tool.execute(_ctx(), start_anchor="foo", end_anchor="bar", content="new")
+    assert res["status"] == "error"
+    assert res["replaced_count"] == 0
+    assert "start_anchor not found in document." in res["message"]
+
+
+def test_anchor_miss_end(monkeypatch):
+    monkeypatch.setattr(search_mod, "find_anchor_span", lambda doc, s, e, **k: (None, "end"))
+    tool = ApplyDocumentContent()
+    res = tool.execute(_ctx(), start_anchor="foo", end_anchor="bar", content="new")
+    assert res["status"] == "error"
+    assert res["replaced_count"] == 0
+    assert "end_anchor not found after start_anchor." in res["message"]
+
+
+def test_anchor_miss_different_text(monkeypatch):
+    monkeypatch.setattr(search_mod, "find_anchor_span", lambda doc, s, e, **k: (None, "different_text"))
+    tool = ApplyDocumentContent()
+    res = tool.execute(_ctx(), start_anchor="foo", end_anchor="bar", content="new")
+    assert res["status"] == "error"
+    assert res["replaced_count"] == 0
+    assert "end_anchor after start_anchor is not in the same text, so it cannot be one range." in res["message"]
+
+
+def test_anchor_shape_miss_does_not_replace_text_in_shape(monkeypatch):
+    from unittest.mock import MagicMock
+    import plugin.writer.apply_document_content as apply_mod
+
+    monkeypatch.setattr(search_mod, "find_anchor_span", lambda doc, s, e, **k: (None, "start"))
+    mock_shape = MagicMock()
+    monkeypatch.setattr(search_mod, "drawing_shape_object_containing", lambda doc, text, **k: mock_shape)
+    monkeypatch.setattr(search_mod, "shape_display_name", lambda shape: "MyBox")
+    replace_shape_called = False
+
+    def _replace_shape(*args, **kwargs):
+        nonlocal replace_shape_called
+        replace_shape_called = True
+        return True
+
+    monkeypatch.setattr(apply_mod, "replace_text_in_shape", _replace_shape)
+    tool = ApplyDocumentContent()
+    res = tool.execute(_ctx(), start_anchor="foo", end_anchor="bar", content="new")
+    assert res["status"] == "error"
+    assert res["replaced_count"] == 0
+    assert "start_anchor is only inside a drawing shape / floating text box ('MyBox')" in res["message"]
+    assert not replace_shape_called
+
+
+def test_anchor_occurrence_index_error(monkeypatch):
+    def _raise_oor(*args, **kwargs):
+        raise IndexError("occurrence 2 out of range (found 1 match(es), use 0..0).")
+
+    monkeypatch.setattr(search_mod, "find_anchor_span", _raise_oor)
+    tool = ApplyDocumentContent()
+    res = tool.execute(_ctx(), start_anchor="foo", end_anchor="bar", occurrence=2, content="new")
+    assert res["status"] == "error"
+    assert res["code"] == "OCCURRENCE_OUT_OF_RANGE"
+    assert "occurrence 2 out of range" in res["message"]
+
+
+def test_anchor_span_containing_table_refused(monkeypatch):
+    table_elem = MagicMock()
+    table_elem.supportsService.side_effect = lambda s: s == "com.sun.star.text.TextTable"
+    enum = MagicMock()
+    enum.hasMoreElements.side_effect = [True, False]
+    enum.nextElement.return_value = table_elem
+    mock_range = MockRange()
+    mock_range.createEnumeration = lambda: enum
+
+    monkeypatch.setattr(search_mod, "find_anchor_span", lambda doc, s, e, **k: (mock_range, None))
+    tool = ApplyDocumentContent()
+    res = tool.execute(_ctx(), start_anchor="foo", end_anchor="bar", content="new")
+    assert res["status"] == "error"
+    assert res["code"] == "TABLE_IN_ANCHOR_RANGE"
+    assert "table_delete" in res["message"]
+
+
+def test_anchor_plain_text_wraps_in_p_and_skips_hyperlinks(monkeypatch):
+    from unittest.mock import patch
+
+    monkeypatch.setattr(search_mod, "find_anchor_span", lambda doc, s, e, **k: (MockRange(), None))
+    recorded_content = []
+    monkeypatch.setattr(
+        format_mod,
+        "replace_single_range_with_content",
+        lambda doc, found, content, ctx: recorded_content.append(content),
+    )
+    with patch("plugin.writer.apply_document_content.capture_outline_hyperlinks") as mock_capture:
+        res = ApplyDocumentContent().execute(
+            _ctx(),
+            start_anchor="start",
+            end_anchor="end",
+            content="New paragraph one\n\nNew paragraph two",
+        )
+    assert res["status"] == "ok"
+    assert recorded_content == ["<p>New paragraph one</p>\n<p>New paragraph two</p>"]
+    mock_capture.assert_not_called()
+    assert "hyperlinks" not in res
+
+
+def test_anchor_plain_text_single_line_unwrapped(monkeypatch):
+    monkeypatch.setattr(search_mod, "find_anchor_span", lambda doc, s, e, **k: (MockRange(), None))
+    recorded_content = []
+    monkeypatch.setattr(
+        format_mod,
+        "replace_single_range_with_content",
+        lambda doc, found, content, ctx: recorded_content.append(content),
+    )
+    res = ApplyDocumentContent().execute(
+        _ctx(),
+        start_anchor="start",
+        end_anchor="end",
+        content="single line replacement",
+    )
+    assert res["status"] == "ok"
+    assert recorded_content == ["single line replacement"]
+
+
+def test_anchor_markup_not_wrapped_again(monkeypatch):
+    monkeypatch.setattr(format_mod, "content_has_markup", _real_content_has_markup)
+    monkeypatch.setattr(search_mod, "find_anchor_span", lambda doc, s, e, **k: (MockRange(), None))
+    recorded_content = []
+    monkeypatch.setattr(
+        format_mod,
+        "replace_single_range_with_content",
+        lambda doc, found, content, ctx: recorded_content.append(content),
+    )
+    res = ApplyDocumentContent().execute(
+        _ctx(),
+        start_anchor="start",
+        end_anchor="end",
+        content="<p>already</p>",
+    )
+    assert res["status"] == "ok"
+    assert recorded_content == ["<p>already</p>"]
 
 
 def test_full_document_structured_return_paragraphs_and_headings():

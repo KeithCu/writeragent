@@ -282,6 +282,24 @@ def selected_text_range(controller: Any) -> Any:
     return first_text_range
 
 
+def starts_at_or_after(text: Any, left: Any, right: Any) -> bool:
+    """True when *left* starts at or after *right* in *text* (compareRegionStarts != 1).
+
+    compareRegionStarts returns 1 when the first range starts before the second, 0 when they
+    start at the same point, and -1 when after. When comparison fails, returns False.
+    A disposed document raises DocumentDisposedError through uno_read.
+    """
+    if text is None:
+        return False
+    cmp_val = uno_read(
+        lambda: text.compareRegionStarts(left, right),
+        FAILED,
+    )
+    if cmp_val is FAILED or cmp_val is None:
+        return False
+    return cmp_val != 1
+
+
 def _get_writer_selection_positions(model: Any) -> tuple[Any, Any, Any] | None:
     """Return (text, sel_start_pos, sel_end_pos) or None when selection unavailable."""
     try:

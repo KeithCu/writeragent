@@ -411,6 +411,7 @@ APPLY_DOCUMENT_TARGET_RULES = """APPLY_DOCUMENT_CONTENT AND HTML (CRITICAL):
 - target='search': old_content is a substring (HTML in old_content is matched as plain text) and may span paragraphs (newlines). First line may be a paragraph suffix, last a prefix; every middle line must equal a whole paragraph. Literal search returns normalized_old_content, and the default lenient match equates quotes, spaces, and dashes. An old_content spanning more than half the document is an error that directs you to use target='full_document'; a search miss reports the closest passage and the first differing character.
   Do not pass the whole document as old_content — use target='full_document'.
   position='before'/'after' inserts beside the match and leaves it untouched — do not re-send the matched clause.
+- Landmark-to-landmark replace: pass start_anchor and end_anchor (target='search'). The range includes both anchors and the text between them; a missing anchor errors.
 - Reach: body, table cells, and text frames. target='search' also edits headers and footers. beginning, end, and full_document write the body only.
   Floating drawing-shape text: in place only when review is off — in record/wait it cannot become a tracked change, so the tool routes you to the shapes domain.
   Rich/block HTML in a table cell is not supported (clear error, document untouched); use plain text or inline tags."""

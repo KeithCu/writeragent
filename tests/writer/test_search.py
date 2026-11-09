@@ -779,6 +779,289 @@ def test_build_page_map_propagates_disposed_document():
         _build_page_map(doc)
 
 
+def test_pick_end_after_start_selection():
+    from plugin.writer.search import pick_end_after_start
+
+    shared_text = MagicMock()
+    start_range = MagicMock()
+    start_range.getText.return_value = shared_text
+    start_boundary = MagicMock()
+    start_boundary.getText.return_value = shared_text
+    start_range.getEnd.return_value = start_boundary
+    start_point = MagicMock()
+    start_range.getStart.return_value = start_point
+
+    # compareRegionStarts returns 1 (starts before boundary) then -1 (starts after boundary).
+    # The first candidate (e.g. from chaining) is skipped, second range wins.
+    cand1 = MagicMock()
+    cand1.getText.return_value = shared_text
+    cand2 = MagicMock()
+    cand2.getText.return_value = shared_text
+    end2_point = MagicMock()
+    cand2.getEnd.return_value = end2_point
+
+    shared_text.compareRegionStarts.side_effect = [1, -1]
+    created_cursor = MagicMock()
+    shared_text.createTextCursorByRange.return_value = created_cursor
+
+    cursor, err = pick_end_after_start(start_range, [cand1, cand2])
+    assert err is None
+    assert cursor is created_cursor
+    shared_text.createTextCursorByRange.assert_called_with(start_point)
+    created_cursor.gotoRange.assert_called_with(end2_point, True)
+
+
+def test_pick_end_after_start_zero_accepted():
+    from plugin.writer.search import pick_end_after_start
+
+    shared_text = MagicMock()
+    start_range = MagicMock()
+    start_range.getText.return_value = shared_text
+    start_boundary = MagicMock()
+    start_boundary.getText.return_value = shared_text
+    start_range.getEnd.return_value = start_boundary
+    start_range.getStart.return_value = MagicMock()
+
+    cand = MagicMock()
+    cand.getText.return_value = shared_text
+    shared_text.compareRegionStarts.return_value = 0
+    created_cursor = MagicMock()
+    shared_text.createTextCursorByRange.return_value = created_cursor
+
+    cursor, err = pick_end_after_start(start_range, [cand])
+    assert err is None
+    assert cursor is created_cursor
+
+
+def test_pick_end_after_start_different_xtext_skips_to_valid_candidate():
+    from plugin.writer.search import pick_end_after_start
+
+    start_text = MagicMock()
+    different_text = MagicMock()
+    start_range = MagicMock()
+    start_range.getText.return_value = start_text
+    start_boundary = MagicMock()
+    start_boundary.getText.return_value = start_text
+    start_range.getEnd.return_value = start_boundary
+
+    cand1 = MagicMock()
+    cand1.getText.return_value = different_text
+    cand2 = MagicMock()
+    cand2.getText.return_value = start_text
+    start_text.compareRegionStarts.return_value = 0
+    created_cursor = MagicMock()
+    start_text.createTextCursorByRange.return_value = created_cursor
+
+    ends = iter([cand1, cand2])
+    cursor, err = pick_end_after_start(start_range, ends)
+    assert cursor is created_cursor
+    assert err is None
+
+
+def test_pick_end_after_start_different_xtext_stops():
+    from plugin.writer.search import pick_end_after_start
+
+    start_text = MagicMock()
+    different_text = MagicMock()
+    start_range = MagicMock()
+    start_range.getText.return_value = start_text
+    start_boundary = MagicMock()
+    start_boundary.getText.return_value = start_text
+    start_range.getEnd.return_value = start_boundary
+
+    cand1 = MagicMock()
+    cand1.getText.return_value = different_text
+
+    ends = iter([cand1])
+    cursor, err = pick_end_after_start(start_range, ends)
+    assert cursor is None
+    assert err == "different_text"
+
+
+def test_find_anchor_span_success():
+    from unittest.mock import patch
+    from plugin.writer.search import find_anchor_span
+
+    doc = MagicMock()
+    start_match = MagicMock()
+    end_match = MagicMock()
+    created_cursor = MagicMock()
+
+    with patch("plugin.writer.search.find_occurrence_range", return_value=start_match) as mock_find, \
+         patch("plugin.writer.search.iter_literal_ranges", return_value=iter([end_match])), \
+         patch("plugin.writer.search.pick_end_after_start", return_value=(created_cursor, None)) as mock_pick:
+        cursor, err = find_anchor_span(doc, "start", "end", occurrence=0)
+        assert cursor is created_cursor
+        assert err is None
+        mock_find.assert_called_once()
+        mock_pick.assert_called_once()
+
+
+def test_find_anchor_span_missing_start():
+    from unittest.mock import patch
+    from plugin.writer.search import find_anchor_span
+
+    doc = MagicMock()
+    with patch("plugin.writer.search.find_occurrence_range", return_value=None):
+        cursor, err = find_anchor_span(doc, "missing", "end")
+        assert cursor is None
+        assert err == "start"
+
+
+def test_find_anchor_span_missing_end():
+    from unittest.mock import patch
+    from plugin.writer.search import find_anchor_span
+
+    doc = MagicMock()
+    start_match = MagicMock()
+    with patch("plugin.writer.search.find_occurrence_range", return_value=start_match), \
+         patch("plugin.writer.search.iter_literal_ranges", return_value=iter([])), \
+         patch("plugin.writer.search.pick_end_after_start", return_value=(None, "end")):
+        cursor, err = find_anchor_span(doc, "start", "missing")
+        assert cursor is None
+        assert err == "end"
+
+
+def test_find_anchor_span_different_text():
+    from unittest.mock import patch
+    from plugin.writer.search import find_anchor_span
+
+    doc = MagicMock()
+    start_match = MagicMock()
+    with patch("plugin.writer.search.find_occurrence_range", return_value=start_match), \
+         patch("plugin.writer.search.iter_literal_ranges", return_value=iter([MagicMock()])), \
+         patch("plugin.writer.search.pick_end_after_start", return_value=(None, "different_text")):
+        cursor, err = find_anchor_span(doc, "start", "in_cell")
+        assert cursor is None
+        assert err == "different_text"
+
+
+def test_pick_end_after_start_empty_iterator():
+    from plugin.writer.search import pick_end_after_start
+
+    start_range = MagicMock()
+    cursor, err = pick_end_after_start(start_range, [])
+    assert cursor is None
+    assert err == "end"
+
+
+def test_pick_end_after_start_compare_error_treated_as_end():
+    from plugin.writer.search import pick_end_after_start
+
+    shared_text = MagicMock()
+    start_range = MagicMock()
+    start_range.getText.return_value = shared_text
+    start_boundary = MagicMock()
+    start_boundary.getText.return_value = shared_text
+    start_range.getEnd.return_value = start_boundary
+
+    cand = MagicMock()
+    cand.getText.return_value = shared_text
+    shared_text.compareRegionStarts.side_effect = RuntimeError("compare failed")
+
+    cursor, err = pick_end_after_start(start_range, [cand])
+    assert cursor is None
+    assert err == "end"
+
+
+def test_iter_descriptor_hits_with_after():
+    from plugin.writer.search import _iter_descriptor_hits
+
+    doc = MagicMock()
+    sd = MagicMock()
+    after_range = MagicMock()
+    first_hit = MagicMock()
+    first_hit.getString.return_value = "hit1"
+    end_range = MagicMock()
+    first_hit.getEnd.return_value = end_range
+    doc.findNext.side_effect = [first_hit, None]
+
+    hits = list(_iter_descriptor_hits(doc, sd, after=after_range))
+    assert hits == [first_hit]
+    doc.findFirst.assert_not_called()
+    doc.findNext.assert_any_call(after_range, sd)
+
+
+def test_iter_literal_ranges_yields_candidate_matches():
+    from plugin.writer.search import iter_literal_ranges
+
+    doc = MagicMock()
+    hit1 = MagicMock()
+    hit1.getString.return_value = "hello"
+    hit1.getEnd.return_value = MagicMock()
+    doc.findFirst.return_value = hit1
+    doc.findNext.return_value = None
+
+    hits = list(iter_literal_ranges(doc, "hello", case_sensitive=True))
+    assert hits == [hit1]
+
+
+def test_iter_literal_ranges_all_candidates_yields_all():
+    from unittest.mock import patch
+    from plugin.writer.search import iter_literal_ranges
+
+    doc = MagicMock()
+    frame_hit = MagicMock()
+    body_hit = MagicMock()
+    chain_hit = MagicMock()
+
+    def fake_iter_lo(doc, candidate, case_sensitive=False, after=None):
+        if "\n" in candidate:
+            yield frame_hit
+        else:
+            yield body_hit
+
+    with patch("plugin.writer.search._iter_lo_matches", side_effect=fake_iter_lo), \
+         patch("plugin.writer.search._iter_chain_matches", return_value=iter([chain_hit])):
+        # 1. all_candidates=False: stops on the first candidate (yielding the frame hit)
+        hits_default = list(iter_literal_ranges(doc, "Hello\nWorld", all_candidates=False))
+        assert hits_default == [frame_hit]
+
+        # 2. all_candidates=True: yields hits across all candidates, then chain matches
+        hits_all = list(iter_literal_ranges(doc, "Hello\nWorld", all_candidates=True))
+        assert hits_all == [frame_hit, body_hit, chain_hit]
+
+
+def test_find_anchor_span_skips_foreign_candidate_to_find_same_text():
+    from unittest.mock import patch
+    from plugin.writer.search import find_anchor_span
+
+    doc = MagicMock()
+    body_text = MagicMock()
+    frame_text = MagicMock()
+
+    start_match = MagicMock()
+    start_match.getText.return_value = body_text
+    start_match.getStart.return_value = MagicMock()
+    start_boundary = MagicMock()
+    start_boundary.getText.return_value = body_text
+    start_match.getEnd.return_value = start_boundary
+
+    frame_hit = MagicMock()
+    frame_hit.getText.return_value = frame_text
+
+    body_hit = MagicMock()
+    body_hit.getText.return_value = body_text
+    body_hit.getStart.return_value = MagicMock()
+    body_hit.getEnd.return_value = MagicMock()
+
+    body_text.compareRegionStarts.return_value = 0
+    created_cursor = MagicMock()
+    body_text.createTextCursorByRange.return_value = created_cursor
+
+    def fake_iter_lo(doc, candidate, case_sensitive=False, after=None):
+        if "\n" in candidate:
+            yield frame_hit
+        else:
+            yield body_hit
+
+    with patch("plugin.writer.search.find_occurrence_range", return_value=start_match), \
+         patch("plugin.writer.search._iter_lo_matches", side_effect=fake_iter_lo):
+        cursor, err = find_anchor_span(doc, "start", "Hello\nWorld")
+        assert err is None
+        assert cursor is created_cursor
+
+
 class _SampleFakeCursor:
     def __init__(self, doc, pos=0):
         self.doc = doc

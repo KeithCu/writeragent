@@ -21,7 +21,7 @@ from __future__ import annotations
 import logging
 import re as re_mod
 from itertools import islice
-from typing import TYPE_CHECKING, Any, Iterator
+from typing import TYPE_CHECKING, Any, Iterable, Iterator, Literal
 
 from plugin.doc.text_helpers import (
     FAILED,
@@ -29,6 +29,7 @@ from plugin.doc.text_helpers import (
     go_right,
     iter_elements,
     normalize_linebreaks,
+    starts_at_or_after,
     with_view_cursor_left_body_locked,
 )
 from plugin.framework.errors import reraise_if_disposed, uno_read
@@ -286,6 +287,23 @@ def search_miss_message(
     return str(resp.get("message", ""))
 
 
+AnchorMissKind = Literal["start", "end", "different_text"]
+
+
+def anchor_miss_message(kind: AnchorMissKind, *, tracked_deletions: bool = False) -> str:
+    """Return an error message for a failed start_anchor or end_anchor search."""
+    if kind == "start":
+        msg = "start_anchor not found in document."
+    elif kind == "different_text":
+        msg = "end_anchor after start_anchor is not in the same text, so it cannot be one range."
+    elif kind == "end":
+        msg = "end_anchor not found after start_anchor."
+    else:
+        raise ValueError(f"Unknown anchor miss kind: {kind!r}")
+    hint = _TRACKED_DELETION_HINT if tracked_deletions else ""
+    return msg + hint
+
+
 def find_text_ranges(
     model: Any,
     search: str,
@@ -380,8 +398,8 @@ def _paragraph_matches_part(para_text: str, part: str, *, head: bool = False, ta
     return actual_norm == expected_norm, None
 
 
-def _iter_descriptor_hits(doc: Any, sd: Any) -> Iterator[Any]:
-    found = doc.findFirst(sd)
+def _iter_descriptor_hits(doc: Any, sd: Any, after: Any = None) -> Iterator[Any]:
+    found = doc.findFirst(sd) if after is None else doc.findNext(after, sd)
     while found is not None:
         yield found
         found = find_next_after_match(doc, found, sd)
@@ -399,11 +417,14 @@ def _lo_regex_descriptor(doc: Any, text: str) -> Any:
 
 
 def _iter_lo_matches(
-    doc: Any, candidate: str, case_sensitive: bool = SEARCH_CASE_SENSITIVE_DEFAULT
+    doc: Any,
+    candidate: str,
+    case_sensitive: bool = SEARCH_CASE_SENSITIVE_DEFAULT,
+    after: Any = None,
 ) -> Iterator[Any]:
     sd = _lo_regex_descriptor(doc, candidate)
     sd.SearchCaseSensitive = case_sensitive
-    yield from _iter_descriptor_hits(doc, sd)
+    yield from _iter_descriptor_hits(doc, sd, after=after)
 
 
 def find_lo_regex_ranges(
@@ -517,11 +538,12 @@ def _iter_chain_matches(
     parts: list[str],
     anchor_idx: int,
     case_sensitive: bool = SEARCH_CASE_SENSITIVE_DEFAULT,
+    after: Any = None,
 ) -> Iterator[Any]:
     """Iterate matches across paragraph breaks via anchor search and chaining."""
     sd = _lo_regex_descriptor(doc, parts[anchor_idx])
     sd.SearchCaseSensitive = case_sensitive
-    for found in _iter_descriptor_hits(doc, sd):
+    for found in _iter_descriptor_hits(doc, sd, after=after):
         match_range = _chain_hit_range(found, parts, anchor_idx)
         if match_range is not None:
             yield match_range
@@ -602,6 +624,44 @@ def find_all_ranges(
     return find_chained_range(doc, search_string, all_matches=True, case_sensitive=case_sensitive)
 
 
+def iter_literal_ranges(
+    doc: Any,
+    search_string: str,
+    case_sensitive: bool = SEARCH_CASE_SENSITIVE_DEFAULT,
+    after: Any = None,
+    all_candidates: bool = False,
+) -> Iterator[Any]:
+    """Iterate matches in document order using native search with newline chaining fallback.
+
+    Iterates through each candidate from _search_try_strings. If any candidate yields
+    matches, those hits are emitted and search stops. When all_candidates is True (e.g. for
+    anchor end searches), yields hits across all candidates followed by chain matches so
+    downstream filtering can find matches in the target text container or boundary.
+    """
+    if not search_string:
+        return
+
+    if not all_candidates:
+        for candidate in _search_try_strings(search_string):
+            matched = False
+            for hit in _iter_lo_matches(doc, candidate, case_sensitive, after=after):
+                matched = True
+                yield hit
+            if matched:
+                return
+    else:
+        for candidate in _search_try_strings(search_string):
+            yield from _iter_lo_matches(doc, candidate, case_sensitive, after=after)
+
+    parts = search_string.split("\n")
+    if len(parts) > 1:
+        anchor_idx = _anchor_index(parts)
+        if anchor_idx != -1:
+            yield from _iter_chain_matches(
+                doc, parts, anchor_idx, case_sensitive, after=after
+            )
+
+
 def find_occurrence_range(
     doc: Any,
     text: str,
@@ -633,20 +693,76 @@ def find_occurrence_range(
             raise _out_of_range(count)
         return None
 
-    for candidate in _search_try_strings(search_string):
-        match = _nth(_iter_lo_matches(doc, candidate, case_sensitive))
-        if match is not None:
-            return match
+    return _nth(iter_literal_ranges(doc, search_string, case_sensitive=case_sensitive))
 
-    parts = search_string.split('\n')
-    if len(parts) > 1:
-        anchor_idx = _anchor_index(parts)
-        if anchor_idx != -1:
-            match = _nth(_iter_chain_matches(doc, parts, anchor_idx, case_sensitive))
-            if match is not None:
-                return match
 
-    return None
+def _is_same_text(candidate: Any, boundary_end: Any) -> bool:
+    """True when candidate and boundary_end share the same XText container."""
+    cand_text = uno_read(lambda: candidate.getText(), None)
+    bound_text = uno_read(lambda: boundary_end.getText(), None)
+    if cand_text is None or bound_text is None:
+        return False
+    return bool(uno_read(lambda: uno_same(cand_text, bound_text), False))
+
+
+def pick_end_after_start(
+    start: Any, ends: Iterator[Any] | Iterable[Any]
+) -> tuple[Any | None, AnchorMissKind | None]:
+    """Select the first end match at or after start.getEnd() and combine them into a single cursor.
+
+    Walks candidate end matches. Candidates whose start falls before start.getEnd()
+    (e.g. from backward chaining) are skipped. Candidates in a different XText are skipped,
+    remembering that one was seen so if no same-text candidate is found, 'different_text' is
+    returned rather than 'end'. Returns (cursor, None) on success.
+    """
+    boundary_end = start.getEnd()
+    saw_different_text = False
+    for end in ends:
+        if not _is_same_text(end, boundary_end):
+            saw_different_text = True
+            continue
+        cand_text = uno_read(lambda: end.getText(), None)
+        if not starts_at_or_after(cand_text, end.getStart(), boundary_end):
+            continue
+        text = start.getText()
+        cursor = text.createTextCursorByRange(start.getStart())
+        cursor.gotoRange(end.getEnd(), True)
+        return cursor, None
+    return None, "different_text" if saw_different_text else "end"
+
+
+def find_anchor_span(
+    doc: Any,
+    start_string: str,
+    end_string: str,
+    *,
+    occurrence: int = 0,
+    case_sensitive: bool = SEARCH_CASE_SENSITIVE_DEFAULT,
+) -> tuple[Any | None, AnchorMissKind | None]:
+    """Find a range spanning from start_anchor through end_anchor.
+
+    The end search starts at the start match's end so a repeated heading reaches the next
+    occurrence, and the cursor includes both anchors. If occurrence is out of range,
+    IndexError propagates from find_occurrence_range. Returns (cursor, None) or
+    (None, 'start' | 'end' | 'different_text').
+    """
+    start = find_occurrence_range(
+        doc,
+        start_string,
+        occurrence=occurrence,
+        case_sensitive=case_sensitive,
+    )
+    if start is None:
+        return None, "start"
+
+    ends = iter_literal_ranges(
+        doc,
+        end_string,
+        case_sensitive=case_sensitive,
+        after=start.getEnd(),
+        all_candidates=True,
+    )
+    return pick_end_after_start(start, ends)
 
 
 def _safe_name(obj: Any) -> str:
@@ -901,7 +1017,7 @@ def iter_floating_shape_texts(doc: Any) -> Iterator[tuple[Any, str]]:
         yield shape, text
 
 
-def _shape_display_name(shape: Any) -> str:
+def shape_display_name(shape: Any) -> str:
     return (getattr(shape, "Name", "") or "").strip() or "(unnamed shape)"
 
 
@@ -910,7 +1026,7 @@ def iter_shape_hits(doc: Any, pattern: str, use_regex: bool, case_sensitive: boo
         hits = shape_text_hits(shape_text, pattern, use_regex, case_sensitive)
         if not hits:
             continue
-        sname = uno_read(lambda: _shape_display_name(shape), "(unnamed shape)")
+        sname = uno_read(lambda: shape_display_name(shape), "(unnamed shape)")
         for hit in hits:
             yield hit, "shape '%s'" % sname, shape_text.strip()
 
@@ -1169,7 +1285,7 @@ def drawing_shape_containing(
         doc, search_string, use_regex=use_regex, case_sensitive=case_sensitive)
     if shape is None:
         return None
-    return _shape_display_name(shape)
+    return shape_display_name(shape)
 
 
 def _preview_matches(hits: Iterator[tuple[str, str, str]], limit: int) -> list[dict[str, Any]]:

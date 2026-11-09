@@ -210,6 +210,7 @@ def test_writer_apply_document_math_latex_rules_document_only():
     assert "target='search' also edits headers and footers" in WRITER_APPLY_DOCUMENT_HTML_RULES
     assert "honored on target='full_document', 'beginning', and 'end'; also on 'selection'/'search'" in WRITER_APPLY_DOCUMENT_HTML_RULES
     assert "middle line must equal a whole paragraph" in WRITER_APPLY_DOCUMENT_HTML_RULES
+    assert "Landmark-to-landmark replace: pass start_anchor and end_anchor" in WRITER_APPLY_DOCUMENT_HTML_RULES
     assert "interior line" not in WRITER_APPLY_DOCUMENT_HTML_RULES
     assert "|outline" in WRITER_APPLY_DOCUMENT_HTML_RULES
     assert "page-number" in WRITER_APPLY_DOCUMENT_HTML_RULES

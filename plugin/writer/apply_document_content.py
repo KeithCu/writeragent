@@ -46,6 +46,7 @@ from plugin.writer.edit_review import (
     next_agent_edit_undo_title,
 )
 from plugin.doc.compound_undo import UndoUnavailable, commit_or_rollback
+from plugin.writer.review_scan import document_has_tracked_deletions
 from plugin.writer.specialized.shapes import replace_text_in_shape
 from plugin.writer.specialized.tables import record_table_deletions
 from plugin.writer.table_nesting import cell_hosted_table_names
@@ -251,6 +252,18 @@ def writer_tables_emptied_by_matches(ranges: list[Any], content: Any) -> list[tu
     return emptied
 
 
+def _range_contains_table(text_range: Any) -> bool:
+    """True when text_range contains a TextTable between its endpoints."""
+    enum = uno_read(lambda: text_range.createEnumeration(), None)
+    if enum is None:
+        return False
+    while uno_read(lambda: enum.hasMoreElements(), False):
+        elem = uno_read(lambda: enum.nextElement(), None)
+        if elem is not None and uno_read(lambda: elem.supportsService("com.sun.star.text.TextTable"), False):
+            return True
+    return False
+
+
 def _doc_table_count(doc: Any) -> int | None:
     """Table count from doc.getTextTables(); None when unreadable (a mock). Disposal propagates."""
     # Invariant: uno_read raises DocumentDisposedError, so table verification never reports success on a closed doc.
@@ -277,9 +290,12 @@ def build_search_replace_response(
     replaced_count: int,
     *,
     use_preserve: bool = False,
+    message: str | None = None,
 ) -> dict[str, Any]:
     """Standardized search-replace response dictionary."""
-    if replaced_count == 1:
+    if message is not None:
+        msg = message
+    elif replaced_count == 1:
         msg = "Replaced 1 occurrence (by old_content)."
     else:
         msg = f"Replaced {replaced_count} occurrence(s)."
@@ -387,6 +403,13 @@ def _search_options(
 
 
 @dataclass(frozen=True)
+class AnchorSpec:
+    start: str
+    end: str
+    case_sensitive: bool = search_mod.SEARCH_CASE_SENSITIVE_DEFAULT
+
+
+@dataclass(frozen=True)
 class EditParams:
     content: str
     plain: str
@@ -404,6 +427,7 @@ class EditParams:
     case_sensitive: bool = False
     separator: int = 0
     override: str | None = None
+    anchor: AnchorSpec | None = None
 
 
 class ApplyDocumentContent(ToolBase):
@@ -438,6 +462,14 @@ class ApplyDocumentContent(ToolBase):
       when ``hyperlink_url`` is passed for that one link. ``content`` may equal
       ``old_content`` when only the URL is stale. A repeated title is left
       unchanged. Bookmark targets are not rewritten. See ``hyperlink_fixup``.
+      To replace a range between landmarks without copying the middle, use
+      target='search' with start_anchor and end_anchor instead of old_content.
+      The range runs from the start of start_anchor through the end of the first
+      end_anchor beginning at or after that start match in the same text.
+      occurrence selects the start match; regex, all_matches, position,
+      dry_run, and hyperlink_url do not apply to anchor spans.
+      Plain anchor text is imported as new paragraphs and does not keep the span's
+      character or paragraph formatting; anchor replacements skip outline URL fixup.
     """
 
     name: str | None = "apply_document_content"
@@ -447,7 +479,7 @@ class ApplyDocumentContent(ToolBase):
         "To replace the ENTIRE document use target='full_document' with content only — "
         "do NOT pass the whole document as old_content. "
         "Use target='beginning', 'end', or 'selection' to insert. "
-        "Use target='search' with old_content for find-and-replace of a specific substring only. "
+        "Use target='search' with old_content or both start_anchor and end_anchor for find-and-replace of a specific substring or range. "
         "An empty replacement that removes the last text in a table deletes that table. "
         "Clearing one cell while another cell still has text leaves the table in place. "
         "Search occurrence is 0-based over body, table, and frame matches; omit it for first-match; "
@@ -465,16 +497,18 @@ class ApplyDocumentContent(ToolBase):
             "content": {"type": ["array", "string"], "items": {"type": "string"}, "description": ("List of HTML fragments or plain-text fragments (one per block), or one string. A string is one block; execute still joins a list with newlines. Shape and math per the APPLY_DOCUMENT_CONTENT AND HTML rules — the editing-html guidance covers them if they are not already in your context. No Markdown. An empty string at beginning, end, or selection inserts nothing and returns an error. An empty search replacement deletes the match.")},
             "target": enum_param(INSERT_TARGETS, "Where to apply the content."),
             "old_content": {"type": "string", "description": ("Substring to find when target='search'. Not for whole-document replace — use target='full_document' instead.")},
-            "all_matches": {"type": "boolean", "description": "Replace all occurrences (true) or first only. Default false. Only for target='search' with position='replace'."},
-            "occurrence": {"type": "integer", "minimum": 0, "description": ("For target='search': 0-based index over body, table, and frame matches (dry_run replaceable rows show the first ones; replaceable_count is the full range). not_replaceable rows have no occurrence. Omit for first match. Rejected with all_matches=true.")},
+            "start_anchor": {"type": "string", "description": "Literal substring marking the start of a range to replace; requires end_anchor, where the end is the first match that begins at or after the start match in the same text and the middle is not copied. Plain anchor text is imported as new paragraphs and does not keep the span's character or paragraph formatting; anchor replacements skip outline URL fixup."},
+            "end_anchor": {"type": "string", "description": "Literal substring marking the end of a range to replace; requires start_anchor, matching the first occurrence that begins at or after the start match in the same text and the middle is not copied."},
+            "all_matches": {"type": "boolean", "description": "Replace all occurrences (true) or first only. Default false. Only for target='search' with position='replace' and old_content (cannot be combined with start_anchor and end_anchor)."},
+            "occurrence": {"type": "integer", "minimum": 0, "description": ("For target='search': 0-based index into replaceable Writer text matches (body/table/frame) or the start_anchor match (not dry_run shape/comment rows). Omit for the existing first-match behavior. Cannot be combined with all_matches=true.")},
             "position": enum_param(
                 ["replace", "before", "after"],
                 (
                     "For target='search': 'replace' (default) replaces the match; 'before'/'after' INSERT the content next to the match and leave the matched text untouched (result reports inserted=true instead of replaced_count). Inline content (plain text, <b>, <i>, ...) goes at the exact match edge; block content (<p>, headings, lists, tables) goes before/after the whole paragraph that holds the match (result reports snapped_to_paragraph=true when that moved it)."
                 ),
             ),
-            "dry_run": {"type": "boolean", "description": "For target='search': do NOT edit. Return replaceable and not_replaceable."},
-            "regex": {"type": "boolean", "description": "For target='search': treat old_content as a regular expression (default false = literal). Regex mode is single-paragraph (no cross-paragraph chaining)."},
+            "dry_run": {"type": "boolean", "description": "For target='search' with old_content: do NOT edit. Return replaceable matches (each tagged with occurrence) plus shape/comment previews, so you can check before committing. Does not apply to start_anchor and end_anchor."},
+            "regex": {"type": "boolean", "description": "For target='search': treat old_content as a regular expression (default false = literal). Regex mode is single-paragraph (no cross-paragraph chaining). Does not apply to start_anchor and end_anchor."},
             "case_sensitive": {"type": "boolean", "description": f"For target='search': {search_mod.CASE_SENSITIVE_DESCRIPTION}"},
             "hyperlink_url": {"type": "string", "description": ("For target='search' with position='replace', when the match overlaps exactly one outline hyperlink (#…|outline): set this exact URL instead of substituting the matched text. content may equal old_content when the visible title is already correct and only the URL is stale. Omit it to update that target when the matched text occurs once outside the |outline suffix. Rejected with all_matches=true, with position='before'/'after', and when the match is not exactly one outline link. Bookmark targets are never rewritten.")},
         },
@@ -654,7 +688,7 @@ class ApplyDocumentContent(ToolBase):
             doc, opts_pattern,
             use_regex=regex_opt, case_sensitive=opts_cs)
         if shape is not None:
-            shape_name = search_mod._shape_display_name(shape)
+            shape_name = search_mod.shape_display_name(shape)
             if track_reviewable:
                 return {
                     "status": "error",
@@ -718,7 +752,8 @@ class ApplyDocumentContent(ToolBase):
                        ctx: ToolContext, track_reviewable: bool,
                        override: str | None, batch: bool,
                        plain: str,
-                       style_notes: list[str]) -> tuple[list[dict[str, Any]] | None, dict[str, Any] | None]:
+                       style_notes: list[str],
+                       fix_outline: bool = True) -> tuple[list[dict[str, Any]] | None, dict[str, Any] | None]:
         """Replace one search match and, when it sits in an outline link, fix that URL.
 
         *batch* is the all_matches loop, which already holds the undo context. A single
@@ -726,20 +761,27 @@ class ApplyDocumentContent(ToolBase):
         """
         from . import html_import as format_support
 
-        anchor = collapsed_anchor(found)
-        # Invariant: a failed capture refuses the edit (HYPERLINK_UPDATE_FAILED) before any text change; disposal propagates.
-        snapshot, err = self._read_outline_snapshot(found, "apply_document_content: outline hyperlink capture failed")
-        if err:
-            return None, err
-        assert snapshot is not None
-        if override and len(snapshot.links) != 1:
-            # Before the text edit. One override on two outline links would stamp
-            # both with the same target. Zero links would paint a bookmark or plain text.
-            return None, self._outline_override_error()
-        # preserve_url: a bookmark target covering the match. A same-length setString
-        # keeps HyperLinkURL. HTML setString("") and a length-changing preserve-format
-        # replace can clear it on the new characters; put that target back unchanged.
-        needs_fix = bool(snapshot.links) or bool(snapshot.preserve_url)
+        anchor = None
+        snapshot = None
+        needs_fix = False
+        if not fix_outline:
+            # An anchor span's text never equals one link title, so outline fixup has nothing to match.
+            pass
+        else:
+            anchor = collapsed_anchor(found)
+            # Invariant: a failed capture refuses the edit (HYPERLINK_UPDATE_FAILED) before any text change; disposal propagates.
+            snapshot, err = self._read_outline_snapshot(found, "apply_document_content: outline hyperlink capture failed")
+            if err:
+                return None, err
+            assert snapshot is not None
+            if override and len(snapshot.links) != 1:
+                # Before the text edit. One override on two outline links would stamp
+                # both with the same target. Zero links would paint a bookmark or plain text.
+                return None, self._outline_override_error()
+            # preserve_url: a bookmark target covering the match. A same-length setString
+            # keeps HyperLinkURL. HTML setString("") and a length-changing preserve-format
+            # replace can clear it on the new characters; put that target back unchanged.
+            needs_fix = bool(snapshot.links) or bool(snapshot.preserve_url)
 
         def run() -> list[dict[str, Any]]:
             original = found.getString()
@@ -770,6 +812,7 @@ class ApplyDocumentContent(ToolBase):
                     original_preview=original, proposed_preview=plain)
             if not needs_fix:
                 return []
+            assert anchor is not None and snapshot is not None
             return restore_outline_hyperlinks(anchor, snapshot, plain, override)
 
         if batch:
@@ -832,14 +875,30 @@ class ApplyDocumentContent(ToolBase):
         return not main.is_current()
 
     @staticmethod
-    def _effective_target(target: Any, old_content: Any) -> Any:
-        return "search" if not target and old_content is not None else target
+    def _effective_target(
+        target: Any,
+        old_content: Any,
+        start_anchor: Any = None,
+        end_anchor: Any = None,
+    ) -> Any:
+        if not target and (old_content is not None or start_anchor is not None or end_anchor is not None):
+            return "search"
+        return target
 
     def _dry_run_preview(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         """Resolve old_content matches WITHOUT editing, for target='search'. Reports the count and
         each match's location + a short snippet, so the model can check before committing."""
+        if kwargs.get("start_anchor") is not None or kwargs.get("end_anchor") is not None:
+            rejected = self._reject_unsupported_with_anchors(kwargs)
+            assert rejected is not None
+            return rejected
         old_content = kwargs.get("old_content")
-        target = self._effective_target(kwargs.get("target"), old_content)
+        target = self._effective_target(
+            kwargs.get("target"),
+            old_content,
+            kwargs.get("start_anchor"),
+            kwargs.get("end_anchor"),
+        )
         if target != "search" or old_content is None:
             return self._tool_error("dry_run only applies to target='search' with old_content.")
         occurrence, occurrence_error = self._parse_occurrence(kwargs, target)
@@ -1060,18 +1119,72 @@ class ApplyDocumentContent(ToolBase):
             )
         return result
 
+    def _reject_unsupported_with_anchors(self, kwargs: Any) -> dict[str, Any] | None:
+        """Reject parameters that are incompatible with start_anchor/end_anchor range replacement."""
+        if kwargs.get("regex"):
+            return self._tool_error("regex does not apply to start_anchor and end_anchor.")
+        if kwargs.get("all_matches"):
+            return self._tool_error("all_matches cannot be combined with start_anchor and end_anchor.")
+        if kwargs.get("dry_run"):
+            return self._tool_error("dry_run does not apply to start_anchor and end_anchor.")
+        if kwargs.get("position") in ("before", "after"):
+            return self._tool_error("position='before'/'after' does not apply to an anchor range.")
+        if kwargs.get("hyperlink_url") is not None:
+            return self._tool_error("hyperlink_url does not apply to start_anchor and end_anchor.")
+        return None
+
+    def _parse_anchor_params(
+        self, kwargs: Any, start_anchor: Any, end_anchor: Any
+    ) -> AnchorSpec | dict[str, Any]:
+        """Validate and normalize start_anchor and end_anchor; returns AnchorSpec or error dict."""
+        from . import html_import as format_support
+
+        unsupported = self._reject_unsupported_with_anchors(kwargs)
+        if unsupported is not None:
+            return unsupported
+
+        if start_anchor is None or end_anchor is None:
+            return self._tool_error("start_anchor and end_anchor are both required.")
+        if not isinstance(start_anchor, str) or not isinstance(end_anchor, str):
+            return self._tool_error("start_anchor and end_anchor must both be strings.")
+        norm_start = search_mod.normalize_search_string_for_find(format_support.plain_text_if_markup(start_anchor))
+        if not norm_start:
+            return self._tool_error("start_anchor is empty after normalization.")
+        norm_end = search_mod.normalize_search_string_for_find(format_support.plain_text_if_markup(end_anchor))
+        if not norm_end:
+            return self._tool_error("end_anchor is empty after normalization.")
+        cs = search_mod.resolve_case_sensitive(kwargs.get("case_sensitive"))
+        return AnchorSpec(start=norm_start, end=norm_end, case_sensitive=cs)
+
     def _parse_edit_params(self, kwargs: Any) -> EditParams | dict[str, Any]:
         from . import html_import as format_support
         content = kwargs.get("content", "")
         old_content = kwargs.get("old_content")
-        target = self._effective_target(kwargs.get("target"), old_content)
+        start_anchor = kwargs.get("start_anchor")
+        end_anchor = kwargs.get("end_anchor")
+        has_anchors = start_anchor is not None or end_anchor is not None
+
+        if old_content is not None and has_anchors:
+            return self._tool_error("Pass old_content or start_anchor and end_anchor, not both.")
+
+        target = self._effective_target(kwargs.get("target"), old_content, start_anchor, end_anchor)
         if not target:
             return self._tool_error(
                 "Provide a target ('beginning', 'end', 'selection', 'full_document', 'search') "
                 "or old_content for find-and-replace.")
 
-        if target == "search" and old_content is None:
-            return self._tool_error("target='search' requires old_content.")
+        if target != "search" and has_anchors:
+            return self._tool_error("start_anchor and end_anchor require target='search'.")
+
+        if target == "search" and old_content is None and not has_anchors:
+            return self._tool_error("target='search' requires old_content or start_anchor and end_anchor.")
+
+        anchor: AnchorSpec | None = None
+        if has_anchors:
+            anchor_res = self._parse_anchor_params(kwargs, start_anchor, end_anchor)
+            if isinstance(anchor_res, dict):
+                return anchor_res
+            anchor = anchor_res
 
         occurrence, occurrence_error = self._parse_occurrence(kwargs, target)
         if occurrence_error:
@@ -1111,10 +1224,20 @@ class ApplyDocumentContent(ToolBase):
         if target in ("beginning", "end", "selection") and content.strip() == "":
             return self._tool_error("content is empty; nothing was inserted.")
 
-        # Detect markup BEFORE any HTML wrapping.
-        use_preserve = not format_support.content_has_markup(content)
+        # Plain anchor text with newlines is imported as new paragraphs so existing character-level
+        # styles and headings across the span do not bleed into the new text. Single-line plain
+        # anchor text remains unwrapped so mid-paragraph edits stay on the inline path without splitting
+        # the host paragraph. Entities are left intact here because the HTML parser decodes them during import.
+        use_preserve = (not format_support.content_has_markup(content)) and anchor is None
 
-        if use_preserve:
+        if anchor is not None and content and not format_support.content_has_markup(content) and not format_support.html_fragment_contains_mixed_math(content):
+            expanded = content.replace("\\n", "\n").replace("\\t", "\t")
+            if "\n" in expanded:
+                lines = [line for line in expanded.split("\n") if line.strip()]
+                content = "\n".join("<p>%s</p>" % line for line in lines)
+            else:
+                content = expanded
+        elif use_preserve:
             content = content.replace("\\n", "\n").replace("\\t", "\t")
             # HTML entry points decode complete references once, and the StarWriter
             # filter decodes what remains in markup. This format-preserving path must
@@ -1133,13 +1256,7 @@ class ApplyDocumentContent(ToolBase):
         # review_recording_enabled tolerates the flag not being registered yet (returns False).
         track_reviewable = review_recording_enabled()
 
-        plain = ""
-        if target != "search":
-            plain = content if use_preserve else self._replacement_plain(content)
-
-        has_table = bool(re.search(r"<table\b", str(content), re.IGNORECASE))
-        all_matches = kwargs.get("all_matches", False)
-
+        old_stripped = ""
         search_string = ""
         pattern = ""
         regex = False
@@ -1148,14 +1265,19 @@ class ApplyDocumentContent(ToolBase):
         separator = 0
         override: str | None = None
 
-        if target == "search":
+        if target == "search" and not has_anchors:
             old_stripped = str(old_content).strip() if old_content is not None else ""
             search_string = search_mod.prepare_old_content(old_content)
             if not search_string:
                 # Parameter error (like old_content=None), not a search no-op: the search never ran,
                 # so there's no replaced_count to report — use the standard tool error shape.
                 return self._tool_error("old_content is empty after normalization.")
-            plain = content if use_preserve else self._replacement_plain(content)
+
+        plain = content if use_preserve else self._replacement_plain(content)
+        has_table = bool(re.search(r"<table\b", str(content), re.IGNORECASE))
+        all_matches = bool(kwargs.get("all_matches", False))
+
+        if target == "search" and not has_anchors:
             # The search drops the spaces at old_content's edges. The replacement
             # must drop the same edges, or old_content=" paragrafo" with content=""
             # deletes only "paragrafo" and leaves "Primeiro  inteiro." with a
@@ -1167,16 +1289,17 @@ class ApplyDocumentContent(ToolBase):
                     and not format_support.content_has_markup(str(old_content))):
                 content, separator = _match_stripped_edges(str(old_content), content)
                 plain = content
+
+            regex, use_opts, cs, pattern, rex_err = _search_options(kwargs, old_stripped, search_string)
+            if rex_err:
+                return self._invalid_regex(rex_err)
+
             override, override_error = self._parse_hyperlink_url(kwargs)
             if override_error:
                 return self._tool_error(override_error, code="INVALID_PARAM")
             override_err = self._override_not_replace(override, position)
             if override_err:
                 return self._tool_error(override_err, code="INVALID_PARAM")
-
-            regex, use_opts, cs, pattern, rex_err = _search_options(kwargs, old_stripped, search_string)
-            if rex_err:
-                return self._invalid_regex(rex_err)
 
         return EditParams(
             content=content,
@@ -1195,6 +1318,7 @@ class ApplyDocumentContent(ToolBase):
             case_sensitive=cs,
             separator=separator,
             override=override,
+            anchor=anchor,
         )
 
     def _dispatch_edit(
@@ -1415,9 +1539,59 @@ class ApplyDocumentContent(ToolBase):
         self._attach_hyperlink_reports(resp, link_reports)
         return attach_edited_context(resp, anchor)
 
+    def _anchor_miss(
+        self, doc: Any, anchor: AnchorSpec, miss_kind: search_mod.AnchorMissKind
+    ) -> dict[str, Any]:
+        # Anchors spanning text across document structure cannot be applied as shape-text
+        # replacements, so matches found in drawing shapes are only reported to the user
+        # without mutating shape text. Review-mode wording is omitted because shapes are
+        # never edited on the anchor path.
+        if miss_kind in ("start", "end"):
+            anchor_text = anchor.start if miss_kind == "start" else anchor.end
+            subject = "start_anchor" if miss_kind == "start" else "end_anchor"
+            cs = anchor.case_sensitive
+            shape = search_mod.drawing_shape_object_containing(
+                doc, anchor_text, use_regex=False, case_sensitive=cs
+            )
+            if shape is not None:
+                shape_name = search_mod.shape_display_name(shape)
+                return {
+                    "status": "error",
+                    "message": search_mod.shape_only_search_message(subject, shape_name),
+                    "replaced_count": 0,
+                }
+        return {
+            "status": "error",
+            "message": search_mod.anchor_miss_message(
+                miss_kind, tracked_deletions=document_has_tracked_deletions(doc)
+            ),
+            "replaced_count": 0,
+        }
+
     def _edit_search(
         self, ctx: ToolContext, session: EditReviewSession, params: EditParams,
     ) -> dict[str, Any]:
+        if params.anchor is not None:
+            doc = ctx.doc
+            try:
+                found, miss_kind = search_mod.find_anchor_span(
+                    doc,
+                    params.anchor.start,
+                    params.anchor.end,
+                    occurrence=0 if params.occurrence is None else params.occurrence,
+                    case_sensitive=params.anchor.case_sensitive,
+                )
+            except IndexError as e:
+                return self._tool_error(str(e), code="OCCURRENCE_OUT_OF_RANGE")
+            if found is None:
+                assert miss_kind is not None
+                return self._anchor_miss(doc, params.anchor, miss_kind)
+            if _range_contains_table(found):
+                return self._tool_error(
+                    "The range from start_anchor through end_anchor contains a table; delete the table first with table_delete.",
+                    code="TABLE_IN_ANCHOR_RANGE",
+                )
+            return self._edit_replace_one(ctx, session, params, found)
         if params.all_matches:
             res = self._edit_replace_all(ctx, session, params)
         else:
@@ -1585,10 +1759,18 @@ class ApplyDocumentContent(ToolBase):
             session, doc, found, use_preserve=params.use_preserve,
             content=params.content, ctx=ctx,
             track_reviewable=params.track_reviewable, override=params.override, batch=False,
-            plain=params.plain, style_notes=style_notes)
+            plain=params.plain, style_notes=style_notes,
+            fix_outline=params.anchor is None)
         if link_err:
             return link_err
-        resp = build_search_replace_response(1, use_preserve=params.use_preserve)
+        if params.anchor is not None:
+            resp = build_search_replace_response(
+                1,
+                use_preserve=params.use_preserve,
+                message="Replaced the range from start_anchor through end_anchor.",
+            )
+        else:
+            resp = build_search_replace_response(1, use_preserve=params.use_preserve)
         if params.occurrence is not None:
             resp["occurrence"] = params.occurrence
         err = self._table_insert_error(doc, params.has_table, tables_before)
