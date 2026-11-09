@@ -592,3 +592,47 @@ def test_unsupported_effort_parameter_omits_once_and_applies_to_other_levels() -
         assert res3["content"] == "ok"
     assert mock_send3.call_count == 1
     assert json.loads(mock_send3.call_args_list[0][0][2])["reasoning_effort"] == "low"
+
+
+def test_unsupported_effort_parameter_remembered_streaming() -> None:
+    # Streaming path also omits effort on the unsupported phrase and records for subsequent sends.
+    client = LlmClient(
+        {"endpoint": "https://api.openai.com", "api_key": "sk-test", "model": "o3", "reasoning_effort": "high"},
+        MockContext(),
+    )
+    body = json.dumps({"model": "o3", "messages": [], "stream": True, "reasoning_effort": "high"}).encode("utf-8")
+
+    def ok_response() -> MagicMock:
+        response = MagicMock()
+        response.status = 200
+        response.getheader.return_value = None
+        response.read.return_value = b""
+        lines = [b'data: {"choices": [{"delta": {"content": "ok"}, "finish_reason": "stop"}]}\n', b"data: [DONE]\n"]
+        response.__iter__ = lambda _self: iter(lines)
+        return response
+
+    with patch.object(
+        client._transport,
+        "send",
+        side_effect=[_unsupported_effort_400_http_response(), ok_response()],
+    ) as first:
+        parts: list[str] = []
+        client._run_streaming_loop("POST", "/v1/chat/completions", body, {}, parts.append)
+    assert parts == ["ok"]
+    assert first.call_count == 2
+    assert json.loads(first.call_args_list[0][0][2])["reasoning_effort"] == "high"
+    assert "reasoning_effort" not in json.loads(first.call_args_list[1][0][2])
+
+    assert base_provider_shim._ACCEPTED_EFFORT == {}
+    assert ("https://api.openai.com", "o3") in base_provider_shim._EFFORT_UNSUPPORTED
+
+    # A subsequent streaming request on the same endpoint and model omits effort on the first send
+    client2 = LlmClient(
+        {"endpoint": "https://api.openai.com", "api_key": "sk-test", "model": "o3", "reasoning_effort": "max"},
+        MockContext(),
+    )
+    body2 = json.dumps({"model": "o3", "messages": [], "stream": True, "reasoning_effort": "max"}).encode("utf-8")
+    with patch.object(client2._transport, "send", side_effect=[ok_response()]) as second:
+        client2._run_streaming_loop("POST", "/v1/chat/completions", body2, {}, lambda _t: None)
+    assert second.call_count == 1
+    assert "reasoning_effort" not in json.loads(second.call_args_list[0][0][2])

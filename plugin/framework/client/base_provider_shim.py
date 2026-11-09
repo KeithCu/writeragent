@@ -101,6 +101,9 @@ def _effort_holder(body: bytes | str) -> tuple[dict[str, Any], dict[str, Any], s
     return None
 
 
+# Anthropic returns "The model does not support the effort parameter." (HTTP 400)
+# when output_config.effort is sent to models that do not support reasoning (e.g. Haiku).
+# https://platform.claude.com/docs/en/build-with-claude/effort
 def effort_parameter_unsupported(message: str) -> bool:
     """True if *message* indicates the model rejects the effort parameter entirely."""
     return "does not support the effort parameter" in str(message or "").lower()
@@ -146,6 +149,7 @@ def effort_retry_bodies(provider: str | None, body: bytes | str) -> list[bytes]:
 # the effort parameter entirely is recorded in _EFFORT_UNSUPPORTED across all levels.
 # Process lifetime only, so later requests skip the 400s; a restart forgets both.
 _ACCEPTED_EFFORT: dict[tuple[str, str, str], str | None] = {}
+# Dict used as an insertion-ordered set for FIFO eviction via next(iter(_EFFORT_UNSUPPORTED)).
 _EFFORT_UNSUPPORTED: dict[tuple[str, str], None] = {}
 _ACCEPTED_EFFORT_MAX = 64
 
@@ -160,6 +164,8 @@ def _effort_key(endpoint: str, body: bytes | str) -> tuple[str, str, str] | None
 
 def accepted_effort_body(provider: str | None, endpoint: str, body: bytes | str) -> bytes | str:
     """*body* with the effort a retry earlier found accepted for this endpoint and model."""
+    if not _ACCEPTED_EFFORT and not _EFFORT_UNSUPPORTED:
+        return body
     key = _effort_key(endpoint, body)
     if key is None:
         return body

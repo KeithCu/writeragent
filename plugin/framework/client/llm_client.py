@@ -270,7 +270,7 @@ class LlmClient:
                     slot["pending"] = effort_retry_bodies(self._get_shim()._reasoning_provider(), body_bytes)
             if not slot["pending"]:
                 return None
-            if slot.get("unsupported"):
+            if slot["unsupported"]:
                 log.warning("HTTP 400: model does not support the effort parameter; retrying without it")
             else:
                 log.warning("HTTP 400 rejected reasoning effort; retrying with another effort")
@@ -494,7 +494,7 @@ class LlmClient:
             if slot["used"] and isinstance(first_body, (bytes, bytearray)):
                 fb = bytes(first_body) if isinstance(first_body, bytearray) else first_body
                 lb = bytes(slot["body"]) if isinstance(slot["body"], bytearray) else slot["body"]
-                remember_accepted_effort(self._endpoint(), fb, lb, parameter_unsupported=bool(slot.get("unsupported")))
+                remember_accepted_effort(self._endpoint(), fb, lb, parameter_unsupported=slot["unsupported"])
             return parse_provider_envelope(result.body, path, api_key=api_key)
         finally:
             self._release_request_scope(cancel)
@@ -934,7 +934,7 @@ class LlmClient:
                     except Exception:
                         log.debug("stream close after non-clean finish failed", exc_info=True)
             if slot["pending"] is not None:
-                remember_accepted_effort(self._endpoint(), first_body, slot["body"], parameter_unsupported=bool(slot.get("unsupported")))
+                remember_accepted_effort(self._endpoint(), first_body, slot["body"], parameter_unsupported=slot["unsupported"])
             if last_finish_reason is None and self._stop_latched(active):
                 last_finish_reason = "stop"
             return last_finish_reason
