@@ -133,6 +133,7 @@ def test_set_selection_by_search_text_selects_and_reports():
     with patch("plugin.writer.selection.find_occurrence_range", return_value=found):
         res = SetSelection().execute(ctx, search_text="clause 3.2")
     assert res["status"] == "ok" and res["selected_text"] == "clause 3.2"
+    assert res["matched_case_sensitive"] is False
     controller.select.assert_called_once_with(found)
 
 
@@ -143,8 +144,9 @@ def test_set_selection_occurrence_walks_findNext():
     with patch("plugin.writer.selection.find_occurrence_range", return_value=second) as mock_find:
         res = SetSelection().execute(ctx, search_text="hit", occurrence=1)
     assert res["status"] == "ok" and res["selected_text"] == "hit2"
+    assert res["matched_case_sensitive"] is False
     controller.select.assert_called_once_with(second)
-    mock_find.assert_called_once_with(doc, "hit", occurrence=1, case_sensitive=True)
+    mock_find.assert_called_once_with(doc, "hit", occurrence=1, case_sensitive=False)
 
 
 def test_set_selection_no_match_errors():
@@ -153,6 +155,7 @@ def test_set_selection_no_match_errors():
          patch("plugin.writer.selection.drawing_shape_containing", return_value=None):
         res = SetSelection().execute(ctx, search_text="nope")
     assert res["status"] == "error" and "No match" in res["message"]
+    assert res["matched_case_sensitive"] is False
     controller.select.assert_not_called()
 
 
@@ -162,8 +165,9 @@ def test_set_selection_shape_match_returns_shape_message():
     with patch("plugin.writer.selection.find_occurrence_range", return_value=None), \
          patch("plugin.writer.selection.drawing_shape_containing", mock_shape):
         res = SetSelection().execute(ctx, search_text="in_shape")
-    mock_shape.assert_called_once_with(doc, "in_shape", case_sensitive=True)
+    mock_shape.assert_called_once_with(doc, "in_shape", case_sensitive=False)
     assert res["status"] == "error"
+    assert res["matched_case_sensitive"] is False
     assert "shapes toolset" in res["message"]
     assert "Box 1" in res["message"]
     controller.select.assert_not_called()

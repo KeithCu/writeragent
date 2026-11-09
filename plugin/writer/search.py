@@ -45,6 +45,21 @@ log = logging.getLogger("writeragent.writer")
 
 MAX_SEARCH_REPLACEMENTS = 200
 DEFAULT_SEARCH_RESULTS = 20
+SEARCH_CASE_SENSITIVE_DEFAULT = False
+
+CASE_SENSITIVE_DESCRIPTION = (
+    "Case-sensitive match (default: false). "
+    "The result includes matched_case_sensitive for the mode that ran."
+)
+
+
+def resolve_case_sensitive(raw: Any) -> bool:
+    """Missing and JSON null both use SEARCH_CASE_SENSITIVE_DEFAULT."""
+    if raw is None:
+        return SEARCH_CASE_SENSITIVE_DEFAULT
+    return bool(raw)
+
+
 MAX_SEARCH_HITS = 10000
 _SHAPE_REGEX_TIMEOUT_SEC = 0.25
 _shape_regex_inflight: Any = None
@@ -275,7 +290,7 @@ def find_text_ranges(
     model: Any,
     search: str,
     limit: int | None = None,
-    case_sensitive: bool = True,
+    case_sensitive: bool = SEARCH_CASE_SENSITIVE_DEFAULT,
     *,
     body_only: bool = False,
 ) -> list[dict[str, Any]]:
@@ -376,9 +391,6 @@ def _collect_capped(doc: Any, sd: Any, limit: int = MAX_SEARCH_REPLACEMENTS) -> 
     return list(islice(_iter_descriptor_hits(doc, sd), limit))
 
 
-_DEFAULT_CASE_SENSITIVE_ORDER = (True, False)
-
-
 def _lo_regex_descriptor(doc: Any, text: str) -> Any:
     sd = doc.createSearchDescriptor()
     sd.SearchRegularExpression = True
@@ -387,27 +399,23 @@ def _lo_regex_descriptor(doc: Any, text: str) -> Any:
 
 
 def _iter_lo_matches(
-    doc: Any, candidate: str, case_order: tuple[bool, ...]
+    doc: Any, candidate: str, case_sensitive: bool = SEARCH_CASE_SENSITIVE_DEFAULT
 ) -> Iterator[Any]:
     sd = _lo_regex_descriptor(doc, candidate)
-    for case_sens in case_order:
-        sd.SearchCaseSensitive = case_sens
-        matched_in_pass = False
-        for hit in _iter_descriptor_hits(doc, sd):
-            matched_in_pass = True
-            yield hit
-        if matched_in_pass:
-            return
+    sd.SearchCaseSensitive = case_sensitive
+    yield from _iter_descriptor_hits(doc, sd)
 
 
 def find_lo_regex_ranges(
     doc: Any,
     candidate: str,
     all_matches: bool = False,
+    *,
+    case_sensitive: bool = SEARCH_CASE_SENSITIVE_DEFAULT,
 ) -> Any:
     """LO regex findFirst/findNext for one candidate string."""
     limit = MAX_SEARCH_REPLACEMENTS if all_matches else 1
-    ranges = list(islice(_iter_lo_matches(doc, candidate, _DEFAULT_CASE_SENSITIVE_ORDER), limit))
+    ranges = list(islice(_iter_lo_matches(doc, candidate, case_sensitive), limit))
     if ranges:
         return ranges if all_matches else ranges[0]
     return [] if all_matches else None
@@ -508,22 +516,15 @@ def _iter_chain_matches(
     doc: Any,
     parts: list[str],
     anchor_idx: int,
-    case_sensitive_order: tuple[bool, ...],
+    case_sensitive: bool = SEARCH_CASE_SENSITIVE_DEFAULT,
 ) -> Iterator[Any]:
     """Iterate matches across paragraph breaks via anchor search and chaining."""
     sd = _lo_regex_descriptor(doc, parts[anchor_idx])
-
-    for case_sens in case_sensitive_order:
-        sd.SearchCaseSensitive = case_sens
-        matched_in_pass = False
-        for found in _iter_descriptor_hits(doc, sd):
-            match_range = _chain_hit_range(found, parts, anchor_idx)
-            if match_range is not None:
-                matched_in_pass = True
-                yield match_range
-
-        if matched_in_pass:
-            break
+    sd.SearchCaseSensitive = case_sensitive
+    for found in _iter_descriptor_hits(doc, sd):
+        match_range = _chain_hit_range(found, parts, anchor_idx)
+        if match_range is not None:
+            yield match_range
 
 
 def _anchor_index(parts: list[str]) -> int:
@@ -537,6 +538,8 @@ def find_chained_range(
     doc: Any,
     search_string: str,
     all_matches: bool = False,
+    *,
+    case_sensitive: bool = SEARCH_CASE_SENSITIVE_DEFAULT,
 ) -> Any:
     """Find search_string via LO regex (literal + newline-collapsed retry) then paragraph chaining.
 
@@ -552,7 +555,7 @@ def find_chained_range(
 
     for candidate in _search_try_strings(search_string):
         result = find_lo_regex_ranges(
-            doc, candidate, all_matches=all_matches
+            doc, candidate, all_matches=all_matches, case_sensitive=case_sensitive
         )
         if all_matches:
             if result:
@@ -569,7 +572,7 @@ def find_chained_range(
         return miss
 
     matched_ranges = []
-    for match in _iter_chain_matches(doc, parts, anchor_idx, _DEFAULT_CASE_SENSITIVE_ORDER):
+    for match in _iter_chain_matches(doc, parts, anchor_idx, case_sensitive):
         if not all_matches:
             return match
         matched_ranges.append(match)
@@ -579,14 +582,24 @@ def find_chained_range(
     return matched_ranges or miss
 
 
-def find_first_range(doc: Any, search_string: str) -> Any:
+def find_first_range(
+    doc: Any,
+    search_string: str,
+    *,
+    case_sensitive: bool = SEARCH_CASE_SENSITIVE_DEFAULT,
+) -> Any:
     """First match: LO native search with chaining fallback."""
-    return find_chained_range(doc, search_string, all_matches=False)
+    return find_chained_range(doc, search_string, all_matches=False, case_sensitive=case_sensitive)
 
 
-def find_all_ranges(doc: Any, search_string: str) -> list[Any]:
+def find_all_ranges(
+    doc: Any,
+    search_string: str,
+    *,
+    case_sensitive: bool = SEARCH_CASE_SENSITIVE_DEFAULT,
+) -> list[Any]:
     """All occurrences as TextRanges in document order (NBSP-aware native search with chaining)."""
-    return find_chained_range(doc, search_string, all_matches=True)
+    return find_chained_range(doc, search_string, all_matches=True, case_sensitive=case_sensitive)
 
 
 def find_occurrence_range(
@@ -594,8 +607,7 @@ def find_occurrence_range(
     text: str,
     *,
     occurrence: int = 0,
-    case_sensitive: bool = True,
-    case_sensitive_order: tuple[bool, ...] | None = None,
+    case_sensitive: bool = SEARCH_CASE_SENSITIVE_DEFAULT,
 ) -> Any | None:
     """Find the occurrence-th match using native LO search with chaining fallback.
 
@@ -621,10 +633,8 @@ def find_occurrence_range(
             raise _out_of_range(count)
         return None
 
-    case_order = (case_sensitive,) if case_sensitive_order is None else case_sensitive_order
-
     for candidate in _search_try_strings(search_string):
-        match = _nth(_iter_lo_matches(doc, candidate, case_order))
+        match = _nth(_iter_lo_matches(doc, candidate, case_sensitive))
         if match is not None:
             return match
 
@@ -632,7 +642,7 @@ def find_occurrence_range(
     if len(parts) > 1:
         anchor_idx = _anchor_index(parts)
         if anchor_idx != -1:
-            match = _nth(_iter_chain_matches(doc, parts, anchor_idx, case_order))
+            match = _nth(_iter_chain_matches(doc, parts, anchor_idx, case_sensitive))
             if match is not None:
                 return match
 
@@ -1132,7 +1142,13 @@ def search_closest_mismatch(
     return closest_mismatch(needle, hay, lenient=lenient)
 
 
-def drawing_shape_object_containing(doc: Any, search_string: str, *, use_regex: bool = False, case_sensitive: bool = False) -> Any | None:
+def drawing_shape_object_containing(
+    doc: Any,
+    search_string: str,
+    *,
+    use_regex: bool = False,
+    case_sensitive: bool = SEARCH_CASE_SENSITIVE_DEFAULT,
+) -> Any | None:
     pattern = (search_string or "").strip()
     if not pattern:
         return None
@@ -1142,7 +1158,13 @@ def drawing_shape_object_containing(doc: Any, search_string: str, *, use_regex: 
     return None
 
 
-def drawing_shape_containing(doc: Any, search_string: str, *, use_regex: bool = False, case_sensitive: bool = False) -> str | None:
+def drawing_shape_containing(
+    doc: Any,
+    search_string: str,
+    *,
+    use_regex: bool = False,
+    case_sensitive: bool = SEARCH_CASE_SENSITIVE_DEFAULT,
+) -> str | None:
     shape = drawing_shape_object_containing(
         doc, search_string, use_regex=use_regex, case_sensitive=case_sensitive)
     if shape is None:
@@ -1189,7 +1211,7 @@ class SearchInDocument(ToolBase):
         "properties": {
             "pattern": {"type": "string", "description": "Search string or regex pattern."},
             "regex": {"type": "boolean", "description": "Use regular expression (default: false)."},
-            "case_sensitive": {"type": "boolean", "description": "Case-sensitive search (default: false)."},
+            "case_sensitive": {"type": "boolean", "description": CASE_SENSITIVE_DESCRIPTION},
             "max_results": {
                 "type": "integer",
                 "description": "Maximum results to return (default: %d). Must be a positive integer." % DEFAULT_SEARCH_RESULTS,
@@ -1215,7 +1237,7 @@ class SearchInDocument(ToolBase):
             return self._tool_error("pattern is required.")
 
         use_regex = kwargs.get("regex", False)
-        case_sensitive = kwargs.get("case_sensitive", False)
+        case_sensitive = resolve_case_sensitive(kwargs.get("case_sensitive"))
         return_offsets = kwargs.get("return_offsets", False)
 
         if return_offsets and use_regex:
@@ -1225,7 +1247,7 @@ class SearchInDocument(ToolBase):
         if return_offsets:
             ranges = find_text_ranges(
                 ctx.doc, pattern, limit=max_results, case_sensitive=case_sensitive, body_only=True)
-            return {"status": "ok", "ranges": ranges}
+            return {"status": "ok", "ranges": ranges, "matched_case_sensitive": case_sensitive}
 
         if use_regex:
             rex_err = validate_regex_pattern(pattern)
@@ -1240,7 +1262,9 @@ class SearchInDocument(ToolBase):
         except Exception as exc:
             reraise_if_disposed(exc)
             log.exception("search_in_document: createSearchDescriptor / findFirst failed")
-            return self._tool_error("search failed: %s" % exc, code="SEARCH_FAILED")
+            err = self._tool_error("search failed: %s" % exc, code="SEARCH_FAILED")
+            err["matched_case_sensitive"] = case_sensitive
+            return err
 
         matches: list[dict[str, str]] = []
 
@@ -1294,7 +1318,13 @@ class SearchInDocument(ToolBase):
         if warning is None and total_count >= MAX_SEARCH_HITS:
             warning = "Search stopped after %d matches; count may be incomplete." % MAX_SEARCH_HITS
 
-        result = {"status": "ok", "matches": matches, "count": total_count, "returned": len(matches)}
+        result = {
+            "status": "ok",
+            "matches": matches,
+            "count": total_count,
+            "returned": len(matches),
+            "matched_case_sensitive": case_sensitive,
+        }
         if total_count == 0 and document_has_tracked_deletions(doc):
             result["note"] = _TRACKED_DELETION_HINT.strip()
 

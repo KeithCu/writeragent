@@ -39,7 +39,7 @@ from plugin.writer.specialized_base import (
     index_error,
     target_params,
 )
-from ..search import parse_non_negative_int
+from ..search import CASE_SENSITIVE_DESCRIPTION, parse_non_negative_int
 from ..target_resolver import resolve_target_cursor
 
 log = logging.getLogger("writeragent.writer.specialized.indexes")
@@ -357,11 +357,19 @@ def _resolve_toc_target(
     return idx, idx.getAnchor(), index_position, None
 
 
-def toc_match(doc: Any, anchor: Any, old_content: str, occurrence: Any) -> tuple[Any | None, str | None]:
+def toc_match(
+    doc: Any,
+    anchor: Any,
+    old_content: str,
+    occurrence: Any,
+    *,
+    case_sensitive: bool | None = None,
+) -> tuple[Any | None, str | None]:
     """The *occurrence* search hit that lies inside the TOC anchor."""
     from .. import search as search_mod
 
-    ranges = search_mod.find_all_ranges(doc, old_content) or []
+    cs = search_mod.resolve_case_sensitive(case_sensitive)
+    ranges = search_mod.find_all_ranges(doc, old_content, case_sensitive=cs) or []
     text = anchor.getText()
     inside = [
         found for found in ranges
@@ -377,7 +385,13 @@ def toc_match(doc: Any, anchor: Any, old_content: str, occurrence: Any) -> tuple
 
 
 def _locate_toc_entry(
-    tool: Any, doc: Any, old_content: Any, index: Any, occurrence: Any
+    tool: Any,
+    doc: Any,
+    old_content: Any,
+    index: Any,
+    occurrence: Any,
+    *,
+    case_sensitive: bool | None = None,
 ) -> tuple[Any, Any, Any, dict[str, Any] | None]:
     occ, occurrence_error = parse_non_negative_int(occurrence)
     if occurrence_error:
@@ -385,7 +399,9 @@ def _locate_toc_entry(
     idx, anchor, _pos, err = _resolve_toc_target(tool, doc, index)
     if err is not None:
         return None, None, None, err
-    found, find_error = toc_match(doc, anchor, str(old_content).strip(), occ)
+    found, find_error = toc_match(
+        doc, anchor, str(old_content).strip(), occ, case_sensitive=case_sensitive
+    )
     if find_error:
         return None, None, None, tool._tool_error(find_error, code="NOT_FOUND")
     return idx, anchor, found, None
@@ -790,6 +806,7 @@ class IndexesRefreshTocEntry(ToolWriterIndexBase):
             "index": {"type": "integer", "minimum": 0, "description": "Document index position from indexes_list. Omit when the document has exactly one TOC."},
             "occurrence": {"type": "integer", "minimum": 0, "description": "0-based match inside the TOC only. Omit for the first. Body text with the same words is not a match."},
             "dry_run": {"type": "boolean", "description": "Do not edit. Report text (the entry before) and text_after, plus the outline URL before and after when the match is one |outline link."},
+            "case_sensitive": {"type": "boolean", "description": f"For old_content: {CASE_SENSITIVE_DESCRIPTION}"},
         },
         "required": ["old_content", "content"],
     }
@@ -813,7 +830,12 @@ class IndexesRefreshTocEntry(ToolWriterIndexBase):
                 return self._tool_error("hyperlink_url must be a non-empty string.", code="INVALID_PARAM")
             override = _one_line(raw_url, "")
         idx, _anchor, found, err = _locate_toc_entry(
-            self, doc, old_content, kwargs.get("index"), kwargs.get("occurrence")
+            self,
+            doc,
+            old_content,
+            kwargs.get("index"),
+            kwargs.get("occurrence"),
+            case_sensitive=kwargs.get("case_sensitive"),
         )
         if err is not None:
             return err
@@ -923,6 +945,7 @@ class IndexesDeleteTocEntry(ToolWriterIndexBase):
             "index": {"type": "integer", "minimum": 0, "description": "Document index position from indexes_list. Omit when the document has exactly one TOC."},
             "occurrence": {"type": "integer", "minimum": 0, "description": "0-based match inside the TOC only. Omit for the first. Body text with the same words is not a match."},
             "dry_run": {"type": "boolean", "description": "Do not edit. Report text (the entry that would be removed) and an empty text_after."},
+            "case_sensitive": {"type": "boolean", "description": f"For old_content: {CASE_SENSITIVE_DESCRIPTION}"},
         },
         "required": ["old_content"],
     }
@@ -938,7 +961,12 @@ class IndexesDeleteTocEntry(ToolWriterIndexBase):
                 "indexes_delete_toc_entry takes plain text so the entry match stays a substring.",
                 code="INVALID_PARAM")
         idx, anchor, found, err = _locate_toc_entry(
-            self, doc, old_content, kwargs.get("index"), kwargs.get("occurrence")
+            self,
+            doc,
+            old_content,
+            kwargs.get("index"),
+            kwargs.get("occurrence"),
+            case_sensitive=kwargs.get("case_sensitive"),
         )
         if err is not None:
             return err
@@ -1025,6 +1053,7 @@ class IndexesInsertTocEntry(ToolWriterIndexBase):
             "index": {"type": "integer", "minimum": 0, "description": "Document index position from indexes_list. Omit when the document has exactly one TOC."},
             "occurrence": {"type": "integer", "minimum": 0, "description": "0-based match inside the TOC only, when position is before or after. Omit for the first."},
             "dry_run": {"type": "boolean", "description": "Do not edit. Report text (the sibling entry) and text_after (the row that would be inserted)."},
+            "case_sensitive": {"type": "boolean", "description": f"For old_content: {CASE_SENSITIVE_DESCRIPTION}"},
         },
         "required": ["content"],
     }
@@ -1088,7 +1117,13 @@ class IndexesInsertTocEntry(ToolWriterIndexBase):
             ]
             ref = entries[-1] if entries else (paragraphs[-1] if paragraphs else None)
         else:
-            found, find_error = toc_match(doc, anchor, str(old_content).strip(), occurrence)
+            found, find_error = toc_match(
+                doc,
+                anchor,
+                str(old_content).strip(),
+                occurrence,
+                case_sensitive=kwargs.get("case_sensitive"),
+            )
             if find_error:
                 return self._tool_error(find_error, code="NOT_FOUND")
             ref = _paragraph_element(found)
@@ -1314,7 +1349,9 @@ class IndexesCreate(ToolWriterIndexBase):
             index.CreateFromOutline = create_from_outline
 
         try:
-            cursor = resolve_target_cursor(ctx, target, old_content)
+            cursor = resolve_target_cursor(
+                ctx, target, old_content, case_sensitive=kwargs.get("case_sensitive")
+            )
         except ValueError as ve:
             return self._tool_error(str(ve))
 
@@ -1396,7 +1433,9 @@ class IndexesAddMark(ToolWriterIndexBase):
         old_content = kwargs.get("old_content")
 
         try:
-            cursor = resolve_target_cursor(ctx, target, old_content)
+            cursor = resolve_target_cursor(
+                ctx, target, old_content, case_sensitive=kwargs.get("case_sensitive")
+            )
         except ValueError as ve:
             return self._tool_error(str(ve))
 

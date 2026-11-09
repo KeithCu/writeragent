@@ -29,6 +29,7 @@ from plugin.draw.base import ToolDrawFormBase, ToolDrawImageBase, ToolDrawTableB
 from plugin.doc.visual_helpers import SHAPE_TOOL_UNO_SERVICES
 from plugin.framework.prompts import DELEGATION_PUBLIC_WEB_HINT, DELEGATION_USER_FILE_DATA_HINT
 from plugin.doc.specialized_base import DelegateToSpecializedBase
+from plugin.writer.search import CASE_SENSITIVE_DESCRIPTION
 
 INSERT_TARGETS: list[str] = ["beginning", "end", "selection", "full_document", "search"]
 
@@ -43,6 +44,7 @@ def target_params(what: str, **extra: Any) -> dict[str, Any]:
     return {
         "target": enum_param(INSERT_TARGETS, f"Where to insert {what}.", **extra),
         "old_content": {"type": "string", "description": "Text to find and replace if target = 'search'."},
+        "case_sensitive": {"type": "boolean", "description": f"For target='search': {CASE_SENSITIVE_DESCRIPTION}"},
     }
 
 

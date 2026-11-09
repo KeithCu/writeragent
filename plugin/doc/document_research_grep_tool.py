@@ -13,6 +13,7 @@ from typing import Any, ClassVar
 
 from plugin.doc.document_research_grep import grep_nearby_files
 from plugin.framework.tool import ToolBase, ToolContext
+from plugin.writer.search import CASE_SENSITIVE_DESCRIPTION, resolve_case_sensitive
 
 
 class GrepNearbyFiles(ToolBase):
@@ -39,7 +40,7 @@ class GrepNearbyFiles(ToolBase):
                 "description": "Optional basename token (e.g. 'budget' matches *budget*.od*), an absolute path, or a file:// URL of one file.",
             },
             "regex": {"type": "boolean", "description": "Treat pattern as regular expression (default: false)."},
-            "case_sensitive": {"type": "boolean", "description": "Case-sensitive search (default: false)."},
+            "case_sensitive": {"type": "boolean", "description": CASE_SENSITIVE_DESCRIPTION},
         },
         "required": ["pattern"],
     }
@@ -55,6 +56,7 @@ class GrepNearbyFiles(ToolBase):
         file_subset = kwargs.get("file_subset")
 
         scope = ctx.send_cancellation
+        case_sensitive = resolve_case_sensitive(kwargs.get("case_sensitive"))
         return grep_nearby_files(
             ctx.ctx,
             ctx.doc,
@@ -62,7 +64,7 @@ class GrepNearbyFiles(ToolBase):
             str(pattern),
             file_subset=str(file_subset) if file_subset else None,
             regex=bool(kwargs.get("regex", False)),
-            case_sensitive=bool(kwargs.get("case_sensitive", False)),
+            case_sensitive=case_sensitive,
             cancel=scope,
             status_callback=ctx.status_callback,
         )

@@ -56,6 +56,7 @@ from plugin.framework.tool import ToolBase as FrameworkToolBase
 from plugin.writer.edit_review import flag_style_unreviewed
 from .page import get_page_style_properties
 from plugin.writer.specialized_base import INSERT_TARGETS, ToolWriterStyleBase, enum_param
+from .search import CASE_SENSITIVE_DESCRIPTION
 from .target_resolver import cursor_spanning_range, resolve_target_cursor
 
 
@@ -1224,6 +1225,7 @@ class ApplyStyle(FrameworkToolBase):
             "family": enum_param(_TEXT_STYLE_FAMILIES, ("Style family. Default: ParagraphStyles.")),
             "target": enum_param(INSERT_TARGETS, "Where to apply the style."),
             "old_content": {"type": "string", "description": "Text to find and apply style to if target = 'search'."},
+            "case_sensitive": {"type": "boolean", "description": f"For target='search': {CASE_SENSITIVE_DESCRIPTION}"},
             "all_matches": {"type": "boolean", "description": "For target='search': apply to EVERY occurrence of old_content (default false = first only)."},
             "occurrence": {"type": "integer", "description": "For target='search': apply to this single 0-based occurrence instead of the first."},
             "clear_direct": {"type": "string", "enum": ["none", "style_props", "all"], "default": "style_props", "description": (
@@ -1359,17 +1361,20 @@ class ApplyStyle(FrameworkToolBase):
         # styled everywhere. Each match gets a cursor in its OWN text object (cell/frame safe).
         all_matches = bool(kwargs.get("all_matches"))
         occ_raw = kwargs.get("occurrence")
+        case_sensitive = kwargs.get("case_sensitive")
         if target == "search" and (all_matches or occ_raw is not None):
             from plugin.writer.search import (
                 build_search_not_found_response,
                 find_all_ranges,
                 prepare_old_content,
+                resolve_case_sensitive,
             )
 
             s = prepare_old_content(old_content)
             if not s:
                 return {"status": "error", "message": "target='search' requires old_content.", "applied": False, "matched": False}
-            ranges = find_all_ranges(ctx.doc, s) if s else []
+            cs = resolve_case_sensitive(case_sensitive)
+            ranges = find_all_ranges(ctx.doc, s, case_sensitive=cs) if s else []
             if not ranges:
                 res = build_search_not_found_response(ctx.doc, s, all_matches=True)
                 res.update({"target": "search", "applied": False, "matched": False})
@@ -1436,7 +1441,7 @@ class ApplyStyle(FrameworkToolBase):
             }, reports)
 
         try:
-            cursor = resolve_target_cursor(ctx, target, old_content)
+            cursor = resolve_target_cursor(ctx, target, old_content, case_sensitive=case_sensitive)
         except ValueError as ve:
             if target == "search":
                 # Surface the search-miss as a structured (top-level) failure, like

@@ -153,3 +153,28 @@ def test_search_span_disposed_raises_document_disposed(monkeypatch):
     monkeypatch.setattr("plugin.writer.target_resolver.search_mod.find_first_range", lambda doc, s: found)
     with pytest.raises(DocumentDisposedError):
         resolve_target_cursor(ctx, "search", "needle")
+
+
+def test_resolve_target_cursor_case_sensitive_forwarding(monkeypatch):
+    ctx, _ = _ctx()
+    calls = []
+
+    def fake_find(doc, search_string, *, case_sensitive=False):
+        calls.append((search_string, case_sensitive))
+        found = MagicMock()
+        return found
+
+    monkeypatch.setattr("plugin.writer.target_resolver.search_mod.find_first_range", fake_find)
+
+    # Omitted case_sensitive defaults to False
+    resolve_target_cursor(ctx, "search", "needle")
+    assert calls[-1] == ("needle", False)
+
+    # Explicit case_sensitive=True forwards True
+    resolve_target_cursor(ctx, "search", "needle", case_sensitive=True)
+    assert calls[-1] == ("needle", True)
+
+    # Explicit case_sensitive=False forwards False
+    resolve_target_cursor(ctx, "search", "needle", case_sensitive=False)
+    assert calls[-1] == ("needle", False)
+
