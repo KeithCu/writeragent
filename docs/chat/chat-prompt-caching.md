@@ -112,7 +112,8 @@ messages:   user / assistant / tool history          append-only, never rewritte
   it follows the same rule: snapshot last, not rewritten into earlier turns.
 - **Provider layer:** add the cache marker for Anthropic endpoints, and log
   `cache_read_input_tokens`, or OpenRouter's `prompt_tokens_details.cached_tokens`, with
-  the existing request logging.
+  the existing request logging. Sticky cache routing keys (`session_id` /
+  `prompt_cache_key` / `x-grok-conv-id`) are separate; see [llm-hacks §13](llm-hacks.md#13-provider-sticky-cache-routing-session_id).
 
 ## Docs to update
 
