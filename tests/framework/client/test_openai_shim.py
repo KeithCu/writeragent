@@ -306,7 +306,15 @@ def test_cache_route_openrouter_body_session_id():
     client = _DummyClient(provider="openrouter")
     shim = OpenRouterShim(client)
     _method, _url, body, headers = shim.build_chat_request(
-        [{"role": "user", "content": "hi"}], 100, None, None, False, "openai/gpt-oss-120b:nitro", None, cache_session_id="conv-1"
+        [{"role": "user", "content": "hi"}],
+        100,
+        None,
+        None,
+        False,
+        "openai/gpt-oss-120b:nitro",
+        None,
+        chat_extra={"session_id": "user-set"},
+        cache_session_id="conv-1",
     )
     data = json.loads(body)
     assert data.get("session_id") == "conv-1"
@@ -381,6 +389,7 @@ def test_cache_route_xai_header():
         [{"role": "user", "content": "hi"}], 100, None, None, False, "grok-2", None, cache_session_id="xai-conv-1"
     )
     assert headers.get("x-grok-conv-id") == "xai-conv-1"
+    assert headers["Authorization"] == "Bearer test"
     data = json.loads(body)
     assert "session_id" not in data
     assert "prompt_cache_key" not in data
@@ -390,6 +399,7 @@ def test_cache_route_xai_header():
         [{"role": "user", "content": "hi"}], 100, None, None, False, "grok-2", None, cache_session_id="bad\nid"
     )
     assert "x-grok-conv-id" not in headers_bad
+    assert headers_bad["Authorization"] == "Bearer test"
     data_bad = json.loads(body_bad)
     assert "messages" in data_bad
 
@@ -406,6 +416,7 @@ def test_cache_route_absent_when_unset():
             assert "session_id" not in data
             assert "prompt_cache_key" not in data
             assert "x-grok-conv-id" not in headers
+            assert headers == client._headers()
 
     # Provider google on BaseProviderShim and provider groq on BaseProviderShim with a real id also omit them
     for other_prov in ("google", "groq"):
@@ -418,3 +429,4 @@ def test_cache_route_absent_when_unset():
         assert "session_id" not in data
         assert "prompt_cache_key" not in data
         assert "x-grok-conv-id" not in headers
+        assert headers == client._headers()

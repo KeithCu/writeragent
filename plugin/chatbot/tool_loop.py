@@ -22,6 +22,7 @@ from enum import Enum
 from typing import TYPE_CHECKING, Any, Callable, cast
 
 if TYPE_CHECKING:
+    from plugin.chatbot.chat_session import ChatSession
     from plugin.framework.client.llm_client import LlmClient
 
 from plugin.framework.json_utils import safe_json_loads
@@ -753,16 +754,15 @@ class ToolCallingMixin:
 
         bound_spawn = self._bind_spawn(client)
 
-        def stream_call(sess: Any, content_cb: Any, thinking_cb: Any, status_cb: Any, scope: Any) -> Any:
+        def stream_call(sess: ChatSession, content_cb: Any, thinking_cb: Any, status_cb: Any, scope: Any) -> Any:
             payload = sess.messages_for_request()
-            raw_sid = getattr(sess, "session_id", None)
             return client.stream_request_with_tools(
                 payload, max_tokens, tools=tools,
                 append_callback=content_cb,
                 append_thinking_callback=thinking_cb,
                 cancel=scope,
                 status_callback=status_cb,
-                cache_session_id=raw_sid if isinstance(raw_sid, str) else None,
+                cache_session_id=sess.session_id,
             )
 
         def run() -> None:
@@ -797,14 +797,13 @@ class ToolCallingMixin:
 
         bound_spawn = self._bind_spawn(client)
 
-        def stream_call(sess: Any, content_cb: Any, thinking_cb: Any, status_cb: Any, scope: Any) -> Any:
+        def stream_call(sess: ChatSession, content_cb: Any, thinking_cb: Any, status_cb: Any, scope: Any) -> Any:
             last_streamed: list[str] = []
 
             def append_c(c: str) -> None:
                 content_cb(c)
                 last_streamed.append(c)
 
-            raw_sid = getattr(sess, "session_id", None)
             client.stream_chat_response(
                 sess.messages_for_request(),
                 max_tokens,
@@ -814,7 +813,7 @@ class ToolCallingMixin:
                 tool_choice="none",
                 cancel=scope,
                 status_callback=status_cb,
-                cache_session_id=raw_sid if isinstance(raw_sid, str) else None,
+                cache_session_id=sess.session_id,
             )
             return "".join(last_streamed)
 

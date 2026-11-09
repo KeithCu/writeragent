@@ -14,7 +14,6 @@ from .anthropic_shim import AnthropicShim
 from .shim_helpers import openai_model_leaf, annotate_anthropic_cache
 from .base_provider_shim import (
     BaseProviderShim,
-    cache_route,
     canonical_aspect_ratio,
     canonical_resolution,
     coerce_image_data_url,
@@ -125,10 +124,8 @@ class OpenAIShim(BaseProviderShim):
                 tool_choice=tool_choice,
                 effort=mapped or level,
             )
-            if isinstance(cache_session_id, str):
-                body_fields, _ = cache_route(self.client._get_provider(), cache_session_id)
-                data.update(body_fields)
-            return self._post(self._url("/responses"), data)
+            headers = self._apply_cache_route(data, cache_session_id)
+            return self._post(self._url("/responses"), data, headers=headers)
         return super().build_chat_request(
             messages,
             max_tokens,

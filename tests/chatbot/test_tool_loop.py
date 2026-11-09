@@ -37,6 +37,7 @@ class MockSession:
         self.messages = []
         self.document_context = ""
         self.db = None
+        self.session_id: str | None = None
 
     def set_system_context(self, base_prompt, doc_text=""):
         self.document_context = doc_text

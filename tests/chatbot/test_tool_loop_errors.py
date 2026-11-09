@@ -29,6 +29,7 @@ class MockSession:
         self.db = None
         self.active_specialized_domain = None
         self.python_tool_domain = None
+        self.session_id: str | None = None
 
     def set_system_context(self, base_prompt, doc_text=""):
         self.document_context = doc_text

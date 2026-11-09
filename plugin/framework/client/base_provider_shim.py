@@ -450,6 +450,17 @@ class BaseProviderShim:
             merge_openrouter_chat_extra(data, payload_extra)
         return data
 
+    def _apply_cache_route(self, data: dict[str, Any], cache_session_id: str | None) -> dict[str, str] | None:
+        """Apply sticky routing body fields to *data* and return merged headers, or None."""
+        body_fields, extra_headers = cache_route(self.client._get_provider(), cache_session_id)
+        if body_fields:
+            data.update(body_fields)
+        if extra_headers:
+            headers = dict(self.client._headers())
+            headers.update(extra_headers)
+            return headers
+        return None
+
     def build_chat_request(
         self,
         messages: list[dict[str, Any]],
@@ -465,15 +476,8 @@ class BaseProviderShim:
         cache_session_id: str | None = None,
     ) -> tuple[str, str, bytes, dict[str, str]]:
         data = self._chat_payload(messages, max_tokens, temperature, tools, stream, model_name, response_format, chat_extra, tool_choice=tool_choice)
-        headers: dict[str, str] | None = None
-        if isinstance(cache_session_id, str):
-            # The chat session id is the routing key for this request; message text is not rewritten.
-            body_fields, extra_headers = cache_route(self.client._get_provider(), cache_session_id)
-            if body_fields:
-                data.update(body_fields)
-            if extra_headers:
-                headers = dict(self.client._headers())
-                headers.update(extra_headers)
+        # The chat session id is the routing key for this request; message text is not rewritten.
+        headers = self._apply_cache_route(data, cache_session_id)
         return self._post(self._url("/chat/completions"), data, headers=headers)
 
     def parse_response_chunk(self, chunk: dict[str, Any], stream_state: dict[str, Any] | None = None) -> tuple[str, str | None, str | None, dict[str, Any]]:
