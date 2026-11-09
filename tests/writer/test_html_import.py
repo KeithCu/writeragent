@@ -771,6 +771,75 @@ def test_parse_data_lo_para_background_color():
     assert dropped_trans == []
 
 
+def test_parse_data_lo_para_vertical_margins_and_indent():
+    from plugin.writer.html_import_styles import parse_data_lo_para
+
+    props, dropped = parse_data_lo_para("margin-top:0.5cm; margin-bottom:12pt; text-indent:-0.5cm")
+    assert props == {
+        "margin-top": ("ParaTopMargin", 500),
+        "margin-bottom": ("ParaBottomMargin", 423),
+        "text-indent": ("ParaFirstLineIndent", -500),
+    }
+    assert dropped == []
+
+
+class _FakeLineSpacing:
+    """Stands in for com.sun.star.style.LineSpacing (pytest has no real UNO structs)."""
+
+    def __init__(self) -> None:
+        self.Mode = 0
+        self.Height = 0
+
+
+@pytest.mark.parametrize(
+    ("css", "mode", "height"),
+    [
+        pytest.param("line-height:150%", 0, 150, id="percent_is_proportional"),
+        pytest.param("line-height:115.4%", 0, 115, id="percent_rounds"),
+        pytest.param("line-height:normal", 0, 100, id="normal_is_single"),
+        pytest.param("line-height:0.5cm", 3, 500, id="length_is_fixed"),
+    ],
+)
+def test_parse_data_lo_para_line_height(monkeypatch, css, mode, height):
+    import sys
+
+    from plugin.writer.html_import_styles import parse_data_lo_para
+
+    # setitem on __dict__ (not setattr) so undo removes the attribute instead of leaving a
+    # materialised MagicMock child; other tests check that createUnoStruct is absent.
+    monkeypatch.setitem(sys.modules["uno"].__dict__, "createUnoStruct", lambda _name: _FakeLineSpacing())
+    props, dropped = parse_data_lo_para(css)
+    assert dropped == []
+    uno_prop, spacing = props["line-height"]
+    assert uno_prop == "ParaLineSpacing"
+    assert (spacing.Mode, spacing.Height) == (mode, height)
+
+
+@pytest.mark.parametrize("value", ["tall", "0cm", "-1cm", "%", "0%", "0.0%"])
+def test_parse_data_lo_para_bad_line_height_is_dropped(value):
+    from plugin.writer.html_import_styles import parse_data_lo_para
+
+    props, dropped = parse_data_lo_para("line-height:%s" % value)
+    assert props == {}
+    assert dropped == ["line-height"]
+
+
+def test_every_read_para_name_has_a_writer_or_is_listed_read_only():
+    """Every CSS name the read side emits in data-lo-para is either written or listed.
+
+    A property added to the read table without a writer would otherwise only show up as
+    one more warning; this makes it a test failure that forces a decision.
+    """
+    from plugin.writer import html_import_styles, xhtml_style_postprocess
+
+    read_names = {css for _odf, css in xhtml_style_postprocess._FODT_OVERRIDE_ATTRS}
+    writers = set(html_import_styles._para_writers())
+    read_only = html_import_styles._READ_ONLY_PARA_NAMES
+    assert not writers & read_only
+    assert read_names - writers - read_only == set()
+    assert writers <= read_names, "a writer for a name reads never emit cannot round-trip"
+
+
 def test_round_trip_read_fodt_autostyle_value():
     from unittest.mock import MagicMock, call
     from plugin.writer import html_import_styles
@@ -788,8 +857,12 @@ def test_round_trip_read_fodt_autostyle_value():
     assert emitted == "margin-left:3.25cm; text-indent:0cm; text-align:left"
 
     props, dropped = html_import_styles.parse_data_lo_para(emitted)
-    assert props == {"margin-left": ("ParaLeftMargin", 3250), "text-align": ("ParaAdjust", 0)}
-    assert dropped == ["text-indent"]
+    assert props == {
+        "margin-left": ("ParaLeftMargin", 3250),
+        "text-indent": ("ParaFirstLineIndent", 0),
+        "text-align": ("ParaAdjust", 0),
+    }
+    assert dropped == []
 
     html = f'<p data-lo-para="{emitted}">Clause text</p>'
     clean, styles, paras, skipped = html_import_styles._extract_block_lo_styles(html)
@@ -812,10 +885,11 @@ def test_round_trip_read_fodt_autostyle_value():
     failed = html_import_styles._apply_block_lo_styles(
         model, text, MagicMock(), styles, paras=paras
     )
-    assert failed == ["text-indent"]
+    assert failed == []
     para_el = para_cur.createEnumeration.return_value.nextElement.return_value
     para_el.setPropertyValue.assert_has_calls([
         call("ParaLeftMargin", 3250),
+        call("ParaFirstLineIndent", 0),
         call("ParaAdjust", 0),
     ], any_order=True)
 
