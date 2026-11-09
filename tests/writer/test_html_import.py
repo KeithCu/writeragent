@@ -334,6 +334,47 @@ def test_replace_xtext_with_html_undo_rollback_on_import_failure():
     assert cursor.setString.call_args_list[0].args == ("",)
 
 
+def _undo_model():
+    model = MagicMock()
+    undo_mgr = MagicMock()
+    undo_mgr.isLocked.return_value = False
+    model.getUndoManager.return_value = undo_mgr
+    return model
+
+
+def test_replace_xtext_with_html_applies_and_reports_data_lo_attrs():
+    """Header/footer writes strip data-lo-* before the import and apply them after it."""
+    text = MagicMock()
+    imported: list[str] = []
+    html = (
+        '<p data-lo-style="Header" data-lo-para="margin-left:1cm; font-weight:bold">H</p>'
+        '<table><tr><td><p data-lo-para="margin-top:1cm">c</p></td></tr></table>'
+    )
+    with patch(
+        "plugin.writer.html_import.insert_html_fragment_at_cursor",
+        side_effect=lambda cursor, prepared, **kw: imported.append(prepared),
+    ), patch(
+        "plugin.writer.html_import_styles.apply_block_lo_styles", return_value=["font-weight"],
+    ) as apply_styles:
+        failed = replace_xtext_with_html(text, html, model=_undo_model())
+
+    assert "data-lo-" not in imported[0]
+    args, kwargs = apply_styles.call_args
+    assert args[1] is text and args[3] == ["Header"]
+    assert kwargs["paras"] == ["margin-left:1cm; font-weight:bold"]
+    # The table-cell declaration is never applied, so it is reported.
+    assert failed == ["margin-top", "font-weight"]
+
+
+def test_replace_xtext_with_html_plain_html_skips_style_walk():
+    text = MagicMock()
+    with patch("plugin.writer.html_import.insert_html_fragment_at_cursor"), patch(
+        "plugin.writer.html_import_styles.apply_block_lo_styles",
+    ) as apply_styles:
+        assert replace_xtext_with_html(text, "<p>New</p>", model=_undo_model()) == []
+    apply_styles.assert_not_called()
+
+
 def test_replace_xtext_with_html_undo_rollback_on_field_restore_failure():
 
     text = MagicMock()
@@ -519,21 +560,21 @@ def test_insert_mixed_html_and_math_counts_prefix_when_segment_contains_ruby():
 def test_nested_blocks_share_one_style_slot():
     """<blockquote><p> and <li><p> are ONE Writer paragraph: two slots shifted every later style
     ("2. DO DIREITO" lost its heading) and the leftover ones hit old text (relatos #35/#40)."""
-    from plugin.writer.html_import_styles import _extract_block_lo_styles
+    from plugin.writer.html_import_styles import extract_block_lo_styles
 
     html = ('<h1 data-lo-style="Heading1">T</h1>'
             '<blockquote><p data-lo-style="Quotations">q</p></blockquote>'
             '<ul><li><p data-lo-style="Standard">a</p></li><li><p data-lo-style="Standard">b</p></li></ul>'
             '<h2 data-lo-style="Heading2">D</h2>')
-    clean, styles, _paras, _skipped = _extract_block_lo_styles(html)
+    clean, styles, _paras, _skipped = extract_block_lo_styles(html)
     assert styles == ["Heading1", "Quotations", "Standard", "Standard", "Heading2"]
     assert "data-lo-style" not in clean
 
 
 def test_second_block_inside_a_block_gets_its_own_slot():
-    from plugin.writer.html_import_styles import _extract_block_lo_styles
+    from plugin.writer.html_import_styles import extract_block_lo_styles
 
-    _clean, styles, _paras, _skipped = _extract_block_lo_styles(
+    _clean, styles, _paras, _skipped = extract_block_lo_styles(
         '<li data-lo-style="List"><p>a</p><p data-lo-style="Standard">b</p></li><p data-lo-style="Standard">c</p>')
     assert styles == ["List", "Standard", "Standard"]
 
@@ -565,7 +606,7 @@ def test_block_styles_stop_at_the_end_of_the_import():
     text.compareRegionStarts.side_effect = lambda a, b: 1 if a < b else (0 if a == b else -1)
     start_cursor = MagicMock()
     with patch("plugin.writer.styles.apply_paragraph_style_preserving_direct_char") as apply:
-        html_import_styles._apply_block_lo_styles(
+        html_import_styles.apply_block_lo_styles(
             MagicMock(), text, start_cursor, ["Heading1", "Standard", "Standard", "Heading2"], end=end,
         )
     assert apply.call_count == 2
@@ -587,7 +628,7 @@ def test_apply_block_lo_styles_token_cache_reads_element_names_once():
     text.createTextCursorByRange.return_value = walk_cur
 
     with patch("plugin.writer.styles.apply_paragraph_style_preserving_direct_char") as apply:
-        html_import_styles._apply_block_lo_styles(
+        html_import_styles.apply_block_lo_styles(
             model, text, MagicMock(), ["Heading1", "Heading1"],
         )
     fam.getElementNames.assert_called_once()
@@ -613,7 +654,7 @@ def test_apply_block_lo_styles_ambiguous_token_resolves_to_standard():
     text.createTextCursorByRange.return_value = walk_cur
 
     with patch("plugin.writer.styles.apply_paragraph_style_preserving_direct_char") as apply:
-        html_import_styles._apply_block_lo_styles(
+        html_import_styles.apply_block_lo_styles(
             model, text, MagicMock(), ["Heading1"],
         )
     assert apply.call_args.args[2] == "Standard"
@@ -636,7 +677,7 @@ def test_apply_block_lo_styles_unknown_token_resolves_to_standard():
     text.createTextCursorByRange.return_value = walk_cur
 
     with patch("plugin.writer.styles.apply_paragraph_style_preserving_direct_char") as apply:
-        html_import_styles._apply_block_lo_styles(
+        html_import_styles.apply_block_lo_styles(
             model, text, MagicMock(), ["Nope"],
         )
     assert apply.call_args.args[2] == "Standard"
@@ -659,7 +700,7 @@ def test_apply_block_lo_styles_skips_when_style_already_matches():
     text.createTextCursorByRange.return_value = walk_cur
 
     with patch("plugin.writer.styles.apply_paragraph_style_preserving_direct_char") as apply:
-        res = html_import_styles._apply_block_lo_styles(
+        res = html_import_styles.apply_block_lo_styles(
             model, text, MagicMock(), ["Heading1"],
         )
     apply.assert_not_called()
@@ -730,9 +771,9 @@ def test_deletion_author_noop_when_review_authors_missing(monkeypatch):
     ],
 )
 def test_styled_div_is_a_slot_and_plain_div_is_not(value, value_2):
-    from plugin.writer.html_import_styles import _extract_block_lo_styles
+    from plugin.writer.html_import_styles import extract_block_lo_styles
 
-    _clean, styles, _paras, _skipped = _extract_block_lo_styles(
+    _clean, styles, _paras, _skipped = extract_block_lo_styles(
         value)
     assert styles == ["Standard", value_2]
 
@@ -746,7 +787,7 @@ def test_parse_data_lo_para_text_align_center():
 
 
 def test_apply_block_lo_styles_returns_failures():
-    """_apply_block_lo_styles returns property names for dropped, failed, or unreached slots."""
+    """apply_block_lo_styles returns property names for dropped, failed, or unreached slots."""
     from unittest.mock import MagicMock
     from plugin.writer import html_import_styles
 
@@ -765,7 +806,7 @@ def test_apply_block_lo_styles_returns_failures():
     para_cur.createEnumeration.return_value.nextElement.return_value = para_el
     text.createTextCursorByRange.side_effect = [walk_cur, para_cur]
 
-    failed = html_import_styles._apply_block_lo_styles(
+    failed = html_import_styles.apply_block_lo_styles(
         model,
         text,
         MagicMock(),
@@ -894,7 +935,7 @@ def test_round_trip_read_fodt_autostyle_value():
     assert dropped == []
 
     html = f'<p data-lo-para="{emitted}">Clause text</p>'
-    clean, styles, paras, skipped = html_import_styles._extract_block_lo_styles(html)
+    clean, styles, paras, skipped = html_import_styles.extract_block_lo_styles(html)
     assert clean == "<p>Clause text</p>"
     assert paras == [emitted]
 
@@ -911,7 +952,7 @@ def test_round_trip_read_fodt_autostyle_value():
     para_cur = MagicMock()
     text.createTextCursorByRange.side_effect = [walk_cur, para_cur]
 
-    failed = html_import_styles._apply_block_lo_styles(
+    failed = html_import_styles.apply_block_lo_styles(
         model, text, MagicMock(), styles, paras=paras
     )
     assert failed == []
@@ -948,7 +989,7 @@ def test_apply_block_lo_styles_background_color_sets_fill_properties_on_paragrap
 
     solid_style, _none_style = html_import_styles._get_fill_style_enums()
 
-    failed = html_import_styles._apply_block_lo_styles(
+    failed = html_import_styles.apply_block_lo_styles(
         model, text, MagicMock(), [None], paras=["background-color:#ffe4c4"]
     )
     assert failed == []
@@ -987,7 +1028,7 @@ def test_apply_block_lo_styles_background_color_transparent_sets_fill_none():
 
     _solid_style, none_style = html_import_styles._get_fill_style_enums()
 
-    failed = html_import_styles._apply_block_lo_styles(
+    failed = html_import_styles.apply_block_lo_styles(
         model, text, MagicMock(), [None], paras=["background-color:transparent"]
     )
     assert failed == []
@@ -1015,7 +1056,7 @@ def test_apply_block_lo_styles_background_color_missing_para_obj_fails():
     # The paragraph cursor enumerates nothing, so there is no paragraph to format.
     para_cur.createEnumeration.return_value.hasMoreElements.return_value = False
 
-    failed = html_import_styles._apply_block_lo_styles(
+    failed = html_import_styles.apply_block_lo_styles(
         model, text, MagicMock(), [None], paras=["background-color:#ffe4c4"]
     )
     assert failed == ["background-color"]
@@ -1065,13 +1106,13 @@ def test_parse_data_lo_para_duplicate_properties_keeps_first():
 
 
 def test_extractor_handles_data_lo_para():
-    from plugin.writer.html_import_styles import _extract_block_lo_styles
+    from plugin.writer.html_import_styles import extract_block_lo_styles
 
     html = ('<blockquote data-lo-style="Quotations">'
             '<p data-lo-para="margin-left:1cm">Indented quote</p>'
             '</blockquote>'
             '<p data-lo-para="text-align:right">Only para</p>')
-    clean, styles, paras, skipped = _extract_block_lo_styles(html)
+    clean, styles, paras, skipped = extract_block_lo_styles(html)
     assert "data-lo-para" not in clean
     assert "data-lo-style" not in clean
     assert styles == ["Quotations", None]
@@ -1400,7 +1441,7 @@ def test_apply_block_lo_styles_cursor_walk_no_prefix_enumeration():
     text.createTextCursorByRange.return_value = walk_cur
     walk_cur.gotoNextParagraph.return_value = False
 
-    html_import_styles._apply_block_lo_styles(MagicMock(), text, cur, ["Heading1"])
+    html_import_styles.apply_block_lo_styles(MagicMock(), text, cur, ["Heading1"])
 
     assert len(next_calls) == 0, "createEnumeration should not be called when cursor is provided"
     walk_cur.gotoStartOfParagraph.assert_called_once_with(False)
@@ -1411,7 +1452,7 @@ def test_styled_insert_propagates_style_pass_failure():
 
     cursor = MagicMock()
     cursor.getText.return_value.createTextCursor.return_value.getString.return_value = ""
-    with patch.object(html_import_styles, "_apply_block_lo_styles", side_effect=RuntimeError("style")), \
+    with patch.object(html_import_styles, "apply_block_lo_styles", side_effect=RuntimeError("style")), \
          patch.object(html_import, "insert_html_fragment_at_cursor"):
         with pytest.raises(RuntimeError, match="style"):
             html_import._insert_mixed_or_plain_html(
@@ -1660,7 +1701,7 @@ def test_styled_math_insert_styles_from_paragraph_before_insert():
     with patch.object(html_import, "_insert_mixed_html_and_math_at_cursor"), \
          patch.object(html_import, "_paragraph_before", return_value=before) as pb, \
          patch.object(html_import, "_paragraph_after", return_value=start) as pa, \
-         patch.object(html_import_styles, "_apply_block_lo_styles") as apply:
+         patch.object(html_import_styles, "apply_block_lo_styles") as apply:
         html_import._insert_mixed_or_plain_html(
             MagicMock(), MagicMock(), cursor,
             '<p data-lo-style="Heading1">Equation \\(x^2\\) here</p>',
@@ -1813,7 +1854,7 @@ def test_styled_insert_epilogue_cursor_move():
     cursor_text.createTextCursorByRange.return_value = parked
 
     with patch.object(html_import, "_insert_starwriter_html_at_cursor"), \
-         patch("plugin.writer.html_import_styles._apply_block_lo_styles"), \
+         patch("plugin.writer.html_import_styles.apply_block_lo_styles"), \
          patch.object(html_import, "_apply_ruby_and_restore_fields"):
         html_import._insert_mixed_or_plain_html(
             model, MagicMock(), cursor,

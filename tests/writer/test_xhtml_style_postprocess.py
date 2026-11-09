@@ -259,8 +259,8 @@ def test_quoted_style_name_emits_well_formed_data_lo_style():
     )
     out = xhtml_to_semantic_html(inp)
     assert 'data-lo-style="A&quot;B&quot;"' in out
-    from plugin.writer.html_import_styles import _extract_block_lo_styles
-    assert _extract_block_lo_styles(out)[1] == ['A"B"']
+    from plugin.writer.html_import_styles import extract_block_lo_styles
+    assert extract_block_lo_styles(out)[1] == ['A"B"']
 
 
 # --- Issue 2: token collision (two styles compacting to the same token) -------

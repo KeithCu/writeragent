@@ -922,7 +922,9 @@ class PageSetHeaderFooterText(ToolWriterPageBase):
         "page-number fields survive — the same StarWriter import as apply_document_content, "
         "pointed at the region's XText. Call page_get_header_footer_text first and edit "
         "that HTML. Enables the region if it is off. Pass auto_height=true so a taller "
-        "letterhead grows instead of overlapping the body. Plain text is wrapped as a "
+        "letterhead grows instead of overlapping the body. data-lo-style and data-lo-para "
+        "from the read are applied as in a full_document write; properties that were not "
+        "applied come back in warnings. Plain text is wrapped as a "
         "paragraph and still goes through import. A _first or _left region that only mirrors "
         "the shared header or footer is skipped; edit header/footer or turn sharing off. "
         "To change one substring and leave fields and floating graphics alone, use "
@@ -960,6 +962,7 @@ class PageSetHeaderFooterText(ToolWriterPageBase):
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         from .html_import import replace_xtext_with_html
+        from .html_import_styles import attach_para_warnings
 
         style_name = kwargs.get("style", "Standard")
         region = kwargs["region"]
@@ -998,7 +1001,7 @@ class PageSetHeaderFooterText(ToolWriterPageBase):
             if not text_obj:
                 raise RuntimeError(f"Could not retrieve text object for {region} on style '{style_name}'.")
 
-            replace_xtext_with_html(
+            unapplied = replace_xtext_with_html(
                 text_obj, content, model=ctx.doc,
             )
             result: dict[str, Any] = {
@@ -1011,7 +1014,7 @@ class PageSetHeaderFooterText(ToolWriterPageBase):
             if auto_height is not None:
                 result["auto_height"] = bool(auto_height)
             flag_style_unreviewed(result)
-            return result
+            return attach_para_warnings(result, unapplied)
         except Exception as e:
             if is_disposal(e):
                 raise

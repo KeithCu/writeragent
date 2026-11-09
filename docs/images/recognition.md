@@ -1105,7 +1105,7 @@ Only if inline HTML + tables still collapse in Writer:
 
 | Option | Pros | Cons |
 |--------|------|------|
-| **`data-lo-style` + post-apply** ([`format.py`](../../plugin/writer/format.py) `_apply_block_lo_styles`) | Native Heading 1/2 styles | Today `insert_content_at_position` uses `apply_styles=False` beside selection to avoid corrupting neighbor paragraphs — needs **vision-only** insert helper |
+| **`data-lo-style` + post-apply** ([`format.py`](../../plugin/writer/format.py) `apply_block_lo_styles`) | Native Heading 1/2 styles | Today `insert_content_at_position` uses `apply_styles=False` beside selection to avoid corrupting neighbor paragraphs — needs **vision-only** insert helper |
 | **XHTML import path** | Preserves class/style model on read path | Write path untested for vision; spike 0b |
 | **Writer text frames** ([`plugin/writer/shapes.py`](../../plugin/writer/shapes.py) patterns) | True positioned columns | Heavy UNO; Calc egress differs; Draw/Impress separate |
 | **Insert as ODT fragment** | Full layout control | Largest scope; new filter/temp-doc dance |

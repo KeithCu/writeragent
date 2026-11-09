@@ -59,6 +59,7 @@ from plugin.framework.errors import (
 )
 from plugin.framework.json_utils import safe_json_loads
 from plugin.writer import search as search_mod
+from plugin.writer import html_import_styles
 from plugin.writer.hyperlink_fixup import (
     OutlineSnapshot,
     capture_outline_hyperlinks,
@@ -315,17 +316,6 @@ def _find_ranges(
 # ------------------------------------------------------------------
 # ApplyDocumentContent
 # ------------------------------------------------------------------
-
-
-def _attach_para_warnings(result: dict[str, Any], unapplied: list[str]) -> dict[str, Any]:
-    """Attach warnings for unapplied data-lo-para properties on a successful edit result."""
-    if not unapplied or result.get("status") != "ok":
-        return result
-    deduped = list(dict.fromkeys(unapplied))
-    result["warnings"] = [
-        f"data-lo-para property '{name}' was not applied" for name in deduped
-    ]
-    return result
 
 
 def _attach_style_notes(result: dict[str, Any], notes: list[str], *, total_matches: int = 1) -> dict[str, Any]:
@@ -1352,7 +1342,7 @@ class ApplyDocumentContent(ToolBase):
             "paragraph_count": summary["paragraph_count"],
             "headings": summary["headings"],
         }
-        return _attach_para_warnings(res, failed)
+        return html_import_styles.attach_para_warnings(res, failed)
 
     def _edit_insert_at(
         self, ctx: ToolContext, session: EditReviewSession, params: EditParams,
@@ -1378,7 +1368,7 @@ class ApplyDocumentContent(ToolBase):
             anchor = collapsed_anchor(ctx.doc.getText().getStart())
         res = attach_edited_context(
             {"status": "ok", "message": msg}, anchor)
-        return _attach_para_warnings(res, failed)
+        return html_import_styles.attach_para_warnings(res, failed)
 
     def _edit_selection(
         self, ctx: ToolContext, session: EditReviewSession, params: EditParams,
@@ -1408,7 +1398,7 @@ class ApplyDocumentContent(ToolBase):
             from . import html_import_styles
 
             unapplied = html_import_styles.unapplied_para_names_for_content(content)
-            res = _attach_para_warnings(res, unapplied)
+            res = html_import_styles.attach_para_warnings(res, unapplied)
         return res
 
 
@@ -1612,10 +1602,8 @@ class ApplyDocumentContent(ToolBase):
                 res = self._edit_replace_one(ctx, session, params, found)
 
         if res.get("status") == "ok" and "data-lo-para" in params.content:
-            from . import html_import_styles
-
             unapplied = html_import_styles.unapplied_para_names_for_content(params.content)
-            return _attach_para_warnings(res, unapplied)
+            return html_import_styles.attach_para_warnings(res, unapplied)
         return res
 
     def _edit_insert_next_to_match(

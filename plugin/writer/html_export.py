@@ -410,9 +410,10 @@ def _range_to_content_via_temp_doc(
                     trim_end = len(para_text) - max(0, para_end - end)
                     para_text = para_text[trim_start:trim_end]
 
+            applied = False
             if first_para:
                 temp_cursor.gotoStart(False)
-                range_copy.apply_temp_para_style(temp_doc, temp_cursor, style)
+                applied = range_copy.apply_temp_para_style(temp_doc, temp_cursor, style)
                 first_para = False
             else:
                 temp_cursor.gotoEnd(False)
@@ -422,12 +423,12 @@ def _range_to_content_via_temp_doc(
                 # clobbers the previous paragraph instead of filling the new one.
                 temp_cursor.gotoNextParagraph(False)
                 temp_cursor.gotoEndOfParagraph(True)
-                range_copy.apply_temp_para_style(temp_doc, temp_cursor, style)
+                applied = range_copy.apply_temp_para_style(temp_doc, temp_cursor, style)
 
             if not has_formula:
                 temp_cursor.setString(para_text)
-                range_copy._paint_direct_formatting(el, portions, temp_text, trim_start, trim_end,
-                                          range_copy.source_style(model, style, style_cache))
+                src_style = range_copy.source_style(model, style, style_cache) if applied else None
+                range_copy._paint_direct_formatting(el, portions, temp_text, trim_start, trim_end, src_style)
             else:
                 # Standalone formula: paragraph has no other visible text
                 display_block = not any(

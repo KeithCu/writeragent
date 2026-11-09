@@ -36,3 +36,28 @@ def test_copy_cell_xtext_copies_direct_char_formatting() -> None:
 
     assert [call.args[2] for call in copy_props.call_args_list] == [rc._COPIED_CHAR_PROPERTIES]
     math_or_text.assert_not_called()
+
+
+def test_apply_temp_para_style_returns_bool_status() -> None:
+    temp_doc = MagicMock()
+    temp_cursor = MagicMock()
+    families = temp_doc.getStyleFamilies.return_value
+    para_styles = families.getByName.return_value
+
+    # Empty style returns False
+    assert rc.apply_temp_para_style(temp_doc, temp_cursor, "") is False
+    temp_cursor.setPropertyValue.assert_not_called()
+
+    # Style missing in temp doc returns False
+    para_styles.hasByName.return_value = False
+    assert rc.apply_temp_para_style(temp_doc, temp_cursor, "CustomStyle") is False
+    temp_cursor.setPropertyValue.assert_not_called()
+
+    # Style present in temp doc applies and returns True
+    para_styles.hasByName.return_value = True
+    assert rc.apply_temp_para_style(temp_doc, temp_cursor, "Header") is True
+    temp_cursor.setPropertyValue.assert_called_once_with("ParaStyleName", "Header")
+
+    # Exception during setPropertyValue returns False
+    temp_cursor.setPropertyValue.side_effect = RuntimeError("fail")
+    assert rc.apply_temp_para_style(temp_doc, temp_cursor, "Header") is False
