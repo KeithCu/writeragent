@@ -336,7 +336,7 @@ class AnthropicShim(BaseProviderShim):
         *,
         cache_session_id: str | None = None,
     ) -> tuple[str, str, bytes, dict[str, str]]:
-        # Anthropic Messages has no session_id field; cache breakpoints stay annotate_anthropic_cache.
+        # Anthropic Messages has no routing-key field; prompt caching there is the `cache_control` marker from `annotate_anthropic_cache`.
         del cache_session_id
         endpoint = self.client._endpoint()
         url = f"{endpoint}/v1/messages"

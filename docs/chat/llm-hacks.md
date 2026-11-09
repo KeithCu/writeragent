@@ -211,7 +211,9 @@ Tests: [`tests/framework/test_client_llm.py`](../../tests/framework/test_client_
 Anthropic Messages has no session routing key (cache breakpoints use `cache_control` blocks via `annotate_anthropic_cache`), and every unnamed host (`google`, `groq`, `ollama`, `together`, `mistral`, `custom`) gets nothing to avoid HTTP 400 rejection on unknown fields. Non-chat requests (compaction, smol, grammar, images, web research, forms, `=PROMPT()`) do not send it.
 
 **Workaround** ([`cache_route`](../../plugin/framework/client/base_provider_shim.py)):
-`ChatSession.session_id` is passed as `cache_session_id` during tool-loop and final stream requests, applying provider-specific body fields or headers without altering message history or system prompt text.
+`ChatSession.session_id` is passed as `cache_session_id` during tool-loop and final stream requests, applying provider-specific body fields or headers without altering message history or system prompt text. The chat session id overrides any `session_id` in the model's extra JSON, on purpose, so every turn of one chat keeps the same routing key. All librarian chats share [`LIBRARIAN_HISTORY_SESSION_ID`](../../plugin/chatbot/chat_sidebar_mode.py), which is harmless at one user's request rate.
+
+See also: [chat-prompt-caching.md](chat-prompt-caching.md) (document-snapshot layout and Anthropic `cache_control` markers).
 
 Tests: [`tests/framework/client/test_openai_shim.py`](../../tests/framework/client/test_openai_shim.py), [`tests/framework/client/test_anthropic_shim.py`](../../tests/framework/client/test_anthropic_shim.py), [`tests/chatbot/test_tool_loop_errors.py`](../../tests/chatbot/test_tool_loop_errors.py).
 

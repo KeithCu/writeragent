@@ -195,14 +195,13 @@ def cache_route(provider: str, session_id: str | None) -> tuple[dict[str, Any], 
     token = session_id.strip()
     if not token:
         return {}, {}
-    prov = str(provider or "").strip().lower()
-    if prov == "openrouter":
+    if provider == "openrouter":
         return {"session_id": token[:256]}, {}
-    if prov == "openai":
+    if provider == "openai":
         return {"prompt_cache_key": token}, {}
-    if prov == "cerebras":
+    if provider == "cerebras":
         return {"prompt_cache_key": token[:1024]}, {}
-    if prov == "xai":
+    if provider == "xai":
         if all(32 <= ord(c) <= 126 for c in token):
             return {}, {"x-grok-conv-id": token}
         return {}, {}

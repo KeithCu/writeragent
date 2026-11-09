@@ -303,6 +303,7 @@ def test_openai_tool_choice():
 
 
 def test_cache_route_openrouter_body_session_id():
+    # Chat session id overrides a user-set session_id in chat_extra (see llm-hacks §13).
     client = _DummyClient(provider="openrouter")
     shim = OpenRouterShim(client)
     _method, _url, body, headers = shim.build_chat_request(
