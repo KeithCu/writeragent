@@ -302,28 +302,14 @@ def _find_ranges(
 # ------------------------------------------------------------------
 
 
-# get_document_content reports a paragraph's hand-set formatting as data-lo-para. It is a read
-# report, not an instruction: the import path cannot restore Para* when applying a named style,
-# so the attribute is dropped. Say so instead of accepting it and doing nothing — a silent no-op
-# is exactly the failure this tool's callers get bitten by.
-_READ_ONLY_ATTR = "data-lo-para"
-# Attribute assignment on a start tag — not body text that happens to mention the name.
-_READ_ONLY_ATTR_RE = re.compile(r"""<[A-Za-z][^>]*\bdata-lo-para\s*=""", re.IGNORECASE)
-
-
-def _note_read_only_attrs(result: Any, content: Any) -> dict[str, Any]:
-    """Flag a successful write whose content carried the read-only ``data-lo-para``."""
-    if not isinstance(result, dict) or result.get("status") != "ok":
+def _attach_para_warnings(result: dict[str, Any], unapplied: list[str]) -> dict[str, Any]:
+    """Attach warnings for unapplied data-lo-para properties on a successful edit result."""
+    if not unapplied or result.get("status") != "ok":
         return result
-    items = content if isinstance(content, (list, tuple)) else [content]
-    if not any(isinstance(item, str) and _READ_ONLY_ATTR_RE.search(item) for item in items):
-        return result
-    result = dict(result)
-    result["ignored_attributes"] = [_READ_ONLY_ATTR]
-    result["message"] = (result.get("message") or "") + (
-        " Note: %s in the content was ignored — it is a read-only report of a paragraph's hand-set"
-        " formatting. To change an indent or a font, apply a named style (apply_style;"
-        " default clear_direct lets the style's font and size show)." % _READ_ONLY_ATTR)
+    deduped = list(dict.fromkeys(unapplied))
+    result["warnings"] = [
+        f"data-lo-para property '{name}' was not applied" for name in deduped
+    ]
     return result
 
 
@@ -411,9 +397,10 @@ class ApplyDocumentContent(ToolBase):
         "Use target='search' with old_content for find-and-replace of a specific substring only. "
         "An empty replacement that removes the last text in a table deletes that table. "
         "Clearing one cell while another cell still has text leaves the table in place. "
-        "Search occurrence is 0-based over replaceable body/table/frame matches only "
-        "(not dry_run shape/comment rows); omit it for first-match; do not combine with all_matches=true. "
-        "dry_run tags those replaceable rows with occurrence so you can pass the index back. "
+        "Search occurrence is 0-based over body, table, and frame matches; omit it for first-match; "
+        "do not combine with all_matches=true. "
+        "dry_run returns replaceable (each row's occurrence is that index) and not_replaceable "
+        "(shapes and comments, no occurrence). "
         "An outline hyperlink (#…|outline) covering a replaced match is updated when the "
         "matched text occurs once in the target outside that suffix; pass hyperlink_url "
         "to set a different target on that one link, including when content equals "
@@ -426,14 +413,14 @@ class ApplyDocumentContent(ToolBase):
             "target": enum_param(INSERT_TARGETS, "Where to apply the content."),
             "old_content": {"type": "string", "description": ("Substring to find when target='search'. Not for whole-document replace — use target='full_document' instead.")},
             "all_matches": {"type": "boolean", "description": "Replace all occurrences (true) or first only. Default false. Only for target='search' with position='replace'."},
-            "occurrence": {"type": "integer", "minimum": 0, "description": ("For target='search': 0-based index into replaceable Writer text matches (body/table/frame), not dry_run shape/comment rows. Omit for the existing first-match behavior. Cannot be combined with all_matches=true.")},
+            "occurrence": {"type": "integer", "minimum": 0, "description": ("For target='search': 0-based index over body, table, and frame matches (dry_run replaceable rows show the first ones; replaceable_count is the full range). not_replaceable rows have no occurrence. Omit for first match. Rejected with all_matches=true.")},
             "position": enum_param(
                 ["replace", "before", "after"],
                 (
                     "For target='search': 'replace' (default) replaces the match; 'before'/'after' INSERT the content next to the match and leave the matched text untouched (result reports inserted=true instead of replaced_count). Inline content (plain text, <b>, <i>, ...) goes at the exact match edge; block content (<p>, headings, lists, tables) goes before/after the whole paragraph that holds the match (result reports snapped_to_paragraph=true when that moved it)."
                 ),
             ),
-            "dry_run": {"type": "boolean", "description": "For target='search': do NOT edit. Return replaceable matches (each tagged with occurrence) plus shape/comment previews, so you can check before committing."},
+            "dry_run": {"type": "boolean", "description": "For target='search': do NOT edit. Return replaceable and not_replaceable."},
             "regex": {"type": "boolean", "description": "For target='search': treat old_content as a regular expression (default false = literal). Regex mode is single-paragraph (no cross-paragraph chaining)."},
             "case_sensitive": {"type": "boolean", "description": "For target='search': force case-sensitive (true) or case-insensitive (false) matching. Omit for the default lenient match."},
             "hyperlink_url": {"type": "string", "description": ("For target='search' with position='replace', when the match overlaps exactly one outline hyperlink (#…|outline): set this exact URL instead of substituting the matched text. content may equal old_content when the visible title is already correct and only the URL is stale. Omit it to update that target when the matched text occurs once outside the |outline suffix. Rejected with all_matches=true, with position='before'/'after', and when the match is not exactly one outline link. Bookmark targets are never rewritten.")},
@@ -819,7 +806,7 @@ class ApplyDocumentContent(ToolBase):
             log.exception("apply_document_content dry_run search failed")
             return self._tool_error("dry_run search failed: %s" % e, code="SEARCH_FAILED")
         labeler = search_mod.LocationLabeler(ctx.doc)
-        matches = []
+        replaceable: list[dict[str, Any]] = []
 
         @functools.cache
         def _plain() -> str:
@@ -836,8 +823,9 @@ class ApplyDocumentContent(ToolBase):
                 text = ""
             return loc, text
 
-        # occurrence indexes replaceable body/table/frame ranges only — not the
-        # mixed matches[] list, which also appends shape/comment previews.
+        # occurrence is the index into the same body, table, and frame ranges the
+        # edit path uses. Shape and comment previews sit in not_replaceable, so a
+        # position in that list is not an occurrence.
         for idx, found in enumerate(ranges[:search_mod.DEFAULT_SEARCH_RESULTS]):
             loc, text = _match_snippet(found)
             row = {"occurrence": idx, "location": loc, "text": text}
@@ -849,29 +837,35 @@ class ApplyDocumentContent(ToolBase):
                 if outline_err:
                     return outline_err
                 row.update(fields)
-            matches.append(row)
+            replaceable.append(row)
         shape_hits = search_mod.sweep_draw_shape_preview_matches(ctx.doc, pattern, regex, cs, limit=search_mod.MAX_SEARCH_HITS)
         comment_hits = search_mod.sweep_comment_preview_matches(ctx.doc, pattern, regex, cs, limit=search_mod.MAX_SEARCH_HITS)
+        not_replaceable: list[dict[str, Any]] = []
         for item in shape_hits + comment_hits:
-            if len(matches) < search_mod.DEFAULT_SEARCH_RESULTS:
-                matches.append({"location": item["location"], "text": item["text"][:160]})
+            if len(replaceable) + len(not_replaceable) >= search_mod.DEFAULT_SEARCH_RESULTS:
+                break
+            not_replaceable.append({"location": item["location"], "text": item["text"][:160]})
         total = len(ranges) + len(shape_hits) + len(comment_hits)
         if occurrence is not None and ranges and occurrence >= len(ranges):
             return self._occurrence_oor(
                 occurrence, len(ranges),
                 replaceable_count=len(ranges),
-                matches=matches,
+                replaceable=replaceable,
+                not_replaceable=not_replaceable,
             )
         result: dict[str, object] = {
             "status": "ok",
             "dry_run": True,
             "count": total,
             "replaceable_count": len(ranges),
-            "matches": matches,
+            "replaceable": replaceable,
+            "not_replaceable": not_replaceable,
             "edit_reach_note": (
-                "dry_run counts body/table/frame matches the edit path can replace, plus drawing shapes "
-                "and comments (search_in_document uses the same split; only floating shapes are editable "
-                "in review-off mode or via the shapes toolset)."),
+                "count includes body, table, frame, shapes, and comments. replaceable is the edit-path preview. "
+                "replaceable_count is the full index space and can exceed the preview. not_replaceable is the "
+                "shape and comment preview. search_in_document uses the same split. Only floating shapes are "
+                "editable in review-off mode or via the shapes toolset."
+            ),
         }
         if occurrence is not None and ranges:
             selected = ranges[occurrence]
@@ -896,9 +890,7 @@ class ApplyDocumentContent(ToolBase):
             log.exception("apply_document_content: review session cleanup failed")
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        # Thin wrapper so every return path gets the read-only-attribute note, including the
-        # review-wait branch that does not go through annotate_review_status.
-        return _note_read_only_attrs(self._execute(ctx, **kwargs), kwargs.get("content"))
+        return self._execute(ctx, **kwargs)
 
     def _execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         on_main = main.is_current()
@@ -1141,36 +1133,21 @@ class ApplyDocumentContent(ToolBase):
         has_table = params.has_table
         with session:
             # Delete-then-import: make it atomic so a failed import can't strand a cleared document.
-            dropped = record_html_atomically(
+            failed = record_html_atomically(
                 session, ctx.doc,
                 lambda: format_support.replace_full_document(ctx.doc, ctx.ctx, content),
-                proposed_preview=plain)
+                proposed_preview=plain) or []
         err = self._table_insert_error(ctx.doc, has_table, None)
         if err:
             return err
-        drop_tokens = frozenset(token for token, reason in dropped if reason in ("ambiguous", "unknown", "failed"))
-        summary = html_import_styles.summarize_written_blocks(content, drop_heading_styles=drop_tokens)
-        result: dict[str, Any] = {
+        summary = html_import_styles.summarize_written_blocks(content)
+        res: dict[str, Any] = {
             "status": "ok",
             "message": "Replaced entire document.",
             "paragraph_count": summary["paragraph_count"],
             "headings": summary["headings"],
         }
-        warnings: list[str] = []
-        for token, reason in dropped:
-            if reason == "ambiguous":
-                warnings.append(
-                    f"data-lo-style {token!r} matches more than one paragraph style; those blocks were set to Standard."
-                )
-            elif reason == "unknown":
-                warnings.append(
-                    f"data-lo-style {token!r} is not a paragraph style in this document; those blocks were set to Standard."
-                )
-            elif reason == "failed":
-                warnings.append(f"data-lo-style {token!r} could not be applied.")
-        if warnings:
-            result["warnings"] = warnings
-        return result
+        return _attach_para_warnings(res, failed)
 
     def _edit_insert_at(
         self, ctx: ToolContext, session: EditReviewSession, params: EditParams,
@@ -1182,9 +1159,9 @@ class ApplyDocumentContent(ToolBase):
         target = params.target
         tables_before = _doc_table_count(ctx.doc) if has_table else None
         with session:
-            session.record_mutation(
+            failed = session.record_mutation(
                 lambda: format_support.insert_content_at_position(ctx.doc, ctx.ctx, content, target),
-                proposed_preview=plain)
+                proposed_preview=plain) or []
         err = self._table_insert_error(ctx.doc, has_table, tables_before)
         if err:
             return err
@@ -1194,8 +1171,9 @@ class ApplyDocumentContent(ToolBase):
         else:
             msg = "Inserted content at beginning."
             anchor = collapsed_anchor(ctx.doc.getText().getStart())
-        return attach_edited_context(
+        res = attach_edited_context(
             {"status": "ok", "message": msg}, anchor)
+        return _attach_para_warnings(res, failed)
 
     def _edit_selection(
         self, ctx: ToolContext, session: EditReviewSession, params: EditParams,
@@ -1210,15 +1188,16 @@ class ApplyDocumentContent(ToolBase):
         tables_before = _doc_table_count(ctx.doc) if has_table else None
         with session:
             # Selection insert clears the selection first, then imports -> atomic (full_document above).
-            record_html_atomically(
+            failed = record_html_atomically(
                 session, ctx.doc,
                 lambda: format_support.insert_content_at_position(ctx.doc, ctx.ctx, content, "selection"),
-                proposed_preview=plain)
+                proposed_preview=plain) or []
         err = self._table_insert_error(ctx.doc, has_table, tables_before)
         if err:
             return err
-        return attach_edited_context(
+        res = attach_edited_context(
             {"status": "ok", "message": "Inserted content at selection."}, anchor)
+        return _attach_para_warnings(res, failed)
 
 
     def _edit_replace_all(
@@ -1345,26 +1324,35 @@ class ApplyDocumentContent(ToolBase):
         self, ctx: ToolContext, session: EditReviewSession, params: EditParams,
     ) -> dict[str, Any]:
         if params.all_matches:
-            return self._edit_replace_all(ctx, session, params)
-        doc = ctx.doc
-        if params.occurrence is not None:
-            # Index the same replaceable list the edit path uses. Empty ranges fall
-            # through to the existing miss / drawing-shape path (models often send 0).
-            ranges = _find_ranges(
-                doc, params.pattern, params.regex, params.case_sensitive, params.use_opts, all_matches=True)
-            if ranges and params.occurrence >= len(ranges):
-                return self._occurrence_oor(params.occurrence, len(ranges))
-            found = ranges[params.occurrence] if ranges else None
+            res = self._edit_replace_all(ctx, session, params)
         else:
-            found = _find_ranges(
-                doc, params.pattern, params.regex, params.case_sensitive, params.use_opts, all_matches=False)
-        if found is None:
-            return self._finish_search_miss(
-                doc, params.search_string, params.pattern, params.regex, params.case_sensitive,
-                params.track_reviewable, params.plain, all_matches=False)
-        if params.position in ("before", "after"):
-            return self._edit_insert_next_to_match(ctx, session, params, found)
-        return self._edit_replace_one(ctx, session, params, found)
+            doc = ctx.doc
+            if params.occurrence is not None:
+                # Index the same replaceable list the edit path uses. Empty ranges fall
+                # through to the existing miss / drawing-shape path (models often send 0).
+                ranges = _find_ranges(
+                    doc, params.pattern, params.regex, params.case_sensitive, params.use_opts, all_matches=True)
+                if ranges and params.occurrence >= len(ranges):
+                    return self._occurrence_oor(params.occurrence, len(ranges))
+                found = ranges[params.occurrence] if ranges else None
+            else:
+                found = _find_ranges(
+                    doc, params.pattern, params.regex, params.case_sensitive, params.use_opts, all_matches=False)
+            if found is None:
+                return self._finish_search_miss(
+                    doc, params.search_string, params.pattern, params.regex, params.case_sensitive,
+                    params.track_reviewable, params.plain, all_matches=False)
+            if params.position in ("before", "after"):
+                res = self._edit_insert_next_to_match(ctx, session, params, found)
+            else:
+                res = self._edit_replace_one(ctx, session, params, found)
+
+        if res.get("status") == "ok" and "data-lo-para" in params.content:
+            from . import html_import_styles
+
+            unapplied = html_import_styles.unapplied_para_names_for_content(params.content)
+            return _attach_para_warnings(res, unapplied)
+        return res
 
     def _edit_insert_next_to_match(
         self, ctx: ToolContext, session: EditReviewSession, params: EditParams, found: Any,

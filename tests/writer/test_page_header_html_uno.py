@@ -300,6 +300,43 @@ def test_search_still_reaches_header_after_html_set(ctx, doc):
 
 @native_test
 @with_native_doc("writer")
+def test_apply_document_content_search_reaches_header_uno(ctx, doc):
+    """Verify ApplyDocumentContent search reaches and updates header text in place while leaving body text untouched."""
+    # findFirst only searches headers of in-use page styles. Pin the body to
+    # Standard so the header style matches the active page style.
+    try:
+        body = doc.getText().createTextCursor()
+        body.gotoStart(False)
+        body.gotoEnd(True)
+        body.setPropertyValue("PageDescName", "Standard")
+    except Exception:
+        pass
+    token = "UniqueHeaderTokenXYZ4230"
+    applied = _set(doc, ctx, "header", "<p>%s</p>" % token)
+    assert applied["status"] == "ok"
+
+    from plugin.framework.uno_context import process_events_to_idle
+
+    process_events_to_idle(ctx, force=True)
+
+    initial_body = doc.getText().getString()
+
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+
+    res = ApplyDocumentContent().execute(
+        _tool_ctx(doc, ctx),
+        target="search",
+        old_content=token,
+        content="<p>New</p>",
+    )
+    assert res.get("status") == "ok", res
+    assert "New" in _region_text(doc, "header").getString()
+    assert token not in _region_text(doc, "header").getString()
+    assert doc.getText().getString() == initial_body
+
+
+@native_test
+@with_native_doc("writer")
 def test_set_header_first_does_not_write_shared_header_uno(ctx, doc):
     style, _name = _style(doc)
     style.setPropertyValue("HeaderIsOn", True)

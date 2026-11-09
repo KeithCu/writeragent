@@ -387,7 +387,7 @@ CONFIRM_EDITS_FROM_STRUCTURED_FIELDS = """- Confirm edits from structured fields
 TOOL_USAGE_PATTERNS = """TOOL USAGE PATTERNS:
 - Earlier document text may be a partial/truncated snapshot — call get_document_content before a targeted edit that needs the exact current text.
 - Successful apply_document_content returns edited_context (touched paragraphs plus neighbors; in record/wait including the pending change).
-  Use it to confirm placement instead of an immediate re-read; target='full_document' returns paragraph_count and headings, plus warnings when a data-lo-style token was not applied — trust those instead of reading the document back (table cells are not counted; this reflects the written HTML, not a second read).
+  Use it to confirm placement instead of an immediate re-read; target='full_document' returns paragraph_count and headings — trust those instead of reading the document back (table cells are not counted; this reflects the written HTML, not a second read).
 - apply_style is not a tracked change.
   If style_unreviewed=true, briefly tell the user you changed a style or page layout — they cannot accept/reject it like a text edit.
 - search_in_document is inspection/navigation (return_offsets if needed); replacements use apply_document_content with old_content.
@@ -408,16 +408,12 @@ WRITER_REVIEW_MODES_RULES = """TRACKED CHANGES / REVIEW MODES:
 
 # apply_document_content only — design notes in docs/chat/sidebar-implementation.md § Chat prompt constants and docs/writer/math-tex.md.
 APPLY_DOCUMENT_TARGET_RULES = """APPLY_DOCUMENT_CONTENT AND HTML (CRITICAL):
-- Required: `content` and `target`.
-  Targets: 'beginning', 'end', 'selection', 'full_document', 'search' (substring find/replace; also `old_content` as a **substring** — HTML in old_content is matched as plain text).
-- Local edits: target='search' + old_content. Rewrite/translation: target='full_document'.
-- **Never** pass the entire document as old_content — that is not supported and will fail search.
-- target='search': old_content may span paragraphs (newlines). First line may be a paragraph suffix, last a prefix; every middle line must equal a whole paragraph.
-  position='before'/'after' INSERTS next to the match and leaves it untouched — add a paragraph without re-sending the clause.
-- Reach: body, table cells, text frames, headers and footers.
+- target='search': old_content is a substring (HTML in old_content is matched as plain text) and may span paragraphs (newlines). First line may be a paragraph suffix, last a prefix; every middle line must equal a whole paragraph.
+  Do not pass the whole document as old_content — use target='full_document'.
+  position='before'/'after' inserts beside the match and leaves it untouched — do not re-send the matched clause.
+- Reach: body, table cells, and text frames. target='search' also edits headers and footers. beginning, end, and full_document write the body only.
   Floating drawing-shape text: in place only when review is off — in record/wait it cannot become a tracked change, so the tool routes you to the shapes domain.
-  Rich/block HTML in a table cell is not supported (clear error, document untouched); use plain text or inline tags.
-- Headers/footers: delegate_to_specialized_writer_toolset(domain="page", task=...)."""
+  Rich/block HTML in a table cell is not supported (clear error, document untouched); use plain text or inline tags."""
 
 SUB_AGENT_HTML_CONTENT_RULES = f"""- `content` is a JSON array of HTML strings (one fragment per heading/paragraph).
   We wrap in <html>/<body>.
@@ -427,15 +423,15 @@ SUB_AGENT_HTML_CONTENT_RULES = f"""- `content` is a JSON array of HTML strings (
   Do NOT write equations in plain text (avoid plain a/b, etc.).
   No $, $$, HTML-escaped math, or equation images.
 - Named styles: get_document_content marks each block `data-lo-style` = style name with spaces removed (`Heading 1`→`Heading1`).
-  Copy tokens exactly. Prefer named styles; unknown token → Standard (full_document lists that token in warnings).
+  Copy tokens exactly. Prefer named styles; unknown token → Standard.
   inline style="" is a character override on top of the named style.
   data-lo-style is honored on target='full_document', 'beginning', and 'end' (insert prep keeps neighbor text/styles untouched). On 'selection'/'search' it is still ignored (would restyle adjacent text; use apply_style or a full_document rewrite).
-  v1: whole-paragraph alignment/colour/margins and table-cell styles do not round-trip on write.
+  Four common data-lo-para properties (text-align, margin-left, margin-right, background-color) round-trip on full_document, beginning, and end; other properties arrive in warnings. Table-cell styles and selection/search do not apply data-lo-para.
 - Heading / TOC jumps: use <a href="#HeadingText|outline">…</a> (URL must end with |outline). A bare "#HeadingText" fragment is not a Writer outline link.
 - Fields: Writer fields are empty spans whose title is the field kind, e.g. <span title="page-number"/>. Same shape in body HTML and in headers/footers.
-- Hand-set formatting: `data-lo-para` (e.g. `data-lo-para="margin-left:3.25cm; font-size:12pt"`) reports what a paragraph has set directly. READ-ONLY — send it back and the result says it was ignored; it is how you tell a block quote from body text in a document formatted by hand. Reported on both scope='full' and scope='range'.
+- Hand-set formatting: `data-lo-para` (e.g. `data-lo-para="margin-left:3.25cm; font-size:12pt"`) reports what a paragraph has set directly. On write (full_document, beginning, end), text-align, margin-left, margin-right, and background-color are applied; other properties arrive in warnings. It is how you tell a block quote from body text in a document formatted by hand. Reported on both scope='full' and scope='range'.
   apply_style defaults to clear_direct='style_props': the style's font name/size and paragraph indents show; bold/italic/colour stay. Pass clear_direct='none' only to keep a hand-set font. clear_direct='all' is Ctrl+M (refused on target='full_document').
-  Re-applying a style does not keep a quote indent — LibreOffice drops direct Para* (margins/alignment) when ParaStyleName is set.
+  Re-applying a style via apply_style does not keep a quote indent — LibreOffice drops direct Para* (margins/alignment) when ParaStyleName is set.
 
 EXAMPLES:
 - Good: ["<h1>Title</h1>", "<p>Paragraph with <strong>bold</strong> text and \\"quotes\\".</p>"]

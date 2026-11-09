@@ -1,21 +1,27 @@
 import pytest
 import json
 from plugin.framework.client.base_provider_shim import BaseProviderShim
+from plugin.framework.client.grok_shim import GrokShim
 from plugin.framework.client.openai_shim import OpenAIShim, OpenRouterShim, get_provider_shim_class
 
 
 class _DummyClient:
-    def _get_provider(self):
-        return "openai"
+    def __init__(self, provider: str = "openai", headers: dict[str, str] | None = None, config: dict | None = None) -> None:
+        self._provider = provider
+        self._custom_headers = headers if headers is not None else {"Authorization": "Bearer test"}
+        self.config = config or {}
 
-    def _endpoint(self):
+    def _get_provider(self) -> str:
+        return self._provider
+
+    def _endpoint(self) -> str:
         return "http://test"
 
-    def _api_path(self):
+    def _api_path(self) -> str:
         return "/v1"
 
-    def _headers(self):
-        return {}
+    def _headers(self) -> dict[str, str]:
+        return dict(self._custom_headers)
 
 
 def test_openai_shim_build_image_request():
@@ -186,10 +192,13 @@ def test_openrouter_prompt_caching():
     assert "cache_control" not in data1  # Root JSON has no cache_control
 
     msgs1 = data1["messages"]
-    # Roles stay assistant, tool, tool (no trailing user message)
-    assert [m["role"] for m in msgs1] == ["assistant", "tool", "tool"]
+    # Roles become assistant, tool, tool, user (split snapshot onto trailing user message)
+    assert [m["role"] for m in msgs1] == ["assistant", "tool", "tool", "user"]
+    assert msgs1[0]["content"] == ""
     assert msgs1[1]["content"] == "res1"  # first tool unchanged
-    assert msgs1[2]["content"] == f"res2\n\n{snap}"
+    assert msgs1[2]["content"] == [{"type": "text", "text": "res2", "cache_control": {"type": "ephemeral"}}]
+    assert msgs1[3]["content"] == snap
+    assert json.dumps(data1).count("cache_control") == 1
 
     # 2. Same shim with openai/gpt-oss-120b: no cache_control anywhere
     _m, _url, body2, _h = shim.build_chat_request(
@@ -294,3 +303,229 @@ def test_openai_tool_choice():
     assert data_none["tool_choice"] == "none"
     assert data_none["parallel_tool_calls"] is False
     assert "tools" in data_none
+
+
+def test_openrouter_tool_round_splits_trailing_snapshot():
+    from plugin.framework.client.shim_helpers import snapshot_text
+
+    class DummyClient:
+        def _get_provider(self):
+            return "openrouter"
+
+        def _service_name(self):
+            return "openrouter"
+
+        def _endpoint(self):
+            return "http://test"
+
+        def _api_path(self):
+            return "/api/v1"
+
+        def _headers(self):
+            return {}
+
+    shim = OpenRouterShim(DummyClient())
+    snap = snapshot_text("Document text")
+    messages = [
+        {"role": "user", "content": "hello"},
+        {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [
+                {"id": "t1", "function": {"name": "f1", "arguments": "{}"}},
+                {"id": "t2", "function": {"name": "f2", "arguments": "{}"}},
+            ],
+        },
+        {"role": "tool", "tool_call_id": "t1", "content": "res1"},
+        {"role": "tool", "tool_call_id": "t2", "content": f"res2\n\n{snap}"},
+    ]
+
+    _m, _url, body, _h = shim.build_chat_request(
+        messages, 100, None, None, False, "anthropic/claude-sonnet-4.5", None
+    )
+    data = json.loads(body)
+    msgs = data["messages"]
+    assert msgs[0]["content"] == "hello"
+    assert msgs[1]["content"] == ""
+    assert msgs[2]["content"] == "res1"
+    assert msgs[3]["content"] == [{"type": "text", "text": "res2", "cache_control": {"type": "ephemeral"}}]
+    assert msgs[4]["role"] == "user"
+    assert msgs[4]["content"] == snap
+    assert json.dumps(data).count("cache_control") == 1
+
+
+def test_openrouter_single_tool_marks_tool_result():
+    from plugin.framework.client.shim_helpers import snapshot_text
+
+    class DummyClient:
+        def _get_provider(self):
+            return "openrouter"
+
+        def _service_name(self):
+            return "openrouter"
+
+        def _endpoint(self):
+            return "http://test"
+
+        def _api_path(self):
+            return "/api/v1"
+
+        def _headers(self):
+            return {}
+
+    shim = OpenRouterShim(DummyClient())
+    snap = snapshot_text("Document text")
+    messages = [
+        {"role": "user", "content": "hello"},
+        {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [
+                {"id": "t1", "function": {"name": "f1", "arguments": "{}"}},
+            ],
+        },
+        {"role": "tool", "tool_call_id": "t1", "content": f"res1\n\n{snap}"},
+    ]
+
+    _m, _url, body, _h = shim.build_chat_request(
+        messages, 100, None, None, False, "anthropic/claude-sonnet-4.5", None
+    )
+    data = json.loads(body)
+    msgs = data["messages"]
+    assert msgs[0]["content"] == "hello"
+    assert msgs[1]["content"] == ""
+    assert msgs[2]["content"] == [{"type": "text", "text": "res1", "cache_control": {"type": "ephemeral"}}]
+    assert msgs[3]["role"] == "user"
+    assert msgs[3]["content"] == snap
+    assert json.dumps(data).count("cache_control") == 1
+
+
+def test_cache_route_openrouter_body_session_id():
+    # Chat session id overrides a user-set session_id in chat_extra (see llm-hacks §13).
+    client = _DummyClient(provider="openrouter")
+    shim = OpenRouterShim(client)
+    _method, _url, body, headers = shim.build_chat_request(
+        [{"role": "user", "content": "hi"}],
+        100,
+        None,
+        None,
+        False,
+        "openai/gpt-oss-120b:nitro",
+        None,
+        chat_extra={"session_id": "user-set"},
+        cache_session_id="conv-1",
+    )
+    data = json.loads(body)
+    assert data.get("session_id") == "conv-1"
+    assert "prompt_cache_key" not in data
+    assert "x-session-id" not in headers
+    assert "x-grok-conv-id" not in headers
+
+
+def test_cache_route_openrouter_caps_at_256():
+    client = _DummyClient(provider="openrouter")
+    shim = OpenRouterShim(client)
+    long_id = "é" * 300
+    _method, _url, body, _headers = shim.build_chat_request(
+        [{"role": "user", "content": "hi"}], 100, None, None, False, "openai/gpt-oss-120b:nitro", None, cache_session_id=long_id
+    )
+    data = json.loads(body)
+    assert len(data.get("session_id", "")) == 256
+    assert data["session_id"] == ("é" * 256)
+
+    # Same id on anthropic/claude-sonnet-4.5 still sets body session_id (OpenRouter, not native Anthropic)
+    _method, _url, body2, _headers2 = shim.build_chat_request(
+        [{"role": "user", "content": "hi"}], 100, None, None, False, "anthropic/claude-sonnet-4.5", None, cache_session_id=long_id
+    )
+    data2 = json.loads(body2)
+    assert len(data2.get("session_id", "")) == 256
+    assert data2["session_id"] == ("é" * 256)
+
+
+def test_cache_route_openai_prompt_cache_key():
+    client = _DummyClient(provider="openai")
+    shim = OpenAIShim(client)
+    long_id = "k" * 300
+    _method, _url, body, headers = shim.build_chat_request(
+        [{"role": "user", "content": "hi"}], 100, None, None, False, "gpt-4o", None, cache_session_id=long_id
+    )
+    data = json.loads(body)
+    assert data.get("prompt_cache_key") == long_id
+    assert "session_id" not in data
+    assert "x-grok-conv-id" not in headers
+
+
+def test_cache_route_openai_responses_prompt_cache_key():
+    client = _DummyClient(provider="openai")
+    shim = OpenAIShim(client)
+    tools = [{"type": "function", "function": {"name": "test_tool", "parameters": {}}}]
+    _method, url, body, _headers = shim.build_chat_request(
+        [{"role": "user", "content": "hi"}], 100, None, tools, False, "gpt-6-astra", None, cache_session_id="resp-key-1"
+    )
+    assert url.endswith("/responses")
+    data = json.loads(body)
+    assert data.get("prompt_cache_key") == "resp-key-1"
+    assert "input" in data
+
+
+def test_cache_route_cerebras_prompt_cache_key():
+    client = _DummyClient(provider="cerebras")
+    shim = BaseProviderShim(client)
+    long_id = "a" * 1100
+    _method, _url, body, _headers = shim.build_chat_request(
+        [{"role": "user", "content": "hi"}], 100, None, None, False, "llama3.1-70b", None, cache_session_id=long_id
+    )
+    data = json.loads(body)
+    assert data.get("prompt_cache_key") == "a" * 1024
+    assert len(data["prompt_cache_key"]) == 1024
+    assert "session_id" not in data
+
+
+def test_cache_route_xai_header():
+    client = _DummyClient(provider="xai")
+    shim = GrokShim(client)
+    _method, _url, body, headers = shim.build_chat_request(
+        [{"role": "user", "content": "hi"}], 100, None, None, False, "grok-2", None, cache_session_id="xai-conv-1"
+    )
+    assert headers.get("x-grok-conv-id") == "xai-conv-1"
+    assert headers["Authorization"] == "Bearer test"
+    data = json.loads(body)
+    assert "session_id" not in data
+    assert "prompt_cache_key" not in data
+
+    # Id "bad\nid" omits the header and still returns a body
+    _method, _url, body_bad, headers_bad = shim.build_chat_request(
+        [{"role": "user", "content": "hi"}], 100, None, None, False, "grok-2", None, cache_session_id="bad\nid"
+    )
+    assert "x-grok-conv-id" not in headers_bad
+    assert headers_bad["Authorization"] == "Bearer test"
+    data_bad = json.loads(body_bad)
+    assert "messages" in data_bad
+
+
+def test_cache_route_absent_when_unset():
+    for prov, shim_cls in [("openrouter", OpenRouterShim), ("openai", OpenAIShim), ("cerebras", BaseProviderShim), ("xai", GrokShim)]:
+        client = _DummyClient(provider=prov)
+        shim = shim_cls(client)
+        for unset_id in (None, "", "   "):
+            _m, _u, body, headers = shim.build_chat_request(
+                [{"role": "user", "content": "hi"}], 100, None, None, False, "default-model", None, cache_session_id=unset_id
+            )
+            data = json.loads(body)
+            assert "session_id" not in data
+            assert "prompt_cache_key" not in data
+            assert "x-grok-conv-id" not in headers
+            assert headers == client._headers()
+
+    # Provider google on BaseProviderShim and provider groq on BaseProviderShim with a real id also omit them
+    for other_prov in ("google", "groq"):
+        client = _DummyClient(provider=other_prov)
+        shim = BaseProviderShim(client)
+        _m, _u, body, headers = shim.build_chat_request(
+            [{"role": "user", "content": "hi"}], 100, None, None, False, "default-model", None, cache_session_id="real-id-123"
+        )
+        data = json.loads(body)
+        assert "session_id" not in data
+        assert "prompt_cache_key" not in data
+        assert "x-grok-conv-id" not in headers
+        assert headers == client._headers()

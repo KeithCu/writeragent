@@ -36,7 +36,7 @@ def test_dry_run_reports_matches_without_mutating():
          patch("plugin.writer.html_import.content_has_markup", return_value=False):
         res = ApplyDocumentContent().execute(ctx, content=["x"], target="search", old_content="clause 3.2", dry_run=True)
     assert res["status"] == "ok" and res["dry_run"] is True and res["count"] == 2
-    assert res["matches"][0]["location"] == "body"
+    assert res["replaceable"][0]["location"] == "body"
     # No session/undo context opened for a dry run.
     ctx.doc.getUndoManager.assert_not_called()
 

@@ -42,7 +42,7 @@ from plugin.chatbot.slash_commands import (
     slash_typed_prefix,
 )
 from plugin.framework.errors import best_effort, suppress_disposed, uno_read
-from plugin.framework.uno_listeners import BaseKeyListener, BaseMouseListener
+from plugin.framework.uno_listeners import BaseKeyHandler, BaseKeyListener, BaseMouseListener
 
 log = logging.getLogger(__name__)
 
@@ -346,26 +346,14 @@ def _create_ask_peer_listbox(
     return win, host, offset
 
 
-def _make_slash_key_handler(host: Any, label: str) -> Any:
-    try:
-        import unohelper
-        from com.sun.star.awt import XKeyHandler
-    except ImportError:
-        return None
-
-    class _Handler(unohelper.Base, XKeyHandler):  # type: ignore[misc]
-        def disposing(self, Source: Any) -> None:  # noqa: N802, N803 -- UNO signature
-            return
-
-        def keyPressed(self, aEvent: Any) -> bool:  # noqa: N802 -- UNO XKeyHandler
-            code = int(getattr(aEvent, "KeyCode", 0) or 0)
-            mods = int(getattr(aEvent, "Modifiers", 0) or 0)
-            ch = getattr(aEvent, "KeyChar", None)
+def _make_slash_key_handler(host: Any, label: str) -> BaseKeyHandler:
+    class _Handler(BaseKeyHandler):
+        def on_key_pressed(self, e: Any) -> bool:
+            code = int(getattr(e, "KeyCode", 0) or 0)
+            mods = int(getattr(e, "Modifiers", 0) or 0)
+            ch = getattr(e, "KeyChar", None)
             _ovlog("%s keyPressed code=%s mods=%s char=%r", label, code, mods, ch)
             return bool(host.handle_key(code, mods, ch, from_overlay=False))
-
-        def keyReleased(self, aEvent: Any) -> bool:  # noqa: N802 -- UNO XKeyHandler
-            return False
 
     return _Handler()
 
@@ -758,8 +746,6 @@ class SlashPopupController:
             _ovlog("%s key handler: no addKeyHandler", label)
             return None
         handler = _make_slash_key_handler(self, label)
-        if handler is None:
-            return None
         try:
             add(handler)
             _ovlog("%s key handler attached", label)

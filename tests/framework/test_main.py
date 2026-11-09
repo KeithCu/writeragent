@@ -1019,6 +1019,46 @@ def test_main_calls_execute_not_hello(monkeypatch):
         mock_trig.assert_not_called()
 
 
+def test_bootstrap_finish_arms_webview_probe():
+    """_writeragent_bootstrap_finish arms exactly one webview probe on background pool."""
+    from plugin.scripting import editor_host
+
+    editor_host.reset_webview_probe_state()
+    ctx = MagicMock()
+    try:
+        with (
+            patch("plugin.framework.config.get_config", return_value=False),
+            patch("plugin.scripting.editor_host.resolve_editor_python", return_value=("/fake/python", "")),
+            patch("plugin.scripting.editor_host.run_in_background") as mock_bg,
+        ):
+            main._writeragent_bootstrap_finish(ctx)
+            probe_calls = [c for c in mock_bg.call_args_list if c[1].get("name") == "webview-probe"]
+            assert len(probe_calls) == 1
+            assert probe_calls[0][0][0] == editor_host._webview_probe_worker
+    finally:
+        editor_host.reset_webview_probe_state()
+
+
+def test_bootstrap_finish_skips_webview_probe_under_eval_harness(monkeypatch):
+    """_writeragent_bootstrap_finish does not arm webview probe under Policy.eval_harness."""
+    from plugin.framework.queue_executor import MainThread, Policy
+    from plugin.scripting import editor_host
+
+    editor_host.reset_webview_probe_state()
+    ctx = MagicMock()
+    monkeypatch.setattr(MainThread, "_policy", Policy.eval_harness)
+    try:
+        with (
+            patch("plugin.framework.config.get_config", return_value=False),
+            patch("plugin.scripting.editor_host.resolve_editor_python", return_value=("/fake/python", "")),
+            patch("plugin.scripting.editor_host.run_in_background") as mock_bg,
+        ):
+            main._writeragent_bootstrap_finish(ctx)
+            mock_bg.assert_not_called()
+    finally:
+        editor_host.reset_webview_probe_state()
+
+
 def test_command_from_dispatch_url_and_dispatch(monkeypatch):
     class _Url:
         def __init__(self, path="", query="", complete="", protocol=""):

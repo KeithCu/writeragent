@@ -1158,7 +1158,13 @@ class SendButtonListener(BaseActionListener):
             kick_pending_peer_starts()
 
     def close_selection_run(self) -> None:
-        """Close an armed selection run: clear cancellation, SEND_COMPLETED, and kick peer turns."""
+        """Close an armed selection run: clear cancellation, SEND_COMPLETED, and kick peer turns.
+
+        Selection is not a chat turn, so this does not run ``_close_turn_ui`` (drop turn, TTS,
+        agent undo); the edit path records undo itself. SEND_COMPLETED forces has_text False;
+        sync_has_text_from_query restores typed Ask text. The peer kick is required because
+        Calc and Draw finish after the idle hook has already skipped.
+        """
         self._send_cancellation = None
         self._stop_requested_fallback = False
         if not self._panel_teardown and self.sidebar_state.send.is_busy:
