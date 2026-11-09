@@ -28,9 +28,10 @@ LOWEST_SENTINEL = "minimal"
 
 
 # Ascending effort words each provider's current API accepts, per its docs.
-# Per provider, not per model: a model that rejects a value gets HTTP 400 and
-# effort_retry_bodies walks to the next value. Unlisted providers (custom,
-# LM Studio, DeepSeek, Groq, Ollama, ...) get our levels unchanged.
+# Per provider, not per model: a model that rejects a specific value gets HTTP 400
+# and effort_retry_bodies walks to the next value. When a model rejects the effort
+# parameter entirely, that parameter is dropped immediately without walking the ladder.
+# Unlisted providers (custom, LM Studio, DeepSeek, Groq, Ollama, ...) get our levels unchanged.
 # https://platform.claude.com/docs/en/build-with-claude/effort
 # https://ai.google.dev/gemini-api/docs/openai (Gemini 4 Argon / 3.8 Flash reject minimal)
 # https://docs.mistral.ai/studio/conversations/reasoning ("none" turns thinking off)
@@ -100,6 +101,28 @@ def _effort_holder(body: bytes | str) -> tuple[dict[str, Any], dict[str, Any], s
     return None
 
 
+def effort_parameter_unsupported(message: str) -> bool:
+    """True if *message* indicates the model rejects the effort parameter entirely."""
+    return "does not support the effort parameter" in str(message or "").lower()
+
+
+def _pop_effort(data: dict[str, Any], holder: dict[str, Any], key: str) -> bytes:
+    holder.pop(key, None)
+    for name in ("output_config", "reasoning"):
+        if data.get(name) == {}:
+            data.pop(name)
+    return json.dumps(data).encode("utf-8")
+
+
+def effort_omit_body(body: bytes | str) -> bytes | None:
+    """Same JSON with the effort field removed, or None when no effort is sent."""
+    found = _effort_holder(body)
+    if found is None:
+        return None
+    data, holder, key = found
+    return _pop_effort(data, holder, key)
+
+
 def effort_retry_bodies(provider: str | None, body: bytes | str) -> list[bytes]:
     """Bodies to try after HTTP 400 rejected the sent effort, in order; the last omits it."""
     found = _effort_holder(body)
@@ -114,18 +137,16 @@ def effort_retry_bodies(provider: str | None, body: bytes | str) -> list[bytes]:
     for value in others:
         holder[key] = value
         out.append(json.dumps(data).encode("utf-8"))
-    holder.pop(key)
-    for name in ("output_config", "reasoning"):
-        if data.get(name) == {}:
-            data.pop(name)
-    out.append(json.dumps(data).encode("utf-8"))
+    out.append(_pop_effort(data, holder, key))
     return out
 
 
 # (endpoint, model, effort first sent) -> effort a retry got accepted, or None
-# when only the body without effort worked. Process lifetime only, so a later
-# request skips the 400s; a LibreOffice restart forgets it.
+# when only the body without effort worked for that level. A model that rejects
+# the effort parameter entirely is recorded in _EFFORT_UNSUPPORTED across all levels.
+# Process lifetime only, so later requests skip the 400s; a restart forgets both.
 _ACCEPTED_EFFORT: dict[tuple[str, str, str], str | None] = {}
+_EFFORT_UNSUPPORTED: dict[tuple[str, str], None] = {}
 _ACCEPTED_EFFORT_MAX = 64
 
 
@@ -139,10 +160,16 @@ def _effort_key(endpoint: str, body: bytes | str) -> tuple[str, str, str] | None
 
 def accepted_effort_body(provider: str | None, endpoint: str, body: bytes | str) -> bytes | str:
     """*body* with the effort a retry earlier found accepted for this endpoint and model."""
+    key = _effort_key(endpoint, body)
+    if key is None:
+        return body
+    endpoint_val, model_val, _effort_val = key
+    if (endpoint_val, model_val) in _EFFORT_UNSUPPORTED:
+        omitted = effort_omit_body(body)
+        return omitted if omitted is not None else body
     if not _ACCEPTED_EFFORT:
         return body
-    key = _effort_key(endpoint, body)
-    if key is None or key not in _ACCEPTED_EFFORT:
+    if key not in _ACCEPTED_EFFORT:
         return body
     want = _ACCEPTED_EFFORT[key]
     for retry in effort_retry_bodies(provider, body):
@@ -152,14 +179,26 @@ def accepted_effort_body(provider: str | None, endpoint: str, body: bytes | str)
     return body
 
 
-def remember_accepted_effort(endpoint: str, first_body: bytes | str, body: bytes | str) -> None:
+def remember_accepted_effort(
+    endpoint: str,
+    first_body: bytes | str,
+    body: bytes | str,
+    *,
+    parameter_unsupported: bool = False,
+) -> None:
     """Record that *body* succeeded after *first_body*'s effort got HTTP 400."""
     key = _effort_key(endpoint, first_body)
     if key is None:
         return
-    found = _effort_holder(body)
+    if parameter_unsupported:
+        model_key = (key[0], key[1])
+        if model_key not in _EFFORT_UNSUPPORTED and len(_EFFORT_UNSUPPORTED) >= _ACCEPTED_EFFORT_MAX:
+            _EFFORT_UNSUPPORTED.pop(next(iter(_EFFORT_UNSUPPORTED)), None)
+        _EFFORT_UNSUPPORTED[model_key] = None
+        return
     if key not in _ACCEPTED_EFFORT and len(_ACCEPTED_EFFORT) >= _ACCEPTED_EFFORT_MAX:
         _ACCEPTED_EFFORT.pop(next(iter(_ACCEPTED_EFFORT)), None)
+    found = _effort_holder(body)
     _ACCEPTED_EFFORT[key] = found[1][found[2]] if found else None
 
 

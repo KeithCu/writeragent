@@ -253,18 +253,27 @@ class LlmClient:
         if cancel is not None and cancel is not self._owned:
             self._owned.unregister_on_cancel(cancel.cancel)
 
-    def _effort_on_bad_request(self, scope: SendCancellation, slot: dict[str, Any]) -> Callable[[bytes], bytes | None]:
+    def _effort_on_bad_request(self, scope: SendCancellation, slot: dict[str, Any]) -> Callable[[bytes, BaseException], bytes | None]:
         """On HTTP 400 that names effort, return the next fallback body, or None to keep the error."""
-        def on_bad_request(body_bytes: bytes) -> bytes | None:
+        def on_bad_request(body_bytes: bytes, exc: BaseException) -> bytes | None:
             if scope.is_cancelled():
                 return None
             if slot["pending"] is None:
-                from .base_provider_shim import effort_retry_bodies
+                from .base_provider_shim import effort_omit_body, effort_parameter_unsupported, effort_retry_bodies
 
-                slot["pending"] = effort_retry_bodies(self._get_shim()._reasoning_provider(), body_bytes)
+                if effort_parameter_unsupported(str(exc)):
+                    slot["unsupported"] = True
+                    omitted = effort_omit_body(body_bytes)
+                    slot["pending"] = [omitted] if omitted is not None else []
+                else:
+                    slot["unsupported"] = False
+                    slot["pending"] = effort_retry_bodies(self._get_shim()._reasoning_provider(), body_bytes)
             if not slot["pending"]:
                 return None
-            log.warning("HTTP 400 rejected reasoning effort; retrying with another effort")
+            if slot.get("unsupported"):
+                log.warning("HTTP 400: model does not support the effort parameter; retrying without it")
+            else:
+                log.warning("HTTP 400 rejected reasoning effort; retrying with another effort")
             slot["used"] = True
             next_body = slot["pending"].pop(0)
             slot["body"] = next_body
@@ -452,7 +461,7 @@ class LlmClient:
                 raise stopped_error()
             api_key = str(self.config.get("api_key") or "").strip()
             first_body = body if isinstance(body, (bytes, bytearray)) else body
-            slot: dict[str, Any] = {"pending": None, "body": body, "used": False}
+            slot: dict[str, Any] = {"pending": None, "body": body, "used": False, "unsupported": False}
             on_bad_request = self._effort_on_bad_request(active, slot)
 
             try:
@@ -485,7 +494,7 @@ class LlmClient:
             if slot["used"] and isinstance(first_body, (bytes, bytearray)):
                 fb = bytes(first_body) if isinstance(first_body, bytearray) else first_body
                 lb = bytes(slot["body"]) if isinstance(slot["body"], bytearray) else slot["body"]
-                remember_accepted_effort(self._endpoint(), fb, lb)
+                remember_accepted_effort(self._endpoint(), fb, lb, parameter_unsupported=bool(slot.get("unsupported")))
             return parse_provider_envelope(result.body, path, api_key=api_key)
         finally:
             self._release_request_scope(cancel)
@@ -657,7 +666,7 @@ class LlmClient:
         active = self._request_scope(cancel)
 
         first_body = body
-        slot: dict[str, Any] = {"pending": None, "body": body, "used": False}
+        slot: dict[str, Any] = {"pending": None, "body": body, "used": False, "unsupported": False}
         on_bad_request = self._effort_on_bad_request(active, slot)
 
         prepared = accepted_effort_body(
@@ -925,7 +934,7 @@ class LlmClient:
                     except Exception:
                         log.debug("stream close after non-clean finish failed", exc_info=True)
             if slot["pending"] is not None:
-                remember_accepted_effort(self._endpoint(), first_body, slot["body"])
+                remember_accepted_effort(self._endpoint(), first_body, slot["body"], parameter_unsupported=bool(slot.get("unsupported")))
             if last_finish_reason is None and self._stop_latched(active):
                 last_finish_reason = "stop"
             return last_finish_reason

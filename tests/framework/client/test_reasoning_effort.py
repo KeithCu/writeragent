@@ -20,8 +20,10 @@ from tests.doc_stubs import MockContext
 @pytest.fixture(autouse=True)
 def _clear_accepted_effort() -> Any:
     base_provider_shim._ACCEPTED_EFFORT.clear()
+    base_provider_shim._EFFORT_UNSUPPORTED.clear()
     yield
     base_provider_shim._ACCEPTED_EFFORT.clear()
+    base_provider_shim._EFFORT_UNSUPPORTED.clear()
 
 
 class DummyClient:
@@ -377,6 +379,8 @@ def test_400_retry_exhausts_then_raises() -> None:
         MockContext(),
     )
     # high, then medium, low, xhigh, max, then no field: six sends, then raise.
+    # This fixture tests the value walk ladder ("Unsupported parameter: reasoning_effort"),
+    # not the parameter phrase ("The model does not support the effort parameter.").
     with patch.object(client._transport, "send", side_effect=[_effort_400_http_response()] * 6) as mock_send:
         with pytest.raises(NetworkError, match="reasoning_effort"):
             client.request_with_tools([{"role": "user", "content": "hi"}], stream=False)
@@ -459,6 +463,17 @@ def test_accepted_no_effort_remembered() -> None:
     assert second.call_count == 1
     assert "reasoning_effort" not in json.loads(second.call_args_list[0][0][2])
 
+    # A separate client on the same endpoint and model with reasoning_effort="high"
+    # is not affected by the per-level omit recorded for "low", and sends with "high".
+    second_client = LlmClient(
+        {"endpoint": "https://api.mistral.ai", "api_key": "k", "model": "mistral-small-2603", "reasoning_effort": "high"},
+        MockContext(),
+    )
+    with patch.object(second_client._transport, "send", side_effect=[_ok_sync_http_response()]) as third:
+        second_client.request_with_tools([{"role": "user", "content": "hi"}], stream=False)
+    assert third.call_count == 1
+    assert json.loads(third.call_args_list[0][0][2]).get("reasoning_effort") == "high"
+
 
 def test_failed_dance_records_nothing() -> None:
     client = _mistral_client()
@@ -499,3 +514,81 @@ def test_accepted_effort_remembered_streaming() -> None:
         client._run_streaming_loop("POST", "/v1/chat/completions", body, {}, lambda _t: None)
     assert second.call_count == 1
     assert json.loads(second.call_args_list[0][0][2])["reasoning_effort"] == "high"
+
+
+def _unsupported_effort_400_http_response() -> MagicMock:
+    response = MagicMock()
+    response.status = 400
+    response.reason = "Bad Request"
+    response.getheader.return_value = None
+    response.read.return_value = b'{"error":{"message":"The model does not support the effort parameter."}}'
+    return response
+
+
+def test_effort_parameter_unsupported_phrase() -> None:
+    # Verifies that only the specific phrase for unsupported effort parameter triggers the immediate omit.
+    assert base_provider_shim.effort_parameter_unsupported("The model does not support the effort parameter.")
+    assert base_provider_shim.effort_parameter_unsupported("THE MODEL DOES NOT SUPPORT THE EFFORT PARAMETER.")
+    assert not base_provider_shim.effort_parameter_unsupported("Unsupported parameter: reasoning_effort")
+    assert not base_provider_shim.effort_parameter_unsupported("reasoning effort invalid")
+    assert not base_provider_shim.effort_parameter_unsupported("Invalid reasoning_effort for this model")
+    assert not base_provider_shim.effort_parameter_unsupported("")
+
+
+def test_effort_omit_body_shapes() -> None:
+    # Anthropic output_config with only effort is pruned completely.
+    anthropic_body = json.dumps({"model": "claude-3-5-sonnet", "output_config": {"effort": "high"}})
+    omitted_anthropic = base_provider_shim.effort_omit_body(anthropic_body)
+    assert omitted_anthropic is not None
+    data_anthropic = json.loads(omitted_anthropic)
+    assert "output_config" not in data_anthropic
+
+    # OpenRouter reasoning container preserves sibling keys when effort is dropped.
+    openrouter_body = json.dumps({"model": "anthropic/claude-3-5-sonnet", "reasoning": {"effort": "high", "exclude": True}})
+    omitted_openrouter = base_provider_shim.effort_omit_body(openrouter_body)
+    assert omitted_openrouter is not None
+    data_openrouter = json.loads(omitted_openrouter)
+    assert data_openrouter.get("reasoning") == {"exclude": True}
+
+    # Bodies without an effort parameter return None.
+    no_effort_body = json.dumps({"model": "gpt-4o", "messages": []})
+    assert base_provider_shim.effort_omit_body(no_effort_body) is None
+
+
+def test_unsupported_effort_parameter_omits_once_and_applies_to_other_levels() -> None:
+    # When a model explicitly does not support effort, omit immediately on retry and record for all levels.
+    client = LlmClient(
+        {"endpoint": "https://api.openai.com", "api_key": "sk-test", "model": "o3", "reasoning_effort": "high"},
+        MockContext(),
+    )
+    with patch.object(client._transport, "send", side_effect=[_unsupported_effort_400_http_response(), _ok_sync_http_response()]) as mock_send:
+        res = client.request_with_tools([{"role": "user", "content": "hi"}], stream=False)
+        assert res["content"] == "ok"
+    assert mock_send.call_count == 2
+    assert json.loads(mock_send.call_args_list[0][0][2])["reasoning_effort"] == "high"
+    assert "reasoning_effort" not in json.loads(mock_send.call_args_list[1][0][2])
+
+    assert base_provider_shim._ACCEPTED_EFFORT == {}
+    assert ("https://api.openai.com", "o3") in base_provider_shim._EFFORT_UNSUPPORTED
+
+    # Same endpoint and model with a different level ("max") omits effort without retrying.
+    client2 = LlmClient(
+        {"endpoint": "https://api.openai.com", "api_key": "sk-test", "model": "o3", "reasoning_effort": "max"},
+        MockContext(),
+    )
+    with patch.object(client2._transport, "send", side_effect=[_ok_sync_http_response()]) as mock_send2:
+        res2 = client2.request_with_tools([{"role": "user", "content": "hi"}], stream=False)
+        assert res2["content"] == "ok"
+    assert mock_send2.call_count == 1
+    assert "reasoning_effort" not in json.loads(mock_send2.call_args_list[0][0][2])
+
+    # A different model on the same endpoint is not affected by the unsupported memo.
+    client3 = LlmClient(
+        {"endpoint": "https://api.openai.com", "api_key": "sk-test", "model": "o1", "reasoning_effort": "low"},
+        MockContext(),
+    )
+    with patch.object(client3._transport, "send", side_effect=[_ok_sync_http_response()]) as mock_send3:
+        res3 = client3.request_with_tools([{"role": "user", "content": "hi"}], stream=False)
+        assert res3["content"] == "ok"
+    assert mock_send3.call_count == 1
+    assert json.loads(mock_send3.call_args_list[0][0][2])["reasoning_effort"] == "low"
