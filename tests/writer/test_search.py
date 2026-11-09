@@ -996,22 +996,14 @@ def test_iter_literal_ranges_yields_candidate_matches():
     assert hits == [hit1]
 
 
-def test_iter_literal_ranges_same_text_skips_foreign_candidate():
+def test_iter_literal_ranges_all_candidates_yields_all():
     from unittest.mock import patch
     from plugin.writer.search import iter_literal_ranges
 
     doc = MagicMock()
-    body_text = MagicMock()
-    frame_text = MagicMock()
-
-    body_boundary = MagicMock()
-    body_boundary.getText.return_value = body_text
-
     frame_hit = MagicMock()
-    frame_hit.getText.return_value = frame_text
-
     body_hit = MagicMock()
-    body_hit.getText.return_value = body_text
+    chain_hit = MagicMock()
 
     def fake_iter_lo(doc, candidate, case_sensitive=False, after=None):
         if "\n" in candidate:
@@ -1019,14 +1011,55 @@ def test_iter_literal_ranges_same_text_skips_foreign_candidate():
         else:
             yield body_hit
 
-    with patch("plugin.writer.search._iter_lo_matches", side_effect=fake_iter_lo):
-        # 1. same_text_as is None: stops on the first candidate (yielding the frame hit)
-        hits_none = list(iter_literal_ranges(doc, "Hello\nWorld", same_text_as=None))
-        assert hits_none == [frame_hit]
+    with patch("plugin.writer.search._iter_lo_matches", side_effect=fake_iter_lo), \
+         patch("plugin.writer.search._iter_chain_matches", return_value=iter([chain_hit])):
+        # 1. all_candidates=False: stops on the first candidate (yielding the frame hit)
+        hits_default = list(iter_literal_ranges(doc, "Hello\nWorld", all_candidates=False))
+        assert hits_default == [frame_hit]
 
-        # 2. same_text_as is body_boundary: skips the foreign candidate and yields the body hit
-        hits_same = list(iter_literal_ranges(doc, "Hello\nWorld", same_text_as=body_boundary))
-        assert hits_same == [body_hit]
+        # 2. all_candidates=True: yields hits across all candidates, then chain matches
+        hits_all = list(iter_literal_ranges(doc, "Hello\nWorld", all_candidates=True))
+        assert hits_all == [frame_hit, body_hit, chain_hit]
+
+
+def test_find_anchor_span_skips_foreign_candidate_to_find_same_text():
+    from unittest.mock import patch
+    from plugin.writer.search import find_anchor_span
+
+    doc = MagicMock()
+    body_text = MagicMock()
+    frame_text = MagicMock()
+
+    start_match = MagicMock()
+    start_match.getText.return_value = body_text
+    start_match.getStart.return_value = MagicMock()
+    start_boundary = MagicMock()
+    start_boundary.getText.return_value = body_text
+    start_match.getEnd.return_value = start_boundary
+
+    frame_hit = MagicMock()
+    frame_hit.getText.return_value = frame_text
+
+    body_hit = MagicMock()
+    body_hit.getText.return_value = body_text
+    body_hit.getStart.return_value = MagicMock()
+    body_hit.getEnd.return_value = MagicMock()
+
+    body_text.compareRegionStarts.return_value = 0
+    created_cursor = MagicMock()
+    body_text.createTextCursorByRange.return_value = created_cursor
+
+    def fake_iter_lo(doc, candidate, case_sensitive=False, after=None):
+        if "\n" in candidate:
+            yield frame_hit
+        else:
+            yield body_hit
+
+    with patch("plugin.writer.search.find_occurrence_range", return_value=start_match), \
+         patch("plugin.writer.search._iter_lo_matches", side_effect=fake_iter_lo):
+        cursor, err = find_anchor_span(doc, "start", "Hello\nWorld")
+        assert err is None
+        assert cursor is created_cursor
 
 
 class _SampleFakeCursor:

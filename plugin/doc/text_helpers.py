@@ -287,6 +287,7 @@ def starts_at_or_after(text: Any, left: Any, right: Any) -> bool:
 
     compareRegionStarts returns 1 when the first range starts before the second, 0 when they
     start at the same point, and -1 when after. When comparison fails, returns False.
+    A disposed document raises DocumentDisposedError through uno_read.
     """
     if text is None:
         return False

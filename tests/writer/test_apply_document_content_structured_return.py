@@ -933,12 +933,30 @@ def test_anchor_plain_text_wraps_in_p_and_skips_hyperlinks(monkeypatch):
             _ctx(),
             start_anchor="start",
             end_anchor="end",
-            content="New paragraph one\nNew paragraph two",
+            content="New paragraph one\n\nNew paragraph two",
         )
     assert res["status"] == "ok"
     assert recorded_content == ["<p>New paragraph one</p>\n<p>New paragraph two</p>"]
     mock_capture.assert_not_called()
     assert "hyperlinks" not in res
+
+
+def test_anchor_plain_text_single_line_unwrapped(monkeypatch):
+    monkeypatch.setattr(search_mod, "find_anchor_span", lambda doc, s, e, **k: (MockRange(), None))
+    recorded_content = []
+    monkeypatch.setattr(
+        format_mod,
+        "replace_single_range_with_content",
+        lambda doc, found, content, ctx: recorded_content.append(content),
+    )
+    res = ApplyDocumentContent().execute(
+        _ctx(),
+        start_anchor="start",
+        end_anchor="end",
+        content="single line replacement",
+    )
+    assert res["status"] == "ok"
+    assert recorded_content == ["single line replacement"]
 
 
 def test_anchor_markup_not_wrapped_again(monkeypatch):

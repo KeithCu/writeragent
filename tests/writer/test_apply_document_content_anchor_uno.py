@@ -87,7 +87,7 @@ def test_apply_document_content_anchor_range_plain_text_uno(ctx, doc):
         _tool_ctx(doc, ctx),
         start_anchor="Start Landmark",
         end_anchor="End Landmark",
-        content="New paragraph one\nNew paragraph two",
+        content="New paragraph one\n\nNew paragraph two",
     )
 
     assert res.get("status") == "ok", res
@@ -104,7 +104,7 @@ def test_apply_document_content_anchor_range_plain_text_uno(ctx, doc):
     assert "End Landmark" not in body
 
     enum = doc.getText().createEnumeration()
-    non_empty_before_keeper = []
+    paras_before_keeper = []
     while enum.hasMoreElements():
         para = enum.nextElement()
         if not para.supportsService("com.sun.star.text.Paragraph"):
@@ -112,16 +112,48 @@ def test_apply_document_content_anchor_range_plain_text_uno(ctx, doc):
         para_str = para.getString().strip()
         if "Keep text after" in para_str:
             break
-        if para_str:
-            non_empty_before_keeper.append(para)
+        paras_before_keeper.append(para)
 
-    assert len(non_empty_before_keeper) == 2
-    for p in non_empty_before_keeper:
+    assert len(paras_before_keeper) == 2
+    for p in paras_before_keeper:
         assert p.getPropertyValue("ParaStyleName") == "Text body"
         portion_enum = p.createEnumeration()
         while portion_enum.hasMoreElements():
             portion = portion_enum.nextElement()
             assert portion.getPropertyValue("CharWeight") < 150.0
+
+
+@native_test
+@with_native_doc("writer")
+def test_apply_document_content_anchor_range_mid_paragraph_plain_text_uno(ctx, doc):
+    """A mid-paragraph single-line plain anchor replace does not split the host paragraph."""
+    text = doc.getText()
+    cursor = text.createTextCursor()
+    cursor.gotoEnd(False)
+
+    cursor.setPropertyValue("ParaStyleName", "Heading 2")
+    text.insertString(cursor, "The quick brown fox jumps over the lazy dog", False)
+
+    res = ApplyDocumentContent().execute(
+        _tool_ctx(doc, ctx),
+        start_anchor="quick",
+        end_anchor="fox",
+        content="slow cat",
+    )
+
+    assert res.get("status") == "ok", res
+    assert res.get("replaced_count") == 1, res
+    body = doc.getText().getString().strip()
+    assert body == "The slow cat jumps over the lazy dog"
+
+    enum = doc.getText().createEnumeration()
+    paras = []
+    while enum.hasMoreElements():
+        para = enum.nextElement()
+        if para.supportsService("com.sun.star.text.Paragraph") and para.getString().strip():
+            paras.append(para)
+    assert len(paras) == 1
+    assert paras[0].getPropertyValue("ParaStyleName") == "Heading 2"
 
 
 @native_test

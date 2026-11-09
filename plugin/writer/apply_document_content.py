@@ -761,53 +761,27 @@ class ApplyDocumentContent(ToolBase):
         """
         from . import html_import as format_support
 
+        anchor = None
+        snapshot = None
+        needs_fix = False
         if not fix_outline:
-            def run_no_outline() -> list[dict[str, Any]]:
-                original = found.getString()
-                if use_preserve:
-                    record_preserve_replace(session, doc, found, content, ctx.ctx, track_reviewable)
-                elif batch:
-                    def replace_one(f: Any = found) -> None:
-                        note = format_support.replace_single_range_with_content(
-                            doc, f, content, ctx.ctx)
-                        if note:
-                            style_notes.append(note)
-
-                    session.record_mutation(
-                        replace_one,
-                        original_preview=original, proposed_preview=plain)
-                else:
-                    def replace_single() -> None:
-                        note = format_support.replace_single_range_with_content(
-                            doc, found, content, ctx.ctx)
-                        if note:
-                            style_notes.append(note)
-
-                    record_html_atomically(
-                        session, doc,
-                        replace_single,
-                        original_preview=original, proposed_preview=plain)
-                return []
-
-            if batch:
-                return run_no_outline(), None
-            with session:
-                return run_no_outline(), None
-
-        anchor = collapsed_anchor(found)
-        # Invariant: a failed capture refuses the edit (HYPERLINK_UPDATE_FAILED) before any text change; disposal propagates.
-        snapshot, err = self._read_outline_snapshot(found, "apply_document_content: outline hyperlink capture failed")
-        if err:
-            return None, err
-        assert snapshot is not None
-        if override and len(snapshot.links) != 1:
-            # Before the text edit. One override on two outline links would stamp
-            # both with the same target. Zero links would paint a bookmark or plain text.
-            return None, self._outline_override_error()
-        # preserve_url: a bookmark target covering the match. A same-length setString
-        # keeps HyperLinkURL. HTML setString("") and a length-changing preserve-format
-        # replace can clear it on the new characters; put that target back unchanged.
-        needs_fix = bool(snapshot.links) or bool(snapshot.preserve_url)
+            # An anchor span's text never equals one link title, so outline fixup has nothing to match.
+            pass
+        else:
+            anchor = collapsed_anchor(found)
+            # Invariant: a failed capture refuses the edit (HYPERLINK_UPDATE_FAILED) before any text change; disposal propagates.
+            snapshot, err = self._read_outline_snapshot(found, "apply_document_content: outline hyperlink capture failed")
+            if err:
+                return None, err
+            assert snapshot is not None
+            if override and len(snapshot.links) != 1:
+                # Before the text edit. One override on two outline links would stamp
+                # both with the same target. Zero links would paint a bookmark or plain text.
+                return None, self._outline_override_error()
+            # preserve_url: a bookmark target covering the match. A same-length setString
+            # keeps HyperLinkURL. HTML setString("") and a length-changing preserve-format
+            # replace can clear it on the new characters; put that target back unchanged.
+            needs_fix = bool(snapshot.links) or bool(snapshot.preserve_url)
 
         def run() -> list[dict[str, Any]]:
             original = found.getString()
@@ -838,6 +812,7 @@ class ApplyDocumentContent(ToolBase):
                     original_preview=original, proposed_preview=plain)
             if not needs_fix:
                 return []
+            assert anchor is not None and snapshot is not None
             return restore_outline_hyperlinks(anchor, snapshot, plain, override)
 
         if batch:
@@ -915,9 +890,8 @@ class ApplyDocumentContent(ToolBase):
         each match's location + a short snippet, so the model can check before committing."""
         if kwargs.get("start_anchor") is not None or kwargs.get("end_anchor") is not None:
             rejected = self._reject_unsupported_with_anchors(kwargs)
-            return rejected if rejected is not None else self._tool_error(
-                "dry_run does not apply to start_anchor and end_anchor."
-            )
+            assert rejected is not None
+            return rejected
         old_content = kwargs.get("old_content")
         target = self._effective_target(
             kwargs.get("target"),
@@ -1250,14 +1224,19 @@ class ApplyDocumentContent(ToolBase):
         if target in ("beginning", "end", "selection") and content.strip() == "":
             return self._tool_error("content is empty; nothing was inserted.")
 
-        # Plain anchor text is imported as new paragraphs so existing character-level
-        # styles and headings across the span do not bleed into the new text. Entities
-        # are left intact here because the HTML parser decodes them during import.
+        # Plain anchor text with newlines is imported as new paragraphs so existing character-level
+        # styles and headings across the span do not bleed into the new text. Single-line plain
+        # anchor text remains unwrapped so mid-paragraph edits stay on the inline path without splitting
+        # the host paragraph. Entities are left intact here because the HTML parser decodes them during import.
         use_preserve = (not format_support.content_has_markup(content)) and anchor is None
 
         if anchor is not None and content and not format_support.content_has_markup(content) and not format_support.html_fragment_contains_mixed_math(content):
             expanded = content.replace("\\n", "\n").replace("\\t", "\t")
-            content = "\n".join("<p>%s</p>" % line for line in expanded.split("\n"))
+            if "\n" in expanded:
+                lines = [line for line in expanded.split("\n") if line.strip()]
+                content = "\n".join("<p>%s</p>" % line for line in lines)
+            else:
+                content = expanded
         elif use_preserve:
             content = content.replace("\\n", "\n").replace("\\t", "\t")
             # HTML entry points decode complete references once, and the StarWriter

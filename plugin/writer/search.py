@@ -629,20 +629,19 @@ def iter_literal_ranges(
     search_string: str,
     case_sensitive: bool = SEARCH_CASE_SENSITIVE_DEFAULT,
     after: Any = None,
-    same_text_as: Any = None,
+    all_candidates: bool = False,
 ) -> Iterator[Any]:
     """Iterate matches in document order using native search with newline chaining fallback.
 
     Iterates through each candidate from _search_try_strings. If any candidate yields
-    matches, those hits are emitted and search stops. If none match and search_string
-    spans lines, yields chained paragraph matches. When same_text_as is provided, candidates
-    whose hits are entirely in other XText containers are skipped and buffered so a
-    different-container miss can be reported if no same-container match exists.
+    matches, those hits are emitted and search stops. When all_candidates is True (e.g. for
+    anchor end searches), yields hits across all candidates followed by chain matches so
+    downstream filtering can find matches in the target text container or boundary.
     """
     if not search_string:
         return
 
-    if same_text_as is None:
+    if not all_candidates:
         for candidate in _search_try_strings(search_string):
             matched = False
             for hit in _iter_lo_matches(doc, candidate, case_sensitive, after=after):
@@ -650,57 +649,17 @@ def iter_literal_ranges(
                 yield hit
             if matched:
                 return
-
-        parts = search_string.split("\n")
-        if len(parts) > 1:
-            anchor_idx = _anchor_index(parts)
-            if anchor_idx != -1:
-                yield from _iter_chain_matches(
-                    doc, parts, anchor_idx, case_sensitive, after=after
-                )
-        return
-
-    foreign_hits: list[Any] = []
-    for candidate in _search_try_strings(search_string):
-        hits_iter = _iter_lo_matches(doc, candidate, case_sensitive, after=after)
-        candidate_foreign: list[Any] = []
-        found_same = False
-        for hit in hits_iter:
-            if _is_same_text(hit, same_text_as):
-                found_same = True
-                foreign_hits.clear()
-                yield hit
-                for rest_hit in hits_iter:
-                    if _is_same_text(rest_hit, same_text_as):
-                        yield rest_hit
-                return
-            candidate_foreign.append(hit)
-        if not found_same:
-            foreign_hits.extend(candidate_foreign)
+    else:
+        for candidate in _search_try_strings(search_string):
+            yield from _iter_lo_matches(doc, candidate, case_sensitive, after=after)
 
     parts = search_string.split("\n")
     if len(parts) > 1:
         anchor_idx = _anchor_index(parts)
         if anchor_idx != -1:
-            chain_iter = _iter_chain_matches(
+            yield from _iter_chain_matches(
                 doc, parts, anchor_idx, case_sensitive, after=after
             )
-            candidate_foreign = []
-            found_same = False
-            for hit in chain_iter:
-                if _is_same_text(hit, same_text_as):
-                    found_same = True
-                    foreign_hits.clear()
-                    yield hit
-                    for rest_hit in chain_iter:
-                        if _is_same_text(rest_hit, same_text_as):
-                            yield rest_hit
-                    return
-                candidate_foreign.append(hit)
-            if not found_same:
-                foreign_hits.extend(candidate_foreign)
-
-    yield from foreign_hits
 
 
 def find_occurrence_range(
@@ -801,7 +760,7 @@ def find_anchor_span(
         end_string,
         case_sensitive=case_sensitive,
         after=start.getEnd(),
-        same_text_as=start.getEnd(),
+        all_candidates=True,
     )
     return pick_end_after_start(start, ends)
 
