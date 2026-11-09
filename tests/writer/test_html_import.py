@@ -815,7 +815,7 @@ def test_parse_data_lo_para_line_height(monkeypatch, css, mode, height):
     assert (spacing.Mode, spacing.Height) == (mode, height)
 
 
-@pytest.mark.parametrize("value", ["tall", "0cm", "-1cm", "%"])
+@pytest.mark.parametrize("value", ["tall", "0cm", "-1cm", "%", "0%", "0.0%"])
 def test_parse_data_lo_para_bad_line_height_is_dropped(value):
     from plugin.writer.html_import_styles import parse_data_lo_para
 

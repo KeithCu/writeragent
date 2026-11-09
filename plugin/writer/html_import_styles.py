@@ -97,7 +97,11 @@ def _line_height_fields(val: str) -> dict[str, Any] | None:
         return {"Mode": "prop", "Height": 100}
     m = _PERCENT_RE.match(val)
     if m:
-        return {"Mode": "prop", "Height": int(round(float(m.group(1))))}
+        pct = int(round(float(m.group(1))))
+        # Same rule as a zero/negative length: 0% would collapse the line.
+        if pct <= 0:
+            return None
+        return {"Mode": "prop", "Height": pct}
     length = _parse_length_to_unit(val)
     if length is not None and length > 0:
         return {"Mode": "fix", "Height": length}
