@@ -222,6 +222,43 @@ def test_shape_text_hits_regex_drops_empty_groups_only():
     assert shape_text_hits("ab", r"a*", True, True) == ["a"]
 
 
+def test_shape_text_hits_folds_quotes_and_returns_document_text():
+    from plugin.writer.search import (
+        _DOUBLE_QUOTE_CODEPOINTS,
+        _SINGLE_QUOTE_CODEPOINTS,
+        shape_text_hits,
+        shape_text_span,
+    )
+
+    assert shape_text_hits("He said \u201cHi,\u201d", '"hi,"', False, False) == ["\u201cHi,\u201d"]
+    assert shape_text_hits("He said \u201cHi,\u201d", '"Hi,"', False, True) == ["\u201cHi,\u201d"]
+    assert shape_text_hits('He said "Hi,"', "\u201chi,\u201d", False, False) == ['"Hi,"']
+    assert shape_text_hits("He said \u201cHi,\u201d", '"Hi,"', True, True) == []
+    assert shape_text_hits("end\u2014ash", "end-ash", False, False) == []
+    assert shape_text_hits("end\u2014ash", "end-ash", False, True) == []
+    assert shape_text_hits("İ“x”", '"X"', False, False) == ["“x”"]
+
+    assert shape_text_span("He said \u201cHi,\u201d", '"hi,"', False) == (8, 13)
+    assert shape_text_span("He said \u201cHi,\u201d", '"Hi,"', True) == (8, 13)
+    assert shape_text_span("He said \u201cHi,\u201d", '"hi,"', True) is None
+    assert shape_text_span("İ“x”", '"X"', False) == (1, 4)
+
+    for cp in _SINGLE_QUOTE_CODEPOINTS:
+        ch = chr(cp)
+        assert shape_text_hits(f"a{ch}b", "a'b", False, True) == [f"a{ch}b"]
+        assert shape_text_hits(f"a{ch}b", "a'b", False, False) == [f"a{ch}b"]
+
+    for cp in _DOUBLE_QUOTE_CODEPOINTS:
+        ch = chr(cp)
+        assert shape_text_hits(f'a{ch}b', 'a"b', False, True) == [f'a{ch}b']
+        assert shape_text_hits(f'a{ch}b', 'a"b', False, False) == [f'a{ch}b']
+
+    for cp in (0x2032, 0x02BC, 0x00AB):
+        ch = chr(cp)
+        assert shape_text_hits(f"a{ch}b", "a'b", False, False) == []
+        assert shape_text_hits(f'a{ch}b', 'a"b', False, False) == []
+
+
 def test_find_text_ranges_limit_zero_and_bad_types_return_empty():
     from plugin.writer.search import find_text_ranges
 
