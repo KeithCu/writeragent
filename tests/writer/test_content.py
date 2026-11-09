@@ -36,7 +36,7 @@ def test_dry_run_reports_matches_without_mutating():
          patch("plugin.writer.html_import.content_has_markup", return_value=False):
         res = ApplyDocumentContent().execute(ctx, content=["x"], target="search", old_content="clause 3.2", dry_run=True)
     assert res["status"] == "ok" and res["dry_run"] is True and res["count"] == 2
-    assert res["matches"][0]["location"] == "body"
+    assert res["replaceable"][0]["location"] == "body"
     # No session/undo context opened for a dry run.
     ctx.doc.getUndoManager.assert_not_called()
 
@@ -1369,6 +1369,43 @@ def test_dry_run_outline_capture_failure_is_not_a_missing_link():
             ApplyDocumentContent().execute(
                 ctx, content="bar", target="search", old_content="clause",
                 hyperlink_url="#1.Title|outline", dry_run=True)
+
+
+@pytest.mark.timeout(5)
+@pytest.mark.parametrize("empty_content", ["", [], [""], ["", "   "]])
+def test_dry_run_empty_replacement_omits_outline_rewrite_fields(empty_content):
+    from plugin.writer.hyperlink_fixup import OutlineLink, OutlineSnapshot
+
+    ctx = _edit_ctx()
+    found = MagicMock()
+    snapshot = OutlineSnapshot(
+        links=[OutlineLink(url="#1.clause|outline", name="1.clause", target="")],
+        prefix="",
+        suffix="",
+        matched="clause",
+        single_paragraph=True,
+    )
+    with patch("plugin.writer.search.find_all_ranges", return_value=[found]), \
+         patch("plugin.writer.search.describe_match_location", return_value="body"), \
+         patch("plugin.writer.search.normalize_search_string_for_find", side_effect=lambda s: s), \
+         patch("plugin.writer.html_import.content_has_markup", return_value=False), \
+         patch("plugin.writer.apply_document_content.capture_outline_hyperlinks", return_value=snapshot) as mock_capture:
+        res = ApplyDocumentContent().execute(
+            ctx,
+            content=empty_content,
+            target="search",
+            old_content="clause",
+            occurrence=0,
+            dry_run=True,
+        )
+    assert res["status"] == "ok"
+    assert res["dry_run"] is True
+    assert res["count"] == 1
+    mock_capture.assert_not_called()
+    assert len(res["replaceable"]) == 1
+    for key in ("hyperlink_url", "hyperlink_url_after", "hyperlink_updated", "hyperlinks"):
+        assert key not in res["replaceable"][0]
+        assert key not in res["selected_match"]
 
 
 def test_edit_outline_capture_failure_does_not_change_text():

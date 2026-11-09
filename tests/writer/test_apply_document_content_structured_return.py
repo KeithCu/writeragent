@@ -86,8 +86,11 @@ def _no_libreoffice(monkeypatch):
 
 
 class MockRange:
+    def __init__(self, text: str = "foo") -> None:
+        self._text = text
+
     def getString(self) -> str:
-        return "foo"
+        return self._text
 
     def getText(self):
         return MagicMock()
@@ -204,7 +207,8 @@ def test_dry_run_oversized_retains_dry_run_keys(monkeypatch):
     assert res["dry_run"] is True
     assert res["count"] == 0
     assert res["replaceable_count"] == 0
-    assert res["matches"] == []
+    assert res["replaceable"] == []
+    assert res["not_replaceable"] == []
     assert "target='full_document'" in res["message"]
     assert res["normalized_old_content"] == "huge content"
 
@@ -243,56 +247,63 @@ def test_dry_run_reports_normalized_old_content_and_miss_fields(monkeypatch):
     assert "closest match starts 'The revenue grew…', differs at character 17: f vs l" in res["message"]
 
 
-# --- data-lo-para is a read report, not an instruction --------------------------------------
+# --- data-lo-para warning annotations on write --------------------------------------
 
 
-def test_read_only_attribute_sent_back_is_flagged():
-    """The write path drops data-lo-para. Say so: a silent no-op is the failure this tool's
-    callers already get bitten by."""
-    from plugin.writer.apply_document_content import _note_read_only_attrs
+def test_mapped_data_lo_para_full_document_has_no_warnings():
+    """Clean write with no unapplied properties produces no warnings."""
+    from plugin.writer.apply_document_content import _attach_para_warnings
 
-    res = _note_read_only_attrs(
+    res = _attach_para_warnings(
         {"status": "ok", "message": "Replaced entire document."},
-        ['<p data-lo-para="margin-left:3.25cm">A quoted clause.</p>'])
+        [],
+    )
+    assert "warnings" not in res
 
-    assert res["ignored_attributes"] == ["data-lo-para"]
-    assert "apply_style" in res["message"]
 
+def test_unmapped_data_lo_para_full_document_warns_for_unmapped_property():
+    """Unmapped properties report one warning per dropped property name."""
+    from plugin.writer.apply_document_content import _attach_para_warnings
 
-@pytest.mark.parametrize(
-    "value",
-    [
-        pytest.param("<p>A quoted clause.</p>", id="test_content_without_the_attribute_is_untouched"),
-        # Substring 'data-lo-para' in body text is not the attribute; do not flag ignored_attributes.
-        pytest.param("<p>The words data-lo-para describe a read-only report.</p>", id="test_body_text_mentioning_data_lo_para_is_not_a_false_positive"),
-    ],
-)
-def test_content_without_the_attribute_is_untouched(value):
-    from plugin.writer.apply_document_content import _note_read_only_attrs
-
-    original = {"status": "ok", "message": "Replaced entire document."}
-    res = _note_read_only_attrs(original, [value])
-
-    assert res == original
-    assert "ignored_attributes" not in res
+    res = _attach_para_warnings(
+        {"status": "ok", "message": "Replaced entire document."},
+        ["font-size"],
+    )
+    assert res.get("warnings") == ["data-lo-para property 'font-size' was not applied"]
 
 
 def test_failed_write_is_not_annotated():
-    """Nothing was written, so there is nothing to say about what was ignored."""
-    from plugin.writer.apply_document_content import _note_read_only_attrs
+    """Nothing was written, so there is nothing to say about what was not applied."""
+    from plugin.writer.apply_document_content import _attach_para_warnings
 
     original = {"status": "error", "message": "old_content not found."}
+    assert _attach_para_warnings(original, ["margin-left"]) == original
 
-    assert _note_read_only_attrs(original, ['<p data-lo-para="margin-left:3cm">x</p>']) == original
+
+def test_search_target_warns_for_mapped_property(monkeypatch):
+    """Search replacement does not apply data-lo-para; every property warns."""
+    monkeypatch.setattr(search_mod, "find_first_range", lambda doc, s: MockRange())
+    res = ApplyDocumentContent().execute(
+        _ctx(),
+        target="search",
+        old_content="foo",
+        content='<p data-lo-para="text-align:center">x</p>',
+    )
+    assert res.get("status") == "ok", res
+    assert res.get("warnings") == ["data-lo-para property 'text-align' was not applied"]
 
 
-def test_plain_string_content_is_accepted():
-    """content is normally a list, but the checker must not choke on a bare string."""
-    from plugin.writer.apply_document_content import _note_read_only_attrs
-
-    res = _note_read_only_attrs({"status": "ok"}, '<p data-lo-para="text-align:center">x</p>')
-
-    assert res["ignored_attributes"] == ["data-lo-para"]
+def test_content_without_the_attribute_is_untouched(monkeypatch):
+    """Content without data-lo-para or body text mentioning the words produces no warnings."""
+    monkeypatch.setattr(search_mod, "find_first_range", lambda doc, s: MockRange())
+    res = ApplyDocumentContent().execute(
+        _ctx(),
+        target="search",
+        old_content="foo",
+        content="<p>The words data-lo-para describe a read-only report.</p>",
+    )
+    assert res.get("status") == "ok", res
+    assert "warnings" not in res
 
 def test_search_occurrence_selects_requested_match(monkeypatch):
     first = MockRange()
@@ -399,8 +410,10 @@ def test_search_occurrence_dry_run_selects_without_editing(monkeypatch):
     assert res["replaceable_count"] == 2, res
     assert res["selected_occurrence"] == 1, res
     assert res["selected_match"]["location"] == "second", res
-    assert res["matches"][0]["occurrence"] == 0, res
-    assert res["matches"][1]["occurrence"] == 1, res
+    assert "matches" not in res, res
+    assert res["replaceable"][0]["occurrence"] == 0, res
+    assert res["replaceable"][1]["occurrence"] == 1, res
+    assert res["not_replaceable"] == [], res
 
 
 def test_search_occurrence_rejects_non_search_target():
@@ -523,7 +536,7 @@ def test_search_occurrence_empty_ranges_falls_through_to_not_found(monkeypatch):
     assert res["replaced_count"] == 0, res
 
 
-def test_search_occurrence_dry_run_oor_includes_matches(monkeypatch):
+def test_search_occurrence_dry_run_oor_includes_replaceable(monkeypatch):
     first = MockRange()
     second = MockRange()
 
@@ -561,9 +574,133 @@ def test_search_occurrence_dry_run_oor_includes_matches(monkeypatch):
     assert res["status"] == "error", res
     assert res["code"] == "OCCURRENCE_OUT_OF_RANGE", res
     assert res["details"]["replaceable_count"] == 2, res
-    assert res["details"]["matches"][0]["occurrence"] == 0, res
-    assert res["details"]["matches"][1]["location"] == "second", res
+    assert "matches" not in res["details"], res
+    assert res["details"]["replaceable"][0]["occurrence"] == 0, res
+    assert res["details"]["replaceable"][1]["location"] == "second", res
+    assert res["details"]["not_replaceable"] == [], res
     assert "use 0..1" in res["message"]
+
+
+def test_dry_run_splits_replaceable_and_not_replaceable(monkeypatch):
+    first = MockRange("first text")
+    second = MockRange("second text")
+
+    monkeypatch.setattr(
+        search_mod,
+        "find_all_ranges",
+        lambda doc, s: [first, second],
+    )
+    monkeypatch.setattr(
+        search_mod,
+        "describe_match_location",
+        lambda found, doc, label_cache=None:
+            "first_loc" if found is first else "second_loc",
+    )
+    monkeypatch.setattr(
+        search_mod,
+        "sweep_draw_shape_preview_matches",
+        lambda *args, **kwargs: [
+            {"location": "shape 'Box'", "text": "shape text", "context": "extra context"},
+        ],
+    )
+    monkeypatch.setattr(
+        search_mod,
+        "sweep_comment_preview_matches",
+        lambda *args, **kwargs: [
+            {"location": "comment by 'Ana'", "text": "comment text", "context": "more context"},
+        ],
+    )
+
+    # Success dry_run (no occurrence)
+    res = ApplyDocumentContent().execute(
+        _ctx(),
+        target="search",
+        old_content="foo",
+        content="BAR",
+        dry_run=True,
+    )
+
+    assert res["status"] == "ok", res
+    assert res["dry_run"] is True, res
+    assert "matches" not in res, res
+    assert res["count"] == 4, res
+    assert res["replaceable_count"] == 2, res
+    assert res["replaceable"] == [
+        {"occurrence": 0, "location": "first_loc", "text": "first text"},
+        {"occurrence": 1, "location": "second_loc", "text": "second text"},
+    ], res
+    assert res["not_replaceable"] == [
+        {"location": "shape 'Box'", "text": "shape text"},
+        {"location": "comment by 'Ana'", "text": "comment text"},
+    ], res
+
+    # Same fixture with occurrence=2 (the shape's old position in matches)
+    res_oor = ApplyDocumentContent().execute(
+        _ctx(),
+        target="search",
+        old_content="foo",
+        content="BAR",
+        occurrence=2,
+        dry_run=True,
+    )
+
+    assert res_oor["status"] == "error", res_oor
+    assert res_oor["code"] == "OCCURRENCE_OUT_OF_RANGE", res_oor
+    assert "use 0..1" in res_oor["message"], res_oor
+    assert "matches" not in res_oor["details"], res_oor
+    assert res_oor["details"]["replaceable_count"] == 2, res_oor
+    assert res_oor["details"]["replaceable"] == [
+        {"occurrence": 0, "location": "first_loc", "text": "first text"},
+        {"occurrence": 1, "location": "second_loc", "text": "second text"},
+    ], res_oor
+    assert res_oor["details"]["not_replaceable"] == [
+        {"location": "shape 'Box'", "text": "shape text"},
+        {"location": "comment by 'Ana'", "text": "comment text"},
+    ], res_oor
+
+
+def test_dry_run_shared_preview_cap(monkeypatch):
+    body_ranges = [MockRange(f"body {i}") for i in range(19)]
+    monkeypatch.setattr(
+        search_mod,
+        "find_all_ranges",
+        lambda doc, s: body_ranges,
+    )
+    monkeypatch.setattr(
+        search_mod,
+        "describe_match_location",
+        lambda found, doc, label_cache=None: "body",
+    )
+    monkeypatch.setattr(
+        search_mod,
+        "sweep_draw_shape_preview_matches",
+        lambda *args, **kwargs: [
+            {"location": "shape 'Box1'", "text": "shape 1"},
+            {"location": "shape 'Box2'", "text": "shape 2"},
+        ],
+    )
+    monkeypatch.setattr(
+        search_mod,
+        "sweep_comment_preview_matches",
+        lambda *args, **kwargs: [
+            {"location": "comment by 'Ana'", "text": "comment 1"},
+        ],
+    )
+
+    res = ApplyDocumentContent().execute(
+        _ctx(),
+        target="search",
+        old_content="foo",
+        content="BAR",
+        dry_run=True,
+    )
+
+    assert res["status"] == "ok", res
+    assert res["count"] == 22, res
+    assert res["replaceable_count"] == 19, res
+    assert len(res["replaceable"]) == 19, res
+    assert len(res["not_replaceable"]) == 1, res
+    assert res["not_replaceable"][0]["location"] == "shape 'Box1'", res
 
 
 def test_build_search_replace_response():

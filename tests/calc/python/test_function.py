@@ -177,7 +177,7 @@ def test_insert_image_result_uses_merged_safe_geometry(monkeypatch: pytest.Monke
     import sys
 
     monkeypatch.setitem(sys.modules, "uno", _UnoModule())
-    awt_mod = SimpleNamespace(Size=lambda w, h: ("Size", w, h), Point=lambda x, y: ("Point", x, y))
+    awt_mod = SimpleNamespace(Size=lambda w, h: SimpleNamespace(Width=w, Height=h), Point=lambda x, y: SimpleNamespace(X=x, Y=y))
     monkeypatch.setitem(sys.modules, "com.sun.star.awt", awt_mod)
 
     doc = CalcDocStub(selection="C4")
@@ -228,7 +228,7 @@ def test_insert_image_result_thin_merged_cell_preserves_default_size(monkeypatch
     import sys
 
     monkeypatch.setitem(sys.modules, "uno", _UnoModule())
-    awt_mod = SimpleNamespace(Size=lambda w, h: ("Size", w, h), Point=lambda x, y: ("Point", x, y))
+    awt_mod = SimpleNamespace(Size=lambda w, h: SimpleNamespace(Width=w, Height=h), Point=lambda x, y: SimpleNamespace(X=x, Y=y))
     monkeypatch.setitem(sys.modules, "com.sun.star.awt", awt_mod)
 
     doc = CalcDocStub(selection="A1")
@@ -249,7 +249,7 @@ def test_insert_image_result_thin_merged_cell_preserves_default_size(monkeypatch
     python_function.insert_image_result_on_sheet(ctx, {"data": b"abc", "format": "png"}, doc=doc)
 
     shape.setPosition.assert_called_once_with(pos)
-    shape.setSize.assert_any_call(("Size", 10000, 6000))
+    shape.setSize.assert_any_call(SimpleNamespace(Width=10000, Height=6000))
     shape.setPropertyValue.assert_any_call("Anchor", cell)
     shape.setPropertyValue.assert_any_call("ResizeWithCell", False)
 
@@ -284,7 +284,7 @@ def test_insert_image_result_targets_formula_cell_sheet_when_another_sheet_activ
     import sys
 
     monkeypatch.setitem(sys.modules, "uno", _UnoModule())
-    awt_mod = SimpleNamespace(Size=lambda w, h: ("Size", w, h), Point=lambda x, y: ("Point", x, y))
+    awt_mod = SimpleNamespace(Size=lambda w, h: SimpleNamespace(Width=w, Height=h), Point=lambda x, y: SimpleNamespace(X=x, Y=y))
     monkeypatch.setitem(sys.modules, "com.sun.star.awt", awt_mod)
 
     sheet_overview = CalcSheetStub("Overview")
@@ -367,7 +367,7 @@ def test_insert_image_result_unmerged_single_cell_default_size(monkeypatch: pyte
     import sys
 
     monkeypatch.setitem(sys.modules, "uno", _UnoModule())
-    awt_mod = SimpleNamespace(Size=lambda w, h: ("Size", w, h), Point=lambda x, y: ("Point", x, y))
+    awt_mod = SimpleNamespace(Size=lambda w, h: SimpleNamespace(Width=w, Height=h), Point=lambda x, y: SimpleNamespace(X=x, Y=y))
     monkeypatch.setitem(sys.modules, "com.sun.star.awt", awt_mod)
 
     doc = CalcDocStub(selection="C4")
@@ -388,7 +388,7 @@ def test_insert_image_result_unmerged_single_cell_default_size(monkeypatch: pyte
 
     shape.setPosition.assert_called_once_with(pos)
     # For single unmerged cells, default size (10000, 6000) should be applied and not overwritten by cell size
-    shape.setSize.assert_any_call(("Size", 10000, 6000))
+    shape.setSize.assert_any_call(SimpleNamespace(Width=10000, Height=6000))
     shape.setPropertyValue.assert_any_call("Anchor", cell)
     shape.setPropertyValue.assert_any_call("ResizeWithCell", False)
 
@@ -1366,6 +1366,34 @@ def test_execute_python_addin_maps_timeout_error(monkeypatch) -> None:
     assert out.startswith("Error:")
     assert "timed out" in out.lower()
     assert "Settings" in out
+
+
+def test_execute_python_addin_image_failure_still_processes_later_slots(monkeypatch) -> None:
+    """A failed plot slot does not stop later slots; the first error is reported after all slots."""
+    python_function.clear_python_addin_cache()
+    image = {"__wa_payload__": "image", "format": "png", "data": b"\x89PNG"}
+    monkeypatch.setattr(
+        python_function,
+        "run_code_in_user_venv",
+        lambda *_a, **_k: {"status": "ok", "result": [dict(image), dict(image), dict(image)]},
+    )
+    monkeypatch.setattr(python_function, "_record_py_diagnostic", lambda *_a, **_k: None)
+    monkeypatch.setattr("plugin.scripting.document_scripts.build_python_eval_init_kwargs", lambda *_a, **_k: {})
+    monkeypatch.setattr(python_function, "workbook_session_id", lambda *_a, **_k: None)
+
+    seen: list[int] = []
+
+    def fake_insert(_ctx, _img, *, image_index, **_kwargs):
+        seen.append(image_index)
+        if image_index == 0:
+            raise _image_egress.ImageEgressError("could not anchor plot to the formula cell")
+
+    monkeypatch.setattr(_function, "insert_image_result_on_sheet", fake_insert)
+    out = python_function.execute_python_addin(_ctx_with_doc(CalcDocStub()), "plots()")
+
+    # Revert target: the try/except around each insert in the =PY() image loop
+    assert seen == [0, 1, 2]
+    assert "could not anchor plot" in out
 
 
 def test_perform_deferred_spill_aborts_when_formula_replaced(monkeypatch: pytest.MonkeyPatch) -> None:
