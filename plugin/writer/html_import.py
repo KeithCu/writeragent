@@ -592,6 +592,22 @@ def _deletion_author() -> Any:
         return contextlib.nullcontext()
 
 
+def _drop_absorb_paragraph_props(cursor: Any) -> None:
+    """Drop direct paragraph geometry from the absorb paragraph before HTML import.
+
+    In LibreOffice's HTML parser (`SwHTMLParser::CallParser` and `SetTextCollAttrs`
+    in `sw/source/filter/html/swhtml.cxx`), `GetParaAttr` captures the cursor's
+    direct paragraph attributes (such as `RES_UL_SPACE` and `RES_LR_SPACE`) and
+    stamps them onto imported paragraphs (twip rounding included). Clearing
+    direct paragraph properties ensures imported paragraphs take values from
+    their own style rather than carrying over hard margins from the absorb
+    paragraph; direct formatting from `data-lo-para` is applied later.
+    """
+    from .styles import CLEARABLE_PARA_PROPERTIES, _reset_properties_to_default
+
+    _reset_properties_to_default(cursor, CLEARABLE_PARA_PROPERTIES)
+
+
 def replace_full_document(model: Any, ctx: Any, content: str) -> list[str]:
     """Clear the document and insert *content*."""
     with image_placeholders._keep_placeholder_images(model, content) as swapped:
@@ -605,6 +621,7 @@ def replace_full_document(model: Any, ctx: Any, content: str) -> list[str]:
             cursor.setString("")
         cursor.gotoStart(False)
         if not record_changes.is_recording_changes(model):
+            _drop_absorb_paragraph_props(cursor)
             return _insert_mixed_or_plain_html(model, ctx, cursor, content)
         # In review mode the deleted text stays in place, and an import at
         # its start takes the character formatting of the first old
@@ -617,6 +634,8 @@ def replace_full_document(model: Any, ctx: Any, content: str) -> list[str]:
         # the break.
         text.insertControlCharacter(cursor, 0, False)  # 0 == ControlCharacter.PARAGRAPH_BREAK
         cursor.goLeft(1, False)
+        with record_changes.record_changes(model, False):
+            _drop_absorb_paragraph_props(cursor)
         leftover = text.createTextCursorByRange(cursor.getStart())
         failures = _insert_mixed_or_plain_html(model, ctx, cursor, content)
         leftover.gotoEndOfParagraph(True)

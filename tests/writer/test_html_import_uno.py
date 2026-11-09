@@ -600,3 +600,138 @@ def test_apply_data_lo_para_insert_at_beginning_with_margin_uno(ctx: Any, doc: A
     p_old = next((p for p in paras if "Existing paragraph" in p.getString()), None)
     assert p_old is not None, [p.getString() for p in paras]
     assert p_old.getPropertyValue("ParaLeftMargin") == 0
+
+
+@native_test
+@with_native_doc("writer")
+def test_full_document_drops_old_first_paragraph_direct_margins_uno(ctx: Any, doc: Any) -> None:
+    """full_document must clear absorb paragraph direct margins before HTML import."""
+    skip_windows_leftover_hidden_load("apply_document_content Hidden _default swriter")
+    from plugin.tests.testing_utils import TestingFactory
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+
+    doc.getText().setString("old")
+    cursor = doc.getText().createTextCursor()
+    cursor.gotoStart(False)
+    cursor.gotoEndOfParagraph(True)
+
+    para_styles = doc.getStyleFamilies().getByName("ParagraphStyles")
+    style_name = cursor.getPropertyValue("ParaStyleName")
+    style = para_styles.getByName(style_name)
+    style_top = style.getPropertyValue("ParaTopMargin")
+    style_left = style.getPropertyValue("ParaLeftMargin")
+
+    cursor.setPropertyValue("ParaTopMargin", 777)
+    cursor.setPropertyValue("ParaLeftMargin", 888)
+
+    readback_top = cursor.getPropertyValue("ParaTopMargin")
+    readback_left = cursor.getPropertyValue("ParaLeftMargin")
+    assert readback_top != style_top
+    assert readback_left != style_left
+
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    res = ApplyDocumentContent().execute(tool_ctx, target="full_document", content="<p>a</p><p>b</p>")
+    assert res.get("status") == "ok", res
+
+    paras = []
+    enum = doc.getText().createEnumeration()
+    while enum.hasMoreElements():
+        el = enum.nextElement()
+        if el.supportsService("com.sun.star.text.Paragraph"):
+            paras.append(el)
+
+    non_empty = [p for p in paras if p.getString() != ""]
+    empty_paras = [p for p in paras if p.getString() == ""]
+
+    assert [p.getString() for p in non_empty] == ["a", "b"]
+    assert len(empty_paras) >= 1, "Expected trailing empty paragraph"
+    trailing = empty_paras[-1]
+    assert trailing.getString() == ""
+    assert trailing in paras
+
+    for p in paras:
+        p_style = para_styles.getByName(p.getPropertyValue("ParaStyleName"))
+        expected_top = p_style.getPropertyValue("ParaTopMargin")
+        expected_left = p_style.getPropertyValue("ParaLeftMargin")
+        actual_top = p.getPropertyValue("ParaTopMargin")
+        actual_left = p.getPropertyValue("ParaLeftMargin")
+
+        assert actual_top == expected_top
+        assert actual_left == expected_left
+        if expected_top not in {777, 778, 887, 888}:
+            assert actual_top not in {777, 778, 887, 888}
+        if expected_left not in {777, 778, 887, 888}:
+            assert actual_left not in {777, 778, 887, 888}
+
+
+@native_test
+@with_native_doc("writer")
+def test_full_document_review_margins_follow_new_style_and_reject_keeps_old_uno(ctx: Any, doc: Any) -> None:
+    """In review mode, imported paragraphs drop absorb margins and reject restores old margins."""
+    skip_windows_leftover_hidden_load("apply_document_content Hidden _default swriter")
+    from plugin.writer.html_import import replace_full_document
+
+    doc.getText().setString("old")
+    cursor = doc.getText().createTextCursor()
+    cursor.gotoStart(False)
+    cursor.gotoEndOfParagraph(True)
+
+    para_styles = doc.getStyleFamilies().getByName("ParagraphStyles")
+    style_name = cursor.getPropertyValue("ParaStyleName")
+    style = para_styles.getByName(style_name)
+    style_top = style.getPropertyValue("ParaTopMargin")
+    style_left = style.getPropertyValue("ParaLeftMargin")
+
+    cursor.setPropertyValue("ParaTopMargin", 777)
+    cursor.setPropertyValue("ParaLeftMargin", 888)
+
+    readback_top = cursor.getPropertyValue("ParaTopMargin")
+    readback_left = cursor.getPropertyValue("ParaLeftMargin")
+    assert readback_top != style_top
+    assert readback_left != style_left
+
+    doc.setPropertyValue("RecordChanges", True)
+    failures = replace_full_document(doc, ctx, "<p>a</p><p>b</p>")
+    assert failures == []
+
+    paras = []
+    enum = doc.getText().createEnumeration()
+    while enum.hasMoreElements():
+        el = enum.nextElement()
+        if el.supportsService("com.sun.star.text.Paragraph"):
+            paras.append(el)
+
+    p_old = None
+    for p in paras:
+        text_val = p.getString()
+        p_style = para_styles.getByName(p.getPropertyValue("ParaStyleName"))
+        if "old" in text_val:
+            p_old = p
+            assert p.getPropertyValue("ParaTopMargin") == readback_top
+            assert p.getPropertyValue("ParaLeftMargin") == readback_left
+        elif text_val in ("a", "b", ""):
+            assert p.getPropertyValue("ParaTopMargin") == p_style.getPropertyValue("ParaTopMargin")
+            assert p.getPropertyValue("ParaLeftMargin") == p_style.getPropertyValue("ParaLeftMargin")
+            assert p.getPropertyValue("ParaTopMargin") != readback_top
+            assert p.getPropertyValue("ParaLeftMargin") != readback_left
+
+    assert p_old is not None, "Expected paragraph containing old text"
+
+    helper = ctx.getServiceManager().createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx)
+    frame = doc.getCurrentController().getFrame()
+    helper.executeDispatch(frame, ".uno:RejectAllTrackedChanges", "", 0, ())
+
+    assert "old" in doc.getText().getString()
+
+    paras_after = []
+    enum = doc.getText().createEnumeration()
+    while enum.hasMoreElements():
+        el = enum.nextElement()
+        if el.supportsService("com.sun.star.text.Paragraph"):
+            paras_after.append(el)
+
+    p_restored = next((p for p in paras_after if "old" in p.getString()), None)
+    assert p_restored is not None
+    assert p_restored.getPropertyValue("ParaTopMargin") == readback_top
+    assert p_restored.getPropertyValue("ParaLeftMargin") == readback_left
+
