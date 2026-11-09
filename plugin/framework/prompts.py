@@ -425,8 +425,8 @@ SUB_AGENT_HTML_CONTENT_RULES = f"""- `content` is a JSON array of HTML strings (
 - Named styles: get_document_content marks each block `data-lo-style` = style name with spaces removed (`Heading 1`→`Heading1`).
   Copy tokens exactly. Prefer named styles; unknown token → Standard.
   inline style="" is a character override on top of the named style.
-  data-lo-style is honored on target='full_document', 'beginning', and 'end' (insert prep keeps neighbor text/styles untouched). On 'selection'/'search' it is still ignored (would restyle adjacent text; use apply_style or a full_document rewrite).
-  data-lo-para applies on the same three targets (see Hand-set formatting below). Table-cell styles and selection/search do not apply data-lo-para.
+  data-lo-style is honored on target='full_document', 'beginning', and 'end'; also on 'selection'/'search' when the replaced range covers whole paragraphs. A partial match leaves it unapplied and the result names apply_style(target="search", old_content=...); while Track Changes is recording, selection/search skip it the same way.
+  data-lo-para applies on full_document, beginning, and end (see Hand-set formatting below). Table-cell styles and selection/search do not apply data-lo-para.
 - Heading / TOC jumps: use <a href="#HeadingText|outline">…</a> (URL must end with |outline). A bare "#HeadingText" fragment is not a Writer outline link.
 - Fields: Writer fields are empty spans whose title is the field kind, e.g. <span title="page-number"/>. Same shape in body HTML and in headers/footers.
 - Hand-set formatting: `data-lo-para` (e.g. `data-lo-para="margin-left:3.25cm; font-size:12pt"`) reports what a paragraph has set directly. On write (full_document, beginning, end), alignment, all four margins, text-indent, line-height, and background-color are applied. Paragraph-level font, size, weight, style, and color are read-only (setting them would flatten bold or coloured spans); put those on spans with inline style. Anything not applied is named in warnings. It is how you tell a block quote from body text in a document formatted by hand. Reported on both scope='full' and scope='range'.
