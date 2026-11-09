@@ -131,13 +131,17 @@ def main(argv: list[str] | None = None):
     if model.startswith("openrouter/"):
         model = model[len("openrouter/") :]
 
-    if args.student != "scripted" and not api_key and "openrouter" in api_base.lower():
+    from eval_auth import route_eval_llm
+
+    routed_base, routed_key, routed_model = route_eval_llm(api_base, api_key, model)
+
+    if args.student != "scripted" and not routed_key and "openrouter" in routed_base.lower():
         print("Warning: OPENROUTER_API_KEY (or OPENAI_API_KEY) not set.", file=sys.stderr)
 
     if args.student == "scripted":
         print(f"Student: scripted  backend={args.backend}\n")
     else:
-        print(f"Model: {model} @ {api_base}  backend={args.backend}\n")
+        print(f"Model: {routed_model} @ {routed_base}  backend={args.backend}\n")
 
     examples = to_eval_examples(ALL_EXAMPLES)
     if args.example:

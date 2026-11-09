@@ -35,6 +35,8 @@ make run_eval EVAL_ARGS="--models openai/gpt-oss-120b:nitro -n 2 -j 1"
 | Key | `--api-key` | `WRITERAGENT_API_KEY`, `OPENAI_API_KEY`, `OPENROUTER_API_KEY` |
 | URL | `--endpoint` / `--api-base` | `WRITERAGENT_API_BASE`, `OPENAI_API_BASE`, OpenRouter default |
 
+`ANTHROPIC_API_KEY` routes Claude-shaped ids on an OpenRouter base to `https://api.anthropic.com/v1`. The default judge stays on OpenRouter. Non-OpenRouter `--api-base` is not rewritten. No catalog rows.
+
 `--allow-unknown-model` — local/custom model ids without `model_configs.py` pricing (IpD/cost shown as n/a).
 
 ## Judge
