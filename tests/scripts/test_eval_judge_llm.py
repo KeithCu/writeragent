@@ -139,7 +139,7 @@ def test_score_with_judge_llm_routes_anthropic(
     assert "api.anthropic.com" in cfg2["endpoint"]
     assert cfg2["api_key"] == "env-ant-key"
     assert cfg2["is_openrouter"] is False
-    assert instance.request_with_tools.call_args.kwargs["model"] == "claude-sonnet-4.5"
+    assert instance.request_with_tools.call_args.kwargs["model"] == "claude-sonnet-4-5"
 
 
 @patch("plugin.framework.client.llm_client.LlmClient")

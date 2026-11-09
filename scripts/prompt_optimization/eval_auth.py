@@ -10,6 +10,7 @@ parameters fed into LlmClient via llm_chat_eval._build_api_config.
 from __future__ import annotations
 
 import os
+import re
 import sys
 from typing import Any, Sequence
 
@@ -47,14 +48,19 @@ def resolve_api_base(*, cli_base: str | None = None) -> str:
     return DEFAULT_API_BASE
 
 
-def is_anthropic_model_id(model: str) -> bool:
-    """Check whether a model identifier represents an Anthropic Claude model."""
+def _unwrap_openrouter_id(model: str) -> str:
+    """Strip leading openrouter/ prefix and dynamic OpenRouter routing suffixes."""
+    from plugin.framework.openrouter_model_id import resolve_openrouter_catalog_id
+
     mid = str(model or "").strip()
     if mid.startswith("openrouter/"):
         mid = mid[len("openrouter/") :]
-    from plugin.framework.openrouter_model_id import resolve_openrouter_catalog_id
+    return resolve_openrouter_catalog_id(mid)
 
-    mid = resolve_openrouter_catalog_id(mid)
+
+def is_anthropic_model_id(model: str) -> bool:
+    """Check whether a model identifier represents an Anthropic Claude model."""
+    mid = _unwrap_openrouter_id(model)
     if mid.startswith("anthropic/"):
         return len(mid) > len("anthropic/")
     if mid.startswith("claude-"):
@@ -64,15 +70,13 @@ def is_anthropic_model_id(model: str) -> bool:
 
 def native_anthropic_model_id(model: str) -> str:
     """Convert an OpenRouter or bare Claude model id to its native Anthropic name."""
-    mid = str(model or "").strip()
-    if mid.startswith("openrouter/"):
-        mid = mid[len("openrouter/") :]
-    from plugin.framework.openrouter_model_id import resolve_openrouter_catalog_id
-
-    mid = resolve_openrouter_catalog_id(mid)
+    mid = _unwrap_openrouter_id(model)
     if mid.startswith("anthropic/"):
         mid = mid[len("anthropic/") :]
-    return mid
+    # Drop static suffixes like :thinking or :extended not supported by native Anthropic.
+    mid = mid.split(":", 1)[0]
+    # OpenRouter slugs use 4.5; Anthropic ids use 4-5.
+    return re.sub(r"(?<=\d)\.(?=\d)", "-", mid)
 
 
 def route_eval_llm(endpoint: str, api_key: str, model: str) -> tuple[str, str, str]:
@@ -103,29 +107,17 @@ def route_eval_llm(endpoint: str, api_key: str, model: str) -> tuple[str, str, s
 
 def require_eval_keys(*, endpoint: str, api_key: str, models: Sequence[str]) -> None:
     """Validate that necessary API keys are present for the models being evaluated."""
-    from plugin.framework.client.provider_detection import get_provider_from_endpoint
-
-    has_anthropic = False
-    has_non_anthropic = False
-
-    for mid in models:
-        routed_base, _, _ = route_eval_llm(endpoint, api_key, mid)
-        if get_provider_from_endpoint(routed_base) == "anthropic":
-            has_anthropic = True
-        else:
-            has_non_anthropic = True
-
-    if has_non_anthropic or not models:
+    if not models:
         require_api_key(api_key, endpoint)
+        return
 
-    if has_anthropic:
-        env_key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
-        shared_provider = get_provider_from_endpoint(endpoint)
-        if shared_provider == "openrouter":
-            anthropic_key = env_key
-        else:
-            anthropic_key = (api_key.strip() if api_key else "") or env_key
-        require_api_key(anthropic_key, ANTHROPIC_API_BASE)
+    seen_pairs: set[tuple[str, str]] = set()
+    for mid in models:
+        base, key, _ = route_eval_llm(endpoint, api_key, mid)
+        pair = (base, key)
+        if pair not in seen_pairs:
+            seen_pairs.add(pair)
+            require_api_key(key, base)
 
 
 def require_api_key(api_key: str, endpoint: str) -> None:

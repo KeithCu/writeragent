@@ -86,16 +86,10 @@ def build_eval_argv(
 
 
 def main() -> int:
-    # Resolve credentials before spawning child (clear errors at repo root).
+    # Resolve credentials before spawning child; the child validates keys after judge resolution.
     if str(PO_DIR) not in sys.path:
         sys.path.insert(0, str(PO_DIR))
-    from eval_auth import (
-        require_api_key,
-        require_eval_keys,
-        resolve_api_base,
-        resolve_api_key,
-        resolve_judge_model,
-    )
+    from eval_auth import resolve_api_base, resolve_api_key
 
     parser = argparse.ArgumentParser(description="WriterAgent benchmark CLI")
     parser.add_argument("--model", "-m", help="Single model to benchmark")
@@ -128,29 +122,6 @@ def main() -> int:
 
     api_base = resolve_api_base(cli_base=args.endpoint)
     api_key = resolve_api_key(cli_key=args.api_key)
-
-    if args.model or args.models or args.yes_all_models:
-        from model_configs import get_default_models
-
-        if args.model:
-            model_ids = [args.model.strip()]
-        elif args.models:
-            model_ids = [s.strip() for s in args.models.split(",") if s.strip()]
-        else:
-            model_ids = [m.openrouter_id for m in get_default_models()]
-
-        check_ids = list(model_ids)
-        if not args.no_judge:
-            judge_id = resolve_judge_model(
-                cli_judge=None,
-                endpoint=api_base,
-                model_ids=model_ids,
-            )
-            if judge_id:
-                check_ids.append(judge_id)
-        require_eval_keys(endpoint=api_base, api_key=api_key, models=check_ids)
-    else:
-        require_api_key(api_key, api_base)
 
     if args.task or args.document:
         print("Custom --task/--document: not implemented yet.", file=sys.stderr)

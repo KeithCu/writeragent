@@ -100,6 +100,7 @@ def _model_config_for_id(model_id: str, *, allow_unknown: bool) -> ModelConfig:
             output_cost_per_million=base.output_cost_per_million,
             notes=base.notes,
         )
+    # Claude ids route by name (ANTHROPIC_API_KEY); no catalog price.
     if allow_unknown or is_anthropic_model_id(model_id):
         return ModelConfig(
             openrouter_id=model_id,
@@ -920,7 +921,10 @@ def main(argv: list[str] | None = None) -> int:
                         f"${cfg.output_cost_per_million}/M output"
                     )
                 else:
-                    print("  Pricing: n/a (--allow-unknown-model)")
+                    if is_anthropic_model_id(model_id):
+                        print("  Pricing: n/a (native Anthropic, no catalog row)")
+                    else:
+                        print("  Pricing: n/a (--allow-unknown-model)")
                 routed_base, _, _ = route_eval_llm(api_base, api_key, model_id)
                 print(f"  Using model id: {model_id} @ {routed_base}\n")
 

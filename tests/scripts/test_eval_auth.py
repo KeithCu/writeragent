@@ -104,10 +104,10 @@ def test_is_anthropic_model_id() -> None:
 
 
 def test_native_anthropic_model_id() -> None:
-    assert native_anthropic_model_id("anthropic/claude-sonnet-4.5:nitro") == "claude-sonnet-4.5"
+    assert native_anthropic_model_id("anthropic/claude-sonnet-4.5:nitro") == "claude-sonnet-4-5"
     assert native_anthropic_model_id("claude-haiku-4-5:nitro:online") == "claude-haiku-4-5"
     assert native_anthropic_model_id("openrouter/anthropic/claude-opus-4:exacto") == "claude-opus-4"
-    assert native_anthropic_model_id("anthropic/claude-sonnet-4.5:thinking") == "claude-sonnet-4.5:thinking"
+    assert native_anthropic_model_id("anthropic/claude-sonnet-4.5:thinking") == "claude-sonnet-4-5"
     assert native_anthropic_model_id("anthropic/anthropic/claude-x") == "anthropic/claude-x"
 
 
@@ -124,7 +124,7 @@ def test_build_eval_api_config_claude_routes_to_anthropic(monkeypatch: pytest.Mo
     assert "api.anthropic.com" in cfg["endpoint"]
     assert cfg["api_key"] == "ant-key-123"
     assert cfg["is_openrouter"] is False
-    assert cfg["model"] == "claude-sonnet-4.5"
+    assert cfg["model"] == "claude-sonnet-4-5"
 
     auth = resolve_auth_for_config(cfg)
     assert auth["provider"] == "anthropic"
@@ -193,7 +193,7 @@ def test_build_eval_api_config_already_anthropic_base(monkeypatch: pytest.Monkey
         model="anthropic/claude-sonnet-4.5:nitro",
     )
     assert cfg1["api_key"] == "cli-key"
-    assert cfg1["model"] == "claude-sonnet-4.5"
+    assert cfg1["model"] == "claude-sonnet-4-5"
 
     cfg2 = build_eval_api_config(
         endpoint="https://api.anthropic.com/v1",
@@ -201,7 +201,7 @@ def test_build_eval_api_config_already_anthropic_base(monkeypatch: pytest.Monkey
         model="anthropic/claude-sonnet-4.5:nitro",
     )
     assert cfg2["api_key"] == "env-key"
-    assert cfg2["model"] == "claude-sonnet-4.5"
+    assert cfg2["model"] == "claude-sonnet-4-5"
 
 
 def test_require_eval_keys_all_claude_no_openrouter_key(monkeypatch: pytest.MonkeyPatch) -> None:
