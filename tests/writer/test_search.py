@@ -222,6 +222,40 @@ def test_shape_text_hits_regex_drops_empty_groups_only():
     assert shape_text_hits("ab", r"a*", True, True) == ["a"]
 
 
+def test_shape_text_hits_folds_quotes_and_returns_document_text():
+    from plugin.writer.search import (
+        _DOUBLE_QUOTE_CODEPOINTS,
+        _SHAPE_QUOTE_FOLD,
+        _SINGLE_QUOTE_CODEPOINTS,
+        shape_text_hits,
+    )
+
+    assert shape_text_hits("He said \u201cHi,\u201d", '"hi,"', False, False) == ["\u201cHi,\u201d"]
+    assert shape_text_hits("He said \u201cHi,\u201d", '"Hi,"', False, True) == ["\u201cHi,\u201d"]
+    assert shape_text_hits('He said "Hi,"', "\u201chi,\u201d", False, False) == ['"Hi,"']
+    assert shape_text_hits("He said \u201cHi,\u201d", '"Hi,"', True, True) == []
+    assert shape_text_hits("end\u2014ash", "end-ash", False, False) == []
+    assert shape_text_hits("end\u2014ash", "end-ash", False, True) == []
+
+    assert set(_SHAPE_QUOTE_FOLD) == {0x2018, 0x2019, 0x201A, 0x201B, 0x201C, 0x201D, 0x201E, 0x201F}
+    assert all(isinstance(v, str) and len(v) == 1 for v in _SHAPE_QUOTE_FOLD.values())
+
+    for cp in _SINGLE_QUOTE_CODEPOINTS:
+        ch = chr(cp)
+        assert shape_text_hits(f"a{ch}b", "a'b", False, True) == [f"a{ch}b"]
+        assert shape_text_hits(f"a{ch}b", "a'b", False, False) == [f"a{ch}b"]
+
+    for cp in _DOUBLE_QUOTE_CODEPOINTS:
+        ch = chr(cp)
+        assert shape_text_hits(f'a{ch}b', 'a"b', False, True) == [f'a{ch}b']
+        assert shape_text_hits(f'a{ch}b', 'a"b', False, False) == [f'a{ch}b']
+
+    for cp in (0x2032, 0x02BC, 0x00AB):
+        ch = chr(cp)
+        assert shape_text_hits(f"a{ch}b", "a'b", False, False) == []
+        assert shape_text_hits(f'a{ch}b', 'a"b', False, False) == []
+
+
 def test_find_text_ranges_limit_zero_and_bad_types_return_empty():
     from plugin.writer.search import find_text_ranges
 

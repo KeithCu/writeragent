@@ -111,6 +111,15 @@ _FOLD_NORMALIZE_MAP = {
     **{cp: "-" for cp in (0x2010, 0x2011, 0x2012, 0x2013, 0x2014, 0x2015, 0x2212)},
 }
 
+# Literal shape and comment search folds these quotes only. Each entry is one
+# codepoint to one ASCII quote, so a find index is still an index into the
+# original shape or comment string. Dashes and exotic spaces stay literal here;
+# body search folds those in escape_for_lo_regex.
+_SHAPE_QUOTE_FOLD = str.maketrans({
+    **{cp: "'" for cp in _SINGLE_QUOTE_CODEPOINTS if cp != 0x0027},
+    **{cp: '"' for cp in _DOUBLE_QUOTE_CODEPOINTS if cp != 0x0022},
+})
+
 MIN_OVERSIZED_CHARS = 100
 OVERSIZED_OLD_CONTENT_MESSAGE = (
     "old_content covers most of the document. Use target='full_document' with "
@@ -976,15 +985,20 @@ def shape_text_hits(shape_text: str, pattern: str, use_regex: bool, case_sensiti
     if use_regex:
         flags = 0 if case_sensitive else re_mod.IGNORECASE
         return _regex_find_hits(pattern, shape_text, flags)
+    # Literal search folds typographic quotes to plain ASCII quotes to match body
+    # search behavior. Because each quote translation is strictly 1:1, string
+    # lengths and character positions are preserved so slice_hit extracts the
+    # original document characters.
     if case_sensitive:
-        hay = shape_text
-        needle = pattern
+        hay = shape_text.translate(_SHAPE_QUOTE_FOLD)
+        needle = pattern.translate(_SHAPE_QUOTE_FOLD)
 
         def slice_hit(idx: int) -> str:
             return shape_text[idx:idx + len(pattern)]
     else:
         hay, origins = _lower_with_origins(shape_text)
-        needle = pattern.lower()
+        hay = hay.translate(_SHAPE_QUOTE_FOLD)
+        needle = pattern.lower().translate(_SHAPE_QUOTE_FOLD)
 
         def slice_hit(idx: int) -> str:
             return shape_text[origins[idx]:origins[idx + len(needle) - 1] + 1]
