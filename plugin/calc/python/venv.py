@@ -179,6 +179,7 @@ class RunVenvPythonScript(ToolCalcPythonBase):
                 shown = img_paths
                 inserted = 0
                 failure: Exception | None = None
+                failures: list[Exception] = []
                 if ctx.doc_type == "calc":
                     from plugin.calc.python.image_egress import insert_image_result_on_sheet
 
@@ -186,6 +187,10 @@ class RunVenvPythonScript(ToolCalcPythonBase):
                     # main-thread call returns. Omitting doc= makes egress
                     # use getCurrentComponent (the front window), and a
                     # silent return was treated as success.
+                    # Keep going past a failed slot so later plots still insert;
+                    # only the failed paths are handed back to the caller.
+                    inserted_paths: list[str] = []
+                    failed_paths: list[str] = []
                     for i, (img, path) in enumerate(zip(images, img_paths, strict=True)):
                         try:
                             main.call(
@@ -199,13 +204,15 @@ class RunVenvPythonScript(ToolCalcPythonBase):
                             )
                         except Exception as exc:
                             log.warning("run_venv_python_script: plot insert failed: %s", exc)
-                            failure = exc
-                            break
-                        inserted += 1
-                    # Only embedded plots lose their temp file; a path is handed back
-                    # Unlink only paths for plots actually inserted; partial failure keeps later temp files for the user.
-                    _unlink_quiet(img_paths[:inserted])
-                    shown = img_paths[inserted:]
+                            failures.append(exc)
+                            failed_paths.append(path)
+                            continue
+                        inserted_paths.append(path)
+                    inserted = len(inserted_paths)
+                    # Unlink only paths for plots actually inserted; failed temps stay for the user.
+                    _unlink_quiet(inserted_paths)
+                    shown = failed_paths
+                    failure = failures[0] if failures else None
 
                 if shown:
                     out["image_paths"] = shown
@@ -214,11 +221,11 @@ class RunVenvPythonScript(ToolCalcPythonBase):
                     if failure is not None and inserted == 0:
                         out["status"] = "error"
                         out["image_inserted"] = False
-                        out["plot_error"] = str(failure)
+                        out["plot_error"] = "; ".join(str(e) for e in failures)
                         out["message"] = f"Plot was not inserted: {failure}"
                     elif failure is not None:
                         out["image_inserted"] = True
-                        out["plot_error"] = str(failure)
+                        out["plot_error"] = "; ".join(str(e) for e in failures)
                         out["message"] = f"{inserted} of {len(images)} plot(s) inserted on active sheet"
                     else:
                         out["message"] = f"{len(images)} plot(s) inserted on active sheet"
