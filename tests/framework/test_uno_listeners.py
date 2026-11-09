@@ -527,6 +527,63 @@ def test_mouse_click_handler_unannotated_override_returns_false() -> None:
     assert handler.mouseReleased(MagicMock()) is False
 
 
+def test_key_handler_default_is_false() -> None:
+    from plugin.framework.uno_listeners import BaseKeyHandler
+
+    handler = BaseKeyHandler()
+    assert handler.keyPressed(MagicMock()) is False
+    assert handler.keyReleased(MagicMock()) is False
+    handler.disposing(MagicMock())
+
+
+def test_key_handler_failure_returns_false() -> None:
+    from plugin.framework.uno_listeners import BaseKeyHandler
+
+    class Boom(BaseKeyHandler):
+        def on_key_pressed(self, e):
+            raise RuntimeError("nope")
+
+    assert Boom().keyPressed(MagicMock()) is False
+
+
+def test_key_handler_thread_violation_is_not_a_rejected_key() -> None:
+    from plugin.framework.uno_listeners import BaseKeyHandler, ListenerBoundary
+
+    class Boom(BaseKeyHandler):
+        def on_key_pressed(self, e):
+            raise _thread_violation()
+
+    with_failure = False
+    try:
+        try:
+            returned = Boom().keyPressed(MagicMock())
+            with_failure = returned is False
+        except Exception as exc:
+            raise AssertionError("generic handler swallowed the boundary") from exc
+    except ListenerBoundary as boundary:
+        assert boundary.kind == "thread"
+        return
+    if with_failure:
+        raise AssertionError("thread violation looked like keyPressed returning False")
+    raise AssertionError("thread violation did not leave the key handler")
+
+
+def test_key_handler_unannotated_override_returns_false() -> None:
+    """Subclass overriding keyPressed/keyReleased without annotations returns False on failure."""
+    from plugin.framework.uno_listeners import BaseKeyHandler
+
+    class UnannotatedOverride(BaseKeyHandler):
+        def keyPressed(self, e):
+            raise RuntimeError("key press failed")
+
+        def keyReleased(self, e):
+            raise RuntimeError("key release failed")
+
+    handler = UnannotatedOverride()
+    assert handler.keyPressed(MagicMock()) is False
+    assert handler.keyReleased(MagicMock()) is False
+
+
 def test_mouse_listener_unannotated_override_returns_none() -> None:
     """Subclass overriding mousePressed on BaseMouseListener returns None on failure."""
     from plugin.framework.uno_listeners import BaseMouseListener

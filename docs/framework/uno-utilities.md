@@ -177,6 +177,7 @@ Empty defaults + `_catch_and_log` so Python exceptions do not leak into the C++ 
 | `BaseItemListener` | `XItemListener` |
 | `BaseTextListener` | `XTextListener` |
 | `BaseKeyListener` | `XKeyListener` |
+| `BaseKeyHandler` | `XKeyHandler` |
 | `BaseWindowListener` | `XWindowListener` |
 | `BaseTopWindowListener` | `XTopWindowListener` |
 | `BaseContainerListener` | `XContainerListener` |
