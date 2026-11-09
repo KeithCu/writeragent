@@ -323,8 +323,21 @@ class AnthropicShim(BaseProviderShim):
     """Shim for Anthropic native Messages API."""
 
     def build_chat_request(
-        self, messages: list[dict[str, Any]], max_tokens: int, temperature: float | None, tools: list[dict[str, Any]] | None, stream: bool, model_name: str | None, response_format: dict[str, Any] | None, chat_extra: dict[str, Any] | None = None, tool_choice: str | None = None,
+        self,
+        messages: list[dict[str, Any]],
+        max_tokens: int,
+        temperature: float | None,
+        tools: list[dict[str, Any]] | None,
+        stream: bool,
+        model_name: str | None,
+        response_format: dict[str, Any] | None,
+        chat_extra: dict[str, Any] | None = None,
+        tool_choice: str | None = None,
+        *,
+        cache_session_id: str | None = None,
     ) -> tuple[str, str, bytes, dict[str, str]]:
+        # Anthropic Messages has no routing-key field; prompt caching there is the `cache_control` marker from `annotate_anthropic_cache`.
+        del cache_session_id
         endpoint = self.client._endpoint()
         url = f"{endpoint}/v1/messages"
         model = model_name.strip() if isinstance(model_name, str) else ""

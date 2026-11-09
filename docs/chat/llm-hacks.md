@@ -200,4 +200,23 @@ Tests: [`tests/framework/test_client_llm.py`](../../tests/framework/test_client_
 
 ---
 
+## 13. Provider sticky cache routing (`session_id`)
+
+**Problem**: Large LLM providers support sticky routing or explicit cache keys so multi-turn conversations hit warm prompt caches across distributed clusters. Different providers use different fields, caps, or transport mechanisms:
+- **OpenRouter**: Top-level body `session_id` (capped at 256 characters; body takes priority over `x-session-id`).
+- **OpenAI**: Chat Completions and Responses API use body `prompt_cache_key` (no length cap).
+- **Cerebras**: Chat Completions body `prompt_cache_key` (capped at 1024 characters).
+- **xAI**: Header `x-grok-conv-id` (native xAI stays on Chat Completions via `GrokShim`, so header is used; omitted if containing non-printable ASCII).
+
+Anthropic Messages has no session routing key (cache breakpoints use `cache_control` blocks via `annotate_anthropic_cache`), and every unnamed host (`google`, `groq`, `ollama`, `together`, `mistral`, `custom`) gets nothing to avoid HTTP 400 rejection on unknown fields. Non-chat requests (compaction, smol, grammar, images, web research, forms, `=PROMPT()`) do not send it.
+
+**Workaround** ([`cache_route`](../../plugin/framework/client/base_provider_shim.py)):
+`ChatSession.session_id` is passed as `cache_session_id` during tool-loop and final stream requests, applying provider-specific body fields or headers without altering message history or system prompt text. The chat session id overrides any `session_id` in the model's extra JSON, on purpose, so every turn of one chat keeps the same routing key. All librarian chats share [`LIBRARIAN_HISTORY_SESSION_ID`](../../plugin/chatbot/chat_sidebar_mode.py), which is harmless at one user's request rate.
+
+See also: [chat-prompt-caching.md](chat-prompt-caching.md) (document-snapshot layout and Anthropic `cache_control` markers).
+
+Tests: [`tests/framework/client/test_openai_shim.py`](../../tests/framework/client/test_openai_shim.py), [`tests/framework/client/test_anthropic_shim.py`](../../tests/framework/client/test_anthropic_shim.py), [`tests/chatbot/test_tool_loop_errors.py`](../../tests/chatbot/test_tool_loop_errors.py).
+
+---
+
 *This document should be updated as new hacks are discovered or as improvements in models allow us to remove them.*
