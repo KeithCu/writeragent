@@ -723,3 +723,57 @@ def test_build_search_replace_response():
     multi_preserve = build_search_replace_response(3, use_preserve=True)
     assert multi_preserve["status"] == "ok"
     assert "formatting preserved" in multi_preserve["message"]
+
+
+def test_full_document_structured_return_paragraphs_and_headings():
+    from unittest.mock import patch
+
+    content = ["<h1>Title</h1>", '<p data-lo-style="Heading2">Section</p>', "<p>Body</p>"]
+    with patch("plugin.writer.html_import.replace_full_document") as mock_replace:
+        mock_replace.return_value = []
+        res = ApplyDocumentContent().execute(_ctx(), content=content, target="full_document")
+    assert res["status"] == "ok"
+    assert res["message"] == "Replaced entire document."
+    assert res["paragraph_count"] == 3
+    assert res["headings"] == [
+        {"level": 1, "text": "Title"},
+        {"level": 2, "text": "Section"},
+    ]
+    assert "warnings" not in res
+
+
+def test_full_document_non_heading_style_dropped_from_headings():
+    from unittest.mock import patch
+
+    content = '<h1 data-lo-style="Quotations">Title</h1>'
+    with patch("plugin.writer.html_import.replace_full_document") as mock_replace:
+        mock_replace.return_value = []
+        res = ApplyDocumentContent().execute(_ctx(), content=content, target="full_document")
+    assert res["status"] == "ok"
+    assert res["paragraph_count"] == 1
+    assert res["headings"] == []
+    assert "warnings" not in res
+
+
+def test_full_document_empty_content_returns_zero_paragraphs():
+    from unittest.mock import patch
+
+    with patch("plugin.writer.html_import.replace_full_document") as mock_replace:
+        mock_replace.return_value = []
+        res = ApplyDocumentContent().execute(_ctx(), content="", target="full_document")
+    assert res["status"] == "ok"
+    assert res["paragraph_count"] == 0
+    assert res["headings"] == []
+
+
+def test_full_document_data_lo_para_warnings():
+    from unittest.mock import patch
+
+    content = '<p data-lo-para="line-height:150%">Hello</p>'
+    with patch("plugin.writer.html_import.replace_full_document") as mock_replace:
+        mock_replace.return_value = ["line-height"]
+        res = ApplyDocumentContent().execute(_ctx(), content=content, target="full_document")
+    assert res["status"] == "ok"
+    assert res["paragraph_count"] == 1
+    assert res["headings"] == []
+    assert res["warnings"] == ["data-lo-para property 'line-height' was not applied"]

@@ -1149,7 +1149,7 @@ class ApplyDocumentContent(ToolBase):
     def _edit_full_document(
         self, ctx: ToolContext, session: EditReviewSession, params: EditParams,
     ) -> dict[str, Any]:
-        from . import html_import as format_support
+        from . import html_import as format_support, html_import_styles
         content = params.content
         plain = params.plain
         has_table = params.has_table
@@ -1162,7 +1162,13 @@ class ApplyDocumentContent(ToolBase):
         err = self._table_insert_error(ctx.doc, has_table, None)
         if err:
             return err
-        res: dict[str, Any] = {"status": "ok", "message": "Replaced entire document."}
+        summary = html_import_styles.summarize_written_blocks(content)
+        res: dict[str, Any] = {
+            "status": "ok",
+            "message": "Replaced entire document.",
+            "paragraph_count": summary["paragraph_count"],
+            "headings": summary["headings"],
+        }
         return _attach_para_warnings(res, failed)
 
     def _edit_insert_at(

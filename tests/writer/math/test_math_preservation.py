@@ -105,6 +105,7 @@ class TestWriterMathPreservation:
         content = "Line 1\\nLine 2"
         
         with patch('plugin.writer.html_import.replace_full_document') as mock_replace:
+            mock_replace.return_value = []
             tool.execute(ctx, content=content, target="full_document")
             
             passed_content = mock_replace.call_args[0][2]
