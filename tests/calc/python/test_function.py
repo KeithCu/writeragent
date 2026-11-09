@@ -1368,6 +1368,34 @@ def test_execute_python_addin_maps_timeout_error(monkeypatch) -> None:
     assert "Settings" in out
 
 
+def test_execute_python_addin_image_failure_still_processes_later_slots(monkeypatch) -> None:
+    """A failed plot slot does not stop later slots; the first error is reported after all slots."""
+    python_function.clear_python_addin_cache()
+    image = {"__wa_payload__": "image", "format": "png", "data": b"\x89PNG"}
+    monkeypatch.setattr(
+        python_function,
+        "run_code_in_user_venv",
+        lambda *_a, **_k: {"status": "ok", "result": [dict(image), dict(image), dict(image)]},
+    )
+    monkeypatch.setattr(python_function, "_record_py_diagnostic", lambda *_a, **_k: None)
+    monkeypatch.setattr("plugin.scripting.document_scripts.build_python_eval_init_kwargs", lambda *_a, **_k: {})
+    monkeypatch.setattr(python_function, "workbook_session_id", lambda *_a, **_k: None)
+
+    seen: list[int] = []
+
+    def fake_insert(_ctx, _img, *, image_index, **_kwargs):
+        seen.append(image_index)
+        if image_index == 0:
+            raise _image_egress.ImageEgressError("could not anchor plot to the formula cell")
+
+    monkeypatch.setattr(_function, "insert_image_result_on_sheet", fake_insert)
+    out = python_function.execute_python_addin(_ctx_with_doc(CalcDocStub()), "plots()")
+
+    # Revert target: the try/except around each insert in the =PY() image loop
+    assert seen == [0, 1, 2]
+    assert "could not anchor plot" in out
+
+
 def test_perform_deferred_spill_aborts_when_formula_replaced(monkeypatch: pytest.MonkeyPatch) -> None:
     doc = CalcDocStub(url="file:///spill.ods")
     sheet = doc.getSheets().getByIndex(0)

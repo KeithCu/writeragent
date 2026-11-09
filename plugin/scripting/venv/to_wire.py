@@ -191,7 +191,14 @@ def _figure_to_image_payload(fig: Any, *, fmt: str = "svg") -> dict[str, Any]:
 
     buf = io.BytesIO()
     if fmt == "svg":
-        fig.savefig(buf, format="svg", bbox_inches="tight")
+        import matplotlib
+
+        # matplotlib's SVG writer stamps the render date and salts element ids at random,
+        # so the same figure gives different bytes on every run. No date and a fixed salt
+        # keep the bytes stable, which lets Calc skip reloading a plot whose image has not
+        # changed (the SHA-256 tag in plugin/calc/python/image_egress.py).
+        with matplotlib.rc_context({"svg.hashsalt": "writeragent"}):
+            fig.savefig(buf, format="svg", bbox_inches="tight", metadata={"Date": None})
     else:
         fig.savefig(buf, format="png", bbox_inches="tight", dpi=150)
     buf.seek(0)

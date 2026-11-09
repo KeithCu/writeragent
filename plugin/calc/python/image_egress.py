@@ -40,6 +40,12 @@ _DRAW_GRAPHIC_SERVICE = "com.sun.star.drawing.GraphicObjectShape"
 _PLOT_SHAPE_NAME_PREFIX = "WriterAgentPlot"
 _IMAGE_ANNOTATION_PREFIX = "WriterAgent image: "
 
+# Each plot shape carries a wa-plot:<col>,<row>[:<sha>] tag naming its formula cell and
+# the SHA-256 digest of its image. It lives in UserDefinedAttributes, which ODF keeps as a
+# namespaced attribute on the shape, so the shape's Description (alt text) stays the user's.
+_PLOT_TAG_ATTR = "wa:plot"
+_PLOT_TAG_NAMESPACE = "urn:writeragent:plot"
+
 
 def _plot_slot_name(image_index: int) -> str:
     """Slot name for a plot shape: WriterAgentPlot for 0, WriterAgentPlot_{index+1} for rest."""
@@ -140,12 +146,12 @@ def _aspect_ratio_changed(old_w: int, old_h: int, new_w: int, new_h: int) -> boo
 
 
 def _format_plot_tag(col: int, row: int, sha: str | None = None) -> str:
-    """Format the owner cell coordinates and SHA-256 digest tag for Description."""
+    """Format the owner cell and optional SHA-256 image digest as wa-plot:<col>,<row>[:<sha>]."""
     return f"wa-plot:{col},{row}:{sha}" if sha else f"wa-plot:{col},{row}"
 
 
-def _parse_plot_tag(desc: str) -> tuple[tuple[int, int], str | None] | None:
-    """Parse a wa-plot Description tag into ((col, row), sha_hex).
+def _parse_plot_tag(desc: Any) -> tuple[tuple[int, int], str | None] | None:
+    """Parse a wa-plot tag into ((col, row), sha_hex).
 
     Returns None if desc is not a valid wa-plot tag in the format
     wa-plot:<col>,<row>[:<sha>].
@@ -171,47 +177,54 @@ def _parse_plot_tag(desc: str) -> tuple[tuple[int, int], str | None] | None:
     return coords, sha
 
 
-def _plot_byte_tag(data: bytes | None, col: int, row: int) -> str:
-    """Return cache tag string stored in shape Description."""
-    sha = hashlib.sha256(data).hexdigest() if data is not None else None
-    return _format_plot_tag(col, row, sha)
-
-
-def _bytes_match(shape: Any, data: bytes) -> bool:
-    """True when shape Description tag matches the SHA-256 digest of data."""
+def _read_plot_tag(shape: Any) -> tuple[tuple[int, int], str | None] | None:
+    """Return the shape's parsed wa-plot tag, or None when it has none."""
     try:
-        desc = shape.getPropertyValue("Description")
-        parsed = _parse_plot_tag(desc) if isinstance(desc, str) else None
-        if parsed is None:
-            return False
-        _coords, tag_sha = parsed
-        return tag_sha is not None and tag_sha == hashlib.sha256(data).hexdigest()
+        attrs = shape.getPropertyValue("UserDefinedAttributes")
+        if attrs is None or not attrs.hasByName(_PLOT_TAG_ATTR):
+            return None
+        return _parse_plot_tag(attrs.getByName(_PLOT_TAG_ATTR).Value)
     except (AttributeError, TypeError):
-        return False
+        return None
 
 
-def _record_plot_tag(shape: Any, target_cell: Any = None, data: bytes | None = None) -> None:
-    """Write plot owner cell address and SHA-256 byte tag to shape Description when allowed.
+def _record_plot_tag(shape: Any, target_cell: Any, sha: str | None) -> None:
+    """Store the owner formula cell and image digest in the shape's UserDefinedAttributes.
 
-    Accessibility Description text is the only per-shape string storage LibreOffice's UNO
-    API exposes for GraphicObjectShape. Custom user alt text is preserved by writing only
-    when Description is empty or already starts with the wa-plot: prefix.
+    Edits to the attribute container take effect when it is set back on the shape. An
+    unchanged tag skips that write, so a recalc with the same image does not mark the
+    document modified.
     """
-    if target_cell is None:
-        return
+    from com.sun.star.xml import AttributeData
+
     addr_key = _cell_address_key(target_cell)
     if addr_key is None:
         return
-    col, row = addr_key[1], addr_key[2]
-
+    tag = _format_plot_tag(addr_key[1], addr_key[2], sha)
     try:
-        desc = shape.getPropertyValue("Description")
-        if not isinstance(desc, str) or not desc or desc.startswith("wa-plot:"):
-            new_tag = _plot_byte_tag(data, col, row)
-            if desc != new_tag:
-                shape.setPropertyValue("Description", new_tag)
+        attrs = shape.getPropertyValue("UserDefinedAttributes")
+        data = AttributeData()
+        data.Namespace = _PLOT_TAG_NAMESPACE
+        data.Type = "CDATA"
+        data.Value = tag
+        if not attrs.hasByName(_PLOT_TAG_ATTR):
+            attrs.insertByName(_PLOT_TAG_ATTR, data)
+        elif attrs.getByName(_PLOT_TAG_ATTR).Value != tag:
+            attrs.replaceByName(_PLOT_TAG_ATTR, data)
+        else:
+            return
+        shape.setPropertyValue("UserDefinedAttributes", attrs)
     except (AttributeError, TypeError):
         log.debug("could not record plot tag", exc_info=True)
+
+
+def _graphic_aspect(shape: Any) -> tuple[int, int] | None:
+    """Logical width and height of the shape's current graphic, or None when unknown."""
+    try:
+        size = shape.getPropertyValue("Graphic").getPropertyValue("Size100thMM")
+        return int(size.Width), int(size.Height)
+    except (AttributeError, TypeError):
+        return None
 
 
 def _sheet_is_rtl(sheet: Any) -> bool:
@@ -262,11 +275,12 @@ def _slot_cursor(
     cursor to that shape's live outer edge and aligns to its top Y. If any intermediate
     slot is missing, stops advancing and places at the last known edge.
 
-    Sign convention matches Collabora pythonplots.cxx:418-419, 454, 467. In RTL sheets
-    (TableLayout == 1), Calc core mirrors visual cell bounds (sc/source/core/data/documen3.cxx:2092
-    ScDocument::GetMMRect via MirrorRectRTL when IsNegativePage). UNO Position.X is the left
-    visual edge and Position.X + Width is the right visual edge in positive coordinates;
-    placement starts at the right visual edge and chains leftwards.
+    Sign convention matches the slot loop in Collabora's ScDocument::ProcessPendingPythonPlots
+    (pythonplots.cxx:547-548, 583, 596). In RTL sheets (TableLayout == 1), Calc core mirrors
+    visual cell bounds (sc/source/core/data/documen3.cxx:2092 ScDocument::GetMMRect via
+    MirrorRectRTL when IsNegativePage). UNO X values are then negative (mirrored): Position.X
+    is the left visual edge and Position.X + Width is the right visual edge. Placement starts
+    at the right visual edge and chains leftwards.
     """
     cursor_x = int(cell_pos.X) + int(cell_size.Width) if rtl else int(cell_pos.X)
     cursor_y = int(cell_pos.Y)
@@ -287,41 +301,26 @@ def _slot_cursor(
 
 
 def _shape_matches_target_cell(shape: Any, target_cell: Any) -> bool:
-    """True when shape is anchored to target_cell, or has no cell anchor and matches by tag.
+    """True when the plot shape belongs to the formula cell target_cell.
 
-    When LibreOffice re-anchors a shape off the cell grid, matching falls back to the
-    (col, row) coordinates stored in the wa-plot tag. If rows or columns are inserted
-    above or to the left of the formula, the cell address shifts while an off-grid
-    re-anchored shape retains stale tag coordinates until matched; in-cell anchored shapes
-    remain matched by cell anchor identity.
+    Positioning a cell-anchored shape makes stock Calc move its anchor to the cell under
+    the shape's top-left corner (ScDrawView::adjustAnchoredPosition, drawvie3.cxx:175-224,
+    calling ScDrawLayer::SetCellAnchoredFromPosition). Slots after the first lie beyond the
+    formula cell, so they end up anchored to other cells, and LibrePy cannot pin the anchor
+    back. The wa-plot tag therefore decides ownership whatever the anchor says; only a shape
+    without a tag is matched by its anchor. Inserting rows or columns above or left of the
+    formula moves the cell but not the tag, so such a shape is no longer matched and the
+    next recalc creates a new sibling beside it.
     """
-    if _shape_anchor_matches_cell(shape, target_cell):
-        return True
-
-    # If the shape is anchored to another grid cell, that anchor takes precedence over a stale tag.
-    try:
-        anchor = shape.getPropertyValue("Anchor")
-    except (AttributeError, TypeError):
-        anchor = None
-    if anchor is not None and not _supports_service(anchor, "com.sun.star.sheet.Spreadsheet"):
-        if _cell_address_key(anchor) is not None:
-            return False
-
+    tag = _read_plot_tag(shape)
+    if tag is None:
+        return _shape_anchor_matches_cell(shape, target_cell)
     addr_key = _cell_address_key(target_cell)
-    if addr_key is None:
-        return False
-    try:
-        desc = shape.getPropertyValue("Description")
-        parsed = _parse_plot_tag(desc) if isinstance(desc, str) else None
-        if parsed is not None and parsed[0] is not None:
-            return parsed[0] == (addr_key[1], addr_key[2])
-    except (AttributeError, TypeError):
-        pass
-    return False
+    return addr_key is not None and tag[0] == (addr_key[1], addr_key[2])
 
 
 def _anchored_plot_slots(draw_page: Any, target_cell: Any) -> list[tuple[Any, int]]:
-    """Return (shape, slot_index) for all plot shapes belonging to target_cell."""
+    """Return (shape, slot_index) for all plot shapes belonging to target_cell, in draw-page order."""
     try:
         slots: list[tuple[Any, int]] = []
         for index in range(draw_page.getCount()):
@@ -342,10 +341,18 @@ def _anchored_plot_slots(draw_page: Any, target_cell: Any) -> list[tuple[Any, in
 
 
 def _drop_extra_plot_slots(draw_page: Any, slots: list[tuple[Any, int]], image_count: int) -> None:
-    """Remove existing plot shapes on target_cell with slot index >= image_count."""
+    """Remove target_cell's plot shapes with slot index >= image_count, and duplicates.
+
+    A second shape for a slot that is already taken (for example a copy-pasted plot) is
+    never refreshed, because _resolve_slot uses the first one, so it is removed too. This
+    matches removePlotSlotsFrom and PlotSlots::maExtra in Collabora's pythonplots.cxx:137-169.
+    """
+    taken: set[int] = set()
     for s, slot_idx in slots:
-        if slot_idx >= image_count:
+        if slot_idx >= image_count or slot_idx in taken:
             best_effort(partial(draw_page.remove, s), "_drop_extra_plot_slots: remove shape")
+        else:
+            taken.add(slot_idx)
 
 
 def _read_image_bytes(payload: dict[str, Any] | None, tmp_path: str | None) -> bytes | None:
@@ -591,13 +598,11 @@ def _position_new_plot(
     # Each successive plot slot chains horizontally from the outer edge of the
     # preceding slot. Reading the live rectangle of each resolved slot ensures
     # slots fit flush against each other without gaps or overlaps.
-    if image_index == 0 and not rtl:
-        shape.setPosition(cell_pos)
-    else:
-        place_x = cursor_x - target_width if rtl else cursor_x
-        shape.setPosition(Point(place_x, cursor_y))
+    place_x = cursor_x - target_width if rtl else cursor_x
+    shape.setPosition(Point(place_x, cursor_y))
 
-    # Collabora pythonplots.cxx:214-216, 223-225: evaluate visibility against formula cell axis.
+    # Same rule as Collabora's setPlotSlotCellAnchor (pythonplots.cxx:228-234): a new
+    # plot is hidden when the formula cell's row or column is hidden.
     shape.setPropertyValue("Visible", not _formula_axis_hidden(sheet, target_cell))
 
 
@@ -607,13 +612,22 @@ def _place_new_plot(
     draw_page: Any,
     target_cell: Any,
     file_url: str,
-    data_bytes: bytes | None,
+    data_sha: str | None,
     aspect_size: Any,
     image_index: int,
     slots: list[tuple[Any, int]],
     rtl: bool,
 ) -> Any:
-    """Create, load, anchor, and place a new plot shape on the sheet."""
+    """Create, load, anchor, and place a new plot shape on the sheet.
+
+    When the image cannot be loaded, the slot stays on the sheet as an empty-graphic
+    placeholder of the default 10 cm x 6 cm size, the failure is logged, and nothing is
+    raised, so the remaining slots and the cell value are unaffected. This is the rule in
+    the slot loop of Collabora's ScDocument::ProcessPendingPythonPlots
+    (pythonplots.cxx:563-571, 579-592; logicSizeFromGraphic gives 10000 x 6000 for an
+    empty Graphic). Without a formula cell there is no slot to keep, so the shape is
+    removed and ImageEgressError is raised.
+    """
     shape = doc.createInstance(_DRAW_GRAPHIC_SERVICE)
     shape.setSize(aspect_size)
     draw_page.add(shape)
@@ -625,35 +639,40 @@ def _place_new_plot(
         # _unlink_temp_image runs in finally, after this call.
         shape.setPropertyValue("GraphicURL", file_url)
     except Exception as exc:
-        # Collabora pythonplots.cxx:434-441: keep the shape on the drawing page
-        # as an empty graphic placeholder, but still raise ImageEgressError after
-        # positioning so =PY() reports the insertion failure.
         graphic_exc = exc
 
-    if target_cell is not None:
-        try:
-            _position_new_plot(
-                sheet, shape, target_cell, aspect_size, image_index, slots, rtl
-            )
-            _record_plot_tag(shape, target_cell, data_bytes if graphic_exc is None else None)
-        except Exception as exc:
-            best_effort(
-                lambda: draw_page.remove(shape),
-                "insert_image_result_on_sheet: failed to remove failed shape",
-            )
-            if graphic_exc is not None:
-                log.debug("anchor failed after graphic load failure", exc_info=graphic_exc)
-                raise ImageEgressError("could not anchor plot to the formula cell") from graphic_exc
-            raise ImageEgressError("could not anchor plot to the formula cell") from exc
-
-    if graphic_exc is not None:
-        if target_cell is None:
+    if target_cell is None:
+        if graphic_exc is not None:
             best_effort(
                 lambda: draw_page.remove(shape),
                 "insert_image_result_on_sheet: failed to remove failed shape without target cell",
             )
-        raise ImageEgressError("could not load image into graphic shape") from graphic_exc
+            raise ImageEgressError("could not load image into graphic shape") from graphic_exc
+        return shape
 
+    try:
+        _position_new_plot(
+            sheet,
+            shape,
+            target_cell,
+            aspect_size if graphic_exc is None else _aspect_size(None),
+            image_index,
+            slots,
+            rtl,
+        )
+        # A placeholder gets no digest, so the next recalc loads the image again.
+        _record_plot_tag(shape, target_cell, data_sha if graphic_exc is None else None)
+    except Exception as exc:
+        best_effort(
+            lambda: draw_page.remove(shape),
+            "insert_image_result_on_sheet: failed to remove failed shape",
+        )
+        raise ImageEgressError("could not anchor plot to the formula cell") from (
+            graphic_exc if graphic_exc is not None else exc
+        )
+
+    if graphic_exc is not None:
+        log.warning("insert_image_result_on_sheet: could not load image into plot slot %d: %s", image_index, graphic_exc)
     return shape
 
 
@@ -661,59 +680,56 @@ def _refresh_existing_plot(
     shape: Any,
     target_cell: Any,
     file_url: str,
-    data_bytes: bytes | None,
+    data_sha: str | None,
     aspect: tuple[int, int] | None,
     rtl: bool,
 ) -> None:
-    """Update graphic and geometry on an existing plot shape."""
+    """Update the graphic on an existing plot shape, keeping the user's rectangle where possible."""
     from com.sun.star.awt import Point
 
-    # LibreOffice's UNO API does not expose the raw graphic link or byte identity of
-    # an embedded GraphicObjectShape. We store the SHA-256 digest tag in Description
-    # so subsequent recalculations can detect unchanged image bytes and avoid reloading
-    # the graphic or resetting user adjustments.
-    if data_bytes is not None and _bytes_match(shape, data_bytes):
-        # When image bytes match, skipping graphic reload preserves user modifications
-        # (such as manual resizing, cropping, or graphic alterations) across recalculations;
-        # the user owns the placed shape once inserted.
-        if target_cell is not None:
-            _record_plot_tag(shape, target_cell, data_bytes)
-    else:
-        try:
-            shape.setPropertyValue("GraphicURL", file_url)
-        except Exception as exc:
-            # Collabora pythonplots.cxx: leave existing picture untouched on graphic load failure.
-            # Raise ImageEgressError so =PY() reports the failure to the formula cell.
-            raise ImageEgressError("could not update graphic shape with image") from exc
+    # A GraphicObjectShape does not expose the bytes it was loaded from, so the wa-plot
+    # tag stores their SHA-256 digest. When the new image has the same digest, the reload
+    # is skipped: the document is not marked modified, and the user's size, position,
+    # and crop stay as they are. The tag's owner already matches, because a tagged shape
+    # is only found through its tag.
+    tag = _read_plot_tag(shape)
+    if data_sha is not None and tag is not None and tag[1] == data_sha:
+        return
 
-        if data_bytes is not None:
-            _record_plot_tag(shape, target_cell, data_bytes)
+    old_aspect = _graphic_aspect(shape)
+    try:
+        shape.setPropertyValue("GraphicURL", file_url)
+    except Exception as exc:
+        # The UNO Graphic setter ignores an empty graphic, so a failed load keeps the
+        # previous picture and its old digest; the next recalc tries the load again. The
+        # failure is only logged so the remaining slots still update. Collabora's slot
+        # loop (pythonplots.cxx:563-577) instead shows the empty-graphic placeholder.
+        log.warning("insert_image_result_on_sheet: could not update plot graphic: %s", exc)
+        return
 
-        try:
-            resize_with_cell = bool(shape.getPropertyValue("ResizeWithCell"))
-        except (AttributeError, TypeError):
-            resize_with_cell = False
+    _record_plot_tag(shape, target_cell, data_sha)
 
-        if not resize_with_cell:
-            try:
-                old_pos = shape.getPosition()
-                old_size = shape.getSize()
-                old_w = int(old_size.Width)
-                old_h = int(old_size.Height)
-                old_x = int(old_pos.X)
-                old_y = int(old_pos.Y)
-
-                if aspect is not None and _aspect_ratio_changed(old_w, old_h, aspect[0], aspect[1]):
-                    # Preserves long side and corner position on recalculation when aspect changes.
-                    # Chaining flush against neighboring slots is guaranteed when created; resizing
-                    # an earlier slot here on recalculation may cause slight overlap if slot k+1 stays put.
-                    new_size = _aspect_size(aspect, long_side=max(old_w, old_h))
-                    shape.setSize(new_size)
-                    if rtl:
-                        new_x = old_x + old_w - int(new_size.Width)
-                        shape.setPosition(Point(new_x, old_y))
-            except (AttributeError, TypeError):
-                log.debug("could not update existing plot geometry", exc_info=True)
+    # Collabora never resizes an existing slot (pythonplots.cxx:573-577). Here the box
+    # changes only when the new graphic's aspect differs from the old graphic's, so a box
+    # the user stretched keeps its shape while the plot's proportions stay the same.
+    if aspect is None or old_aspect is None or not _aspect_ratio_changed(*old_aspect, *aspect):
+        return
+    try:
+        if bool(shape.getPropertyValue("ResizeWithCell")):
+            return
+        old_pos = shape.getPosition()
+        old_size = shape.getSize()
+        old_w = int(old_size.Width)
+        old_h = int(old_size.Height)
+        # Keep the long side and the corner the slot chains from: top-left in LTR,
+        # top-right in RTL. Slots are flush only when created; resizing an earlier slot
+        # here can leave a gap or an overlap next to a later slot, which stays put.
+        new_size = _aspect_size(aspect, long_side=max(old_w, old_h))
+        shape.setSize(new_size)
+        if rtl:
+            shape.setPosition(Point(int(old_pos.X) + old_w - int(new_size.Width), int(old_pos.Y)))
+    except (AttributeError, TypeError):
+        log.debug("could not update existing plot geometry", exc_info=True)
 
 
 def _insert_image_result_on_sheet_impl(
@@ -785,6 +801,7 @@ def _insert_image_result_on_sheet_impl(
         file_url = uno.systemPathToFileUrl(os.path.abspath(tmp_path))
 
         data_bytes = _read_image_bytes(payload, tmp_path)
+        data_sha = hashlib.sha256(data_bytes).hexdigest() if data_bytes is not None else None
         aspect = _intrinsic_aspect(data_bytes) if data_bytes else None
         aspect_size = _aspect_size(aspect)
 
@@ -795,17 +812,15 @@ def _insert_image_result_on_sheet_impl(
         try:
             if shape is None:
                 _place_new_plot(
-                    doc, sheet, draw_page, target_cell, file_url, data_bytes, aspect_size, image_index, slots, rtl
+                    doc, sheet, draw_page, target_cell, file_url, data_sha, aspect_size, image_index, slots, rtl
                 )
             else:
-                _refresh_existing_plot(
-                    shape, target_cell, file_url, data_bytes, aspect, rtl
-                )
+                _refresh_existing_plot(shape, target_cell, file_url, data_sha, aspect, rtl)
         finally:
             # Only a caller that passes image_count owns the slot family. =PY() and
             # run_venv_python_script pass it and enumerate image_index from 0, so the
-            # sweep runs once on index 0. Stale slots >= image_count are swept even when
-            # slot 0 fails to load, so obsolete sibling shapes do not linger beside an empty draft.
+            # sweep runs once on index 0. Stale slots >= image_count and duplicate shapes
+            # for one slot are swept even when slot 0 raises, so they do not linger.
             # Omitting image_count (chat plot_data / viz) must not remove sibling WriterAgentPlot_N shapes.
             if image_count is not None and image_index == 0 and target_cell is not None:
                 _drop_extra_plot_slots(draw_page, slots, image_count)
