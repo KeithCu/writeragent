@@ -22,7 +22,7 @@ from plugin.framework.errors import reraise_if_disposed, uno_read
 from . import xhtml_style_postprocess as xhtml_post
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable
+    from collections.abc import Callable, Iterable
 
 log = logging.getLogger("writeragent.writer")
 
@@ -39,8 +39,7 @@ def _declaration_names(css: str) -> list[str]:
         part = part.strip()
         if not part or ":" not in part:
             continue
-        prop, _ = part.split(":", 1)
-        prop = prop.strip().lower()
+        prop = part.split(":", 1)[0].strip().lower()
         if prop:
             names.append(prop)
     return names
@@ -77,69 +76,119 @@ def _parse_length_to_unit(val: str) -> int | None:
     return None
 
 
+_PERCENT_RE = re.compile(r"^(\d+(?:\.\d+)?)%$")
+
+
+def _length_writer(uno_prop: str) -> Callable[[str], tuple[str, Any] | None]:
+    """Writer for a CSS length that maps onto one 1/100 mm paragraph property."""
+    def write(val: str) -> tuple[str, Any] | None:
+        length = _parse_length_to_unit(val)
+        return None if length is None else (uno_prop, length)
+    return write
+
+
+def _line_height_fields(val: str) -> dict[str, Any] | None:
+    """CSS line-height as ODF writes it → LineSpacing fields (Mode word, Height).
+
+    ODF emits ``fo:line-height`` as a percentage (proportional spacing) or a length
+    (fixed spacing). ``normal`` is single spacing, the same as 100%.
+    """
+    if val == "normal":
+        return {"Mode": "prop", "Height": 100}
+    m = _PERCENT_RE.match(val)
+    if m:
+        return {"Mode": "prop", "Height": int(round(float(m.group(1))))}
+    length = _parse_length_to_unit(val)
+    if length is not None and length > 0:
+        return {"Mode": "fix", "Height": length}
+    return None
+
+
+# CSS names that reads emit in data-lo-para (xhtml_post._FODT_OVERRIDE_ATTRS) but writes
+# cannot apply, so they always come back in warnings. Paragraph-level character properties
+# are set on the SwXParagraph, and Writer applies them over the whole paragraph text: a bold
+# or coloured span inside the paragraph merges into one portion and loses its own value
+# (checked against a live Writer with setPropertyValue("CharWeight") on a paragraph holding
+# a bold run). An agent copying a paragraph back would silently flatten its spans.
+# test_every_read_para_name_has_a_writer_or_is_listed_read_only keeps this set and the
+# writers table covering every name the read side emits.
+_READ_ONLY_PARA_NAMES = frozenset({"font-family", "font-size", "font-weight", "font-style", "color"})
+
+
+def _para_writers() -> dict[str, Callable[[str], tuple[str, Any] | None]]:
+    """CSS name → converter from the raw CSS value to ``(uno_prop, uno_value)``, or None.
+
+    A converter returns None when the value cannot be understood; the name is then
+    reported as not applied. Returns an empty table when styles.py is missing: LibrePy
+    ships this module without it (scripts/librepy_bundle_paths.py), and
+    test_librepy_shipped_function_level_imports_are_safe checks that the import stays
+    guarded. The one caller, _apply_block_lo_styles, already returns before parsing in
+    that build, so the empty table only keeps the import graph safe.
+    """
+    try:
+        from .styles import _dict_to_uno_struct, _para_adjust_to_uno, _style_color_to_uno
+    except ImportError:
+        return {}
+
+    def text_align(val: str) -> tuple[str, Any] | None:
+        try:
+            return ("ParaAdjust", _para_adjust_to_uno(xhtml_post._ODF_TEXT_ALIGN.get(val, val)))
+        except ValueError:
+            return None
+
+    def line_height(val: str) -> tuple[str, Any] | None:
+        fields = _line_height_fields(val)
+        if fields is None:
+            return None
+        return ("ParaLineSpacing", _dict_to_uno_struct("ParaLineSpacing", "com.sun.star.style.LineSpacing", fields))
+
+    def background(val: str) -> tuple[str, Any] | None:
+        col = _style_color_to_uno(val)
+        # _apply_para_props turns ParaBackColor into the FillColor/FillStyle pair.
+        return None if col is None else ("ParaBackColor", col)
+
+    return {
+        "text-align": text_align,
+        "margin-left": _length_writer("ParaLeftMargin"),
+        "margin-right": _length_writer("ParaRightMargin"),
+        "margin-top": _length_writer("ParaTopMargin"),
+        "margin-bottom": _length_writer("ParaBottomMargin"),
+        # Negative is valid here: it is a hanging first line.
+        "text-indent": _length_writer("ParaFirstLineIndent"),
+        "line-height": line_height,
+        "background-color": background,
+    }
+
+
 def parse_data_lo_para(css: str) -> tuple[dict[str, tuple[str, Any]], list[str]]:
     """Parse a data-lo-para CSS fragment into UNO property mappings and unapplied names.
 
-    Maps text-align, margin-left, margin-right, and background-color to their respective
-    UNO property values. Returns a 2-tuple of (mapped_dict, dropped_css_names), where
-    mapped_dict is {css_prop: (uno_prop_name, uno_value)}. Declarations that cannot be
-    mapped, unrecognised property names, or mapped properties with invalid values are
-    returned in dropped_css_names in the order they were declared.
+    Returns ``(mapped, dropped)``. ``mapped`` is {css_prop: (uno_prop_name, uno_value)} for
+    every declaration _para_writers() can convert. ``dropped`` lists, in declaration order,
+    the names with no writer or with a value the writer could not convert. When a name is
+    declared twice, the first declaration wins.
     """
-    # Guarded because LibrePy ships this module without styles.py. In practice the guard
-    # only satisfies test_librepy_shipped_function_level_imports_are_safe: the one caller,
-    # _apply_block_lo_styles, already returns before parsing when styles.py is missing.
-    try:
-        from .styles import _para_adjust_to_uno, _style_color_to_uno
-    except ImportError:
-        _para_adjust_to_uno = None  # type: ignore[assignment]
-        _style_color_to_uno = None  # type: ignore[assignment]
-
+    writers = _para_writers()
     seen: set[str] = set()
     mapped: dict[str, tuple[str, Any]] = {}
     dropped: list[str] = []
 
     for part in css.split(";"):
-        part = part.strip()
-        if not part or ":" not in part:
-            continue
-        prop, val = part.split(":", 1)
+        prop, sep, val = part.partition(":")
         prop = prop.strip().lower()
-        val = val.strip()
-        if not prop or prop in seen:
+        if not sep or not prop or prop in seen:
             continue
         seen.add(prop)
-
-        if prop == "text-align":
-            mapped_val = xhtml_post._ODF_TEXT_ALIGN.get(val, val)
-            if _para_adjust_to_uno is not None:
-                try:
-                    mapped[prop] = ("ParaAdjust", _para_adjust_to_uno(mapped_val))
-                    continue
-                except ValueError:
-                    pass
-            dropped.append(prop)
-        elif prop == "margin-left":
-            length = _parse_length_to_unit(val)
-            if length is not None:
-                mapped[prop] = ("ParaLeftMargin", length)
-            else:
-                dropped.append(prop)
-        elif prop == "margin-right":
-            length = _parse_length_to_unit(val)
-            if length is not None:
-                mapped[prop] = ("ParaRightMargin", length)
-            else:
-                dropped.append(prop)
-        elif prop == "background-color":
-            if _style_color_to_uno is not None:
-                col = _style_color_to_uno(val)
-                if col is not None:
-                    mapped[prop] = ("ParaBackColor", col)
-                    continue
+        writer = writers.get(prop)
+        try:
+            result = writer(val.strip()) if writer is not None else None
+        except ValueError:
+            # _dict_to_uno_struct raises ValueError when a struct field rejects the value.
+            result = None
+        if result is None:
             dropped.append(prop)
         else:
-            dropped.append(prop)
+            mapped[prop] = result
 
     return mapped, dropped
 
