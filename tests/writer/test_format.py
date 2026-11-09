@@ -1769,7 +1769,7 @@ def test_apply_paragraph_style_negative_caches_failed_property_set_info():
 
 
 def test_visible_portions_carry_deletion_across_paragraphs():
-    """#1318: range reads pass one deletion state from paragraph to paragraph."""
+    """Range reads pass one deletion state from paragraph to paragraph."""
     from plugin.writer import html_export as hx
 
     state = [False]

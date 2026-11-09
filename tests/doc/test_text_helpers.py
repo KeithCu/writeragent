@@ -802,9 +802,9 @@ def _del_mark(is_start):
 
 
 def test_tracked_deletion_across_paragraphs_is_hidden():
-    """#1318: a deletion over several paragraphs has its start mark in the first, nothing in
-    the middle ones, and its end mark at the start of the last. State must carry across
-    paragraphs so the deleted text is hidden and the live tail of the last paragraph is kept."""
+    """A multi-paragraph deletion has its start mark in the first paragraph, no marks in
+    middle paragraphs, and its end mark at the start of the last paragraph. Deletion state
+    carries across paragraphs so deleted text is omitted and subsequent visible text is preserved."""
     text_range = _TextRange([
         _Paragraph([_Portion("Keep "), _del_mark(True), _Portion("gone one")]),
         _Paragraph([_Portion("gone two")]),

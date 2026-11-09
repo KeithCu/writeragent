@@ -454,7 +454,7 @@ def skip_tracked_deletions(
     Each Delete mark's ``IsStart`` indicates whether a deletion opens or closes there. A
     multi-paragraph deletion has its start mark in the first paragraph and its end mark in the
     last; middle paragraphs have none, so state is read from ``IsStart`` and carried across
-    paragraphs (#1318). Text before the paragraph's first Delete mark is deleted when that
+    paragraphs. Text before the paragraph's first Delete mark is deleted when that
     mark closes a deletion.
 
     A paragraph in the middle of such a deletion has no mark at all. *deletion_state* is a

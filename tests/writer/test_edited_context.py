@@ -197,8 +197,8 @@ def test_uno_read_probes_raise_on_disposal_and_default_otherwise():
 
 
 def test_window_text_leaves_out_tracked_deletions():
-    """#1318: in review mode the replaced text is still in the document as a tracked deletion;
-    the echo reads the paragraphs without it, like the other reads."""
+    """In review mode the replaced text is still in the document as a tracked deletion;
+    the echo reads the paragraphs without it, matching other reads."""
     text = FakeText(["P0", "P1", "P2"])
     with patch("plugin.writer.edit_review.get_string_without_tracked_deletions", return_value="visible") as visible:
         assert paragraph_window_text(_anchor_at(text, 1)) == "visible"

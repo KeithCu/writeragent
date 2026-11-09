@@ -474,7 +474,9 @@ def _range_to_content_via_temp_doc(
             # RubyText lives on the empty Ruby start mark, not the Text run, so
             # _COPIED_CHAR_PROPERTIES cannot recreate ruby on the temp doc.
             # Collect source spans and rewrite the exported HTML after XHTML.
-            copied_ruby.extend(html_ruby._ruby_spans_in_window(el, trim_start, trim_end))
+            copied_ruby.extend(
+                html_ruby._ruby_spans_in_window(el, trim_start, trim_end, deletion_state=[el_in_deletion])
+            )
             added_any = True
 
         if not added_any:
@@ -524,8 +526,8 @@ def _without_tracked_deletions(
     from plugin.doc.temp_files import with_temp_buffer
 
     copy = None
-    try:
-        with with_temp_buffer(ext=".odt") as (_unused, url):
+    with with_temp_buffer(ext=".odt") as (_unused, url):
+        try:
             model.storeToURL(url, (create_property_value("FilterName", "writer8"),))
             desktop = get_desktop(ctx)
             if desktop is None:
@@ -541,24 +543,24 @@ def _without_tracked_deletions(
             if frame is None:
                 raise RuntimeError("frame unavailable")
             dispatcher.executeDispatch(frame, ".uno:AcceptAllTrackedChanges", "", 0, ())
-    except Exception as exc:
-        reraise_if_disposed(exc)
-        log.warning("_without_tracked_deletions: copy failed; falling back to original model", exc_info=exc)
-        if walk_warnings is not None:
-            walk_warnings.append("tracked deletions could not be hidden; content includes pending deleted text")
-        if copy is not None:
-            failed_copy = copy
-            best_effort(lambda: failed_copy.close(True), "_without_tracked_deletions: close copy failed")
-            copy = None
+        except Exception as exc:
+            reraise_if_disposed(exc)
+            log.warning("_without_tracked_deletions: copy failed; falling back to original model", exc_info=exc)
+            if walk_warnings is not None:
+                walk_warnings.append("tracked deletions could not be hidden; content includes pending deleted text")
+            if copy is not None:
+                failed_copy = copy
+                best_effort(lambda: failed_copy.close(True), "_without_tracked_deletions: close copy failed")
+                copy = None
 
-    if copy is not None:
-        accepted_copy = copy
-        try:
-            yield accepted_copy
-        finally:
-            best_effort(lambda: accepted_copy.close(True), "_without_tracked_deletions: close copy failed")
-    else:
-        yield model
+        if copy is not None:
+            accepted_copy = copy
+            try:
+                yield accepted_copy
+            finally:
+                best_effort(lambda: accepted_copy.close(True), "_without_tracked_deletions: close copy failed")
+        else:
+            yield model
 
 
 def document_to_content(
@@ -635,7 +637,7 @@ def document_to_content(
 
     # The XHTML filter writes text a pending tracked change deleted as ordinary text;
     # otherwise a full read returns pending deleted text as live text, and a full replace
-    # built from it restores it (#1318). Export a copy with the changes accepted: that is
+    # built from it restores it. Export a copy with the changes accepted: that is
     # the text the range reads and get_string_without_tracked_deletions return.
     # finish() reads ``model`` too, so it follows the copy.
     with _without_tracked_deletions(model, ctx, walk_warnings=walk_warnings) as model:

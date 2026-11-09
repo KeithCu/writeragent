@@ -347,6 +347,8 @@ def find_text_ranges(
                 measure.gotoStart(False)
                 measure.gotoRange(found.getStart(), True)
                 m_start = len(measure.getString())
+                matched_text = found.getString()
+                m_end = m_start + len(matched_text)
             else:
                 # Incremental forward walk: carry walker, running offset, and deletion state across hits.
                 if walker is None or not uno_same(walker_text, hit_text):
@@ -358,13 +360,15 @@ def find_text_ranges(
                 gap = hit_text.createTextCursorByRange(walker.getStart())
                 gap.gotoRange(found.getStart(), True)
                 running += len(get_string_without_tracked_deletions(gap, deletion_state=deletion_state))
-                walker.gotoRange(found.getStart(), False)
                 m_start = running
-            matched_text = found.getString()
-            m_end = m_start + len(matched_text)
-            matches.append({"start": m_start, "end": m_end, "text": matched_text})
-            if limit is not None and len(matches) >= limit:
-                break
+                matched_text = get_string_without_tracked_deletions(found, deletion_state=deletion_state)
+                walker.gotoRange(found.getEnd(), False)
+                running += len(matched_text)
+                m_end = m_start + len(matched_text)
+            if matched_text:
+                matches.append({"start": m_start, "end": m_end, "text": matched_text})
+                if limit is not None and len(matches) >= limit:
+                    break
         found = model.findNext(found.getEnd(), sd)
     return matches
 
@@ -440,7 +444,7 @@ def tracked_deletion_spans(doc: Any) -> list[tuple[Any, Any]]:
 
 def inside_tracked_deletion(found: Any, spans: list[tuple[Any, Any]]) -> bool:
     """True when the search hit *found* lies wholly inside one of *spans*: text the user
-    deleted with Track Changes on is not a hit (#1318)."""
+    deleted with Track Changes on is not a hit."""
     if not spans:
         return False
     text = found.getText()

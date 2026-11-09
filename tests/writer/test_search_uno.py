@@ -166,7 +166,7 @@ def test_search_in_document_zero_width_regex_is_truncated(ctx, doc):
 @native_test
 @with_native_doc("writer")
 def test_tracked_deletions_hidden_from_reads_and_searches(ctx, doc):
-    """#1318: pending tracked deletions spanning multiple paragraphs must be hidden from
+    """Pending tracked deletions spanning multiple paragraphs must be hidden from
     get_string_without_tracked_deletions, range reads, full export, search_in_document,
     and find_text_ranges offsets."""
     from plugin.doc.text_helpers import get_string_without_tracked_deletions
@@ -213,23 +213,37 @@ def test_tracked_deletions_hidden_from_reads_and_searches(ctx, doc):
 
         # 2. scope=range read covering the visible text
         range_read = document_to_content(doc, ctx, scope="range", range_start=0, range_end=len(visible_text))
+        assert "To be deleted in P1." not in range_read
         assert "P2 entire paragraph deleted." not in range_read
+        assert "P3 deleted start." not in range_read
         assert "P1 start." in range_read
+        assert "P3 live end." in range_read
         assert "P4 delta live text." in range_read
 
         # 3. full document_to_content read: does not contain deleted text and doc is unmodified
         full_read = document_to_content(doc, ctx, scope="full")
+        assert "To be deleted in P1." not in full_read
         assert "P2 entire paragraph deleted." not in full_read
+        assert "P3 deleted start." not in full_read
         assert "P1 start." in full_read
+        assert "P3 live end." in full_read
         assert "P4 delta live text." in full_read
         assert doc.getPropertyValue("RecordChanges") is True
+        assert doc.getRedlines().getCount() >= 1
+        assert "P2 entire paragraph deleted." in text.getString()
 
-        # 4. search_in_document for a word inside the deletion returns 0 hits
+        # 4. search_in_document for a word inside the deletion returns 0 hits,
+        # while a live word hits as expected
         mock_ctx = MockContext(doc, ctx)
         search_res = SearchInDocument().execute(mock_ctx, pattern="entire paragraph")
         assert search_res["status"] == "ok"
         assert search_res["count"] == 0
         assert search_res["matches"] == []
+
+        live_res = SearchInDocument().execute(mock_ctx, pattern="live end")
+        assert live_res["status"] == "ok"
+        assert live_res["count"] == 1
+        assert len(live_res["matches"]) == 1
 
         # 5. return_offsets for a word after the deletion matches the range-read offset
         target_word = "delta"
@@ -237,5 +251,9 @@ def test_tracked_deletions_hidden_from_reads_and_searches(ctx, doc):
         assert len(ranges) == 1
         delta_offset = ranges[0]["start"]
         assert delta_offset == visible_text.index(target_word)
+        delta_slice = document_to_content(
+            doc, ctx, scope="range", range_start=delta_offset, range_end=delta_offset + len(target_word)
+        )
+        assert target_word in delta_slice
     finally:
         doc.setPropertyValue("RecordChanges", False)

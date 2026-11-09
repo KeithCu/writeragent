@@ -141,14 +141,16 @@ def inject_ruby_into_html(html: str, spans: Sequence[_RubySpan]) -> str:
 
 
 
-def _iter_ruby_spans_in_paragraph(para: Any) -> Iterator[_RubySpan]:
+def _iter_ruby_spans_in_paragraph(
+    para: Any, deletion_state: list[bool] | None = None
+) -> Iterator[_RubySpan]:
     """Yield ``_RubySpan`` for each Ruby start/end pair in *para*.
 
     Writer stores ruby as ``TextPortionType="Ruby"`` marks: the start has
     ``RubyText`` / ``RubyIsAbove`` / ``RubyAdjust``; the base is a normal
     ``Text`` run; the end mark is empty. ``getString()`` on the paragraph is
-    base only — reading is not a text field. Ruby extraction is handled
-    per paragraph.
+    base only — reading is not a text field. Portions inside tracked deletions
+    are omitted so deleted ruby is not attached to visible text.
     """
     portion_enum = uno_read(lambda: para.createEnumeration(), FAILED)
     if portion_enum is FAILED:
@@ -159,7 +161,9 @@ def _iter_ruby_spans_in_paragraph(para: Any) -> Iterator[_RubySpan]:
     base_parts: list[str] = []
     base_start = 0
     offset = 0
-    for portion, kind in skip_tracked_deletions(range_copy._iter_portions(portion_enum)):
+    for portion, kind in skip_tracked_deletions(
+        range_copy._iter_portions(portion_enum), deletion_state=deletion_state
+    ):
         if kind == "Ruby":
             if not in_ruby:
                 reading = uno_read(lambda: str(portion.getPropertyValue("RubyText") or ""), "")
@@ -182,11 +186,13 @@ def _iter_ruby_spans_in_paragraph(para: Any) -> Iterator[_RubySpan]:
 
 
 
-def _ruby_spans_in_window(para: Any, trim_start: int, trim_end: int) -> list[_RubySpan]:
+def _ruby_spans_in_window(
+    para: Any, trim_start: int, trim_end: int, deletion_state: list[bool] | None = None
+) -> list[_RubySpan]:
     """Ruby pairs whose entire base lies inside the copied visible-text window."""
     return [
         span
-        for span in _iter_ruby_spans_in_paragraph(para)
+        for span in _iter_ruby_spans_in_paragraph(para, deletion_state=deletion_state)
         if span.start >= trim_start and span.end <= trim_end
     ]
 
@@ -202,11 +208,12 @@ def _inject_ruby_from_model(model: Any, content: str, fodt_has_ruby: bool | None
         return content
     if fodt_has_ruby is False:
         return content
+    deletion_state = [False]
     spans = best_effort(
         lambda: [
             span
             for para in range_copy._iter_xtext_paragraphs(model.getText())
-            for span in _iter_ruby_spans_in_paragraph(para)
+            for span in _iter_ruby_spans_in_paragraph(para, deletion_state=deletion_state)
         ],
         "_inject_ruby_from_model: portion walk failed",
     )

@@ -1009,7 +1009,7 @@ def test_range_export_skips_flat_odf_when_no_autostyle():
 
 
 def test_full_read_exports_a_copy_with_tracked_changes_accepted():
-    """#1318: the XHTML filter writes pending deleted text as live text, so a full read of a
+    """The XHTML filter writes pending deleted text as live text, so a full read of a
     document with tracked deletions exports a hidden copy with the changes accepted."""
     from plugin.writer import html_export as hx
 
