@@ -369,6 +369,8 @@ def _attach_style_notes(result: dict[str, Any], notes: list[str], *, total_match
     else:
         result["message"] = note_text
     return result
+
+
 def _run_on_main_thread(fn: Any) -> Any:
     if main.is_current():
         return fn()

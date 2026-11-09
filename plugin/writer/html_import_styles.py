@@ -127,7 +127,7 @@ def _para_writers() -> dict[str, Callable[[str], tuple[str, Any] | None]]:
     reported as not applied. Returns an empty table when styles.py is missing: LibrePy
     ships this module without it (scripts/librepy_bundle_paths.py), and
     test_librepy_shipped_function_level_imports_are_safe checks that the import stays
-    guarded. The one caller, _apply_block_lo_styles, already returns before parsing in
+    guarded. The one caller, apply_block_lo_styles, already returns before parsing in
     that build, so the empty table only keeps the import graph safe.
     """
     try:
@@ -529,7 +529,7 @@ def summarize_written_blocks(
     return {"paragraph_count": len(parser.slots), "headings": headings}
 
 
-def _extract_block_lo_styles(
+def extract_block_lo_styles(
     html: str,
 ) -> tuple[str, list[str | None], list[str | None], list[str]]:
     """Return ``(clean_html, styles, para_css, skipped_para)`` per top-level block.
@@ -586,8 +586,16 @@ def unapplied_para_names_for_content(content: str) -> list[str]:
     """Collect all data-lo-para property names declared in *content* (none applied)."""
     if "data-lo-para" not in content:
         return []
-    _clean, _styles, paras, skipped = _extract_block_lo_styles(content)
+    _clean, _styles, paras, skipped = extract_block_lo_styles(content)
     return declared_para_names(paras, skipped)
+
+
+def unapplied_skipped_para_names(skipped_paras: Iterable[str | None]) -> list[str]:
+    """Collect unapplied data-lo-para property names from skipped tags.
+
+    data-lo-para on inline tags and on blocks inside tables is stripped, never applied.
+    """
+    return declared_para_names(skipped_paras)
 
 
 def attach_para_warnings(result: dict[str, Any], unapplied: list[str]) -> dict[str, Any]:
@@ -661,7 +669,7 @@ def _apply_para_props(para_obj: Any, mapped: dict[str, tuple[str, Any]]) -> list
     return failed
 
 
-def _apply_block_lo_styles(
+def apply_block_lo_styles(
     model: Any,
     text_obj: Any,
     start: Any,

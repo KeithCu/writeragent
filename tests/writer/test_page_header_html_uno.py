@@ -547,3 +547,31 @@ def test_header_unapplied_data_lo_para_is_reported_uno(ctx, doc):
     assert res["status"] == "ok", res
     assert res.get("warnings") == ["data-lo-para property 'font-weight' was not applied"], res
     assert _region_text(doc, "footer").getString().strip() == "Footer"
+
+
+@native_test
+@with_native_doc("writer")
+def test_header_custom_style_read_reports_margin_uno(ctx, doc):
+    """A custom paragraph style absent from a scratch doc reports its margin on read.
+
+    A blank scratch Writer document does not have user-defined styles. Comparing against the
+    source custom style when the scratch paragraph falls back to Standard would skip the
+    custom style's margin as inherited, so the read must copy direct properties when the
+    scratch document lacks the style.
+    """
+    para_styles = doc.getStyleFamilies().getByName("ParagraphStyles")
+    custom = doc.createInstance("com.sun.star.style.ParagraphStyle")
+    para_styles.insertByName("CustomLetterhead", custom)
+    custom.setPropertyValue("ParaLeftMargin", 2000)
+    custom.setPropertyValue("ParaAdjust", 3)
+
+    style, _name = _style(doc)
+    style.setPropertyValue("HeaderIsOn", True)
+    header = style.getPropertyValue("HeaderText")
+    header.setString("Letterhead Header")
+    para = _first_paragraph(header)
+    para.setPropertyValue("ParaStyleName", "CustomLetterhead")
+
+    read = _get(doc, ctx, "header")["content"]
+    assert "margin-left:" in read, read
+    assert "Letterhead Header" in read, read

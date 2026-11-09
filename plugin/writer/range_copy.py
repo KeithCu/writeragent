@@ -160,7 +160,7 @@ def source_style(model: Any, style_name: str, cache: dict[str, Any]) -> Any:
     return style
 
 
-def apply_temp_para_style(temp_doc: Any, temp_cursor: Any, style: str) -> None:
+def apply_temp_para_style(temp_doc: Any, temp_cursor: Any, style: str) -> bool:
     """Apply *style* on the scratch paragraph when that style exists there.
 
     Selection and range export copy each paragraph into a blank
@@ -169,9 +169,10 @@ def apply_temp_para_style(temp_doc: Any, temp_cursor: Any, style: str) -> None:
     raises and the broad handler returns ``""``, discarding the whole
     selection. Skip the missing style (the scratch default stays) and
     keep copying. One style miss must not discard the range.
+    Returns True if the style was applied to the scratch paragraph, False otherwise.
     """
     if not style:
-        return
+        return False
     try:
         families = temp_doc.getStyleFamilies()
         para_styles = families.getByName("ParagraphStyles")
@@ -180,14 +181,16 @@ def apply_temp_para_style(temp_doc: Any, temp_cursor: Any, style: str) -> None:
                 "range export: paragraph style %r is not in the scratch document; keeping the default",
                 style,
             )
-            return
+            return False
         temp_cursor.setPropertyValue("ParaStyleName", style)
+        return True
     except Exception:
         log.debug(
             "range export: skipped paragraph style %r on the scratch document",
             style,
             exc_info=True,
         )
+        return False
 
 
 def _paint_direct_formatting(  # pyright: ignore[reportUnusedFunction]
@@ -535,8 +538,8 @@ def _copy_xtext_by_portions(
         style = None
         if src_doc is not None:
             style_name = uno_read(lambda: el.getPropertyValue("ParaStyleName"), "")
-            apply_temp_para_style(dest_doc, dest_cursor, style_name)
-            style = source_style(src_doc, style_name, style_cache)
+            if apply_temp_para_style(dest_doc, dest_cursor, style_name):
+                style = source_style(src_doc, style_name, style_cache)
         _copy_visible_portions(portions, dest_doc, dest_text, dest_cursor, el, math_records, style)
         _copy_para_properties_to_end(dest_text, dest_cursor, el, style)
 

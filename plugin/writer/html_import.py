@@ -293,7 +293,7 @@ def _insert_mixed_or_plain_html(
     unescaped_content = field_restore.rewrite_exported_field_spans(unescaped_content, nonce=nonce)
     # Strip data-lo-style and data-lo-para so the StarWriter import sees clean markup (it drops unknown
     # attributes anyway); we re-apply formatting via UNO afterwards only when apply_styles is True.
-    clean, block_styles, block_paras, skipped_paras = html_import_styles._extract_block_lo_styles(unescaped_content)
+    clean, block_styles, block_paras, skipped_paras = html_import_styles.extract_block_lo_styles(unescaped_content)
     # Expand literal \n and \t before measuring ruby offsets and StarWriter import
     clean = _expand_escapes(clean)
     has_math = html_fragment_contains_mixed_math(clean)
@@ -320,14 +320,14 @@ def _insert_mixed_or_plain_html(
         _insert_starwriter_html_at_cursor(None if styled else model, cursor, single)
 
     if styled:
-        # Per-paragraph failures are already logged inside _apply_block_lo_styles.
+        # Per-paragraph failures are already logged inside apply_block_lo_styles.
         # This wrapper swallowed compareRegionStarts, so a closed document
         # still looked like a finished insert.
         if has_math:
             start = _paragraph_after(text_obj, before_para)
         else:
             start = _insert_start_from_anchor(text_obj, start_anchor, cursor)
-        failures = html_import_styles._apply_block_lo_styles(
+        failures = html_import_styles.apply_block_lo_styles(
             model, text_obj, start, block_styles, end=imported_end, paras=block_paras,
         )
         # Parked cursor lives in this range's XText (which may be a cell, frame,
@@ -338,8 +338,7 @@ def _insert_mixed_or_plain_html(
     else:
         # This target does not apply paragraph formatting, so every declaration is unapplied.
         failures = html_import_styles.declared_para_names(block_paras)
-    # data-lo-para on inline tags and on blocks inside tables is stripped, never applied.
-    failures.extend(html_import_styles.declared_para_names(skipped_paras))
+    failures.extend(html_import_styles.unapplied_skipped_para_names(skipped_paras))
     _apply_ruby_and_restore_fields(model, text_obj, ruby_spans, nonce, skip_chars=ruby_skip)
     return failures
 
@@ -519,7 +518,7 @@ def _lo_style_for_replaced_range(model: Any, content: str, text_range: Any) -> t
     """Determine whether to apply block data-lo-style on a replaced range, or warn if skipped."""
     if not content or "data-lo-style" not in content:
         return False, None
-    _clean, styles, _paras, _skipped = html_import_styles._extract_block_lo_styles(content)
+    _clean, styles, _paras, _skipped = html_import_styles.extract_block_lo_styles(content)
     if not any(styles):
         return False, None
     if not _range_covers_whole_paragraphs(text_range):
@@ -770,10 +769,9 @@ def replace_xtext_with_html(text_obj: Any, html: str, *, model: Any) -> list[str
     expanded = _expand_escapes(expanded)
     expanded, ruby_spans = html_ruby.extract_and_strip_ruby(expanded)
     rewritten = field_restore.rewrite_exported_field_spans(expanded, nonce=nonce)
-    clean, block_styles, block_paras, skipped_paras = html_import_styles._extract_block_lo_styles(rewritten)
+    clean, block_styles, block_paras, skipped_paras = html_import_styles.extract_block_lo_styles(rewritten)
     prepared = _ensure_html_linebreaks(clean)
-    # data-lo-para on inline tags and on blocks inside tables is stripped, never applied.
-    failures = html_import_styles.declared_para_names(skipped_paras)
+    failures = html_import_styles.unapplied_skipped_para_names(skipped_paras)
     cursor = text_obj.createTextCursor()
     cursor.gotoStart(False)
     cursor.gotoEnd(True)
@@ -792,7 +790,7 @@ def replace_xtext_with_html(text_obj: Any, html: str, *, model: Any) -> list[str
         if any(block_styles) or any(block_paras):
             # The whole region was replaced, so the walk starts at the text start and
             # needs no end bound: it stops after the last imported block.
-            failures.extend(html_import_styles._apply_block_lo_styles(
+            failures.extend(html_import_styles.apply_block_lo_styles(
                 model, text_obj, text_obj.getStart(), block_styles, paras=block_paras,
             ))
         _apply_ruby_and_restore_fields(model, text_obj, ruby_spans, nonce)
