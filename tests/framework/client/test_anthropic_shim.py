@@ -403,10 +403,15 @@ def test_anthropic_tool_loop_prompt_caching_and_merge():
     assert len(parts) == 2
     assert parts[0]["type"] == "tool_result"
     assert parts[0]["tool_use_id"] == "t1"
+    assert parts[0].get("cache_control") == {"type": "ephemeral"}
+    assert parts[0]["content"] == [{"type": "text", "text": "res1"}]
+    assert "cache_control" not in parts[0]["content"][0]
 
     assert parts[1]["type"] == "tool_result"
     assert parts[1]["tool_use_id"] == "t2"
+    assert "cache_control" not in parts[1]
     assert parts[1]["content"][0]["text"] == f"res2\n\n{snap}"
+    assert json.dumps(data).count("cache_control") == 1
 
 
 def test_anthropic_user_send_prompt_caching():
@@ -489,5 +494,94 @@ def test_anthropic_tool_choice():
     data2 = json.loads(body2)
     assert "tools" in data2
     assert data2["tool_choice"] == {"type": "none"}
+
+
+def test_anthropic_single_tool_round_cache_breakpoint():
+    from plugin.framework.client.shim_helpers import snapshot_text
+
+    class DummyClient:
+        def _endpoint(self):
+            return "http://test"
+
+        def _headers(self):
+            return {}
+
+    shim = AnthropicShim(DummyClient())
+    snap = snapshot_text("Document text")
+    messages = [
+        {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [
+                {"id": "t1", "function": {"name": "f1", "arguments": "{}"}},
+            ],
+        },
+        {"role": "tool", "tool_call_id": "t1", "content": f"res1\n\n{snap}"},
+    ]
+
+    _m, _p, body, _h = shim.build_chat_request(
+        messages, 100, None, None, False, "claude-3-5-sonnet", None
+    )
+    data = json.loads(body)
+    assert "cache_control" not in data
+    converted = data["messages"]
+    assert len(converted) == 2
+    asst_msg = converted[0]
+    assert asst_msg["role"] == "assistant"
+    assert len(asst_msg["content"]) == 1
+    assert asst_msg["content"][0]["type"] == "tool_use"
+    assert asst_msg["content"][0]["id"] == "t1"
+    assert asst_msg["content"][0].get("cache_control") == {"type": "ephemeral"}
+
+    user_msg = converted[1]
+    assert user_msg["role"] == "user"
+    assert len(user_msg["content"]) == 1
+    tool_res = user_msg["content"][0]
+    assert tool_res["type"] == "tool_result"
+    assert "cache_control" not in tool_res
+    assert tool_res["content"][0]["text"] == f"res1\n\n{snap}"
+    assert "cache_control" not in tool_res["content"][0]
+    assert json.dumps(data).count("cache_control") == 1
+
+
+def test_annotate_anthropic_cache_stops_at_four():
+    from plugin.framework.client.shim_helpers import annotate_anthropic_cache, snapshot_text
+
+    snap = snapshot_text("Document text")
+    tool_messages = [
+        {"role": "user", "content": "u1", "cache_control": {"type": "ephemeral"}},
+        {"role": "assistant", "content": "a1", "cache_control": {"type": "ephemeral"}},
+        {"role": "user", "content": "u2", "cache_control": {"type": "ephemeral"}},
+        {
+            "role": "assistant",
+            "content": "",
+            "cache_control": {"type": "ephemeral"},
+            "tool_calls": [{"id": "t1", "function": {"name": "f1", "arguments": "{}"}}],
+        },
+        {"role": "tool", "tool_call_id": "t1", "content": f"res\n\n{snap}"},
+    ]
+    res_tool = annotate_anthropic_cache(tool_messages)
+    assert res_tool is tool_messages
+    assert res_tool[0]["content"] == "u1"
+    assert json.dumps(res_tool).count("cache_control") == 4
+
+    user_messages = [
+        {"role": "user", "content": [{"type": "text", "text": "u1", "cache_control": {"type": "ephemeral"}}]},
+        {"role": "assistant", "content": [{"type": "text", "text": "a1", "cache_control": {"type": "ephemeral"}}]},
+        {"role": "user", "content": [{"type": "text", "text": "u2", "cache_control": {"type": "ephemeral"}}]},
+        {"role": "assistant", "content": [{"type": "text", "text": "a2", "cache_control": {"type": "ephemeral"}}]},
+        {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": "u3"},
+                {"type": "text", "text": snap},
+            ],
+        },
+    ]
+    res_user = annotate_anthropic_cache(user_messages)
+    assert res_user is user_messages
+    assert "cache_control" not in res_user[-1]["content"][0]
+    assert json.dumps(res_user).count("cache_control") == 4
+
 
 

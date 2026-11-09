@@ -100,31 +100,157 @@ def _is_tail_block(block: Any) -> bool:
     return False
 
 
+def _text_has_snapshot(txt: Any) -> bool:
+    """Check whether a text string begins with or contains the trailing snapshot."""
+    if not isinstance(txt, str):
+        return False
+    return txt.startswith(SNAPSHOT_HEADER) or (f"\n\n{SNAPSHOT_HEADER}" in txt)
+
+
+def _block_has_snapshot(block: Any) -> bool:
+    """Check whether a content block (or nested tool result) contains the snapshot."""
+    if isinstance(block, str):
+        return _text_has_snapshot(block)
+    if not isinstance(block, dict):
+        return False
+    btype = block.get("type")
+    if btype == "text":
+        return _text_has_snapshot(block.get("text"))
+    if btype == "tool_result":
+        content = block.get("content")
+        if isinstance(content, list):
+            return any(_block_has_snapshot(sub) for sub in content)
+        if isinstance(content, str):
+            return _text_has_snapshot(content)
+    return False
+
+
+def _breakpoint_count(obj: Any) -> int:
+    """Count explicit cache_control breakpoints currently present in the message tree."""
+    count = 0
+    if isinstance(obj, dict):
+        if "cache_control" in obj:
+            count += 1
+        for val in obj.values():
+            count += _breakpoint_count(val)
+    elif isinstance(obj, list):
+        for item in obj:
+            count += _breakpoint_count(item)
+    return count
+
+
+def _mark_part(messages: list[dict[str, Any]], msg_i: int, part_i: int) -> list[dict[str, Any]]:
+    """Return a shallow copy of messages with an ephemeral cache marker on the chosen block."""
+    msg = messages[msg_i]
+    content = msg.get("content")
+    if not isinstance(content, list):
+        return messages
+    part = content[part_i]
+    if isinstance(part, dict):
+        new_part = dict(part, cache_control={"type": "ephemeral"})
+    elif isinstance(part, str):
+        new_part = {"type": "text", "text": part, "cache_control": {"type": "ephemeral"}}
+    else:
+        new_part = {"type": "text", "text": str(part or ""), "cache_control": {"type": "ephemeral"}}
+    new_content = list(content)
+    new_content[part_i] = new_part
+    new_msg = dict(msg, content=new_content)
+    new_messages = list(messages)
+    new_messages[msg_i] = new_msg
+    return new_messages
+
+
 def annotate_anthropic_cache(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Place Anthropic ephemeral cache marker on the block before the trailing tail text."""
-    if not messages:
+    """Place an Anthropic ephemeral cache marker on the last block before the snapshot.
+
+    The live snapshot stays outside the cached prefix so edits do not dirty
+    earlier cache hits; the marker sits on the last block that does not contain
+    it. On tool rounds, earlier strings are normalized to text parts so the next
+    round's prefix matches. When the tree already has four markers, the input
+    is returned unchanged.
+    """
+    if not messages or _breakpoint_count(messages) >= 4:
         return messages
+
     last_msg = messages[-1]
-    if not isinstance(last_msg, dict) or last_msg.get("role") != "user":
+    if not isinstance(last_msg, dict):
         return messages
 
-    # User send: content list has block(s) followed by the tail block.
-    c = last_msg.get("content")
-    if isinstance(c, list) and len(c) >= 2:
-        last_block = c[-1]
-        if _is_tail_block(last_block):
-            prev_part = c[-2]
-            if isinstance(prev_part, dict):
-                new_prev = dict(prev_part, cache_control={"type": "ephemeral"})
-            elif isinstance(prev_part, str):
-                new_prev = {"type": "text", "text": prev_part, "cache_control": {"type": "ephemeral"}}
-            else:
-                new_prev = {"type": "text", "text": str(prev_part or ""), "cache_control": {"type": "ephemeral"}}
-            new_parts = list(c[:-2]) + [new_prev, last_block]
-            new_last = dict(last_msg, content=new_parts)
-            return list(messages[:-1]) + [new_last]
+    last_role = last_msg.get("role")
 
-    return messages
+    if last_role == "user":
+        c = last_msg.get("content")
+        # User send: content list has user block(s) followed by the tail snapshot block.
+        if isinstance(c, list) and len(c) >= 2 and _is_tail_block(c[-1]):
+            return _mark_part(messages, -1, -2)
+
+        # Native Anthropic tool round: messages are already converted into a user
+        # message containing tool_result blocks, with the snapshot inside the last result.
+        if (
+            isinstance(c, list)
+            and c
+            and isinstance(c[-1], dict)
+            and c[-1].get("type") == "tool_result"
+            and _block_has_snapshot(c[-1])
+        ):
+            # Mark the rightmost earlier tool_result that does not hold the live snapshot.
+            for part_i in range(len(c) - 2, -1, -1):
+                block = c[part_i]
+                if isinstance(block, dict) and block.get("type") == "tool_result" and not _block_has_snapshot(block):
+                    return _mark_part(messages, -1, part_i)
+
+            # When the only tool_result contains the snapshot, mark the previous
+            # assistant message's last tool_use block instead of an assistant string.
+            if len(messages) >= 2:
+                prev_msg = messages[-2]
+                if isinstance(prev_msg, dict) and prev_msg.get("role") == "assistant":
+                    prev_content = prev_msg.get("content")
+                    if isinstance(prev_content, list):
+                        for part_i in range(len(prev_content) - 1, -1, -1):
+                            part = prev_content[part_i]
+                            if isinstance(part, dict) and part.get("type") == "tool_use":
+                                return _mark_part(messages, -2, part_i)
+
+        return messages
+
+    if last_role == "tool":
+        last_c = last_msg.get("content")
+        has_snap = (
+            _text_has_snapshot(last_c)
+            if isinstance(last_c, str)
+            else (_block_has_snapshot(last_c[-1]) if isinstance(last_c, list) and last_c else False)
+        )
+        if not has_snap:
+            return messages
+
+        # Normalize earlier non-system strings to single-element text lists so
+        # future rounds share the same cached prefix.
+        norm_messages: list[dict[str, Any]] = []
+        for i, m in enumerate(messages):
+            if not isinstance(m, dict) or i == len(messages) - 1:
+                norm_messages.append(m)
+                continue
+            if m.get("role") in ("system", "developer"):
+                norm_messages.append(m)
+                continue
+            cnt = m.get("content")
+            if isinstance(cnt, str) and cnt != "":
+                norm_messages.append(dict(m, content=[{"type": "text", "text": cnt}]))
+            else:
+                norm_messages.append(m)
+
+        for msg_i in range(len(norm_messages) - 2, -1, -1):
+            m = norm_messages[msg_i]
+            if not isinstance(m, dict) or m.get("role") in ("system", "developer"):
+                continue
+            cnt = m.get("content")
+            if isinstance(cnt, list):
+                for part_i in range(len(cnt) - 1, -1, -1):
+                    part = cnt[part_i]
+                    if (isinstance(part, dict) and part.get("type") == "text") or isinstance(part, str):
+                        return _mark_part(norm_messages, msg_i, part_i)
+
+        return norm_messages
 
     return messages
 
