@@ -358,6 +358,21 @@ def unapplied_para_names_for_content(content: str) -> list[str]:
     return declared_para_names(paras, skipped)
 
 
+def attach_para_warnings(result: dict[str, Any], unapplied: list[str]) -> dict[str, Any]:
+    """Attach warnings for unapplied data-lo-para properties on a successful edit result.
+
+    Every write tool that takes data-lo-para reports through here, so the model sees one
+    message shape. Names are deduplicated in first-seen order.
+    """
+    if not unapplied or result.get("status") != "ok":
+        return result
+    deduped = list(dict.fromkeys(unapplied))
+    result["warnings"] = [
+        f"data-lo-para property '{name}' was not applied" for name in deduped
+    ]
+    return result
+
+
 def declared_para_names(*css_lists: Iterable[str | None]) -> list[str]:
     """Return every property name declared across lists of data-lo-para strings, in order.
 

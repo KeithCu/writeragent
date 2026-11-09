@@ -333,6 +333,47 @@ def test_replace_xtext_with_html_undo_rollback_on_import_failure():
     assert cursor.setString.call_args_list[0].args == ("",)
 
 
+def _undo_model():
+    model = MagicMock()
+    undo_mgr = MagicMock()
+    undo_mgr.isLocked.return_value = False
+    model.getUndoManager.return_value = undo_mgr
+    return model
+
+
+def test_replace_xtext_with_html_applies_and_reports_data_lo_attrs():
+    """Header/footer writes strip data-lo-* before the import and apply them after it."""
+    text = MagicMock()
+    imported: list[str] = []
+    html = (
+        '<p data-lo-style="Header" data-lo-para="margin-left:1cm; font-weight:bold">H</p>'
+        '<table><tr><td><p data-lo-para="margin-top:1cm">c</p></td></tr></table>'
+    )
+    with patch(
+        "plugin.writer.html_import.insert_html_fragment_at_cursor",
+        side_effect=lambda cursor, prepared, **kw: imported.append(prepared),
+    ), patch(
+        "plugin.writer.html_import_styles._apply_block_lo_styles", return_value=["font-weight"],
+    ) as apply_styles:
+        failed = replace_xtext_with_html(text, html, model=_undo_model())
+
+    assert "data-lo-" not in imported[0]
+    args, kwargs = apply_styles.call_args
+    assert args[1] is text and args[3] == ["Header"]
+    assert kwargs["paras"] == ["margin-left:1cm; font-weight:bold"]
+    # The table-cell declaration is never applied, so it is reported.
+    assert failed == ["margin-top", "font-weight"]
+
+
+def test_replace_xtext_with_html_plain_html_skips_style_walk():
+    text = MagicMock()
+    with patch("plugin.writer.html_import.insert_html_fragment_at_cursor"), patch(
+        "plugin.writer.html_import_styles._apply_block_lo_styles",
+    ) as apply_styles:
+        assert replace_xtext_with_html(text, "<p>New</p>", model=_undo_model()) == []
+    apply_styles.assert_not_called()
+
+
 def test_replace_xtext_with_html_undo_rollback_on_field_restore_failure():
 
     text = MagicMock()

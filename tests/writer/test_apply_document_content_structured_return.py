@@ -126,9 +126,9 @@ def test_search_all_matches_no_match_errors(monkeypatch):
 
 def test_mapped_data_lo_para_full_document_has_no_warnings():
     """Clean write with no unapplied properties produces no warnings."""
-    from plugin.writer.apply_document_content import _attach_para_warnings
+    from plugin.writer.html_import_styles import attach_para_warnings
 
-    res = _attach_para_warnings(
+    res = attach_para_warnings(
         {"status": "ok", "message": "Replaced entire document."},
         [],
     )
@@ -137,9 +137,9 @@ def test_mapped_data_lo_para_full_document_has_no_warnings():
 
 def test_unmapped_data_lo_para_full_document_warns_for_unmapped_property():
     """Unmapped properties report one warning per dropped property name."""
-    from plugin.writer.apply_document_content import _attach_para_warnings
+    from plugin.writer.html_import_styles import attach_para_warnings
 
-    res = _attach_para_warnings(
+    res = attach_para_warnings(
         {"status": "ok", "message": "Replaced entire document."},
         ["font-size"],
     )
@@ -148,10 +148,10 @@ def test_unmapped_data_lo_para_full_document_warns_for_unmapped_property():
 
 def test_failed_write_is_not_annotated():
     """Nothing was written, so there is nothing to say about what was not applied."""
-    from plugin.writer.apply_document_content import _attach_para_warnings
+    from plugin.writer.html_import_styles import attach_para_warnings
 
     original = {"status": "error", "message": "old_content not found."}
-    assert _attach_para_warnings(original, ["margin-left"]) == original
+    assert attach_para_warnings(original, ["margin-left"]) == original
 
 
 def test_search_target_warns_for_mapped_property(monkeypatch):

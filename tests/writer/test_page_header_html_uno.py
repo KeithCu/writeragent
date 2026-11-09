@@ -496,3 +496,54 @@ def test_header_trailing_paragraph_cleanup_single_undo_step_uno(ctx, doc):
     assert header.getString().strip() == "OLD"
 
 
+
+
+def _first_paragraph(text_obj):
+    return text_obj.createEnumeration().nextElement()
+
+
+@native_test
+@with_native_doc("writer")
+def test_header_data_lo_style_and_para_round_trip_uno(ctx, doc):
+    """data-lo-style / data-lo-para apply on a header write and come back from the read.
+
+    Writer stores lengths in twips, so 1cm (1000 in 1/100 mm) can read back as 999 or 1001.
+    """
+    html = '<p data-lo-style="Header" data-lo-para="margin-left:1cm; text-align:center">Letterhead</p>'
+    res = _set(doc, ctx, "header", html)
+    assert res["status"] == "ok", res
+    assert "warnings" not in res, res
+
+    para = _first_paragraph(_region_text(doc, "header"))
+    assert para.getPropertyValue("ParaStyleName") == "Header"
+    assert abs(para.getPropertyValue("ParaLeftMargin") - 1000) <= 1
+    assert para.getPropertyValue("ParaAdjust") == 3  # CENTER
+
+    read = _get(doc, ctx, "header")["content"]
+    assert 'data-lo-style="Header"' in read, read
+    assert "text-align:center" in read and "margin-left:" in read, read
+    # Values the paragraph inherits from its style are not reported as overrides.
+    assert "margin-right" not in read and "margin-top" not in read, read
+
+    res2 = _set(doc, ctx, "header", read)
+    assert res2["status"] == "ok", res2
+    # Only read-only names may warn: on some machines the import sets a direct font that
+    # the read then reports (fonts are not written back, see _READ_ONLY_PARA_NAMES).
+    from plugin.writer.html_import_styles import _READ_ONLY_PARA_NAMES
+
+    warned = {w.split("'")[1] for w in res2.get("warnings", [])}
+    assert warned <= _READ_ONLY_PARA_NAMES, (res2, read)
+    para = _first_paragraph(_region_text(doc, "header"))
+    assert para.getString() == "Letterhead"
+    assert para.getPropertyValue("ParaStyleName") == "Header"
+    assert abs(para.getPropertyValue("ParaLeftMargin") - 1000) <= 1
+
+
+@native_test
+@with_native_doc("writer")
+def test_header_unapplied_data_lo_para_is_reported_uno(ctx, doc):
+    """A paragraph-level font cannot be applied (it would flatten spans), so it warns."""
+    res = _set(doc, ctx, "footer", '<p data-lo-para="font-weight:bold">Footer</p>')
+    assert res["status"] == "ok", res
+    assert res.get("warnings") == ["data-lo-para property 'font-weight' was not applied"], res
+    assert _region_text(doc, "footer").getString().strip() == "Footer"

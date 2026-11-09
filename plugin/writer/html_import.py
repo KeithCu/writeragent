@@ -6,7 +6,8 @@
 """HTML/StarWriter import, replace, and markup routing for Writer documents.
 
 Header/footer apply uses ``replace_xtext_with_html`` (same StarWriter
-insert as the body path, pointed at a region ``XText``).
+insert as the body path, pointed at a region ``XText``). It applies
+data-lo-style and data-lo-para like a ``full_document`` write.
 
 CJK ruby: StarWriter concatenates ``<rt>`` into the body. ``extract_and_strip_ruby``
 drops the reading before import; ``_apply_ruby_spans`` sets ``RubyText`` on each
@@ -707,12 +708,18 @@ def replace_single_range_with_content(
 
 
 
-def replace_xtext_with_html(text_obj: Any, html: str, *, model: Any) -> None:
+def replace_xtext_with_html(text_obj: Any, html: str, *, model: Any) -> list[str]:
     """Clear *text_obj* and import *html* via the shared StarWriter path.
 
     Field spans from ``document_to_content`` / ``xtext_to_content`` are
     restored as live fields after import. *model* is the owning document
     (needed to create fields, enter the undo context, and find placeholders).
+
+    data-lo-style and data-lo-para are stripped before the import and applied
+    afterwards, the same way as a ``full_document`` write. Stripping also matters
+    for the import itself: a tag with a long data-lo-para runs past the tag-length
+    limit in ``escape_prose_angle_brackets`` and would land as literal text.
+    Returns the CSS property names that were not applied.
 
     The clear and import are protected by a document undo context: any
     failure rolls back to the previous state, preserving graphics and fields.
@@ -724,7 +731,10 @@ def replace_xtext_with_html(text_obj: Any, html: str, *, model: Any) -> None:
     expanded = _expand_escapes(expanded)
     expanded, ruby_spans = html_ruby.extract_and_strip_ruby(expanded)
     rewritten = field_restore.rewrite_exported_field_spans(expanded, nonce=nonce)
-    prepared = _ensure_html_linebreaks(rewritten)
+    clean, block_styles, block_paras, skipped_paras = html_import_styles._extract_block_lo_styles(rewritten)
+    prepared = _ensure_html_linebreaks(clean)
+    # data-lo-para on inline tags and on blocks inside tables is stripped, never applied.
+    failures = html_import_styles.declared_para_names(skipped_paras)
     cursor = text_obj.createTextCursor()
     cursor.gotoStart(False)
     cursor.gotoEnd(True)
@@ -740,6 +750,12 @@ def replace_xtext_with_html(text_obj: Any, html: str, *, model: Any) -> None:
         insert_html_fragment_at_cursor(
             cursor, prepared, wrap=False, model=None,
         )
+        if any(block_styles) or any(block_paras):
+            # The whole region was replaced, so the walk starts at the text start and
+            # needs no end bound: it stops after the last imported block.
+            failures.extend(html_import_styles._apply_block_lo_styles(
+                model, text_obj, text_obj.getStart(), block_styles, paras=block_paras,
+            ))
         _apply_ruby_and_restore_fields(model, text_obj, ruby_spans, nonce)
 
         # Issue #1424: HTML import can leave a trailing empty paragraph.
@@ -788,6 +804,7 @@ def replace_xtext_with_html(text_obj: Any, html: str, *, model: Any) -> None:
             f"the header/footer was written and could not be rolled back: {outcome.error.get('message')}"
         )
     outcome.raise_mutate_error()
+    return failures
 
 
 def content_has_markup(content: str | None) -> bool:
