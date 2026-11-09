@@ -225,9 +225,9 @@ def test_shape_text_hits_regex_drops_empty_groups_only():
 def test_shape_text_hits_folds_quotes_and_returns_document_text():
     from plugin.writer.search import (
         _DOUBLE_QUOTE_CODEPOINTS,
-        _SHAPE_QUOTE_FOLD,
         _SINGLE_QUOTE_CODEPOINTS,
         shape_text_hits,
+        shape_text_span,
     )
 
     assert shape_text_hits("He said \u201cHi,\u201d", '"hi,"', False, False) == ["\u201cHi,\u201d"]
@@ -236,9 +236,12 @@ def test_shape_text_hits_folds_quotes_and_returns_document_text():
     assert shape_text_hits("He said \u201cHi,\u201d", '"Hi,"', True, True) == []
     assert shape_text_hits("end\u2014ash", "end-ash", False, False) == []
     assert shape_text_hits("end\u2014ash", "end-ash", False, True) == []
+    assert shape_text_hits("İ“x”", '"X"', False, False) == ["“x”"]
 
-    assert set(_SHAPE_QUOTE_FOLD) == {0x2018, 0x2019, 0x201A, 0x201B, 0x201C, 0x201D, 0x201E, 0x201F}
-    assert all(isinstance(v, str) and len(v) == 1 for v in _SHAPE_QUOTE_FOLD.values())
+    assert shape_text_span("He said \u201cHi,\u201d", '"hi,"', False) == (8, 13)
+    assert shape_text_span("He said \u201cHi,\u201d", '"Hi,"', True) == (8, 13)
+    assert shape_text_span("He said \u201cHi,\u201d", '"hi,"', True) is None
+    assert shape_text_span("İ“x”", '"X"', False) == (1, 4)
 
     for cp in _SINGLE_QUOTE_CODEPOINTS:
         ch = chr(cp)

@@ -104,21 +104,20 @@ _SINGLE_QUOTE_RE = re_mod.compile("[" + "'\u2018\u2019\u201a\u201b" + "]")
 _DOUBLE_QUOTE_RE = re_mod.compile("[" + '"\u201c\u201d\u201e\u201f' + "]")
 _DASH_RE = re_mod.compile("[" + "-\u2010\u2011\u2012\u2013\u2014\u2015\u2212" + "]")
 
+_QUOTE_FOLD_MAP = {
+    **{cp: "'" for cp in _SINGLE_QUOTE_CODEPOINTS if cp != 0x0027},
+    **{cp: '"' for cp in _DOUBLE_QUOTE_CODEPOINTS if cp != 0x0022},
+}
+
 _FOLD_NORMALIZE_MAP = {
     **SPACE_NORMALIZE_MAP,
-    **{cp: "'" for cp in (0x2018, 0x2019, 0x201A, 0x201B)},
-    **{cp: '"' for cp in (0x201C, 0x201D, 0x201E, 0x201F)},
+    **_QUOTE_FOLD_MAP,
     **{cp: "-" for cp in (0x2010, 0x2011, 0x2012, 0x2013, 0x2014, 0x2015, 0x2212)},
 }
 
-# Literal shape and comment search folds these quotes only. Each entry is one
-# codepoint to one ASCII quote, so a find index is still an index into the
-# original shape or comment string. Dashes and exotic spaces stay literal here;
-# body search folds those in escape_for_lo_regex.
-_SHAPE_QUOTE_FOLD = str.maketrans({
-    **{cp: "'" for cp in _SINGLE_QUOTE_CODEPOINTS if cp != 0x0027},
-    **{cp: '"' for cp in _DOUBLE_QUOTE_CODEPOINTS if cp != 0x0022},
-})
+# Literal shape and comment search folds typographic quotes like LibreOffice's
+# native Find does; dashes and spaces stay literal here.
+_SHAPE_QUOTE_FOLD = str.maketrans(_QUOTE_FOLD_MAP)
 
 MIN_OVERSIZED_CHARS = 100
 OVERSIZED_OLD_CONTENT_MESSAGE = (
@@ -979,37 +978,59 @@ def _regex_find_hits(pattern: str, text: str, flags: int) -> list[str]:
     return hits if isinstance(hits, list) else []
 
 
+def iter_shape_text_spans(
+    shape_text: str,
+    pattern: str,
+    case_sensitive: bool = SEARCH_CASE_SENSITIVE_DEFAULT,
+) -> Iterator[tuple[int, int]]:
+    """Yield [start, end) character offset spans of pattern in shape_text.
+
+    Literal search folds typographic quotes via _SHAPE_QUOTE_FOLD.
+    Offsets index the original shape_text string.
+    """
+    if not shape_text or not pattern:
+        return
+    if case_sensitive:
+        hay = shape_text.translate(_SHAPE_QUOTE_FOLD)
+        needle = pattern.translate(_SHAPE_QUOTE_FOLD)
+
+        def span_for_idx(idx: int) -> tuple[int, int]:
+            return idx, idx + len(pattern)
+    else:
+        hay, origins = _lower_with_origins(shape_text)
+        hay = hay.translate(_SHAPE_QUOTE_FOLD)
+        needle = pattern.lower().translate(_SHAPE_QUOTE_FOLD)
+
+        def span_for_idx(idx: int) -> tuple[int, int]:
+            return origins[idx], origins[idx + len(needle) - 1] + 1
+
+    step = len(needle) or 1
+    idx = hay.find(needle)
+    while idx != -1:
+        yield span_for_idx(idx)
+        idx = hay.find(needle, idx + step)
+
+
+def shape_text_span(
+    shape_text: str,
+    pattern: str,
+    case_sensitive: bool = SEARCH_CASE_SENSITIVE_DEFAULT,
+) -> tuple[int, int] | None:
+    """Return the [start, end) character offset span of pattern in shape_text, or None.
+
+    Literal search folds typographic quotes via _SHAPE_QUOTE_FOLD.
+    Offsets index the original shape_text string.
+    """
+    return next(iter_shape_text_spans(shape_text, pattern, case_sensitive=case_sensitive), None)
+
+
 def shape_text_hits(shape_text: str, pattern: str, use_regex: bool, case_sensitive: bool) -> list[str]:
     if not shape_text or not pattern:
         return []
     if use_regex:
         flags = 0 if case_sensitive else re_mod.IGNORECASE
         return _regex_find_hits(pattern, shape_text, flags)
-    # Literal search folds typographic quotes to plain ASCII quotes to match body
-    # search behavior. Because each quote translation is strictly 1:1, string
-    # lengths and character positions are preserved so slice_hit extracts the
-    # original document characters.
-    if case_sensitive:
-        hay = shape_text.translate(_SHAPE_QUOTE_FOLD)
-        needle = pattern.translate(_SHAPE_QUOTE_FOLD)
-
-        def slice_hit(idx: int) -> str:
-            return shape_text[idx:idx + len(pattern)]
-    else:
-        hay, origins = _lower_with_origins(shape_text)
-        hay = hay.translate(_SHAPE_QUOTE_FOLD)
-        needle = pattern.lower().translate(_SHAPE_QUOTE_FOLD)
-
-        def slice_hit(idx: int) -> str:
-            return shape_text[origins[idx]:origins[idx + len(needle) - 1] + 1]
-
-    hits = []
-    step = len(needle) or 1
-    idx = hay.find(needle)
-    while idx != -1:
-        hits.append(slice_hit(idx))
-        idx = hay.find(needle, idx + step)
-    return hits
+    return [shape_text[start:end] for start, end in iter_shape_text_spans(shape_text, pattern, case_sensitive)]
 
 
 def iter_floating_shape_texts(doc: Any) -> Iterator[tuple[Any, str]]:

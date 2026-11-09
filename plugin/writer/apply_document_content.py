@@ -698,7 +698,7 @@ class ApplyDocumentContent(ToolBase):
             # commit_or_rollback wraps shape replacement so a failed replace_text_in_shape
             # rolls back instead of leaving a partial setString in the document.
             def mutate() -> dict[str, Any] | None:
-                edited = replace_text_in_shape(shape, search_string, new_text)
+                edited = replace_text_in_shape(shape, search_string, new_text, case_sensitive=opts_cs)
                 if not edited:
                     return {"status": "error", "code": "SHAPE_REPLACE_FAILED"}
                 return None
