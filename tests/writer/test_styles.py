@@ -1588,3 +1588,50 @@ def test_style_list_calc_cell_styles_returns_entries():
     assert res["count"] == 1
     assert res["styles"][0]["name"] == "Good"
 
+
+def test_apply_style_case_sensitive_target_search():
+    """ApplyStyle target='search' threads case_sensitive to resolve_target_cursor."""
+    from plugin.writer.styles import ApplyStyle
+
+    ctx = _ctx_with_families(ParagraphStyles=_style_family({"Heading 1": create_mock_style("Heading 1")}))
+    cursor = MagicMock()
+
+    with patch("plugin.writer.styles.resolve_target_cursor", return_value=cursor) as mock_resolve, \
+         patch.object(ApplyStyle, "_apply_one", return_value=None):
+        # Default omitted case_sensitive
+        res_default = ApplyStyle().execute(ctx, style="Heading 1", target="search", old_content="apple")
+        assert res_default["status"] == "ok"
+        mock_resolve.assert_called_with(ctx, "search", "apple", case_sensitive=None)
+
+        # Explicit case_sensitive=True
+        res_cs = ApplyStyle().execute(ctx, style="Heading 1", target="search", old_content="apple", case_sensitive=True)
+        assert res_cs["status"] == "ok"
+        mock_resolve.assert_called_with(ctx, "search", "apple", case_sensitive=True)
+
+
+def test_apply_style_case_sensitive_occurrence():
+    """ApplyStyle target='search' with occurrence threads case_sensitive to find_all_ranges."""
+    from plugin.writer.styles import ApplyStyle
+
+    ctx = _ctx_with_families(ParagraphStyles=_style_family({"Heading 1": create_mock_style("Heading 1")}))
+    r1 = MagicMock()
+    r2 = MagicMock()
+
+    calls = []
+
+    def fake_find_all(doc, s, *, case_sensitive=False):
+        calls.append((s, case_sensitive))
+        return [r1, r2]
+
+    with patch("plugin.writer.search.find_all_ranges", side_effect=fake_find_all), \
+         patch("plugin.writer.styles.cursor_spanning_range", return_value=MagicMock()), \
+         patch.object(ApplyStyle, "_apply_one", return_value=None):
+        res_default = ApplyStyle().execute(ctx, style="Heading 1", target="search", old_content="apple", occurrence=0)
+        assert res_default["status"] == "ok"
+        assert calls[-1] == ("apple", False)
+
+        res_cs = ApplyStyle().execute(ctx, style="Heading 1", target="search", old_content="apple", occurrence=0, case_sensitive=True)
+        assert res_cs["status"] == "ok"
+        assert calls[-1] == ("apple", True)
+
+

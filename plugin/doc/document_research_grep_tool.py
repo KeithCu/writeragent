@@ -57,7 +57,7 @@ class GrepNearbyFiles(ToolBase):
 
         scope = ctx.send_cancellation
         case_sensitive = resolve_case_sensitive(kwargs.get("case_sensitive"))
-        result = grep_nearby_files(
+        return grep_nearby_files(
             ctx.ctx,
             ctx.doc,
             ctx.services,
@@ -68,4 +68,3 @@ class GrepNearbyFiles(ToolBase):
             cancel=scope,
             status_callback=ctx.status_callback,
         )
-        return result

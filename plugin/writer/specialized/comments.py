@@ -27,6 +27,7 @@ from plugin.doc.text_helpers import iter_elements
 from plugin.doc.undo import commit_or_rollback_mutation
 from plugin.framework.tool import ToolBase
 from plugin.framework.errors import name_miss_details
+from ..search import CASE_SENSITIVE_DESCRIPTION, resolve_case_sensitive
 from ..specialized_base import ToolWriterCommentBase, enum_param
 
 log = logging.getLogger("writeragent.writer.comments")
@@ -167,6 +168,7 @@ class AddComment(ToolBase):
     parameters: dict[str, Any] | None = {"type": "object", "properties": {
         "content": {"type": "string", "description": "The comment text."},
         "search": {"type": "string", "description": "Anchor a new root comment to text matching this string. Not required when parent_name is set."},
+        "case_sensitive": {"type": "boolean", "description": f"For search: {CASE_SENSITIVE_DESCRIPTION}"},
         "occurrence": {"type": "integer", "description": "0-based match to comment on when search repeats (default 0). Ignored when parent_name is set."},
         "author": {"type": "string", "description": "Comment author (default 'WriterAgent')."},
         "parent_name": {"type": "string", "description": "Reply to this comment. Pass the 'name' from a prior add_comment success, or the 'name' field from comment_list. Immediate parent — not coerced to the thread root. When set, search/occurrence are skipped."},
@@ -221,12 +223,14 @@ class AddComment(ToolBase):
         occurrence = 0 if occ_val is None else occ_val
 
         doc = ctx.doc
+        case_sensitive = resolve_case_sensitive(kwargs.get("case_sensitive"))
 
         try:
             found = find_occurrence_range(
                 doc,
                 search_text,
                 occurrence=occurrence,
+                case_sensitive=case_sensitive,
             )
         except IndexError:
             found = None

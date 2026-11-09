@@ -23,7 +23,13 @@ def _span_cursor(rng: Any, fail: str) -> Any:
         raise ValueError(fail % e)
 
 
-def resolve_target_cursor(ctx: ToolContext, target: str, old_content: Any) -> Any:
+def resolve_target_cursor(
+    ctx: ToolContext,
+    target: str,
+    old_content: Any,
+    *,
+    case_sensitive: bool | None = None,
+) -> Any:
     """
     Resolves the `target` ("beginning", "end", "selection", "search")
     and returns a valid TextCursor pointing to the desired location.
@@ -80,10 +86,14 @@ def resolve_target_cursor(ctx: ToolContext, target: str, old_content: Any) -> An
     if not search_string:
         raise ValueError("old_content is empty after normalization.")
 
-    found = search_mod.find_first_range(doc, search_string)
+    find_kw: dict[str, Any] = {}
+    if case_sensitive is not None:
+        find_kw["case_sensitive"] = search_mod.resolve_case_sensitive(case_sensitive)
+
+    found = search_mod.find_first_range(doc, search_string, **find_kw)
 
     if found is None:
-        shape_name = search_mod.drawing_shape_containing(doc, search_string)
+        shape_name = search_mod.drawing_shape_containing(doc, search_string, **find_kw)
         raise ValueError(
             search_mod.search_miss_message(doc, search_string, shape_name=shape_name)
         )

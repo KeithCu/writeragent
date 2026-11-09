@@ -1005,7 +1005,7 @@ draw = _DrawProxy()
 class _EmbeddedProxy:
     """Proxy for embedded tools."""
 
-    def insert(self, object_type: str, *, data: list[Any] | None = None, name: str | None = None, width: int | None = None, height: int | None = None, target: str | None = None, old_content: str | None = None) -> dict[str, Any]:
+    def insert(self, object_type: str, *, data: list[Any] | None = None, name: str | None = None, width: int | None = None, height: int | None = None, target: str | None = None, old_content: str | None = None, case_sensitive: bool | None = None) -> dict[str, Any]:
         """Insert a Calc spreadsheet OLE into the active Writer document (object_type='spreadsheet' only). Use target='beginning', 'end', 'selection', 'full_document', or 'search' with old_content. Optional data fills cells from A1; optional width and height are 1/100 mm (both or neither). Saving as .docx keeps cell values and formulas as an embedded xlsx but drops the object name and the exact visible width.
 
         Args:
@@ -1016,8 +1016,9 @@ class _EmbeddedProxy:
             height (optional): Frame height in 1/100 mm (requires width).
             target (optional): Where to insert the embedded spreadsheet. One of: beginning, end, selection, full_document, search.
             old_content (optional): Text to find and replace if target = 'search'.
+            case_sensitive (optional): For target='search': Case-sensitive match (default: false). The result includes matched_case_sensitive for the mode that ran.
         """
-        return call_host_tool("embedded_insert", object_type=object_type, data=data, name=name, width=width, height=height, target=target, old_content=old_content)
+        return call_host_tool("embedded_insert", object_type=object_type, data=data, name=name, width=width, height=height, target=target, old_content=old_content, case_sensitive=case_sensitive)
 
 embedded = _EmbeddedProxy()
 
@@ -1075,7 +1076,7 @@ class _FieldProxy:
         """
         return call_host_tool("document_properties_set", title=title, subject=subject, author=author, description=description, keywords=keywords, user_defined=user_defined, remove_user_defined=remove_user_defined)
 
-    def insert(self, field: str, *, properties: dict[str, Any] = {}, target: str | None = None, old_content: str | None = None) -> dict[str, Any]:
+    def insert(self, field: str, *, properties: dict[str, Any] = {}, target: str | None = None, old_content: str | None = None, case_sensitive: bool | None = None) -> dict[str, Any]:
         """Insert a text field at the specified target position. Use target='beginning', 'end', or 'selection' to insert at those positions. Use target='search' with old_content to find and replace text. Supports various field types natively provided by LibreOffice. Common field types include: 'PageNumber', 'PageCount', 'DateTime', 'Author', 'FileName', 'WordCount', 'CharacterCount', 'ParagraphCount', 'TableCount', 'GraphicObjectCount', 'EmbeddedObjectCount', and 'Annotation'. Specify optional properties to configure the field.
 
         Args:
@@ -1083,8 +1084,9 @@ class _FieldProxy:
             properties (optional): Optional dictionary of UNO properties to apply to the field. Example: {'NumberingType': 4} for Arabic numbering, or {'IsDate': true} to force a date display on a DateTime field.
             target (optional): Where to insert the field. One of: beginning, end, selection, full_document, search.
             old_content (optional): Text to find and replace if target = 'search'.
+            case_sensitive (optional): For target='search': Case-sensitive match (default: false). The result includes matched_case_sensitive for the mode that ran.
         """
-        return call_host_tool("fields_insert", field=field, properties=properties, target=target, old_content=old_content)
+        return call_host_tool("fields_insert", field=field, properties=properties, target=target, old_content=old_content, case_sensitive=case_sensitive)
 
     def list(self) -> dict[str, Any]:
         """List all text fields in the document. Returns their types and text content, allowing you to identify and inspect fields like page numbers or dates."""
@@ -1396,7 +1398,7 @@ images = _ImagesProxy()
 class _IndexProxy:
     """Proxy for index tools."""
 
-    def add_mark(self, text: str, *, kind: str | None = None, primary_key: str | None = None, secondary_key: str | None = None, identifier: str | None = None, author: str | None = None, title: str | None = None, year: Any | None = None, pages: str | None = None, bibliographic_type: Any | None = None, fields: dict[str, Any] | None = None, target: str | None = None, old_content: str | None = None) -> dict[str, Any]:
+    def add_mark(self, text: str, *, kind: str | None = None, primary_key: str | None = None, secondary_key: str | None = None, identifier: str | None = None, author: str | None = None, title: str | None = None, year: Any | None = None, pages: str | None = None, bibliographic_type: Any | None = None, fields: dict[str, Any] | None = None, target: str | None = None, old_content: str | None = None, case_sensitive: bool | None = None) -> dict[str, Any]:
         """Insert an index mark or a bibliography cite at target. kind=alphabetical|user creates DocumentIndexMark / UserIndexMark (primary_key/secondary_key). kind=bibliography creates TextField.Bibliography — not an index mark; set Identifier/Author/Title/Year/Pages (text defaults to Identifier). primary_key is ignored for cites. After cite changes call indexes_update_all so the bibliography table refreshes. Do not use fields_insert for product cites.
 
         Args:
@@ -1413,10 +1415,11 @@ class _IndexProxy:
             fields (optional): Extra/override Fields names (Identifier, Author, ISBN, …). Ignored unless kind=bibliography.
             target (optional): Where to insert the mark or cite. One of: beginning, end, selection, full_document, search.
             old_content (optional): Text to find and replace if target = 'search'.
+            case_sensitive (optional): For target='search': Case-sensitive match (default: false). The result includes matched_case_sensitive for the mode that ran.
         """
-        return call_host_tool("indexes_add_mark", text=text, kind=kind, primary_key=primary_key, secondary_key=secondary_key, identifier=identifier, author=author, title=title, year=year, pages=pages, bibliographic_type=bibliographic_type, fields=fields, target=target, old_content=old_content)
+        return call_host_tool("indexes_add_mark", text=text, kind=kind, primary_key=primary_key, secondary_key=secondary_key, identifier=identifier, author=author, title=title, year=year, pages=pages, bibliographic_type=bibliographic_type, fields=fields, target=target, old_content=old_content, case_sensitive=case_sensitive)
 
-    def create(self, kind: str, *, title: str | None = None, create_from_outline: bool | None = None, target: str | None = None, old_content: str | None = None) -> dict[str, Any]:
+    def create(self, kind: str, *, title: str | None = None, create_from_outline: bool | None = None, target: str | None = None, old_content: str | None = None, case_sensitive: bool | None = None) -> dict[str, Any]:
         """Create a document index (toc, alphabetical, user, illustration, table, object, bibliography). kind=bibliography inserts the reference table (com.sun.star.text.Bibliography); cites must already exist or be added with indexes_add_mark kind=bibliography, then indexes_update_all. Use target='beginning', 'end', or 'selection'. Use target='search' with old_content to find and replace text.
 
         Args:
@@ -1425,10 +1428,11 @@ class _IndexProxy:
             create_from_outline (optional): Whether to create the index from the document outline (mainly for toc). Default true.
             target (optional): Where to insert the index. One of: beginning, end, selection, full_document, search.
             old_content (optional): Text to find and replace if target = 'search'.
+            case_sensitive (optional): For target='search': Case-sensitive match (default: false). The result includes matched_case_sensitive for the mode that ran.
         """
-        return call_host_tool("indexes_create", kind=kind, title=title, create_from_outline=create_from_outline, target=target, old_content=old_content)
+        return call_host_tool("indexes_create", kind=kind, title=title, create_from_outline=create_from_outline, target=target, old_content=old_content, case_sensitive=case_sensitive)
 
-    def delete_toc_entry(self, old_content: str, *, index: int | None = None, occurrence: int | None = None, dry_run: bool | None = None) -> dict[str, Any]:
+    def delete_toc_entry(self, old_content: str, *, index: int | None = None, occurrence: int | None = None, dry_run: bool | None = None, case_sensitive: bool | None = None) -> dict[str, Any]:
         """Delete one table-of-contents entry (the whole paragraph). Identify it the same way as indexes_refresh_toc_entry: old_content matched inside the TOC only, plus optional index and occurrence. Does not call index update(), so neighboring entries, tabs, and direct formatting stay. indexes_update_all is the full rebuild and drops customized TOC formatting. The agent decides which row is obsolete; this tool does not compare the outline.
 
         Args:
@@ -1436,10 +1440,11 @@ class _IndexProxy:
             index (optional): Document index position from indexes_list. Omit when the document has exactly one TOC.
             occurrence (optional): 0-based match inside the TOC only. Omit for the first. Body text with the same words is not a match.
             dry_run (optional): Do not edit. Report text (the entry that would be removed) and an empty text_after.
+            case_sensitive (optional): For old_content: Case-sensitive match (default: false). The result includes matched_case_sensitive for the mode that ran.
         """
-        return call_host_tool("indexes_delete_toc_entry", old_content=old_content, index=index, occurrence=occurrence, dry_run=dry_run)
+        return call_host_tool("indexes_delete_toc_entry", old_content=old_content, index=index, occurrence=occurrence, dry_run=dry_run, case_sensitive=case_sensitive)
 
-    def insert_toc_entry(self, content: str, *, page: str | None = None, hyperlink_url: str | None = None, position: str | None = None, old_content: str | None = None, level: int | None = None, index: int | None = None, occurrence: int | None = None, dry_run: bool | None = None) -> dict[str, Any]:
+    def insert_toc_entry(self, content: str, *, page: str | None = None, hyperlink_url: str | None = None, position: str | None = None, old_content: str | None = None, level: int | None = None, index: int | None = None, occurrence: int | None = None, dry_run: bool | None = None, case_sensitive: bool | None = None) -> dict[str, Any]:
         """Insert one new row into an existing table of contents. Does not call index update(), and does not modify neighboring entries. Clones the sibling row's Contents N paragraph style, direct character formatting, and tab stops. Set hyperlink_url to an outline target (#…|outline) or a text-table target (#Name|table). Page numbers follow the sibling row: plain text after a tab (generated TOC rows store digits in the entry, not a page field). Pass page to set that text when the new row is not on the sibling's page; omit it to copy the sibling's page text. position is before, after (both need old_content), or end (after the last TOC entry). indexes_update_all is the full rebuild and drops customized TOC formatting. The agent decides what is missing; this tool does not sync the outline.
 
         Args:
@@ -1452,8 +1457,9 @@ class _IndexProxy:
             index (optional): Document index position from indexes_list. Omit when the document has exactly one TOC.
             occurrence (optional): 0-based match inside the TOC only, when position is before or after. Omit for the first.
             dry_run (optional): Do not edit. Report text (the sibling entry) and text_after (the row that would be inserted).
+            case_sensitive (optional): For old_content: Case-sensitive match (default: false). The result includes matched_case_sensitive for the mode that ran.
         """
-        return call_host_tool("indexes_insert_toc_entry", content=content, page=page, hyperlink_url=hyperlink_url, position=position, old_content=old_content, level=level, index=index, occurrence=occurrence, dry_run=dry_run)
+        return call_host_tool("indexes_insert_toc_entry", content=content, page=page, hyperlink_url=hyperlink_url, position=position, old_content=old_content, level=level, index=index, occurrence=occurrence, dry_run=dry_run, case_sensitive=case_sensitive)
 
     def list(self) -> dict[str, Any]:
         """List document indexes (TOC, alphabetical, user, bibliography tables). type matches indexes_create kind (bibliography via getServiceName). For in-flow cites use indexes_list_cites, not this tool. For TOC row text, outline level, and the internal hyperlink use indexes_list_toc_entries."""
@@ -1471,7 +1477,7 @@ class _IndexProxy:
         """
         return call_host_tool("indexes_list_toc_entries", index=index)
 
-    def refresh_toc_entry(self, old_content: str, content: str, *, hyperlink_url: str | None = None, index: int | None = None, occurrence: int | None = None, dry_run: bool | None = None) -> dict[str, Any]:
+    def refresh_toc_entry(self, old_content: str, content: str, *, hyperlink_url: str | None = None, index: int | None = None, occurrence: int | None = None, dry_run: bool | None = None, case_sensitive: bool | None = None) -> dict[str, Any]:
         """Replace one substring inside a single table-of-contents entry and, when that text sits in one outline hyperlink (#…|outline), update that URL. Does not call index update(), so other entries, tabs, page numbers, and direct formatting stay. Page numbers are left as they are. indexes_update_all is the full rebuild and drops customized TOC formatting. Pass hyperlink_url to set the outline target, including when content equals old_content. Bookmark targets are not rewritten. To add or remove one row, use indexes_insert_toc_entry or indexes_delete_toc_entry.
 
         Args:
@@ -1481,8 +1487,9 @@ class _IndexProxy:
             index (optional): Document index position from indexes_list. Omit when the document has exactly one TOC.
             occurrence (optional): 0-based match inside the TOC only. Omit for the first. Body text with the same words is not a match.
             dry_run (optional): Do not edit. Report text (the entry before) and text_after, plus the outline URL before and after when the match is one |outline link.
+            case_sensitive (optional): For old_content: Case-sensitive match (default: false). The result includes matched_case_sensitive for the mode that ran.
         """
-        return call_host_tool("indexes_refresh_toc_entry", old_content=old_content, content=content, hyperlink_url=hyperlink_url, index=index, occurrence=occurrence, dry_run=dry_run)
+        return call_host_tool("indexes_refresh_toc_entry", old_content=old_content, content=content, hyperlink_url=hyperlink_url, index=index, occurrence=occurrence, dry_run=dry_run, case_sensitive=case_sensitive)
 
     def update_all(self) -> dict[str, Any]:
         """Refresh all document indexes (TOC, alphabetical, bibliography table). Call after inserting or editing bibliography cites so the reference list updates. A TOC refresh rebuilds every entry and drops customized direct formatting. To change one entry without that rebuild, use indexes_refresh_toc_entry, indexes_insert_toc_entry, or indexes_delete_toc_entry. Those tools do not call update() and do not recalculate page numbers."""
@@ -1494,7 +1501,7 @@ index = _IndexProxy()
 class _MailMergeProxy:
     """Proxy for mail_merge tools."""
 
-    def insert_field(self, column_name: str, *, data_source_name: str = '', table_name: str = '', command_type: str = 'table', target: str = 'selection', old_content: str | None = None) -> dict[str, Any]:
+    def insert_field(self, column_name: str, *, data_source_name: str = '', table_name: str = '', command_type: str = 'table', target: str = 'selection', old_content: str | None = None, case_sensitive: bool | None = None) -> dict[str, Any]:
         """Insert a database mail merge field (e.g. <FirstName>, <Address>) at the specified position. Use target='beginning', 'end', or 'selection' to insert at those positions. Use target='search' with old_content to find and replace text with the merge field.
 
         Args:
@@ -1504,8 +1511,9 @@ class _MailMergeProxy:
             command_type (optional): Data command type: 'table' (0), 'query' (1), or 'command' (2). One of: table, query, command.
             target (optional): Where to insert the field. One of: beginning, end, selection, full_document, search.
             old_content (optional): Text to find and replace if target = 'search'.
+            case_sensitive (optional): For target='search': Case-sensitive match (default: false). The result includes matched_case_sensitive for the mode that ran.
         """
-        return call_host_tool("mail_merge_insert_field", column_name=column_name, data_source_name=data_source_name, table_name=table_name, command_type=command_type, target=target, old_content=old_content)
+        return call_host_tool("mail_merge_insert_field", column_name=column_name, data_source_name=data_source_name, table_name=table_name, command_type=command_type, target=target, old_content=old_content, case_sensitive=case_sensitive)
 
     def list_fields(self) -> dict[str, Any]:
         """List all database merge fields currently placed in the active Writer document, including their column names, data source names, and table names."""
@@ -2447,19 +2455,20 @@ class _TextframeProxy:
         """
         return call_host_tool("frame_get_info", name=name)
 
-    def frame_insert(self, *, target: str | None = None, old_content: str | None = None, name: str | None = None, text: str | None = None, width_mm: float | None = None, height_mm: float | None = None, anchor_type: int | None = None) -> dict[str, Any]:
+    def frame_insert(self, *, target: str | None = None, old_content: str | None = None, case_sensitive: bool | None = None, name: str | None = None, text: str | None = None, width_mm: float | None = None, height_mm: float | None = None, anchor_type: int | None = None) -> dict[str, Any]:
         """Insert a new text frame with optional initial text and size (millimetres).
 
         Args:
             target (optional): Where to insert the text frame. One of: beginning, end, selection, full_document, search.
             old_content (optional): Text to find and replace if target = 'search'.
+            case_sensitive (optional): For target='search': Case-sensitive match (default: false). The result includes matched_case_sensitive for the mode that ran.
             name (optional): Optional frame name (from frame_list when set).
             text (optional): Initial text placed inside the frame.
             width_mm (optional): Frame width in millimetres (default 80).
             height_mm (optional): Frame height in millimetres (default 30).
             anchor_type (optional): Anchor type: 0=AT_PARAGRAPH (default), 1=AS_CHARACTER, 2=AT_PAGE, 3=AT_FRAME, 4=AT_CHARACTER.
         """
-        return call_host_tool("frame_insert", target=target, old_content=old_content, name=name, text=text, width_mm=width_mm, height_mm=height_mm, anchor_type=anchor_type)
+        return call_host_tool("frame_insert", target=target, old_content=old_content, case_sensitive=case_sensitive, name=name, text=text, width_mm=width_mm, height_mm=height_mm, anchor_type=anchor_type)
 
     def frame_list(self) -> dict[str, Any]:
         """List all text frames in the document."""
@@ -2540,17 +2549,18 @@ vision = _VisionProxy()
 class _WriterProxy:
     """Proxy for writer tools."""
 
-    def add_comment(self, content: str, *, search: str | None = None, occurrence: int | None = None, author: str | None = None, parent_name: str | None = None) -> dict[str, Any]:
+    def add_comment(self, content: str, *, search: str | None = None, case_sensitive: bool | None = None, occurrence: int | None = None, author: str | None = None, parent_name: str | None = None) -> dict[str, Any]:
         """Add a comment/annotation. For a new root comment, pass search (and optional occurrence) so the comment SPANS the matched passage. To reply without resolving, pass parent_name (the 'name' from a prior add_comment success, or from comment_list); search is not required. Replies nest under that immediate parent (including other replies) and do not mark it resolved — use comment_resolve for reply-and-resolve. Use author to sign the comment.
 
         Args:
             content (required): The comment text.
             search (optional): Anchor a new root comment to text matching this string. Not required when parent_name is set.
+            case_sensitive (optional): For search: Case-sensitive match (default: false). The result includes matched_case_sensitive for the mode that ran.
             occurrence (optional): 0-based match to comment on when search repeats (default 0). Ignored when parent_name is set.
             author (optional): Comment author (default 'WriterAgent').
             parent_name (optional): Reply to this comment. Pass the 'name' from a prior add_comment success, or the 'name' field from comment_list. Immediate parent — not coerced to the thread root. When set, search/occurrence are skipped.
         """
-        return call_host_tool("add_comment", content=content, search=search, occurrence=occurrence, author=author, parent_name=parent_name)
+        return call_host_tool("add_comment", content=content, search=search, case_sensitive=case_sensitive, occurrence=occurrence, author=author, parent_name=parent_name)
 
     def apply_document_content(self, content: list[str] | str, *, target: str | None = None, old_content: str | None = None, all_matches: bool | None = None, occurrence: int | None = None, position: str | None = None, dry_run: bool | None = None, regex: bool | None = None, case_sensitive: bool | None = None, hyperlink_url: str | None = None) -> dict[str, Any]:
         """Insert or replace content. IMPORTANT: Required after web_research or document_research delegates return. To replace the ENTIRE document use target='full_document' with content only — do NOT pass the whole document as old_content. Use target='beginning', 'end', or 'selection' to insert. Use target='search' with old_content for find-and-replace of a specific substring only. An empty replacement that removes the last text in a table deletes that table. Clearing one cell while another cell still has text leaves the table in place. Search occurrence is 0-based over body, table, and frame matches; omit it for first-match; do not combine with all_matches=true. dry_run returns replaceable (each row's occurrence is that index) and not_replaceable (shapes and comments, no occurrence). An outline hyperlink (#…|outline) covering a replaced match is updated when the matched text occurs once in the target outside that suffix; pass hyperlink_url to set a different target on that one link, including when content equals old_content and only the URL is stale. Bookmark links are not rewritten.
@@ -2569,7 +2579,7 @@ class _WriterProxy:
         """
         return call_host_tool("apply_document_content", content=content, target=target, old_content=old_content, all_matches=all_matches, occurrence=occurrence, position=position, dry_run=dry_run, regex=regex, case_sensitive=case_sensitive, hyperlink_url=hyperlink_url)
 
-    def apply_style(self, style: str, *, family: str | None = None, target: str | None = None, old_content: str | None = None, all_matches: bool | None = None, occurrence: int | None = None, clear_direct: str = 'style_props') -> dict[str, Any]:
+    def apply_style(self, style: str, *, family: str | None = None, target: str | None = None, old_content: str | None = None, case_sensitive: bool | None = None, all_matches: bool | None = None, occurrence: int | None = None, clear_direct: str = 'style_props') -> dict[str, Any]:
         """Apply a style to a target. Use family='ParagraphStyles' for paragraph styles (e.g. Heading 1) or family='CharacterStyles' for character styles (e.g. Source Text). Use 'No Character Style' with family='CharacterStyles' to remove a character style. Use target='selection' (default), 'beginning', 'end', 'full_document', or 'search' with old_content. Paragraph styles default to clear_direct='style_props': the style's font name and size show (house font wins) and paragraph indents/alignment follow the style; bold, italic and colour stay. Pass clear_direct='none' only to keep a hand-set font. Re-applying a style does not keep a quote indent — LibreOffice drops direct Para*.
 
         Args:
@@ -2577,11 +2587,12 @@ class _WriterProxy:
             family (optional): Style family. Default: ParagraphStyles. One of: ParagraphStyles, CharacterStyles.
             target (optional): Where to apply the style. One of: beginning, end, selection, full_document, search.
             old_content (optional): Text to find and apply style to if target = 'search'.
+            case_sensitive (optional): For target='search': Case-sensitive match (default: false). The result includes matched_case_sensitive for the mode that ran.
             all_matches (optional): For target='search': apply to EVERY occurrence of old_content (default false = first only).
             occurrence (optional): For target='search': apply to this single 0-based occurrence instead of the first.
             clear_direct (optional): What to do with direct (hand-set) formatting on the target, ParagraphStyles only. 'style_props' (default) drops the font name/size override and the paragraph indents/alignment so the style's own values show, keeping bold/italic/colour. The name means 'let the style's properties win' for the font/size/indent the style governs — not 'clear only what this style defines'. 'none' keeps a hand-set font (historical; the style can look unchanged). 'all' drops every direct override (Ctrl+M). 'all' is not allowed with target='full_document' — that would flatten emphasis across the whole document; style each range instead. One of: none, style_props, all.
         """
-        return call_host_tool("apply_style", style=style, family=family, target=target, old_content=old_content, all_matches=all_matches, occurrence=occurrence, clear_direct=clear_direct)
+        return call_host_tool("apply_style", style=style, family=family, target=target, old_content=old_content, case_sensitive=case_sensitive, all_matches=all_matches, occurrence=occurrence, clear_direct=clear_direct)
 
     def get_document_content(self, *, scope: str | None = None, max_chars: int | None = None, start: int | None = None, end: int | None = None, include_images: bool | None = None) -> dict[str, Any]:
         """Get document (or selection/range) content. Result includes document_length (plain-text characters) and length (HTML characters). scope: full, selection, or range (requires start, end as plain-text offsets in the document_length space). max_chars counts returned HTML and is approximate. The result may carry warning, truncated, hint, tracked_changes, tracked_changes_total, and tracked_changes_truncated. scope='selection' with nothing selected returns empty content plus a warning. CJK ruby (furigana) is exported as HTML <ruby>base<rt>reading</rt></ruby> and apply_document_content of that markup recreates live Ruby portions.

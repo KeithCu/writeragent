@@ -959,20 +959,21 @@ def test_search_selection_apply_shared_case_default_on_sample_text():
     # Default (omitted) is case-insensitive: finds both "Apple" and "apple"
     app_default = ApplyDocumentContent().execute(ctx, content="cherry", target="search", old_content="apple", dry_run=True)
     assert app_default["status"] == "ok"
-    assert [m["text"] for m in app_default["matches"]] == ["Apple", "apple"]
+    assert app_default["replaceable"][0]["text"] == "Apple"
+    assert [m["text"] for m in app_default["replaceable"]] == ["Apple", "apple"]
     assert app_default["matched_case_sensitive"] is False
 
     app_upper = ApplyDocumentContent().execute(ctx, content="cherry", target="search", old_content="APPLE", dry_run=True)
-    assert [m["text"] for m in app_upper["matches"]] == ["Apple", "apple"]
+    assert [m["text"] for m in app_upper["replaceable"]] == ["Apple", "apple"]
     assert app_upper["matched_case_sensitive"] is False
 
     # Explicit case_sensitive=True finds only exact casing
     app_exact = ApplyDocumentContent().execute(ctx, content="cherry", target="search", old_content="apple", case_sensitive=True, dry_run=True)
-    assert [m["text"] for m in app_exact["matches"]] == ["apple"]
+    assert [m["text"] for m in app_exact["replaceable"]] == ["apple"]
     assert app_exact["matched_case_sensitive"] is True
 
     app_exact_miss = ApplyDocumentContent().execute(ctx, content="cherry", target="search", old_content="APPLE", case_sensitive=True, dry_run=True)
-    assert app_exact_miss["matches"] == []
+    assert app_exact_miss["replaceable"] == []
     assert app_exact_miss["matched_case_sensitive"] is True
 
     # 4. Explicit case_sensitive=None (JSON null) falls back to default case-insensitive
@@ -988,7 +989,7 @@ def test_search_selection_apply_shared_case_default_on_sample_text():
         ctx, content="cherry", target="search", old_content="apple", case_sensitive=None, dry_run=True,
     )
     assert app_none["matched_case_sensitive"] is False
-    assert [m["text"] for m in app_none["matches"]] == ["Apple", "apple"]
+    assert [m["text"] for m in app_none["replaceable"]] == ["Apple", "apple"]
 
     # 5. apply_document_content non-dry-run replace with all_matches=True
     doc_replace = _SampleFakeDoc("Apple pie and apple tart")
