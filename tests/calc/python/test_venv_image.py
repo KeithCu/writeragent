@@ -1192,6 +1192,53 @@ def test_partial_insert_failure_unlinks_only_embedded_temps():
     assert out["image_path"] == "/tmp/plot1.svg"
 
 
+def test_middle_insert_failure_continues_later_plots():
+    """A failed middle slot still inserts later plots; only the failed path is returned."""
+    tool = RunVenvPythonScript()
+    ctx = MagicMock()
+    ctx.doc_type = "calc"
+    ctx.ctx = MagicMock()
+    target = MagicMock(name="target_doc")
+    ctx.doc = target
+
+    img1 = dict(_IMAGE_PAYLOAD)
+    img2 = dict(_IMAGE_PAYLOAD)
+    img3 = dict(_IMAGE_PAYLOAD)
+
+    with (
+        patch(
+            "plugin.calc.python.venv.run_code_in_user_venv",
+            return_value={"status": "ok", "result": [img1, img2, img3]},
+        ),
+        patch(
+            "plugin.calc.python.venv.write_image_payload_to_temp",
+            side_effect=["/tmp/plot0.svg", "/tmp/plot1.svg", "/tmp/plot2.svg"],
+        ),
+        patch(
+            "plugin.framework.queue_executor.main.call",
+            side_effect=lambda fn, *args, **kwargs: fn(*args, **kwargs),
+        ),
+        patch(
+            "plugin.calc.python.image_egress.insert_image_result_on_sheet",
+            side_effect=[None, ImageEgressError("middle insert failed"), None],
+        ) as mock_insert,
+        patch("plugin.scripting.config_limits.configured_python_max_data_cells", return_value=10000),
+        patch("os.unlink") as mock_unlink,
+    ):
+        out = tool.execute(ctx, code="plt.plot([1]); plt.plot([2]); plt.plot([3])")
+
+    assert out["status"] == "ok"
+    assert out.get("image_inserted") is True
+    assert "2 of 3" in out["message"]
+    assert out["plot_error"] == "middle insert failed"
+    assert mock_insert.call_count == 3
+    assert mock_unlink.call_count == 2
+    mock_unlink.assert_any_call("/tmp/plot0.svg")
+    mock_unlink.assert_any_call("/tmp/plot2.svg")
+    assert out["image_paths"] == ["/tmp/plot1.svg"]
+    assert out["image_path"] == "/tmp/plot1.svg"
+
+
 def test_mixed_aspect_slots_chain_edges():
     """Slot 0 aspect 100x50 and slot 1 aspect 50x100 chain flush at slot 0's right edge."""
     cell = CalcCellStub(col=1, row=2)
