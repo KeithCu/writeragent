@@ -25,7 +25,7 @@ import logging
 import time
 from typing import TYPE_CHECKING, Any
 
-import unohelper
+from plugin.framework.uno_listeners import BaseMouseClickHandler
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -101,9 +101,8 @@ def _show_popup_and_resolve(model: Any, source_window: Any, x: int, y: int) -> N
 def _make_handler(model: Any, detach: Callable[[Any], Any | None]) -> Any:
     global _handler_cls
     if _handler_cls is None:
-        from com.sun.star.awt import XMouseClickHandler
 
-        class _ClickReviewHandler(unohelper.Base, XMouseClickHandler):  # type: ignore[misc, valid-type]
+        class _ClickReviewHandler(BaseMouseClickHandler):
             _model: Any
             _detach: Callable[[Any], Any | None]
             _press: tuple[int, int] | None
@@ -127,7 +126,7 @@ def _make_handler(model: Any, detach: Callable[[Any], Any | None]) -> Any:
 
                 main.post(_fire)
 
-            def mousePressed(self, e: Any) -> bool:  # noqa: N802 -- UNO API
+            def on_mouse_pressed(self, e: Any) -> bool:
                 try:
                     self._press = (e.X, e.Y)
                     self._click_gen += 1
@@ -135,7 +134,7 @@ def _make_handler(model: Any, detach: Callable[[Any], Any | None]) -> Any:
                     self._press = None
                 return False
 
-            def mouseReleased(self, e: Any) -> bool:  # noqa: N802 -- UNO API
+            def on_mouse_released(self, e: Any) -> bool:
                 try:
                     if e.ClickCount == 1 and e.Buttons == 1 and not e.PopupTrigger:
                         if not _same_click_point(self._press, e.X, e.Y):
@@ -154,7 +153,7 @@ def _make_handler(model: Any, detach: Callable[[Any], Any | None]) -> Any:
                     log.debug("review_click_popup: mouseReleased failed", exc_info=True)
                 return False
 
-            def disposing(self, Source: Any) -> None:  # noqa: N802, N803 -- UNO API
+            def on_disposing(self, Source: Any) -> None:  # noqa: N803 -- UNO API
                 controller = self._detach(self)
                 if controller is None:
                     return
