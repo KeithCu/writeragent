@@ -583,5 +583,3 @@ def test_annotate_anthropic_cache_stops_at_four():
     assert "cache_control" not in res_user[-1]["content"][0]
     assert json.dumps(res_user).count("cache_control") == 4
 
-
-

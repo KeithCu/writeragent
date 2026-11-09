@@ -160,6 +160,88 @@ def _mark_part(messages: list[dict[str, Any]], msg_i: int, part_i: int) -> list[
     return new_messages
 
 
+def _mark_native_tool_round(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Mark earlier block in native Anthropic tool round before trailing snapshot."""
+    last_msg = messages[-1]
+    c = last_msg.get("content")
+    if (
+        isinstance(c, list)
+        and c
+        and isinstance(c[-1], dict)
+        and c[-1].get("type") == "tool_result"
+        and _block_has_snapshot(c[-1])
+    ):
+        # Mark the rightmost earlier tool_result that does not hold the live snapshot.
+        for part_i in range(len(c) - 2, -1, -1):
+            block = c[part_i]
+            if isinstance(block, dict) and block.get("type") == "tool_result" and not _block_has_snapshot(block):
+                return _mark_part(messages, -1, part_i)
+
+        # When the only tool_result contains the snapshot, mark the previous
+        # assistant message's last tool_use block instead of an assistant string,
+        # because marking a string would convert it to an array and flip the
+        # message prefix shape between rounds.
+        if len(messages) >= 2:
+            prev_msg = messages[-2]
+            if isinstance(prev_msg, dict) and prev_msg.get("role") == "assistant":
+                prev_content = prev_msg.get("content")
+                if isinstance(prev_content, list):
+                    for part_i in range(len(prev_content) - 1, -1, -1):
+                        part = prev_content[part_i]
+                        if isinstance(part, dict) and part.get("type") == "tool_use":
+                            return _mark_part(messages, -2, part_i)
+
+    return messages
+
+
+def _mark_openrouter_tool_round(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Mark earlier tool or user block in OpenRouter tool round before trailing snapshot."""
+    last_msg = messages[-1]
+    last_c = last_msg.get("content")
+    has_snap = (
+        _text_has_snapshot(last_c)
+        if isinstance(last_c, str)
+        else (_block_has_snapshot(last_c[-1]) if isinstance(last_c, list) and last_c else False)
+    )
+    if not has_snap:
+        return messages
+
+    # Normalize earlier non-system strings to single-element text lists so
+    # future rounds share the same cached prefix.
+    norm_messages: list[dict[str, Any]] = []
+    for i, m in enumerate(messages):
+        if not isinstance(m, dict) or i == len(messages) - 1:
+            norm_messages.append(m)
+            continue
+        if m.get("role") in ("system", "developer"):
+            norm_messages.append(m)
+            continue
+        cnt = m.get("content")
+        if isinstance(cnt, str) and cnt != "":
+            norm_messages.append(dict(m, content=[{"type": "text", "text": cnt}]))
+        else:
+            norm_messages.append(m)
+
+    # Walk backward starting from the message before the last tool. The last
+    # message is skipped because it carries the live snapshot; in OpenRouter,
+    # placing cache_control inside that tool message's content would map to
+    # tool_result.content which Anthropic rejects with HTTP 400. OpenRouter
+    # safely lifts cache_control from an earlier tool message's text part to
+    # the corresponding tool_result block on the wire.
+    for msg_i in range(len(norm_messages) - 2, -1, -1):
+        m = norm_messages[msg_i]
+        if not isinstance(m, dict) or m.get("role") in ("system", "developer"):
+            continue
+        cnt = m.get("content")
+        if isinstance(cnt, list):
+            for part_i in range(len(cnt) - 1, -1, -1):
+                part = cnt[part_i]
+                if (isinstance(part, dict) and part.get("type") == "text") or isinstance(part, str):
+                    return _mark_part(norm_messages, msg_i, part_i)
+
+    return norm_messages
+
+
 def annotate_anthropic_cache(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Place an Anthropic ephemeral cache marker on the last block before the snapshot.
 
@@ -183,74 +265,10 @@ def annotate_anthropic_cache(messages: list[dict[str, Any]]) -> list[dict[str, A
         # User send: content list has user block(s) followed by the tail snapshot block.
         if isinstance(c, list) and len(c) >= 2 and _is_tail_block(c[-1]):
             return _mark_part(messages, -1, -2)
-
-        # Native Anthropic tool round: messages are already converted into a user
-        # message containing tool_result blocks, with the snapshot inside the last result.
-        if (
-            isinstance(c, list)
-            and c
-            and isinstance(c[-1], dict)
-            and c[-1].get("type") == "tool_result"
-            and _block_has_snapshot(c[-1])
-        ):
-            # Mark the rightmost earlier tool_result that does not hold the live snapshot.
-            for part_i in range(len(c) - 2, -1, -1):
-                block = c[part_i]
-                if isinstance(block, dict) and block.get("type") == "tool_result" and not _block_has_snapshot(block):
-                    return _mark_part(messages, -1, part_i)
-
-            # When the only tool_result contains the snapshot, mark the previous
-            # assistant message's last tool_use block instead of an assistant string.
-            if len(messages) >= 2:
-                prev_msg = messages[-2]
-                if isinstance(prev_msg, dict) and prev_msg.get("role") == "assistant":
-                    prev_content = prev_msg.get("content")
-                    if isinstance(prev_content, list):
-                        for part_i in range(len(prev_content) - 1, -1, -1):
-                            part = prev_content[part_i]
-                            if isinstance(part, dict) and part.get("type") == "tool_use":
-                                return _mark_part(messages, -2, part_i)
-
-        return messages
+        return _mark_native_tool_round(messages)
 
     if last_role == "tool":
-        last_c = last_msg.get("content")
-        has_snap = (
-            _text_has_snapshot(last_c)
-            if isinstance(last_c, str)
-            else (_block_has_snapshot(last_c[-1]) if isinstance(last_c, list) and last_c else False)
-        )
-        if not has_snap:
-            return messages
-
-        # Normalize earlier non-system strings to single-element text lists so
-        # future rounds share the same cached prefix.
-        norm_messages: list[dict[str, Any]] = []
-        for i, m in enumerate(messages):
-            if not isinstance(m, dict) or i == len(messages) - 1:
-                norm_messages.append(m)
-                continue
-            if m.get("role") in ("system", "developer"):
-                norm_messages.append(m)
-                continue
-            cnt = m.get("content")
-            if isinstance(cnt, str) and cnt != "":
-                norm_messages.append(dict(m, content=[{"type": "text", "text": cnt}]))
-            else:
-                norm_messages.append(m)
-
-        for msg_i in range(len(norm_messages) - 2, -1, -1):
-            m = norm_messages[msg_i]
-            if not isinstance(m, dict) or m.get("role") in ("system", "developer"):
-                continue
-            cnt = m.get("content")
-            if isinstance(cnt, list):
-                for part_i in range(len(cnt) - 1, -1, -1):
-                    part = cnt[part_i]
-                    if (isinstance(part, dict) and part.get("type") == "text") or isinstance(part, str):
-                        return _mark_part(norm_messages, msg_i, part_i)
-
-        return norm_messages
+        return _mark_openrouter_tool_round(messages)
 
     return messages
 
