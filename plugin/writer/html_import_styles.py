@@ -590,14 +590,6 @@ def unapplied_para_names_for_content(content: str) -> list[str]:
     return declared_para_names(paras, skipped)
 
 
-def unapplied_skipped_para_names(skipped_paras: Iterable[str | None]) -> list[str]:
-    """Collect unapplied data-lo-para property names from skipped tags.
-
-    data-lo-para on inline tags and on blocks inside tables is stripped, never applied.
-    """
-    return declared_para_names(skipped_paras)
-
-
 def attach_para_warnings(result: dict[str, Any], unapplied: list[str]) -> dict[str, Any]:
     """Attach warnings for unapplied data-lo-para properties on a successful edit result.
 

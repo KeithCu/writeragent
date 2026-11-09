@@ -1094,15 +1094,6 @@ def test_declared_para_names_flattens_lists_in_order_and_skips_none():
     assert declared_para_names([]) == []
 
 
-def test_unapplied_skipped_para_names_extracts_property_names():
-    from plugin.writer.html_import_styles import unapplied_skipped_para_names
-
-    assert unapplied_skipped_para_names(["margin-left:1cm; text-align:center", None]) == [
-        "margin-left",
-        "text-align",
-    ]
-
-
 def test_parse_data_lo_para_duplicate_properties_keeps_first():
     from plugin.writer.html_import_styles import parse_data_lo_para
 

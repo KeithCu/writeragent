@@ -338,7 +338,8 @@ def _insert_mixed_or_plain_html(
     else:
         # This target does not apply paragraph formatting, so every declaration is unapplied.
         failures = html_import_styles.declared_para_names(block_paras)
-    failures.extend(html_import_styles.unapplied_skipped_para_names(skipped_paras))
+    # data-lo-para on inline tags and on blocks inside tables is stripped, never applied.
+    failures.extend(html_import_styles.declared_para_names(skipped_paras))
     _apply_ruby_and_restore_fields(model, text_obj, ruby_spans, nonce, skip_chars=ruby_skip)
     return failures
 
@@ -771,7 +772,8 @@ def replace_xtext_with_html(text_obj: Any, html: str, *, model: Any) -> list[str
     rewritten = field_restore.rewrite_exported_field_spans(expanded, nonce=nonce)
     clean, block_styles, block_paras, skipped_paras = html_import_styles.extract_block_lo_styles(rewritten)
     prepared = _ensure_html_linebreaks(clean)
-    failures = html_import_styles.unapplied_skipped_para_names(skipped_paras)
+    # data-lo-para on inline tags and on blocks inside tables is stripped, never applied.
+    failures = html_import_styles.declared_para_names(skipped_paras)
     cursor = text_obj.createTextCursor()
     cursor.gotoStart(False)
     cursor.gotoEnd(True)
