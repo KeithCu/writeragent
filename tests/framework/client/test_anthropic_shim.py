@@ -400,17 +400,20 @@ def test_anthropic_tool_loop_prompt_caching_and_merge():
     user_msg = converted_messages[1]
     assert user_msg["role"] == "user"
     parts = user_msg["content"]
-    assert len(parts) == 2
+    assert len(parts) == 3
     assert parts[0]["type"] == "tool_result"
     assert parts[0]["tool_use_id"] == "t1"
-    assert parts[0].get("cache_control") == {"type": "ephemeral"}
+    assert "cache_control" not in parts[0]
     assert parts[0]["content"] == [{"type": "text", "text": "res1"}]
-    assert "cache_control" not in parts[0]["content"][0]
 
     assert parts[1]["type"] == "tool_result"
     assert parts[1]["tool_use_id"] == "t2"
-    assert "cache_control" not in parts[1]
-    assert parts[1]["content"][0]["text"] == f"res2\n\n{snap}"
+    assert parts[1].get("cache_control") == {"type": "ephemeral"}
+    assert parts[1]["content"] == [{"type": "text", "text": "res2"}]
+
+    assert parts[2]["type"] == "text"
+    assert parts[2]["text"] == snap
+    assert "cache_control" not in parts[2]
     assert json.dumps(data).count("cache_control") == 1
 
 
@@ -531,55 +534,20 @@ def test_anthropic_single_tool_round_cache_breakpoint():
     assert len(asst_msg["content"]) == 1
     assert asst_msg["content"][0]["type"] == "tool_use"
     assert asst_msg["content"][0]["id"] == "t1"
-    assert asst_msg["content"][0].get("cache_control") == {"type": "ephemeral"}
+    assert "cache_control" not in asst_msg["content"][0]
 
     user_msg = converted[1]
     assert user_msg["role"] == "user"
-    assert len(user_msg["content"]) == 1
+    assert len(user_msg["content"]) == 2
     tool_res = user_msg["content"][0]
     assert tool_res["type"] == "tool_result"
-    assert "cache_control" not in tool_res
-    assert tool_res["content"][0]["text"] == f"res1\n\n{snap}"
-    assert "cache_control" not in tool_res["content"][0]
+    assert tool_res.get("cache_control") == {"type": "ephemeral"}
+    assert tool_res["content"] == [{"type": "text", "text": "res1"}]
+
+    snap_part = user_msg["content"][1]
+    assert snap_part["type"] == "text"
+    assert snap_part["text"] == snap
+    assert "cache_control" not in snap_part
     assert json.dumps(data).count("cache_control") == 1
 
-
-def test_annotate_anthropic_cache_stops_at_four():
-    from plugin.framework.client.shim_helpers import annotate_anthropic_cache, snapshot_text
-
-    snap = snapshot_text("Document text")
-    tool_messages = [
-        {"role": "user", "content": "u1", "cache_control": {"type": "ephemeral"}},
-        {"role": "assistant", "content": "a1", "cache_control": {"type": "ephemeral"}},
-        {"role": "user", "content": "u2", "cache_control": {"type": "ephemeral"}},
-        {
-            "role": "assistant",
-            "content": "",
-            "cache_control": {"type": "ephemeral"},
-            "tool_calls": [{"id": "t1", "function": {"name": "f1", "arguments": "{}"}}],
-        },
-        {"role": "tool", "tool_call_id": "t1", "content": f"res\n\n{snap}"},
-    ]
-    res_tool = annotate_anthropic_cache(tool_messages)
-    assert res_tool is tool_messages
-    assert res_tool[0]["content"] == "u1"
-    assert json.dumps(res_tool).count("cache_control") == 4
-
-    user_messages = [
-        {"role": "user", "content": [{"type": "text", "text": "u1", "cache_control": {"type": "ephemeral"}}]},
-        {"role": "assistant", "content": [{"type": "text", "text": "a1", "cache_control": {"type": "ephemeral"}}]},
-        {"role": "user", "content": [{"type": "text", "text": "u2", "cache_control": {"type": "ephemeral"}}]},
-        {"role": "assistant", "content": [{"type": "text", "text": "a2", "cache_control": {"type": "ephemeral"}}]},
-        {
-            "role": "user",
-            "content": [
-                {"type": "text", "text": "u3"},
-                {"type": "text", "text": snap},
-            ],
-        },
-    ]
-    res_user = annotate_anthropic_cache(user_messages)
-    assert res_user is user_messages
-    assert "cache_control" not in res_user[-1]["content"][0]
-    assert json.dumps(res_user).count("cache_control") == 4
 

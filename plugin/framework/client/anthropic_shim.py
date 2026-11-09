@@ -12,7 +12,7 @@ from typing import Any
 
 from plugin.framework.errors import NetworkError
 from plugin.framework.i18n import _
-from .shim_helpers import dict_parts, normalize_usage, system_text, annotate_anthropic_cache, fold_trailing_user_message
+from .shim_helpers import dict_parts, normalize_usage, system_text, annotate_anthropic_cache, fold_trailing_user_message, split_snapshot_text
 from .base_provider_shim import (
     BaseProviderShim,
     coerce_raw_b64,
@@ -194,8 +194,11 @@ def _convert_messages(messages: list[dict[str, Any]]) -> tuple[str, list[dict[st
                 continue
             if tool_use_id in dropped_tool_ids:
                 continue
-            result_block = {"type": "tool_result", "tool_use_id": tool_use_id, "content": _convert_parts(content, allow_images=True)}
+            body_content, snap = split_snapshot_text(content)
+            result_block = {"type": "tool_result", "tool_use_id": tool_use_id, "content": _convert_parts(body_content, allow_images=True)}
             _append_tool_result(converted, result_block)
+            if snap:
+                converted[-1]["content"].append({"type": "text", "text": snap})
             continue
 
         tool_calls = m.get("tool_calls")

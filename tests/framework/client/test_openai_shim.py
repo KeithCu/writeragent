@@ -186,11 +186,12 @@ def test_openrouter_prompt_caching():
     assert "cache_control" not in data1  # Root JSON has no cache_control
 
     msgs1 = data1["messages"]
-    # Roles stay assistant, tool, tool (no trailing user message)
-    assert [m["role"] for m in msgs1] == ["assistant", "tool", "tool"]
+    # Roles become assistant, tool, tool, user (split snapshot onto trailing user message)
+    assert [m["role"] for m in msgs1] == ["assistant", "tool", "tool", "user"]
     assert msgs1[0]["content"] == ""
-    assert msgs1[1]["content"] == [{"type": "text", "text": "res1", "cache_control": {"type": "ephemeral"}}]
-    assert msgs1[2]["content"] == f"res2\n\n{snap}"
+    assert msgs1[1]["content"] == "res1"  # first tool unchanged
+    assert msgs1[2]["content"] == [{"type": "text", "text": "res2", "cache_control": {"type": "ephemeral"}}]
+    assert msgs1[3]["content"] == snap
     assert json.dumps(data1).count("cache_control") == 1
 
     # 2. Same shim with openai/gpt-oss-120b: no cache_control anywhere
@@ -298,7 +299,7 @@ def test_openai_tool_choice():
     assert "tools" in data_none
 
 
-def test_openrouter_tool_round_normalizes_earlier_strings():
+def test_openrouter_tool_round_splits_trailing_snapshot():
     from plugin.framework.client.shim_helpers import snapshot_text
 
     class DummyClient:
@@ -335,14 +336,16 @@ def test_openrouter_tool_round_normalizes_earlier_strings():
     )
     data = json.loads(body)
     msgs = data["messages"]
-    assert msgs[0]["content"] == [{"type": "text", "text": "hello"}]
+    assert msgs[0]["content"] == "hello"
     assert msgs[1]["content"] == ""
-    assert msgs[2]["content"] == [{"type": "text", "text": "res1", "cache_control": {"type": "ephemeral"}}]
-    assert msgs[3]["content"] == f"res2\n\n{snap}"
+    assert msgs[2]["content"] == "res1"
+    assert msgs[3]["content"] == [{"type": "text", "text": "res2", "cache_control": {"type": "ephemeral"}}]
+    assert msgs[4]["role"] == "user"
+    assert msgs[4]["content"] == snap
     assert json.dumps(data).count("cache_control") == 1
 
 
-def test_openrouter_single_tool_marks_user_text():
+def test_openrouter_single_tool_marks_tool_result():
     from plugin.framework.client.shim_helpers import snapshot_text
 
     class DummyClient:
@@ -377,8 +380,11 @@ def test_openrouter_single_tool_marks_user_text():
     )
     data = json.loads(body)
     msgs = data["messages"]
-    assert msgs[0]["content"] == [{"type": "text", "text": "hello", "cache_control": {"type": "ephemeral"}}]
+    assert msgs[0]["content"] == "hello"
     assert msgs[1]["content"] == ""
-    assert msgs[2]["content"] == f"res1\n\n{snap}"
+    assert msgs[2]["content"] == [{"type": "text", "text": "res1", "cache_control": {"type": "ephemeral"}}]
+    assert msgs[3]["role"] == "user"
+    assert msgs[3]["content"] == snap
     assert json.dumps(data).count("cache_control") == 1
+
 
