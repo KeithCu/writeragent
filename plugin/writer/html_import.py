@@ -24,7 +24,12 @@ from typing import Any
 
 
 from plugin.framework.errors import best_effort
-from plugin.doc.text_helpers import go_right, iter_elements, normalize_linebreaks as _normalize
+from plugin.doc.text_helpers import (
+    clear_direct_numbering,
+    go_right,
+    iter_elements,
+    normalize_linebreaks as _normalize,
+)
 from plugin.framework.errors import ToolExecutionError, reraise_if_disposed, uno_read
 from . import field_restore, html_import_styles, html_ruby, image_placeholders, record_changes
 from .math.html_math_segment import html_fragment_contains_mixed_math, segment_html_with_mixed_math
@@ -622,6 +627,40 @@ def _deletion_author() -> Any:
         return contextlib.nullcontext()
 
 
+def _drop_absorb_paragraph_props(cursor: Any) -> None:
+    """Drop direct paragraph formatting from the absorb paragraph before HTML import.
+
+    In LibreOffice's HTML parser (`SwHTMLParser::CallParser` and `SetTextCollAttrs`
+    in `sw/source/filter/html/swhtml.cxx`), `GetParaAttr` captures direct paragraph
+    attributes from `RES_PARATR_BEGIN` through `RES_PARATR_CONNECT_BORDER` (excluding
+    `RES_PARATR_NUMRULE`), plus `RES_LR_SPACE` and `RES_UL_SPACE` (`sw/inc/hintids.hxx`).
+    Because this range includes line spacing (`RES_PARATR_LINESPACING`) and tab stops
+    (`RES_PARATR_TABSTOP`), those must be reset to default before `SetTextCollAttrs`
+    stamps them onto every imported paragraph. Direct borders (`RES_BOX`) and
+    `NumberingStyleName` (`RES_PARATR_NUMRULE`) sit outside that stamped range and
+    otherwise remain on the reused first paragraph. Clearing direct paragraph properties
+    ensures imported paragraphs take values from their own style; direct formatting
+    from `data-lo-para` is applied later. `CLEARABLE_PARA_PROPERTIES` remains the
+    clear-direct subset for Ctrl+M / `clear_direct`.
+    """
+    from .styles import CLEARABLE_PARA_PROPERTIES, _reset_properties_to_default
+
+    _reset_properties_to_default(
+        cursor,
+        CLEARABLE_PARA_PROPERTIES
+        + (
+            "ParaLineSpacing",
+            "ParaContextMargin",
+            "ParaTabStops",
+            "LeftBorder",
+            "RightBorder",
+            "TopBorder",
+            "BottomBorder",
+        ),
+    )
+    clear_direct_numbering(cursor)
+
+
 def replace_full_document(model: Any, ctx: Any, content: str) -> list[str]:
     """Clear the document and insert *content*."""
     with image_placeholders._keep_placeholder_images(model, content) as swapped:
@@ -635,6 +674,7 @@ def replace_full_document(model: Any, ctx: Any, content: str) -> list[str]:
             cursor.setString("")
         cursor.gotoStart(False)
         if not record_changes.is_recording_changes(model):
+            _drop_absorb_paragraph_props(cursor)
             return _insert_mixed_or_plain_html(model, ctx, cursor, content)
         # In review mode the deleted text stays in place, and an import at
         # its start takes the character formatting of the first old
@@ -647,6 +687,11 @@ def replace_full_document(model: Any, ctx: Any, content: str) -> list[str]:
         # the break.
         text.insertControlCharacter(cursor, 0, False)  # 0 == ControlCharacter.PARAGRAPH_BREAK
         cursor.goLeft(1, False)
+        # Untracked: the fresh absorb paragraph is new, so a recorded reset
+        # would add a FORMAT redline; the deleted paragraph below keeps its
+        # direct props for Reject.
+        with record_changes.record_changes(model, False):
+            _drop_absorb_paragraph_props(cursor)
         leftover = text.createTextCursorByRange(cursor.getStart())
         failures = _insert_mixed_or_plain_html(model, ctx, cursor, content)
         leftover.gotoEndOfParagraph(True)
