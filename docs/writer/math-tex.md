@@ -310,7 +310,7 @@ non-space). Two currency amounts cannot pair because those `$` never open.
 region, so it never routes currency prose down the math path.
 `$$`, `\(` and `\[` are unambiguous and keep their original handling.
 
-Delimiters inside HTML markup are prose, not math: the segmenter blanks attributes, comments, and ``<script>``/``<style>`` bodies before scanning, so ``<a title="$5$">`` and ``<!-- $x$ -->`` never open TeX. ``<code>``/``<pre>`` bodies are still scanned.
+Delimiters inside HTML markup are prose, not math: the segmenter blanks attributes, comments, and script, style, code, and pre bodies, so `<a title="$5$">`, `<!-- $x$ -->`, and `<code>$$x^2$$</code>` do not open TeX. A missing `</code>` or `</pre>` blanks the rest of the fragment, the same way a missing `</script>` does. The same delimiters outside those elements still open math.
 
 ### Tasks
 
