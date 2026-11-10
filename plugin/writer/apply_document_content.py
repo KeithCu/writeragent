@@ -360,7 +360,10 @@ def _partial_match_style_suggestion(
     from . import html_import_styles
 
     fam = uno_read(lambda: doc.getStyleFamilies().getByName("ParagraphStyles"), None)
-    element_names: list[str] = uno_read(lambda: list(fam.getElementNames()), []) if fam is not None else []
+    if fam is None:
+        # Without the style family we cannot verify the style exists or resolve tokens.
+        return None
+    element_names: list[str] = uno_read(lambda: list(fam.getElementNames()), [])
     resolved_style = html_import_styles.resolve_paragraph_style_token(
         fam, style_token, element_names=element_names
     )

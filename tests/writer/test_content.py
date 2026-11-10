@@ -621,7 +621,7 @@ def test_all_matches_hoists_plain_text_conversion():
 def test_search_replace_attaches_style_note_warning():
     from plugin.writer import html_import as format_support
     from plugin.writer.apply_document_content import ApplyDocumentContent
-    from tests.framework.test_errors import assert_valid_suggested_call
+    from tests.framework.suggested_call_access import assert_valid_suggested_call
 
     ctx = _edit_ctx()
     fam = MagicMock()
@@ -683,7 +683,7 @@ def test_search_replace_attaches_style_note_warning():
 def test_all_matches_reports_skip_count_in_warning():
     from plugin.writer import html_import as format_support
     from plugin.writer.apply_document_content import ApplyDocumentContent
-    from tests.framework.test_errors import assert_valid_suggested_call
+    from tests.framework.suggested_call_access import assert_valid_suggested_call
 
     ctx = _edit_ctx()
     fam = MagicMock()
@@ -890,77 +890,131 @@ def _make_edit_params(**kwargs: Any):
     return EditParams(**defaults)
 
 
-def test_partial_match_style_suggestion_gates():
-    """Unit-test _partial_match_style_suggestion directly across all ten §3.5 gates."""
-    from plugin.writer.apply_document_content import _partial_match_style_suggestion
-    from tests.framework.test_errors import assert_valid_suggested_call
-
+def _mock_doc_with_styles(styles=("Heading 2", "Standard")):
     doc = MagicMock()
     fam = MagicMock()
-    fam.getElementNames.return_value = ["Heading 2", "Standard"]
-    fam.hasByName.side_effect = lambda n: n in ("Heading 2", "Standard")
+    fam.getElementNames.return_value = list(styles)
+    fam.hasByName.side_effect = lambda n: n in styles
     doc.getStyleFamilies.return_value.getByName.return_value = fam
-    post_match = MagicMock()
+    return doc
 
+
+def test_partial_match_style_suggestion_happy_path_single():
+    from plugin.writer.apply_document_content import _partial_match_style_suggestion
+    from tests.framework.suggested_call_access import assert_valid_suggested_call
+
+    doc = _mock_doc_with_styles()
+    params = _make_edit_params()
     with patch("plugin.writer.record_changes.is_recording_changes", return_value=False), \
-         patch("plugin.writer.search.find_all_ranges", return_value=[post_match]):
-
-        # Happy path: single match
-        params = _make_edit_params()
+         patch("plugin.writer.search.find_all_ranges", return_value=[MagicMock()]):
         suggestion = _partial_match_style_suggestion(doc, params, "Heading2", 1)
-        assert suggestion == {
-            "tool": "apply_style",
-            "arguments": {
-                "target": "search",
-                "old_content": "new",
-                "style": "Heading 2",
-                "case_sensitive": True,
-            },
-        }
-        assert_valid_suggested_call(suggestion)
 
-        # Happy path: all_matches
-        params_all = _make_edit_params(all_matches=True)
-        with patch("plugin.writer.search.find_all_ranges", return_value=[post_match, post_match]):
-            suggestion_all = _partial_match_style_suggestion(doc, params_all, "Heading2", 2)
-            assert suggestion_all == {
-                "tool": "apply_style",
-                "arguments": {
-                    "target": "search",
-                    "old_content": "new",
-                    "style": "Heading 2",
-                    "case_sensitive": True,
-                    "all_matches": True,
-                },
-            }
-            assert_valid_suggested_call(suggestion_all)
+    assert suggestion == {
+        "tool": "apply_style",
+        "arguments": {
+            "target": "search",
+            "old_content": "new",
+            "style": "Heading 2",
+            "case_sensitive": True,
+        },
+    }
+    assert_valid_suggested_call(suggestion)
 
-        # Gate 10: target == 'selection' drops suggestion
-        params_sel = _make_edit_params(target="selection")
-        assert _partial_match_style_suggestion(doc, params_sel, "Heading2", 1) is None
 
-        # Gate 2: newline or carriage return drops suggestion
-        assert _partial_match_style_suggestion(doc, _make_edit_params(plain="a\nb"), "Heading2", 1) is None
-        assert _partial_match_style_suggestion(doc, _make_edit_params(plain="a\rb"), "Heading2", 1) is None
-        assert _partial_match_style_suggestion(doc, _make_edit_params(plain=""), "Heading2", 1) is None
+def test_partial_match_style_suggestion_happy_path_all_matches():
+    from plugin.writer.apply_document_content import _partial_match_style_suggestion
+    from tests.framework.suggested_call_access import assert_valid_suggested_call
 
-        # Gate 3: missing or empty style_token drops suggestion
-        assert _partial_match_style_suggestion(doc, params, None, 1) is None
-        assert _partial_match_style_suggestion(doc, params, "", 1) is None
+    doc = _mock_doc_with_styles()
+    params = _make_edit_params(all_matches=True)
+    with patch("plugin.writer.record_changes.is_recording_changes", return_value=False), \
+         patch("plugin.writer.search.find_all_ranges", return_value=[MagicMock(), MagicMock()]):
+        suggestion = _partial_match_style_suggestion(doc, params, "Heading2", 2)
 
-        # Gate 4: unresolvable style falling back to Standard drops suggestion
+    assert suggestion == {
+        "tool": "apply_style",
+        "arguments": {
+            "target": "search",
+            "old_content": "new",
+            "style": "Heading 2",
+            "case_sensitive": True,
+            "all_matches": True,
+        },
+    }
+    assert_valid_suggested_call(suggestion)
+
+
+def test_partial_match_style_suggestion_gate_selection_target():
+    from plugin.writer.apply_document_content import _partial_match_style_suggestion
+
+    doc = _mock_doc_with_styles()
+    params = _make_edit_params(target="selection")
+    assert _partial_match_style_suggestion(doc, params, "Heading2", 1) is None
+
+
+def test_partial_match_style_suggestion_gate_recording_changes():
+    from plugin.writer.apply_document_content import _partial_match_style_suggestion
+
+    doc = _mock_doc_with_styles()
+    params = _make_edit_params()
+    with patch("plugin.writer.record_changes.is_recording_changes", return_value=True):
+        assert _partial_match_style_suggestion(doc, params, "Heading2", 1) is None
+
+
+@pytest.mark.parametrize("plain", ["a\nb", "a\rb", ""])
+def test_partial_match_style_suggestion_gate_newlines_or_empty(plain: str):
+    from plugin.writer.apply_document_content import _partial_match_style_suggestion
+
+    doc = _mock_doc_with_styles()
+    params = _make_edit_params(plain=plain)
+    with patch("plugin.writer.record_changes.is_recording_changes", return_value=False):
+        assert _partial_match_style_suggestion(doc, params, "Heading2", 1) is None
+
+
+@pytest.mark.parametrize("token", [None, ""])
+def test_partial_match_style_suggestion_gate_missing_style_token(token: str | None):
+    from plugin.writer.apply_document_content import _partial_match_style_suggestion
+
+    doc = _mock_doc_with_styles()
+    params = _make_edit_params()
+    with patch("plugin.writer.record_changes.is_recording_changes", return_value=False):
+        assert _partial_match_style_suggestion(doc, params, token, 1) is None
+
+
+def test_partial_match_style_suggestion_gate_unresolvable_style_fallback():
+    from plugin.writer.apply_document_content import _partial_match_style_suggestion
+
+    doc = _mock_doc_with_styles()
+    params = _make_edit_params()
+    with patch("plugin.writer.record_changes.is_recording_changes", return_value=False):
         assert _partial_match_style_suggestion(doc, params, "UnresolvedStyle", 1) is None
 
-        # Gate 5: match count mismatch drops suggestion
-        with patch("plugin.writer.search.find_all_ranges", return_value=[post_match, post_match]):
-            assert _partial_match_style_suggestion(doc, params, "Heading2", 1) is None
-        with patch("plugin.writer.search.find_all_ranges", return_value=[]):
-            assert _partial_match_style_suggestion(doc, params, "Heading2", 1) is None
-        with patch("plugin.writer.search.find_all_ranges", side_effect=ValueError("search failed")):
-            assert _partial_match_style_suggestion(doc, params, "Heading2", 1) is None
 
-    # Gate 9: recording changes drops suggestion
-    with patch("plugin.writer.record_changes.is_recording_changes", return_value=True):
+def test_partial_match_style_suggestion_gate_style_family_unavailable():
+    from plugin.writer.apply_document_content import _partial_match_style_suggestion
+
+    doc = MagicMock()
+    doc.getStyleFamilies.side_effect = RuntimeError("family lookup failed")
+    params = _make_edit_params()
+    with patch("plugin.writer.record_changes.is_recording_changes", return_value=False):
+        assert _partial_match_style_suggestion(doc, params, "Heading2", 1) is None
+
+
+@pytest.mark.parametrize("find_mock", [
+    [MagicMock(), MagicMock()],  # too many matches
+    [],                          # no matches
+    ValueError("search error"),  # search exception
+])
+def test_partial_match_style_suggestion_gate_match_count_mismatch(find_mock: Any):
+    from plugin.writer.apply_document_content import _partial_match_style_suggestion
+
+    doc = _mock_doc_with_styles()
+    params = _make_edit_params()
+    side_effect = find_mock if isinstance(find_mock, Exception) else None
+    return_value = None if side_effect is not None else find_mock
+
+    with patch("plugin.writer.record_changes.is_recording_changes", return_value=False), \
+         patch("plugin.writer.search.find_all_ranges", return_value=return_value, side_effect=side_effect):
         assert _partial_match_style_suggestion(doc, params, "Heading2", 1) is None
 
 
