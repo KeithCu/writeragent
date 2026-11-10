@@ -1094,7 +1094,6 @@ def get_test_tool_registry() -> ToolRegistry:
 
 def validate_suggested_call(
     suggested_call: Any,
-    tool: Any = None,
     *,
     registry: ToolRegistry | None = None,
 ) -> tuple[bool, str | None]:
@@ -1115,43 +1114,32 @@ def validate_suggested_call(
     if not isinstance(arguments, dict):
         return False, "suggested_call must contain 'arguments' dictionary"
 
-    target_tool = tool
+    reg = registry if registry is not None else get_test_tool_registry()
+    target_tool = reg.get(tool_name)
     if target_tool is None:
-        reg = registry if registry is not None else get_test_tool_registry()
-        target_tool = reg.get(tool_name)
-        if target_tool is None:
-            return False, f"Tool '{tool_name}' not found for schema validation"
+        return False, f"Tool '{tool_name}' not found for schema validation"
 
-    if inspect.isclass(target_tool) and issubclass(target_tool, ToolBase):
-        target_tool = target_tool()
-
-    if isinstance(target_tool, ToolBase):
-        if target_tool.name is not None and target_tool.name != tool_name:
-            return False, f"Tool name mismatch: schema is for '{target_tool.name}', call targeted '{tool_name}'"
-        ok, err = target_tool.validate(**arguments)
-        if not ok:
-            return False, err
-        schema = target_tool.get_parameters() or {}
-        props = schema.get("properties") if isinstance(schema, dict) else None
-        if props is not None:
-            # Model-facing suggested_call must not include scripting_only_parameters
-            # which validate() allows for Python scripts.
-            for key in arguments:
-                if key not in props:
-                    return False, f"Unknown parameter: {key}"
-        return True, None
-
-    return False, f"Unsupported tool type: {type(target_tool).__name__}"
+    ok, err = target_tool.validate(**arguments)
+    if not ok:
+        return False, err
+    schema = target_tool.get_parameters() or {}
+    props = schema.get("properties") if isinstance(schema, dict) else None
+    if props is not None:
+        # Model-facing suggested_call must not include scripting_only_parameters
+        # which validate() allows for Python scripts.
+        for key in arguments:
+            if key not in props:
+                return False, f"Unknown parameter: {key}"
+    return True, None
 
 
 def assert_valid_suggested_call(
     suggested_call: Any,
-    tool: Any = None,
     *,
     registry: ToolRegistry | None = None,
 ) -> None:
     """Assert that a suggested_call payload strictly conforms to its tool schema."""
-    ok, err = validate_suggested_call(suggested_call, tool=tool, registry=registry)
+    ok, err = validate_suggested_call(suggested_call, registry=registry)
     assert ok, f"suggested_call failed schema validation: {err}"
 
 

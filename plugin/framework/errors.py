@@ -26,7 +26,7 @@ import contextlib
 import difflib
 import errno
 import logging
-from typing import Any, Callable, NoReturn, TypeVar, TypedDict, overload
+from typing import Any, Callable, NoReturn, NotRequired, TypeVar, TypedDict, overload
 
 from plugin.framework.i18n import _
 from plugin.framework.json_utils import safe_python_literal_eval  # noqa: F401  # pyright: ignore[reportUnusedImport]
@@ -85,7 +85,7 @@ class SuggestedCall(TypedDict):
     arguments: dict[str, Any]
 
 
-class Diagnostic(TypedDict, total=False):
+class Diagnostic(TypedDict):
     """Structured diagnostic reported on edit failures or partial applications.
 
     Carries a machine-readable code, a human-readable message, an optional
@@ -95,9 +95,9 @@ class Diagnostic(TypedDict, total=False):
 
     code: str
     message: str
-    suggested_call: SuggestedCall
-    matches_skipped: int
-    matches_total: int
+    suggested_call: NotRequired[SuggestedCall]
+    matches_skipped: NotRequired[int]
+    matches_total: NotRequired[int]
 
 
 def suggest_call(tool: str, **arguments: Any) -> SuggestedCall:
