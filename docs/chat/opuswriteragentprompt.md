@@ -60,7 +60,7 @@
 The original goal was to delete about half of the `apply_document_content` section of the prompt once the tool enforces the rules. Several rules can now be trimmed or already have been:
 
 - ✅ Header/footer delegation: removed in #3256.
-- Candidates to trim now: the case-sensitivity wording, the "never pass the whole document as `old_content`" rule (now enforced), the "first line suffix / last line prefix / whole middle paragraphs" grammar (anchors replace it), and the `data-lo-style` is-ignored-on-search note (now partly false).
+- This PR trimmed the oversized-`old_content` lecture, the multi-line paragraph grammar, the lenient-match and near-miss restatements, drawing-shape routing, the partial `data-lo-style` warning restatement, and the html/body wrap note; case-sensitivity wording and an ignored-on-search line were already absent.
 - Must stay until the matching items ship: `|outline` links, no `$` math, `style_unreviewed`, `clear_direct` explanation.
 
 ## 5. Regression tests
