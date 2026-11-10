@@ -89,20 +89,22 @@ class Diagnostic(TypedDict, total=False):
     """Structured diagnostic reported on edit failures or partial applications.
 
     Carries a machine-readable code, a human-readable message, an optional
-    suggested_call to remediate the condition, and optional flat context fields
-    such as match counts.
+    suggested_call so the model can send it as its next tool call unchanged,
+    and optional flat context fields (declare any new context keys here).
     """
 
     code: str
     message: str
     suggested_call: SuggestedCall
+    matches_skipped: int
+    matches_total: int
 
 
 def suggest_call(tool: str, **arguments: Any) -> SuggestedCall:
     """Build a suggested_call dictionary from a tool name and arguments.
 
     Constructs a complete invocation payload matching the internal tool execution
-    convention so the recommendation can be returned or executed directly.
+    convention so the model can send it as its next tool call unchanged.
     """
     return {"tool": tool, "arguments": arguments}
 
@@ -285,21 +287,19 @@ def format_error_payload(e: BaseException, *, suggested_call: SuggestedCall | No
     """Format an exception into the standard JSON error payload schema.
 
     When a suggested_call is provided, it is attached at the top level alongside
-    code and message so caller pipelines can execute the remediation directly.
+    code and message so the model can send it as its next tool call unchanged.
     """
     if isinstance(e, WriterAgentException):
         payload: dict[str, Any] = {"status": "error", "code": e.code, "message": e.message}
-        if suggested_call is not None:
-            payload["suggested_call"] = suggested_call
         if e.details:
             payload["details"] = e.details
-        return payload
+    else:
+        # For unexpected exceptions, capture the Python exception type in details
+        # so callers can distinguish unhandled crashes from intended error codes.
+        err_type = type(e).__name__
+        err_msg = resolve_exception_message(e)
+        payload = {"status": "error", "code": "INTERNAL_ERROR", "message": err_msg, "details": {"type": err_type}}
 
-    # For unexpected exceptions, capture the Python exception type in details
-    # so callers can distinguish unhandled crashes from intended error codes.
-    err_type = type(e).__name__
-    err_msg = resolve_exception_message(e)
-    payload = {"status": "error", "code": "INTERNAL_ERROR", "message": err_msg, "details": {"type": err_type}}
     if suggested_call is not None:
         payload["suggested_call"] = suggested_call
     return payload
@@ -449,9 +449,11 @@ def make_tool_error(
 ) -> dict[str, Any]:
     """Central factory for all standardized tool error payloads.
 
-    Extra keyword arguments are stored under details, while an optional
-    suggested_call stays at the top level alongside code and message so
-    models and agents can execute the recommended remediation directly.
+    A long UNO or provider string is a runtime message. Construction goes
+    through ``WriterAgentException``, which does not apply the gettext msgid
+    length contract to that text. Extra keyword arguments are stored under
+    details, while an optional suggested_call stays at the top level alongside
+    code and message so the model can send it as its next tool call unchanged.
     """
     if not isinstance(code, str) or not code:
         code = "TOOL_EXECUTION_ERROR"

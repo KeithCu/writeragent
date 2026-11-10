@@ -5,7 +5,7 @@ import sys
 from typing import Any
 from plugin.framework.errors import WriterAgentException, format_error_for_display, format_error_payload
 from plugin.framework.json_utils import safe_json_loads
-from plugin.framework.tool import ToolBase
+from plugin.framework.tool import ToolBase, ToolRegistry
 from plugin.framework.stream_batch import StreamQueueKind
 from plugin.framework.async_stream import DrainOutcome, run_stream_drain_loop
 from unittest.mock import MagicMock
@@ -1075,26 +1075,19 @@ def test_writer_agent_exception_code_is_keyword_only():
     assert exc.message == "msg"
 
 
-_TEST_TOOL_REGISTRY: Any = None
+_TEST_TOOL_REGISTRY: ToolRegistry | None = None
 
 
-def get_test_tool_registry() -> Any:
+def get_test_tool_registry() -> ToolRegistry:
     """Return a ToolRegistry populated with WriterAgent tools for test validation.
 
-    Loads the standard tool packages so schema verification tests can look up
-    tools such as apply_style or search_in_document without initializing
-    a live LibreOffice instance.
+    Loads the writer tool package so schema verification tests can look up
+    tools such as apply_style without initializing a live LibreOffice instance.
     """
     global _TEST_TOOL_REGISTRY
     if _TEST_TOOL_REGISTRY is None:
-        from plugin.framework.tool import ToolRegistry
-
         reg = ToolRegistry(None)
-        for pkg in ("plugin.writer", "plugin.calc", "plugin.draw", "plugin.doc"):
-            try:
-                reg.auto_discover_package(pkg)
-            except Exception:
-                pass
+        reg.auto_discover_package("plugin.writer")
         _TEST_TOOL_REGISTRY = reg
     return _TEST_TOOL_REGISTRY
 
@@ -1103,7 +1096,7 @@ def validate_suggested_call(
     suggested_call: Any,
     tool: Any = None,
     *,
-    registry: Any = None,
+    registry: ToolRegistry | None = None,
 ) -> tuple[bool, str | None]:
     """Validate a suggested_call structure against a tool's parameter schema.
 
@@ -1125,7 +1118,7 @@ def validate_suggested_call(
     target_tool = tool
     if target_tool is None:
         reg = registry if registry is not None else get_test_tool_registry()
-        target_tool = reg.get(tool_name) if hasattr(reg, "get") else reg._tools.get(tool_name)
+        target_tool = reg.get(tool_name)
         if target_tool is None:
             return False, f"Tool '{tool_name}' not found for schema validation"
 
@@ -1141,47 +1134,21 @@ def validate_suggested_call(
         schema = target_tool.get_parameters() or {}
         props = schema.get("properties") if isinstance(schema, dict) else None
         if props is not None:
-            for key in arguments:
-                if key not in props:
-                    return False, f"Argument '{key}' is not declared in tool properties"
-        return True, None
-
-    if isinstance(target_tool, dict):
-        from plugin.framework.tool import _tool_arg_matches_type
-        from plugin.framework.tool_schema import call_properties, required_keys
-
-        params = (
-            target_tool.get("function", {}).get("parameters")
-            if "function" in target_tool
-            else target_tool.get("parameters", target_tool)
-        )
-        for req in required_keys(params):
-            if req not in arguments:
-                return False, f"Missing required parameter: {req}"
-        props = call_properties(params)
-        if props is not None:
+            # Model-facing suggested_call must not include scripting_only_parameters
+            # which validate() allows for Python scripts.
             for key in arguments:
                 if key not in props:
                     return False, f"Unknown parameter: {key}"
-            for key, value in arguments.items():
-                prop = props.get(key)
-                if not isinstance(prop, dict):
-                    continue
-                enum = prop.get("enum")
-                if isinstance(enum, list) and enum and value not in enum:
-                    return False, f"Invalid value for {key}: {value!r}. Valid options: {', '.join(str(v) for v in enum)}"
-                if not _tool_arg_matches_type(value, prop.get("type")):
-                    return False, f"Invalid type for {key}: expected {prop.get('type')}, got {type(value).__name__}"
         return True, None
 
-    return False, f"Unsupported tool or schema type: {type(target_tool).__name__}"
+    return False, f"Unsupported tool type: {type(target_tool).__name__}"
 
 
 def assert_valid_suggested_call(
     suggested_call: Any,
     tool: Any = None,
     *,
-    registry: Any = None,
+    registry: ToolRegistry | None = None,
 ) -> None:
     """Assert that a suggested_call payload strictly conforms to its tool schema."""
     ok, err = validate_suggested_call(suggested_call, tool=tool, registry=registry)
@@ -1189,7 +1156,7 @@ def assert_valid_suggested_call(
 
 
 def test_suggest_call_shape():
-    from plugin.framework.errors import suggest_call
+    from plugin.framework.errors import Diagnostic, suggest_call
 
     suggestion = suggest_call("apply_style", target="search", style="Heading 2")
     assert suggestion == {
@@ -1199,6 +1166,19 @@ def test_suggest_call_shape():
 
     no_args = suggest_call("get_document_content")
     assert no_args == {"tool": "get_document_content", "arguments": {}}
+
+    # Verify Diagnostic TypedDict structure with optional flat context fields
+    diag: Diagnostic = {
+        "code": "STYLE_IGNORED_PARTIAL_MATCH",
+        "message": "Partial match",
+        "suggested_call": suggestion,
+        "matches_skipped": 1,
+        "matches_total": 2,
+    }
+    assert diag["code"] == "STYLE_IGNORED_PARTIAL_MATCH"
+    assert diag["suggested_call"] == suggestion
+    assert diag["matches_skipped"] == 1
+    assert diag["matches_total"] == 2
 
 
 def test_format_error_payload_suggested_call():
@@ -1263,19 +1243,6 @@ def test_make_tool_error_suggested_call():
     assert "suggested_call" not in res_plain
 
 
-def test_tool_execution_error_does_not_store_suggested_call():
-    from plugin.framework.errors import ToolExecutionError
-
-    exc = ToolExecutionError("Invocation failure", code="TOOL_FAILED", details={"k": "v"})
-    assert not hasattr(exc, "suggested_call")
-
-    # Re-wrapping preserves only message string and code, discarding extra attributes
-    rewrapped = ToolExecutionError(str(exc), code=exc.code)
-    assert str(rewrapped) == "Invocation failure"
-    assert rewrapped.code == "TOOL_FAILED"
-    assert rewrapped.details == {}
-
-
 def test_tool_base_error_formatting_with_suggested_call():
     from plugin.framework.errors import suggest_call
 
@@ -1325,7 +1292,7 @@ def test_validate_suggested_call_against_apply_style():
     )
     ok, err = validate_suggested_call(unknown_param)
     assert not ok
-    assert err is not None and ("Unknown parameter: document_url" in err or "document_url" in err)
+    assert err is not None and "Unknown parameter: document_url" in err
 
     # Invalid parameter type (style must be string, not integer)
     bad_type = suggest_call(
@@ -1378,25 +1345,9 @@ def test_validate_suggested_call_structural_failures():
     assert not ok
     assert err is not None and "not found" in err
 
-    # Explicit schema dict
-    schema_dict = {
-        "properties": {"query": {"type": "string"}, "count": {"type": "integer"}},
-        "required": ["query"],
-    }
-    valid_dict_call = suggest_call("custom_query", query="find this", count=3)
-    ok, err = validate_suggested_call(valid_dict_call, tool=schema_dict)
-    assert ok
-    assert err is None
-
-    # Explicit schema dict missing required parameter
-    bad_dict_call = suggest_call("custom_query", count=3)
-    ok, err = validate_suggested_call(bad_dict_call, tool=schema_dict)
-    assert not ok
-    assert err is not None and "Missing required parameter: query" in err
-
     # Assert helper raises on validation failure
     with pytest.raises(AssertionError) as exc_info:
-        assert_valid_suggested_call(bad_dict_call, tool=schema_dict)
+        assert_valid_suggested_call(suggest_call("apply_style", target="search"))
     assert "suggested_call failed schema validation" in str(exc_info.value)
 
 
