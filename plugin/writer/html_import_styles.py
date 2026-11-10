@@ -611,7 +611,10 @@ def attach_math_objects(
     """Attach attempted math object entries to a successful edit result.
 
     Only published when the edit succeeded (``status == "ok"``) and attempted at
-    least one formula conversion. Empty attempts or error results are returned unchanged.
+    least one formula conversion. Empty attempts or error results are returned
+    unchanged because a failed or rolled-back edit left none of these objects in
+    the document. ``ok`` means inserted into the document, not accepted in
+    review; the review outcome is reported separately under ``review``.
     """
     if not math_objects or result.get("status") != "ok":
         return result

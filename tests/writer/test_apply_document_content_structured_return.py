@@ -1033,46 +1033,29 @@ def test_full_document_data_lo_para_warnings():
 
 
 def test_full_document_reports_math_objects(monkeypatch):
-    from unittest.mock import MagicMock, patch
-
-    def fake_replace_full_document(doc, ctx, content, *, math_out=None):
-        if math_out is not None:
-            entries = format_mod._insert_mixed_html_and_math_at_cursor(
-                doc, ctx, MagicMock(), content
-            )
-            math_out.extend(entries)
-        return []
-
-    monkeypatch.setattr(format_mod, "replace_full_document", fake_replace_full_document)
-
-    def fake_tex(ctx, text, *, display_block=False):
-        if text == "a":
-            return MagicMock(ok=True, starmath="a", error_message=None)
-        return MagicMock(ok=False, starmath=None, error_message="invalid")
-
-    with patch("plugin.writer.html_import.convert_latex_to_starmath", side_effect=fake_tex), \
-         patch("plugin.writer.html_import.insert_writer_math_formula"):
-        content = r"<p>\(a\)</p><p>$$b$$</p>"
-        res = ApplyDocumentContent().execute(_ctx(), content=content, target="full_document")
-
-    assert res["status"] == "ok"
-    assert res["paragraph_count"] == 2
-    assert res["headings"] == []
-    assert res["math_objects"] == [
+    entries = [
         {"kind": "tex", "display_block": False, "snippet": "a", "ok": True},
         {"kind": "tex", "display_block": True, "snippet": "b", "ok": False, "error": "invalid"},
     ]
 
-
-def test_full_document_plain_html_omits_math_objects(monkeypatch):
-    from unittest.mock import MagicMock
-
     def fake_replace_full_document(doc, ctx, content, *, math_out=None):
         if math_out is not None:
-            entries = format_mod._insert_mixed_html_and_math_at_cursor(
-                doc, ctx, MagicMock(), content
-            )
             math_out.extend(entries)
+        return []
+
+    monkeypatch.setattr(format_mod, "replace_full_document", fake_replace_full_document)
+    content = r"<p>\(a\)</p><p>$$b$$</p>"
+    res = ApplyDocumentContent().execute(_ctx(), content=content, target="full_document")
+
+    assert res["status"] == "ok"
+    assert res["paragraph_count"] == 2
+    assert res["headings"] == []
+    assert res["math_objects"] == entries
+
+
+def test_full_document_plain_html_omits_math_objects(monkeypatch):
+    def fake_replace_full_document(doc, ctx, content, *, math_out=None):
+        # Plain HTML leaves math_out untouched (empty)
         return []
 
     monkeypatch.setattr(format_mod, "replace_full_document", fake_replace_full_document)
@@ -1082,69 +1065,68 @@ def test_full_document_plain_html_omits_math_objects(monkeypatch):
 
 
 def test_target_end_and_search_report_math_objects(monkeypatch):
-    from unittest.mock import MagicMock, patch
-
     monkeypatch.setattr(format_mod, "content_has_markup", _real_content_has_markup)
+
+    end_entry = {"kind": "tex", "display_block": False, "snippet": "end_formula", "ok": True}
 
     def fake_insert_at_pos(doc, ctx, content, position, *, math_out=None):
         if math_out is not None:
-            entries = format_mod._insert_mixed_html_and_math_at_cursor(
-                doc, ctx, MagicMock(), content
-            )
-            math_out.extend(entries)
+            math_out.append(end_entry)
         return []
 
     monkeypatch.setattr(format_mod, "insert_content_at_position", fake_insert_at_pos)
-
-    def fake_tex(ctx, text, *, display_block=False):
-        return MagicMock(ok=True, starmath=text, error_message=None)
-
-    with patch("plugin.writer.html_import.convert_latex_to_starmath", side_effect=fake_tex), \
-         patch("plugin.writer.html_import.insert_writer_math_formula"):
-        res = ApplyDocumentContent().execute(_ctx(), content=r"<p>\(end_formula\)</p>", target="end")
+    res = ApplyDocumentContent().execute(_ctx(), content=r"<p>\(end_formula\)</p>", target="end")
 
     assert res["status"] == "ok"
-    assert res["math_objects"] == [
-        {"kind": "tex", "display_block": False, "snippet": "end_formula", "ok": True}
-    ]
+    assert res["math_objects"] == [end_entry]
+
+    search_entry = {"kind": "tex", "display_block": False, "snippet": "search_formula", "ok": True}
 
     def fake_replace_single(doc, text_range, content, ctx, *, math_out=None):
         if math_out is not None:
-            entries = format_mod._insert_mixed_html_and_math_at_cursor(
-                doc, ctx, MagicMock(), content
-            )
-            math_out.extend(entries)
+            math_out.append(search_entry)
         return None
 
     monkeypatch.setattr(format_mod, "replace_single_range_with_content", fake_replace_single)
     monkeypatch.setattr(search_mod, "find_first_range", lambda doc, s: MockRange())
 
-    with patch("plugin.writer.html_import.convert_latex_to_starmath", side_effect=fake_tex), \
-         patch("plugin.writer.html_import.insert_writer_math_formula"):
-        res_search = ApplyDocumentContent().execute(
-            _ctx(), target="search", old_content="foo", content=r"<p>\(search_formula\)</p>"
-        )
+    res_search = ApplyDocumentContent().execute(
+        _ctx(), target="search", old_content="foo", content=r"<p>\(search_formula\)</p>"
+    )
 
     assert res_search["status"] == "ok"
-    assert res_search["math_objects"] == [
-        {"kind": "tex", "display_block": False, "snippet": "search_formula", "ok": True}
-    ]
+    assert res_search["math_objects"] == [search_entry]
 
     # all_matches with two ranges yields two entries in loop order
     r1 = MockRange("match1")
     r2 = MockRange("match2")
     monkeypatch.setattr(search_mod, "find_all_ranges", lambda doc, s: [r1, r2])
 
-    with patch("plugin.writer.html_import.convert_latex_to_starmath", side_effect=fake_tex), \
-         patch("plugin.writer.html_import.insert_writer_math_formula"):
-        res_all = ApplyDocumentContent().execute(
-            _ctx(), target="search", old_content="foo", content=r"<p>\(batch_formula\)</p>", all_matches=True
-        )
+    res_all = ApplyDocumentContent().execute(
+        _ctx(), target="search", old_content="foo", content=r"<p>\(batch_formula\)</p>", all_matches=True
+    )
 
     assert res_all["status"] == "ok"
     assert res_all["replaced_count"] == 2
-    assert len(res_all["math_objects"]) == 2
-    assert res_all["math_objects"] == [
-        {"kind": "tex", "display_block": False, "snippet": "batch_formula", "ok": True},
-        {"kind": "tex", "display_block": False, "snippet": "batch_formula", "ok": True},
-    ]
+    assert res_all["math_objects"] == [search_entry, search_entry]
+
+
+def test_error_or_rollback_omits_math_objects(monkeypatch):
+    """When an edit fails or rolls back, attempted math objects must not be published."""
+    entry = {"kind": "tex", "display_block": False, "snippet": "x^2", "ok": True}
+
+    def fake_replace_full_document(doc, ctx, content, *, math_out=None):
+        if math_out is not None:
+            math_out.append(entry)
+        return []
+
+    monkeypatch.setattr(format_mod, "replace_full_document", fake_replace_full_document)
+    monkeypatch.setattr(
+        ApplyDocumentContent,
+        "_table_insert_error",
+        lambda self, doc, has_table, before: {"status": "error", "message": "table insertion failed"},
+    )
+    res = ApplyDocumentContent().execute(_ctx(), content=r"<p>\(x^2\)</p>", target="full_document")
+
+    assert res["status"] == "error"
+    assert "math_objects" not in res

@@ -1325,7 +1325,7 @@ class ApplyDocumentContent(ToolBase):
     def _edit_full_document(
         self, ctx: ToolContext, session: EditReviewSession, params: EditParams,
     ) -> dict[str, Any]:
-        from . import html_import as format_support, html_import_styles
+        from . import html_import as format_support
         content = params.content
         plain = params.plain
         has_table = params.has_table
@@ -1354,7 +1354,7 @@ class ApplyDocumentContent(ToolBase):
     def _edit_insert_at(
         self, ctx: ToolContext, session: EditReviewSession, params: EditParams,
     ) -> dict[str, Any]:
-        from . import html_import as format_support, html_import_styles
+        from . import html_import as format_support
         content = params.content
         plain = params.plain
         has_table = params.has_table
@@ -1384,7 +1384,7 @@ class ApplyDocumentContent(ToolBase):
     def _edit_selection(
         self, ctx: ToolContext, session: EditReviewSession, params: EditParams,
     ) -> dict[str, Any]:
-        from . import html_import as format_support, html_import_styles
+        from . import html_import as format_support
         content = params.content
         plain = params.plain
         has_table = params.has_table
@@ -1537,8 +1537,6 @@ class ApplyDocumentContent(ToolBase):
         _attach_style_notes(resp, style_notes, total_matches=count)
         self._attach_hyperlink_reports(resp, link_reports)
         res = attach_edited_context(resp, anchor)
-        from . import html_import_styles
-
         return html_import_styles.attach_math_objects(res, math_objects)
 
     def _anchor_miss(
@@ -1781,6 +1779,4 @@ class ApplyDocumentContent(ToolBase):
         _attach_style_notes(resp, style_notes, total_matches=1)
         self._attach_hyperlink_reports(resp, reports or [])
         res = attach_edited_context(resp, anchor)
-        from . import html_import_styles
-
         return html_import_styles.attach_math_objects(res, math_objects)
