@@ -1617,6 +1617,7 @@ class ApplyDocumentContent(ToolBase):
                 payload["message"] = "all_matches aborted after %d replacement(s); document rolled back (%s)." % (count, e)
             else:
                 payload["message"] = "all_matches aborted after %d replacement(s); the document could not be rolled back and may be partially edited (%s)." % (count, e)
+                payload["code"] = "ROLLBACK_FAILED"
             payload["replaced_count"] = 0
             payload["partial_failure"] = True
             payload["attempted"] = count

@@ -370,11 +370,8 @@ def test_apply_style_rejects_unknown_clear_direct(mock_resolve, mock_ctx):
 
 
 @patch("plugin.writer.styles.apply_paragraph_style_preserving_direct_char")
-@patch("plugin.writer.styles.resolve_target_cursor")
-def test_apply_style_character(mock_resolve, mock_preserve, mock_ctx):
+def test_apply_style_character(mock_preserve, mock_ctx):
     cursor = MagicMock()
-    mock_resolve.return_value = cursor
-
     tool = ApplyStyle()
     with patch("plugin.writer.search.find_first_range", return_value=MagicMock()), \
          patch("plugin.writer.styles.cursor_spanning_range", return_value=cursor):
@@ -1702,7 +1699,7 @@ def test_apply_style_suggests_call_when_single_close_match():
     }
 
 
-def test_apply_style_suggests_call_caps_long_old_content():
+def test_apply_style_omits_suggestion_when_old_content_exceeds_bound():
     style = MagicMock()
     family = _style_family({"Heading 1": style, "Text body": style})
     mock_ctx = _ctx_with_families(ParagraphStyles=family)
@@ -1711,9 +1708,7 @@ def test_apply_style_suggests_call_caps_long_old_content():
     res = ApplyStyle().execute(mock_ctx, style="heading 1", target="search", old_content=long_needle)
     assert res["status"] == "error"
     assert res["code"] == "STYLE_NOT_FOUND"
-    suggested = res.get("suggested_call")
-    assert suggested is not None
-    assert suggested["arguments"]["old_content"] == "A" * 100
+    assert "suggested_call" not in res
 
 
 def test_apply_style_no_suggestion_when_multiple_or_no_close_matches():

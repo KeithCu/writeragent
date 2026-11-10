@@ -58,6 +58,7 @@ from plugin.framework.errors import (
     name_miss_details,
     reraise_if_disposed,
     similar_names,
+    suggest_call,
 )
 from plugin.framework.doc_type import CALC_DOCUMENT_SERVICE, TEXT_DOCUMENT_SERVICE
 from plugin.framework.tool import ToolBase as FrameworkToolBase
@@ -1347,14 +1348,13 @@ class ApplyStyle(FrameworkToolBase):
                     similar = (res.get("details") or {}).get("similar") or []
                     # Only an unambiguous single match is safe to replay (§3.4 rule 2).
                     if len(similar) == 1:
-                        from plugin.framework.errors import suggest_call
-
                         props = (self.parameters or {}).get("properties", {})
                         args = {k: v for k, v in kwargs.items() if k in props}
-                        args["style"] = similar[0]
-                        if "old_content" in args and isinstance(args["old_content"], str) and len(args["old_content"]) > 100:
-                            args["old_content"] = args["old_content"][:100]
-                        res["suggested_call"] = suggest_call("apply_style", **args)
+                        old_c = args.get("old_content")
+                        # Bounded string argument (plan §3.4 rule 5); never emit a truncated needle (rule 1).
+                        if not (isinstance(old_c, str) and len(old_c) > 100):
+                            args["style"] = similar[0]
+                            res["suggested_call"] = suggest_call("apply_style", **args)
                     return res
             except Exception as e:
                 if is_disposal(e):
@@ -1388,9 +1388,10 @@ class ApplyStyle(FrameworkToolBase):
             flag_style_unreviewed(res)
             return res
 
-        # Multi-occurrence styling (target='search' only). resolve_target_cursor styles only the
-        # first match; all_matches / occurrence let a defined term or repeated quote lead be
-        # styled everywhere. Each match gets a cursor in its OWN text object (cell/frame safe).
+        # target='search' resolves its own ranges here (find_first_range / find_all_ranges) so a
+        # miss returns the structured build_search_not_found_response with a code;
+        # resolve_target_cursor below serves the other targets and raises plain ValueError. Each
+        # match gets a cursor in its own text object (cell/frame safe).
         all_matches = bool(kwargs.get("all_matches"))
         occ_raw = kwargs.get("occurrence")
         case_sensitive = kwargs.get("case_sensitive")
