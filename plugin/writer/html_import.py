@@ -24,7 +24,12 @@ from typing import Any
 
 
 from plugin.framework.errors import best_effort
-from plugin.doc.text_helpers import go_right, iter_elements, normalize_linebreaks as _normalize
+from plugin.doc.text_helpers import (
+    clear_direct_numbering,
+    go_right,
+    iter_elements,
+    normalize_linebreaks as _normalize,
+)
 from plugin.framework.errors import ToolExecutionError, reraise_if_disposed, uno_read
 from . import field_restore, html_import_styles, html_ruby, image_placeholders, record_changes
 from .math.html_math_segment import html_fragment_contains_mixed_math, segment_html_with_mixed_math
@@ -638,7 +643,7 @@ def _drop_absorb_paragraph_props(cursor: Any) -> None:
     from `data-lo-para` is applied later. `CLEARABLE_PARA_PROPERTIES` remains the
     clear-direct subset for Ctrl+M / `clear_direct`.
     """
-    from .styles import CLEARABLE_PARA_PROPERTIES, _reset_properties_to_default, clear_direct_numbering
+    from .styles import CLEARABLE_PARA_PROPERTIES, _reset_properties_to_default
 
     _reset_properties_to_default(
         cursor,

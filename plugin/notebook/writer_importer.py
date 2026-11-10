@@ -526,7 +526,7 @@ def _cursor_para_is_empty(cursor: Any) -> bool:
     return uno_read(empty, False)
 
 
-from plugin.writer.styles import clear_direct_numbering as _clear_para_numbering
+from plugin.doc.text_helpers import clear_direct_numbering as _clear_para_numbering
 
 
 def _append_body_paragraph(doc: Any, content: str, para_style: str | None, *, lead_break: bool) -> None:

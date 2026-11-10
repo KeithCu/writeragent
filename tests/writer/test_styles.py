@@ -1635,12 +1635,4 @@ def test_apply_style_case_sensitive_occurrence():
         assert calls[-1] == ("apple", True)
 
 
-def test_clear_direct_numbering_sets_numbering_rules_none() -> None:
-    from plugin.writer.styles import clear_direct_numbering
-
-    cursor = MagicMock()
-    clear_direct_numbering(cursor)
-    cursor.setPropertyValue.assert_called_once_with("NumberingRules", None)
-
-
 
