@@ -33,7 +33,7 @@
 | 21 | Regex engine validation (ICU vs Python `re`) | 2.3 | ⬜ Not found | n/a |
 | 22 | Stable `error_code` + `suggested_call` on every error | §3, §4 | ⬜ Not in the writer edit path | n/a |
 
-**Tally:** 10 shipped, 3 partial, 9 not started. Section 5's two top priorities (warnings, near-miss) are both at least partly done.
+**Tally:** 12 shipped, 3 partial, 7 not started. Section 5's two top priorities (warnings, near-miss) are both at least partly done.
 
 ## 2. What changed, in plain terms
 

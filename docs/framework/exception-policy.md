@@ -54,11 +54,11 @@ A bare `RuntimeException` is not disposal: the callback logs it and returns `Non
 
 Writer editing tools (`apply_document_content`, `apply_style`, `search_in_document`, `set_selection`) report stable `code` identifiers on hard errors and in `warnings` entries (`Diagnostic`).
 
-Code constants remain string literals across call sites, consistent with the codebase invariant of avoiding unnecessary enum classes. Codes are consolidated into non-overlapping identifiers: do not invent overlapping variants (`PARAM_CONFLICT`, `CONTENT_EMPTY`, `OLD_CONTENT_EMPTY`, `ANCHOR_UNSUPPORTED_OPTION`) for parameter validation errors; use `INVALID_PARAM` unless the model must take a distinctly different action.
+Code constants remain string literals across call sites. Codes are JSON wire values compared as strings (`result.get("code") == "..."`) and consumed directly by the model; string literals keep payloads plain and `make_tool_error(code=str)` uniform. Codes are consolidated into non-overlapping identifiers: do not invent overlapping variants (`PARAM_CONFLICT`, `CONTENT_EMPTY`, `OLD_CONTENT_EMPTY`, `ANCHOR_UNSUPPORTED_OPTION`) for parameter validation errors; use `INVALID_PARAM` unless the model must take a distinctly different action.
 
 | Code | Kind | Trigger site(s) | `suggested_call` |
 |------|------|-----------------|------------------|
-| `OLD_CONTENT_NOT_FOUND` | error | `build_search_not_found_response` (`search.py`, `apply_document_content.py`, `styles.py`); direct `_tool_error` in `selection.py:148` (no near-miss fields) | None in v1 (near-miss `closest_match` is a 16-character preview + ellipsis; replaying would replace the wrong text). |
+| `OLD_CONTENT_NOT_FOUND` | error | `build_search_not_found_response` (`search.py`, `apply_document_content.py`, `styles.py`); direct `_tool_error` in `_select_by_search` (`selection.py`, no near-miss fields) | None in v1 (near-miss `closest_match` is a 16-character preview + ellipsis; replaying would replace the wrong text). |
 | `OLD_CONTENT_TOO_LARGE` | error | Oversized old_content refusal (`search.py`) | None (suggesting blank content violates tool schema). |
 | `SEARCH_FAILED` | error | Search execution or regex evaluation failed (`search.py`, `apply_document_content.py`) | None |
 | `ANCHOR_START_NOT_FOUND` | error | `_anchor_miss` with `miss_kind="start"` (`apply_document_content.py`) | None |
@@ -75,7 +75,7 @@ Code constants remain string literals across call sites, consistent with the cod
 | `ROLLBACK_FAILED` | error | `apply_document_content.py`, `styles.py` | None |
 | `INVALID_PARAM` | error | Parameter validation failures: missing query/pattern (`search.py`); invalid style/clear_direct (`styles.py`); selection parameter conflicts/empty values (`selection.py`); `apply_document_content` parameter conflicts/empty strings | None |
 | `INVALID_REGEX` | error | `invalid_regex_tool_message` (`search.py`) | None |
-| `STYLE_IGNORED_PARTIAL_MATCH` | warning | Partial match style skip (`html_import.py`, `apply_document_content.py`) | `apply_style(target="search", old_content=<params.plain>, style=<style>, case_sensitive=True)` when single-paragraph and match count is exact (not for `target='selection'`). |
+| `STYLE_IGNORED_PARTIAL_MATCH` | warning | Partial match style skip (`html_import.py`, `apply_document_content.py`) | `apply_style(target="search", old_content=<params.plain>, style=<style>, case_sensitive=True)` when every check in `_partial_match_style_suggestion` (`apply_document_content.py`) passes; never for `target='selection'` or while recording. |
 | `STYLE_IGNORED_RECORDING` | warning | Tracked changes recording skip (`html_import.py`, `apply_document_content.py`) | None (`apply_style` is not tracked). |
 | `PARA_PROPERTY_UNSUPPORTED` | warning | Unapplied `data-lo-para` property (`html_import_styles.attach_para_warnings`) | None |
 
