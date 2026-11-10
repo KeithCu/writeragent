@@ -791,6 +791,7 @@ class ApplyDocumentContent(ToolBase):
             if track_reviewable:
                 return {
                     "status": "error",
+                    "code": "SHAPE_TEXT_NEEDS_DELEGATION",
                     "message": search_mod.shape_only_search_message("old_content", shape_name, review=True),
                     "replaced_count": 0,
                 }
@@ -999,7 +1000,7 @@ class ApplyDocumentContent(ToolBase):
             kwargs.get("end_anchor"),
         )
         if target != "search" or old_content is None:
-            return self._tool_error("dry_run only applies to target='search' with old_content.")
+            return self._tool_error("dry_run only applies to target='search' with old_content.", code="INVALID_PARAM")
         occurrence, occurrence_error = self._parse_occurrence(kwargs, target)
         if occurrence_error:
             return self._tool_error(occurrence_error, code="INVALID_PARAM")
@@ -1010,7 +1011,7 @@ class ApplyDocumentContent(ToolBase):
         # leave its outline URL alone, so a preview must not say the target will change.
         position, pos_err = self._position_choice(kwargs)
         if pos_err:
-            return self._tool_error(pos_err)
+            return self._tool_error(pos_err, code="INVALID_PARAM")
         override_err = self._override_not_replace(override, position)
         if override_err:
             return self._tool_error(override_err, code="INVALID_PARAM")
@@ -1024,7 +1025,7 @@ class ApplyDocumentContent(ToolBase):
         old_stripped = str(old_content).strip() if old_content is not None else ""
         s = search_mod.prepare_old_content(old_content)
         if not s:
-            return self._tool_error("old_content is empty after normalization.")
+            return self._tool_error("old_content is empty after normalization.", code="INVALID_PARAM")
         regex, use_opts, cs, pattern, rex_err = _search_options(kwargs, old_stripped, s)
         if rex_err:
             return self._invalid_regex(rex_err)
@@ -1221,15 +1222,15 @@ class ApplyDocumentContent(ToolBase):
     def _reject_unsupported_with_anchors(self, kwargs: Any) -> dict[str, Any] | None:
         """Reject parameters that are incompatible with start_anchor/end_anchor range replacement."""
         if kwargs.get("regex"):
-            return self._tool_error("regex does not apply to start_anchor and end_anchor.")
+            return self._tool_error("regex does not apply to start_anchor and end_anchor.", code="INVALID_PARAM")
         if kwargs.get("all_matches"):
-            return self._tool_error("all_matches cannot be combined with start_anchor and end_anchor.")
+            return self._tool_error("all_matches cannot be combined with start_anchor and end_anchor.", code="INVALID_PARAM")
         if kwargs.get("dry_run"):
-            return self._tool_error("dry_run does not apply to start_anchor and end_anchor.")
+            return self._tool_error("dry_run does not apply to start_anchor and end_anchor.", code="INVALID_PARAM")
         if kwargs.get("position") in ("before", "after"):
-            return self._tool_error("position='before'/'after' does not apply to an anchor range.")
+            return self._tool_error("position='before'/'after' does not apply to an anchor range.", code="INVALID_PARAM")
         if kwargs.get("hyperlink_url") is not None:
-            return self._tool_error("hyperlink_url does not apply to start_anchor and end_anchor.")
+            return self._tool_error("hyperlink_url does not apply to start_anchor and end_anchor.", code="INVALID_PARAM")
         return None
 
     def _parse_anchor_params(
@@ -1243,15 +1244,15 @@ class ApplyDocumentContent(ToolBase):
             return unsupported
 
         if start_anchor is None or end_anchor is None:
-            return self._tool_error("start_anchor and end_anchor are both required.")
+            return self._tool_error("start_anchor and end_anchor are both required.", code="INVALID_PARAM")
         if not isinstance(start_anchor, str) or not isinstance(end_anchor, str):
-            return self._tool_error("start_anchor and end_anchor must both be strings.")
+            return self._tool_error("start_anchor and end_anchor must both be strings.", code="INVALID_PARAM")
         norm_start = search_mod.normalize_search_string_for_find(format_support.plain_text_if_markup(start_anchor))
         if not norm_start:
-            return self._tool_error("start_anchor is empty after normalization.")
+            return self._tool_error("start_anchor is empty after normalization.", code="INVALID_PARAM")
         norm_end = search_mod.normalize_search_string_for_find(format_support.plain_text_if_markup(end_anchor))
         if not norm_end:
-            return self._tool_error("end_anchor is empty after normalization.")
+            return self._tool_error("end_anchor is empty after normalization.", code="INVALID_PARAM")
         cs = search_mod.resolve_case_sensitive(kwargs.get("case_sensitive"))
         return AnchorSpec(start=norm_start, end=norm_end, case_sensitive=cs)
 
@@ -1264,19 +1265,20 @@ class ApplyDocumentContent(ToolBase):
         has_anchors = start_anchor is not None or end_anchor is not None
 
         if old_content is not None and has_anchors:
-            return self._tool_error("Pass old_content or start_anchor and end_anchor, not both.")
+            return self._tool_error("Pass old_content or start_anchor and end_anchor, not both.", code="INVALID_PARAM")
 
         target = self._effective_target(kwargs.get("target"), old_content, start_anchor, end_anchor)
         if not target:
             return self._tool_error(
                 "Provide a target ('beginning', 'end', 'selection', 'full_document', 'search') "
-                "or old_content for find-and-replace.")
+                "or old_content for find-and-replace.",
+                code="INVALID_PARAM")
 
         if target != "search" and has_anchors:
-            return self._tool_error("start_anchor and end_anchor require target='search'.")
+            return self._tool_error("start_anchor and end_anchor require target='search'.", code="INVALID_PARAM")
 
         if target == "search" and old_content is None and not has_anchors:
-            return self._tool_error("target='search' requires old_content or start_anchor and end_anchor.")
+            return self._tool_error("target='search' requires old_content or start_anchor and end_anchor.", code="INVALID_PARAM")
 
         anchor: AnchorSpec | None = None
         if has_anchors:
@@ -1293,15 +1295,17 @@ class ApplyDocumentContent(ToolBase):
         # insert target would teach the model a parameter that "works" by accident).
         position, pos_err = self._position_choice(kwargs)
         if pos_err:
-            return self._tool_error(pos_err)
+            return self._tool_error(pos_err, code="INVALID_PARAM")
         if position != "replace" and target != "search":
             return self._tool_error(
                 "position='before'/'after' requires target='search' "
-                "(it inserts next to an old_content match).")
+                "(it inserts next to an old_content match).",
+                code="INVALID_PARAM")
         if position != "replace" and kwargs.get("all_matches", False):
             return self._tool_error(
                 "position='before'/'after' inserts at a single match; drop all_matches "
-                "or use position='replace'.")
+                "or use position='replace'.",
+                code="INVALID_PARAM")
 
         # If the model serialized a list as a JSON string, parse it back so commas/brackets
         # do not become literal document text.
@@ -1314,14 +1318,14 @@ class ApplyDocumentContent(ToolBase):
 
         if isinstance(content, list):
             if any(not isinstance(x, str) for x in content):
-                return self._tool_error("content list items must be strings.")
+                return self._tool_error("content list items must be strings.", code="INVALID_PARAM")
             content = "\n".join(content)
 
         if not isinstance(content, str):
-            return self._tool_error("content must be a string or a list of strings.")
+            return self._tool_error("content must be a string or a list of strings.", code="INVALID_PARAM")
 
         if target in ("beginning", "end", "selection") and content.strip() == "":
-            return self._tool_error("content is empty; nothing was inserted.")
+            return self._tool_error("content is empty; nothing was inserted.", code="INVALID_PARAM")
 
         # Plain anchor text with newlines is imported as new paragraphs so existing character-level
         # styles and headings across the span do not bleed into the new text. Single-line plain
@@ -1368,7 +1372,7 @@ class ApplyDocumentContent(ToolBase):
             if not search_string:
                 # Parameter error (like old_content=None), not a search no-op: the search never ran,
                 # so there's no replaced_count to report — use the standard tool error shape.
-                return self._tool_error("old_content is empty after normalization.")
+                return self._tool_error("old_content is empty after normalization.", code="INVALID_PARAM")
 
         plain = content if use_preserve else self._replacement_plain(content)
         has_table = bool(re.search(r"<table\b", str(content), re.IGNORECASE))
@@ -1620,7 +1624,7 @@ class ApplyDocumentContent(ToolBase):
             ) % (count, cause_msg)
             payload = {
                 "status": "error",
-                "code": "TOOL_EXECUTION_ERROR",
+                "code": "ROLLBACK_FAILED",
                 "message": msg,
                 "replaced_count": count,
                 "partial_failure": True,
@@ -1666,11 +1670,18 @@ class ApplyDocumentContent(ToolBase):
                 shape_name = search_mod.shape_display_name(shape)
                 return {
                     "status": "error",
+                    "code": "SHAPE_TEXT_NEEDS_DELEGATION",
                     "message": search_mod.shape_only_search_message(subject, shape_name),
                     "replaced_count": 0,
                 }
+        code_by_kind = {
+            "start": "ANCHOR_START_NOT_FOUND",
+            "end": "ANCHOR_END_NOT_FOUND",
+            "different_text": "ANCHOR_TEXT_DIFFERENT",
+        }
         return {
             "status": "error",
+            "code": code_by_kind.get(miss_kind, "TOOL_EXECUTION_ERROR"),
             "message": search_mod.anchor_miss_message(
                 miss_kind, tracked_deletions=document_has_tracked_deletions(doc)
             ),
@@ -1752,7 +1763,8 @@ class ApplyDocumentContent(ToolBase):
         if format_support.html_fragment_contains_mixed_math(str(content)):
             return self._tool_error(
                 "position='before'/'after' does not support content with math segments yet; "
-                "use position='replace' including the math, or target='end'.")
+                "use position='replace' including the math, or target='end'.",
+                code="INVALID_PARAM")
         # TextTable is None outside a cell. A throw is a closed document;
         # do not treat it as "not a cell" and run the cell-unsafe import.
         in_cell = found.getText().createTextCursorByRange(
@@ -1761,7 +1773,8 @@ class ApplyDocumentContent(ToolBase):
             return self._tool_error(
                 "position='before'/'after' next to a match inside a table cell is not "
                 "supported yet; use position='replace' with plain text, or rewrite the "
-                "cell content.")
+                "cell content.",
+                code="INVALID_PARAM")
         # Inline content goes in at the exact match edge without a <p>.
         # Block content (<p>, headings, tables) imported mid-paragraph
         # splits the host paragraph, and LibreOffice merges the first

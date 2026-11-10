@@ -819,10 +819,11 @@ def replace_single_range_with_content(
                 # HTML import (nested-XText cursor mapping). Surface a clear, actionable message instead of
                 # the opaque error; the atomic wrapper rolls back the partial edit either way.
                 if in_table_cell and _content_has_block_markup(prepared):
-                    raise RuntimeError(
+                    raise ToolExecutionError(
                         "Rich/block HTML can't be inserted inside a table cell yet (the LibreOffice HTML "
                         "import mishandles nested cell text). Use plain text or inline tags only inside "
-                        "table cells, or place block/rich content outside the table."
+                        "table cells, or place block/rich content outside the table.",
+                        code="TABLE_BLOCK_IN_CELL",
                     ) from e
                 raise
             return note

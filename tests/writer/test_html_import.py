@@ -283,6 +283,26 @@ def test_insert_content_entry_points_decode_complete_entities():
         assert mock_mixed.call_args.args[3] == expected
 
 
+def test_replace_single_range_block_html_in_cell_raises_coded_error():
+    from plugin.framework.errors import ToolExecutionError
+    from plugin.writer import html_import
+
+    model = MagicMock()
+    text_range = MagicMock()
+    cell_cursor = MagicMock()
+    cell_cursor.getPropertyValue.return_value = MagicMock()  # TextTable is not None
+    text_obj = MagicMock()
+    text_obj.createTextCursorByRange.return_value = cell_cursor
+    text_range.getText.return_value = text_obj
+
+    with patch.object(html_import, "_insert_mixed_or_plain_html", side_effect=RuntimeError("nested xtext failure")), \
+         patch("plugin.writer.table_nesting.raise_if_range_hosts_nested_table"):
+        with pytest.raises(ToolExecutionError) as exc_info:
+            html_import.replace_single_range_with_content(model, text_range, "<p>block</p>", MagicMock())
+        assert exc_info.value.code == "TABLE_BLOCK_IN_CELL"
+        assert "Rich/block HTML can't be inserted inside a table cell" in str(exc_info.value)
+
+
 def test_content_has_markup_markdown_punctuation_treated_as_plain():
     from plugin.writer.html_import import content_has_markup
 

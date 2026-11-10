@@ -420,6 +420,7 @@ def test_advanced_search_missing_query():
     for bad_q in ({}, {"query": None}, {"query": "  "}, {"query": 1}):
         res = tool.execute(ctx, **bad_q)
         assert res["status"] == "error"
+        assert res["code"] == "INVALID_PARAM"
         assert "query is required" in res["message"]
         idx_svc.search_boolean.assert_not_called()
 
@@ -427,6 +428,58 @@ def test_advanced_search_missing_query():
     res_ok = tool.execute(ctx, query="climate")
     assert res_ok["status"] == "ok"
     idx_svc.search_boolean.assert_called_once()
+
+
+def test_advanced_search_invalid_syntax_returns_invalid_param():
+    from plugin.writer.search import AdvancedSearch
+
+    idx_svc = MagicMock()
+    idx_svc.search_boolean.side_effect = ValueError("Boolean query syntax error near: AND")
+    ctx = MagicMock()
+    ctx.services.writer_index = idx_svc
+
+    tool = AdvancedSearch()
+    res = tool.execute(ctx, query="AND")
+    assert res["status"] == "error"
+    assert res["code"] == "INVALID_PARAM"
+    assert "Boolean query syntax error" in res["message"]
+
+
+def test_search_in_document_missing_pattern_returns_invalid_param():
+    from plugin.writer.search import SearchInDocument
+
+    ctx = MagicMock()
+    tool = SearchInDocument()
+    res = tool.execute(ctx, pattern="")
+    assert res["status"] == "error"
+    assert res["code"] == "INVALID_PARAM"
+    assert "pattern is required" in res["message"]
+
+
+def test_build_search_not_found_response_codes():
+    from plugin.writer.search import build_search_not_found_response
+
+    # Standard miss
+    res_standard = build_search_not_found_response()
+    assert res_standard["status"] == "error"
+    assert res_standard["code"] == "OLD_CONTENT_NOT_FOUND"
+    assert res_standard["replaced_count"] == 0
+
+    # Shape miss
+    res_shape = build_search_not_found_response(shape_name="Box1")
+    assert res_shape["status"] == "error"
+    assert res_shape["code"] == "SHAPE_TEXT_NEEDS_DELEGATION"
+    assert res_shape["replaced_count"] == 0
+
+    # Oversized refusal
+    doc = MagicMock()
+    doc.getText.return_value.getString.return_value = "short"
+    with patch("plugin.writer.search.old_content_covers_most", return_value=True):
+        res_oversized = build_search_not_found_response(doc=doc, needle="longneedle")
+    assert res_oversized["status"] == "error"
+    assert res_oversized["code"] == "OLD_CONTENT_TOO_LARGE"
+    assert res_oversized["oversized"] is True
+    assert res_oversized["replaced_count"] == 0
 
 
 def test_search_hit_cap_includes_shapes():

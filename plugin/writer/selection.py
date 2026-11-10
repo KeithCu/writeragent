@@ -72,38 +72,38 @@ class SetSelection(ToolBase):
         has_char = char_start is not None or char_end is not None
 
         if has_search and has_char:
-            return self._tool_error("Cannot combine search_text with char_start/char_end.")
+            return self._tool_error("Cannot combine search_text with char_start/char_end.", code="INVALID_PARAM")
         if not has_search and not has_char:
-            return self._tool_error("Provide search_text or char_start/char_end.")
+            return self._tool_error("Provide search_text or char_start/char_end.", code="INVALID_PARAM")
 
         occurrence = 0
         if has_search:
             occ_val, occ_err = parse_non_negative_int(kwargs.get("occurrence", 0))
             if occ_err:
-                return self._tool_error(occ_err)
+                return self._tool_error(occ_err, code="INVALID_PARAM")
             occurrence = 0 if occ_val is None else occ_val
         else:
             if char_start is None or char_end is None:
-                return self._tool_error("char_start and char_end must both be provided.")
+                return self._tool_error("char_start and char_end must both be provided.", code="INVALID_PARAM")
             if type(char_start) is not int or type(char_end) is not int:
-                return self._tool_error("char_start and char_end must be integers.")
+                return self._tool_error("char_start and char_end must be integers.", code="INVALID_PARAM")
             if char_start < 0 or char_end < 0:
-                return self._tool_error("char_start and char_end must be non-negative.")
+                return self._tool_error("char_start and char_end must be non-negative.", code="INVALID_PARAM")
             if char_start > char_end:
-                return self._tool_error("char_start must not exceed char_end.")
+                return self._tool_error("char_start must not exceed char_end.", code="INVALID_PARAM")
             if char_start == char_end:
-                return self._tool_error("char_start and char_end must define a non-empty range.")
+                return self._tool_error("char_start and char_end must define a non-empty range.", code="INVALID_PARAM")
 
         controller = doc.getCurrentController()
         if controller is None:
-            return self._tool_error("No document view is available to hold a selection.")
+            return self._tool_error("No document view is available to hold a selection.", code="TOOL_EXECUTION_ERROR")
 
         # --- resolve the range to select ---
         if has_search:
             case_sensitive = resolve_case_sensitive(kwargs.get("case_sensitive"))
             search_str = plain_text_if_markup(str(search_text))
             if not search_str.strip():
-                return self._tool_error("search_text is empty after normalization.")
+                return self._tool_error("search_text is empty after normalization.", code="INVALID_PARAM")
 
             res = self._select_by_search(doc, controller, search_str, occurrence, case_sensitive)
             res["matched_case_sensitive"] = case_sensitive
@@ -113,11 +113,11 @@ class SetSelection(ToolBase):
             doc, char_start, char_end
         )
         if target_range is None:
-            return self._tool_error("Could not build a cursor for that character range.")
+            return self._tool_error("Could not build a cursor for that character range.", code="TOOL_EXECUTION_ERROR")
 
         fields = _read_selection_fields(target_range)
         if not fully_reached and not fields.get("selected_text") and "warning" not in fields:
-            return self._tool_error("Could not reach character range in document.")
+            return self._tool_error("Could not reach character range in document.", code="TOOL_EXECUTION_ERROR")
 
         controller.select(target_range)
 
@@ -139,15 +139,16 @@ class SetSelection(ToolBase):
                 doc, search_str, occurrence=occurrence, case_sensitive=case_sensitive
             )
         except IndexError as e:
-            return self._tool_error(str(e))
+            return self._tool_error(str(e), code="OCCURRENCE_OUT_OF_RANGE")
 
         if target_range is None:
             shape_name = drawing_shape_containing(doc, search_str, case_sensitive=case_sensitive)
             if shape_name:
-                return self._tool_error(shape_only_search_message("search_text", shape_name))
+                return self._tool_error(shape_only_search_message("search_text", shape_name), code="SHAPE_TEXT_NEEDS_DELEGATION")
             return self._tool_error(
                 "No match for search_text '%s'%s."
-                % (search_str, (" at occurrence %d" % occurrence) if occurrence else "")
+                % (search_str, (" at occurrence %d" % occurrence) if occurrence else ""),
+                code="OLD_CONTENT_NOT_FOUND",
             )
 
         controller.select(target_range)

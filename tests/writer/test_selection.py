@@ -155,6 +155,7 @@ def test_set_selection_no_match_errors():
          patch("plugin.writer.selection.drawing_shape_containing", return_value=None):
         res = SetSelection().execute(ctx, search_text="nope")
     assert res["status"] == "error" and "No match" in res["message"]
+    assert res["code"] == "OLD_CONTENT_NOT_FOUND"
     assert res["matched_case_sensitive"] is False
     controller.select.assert_not_called()
 
@@ -167,6 +168,7 @@ def test_set_selection_shape_match_returns_shape_message():
         res = SetSelection().execute(ctx, search_text="in_shape")
     mock_shape.assert_called_once_with(doc, "in_shape", case_sensitive=False)
     assert res["status"] == "error"
+    assert res["code"] == "SHAPE_TEXT_NEEDS_DELEGATION"
     assert res["matched_case_sensitive"] is False
     assert "shapes toolset" in res["message"]
     assert "Box 1" in res["message"]
@@ -178,6 +180,7 @@ def test_set_selection_occurrence_out_of_range():
     with patch("plugin.writer.selection.find_occurrence_range", side_effect=IndexError("occurrence 3 out of range (found 2 match(es), use 0..1).")):
         res = SetSelection().execute(ctx, search_text="hit", occurrence=3)
     assert res["status"] == "error"
+    assert res["code"] == "OCCURRENCE_OUT_OF_RANGE"
     assert "occurrence 3 out of range (found 2 match(es), use 0..1)." in res["message"]
     controller.select.assert_not_called()
 
@@ -186,18 +189,21 @@ def test_set_selection_requires_a_target():
     ctx, doc, controller = _selection_ctx()
     res = SetSelection().execute(ctx)
     assert res["status"] == "error" and "search_text" in res["message"]
+    assert res["code"] == "INVALID_PARAM"
 
 
 def test_set_selection_char_range_requires_both():
     ctx, doc, controller = _selection_ctx()
     res = SetSelection().execute(ctx, char_start=5)
     assert res["status"] == "error" and "char_start and char_end" in res["message"]
+    assert res["code"] == "INVALID_PARAM"
 
 
 def test_set_selection_mixed_args_error():
     ctx, doc, controller = _selection_ctx()
     res = SetSelection().execute(ctx, search_text="clause", char_start=0)
     assert res["status"] == "error"
+    assert res["code"] == "INVALID_PARAM"
     assert "Cannot combine" in res["message"]
 
 
@@ -205,6 +211,7 @@ def test_set_selection_char_range_bool_error():
     ctx, doc, controller = _selection_ctx()
     res = SetSelection().execute(ctx, char_start=True, char_end=10)
     assert res["status"] == "error"
+    assert res["code"] == "INVALID_PARAM"
     assert "integer" in res["message"]
 
 
@@ -212,6 +219,7 @@ def test_set_selection_char_range_negative_error():
     ctx, doc, controller = _selection_ctx()
     res = SetSelection().execute(ctx, char_start=-1, char_end=10)
     assert res["status"] == "error"
+    assert res["code"] == "INVALID_PARAM"
     assert "non-negative" in res["message"]
 
 
@@ -219,6 +227,7 @@ def test_set_selection_char_range_reversed_error():
     ctx, doc, controller = _selection_ctx()
     res = SetSelection().execute(ctx, char_start=15, char_end=10)
     assert res["status"] == "error"
+    assert res["code"] == "INVALID_PARAM"
     assert "exceed" in res["message"]
 
 
@@ -226,6 +235,7 @@ def test_set_selection_char_range_start_equals_end_error():
     ctx, doc, controller = _selection_ctx()
     res = SetSelection().execute(ctx, char_start=10, char_end=10)
     assert res["status"] == "error"
+    assert res["code"] == "INVALID_PARAM"
     controller.select.assert_not_called()
 
 
@@ -236,6 +246,7 @@ def test_set_selection_char_range_start_past_end_no_select():
     with patch("plugin.writer.selection.get_text_cursor_at_range_reached", return_value=(rng, False)):
         res = SetSelection().execute(ctx, char_start=100, char_end=110)
     assert res["status"] == "error"
+    assert res["code"] == "TOOL_EXECUTION_ERROR"
     controller.select.assert_not_called()
 
 
@@ -366,6 +377,7 @@ def test_set_selection_non_int_occurrence_does_not_touch_controller():
     ctx, doc, controller = _selection_ctx()
     res = SetSelection().execute(ctx, search_text="hello", occurrence="first")
     assert res["status"] == "error"
+    assert res["code"] == "INVALID_PARAM"
     assert res["message"] == "occurrence must be a non-negative integer."
     controller.select.assert_not_called()
     doc.getCurrentController.assert_not_called()
@@ -390,8 +402,19 @@ def test_set_selection_blank_search_text_errors_after_normalization():
         for blank in ("   ", "<b></b>"):
             res = SetSelection().execute(ctx, search_text=blank)
             assert res["status"] == "error"
+            assert res["code"] == "INVALID_PARAM"
             assert "empty after normalization" in res["message"]
         mock_find.assert_not_called()
+
+
+def test_set_selection_missing_controller_returns_tool_execution_error():
+    doc = MagicMock()
+    doc.getCurrentController.return_value = None
+    ctx = SimpleNamespace(doc=doc, ctx=MagicMock(), services={})
+    res = SetSelection().execute(ctx, search_text="foo")
+    assert res["status"] == "error"
+    assert res["code"] == "TOOL_EXECUTION_ERROR"
+    assert "No document view is available" in res["message"]
 
 
 

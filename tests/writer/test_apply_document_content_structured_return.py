@@ -101,6 +101,7 @@ def test_search_no_match_returns_error_zero(monkeypatch):
     monkeypatch.setattr(search_mod, "find_first_range", lambda doc, s: None)
     res = ApplyDocumentContent().execute(_ctx(), target="search", old_content="zzz", content="BAR")
     assert res["status"] == "error", res
+    assert res["code"] == "OLD_CONTENT_NOT_FOUND", res
     assert res["replaced_count"] == 0, res
     assert res["normalized_old_content"] == "zzz", res
 
@@ -127,6 +128,7 @@ def test_search_all_matches_no_match_errors(monkeypatch):
     res = ApplyDocumentContent().execute(
         _ctx(), target="search", old_content="zzz", content="BAR", all_matches=True)
     assert res["status"] == "error", res
+    assert res["code"] == "OLD_CONTENT_NOT_FOUND", res
     assert res["replaced_count"] == 0, res
     assert res["normalized_old_content"] == "zzz", res
     assert res["message"].startswith("Replaced 0 occurrence"), res
@@ -158,6 +160,7 @@ def test_search_oversized_old_content_refused_on_miss(monkeypatch):
         _ctx(), target="search", old_content="huge content", content="BAR"
     )
     assert res["status"] == "error", res
+    assert res["code"] == "OLD_CONTENT_TOO_LARGE", res
     assert res["replaced_count"] == 0, res
     assert res["normalized_old_content"] == "huge content"
     assert "target='full_document'" in res["message"]
@@ -219,6 +222,7 @@ def test_search_empty_after_normalization_reports_normalized_key():
         _ctx(), target="search", old_content="   ", content="BAR"
     )
     assert res["status"] == "error", res
+    assert res["code"] == "INVALID_PARAM", res
     assert res["normalized_old_content"] == ""
     assert "empty after normalization" in res["message"]
 
@@ -350,6 +354,7 @@ def test_search_occurrence_rejects_all_matches():
     )
 
     assert res["status"] == "error", res
+    assert res["code"] == "INVALID_PARAM", res
     assert "cannot be combined with all_matches=true" in res["message"]
 
 
@@ -748,6 +753,7 @@ def test_search_target_requires_old_content_or_anchors():
     tool = ApplyDocumentContent()
     res = tool.execute(_ctx(), target="search", content="new")
     assert res["status"] == "error"
+    assert res["code"] == "INVALID_PARAM"
     assert res["message"] == "target='search' requires old_content or start_anchor and end_anchor."
 
 
@@ -755,10 +761,12 @@ def test_anchor_both_required():
     tool = ApplyDocumentContent()
     res1 = tool.execute(_ctx(), start_anchor="foo", content="new")
     assert res1["status"] == "error"
+    assert res1["code"] == "INVALID_PARAM"
     assert "start_anchor and end_anchor are both required" in res1["message"]
 
     res2 = tool.execute(_ctx(), end_anchor="bar", content="new")
     assert res2["status"] == "error"
+    assert res2["code"] == "INVALID_PARAM"
     assert "start_anchor and end_anchor are both required" in res2["message"]
 
 
@@ -766,10 +774,12 @@ def test_anchor_non_strings():
     tool = ApplyDocumentContent()
     res1 = tool.execute(_ctx(), start_anchor=123, end_anchor="bar", content="new")
     assert res1["status"] == "error"
+    assert res1["code"] == "INVALID_PARAM"
     assert "start_anchor and end_anchor must both be strings" in res1["message"]
 
     res2 = tool.execute(_ctx(), start_anchor="foo", end_anchor=456, content="new")
     assert res2["status"] == "error"
+    assert res2["code"] == "INVALID_PARAM"
     assert "start_anchor and end_anchor must both be strings" in res2["message"]
 
 
@@ -778,10 +788,12 @@ def test_anchor_empty_after_normalization(monkeypatch):
     tool = ApplyDocumentContent()
     res1 = tool.execute(_ctx(), start_anchor="   ", end_anchor="bar", content="new")
     assert res1["status"] == "error"
+    assert res1["code"] == "INVALID_PARAM"
     assert res1["message"] == "start_anchor is empty after normalization."
 
     res2 = tool.execute(_ctx(), start_anchor="foo", end_anchor="   ", content="new")
     assert res2["status"] == "error"
+    assert res2["code"] == "INVALID_PARAM"
     assert res2["message"] == "end_anchor is empty after normalization."
 
 
@@ -789,6 +801,7 @@ def test_anchor_conflict_with_old_content():
     tool = ApplyDocumentContent()
     res = tool.execute(_ctx(), old_content="x", start_anchor="foo", end_anchor="bar", content="new")
     assert res["status"] == "error"
+    assert res["code"] == "INVALID_PARAM"
     assert res["message"] == "Pass old_content or start_anchor and end_anchor, not both."
 
 
@@ -796,6 +809,7 @@ def test_anchor_non_search_target():
     tool = ApplyDocumentContent()
     res = tool.execute(_ctx(), target="full_document", start_anchor="foo", end_anchor="bar", content="new")
     assert res["status"] == "error"
+    assert res["code"] == "INVALID_PARAM"
     assert res["message"] == "start_anchor and end_anchor require target='search'."
 
 
@@ -803,24 +817,29 @@ def test_anchor_rejects_regex_and_all_matches_and_position_and_dry_run():
     tool = ApplyDocumentContent()
     res_regex = tool.execute(_ctx(), start_anchor="foo", end_anchor="bar", content="new", regex=True)
     assert res_regex["status"] == "error"
+    assert res_regex["code"] == "INVALID_PARAM"
     assert res_regex["message"] == "regex does not apply to start_anchor and end_anchor."
 
     res_all = tool.execute(_ctx(), start_anchor="foo", end_anchor="bar", content="new", all_matches=True)
     assert res_all["status"] == "error"
+    assert res_all["code"] == "INVALID_PARAM"
     assert res_all["message"] == "all_matches cannot be combined with start_anchor and end_anchor."
 
     res_pos = tool.execute(_ctx(), start_anchor="foo", end_anchor="bar", content="new", position="before")
     assert res_pos["status"] == "error"
+    assert res_pos["code"] == "INVALID_PARAM"
     assert res_pos["message"] == "position='before'/'after' does not apply to an anchor range."
 
     res_dry = tool.execute(_ctx(), start_anchor="foo", end_anchor="bar", content="new", dry_run=True)
     assert res_dry["status"] == "error"
+    assert res_dry["code"] == "INVALID_PARAM"
     assert res_dry["message"] == "dry_run does not apply to start_anchor and end_anchor."
 
     res_url = tool.execute(
         _ctx(), start_anchor="foo", end_anchor="bar", content="new", hyperlink_url="http://example.com"
     )
     assert res_url["status"] == "error"
+    assert res_url["code"] == "INVALID_PARAM"
     assert res_url["message"] == "hyperlink_url does not apply to start_anchor and end_anchor."
 
 
@@ -847,6 +866,7 @@ def test_anchor_miss_start(monkeypatch):
     tool = ApplyDocumentContent()
     res = tool.execute(_ctx(), start_anchor="foo", end_anchor="bar", content="new")
     assert res["status"] == "error"
+    assert res["code"] == "ANCHOR_START_NOT_FOUND"
     assert res["replaced_count"] == 0
     assert "start_anchor not found in document." in res["message"]
 
@@ -856,6 +876,7 @@ def test_anchor_miss_end(monkeypatch):
     tool = ApplyDocumentContent()
     res = tool.execute(_ctx(), start_anchor="foo", end_anchor="bar", content="new")
     assert res["status"] == "error"
+    assert res["code"] == "ANCHOR_END_NOT_FOUND"
     assert res["replaced_count"] == 0
     assert "end_anchor not found after start_anchor." in res["message"]
 
@@ -865,6 +886,7 @@ def test_anchor_miss_different_text(monkeypatch):
     tool = ApplyDocumentContent()
     res = tool.execute(_ctx(), start_anchor="foo", end_anchor="bar", content="new")
     assert res["status"] == "error"
+    assert res["code"] == "ANCHOR_TEXT_DIFFERENT"
     assert res["replaced_count"] == 0
     assert "end_anchor after start_anchor is not in the same text, so it cannot be one range." in res["message"]
 
@@ -888,6 +910,7 @@ def test_anchor_shape_miss_does_not_replace_text_in_shape(monkeypatch):
     tool = ApplyDocumentContent()
     res = tool.execute(_ctx(), start_anchor="foo", end_anchor="bar", content="new")
     assert res["status"] == "error"
+    assert res["code"] == "SHAPE_TEXT_NEEDS_DELEGATION"
     assert res["replaced_count"] == 0
     assert "start_anchor is only inside a drawing shape / floating text box ('MyBox')" in res["message"]
     assert not replace_shape_called
@@ -1136,3 +1159,114 @@ def test_error_or_rollback_omits_math_objects(monkeypatch):
 
     assert res["status"] == "error"
     assert "math_objects" not in res
+
+
+def test_position_before_after_with_math_segments_returns_invalid_param(monkeypatch):
+    monkeypatch.setattr(search_mod, "find_first_range", lambda doc, s: MockRange())
+    monkeypatch.setattr(format_mod, "html_fragment_contains_mixed_math", lambda s: True)
+    res = ApplyDocumentContent().execute(
+        _ctx(), target="search", old_content="foo", content="<p>some math</p>", position="before"
+    )
+    assert res["status"] == "error"
+    assert res["code"] == "INVALID_PARAM"
+    assert "math segments" in res["message"]
+
+
+def test_position_before_after_in_table_cell_returns_invalid_param(monkeypatch):
+    cursor = MagicMock()
+    cursor.getPropertyValue.return_value = MagicMock()  # TextTable is not None
+    text_obj = MagicMock()
+    text_obj.createTextCursorByRange.return_value = cursor
+    found = MagicMock()
+    found.getText.return_value = text_obj
+    found.getStart.return_value = MagicMock()
+
+    monkeypatch.setattr(search_mod, "find_first_range", lambda doc, s: found)
+    monkeypatch.setattr(format_mod, "html_fragment_contains_mixed_math", lambda s: False)
+    res = ApplyDocumentContent().execute(
+        _ctx(), target="search", old_content="foo", content="bar", position="after"
+    )
+    assert res["status"] == "error"
+    assert res["code"] == "INVALID_PARAM"
+    assert "inside a table cell" in res["message"]
+
+
+def test_replace_single_table_block_in_cell_returns_coded_error(monkeypatch):
+    from plugin.framework.errors import ToolExecutionError
+
+    def _fail_block(*args, **kwargs):
+        raise ToolExecutionError("block html in cell", code="TABLE_BLOCK_IN_CELL")
+
+    monkeypatch.setattr(format_mod, "content_has_markup", lambda s: True)
+    monkeypatch.setattr(search_mod, "find_first_range", lambda doc, s: MockRange())
+    monkeypatch.setattr(format_mod, "replace_single_range_with_content", _fail_block)
+
+    res = ApplyDocumentContent().execute(
+        _ctx(), target="search", old_content="foo", content="<p>block</p>"
+    )
+    assert res["status"] == "error"
+    assert res["code"] == "TABLE_BLOCK_IN_CELL"
+
+
+def test_replace_all_rollback_failed_code(monkeypatch):
+    from plugin.doc.compound_undo import UndoOutcome
+
+    r1 = MockRange("match1")
+    monkeypatch.setattr(search_mod, "find_all_ranges", lambda doc, s: [r1])
+    monkeypatch.setattr(
+        "plugin.writer.apply_document_content.commit_or_rollback",
+        lambda doc, title, mutate, session=None: UndoOutcome(
+            error={"code": "ROLLBACK_FAILED", "message": "undo broke"}
+        ),
+    )
+
+    res = ApplyDocumentContent().execute(
+        _ctx(), target="search", old_content="foo", content="bar", all_matches=True
+    )
+    assert res["status"] == "error"
+    assert res["code"] == "ROLLBACK_FAILED"
+    assert "could not be rolled back" in res["message"]
+
+
+def test_shape_search_miss_review_mode_returns_shape_text_needs_delegation(monkeypatch):
+    monkeypatch.setattr(search_mod, "find_first_range", lambda doc, s: None)
+    mock_shape = MagicMock()
+    monkeypatch.setattr(search_mod, "drawing_shape_object_containing", lambda doc, text, **k: mock_shape)
+    monkeypatch.setattr(search_mod, "shape_display_name", lambda shape: "Banner")
+
+    res = ApplyDocumentContent().execute(
+        _ctx(), target="search", old_content="foo", content="bar", track_reviewable=True
+    )
+    assert res["status"] == "error"
+    assert res["code"] == "SHAPE_TEXT_NEEDS_DELEGATION"
+    assert "shapes toolset" in res["message"]
+
+
+def test_parameter_validations_return_invalid_param():
+    tool = ApplyDocumentContent()
+    ctx = _ctx()
+
+    # Empty content on insert target
+    res = tool.execute(ctx, target="beginning", content="")
+    assert res["status"] == "error"
+    assert res["code"] == "INVALID_PARAM"
+
+    # position='before' with target != 'search'
+    res = tool.execute(ctx, target="end", content="bar", position="before")
+    assert res["status"] == "error"
+    assert res["code"] == "INVALID_PARAM"
+
+    # position='before' with all_matches=True
+    res = tool.execute(ctx, target="search", old_content="foo", content="bar", position="before", all_matches=True)
+    assert res["status"] == "error"
+    assert res["code"] == "INVALID_PARAM"
+
+    # non-string list items
+    res = tool.execute(ctx, target="beginning", content=[123])
+    assert res["status"] == "error"
+    assert res["code"] == "INVALID_PARAM"
+
+    # non-string content
+    res = tool.execute(ctx, target="beginning", content=123)
+    assert res["status"] == "error"
+    assert res["code"] == "INVALID_PARAM"
