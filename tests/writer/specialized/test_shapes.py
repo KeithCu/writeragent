@@ -56,6 +56,48 @@ def test_replace_text_in_shape_case_sensitivity():
     assert replace_text_in_shape(shape, "world", "Universe", case_sensitive=True) is False
 
 
+def test_replace_text_in_shape_regex():
+    xtext = MagicMock()
+    xtext.getString.return_value = "say hello!"
+    cursor = MagicMock()
+    xtext.createTextCursorByRange.return_value = cursor
+    shape = MagicMock()
+    shape.getText.return_value = xtext
+
+    assert replace_text_in_shape(shape, "h.+o", "goodbye", use_regex=True) is True
+    cursor.goRight.assert_any_call(4, False)
+    cursor.goRight.assert_any_call(5, True)
+    cursor.setString.assert_called_once_with("goodbye")
+
+
+def test_replace_text_in_shape_regex_empty_match_returns_false():
+    xtext = MagicMock()
+    xtext.getString.return_value = "hello"
+    cursor = MagicMock()
+    xtext.createTextCursorByRange.return_value = cursor
+    shape = MagicMock()
+    shape.getText.return_value = xtext
+
+    for pat in ("x*", "^"):
+        assert replace_text_in_shape(shape, pat, "bar", use_regex=True) is False
+    cursor.setString.assert_not_called()
+    cursor.goRight.assert_not_called()
+
+
+def test_replace_text_in_shape_regex_skips_leading_empty():
+    xtext = MagicMock()
+    xtext.getString.return_value = "ab"
+    cursor = MagicMock()
+    xtext.createTextCursorByRange.return_value = cursor
+    shape = MagicMock()
+    shape.getText.return_value = xtext
+
+    assert replace_text_in_shape(shape, "b*", "B", use_regex=True) is True
+    cursor.goRight.assert_any_call(1, False)
+    cursor.goRight.assert_any_call(1, True)
+    cursor.setString.assert_called_once_with("B")
+
+
 def test_writer_layout_tool_names():
     from plugin.writer.specialized import shapes as writer_shapes
 
