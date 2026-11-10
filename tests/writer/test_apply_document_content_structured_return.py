@@ -1228,6 +1228,46 @@ def test_replace_all_rollback_failed_code(monkeypatch):
     assert "could not be rolled back" in res["message"]
 
 
+def test_replace_all_mutate_error_rollback_status(monkeypatch):
+    """When batch mutation raises, outcome.nothing_landed distinguishes ROLLBACK_FAILED from clean abort."""
+    from plugin.doc.compound_undo import UndoOutcome
+
+    r1 = MockRange("match1")
+    monkeypatch.setattr(search_mod, "find_all_ranges", lambda doc, s: [r1])
+
+    # Case 1: nothing_landed is False -> rollback could not be completed, so partial changes may remain.
+    monkeypatch.setattr(
+        "plugin.writer.apply_document_content.commit_or_rollback",
+        lambda doc, title, mutate, session=None: UndoOutcome(
+            mutate_error=RuntimeError("boom"), nothing_landed=False
+        ),
+    )
+    res_failed = ApplyDocumentContent().execute(
+        _ctx(), target="search", old_content="foo", content="bar", all_matches=True
+    )
+    assert res_failed["status"] == "error"
+    assert res_failed["code"] == "ROLLBACK_FAILED"
+    assert "could not be rolled back" in res_failed["message"]
+    assert res_failed["replaced_count"] == 0
+    assert res_failed["partial_failure"] is True
+
+    # Case 2: nothing_landed is True -> document rolled back cleanly.
+    monkeypatch.setattr(
+        "plugin.writer.apply_document_content.commit_or_rollback",
+        lambda doc, title, mutate, session=None: UndoOutcome(
+            mutate_error=RuntimeError("boom"), nothing_landed=True
+        ),
+    )
+    res_clean = ApplyDocumentContent().execute(
+        _ctx(), target="search", old_content="foo", content="bar", all_matches=True
+    )
+    assert res_clean["status"] == "error"
+    assert res_clean["code"] == "TOOL_EXECUTION_ERROR"
+    assert "document rolled back" in res_clean["message"]
+    assert res_clean["replaced_count"] == 0
+    assert res_clean["partial_failure"] is True
+
+
 def test_shape_search_miss_review_mode_returns_shape_text_needs_delegation(monkeypatch):
     monkeypatch.setattr(search_mod, "find_first_range", lambda doc, s: None)
     mock_shape = MagicMock()
