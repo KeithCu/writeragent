@@ -651,8 +651,18 @@ def _drop_absorb_paragraph_props(cursor: Any) -> None:
             "RightBorder",
             "TopBorder",
             "BottomBorder",
-            "NumberingStyleName",
         ),
+    )
+    # NumberingStyleName (RES_PARATR_NUMRULE) is not an XPropertyState clearable
+    # property in LibreOffice Writer; setPropertiesToDefault leaves it untouched.
+    # Clearing direct numbering requires assigning an empty style name directly.
+    best_effort(
+        lambda: cursor.setPropertyValue("NumberingRules", None),
+        "absorb paragraph NumberingRules clear failed",
+    )
+    best_effort(
+        lambda: cursor.setPropertyValue("NumberingStyleName", ""),
+        "absorb paragraph NumberingStyleName clear failed",
     )
 
 
