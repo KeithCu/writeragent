@@ -605,6 +605,20 @@ def attach_para_warnings(result: dict[str, Any], unapplied: list[str]) -> dict[s
     return result
 
 
+def attach_math_objects(
+    result: dict[str, Any], math_objects: list[dict[str, Any]]
+) -> dict[str, Any]:
+    """Attach attempted math object entries to a successful edit result.
+
+    Only published when the edit succeeded (``status == "ok"``) and attempted at
+    least one formula conversion. Empty attempts or error results are returned unchanged.
+    """
+    if not math_objects or result.get("status") != "ok":
+        return result
+    result["math_objects"] = list(math_objects)
+    return result
+
+
 def declared_para_names(*css_lists: Iterable[str | None]) -> list[str]:
     """Return every property name declared across lists of data-lo-para strings, in order.
 

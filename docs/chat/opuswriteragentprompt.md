@@ -25,7 +25,7 @@
 | 13 | Header/footer contradiction removed | 2.5 | ✅ Prompt now says `target='search'` edits headers and footers. Page-domain delegation dropped. UNO test added | #3256 |
 | 14 | No table deletion as a side effect | 2.5 | 🟡 Deletion is now reported (`table_deleted`, tracked-change aware). An empty replacement that removes a table's last text still deletes it. No `allow_table_delete` opt-in found | pre-existing |
 | 15 | Literal `code` / `pre` content, no math parsing | 2.7 | ⬜ `html_import` still detects `$$`, `\(`, `\[` in content with no code-span exemption found | n/a |
-| 16 | Report every Math object created | 2.7 | ⬜ Not found. Partly covered by the #3262 summary if it lists objects ❓ | n/a |
+| 16 | Report every Math object created | 2.7 | ✅ Successful `apply_document_content` reports `math_objects` for attempted TeX/MathML conversions (kind, display_block, snippet, ok, error) | #3283 |
 | 17 | Resolve bare `#Heading` links / `$` math | 2.7 | ⬜ Prompt still tells the model to write `\|outline` and avoid `$` | n/a |
 | 18 | Rename `clear_direct` options | 2.6 | ⬜ Still `none` / `style_props` / `all` | n/a |
 | 19 | Report removed indents on restyle / track style changes | 2.6 | ⬜ `style_unreviewed` rule still in the prompt | n/a |

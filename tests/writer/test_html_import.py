@@ -1932,4 +1932,101 @@ def test_summarize_written_blocks_matches_extractor_slot_counts():
         assert summary["paragraph_count"] == len(ex.styles), f"Mismatch for {html}"
 
 
+def test_insert_mixed_html_and_math_reports_every_attempt():
+    from unittest.mock import MagicMock, patch
+    from plugin.writer import html_import
+
+    model = MagicMock()
+    ctx = MagicMock()
+    cursor = MagicMock()
+
+    content = r"<p>Start</p> \(x+1\) between $$y=2$$ and <math display='block'><mi>z</mi></math> end"
+
+    def fake_tex(ctx, text, *, display_block=False):
+        if text == "x+1":
+            return MagicMock(ok=True, starmath="x + 1", error_message=None)
+        return MagicMock(ok=False, starmath=None, error_message="tex syntax error")
+
+    def fake_mathml(ctx, text):
+        return MagicMock(ok=True, starmath="z", error_message=None)
+
+    with patch.object(html_import, "convert_latex_to_starmath", side_effect=fake_tex), \
+         patch.object(html_import, "convert_mathml_to_starmath", side_effect=fake_mathml), \
+         patch.object(html_import, "insert_writer_math_formula") as mock_formula, \
+         patch.object(html_import, "_insert_starwriter_html_at_cursor"):
+        attempts = html_import._insert_mixed_html_and_math_at_cursor(model, ctx, cursor, content)
+
+    assert attempts == [
+        {"kind": "tex", "display_block": False, "snippet": "x+1", "ok": True},
+        {"kind": "tex", "display_block": True, "snippet": "y=2", "ok": False, "error": "tex syntax error"},
+        {"kind": "mathml", "display_block": True, "snippet": "<math display='block'><mi>z</mi></math>", "ok": True},
+    ]
+    assert mock_formula.call_count == 2
+    cursor.getText.return_value.insertString.assert_called_once_with(
+        cursor, "[Math import failed] y=2", False
+    )
+
+
+def test_mixed_inserters_thread_math_out_and_preserve_returns():
+    from unittest.mock import MagicMock, patch
+    from plugin.writer import html_import
+
+    model = MagicMock()
+    model.getPropertyValue.return_value = False
+    cursor = MagicMock()
+    model.getText.return_value.createTextCursor.return_value = cursor
+    text_range = MagicMock()
+    text_range.getText.return_value = MagicMock()
+    ctx = MagicMock()
+
+    fake_attempt = [{"kind": "tex", "display_block": False, "snippet": "a", "ok": True}]
+
+    def fake_mixed_math(mod, c, cur, unescaped):
+        return list(fake_attempt)
+
+    # 1. replace_full_document extends math_out and returns list[str]
+    math_out_full: list[dict[str, Any]] = []
+    with patch.object(html_import, "_insert_mixed_html_and_math_at_cursor", side_effect=fake_mixed_math), \
+         patch("plugin.writer.math.html_math_segment.html_fragment_contains_mixed_math", return_value=True):
+        ret_full = html_import.replace_full_document(model, ctx, r"<p>\(a\)</p>", math_out=math_out_full)
+    assert ret_full == []
+    assert math_out_full == fake_attempt
+
+    # 2. insert_content_at_position(..., "end") extends math_out and returns list[str]
+    math_out_end: list[dict[str, Any]] = []
+    with patch.object(html_import, "_insert_mixed_html_and_math_at_cursor", side_effect=fake_mixed_math), \
+         patch("plugin.writer.math.html_math_segment.html_fragment_contains_mixed_math", return_value=True):
+        ret_end = html_import.insert_content_at_position(model, ctx, r"<p>\(a\)</p>", "end", math_out=math_out_end)
+    assert ret_end == []
+    assert math_out_end == fake_attempt
+
+    # 3. replace_single_range_with_content extends math_out and returns None/style note
+    math_out_range: list[dict[str, Any]] = []
+    with patch.object(html_import, "_insert_mixed_html_and_math_at_cursor", side_effect=fake_mixed_math), \
+         patch("plugin.writer.table_nesting.raise_if_range_hosts_nested_table"), \
+         patch("plugin.writer.math.html_math_segment.html_fragment_contains_mixed_math", return_value=True):
+        ret_range = html_import.replace_single_range_with_content(
+            model, text_range, r"<p>\(a\)</p>", ctx, math_out=math_out_range
+        )
+    assert ret_range is None
+    assert math_out_range == fake_attempt
+
+
+def test_plain_html_leaves_math_out_empty():
+    from unittest.mock import MagicMock, patch
+    from plugin.writer import html_import
+
+    model = MagicMock()
+    cursor = MagicMock()
+    ctx = MagicMock()
+    math_out: list[dict[str, Any]] = []
+
+    with patch.object(html_import, "_insert_starwriter_html_at_cursor"):
+        failures = html_import._insert_mixed_or_plain_html(
+            model, ctx, cursor, "<p>hi</p>", math_out=math_out
+        )
+    assert failures == []
+    assert math_out == []
+
+
 

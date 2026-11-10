@@ -745,7 +745,8 @@ class ApplyDocumentContent(ToolBase):
                        override: str | None, batch: bool,
                        plain: str,
                        style_notes: list[str],
-                       fix_outline: bool = True) -> tuple[list[dict[str, Any]] | None, dict[str, Any] | None]:
+                       fix_outline: bool = True,
+                       math_out: list[dict[str, Any]] | None = None) -> tuple[list[dict[str, Any]] | None, dict[str, Any] | None]:
         """Replace one search match and, when it sits in an outline link, fix that URL.
 
         *batch* is the all_matches loop, which already holds the undo context. A single
@@ -782,7 +783,7 @@ class ApplyDocumentContent(ToolBase):
                 # record_html_atomically would nest another and close it early.
                 def replace_one(f: Any = found) -> None:
                     note = format_support.replace_single_range_with_content(
-                        doc, f, content, ctx.ctx)
+                        doc, f, content, ctx.ctx, math_out=math_out)
                     if note:
                         style_notes.append(note)
 
@@ -792,7 +793,7 @@ class ApplyDocumentContent(ToolBase):
             else:
                 def replace_single() -> None:
                     note = format_support.replace_single_range_with_content(
-                        doc, found, content, ctx.ctx)
+                        doc, found, content, ctx.ctx, math_out=math_out)
                     if note:
                         style_notes.append(note)
 
@@ -1328,11 +1329,14 @@ class ApplyDocumentContent(ToolBase):
         content = params.content
         plain = params.plain
         has_table = params.has_table
+        math_objects: list[dict[str, Any]] = []
         with session:
             # Delete-then-import: make it atomic so a failed import can't strand a cleared document.
             failed = record_html_atomically(
                 session, ctx.doc,
-                lambda: format_support.replace_full_document(ctx.doc, ctx.ctx, content),
+                lambda: format_support.replace_full_document(
+                    ctx.doc, ctx.ctx, content, math_out=math_objects
+                ),
                 proposed_preview=plain) or []
         err = self._table_insert_error(ctx.doc, has_table, None)
         if err:
@@ -1344,20 +1348,24 @@ class ApplyDocumentContent(ToolBase):
             "paragraph_count": summary["paragraph_count"],
             "headings": summary["headings"],
         }
-        return html_import_styles.attach_para_warnings(res, failed)
+        res = html_import_styles.attach_para_warnings(res, failed)
+        return html_import_styles.attach_math_objects(res, math_objects)
 
     def _edit_insert_at(
         self, ctx: ToolContext, session: EditReviewSession, params: EditParams,
     ) -> dict[str, Any]:
-        from . import html_import as format_support
+        from . import html_import as format_support, html_import_styles
         content = params.content
         plain = params.plain
         has_table = params.has_table
         target = params.target
         tables_before = _doc_table_count(ctx.doc) if has_table else None
+        math_objects: list[dict[str, Any]] = []
         with session:
             failed = session.record_mutation(
-                lambda: format_support.insert_content_at_position(ctx.doc, ctx.ctx, content, target),
+                lambda: format_support.insert_content_at_position(
+                    ctx.doc, ctx.ctx, content, target, math_out=math_objects
+                ),
                 proposed_preview=plain) or []
         err = self._table_insert_error(ctx.doc, has_table, tables_before)
         if err:
@@ -1370,12 +1378,13 @@ class ApplyDocumentContent(ToolBase):
             anchor = collapsed_anchor(ctx.doc.getText().getStart())
         res = attach_edited_context(
             {"status": "ok", "message": msg}, anchor)
-        return html_import_styles.attach_para_warnings(res, failed)
+        res = html_import_styles.attach_para_warnings(res, failed)
+        return html_import_styles.attach_math_objects(res, math_objects)
 
     def _edit_selection(
         self, ctx: ToolContext, session: EditReviewSession, params: EditParams,
     ) -> dict[str, Any]:
-        from . import html_import as format_support
+        from . import html_import as format_support, html_import_styles
         content = params.content
         plain = params.plain
         has_table = params.has_table
@@ -1383,11 +1392,14 @@ class ApplyDocumentContent(ToolBase):
         # collapsed position (not the selection range itself) survives the replace.
         anchor = selection_anchor(ctx.doc)
         tables_before = _doc_table_count(ctx.doc) if has_table else None
+        math_objects: list[dict[str, Any]] = []
         with session:
             # Selection insert clears the selection first, then imports -> atomic (full_document above).
             note = record_html_atomically(
                 session, ctx.doc,
-                lambda: format_support.insert_content_at_position(ctx.doc, ctx.ctx, content, "selection"),
+                lambda: format_support.insert_content_at_position(
+                    ctx.doc, ctx.ctx, content, "selection", math_out=math_objects
+                ),
                 proposed_preview=plain)
         err = self._table_insert_error(ctx.doc, has_table, tables_before)
         if err:
@@ -1397,11 +1409,9 @@ class ApplyDocumentContent(ToolBase):
         if isinstance(note, str):
             _attach_style_notes(res, [note])
         if "data-lo-para" in content:
-            from . import html_import_styles
-
             unapplied = html_import_styles.unapplied_para_names_for_content(content)
             res = html_import_styles.attach_para_warnings(res, unapplied)
-        return res
+        return html_import_styles.attach_math_objects(res, math_objects)
 
 
     def _edit_replace_all(
@@ -1432,6 +1442,7 @@ class ApplyDocumentContent(ToolBase):
             anchor = collapsed_anchor(ranges[0])
         count = 0
         style_notes: list[str] = []
+        math_objects: list[dict[str, Any]] = []
         link_failure_holder: list[dict[str, Any] | None] = [None]
         link_reports: list[dict[str, Any]] = []
         tracked_delete_box = [False]
@@ -1449,7 +1460,8 @@ class ApplyDocumentContent(ToolBase):
                         session, doc, found, use_preserve=params.use_preserve,
                         content=params.content, ctx=ctx,
                         track_reviewable=params.track_reviewable, override=params.override, batch=True,
-                        plain=params.plain, style_notes=style_notes)
+                        plain=params.plain, style_notes=style_notes,
+                        math_out=math_objects)
                     if link_err:
                         link_failure_holder[0] = link_err
                         raise RuntimeError(link_err.get("message") or "outline hyperlink update failed")
@@ -1524,7 +1536,10 @@ class ApplyDocumentContent(ToolBase):
                 resp["message"] = (resp.get("message") or "").rstrip() + " " + deletion["message"]
         _attach_style_notes(resp, style_notes, total_matches=count)
         self._attach_hyperlink_reports(resp, link_reports)
-        return attach_edited_context(resp, anchor)
+        res = attach_edited_context(resp, anchor)
+        from . import html_import_styles
+
+        return html_import_styles.attach_math_objects(res, math_objects)
 
     def _anchor_miss(
         self, doc: Any, anchor: AnchorSpec, miss_kind: search_mod.AnchorMissKind
@@ -1740,12 +1755,14 @@ class ApplyDocumentContent(ToolBase):
                 tracked_delete = record_table_deletions(session, doc, ctx, doomed)
             return _table_deletion_result([name for _table, name in doomed], tracked_delete)
         style_notes: list[str] = []
+        math_objects: list[dict[str, Any]] = []
         reports, link_err = self._replace_found(
             session, doc, found, use_preserve=params.use_preserve,
             content=params.content, ctx=ctx,
             track_reviewable=params.track_reviewable, override=params.override, batch=False,
             plain=params.plain, style_notes=style_notes,
-            fix_outline=params.anchor is None)
+            fix_outline=params.anchor is None,
+            math_out=math_objects)
         if link_err:
             return link_err
         if params.anchor is not None:
@@ -1763,4 +1780,7 @@ class ApplyDocumentContent(ToolBase):
             return err
         _attach_style_notes(resp, style_notes, total_matches=1)
         self._attach_hyperlink_reports(resp, reports or [])
-        return attach_edited_context(resp, anchor)
+        res = attach_edited_context(resp, anchor)
+        from . import html_import_styles
+
+        return html_import_styles.attach_math_objects(res, math_objects)

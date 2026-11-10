@@ -16,7 +16,7 @@ Canonical design and execution reference for **editable math** in WriterAgent: H
 
 **Shipped modules (WriterAgent):** `plugin/writer/math/html_math_segment.py` (MathML + TeX segmentation), `plugin/writer/math/math_mml_convert.py` (MathML + LaTeX→MathML→StarMath, OLE insert), `plugin/writer/math/math_mml_export.py` (StarMath→MathML→LaTeX), `plugin/writer/math/latex_dialog.py` (LaTeX dialog); orchestration in `format.py` / `html_export.py` (`html_fragment_contains_mixed_math`, `content_has_markup` TeX patterns), `plugin/writer/math/math_mml_export.py` (`inject_exported_math_tex`); trusted SymPy helpers (`symbolic_math` tool, Run Python Script **[Math]**) insert via `plugin/scripting/symbolic.py` (`insert_symbolic_result_into_writer`) → `convert_latex_to_starmath` → `insert_writer_math_formula`; vendored **`latex2mathml`** and **`mathml-to-latex`** via `requirements-vendor.txt` (see `pyproject.toml` dev group for typecheck); tests under `tests/` (including collocated `*_uno.py`); agent context in `AGENTS.md`; model hints in `plugin/framework/prompts.py` (`WRITER_APPLY_DOCUMENT_HTML_RULES`) and `plugin/writer/apply_document_content.py` (`ApplyDocumentContent`).
 
-**Next priorities (pick from):** Phase 3 quality; Phase 1 backlog (test matrix, optional `warnings` in tool return); optional `"".join` for `apply_document_content` list `content`; policy for true multi-line / `mtable` vs global `newline` stripping; trim DEBUG logging; upstream LO Writer OLE + `newline` rendering; optional KaTeX annotation fallback; TexMaths-inspired UX/interop ([TexMaths feature review](#texmaths-feature-review-porting-candidates)); dedicated `get_math_in_range` / replace-in-place edit loop.
+**Next priorities (pick from):** Phase 3 quality; Phase 1 backlog (test matrix, reviewer examples); optional `"".join` for `apply_document_content` list `content`; policy for true multi-line / `mtable` vs global `newline` stripping; trim DEBUG logging; upstream LO Writer OLE + `newline` rendering; optional KaTeX annotation fallback; TexMaths-inspired UX/interop ([TexMaths feature review](#texmaths-feature-review-porting-candidates)); dedicated `get_math_in_range` / replace-in-place edit loop.
 
 ## Problem statement
 
@@ -108,7 +108,7 @@ The feature is successful when all of the following are true:
 4. unsupported math does not silently disappear
 5. the implementation is covered by unit tests and UNO tests
 
-**As of 2026-04:** (1)–(4) are **met** for MathML-backed HTML; (5) is **met for core paths** with gaps listed under Phase 1 **Not done yet** (full matrix, structured tool warnings). **As of Phase 2 ship:** common TeX-delimited math in the same HTML import path meets the same visibility and test bar as MathML for core cases (subset of LaTeX via `latex2mathml`; not full TeX compatibility).
+**As of 2026-04:** (1)–(4) are **met** for MathML-backed HTML; (5) is **met for core paths** with gaps listed under Phase 1 **Not done yet** (full test matrix; structured reporting is now shipped via `math_objects` on successful `apply_document_content` results). **As of Phase 2 ship:** common TeX-delimited math in the same HTML import path meets the same visibility and test bar as MathML for core cases (subset of LaTeX via `latex2mathml`; not full TeX compatibility).
 
 ## Recommended release strategy
 
@@ -268,7 +268,7 @@ Support the most structured and realistic first wave of HTML math inputs.
 These are **not** Phase 2 TeX work unless noted:
 
 - [ ] Full **minimum test matrix** row coverage (e.g. malformed MathML fixture, KaTeX-shaped HTML file fixture, table-with-math) beyond what `test_writer_mathml_import` already hits.
-- [ ] **Structured** tool errors / `warnings` array on `apply_document_content` return JSON (today: plain fallback string + logs).
+- [x] **Structured** tool reporting on `apply_document_content` return JSON: a successful edit includes `math_objects` for attempts made (with `kind`, `display_block`, `snippet`, `ok`, and `error` when conversion fails); fallback marker string and debug log remain, while general `warnings` stays the `data-lo-para` list.
 - [ ] **KaTeX/MathJax DOM** detection without relying on `<math>` (only needed if we must handle math with no MathML).
 - [ ] **Reviewer-facing** example document set in-repo (optional `docs/` or fixtures zip).
 
@@ -353,7 +353,7 @@ Improve quality and reduce edge-case regressions after MVP ships.
 
 ## Work breakdown by implementation area
 
-Cross-cutting status: **1** done for MathML + common TeX delimiters; KaTeX/MathJax **without** `<math>` or TeX markers still **not done**. **2** done (LO MathML + `latex2mathml` → MathML). **3** done (insertion). **4** partial (structured tool warnings). **5** partial (see Phase 1 **Not done yet**).
+Cross-cutting status: **1** done for MathML + common TeX delimiters; KaTeX/MathJax **without** `<math>` or TeX markers still **not done**. **2** done (LO MathML + `latex2mathml` → MathML). **3** done (insertion). **4** done (structured `math_objects` reporting on `apply_document_content`; visible fallback string and debug log remain). **5** partial (see Phase 1 **Not done yet**).
 
 ## 1. Parsing and detection
 
@@ -561,7 +561,7 @@ The implementation could become an open-ended parser project.
 | 1 | Visible fallback for unsupported formulas: plain text, marker, or both? | **Marker + snippet** — `[Math import failed]` plus truncated source in document; not silent. |
 | 2 | Ship MathML-only before TeX? | **Yes** historically; **Phase 2 TeX path is now shipped** (MathML still preferred in prompts). |
 | 3 | Auto-repair malformed MathML? | **No** — unclosed `<math>` tails fall back to HTML segment behavior; no repair pass. |
-| 4 | Warnings in logs only vs tool JSON? | **Logs + visible insert** — structured `warnings` in `apply_document_content` return **not implemented** (backlog). |
+| 4 | Warnings in logs only vs tool JSON? | **Logs + visible insert + tool JSON** — fallback marker string and debug logs remain, and successful `apply_document_content` returns now include `math_objects` for attempts made (kind, display_block, snippet, ok, error). General `warnings` stays the `data-lo-para` list. |
 
 ## Task sequence (for agents)
 
@@ -586,7 +586,7 @@ The implementation could become an open-ended parser project.
 
 **Remaining (pick order):**
 
-- [ ] Phase 1 backlog: full test matrix, optional `warnings` in tool return, reviewer examples
+- [ ] Phase 1 backlog: full test matrix, reviewer examples
 - [ ] Optional: `"".join` for list `content` in `apply_document_content`
 - [ ] Phase 2 stretch: KaTeX `<annotation encoding="application/x-tex">` retry on failed MathML import
 - [ ] Phase 3: robustness
