@@ -48,9 +48,17 @@ else:
                 self.Name = Name
                 self.Value = Value
 
-from plugin.doc.text_helpers import iter_elements_limited, record_walk_cap
+from plugin.doc.text_helpers import (
+    iter_elements_limited,
+    record_walk_cap,
+)
 from plugin.doc.visual_helpers import parse_color_to_uno_int
-from plugin.framework.errors import is_disposal, name_miss_details, reraise_if_disposed, similar_names
+from plugin.framework.errors import (
+    is_disposal,
+    name_miss_details,
+    reraise_if_disposed,
+    similar_names,
+)
 from plugin.framework.doc_type import CALC_DOCUMENT_SERVICE, TEXT_DOCUMENT_SERVICE
 from plugin.framework.tool import ToolBase as FrameworkToolBase
 from plugin.writer.edit_review import flag_style_unreviewed

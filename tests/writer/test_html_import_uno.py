@@ -631,3 +631,212 @@ def test_apply_data_lo_para_insert_at_beginning_with_margin_uno(ctx: Any, doc: A
     p_old = next((p for p in paras if "Existing paragraph" in p.getString()), None)
     assert p_old is not None, [p.getString() for p in paras]
     assert p_old.getPropertyValue("ParaLeftMargin") == 0
+
+
+def _body_paragraphs(doc: Any) -> list[Any]:
+    """Return all paragraph objects in the document body."""
+    paras = []
+    enum = doc.getText().createEnumeration()
+    while enum.hasMoreElements():
+        el = enum.nextElement()
+        if hasattr(el, "supportsService") and el.supportsService("com.sun.star.text.Paragraph"):
+            paras.append(el)
+    return paras
+
+
+def _numbering_style_name(value: Any) -> str:
+    """No list style is either None or "" depending on the property source."""
+    if value is None:
+        return ""
+    return str(value).strip()
+
+
+def _seed_direct_margins(doc: Any) -> tuple[Any, int, int, tuple[int, int], Any, str]:
+    """Seed 'old' with direct margins, line spacing, borders, and numbering."""
+    doc.getText().setString("old")
+    cursor = doc.getText().createTextCursor()
+    cursor.gotoStart(False)
+    cursor.gotoEndOfParagraph(True)
+
+    para_styles = doc.getStyleFamilies().getByName("ParagraphStyles")
+    style_name = cursor.getPropertyValue("ParaStyleName")
+    style = para_styles.getByName(style_name)
+    style_top = style.getPropertyValue("ParaTopMargin")
+    style_left = style.getPropertyValue("ParaLeftMargin")
+
+    cursor.setPropertyValue("ParaTopMargin", 777)
+    cursor.setPropertyValue("ParaLeftMargin", 888)
+
+    line_spacing = uno.createUnoStruct("com.sun.star.style.LineSpacing")
+    line_spacing.Mode = 0
+    line_spacing.Height = 150
+    cursor.setPropertyValue("ParaLineSpacing", line_spacing)
+
+    border = uno.createUnoStruct("com.sun.star.table.BorderLine2")
+    border.OuterLineWidth = 40
+    border.Color = 0xFF0000
+    for prop in ("LeftBorder", "RightBorder", "TopBorder", "BottomBorder"):
+        cursor.setPropertyValue(prop, border)
+
+    cursor.setPropertyValue("NumberingStyleName", "Numbering 123")
+
+    readback_top = int(cursor.getPropertyValue("ParaTopMargin"))
+    readback_left = int(cursor.getPropertyValue("ParaLeftMargin"))
+    readback_ls = cursor.getPropertyValue("ParaLineSpacing")
+    readback_spacing = (int(readback_ls.Mode), int(readback_ls.Height))
+    readback_border = cursor.getPropertyValue("LeftBorder")
+    readback_num = str(cursor.getPropertyValue("NumberingStyleName"))
+
+    style_ls = style.getPropertyValue("ParaLineSpacing")
+    style_spacing = (int(style_ls.Mode), int(style_ls.Height))
+    style_border = style.getPropertyValue("LeftBorder")
+
+    assert readback_top != style_top
+    assert readback_left != style_left
+    assert readback_spacing != style_spacing
+    assert (int(readback_border.OuterLineWidth), int(readback_border.Color)) != (
+        int(style_border.OuterLineWidth),
+        int(style_border.Color),
+    )
+    assert _numbering_style_name(readback_num) != _numbering_style_name(style.getPropertyValue("NumberingStyleName"))
+
+    return para_styles, readback_top, readback_left, readback_spacing, readback_border, readback_num
+
+
+@native_test
+@with_native_doc("writer")
+def test_full_document_drops_old_first_paragraph_direct_margins_uno(ctx: Any, doc: Any) -> None:
+    """full_document must clear absorb paragraph direct formatting before HTML import."""
+    skip_windows_leftover_hidden_load("apply_document_content Hidden _default swriter")
+    from plugin.tests.testing_utils import TestingFactory
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+
+    para_styles, *_ = _seed_direct_margins(doc)
+
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    res = ApplyDocumentContent().execute(tool_ctx, target="full_document", content="<p>a</p><p>b</p>")
+    assert res.get("status") == "ok", res
+
+    paras = _body_paragraphs(doc)
+    non_empty = [p for p in paras if p.getString() != ""]
+    empty_paras = [p for p in paras if p.getString() == ""]
+
+    assert [p.getString() for p in non_empty] == ["a", "b"]
+    assert len(empty_paras) >= 1, "Expected trailing empty paragraph"
+
+    for p in paras:
+        p_style = para_styles.getByName(p.getPropertyValue("ParaStyleName"))
+        assert p.getPropertyValue("ParaTopMargin") == p_style.getPropertyValue("ParaTopMargin")
+        assert p.getPropertyValue("ParaLeftMargin") == p_style.getPropertyValue("ParaLeftMargin")
+
+    border_names = ("LeftBorder", "RightBorder", "TopBorder", "BottomBorder")
+    for p in non_empty:
+        p_style = para_styles.getByName(p.getPropertyValue("ParaStyleName"))
+        ls = p.getPropertyValue("ParaLineSpacing")
+        style_ls = p_style.getPropertyValue("ParaLineSpacing")
+        assert (int(ls.Mode), int(ls.Height)) == (int(style_ls.Mode), int(style_ls.Height))
+        assert int(ls.Height) != 150
+
+        for b_name in border_names:
+            b = p.getPropertyValue(b_name)
+            sb = p_style.getPropertyValue(b_name)
+            assert int(b.OuterLineWidth) == int(sb.OuterLineWidth)
+            assert int(b.Color) == int(sb.Color)
+
+        assert _numbering_style_name(p.getPropertyValue("NumberingStyleName")) != "Numbering 123"
+        assert _numbering_style_name(p.getPropertyValue("NumberingStyleName")) == _numbering_style_name(
+            p_style.getPropertyValue("NumberingStyleName")
+        )
+
+
+@native_test
+@with_native_doc("writer")
+def test_full_document_review_margins_follow_new_style_and_reject_keeps_old_uno(ctx: Any, doc: Any) -> None:
+    """In review mode, imported paragraphs drop absorb formatting and reject restores old formatting."""
+    skip_windows_leftover_hidden_load("apply_document_content Hidden _default swriter")
+    from plugin.writer.html_import import replace_full_document
+
+    (
+        para_styles,
+        readback_top,
+        readback_left,
+        readback_spacing,
+        readback_border,
+        readback_num,
+    ) = _seed_direct_margins(doc)
+
+    doc.setPropertyValue("RecordChanges", True)
+    failures = replace_full_document(doc, ctx, "<p>a</p><p>b</p>")
+    assert failures == []
+
+    border_names = ("LeftBorder", "RightBorder", "TopBorder", "BottomBorder")
+    paras = _body_paragraphs(doc)
+    p_old = None
+    for p in paras:
+        text_val = p.getString()
+        p_style = para_styles.getByName(p.getPropertyValue("ParaStyleName"))
+        if "old" in text_val:
+            p_old = p
+            assert p.getPropertyValue("ParaTopMargin") == readback_top
+            assert p.getPropertyValue("ParaLeftMargin") == readback_left
+            ls = p.getPropertyValue("ParaLineSpacing")
+            assert (int(ls.Mode), int(ls.Height)) == readback_spacing
+            for b_name in border_names:
+                b = p.getPropertyValue(b_name)
+                assert int(b.OuterLineWidth) == int(readback_border.OuterLineWidth)
+                assert int(b.Color) == int(readback_border.Color)
+            assert str(p.getPropertyValue("NumberingStyleName")) == readback_num
+        elif text_val in ("a", "b", ""):
+            assert p.getPropertyValue("ParaTopMargin") == p_style.getPropertyValue("ParaTopMargin")
+            assert p.getPropertyValue("ParaLeftMargin") == p_style.getPropertyValue("ParaLeftMargin")
+            assert p.getPropertyValue("ParaTopMargin") != readback_top
+            assert p.getPropertyValue("ParaLeftMargin") != readback_left
+            if text_val in ("a", "b"):
+                ls = p.getPropertyValue("ParaLineSpacing")
+                style_ls = p_style.getPropertyValue("ParaLineSpacing")
+                assert (int(ls.Mode), int(ls.Height)) == (int(style_ls.Mode), int(style_ls.Height))
+                assert int(ls.Height) != 150
+                for b_name in border_names:
+                    b = p.getPropertyValue(b_name)
+                    sb = p_style.getPropertyValue(b_name)
+                    assert int(b.OuterLineWidth) == int(sb.OuterLineWidth)
+                    assert int(b.Color) == int(sb.Color)
+                    assert (int(b.OuterLineWidth), int(b.Color)) != (
+                        int(readback_border.OuterLineWidth),
+                        int(readback_border.Color),
+                    )
+                assert _numbering_style_name(p.getPropertyValue("NumberingStyleName")) != "Numbering 123"
+                assert _numbering_style_name(p.getPropertyValue("NumberingStyleName")) == _numbering_style_name(
+                    p_style.getPropertyValue("NumberingStyleName")
+                )
+
+    assert p_old is not None, "Expected paragraph containing old text"
+
+    # Verify no format redlines were recorded on the absorb paragraph
+    rl_enum = doc.getRedlines().createEnumeration()
+    rl_types = []
+    while rl_enum.hasMoreElements():
+        rl = rl_enum.nextElement()
+        rl_types.append(str(rl.getPropertyValue("RedlineType")))
+    assert "Format" not in rl_types
+    assert "ParagraphFormat" not in rl_types
+
+    helper = ctx.getServiceManager().createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx)
+    frame = doc.getCurrentController().getFrame()
+    helper.executeDispatch(frame, ".uno:RejectAllTrackedChanges", "", 0, ())
+
+    assert "old" in doc.getText().getString()
+
+    paras_after = _body_paragraphs(doc)
+    p_restored = next((p for p in paras_after if "old" in p.getString()), None)
+    assert p_restored is not None
+    assert p_restored.getPropertyValue("ParaTopMargin") == readback_top
+    assert p_restored.getPropertyValue("ParaLeftMargin") == readback_left
+    ls_restored = p_restored.getPropertyValue("ParaLineSpacing")
+    assert (int(ls_restored.Mode), int(ls_restored.Height)) == readback_spacing
+    for b_name in border_names:
+        b = p_restored.getPropertyValue(b_name)
+        assert int(b.OuterLineWidth) == int(readback_border.OuterLineWidth)
+        assert int(b.Color) == int(readback_border.Color)
+    assert str(p_restored.getPropertyValue("NumberingStyleName")) == readback_num
+

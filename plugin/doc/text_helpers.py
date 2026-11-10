@@ -31,6 +31,7 @@ from plugin.framework import doc_type as _doc_type
 from plugin.framework.errors import (
     DocumentDisposedError,
     UnoObjectError,
+    best_effort,
     reraise_if_disposed,
     uno_call,
     uno_read,
@@ -397,6 +398,24 @@ def apply_chapter_number(node: Any, para: Any) -> None:
     label = chapter_number_from_para(para)
     if label:
         node["chapter_number"] = label
+
+
+def clear_direct_numbering(cursor: Any) -> None:
+    """Drop direct paragraph numbering so the cursor reverts to the style's list rules.
+
+    In LibreOffice Writer, ``setPropertyToDefault("NumberingStyleName")`` and
+    ``setPropertyToDefault("NumberingRules")`` leave direct numbering untouched
+    (see ``test_full_document_drops_old_first_paragraph_direct_margins_uno``).
+    Setting ``NumberingRules=None`` invokes Writer's ``DelNumRules`` path, which
+    clears direct numbering without leaving a hard empty ``NumberingStyleName=""``
+    override that would mask an underlying paragraph style's list formatting.
+    This also drops leftover numbering after ``insertDocumentFromURL`` in notebook
+    HTML imports before following blocks.
+    """
+    best_effort(
+        lambda: cursor.setPropertyValue("NumberingRules", None),
+        "clear direct NumberingRules failed",
+    )
 
 
 def iter_heading_nodes(node: Mapping[str, Any]) -> Iterator[Mapping[str, Any]]:
