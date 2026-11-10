@@ -626,16 +626,34 @@ def _drop_absorb_paragraph_props(cursor: Any) -> None:
     """Drop direct paragraph formatting from the absorb paragraph before HTML import.
 
     In LibreOffice's HTML parser (`SwHTMLParser::CallParser` and `SetTextCollAttrs`
-    in `sw/source/filter/html/swhtml.cxx`), `GetParaAttr` captures the cursor's
-    direct paragraph attributes (such as `RES_UL_SPACE` and `RES_LR_SPACE`) and
-    stamps them onto imported paragraphs (twip rounding included). Clearing
-    direct paragraph properties ensures imported paragraphs take values from
-    their own style rather than carrying over hard margins from the absorb
-    paragraph; direct formatting from `data-lo-para` is applied later.
+    in `sw/source/filter/html/swhtml.cxx`), `GetParaAttr` captures direct paragraph
+    attributes from `RES_PARATR_BEGIN` through `RES_PARATR_CONNECT_BORDER` (excluding
+    `RES_PARATR_NUMRULE`), plus `RES_LR_SPACE` and `RES_UL_SPACE` (`sw/inc/hintids.hxx`).
+    Because this range includes line spacing (`RES_PARATR_LINESPACING`) and tab stops
+    (`RES_PARATR_TABSTOP`), those must be reset to default before `SetTextCollAttrs`
+    stamps them onto every imported paragraph. Direct borders (`RES_BOX`) and
+    `NumberingStyleName` (`RES_PARATR_NUMRULE`) sit outside that stamped range and
+    otherwise remain on the reused first paragraph. Clearing direct paragraph properties
+    ensures imported paragraphs take values from their own style; direct formatting
+    from `data-lo-para` is applied later. `CLEARABLE_PARA_PROPERTIES` remains the
+    clear-direct subset for Ctrl+M / `clear_direct`.
     """
     from .styles import CLEARABLE_PARA_PROPERTIES, _reset_properties_to_default
 
-    _reset_properties_to_default(cursor, CLEARABLE_PARA_PROPERTIES)
+    _reset_properties_to_default(
+        cursor,
+        CLEARABLE_PARA_PROPERTIES
+        + (
+            "ParaLineSpacing",
+            "ParaContextMargin",
+            "ParaTabStops",
+            "LeftBorder",
+            "RightBorder",
+            "TopBorder",
+            "BottomBorder",
+            "NumberingStyleName",
+        ),
+    )
 
 
 def replace_full_document(model: Any, ctx: Any, content: str) -> list[str]:
