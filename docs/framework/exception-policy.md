@@ -58,24 +58,29 @@ Code constants remain string literals across call sites, consistent with the cod
 
 | Code | Kind | Trigger site(s) | `suggested_call` |
 |------|------|-----------------|------------------|
-| `OLD_CONTENT_NOT_FOUND` | error | `build_search_not_found_response` (`search.py`, `styles.py`, `selection.py`) | None in v1 (near-miss `closest_match` is a 16-character preview + ellipsis; replaying would replace the wrong text). |
+| `OLD_CONTENT_NOT_FOUND` | error | `build_search_not_found_response` (`search.py`, `apply_document_content.py`, `styles.py`); direct `_tool_error` in `selection.py:148` (no near-miss fields) | None in v1 (near-miss `closest_match` is a 16-character preview + ellipsis; replaying would replace the wrong text). |
 | `OLD_CONTENT_TOO_LARGE` | error | Oversized old_content refusal (`search.py`) | None (suggesting blank content violates tool schema). |
+| `SEARCH_FAILED` | error | Search execution or regex evaluation failed (`search.py`, `apply_document_content.py`) | None |
 | `ANCHOR_START_NOT_FOUND` | error | `_anchor_miss` with `miss_kind="start"` (`apply_document_content.py`) | None |
 | `ANCHOR_END_NOT_FOUND` | error | `_anchor_miss` with `miss_kind="end"` (`apply_document_content.py`) | None |
 | `ANCHOR_TEXT_DIFFERENT` | error | `_anchor_miss` with `miss_kind="different_text"` (`apply_document_content.py`) | None |
 | `SHAPE_TEXT_NEEDS_DELEGATION` | error | `shape_only_search_message` in `search.py`, `apply_document_content.py`, `selection.py` | None (delegation tool requires free-text task and active inner-agent endpoint). |
-| `STYLE_NOT_FOUND` | error | `_missing_style_error` in `styles.py` | Optional: `apply_style` with corrected `style` only if exactly one match in `similar`. |
+| `STYLE_NOT_FOUND` | error | `_missing_style_error` in `styles.py` | `apply_style` with the corrected `style` when `similar` has exactly one entry; omitted when `old_content` is over 100 characters (no truncated needle). |
 | `OCCURRENCE_OUT_OF_RANGE` | error | `apply_document_content.py`, `styles.py`, `selection.py` | None |
 | `TABLE_IN_ANCHOR_RANGE` | error | `apply_document_content.py` | None |
 | `TABLE_BLOCK_IN_CELL` | error | Block HTML inserted in table cell (`html_import.py`) | None |
+| `TABLE_INSERT_FAILED` | error | Table creation or insertion failed (`apply_document_content.py`) | None |
+| `HYPERLINK_UPDATE_FAILED` | error | Updating hyperlink URL or bookmark target failed (`apply_document_content.py`) | None |
 | `UNDO_UNAVAILABLE` | error | `apply_document_content.py`, `styles.py` | None |
 | `ROLLBACK_FAILED` | error | `apply_document_content.py`, `styles.py` | None |
 | `INVALID_PARAM` | error | Parameter validation failures: missing query/pattern (`search.py`); invalid style/clear_direct (`styles.py`); selection parameter conflicts/empty values (`selection.py`); `apply_document_content` parameter conflicts/empty strings | None |
-| `INVALID_REGEX` | error | `invalid_regex_tool_message` (`search.py`) | None (`details.engine: "icu" \| "python"`). |
-| `STYLE_IGNORED_PARTIAL_MATCH` | warning | Partial match style skip (`html_import.py`, `apply_document_content.py`) | `apply_style(target="search", old_content=<params.plain>, style=<style>, case_sensitive=True)` if single paragraph and post-write match count is exact. |
+| `INVALID_REGEX` | error | `invalid_regex_tool_message` (`search.py`) | None |
+| `STYLE_IGNORED_PARTIAL_MATCH` | warning | Partial match style skip (`html_import.py`, `apply_document_content.py`) | `apply_style(target="search", old_content=<params.plain>, style=<style>, case_sensitive=True)` when single-paragraph and match count is exact (not for `target='selection'`). |
 | `STYLE_IGNORED_RECORDING` | warning | Tracked changes recording skip (`html_import.py`, `apply_document_content.py`) | None (`apply_style` is not tracked). |
 | `PARA_PROPERTY_UNSUPPORTED` | warning | Unapplied `data-lo-para` property (`html_import_styles.attach_para_warnings`) | None |
 
 *Naming invariant:* A code names the underlying condition, not the tool. Once shipped, a code is never renamed.
+
+`SHAPE_REPLACE_FAILED` is an internal sentinel during shape text replacement, caught internally before returning to the caller. In addition, framework error codes `TOOL_EXECUTION_ERROR` and `UNO_OBJECT_ERROR` may be returned by any tool upon unexpected errors or UNO runtime failures.
 
 Related: [chat sidebar lifecycle](../chat/sidebar-implementation.md#ui-lifecycle-exception-handling-suppress_disposed), [UNO thread safety](uno-thread-safety.md).
