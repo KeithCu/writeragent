@@ -516,7 +516,6 @@ def _missing_style_error(
     style_family: Any,
     *,
     label: str = "Style",
-    suggest_call_kwargs: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Not-found error with a Did-you-mean hint and a short sample of names."""
     try:
@@ -530,14 +529,6 @@ def _missing_style_error(
     miss_details: dict[str, Any] = {"hint": "Call style_list with family=%s." % family}
     if close:
         miss_details["similar"] = close[:5]
-    suggested = None
-    if tool.name == "apply_style" and len(close) == 1 and suggest_call_kwargs is not None:
-        from plugin.framework.errors import suggest_call
-
-        props = (tool.parameters or {}).get("properties", {})
-        args = {k: v for k, v in suggest_call_kwargs.items() if k in props}
-        args["style"] = close[0]
-        suggested = suggest_call("apply_style", **args)
 
     if label == "parent_style":
         return tool._tool_error(
@@ -548,7 +539,6 @@ def _missing_style_error(
     return tool._tool_error(
         "Style '%s' not found in %s.%s%s" % (style_name, family, hint, sample),
         code="STYLE_NOT_FOUND",
-        suggested_call=suggested,
         **miss_details,
     )
 
@@ -1353,7 +1343,19 @@ class ApplyStyle(FrameworkToolBase):
             try:
                 fam = ctx.doc.getStyleFamilies().getByName(family)
                 if not fam.hasByName(uno_value):
-                    return _missing_style_error(self, style_name, family, fam, suggest_call_kwargs=kwargs)
+                    res = _missing_style_error(self, style_name, family, fam)
+                    similar = (res.get("details") or {}).get("similar") or []
+                    # Only an unambiguous single match is safe to replay (§3.4 rule 2).
+                    if len(similar) == 1:
+                        from plugin.framework.errors import suggest_call
+
+                        props = (self.parameters or {}).get("properties", {})
+                        args = {k: v for k, v in kwargs.items() if k in props}
+                        args["style"] = similar[0]
+                        if "old_content" in args and isinstance(args["old_content"], str) and len(args["old_content"]) > 100:
+                            args["old_content"] = args["old_content"][:100]
+                        res["suggested_call"] = suggest_call("apply_style", **args)
+                    return res
             except Exception as e:
                 if is_disposal(e):
                     raise
@@ -1392,102 +1394,125 @@ class ApplyStyle(FrameworkToolBase):
         all_matches = bool(kwargs.get("all_matches"))
         occ_raw = kwargs.get("occurrence")
         case_sensitive = kwargs.get("case_sensitive")
-        if target == "search" and (all_matches or occ_raw is not None):
+        if target == "search":
             from plugin.writer.search import (
                 build_search_not_found_response,
+                drawing_shape_containing,
                 find_all_ranges,
+                find_first_range,
                 prepare_old_content,
                 resolve_case_sensitive,
             )
 
             s = prepare_old_content(old_content)
             if not s:
-                return {"status": "error", "code": "INVALID_PARAM", "message": "target='search' requires old_content.", "applied": False, "matched": False}
+                return {
+                    "status": "error",
+                    "code": "INVALID_PARAM",
+                    "message": "target='search' requires old_content.",
+                    "applied": False,
+                    "matched": False,
+                }
             cs = resolve_case_sensitive(case_sensitive)
-            ranges = find_all_ranges(ctx.doc, s, case_sensitive=cs) if s else []
-            if not ranges:
-                res = build_search_not_found_response(ctx.doc, s, all_matches=True)
-                res.update({"target": "search", "applied": False, "matched": False})
-                return res
-            if occ_raw is not None:
-                # Schema type integer (bool fails). validate has no min/max.
-                if occ_raw < 0 or occ_raw >= len(ranges):
-                    return self._tool_error(
-                        "occurrence %s out of range (found %d match(es), use 0..%d)." % (occ_raw, len(ranges), len(ranges) - 1),
-                        code="OCCURRENCE_OUT_OF_RANGE",
+            if all_matches or occ_raw is not None:
+                ranges = find_all_ranges(ctx.doc, s, case_sensitive=cs) if s else []
+                if not ranges:
+                    shape_name = drawing_shape_containing(ctx.doc, s, case_sensitive=cs)
+                    res = build_search_not_found_response(
+                        ctx.doc, s, all_matches=True, shape_name=shape_name
                     )
-                ranges = [ranges[occ_raw]]
-            reports = []
+                    res.update({"target": "search", "applied": False, "matched": False})
+                    return res
+                if occ_raw is not None:
+                    # Schema type integer (bool fails). validate has no min/max.
+                    if occ_raw < 0 or occ_raw >= len(ranges):
+                        return self._tool_error(
+                            "occurrence %s out of range (found %d match(es), use 0..%d)." % (occ_raw, len(ranges), len(ranges) - 1),
+                            code="OCCURRENCE_OUT_OF_RANGE",
+                        )
+                    ranges = [ranges[occ_raw]]
+                reports = []
 
-            if len(ranges) > 1:
-                from .edit_review import next_agent_edit_undo_title
-                from plugin.doc.compound_undo import UndoUnavailable, commit_or_rollback
+                if len(ranges) > 1:
+                    from .edit_review import next_agent_edit_undo_title
+                    from plugin.doc.compound_undo import UndoUnavailable, commit_or_rollback
 
-                title = next_agent_edit_undo_title()
+                    title = next_agent_edit_undo_title()
 
-                def mutate() -> None:
+                    def mutate() -> None:
+                        for found in ranges:
+                            c = cursor_spanning_range(found)
+                            reports.append(self._apply_one(ctx, family, uno_value, c, clear_direct))
+
+                    try:
+                        outcome = commit_or_rollback(ctx.doc, title, mutate)
+                    except UndoUnavailable:
+                        return self._tool_error(
+                            "Cannot apply the style to every match in one undo step. Nothing was changed.",
+                            code="UNDO_UNAVAILABLE",
+                        )
+                    if outcome.mutate_error is not None:
+                        error = outcome.mutate_error
+                        if outcome.rolled_back:
+                            return self._tool_error("Nothing was changed: %s" % (error,), code="TOOL_EXECUTION_ERROR")
+                        return self._tool_error(
+                            "Applied to %d of %d; failed on one match: %s. Earlier matches stay applied."
+                            % (len(reports), len(ranges), error),
+                            code="TOOL_EXECUTION_ERROR",
+                        )
+
+                    err = outcome.error
+                    if err is not None:
+                        if err.get("code") == "UNDO_CONTEXT_LEAK":
+                            return self._tool_error(
+                                "Applied style '%s' to %d match(es), but the undo step could not be closed (%s). "
+                                "The changes are in the document and the undo context is still open."
+                                % (style_name, len(reports), err.get("message")),
+                                code="TOOL_EXECUTION_ERROR",
+                            )
+                        if err.get("code") == "ROLLBACK_FAILED":
+                            return self._tool_error(
+                                "Applied to %d of %d; failed on one match: %s. Earlier matches stay applied."
+                                % (len(reports), len(ranges), err.get("message")),
+                                code="ROLLBACK_FAILED",
+                            )
+                else:
                     for found in ranges:
                         c = cursor_spanning_range(found)
                         reports.append(self._apply_one(ctx, family, uno_value, c, clear_direct))
 
-                try:
-                    outcome = commit_or_rollback(ctx.doc, title, mutate)
-                except UndoUnavailable:
-                    return self._tool_error(
-                        "Cannot apply the style to every match in one undo step. Nothing was changed.",
-                        code="UNDO_UNAVAILABLE",
-                    )
-                if outcome.mutate_error is not None:
-                    error = outcome.mutate_error
-                    if outcome.rolled_back:
-                        return self._tool_error("Nothing was changed: %s" % (error,), code="TOOL_EXECUTION_ERROR")
-                    return self._tool_error(
-                        "Applied to %d of %d; failed on one match: %s. Earlier matches stay applied."
-                        % (len(reports), len(ranges), error),
-                        code="TOOL_EXECUTION_ERROR",
-                    )
+                return _finish_success({
+                    "status": "ok",
+                    "message": "Applied style '%s' (%s) to %d match(es)." % (style_name, family, len(reports)),
+                    "style_name": style_name,
+                    "family": family,
+                    "target": "search",
+                    "applied": True,
+                    "matched": True,
+                    "applied_count": len(reports),
+                }, reports)
 
-                err = outcome.error
-                if err is not None:
-                    if err.get("code") == "UNDO_CONTEXT_LEAK":
-                        return self._tool_error(
-                            "Applied style '%s' to %d match(es), but the undo step could not be closed (%s). "
-                            "The changes are in the document and the undo context is still open."
-                            % (style_name, len(reports), err.get("message")),
-                            code="TOOL_EXECUTION_ERROR",
-                        )
-                    if err.get("code") == "ROLLBACK_FAILED":
-                        return self._tool_error(
-                            "Applied to %d of %d; failed on one match: %s. Earlier matches stay applied."
-                            % (len(reports), len(ranges), err.get("message")),
-                            code="ROLLBACK_FAILED",
-                        )
-            else:
-                for found in ranges:
-                    c = cursor_spanning_range(found)
-                    reports.append(self._apply_one(ctx, family, uno_value, c, clear_direct))
+            found = find_first_range(ctx.doc, s, case_sensitive=cs)
+            if found is None:
+                shape_name = drawing_shape_containing(ctx.doc, s, case_sensitive=cs)
+                res = build_search_not_found_response(ctx.doc, s, shape_name=shape_name)
+                res.update({"target": "search", "applied": False, "matched": False})
+                return res
 
+            cursor = cursor_spanning_range(found)
+            report = self._apply_one(ctx, family, uno_value, cursor, clear_direct)
             return _finish_success({
                 "status": "ok",
-                "message": "Applied style '%s' (%s) to %d match(es)." % (style_name, family, len(reports)),
+                "message": "Applied style '%s' (%s) to %s." % (style_name, family, target),
                 "style_name": style_name,
                 "family": family,
-                "target": "search",
+                "target": target,
                 "applied": True,
-                "matched": True,
-                "applied_count": len(reports),
-            }, reports)
+            }, [report])
 
         try:
             cursor = resolve_target_cursor(ctx, target, old_content, case_sensitive=case_sensitive)
         except ValueError as ve:
-            if target == "search":
-                # Surface the search-miss as a structured (top-level) failure, like
-                # apply_document_content, so callers can branch on code, matched, and applied.
-                # Carries OLD_CONTENT_NOT_FOUND, or INVALID_PARAM when old_content is empty.
-                msg = str(ve)
-                code = "INVALID_PARAM" if "old_content is empty" in msg else "OLD_CONTENT_NOT_FOUND"
-                return {"status": "error", "code": code, "message": msg, "target": "search", "applied": False, "matched": False}
             return self._tool_error(str(ve), code="INVALID_PARAM")
 
         # execute_safe reports a failed apply. This catch hid a closed document
@@ -1707,6 +1732,7 @@ class StyleCreate(ToolWriterStyleBase):
         if failed:
             return {
                 "status": "error",
+                "code": "TOOL_EXECUTION_ERROR",
                 "message": "Style was not created. Failed properties: %s" % (failed,),
                 "failed_properties": failed,
             }

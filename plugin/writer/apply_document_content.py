@@ -529,6 +529,13 @@ class EditParams:
     anchor: AnchorSpec | None = None
 
 
+_ANCHOR_MISS_CODES: dict[search_mod.AnchorMissKind, str] = {
+    "start": "ANCHOR_START_NOT_FOUND",
+    "end": "ANCHOR_END_NOT_FOUND",
+    "different_text": "ANCHOR_TEXT_DIFFERENT",
+}
+
+
 class ApplyDocumentContent(ToolBase):
     """Insert or replace content in the document.
 
@@ -1674,14 +1681,9 @@ class ApplyDocumentContent(ToolBase):
                     "message": search_mod.shape_only_search_message(subject, shape_name),
                     "replaced_count": 0,
                 }
-        code_by_kind = {
-            "start": "ANCHOR_START_NOT_FOUND",
-            "end": "ANCHOR_END_NOT_FOUND",
-            "different_text": "ANCHOR_TEXT_DIFFERENT",
-        }
         return {
             "status": "error",
-            "code": code_by_kind.get(miss_kind, "TOOL_EXECUTION_ERROR"),
+            "code": _ANCHOR_MISS_CODES[miss_kind],
             "message": search_mod.anchor_miss_message(
                 miss_kind, tracked_deletions=document_has_tracked_deletions(doc)
             ),
