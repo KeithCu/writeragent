@@ -193,13 +193,33 @@ def _expand_escapes(text: str) -> str:
     return text.replace("\\n", "\n").replace("\\t", "\t")
 
 
+def _math_attempt_entry(
+    seg: Any, snippet: str, *, ok: bool, error: str | None = None
+) -> dict[str, Any]:
+    """Build a math conversion attempt record for structured tool reporting.
+
+    Kind is reported as "mathml" for XML segments and "tex" for TeX runs.
+    Errors are attached only when the conversion failed and yielded a non-empty message.
+    """
+    kind = "mathml" if seg.kind == "math" else "tex"
+    entry: dict[str, Any] = {
+        "kind": kind,
+        "display_block": seg.display_block,
+        "snippet": snippet,
+        "ok": ok,
+    }
+    if not ok and error:
+        entry["error"] = error
+    return entry
+
 
 def _insert_mixed_html_and_math_at_cursor(
     model: Any, ctx: Any, cursor: Any, unescaped: str
-) -> None:
+) -> list[dict[str, Any]]:
     """Insert alternating HTML (via filter) and math (MathML or TeX) as formula objects."""
     _segs = segment_html_with_mixed_math(unescaped)
     tail = _parked_cursor(cursor)
+    attempts: list[dict[str, Any]] = []
     for seg in _segs:
         if seg.kind == "html":
             chunk = seg.text
@@ -220,18 +240,21 @@ def _insert_mixed_html_and_math_at_cursor(
             if seg_ruby:
                 html_ruby._apply_ruby_spans(cursor.getText(), seg_ruby, skip_chars=seg_ruby_skip)
             continue
+        snippet = (seg.text or "").replace("\n", " ")[:120]
         if seg.kind == "tex":
             res = convert_latex_to_starmath(ctx, seg.text, display_block=seg.display_block)
         else:
             res = convert_mathml_to_starmath(ctx, seg.text)
         if res.ok and res.starmath:
             insert_writer_math_formula(model, cursor, res.starmath, display_block=seg.display_block)
+            attempts.append(_math_attempt_entry(seg, snippet, ok=True))
         else:
-            snippet = (seg.text or "").replace("\n", " ")[:120]
             fallback = "[Math import failed] " + snippet
             cursor.getText().insertString(cursor, fallback, False)
             log.debug("math import failed: %s snippet=%r", res.error_message, snippet)
+            attempts.append(_math_attempt_entry(seg, snippet, ok=False, error=res.error_message))
         cursor.gotoRange(tail.getStart(), False)
+    return attempts
 
 
 
@@ -285,6 +308,7 @@ def _insert_mixed_or_plain_html(
     unescaped_content: str,
     *,
     apply_styles: bool = True,
+    math_out: list[dict[str, Any]] | None = None,
 ) -> list[str]:
     """HTML import (optional MathML + TeX layer).
 
@@ -319,7 +343,9 @@ def _insert_mixed_or_plain_html(
     start_anchor = _insert_start_anchor(text_obj, cursor) if styled and not has_math else None
 
     if has_math:
-        _insert_mixed_html_and_math_at_cursor(model, ctx, cursor, clean)
+        math_entries = _insert_mixed_html_and_math_at_cursor(model, ctx, cursor, clean)
+        if math_out is not None:
+            math_out.extend(math_entries)
     else:
         single = _ensure_html_linebreaks(clean)
         _insert_starwriter_html_at_cursor(None if styled else model, cursor, single)
@@ -534,7 +560,14 @@ def _lo_style_for_replaced_range(model: Any, content: str, text_range: Any) -> t
     return True, None
 
 
-def insert_content_at_position(model: Any, ctx: Any, content: str, position: str) -> list[str] | str | None:
+def insert_content_at_position(
+    model: Any,
+    ctx: Any,
+    content: str,
+    position: str,
+    *,
+    math_out: list[dict[str, Any]] | None = None,
+) -> list[str] | str | None:
     """Insert formatted content at *position* (``'beginning'``,
     ``'end'``, or ``'selection'``) using ``insertDocumentFromURL``.
     """
@@ -610,7 +643,9 @@ def insert_content_at_position(model: Any, ctx: Any, content: str, position: str
         # the replaced paragraphs were already emptied by setString("").
         if position in ("beginning", "end"):
             cursor = _ensure_empty_absorb_for_styled_insert(text, cursor, position)
-        failures = _insert_mixed_or_plain_html(model, ctx, cursor, content, apply_styles=styled)
+        failures = _insert_mixed_or_plain_html(
+            model, ctx, cursor, content, apply_styles=styled, math_out=math_out
+        )
         if position == "selection":
             return note
         return failures
@@ -661,7 +696,9 @@ def _drop_absorb_paragraph_props(cursor: Any) -> None:
     clear_direct_numbering(cursor)
 
 
-def replace_full_document(model: Any, ctx: Any, content: str) -> list[str]:
+def replace_full_document(
+    model: Any, ctx: Any, content: str, *, math_out: list[dict[str, Any]] | None = None
+) -> list[str]:
     """Clear the document and insert *content*."""
     with image_placeholders._keep_placeholder_images(model, content) as swapped:
         content = html_import_styles._decode_complete_character_references(swapped)
@@ -675,7 +712,7 @@ def replace_full_document(model: Any, ctx: Any, content: str) -> list[str]:
         cursor.gotoStart(False)
         if not record_changes.is_recording_changes(model):
             _drop_absorb_paragraph_props(cursor)
-            return _insert_mixed_or_plain_html(model, ctx, cursor, content)
+            return _insert_mixed_or_plain_html(model, ctx, cursor, content, math_out=math_out)
         # In review mode the deleted text stays in place, and an import at
         # its start takes the character formatting of the first old
         # paragraph as direct formatting -- a document opening with an 18pt
@@ -693,7 +730,7 @@ def replace_full_document(model: Any, ctx: Any, content: str) -> list[str]:
         with record_changes.record_changes(model, False):
             _drop_absorb_paragraph_props(cursor)
         leftover = text.createTextCursorByRange(cursor.getStart())
-        failures = _insert_mixed_or_plain_html(model, ctx, cursor, content)
+        failures = _insert_mixed_or_plain_html(model, ctx, cursor, content, math_out=math_out)
         leftover.gotoEndOfParagraph(True)
         if leftover.getString() == "":
             leftover.collapseToStart()
@@ -707,7 +744,12 @@ def replace_full_document(model: Any, ctx: Any, content: str) -> list[str]:
 
 
 def replace_single_range_with_content(
-    model: Any, text_range: Any, content: str, ctx: Any
+    model: Any,
+    text_range: Any,
+    content: str,
+    ctx: Any,
+    *,
+    math_out: list[dict[str, Any]] | None = None,
 ) -> str | None:
     """Replace the given text range with rendered *content* (HTML path)."""
     with image_placeholders._keep_placeholder_images(model, content) as swapped:
@@ -774,7 +816,9 @@ def replace_single_range_with_content(
             # as a deletion that a paragraph style would turn into a format change; both skip
             # styling and warn.
             try:
-                _insert_mixed_or_plain_html(model, ctx, cursor, prepared, apply_styles=apply_styles)
+                _insert_mixed_or_plain_html(
+                    model, ctx, cursor, prepared, apply_styles=apply_styles, math_out=math_out
+                )
             except Exception as e:
                 reraise_if_disposed(e)
                 # Block/rich HTML into a table cell can raise an empty RuntimeException from the StarWriter
