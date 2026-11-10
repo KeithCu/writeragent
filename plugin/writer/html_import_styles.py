@@ -18,7 +18,7 @@ import logging
 import re
 from typing import TYPE_CHECKING, Any, ClassVar, final
 
-from plugin.framework.errors import reraise_if_disposed, uno_read
+from plugin.framework.errors import Diagnostic, reraise_if_disposed, uno_read
 
 from . import xhtml_style_postprocess as xhtml_post
 
@@ -599,9 +599,18 @@ def attach_para_warnings(result: dict[str, Any], unapplied: list[str]) -> dict[s
     if not unapplied or result.get("status") != "ok":
         return result
     deduped = list(dict.fromkeys(unapplied))
-    result["warnings"] = [
-        f"data-lo-para property '{name}' was not applied" for name in deduped
+    diag_list: list[Diagnostic] = [
+        {
+            "code": "PARA_PROPERTY_UNSUPPORTED",
+            "message": f"data-lo-para property '{name}' was not applied",
+        }
+        for name in deduped
     ]
+    existing = result.get("warnings")
+    if isinstance(existing, list):
+        existing.extend(diag_list)
+    else:
+        result["warnings"] = diag_list
     return result
 
 

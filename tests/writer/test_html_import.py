@@ -1760,10 +1760,7 @@ def make_paragraph_edge_range(is_start: bool, is_end: bool) -> MagicMock:
 
 
 def test_lo_style_for_replaced_range_predicates():
-    from plugin.writer.html_import import (
-        _lo_style_for_replaced_range,
-        _LO_STYLE_PARTIAL_MATCH_NOTE,
-    )
+    from plugin.writer.html_import import _lo_style_for_replaced_range
 
     model = MagicMock()
     content = '<p data-lo-style="Heading2">content</p>'
@@ -1777,25 +1774,21 @@ def test_lo_style_for_replaced_range_predicates():
         # Start only -> apply False, note partial
         apply, note = _lo_style_for_replaced_range(model, content, make_paragraph_edge_range(True, False))
         assert apply is False
-        assert note == _LO_STYLE_PARTIAL_MATCH_NOTE
+        assert note == "STYLE_IGNORED_PARTIAL_MATCH"
 
         # End only -> apply False, note partial
         apply, note = _lo_style_for_replaced_range(model, content, make_paragraph_edge_range(False, True))
         assert apply is False
-        assert note == _LO_STYLE_PARTIAL_MATCH_NOTE
+        assert note == "STYLE_IGNORED_PARTIAL_MATCH"
 
         # Neither -> apply False, note partial
         apply, note = _lo_style_for_replaced_range(model, content, make_paragraph_edge_range(False, False))
         assert apply is False
-        assert note == _LO_STYLE_PARTIAL_MATCH_NOTE
+        assert note == "STYLE_IGNORED_PARTIAL_MATCH"
 
 
 def test_lo_style_for_replaced_range_recording():
-    from plugin.writer.html_import import (
-        _lo_style_for_replaced_range,
-        _LO_STYLE_PARTIAL_MATCH_NOTE,
-        _LO_STYLE_RECORDING_NOTE,
-    )
+    from plugin.writer.html_import import _lo_style_for_replaced_range
 
     model = MagicMock()
     content = '<p data-lo-style="Heading2">content</p>'
@@ -1804,12 +1797,12 @@ def test_lo_style_for_replaced_range_recording():
         # Edges true, recording true -> apply False, recording sentence
         apply, note = _lo_style_for_replaced_range(model, content, make_paragraph_edge_range(True, True))
         assert apply is False
-        assert note == _LO_STYLE_RECORDING_NOTE
+        assert note == "STYLE_IGNORED_RECORDING"
 
         # Geometry checked first: partial match while recording returns partial note
         apply, note = _lo_style_for_replaced_range(model, content, make_paragraph_edge_range(False, True))
         assert apply is False
-        assert note == _LO_STYLE_PARTIAL_MATCH_NOTE
+        assert note == "STYLE_IGNORED_PARTIAL_MATCH"
 
 
 def test_lo_style_for_replaced_range_non_block_tokens():

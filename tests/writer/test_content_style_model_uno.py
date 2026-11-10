@@ -398,7 +398,10 @@ def test_write_search_does_not_restyle_surrounding_text_uno(ctx, doc):
         _tool_ctx(doc, ctx), target="search", old_content="MARKER",
         content=['<p data-lo-style="Caption">CAPX</p>', '<p data-lo-style="Heading2">HEADX</p>'])
     assert res.get("status") == "ok", res
-    assert "warning" in res and "apply_style(target='search', old_content=...)" in res["warning"]
+    assert "warning" not in res
+    assert "warnings" in res
+    assert res["warnings"][0]["code"] == "STYLE_IGNORED_PARTIAL_MATCH"
+    assert "apply_style(target='search', old_content=...)" in res["warnings"][0]["message"]
     assert "apply_style(target='search', old_content=...)" in res["message"]
     pairs = _para_pairs(doc)
     # Nothing got restyled to Caption/Heading 2 (styles are not applied on partial search).
@@ -497,8 +500,10 @@ def test_write_selection_partial_paragraph_warns_and_skips_style_uno(ctx, doc):
         _tool_ctx(doc, ctx), target="selection",
         content='<p data-lo-style="Heading2">New heading</p>')
     assert res.get("status") == "ok", res
-    assert "warning" in res
-    assert "apply_style(target='search', old_content=...)" in res["warning"]
+    assert "warning" not in res
+    assert "warnings" in res
+    assert res["warnings"][0]["code"] == "STYLE_IGNORED_PARTIAL_MATCH"
+    assert "apply_style(target='search', old_content=...)" in res["warnings"][0]["message"]
     assert "apply_style(target='search', old_content=...)" in res["message"]
     pairs = _para_pairs(doc)
     assert all(s != "Heading 2" for s, _ in pairs), pairs
@@ -533,8 +538,10 @@ def test_write_search_whole_paragraph_recording_warns_uno(ctx, doc):
             _tool_ctx(doc, ctx), target="search", old_content="Replace me",
             content='<p data-lo-style="Heading2">New heading</p>')
         assert res.get("status") == "ok", res
-        assert "warning" in res
-        assert "tracked changes are recording" in res["warning"]
+        assert "warning" not in res
+        assert "warnings" in res
+        assert res["warnings"][0]["code"] == "STYLE_IGNORED_RECORDING"
+        assert "tracked changes are recording" in res["warnings"][0]["message"]
         assert "tracked changes are recording" in res["message"]
     finally:
         doc.setPropertyValue("RecordChanges", False)
@@ -577,8 +584,10 @@ def test_write_search_all_matches_mixed_whole_and_partial_uno(ctx, doc):
         content='<p data-lo-style="Heading2">Replacement</p>')
     assert res.get("status") == "ok", res
     assert res.get("replaced_count") == 2, res
-    assert "warning" in res
-    assert "1 of 2 matches" in res["warning"]
+    assert "warning" not in res
+    assert "warnings" in res
+    assert res["warnings"][0]["code"] == "STYLE_IGNORED_PARTIAL_MATCH"
+    assert "1 of 2 matches" in res["warnings"][0]["message"]
     assert "1 of 2 matches" in res["message"]
 
     pairs = _para_pairs(doc)
@@ -595,3 +604,59 @@ def test_write_search_all_matches_mixed_whole_and_partial_uno(ctx, doc):
     # Exactly one paragraph got Heading 2 (the whole-paragraph match, not the partial one)
     assert sum(1 for s, _ in pairs if s == "Heading 2") == 1, pairs
     assert any("tail" in t for _, t in pairs), pairs
+
+
+@native_test
+@with_native_doc("writer")
+def test_partial_match_suggested_call_replay_uno(ctx, doc):
+    """Replaying suggested_call from partial match restyles the host paragraph while neighbors keep styles."""
+    from plugin.writer.styles import ApplyStyle
+    from tests.framework.test_errors import assert_valid_suggested_call
+
+    text = doc.getText()
+    text.setString("")
+    cur = text.createTextCursor()
+    cur.gotoStart(False)
+    cur.setPropertyValue("ParaStyleName", "Standard")
+    text.insertString(cur, "Keep before", False)
+    text.insertControlCharacter(cur, 0, False)
+    cur.setPropertyValue("ParaStyleName", "Standard")
+    text.insertString(cur, "Prefix TARGET Suffix", False)
+    text.insertControlCharacter(cur, 0, False)
+    cur.setPropertyValue("ParaStyleName", "Standard")
+    text.insertString(cur, "Keep after", False)
+
+    res = ApplyDocumentContent().execute(
+        _tool_ctx(doc, ctx),
+        target="search",
+        old_content="TARGET",
+        content='<p data-lo-style="Heading2">Replacement</p>',
+    )
+    assert res.get("status") == "ok", res
+    assert "warnings" in res
+    assert "warning" not in res
+    diag = res["warnings"][0]
+    assert diag["code"] == "STYLE_IGNORED_PARTIAL_MATCH"
+    assert diag["matches_skipped"] == 1
+    assert diag["matches_total"] == 1
+    assert "suggested_call" in diag
+    suggested = diag["suggested_call"]
+    assert suggested["tool"] == "apply_style"
+    assert suggested["arguments"]["target"] == "search"
+    assert suggested["arguments"]["old_content"] == "Replacement"
+    assert suggested["arguments"]["style"] == "Heading 2"
+    assert suggested["arguments"]["case_sensitive"] is True
+    assert_valid_suggested_call(suggested)
+
+    # Replay the suggested call against LibreOffice
+    style_res = ApplyStyle().execute(_tool_ctx(doc, ctx), **suggested["arguments"])
+    assert style_res.get("status") == "ok", style_res
+
+    # Host paragraph is restyled to Heading 2, while neighbouring paragraphs remain Standard
+    pairs = _para_pairs(doc)
+    before = next(((s, t) for s, t in pairs if "Keep before" in t), None)
+    host = next(((s, t) for s, t in pairs if "Replacement" in t), None)
+    after = next(((s, t) for s, t in pairs if "Keep after" in t), None)
+    assert before is not None and before[0] == "Standard", pairs
+    assert host is not None and host[0] == "Heading 2", pairs
+    assert after is not None and after[0] == "Standard", pairs

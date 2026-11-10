@@ -535,17 +535,6 @@ def _range_covers_whole_paragraphs(text_range: Any) -> bool:
     return bool(start.isStartOfParagraph() and end.isEndOfParagraph())
 
 
-_LO_STYLE_PARTIAL_MATCH_NOTE = (
-    "data-lo-style was not applied because the match does not cover whole paragraphs; "
-    "applying it would restyle neighboring text. Restyle with apply_style(target='search', old_content=...)."
-)
-_LO_STYLE_RECORDING_NOTE = (
-    "data-lo-style was not applied while tracked changes are recording, because a paragraph "
-    "style on this replace would turn the deletion into a format change. Restyle with "
-    "apply_style(target='search', old_content=...) after the change is accepted."
-)
-
-
 def _lo_style_for_replaced_range(model: Any, content: str, text_range: Any) -> tuple[bool, str | None]:
     """Determine whether to apply block data-lo-style on a replaced range, or warn if skipped."""
     if not content or "data-lo-style" not in content:
@@ -554,9 +543,9 @@ def _lo_style_for_replaced_range(model: Any, content: str, text_range: Any) -> t
     if not any(styles):
         return False, None
     if not _range_covers_whole_paragraphs(text_range):
-        return False, _LO_STYLE_PARTIAL_MATCH_NOTE
+        return False, "STYLE_IGNORED_PARTIAL_MATCH"
     if record_changes.is_recording_changes(model):
-        return False, _LO_STYLE_RECORDING_NOTE
+        return False, "STYLE_IGNORED_RECORDING"
     return True, None
 
 

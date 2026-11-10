@@ -270,7 +270,9 @@ def test_unmapped_data_lo_para_full_document_warns_for_unmapped_property():
         {"status": "ok", "message": "Replaced entire document."},
         ["font-size"],
     )
-    assert res.get("warnings") == ["data-lo-para property 'font-size' was not applied"]
+    assert res.get("warnings") == [
+        {"code": "PARA_PROPERTY_UNSUPPORTED", "message": "data-lo-para property 'font-size' was not applied"}
+    ]
 
 
 def test_failed_write_is_not_annotated():
@@ -291,7 +293,9 @@ def test_search_target_warns_for_mapped_property(monkeypatch):
         content='<p data-lo-para="text-align:center">x</p>',
     )
     assert res.get("status") == "ok", res
-    assert res.get("warnings") == ["data-lo-para property 'text-align' was not applied"]
+    assert res.get("warnings") == [
+        {"code": "PARA_PROPERTY_UNSUPPORTED", "message": "data-lo-para property 'text-align' was not applied"}
+    ]
 
 
 def test_content_without_the_attribute_is_untouched(monkeypatch):
@@ -1029,7 +1033,9 @@ def test_full_document_data_lo_para_warnings():
     assert res["status"] == "ok"
     assert res["paragraph_count"] == 1
     assert res["headings"] == []
-    assert res["warnings"] == ["data-lo-para property 'line-height' was not applied"]
+    assert res["warnings"] == [
+        {"code": "PARA_PROPERTY_UNSUPPORTED", "message": "data-lo-para property 'line-height' was not applied"}
+    ]
 
 
 def test_full_document_reports_math_objects(monkeypatch):

@@ -531,7 +531,7 @@ def test_header_data_lo_style_and_para_round_trip_uno(ctx, doc):
     # the read then reports (fonts are not written back, see _READ_ONLY_PARA_NAMES).
     from plugin.writer.html_import_styles import _READ_ONLY_PARA_NAMES
 
-    warned = {w.split("'")[1] for w in res2.get("warnings", [])}
+    warned = {(w["message"] if isinstance(w, dict) else w).split("'")[1] for w in res2.get("warnings", [])}
     assert warned <= _READ_ONLY_PARA_NAMES, (res2, read)
     para = _first_paragraph(_region_text(doc, "header"))
     assert para.getString() == "Letterhead"
@@ -545,7 +545,9 @@ def test_header_unapplied_data_lo_para_is_reported_uno(ctx, doc):
     """A paragraph-level font cannot be applied (it would flatten spans), so it warns."""
     res = _set(doc, ctx, "footer", '<p data-lo-para="font-weight:bold">Footer</p>')
     assert res["status"] == "ok", res
-    assert res.get("warnings") == ["data-lo-para property 'font-weight' was not applied"], res
+    assert res.get("warnings") == [
+        {"code": "PARA_PROPERTY_UNSUPPORTED", "message": "data-lo-para property 'font-weight' was not applied"}
+    ], res
     assert _region_text(doc, "footer").getString().strip() == "Footer"
 
 
