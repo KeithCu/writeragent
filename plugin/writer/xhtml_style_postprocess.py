@@ -14,10 +14,11 @@
 #     (when supplied), else CSS fingerprint, else omitted
 #
 # v1 limitations (see docs/writer/html-style-model-plan.md#v1-limitations-shipped):
-#   - Whole-paragraph Para* overrides in data-lo-para: on write, text-align, margin-left,
-#     margin-right, and background-color round-trip on full_document, beginning, and end;
-#     other properties (margins top/bottom, indent, line-height, fonts, text color) arrive
-#     in warnings. selection/search and table cells do not apply data-lo-para. Read reports
+#   - Whole-paragraph Para* overrides in data-lo-para: on write, the geometry properties
+#     (alignment, margins, indent, line-height) and background-color round-trip on
+#     full_document, beginning, and end; paragraph-level font properties and color are
+#     read-only and arrive in warnings (html_import_styles._READ_ONLY_PARA_NAMES says why).
+#     selection/search and table cells do not apply data-lo-para. Read reports
 #     geometry, paragraph font, and fo:color in data-lo-para from the flat-ODF sidecar (see
 #     _parse_fodt_autostyles): the XHTML CSS is flattened and cannot tell an override from
 #     an inherited value.
@@ -97,9 +98,10 @@ def xhtml_has_paragraph_autostyle(xhtml: str) -> bool:
 # look like it did nothing. fo:color was missing here, so Issue-1-style center+red never showed
 # red in data-lo-para (char spans could still carry colour).
 #
-# On write, text-align, margin-left, margin-right, and background-color are mapped onto paragraph
-# properties after the style is set (for full_document, beginning, and end targets). Other property
-# names arrive in warnings. selection/search targets and table cells do not apply data-lo-para.
+# On write, html_import_styles._para_writers() maps each name here onto a paragraph property after
+# the style is set (full_document, beginning, and end targets), except the font names and color in
+# html_import_styles._READ_ONLY_PARA_NAMES, which arrive in warnings. A unit test fails when a name
+# added here is in neither. selection/search targets and table cells do not apply data-lo-para.
 # Not emitted as style="": the import reads style="" as a character override.
 # ODF attribute -> CSS name, in emit order.
 _FODT_OVERRIDE_ATTRS = (

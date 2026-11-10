@@ -26,6 +26,36 @@ def test_replace_text_in_shape_returns_false_on_ordinary_error():
     assert replace_text_in_shape(shape, "a", "b") is False
 
 
+def test_replace_text_in_shape_folds_quotes():
+    xtext = MagicMock()
+    xtext.getString.return_value = "He said \u201cHi,\u201d"
+    cursor = MagicMock()
+    xtext.createTextCursorByRange.return_value = cursor
+    shape = MagicMock()
+    shape.getText.return_value = xtext
+
+    assert replace_text_in_shape(shape, '"Hi,"', "Bye") is True
+    cursor.goRight.assert_any_call(8, False)
+    cursor.goRight.assert_any_call(5, True)
+    cursor.setString.assert_called_once_with("Bye")
+
+
+def test_replace_text_in_shape_case_sensitivity():
+    xtext = MagicMock()
+    xtext.getString.return_value = "Hello World"
+    cursor = MagicMock()
+    xtext.createTextCursorByRange.return_value = cursor
+    shape = MagicMock()
+    shape.getText.return_value = xtext
+
+    assert replace_text_in_shape(shape, "world", "Universe", case_sensitive=False) is True
+    cursor.goRight.assert_any_call(6, False)
+    cursor.goRight.assert_any_call(5, True)
+    cursor.setString.assert_called_once_with("Universe")
+
+    assert replace_text_in_shape(shape, "world", "Universe", case_sensitive=True) is False
+
+
 def test_writer_layout_tool_names():
     from plugin.writer.specialized import shapes as writer_shapes
 

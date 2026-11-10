@@ -181,6 +181,7 @@ def test_grep_nearby_files_aggregates_hits(mock_resolve, mock_search, mock_open,
     result = grep_nearby_files(MagicMock(), MagicMock(), MagicMock(), "Q4", file_subset="budget")
 
     assert result["status"] == "ok"
+    assert result["matched_case_sensitive"] is False
     assert result["files_scanned"] == 1
     assert result["files_with_hits"] == 1
     assert len(result["hits"]) == 1
@@ -860,3 +861,24 @@ def test_grep_text_in_draw_caps_shape_snippet():
 
     matches, partial = _grep_text_in_draw(model, "a", max_results=1)
     assert matches[0]["text"] == "a" * 200 + "…"
+
+
+def test_grep_nearby_files_tool_wrapper_matched_case_sensitive():
+    from plugin.doc.document_research_grep_tool import GrepNearbyFiles
+    tool = GrepNearbyFiles()
+    ctx = MagicMock()
+    ctx.stop_checker = lambda: False
+    ctx.send_cancellation = None
+
+    with patch("plugin.doc.document_research_grep_tool.grep_nearby_files") as mock_grep:
+        mock_grep.return_value = {"status": "ok", "hits": [], "matched_case_sensitive": False}
+        res_default = tool.execute(ctx, pattern="search_term")
+        assert res_default["status"] == "ok"
+        assert res_default["matched_case_sensitive"] is False
+        assert mock_grep.call_args.kwargs["case_sensitive"] is False
+
+        mock_grep.return_value = {"status": "ok", "hits": [], "matched_case_sensitive": True}
+        res_cs = tool.execute(ctx, pattern="search_term", case_sensitive=True)
+        assert res_cs["status"] == "ok"
+        assert res_cs["matched_case_sensitive"] is True
+        assert mock_grep.call_args.kwargs["case_sensitive"] is True

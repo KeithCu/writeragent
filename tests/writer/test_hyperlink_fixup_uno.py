@@ -274,7 +274,7 @@ def test_dry_run_reports_outline_url_without_editing_uno(ctx, doc):
     res = _apply(doc, ctx, old_content="Old title", content="New title", dry_run=True)
     assert res.get("status") == "ok", res
     assert res.get("dry_run") is True, res
-    match = res["matches"][0]
+    match = res["replaceable"][0]
     assert match.get("hyperlink_url") == _OUTLINE, res
     assert match.get("hyperlink_url_after") == _OUTLINE_NEW, res
     rows = _portion_urls(doc)
@@ -519,7 +519,7 @@ def test_dry_run_before_does_not_preview_an_outline_rewrite_uno(ctx, doc):
     res = _apply(
         doc, ctx, old_content="Old title", content="Hi", dry_run=True, position="before")
     assert res.get("status") == "ok", res
-    assert "hyperlink_url" not in res["matches"][0], res
+    assert "hyperlink_url" not in res["replaceable"][0], res
     rows = _portion_urls(doc)
     assert any(chunk == "Old title" and url == _OUTLINE for chunk, url in rows), rows
     rejected = _apply(
@@ -578,7 +578,7 @@ def test_identical_replace_sets_outline_url_uno(ctx, doc):
         hyperlink_url=_OUTLINE_NEW, dry_run=True)
     assert preview.get("status") == "ok", preview
     assert preview.get("dry_run") is True, preview
-    match = preview["matches"][0]
+    match = preview["replaceable"][0]
     assert match.get("hyperlink_url") == _OUTLINE, preview
     assert match.get("hyperlink_url_after") == _OUTLINE_NEW, preview
     assert set(_urls_over(_portion_urls(doc), "New title")) == {_OUTLINE}

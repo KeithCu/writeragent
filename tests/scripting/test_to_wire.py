@@ -135,6 +135,23 @@ def test_json_behaviour_changes():
     assert not is_image_payload(fig_json)  # false because data is str, not bytes
 
 
+def test_figure_svg_bytes_are_stable_across_renders():
+    """Rendering the same figure twice gives identical SVG bytes, so the Calc digest cache hits."""
+    plt = pytest.importorskip("matplotlib.pyplot")
+    import hashlib
+
+    from plugin.scripting.venv.to_wire import _figure_to_image_payload
+
+    fig, ax = plt.subplots()
+    ax.plot([1, 2, 3])
+    first = _figure_to_image_payload(fig)["data"]
+    second = _figure_to_image_payload(fig)["data"]
+    plt.close(fig)
+
+    # Revert target: metadata={"Date": None} and the fixed svg.hashsalt in _figure_to_image_payload
+    assert hashlib.sha256(first).hexdigest() == hashlib.sha256(second).hexdigest()
+
+
 def test_leaf_assertion_on_pickle_result():
     """Walk a pickle result and verify every leaf is in HOST_PICKLE_LEAF_TYPES and dict keys are str."""
     pd = pytest.importorskip("pandas")

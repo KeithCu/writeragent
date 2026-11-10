@@ -26,6 +26,7 @@ from plugin.framework.errors import best_effort
 from plugin.doc.text_helpers import (
     get_string_without_tracked_deletions,
     iter_elements,
+    starts_at_or_after,
     walk_cap_warning,
     _visible_portions as _shared_visible_portions,
 )
@@ -262,14 +263,6 @@ def _starts_before(text: Any, left: Any, right: Any) -> bool:
     return uno_read(lambda: int(text.compareRegionStarts(left, right)) == 1, False)
 
 
-def _starts_at_or_after(text: Any, left: Any, right: Any) -> bool:
-    """True when *left* is at or after *right*. A failed compare does not stop the walk."""
-    try:
-        return int(text.compareRegionStarts(left, right)) != 1
-    except Exception:
-        return False
-
-
 def _ends_after(text: Any, left: Any, right: Any) -> bool:
     """True when *left* ends strictly after *right* (``compareRegionEnds`` == -1)."""
     return uno_read(lambda: int(text.compareRegionEnds(left, right)) == -1, False)
@@ -377,7 +370,7 @@ def _range_to_content_via_temp_doc(
         for el in iter_elements(enum):
             if not hasattr(el, "getString"):
                 continue
-            if source_range is not None and _starts_at_or_after(text, el.getStart(), source_range.getEnd()):
+            if source_range is not None and starts_at_or_after(text, el.getStart(), source_range.getEnd()):
                 break
             if range_copy._supports_service(el, "com.sun.star.text.TextTable"):
                 # Tables are in this enumeration and have no ParaStyleName.
@@ -417,9 +410,10 @@ def _range_to_content_via_temp_doc(
                     trim_end = len(para_text) - max(0, para_end - end)
                     para_text = para_text[trim_start:trim_end]
 
+            applied = False
             if first_para:
                 temp_cursor.gotoStart(False)
-                range_copy.apply_temp_para_style(temp_doc, temp_cursor, style)
+                applied = range_copy.apply_temp_para_style(temp_doc, temp_cursor, style)
                 first_para = False
             else:
                 temp_cursor.gotoEnd(False)
@@ -429,12 +423,12 @@ def _range_to_content_via_temp_doc(
                 # clobbers the previous paragraph instead of filling the new one.
                 temp_cursor.gotoNextParagraph(False)
                 temp_cursor.gotoEndOfParagraph(True)
-                range_copy.apply_temp_para_style(temp_doc, temp_cursor, style)
+                applied = range_copy.apply_temp_para_style(temp_doc, temp_cursor, style)
 
             if not has_formula:
                 temp_cursor.setString(para_text)
-                range_copy._paint_direct_formatting(el, portions, temp_text, trim_start, trim_end,
-                                          range_copy.source_style(model, style, style_cache))
+                src_style = range_copy.source_style(model, style, style_cache) if applied else None
+                range_copy._paint_direct_formatting(el, portions, temp_text, trim_start, trim_end, src_style)
             else:
                 # Standalone formula: paragraph has no other visible text
                 display_block = not any(

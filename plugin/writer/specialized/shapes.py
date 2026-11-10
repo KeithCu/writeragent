@@ -19,6 +19,7 @@
 from typing import Any
 
 from plugin.framework.errors import reraise_if_disposed
+from ..search import SEARCH_CASE_SENSITIVE_DEFAULT, shape_text_span
 from ..specialized_base import ToolWriterShapeBase
 from plugin.draw.shapes import UpsertShape as DrawUpsertShape
 from plugin.draw.shapes import DeleteShape as DrawDeleteShape
@@ -64,7 +65,13 @@ class CreateDiagram(DrawCreateDiagram, ToolWriterShapeBase):
     name: str | None = "shape_diagram"
 
 
-def replace_text_in_shape(shape: Any, old: str, new: str) -> bool:
+def replace_text_in_shape(
+    shape: Any,
+    old: str,
+    new: str,
+    *,
+    case_sensitive: bool = SEARCH_CASE_SENSITIVE_DEFAULT,
+) -> bool:
     """Replace the first occurrence of *old* with *new* inside a drawing shape's own text,
     preserving the formatting of the surrounding text via a text cursor. Returns True on success.
 
@@ -77,13 +84,14 @@ def replace_text_in_shape(shape: Any, old: str, new: str) -> bool:
     except Exception as exc:
         reraise_if_disposed(exc, object_type="Text")
         return False
-    idx = s.find(old)
-    if idx < 0:
+    span = shape_text_span(s, old, case_sensitive=case_sensitive)
+    if span is None:
         return False
+    start, end = span
     # goRight counts UTF-16 code units, while str offsets count code points. Convert so astral
     # characters (emoji, rare CJK) in the shape text don't misalign the selection / corrupt text.
-    left_units = len(s[:idx].encode("utf-16-le")) // 2
-    old_units = len(old.encode("utf-16-le")) // 2
+    left_units = len(s[:start].encode("utf-16-le")) // 2
+    old_units = len(s[start:end].encode("utf-16-le")) // 2
     if old_units <= 0:
         return False
     try:

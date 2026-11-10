@@ -69,6 +69,14 @@ For `apply_document_content`, search edits in-use header/footer text; body inser
 
 Possible but non-trivial: tool JSON schema, eval harness, and years of prompt habit. Could widen schema to `string | array` later if single-string documents prove more reliable. Until then: array for documents, single string for sidebar — keep examples separate.
 
+#### Anchor-based range replacement (`start_anchor` / `end_anchor`)
+
+In addition to `old_content`, `apply_document_content(target='search')` supports landmark-to-landmark replacement via `start_anchor` and `end_anchor`.
+- The replaced range starts at the beginning of the `start_anchor` match and extends through the end of the first `end_anchor` match that begins at or after the start match's end, including both anchors and all text between them.
+- Both anchors must resolve to the same `XText` container (same body, table cell, or text frame); crossing text boundaries produces an error. Spans containing a table between the anchors are refused with an error directing callers to `table_delete`.
+- Multiline plain anchor text is imported as new paragraphs and does not keep the span's character or paragraph formatting, while single-line plain anchor text remains on the inline path to avoid splitting the host paragraph; anchor replacements skip outline URL fixup.
+- Multi-paragraph replacement using suffix / whole-middle / prefix grammar remains on the `old_content` path.
+
 ### Math prompt policy (`WRITER_APPLY_DOCUMENT_HTML_RULES`)
 
 Recommend `\(...\)` inline delimiters only. The import path still parses `$`, `$$`, and `\[...\]` ([`html_math_segment.py`](../../plugin/writer/math/html_math_segment.py)) for pasted or legacy content — we just do not steer models toward display delimiters.

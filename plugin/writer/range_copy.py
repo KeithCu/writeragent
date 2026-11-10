@@ -56,21 +56,21 @@ def _portion_field(portion: Any) -> Any:
         return None
 
 
-def _copy_text_run(portion: Any, dest_text: Any, cursor: Any, chunk: str) -> None:
+def _copy_text_run(portion: Any, dest_text: Any, cursor: Any, chunk: str, style: Any = None) -> None:
     start = cursor.getStart()
     dest_text.insertString(cursor, chunk, False)
     run = dest_text.createTextCursorByRange(start)
     run.gotoRange(cursor.getEnd(), True)
-    _copy_properties(portion, run, _COPIED_CHAR_PROPERTIES)
+    _copy_properties(portion, run, _COPIED_CHAR_PROPERTIES, style)
     cursor.gotoRange(run.getEnd(), False)
 
 
-def _copy_para_properties_to_end(dest_text: Any, cursor: Any, el: Any) -> None:
+def _copy_para_properties_to_end(dest_text: Any, cursor: Any, el: Any, style: Any = None) -> None:
     para_cursor = dest_text.createTextCursor()
     para_cursor.gotoEnd(False)
     para_cursor.gotoStartOfParagraph(False)
     para_cursor.gotoEndOfParagraph(True)
-    _copy_properties(el, para_cursor, _COPIED_PARA_PROPERTIES)
+    _copy_properties(el, para_cursor, _COPIED_PARA_PROPERTIES, style)
     cursor.gotoRange(para_cursor.getEnd(), False)
 
 
@@ -160,7 +160,7 @@ def source_style(model: Any, style_name: str, cache: dict[str, Any]) -> Any:
     return style
 
 
-def apply_temp_para_style(temp_doc: Any, temp_cursor: Any, style: str) -> None:
+def apply_temp_para_style(temp_doc: Any, temp_cursor: Any, style: str) -> bool:
     """Apply *style* on the scratch paragraph when that style exists there.
 
     Selection and range export copy each paragraph into a blank
@@ -169,9 +169,10 @@ def apply_temp_para_style(temp_doc: Any, temp_cursor: Any, style: str) -> None:
     raises and the broad handler returns ``""``, discarding the whole
     selection. Skip the missing style (the scratch default stays) and
     keep copying. One style miss must not discard the range.
+    Returns True if the style was applied to the scratch paragraph, False otherwise.
     """
     if not style:
-        return
+        return False
     try:
         families = temp_doc.getStyleFamilies()
         para_styles = families.getByName("ParagraphStyles")
@@ -180,14 +181,16 @@ def apply_temp_para_style(temp_doc: Any, temp_cursor: Any, style: str) -> None:
                 "range export: paragraph style %r is not in the scratch document; keeping the default",
                 style,
             )
-            return
+            return False
         temp_cursor.setPropertyValue("ParaStyleName", style)
+        return True
     except Exception:
         log.debug(
             "range export: skipped paragraph style %r on the scratch document",
             style,
             exc_info=True,
         )
+        return False
 
 
 def _paint_direct_formatting(  # pyright: ignore[reportUnusedFunction]
@@ -308,6 +311,7 @@ def _copy_visible_portions(
     cursor: Any,
     parent_el: Any,
     math_records: list[tuple[str, str, bool]] | None,
+    style: Any = None,
 ) -> None:
     for portion, kind in _iter_portions(portions):
         if kind == "TextField":
@@ -319,7 +323,7 @@ def _copy_visible_portions(
             chunk = uno_read(lambda: portion.getString(), "")
             if not chunk:
                 continue
-            _copy_text_run(portion, dest_text, cursor, chunk)
+            _copy_text_run(portion, dest_text, cursor, chunk, style)
         else:
             _copy_math_or_text(portion, parent_el, dest_text, cursor, math_records)
 
@@ -487,12 +491,20 @@ def _copy_xtext_by_portions(
     src_text: Any,
     dest_doc: Any,
     math_records: list[tuple[str, str, bool]] | None = None,
+    src_doc: Any = None,
 ) -> None:
     """Copy paragraphs/fields without the view transferable.
 
     Needed when ``select()`` on ``HeaderText`` pastes nothing because the
     view is on the first page (``FirstIsShared=False``).
+
+    With *src_doc*, each copy gets its source paragraph style, and only values that
+    differ from that style are copied. Without the style, the export would report
+    ``Standard`` for a ``Header`` paragraph, and every inherited margin and font would
+    come back as a hand-set ``data-lo-para`` override (same rule as range export, see
+    ``_copy_properties``).
     """
+    style_cache: dict[str, Any] = {}
     dest_text = dest_doc.getText()
     dest_text.setString("")
     dest_cursor = dest_text.createTextCursor()
@@ -523,8 +535,13 @@ def _copy_xtext_by_portions(
         except Exception:
             _fallback_insert_para_text(dest_text, dest_cursor, el)
             continue
-        _copy_visible_portions(portions, dest_doc, dest_text, dest_cursor, el, math_records)
-        _copy_para_properties_to_end(dest_text, dest_cursor, el)
+        style = None
+        if src_doc is not None:
+            style_name = uno_read(lambda: el.getPropertyValue("ParaStyleName"), "")
+            if apply_temp_para_style(dest_doc, dest_cursor, style_name):
+                style = source_style(src_doc, style_name, style_cache)
+        _copy_visible_portions(portions, dest_doc, dest_text, dest_cursor, el, math_records, style)
+        _copy_para_properties_to_end(dest_text, dest_cursor, el, style)
 
 
 def _copy_flow_into_xtext(doc: Any, src_text: Any, dest_text: Any) -> int:  # pyright: ignore[reportUnusedFunction]
@@ -686,6 +703,6 @@ def _copy_xtext_into_doc(  # pyright: ignore[reportUnusedFunction]
     _copy_flow_into_xtext). Anchored graphics are cloned after the text walk
     because an early graphic insert would be dropped by subsequent setString steps.
     """
-    _copy_xtext_by_portions(src_text, dest_doc, math_records=math_records)
+    _copy_xtext_by_portions(src_text, dest_doc, math_records=math_records, src_doc=src_doc)
     _copy_anchored_graphics(src_doc, src_text, dest_doc)
 

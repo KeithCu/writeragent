@@ -13,6 +13,7 @@ import, and resolves/applies paragraph styles via UNO after import.
 
 from __future__ import annotations
 
+import html as html_mod
 import logging
 import re
 from typing import TYPE_CHECKING, Any, ClassVar, final
@@ -22,7 +23,7 @@ from plugin.framework.errors import reraise_if_disposed, uno_read
 from . import xhtml_style_postprocess as xhtml_post
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable
+    from collections.abc import Callable, Iterable
 
 log = logging.getLogger("writeragent.writer")
 
@@ -39,8 +40,7 @@ def _declaration_names(css: str) -> list[str]:
         part = part.strip()
         if not part or ":" not in part:
             continue
-        prop, _ = part.split(":", 1)
-        prop = prop.strip().lower()
+        prop = part.split(":", 1)[0].strip().lower()
         if prop:
             names.append(prop)
     return names
@@ -77,74 +77,137 @@ def _parse_length_to_unit(val: str) -> int | None:
     return None
 
 
+_PERCENT_RE = re.compile(r"^(\d+(?:\.\d+)?)%$")
+
+
+def _length_writer(uno_prop: str) -> Callable[[str], tuple[str, Any] | None]:
+    """Writer for a CSS length that maps onto one 1/100 mm paragraph property."""
+    def write(val: str) -> tuple[str, Any] | None:
+        length = _parse_length_to_unit(val)
+        return None if length is None else (uno_prop, length)
+    return write
+
+
+def _line_height_fields(val: str) -> dict[str, Any] | None:
+    """CSS line-height as ODF writes it → LineSpacing fields (Mode word, Height).
+
+    ODF emits ``fo:line-height`` as a percentage (proportional spacing) or a length
+    (fixed spacing). ``normal`` is single spacing, the same as 100%.
+    """
+    if val == "normal":
+        return {"Mode": "prop", "Height": 100}
+    m = _PERCENT_RE.match(val)
+    if m:
+        pct = int(round(float(m.group(1))))
+        # Same rule as a zero/negative length: 0% would collapse the line.
+        if pct <= 0:
+            return None
+        return {"Mode": "prop", "Height": pct}
+    length = _parse_length_to_unit(val)
+    if length is not None and length > 0:
+        return {"Mode": "fix", "Height": length}
+    return None
+
+
+# CSS names that reads emit in data-lo-para (xhtml_post._FODT_OVERRIDE_ATTRS) but writes
+# cannot apply, so they always come back in warnings. Paragraph-level character properties
+# are set on the SwXParagraph, and Writer applies them over the whole paragraph text: a bold
+# or coloured span inside the paragraph merges into one portion and loses its own value
+# (checked against a live Writer with setPropertyValue("CharWeight") on a paragraph holding
+# a bold run). An agent copying a paragraph back would silently flatten its spans.
+# test_every_read_para_name_has_a_writer_or_is_listed_read_only keeps this set and the
+# writers table covering every name the read side emits.
+_READ_ONLY_PARA_NAMES = frozenset({"font-family", "font-size", "font-weight", "font-style", "color"})
+
+
+def _para_writers() -> dict[str, Callable[[str], tuple[str, Any] | None]]:
+    """CSS name → converter from the raw CSS value to ``(uno_prop, uno_value)``, or None.
+
+    A converter returns None when the value cannot be understood; the name is then
+    reported as not applied. Returns an empty table when styles.py is missing: LibrePy
+    ships this module without it (scripts/librepy_bundle_paths.py), and
+    test_librepy_shipped_function_level_imports_are_safe checks that the import stays
+    guarded. The one caller, apply_block_lo_styles, already returns before parsing in
+    that build, so the empty table only keeps the import graph safe.
+    """
+    try:
+        from .styles import _dict_to_uno_struct, _para_adjust_to_uno, _style_color_to_uno
+    except ImportError:
+        return {}
+
+    def text_align(val: str) -> tuple[str, Any] | None:
+        try:
+            return ("ParaAdjust", _para_adjust_to_uno(xhtml_post._ODF_TEXT_ALIGN.get(val, val)))
+        except ValueError:
+            return None
+
+    def line_height(val: str) -> tuple[str, Any] | None:
+        fields = _line_height_fields(val)
+        if fields is None:
+            return None
+        return ("ParaLineSpacing", _dict_to_uno_struct("ParaLineSpacing", "com.sun.star.style.LineSpacing", fields))
+
+    def background(val: str) -> tuple[str, Any] | None:
+        col = _style_color_to_uno(val)
+        # _apply_para_props turns ParaBackColor into the FillColor/FillStyle pair.
+        return None if col is None else ("ParaBackColor", col)
+
+    return {
+        "text-align": text_align,
+        "margin-left": _length_writer("ParaLeftMargin"),
+        "margin-right": _length_writer("ParaRightMargin"),
+        "margin-top": _length_writer("ParaTopMargin"),
+        "margin-bottom": _length_writer("ParaBottomMargin"),
+        # Negative is valid here: it is a hanging first line.
+        "text-indent": _length_writer("ParaFirstLineIndent"),
+        "line-height": line_height,
+        "background-color": background,
+    }
+
+
 def parse_data_lo_para(css: str) -> tuple[dict[str, tuple[str, Any]], list[str]]:
     """Parse a data-lo-para CSS fragment into UNO property mappings and unapplied names.
 
-    Maps text-align, margin-left, margin-right, and background-color to their respective
-    UNO property values. Returns a 2-tuple of (mapped_dict, dropped_css_names), where
-    mapped_dict is {css_prop: (uno_prop_name, uno_value)}. Declarations that cannot be
-    mapped, unrecognised property names, or mapped properties with invalid values are
-    returned in dropped_css_names in the order they were declared.
+    Returns ``(mapped, dropped)``. ``mapped`` is {css_prop: (uno_prop_name, uno_value)} for
+    every declaration _para_writers() can convert. ``dropped`` lists, in declaration order,
+    the names with no writer or with a value the writer could not convert. When a name is
+    declared twice, the first declaration wins.
     """
-    # Guarded because LibrePy ships this module without styles.py. In practice the guard
-    # only satisfies test_librepy_shipped_function_level_imports_are_safe: the one caller,
-    # _apply_block_lo_styles, already returns before parsing when styles.py is missing.
-    try:
-        from .styles import _para_adjust_to_uno, _style_color_to_uno
-    except ImportError:
-        _para_adjust_to_uno = None  # type: ignore[assignment]
-        _style_color_to_uno = None  # type: ignore[assignment]
-
+    writers = _para_writers()
     seen: set[str] = set()
     mapped: dict[str, tuple[str, Any]] = {}
     dropped: list[str] = []
 
     for part in css.split(";"):
-        part = part.strip()
-        if not part or ":" not in part:
-            continue
-        prop, val = part.split(":", 1)
+        prop, sep, val = part.partition(":")
         prop = prop.strip().lower()
-        val = val.strip()
-        if not prop or prop in seen:
+        if not sep or not prop or prop in seen:
             continue
         seen.add(prop)
-
-        if prop == "text-align":
-            mapped_val = xhtml_post._ODF_TEXT_ALIGN.get(val, val)
-            if _para_adjust_to_uno is not None:
-                try:
-                    mapped[prop] = ("ParaAdjust", _para_adjust_to_uno(mapped_val))
-                    continue
-                except ValueError:
-                    pass
-            dropped.append(prop)
-        elif prop == "margin-left":
-            length = _parse_length_to_unit(val)
-            if length is not None:
-                mapped[prop] = ("ParaLeftMargin", length)
-            else:
-                dropped.append(prop)
-        elif prop == "margin-right":
-            length = _parse_length_to_unit(val)
-            if length is not None:
-                mapped[prop] = ("ParaRightMargin", length)
-            else:
-                dropped.append(prop)
-        elif prop == "background-color":
-            if _style_color_to_uno is not None:
-                col = _style_color_to_uno(val)
-                if col is not None:
-                    mapped[prop] = ("ParaBackColor", col)
-                    continue
+        writer = writers.get(prop)
+        try:
+            result = writer(val.strip()) if writer is not None else None
+        except ValueError:
+            # _dict_to_uno_struct raises ValueError when a struct field rejects the value.
+            result = None
+        if result is None:
             dropped.append(prop)
         else:
-            dropped.append(prop)
+            mapped[prop] = result
 
     return mapped, dropped
 
 
 @final
+class _OpenBlock:
+    """An open block element on the parser stack."""
+
+    def __init__(self, tag: str, shared: bool | None, slot_index: int | None = None) -> None:
+        self.tag: str = tag
+        self.shared: bool | None = shared
+        self.slot_index: int | None = slot_index
+
+
 class _BlockLoStyleExtractor(xhtml_post._HtmlPassthroughParser):
     """Collect data-lo-style and data-lo-para per TOP-LEVEL block (document order) and strip
     the attributes from the HTML, so the StarWriter import sees clean markup and we apply the
@@ -152,15 +215,15 @@ class _BlockLoStyleExtractor(xhtml_post._HtmlPassthroughParser):
 
     # Paragraph-level blocks cannot contain blocks: a new one closes the open one (<p>a<p>b).
     _PARA_LEVEL: ClassVar[frozenset[str]] = frozenset({"p", "pre", "h1", "h2", "h3", "h4", "h5", "h6"})
+    _table_depth: int
 
     def __init__(self) -> None:
         super().__init__()
         self.styles: list[str | None] = []
         self.paras: list[str | None] = []
         self.skipped_para: list[str] = []
-        # Open block-level elements: [tag, first child block already shared this slot?], or
-        # [tag, None] for a transparent <div> (no slot of its own).
-        self._open: list[list[Any]] = []
+        # Open block-level elements: _OpenBlock(tag, shared?), or _OpenBlock(tag, None) for a transparent <div>.
+        self._open: list[_OpenBlock] = []
 
     @staticmethod
     def _style_of(attrs: list[tuple[str, str | None]]) -> str | None:
@@ -178,22 +241,36 @@ class _BlockLoStyleExtractor(xhtml_post._HtmlPassthroughParser):
             tag == "div" and (self._style_of(attrs) is not None or self._para_of(attrs) is not None)
         )
 
-    def _slot(self, style: str | None, para: str | None) -> None:
+    def _on_slot_created(self, slot_idx: int, tag: str, val: str | None) -> None:
+        pass
+
+    def _on_slot_shared(self, slot_idx: int, tag: str, val: str | None) -> None:
+        pass
+
+    def _on_block_popped(self, item: _OpenBlock) -> None:
+        pass
+
+    def _slot(self, tag: str, style: str | None, para: str | None) -> int:
         # <blockquote><p> and <li><p> take two slots but make ONE Writer
         # paragraph, so every later style lands one paragraph late ("2. DO
         # DIREITO" loses its heading, a list item becomes a quote). A
         # block's first child block is that same paragraph -- it shares
         # the slot, and its own style/para wins when it has one.
         parent = self._open[-1] if self._open else None
-        if parent is not None and parent[1] is False:
-            parent[1] = True
+        if parent is not None and parent.shared is False:
+            parent.shared = True
+            slot_idx = len(self.styles) - 1
             if style is not None:
                 self.styles[-1] = style
             if para is not None:
                 self.paras[-1] = para
-        else:
-            self.styles.append(style)
-            self.paras.append(para)
+            self._on_slot_shared(slot_idx, tag, style)
+            return slot_idx
+        slot_idx = len(self.styles)
+        self.styles.append(style)
+        self.paras.append(para)
+        self._on_slot_created(slot_idx, tag, style)
+        return slot_idx
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         raw = self.get_starttag_text() or ("<%s>" % tag)
@@ -214,20 +291,22 @@ class _BlockLoStyleExtractor(xhtml_post._HtmlPassthroughParser):
             self._out.append(_strip_data_lo_attrs(raw))
             return
         if not self._is_block(t, attrs):
-            self._open.append([t, None])  # transparent div
+            self._open.append(_OpenBlock(t, None))  # transparent div
             self._out.append(_strip_data_lo_attrs(raw))
             return
-        while self._open and self._open[-1][0] in self._PARA_LEVEL:
-            self._open.pop()
-        self._slot(self._style_of(attrs), self._para_of(attrs))
-        self._open.append([t, False])
+        while self._open and self._open[-1].tag in self._PARA_LEVEL:
+            popped = self._open.pop()
+            self._on_block_popped(popped)
+        slot_idx = self._slot(t, self._style_of(attrs), self._para_of(attrs))
+        self._open.append(_OpenBlock(t, False, slot_idx))
         self._out.append(_strip_data_lo_attrs(raw))
 
     def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         raw = self.get_starttag_text() or ("<%s/>" % tag)
         t = tag.lower()
         if self._table_depth == 0 and self._is_block(t, attrs):
-            self._slot(self._style_of(attrs), self._para_of(attrs))
+            slot_idx = self._slot(t, self._style_of(attrs), self._para_of(attrs))
+            self._on_block_popped(_OpenBlock(t, False, slot_idx))
             self._out.append(_strip_data_lo_attrs(raw))
         else:
             para = self._para_of(attrs)
@@ -242,13 +321,215 @@ class _BlockLoStyleExtractor(xhtml_post._HtmlPassthroughParser):
         elif self._table_depth == 0 and (t in xhtml_post.BLOCK_TAGS or t == "div"):
             # Pop up to and including the matching open element (tolerates an omitted </p>).
             for idx in range(len(self._open) - 1, -1, -1):
-                if self._open[idx][0] == t:
+                if self._open[idx].tag == t:
+                    for item in reversed(self._open[idx:]):
+                        self._on_block_popped(item)
                     del self._open[idx:]
                     break
         self._out.append("</%s>" % tag)
 
+    def close(self) -> None:
+        super().close()
+        for item in reversed(self._open):
+            self._on_block_popped(item)
+        self._open.clear()
 
-def _extract_block_lo_styles(
+
+_HEADING_STYLE_RE = re.compile(r"^heading\s*([1-9]|10)$", re.IGNORECASE)
+_HEADING_TAGS = frozenset({"h1", "h2", "h3", "h4", "h5", "h6"})
+
+
+@final
+class _Slot:
+    """A Writer paragraph slot, holding its resolved heading level and accumulated text."""
+
+    def __init__(self, level: int | None, style_token: str | None) -> None:
+        self.level: int | None = level
+        self.style_token: str | None = style_token
+        self.text_parts: list[str] = []
+        self.flushed: bool = False
+
+
+@final
+class _BlockSummarizer(_BlockLoStyleExtractor):
+    """Walk HTML blocks to count Writer paragraph slots and extract headings.
+
+    Subclasses _BlockLoStyleExtractor so slot allocation and shared first-child
+    rules are defined in exactly one place. Adds script/style skipping, character
+    text accumulation per slot, and heading extraction.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.convert_charrefs = True
+        self.slots: list[_Slot] = []
+        self.headings: list[dict[str, Any]] = []
+        self._ignored_depth: int = 0
+
+    @staticmethod
+    def _heading_info(tag: str, style_token: str | None) -> int | None:
+        if style_token is not None:
+            m = _HEADING_STYLE_RE.match(style_token.strip())
+            return int(m.group(1)) if m else None
+        if tag in _HEADING_TAGS:
+            return int(tag[1])
+        return None
+
+    def _on_slot_created(self, slot_idx: int, tag: str, val: str | None) -> None:
+        lvl = self._heading_info(tag, val)
+        self.slots.append(_Slot(lvl, val))
+
+    def _on_slot_shared(self, slot_idx: int, tag: str, val: str | None) -> None:
+        slot = self.slots[slot_idx]
+        if val is not None:
+            # Child's own style token wins when present.
+            slot.style_token = val
+            slot.level = self._heading_info(tag, val)
+        elif slot.style_token is None and slot.level is None and tag in _HEADING_TAGS:
+            # When the shared slot has neither style token nor heading level, child tag applies.
+            slot.level = self._heading_info(tag, None)
+
+    def _on_block_popped(self, item: _OpenBlock) -> None:
+        if item.slot_index is not None and item.slot_index < len(self.slots):
+            self._flush_slot(self.slots[item.slot_index])
+
+    def _flush_slot(self, slot: _Slot) -> None:
+        if slot.flushed:
+            return
+        slot.flushed = True
+        if slot.level is not None:
+            raw = "".join(slot.text_parts)
+            text = " ".join(raw.split())
+            if len(text) > 120:
+                text = text[:120] + "…"
+            self.headings.append({
+                "level": slot.level,
+                "text": text,
+                "_slot": slot,
+            })
+
+    def _append_text(self, text: str) -> None:
+        if self._table_depth > 0 or self._ignored_depth > 0:
+            return
+        for item in reversed(self._open):
+            if item.slot_index is not None and item.slot_index < len(self.slots):
+                self.slots[item.slot_index].text_parts.append(text)
+                break
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        t = tag.lower()
+        if t in ("script", "style"):
+            self._ignored_depth += 1
+            return
+        if self._ignored_depth > 0:
+            return
+        if t == "br":
+            self._append_text(" ")
+        super().handle_starttag(tag, attrs)
+
+    def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        t = tag.lower()
+        if self._ignored_depth > 0 or t in ("script", "style"):
+            return
+        if t == "br":
+            self._append_text(" ")
+        super().handle_startendtag(tag, attrs)
+
+    def handle_endtag(self, tag: str) -> None:
+        t = tag.lower()
+        if t in ("script", "style") and self._ignored_depth > 0:
+            self._ignored_depth -= 1
+            return
+        if self._ignored_depth > 0:
+            return
+        super().handle_endtag(tag)
+
+    def handle_data(self, data: str) -> None:
+        self._append_text(data)
+
+
+_BLOCK_TAGS = (
+    "p|div|h[1-6]|ul|ol|li|dl|dt|dd|caption"
+    "|table|thead|tbody|tfoot|tr|td|th"
+    "|blockquote|pre|hr|section|article|aside|header|footer|nav|main"
+    "|figure|figcaption|address|details|summary|form|fieldset|legend|hgroup"
+)
+_BLOCK_MARKUP_RE = re.compile(r"<(?:%s)\b" % _BLOCK_TAGS, re.IGNORECASE)
+_LINEBREAK_MARKUP_RE = re.compile(r"</?(?:%s|br)\b" % _BLOCK_TAGS, re.IGNORECASE)
+_COMPLETE_ENTITY_RE = re.compile(r"&(?:#[0-9]+|#[xX][0-9a-fA-F]+|[A-Za-z][A-Za-z0-9]{1,31});")
+
+
+def _decode_complete_character_references(text: str) -> str:
+    """Decode only HTML character references ending with a semicolon, ignoring incomplete references like '&sect 2o'."""
+    if "&" not in text or not _COMPLETE_ENTITY_RE.search(text):
+        return text
+    return _COMPLETE_ENTITY_RE.sub(lambda m: html_mod.unescape(m.group(0)), text)
+
+
+def _expand_escapes(text: str) -> str:
+    return text.replace("\\n", "\n").replace("\\t", "\t")
+
+
+def _plain_paragraphs(content: str) -> list[str]:
+    """Split plain-text content into paragraphs, collapsing 3+ newlines and dropping empty pieces."""
+    collapsed = re.sub(r"\n{3,}", "\n\n", content)
+    return [p for p in collapsed.split("\n\n") if p.strip()]
+
+
+def _prepare_import_html(content: str) -> str:
+    """Prepare HTML or plain-text content for import / summary walk.
+
+    Applies complete-entity reference decoding, escape expansion, ruby stripping
+    (when no math is present), line-break normalization, prose angle bracket escaping,
+    and boilerplate stripping.
+    """
+    if not isinstance(content, str) or not content:
+        return ""
+    from plugin.doc.text_helpers import normalize_linebreaks as normalize
+    from plugin.framework.html_stripper import escape_prose_angle_brackets
+    from . import html_export, html_ruby
+    from .math.html_math_segment import html_fragment_contains_mixed_math
+
+    content = _decode_complete_character_references(content)
+    content = _expand_escapes(content)
+    if not html_fragment_contains_mixed_math(content):
+        content, _unused_ruby = html_ruby.extract_and_strip_ruby(content)
+    content = escape_prose_angle_brackets(normalize(content))
+    if re.search(r"<!DOCTYPE\s+html|<html[\s>]", content, re.IGNORECASE):
+        content = html_export.strip_html_boilerplate(content)
+    return content
+
+
+def summarize_written_blocks(
+    content: str, *, drop_heading_styles: Iterable[str] = ()
+) -> dict[str, Any]:
+    """Summarize paragraph slot count and outline headings from written HTML/text content.
+
+    Walks the blocks matching StarWriter paragraph slot allocation and extracts headings
+    either from data-lo-style (levels 1-10) or h1-h6 tags without data-lo-style.
+    """
+    if not isinstance(content, str) or not content:
+        return {"paragraph_count": 0, "headings": []}
+
+    prepared = _prepare_import_html(content)
+    if not _LINEBREAK_MARKUP_RE.search(prepared):
+        paras = _plain_paragraphs(prepared)
+        return {"paragraph_count": len(paras), "headings": []}
+
+    parser = _BlockSummarizer()
+    parser.feed(prepared)
+    parser.close()
+
+    drop_set = frozenset(drop_heading_styles)
+    headings = [
+        {"level": h["level"], "text": h["text"]}
+        for h in parser.headings
+        if h["_slot"].style_token is None or h["_slot"].style_token not in drop_set
+    ]
+    return {"paragraph_count": len(parser.slots), "headings": headings}
+
+
+def extract_block_lo_styles(
     html: str,
 ) -> tuple[str, list[str | None], list[str | None], list[str]]:
     """Return ``(clean_html, styles, para_css, skipped_para)`` per top-level block.
@@ -305,8 +586,23 @@ def unapplied_para_names_for_content(content: str) -> list[str]:
     """Collect all data-lo-para property names declared in *content* (none applied)."""
     if "data-lo-para" not in content:
         return []
-    _clean, _styles, paras, skipped = _extract_block_lo_styles(content)
+    _clean, _styles, paras, skipped = extract_block_lo_styles(content)
     return declared_para_names(paras, skipped)
+
+
+def attach_para_warnings(result: dict[str, Any], unapplied: list[str]) -> dict[str, Any]:
+    """Attach warnings for unapplied data-lo-para properties on a successful edit result.
+
+    Every write tool that takes data-lo-para reports through here, so the model sees one
+    message shape. Names are deduplicated in first-seen order.
+    """
+    if not unapplied or result.get("status") != "ok":
+        return result
+    deduped = list(dict.fromkeys(unapplied))
+    result["warnings"] = [
+        f"data-lo-para property '{name}' was not applied" for name in deduped
+    ]
+    return result
 
 
 def declared_para_names(*css_lists: Iterable[str | None]) -> list[str]:
@@ -365,7 +661,7 @@ def _apply_para_props(para_obj: Any, mapped: dict[str, tuple[str, Any]]) -> list
     return failed
 
 
-def _apply_block_lo_styles(
+def apply_block_lo_styles(
     model: Any,
     text_obj: Any,
     start: Any,

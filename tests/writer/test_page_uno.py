@@ -342,7 +342,8 @@ def test_page_insert_break_applies_cloned_style_and_restarts_numbering(ctx, doc)
     assert res["page_style"] == "AnnexRestart1424"
     assert res["restart_page_number"] == 1
     assert "before" in res["message"]
-    assert set(res) == {"status", "message", "page_style", "restart_page_number"}
+    assert set(res) == {"status", "message", "page_style", "restart_page_number", "matched_case_sensitive"}
+    assert res["matched_case_sensitive"] is False
 
     annex_para = _para_with_text(doc, "Annex start")
     assert annex_para is not None

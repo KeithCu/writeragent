@@ -635,8 +635,44 @@ def test_add_comment_search_uses_find_occurrence_range():
         res = AddComment().execute(ctx, content="test note", search="find me", occurrence=1)
 
     assert res["status"] == "ok"
-    mock_find.assert_called_once_with(doc, "find me", occurrence=1, case_sensitive_order=(True, False))
+    mock_find.assert_called_once_with(doc, "find me", occurrence=1, case_sensitive=False)
     mock_find_all.assert_not_called()
+
+
+def test_add_comment_case_sensitive_distinguishes_cased_occurrences():
+    """Two occurrences differing only by case: omitted case_sensitive hits the first
+    case-insensitive match, while case_sensitive=True hits the exact-case occurrence."""
+    from plugin.writer.specialized.comments import AddComment
+
+    doc = MagicMock()
+    ctx = SimpleNamespace(doc=doc)
+
+    range_insensitive = MagicMock()
+    range_insensitive.getString.return_value = "The board approved"
+    range_insensitive.getText.return_value = MagicMock()
+
+    range_exact = MagicMock()
+    range_exact.getString.return_value = "the board approved"
+    range_exact.getText.return_value = MagicMock()
+
+    def fake_find(d, text, *, occurrence=0, case_sensitive=False):
+        if case_sensitive:
+            return range_exact if text == "the board approved" else None
+        return range_insensitive
+
+    with patch("plugin.writer.search.find_occurrence_range", side_effect=fake_find), \
+         patch("plugin.writer.specialized.comments._set_annotation_date"):
+        # Omitted case_sensitive hits the first case-insensitive match ("The board approved")
+        doc.getTextFields.return_value = _fields_that_grow()
+        res_default = AddComment().execute(ctx, content="note", search="the board approved")
+        assert res_default["status"] == "ok"
+        assert res_default["anchor_text"] == "The board approved"
+
+        # Explicit case_sensitive=True hits the exact-case occurrence ("the board approved")
+        doc.getTextFields.return_value = _fields_that_grow()
+        res_exact = AddComment().execute(ctx, content="note", search="the board approved", case_sensitive=True)
+        assert res_exact["status"] == "ok"
+        assert res_exact["anchor_text"] == "the board approved"
 
 
 def test_add_comment_search_index_error_and_none_return_not_found():

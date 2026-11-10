@@ -85,10 +85,33 @@ def test_search_converts_markup_before_find(monkeypatch):
         captured["search_string"] = search_string
         return found
 
-    monkeypatch.setattr("plugin.writer.target_resolver.plain_text_if_markup", lambda text: "plain needle")
     monkeypatch.setattr("plugin.writer.target_resolver.search_mod.find_first_range", fake_find)
     resolve_target_cursor(ctx, "search", "<b>needle</b>")
-    assert captured.get("search_string") == "plain needle"
+    assert captured.get("search_string") == "needle"
+
+
+def test_search_oversized_old_content_raises_value_error(monkeypatch):
+    ctx, _ = _ctx()
+    monkeypatch.setattr("plugin.writer.target_resolver.search_mod.find_first_range", lambda doc, s: None)
+    monkeypatch.setattr("plugin.writer.target_resolver.search_mod.drawing_shape_containing", lambda doc, s: None)
+    monkeypatch.setattr("plugin.writer.target_resolver.search_mod.old_content_covers_most", lambda doc, n: True)
+    with pytest.raises(ValueError, match="target='full_document'"):
+        resolve_target_cursor(ctx, "search", "half or more of doc")
+
+
+def test_search_miss_includes_closest_mismatch(monkeypatch):
+    ctx, _ = _ctx()
+    monkeypatch.setattr("plugin.writer.target_resolver.search_mod.find_first_range", lambda doc, s: None)
+    monkeypatch.setattr("plugin.writer.target_resolver.search_mod.drawing_shape_containing", lambda doc, s: None)
+    monkeypatch.setattr(
+        "plugin.writer.target_resolver.search_mod.search_closest_mismatch",
+        lambda doc, s, lenient=True: {"message": "closest match starts 'needle…', differs at character 3: l vs x", "closest_match": "needle…", "diff_at": 3},
+    )
+    with pytest.raises(ValueError) as exc_info:
+        resolve_target_cursor(ctx, "search", "needle")
+    err_msg = str(exc_info.value)
+    assert "old_content not found in document" in err_msg
+    assert "closest match starts 'needle…', differs at character 3: l vs x" in err_msg
 
 
 def test_search_whitespace_only_old_content_errors(monkeypatch):
@@ -130,3 +153,28 @@ def test_search_span_disposed_raises_document_disposed(monkeypatch):
     monkeypatch.setattr("plugin.writer.target_resolver.search_mod.find_first_range", lambda doc, s: found)
     with pytest.raises(DocumentDisposedError):
         resolve_target_cursor(ctx, "search", "needle")
+
+
+def test_resolve_target_cursor_case_sensitive_forwarding(monkeypatch):
+    ctx, _ = _ctx()
+    calls = []
+
+    def fake_find(doc, search_string, *, case_sensitive=False):
+        calls.append((search_string, case_sensitive))
+        found = MagicMock()
+        return found
+
+    monkeypatch.setattr("plugin.writer.target_resolver.search_mod.find_first_range", fake_find)
+
+    # Omitted case_sensitive defaults to False
+    resolve_target_cursor(ctx, "search", "needle")
+    assert calls[-1] == ("needle", False)
+
+    # Explicit case_sensitive=True forwards True
+    resolve_target_cursor(ctx, "search", "needle", case_sensitive=True)
+    assert calls[-1] == ("needle", True)
+
+    # Explicit case_sensitive=False forwards False
+    resolve_target_cursor(ctx, "search", "needle", case_sensitive=False)
+    assert calls[-1] == ("needle", False)
+

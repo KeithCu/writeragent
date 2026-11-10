@@ -682,11 +682,22 @@ def test_search_slides_page_and_shape_name():
             ctx.doc = MagicMock()
             out = SearchSlides().execute(ctx, pattern="o")
     assert out["status"] == "ok"
+    assert out["matched_case_sensitive"] is False
     shape_hits = [m for m in out["matches"] if m.get("shape_name") == "Title"]
     assert shape_hits[0]["page"] == 0
     assert shape_hits[0]["text"] == "o"
     notes_hits = [m for m in out["matches"] if m.get("shape_name") == "Notes"]
     assert notes_hits and notes_hits[0]["text"] == "o"
+
+    # Explicit case_sensitive=True
+    with patch("plugin.draw.pages.iter_shape_text_units", return_value=[(0, "Title", "Hello world")]):
+        with patch("plugin.draw.pages.DrawBridge") as bridge_cls, patch(
+            "plugin.draw.bridge.notes_text", return_value="Note line"
+        ):
+            bridge_cls.return_value.get_pages.return_value = pages
+            out_cs = SearchSlides().execute(ctx, pattern="H", case_sensitive=True)
+    assert out_cs["status"] == "ok"
+    assert out_cs["matched_case_sensitive"] is True
 
 
 def test_search_slides_cap_hint():

@@ -222,6 +222,43 @@ def test_shape_text_hits_regex_drops_empty_groups_only():
     assert shape_text_hits("ab", r"a*", True, True) == ["a"]
 
 
+def test_shape_text_hits_folds_quotes_and_returns_document_text():
+    from plugin.writer.search import (
+        _DOUBLE_QUOTE_CODEPOINTS,
+        _SINGLE_QUOTE_CODEPOINTS,
+        shape_text_hits,
+        shape_text_span,
+    )
+
+    assert shape_text_hits("He said \u201cHi,\u201d", '"hi,"', False, False) == ["\u201cHi,\u201d"]
+    assert shape_text_hits("He said \u201cHi,\u201d", '"Hi,"', False, True) == ["\u201cHi,\u201d"]
+    assert shape_text_hits('He said "Hi,"', "\u201chi,\u201d", False, False) == ['"Hi,"']
+    assert shape_text_hits("He said \u201cHi,\u201d", '"Hi,"', True, True) == []
+    assert shape_text_hits("end\u2014ash", "end-ash", False, False) == []
+    assert shape_text_hits("end\u2014ash", "end-ash", False, True) == []
+    assert shape_text_hits("İ“x”", '"X"', False, False) == ["“x”"]
+
+    assert shape_text_span("He said \u201cHi,\u201d", '"hi,"', False) == (8, 13)
+    assert shape_text_span("He said \u201cHi,\u201d", '"Hi,"', True) == (8, 13)
+    assert shape_text_span("He said \u201cHi,\u201d", '"hi,"', True) is None
+    assert shape_text_span("İ“x”", '"X"', False) == (1, 4)
+
+    for cp in _SINGLE_QUOTE_CODEPOINTS:
+        ch = chr(cp)
+        assert shape_text_hits(f"a{ch}b", "a'b", False, True) == [f"a{ch}b"]
+        assert shape_text_hits(f"a{ch}b", "a'b", False, False) == [f"a{ch}b"]
+
+    for cp in _DOUBLE_QUOTE_CODEPOINTS:
+        ch = chr(cp)
+        assert shape_text_hits(f'a{ch}b', 'a"b', False, True) == [f'a{ch}b']
+        assert shape_text_hits(f'a{ch}b', 'a"b', False, False) == [f'a{ch}b']
+
+    for cp in (0x2032, 0x02BC, 0x00AB):
+        ch = chr(cp)
+        assert shape_text_hits(f"a{ch}b", "a'b", False, False) == []
+        assert shape_text_hits(f'a{ch}b', 'a"b', False, False) == []
+
+
 def test_find_text_ranges_limit_zero_and_bad_types_return_empty():
     from plugin.writer.search import find_text_ranges
 
@@ -548,43 +585,6 @@ def test_find_occurrence_range_repeated_text_and_past_end():
         find_occurrence_range(doc, "hit", occurrence=5)
 
 
-def test_find_occurrence_range_case_sensitive_order():
-    from plugin.writer.search import find_occurrence_range
-
-    doc = MagicMock()
-    sd = MagicMock()
-    doc.createSearchDescriptor.return_value = sd
-
-    insensitive_hit = MagicMock()
-    insensitive_hit.getString.return_value = "hit"
-
-    # Finds case-insensitive-only hit when sensitive pass has no hits
-    def find_first_mock(desc):
-        if desc.SearchCaseSensitive is True:
-            return None
-        return insensitive_hit
-
-    doc.findFirst.side_effect = find_first_mock
-    res = find_occurrence_range(doc, "hit", occurrence=0, case_sensitive_order=(True, False))
-    assert res is insensitive_hit
-
-    # Does not fall through to insensitive pass when sensitive pass found fewer hits than requested
-    doc.reset_mock()
-    doc.createSearchDescriptor.return_value = sd
-    sensitive_hit = MagicMock()
-    sensitive_hit.getString.return_value = "hit"
-
-    def find_first_sensitive(desc):
-        if desc.SearchCaseSensitive is True:
-            return sensitive_hit
-        raise AssertionError("Should not fall through to case-insensitive pass")
-
-    doc.findFirst.side_effect = find_first_sensitive
-    doc.findNext.return_value = None  # Only 1 sensitive hit found
-    with pytest.raises(IndexError, match=r"occurrence 2 out of range"):
-        find_occurrence_range(doc, "hit", occurrence=2, case_sensitive_order=(True, False))
-
-
 def test_find_occurrence_range_case_sensitive_flags():
     from plugin.writer.search import find_occurrence_range
 
@@ -641,7 +641,7 @@ def test_find_occurrence_range_newline_passage():
     assert find_occurrence_range(doc, "Para 1\nPara 2") is None
 
 
-def test_find_first_range_sensitive_then_insensitive_fallback():
+def test_find_first_range_default_case_insensitive():
     from plugin.writer.search import find_first_range
 
     doc = MagicMock()
@@ -651,10 +651,12 @@ def test_find_first_range_sensitive_then_insensitive_fallback():
     hit = MagicMock()
     hit.getString.return_value = "lower"
 
-    doc.findFirst.side_effect = [None, hit]
+    doc.findFirst.return_value = hit
 
     res = find_first_range(doc, "LOWER")
     assert res is hit
+    assert sd.SearchCaseSensitive is False
+    assert doc.findFirst.call_count == 1
 
 
 def test_parse_non_negative_int():
@@ -812,3 +814,523 @@ def test_build_page_map_propagates_disposed_document():
     vc.getPage.side_effect = type("DisposedException", (Exception,), {})("gone")
     with pytest.raises(DocumentDisposedError):
         _build_page_map(doc)
+
+
+def test_pick_end_after_start_selection():
+    from plugin.writer.search import pick_end_after_start
+
+    shared_text = MagicMock()
+    start_range = MagicMock()
+    start_range.getText.return_value = shared_text
+    start_boundary = MagicMock()
+    start_boundary.getText.return_value = shared_text
+    start_range.getEnd.return_value = start_boundary
+    start_point = MagicMock()
+    start_range.getStart.return_value = start_point
+
+    # compareRegionStarts returns 1 (starts before boundary) then -1 (starts after boundary).
+    # The first candidate (e.g. from chaining) is skipped, second range wins.
+    cand1 = MagicMock()
+    cand1.getText.return_value = shared_text
+    cand2 = MagicMock()
+    cand2.getText.return_value = shared_text
+    end2_point = MagicMock()
+    cand2.getEnd.return_value = end2_point
+
+    shared_text.compareRegionStarts.side_effect = [1, -1]
+    created_cursor = MagicMock()
+    shared_text.createTextCursorByRange.return_value = created_cursor
+
+    cursor, err = pick_end_after_start(start_range, [cand1, cand2])
+    assert err is None
+    assert cursor is created_cursor
+    shared_text.createTextCursorByRange.assert_called_with(start_point)
+    created_cursor.gotoRange.assert_called_with(end2_point, True)
+
+
+def test_pick_end_after_start_zero_accepted():
+    from plugin.writer.search import pick_end_after_start
+
+    shared_text = MagicMock()
+    start_range = MagicMock()
+    start_range.getText.return_value = shared_text
+    start_boundary = MagicMock()
+    start_boundary.getText.return_value = shared_text
+    start_range.getEnd.return_value = start_boundary
+    start_range.getStart.return_value = MagicMock()
+
+    cand = MagicMock()
+    cand.getText.return_value = shared_text
+    shared_text.compareRegionStarts.return_value = 0
+    created_cursor = MagicMock()
+    shared_text.createTextCursorByRange.return_value = created_cursor
+
+    cursor, err = pick_end_after_start(start_range, [cand])
+    assert err is None
+    assert cursor is created_cursor
+
+
+def test_pick_end_after_start_different_xtext_skips_to_valid_candidate():
+    from plugin.writer.search import pick_end_after_start
+
+    start_text = MagicMock()
+    different_text = MagicMock()
+    start_range = MagicMock()
+    start_range.getText.return_value = start_text
+    start_boundary = MagicMock()
+    start_boundary.getText.return_value = start_text
+    start_range.getEnd.return_value = start_boundary
+
+    cand1 = MagicMock()
+    cand1.getText.return_value = different_text
+    cand2 = MagicMock()
+    cand2.getText.return_value = start_text
+    start_text.compareRegionStarts.return_value = 0
+    created_cursor = MagicMock()
+    start_text.createTextCursorByRange.return_value = created_cursor
+
+    ends = iter([cand1, cand2])
+    cursor, err = pick_end_after_start(start_range, ends)
+    assert cursor is created_cursor
+    assert err is None
+
+
+def test_pick_end_after_start_different_xtext_stops():
+    from plugin.writer.search import pick_end_after_start
+
+    start_text = MagicMock()
+    different_text = MagicMock()
+    start_range = MagicMock()
+    start_range.getText.return_value = start_text
+    start_boundary = MagicMock()
+    start_boundary.getText.return_value = start_text
+    start_range.getEnd.return_value = start_boundary
+
+    cand1 = MagicMock()
+    cand1.getText.return_value = different_text
+
+    ends = iter([cand1])
+    cursor, err = pick_end_after_start(start_range, ends)
+    assert cursor is None
+    assert err == "different_text"
+
+
+def test_find_anchor_span_success():
+    from unittest.mock import patch
+    from plugin.writer.search import find_anchor_span
+
+    doc = MagicMock()
+    start_match = MagicMock()
+    end_match = MagicMock()
+    created_cursor = MagicMock()
+
+    with patch("plugin.writer.search.find_occurrence_range", return_value=start_match) as mock_find, \
+         patch("plugin.writer.search.iter_literal_ranges", return_value=iter([end_match])), \
+         patch("plugin.writer.search.pick_end_after_start", return_value=(created_cursor, None)) as mock_pick:
+        cursor, err = find_anchor_span(doc, "start", "end", occurrence=0)
+        assert cursor is created_cursor
+        assert err is None
+        mock_find.assert_called_once()
+        mock_pick.assert_called_once()
+
+
+def test_find_anchor_span_missing_start():
+    from unittest.mock import patch
+    from plugin.writer.search import find_anchor_span
+
+    doc = MagicMock()
+    with patch("plugin.writer.search.find_occurrence_range", return_value=None):
+        cursor, err = find_anchor_span(doc, "missing", "end")
+        assert cursor is None
+        assert err == "start"
+
+
+def test_find_anchor_span_missing_end():
+    from unittest.mock import patch
+    from plugin.writer.search import find_anchor_span
+
+    doc = MagicMock()
+    start_match = MagicMock()
+    with patch("plugin.writer.search.find_occurrence_range", return_value=start_match), \
+         patch("plugin.writer.search.iter_literal_ranges", return_value=iter([])), \
+         patch("plugin.writer.search.pick_end_after_start", return_value=(None, "end")):
+        cursor, err = find_anchor_span(doc, "start", "missing")
+        assert cursor is None
+        assert err == "end"
+
+
+def test_find_anchor_span_different_text():
+    from unittest.mock import patch
+    from plugin.writer.search import find_anchor_span
+
+    doc = MagicMock()
+    start_match = MagicMock()
+    with patch("plugin.writer.search.find_occurrence_range", return_value=start_match), \
+         patch("plugin.writer.search.iter_literal_ranges", return_value=iter([MagicMock()])), \
+         patch("plugin.writer.search.pick_end_after_start", return_value=(None, "different_text")):
+        cursor, err = find_anchor_span(doc, "start", "in_cell")
+        assert cursor is None
+        assert err == "different_text"
+
+
+def test_pick_end_after_start_empty_iterator():
+    from plugin.writer.search import pick_end_after_start
+
+    start_range = MagicMock()
+    cursor, err = pick_end_after_start(start_range, [])
+    assert cursor is None
+    assert err == "end"
+
+
+def test_pick_end_after_start_compare_error_treated_as_end():
+    from plugin.writer.search import pick_end_after_start
+
+    shared_text = MagicMock()
+    start_range = MagicMock()
+    start_range.getText.return_value = shared_text
+    start_boundary = MagicMock()
+    start_boundary.getText.return_value = shared_text
+    start_range.getEnd.return_value = start_boundary
+
+    cand = MagicMock()
+    cand.getText.return_value = shared_text
+    shared_text.compareRegionStarts.side_effect = RuntimeError("compare failed")
+
+    cursor, err = pick_end_after_start(start_range, [cand])
+    assert cursor is None
+    assert err == "end"
+
+
+def test_iter_descriptor_hits_with_after():
+    from plugin.writer.search import _iter_descriptor_hits
+
+    doc = MagicMock()
+    sd = MagicMock()
+    after_range = MagicMock()
+    first_hit = MagicMock()
+    first_hit.getString.return_value = "hit1"
+    end_range = MagicMock()
+    first_hit.getEnd.return_value = end_range
+    doc.findNext.side_effect = [first_hit, None]
+
+    hits = list(_iter_descriptor_hits(doc, sd, after=after_range))
+    assert hits == [first_hit]
+    doc.findFirst.assert_not_called()
+    doc.findNext.assert_any_call(after_range, sd)
+
+
+def test_iter_literal_ranges_yields_candidate_matches():
+    from plugin.writer.search import iter_literal_ranges
+
+    doc = MagicMock()
+    hit1 = MagicMock()
+    hit1.getString.return_value = "hello"
+    hit1.getEnd.return_value = MagicMock()
+    doc.findFirst.return_value = hit1
+    doc.findNext.return_value = None
+
+    hits = list(iter_literal_ranges(doc, "hello", case_sensitive=True))
+    assert hits == [hit1]
+
+
+def test_iter_literal_ranges_all_candidates_yields_all():
+    from unittest.mock import patch
+    from plugin.writer.search import iter_literal_ranges
+
+    doc = MagicMock()
+    frame_hit = MagicMock()
+    body_hit = MagicMock()
+    chain_hit = MagicMock()
+
+    def fake_iter_lo(doc, candidate, case_sensitive=False, after=None):
+        if "\n" in candidate:
+            yield frame_hit
+        else:
+            yield body_hit
+
+    with patch("plugin.writer.search._iter_lo_matches", side_effect=fake_iter_lo), \
+         patch("plugin.writer.search._iter_chain_matches", return_value=iter([chain_hit])):
+        # 1. all_candidates=False: stops on the first candidate (yielding the frame hit)
+        hits_default = list(iter_literal_ranges(doc, "Hello\nWorld", all_candidates=False))
+        assert hits_default == [frame_hit]
+
+        # 2. all_candidates=True: yields hits across all candidates, then chain matches
+        hits_all = list(iter_literal_ranges(doc, "Hello\nWorld", all_candidates=True))
+        assert hits_all == [frame_hit, body_hit, chain_hit]
+
+
+def test_find_anchor_span_skips_foreign_candidate_to_find_same_text():
+    from unittest.mock import patch
+    from plugin.writer.search import find_anchor_span
+
+    doc = MagicMock()
+    body_text = MagicMock()
+    frame_text = MagicMock()
+
+    start_match = MagicMock()
+    start_match.getText.return_value = body_text
+    start_match.getStart.return_value = MagicMock()
+    start_boundary = MagicMock()
+    start_boundary.getText.return_value = body_text
+    start_match.getEnd.return_value = start_boundary
+
+    frame_hit = MagicMock()
+    frame_hit.getText.return_value = frame_text
+
+    body_hit = MagicMock()
+    body_hit.getText.return_value = body_text
+    body_hit.getStart.return_value = MagicMock()
+    body_hit.getEnd.return_value = MagicMock()
+
+    body_text.compareRegionStarts.return_value = 0
+    created_cursor = MagicMock()
+    body_text.createTextCursorByRange.return_value = created_cursor
+
+    def fake_iter_lo(doc, candidate, case_sensitive=False, after=None):
+        if "\n" in candidate:
+            yield frame_hit
+        else:
+            yield body_hit
+
+    with patch("plugin.writer.search.find_occurrence_range", return_value=start_match), \
+         patch("plugin.writer.search._iter_lo_matches", side_effect=fake_iter_lo):
+        cursor, err = find_anchor_span(doc, "start", "Hello\nWorld")
+        assert err is None
+        assert cursor is created_cursor
+
+
+class _SampleFakeCursor:
+    def __init__(self, doc, pos=0):
+        self.doc = doc
+        self.pos = pos
+        self.end_pos = pos
+
+    def gotoStart(self, select=False):
+        self.pos = 0
+        if not select:
+            self.end_pos = 0
+
+    def gotoRange(self, r, select=False):
+        target = r.pos if hasattr(r, "pos") else r
+        if select:
+            self.end_pos = target
+        else:
+            self.pos = target
+            self.end_pos = target
+
+    def getString(self):
+        return self.doc.text[self.pos:self.end_pos]
+
+    def goLeft(self, count=1, select=False):
+        return False
+
+    def goRight(self, count=1, select=False):
+        return False
+
+    def getPropertyValue(self, name):
+        return None
+
+
+class _SampleFakeRange:
+    def __init__(self, doc, start, end):
+        self.doc = doc
+        self.start = start
+        self.end = end
+
+    @property
+    def pos(self):
+        return self.start
+
+    def getString(self):
+        return self.doc.text[self.start:self.end]
+
+    def getStart(self):
+        return _SampleFakeCursor(self.doc, self.start)
+
+    def getEnd(self):
+        return _SampleFakeCursor(self.doc, self.end)
+
+    def getText(self):
+        return self.doc
+
+
+class _SampleFakeSearchDescriptor:
+    def __init__(self):
+        self.SearchString = ""
+        self.SearchCaseSensitive = False
+        self.SearchRegularExpression = False
+
+
+class _SampleFakeDoc:
+    def __init__(self, text):
+        self.text = text
+        self.controller = MagicMock()
+        self.controller.getViewCursor.return_value = MagicMock()
+        um = MagicMock()
+        um.isLocked.return_value = False
+        self.getUndoManager = MagicMock(return_value=um)
+
+    def getCurrentController(self):
+        return self.controller
+
+    def getText(self):
+        return self
+
+    def createTextCursor(self):
+        return _SampleFakeCursor(self, 0)
+
+    def createTextCursorByRange(self, r):
+        pos = r.pos if hasattr(r, "pos") else r
+        return _SampleFakeCursor(self, pos)
+
+    def createSearchDescriptor(self):
+        return _SampleFakeSearchDescriptor()
+
+    def _find_from(self, sd, start_pos):
+        import re
+        pat = sd.SearchString
+        hay = self.text[start_pos:]
+        if getattr(sd, "SearchRegularExpression", False):
+            flags = 0 if getattr(sd, "SearchCaseSensitive", False) else re.IGNORECASE
+            m = re.search(pat, hay, flags)
+            if m:
+                return _SampleFakeRange(self, start_pos + m.start(), start_pos + m.end())
+            return None
+        cs = getattr(sd, "SearchCaseSensitive", False)
+        hay_cmp = hay if cs else hay.lower()
+        pat_cmp = pat if cs else pat.lower()
+        idx = hay_cmp.find(pat_cmp)
+        if idx != -1:
+            return _SampleFakeRange(self, start_pos + idx, start_pos + idx + len(pat))
+        return None
+
+    def findFirst(self, sd):
+        return self._find_from(sd, 0)
+
+    def findNext(self, pos_or_range, sd):
+        start = pos_or_range.pos if hasattr(pos_or_range, "pos") else (pos_or_range if isinstance(pos_or_range, int) else 0)
+        return self._find_from(sd, start)
+
+    def getDrawPage(self):
+        dp = MagicMock()
+        dp.getCount.return_value = 0
+        return dp
+
+    def getTextFields(self):
+        tf = MagicMock()
+        tf.createEnumeration.return_value.hasMoreElements.return_value = False
+        return tf
+
+
+def test_search_selection_apply_shared_case_default_on_sample_text():
+    from plugin.tests.testing_utils import TestingFactory
+    from plugin.writer.search import SearchInDocument
+    from plugin.writer.selection import SetSelection
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+
+    doc = _SampleFakeDoc("Apple pie and apple tart")
+    ctx = TestingFactory.create_context(doc=doc, doc_type="writer")
+
+    # 1. search_in_document
+    # Default (omitted) is case-insensitive: finds both "Apple" and "apple"
+    s_default = SearchInDocument().execute(ctx, pattern="apple")
+    assert s_default["status"] == "ok"
+    assert [m["text"] for m in s_default["matches"]] == ["Apple", "apple"]
+    assert s_default["matched_case_sensitive"] is False
+
+    # Uppercase query with default case-insensitive also hits both
+    s_upper = SearchInDocument().execute(ctx, pattern="APPLE")
+    assert [m["text"] for m in s_upper["matches"]] == ["Apple", "apple"]
+    assert s_upper["matched_case_sensitive"] is False
+
+    # Explicit case_sensitive=True finds only exact casing
+    s_exact = SearchInDocument().execute(ctx, pattern="apple", case_sensitive=True)
+    assert [m["text"] for m in s_exact["matches"]] == ["apple"]
+    assert s_exact["matched_case_sensitive"] is True
+
+    s_exact_miss = SearchInDocument().execute(ctx, pattern="APPLE", case_sensitive=True)
+    assert s_exact_miss["matches"] == []
+    assert s_exact_miss["matched_case_sensitive"] is True
+
+    # 2. set_selection
+    # Default (omitted) is case-insensitive: occurrence 0 hits first match "Apple"
+    sel_default = SetSelection().execute(ctx, search_text="apple")
+    assert sel_default["status"] == "ok"
+    assert sel_default["selected_text"] == "Apple"
+    assert sel_default["matched_case_sensitive"] is False
+
+    sel_upper = SetSelection().execute(ctx, search_text="APPLE")
+    assert sel_upper["status"] == "ok"
+    assert sel_upper["selected_text"] == "Apple"
+    assert sel_upper["matched_case_sensitive"] is False
+
+    # Explicit case_sensitive=True selects exact match
+    sel_exact = SetSelection().execute(ctx, search_text="apple", case_sensitive=True)
+    assert sel_exact["status"] == "ok"
+    assert sel_exact["selected_text"] == "apple"
+    assert sel_exact["matched_case_sensitive"] is True
+
+    sel_exact_miss = SetSelection().execute(ctx, search_text="APPLE", case_sensitive=True)
+    assert sel_exact_miss["status"] == "error"
+    assert "No match" in sel_exact_miss["message"]
+    assert sel_exact_miss["matched_case_sensitive"] is True
+
+    # 3. apply_document_content (dry_run preview)
+    # Default (omitted) is case-insensitive: finds both "Apple" and "apple"
+    app_default = ApplyDocumentContent().execute(ctx, content="cherry", target="search", old_content="apple", dry_run=True)
+    assert app_default["status"] == "ok"
+    assert app_default["replaceable"][0]["text"] == "Apple"
+    assert [m["text"] for m in app_default["replaceable"]] == ["Apple", "apple"]
+    assert app_default["matched_case_sensitive"] is False
+
+    app_upper = ApplyDocumentContent().execute(ctx, content="cherry", target="search", old_content="APPLE", dry_run=True)
+    assert [m["text"] for m in app_upper["replaceable"]] == ["Apple", "apple"]
+    assert app_upper["matched_case_sensitive"] is False
+
+    # Explicit case_sensitive=True finds only exact casing
+    app_exact = ApplyDocumentContent().execute(ctx, content="cherry", target="search", old_content="apple", case_sensitive=True, dry_run=True)
+    assert [m["text"] for m in app_exact["replaceable"]] == ["apple"]
+    assert app_exact["matched_case_sensitive"] is True
+
+    app_exact_miss = ApplyDocumentContent().execute(ctx, content="cherry", target="search", old_content="APPLE", case_sensitive=True, dry_run=True)
+    assert app_exact_miss["replaceable"] == []
+    assert app_exact_miss["matched_case_sensitive"] is True
+
+    # 4. Explicit case_sensitive=None (JSON null) falls back to default case-insensitive
+    s_none = SearchInDocument().execute(ctx, pattern="apple", case_sensitive=None)
+    assert s_none["matched_case_sensitive"] is False
+    assert [m["text"] for m in s_none["matches"]] == ["Apple", "apple"]
+
+    sel_none = SetSelection().execute(ctx, search_text="apple", case_sensitive=None)
+    assert sel_none["matched_case_sensitive"] is False
+    assert sel_none["selected_text"] == "Apple"
+
+    app_none = ApplyDocumentContent().execute(
+        ctx, content="cherry", target="search", old_content="apple", case_sensitive=None, dry_run=True,
+    )
+    assert app_none["matched_case_sensitive"] is False
+    assert [m["text"] for m in app_none["replaceable"]] == ["Apple", "apple"]
+
+    # 5. apply_document_content non-dry-run replace with all_matches=True
+    doc_replace = _SampleFakeDoc("Apple pie and apple tart")
+    ctx_replace = TestingFactory.create_context(doc=doc_replace, doc_type="writer")
+
+    replaced_items: list[str] = []
+
+    def fake_replace_preserving(model, target_range, new_text, *args, **kwargs):
+        replaced_items.append(target_range.getString())
+        model.text = model.text[:target_range.start] + new_text + model.text[target_range.end:]
+
+    with patch("plugin.writer.apply_document_content.get_agent_edit_review_mode", return_value="off"), \
+         patch("plugin.writer.edit_review.get_agent_edit_review_mode", return_value="off"), \
+         patch("plugin.writer.apply_document_content.edit_review_wait_seconds", return_value=0), \
+         patch("plugin.writer.html_import.replace_preserving_format", side_effect=fake_replace_preserving), \
+         patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=MagicMock()):
+        res_replace = ApplyDocumentContent().execute(
+            ctx_replace, content=["cherry"], target="search", old_content="apple", all_matches=True,
+        )
+        assert res_replace["status"] == "ok"
+        assert res_replace["replaced_count"] == 2
+        assert res_replace["matched_case_sensitive"] is False
+        assert set(replaced_items) == {"Apple", "apple"}
+        assert doc_replace.text == "cherry pie and cherry tart"
