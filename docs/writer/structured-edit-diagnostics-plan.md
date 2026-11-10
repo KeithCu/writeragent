@@ -176,7 +176,7 @@ For each style skip, `result["warnings"]` receives a `Diagnostic`:
 1. **Target new visible text (`params.plain`):** Always target the newly inserted visible text, NOT the original search string. The edit has already executed and replaced the original text; `apply_style` must search for text that currently exists in the document.
 2. **Single paragraph check:** `params.plain` must be a single paragraph (no `\n`).
 3. **Single distinct style token:** Content must contain exactly one distinct non-empty `data-lo-style` token (`extract_block_lo_styles`).
-4. **Resolved style token:** Resolve the style using `_resolve_paragraph_style_token` (`plugin/writer/html_import_styles.py:547`). If it falls back to `"Standard"` for a token that was not `"Standard"`, treat the style as unresolved and omit `suggested_call`.
+4. **Resolved style token:** Resolve the style using `resolve_paragraph_style_token` (`plugin/writer/html_import_styles.py:547`). If it falls back to `"Standard"` for a token that was not `"Standard"`, treat the style as unresolved and omit `suggested_call`.
 5. **Exact post-write match count:** After the write, verify the new text matches the expected count in the document: exactly 1 match (or exactly `replaced_count` matches when `all_matches=True`).
 6. **Case sensitivity:** Always supply `case_sensitive: true`.
 7. **Host paragraph restyling notice:** Paragraph styles apply to the entire paragraph enclosing the match. The warning `message` must clearly state that `apply_style` will restyle the entire host paragraph.

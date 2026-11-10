@@ -420,7 +420,9 @@ def test_set_header_footer_reports_unapplied_data_lo_para():
             style="Standard", region="header", content=html)
 
     assert res["status"] == "ok"
-    assert res["warnings"] == ["data-lo-para property 'font-weight' was not applied"]
+    assert res["warnings"] == [
+        {"code": "PARA_PROPERTY_UNSUPPORTED", "message": "data-lo-para property 'font-weight' was not applied"}
+    ]
 
 
 def test_set_header_footer_imports_field_html_without_force():

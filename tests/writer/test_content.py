@@ -3,6 +3,7 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 """ApplyDocumentContent dry-run coverage. No LibreOffice."""
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -13,6 +14,7 @@ from plugin.writer.apply_document_content import ApplyDocumentContent
 def _edit_ctx():
     ctx = MagicMock()
     ctx.doc.getUndoManager.return_value.isLocked.return_value = False
+    ctx.doc.getPropertyValue.return_value = False
     # dry_run sweeps shapes/comments; bare MagicMock enumerations never terminate.
     # Outline-hyperlink preview also walks portions; that stop is `enum_has_more`
     # (UNO True only), not this stub.
@@ -619,25 +621,49 @@ def test_all_matches_hoists_plain_text_conversion():
 def test_search_replace_attaches_style_note_warning():
     from plugin.writer import html_import as format_support
     from plugin.writer.apply_document_content import ApplyDocumentContent
-    from plugin.writer.html_import import _LO_STYLE_PARTIAL_MATCH_NOTE
+    from tests.framework.suggested_call_access import assert_valid_suggested_call
 
     ctx = _edit_ctx()
+    fam = MagicMock()
+    fam.getElementNames.return_value = ["Heading 2", "Standard"]
+    fam.hasByName.side_effect = lambda n: n in ("Heading 2", "Standard")
+    ctx.doc.getStyleFamilies.return_value.getByName.return_value = fam
     found = MagicMock()
     found.getString.return_value = "old"
+    post_range = MagicMock()
 
     with patch("plugin.writer.search.find_first_range", return_value=found), \
+         patch("plugin.writer.search.find_all_ranges", return_value=[post_range]), \
          patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=None), \
          patch("plugin.writer.apply_document_content.capture_outline_hyperlinks") as cap_links, \
-         patch.object(format_support, "replace_single_range_with_content", return_value=_LO_STYLE_PARTIAL_MATCH_NOTE):
+         patch.object(format_support, "replace_single_range_with_content", return_value="STYLE_IGNORED_PARTIAL_MATCH"):
         cap_links.return_value.links = []
         cap_links.return_value.preserve_url = None
         res = ApplyDocumentContent().execute(
             ctx, content='<p data-lo-style="Heading2">new</p>', target="search", old_content="old"
         )
     assert res["status"] == "ok"
-    assert "warning" in res
-    assert "apply_style(target='search', old_content=...)" in res["warning"]
+    assert "warning" not in res
+    assert "warnings" in res
+    diag = res["warnings"][0]
+    assert diag["code"] == "STYLE_IGNORED_PARTIAL_MATCH"
+    assert diag["matches_skipped"] == 1
+    assert diag["matches_total"] == 1
+    assert "in the host paragraph" in diag["message"]
+    assert "apply_style restyles the whole paragraph containing the match." in diag["message"]
+    assert "apply_style(target='search', old_content=...)" in diag["message"]
     assert "apply_style(target='search', old_content=...)" in res["message"]
+    assert "suggested_call" in diag
+    assert diag["suggested_call"] == {
+        "tool": "apply_style",
+        "arguments": {
+            "target": "search",
+            "old_content": "new",
+            "style": "Heading 2",
+            "case_sensitive": True,
+        },
+    }
+    assert_valid_suggested_call(diag["suggested_call"])
 
     # When replace_single_range_with_content returns None, warning is absent
     with patch("plugin.writer.search.find_first_range", return_value=found), \
@@ -651,26 +677,33 @@ def test_search_replace_attaches_style_note_warning():
         )
     assert res_no_warn["status"] == "ok"
     assert "warning" not in res_no_warn
+    assert "warnings" not in res_no_warn
 
 
 def test_all_matches_reports_skip_count_in_warning():
     from plugin.writer import html_import as format_support
     from plugin.writer.apply_document_content import ApplyDocumentContent
-    from plugin.writer.html_import import _LO_STYLE_PARTIAL_MATCH_NOTE
+    from tests.framework.suggested_call_access import assert_valid_suggested_call
 
     ctx = _edit_ctx()
+    fam = MagicMock()
+    fam.getElementNames.return_value = ["Heading 2", "Standard"]
+    fam.hasByName.side_effect = lambda n: n in ("Heading 2", "Standard")
+    ctx.doc.getStyleFamilies.return_value.getByName.return_value = fam
     r1, r2 = MagicMock(), MagicMock()
     r1.getString.return_value = "old"
     r2.getString.return_value = "old"
 
-    # First match styled (None), second match partial (_LO_STYLE_PARTIAL_MATCH_NOTE)
-    side_effects = [None, _LO_STYLE_PARTIAL_MATCH_NOTE]
+    # First match styled (None), second match partial (STYLE_IGNORED_PARTIAL_MATCH)
+    side_effects = [None, "STYLE_IGNORED_PARTIAL_MATCH"]
+    post1, post2 = MagicMock(), MagicMock()
 
-    with patch("plugin.writer.search.find_all_ranges", return_value=[r1, r2]), \
+    with patch("plugin.writer.search.find_all_ranges") as mock_find, \
          patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=None), \
          patch("plugin.writer.apply_document_content.capture_outline_hyperlinks") as cap_links, \
          patch.object(format_support, "plain_text_if_markup", return_value="new"), \
          patch.object(format_support, "replace_single_range_with_content", side_effect=side_effects):
+        mock_find.side_effect = [[r1, r2], [post1, post2]]
         cap_links.return_value.links = []
         cap_links.return_value.preserve_url = None
         res = ApplyDocumentContent().execute(
@@ -678,9 +711,311 @@ def test_all_matches_reports_skip_count_in_warning():
         )
     assert res["status"] == "ok"
     assert res["replaced_count"] == 2
-    assert "warning" in res
-    assert "data-lo-style was not applied to 1 of 2 matches because they do not cover whole paragraphs" in res["warning"]
-    assert "data-lo-style was not applied to 1 of 2 matches because they do not cover whole paragraphs" in res["message"]
+    assert "warning" not in res
+    assert "warnings" in res
+    diag = res["warnings"][0]
+    assert diag["code"] == "STYLE_IGNORED_PARTIAL_MATCH"
+    assert diag["matches_skipped"] == 1
+    assert diag["matches_total"] == 2
+    assert "in the host paragraph" in diag["message"]
+    assert "apply_style restyles the whole paragraph containing the match." in diag["message"]
+    assert "data-lo-style='Heading2' was not applied to 1 of 2 matches because they do not cover whole paragraphs" in diag["message"]
+    assert "data-lo-style='Heading2' was not applied to 1 of 2 matches because they do not cover whole paragraphs" in res["message"]
+    assert "suggested_call" in diag
+    assert diag["suggested_call"] == {
+        "tool": "apply_style",
+        "arguments": {
+            "target": "search",
+            "old_content": "new",
+            "style": "Heading 2",
+            "case_sensitive": True,
+            "all_matches": True,
+        },
+    }
+    assert_valid_suggested_call(diag["suggested_call"])
+
+
+def test_suggested_call_omitted_when_recording_changes():
+    from plugin.writer import html_import as format_support
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+
+    ctx = _edit_ctx()
+    found = MagicMock()
+    found.getString.return_value = "old"
+
+    with patch("plugin.writer.search.find_first_range", return_value=found), \
+         patch("plugin.writer.record_changes.is_recording_changes", return_value=True), \
+         patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=None), \
+         patch("plugin.writer.apply_document_content.capture_outline_hyperlinks") as cap_links, \
+         patch.object(format_support, "replace_single_range_with_content", return_value="STYLE_IGNORED_PARTIAL_MATCH"):
+        cap_links.return_value.links = []
+        cap_links.return_value.preserve_url = None
+        res = ApplyDocumentContent().execute(
+            ctx, content='<p data-lo-style="Heading2">new</p>', target="search", old_content="old"
+        )
+    assert res["status"] == "ok"
+    assert "warnings" in res
+    diag = res["warnings"][0]
+    assert diag["code"] == "STYLE_IGNORED_PARTIAL_MATCH"
+    assert "suggested_call" not in diag
+
+
+def test_suggested_call_omitted_when_style_unresolvable():
+    from plugin.writer import html_import as format_support
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+
+    ctx = _edit_ctx()
+    fam = MagicMock()
+    fam.getElementNames.return_value = ["Standard"]
+    fam.hasByName.side_effect = lambda n: n == "Standard"
+    ctx.doc.getStyleFamilies.return_value.getByName.return_value = fam
+    found = MagicMock()
+    found.getString.return_value = "old"
+
+    with patch("plugin.writer.search.find_first_range", return_value=found), \
+         patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=None), \
+         patch("plugin.writer.apply_document_content.capture_outline_hyperlinks") as cap_links, \
+         patch.object(format_support, "replace_single_range_with_content", return_value="STYLE_IGNORED_PARTIAL_MATCH"):
+        cap_links.return_value.links = []
+        cap_links.return_value.preserve_url = None
+        res = ApplyDocumentContent().execute(
+            ctx, content='<p data-lo-style="UnknownStyle">new</p>', target="search", old_content="old"
+        )
+    assert res["status"] == "ok"
+    assert "warnings" in res
+    diag = res["warnings"][0]
+    assert diag["code"] == "STYLE_IGNORED_PARTIAL_MATCH"
+    assert "suggested_call" not in diag
+
+
+def test_suggested_call_omitted_when_text_has_newlines():
+    from plugin.writer import html_import as format_support
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+
+    ctx = _edit_ctx()
+    fam = MagicMock()
+    fam.getElementNames.return_value = ["Heading 2", "Standard"]
+    fam.hasByName.side_effect = lambda n: n in ("Heading 2", "Standard")
+    ctx.doc.getStyleFamilies.return_value.getByName.return_value = fam
+    found = MagicMock()
+    found.getString.return_value = "old"
+    post_range = MagicMock()
+
+    content = '<p data-lo-style="Heading2">a</p><p data-lo-style="Heading2">b</p>'
+    with patch("plugin.writer.search.find_first_range", return_value=found), \
+         patch("plugin.writer.search.find_all_ranges", return_value=[post_range]), \
+         patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=None), \
+         patch("plugin.writer.apply_document_content.capture_outline_hyperlinks") as cap_links, \
+         patch.object(format_support, "replace_single_range_with_content", return_value="STYLE_IGNORED_PARTIAL_MATCH"):
+        cap_links.return_value.links = []
+        cap_links.return_value.preserve_url = None
+        res = ApplyDocumentContent().execute(
+            ctx, content=content, target="search", old_content="old"
+        )
+    assert res["status"] == "ok"
+    assert "warnings" in res
+    diag = res["warnings"][0]
+    assert diag["code"] == "STYLE_IGNORED_PARTIAL_MATCH"
+    assert "suggested_call" not in diag
+
+
+def test_suggested_call_omitted_for_selection_target():
+    from plugin.writer import html_import as format_support
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+
+    ctx = _edit_ctx()
+    fam = MagicMock()
+    fam.getElementNames.return_value = ["Heading 2", "Standard"]
+    fam.hasByName.side_effect = lambda n: n in ("Heading 2", "Standard")
+    ctx.doc.getStyleFamilies.return_value.getByName.return_value = fam
+
+    with patch("plugin.writer.apply_document_content.selection_anchor", return_value=None), \
+         patch.object(format_support, "insert_content_at_position", return_value="STYLE_IGNORED_PARTIAL_MATCH"):
+        res = ApplyDocumentContent().execute(
+            ctx, content='<p data-lo-style="Heading2">new</p>', target="selection"
+        )
+    assert res["status"] == "ok"
+    assert "warnings" in res
+    diag = res["warnings"][0]
+    assert diag["code"] == "STYLE_IGNORED_PARTIAL_MATCH"
+    assert "suggested_call" not in diag
+
+
+def test_suggested_call_omitted_when_post_match_count_mismatches():
+    from plugin.writer import html_import as format_support
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+
+    ctx = _edit_ctx()
+    fam = MagicMock()
+    fam.getElementNames.return_value = ["Heading 2", "Standard"]
+    fam.hasByName.side_effect = lambda n: n in ("Heading 2", "Standard")
+    ctx.doc.getStyleFamilies.return_value.getByName.return_value = fam
+    found = MagicMock()
+    found.getString.return_value = "old"
+
+    # Post-write search finds 2 matches instead of expected 1
+    m1, m2 = MagicMock(), MagicMock()
+    with patch("plugin.writer.search.find_first_range", return_value=found), \
+         patch("plugin.writer.search.find_all_ranges", return_value=[m1, m2]), \
+         patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=None), \
+         patch("plugin.writer.apply_document_content.capture_outline_hyperlinks") as cap_links, \
+         patch.object(format_support, "replace_single_range_with_content", return_value="STYLE_IGNORED_PARTIAL_MATCH"):
+        cap_links.return_value.links = []
+        cap_links.return_value.preserve_url = None
+        res = ApplyDocumentContent().execute(
+            ctx, content='<p data-lo-style="Heading2">new</p>', target="search", old_content="old"
+        )
+    assert res["status"] == "ok"
+    assert "warnings" in res
+    diag = res["warnings"][0]
+    assert diag["code"] == "STYLE_IGNORED_PARTIAL_MATCH"
+    assert "suggested_call" not in diag
+
+
+def _make_edit_params(**kwargs: Any):
+    from plugin.writer.apply_document_content import EditParams
+
+    defaults: dict[str, Any] = {
+        "content": '<p data-lo-style="Heading2">new</p>',
+        "plain": "new",
+        "use_preserve": False,
+        "has_table": False,
+        "target": "search",
+        "position": "replace",
+        "occurrence": None,
+        "all_matches": False,
+        "track_reviewable": False,
+    }
+    defaults.update(kwargs)
+    return EditParams(**defaults)
+
+
+def _mock_doc_with_styles(styles=("Heading 2", "Standard")):
+    doc = MagicMock()
+    fam = MagicMock()
+    fam.getElementNames.return_value = list(styles)
+    fam.hasByName.side_effect = lambda n: n in styles
+    doc.getStyleFamilies.return_value.getByName.return_value = fam
+    return doc
+
+
+def test_partial_match_style_suggestion_happy_path_single():
+    from plugin.writer.apply_document_content import _partial_match_style_suggestion
+    from tests.framework.suggested_call_access import assert_valid_suggested_call
+
+    doc = _mock_doc_with_styles()
+    params = _make_edit_params()
+    with patch("plugin.writer.record_changes.is_recording_changes", return_value=False), \
+         patch("plugin.writer.search.find_all_ranges", return_value=[MagicMock()]):
+        suggestion = _partial_match_style_suggestion(doc, params, "Heading2", 1)
+
+    assert suggestion == {
+        "tool": "apply_style",
+        "arguments": {
+            "target": "search",
+            "old_content": "new",
+            "style": "Heading 2",
+            "case_sensitive": True,
+        },
+    }
+    assert_valid_suggested_call(suggestion)
+
+
+def test_partial_match_style_suggestion_happy_path_all_matches():
+    from plugin.writer.apply_document_content import _partial_match_style_suggestion
+    from tests.framework.suggested_call_access import assert_valid_suggested_call
+
+    doc = _mock_doc_with_styles()
+    params = _make_edit_params(all_matches=True)
+    with patch("plugin.writer.record_changes.is_recording_changes", return_value=False), \
+         patch("plugin.writer.search.find_all_ranges", return_value=[MagicMock(), MagicMock()]):
+        suggestion = _partial_match_style_suggestion(doc, params, "Heading2", 2)
+
+    assert suggestion == {
+        "tool": "apply_style",
+        "arguments": {
+            "target": "search",
+            "old_content": "new",
+            "style": "Heading 2",
+            "case_sensitive": True,
+            "all_matches": True,
+        },
+    }
+    assert_valid_suggested_call(suggestion)
+
+
+def test_partial_match_style_suggestion_gate_selection_target():
+    from plugin.writer.apply_document_content import _partial_match_style_suggestion
+
+    doc = _mock_doc_with_styles()
+    params = _make_edit_params(target="selection")
+    assert _partial_match_style_suggestion(doc, params, "Heading2", 1) is None
+
+
+def test_partial_match_style_suggestion_gate_recording_changes():
+    from plugin.writer.apply_document_content import _partial_match_style_suggestion
+
+    doc = _mock_doc_with_styles()
+    params = _make_edit_params()
+    with patch("plugin.writer.record_changes.is_recording_changes", return_value=True):
+        assert _partial_match_style_suggestion(doc, params, "Heading2", 1) is None
+
+
+@pytest.mark.parametrize("plain", ["a\nb", "a\rb", ""])
+def test_partial_match_style_suggestion_gate_newlines_or_empty(plain: str):
+    from plugin.writer.apply_document_content import _partial_match_style_suggestion
+
+    doc = _mock_doc_with_styles()
+    params = _make_edit_params(plain=plain)
+    with patch("plugin.writer.record_changes.is_recording_changes", return_value=False):
+        assert _partial_match_style_suggestion(doc, params, "Heading2", 1) is None
+
+
+@pytest.mark.parametrize("token", [None, ""])
+def test_partial_match_style_suggestion_gate_missing_style_token(token: str | None):
+    from plugin.writer.apply_document_content import _partial_match_style_suggestion
+
+    doc = _mock_doc_with_styles()
+    params = _make_edit_params()
+    with patch("plugin.writer.record_changes.is_recording_changes", return_value=False):
+        assert _partial_match_style_suggestion(doc, params, token, 1) is None
+
+
+def test_partial_match_style_suggestion_gate_unresolvable_style_fallback():
+    from plugin.writer.apply_document_content import _partial_match_style_suggestion
+
+    doc = _mock_doc_with_styles()
+    params = _make_edit_params()
+    with patch("plugin.writer.record_changes.is_recording_changes", return_value=False):
+        assert _partial_match_style_suggestion(doc, params, "UnresolvedStyle", 1) is None
+
+
+def test_partial_match_style_suggestion_gate_style_family_unavailable():
+    from plugin.writer.apply_document_content import _partial_match_style_suggestion
+
+    doc = MagicMock()
+    doc.getStyleFamilies.side_effect = RuntimeError("family lookup failed")
+    params = _make_edit_params()
+    with patch("plugin.writer.record_changes.is_recording_changes", return_value=False):
+        assert _partial_match_style_suggestion(doc, params, "Heading2", 1) is None
+
+
+@pytest.mark.parametrize("find_mock", [
+    [MagicMock(), MagicMock()],  # too many matches
+    [],                          # no matches
+    ValueError("search error"),  # search exception
+])
+def test_partial_match_style_suggestion_gate_match_count_mismatch(find_mock: Any):
+    from plugin.writer.apply_document_content import _partial_match_style_suggestion
+
+    doc = _mock_doc_with_styles()
+    params = _make_edit_params()
+    side_effect = find_mock if isinstance(find_mock, Exception) else None
+    return_value = None if side_effect is not None else find_mock
+
+    with patch("plugin.writer.record_changes.is_recording_changes", return_value=False), \
+         patch("plugin.writer.search.find_all_ranges", return_value=return_value, side_effect=side_effect):
+        assert _partial_match_style_suggestion(doc, params, "Heading2", 1) is None
 
 
 def test_edge_spaces_with_use_preserve():

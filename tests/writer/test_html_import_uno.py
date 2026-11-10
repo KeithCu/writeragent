@@ -538,7 +538,8 @@ def test_apply_data_lo_para_direct_formatting_and_round_trip_uno(ctx: Any, doc: 
     warn_prop = re.compile(r"data-lo-para property '([^']+)' was not applied")
     warned = set()
     for w in res2.get("warnings", []):
-        m = warn_prop.fullmatch(w)
+        msg = w["message"] if isinstance(w, dict) else w
+        m = warn_prop.fullmatch(msg)
         assert m is not None, f"unexpected warning format: {w!r}"
         warned.add(m.group(1))
     assert warned <= _READ_ONLY_PARA_NAMES, (res2, content)

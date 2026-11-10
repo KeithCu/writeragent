@@ -1635,7 +1635,7 @@ def test_trailing_paragraph_disposal_is_not_success():
 def test_uno_read_probes_raise_on_disposal_and_default_otherwise():
     from plugin.framework.errors import DocumentDisposedError
     from plugin.writer.html_import import _cursor_paragraph_has_visible_text, _uno_service_true
-    from plugin.writer.html_import_styles import _resolve_paragraph_style_token
+    from plugin.writer.html_import_styles import resolve_paragraph_style_token
 
     class DisposedException(Exception):
         pass
@@ -1661,14 +1661,14 @@ def test_uno_read_probes_raise_on_disposal_and_default_otherwise():
     names = ("Heading 1", "Heading 1", "Text Body")
     fam.getElementNames.return_value = names
     fam.hasByName.return_value = True
-    assert _resolve_paragraph_style_token(fam, "Heading1", element_names=names) == "Heading 1"
+    assert resolve_paragraph_style_token(fam, "Heading1", element_names=names) == "Heading 1"
 
 
 def test_resolve_paragraph_style_token_fallback_and_disposal():
     from unittest.mock import MagicMock
     import pytest
     from plugin.framework.errors import DocumentDisposedError
-    from plugin.writer.html_import_styles import _resolve_paragraph_style_token
+    from plugin.writer.html_import_styles import resolve_paragraph_style_token
 
     class DisposedException(Exception):
         pass
@@ -1678,17 +1678,17 @@ def test_resolve_paragraph_style_token_fallback_and_disposal():
     names = ("Heading 1", "Standard")
     fam.getElementNames.return_value = names
     fam.hasByName.return_value = True
-    assert _resolve_paragraph_style_token(fam, "heading 1", element_names=names) == "Heading 1"
+    assert resolve_paragraph_style_token(fam, "heading 1", element_names=names) == "Heading 1"
 
     # (ii) Unknown fallback
     fam.hasByName.return_value = False
-    assert _resolve_paragraph_style_token(fam, "heading 1", element_names=names) == "Standard"
+    assert resolve_paragraph_style_token(fam, "heading 1", element_names=names) == "Standard"
 
     # (iii) DisposedException on hasByName
     fam.getElementNames.return_value = []
     fam.hasByName.side_effect = DisposedException("closed")
     with pytest.raises(DocumentDisposedError):
-        _resolve_paragraph_style_token(fam, "heading 1", element_names=[])
+        resolve_paragraph_style_token(fam, "heading 1", element_names=[])
 
 
 def test_styled_math_insert_styles_from_paragraph_before_insert():
@@ -1760,10 +1760,7 @@ def make_paragraph_edge_range(is_start: bool, is_end: bool) -> MagicMock:
 
 
 def test_lo_style_for_replaced_range_predicates():
-    from plugin.writer.html_import import (
-        _lo_style_for_replaced_range,
-        _LO_STYLE_PARTIAL_MATCH_NOTE,
-    )
+    from plugin.writer.html_import import _lo_style_for_replaced_range
 
     model = MagicMock()
     content = '<p data-lo-style="Heading2">content</p>'
@@ -1777,25 +1774,21 @@ def test_lo_style_for_replaced_range_predicates():
         # Start only -> apply False, note partial
         apply, note = _lo_style_for_replaced_range(model, content, make_paragraph_edge_range(True, False))
         assert apply is False
-        assert note == _LO_STYLE_PARTIAL_MATCH_NOTE
+        assert note == "STYLE_IGNORED_PARTIAL_MATCH"
 
         # End only -> apply False, note partial
         apply, note = _lo_style_for_replaced_range(model, content, make_paragraph_edge_range(False, True))
         assert apply is False
-        assert note == _LO_STYLE_PARTIAL_MATCH_NOTE
+        assert note == "STYLE_IGNORED_PARTIAL_MATCH"
 
         # Neither -> apply False, note partial
         apply, note = _lo_style_for_replaced_range(model, content, make_paragraph_edge_range(False, False))
         assert apply is False
-        assert note == _LO_STYLE_PARTIAL_MATCH_NOTE
+        assert note == "STYLE_IGNORED_PARTIAL_MATCH"
 
 
 def test_lo_style_for_replaced_range_recording():
-    from plugin.writer.html_import import (
-        _lo_style_for_replaced_range,
-        _LO_STYLE_PARTIAL_MATCH_NOTE,
-        _LO_STYLE_RECORDING_NOTE,
-    )
+    from plugin.writer.html_import import _lo_style_for_replaced_range
 
     model = MagicMock()
     content = '<p data-lo-style="Heading2">content</p>'
@@ -1804,12 +1797,12 @@ def test_lo_style_for_replaced_range_recording():
         # Edges true, recording true -> apply False, recording sentence
         apply, note = _lo_style_for_replaced_range(model, content, make_paragraph_edge_range(True, True))
         assert apply is False
-        assert note == _LO_STYLE_RECORDING_NOTE
+        assert note == "STYLE_IGNORED_RECORDING"
 
         # Geometry checked first: partial match while recording returns partial note
         apply, note = _lo_style_for_replaced_range(model, content, make_paragraph_edge_range(False, True))
         assert apply is False
-        assert note == _LO_STYLE_PARTIAL_MATCH_NOTE
+        assert note == "STYLE_IGNORED_PARTIAL_MATCH"
 
 
 def test_lo_style_for_replaced_range_non_block_tokens():
