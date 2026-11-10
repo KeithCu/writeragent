@@ -10,7 +10,7 @@ the same markup the model sent. TeX islands use ``$...$``, ``$$...$$``,
 plus currency guards, so ``R$ 12.798,82`` stays prose.
 Unclosed ``<math`` tails are surfaced as a final HTML chunk (nothing silently
 dropped). Incomplete TeX delimiters are left as HTML by advancing the scan.
-HTML tags, comments, and ``<script>``/``<style>`` bodies are ignored while scanning, so a ``$`` in markup is prose.
+HTML tags, comments, and ``<script>``, ``<style>``, ``<code>``, and ``<pre>`` bodies are ignored while scanning, so a ``$`` in markup is prose.
 """
 
 from __future__ import annotations
@@ -34,7 +34,9 @@ _MASK_CHAR = "\x00"
 _HTML_NONTEXT_RE = re.compile(
     r"(?is)"
     r"<!--.*?-->"
-    r"|<(script|style)\b[^>]*>(?:.*?</\1\s*>|.*\Z)"
+    # Script, style, code, and pre share group 1 so group 3 remains the generic tag name in mask().
+    # Group 3 is inspected to keep <math> tags visible; adding extra groups would shift that index.
+    r"|<(script|style|code|pre)\b[^>]*>(?:.*?</\1\s*>|.*\Z)"
     # No ``$`` in the tag name or unquoted body: in ``$x<y$ and <i>`` the ``<y$...>`` run is TeX, not a tag.
     r"|<(/?)([A-Za-z][^\s/>$]*)(?:\"[^\"]*\"|'[^']*'|[^'\"$>])*>"
 )
@@ -43,10 +45,13 @@ _HTML_NONTEXT_RE = re.compile(
 def _mask_html_nontext(s: str) -> str:
     """Blank HTML markup so a delimiter in it is prose, not math.
 
-    Attributes, comments, and ``<script>``/``<style>`` bodies are blanked; ``<math``
-    tags stay visible because the callers look for them. Same length, so indices
-    still address *s*. ``\\x00`` is not whitespace, alphanumeric, or a delimiter, so
-    the currency/escape rules next to a tag do not change.
+    Attributes, comments, and ``<script>``, ``<style>``, ``<code>``, and
+    ``<pre>`` bodies are blanked; a missing end tag blanks the rest of the
+    fragment. Nested elements like ``<pre><code>...</code></pre>`` are blanked
+    as one span because the outer name is ``pre``. ``<math`` tags stay visible
+    because callers look for them. Same length, so indices still address *s*.
+    ``\\x00`` is not whitespace, alphanumeric, or a delimiter, so currency and
+    escape rules next to a tag do not change.
     """
 
     def mask(m: re.Match[str]) -> str:

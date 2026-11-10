@@ -241,3 +241,66 @@ class TestHtmlMarkupIsNotMath:
         segs = segment_html_with_mixed_math(h)
         assert [s.kind for s in segs] == ["html", "tex", "html"]
         assert segs[1].text == "x<y"
+
+    def test_code_span_in_an_api_document_is_literal(self):
+        encoded = (
+            "<p>The editing API takes <code>&lt;p&gt;$$x^2$$&lt;/p&gt;</code> "
+            r"and <code>\(a^2+b^2=c^2\)</code>.</p>"
+        )
+        assert html_fragment_contains_mixed_math(encoded) is False
+        assert html_fragment_contains_tex_math(encoded) is False
+        segs = segment_html_with_mixed_math(encoded)
+        assert [s.kind for s in segs] == ["html"]
+        assert segs[0].text == encoded
+
+        decoded = (
+            "<p>The editing API takes <code><p>$$x^2$$</p></code> "
+            r"and <code>\(a^2+b^2=c^2\)</code>.</p>"
+        )
+        assert html_fragment_contains_mixed_math(decoded) is False
+        assert html_fragment_contains_tex_math(decoded) is False
+        segs = segment_html_with_mixed_math(decoded)
+        assert [s.kind for s in segs] == ["html"]
+        assert segs[0].text == decoded
+
+    def test_pre_and_nested_pre_code_are_literal(self):
+        cases = (
+            "<pre>\n$$x^2$$\n\\(a^2+b^2=c^2\\)\n\\[y\\]\n$z$\n</pre>",
+            r"<pre><code>$$x^2$$ \(a\) \[b\] $c$</code></pre>",
+            '<pre class="listing"><code class="language-tex">$$x^2$$</code></pre>',
+            "<CODE>$$x^2$$</CoDe>",
+            "<code><math><mi>x</mi></math></code>",
+            r"<p>Example <code>$x^2$ \(y\)</p>",
+        )
+        for h in cases:
+            assert html_fragment_contains_mixed_math(h) is False
+            segs = segment_html_with_mixed_math(h)
+            assert [s.kind for s in segs] == ["html"]
+            assert segs[0].text == h
+
+    def test_paragraph_equation_still_segments(self):
+        h = r"<p>\(a^2+b^2=c^2\)</p>"
+        assert html_fragment_contains_mixed_math(h) is True
+        segs = segment_html_with_mixed_math(h)
+        assert [s.kind for s in segs] == ["html", "tex", "html"]
+        assert segs[1].text == "a^2+b^2=c^2"
+        assert segs[1].display_block is False
+
+    def test_equation_beside_code_still_segments(self):
+        h1 = r"<p>See <code>$$x^2$$</code> and \[y\].</p>"
+        segs1 = segment_html_with_mixed_math(h1)
+        assert [s.kind for s in segs1] == ["html", "tex", "html"]
+        assert segs1[1].text == "y"
+        assert segs1[1].display_block is True
+        assert "<code>$$x^2$$</code>" in segs1[0].text
+
+        h2 = r"<p>Token <code>$x^2$</code> and live $y^2$.</p>"
+        segs2 = segment_html_with_mixed_math(h2)
+        assert [s.kind for s in segs2] == ["html", "tex", "html"]
+        assert segs2[1].text == "y^2"
+
+        h3 = "<code><math><mi>x</mi></math></code><math><mi>y</mi></math>"
+        segs3 = segment_html_with_mixed_math(h3)
+        assert [s.kind for s in segs3] == ["html", "math"]
+        assert segs3[1].text == "<math><mi>y</mi></math>"
+
