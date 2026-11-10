@@ -71,6 +71,7 @@ def replace_text_in_shape(
     new: str,
     *,
     case_sensitive: bool = SEARCH_CASE_SENSITIVE_DEFAULT,
+    use_regex: bool = False,
 ) -> bool:
     """Replace the first occurrence of *old* with *new* inside a drawing shape's own text,
     preserving the formatting of the surrounding text via a text cursor. Returns True on success.
@@ -84,7 +85,7 @@ def replace_text_in_shape(
     except Exception as exc:
         reraise_if_disposed(exc, object_type="Text")
         return False
-    span = shape_text_span(s, old, case_sensitive=case_sensitive)
+    span = shape_text_span(s, old, case_sensitive=case_sensitive, use_regex=use_regex)
     if span is None:
         return False
     start, end = span
