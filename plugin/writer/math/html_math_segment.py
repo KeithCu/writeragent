@@ -34,9 +34,8 @@ _MASK_CHAR = "\x00"
 _HTML_NONTEXT_RE = re.compile(
     r"(?is)"
     r"<!--.*?-->"
-    # Script, style, code, and pre share group 1 so group 3 remains the generic tag name in mask().
-    # Group 3 is inspected to keep <math> tags visible; adding extra groups would shift that index.
-    r"|<(script|style|code|pre)\b[^>]*>(?:.*?</\1\s*>|.*\Z)"
+    # One alternation for all body-blanked elements; mask() reads group 3 as the generic tag name to keep <math> visible.
+    r"|<(script|style|code|pre)(?=[\s/>])[^>]*>(?:.*?</\1\s*>|.*\Z)"
     # No ``$`` in the tag name or unquoted body: in ``$x<y$ and <i>`` the ``<y$...>`` run is TeX, not a tag.
     r"|<(/?)([A-Za-z][^\s/>$]*)(?:\"[^\"]*\"|'[^']*'|[^'\"$>])*>"
 )

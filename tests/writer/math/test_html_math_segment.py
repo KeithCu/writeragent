@@ -304,3 +304,12 @@ class TestHtmlMarkupIsNotMath:
         assert [s.kind for s in segs3] == ["html", "math"]
         assert segs3[1].text == "<math><mi>y</mi></math>"
 
+        h4 = r"<p>$x<code$ and <b>y</b> then \[z\]</p>"
+        segs4 = segment_html_with_mixed_math(h4)
+        assert [s.text for s in segs4 if s.kind == "tex"] == ["x<code", "z"]
+
+        h5 = r"<code-block>$x$</code-block> then \(y\)"
+        segs5 = segment_html_with_mixed_math(h5)
+        assert [s.text for s in segs5 if s.kind == "tex"] == ["x", "y"]
+
+
