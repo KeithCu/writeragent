@@ -151,3 +151,20 @@ def test_is_400_input_validation_uses_status():
         "message": "HTTP Error 400 from AI Provider: Bad Request",
         "details": {"status": True},
     }) is False
+
+
+def test_529_empty_reason_joins_message():
+    msg = format_http_error_response(529, "", '{"error":{"message":"Overloaded"}}')
+    assert msg == "HTTP Error 529 from AI Provider. Overloaded"
+    assert ": . " not in msg
+
+
+def test_429_detail_has_single_period():
+    msg = format_http_error_response(429, "Too Many Requests", '{"error":{"message":"Overloaded"}}')
+    assert msg == "Rate limited (429). Wait a moment and try again. Overloaded"
+    assert "try again.." not in msg
+
+
+def test_nonzero_reason_unchanged():
+    msg = format_http_error_response(500, "Internal Server Error", '{"error":{"message":"boom"}}')
+    assert msg == "HTTP Error 500 from AI Provider: Internal Server Error. boom"

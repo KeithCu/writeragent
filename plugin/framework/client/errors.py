@@ -65,6 +65,24 @@ def is_local_model_server_crash(text: Any) -> bool:
     )
 
 
+_SENTENCE_ENDINGS = (".", "!", "?", "。", "！", "？", "।", "۔")
+
+
+def _join_http_error_body(base: str, content: str, *, is_snippet: bool = False) -> str:
+    """Join the base HTTP error with additional provider detail or raw response body.
+
+    When the base string already ends in punctuation, appending a period produces
+    cluttered punctuation such as double periods. In that case a space or plain
+    newline delimiter is used instead.
+    """
+    has_terminal = base.rstrip().endswith(_SENTENCE_ENDINGS)
+    if is_snippet:
+        sep = "\nProvider Response:\n" if has_terminal else ".\nProvider Response:\n"
+    else:
+        sep = " " if has_terminal else ". "
+    return str(base) + sep + str(content)
+
+
 def format_http_error_response(status: int, reason: str, err_body: str, context_window: int | None = None) -> str:
     """Build error message including response body for display in chat/UI.
 
@@ -94,7 +112,15 @@ def format_http_error_response(status: int, reason: str, err_body: str, context_
         return local_model_overflow_message(context_window)
     body = err_body.strip()
     mapped = http_status_message(status_num) if (status_num == 429 or not body) else None
-    base = mapped if mapped is not None else _("HTTP Error {0} from AI Provider: {1}").format(status_num, reason_str)
+    if mapped is not None:
+        base = mapped
+    elif not reason_str:
+        formatted = _("HTTP Error {0} from AI Provider: {1}").format(status_num, "").rstrip()
+        if formatted.endswith((":", "：")):
+            formatted = formatted[:-1].rstrip()
+        base = formatted
+    else:
+        base = _("HTTP Error {0} from AI Provider: {1}").format(status_num, reason_str)
     if not body:
         return str(base)
     data = safe_json_loads(err_body)
@@ -102,9 +128,9 @@ def format_http_error_response(status: int, reason: str, err_body: str, context_
         err = data.get("error")
         detail = (err.get("message") or err.get("msg") or err.get("error") or "") if isinstance(err, dict) else (str(err) if err else "")
         if detail:
-            return str(base) + ". " + str(detail)
+            return _join_http_error_body(str(base), str(detail))
     snippet = body.replace("\n", " ")[:400]
-    return str(base) + ".\nProvider Response:\n" + str(snippet)
+    return _join_http_error_body(str(base), str(snippet), is_snippet=True)
 
 
 def append_zai_unknown_model_hint(message: str, err_body: Any, path: Any, provider: Any, request_model: Any = None) -> str:

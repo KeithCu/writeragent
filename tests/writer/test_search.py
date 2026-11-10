@@ -222,6 +222,48 @@ def test_shape_text_hits_regex_drops_empty_groups_only():
     assert shape_text_hits("ab", r"a*", True, True) == ["a"]
 
 
+def test_shape_text_spans_and_hits_regex():
+    from plugin.writer.search import (
+        iter_shape_text_spans,
+        shape_text_hits,
+        shape_text_span,
+    )
+
+    assert list(iter_shape_text_spans("say hello!", "hel+o", case_sensitive=False, use_regex=True)) == [(4, 9)]
+    assert shape_text_span("say hello!", "hel+o", case_sensitive=False, use_regex=True) == (4, 9)
+    assert shape_text_hits("say hello!", "hel+o", True, False) == ["hello"]
+
+    assert list(iter_shape_text_spans("say hello!", "h.+o", case_sensitive=False, use_regex=True)) == [(4, 9)]
+    assert shape_text_span("say hello!", "h.+o", case_sensitive=False, use_regex=True) == (4, 9)
+    assert shape_text_hits("say hello!", "h.+o", True, False) == ["hello"]
+
+    assert shape_text_span("say hello!", "Hel+o", case_sensitive=True, use_regex=True) is None
+    assert shape_text_hits("say hello!", "Hel+o", True, True) == []
+    assert shape_text_span("say hello!", "Hel+o", case_sensitive=False, use_regex=True) == (4, 9)
+    assert shape_text_hits("say hello!", "Hel+o", True, False) == ["hello"]
+
+    assert list(iter_shape_text_spans("ab", r"a*", case_sensitive=True, use_regex=True)) == [(0, 1)]
+    assert shape_text_span("ab", r"a*", case_sensitive=True, use_regex=True) == (0, 1)
+
+    assert list(iter_shape_text_spans("ab", r"b*", case_sensitive=True, use_regex=True)) == [(1, 2)]
+    assert shape_text_span("ab", r"b*", case_sensitive=True, use_regex=True) == (1, 2)
+    assert shape_text_hits("ab", r"b*", True, True) == ["b"]
+
+    assert list(iter_shape_text_spans("hello", r"x*", case_sensitive=True, use_regex=True)) == []
+    assert shape_text_span("hello", r"x*", case_sensitive=True, use_regex=True) is None
+    assert shape_text_hits("hello", r"x*", True, True) == []
+
+    assert list(iter_shape_text_spans("hello", r"^", case_sensitive=True, use_regex=True)) == []
+    assert shape_text_span("hello", r"^", case_sensitive=True, use_regex=True) is None
+    assert shape_text_hits("hello", r"^", True, True) == []
+
+    assert shape_text_hits("İstanbul", "i", True, False) == ["İ"]
+    assert shape_text_span("İstanbul", "i", case_sensitive=False, use_regex=True) == (0, 1)
+
+    assert shape_text_hits("He said \u201cHi,\u201d", '"Hi,"', True, False) == []
+    assert shape_text_span("He said \u201cHi,\u201d", '"Hi,"', case_sensitive=False, use_regex=True) is None
+
+
 def test_shape_text_hits_folds_quotes_and_returns_document_text():
     from plugin.writer.search import (
         _DOUBLE_QUOTE_CODEPOINTS,

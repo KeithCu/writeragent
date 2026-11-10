@@ -418,7 +418,7 @@ class RetryBudget:
     _transport: LlmHttpTransport
     _cancel: SendCancellation | None
     _status_callback: Callable[[str], None] | None
-    _on_bad_request: Callable[[bytes], bytes | None] | None
+    _on_bad_request: Callable[[bytes, BaseException], bytes | None] | None
     sends_left: int
     emitted_any: bool
     body_in_hand: bool
@@ -430,7 +430,7 @@ class RetryBudget:
         *,
         cancel: SendCancellation | None = None,
         status_callback: Callable[[str], None] | None = None,
-        on_bad_request: Callable[[bytes], bytes | None] | None = None,
+        on_bad_request: Callable[[bytes, BaseException], bytes | None] | None = None,
     ) -> None:
         self._transport = transport
         self._cancel = cancel
@@ -535,7 +535,7 @@ class RetryBudget:
                 new_body = None
                 if self.rejected_effort(exc):
                     raw = bytes(body) if isinstance(body, (bytes, bytearray)) else bytes(str(body), "utf-8")
-                    new_body = self._on_bad_request(raw) if self._on_bad_request is not None else None
+                    new_body = self._on_bad_request(raw, exc) if self._on_bad_request is not None else None
                 if new_body is not None:
                     body = new_body
                     continue

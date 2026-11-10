@@ -425,7 +425,7 @@ class LlmHttpTransport:
         observe_http_error: HttpObserve | None = None,
         retry_log_message: str = "Retrying HTTP request on a fresh connection",
         max_bytes: int | None = None,
-        on_bad_request: Callable[[bytes], bytes | None] | None = None,
+        on_bad_request: Callable[[bytes, BaseException], bytes | None] | None = None,
     ) -> HttpResult:
         """Buffered request with the shared stop, timeout, retry, and redaction.
 
@@ -571,7 +571,7 @@ class LlmHttpTransport:
         cancel: SendCancellation | None = None,
         status_callback: Callable[[str], None] | None = None,
         wire_secrets: list[str] | None = None,
-        on_bad_request: Callable[[bytes], bytes | None] | None = None,
+        on_bad_request: Callable[[bytes, BaseException], bytes | None] | None = None,
     ) -> str | None:
         """SSE streaming with the shared retry loop; dispatch lives on the transport like ``exchange``.
 

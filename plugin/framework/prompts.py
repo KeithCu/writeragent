@@ -408,16 +408,13 @@ WRITER_REVIEW_MODES_RULES = """TRACKED CHANGES / REVIEW MODES:
 
 # apply_document_content only — design notes in docs/chat/sidebar-implementation.md § Chat prompt constants and docs/writer/math-tex.md.
 APPLY_DOCUMENT_TARGET_RULES = """APPLY_DOCUMENT_CONTENT AND HTML (CRITICAL):
-- target='search': old_content is a substring (HTML in old_content is matched as plain text) and may span paragraphs (newlines). First line may be a paragraph suffix, last a prefix; every middle line must equal a whole paragraph. Literal search returns normalized_old_content, and the default lenient match equates quotes, spaces, and dashes. An old_content spanning more than half the document is an error that directs you to use target='full_document'; a search miss reports the closest passage and the first differing character.
-  Do not pass the whole document as old_content — use target='full_document'.
+- target='search': old_content is a substring and may span paragraphs (newlines).
   position='before'/'after' inserts beside the match and leaves it untouched — do not re-send the matched clause.
-- Landmark-to-landmark replace: pass start_anchor and end_anchor (target='search'). The range includes both anchors and the text between them; a missing anchor errors.
+- Landmark-to-landmark replace: pass start_anchor and end_anchor (target='search'). The range includes both anchors and the text between them.
 - Reach: body, table cells, and text frames. target='search' also edits headers and footers. beginning, end, and full_document write the body only.
-  Floating drawing-shape text: in place only when review is off — in record/wait it cannot become a tracked change, so the tool routes you to the shapes domain.
   Rich/block HTML in a table cell is not supported (clear error, document untouched); use plain text or inline tags."""
 
 SUB_AGENT_HTML_CONTENT_RULES = f"""- `content` is a JSON array of HTML strings (one fragment per heading/paragraph).
-  We wrap in <html>/<body>.
 {HTML_FRAGMENT_RULES}
 - Math (CRITICAL): Format mathematical equations, formulas, fractions, integrals, matrices, and non-trivial calculations in LaTeX using \\(...\\) for inline math or \\[\u2026\\] for centered display math (e.g. \\(a^2+b^2=c^2\\) or \\(\\frac{{a}}{{b}}\\)).
   Use standard HTML <sup> and <sub> tags for simple text superscripts and subscripts (e.g. 10<sup>th</sup>, H<sub>2</sub>O, x<sup>2</sup>) to preserve native character formatting without creating OLE Math objects.
@@ -426,7 +423,7 @@ SUB_AGENT_HTML_CONTENT_RULES = f"""- `content` is a JSON array of HTML strings (
 - Named styles: get_document_content marks each block `data-lo-style` = style name with spaces removed (`Heading 1`→`Heading1`).
   Copy tokens exactly. Prefer named styles; unknown token → Standard.
   inline style="" is a character override on top of the named style.
-  data-lo-style is honored on target='full_document', 'beginning', and 'end'; also on 'selection'/'search' when the replaced range covers whole paragraphs. A partial match leaves it unapplied and the result names apply_style(target="search", old_content=...); while Track Changes is recording, selection/search skip it the same way.
+  data-lo-style is honored on target='full_document', 'beginning', and 'end'; also on 'selection'/'search' when the replaced range covers whole paragraphs.
   data-lo-para applies on full_document, beginning, end, and header/footer writes (see Hand-set formatting below). Table-cell styles and selection/search do not apply data-lo-para.
 - Heading / TOC jumps: use <a href="#HeadingText|outline">…</a> (URL must end with |outline). A bare "#HeadingText" fragment is not a Writer outline link.
 - Fields: Writer fields are empty spans whose title is the field kind, e.g. <span title="page-number"/>. Same shape in body HTML and in headers/footers.
