@@ -20,7 +20,7 @@ import contextlib
 import logging
 import re
 import uuid
-from typing import Any
+from typing import Any, Literal
 
 
 from plugin.framework.errors import best_effort
@@ -535,7 +535,12 @@ def _range_covers_whole_paragraphs(text_range: Any) -> bool:
     return bool(start.isStartOfParagraph() and end.isEndOfParagraph())
 
 
-def _lo_style_for_replaced_range(model: Any, content: str, text_range: Any) -> tuple[bool, str | None]:
+StyleSkipCode = Literal["STYLE_IGNORED_PARTIAL_MATCH", "STYLE_IGNORED_RECORDING"]
+
+
+def _lo_style_for_replaced_range(
+    model: Any, content: str, text_range: Any
+) -> tuple[bool, StyleSkipCode | None]:
     """Determine whether to apply block data-lo-style on a replaced range, or warn if skipped."""
     if not content or "data-lo-style" not in content:
         return False, None
@@ -556,7 +561,7 @@ def insert_content_at_position(
     position: str,
     *,
     math_out: list[dict[str, Any]] | None = None,
-) -> list[str] | str | None:
+) -> list[str] | StyleSkipCode | None:
     """Insert formatted content at *position* (``'beginning'``,
     ``'end'``, or ``'selection'``) using ``insertDocumentFromURL``.
     """
@@ -739,7 +744,7 @@ def replace_single_range_with_content(
     ctx: Any,
     *,
     math_out: list[dict[str, Any]] | None = None,
-) -> str | None:
+) -> StyleSkipCode | None:
     """Replace the given text range with rendered *content* (HTML path)."""
     with image_placeholders._keep_placeholder_images(model, content) as swapped:
         prepared = html_import_styles._decode_complete_character_references(swapped)

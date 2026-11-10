@@ -53,6 +53,7 @@ from plugin.writer.table_nesting import cell_hosted_table_names
 from plugin.writer.specialized_base import INSERT_TARGETS, enum_param
 from plugin.framework.errors import (
     Diagnostic,
+    SuggestedCall,
     ToolExecutionError,
     format_error_payload,
     reraise_if_disposed,
@@ -320,13 +321,83 @@ def _find_ranges(
 # ------------------------------------------------------------------
 
 
+def _partial_match_style_suggestion(
+    doc: Any,
+    params: EditParams,
+    style_token: str | None,
+    total_matches: int,
+) -> SuggestedCall | None:
+    """Build a suggested_call for apply_style after a partial-match style skip.
+
+    Follows the ten safety rules from section 3.5 of structured-edit-diagnostics-plan.md:
+    1. Target new visible text (params.plain), not the original search string.
+    2. Single paragraph check: params.plain must be a single paragraph (no newlines).
+    3. Exactly one distinct non-empty data-lo-style token.
+    4. Resolved style token must not fall back to Standard unless it was Standard.
+    5. Exact post-write match count in document matches expected count.
+    6. Case sensitivity: case_sensitive=True.
+    7. Host paragraph restyling notice: caller's warning message explicitly notifies
+       that apply_style restyles the entire host paragraph.
+    8. all_matches: True included if params.all_matches is True.
+    9. Not recording changes: redline recording skips apply_style because it is not tracked.
+    10. target != "selection": selection cursors do not reliably span the new text afterwards.
+    """
+    if params.target == "selection":
+        return None
+
+    from . import record_changes
+
+    if record_changes.is_recording_changes(doc):
+        return None
+
+    plain = params.plain
+    if not plain or "\n" in plain or "\r" in plain:
+        return None
+
+    if not style_token:
+        return None
+
+    from . import html_import_styles
+
+    fam = uno_read(lambda: doc.getStyleFamilies().getByName("ParagraphStyles"), None)
+    element_names: list[str] = uno_read(lambda: list(fam.getElementNames()), []) if fam is not None else []
+    resolved_style = html_import_styles.resolve_paragraph_style_token(
+        fam, style_token, element_names=element_names
+    )
+    if resolved_style == "Standard" and style_token != "Standard":
+        return None
+
+    from . import search as search_mod
+
+    try:
+        matches = search_mod.find_all_ranges(doc, plain, case_sensitive=True)
+        actual_count = len(matches) if matches else 0
+    except Exception as exc:
+        reraise_if_disposed(exc)
+        return None
+
+    expected_count = total_matches if params.all_matches else 1
+    if actual_count != expected_count:
+        return None
+
+    suggestion_args: dict[str, Any] = {
+        "target": "search",
+        "old_content": plain,
+        "style": resolved_style,
+        "case_sensitive": True,
+    }
+    if params.all_matches:
+        suggestion_args["all_matches"] = True
+    return suggest_call("apply_style", **suggestion_args)
+
+
 def _attach_style_notes(
     result: dict[str, Any],
     notes: list[str],
     *,
     total_matches: int = 1,
-    doc: Any = None,
-    params: EditParams | None = None,
+    doc: Any,
+    params: EditParams,
 ) -> dict[str, Any]:
     """Append unapplied data-lo-style diagnostic warnings to result's warnings and message fields."""
     if not isinstance(result, dict) or result.get("status") != "ok" or not notes:
@@ -334,153 +405,51 @@ def _attach_style_notes(
 
     partial_count = notes.count("STYLE_IGNORED_PARTIAL_MATCH")
     recording_count = notes.count("STYLE_IGNORED_RECORDING")
-    other_notes = [n for n in notes if n not in ("STYLE_IGNORED_PARTIAL_MATCH", "STYLE_IGNORED_RECORDING")]
-
-    if partial_count == 0 and recording_count == 0 and not other_notes:
+    if partial_count == 0 and recording_count == 0:
         return result
 
     from . import html_import_styles
 
     style_token: str | None = None
-    if params is not None and params.content:
+    if params.content:
         _clean, styles, _paras, _skipped = html_import_styles.extract_block_lo_styles(params.content)
         distinct_styles = list(dict.fromkeys(s for s in styles if s))
         if len(distinct_styles) == 1:
             style_token = distinct_styles[0]
 
+    subject = f"data-lo-style='{style_token}'" if style_token else "data-lo-style"
     diagnostics: list[Diagnostic] = []
 
     if partial_count > 0:
-        if total_matches > 1:
-            if style_token:
-                msg = (
-                    f"data-lo-style='{style_token}' was not applied to {partial_count} of {total_matches} "
-                    "matches because they do not cover whole paragraphs; applying it would restyle "
-                    "neighboring text in the host paragraph. Restyle with "
-                    "apply_style(target='search', old_content=...)."
-                )
-            else:
-                msg = (
-                    f"data-lo-style was not applied to {partial_count} of {total_matches} "
-                    "matches because they do not cover whole paragraphs; applying it would restyle "
-                    "neighboring text in the host paragraph. Restyle with "
-                    "apply_style(target='search', old_content=...)."
-                )
-        else:
-            if style_token:
-                msg = (
-                    f"data-lo-style='{style_token}' was not applied because the match does not cover "
-                    "whole paragraphs; applying it would restyle neighboring text in the host paragraph. "
-                    "Restyle with apply_style(target='search', old_content=...)."
-                )
-            else:
-                msg = (
-                    "data-lo-style was not applied because the match does not cover whole paragraphs; "
-                    "applying it would restyle neighboring text in the host paragraph. Restyle with "
-                    "apply_style(target='search', old_content=...)."
-                )
-
+        scope_clause = (
+            f" to {partial_count} of {total_matches} matches because they do not cover whole paragraphs"
+            if total_matches > 1
+            else " because the replaced range does not cover a whole paragraph"
+        )
+        msg = (
+            f"{subject} was not applied{scope_clause}; "
+            "applying it would restyle neighboring text in the host paragraph. "
+            "apply_style restyles the whole paragraph containing the match. "
+            "Restyle with apply_style(target='search', old_content=...)."
+        )
         partial_diag: Diagnostic = {
             "code": "STYLE_IGNORED_PARTIAL_MATCH",
             "message": msg,
             "matches_skipped": partial_count,
             "matches_total": total_matches,
         }
-
-        # Build suggested_call for apply_style if all conditions in Section 3.5 hold:
-        # 1. Target new visible text (params.plain), not the original search string.
-        # 2. params.plain must be a single paragraph (no newlines).
-        # 3. Exactly one distinct non-empty data-lo-style token.
-        # 4. Resolved style token must not fall back to Standard unless it was Standard.
-        # 5. Exact post-write match count in document matches expected count.
-        # 6. Case sensitivity: case_sensitive=True.
-        # 7. Host paragraph restyling notice is already included in msg above.
-        # 8. all_matches: True included if params.all_matches is True.
-        # 9. Not recording changes (apply_style is not tracked).
-        # 10. target != "selection" (cursor doesn't reliably span selection afterwards).
-        can_suggest = True
-        if doc is None or params is None:
-            can_suggest = False
-        elif params.target == "selection":
-            can_suggest = False
-        else:
-            from . import record_changes
-
-            if record_changes.is_recording_changes(doc):
-                can_suggest = False
-
-        plain = params.plain if params is not None else ""
-        if can_suggest and (not plain or "\n" in plain or "\r" in plain):
-            can_suggest = False
-
-        if can_suggest and not style_token:
-            can_suggest = False
-
-        resolved_style: str | None = None
-        if can_suggest and style_token is not None and doc is not None:
-            active_doc = doc
-            fam = uno_read(lambda: active_doc.getStyleFamilies().getByName("ParagraphStyles"), None)
-            element_names: list[str] = uno_read(lambda: list(fam.getElementNames()), []) if fam is not None else []
-            resolved_style = html_import_styles._resolve_paragraph_style_token(fam, style_token, element_names=element_names)
-            if resolved_style == "Standard" and style_token != "Standard":
-                can_suggest = False
-
-        if can_suggest and params is not None:
-            from . import search as search_mod
-
-            try:
-                matches = search_mod.find_all_ranges(doc, plain, case_sensitive=True)
-                actual_count = len(matches) if matches else 0
-            except Exception as exc:
-                reraise_if_disposed(exc)
-                actual_count = -1
-
-            expected_count = total_matches if params.all_matches else 1
-            if actual_count != expected_count:
-                can_suggest = False
-
-        if can_suggest and resolved_style is not None and params is not None:
-            suggestion_args: dict[str, Any] = {
-                "target": "search",
-                "old_content": plain,
-                "style": resolved_style,
-                "case_sensitive": True,
-            }
-            if params.all_matches:
-                suggestion_args["all_matches"] = True
-            partial_diag["suggested_call"] = suggest_call("apply_style", **suggestion_args)
-
+        suggested = _partial_match_style_suggestion(doc, params, style_token, total_matches)
+        if suggested is not None:
+            partial_diag["suggested_call"] = suggested
         diagnostics.append(partial_diag)
 
     if recording_count > 0:
-        if total_matches > 1:
-            if style_token:
-                rec_msg = (
-                    f"data-lo-style='{style_token}' was not applied to {recording_count} of {total_matches} "
-                    "matches while tracked changes are recording, because a paragraph style on this replace "
-                    "would turn the deletion into a format change. Restyle with "
-                    "apply_style(target='search', old_content=...) after the change is accepted."
-                )
-            else:
-                rec_msg = (
-                    f"data-lo-style was not applied to {recording_count} of {total_matches} matches "
-                    "while tracked changes are recording, because a paragraph style on this replace "
-                    "would turn the deletion into a format change. Restyle with "
-                    "apply_style(target='search', old_content=...) after the change is accepted."
-                )
-        else:
-            if style_token:
-                rec_msg = (
-                    f"data-lo-style='{style_token}' was not applied while tracked changes are recording, "
-                    "because a paragraph style on this replace would turn the deletion into a format "
-                    "change. Restyle with apply_style(target='search', old_content=...) after the change is accepted."
-                )
-            else:
-                rec_msg = (
-                    "data-lo-style was not applied while tracked changes are recording, because a "
-                    "paragraph style on this replace would turn the deletion into a format change. "
-                    "Restyle with apply_style(target='search', old_content=...) after the change is accepted."
-                )
+        rec_scope = f" to {recording_count} of {total_matches} matches" if total_matches > 1 else ""
+        rec_msg = (
+            f"{subject} was not applied{rec_scope} while tracked changes are recording, "
+            "because a paragraph style on this replace would turn the deletion into a format change. "
+            "Restyle with apply_style(target='search', old_content=...) after the change is accepted."
+        )
         rec_diag: Diagnostic = {
             "code": "STYLE_IGNORED_RECORDING",
             "message": rec_msg,
@@ -488,15 +457,6 @@ def _attach_style_notes(
             "matches_total": total_matches,
         }
         diagnostics.append(rec_diag)
-
-    seen: set[str] = set()
-    for note in other_notes:
-        if note and note not in seen:
-            seen.add(note)
-            diagnostics.append({
-                "code": "TOOL_EXECUTION_WARNING",
-                "message": note,
-            })
 
     if not diagnostics:
         return result

@@ -1635,7 +1635,7 @@ def test_trailing_paragraph_disposal_is_not_success():
 def test_uno_read_probes_raise_on_disposal_and_default_otherwise():
     from plugin.framework.errors import DocumentDisposedError
     from plugin.writer.html_import import _cursor_paragraph_has_visible_text, _uno_service_true
-    from plugin.writer.html_import_styles import _resolve_paragraph_style_token
+    from plugin.writer.html_import_styles import resolve_paragraph_style_token
 
     class DisposedException(Exception):
         pass
@@ -1661,14 +1661,14 @@ def test_uno_read_probes_raise_on_disposal_and_default_otherwise():
     names = ("Heading 1", "Heading 1", "Text Body")
     fam.getElementNames.return_value = names
     fam.hasByName.return_value = True
-    assert _resolve_paragraph_style_token(fam, "Heading1", element_names=names) == "Heading 1"
+    assert resolve_paragraph_style_token(fam, "Heading1", element_names=names) == "Heading 1"
 
 
 def test_resolve_paragraph_style_token_fallback_and_disposal():
     from unittest.mock import MagicMock
     import pytest
     from plugin.framework.errors import DocumentDisposedError
-    from plugin.writer.html_import_styles import _resolve_paragraph_style_token
+    from plugin.writer.html_import_styles import resolve_paragraph_style_token
 
     class DisposedException(Exception):
         pass
@@ -1678,17 +1678,17 @@ def test_resolve_paragraph_style_token_fallback_and_disposal():
     names = ("Heading 1", "Standard")
     fam.getElementNames.return_value = names
     fam.hasByName.return_value = True
-    assert _resolve_paragraph_style_token(fam, "heading 1", element_names=names) == "Heading 1"
+    assert resolve_paragraph_style_token(fam, "heading 1", element_names=names) == "Heading 1"
 
     # (ii) Unknown fallback
     fam.hasByName.return_value = False
-    assert _resolve_paragraph_style_token(fam, "heading 1", element_names=names) == "Standard"
+    assert resolve_paragraph_style_token(fam, "heading 1", element_names=names) == "Standard"
 
     # (iii) DisposedException on hasByName
     fam.getElementNames.return_value = []
     fam.hasByName.side_effect = DisposedException("closed")
     with pytest.raises(DocumentDisposedError):
-        _resolve_paragraph_style_token(fam, "heading 1", element_names=[])
+        resolve_paragraph_style_token(fam, "heading 1", element_names=[])
 
 
 def test_styled_math_insert_styles_from_paragraph_before_insert():

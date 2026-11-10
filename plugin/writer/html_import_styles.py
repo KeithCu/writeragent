@@ -544,7 +544,7 @@ def extract_block_lo_styles(
     return "".join(ex._out), ex.styles, ex.paras, ex.skipped_para
 
 
-def _resolve_paragraph_style_token(
+def resolve_paragraph_style_token(
     fam: Any,
     token: str,
     element_names: list[str] | tuple[str, ...],
@@ -740,7 +740,7 @@ def apply_block_lo_styles(
         reached_count = idx + 1
 
         if style:
-            resolved = _resolve_paragraph_style_token(fam, style, element_names=element_names)
+            resolved = resolve_paragraph_style_token(fam, style, element_names=element_names)
             # The import already set the style; re-applying only re-reads every portion.
             current = uno_read(lambda: walk_cur.getPropertyValue("ParaStyleName"), None)
             if current != resolved:
