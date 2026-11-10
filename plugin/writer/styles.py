@@ -50,7 +50,13 @@ else:
 
 from plugin.doc.text_helpers import iter_elements_limited, record_walk_cap
 from plugin.doc.visual_helpers import parse_color_to_uno_int
-from plugin.framework.errors import is_disposal, name_miss_details, reraise_if_disposed, similar_names
+from plugin.framework.errors import (
+    best_effort,
+    is_disposal,
+    name_miss_details,
+    reraise_if_disposed,
+    similar_names,
+)
 from plugin.framework.doc_type import CALC_DOCUMENT_SERVICE, TEXT_DOCUMENT_SERVICE
 from plugin.framework.tool import ToolBase as FrameworkToolBase
 from plugin.writer.edit_review import flag_style_unreviewed
@@ -111,6 +117,24 @@ def _reset_properties_to_default(cursor: Any, names: Iterable[str]) -> list[str]
             reraise_if_disposed(exc)
             continue
     return cleared
+
+
+def clear_direct_numbering(cursor: Any) -> None:
+    """Drop direct paragraph numbering so the cursor reverts to the style's list rules.
+
+    In LibreOffice Writer, ``setPropertyToDefault("NumberingStyleName")`` and
+    ``setPropertyToDefault("NumberingRules")`` leave direct numbering untouched
+    (see ``test_full_document_drops_old_first_paragraph_direct_margins_uno``).
+    Setting ``NumberingRules=None`` invokes Writer's ``DelNumRules`` path, which
+    clears direct numbering without leaving a hard empty ``NumberingStyleName=""``
+    override that would mask an underlying paragraph style's list formatting.
+    This also drops leftover numbering after ``insertDocumentFromURL`` in notebook
+    HTML imports before following blocks.
+    """
+    best_effort(
+        lambda: cursor.setPropertyValue("NumberingRules", None),
+        "clear direct NumberingRules failed",
+    )
 
 
 def _summarize_char_overrides(overrides: Any) -> dict[str, Any]:

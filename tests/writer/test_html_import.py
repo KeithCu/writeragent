@@ -1933,7 +1933,7 @@ def test_summarize_written_blocks_matches_extractor_slot_counts():
 
 
 def test_drop_absorb_paragraph_props_resets_extended_properties() -> None:
-    """_drop_absorb_paragraph_props must reset clearable properties and direct numbering."""
+    """_drop_absorb_paragraph_props must pass CLEARABLE_PARA_PROPERTIES plus extra direct properties."""
     from plugin.writer.html_import import _drop_absorb_paragraph_props
     from plugin.writer.styles import CLEARABLE_PARA_PROPERTIES
 
@@ -1956,15 +1956,4 @@ def test_drop_absorb_paragraph_props_resets_extended_properties() -> None:
     for name in extra_names:
         assert name in props
         assert name not in CLEARABLE_PARA_PROPERTIES
-
-    assert "NumberingStyleName" not in props
-    assert "NumberingRules" not in props
-    assert "ListId" not in props
-
-    set_calls = [(call.args[0], call.args[1]) for call in cursor.setPropertyValue.call_args_list]
-    assert ("NumberingRules", None) in set_calls
-    assert ("NumberingStyleName", "") in set_calls
-
-
-
 

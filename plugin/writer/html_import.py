@@ -638,7 +638,7 @@ def _drop_absorb_paragraph_props(cursor: Any) -> None:
     from `data-lo-para` is applied later. `CLEARABLE_PARA_PROPERTIES` remains the
     clear-direct subset for Ctrl+M / `clear_direct`.
     """
-    from .styles import CLEARABLE_PARA_PROPERTIES, _reset_properties_to_default
+    from .styles import CLEARABLE_PARA_PROPERTIES, _reset_properties_to_default, clear_direct_numbering
 
     _reset_properties_to_default(
         cursor,
@@ -653,17 +653,7 @@ def _drop_absorb_paragraph_props(cursor: Any) -> None:
             "BottomBorder",
         ),
     )
-    # NumberingStyleName (RES_PARATR_NUMRULE) is not an XPropertyState clearable
-    # property in LibreOffice Writer; setPropertiesToDefault leaves it untouched.
-    # Clearing direct numbering requires assigning an empty style name directly.
-    best_effort(
-        lambda: cursor.setPropertyValue("NumberingRules", None),
-        "absorb paragraph NumberingRules clear failed",
-    )
-    best_effort(
-        lambda: cursor.setPropertyValue("NumberingStyleName", ""),
-        "absorb paragraph NumberingStyleName clear failed",
-    )
+    clear_direct_numbering(cursor)
 
 
 def replace_full_document(model: Any, ctx: Any, content: str) -> list[str]:

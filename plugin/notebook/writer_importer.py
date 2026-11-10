@@ -526,14 +526,7 @@ def _cursor_para_is_empty(cursor: Any) -> bool:
     return uno_read(empty, False)
 
 
-def _clear_para_numbering(cursor: Any) -> None:
-    """Drop inherited list numbering so the next block is not a leftover bullet."""
-    # StarWriter insertDocumentFromURL leaves NumberingRules on the last list
-    # item. A following paragraph break inherits that leftover. Clear both
-    # properties on heading/body/blockquote insertion cursors — not on the
-    # list fragment itself (see ``_insert_html_at_body_end``).
-    best_effort(lambda: cursor.setPropertyValue("NumberingStyleName", ""), "notebook import NumberingStyleName clear failed")
-    best_effort(lambda: cursor.setPropertyValue("NumberingRules", None), "notebook import NumberingRules clear failed")
+from plugin.writer.styles import clear_direct_numbering as _clear_para_numbering
 
 
 def _append_body_paragraph(doc: Any, content: str, para_style: str | None, *, lead_break: bool) -> None:
