@@ -58,6 +58,7 @@ from plugin.framework.errors import (
     name_miss_details,
     reraise_if_disposed,
     similar_names,
+    suggest_call,
 )
 from plugin.framework.doc_type import CALC_DOCUMENT_SERVICE, TEXT_DOCUMENT_SERVICE
 from plugin.framework.tool import ToolBase as FrameworkToolBase
@@ -509,7 +510,14 @@ def _close_style_names(wanted: str, names: list[str]) -> list[str]:
     return similar_names(wanted, names)
 
 
-def _missing_style_error(tool: Any, style_name: str, family: str, style_family: Any, *, label: str = "Style") -> dict[str, Any]:
+def _missing_style_error(
+    tool: Any,
+    style_name: str,
+    family: str,
+    style_family: Any,
+    *,
+    label: str = "Style",
+) -> dict[str, Any]:
     """Not-found error with a Did-you-mean hint and a short sample of names."""
     try:
         names = [str(n) for n in style_family.getElementNames()]
@@ -522,13 +530,16 @@ def _missing_style_error(tool: Any, style_name: str, family: str, style_family: 
     miss_details: dict[str, Any] = {"hint": "Call style_list with family=%s." % family}
     if close:
         miss_details["similar"] = close[:5]
+
     if label == "parent_style":
         return tool._tool_error(
             "parent_style '%s' is not a %s style.%s%s" % (style_name, family, hint, sample),
+            code="STYLE_NOT_FOUND",
             **miss_details,
         )
     return tool._tool_error(
         "Style '%s' not found in %s.%s%s" % (style_name, family, hint, sample),
+        code="STYLE_NOT_FOUND",
         **miss_details,
     )
 
@@ -839,7 +850,8 @@ def _no_character_style_token_error(tool: Any, family: str, style_name: str) -> 
         return tool._tool_error(
             "No Character Style is the apply_style token that clears CharStyleName. "
             "It is not a style you can inspect, update, or clone. "
-            "The character style object is named 'Default Style'."
+            "The character style object is named 'Default Style'.",
+            code="INVALID_PARAM",
         )
     return None
 
@@ -964,7 +976,7 @@ def _validate_style_updates(
 ) -> tuple[str, Any, Any, dict[str, Any]] | dict[str, Any]:
     style_name = kwargs["style"].strip()
     if not style_name:
-        return tool._tool_error("style is required.")
+        return tool._tool_error("style is required.", code="INVALID_PARAM")
 
     family = kwargs.get("family", "ParagraphStyles")
     parent_style = kwargs.get("parent_style")
@@ -975,12 +987,12 @@ def _validate_style_updates(
 
     property_updates = kwargs.get("property_updates", {})
     if not isinstance(property_updates, dict):
-        return tool._tool_error("property_updates must be an object.")
+        return tool._tool_error("property_updates must be an object.", code="INVALID_PARAM")
 
     try:
         updates = _normalize_property_updates(property_updates)
     except ValueError as exc:
-        return tool._tool_error(str(exc))
+        return tool._tool_error(str(exc), code="INVALID_PARAM")
 
     return style_name, family, parent_style, updates
 
@@ -1317,7 +1329,7 @@ class ApplyStyle(FrameworkToolBase):
     def _execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         style_name = kwargs["style"].strip()
         if not style_name:
-            return self._tool_error("style is required.")
+            return self._tool_error("style is required.", code="INVALID_PARAM")
 
         family = kwargs.get("family", "ParagraphStyles")
 
@@ -1332,7 +1344,18 @@ class ApplyStyle(FrameworkToolBase):
             try:
                 fam = ctx.doc.getStyleFamilies().getByName(family)
                 if not fam.hasByName(uno_value):
-                    return _missing_style_error(self, style_name, family, fam)
+                    res = _missing_style_error(self, style_name, family, fam)
+                    similar = (res.get("details") or {}).get("similar") or []
+                    # Only an unambiguous single match is safe to replay (§3.4 rule 2).
+                    if len(similar) == 1:
+                        props = (self.parameters or {}).get("properties", {})
+                        args = {k: v for k, v in kwargs.items() if k in props}
+                        old_c = args.get("old_content")
+                        # Bounded string argument (plan §3.4 rule 5); never emit a truncated needle (rule 1).
+                        if not (isinstance(old_c, str) and len(old_c) > 100):
+                            args["style"] = similar[0]
+                            res["suggested_call"] = suggest_call("apply_style", **args)
+                    return res
             except Exception as e:
                 if is_disposal(e):
                     raise
@@ -1343,11 +1366,11 @@ class ApplyStyle(FrameworkToolBase):
 
         clear_direct_raw = self._resolve_clear_direct(family, kwargs.get("clear_direct"))
         if clear_direct_raw not in ("none", "style_props", "all"):
-            return self._tool_error("clear_direct must be one of: none, style_props, all.")
+            return self._tool_error("clear_direct must be one of: none, style_props, all.", code="INVALID_PARAM")
         clear_direct = cast("Literal['none', 'style_props', 'all']", clear_direct_raw)
         if clear_direct != "none":
             if family != "ParagraphStyles":
-                return self._tool_error("clear_direct only applies to family='ParagraphStyles'.")
+                return self._tool_error("clear_direct only applies to family='ParagraphStyles'.", code="INVALID_PARAM")
             if clear_direct == "all" and target == "full_document":
                 # Ctrl+M on the whole document wipes emphasis as well as fonts — force the
                 # per-range path. style_props (the default) is allowed: house font/size win
@@ -1355,7 +1378,8 @@ class ApplyStyle(FrameworkToolBase):
                 return self._tool_error(
                     "clear_direct='all' is not allowed with target='full_document': it would "
                     "flatten emphasis across the whole document. Style each range separately "
-                    "(target='search') instead, or omit clear_direct to use style_props.")
+                    "(target='search') instead, or omit clear_direct to use style_props.",
+                    code="INVALID_PARAM")
 
         def _finish_success(res: dict[str, Any], rep_list: list[Any]) -> dict[str, Any]:
             res.update(self._merge_reports(rep_list))
@@ -1364,100 +1388,133 @@ class ApplyStyle(FrameworkToolBase):
             flag_style_unreviewed(res)
             return res
 
-        # Multi-occurrence styling (target='search' only). resolve_target_cursor styles only the
-        # first match; all_matches / occurrence let a defined term or repeated quote lead be
-        # styled everywhere. Each match gets a cursor in its OWN text object (cell/frame safe).
+        # target='search' resolves its own ranges here (find_first_range / find_all_ranges) so a
+        # miss returns the structured build_search_not_found_response with a code;
+        # resolve_target_cursor below serves the other targets and raises plain ValueError. Each
+        # match gets a cursor in its own text object (cell/frame safe).
         all_matches = bool(kwargs.get("all_matches"))
         occ_raw = kwargs.get("occurrence")
         case_sensitive = kwargs.get("case_sensitive")
-        if target == "search" and (all_matches or occ_raw is not None):
+        if target == "search":
             from plugin.writer.search import (
                 build_search_not_found_response,
+                drawing_shape_containing,
                 find_all_ranges,
+                find_first_range,
                 prepare_old_content,
                 resolve_case_sensitive,
             )
 
             s = prepare_old_content(old_content)
             if not s:
-                return {"status": "error", "message": "target='search' requires old_content.", "applied": False, "matched": False}
+                return {
+                    "status": "error",
+                    "code": "INVALID_PARAM",
+                    "message": "target='search' requires old_content.",
+                    "applied": False,
+                    "matched": False,
+                }
             cs = resolve_case_sensitive(case_sensitive)
-            ranges = find_all_ranges(ctx.doc, s, case_sensitive=cs) if s else []
-            if not ranges:
-                res = build_search_not_found_response(ctx.doc, s, all_matches=True)
-                res.update({"target": "search", "applied": False, "matched": False})
-                return res
-            if occ_raw is not None:
-                # Schema type integer (bool fails). validate has no min/max.
-                if occ_raw < 0 or occ_raw >= len(ranges):
-                    return self._tool_error("occurrence %s out of range (found %d match(es), use 0..%d)." % (occ_raw, len(ranges), len(ranges) - 1))
-                ranges = [ranges[occ_raw]]
-            reports = []
+            if all_matches or occ_raw is not None:
+                ranges = find_all_ranges(ctx.doc, s, case_sensitive=cs) if s else []
+                if not ranges:
+                    shape_name = drawing_shape_containing(ctx.doc, s, case_sensitive=cs)
+                    res = build_search_not_found_response(
+                        ctx.doc, s, all_matches=True, shape_name=shape_name
+                    )
+                    res.update({"target": "search", "applied": False, "matched": False})
+                    return res
+                if occ_raw is not None:
+                    # Schema type integer (bool fails). validate has no min/max.
+                    if occ_raw < 0 or occ_raw >= len(ranges):
+                        return self._tool_error(
+                            "occurrence %s out of range (found %d match(es), use 0..%d)." % (occ_raw, len(ranges), len(ranges) - 1),
+                            code="OCCURRENCE_OUT_OF_RANGE",
+                        )
+                    ranges = [ranges[occ_raw]]
+                reports = []
 
-            if len(ranges) > 1:
-                from .edit_review import next_agent_edit_undo_title
-                from plugin.doc.compound_undo import UndoUnavailable, commit_or_rollback
+                if len(ranges) > 1:
+                    from .edit_review import next_agent_edit_undo_title
+                    from plugin.doc.compound_undo import UndoUnavailable, commit_or_rollback
 
-                title = next_agent_edit_undo_title()
+                    title = next_agent_edit_undo_title()
 
-                def mutate() -> None:
+                    def mutate() -> None:
+                        for found in ranges:
+                            c = cursor_spanning_range(found)
+                            reports.append(self._apply_one(ctx, family, uno_value, c, clear_direct))
+
+                    try:
+                        outcome = commit_or_rollback(ctx.doc, title, mutate)
+                    except UndoUnavailable:
+                        return self._tool_error(
+                            "Cannot apply the style to every match in one undo step. Nothing was changed.",
+                            code="UNDO_UNAVAILABLE",
+                        )
+                    if outcome.mutate_error is not None:
+                        error = outcome.mutate_error
+                        if outcome.rolled_back:
+                            return self._tool_error("Nothing was changed: %s" % (error,), code="TOOL_EXECUTION_ERROR")
+                        return self._tool_error(
+                            "Applied to %d of %d; failed on one match: %s. Earlier matches stay applied."
+                            % (len(reports), len(ranges), error),
+                            code="TOOL_EXECUTION_ERROR",
+                        )
+
+                    err = outcome.error
+                    if err is not None:
+                        if err.get("code") == "UNDO_CONTEXT_LEAK":
+                            return self._tool_error(
+                                "Applied style '%s' to %d match(es), but the undo step could not be closed (%s). "
+                                "The changes are in the document and the undo context is still open."
+                                % (style_name, len(reports), err.get("message")),
+                                code="TOOL_EXECUTION_ERROR",
+                            )
+                        if err.get("code") == "ROLLBACK_FAILED":
+                            return self._tool_error(
+                                "Applied to %d of %d; failed on one match: %s. Earlier matches stay applied."
+                                % (len(reports), len(ranges), err.get("message")),
+                                code="ROLLBACK_FAILED",
+                            )
+                else:
                     for found in ranges:
                         c = cursor_spanning_range(found)
                         reports.append(self._apply_one(ctx, family, uno_value, c, clear_direct))
 
-                try:
-                    outcome = commit_or_rollback(ctx.doc, title, mutate)
-                except UndoUnavailable:
-                    return self._tool_error("Cannot apply the style to every match in one undo step. Nothing was changed.")
-                if outcome.mutate_error is not None:
-                    error = outcome.mutate_error
-                    if outcome.rolled_back:
-                        return self._tool_error("Nothing was changed: %s" % (error,))
-                    return self._tool_error(
-                        "Applied to %d of %d; failed on one match: %s. Earlier matches stay applied."
-                        % (len(reports), len(ranges), error)
-                    )
+                return _finish_success({
+                    "status": "ok",
+                    "message": "Applied style '%s' (%s) to %d match(es)." % (style_name, family, len(reports)),
+                    "style_name": style_name,
+                    "family": family,
+                    "target": "search",
+                    "applied": True,
+                    "matched": True,
+                    "applied_count": len(reports),
+                }, reports)
 
-                err = outcome.error
-                if err is not None:
-                    if err.get("code") == "UNDO_CONTEXT_LEAK":
-                        return self._tool_error(
-                            "Applied style '%s' to %d match(es), but the undo step could not be closed (%s). "
-                            "The changes are in the document and the undo context is still open."
-                            % (style_name, len(reports), err.get("message")),
-                            code="TOOL_EXECUTION_ERROR",
-                        )
-                    if err.get("code") == "ROLLBACK_FAILED":
-                        return self._tool_error(
-                            "Applied to %d of %d; failed on one match: %s. Earlier matches stay applied."
-                            % (len(reports), len(ranges), err.get("message"))
-                        )
-            else:
-                for found in ranges:
-                    c = cursor_spanning_range(found)
-                    reports.append(self._apply_one(ctx, family, uno_value, c, clear_direct))
+            found = find_first_range(ctx.doc, s, case_sensitive=cs)
+            if found is None:
+                shape_name = drawing_shape_containing(ctx.doc, s, case_sensitive=cs)
+                res = build_search_not_found_response(ctx.doc, s, shape_name=shape_name)
+                res.update({"target": "search", "applied": False, "matched": False})
+                return res
 
+            cursor = cursor_spanning_range(found)
+            report = self._apply_one(ctx, family, uno_value, cursor, clear_direct)
             return _finish_success({
                 "status": "ok",
-                "message": "Applied style '%s' (%s) to %d match(es)." % (style_name, family, len(reports)),
+                "message": "Applied style '%s' (%s) to %s." % (style_name, family, target),
                 "style_name": style_name,
                 "family": family,
-                "target": "search",
+                "target": target,
                 "applied": True,
-                "matched": True,
-                "applied_count": len(reports),
-            }, reports)
+            }, [report])
 
         try:
             cursor = resolve_target_cursor(ctx, target, old_content, case_sensitive=case_sensitive)
         except ValueError as ve:
-            if target == "search":
-                # Surface the search-miss as a structured (top-level) failure, like
-                # apply_document_content, so a client can branch on matched/applied.
-                # TODO(follow-up): consider _tool_error(..., details={...}) so this path also
-                # carries a standard error code like other apply_style failures.
-                return {"status": "error", "message": str(ve), "target": "search", "applied": False, "matched": False}
-            return self._tool_error(str(ve))
+            return self._tool_error(str(ve), code="INVALID_PARAM")
 
         # execute_safe reports a failed apply. This catch hid a closed document
         # as "Could not apply style".
@@ -1514,7 +1571,7 @@ class StyleUpdate(ToolWriterStyleBase):
         style_name, family, parent_style, updates = validated
 
         if not updates and parent_style is None:
-            return self._tool_error("Nothing to update. Pass property_updates and/or parent_style.")
+            return self._tool_error("Nothing to update. Pass property_updates and/or parent_style.", code="INVALID_PARAM")
 
         doc = ctx.doc
         style_family = _style_family(self, doc, family)
@@ -1527,7 +1584,7 @@ class StyleUpdate(ToolWriterStyleBase):
         if parent_style is not None:
             parent_style = str(parent_style).strip()
             if not parent_style:
-                return self._tool_error("parent_style is empty.")
+                return self._tool_error("parent_style is empty.", code="INVALID_PARAM")
             if not style_family.hasByName(parent_style):
                 return _missing_style_error(
                     self, parent_style, family, style_family, label="parent_style")
@@ -1641,14 +1698,14 @@ class StyleCreate(ToolWriterStyleBase):
         if isinstance(style_family, dict):
             return style_family
         if style_family.hasByName(style_name):
-            return self._tool_error("Style '%s' already exists in %s." % (style_name, family))
+            return self._tool_error("Style '%s' already exists in %s." % (style_name, family), code="INVALID_PARAM")
 
         if conditional_rules:
             if family == "CharacterStyles":
-                return self._tool_error("conditional_rules are only supported for ParagraphStyles.")
+                return self._tool_error("conditional_rules are only supported for ParagraphStyles.", code="INVALID_PARAM")
             cond_err = _validate_conditional_rules(conditional_rules, style_family)
             if cond_err:
-                return self._tool_error(cond_err)
+                return self._tool_error(cond_err, code="INVALID_PARAM")
 
         service = "com.sun.star.style.ConditionalParagraphStyle" if conditional_rules else _CLONE_TEXT_SERVICES.get(family, "com.sun.star.style.ParagraphStyle")
 
@@ -1661,7 +1718,7 @@ class StyleCreate(ToolWriterStyleBase):
 
         new_style = doc.createInstance(service)
         if not new_style:
-            return self._tool_error("Failed to create style instance for %s" % service)
+            return self._tool_error("Failed to create style instance for %s" % service, code="TOOL_EXECUTION_ERROR")
 
         if actual_parent:
             try:
@@ -1670,12 +1727,13 @@ class StyleCreate(ToolWriterStyleBase):
                 if is_disposal(e):
                     raise
                 log.warning("Failed to set parent_style '%s' on new style", actual_parent, exc_info=True)
-                return self._tool_error(f"Failed to set parent_style '{actual_parent}': {e}")
+                return self._tool_error(f"Failed to set parent_style '{actual_parent}': {e}", code="TOOL_EXECUTION_ERROR")
 
         applied, failed = _apply_style_updates(new_style, updates)
         if failed:
             return {
                 "status": "error",
+                "code": "TOOL_EXECUTION_ERROR",
                 "message": "Style was not created. Failed properties: %s" % (failed,),
                 "failed_properties": failed,
             }
@@ -1704,7 +1762,7 @@ class StyleCreate(ToolWriterStyleBase):
                         style_family.removeByName(style_name)
                 except Exception as rb_err:
                     log.warning("Failed to rollback created style '%s' after condition failure: %s", style_name, rb_err)
-                return self._tool_error(f"Failed to apply conditional rules to style: {cond_err}")
+                return self._tool_error(f"Failed to apply conditional rules to style: {cond_err}", code="TOOL_EXECUTION_ERROR")
 
         keep_style_alive(new_style)
 
@@ -1745,11 +1803,11 @@ class StyleClone(ToolWriterStyleBase):
         style_name = kwargs["style"].strip()
         new_name = kwargs["new_style"].strip()
         if not style_name:
-            return self._tool_error("style is required.")
+            return self._tool_error("style is required.", code="INVALID_PARAM")
         if not new_name:
-            return self._tool_error("new_style is required.")
+            return self._tool_error("new_style is required.", code="INVALID_PARAM")
         if style_name == new_name:
-            return self._tool_error("new_style must be a different name from style.")
+            return self._tool_error("new_style must be a different name from style.", code="INVALID_PARAM")
 
         family = kwargs.get("family") or "ParagraphStyles"
         # Schema enum: ParagraphStyles, PageStyles, CharacterStyles.
@@ -1767,7 +1825,7 @@ class StyleClone(ToolWriterStyleBase):
         if not style_family.hasByName(style_name):
             return _missing_style_error(self, style_name, family, style_family)
         if style_family.hasByName(new_name):
-            return self._tool_error("Style '%s' already exists in %s." % (new_name, family))
+            return self._tool_error("Style '%s' already exists in %s." % (new_name, family), code="INVALID_PARAM")
 
         from plugin.doc.compound_undo import WriterCompoundUndo
 
@@ -1820,12 +1878,12 @@ class StyleImport(ToolWriterStyleBase):
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         file_path: str = kwargs["path"]
         if not file_path.strip():
-            return self._tool_error("path is required.")
+            return self._tool_error("path is required.", code="INVALID_PARAM")
         file_path = file_path.strip()
         if not os.path.isabs(file_path):
-            return self._tool_error("path must be an absolute filesystem path.")
+            return self._tool_error("path must be an absolute filesystem path.", code="INVALID_PARAM")
         if not os.path.isfile(file_path):
-            return self._tool_error("path does not exist: %s" % file_path)
+            return self._tool_error("path does not exist: %s" % file_path, code="INVALID_PARAM")
 
         overwrite = kwargs.get("overwrite", True)
         load_text = kwargs.get("load_paragraph_styles", True)

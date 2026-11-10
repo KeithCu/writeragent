@@ -233,6 +233,7 @@ def build_search_not_found_response(
     if shape_name:
         return {
             "status": "error",
+            "code": "SHAPE_TEXT_NEEDS_DELEGATION",
             "message": shape_only_search_message("old_content", shape_name),
             "replaced_count": 0,
         }
@@ -246,6 +247,7 @@ def build_search_not_found_response(
     if closest is None and doc is not None and needle and not use_regex and old_content_covers_most(doc, len(needle)):
         return {
             "status": "error",
+            "code": "OLD_CONTENT_TOO_LARGE",
             "message": OVERSIZED_OLD_CONTENT_MESSAGE,
             "replaced_count": 0,
             "oversized": True,
@@ -265,6 +267,7 @@ def build_search_not_found_response(
 
     resp: dict[str, Any] = {
         "status": "error",
+        "code": "OLD_CONTENT_NOT_FOUND",
         "message": base_msg,
         "replaced_count": 0,
     }
@@ -1398,7 +1401,7 @@ class SearchInDocument(ToolBase):
         pattern = kwargs["pattern"]
         assert isinstance(pattern, str)
         if not pattern:
-            return self._tool_error("pattern is required.")
+            return self._tool_error("pattern is required.", code="INVALID_PARAM")
 
         use_regex = kwargs.get("regex", False)
         case_sensitive = resolve_case_sensitive(kwargs.get("case_sensitive"))
@@ -1523,7 +1526,7 @@ class AdvancedSearch(ToolBaseDummy):
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         query = kwargs.get("query")
         if not isinstance(query, str) or not query.strip():
-            return self._tool_error("query is required.")
+            return self._tool_error("query is required.", code="INVALID_PARAM")
 
         idx_svc = ctx.services.writer_index
         around_page = kwargs.get("around_page")
@@ -1536,7 +1539,7 @@ class AdvancedSearch(ToolBaseDummy):
         try:
             result = idx_svc.search_boolean(ctx.doc, query, max_results=kwargs.get("max_results", 20), context_paragraphs=kwargs.get("context_paragraphs", 1))
         except ValueError as e:
-            return self._tool_error(str(e))
+            return self._tool_error(str(e), code="INVALID_PARAM")
 
         if include_pages and result.get("matches"):
             page_map = _build_page_map(ctx.doc)
