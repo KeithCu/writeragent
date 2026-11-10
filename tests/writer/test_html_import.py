@@ -2029,4 +2029,28 @@ def test_plain_html_leaves_math_out_empty():
     assert math_out == []
 
 
+def test_drop_absorb_paragraph_props_resets_extended_properties() -> None:
+    """_drop_absorb_paragraph_props must pass CLEARABLE_PARA_PROPERTIES plus extra direct properties."""
+    from plugin.writer.html_import import _drop_absorb_paragraph_props
+    from plugin.writer.styles import CLEARABLE_PARA_PROPERTIES
+
+    cursor = MagicMock()
+    _drop_absorb_paragraph_props(cursor)
+
+    cursor.setPropertiesToDefault.assert_called_once()
+    props = cursor.setPropertiesToDefault.call_args[0][0]
+
+    assert props[: len(CLEARABLE_PARA_PROPERTIES)] == CLEARABLE_PARA_PROPERTIES
+    extra_names = (
+        "ParaLineSpacing",
+        "ParaContextMargin",
+        "ParaTabStops",
+        "LeftBorder",
+        "RightBorder",
+        "TopBorder",
+        "BottomBorder",
+    )
+    for name in extra_names:
+        assert name in props
+        assert name not in CLEARABLE_PARA_PROPERTIES
 

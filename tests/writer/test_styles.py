@@ -1635,3 +1635,4 @@ def test_apply_style_case_sensitive_occurrence():
         assert calls[-1] == ("apple", True)
 
 
+

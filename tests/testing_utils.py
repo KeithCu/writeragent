@@ -1376,6 +1376,10 @@ def _reset_writer_doc(doc, ctx) -> None:
         except Exception:
             pass
         try:
+            cursor.setPropertyValue("NumberingRules", None)
+        except Exception:
+            pass
+        try:
             cursor.setPropertyValue("CharWeight", 100.0)
         except Exception:
             pass
