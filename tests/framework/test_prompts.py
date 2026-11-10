@@ -155,6 +155,20 @@ def test_writer_chat_template_ends_with_apply_html_then_confirm():
     assert RESEARCH_COMPLETION_INSTRUCTION_WRITER not in template
 
 
+def test_confirm_edits_from_structured_fields_prefers_suggested_call():
+    """Structured fields instruction prefers executing suggested_call over re-deriving the call."""
+    from plugin.framework.prompts import (
+        CONFIRM_EDITS_FROM_STRUCTURED_FIELDS,
+        SUB_AGENT_HTML_CONTENT_RULES,
+    )
+
+    assert (
+        "When a result includes suggested_call, prefer executing it over re-deriving the call."
+        in CONFIRM_EDITS_FROM_STRUCTURED_FIELDS
+    )
+    assert "warnings[].suggested_call" in SUB_AGENT_HTML_CONTENT_RULES
+
+
 def test_memory_guidance_rules_and_phrasing():
     from plugin.framework.prompts import MEMORY_GUIDANCE
 

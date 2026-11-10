@@ -13,7 +13,7 @@
 | 1 | `warnings` array for dropped attributes | 2.2 | 🟡 Exists for `data-lo-para` and `data-lo-style` (`_attach_para_warnings`). Not yet a general mechanism for all drops (table-cell styles, etc.) | #3260 |
 | 2 | Near-miss report when search fails | 2.4 | ✅ Near-miss on a miss, with the miss paths unified | #3261 |
 | 3 | Honor `data-lo-style` on whole-paragraph search/selection matches | 2.1 | ✅ | #3263 |
-| 4 | Partial match: ignore style but warn with `apply_style` call | 2.1 | 🟡 Style warning is appended to the result. The `suggested_call` shape from §4 isn't confirmed ❓ | #3263 |
+| 4 | Partial match: ignore style but warn with `apply_style` call | 2.1 | ✅ Diagnostic warning carries `suggested_call` for `apply_style`; prompt prefers `suggested_call` | #3263, #3288 |
 | 5 | Paragraph alignment, colour, margins on write | 2.2 | ✅ Alignment, margins, background via `data-lo-para`. Also top/bottom margin, indent, line-height | #3260, #3270 |
 | 6 | Accept `data-lo-para` on write (read/write symmetry) | 2.2 | 🟡 Geometry round-trips with no warnings. Paragraph-level font/size/weight/style/colour stay read-only on purpose, because setting `Char*` on the paragraph merges spans. A unit test guards the read table against drifting from the write table | #3260, #3270 |
 | 7 | `full_document` summary result | 2.1 | ✅ Block summary with a shared slot extractor | #3262 |
@@ -33,7 +33,7 @@
 | 21 | Regex engine validation (ICU vs Python `re`) | 2.3 | ⬜ Not found | n/a |
 | 22 | Stable `error_code` + `suggested_call` on every error | §3, §4 | ⬜ Not in the writer edit path | n/a |
 
-**Tally:** 9 shipped, 4 partial, 9 not started. Section 5's two top priorities (warnings, near-miss) are both at least partly done.
+**Tally:** 10 shipped, 3 partial, 9 not started. Section 5's two top priorities (warnings, near-miss) are both at least partly done.
 
 ## 2. What changed, in plain terms
 
