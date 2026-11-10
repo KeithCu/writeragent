@@ -26,7 +26,7 @@ import contextlib
 import difflib
 import errno
 import logging
-from typing import Any, Callable, NoReturn, TypeVar, overload
+from typing import Any, Callable, NoReturn, NotRequired, TypeVar, TypedDict, overload
 
 from plugin.framework.i18n import _
 from plugin.framework.json_utils import safe_python_literal_eval  # noqa: F401  # pyright: ignore[reportUnusedImport]
@@ -76,6 +76,37 @@ def available_miss_details(wanted: str, available: list[str]) -> dict[str, Any]:
     if similar:
         out["similar"] = similar
     return out
+
+
+class SuggestedCall(TypedDict):
+    """Complete tool call recommendation that a model can send unchanged."""
+
+    tool: str
+    arguments: dict[str, Any]
+
+
+class Diagnostic(TypedDict):
+    """Structured diagnostic reported on edit failures or partial applications.
+
+    Carries a machine-readable code, a human-readable message, an optional
+    suggested_call so the model can send it as its next tool call unchanged,
+    and optional flat context fields (declare any new context keys here).
+    """
+
+    code: str
+    message: str
+    suggested_call: NotRequired[SuggestedCall]
+    matches_skipped: NotRequired[int]
+    matches_total: NotRequired[int]
+
+
+def suggest_call(tool: str, **arguments: Any) -> SuggestedCall:
+    """Build a suggested_call dictionary from a tool name and arguments.
+
+    Constructs a complete invocation payload matching the internal tool execution
+    convention so the model can send it as its next tool call unchanged.
+    """
+    return {"tool": tool, "arguments": arguments}
 
 
 def is_disposal(exc: BaseException) -> bool:
@@ -250,20 +281,28 @@ class CalcError(WriterAgentException):
 
 
 @deal.post(lambda result: isinstance(result, dict) and result.get("status") == "error" and "code" in result and "message" in result)
-@deal.ensure(lambda e, result: isinstance(e, WriterAgentException) or (result.get("code") == "INTERNAL_ERROR" and isinstance(result.get("details"), dict) and "type" in result["details"]))
-@deal.ensure(lambda e, result: not isinstance(e, WriterAgentException) or result.get("code") == e.code)
-def format_error_payload(e: BaseException) -> dict[str, Any]:
-    """Format an exception into the standard JSON error payload schema."""
+@deal.ensure(lambda e, result, suggested_call=None: isinstance(e, WriterAgentException) or (result.get("code") == "INTERNAL_ERROR" and isinstance(result.get("details"), dict) and "type" in result["details"]))
+@deal.ensure(lambda e, result, suggested_call=None: not isinstance(e, WriterAgentException) or result.get("code") == e.code)
+def format_error_payload(e: BaseException, *, suggested_call: SuggestedCall | None = None) -> dict[str, Any]:
+    """Format an exception into the standard JSON error payload schema.
+
+    When a suggested_call is provided, it is attached at the top level alongside
+    code and message so the model can send it as its next tool call unchanged.
+    """
     if isinstance(e, WriterAgentException):
         payload: dict[str, Any] = {"status": "error", "code": e.code, "message": e.message}
         if e.details:
             payload["details"] = e.details
-        return payload
+    else:
+        # For unexpected exceptions, capture the Python exception type in details
+        # so callers can distinguish unhandled crashes from intended error codes.
+        err_type = type(e).__name__
+        err_msg = resolve_exception_message(e)
+        payload = {"status": "error", "code": "INTERNAL_ERROR", "message": err_msg, "details": {"type": err_type}}
 
-    # For unexpected exceptions
-    err_type = type(e).__name__
-    err_msg = resolve_exception_message(e)
-    return {"status": "error", "code": "INTERNAL_ERROR", "message": err_msg, "details": {"type": err_type}}
+    if suggested_call is not None:
+        payload["suggested_call"] = suggested_call
+    return payload
 
 
 # i18n mapper for raw exceptions. format_error_payload is the structured dict.
@@ -401,16 +440,27 @@ def format_error_for_display(e: Any) -> str:
 
 
 @deal.post(lambda result: isinstance(result, dict) and result.get("status") == "error" and "code" in result and "message" in result)
-def make_tool_error(message: Any, code: str = "TOOL_EXECUTION_ERROR", **details: Any) -> dict[str, Any]:
+def make_tool_error(
+    message: Any,
+    code: str = "TOOL_EXECUTION_ERROR",
+    *,
+    suggested_call: SuggestedCall | None = None,
+    **details: Any,
+) -> dict[str, Any]:
     """Central factory for all standardized tool error payloads.
 
     A long UNO or provider string is a runtime message. Construction goes
     through ``WriterAgentException``, which does not apply the gettext msgid
-    length contract to that text.
+    length contract to that text. Extra keyword arguments are stored under
+    details, while an optional suggested_call stays at the top level alongside
+    code and message so the model can send it as its next tool call unchanged.
     """
     if not isinstance(code, str) or not code:
         code = "TOOL_EXECUTION_ERROR"
-    return format_error_payload(ToolExecutionError(message, code=code, details=details))
+    return format_error_payload(
+        ToolExecutionError(message, code=code, details=details),
+        suggested_call=suggested_call,
+    )
 
 
 def user_stopped_payload(message: str = "Document read stopped by user.") -> dict[str, Any]:

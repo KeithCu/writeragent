@@ -1095,7 +1095,7 @@ class ImageCropAndHighlight(ToolWriterImageBase):
         height_px: int | None = None
 
         def _invalid_param_error(msg: str) -> dict[str, Any]:
-            extra = {}
+            extra: dict[str, Any] = {}
             if width_px is not None:
                 extra["width_px"] = width_px
             if height_px is not None:

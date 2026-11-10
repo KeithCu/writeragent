@@ -44,6 +44,7 @@ if TYPE_CHECKING:
     from plugin.framework.send_cancellation import SendCancellation
 
 from plugin.framework.errors import (
+    SuggestedCall,
     WriterAgentException,
     document_is_disposed,
     format_error_payload,
@@ -239,16 +240,21 @@ def field_from_tool_arguments(arguments: Any, field: str) -> Any:
 class _ToolErrorMixin:
     """Mixin providing standardized JSON payload generation for tool errors."""
 
-    def _tool_error(self, message: str, code: str = "TOOL_EXECUTION_ERROR", **details: Any) -> dict[str, Any]:
+    def _tool_error(
+        self,
+        message: str,
+        code: str = "TOOL_EXECUTION_ERROR",
+        *,
+        suggested_call: SuggestedCall | None = None,
+        **details: Any,
+    ) -> dict[str, Any]:
         """Standardized JSON payload for tool errors.
 
-        Delegates to the central make_tool_error factory so every tool
-        error path (including the Dummy base and Registry) produces
-        identical structure. See errors.py:make_tool_error for the
-        single source of truth (added during 2026 error formatting
-        centralization).
+        Delegates to the central make_tool_error factory so every tool error
+        produces identical structure. An optional suggested_call stays at top
+        level alongside code and message; other kwargs go under details.
         """
-        return make_tool_error(message, code=code, **details)
+        return make_tool_error(message, code=code, suggested_call=suggested_call, **details)
 
 
 class ToolBase(_ToolErrorMixin, ABC):
