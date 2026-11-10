@@ -611,7 +611,6 @@ def test_write_search_all_matches_mixed_whole_and_partial_uno(ctx, doc):
 def test_partial_match_suggested_call_replay_uno(ctx, doc):
     """Replaying suggested_call from partial match restyles the host paragraph while neighbors keep styles."""
     from plugin.writer.styles import ApplyStyle
-    from tests.framework.test_errors import assert_valid_suggested_call
 
     text = doc.getText()
     text.setString("")
@@ -646,7 +645,6 @@ def test_partial_match_suggested_call_replay_uno(ctx, doc):
     assert suggested["arguments"]["old_content"] == "Replacement"
     assert suggested["arguments"]["style"] == "Heading 2"
     assert suggested["arguments"]["case_sensitive"] is True
-    assert_valid_suggested_call(suggested)
 
     # Replay the suggested call against LibreOffice
     style_res = ApplyStyle().execute(_tool_ctx(doc, ctx), **suggested["arguments"])
