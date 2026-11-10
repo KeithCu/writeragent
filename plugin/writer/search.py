@@ -115,8 +115,8 @@ _FOLD_NORMALIZE_MAP = {
     **{cp: "-" for cp in (0x2010, 0x2011, 0x2012, 0x2013, 0x2014, 0x2015, 0x2212)},
 }
 
-# Literal shape and comment search folds typographic quotes like LibreOffice's
-# native Find does; dashes and spaces stay literal here.
+# Literal shape and comment search folds typographic quotes; dashes and spaces
+# stay literal here.
 _SHAPE_QUOTE_FOLD = str.maketrans(_QUOTE_FOLD_MAP)
 
 MIN_OVERSIZED_CHARS = 100
@@ -942,7 +942,7 @@ def _lower_with_origins(text: str) -> tuple[str, list[int]]:
     return "".join(lowered_chars), origins
 
 
-def _regex_find_hits(pattern: str, text: str, flags: int) -> list[str]:
+def _regex_find_hits(pattern: str, text: str, flags: int) -> list[tuple[int, int]]:
     """Python re on shape/comment text, off the LibreOffice main thread.
 
     Catastrophic backtracking cannot be killed. A dedicated daemon is required:
@@ -960,7 +960,7 @@ def _regex_find_hits(pattern: str, text: str, flags: int) -> list[str]:
 
     def _run() -> None:
         try:
-            box["hits"] = [m.group(0) for m in re_mod.finditer(pattern, text, flags) if m.group(0)]
+            box["hits"] = [(m.start(), m.end()) for m in re_mod.finditer(pattern, text, flags) if m.group(0)]
         except Exception as exc:
             box["err"] = exc
 
@@ -982,6 +982,8 @@ def iter_shape_text_spans(
     shape_text: str,
     pattern: str,
     case_sensitive: bool = SEARCH_CASE_SENSITIVE_DEFAULT,
+    *,
+    use_regex: bool = False,
 ) -> Iterator[tuple[int, int]]:
     """Yield [start, end) character offset spans of pattern in shape_text.
 
@@ -989,6 +991,10 @@ def iter_shape_text_spans(
     Offsets index the original shape_text string.
     """
     if not shape_text or not pattern:
+        return
+    if use_regex:
+        flags = 0 if case_sensitive else re_mod.IGNORECASE
+        yield from _regex_find_hits(pattern, shape_text, flags)
         return
     if case_sensitive:
         hay = shape_text.translate(_SHAPE_QUOTE_FOLD)
@@ -1015,22 +1021,29 @@ def shape_text_span(
     shape_text: str,
     pattern: str,
     case_sensitive: bool = SEARCH_CASE_SENSITIVE_DEFAULT,
+    *,
+    use_regex: bool = False,
 ) -> tuple[int, int] | None:
     """Return the [start, end) character offset span of pattern in shape_text, or None.
 
     Literal search folds typographic quotes via _SHAPE_QUOTE_FOLD.
     Offsets index the original shape_text string.
     """
-    return next(iter_shape_text_spans(shape_text, pattern, case_sensitive=case_sensitive), None)
+    return next(
+        iter_shape_text_spans(
+            shape_text, pattern, case_sensitive=case_sensitive, use_regex=use_regex
+        ),
+        None,
+    )
 
 
 def shape_text_hits(shape_text: str, pattern: str, use_regex: bool, case_sensitive: bool) -> list[str]:
-    if not shape_text or not pattern:
-        return []
-    if use_regex:
-        flags = 0 if case_sensitive else re_mod.IGNORECASE
-        return _regex_find_hits(pattern, shape_text, flags)
-    return [shape_text[start:end] for start, end in iter_shape_text_spans(shape_text, pattern, case_sensitive)]
+    return [
+        shape_text[start:end]
+        for start, end in iter_shape_text_spans(
+            shape_text, pattern, case_sensitive=case_sensitive, use_regex=use_regex
+        )
+    ]
 
 
 def iter_floating_shape_texts(doc: Any) -> Iterator[tuple[Any, str]]:

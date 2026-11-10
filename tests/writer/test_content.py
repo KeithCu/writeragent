@@ -1293,6 +1293,31 @@ def test_shape_edit_rolls_back_when_replace_returns_false():
     mgr.undo.assert_called_once()
 
 
+def test_shape_edit_regex_shares_stripped_pattern():
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+
+    ctx = _edit_ctx()
+    shape = MagicMock()
+    shape.Name = "Box"
+    with patch("plugin.writer.search.find_ranges_regex_case", return_value=None), \
+         patch("plugin.writer.search.drawing_shape_object_containing", return_value=shape) as mock_find_shape, \
+         patch("plugin.writer.apply_document_content.review_recording_enabled", return_value=False), \
+         patch("plugin.writer.apply_document_content.get_agent_edit_review_mode", return_value="off"), \
+         patch("plugin.writer.apply_document_content.replace_text_in_shape", return_value=True) as mock_replace:
+        res = ApplyDocumentContent().execute(
+            ctx, target="search", old_content="hel+o  x", content="BAR", regex=True)
+
+    assert res["status"] == "ok"
+    assert res["replaced_count"] == 1
+    mock_find_shape.assert_called_once_with(
+        ctx.doc, "hel+o  x", use_regex=True, case_sensitive=False
+    )
+    mock_replace.assert_called_once_with(
+        shape, "hel+o  x", "BAR", case_sensitive=False, use_regex=True
+    )
+    assert mock_replace.call_args[0][1] != "hel+o x"
+
+
 def test_all_matches_failure_keeps_a_code_and_reraises_disposed():
     from plugin.framework.errors import DocumentDisposedError, ToolExecutionError
     from plugin.writer.apply_document_content import ApplyDocumentContent
