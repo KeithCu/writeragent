@@ -35,7 +35,7 @@ GitHub. Those comments are stripped on read. ``save`` does not validate,
 write, or emit ``config:changed`` when the coerced value already matches the
 stored value, or the schema default when that key is omitted from the file.
 The default itself is not a change. If nothing changed, it does not write or emit.
-Writes are ``os.replace`` and do not ``fsync``.
+Writes go through a temp file, ``fsync``, then ``os.replace``. Other files written with ``atomic_write_text`` (memory, skills, history JSON, harper cache) do not fsync.
 
 Concurrency: ``save`` and ``update_config_mapping`` hold ``_config_write_lock``
 (an ``RLock``) across the read, merge, validate, and write. Values for
@@ -255,13 +255,22 @@ def _try_repair_config_dict(text: str) -> dict[str, Any] | None:
     return None
 
 
-def atomic_write_text(path: str, text: str, *, prefix: str = ".tmp-") -> None:
-    """Atomically write text to path using a temp file in the same directory and os.replace."""
+def atomic_write_text(path: str, text: str, *, prefix: str = ".tmp-", fsync: bool = False) -> None:
+    """Atomically write text to path using a temp file in the same directory and os.replace.
+
+    When ``fsync`` is true, the file buffer is flushed and synced to disk before
+    the rename so a power loss leaves either the old or the new file, never an
+    empty one. The default is false because caches and history files accept
+    losing the last write.
+    """
     directory = os.path.dirname(path) or "."
     fd, tmp_path = tempfile.mkstemp(prefix=prefix, suffix=".tmp", dir=directory)
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             f.write(text)
+            if fsync:
+                f.flush()
+                os.fsync(f.fileno())
         os.replace(tmp_path, path)
     except BaseException:
         try:
@@ -274,7 +283,9 @@ def atomic_write_text(path: str, text: str, *, prefix: str = ".tmp-") -> None:
 def _write_config_file(config_file_path: str, data: dict[str, Any]) -> None:
     """Write config via temp file + ``os.replace`` so a process crash cannot truncate the live file.
 
-    This write does not ``fsync``; a power loss can lose this write or the whole file.
+    The temp file is fsynced before the rename, so a power loss leaves the previous
+    or the new config, never an empty file. This file holds the API keys, so it is
+    the one write that pays for fsync.
     """
     # Non-serializable values raise ConfigError with CONFIG_SAVE_ERROR.
     try:
@@ -283,7 +294,7 @@ def _write_config_file(config_file_path: str, data: dict[str, Any]) -> None:
         raise ConfigError(f"Config value is not JSON-serializable: {e}", code="CONFIG_SAVE_ERROR") from e
     body += "\n"
     content = CONFIG_SCHEMA_COMMENT + body
-    atomic_write_text(config_file_path, content, prefix=".writeragent-")
+    atomic_write_text(config_file_path, content, prefix=".writeragent-", fsync=True)
 
 
 def _invalidate_config_cache() -> None:
