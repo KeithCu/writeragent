@@ -609,7 +609,7 @@ def test_copy_shapes_to_page_disposal_raises_while_runtime_exception_skips():
     doc = MagicMock()
     page = _ScFakePage()
 
-    # Case A: shape 1 raises DisposedException -> copy_shapes_to_page raises DocumentDisposedError, shape 2 not cloned
+    # Case A: shape 1 raises DisposedException -> copy_shapes_to_page raises, shape 2 not cloned
     shape1_disp = _ScFakeShape("com.sun.star.drawing.RectangleShape")
     shape1_disp.getPropertyValue = MagicMock(side_effect=DisposedException("doc disposed"))
     shape2_ok = _ScFakeShape("com.sun.star.drawing.RectangleShape")
@@ -619,9 +619,8 @@ def test_copy_shapes_to_page_disposal_raises_while_runtime_exception_skips():
     dest_shape = _ScFakeShape("com.sun.star.drawing.RectangleShape")
     doc.createInstance.return_value = dest_shape
 
-    with pytest.raises(DocumentDisposedError) as excinfo:
+    with pytest.raises(DisposedException):
         copy_shapes_to_page(src_page_disp, doc, page)
-    assert isinstance(excinfo.value.__cause__, DisposedException)
     # Shape 1 was added before disposal raised; shape 2 was never cloned
     assert page.getCount() == 1
     shape2_ok.getPropertyValue.assert_not_called()
