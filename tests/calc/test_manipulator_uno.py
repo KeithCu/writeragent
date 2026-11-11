@@ -76,3 +76,55 @@ def test_manipulator_insert_structure_and_unmerge(ctx, doc):
     sheet.getCellRangeByPosition(0, 0, 1, 0).merge(True)
     manipulator.merge_cells("A1:B1", center=False, unmerge=True)
 
+
+@native_test
+@with_native_doc("calc")
+def test_range_sort_reorders_visible_rows(ctx, doc):
+    sheet = doc.getCurrentController().getActiveSheet()
+    fixture = (
+        ("Region", "Revenue"),
+        ("North", 1.0),
+        ("East", 9.0),
+        ("South", 4.0),
+        ("Mid", 4.0),
+        ("West", 7.0),
+    )
+    sheet.getCellRangeByName("A1:B6").setDataArray(fixture)
+
+    res = _execute_calc_tool(
+        doc,
+        ctx,
+        "range_sort",
+        {"range": ["A1:B6"], "sort_column": 1, "ascending": False, "has_header": True},
+    )
+    assert res.get("status") == "ok", f"sort failed: {res}"
+    assert "no rows moved" not in res.get("message", "")
+
+    col_a = [row[0] for row in sheet.getCellRangeByName("A1:A6").getDataArray()]
+    assert col_a == ["Region", "East", "West", "South", "Mid", "North"]
+
+    col_b = [row[0] for row in sheet.getCellRangeByName("B1:B6").getDataArray()]
+    assert col_b == ["Revenue", 9.0, 7.0, 4.0, 4.0, 1.0]
+
+    undo_mgr = doc.getUndoManager()
+    assert list(undo_mgr.getAllUndoActionTitles())[0] == "WriterAgent: Sort range"
+
+    undo_mgr.undo()
+    col_a_restored = [row[0] for row in sheet.getCellRangeByName("A1:A6").getDataArray()]
+    assert col_a_restored == ["Region", "North", "East", "South", "Mid", "West"]
+
+    undo_mgr.redo()
+    col_a_redone = [row[0] for row in sheet.getCellRangeByName("A1:A6").getDataArray()]
+    assert col_a_redone == ["Region", "East", "West", "South", "Mid", "North"]
+
+    res_noop = _execute_calc_tool(
+        doc,
+        ctx,
+        "range_sort",
+        {"range": ["A1:B6"], "sort_column": 1, "ascending": False, "has_header": True},
+    )
+    assert res_noop.get("status") == "ok", f"second sort failed: {res_noop}"
+    assert "no rows moved" in res_noop.get("message", "")
+    col_a_after = [row[0] for row in sheet.getCellRangeByName("A1:A6").getDataArray()]
+    assert col_a_after == ["Region", "East", "West", "South", "Mid", "North"]
+

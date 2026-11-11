@@ -925,7 +925,8 @@ class SortRange(ToolCalcRangeBase):
         "set ascending=false when largest values should come first. "
         "Do pass has_header=true when row 1 is labels because otherwise labels "
         "sort as values. "
-        "Supports lists for non-contiguous areas."
+        "Supports lists for non-contiguous areas. "
+        "The result says 'no rows moved' when the key column was already in that order."
     )
     parameters: dict[str, Any] | None = {
         "type": "object",
@@ -962,7 +963,7 @@ class SortRange(ToolCalcRangeBase):
             rn,
             "WriterAgent: Sort range",
             lambda r: manipulator.range_sort(r, sort_column=sort_column, ascending=ascending, has_header=has_header),
-            f"Sorted {len(rn)} ranges",
+            format_result=(lambda results: {"status": "ok", "message": " ".join(results)}) if len(rn) > 1 else None,
         )
 
 
