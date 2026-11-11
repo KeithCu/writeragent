@@ -11,6 +11,8 @@ import re
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 
 from plugin.scripting.document_scripts import (
     DOCUMENT_SCRIPTS_UDPROP,
@@ -42,6 +44,7 @@ from plugin.scripting.document_scripts import (
     set_calc_init_script,
     set_document_scripts,
 )
+from plugin.framework.errors import DocumentDisposedError
 from plugin.framework.i18n import _
 from plugin.scripting.domain_registry import (
     ANALYSIS_SCRIPT_DISPLAY_PREFIX,
@@ -261,6 +264,26 @@ def test_set_document_scripts_still_replaces_unreadable_property():
     err = set_document_scripts(doc, {"A": "x"})
     assert err is None
     assert get_document_scripts(doc) == {"A": "x"}
+
+
+def test_set_document_scripts_reraises_disposed_document():
+    doc = _DocWithUserDefinedProperties(_UserDefinedProperties())
+
+    class DisposedException(Exception):
+        pass
+
+    raw_exc = DisposedException("gone")
+    with patch("plugin.scripting.document_scripts.set_document_property", side_effect=raw_exc):
+        with pytest.raises(DocumentDisposedError) as info:
+            set_document_scripts(doc, {"A": "x"})
+    assert info.value.__cause__ is raw_exc
+    assert "Document disposed while saving document scripts" in str(info.value)
+
+    err_instance = DocumentDisposedError("gone")
+    with patch("plugin.scripting.document_scripts.set_document_property", side_effect=err_instance):
+        with pytest.raises(DocumentDisposedError) as info:
+            set_document_scripts(doc, {"A": "x"})
+    assert info.value is err_instance
 
 
 def test_blank_property_is_not_unreadable():

@@ -354,12 +354,12 @@ def test_resolve_research_locale_reraises_disposed_document():
         patch("plugin.framework.queue_executor.main.is_current", return_value=False),
         patch("plugin.framework.queue_executor.main.call", side_effect=DisposedException("gone")),
     ):
-        with pytest.raises(DisposedException):
+        with pytest.raises(DocumentDisposedError) as info:
             resolve_research_locale(None, doc)
+        assert isinstance(info.value.__cause__, DisposedException)
 
-    # Thread-guard teardown raises DocumentDisposedError. That name does not
-    # contain DisposedException, so a name-only check used to swallow it and
-    # cache the run as english.
+    # Thread-guard teardown raises DocumentDisposedError; it must pass through
+    # unchanged, not be cached as english.
     with (
         patch("plugin.framework.queue_executor.main.is_current", return_value=False),
         patch("plugin.framework.queue_executor.main.call", side_effect=DocumentDisposedError("gone")),

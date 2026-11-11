@@ -10,6 +10,8 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
+from plugin.framework.errors import DocumentDisposedError
+
 import pytest
 
 from plugin.chatbot.chat_sidebar_mode import (
@@ -136,8 +138,10 @@ def test_mode_from_selector_error_handling():
         pass
 
     ctrl.getSelectedItemPos.side_effect = DisposedException("object disposed")
-    with pytest.raises(DisposedException):
+    with pytest.raises(DocumentDisposedError) as info:
         mode_from_selector_with_flags(ctrl, flags)
+    assert info.value.object_type == "control"
+    assert isinstance(info.value.__cause__, DisposedException)
 
 
 def test_set_selector_mode_selects_by_index():
