@@ -155,7 +155,7 @@ def _score_toc_edit(
 
             exported = tools_lo.export_writer_odt()
             cleanup = True
-        except Exception as exc:
+        except (RuntimeError, OSError, ImportError) as exc:
             failures.append(f"Failed to export writer ODT: {exc}")
             exported = None
 

@@ -417,6 +417,22 @@ def test_delegate_anchor_rule_is_one_fixed_line():
     assert "read request" in DELEGATE_ANCHOR_RULE
 
 
+def test_build_specialized_sub_agent_instructions():
+    from plugin.framework.prompts import (
+        DELEGATE_ANCHOR_RULE,
+        build_specialized_sub_agent_instructions,
+    )
+
+    instr = build_specialized_sub_agent_instructions("Writer", "indexes")
+    assert "Writer" in instr
+    assert "'indexes'" in instr
+    assert DELEGATE_ANCHOR_RULE in instr
+
+    instr_extra = build_specialized_sub_agent_instructions("Calc", "python", extra=" extra hint")
+    assert instr_extra.endswith(" extra hint")
+    assert DELEGATE_ANCHOR_RULE in instr_extra
+
+
 def test_specialized_delegation_block_is_single_line():
     from plugin.framework.prompts import SPECIALIZED_TASK_RULES, get_specialized_delegation_tool_hint
 

@@ -234,6 +234,23 @@ Prioritize what reduces future user steering."""
 # this prompt. Not scheduled.
 
 
+def build_specialized_sub_agent_instructions(
+    agent_label: str,
+    domain: str,
+    *,
+    extra: str = "",
+) -> str:
+    """Build system instructions for a specialized domain sub-agent executor."""
+    base = (
+        f"You are a specialized {agent_label} task executor focused on the '{domain}' domain. "
+        "You have a focused set of tools to accomplish your task. Use them to fulfill the user's request. "
+        f"{DELEGATE_ANCHOR_RULE}"
+    )
+    if extra:
+        return f"{base}{extra}"
+    return base
+
+
 def images_specialized_sub_agent_hint() -> str:
     """Smol sub-agent instructions suffix for delegate_to_specialized_* (domain=\"images\").
 

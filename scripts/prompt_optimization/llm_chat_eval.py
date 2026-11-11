@@ -19,7 +19,7 @@ from typing import Any, Literal
 from plugin.framework.json_utils import safe_json_loads
 from plugin.framework.config import normalize_endpoint_url
 from plugin.framework.client.llm_client import LlmClient
-from plugin.framework.prompts import DELEGATE_ANCHOR_RULE
+from plugin.framework.prompts import build_specialized_sub_agent_instructions
 
 # PyUNO: `com.sun.star` imports inside plugin.writer require uno first.
 # String/scripted eval must still run before `make ensure-uno` if uno is absent.
@@ -331,18 +331,19 @@ def _run_specialized_inner(
         messages = [
             {
                 "role": "system",
-                "content": (
-                    f"You are a specialized {kind} task executor for domain '{domain}'. "
-                    "Use the provided tools to complete the task. "
-                    + (
-                        " Place shapes with one run_venv_python_script "
-                        "(import writeragent as wa; wa.shape.upsert) at page scale. "
-                        "shape_upsert is not in this tool list."
-                        if python_tool_domain
-                        else ""
-                    )
-                    + f" Call {SPECIALIZED_FINISH} when done. "
-                    + DELEGATE_ANCHOR_RULE
+                "content": build_specialized_sub_agent_instructions(
+                    kind,
+                    domain,
+                    extra=(
+                        (
+                            " Place shapes with one run_venv_python_script "
+                            "(import writeragent as wa; wa.shape.upsert) at page scale. "
+                            "shape_upsert is not in this tool list."
+                            if python_tool_domain
+                            else ""
+                        )
+                        + f" Call {SPECIALIZED_FINISH} when done."
+                    ),
                 ),
             },
             {"role": "user", "content": task},
