@@ -13,6 +13,7 @@
 New features and bugfixes **must include tests**.
 - **Unit:** `tests/`, pytest (`make pytest`) when logic can be mocked. Test files should match the source module name (e.g. `foo.py` -> `test_foo.py`). **Always add new test cases to the matching `test_` file** to maintain consistent naming and visible coverage.
 - **UNO / LibreOffice:** collocated `*_uno.py` files via `testing_runner.py` (`make test-uno`, no pytest)—use `@native_test`, `@setup`, `@teardown`; test functions take `ctx`. Follow the same module-matching rule (e.g. `foo.py` -> `test_foo_uno.py`).
+- **Enumerations:** All `XEnumeration` walks (portions, paragraphs, annotations, desktop components) must use `enum_has_more` (`plugin/framework/uno_context.py`) because `not enum.hasMoreElements()` does not terminate on mock objects.
 - **Execution Policy:** **Do not run tests or `make typecheck` before starting work** unless you need output from a test to understand a failure. Assume the tree and tests are already green. After edits, run tests for the files you changed plus `make typecheck`. Typecheck takes about **one minute** — wait for it; do not poll every few seconds. Run full `make test` **only if making large refactors** or cross-cutting changes.
 
 When unsure of LibreOffice / UNO API behavior, **inspect it directly**! Do not guess, add layers of speculative fallback code, or flail. You have a full running LibreOffice instance and a fast native test runner:
