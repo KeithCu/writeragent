@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-03 13:09-0500\n"
+"POT-Creation-Date: 2026-11-11 14:14-0500\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Japanese <LL@li.org>\n"
@@ -106,6 +106,42 @@ msgstr "コードセルを実行"
 #: plugin/notebook/layout.py
 msgid "Code"
 msgstr "コード"
+
+#: plugin/draw/editselection.py
+msgid "Select a text shape. Tables are not rewritten."
+msgstr "テキストシェイプを選択してください。表は書き換えられません。"
+
+#: plugin/draw/editselection.py
+msgid "Select a text shape."
+msgstr "テキストシェイプを選択してください。"
+
+#: plugin/draw/editselection.py
+msgid "WriterAgent: Edit Selection (Draw)"
+msgstr "WriterAgent: 選択範囲を編集 (Draw)"
+
+#: plugin/draw/editselection.py
+msgid "WriterAgent: Extend Selection (Draw)"
+msgstr "WriterAgent: 選択範囲を拡張 (Draw)"
+
+#: plugin/draw/editselection.py plugin/calc/editselection.py
+#, python-brace-format
+msgid "Only the first {0} non-empty cells are edited."
+msgstr "空ではない最初の {0} 個のセルのみが編集されます。"
+
+#: plugin/draw/editselection.py
+msgid "Could not register undo for this edit. The change was not applied."
+msgstr "この編集に対する取り消し操作を登録できませんでした。変更は適用されませんでした。"
+
+#: plugin/draw/editselection.py plugin/calc/editselection.py
+#: plugin/writer/editselection.py
+msgid ""
+"The rewrite ran out of tokens before producing text. Try again or shorten "
+"the selection."
+msgstr "書き換え中にトークンが不足しました。もう一度試すか、選択範囲を短くしてください。"
+
+#: plugin/draw/editselection.py plugin/calc/editselection.py
+msgid "The model returned no text. Try again."
+msgstr "モデルからテキストが返されませんでした。もう一度試してください。"
 
 #: plugin/embeddings/search_ui.py
 msgid "just now"
@@ -299,7 +335,7 @@ msgstr "数式のスピル衝突: 宛先範囲に空ではないセルが含ま�
 msgid "The AI provider reported an error. Try again."
 msgstr "AI プロバイダーがエラーを報告しました。もう一度やり直してください。"
 
-#: plugin/framework/errors.py plugin/calc/python/function.py
+#: plugin/framework/errors.py plugin/calc/python/addin_values.py
 #: plugin/chatbot/quick_setup.py plugin/scripting/session_manager.py
 #, python-brace-format
 msgid "Error: {0}"
@@ -588,6 +624,10 @@ msgid "Configure a Python venv path in Settings → Python."
 msgstr "設定 → Python でPython仮想環境（venv）のパスを設定してください。"
 
 #: plugin/calc/python/init_script_editor.py
+msgid "The Python editor check is still running. Open this again in a moment."
+msgstr "Pythonエディターのチェックがまだ実行中です。しばらくしてから再度開いてください。"
+
+#: plugin/calc/python/init_script_editor.py
 msgid "Cannot import webview (pywebview) in the configured venv."
 msgstr "設定された仮想環境でwebview (pywebview) をインポートできません。"
 
@@ -703,36 +743,36 @@ msgid "Could not open the built-in Python cell editor."
 msgstr "組み込みの Python セルエディターを開けませんでした。"
 
 #: plugin/calc/python/function.py
-#, python-brace-format
-msgid "Error: Main-thread execution timed out ({0})"
-msgstr "エラー: メインスレッドの実行がタイムアウトしました ({0})"
-
-#: plugin/calc/python/function.py plugin/scripting/python_runner_ui.py
-#: plugin/scripting/python_runner.py
-msgid "Unknown error"
-msgstr "不明なエラー"
-
-#: plugin/calc/python/function.py
-msgid ""
-"Error: Python venv not found. Open Settings → Python, set the venv path, "
-"then Test."
-msgstr ""
-"エラー: Python venvが見つかりません。「設定」→「Python」を開き、venvパスを設定してから「テスト」を実行してください。"
-
-#: plugin/calc/python/function.py
-msgid ""
-"Error: Python timed out. Open Settings → Python to raise the timeout, or "
-"Test the venv."
-msgstr ""
-"エラー: Pythonがタイムアウトしました。「設定」→「Python」を開いてタイムアウト時間を増やすか、venvのテストを実行してください。"
-
-#: plugin/calc/python/function.py
 msgid "Image inserted"
 msgstr "画像が挿入されました"
 
 #: plugin/calc/python/function.py
 msgid "Images inserted"
 msgstr "挿入された画像"
+
+#: plugin/calc/python/addin_values.py
+#, python-brace-format
+msgid "Error: Main-thread execution timed out ({0})"
+msgstr "エラー: メインスレッドの実行がタイムアウトしました ({0})"
+
+#: plugin/calc/python/addin_values.py plugin/scripting/python_runner_ui.py
+#: plugin/scripting/python_runner.py
+msgid "Unknown error"
+msgstr "不明なエラー"
+
+#: plugin/calc/python/addin_values.py
+msgid ""
+"Error: Python venv not found. Open Settings → Python, set the venv path, "
+"then Test."
+msgstr ""
+"エラー: Python venvが見つかりません。「設定」→「Python」を開き、venvパスを設定してから「テスト」を実行してください。"
+
+#: plugin/calc/python/addin_values.py
+msgid ""
+"Error: Python timed out. Open Settings → Python to raise the timeout, or "
+"Test the venv."
+msgstr ""
+"エラー: Pythonがタイムアウトしました。「設定」→「Python」を開いてタイムアウト時間を増やすか、venvのテストを実行してください。"
 
 #: plugin/calc/python/geometric_recalc.py
 #, python-format
@@ -774,9 +814,8 @@ msgid "Select one or more non-empty cells."
 msgstr "空ではないセルを1つ以上選択してください。"
 
 #: plugin/calc/editselection.py
-#, python-brace-format
-msgid "Only the first {0} non-empty cells are edited."
-msgstr "空ではない最初の {0} 個のセルのみが編集されます。"
+msgid "Formula cells are skipped."
+msgstr "数式セルはスキップされます。"
 
 #: plugin/calc/vision_egress.py plugin/vision/vision_runner.py
 #: plugin/vision/vision_egress.py
@@ -842,6 +881,8 @@ msgid ""
 "{mode}\n"
 "Venv: {path}"
 msgstr ""
+"{mode}\n"
+"Venv: {path}"
 
 #: plugin/librepy/python_sidebar.py
 #, python-brace-format
@@ -1709,16 +1750,65 @@ msgid "Perfect! I'm switching you to the main assistant now."
 msgstr "完璧！今からメインアシスタントに切り替えます。"
 
 #: plugin/chatbot/slash_commands.py
+msgid "[focus]"
+msgstr "フォーカス"
+
+#: plugin/chatbot/slash_commands.py
+msgid "[target]"
+msgstr "ターゲット"
+
+#: plugin/chatbot/slash_commands.py
+msgid "[what]"
+msgstr "内容"
+
+#: plugin/chatbot/slash_commands.py
+msgid "<description>"
+msgstr "<説明>"
+
+#: plugin/chatbot/slash_commands.py
+msgid "<language>"
+msgstr "<言語>"
+
+#: plugin/chatbot/slash_commands.py
+msgid "<fact>"
+msgstr "<事実>"
+
+#: plugin/chatbot/slash_commands.py
+msgid "Failed to save memory."
+msgstr "メモリの保存に失敗しました。"
+
+#: plugin/chatbot/slash_commands.py
+#, python-brace-format
+msgid "Saved to memory: {0}"
+msgstr "メモリに保存しました: {0}"
+
+#: plugin/chatbot/slash_commands.py
+msgid "help"
+msgstr "ヘルプ"
+
+#: plugin/chatbot/slash_commands.py
 msgid "Print the command list"
 msgstr "コマンドリストを印刷"
+
+#: plugin/chatbot/slash_commands.py
+msgid "clear"
+msgstr "クリア"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Start a new chat"
 msgstr "新しいチャットを開始"
 
 #: plugin/chatbot/slash_commands.py
+msgid "stop"
+msgstr "停止"
+
+#: plugin/chatbot/slash_commands.py
 msgid "Cancel the in-flight send"
 msgstr "送信中の処理をキャンセル"
+
+#: plugin/chatbot/slash_commands.py
+msgid "summarize"
+msgstr "要約"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Summarize the selection or document in the sidebar"
@@ -1728,6 +1818,10 @@ msgstr "サイドバーで選択範囲またはドキュメントを要約"
 msgid ""
 "Summarize the selected text, or the whole document if nothing is selected."
 msgstr "選択したテキストを要約します。何も選択されていない場合はドキュメント全体を要約します。"
+
+#: plugin/chatbot/slash_commands.py
+msgid "proofread"
+msgstr "校正"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Fix spelling, grammar, and punctuation without restyling"
@@ -1740,6 +1834,10 @@ msgid ""
 msgstr "スペル、文法、句読点のみを修正します。スタイル、トーン、意味は変更しません。"
 
 #: plugin/chatbot/slash_commands.py
+msgid "shorten"
+msgstr "短縮"
+
+#: plugin/chatbot/slash_commands.py
 msgid "Shorten the selection"
 msgstr "選択範囲を短縮"
 
@@ -1748,12 +1846,20 @@ msgid "Make the text shorter while preserving the meaning."
 msgstr "意味を維持したままテキストを短縮します。"
 
 #: plugin/chatbot/slash_commands.py
+msgid "expand"
+msgstr "拡張"
+
+#: plugin/chatbot/slash_commands.py
 msgid "Expand the selection with more detail"
 msgstr "選択範囲を詳細に展開"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Expand the text with more detail and clarity."
 msgstr "テキストをより詳細かつ明確に展開します。"
+
+#: plugin/chatbot/slash_commands.py
+msgid "tone"
+msgstr "トーン"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Rewrite the selection to match a described tone"
@@ -1765,6 +1871,10 @@ msgid "Rewrite the text to match this tone or style: {arg}"
 msgstr "テキストを次のトーンまたはスタイルに合わせて書き換えます: {arg}"
 
 #: plugin/chatbot/slash_commands.py
+msgid "translate"
+msgstr "翻訳"
+
+#: plugin/chatbot/slash_commands.py
 msgid "Translate the selection (sidebar when nothing is selected in Writer)"
 msgstr "選択範囲を翻訳 (Writerで何も選択されていない場合はサイドバー)"
 
@@ -1772,6 +1882,10 @@ msgstr "選択範囲を翻訳 (Writerで何も選択されていない場合は�
 #, python-brace-format
 msgid "Translate the text into {arg}. Keep formatting and structure."
 msgstr "{arg} にテキストを翻訳します。書式と構造を維持してください。"
+
+#: plugin/chatbot/slash_commands.py
+msgid "explain"
+msgstr "解説"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Explain the selection or active Calc formula"
@@ -1782,16 +1896,32 @@ msgid "Explain the following in plain language."
 msgstr "以下を平易な言葉で解説してください。"
 
 #: plugin/chatbot/slash_commands.py
+msgid "remember"
+msgstr "記憶"
+
+#: plugin/chatbot/slash_commands.py
 msgid "Save a fact to persistent memory"
 msgstr "事実を永続メモリに保存"
+
+#: plugin/chatbot/slash_commands.py
+msgid "compact"
+msgstr "コンパクト"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Compact older chat history now"
 msgstr "古いチャット履歴を今すぐ圧縮"
 
 #: plugin/chatbot/slash_commands.py
+msgid "undo"
+msgstr "元に戻す"
+
+#: plugin/chatbot/slash_commands.py
 msgid "Undo the last agent edit as one step"
 msgstr "最後のエージェントによる編集を1ステップで取り消し"
+
+#: plugin/chatbot/slash_commands.py
+msgid "formula"
+msgstr "数式"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Write a Calc formula from a plain-English description"
@@ -1807,20 +1937,34 @@ msgstr "最後のドラフトを適用（モック）"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Web research (mock)"
-msgstr ""
+msgstr "Web research (mock)"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Switch model (mock)"
-msgstr ""
+msgstr "Switch model (mock)"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Slash commands:"
-msgstr ""
+msgstr "Slash commands:"
 
 #: plugin/chatbot/slash_commands.py
 #, python-brace-format
 msgid "Usage: {0}"
 msgstr "使用法: {0}"
+
+#: plugin/chatbot/slash_commands.py
+#, python-brace-format
+msgid "Additional instruction: {0}"
+msgstr "Additional instruction: {0}"
+
+#: plugin/chatbot/slash_commands.py
+#, python-brace-format
+msgid ""
+"Selected text:\n"
+"{0}"
+msgstr ""
+"Selected text:\n"
+"{0}"
 
 #: plugin/chatbot/slash_commands.py
 #, python-brace-format
@@ -1833,13 +1977,8 @@ msgid "Cell {0} value: {1}"
 msgstr "セル {0} の値: {1}"
 
 #: plugin/chatbot/slash_commands.py
-msgid "Failed to save memory."
-msgstr "メモリの保存に失敗しました。"
-
-#: plugin/chatbot/slash_commands.py
-#, python-brace-format
-msgid "Saved to memory: {0}"
-msgstr "メモリに保存しました: {0}"
+msgid "WriterAgent"
+msgstr "WriterAgent"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Conversation compacted."
@@ -1862,10 +2001,14 @@ msgid "Compaction failed."
 msgstr "圧縮に失敗しました。"
 
 #: plugin/chatbot/slash_commands.py
-msgid "WriterAgent"
-msgstr "WriterAgent"
+msgid "Wait for the current reply to finish before /compact."
+msgstr "/compact を実行する前に、現在の返信が完了するまで待機してください。"
 
-#: plugin/chatbot/slash_commands.py
+#: plugin/chatbot/slash_commands.py plugin/chatbot/send_handlers.py
+msgid "Thinking..."
+msgstr "思考中..."
+
+#: plugin/chatbot/slash_commands.py plugin/chatbot/compaction.py
 msgid "Configure an API key to compact."
 msgstr "圧縮するにはAPIキーを設定してください。"
 
@@ -1877,18 +2020,9 @@ msgstr "チャットの圧縮は設定で無効になっています。"
 msgid "Compaction cancelled."
 msgstr "圧縮がキャンセルされました。"
 
-#: plugin/chatbot/slash_commands.py plugin/chatbot/panel.py
-#: plugin/chatbot/sidebar_test_hooks.py plugin/chatbot/send_handlers.py
-msgid "Thinking..."
-msgstr "思考中..."
-
 #: plugin/chatbot/panel.py
 msgid "[No compatible LibreOffice document found.]"
 msgstr "[互換性のあるLibreOfficeドキュメントが見つかりません。]"
-
-#: plugin/chatbot/panel.py plugin/chatbot/sidebar_test_hooks.py
-msgid "Wait for the current reply to finish before /compact."
-msgstr "/compact を実行する前に、現在の返信が完了するまで待機してください。"
 
 #: plugin/chatbot/panel.py
 msgid "Only in Calc"
@@ -2063,6 +2197,14 @@ msgid ""
 msgstr "[エージェントバックエンド '{0}' が利用できません。設定（パス、インストール）を確認してください。]"
 
 #: plugin/chatbot/send_handlers.py
+msgid ""
+"MCP server is off: LibreOffice edits from this agent require the MCP server."
+" Enable it in Settings → MCP → Enable MCP Server."
+msgstr ""
+"MCP server is off: LibreOffice edits from this agent require the MCP server."
+" Enable it in Settings → MCP → Enable MCP Server."
+
+#: plugin/chatbot/send_handlers.py
 #, python-brace-format
 msgid "[{0} error: {1}]"
 msgstr "[{0} エラー: {1}]"
@@ -2139,6 +2281,11 @@ msgid ""
 msgstr ""
 "新しい %(name)s (%(version)s) "
 "が利用可能です。「ツール」→「拡張機能マネージャー」を使用して更新を確認し、最新の拡張機能をインストールしてください。"
+
+#: plugin/chatbot/chat_session.py
+msgid "Chat history could not be opened. This conversation will not be saved."
+msgstr ""
+"Chat history could not be opened. This conversation will not be saved."
 
 #: plugin/chatbot/dialog_views.py
 #, python-brace-format
@@ -2570,7 +2717,7 @@ msgstr "失敗"
 
 #: plugin/scripting/venv_probe_ui.py
 msgid "Venv OK"
-msgstr ""
+msgstr "Venv OK"
 
 #: plugin/scripting/venv_probe_ui.py
 msgid "Venv check failed"
@@ -2955,11 +3102,11 @@ msgstr "{domain} '{helper}' が完了しました。(所要時間: {time})"
 
 #: plugin/scripting/domain_registry.py
 msgid "Vision Helpers"
-msgstr ""
+msgstr "Vision Helpers"
 
 #: plugin/scripting/domain_registry.py
 msgid "Math Helpers"
-msgstr ""
+msgstr "Math Helpers"
 
 #: plugin/scripting/domain_registry.py
 msgid "Units Helpers"
@@ -3122,8 +3269,8 @@ msgid "Viz '{helper}' completed. {msg}"
 msgstr "Viz '{helper}' が完了しました。 {msg}"
 
 #: plugin/scripting/python_runner.py
-msgid "Vision helpers require a Writer or Calc document."
-msgstr "ビジョンヘルパーには Writer または Calc ドキュメントが必要です。"
+msgid "Vision helpers require a Writer, Calc, Draw, or Impress document."
+msgstr "Vision helpers は Writer、Calc、Draw、または Impress のドキュメントを必要とします。"
 
 #: plugin/scripting/python_runner.py
 msgid "Vision helper failed."
@@ -3136,6 +3283,22 @@ msgid ""
 "(took {time})"
 msgstr ""
 "Vision '{helper}' が完了しました。{count} 個の画像の書式設定済みHTMLを挿入しました。(所要時間: {time})"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid ""
+"Vision '{helper}' completed for {count} images. Text returned only (not "
+"inserted). (took {time})"
+msgstr ""
+"Vision '{helper}' が {count} 枚の画像に対して完了しました。テキストのみが返されました（挿入はされていません）。(所要時間: "
+"{time})"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid ""
+"Vision '{helper}' completed. Text returned only (not inserted). (took "
+"{time})"
+msgstr "Vision '{helper}' が完了しました。テキストのみが返されました（挿入はされていません）。(所要時間: {time})"
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format
@@ -3271,8 +3434,16 @@ msgid "OCR complete (text returned only; not inserted)."
 msgstr "OCRが完了しました（テキストのみ取得。挿入はされません）。"
 
 #: plugin/vision/vision_tools.py
-msgid "Vision OCR requires a Writer or Calc document."
-msgstr "Vision OCRにはWriterまたはCalcのドキュメントが必要です。"
+msgid "Vision OCR requires a Writer, Calc, Draw, or Impress document."
+msgstr "Vision OCR は Writer、Calc、Draw、または Impress のドキュメントを必要とします。"
+
+#: plugin/vision/vision_tools.py
+msgid ""
+"Draw and Impress return vision text only; omit insert_into_document or set "
+"it to false."
+msgstr ""
+"Draw および Impress は vision テキストのみを返します。insert_into_document を省略するか、false "
+"に設定してください。"
 
 #: plugin/vision/vision_egress.py
 msgid "Writer document has no controller."
@@ -3734,7 +3905,7 @@ msgstr "応答数:"
 
 #: plugin/xdl_strings.py
 msgid "OK"
-msgstr ""
+msgstr "OK"
 
 #: plugin/xdl_strings.py
 msgid "OpenRouter"
@@ -3924,6 +4095,9 @@ msgstr "Grok Build"
 msgid "OpenCode"
 msgstr "OpenCode"
 
+msgid "Antigravity"
+msgstr "Antigravity"
+
 msgid "Prompt for Agent Permissions"
 msgstr "エージェントの権限に関するプロンプト"
 
@@ -3931,6 +4105,18 @@ msgid ""
 "Ask for confirmation before allowing the agent to use tools (read files, "
 "execute commands, etc.)"
 msgstr "エージェントにツール（ファイルの読み取り、コマンドの実行など）の使用を許可する前に確認を求める"
+
+msgid "Antigravity model"
+msgstr "Antigravity モデル"
+
+msgid ""
+"agy modelId from session/new models.availableModels, for example "
+"gemini-4-argon-medium. Empty keeps agy's current model. configOptions family"
+" ids such as gemini-4-argon are not modelIds."
+msgstr ""
+"session/new models.availableModels からの agy modelId（例: gemini-4-argon-"
+"medium）。空にすると agy の現在のモデルが保持されます。gemini-4-argon などの configOptions ファミリー ID は"
+" modelId ではありません。"
 
 msgid "STT Provider"
 msgstr "STTプロバイダー"
@@ -4102,27 +4288,6 @@ msgstr "サイドバー"
 
 msgid "Max Tool Rounds"
 msgstr "最大ツールラウンド数"
-
-msgid "Document Context Strategy"
-msgstr "ドキュメント コンテキスト戦略"
-
-msgid "How much document content to include in LLM context"
-msgstr "LLM コンテキストに含めるドキュメントコンテンツの量"
-
-msgid "Auto (by document size)"
-msgstr "自動 (ドキュメントサイズによる)"
-
-msgid "Full document text"
-msgstr "ドキュメント全文"
-
-msgid "Pages around cursor"
-msgstr "カーソル周辺のページ"
-
-msgid "Outline + excerpt"
-msgstr "アウトライン + 抜粋"
-
-msgid "Stats + outline only"
-msgstr "統計情報 + アウトラインのみ"
 
 msgid "Web Research Cache"
 msgstr "ウェブリサーチキャッシュ"
@@ -4535,7 +4700,7 @@ msgstr "幾何学的再計算順序 (実験的)"
 
 msgid ""
 "Ensures PY cells evaluate in sheet order. Most useful with Shared kernel."
-msgstr ""
+msgstr "PY セルがシート順に評価されるようにします。共有カーネル（Shared kernel）を使用する場合に最も有効です。"
 
 msgid "Python auto spill in Calc"
 msgstr "Calc での Python 自動スピル"

@@ -200,3 +200,36 @@ def test_eval_harness_disables_async_callback(monkeypatch: pytest.MonkeyPatch, l
     # Force lazy init path
     assert ex._get_async_callback() is None
     assert ex._initialized is True
+
+
+def test_stop_unlinks_log_file_on_clean_exit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, lo_env: None) -> None:
+    del lo_env
+    _boot(monkeypatch)
+    log_file = tmp_path / "fake-soffice.log"
+    log_file.write_text("clean exit\n")
+    monkeypatch.setattr(tl, "_lo_log_path", str(log_file))
+    monkeypatch.setattr(tl, "_lo_retained_log", False)
+    tl.LOBackend.stop()
+    assert not log_file.exists()
+
+
+def test_call_retains_log_file_on_crash(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, lo_env: None) -> None:
+    del lo_env
+    _boot(monkeypatch)
+    log_file = tmp_path / "fake-soffice.log"
+    log_file.write_text("crash line\n")
+    monkeypatch.setattr(tl, "_lo_log_path", str(log_file))
+    dead = MagicMock(name="dead_proc")
+    dead.poll.return_value = 1
+    dead.returncode = 1
+    monkeypatch.setattr(tl, "_lo_proc", dead)
+    try:
+        with pytest.raises(RuntimeError, match="headless soffice exited") as exc_info:
+            tl.LOBackend.call(lambda: "nope")
+        assert "crash line" in str(exc_info.value)
+        assert str(log_file) in str(exc_info.value)
+        assert tl._lo_retained_log is True
+    finally:
+        monkeypatch.setattr(tl, "_lo_proc", None)
+    tl.LOBackend.stop()
+    assert log_file.exists()

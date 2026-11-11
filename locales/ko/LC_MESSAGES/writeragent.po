@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-03 13:09-0500\n"
+"POT-Creation-Date: 2026-11-11 14:14-0500\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Korean <LL@li.org>\n"
@@ -105,6 +105,42 @@ msgstr "코드 셀 실행"
 #: plugin/notebook/layout.py
 msgid "Code"
 msgstr "코드"
+
+#: plugin/draw/editselection.py
+msgid "Select a text shape. Tables are not rewritten."
+msgstr "텍스트 도형을 선택하십시오. 표는 다시 작성되지 않습니다."
+
+#: plugin/draw/editselection.py
+msgid "Select a text shape."
+msgstr "텍스트 도형을 선택하십시오."
+
+#: plugin/draw/editselection.py
+msgid "WriterAgent: Edit Selection (Draw)"
+msgstr "WriterAgent: 선택 영역 편집 (Draw)"
+
+#: plugin/draw/editselection.py
+msgid "WriterAgent: Extend Selection (Draw)"
+msgstr "WriterAgent: 선택 영역 확장 (Draw)"
+
+#: plugin/draw/editselection.py plugin/calc/editselection.py
+#, python-brace-format
+msgid "Only the first {0} non-empty cells are edited."
+msgstr "비어 있지 않은 처음 {0}개의 셀만 편집됩니다."
+
+#: plugin/draw/editselection.py
+msgid "Could not register undo for this edit. The change was not applied."
+msgstr "이 편집에 대한 실행 취소를 등록할 수 없습니다. 변경 사항이 적용되지 않았습니다."
+
+#: plugin/draw/editselection.py plugin/calc/editselection.py
+#: plugin/writer/editselection.py
+msgid ""
+"The rewrite ran out of tokens before producing text. Try again or shorten "
+"the selection."
+msgstr "텍스트를 생성하기 전에 다시 쓰기 토큰이 소진되었습니다. 다시 시도하거나 선택 영역을 줄이십시오."
+
+#: plugin/draw/editselection.py plugin/calc/editselection.py
+msgid "The model returned no text. Try again."
+msgstr "모델이 텍스트를 반환하지 않았습니다. 다시 시도하십시오."
 
 #: plugin/embeddings/search_ui.py
 msgid "just now"
@@ -298,7 +334,7 @@ msgstr "수식 넘침 충돌: 대상 범위에 비어 있지 않은 셀이 포�
 msgid "The AI provider reported an error. Try again."
 msgstr "AI 공급자가 오류를 보고했습니다. 다시 시도하세요."
 
-#: plugin/framework/errors.py plugin/calc/python/function.py
+#: plugin/framework/errors.py plugin/calc/python/addin_values.py
 #: plugin/chatbot/quick_setup.py plugin/scripting/session_manager.py
 #, python-brace-format
 msgid "Error: {0}"
@@ -585,6 +621,10 @@ msgid "Configure a Python venv path in Settings → Python."
 msgstr "설정 → Python에서 Python 가상 환경(venv) 경로를 구성하십시오."
 
 #: plugin/calc/python/init_script_editor.py
+msgid "The Python editor check is still running. Open this again in a moment."
+msgstr "Python 편집기 확인이 아직 실행 중입니다. 잠시 후 다시 여십시오."
+
+#: plugin/calc/python/init_script_editor.py
 msgid "Cannot import webview (pywebview) in the configured venv."
 msgstr "구성된 가상 환경에서 webview(pywebview)를 가져올 수 없습니다."
 
@@ -700,34 +740,34 @@ msgid "Could not open the built-in Python cell editor."
 msgstr "내장 Python 셀 편집기를 열 수 없습니다."
 
 #: plugin/calc/python/function.py
-#, python-brace-format
-msgid "Error: Main-thread execution timed out ({0})"
-msgstr "오류: 메인 스레드 실행 시간이 초과되었습니다 ({0})"
-
-#: plugin/calc/python/function.py plugin/scripting/python_runner_ui.py
-#: plugin/scripting/python_runner.py
-msgid "Unknown error"
-msgstr "알 수 없는 오류"
-
-#: plugin/calc/python/function.py
-msgid ""
-"Error: Python venv not found. Open Settings → Python, set the venv path, "
-"then Test."
-msgstr "오류: Python venv를 찾을 수 없습니다. 설정 → Python을 열고 venv 경로를 설정한 다음 테스트하십시오."
-
-#: plugin/calc/python/function.py
-msgid ""
-"Error: Python timed out. Open Settings → Python to raise the timeout, or "
-"Test the venv."
-msgstr "오류: Python 시간 초과가 발생했습니다. 설정 → Python을 열어 제한 시간을 늘리거나 venv를 테스트하십시오."
-
-#: plugin/calc/python/function.py
 msgid "Image inserted"
 msgstr "이미지 삽입됨"
 
 #: plugin/calc/python/function.py
 msgid "Images inserted"
 msgstr "이미지 삽입됨"
+
+#: plugin/calc/python/addin_values.py
+#, python-brace-format
+msgid "Error: Main-thread execution timed out ({0})"
+msgstr "오류: 메인 스레드 실행 시간이 초과되었습니다 ({0})"
+
+#: plugin/calc/python/addin_values.py plugin/scripting/python_runner_ui.py
+#: plugin/scripting/python_runner.py
+msgid "Unknown error"
+msgstr "알 수 없는 오류"
+
+#: plugin/calc/python/addin_values.py
+msgid ""
+"Error: Python venv not found. Open Settings → Python, set the venv path, "
+"then Test."
+msgstr "오류: Python venv를 찾을 수 없습니다. 설정 → Python을 열고 venv 경로를 설정한 다음 테스트하십시오."
+
+#: plugin/calc/python/addin_values.py
+msgid ""
+"Error: Python timed out. Open Settings → Python to raise the timeout, or "
+"Test the venv."
+msgstr "오류: Python 시간 초과가 발생했습니다. 설정 → Python을 열어 제한 시간을 늘리거나 venv를 테스트하십시오."
 
 #: plugin/calc/python/geometric_recalc.py
 #, python-format
@@ -769,9 +809,8 @@ msgid "Select one or more non-empty cells."
 msgstr "비어 있지 않은 셀을 하나 이상 선택하십시오."
 
 #: plugin/calc/editselection.py
-#, python-brace-format
-msgid "Only the first {0} non-empty cells are edited."
-msgstr "비어 있지 않은 처음 {0}개의 셀만 편집됩니다."
+msgid "Formula cells are skipped."
+msgstr "수식 셀은 건너뜁니다."
 
 #: plugin/calc/vision_egress.py plugin/vision/vision_runner.py
 #: plugin/vision/vision_egress.py
@@ -1717,16 +1756,65 @@ msgid "Perfect! I'm switching you to the main assistant now."
 msgstr "완벽합니다! 이제 메인 어시스턴트로 전환하겠습니다."
 
 #: plugin/chatbot/slash_commands.py
+msgid "[focus]"
+msgstr "[포커스]"
+
+#: plugin/chatbot/slash_commands.py
+msgid "[target]"
+msgstr "대상"
+
+#: plugin/chatbot/slash_commands.py
+msgid "[what]"
+msgstr "내용"
+
+#: plugin/chatbot/slash_commands.py
+msgid "<description>"
+msgstr "<설명>"
+
+#: plugin/chatbot/slash_commands.py
+msgid "<language>"
+msgstr "<언어>"
+
+#: plugin/chatbot/slash_commands.py
+msgid "<fact>"
+msgstr "<사실>"
+
+#: plugin/chatbot/slash_commands.py
+msgid "Failed to save memory."
+msgstr "메모리 저장에 실패했습니다."
+
+#: plugin/chatbot/slash_commands.py
+#, python-brace-format
+msgid "Saved to memory: {0}"
+msgstr "메모리에 저장됨: {0}"
+
+#: plugin/chatbot/slash_commands.py
+msgid "help"
+msgstr "도움말"
+
+#: plugin/chatbot/slash_commands.py
 msgid "Print the command list"
 msgstr "명령 목록 인쇄"
+
+#: plugin/chatbot/slash_commands.py
+msgid "clear"
+msgstr "지우기"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Start a new chat"
 msgstr "새 채팅 시작"
 
 #: plugin/chatbot/slash_commands.py
+msgid "stop"
+msgstr "중지"
+
+#: plugin/chatbot/slash_commands.py
 msgid "Cancel the in-flight send"
 msgstr "진행 중인 전송 취소"
+
+#: plugin/chatbot/slash_commands.py
+msgid "summarize"
+msgstr "요약"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Summarize the selection or document in the sidebar"
@@ -1736,6 +1824,10 @@ msgstr "사이드바에서 선택 영역 또는 문서 요약"
 msgid ""
 "Summarize the selected text, or the whole document if nothing is selected."
 msgstr "선택한 텍스트를 요약하거나, 선택된 내용이 없으면 전체 문서를 요약합니다."
+
+#: plugin/chatbot/slash_commands.py
+msgid "proofread"
+msgstr "교정"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Fix spelling, grammar, and punctuation without restyling"
@@ -1748,6 +1840,10 @@ msgid ""
 msgstr "맞춤법, 문법, 구두점만 수정합니다. 스타일, 어조, 의미는 변경하지 마십시오."
 
 #: plugin/chatbot/slash_commands.py
+msgid "shorten"
+msgstr "줄이기"
+
+#: plugin/chatbot/slash_commands.py
 msgid "Shorten the selection"
 msgstr "선택 영역 줄이기"
 
@@ -1756,12 +1852,20 @@ msgid "Make the text shorter while preserving the meaning."
 msgstr "의미를 유지하면서 텍스트를 더 짧게 만듭니다."
 
 #: plugin/chatbot/slash_commands.py
+msgid "expand"
+msgstr "늘리기"
+
+#: plugin/chatbot/slash_commands.py
 msgid "Expand the selection with more detail"
 msgstr "선택 영역을 더 자세하게 확장"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Expand the text with more detail and clarity."
 msgstr "텍스트를 더 자세하고 명확하게 확장합니다."
+
+#: plugin/chatbot/slash_commands.py
+msgid "tone"
+msgstr "어조"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Rewrite the selection to match a described tone"
@@ -1773,6 +1877,10 @@ msgid "Rewrite the text to match this tone or style: {arg}"
 msgstr "다음 어조나 스타일에 맞춰 텍스트를 다시 씁니다: {arg}"
 
 #: plugin/chatbot/slash_commands.py
+msgid "translate"
+msgstr "번역"
+
+#: plugin/chatbot/slash_commands.py
 msgid "Translate the selection (sidebar when nothing is selected in Writer)"
 msgstr "선택 영역 번역 (Writer에서 선택된 내용이 없을 때 사이드바)"
 
@@ -1780,6 +1888,10 @@ msgstr "선택 영역 번역 (Writer에서 선택된 내용이 없을 때 사이
 #, python-brace-format
 msgid "Translate the text into {arg}. Keep formatting and structure."
 msgstr "{arg}(으)로 텍스트를 번역합니다. 서식과 구조를 유지하세요."
+
+#: plugin/chatbot/slash_commands.py
+msgid "explain"
+msgstr "설명"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Explain the selection or active Calc formula"
@@ -1790,16 +1902,32 @@ msgid "Explain the following in plain language."
 msgstr "다음 내용을 쉬운 언어로 설명하세요."
 
 #: plugin/chatbot/slash_commands.py
+msgid "remember"
+msgstr "기억"
+
+#: plugin/chatbot/slash_commands.py
 msgid "Save a fact to persistent memory"
 msgstr "사실을 영구 메모리에 저장"
+
+#: plugin/chatbot/slash_commands.py
+msgid "compact"
+msgstr "요약"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Compact older chat history now"
 msgstr "오래된 채팅 기록 압축"
 
 #: plugin/chatbot/slash_commands.py
+msgid "undo"
+msgstr "실행 취소"
+
+#: plugin/chatbot/slash_commands.py
 msgid "Undo the last agent edit as one step"
 msgstr "마지막 에이전트 편집을 한 단계 되돌리기"
+
+#: plugin/chatbot/slash_commands.py
+msgid "formula"
+msgstr "수식"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Write a Calc formula from a plain-English description"
@@ -1832,6 +1960,20 @@ msgstr "사용법: {0}"
 
 #: plugin/chatbot/slash_commands.py
 #, python-brace-format
+msgid "Additional instruction: {0}"
+msgstr "추가 지침: {0}"
+
+#: plugin/chatbot/slash_commands.py
+#, python-brace-format
+msgid ""
+"Selected text:\n"
+"{0}"
+msgstr ""
+"선택한 텍스트:\n"
+"{0}"
+
+#: plugin/chatbot/slash_commands.py
+#, python-brace-format
 msgid "Cell {0} formula: {1}"
 msgstr "셀 {0} 수식: {1}"
 
@@ -1841,13 +1983,8 @@ msgid "Cell {0} value: {1}"
 msgstr "셀 {0} 값: {1}"
 
 #: plugin/chatbot/slash_commands.py
-msgid "Failed to save memory."
-msgstr "메모리 저장에 실패했습니다."
-
-#: plugin/chatbot/slash_commands.py
-#, python-brace-format
-msgid "Saved to memory: {0}"
-msgstr "메모리에 저장됨: {0}"
+msgid "WriterAgent"
+msgstr "WriterAgent"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Conversation compacted."
@@ -1870,10 +2007,14 @@ msgid "Compaction failed."
 msgstr "압축에 실패했습니다."
 
 #: plugin/chatbot/slash_commands.py
-msgid "WriterAgent"
-msgstr "WriterAgent"
+msgid "Wait for the current reply to finish before /compact."
+msgstr "/compact를 실행하기 전에 현재 응답이 완료될 때까지 기다려 주십시오."
 
-#: plugin/chatbot/slash_commands.py
+#: plugin/chatbot/slash_commands.py plugin/chatbot/send_handlers.py
+msgid "Thinking..."
+msgstr "생각 중..."
+
+#: plugin/chatbot/slash_commands.py plugin/chatbot/compaction.py
 msgid "Configure an API key to compact."
 msgstr "압축을 위해 API 키를 설정하십시오."
 
@@ -1885,18 +2026,9 @@ msgstr "설정에서 채팅 압축이 비활성화되었습니다."
 msgid "Compaction cancelled."
 msgstr "압축이 취소되었습니다."
 
-#: plugin/chatbot/slash_commands.py plugin/chatbot/panel.py
-#: plugin/chatbot/sidebar_test_hooks.py plugin/chatbot/send_handlers.py
-msgid "Thinking..."
-msgstr "생각 중..."
-
 #: plugin/chatbot/panel.py
 msgid "[No compatible LibreOffice document found.]"
 msgstr "[호환되는 LibreOffice 문서를 찾을 수 없습니다.]"
-
-#: plugin/chatbot/panel.py plugin/chatbot/sidebar_test_hooks.py
-msgid "Wait for the current reply to finish before /compact."
-msgstr "/compact를 실행하기 전에 현재 응답이 완료될 때까지 기다려 주십시오."
 
 #: plugin/chatbot/panel.py
 msgid "Only in Calc"
@@ -2069,6 +2201,14 @@ msgid ""
 msgstr "[에이전트 백엔드 '{0}'을(를) 사용할 수 없습니다. 설정(경로, 설치)을 확인하십시오.]"
 
 #: plugin/chatbot/send_handlers.py
+msgid ""
+"MCP server is off: LibreOffice edits from this agent require the MCP server."
+" Enable it in Settings → MCP → Enable MCP Server."
+msgstr ""
+"MCP 서버가 꺼져 있습니다: 이 에이전트를 통한 LibreOffice 편집에는 MCP 서버가 필요합니다. 설정 → MCP → MCP "
+"서버 활성화에서 활성화하십시오."
+
+#: plugin/chatbot/send_handlers.py
 #, python-brace-format
 msgid "[{0} error: {1}]"
 msgstr "[{0} 오류: {1}]"
@@ -2145,6 +2285,10 @@ msgid ""
 msgstr ""
 "더 최신 버전의 %(name)s(%(version)s)을(를) 사용할 수 있습니다. 도구 → 확장 기능 관리자를 사용하여 업데이트를 "
 "확인하고 최신 확장 기능을 설치하십시오."
+
+#: plugin/chatbot/chat_session.py
+msgid "Chat history could not be opened. This conversation will not be saved."
+msgstr "채팅 기록을 열 수 없습니다. 이 대화는 저장되지 않습니다."
 
 #: plugin/chatbot/dialog_views.py
 #, python-brace-format
@@ -3128,8 +3272,8 @@ msgid "Viz '{helper}' completed. {msg}"
 msgstr "Viz '{helper}' 완료됨. {msg}"
 
 #: plugin/scripting/python_runner.py
-msgid "Vision helpers require a Writer or Calc document."
-msgstr "비전 도우미는 Writer 또는 Calc 문서가 필요합니다."
+msgid "Vision helpers require a Writer, Calc, Draw, or Impress document."
+msgstr "비전 도우미를 사용하려면 Writer, Calc, Draw 또는 Impress 문서가 필요합니다."
 
 #: plugin/scripting/python_runner.py
 msgid "Vision helper failed."
@@ -3143,6 +3287,22 @@ msgid ""
 msgstr ""
 "Vision '{helper}' 작업이 완료되었습니다. {count}개의 이미지에 대해 서식 있는 HTML을 삽입했습니다. (소요 시간:"
 " {time})"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid ""
+"Vision '{helper}' completed for {count} images. Text returned only (not "
+"inserted). (took {time})"
+msgstr ""
+"비전 '{helper}' 작업이 {count}개의 이미지에 대해 완료되었습니다. 텍스트만 반환되었습니다(문서에 삽입되지 않음). (소요 "
+"시간: {time})"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid ""
+"Vision '{helper}' completed. Text returned only (not inserted). (took "
+"{time})"
+msgstr "비전 '{helper}' 작업이 완료되었습니다. 텍스트만 반환되었습니다(문서에 삽입되지 않음). (소요 시간: {time})"
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format
@@ -3278,8 +3438,15 @@ msgid "OCR complete (text returned only; not inserted)."
 msgstr "OCR 완료(텍스트만 반환됨, 삽입되지 않음)."
 
 #: plugin/vision/vision_tools.py
-msgid "Vision OCR requires a Writer or Calc document."
-msgstr "Vision OCR은 Writer 또는 Calc 문서가 필요합니다."
+msgid "Vision OCR requires a Writer, Calc, Draw, or Impress document."
+msgstr "비전 OCR을 사용하려면 Writer, Calc, Draw 또는 Impress 문서가 필요합니다."
+
+#: plugin/vision/vision_tools.py
+msgid ""
+"Draw and Impress return vision text only; omit insert_into_document or set "
+"it to false."
+msgstr ""
+"Draw 및 Impress는 비전 텍스트만 반환합니다. insert_into_document를 생략하거나 false로 설정하십시오."
 
 #: plugin/vision/vision_egress.py
 msgid "Writer document has no controller."
@@ -3931,6 +4098,9 @@ msgstr "Grok Build"
 msgid "OpenCode"
 msgstr "OpenCode"
 
+msgid "Antigravity"
+msgstr "반중력"
+
 msgid "Prompt for Agent Permissions"
 msgstr "에이전트 권한 요청"
 
@@ -3938,6 +4108,18 @@ msgid ""
 "Ask for confirmation before allowing the agent to use tools (read files, "
 "execute commands, etc.)"
 msgstr "에이전트가 도구(파일 읽기, 명령 실행 등)를 사용하기 전에 확인 요청"
+
+msgid "Antigravity model"
+msgstr "반중력 모델"
+
+msgid ""
+"agy modelId from session/new models.availableModels, for example "
+"gemini-4-argon-medium. Empty keeps agy's current model. configOptions family"
+" ids such as gemini-4-argon are not modelIds."
+msgstr ""
+"agy modelId는 session/new models.availableModels에서 가져옵니다(예: gemini-4-argon-"
+"medium). 비워두면 agy의 현재 모델이 유지됩니다. gemini-4-argon과 같은 configOptions 제품군 ID는 "
+"modelId가 아닙니다."
 
 msgid "STT Provider"
 msgstr "STT 공급자"
@@ -4108,27 +4290,6 @@ msgstr "사이드바"
 
 msgid "Max Tool Rounds"
 msgstr "최대 도구 라운드 수"
-
-msgid "Document Context Strategy"
-msgstr "문서 컨텍스트 전략"
-
-msgid "How much document content to include in LLM context"
-msgstr "LLM 컨텍스트에 포함할 문서 내용의 양"
-
-msgid "Auto (by document size)"
-msgstr "자동 (문서 크기 기준)"
-
-msgid "Full document text"
-msgstr "전체 문서 텍스트"
-
-msgid "Pages around cursor"
-msgstr "커서 주변 페이지"
-
-msgid "Outline + excerpt"
-msgstr "개요 + 발췌"
-
-msgid "Stats + outline only"
-msgstr "통계 + 개요만"
 
 msgid "Web Research Cache"
 msgstr "웹 리서치 캐시"

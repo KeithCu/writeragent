@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-03 13:09-0500\n"
+"POT-Creation-Date: 2026-11-11 14:14-0500\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Bengali <LL@li.org>\n"
@@ -107,6 +107,46 @@ msgstr "কোড সেল চালান"
 #: plugin/notebook/layout.py
 msgid "Code"
 msgstr "কোড"
+
+#: plugin/draw/editselection.py
+msgid "Select a text shape. Tables are not rewritten."
+msgstr "একটি টেক্সট শেপ নির্বাচন করুন। টেবিলগুলি পুনরায় লেখা হয় না।"
+
+#: plugin/draw/editselection.py
+msgid "Select a text shape."
+msgstr "একটি টেক্সট শেপ নির্বাচন করুন।"
+
+#: plugin/draw/editselection.py
+msgid "WriterAgent: Edit Selection (Draw)"
+msgstr "WriterAgent: নির্বাচন সম্পাদনা করুন (Draw)"
+
+#: plugin/draw/editselection.py
+msgid "WriterAgent: Extend Selection (Draw)"
+msgstr "WriterAgent: নির্বাচন প্রসারিত করুন (Draw)"
+
+#: plugin/draw/editselection.py plugin/calc/editselection.py
+#, python-brace-format
+msgid "Only the first {0} non-empty cells are edited."
+msgstr "শুধুমাত্র প্রথম {0}টি খালি নয় এমন সেল সম্পাদনা করা হয়েছে।"
+
+#: plugin/draw/editselection.py
+msgid "Could not register undo for this edit. The change was not applied."
+msgstr ""
+"এই সম্পাদনার জন্য আনডু (undo) রেজিস্টার করা যায়নি। পরিবর্তনটি প্রয়োগ করা "
+"হয়নি।"
+
+#: plugin/draw/editselection.py plugin/calc/editselection.py
+#: plugin/writer/editselection.py
+msgid ""
+"The rewrite ran out of tokens before producing text. Try again or shorten "
+"the selection."
+msgstr ""
+"টেক্সট তৈরি করার আগেই রিরাইট (rewrite) প্রক্রিয়ার টোকেন শেষ হয়ে গেছে। আবার "
+"চেষ্টা করুন অথবা নির্বাচনটি ছোট করুন।"
+
+#: plugin/draw/editselection.py plugin/calc/editselection.py
+msgid "The model returned no text. Try again."
+msgstr "মডেলটি কোনো টেক্সট প্রদান করেনি। আবার চেষ্টা করুন।"
 
 #: plugin/embeddings/search_ui.py
 msgid "just now"
@@ -317,7 +357,7 @@ msgstr "ফর্মুলা স্পিল সংঘর্ষ: গন্ত�
 msgid "The AI provider reported an error. Try again."
 msgstr "AI প্রোভাইডার একটি ত্রুটির রিপোর্ট করেছে। আবার চেষ্টা করুন।"
 
-#: plugin/framework/errors.py plugin/calc/python/function.py
+#: plugin/framework/errors.py plugin/calc/python/addin_values.py
 #: plugin/chatbot/quick_setup.py plugin/scripting/session_manager.py
 #, python-brace-format
 msgid "Error: {0}"
@@ -632,6 +672,10 @@ msgid "Configure a Python venv path in Settings → Python."
 msgstr "সেটিংস → পাইথন-এ একটি পাইথন venv পাথ কনফিগার করুন।"
 
 #: plugin/calc/python/init_script_editor.py
+msgid "The Python editor check is still running. Open this again in a moment."
+msgstr "পাইথন এডিটর চেক এখনও চলছে। কিছুক্ষণ পর এটি আবার খুলুন।"
+
+#: plugin/calc/python/init_script_editor.py
 msgid "Cannot import webview (pywebview) in the configured venv."
 msgstr "কনফিগার করা venv-এ ওয়েবভিউ (pywebview) ইমপোর্ট করা যাচ্ছে না।"
 
@@ -749,16 +793,24 @@ msgid "Could not open the built-in Python cell editor."
 msgstr "বিল্ট-ইন Python সেল এডিটর খোলা যায়নি।"
 
 #: plugin/calc/python/function.py
+msgid "Image inserted"
+msgstr "ছবি সন্নিবেশিত হয়েছে"
+
+#: plugin/calc/python/function.py
+msgid "Images inserted"
+msgstr "ছবিগুলি সন্নিবেশিত হয়েছে"
+
+#: plugin/calc/python/addin_values.py
 #, python-brace-format
 msgid "Error: Main-thread execution timed out ({0})"
 msgstr "ত্রুটি: মেইন-থ্রেড এক্সিকিউশনের সময় শেষ হয়েছে ({0})"
 
-#: plugin/calc/python/function.py plugin/scripting/python_runner_ui.py
+#: plugin/calc/python/addin_values.py plugin/scripting/python_runner_ui.py
 #: plugin/scripting/python_runner.py
 msgid "Unknown error"
 msgstr "অজানা ত্রুটি"
 
-#: plugin/calc/python/function.py
+#: plugin/calc/python/addin_values.py
 msgid ""
 "Error: Python venv not found. Open Settings → Python, set the venv path, "
 "then Test."
@@ -766,21 +818,13 @@ msgstr ""
 "ত্রুটি: Python venv পাওয়া যায়নি। সেটিংস → Python খুলুন, venv পাথ সেট করুন, "
 "তারপর পরীক্ষা করুন।"
 
-#: plugin/calc/python/function.py
+#: plugin/calc/python/addin_values.py
 msgid ""
 "Error: Python timed out. Open Settings → Python to raise the timeout, or "
 "Test the venv."
 msgstr ""
 "ত্রুটি: Python-এর সময়সীমা শেষ হয়েছে। সময়সীমা বাড়াতে সেটিংস → Python খুলুন, "
 "অথবা venv পরীক্ষা করুন।"
-
-#: plugin/calc/python/function.py
-msgid "Image inserted"
-msgstr "ছবি সন্নিবেশিত হয়েছে"
-
-#: plugin/calc/python/function.py
-msgid "Images inserted"
-msgstr "ছবিগুলি সন্নিবেশিত হয়েছে"
 
 #: plugin/calc/python/geometric_recalc.py
 #, python-format
@@ -823,9 +867,8 @@ msgid "Select one or more non-empty cells."
 msgstr "এক বা একাধিক খালি নয় এমন সেল নির্বাচন করুন।"
 
 #: plugin/calc/editselection.py
-#, python-brace-format
-msgid "Only the first {0} non-empty cells are edited."
-msgstr "শুধুমাত্র প্রথম {0}টি খালি নয় এমন সেল সম্পাদনা করা হয়েছে।"
+msgid "Formula cells are skipped."
+msgstr "ফর্মুলা সেলগুলি এড়িয়ে যাওয়া হয়েছে।"
 
 #: plugin/calc/vision_egress.py plugin/vision/vision_runner.py
 #: plugin/vision/vision_egress.py
@@ -1808,16 +1851,65 @@ msgid "Perfect! I'm switching you to the main assistant now."
 msgstr "চমৎকার! আমি এখন আপনাকে প্রধান সহকারীর কাছে স্থানান্তর করছি।"
 
 #: plugin/chatbot/slash_commands.py
+msgid "[focus]"
+msgstr "[focus]"
+
+#: plugin/chatbot/slash_commands.py
+msgid "[target]"
+msgstr "[লক্ষ্য]"
+
+#: plugin/chatbot/slash_commands.py
+msgid "[what]"
+msgstr "[কী]"
+
+#: plugin/chatbot/slash_commands.py
+msgid "<description>"
+msgstr "<বিবরণ>"
+
+#: plugin/chatbot/slash_commands.py
+msgid "<language>"
+msgstr "<ভাষা>"
+
+#: plugin/chatbot/slash_commands.py
+msgid "<fact>"
+msgstr "<তথ্য>"
+
+#: plugin/chatbot/slash_commands.py
+msgid "Failed to save memory."
+msgstr "মেমরি সংরক্ষণ করতে ব্যর্থ হয়েছে।"
+
+#: plugin/chatbot/slash_commands.py
+#, python-brace-format
+msgid "Saved to memory: {0}"
+msgstr "মেমরিতে সংরক্ষিত: {0}"
+
+#: plugin/chatbot/slash_commands.py
+msgid "help"
+msgstr "সহায়তা"
+
+#: plugin/chatbot/slash_commands.py
 msgid "Print the command list"
 msgstr "কমান্ড তালিকা প্রিন্ট করুন"
+
+#: plugin/chatbot/slash_commands.py
+msgid "clear"
+msgstr "পরিষ্কার করুন"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Start a new chat"
 msgstr "নতুন চ্যাট শুরু করুন"
 
 #: plugin/chatbot/slash_commands.py
+msgid "stop"
+msgstr "বন্ধ করুন"
+
+#: plugin/chatbot/slash_commands.py
 msgid "Cancel the in-flight send"
 msgstr "চলমান পাঠানো বাতিল করুন"
+
+#: plugin/chatbot/slash_commands.py
+msgid "summarize"
+msgstr "সারসংক্ষেপ করুন"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Summarize the selection or document in the sidebar"
@@ -1829,6 +1921,10 @@ msgid ""
 msgstr ""
 "নির্বাচিত পাঠ্য বা কোনো কিছু নির্বাচিত না থাকলে সম্পূর্ণ নথির সারাংশ তৈরি "
 "করুন।"
+
+#: plugin/chatbot/slash_commands.py
+msgid "proofread"
+msgstr "প্রুফরিড করুন"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Fix spelling, grammar, and punctuation without restyling"
@@ -1843,6 +1939,10 @@ msgstr ""
 "করবেন না।"
 
 #: plugin/chatbot/slash_commands.py
+msgid "shorten"
+msgstr "সংক্ষিপ্ত করুন"
+
+#: plugin/chatbot/slash_commands.py
 msgid "Shorten the selection"
 msgstr "নির্বাচনটি সংক্ষিপ্ত করুন"
 
@@ -1851,12 +1951,20 @@ msgid "Make the text shorter while preserving the meaning."
 msgstr "অর্থ ঠিক রেখে পাঠ্যটিকে সংক্ষিপ্ত করুন।"
 
 #: plugin/chatbot/slash_commands.py
+msgid "expand"
+msgstr "প্রসারিত করুন"
+
+#: plugin/chatbot/slash_commands.py
 msgid "Expand the selection with more detail"
 msgstr "আরও বিস্তারিত দিয়ে নির্বাচনটি প্রসারিত করুন"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Expand the text with more detail and clarity."
 msgstr "আরও বিস্তারিত এবং স্পষ্টতা দিয়ে পাঠ্যটিকে প্রসারিত করুন।"
+
+#: plugin/chatbot/slash_commands.py
+msgid "tone"
+msgstr "টোন"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Rewrite the selection to match a described tone"
@@ -1868,6 +1976,10 @@ msgid "Rewrite the text to match this tone or style: {arg}"
 msgstr "এই সুর বা শৈলীর সাথে মিল রেখে পাঠ্যটি পুনরায় লিখুন: {arg}"
 
 #: plugin/chatbot/slash_commands.py
+msgid "translate"
+msgstr "অনুবাদ করুন"
+
+#: plugin/chatbot/slash_commands.py
 msgid "Translate the selection (sidebar when nothing is selected in Writer)"
 msgstr "নির্বাচন অনুবাদ করুন (Writer-এ কিছু নির্বাচন না করা থাকলে সাইডবার)"
 
@@ -1875,6 +1987,10 @@ msgstr "নির্বাচন অনুবাদ করুন (Writer-এ ক
 #, python-brace-format
 msgid "Translate the text into {arg}. Keep formatting and structure."
 msgstr "{arg}-এ টেক্সট অনুবাদ করুন। ফরম্যাটিং এবং গঠন বজায় রাখুন।"
+
+#: plugin/chatbot/slash_commands.py
+msgid "explain"
+msgstr "ব্যাখ্যা করুন"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Explain the selection or active Calc formula"
@@ -1885,16 +2001,32 @@ msgid "Explain the following in plain language."
 msgstr "নিম্নলিখিত বিষয়টি সহজ ভাষায় ব্যাখ্যা করুন।"
 
 #: plugin/chatbot/slash_commands.py
+msgid "remember"
+msgstr "মনে রাখুন"
+
+#: plugin/chatbot/slash_commands.py
 msgid "Save a fact to persistent memory"
 msgstr "একটি তথ্য স্থায়ী মেমরিতে সংরক্ষণ করুন"
+
+#: plugin/chatbot/slash_commands.py
+msgid "compact"
+msgstr "কমপ্যাক্ট"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Compact older chat history now"
 msgstr "পুরানো চ্যাট ইতিহাস এখন কমপ্যাক্ট করুন"
 
 #: plugin/chatbot/slash_commands.py
+msgid "undo"
+msgstr "পূর্বাবস্থায় ফেরান"
+
+#: plugin/chatbot/slash_commands.py
 msgid "Undo the last agent edit as one step"
 msgstr "এজেন্টের শেষ সম্পাদনাটি এক ধাপে পূর্বাবস্থায় ফিরিয়ে আনুন"
+
+#: plugin/chatbot/slash_commands.py
+msgid "formula"
+msgstr "সূত্র"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Write a Calc formula from a plain-English description"
@@ -1927,6 +2059,20 @@ msgstr "ব্যবহার: {0}"
 
 #: plugin/chatbot/slash_commands.py
 #, python-brace-format
+msgid "Additional instruction: {0}"
+msgstr "অতিরিক্ত নির্দেশ: {0}"
+
+#: plugin/chatbot/slash_commands.py
+#, python-brace-format
+msgid ""
+"Selected text:\n"
+"{0}"
+msgstr ""
+"নির্বাচিত পাঠ্য:\n"
+"{0}"
+
+#: plugin/chatbot/slash_commands.py
+#, python-brace-format
 msgid "Cell {0} formula: {1}"
 msgstr "সেল {0} ফর্মুলা: {1}"
 
@@ -1936,13 +2082,8 @@ msgid "Cell {0} value: {1}"
 msgstr "সেল {0} মান: {1}"
 
 #: plugin/chatbot/slash_commands.py
-msgid "Failed to save memory."
-msgstr "মেমরি সংরক্ষণ করতে ব্যর্থ হয়েছে।"
-
-#: plugin/chatbot/slash_commands.py
-#, python-brace-format
-msgid "Saved to memory: {0}"
-msgstr "মেমরিতে সংরক্ষিত: {0}"
+msgid "WriterAgent"
+msgstr "WriterAgent"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Conversation compacted."
@@ -1965,10 +2106,14 @@ msgid "Compaction failed."
 msgstr "কম্প্যাকশন ব্যর্থ হয়েছে।"
 
 #: plugin/chatbot/slash_commands.py
-msgid "WriterAgent"
-msgstr "WriterAgent"
+msgid "Wait for the current reply to finish before /compact."
+msgstr "/compact করার আগে বর্তমান উত্তরটি শেষ হওয়া পর্যন্ত অপেক্ষা করুন।"
 
-#: plugin/chatbot/slash_commands.py
+#: plugin/chatbot/slash_commands.py plugin/chatbot/send_handlers.py
+msgid "Thinking..."
+msgstr "ভাবছি..."
+
+#: plugin/chatbot/slash_commands.py plugin/chatbot/compaction.py
 msgid "Configure an API key to compact."
 msgstr "কম্প্যাক্ট করার জন্য একটি API কী কনফিগার করুন।"
 
@@ -1980,18 +2125,9 @@ msgstr "সেটিংসে চ্যাট কমপ্যাকশন নি
 msgid "Compaction cancelled."
 msgstr "কমপ্যাকশন বাতিল করা হয়েছে।"
 
-#: plugin/chatbot/slash_commands.py plugin/chatbot/panel.py
-#: plugin/chatbot/sidebar_test_hooks.py plugin/chatbot/send_handlers.py
-msgid "Thinking..."
-msgstr "ভাবছি..."
-
 #: plugin/chatbot/panel.py
 msgid "[No compatible LibreOffice document found.]"
 msgstr "[কোনো সামঞ্জস্যপূর্ণ LibreOffice ডকুমেন্ট পাওয়া যায়নি।]"
-
-#: plugin/chatbot/panel.py plugin/chatbot/sidebar_test_hooks.py
-msgid "Wait for the current reply to finish before /compact."
-msgstr "/compact করার আগে বর্তমান উত্তরটি শেষ হওয়া পর্যন্ত অপেক্ষা করুন।"
 
 #: plugin/chatbot/panel.py
 msgid "Only in Calc"
@@ -2170,6 +2306,14 @@ msgstr ""
 "[এজেন্ট ব্যাকএন্ড '{0}' উপলব্ধ নেই। সেটিংস পরীক্ষা করুন (পাথ, ইনস্টল)।]"
 
 #: plugin/chatbot/send_handlers.py
+msgid ""
+"MCP server is off: LibreOffice edits from this agent require the MCP server."
+" Enable it in Settings → MCP → Enable MCP Server."
+msgstr ""
+"MCP সার্ভার বন্ধ আছে: এই এজেন্ট থেকে LibreOffice সম্পাদনার জন্য MCP সার্ভার "
+"প্রয়োজন। সেটিংস → MCP → MCP সার্ভার সক্রিয় করুন-এ এটি চালু করুন।"
+
+#: plugin/chatbot/send_handlers.py
 #, python-brace-format
 msgid "[{0} error: {1}]"
 msgstr "[{0} ত্রুটি: {1}]"
@@ -2246,6 +2390,10 @@ msgid ""
 msgstr ""
 "একটি নতুন %(name)s (%(version)s) উপলব্ধ আছে। আপডেট চেক করতে এবং সর্বশেষ "
 "এক্সটেনশনটি ইনস্টল করতে টুলস → এক্সটেনশন ম্যানেজার ব্যবহার করুন।"
+
+#: plugin/chatbot/chat_session.py
+msgid "Chat history could not be opened. This conversation will not be saved."
+msgstr "চ্যাট ইতিহাস খোলা যায়নি। এই কথোপকথনটি সংরক্ষণ করা হবে না।"
 
 #: plugin/chatbot/dialog_views.py
 #, python-brace-format
@@ -3288,8 +3436,8 @@ msgid "Viz '{helper}' completed. {msg}"
 msgstr "'{helper}' সম্পন্ন হয়েছে। {msg}"
 
 #: plugin/scripting/python_runner.py
-msgid "Vision helpers require a Writer or Calc document."
-msgstr "ভিশন হেল্পারসের জন্য একটি Writer বা Calc ডকুমেন্ট প্রয়োজন।"
+msgid "Vision helpers require a Writer, Calc, Draw, or Impress document."
+msgstr "ভিশন হেল্পারের জন্য একটি Writer, Calc, Draw, বা Impress নথি প্রয়োজন।"
 
 #: plugin/scripting/python_runner.py
 msgid "Vision helper failed."
@@ -3303,6 +3451,24 @@ msgid ""
 msgstr ""
 "Vision '{helper}' সম্পন্ন হয়েছে। {count}টি ছবির জন্য ফরম্যাট করা HTML "
 "সন্নিবেশ করা হয়েছে। ({time} সময় লেগেছে)"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid ""
+"Vision '{helper}' completed for {count} images. Text returned only (not "
+"inserted). (took {time})"
+msgstr ""
+"ভিশন '{helper}' {count}টি ছবির জন্য সম্পন্ন হয়েছে। শুধুমাত্র পাঠ্য ফেরত "
+"দেওয়া হয়েছে (সন্নিবেশ করা হয়নি)। ({time} সময় লেগেছে)"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid ""
+"Vision '{helper}' completed. Text returned only (not inserted). (took "
+"{time})"
+msgstr ""
+"ভিশন '{helper}' সম্পন্ন হয়েছে। শুধুমাত্র পাঠ্য ফেরত দেওয়া হয়েছে (সন্নিবেশ "
+"করা হয়নি)। ({time} সময় লেগেছে)"
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format
@@ -3446,8 +3612,16 @@ msgid "OCR complete (text returned only; not inserted)."
 msgstr "OCR সম্পন্ন হয়েছে (শুধুমাত্র টেক্সট পাওয়া গেছে; ইনসার্ট করা হয়নি)।"
 
 #: plugin/vision/vision_tools.py
-msgid "Vision OCR requires a Writer or Calc document."
-msgstr "Vision OCR-এর জন্য একটি Writer বা Calc ডকুমেন্ট প্রয়োজন।"
+msgid "Vision OCR requires a Writer, Calc, Draw, or Impress document."
+msgstr "ভিশন OCR-এর জন্য একটি Writer, Calc, Draw, বা Impress নথি প্রয়োজন।"
+
+#: plugin/vision/vision_tools.py
+msgid ""
+"Draw and Impress return vision text only; omit insert_into_document or set "
+"it to false."
+msgstr ""
+"Draw এবং Impress শুধুমাত্র ভিশন পাঠ্য ফেরত দেয়; insert_into_document বাদ দিন"
+" অথবা এটি false-এ সেট করুন।"
 
 #: plugin/vision/vision_egress.py
 msgid "Writer document has no controller."
@@ -4100,6 +4274,9 @@ msgstr "Grok Build"
 msgid "OpenCode"
 msgstr "OpenCode"
 
+msgid "Antigravity"
+msgstr "অ্যান্টিগ্র্যাভিটি"
+
 msgid "Prompt for Agent Permissions"
 msgstr "এজেন্ট অনুমতির জন্য প্রম্পট"
 
@@ -4109,6 +4286,18 @@ msgid ""
 msgstr ""
 "এজেন্টকে টুল ব্যবহার করার (ফাইল পড়া, কমান্ড চালানো ইত্যাদি) অনুমতি দেওয়ার "
 "আগে নিশ্চিতকরণ জিজ্ঞাসা করুন"
+
+msgid "Antigravity model"
+msgstr "অ্যান্টিগ্র্যাভিটি মডেল"
+
+msgid ""
+"agy modelId from session/new models.availableModels, for example "
+"gemini-4-argon-medium. Empty keeps agy's current model. configOptions family"
+" ids such as gemini-4-argon are not modelIds."
+msgstr ""
+"agy modelId session/new models.availableModels থেকে, উদাহরণস্বরূপ "
+"gemini-4-argon-medium। খালি রাখলে agy-এর বর্তমান মডেল বজায় থাকবে। "
+"configOptions ফ্যামিলি আইডি যেমন gemini-4-argon হলো modelIds নয়।"
 
 msgid "STT Provider"
 msgstr "STT প্রদানকারী"
@@ -4295,27 +4484,6 @@ msgstr "সাইডবার"
 
 msgid "Max Tool Rounds"
 msgstr "সর্বোচ্চ টুল রাউন্ড"
-
-msgid "Document Context Strategy"
-msgstr "ডকুমেন্ট কনটেক্সট কৌশল"
-
-msgid "How much document content to include in LLM context"
-msgstr "LLM কনটেক্সটে কতটা ডকুমেন্ট কন্টেন্ট অন্তর্ভুক্ত করতে হবে"
-
-msgid "Auto (by document size)"
-msgstr "স্বয়ংক্রিয় (ডকুমেন্টের আকার অনুযায়ী)"
-
-msgid "Full document text"
-msgstr "সম্পূর্ণ ডকুমেন্টের টেক্সট"
-
-msgid "Pages around cursor"
-msgstr "কার্সারের আশেপাশের পৃষ্ঠাগুলি"
-
-msgid "Outline + excerpt"
-msgstr "আউটলাইন + সারাংশ"
-
-msgid "Stats + outline only"
-msgstr "পরিসংখ্যান + শুধুমাত্র আউটলাইন"
 
 msgid "Web Research Cache"
 msgstr "ওয়েব রিসার্চ ক্যাশে"

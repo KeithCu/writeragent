@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-03 13:09-0500\n"
+"POT-Creation-Date: 2026-11-11 14:14-0500\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Slovak <LL@li.org>\n"
@@ -108,6 +108,46 @@ msgstr "Spustiť bunku kódu"
 #: plugin/notebook/layout.py
 msgid "Code"
 msgstr "Kód"
+
+#: plugin/draw/editselection.py
+msgid "Select a text shape. Tables are not rewritten."
+msgstr "Vyberte textový objekt. Tabuľky sa neprepisujú."
+
+#: plugin/draw/editselection.py
+msgid "Select a text shape."
+msgstr "Vyberte textový objekt."
+
+#: plugin/draw/editselection.py
+msgid "WriterAgent: Edit Selection (Draw)"
+msgstr "WriterAgent: Upraviť výber (Draw)"
+
+#: plugin/draw/editselection.py
+msgid "WriterAgent: Extend Selection (Draw)"
+msgstr "WriterAgent: Rozšíriť výber (Draw)"
+
+#: plugin/draw/editselection.py plugin/calc/editselection.py
+#, python-brace-format
+msgid "Only the first {0} non-empty cells are edited."
+msgstr "Upravených je len prvých {0} neprázdnych buniek."
+
+#: plugin/draw/editselection.py
+msgid "Could not register undo for this edit. The change was not applied."
+msgstr ""
+"Pre túto úpravu sa nepodarilo zaregistrovať vrátenie späť. Zmena nebola "
+"použitá."
+
+#: plugin/draw/editselection.py plugin/calc/editselection.py
+#: plugin/writer/editselection.py
+msgid ""
+"The rewrite ran out of tokens before producing text. Try again or shorten "
+"the selection."
+msgstr ""
+"Prepisovanie vyčerpalo tokeny skôr, než vytvorilo text. Skúste to znova "
+"alebo skráťte výber."
+
+#: plugin/draw/editselection.py plugin/calc/editselection.py
+msgid "The model returned no text. Try again."
+msgstr "Model nevrátil žiadny text. Skúste to znova."
 
 #: plugin/embeddings/search_ui.py
 msgid "just now"
@@ -319,7 +359,7 @@ msgstr ""
 msgid "The AI provider reported an error. Try again."
 msgstr "Poskytovateľ AI nahlásil chybu. Skúste to znova."
 
-#: plugin/framework/errors.py plugin/calc/python/function.py
+#: plugin/framework/errors.py plugin/calc/python/addin_values.py
 #: plugin/chatbot/quick_setup.py plugin/scripting/session_manager.py
 #, python-brace-format
 msgid "Error: {0}"
@@ -628,6 +668,10 @@ msgid "Configure a Python venv path in Settings → Python."
 msgstr "Nakonfigurujte cestu k Python venv v Nastavenia → Python."
 
 #: plugin/calc/python/init_script_editor.py
+msgid "The Python editor check is still running. Open this again in a moment."
+msgstr "Kontrola editora Python stále prebieha. Otvorte toto znova o chvíľu."
+
+#: plugin/calc/python/init_script_editor.py
 msgid "Cannot import webview (pywebview) in the configured venv."
 msgstr "V nakonfigurovanom venv nie je možné importovať webview (pywebview)."
 
@@ -745,16 +789,24 @@ msgid "Could not open the built-in Python cell editor."
 msgstr "Nepodarilo sa otvoriť vstavaný editor buniek Python."
 
 #: plugin/calc/python/function.py
+msgid "Image inserted"
+msgstr "Obrázok vložený"
+
+#: plugin/calc/python/function.py
+msgid "Images inserted"
+msgstr "Vložené obrázky"
+
+#: plugin/calc/python/addin_values.py
 #, python-brace-format
 msgid "Error: Main-thread execution timed out ({0})"
 msgstr "Chyba: Vykonávanie v hlavnom vlákne vypršalo ({0})"
 
-#: plugin/calc/python/function.py plugin/scripting/python_runner_ui.py
+#: plugin/calc/python/addin_values.py plugin/scripting/python_runner_ui.py
 #: plugin/scripting/python_runner.py
 msgid "Unknown error"
 msgstr "Neznáma chyba"
 
-#: plugin/calc/python/function.py
+#: plugin/calc/python/addin_values.py
 msgid ""
 "Error: Python venv not found. Open Settings → Python, set the venv path, "
 "then Test."
@@ -762,21 +814,13 @@ msgstr ""
 "Chyba: Virtuálne prostredie Python (venv) sa nenašlo. Otvorte Nastavenia → "
 "Python, nastavte cestu k venv a potom vykonajte Test."
 
-#: plugin/calc/python/function.py
+#: plugin/calc/python/addin_values.py
 msgid ""
 "Error: Python timed out. Open Settings → Python to raise the timeout, or "
 "Test the venv."
 msgstr ""
 "Chyba: Časový limit Pythonu vypršal. Otvorte Nastavenia → Python na zvýšenie"
 " časového limitu alebo otestujte venv."
-
-#: plugin/calc/python/function.py
-msgid "Image inserted"
-msgstr "Obrázok vložený"
-
-#: plugin/calc/python/function.py
-msgid "Images inserted"
-msgstr "Vložené obrázky"
 
 #: plugin/calc/python/geometric_recalc.py
 #, python-format
@@ -819,9 +863,8 @@ msgid "Select one or more non-empty cells."
 msgstr "Vyberte jednu alebo viac neprázdnych buniek."
 
 #: plugin/calc/editselection.py
-#, python-brace-format
-msgid "Only the first {0} non-empty cells are edited."
-msgstr "Upravených je len prvých {0} neprázdnych buniek."
+msgid "Formula cells are skipped."
+msgstr "Bunky so vzorcami sa preskakujú."
 
 #: plugin/calc/vision_egress.py plugin/vision/vision_runner.py
 #: plugin/vision/vision_egress.py
@@ -1799,16 +1842,65 @@ msgid "Perfect! I'm switching you to the main assistant now."
 msgstr "Perfektné! Teraz vás prepnem na hlavného asistenta."
 
 #: plugin/chatbot/slash_commands.py
+msgid "[focus]"
+msgstr "[zameranie]"
+
+#: plugin/chatbot/slash_commands.py
+msgid "[target]"
+msgstr "cieľ"
+
+#: plugin/chatbot/slash_commands.py
+msgid "[what]"
+msgstr "čo"
+
+#: plugin/chatbot/slash_commands.py
+msgid "<description>"
+msgstr "<popis>"
+
+#: plugin/chatbot/slash_commands.py
+msgid "<language>"
+msgstr "<jazyk>"
+
+#: plugin/chatbot/slash_commands.py
+msgid "<fact>"
+msgstr "<fakt>"
+
+#: plugin/chatbot/slash_commands.py
+msgid "Failed to save memory."
+msgstr "Uloženie do pamäte zlyhalo."
+
+#: plugin/chatbot/slash_commands.py
+#, python-brace-format
+msgid "Saved to memory: {0}"
+msgstr "Uložené do pamäte: {0}"
+
+#: plugin/chatbot/slash_commands.py
+msgid "help"
+msgstr "pomocník"
+
+#: plugin/chatbot/slash_commands.py
 msgid "Print the command list"
 msgstr "Vytlačiť zoznam príkazov"
+
+#: plugin/chatbot/slash_commands.py
+msgid "clear"
+msgstr "vymazať"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Start a new chat"
 msgstr "Začať nový chat"
 
 #: plugin/chatbot/slash_commands.py
+msgid "stop"
+msgstr "zastaviť"
+
+#: plugin/chatbot/slash_commands.py
 msgid "Cancel the in-flight send"
 msgstr "Zrušiť prebiehajúce odosielanie"
+
+#: plugin/chatbot/slash_commands.py
+msgid "summarize"
+msgstr "zhrnúť"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Summarize the selection or document in the sidebar"
@@ -1818,6 +1910,10 @@ msgstr "Zhrnúť výber alebo dokument na bočnom paneli"
 msgid ""
 "Summarize the selected text, or the whole document if nothing is selected."
 msgstr "Zhrnúť vybraný text alebo celý dokument, ak nie je nič vybrané."
+
+#: plugin/chatbot/slash_commands.py
+msgid "proofread"
+msgstr "korektúra"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Fix spelling, grammar, and punctuation without restyling"
@@ -1832,6 +1928,10 @@ msgstr ""
 "význam."
 
 #: plugin/chatbot/slash_commands.py
+msgid "shorten"
+msgstr "skrátiť"
+
+#: plugin/chatbot/slash_commands.py
 msgid "Shorten the selection"
 msgstr "Skrátiť výber"
 
@@ -1840,12 +1940,20 @@ msgid "Make the text shorter while preserving the meaning."
 msgstr "Skrátiť text pri zachovaní významu."
 
 #: plugin/chatbot/slash_commands.py
+msgid "expand"
+msgstr "rozšíriť"
+
+#: plugin/chatbot/slash_commands.py
 msgid "Expand the selection with more detail"
 msgstr "Rozšíriť výber o ďalšie podrobnosti"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Expand the text with more detail and clarity."
 msgstr "Rozšíriť text o ďalšie podrobnosti a jasnosť."
+
+#: plugin/chatbot/slash_commands.py
+msgid "tone"
+msgstr "tón"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Rewrite the selection to match a described tone"
@@ -1857,6 +1965,10 @@ msgid "Rewrite the text to match this tone or style: {arg}"
 msgstr "Prepísať text tak, aby zodpovedal tomuto tónu alebo štýlu: {arg}"
 
 #: plugin/chatbot/slash_commands.py
+msgid "translate"
+msgstr "preložiť"
+
+#: plugin/chatbot/slash_commands.py
 msgid "Translate the selection (sidebar when nothing is selected in Writer)"
 msgstr "Preložiť výber (bočný panel, keď vo Writeri nie je nič vybrané)"
 
@@ -1864,6 +1976,10 @@ msgstr "Preložiť výber (bočný panel, keď vo Writeri nie je nič vybrané)"
 #, python-brace-format
 msgid "Translate the text into {arg}. Keep formatting and structure."
 msgstr "Preložiť text do {arg}. Zachovať formátovanie a štruktúru."
+
+#: plugin/chatbot/slash_commands.py
+msgid "explain"
+msgstr "vysvetliť"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Explain the selection or active Calc formula"
@@ -1874,16 +1990,32 @@ msgid "Explain the following in plain language."
 msgstr "Vysvetliť nasledujúce jednoduchým jazykom."
 
 #: plugin/chatbot/slash_commands.py
+msgid "remember"
+msgstr "zapamätať"
+
+#: plugin/chatbot/slash_commands.py
 msgid "Save a fact to persistent memory"
 msgstr "Uložiť fakt do trvalej pamäte"
+
+#: plugin/chatbot/slash_commands.py
+msgid "compact"
+msgstr "zhustiť"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Compact older chat history now"
 msgstr "Zhustiť staršiu históriu chatu teraz"
 
 #: plugin/chatbot/slash_commands.py
+msgid "undo"
+msgstr "vrátiť späť"
+
+#: plugin/chatbot/slash_commands.py
 msgid "Undo the last agent edit as one step"
 msgstr "Vrátiť späť poslednú úpravu agenta ako jeden krok"
+
+#: plugin/chatbot/slash_commands.py
+msgid "formula"
+msgstr "vzorec"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Write a Calc formula from a plain-English description"
@@ -1916,6 +2048,20 @@ msgstr "Použitie: {0}"
 
 #: plugin/chatbot/slash_commands.py
 #, python-brace-format
+msgid "Additional instruction: {0}"
+msgstr "Dodatočné pokyny: {0}"
+
+#: plugin/chatbot/slash_commands.py
+#, python-brace-format
+msgid ""
+"Selected text:\n"
+"{0}"
+msgstr ""
+"Vybraný text:\n"
+"{0}"
+
+#: plugin/chatbot/slash_commands.py
+#, python-brace-format
 msgid "Cell {0} formula: {1}"
 msgstr "Vzorec bunky {0}: {1}"
 
@@ -1925,13 +2071,8 @@ msgid "Cell {0} value: {1}"
 msgstr "Hodnota bunky {0}: {1}"
 
 #: plugin/chatbot/slash_commands.py
-msgid "Failed to save memory."
-msgstr "Uloženie do pamäte zlyhalo."
-
-#: plugin/chatbot/slash_commands.py
-#, python-brace-format
-msgid "Saved to memory: {0}"
-msgstr "Uložené do pamäte: {0}"
+msgid "WriterAgent"
+msgstr "WriterAgent"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Conversation compacted."
@@ -1954,10 +2095,14 @@ msgid "Compaction failed."
 msgstr "Zhustenie zlyhalo."
 
 #: plugin/chatbot/slash_commands.py
-msgid "WriterAgent"
-msgstr "WriterAgent"
+msgid "Wait for the current reply to finish before /compact."
+msgstr "Pred príkazom /compact počkajte na dokončenie aktuálnej odpovede."
 
-#: plugin/chatbot/slash_commands.py
+#: plugin/chatbot/slash_commands.py plugin/chatbot/send_handlers.py
+msgid "Thinking..."
+msgstr "Rozmýšľam..."
+
+#: plugin/chatbot/slash_commands.py plugin/chatbot/compaction.py
 msgid "Configure an API key to compact."
 msgstr "Pre zhustenie nakonfigurujte kľúč API."
 
@@ -1969,18 +2114,9 @@ msgstr "Kompakcia chatu je v nastaveniach vypnutá."
 msgid "Compaction cancelled."
 msgstr "Kompakcia zrušená."
 
-#: plugin/chatbot/slash_commands.py plugin/chatbot/panel.py
-#: plugin/chatbot/sidebar_test_hooks.py plugin/chatbot/send_handlers.py
-msgid "Thinking..."
-msgstr "Rozmýšľam..."
-
 #: plugin/chatbot/panel.py
 msgid "[No compatible LibreOffice document found.]"
 msgstr "[Nenašiel sa žiadny kompatibilný dokument LibreOffice.]"
-
-#: plugin/chatbot/panel.py plugin/chatbot/sidebar_test_hooks.py
-msgid "Wait for the current reply to finish before /compact."
-msgstr "Pred príkazom /compact počkajte na dokončenie aktuálnej odpovede."
 
 #: plugin/chatbot/panel.py
 msgid "Only in Calc"
@@ -2160,6 +2296,14 @@ msgstr ""
 "inštalácia).]"
 
 #: plugin/chatbot/send_handlers.py
+msgid ""
+"MCP server is off: LibreOffice edits from this agent require the MCP server."
+" Enable it in Settings → MCP → Enable MCP Server."
+msgstr ""
+"Server MCP je vypnutý: Úpravy v LibreOffice z tohto agenta vyžadujú server "
+"MCP. Povoľte ho v Nastavenia → MCP → Povoliť server MCP."
+
+#: plugin/chatbot/send_handlers.py
 #, python-brace-format
 msgid "[{0} error: {1}]"
 msgstr "[{0} chyba: {1}]"
@@ -2237,6 +2381,10 @@ msgstr ""
 "Je k dispozícii novšia verzia %(name)s (%(version)s). Na kontrolu "
 "aktualizácií a inštaláciu najnovšieho rozšírenia použite Nástroje → Správca "
 "rozšírení."
+
+#: plugin/chatbot/chat_session.py
+msgid "Chat history could not be opened. This conversation will not be saved."
+msgstr "Históriu chatu sa nepodarilo otvoriť. Táto konverzácia sa neuloží."
 
 #: plugin/chatbot/dialog_views.py
 #, python-brace-format
@@ -3271,8 +3419,9 @@ msgid "Viz '{helper}' completed. {msg}"
 msgstr "Viz '{helper}' dokončený. {msg}"
 
 #: plugin/scripting/python_runner.py
-msgid "Vision helpers require a Writer or Calc document."
-msgstr "Pomocníci pre videnie vyžadujú dokument Writer alebo Calc."
+msgid "Vision helpers require a Writer, Calc, Draw, or Impress document."
+msgstr ""
+"Pomocníci pre videnie vyžadujú dokument Writer, Calc, Draw alebo Impress."
 
 #: plugin/scripting/python_runner.py
 msgid "Vision helper failed."
@@ -3286,6 +3435,24 @@ msgid ""
 msgstr ""
 "Pomocník Vision „{helper}“ dokončený. Vložené formátované HTML pre {count} "
 "obrázkov. (trvalo {time})"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid ""
+"Vision '{helper}' completed for {count} images. Text returned only (not "
+"inserted). (took {time})"
+msgstr ""
+"Videnie „{helper}“ dokončené pre {count} obrázkov. Vrátený bol iba text "
+"(nevložený). (trvalo {time})"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid ""
+"Vision '{helper}' completed. Text returned only (not inserted). (took "
+"{time})"
+msgstr ""
+"Videnie „{helper}“ dokončené. Vrátený bol iba text (nevložený). (trvalo "
+"{time})"
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format
@@ -3432,8 +3599,16 @@ msgid "OCR complete (text returned only; not inserted)."
 msgstr "OCR dokončené (vrátený iba text; nevložený)."
 
 #: plugin/vision/vision_tools.py
-msgid "Vision OCR requires a Writer or Calc document."
-msgstr "Vision OCR vyžaduje dokument Writer alebo Calc."
+msgid "Vision OCR requires a Writer, Calc, Draw, or Impress document."
+msgstr "OCR videnia vyžaduje dokument Writer, Calc, Draw alebo Impress."
+
+#: plugin/vision/vision_tools.py
+msgid ""
+"Draw and Impress return vision text only; omit insert_into_document or set "
+"it to false."
+msgstr ""
+"Draw a Impress vracajú text videnia iba ako text; vynechajte "
+"insert_into_document alebo ho nastavte na false."
 
 #: plugin/vision/vision_egress.py
 msgid "Writer document has no controller."
@@ -4090,6 +4265,9 @@ msgstr "Grok Build"
 msgid "OpenCode"
 msgstr "OpenCode"
 
+msgid "Antigravity"
+msgstr "Antigravitácia"
+
 msgid "Prompt for Agent Permissions"
 msgstr "Výzva na povolenia agenta"
 
@@ -4099,6 +4277,18 @@ msgid ""
 msgstr ""
 "Vyžiadať potvrdenie pred povolením agentovi používať nástroje (čítať súbory,"
 " spúšťať príkazy atď.)"
+
+msgid "Antigravity model"
+msgstr "Antigravitačný model"
+
+msgid ""
+"agy modelId from session/new models.availableModels, for example "
+"gemini-4-argon-medium. Empty keeps agy's current model. configOptions family"
+" ids such as gemini-4-argon are not modelIds."
+msgstr ""
+"agy modelId zo session/new models.availableModels, napríklad gemini-4-argon-"
+"medium. Prázdna hodnota ponechá aktuálny model agy. Identifikátory rodiny "
+"configOptions, ako napríklad gemini-4-argon, nie sú modelIds."
 
 msgid "STT Provider"
 msgstr "Poskytovateľ STT"
@@ -4285,27 +4475,6 @@ msgstr "Bočný panel"
 
 msgid "Max Tool Rounds"
 msgstr "Maximálny počet kôl nástroja"
-
-msgid "Document Context Strategy"
-msgstr "Stratégia kontextu dokumentu"
-
-msgid "How much document content to include in LLM context"
-msgstr "Koľko obsahu dokumentu zahrnúť do kontextu LLM"
-
-msgid "Auto (by document size)"
-msgstr "Automaticky (podľa veľkosti dokumentu)"
-
-msgid "Full document text"
-msgstr "Úplný text dokumentu"
-
-msgid "Pages around cursor"
-msgstr "Strany okolo kurzora"
-
-msgid "Outline + excerpt"
-msgstr "Osnova + úryvok"
-
-msgid "Stats + outline only"
-msgstr "Štatistiky + len osnova"
 
 msgid "Web Research Cache"
 msgstr "Vyrovnávacia pamäť webového prieskumu"

@@ -7,7 +7,7 @@ WriterAgent includes an **eval-1 LLM Evaluation Suite** for real-world tasks in 
 | Flag | Meaning |
 |------|---------|
 | `--backend string` | In-memory simulator (`string_eval_tools.py`). Skips rows that declare `backend=lo`. |
-| `--backend lo` | Native headless UNO for every selected row (`tools_lo.py`, one soffice). |
+| `--backend lo` | Native headless UNO for every selected row (`tools_lo.py`, one soffice; logs to `wa-eval-soffice-*.log` temp file, missing `plugin/_manifest.py` is generated on start). |
 | `--backend auto` | Per-task mix (honor each row's `backend`). Dual-lane: string pool overlaps one FIFO LO lane. |
 
 Tasks 18–19 (`python_shapes_flag`, `org_chart_gen`) **need native** headless LO; they cannot be faked on string. Headed **eval-2** is a separate harder suite ([`eval-2/benchmarks.md`](eval-2/benchmarks.md)) — do **not** treat native LO as eval-2-only, and do **not** merge eval-2 tables into this pack.

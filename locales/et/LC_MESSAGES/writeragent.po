@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-03 13:09-0500\n"
+"POT-Creation-Date: 2026-11-11 14:14-0500\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Estonian <LL@li.org>\n"
@@ -107,6 +107,46 @@ msgstr "Käivita koodilahter"
 #: plugin/notebook/layout.py
 msgid "Code"
 msgstr "Kood"
+
+#: plugin/draw/editselection.py
+msgid "Select a text shape. Tables are not rewritten."
+msgstr "Valige tekstikujund. Tabeleid ei kirjutata ümber."
+
+#: plugin/draw/editselection.py
+msgid "Select a text shape."
+msgstr "Valige tekstikujund."
+
+#: plugin/draw/editselection.py
+msgid "WriterAgent: Edit Selection (Draw)"
+msgstr "WriterAgent: Muuda valikut (Draw)"
+
+#: plugin/draw/editselection.py
+msgid "WriterAgent: Extend Selection (Draw)"
+msgstr "WriterAgent: Laienda valikut (Draw)"
+
+#: plugin/draw/editselection.py plugin/calc/editselection.py
+#, python-brace-format
+msgid "Only the first {0} non-empty cells are edited."
+msgstr "Muudetakse ainult esimesed {0} mittetühja lahtrit."
+
+#: plugin/draw/editselection.py
+msgid "Could not register undo for this edit. The change was not applied."
+msgstr ""
+"Selle muudatuse jaoks ei saanud tagasivõtmist registreerida. Muudatust ei "
+"rakendatud."
+
+#: plugin/draw/editselection.py plugin/calc/editselection.py
+#: plugin/writer/editselection.py
+msgid ""
+"The rewrite ran out of tokens before producing text. Try again or shorten "
+"the selection."
+msgstr ""
+"Ümberkirjutamisel said märgid enne teksti loomist otsa. Proovige uuesti või "
+"lühendage valikut."
+
+#: plugin/draw/editselection.py plugin/calc/editselection.py
+msgid "The model returned no text. Try again."
+msgstr "Mudel ei tagastanud teksti. Proovige uuesti."
 
 #: plugin/embeddings/search_ui.py
 msgid "just now"
@@ -311,7 +351,7 @@ msgstr "Valemi ülevoolu konflikt: sihtvahemik sisaldab mittetühje lahtreid."
 msgid "The AI provider reported an error. Try again."
 msgstr "AI-teenuse pakkuja teatas tõrkest. Proovige uuesti."
 
-#: plugin/framework/errors.py plugin/calc/python/function.py
+#: plugin/framework/errors.py plugin/calc/python/addin_values.py
 #: plugin/chatbot/quick_setup.py plugin/scripting/session_manager.py
 #, python-brace-format
 msgid "Error: {0}"
@@ -623,6 +663,11 @@ msgid "Configure a Python venv path in Settings → Python."
 msgstr "Konfigureeri Pythoni venv-i tee menüüs Sätted → Python."
 
 #: plugin/calc/python/init_script_editor.py
+msgid "The Python editor check is still running. Open this again in a moment."
+msgstr ""
+"Pythoni redaktori kontrollimine veel kestab. Avage see hetke pärast uuesti."
+
+#: plugin/calc/python/init_script_editor.py
 msgid "Cannot import webview (pywebview) in the configured venv."
 msgstr ""
 "Konfigureeritud venv-is ei saa importida moodulit webview (pywebview)."
@@ -740,16 +785,24 @@ msgid "Could not open the built-in Python cell editor."
 msgstr "Sisseehitatud Pythoni lahtriredaktorit ei saanud avada."
 
 #: plugin/calc/python/function.py
+msgid "Image inserted"
+msgstr "Pilt sisestatud"
+
+#: plugin/calc/python/function.py
+msgid "Images inserted"
+msgstr "Pildid lisatud"
+
+#: plugin/calc/python/addin_values.py
 #, python-brace-format
 msgid "Error: Main-thread execution timed out ({0})"
 msgstr "Viga: pealõime täitmine aegus ({0})"
 
-#: plugin/calc/python/function.py plugin/scripting/python_runner_ui.py
+#: plugin/calc/python/addin_values.py plugin/scripting/python_runner_ui.py
 #: plugin/scripting/python_runner.py
 msgid "Unknown error"
 msgstr "Tundmatu viga"
 
-#: plugin/calc/python/function.py
+#: plugin/calc/python/addin_values.py
 msgid ""
 "Error: Python venv not found. Open Settings → Python, set the venv path, "
 "then Test."
@@ -757,21 +810,13 @@ msgstr ""
 "Viga: Python venv ei leitud. Ava Sätted → Python, määra venv rada ja "
 "seejärel testi."
 
-#: plugin/calc/python/function.py
+#: plugin/calc/python/addin_values.py
 msgid ""
 "Error: Python timed out. Open Settings → Python to raise the timeout, or "
 "Test the venv."
 msgstr ""
 "Viga: Pythoni ajapiirang ületati. Ava Sätted → Python, et ajapiirangut "
 "suurendada, või testi venv-i."
-
-#: plugin/calc/python/function.py
-msgid "Image inserted"
-msgstr "Pilt sisestatud"
-
-#: plugin/calc/python/function.py
-msgid "Images inserted"
-msgstr "Pildid lisatud"
 
 #: plugin/calc/python/geometric_recalc.py
 #, python-format
@@ -814,9 +859,8 @@ msgid "Select one or more non-empty cells."
 msgstr "Vali üks või mitu mittetühja lahtrit."
 
 #: plugin/calc/editselection.py
-#, python-brace-format
-msgid "Only the first {0} non-empty cells are edited."
-msgstr "Muudetakse ainult esimesed {0} mittetühja lahtrit."
+msgid "Formula cells are skipped."
+msgstr "Valemilahtreid eiratakse."
 
 #: plugin/calc/vision_egress.py plugin/vision/vision_runner.py
 #: plugin/vision/vision_egress.py
@@ -1795,16 +1839,65 @@ msgid "Perfect! I'm switching you to the main assistant now."
 msgstr "Suurepärane! Lülitan teid nüüd peamise assistendi juurde."
 
 #: plugin/chatbot/slash_commands.py
+msgid "[focus]"
+msgstr "[fookus]"
+
+#: plugin/chatbot/slash_commands.py
+msgid "[target]"
+msgstr "sihtkoht"
+
+#: plugin/chatbot/slash_commands.py
+msgid "[what]"
+msgstr "mida"
+
+#: plugin/chatbot/slash_commands.py
+msgid "<description>"
+msgstr "<kirjeldus>"
+
+#: plugin/chatbot/slash_commands.py
+msgid "<language>"
+msgstr "<keel>"
+
+#: plugin/chatbot/slash_commands.py
+msgid "<fact>"
+msgstr "<fakt>"
+
+#: plugin/chatbot/slash_commands.py
+msgid "Failed to save memory."
+msgstr "Mällu salvestamine ebaõnnestus."
+
+#: plugin/chatbot/slash_commands.py
+#, python-brace-format
+msgid "Saved to memory: {0}"
+msgstr "Salvestatud mällu: {0}"
+
+#: plugin/chatbot/slash_commands.py
+msgid "help"
+msgstr "abi"
+
+#: plugin/chatbot/slash_commands.py
 msgid "Print the command list"
 msgstr "Prindi käskude loend"
+
+#: plugin/chatbot/slash_commands.py
+msgid "clear"
+msgstr "tühjenda"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Start a new chat"
 msgstr "Alusta uut vestlust"
 
 #: plugin/chatbot/slash_commands.py
+msgid "stop"
+msgstr "peata"
+
+#: plugin/chatbot/slash_commands.py
 msgid "Cancel the in-flight send"
 msgstr "Tühista pooleliolev saatmine"
+
+#: plugin/chatbot/slash_commands.py
+msgid "summarize"
+msgstr "võta kokku"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Summarize the selection or document in the sidebar"
@@ -1815,6 +1908,10 @@ msgid ""
 "Summarize the selected text, or the whole document if nothing is selected."
 msgstr ""
 "Võta valitud tekst kokku või kui midagi pole valitud, siis kogu dokument."
+
+#: plugin/chatbot/slash_commands.py
+msgid "proofread"
+msgstr "korrektuur"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Fix spelling, grammar, and punctuation without restyling"
@@ -1829,6 +1926,10 @@ msgstr ""
 "tooni ega tähendust."
 
 #: plugin/chatbot/slash_commands.py
+msgid "shorten"
+msgstr "lühenda"
+
+#: plugin/chatbot/slash_commands.py
 msgid "Shorten the selection"
 msgstr "Lühenda valikut"
 
@@ -1837,12 +1938,20 @@ msgid "Make the text shorter while preserving the meaning."
 msgstr "Muuda tekst lühemaks, säilitades selle tähenduse."
 
 #: plugin/chatbot/slash_commands.py
+msgid "expand"
+msgstr "laienda"
+
+#: plugin/chatbot/slash_commands.py
 msgid "Expand the selection with more detail"
 msgstr "Laienda valikut detailsemalt"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Expand the text with more detail and clarity."
 msgstr "Laienda teksti detailsemalt ja selgemalt."
+
+#: plugin/chatbot/slash_commands.py
+msgid "tone"
+msgstr "toon"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Rewrite the selection to match a described tone"
@@ -1854,6 +1963,10 @@ msgid "Rewrite the text to match this tone or style: {arg}"
 msgstr "Kirjuta tekst ümber vastavalt sellele toonile või stiilile: {arg}"
 
 #: plugin/chatbot/slash_commands.py
+msgid "translate"
+msgstr "tõlgi"
+
+#: plugin/chatbot/slash_commands.py
 msgid "Translate the selection (sidebar when nothing is selected in Writer)"
 msgstr "Tõlgi valik (külgriba, kui Writeris pole midagi valitud)"
 
@@ -1861,6 +1974,10 @@ msgstr "Tõlgi valik (külgriba, kui Writeris pole midagi valitud)"
 #, python-brace-format
 msgid "Translate the text into {arg}. Keep formatting and structure."
 msgstr "Tõlgi tekst keelde {arg}. Säilita vormindus ja struktuur."
+
+#: plugin/chatbot/slash_commands.py
+msgid "explain"
+msgstr "selgita"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Explain the selection or active Calc formula"
@@ -1871,16 +1988,32 @@ msgid "Explain the following in plain language."
 msgstr "Selgita järgnevat lihtsas keeles."
 
 #: plugin/chatbot/slash_commands.py
+msgid "remember"
+msgstr "jäta meelde"
+
+#: plugin/chatbot/slash_commands.py
 msgid "Save a fact to persistent memory"
 msgstr "Salvesta fakt püsivasse mällu"
+
+#: plugin/chatbot/slash_commands.py
+msgid "compact"
+msgstr "tihenda"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Compact older chat history now"
 msgstr "Tihenda vanem vestluse ajalugu kohe"
 
 #: plugin/chatbot/slash_commands.py
+msgid "undo"
+msgstr "võta tagasi"
+
+#: plugin/chatbot/slash_commands.py
 msgid "Undo the last agent edit as one step"
 msgstr "Võta viimane agendi muudatus ühe sammuna tagasi"
+
+#: plugin/chatbot/slash_commands.py
+msgid "formula"
+msgstr "valem"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Write a Calc formula from a plain-English description"
@@ -1913,6 +2046,20 @@ msgstr "Kasutus: {0}"
 
 #: plugin/chatbot/slash_commands.py
 #, python-brace-format
+msgid "Additional instruction: {0}"
+msgstr "Lisajuhis: {0}"
+
+#: plugin/chatbot/slash_commands.py
+#, python-brace-format
+msgid ""
+"Selected text:\n"
+"{0}"
+msgstr ""
+"Valitud tekst:\n"
+"{0}"
+
+#: plugin/chatbot/slash_commands.py
+#, python-brace-format
 msgid "Cell {0} formula: {1}"
 msgstr "Lahtri {0} valem: {1}"
 
@@ -1922,13 +2069,8 @@ msgid "Cell {0} value: {1}"
 msgstr "Lahtri {0} väärtus: {1}"
 
 #: plugin/chatbot/slash_commands.py
-msgid "Failed to save memory."
-msgstr "Mällu salvestamine ebaõnnestus."
-
-#: plugin/chatbot/slash_commands.py
-#, python-brace-format
-msgid "Saved to memory: {0}"
-msgstr "Salvestatud mällu: {0}"
+msgid "WriterAgent"
+msgstr "WriterAgent"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Conversation compacted."
@@ -1951,10 +2093,14 @@ msgid "Compaction failed."
 msgstr "Tihendamine ebaõnnestus."
 
 #: plugin/chatbot/slash_commands.py
-msgid "WriterAgent"
-msgstr "WriterAgent"
+msgid "Wait for the current reply to finish before /compact."
+msgstr "Oodake enne käsku /compact, kuni praegune vastus on lõpetatud."
 
-#: plugin/chatbot/slash_commands.py
+#: plugin/chatbot/slash_commands.py plugin/chatbot/send_handlers.py
+msgid "Thinking..."
+msgstr "Mõtlen..."
+
+#: plugin/chatbot/slash_commands.py plugin/chatbot/compaction.py
 msgid "Configure an API key to compact."
 msgstr "Tihendamiseks konfigureeri API-võti."
 
@@ -1966,18 +2112,9 @@ msgstr "Vestluse tihendamine on seadetes keelatud."
 msgid "Compaction cancelled."
 msgstr "Tihendamine tühistati."
 
-#: plugin/chatbot/slash_commands.py plugin/chatbot/panel.py
-#: plugin/chatbot/sidebar_test_hooks.py plugin/chatbot/send_handlers.py
-msgid "Thinking..."
-msgstr "Mõtlen..."
-
 #: plugin/chatbot/panel.py
 msgid "[No compatible LibreOffice document found.]"
 msgstr "[Ühilduvat LibreOffice'i dokumenti ei leitud.]"
-
-#: plugin/chatbot/panel.py plugin/chatbot/sidebar_test_hooks.py
-msgid "Wait for the current reply to finish before /compact."
-msgstr "Oodake enne käsku /compact, kuni praegune vastus on lõpetatud."
 
 #: plugin/chatbot/panel.py
 msgid "Only in Calc"
@@ -2157,6 +2294,14 @@ msgstr ""
 "install).]"
 
 #: plugin/chatbot/send_handlers.py
+msgid ""
+"MCP server is off: LibreOffice edits from this agent require the MCP server."
+" Enable it in Settings → MCP → Enable MCP Server."
+msgstr ""
+"MCP-server on väljas: LibreOffice'i redigeerimine selle agendi kaudu nõuab "
+"MCP-serverit. Lubage see jaotises Seaded → MCP → Luba MCP-server."
+
+#: plugin/chatbot/send_handlers.py
 #, python-brace-format
 msgid "[{0} error: {1}]"
 msgstr "[{0} viga: {1}]"
@@ -2233,6 +2378,10 @@ msgid ""
 msgstr ""
 "Saadaval on uuem %(name)s (%(version)s). Värskenduste kontrollimiseks ja "
 "uusima laienduse installimiseks kasutage Tööriistad → Laienduste haldur."
+
+#: plugin/chatbot/chat_session.py
+msgid "Chat history could not be opened. This conversation will not be saved."
+msgstr "Vestluste ajalugu ei saanud avada. Seda vestlust ei salvestata."
 
 #: plugin/chatbot/dialog_views.py
 #, python-brace-format
@@ -3264,8 +3413,9 @@ msgid "Viz '{helper}' completed. {msg}"
 msgstr "Viz '{helper}' on lõpetatud. {msg}"
 
 #: plugin/scripting/python_runner.py
-msgid "Vision helpers require a Writer or Calc document."
-msgstr "Visuaalsed abivahendid nõuavad Writeri või Calci dokumenti."
+msgid "Vision helpers require a Writer, Calc, Draw, or Impress document."
+msgstr ""
+"Visuaalsed abivahendid nõuavad Writeri, Calci, Draw' või Impressi dokumenti."
 
 #: plugin/scripting/python_runner.py
 msgid "Vision helper failed."
@@ -3279,6 +3429,24 @@ msgid ""
 msgstr ""
 "Nägemisabiline '{helper}' lõpetas. Lisati vormindatud HTML {count} pildi "
 "jaoks. (kulus {time})"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid ""
+"Vision '{helper}' completed for {count} images. Text returned only (not "
+"inserted). (took {time})"
+msgstr ""
+"Visuaalne abivahend '{helper}' lõpetas {count} pildi töötlemise. Tagastati "
+"ainult tekst (ei lisatud dokumenti). (kulus {time})"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid ""
+"Vision '{helper}' completed. Text returned only (not inserted). (took "
+"{time})"
+msgstr ""
+"Visuaalne abivahend '{helper}' lõpetas töö. Tagastati ainult tekst (ei "
+"lisatud dokumenti). (kulus {time})"
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format
@@ -3422,8 +3590,16 @@ msgid "OCR complete (text returned only; not inserted)."
 msgstr "OCR on lõpetatud (tagastati ainult tekst; ei lisatud)."
 
 #: plugin/vision/vision_tools.py
-msgid "Vision OCR requires a Writer or Calc document."
-msgstr "Vision OCR nõuab Writeri või Calci dokumenti."
+msgid "Vision OCR requires a Writer, Calc, Draw, or Impress document."
+msgstr "Visuaalne OCR nõuab Writeri, Calci, Draw' või Impressi dokumenti."
+
+#: plugin/vision/vision_tools.py
+msgid ""
+"Draw and Impress return vision text only; omit insert_into_document or set "
+"it to false."
+msgstr ""
+"Draw ja Impress tagastavad visuaalse teksti ainult tekstina; jätke "
+"insert_into_document välja või määrake selle väärtuseks väär (false)."
 
 #: plugin/vision/vision_egress.py
 msgid "Writer document has no controller."
@@ -4078,6 +4254,9 @@ msgstr "Grok Build"
 msgid "OpenCode"
 msgstr "OpenCode"
 
+msgid "Antigravity"
+msgstr "Antigravitatsioon"
+
 msgid "Prompt for Agent Permissions"
 msgstr "Agendi õiguste küsimine"
 
@@ -4087,6 +4266,18 @@ msgid ""
 msgstr ""
 "Küsi kinnitust enne, kui lubad agendil tööriistu kasutada (failide lugemine,"
 " käskude täitmine jne)"
+
+msgid "Antigravity model"
+msgstr "Antigravitatsioonimudel"
+
+msgid ""
+"agy modelId from session/new models.availableModels, for example "
+"gemini-4-argon-medium. Empty keeps agy's current model. configOptions family"
+" ids such as gemini-4-argon are not modelIds."
+msgstr ""
+"agy modelId seansist/uued models.availableModels, näiteks gemini-4-argon-"
+"medium. Tühjaks jätmine säilitab agy praeguse mudeli. configOptions "
+"perekonna ID-d, nagu gemini-4-argon, ei ole modelId-d."
 
 msgid "STT Provider"
 msgstr "Kõnetuvastuse (STT) pakkuja"
@@ -4272,27 +4463,6 @@ msgstr "Külgriba"
 
 msgid "Max Tool Rounds"
 msgstr "Maks. tööriistaringide arv"
-
-msgid "Document Context Strategy"
-msgstr "Dokumendi konteksti strateegia"
-
-msgid "How much document content to include in LLM context"
-msgstr "Kui palju dokumendi sisust lisada LLM-i konteksti"
-
-msgid "Auto (by document size)"
-msgstr "Automaatne (dokumendi suuruse järgi)"
-
-msgid "Full document text"
-msgstr "Kogu dokumendi tekst"
-
-msgid "Pages around cursor"
-msgstr "Leheküljed kursori ümber"
-
-msgid "Outline + excerpt"
-msgstr "Liigendus + väljavõte"
-
-msgid "Stats + outline only"
-msgstr "Ainult statistika + liigendus"
 
 msgid "Web Research Cache"
 msgstr "Veebiuuringute vahemälu"

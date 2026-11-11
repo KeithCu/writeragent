@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-03 13:09-0500\n"
+"POT-Creation-Date: 2026-11-11 14:14-0500\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Greek <LL@li.org>\n"
@@ -109,6 +109,46 @@ msgstr "Εκτέλεση κελιού κώδικα"
 #: plugin/notebook/layout.py
 msgid "Code"
 msgstr "Κώδικας"
+
+#: plugin/draw/editselection.py
+msgid "Select a text shape. Tables are not rewritten."
+msgstr "Επιλέξτε ένα σχήμα κειμένου. Οι πίνακες δεν ξαναγράφονται."
+
+#: plugin/draw/editselection.py
+msgid "Select a text shape."
+msgstr "Επιλέξτε ένα σχήμα κειμένου."
+
+#: plugin/draw/editselection.py
+msgid "WriterAgent: Edit Selection (Draw)"
+msgstr "WriterAgent: Επεξεργασία επιλογής (Draw)"
+
+#: plugin/draw/editselection.py
+msgid "WriterAgent: Extend Selection (Draw)"
+msgstr "WriterAgent: Επέκταση επιλογής (Draw)"
+
+#: plugin/draw/editselection.py plugin/calc/editselection.py
+#, python-brace-format
+msgid "Only the first {0} non-empty cells are edited."
+msgstr "Επεξεργάζονται μόνο τα πρώτα {0} μη κενά κελιά."
+
+#: plugin/draw/editselection.py
+msgid "Could not register undo for this edit. The change was not applied."
+msgstr ""
+"Δεν ήταν δυνατή η καταχώριση αναίρεσης για αυτήν την επεξεργασία. Η αλλαγή "
+"δεν εφαρμόστηκε."
+
+#: plugin/draw/editselection.py plugin/calc/editselection.py
+#: plugin/writer/editselection.py
+msgid ""
+"The rewrite ran out of tokens before producing text. Try again or shorten "
+"the selection."
+msgstr ""
+"Η αναδιατύπωση εξάντλησε τα διακριτικά πριν από την παραγωγή κειμένου. "
+"Προσπαθήστε ξανά ή συντομεύστε την επιλογή."
+
+#: plugin/draw/editselection.py plugin/calc/editselection.py
+msgid "The model returned no text. Try again."
+msgstr "Το μοντέλο δεν επέστρεψε κείμενο. Προσπαθήστε ξανά."
 
 #: plugin/embeddings/search_ui.py
 msgid "just now"
@@ -325,7 +365,7 @@ msgstr ""
 msgid "The AI provider reported an error. Try again."
 msgstr "Ο πάροχος AI ανέφερε ένα σφάλμα. Προσπαθήστε ξανά."
 
-#: plugin/framework/errors.py plugin/calc/python/function.py
+#: plugin/framework/errors.py plugin/calc/python/addin_values.py
 #: plugin/chatbot/quick_setup.py plugin/scripting/session_manager.py
 #, python-brace-format
 msgid "Error: {0}"
@@ -643,6 +683,12 @@ msgid "Configure a Python venv path in Settings → Python."
 msgstr "Ρυθμίστε μια διαδρομή Python venv στις Ρυθμίσεις → Python."
 
 #: plugin/calc/python/init_script_editor.py
+msgid "The Python editor check is still running. Open this again in a moment."
+msgstr ""
+"Ο έλεγχος του προγράμματος επεξεργασίας Python εκτελείται ακόμα. Ανοίξτε το "
+"ξανά σε λίγο."
+
+#: plugin/calc/python/init_script_editor.py
 msgid "Cannot import webview (pywebview) in the configured venv."
 msgstr "Αδυναμία εισαγωγής του webview (pywebview) στο ρυθμισμένο venv."
 
@@ -770,16 +816,24 @@ msgstr ""
 "κελιών Python."
 
 #: plugin/calc/python/function.py
+msgid "Image inserted"
+msgstr "Η εικόνα εισήχθη"
+
+#: plugin/calc/python/function.py
+msgid "Images inserted"
+msgstr "Εικόνες που εισήχθησαν"
+
+#: plugin/calc/python/addin_values.py
 #, python-brace-format
 msgid "Error: Main-thread execution timed out ({0})"
 msgstr "Σφάλμα: Η εκτέλεση στο κύριο νήμα έληξε χρονικά ({0})"
 
-#: plugin/calc/python/function.py plugin/scripting/python_runner_ui.py
+#: plugin/calc/python/addin_values.py plugin/scripting/python_runner_ui.py
 #: plugin/scripting/python_runner.py
 msgid "Unknown error"
 msgstr "Άγνωστο σφάλμα"
 
-#: plugin/calc/python/function.py
+#: plugin/calc/python/addin_values.py
 msgid ""
 "Error: Python venv not found. Open Settings → Python, set the venv path, "
 "then Test."
@@ -787,21 +841,13 @@ msgstr ""
 "Σφάλμα: Δεν βρέθηκε το Python venv. Ανοίξτε τις Ρυθμίσεις → Python, ορίστε "
 "τη διαδρομή του venv και μετά κάντε Δοκιμή."
 
-#: plugin/calc/python/function.py
+#: plugin/calc/python/addin_values.py
 msgid ""
 "Error: Python timed out. Open Settings → Python to raise the timeout, or "
 "Test the venv."
 msgstr ""
 "Σφάλμα: Λήξη χρονικού ορίου Python. Ανοίξτε τις Ρυθμίσεις → Python για να "
 "αυξήσετε το χρονικό όριο ή κάντε Δοκιμή του venv."
-
-#: plugin/calc/python/function.py
-msgid "Image inserted"
-msgstr "Η εικόνα εισήχθη"
-
-#: plugin/calc/python/function.py
-msgid "Images inserted"
-msgstr "Εικόνες που εισήχθησαν"
 
 #: plugin/calc/python/geometric_recalc.py
 #, python-format
@@ -844,9 +890,8 @@ msgid "Select one or more non-empty cells."
 msgstr "Επιλέξτε ένα ή περισσότερα μη κενά κελιά."
 
 #: plugin/calc/editselection.py
-#, python-brace-format
-msgid "Only the first {0} non-empty cells are edited."
-msgstr "Επεξεργάζονται μόνο τα πρώτα {0} μη κενά κελιά."
+msgid "Formula cells are skipped."
+msgstr "Τα κελιά τύπων παραλείπονται."
 
 #: plugin/calc/vision_egress.py plugin/vision/vision_runner.py
 #: plugin/vision/vision_egress.py
@@ -1838,16 +1883,65 @@ msgid "Perfect! I'm switching you to the main assistant now."
 msgstr "Τέλεια! Σας μεταφέρω τώρα στον κύριο βοηθό."
 
 #: plugin/chatbot/slash_commands.py
+msgid "[focus]"
+msgstr "[εστίαση]"
+
+#: plugin/chatbot/slash_commands.py
+msgid "[target]"
+msgstr "Προορισμός"
+
+#: plugin/chatbot/slash_commands.py
+msgid "[what]"
+msgstr "Τι"
+
+#: plugin/chatbot/slash_commands.py
+msgid "<description>"
+msgstr "Περιγραφή"
+
+#: plugin/chatbot/slash_commands.py
+msgid "<language>"
+msgstr "Γλώσσα"
+
+#: plugin/chatbot/slash_commands.py
+msgid "<fact>"
+msgstr "Γεγονός"
+
+#: plugin/chatbot/slash_commands.py
+msgid "Failed to save memory."
+msgstr "Αποτυχία αποθήκευσης στη μνήμη."
+
+#: plugin/chatbot/slash_commands.py
+#, python-brace-format
+msgid "Saved to memory: {0}"
+msgstr "Αποθηκεύτηκε στη μνήμη: {0}"
+
+#: plugin/chatbot/slash_commands.py
+msgid "help"
+msgstr "βοήθεια"
+
+#: plugin/chatbot/slash_commands.py
 msgid "Print the command list"
 msgstr "Εκτύπωση της λίστας εντολών"
+
+#: plugin/chatbot/slash_commands.py
+msgid "clear"
+msgstr "εκκαθάριση"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Start a new chat"
 msgstr "Έναρξη νέας συνομιλίας"
 
 #: plugin/chatbot/slash_commands.py
+msgid "stop"
+msgstr "διακοπή"
+
+#: plugin/chatbot/slash_commands.py
 msgid "Cancel the in-flight send"
 msgstr "Ακύρωση της αποστολής σε εξέλιξη"
+
+#: plugin/chatbot/slash_commands.py
+msgid "summarize"
+msgstr "σύνοψη"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Summarize the selection or document in the sidebar"
@@ -1859,6 +1953,10 @@ msgid ""
 msgstr ""
 "Σύνοψη του επιλεγμένου κειμένου ή ολόκληρου του εγγράφου, αν δεν έχει "
 "επιλεγεί τίποτα."
+
+#: plugin/chatbot/slash_commands.py
+msgid "proofread"
+msgstr "διόρθωση"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Fix spelling, grammar, and punctuation without restyling"
@@ -1873,12 +1971,20 @@ msgstr ""
 " τόνο ή το νόημα."
 
 #: plugin/chatbot/slash_commands.py
+msgid "shorten"
+msgstr "σύντμηση"
+
+#: plugin/chatbot/slash_commands.py
 msgid "Shorten the selection"
 msgstr "Σύντμηση της επιλογής"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Make the text shorter while preserving the meaning."
 msgstr "Κάντε το κείμενο πιο σύντομο διατηρώντας το νόημα."
+
+#: plugin/chatbot/slash_commands.py
+msgid "expand"
+msgstr "επέκταση"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Expand the selection with more detail"
@@ -1889,6 +1995,10 @@ msgid "Expand the text with more detail and clarity."
 msgstr "Επεκτείνετε το κείμενο με περισσότερες λεπτομέρειες και σαφήνεια."
 
 #: plugin/chatbot/slash_commands.py
+msgid "tone"
+msgstr "ύφος"
+
+#: plugin/chatbot/slash_commands.py
 msgid "Rewrite the selection to match a described tone"
 msgstr "Αναδιατύπωση της επιλογής ώστε να ταιριάζει με τον περιγραφόμενο τόνο"
 
@@ -1897,6 +2007,10 @@ msgstr "Αναδιατύπωση της επιλογής ώστε να ταιρ�
 msgid "Rewrite the text to match this tone or style: {arg}"
 msgstr ""
 "Αναδιατύπωση του κειμένου ώστε να ταιριάζει με αυτόν τον τόνο ή ύφος: {arg}"
+
+#: plugin/chatbot/slash_commands.py
+msgid "translate"
+msgstr "μετάφραση"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Translate the selection (sidebar when nothing is selected in Writer)"
@@ -1911,6 +2025,10 @@ msgstr ""
 "Μετάφραση του κειμένου σε {arg}. Διατήρηση της μορφοποίησης και της δομής."
 
 #: plugin/chatbot/slash_commands.py
+msgid "explain"
+msgstr "εξήγηση"
+
+#: plugin/chatbot/slash_commands.py
 msgid "Explain the selection or active Calc formula"
 msgstr "Εξήγηση της επιλογής ή του ενεργού τύπου στο Calc"
 
@@ -1919,16 +2037,32 @@ msgid "Explain the following in plain language."
 msgstr "Εξήγηση των παρακάτω με απλή γλώσσα."
 
 #: plugin/chatbot/slash_commands.py
+msgid "remember"
+msgstr "απομνημόνευση"
+
+#: plugin/chatbot/slash_commands.py
 msgid "Save a fact to persistent memory"
 msgstr "Αποθήκευση ενός γεγονότος στη μόνιμη μνήμη"
+
+#: plugin/chatbot/slash_commands.py
+msgid "compact"
+msgstr "συμπύκνωση"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Compact older chat history now"
 msgstr "Συμπίεση παλαιότερου ιστορικού συνομιλιών τώρα"
 
 #: plugin/chatbot/slash_commands.py
+msgid "undo"
+msgstr "αναίρεση"
+
+#: plugin/chatbot/slash_commands.py
 msgid "Undo the last agent edit as one step"
 msgstr "Αναίρεση της τελευταίας επεξεργασίας του πράκτορα ως ένα βήμα"
+
+#: plugin/chatbot/slash_commands.py
+msgid "formula"
+msgstr "τύπος"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Write a Calc formula from a plain-English description"
@@ -1961,6 +2095,20 @@ msgstr "Χρήση: {0}"
 
 #: plugin/chatbot/slash_commands.py
 #, python-brace-format
+msgid "Additional instruction: {0}"
+msgstr "Πρόσθετη οδηγία: {0}"
+
+#: plugin/chatbot/slash_commands.py
+#, python-brace-format
+msgid ""
+"Selected text:\n"
+"{0}"
+msgstr ""
+"Επιλεγμένο κείμενο:\n"
+"{0}"
+
+#: plugin/chatbot/slash_commands.py
+#, python-brace-format
 msgid "Cell {0} formula: {1}"
 msgstr "Τύπος κελιού {0}: {1}"
 
@@ -1970,13 +2118,8 @@ msgid "Cell {0} value: {1}"
 msgstr "Τιμή κελιού {0}: {1}"
 
 #: plugin/chatbot/slash_commands.py
-msgid "Failed to save memory."
-msgstr "Αποτυχία αποθήκευσης στη μνήμη."
-
-#: plugin/chatbot/slash_commands.py
-#, python-brace-format
-msgid "Saved to memory: {0}"
-msgstr "Αποθηκεύτηκε στη μνήμη: {0}"
+msgid "WriterAgent"
+msgstr "WriterAgent"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Conversation compacted."
@@ -2000,10 +2143,15 @@ msgid "Compaction failed."
 msgstr "Η συμπύκνωση απέτυχε."
 
 #: plugin/chatbot/slash_commands.py
-msgid "WriterAgent"
-msgstr "WriterAgent"
+msgid "Wait for the current reply to finish before /compact."
+msgstr ""
+"Περιμένετε να ολοκληρωθεί η τρέχουσα απάντηση πριν από την εντολή /compact."
 
-#: plugin/chatbot/slash_commands.py
+#: plugin/chatbot/slash_commands.py plugin/chatbot/send_handlers.py
+msgid "Thinking..."
+msgstr "Σκέψη..."
+
+#: plugin/chatbot/slash_commands.py plugin/chatbot/compaction.py
 msgid "Configure an API key to compact."
 msgstr "Ρυθμίστε ένα κλειδί API για τη συμπύκνωση."
 
@@ -2015,19 +2163,9 @@ msgstr "Η συμπύκνωση συνομιλίας είναι απενεργο
 msgid "Compaction cancelled."
 msgstr "Η συμπύκνωση ακυρώθηκε."
 
-#: plugin/chatbot/slash_commands.py plugin/chatbot/panel.py
-#: plugin/chatbot/sidebar_test_hooks.py plugin/chatbot/send_handlers.py
-msgid "Thinking..."
-msgstr "Σκέψη..."
-
 #: plugin/chatbot/panel.py
 msgid "[No compatible LibreOffice document found.]"
 msgstr "[Δεν βρέθηκε συμβατό έγγραφο LibreOffice.]"
-
-#: plugin/chatbot/panel.py plugin/chatbot/sidebar_test_hooks.py
-msgid "Wait for the current reply to finish before /compact."
-msgstr ""
-"Περιμένετε να ολοκληρωθεί η τρέχουσα απάντηση πριν από την εντολή /compact."
 
 #: plugin/chatbot/panel.py
 msgid "Only in Calc"
@@ -2209,6 +2347,15 @@ msgstr ""
 " (διαδρομή, εγκατάσταση).]"
 
 #: plugin/chatbot/send_handlers.py
+msgid ""
+"MCP server is off: LibreOffice edits from this agent require the MCP server."
+" Enable it in Settings → MCP → Enable MCP Server."
+msgstr ""
+"Ο διακομιστής MCP είναι απενεργοποιημένος: Οι επεξεργασίες στο LibreOffice "
+"από αυτόν τον πράκτορα απαιτούν τον διακομιστή MCP. Ενεργοποιήστε τον στις "
+"Ρυθμίσεις → MCP → Ενεργοποίηση διακομιστή MCP."
+
+#: plugin/chatbot/send_handlers.py
 #, python-brace-format
 msgid "[{0} error: {1}]"
 msgstr "[{0} σφάλμα: {1}]"
@@ -2286,6 +2433,12 @@ msgstr ""
 "Μια νεότερη έκδοση του %(name)s (%(version)s) είναι διαθέσιμη. "
 "Χρησιμοποιήστε το Εργαλεία → Διαχείριση επεκτάσεων για να ελέγξετε για "
 "ενημερώσεις και να εγκαταστήσετε την πιο πρόσφατη επέκταση."
+
+#: plugin/chatbot/chat_session.py
+msgid "Chat history could not be opened. This conversation will not be saved."
+msgstr ""
+"Δεν ήταν δυνατό το άνοιγμα του ιστορικού συνομιλίας. Αυτή η συνομιλία δεν θα"
+" αποθηκευτεί."
 
 #: plugin/chatbot/dialog_views.py
 #, python-brace-format
@@ -3343,8 +3496,8 @@ msgid "Viz '{helper}' completed. {msg}"
 msgstr "Το Viz '{helper}' ολοκληρώθηκε. {msg}"
 
 #: plugin/scripting/python_runner.py
-msgid "Vision helpers require a Writer or Calc document."
-msgstr "Οι βοηθοί όρασης απαιτούν έγγραφο Writer ή Calc."
+msgid "Vision helpers require a Writer, Calc, Draw, or Impress document."
+msgstr "Οι βοηθοί όρασης απαιτούν έγγραφο Writer, Calc, Draw ή Impress."
 
 #: plugin/scripting/python_runner.py
 msgid "Vision helper failed."
@@ -3358,6 +3511,24 @@ msgid ""
 msgstr ""
 "Το βοήθημα όρασης '{helper}' ολοκληρώθηκε. Εισήχθη μορφοποιημένο HTML για "
 "{count} εικόνες. (διάρκεια {time})"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid ""
+"Vision '{helper}' completed for {count} images. Text returned only (not "
+"inserted). (took {time})"
+msgstr ""
+"Η όραση '{helper}' ολοκληρώθηκε για {count} εικόνες. Επεστράφη μόνο κείμενο "
+"(δεν εισήχθη). (διάρκεια {time})"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid ""
+"Vision '{helper}' completed. Text returned only (not inserted). (took "
+"{time})"
+msgstr ""
+"Η όραση '{helper}' ολοκληρώθηκε. Επεστράφη μόνο κείμενο (δεν εισήχθη). "
+"(διάρκεια {time})"
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format
@@ -3509,8 +3680,16 @@ msgid "OCR complete (text returned only; not inserted)."
 msgstr "Η OCR ολοκληρώθηκε (επιστράφηκε μόνο κείμενο· δεν εισήχθη)."
 
 #: plugin/vision/vision_tools.py
-msgid "Vision OCR requires a Writer or Calc document."
-msgstr "Η Vision OCR απαιτεί έγγραφο Writer ή Calc."
+msgid "Vision OCR requires a Writer, Calc, Draw, or Impress document."
+msgstr "Το OCR όρασης απαιτεί έγγραφο Writer, Calc, Draw ή Impress."
+
+#: plugin/vision/vision_tools.py
+msgid ""
+"Draw and Impress return vision text only; omit insert_into_document or set "
+"it to false."
+msgstr ""
+"Τα Draw και Impress επιστρέφουν μόνο κείμενο όρασης· παραλείψτε το "
+"insert_into_document ή ορίστε το σε false."
 
 #: plugin/vision/vision_egress.py
 msgid "Writer document has no controller."
@@ -4170,6 +4349,9 @@ msgstr "Grok Build"
 msgid "OpenCode"
 msgstr "OpenCode"
 
+msgid "Antigravity"
+msgstr "Αντιβαρύτητα"
+
 msgid "Prompt for Agent Permissions"
 msgstr "Ερώτημα για δικαιώματα πράκτορα"
 
@@ -4179,6 +4361,19 @@ msgid ""
 msgstr ""
 "Ζήτηση επιβεβαίωσης πριν επιτραπεί στον πράκτορα η χρήση εργαλείων (ανάγνωση"
 " αρχείων, εκτέλεση εντολών κ.λπ.)"
+
+msgid "Antigravity model"
+msgstr "Μοντέλο αντιβαρύτητας"
+
+msgid ""
+"agy modelId from session/new models.availableModels, for example "
+"gemini-4-argon-medium. Empty keeps agy's current model. configOptions family"
+" ids such as gemini-4-argon are not modelIds."
+msgstr ""
+"agy modelId από τα session/new models.availableModels, για παράδειγμα "
+"gemini-4-argon-medium. Αν μείνει κενό, διατηρείται το τρέχον μοντέλο του "
+"agy. Τα αναγνωριστικά οικογένειας configOptions, όπως το gemini-4-argon, δεν"
+" είναι modelIds."
 
 msgid "STT Provider"
 msgstr "Πάροχος STT"
@@ -4368,27 +4563,6 @@ msgstr "Πλευρική εργαλειοθήκη"
 
 msgid "Max Tool Rounds"
 msgstr "Μέγιστοι γύροι εργαλείων"
-
-msgid "Document Context Strategy"
-msgstr "Στρατηγική πλαισίου εγγράφου"
-
-msgid "How much document content to include in LLM context"
-msgstr "Πόσο περιεχόμενο εγγράφου να συμπεριληφθεί στο πλαίσιο LLM"
-
-msgid "Auto (by document size)"
-msgstr "Αυτόματα (βάσει μεγέθους εγγράφου)"
-
-msgid "Full document text"
-msgstr "Πλήρες κείμενο εγγράφου"
-
-msgid "Pages around cursor"
-msgstr "Σελίδες γύρω από τον δρομέα"
-
-msgid "Outline + excerpt"
-msgstr "Δομή + απόσπασμα"
-
-msgid "Stats + outline only"
-msgstr "Στατιστικά + μόνο δομή"
 
 msgid "Web Research Cache"
 msgstr "Προσωρινή μνήμη διαδικτυακής έρευνας"

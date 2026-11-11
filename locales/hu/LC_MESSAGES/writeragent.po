@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-03 13:09-0500\n"
+"POT-Creation-Date: 2026-11-11 14:14-0500\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Hungarian <LL@li.org>\n"
@@ -108,6 +108,46 @@ msgstr "Kódcella futtatása"
 #: plugin/notebook/layout.py
 msgid "Code"
 msgstr "Kód"
+
+#: plugin/draw/editselection.py
+msgid "Select a text shape. Tables are not rewritten."
+msgstr "Jelöljön ki egy szövegalakzatot. A táblázatok nem íródnak át."
+
+#: plugin/draw/editselection.py
+msgid "Select a text shape."
+msgstr "Jelöljön ki egy szövegalakzatot."
+
+#: plugin/draw/editselection.py
+msgid "WriterAgent: Edit Selection (Draw)"
+msgstr "WriterAgent: Kijelölés szerkesztése (Draw)"
+
+#: plugin/draw/editselection.py
+msgid "WriterAgent: Extend Selection (Draw)"
+msgstr "WriterAgent: Kijelölés kiterjesztése (Draw)"
+
+#: plugin/draw/editselection.py plugin/calc/editselection.py
+#, python-brace-format
+msgid "Only the first {0} non-empty cells are edited."
+msgstr "Csak az első {0} nem üres cella kerül szerkesztésre."
+
+#: plugin/draw/editselection.py
+msgid "Could not register undo for this edit. The change was not applied."
+msgstr ""
+"Nem sikerült visszavonási pontot regisztrálni ehhez a szerkesztéshez. A "
+"módosítás nem lett alkalmazva."
+
+#: plugin/draw/editselection.py plugin/calc/editselection.py
+#: plugin/writer/editselection.py
+msgid ""
+"The rewrite ran out of tokens before producing text. Try again or shorten "
+"the selection."
+msgstr ""
+"Az átírás kifogyott a tokenekből a szöveg létrehozása előtt. Próbálja újra, "
+"vagy rövidítse a kijelölést."
+
+#: plugin/draw/editselection.py plugin/calc/editselection.py
+msgid "The model returned no text. Try again."
+msgstr "A modell nem adott vissza szöveget. Próbálja újra."
 
 #: plugin/embeddings/search_ui.py
 msgid "just now"
@@ -320,7 +360,7 @@ msgstr ""
 msgid "The AI provider reported an error. Try again."
 msgstr "Az MI-szolgáltató hibát jelzett. Próbálja újra."
 
-#: plugin/framework/errors.py plugin/calc/python/function.py
+#: plugin/framework/errors.py plugin/calc/python/addin_values.py
 #: plugin/chatbot/quick_setup.py plugin/scripting/session_manager.py
 #, python-brace-format
 msgid "Error: {0}"
@@ -637,6 +677,11 @@ msgstr ""
 "Konfiguráljon egy Python venv útvonalat a Beállítások → Python menüpontban."
 
 #: plugin/calc/python/init_script_editor.py
+msgid "The Python editor check is still running. Open this again in a moment."
+msgstr ""
+"A Python-szerkesztő ellenőrzése még fut. Nyissa meg újra egy pillanat múlva."
+
+#: plugin/calc/python/init_script_editor.py
 msgid "Cannot import webview (pywebview) in the configured venv."
 msgstr "A webview (pywebview) nem importálható a konfigurált venv-ben."
 
@@ -757,16 +802,24 @@ msgid "Could not open the built-in Python cell editor."
 msgstr "Nem sikerült megnyitni a beépített Python cellaszerkesztőt."
 
 #: plugin/calc/python/function.py
+msgid "Image inserted"
+msgstr "Kép beszúrva"
+
+#: plugin/calc/python/function.py
+msgid "Images inserted"
+msgstr "Beillesztett képek"
+
+#: plugin/calc/python/addin_values.py
 #, python-brace-format
 msgid "Error: Main-thread execution timed out ({0})"
 msgstr "Hiba: A főszál végrehajtása időtúllépést okozott ({0})"
 
-#: plugin/calc/python/function.py plugin/scripting/python_runner_ui.py
+#: plugin/calc/python/addin_values.py plugin/scripting/python_runner_ui.py
 #: plugin/scripting/python_runner.py
 msgid "Unknown error"
 msgstr "Ismeretlen hiba"
 
-#: plugin/calc/python/function.py
+#: plugin/calc/python/addin_values.py
 msgid ""
 "Error: Python venv not found. Open Settings → Python, set the venv path, "
 "then Test."
@@ -774,21 +827,13 @@ msgstr ""
 "Hiba: A Python venv nem található. Nyissa meg a Beállítások → Python "
 "menüpontot, adja meg a venv útvonalát, majd tesztelje."
 
-#: plugin/calc/python/function.py
+#: plugin/calc/python/addin_values.py
 msgid ""
 "Error: Python timed out. Open Settings → Python to raise the timeout, or "
 "Test the venv."
 msgstr ""
 "Hiba: A Python időtúllépést okozott. Nyissa meg a Beállítások → Python "
 "menüpontot az időkorlát növeléséhez, vagy tesztelje a venv-et."
-
-#: plugin/calc/python/function.py
-msgid "Image inserted"
-msgstr "Kép beszúrva"
-
-#: plugin/calc/python/function.py
-msgid "Images inserted"
-msgstr "Beillesztett képek"
 
 #: plugin/calc/python/geometric_recalc.py
 #, python-format
@@ -831,9 +876,8 @@ msgid "Select one or more non-empty cells."
 msgstr "Jelöljön ki egy vagy több nem üres cellát."
 
 #: plugin/calc/editselection.py
-#, python-brace-format
-msgid "Only the first {0} non-empty cells are edited."
-msgstr "Csak az első {0} nem üres cella kerül szerkesztésre."
+msgid "Formula cells are skipped."
+msgstr "A képletcellák ki lesznek hagyva."
 
 #: plugin/calc/vision_egress.py plugin/vision/vision_runner.py
 #: plugin/vision/vision_egress.py
@@ -1813,16 +1857,65 @@ msgid "Perfect! I'm switching you to the main assistant now."
 msgstr "Tökéletes! Átkapcsolom a fő asszisztensre."
 
 #: plugin/chatbot/slash_commands.py
+msgid "[focus]"
+msgstr "[fókusz]"
+
+#: plugin/chatbot/slash_commands.py
+msgid "[target]"
+msgstr "Cél"
+
+#: plugin/chatbot/slash_commands.py
+msgid "[what]"
+msgstr "Mi"
+
+#: plugin/chatbot/slash_commands.py
+msgid "<description>"
+msgstr "<leírás>"
+
+#: plugin/chatbot/slash_commands.py
+msgid "<language>"
+msgstr "<nyelv>"
+
+#: plugin/chatbot/slash_commands.py
+msgid "<fact>"
+msgstr "<tény>"
+
+#: plugin/chatbot/slash_commands.py
+msgid "Failed to save memory."
+msgstr "A memória mentése sikertelen."
+
+#: plugin/chatbot/slash_commands.py
+#, python-brace-format
+msgid "Saved to memory: {0}"
+msgstr "Mentve a memóriába: {0}"
+
+#: plugin/chatbot/slash_commands.py
+msgid "help"
+msgstr "súgó"
+
+#: plugin/chatbot/slash_commands.py
 msgid "Print the command list"
 msgstr "Parancslista nyomtatása"
+
+#: plugin/chatbot/slash_commands.py
+msgid "clear"
+msgstr "törlés"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Start a new chat"
 msgstr "Új csevegés indítása"
 
 #: plugin/chatbot/slash_commands.py
+msgid "stop"
+msgstr "leállítás"
+
+#: plugin/chatbot/slash_commands.py
 msgid "Cancel the in-flight send"
 msgstr "Folyamatban lévő küldés megszakítása"
+
+#: plugin/chatbot/slash_commands.py
+msgid "summarize"
+msgstr "összegzés"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Summarize the selection or document in the sidebar"
@@ -1834,6 +1927,10 @@ msgid ""
 msgstr ""
 "A kijelölt szöveg összefoglalása, vagy a teljes dokumentumé, ha nincs "
 "kijelölés."
+
+#: plugin/chatbot/slash_commands.py
+msgid "proofread"
+msgstr "lektorálás"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Fix spelling, grammar, and punctuation without restyling"
@@ -1848,6 +1945,10 @@ msgstr ""
 " stílust, a hangnemet vagy a jelentést."
 
 #: plugin/chatbot/slash_commands.py
+msgid "shorten"
+msgstr "rövidítés"
+
+#: plugin/chatbot/slash_commands.py
 msgid "Shorten the selection"
 msgstr "A kijelölés rövidítése"
 
@@ -1856,12 +1957,20 @@ msgid "Make the text shorter while preserving the meaning."
 msgstr "A szöveg rövidítése a jelentés megőrzése mellett."
 
 #: plugin/chatbot/slash_commands.py
+msgid "expand"
+msgstr "kibontás"
+
+#: plugin/chatbot/slash_commands.py
 msgid "Expand the selection with more detail"
 msgstr "A kijelölés bővítése további részletekkel"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Expand the text with more detail and clarity."
 msgstr "A szöveg bővítése további részletekkel és tisztázással."
+
+#: plugin/chatbot/slash_commands.py
+msgid "tone"
+msgstr "hangnem"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Rewrite the selection to match a described tone"
@@ -1874,6 +1983,10 @@ msgstr ""
 "A szöveg átírása a következő hangnemnek vagy stílusnak megfelelően: {arg}"
 
 #: plugin/chatbot/slash_commands.py
+msgid "translate"
+msgstr "fordítás"
+
+#: plugin/chatbot/slash_commands.py
 msgid "Translate the selection (sidebar when nothing is selected in Writer)"
 msgstr "Kijelölés fordítása (oldalsáv, ha nincs kijelölés a Writerben)"
 
@@ -1881,6 +1994,10 @@ msgstr "Kijelölés fordítása (oldalsáv, ha nincs kijelölés a Writerben)"
 #, python-brace-format
 msgid "Translate the text into {arg}. Keep formatting and structure."
 msgstr "Szöveg fordítása erre: {arg}. A formázás és a szerkezet megőrzendő."
+
+#: plugin/chatbot/slash_commands.py
+msgid "explain"
+msgstr "magyarázat"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Explain the selection or active Calc formula"
@@ -1891,16 +2008,32 @@ msgid "Explain the following in plain language."
 msgstr "A következő magyarázata közérthető nyelven."
 
 #: plugin/chatbot/slash_commands.py
+msgid "remember"
+msgstr "megjegyzés"
+
+#: plugin/chatbot/slash_commands.py
 msgid "Save a fact to persistent memory"
 msgstr "Tény mentése az állandó memóriába"
+
+#: plugin/chatbot/slash_commands.py
+msgid "compact"
+msgstr "tömörítés"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Compact older chat history now"
 msgstr "Régebbi csevegési előzmények tömörítése most"
 
 #: plugin/chatbot/slash_commands.py
+msgid "undo"
+msgstr "visszavonás"
+
+#: plugin/chatbot/slash_commands.py
 msgid "Undo the last agent edit as one step"
 msgstr "Az utolsó ügynökszerkesztés visszavonása egy lépésben"
+
+#: plugin/chatbot/slash_commands.py
+msgid "formula"
+msgstr "képlet"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Write a Calc formula from a plain-English description"
@@ -1933,6 +2066,20 @@ msgstr "Használat: {0}"
 
 #: plugin/chatbot/slash_commands.py
 #, python-brace-format
+msgid "Additional instruction: {0}"
+msgstr "További utasítás: {0}"
+
+#: plugin/chatbot/slash_commands.py
+#, python-brace-format
+msgid ""
+"Selected text:\n"
+"{0}"
+msgstr ""
+"Kijelölt szöveg:\n"
+"{0}"
+
+#: plugin/chatbot/slash_commands.py
+#, python-brace-format
 msgid "Cell {0} formula: {1}"
 msgstr "{0}. cella képlete: {1}"
 
@@ -1942,13 +2089,8 @@ msgid "Cell {0} value: {1}"
 msgstr "{0} cella értéke: {1}"
 
 #: plugin/chatbot/slash_commands.py
-msgid "Failed to save memory."
-msgstr "A memória mentése sikertelen."
-
-#: plugin/chatbot/slash_commands.py
-#, python-brace-format
-msgid "Saved to memory: {0}"
-msgstr "Mentve a memóriába: {0}"
+msgid "WriterAgent"
+msgstr "WriterAgent"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Conversation compacted."
@@ -1971,10 +2113,14 @@ msgid "Compaction failed."
 msgstr "A tömörítés sikertelen."
 
 #: plugin/chatbot/slash_commands.py
-msgid "WriterAgent"
-msgstr "WriterAgent"
+msgid "Wait for the current reply to finish before /compact."
+msgstr "Várja meg az aktuális válasz befejezését a /compact parancs előtt."
 
-#: plugin/chatbot/slash_commands.py
+#: plugin/chatbot/slash_commands.py plugin/chatbot/send_handlers.py
+msgid "Thinking..."
+msgstr "Gondolkodik..."
+
+#: plugin/chatbot/slash_commands.py plugin/chatbot/compaction.py
 msgid "Configure an API key to compact."
 msgstr "Állítson be API-kulcsot a tömörítéshez."
 
@@ -1986,18 +2132,9 @@ msgstr "A csevegés tömörítése le van tiltva a beállításokban."
 msgid "Compaction cancelled."
 msgstr "Tömörítés megszakítva."
 
-#: plugin/chatbot/slash_commands.py plugin/chatbot/panel.py
-#: plugin/chatbot/sidebar_test_hooks.py plugin/chatbot/send_handlers.py
-msgid "Thinking..."
-msgstr "Gondolkodik..."
-
 #: plugin/chatbot/panel.py
 msgid "[No compatible LibreOffice document found.]"
 msgstr "[Nem található kompatibilis LibreOffice-dokumentum.]"
-
-#: plugin/chatbot/panel.py plugin/chatbot/sidebar_test_hooks.py
-msgid "Wait for the current reply to finish before /compact."
-msgstr "Várja meg az aktuális válasz befejezését a /compact parancs előtt."
 
 #: plugin/chatbot/panel.py
 msgid "Only in Calc"
@@ -2177,6 +2314,15 @@ msgstr ""
 "(elérési út, telepítés).]"
 
 #: plugin/chatbot/send_handlers.py
+msgid ""
+"MCP server is off: LibreOffice edits from this agent require the MCP server."
+" Enable it in Settings → MCP → Enable MCP Server."
+msgstr ""
+"Az MCP-kiszolgáló ki van kapcsolva: a LibreOffice-szerkesztésekhez ezzel az "
+"ügynökkel szükség van az MCP-kiszolgálóra. Engedélyezze a Beállítások → MCP "
+"→ MCP-kiszolgáló engedélyezése menüpontban."
+
+#: plugin/chatbot/send_handlers.py
 #, python-brace-format
 msgid "[{0} error: {1}]"
 msgstr "[{0} hiba: {1}]"
@@ -2256,6 +2402,12 @@ msgstr ""
 "Egy újabb %(name)s (%(version)s) érhető el. Használja az Eszközök → "
 "Bővítménykezelő menüpontot a frissítések ellenőrzéséhez és a legújabb "
 "bővítmény telepítéséhez."
+
+#: plugin/chatbot/chat_session.py
+msgid "Chat history could not be opened. This conversation will not be saved."
+msgstr ""
+"A csevegési előzményeket nem sikerült megnyitni. Ez a beszélgetés nem lesz "
+"elmentve."
 
 #: plugin/chatbot/dialog_views.py
 #, python-brace-format
@@ -3308,8 +3460,10 @@ msgid "Viz '{helper}' completed. {msg}"
 msgstr "A(z) „{helper}” vizualizáció befejeződött. {msg}"
 
 #: plugin/scripting/python_runner.py
-msgid "Vision helpers require a Writer or Calc document."
-msgstr "A látássegítők használatához Writer vagy Calc dokumentum szükséges."
+msgid "Vision helpers require a Writer, Calc, Draw, or Impress document."
+msgstr ""
+"A látássegítők használatához Writer, Calc, Draw vagy Impress dokumentum "
+"szükséges."
 
 #: plugin/scripting/python_runner.py
 msgid "Vision helper failed."
@@ -3323,6 +3477,24 @@ msgid ""
 msgstr ""
 "A(z) „{helper}” látássegítő befejeződött. Formázott HTML beillesztve {count}"
 " képhez. (időtartam: {time})"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid ""
+"Vision '{helper}' completed for {count} images. Text returned only (not "
+"inserted). (took {time})"
+msgstr ""
+"A(z) „{helper}” látássegítő {count} képhez végzett. Csak szöveg visszaadva "
+"(nincs beszúrva). ({time} alatt)"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid ""
+"Vision '{helper}' completed. Text returned only (not inserted). (took "
+"{time})"
+msgstr ""
+"A(z) „{helper}” látássegítő végzett. Csak szöveg visszaadva (nincs "
+"beszúrva). ({time} alatt)"
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format
@@ -3470,8 +3642,18 @@ msgid "OCR complete (text returned only; not inserted)."
 msgstr "Az OCR kész (csak szöveg visszaadva; nincs beillesztve)."
 
 #: plugin/vision/vision_tools.py
-msgid "Vision OCR requires a Writer or Calc document."
-msgstr "A Vision OCR használatához Writer vagy Calc dokumentum szükséges."
+msgid "Vision OCR requires a Writer, Calc, Draw, or Impress document."
+msgstr ""
+"A látás-OCR használatához Writer, Calc, Draw vagy Impress dokumentum "
+"szükséges."
+
+#: plugin/vision/vision_tools.py
+msgid ""
+"Draw and Impress return vision text only; omit insert_into_document or set "
+"it to false."
+msgstr ""
+"A Draw és az Impress csak látásszöveget ad vissza; hagyja ki az "
+"insert_into_document paramétert, vagy állítsa false értékre."
 
 #: plugin/vision/vision_egress.py
 msgid "Writer document has no controller."
@@ -4129,6 +4311,9 @@ msgstr "Grok Build"
 msgid "OpenCode"
 msgstr "OpenCode"
 
+msgid "Antigravity"
+msgstr "Antigravitáció"
+
 msgid "Prompt for Agent Permissions"
 msgstr "Ügynökengedélyek kérése"
 
@@ -4138,6 +4323,19 @@ msgid ""
 msgstr ""
 "Megerősítés kérése, mielőtt az ügynök eszközöket használhatna (fájlok "
 "olvasása, parancsok végrehajtása stb.)"
+
+msgid "Antigravity model"
+msgstr "Antigravitációs modell"
+
+msgid ""
+"agy modelId from session/new models.availableModels, for example "
+"gemini-4-argon-medium. Empty keeps agy's current model. configOptions family"
+" ids such as gemini-4-argon are not modelIds."
+msgstr ""
+"Agy modelId a session/new models.availableModels-ből, például "
+"gemini-4-argon-medium. Üresen hagyva az agy megtartja az aktuális modellt. A"
+" configOptions családazonosítók, mint például a gemini-4-argon, nem "
+"modelId-k."
 
 msgid "STT Provider"
 msgstr "Beszédfelismerő szolgáltató"
@@ -4326,27 +4524,6 @@ msgstr "Oldalsáv"
 
 msgid "Max Tool Rounds"
 msgstr "Eszköz körök maximális száma"
-
-msgid "Document Context Strategy"
-msgstr "Dokumentumkörnyezet-stratégia"
-
-msgid "How much document content to include in LLM context"
-msgstr "Mennyi dokumentumtartalom kerüljön az LLM-környezetbe"
-
-msgid "Auto (by document size)"
-msgstr "Automatikus (dokumentumméret alapján)"
-
-msgid "Full document text"
-msgstr "Teljes dokumentumszöveg"
-
-msgid "Pages around cursor"
-msgstr "Oldalak a kurzor körül"
-
-msgid "Outline + excerpt"
-msgstr "Vázlat + kivonat"
-
-msgid "Stats + outline only"
-msgstr "Statisztika + csak vázlat"
 
 msgid "Web Research Cache"
 msgstr "Webkutatási gyorsítótár"

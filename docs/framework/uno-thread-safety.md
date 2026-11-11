@@ -295,6 +295,17 @@ Null checks check for None. Live disposal is `DisposedException` / `is_disposal`
   - **Immediate Init Script & Helper Re-Seed**: `reset_workbook_python_session()` clears both the base `calc:…` and `:init` companion session in the worker sandbox, and immediately re-evaluates the init script to restore custom tools (`custom_tools`) and bindings across both shared and isolated sessions.
   - **`uno_read` Distinction**: `uno_read` re-raises `DocumentDisposedError` / `DisposedException` while returning `default` for non-disposal bridge failures.
 
+### Editeng Proxies over URP
+
+Editeng proxy bookkeeping inside LibreOffice is unlocked across remote URP bridges:
+- `editeng/source/uno/unotext.cxx:SvxUnoTextRangeBase::~SvxUnoTextRangeBase` calls `mpEditSource->removeRange(this)` without holding the SolarMutex.
+- `svx/source/unodraw/unoshtxt.cxx:SvxTextEditSourceImpl::removeRange` executes a bare `std::erase(mvTextRanges, ...)` while `addRange` is an unguarded `push_back`.
+- Every text content, range, and cursor proxy of a shape shares that same edit source implementation.
+
+When a remote client (such as `make test-uno` or the eval harness connecting over a URP pipe) rapidly opens and discards paragraph and portion enumerations across draw shapes, asynchronous proxy destructors interleave with constructor registrations on the remote bridge thread pool. This races in `removeRange` / `release()`, corrupting the heap and crashing soffice with `SIGABRT` (`free(): invalid pointer`). In contrast, the sidebar and MCP run in-process where proxy destruction is synchronous on the calling thread.
+
+**Rule**: Do not enumerate shape paragraphs or portions in a loop from a remote client; read shape text with `getString()`. Shapes never carry redline Delete portions (`editeng/source/uno/unotext.cxx`, `WID_PORTIONTYPE`), and `getString()` joins paragraphs with `\n` identically without allocating editeng proxies.
+
 ---
 
 ## 9. Specialized Sub-Agents & Tools Threading

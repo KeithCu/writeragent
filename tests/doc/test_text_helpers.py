@@ -240,6 +240,33 @@ def test_get_string_without_tracked_deletions_paragraph_service():
     assert get_string_without_tracked_deletions(para) == "Hello bold"
 
 
+class _Shape:
+    def __init__(self, text: str = "alpha\nbeta"):
+        self._text = text
+
+    def supportsService(self, name: str) -> bool:
+        return name == "com.sun.star.drawing.Shape"
+
+    def getString(self) -> str:
+        return self._text
+
+    def createEnumeration(self):
+        raise AssertionError("must not enumerate")
+
+
+class _ShapeIntService(_Shape):
+    def supportsService(self, name: str) -> int:
+        return 1 if name == "com.sun.star.drawing.Shape" else 0
+
+
+def test_get_string_without_tracked_deletions_draw_shape_uses_getstring():
+    shape = _Shape("alpha\nbeta")
+    assert get_string_without_tracked_deletions(shape) == "alpha\nbeta"
+
+    shape_int = _ShapeIntService("gamma")
+    assert get_string_without_tracked_deletions(shape_int) == "gamma"
+
+
 def test_visible_portions_helper_continues_paint_aborts():
     """Paint stops on a bad portion (offset drift); the helper continues."""
 
