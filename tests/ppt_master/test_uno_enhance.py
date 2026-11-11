@@ -12,6 +12,7 @@ from pathlib import Path
 
 import pytest
 
+from plugin.framework.errors import DocumentDisposedError
 from plugin.ppt_master.adapter.uno_enhance import apply_enhancement_project
 
 _NOTES = "com.sun.star.presentation.NotesShape"
@@ -152,8 +153,9 @@ def test_apply_reraises_dispose_from_notes(tmp_path: Path):
     doc = _Doc([_Slide([notes])])
     project = _write_plan(tmp_path, [{"slide_index": 0, "notes": "next"}])
 
-    with pytest.raises(DisposedException):
+    with pytest.raises(DocumentDisposedError) as excinfo:
         apply_enhancement_project(doc, project)
+    assert excinfo.value.__cause__ is notes.fail
     assert notes.text == "keep"
 
 
@@ -164,8 +166,9 @@ def test_apply_reraises_dispose_from_transition_and_counts_notes(tmp_path: Path)
     doc = _Doc([slide])
     project = _write_plan(tmp_path, [{"slide_index": 0, "notes": "Cue", "transition": {"type": 2}}])
 
-    with pytest.raises(DisposedException):
+    with pytest.raises(DocumentDisposedError) as excinfo:
         apply_enhancement_project(doc, project)
+    assert excinfo.value.__cause__ is slide.transition_fail
     assert notes.text == "Cue"
 
 

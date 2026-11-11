@@ -28,7 +28,7 @@ from typing import Any, Callable
 from plugin.framework.doc_type import is_calc, is_draw, is_writer
 from plugin.doc.udprops import get_document_property, set_document_property
 from plugin.framework import config
-from plugin.framework.errors import DocumentDisposedError, is_disposal
+from plugin.framework.errors import DocumentDisposedError, reraise_if_disposed
 from plugin.framework.i18n import _
 from plugin.framework.uno_context import enumeration_should_continue, get_desktop, normalize_doc_url
 from plugin.scripting.domain_registry import (
@@ -183,10 +183,10 @@ def set_document_scripts(doc: Any, scripts: dict[str, str]) -> DocumentScriptErr
     try:
         set_document_property(doc, DOCUMENT_SCRIPTS_UDPROP, payload)
     except Exception as exc:
-        # A disposed document is not "read-only". Callers that swallow the
-        # Disposed documents re-raise instead of returning read-only so callers do not keep saving after close.
-        if is_disposal(exc):
-            raise
+        # A disposed document is not a read-only document. Re-raise it so the
+        # picker and dialog callers stop saving after close instead of
+        # offering a My Scripts fallback for a document that is gone.
+        reraise_if_disposed(exc, "Document disposed while saving document scripts")
         log.exception("document_scripts: failed to persist on document")
         # Same false My Scripts claim as the read-only return above.
         return _readonly_document_error()
