@@ -1363,3 +1363,79 @@ def test_toc_match_case_sensitive():
         assert hit_exact is r_exact
 
 
+def test_char_props_clones_direct_formatting_and_link_styles():
+    """_char_props copies direct character attributes and link styles, omitting inherited ones."""
+    from types import SimpleNamespace
+    from plugin.writer.specialized.indexes import _char_props
+
+    class _Portion:
+        def __init__(self, text, portion_type="Text", direct_props=None, link_style=""):
+            self.text = text
+            self.portion_type = portion_type
+            self.direct_props = direct_props or {}
+            self.link_style = link_style
+
+        def getString(self):
+            return self.text
+
+        def getPropertyValue(self, name):
+            if name == "TextPortionType":
+                return self.portion_type
+            if name in ("UnvisitedCharStyleName", "VisitedCharStyleName"):
+                return self.link_style or None
+            if name in self.direct_props:
+                return self.direct_props[name]
+            return None
+
+        def getPropertyState(self, name):
+            if name in self.direct_props:
+                return SimpleNamespace(value="DIRECT_VALUE")
+            return SimpleNamespace(value="DEFAULT_VALUE")
+
+    class _Para:
+        def __init__(self, portions):
+            self.portions = portions
+
+        def createEnumeration(self):
+            class _E:
+                def __init__(self, items):
+                    self.items = list(items)
+                    self.idx = 0
+
+                def hasMoreElements(self):
+                    return self.idx < len(self.items)
+
+                def nextElement(self):
+                    val = self.items[self.idx]
+                    self.idx += 1
+                    return val
+
+            return _E(self.portions)
+
+    p_redline = _Portion("marker", portion_type="Redline")
+    p_text = _Portion(
+        "Heading title",
+        portion_type="Text",
+        direct_props={"CharColor": 0x0000FF},
+        link_style="Index Link",
+    )
+    para = _Para([p_redline, p_text])
+
+    # With link: copies direct CharColor and link styles
+    props_with_link = _char_props(para, with_link=True)
+    assert props_with_link.get("CharColor") == 0x0000FF
+    assert props_with_link.get("UnvisitedCharStyleName") == "Index Link"
+    assert props_with_link.get("VisitedCharStyleName") == "Index Link"
+    assert "CharWeight" not in props_with_link
+
+    # Without link: drops link styles, keeps direct CharColor
+    props_no_link = _char_props(para, with_link=False)
+    assert props_no_link.get("CharColor") == 0x0000FF
+    assert "UnvisitedCharStyleName" not in props_no_link
+    assert "VisitedCharStyleName" not in props_no_link
+
+    # Non-text only paragraph yields empty dict
+    assert _char_props(_Para([p_redline]), with_link=True) == {}
+
+
+

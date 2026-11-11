@@ -3,6 +3,7 @@
 from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import native_writer_tool_context, with_native_doc
 from plugin.writer.specialized.indexes import (
+    _CLONED_CHAR_PROPS,
     IndexesAddMark,
     IndexesCreate,
     IndexesDeleteTocEntry,
@@ -694,6 +695,112 @@ def test_insert_toc_entry_adds_one_row_uno(ctx, doc):
     assert beta_before in rows, (rows, beta_before)
     gamma = next(para for para in _tab_paragraphs(doc) if "Gamma title" in (para.getString() or ""))
     assert gamma.getPropertyValue("ParaStyleName") == "Contents 2"
+    assert bool(toc.getPropertyValue("IsProtected")) is protected
+
+
+@native_test
+@with_native_doc("writer")
+def test_insert_toc_entry_keeps_inherited_look_uno(ctx, doc):
+    """Inserted TOC rows inherit the sibling's link character styles without writing direct formatting."""
+    text = doc.getText()
+    text.setString("")
+    _add_heading(text, "Alpha title", True)
+    _add_heading(text, "Beta title", False)
+    tctx = _tool_ctx(ctx, doc)
+    created = IndexesCreate().execute(tctx, kind="toc", title="Contents", target="beginning")
+    assert created.get("status") == "ok", created
+    toc = doc.getDocumentIndexes().getByIndex(0)
+    entries = _tab_paragraphs(doc)
+    assert len(entries) >= 2, _entry_strings(doc)
+    protected = bool(toc.getPropertyValue("IsProtected"))
+    if protected:
+        toc.IsProtected = False
+    alpha = next(para for para in entries if "Alpha title" in (para.getString() or ""))
+    beta = next(para for para in entries if "Beta title" in (para.getString() or ""))
+
+    # Phase 1: read link_style from alpha's first non-empty portion, assert non-empty.
+    alpha_portions = alpha.createEnumeration()
+    first_portion = None
+    while alpha_portions.hasMoreElements():
+        p = alpha_portions.nextElement()
+        if str(p.getString() or ""):
+            first_portion = p
+            break
+    assert first_portion is not None
+    link_style = str(first_portion.getPropertyValue("UnvisitedCharStyleName") or "")
+    assert link_style, "expected non-empty link character style on TOC entry"
+
+    fam = doc.getStyleFamilies().getByName("CharacterStyles")
+    style = fam.getByName(link_style)
+    style.setPropertyValue("CharColor", 0x0000FF)
+
+    # Setup proof: sibling portion reads 0x0000FF inherited through style (DEFAULT_VALUE).
+    assert first_portion.getPropertyValue("CharColor") == 0x0000FF
+    assert first_portion.getPropertyState("CharColor").value == "DEFAULT_VALUE"
+
+    if protected:
+        toc.IsProtected = True
+
+    gamma_url = "#1.Gamma title|outline"
+    inserted = IndexesInsertTocEntry().execute(
+        tctx,
+        content="Gamma title",
+        page="4",
+        position="after",
+        old_content="Alpha title",
+        hyperlink_url=gamma_url,
+    )
+    assert inserted.get("status") == "ok", inserted
+    gamma = next(para for para in _tab_paragraphs(doc) if "Gamma title" in (para.getString() or ""))
+    gamma_portions = gamma.createEnumeration()
+    checked_gamma = 0
+    while gamma_portions.hasMoreElements():
+        p = gamma_portions.nextElement()
+        if not str(p.getString() or ""):
+            continue
+        for name in _CLONED_CHAR_PROPS:
+            st = p.getPropertyState(name)
+            assert getattr(st, "value", None) == "DEFAULT_VALUE", (name, getattr(st, "value", None))
+        assert p.getPropertyValue("UnvisitedCharStyleName") == link_style
+        assert p.getPropertyValue("VisitedCharStyleName") == link_style
+        assert p.getPropertyValue("CharColor") == 0x0000FF
+        assert p.getPropertyValue("HyperLinkURL") == gamma_url
+        checked_gamma += 1
+    assert checked_gamma > 0
+
+    # Phase 2: direct preserved
+    if protected:
+        toc.IsProtected = False
+    _paint_entry(text, beta, "#1.Beta title|outline", color=0x00FF00)
+    beta_cur = text.createTextCursorByRange(beta.getStart())
+    beta_cur.gotoRange(beta.getEnd(), True)
+    beta_cur.setPropertyValue("CharUnderline", 0)
+    if protected:
+        toc.IsProtected = True
+
+    delta_url = "#1.Delta title|outline"
+    ins_delta = IndexesInsertTocEntry().execute(
+        tctx,
+        content="Delta title",
+        page="2",
+        position="before",
+        old_content="Beta title",
+        hyperlink_url=delta_url,
+    )
+    assert ins_delta.get("status") == "ok", ins_delta
+    delta = next(para for para in _tab_paragraphs(doc) if "Delta title" in (para.getString() or ""))
+    delta_portions = delta.createEnumeration()
+    checked_delta = 0
+    while delta_portions.hasMoreElements():
+        p = delta_portions.nextElement()
+        if not str(p.getString() or ""):
+            continue
+        assert p.getPropertyValue("CharColor") == 0x00FF00
+        assert p.getPropertyValue("CharUnderline") == 0
+        st = p.getPropertyState("CharColor")
+        assert getattr(st, "value", None) == "DIRECT_VALUE", getattr(st, "value", None)
+        checked_delta += 1
+    assert checked_delta > 0
     assert bool(toc.getPropertyValue("IsProtected")) is protected
 
 

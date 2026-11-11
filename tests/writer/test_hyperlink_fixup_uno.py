@@ -592,3 +592,55 @@ def test_identical_replace_sets_outline_url_uno(ctx, doc):
     assert body == "New title tail", rows
     assert set(_urls_over(rows, "New title")) == {_OUTLINE_NEW}, rows
     assert set(_urls_over(rows, "tail")) == {_BOOKMARK}, rows
+
+
+@native_test
+@with_native_doc("writer")
+def test_outline_rewrite_keeps_inherited_look_uno(ctx, doc):
+    """Rewriting an outline title or page number preserves the link style without direct color."""
+    text, cursor = _clear(doc)
+    _append_linked(text, cursor, "2.3.4. Old title.\t42", _OUTLINE)
+    sel = text.createTextCursor()
+    sel.gotoStart(False)
+    sel.gotoEnd(True)
+    sel.setPropertyValue("UnvisitedCharStyleName", "Index Link")
+    sel.setPropertyValue("VisitedCharStyleName", "Index Link")
+    fam = doc.getStyleFamilies().getByName("CharacterStyles")
+    style = fam.getByName("Index Link")
+    style.setPropertyValue("CharColor", 0x0000FF)
+
+    def _check_portions(expected_url):
+        enum = text.createEnumeration()
+        checked = 0
+        while enum.hasMoreElements():
+            para = enum.nextElement()
+            if hasattr(para, "supportsService") and not para.supportsService(
+                    "com.sun.star.text.Paragraph"):
+                continue
+            portions = para.createEnumeration()
+            while portions.hasMoreElements():
+                portion = portions.nextElement()
+                chunk = str(portion.getString() or "")
+                if not chunk:
+                    continue
+                url = str(portion.getPropertyValue("HyperLinkURL") or "")
+                assert url == expected_url, (chunk, url, expected_url)
+                unvisited = str(portion.getPropertyValue("UnvisitedCharStyleName") or "")
+                assert unvisited == "Index Link", (chunk, unvisited)
+                color = portion.getPropertyValue("CharColor")
+                assert color == 0x0000FF, (chunk, color)
+                state = portion.getPropertyState("CharColor")
+                assert getattr(state, "value", None) == "DEFAULT_VALUE", (
+                    chunk, getattr(state, "value", None))
+                checked += 1
+        assert checked > 0
+
+    _check_portions(_OUTLINE)
+
+    res1 = _apply(doc, ctx, old_content="Old title", content=_LONG)
+    assert res1.get("status") == "ok", res1
+    _check_portions(_OUTLINE_LONG)
+
+    res2 = _apply(doc, ctx, old_content="42", content="47")
+    assert res2.get("status") == "ok", res2
+    _check_portions(_OUTLINE_LONG)
