@@ -658,8 +658,11 @@ def _append_cancelled_tool_rows(messages: list[Any]) -> int:
     ``answered`` is scoped to one assistant message. A global set treats a
     reused tool-call id (providers emit ``call_0`` again on the next turn)
     as already answered, skips the synthetic cancelled row, and the next
-    request comes back 400. Scan only the contiguous tool rows that follow
-    that assistant message.
+    request comes back 400. The walk is ``tool_rows_after``, the same walk
+    ``sanitize_tool_pairs`` uses, so the tool-line open rows the sidebar folds
+    between the assistant message and its results are skipped and an answered
+    call gets no second row; a filler lands after the existing results of that
+    block.
     """
     added = 0
     index = 0
@@ -669,17 +672,14 @@ def _append_cancelled_tool_rows(messages: list[Any]) -> int:
         if not isinstance(calls, list) or not calls:
             index += 1
             continue
-        answered: set[str] = set()
-        insert_at = index + 1
-        while (
-            insert_at < len(messages)
-            and isinstance(messages[insert_at], dict)
-            and messages[insert_at].get("role") == "tool"
-        ):
-            tid = messages[insert_at].get("tool_call_id")
-            if isinstance(tid, str) and tid:
-                answered.add(tid)
-            insert_at += 1
+        from plugin.chatbot.compaction import tool_rows_after
+
+        tools, insert_at = tool_rows_after(messages, index + 1)
+        answered = {
+            t.get("tool_call_id")
+            for t in tools
+            if isinstance(t.get("tool_call_id"), str) and t.get("tool_call_id")
+        }
         for call in calls:
             call_id = call.get("id") if isinstance(call, dict) else None
             if not isinstance(call_id, str) or not call_id or call_id in answered:

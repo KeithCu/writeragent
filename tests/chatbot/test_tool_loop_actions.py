@@ -1418,6 +1418,155 @@ def test_append_cancelled_tool_rows_multiple_calls_partial_answer_across_turns()
     }
 
 
+def test_append_cancelled_tool_rows_skips_open_transcript_rows():
+    """Folded tool-line open rows between tool results must not cause duplicate cancelled rows."""
+    from plugin.chatbot.tool_loop_actions import _append_cancelled_tool_rows
+
+    messages = [
+        {"role": "user", "content": "q"},
+        {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [
+                {"id": "toolu_1", "type": "function", "function": {"name": "func_a", "arguments": "{}"}},
+                {"id": "toolu_2", "type": "function", "function": {"name": "func_b", "arguments": "{}"}},
+            ],
+        },
+        {"role": "assistant", "content": "[Running a]", "_open_transcript": True},
+        {"role": "tool", "tool_call_id": "toolu_1", "content": "ok_a"},
+        {"role": "assistant", "content": "[Running b]", "_open_transcript": True},
+        {"role": "tool", "tool_call_id": "toolu_2", "content": "ok_b"},
+    ]
+    original = [dict(m) for m in messages]
+    added = _append_cancelled_tool_rows(messages)
+    assert added == 0
+    assert messages == original
+
+
+def test_stop_mid_tool_round_keeps_one_result_per_call():
+    """Stop while a later tool is running keeps earlier real results and adds a filler only for pending calls."""
+    from plugin.chatbot.compaction import sanitize_tool_pairs
+    from plugin.chatbot.rich_text_paste import fold_transcript_chunk
+    from plugin.chatbot.tool_loop_actions import (
+        _CANCELLED_TOOL,
+        abort_turn,
+        begin_send_turn,
+    )
+
+    class Session:
+        def __init__(self, messages=None) -> None:
+            self.messages: list[dict] = messages if messages is not None else [
+                {"role": "user", "content": "q"}
+            ]
+
+        def add_assistant_message(self, content=None, tool_calls=None, reasoning_replay=None) -> None:
+            if self.messages and self.messages[-1].get("_open_transcript"):
+                self.messages.pop()
+            msg = {"role": "assistant", "content": content or ""}
+            if tool_calls:
+                msg["tool_calls"] = tool_calls
+            self.messages.append(msg)
+
+        def add_tool_result(self, call_id, content) -> None:
+            self.messages.append({"role": "tool", "tool_call_id": call_id, "content": content})
+
+    class Host:
+        def __init__(self, session=None) -> None:
+            self.session = session if session is not None else Session()
+
+    host = Host()
+    turn = begin_send_turn(host)
+    call1 = {"id": "toolu_1", "type": "function", "function": {"name": "func_a", "arguments": "{}"}}
+    call2 = {"id": "toolu_2", "type": "function", "function": {"name": "func_b", "arguments": "{}"}}
+    host.session.add_assistant_message(tool_calls=[call1, call2])
+    fold_transcript_chunk(host.session, "[Running a]", "assistant")
+    fold_transcript_chunk(host.session, "[a: ok]", "assistant")
+    host.session.add_tool_result("toolu_1", "ok")
+    fold_transcript_chunk(host.session, "[Running b]", "assistant")
+    abort_turn(host)
+    turn.close_stopped(host, None)
+
+    u1_tools = [m for m in host.session.messages if m.get("role") == "tool" and m.get("tool_call_id") == "toolu_1"]
+    assert len(u1_tools) == 1
+    assert u1_tools[0]["content"] == "ok"
+    u2_tools = [m for m in host.session.messages if m.get("role") == "tool" and m.get("tool_call_id") == "toolu_2"]
+    assert len(u2_tools) == 1
+    assert u2_tools[0]["content"] == _CANCELLED_TOOL
+    assert host.session.messages.index(u2_tools[0]) > host.session.messages.index(u1_tools[0])
+    assert any(
+        m.get("role") == "assistant" and "[Stopped by user]" in str(m.get("content") or "")
+        for m in host.session.messages
+    )
+    assert [m["tool_call_id"] for m in sanitize_tool_pairs(list(host.session.messages)) if m.get("role") == "tool"] == [
+        "toolu_1",
+        "toolu_2",
+    ]
+
+
+def test_stop_after_all_tools_answered_adds_no_filler():
+    """When all tools answered before Stop, no cancelled filler is injected and the trailing open text commits."""
+    from plugin.chatbot.compaction import sanitize_tool_pairs
+    from plugin.chatbot.rich_text_paste import fold_transcript_chunk
+    from plugin.chatbot.tool_loop_actions import (
+        _CANCELLED_TOOL,
+        abort_turn,
+        begin_send_turn,
+    )
+
+    class Session:
+        def __init__(self, messages=None) -> None:
+            self.messages: list[dict] = messages if messages is not None else [
+                {"role": "user", "content": "q"}
+            ]
+
+        def add_assistant_message(self, content=None, tool_calls=None, reasoning_replay=None) -> None:
+            if self.messages and self.messages[-1].get("_open_transcript"):
+                self.messages.pop()
+            msg = {"role": "assistant", "content": content or ""}
+            if tool_calls:
+                msg["tool_calls"] = tool_calls
+            self.messages.append(msg)
+
+        def add_tool_result(self, call_id, content) -> None:
+            self.messages.append({"role": "tool", "tool_call_id": call_id, "content": content})
+
+    class Host:
+        def __init__(self, session=None) -> None:
+            self.session = session if session is not None else Session()
+
+    host = Host()
+    turn = begin_send_turn(host)
+    call1 = {"id": "toolu_1", "type": "function", "function": {"name": "func_a", "arguments": "{}"}}
+    call2 = {"id": "toolu_2", "type": "function", "function": {"name": "func_b", "arguments": "{}"}}
+    host.session.add_assistant_message(tool_calls=[call1, call2])
+    fold_transcript_chunk(host.session, "[Running a]", "assistant")
+    fold_transcript_chunk(host.session, "[a: ok]", "assistant")
+    host.session.add_tool_result("toolu_1", "ok")
+    fold_transcript_chunk(host.session, "[Running b]", "assistant")
+    fold_transcript_chunk(host.session, "[b: ok]", "assistant")
+    host.session.add_tool_result("toolu_2", "ok")
+    fold_transcript_chunk(host.session, "Round two", "assistant")
+    abort_turn(host)
+    turn.close_stopped(host, None)
+
+    assert not any(
+        isinstance(m.get("content"), str) and _CANCELLED_TOOL in m["content"]
+        for m in host.session.messages
+    )
+    assert [m["tool_call_id"] for m in sanitize_tool_pairs(list(host.session.messages)) if m.get("role") == "tool"] == [
+        "toolu_1",
+        "toolu_2",
+    ]
+    assistant_contents = [
+        m.get("content") for m in host.session.messages if m.get("role") == "assistant"
+    ]
+    assert "Round two" in assistant_contents
+    assert any(
+        isinstance(content, str) and "[Stopped by user]" in content
+        for content in assistant_contents
+    )
+
+
 def test_cleanup_audio_uses_spawn_captured_model(monkeypatch, tmp_path):
     """_cleanup_audio records native audio support for the model captured at send time, not current model."""
     from plugin.chatbot.tool_loop_actions import CleanupAudioEffect, ToolLoopEffectInterpreter, begin_send_turn
