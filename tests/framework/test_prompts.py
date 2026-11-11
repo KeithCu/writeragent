@@ -65,14 +65,14 @@ def test_get_chat_response_format_instructions_plain_when_rich_disabled():
 
 
 def test_get_chat_response_format_instructions_html_when_rich_enabled():
-    from plugin.framework.prompts import get_chat_response_format_instructions
+    from plugin.framework.prompts import HTML_FRAGMENT_RULES, get_chat_response_format_instructions
 
     with patch("plugin.framework.config.get_config", return_value=True):
         fmt = get_chat_response_format_instructions()
     assert fmt == RICH_CHAT_SIDEBAR_INSTRUCTIONS
     assert CHAT_RESPONSE_FORMAT in fmt
     assert "&lt;p&gt;Paragraph&lt;/p&gt;" in fmt
-    assert "line breaks within an element" in fmt
+    assert HTML_FRAGMENT_RULES not in fmt
 
 
 def test_get_chat_system_prompt_plain_text_when_rich_disabled():
@@ -98,6 +98,33 @@ def test_get_chat_system_prompt_allows_html_when_rich_text_control_sidebar():
         assert "plain text only" not in prompt
 
 
+def test_html_fragment_rules_appear_once_in_writer_prompt():
+    from plugin.chatbot.sub_agent_tools import get_sub_agent_instructions
+
+    model = MagicMock()
+    model.supportsService.return_value = False
+
+    with patch("plugin.framework.config.get_config") as mock_bool:
+        mock_bool.side_effect = lambda key: key == "chatbot.rich_text_control_sidebar"
+        prompt = get_chat_system_prompt_for_document(model, ctx=MagicMock())
+
+    assert prompt.count("Use <br> for line breaks within an element") == 1
+    assert get_sub_agent_instructions("BASE", tool_names=["apply_document_content"]).count("Use <br> for line breaks within an element") == 1
+
+
+def test_prompt_rules_enforced_by_tools_are_gone():
+    from plugin.framework.prompts import (
+        TOOL_USAGE_PATTERNS,
+        TRANSLATION_RULES,
+        WRITER_CHAT_TOOLS_SECTION,
+    )
+
+    assert "Failed tool call" not in TOOL_USAGE_PATTERNS
+    assert "whole-document translation" not in TRANSLATION_RULES
+    assert "get_guidance" in WRITER_CHAT_TOOLS_SECTION
+    assert "search_in_document:" not in WRITER_CHAT_TOOLS_SECTION
+
+
 def test_writer_chat_prompt_opens_with_persona_and_color_guidance():
     model = MagicMock()
     model.supportsService.return_value = False
@@ -120,8 +147,7 @@ def test_writer_chat_prompt_section_order_matches_assembly():
     prompt = get_chat_system_prompt_for_document(model)
     chat_fmt = prompt.index("CHAT RESPONSE FORMAT")
     tools = prompt.index(WRITER_CHAT_TOOLS_SECTION)
-    # Use the full apply-HTML block — "APPLY_DOCUMENT_CONTENT AND HTML" also appears
-    # as a forward reference inside WRITER_CHAT_TOOLS_SECTION.
+    # Use the full apply-HTML block to find its index.
     html_rules = prompt.index(WRITER_APPLY_DOCUMENT_HTML_RULES)
     sidebar = prompt.index(SIDEBAR_VS_DOCUMENT)
     confirm = prompt.index(CONFIRM_EDITS_FROM_STRUCTURED_FIELDS)
@@ -166,6 +192,8 @@ def test_confirm_edits_from_structured_fields_prefers_suggested_call():
         "When a result includes suggested_call, prefer executing it over re-deriving the call."
         in CONFIRM_EDITS_FROM_STRUCTURED_FIELDS
     )
+    assert "comment_added" not in CONFIRM_EDITS_FROM_STRUCTURED_FIELDS
+    assert "zero count" in CONFIRM_EDITS_FROM_STRUCTURED_FIELDS
     assert "warnings[].suggested_call" in SUB_AGENT_HTML_CONTENT_RULES
 
 
@@ -196,7 +224,6 @@ def test_writer_chat_prompt_research_delegate_to_document():
 
     block = get_specialized_delegation_tool_hint("Writer")
     assert "web_research:" in block
-    assert "apply_document_content" in block
     for domain in WRITER_SIDEBAR_ONLY_DOMAINS:
         assert f"{domain}:" not in block
 
@@ -222,7 +249,9 @@ def test_writer_apply_document_math_latex_rules_document_only():
     assert "Math (CRITICAL)" not in HTML_FRAGMENT_RULES
     assert "old_content is a substring and may span paragraphs" in WRITER_APPLY_DOCUMENT_HTML_RULES
     assert "target='search' also edits headers and footers" in WRITER_APPLY_DOCUMENT_HTML_RULES
-    assert "honored on target='full_document', 'beginning', and 'end'; also on 'selection'/'search'" in WRITER_APPLY_DOCUMENT_HTML_RULES
+    assert "data-lo-style and data-lo-para are applied on full_document, beginning, end, and header/footer writes" in WRITER_APPLY_DOCUMENT_HTML_RULES
+    assert "Track Changes off" in WRITER_APPLY_DOCUMENT_HTML_RULES
+    assert "position='before'/'after' applies neither" in WRITER_APPLY_DOCUMENT_HTML_RULES
     assert "middle line must equal a whole paragraph" not in WRITER_APPLY_DOCUMENT_HTML_RULES
     assert "Landmark-to-landmark replace: pass start_anchor and end_anchor" in WRITER_APPLY_DOCUMENT_HTML_RULES
     assert "interior line" not in WRITER_APPLY_DOCUMENT_HTML_RULES
@@ -651,10 +680,12 @@ def test_document_research_multi_file_delegation_in_prompts():
         assert "once with" in directives or "once with their" in directives
 
 
-def test_document_research_prompt_is_other_docs_not_open_workbook():
-    # Tiny wording only: "same folder" taught models to scan leftover siblings.
-    assert "not the open workbook" in WRITER_SPECIALIZED_DELEGATION_TEMPLATE
+def test_document_research_routing_said_once():
+    from plugin.framework.prompts import get_specialized_delegation_tool_hint
+
+    assert "not the open workbook" not in WRITER_SPECIALIZED_DELEGATION_TEMPLATE
     assert "same folder" not in WRITER_SPECIALIZED_DELEGATION_TEMPLATE
+    assert "not in the current document" in get_specialized_delegation_tool_hint("Writer")
 
 
 def test_sheets_create_completion_instruction_is_create_not_populate():

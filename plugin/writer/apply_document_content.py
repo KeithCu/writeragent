@@ -590,15 +590,7 @@ class ApplyDocumentContent(ToolBase):
         "Use target='beginning', 'end', or 'selection' to insert. "
         "Use target='search' with old_content or both start_anchor and end_anchor for find-and-replace of a specific substring or range. "
         "An empty replacement that removes the last text in a table deletes that table. "
-        "Clearing one cell while another cell still has text leaves the table in place. "
-        "Search occurrence is 0-based over body, table, and frame matches; omit it for first-match; "
-        "do not combine with all_matches=true. "
-        "dry_run returns replaceable (each row's occurrence is that index) and not_replaceable "
-        "(shapes and comments, no occurrence). "
-        "An outline hyperlink (#…|outline) covering a replaced match is updated when the "
-        "matched text occurs once in the target outside that suffix; pass hyperlink_url "
-        "to set a different target on that one link, including when content equals "
-        "old_content and only the URL is stale. Bookmark links are not rewritten."
+        "Clearing one cell while another cell still has text leaves the table in place."
     )
     parameters: dict[str, Any] | None = {
         "type": "object",
