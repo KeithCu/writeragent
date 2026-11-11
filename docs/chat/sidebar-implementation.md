@@ -57,7 +57,7 @@ For `apply_document_content`, search edits in-use header/footer text; body inser
 #### Two escaping layers (models often mix these up)
 
 - **JSON/tool-call escaping:** inside a tool argument, literal `"` in HTML must be `\"` in the JSON wire format. Prompt EXAMPLES show valid JSON (hence `\"quotes\"` in strings).
-- **HTML entity escaping:** do NOT send `&lt;p&gt;` instead of `<p>` — the import path expects real tags (`HTML_FRAGMENT_RULES`). Entity soup is wrong for both array elements and sidebar.
+- **HTML entity escaping:** do NOT send `&lt;p&gt;` instead of `<p>` — the import path expects real tags (`HTML_FRAGMENT_RULES` for array elements; `CHAT_SIDEBAR_HTML_EXAMPLES` Bad examples for the sidebar). Entity soup is wrong for both.
 
 #### Array wrapper and sub-agents
 

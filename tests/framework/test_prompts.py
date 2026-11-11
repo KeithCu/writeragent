@@ -147,7 +147,6 @@ def test_writer_chat_prompt_section_order_matches_assembly():
     prompt = get_chat_system_prompt_for_document(model)
     chat_fmt = prompt.index("CHAT RESPONSE FORMAT")
     tools = prompt.index(WRITER_CHAT_TOOLS_SECTION)
-    # Use the full apply-HTML block to find its index.
     html_rules = prompt.index(WRITER_APPLY_DOCUMENT_HTML_RULES)
     sidebar = prompt.index(SIDEBAR_VS_DOCUMENT)
     confirm = prompt.index(CONFIRM_EDITS_FROM_STRUCTURED_FIELDS)

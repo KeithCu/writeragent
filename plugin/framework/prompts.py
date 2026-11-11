@@ -389,7 +389,7 @@ TOOL_USAGE_PATTERNS = """TOOL USAGE PATTERNS:
 
 
 WRITER_REVIEW_MODES_RULES = """TRACKED CHANGES / REVIEW MODES:
-- The user picks ONE of three review modes; you never pick or switch it. off: edits are live immediately. record: edits are tracked changes pending accept/reject; you will NOT be told the later outcome. wait: the tool blocks until the user finishes reviewing (or a timeout) and the result reports what was accepted or rejected.
+- The user picks ONE of three review modes; you never pick or switch it. off: edits are live immediately. record: edits are tracked changes pending accept/reject; you will NOT be told the later outcome. wait: edits are tracked changes; the tool blocks until the user finishes reviewing (or a timeout) and the result reports what was accepted or rejected.
 - apply_document_content's RESULT carries that call's review state (record: review_mode / pending_review; wait: a review field) — trust the latest result, since the user can switch modes mid-session.
 - In record and wait, NEVER accept or reject changes yourself (no tracking_manage accept/reject) — resolving redlines is the user's decision.
 - get_document_content lists pending changes under tracked_changes — they are pending review, not errors to fix."""
