@@ -583,7 +583,10 @@ def resolve_paragraph_style_token(
 
 
 def unapplied_para_names_for_content(content: str) -> list[str]:
-    """Collect all data-lo-para property names declared in *content* (none applied)."""
+    """Collect all data-lo-para property names declared in *content* (none applied).
+
+    Used for targets that never apply paragraph formatting (position before/after).
+    """
     if "data-lo-para" not in content:
         return []
     _clean, _styles, paras, skipped = extract_block_lo_styles(content)
