@@ -116,6 +116,11 @@ SHORT_NAMES: dict[str, str] = {
     "reflection/beam-1.0-501b-a23b": "Beam 1.0",
     "nvidia/nemotron-3.5-super-vl": "Nemotron 3.5 Super VL",
     "liquid/lfm-2.5-24b-a2b": "LFM 2.5 24B",
+    "anthropic/claude-sonnet-5.5": "Sonnet 5.5",
+    "anthropic/claude-haiku-5.5": "Haiku 5.5",
+    "anthropic/claude-opus-5.5": "Opus 5.5",
+    "meta/muse-ember": "Muse Ember",
+    "liquid/lfm-3-1.7b": "LFM 3 1.7B",
 }
 
 
@@ -173,6 +178,11 @@ MODEL_LABEL_CONFIG: dict[str, tuple[int, int, str, str]] = {
     "reflection/beam-1.0-501b-a23b": (6, -8, "left", "top"),
     "nvidia/nemotron-3.5-super-vl": (-6, 8, "right", "bottom"),
     "liquid/lfm-2.5-24b-a2b": (6, 0, "left", "center"),
+    "anthropic/claude-sonnet-5.5": (6, 10, "left", "bottom"),
+    "anthropic/claude-haiku-5.5": (-8, 8, "right", "bottom"),
+    "anthropic/claude-opus-5.5": (8, -10, "left", "top"),
+    "meta/muse-ember": (-8, -8, "right", "top"),
+    "liquid/lfm-3-1.7b": (8, 4, "left", "bottom"),
 }
 
 Y_AXIS_MIN = 0.52
