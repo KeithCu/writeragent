@@ -475,7 +475,7 @@ def test_search_target_resolves_heading_link_to_outline(monkeypatch):
 
     def mock_replace(doc, found, content, *args, **kwargs):
         passed_down.append(content)
-        return []
+        return [], None
 
     monkeypatch.setattr(format_mod, "replace_single_range_with_content", mock_replace)
     res = ApplyDocumentContent().execute(
