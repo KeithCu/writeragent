@@ -147,6 +147,7 @@ class WriterCompoundUndo:
         if not self.entered or self._open or self._titles_before is None or self._undo_manager is None:
             return False
         try:
+            # Direct read kept so read failures land in self.rollback_error for ROLLBACK_FAILED rather than returning None.
             raw = self._undo_manager.getAllUndoActionTitles()
             after = tuple(raw or ())
             if after != self._titles_before and after and after[0] == self._title:
