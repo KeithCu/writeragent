@@ -100,23 +100,6 @@ class TestRunSubagentTool:
         with pytest.raises(DocumentDisposedError):
             tool.execute(ctx, query="Draft essay")
 
-    def test_raw_uno_disposal_wrapped_not_formatted(self):
-        ctx = MagicMock()
-
-        class DisposedException(Exception):
-            pass
-
-        raw_exc = DisposedException("control disposed")
-
-        def disposed_runner(c, **kwargs):
-            raise raw_exc
-
-        tool = _StubSessionTool("Writing plan", disposed_runner)
-        with pytest.raises(DocumentDisposedError) as info:
-            tool.execute(ctx, query="Draft essay")
-        assert info.value.__cause__ is raw_exc
-        assert "Writing plan" in str(info.value)
-
     def test_empty_str_with_message_attr_still_produces_message(self):
         ctx = MagicMock()
 

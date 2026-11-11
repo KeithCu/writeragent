@@ -26,7 +26,7 @@ from plugin.doc.undo import commit_or_rollback_mutation
 from plugin.draw.base import ToolDrawCommentBase
 from plugin.draw.bridge import DrawBridge
 from plugin.framework.errors import reraise_if_disposed, uno_read
-from plugin.framework.uno_context import uno_same
+from plugin.framework.uno_context import enum_has_more, uno_same
 
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
@@ -91,7 +91,10 @@ def _iter_annotations_on_page(page: Any) -> list[Any]:
 
     That order is the ``index`` contract for ``page_comment_delete`` (see
     ``offapi/com/sun/star/office/XAnnotationAccess.idl``). ``createAnnotationEnumeration``
-    returns NULL when the page has no comments (empty list, not an error).
+    (svx/source/annotation/AnnotationEnumeration.cxx, ``createAnnotationEnumeration``)
+    always returns an enumeration, empty when the page has no comments; the None guard
+    below only protects against a runtime or stub that hands back nothing, and yields
+    an empty list rather than raising.
     """
     try:
         enum = page.createAnnotationEnumeration()
@@ -102,7 +105,7 @@ def _iter_annotations_on_page(page: Any) -> list[Any]:
         return []
     items: list[Any] = []
     try:
-        while enum.hasMoreElements():
+        while enum_has_more(enum):
             items.append(enum.nextElement())
     except Exception as exc:
         reraise_if_disposed(exc)

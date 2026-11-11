@@ -19,7 +19,7 @@ from plugin.framework.errors import (
     ToolExecutionError,
     WriterAgentException,
     format_error_payload,
-    reraise_if_disposed,
+    is_disposal,
     resolve_exception_message,
 )
 from plugin.framework.tool import ToolBase
@@ -154,7 +154,8 @@ class SubAgentSessionToolBase(ToolBase):
             # This except is the boundary for subagent runners. log.exception
             # records the traceback; the payload keeps the exception text only.
             log.exception("%s execution failed", self.agent_label)
-            reraise_if_disposed(e, f"{self.agent_label} stopped: document disposed")
+            if is_disposal(e):
+                raise
 
             msg = resolve_exception_message(e)
             if isinstance(e, WriterAgentException):
