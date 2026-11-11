@@ -411,14 +411,16 @@ def _attach_style_notes(
     if partial_count == 0 and recording_count == 0:
         return result
 
+    if not params.content or "data-lo-style" not in params.content:
+        return result
+
     from . import html_import_styles
 
-    style_token: str | None = None
-    if params.content:
-        _clean, styles, _paras, _skipped = html_import_styles.extract_block_lo_styles(params.content)
-        distinct_styles = list(dict.fromkeys(s for s in styles if s))
-        if len(distinct_styles) == 1:
-            style_token = distinct_styles[0]
+    _clean, styles, _paras, _skipped = html_import_styles.extract_block_lo_styles(params.content)
+    distinct_styles = list(dict.fromkeys(s for s in styles if s))
+    if not distinct_styles:
+        return result
+    style_token = distinct_styles[0] if len(distinct_styles) == 1 else None
 
     subject = f"data-lo-style='{style_token}'" if style_token else "data-lo-style"
     diagnostics: list[Diagnostic] = []
@@ -1485,11 +1487,11 @@ class ApplyDocumentContent(ToolBase):
         tables_before = _doc_table_count(ctx.doc) if has_table else None
         math_objects: list[dict[str, Any]] = []
         with session:
-            failed, _unused_note = session.record_mutation(
+            failed, _note = session.record_mutation(
                 lambda: format_support.insert_content_at_position(
                     ctx.doc, ctx.ctx, content, target, math_out=math_objects
                 ),
-                proposed_preview=plain) or ([], None)
+                proposed_preview=plain)
         err = self._table_insert_error(ctx.doc, has_table, tables_before)
         if err:
             return err
@@ -1531,7 +1533,9 @@ class ApplyDocumentContent(ToolBase):
             {"status": "ok", "message": "Inserted content at selection."}, anchor)
         if isinstance(note, str):
             _attach_style_notes(res, [note], total_matches=1, doc=ctx.doc, params=params)
-        res = html_import_styles.attach_para_warnings(res, failed)
+        res = html_import_styles.attach_para_warnings(
+            res, failed, reason=note if isinstance(note, str) else None
+        )
         return html_import_styles.attach_math_objects(res, math_objects)
 
 
@@ -1659,7 +1663,8 @@ class ApplyDocumentContent(ToolBase):
                     resp["pending_review"] = deletion["pending_review"]
                 resp["message"] = (resp.get("message") or "").rstrip() + " " + deletion["message"]
         _attach_style_notes(resp, style_notes, total_matches=count, doc=doc, params=params)
-        html_import_styles.attach_para_warnings(resp, para_failures)
+        reason = next((n for n in style_notes if n in ("STYLE_IGNORED_PARTIAL_MATCH", "STYLE_IGNORED_RECORDING")), None)
+        html_import_styles.attach_para_warnings(resp, para_failures, reason=reason)
         self._attach_hyperlink_reports(resp, link_reports)
         res = attach_edited_context(resp, anchor)
         return html_import_styles.attach_math_objects(res, math_objects)
@@ -1908,7 +1913,8 @@ class ApplyDocumentContent(ToolBase):
         if err:
             return err
         _attach_style_notes(resp, style_notes, total_matches=1, doc=doc, params=params)
-        html_import_styles.attach_para_warnings(resp, para_failures)
+        reason = next((n for n in style_notes if n in ("STYLE_IGNORED_PARTIAL_MATCH", "STYLE_IGNORED_RECORDING")), None)
+        html_import_styles.attach_para_warnings(resp, para_failures, reason=reason)
         self._attach_hyperlink_reports(resp, reports or [])
         res = attach_edited_context(resp, anchor)
         return html_import_styles.attach_math_objects(res, math_objects)

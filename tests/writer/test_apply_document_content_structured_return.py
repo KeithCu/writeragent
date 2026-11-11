@@ -279,6 +279,40 @@ def test_unmapped_data_lo_para_full_document_warns_for_unmapped_property():
     ]
 
 
+def test_unmapped_data_lo_para_partial_match_warns_with_reason():
+    """Partial match skip specifies that range does not cover a whole paragraph."""
+    from plugin.writer.html_import_styles import attach_para_warnings
+
+    res = attach_para_warnings(
+        {"status": "ok", "message": "Replaced content."},
+        ["margin-left"],
+        reason="STYLE_IGNORED_PARTIAL_MATCH",
+    )
+    assert res.get("warnings") == [
+        {
+            "code": "PARA_IGNORED_PARTIAL_MATCH",
+            "message": "data-lo-para property 'margin-left' was not applied because the replaced range does not cover a whole paragraph",
+        }
+    ]
+
+
+def test_unmapped_data_lo_para_recording_warns_with_reason():
+    """Recording skip specifies that tracked changes are recording."""
+    from plugin.writer.html_import_styles import attach_para_warnings
+
+    res = attach_para_warnings(
+        {"status": "ok", "message": "Replaced content."},
+        ["margin-left"],
+        reason="STYLE_IGNORED_RECORDING",
+    )
+    assert res.get("warnings") == [
+        {
+            "code": "PARA_IGNORED_RECORDING",
+            "message": "data-lo-para property 'margin-left' was not applied because tracked changes are recording",
+        }
+    ]
+
+
 def test_failed_write_is_not_annotated():
     """Nothing was written, so there is nothing to say about what was not applied."""
     from plugin.writer.html_import_styles import attach_para_warnings
@@ -303,6 +337,50 @@ def test_search_target_warns_for_mapped_property(monkeypatch):
     assert res.get("status") == "ok", res
     assert res.get("warnings") == [
         {"code": "PARA_PROPERTY_UNSUPPORTED", "message": "data-lo-para property 'text-align' was not applied"}
+    ]
+
+
+def test_search_target_warns_with_partial_match_code(monkeypatch):
+    """Search replacement reports PARA_IGNORED_PARTIAL_MATCH on partial match skip."""
+    monkeypatch.setattr(format_mod, "content_has_markup", lambda *a, **k: True)
+    monkeypatch.setattr(search_mod, "find_first_range", lambda doc, s: MockRange())
+    monkeypatch.setattr(
+        format_mod, "replace_single_range_with_content", lambda *a, **k: (["margin-left"], "STYLE_IGNORED_PARTIAL_MATCH")
+    )
+    res = ApplyDocumentContent().execute(
+        _ctx(),
+        target="search",
+        old_content="foo",
+        content='<p data-lo-para="margin-left:2cm">x</p>',
+    )
+    assert res.get("status") == "ok", res
+    assert res.get("warnings") == [
+        {
+            "code": "PARA_IGNORED_PARTIAL_MATCH",
+            "message": "data-lo-para property 'margin-left' was not applied because the replaced range does not cover a whole paragraph",
+        }
+    ]
+
+
+def test_search_target_warns_with_recording_code(monkeypatch):
+    """Search replacement reports PARA_IGNORED_RECORDING on recording skip."""
+    monkeypatch.setattr(format_mod, "content_has_markup", lambda *a, **k: True)
+    monkeypatch.setattr(search_mod, "find_first_range", lambda doc, s: MockRange())
+    monkeypatch.setattr(
+        format_mod, "replace_single_range_with_content", lambda *a, **k: (["margin-left"], "STYLE_IGNORED_RECORDING")
+    )
+    res = ApplyDocumentContent().execute(
+        _ctx(),
+        target="search",
+        old_content="foo",
+        content='<p data-lo-para="margin-left:2cm">x</p>',
+    )
+    assert res.get("status") == "ok", res
+    assert res.get("warnings") == [
+        {
+            "code": "PARA_IGNORED_RECORDING",
+            "message": "data-lo-para property 'margin-left' was not applied because tracked changes are recording",
+        }
     ]
 
 

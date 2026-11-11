@@ -626,9 +626,18 @@ def test_write_search_partial_match_skips_data_lo_para_uno(ctx, doc):
     codes = [w["code"] for w in res["warnings"]]
     assert "STYLE_IGNORED_PARTIAL_MATCH" not in codes
     assert res["warnings"] == [
-        {"code": "PARA_PROPERTY_UNSUPPORTED", "message": "data-lo-para property 'margin-left' was not applied"},
-        {"code": "PARA_PROPERTY_UNSUPPORTED", "message": "data-lo-para property 'text-align' was not applied"},
-        {"code": "PARA_PROPERTY_UNSUPPORTED", "message": "data-lo-para property 'background-color' was not applied"},
+        {
+            "code": "PARA_IGNORED_PARTIAL_MATCH",
+            "message": "data-lo-para property 'margin-left' was not applied because the replaced range does not cover a whole paragraph",
+        },
+        {
+            "code": "PARA_IGNORED_PARTIAL_MATCH",
+            "message": "data-lo-para property 'text-align' was not applied because the replaced range does not cover a whole paragraph",
+        },
+        {
+            "code": "PARA_IGNORED_PARTIAL_MATCH",
+            "message": "data-lo-para property 'background-color' was not applied because the replaced range does not cover a whole paragraph",
+        },
     ]
 
     enum = doc.getText().createEnumeration()
@@ -673,11 +682,20 @@ def test_write_search_whole_paragraph_recording_warns_uno(ctx, doc):
         assert res["warnings"][0]["code"] == "STYLE_IGNORED_RECORDING"
         assert "tracked changes are recording" in res["warnings"][0]["message"]
         assert "tracked changes are recording" in res["message"]
-        para_warns = [w for w in res["warnings"] if w["code"] == "PARA_PROPERTY_UNSUPPORTED"]
+        para_warns = [w for w in res["warnings"] if w["code"] == "PARA_IGNORED_RECORDING"]
         assert para_warns == [
-            {"code": "PARA_PROPERTY_UNSUPPORTED", "message": "data-lo-para property 'margin-left' was not applied"},
-            {"code": "PARA_PROPERTY_UNSUPPORTED", "message": "data-lo-para property 'text-align' was not applied"},
-            {"code": "PARA_PROPERTY_UNSUPPORTED", "message": "data-lo-para property 'background-color' was not applied"},
+            {
+                "code": "PARA_IGNORED_RECORDING",
+                "message": "data-lo-para property 'margin-left' was not applied because tracked changes are recording",
+            },
+            {
+                "code": "PARA_IGNORED_RECORDING",
+                "message": "data-lo-para property 'text-align' was not applied because tracked changes are recording",
+            },
+            {
+                "code": "PARA_IGNORED_RECORDING",
+                "message": "data-lo-para property 'background-color' was not applied because tracked changes are recording",
+            },
         ]
     finally:
         doc.setPropertyValue("RecordChanges", False)

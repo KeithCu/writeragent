@@ -545,8 +545,8 @@ def _lo_style_for_replaced_range(
 
     Both attributes require the replaced range to cover whole paragraphs and Track Changes
     to be off, so neighbor text is not restyled and tracked deletions are not converted
-    into formatting changes. A style skip note is emitted only when a data-lo-style token
-    is present (data-lo-para skips report through property warnings instead).
+    into formatting changes. A skip code is returned when whole-paragraph or recording checks
+    fail so callers can report specific warnings for data-lo-style and data-lo-para.
     """
     if not content or ("data-lo-style" not in content and "data-lo-para" not in content):
         return False, None
@@ -555,9 +555,9 @@ def _lo_style_for_replaced_range(
     if not has_style and not any(paras):
         return False, None
     if not _range_covers_whole_paragraphs(text_range):
-        return False, "STYLE_IGNORED_PARTIAL_MATCH" if has_style else None
+        return False, "STYLE_IGNORED_PARTIAL_MATCH"
     if record_changes.is_recording_changes(model):
-        return False, "STYLE_IGNORED_RECORDING" if has_style else None
+        return False, "STYLE_IGNORED_RECORDING"
     return True, None
 
 
@@ -815,7 +815,8 @@ def replace_single_range_with_content(
                     apply_paragraph_style_preserving_direct_char(model, restore, saved_style)
 
                 best_effort(restore_style, "replace_single_range_with_content: could not restore ParaStyleName")
-            skipped = html_import_styles.extract_block_lo_styles(prepared)[3]
+            # Inline content has no blocks, so data-lo-para exists only on stripped inline tags.
+            _clean, _styles, _paras, skipped = html_import_styles.extract_block_lo_styles(prepared)
             return (html_import_styles.declared_para_names(skipped), None)
         else:
             # A whole-paragraph range has no leftover text in host paragraphs, so data-lo-style

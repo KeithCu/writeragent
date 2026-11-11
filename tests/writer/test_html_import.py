@@ -1812,20 +1812,20 @@ def test_lo_style_for_replaced_range_predicates():
         assert apply is True
         assert note is None
 
-        # Start only -> apply False, note None
+        # Start only -> apply False, note STYLE_IGNORED_PARTIAL_MATCH
         apply, note = _lo_style_for_replaced_range(model, para_content, make_paragraph_edge_range(True, False))
         assert apply is False
-        assert note is None
+        assert note == "STYLE_IGNORED_PARTIAL_MATCH"
 
-        # End only -> apply False, note None
+        # End only -> apply False, note STYLE_IGNORED_PARTIAL_MATCH
         apply, note = _lo_style_for_replaced_range(model, para_content, make_paragraph_edge_range(False, True))
         assert apply is False
-        assert note is None
+        assert note == "STYLE_IGNORED_PARTIAL_MATCH"
 
-        # Neither -> apply False, note None
+        # Neither -> apply False, note STYLE_IGNORED_PARTIAL_MATCH
         apply, note = _lo_style_for_replaced_range(model, para_content, make_paragraph_edge_range(False, False))
         assert apply is False
-        assert note is None
+        assert note == "STYLE_IGNORED_PARTIAL_MATCH"
 
 
 def test_lo_style_for_replaced_range_recording():
@@ -1846,14 +1846,14 @@ def test_lo_style_for_replaced_range_recording():
         assert note == "STYLE_IGNORED_PARTIAL_MATCH"
 
         para_content = '<p data-lo-para="text-align:center">content</p>'
-        # Para only while recording returns False, None
+        # Para only while recording returns False, STYLE_IGNORED_RECORDING
         apply, note = _lo_style_for_replaced_range(model, para_content, make_paragraph_edge_range(True, True))
         assert apply is False
-        assert note is None
+        assert note == "STYLE_IGNORED_RECORDING"
 
         apply, note = _lo_style_for_replaced_range(model, para_content, make_paragraph_edge_range(False, True))
         assert apply is False
-        assert note is None
+        assert note == "STYLE_IGNORED_PARTIAL_MATCH"
 
 
 def test_lo_style_for_replaced_range_non_block_tokens():
