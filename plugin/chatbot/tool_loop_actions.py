@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING, Any, Callable, Mapping, Protocol
 if TYPE_CHECKING:
     from plugin.framework.client.llm_client import LlmClient
 
+from plugin.chatbot.compaction import tool_rows_after
 from plugin.chatbot.memory import format_upsert_memory_chat_line
 from plugin.chatbot.tool_loop_state import (
     AddMessageEffect,
@@ -672,7 +673,6 @@ def _append_cancelled_tool_rows(messages: list[Any]) -> int:
         if not isinstance(calls, list) or not calls:
             index += 1
             continue
-        from plugin.chatbot.compaction import tool_rows_after
 
         tools, insert_at = tool_rows_after(messages, index + 1)
         answered = {

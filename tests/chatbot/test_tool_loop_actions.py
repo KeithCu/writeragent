@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 
-
+from plugin.chatbot.chat_session import ChatSession
 from plugin.chatbot.tool_loop_actions import (  # noqa: E402
     ToolLoopEffectInterpreter,
     assign_send_outcome,
@@ -1443,6 +1443,14 @@ def test_append_cancelled_tool_rows_skips_open_transcript_rows():
     assert messages == original
 
 
+class _StopHost:
+    def __init__(self, session=None) -> None:
+        if session is None:
+            session = ChatSession()
+            session.add_user_message("q")
+        self.session = session
+
+
 def test_stop_mid_tool_round_keeps_one_result_per_call():
     """Stop while a later tool is running keeps earlier real results and adds a filler only for pending calls."""
     from plugin.chatbot.compaction import sanitize_tool_pairs
@@ -1453,28 +1461,7 @@ def test_stop_mid_tool_round_keeps_one_result_per_call():
         begin_send_turn,
     )
 
-    class Session:
-        def __init__(self, messages=None) -> None:
-            self.messages: list[dict] = messages if messages is not None else [
-                {"role": "user", "content": "q"}
-            ]
-
-        def add_assistant_message(self, content=None, tool_calls=None, reasoning_replay=None) -> None:
-            if self.messages and self.messages[-1].get("_open_transcript"):
-                self.messages.pop()
-            msg = {"role": "assistant", "content": content or ""}
-            if tool_calls:
-                msg["tool_calls"] = tool_calls
-            self.messages.append(msg)
-
-        def add_tool_result(self, call_id, content) -> None:
-            self.messages.append({"role": "tool", "tool_call_id": call_id, "content": content})
-
-    class Host:
-        def __init__(self, session=None) -> None:
-            self.session = session if session is not None else Session()
-
-    host = Host()
+    host = _StopHost()
     turn = begin_send_turn(host)
     call1 = {"id": "toolu_1", "type": "function", "function": {"name": "func_a", "arguments": "{}"}}
     call2 = {"id": "toolu_2", "type": "function", "function": {"name": "func_b", "arguments": "{}"}}
@@ -1513,28 +1500,7 @@ def test_stop_after_all_tools_answered_adds_no_filler():
         begin_send_turn,
     )
 
-    class Session:
-        def __init__(self, messages=None) -> None:
-            self.messages: list[dict] = messages if messages is not None else [
-                {"role": "user", "content": "q"}
-            ]
-
-        def add_assistant_message(self, content=None, tool_calls=None, reasoning_replay=None) -> None:
-            if self.messages and self.messages[-1].get("_open_transcript"):
-                self.messages.pop()
-            msg = {"role": "assistant", "content": content or ""}
-            if tool_calls:
-                msg["tool_calls"] = tool_calls
-            self.messages.append(msg)
-
-        def add_tool_result(self, call_id, content) -> None:
-            self.messages.append({"role": "tool", "tool_call_id": call_id, "content": content})
-
-    class Host:
-        def __init__(self, session=None) -> None:
-            self.session = session if session is not None else Session()
-
-    host = Host()
+    host = _StopHost()
     turn = begin_send_turn(host)
     call1 = {"id": "toolu_1", "type": "function", "function": {"name": "func_a", "arguments": "{}"}}
     call2 = {"id": "toolu_2", "type": "function", "function": {"name": "func_b", "arguments": "{}"}}
