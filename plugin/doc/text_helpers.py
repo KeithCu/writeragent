@@ -43,6 +43,7 @@ from plugin.framework import url_utils as _url_utils
 log = logging.getLogger(__name__)
 
 _PARAGRAPH_SERVICE = "com.sun.star.text.Paragraph"
+_DRAW_SHAPE_SERVICE = "com.sun.star.drawing.Shape"
 # uno_read default where None is a real UNO result.
 FAILED: Any = object()
 
@@ -252,7 +253,7 @@ def selected_text_range(controller: Any) -> Any:
         if rng is None:
             continue
         if hasattr(rng, "supportsService"):
-            svc_val = uno_read(lambda: rng.supportsService("com.sun.star.drawing.Shape"), FAILED)
+            svc_val = uno_read(lambda: rng.supportsService(_DRAW_SHAPE_SERVICE), FAILED)
             if svc_val is True or (type(svc_val) is int and svc_val == 1):
                 continue
 
@@ -445,6 +446,11 @@ def _portion_type(portion: Any) -> str | None:
     return uno_read(lambda: portion.getPropertyValue("TextPortionType"), None, object_type="TextPortion")
 
 
+def _is_draw_shape_text(text_range: Any) -> bool:
+    """True when text_range is a draw shape (or its XText) in Writer, Calc, Draw or Impress."""
+    return uno_read(lambda: text_range.supportsService(_DRAW_SHAPE_SERVICE) is True, False, object_type="TextRange")
+
+
 def _range_is_paragraph(text_range: Any) -> bool:
     """True when *text_range* is a paragraph: children are portions, not paragraphs.
 
@@ -563,12 +569,23 @@ def _table_visible_text(table: Any) -> str:
 def get_string_without_tracked_deletions(text_range: Any) -> str:
     """Return *text_range* text while skipping tracked deletions when possible.
 
-    A paragraph (``com.sun.star.text.Paragraph``, or first child has
-    ``TextPortionType``) concatenates visible portions without a mid-``\\n``.
-    A document or multi-paragraph range still joins paragraphs with ``\\n``
-    and includes table-cell text, including nested tables.
+    A draw shape returns ``getString()`` directly. A paragraph
+    (``com.sun.star.text.Paragraph``, or first child has ``TextPortionType``)
+    concatenates visible portions without a mid-``\\n``. A document or
+    multi-paragraph range still joins paragraphs with ``\\n`` and includes
+    table-cell text, including nested tables.
     """
     try:
+        # Draw-shape text is editeng, which never reports a Redline portion
+        # (editeng/source/uno/unotext.cxx, WID_PORTIONTYPE case), and getString()
+        # joins paragraphs with \n like the walk. Every content/portion enumeration
+        # proxy registers in the shape's shared mvTextRanges and unregisters from
+        # its destructor without the SolarMutex
+        # (svx/source/unodraw/unoshtxt.cxx:SvxTextEditSourceImpl::removeRange),
+        # so a remote (URP) client that discards those proxies while the next call
+        # adds one corrupts the heap and aborts soffice.
+        if _is_draw_shape_text(text_range):
+            return text_range.getString()
         if _range_is_paragraph(text_range):
             return _paragraph_visible_text(text_range)
         para_enum = text_range.createEnumeration()

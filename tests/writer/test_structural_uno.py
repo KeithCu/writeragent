@@ -231,3 +231,31 @@ def test_clone_heading_block_inserts_before_next_heading_uno(ctx, doc):
         ("Next", "Heading 1"),
         ("AFTER", "Standard"),
     ], rows
+
+
+def _rect(doc, text=""):
+    shape = doc.createInstance("com.sun.star.drawing.RectangleShape")
+    doc.getDrawPage().add(shape)
+    if text:
+        shape.setString(text)
+    return shape
+
+
+@native_test
+@with_native_doc("writer")
+def test_get_page_objects_reads_draw_shape_text_uno(ctx, doc):
+    """GetPageObjects extracts draw-shape text through the getString short-circuit."""
+    for _idx in range(6):
+        _rect(doc)
+    _rect(doc, "one")
+    _rect(doc, "alpha\nbeta")
+
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    res = GetPageObjects().execute(tool_ctx, page=1)
+    assert res.get("status") == "ok", res
+    shapes = res.get("shapes") or []
+    assert len(shapes) == 8, res
+    texts = [s.get("text") for s in shapes]
+    assert texts[:6] == [""] * 6
+    assert texts[6] == "one"
+    assert texts[7] == "alpha\nbeta"

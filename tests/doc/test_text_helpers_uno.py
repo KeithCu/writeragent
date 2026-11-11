@@ -78,3 +78,33 @@ def test_get_string_without_tracked_deletions_multi_para_joins_with_newline(ctx)
         full.gotoStart(False)
         full.gotoEnd(True)
         assert get_string_without_tracked_deletions(full) == expected
+
+
+def _rect(doc, text=""):
+    shape = doc.createInstance("com.sun.star.drawing.RectangleShape")
+    doc.getDrawPage().add(shape)
+    if text:
+        shape.setString(text)
+    return shape
+
+
+@native_test
+def test_get_string_without_tracked_deletions_draw_shapes_no_proxy_churn(ctx):
+    """Draw shapes use getString directly without churning editeng enumerations.
+
+    Enumerating editeng portions over URP registers proxies in SvxTextEditSourceImpl
+    and unregisters without SolarMutex, which corrupts the heap and crashes soffice.
+    """
+    with TestingFactory.native_doc(ctx, "writer") as doc:
+        shapes = [_rect(doc) for _idx in range(40)]
+        last_shape = _rect(doc, "alpha\nbeta")
+        shapes.append(last_shape)
+
+        for _round in range(3):
+            for i, s in enumerate(shapes):
+                got = get_string_without_tracked_deletions(s)
+                if i < 40:
+                    assert got == ""
+                else:
+                    assert got == "alpha\nbeta"
+                    assert got == s.getString()

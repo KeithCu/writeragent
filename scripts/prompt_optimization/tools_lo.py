@@ -44,6 +44,7 @@ _lo_desktop = None
 _lo_docs: dict[int, Any] = {}
 _lo_kinds: dict[int, str] = {}
 _lo_proc = None  # headless soffice process, for cleanup
+_lo_log_path: str | None = None
 _lo_user_dir: str | None = None
 # Thread-local on the LO worker: current caller's thread id for acquire_document().
 _caller_tid_ctx = threading.local()
@@ -137,7 +138,7 @@ def _pin_caller_current_component() -> None:
 
 def _bootstrap_headless():
     """Start LibreOffice in headless mode and return the component context."""
-    global _lo_proc, _lo_user_dir
+    global _lo_proc, _lo_user_dir, _lo_log_path
     base = os.environ.get("UNO_PATH", "")
     soffice = os.path.join(base, "soffice")
     if sys.platform.startswith("win"):
@@ -150,21 +151,27 @@ def _bootstrap_headless():
     _lo_user_dir = tempfile.mkdtemp(prefix="wa-eval-lo-")
     # file:// URL for a private profile so we do not lock the interactive user profile.
     user_url = "file://" + _lo_user_dir.replace(os.sep, "/")
-    proc = subprocess.Popen(
-        [
-            soffice,
-            "--headless",
-            "--nologo",
-            "--nodefault",
-            "--norestore",
-            "--nolockcheck",
-            "--nofirststartwizard",
-            f"-env:UserInstallation={user_url}",
-            accept,
-        ],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
+    log_file = tempfile.NamedTemporaryFile(prefix="wa-eval-soffice-", suffix=".log", mode="wb", delete=False)
+    _lo_log_path = log_file.name
+    try:
+        proc = subprocess.Popen(
+            [
+                soffice,
+                "--headless",
+                "--nologo",
+                "--nodefault",
+                "--norestore",
+                "--nolockcheck",
+                "--nofirststartwizard",
+                f"-env:UserInstallation={user_url}",
+                accept,
+            ],
+            stdout=log_file,
+            stderr=log_file,
+        )
+    finally:
+        log_file.close()
+    print(f"headless soffice log: {_lo_log_path}", flush=True)
     _lo_proc = proc
     try:
         import uno
@@ -232,6 +239,10 @@ class LOBackend:
         # get_ctx() during startup is the office context rather than local pyuno.
         _install_eval_fallback_ctx(_lo_ctx)
 
+        root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        if not os.path.exists(os.path.join(root, "plugin", "_manifest.py")):
+            subprocess.run([sys.executable, os.path.join(root, "scripts", "generate_manifest.py")], check=True, cwd=root)
+
         try:
             from plugin.main import bind
             from plugin.app import bootstrap
@@ -287,8 +298,19 @@ class LOBackend:
             and _lo_proc.poll() is not None
             and getattr(func, "__func__", func) is not cleanup_fn
         ):
+            log_detail = ""
+            if _lo_log_path:
+                tail = ""
+                try:
+                    with open(_lo_log_path, "r", encoding="utf-8", errors="replace") as f:
+                        tail_lines = f.readlines()[-20:]
+                        if tail_lines:
+                            tail = "\n--- log tail ---\n" + "".join(tail_lines)
+                except Exception:
+                    pass
+                log_detail = f" (log: {_lo_log_path}){tail}"
             raise RuntimeError(
-                f"headless soffice exited (code={_lo_proc.returncode}); "
+                f"headless soffice exited (code={_lo_proc.returncode}){log_detail}; "
                 "URP bridge is gone — stop the multi-model run or restart LOBackend"
             )
         if _lo_thread is not None and threading.get_ident() == _lo_thread.ident:
