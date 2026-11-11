@@ -73,7 +73,7 @@ def _ctx():
     doc.getBookmarks.return_value.hasByName.return_value = False
     doc.getText.return_value.createEnumeration.return_value.hasMoreElements.return_value = False
     return types.SimpleNamespace(
-        doc=doc, ctx=object(),
+        doc=doc, ctx=MagicMock(),
         services=types.SimpleNamespace(get=lambda key, default=None: None),
     )
 

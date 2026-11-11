@@ -409,7 +409,7 @@ WRITER_REVIEW_MODES_RULES = """TRACKED CHANGES / REVIEW MODES:
 
 # apply_document_content only — design notes in docs/chat/sidebar-implementation.md § Chat prompt constants and docs/writer/math-tex.md.
 APPLY_DOCUMENT_TARGET_RULES = """APPLY_DOCUMENT_CONTENT AND HTML (CRITICAL):
-- target='search': old_content is a substring and may span paragraphs (newlines).
+- target='search': old_content is a substring and may span paragraphs (newlines). regex=true uses ICU syntax (LibreOffice's engine), not Python re: named groups are (?<name>...).
   position='before'/'after' inserts beside the match and leaves it untouched — do not re-send the matched clause.
 - Landmark-to-landmark replace: pass start_anchor and end_anchor (target='search'). The range includes both anchors and the text between them.
 - Reach: body, table cells, and text frames. target='search' also edits headers and footers. beginning, end, and full_document write the body only.

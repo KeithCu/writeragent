@@ -161,3 +161,39 @@ def test_search_in_document_zero_width_regex_is_truncated(ctx, doc):
     assert res["status"] == "ok"
     assert res["count"] == 0
     assert res["matches"] == []
+
+
+@native_test
+@with_native_doc("writer")
+def test_search_in_document_icu_only_regex_uno(ctx, doc):
+    _populate_search_doc(doc)
+    tool = SearchInDocument()
+    mock_ctx = MockContext(doc, ctx)
+    res = tool.execute(mock_ctx, pattern=r"\p{Lu}\w+", regex=True)
+    assert res["status"] == "ok"
+    assert res["count"] >= 2
+    assert res["matches"][0]["text"].startswith("Introduction")
+
+
+@native_test
+@with_native_doc("writer")
+def test_search_in_document_python_only_regex_is_invalid_regex_uno(ctx, doc):
+    _populate_search_doc(doc)
+    tool = SearchInDocument()
+    mock_ctx = MockContext(doc, ctx)
+    res = tool.execute(mock_ctx, pattern=r"(?P<w>Needles)", regex=True)
+    assert res["status"] == "error"
+    assert res["code"] == "INVALID_REGEX"
+    assert "(?<name>...)" in res["message"]
+    assert res.get("count", res.get("details", {}).get("count")) == 0
+
+
+@native_test
+@with_native_doc("writer")
+def test_search_in_document_plain_bad_regex_is_invalid_regex_uno(ctx, doc):
+    _populate_search_doc(doc)
+    tool = SearchInDocument()
+    mock_ctx = MockContext(doc, ctx)
+    res = tool.execute(mock_ctx, pattern="([a-", regex=True)
+    assert res["status"] == "error"
+    assert res["code"] == "INVALID_REGEX"

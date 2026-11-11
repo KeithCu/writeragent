@@ -21,7 +21,7 @@ from __future__ import annotations
 import logging
 import re as re_mod
 from itertools import islice
-from typing import TYPE_CHECKING, Any, Iterable, Iterator, Literal
+from typing import TYPE_CHECKING, Any, Iterable, Iterator, Literal, cast
 
 from plugin.doc.text_helpers import (
     FAILED,
@@ -34,7 +34,7 @@ from plugin.doc.text_helpers import (
 )
 from plugin.framework.errors import reraise_if_disposed, uno_read
 from plugin.framework.tool import ToolBase, ToolBaseDummy
-from plugin.framework.uno_context import uno_same
+from plugin.framework.uno_context import get_ctx, get_service_manager, uno_same
 from plugin.framework.worker_pool import run_in_background
 from plugin.writer.review_scan import document_has_tracked_deletions
 
@@ -140,12 +140,53 @@ def find_next_after_match(doc: Any, found: Any, sd: Any) -> Any:
 
 
 def validate_regex_pattern(pattern: str) -> str | None:
-    """Return an error message when *pattern* is not valid Python regex, else None."""
+    """Return an error message when *pattern* is not valid Python regex, else None.
+
+    Used by paths that run Python re directly (Draw shape text, Writer floating shape
+    and comment sweeps). Writer body search uses LibreOffice's ICU engine and validates
+    via validate_icu_regex instead.
+    """
     try:
         re_mod.compile(pattern)
     except re_mod.error as rex:
         return str(rex)
     return None
+
+
+ICU_REGEX_REJECTED = (
+    "LibreOffice's ICU regex engine rejects it. Patterns use ICU syntax, which differs "
+    "from Python re: named groups are (?<name>...) not (?P<name>...), backreferences by "
+    "name are \\k<name>, and \\p{Lu} style classes are allowed"
+)
+
+
+def validate_icu_regex(ctx: Any, pattern: str) -> str | None:
+    """Return an error message when LibreOffice's ICU engine cannot compile *pattern*, else None.
+
+    LibreOffice reports a bad regex as "no match" (i18npool TextSearch::RESrchPrepare resets the
+    matcher; RESrchFrwrd then returns no result), so a document search cannot tell a typo from
+    zero hits. Compile ".|(?:pattern)" with the TextSearch2 service and search the one-character
+    text "a": the "." branch always matches, so a hit means the whole pattern, including the
+    user's part, compiled. Patterns with unclosed \\Q literal quotes or unbalanced parentheses
+    matching the wrapper may produce false negatives or false positives. Main thread only, like
+    every other UNO call in this module.
+    """
+    import uno
+
+    smgr = get_service_manager(ctx)
+    if smgr is None:
+        ctx = get_ctx()
+        smgr = get_service_manager(ctx)
+    if smgr is None:
+        return None
+    ts = smgr.createInstanceWithContext("com.sun.star.util.TextSearch2", ctx)
+    opts = cast("Any", uno.createUnoStruct("com.sun.star.util.SearchOptions2"))
+    opts.AlgorithmType2 = uno.getConstantByName("com.sun.star.util.SearchAlgorithms2.REGEXP")
+    opts.searchString = ".|(?:%s)" % pattern
+    opts.Locale = uno.createUnoStruct("com.sun.star.lang.Locale")
+    ts.setOptions2(opts)
+    res = ts.searchForward("a", 0, 1)
+    return None if int(res.subRegExpressions) > 0 else ICU_REGEX_REJECTED
 
 
 def invalid_regex_tool_message(rex_msg: str) -> str:
@@ -1111,10 +1152,7 @@ def _search_descriptor(doc: Any, pattern: str, use_regex: bool, case_sensitive: 
 
 
 def find_ranges_regex_case(doc: Any, pattern: str, use_regex: bool, case_sensitive: bool, all_matches: bool) -> Any:
-    if use_regex:
-        err = validate_regex_pattern(pattern)
-        if err:
-            raise ValueError(invalid_regex_tool_message(err))
+    # Callers validate the pattern with validate_icu_regex before searching.
     sd = _search_descriptor(doc, pattern, use_regex, case_sensitive)
     if not all_matches:
         return doc.findFirst(sd)
@@ -1369,15 +1407,16 @@ class SearchInDocument(ToolBase):
         "\"header (page style 'Standard')\", \"comment by 'Ana'\") plus the surrounding paragraph (or "
         "shape/comment text) for context. When pointing the user to a match, quote the first few words "
         "of its text and its location rather than any internal index. "
-        "With regex=true, body/table/frame hits use LibreOffice/ICU regex; shape and comment sweeps "
-        "use Python re (same INVALID_REGEX check). return_offsets is body-only literal search. "
+        "With regex=true, body/table/frame hits use LibreOffice/ICU regex; patterns use ICU syntax "
+        "(validated by LibreOffice before searching; e.g. (?<name>...) not (?P<name>...)); shape and "
+        "comment sweeps use Python re, so ICU-only syntax such as \\p{Lu} finds nothing there. return_offsets is body-only literal search. "
         "A zero-width match stops the text-model walk, sets truncated, and does not count the empty hit."
     )
     parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
             "pattern": {"type": "string", "description": "Search string or regex pattern."},
-            "regex": {"type": "boolean", "description": "Use regular expression (default: false)."},
+            "regex": {"type": "boolean", "description": "Use regular expression (ICU syntax, default: false)."},
             "case_sensitive": {"type": "boolean", "description": CASE_SENSITIVE_DESCRIPTION},
             "max_results": {
                 "type": "integer",
@@ -1417,7 +1456,7 @@ class SearchInDocument(ToolBase):
             return {"status": "ok", "ranges": ranges, "matched_case_sensitive": case_sensitive}
 
         if use_regex:
-            rex_err = validate_regex_pattern(pattern)
+            rex_err = validate_icu_regex(ctx.ctx, pattern)
             if rex_err:
                 return self._tool_error(invalid_regex_tool_message(rex_err), code="INVALID_REGEX", count=0)
 
@@ -1469,18 +1508,22 @@ class SearchInDocument(ToolBase):
                 warning = "Text-model search ended early after a findNext failure; count may be incomplete."
                 break
 
-        for extra in (
-            iter_shape_hits(doc, pattern, use_regex, case_sensitive),
-            iter_comment_hits(doc, pattern, use_regex, case_sensitive),
-        ):
-            for hit, location, context in extra:
+        shape_comment_warning: str | None = None
+        if use_regex and validate_regex_pattern(pattern) is not None:
+            shape_comment_warning = "shape/comment text not searched: pattern uses ICU-only syntax"
+        else:
+            for extra in (
+                iter_shape_hits(doc, pattern, use_regex, case_sensitive),
+                iter_comment_hits(doc, pattern, use_regex, case_sensitive),
+            ):
+                for hit, location, context in extra:
+                    if total_count >= MAX_SEARCH_HITS:
+                        break
+                    total_count += 1
+                    if len(matches) < max_results:
+                        add(hit, location, context)
                 if total_count >= MAX_SEARCH_HITS:
                     break
-                total_count += 1
-                if len(matches) < max_results:
-                    add(hit, location, context)
-            if total_count >= MAX_SEARCH_HITS:
-                break
 
         if warning is None and total_count >= MAX_SEARCH_HITS:
             warning = "Search stopped after %d matches; count may be incomplete." % MAX_SEARCH_HITS
@@ -1498,6 +1541,8 @@ class SearchInDocument(ToolBase):
         if warning is not None:
             result["truncated"] = True
             result["warning"] = warning
+        elif shape_comment_warning is not None:
+            result["warning"] = shape_comment_warning
 
         returned = len(matches)
         if returned < total_count and warning is None:

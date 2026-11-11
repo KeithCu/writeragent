@@ -126,7 +126,7 @@ Code constants remain string literals across call sites, consistent with the cod
 | `UNDO_UNAVAILABLE` | error | `apply_document_content.py:644, 722, 1468`, `styles.py:1403` | None |
 | `ROLLBACK_FAILED` | error | `apply_document_content.py:1481, 1499`, `styles.py:1423` | None |
 | `INVALID_PARAM` | error | Parameter validation failures: missing query/pattern (`search.py:1401, 1526`); invalid style/clear_direct (`styles.py:1312, 1338-1347`); selection parameter conflicts/empty values (`selection.py:75-106`); `apply_document_content` parameter conflicts/empty strings (`892, 903, 1186, 1188, 1192, 1207, 1211, 1214, 1631, 1639`) | None |
-| `INVALID_REGEX` | error | `invalid_regex_tool_message` (`search.py:151`) | None (item 21 adds `details.engine: "icu" \| "python"`). |
+| `INVALID_REGEX` | error | `validate_icu_regex` / `invalid_regex_tool_message` (`search.py`) | None (item 21 shipped; validated via ICU engine; `details.engine` dropped). |
 | `STYLE_IGNORED_PARTIAL_MATCH` | warning | Partial match style skip (`_LO_STYLE_PARTIAL_MATCH_NOTE`, `html_import.py:507`) | `apply_style(target="search", old_content=<params.plain>, style=<style>, case_sensitive=True)` if conditions in §3.5 hold. |
 | `STYLE_IGNORED_RECORDING` | warning | Tracked changes recording skip (`_LO_STYLE_RECORDING_NOTE`, `html_import.py:511`) | None (`apply_style` is not tracked). |
 | `PARA_PROPERTY_UNSUPPORTED` | warning | Unapplied `data-lo-para` property (`html_import_styles.attach_para_warnings:593`) | None |
@@ -232,7 +232,7 @@ Each phase is independently shippable, maintains green tests, and requires no te
 
 ## 5. Items 16 and 21 interaction
 
-- **Item 21 (Search regex errors):** Kept as `INVALID_REGEX`, optionally carrying `details.engine: "icu" | "python"`. No `suggested_call` is emitted (guessing between `regex=false` and pattern fixes is ambiguous). Avoids conflicts with `invalid_regex_tool_message` (`plugin/writer/search.py:151`).
+- **Item 21 (Search regex errors):** Shipped as `INVALID_REGEX` validated via LibreOffice's `TextSearch2` (ICU) service before searching. `details.engine` omitted (no consumer). Avoids conflicts with `invalid_regex_tool_message` (`plugin/writer/search.py:151`).
 - **Item 16 (Math object import):** Successfully created Math objects return success metadata in their own response field (not a `Diagnostic`). However, a failed Math formula import that inserts `[Math import failed]` into the document (`plugin/writer/html_import.py:226`) represents dropped content and can report a `Diagnostic` warning (e.g. `MATH_IMPORT_FAILED`) once Phase 0 plumbing lands.
 
 ## 6. Risks and mitigations
