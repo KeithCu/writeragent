@@ -60,6 +60,7 @@ from plugin.framework.errors import (
     suggest_call,
     uno_read,
 )
+from plugin.framework.uno_context import enum_has_more
 from plugin.framework.json_utils import safe_json_loads
 from plugin.writer import search as search_mod
 from plugin.writer import html_import_styles
@@ -261,7 +262,7 @@ def _range_contains_table(text_range: Any) -> bool:
     enum = uno_read(lambda: text_range.createEnumeration(), None)
     if enum is None:
         return False
-    while uno_read(lambda: enum.hasMoreElements(), False):
+    while uno_read(lambda: enum_has_more(enum), False):
         elem = uno_read(lambda: enum.nextElement(), None)
         if elem is not None and uno_read(lambda: elem.supportsService("com.sun.star.text.TextTable"), False):
             return True

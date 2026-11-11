@@ -649,7 +649,7 @@ def build_heading_tree(model: Any, elements: list[Any] | None = None) -> Heading
             else:
                 text = uno_call(model.getText, "Get document text")
                 enum = uno_call(text.createEnumeration, "Create enumeration")
-                while uno_call(enum.hasMoreElements, "Check more elements"):
+                while uno_call(lambda: enum_has_more(enum), "Check more elements"):
                     yield uno_call(enum.nextElement, "Get next element")
 
         for para_index, element in enumerate(_iter_elements()):
