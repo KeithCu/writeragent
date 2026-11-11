@@ -267,7 +267,7 @@ Eval-1 backends: **`string`** = in-memory; **`lo`** = native headless UNO; **`au
 
 Org_chart_gen matrix splice on #941 tip (after 2026-09-27 complete 26×18 flag-18 board), then **2026-09-28 hand-scored gallery overrides** ([docs/eval/org-chart-hand-scores-2026-09-28.md](../../docs/eval/org-chart-hand-scores-2026-09-28.md)). Catalog unchanged: GPT-6 Luna, Command A+, Ternary Bonsai 2 aboard; no 5.6 Luna / ds-v4-flash-0731; MiMos omitted. **Org-chart hard PASS (visual): 5/26** — Muse Spark, Qwen 3.8 Flash, Qwen 3.8 27B, GLM 5.3 Flash, GPT-6 Luna. Soft/borderline and other former oracle PASSes flipped to 0; catalog FAILs (incl. Ternary Bonsai hang) unchanged.
 
-Tasks 18–19 run on the **native** lane (`--backend auto`). **Board is complete: 34/34** models have `n_examples=19`. Perfect hard pass (n=19): `anthropic/claude-sonnet-5.5` (org-chart oracle PASS pending hand grade) and `meta/muse-spark-1.3-contributor` (`openai/gpt-oss-120b` catalog org fail → 0.947). Board is now 34 models (Claude 5.5 Haiku/Sonnet/Opus, Muse Ember, LFM 3 1.7B added 2026-11-11).
+Tasks 18–19 run on the **native** lane (`--backend auto`). **Board is complete: 34/34** models have `n_examples=19`. Perfect hard pass (n=19): `anthropic/claude-sonnet-5.5` (org-chart oracle PASS pending hand grade), `anthropic/claude-opus-5.5` (clean flag after the shape-text crash fix; org-chart oracle PASS pending hand grade), and `meta/muse-spark-1.3-contributor` (`openai/gpt-oss-120b` catalog org fail → 0.947). Board is now 34 models (Claude 5.5 Haiku/Sonnet/Opus, Muse Ember, LFM 3 1.7B added 2026-11-11).
 
 Pareto SVGs regenerated from this JSON: [`docs/eval/pareto-fronts.svg`](../../docs/eval/pareto-fronts.svg), [`docs/eval/pareto-distance.svg`](../../docs/eval/pareto-distance.svg).
 
@@ -278,13 +278,13 @@ Ranked by **hard pass → agent score → metric**. **C²/$** = metric score squ
 | Rank | Model | Hard pass | Agent | Correctness | Quality | Tokens/task | $/task | C²/$ | n_err |
 | ---- | ---- | ------- | ------- | ------- | ------- | ------- | ------- | ------- | ------- |
 | 1 | anthropic/claude-sonnet-5.5 | 1.000 | 1.000 | 0.994 | 0.98 | 47918 | 0.10723 | 2.6 | 0 |
-| 2 | meta/muse-spark-1.3-contributor | 1.000 | 1.000 | 0.981 | 0.93 | 56766 | 0.00653 | 64.4 | 0 |
-| 3 | nvidia/nemotron-3.5-super-vl | 0.947 | 0.947 | 0.932 | 0.94 | 54511 | 0.01060 | 35.5 | 0 |
-| 4 | openai/gpt-oss-120b | 0.947 | 0.947 | 0.921 | 0.90 | 18554 | 0.00106 | 584.2 | 0 |
-| 5 | meta/muse-ember | 0.895 | 0.895 | 0.927 | 0.94 | 55207 | 0.00750 | 41.1 | 0 |
-| 6 | meta/muse-glimmer-30b | 0.895 | 0.895 | 0.923 | 0.96 | 32858 | 0.01429 | 29.5 | 0 |
-| 7 | x-ai/grok-4.6 | 0.895 | 0.895 | 0.918 | 0.94 | 36460 | 0.09480 | 4.9 | 0 |
-| 8 | anthropic/claude-opus-5.5 | 0.895 | 0.895 | 0.887 | 0.97 | 39803 | 0.18560 | 1.5 | 1 |
+| 2 | anthropic/claude-opus-5.5 | 1.000 | 1.000 | 0.993 | 0.97 | 60171 | 0.28569 | 1.1 | 0 |
+| 3 | meta/muse-spark-1.3-contributor | 1.000 | 1.000 | 0.981 | 0.93 | 56766 | 0.00653 | 64.4 | 0 |
+| 4 | nvidia/nemotron-3.5-super-vl | 0.947 | 0.947 | 0.932 | 0.94 | 54511 | 0.01060 | 35.5 | 0 |
+| 5 | openai/gpt-oss-120b | 0.947 | 0.947 | 0.921 | 0.90 | 18554 | 0.00106 | 584.2 | 0 |
+| 6 | meta/muse-ember | 0.895 | 0.895 | 0.927 | 0.94 | 55207 | 0.00750 | 41.1 | 0 |
+| 7 | meta/muse-glimmer-30b | 0.895 | 0.895 | 0.923 | 0.96 | 32858 | 0.01429 | 29.5 | 0 |
+| 8 | x-ai/grok-4.6 | 0.895 | 0.895 | 0.918 | 0.94 | 36460 | 0.09480 | 4.9 | 0 |
 | 9 | qwen/qwen3.8-27b | 0.842 | 0.842 | 0.917 | 0.92 | 133087 | 0.09898 | 2.9 | 1 |
 | 10 | deepseek/deepseek-v4.1-flash | 0.842 | 0.842 | 0.883 | 0.97 | 138573 | 0.01015 | 34.8 | 2 |
 | 11 | reflection/beam-1.0-501b-a23b | 0.842 | 0.842 | 0.879 | 0.93 | 148577 | 0.04401 | 9.5 | 1 |

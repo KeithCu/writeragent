@@ -33,16 +33,16 @@ Ranked by **hard pass → agent score → metric**. **Hard pass** = document sub
 | Rank | Model | Hard pass | Agent | Correctness | Quality | Tokens/task | $/task | C²/$ |
 | ---- | ---- | ------- | ------- | ------- | ------- | ------- | ------- | ------- |
 | 1 | anthropic/claude-sonnet-5.5 | 1.000 | 1.000 | 0.994 | 0.98 | 47918 | 0.10723 | 2.6 |
-| 2 | meta/muse-spark-1.3-contributor | 1.000 | 1.000 | 0.981 | 0.93 | 56766 | 0.00653 | 64.4 |
-| 3 | nvidia/nemotron-3.5-super-vl | 0.947 | 0.947 | 0.932 | 0.94 | 54511 | 0.01104 | 34.1 |
-| 4 | openai/gpt-oss-120b | 0.947 | 0.947 | 0.921 | 0.90 | 18554 | 0.00106 | 584.2 |
-| 5 | deepseek/deepseek-v4.1-flash | 0.947 | 0.947 | 0.921 | 0.93 | 139971 | 0.01025 | 36.4 |
-| 6 | meta/muse-ember | 0.895 | 0.895 | 0.927 | 0.94 | 55207 | 0.00750 | 41.1 |
-| 7 | meta/muse-glimmer-30b | 0.895 | 0.895 | 0.923 | 0.96 | 32858 | 0.01429 | 29.5 |
-| 8 | x-ai/grok-4.6 | 0.895 | 0.895 | 0.918 | 0.94 | 36460 | 0.09480 | 4.9 |
-| 9 | qwen/qwen3.8-27b | 0.895 | 0.895 | 0.917 | 0.92 | 120710 | 0.08978 | 3.8 |
-| 10 | inception/mercury-3 | 0.895 | 0.895 | 0.906 | 0.89 | 43867 | 0.00603 | 52.4 |
-| 11 | anthropic/claude-opus-5.5 | 0.895 | 0.895 | 0.887 | 0.97 | 39803 | 0.18560 | 1.5 |
+| 2 | anthropic/claude-opus-5.5 | 1.000 | 1.000 | 0.993 | 0.97 | 60171 | 0.28569 | 1.1 |
+| 3 | meta/muse-spark-1.3-contributor | 1.000 | 1.000 | 0.981 | 0.93 | 56766 | 0.00653 | 64.4 |
+| 4 | nvidia/nemotron-3.5-super-vl | 0.947 | 0.947 | 0.932 | 0.94 | 54511 | 0.01104 | 34.1 |
+| 5 | openai/gpt-oss-120b | 0.947 | 0.947 | 0.921 | 0.90 | 18554 | 0.00106 | 584.2 |
+| 6 | deepseek/deepseek-v4.1-flash | 0.947 | 0.947 | 0.921 | 0.93 | 139971 | 0.01025 | 36.4 |
+| 7 | meta/muse-ember | 0.895 | 0.895 | 0.927 | 0.94 | 55207 | 0.00750 | 41.1 |
+| 8 | meta/muse-glimmer-30b | 0.895 | 0.895 | 0.923 | 0.96 | 32858 | 0.01429 | 29.5 |
+| 9 | x-ai/grok-4.6 | 0.895 | 0.895 | 0.918 | 0.94 | 36460 | 0.09480 | 4.9 |
+| 10 | qwen/qwen3.8-27b | 0.895 | 0.895 | 0.917 | 0.92 | 120710 | 0.08978 | 3.8 |
+| 11 | inception/mercury-3 | 0.895 | 0.895 | 0.906 | 0.89 | 43867 | 0.00603 | 52.4 |
 | 12 | reflection/beam-1.0-501b-a23b | 0.842 | 0.842 | 0.879 | 0.93 | 148577 | 0.05386 | 7.7 |
 | 13 | openai/gpt-6-luna | 0.842 | 0.842 | 0.873 | 0.93 | 34348 | 0.00550 | 71.1 |
 | 14 | qwen/qwen3.8-flash | 0.842 | 0.842 | 0.865 | 0.89 | 56566 | 0.01120 | 19.3 |
@@ -71,7 +71,7 @@ Ranked by **hard pass → agent score → metric**. **Hard pass** = document sub
 
 1. **Org-chart-19 + hand visual grades:** All 26 catalog models have `python_shapes_flag` + `org_chart_gen` (`n_examples=19`). Catalog oracle had 19 PASS / 7 FAIL; **hand gallery overrides** leave **5 visual HARD PASS**: `meta/muse-spark-1.3-contributor`, `qwen/qwen3.8-flash`, `qwen/qwen3.8-27b`, `z-ai/glm-5.3-flash`, `openai/gpt-6-luna`. Soft/borderline (Grok 4.6, Muse Glimmer, Laguna S) and other oracle false PASSes score org hard=0. Catalog FAILs (gpt-oss-120b, Nemotron 3.5 Lightning, Mistral Small 2603, Granite 4.2, DeepSeek V4.1F, Nemotron Ultra, Ternary Bonsai hang → 0). New 2026-11-11 models (`anthropic/claude-sonnet-5.5`, `anthropic/claude-opus-5.5`, `anthropic/claude-haiku-5.5`, `meta/muse-ember`, `liquid/lfm-3-1.7b`) have catalog oracle PASS on org-chart and are **pending hand visual grade**, same as the 2026-10-16 additions. Grades: [org-chart hand scores](org-chart-hand-scores-2026-09-28.md).
 2. **Catalog:** MiMos omitted.
-3. **Perfect hard pass (n=19):** `anthropic/claude-sonnet-5.5` (1.000, including a clean flag; org-chart is a catalog oracle PASS pending hand visual grade) and `meta/muse-spark-1.3-contributor`. `openai/gpt-oss-120b` stays 0.947 (catalog org fail). Muse Glimmer / Grok drop to 0.895 after visual org FAIL. `anthropic/claude-opus-5.5` flag was an infra miss (headless soffice abort after three attempts); `liquid/lfm-3-1.7b` flag also aborted mid-export, and a few other LFM rows had empty responses, a connection reset, or `max_tool_rounds`.
+3. **Perfect hard pass (n=19):** `anthropic/claude-sonnet-5.5` (1.000, including a clean flag; org-chart is a catalog oracle PASS pending hand visual grade), `anthropic/claude-opus-5.5` (1.000, including a clean flag — 13 stripes, 50 stars; org-chart is a catalog oracle PASS pending hand visual grade), and `meta/muse-spark-1.3-contributor`. `openai/gpt-oss-120b` stays 0.947 (catalog org fail). Muse Glimmer / Grok drop to 0.895 after visual org FAIL. `liquid/lfm-3-1.7b` flag also aborted mid-export, and a few other LFM rows had empty responses, a connection reset, or `max_tool_rounds`.
 4. **C²/$:** `openai/gpt-oss-120b` still leads Value (correctness² ÷ $/task). Costs for spliced averages use catalog rates × recorded `total_tokens` (85% prompt / 15% completion when the split is unknown).
 5. **Pareto plots** regenerate from this JSON (`plot_pareto.py`); MiniMax remains on the board (one known stream-normalizer contract bug on a non-Calc task — see [stream-normalizer-delta-crash.md](stream-normalizer-delta-crash.md)).
 6. **Org-chart oracle gap:** structural box/connector floors still admit false PASSes (blobs, stacks, overlaps). Hand grades override for this board; tighten code scoring or add a vision judge later — see [org-chart hand scores](org-chart-hand-scores-2026-09-28.md).

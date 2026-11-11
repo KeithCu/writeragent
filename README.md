@@ -151,8 +151,8 @@ Distance-to-frontier view: [docs/eval/pareto-distance.svg](docs/eval/pareto-dist
 | anthropic/claude-sonnet-5.5 | 0.994 | 9 |
 | x-ai/grok-4.6 | 0.918 | 9 |
 | qwen/qwen3.8-27b | 0.917 | 9 |
-| anthropic/claude-opus-5.5 | 0.887 | 4 |
 | nvidia/nemotron-3-ultra-550b-a55b | 0.840 | 4 |
+| anthropic/claude-opus-5.5 | 0.993 | 3 |
 
 ---
 
