@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-03 13:09-0500\n"
+"POT-Creation-Date: 2026-11-11 14:14-0500\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Turkish <LL@li.org>\n"
@@ -107,6 +107,44 @@ msgstr "Kod hücresini çalıştır"
 #: plugin/notebook/layout.py
 msgid "Code"
 msgstr "Kod"
+
+#: plugin/draw/editselection.py
+msgid "Select a text shape. Tables are not rewritten."
+msgstr "Bir metin şekli seçin. Tablolar yeniden yazılmaz."
+
+#: plugin/draw/editselection.py
+msgid "Select a text shape."
+msgstr "Bir metin şekli seçin."
+
+#: plugin/draw/editselection.py
+msgid "WriterAgent: Edit Selection (Draw)"
+msgstr "WriterAgent: Seçimi Düzenle (Draw)"
+
+#: plugin/draw/editselection.py
+msgid "WriterAgent: Extend Selection (Draw)"
+msgstr "WriterAgent: Seçimi Genişlet (Draw)"
+
+#: plugin/draw/editselection.py plugin/calc/editselection.py
+#, python-brace-format
+msgid "Only the first {0} non-empty cells are edited."
+msgstr "Sadece boş olmayan ilk {0} hücre düzenlendi."
+
+#: plugin/draw/editselection.py
+msgid "Could not register undo for this edit. The change was not applied."
+msgstr "Bu düzenleme için geri alma kaydedilemedi. Değişiklik uygulanmadı."
+
+#: plugin/draw/editselection.py plugin/calc/editselection.py
+#: plugin/writer/editselection.py
+msgid ""
+"The rewrite ran out of tokens before producing text. Try again or shorten "
+"the selection."
+msgstr ""
+"Yeniden yazma işlemi metin üretmeden önce belirteçleri tüketti. Tekrar "
+"deneyin veya seçimi kısaltın."
+
+#: plugin/draw/editselection.py plugin/calc/editselection.py
+msgid "The model returned no text. Try again."
+msgstr "Model metin döndürmedi. Tekrar deneyin."
 
 #: plugin/embeddings/search_ui.py
 msgid "just now"
@@ -317,7 +355,7 @@ msgstr "Formül taşırma çakışması: hedef aralık boş olmayan hücreler i�
 msgid "The AI provider reported an error. Try again."
 msgstr "Yapay zeka sağlayıcısı bir hata bildirdi. Tekrar deneyin."
 
-#: plugin/framework/errors.py plugin/calc/python/function.py
+#: plugin/framework/errors.py plugin/calc/python/addin_values.py
 #: plugin/chatbot/quick_setup.py plugin/scripting/session_manager.py
 #, python-brace-format
 msgid "Error: {0}"
@@ -627,6 +665,11 @@ msgid "Configure a Python venv path in Settings → Python."
 msgstr "Ayarlar → Python yolunda bir Python sanal ortamı (venv) yapılandırın."
 
 #: plugin/calc/python/init_script_editor.py
+msgid "The Python editor check is still running. Open this again in a moment."
+msgstr ""
+"Python düzenleyici denetimi hala çalışıyor. Bunu birazdan tekrar açın."
+
+#: plugin/calc/python/init_script_editor.py
 msgid "Cannot import webview (pywebview) in the configured venv."
 msgstr "Yapılandırılan sanal ortamda webview (pywebview) içe aktarılamıyor."
 
@@ -746,16 +789,24 @@ msgid "Could not open the built-in Python cell editor."
 msgstr "Yerleşik Python hücre düzenleyicisi açılamadı."
 
 #: plugin/calc/python/function.py
+msgid "Image inserted"
+msgstr "Görüntü eklendi"
+
+#: plugin/calc/python/function.py
+msgid "Images inserted"
+msgstr "Görseller eklendi"
+
+#: plugin/calc/python/addin_values.py
 #, python-brace-format
 msgid "Error: Main-thread execution timed out ({0})"
 msgstr "Hata: Ana iş parçacığı yürütme zaman aşımına uğradı ({0})"
 
-#: plugin/calc/python/function.py plugin/scripting/python_runner_ui.py
+#: plugin/calc/python/addin_values.py plugin/scripting/python_runner_ui.py
 #: plugin/scripting/python_runner.py
 msgid "Unknown error"
 msgstr "Bilinmeyen hata"
 
-#: plugin/calc/python/function.py
+#: plugin/calc/python/addin_values.py
 msgid ""
 "Error: Python venv not found. Open Settings → Python, set the venv path, "
 "then Test."
@@ -763,21 +814,13 @@ msgstr ""
 "Hata: Python venv bulunamadı. Ayarlar → Python yolunu açın, venv yolunu "
 "ayarlayın ve ardından Test edin."
 
-#: plugin/calc/python/function.py
+#: plugin/calc/python/addin_values.py
 msgid ""
 "Error: Python timed out. Open Settings → Python to raise the timeout, or "
 "Test the venv."
 msgstr ""
 "Hata: Python zaman aşımına uğradı. Zaman aşımını artırmak için Ayarlar → "
 "Python'u açın veya venv'yi Test edin."
-
-#: plugin/calc/python/function.py
-msgid "Image inserted"
-msgstr "Görüntü eklendi"
-
-#: plugin/calc/python/function.py
-msgid "Images inserted"
-msgstr "Görseller eklendi"
 
 #: plugin/calc/python/geometric_recalc.py
 #, python-format
@@ -820,9 +863,8 @@ msgid "Select one or more non-empty cells."
 msgstr "Boş olmayan bir veya daha fazla hücre seçin."
 
 #: plugin/calc/editselection.py
-#, python-brace-format
-msgid "Only the first {0} non-empty cells are edited."
-msgstr "Sadece boş olmayan ilk {0} hücre düzenlendi."
+msgid "Formula cells are skipped."
+msgstr "Formül hücreleri atlandı."
 
 #: plugin/calc/vision_egress.py plugin/vision/vision_runner.py
 #: plugin/vision/vision_egress.py
@@ -1800,16 +1842,65 @@ msgid "Perfect! I'm switching you to the main assistant now."
 msgstr "Harika! Sizi şimdi ana asistana yönlendiriyorum."
 
 #: plugin/chatbot/slash_commands.py
+msgid "[focus]"
+msgstr "[odak]"
+
+#: plugin/chatbot/slash_commands.py
+msgid "[target]"
+msgstr "[hedef]"
+
+#: plugin/chatbot/slash_commands.py
+msgid "[what]"
+msgstr "[ne]"
+
+#: plugin/chatbot/slash_commands.py
+msgid "<description>"
+msgstr "<açıklama>"
+
+#: plugin/chatbot/slash_commands.py
+msgid "<language>"
+msgstr "<dil>"
+
+#: plugin/chatbot/slash_commands.py
+msgid "<fact>"
+msgstr "<gerçek>"
+
+#: plugin/chatbot/slash_commands.py
+msgid "Failed to save memory."
+msgstr "Belleğe kaydetme başarısız oldu."
+
+#: plugin/chatbot/slash_commands.py
+#, python-brace-format
+msgid "Saved to memory: {0}"
+msgstr "Belleğe kaydedildi: {0}"
+
+#: plugin/chatbot/slash_commands.py
+msgid "help"
+msgstr "yardım"
+
+#: plugin/chatbot/slash_commands.py
 msgid "Print the command list"
 msgstr "Komut listesini yazdır"
+
+#: plugin/chatbot/slash_commands.py
+msgid "clear"
+msgstr "temizle"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Start a new chat"
 msgstr "Yeni bir sohbet başlat"
 
 #: plugin/chatbot/slash_commands.py
+msgid "stop"
+msgstr "durdur"
+
+#: plugin/chatbot/slash_commands.py
 msgid "Cancel the in-flight send"
 msgstr "Devam eden gönderimi iptal et"
+
+#: plugin/chatbot/slash_commands.py
+msgid "summarize"
+msgstr "özetle"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Summarize the selection or document in the sidebar"
@@ -1820,6 +1911,10 @@ msgid ""
 "Summarize the selected text, or the whole document if nothing is selected."
 msgstr ""
 "Seçili metni veya hiçbir şey seçili değilse belgenin tamamını özetleyin."
+
+#: plugin/chatbot/slash_commands.py
+msgid "proofread"
+msgstr "düzelt"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Fix spelling, grammar, and punctuation without restyling"
@@ -1835,6 +1930,10 @@ msgstr ""
 " veya anlamı değiştirmeyin."
 
 #: plugin/chatbot/slash_commands.py
+msgid "shorten"
+msgstr "kısalt"
+
+#: plugin/chatbot/slash_commands.py
 msgid "Shorten the selection"
 msgstr "Seçimi kısalt"
 
@@ -1843,12 +1942,20 @@ msgid "Make the text shorter while preserving the meaning."
 msgstr "Anlamı koruyarak metni kısaltın."
 
 #: plugin/chatbot/slash_commands.py
+msgid "expand"
+msgstr "genişlet"
+
+#: plugin/chatbot/slash_commands.py
 msgid "Expand the selection with more detail"
 msgstr "Seçimi daha fazla ayrıntıyla genişlet"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Expand the text with more detail and clarity."
 msgstr "Metni daha fazla ayrıntı ve netlikle genişletin."
+
+#: plugin/chatbot/slash_commands.py
+msgid "tone"
+msgstr "ton"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Rewrite the selection to match a described tone"
@@ -1860,6 +1967,10 @@ msgid "Rewrite the text to match this tone or style: {arg}"
 msgstr "Metni şu tona veya biçeme uyacak şekilde yeniden yazın: {arg}"
 
 #: plugin/chatbot/slash_commands.py
+msgid "translate"
+msgstr "çevir"
+
+#: plugin/chatbot/slash_commands.py
 msgid "Translate the selection (sidebar when nothing is selected in Writer)"
 msgstr "Seçimi çevir (Writer'da hiçbir şey seçili değilken kenar çubuğu)"
 
@@ -1867,6 +1978,10 @@ msgstr "Seçimi çevir (Writer'da hiçbir şey seçili değilken kenar çubuğu)
 #, python-brace-format
 msgid "Translate the text into {arg}. Keep formatting and structure."
 msgstr "Metni {arg} diline çevir. Biçimlendirmeyi ve yapıyı koru."
+
+#: plugin/chatbot/slash_commands.py
+msgid "explain"
+msgstr "açıkla"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Explain the selection or active Calc formula"
@@ -1877,16 +1992,32 @@ msgid "Explain the following in plain language."
 msgstr "Aşağıdakileri sade bir dille açıkla."
 
 #: plugin/chatbot/slash_commands.py
+msgid "remember"
+msgstr "hatırla"
+
+#: plugin/chatbot/slash_commands.py
 msgid "Save a fact to persistent memory"
 msgstr "Bir gerçeği kalıcı belleğe kaydet"
+
+#: plugin/chatbot/slash_commands.py
+msgid "compact"
+msgstr "sıkıştır"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Compact older chat history now"
 msgstr "Eski sohbet geçmişini şimdi sıkıştır"
 
 #: plugin/chatbot/slash_commands.py
+msgid "undo"
+msgstr "geri al"
+
+#: plugin/chatbot/slash_commands.py
 msgid "Undo the last agent edit as one step"
 msgstr "Son aracı düzenlemesini tek adımda geri al"
+
+#: plugin/chatbot/slash_commands.py
+msgid "formula"
+msgstr "formül"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Write a Calc formula from a plain-English description"
@@ -1919,6 +2050,20 @@ msgstr "Kullanım: {0}"
 
 #: plugin/chatbot/slash_commands.py
 #, python-brace-format
+msgid "Additional instruction: {0}"
+msgstr "Ek yönerge: {0}"
+
+#: plugin/chatbot/slash_commands.py
+#, python-brace-format
+msgid ""
+"Selected text:\n"
+"{0}"
+msgstr ""
+"Seçili metin:\n"
+"{0}"
+
+#: plugin/chatbot/slash_commands.py
+#, python-brace-format
 msgid "Cell {0} formula: {1}"
 msgstr "{0} hücresi formülü: {1}"
 
@@ -1928,13 +2073,8 @@ msgid "Cell {0} value: {1}"
 msgstr "Hücre {0} değeri: {1}"
 
 #: plugin/chatbot/slash_commands.py
-msgid "Failed to save memory."
-msgstr "Belleğe kaydetme başarısız oldu."
-
-#: plugin/chatbot/slash_commands.py
-#, python-brace-format
-msgid "Saved to memory: {0}"
-msgstr "Belleğe kaydedildi: {0}"
+msgid "WriterAgent"
+msgstr "WriterAgent"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Conversation compacted."
@@ -1957,10 +2097,14 @@ msgid "Compaction failed."
 msgstr "Sıkıştırma başarısız oldu."
 
 #: plugin/chatbot/slash_commands.py
-msgid "WriterAgent"
-msgstr "WriterAgent"
+msgid "Wait for the current reply to finish before /compact."
+msgstr "/compact komutundan önce mevcut yanıtın tamamlanmasını bekleyin."
 
-#: plugin/chatbot/slash_commands.py
+#: plugin/chatbot/slash_commands.py plugin/chatbot/send_handlers.py
+msgid "Thinking..."
+msgstr "Düşünülüyor..."
+
+#: plugin/chatbot/slash_commands.py plugin/chatbot/compaction.py
 msgid "Configure an API key to compact."
 msgstr "Sıkıştırmak için bir API anahtarı yapılandırın."
 
@@ -1972,18 +2116,9 @@ msgstr "Sohbet sıkıştırma ayarlar içinde devre dışı bırakılmış."
 msgid "Compaction cancelled."
 msgstr "Sıkıştırma iptal edildi."
 
-#: plugin/chatbot/slash_commands.py plugin/chatbot/panel.py
-#: plugin/chatbot/sidebar_test_hooks.py plugin/chatbot/send_handlers.py
-msgid "Thinking..."
-msgstr "Düşünülüyor..."
-
 #: plugin/chatbot/panel.py
 msgid "[No compatible LibreOffice document found.]"
 msgstr "[Uyumlu bir LibreOffice belgesi bulunamadı.]"
-
-#: plugin/chatbot/panel.py plugin/chatbot/sidebar_test_hooks.py
-msgid "Wait for the current reply to finish before /compact."
-msgstr "/compact komutundan önce mevcut yanıtın tamamlanmasını bekleyin."
 
 #: plugin/chatbot/panel.py
 msgid "Only in Calc"
@@ -2162,6 +2297,15 @@ msgstr ""
 "['{0}' aracı arka ucu kullanılamıyor. Ayarları kontrol edin (yol, kurulum).]"
 
 #: plugin/chatbot/send_handlers.py
+msgid ""
+"MCP server is off: LibreOffice edits from this agent require the MCP server."
+" Enable it in Settings → MCP → Enable MCP Server."
+msgstr ""
+"MCP sunucusu kapalı: Bu aracıdan gelen LibreOffice düzenlemeleri MCP "
+"sunucusunu gerektirir. Ayarlar → MCP → MCP Sunucusunu Etkinleştir yolunu "
+"izleyerek etkinleştirin."
+
+#: plugin/chatbot/send_handlers.py
 #, python-brace-format
 msgid "[{0} error: {1}]"
 msgstr "[{0} hatası: {1}]"
@@ -2239,6 +2383,10 @@ msgid ""
 msgstr ""
 "Daha yeni bir %(name)s (%(version)s) mevcut. Güncellemeleri kontrol etmek ve"
 " en son eklentiyi yüklemek için Araçlar → Eklenti Yöneticisi'ni kullanın."
+
+#: plugin/chatbot/chat_session.py
+msgid "Chat history could not be opened. This conversation will not be saved."
+msgstr "Sohbet geçmişi açılamadı. Bu konuşma kaydedilmeyecek."
 
 #: plugin/chatbot/dialog_views.py
 #, python-brace-format
@@ -3282,8 +3430,9 @@ msgid "Viz '{helper}' completed. {msg}"
 msgstr "Viz '{helper}' tamamlandı. {msg}"
 
 #: plugin/scripting/python_runner.py
-msgid "Vision helpers require a Writer or Calc document."
-msgstr "Görüntü yardımcıları bir Writer veya Calc belgesi gerektirir."
+msgid "Vision helpers require a Writer, Calc, Draw, or Impress document."
+msgstr ""
+"Görüntü yardımcıları bir Writer, Calc, Draw veya Impress belgesi gerektirir."
 
 #: plugin/scripting/python_runner.py
 msgid "Vision helper failed."
@@ -3297,6 +3446,24 @@ msgid ""
 msgstr ""
 "Görüntü yardımcısı '{helper}' tamamlandı. {count} resim için "
 "biçimlendirilmiş HTML eklendi. ({time} sürdü)"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid ""
+"Vision '{helper}' completed for {count} images. Text returned only (not "
+"inserted). (took {time})"
+msgstr ""
+"'{helper}' görüntüsü {count} görsel için tamamlandı. Yalnızca metin "
+"döndürüldü (belgeye eklenmedi). ({time} sürdü)"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid ""
+"Vision '{helper}' completed. Text returned only (not inserted). (took "
+"{time})"
+msgstr ""
+"'{helper}' görüntüsü tamamlandı. Yalnızca metin döndürüldü (belgeye "
+"eklenmedi). ({time} sürdü)"
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format
@@ -3444,8 +3611,16 @@ msgid "OCR complete (text returned only; not inserted)."
 msgstr "OCR tamamlandı (yalnızca metin döndürüldü; eklenmedi)."
 
 #: plugin/vision/vision_tools.py
-msgid "Vision OCR requires a Writer or Calc document."
-msgstr "Vision OCR, bir Writer veya Calc belgesi gerektirir."
+msgid "Vision OCR requires a Writer, Calc, Draw, or Impress document."
+msgstr "Görüntü OCR bir Writer, Calc, Draw veya Impress belgesi gerektirir."
+
+#: plugin/vision/vision_tools.py
+msgid ""
+"Draw and Impress return vision text only; omit insert_into_document or set "
+"it to false."
+msgstr ""
+"Draw ve Impress yalnızca görüntü metni döndürür; insert_into_document "
+"parametresini atlayın veya false olarak ayarlayın."
 
 #: plugin/vision/vision_egress.py
 msgid "Writer document has no controller."
@@ -4103,6 +4278,9 @@ msgstr "Grok Build"
 msgid "OpenCode"
 msgstr "OpenCode"
 
+msgid "Antigravity"
+msgstr "Antigravity"
+
 msgid "Prompt for Agent Permissions"
 msgstr "Ajan İzinleri için İstem"
 
@@ -4112,6 +4290,18 @@ msgid ""
 msgstr ""
 "Ajanın araçları kullanmasına (dosya okuma, komut çalıştırma vb.) izin "
 "vermeden önce onay iste"
+
+msgid "Antigravity model"
+msgstr "Antigravity modeli"
+
+msgid ""
+"agy modelId from session/new models.availableModels, for example "
+"gemini-4-argon-medium. Empty keeps agy's current model. configOptions family"
+" ids such as gemini-4-argon are not modelIds."
+msgstr ""
+"agy modelId, session/new models.availableModels'den alınır, örneğin "
+"gemini-4-argon-medium. Boş bırakılması agy'nin mevcut modelini korur. "
+"gemini-4-argon gibi configOptions aile kimlikleri modelId değildir."
 
 msgid "STT Provider"
 msgstr "STT Sağlayıcısı"
@@ -4299,27 +4489,6 @@ msgstr "Kenar Çubuğu"
 
 msgid "Max Tool Rounds"
 msgstr "Maksimum Araç Turu"
-
-msgid "Document Context Strategy"
-msgstr "Belge Bağlamı Stratejisi"
-
-msgid "How much document content to include in LLM context"
-msgstr "LLM bağlamına ne kadar belge içeriği dahil edilecek"
-
-msgid "Auto (by document size)"
-msgstr "Otomatik (belge boyutuna göre)"
-
-msgid "Full document text"
-msgstr "Tam belge metni"
-
-msgid "Pages around cursor"
-msgstr "İmleç çevresindeki sayfalar"
-
-msgid "Outline + excerpt"
-msgstr "Anahat + alıntı"
-
-msgid "Stats + outline only"
-msgstr "Yalnızca istatistikler + anahat"
 
 msgid "Web Research Cache"
 msgstr "Web Araştırma Önbelleği"

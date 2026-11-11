@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-03 13:09-0500\n"
+"POT-Creation-Date: 2026-11-11 14:14-0500\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Indonesian <LL@li.org>\n"
@@ -107,6 +107,46 @@ msgstr "Jalankan sel kode"
 #: plugin/notebook/layout.py
 msgid "Code"
 msgstr "Kode"
+
+#: plugin/draw/editselection.py
+msgid "Select a text shape. Tables are not rewritten."
+msgstr "Pilih bentuk teks. Tabel tidak ditulis ulang."
+
+#: plugin/draw/editselection.py
+msgid "Select a text shape."
+msgstr "Pilih bentuk teks."
+
+#: plugin/draw/editselection.py
+msgid "WriterAgent: Edit Selection (Draw)"
+msgstr "WriterAgent: Edit Pilihan (Draw)"
+
+#: plugin/draw/editselection.py
+msgid "WriterAgent: Extend Selection (Draw)"
+msgstr "WriterAgent: Perluas Pilihan (Draw)"
+
+#: plugin/draw/editselection.py plugin/calc/editselection.py
+#, python-brace-format
+msgid "Only the first {0} non-empty cells are edited."
+msgstr "Hanya {0} sel tidak kosong pertama yang disunting."
+
+#: plugin/draw/editselection.py
+msgid "Could not register undo for this edit. The change was not applied."
+msgstr ""
+"Tidak dapat mendaftarkan urungkan untuk suntingan ini. Perubahan tidak "
+"diterapkan."
+
+#: plugin/draw/editselection.py plugin/calc/editselection.py
+#: plugin/writer/editselection.py
+msgid ""
+"The rewrite ran out of tokens before producing text. Try again or shorten "
+"the selection."
+msgstr ""
+"Penulisan ulang kehabisan token sebelum menghasilkan teks. Coba lagi atau "
+"perpendek pilihan."
+
+#: plugin/draw/editselection.py plugin/calc/editselection.py
+msgid "The model returned no text. Try again."
+msgstr "Model tidak mengembalikan teks. Coba lagi."
 
 #: plugin/embeddings/search_ui.py
 msgid "just now"
@@ -316,7 +356,7 @@ msgstr "Tabrakan formula spill: rentang tujuan berisi sel yang tidak kosong."
 msgid "The AI provider reported an error. Try again."
 msgstr "Penyedia AI melaporkan kesalahan. Coba lagi."
 
-#: plugin/framework/errors.py plugin/calc/python/function.py
+#: plugin/framework/errors.py plugin/calc/python/addin_values.py
 #: plugin/chatbot/quick_setup.py plugin/scripting/session_manager.py
 #, python-brace-format
 msgid "Error: {0}"
@@ -627,6 +667,11 @@ msgid "Configure a Python venv path in Settings → Python."
 msgstr "Konfigurasikan jalur venv Python di Pengaturan → Python."
 
 #: plugin/calc/python/init_script_editor.py
+msgid "The Python editor check is still running. Open this again in a moment."
+msgstr ""
+"Pemeriksaan editor Python masih berjalan. Buka ini lagi sebentar lagi."
+
+#: plugin/calc/python/init_script_editor.py
 msgid "Cannot import webview (pywebview) in the configured venv."
 msgstr "Tidak dapat mengimpor webview (pywebview) di venv yang dikonfigurasi."
 
@@ -743,16 +788,24 @@ msgid "Could not open the built-in Python cell editor."
 msgstr "Tidak dapat membuka penyunting sel Python bawaan."
 
 #: plugin/calc/python/function.py
+msgid "Image inserted"
+msgstr "Gambar disisipkan"
+
+#: plugin/calc/python/function.py
+msgid "Images inserted"
+msgstr "Gambar disisipkan"
+
+#: plugin/calc/python/addin_values.py
 #, python-brace-format
 msgid "Error: Main-thread execution timed out ({0})"
 msgstr "Galat: Eksekusi utas utama habis waktu ({0})"
 
-#: plugin/calc/python/function.py plugin/scripting/python_runner_ui.py
+#: plugin/calc/python/addin_values.py plugin/scripting/python_runner_ui.py
 #: plugin/scripting/python_runner.py
 msgid "Unknown error"
 msgstr "Kesalahan tidak dikenal"
 
-#: plugin/calc/python/function.py
+#: plugin/calc/python/addin_values.py
 msgid ""
 "Error: Python venv not found. Open Settings → Python, set the venv path, "
 "then Test."
@@ -760,21 +813,13 @@ msgstr ""
 "Kesalahan: venv Python tidak ditemukan. Buka Pengaturan → Python, atur jalur"
 " venv, lalu Uji."
 
-#: plugin/calc/python/function.py
+#: plugin/calc/python/addin_values.py
 msgid ""
 "Error: Python timed out. Open Settings → Python to raise the timeout, or "
 "Test the venv."
 msgstr ""
 "Kesalahan: Python kehabisan waktu. Buka Pengaturan → Python untuk menambah "
 "batas waktu, atau Uji venv tersebut."
-
-#: plugin/calc/python/function.py
-msgid "Image inserted"
-msgstr "Gambar disisipkan"
-
-#: plugin/calc/python/function.py
-msgid "Images inserted"
-msgstr "Gambar disisipkan"
 
 #: plugin/calc/python/geometric_recalc.py
 #, python-format
@@ -817,9 +862,8 @@ msgid "Select one or more non-empty cells."
 msgstr "Pilih satu atau beberapa sel yang tidak kosong."
 
 #: plugin/calc/editselection.py
-#, python-brace-format
-msgid "Only the first {0} non-empty cells are edited."
-msgstr "Hanya {0} sel tidak kosong pertama yang disunting."
+msgid "Formula cells are skipped."
+msgstr "Sel rumus dilewati."
 
 #: plugin/calc/vision_egress.py plugin/vision/vision_runner.py
 #: plugin/vision/vision_egress.py
@@ -1799,16 +1843,65 @@ msgid "Perfect! I'm switching you to the main assistant now."
 msgstr "Sempurna! Saya akan mengalihkan Anda ke asisten utama sekarang."
 
 #: plugin/chatbot/slash_commands.py
+msgid "[focus]"
+msgstr "[fokus]"
+
+#: plugin/chatbot/slash_commands.py
+msgid "[target]"
+msgstr "[target]"
+
+#: plugin/chatbot/slash_commands.py
+msgid "[what]"
+msgstr "[apa]"
+
+#: plugin/chatbot/slash_commands.py
+msgid "<description>"
+msgstr "<deskripsi>"
+
+#: plugin/chatbot/slash_commands.py
+msgid "<language>"
+msgstr "<bahasa>"
+
+#: plugin/chatbot/slash_commands.py
+msgid "<fact>"
+msgstr "<fakta>"
+
+#: plugin/chatbot/slash_commands.py
+msgid "Failed to save memory."
+msgstr "Gagal menyimpan ke memori."
+
+#: plugin/chatbot/slash_commands.py
+#, python-brace-format
+msgid "Saved to memory: {0}"
+msgstr "Disimpan ke memori: {0}"
+
+#: plugin/chatbot/slash_commands.py
+msgid "help"
+msgstr "bantuan"
+
+#: plugin/chatbot/slash_commands.py
 msgid "Print the command list"
 msgstr "Cetak daftar perintah"
+
+#: plugin/chatbot/slash_commands.py
+msgid "clear"
+msgstr "bersihkan"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Start a new chat"
 msgstr "Mulai obrolan baru"
 
 #: plugin/chatbot/slash_commands.py
+msgid "stop"
+msgstr "berhenti"
+
+#: plugin/chatbot/slash_commands.py
 msgid "Cancel the in-flight send"
 msgstr "Batalkan pengiriman yang sedang berlangsung"
+
+#: plugin/chatbot/slash_commands.py
+msgid "summarize"
+msgstr "ringkas"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Summarize the selection or document in the sidebar"
@@ -1819,6 +1912,10 @@ msgid ""
 "Summarize the selected text, or the whole document if nothing is selected."
 msgstr ""
 "Ringkas teks yang dipilih, atau seluruh dokumen jika tidak ada yang dipilih."
+
+#: plugin/chatbot/slash_commands.py
+msgid "proofread"
+msgstr "periksa ejaan"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Fix spelling, grammar, and punctuation without restyling"
@@ -1833,12 +1930,20 @@ msgstr ""
 "atau makna."
 
 #: plugin/chatbot/slash_commands.py
+msgid "shorten"
+msgstr "persingkat"
+
+#: plugin/chatbot/slash_commands.py
 msgid "Shorten the selection"
 msgstr "Persingkat pilihan"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Make the text shorter while preserving the meaning."
 msgstr "Buat teks lebih singkat dengan tetap mempertahankan maknanya."
+
+#: plugin/chatbot/slash_commands.py
+msgid "expand"
+msgstr "perluas"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Expand the selection with more detail"
@@ -1849,6 +1954,10 @@ msgid "Expand the text with more detail and clarity."
 msgstr "Perluas teks dengan detail dan kejelasan lebih lanjut."
 
 #: plugin/chatbot/slash_commands.py
+msgid "tone"
+msgstr "nada"
+
+#: plugin/chatbot/slash_commands.py
 msgid "Rewrite the selection to match a described tone"
 msgstr "Tulis ulang pilihan agar sesuai dengan nada yang dijelaskan"
 
@@ -1856,6 +1965,10 @@ msgstr "Tulis ulang pilihan agar sesuai dengan nada yang dijelaskan"
 #, python-brace-format
 msgid "Rewrite the text to match this tone or style: {arg}"
 msgstr "Tulis ulang teks agar sesuai dengan nada atau gaya ini: {arg}"
+
+#: plugin/chatbot/slash_commands.py
+msgid "translate"
+msgstr "terjemahkan"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Translate the selection (sidebar when nothing is selected in Writer)"
@@ -1869,6 +1982,10 @@ msgstr ""
 "Terjemahkan teks ke dalam {arg}. Pertahankan pemformatan dan struktur."
 
 #: plugin/chatbot/slash_commands.py
+msgid "explain"
+msgstr "jelaskan"
+
+#: plugin/chatbot/slash_commands.py
 msgid "Explain the selection or active Calc formula"
 msgstr "Jelaskan pilihan atau rumus Calc yang aktif"
 
@@ -1877,16 +1994,32 @@ msgid "Explain the following in plain language."
 msgstr "Jelaskan hal berikut dengan bahasa yang sederhana."
 
 #: plugin/chatbot/slash_commands.py
+msgid "remember"
+msgstr "ingat"
+
+#: plugin/chatbot/slash_commands.py
 msgid "Save a fact to persistent memory"
 msgstr "Simpan fakta ke memori persisten"
+
+#: plugin/chatbot/slash_commands.py
+msgid "compact"
+msgstr "padat"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Compact older chat history now"
 msgstr "Padatkan riwayat obrolan lama sekarang"
 
 #: plugin/chatbot/slash_commands.py
+msgid "undo"
+msgstr "urungkan"
+
+#: plugin/chatbot/slash_commands.py
 msgid "Undo the last agent edit as one step"
 msgstr "Batalkan pengeditan agen terakhir sebagai satu langkah"
+
+#: plugin/chatbot/slash_commands.py
+msgid "formula"
+msgstr "rumus"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Write a Calc formula from a plain-English description"
@@ -1919,6 +2052,20 @@ msgstr "Penggunaan: {0}"
 
 #: plugin/chatbot/slash_commands.py
 #, python-brace-format
+msgid "Additional instruction: {0}"
+msgstr "Instruksi tambahan: {0}"
+
+#: plugin/chatbot/slash_commands.py
+#, python-brace-format
+msgid ""
+"Selected text:\n"
+"{0}"
+msgstr ""
+"Teks terpilih:\n"
+"{0}"
+
+#: plugin/chatbot/slash_commands.py
+#, python-brace-format
 msgid "Cell {0} formula: {1}"
 msgstr "Rumus sel {0}: {1}"
 
@@ -1928,13 +2075,8 @@ msgid "Cell {0} value: {1}"
 msgstr "Nilai sel {0}: {1}"
 
 #: plugin/chatbot/slash_commands.py
-msgid "Failed to save memory."
-msgstr "Gagal menyimpan ke memori."
-
-#: plugin/chatbot/slash_commands.py
-#, python-brace-format
-msgid "Saved to memory: {0}"
-msgstr "Disimpan ke memori: {0}"
+msgid "WriterAgent"
+msgstr "WriterAgent"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Conversation compacted."
@@ -1957,10 +2099,14 @@ msgid "Compaction failed."
 msgstr "Pemadatan gagal."
 
 #: plugin/chatbot/slash_commands.py
-msgid "WriterAgent"
-msgstr "WriterAgent"
+msgid "Wait for the current reply to finish before /compact."
+msgstr "Tunggu balasan saat ini selesai sebelum /compact."
 
-#: plugin/chatbot/slash_commands.py
+#: plugin/chatbot/slash_commands.py plugin/chatbot/send_handlers.py
+msgid "Thinking..."
+msgstr "Sedang berpikir..."
+
+#: plugin/chatbot/slash_commands.py plugin/chatbot/compaction.py
 msgid "Configure an API key to compact."
 msgstr "Konfigurasikan kunci API untuk memadatkan."
 
@@ -1972,18 +2118,9 @@ msgstr "Pemadatan obrolan dinonaktifkan di pengaturan."
 msgid "Compaction cancelled."
 msgstr "Pemadatan dibatalkan."
 
-#: plugin/chatbot/slash_commands.py plugin/chatbot/panel.py
-#: plugin/chatbot/sidebar_test_hooks.py plugin/chatbot/send_handlers.py
-msgid "Thinking..."
-msgstr "Sedang berpikir..."
-
 #: plugin/chatbot/panel.py
 msgid "[No compatible LibreOffice document found.]"
 msgstr "[Tidak ada dokumen LibreOffice yang kompatibel ditemukan.]"
-
-#: plugin/chatbot/panel.py plugin/chatbot/sidebar_test_hooks.py
-msgid "Wait for the current reply to finish before /compact."
-msgstr "Tunggu balasan saat ini selesai sebelum /compact."
 
 #: plugin/chatbot/panel.py
 msgid "Only in Calc"
@@ -2162,6 +2299,14 @@ msgstr ""
 "[Backend agen '{0}' tidak tersedia. Periksa Pengaturan (jalur, instalasi).]"
 
 #: plugin/chatbot/send_handlers.py
+msgid ""
+"MCP server is off: LibreOffice edits from this agent require the MCP server."
+" Enable it in Settings → MCP → Enable MCP Server."
+msgstr ""
+"Server MCP mati: Penyuntingan LibreOffice dari agen ini memerlukan server "
+"MCP. Aktifkan di Pengaturan → MCP → Aktifkan Server MCP."
+
+#: plugin/chatbot/send_handlers.py
 #, python-brace-format
 msgid "[{0} error: {1}]"
 msgstr "[{0} kesalahan: {1}]"
@@ -2238,6 +2383,11 @@ msgid ""
 msgstr ""
 "%(name)s versi baru (%(version)s) tersedia. Gunakan Alat → Manajer Ekstensi "
 "untuk memeriksa pembaruan dan menginstal ekstensi terbaru."
+
+#: plugin/chatbot/chat_session.py
+msgid "Chat history could not be opened. This conversation will not be saved."
+msgstr ""
+"Riwayat obrolan tidak dapat dibuka. Percakapan ini tidak akan disimpan."
 
 #: plugin/chatbot/dialog_views.py
 #, python-brace-format
@@ -3268,8 +3418,8 @@ msgid "Viz '{helper}' completed. {msg}"
 msgstr "Viz '{helper}' selesai. {msg}"
 
 #: plugin/scripting/python_runner.py
-msgid "Vision helpers require a Writer or Calc document."
-msgstr "Pembantu visi memerlukan dokumen Writer atau Calc."
+msgid "Vision helpers require a Writer, Calc, Draw, or Impress document."
+msgstr "Pembantu visi memerlukan dokumen Writer, Calc, Draw, atau Impress."
 
 #: plugin/scripting/python_runner.py
 msgid "Vision helper failed."
@@ -3283,6 +3433,24 @@ msgid ""
 msgstr ""
 "Visi '{helper}' selesai. Menyisipkan HTML terformat untuk {count} gambar. "
 "(memakan waktu {time})"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid ""
+"Vision '{helper}' completed for {count} images. Text returned only (not "
+"inserted). (took {time})"
+msgstr ""
+"Visi '{helper}' selesai untuk {count} gambar. Teks dikembalikan saja (tidak "
+"disisipkan). (memakan waktu {time})"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid ""
+"Vision '{helper}' completed. Text returned only (not inserted). (took "
+"{time})"
+msgstr ""
+"Visi '{helper}' selesai. Teks dikembalikan saja (tidak disisipkan). (memakan"
+" waktu {time})"
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format
@@ -3429,8 +3597,16 @@ msgid "OCR complete (text returned only; not inserted)."
 msgstr "OCR selesai (teks hanya dikembalikan; tidak disisipkan)."
 
 #: plugin/vision/vision_tools.py
-msgid "Vision OCR requires a Writer or Calc document."
-msgstr "Vision OCR memerlukan dokumen Writer atau Calc."
+msgid "Vision OCR requires a Writer, Calc, Draw, or Impress document."
+msgstr "OCR visi memerlukan dokumen Writer, Calc, Draw, atau Impress."
+
+#: plugin/vision/vision_tools.py
+msgid ""
+"Draw and Impress return vision text only; omit insert_into_document or set "
+"it to false."
+msgstr ""
+"Draw dan Impress hanya mengembalikan teks visi; abaikan insert_into_document"
+" atau atur ke false."
 
 #: plugin/vision/vision_egress.py
 msgid "Writer document has no controller."
@@ -4089,6 +4265,9 @@ msgstr "Grok Build"
 msgid "OpenCode"
 msgstr "OpenCode"
 
+msgid "Antigravity"
+msgstr "Antigravitasi"
+
 msgid "Prompt for Agent Permissions"
 msgstr "Minta Izin Agen"
 
@@ -4098,6 +4277,18 @@ msgid ""
 msgstr ""
 "Minta konfirmasi sebelum mengizinkan agen menggunakan alat (membaca berkas, "
 "menjalankan perintah, dll.)"
+
+msgid "Antigravity model"
+msgstr "Model antigravitasi"
+
+msgid ""
+"agy modelId from session/new models.availableModels, for example "
+"gemini-4-argon-medium. Empty keeps agy's current model. configOptions family"
+" ids such as gemini-4-argon are not modelIds."
+msgstr ""
+"agy modelId dari session/new models.availableModels, contohnya "
+"gemini-4-argon-medium. Dikosongkan akan mempertahankan model agy saat ini. "
+"ID keluarga configOptions seperti gemini-4-argon bukanlah modelId."
 
 msgid "STT Provider"
 msgstr "Penyedia STT"
@@ -4284,27 +4475,6 @@ msgstr "Bilah Samping"
 
 msgid "Max Tool Rounds"
 msgstr "Putaran Alat Maksimum"
-
-msgid "Document Context Strategy"
-msgstr "Strategi Konteks Dokumen"
-
-msgid "How much document content to include in LLM context"
-msgstr "Berapa banyak konten dokumen yang disertakan dalam konteks LLM"
-
-msgid "Auto (by document size)"
-msgstr "Otomatis (berdasarkan ukuran dokumen)"
-
-msgid "Full document text"
-msgstr "Teks dokumen lengkap"
-
-msgid "Pages around cursor"
-msgstr "Halaman di sekitar kursor"
-
-msgid "Outline + excerpt"
-msgstr "Kerangka + kutipan"
-
-msgid "Stats + outline only"
-msgstr "Statistik + kerangka saja"
 
 msgid "Web Research Cache"
 msgstr "Cache Riset Web"

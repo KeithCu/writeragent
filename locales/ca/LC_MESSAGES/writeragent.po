@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-03 13:09-0500\n"
+"POT-Creation-Date: 2026-11-11 14:14-0500\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Catalan <LL@li.org>\n"
@@ -107,6 +107,46 @@ msgstr "Executa la cel·la de codi"
 #: plugin/notebook/layout.py
 msgid "Code"
 msgstr "Codi"
+
+#: plugin/draw/editselection.py
+msgid "Select a text shape. Tables are not rewritten."
+msgstr "Seleccioneu una forma de text. Les taules no es reescriuen."
+
+#: plugin/draw/editselection.py
+msgid "Select a text shape."
+msgstr "Seleccioneu una forma de text."
+
+#: plugin/draw/editselection.py
+msgid "WriterAgent: Edit Selection (Draw)"
+msgstr "WriterAgent: Edita la selecció (Draw)"
+
+#: plugin/draw/editselection.py
+msgid "WriterAgent: Extend Selection (Draw)"
+msgstr "WriterAgent: Amplia la selecció (Draw)"
+
+#: plugin/draw/editselection.py plugin/calc/editselection.py
+#, python-brace-format
+msgid "Only the first {0} non-empty cells are edited."
+msgstr "Només s'editen les primeres {0} cel·les que no estan buides."
+
+#: plugin/draw/editselection.py
+msgid "Could not register undo for this edit. The change was not applied."
+msgstr ""
+"No s'ha pogut registrar l'acció de desfer per a aquesta edició. El canvi no "
+"s'ha aplicat."
+
+#: plugin/draw/editselection.py plugin/calc/editselection.py
+#: plugin/writer/editselection.py
+msgid ""
+"The rewrite ran out of tokens before producing text. Try again or shorten "
+"the selection."
+msgstr ""
+"La reescriptura s'ha quedat sense testimonis abans de produir text. Torneu-"
+"ho a provar o escurceu la selecció."
+
+#: plugin/draw/editselection.py plugin/calc/editselection.py
+msgid "The model returned no text. Try again."
+msgstr "El model no ha retornat cap text. Torneu-ho a provar."
 
 #: plugin/embeddings/search_ui.py
 msgid "just now"
@@ -321,7 +361,7 @@ msgstr ""
 msgid "The AI provider reported an error. Try again."
 msgstr "El proveïdor d'IA ha informat d'un error. Torneu-ho a provar."
 
-#: plugin/framework/errors.py plugin/calc/python/function.py
+#: plugin/framework/errors.py plugin/calc/python/addin_values.py
 #: plugin/chatbot/quick_setup.py plugin/scripting/session_manager.py
 #, python-brace-format
 msgid "Error: {0}"
@@ -639,6 +679,12 @@ msgid "Configure a Python venv path in Settings → Python."
 msgstr "Configureu un camí de venv de Python a Configuració → Python."
 
 #: plugin/calc/python/init_script_editor.py
+msgid "The Python editor check is still running. Open this again in a moment."
+msgstr ""
+"La comprovació de l'editor de Python encara s'està executant. Torneu-ho a "
+"obrir d'aquí a un moment."
+
+#: plugin/calc/python/init_script_editor.py
 msgid "Cannot import webview (pywebview) in the configured venv."
 msgstr "No es pot importar webview (pywebview) al venv configurat."
 
@@ -760,17 +806,25 @@ msgid "Could not open the built-in Python cell editor."
 msgstr "No s'ha pogut obrir l'editor de cel·les Python integrat."
 
 #: plugin/calc/python/function.py
+msgid "Image inserted"
+msgstr "Imatge inserida"
+
+#: plugin/calc/python/function.py
+msgid "Images inserted"
+msgstr "Imatges inserides"
+
+#: plugin/calc/python/addin_values.py
 #, python-brace-format
 msgid "Error: Main-thread execution timed out ({0})"
 msgstr ""
 "Error: S'ha exhaurit el temps d'espera de l'execució del fil principal ({0})"
 
-#: plugin/calc/python/function.py plugin/scripting/python_runner_ui.py
+#: plugin/calc/python/addin_values.py plugin/scripting/python_runner_ui.py
 #: plugin/scripting/python_runner.py
 msgid "Unknown error"
 msgstr "Error desconegut"
 
-#: plugin/calc/python/function.py
+#: plugin/calc/python/addin_values.py
 msgid ""
 "Error: Python venv not found. Open Settings → Python, set the venv path, "
 "then Test."
@@ -778,21 +832,13 @@ msgstr ""
 "Error: no s'ha trobat el venv de Python. Obriu Paràmetres → Python, definiu "
 "el camí del venv i, a continuació, feu la prova."
 
-#: plugin/calc/python/function.py
+#: plugin/calc/python/addin_values.py
 msgid ""
 "Error: Python timed out. Open Settings → Python to raise the timeout, or "
 "Test the venv."
 msgstr ""
 "Error: el Python ha excedit el temps d'espera. Obriu Paràmetres → Python per"
 " augmentar el temps d'espera o proveu el venv."
-
-#: plugin/calc/python/function.py
-msgid "Image inserted"
-msgstr "Imatge inserida"
-
-#: plugin/calc/python/function.py
-msgid "Images inserted"
-msgstr "Imatges inserides"
 
 #: plugin/calc/python/geometric_recalc.py
 #, python-format
@@ -835,9 +881,8 @@ msgid "Select one or more non-empty cells."
 msgstr "Seleccioneu una o més cel·les que no estiguin buides."
 
 #: plugin/calc/editselection.py
-#, python-brace-format
-msgid "Only the first {0} non-empty cells are edited."
-msgstr "Només s'editen les primeres {0} cel·les que no estan buides."
+msgid "Formula cells are skipped."
+msgstr "Les cel·les amb fórmules s'ometen."
 
 #: plugin/calc/vision_egress.py plugin/vision/vision_runner.py
 #: plugin/vision/vision_egress.py
@@ -1825,16 +1870,65 @@ msgid "Perfect! I'm switching you to the main assistant now."
 msgstr "Perfecte! Ara us passo amb l'assistent principal."
 
 #: plugin/chatbot/slash_commands.py
+msgid "[focus]"
+msgstr "[focus]"
+
+#: plugin/chatbot/slash_commands.py
+msgid "[target]"
+msgstr "objectiu"
+
+#: plugin/chatbot/slash_commands.py
+msgid "[what]"
+msgstr "què"
+
+#: plugin/chatbot/slash_commands.py
+msgid "<description>"
+msgstr "descripció"
+
+#: plugin/chatbot/slash_commands.py
+msgid "<language>"
+msgstr "llengua"
+
+#: plugin/chatbot/slash_commands.py
+msgid "<fact>"
+msgstr "fet"
+
+#: plugin/chatbot/slash_commands.py
+msgid "Failed to save memory."
+msgstr "No s'ha pogut desar a la memòria."
+
+#: plugin/chatbot/slash_commands.py
+#, python-brace-format
+msgid "Saved to memory: {0}"
+msgstr "Desat a la memòria: {0}"
+
+#: plugin/chatbot/slash_commands.py
+msgid "help"
+msgstr "ajuda"
+
+#: plugin/chatbot/slash_commands.py
 msgid "Print the command list"
 msgstr "Imprimeix la llista d'ordres"
+
+#: plugin/chatbot/slash_commands.py
+msgid "clear"
+msgstr "esborra"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Start a new chat"
 msgstr "Inicia un xat nou"
 
 #: plugin/chatbot/slash_commands.py
+msgid "stop"
+msgstr "atura"
+
+#: plugin/chatbot/slash_commands.py
 msgid "Cancel the in-flight send"
 msgstr "Cancel·la l'enviament en curs"
+
+#: plugin/chatbot/slash_commands.py
+msgid "summarize"
+msgstr "resum"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Summarize the selection or document in the sidebar"
@@ -1845,6 +1939,10 @@ msgid ""
 "Summarize the selected text, or the whole document if nothing is selected."
 msgstr ""
 "Resumir el text seleccionat, o tot el document si no hi ha res seleccionat."
+
+#: plugin/chatbot/slash_commands.py
+msgid "proofread"
+msgstr "corregeix"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Fix spelling, grammar, and punctuation without restyling"
@@ -1860,12 +1958,20 @@ msgstr ""
 "l'estil, el to ni el significat."
 
 #: plugin/chatbot/slash_commands.py
+msgid "shorten"
+msgstr "escurça"
+
+#: plugin/chatbot/slash_commands.py
 msgid "Shorten the selection"
 msgstr "Escurçar la selecció"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Make the text shorter while preserving the meaning."
 msgstr "Fer el text més curt preservant-ne el significat."
+
+#: plugin/chatbot/slash_commands.py
+msgid "expand"
+msgstr "expandeix"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Expand the selection with more detail"
@@ -1876,6 +1982,10 @@ msgid "Expand the text with more detail and clarity."
 msgstr "Ampliar el text amb més detalls i claredat."
 
 #: plugin/chatbot/slash_commands.py
+msgid "tone"
+msgstr "to"
+
+#: plugin/chatbot/slash_commands.py
 msgid "Rewrite the selection to match a described tone"
 msgstr "Reescriure la selecció per adaptar-la a un to descrit"
 
@@ -1883,6 +1993,10 @@ msgstr "Reescriure la selecció per adaptar-la a un to descrit"
 #, python-brace-format
 msgid "Rewrite the text to match this tone or style: {arg}"
 msgstr "Reescriure el text per adaptar-lo a aquest to o estil: {arg}"
+
+#: plugin/chatbot/slash_commands.py
+msgid "translate"
+msgstr "tradueix"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Translate the selection (sidebar when nothing is selected in Writer)"
@@ -1895,6 +2009,10 @@ msgid "Translate the text into {arg}. Keep formatting and structure."
 msgstr "Traduïu el text a {arg}. Manteniu el format i l'estructura."
 
 #: plugin/chatbot/slash_commands.py
+msgid "explain"
+msgstr "explica"
+
+#: plugin/chatbot/slash_commands.py
 msgid "Explain the selection or active Calc formula"
 msgstr "Expliqueu la selecció o la fórmula activa del Calc"
 
@@ -1903,16 +2021,32 @@ msgid "Explain the following in plain language."
 msgstr "Expliqueu el següent amb un llenguatge senzill."
 
 #: plugin/chatbot/slash_commands.py
+msgid "remember"
+msgstr "recorda"
+
+#: plugin/chatbot/slash_commands.py
 msgid "Save a fact to persistent memory"
 msgstr "Deseu una dada a la memòria persistent"
+
+#: plugin/chatbot/slash_commands.py
+msgid "compact"
+msgstr "compacta"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Compact older chat history now"
 msgstr "Compacteu l'historial de xat antic ara"
 
 #: plugin/chatbot/slash_commands.py
+msgid "undo"
+msgstr "desfés"
+
+#: plugin/chatbot/slash_commands.py
 msgid "Undo the last agent edit as one step"
 msgstr "Desfeu l'última edició de l'agent en un sol pas"
+
+#: plugin/chatbot/slash_commands.py
+msgid "formula"
+msgstr "fórmula"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Write a Calc formula from a plain-English description"
@@ -1946,6 +2080,20 @@ msgstr "Ús: {0}"
 
 #: plugin/chatbot/slash_commands.py
 #, python-brace-format
+msgid "Additional instruction: {0}"
+msgstr "Instrucció addicional: {0}"
+
+#: plugin/chatbot/slash_commands.py
+#, python-brace-format
+msgid ""
+"Selected text:\n"
+"{0}"
+msgstr ""
+"Text seleccionat:\n"
+"{0}"
+
+#: plugin/chatbot/slash_commands.py
+#, python-brace-format
 msgid "Cell {0} formula: {1}"
 msgstr "Fórmula de la cel·la {0}: {1}"
 
@@ -1955,13 +2103,8 @@ msgid "Cell {0} value: {1}"
 msgstr "Valor de la cel·la {0}: {1}"
 
 #: plugin/chatbot/slash_commands.py
-msgid "Failed to save memory."
-msgstr "No s'ha pogut desar a la memòria."
-
-#: plugin/chatbot/slash_commands.py
-#, python-brace-format
-msgid "Saved to memory: {0}"
-msgstr "Desat a la memòria: {0}"
+msgid "WriterAgent"
+msgstr "WriterAgent"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Conversation compacted."
@@ -1984,10 +2127,14 @@ msgid "Compaction failed."
 msgstr "La compactació ha fallat."
 
 #: plugin/chatbot/slash_commands.py
-msgid "WriterAgent"
-msgstr "WriterAgent"
+msgid "Wait for the current reply to finish before /compact."
+msgstr "Espereu que acabi la resposta actual abans d'executar /compact."
 
-#: plugin/chatbot/slash_commands.py
+#: plugin/chatbot/slash_commands.py plugin/chatbot/send_handlers.py
+msgid "Thinking..."
+msgstr "Pensant..."
+
+#: plugin/chatbot/slash_commands.py plugin/chatbot/compaction.py
 msgid "Configure an API key to compact."
 msgstr "Configureu una clau d'API per compactar."
 
@@ -1999,18 +2146,9 @@ msgstr "La compactació del xat està desactivada a la configuració."
 msgid "Compaction cancelled."
 msgstr "S'ha cancel·lat la compactació."
 
-#: plugin/chatbot/slash_commands.py plugin/chatbot/panel.py
-#: plugin/chatbot/sidebar_test_hooks.py plugin/chatbot/send_handlers.py
-msgid "Thinking..."
-msgstr "Pensant..."
-
 #: plugin/chatbot/panel.py
 msgid "[No compatible LibreOffice document found.]"
 msgstr "[No s'ha trobat cap document de LibreOffice compatible.]"
-
-#: plugin/chatbot/panel.py plugin/chatbot/sidebar_test_hooks.py
-msgid "Wait for the current reply to finish before /compact."
-msgstr "Espereu que acabi la resposta actual abans d'executar /compact."
 
 #: plugin/chatbot/panel.py
 msgid "Only in Calc"
@@ -2191,6 +2329,15 @@ msgstr ""
 "(camí, instal·lació).]"
 
 #: plugin/chatbot/send_handlers.py
+msgid ""
+"MCP server is off: LibreOffice edits from this agent require the MCP server."
+" Enable it in Settings → MCP → Enable MCP Server."
+msgstr ""
+"El servidor MCP està desactivat: les edicions del LibreOffice des d'aquest "
+"agent requereixen el servidor MCP. Activeu-lo a Configuració → MCP → Activa "
+"el servidor MCP."
+
+#: plugin/chatbot/send_handlers.py
 #, python-brace-format
 msgid "[{0} error: {1}]"
 msgstr "[{0} error: {1}]"
@@ -2268,6 +2415,11 @@ msgstr ""
 "Hi ha una versió més recent de %(name)s (%(version)s) disponible. Utilitzeu "
 "Eines → Gestor d'extensions per comprovar si hi ha actualitzacions i "
 "instal·lar l'extensió més recent."
+
+#: plugin/chatbot/chat_session.py
+msgid "Chat history could not be opened. This conversation will not be saved."
+msgstr ""
+"No s'ha pogut obrir l'historial del xat. Aquesta conversa no es desarà."
 
 #: plugin/chatbot/dialog_views.py
 #, python-brace-format
@@ -3325,8 +3477,10 @@ msgid "Viz '{helper}' completed. {msg}"
 msgstr "Viz '{helper}' completat. {msg}"
 
 #: plugin/scripting/python_runner.py
-msgid "Vision helpers require a Writer or Calc document."
-msgstr "Els assistents de visió requereixen un document de Writer o Calc."
+msgid "Vision helpers require a Writer, Calc, Draw, or Impress document."
+msgstr ""
+"Els ajudants de visió requereixen un document de Writer, Calc, Draw o "
+"Impress."
 
 #: plugin/scripting/python_runner.py
 msgid "Vision helper failed."
@@ -3340,6 +3494,24 @@ msgid ""
 msgstr ""
 "La visió «{helper}» s'ha completat. S'ha inserit HTML formatat per a {count}"
 " imatges. (ha trigat {time})"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid ""
+"Vision '{helper}' completed for {count} images. Text returned only (not "
+"inserted). (took {time})"
+msgstr ""
+"La visió «{helper}» s'ha completat per a {count} imatges. Només s'ha "
+"retornat text (no s'ha inserit). (ha trigat {time})"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid ""
+"Vision '{helper}' completed. Text returned only (not inserted). (took "
+"{time})"
+msgstr ""
+"La visió «{helper}» s'ha completat. Només s'ha retornat text (no s'ha "
+"inserit). (ha trigat {time})"
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format
@@ -3490,8 +3662,16 @@ msgid "OCR complete (text returned only; not inserted)."
 msgstr "OCR completat (només s'ha retornat el text; no s'ha inserit)."
 
 #: plugin/vision/vision_tools.py
-msgid "Vision OCR requires a Writer or Calc document."
-msgstr "L'OCR de visió requereix un document del Writer o del Calc."
+msgid "Vision OCR requires a Writer, Calc, Draw, or Impress document."
+msgstr "L'OCR de visió requereix un document de Writer, Calc, Draw o Impress."
+
+#: plugin/vision/vision_tools.py
+msgid ""
+"Draw and Impress return vision text only; omit insert_into_document or set "
+"it to false."
+msgstr ""
+"El Draw i l'Impress només retornen text de visió; ometeu "
+"insert_into_document o establiu-lo a false."
 
 #: plugin/vision/vision_egress.py
 msgid "Writer document has no controller."
@@ -4151,6 +4331,9 @@ msgstr "Grok Build"
 msgid "OpenCode"
 msgstr "OpenCode"
 
+msgid "Antigravity"
+msgstr "Antigravetat"
+
 msgid "Prompt for Agent Permissions"
 msgstr "Sol·licita permisos de l'agent"
 
@@ -4160,6 +4343,19 @@ msgid ""
 msgstr ""
 "Demana confirmació abans de permetre que l'agent utilitzi eines (llegir "
 "fitxers, executar ordres, etc.)"
+
+msgid "Antigravity model"
+msgstr "Model d'antigravetat"
+
+msgid ""
+"agy modelId from session/new models.availableModels, for example "
+"gemini-4-argon-medium. Empty keeps agy's current model. configOptions family"
+" ids such as gemini-4-argon are not modelIds."
+msgstr ""
+"agy modelId des models.availableModels de session/new, per exemple "
+"gemini-4-argon-medium. Si es deixa buit, es manté el model actual de l'agy. "
+"Els identificadors de família de configOptions, com ara gemini-4-argon, no "
+"són modelIds."
 
 msgid "STT Provider"
 msgstr "Proveïdor STT"
@@ -4348,27 +4544,6 @@ msgstr "Barra lateral"
 
 msgid "Max Tool Rounds"
 msgstr "Rondes màximes de l'eina"
-
-msgid "Document Context Strategy"
-msgstr "Estratègia de context del document"
-
-msgid "How much document content to include in LLM context"
-msgstr "Quant de contingut del document incloure en el context de l'LLM"
-
-msgid "Auto (by document size)"
-msgstr "Automàtic (segons la mida del document)"
-
-msgid "Full document text"
-msgstr "Text complet del document"
-
-msgid "Pages around cursor"
-msgstr "Pàgines al voltant del cursor"
-
-msgid "Outline + excerpt"
-msgstr "Esquema + extracte"
-
-msgid "Stats + outline only"
-msgstr "Només estadístiques + esquema"
 
 msgid "Web Research Cache"
 msgstr "Caché de recerca web"

@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-03 13:09-0500\n"
+"POT-Creation-Date: 2026-11-11 14:14-0500\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Finnish <LL@li.org>\n"
@@ -109,6 +109,46 @@ msgstr "Suorita koodisolu"
 #: plugin/notebook/layout.py
 msgid "Code"
 msgstr "Koodi"
+
+#: plugin/draw/editselection.py
+msgid "Select a text shape. Tables are not rewritten."
+msgstr "Valitse tekstimuoto. Taulukoita ei kirjoiteta uudelleen."
+
+#: plugin/draw/editselection.py
+msgid "Select a text shape."
+msgstr "Valitse tekstimuoto."
+
+#: plugin/draw/editselection.py
+msgid "WriterAgent: Edit Selection (Draw)"
+msgstr "WriterAgent: Muokkaa valintaa (Draw)"
+
+#: plugin/draw/editselection.py
+msgid "WriterAgent: Extend Selection (Draw)"
+msgstr "WriterAgent: Laajenna valintaa (Draw)"
+
+#: plugin/draw/editselection.py plugin/calc/editselection.py
+#, python-brace-format
+msgid "Only the first {0} non-empty cells are edited."
+msgstr "Vain ensimmäiset {0} ei-tyhjää solua muokataan."
+
+#: plugin/draw/editselection.py
+msgid "Could not register undo for this edit. The change was not applied."
+msgstr ""
+"Kumouksen rekisteröinti tälle muokkaukselle ei onnistunut. Muutosta ei "
+"otettu käyttöön."
+
+#: plugin/draw/editselection.py plugin/calc/editselection.py
+#: plugin/writer/editselection.py
+msgid ""
+"The rewrite ran out of tokens before producing text. Try again or shorten "
+"the selection."
+msgstr ""
+"Uudelleenkirjoituksesta loppuivat tunnisteet ennen tekstin tuottamista. "
+"Yritä uudelleen tai lyhennä valintaa."
+
+#: plugin/draw/editselection.py plugin/calc/editselection.py
+msgid "The model returned no text. Try again."
+msgstr "Malli ei palauttanut tekstiä. Yritä uudelleen."
 
 #: plugin/embeddings/search_ui.py
 msgid "just now"
@@ -316,7 +356,7 @@ msgstr "Kaavan ylivuotovirhe: kohdealue sisältää tyhjiä soluja."
 msgid "The AI provider reported an error. Try again."
 msgstr "Tekoälypalveluntarjoaja ilmoitti virheestä. Yritä uudelleen."
 
-#: plugin/framework/errors.py plugin/calc/python/function.py
+#: plugin/framework/errors.py plugin/calc/python/addin_values.py
 #: plugin/chatbot/quick_setup.py plugin/scripting/session_manager.py
 #, python-brace-format
 msgid "Error: {0}"
@@ -631,6 +671,12 @@ msgid "Configure a Python venv path in Settings → Python."
 msgstr "Määritä Python-virtuaaliympäristön polku kohdassa Asetukset → Python."
 
 #: plugin/calc/python/init_script_editor.py
+msgid "The Python editor check is still running. Open this again in a moment."
+msgstr ""
+"Python-editorin tarkistus on vielä käynnissä. Avaa tämä hetken kuluttua "
+"uudelleen."
+
+#: plugin/calc/python/init_script_editor.py
 msgid "Cannot import webview (pywebview) in the configured venv."
 msgstr ""
 "Webview-kirjastoa (pywebview) ei voitu tuoda määritetyssä "
@@ -752,16 +798,24 @@ msgid "Could not open the built-in Python cell editor."
 msgstr "Sisäänrakennettua Python-solumuokkainta ei voitu avata."
 
 #: plugin/calc/python/function.py
+msgid "Image inserted"
+msgstr "Kuva lisätty"
+
+#: plugin/calc/python/function.py
+msgid "Images inserted"
+msgstr "Kuvat lisätty"
+
+#: plugin/calc/python/addin_values.py
 #, python-brace-format
 msgid "Error: Main-thread execution timed out ({0})"
 msgstr "Virhe: Pääsäikeen suoritus aikakatkaistiin ({0})"
 
-#: plugin/calc/python/function.py plugin/scripting/python_runner_ui.py
+#: plugin/calc/python/addin_values.py plugin/scripting/python_runner_ui.py
 #: plugin/scripting/python_runner.py
 msgid "Unknown error"
 msgstr "Tuntematon virhe"
 
-#: plugin/calc/python/function.py
+#: plugin/calc/python/addin_values.py
 msgid ""
 "Error: Python venv not found. Open Settings → Python, set the venv path, "
 "then Test."
@@ -769,21 +823,13 @@ msgstr ""
 "Virhe: Python-virtuaaliympäristöä ei löytynyt. Avaa Asetukset → Python, "
 "määritä virtuaaliympäristön polku ja testaa."
 
-#: plugin/calc/python/function.py
+#: plugin/calc/python/addin_values.py
 msgid ""
 "Error: Python timed out. Open Settings → Python to raise the timeout, or "
 "Test the venv."
 msgstr ""
 "Virhe: Pythonin aikakatkaisu. Avaa Asetukset → Python pidentääksesi "
 "aikakatkaisua tai testaa virtuaaliympäristö."
-
-#: plugin/calc/python/function.py
-msgid "Image inserted"
-msgstr "Kuva lisätty"
-
-#: plugin/calc/python/function.py
-msgid "Images inserted"
-msgstr "Kuvat lisätty"
 
 #: plugin/calc/python/geometric_recalc.py
 #, python-format
@@ -826,9 +872,8 @@ msgid "Select one or more non-empty cells."
 msgstr "Valitse yksi tai useampi tyhjä solu."
 
 #: plugin/calc/editselection.py
-#, python-brace-format
-msgid "Only the first {0} non-empty cells are edited."
-msgstr "Vain ensimmäiset {0} ei-tyhjää solua muokataan."
+msgid "Formula cells are skipped."
+msgstr "Kaavasoluja ei käsitellä."
 
 #: plugin/calc/vision_egress.py plugin/vision/vision_runner.py
 #: plugin/vision/vision_egress.py
@@ -1808,16 +1853,65 @@ msgid "Perfect! I'm switching you to the main assistant now."
 msgstr "Täydellistä! Vaihdan sinut nyt pääavustajaan."
 
 #: plugin/chatbot/slash_commands.py
+msgid "[focus]"
+msgstr "[kohdistus]"
+
+#: plugin/chatbot/slash_commands.py
+msgid "[target]"
+msgstr "Kohde"
+
+#: plugin/chatbot/slash_commands.py
+msgid "[what]"
+msgstr "Mitä"
+
+#: plugin/chatbot/slash_commands.py
+msgid "<description>"
+msgstr "<kuvaus>"
+
+#: plugin/chatbot/slash_commands.py
+msgid "<language>"
+msgstr "<kieli>"
+
+#: plugin/chatbot/slash_commands.py
+msgid "<fact>"
+msgstr "<tosiasia>"
+
+#: plugin/chatbot/slash_commands.py
+msgid "Failed to save memory."
+msgstr "Muistiin tallennus epäonnistui."
+
+#: plugin/chatbot/slash_commands.py
+#, python-brace-format
+msgid "Saved to memory: {0}"
+msgstr "Tallennettu muistiin: {0}"
+
+#: plugin/chatbot/slash_commands.py
+msgid "help"
+msgstr "ohje"
+
+#: plugin/chatbot/slash_commands.py
 msgid "Print the command list"
 msgstr "Tulosta komentoluettelo"
+
+#: plugin/chatbot/slash_commands.py
+msgid "clear"
+msgstr "tyhjennä"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Start a new chat"
 msgstr "Aloita uusi keskustelu"
 
 #: plugin/chatbot/slash_commands.py
+msgid "stop"
+msgstr "pysäytä"
+
+#: plugin/chatbot/slash_commands.py
 msgid "Cancel the in-flight send"
 msgstr "Peruuta meneillään oleva lähetys"
+
+#: plugin/chatbot/slash_commands.py
+msgid "summarize"
+msgstr "tiivistä"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Summarize the selection or document in the sidebar"
@@ -1828,6 +1922,10 @@ msgid ""
 "Summarize the selected text, or the whole document if nothing is selected."
 msgstr ""
 "Tiivistä valittu teksti tai koko asiakirja, jos mitään ei ole valittu."
+
+#: plugin/chatbot/slash_commands.py
+msgid "proofread"
+msgstr "oikolue"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Fix spelling, grammar, and punctuation without restyling"
@@ -1842,6 +1940,10 @@ msgstr ""
 "sävyä tai merkitystä."
 
 #: plugin/chatbot/slash_commands.py
+msgid "shorten"
+msgstr "lyhennä"
+
+#: plugin/chatbot/slash_commands.py
 msgid "Shorten the selection"
 msgstr "Lyhennä valintaa"
 
@@ -1850,12 +1952,20 @@ msgid "Make the text shorter while preserving the meaning."
 msgstr "Lyhennä tekstiä säilyttäen sen merkityksen."
 
 #: plugin/chatbot/slash_commands.py
+msgid "expand"
+msgstr "laajenna"
+
+#: plugin/chatbot/slash_commands.py
 msgid "Expand the selection with more detail"
 msgstr "Laajenna valintaa yksityiskohtaisemmaksi"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Expand the text with more detail and clarity."
 msgstr "Laajenna tekstiä lisäämällä yksityiskohtia ja selkeyttä."
+
+#: plugin/chatbot/slash_commands.py
+msgid "tone"
+msgstr "sävy"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Rewrite the selection to match a described tone"
@@ -1867,6 +1977,10 @@ msgid "Rewrite the text to match this tone or style: {arg}"
 msgstr "Kirjoita teksti uudelleen vastaamaan tätä sävyä tai tyyliä: {arg}"
 
 #: plugin/chatbot/slash_commands.py
+msgid "translate"
+msgstr "käännä"
+
+#: plugin/chatbot/slash_commands.py
 msgid "Translate the selection (sidebar when nothing is selected in Writer)"
 msgstr "Käännä valinta (sivupalkki, kun Writerissa ei ole valintaa)"
 
@@ -1874,6 +1988,10 @@ msgstr "Käännä valinta (sivupalkki, kun Writerissa ei ole valintaa)"
 #, python-brace-format
 msgid "Translate the text into {arg}. Keep formatting and structure."
 msgstr "Käännä teksti kielelle {arg}. Säilytä muotoilu ja rakenne."
+
+#: plugin/chatbot/slash_commands.py
+msgid "explain"
+msgstr "selitä"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Explain the selection or active Calc formula"
@@ -1884,16 +2002,32 @@ msgid "Explain the following in plain language."
 msgstr "Selitä seuraava selkokielellä."
 
 #: plugin/chatbot/slash_commands.py
+msgid "remember"
+msgstr "muista"
+
+#: plugin/chatbot/slash_commands.py
 msgid "Save a fact to persistent memory"
 msgstr "Tallenna fakta pysyvään muistiin"
+
+#: plugin/chatbot/slash_commands.py
+msgid "compact"
+msgstr "tiivistä"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Compact older chat history now"
 msgstr "Tiivistä vanhempi keskusteluhistoria nyt"
 
 #: plugin/chatbot/slash_commands.py
+msgid "undo"
+msgstr "kumoa"
+
+#: plugin/chatbot/slash_commands.py
 msgid "Undo the last agent edit as one step"
 msgstr "Kumoa viimeisin agentin muokkaus yhtenä vaiheena"
+
+#: plugin/chatbot/slash_commands.py
+msgid "formula"
+msgstr "kaava"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Write a Calc formula from a plain-English description"
@@ -1926,6 +2060,20 @@ msgstr "Käyttö: {0}"
 
 #: plugin/chatbot/slash_commands.py
 #, python-brace-format
+msgid "Additional instruction: {0}"
+msgstr "Lisäohje: {0}"
+
+#: plugin/chatbot/slash_commands.py
+#, python-brace-format
+msgid ""
+"Selected text:\n"
+"{0}"
+msgstr ""
+"Valittu teksti:\n"
+"{0}"
+
+#: plugin/chatbot/slash_commands.py
+#, python-brace-format
 msgid "Cell {0} formula: {1}"
 msgstr "Solun {0} kaava: {1}"
 
@@ -1935,13 +2083,8 @@ msgid "Cell {0} value: {1}"
 msgstr "Solun {0} arvo: {1}"
 
 #: plugin/chatbot/slash_commands.py
-msgid "Failed to save memory."
-msgstr "Muistiin tallennus epäonnistui."
-
-#: plugin/chatbot/slash_commands.py
-#, python-brace-format
-msgid "Saved to memory: {0}"
-msgstr "Tallennettu muistiin: {0}"
+msgid "WriterAgent"
+msgstr "WriterAgent"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Conversation compacted."
@@ -1964,10 +2107,15 @@ msgid "Compaction failed."
 msgstr "Tiivistäminen epäonnistui."
 
 #: plugin/chatbot/slash_commands.py
-msgid "WriterAgent"
-msgstr "WriterAgent"
+msgid "Wait for the current reply to finish before /compact."
+msgstr ""
+"Odota nykyisen vastauksen valmistumista ennen /compact-komennon käyttöä."
 
-#: plugin/chatbot/slash_commands.py
+#: plugin/chatbot/slash_commands.py plugin/chatbot/send_handlers.py
+msgid "Thinking..."
+msgstr "Ajatellaan..."
+
+#: plugin/chatbot/slash_commands.py plugin/chatbot/compaction.py
 msgid "Configure an API key to compact."
 msgstr "Määritä API-avain tiivistämistä varten."
 
@@ -1979,19 +2127,9 @@ msgstr "Keskustelun tiivistäminen on poistettu käytöstä asetuksissa."
 msgid "Compaction cancelled."
 msgstr "Tiivistäminen peruutettu."
 
-#: plugin/chatbot/slash_commands.py plugin/chatbot/panel.py
-#: plugin/chatbot/sidebar_test_hooks.py plugin/chatbot/send_handlers.py
-msgid "Thinking..."
-msgstr "Ajatellaan..."
-
 #: plugin/chatbot/panel.py
 msgid "[No compatible LibreOffice document found.]"
 msgstr "[Yhteensopivaa LibreOffice-asiakirjaa ei löytynyt.]"
-
-#: plugin/chatbot/panel.py plugin/chatbot/sidebar_test_hooks.py
-msgid "Wait for the current reply to finish before /compact."
-msgstr ""
-"Odota nykyisen vastauksen valmistumista ennen /compact-komennon käyttöä."
 
 #: plugin/chatbot/panel.py
 msgid "Only in Calc"
@@ -2171,6 +2309,15 @@ msgstr ""
 "(polku, asennus).]"
 
 #: plugin/chatbot/send_handlers.py
+msgid ""
+"MCP server is off: LibreOffice edits from this agent require the MCP server."
+" Enable it in Settings → MCP → Enable MCP Server."
+msgstr ""
+"MCP-palvelin on pois päältä: LibreOffice-muokkaukset tältä agentilta "
+"vaativat MCP-palvelimen. Ota se käyttöön kohdassa Asetukset → MCP → Ota MCP-"
+"palvelin käyttöön."
+
+#: plugin/chatbot/send_handlers.py
 #, python-brace-format
 msgid "[{0} error: {1}]"
 msgstr "[{0} virhe: {1}]"
@@ -2247,6 +2394,10 @@ msgid ""
 msgstr ""
 "Uudempi %(name)s (%(version)s) on saatavilla. Käytä Työkalut → Laajennusten "
 "hallinta tarkistaaksesi päivitykset ja asentaaksesi uusimman laajennuksen."
+
+#: plugin/chatbot/chat_session.py
+msgid "Chat history could not be opened. This conversation will not be saved."
+msgstr "Keskusteluhistoriaa ei voitu avata. Tätä keskustelua ei tallenneta."
 
 #: plugin/chatbot/dialog_views.py
 #, python-brace-format
@@ -3277,8 +3428,9 @@ msgid "Viz '{helper}' completed. {msg}"
 msgstr "Viz '{helper}' suoritettu. {msg}"
 
 #: plugin/scripting/python_runner.py
-msgid "Vision helpers require a Writer or Calc document."
-msgstr "Näköapulaiset vaativat Writer- tai Calc-asiakirjan."
+msgid "Vision helpers require a Writer, Calc, Draw, or Impress document."
+msgstr ""
+"Vision-aputoiminnot vaativat Writer-, Calc-, Draw- tai Impress-asiakirjan."
 
 #: plugin/scripting/python_runner.py
 msgid "Vision helper failed."
@@ -3292,6 +3444,24 @@ msgid ""
 msgstr ""
 "Vision '{helper}' valmis. Lisätty muotoiltua HTML-koodia {count} kuvalle. "
 "(kesti {time})"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid ""
+"Vision '{helper}' completed for {count} images. Text returned only (not "
+"inserted). (took {time})"
+msgstr ""
+"Vision '{helper}' valmis {count} kuvalle. Vain teksti palautettu (ei "
+"lisätty). (kesti {time})"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid ""
+"Vision '{helper}' completed. Text returned only (not inserted). (took "
+"{time})"
+msgstr ""
+"Vision '{helper}' valmis. Vain teksti palautettu (ei lisätty). (kesti "
+"{time})"
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format
@@ -3438,8 +3608,16 @@ msgid "OCR complete (text returned only; not inserted)."
 msgstr "Tekstintunnistus valmis (vain teksti palautettu; ei lisätty)."
 
 #: plugin/vision/vision_tools.py
-msgid "Vision OCR requires a Writer or Calc document."
-msgstr "Vision OCR vaatii Writer- tai Calc-asiakirjan."
+msgid "Vision OCR requires a Writer, Calc, Draw, or Impress document."
+msgstr "Vision OCR vaatii Writer-, Calc-, Draw- tai Impress-asiakirjan."
+
+#: plugin/vision/vision_tools.py
+msgid ""
+"Draw and Impress return vision text only; omit insert_into_document or set "
+"it to false."
+msgstr ""
+"Draw ja Impress palauttavat Vision-tekstin vain tekstimuodossa; jätä "
+"insert_into_document pois tai aseta se epätodeksi (false)."
 
 #: plugin/vision/vision_egress.py
 msgid "Writer document has no controller."
@@ -4095,6 +4273,9 @@ msgstr "Grok Build"
 msgid "OpenCode"
 msgstr "OpenCode"
 
+msgid "Antigravity"
+msgstr "Antigravity"
+
 msgid "Prompt for Agent Permissions"
 msgstr "Pyydä agentin käyttöoikeuksia"
 
@@ -4104,6 +4285,19 @@ msgid ""
 msgstr ""
 "Pyydä vahvistusta ennen kuin agentti saa käyttää työkaluja (tiedostojen "
 "lukeminen, komentojen suorittaminen jne.)"
+
+msgid "Antigravity model"
+msgstr "Antigravity-malli"
+
+msgid ""
+"agy modelId from session/new models.availableModels, for example "
+"gemini-4-argon-medium. Empty keeps agy's current model. configOptions family"
+" ids such as gemini-4-argon are not modelIds."
+msgstr ""
+"agy-mallitunniste (modelId) session/new models.availableModels "
+"-rajapinnasta, esimerkiksi gemini-4-argon-medium. Tyhjä arvo säilyttää agy-"
+"laajennuksen nykyisen mallin. configOptions-perheen tunnisteet, kuten "
+"gemini-4-argon, eivät ole mallitunnisteita."
 
 msgid "STT Provider"
 msgstr "STT-palveluntarjoaja"
@@ -4290,27 +4484,6 @@ msgstr "Sivupalkki"
 
 msgid "Max Tool Rounds"
 msgstr "Työkalukierrosten enimmäismäärä"
-
-msgid "Document Context Strategy"
-msgstr "Asiakirjan kontekstistrategia"
-
-msgid "How much document content to include in LLM context"
-msgstr "Kuinka paljon asiakirjan sisältöä sisällytetään LLM-kontekstiin"
-
-msgid "Auto (by document size)"
-msgstr "Automaattinen (asiakirjan koon mukaan)"
-
-msgid "Full document text"
-msgstr "Koko asiakirjan teksti"
-
-msgid "Pages around cursor"
-msgstr "Sivut kohdistimen ympärillä"
-
-msgid "Outline + excerpt"
-msgstr "Jäsennys + ote"
-
-msgid "Stats + outline only"
-msgstr "Vain tilastot + jäsennys"
 
 msgid "Web Research Cache"
 msgstr "Verkkotutkimuksen välimuisti"

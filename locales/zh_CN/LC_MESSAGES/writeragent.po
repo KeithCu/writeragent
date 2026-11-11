@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-03 13:09-0500\n"
+"POT-Creation-Date: 2026-11-11 14:14-0500\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Chinese (Simplified) <LL@li.org>\n"
@@ -104,6 +104,42 @@ msgstr "运行代码单元格"
 #: plugin/notebook/layout.py
 msgid "Code"
 msgstr "代码"
+
+#: plugin/draw/editselection.py
+msgid "Select a text shape. Tables are not rewritten."
+msgstr "请选择一个文本形状。表格不会被重写。"
+
+#: plugin/draw/editselection.py
+msgid "Select a text shape."
+msgstr "请选择一个文本形状。"
+
+#: plugin/draw/editselection.py
+msgid "WriterAgent: Edit Selection (Draw)"
+msgstr "WriterAgent: 编辑所选内容 (Draw)"
+
+#: plugin/draw/editselection.py
+msgid "WriterAgent: Extend Selection (Draw)"
+msgstr "WriterAgent: 扩展所选内容 (Draw)"
+
+#: plugin/draw/editselection.py plugin/calc/editselection.py
+#, python-brace-format
+msgid "Only the first {0} non-empty cells are edited."
+msgstr "仅编辑前 {0} 个非空单元格。"
+
+#: plugin/draw/editselection.py
+msgid "Could not register undo for this edit. The change was not applied."
+msgstr "无法为此次编辑注册撤销操作。更改未应用。"
+
+#: plugin/draw/editselection.py plugin/calc/editselection.py
+#: plugin/writer/editselection.py
+msgid ""
+"The rewrite ran out of tokens before producing text. Try again or shorten "
+"the selection."
+msgstr "重写在生成文本前耗尽了令牌。请重试或缩短所选内容。"
+
+#: plugin/draw/editselection.py plugin/calc/editselection.py
+msgid "The model returned no text. Try again."
+msgstr "模型未返回任何文本。请重试。"
 
 #: plugin/embeddings/search_ui.py
 msgid "just now"
@@ -297,7 +333,7 @@ msgstr "公式溢出冲突：目标区域包含非空单元格。"
 msgid "The AI provider reported an error. Try again."
 msgstr "AI 提供商报告了错误。请重试。"
 
-#: plugin/framework/errors.py plugin/calc/python/function.py
+#: plugin/framework/errors.py plugin/calc/python/addin_values.py
 #: plugin/chatbot/quick_setup.py plugin/scripting/session_manager.py
 #, python-brace-format
 msgid "Error: {0}"
@@ -581,6 +617,10 @@ msgid "Configure a Python venv path in Settings → Python."
 msgstr "请在“设置”→“Python”中配置 Python 虚拟环境路径。"
 
 #: plugin/calc/python/init_script_editor.py
+msgid "The Python editor check is still running. Open this again in a moment."
+msgstr "Python 编辑器检查仍在运行。请稍后再打开。"
+
+#: plugin/calc/python/init_script_editor.py
 msgid "Cannot import webview (pywebview) in the configured venv."
 msgstr "无法在配置的虚拟环境中导入 webview (pywebview)。"
 
@@ -696,34 +736,34 @@ msgid "Could not open the built-in Python cell editor."
 msgstr "无法打开内置的 Python 单元格编辑器。"
 
 #: plugin/calc/python/function.py
-#, python-brace-format
-msgid "Error: Main-thread execution timed out ({0})"
-msgstr "错误：主线程执行超时 ({0})"
-
-#: plugin/calc/python/function.py plugin/scripting/python_runner_ui.py
-#: plugin/scripting/python_runner.py
-msgid "Unknown error"
-msgstr "未知错误"
-
-#: plugin/calc/python/function.py
-msgid ""
-"Error: Python venv not found. Open Settings → Python, set the venv path, "
-"then Test."
-msgstr "错误：未找到 Python venv。请打开“设置”→“Python”，设置 venv 路径，然后进行测试。"
-
-#: plugin/calc/python/function.py
-msgid ""
-"Error: Python timed out. Open Settings → Python to raise the timeout, or "
-"Test the venv."
-msgstr "错误：Python 执行超时。请打开“设置”→“Python”以增加超时时间，或测试该 venv。"
-
-#: plugin/calc/python/function.py
 msgid "Image inserted"
 msgstr "已插入图像"
 
 #: plugin/calc/python/function.py
 msgid "Images inserted"
 msgstr "已插入图像"
+
+#: plugin/calc/python/addin_values.py
+#, python-brace-format
+msgid "Error: Main-thread execution timed out ({0})"
+msgstr "错误：主线程执行超时 ({0})"
+
+#: plugin/calc/python/addin_values.py plugin/scripting/python_runner_ui.py
+#: plugin/scripting/python_runner.py
+msgid "Unknown error"
+msgstr "未知错误"
+
+#: plugin/calc/python/addin_values.py
+msgid ""
+"Error: Python venv not found. Open Settings → Python, set the venv path, "
+"then Test."
+msgstr "错误：未找到 Python venv。请打开“设置”→“Python”，设置 venv 路径，然后进行测试。"
+
+#: plugin/calc/python/addin_values.py
+msgid ""
+"Error: Python timed out. Open Settings → Python to raise the timeout, or "
+"Test the venv."
+msgstr "错误：Python 执行超时。请打开“设置”→“Python”以增加超时时间，或测试该 venv。"
 
 #: plugin/calc/python/geometric_recalc.py
 #, python-format
@@ -765,9 +805,8 @@ msgid "Select one or more non-empty cells."
 msgstr "请选择一个或多个非空单元格。"
 
 #: plugin/calc/editselection.py
-#, python-brace-format
-msgid "Only the first {0} non-empty cells are edited."
-msgstr "仅编辑前 {0} 个非空单元格。"
+msgid "Formula cells are skipped."
+msgstr "公式单元格将被跳过。"
 
 #: plugin/calc/vision_egress.py plugin/vision/vision_runner.py
 #: plugin/vision/vision_egress.py
@@ -1697,16 +1736,65 @@ msgid "Perfect! I'm switching you to the main assistant now."
 msgstr "完美！现在我将您切换到主助手。"
 
 #: plugin/chatbot/slash_commands.py
+msgid "[focus]"
+msgstr "[焦点]"
+
+#: plugin/chatbot/slash_commands.py
+msgid "[target]"
+msgstr "目标"
+
+#: plugin/chatbot/slash_commands.py
+msgid "[what]"
+msgstr "内容"
+
+#: plugin/chatbot/slash_commands.py
+msgid "<description>"
+msgstr "<描述>"
+
+#: plugin/chatbot/slash_commands.py
+msgid "<language>"
+msgstr "<语言>"
+
+#: plugin/chatbot/slash_commands.py
+msgid "<fact>"
+msgstr "<事实>"
+
+#: plugin/chatbot/slash_commands.py
+msgid "Failed to save memory."
+msgstr "保存到内存失败。"
+
+#: plugin/chatbot/slash_commands.py
+#, python-brace-format
+msgid "Saved to memory: {0}"
+msgstr "已保存到内存: {0}"
+
+#: plugin/chatbot/slash_commands.py
+msgid "help"
+msgstr "帮助"
+
+#: plugin/chatbot/slash_commands.py
 msgid "Print the command list"
 msgstr "打印命令列表"
+
+#: plugin/chatbot/slash_commands.py
+msgid "clear"
+msgstr "清除"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Start a new chat"
 msgstr "开始新对话"
 
 #: plugin/chatbot/slash_commands.py
+msgid "stop"
+msgstr "停止"
+
+#: plugin/chatbot/slash_commands.py
 msgid "Cancel the in-flight send"
 msgstr "取消正在进行的发送"
+
+#: plugin/chatbot/slash_commands.py
+msgid "summarize"
+msgstr "总结"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Summarize the selection or document in the sidebar"
@@ -1716,6 +1804,10 @@ msgstr "在侧边栏中总结所选内容或文档"
 msgid ""
 "Summarize the selected text, or the whole document if nothing is selected."
 msgstr "总结所选文本；若未选定任何内容，则总结整个文档。"
+
+#: plugin/chatbot/slash_commands.py
+msgid "proofread"
+msgstr "校对"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Fix spelling, grammar, and punctuation without restyling"
@@ -1728,6 +1820,10 @@ msgid ""
 msgstr "仅修正拼写、语法和标点。请勿更改样式、语气或含义。"
 
 #: plugin/chatbot/slash_commands.py
+msgid "shorten"
+msgstr "缩短"
+
+#: plugin/chatbot/slash_commands.py
 msgid "Shorten the selection"
 msgstr "缩短所选内容"
 
@@ -1736,12 +1832,20 @@ msgid "Make the text shorter while preserving the meaning."
 msgstr "在保留含义的前提下缩短文本。"
 
 #: plugin/chatbot/slash_commands.py
+msgid "expand"
+msgstr "扩充"
+
+#: plugin/chatbot/slash_commands.py
 msgid "Expand the selection with more detail"
 msgstr "以更多细节扩展所选内容"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Expand the text with more detail and clarity."
 msgstr "以更多细节和清晰度扩展文本。"
+
+#: plugin/chatbot/slash_commands.py
+msgid "tone"
+msgstr "语气"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Rewrite the selection to match a described tone"
@@ -1753,6 +1857,10 @@ msgid "Rewrite the text to match this tone or style: {arg}"
 msgstr "按此语气或风格重写文本：{arg}"
 
 #: plugin/chatbot/slash_commands.py
+msgid "translate"
+msgstr "翻译"
+
+#: plugin/chatbot/slash_commands.py
 msgid "Translate the selection (sidebar when nothing is selected in Writer)"
 msgstr "翻译所选内容（在 Writer 中未选中任何内容时显示在侧边栏）"
 
@@ -1760,6 +1868,10 @@ msgstr "翻译所选内容（在 Writer 中未选中任何内容时显示在侧�
 #, python-brace-format
 msgid "Translate the text into {arg}. Keep formatting and structure."
 msgstr "将文本翻译为 {arg}。保留格式和结构。"
+
+#: plugin/chatbot/slash_commands.py
+msgid "explain"
+msgstr "解释"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Explain the selection or active Calc formula"
@@ -1770,16 +1882,32 @@ msgid "Explain the following in plain language."
 msgstr "用通俗易懂的语言解释以下内容。"
 
 #: plugin/chatbot/slash_commands.py
+msgid "remember"
+msgstr "记忆"
+
+#: plugin/chatbot/slash_commands.py
 msgid "Save a fact to persistent memory"
 msgstr "将事实保存到持久存储中"
+
+#: plugin/chatbot/slash_commands.py
+msgid "compact"
+msgstr "精简"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Compact older chat history now"
 msgstr "立即压缩旧的聊天记录"
 
 #: plugin/chatbot/slash_commands.py
+msgid "undo"
+msgstr "撤销"
+
+#: plugin/chatbot/slash_commands.py
 msgid "Undo the last agent edit as one step"
 msgstr "撤销上一次代理编辑（作为单个步骤）"
+
+#: plugin/chatbot/slash_commands.py
+msgid "formula"
+msgstr "公式"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Write a Calc formula from a plain-English description"
@@ -1812,6 +1940,20 @@ msgstr "用法：{0}"
 
 #: plugin/chatbot/slash_commands.py
 #, python-brace-format
+msgid "Additional instruction: {0}"
+msgstr "附加说明：{0}"
+
+#: plugin/chatbot/slash_commands.py
+#, python-brace-format
+msgid ""
+"Selected text:\n"
+"{0}"
+msgstr ""
+"选定文本：\n"
+"{0}"
+
+#: plugin/chatbot/slash_commands.py
+#, python-brace-format
 msgid "Cell {0} formula: {1}"
 msgstr "单元格 {0} 公式：{1}"
 
@@ -1821,13 +1963,8 @@ msgid "Cell {0} value: {1}"
 msgstr "单元格 {0} 的值: {1}"
 
 #: plugin/chatbot/slash_commands.py
-msgid "Failed to save memory."
-msgstr "保存到内存失败。"
-
-#: plugin/chatbot/slash_commands.py
-#, python-brace-format
-msgid "Saved to memory: {0}"
-msgstr "已保存到内存: {0}"
+msgid "WriterAgent"
+msgstr "WriterAgent"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Conversation compacted."
@@ -1850,10 +1987,14 @@ msgid "Compaction failed."
 msgstr "压缩失败。"
 
 #: plugin/chatbot/slash_commands.py
-msgid "WriterAgent"
-msgstr "WriterAgent"
+msgid "Wait for the current reply to finish before /compact."
+msgstr "请等待当前回复完成，然后再执行 /compact。"
 
-#: plugin/chatbot/slash_commands.py
+#: plugin/chatbot/slash_commands.py plugin/chatbot/send_handlers.py
+msgid "Thinking..."
+msgstr "思考中..."
+
+#: plugin/chatbot/slash_commands.py plugin/chatbot/compaction.py
 msgid "Configure an API key to compact."
 msgstr "请配置 API 密钥以进行压缩。"
 
@@ -1865,18 +2006,9 @@ msgstr "聊天压缩已在设置中禁用。"
 msgid "Compaction cancelled."
 msgstr "压缩已取消。"
 
-#: plugin/chatbot/slash_commands.py plugin/chatbot/panel.py
-#: plugin/chatbot/sidebar_test_hooks.py plugin/chatbot/send_handlers.py
-msgid "Thinking..."
-msgstr "思考中..."
-
 #: plugin/chatbot/panel.py
 msgid "[No compatible LibreOffice document found.]"
 msgstr "[未找到兼容的 LibreOffice 文档。]"
-
-#: plugin/chatbot/panel.py plugin/chatbot/sidebar_test_hooks.py
-msgid "Wait for the current reply to finish before /compact."
-msgstr "请等待当前回复完成，然后再执行 /compact。"
 
 #: plugin/chatbot/panel.py
 msgid "Only in Calc"
@@ -2044,6 +2176,13 @@ msgid ""
 msgstr "[代理后端 '{0}' 不可用。请检查设置（路径、安装）。]"
 
 #: plugin/chatbot/send_handlers.py
+msgid ""
+"MCP server is off: LibreOffice edits from this agent require the MCP server."
+" Enable it in Settings → MCP → Enable MCP Server."
+msgstr ""
+"MCP 服务器已关闭：来自此代理的 LibreOffice 编辑操作需要 MCP 服务器。请在“设置”→“MCP”→“启用 MCP 服务器”中将其开启。"
+
+#: plugin/chatbot/send_handlers.py
 #, python-brace-format
 msgid "[{0} error: {1}]"
 msgstr "[{0} 错误：{1}]"
@@ -2118,6 +2257,10 @@ msgid ""
 "A newer %(name)s (%(version)s) is available. Use Tools → Extension Manager "
 "to check for updates and install the latest extension."
 msgstr "已有更新版本的 %(name)s (%(version)s) 可用。请使用“工具”→“扩展管理器”检查更新并安装最新扩展。"
+
+#: plugin/chatbot/chat_session.py
+msgid "Chat history could not be opened. This conversation will not be saved."
+msgstr "无法打开聊天记录。此对话将不会被保存。"
 
 #: plugin/chatbot/dialog_views.py
 #, python-brace-format
@@ -3088,8 +3231,8 @@ msgid "Viz '{helper}' completed. {msg}"
 msgstr "Viz “{helper}” 已完成。{msg}"
 
 #: plugin/scripting/python_runner.py
-msgid "Vision helpers require a Writer or Calc document."
-msgstr "视觉助手需要 Writer 或 Calc 文档。"
+msgid "Vision helpers require a Writer, Calc, Draw, or Impress document."
+msgstr "视觉助手需要 Writer、Calc、Draw 或 Impress 文档。"
 
 #: plugin/scripting/python_runner.py
 msgid "Vision helper failed."
@@ -3101,6 +3244,20 @@ msgid ""
 "Vision '{helper}' completed. Inserted formatted HTML for {count} images. "
 "(took {time})"
 msgstr "视觉助手“{helper}”已完成。已为 {count} 张图像插入格式化 HTML。（耗时 {time}）"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid ""
+"Vision '{helper}' completed for {count} images. Text returned only (not "
+"inserted). (took {time})"
+msgstr "视觉助手“{helper}”已完成，共处理 {count} 张图像。仅返回文本（未插入）。（耗时 {time}）"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid ""
+"Vision '{helper}' completed. Text returned only (not inserted). (took "
+"{time})"
+msgstr "视觉助手“{helper}”已完成。仅返回文本（未插入）。（耗时 {time}）"
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format
@@ -3236,8 +3393,14 @@ msgid "OCR complete (text returned only; not inserted)."
 msgstr "OCR 已完成（仅返回文本；未插入）。"
 
 #: plugin/vision/vision_tools.py
-msgid "Vision OCR requires a Writer or Calc document."
-msgstr "视觉 OCR 需要 Writer 或 Calc 文档。"
+msgid "Vision OCR requires a Writer, Calc, Draw, or Impress document."
+msgstr "视觉 OCR 需要 Writer、Calc、Draw 或 Impress 文档。"
+
+#: plugin/vision/vision_tools.py
+msgid ""
+"Draw and Impress return vision text only; omit insert_into_document or set "
+"it to false."
+msgstr "Draw 和 Impress 仅返回视觉文本；请省略 insert_into_document 或将其设置为 false。"
 
 #: plugin/vision/vision_egress.py
 msgid "Writer document has no controller."
@@ -3889,6 +4052,9 @@ msgstr "Grok Build"
 msgid "OpenCode"
 msgstr "OpenCode"
 
+msgid "Antigravity"
+msgstr "反重力"
+
 msgid "Prompt for Agent Permissions"
 msgstr "请求代理权限"
 
@@ -3896,6 +4062,17 @@ msgid ""
 "Ask for confirmation before allowing the agent to use tools (read files, "
 "execute commands, etc.)"
 msgstr "在允许代理使用工具（读取文件、执行命令等）前询问确认"
+
+msgid "Antigravity model"
+msgstr "反重力模型"
+
+msgid ""
+"agy modelId from session/new models.availableModels, for example "
+"gemini-4-argon-medium. Empty keeps agy's current model. configOptions family"
+" ids such as gemini-4-argon are not modelIds."
+msgstr ""
+"agy modelId 来自 session/new models.availableModels，例如 gemini-4-argon-"
+"medium。留空则保持 agy 当前的模型。configOptions 系列 ID（如 gemini-4-argon）不是 modelId。"
 
 msgid "STT Provider"
 msgstr "语音转文字 (STT) 提供程序"
@@ -4064,27 +4241,6 @@ msgstr "侧边栏"
 
 msgid "Max Tool Rounds"
 msgstr "最大工具轮次"
-
-msgid "Document Context Strategy"
-msgstr "文档上下文策略"
-
-msgid "How much document content to include in LLM context"
-msgstr "在 LLM 上下文中包含多少文档内容"
-
-msgid "Auto (by document size)"
-msgstr "自动（根据文档大小）"
-
-msgid "Full document text"
-msgstr "完整文档文本"
-
-msgid "Pages around cursor"
-msgstr "光标周围页面"
-
-msgid "Outline + excerpt"
-msgstr "大纲 + 摘录"
-
-msgid "Stats + outline only"
-msgstr "仅统计 + 大纲"
 
 msgid "Web Research Cache"
 msgstr "网络研究缓存"

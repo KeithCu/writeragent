@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-03 13:09-0500\n"
+"POT-Creation-Date: 2026-11-11 14:14-0500\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Spanish <LL@li.org>\n"
@@ -106,6 +106,46 @@ msgstr "Ejecutar celda de código"
 #: plugin/notebook/layout.py
 msgid "Code"
 msgstr "Código"
+
+#: plugin/draw/editselection.py
+msgid "Select a text shape. Tables are not rewritten."
+msgstr "Seleccione una forma de texto. Las tablas no se reescriben."
+
+#: plugin/draw/editselection.py
+msgid "Select a text shape."
+msgstr "Seleccione una forma de texto."
+
+#: plugin/draw/editselection.py
+msgid "WriterAgent: Edit Selection (Draw)"
+msgstr "WriterAgent: Editar selección (Draw)"
+
+#: plugin/draw/editselection.py
+msgid "WriterAgent: Extend Selection (Draw)"
+msgstr "WriterAgent: Extender selección (Draw)"
+
+#: plugin/draw/editselection.py plugin/calc/editselection.py
+#, python-brace-format
+msgid "Only the first {0} non-empty cells are edited."
+msgstr "Solo se editarán las primeras {0} celdas que no estén vacías."
+
+#: plugin/draw/editselection.py
+msgid "Could not register undo for this edit. The change was not applied."
+msgstr ""
+"No se pudo registrar la acción de deshacer para esta edición. El cambio no "
+"se aplicó."
+
+#: plugin/draw/editselection.py plugin/calc/editselection.py
+#: plugin/writer/editselection.py
+msgid ""
+"The rewrite ran out of tokens before producing text. Try again or shorten "
+"the selection."
+msgstr ""
+"La reescritura se quedó sin tokens antes de producir texto. Inténtelo de "
+"nuevo o acorte la selección."
+
+#: plugin/draw/editselection.py plugin/calc/editselection.py
+msgid "The model returned no text. Try again."
+msgstr "El modelo no devolvió ningún texto. Inténtelo de nuevo."
 
 #: plugin/embeddings/search_ui.py
 msgid "just now"
@@ -319,7 +359,7 @@ msgstr ""
 msgid "The AI provider reported an error. Try again."
 msgstr "El proveedor de IA reportó un error. Inténtalo de nuevo."
 
-#: plugin/framework/errors.py plugin/calc/python/function.py
+#: plugin/framework/errors.py plugin/calc/python/addin_values.py
 #: plugin/chatbot/quick_setup.py plugin/scripting/session_manager.py
 #, python-brace-format
 msgid "Error: {0}"
@@ -636,6 +676,12 @@ msgstr ""
 "Configure una ruta de entorno virtual (venv) de Python en Ajustes → Python."
 
 #: plugin/calc/python/init_script_editor.py
+msgid "The Python editor check is still running. Open this again in a moment."
+msgstr ""
+"La comprobación del editor de Python sigue en ejecución. Ábralo de nuevo en "
+"un momento."
+
+#: plugin/calc/python/init_script_editor.py
 msgid "Cannot import webview (pywebview) in the configured venv."
 msgstr ""
 "No se puede importar webview (pywebview) en el entorno virtual configurado."
@@ -759,18 +805,26 @@ msgid "Could not open the built-in Python cell editor."
 msgstr "No se pudo abrir el editor de celdas de Python integrado."
 
 #: plugin/calc/python/function.py
+msgid "Image inserted"
+msgstr "Imagen insertada"
+
+#: plugin/calc/python/function.py
+msgid "Images inserted"
+msgstr "Imágenes insertadas"
+
+#: plugin/calc/python/addin_values.py
 #, python-brace-format
 msgid "Error: Main-thread execution timed out ({0})"
 msgstr ""
 "Error: La ejecución en el hilo principal ha excedido el tiempo de espera "
 "({0})"
 
-#: plugin/calc/python/function.py plugin/scripting/python_runner_ui.py
+#: plugin/calc/python/addin_values.py plugin/scripting/python_runner_ui.py
 #: plugin/scripting/python_runner.py
 msgid "Unknown error"
 msgstr "Error desconocido"
 
-#: plugin/calc/python/function.py
+#: plugin/calc/python/addin_values.py
 msgid ""
 "Error: Python venv not found. Open Settings → Python, set the venv path, "
 "then Test."
@@ -778,21 +832,13 @@ msgstr ""
 "Error: no se encontró el venv de Python. Abra Ajustes → Python, establezca "
 "la ruta del venv y luego pruebe."
 
-#: plugin/calc/python/function.py
+#: plugin/calc/python/addin_values.py
 msgid ""
 "Error: Python timed out. Open Settings → Python to raise the timeout, or "
 "Test the venv."
 msgstr ""
 "Error: tiempo de espera de Python agotado. Abra Ajustes → Python para "
 "aumentar el tiempo de espera o pruebe el venv."
-
-#: plugin/calc/python/function.py
-msgid "Image inserted"
-msgstr "Imagen insertada"
-
-#: plugin/calc/python/function.py
-msgid "Images inserted"
-msgstr "Imágenes insertadas"
 
 #: plugin/calc/python/geometric_recalc.py
 #, python-format
@@ -835,9 +881,8 @@ msgid "Select one or more non-empty cells."
 msgstr "Seleccione una o más celdas que no estén vacías."
 
 #: plugin/calc/editselection.py
-#, python-brace-format
-msgid "Only the first {0} non-empty cells are edited."
-msgstr "Solo se editarán las primeras {0} celdas que no estén vacías."
+msgid "Formula cells are skipped."
+msgstr "Se omiten las celdas con fórmulas."
 
 #: plugin/calc/vision_egress.py plugin/vision/vision_runner.py
 #: plugin/vision/vision_egress.py
@@ -1824,16 +1869,65 @@ msgid "Perfect! I'm switching you to the main assistant now."
 msgstr "¡Perfecto! Te estoy cambiando al asistente principal ahora."
 
 #: plugin/chatbot/slash_commands.py
+msgid "[focus]"
+msgstr "[foco]"
+
+#: plugin/chatbot/slash_commands.py
+msgid "[target]"
+msgstr "[destino]"
+
+#: plugin/chatbot/slash_commands.py
+msgid "[what]"
+msgstr "[qué]"
+
+#: plugin/chatbot/slash_commands.py
+msgid "<description>"
+msgstr "<descripción>"
+
+#: plugin/chatbot/slash_commands.py
+msgid "<language>"
+msgstr "<idioma>"
+
+#: plugin/chatbot/slash_commands.py
+msgid "<fact>"
+msgstr "<hecho>"
+
+#: plugin/chatbot/slash_commands.py
+msgid "Failed to save memory."
+msgstr "Error al guardar en la memoria."
+
+#: plugin/chatbot/slash_commands.py
+#, python-brace-format
+msgid "Saved to memory: {0}"
+msgstr "Guardado en la memoria: {0}"
+
+#: plugin/chatbot/slash_commands.py
+msgid "help"
+msgstr "ayuda"
+
+#: plugin/chatbot/slash_commands.py
 msgid "Print the command list"
 msgstr "Imprimir la lista de comandos"
+
+#: plugin/chatbot/slash_commands.py
+msgid "clear"
+msgstr "limpiar"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Start a new chat"
 msgstr "Iniciar un chat nuevo"
 
 #: plugin/chatbot/slash_commands.py
+msgid "stop"
+msgstr "detener"
+
+#: plugin/chatbot/slash_commands.py
 msgid "Cancel the in-flight send"
 msgstr "Cancelar el envío en curso"
+
+#: plugin/chatbot/slash_commands.py
+msgid "summarize"
+msgstr "resumir"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Summarize the selection or document in the sidebar"
@@ -1845,6 +1939,10 @@ msgid ""
 msgstr ""
 "Resumir el texto seleccionado o el documento completo si no hay nada "
 "seleccionado."
+
+#: plugin/chatbot/slash_commands.py
+msgid "proofread"
+msgstr "corregir"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Fix spelling, grammar, and punctuation without restyling"
@@ -1859,12 +1957,20 @@ msgstr ""
 "tono ni el significado."
 
 #: plugin/chatbot/slash_commands.py
+msgid "shorten"
+msgstr "acortar"
+
+#: plugin/chatbot/slash_commands.py
 msgid "Shorten the selection"
 msgstr "Acortar la selección"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Make the text shorter while preserving the meaning."
 msgstr "Hacer que el texto sea más corto conservando el significado."
+
+#: plugin/chatbot/slash_commands.py
+msgid "expand"
+msgstr "expandir"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Expand the selection with more detail"
@@ -1875,6 +1981,10 @@ msgid "Expand the text with more detail and clarity."
 msgstr "Ampliar el texto con más detalles y claridad."
 
 #: plugin/chatbot/slash_commands.py
+msgid "tone"
+msgstr "tono"
+
+#: plugin/chatbot/slash_commands.py
 msgid "Rewrite the selection to match a described tone"
 msgstr "Reescribir la selección para que coincida con un tono descrito"
 
@@ -1882,6 +1992,10 @@ msgstr "Reescribir la selección para que coincida con un tono descrito"
 #, python-brace-format
 msgid "Rewrite the text to match this tone or style: {arg}"
 msgstr "Reescribir el texto para que coincida con este tono o estilo: {arg}"
+
+#: plugin/chatbot/slash_commands.py
+msgid "translate"
+msgstr "traducir"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Translate the selection (sidebar when nothing is selected in Writer)"
@@ -1895,6 +2009,10 @@ msgid "Translate the text into {arg}. Keep formatting and structure."
 msgstr "Traducir el texto a {arg}. Mantener el formato y la estructura."
 
 #: plugin/chatbot/slash_commands.py
+msgid "explain"
+msgstr "explicar"
+
+#: plugin/chatbot/slash_commands.py
 msgid "Explain the selection or active Calc formula"
 msgstr "Explicar la selección o la fórmula de Calc activa"
 
@@ -1903,16 +2021,32 @@ msgid "Explain the following in plain language."
 msgstr "Explicar lo siguiente en lenguaje sencillo."
 
 #: plugin/chatbot/slash_commands.py
+msgid "remember"
+msgstr "recordar"
+
+#: plugin/chatbot/slash_commands.py
 msgid "Save a fact to persistent memory"
 msgstr "Guardar un dato en la memoria persistente"
+
+#: plugin/chatbot/slash_commands.py
+msgid "compact"
+msgstr "compactar"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Compact older chat history now"
 msgstr "Compactar el historial de chat antiguo ahora"
 
 #: plugin/chatbot/slash_commands.py
+msgid "undo"
+msgstr "deshacer"
+
+#: plugin/chatbot/slash_commands.py
 msgid "Undo the last agent edit as one step"
 msgstr "Deshacer la última edición del agente en un solo paso"
+
+#: plugin/chatbot/slash_commands.py
+msgid "formula"
+msgstr "fórmula"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Write a Calc formula from a plain-English description"
@@ -1946,6 +2080,20 @@ msgstr "Uso: {0}"
 
 #: plugin/chatbot/slash_commands.py
 #, python-brace-format
+msgid "Additional instruction: {0}"
+msgstr "Instrucción adicional: {0}"
+
+#: plugin/chatbot/slash_commands.py
+#, python-brace-format
+msgid ""
+"Selected text:\n"
+"{0}"
+msgstr ""
+"Texto seleccionado:\n"
+"{0}"
+
+#: plugin/chatbot/slash_commands.py
+#, python-brace-format
 msgid "Cell {0} formula: {1}"
 msgstr "Fórmula de la celda {0}: {1}"
 
@@ -1955,13 +2103,8 @@ msgid "Cell {0} value: {1}"
 msgstr "Valor de la celda {0}: {1}"
 
 #: plugin/chatbot/slash_commands.py
-msgid "Failed to save memory."
-msgstr "Error al guardar en la memoria."
-
-#: plugin/chatbot/slash_commands.py
-#, python-brace-format
-msgid "Saved to memory: {0}"
-msgstr "Guardado en la memoria: {0}"
+msgid "WriterAgent"
+msgstr "WriterAgent"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Conversation compacted."
@@ -1984,10 +2127,14 @@ msgid "Compaction failed."
 msgstr "Error en la compactación."
 
 #: plugin/chatbot/slash_commands.py
-msgid "WriterAgent"
-msgstr "WriterAgent"
+msgid "Wait for the current reply to finish before /compact."
+msgstr "Espere a que termine la respuesta actual antes de usar /compact."
 
-#: plugin/chatbot/slash_commands.py
+#: plugin/chatbot/slash_commands.py plugin/chatbot/send_handlers.py
+msgid "Thinking..."
+msgstr "Pensando..."
+
+#: plugin/chatbot/slash_commands.py plugin/chatbot/compaction.py
 msgid "Configure an API key to compact."
 msgstr "Configure una clave de API para compactar."
 
@@ -1999,18 +2146,9 @@ msgstr "La compactación del chat está desactivada en la configuración."
 msgid "Compaction cancelled."
 msgstr "Compactación cancelada."
 
-#: plugin/chatbot/slash_commands.py plugin/chatbot/panel.py
-#: plugin/chatbot/sidebar_test_hooks.py plugin/chatbot/send_handlers.py
-msgid "Thinking..."
-msgstr "Pensando..."
-
 #: plugin/chatbot/panel.py
 msgid "[No compatible LibreOffice document found.]"
 msgstr "[No se encontró ningún documento de LibreOffice compatible.]"
-
-#: plugin/chatbot/panel.py plugin/chatbot/sidebar_test_hooks.py
-msgid "Wait for the current reply to finish before /compact."
-msgstr "Espere a que termine la respuesta actual antes de usar /compact."
 
 #: plugin/chatbot/panel.py
 msgid "Only in Calc"
@@ -2190,6 +2328,15 @@ msgstr ""
 "instalación).]"
 
 #: plugin/chatbot/send_handlers.py
+msgid ""
+"MCP server is off: LibreOffice edits from this agent require the MCP server."
+" Enable it in Settings → MCP → Enable MCP Server."
+msgstr ""
+"El servidor MCP está desactivado: las ediciones de LibreOffice desde este "
+"agente requieren el servidor MCP. Actívelo en Ajustes → MCP → Activar "
+"servidor MCP."
+
+#: plugin/chatbot/send_handlers.py
 #, python-brace-format
 msgid "[{0} error: {1}]"
 msgstr "[{0} error: {1}]"
@@ -2268,6 +2415,11 @@ msgstr ""
 "Hay una versión más reciente de %(name)s (%(version)s) disponible. Use "
 "Herramientas → Gestor de extensiones para buscar actualizaciones e instalar "
 "la última versión."
+
+#: plugin/chatbot/chat_session.py
+msgid "Chat history could not be opened. This conversation will not be saved."
+msgstr ""
+"No se pudo abrir el historial del chat. Esta conversación no se guardará."
 
 #: plugin/chatbot/dialog_views.py
 #, python-brace-format
@@ -3323,8 +3475,10 @@ msgid "Viz '{helper}' completed. {msg}"
 msgstr "Viz '{helper}' completado. {msg}"
 
 #: plugin/scripting/python_runner.py
-msgid "Vision helpers require a Writer or Calc document."
-msgstr "Los asistentes de visión requieren un documento de Writer o Calc."
+msgid "Vision helpers require a Writer, Calc, Draw, or Impress document."
+msgstr ""
+"Los asistentes de visión requieren un documento de Writer, Calc, Draw o "
+"Impress."
 
 #: plugin/scripting/python_runner.py
 msgid "Vision helper failed."
@@ -3338,6 +3492,24 @@ msgid ""
 msgstr ""
 "Visión '{helper}' completada. Se insertó HTML formateado para {count} "
 "imágenes. (tardó {time})"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid ""
+"Vision '{helper}' completed for {count} images. Text returned only (not "
+"inserted). (took {time})"
+msgstr ""
+"La visión «{helper}» se completó para {count} imágenes. Solo se devolvió "
+"texto (no se insertó). (duración: {time})"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid ""
+"Vision '{helper}' completed. Text returned only (not inserted). (took "
+"{time})"
+msgstr ""
+"La visión «{helper}» se completó. Solo se devolvió texto (no se insertó). "
+"(duración: {time})"
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format
@@ -3487,8 +3659,17 @@ msgid "OCR complete (text returned only; not inserted)."
 msgstr "OCR completado (solo se devolvió el texto; no se insertó)."
 
 #: plugin/vision/vision_tools.py
-msgid "Vision OCR requires a Writer or Calc document."
-msgstr "Vision OCR requiere un documento de Writer o Calc."
+msgid "Vision OCR requires a Writer, Calc, Draw, or Impress document."
+msgstr ""
+"El OCR de visión requiere un documento de Writer, Calc, Draw o Impress."
+
+#: plugin/vision/vision_tools.py
+msgid ""
+"Draw and Impress return vision text only; omit insert_into_document or set "
+"it to false."
+msgstr ""
+"Draw e Impress solo devuelven texto de visión; omita insert_into_document o "
+"establézcalo en false."
 
 #: plugin/vision/vision_egress.py
 msgid "Writer document has no controller."
@@ -4146,6 +4327,9 @@ msgstr "Grok Build"
 msgid "OpenCode"
 msgstr "OpenCode"
 
+msgid "Antigravity"
+msgstr "Antigravedad"
+
 msgid "Prompt for Agent Permissions"
 msgstr "Solicitar permisos para el agente"
 
@@ -4155,6 +4339,19 @@ msgid ""
 msgstr ""
 "Pedir confirmación antes de permitir que el agente utilice herramientas "
 "(leer archivos, ejecutar comandos, etc.)"
+
+msgid "Antigravity model"
+msgstr "Modelo de antigravedad"
+
+msgid ""
+"agy modelId from session/new models.availableModels, for example "
+"gemini-4-argon-medium. Empty keeps agy's current model. configOptions family"
+" ids such as gemini-4-argon are not modelIds."
+msgstr ""
+"agy modelId de session/new models.availableModels, por ejemplo "
+"gemini-4-argon-medium. Si se deja vacío, se mantiene el modelo actual de "
+"agy. Los ID de familia de configOptions, como gemini-4-argon, no son "
+"modelIds."
 
 msgid "STT Provider"
 msgstr "Proveedor de STT"
@@ -4342,27 +4539,6 @@ msgstr "Panel lateral"
 
 msgid "Max Tool Rounds"
 msgstr "Rondas máximas de herramientas"
-
-msgid "Document Context Strategy"
-msgstr "Estrategia de contexto de documento"
-
-msgid "How much document content to include in LLM context"
-msgstr "Cuánto contenido del documento incluir en el contexto del LLM"
-
-msgid "Auto (by document size)"
-msgstr "Automático (por tamaño del documento)"
-
-msgid "Full document text"
-msgstr "Texto completo del documento"
-
-msgid "Pages around cursor"
-msgstr "Páginas alrededor del cursor"
-
-msgid "Outline + excerpt"
-msgstr "Esquema + extracto"
-
-msgid "Stats + outline only"
-msgstr "Solo estadísticas + esquema"
 
 msgid "Web Research Cache"
 msgstr "Caché de investigación web"
