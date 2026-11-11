@@ -37,7 +37,7 @@ from plugin.doc.peer_prompt import (
     annotate_outer_peer_wait,
     looks_like_peer_work_envelope,
 )
-from plugin.doc.specialized_catalog import DOMAIN_LOOP_HINTS, InnerToolCall, apply_inner_outcome, catalog_entries_from_base
+from plugin.doc.specialized_catalog import DOMAIN_LOOP_HINTS, InnerToolCall, READ_ONLY_DOMAINS, apply_inner_outcome, catalog_entries_from_base
 from plugin.framework.i18n import _
 from plugin.chatbot.smol_agent import SmolToolAdapter, run_inner_tool_agent
 from plugin.doc.peer_message import PEER_RESULT_TOOL_NAME, PEER_TOOL_NAMES
@@ -160,7 +160,7 @@ class DelegateToSpecializedBase(ToolBase):
     # Domains whose work is read-only -> a long-running delegation to them must NOT
     # take the per-document mutation lock (it would needlessly serialize research on
     # the same doc). The gateway itself is is_mutation=True for the mutating domains.
-    _READ_ONLY_DOMAINS: ClassVar[frozenset[str]] = frozenset({"document_research", "web_research"})
+    _READ_ONLY_DOMAINS: ClassVar[frozenset[str]] = READ_ONLY_DOMAINS
 
     def requires_document_lock(self, arguments: Any = None) -> bool:
         domain = field_from_tool_arguments(arguments, "domain")

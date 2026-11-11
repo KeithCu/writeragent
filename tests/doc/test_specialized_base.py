@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import json
+from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
@@ -202,7 +203,7 @@ def test_delegate_status_incomplete_no_finish_no_tool_error(
     assert result["message"] == "I searched but could not find the heading."
 
 
-def _structural_registry(writer_gateway: DelegateToSpecializedWriter) -> MagicMock:
+def _structural_registry(writer_gateway: DelegateToSpecializedWriter, tool: Any = None) -> MagicMock:
     from plugin.framework.tool import ToolRegistry
     from plugin.writer.specialized_base import SpecializedWorkflowFinished, ToolWriterStructuralBase
 
@@ -215,7 +216,7 @@ def _structural_registry(writer_gateway: DelegateToSpecializedWriter) -> MagicMo
             return {"status": "ok"}
 
     reg = ToolRegistry(services={})
-    reg.register(_DummyStructuralTool())
+    reg.register(tool if tool is not None else _DummyStructuralTool())
     reg.register(SpecializedWorkflowFinished())
     reg.register(writer_gateway)
 
@@ -426,8 +427,7 @@ def test_delegate_retried_tool_error_is_recovered(
     writer_gateway: DelegateToSpecializedWriter,
 ) -> None:
     from unittest.mock import patch
-    from plugin.framework.tool import ToolRegistry
-    from plugin.writer.specialized_base import SpecializedWorkflowFinished, ToolWriterStructuralBase
+    from plugin.writer.specialized_base import ToolWriterStructuralBase
 
     class _RetryingStructuralTool(ToolWriterStructuralBase):
         name = "retrying_structural_tool"
@@ -444,17 +444,7 @@ def test_delegate_retried_tool_error_is_recovered(
                 return {"status": "error", "message": "First attempt failed"}
             return {"status": "ok"}
 
-    reg = ToolRegistry(services={})
-    reg.register(_RetryingStructuralTool())
-    reg.register(SpecializedWorkflowFinished())
-    reg.register(writer_gateway)
-
-    ctx = MagicMock(spec=ToolContext)
-    ctx.ctx = MagicMock()
-    ctx.doc = MagicMock()
-    ctx.doc.supportsService.return_value = True
-    ctx.services = {"tools": reg}
-    ctx.stop_checker = lambda: False
+    ctx = _structural_registry(writer_gateway, tool=_RetryingStructuralTool())
 
     def fake_run_inner(ctx, tools, **kwargs):
         tool_map = {t.name: t for t in tools}
@@ -476,8 +466,7 @@ def test_delegate_read_only_tools_on_edit_domain_carry_note(
 ) -> None:
     from unittest.mock import patch
     from plugin.doc.specialized_catalog import NO_EDIT_TOOL_NOTE
-    from plugin.framework.tool import ToolRegistry
-    from plugin.writer.specialized_base import SpecializedWorkflowFinished, ToolWriterStructuralBase
+    from plugin.writer.specialized_base import ToolWriterStructuralBase
 
     class _ReadOnlyStructuralTool(ToolWriterStructuralBase):
         name = "readonly_structural_tool"
@@ -488,17 +477,7 @@ def test_delegate_read_only_tools_on_edit_domain_carry_note(
         def execute(self, ctx, **kw):
             return {"status": "ok"}
 
-    reg = ToolRegistry(services={})
-    reg.register(_ReadOnlyStructuralTool())
-    reg.register(SpecializedWorkflowFinished())
-    reg.register(writer_gateway)
-
-    ctx = MagicMock(spec=ToolContext)
-    ctx.ctx = MagicMock()
-    ctx.doc = MagicMock()
-    ctx.doc.supportsService.return_value = True
-    ctx.services = {"tools": reg}
-    ctx.stop_checker = lambda: False
+    ctx = _structural_registry(writer_gateway, tool=_ReadOnlyStructuralTool())
 
     def fake_run_inner(ctx, tools, **kwargs):
         tool_map = {t.name: t for t in tools}

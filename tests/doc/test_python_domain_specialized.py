@@ -569,6 +569,31 @@ def test_run_inner_domain_tool_agent_finish_only_is_no_tool_calls():
     assert "finished" not in result
 
 
+def test_run_inner_domain_tool_agent_read_only_domain_skips_note():
+    from plugin.doc.document_research_tools import ListNearbyFiles
+
+    registry = ToolRegistry(services={})
+    registry.register(ListNearbyFiles())
+    registry.register(SpecializedWorkflowFinished())
+    parent = _ctx(registry, "writer", "com.sun.star.text.TextDocument")
+
+    def fake_run_inner(inner_ctx, tools, **kwargs):
+        by_name = {tool.name: tool for tool in tools}
+        by_name["list_nearby_files"]()
+        return by_name["specialized_workflow_finished"](answer="Found files")
+
+    with (
+        patch.object(ListNearbyFiles, "execute", return_value={"status": "ok", "files": []}),
+        patch("plugin.doc.python_domain_specialized.run_inner_tool_agent", side_effect=fake_run_inner),
+    ):
+        result = run_inner_domain_tool_agent(parent, ["document_research"], "Find files")
+
+    assert result["status"] == "ok"
+    assert result["finished"] is True
+    assert result["domains"] == ["document_research"]
+    assert "note" not in result
+
+
 @patch("plugin.chatbot.smol_agent.build_toolcalling_agent")
 @patch("plugin.chatbot.smol_agent.SmolAgentExecutor")
 def test_run_inner_domain_tool_agent_user_stop_passes_through(mock_executor_cls, mock_build):

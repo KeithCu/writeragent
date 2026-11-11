@@ -156,6 +156,7 @@ class InnerToolCall(NamedTuple):
 FINISH_TOOL_NAME = "specialized_workflow_finished"
 NO_EDIT_TOOL_NOTE = "No document-editing tool ran during this delegation; the document is unchanged by it."
 NO_TOOL_CALLS_MESSAGE = "The sub-agent finished without calling any tool, so nothing was done; its answer is in answer."
+READ_ONLY_DOMAINS: frozenset[str] = frozenset({"document_research", "web_research"})
 
 
 def partition_tool_errors(
@@ -219,10 +220,13 @@ def apply_inner_outcome(
         return payload
 
     if not finished:
+        # A plain-text return without finish is not a silent ok; move it from result to message
+        # so the main agent sees it once.
         if isinstance(final_ans, dict):
             text = str(final_ans.get("message") or final_ans.get("answer") or final_ans.get("result") or final_ans)
         else:
-            text = "" if final_ans is None else str(payload.pop("result", ""))
+            popped = payload.pop("result", "")
+            text = "" if final_ans is None else str(popped)
         payload.update(status="incomplete", code="SPECIALIZED_WORKFLOW_INCOMPLETE", message=text)
         return payload
 
@@ -251,7 +255,10 @@ def normalize_inner_result(
     else:
         payload = {"status": "ok", "result": "" if final_ans is None else str(final_ans)}
     payload["domains"] = list(domains)
-    return apply_inner_outcome(payload, final_ans, calls, expect_edits=True)
-
-
+    return apply_inner_outcome(
+        payload,
+        final_ans,
+        calls,
+        expect_edits=not set(domains) <= READ_ONLY_DOMAINS,
+    )
 
