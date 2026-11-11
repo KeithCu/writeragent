@@ -108,3 +108,12 @@ def test_cancel_pending_agent_turn():
         au.cancel_pending_agent_turn(doc)
         au.record_agent_turn_after(doc)
         assert au.undo_last_agent_edit(doc) == "There is no agent edit to undo."
+
+
+def test_unreadable_titles_record_nothing():
+    doc = MagicMock()
+    doc.getUndoManager.return_value = None
+    with _with_doc_key(doc, "unreadable"):
+        au.record_agent_turn_before(doc)
+        au.record_agent_turn_after(doc)
+        assert au.undo_last_agent_edit(doc) == "There is no agent edit to undo."

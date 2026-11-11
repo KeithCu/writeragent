@@ -27,7 +27,7 @@ from __future__ import annotations
 import logging
 from itertools import chain
 from typing import TYPE_CHECKING, Any, Callable
-from plugin.framework.errors import ToolExecutionError, WriterAgentException, is_disposal, uno_call, uno_read
+from plugin.framework.errors import ToolExecutionError, WriterAgentException, is_disposal, uno_call
 from plugin.framework.tool import ToolBase
 
 if TYPE_CHECKING:
@@ -39,7 +39,7 @@ from plugin.calc.base import ToolCalcRangeBase
 from plugin.calc.calc_utils import range_args
 from plugin.calc.inspector import CellInspector, grid_to_rows
 from plugin.calc.manipulator import CellManipulator, _parse_formula_or_values_string, _values_length_mismatch_message
-from plugin.doc.compound_undo import WriterCompoundUndo
+from plugin.doc.compound_undo import WriterCompoundUndo, undo_titles
 from plugin.doc.visual_helpers import parse_color_to_uno_int
 
 
@@ -251,21 +251,19 @@ def _manipulator_context(ctx: ToolContext, range_arg: Any) -> tuple[CellManipula
 
 
 def _undo_action_count(doc: Any) -> int:
-    def _do() -> int:
-        titles = doc.getUndoManager().getAllUndoActionTitles()
-        return len(titles) if titles is not None else 0
-
-    return uno_read(_do, 0)
+    """Return the number of entries currently on the undo stack, or 0 if unreadable."""
+    return len(undo_titles(doc) or ())
 
 
 def _undo_titled_group(doc: Any, title: str, prev_count: int = 0) -> bool:
-    """Undo the group we just closed, only when its title is the newest one and count grew."""
-    um = uno_read(lambda: doc.getUndoManager(), None)
-    if um is None:
-        return False
-    titles = uno_read(lambda: um.getAllUndoActionTitles(), ())
+    """Undo the group we just closed, only when its title is the newest one and count grew.
+
+    Verifies that the undo stack grew and the top action title matches our group title.
+    This prevents undoing unrelated user edits if another action occurred in the meantime.
+    """
+    titles = undo_titles(doc)
     if titles and len(titles) > prev_count and titles[0] == title:
-        uno_call(lambda: um.undo(), "undo titled group")
+        uno_call(lambda: doc.getUndoManager().undo(), "undo titled group")
         return True
     return False
 

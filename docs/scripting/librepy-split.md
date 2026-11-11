@@ -366,7 +366,7 @@ Config keys: `last_python_script_name_writer`, `last_python_script_name_calc`, `
 | [`plugin/doc/udprops.py`](../../plugin/doc/udprops.py) | Document user-defined properties (session id, spill registry) |
 | [`plugin/doc/text_helpers.py`](../../plugin/doc/text_helpers.py) | Linebreaks, tracked-deletion reads, heading tree, document path |
 | [`plugin/doc/visual_helpers.py`](../../plugin/doc/visual_helpers.py) | Graphic export for Vision egress |
-| [`plugin/doc/compound_undo.py`](../../plugin/doc/compound_undo.py) | `WriterCompoundUndo` context manager |
+| [`plugin/doc/compound_undo.py`](../../plugin/doc/compound_undo.py) | `WriterCompoundUndo` context manager, `undo_titles` stack snapshot |
 | [`plugin/writer/html_import.py`](../../plugin/writer/html_import.py) | HTML import, replace, `insert_content_at_position`, `run_writer_mutation_with_optional_review`. `review_authors` is `ImportError`-guarded (LibrePy applies HTML without split-author coloring) |
 | [`plugin/writer/xhtml_style_postprocess.py`](../../plugin/writer/xhtml_style_postprocess.py) | HTML post-process |
 | [`plugin/calc/bridge.py`](../../plugin/calc/bridge.py) | Active sheet / document access |
