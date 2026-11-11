@@ -70,6 +70,8 @@ def _ctx():
     um = MagicMock()
     um.isLocked.return_value = False
     doc.getUndoManager.return_value = um
+    doc.getBookmarks.return_value.hasByName.return_value = False
+    doc.getText.return_value.createEnumeration.return_value.hasMoreElements.return_value = False
     return types.SimpleNamespace(
         doc=doc, ctx=object(),
         services=types.SimpleNamespace(get=lambda key, default=None: None),
@@ -440,6 +442,51 @@ def test_content_without_the_attribute_is_untouched(monkeypatch):
     )
     assert res.get("status") == "ok", res
     assert "warnings" not in res
+
+
+def test_search_target_warns_for_unresolved_heading_link(monkeypatch):
+    """Unmatched bare fragment link emits LINK_TARGET_NOT_FOUND warning."""
+    monkeypatch.setattr(search_mod, "find_first_range", lambda doc, s: MockRange())
+    res = ApplyDocumentContent().execute(
+        _ctx(),
+        target="search",
+        old_content="foo",
+        content='<p><a href="#Nowhere">x</a></p>',
+    )
+    assert res.get("status") == "ok", res
+    assert res.get("warnings") == [
+        {
+            "code": "LINK_TARGET_NOT_FOUND",
+            "link_target": "#Nowhere",
+            "message": (
+                'Link target "#Nowhere" matches no heading or bookmark and will not jump anywhere. '
+                'Use the exact heading text, href="#Heading text|outline", or give the target element '
+                'an id and link to that.'
+            ),
+        }
+    ]
+
+
+def test_search_target_resolves_heading_link_to_outline(monkeypatch):
+    """Bare fragment link matching a written heading is rewritten to |outline without warnings."""
+    monkeypatch.setattr(format_mod, "content_has_markup", _real_content_has_markup)
+    monkeypatch.setattr(search_mod, "find_first_range", lambda doc, s: MockRange())
+    passed_down: list[str] = []
+
+    def mock_replace(doc, found, content, *args, **kwargs):
+        passed_down.append(content)
+        return [], None
+
+    monkeypatch.setattr(format_mod, "replace_single_range_with_content", mock_replace)
+    res = ApplyDocumentContent().execute(
+        _ctx(),
+        target="search",
+        old_content="foo",
+        content='<h1>T</h1><p><a href="#T">link</a></p>',
+    )
+    assert res.get("status") == "ok", res
+    assert "warnings" not in res
+    assert any("#T|outline" in c for c in passed_down)
 
 def test_search_occurrence_selects_requested_match(monkeypatch):
     first = MockRange()

@@ -32,7 +32,11 @@ from plugin.doc.text_helpers import (
 )
 from plugin.framework.errors import ToolExecutionError, reraise_if_disposed, uno_read
 from . import field_restore, html_import_styles, html_ruby, image_placeholders, record_changes
-from .math.html_math_segment import html_fragment_contains_mixed_math, segment_html_with_mixed_math
+from .math.html_math_segment import (
+    html_fragment_contains_mixed_math,
+    html_fragment_contains_tex_math,
+    segment_html_with_mixed_math,
+)
 from .math.math_mml_convert import convert_latex_to_starmath, convert_mathml_to_starmath, insert_writer_math_formula
 
 log = logging.getLogger("writeragent.writer")
@@ -504,7 +508,7 @@ def insert_inline_at_cursor(model: Any, ctx: Any, cursor: Any, content: str) -> 
         # No html.unescape here: apply_document_content.py already decoded complete character references on the
         # plain path (_ENTITY_RE), and a full unescape turns "&sect 2o" into "§ 2o"; the HTML import
         # decodes entities in markup itself.
-        if not content_has_markup(swapped):
+        if not content_needs_html_import(swapped):
             cursor.getText().insertString(cursor, swapped, False)
             return
         inline_html, ruby_spans, nonce = _prep_field_ruby(swapped)
@@ -954,6 +958,18 @@ def content_has_markup(content: str | None) -> bool:
     if text_has_real_html_tag(content):
         return True
     return "$$" in content or r"\(" in content or r"\[" in content or "<math" in content.lower()
+
+
+def content_needs_html_import(content: str | None) -> bool:
+    """Return ``True`` if *content* needs the StarWriter HTML import path.
+
+    Unlike :func:`content_has_markup`, this includes complete guarded single-dollar
+    TeX math ($...$), which must take the import path to become an embedded Math
+    object while plain-text guards (such as TOC entries) still accept it.
+    """
+    if not content or not isinstance(content, str):
+        return False
+    return content_has_markup(content) or html_fragment_contains_tex_math(content)
 
 
 def plain_text_if_markup(text: str) -> str:

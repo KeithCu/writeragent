@@ -251,7 +251,7 @@ Support the most structured and realistic first wave of HTML math inputs.
 | MathML / LaTeX export | [`plugin/writer/math/math_mml_export.py`](../../plugin/writer/math/math_mml_export.py) |
 | LaTeX dialog | [`plugin/writer/math/latex_dialog.py`](../../plugin/writer/math/latex_dialog.py) |
 | HTML + math orchestration, `content_has_markup` (`<math`, `$$`, `\(`, `\[`) | [`plugin/writer/format.py`](../../plugin/writer/format.py) |
-| Chat / tool text for `apply_document_content` | [`plugin/framework/prompts.py`](../../plugin/framework/prompts.py) (`WRITER_APPLY_DOCUMENT_HTML_RULES`: prompt recommends inline `\\(...\\)` only; parser also accepts display delimiters `$...$`, `$$...$$`, `\\[...\\]`), [`plugin/writer/apply_document_content.py`](../../plugin/writer/apply_document_content.py) (`ApplyDocumentContent`) |
+| Chat / tool text for `apply_document_content` | [`plugin/framework/prompts.py`](../../plugin/framework/prompts.py) (`WRITER_APPLY_DOCUMENT_HTML_RULES`: prompt recommends inline `\\(...\\)` only, no longer forbids `$`; `content_needs_html_import` routes a complete `$…$` on tag-less content; parser also accepts display delimiters `$...$`, `$$...$$`, `\\[...\\]`), [`plugin/writer/apply_document_content.py`](../../plugin/writer/apply_document_content.py) (`ApplyDocumentContent`) |
 | Unit tests | `tests/writer/math/test_html_math_segment.py`, `tests/writer/math/test_math_mml_convert.py`, `tests/writer/math/test_math_mml_export.py`, `tests/writer/math/test_latex_dialog.py` |
 | UNO tests | `tests/writer/math/test_math_formula_insert_uno.py`, `tests/writer/math/test_math_mml_export_uno.py`, `tests/writer/math/test_latex_dialog_uno.py` |
 | Agent orientation | [`AGENTS.md`](../../AGENTS.md) |
