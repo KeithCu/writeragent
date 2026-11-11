@@ -506,6 +506,7 @@ class CellManipulator:
         # _assignData, assign.hxx; ScSortDescriptor::FillSortParam, datauno.cxx)
         # rejects that without raising, so the sort would run with no key and
         # leave every row where it was while still returning success.
+        # uno.Any is a pyuno helper; stubs/mypy do not export it as a module attribute.
         uno_any = getattr(uno, "Any")
         sort_desc = list(cell_range.createSortDescriptor())
         for p in sort_desc:
@@ -518,8 +519,8 @@ class CellManipulator:
         cell_range.sort(tuple(sort_desc))
         direction = "ascending" if ascending else "descending"
         if key_column() == before:
-            log.info("Range %s already in %s order by column %d; no rows moved.", range_str.upper(), direction, sort_column)
-            return f"Range {range_str} was already in {direction} order by column {sort_column}; no rows moved."
+            log.info("Range %s: key column %d unchanged by the sort; no rows moved.", range_str.upper(), sort_column)
+            return f"Range {range_str}: key column {sort_column} unchanged by the sort; no rows moved."
         log.info("Range %s sorted %s by column %d.", range_str.upper(), direction, sort_column)
         return f"Range {range_str} sorted {direction} by column {sort_column}."
 
