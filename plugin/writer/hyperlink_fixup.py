@@ -46,10 +46,11 @@ after the text replace and put them on the same cursor immediately after the
 assignment.
 
 A page-number replace does not change the URL. ``setString`` of those digits
-still splits the run onto Internet-link chrome, and painting that subrange
-would turn inherited style colors into direct attributes. The direct values
-and link styles captured before the replace are written after assigning the
-same URL on the whole paragraph.
+still splits the run onto Internet-link chrome, and ``CharColor`` on that
+subrange repaints the whole link. To prevent painting that subrange from
+turning inherited style colors into direct attributes, the direct values
+and link styles captured before the replace are written on the whole
+paragraph after assigning the same URL.
 """
 
 from __future__ import annotations
@@ -349,7 +350,11 @@ def _select_replacement(text: Any, anchor: Any, snapshot: OutlineSnapshot, new_p
 
 def write_link_look(cursor: Any, props: dict[str, Any]) -> None:
     """Set *props* on *cursor* after its HyperLinkURL write. Uses uno_write: disposal
-    re-raises, any other failure is logged at debug and skipped."""
+    re-raises, any other failure is logged at debug and skipped.
+
+    A later cursor over the same characters does not stick after a splitting
+    HyperLinkURL write. The setup path (URL, then look on that cursor) does.
+    """
     for name, value in props.items():
         if not uno_write(lambda: cursor.setPropertyValue(name, value)):
             log.debug("write_link_look: could not set %s", name)
@@ -367,7 +372,14 @@ def _write_plan_on_cursor(cursor: Any, plan: dict[str, Any],
 
 def read_link_look(obj: Any, char_props: tuple[str, ...] = _CHAR_LOOK) -> dict[str, Any]:
     """Direct Char* on *obj* (getPropertyState is DIRECT_VALUE) plus the link's
-    character style names when *obj* is a hyperlink. Inherited values are not copied."""
+    character style names when *obj* is a hyperlink. Inherited values are not copied.
+
+    While portion-level getPropertyState is generally unreliable for paragraph-level
+    attributes (which report DEFAULT_VALUE), hint-level overrides on hyperlinks do
+    reliably report DIRECT_VALUE and take precedence over the link character style.
+    Paragraph-level direct formatting reaches newly inserted rows via the paragraph-break
+    split rather than property cloning.
+    """
     props: dict[str, Any] = {}
     for name in char_props:
         state = uno_read(lambda: obj.getPropertyState(name), None)
@@ -487,6 +499,8 @@ def restore_outline_hyperlinks(anchor: Any, snapshot: OutlineSnapshot,
             look_runs, len(snapshot.prefix), len(snapshot.prefix) + len(new_plain)
         )
     )
+    # An HTML replace drops the link on the new characters so post-replace portions
+    # lack link styles; take them from the pre-replace snapshot.
     for key in LINK_STYLE_PROPS:
         if key in snapshot.look:
             title_look.setdefault(key, snapshot.look[key])

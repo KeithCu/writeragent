@@ -649,7 +649,9 @@ def _char_props(para: Any, with_link: bool) -> dict[str, Any]:
     link character styles (UnvisitedCharStyleName / VisitedCharStyleName) are copied so
     the new link inherits appearance identically without painting default Internet Link styles.
     When *with_link* is false, link style properties are dropped so an unlinked row does not
-    create an empty hyperlink.
+    create an empty hyperlink. When an inserted row specifies a different outline level,
+    setting that level's Contents N paragraph style resets paragraph-level direct formatting
+    so the new row takes that level's style look.
     """
     props: dict[str, Any] = {}
     portions: Any = uno_read(lambda: para.createEnumeration(), None)
