@@ -661,20 +661,15 @@ def get_open_documents(uno_ctx: Any, active_model: Any = None) -> list[dict[str,
         # has nothing to enumerate.
         reraise_listener_boundary(exc)
     docs = []
-    # Real UNO hasMoreElements() is bool. unittest MagicMock is always truthy
-    # and never becomes False, so `while enum.hasMoreElements()` spun forever.
-    # That wedged unit pytest at ~99% after peer send tools started calling
-    # this from list_v1_peers / chat prompts with ctx=MagicMock().
     while enum is not None:
         try:
             if not enum_has_more(enum):
                 break
             elem = enum.nextElement()
         except Exception as exc:
-            # Same hole as getComponents: breaking here reported a dead
-            # enumeration as the documents collected so far, often ``[]``.
-            # A runtime error took that path too. reraise_listener_boundary
-            # always raises, so this is never an empty document list.
+            # An enumeration failure (such as a disposed desktop or runtime error)
+            # must propagate through reraise_listener_boundary rather than returning
+            # a partial or empty document list.
             reraise_listener_boundary(exc)
         model: Any = _office_model_from_desktop_element(elem)
         if model is None or not hasattr(model, "getURL"):
