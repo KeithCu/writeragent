@@ -823,6 +823,7 @@ def test_apply_block_lo_styles_returns_failures():
     para_el = MagicMock()
     # Raises on setPropertyValue so the applied property fails
     para_el.setPropertyValue.side_effect = RuntimeError("locked")
+    para_cur.createEnumeration.return_value.hasMoreElements.return_value = True
     para_cur.createEnumeration.return_value.nextElement.return_value = para_el
     text.createTextCursorByRange.side_effect = [walk_cur, para_cur]
 
@@ -835,6 +836,7 @@ def test_apply_block_lo_styles_returns_failures():
     )
     # font-size dropped by parser, margin-left failed at runtime, text-align unreached
     assert failed == ["font-size", "margin-left", "text-align"]
+    para_el.setPropertyValue.assert_called()
 
 
 def test_parse_data_lo_para_margins():
@@ -970,6 +972,7 @@ def test_round_trip_read_fodt_autostyle_value():
     walk_cur.gotoNextParagraph.return_value = False
 
     para_cur = MagicMock()
+    para_cur.createEnumeration.return_value.hasMoreElements.return_value = True
     text.createTextCursorByRange.side_effect = [walk_cur, para_cur]
 
     failed = html_import_styles.apply_block_lo_styles(
