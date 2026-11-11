@@ -308,6 +308,23 @@ def _para_pairs(doc):
     return out
 
 
+def _para_by_text(doc, needle):
+    """Return the com.sun.star.text.Paragraph whose text contains *needle* (first match)."""
+    e = doc.getText().createEnumeration()
+    while e.hasMoreElements():
+        el = e.nextElement()
+        if el.supportsService("com.sun.star.text.Paragraph") and needle in el.getString():
+            return el
+    raise AssertionError("no paragraph containing %r" % needle)
+
+
+def _standard_para_adjust(doc):
+    """Effective ParaAdjust of the Standard style: LEFT (0) before LibreOffice 26.2, START (5) since
+    (sw/source/core/bastyp/init.cxx RES_PARATR_ADJUST default is SvxAdjust::ParaStart)."""
+    fam = doc.getStyleFamilies().getByName("ParagraphStyles")
+    return fam.getByName("Standard").getPropertyValue("ParaAdjust")
+
+
 def _accept_all(doc, ctx):
     helper = ctx.getServiceManager().createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx)
     helper.executeDispatch(doc.getCurrentController().getFrame(), ".uno:AcceptAllTrackedChanges", "", 0, ())
@@ -468,23 +485,22 @@ def test_write_search_whole_paragraph_applies_data_lo_para_uno(ctx, doc):
         {"code": "PARA_PROPERTY_UNSUPPORTED", "message": "data-lo-para property 'font-size' was not applied"}
     ]
 
-    enum = doc.getText().createEnumeration()
-    p1 = enum.nextElement()
-    p2 = enum.nextElement()
-    p3 = enum.nextElement()
+    p1 = _para_by_text(doc, "Keep before")
+    p2 = _para_by_text(doc, "New para")
+    p3 = _para_by_text(doc, "Keep after")
+    std_adjust = _standard_para_adjust(doc)
 
-    assert p1.getPropertyValue("ParaLeftMargin") == 0
-    assert p1.getPropertyValue("ParaAdjust") == 0
-    assert p1.getPropertyValue("FillStyle").value == "NONE"
+    for neighbour in (p1, p3):
+        assert neighbour.getPropertyValue("ParaLeftMargin") == 0
+        assert neighbour.getPropertyValue("ParaAdjust") == std_adjust
+        assert neighbour.getPropertyState("ParaAdjust").value == "DEFAULT_VALUE"
+        assert neighbour.getPropertyValue("FillStyle").value == "NONE"
 
     assert p2.getPropertyValue("ParaLeftMargin") == 2000
     assert p2.getPropertyValue("ParaAdjust") == 3
+    assert p2.getPropertyState("ParaAdjust").value == "DIRECT_VALUE"
     assert p2.getPropertyValue("FillStyle").value == "SOLID"
     assert p2.getPropertyValue("FillColor") == 0xFFE4C4
-
-    assert p3.getPropertyValue("ParaLeftMargin") == 0
-    assert p3.getPropertyValue("ParaAdjust") == 0
-    assert p3.getPropertyValue("FillStyle").value == "NONE"
 
 
 @native_test
@@ -557,23 +573,22 @@ def test_write_selection_whole_paragraph_applies_data_lo_para_uno(ctx, doc):
         {"code": "PARA_PROPERTY_UNSUPPORTED", "message": "data-lo-para property 'font-size' was not applied"}
     ]
 
-    enum = doc.getText().createEnumeration()
-    p1 = enum.nextElement()
-    p2 = enum.nextElement()
-    p3 = enum.nextElement()
+    p1 = _para_by_text(doc, "Keep before")
+    p2 = _para_by_text(doc, "New para")
+    p3 = _para_by_text(doc, "Keep after")
+    std_adjust = _standard_para_adjust(doc)
 
-    assert p1.getPropertyValue("ParaLeftMargin") == 0
-    assert p1.getPropertyValue("ParaAdjust") == 0
-    assert p1.getPropertyValue("FillStyle").value == "NONE"
+    for neighbour in (p1, p3):
+        assert neighbour.getPropertyValue("ParaLeftMargin") == 0
+        assert neighbour.getPropertyValue("ParaAdjust") == std_adjust
+        assert neighbour.getPropertyState("ParaAdjust").value == "DEFAULT_VALUE"
+        assert neighbour.getPropertyValue("FillStyle").value == "NONE"
 
     assert p2.getPropertyValue("ParaLeftMargin") == 2000
     assert p2.getPropertyValue("ParaAdjust") == 3
+    assert p2.getPropertyState("ParaAdjust").value == "DIRECT_VALUE"
     assert p2.getPropertyValue("FillStyle").value == "SOLID"
     assert p2.getPropertyValue("FillColor") == 0xFFE4C4
-
-    assert p3.getPropertyValue("ParaLeftMargin") == 0
-    assert p3.getPropertyValue("ParaAdjust") == 0
-    assert p3.getPropertyValue("FillStyle").value == "NONE"
 
 
 @native_test
