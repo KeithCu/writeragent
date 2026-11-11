@@ -515,6 +515,62 @@ def test_sanitize_tool_pairs_skips_open_transcript():
     assert not any(m.get("_open_transcript") for m in cleaned)
 
 
+def test_tool_rows_after_skips_open_rows_and_dedups():
+    """tool_rows_after skips folded open rows and deduplicates multiple tool results per id."""
+    messages = [
+        {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [
+                {"id": "call_a", "type": "function", "function": {"name": "func_a", "arguments": "{}"}},
+                {"id": "call_b", "type": "function", "function": {"name": "func_b", "arguments": "{}"}},
+            ],
+        },
+        {"role": "assistant", "content": "Running a...", "_open_transcript": True},
+        {"role": "tool", "tool_call_id": "call_a", "content": "real"},
+        {"role": "tool", "tool_call_id": "call_a", "content": "dup"},
+        {"role": "assistant", "content": "Running b...", "_open_transcript": True},
+        {"role": "tool", "tool_call_id": "call_b", "content": "result_b"},
+        {"role": "assistant", "content": "done"},
+    ]
+    tools, end_idx = C.tool_rows_after(messages, 1)
+    assert len(tools) == 2
+    assert tools[0] == {"role": "tool", "tool_call_id": "call_a", "content": "real"}
+    assert tools[1] == {"role": "tool", "tool_call_id": "call_b", "content": "result_b"}
+    assert end_idx == 6
+    assert messages[end_idx] == {"role": "assistant", "content": "done"}
+
+
+def test_sanitize_tool_pairs_keeps_one_result_per_tool_id():
+    """sanitize_tool_pairs keeps the first result per id within a block; reused ids across turns stay."""
+    messages = [
+        {"role": "user", "content": "first"},
+        {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [
+                {"id": "call_0", "type": "function", "function": {"name": "lookup", "arguments": "{}"}}
+            ],
+        },
+        {"role": "tool", "tool_call_id": "call_0", "content": "real"},
+        {"role": "tool", "tool_call_id": "call_0", "content": "filler"},
+        {"role": "user", "content": "second"},
+        {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [
+                {"id": "call_0", "type": "function", "function": {"name": "lookup", "arguments": "{}"}}
+            ],
+        },
+        {"role": "tool", "tool_call_id": "call_0", "content": "turn2_result"},
+    ]
+    cleaned = C.sanitize_tool_pairs(messages)
+    tool_rows = [m for m in cleaned if m.get("role") == "tool"]
+    assert len(tool_rows) == 2
+    assert tool_rows[0] == {"role": "tool", "tool_call_id": "call_0", "content": "real"}
+    assert tool_rows[1] == {"role": "tool", "tool_call_id": "call_0", "content": "turn2_result"}
+
+
 def test_last_user_snap_does_not_backward_align_into_tool_group():
     messages = [
         _system_doc(10),
