@@ -297,32 +297,24 @@ def test_write_then_read_recovers_token_via_fodt_uno(ctx, doc):
     assert "paragraph-" not in content, content
 
 
-def _para_pairs(doc):
-    text = doc.getText()
-    out = []
-    e = text.createEnumeration()
+def _paragraphs(doc):
+    e = doc.getText().createEnumeration()
     while e.hasMoreElements():
         el = e.nextElement()
-        if hasattr(el, "supportsService") and el.supportsService("com.sun.star.text.Paragraph"):
-            out.append((el.getPropertyValue("ParaStyleName"), el.getString()))
-    return out
+        if el.supportsService("com.sun.star.text.Paragraph"):
+            yield el
+
+
+def _para_pairs(doc):
+    return [(p.getPropertyValue("ParaStyleName"), p.getString()) for p in _paragraphs(doc)]
 
 
 def _para_by_text(doc, needle):
     """Return the com.sun.star.text.Paragraph whose text contains *needle* (first match)."""
-    e = doc.getText().createEnumeration()
-    while e.hasMoreElements():
-        el = e.nextElement()
-        if el.supportsService("com.sun.star.text.Paragraph") and needle in el.getString():
-            return el
+    for p in _paragraphs(doc):
+        if needle in p.getString():
+            return p
     raise AssertionError("no paragraph containing %r" % needle)
-
-
-def _standard_para_adjust(doc):
-    """Effective ParaAdjust of the Standard style: LEFT (0) before LibreOffice 26.2, START (5) since
-    (sw/source/core/bastyp/init.cxx RES_PARATR_ADJUST default is SvxAdjust::ParaStart)."""
-    fam = doc.getStyleFamilies().getByName("ParagraphStyles")
-    return fam.getByName("Standard").getPropertyValue("ParaAdjust")
 
 
 def _accept_all(doc, ctx):
@@ -485,14 +477,16 @@ def test_write_search_whole_paragraph_applies_data_lo_para_uno(ctx, doc):
         {"code": "PARA_PROPERTY_UNSUPPORTED", "message": "data-lo-para property 'font-size' was not applied"}
     ]
 
+    assert [t for _, t in _para_pairs(doc)] == ["Keep before", "New para", "", "Keep after"]
+
     p1 = _para_by_text(doc, "Keep before")
     p2 = _para_by_text(doc, "New para")
     p3 = _para_by_text(doc, "Keep after")
-    std_adjust = _standard_para_adjust(doc)
 
+    # LibreOffice 26.2+ default is START (5), not LEFT (0) (sw/source/core/bastyp/init.cxx);
+    # checking property state proves no direct override was applied to neighbor paragraphs.
     for neighbour in (p1, p3):
         assert neighbour.getPropertyValue("ParaLeftMargin") == 0
-        assert neighbour.getPropertyValue("ParaAdjust") == std_adjust
         assert neighbour.getPropertyState("ParaAdjust").value == "DEFAULT_VALUE"
         assert neighbour.getPropertyValue("FillStyle").value == "NONE"
 
@@ -573,14 +567,16 @@ def test_write_selection_whole_paragraph_applies_data_lo_para_uno(ctx, doc):
         {"code": "PARA_PROPERTY_UNSUPPORTED", "message": "data-lo-para property 'font-size' was not applied"}
     ]
 
+    assert [t for _, t in _para_pairs(doc)] == ["Keep before", "New para", "", "Keep after"]
+
     p1 = _para_by_text(doc, "Keep before")
     p2 = _para_by_text(doc, "New para")
     p3 = _para_by_text(doc, "Keep after")
-    std_adjust = _standard_para_adjust(doc)
 
+    # LibreOffice 26.2+ default is START (5), not LEFT (0) (sw/source/core/bastyp/init.cxx);
+    # checking property state proves no direct override was applied to neighbor paragraphs.
     for neighbour in (p1, p3):
         assert neighbour.getPropertyValue("ParaLeftMargin") == 0
-        assert neighbour.getPropertyValue("ParaAdjust") == std_adjust
         assert neighbour.getPropertyState("ParaAdjust").value == "DEFAULT_VALUE"
         assert neighbour.getPropertyValue("FillStyle").value == "NONE"
 
