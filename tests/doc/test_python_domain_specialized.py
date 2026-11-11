@@ -549,6 +549,26 @@ def test_run_inner_domain_tool_agent_inner_tool_error_is_error():
     assert result["domains"] == ["footnotes"]
 
 
+def test_run_inner_domain_tool_agent_finish_only_is_no_tool_calls():
+    registry = ToolRegistry(services={})
+    registry.register(FootnotesInsert())
+    registry.register(SpecializedWorkflowFinished())
+    parent = _ctx(registry, "writer", "com.sun.star.text.TextDocument")
+
+    def fake_run_inner(inner_ctx, tools, **kwargs):
+        by_name = {tool.name: tool for tool in tools}
+        return by_name["specialized_workflow_finished"](answer="No footnote added")
+
+    with patch("plugin.doc.python_domain_specialized.run_inner_tool_agent", side_effect=fake_run_inner):
+        result = run_inner_domain_tool_agent(parent, ["footnotes"], "Add a note")
+
+    assert result["status"] == "incomplete"
+    assert result["code"] == "SPECIALIZED_NO_TOOL_CALLS"
+    assert result["domains"] == ["footnotes"]
+    assert result["answer"] == "No footnote added"
+    assert "finished" not in result
+
+
 @patch("plugin.chatbot.smol_agent.build_toolcalling_agent")
 @patch("plugin.chatbot.smol_agent.SmolAgentExecutor")
 def test_run_inner_domain_tool_agent_user_stop_passes_through(mock_executor_cls, mock_build):

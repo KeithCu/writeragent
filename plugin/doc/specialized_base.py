@@ -37,7 +37,7 @@ from plugin.doc.peer_prompt import (
     annotate_outer_peer_wait,
     looks_like_peer_work_envelope,
 )
-from plugin.doc.specialized_catalog import DOMAIN_LOOP_HINTS, catalog_entries_from_base
+from plugin.doc.specialized_catalog import DOMAIN_LOOP_HINTS, InnerToolCall, apply_inner_outcome, catalog_entries_from_base
 from plugin.framework.i18n import _
 from plugin.chatbot.smol_agent import SmolToolAdapter, run_inner_tool_agent
 from plugin.doc.peer_message import PEER_RESULT_TOOL_NAME, PEER_TOOL_NAMES
@@ -268,19 +268,15 @@ class DelegateToSpecializedBase(ToolBase):
             peer_result_send_invoked=False,
             captured_tool_results=[],
             create_sheet_ran=False,
-            workflow_finished=False,
-            inner_tool_errors=[],
+            calls=[],
         )
 
         class _CaptureInstructionAdapter(SmolToolAdapter):
             def forward(self, *args: Any, **kwargs: Any) -> Any:
                 result = super().forward(*args, **kwargs)
-                if self.name == "specialized_workflow_finished":
-                    cap.workflow_finished = True
+                cap.calls.append(InnerToolCall(self.name, result, self._inner_tool.detects_mutation()))
                 if not isinstance(result, dict):
                     return result
-                if result.get("status") == "error":
-                    cap.inner_tool_errors.append(result)
                 if result.get("instruction"):
                     cap.captured_tool_results.append(result)
                 # Accepted delivery only. PEER_NOT_FOUND, PEER_SIDEBAR_NOT_OPEN,
@@ -359,7 +355,9 @@ class DelegateToSpecializedBase(ToolBase):
                 hints.append(python_specialized_sub_agent_hint(self._agent_label))
             instructions = (
                 f"You are a specialized {self._agent_label} task executor focused on the '{domain}' domain. "
-                f"You have a focused set of tools to accomplish your task. Use them to fulfill the user's request."
+                f"You have a focused set of tools to accomplish your task. Use them to fulfill the user's request. "
+                "Call at least one domain tool before specialized_workflow_finished; if this domain cannot do the task, "
+                "say so in the answer instead of claiming it was done."
                 + "".join(hints)
             )
 
@@ -424,29 +422,12 @@ class DelegateToSpecializedBase(ToolBase):
             # Idle-after-send for ask / accepted delivery sends.
             payload = annotate_outer_peer_wait(payload, peer_send_invoked=cap.peer_send_invoked)
 
-        # Discussion #2029:
-        # Map inner tool errors to status error/incomplete; free-text answers without finish are not silent ok.
-        is_finished = cap.workflow_finished or (isinstance(final_ans, dict) and final_ans.get("finished") is True)
-        if cap.inner_tool_errors:
-            combined_message = "; ".join(
-                str(e.get("message") or e.get("error") or e) for e in cap.inner_tool_errors
-            )
-            payload["status"] = "error"
-            payload["code"] = "SPECIALIZED_TOOL_ERROR"
-            payload["message"] = combined_message
-            payload["error"] = combined_message
-        elif not is_finished:
-            # Discussion #2262: a plain-text return sits in result (plus any peer note); move it to
-            # message instead of copying it, so the text is sent once.
-            if isinstance(final_ans, dict):
-                model_text = str(final_ans.get("message") or final_ans.get("answer") or final_ans.get("result") or final_ans)
-            else:
-                model_text = "" if final_ans is None else payload.pop("result")
-            payload["status"] = "incomplete"
-            payload["code"] = "SPECIALIZED_WORKFLOW_INCOMPLETE"
-            payload["message"] = model_text
-
-        return payload
+        return apply_inner_outcome(
+            payload,
+            final_ans,
+            cap.calls,
+            expect_edits=domain not in self._READ_ONLY_DOMAINS,
+        )
 
 
 def narrow_delegate_domain_enums(schemas: list[dict[str, Any]], tools: list[Any], uno_services: frozenset[str] | None) -> list[dict[str, Any]]:

@@ -170,6 +170,17 @@ The `delegate_to_specialized_writer_toolset` tool uses sub-agent delegation:
 - This sub-agent receives the user's task description and has access *only* to the specialized domain tools (and `specialized_workflow_finished` as its final-answer tool).
 - The main chat model is blocked, waiting for the sub-agent to finish and return its final answer.
 
+#### Result contract
+
+The outcome of sub-agent delegation is evaluated by `apply_inner_outcome` (shared between the gateway and Python inner-domain loops) into a structured payload:
+
+- **`status: "ok"`**: The sub-agent invoked `specialized_workflow_finished` after calling at least one domain tool.
+  - May include `recovered_tool_errors`: a list of error messages from earlier tool attempts that were subsequently resolved by a successful retry of the same tool.
+  - May include `note`: set to `"No document-editing tool ran during this delegation; the document is unchanged by it."` when an editing domain ran only read-only tools before finishing.
+- **`status: "incomplete"`, `code: "SPECIALIZED_NO_TOOL_CALLS"`**: The sub-agent called `specialized_workflow_finished` without calling any domain tools. The `answer` field is preserved for context.
+- **`status: "incomplete"`, `code: "SPECIALIZED_WORKFLOW_INCOMPLETE"`**: The sub-agent returned without signaling workflow finish (e.g. stopped without reaching the finish tool).
+- **`status: "error"`, `code: "SPECIALIZED_TOOL_ERROR"`**: One or more domain tools encountered errors that were never retried and resolved.
+
 ---
 
 ## 2. Architecture overview

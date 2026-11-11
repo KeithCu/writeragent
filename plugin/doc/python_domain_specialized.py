@@ -34,7 +34,7 @@ from typing import Any, ClassVar
 
 from plugin.chatbot.smol_agent import SmolToolAdapter, run_inner_tool_agent
 from plugin.framework.doc_type import agent_label_for_context
-from plugin.doc.specialized_catalog import DOMAIN_LOOP_HINTS, normalize_inner_result
+from plugin.doc.specialized_catalog import DOMAIN_LOOP_HINTS, InnerToolCall, normalize_inner_result
 from plugin.framework.errors import user_stopped_payload
 from plugin.framework.queue_executor import main
 from plugin.framework.tool import ToolBase, ToolContext
@@ -258,17 +258,16 @@ def _domain_loop_hints(parent_ctx: ToolContext, domains: list[str], agent_label:
     return "".join(parts)
 
 
-class _InnerToolErrorCapture(SmolToolAdapter):
-    _errors: list[dict[str, Any]]
+class _InnerCallRecorder(SmolToolAdapter):
+    _calls: list[InnerToolCall]
 
-    def __init__(self, tool: ToolBase, tctx: ToolContext, errors: list[dict[str, Any]]) -> None:
+    def __init__(self, tool: ToolBase, tctx: ToolContext, calls: list[InnerToolCall]) -> None:
         super().__init__(tool, tctx, safe=True, inputs_style="specialized")
-        self._errors = errors
+        self._calls = calls
 
     def forward(self, *args: Any, **kwargs: Any) -> Any:
         result = super().forward(*args, **kwargs)
-        if isinstance(result, dict) and result.get("status") == "error":
-            self._errors.append(result)
+        self._calls.append(InnerToolCall(self.name, result, self._inner_tool.detects_mutation()))
         return result
 
 
@@ -286,10 +285,10 @@ def run_inner_domain_tool_agent(parent_ctx: ToolContext, domains: list[str], tas
         )
 
     inner_ctx = _inner_context(parent_ctx, domains)
-    inner_tool_errors: list[dict[str, Any]] = []
+    inner_calls: list[InnerToolCall] = []
     # inputs_style="specialized" keeps enum / items / descriptions, same as other
     # specialized loops — not the slim librarian input shape.
-    smol_tools = [_InnerToolErrorCapture(tool, inner_ctx, inner_tool_errors) for tool in ordered]
+    smol_tools = [_InnerCallRecorder(tool, inner_ctx, inner_calls) for tool in ordered]
     domain_list = ", ".join(domains)
     hints = _domain_loop_hints(parent_ctx, domains, label)
     # Shapes mutators are not on this tool list. One script loops the API.
@@ -344,7 +343,7 @@ def run_inner_domain_tool_agent(parent_ctx: ToolContext, domains: list[str], tas
         error_prefix="Domain tool agent failed",
         tool_call_handler=tool_call_handler,
     )
-    return normalize_inner_result(final_ans, domains, inner_tool_errors)
+    return normalize_inner_result(final_ans, domains, inner_calls)
 
 
 class DelegateToolDomains(ToolBase):
