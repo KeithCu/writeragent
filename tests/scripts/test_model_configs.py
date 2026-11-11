@@ -51,6 +51,11 @@ EXPECTED_DEFAULT_IDS = [
     "reflection/beam-1.0-501b-a23b",
     "nvidia/nemotron-3.5-super-vl",
     "liquid/lfm-2.5-24b-a2b",
+    "anthropic/claude-haiku-5.5",
+    "anthropic/claude-sonnet-5.5",
+    "anthropic/claude-opus-5.5",
+    "meta/muse-ember",
+    "liquid/lfm-3-1.7b",
 ]
 
 EXPECTED_GOLD_ONLY_IDS: list[str] = []
