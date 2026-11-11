@@ -131,7 +131,7 @@ W2 and C1 were not re-run on master.
 2. **Sub-agents call `specialized_workflow_finished` with a success answer and no (or insufficient) edit tools**, and the main agent then tells the user the work is done. Seen in W2 (`structural`, no edits), W8 (`images` claimed a new heading it cannot create), C3 (`ranges` claimed currency format), and C6 (`ranges` claimed AutoFilter; that domain has no filter tool).
 3. **`SPECIALIZED_TOOL_ERROR` sticks after a successful retry (W10).** First Python script failed, second returned 24133, but the delegate result was still `status` error with the first error message. The same pattern appeared on C1's first `charts` delegate (error + `finished` true + a success answer). C8's first pivot error was honest.
 4. **LaTeX → Math object import is broken and reported as success (W9).** `UnknownPropertyException` on "Formula", then a traceback UNO conversion error. The document gets `[Math import failed] …`; the tool status is ok. Unknown whether this is new in the PR.
-5. **`range_sort` reports success and does not sort (C5).**
+5. **`range_sort` reports success and does not sort (C5).** Cause: `SortFields` was sent as a `[]any`, which Calc drops; fixed in this PR (typed sequence, and the tool now says `no rows moved` when nothing changes). Reproduced on master.
 6. **`chart_upsert` cannot take a non-contiguous Region+Revenue range; a failed upsert can still leave a chart; an error result can carry a success answer (C1).**
 7. **Filter task routed to `ranges` instead of `sheets` (C6)**, and currency formatting routed to `ranges` instead of core `set_style` (C3).
 8. **W4 `include_links` was never exercised**, because the main agent did not delegate a TOC read. W3, W4, and W3m all answered from context.
