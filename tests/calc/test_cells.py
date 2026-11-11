@@ -2039,6 +2039,12 @@ def test_sort_range_validation():
         assert res_ok["status"] == "ok"
         manipulator.range_sort.assert_called_once_with("A1:B2", sort_column=0, ascending=True, has_header=True)
 
+        manipulator.range_sort.reset_mock()
+        manipulator.range_sort.side_effect = ["A done.", "B done."]
+        res_multi = SortRange().execute(ctx, range=["A1:B2", "D1:E2"], has_header=True)
+        assert res_multi["status"] == "ok"
+        assert res_multi["message"] == "A done. B done."
+
 
 def test_string_booleans_accepted():
     from plugin.calc.cells import MergeCells, SortRange
