@@ -45,6 +45,11 @@ The current `org_chart_gen` **code scoring** (`oracles.oracle_org_chart_gen` / `
 | `nvidia/nemotron-3.5-super-vl` | pending (2026-10-16) | 1 (catalog oracle PASS) | pending hand visual grade |
 | `liquid/lfm-2.5-24b-a2b` | pending (2026-10-16) | 1 (catalog oracle PASS) | pending hand visual grade |
 | `reflection/beam-1.0-501b-a23b` | pending (2026-10-16) | 0 (catalog oracle FAIL) | pending; oracle saw 0 labeled boxes / 0 connectors |
+| `anthropic/claude-sonnet-5.5` | pending (2026-11-11) | 1 (catalog oracle PASS) | pending hand visual grade; oracle 10 boxes / 9 connectors |
+| `anthropic/claude-opus-5.5` | pending (2026-11-11) | 1 (catalog oracle PASS) | pending hand visual grade; oracle 10 boxes / 9 connectors |
+| `anthropic/claude-haiku-5.5` | pending (2026-11-11) | 1 (catalog oracle PASS) | pending hand visual grade; oracle 10 boxes / 9 connectors |
+| `meta/muse-ember` | pending (2026-11-11) | 1 (catalog oracle PASS) | pending hand visual grade; oracle 10 boxes / 9 connectors |
+| `liquid/lfm-3-1.7b` | pending (2026-11-11) | 1 (catalog oracle PASS) | pending hand visual grade; oracle 10 boxes / 9 connectors |
 
 ## Visual HARD PASS (keep)
 
