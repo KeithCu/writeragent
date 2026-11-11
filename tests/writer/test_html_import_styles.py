@@ -199,3 +199,37 @@ def test_attach_link_warnings() -> None:
     assert len(updated_existing["warnings"]) == 2
     assert updated_existing["warnings"][0]["code"] == "EXISTING"
     assert updated_existing["warnings"][1]["code"] == html_import_styles.LINK_TARGET_NOT_FOUND
+
+
+def test_attach_math_objects_all_ok_attaches_list() -> None:
+    ok_res = {"status": "ok", "message": "Done"}
+    entries = [
+        {"kind": "tex", "display_block": False, "snippet": "a", "ok": True},
+        {"kind": "mml", "display_block": True, "snippet": "<math></math>", "ok": True},
+    ]
+    res = html_import_styles.attach_math_objects(ok_res, entries)
+    assert res["status"] == "ok"
+    assert res["math_objects"] == entries
+
+
+def test_attach_math_objects_any_failure_is_math_import_failed_error() -> None:
+    entries = [
+        {"kind": "tex", "display_block": False, "snippet": "a", "ok": True},
+        {
+            "kind": "tex",
+            "display_block": True,
+            "snippet": r"\sqrt{",
+            "ok": False,
+            "error": "NoAvailableTokensError",
+        },
+    ]
+    ok_res = {"status": "ok", "message": "Done"}
+    res = html_import_styles.attach_math_objects(ok_res, entries)
+    assert res["status"] == "error"
+    assert res["code"] == html_import_styles.MATH_IMPORT_FAILED
+    assert res["details"]["math_objects"] == entries
+    assert r"\sqrt{" in res["message"]
+    assert "NoAvailableTokensError" in res["message"]
+
+    err_res = {"status": "error", "message": "Failed"}
+    assert html_import_styles.attach_math_objects(err_res, entries) == err_res

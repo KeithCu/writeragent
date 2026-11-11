@@ -17,6 +17,17 @@ from plugin.doc.temp_files import (
 )
 
 
+class _UnoSimulatedException(Exception):
+    """Simulates a pyuno exception whose __setattr__ delegates to a UNO struct."""
+
+    def __setattr__(self, name: str, value: object) -> None:
+        if name == "__traceback__":
+            raise RuntimeError(
+                f"Couldn't convert {value!r} to a UNO type; caught exception: <class 'AttributeError'>: 'traceback' object has no attribute 'getTypes'"
+            )
+        super().__setattr__(name, value)
+
+
 def test_with_temp_buffer_yields_three_slash_file_url():
     with with_temp_buffer(content="x", ext=".html") as (_path, url):
         assert url.startswith("file:///")
@@ -37,3 +48,18 @@ def test_resolve_temp_dir_avoids_gettempdir_under_crosshair(monkeypatch):
     assert _resolve_temp_dir() == os.curdir
     monkeypatch.setenv("TMPDIR", "/custom/tmp")
     assert _resolve_temp_dir() == "/custom/tmp"
+
+
+def test_with_temp_buffer_passes_uno_style_exception_through_unchanged():
+    recorded_path: str | None = None
+    exc_instance = _UnoSimulatedException("UnknownPropertyException: Formula")
+    try:
+        with with_temp_buffer(content="dummy", ext=".html") as (path, _url):
+            recorded_path = path
+            assert os.path.exists(recorded_path)
+            raise exc_instance
+    except Exception as caught:
+        assert caught is exc_instance
+
+    assert recorded_path is not None
+    assert not os.path.exists(recorded_path)

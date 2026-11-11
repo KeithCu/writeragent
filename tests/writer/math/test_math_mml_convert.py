@@ -49,12 +49,25 @@ def test_convert_mathml_to_starmath_rejects_non_math_root() -> None:
     assert res.error_message == "not_math_root"
 
 
+class _UnoSimulatedPropertyError(Exception):
+    """Stand-in for pyuno exception types whose __setattr__ forwards to a UNO struct."""
+
+    def __setattr__(self, name: str, value: object) -> None:
+        if name == "__traceback__":
+            raise RuntimeError(
+                f"Couldn't convert {value!r} to a UNO type; caught exception: <class 'AttributeError'>: 'traceback' object has no attribute 'getTypes'"
+            )
+        super().__setattr__(name, value)
+
+
 def test_convert_mathml_to_starmath_closes_doc_on_property_error() -> None:
     from unittest.mock import MagicMock
     from plugin.writer.math.math_mml_convert import convert_mathml_to_starmath
 
     mock_doc = MagicMock()
-    mock_doc.getPropertyValue.side_effect = RuntimeError("failed to read Formula")
+    mock_doc.getPropertyValue.side_effect = _UnoSimulatedPropertyError(
+        "UnknownPropertyException: Formula"
+    )
     mock_desktop = MagicMock()
     mock_desktop.loadComponentFromURL.return_value = mock_doc
 
@@ -62,7 +75,9 @@ def test_convert_mathml_to_starmath_closes_doc_on_property_error() -> None:
         res = convert_mathml_to_starmath(object(), "<math><mi>x</mi></math>")
 
     assert res.ok is False
-    assert "failed to read Formula" in (res.error_message or "")
+    error_message = res.error_message or ""
+    assert "Formula" in error_message
+    assert "traceback" not in error_message
     mock_doc.close.assert_called_once_with(True)
 
 

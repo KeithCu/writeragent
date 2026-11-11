@@ -1241,7 +1241,7 @@ def test_full_document_data_lo_para_warnings():
 def test_full_document_reports_math_objects(monkeypatch):
     entries = [
         {"kind": "tex", "display_block": False, "snippet": "a", "ok": True},
-        {"kind": "tex", "display_block": True, "snippet": "b", "ok": False, "error": "invalid"},
+        {"kind": "tex", "display_block": True, "snippet": "b", "ok": True},
     ]
 
     def fake_replace_full_document(doc, ctx, content, *, math_out=None):
@@ -1257,6 +1257,29 @@ def test_full_document_reports_math_objects(monkeypatch):
     assert res["paragraph_count"] == 2
     assert res["headings"] == []
     assert res["math_objects"] == entries
+
+
+def test_full_document_failed_math_attempt_returns_math_import_failed(monkeypatch):
+    entries = [
+        {"kind": "tex", "display_block": False, "snippet": "a", "ok": True},
+        {"kind": "tex", "display_block": True, "snippet": "b", "ok": False, "error": "invalid"},
+    ]
+
+    def fake_replace_full_document(doc, ctx, content, *, math_out=None):
+        if math_out is not None:
+            math_out.extend(entries)
+        return []
+
+    monkeypatch.setattr(format_mod, "replace_full_document", fake_replace_full_document)
+    content = r"<p>\(a\)</p><p>$$b$$</p>"
+    res = ApplyDocumentContent().execute(_ctx(), content=content, target="full_document")
+
+    assert res["status"] == "error"
+    assert res["code"] == "MATH_IMPORT_FAILED"
+    assert res["details"]["math_objects"] == entries
+    assert "b" in res["message"]
+    assert "invalid" in res["message"]
+    assert "math_objects" not in res
 
 
 def test_full_document_plain_html_omits_math_objects(monkeypatch):

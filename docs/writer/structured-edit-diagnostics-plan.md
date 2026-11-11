@@ -27,7 +27,7 @@ Why: prompt instructions carry complex API-mechanics rules largely because tool 
 
 - **Error factory:** `make_tool_error(message, code="TOOL_EXECUTION_ERROR", **details)` in `plugin/framework/errors.py:404-414`. `ToolBase._tool_error` in `plugin/framework/tool.py:242-251` forwards keyword arguments to it. `format_error_payload` (`plugin/framework/errors.py:255-267`) formats exceptions into `{"status": "error", "code", "message", "details"?}`. Extra keyword arguments are nested under `details`.
 - **Codes in use on the Writer edit path:**
-  - Standard codes already emitted: `INVALID_PARAM`, `INVALID_REGEX`, `TABLE_INSERT_FAILED`, `HYPERLINK_UPDATE_FAILED`, `SHAPE_REPLACE_FAILED`, `OCCURRENCE_OUT_OF_RANGE`, `SEARCH_FAILED`, `ROLLBACK_FAILED`, `TOOL_EXECUTION_ERROR`.
+  - Standard codes already emitted: `INVALID_PARAM`, `INVALID_REGEX`, `TABLE_INSERT_FAILED`, `MATH_IMPORT_FAILED`, `HYPERLINK_UPDATE_FAILED`, `SHAPE_REPLACE_FAILED`, `OCCURRENCE_OUT_OF_RANGE`, `SEARCH_FAILED`, `ROLLBACK_FAILED`, `TOOL_EXECUTION_ERROR`.
   - Existing codes in the tree missing from prior catalogs: `UNDO_UNAVAILABLE` (`plugin/writer/apply_document_content.py:644, 722, 1468`) and `TABLE_IN_ANCHOR_RANGE` (`plugin/writer/apply_document_content.py:1579`).
   - Uncoded `_tool_error(...)` calls falling back to `TOOL_EXECUTION_ERROR`:
     - `plugin/writer/apply_document_content.py`: `dry_run` target conflict (line 892), `position` errors (lines 903, 1186, 1188, 1192), content type/item errors (lines 1207, 1211), empty content on insert targets (line 1214), math segments with `position='before'/'after'` (line 1631), and table cell `position='before'/'after'` (line 1639).
