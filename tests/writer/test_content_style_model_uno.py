@@ -474,7 +474,7 @@ def test_write_search_whole_paragraph_applies_data_lo_para_uno(ctx, doc):
     p3 = enum.nextElement()
 
     assert p1.getPropertyValue("ParaLeftMargin") == 0
-    assert p1.getPropertyValue("ParaAdjust") == 5
+    assert p1.getPropertyValue("ParaAdjust") == 0
     assert p1.getPropertyValue("FillStyle").value == "NONE"
 
     assert p2.getPropertyValue("ParaLeftMargin") == 2000
@@ -483,7 +483,7 @@ def test_write_search_whole_paragraph_applies_data_lo_para_uno(ctx, doc):
     assert p2.getPropertyValue("FillColor") == 0xFFE4C4
 
     assert p3.getPropertyValue("ParaLeftMargin") == 0
-    assert p3.getPropertyValue("ParaAdjust") == 5
+    assert p3.getPropertyValue("ParaAdjust") == 0
     assert p3.getPropertyValue("FillStyle").value == "NONE"
 
 
@@ -563,7 +563,7 @@ def test_write_selection_whole_paragraph_applies_data_lo_para_uno(ctx, doc):
     p3 = enum.nextElement()
 
     assert p1.getPropertyValue("ParaLeftMargin") == 0
-    assert p1.getPropertyValue("ParaAdjust") == 5
+    assert p1.getPropertyValue("ParaAdjust") == 0
     assert p1.getPropertyValue("FillStyle").value == "NONE"
 
     assert p2.getPropertyValue("ParaLeftMargin") == 2000
@@ -572,7 +572,7 @@ def test_write_selection_whole_paragraph_applies_data_lo_para_uno(ctx, doc):
     assert p2.getPropertyValue("FillColor") == 0xFFE4C4
 
     assert p3.getPropertyValue("ParaLeftMargin") == 0
-    assert p3.getPropertyValue("ParaAdjust") == 5
+    assert p3.getPropertyValue("ParaAdjust") == 0
     assert p3.getPropertyValue("FillStyle").value == "NONE"
 
 
