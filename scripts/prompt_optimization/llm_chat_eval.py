@@ -19,6 +19,7 @@ from typing import Any, Literal
 from plugin.framework.json_utils import safe_json_loads
 from plugin.framework.config import normalize_endpoint_url
 from plugin.framework.client.llm_client import LlmClient
+from plugin.framework.prompts import DELEGATE_ANCHOR_RULE
 
 # PyUNO: `com.sun.star` imports inside plugin.writer require uno first.
 # String/scripted eval must still run before `make ensure-uno` if uno is absent.
@@ -340,7 +341,8 @@ def _run_specialized_inner(
                         if python_tool_domain
                         else ""
                     )
-                    + f" Call {SPECIALIZED_FINISH} when done."
+                    + f" Call {SPECIALIZED_FINISH} when done. "
+                    + DELEGATE_ANCHOR_RULE
                 ),
             },
             {"role": "user", "content": task},
@@ -562,6 +564,7 @@ def _run_llm_chat_eval_impl(
     schema_patches: dict[str, dict[str, Any]] | None = None,
     tools_spec: str | None = None,
     schema_density: str = "full",
+    fixture: str = "",
 ) -> tuple[str, dict[str, int], str | None, list[dict[str, Any]]]:
     """
     Run one eval example: multi-round tool loop.
@@ -638,7 +641,7 @@ def _run_llm_chat_eval_impl(
     if backend == "lo":
         import tools_lo as tl
 
-        tl.prepare_example(kind, document_content)
+        tl.prepare_example(kind, document_content, fixture=fixture)
 
     rounds = max(1, int(max_tool_rounds))
     last_had_tools = False

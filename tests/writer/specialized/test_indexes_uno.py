@@ -976,3 +976,28 @@ def test_list_toc_entries_with_a_paragraph_before_the_toc_uno(ctx, doc):
     assert listed["count"] == 2, listed
     texts = [row["text"] for row in listed["entries"]]
     assert "Alpha title" in texts[0] and "Beta title" in texts[1], texts
+
+
+@native_test
+@with_native_doc("writer")
+def test_list_toc_entries_links_on_request_uno(ctx, doc):
+    """Default TOC listing omits hyperlink_url; include_links=True returns it."""
+    text = doc.getText()
+    text.setString("")
+    _add_heading(text, "Alpha title", True)
+    _add_heading(text, "Beta title", False)
+    tctx = _tool_ctx(ctx, doc)
+    created = IndexesCreate().execute(tctx, kind="toc", title="Contents", target="beginning")
+    assert created.get("status") == "ok", created
+
+    listed_default = IndexesListTocEntries().execute(tctx)
+    assert listed_default.get("status") == "ok", listed_default
+    assert listed_default.get("count") == 2
+    assert "hyperlink_url" not in listed_default["entries"][0]
+    assert "hyperlink_url" not in listed_default["entries"][1]
+
+    listed_links = IndexesListTocEntries().execute(tctx, include_links=True)
+    assert listed_links.get("status") == "ok", listed_links
+    assert listed_links.get("count") == 2
+    assert str(listed_links["entries"][0].get("hyperlink_url", "")).startswith("#")
+    assert str(listed_links["entries"][1].get("hyperlink_url", "")).startswith("#")

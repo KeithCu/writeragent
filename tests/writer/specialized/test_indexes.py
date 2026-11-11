@@ -725,7 +725,7 @@ def test_list_toc_entries_reads_rows_not_the_full_export():
     with patch("plugin.writer.html_export._export_xhtml", side_effect=AssertionError("xhtml export")) as export_xhtml, \
          patch("plugin.writer.html_export.document_to_content", side_effect=AssertionError("full export")) as export_doc, \
          patch("plugin.writer.get_document_content.GetDocumentContent.execute", side_effect=AssertionError("get_document_content")) as export_tool:
-        listed = tool.execute(ctx)
+        listed = tool.execute(ctx, include_links=True)
 
     assert listed["status"] == "ok", listed
     assert listed["index"] == 0
@@ -755,6 +755,34 @@ def test_list_toc_entries_reads_rows_not_the_full_export():
     assert both["text"] == "Linked both\t2"
     assert both["hyperlink_url"] == "#1.Linked both|outline"
     assert "https://example.invalid/toc" not in both["hyperlink_url"]
+
+
+def test_list_toc_entries_default_omits_links():
+    tool = IndexesListTocEntries()
+    ctx, _doc, idx, _mgr = _one_toc_context()
+    rows = [
+        _IndexPara("Alpha\t1", "Contents 1", ["#1.Alpha|outline"], True),
+        _IndexPara("Beta\t2", "Contents 2", ["#2.Beta|outline"], True),
+    ]
+    _attach_index_rows(ctx, idx, rows)
+
+    with patch(
+        "plugin.writer.specialized.indexes._paragraph_hyperlink",
+        side_effect=AssertionError("should not inspect hyperlink"),
+    ):
+        res = tool.execute(ctx)
+    assert res["status"] == "ok"
+    assert res["entries"] == [
+        {"text": "Alpha\t1", "level": 1},
+        {"text": "Beta\t2", "level": 2},
+    ]
+
+    res_with_links = tool.execute(ctx, include_links=True)
+    assert res_with_links["status"] == "ok"
+    assert res_with_links["entries"] == [
+        {"text": "Alpha\t1", "level": 1, "hyperlink_url": "#1.Alpha|outline"},
+        {"text": "Beta\t2", "level": 2, "hyperlink_url": "#2.Beta|outline"},
+    ]
 
 
 def test_list_toc_entries_rejects_a_missing_or_non_toc_index():

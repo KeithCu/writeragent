@@ -480,7 +480,20 @@ def _set_calc_tsv(content: str) -> None:
     rng.setDataArray(tuple(tuple(row) for row in padded))
 
 
-def prepare_example(kind: str, initial_content: str) -> None:
+def _build_fixture(fixture: str) -> None:
+    from toc_fixture import TOC_FIXTURE_ID, build_toc_fixture
+
+    if fixture == TOC_FIXTURE_ID:
+        def _do():
+            doc = LOBackend.acquire_document("writer")
+            build_toc_fixture(doc, lambda name, args: _execute_lo_tool_impl(name, args))
+
+        LOBackend.call(_do)
+    else:
+        raise ValueError(f"Unknown fixture id: {fixture!r}")
+
+
+def prepare_example(kind: str, initial_content: str, fixture: str = "") -> None:
     """Close leftover doc and create a fresh factory document for this example."""
 
     def _do():
@@ -490,6 +503,8 @@ def prepare_example(kind: str, initial_content: str) -> None:
         elif kind == "calc":
             _set_calc_tsv(initial_content)
         # draw: empty page from private:factory/sdraw
+        if fixture:
+            _build_fixture(fixture)
 
     LOBackend.call(_do)
 

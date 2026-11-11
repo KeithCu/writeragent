@@ -586,12 +586,15 @@ def _paragraph_hyperlink(para: Any) -> str:
     return url if isinstance(url, str) else ""
 
 
-def toc_entry_rows(anchor: Any) -> list[dict[str, Any]]:
-    """Visible text, outline level, and hyperlink for each TOC row.
+def toc_entry_rows(anchor: Any, *, include_links: bool = False) -> list[dict[str, Any]]:
+    """Visible text and outline level (plus hyperlink when requested) for each TOC row.
 
     Walks paragraphs inside the index anchor, the same read insert and delete
     already use. Does not call ``ContentIndex.update()`` and does not export
     the document. The ``Contents Heading`` title is not a row.
+
+    Links are omitted by default so models do not echo or corrupt them; the
+    host rewrites outline URLs on rename and preserves existing hyperlinks.
     """
     rows: list[dict[str, Any]] = []
     for para in _paragraphs_in_anchor(anchor):
@@ -601,11 +604,13 @@ def toc_entry_rows(anchor: Any) -> list[dict[str, Any]]:
         text = _entry_text(para)
         if not text.strip():
             continue
-        rows.append({
+        row: dict[str, Any] = {
             "text": text,
             "level": _outline_level(style),
-            "hyperlink_url": _paragraph_hyperlink(para),
-        })
+        }
+        if include_links:
+            row["hyperlink_url"] = _paragraph_hyperlink(para)
+        rows.append(row)
     return rows
 
 
@@ -1195,7 +1200,7 @@ class IndexesList(ToolWriterIndexBase):
         "List document indexes (TOC, alphabetical, user, bibliography tables). "
         "type matches indexes_create kind (bibliography via getServiceName). "
         "For in-flow cites use indexes_list_cites, not this tool. "
-        "For TOC row text, outline level, and the internal hyperlink use indexes_list_toc_entries."
+        "For TOC row text and outline level use indexes_list_toc_entries."
     )
     parameters: dict[str, Any] | None = _EMPTY_PARAMETERS
     is_mutation: bool | None = False
@@ -1222,8 +1227,9 @@ class IndexesListTocEntries(ToolWriterIndexBase):
     name: str | None = "indexes_list_toc_entries"
     description: str = (
         "List table-of-contents rows by reading the index paragraphs. "
-        "Each row is the visible text, the outline level (Contents 1-10), "
-        "and the internal hyperlink (HyperLinkURL, including #…|outline). "
+        "Each row is the visible text and the outline level (Contents 1-10). "
+        "Pass include_links=true to include the internal HyperLinkURL (including #…|outline); "
+        "renames keep links without hyperlink_url. "
         "Does not export the document and does not call index update(). "
         "Use this to inspect or validate TOC entries. "
         "indexes_list returns only the index name and type. "
@@ -1234,6 +1240,7 @@ class IndexesListTocEntries(ToolWriterIndexBase):
         "type": "object",
         "properties": {
             "index": {"type": "integer", "minimum": 0, "description": "Document index position from indexes_list. Omit when the document has exactly one TOC."},
+            "include_links": {"type": "boolean", "description": "Include internal hyperlink URLs on each row. Defaults to false; outline links are preserved automatically during renames.", "default": False},
         },
         "required": [],
     }
@@ -1247,15 +1254,16 @@ class IndexesListTocEntries(ToolWriterIndexBase):
         # UI stays on "Running delegate (indexes)". The one-row update,
         # insert, and delete tools already read these paragraphs and do
         # not hang. This listing uses that same read: text, level, and
-        # hyperlink, without a full-document export and without
+        # optional hyperlink, without a full-document export and without
         # ContentIndex.update() (update rebuilds every row and drops
         # customized formatting).
         doc = ctx.doc
         index = kwargs.get("index")
+        include_links = bool(kwargs.get("include_links"))
         _unused_idx, anchor, position, err = _resolve_toc_target(self, doc, index)
         if err is not None:
             return err
-        entries = toc_entry_rows(anchor)
+        entries = toc_entry_rows(anchor, include_links=include_links)
         return {
             "status": "ok",
             "index": position,

@@ -75,4 +75,6 @@ Ranked by **hard pass → agent score → metric**. **Hard pass** = document sub
 
 Structural tasks are scored from the **exported final document** (HTML / Draw tree / Calc grid) via result oracles — not tool-name traces. Creative tasks (resume, logical rewriting, summarization) and the two table tasks use an LLM judge (default `openai/gpt-oss-120b:nitro`) plus gold references in `gold_standards.json` (hand-written from the rubrics).
 
+Table of Contents tasks (`toc_list_entries` and `toc_renumber_insert`, `backend=lo`) evaluate anchor reporting and outline hyperlink preservation on a 40-heading document. The read task is scored from the harness trace (verifying delegate domain, `indexes_list_toc_entries` usage, and reporting entries without echoing corrupted links); the edit task parses `content.xml` in an exported `.odt` to verify renumbered headings, preserved outline hyperlink targets without full rebuilds (`indexes_update_all`), and intact body bookmarks.
+
 **Fine-tuning direction:** the same eval signal (correct vs incorrect tool use, minimal vs verbose traces) could train a smaller specialist for this tool distribution—fewer tokens at similar correctness, better Value (C²/$).

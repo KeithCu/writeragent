@@ -407,15 +407,27 @@ def test_writer_chat_prompt_delegation_routing_local_vs_web():
     assert "Insert a Calc spreadsheet OLE in the active Writer document only" in prompt
 
 
+def test_delegate_anchor_rule_is_one_fixed_line():
+    from plugin.framework.prompts import DELEGATE_ANCHOR_RULE
+
+    assert "\n" not in DELEGATE_ANCHOR_RULE
+    assert "TOC entry text" in DELEGATE_ANCHOR_RULE
+    assert "cell range" in DELEGATE_ANCHOR_RULE
+    assert "page and shape name" in DELEGATE_ANCHOR_RULE
+
+
 def test_specialized_delegation_block_is_single_line():
     from plugin.framework.prompts import SPECIALIZED_TASK_RULES, get_specialized_delegation_tool_hint
 
-    block = get_specialized_delegation_tool_hint("Writer")
-    assert "SPECIALIZED WRITER" in block
-    assert SPECIALIZED_TASK_RULES in block
-    assert "source_image='selection'" in block
-    assert "Enumerate what must be true" not in block
-    assert "\n" not in block
+    for kind in ("Writer", "Calc", "Draw"):
+        block = get_specialized_delegation_tool_hint(kind)
+        assert SPECIALIZED_TASK_RULES in block
+        assert "\n" not in block
+    assert "source_image='selection'" in SPECIALIZED_TASK_RULES
+    assert "TOC entry text" in SPECIALIZED_TASK_RULES
+    assert "cell range" in SPECIALIZED_TASK_RULES
+    assert "page and shape name" in SPECIALIZED_TASK_RULES
+    assert "Enumerate what must be true" not in SPECIALIZED_TASK_RULES
 
 
 def test_calc_core_directives_local_before_web():

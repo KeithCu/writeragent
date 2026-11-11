@@ -175,8 +175,10 @@ class ToolWriterIndexBase(ToolWriterSpecialBase):
     specialized_domain: ClassVar[str | None] = "indexes"
     specialized_domain_description: ClassVar[str | None] = (
         "Manage Table of Contents, alphabetical indexes, and native bibliography cites plus the reference table. "
-        "Read TOC rows with indexes_list_toc_entries (visible text, outline level, internal hyperlink); "
+        "Read TOC rows with indexes_list_toc_entries (entry text and level; links only on request); "
         "that reads the index and does not export the document or call update(). "
+        "Put a whole TOC job (read, then rename, insert, or delete rows) in one task; "
+        "the executor keeps the links itself, so never pass TOC rows or hyperlinks back in. "
         "Customized TOC rows: indexes_insert_toc_entry, indexes_delete_toc_entry, and indexes_refresh_toc_entry "
         "edit one entry and do not call update(). indexes_update_all rebuilds the TOC and drops custom formatting."
     )
