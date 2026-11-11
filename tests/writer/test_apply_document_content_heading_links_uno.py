@@ -13,7 +13,7 @@ import uno  # noqa: F401
 from com.sun.star.beans import PropertyValue
 
 from plugin.testing_runner import native_test
-from plugin.tests.testing_utils import TestingFactory, with_native_doc
+from plugin.tests.testing_utils import native_writer_tool_context, with_native_doc
 from plugin.writer.apply_document_content import ApplyDocumentContent
 
 
@@ -60,7 +60,7 @@ def _view_cursor_paragraph_text(doc) -> str:
 def test_heading_links_full_document_uno(ctx, doc) -> None:
     """Bare heading links rewrite to |outline; bookmarks and id targets remain unchanged."""
     tool = ApplyDocumentContent()
-    tctx = TestingFactory.make_tool_context(doc=doc, uno_context=ctx)
+    tool_ctx = native_writer_tool_context(doc, ctx)
 
     html = (
         "<h1>Getting Started</h1>"
@@ -72,7 +72,7 @@ def test_heading_links_full_document_uno(ctx, doc) -> None:
         '<a href="#Intro &amp; More">Link D</a>'
         "</p>"
     )
-    res = tool.execute(tctx, target="full_document", content=html)
+    res = tool.execute(tool_ctx, target="full_document", content=html)
     assert res.get("status") == "ok", res
 
     warnings = res.get("warnings") or []
@@ -113,10 +113,10 @@ def test_heading_links_target_end_against_existing_headings_uno(ctx, doc) -> Non
     pcur.setPropertyValue("ParaStyleName", "Heading 1")
 
     tool = ApplyDocumentContent()
-    tctx = TestingFactory.make_tool_context(doc=doc, uno_context=ctx)
+    tool_ctx = native_writer_tool_context(doc, ctx)
 
     res = tool.execute(
-        tctx,
+        tool_ctx,
         target="end",
         content='<p><a href="#Overview">back</a></p>',
     )
@@ -142,11 +142,11 @@ def test_tagless_dollar_math_vs_currency_search_uno(ctx, doc) -> None:
     cur.gotoStart(False)
 
     tool = ApplyDocumentContent()
-    tctx = TestingFactory.make_tool_context(doc=doc, uno_context=ctx)
+    tool_ctx = native_writer_tool_context(doc, ctx)
 
     # 1. Complete $...$ math: routes to HTML import and inserts embedded formula object
     res_math = tool.execute(
-        tctx,
+        tool_ctx,
         target="search",
         old_content="Placeholder paragraph one.",
         content="Body $x^2$ one.",
@@ -160,7 +160,7 @@ def test_tagless_dollar_math_vs_currency_search_uno(ctx, doc) -> None:
 
     # 2. Currency dollars: not math, routes to format-preserving plain replace
     res_curr = tool.execute(
-        tctx,
+        tool_ctx,
         target="search",
         old_content="Body ",
         content="costs $5 and $7 ",
