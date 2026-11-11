@@ -36,12 +36,12 @@ def test_has_more_elements_returns_python_bool(ctx):
         enum.nextElement()
         _assert_bool_row(enum, False)
 
-    desktop = get_desktop(ctx)
-    enum = desktop.getComponents().createEnumeration()
-    _assert_bool_row(enum, True)
-    while enum_has_more(enum):
-        enum.nextElement()
-    _assert_bool_row(enum, False)
+        desktop = get_desktop(ctx)
+        desktop_enum = desktop.getComponents().createEnumeration()
+        _assert_bool_row(desktop_enum, True)
+        while enum_has_more(desktop_enum):
+            desktop_enum.nextElement()
+        _assert_bool_row(desktop_enum, False)
 
     with TestingFactory.native_doc(ctx, "calc") as doc:
         enum = doc.getSheets().createEnumeration()
