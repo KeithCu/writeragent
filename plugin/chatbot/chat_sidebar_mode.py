@@ -284,10 +284,9 @@ def mode_from_selector_with_flags(ctrl: Any, flags: SidebarModeFlags) -> str:
         if hasattr(ctrl, "getText"):
             return mode_from_label(ctrl.getText(), flags)
     except Exception as e:
-        from plugin.framework.errors import is_disposal
+        from plugin.framework.errors import reraise_if_disposed
 
-        if is_disposal(e):
-            raise
+        reraise_if_disposed(e, "Mode selector disposed while reading the sidebar mode", object_type="control")
         log.warning("Failed to read mode from selector: %s", e)
         return CHAT_MODE_CHAT
     return CHAT_MODE_CHAT
