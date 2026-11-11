@@ -11,6 +11,7 @@ from plugin.writer.math.math_mml_convert import (
     convert_latex_to_starmath,
     insert_writer_math_formula,
 )
+from tests.uno_fakes import PyUnoSimulatedException
 
 
 class _QuietExc(Exception):
@@ -47,9 +48,6 @@ def test_convert_mathml_to_starmath_rejects_non_math_root() -> None:
     res = convert_mathml_to_starmath(object(), "<html><body>not math</body></html>")
     assert res.ok is False
     assert res.error_message == "not_math_root"
-
-
-from tests.uno_fakes import PyUnoSimulatedException
 
 
 def test_convert_mathml_to_starmath_closes_doc_on_property_error() -> None:

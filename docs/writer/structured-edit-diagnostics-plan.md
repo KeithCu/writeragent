@@ -233,7 +233,7 @@ Each phase is independently shippable, maintains green tests, and requires no te
 ## 5. Items 16 and 21 interaction
 
 - **Item 21 (Search regex errors):** Shipped as `INVALID_REGEX` validated via LibreOffice's `TextSearch2` (ICU) service before searching. `details.engine` omitted (no consumer). Avoids conflicts with `invalid_regex_tool_message` (`plugin/writer/search.py:151`).
-- **Item 16 (Math object import):** Successfully created Math objects return success metadata in their own response field (not a `Diagnostic`). However, a failed Math formula import that inserts `[Math import failed]` into the document (`plugin/writer/html_import.py:226`) represents dropped content and can report a `Diagnostic` warning (e.g. `MATH_IMPORT_FAILED`) once Phase 0 plumbing lands.
+- **Item 16 (Math object import):** Successfully created Math objects return metadata in their own response field `math_objects`. A failed Math formula import that inserts `[Math import failed]` into the document (`plugin/writer/html_import.py`) represents dropped content and reports a `Diagnostic` warning with code `MATH_IMPORT_FAILED` and `math_objects`.
 
 ## 6. Risks and mitigations
 

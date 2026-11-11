@@ -30,7 +30,7 @@ def _resolve_temp_dir() -> str:
 @final
 class with_temp_buffer:
     """Context manager that yields ``(path, file_url)`` for a temp file
-    with the correct format extension.
+    with the correct format extension (named lowercase for call-site compatibility).
 
     If *content* is not ``None`` it is written to the file.
     *ext* overrides the file extension (e.g. ``".xhtml"`` for the read filter).

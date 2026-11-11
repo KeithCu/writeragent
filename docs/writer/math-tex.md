@@ -108,7 +108,7 @@ The feature is successful when all of the following are true:
 4. unsupported math does not silently disappear
 5. the implementation is covered by unit tests and UNO tests
 
-**As of 2026-04:** (1)–(4) are **met** for MathML-backed HTML; (5) is **met for core paths** with gaps listed under Phase 1 **Not done yet** (full test matrix; structured reporting is now shipped via `math_objects` on successful `apply_document_content` results). **As of Phase 2 ship:** common TeX-delimited math in the same HTML import path meets the same visibility and test bar as MathML for core cases (subset of LaTeX via `latex2mathml`; not full TeX compatibility).
+**As of 2026-04:** (1)–(4) are **met** for MathML-backed HTML; (5) is **met for core paths** with gaps listed under Phase 1 **Not done yet** (full test matrix; structured reporting is now shipped via `math_objects` and `MATH_IMPORT_FAILED` warnings on `apply_document_content` results). **As of Phase 2 ship:** common TeX-delimited math in the same HTML import path meets the same visibility and test bar as MathML for core cases (subset of LaTeX via `latex2mathml`; not full TeX compatibility).
 
 ## Recommended release strategy
 
@@ -353,7 +353,7 @@ Improve quality and reduce edge-case regressions after MVP ships.
 
 ## Work breakdown by implementation area
 
-Cross-cutting status: **1** done for MathML + common TeX delimiters; KaTeX/MathJax **without** `<math>` or TeX markers still **not done**. **2** done (LO MathML + `latex2mathml` → MathML). **3** done (insertion). **4** done (structured `math_objects` reporting on `apply_document_content`; visible fallback string and debug log remain). **5** partial (see Phase 1 **Not done yet**).
+Cross-cutting status: **1** done for MathML + common TeX delimiters; KaTeX/MathJax **without** `<math>` or TeX markers still **not done**. **2** done (LO MathML + `latex2mathml` → MathML). **3** done (insertion). **4** done (structured `math_objects` reporting and `MATH_IMPORT_FAILED` warnings on `apply_document_content`; visible fallback string and debug log remain). **5** partial (see Phase 1 **Not done yet**).
 
 ## 1. Parsing and detection
 
