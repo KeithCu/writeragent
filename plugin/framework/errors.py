@@ -98,6 +98,7 @@ class Diagnostic(TypedDict):
     suggested_call: NotRequired[SuggestedCall]
     matches_skipped: NotRequired[int]
     matches_total: NotRequired[int]
+    link_target: NotRequired[str]
 
 
 def suggest_call(tool: str, **arguments: Any) -> SuggestedCall:

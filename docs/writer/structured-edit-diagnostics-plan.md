@@ -130,6 +130,9 @@ Code constants remain string literals across call sites, consistent with the cod
 | `STYLE_IGNORED_PARTIAL_MATCH` | warning | Partial match style skip (`_LO_STYLE_PARTIAL_MATCH_NOTE`, `html_import.py:507`) | `apply_style(target="search", old_content=<params.plain>, style=<style>, case_sensitive=True)` if conditions in §3.5 hold. |
 | `STYLE_IGNORED_RECORDING` | warning | Tracked changes recording skip (`_LO_STYLE_RECORDING_NOTE`, `html_import.py:511`) | None (`apply_style` is not tracked). |
 | `PARA_PROPERTY_UNSUPPORTED` | warning | Unapplied `data-lo-para` property (`html_import_styles.attach_para_warnings:593`) | None |
+| `LINK_TARGET_NOT_FOUND` | warning | `resolve_heading_links` (`html_import_styles.py`) | None |
+
+*Heading link resolution:* `resolve_heading_links` rewrites bare `href="#Heading"` fragments to `href="#Heading|outline"` when the fragment matches an outline heading text (derived from headings written in the HTML plus existing body headings; skipped for `full_document`). Targets matching an element `id` or `name` in the written HTML, or an existing bookmark in the document, are exempted from rewrite and warning. Unmatched bare fragments emit a `LINK_TARGET_NOT_FOUND` diagnostic warning once per distinct fragment.
 
 *Naming invariant:* A code names the underlying condition, not the tool. Once shipped, a code is never renamed.
 *Note on dropped items:* `TABLE_DELETED` is not emitted as a warning or undo suggestion; table deletion is already exposed via structured fields `table_deleted: true` and `pending_review` (`apply_document_content.py:147-165`), and invoking `undo` during change recording is unsafe.

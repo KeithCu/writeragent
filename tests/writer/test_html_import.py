@@ -1446,6 +1446,9 @@ def test_content_has_markup_cases():
     assert content_has_markup(r"formula \[x\]") is True
     assert content_has_markup("cost $$10") is True
     assert content_has_markup("<math>...</math>") is True
+    assert content_has_markup("The identity $x^2$ holds.") is True
+    assert content_has_markup("costs $5 and $7") is False
+    assert content_has_markup("R$ 5,00 e R$ 9,00") is False
 
 
 def test_apply_block_lo_styles_cursor_walk_no_prefix_enumeration():

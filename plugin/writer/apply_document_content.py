@@ -22,7 +22,7 @@ import functools
 import html as html_mod
 import logging
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any
 
 from plugin.framework.queue_executor import main
@@ -1136,6 +1136,34 @@ class ApplyDocumentContent(ToolBase):
         except Exception:
             log.exception("apply_document_content: review session cleanup failed")
 
+    def _resolve_heading_links(
+        self, doc: Any, params: EditParams
+    ) -> tuple[EditParams, list[Diagnostic]]:
+        """Resolve bare heading links in written HTML against document headings."""
+        if not html_import_styles.has_bare_fragment_links(params.content):
+            return params, []
+
+        from plugin.doc.text_helpers import build_heading_tree, iter_heading_nodes
+
+        document_headings: list[str] = (
+            []
+            if params.target == "full_document"
+            else [
+                str(node.get("text", ""))
+                for node in iter_heading_nodes(build_heading_tree(doc))
+            ]
+        )
+
+        def is_bookmark(name: str) -> bool:
+            return bool(uno_read(lambda: doc.getBookmarks().hasByName(name), False))
+
+        new_content, diags = html_import_styles.resolve_heading_links(
+            params.content,
+            document_headings,
+            is_bookmark=is_bookmark,
+        )
+        return replace(params, content=new_content), diags
+
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         result = self._execute(ctx, **kwargs)
         if self._effective_target(kwargs.get("target"), kwargs.get("old_content")) == "search":
@@ -1158,9 +1186,12 @@ class ApplyDocumentContent(ToolBase):
             parsed = self._parse_edit_params(kwargs)
             if isinstance(parsed, dict):
                 return parsed, None
+            parsed, diags = self._resolve_heading_links(ctx.doc, parsed)
             session = EditReviewSession(ctx.doc, ctx.ctx, enabled=parsed.track_reviewable)
             session_box.append(session)
-            return self._dispatch_edit(ctx, session, parsed), session
+            result = self._dispatch_edit(ctx, session, parsed)
+            result = html_import_styles.attach_link_warnings(result, diags)
+            return result, session
 
         if get_agent_edit_review_mode() != "wait" or on_main:
             # No review-wait: review is off, it was toggled off after this call was dispatched

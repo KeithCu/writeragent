@@ -420,13 +420,12 @@ SUB_AGENT_HTML_CONTENT_RULES = f"""- `content` is a JSON array of HTML strings (
 - Math (CRITICAL): Format mathematical equations, formulas, fractions, integrals, matrices, and non-trivial calculations in LaTeX using \\(...\\) for inline math or \\[\u2026\\] for centered display math (e.g. \\(a^2+b^2=c^2\\) or \\(\\frac{{a}}{{b}}\\)).
   Use standard HTML <sup> and <sub> tags for simple text superscripts and subscripts (e.g. 10<sup>th</sup>, H<sub>2</sub>O, x<sup>2</sup>) to preserve native character formatting without creating OLE Math objects.
   Do NOT write equations in plain text (avoid plain a/b, etc.).
-  No $, $$, HTML-escaped math, or equation images.
+  No HTML-escaped math or equation images.
 - Named styles: get_document_content marks each block `data-lo-style` = style name with spaces removed (`Heading 1`→`Heading1`).
   Copy tokens exactly. Prefer named styles; unknown token → Standard.
   inline style="" is a character override on top of the named style.
   data-lo-style is honored on target='full_document', 'beginning', and 'end'; also on 'selection'/'search' when the replaced range covers whole paragraphs (partial-match skips leave it unapplied; restyle via warnings[].suggested_call when present).
   data-lo-para applies on full_document, beginning, end, and header/footer writes (see Hand-set formatting below). Table-cell styles and selection/search do not apply data-lo-para.
-- Heading / TOC jumps: use <a href="#HeadingText|outline">…</a> (URL must end with |outline). A bare "#HeadingText" fragment is not a Writer outline link.
 - Fields: Writer fields are empty spans whose title is the field kind, e.g. <span title="page-number"/>. Same shape in body HTML and in headers/footers.
 - Hand-set formatting: `data-lo-para` (e.g. `data-lo-para="margin-left:3.25cm; font-size:12pt"`) reports what a paragraph has set directly. On write (full_document, beginning, end, and header/footer writes), alignment, all four margins, text-indent, line-height, and background-color are applied. Paragraph-level font, size, weight, style, and color are read-only (setting them would flatten bold or coloured spans); put those on spans with inline style. Anything not applied is named in warnings. It is how you tell a block quote from body text in a document formatted by hand. Reported on both scope='full' and scope='range'.
   apply_style defaults to clear_direct='style_props': the style's font name/size and paragraph indents show; bold/italic/colour stay. Pass clear_direct='none' only to keep a hand-set font. clear_direct='all' is Ctrl+M (refused on target='full_document').

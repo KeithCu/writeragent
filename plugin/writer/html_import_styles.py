@@ -16,6 +16,7 @@ from __future__ import annotations
 import html as html_mod
 import logging
 import re
+from urllib.parse import unquote
 from typing import TYPE_CHECKING, Any, ClassVar, final
 
 from plugin.framework.errors import Diagnostic, reraise_if_disposed, uno_read
@@ -400,11 +401,13 @@ class _BlockSummarizer(_BlockLoStyleExtractor):
         if slot.level is not None:
             raw = "".join(slot.text_parts)
             text = " ".join(raw.split())
+            full_text = text
             if len(text) > 120:
                 text = text[:120] + "…"
             self.headings.append({
                 "level": slot.level,
                 "text": text,
+                "_full_text": full_text,
                 "_slot": slot,
             })
 
@@ -500,6 +503,27 @@ def _prepare_import_html(content: str) -> str:
     return content
 
 
+def _summarize_blocks(content: str) -> _BlockSummarizer | None:
+    """Parse prepared HTML with _BlockSummarizer if markup with linebreaks is present."""
+    if not isinstance(content, str) or not content:
+        return None
+    prepared = _prepare_import_html(content)
+    if not _LINEBREAK_MARKUP_RE.search(prepared):
+        return None
+    parser = _BlockSummarizer()
+    parser.feed(prepared)
+    parser.close()
+    return parser
+
+
+def written_heading_texts(content: str) -> list[str]:
+    """Whitespace-collapsed, untruncated heading texts in written HTML (h1-h6 or data-lo-style HeadingN)."""
+    parser = _summarize_blocks(content)
+    if parser is None:
+        return []
+    return [str(h["_full_text"]) for h in parser.headings]
+
+
 def summarize_written_blocks(
     content: str, *, drop_heading_styles: Iterable[str] = ()
 ) -> dict[str, Any]:
@@ -511,14 +535,11 @@ def summarize_written_blocks(
     if not isinstance(content, str) or not content:
         return {"paragraph_count": 0, "headings": []}
 
-    prepared = _prepare_import_html(content)
-    if not _LINEBREAK_MARKUP_RE.search(prepared):
+    parser = _summarize_blocks(content)
+    if parser is None:
+        prepared = _prepare_import_html(content)
         paras = _plain_paragraphs(prepared)
         return {"paragraph_count": len(paras), "headings": []}
-
-    parser = _BlockSummarizer()
-    parser.feed(prepared)
-    parser.close()
 
     drop_set = frozenset(drop_heading_styles)
     headings = [
@@ -628,6 +649,107 @@ def attach_math_objects(
     if not math_objects or result.get("status") != "ok":
         return result
     result["math_objects"] = list(math_objects)
+    return result
+
+
+LINK_TARGET_NOT_FOUND = "LINK_TARGET_NOT_FOUND"
+
+_HREF_FRAGMENT_RE = re.compile(r'(<a\b[^>]*?\bhref=)(["\'])#([^"\']*)\2', re.IGNORECASE)
+_ID_NAME_RE = re.compile(r'\b(?:id|name)=(["\'])(.*?)\1', re.IGNORECASE)
+
+
+def has_bare_fragment_links(content: str) -> bool:
+    """Return True if content contains an anchor tag with a bare fragment href."""
+    if not content or "#" not in content or "href" not in content.lower():
+        return False
+    for m in _HREF_FRAGMENT_RE.finditer(content):
+        frag = m.group(3)
+        if frag and "|" not in frag:
+            return True
+    return False
+
+
+def resolve_heading_links(
+    content: str,
+    document_headings: Iterable[str],
+    *,
+    is_bookmark: Callable[[str], bool],
+) -> tuple[str, list[Diagnostic]]:
+    """Rewrite bare href="#Heading" anchors to href="#Heading|outline" when the fragment exactly
+    matches a heading; return the rewritten HTML and one LINK_TARGET_NOT_FOUND warning per distinct
+    fragment that matches no heading, no id/name in *content*, and no existing bookmark.
+    """
+    if not has_bare_fragment_links(content):
+        return content, []
+
+    # Targets matching an element id or anchor name within written HTML are preserved so
+    # bookmark-based jumps succeed natively (sw/source/filter/html/htmlgrin.cxx:1370 InsertBookmark).
+    id_names: set[str] = {m.group(2) for m in _ID_NAME_RE.finditer(content)}
+
+    # Build normalized heading lookup table. When headings collide, written headings take
+    # precedence over existing document headings.
+    heading_map: dict[str, str] = {}
+    for h in written_heading_texts(content):
+        norm = " ".join(h.split())
+        if norm and norm not in heading_map:
+            heading_map[norm] = norm
+    for h in document_headings:
+        norm = " ".join(h.split())
+        if norm and norm not in heading_map:
+            heading_map[norm] = norm
+
+    diagnostics: list[Diagnostic] = []
+    seen_missing: set[str] = set()
+
+    # Writer resolves hyperlinks in SwView::JumpToSwMark (sw/source/uibase/uiview/view2.cxx).
+    # Without a '|suffix', it only checks bookmarks and anchor names; bare '#Heading' links fail
+    # to navigate. Adding '|outline' directs navigation to SwDoc::GotoOutline
+    # (sw/source/core/doc/docnum.cxx), matching headings by outline text.
+    def _replace_link(m: re.Match[str]) -> str:
+        prefix = m.group(1)
+        quote = m.group(2)
+        frag = m.group(3)
+
+        if not frag or "|" in frag:
+            return m.group(0)
+
+        name = " ".join(unquote(html_mod.unescape(frag)).split())
+        if not name or name in id_names or is_bookmark(name):
+            return m.group(0)
+
+        if name in heading_map:
+            url_text = heading_map[name]
+            escaped = html_mod.escape(url_text, quote=True)
+            return f"{prefix}{quote}#{escaped}|outline{quote}"
+
+        if frag not in seen_missing:
+            seen_missing.add(frag)
+            diagnostics.append({
+                "code": LINK_TARGET_NOT_FOUND,
+                "link_target": f"#{frag}",
+                "message": (
+                    f'Link target "#{frag}" matches no heading or bookmark and will not jump anywhere. '
+                    'Use the exact heading text, href="#Heading text|outline", or give the target element '
+                    'an id and link to that.'
+                ),
+            })
+        return m.group(0)
+
+    rewritten = _HREF_FRAGMENT_RE.sub(_replace_link, content)
+    return rewritten, diagnostics
+
+
+def attach_link_warnings(
+    result: dict[str, Any], diags: list[Diagnostic]
+) -> dict[str, Any]:
+    """Attach link target diagnostics on a successful edit result."""
+    if not diags or result.get("status") != "ok":
+        return result
+    existing = result.get("warnings")
+    if isinstance(existing, list):
+        existing.extend(diags)
+    else:
+        result["warnings"] = list(diags)
     return result
 
 

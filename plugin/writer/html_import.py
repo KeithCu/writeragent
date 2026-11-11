@@ -32,7 +32,11 @@ from plugin.doc.text_helpers import (
 )
 from plugin.framework.errors import ToolExecutionError, reraise_if_disposed, uno_read
 from . import field_restore, html_import_styles, html_ruby, image_placeholders, record_changes
-from .math.html_math_segment import html_fragment_contains_mixed_math, segment_html_with_mixed_math
+from .math.html_math_segment import (
+    html_fragment_contains_mixed_math,
+    html_fragment_contains_tex_math,
+    segment_html_with_mixed_math,
+)
 from .math.math_mml_convert import convert_latex_to_starmath, convert_mathml_to_starmath, insert_writer_math_formula
 
 log = logging.getLogger("writeragent.writer")
@@ -931,14 +935,24 @@ def replace_xtext_with_html(text_obj: Any, html: str, *, model: Any) -> list[str
 
 
 def content_has_markup(content: str | None) -> bool:
-    """Return ``True`` if *content* appears to contain HTML or math markup."""
+    """Return ``True`` if *content* appears to contain HTML or math markup.
+
+    Detects real HTML tags, TeX block delimiters ($$, \\[), inline TeX delimiters (\\(),
+    MathML (<math), and complete guarded single-dollar TeX math regions ($...$).
+    """
     if not content or not isinstance(content, str):
         return False
     from plugin.framework.html_stripper import text_has_real_html_tag
 
     if text_has_real_html_tag(content):
         return True
-    return "$$" in content or r"\(" in content or r"\[" in content or "<math" in content.lower()
+    return (
+        "$$" in content
+        or r"\(" in content
+        or r"\[" in content
+        or "<math" in content.lower()
+        or html_fragment_contains_tex_math(content)
+    )
 
 
 def plain_text_if_markup(text: str) -> str:
