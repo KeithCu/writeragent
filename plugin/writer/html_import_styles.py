@@ -20,6 +20,7 @@ from urllib.parse import unquote
 from typing import TYPE_CHECKING, Any, ClassVar, final
 
 from plugin.framework.errors import Diagnostic, make_tool_error, reraise_if_disposed, uno_read
+from plugin.framework.uno_context import enum_has_more
 
 from . import xhtml_style_postprocess as xhtml_post
 
@@ -923,7 +924,7 @@ def apply_block_lo_styles(
                     para_cur = text_obj.createTextCursorByRange(walk_cur.getStart())
                     para_cur.gotoEndOfParagraph(True)
                     enum = para_cur.createEnumeration()
-                    para_obj = enum.nextElement() if enum.hasMoreElements() else None
+                    para_obj = enum.nextElement() if enum_has_more(enum) else None
                 except Exception as exc:
                     reraise_if_disposed(exc)
                     log.debug("data-lo-para: could not resolve the paragraph", exc_info=True)

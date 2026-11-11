@@ -31,6 +31,7 @@ from plugin.framework.errors import (
     uno_read,
 )
 from plugin.framework.tool import ToolBaseDummy
+from plugin.framework.uno_context import enum_has_more
 from plugin.calc.address_utils import parse_address, split_sheet_prefix
 from plugin.calc.calc_utils import resolve_sheet_and_cell
 from plugin.scripting.helper_registry import names
@@ -217,9 +218,9 @@ class SolverTool(ToolBaseDummy):
                 enum_access = smgr.createInstanceWithContext("com.sun.star.container.XContentEnumerationAccess", ctx.ctx)
                 if enum_access:
                     enum = enum_access.createContentEnumeration("com.sun.star.sheet.Solver")
-                    if enum and enum.hasMoreElements():
+                    if enum is not None and enum_has_more(enum):
                         impls = []
-                        while enum.hasMoreElements():
+                        while enum_has_more(enum):
                             el = enum.nextElement()
                             if hasattr(el, "createInstanceWithContext"):
                                 impls.append(el)
