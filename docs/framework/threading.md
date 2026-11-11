@@ -273,6 +273,12 @@ flowchart TD
 
 ---
 
+## Test-Writing Guidance
+
+Tests that script a clock must patch the consuming module's `time` name, not `time.monotonic` on the shared module. Leaked daemon pollers or background reapers from earlier tests read the clock too, which can steal values from a globally patched clock sequence.
+
+---
+
 ## Deferred Reliability Items
 
 The following reliability features are tracked for future implementation as concrete needs arise:
