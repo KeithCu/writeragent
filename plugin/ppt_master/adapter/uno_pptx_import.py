@@ -19,7 +19,7 @@ from typing import Any
 from plugin.contrib.ppt_master.coords import DEFAULT_SLIDE_HEIGHT_HMM, DEFAULT_SLIDE_WIDTH_HMM
 from plugin.draw.bridge import DrawBridge, notes_text, set_notes_text
 from plugin.draw.shape_clone import clone_shape
-from plugin.framework.errors import ToolExecutionError, best_effort, format_error_payload, is_disposal
+from plugin.framework.errors import ToolExecutionError, best_effort, format_error_payload, reraise_if_disposed
 from plugin.framework.uno_context import get_desktop
 from plugin.framework.thread_guard import main_thread_only
 
@@ -34,16 +34,14 @@ def copy_shapes_to_page(source_page: Any, target_doc: Any, target_page: Any, uno
         try:
             result = clone_shape(target_doc, target_page, src, uno_ctx=uno_ctx)
         except Exception as exc:
-            if is_disposal(exc):
-                raise
+            reraise_if_disposed(exc)
             log.warning("clone_shape failed: %s", exc)
             continue
         if result.empty_group_message is not None:
             try:
                 target_page.remove(result.shape)
             except Exception as exc:
-                if is_disposal(exc):
-                    raise
+                reraise_if_disposed(exc)
                 # Non-disposal remove failure leaves an unplaced clone on the page;
                 # log so it is recorded why removal failed.
                 log.debug("remove empty-group clone failed", exc_info=True)
@@ -126,8 +124,7 @@ def _copy_page_notes(source_page: Any, target_page: Any) -> None:
         notes_str = "" if raw is None else raw.strip()
         set_notes_text(target_page, notes_str)
     except Exception as exc:
-        if is_disposal(exc):
-            raise
+        reraise_if_disposed(exc)
         # A non-disposed notes error (corrupt NotesShape) is logged and this
         # slide's notes are skipped so the rest of the deck still imports.
         # Re-raising aborts the import after earlier slides were replaced.
