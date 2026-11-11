@@ -111,7 +111,7 @@ For detailed setup instructions, see the **[Install and Troubleshooting Guide](d
 
 ## Benchmarks & Evaluation
 
-WriterAgent's **Eval-1 LLM Evaluation Suite** runs models on real Writer, Calc, and Draw jobs through the same tools the sidebar uses, then scores the exported document. Typical tasks: reformatting documents, recalculating taxes, drawing diagrams like the American flag using shapes. Every run is ranked by Value (correctness² ÷ dollars). The table below is the **29×19 dual-lane** board (infra-error and tool-round-limit rows retried with `max_tool_rounds=50`; flag-18 + `org_chart_gen`, with hand-scored org-chart gallery overrides). Full methodology: [docs/eval/benchmarks.md](docs/eval/benchmarks.md).
+WriterAgent's **Eval-1 LLM Evaluation Suite** runs models on real Writer, Calc, and Draw jobs through the same tools the sidebar uses, then scores the exported document. Typical tasks: reformatting documents, recalculating taxes, drawing diagrams like the American flag using shapes. Every run is ranked by Value (correctness² ÷ dollars). The table below is the **34×19 dual-lane** board (infra-error and tool-round-limit rows retried with `max_tool_rounds=50`; flag-18 + `org_chart_gen`, with hand-scored org-chart gallery overrides). Full methodology: [docs/eval/benchmarks.md](docs/eval/benchmarks.md).
 
 ![Cost–quality Pareto fronts](docs/eval/pareto-fronts.svg)
 
@@ -131,6 +131,8 @@ Distance-to-frontier view: [docs/eval/pareto-distance.svg](docs/eval/pareto-dist
 | openai/gpt-6-luna | 0.873 | 139 |
 | inception/mercury-3 | 0.906 | 136 |
 | prism-ml/ternary-bonsai-2-27b | 0.843 | 129 |
+| meta/muse-ember | 0.927 | 115 |
+| anthropic/claude-haiku-5.5 | 0.812 | 112 |
 | z-ai/glm-5.3-flash | 0.856 | 87 |
 | deepseek/deepseek-v4.1-flash | 0.921 | 83 |
 | nvidia/nemotron-3.5-super-vl | 0.932 | 79 |
@@ -144,9 +146,12 @@ Distance-to-frontier view: [docs/eval/pareto-distance.svg](docs/eval/pareto-dist
 | nvidia/nemotron-3.5-lightning | 0.395 | 46 |
 | cohere/command-a-plus | 0.694 | 17 |
 | reflection/beam-1.0-501b-a23b | 0.879 | 14 |
+| liquid/lfm-3-1.7b | 0.454 | 11 |
 | minimax/minimax-m3 | 0.738 | 10 |
-| qwen/qwen3.8-27b | 0.917 | 9 |
+| anthropic/claude-sonnet-5.5 | 0.994 | 9 |
 | x-ai/grok-4.6 | 0.918 | 9 |
+| qwen/qwen3.8-27b | 0.917 | 9 |
+| anthropic/claude-opus-5.5 | 0.887 | 4 |
 | nvidia/nemotron-3-ultra-550b-a55b | 0.840 | 4 |
 
 ---
