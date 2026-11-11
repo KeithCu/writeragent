@@ -91,7 +91,10 @@ def route_eval_llm(endpoint: str, api_key: str, model: str) -> tuple[str, str, s
         return endpoint, api_key, model
 
     provider = get_provider_from_endpoint(endpoint)
-    env_key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
+    env_key = (
+        os.environ.get("EVAL_ANTHROPIC_API_KEY", "").strip()
+        or os.environ.get("ANTHROPIC_API_KEY", "").strip()
+    )
 
     if provider == "openrouter":
         if env_key:
@@ -134,7 +137,7 @@ def require_api_key(api_key: str, endpoint: str) -> None:
         resolve_auth_for_config(cfg)
     except AuthError as exc:
         if get_provider_from_endpoint(endpoint) == "anthropic":
-            hint = "Set --api-key / -k or export ANTHROPIC_API_KEY, WRITERAGENT_API_KEY, OPENAI_API_KEY, or OPENROUTER_API_KEY."
+            hint = "Set --api-key / -k or export EVAL_ANTHROPIC_API_KEY, ANTHROPIC_API_KEY, WRITERAGENT_API_KEY, OPENAI_API_KEY, or OPENROUTER_API_KEY."
         else:
             hint = "Set --api-key / -k or export WRITERAGENT_API_KEY, OPENAI_API_KEY, or OPENROUTER_API_KEY."
         print(

@@ -37,7 +37,7 @@ Endpoint:
 
 - `--api-base` / `WRITERAGENT_API_BASE`, `OPENAI_API_BASE` — default `https://openrouter.ai/api/v1`
 
-`ANTHROPIC_API_KEY` routes Claude-shaped ids on an OpenRouter base to `https://api.anthropic.com/v1`. The default judge stays on OpenRouter. Non-OpenRouter `--api-base` is not rewritten. No catalog rows.
+`EVAL_ANTHROPIC_API_KEY` (or `ANTHROPIC_API_KEY`) routes Claude-shaped ids on an OpenRouter base to `https://api.anthropic.com/v1`. The default judge stays on OpenRouter. Non-OpenRouter `--api-base` is not rewritten. No catalog rows.
 
 Judge model (`run_eval_multi.py`):
 

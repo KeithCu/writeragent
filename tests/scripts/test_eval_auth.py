@@ -24,6 +24,12 @@ from eval_auth import (  # noqa: E402
 )
 
 
+@pytest.fixture(autouse=True)
+def _isolate_anthropic_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("EVAL_ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+
+
 def test_resolve_api_key_cli_wins(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("OPENROUTER_API_KEY", "env-or")
     assert resolve_api_key(cli_key="cli-key") == "cli-key"
@@ -131,6 +137,34 @@ def test_build_eval_api_config_claude_routes_to_anthropic(monkeypatch: pytest.Mo
     assert get_provider_shim_class(auth["provider"]) is AnthropicShim
 
 
+def test_build_eval_api_config_eval_anthropic_api_key_wins(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EVAL_ANTHROPIC_API_KEY", "eval-ant-key")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "fallback-ant-key")
+    cfg = build_eval_api_config(
+        endpoint="https://openrouter.ai/api/v1",
+        api_key="or-key",
+        model="anthropic/claude-sonnet-4.5:nitro",
+    )
+    assert "api.anthropic.com" in cfg["endpoint"]
+    assert cfg["api_key"] == "eval-ant-key"
+    assert cfg["is_openrouter"] is False
+    assert cfg["model"] == "claude-sonnet-4-5"
+
+
+def test_build_eval_api_config_eval_anthropic_empty_falls_back(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EVAL_ANTHROPIC_API_KEY", "   ")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "fallback-ant-key")
+    cfg = build_eval_api_config(
+        endpoint="https://openrouter.ai/api/v1",
+        api_key="or-key",
+        model="anthropic/claude-sonnet-4.5:nitro",
+    )
+    assert "api.anthropic.com" in cfg["endpoint"]
+    assert cfg["api_key"] == "fallback-ant-key"
+    assert cfg["is_openrouter"] is False
+    assert cfg["model"] == "claude-sonnet-4-5"
+
+
 def test_build_eval_api_config_variants(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("ANTHROPIC_API_KEY", "ant-key-123")
     cfg1 = build_eval_api_config(
@@ -149,6 +183,7 @@ def test_build_eval_api_config_variants(monkeypatch: pytest.MonkeyPatch) -> None
 
 
 def test_build_eval_api_config_env_deleted_stays_openrouter(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("EVAL_ANTHROPIC_API_KEY", raising=False)
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     cfg = build_eval_api_config(
         endpoint="https://openrouter.ai/api/v1",
@@ -243,4 +278,5 @@ def test_require_api_key_anthropic_hint(capsys: pytest.CaptureFixture[str]) -> N
     with pytest.raises(SystemExit):
         require_api_key("", "https://api.anthropic.com/v1")
     err = capsys.readouterr().err
+    assert "EVAL_ANTHROPIC_API_KEY" in err
     assert "ANTHROPIC_API_KEY" in err
