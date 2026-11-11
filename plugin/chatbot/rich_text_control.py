@@ -539,7 +539,7 @@ def refresh_rich_control_peer_layout(ctx: Any, rich_control: Any) -> None:
     if rich_control is None:
         return
     log_rich_scroll("peer_refresh")
-    process_events_to_idle(ctx, rounds=2, force=True)
+    process_events_to_idle(ctx, rounds=2)
     cur = rich_control.getPosSize()
     rich_control.setPosSize(int(cur.X), int(cur.Y), int(cur.Width), int(cur.Height), 15)
     _invalidate_peer(rich_control)
@@ -1129,7 +1129,12 @@ def append_text_chunk(control: Any, text: str, style_window: Any = None, ctx: An
         # and each one is a GrabFocus on this frame (release QA BUG A).
         # Restore goes through *restore_focus*, which closes over the frame session.
         _scroll_rich_to_tail(control, restore_focus=restore_focus)
-        process_events_to_idle(ctx, force=True)
+        # SelectAll scrolls synchronously (EditView::SetSelection formats via CheckIdleFormatter
+        # and calls ShowCursor, editeng/source/editeng/editview.cxx). The pump only brings
+        # the repaint forward when no drain owns the loop; under a drain the slice returns to
+        # VCL and the paint happens there. A forced pump here would nest an unbounded
+        # processEventsToIdle inside the drain slice and Stop cannot unwind it.
+        process_events_to_idle(ctx)
     except Exception:
         log.exception("append_text_chunk (rich control) failed")
 
@@ -1220,7 +1225,7 @@ def reveal_rich_control_caret(control: Any, ctx: Any = None, reason: str = "unsp
         try:
             if hasattr(control, "setFocus"):
                 control.setFocus()
-            process_events_to_idle(ctx, force=True)
+            process_events_to_idle(ctx)
         except Exception:
             log.exception("reveal_rich_control_caret failed")
         finally:

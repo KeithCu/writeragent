@@ -1140,6 +1140,12 @@ def test_update_activity_state_clears_omitted_tool_name():
     try:
         shared["hung_shown"] = False
         update_activity_state("tool_execute", round_num=1, tool_name="edit")
+        update_activity_state("tool_result", round_num=1)
+        act = shared["activity"]
+        assert act["tool_name"] is None
+        assert act["round_num"] == 1
+        assert act["phase"] == "tool_result"
+
         update_activity_state("tool_loop", round_num=2)
         act = shared["activity"]
         assert act["tool_name"] is None

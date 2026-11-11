@@ -1921,7 +1921,7 @@ def test_update_activity_state_effect_calls_update_activity_state():
     host = FakeHost()
     interpreter = ToolLoopEffectInterpreter(host)
     with patch("plugin.chatbot.tool_loop_actions.update_activity_state") as mock_update:
-        interpreter.execute(UpdateActivityStateEffect(round_num=3, tool_name="test_tool"))
+        interpreter.execute(UpdateActivityStateEffect(phase="tool_execute", round_num=3, tool_name="test_tool"))
         mock_update.assert_called_once_with("tool_execute", round_num=3, tool_name="test_tool")
 
 

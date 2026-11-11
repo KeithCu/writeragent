@@ -157,6 +157,58 @@ def test_process_events_to_idle_force_under_drain_owner():
     assert toolkit.processEventsToIdle.call_count == 2
 
 
+def test_process_events_to_idle_skips_nested_pump_inside_own_pump():
+    from plugin.framework.async_drain_guard import reset_suppressed_vcl_pump_count
+    from plugin.framework.vcl_pumping import process_events_to_idle, vcl_pump_active
+
+    reset_suppressed_vcl_pump_count()
+    ctx = MagicMock()
+    toolkit = MagicMock()
+    nested_result: list[bool] = []
+
+    def on_pe2i():
+        assert vcl_pump_active() is True
+        nested_result.append(process_events_to_idle(ctx))
+
+    toolkit.processEventsToIdle.side_effect = on_pe2i
+
+    with patch("plugin.framework.uno_context.get_toolkit", return_value=toolkit):
+        res = process_events_to_idle(ctx)
+
+    assert res is True
+    assert nested_result == [False]
+    assert toolkit.processEventsToIdle.call_count == 1
+    assert vcl_pump_active() is False
+
+
+def test_process_events_to_idle_force_still_pumps_when_nested():
+    from plugin.framework.async_drain_guard import reset_suppressed_vcl_pump_count
+    from plugin.framework.vcl_pumping import process_events_to_idle, vcl_pump_active
+
+    reset_suppressed_vcl_pump_count()
+    ctx = MagicMock()
+    toolkit = MagicMock()
+    nested_result: list[bool] = []
+    nested_entered = False
+
+    def on_pe2i():
+        nonlocal nested_entered
+        assert vcl_pump_active() is True
+        if not nested_entered:
+            nested_entered = True
+            nested_result.append(process_events_to_idle(ctx, force=True))
+
+    toolkit.processEventsToIdle.side_effect = on_pe2i
+
+    with patch("plugin.framework.uno_context.get_toolkit", return_value=toolkit):
+        res = process_events_to_idle(ctx)
+
+    assert res is True
+    assert nested_result == [True]
+    assert toolkit.processEventsToIdle.call_count == 2
+    assert vcl_pump_active() is False
+
+
 def test_wait_while_pumping_returns_true_when_event_set():
     from plugin.framework.vcl_pumping import wait_while_pumping
 

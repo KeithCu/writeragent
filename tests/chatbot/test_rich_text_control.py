@@ -250,6 +250,8 @@ class TestAppendTextChunk:
         control.setFocus.assert_called_once()
         mock_insert.assert_not_called()
         mock_idle.assert_called()
+        assert mock_idle.call_args.kwargs.get("force") is None
+        assert "force" not in mock_idle.call_args.kwargs
         assert mock_prop.call_args_list[0].args[1:] == ("ReadOnly", False)
         assert mock_prop.call_args_list[-1].args[1:] == ("ReadOnly", True)
 
@@ -271,6 +273,8 @@ class TestAppendTextChunk:
             )
 
         mock_idle.assert_called()
+        assert mock_idle.call_args.kwargs.get("force") is None
+        assert "force" not in mock_idle.call_args.kwargs
         mock_scroll.assert_called_once()
         # The only restores per chunk are the pair inside _scroll_rich_to_tail
         # (patched out here). A third one after it was a redundant GrabFocus.
@@ -278,6 +282,33 @@ class TestAppendTextChunk:
         restore.assert_not_called()
         mock_reveal.assert_not_called()
         control.setFocus.assert_not_called()
+
+    def test_append_text_chunk_does_not_pump_vcl_under_drain_owner(self):
+        from plugin.framework.async_drain_guard import (
+            drain_owner_scope,
+            get_suppressed_vcl_pump_count,
+            reset_suppressed_vcl_pump_count,
+        )
+
+        control = MagicMock()
+        model = MagicMock()
+        cursor = MagicMock()
+        model.createTextCursor.return_value = cursor
+        control.getModel.return_value = model
+        toolkit = MagicMock()
+
+        reset_suppressed_vcl_pump_count()
+        with patch("plugin.chatbot.rich_text.get_theme_colors", return_value=(0, 0, 0x1E293B)), \
+             patch("plugin.chatbot.rich_text_control._insert_string_at_rich_cursor"), \
+             patch("plugin.chatbot.rich_text_control._scroll_rich_to_tail"), \
+             patch("plugin.framework.uno_context.get_toolkit", return_value=toolkit):
+            with drain_owner_scope("stream"):
+                append_text_chunk(control, " tail", style_window=MagicMock(), ctx=MagicMock())
+            assert toolkit.processEventsToIdle.call_count == 0
+            assert get_suppressed_vcl_pump_count() >= 1
+
+            append_text_chunk(control, " tail", style_window=MagicMock(), ctx=MagicMock())
+            assert toolkit.processEventsToIdle.call_count == 1
 
     def test_scroll_rich_to_tail_dispatches_select_all(self):
         from plugin.chatbot.rich_text_control import _scroll_rich_to_tail
