@@ -267,7 +267,7 @@ Eval-1 backends: **`string`** = in-memory; **`lo`** = native headless UNO; **`au
 
 Org_chart_gen matrix splice on #941 tip (after 2026-09-27 complete 26×18 flag-18 board), then **2026-09-28 hand-scored gallery overrides** ([docs/eval/org-chart-hand-scores-2026-09-28.md](../../docs/eval/org-chart-hand-scores-2026-09-28.md)). Catalog unchanged: GPT-6 Luna, Command A+, Ternary Bonsai 2 aboard; no 5.6 Luna / ds-v4-flash-0731; MiMos omitted. **Org-chart hard PASS (visual): 5/26** — Muse Spark, Qwen 3.8 Flash, Qwen 3.8 27B, GLM 5.3 Flash, GPT-6 Luna. Soft/borderline and other former oracle PASSes flipped to 0; catalog FAILs (incl. Ternary Bonsai hang) unchanged.
 
-Tasks 18–19 run on the **native** lane (`--backend auto`). **Board is complete: 34/34** models have `n_examples=19`. Perfect hard pass (n=19): `anthropic/claude-sonnet-5.5` (org-chart oracle PASS pending hand grade), `anthropic/claude-opus-5.5` (clean flag after the shape-text crash fix; org-chart oracle PASS pending hand grade), and `meta/muse-spark-1.3-contributor` (`openai/gpt-oss-120b` catalog org fail → 0.947). Board is now 34 models (Claude 5.5 Haiku/Sonnet/Opus, Muse Ember, LFM 3 1.7B added 2026-11-11).
+Tasks 18–19 run on the **native** lane (`--backend auto`). **Board is complete: 34/34** models have `n_examples=19`. Perfect hard pass (n=19): `anthropic/claude-sonnet-5.5` (visual org HARD PASS), `anthropic/claude-opus-5.5` (clean flag after the shape-text crash fix; visual org HARD PASS), and `meta/muse-spark-1.3-contributor` (`openai/gpt-oss-120b` catalog org fail → 0.947). Haiku 5.5 and Muse Ember are visual org PARTIAL (0.9 correctness, org hard=0); LFM 3 1.7B is a visual org HARD FAIL. Grades: [2026-11-11 hand scores](../../docs/eval/org-chart-hand-scores-2026-11-11.md). Board is now 34 models (Claude 5.5 Haiku/Sonnet/Opus, Muse Ember, LFM 3 1.7B added 2026-11-11).
 
 Pareto SVGs regenerated from this JSON: [`docs/eval/pareto-fronts.svg`](../../docs/eval/pareto-fronts.svg), [`docs/eval/pareto-distance.svg`](../../docs/eval/pareto-distance.svg).
 
@@ -282,9 +282,9 @@ Ranked by **hard pass → agent score → metric**. **C²/$** = metric score squ
 | 3 | meta/muse-spark-1.3-contributor | 1.000 | 1.000 | 0.981 | 0.93 | 56766 | 0.00653 | 64.4 | 0 |
 | 4 | nvidia/nemotron-3.5-super-vl | 0.947 | 0.947 | 0.932 | 0.94 | 54511 | 0.01060 | 35.5 | 0 |
 | 5 | openai/gpt-oss-120b | 0.947 | 0.947 | 0.921 | 0.90 | 18554 | 0.00106 | 584.2 | 0 |
-| 6 | meta/muse-ember | 0.895 | 0.895 | 0.927 | 0.94 | 55207 | 0.00750 | 41.1 | 0 |
-| 7 | meta/muse-glimmer-30b | 0.895 | 0.895 | 0.923 | 0.96 | 32858 | 0.01429 | 29.5 | 0 |
-| 8 | x-ai/grok-4.6 | 0.895 | 0.895 | 0.918 | 0.94 | 36460 | 0.09480 | 4.9 | 0 |
+| 6 | meta/muse-glimmer-30b | 0.895 | 0.895 | 0.923 | 0.96 | 32858 | 0.01429 | 29.5 | 0 |
+| 7 | x-ai/grok-4.6 | 0.895 | 0.895 | 0.918 | 0.94 | 36460 | 0.09480 | 4.9 | 0 |
+| 8 | meta/muse-ember | 0.842 | 0.889 | 0.922 | 0.94 | 55207 | 0.00750 | 41.1 | 0 |
 | 9 | qwen/qwen3.8-27b | 0.842 | 0.842 | 0.917 | 0.92 | 133087 | 0.09898 | 2.9 | 1 |
 | 10 | deepseek/deepseek-v4.1-flash | 0.842 | 0.842 | 0.883 | 0.97 | 138573 | 0.01015 | 34.8 | 2 |
 | 11 | reflection/beam-1.0-501b-a23b | 0.842 | 0.842 | 0.879 | 0.93 | 148577 | 0.04401 | 9.5 | 1 |
@@ -294,9 +294,9 @@ Ranked by **hard pass → agent score → metric**. **C²/$** = metric score squ
 | 15 | z-ai/glm-5.3-flash | 0.842 | 0.842 | 0.856 | 0.90 | 83249 | 0.00843 | 40.2 | 0 |
 | 16 | poolside/laguna-xs-2.1 | 0.842 | 0.842 | 0.838 | 0.81 | 28418 | 0.00196 | 183.0 | 0 |
 | 17 | inception/mercury-2.5-preview | 0.789 | 0.789 | 0.817 | 0.95 | 36864 | 0.01198 | 22.1 | 0 |
-| 18 | anthropic/claude-haiku-5.5 | 0.789 | 0.789 | 0.812 | 0.92 | 48851 | 0.00588 | 31.7 | 0 |
-| 19 | qwen/qwen3.8-flash | 0.789 | 0.789 | 0.792 | 0.89 | 49095 | 0.00972 | 22.8 | 2 |
-| 20 | nvidia/nemotron-3-ultra-550b-a55b | 0.789 | 0.789 | 0.787 | 0.74 | 145858 | 0.14586 | 1.4 | 2 |
+| 18 | qwen/qwen3.8-flash | 0.789 | 0.789 | 0.792 | 0.89 | 49095 | 0.00972 | 22.8 | 2 |
+| 19 | nvidia/nemotron-3-ultra-550b-a55b | 0.789 | 0.789 | 0.787 | 0.74 | 145858 | 0.14586 | 1.4 | 2 |
+| 20 | anthropic/claude-haiku-5.5 | 0.737 | 0.784 | 0.807 | 0.92 | 48851 | 0.00588 | 31.7 | 0 |
 | 21 | ibm-granite/granite-4.2-8b | 0.737 | 0.737 | 0.810 | 0.93 | 110856 | 0.01192 | 12.7 | 2 |
 | 22 | minimax/minimax-m3 | 0.737 | 0.737 | 0.780 | 0.94 | 126882 | 0.05519 | 5.1 | 1 |
 | 23 | openai/gpt-oss-20b | 0.737 | 0.737 | 0.759 | 0.89 | 24456 | 0.00110 | 349.7 | 0 |
@@ -310,6 +310,6 @@ Ranked by **hard pass → agent score → metric**. **C²/$** = metric score squ
 | 31 | mistralai/mistral-small-2603 | 0.579 | 0.579 | 0.583 | 0.85 | 24553 | 0.00534 | 39.2 | 2 |
 | 32 | prism-ml/ternary-bonsai-2-27b | 0.474 | 0.474 | 0.543 | 0.97 | 27120 | 0.00376 | 35.0 | 9 |
 | 33 | nvidia/nemotron-3.5-lightning | 0.368 | 0.421 | 0.395 | 0.68 | 34466 | 0.00338 | 17.0 | 0 |
-| 34 | liquid/lfm-3-1.7b | 0.368 | 0.368 | 0.454 | — | 180041 | 0.01805 | 1.4 | 6 |
+| 34 | liquid/lfm-3-1.7b | 0.316 | 0.316 | 0.401 | — | 180041 | 0.01805 | 1.4 | 6 |
 
 Re-run: `make run_eval EVAL_ARGS="--models … -j 20"` or edit `model_configs.py`. User-facing summary: [`docs/eval/benchmarks.md`](../../docs/eval/benchmarks.md).
