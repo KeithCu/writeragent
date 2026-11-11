@@ -213,7 +213,7 @@ Why not repaint per batch: a wipe-and-refill about 3 times a second built 3 hidd
 | Function | Role |
 |----------|------|
 | `focus_preserved(ctx, restore)` | Context manager in `vcl_pumping` (re-exported by `uno_context`). Restores the control passed in (that panel's Ask field). No process-wide pin. |
-| `process_events_to_idle(ctx, rounds=1)` | Drain UI events between append / caret-reveal steps |
+| `process_events_to_idle(ctx, rounds=1)` | Drain UI events between append / caret-reveal steps (suppressed under a drain owner or inside an outer pump; the stream relies on the slice returning to VCL for the repaint) |
 | `FrameSession.restore_focus` | After stream SelectAll, `setFocus` on this frame's Ask field only while the user still wants it |
 | `FrameSession.note_user_left_query` | Stop restoring this frame (Stop/Clear/other sidebar pointer, page click on this frame's controller) |
 | `FrameSession.install` | Query focusGained, leave-query controls, and a click handler on `frame.getController()`. Dispose of one frame does not remove another's listeners |

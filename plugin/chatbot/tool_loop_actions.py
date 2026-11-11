@@ -975,7 +975,7 @@ class ToolLoopEffectInterpreter:
             host._tool_calling._refresh_active_tools_for_session()
             host._tool_calling._spawn_llm_worker(q, turn.active_client, turn.active_max_tokens, turn.active_tools or [], effect.round_num, query_text=turn.active_query_text)
         elif isinstance(effect, UpdateActivityStateEffect):
-            update_activity_state("tool_execute", round_num=effect.round_num, tool_name=effect.tool_name)
+            update_activity_state(effect.phase, round_num=effect.round_num, tool_name=effect.tool_name)
         elif isinstance(effect, CleanupAudioEffect):
             self._cleanup_audio()
         elif isinstance(effect, SpawnToolWorkerEffect):

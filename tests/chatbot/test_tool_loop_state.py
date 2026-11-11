@@ -362,6 +362,7 @@ def test_next_tool_with_pending_tools_and_action_state():
     
     # Check activity state effect
     activity_eff = next(e for e in effects if isinstance(e, UpdateActivityStateEffect))
+    assert activity_eff.phase == "tool_execute"
     assert activity_eff.tool_name == "test_tool"
 
 def test_next_tool_malformed_arguments_and_missing_func():
@@ -485,6 +486,36 @@ def test_next_tool_delegate_gateway_shows_domain_and_task():
     assert "..." in run_line
     assert "delegate_to_specialized_writer_toolset" not in run_line
     assert status_text == "Running: delegate (styles)"
+
+
+def test_tool_result_clears_tool_execute_phase_before_ui_effects():
+    tool_calls = [{"id": "call_1", "function": {"name": "test_tool", "arguments": "{}"}, "parsed_args": {}}]
+    state = create_base_state(pending_tools=tool_calls, round_num=2)
+    tr_tool = next_state(state, create_event(EventKind.NEXT_TOOL))
+    act_tool = next(e for e in tr_tool.effects if isinstance(e, UpdateActivityStateEffect))
+    assert act_tool.phase == "tool_execute"
+    assert act_tool.tool_name == "test_tool"
+    assert act_tool.round_num == 2
+
+    event = create_event(
+        EventKind.TOOL_RESULT,
+        call_id="call_1",
+        func_name="test_tool",
+        result="done",
+    )
+    tr_res = next_state(tr_tool.state, event)
+    first_eff = tr_res.effects[0]
+    assert isinstance(first_eff, UpdateActivityStateEffect)
+    assert first_eff.phase == "tool_result"
+    assert first_eff.round_num == 2
+    assert first_eff.tool_name is None
+
+    ui_result_idx = next(
+        idx for idx, e in enumerate(tr_res.effects)
+        if isinstance(e, ToolLoopUIEffect) and e.kind == UIEffectKind.TOOL_RESULT
+    )
+    act_idx = tr_res.effects.index(first_eff)
+    assert act_idx < ui_result_idx
 
 
 def test_tool_result_delegate_gateway_shows_done():
