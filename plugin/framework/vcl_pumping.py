@@ -35,6 +35,7 @@ _secondary_idle_in_flight = False
 # WriterAgent runs until the VCL scheduler is idle, so a second pump started from
 # a callback inside it cannot add anything and only deepens the stack while holding
 # SolarMutex. Calls with force=False skip pumping when depth is positive.
+# The lock is defensive; only the VCL thread pumps.
 _vcl_pump_lock = threading.Lock()
 _vcl_pump_depth: int = 0
 

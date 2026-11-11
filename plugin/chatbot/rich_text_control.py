@@ -1225,6 +1225,7 @@ def reveal_rich_control_caret(control: Any, ctx: Any = None, reason: str = "unsp
         try:
             if hasattr(control, "setFocus"):
                 control.setFocus()
+            # Under a drain owner or active pump the pump is skipped; the caret reveal is best-effort.
             process_events_to_idle(ctx)
         except Exception:
             log.exception("reveal_rich_control_caret failed")

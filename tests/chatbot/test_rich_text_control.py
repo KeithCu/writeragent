@@ -250,7 +250,7 @@ class TestAppendTextChunk:
         control.setFocus.assert_called_once()
         mock_insert.assert_not_called()
         mock_idle.assert_called()
-        assert mock_idle.call_args.kwargs.get("force") is None
+        # A forced pump nests an unbounded PE2I inside the drain slice.
         assert "force" not in mock_idle.call_args.kwargs
         assert mock_prop.call_args_list[0].args[1:] == ("ReadOnly", False)
         assert mock_prop.call_args_list[-1].args[1:] == ("ReadOnly", True)
@@ -273,7 +273,7 @@ class TestAppendTextChunk:
             )
 
         mock_idle.assert_called()
-        assert mock_idle.call_args.kwargs.get("force") is None
+        # A forced pump nests an unbounded PE2I inside the drain slice.
         assert "force" not in mock_idle.call_args.kwargs
         mock_scroll.assert_called_once()
         # The only restores per chunk are the pair inside _scroll_rich_to_tail
