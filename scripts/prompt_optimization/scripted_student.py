@@ -768,7 +768,6 @@ SCRIPTS["toc_renumber_insert"] = [
                 "content": "Chapter 4 Interim Review",
                 "position": "after",
                 "old_content": "Section 3.4 Topic",
-                "hyperlink_url": "#4.Chapter 4 Interim Review|outline",
             },
             "ins_toc_1",
         )

@@ -413,7 +413,8 @@ def test_delegate_anchor_rule_is_one_fixed_line():
     assert "\n" not in DELEGATE_ANCHOR_RULE
     assert "TOC entry text" in DELEGATE_ANCHOR_RULE
     assert "cell range" in DELEGATE_ANCHOR_RULE
-    assert "page and shape name" in DELEGATE_ANCHOR_RULE
+    assert "Draw page and shape name" in DELEGATE_ANCHOR_RULE
+    assert "read request" in DELEGATE_ANCHOR_RULE
 
 
 def test_specialized_delegation_block_is_single_line():
@@ -426,7 +427,9 @@ def test_specialized_delegation_block_is_single_line():
     assert "source_image='selection'" in SPECIALIZED_TASK_RULES
     assert "TOC entry text" in SPECIALIZED_TASK_RULES
     assert "cell range" in SPECIALIZED_TASK_RULES
-    assert "page and shape name" in SPECIALIZED_TASK_RULES
+    assert "Draw page and shape name" in SPECIALIZED_TASK_RULES
+    assert "read from the document" in SPECIALIZED_TASK_RULES
+    assert "user-given" in SPECIALIZED_TASK_RULES
     assert "Enumerate what must be true" not in SPECIALIZED_TASK_RULES
 
 

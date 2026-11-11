@@ -59,6 +59,9 @@ def _as_dict(raw: Any) -> dict[str, Any]:
     return {}
 
 
+as_dict = _as_dict
+
+
 def _range_list(args: dict[str, Any]) -> list[str]:
     raw = args.get("range") or []
     if isinstance(raw, str):

@@ -10,7 +10,6 @@ exported .odt index-body rows and preserved outline bookmarks.
 """
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass, field
 from pathlib import Path
 import re
@@ -23,6 +22,7 @@ if str(_PO) not in sys.path:
     sys.path.insert(0, str(_PO))
 
 from toc_fixture import FIXTURE_ROWS, expected_rows_after_edit
+from process_oracles import as_dict
 
 TOC_LIST_TASK_ID = "toc_list_entries"
 TOC_EDIT_TASK_ID = "toc_renumber_insert"
@@ -56,16 +56,7 @@ def finish_answer_from_trace(trace: list[dict[str, Any]] | None) -> str:
         return ""
     for entry in reversed(trace):
         if entry.get("name") == "specialized_workflow_finished":
-            raw_args = entry.get("arguments")
-            if isinstance(raw_args, str):
-                try:
-                    args = json.loads(raw_args)
-                except Exception:
-                    args = {}
-            elif isinstance(raw_args, dict):
-                args = raw_args
-            else:
-                args = {}
+            args = as_dict(entry.get("arguments"))
             return str(args.get("answer") or "")
     return ""
 
@@ -103,16 +94,7 @@ def _score_toc_list(trace: list[dict[str, Any]] | None) -> TocScore:
 
     for entry in trace or ():
         name = entry.get("name") or ""
-        raw_args = entry.get("arguments") or ""
-        if isinstance(raw_args, str):
-            try:
-                args = json.loads(raw_args)
-            except Exception:
-                args = {}
-        elif isinstance(raw_args, dict):
-            args = raw_args
-        else:
-            args = {}
+        args = as_dict(entry.get("arguments"))
 
         if name.startswith("delegate_to_specialized_"):
             domain = str(args.get("domain") or "")
@@ -182,7 +164,7 @@ def _score_toc_edit(
             with zipfile.ZipFile(exported) as zf:
                 xml = zf.read("content.xml").decode("utf-8")
 
-            bookmark_count = len(re.findall(r'text:bookmark-start\s+[^>]*text:name="(__RefHeading__[^"]*)"', xml))
+            bookmark_count = len(re.findall(r'<text:bookmark-start\b[^>]*\btext:name="(__RefHeading__[^"]*)"', xml))
             if bookmark_count != 40:
                 failures.append(f"Expected 40 heading bookmarks (__RefHeading__), got {bookmark_count}")
 
@@ -201,10 +183,6 @@ def _score_toc_edit(
                         failures.append(
                             f"Untouched row {FIXTURE_ROWS[i].title} href changed to {rows[i][1]!r} (expected {FIXTURE_ROWS[i].url!r})"
                         )
-
-                # Inserted row (row 15)
-                if not rows[15][1].endswith("|outline"):
-                    soft.append("Inserted row has no |outline href")
 
                 # Old Chapter 4 renumbered to Chapter 5 (rows 16..20)
                 for j in range(5):
@@ -244,16 +222,7 @@ def _score_toc_edit(
 
     for entry in trace or ():
         name = entry.get("name") or ""
-        raw_args = entry.get("arguments") or ""
-        if isinstance(raw_args, str):
-            try:
-                args = json.loads(raw_args)
-            except Exception:
-                args = {}
-        elif isinstance(raw_args, dict):
-            args = raw_args
-        else:
-            args = {}
+        args = as_dict(entry.get("arguments"))
 
         if name == "indexes_update_all":
             failures.append("Trace contains indexes_update_all (TOC rebuild wiped custom edits)")

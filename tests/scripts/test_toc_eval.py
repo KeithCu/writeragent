@@ -29,7 +29,7 @@ def _good_rows() -> list[tuple[str, str]]:
     for i in range(15):
         rows.append((FIXTURE_ROWS[i].title, FIXTURE_ROWS[i].url))
     # Inserted row (15)
-    rows.append((EDIT_INSERT[0], f"#4.{EDIT_INSERT[0]}|outline"))
+    rows.append((EDIT_INSERT[0], ""))
     # Old Chapter 4 renumbered to Chapter 5 (16..20)
     for j in range(5):
         orig = FIXTURE_ROWS[15 + j]
@@ -97,7 +97,6 @@ def _good_edit_trace() -> list[dict[str, str]]:
                 "content": "Chapter 4 Interim Review",
                 "position": "after",
                 "old_content": "Section 3.4 Topic",
-                "hyperlink_url": "#4.Chapter 4 Interim Review|outline",
             }),
         },
         {

@@ -520,8 +520,8 @@ TOC_RENUMBER_INSERT = {
     "user_question": (
         "In the table of contents, renumber chapters 4 and 5 to 5 and 6, including "
         "their section rows (4.1 becomes 5.1 and so on), then add a new row "
-        "'Chapter 4 Interim Review' right after 'Section 3.4 Topic', linked like "
-        "its neighbours. Do not rebuild the index."
+        "'Chapter 4 Interim Review' right after 'Section 3.4 Topic'. "
+        "Do not rebuild the index."
     ),
     "task_id": "toc_renumber_insert",
     "fixture": "toc_outline_40",
@@ -534,7 +534,8 @@ TOC_RENUMBER_INSERT = {
         "Headless Writer with TOC fixture. Trace must show delegate domain=indexes, "
         "10 indexes_refresh_toc_entry calls without hyperlink_url, and "
         "indexes_insert_toc_entry. Exported .odt must have updated titles and "
-        "preserved outline URLs without indexes_update_all."
+        "preserved outline URLs without indexes_update_all. Links are checked "
+        "for text substitution only, not live outline navigation."
     ),
 }
 

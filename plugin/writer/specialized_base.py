@@ -177,8 +177,8 @@ class ToolWriterIndexBase(ToolWriterSpecialBase):
         "Manage Table of Contents, alphabetical indexes, and native bibliography cites plus the reference table. "
         "Read TOC rows with indexes_list_toc_entries (entry text and level; links only on request); "
         "that reads the index and does not export the document or call update(). "
-        "Put a whole TOC job (read, then rename, insert, or delete rows) in one task; "
-        "the executor keeps the links itself, so never pass TOC rows or hyperlinks back in. "
+        "Apply TOC edits yourself with these tools; the main chat does not need rows read from the document passed back in. "
+        "Pass user-given text or targets into task verbatim. For a read-only request, report entry text and level. "
         "Customized TOC rows: indexes_insert_toc_entry, indexes_delete_toc_entry, and indexes_refresh_toc_entry "
         "edit one entry and do not call update(). indexes_update_all rebuilds the TOC and drops custom formatting."
     )

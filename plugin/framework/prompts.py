@@ -145,11 +145,13 @@ def python_orchestrator_routing_line(*, delegate_toolset: str) -> str:
 # keep the user's edit wording and name source_image='selection'.
 DELEGATE_SPECIALIZED_TASK_PARAM_HINT = "What the specialized task should accomplish. For edit/change/restyle of an existing or selected image, instruct image_generate(source_image='selection') and keep the user's wording so img2img replaces the graphic in place."
 
-# One fixed sentence for every inner agent that works on the open document.
+# Later tool calls read the live document directly; echoing modified content
+# back into chat history wastes context and corrupts links on round-trip retypes.
 DELEGATE_ANCHOR_RULE = (
-    "The document is the shared state: when you report document content, name where it is "
-    "(TOC entry text, heading, cell range, page and shape name) and give counts instead of "
-    "retyping rows, values, or links; later tool calls read the live document."
+    "The document is the shared state: for edit tasks, name where data is "
+    "(TOC entry text, heading, cell range, Draw page and shape name) "
+    "and give counts rather than pasting rows, values, or links back; "
+    "for a read request, return what the user asked for."
 )
 
 # Shared guidance for writing `task` strings when delegating to specialized sub-agents.
@@ -161,8 +163,9 @@ SPECIALIZED_TASK_RULES = (
     "user's wording (for example 'make it look like a wizard') so img2img replaces "
     "the graphic in place. "
     "For data already in the document, name where it is (heading, TOC entry text, "
-    "cell range, page and shape name) in task and let the executor read and edit it there; "
-    "do not paste rows, values, or links into task."
+    "cell range, Draw page and shape name) in task and let the executor read and edit it there; "
+    "do not paste rows, values, or links read from the document into task. "
+    "Pass user-given new text or targets into task verbatim."
 )
 
 

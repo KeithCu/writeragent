@@ -103,6 +103,7 @@ def test_indexes_domain_description_keeps_toc_edits_in_one_task() -> None:
 
     desc = ToolWriterIndexBase.specialized_domain_description or ""
     assert "links only on request" in desc
-    assert "one task" in desc
+    assert "Apply TOC edits yourself" in desc
+    assert "report entry text and level" in desc
     assert "internal hyperlink" not in desc
 
