@@ -583,26 +583,46 @@ def resolve_paragraph_style_token(
 
 
 def unapplied_para_names_for_content(content: str) -> list[str]:
-    """Collect all data-lo-para property names declared in *content* (none applied)."""
+    """Collect all data-lo-para property names declared in *content* (none applied).
+
+    Used for targets that never apply paragraph formatting (position before/after).
+    """
     if "data-lo-para" not in content:
         return []
     _clean, _styles, paras, skipped = extract_block_lo_styles(content)
     return declared_para_names(paras, skipped)
 
 
-def attach_para_warnings(result: dict[str, Any], unapplied: list[str]) -> dict[str, Any]:
+def attach_para_warnings(
+    result: dict[str, Any], unapplied: list[str], *, reason: str | None = None
+) -> dict[str, Any]:
     """Attach warnings for unapplied data-lo-para properties on a successful edit result.
 
     Every write tool that takes data-lo-para reports through here, so the model sees one
-    message shape. Names are deduplicated in first-seen order.
+    message shape. Names are deduplicated in first-seen order. An optional *reason*
+    differentiates range-level skips (partial match, tracked change recording) from unsupported
+    read-only properties.
     """
     if not unapplied or result.get("status") != "ok":
         return result
     deduped = list(dict.fromkeys(unapplied))
+    if reason in ("STYLE_IGNORED_PARTIAL_MATCH", "partial_match", "PARA_IGNORED_PARTIAL_MATCH"):
+        code = "PARA_IGNORED_PARTIAL_MATCH"
+        msg_suffix = " because the replaced range does not cover a whole paragraph"
+    elif reason in ("STYLE_IGNORED_RECORDING", "recording", "PARA_IGNORED_RECORDING"):
+        code = "PARA_IGNORED_RECORDING"
+        msg_suffix = " because tracked changes are recording"
+    elif reason:
+        code = "PARA_PROPERTY_UNSUPPORTED"
+        msg_suffix = f" ({reason})"
+    else:
+        code = "PARA_PROPERTY_UNSUPPORTED"
+        msg_suffix = ""
+
     diag_list: list[Diagnostic] = [
         {
-            "code": "PARA_PROPERTY_UNSUPPORTED",
-            "message": f"data-lo-para property '{name}' was not applied",
+            "code": code,
+            "message": f"data-lo-para property '{name}' was not applied{msg_suffix}",
         }
         for name in deduped
     ]

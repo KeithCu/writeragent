@@ -82,7 +82,7 @@ def _no_libreoffice(monkeypatch):
     monkeypatch.setattr(format_mod, "content_has_markup", lambda *a, **k: False)
     monkeypatch.setattr(search_mod, "normalize_search_string_for_find", lambda s: s)
     monkeypatch.setattr(format_mod, "replace_preserving_format", lambda *a, **k: None)
-    monkeypatch.setattr(format_mod, "replace_single_range_with_content", lambda *a, **k: None)
+    monkeypatch.setattr(format_mod, "replace_single_range_with_content", lambda *a, **k: ([], None))
     monkeypatch.setattr(search_mod, "drawing_shape_object_containing", lambda *a, **k: None)
 
 
@@ -279,6 +279,40 @@ def test_unmapped_data_lo_para_full_document_warns_for_unmapped_property():
     ]
 
 
+def test_unmapped_data_lo_para_partial_match_warns_with_reason():
+    """Partial match skip specifies that range does not cover a whole paragraph."""
+    from plugin.writer.html_import_styles import attach_para_warnings
+
+    res = attach_para_warnings(
+        {"status": "ok", "message": "Replaced content."},
+        ["margin-left"],
+        reason="STYLE_IGNORED_PARTIAL_MATCH",
+    )
+    assert res.get("warnings") == [
+        {
+            "code": "PARA_IGNORED_PARTIAL_MATCH",
+            "message": "data-lo-para property 'margin-left' was not applied because the replaced range does not cover a whole paragraph",
+        }
+    ]
+
+
+def test_unmapped_data_lo_para_recording_warns_with_reason():
+    """Recording skip specifies that tracked changes are recording."""
+    from plugin.writer.html_import_styles import attach_para_warnings
+
+    res = attach_para_warnings(
+        {"status": "ok", "message": "Replaced content."},
+        ["margin-left"],
+        reason="STYLE_IGNORED_RECORDING",
+    )
+    assert res.get("warnings") == [
+        {
+            "code": "PARA_IGNORED_RECORDING",
+            "message": "data-lo-para property 'margin-left' was not applied because tracked changes are recording",
+        }
+    ]
+
+
 def test_failed_write_is_not_annotated():
     """Nothing was written, so there is nothing to say about what was not applied."""
     from plugin.writer.html_import_styles import attach_para_warnings
@@ -288,8 +322,12 @@ def test_failed_write_is_not_annotated():
 
 
 def test_search_target_warns_for_mapped_property(monkeypatch):
-    """Search replacement does not apply data-lo-para; every property warns."""
+    """Search replacement reports unapplied property failures returned by import."""
+    monkeypatch.setattr(format_mod, "content_has_markup", lambda *a, **k: True)
     monkeypatch.setattr(search_mod, "find_first_range", lambda doc, s: MockRange())
+    monkeypatch.setattr(
+        format_mod, "replace_single_range_with_content", lambda *a, **k: (["text-align"], None)
+    )
     res = ApplyDocumentContent().execute(
         _ctx(),
         target="search",
@@ -299,6 +337,95 @@ def test_search_target_warns_for_mapped_property(monkeypatch):
     assert res.get("status") == "ok", res
     assert res.get("warnings") == [
         {"code": "PARA_PROPERTY_UNSUPPORTED", "message": "data-lo-para property 'text-align' was not applied"}
+    ]
+
+
+def test_search_target_warns_with_partial_match_code(monkeypatch):
+    """Search replacement reports PARA_IGNORED_PARTIAL_MATCH on partial match skip."""
+    monkeypatch.setattr(format_mod, "content_has_markup", lambda *a, **k: True)
+    monkeypatch.setattr(search_mod, "find_first_range", lambda doc, s: MockRange())
+    monkeypatch.setattr(
+        format_mod, "replace_single_range_with_content", lambda *a, **k: (["margin-left"], "STYLE_IGNORED_PARTIAL_MATCH")
+    )
+    res = ApplyDocumentContent().execute(
+        _ctx(),
+        target="search",
+        old_content="foo",
+        content='<p data-lo-para="margin-left:2cm">x</p>',
+    )
+    assert res.get("status") == "ok", res
+    assert res.get("warnings") == [
+        {
+            "code": "PARA_IGNORED_PARTIAL_MATCH",
+            "message": "data-lo-para property 'margin-left' was not applied because the replaced range does not cover a whole paragraph",
+        }
+    ]
+
+
+def test_search_target_warns_with_recording_code(monkeypatch):
+    """Search replacement reports PARA_IGNORED_RECORDING on recording skip."""
+    monkeypatch.setattr(format_mod, "content_has_markup", lambda *a, **k: True)
+    monkeypatch.setattr(search_mod, "find_first_range", lambda doc, s: MockRange())
+    monkeypatch.setattr(
+        format_mod, "replace_single_range_with_content", lambda *a, **k: (["margin-left"], "STYLE_IGNORED_RECORDING")
+    )
+    res = ApplyDocumentContent().execute(
+        _ctx(),
+        target="search",
+        old_content="foo",
+        content='<p data-lo-para="margin-left:2cm">x</p>',
+    )
+    assert res.get("status") == "ok", res
+    assert res.get("warnings") == [
+        {
+            "code": "PARA_IGNORED_RECORDING",
+            "message": "data-lo-para property 'margin-left' was not applied because tracked changes are recording",
+        }
+    ]
+
+
+def test_search_target_reports_no_warning_when_import_applied_everything(monkeypatch):
+    """When import applies all properties, no warnings are attached."""
+    monkeypatch.setattr(format_mod, "content_has_markup", lambda *a, **k: True)
+    monkeypatch.setattr(search_mod, "find_first_range", lambda doc, s: MockRange())
+    monkeypatch.setattr(
+        format_mod, "replace_single_range_with_content", lambda *a, **k: ([], None)
+    )
+    res = ApplyDocumentContent().execute(
+        _ctx(),
+        target="search",
+        old_content="foo",
+        content='<p data-lo-para="text-align:center">x</p>',
+    )
+    assert res.get("status") == "ok", res
+    assert "warnings" not in res
+
+
+def test_search_all_matches_unions_failures_with_dedupe(monkeypatch):
+    """all_matches aggregates and deduplicates failures across all replacements."""
+    monkeypatch.setattr(format_mod, "content_has_markup", lambda *a, **k: True)
+    r1, r2 = MockRange("foo1"), MockRange("foo2")
+    monkeypatch.setattr(search_mod, "find_all_ranges", lambda doc, s: [r1, r2])
+    calls: list[int] = []
+
+    def fake_replace(*a, **k):
+        calls.append(len(calls))
+        if len(calls) == 1:
+            return (["text-align"], None)
+        return (["text-align", "font-size"], None)
+
+    monkeypatch.setattr(format_mod, "replace_single_range_with_content", fake_replace)
+    res = ApplyDocumentContent().execute(
+        _ctx(),
+        target="search",
+        old_content="foo",
+        content='<p data-lo-para="text-align:center; font-size:12pt">x</p>',
+        all_matches=True,
+    )
+    assert res.get("status") == "ok", res
+    assert res.get("warnings") == [
+        {"code": "PARA_PROPERTY_UNSUPPORTED", "message": "data-lo-para property 'text-align' was not applied"},
+        {"code": "PARA_PROPERTY_UNSUPPORTED", "message": "data-lo-para property 'font-size' was not applied"},
     ]
 
 
@@ -950,11 +1077,12 @@ def test_anchor_plain_text_wraps_in_p_and_skips_hyperlinks(monkeypatch):
 
     monkeypatch.setattr(search_mod, "find_anchor_span", lambda doc, s, e, **k: (MockRange(), None))
     recorded_content = []
-    monkeypatch.setattr(
-        format_mod,
-        "replace_single_range_with_content",
-        lambda doc, found, content, ctx, **k: recorded_content.append(content),
-    )
+
+    def fake_replace(doc, found, content, ctx, **k):
+        recorded_content.append(content)
+        return ([], None)
+
+    monkeypatch.setattr(format_mod, "replace_single_range_with_content", fake_replace)
     with patch("plugin.writer.apply_document_content.capture_outline_hyperlinks") as mock_capture:
         res = ApplyDocumentContent().execute(
             _ctx(),
@@ -971,11 +1099,12 @@ def test_anchor_plain_text_wraps_in_p_and_skips_hyperlinks(monkeypatch):
 def test_anchor_plain_text_single_line_unwrapped(monkeypatch):
     monkeypatch.setattr(search_mod, "find_anchor_span", lambda doc, s, e, **k: (MockRange(), None))
     recorded_content = []
-    monkeypatch.setattr(
-        format_mod,
-        "replace_single_range_with_content",
-        lambda doc, found, content, ctx, **k: recorded_content.append(content),
-    )
+
+    def fake_replace(doc, found, content, ctx, **k):
+        recorded_content.append(content)
+        return ([], None)
+
+    monkeypatch.setattr(format_mod, "replace_single_range_with_content", fake_replace)
     res = ApplyDocumentContent().execute(
         _ctx(),
         start_anchor="start",
@@ -990,11 +1119,12 @@ def test_anchor_markup_not_wrapped_again(monkeypatch):
     monkeypatch.setattr(format_mod, "content_has_markup", _real_content_has_markup)
     monkeypatch.setattr(search_mod, "find_anchor_span", lambda doc, s, e, **k: (MockRange(), None))
     recorded_content = []
-    monkeypatch.setattr(
-        format_mod,
-        "replace_single_range_with_content",
-        lambda doc, found, content, ctx, **k: recorded_content.append(content),
-    )
+
+    def fake_replace(doc, found, content, ctx, **k):
+        recorded_content.append(content)
+        return ([], None)
+
+    monkeypatch.setattr(format_mod, "replace_single_range_with_content", fake_replace)
     res = ApplyDocumentContent().execute(
         _ctx(),
         start_anchor="start",
@@ -1101,7 +1231,7 @@ def test_target_end_and_search_report_math_objects(monkeypatch):
     def fake_insert_at_pos(doc, ctx, content, position, *, math_out=None):
         if math_out is not None:
             math_out.append(end_entry)
-        return []
+        return [], None
 
     monkeypatch.setattr(format_mod, "insert_content_at_position", fake_insert_at_pos)
     res = ApplyDocumentContent().execute(_ctx(), content=r"<p>\(end_formula\)</p>", target="end")
@@ -1114,7 +1244,7 @@ def test_target_end_and_search_report_math_objects(monkeypatch):
     def fake_replace_single(doc, text_range, content, ctx, *, math_out=None):
         if math_out is not None:
             math_out.append(search_entry)
-        return None
+        return [], None
 
     monkeypatch.setattr(format_mod, "replace_single_range_with_content", fake_replace_single)
     monkeypatch.setattr(search_mod, "find_first_range", lambda doc, s: MockRange())

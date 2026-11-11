@@ -16,12 +16,13 @@
 # v1 limitations (see docs/writer/html-style-model-plan.md#v1-limitations-shipped):
 #   - Whole-paragraph Para* overrides in data-lo-para: on write, the geometry properties
 #     (alignment, margins, indent, line-height) and background-color round-trip on
-#     full_document, beginning, and end; paragraph-level font properties and color are
+#     full_document, beginning, and end, as well as whole-paragraph selection and search
+#     replacements with Track Changes off; paragraph-level font properties and color are
 #     read-only and arrive in warnings (html_import_styles._READ_ONLY_PARA_NAMES says why).
-#     selection/search and table cells do not apply data-lo-para. Read reports
-#     geometry, paragraph font, and fo:color in data-lo-para from the flat-ODF sidecar (see
-#     _parse_fodt_autostyles): the XHTML CSS is flattened and cannot tell an override from
-#     an inherited value.
+#     Table cells, position before/after, and partial or recorded replacements do not apply
+#     data-lo-para. Read reports geometry, paragraph font, and fo:color in data-lo-para from the
+#     flat-ODF sidecar (see _parse_fodt_autostyles): the XHTML CSS is flattened and cannot tell
+#     an override from an inherited value.
 #   - Inside <table>: paragraph-* classes stripped; no data-lo-style (cell styles out of scope).
 #   - Colliding compact tokens (two UNO names -> same token): token omitted on read.
 #
@@ -99,9 +100,10 @@ def xhtml_has_paragraph_autostyle(xhtml: str) -> bool:
 # red in data-lo-para (char spans could still carry colour).
 #
 # On write, html_import_styles._para_writers() maps each name here onto a paragraph property after
-# the style is set (full_document, beginning, and end targets), except the font names and color in
-# html_import_styles._READ_ONLY_PARA_NAMES, which arrive in warnings. A unit test fails when a name
-# added here is in neither. selection/search targets and table cells do not apply data-lo-para.
+# the style is set (full_document, beginning, and end targets, and whole-paragraph selection/search
+# writes), except the font names and color in html_import_styles._READ_ONLY_PARA_NAMES, which arrive
+# in warnings. A unit test fails when a name added here is in neither. Table cells, position before/after,
+# and partial or recorded replacements do not apply data-lo-para.
 # Not emitted as style="": the import reads style="" as a character override.
 # ODF attribute -> CSS name, in emit order.
 _FODT_OVERRIDE_ATTRS = (
@@ -303,8 +305,9 @@ class _SemanticTransformer(_HtmlPassthroughParser):
 
         Whole-paragraph direct overrides: on write, alignment, horizontal margins, and
         background color from data-lo-para apply after the named style on full_document,
-        beginning, and end; other properties arrive in warnings. selection/search and
-        table cells do not apply data-lo-para.
+        beginning, and end, as well as whole-paragraph selection and search writes; other
+        properties arrive in warnings. Table cells, position before/after, and partial or
+        recorded replacements do not apply data-lo-para.
         """
         # crosshair: off
         if _AUTOSTYLE_RE.match(suffix):

@@ -366,7 +366,7 @@ def test_insert_content_at_position_whole_paragraph_selection_applies_styles():
          patch("plugin.writer.table_nesting.raise_if_range_hosts_nested_table"), \
          patch("plugin.writer.record_changes.is_recording_changes", return_value=False), \
          patch("plugin.writer.html_import._insert_mixed_or_plain_html") as mock_insert:
-        note = insert_content_at_position(
+        failures, note = insert_content_at_position(
             model, MagicMock(), '<p data-lo-style="Heading1">x</p>', "selection"
         )
 

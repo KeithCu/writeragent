@@ -444,6 +444,51 @@ def test_write_search_whole_paragraph_applies_heading2_uno(ctx, doc):
 
 @native_test
 @with_native_doc("writer")
+def test_write_search_whole_paragraph_applies_data_lo_para_uno(ctx, doc):
+    """Whole-paragraph search replace applies data-lo-para properties to the inserted paragraph."""
+    text = doc.getText()
+    text.setString("")
+    cur = text.createTextCursor()
+    cur.gotoStart(False)
+    cur.setPropertyValue("ParaStyleName", "Standard")
+    text.insertString(cur, "Keep before", False)
+    text.insertControlCharacter(cur, 0, False)
+    cur.setPropertyValue("ParaStyleName", "Standard")
+    text.insertString(cur, "Replace me", False)
+    text.insertControlCharacter(cur, 0, False)
+    cur.setPropertyValue("ParaStyleName", "Standard")
+    text.insertString(cur, "Keep after", False)
+
+    content = '<p data-lo-para="margin-left:2cm; text-align:center; background-color:#ffe4c4; font-size:12pt">New para</p>'
+    res = ApplyDocumentContent().execute(
+        _tool_ctx(doc, ctx), target="search", old_content="Replace me", content=content
+    )
+    assert res.get("status") == "ok", res
+    assert res.get("warnings") == [
+        {"code": "PARA_PROPERTY_UNSUPPORTED", "message": "data-lo-para property 'font-size' was not applied"}
+    ]
+
+    enum = doc.getText().createEnumeration()
+    p1 = enum.nextElement()
+    p2 = enum.nextElement()
+    p3 = enum.nextElement()
+
+    assert p1.getPropertyValue("ParaLeftMargin") == 0
+    assert p1.getPropertyValue("ParaAdjust") == 0
+    assert p1.getPropertyValue("FillStyle").value == "NONE"
+
+    assert p2.getPropertyValue("ParaLeftMargin") == 2000
+    assert p2.getPropertyValue("ParaAdjust") == 3
+    assert p2.getPropertyValue("FillStyle").value == "SOLID"
+    assert p2.getPropertyValue("FillColor") == 0xFFE4C4
+
+    assert p3.getPropertyValue("ParaLeftMargin") == 0
+    assert p3.getPropertyValue("ParaAdjust") == 0
+    assert p3.getPropertyValue("FillStyle").value == "NONE"
+
+
+@native_test
+@with_native_doc("writer")
 def test_write_selection_whole_paragraph_applies_heading2_uno(ctx, doc):
     """Whole-paragraph selection replace: Heading 2 applies; neighbor paragraphs stay Standard."""
     text = doc.getText()
@@ -482,6 +527,57 @@ def test_write_selection_whole_paragraph_applies_heading2_uno(ctx, doc):
 
 @native_test
 @with_native_doc("writer")
+def test_write_selection_whole_paragraph_applies_data_lo_para_uno(ctx, doc):
+    """Whole-paragraph selection replace applies data-lo-para properties to the inserted paragraph."""
+    text = doc.getText()
+    text.setString("")
+    cur = text.createTextCursor()
+    cur.gotoStart(False)
+    cur.setPropertyValue("ParaStyleName", "Standard")
+    text.insertString(cur, "Keep before", False)
+    text.insertControlCharacter(cur, 0, False)
+    cur.setPropertyValue("ParaStyleName", "Standard")
+    text.insertString(cur, "Replace me", False)
+    text.insertControlCharacter(cur, 0, False)
+    cur.setPropertyValue("ParaStyleName", "Standard")
+    text.insertString(cur, "Keep after", False)
+
+    cur.gotoStart(False)
+    cur.gotoNextParagraph(False)
+    cur.gotoStartOfParagraph(False)
+    cur.gotoEndOfParagraph(True)
+    doc.getCurrentController().select(cur)
+
+    content = '<p data-lo-para="margin-left:2cm; text-align:center; background-color:#ffe4c4; font-size:12pt">New para</p>'
+    res = ApplyDocumentContent().execute(
+        _tool_ctx(doc, ctx), target="selection", content=content
+    )
+    assert res.get("status") == "ok", res
+    assert res.get("warnings") == [
+        {"code": "PARA_PROPERTY_UNSUPPORTED", "message": "data-lo-para property 'font-size' was not applied"}
+    ]
+
+    enum = doc.getText().createEnumeration()
+    p1 = enum.nextElement()
+    p2 = enum.nextElement()
+    p3 = enum.nextElement()
+
+    assert p1.getPropertyValue("ParaLeftMargin") == 0
+    assert p1.getPropertyValue("ParaAdjust") == 0
+    assert p1.getPropertyValue("FillStyle").value == "NONE"
+
+    assert p2.getPropertyValue("ParaLeftMargin") == 2000
+    assert p2.getPropertyValue("ParaAdjust") == 3
+    assert p2.getPropertyValue("FillStyle").value == "SOLID"
+    assert p2.getPropertyValue("FillColor") == 0xFFE4C4
+
+    assert p3.getPropertyValue("ParaLeftMargin") == 0
+    assert p3.getPropertyValue("ParaAdjust") == 0
+    assert p3.getPropertyValue("FillStyle").value == "NONE"
+
+
+@native_test
+@with_native_doc("writer")
 def test_write_selection_partial_paragraph_warns_and_skips_style_uno(ctx, doc):
     """Partial selection replace: style skipped and warning returned; neighbor stays Standard."""
     text = doc.getText()
@@ -512,6 +608,45 @@ def test_write_selection_partial_paragraph_warns_and_skips_style_uno(ctx, doc):
 
 @native_test
 @with_native_doc("writer")
+def test_write_search_partial_match_skips_data_lo_para_uno(ctx, doc):
+    """Partial search match skips data-lo-para, warns all names, and leaves margin 0."""
+    text = doc.getText()
+    text.setString("")
+    cur = text.createTextCursor()
+    cur.gotoStart(False)
+    cur.setPropertyValue("ParaStyleName", "Standard")
+    text.insertString(cur, "Replace me tail", False)
+
+    content = '<p data-lo-para="margin-left:2cm; text-align:center; background-color:#ffe4c4">New para</p>'
+    res = ApplyDocumentContent().execute(
+        _tool_ctx(doc, ctx), target="search", old_content="Replace me", content=content
+    )
+    assert res.get("status") == "ok", res
+    assert "warnings" in res
+    codes = [w["code"] for w in res["warnings"]]
+    assert "STYLE_IGNORED_PARTIAL_MATCH" not in codes
+    assert res["warnings"] == [
+        {
+            "code": "PARA_IGNORED_PARTIAL_MATCH",
+            "message": "data-lo-para property 'margin-left' was not applied because the replaced range does not cover a whole paragraph",
+        },
+        {
+            "code": "PARA_IGNORED_PARTIAL_MATCH",
+            "message": "data-lo-para property 'text-align' was not applied because the replaced range does not cover a whole paragraph",
+        },
+        {
+            "code": "PARA_IGNORED_PARTIAL_MATCH",
+            "message": "data-lo-para property 'background-color' was not applied because the replaced range does not cover a whole paragraph",
+        },
+    ]
+
+    enum = doc.getText().createEnumeration()
+    p = enum.nextElement()
+    assert p.getPropertyValue("ParaLeftMargin") == 0
+
+
+@native_test
+@with_native_doc("writer")
 def test_write_search_whole_paragraph_recording_warns_uno(ctx, doc):
     """Whole-paragraph search replace while RecordChanges is True skips style and warns.
 
@@ -532,17 +667,36 @@ def test_write_search_whole_paragraph_recording_warns_uno(ctx, doc):
     cur.setPropertyValue("ParaStyleName", "Standard")
     text.insertString(cur, "Keep after", False)
 
+    content = (
+        '<p data-lo-style="Heading2" '
+        'data-lo-para="margin-left:2cm; text-align:center; background-color:#ffe4c4">New heading</p>'
+    )
     doc.setPropertyValue("RecordChanges", True)
     try:
         res = ApplyDocumentContent().execute(
             _tool_ctx(doc, ctx), target="search", old_content="Replace me",
-            content='<p data-lo-style="Heading2">New heading</p>')
+            content=content)
         assert res.get("status") == "ok", res
         assert "warning" not in res
         assert "warnings" in res
         assert res["warnings"][0]["code"] == "STYLE_IGNORED_RECORDING"
         assert "tracked changes are recording" in res["warnings"][0]["message"]
         assert "tracked changes are recording" in res["message"]
+        para_warns = [w for w in res["warnings"] if w["code"] == "PARA_IGNORED_RECORDING"]
+        assert para_warns == [
+            {
+                "code": "PARA_IGNORED_RECORDING",
+                "message": "data-lo-para property 'margin-left' was not applied because tracked changes are recording",
+            },
+            {
+                "code": "PARA_IGNORED_RECORDING",
+                "message": "data-lo-para property 'text-align' was not applied because tracked changes are recording",
+            },
+            {
+                "code": "PARA_IGNORED_RECORDING",
+                "message": "data-lo-para property 'background-color' was not applied because tracked changes are recording",
+            },
+        ]
     finally:
         doc.setPropertyValue("RecordChanges", False)
 
@@ -557,6 +711,12 @@ def test_write_search_whole_paragraph_recording_warns_uno(ctx, doc):
     assert after is not None and after[0] == "Standard", pairs
     assert "Replace me" not in text.getString(), text.getString()
     assert "New heading" in text.getString(), text.getString()
+    enum = doc.getText().createEnumeration()
+    while enum.hasMoreElements():
+        p = enum.nextElement()
+        if hasattr(p, "supportsService") and p.supportsService("com.sun.star.text.Paragraph"):
+            if "New heading" in p.getString():
+                assert p.getPropertyValue("ParaLeftMargin") == 0
 
 
 @native_test
