@@ -1234,9 +1234,6 @@ class ApplyStyle(FrameworkToolBase):
         "with family='CharacterStyles' to remove a character style. "
         "Use target='selection' (default), 'beginning', 'end', 'full_document', "
         "or 'search' with old_content. "
-        "Paragraph styles default to clear_direct='style_props': the style's font name and size "
-        "show (house font wins) and paragraph indents/alignment follow the style; bold, italic "
-        "and colour stay. Pass clear_direct='none' only to keep a hand-set font. "
         "Re-applying a style does not keep a quote indent — LibreOffice drops direct Para*."
     )
     parameters: dict[str, Any] | None = {

@@ -62,6 +62,7 @@ The original goal was to delete about half of the `apply_document_content` secti
 - ✅ Header/footer delegation: removed in #3256.
 - This PR trimmed the oversized-`old_content` lecture, the multi-line paragraph grammar, the lenient-match and near-miss restatements, drawing-shape routing, the partial `data-lo-style` warning restatement, and the html/body wrap note; case-sensitivity wording and an ignored-on-search line were already absent.
 - Must stay until the matching items ship: `|outline` links, no `$` math, `style_unreviewed`, `clear_direct` explanation.
+- PROMPT-TRIM-2 (Opus 2026-11-10 cut list): one copy of the HTML tag rules (document side), one merged data-lo-style/data-lo-para line, a one-line TOOLS section, generic confirm-by-fields rule, review modes folded to four bullets, research routing said once (core directives + catalog), the translation old_content line and the "Failed tool call" line dropped (enforced by the tool), and the apply_style / apply_document_content descriptions no longer repeat their own parameter descriptions. Rejected: moving python-vs-shapes into the delegate description (no per-turn saving), the OCR line (not ambient), a get_guidance pointer (same object as the ambient block).
 
 ## 5. Regression tests
 

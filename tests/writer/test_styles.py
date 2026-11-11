@@ -1785,4 +1785,13 @@ def test_apply_style_undo_unavailable_and_rollback_failed():
         assert res["code"] == "ROLLBACK_FAILED"
 
 
+def test_apply_style_description_does_not_repeat_clear_direct_param():
+    """Tool description keeps the paragraph-restyling caveat but leaves clear_direct details to the parameter schema."""
+    assert ApplyStyle.description is not None
+    assert ApplyStyle.parameters is not None
+    assert "clear_direct=" not in ApplyStyle.description
+    assert "'style_props' (default)" in ApplyStyle.parameters["properties"]["clear_direct"]["description"]
+
+
+
 
