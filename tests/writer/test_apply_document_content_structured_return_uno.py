@@ -195,3 +195,41 @@ def test_all_matches_caps_at_max_search_replacements_uno(ctx, doc):
         assert "safety limit" in res.get("message", ""), res
         assert "not fully updated" in res.get("message", ""), res
 
+
+@native_test
+@with_native_doc("writer")
+def test_search_replace_icu_only_regex_edits_body_uno(ctx, doc):
+    _set_body(doc, "alpha Foo beta")
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    res = ApplyDocumentContent().execute(
+        tool_ctx, target="search", old_content=r"\p{Lu}\w+", content="BAR", regex=True
+    )
+    assert res.get("status") == "ok", res
+    assert res.get("replaced_count") == 1, res
+    assert doc.getText().getString() == "alpha BAR beta"
+
+
+@native_test
+@with_native_doc("writer")
+def test_search_replace_python_only_regex_is_invalid_regex_uno(ctx, doc):
+    _set_body(doc, "alpha Foo beta")
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    res = ApplyDocumentContent().execute(
+        tool_ctx, target="search", old_content=r"(?P<w>Foo)", content="BAR", regex=True
+    )
+    assert res.get("status") == "error", res
+    assert res.get("code") == "INVALID_REGEX", res
+    assert doc.getText().getString() == "alpha Foo beta"
+
+
+@native_test
+@with_native_doc("writer")
+def test_dry_run_icu_only_regex_counts_uno(ctx, doc):
+    _set_body(doc, "alpha Foo beta")
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    res = ApplyDocumentContent().execute(
+        tool_ctx, target="search", old_content=r"\p{Lu}\w+", dry_run=True, regex=True
+    )
+    assert res.get("status") == "ok", res
+    assert res.get("count") == 1, res
+

@@ -71,7 +71,7 @@ def _ctx():
     um.isLocked.return_value = False
     doc.getUndoManager.return_value = um
     return types.SimpleNamespace(
-        doc=doc, ctx=object(),
+        doc=doc, ctx=MagicMock(),
         services=types.SimpleNamespace(get=lambda key, default=None: None),
     )
 

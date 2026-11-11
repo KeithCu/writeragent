@@ -22,6 +22,11 @@ def _edit_ctx():
     ctx.doc.getTextFields.return_value.createEnumeration.return_value.hasMoreElements.return_value = False
     return ctx
 
+
+def _icu_rejects(ctx):
+    ctx.ctx.ServiceManager.createInstanceWithContext.return_value.searchForward.return_value.subRegExpressions = 0
+    return ctx
+
 # ---- D1: dry_run ------------------------------------------------------------
 
 @pytest.mark.timeout(5)
@@ -105,7 +110,7 @@ def test_dry_run_honors_regex_via_the_same_matcher_as_the_edit():
 def test_dry_run_invalid_regex():
     from plugin.writer.apply_document_content import ApplyDocumentContent
 
-    ctx = _edit_ctx()
+    ctx = _icu_rejects(_edit_ctx())
     ctx.services.get.return_value = MagicMock()
     with patch("plugin.writer.html_import.content_has_markup", return_value=False):
         res = ApplyDocumentContent().execute(
@@ -1208,6 +1213,7 @@ def test_param_errors_do_not_construct_review_session():
         assert res["status"] == "error"
         session_cls.assert_not_called()
 
+        _icu_rejects(ctx)
         res = tool.execute(
             ctx,
             content="x",
@@ -1999,7 +2005,7 @@ def test_table_count_read_reraises_disposed():
 
 @pytest.mark.parametrize("extra", [{}, {"all_matches": True}, {"occurrence": 0}])
 def test_invalid_regex_is_invalid_regex_in_the_edit_path(extra):
-    ctx = _edit_ctx()
+    ctx = _icu_rejects(_edit_ctx())
     with patch("plugin.writer.html_import.content_has_markup", return_value=False), \
          patch("plugin.writer.search.find_first_range") as find_first, \
          patch("plugin.writer.search.find_all_ranges") as find_all:

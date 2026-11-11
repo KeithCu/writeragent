@@ -489,6 +489,7 @@ def _run_on_main_thread(fn: Any) -> Any:
 
 
 def _search_options(
+    ctx: ToolContext,
     kwargs: Any,
     old_stripped: str,
     search_string: str,
@@ -499,7 +500,7 @@ def _search_options(
     use_opts = regex or explicit
     cs = search_mod.resolve_case_sensitive(raw)
     pattern = old_stripped if regex else search_string
-    rex_err = search_mod.validate_regex_pattern(old_stripped) if regex else None
+    rex_err = search_mod.validate_icu_regex(ctx.ctx, old_stripped) if regex else None
     return regex, use_opts, cs, pattern, rex_err
 
 
@@ -616,7 +617,7 @@ class ApplyDocumentContent(ToolBase):
                 ),
             ),
             "dry_run": {"type": "boolean", "description": "For target='search' with old_content: do NOT edit. Return replaceable matches (each tagged with occurrence) plus shape/comment previews, so you can check before committing. Does not apply to start_anchor and end_anchor."},
-            "regex": {"type": "boolean", "description": "For target='search': treat old_content as a regular expression (default false = literal). Regex mode is single-paragraph (no cross-paragraph chaining). Does not apply to start_anchor and end_anchor."},
+            "regex": {"type": "boolean", "description": "For target='search': treat old_content as a regular expression (default false = literal). Regex mode is single-paragraph (no cross-paragraph chaining). Does not apply to start_anchor and end_anchor. Patterns use ICU regex syntax (LibreOffice's engine): (?<name>...) for named groups, not (?P<name>...); \\p{Lu} classes are allowed. Floating drawing shapes are matched with Python re instead, so ICU-only syntax does not match inside shapes."},
             "case_sensitive": {"type": "boolean", "description": f"For target='search': {search_mod.CASE_SENSITIVE_DESCRIPTION}"},
             "hyperlink_url": {"type": "string", "description": ("For target='search' with position='replace', when the match overlaps exactly one outline hyperlink (#…|outline): set this exact URL instead of substituting the matched text. content may equal old_content when the visible title is already correct and only the URL is stale. Omit it to update that target when the matched text occurs once outside the |outline suffix. Rejected with all_matches=true, with position='before'/'after', and when the match is not exactly one outline link. Bookmark targets are never rewritten.")},
         },
@@ -1038,13 +1039,11 @@ class ApplyDocumentContent(ToolBase):
         s = search_mod.prepare_old_content(old_content)
         if not s:
             return self._tool_error("old_content is empty after normalization.", code="INVALID_PARAM")
-        regex, use_opts, cs, pattern, rex_err = _search_options(kwargs, old_stripped, s)
+        regex, use_opts, cs, pattern, rex_err = _search_options(ctx, kwargs, old_stripped, s)
         if rex_err:
             return self._invalid_regex(rex_err)
         try:
             ranges = _find_ranges(ctx.doc, pattern, regex, cs, use_opts, all_matches=True)
-        except ValueError as e:
-            return self._tool_error(str(e), code="INVALID_REGEX")
         except Exception as e:
             log.exception("apply_document_content dry_run search failed")
             return self._tool_error("dry_run search failed: %s" % e, code="SEARCH_FAILED")
@@ -1160,7 +1159,7 @@ class ApplyDocumentContent(ToolBase):
         session_box: list[Any] = []
 
         def _do_edit() -> tuple[dict[str, Any], Any]:
-            parsed = self._parse_edit_params(kwargs)
+            parsed = self._parse_edit_params(ctx, kwargs)
             if isinstance(parsed, dict):
                 return parsed, None
             session = EditReviewSession(ctx.doc, ctx.ctx, enabled=parsed.track_reviewable)
@@ -1268,7 +1267,7 @@ class ApplyDocumentContent(ToolBase):
         cs = search_mod.resolve_case_sensitive(kwargs.get("case_sensitive"))
         return AnchorSpec(start=norm_start, end=norm_end, case_sensitive=cs)
 
-    def _parse_edit_params(self, kwargs: Any) -> EditParams | dict[str, Any]:
+    def _parse_edit_params(self, ctx: ToolContext, kwargs: Any) -> EditParams | dict[str, Any]:
         from . import html_import as format_support
         content = kwargs.get("content", "")
         old_content = kwargs.get("old_content")
@@ -1403,7 +1402,7 @@ class ApplyDocumentContent(ToolBase):
                 content, separator = _match_stripped_edges(str(old_content), content)
                 plain = content
 
-            regex, use_opts, cs, pattern, rex_err = _search_options(kwargs, old_stripped, search_string)
+            regex, use_opts, cs, pattern, rex_err = _search_options(ctx, kwargs, old_stripped, search_string)
             if rex_err:
                 return self._invalid_regex(rex_err)
 

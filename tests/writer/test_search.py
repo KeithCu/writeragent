@@ -33,7 +33,7 @@ def test_find_ranges_regex_case_all_matches_walks_next():
 
 # ---- 3) invalid regex is an error, not a clean miss ---------------------------
 
-def _search_zero_hits(pattern, use_regex):
+def _search_zero_hits(pattern, use_regex, icu_ok: bool = True, ctx=None):
     """Run SearchInDocument against a doc that finds nothing."""
     from plugin.writer.search import SearchInDocument
 
@@ -42,13 +42,17 @@ def _search_zero_hits(pattern, use_regex):
     doc.findFirst.return_value = None
     doc.getDrawPage.return_value = []
     doc.getTextFields.return_value.createEnumeration.return_value.hasMoreElements.return_value = False
-    ctx = MagicMock()
+    if ctx is None:
+        ctx = MagicMock()
     ctx.doc = doc
+    ctx.ctx.ServiceManager.createInstanceWithContext.return_value.searchForward.return_value.subRegExpressions = (
+        1 if icu_ok else 0
+    )
     return SearchInDocument().execute(ctx, pattern=pattern, regex=use_regex)
 
 
 def test_invalid_regex_zero_hits_is_error():
-    res = _search_zero_hits("([a-", True)
+    res = _search_zero_hits("([a-", True, icu_ok=False)
     assert res["status"] == "error" and res["code"] == "INVALID_REGEX"
     assert "regex=false" in res["message"]
 
@@ -59,8 +63,37 @@ def test_valid_regex_zero_hits_stays_ok():
 
 
 def test_literal_zero_hits_stays_ok():
-    res = _search_zero_hits("([a-", False)  # literal search for weird chars is legitimate
+    ctx = MagicMock()
+    res = _search_zero_hits("([a-", False, ctx=ctx)  # literal search for weird chars is legitimate
     assert res["status"] == "ok" and res["count"] == 0
+    ctx.ctx.ServiceManager.createInstanceWithContext.assert_not_called()
+
+
+def test_validate_icu_regex_wraps_pattern_and_reads_result():
+    import uno
+    from plugin.writer.search import ICU_REGEX_REJECTED, validate_icu_regex
+
+    ctx = MagicMock()
+    ts = ctx.ServiceManager.createInstanceWithContext.return_value
+    ts.searchForward.return_value.subRegExpressions = 1
+    with patch.object(uno, "getConstantByName") as mock_get_const:
+        assert validate_icu_regex(ctx, r"\p{Lu}+") is None
+        ts.searchForward.assert_called_with("a", 0, 1)
+        opts = ts.setOptions2.call_args[0][0]
+        assert opts.searchString == r".|(?:\p{Lu}+)"
+        assert opts.AlgorithmType2 == mock_get_const.return_value
+        mock_get_const.assert_called_with("com.sun.star.util.SearchAlgorithms2.REGEXP")
+
+    ts.searchForward.return_value.subRegExpressions = 0
+    assert validate_icu_regex(ctx, "([a-") == ICU_REGEX_REJECTED
+
+
+def test_find_ranges_regex_case_does_not_validate():
+    from plugin.writer.search import find_ranges_regex_case
+
+    doc = MagicMock()
+    res = find_ranges_regex_case(doc, "([a-", True, False, all_matches=False)
+    assert res == doc.findFirst.return_value
 
 
 def test_search_return_offsets_rejects_regex():

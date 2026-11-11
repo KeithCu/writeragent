@@ -30,10 +30,10 @@
 | 18 | Rename `clear_direct` options | 2.6 | ⬜ Still `none` / `style_props` / `all` | n/a |
 | 19 | Report removed indents on restyle / track style changes | 2.6 | ⬜ `style_unreviewed` rule still in the prompt | n/a |
 | 20 | Explicit delete (`position='delete'`) | 2.1 | ⬜ Not found | n/a |
-| 21 | Regex engine validation (ICU vs Python `re`) | 2.3 | ⬜ Not found | n/a |
+| 21 | Regex engine validation (ICU vs Python `re`) | 2.3 | ✅ Validated via LibreOffice TextSearch2 (ICU); Python-only syntax rejected, ICU classes allowed | st-regex-icu |
 | 22 | Stable `error_code` + `suggested_call` on every error | §3, §4 | ⬜ Not in the writer edit path | n/a |
 
-**Tally:** 12 shipped, 3 partial, 7 not started. Section 5's two top priorities (warnings, near-miss) are both at least partly done.
+**Tally:** 13 shipped, 3 partial, 6 not started. Section 5's two top priorities (warnings, near-miss) are both at least partly done.
 
 ## 2. What changed, in plain terms
 
