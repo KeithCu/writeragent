@@ -17,6 +17,7 @@ from plugin.draw.pages import (
     RenameSlide,
     SetActivePage,
 )
+from plugin.framework.errors import DocumentDisposedError
 
 
 def _ctx():
@@ -272,8 +273,9 @@ def test_add_slide_cleanup_reraises_dispose():
         bridge = _add_slide_bridge(page)
         bridge.get_pages.return_value.remove.side_effect = DisposedException("doc disposed")
         bridge_cls.return_value = bridge
-        with pytest.raises(DisposedException):
+        with pytest.raises(DocumentDisposedError) as info:
             AddSlide().execute(ctx)
+        assert isinstance(info.value.__cause__, DisposedException)
 
 
 def test_add_slide_cleanup_still_returns_layout_error_when_remove_fails():
@@ -579,7 +581,7 @@ def test_read_slide_text_reraises_dispose():
         patch("plugin.draw.bridge.find_notes_shape", return_value=None),
     ):
         bridge_cls.return_value.resolve_page.return_value = (page, 0)
-        with pytest.raises(DisposedException):
+        with pytest.raises(DocumentDisposedError):
             ReadSlideText().execute(ctx)
 
 

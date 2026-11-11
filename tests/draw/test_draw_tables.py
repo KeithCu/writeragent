@@ -16,6 +16,7 @@ from plugin.draw.tables import (
     _ensure_table_dims,
 )
 from plugin.writer.specialized.tables import TableDelete, TableGetCells, TableInsert
+from plugin.framework.errors import DocumentDisposedError
 
 
 class _Cell:
@@ -303,7 +304,7 @@ def test_get_draw_cells_disposed_read_propagates():
     cell = table.getCellByPosition(0, 0)
     cell.getString = MagicMock(side_effect=DisposedException("gone"))
     entry = {"model": table}
-    with pytest.raises(DisposedException):
+    with pytest.raises(DocumentDisposedError):
         get_draw_cells(entry)
 
 
@@ -387,7 +388,7 @@ def test_insert_table_size_disposed_propagates():
                 "com.sun.star.awt.Size", MagicMock(), create=True
             ):
                 with patch("plugin.draw.tables._ensure_table_dims", side_effect=DisposedException("gone")):
-                    with pytest.raises(DisposedException):
+                    with pytest.raises(DocumentDisposedError):
                         insert_draw_table(ctx, rows=2, columns=2, data=[["h1", "h2"], ["v1", "v2"]])
     page.remove.assert_not_called()
 
@@ -418,8 +419,9 @@ def test_table_model_reraises_disposed():
 
     shape = MagicMock(spec=["getModel"])
     shape.getModel.side_effect = DisposedException("closed")
-    with pytest.raises(DisposedException):
+    with pytest.raises(DocumentDisposedError) as info:
         _table_model(shape)
+    assert isinstance(info.value.__cause__, DisposedException)
 
     shape.getModel.side_effect = RuntimeError("not a model")
     assert _table_model(shape) is None

@@ -14,6 +14,7 @@ from plugin.draw.transitions import (
     _FADE_EFFECTS,
     apply_slide_layout,
 )
+from plugin.framework.errors import DocumentDisposedError
 
 
 def test_layout_ids_match_libreoffice_autolayout():
@@ -383,12 +384,15 @@ def test_set_slide_transition_write_failure_is_a_tool_error():
 
 
 def test_set_slide_transition_disposal_still_raises():
+    class DisposedException(Exception):
+        pass
+
     ctx = MagicMock()
     page = MagicMock()
-    page.setPropertyValue.side_effect = RuntimeError("boom")
-    with patch("plugin.draw.transitions.DrawBridge") as bridge_cls, \
-         patch("plugin.draw.transitions.is_disposal", return_value=True):
+    page.setPropertyValue.side_effect = DisposedException("boom")
+    with patch("plugin.draw.transitions.DrawBridge") as bridge_cls:
         bridge_cls.return_value.resolve_page.return_value = (page, 0)
-        with pytest.raises(RuntimeError):
+        with pytest.raises(DocumentDisposedError) as info:
             SetSlideTransition().execute(ctx, page=0, effect="dissolve")
+    assert isinstance(info.value.__cause__, DisposedException)
 

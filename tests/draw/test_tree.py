@@ -209,8 +209,9 @@ def test_safe_attr_reraises_disposed():
         def Name(self):
             raise DisposedException("closed")
 
-    with pytest.raises(DisposedException):
+    with pytest.raises(DocumentDisposedError) as info:
         _safe_attr(DisposedObj(), "Name")
+    assert isinstance(info.value.__cause__, DisposedException)
 
     class ErrorObj:
         @property
@@ -498,7 +499,7 @@ def test_find_shape_on_page_path_resolution():
     disp_group.getByIndex = _exploding_get_by_index
     disp_group.getCount = lambda: 1
     disp_page = _Shapes([disp_group])
-    with pytest.raises(_DisposedException):
+    with pytest.raises(DocumentDisposedError):
         find_shape_on_page(disp_page, index="0.0")
 
 

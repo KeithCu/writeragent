@@ -36,7 +36,7 @@ import logging
 import re
 from typing import Any, Iterator
 
-from plugin.framework.errors import is_disposal, uno_read
+from plugin.framework.errors import reraise_if_disposed, uno_read
 from plugin.framework.tool import ToolBase, ToolContext
 
 log = logging.getLogger(__name__)
@@ -112,8 +112,7 @@ def control_snapshot(model: Any) -> dict[str, Any]:
             raw = getattr(model, attr)
             info[key] = int(raw) if key == "state" else list(raw) if key in ("items", "selected") else raw
         except Exception as exc:
-            if is_disposal(exc):
-                raise
+            reraise_if_disposed(exc)
             log.debug("control snapshot %s read failed", attr, exc_info=True)
     return info
 
@@ -137,8 +136,7 @@ def readable_control_type(model: Any) -> str:
             if model is not None and model.supportsService(service):
                 return type_str
         except Exception as exc:
-            if is_disposal(exc):
-                raise
+            reraise_if_disposed(exc)
             log.debug("supportsService(%s) failed", service, exc_info=True)
     return "unknown"
 
@@ -150,8 +148,7 @@ def _safe_attr(obj: Any, name: str, default: str = "") -> str:
     except Exception as exc:
         # Closed documents raise DisposedException from shape attributes. Re-raise disposal
         # for DOCUMENT_DISPOSED; other failures keep the missing-page default.
-        if is_disposal(exc):
-            raise
+        reraise_if_disposed(exc)
         return default
 
 
@@ -231,15 +228,13 @@ def _iter_children(xshapes: Any) -> Iterator[tuple[int, Any]]:
     try:
         count = xshapes.getCount()
     except Exception as exc:
-        if is_disposal(exc):
-            raise
+        reraise_if_disposed(exc)
         return
     for i in range(count):
         try:
             shape = xshapes.getByIndex(i)
         except Exception as exc:
-            if is_disposal(exc):
-                raise
+            reraise_if_disposed(exc)
             continue
         yield i, shape
 
@@ -249,8 +244,7 @@ def is_group(shape: Any) -> bool:
     try:
         shape_type = shape.getShapeType()
     except Exception as exc:
-        if is_disposal(exc):
-            raise
+        reraise_if_disposed(exc)
         return False
     return "GroupShape" in str(shape_type)
 
@@ -304,8 +298,7 @@ def find_shape_on_page(
                     return None, None, None, "Invalid shape index: %s" % index
                 child = curr.getByIndex(seg_idx)
             except Exception as exc:
-                if is_disposal(exc):
-                    raise
+                reraise_if_disposed(exc)
                 return None, None, None, "Failed to find shape at index %s: %s" % (index, exc)
 
             parent = curr

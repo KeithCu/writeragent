@@ -28,7 +28,7 @@ from plugin.draw.draw_undo import register_draw_text_edit_undo
 from plugin.draw.tables import _is_table_shape
 from plugin.draw.tree import _is_group, _iter_children
 from plugin.framework.config import get_config
-from plugin.framework.errors import format_error_message, is_disposal
+from plugin.framework.errors import format_error_message, reraise_if_disposed
 from plugin.framework.i18n import _
 from plugin.writer.edit_review import build_writer_rewrite_prompt, strip_echoed_edit_scaffolding
 
@@ -50,8 +50,7 @@ def _read_text(text_obj: Any) -> str | None:
     try:
         val = text_obj.getString()
     except Exception as exc:
-        if is_disposal(exc):
-            raise
+        reraise_if_disposed(exc)
         return None
     return None if val is None else str(val)
 
@@ -65,8 +64,7 @@ def _text_surfaces(shape: Any) -> list[Any]:
         try:
             xtext = shape.getText()
         except Exception as exc:
-            if is_disposal(exc):
-                raise
+            reraise_if_disposed(exc)
             xtext = None
         if (
             xtext is not None
@@ -132,15 +130,13 @@ def iter_draw_rewrite_targets(selection: Any) -> tuple[list[Any], bool]:
         try:
             count = selection.getCount()
         except Exception as exc:
-            if is_disposal(exc):
-                raise
+            reraise_if_disposed(exc)
             return targets, saw_table[0]
         for i in range(count):
             try:
                 shape = selection.getByIndex(i)
             except Exception as exc:
-                if is_disposal(exc):
-                    raise
+                reraise_if_disposed(exc)
                 continue
             _walk_shape_for_targets(shape, targets, saw_table)
         return targets, saw_table[0]
@@ -154,8 +150,7 @@ def _disable_text_autogrow(text_obj: Any) -> None:
         try:
             text_obj.setPropertyValue(prop, False)
         except Exception as exc:
-            if is_disposal(exc):
-                raise
+            reraise_if_disposed(exc)
 
 
 def _no_text_notice(saw_table: bool) -> str:
@@ -208,8 +203,7 @@ def do_draw_extend_edit(
         try:
             original = text_obj.getString()
         except Exception as exc:
-            if is_disposal(exc):
-                raise
+            reraise_if_disposed(exc)
             continue
         if not original:
             continue
@@ -286,8 +280,6 @@ def do_draw_extend_edit(
         # UNO types unavailable (some unit-test environments); compound undo still groups if LO adds actions.
         log.debug("UNO not available; skipping custom draw text undo registration")
     except Exception as exc:
-        from plugin.framework.errors import reraise_if_disposed
-
         reraise_if_disposed(exc)
         log.exception("Draw edit selection: custom undo registration failed")
         undo.close()

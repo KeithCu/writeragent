@@ -11,7 +11,7 @@ import re
 from typing import Any, ClassVar
 
 from plugin.draw.base import DRAW_AND_IMPRESS, ToolDrawSpecialBase
-from plugin.framework.errors import best_effort, is_disposal
+from plugin.framework.errors import best_effort, reraise_if_disposed
 from plugin.writer.math.math_mml_convert import MATH_CLSID, convert_latex_to_starmath, convert_mathml_to_starmath
 
 log = logging.getLogger("writeragent.draw")
@@ -184,8 +184,7 @@ class InsertMathDraw(ToolDrawSpecialBase):
         except Exception as exc:
             if added:
                 best_effort(lambda: page.remove(shape), "remove partial math shape")
-            if is_disposal(exc):
-                raise
+            reraise_if_disposed(exc)
             return self._tool_error(f"Failed to insert math shape: {exc}")
 
         return {"status": "ok", "message": "Math formula inserted successfully", "index": page.getCount() - 1, "page": actual_idx}

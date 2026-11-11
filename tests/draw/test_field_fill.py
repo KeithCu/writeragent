@@ -11,6 +11,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from plugin.draw.field_fill import FillDrawFields, apply_fill_value, resolve_field_node
+from plugin.framework.errors import DocumentDisposedError
 
 
 def _tree():
@@ -217,8 +218,9 @@ def test_apply_fill_value_runtime_vs_disposed_exception():
     shape_disp = MagicMock()
     shape_disp.getShapeType.return_value = "com.sun.star.drawing.TextShape"
     shape_disp.setString.side_effect = CustomDisposedException("disposed")
-    with pytest.raises(CustomDisposedException):
+    with pytest.raises(DocumentDisposedError) as info:
         apply_fill_value(shape_disp, "test")
+    assert isinstance(info.value.__cause__, CustomDisposedException)
 
 
 def test_fill_draw_fields_group_child_path_index():

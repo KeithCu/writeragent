@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from plugin.draw.shapes import AlignShapes, CreateDiagram, DistributeShapes
+from plugin.framework.errors import DocumentDisposedError
 
 
 class _Pos:
@@ -170,8 +171,9 @@ def test_align_shapes_disposed_propagates():
     with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
         bridge_cls.return_value.get_pages.return_value.getByIndex.return_value = page
         bridge_cls.return_value.resolve_page.return_value = (page, 0)
-        with pytest.raises(DisposedException):
+        with pytest.raises(DocumentDisposedError) as info:
             AlignShapes().execute(ctx, indices=[0, 1], alignment="left")
+        assert isinstance(info.value.__cause__, DisposedException)
 
 
 def test_align_shapes_bad_index_propagates():
@@ -199,7 +201,7 @@ def test_distribute_shapes_disposed_propagates():
     with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
         bridge_cls.return_value.get_pages.return_value.getByIndex.return_value = page
         bridge_cls.return_value.resolve_page.return_value = (page, 0)
-        with pytest.raises(DisposedException):
+        with pytest.raises(DocumentDisposedError):
             DistributeShapes().execute(ctx, indices=[0, 1, 2], axis="horizontal")
 
 
@@ -249,7 +251,7 @@ def test_create_diagram_cleanup_reraises_disposed():
                 {"status": "ok", "index": 0},
                 {"status": "error", "message": "second node failed"},
             ]
-            with pytest.raises(DisposedException):
+            with pytest.raises(DocumentDisposedError):
                 CreateDiagram().execute(
                     ctx,
                     nodes=[{"id": "a", "text": "A"}, {"id": "b", "text": "B"}],

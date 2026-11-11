@@ -23,6 +23,7 @@ from plugin.draw.designs import (
 )
 from plugin.draw.pages import AddSlide, inherit_master_from_neighbor
 from plugin.draw.shape_clone import ClonedShape
+from plugin.framework.errors import DocumentDisposedError
 from plugin.framework.url_utils import path_to_file_url
 
 _STUB_CLONED_SHAPE = ClonedShape(
@@ -390,8 +391,9 @@ def test_master_entries_reraise_disposed():
     doc = MagicMock()
     doc.getMasterPages.side_effect = DisposedException("closed")
 
-    with pytest.raises(DisposedException):
+    with pytest.raises(DocumentDisposedError) as info:
         _master_entries(doc)
+    assert isinstance(info.value.__cause__, DisposedException)
 
     doc.getMasterPages.side_effect = RuntimeError("failed")
     assert _master_entries(doc) == []
@@ -465,7 +467,7 @@ def test_inherit_master_from_neighbor_reraises_disposed():
     pages = MagicMock()
     pages.getCount.return_value = 2
     pages.getByIndex.side_effect = DisposedException("closed")
-    with pytest.raises(DisposedException):
+    with pytest.raises(DocumentDisposedError):
         inherit_master_from_neighbor(pages, MagicMock(), 1)
 
     pages.getCount.side_effect = DisposedException("closed")
@@ -790,7 +792,7 @@ def test_apply_design_assign_disposed_propagates():
         patch("plugin.draw.designs._close_hidden_doc"),
         patch("plugin.draw.designs.assign_master_to_all_slides", side_effect=DisposedException("doc disposed")),
     ):
-        with pytest.raises(DisposedException):
+        with pytest.raises(DocumentDisposedError):
             apply_design_to_current_doc(MagicMock(), dest, {"id": "metropolis", "name": "Metropolis"})
 
 
@@ -955,7 +957,7 @@ def test_is_master_referenced_error_handling():
 
     # DisposedException propagates
     pages.getByIndex.side_effect = DisposedException("disposed")
-    with pytest.raises(DisposedException):
+    with pytest.raises(DocumentDisposedError):
         _is_master_referenced(doc, master)
 
 
@@ -1194,7 +1196,7 @@ def test_apply_design_runtime_exception_vs_disposed():
         patch("plugin.draw.designs.enumerate_impress_designs", return_value=[entry]),
         patch("plugin.draw.designs.apply_design_to_current_doc", side_effect=DisposedException("doc closed")),
     ):
-        with pytest.raises(DisposedException):
+        with pytest.raises(DocumentDisposedError):
             ApplyDesign().execute(ctx, design="Metropolis")
 
 
@@ -1214,7 +1216,7 @@ def test_apply_design_readonly_returns_error_and_does_not_open_template():
         pass
 
     dest.isReadonly.side_effect = DisposedException("closed")
-    with pytest.raises(DisposedException):
+    with pytest.raises(DocumentDisposedError):
         apply_design_to_current_doc(MagicMock(), dest, {"id": "metropolis", "name": "Metropolis"})
 
 
@@ -1715,7 +1717,7 @@ def test_clone_master_disposed_exception_on_rename_propagates():
     src_doc.getMasterPages().getCount.return_value = 1
     src_doc.getMasterPages().getByIndex.return_value = src_master
 
-    with pytest.raises(DisposedException):
+    with pytest.raises(DocumentDisposedError):
         clone_master_into_doc(dest_doc, src_doc, {"id": "src", "name": "SourceMaster"})
     dest_masters.remove.assert_called_with(dest_master)
 
@@ -1778,7 +1780,7 @@ def test_assign_master_disposed_exception_propagates():
     pages.getByIndex.return_value = p0
     doc.getDrawPages.return_value = pages
 
-    with pytest.raises(DisposedException):
+    with pytest.raises(DocumentDisposedError):
         assign_master_to_all_slides(doc, MagicMock())
 
 

@@ -25,7 +25,7 @@ from typing import Any
 from plugin.doc import text_helpers as _text_helpers
 from plugin.framework.doc_type import is_impress
 from plugin.framework.constants import truncate_chat_context
-from plugin.framework.errors import ToolExecutionError, DocumentDisposedError, is_disposal, uno_call, uno_read
+from plugin.framework.errors import ToolExecutionError, DocumentDisposedError, reraise_if_disposed, uno_call, uno_read
 from plugin.framework.thread_guard import main_thread_only
 from plugin.framework.uno_context import uno_same
 
@@ -97,8 +97,7 @@ class DrawBridge:
             except Exception as exc:
                 # A closed Calc doc raises disposal from the active sheet draw page. Re-raise
                 # disposal; swallow other errors and continue the missing-page path.
-                if is_disposal(exc):
-                    raise
+                reraise_if_disposed(exc)
         controller = self.doc.getCurrentController()
         if controller is not None and hasattr(controller, "getCurrentPage"):
             page = controller.getCurrentPage()
@@ -219,14 +218,12 @@ class DrawBridge:
             except Exception as exc:
                 # Failed MasterPage assignment leaves a stray slide. Re-raise disposal; otherwise
                 # remove the new page and raise so callers do not treat the insert as success.
-                if is_disposal(exc):
-                    raise
+                reraise_if_disposed(exc)
                 log.debug("insert_slide_from_master MasterPage: %s", exc)
                 try:
                     pages.remove(new_page)
                 except Exception as rm_exc:
-                    if is_disposal(rm_exc):
-                        raise
+                    reraise_if_disposed(rm_exc)
                     log.debug("insert_slide_from_master could not remove the new page: %s", rm_exc)
                 raise RuntimeError("Failed to assign master page: %s" % exc) from exc
         # View follows the real slot. ``_insert_page_at(..., switch=False)``
@@ -269,8 +266,7 @@ class DrawBridge:
             try:
                 self._exchange_page_contents(pages.getByIndex(0), pages.getByIndex(1))
             except Exception as exc:
-                if is_disposal(exc):
-                    raise
+                reraise_if_disposed(exc)
                 log.exception("create_slide could not place the new page at index 0")
                 if isinstance(exc, PageExchangeRollbackError):
                     # Shapes may sit on page 1 or the temp page. Removing a page
@@ -279,8 +275,7 @@ class DrawBridge:
                 try:
                     pages.remove(pages.getByIndex(1))
                 except Exception as rm_exc:
-                    if is_disposal(rm_exc):
-                        raise
+                    reraise_if_disposed(rm_exc)
                     log.debug("create_slide could not remove the new page: %s", rm_exc)
                 raise RuntimeError("Failed to place the new slide at index 0: %s" % exc) from exc
             return pages.getByIndex(0), 0
@@ -350,8 +345,7 @@ class DrawBridge:
         try:
             copy = self.doc.duplicate(source)
         except Exception as exc:
-            if is_disposal(exc):
-                raise
+            reraise_if_disposed(exc)
             log.debug("move_slide duplicate failed: %s", exc)
             return False
         if copy is None:
@@ -360,23 +354,20 @@ class DrawBridge:
             if not self._take_page_name(source, copy):
                 log.warning("move_slide: failed to transfer the page name")
         except Exception as exc:
-            if is_disposal(exc):
-                raise
+            reraise_if_disposed(exc)
             log.debug("move_slide name transfer failed: %s", exc)
             self._remove_page_quietly(pages, copy)
             return False
         try:
             pages.remove(source)
         except Exception as exc:
-            if is_disposal(exc):
-                raise
+            reraise_if_disposed(exc)
             log.debug("move_slide remove source failed: %s", exc)
             try:
                 if not self._take_page_name(copy, source):
                     log.warning("move_slide undo: failed to restore the page name")
             except Exception as restore_exc:
-                if is_disposal(restore_exc):
-                    raise
+                reraise_if_disposed(restore_exc)
                 log.debug("move_slide restore source name failed: %s", restore_exc)
             self._remove_page_quietly(pages, copy)
             return False
@@ -386,7 +377,8 @@ class DrawBridge:
         except Exception as exc:
             # PageExchangeRollbackError or disposal means shapes may remain on the temp page.
             # Re-raise those; return False only when rollback completed cleanly.
-            if is_disposal(exc) or isinstance(exc, PageExchangeRollbackError):
+            reraise_if_disposed(exc)
+            if isinstance(exc, PageExchangeRollbackError):
                 raise
             log.debug("move_slide reorder failed: %s", exc)
             return False
@@ -410,7 +402,8 @@ class DrawBridge:
         except Exception as exc:
             # After PageExchangeRollbackError or disposal during reorder, do not continue swapping.
             # Re-raise immediately before attempting undo exchanges.
-            if isinstance(exc, PageExchangeRollbackError) or is_disposal(exc):
+            reraise_if_disposed(exc)
+            if isinstance(exc, PageExchangeRollbackError):
                 raise
             for prev in reversed(swapped):
                 try:
@@ -418,7 +411,8 @@ class DrawBridge:
                 except Exception as undo_exc:
                     # A failed undo exchange must not fall through as a clean rollback. Stop and
                     # raise PageExchangeRollbackError unless the failure is disposal or that type.
-                    if isinstance(undo_exc, PageExchangeRollbackError) or is_disposal(undo_exc):
+                    reraise_if_disposed(undo_exc)
+                    if isinstance(undo_exc, PageExchangeRollbackError):
                         raise
                     raise PageExchangeRollbackError(
                         "Slide move could not undo a reorder step. The deck may be partially reordered. "
@@ -458,18 +452,15 @@ class DrawBridge:
                 rolled_back = self._rollback_exchange(done)
             except Exception as rollback_exc:
                 rollback_failed = True
-                if is_disposal(rollback_exc):
-                    raise
-                if is_disposal(exc):
-                    raise exc from rollback_exc
+                reraise_if_disposed(rollback_exc)
+                reraise_if_disposed(exc)
                 raise PageExchangeRollbackError(
                     "Slide exchange failed and its rollback failed. Some shapes are on the "
                     "last slide (temporary page). Original error: %s" % rollback_exc
                 ) from rollback_exc
             if not rolled_back:
                 rollback_failed = True
-                if is_disposal(exc):
-                    raise
+                reraise_if_disposed(exc)
                 raise PageExchangeRollbackError(
                     "Slide exchange failed and its rollback failed. Some shapes are on the "
                     "last slide (temporary page). Original error: %s" % exc
@@ -491,8 +482,7 @@ class DrawBridge:
         except Exception as exc:
             # Rollback failures include disposal. Re-raise disposal instead of returning False
             # so callers see DOCUMENT_DISPOSED rather than PageExchangeRollbackError.
-            if is_disposal(exc):
-                raise
+            reraise_if_disposed(exc)
             log.exception("move_slide restore exchanged pages failed")
             return False
 
@@ -509,13 +499,11 @@ class DrawBridge:
                 try:
                     dest.add(shape)
                 except Exception as exc:
-                    if is_disposal(exc):
-                        raise
+                    reraise_if_disposed(exc)
                     try:
                         src.add(shape)
                     except Exception as restore_exc:
-                        if is_disposal(restore_exc):
-                            raise
+                        reraise_if_disposed(restore_exc)
                         log.debug("move_slide return shape to source failed", exc_info=True)
                     raise
                 moved.append(shape)
@@ -525,8 +513,7 @@ class DrawBridge:
                     dest.remove(shape)
                     src.add(shape)
                 except Exception as restore_exc:
-                    if is_disposal(restore_exc):
-                        raise
+                    reraise_if_disposed(restore_exc)
                     log.debug("move_slide undo shape move failed", exc_info=True)
             raise
 
@@ -568,14 +555,12 @@ class DrawBridge:
             first.Name = name_second
             second.Name = name_first
         except Exception as exc:
-            if is_disposal(exc):
-                raise
+            reraise_if_disposed(exc)
             try:
                 first.Name = name_first
                 second.Name = name_second
             except Exception as restore_exc:
-                if is_disposal(restore_exc):
-                    raise
+                reraise_if_disposed(restore_exc)
                 log.debug("move_slide restore names failed", exc_info=True)
             raise
 
@@ -617,8 +602,7 @@ class DrawBridge:
             try:
                 self._write_page_prop(first, prop, value_first)
             except Exception as restore_exc:
-                if is_disposal(restore_exc):
-                    raise
+                reraise_if_disposed(restore_exc)
                 log.debug("move_slide restore page prop %s failed", prop, exc_info=True)
             raise
         return True
@@ -668,8 +652,7 @@ class DrawBridge:
                 try:
                     page.remove(shape)
                 except Exception as exc:
-                    if is_disposal(exc):
-                        raise
+                    reraise_if_disposed(exc)
                     return
                 removed = True
                 break
@@ -678,8 +661,7 @@ class DrawBridge:
             try:
                 count = int(page.getCount())
             except Exception as exc:
-                if is_disposal(exc):
-                    raise
+                reraise_if_disposed(exc)
                 return
 
     def _swap_notes(self, first: Any, second: Any) -> None:
@@ -705,8 +687,7 @@ class DrawBridge:
             try:
                 set_notes_text(first, text_first)
             except Exception as restore_exc:
-                if is_disposal(restore_exc):
-                    raise
+                reraise_if_disposed(restore_exc)
                 log.debug("move_slide restore notes failed", exc_info=True)
             raise
 
@@ -714,16 +695,14 @@ class DrawBridge:
         try:
             pages.remove(page)
         except Exception as exc:
-            if is_disposal(exc):
-                raise
+            reraise_if_disposed(exc)
             log.debug("move_slide rollback remove failed: %s", exc)
 
     def _take_page_name(self, source: Any, dest: Any) -> bool:
         try:
             name = str(source.Name or "")
         except Exception as exc:
-            if is_disposal(exc):
-                raise
+            reraise_if_disposed(exc)
             log.warning("move_slide: failed to read source page name: %s", exc)
             return False
         if not name:
@@ -734,21 +713,18 @@ class DrawBridge:
         try:
             source.Name = parked
         except Exception as exc:
-            if is_disposal(exc):
-                raise
+            reraise_if_disposed(exc)
             log.warning("move_slide: failed to park source page name: %s", exc)
             return False
         try:
             dest.Name = name
         except Exception as exc:
-            if is_disposal(exc):
-                raise
+            reraise_if_disposed(exc)
             log.warning("move_slide: failed to assign name to destination page: %s", exc)
             try:
                 source.Name = name
             except Exception as restore_exc:
-                if is_disposal(restore_exc):
-                    raise
+                reraise_if_disposed(restore_exc)
                 log.warning("move_slide: failed to restore original name: %s", restore_exc)
             return False
         return True
@@ -763,8 +739,7 @@ class DrawBridge:
                 page.Name = name
                 return True
         except Exception as exc:
-            if is_disposal(exc):
-                raise
+            reraise_if_disposed(exc)
             log.debug("rename_slide failed: %s", exc)
         return False
 
@@ -780,8 +755,7 @@ class DrawBridge:
                 return True
             except Exception as exc:
                 # setCurrentPage disposal must propagate, not return False as a view-switch miss.
-                if is_disposal(exc):
-                    raise
+                reraise_if_disposed(exc)
                 log.debug("set_current_page_index failed: %s", exc)
         return False
 
@@ -811,8 +785,7 @@ class DrawBridge:
         except Exception as exc:
             # get_active_page on a closed document raises disposal. Re-raise that; other
             # failures log and fall through to the default index.
-            if is_disposal(exc):
-                raise
+            reraise_if_disposed(exc)
             log.debug("get_active_page_index failed", exc_info=True)
         # Callers outside this package require an int. A total miss still
         # reports 0; an empty page and a missing getNumber() no longer do.
@@ -853,8 +826,7 @@ def find_notes_shape(notes_page: Any) -> Any | None:
             if shape_type == _NOTES_SHAPE_TYPE:
                 return shape
         except Exception as exc:
-            if is_disposal(exc):
-                raise
+            reraise_if_disposed(exc)
             continue
     return None
 

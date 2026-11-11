@@ -26,7 +26,7 @@ from typing import TYPE_CHECKING, Any, ClassVar
 
 from plugin.draw.base import ToolDrawShapeBase
 from plugin.draw.tree import build_shape_tree, coerce_control_state, find_shape_on_page, is_control_shape_type
-from plugin.framework.errors import is_disposal, uno_read
+from plugin.framework.errors import reraise_if_disposed, uno_read
 
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
@@ -137,8 +137,7 @@ def _write(fn: Any, ok: str, fail: str) -> tuple[bool, str]:
         return True, ok
     except Exception as exc:
         # Only disposal escapes; a live-document RuntimeException fails the field.
-        if is_disposal(exc):
-            raise
+        reraise_if_disposed(exc)
         return False, fail % exc
 
 
@@ -159,8 +158,7 @@ def _apply_control_value(shape: Any, value: Any) -> tuple[bool, str]:
     try:
         model = shape.Control
     except Exception as exc:
-        if is_disposal(exc):
-            raise
+        reraise_if_disposed(exc)
         return False, "ControlShape has no model: %s" % exc
     if model is None:
         return False, "ControlShape has no model."

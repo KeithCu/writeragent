@@ -21,7 +21,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any, Dict, Iterator
 
-from plugin.framework.errors import WriterAgentException, is_disposal, uno_read, uno_write
+from plugin.framework.errors import WriterAgentException, reraise_if_disposed, uno_read, uno_write
 
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
@@ -59,8 +59,7 @@ def _get_page(ctx: ToolContext, page_index: int, is_master_page: bool) -> Any:
         try:
             master = slide.MasterPage
         except Exception as e:
-            if is_disposal(e):
-                raise
+            reraise_if_disposed(e)
             raise WriterAgentException(f"Could not resolve master page for slide {page_index}: {e}", code="NO_MASTER") from e
         if master is None:
             raise WriterAgentException(f"Slide {page_index} has no master page assigned.", code="NO_MASTER")
@@ -177,15 +176,13 @@ def _get_bool(shape: Any, name: str, *, fallback_attr: bool = False) -> bool:
         if hasattr(shape, "getPropertyValue"):
             return bool(shape.getPropertyValue(name))
     except Exception as e:
-        if is_disposal(e):
-            raise
+        reraise_if_disposed(e)
         if not fallback_attr:
             return False
     try:
         return bool(getattr(shape, name, False))
     except Exception as e:
-        if is_disposal(e):
-            raise
+        reraise_if_disposed(e)
         return False
 
 
@@ -252,8 +249,7 @@ class GetHeadersFooters(ToolDrawHeaderFooterBase):
                 try:
                     props[prop_name] = page.getPropertyValue(prop_name)
                 except Exception as e:
-                    if is_disposal(e):
-                        raise
+                    reraise_if_disposed(e)
                     log.debug("Could not read property %s: %s", prop_name, e)
 
         return result
@@ -315,8 +311,7 @@ class SetHeadersFooters(ToolDrawHeaderFooterBase):
                     page.setPropertyValue(prop_name, val)
                     updated_count += 1
                 except Exception as e:
-                    if is_disposal(e):
-                        raise
+                    reraise_if_disposed(e)
                     log.debug("Could not set property %s: %s", prop_name, e)
                     failed.append(schema_key)
 

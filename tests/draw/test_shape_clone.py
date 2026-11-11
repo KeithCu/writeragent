@@ -15,6 +15,7 @@ from plugin.draw.shape_clone import (
     copy_prop,
     reimport_graphic,
 )
+from plugin.framework.errors import DocumentDisposedError
 
 
 def test_clone_shape_sets_geometry_after_add():
@@ -90,8 +91,9 @@ def test_copy_prop_disposal_propagates():
     src.getPropertyValue.side_effect = DisposedException("disposed")
     dest = MagicMock()
 
-    with pytest.raises(DisposedException):
+    with pytest.raises(DocumentDisposedError) as info:
         copy_prop(dest, src, "Position")
+    assert isinstance(info.value.__cause__, DisposedException)
 
     src_missing = MagicMock(spec=["getPropertyValue"])
     src_missing.getPropertyValue.side_effect = AttributeError("missing")
@@ -228,7 +230,7 @@ def test_reimport_graphic_disposed_propagates():
     src_shape.getPropertyValue.side_effect = DisposedException("disposed")
     dest_shape = MagicMock()
 
-    with pytest.raises(DisposedException):
+    with pytest.raises(DocumentDisposedError):
         reimport_graphic(ctx, src_shape, dest_shape)
 
 

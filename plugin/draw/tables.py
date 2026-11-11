@@ -10,7 +10,7 @@ import logging
 import re
 from typing import TYPE_CHECKING, Any, cast
 
-from plugin.framework.errors import ToolExecutionError, is_disposal
+from plugin.framework.errors import ToolExecutionError, reraise_if_disposed
 from plugin.writer.table_helpers import (
     _set_cell_string,
     edit_table_band,
@@ -37,8 +37,7 @@ def _table_model(shape: Any) -> Any | None:
         return shape.getModel()
     except Exception as exc:
         # getModel on a closed document raises disposal. Re-raise that; other errors return None.
-        if is_disposal(exc):
-            raise
+        reraise_if_disposed(exc)
         return None
 
 
@@ -48,15 +47,13 @@ def _cell_string(cell: Any) -> str:
         if val is not None:
             return str(val)
     except Exception as exc:
-        if is_disposal(exc):
-            raise
+        reraise_if_disposed(exc)
     try:
         return str(cell.getText().getString() or "")
     except Exception as exc:
         # Both reads failed. "" is an empty cell (table_get_cells), so a
         # UNO failure must not look like a blank. Disposal propagates.
-        if is_disposal(exc):
-            raise
+        reraise_if_disposed(exc)
         raise ValueError("Could not read Draw table cell: %s" % exc) from exc
 
 
@@ -86,8 +83,7 @@ def table_cells_for_shape(shape: Any) -> list[list[str]] | None:
     try:
         return get_draw_cells({"model": model})
     except Exception as exc:
-        if is_disposal(exc):
-            raise
+        reraise_if_disposed(exc)
         log.debug("table_cells_for_shape failed", exc_info=True)
         return None
 
@@ -223,8 +219,7 @@ def get_draw_cells(entry: dict[str, Any]) -> list[list[str]]:
                 row.append(_cell_string(model.getCellByPosition(c, r)))
             except Exception as exc:
                 # Read failures must not masquerade as empty cells. Disposal propagates; other errors raise.
-                if is_disposal(exc):
-                    raise
+                reraise_if_disposed(exc)
                 raise ValueError("Could not read Draw table cell at row %s col %s: %s" % (r, c, exc)) from exc
         matrix.append(row)
     return matrix
@@ -314,16 +309,14 @@ def insert_draw_table(ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
                     stage = "fill table cells"
                     written = fill_table_cells(table, data)
     except Exception as exc:
-        if is_disposal(exc):
-            raise
+        reraise_if_disposed(exc)
         if added:
             # page.add leaves a half-built table on failure; remove the shape before returning the error.
             # Disposal re-raises unchanged.
             try:
                 page.remove(shape)
             except Exception as remove_exc:
-                if is_disposal(remove_exc):
-                    raise
+                reraise_if_disposed(remove_exc)
                 log.debug("Failed to remove half-built table shape: %s", remove_exc)
         raise ToolExecutionError(f"Failed to {stage}: {exc}") from exc
 

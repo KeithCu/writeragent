@@ -25,7 +25,7 @@ from plugin.draw.base import DRAW_AND_IMPRESS
 from plugin.draw.masters import iter_masters
 from plugin.draw.tables import table_cells_for_shape, table_matrix_to_tsv
 from plugin.draw.tree import is_group, iter_shape_addresses
-from plugin.framework.errors import available_miss_details, is_disposal
+from plugin.framework.errors import available_miss_details, reraise_if_disposed
 from plugin.framework.tool import ToolBase, ToolContext
 from plugin.framework.uno_context import uno_same
 from plugin.writer.search import (
@@ -82,8 +82,7 @@ def inherit_master_from_neighbor(pages: Any, new_page: Any, insert_at: int) -> s
             # Prefer the previous slide, then the following one. Returning
             # here stopped on the first failure. Only disposal escapes;
             # a live-document RuntimeException tries the next neighbor.
-            if is_disposal(exc):
-                raise
+            reraise_if_disposed(exc)
             log.debug("inherit_master_from_neighbor failed insert_at=%s ref=%s", insert_at, ref_idx, exc_info=True)
     return ""
 
@@ -146,14 +145,12 @@ class AddSlide(ToolBase):
                 result["layout"] = apply_slide_layout(new_page, layout_name)
         except Exception as exc:
             # Only disposal escapes; a live-document RuntimeException removes the new page and reports the error.
-            if is_disposal(exc):
-                raise
+            reraise_if_disposed(exc)
             cleanup_failed = False
             try:
                 bridge.get_pages().remove(new_page)
             except Exception as rm_exc:
-                if is_disposal(rm_exc):
-                    raise
+                reraise_if_disposed(rm_exc)
                 cleanup_failed = True
                 log.debug("add_slide cleanup remove failed", exc_info=True)
             return self._tool_error(
@@ -251,8 +248,7 @@ def iter_shape_text_units(page: Any, *, table_mode: Literal["per_cell", "tsv"] =
         try:
             text = shape.getString()
         except Exception as exc:
-            if is_disposal(exc):
-                raise
+            reraise_if_disposed(exc)
             log.debug("iter_shape_text_units getString failed", exc_info=True)
             continue
         if text and str(text).strip():

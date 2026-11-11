@@ -1008,7 +1008,7 @@ def test_move_slide_reraises_dispose_when_rollback_raises():
         patch.object(bridge, "_move_shapes", side_effect=RuntimeError("shape move failed")),
         patch.object(bridge, "_rollback_exchange", side_effect=DisposedException("disposed")),
     ):
-        with pytest.raises(DisposedException) as exc_info:
+        with pytest.raises(DocumentDisposedError) as exc_info:
             bridge.move_slide(1, 0)
         assert not isinstance(exc_info.value, PageExchangeRollbackError)
         assert len(pages.pages) == 3
@@ -1026,7 +1026,7 @@ def test_move_slide_reraises_dispose_from_the_exchange_itself():
         patch.object(bridge, "_move_shapes", side_effect=DisposedException("disposed during move")),
         patch.object(bridge, "_rollback_exchange", return_value=True),
     ):
-        with pytest.raises(DisposedException):
+        with pytest.raises(DocumentDisposedError):
             bridge.move_slide(1, 0)
         assert len(pages.pages) == 2
 
@@ -1084,7 +1084,7 @@ def test_set_current_page_index_reraises_dispose():
     ctrl_disposed.setCurrentPage.side_effect = DisposedException("controller disposed")
     doc_disposed = _ViewDoc(pages, ctrl_disposed)
     bridge_disposed = DrawBridge(doc_disposed)
-    with pytest.raises(DisposedException):
+    with pytest.raises(DocumentDisposedError):
         bridge_disposed.set_current_page_index(0)
 
     ctrl_err = MagicMock()
@@ -1166,7 +1166,7 @@ def test_insert_slide_from_master_reraises_dispose_without_removing():
     doc.getMasterPages = lambda: _MasterList([master_obj])  # type: ignore[attr-defined]
 
     bridge = DrawBridge(doc)
-    with pytest.raises(DisposedException):
+    with pytest.raises(DocumentDisposedError):
         bridge.insert_slide_from_master(master_name="SpecialMaster")
     assert len(pages.pages) == 3
 
@@ -1229,9 +1229,9 @@ def test_get_active_page_calc_branch_reraises_disposed():
     from plugin.draw.bridge import DrawBridge
 
     bridge = DrawBridge(doc)
-    with pytest.raises(DisposedException):
+    with pytest.raises(DocumentDisposedError):
         bridge.get_active_page()
-    with pytest.raises(DisposedException):
+    with pytest.raises(DocumentDisposedError):
         bridge.get_active_page_index()
 
 
@@ -1332,6 +1332,31 @@ def test_get_draw_context_for_chat_speaker_notes_disposed():
 
         with pytest.raises(DocumentDisposedError):
             get_draw_context_for_chat(model, 1000, ctx=MagicMock())
+
+
+def test_get_draw_context_for_chat_shape_walk_disposed_propagates():
+    class DisposedException(Exception):
+        pass
+
+    model = MagicMock()
+    model.supportsService.side_effect = lambda s: s == "com.sun.star.presentation.PresentationDocument"
+
+    mock_page = MagicMock()
+    mock_page.getCount.return_value = 1
+    mock_page.getByIndex.side_effect = DisposedException("disposed during shape walk")
+
+    pages = MagicMock()
+    pages.getCount.return_value = 1
+    pages.getByIndex.return_value = mock_page
+    model.getDrawPages.return_value = pages
+
+    ctrl = MagicMock()
+    ctrl.getCurrentPage.return_value = mock_page
+    model.getCurrentController.return_value = ctrl
+
+    with pytest.raises(DocumentDisposedError) as info:
+        get_draw_context_for_chat(model, 1000, ctx=MagicMock())
+    assert isinstance(info.value.__cause__, DisposedException)
 
 
 def test_get_draw_context_for_chat_includes_slide_dimensions():

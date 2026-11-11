@@ -619,8 +619,9 @@ def test_copy_shapes_to_page_disposal_raises_while_runtime_exception_skips():
     dest_shape = _ScFakeShape("com.sun.star.drawing.RectangleShape")
     doc.createInstance.return_value = dest_shape
 
-    with pytest.raises(DisposedException):
+    with pytest.raises(DocumentDisposedError) as info:
         copy_shapes_to_page(src_page_disp, doc, page)
+    assert isinstance(info.value.__cause__, DisposedException)
     # Shape 1 was added before disposal raised; shape 2 was never cloned
     assert page.getCount() == 1
     shape2_ok.getPropertyValue.assert_not_called()

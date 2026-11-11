@@ -97,7 +97,7 @@ class TestGetPage:
         from unittest.mock import MagicMock, patch, PropertyMock
         import pytest
         from plugin.draw.headers_footers import _get_page
-        from plugin.framework.errors import WriterAgentException
+        from plugin.framework.errors import DocumentDisposedError
 
         class DisposedException(Exception):
             pass
@@ -110,9 +110,10 @@ class TestGetPage:
         mock_pages.getByIndex.return_value = mock_slide
         with patch("plugin.draw.headers_footers.DrawBridge") as mock_bridge_cls:
             mock_bridge_cls.return_value.resolve_page.return_value = (mock_slide, 0)
-            with pytest.raises(DisposedException) as exc_info:
+            with pytest.raises(DocumentDisposedError) as exc_info:
                 _get_page(ctx, 0, is_master_page=True)
-            assert not isinstance(exc_info.value, WriterAgentException)
+            assert exc_info.value.code == "DOCUMENT_DISPOSED"
+            assert isinstance(exc_info.value.__cause__, DisposedException)
 
 
 class TestAccessorsAndCollector:

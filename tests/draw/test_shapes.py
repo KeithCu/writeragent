@@ -24,6 +24,7 @@ from plugin.draw.shapes import (
     _try_writer_anchor_shape_before_add,
     _try_writer_invalidate_and_pump,
 )
+from plugin.framework.errors import DocumentDisposedError
 
 
 class _Pos:
@@ -949,22 +950,23 @@ def test_apply_shape_properties_former_failed_prop_arms() -> None:
 def test_clamp_shape_text_autogrow_disposal_propagates():
     shape = MagicMock()
     shape.setPropertyValue.side_effect = DisposedException("gone")
-    with pytest.raises(DisposedException):
+    with pytest.raises(DocumentDisposedError) as info:
         _clamp_shape_text_autogrow(shape)
+    assert isinstance(info.value.__cause__, DisposedException)
 
 
 def test_writer_invalidate_disposal_propagates():
     doc = MagicMock()
     doc.supportsService.return_value = True
     doc.getCurrentController.side_effect = DisposedException("gone")
-    with pytest.raises(DisposedException):
+    with pytest.raises(DocumentDisposedError):
         _try_writer_invalidate_and_pump(doc)
 
 
 def test_writer_anchor_disposal_propagates():
     doc = MagicMock()
     doc.supportsService.side_effect = DisposedException("gone")
-    with pytest.raises(DisposedException):
+    with pytest.raises(DocumentDisposedError):
         _try_writer_anchor_shape_before_add(doc, MagicMock())
 
 
