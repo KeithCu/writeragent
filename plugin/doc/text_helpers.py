@@ -252,10 +252,8 @@ def selected_text_range(controller: Any) -> Any:
             continue
         if rng is None:
             continue
-        if hasattr(rng, "supportsService"):
-            svc_val = uno_read(lambda: rng.supportsService(_DRAW_SHAPE_SERVICE), FAILED)
-            if svc_val is True or (type(svc_val) is int and svc_val == 1):
-                continue
+        if _is_draw_shape_text(rng):
+            continue
 
         if first_text_range is None:
             first_text_range = rng
@@ -448,7 +446,8 @@ def _portion_type(portion: Any) -> str | None:
 
 def _is_draw_shape_text(text_range: Any) -> bool:
     """True when text_range is a draw shape (or its XText) in Writer, Calc, Draw or Impress."""
-    return uno_read(lambda: text_range.supportsService(_DRAW_SHAPE_SERVICE) is True, False, object_type="TextRange")
+    svc_val = uno_read(lambda: text_range.supportsService(_DRAW_SHAPE_SERVICE), FAILED, object_type="TextRange")
+    return svc_val is True or (type(svc_val) is int and svc_val == 1)
 
 
 def _range_is_paragraph(text_range: Any) -> bool:
@@ -583,7 +582,9 @@ def get_string_without_tracked_deletions(text_range: Any) -> str:
         # its destructor without the SolarMutex
         # (svx/source/unodraw/unoshtxt.cxx:SvxTextEditSourceImpl::removeRange),
         # so a remote (URP) client that discards those proxies while the next call
-        # adds one corrupts the heap and aborts soffice.
+        # adds one corrupts the heap and aborts soffice. Writer shapes with an
+        # attached text box (TextBox property true) also take this path and return
+        # getString(), reading the frame text without filtering redlines.
         if _is_draw_shape_text(text_range):
             return text_range.getString()
         if _range_is_paragraph(text_range):

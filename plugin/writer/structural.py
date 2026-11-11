@@ -250,8 +250,6 @@ class GetPageObjects(ToolBase):
 
             if include_shape:
                 shape_type = shape.getShapeType().replace("com.sun.star.drawing.", "")
-                # get_string_without_tracked_deletions returns getString() for draw shapes
-                # rather than walking editeng enumerations.
                 shape_info = {"type": shape_type, "name": getattr(shape, "Name", ""), "text": get_string_without_tracked_deletions(shape).strip() if hasattr(shape, "getString") else ""}
                 shape_info["geometry"] = None
                 try:

@@ -254,9 +254,17 @@ class _Shape:
         raise AssertionError("must not enumerate")
 
 
+class _ShapeIntService(_Shape):
+    def supportsService(self, name: str) -> int:
+        return 1 if name == "com.sun.star.drawing.Shape" else 0
+
+
 def test_get_string_without_tracked_deletions_draw_shape_uses_getstring():
     shape = _Shape("alpha\nbeta")
     assert get_string_without_tracked_deletions(shape) == "alpha\nbeta"
+
+    shape_int = _ShapeIntService("gamma")
+    assert get_string_without_tracked_deletions(shape_int) == "gamma"
 
 
 def test_visible_portions_helper_continues_paint_aborts():
