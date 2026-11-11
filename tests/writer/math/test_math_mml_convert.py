@@ -49,15 +49,7 @@ def test_convert_mathml_to_starmath_rejects_non_math_root() -> None:
     assert res.error_message == "not_math_root"
 
 
-class _UnoSimulatedPropertyError(Exception):
-    """Stand-in for pyuno exception types whose __setattr__ forwards to a UNO struct."""
-
-    def __setattr__(self, name: str, value: object) -> None:
-        if name == "__traceback__":
-            raise RuntimeError(
-                f"Couldn't convert {value!r} to a UNO type; caught exception: <class 'AttributeError'>: 'traceback' object has no attribute 'getTypes'"
-            )
-        super().__setattr__(name, value)
+from tests.uno_fakes import PyUnoSimulatedException
 
 
 def test_convert_mathml_to_starmath_closes_doc_on_property_error() -> None:
@@ -65,7 +57,7 @@ def test_convert_mathml_to_starmath_closes_doc_on_property_error() -> None:
     from plugin.writer.math.math_mml_convert import convert_mathml_to_starmath
 
     mock_doc = MagicMock()
-    mock_doc.getPropertyValue.side_effect = _UnoSimulatedPropertyError(
+    mock_doc.getPropertyValue.side_effect = PyUnoSimulatedException(
         "UnknownPropertyException: Formula"
     )
     mock_desktop = MagicMock()

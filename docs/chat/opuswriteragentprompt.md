@@ -25,7 +25,7 @@
 | 13 | Header/footer contradiction removed | 2.5 | ✅ Prompt now says `target='search'` edits headers and footers. Page-domain delegation dropped. UNO test added | #3256 |
 | 14 | No table deletion as a side effect | 2.5 | 🟡 Deletion is now reported (`table_deleted`, tracked-change aware). An empty replacement that removes a table's last text still deletes it. No `allow_table_delete` opt-in found | pre-existing |
 | 15 | Literal `code` / `pre` content, no math parsing | 2.7 | ⬜ `html_import` still detects `$$`, `\(`, `\[` in content with no code-span exemption found | n/a |
-| 16 | Report every Math object created | 2.7 | ✅ `apply_document_content` reports `math_objects` on ok results when every formula converted; any failure returns `status: "error"`, `code: MATH_IMPORT_FAILED`, with `details.math_objects`, marker text still inserted | #3286 |
+| 16 | Report every Math object created | 2.7 | ✅ `apply_document_content` reports `math_objects` on ok results; any formula conversion failure reports a `MATH_IMPORT_FAILED` warning with `math_objects`, marker text still inserted | #3286 |
 | 17 | Resolve bare `#Heading` links / `$` math | 2.7 | ✅ Bare `#Heading` resolved to `#Heading\|outline` on import; complete `$...$` routed through HTML import; warnings on missing targets | #3295 |
 | 18 | Rename `clear_direct` options | 2.6 | ⬜ Still `none` / `style_props` / `all` | n/a |
 | 19 | Report removed indents on restyle / track style changes | 2.6 | ⬜ `style_unreviewed` rule still in the prompt | n/a |

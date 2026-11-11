@@ -24,7 +24,7 @@ Do **not** wrap UNO dispose as `ToolExecutionError(str(e))`. That strips dispose
 
 `if is_disposal(exc): raise` before a generic wrap ensures real disposal propagates.
 
-UNO exceptions must not be raised through a generator `@contextmanager`. `contextlib._GeneratorContextManager.__exit__` assigns `exc.__traceback__` while unwinding, and pyuno exception classes route attribute assignment into the UNO struct (cite: `pyuno/source/module/uno.py:_uno_struct__setattr__`), converting the exception into `RuntimeException: Couldn't convert <traceback object> to a UNO type`. Use a class with `__enter__`/`__exit__` instead.
+Context managers wrapping raw UNO calls that may raise pyuno exceptions must not use generator-based `@contextlib.contextmanager` if the exception needs to propagate with its real type (e.g. `with_temp_buffer` in `plugin/doc/temp_files.py` for document loads and export filters). `contextlib._GeneratorContextManager.__exit__` assigns `exc.__traceback__ = traceback` while unwinding, and pyuno exception classes route attribute assignment into the UNO struct (cite: `pyuno/source/module/uno.py:_uno_struct__setattr__`), converting the exception into `RuntimeException: Couldn't convert <traceback object> to a UNO type`. Use a class with `__enter__`/`__exit__` (such as `with_temp_buffer`) instead.
 
 ### Disposal predicate truth table
 
@@ -72,7 +72,6 @@ Code constants remain string literals across call sites. Codes are JSON wire val
 | `TABLE_IN_ANCHOR_RANGE` | error | `apply_document_content.py` | None |
 | `TABLE_BLOCK_IN_CELL` | error | Block HTML inserted in table cell (`html_import.py`) | None |
 | `TABLE_INSERT_FAILED` | error | Table creation or insertion failed (`apply_document_content.py`) | None |
-| `MATH_IMPORT_FAILED` | error | Formula conversion failed during HTML/math import (`apply_document_content.py`, `html_import_styles.py`) | None |
 | `HYPERLINK_UPDATE_FAILED` | error | Updating hyperlink URL or bookmark target failed (`apply_document_content.py`) | None |
 | `UNDO_UNAVAILABLE` | error | `apply_document_content.py`, `styles.py` | None |
 | `ROLLBACK_FAILED` | error | `apply_document_content.py`, `styles.py` | None |
@@ -83,6 +82,7 @@ Code constants remain string literals across call sites. Codes are JSON wire val
 | `PARA_PROPERTY_UNSUPPORTED` | warning | Unapplied `data-lo-para` property (`html_import_styles.attach_para_warnings`) | None |
 | `PARA_IGNORED_PARTIAL_MATCH` | warning | Partial match `data-lo-para` skip (`html_import_styles.attach_para_warnings`) | None |
 | `PARA_IGNORED_RECORDING` | warning | Tracked changes recording `data-lo-para` skip (`html_import_styles.attach_para_warnings`) | None |
+| `MATH_IMPORT_FAILED` | warning | Formula conversion failed during HTML/math import (`html_import_styles.attach_math_objects`) | None |
 
 *Naming invariant:* A code names the underlying condition, not the tool. Once shipped, a code is never renamed.
 

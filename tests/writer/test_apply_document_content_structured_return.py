@@ -75,6 +75,8 @@ def _ctx():
     return types.SimpleNamespace(
         doc=doc, ctx=MagicMock(),
         services=types.SimpleNamespace(get=lambda key, default=None: None),
+        status_callback=None,
+        send_cancellation=None,
     )
 
 
@@ -1259,7 +1261,7 @@ def test_full_document_reports_math_objects(monkeypatch):
     assert res["math_objects"] == entries
 
 
-def test_full_document_failed_math_attempt_returns_math_import_failed(monkeypatch):
+def test_full_document_failed_math_attempt_reports_math_import_failed_warning(monkeypatch):
     entries = [
         {"kind": "tex", "display_block": False, "snippet": "a", "ok": True},
         {"kind": "tex", "display_block": True, "snippet": "b", "ok": False, "error": "invalid"},
@@ -1274,12 +1276,52 @@ def test_full_document_failed_math_attempt_returns_math_import_failed(monkeypatc
     content = r"<p>\(a\)</p><p>$$b$$</p>"
     res = ApplyDocumentContent().execute(_ctx(), content=content, target="full_document")
 
-    assert res["status"] == "error"
-    assert res["code"] == "MATH_IMPORT_FAILED"
-    assert res["details"]["math_objects"] == entries
-    assert "b" in res["message"]
-    assert "invalid" in res["message"]
-    assert "math_objects" not in res
+    assert res["status"] == "ok"
+    assert res["paragraph_count"] == 2
+    assert res["headings"] == []
+    assert res["math_objects"] == entries
+    assert len(res["warnings"]) == 1
+    diag = res["warnings"][0]
+    assert diag["code"] == "MATH_IMPORT_FAILED"
+    assert diag["math_objects"] == entries
+    assert "b" in diag["message"]
+    assert "invalid" in diag["message"]
+
+
+def test_wait_mode_waits_for_review_when_math_import_fails(monkeypatch):
+    """Wait mode must still block for user review even when a formula conversion fails,
+    because the edit itself landed in the document as a tracked change.
+    """
+    entries = [
+        {"kind": "tex", "display_block": True, "snippet": r"\sqrt{", "ok": False, "error": "NoAvailableTokensError"},
+    ]
+
+    def fake_replace_full_document(doc, ctx, content, *, math_out=None):
+        if math_out is not None:
+            math_out.extend(entries)
+        return []
+
+    monkeypatch.setattr(format_mod, "replace_full_document", fake_replace_full_document)
+
+    import plugin.writer.apply_document_content as apply_mod
+    monkeypatch.setattr(apply_mod, "get_agent_edit_review_mode", lambda: "wait")
+    monkeypatch.setattr(apply_mod, "_run_on_main_thread", lambda fn: fn())
+    monkeypatch.setattr(apply_mod.main, "is_current", lambda: False)
+
+    mock_session = MagicMock()
+    mock_session.changes = [object()]
+    mock_session.record_mutation.side_effect = lambda fn, **k: fn()
+    mock_session.wait_for_review.return_value = {"complete": True, "accepted": 1, "rejected": 0}
+    monkeypatch.setattr(apply_mod, "EditReviewSession", lambda doc, ctx, enabled=True: mock_session)
+
+    res = ApplyDocumentContent().execute(_ctx(), content=r"<p>$$\sqrt{$$</p>", target="full_document")
+
+    assert res["status"] == "ok"
+    assert res["review"] == {"complete": True, "accepted": 1, "rejected": 0}
+    assert res["math_objects"] == entries
+    assert len(res["warnings"]) == 1
+    assert res["warnings"][0]["code"] == "MATH_IMPORT_FAILED"
+    mock_session.wait_for_review.assert_called_once()
 
 
 def test_full_document_plain_html_omits_math_objects(monkeypatch):

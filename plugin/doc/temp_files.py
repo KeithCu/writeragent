@@ -28,8 +28,13 @@ def _resolve_temp_dir() -> str:
 
 
 @final
-class _TempBuffer:
-    """Context manager holding a temporary file buffer on disk.
+class with_temp_buffer:
+    """Context manager that yields ``(path, file_url)`` for a temp file
+    with the correct format extension.
+
+    If *content* is not ``None`` it is written to the file.
+    *ext* overrides the file extension (e.g. ``".xhtml"`` for the read filter).
+    The file is deleted on exit.
 
     A class-based context manager avoids modifying in-flight exceptions
     during unwinding. A generator context manager assigns ``__traceback__``
@@ -66,14 +71,3 @@ class _TempBuffer:
         if path is not None:
             best_effort(lambda: os.unlink(path), "temp buffer unlink failed")
         return False
-
-
-def with_temp_buffer(content: Any = None, ext: str = ".html") -> _TempBuffer:
-    """Context manager that yields ``(path, file_url)`` for a temp file
-    with the correct format extension.
-
-    If *content* is not ``None`` it is written to the file.
-    *ext* overrides the file extension (e.g. ``".xhtml"`` for the read filter).
-    The file is deleted on exit.
-    """
-    return _TempBuffer(content=content, ext=ext)

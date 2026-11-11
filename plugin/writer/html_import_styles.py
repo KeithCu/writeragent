@@ -19,7 +19,7 @@ import re
 from urllib.parse import unquote
 from typing import TYPE_CHECKING, Any, ClassVar, final
 
-from plugin.framework.errors import Diagnostic, make_tool_error, reraise_if_disposed, uno_read
+from plugin.framework.errors import Diagnostic, reraise_if_disposed, uno_read
 from plugin.framework.uno_context import enum_has_more
 
 from . import xhtml_style_postprocess as xhtml_post
@@ -659,33 +659,44 @@ def attach_para_warnings(
 def attach_math_objects(
     result: dict[str, Any], math_objects: list[dict[str, Any]]
 ) -> dict[str, Any]:
-    """Attach attempted math object entries to an edit result.
+    """Attach attempted math object entries and diagnostics to an edit result.
 
     Only published when the edit succeeded (``status == "ok"``) and attempted at
     least one formula conversion. Empty attempts or error results are returned
     unchanged because a failed or rolled-back edit left none of these objects in
     the document. ``ok`` means a Math object was inserted into the document,
     not accepted in review; the review outcome is reported separately under
-    ``review``. If any attempt failed, the entire result is returned as a
-    ``MATH_IMPORT_FAILED`` error (analogous to ``TABLE_INSERT_FAILED``) because
-    the document now shows literal fallback text instead of the requested formula,
-    and the full attempt list is returned under ``details.math_objects``.
+    ``review``. If any formula conversion failed, a ``MATH_IMPORT_FAILED``
+    diagnostic is added to ``warnings`` while preserving the overall ``ok`` status,
+    so review workflows and surrounding edit metadata (counts, edited context)
+    remain intact.
     """
     if not math_objects or result.get("status") != "ok":
         return result
+    result["math_objects"] = list(math_objects)
     failed = [m for m in math_objects if not m.get("ok")]
     if not failed:
-        result["math_objects"] = list(math_objects)
         return result
     listing = "; ".join(
         f"{m.get('snippet', '')}: {m.get('error') or 'conversion failed'}"
         for m in failed
     )
-    return make_tool_error(
-        f"The content was written, but {len(failed)} of {len(math_objects)} formula(s) could not be converted to a Math object and stand in the document as literal '[Math import failed] <formula>' text: {listing}. Correct the formula and replace that literal text with target='search'.",
-        code=MATH_IMPORT_FAILED,
-        math_objects=list(math_objects),
-    )
+    diag: Diagnostic = {
+        "code": MATH_IMPORT_FAILED,
+        "message": (
+            f"The content was written, but {len(failed)} of {len(math_objects)} "
+            f"formula(s) could not be converted to a Math object and stand in the "
+            f"document as literal '[Math import failed] <formula>' text: {listing}. "
+            f"Correct the formula and replace that literal text with target='search'."
+        ),
+        "math_objects": list(math_objects),
+    }
+    existing = result.get("warnings")
+    if isinstance(existing, list):
+        existing.append(diag)
+    else:
+        result["warnings"] = [diag]
+    return result
 
 
 MATH_IMPORT_FAILED = "MATH_IMPORT_FAILED"

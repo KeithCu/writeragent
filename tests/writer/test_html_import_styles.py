@@ -210,9 +210,10 @@ def test_attach_math_objects_all_ok_attaches_list() -> None:
     res = html_import_styles.attach_math_objects(ok_res, entries)
     assert res["status"] == "ok"
     assert res["math_objects"] == entries
+    assert "warnings" not in res
 
 
-def test_attach_math_objects_any_failure_is_math_import_failed_error() -> None:
+def test_attach_math_objects_any_failure_is_math_import_failed_warning() -> None:
     entries = [
         {"kind": "tex", "display_block": False, "snippet": "a", "ok": True},
         {
@@ -223,13 +224,18 @@ def test_attach_math_objects_any_failure_is_math_import_failed_error() -> None:
             "error": "NoAvailableTokensError",
         },
     ]
-    ok_res = {"status": "ok", "message": "Done"}
+    ok_res = {"status": "ok", "message": "Done", "paragraph_count": 2}
     res = html_import_styles.attach_math_objects(ok_res, entries)
-    assert res["status"] == "error"
-    assert res["code"] == html_import_styles.MATH_IMPORT_FAILED
-    assert res["details"]["math_objects"] == entries
-    assert r"\sqrt{" in res["message"]
-    assert "NoAvailableTokensError" in res["message"]
+    assert res["status"] == "ok"
+    assert res["paragraph_count"] == 2
+    assert res["math_objects"] == entries
+    assert "warnings" in res
+    assert len(res["warnings"]) == 1
+    diag = res["warnings"][0]
+    assert diag["code"] == html_import_styles.MATH_IMPORT_FAILED
+    assert diag["math_objects"] == entries
+    assert r"\sqrt{" in diag["message"]
+    assert "NoAvailableTokensError" in diag["message"]
 
     err_res = {"status": "error", "message": "Failed"}
     assert html_import_styles.attach_math_objects(err_res, entries) == err_res

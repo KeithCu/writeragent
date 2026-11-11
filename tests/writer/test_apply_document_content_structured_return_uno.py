@@ -269,20 +269,22 @@ def test_end_display_tex_creates_math_object_uno(ctx, doc):
     formula = str(math_objs[0].getEmbeddedObject().Formula)
     assert "frac" in formula and "sqrt" in formula, formula
     assert "[Math import failed]" not in doc.getText().getString()
+    assert "warnings" not in res
 
 
 @native_test
 @with_native_doc("writer")
-def test_end_invalid_tex_returns_math_import_failed_uno(ctx, doc):
+def test_end_invalid_tex_reports_math_import_failed_warning_uno(ctx, doc):
     skip_windows_leftover_hidden_load("math formula Hidden _blank .mml")
     _set_body(doc, "Intro.")
     tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
     content = r"<p>Bad:</p>$$\sqrt{$$"
     res = ApplyDocumentContent().execute(tool_ctx, target="end", content=content)
-    assert res.get("status") == "error", res
-    assert res.get("code") == "MATH_IMPORT_FAILED", res
-    details = res.get("details", {})
-    math_objs_res = details.get("math_objects", [])
+    assert res.get("status") == "ok", res
+    warnings = res.get("warnings", [])
+    assert len(warnings) == 1, res
+    assert warnings[0].get("code") == "MATH_IMPORT_FAILED", res
+    math_objs_res = warnings[0].get("math_objects", [])
     assert len(math_objs_res) == 1, res
     assert math_objs_res[0].get("ok") is False, res
     assert math_objs_res[0].get("error") == "NoAvailableTokensError", res
