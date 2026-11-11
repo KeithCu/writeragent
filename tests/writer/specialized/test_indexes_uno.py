@@ -859,7 +859,7 @@ def test_list_toc_entries_reads_linked_rows_without_export_uno(ctx, doc):
 
     with patch("plugin.writer.html_export._export_xhtml", side_effect=_refuse_export), \
          patch("plugin.writer.html_export.document_to_content", side_effect=_refuse_export):
-        listed = IndexesListTocEntries().execute(tctx)
+        listed = IndexesListTocEntries().execute(tctx, include_links=True)
 
     assert listed.get("status") == "ok", listed
     assert doc.getText().getString() == before
@@ -925,7 +925,7 @@ def test_insert_toc_entry_links_a_text_table_uno(ctx, doc):
     assert inserted.get("page_from_sibling") is False, inserted
     assert doc.getTextTables().hasByName("Taula69")
 
-    listed = IndexesListTocEntries().execute(tctx)
+    listed = IndexesListTocEntries().execute(tctx, include_links=True)
     assert listed.get("status") == "ok", listed
     annex = next(row for row in listed["entries"] if "Annex cover" in row["text"])
     assert annex["hyperlink_url"] == table_url, annex
