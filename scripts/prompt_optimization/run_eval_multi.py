@@ -100,7 +100,7 @@ def _model_config_for_id(model_id: str, *, allow_unknown: bool) -> ModelConfig:
             output_cost_per_million=base.output_cost_per_million,
             notes=base.notes,
         )
-    # Claude ids route by name (ANTHROPIC_API_KEY); no catalog price.
+    # Claude ids route by name (EVAL_ANTHROPIC_API_KEY / ANTHROPIC_API_KEY); no catalog price.
     if allow_unknown or is_anthropic_model_id(model_id):
         return ModelConfig(
             openrouter_id=model_id,

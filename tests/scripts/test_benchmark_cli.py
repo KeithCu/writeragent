@@ -73,7 +73,38 @@ def test_benchmark_main_anthropic_reaches_subprocess(monkeypatch: pytest.MonkeyP
     from unittest.mock import MagicMock
     import benchmark
 
+    monkeypatch.delenv("EVAL_ANTHROPIC_API_KEY", raising=False)
     monkeypatch.setenv("ANTHROPIC_API_KEY", "ant-key")
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("WRITERAGENT_API_KEY", raising=False)
+
+    called = False
+
+    def mock_run(cmd, **kwargs):
+        nonlocal called
+        called = True
+        mock_res = MagicMock()
+        mock_res.returncode = 0
+        return mock_res
+
+    monkeypatch.setattr("subprocess.run", mock_run)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["benchmark.py", "--model", "anthropic/claude-sonnet-4.5", "--no-judge"],
+    )
+    rc = benchmark.main()
+    assert rc == 0
+    assert called
+
+
+def test_benchmark_main_eval_anthropic_reaches_subprocess(monkeypatch: pytest.MonkeyPatch) -> None:
+    from unittest.mock import MagicMock
+    import benchmark
+
+    monkeypatch.setenv("EVAL_ANTHROPIC_API_KEY", "eval-ant-key")
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.delenv("WRITERAGENT_API_KEY", raising=False)

@@ -95,6 +95,7 @@ def test_score_with_judge_llm_routes_anthropic(
     mock_client_cls: MagicMock,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setenv("EVAL_ANTHROPIC_API_KEY", "eval-ant-key")
     monkeypatch.setenv("ANTHROPIC_API_KEY", "env-ant-key")
     instance = MagicMock()
     mock_client_cls.return_value = instance
@@ -125,7 +126,7 @@ def test_score_with_judge_llm_routes_anthropic(
     mock_client_cls.reset_mock()
     instance.reset_mock()
 
-    # Call 2: Anthropic judge on OpenRouter base builds Anthropic config with env key
+    # Call 2: Anthropic judge on OpenRouter base builds Anthropic config with EVAL_ANTHROPIC_API_KEY
     score_with_judge_llm(
         endpoint="https://openrouter.ai/api/v1",
         api_key="cli-or-key",
@@ -137,8 +138,28 @@ def test_score_with_judge_llm_routes_anthropic(
     )
     cfg2 = mock_client_cls.call_args[0][0]
     assert "api.anthropic.com" in cfg2["endpoint"]
-    assert cfg2["api_key"] == "env-ant-key"
+    assert cfg2["api_key"] == "eval-ant-key"
     assert cfg2["is_openrouter"] is False
+    assert instance.request_with_tools.call_args.kwargs["model"] == "claude-sonnet-4-5"
+
+    mock_client_cls.reset_mock()
+    instance.reset_mock()
+
+    # Call 3: EVAL_ANTHROPIC_API_KEY unset falls back to ANTHROPIC_API_KEY
+    monkeypatch.delenv("EVAL_ANTHROPIC_API_KEY", raising=False)
+    score_with_judge_llm(
+        endpoint="https://openrouter.ai/api/v1",
+        api_key="cli-or-key",
+        judge_model="anthropic/claude-sonnet-4.5:nitro",
+        document_content="a",
+        user_question="q",
+        model_answer="ans",
+        task_category="structural",
+    )
+    cfg3 = mock_client_cls.call_args[0][0]
+    assert "api.anthropic.com" in cfg3["endpoint"]
+    assert cfg3["api_key"] == "env-ant-key"
+    assert cfg3["is_openrouter"] is False
     assert instance.request_with_tools.call_args.kwargs["model"] == "claude-sonnet-4-5"
 
 
