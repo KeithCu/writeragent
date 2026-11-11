@@ -407,6 +407,18 @@ def test_writer_chat_prompt_delegation_routing_local_vs_web():
     assert "Insert a Calc spreadsheet OLE in the active Writer document only" in prompt
 
 
+def test_writer_chat_prompt_domain_descriptions_do_not_address_main_chat_as_executor():
+    from plugin.doc.specialized_catalog import catalog_entries_from_base
+
+    model = MagicMock()
+    model.supportsService.return_value = False
+    prompt = get_chat_system_prompt_for_document(model)
+    assert "indexes_create kind=toc" in prompt
+    for label in ("Writer", "Calc", "Draw"):
+        for entry in catalog_entries_from_base(agent_label=label):
+            assert "yourself" not in entry["description"], entry["domain"]
+
+
 def test_delegate_anchor_rule_is_one_fixed_line():
     from plugin.framework.prompts import DELEGATE_ANCHOR_RULE
 

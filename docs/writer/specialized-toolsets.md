@@ -240,7 +240,7 @@ When `active_domain` is set, the list is that domain's specialized tools, `speci
 
 **File:** `[plugin/framework/prompts.py](../../plugin/framework/prompts.py)`
 
-Block `WRITER_SPECIALIZED_DELEGATION_TEMPLATE` is injected into `DEFAULT_CHAT_SYSTEM_PROMPT_TEMPLATE` via `get_chat_system_prompt_for_document` so the main Writer model is told **when** to call the gateway and **which** domain strings are valid.
+Block `WRITER_SPECIALIZED_DELEGATION_TEMPLATE` is injected into `DEFAULT_CHAT_SYSTEM_PROMPT_TEMPLATE` via `get_chat_system_prompt_for_document` so the main Writer model is told **when** to call the gateway and **which** domain strings are valid. Domain descriptions are read by the main chat (and MCP enum help), never by the sub-agent executor, so they must be written as routing advice to the caller; executor rules belong in `build_specialized_sub_agent_instructions` and `DELEGATE_ANCHOR_RULE`.
 
 ### 3.4 Exceptions: tools that stay on the main list
 

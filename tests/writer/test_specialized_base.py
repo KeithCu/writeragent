@@ -98,12 +98,15 @@ def test_writer_gateway_description_has_no_hardcoded_domain_list() -> None:
     assert "Also:" not in DelegateToSpecializedWriter.description
 
 
-def test_indexes_domain_description_keeps_toc_edits_in_one_task() -> None:
+def test_indexes_domain_description_tells_main_chat_to_delegate_toc_jobs() -> None:
     from plugin.writer.specialized_base import ToolWriterIndexBase
 
     desc = ToolWriterIndexBase.specialized_domain_description or ""
     assert "links only on request" in desc
-    assert "Apply TOC edits yourself" in desc
+    assert "indexes_create kind=toc" in desc
+    assert "must not rebuild a TOC with document-content edits" in desc
     assert "report entry text and level" in desc
+    assert "yourself" not in desc
     assert "internal hyperlink" not in desc
+    assert "verbatim" not in desc
 
