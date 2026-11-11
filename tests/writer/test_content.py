@@ -118,6 +118,20 @@ def test_dry_run_invalid_regex():
     assert res["status"] == "error" and res["code"] == "INVALID_REGEX"
 
 
+def test_dry_run_icu_only_regex_warns_on_shape_skip():
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+
+    ctx = _edit_ctx()
+    ctx.ctx.ServiceManager.createInstanceWithContext.return_value.searchForward.return_value.subRegExpressions = 1
+    ctx.services.get.return_value = MagicMock()
+    with patch("plugin.writer.html_import.content_has_markup", return_value=False), \
+         patch("plugin.writer.search.find_ranges_regex_case", return_value=[]):
+        res = ApplyDocumentContent().execute(
+            ctx, content=["x"], target="search", old_content=r"\p{Lu}\w+", dry_run=True, regex=True)
+    assert res["status"] == "ok"
+    assert res.get("warning") == "shape/comment text not searched: pattern uses ICU-only syntax"
+
+
 # ---- 5) position='before'/'after' contract ------------------------------------
 
 def test_position_param_validation():

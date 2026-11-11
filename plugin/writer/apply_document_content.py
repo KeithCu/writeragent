@@ -1080,8 +1080,14 @@ class ApplyDocumentContent(ToolBase):
                     return outline_err
                 row.update(fields)
             replaceable.append(row)
-        shape_hits = search_mod.sweep_draw_shape_preview_matches(ctx.doc, pattern, regex, cs, limit=search_mod.MAX_SEARCH_HITS)
-        comment_hits = search_mod.sweep_comment_preview_matches(ctx.doc, pattern, regex, cs, limit=search_mod.MAX_SEARCH_HITS)
+        shape_comment_warning: str | None = None
+        if regex and search_mod.validate_regex_pattern(pattern) is not None:
+            shape_hits = []
+            comment_hits = []
+            shape_comment_warning = "shape/comment text not searched: pattern uses ICU-only syntax"
+        else:
+            shape_hits = search_mod.sweep_draw_shape_preview_matches(ctx.doc, pattern, regex, cs, limit=search_mod.MAX_SEARCH_HITS)
+            comment_hits = search_mod.sweep_comment_preview_matches(ctx.doc, pattern, regex, cs, limit=search_mod.MAX_SEARCH_HITS)
         not_replaceable: list[dict[str, Any]] = []
         for item in shape_hits + comment_hits:
             if len(replaceable) + len(not_replaceable) >= search_mod.DEFAULT_SEARCH_RESULTS:
@@ -1109,6 +1115,8 @@ class ApplyDocumentContent(ToolBase):
                 "editable in review-off mode or via the shapes toolset."
             ),
         }
+        if shape_comment_warning is not None:
+            result["warning"] = shape_comment_warning
         if not ranges:
             res = search_mod.build_search_not_found_response(
                 ctx.doc, s, lenient=not use_opts, use_regex=regex

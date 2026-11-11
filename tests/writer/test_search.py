@@ -88,12 +88,21 @@ def test_validate_icu_regex_wraps_pattern_and_reads_result():
     assert validate_icu_regex(ctx, "([a-") == ICU_REGEX_REJECTED
 
 
-def test_find_ranges_regex_case_does_not_validate():
-    from plugin.writer.search import find_ranges_regex_case
+def test_search_in_document_icu_only_regex_warns_on_shape_skip():
+    from plugin.writer.search import SearchInDocument
 
     doc = MagicMock()
-    res = find_ranges_regex_case(doc, "([a-", True, False, all_matches=False)
-    assert res == doc.findFirst.return_value
+    doc.createSearchDescriptor.return_value = MagicMock()
+    doc.findFirst.return_value = None
+    doc.getDrawPage.return_value = []
+    doc.getTextFields.return_value.createEnumeration.return_value.hasMoreElements.return_value = False
+    ctx = MagicMock()
+    ctx.doc = doc
+    ctx.ctx.ServiceManager.createInstanceWithContext.return_value.searchForward.return_value.subRegExpressions = 1
+
+    res = SearchInDocument().execute(ctx, pattern=r"\p{Lu}\w+", regex=True)
+    assert res["status"] == "ok"
+    assert res.get("warning") == "shape/comment text not searched: pattern uses ICU-only syntax"
 
 
 def test_search_return_offsets_rejects_regex():

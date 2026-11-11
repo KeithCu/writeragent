@@ -1894,7 +1894,7 @@ class _SearchProxy:
 
         Args:
             pattern (required): Search string or regex pattern.
-            regex (optional): Use regular expression (default: false).
+            regex (optional): Use regular expression (ICU syntax, default: false).
             case_sensitive (optional): Case-sensitive match (default: false). The result includes matched_case_sensitive for the mode that ran.
             max_results (optional): Maximum results to return (default: 50). Must be a positive integer.
             sheet (optional): Sheet to search (active sheet if omitted).
@@ -1908,7 +1908,7 @@ class _SearchProxy:
         Args:
             search (required): Text or regex pattern to find.
             replace (required): Replacement text.
-            regex (optional): Use regular expression (default: false).
+            regex (optional): Use regular expression (ICU syntax, default: false).
             case_sensitive (optional): Case-sensitive match (default: false). The result includes matched_case_sensitive for the mode that ran.
             sheet (optional): Sheet to operate on (active sheet if omitted).
             all_sheets (optional): Replace across all sheets (default: false).

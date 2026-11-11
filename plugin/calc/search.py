@@ -19,15 +19,15 @@ from plugin.writer.search import (
     CASE_SENSITIVE_DESCRIPTION,
     invalid_regex_tool_message,
     resolve_case_sensitive,
-    validate_regex_pattern,
+    validate_icu_regex,
 )
 
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
 
 
-def _validate_regex(tool: ToolCalcSearchBase, pattern: str) -> dict[str, Any] | None:
-    err = validate_regex_pattern(pattern)
+def _validate_regex(tool: ToolCalcSearchBase, ctx: ToolContext, pattern: str) -> dict[str, Any] | None:
+    err = validate_icu_regex(ctx.ctx, pattern)
     if err:
         return tool._tool_error(invalid_regex_tool_message(err), code="INVALID_REGEX")
     return None
@@ -42,7 +42,7 @@ class SearchInSpreadsheet(ToolCalcSearchBase):
         "type": "object",
         "properties": {
             "pattern": {"type": "string", "description": "Search string or regex pattern."},
-            "regex": {"type": "boolean", "description": "Use regular expression (default: false)."},
+            "regex": {"type": "boolean", "description": "Use regular expression (ICU syntax, default: false)."},
             "case_sensitive": {"type": "boolean", "description": CASE_SENSITIVE_DESCRIPTION},
             "max_results": {"type": "integer", "minimum": 1, "description": "Maximum results to return (default: 50). Must be a positive integer."},
             "sheet": {"type": "string", "description": "Sheet to search (active sheet if omitted)."},
@@ -63,7 +63,7 @@ class SearchInSpreadsheet(ToolCalcSearchBase):
 
         use_regex = kwargs.get("regex", False)
         if use_regex:
-            err = _validate_regex(self, pattern)
+            err = _validate_regex(self, ctx, pattern)
             if err:
                 return err
 
@@ -93,7 +93,7 @@ class ReplaceInSpreadsheet(ToolCalcSearchBase):
         "properties": {
             "search": {"type": "string", "description": "Text or regex pattern to find."},
             "replace": {"type": "string", "description": "Replacement text."},
-            "regex": {"type": "boolean", "description": "Use regular expression (default: false)."},
+            "regex": {"type": "boolean", "description": "Use regular expression (ICU syntax, default: false)."},
             "case_sensitive": {"type": "boolean", "description": CASE_SENSITIVE_DESCRIPTION},
             "sheet": {"type": "string", "description": "Sheet to operate on (active sheet if omitted)."},
             "all_sheets": {"type": "boolean", "description": "Replace across all sheets (default: false)."},
@@ -111,7 +111,7 @@ class ReplaceInSpreadsheet(ToolCalcSearchBase):
 
         use_regex = kwargs.get("regex", False)
         if use_regex:
-            err = _validate_regex(self, search)
+            err = _validate_regex(self, ctx, search)
             if err:
                 return err
 

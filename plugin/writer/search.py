@@ -34,7 +34,7 @@ from plugin.doc.text_helpers import (
 )
 from plugin.framework.errors import reraise_if_disposed, uno_read
 from plugin.framework.tool import ToolBase, ToolBaseDummy
-from plugin.framework.uno_context import get_service_manager, uno_same
+from plugin.framework.uno_context import get_ctx, get_service_manager, uno_same
 from plugin.framework.worker_pool import run_in_background
 from plugin.writer.review_scan import document_has_tracked_deletions
 
@@ -167,14 +167,19 @@ def validate_icu_regex(ctx: Any, pattern: str) -> str | None:
     matcher; RESrchFrwrd then returns no result), so a document search cannot tell a typo from
     zero hits. Compile ".|(?:pattern)" with the TextSearch2 service and search the one-character
     text "a": the "." branch always matches, so a hit means the whole pattern, including the
-    user's part, compiled. Main thread only, like every other UNO call in this module.
+    user's part, compiled. Patterns with unclosed \\Q literal quotes or unbalanced parentheses
+    matching the wrapper may produce false negatives or false positives. Main thread only, like
+    every other UNO call in this module.
     """
     import uno
 
     smgr = get_service_manager(ctx)
     if smgr is None:
-        return ICU_REGEX_REJECTED
-    ts = cast("Any", smgr).createInstanceWithContext("com.sun.star.util.TextSearch2", ctx)
+        ctx = get_ctx()
+        smgr = get_service_manager(ctx)
+    if smgr is None:
+        return None
+    ts = smgr.createInstanceWithContext("com.sun.star.util.TextSearch2", ctx)
     opts = cast("Any", uno.createUnoStruct("com.sun.star.util.SearchOptions2"))
     opts.AlgorithmType2 = uno.getConstantByName("com.sun.star.util.SearchAlgorithms2.REGEXP")
     opts.searchString = ".|(?:%s)" % pattern
@@ -1503,18 +1508,22 @@ class SearchInDocument(ToolBase):
                 warning = "Text-model search ended early after a findNext failure; count may be incomplete."
                 break
 
-        for extra in (
-            iter_shape_hits(doc, pattern, use_regex, case_sensitive),
-            iter_comment_hits(doc, pattern, use_regex, case_sensitive),
-        ):
-            for hit, location, context in extra:
+        shape_comment_warning: str | None = None
+        if use_regex and validate_regex_pattern(pattern) is not None:
+            shape_comment_warning = "shape/comment text not searched: pattern uses ICU-only syntax"
+        else:
+            for extra in (
+                iter_shape_hits(doc, pattern, use_regex, case_sensitive),
+                iter_comment_hits(doc, pattern, use_regex, case_sensitive),
+            ):
+                for hit, location, context in extra:
+                    if total_count >= MAX_SEARCH_HITS:
+                        break
+                    total_count += 1
+                    if len(matches) < max_results:
+                        add(hit, location, context)
                 if total_count >= MAX_SEARCH_HITS:
                     break
-                total_count += 1
-                if len(matches) < max_results:
-                    add(hit, location, context)
-            if total_count >= MAX_SEARCH_HITS:
-                break
 
         if warning is None and total_count >= MAX_SEARCH_HITS:
             warning = "Search stopped after %d matches; count may be incomplete." % MAX_SEARCH_HITS
@@ -1532,6 +1541,8 @@ class SearchInDocument(ToolBase):
         if warning is not None:
             result["truncated"] = True
             result["warning"] = warning
+        elif shape_comment_warning is not None:
+            result["warning"] = shape_comment_warning
 
         returned = len(matches)
         if returned < total_count and warning is None:

@@ -65,3 +65,21 @@ def test_calc_search_replace_invalid_regex(ctx, doc):
     res_replace = _execute_calc_tool(doc, ctx, "search_replace", {"search": "[invalid", "replace": "valid", "regex": True})
     assert res_replace.get("status") == "error"
     assert res_replace.get("code") == "INVALID_REGEX"
+
+
+@native_test
+@with_native_doc("calc")
+def test_calc_search_icu_only_regex_uno(ctx, doc):
+    sheet = doc.getSheets().getByIndex(0)
+    sheet.getCellByPosition(0, 0).setString("Hello")
+    res = _execute_calc_tool(doc, ctx, "search_cells", {"pattern": r"\p{Lu}\w+", "regex": True, "case_sensitive": True})
+    assert res.get("status") == "ok", res
+    assert res.get("count") >= 1, res
+
+
+@native_test
+@with_native_doc("calc")
+def test_calc_search_python_only_regex_is_invalid_regex_uno(ctx, doc):
+    res = _execute_calc_tool(doc, ctx, "search_cells", {"pattern": r"(?P<w>Hello)", "regex": True})
+    assert res.get("status") == "error", res
+    assert res.get("code") == "INVALID_REGEX", res
