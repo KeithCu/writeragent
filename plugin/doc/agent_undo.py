@@ -17,6 +17,7 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
+from plugin.doc.compound_undo import undo_titles
 from plugin.doc.document_helpers import compute_doc_key, is_cacheable_doc_key
 from plugin.framework.errors import reraise_if_disposed
 from plugin.framework.i18n import _
@@ -34,21 +35,6 @@ _records: dict[str, _AgentUndoRecord] = {}
 _pending_before: dict[str, tuple[str, ...]] = {}
 
 
-def _undo_titles(doc: Any) -> tuple[str, ...] | None:
-    if not hasattr(doc, "getUndoManager"):
-        return None
-    try:
-        um = doc.getUndoManager()
-        if um is None:
-            return None
-        raw = um.getAllUndoActionTitles()
-        return tuple(raw or ())
-    except Exception as exc:
-        reraise_if_disposed(exc)
-        log.exception("agent_undo: could not read undo titles")
-        return None
-
-
 def compute_undo_steps(before: tuple[str, ...], after: tuple[str, ...]) -> int:
     """Smallest k>0 with after[k:] == before[:len(after) - k] (newest-first stacks)."""
     # Match prefix of ``before`` to suffix of ``after``: new undo steps sit at the
@@ -64,7 +50,7 @@ def record_agent_turn_before(doc: Any) -> None:
     key = compute_doc_key(doc)
     if not is_cacheable_doc_key(key):
         return
-    titles = _undo_titles(doc)
+    titles = undo_titles(doc)
     if titles is not None:
         _pending_before[key] = titles
 
@@ -83,7 +69,7 @@ def record_agent_turn_after(doc: Any) -> None:
     before = _pending_before.pop(key, None)
     if before is None:
         return
-    after = _undo_titles(doc)
+    after = undo_titles(doc)
     if after is None or after == before:
         return
     if compute_undo_steps(before, after) <= 0:
@@ -102,7 +88,7 @@ def undo_last_agent_edit(doc: Any) -> str:
     record = _records.get(key)
     if record is None:
         return _("There is no agent edit to undo.")
-    current = _undo_titles(doc)
+    current = undo_titles(doc)
     if current is None:
         return _("There is no agent edit to undo.")
     if current != record.after:

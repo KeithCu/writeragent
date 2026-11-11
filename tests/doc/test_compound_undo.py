@@ -1,7 +1,9 @@
 
+from unittest.mock import MagicMock
+
 import pytest
 
-from plugin.doc.compound_undo import WriterCompoundUndo, _is_undo_locked
+from plugin.doc.compound_undo import WriterCompoundUndo, _is_undo_locked, undo_titles
 from plugin.framework.errors import DocumentDisposedError
 import plugin.writer.edit_review as edit_review
 
@@ -261,3 +263,46 @@ def test_writer_compound_undo_rollback_if_top():
     assert cu_unchanged.close() is True
     assert cu_unchanged.rollback_if_top() is False
     mgr2.undo.assert_not_called()
+
+
+def test_undo_titles_returns_tuple_newest_first():
+    doc = _MockDoc()
+    doc.undo.titles = ["second", "first"]
+    assert undo_titles(doc) == ("second", "first")
+    doc.undo.titles = []
+    assert undo_titles(doc) == ()
+
+
+def test_undo_titles_none_when_unreadable():
+    assert undo_titles(object()) is None
+
+    doc_none = MagicMock()
+    doc_none.getUndoManager.return_value = None
+    assert undo_titles(doc_none) is None
+
+    doc_err = MagicMock()
+    doc_err.getUndoManager.return_value.getAllUndoActionTitles.side_effect = RuntimeError("fail")
+    assert undo_titles(doc_err) is None
+
+
+def test_undo_titles_reraises_disposal():
+    doc = MagicMock()
+    doc.getUndoManager.return_value.getAllUndoActionTitles.side_effect = _DisposedException("gone")
+    with pytest.raises(DocumentDisposedError):
+        undo_titles(doc)
+
+
+def test_writer_compound_undo_unreadable_titles_refuses_rollback():
+    doc = MagicMock()
+    mgr = MagicMock()
+    mgr.isLocked.return_value = False
+    mgr.getAllUndoActionTitles.side_effect = [RuntimeError("read failed"), ("WriterAgent: test",)]
+    doc.getUndoManager.return_value = mgr
+
+    cu = WriterCompoundUndo.try_enter(doc, "WriterAgent: test")
+    assert cu is not None
+    assert cu.entered is True
+    assert cu._titles_before is None
+    assert cu.close() is True
+    assert cu.rollback_if_top() is False
+    mgr.undo.assert_not_called()
