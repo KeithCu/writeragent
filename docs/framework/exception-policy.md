@@ -78,6 +78,8 @@ Code constants remain string literals across call sites. Codes are JSON wire val
 | `STYLE_IGNORED_PARTIAL_MATCH` | warning | Partial match style skip (`html_import.py`, `apply_document_content.py`) | `apply_style(target="search", old_content=<params.plain>, style=<style>, case_sensitive=True)` when every check in `_partial_match_style_suggestion` (`apply_document_content.py`) passes; never for `target='selection'` or while recording. |
 | `STYLE_IGNORED_RECORDING` | warning | Tracked changes recording skip (`html_import.py`, `apply_document_content.py`) | None (`apply_style` is not tracked). |
 | `PARA_PROPERTY_UNSUPPORTED` | warning | Unapplied `data-lo-para` property (`html_import_styles.attach_para_warnings`) | None |
+| `PARA_IGNORED_PARTIAL_MATCH` | warning | Partial match `data-lo-para` skip (`html_import_styles.attach_para_warnings`) | None |
+| `PARA_IGNORED_RECORDING` | warning | Tracked changes recording `data-lo-para` skip (`html_import_styles.attach_para_warnings`) | None |
 
 *Naming invariant:* A code names the underlying condition, not the tool. Once shipped, a code is never renamed.
 

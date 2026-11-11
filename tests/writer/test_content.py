@@ -605,7 +605,7 @@ def test_all_matches_hoists_plain_text_conversion():
          patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=None), \
          patch("plugin.writer.apply_document_content.capture_outline_hyperlinks") as cap_links, \
          patch.object(format_support, "plain_text_if_markup", return_value="hi") as mock_html_plain, \
-         patch.object(format_support, "replace_single_range_with_content", return_value=None):
+         patch.object(format_support, "replace_single_range_with_content", return_value=([], None)):
         cap_links.return_value.links = []
         cap_links.return_value.preserve_url = None
         res = ApplyDocumentContent().execute(
@@ -636,7 +636,7 @@ def test_search_replace_attaches_style_note_warning():
          patch("plugin.writer.search.find_all_ranges", return_value=[post_range]), \
          patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=None), \
          patch("plugin.writer.apply_document_content.capture_outline_hyperlinks") as cap_links, \
-         patch.object(format_support, "replace_single_range_with_content", return_value="STYLE_IGNORED_PARTIAL_MATCH"):
+         patch.object(format_support, "replace_single_range_with_content", return_value=([], "STYLE_IGNORED_PARTIAL_MATCH")):
         cap_links.return_value.links = []
         cap_links.return_value.preserve_url = None
         res = ApplyDocumentContent().execute(
@@ -665,11 +665,11 @@ def test_search_replace_attaches_style_note_warning():
     }
     assert_valid_suggested_call(diag["suggested_call"])
 
-    # When replace_single_range_with_content returns None, warning is absent
+    # When replace_single_range_with_content returns ([], None), warning is absent
     with patch("plugin.writer.search.find_first_range", return_value=found), \
          patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=None), \
          patch("plugin.writer.apply_document_content.capture_outline_hyperlinks") as cap_links, \
-         patch.object(format_support, "replace_single_range_with_content", return_value=None):
+         patch.object(format_support, "replace_single_range_with_content", return_value=([], None)):
         cap_links.return_value.links = []
         cap_links.return_value.preserve_url = None
         res_no_warn = ApplyDocumentContent().execute(
@@ -694,8 +694,8 @@ def test_all_matches_reports_skip_count_in_warning():
     r1.getString.return_value = "old"
     r2.getString.return_value = "old"
 
-    # First match styled (None), second match partial (STYLE_IGNORED_PARTIAL_MATCH)
-    side_effects = [None, "STYLE_IGNORED_PARTIAL_MATCH"]
+    # First match styled ([], None), second match partial ([], "STYLE_IGNORED_PARTIAL_MATCH")
+    side_effects = [([], None), ([], "STYLE_IGNORED_PARTIAL_MATCH")]
     post1, post2 = MagicMock(), MagicMock()
 
     with patch("plugin.writer.search.find_all_ranges") as mock_find, \
@@ -747,7 +747,7 @@ def test_suggested_call_omitted_when_recording_changes():
          patch("plugin.writer.record_changes.is_recording_changes", return_value=True), \
          patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=None), \
          patch("plugin.writer.apply_document_content.capture_outline_hyperlinks") as cap_links, \
-         patch.object(format_support, "replace_single_range_with_content", return_value="STYLE_IGNORED_PARTIAL_MATCH"):
+         patch.object(format_support, "replace_single_range_with_content", return_value=([], "STYLE_IGNORED_PARTIAL_MATCH")):
         cap_links.return_value.links = []
         cap_links.return_value.preserve_url = None
         res = ApplyDocumentContent().execute(
@@ -775,7 +775,7 @@ def test_suggested_call_omitted_when_style_unresolvable():
     with patch("plugin.writer.search.find_first_range", return_value=found), \
          patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=None), \
          patch("plugin.writer.apply_document_content.capture_outline_hyperlinks") as cap_links, \
-         patch.object(format_support, "replace_single_range_with_content", return_value="STYLE_IGNORED_PARTIAL_MATCH"):
+         patch.object(format_support, "replace_single_range_with_content", return_value=([], "STYLE_IGNORED_PARTIAL_MATCH")):
         cap_links.return_value.links = []
         cap_links.return_value.preserve_url = None
         res = ApplyDocumentContent().execute(
@@ -806,7 +806,7 @@ def test_suggested_call_omitted_when_text_has_newlines():
          patch("plugin.writer.search.find_all_ranges", return_value=[post_range]), \
          patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=None), \
          patch("plugin.writer.apply_document_content.capture_outline_hyperlinks") as cap_links, \
-         patch.object(format_support, "replace_single_range_with_content", return_value="STYLE_IGNORED_PARTIAL_MATCH"):
+         patch.object(format_support, "replace_single_range_with_content", return_value=([], "STYLE_IGNORED_PARTIAL_MATCH")):
         cap_links.return_value.links = []
         cap_links.return_value.preserve_url = None
         res = ApplyDocumentContent().execute(
@@ -830,7 +830,7 @@ def test_suggested_call_omitted_for_selection_target():
     ctx.doc.getStyleFamilies.return_value.getByName.return_value = fam
 
     with patch("plugin.writer.apply_document_content.selection_anchor", return_value=None), \
-         patch.object(format_support, "insert_content_at_position", return_value="STYLE_IGNORED_PARTIAL_MATCH"):
+         patch.object(format_support, "insert_content_at_position", return_value=([], "STYLE_IGNORED_PARTIAL_MATCH")):
         res = ApplyDocumentContent().execute(
             ctx, content='<p data-lo-style="Heading2">new</p>', target="selection"
         )
@@ -859,7 +859,7 @@ def test_suggested_call_omitted_when_post_match_count_mismatches():
          patch("plugin.writer.search.find_all_ranges", return_value=[m1, m2]), \
          patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=None), \
          patch("plugin.writer.apply_document_content.capture_outline_hyperlinks") as cap_links, \
-         patch.object(format_support, "replace_single_range_with_content", return_value="STYLE_IGNORED_PARTIAL_MATCH"):
+         patch.object(format_support, "replace_single_range_with_content", return_value=([], "STYLE_IGNORED_PARTIAL_MATCH")):
         cap_links.return_value.links = []
         cap_links.return_value.preserve_url = None
         res = ApplyDocumentContent().execute(
@@ -1070,8 +1070,8 @@ def test_target_end_entity_decoded_proposed_preview():
 
     ctx = _edit_ctx()
     with patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=None), \
-         patch.object(format_support, "insert_content_at_position"), \
-         patch.object(EditReviewSession, "record_mutation") as mock_record:
+         patch.object(format_support, "insert_content_at_position", return_value=([], None)), \
+         patch.object(EditReviewSession, "record_mutation", return_value=([], None)) as mock_record:
         res = ApplyDocumentContent().execute(
             ctx, target="end", content="&lt;b&gt;hi&lt;/b&gt;"
         )
@@ -1949,7 +1949,7 @@ def test_selection_table_insert_fails_when_the_doc_already_has_a_table():
     ctx = _edit_ctx()
     ctx.doc.getTextTables.return_value.getCount.side_effect = [1, 1]
     with patch("plugin.writer.apply_document_content.selection_anchor", return_value=None), \
-         patch("plugin.writer.html_import.insert_content_at_position"):
+         patch("plugin.writer.html_import.insert_content_at_position", return_value=([], None)):
         res = ApplyDocumentContent().execute(
             ctx, content="<table><tr><td>X</td></tr></table>", target="selection")
     assert res["status"] == "error"

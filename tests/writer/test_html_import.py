@@ -1809,6 +1809,27 @@ def test_lo_style_for_replaced_range_predicates():
         assert apply is False
         assert note == "STYLE_IGNORED_PARTIAL_MATCH"
 
+        para_content = '<p data-lo-para="text-align:center">content</p>'
+        # Both edges true -> apply True, note None
+        apply, note = _lo_style_for_replaced_range(model, para_content, make_paragraph_edge_range(True, True))
+        assert apply is True
+        assert note is None
+
+        # Start only -> apply False, note STYLE_IGNORED_PARTIAL_MATCH
+        apply, note = _lo_style_for_replaced_range(model, para_content, make_paragraph_edge_range(True, False))
+        assert apply is False
+        assert note == "STYLE_IGNORED_PARTIAL_MATCH"
+
+        # End only -> apply False, note STYLE_IGNORED_PARTIAL_MATCH
+        apply, note = _lo_style_for_replaced_range(model, para_content, make_paragraph_edge_range(False, True))
+        assert apply is False
+        assert note == "STYLE_IGNORED_PARTIAL_MATCH"
+
+        # Neither -> apply False, note STYLE_IGNORED_PARTIAL_MATCH
+        apply, note = _lo_style_for_replaced_range(model, para_content, make_paragraph_edge_range(False, False))
+        assert apply is False
+        assert note == "STYLE_IGNORED_PARTIAL_MATCH"
+
 
 def test_lo_style_for_replaced_range_recording():
     from plugin.writer.html_import import _lo_style_for_replaced_range
@@ -1824,6 +1845,16 @@ def test_lo_style_for_replaced_range_recording():
 
         # Geometry checked first: partial match while recording returns partial note
         apply, note = _lo_style_for_replaced_range(model, content, make_paragraph_edge_range(False, True))
+        assert apply is False
+        assert note == "STYLE_IGNORED_PARTIAL_MATCH"
+
+        para_content = '<p data-lo-para="text-align:center">content</p>'
+        # Para only while recording returns False, STYLE_IGNORED_RECORDING
+        apply, note = _lo_style_for_replaced_range(model, para_content, make_paragraph_edge_range(True, True))
+        assert apply is False
+        assert note == "STYLE_IGNORED_RECORDING"
+
+        apply, note = _lo_style_for_replaced_range(model, para_content, make_paragraph_edge_range(False, True))
         assert apply is False
         assert note == "STYLE_IGNORED_PARTIAL_MATCH"
 
@@ -1849,6 +1880,22 @@ def test_lo_style_for_replaced_range_non_block_tokens():
     # Table-only token -> (False, None)
     apply, note = _lo_style_for_replaced_range(
         model, '<table><tr><td data-lo-style="Heading2">cell</td></tr></table>', rng
+    )
+    assert apply is False
+    assert note is None
+    rng.getText.assert_not_called()
+
+    # Span para -> (False, None), range cursor methods not probed
+    rng.reset_mock()
+    apply, note = _lo_style_for_replaced_range(model, '<span data-lo-para="text-align:center">x</span>', rng)
+    assert apply is False
+    assert note is None
+    rng.getText.assert_not_called()
+
+    # Table-only para -> (False, None)
+    rng.reset_mock()
+    apply, note = _lo_style_for_replaced_range(
+        model, '<table><tr><td data-lo-para="text-align:center">cell</td></tr></table>', rng
     )
     assert apply is False
     assert note is None
@@ -2008,15 +2055,15 @@ def test_mixed_inserters_thread_math_out_and_preserve_returns():
     assert ret_full == []
     assert math_out_full == fake_attempt
 
-    # 2. insert_content_at_position(..., "end") extends math_out and returns list[str]
+    # 2. insert_content_at_position(..., "end") extends math_out and returns (list[str], None)
     math_out_end: list[dict[str, Any]] = []
     with patch.object(html_import, "_insert_mixed_html_and_math_at_cursor", side_effect=fake_mixed_math), \
          patch("plugin.writer.math.html_math_segment.html_fragment_contains_mixed_math", return_value=True):
         ret_end = html_import.insert_content_at_position(model, ctx, r"<p>\(a\)</p>", "end", math_out=math_out_end)
-    assert ret_end == []
+    assert ret_end == ([], None)
     assert math_out_end == fake_attempt
 
-    # 3. replace_single_range_with_content extends math_out and returns None/style note
+    # 3. replace_single_range_with_content extends math_out and returns (failures, style note)
     math_out_range: list[dict[str, Any]] = []
     with patch.object(html_import, "_insert_mixed_html_and_math_at_cursor", side_effect=fake_mixed_math), \
          patch("plugin.writer.table_nesting.raise_if_range_hosts_nested_table"), \
@@ -2024,8 +2071,43 @@ def test_mixed_inserters_thread_math_out_and_preserve_returns():
         ret_range = html_import.replace_single_range_with_content(
             model, text_range, r"<p>\(a\)</p>", ctx, math_out=math_out_range
         )
-    assert ret_range is None
+    assert ret_range == ([], None)
     assert math_out_range == fake_attempt
+
+
+def test_replace_single_range_returns_failures_and_inline_skipped():
+    from unittest.mock import MagicMock, patch
+    from plugin.writer import html_import
+
+    model = MagicMock()
+    ctx = MagicMock()
+    text_range = MagicMock()
+    text_obj = MagicMock()
+    text_range.getText.return_value = text_obj
+    cursor = MagicMock()
+    text_obj.createTextCursorByRange.return_value = cursor
+
+    # Block replacement returns failures from _insert_mixed_or_plain_html
+    with patch("plugin.writer.table_nesting.raise_if_range_hosts_nested_table"), \
+         patch.object(html_import, "_insert_mixed_or_plain_html", return_value=["font-size"]) as mock_ins, \
+         patch.object(html_import, "_lo_style_for_replaced_range", return_value=(True, None)):
+        failures, note = html_import.replace_single_range_with_content(
+            model, text_range, '<p data-lo-para="font-size:12pt">text</p>', ctx
+        )
+    assert failures == ["font-size"]
+    assert note is None
+    mock_ins.assert_called_once()
+
+    # Inline replacement returns property names from skipped inline tags
+    cursor.getPropertyValue.return_value = "Standard"
+    with patch("plugin.writer.table_nesting.raise_if_range_hosts_nested_table"), \
+         patch.object(html_import, "insert_html_fragment_at_cursor"), \
+         patch("plugin.writer.record_changes.is_recording_changes", return_value=False):
+        failures_inline, note_inline = html_import.replace_single_range_with_content(
+            model, text_range, '<span data-lo-para="text-align:center; font-size:10pt">inline</span>', ctx
+        )
+    assert failures_inline == ["text-align", "font-size"]
+    assert note_inline is None
 
 
 def test_plain_html_leaves_math_out_empty():

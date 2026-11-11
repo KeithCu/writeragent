@@ -545,11 +545,18 @@ StyleSkipCode = Literal["STYLE_IGNORED_PARTIAL_MATCH", "STYLE_IGNORED_RECORDING"
 def _lo_style_for_replaced_range(
     model: Any, content: str, text_range: Any
 ) -> tuple[bool, StyleSkipCode | None]:
-    """Determine whether to apply block data-lo-style on a replaced range, or warn if skipped."""
-    if not content or "data-lo-style" not in content:
+    """Determine whether to apply block data-lo-style or data-lo-para on a replaced range.
+
+    Both attributes require the replaced range to cover whole paragraphs and Track Changes
+    to be off, so neighbor text is not restyled and tracked deletions are not converted
+    into formatting changes. A skip code is returned when whole-paragraph or recording checks
+    fail so callers can report specific warnings for data-lo-style and data-lo-para.
+    """
+    if not content or ("data-lo-style" not in content and "data-lo-para" not in content):
         return False, None
-    _clean, styles, _paras, _skipped = html_import_styles.extract_block_lo_styles(content)
-    if not any(styles):
+    _clean, styles, paras, _skipped = html_import_styles.extract_block_lo_styles(content)
+    has_style = any(styles)
+    if not has_style and not any(paras):
         return False, None
     if not _range_covers_whole_paragraphs(text_range):
         return False, "STYLE_IGNORED_PARTIAL_MATCH"
@@ -565,9 +572,12 @@ def insert_content_at_position(
     position: str,
     *,
     math_out: list[dict[str, Any]] | None = None,
-) -> list[str] | StyleSkipCode | None:
-    """Insert formatted content at *position* (``'beginning'``,
-    ``'end'``, or ``'selection'``) using ``insertDocumentFromURL``.
+) -> tuple[list[str], StyleSkipCode | None]:
+    """Insert formatted content at *position* (``'beginning'``, ``'end'``, or ``'selection'``).
+
+    Returns ``(unapplied_css_names, style_skip_note)``. The skip note is only populated
+    when *position* is ``'selection'`` and a ``data-lo-style`` attribute could not be applied
+    due to a partial match or tracked change recording.
     """
     with image_placeholders._keep_placeholder_images(model, content) as swapped:
         content = html_import_styles._decode_complete_character_references(swapped)
@@ -644,9 +654,7 @@ def insert_content_at_position(
         failures = _insert_mixed_or_plain_html(
             model, ctx, cursor, content, apply_styles=styled, math_out=math_out
         )
-        if position == "selection":
-            return note
-        return failures
+        return failures, note
 
 
 
@@ -748,8 +756,13 @@ def replace_single_range_with_content(
     ctx: Any,
     *,
     math_out: list[dict[str, Any]] | None = None,
-) -> StyleSkipCode | None:
-    """Replace the given text range with rendered *content* (HTML path)."""
+) -> tuple[list[str], StyleSkipCode | None]:
+    """Replace the given text range with rendered *content* (HTML path).
+
+    Returns ``(unapplied_css_names, style_skip_note)``. The style skip note is populated
+    only when a ``data-lo-style`` attribute could not be applied due to a partial match
+    or tracked change recording.
+    """
     with image_placeholders._keep_placeholder_images(model, content) as swapped:
         prepared = html_import_styles._decode_complete_character_references(swapped)
         text_obj = text_range.getText()
@@ -806,15 +819,17 @@ def replace_single_range_with_content(
                     apply_paragraph_style_preserving_direct_char(model, restore, saved_style)
 
                 best_effort(restore_style, "replace_single_range_with_content: could not restore ParaStyleName")
-            return None
+            # Inline content has no blocks, so data-lo-para exists only on stripped inline tags.
+            _clean, _styles, _paras, skipped = html_import_styles.extract_block_lo_styles(prepared)
+            return (html_import_styles.declared_para_names(skipped), None)
         else:
             # A whole-paragraph range has no leftover text in host paragraphs, so data-lo-style
-            # can safely be applied post-import. A partial range leaves neighbor text that would
-            # be restyled by the block style, and recording tracked changes leaves the old text
-            # as a deletion that a paragraph style would turn into a format change; both skip
+            # and data-lo-para can safely be applied post-import. A partial range leaves neighbor text
+            # that would be restyled by the block style, and recording tracked changes leaves the old
+            # text as a deletion that a paragraph style would turn into a format change; both skip
             # styling and warn.
             try:
-                _insert_mixed_or_plain_html(
+                failures = _insert_mixed_or_plain_html(
                     model, ctx, cursor, prepared, apply_styles=apply_styles, math_out=math_out
                 )
             except Exception as e:
@@ -830,7 +845,7 @@ def replace_single_range_with_content(
                         code="TABLE_BLOCK_IN_CELL",
                     ) from e
                 raise
-            return note
+            return failures, note
 
 
 
