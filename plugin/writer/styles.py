@@ -168,8 +168,9 @@ def apply_paragraph_style_preserving_direct_char(
     (LibreOffice 26.2). It *does* drop the paragraph's direct Para* (margins, alignment, first-line
     indent) — so re-applying Standard does not keep a hand-set quote indent. Clearing a Char*
     override is never a side effect to rely on; see _reset_properties_to_default.
-    ``getPropertyState`` is unreliable at the text-portion level, so overrides are
-    detected by VALUE (Char* differs from the paragraph's current style default).
+    ``getPropertyState`` is unreliable at the text-portion level (except for hint-level
+    overrides on hyperlinks, see ``read_link_look`` in ``hyperlink_fixup``), so overrides
+    are detected by VALUE (Char* differs from the paragraph's current style default).
 
     *clear_direct* decides what happens to those captured overrides. The helper default is
     ``"none"`` so HTML import / style-restore callers keep inline fonts; ``apply_style``

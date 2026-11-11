@@ -21,7 +21,8 @@ call ``update()`` or export the document. ``indexes_update_all`` still rebuilds
 a TOC and drops customized formatting. Outline ``HyperLinkURL`` on refresh goes through
 ``hyperlink_fixup``, which skips a title-only URL rewrite when the whole-span
 write already set it. Insert sets ``#…|outline`` or ``#Name|table`` on the new
-row only. A table URL is the text table's name, not the visible title, so
+row only, cloning the sibling's link character styles and only its direct character formatting.
+A table URL is the text table's name, not the visible title, so
 refresh does not rewrite it.
 """
 
@@ -33,6 +34,7 @@ from plugin.framework.errors import reraise_if_disposed, uno_read
 from plugin.framework.uno_context import create_property_value
 
 from plugin.writer.html_import import content_has_markup
+from plugin.writer.hyperlink_fixup import LINK_STYLE_PROPS, read_link_look, write_link_look
 from plugin.writer.specialized_base import (
     ToolWriterIndexBase,
     enum_param,
@@ -639,13 +641,17 @@ _CLONED_CHAR_PROPS = (
 )
 
 
-def _char_props(para: Any) -> dict[str, Any]:
-    """Character properties of the sibling row's first text portion.
+def _char_props(para: Any, with_link: bool) -> dict[str, Any]:
+    """Direct character properties and link character styles of the sibling row's first text portion.
 
-    Written back on the same cursor that sets ``HyperLinkURL``. Assigning the
-    URL paints Internet-link defaults (navy + single underline); the sibling's
-    colour and underline have to go on that cursor or the new row will not
-    match a customized TOC.
+    Copies only direct formatting overrides from the sibling portion; inherited style
+    values are not copied as direct attributes. When *with_link* is true, the sibling's
+    link character styles (UnvisitedCharStyleName / VisitedCharStyleName) are copied so
+    the new link inherits appearance identically without painting default Internet Link styles.
+    When *with_link* is false, link style properties are dropped so an unlinked row does not
+    create an empty hyperlink. When an inserted row specifies a different outline level,
+    setting that level's Contents N paragraph style resets paragraph-level direct formatting
+    so the new row takes that level's style look.
     """
     props: dict[str, Any] = {}
     portions: Any = uno_read(lambda: para.createEnumeration(), None)
@@ -654,12 +660,10 @@ def _char_props(para: Any) -> dict[str, Any]:
         chunk = uno_read(lambda: (portion.getString() or "") if portion.getPropertyValue("TextPortionType") == "Text" else "", "")
         if not isinstance(chunk, str) or not chunk:
             continue
-        for name in _CLONED_CHAR_PROPS:
-            # Unknown on this portion type; disposal is not an unknown property.
-            value = uno_read(lambda: portion.getPropertyValue(name), None)
-            if value is None:
-                continue
-            props[name] = value
+        props = read_link_look(portion, _CLONED_CHAR_PROPS)
+        if not with_link:
+            for key in LINK_STYLE_PROPS:
+                props.pop(key, None)
         break
     return props
 
@@ -747,9 +751,7 @@ def _insert_toc_paragraph(
     para = _select_paragraph(para)
     if url:
         para.setPropertyValue("HyperLinkURL", url)
-    for name, value in char_props.items():
-        # A property this paragraph rejects is skipped; disposal rolls the insert back.
-        uno_read(lambda: para.setPropertyValue(name, value), None)
+    write_link_look(para, char_props)
     lived = para.getString() or ""
     return lived if isinstance(lived, str) else new_text
 
@@ -1142,7 +1144,7 @@ class IndexesInsertTocEntry(ToolWriterIndexBase):
         # Snapshot before the edit. The sibling paragraph object is not stable
         # once a row is inserted beside it.
         tab_stops = _snapshot_tab_stops(ref) if copy_tabs else None
-        char_props = _char_props(ref) if ref_is_contents else {}
+        char_props = _char_props(ref, bool(url)) if ref_is_contents else {}
         preview: dict[str, Any] = {
             "text": sibling_text[:160],
             "text_after": line[:160],
