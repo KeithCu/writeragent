@@ -675,7 +675,7 @@ def attach_math_objects(
 LINK_TARGET_NOT_FOUND = "LINK_TARGET_NOT_FOUND"
 
 _HREF_FRAGMENT_RE = re.compile(r'(<a\b[^>]*?\bhref=)(["\'])#([^"\']*)\2', re.IGNORECASE)
-_ID_NAME_RE = re.compile(r'\b(?:id|name)=(["\'])(.*?)\1', re.IGNORECASE)
+_ID_NAME_RE = re.compile(r'(?<![-\w])(?:id|name)=(["\'])(.*?)\1', re.IGNORECASE)
 
 
 def has_bare_fragment_links(content: str) -> bool:
@@ -704,19 +704,21 @@ def resolve_heading_links(
 
     # Targets matching an element id or anchor name within written HTML are preserved so
     # bookmark-based jumps succeed natively (sw/source/filter/html/htmlgrin.cxx:1370 InsertBookmark).
-    id_names: set[str] = {m.group(2) for m in _ID_NAME_RE.finditer(content)}
+    id_names: set[str] = {
+        " ".join(unquote(html_mod.unescape(m.group(2))).split())
+        for m in _ID_NAME_RE.finditer(content)
+    }
 
-    # Build normalized heading lookup table. When headings collide, written headings take
-    # precedence over existing document headings.
-    heading_map: dict[str, str] = {}
-    for h in written_heading_texts(content):
-        norm = " ".join(h.split())
-        if norm and norm not in heading_map:
-            heading_map[norm] = norm
-    for h in document_headings:
-        norm = " ".join(h.split())
-        if norm and norm not in heading_map:
-            heading_map[norm] = norm
+    # Collect normalized heading texts from written content and document headings.
+    heading_set: set[str] = {
+        " ".join(h.split())
+        for h in written_heading_texts(content)
+    }
+    heading_set.update(
+        " ".join(h.split())
+        for h in document_headings
+    )
+    heading_set.discard("")
 
     diagnostics: list[Diagnostic] = []
     seen_missing: set[str] = set()
@@ -737,18 +739,17 @@ def resolve_heading_links(
         if not name or name in id_names or is_bookmark(name):
             return m.group(0)
 
-        if name in heading_map:
-            url_text = heading_map[name]
-            escaped = html_mod.escape(url_text, quote=True)
+        if name in heading_set:
+            escaped = html_mod.escape(name, quote=True)
             return f"{prefix}{quote}#{escaped}|outline{quote}"
 
-        if frag not in seen_missing:
-            seen_missing.add(frag)
+        if name not in seen_missing:
+            seen_missing.add(name)
             diagnostics.append({
                 "code": LINK_TARGET_NOT_FOUND,
-                "link_target": f"#{frag}",
+                "link_target": f"#{name}",
                 "message": (
-                    f'Link target "#{frag}" matches no heading or bookmark and will not jump anywhere. '
+                    f'Link target "#{name}" matches no heading or bookmark and will not jump anywhere. '
                     'Use the exact heading text, href="#Heading text|outline", or give the target element '
                     'an id and link to that.'
                 ),

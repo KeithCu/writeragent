@@ -134,6 +134,45 @@ def test_resolve_heading_links_case_mismatch_and_deduplication() -> None:
     }
 
 
+def test_resolve_heading_links_entity_in_id_exempted() -> None:
+    """id attribute containing entities matches decoded fragment without warning."""
+    content = '<h2 id="a&amp;b">Title</h2><p><a href="#a&amp;b">Link</a></p>'
+    rewritten, diags = html_import_styles.resolve_heading_links(
+        content,
+        [],
+        is_bookmark=lambda _name: False,
+    )
+    assert diags == []
+    assert rewritten == content
+
+
+def test_resolve_heading_links_data_id_not_matched_as_id() -> None:
+    """data-id or data-name attributes are not mistaken for target id/name."""
+    content = '<p data-id="target" data-name="target"><a href="#target">Link</a></p>'
+    rewritten, diags = html_import_styles.resolve_heading_links(
+        content,
+        [],
+        is_bookmark=lambda _name: False,
+    )
+    assert rewritten == content
+    assert len(diags) == 1
+    assert diags[0]["code"] == html_import_styles.LINK_TARGET_NOT_FOUND
+    assert diags[0]["link_target"] == "#target"
+
+
+def test_resolve_heading_links_deduplicates_encoded_and_plain_fragment() -> None:
+    """Distinct encoded representations of the same target fragment deduplicate to one warning."""
+    content = '<p><a href="#My%20Heading">Link 1</a> and <a href="#My Heading">Link 2</a></p>'
+    rewritten, diags = html_import_styles.resolve_heading_links(
+        content,
+        [],
+        is_bookmark=lambda _name: False,
+    )
+    assert rewritten == content
+    assert len(diags) == 1
+    assert diags[0]["link_target"] == "#My Heading"
+
+
 def test_attach_link_warnings() -> None:
     """Diagnostics are attached to successful results and ignored on errors."""
     diags = [

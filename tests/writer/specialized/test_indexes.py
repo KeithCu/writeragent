@@ -856,6 +856,23 @@ def test_insert_toc_entry_collapses_newlines():
         assert res.get("hyperlink_url") == "#target|outline"
 
 
+def test_insert_toc_entry_accepts_dollar_math_title():
+    """TOC entry tools accept plain text containing single-dollar math ($n$)."""
+    tool = IndexesInsertTocEntry()
+    ctx = MagicMock()
+    doc = ctx.doc
+    doc.getDocumentIndexes.return_value.getCount.return_value = 1
+    idx = MagicMock()
+    idx.getServiceName.return_value = "com.sun.star.text.ContentIndex"
+    doc.getDocumentIndexes.return_value.getByIndex.return_value = idx
+
+    sibling = MagicMock()
+    sibling.getString.return_value = "Title\t3"
+    with patch("plugin.writer.specialized.indexes._paragraphs_in_anchor", return_value=[sibling]):
+        res = tool.execute(ctx, content="The $n$-body problem", dry_run=True)
+        assert res["status"] == "ok"
+
+
 def test_insert_toc_entry_position_is_schema_enum():
     tool = IndexesInsertTocEntry()
     ok, message = tool.validate(content="Gamma", position="sideways")

@@ -1374,9 +1374,9 @@ class ApplyDocumentContent(ToolBase):
         # styles and headings across the span do not bleed into the new text. Single-line plain
         # anchor text remains unwrapped so mid-paragraph edits stay on the inline path without splitting
         # the host paragraph. Entities are left intact here because the HTML parser decodes them during import.
-        use_preserve = (not format_support.content_has_markup(content)) and anchor is None
+        use_preserve = (not format_support.content_needs_html_import(content)) and anchor is None
 
-        if not format_support.content_has_markup(content):
+        if not format_support.content_needs_html_import(content):
             content = content.replace("\\n", "\n").replace("\\t", "\t")
             if anchor is not None and not format_support.html_fragment_contains_mixed_math(content):
                 if "\n" in content:
