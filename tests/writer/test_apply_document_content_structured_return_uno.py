@@ -202,7 +202,12 @@ def test_search_replace_icu_only_regex_edits_body_uno(ctx, doc):
     _set_body(doc, "alpha Foo beta")
     tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
     res = ApplyDocumentContent().execute(
-        tool_ctx, target="search", old_content=r"\p{Lu}\w+", content="BAR", regex=True
+        tool_ctx,
+        target="search",
+        old_content=r"\p{Lu}\w+",
+        content="BAR",
+        regex=True,
+        case_sensitive=True,
     )
     assert res.get("status") == "ok", res
     assert res.get("replaced_count") == 1, res
@@ -228,7 +233,12 @@ def test_dry_run_icu_only_regex_counts_uno(ctx, doc):
     _set_body(doc, "alpha Foo beta")
     tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
     res = ApplyDocumentContent().execute(
-        tool_ctx, target="search", old_content=r"\p{Lu}\w+", dry_run=True, regex=True
+        tool_ctx,
+        target="search",
+        old_content=r"\p{Lu}\w+",
+        dry_run=True,
+        regex=True,
+        case_sensitive=True,
     )
     assert res.get("status") == "ok", res
     assert res.get("count") == 1, res

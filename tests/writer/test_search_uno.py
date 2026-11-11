@@ -185,7 +185,7 @@ def test_search_in_document_python_only_regex_is_invalid_regex_uno(ctx, doc):
     assert res["status"] == "error"
     assert res["code"] == "INVALID_REGEX"
     assert "(?<name>...)" in res["message"]
-    assert res["count"] == 0
+    assert res.get("count", res.get("details", {}).get("count")) == 0
 
 
 @native_test
