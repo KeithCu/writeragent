@@ -58,6 +58,22 @@ def test_full_config_mirrors_pyproject_scope_and_rules() -> None:
         assert full[key] == daily[key], key
 
 
+def test_pyspector_skipped_on_windows_cpython_313() -> None:
+    """Default uv sync must not compile pyspector's Rust sdist on Windows 3.13.
+
+    PyPI 0.2.x has no cp313 win_amd64 wheel. Linking the sdist needs
+    kernel32.lib, which is missing when the Windows SDK is not installed.
+    """
+    data = tomllib.loads(PYPROJECT.read_text(encoding="utf-8"))
+    dev = data["dependency-groups"]["dev"]
+    specs = [item for item in dev if isinstance(item, str) and item.startswith("pyspector")]
+    assert specs == ["pyspector>=0.2.1; sys_platform != 'win32' or python_version < '3.13'"]
+    text = MAKEFILE.read_text(encoding="utf-8")
+    assert "ifeq ($(OS),Windows_NT)" in text
+    assert "pyspector not installed — skipped" in text
+    assert "pyspector not found — run: uv sync" in text
+
+
 def test_makefile_typecheck_full_uses_committed_json() -> None:
     text = MAKEFILE.read_text(encoding="utf-8")
     assert "basedpyright-full-run" in text

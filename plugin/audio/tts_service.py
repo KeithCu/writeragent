@@ -526,19 +526,51 @@ def sentences_for_speech(text: str, ctx: Any) -> list[str]:
     return [stripped] if stripped else []
 
 
+# SoundPlayer opens WAV only. Endpoint speech prefers MP3, so that suffix
+# goes through WMPlayer.OCX (no C# compilation). The path stays in WA_AUDIO_PATH;
+# any error or failed start exits 1 and the caller falls back to SAPI.
+_WIN_MP3_PLAYER = (
+    "$ErrorActionPreference = 'Stop'; "
+    "try { "
+    "$wmp = New-Object -ComObject WMPlayer.OCX; "
+    "try { "
+    "$wmp.URL = $env:WA_AUDIO_PATH; "
+    "$wmp.controls.play(); "
+    "$started = $false; "
+    "$waited = 0; "
+    "while (-not $started -and $wmp.playState -ne 8) { "
+    "if ($wmp.Error.errorCount -gt 0) { exit 1 } "
+    "if ($wmp.playState -eq 3) { $started = $true; break } "
+    "if ($waited -ge 5000) { exit 1 } "
+    "Start-Sleep -Milliseconds 50; "
+    "$waited += 50 "
+    "} "
+    "while ($wmp.playState -in 3, 6, 7, 9) { "
+    "if ($wmp.Error.errorCount -gt 0) { exit 1 } "
+    "Start-Sleep -Milliseconds 50 "
+    "} "
+    "if ($wmp.Error.errorCount -gt 0) { exit 1 } "
+    "if (-not $started -and $wmp.playState -ne 8) { exit 1 } "
+    "} finally { $wmp.close() } "
+    "exit 0 "
+    "} catch { exit 1 }"
+)
+_WIN_WAV_PLAYER = "(New-Object Media.SoundPlayer $env:WA_AUDIO_PATH).PlaySync()"
+
+
+def _windows_player_command(file_path: str) -> tuple[str, list[str], dict[str, str]]:
+    """PowerShell playback for one clip. MP3 uses WMPlayer.OCX; WAV uses SoundPlayer."""
+    script = _WIN_MP3_PLAYER if os.path.splitext(file_path)[1].lower() == ".mp3" else _WIN_WAV_PLAYER
+    cmd = ["powershell", "-NoProfile", "-Command", script]
+    return ("powershell", cmd, {**os.environ, "WA_AUDIO_PATH": file_path})
+
+
 def _get_player_candidates(file_path: str) -> list[tuple[str, list[str], dict[str, str] | None]]:
     """Determine candidate audio player commands ordered by file format compatibility."""
     if sys.platform == "darwin":
         return [("afplay", ["afplay", file_path], None)]
     if sys.platform == "win32":
-        ps_cmd = [
-            "powershell",
-            "-NoProfile",
-            "-Command",
-            "(New-Object Media.SoundPlayer $env:WA_AUDIO_PATH).PlaySync()",
-        ]
-        env = {**os.environ, "WA_AUDIO_PATH": file_path}
-        return [("powershell", ps_cmd, env)]
+        return [_windows_player_command(file_path)]
 
     # Linux / Unix
     suffix = os.path.splitext(file_path)[1].lower()
@@ -566,7 +598,7 @@ def _get_player_candidates(file_path: str) -> list[tuple[str, list[str], dict[st
 def _play_audio_file(file_path: str, cancel: SendCancellation) -> bool:
     """Play an audio file. True only when a player exits 0.
 
-    Callers fall back to OS speech when this returns False and the utterance was not cancelled. False distinguishes missing players (e.g. Windows cannot play mp3) from success.
+    Callers fall back to OS speech when this returns False and the utterance was not cancelled. False distinguishes a player that exited non-zero from success.
     """
     candidates = _get_player_candidates(file_path)
     if not candidates:

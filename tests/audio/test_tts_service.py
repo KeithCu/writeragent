@@ -956,13 +956,55 @@ def test_play_audio_file_windows_path_not_in_script(mock_popen):
     from plugin.audio.tts_service import _play_audio_file
 
     cancel = SendCancellation()
-    path = 'C:\\Users\\o"neil $x\\clip.wav'
+    path = "C:\\Users\\o'neil $x\\clip.wav"
     with patch("sys.platform", "win32"):
         _play_audio_file(path, cancel)
     cmd = mock_popen.call_args.args[0]
     assert path not in " ".join(cmd)
     assert "$env:WA_AUDIO_PATH" in cmd[-1]
+    assert "SoundPlayer" in cmd[-1]
+    assert "WMPlayer.OCX" not in cmd[-1]
     assert mock_popen.call_args.kwargs["env"]["WA_AUDIO_PATH"] == path
+
+    mock_popen.reset_mock()
+    mp3 = "C:\\Users\\o'neil $x\\clip.mp3"
+    with patch("sys.platform", "win32"):
+        _play_audio_file(mp3, cancel)
+    mp3_cmd = mock_popen.call_args.args[0]
+    assert mp3 not in " ".join(mp3_cmd)
+    assert "WMPlayer.OCX" in mp3_cmd[-1]
+    assert "Add-Type" not in mp3_cmd[-1]
+    assert "SoundPlayer" not in mp3_cmd[-1]
+    assert "$ErrorActionPreference = 'Stop'" in mp3_cmd[-1]
+    assert "try {" in mp3_cmd[-1]
+    assert "catch { exit 1 }" in mp3_cmd[-1]
+    assert "$env:WA_AUDIO_PATH" in mp3_cmd[-1]
+    assert "$wmp.controls.play()" in mp3_cmd[-1]
+    assert "while (-not $started" in mp3_cmd[-1]
+    assert "while ($wmp.playState -in 3, 6, 7, 9)" in mp3_cmd[-1]
+    assert '"' not in mp3_cmd[-1]
+    assert mock_popen.call_args.kwargs["env"]["WA_AUDIO_PATH"] == mp3
+
+
+def test_windows_player_nonzero_exit_triggers_os_fallback():
+    """A non-zero exit from the Windows MP3 player falls back to OS speech."""
+    import plugin.audio.tts_service as tts
+    from plugin.audio.tts_endpoint import _EndpointClip
+
+    utt = tts._begin_utterance()
+    mock_proc = MagicMock()
+    mock_proc.wait.return_value = 1
+
+    try:
+        with patch("sys.platform", "win32"), \
+             patch("plugin.audio.tts_service.download_endpoint_speech", return_value=_EndpointClip(b"ID3fake", ".mp3")), \
+             patch("plugin.audio.tts_service._popen_for_speech", return_value=mock_proc), \
+             patch("plugin.audio.tts_service._speak_system") as mock_system:
+            tts._speak_endpoint("Hello world.", "https://example.com/api", "key", cancel=utt.scope)
+        mock_system.assert_called_once()
+        assert mock_system.call_args.args[0] == "Hello world."
+    finally:
+        tts.stop_speech()
 
 
 def test_piper_timeout_scaling_and_reap(tmp_path):
