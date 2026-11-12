@@ -842,8 +842,8 @@ def test_outer_turn_is_peer_work_active_query_text_returns_true():
     turn = begin_send_turn(listener)
     turn.active_query_text = "[Peer work from: writer_uid] Please format table"
 
-    with patch("plugin.framework.uno_context.get_runtime_uid", return_value="doc_uid_123"), \
-         patch("plugin.doc.live_panels.get_live_panel", return_value=panel), \
+    with patch("plugin.doc.specialized_base.get_runtime_uid", return_value="doc_uid_123"), \
+         patch("plugin.doc.specialized_base.get_live_panel", return_value=panel), \
          patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn: fn()):
         res = _outer_turn_is_peer_work(ctx)
 

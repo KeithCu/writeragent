@@ -49,9 +49,16 @@ from plugin.doc.specialized_catalog import (
 )
 from plugin.framework.i18n import _
 from plugin.chatbot.smol_agent import InnerCallRecorder, run_inner_tool_agent
-from plugin.doc.peer_message import PEER_RESULT_TOOL_NAME, PEER_TOOL_NAMES
+from plugin.chatbot.web_research_chat import document_open_step_chat_text
+# Module imports, not name imports: tests patch plugin.doc.document_research.*
+# and plugin.doc.peer_message.* at the owner, and peer_message.list_v1_peers
+# calls document_research too, so one owner-path patch covers this gateway and
+# peer_message in the same delegated call.
+from plugin.doc import document_research, peer_message
+from plugin.doc.live_panels import get_live_panel
 from plugin.doc.specialized_shapes_context import format_shapes_canvas_context
 from plugin.framework.queue_executor import main
+from plugin.framework.uno_context import get_runtime_uid
 
 log = logging.getLogger("writeragent.specialized")
 
@@ -65,9 +72,6 @@ def _outer_turn_is_peer_work(ctx: ToolContext) -> bool:
     entry; RuntimeUID lookup is UNO so marshal to the main thread.
     """
     def _probe() -> bool:
-        from plugin.doc.live_panels import get_live_panel
-        from plugin.framework.uno_context import get_runtime_uid
-
         doc = ctx.doc
         if doc is None:
             return False
@@ -80,6 +84,8 @@ def _outer_turn_is_peer_work(ctx: ToolContext) -> bool:
         listener = getattr(panel, "send_listener", None)
         if listener is None:
             return False
+        # Lazy: tool_loop_actions loads the chat send state machine (chat_session,
+        # compaction, memory, model_fetcher), which only this probe needs.
         from plugin.chatbot.tool_loop_actions import current_turn
 
         turn = current_turn(listener)
@@ -158,12 +164,12 @@ class _CaptureInstructionAdapter(InnerCallRecorder):
         # PEER_QUEUE_FULL, and PEER_NOT_CHAT_MODE leave both flags false.
         if (
             self._domain == "document_research"
-            and self.name in PEER_TOOL_NAMES
+            and self.name in peer_message.PEER_TOOL_NAMES
             and result.get("status") == "ok"
             and result.get("accepted") is True
         ):
             self._capture.peer_send_invoked = True
-            if self.name == PEER_RESULT_TOOL_NAME:
+            if self.name == peer_message.PEER_RESULT_TOOL_NAME:
                 self._capture.peer_result_send_invoked = True
         return result
 
@@ -185,17 +191,10 @@ def _gather_domain_tools(ctx: ToolContext, domain: str) -> tuple[list[ToolBase],
     peer_catalog = ""
     document_research_hint = ""
     if domain == "document_research":
-        from plugin.doc.document_research import filter_document_research_discovery_tools
-        from plugin.doc.peer_message import (
-            filter_peer_tools_for_specialized,
-            format_peer_catalog,
-            list_v1_peers,
-        )
-
-        tools = filter_document_research_discovery_tools(tools)
-        tools = filter_peer_tools_for_specialized(tools, ctx.ctx, ctx.doc)
-        if any(t.name in PEER_TOOL_NAMES for t in tools):
-            peer_catalog = format_peer_catalog(list_v1_peers(ctx.ctx, ctx.doc))
+        tools = document_research.filter_document_research_discovery_tools(tools)
+        tools = peer_message.filter_peer_tools_for_specialized(tools, ctx.ctx, ctx.doc)
+        if any(t.name in peer_message.PEER_TOOL_NAMES for t in tools):
+            peer_catalog = peer_message.format_peer_catalog(peer_message.list_v1_peers(ctx.ctx, ctx.doc))
         # #673 added list_v1_peers / getRuntimeUID to this hint. Specialized
         # execute is async: gather the catalog here with get_tools, not on
         # the tool-async worker.
@@ -225,6 +224,7 @@ def _sub_agent_hints(ctx: ToolContext, domain: str, agent_label: str, document_r
     # Identity only: truthiness on a guard-proxied doc trips UNO bool on the MCP/long-running
     # worker. The spreadsheet read stays inside the lambda, on the main thread.
     if agent_label == "Calc" and ctx.doc is not None:
+        # Cross-app import: only a Calc delegate loads the calc package.
         from plugin.calc.analyzer import get_calc_context_for_chat
 
         hints.append(
@@ -236,10 +236,8 @@ def _sub_agent_hints(ctx: ToolContext, domain: str, agent_label: str, document_r
 
     hints.append(document_research_hint)
     if domain == "document_research":
-        from plugin.doc.document_research import get_open_documents
-
         open_docs = _main_thread_or_warn(
-            lambda: get_open_documents(ctx.ctx, ctx.doc),
+            lambda: document_research.get_open_documents(ctx.ctx, ctx.doc),
             "open documents",
         )
         if open_docs:
@@ -334,6 +332,9 @@ class DelegateToSpecializedBase(ToolBase):
         if not isinstance(domain, str):
             return self._tool_error(no_tools)
 
+        # The web_research, vision and embeddings imports below stay lazy: each pulls a
+        # heavy or optional stack (web cache, the OCR venv probe, the indexer's
+        # subprocess and IPC) that only its own domain uses.
         if domain == "web_research":
             from plugin.chatbot.web_research import WebResearchTool
 
@@ -387,7 +388,7 @@ class DelegateToSpecializedBase(ToolBase):
             smol_tools = [_CaptureInstructionAdapter(t, ctx, cap, domain) for t in domain_tools]
             if peer_catalog:
                 for adapter in smol_tools:
-                    if adapter.name in PEER_TOOL_NAMES:
+                    if adapter.name in peer_message.PEER_TOOL_NAMES:
                         adapter.description = (str(adapter.description or "") + " " + peer_catalog).strip()
 
             instructions = build_specialized_sub_agent_instructions(
@@ -404,8 +405,6 @@ class DelegateToSpecializedBase(ToolBase):
                 # Peer delivery is recorded in _CaptureInstructionAdapter.forward from
                 # the tool return, not from this pre-execution call.
                 if domain == "document_research" and step.name == "delegate_read_document" and ctx.chat_append_callback:
-                    from plugin.chatbot.web_research_chat import document_open_step_chat_text
-
                     val = field_from_tool_arguments(step.arguments, "path_or_name")
                     path_or_name = str(val) if val is not None else ""
                     ctx.chat_append_callback(document_open_step_chat_text(path_or_name))

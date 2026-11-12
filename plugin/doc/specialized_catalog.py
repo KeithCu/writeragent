@@ -86,6 +86,7 @@ def catalog_entries_from_base(*, agent_label: str | None = None, ctx: Any = None
         if agent_label == "Draw" and domain in IMPRESS_DRAW_SIDEBAR_ONLY_DOMAINS:
             continue
         if ctx is not None:
+            # Lazy: vision_availability loads the vision venv and scripting sandbox modules.
             from plugin.vision.vision_availability import specialized_domain_available
 
             if not specialized_domain_available(str(domain), ctx):
@@ -95,6 +96,8 @@ def catalog_entries_from_base(*, agent_label: str | None = None, ctx: Any = None
 
 
 def _special_base(agent_label: str | None) -> Any:
+    # Lazy: plugin.writer.specialized_base imports plugin.doc.specialized_base, which
+    # imports this module (import cycle); the Calc and Draw bases are cross-app.
     if agent_label == "Calc":
         from plugin.calc.base import ToolCalcSpecialBase
         return ToolCalcSpecialBase

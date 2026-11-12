@@ -1066,7 +1066,7 @@ def test_get_document_context_for_chat_writer_uno_object_error():
 
     doc = MagicMock()
     doc.supportsService.side_effect = lambda s: s == "com.sun.star.text.TextDocument"
-    with patch("plugin.doc.text_helpers._writer_char_count", side_effect=UnoObjectError("disposed")):
+    with patch("plugin.doc.text_helpers.writer_char_count", side_effect=UnoObjectError("disposed")):
         with patch("plugin.doc.text_helpers.get_selection_text", return_value="my selection"):
             res = get_document_context_for_chat(doc)
     assert "[Document text reading failed. Active selection: my selection]" in res
