@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import re
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 
@@ -23,6 +24,7 @@ from plugin.scripting.document_scripts import (
     build_scripts_list_message,
     build_xdl_script_picker_state,
     delete_document_script,
+    delete_script_from_origin,
     delete_user_script,
     document_script_display_name,
     document_scripts_identity,
@@ -36,6 +38,7 @@ from plugin.scripting.document_scripts import (
     parse_document_script_display_name,
     resolve_run_script_selection,
     resolve_script_picker_entry,
+    save_script_to_origin,
     save_selected_script,
     save_user_script,
     script_origin_is_writable,
@@ -47,6 +50,8 @@ from plugin.scripting.domain_registry import (
     ANALYSIS_SCRIPT_DISPLAY_PREFIX,
     DOC_SCRIPT_DISPLAY_PREFIX,
     SCRIPT_ORIGIN_ANALYSIS,
+    SCRIPT_ORIGIN_DOCUMENT,
+    SCRIPT_ORIGIN_USER,
     SCRIPT_ORIGIN_VISION,
     VISION_SCRIPT_DISPLAY_PREFIX,
     parse_picker_display_name,
@@ -779,7 +784,7 @@ def test_handle_editor_script_message_save_user_and_empty_name():
         mock_set.assert_any_call({"saved_python_scripts": {"Mine": "a = 1", "New": "x = 1"}})
         mock_set.assert_any_call({"last_python_script_name_writer": "New"})
         assert sent[-1]["type"] == "scripts_list"
-        assert "Saved script" in sent[-1]["status_ok_text"]
+        assert sent[-1]["status_ok_text"] == "Script 'New' saved successfully."
 
         sent.clear()
         assert handle_editor_script_message(
@@ -811,41 +816,11 @@ def test_handle_editor_script_message_save_document_script_updates_config():
         )
         mock_set.assert_called_with({"last_python_script_name_writer": "[Doc] DocReport"})
         assert sent[-1]["type"] == "scripts_list"
-        assert "Saved script 'DocReport' to this document" in sent[-1]["status_ok_text"]
+        assert sent[-1]["status_ok_text"] == "Script 'DocReport' saved to this document."
 
 
-def test_doc_save_fallback_sends_success_with_migration_note_only():
-    """A document save error that lands in My Scripts is one success string."""
-    doc = _DocWithUserDefinedProperties(_UserDefinedProperties())
-    sent: list = []
-    with patch("plugin.framework.config.get_config", side_effect=lambda k: {} if k == "saved_python_scripts" else ""), patch(
-        "plugin.framework.config.save"
-    ) as mock_set, patch(
-        "plugin.scripting.document_scripts.resolve_run_script_name_config_key",
-        return_value="last_python_script_name_writer",
-    ), patch(
-        "plugin.scripting.document_scripts.save_document_script",
-        return_value=DocumentScriptError("Document is read-only.", DocumentScriptErrorCode.READONLY),
-    ):
-        assert handle_editor_script_message(
-            "save_script",
-            {"name": "DocReport", "code": "y = 2", "origin": "document"},
-            session_doc=doc,
-            session_doc_url=None,
-            send=sent.append,
-        )
-    mock_set.assert_any_call({"saved_python_scripts": {"DocReport": "y = 2"}})
-    msg = sent[-1]
-    assert msg["type"] == "scripts_list"
-    assert "status_error_text" not in msg
-    assert (
-        msg["status_ok_text"]
-        == "Could not save 'DocReport' to this document (Document is read-only.). Saved it to My Scripts instead."
-    )
-
-
-def test_readonly_fallback_second_edit_follows_the_user_row():
-    """A read-only document save falls back to My Scripts and later edits update that copy."""
+def test_readonly_document_every_saver_fails():
+    """On a read-only document, every saver fails with the document read-only sentence and writes nothing."""
     props = _UserDefinedProperties()
     doc = _DocWithUserDefinedProperties(props)
     doc.isReadonly = MagicMock(return_value=False)
@@ -853,7 +828,7 @@ def test_readonly_fallback_second_edit_follows_the_user_row():
     doc.isReadonly.return_value = True
 
     config_store = {
-        "saved_python_scripts": {},
+        "saved_python_scripts": {"Report": "keep-me"},
         "last_python_script_name_writer": "[Doc] Report",
     }
 
@@ -877,71 +852,83 @@ def test_readonly_fallback_second_edit_follows_the_user_row():
     ):
         assert handle_editor_script_message(
             "save_script",
-            {"name": "[Doc] Report", "code": "edited-1", "origin": "document"},
+            {"name": "[Doc] Report", "code": "e1", "origin": "document"},
             session_doc=doc,
             session_doc_url=None,
             send=sent.append,
         )
-        msg1 = sent[-1]
-        assert "Saved it to My Scripts instead" in msg1.get("status_ok_text", "")
-        assert msg1.get("selected_script_name") == "Report"
-        user_section = next(s for s in msg1["sections"] if s["id"] == "user")
-        doc_section = next(s for s in msg1["sections"] if s["id"] == "document")
-        assert user_section["scripts"] == {"Report": "edited-1"}
-        assert doc_section["scripts"] == {"[Doc] Report": "old"}
+        msg = sent[-1]
+        readonly_sentence = "Document is read-only or properties cannot be written."
+        assert msg["status_error_text"] == readonly_sentence
+        assert "status_ok_text" not in msg
+        assert msg.get("selected_script_name") != "Report"
+
+        selected_err = save_selected_script(doc, "[Doc] Report", "e2")
+        assert selected_err == readonly_sentence
+
         assert get_document_scripts(doc) == {"Report": "old"}
-
-        assert handle_editor_script_message(
-            "save_script",
-            {"name": "Report", "code": "edited-2", "origin": "user"},
-            session_doc=doc,
-            session_doc_url=None,
-            send=sent.append,
-        )
-        assert config_store["saved_python_scripts"]["Report"] == "edited-2"
-        assert get_document_scripts(doc) == {"Report": "old"}
-
-        assert save_selected_script(doc, "Report", "edited-3") is None
-        assert config_store["saved_python_scripts"]["Report"] == "edited-3"
-        assert get_document_scripts(doc) == {"Report": "old"}
+        assert config_store["saved_python_scripts"] == {"Report": "keep-me"}
 
 
-def test_doc_save_fallback_does_not_overwrite_my_scripts():
-    """A document save error must not replace an existing My Scripts entry."""
-    doc = _DocWithUserDefinedProperties(_UserDefinedProperties())
-    sent: list = []
-    store = {"DocReport": "keep-me"}
+def test_save_script_to_origin_routes_by_origin():
+    props = _UserDefinedProperties()
+    doc = _DocWithUserDefinedProperties(props)
+    doc.isReadonly = MagicMock(return_value=False)
 
-    def _get_config(key: str):
+    store: dict[str, Any] = {"saved_python_scripts": {}}
+
+    def _get_config(key: str, default=None):
         if key == "saved_python_scripts":
-            return dict(store)
-        return ""
+            return dict(store["saved_python_scripts"])
+        return default
 
-    with patch("plugin.framework.config.get_config", side_effect=_get_config), patch(
-        "plugin.framework.config.save"
-    ) as mock_set, patch(
-        "plugin.scripting.document_scripts.resolve_run_script_name_config_key",
-        return_value="last_python_script_name_writer",
-    ), patch(
-        "plugin.scripting.document_scripts.save_document_script",
-        return_value=DocumentScriptError("Document is read-only.", DocumentScriptErrorCode.READONLY),
+    def _save(patch_dict, *, event_key=None):
+        store.update(patch_dict)
+
+    with (
+        patch("plugin.framework.config.get_config", side_effect=_get_config),
+        patch("plugin.framework.config.save", side_effect=_save),
     ):
-        assert handle_editor_script_message(
-            "save_script",
-            {"name": "DocReport", "code": "y = 2", "origin": "document"},
-            session_doc=doc,
-            session_doc_url=None,
-            send=sent.append,
-        )
-    written = [call.args[0] for call in mock_set.call_args_list if call.args and "saved_python_scripts" in call.args[0]]
-    assert written == []
-    msg = sent[-1]
-    assert "status_ok_text" not in msg
-    assert (
-        msg["status_error_text"]
-        == "Could not save 'DocReport' to this document (Document is read-only.). A script named 'DocReport' already exists in My Scripts."
+        assert save_script_to_origin(doc, "doc_s", SCRIPT_ORIGIN_DOCUMENT, "x = 1") is None
+        assert get_document_scripts(doc) == {"doc_s": "x = 1"}
+
+        assert save_script_to_origin(doc, "user_empty", "", "y = 2") is None
+        assert store["saved_python_scripts"]["user_empty"] == "y = 2"
+
+        assert save_script_to_origin(doc, "user_explicit", SCRIPT_ORIGIN_USER, "z = 3") is None
+        assert store["saved_python_scripts"]["user_explicit"] == "z = 3"
+
+        doc.isReadonly.return_value = True
+        err = save_script_to_origin(doc, "doc_s", SCRIPT_ORIGIN_DOCUMENT, "x = 99")
+        assert isinstance(err, DocumentScriptError) and err.code == DocumentScriptErrorCode.READONLY
+        assert get_document_scripts(doc) == {"doc_s": "x = 1"}
+        assert "doc_s" not in store["saved_python_scripts"]
+
+
+def test_delete_script_from_origin_no_document():
+    err = delete_script_from_origin(None, "A", SCRIPT_ORIGIN_DOCUMENT)
+    assert err is not None
+    assert str(err) == "No document is open."
+    assert err.code == DocumentScriptErrorCode.NO_DOCUMENT
+
+
+def test_picker_delete_document_script_success_text():
+    props = _UserDefinedProperties()
+    doc = _DocWithUserDefinedProperties(props)
+    doc.isReadonly = MagicMock(return_value=False)
+    assert set_document_scripts(doc, {"A": "x"}) is None
+
+    sent: list = []
+    assert handle_editor_script_message(
+        "delete_script",
+        {"name": "[Doc] A", "origin": "document"},
+        session_doc=doc,
+        session_doc_url=None,
+        send=sent.append,
     )
-    assert store["DocReport"] == "keep-me"
+    assert sent[-1]["type"] == "scripts_list"
+    assert sent[-1].get("status_ok_text") == "Script 'A' deleted."
+    assert get_document_scripts(doc) == {}
 
 
 def test_attach_script_stores_display_name_as_property_key():
@@ -962,7 +949,7 @@ def test_attach_script_stores_display_name_as_property_key():
     stored = get_document_scripts(doc)
     assert stored["Regional"] == "doc-code"
     assert "[Doc] Regional" not in stored
-    assert "Saved script 'Regional' to this document" in sent[-1]["status_ok_text"]
+    assert sent[-1]["status_ok_text"] == "Script 'Regional' saved to this document."
 
 
 def test_handle_editor_script_message_disposed_document_returns_list_error():
