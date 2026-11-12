@@ -140,15 +140,15 @@ def test_figure_svg_bytes_are_stable_across_renders():
     plt = pytest.importorskip("matplotlib.pyplot")
     import hashlib
 
-    from plugin.scripting.venv.to_wire import _figure_to_image_payload
+    from plugin.scripting.venv.to_wire import figure_to_image_payload
 
     fig, ax = plt.subplots()
     ax.plot([1, 2, 3])
-    first = _figure_to_image_payload(fig)["data"]
-    second = _figure_to_image_payload(fig)["data"]
+    first = figure_to_image_payload(fig)["data"]
+    second = figure_to_image_payload(fig)["data"]
     plt.close(fig)
 
-    # Revert target: metadata={"Date": None} and the fixed svg.hashsalt in _figure_to_image_payload
+    # Revert target: metadata={"Date": None} and the fixed svg.hashsalt in figure_to_image_payload
     assert hashlib.sha256(first).hexdigest() == hashlib.sha256(second).hexdigest()
 
 
@@ -210,3 +210,55 @@ def test_errors_and_depth_limits():
     for target in ("pickle", "json"):
         with pytest.raises(ValueError, match="clongdouble"):
             to_wire(np.clongdouble(1 + 2j), target=target)
+
+
+def test_frame_and_series_fallback_grids():
+    """DataFrame and Series fallback paths convert object and non-numeric frames to wire format."""
+    pd = pytest.importorskip("pandas")
+
+    class RaisingDataFrame(pd.DataFrame):
+        @property
+        def _constructor(self):
+            return RaisingDataFrame
+
+        def to_numpy(self, *args, **kwargs):
+            raise RuntimeError("to_numpy failed")
+
+    class RaisingSeries(pd.Series):
+        @property
+        def _constructor(self):
+            return RaisingSeries
+
+        def to_numpy(self, *args, **kwargs):
+            raise RuntimeError("to_numpy failed")
+
+    df_raising = RaisingDataFrame(
+        {"a": [1, 2], "b": [pd.Timestamp("2024-01-02"), None]}
+    )
+    wire_df = to_wire(df_raising, target="pickle")
+    assert wire_df == {
+        "__wa_payload__": "dataframe",
+        "columns": ["a", "b"],
+        "data": [[1, "2024-01-02T00:00:00"], [2, None]],
+    }
+
+    df_obj = pd.DataFrame({"a": [1, 2], "b": ["x", "y"]})
+    wire_obj = to_wire(df_obj, target="pickle")
+    assert wire_obj == {
+        "__wa_payload__": "dataframe",
+        "columns": ["a", "b"],
+        "data": [[1, "x"], [2, "y"]],
+    }
+
+    s_raising = RaisingSeries([1.5, 2.5], name="s")
+    wire_s = to_wire(s_raising, target="pickle")
+    assert wire_s == {
+        "__wa_payload__": "dataframe",
+        "columns": ["s"],
+        "data": [1.5, 2.5],
+    }
+
+    s_unnamed = pd.Series([1.5, 2.5])
+    wire_unnamed = to_wire(s_unnamed, target="pickle")
+    assert wire_unnamed == [1.5, 2.5]
+

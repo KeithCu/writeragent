@@ -41,7 +41,7 @@ from plugin.notebook.writer_importer import (
     resolve_para_style,
     strip_ansi,
 )
-from plugin.scripting.payload_codec import find_image_payloads, host_unpack_data, is_image_payload
+from plugin.scripting.payload_codec import find_image_payloads, host_unpack_data, is_image_payload, is_multi_data
 from plugin.scripting.session_manager import notebook_session_id, pin_script_document, release_script_document
 from plugin.scripting.venv_worker import run_code_in_user_venv
 
@@ -588,9 +588,9 @@ def format_run_output_text(result: dict[str, Any], execution_count: int | None =
                 return True
             if isinstance(obj, list) and obj and all(is_only_images(x) for x in obj):
                 return True
-            if isinstance(obj, dict) and obj.get("__wa_payload__") == "multi_data":
-                items = obj.get("items")
-                if isinstance(items, list) and items and all(is_only_images(x) for x in items):
+            if isinstance(obj, dict) and is_multi_data(obj):
+                items = obj["items"]
+                if items and all(is_only_images(x) for x in items):
                     return True
             return False
 

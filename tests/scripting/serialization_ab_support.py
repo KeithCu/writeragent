@@ -357,7 +357,7 @@ def codec_child_materialization(grid: list[Any] | list[list[Any]], *, force: For
 def codec_host_decode(grid: list[Any] | list[list[Any]], *, force: ForceBinary) -> Any:
     """Host-side decode only (no venv): split_grid envelope vs nested list wire."""
     wire = host_pack_data(grid, force=force)
-    return host_unpack_data(wire, as_nested_list=True)
+    return host_unpack_data(wire)
 
 
 def flatten_semantic_cells(value: Any) -> list[Any]:
@@ -504,7 +504,7 @@ def run_venv_roundtrip(
     if result is None:
         return None
     if is_split_grid(result):
-        return host_unpack_data(result, as_nested_list=True)
+        return host_unpack_data(result)
     return result
 
 
@@ -898,7 +898,7 @@ def run_multi_venv_echo(
     result = response.get("result")
     if result is None:
         return None
-    return host_unpack_data(result, as_nested_list=True)
+    return host_unpack_data(result)
 
 
 # --- Strategies for fancier payloads (images and dataframes) ---

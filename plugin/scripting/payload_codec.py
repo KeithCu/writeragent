@@ -63,7 +63,7 @@ _MAX_IMAGE_DEPTH = 12
 # host_unpack_data's contract, including OverflowError from int(inf) on an
 # int column. venv_worker catches this same tuple so a bad envelope after
 # the script has run is WORKER_IPC_ERROR, not a replay.
-_HOST_UNPACK_ERRORS = (ValueError, OverflowError, TypeError, AttributeError, KeyError)
+HOST_UNPACK_ERRORS = (ValueError, OverflowError, TypeError, AttributeError, KeyError)
 
 
 def _deal_return(*args: Any, result: Any = _DEAL_RETURN, **_kwargs: Any) -> Any:
@@ -72,7 +72,7 @@ def _deal_return(*args: Any, result: Any = _DEAL_RETURN, **_kwargs: Any) -> Any:
     return args[-1] if args else None
 
 
-def _numpy_scalar_item(v: Any) -> Any:
+def numpy_scalar_item(v: Any) -> Any:
     """Return ``v.item()`` for a NumPy scalar; otherwise ``v``.
 
     ``calc_range._materialize_inner_grid`` calls this for object-array cells.
@@ -102,7 +102,7 @@ def _to_py(v: Any) -> Any:
     (docs/scripting/numpy-serialization.md): dropping it is an unpack change.
     """
     # crosshair: off
-    item = _numpy_scalar_item(v)
+    item = numpy_scalar_item(v)
     if item is not v:
         return item
     if isinstance(v, (list, tuple)):
@@ -263,7 +263,7 @@ _CYTHON_ACCEL_MODULES = (
 def load_cython_accelerator() -> None:
     """Attempt to load the Cython accelerator and verify it via a runtime canary test.
 
-    Host-only: the HTTP compute service calls this at startup to log Active/Inactive.
+    Host-only.
     Desktop host pack also calls it from ``host_pack_data``. Compute workers unpack
     via ``frombuffer`` / pack ndarrays via ``tobytes`` and must not call this
     (importing unpack helpers is not a load).
@@ -280,7 +280,7 @@ def load_cython_accelerator() -> None:
     if fast_flatten_grid_2d is not None or _CYTHON_ACCELERATOR_INACTIVE_REASON:
         return
 
-    # Ensure native binary directories (installed user_config or in-tree repo contrib) are on sys.path
+    # Lazy (host/bundle boundary): native_binaries is host-only and not in the compute bundle (scripts/build_compute_bundle.py), while the venv child and compute workers import this module.
     from plugin.scripting.native_binaries import ensure_native_binaries_on_path
 
     ensure_native_binaries_on_path()
@@ -374,7 +374,7 @@ def host_cython_status_line(*, reload: bool = False) -> str:
 
 # Do not load at import. Compute workers import unpack helpers from this
 # module; eager load would make every formula child pay for / claim Cython.
-# Host paths call load_cython_accelerator() (HTTP startup, host_pack_data).
+# Host paths call load_cython_accelerator() (host_pack_data, host_cython_status_line(reload=True)).
 
 # --- Wire kind (JSON-safe dict tag) -----------------------------------------------
 
@@ -465,6 +465,17 @@ def is_multi_data(obj: Any) -> bool:
     return _is_multi_data_envelope(obj)
 
 
+def pack_multi_data_envelope(items: list[Any]) -> dict[str, Any]:
+    """Build a multi_data wire envelope accepted by is_multi_data.
+
+    Keys are populated in the exact order (__wa_payload__, items) that detector checks.
+    """
+    return {
+        "__wa_payload__": PAYLOAD_MULTI_DATA,
+        "items": items,
+    }
+
+
 def _is_image_payload_envelope(envelope: object) -> bool:
     # crosshair: off
     if not isinstance(envelope, dict):
@@ -491,6 +502,18 @@ def _is_image_payload_envelope(envelope: object) -> bool:
 def is_image_payload(obj: Any) -> bool:
     # crosshair: off
     return _is_image_payload_envelope(obj)
+
+
+def pack_image_envelope(data: bytes, fmt: str) -> dict[str, Any]:
+    """Build an image wire envelope accepted by is_image_payload.
+
+    Keys are populated in the exact order (__wa_payload__, format, data) that detector checks.
+    """
+    return {
+        "__wa_payload__": PAYLOAD_IMAGE,
+        "format": fmt,
+        "data": data,
+    }
 
 
 def find_image_payloads(
@@ -633,6 +656,18 @@ def is_dataframe_payload(obj: Any) -> bool:
     return _is_dataframe_envelope(obj)
 
 
+def pack_dataframe_envelope(columns: list[str], data: Any) -> dict[str, Any]:
+    """Build a dataframe wire envelope accepted by is_dataframe_payload.
+
+    Keys are populated in the exact order (__wa_payload__, columns, data) that detector checks.
+    """
+    return {
+        "__wa_payload__": PAYLOAD_DATAFRAME,
+        "columns": columns,
+        "data": data,
+    }
+
+
 def _nonneg_shape_dim(d: object) -> bool:
     """True when a shape extent is a real non-negative int.
 
@@ -692,7 +727,7 @@ def _is_split_grid_envelope(envelope: object) -> bool:
         return False
     if not all(_nonneg_shape_dim(d) for d in shape):
         return False
-    return isinstance(env_dict.get("buffer"), bytes) or isinstance(env_dict.get("b64"), str)
+    return isinstance(env_dict.get("buffer"), bytes)
 
 
 @deal.pre(lambda obj: _deal_wire_dict_ok(obj))
@@ -1512,35 +1547,17 @@ def _split_grid_string_index(key: Any) -> int:
 def _decode_split_grid_buffer(envelope: dict[str, Any], expected_cells: int) -> bytes:
     """Return the float64 payload bytes, or raise if they do not match *expected_cells*.
 
-    Host and child share buffer/b64 decode with strict length checks, so a
+    Host and child share this decode with strict length checks, so a
     short or padded payload raises instead of silently reshaping the grid.
     """
     # crosshair: off
-    if "buffer" in envelope:
-        raw = envelope["buffer"]
-    elif "b64" in envelope:
-        import base64
-        import binascii
-
-        # b64decode raises binascii.Error, and a non-ASCII string raises
-        # UnicodeEncodeError. Both subclass ValueError, but deal's @deal.raises
-        # matches exact types, so a bad legacy b64 would be RaisesContractError
-        # (AssertionError), outside _HOST_UNPACK_ERRORS; re-raise as the
-        # ValueError both unpack contracts declare. validate=True rejects
-        # non-alphabet characters
-        # instead of skipping them. Production wire uses buffer bytes;
-        # b64encode output still decodes. A non-str b64 still raises
-        # AttributeError from .encode.
-        try:
-            raw = base64.b64decode(envelope["b64"].encode("ascii"), validate=True)
-        except (binascii.Error, UnicodeEncodeError) as exc:
-            raise ValueError(f"split_grid b64 is not valid base64: {exc}") from exc
-    else:
-        raise ValueError("Missing payload binary buffer or b64 representation")
-    # Pack writes bytes. b64decode returns bytes. is_split_grid's deal pre
-    # rejects a bytearray or memoryview, but a release OXT strips deal, so
-    # this check is the rejection on that build too. Do not coerce them:
-    # a direct legacy caller gets TypeError instead of a decoded grid.
+    if "buffer" not in envelope:
+        raise ValueError("split_grid envelope has no buffer")
+    raw = envelope["buffer"]
+    # Pack writes bytes. is_split_grid's deal pre rejects a bytearray or
+    # memoryview, but a release OXT strips deal, so this check is the rejection
+    # on that build too. Do not coerce them: a direct legacy caller gets
+    # TypeError instead of a decoded grid.
     if not isinstance(raw, bytes):
         raise TypeError(f"a bytes-like object is required, not '{type(raw).__name__}'")
     if len(raw) % _FLOAT64_BYTES != 0:
@@ -1597,7 +1614,7 @@ def _restore_cell(val: float, kind: str) -> Any:
 @deal.pre(lambda envelope, *_unused, **__: _is_split_grid_envelope(envelope))
 @deal.post(lambda *a, result=_DEAL_RETURN, **k: isinstance(_deal_return(*a, result=result), list))
 @deal.raises(ValueError, OverflowError)
-def host_unpack_split_grid(envelope: dict[str, Any], *, as_nested_list: bool = True) -> list[Any] | list[list[Any]]:
+def host_unpack_split_grid(envelope: dict[str, Any]) -> list[Any] | list[list[Any]]:
     """Decode split_grid envelope on host (stdlib only). Reconstructs list or list of lists.
 
     NaN values in the buffer are preserved as float('nan') (they become Calc errors on =PY() egress).
@@ -1643,7 +1660,7 @@ def host_unpack_split_grid(envelope: dict[str, Any], *, as_nested_list: bool = T
             for i, val in enumerate(buf)
         ]
 
-    if not as_nested_list or is_1d:
+    if is_1d:
         return flat_list
 
     return [flat_list[r * ncols : (r + 1) * ncols] for r in range(nrows)]
@@ -1654,8 +1671,8 @@ def _deal_host_unpack_wire_ok(*args: Any, **kwargs: Any) -> bool:
 
 
 @deal.pre(lambda wire, *_unused, **__: _deal_host_unpack_wire_ok(wire))
-@deal.raises(*_HOST_UNPACK_ERRORS)
-def host_unpack_data(wire: Any, *, as_nested_list: bool = True, _depth: int = 0) -> Any:
+@deal.raises(*HOST_UNPACK_ERRORS)
+def host_unpack_data(wire: Any, *, _depth: int = 0) -> Any:
     """Unpack worker ``data`` or ``result`` on host (list, scalar, split_grid, multi_data, image, dataframe, calc_range)."""
     # crosshair: off
     if _depth > _MAX_UNPACK_DEPTH:
@@ -1666,23 +1683,23 @@ def host_unpack_data(wire: Any, *, as_nested_list: bool = True, _depth: int = 0)
         # Copy so later envelope fields survive (calc_range address,
         # dataframe index/dtypes). data is still unpacked.
         unpacked_inner = host_unpack_data(
-            wire.get("data"), as_nested_list=as_nested_list, _depth=_depth + 1
+            wire.get("data"), _depth=_depth + 1
         )
         out = dict(wire)
         out["data"] = unpacked_inner
         return out
     if is_multi_data(wire):
         items = wire.get("items") or []
-        return [host_unpack_data(item, as_nested_list=as_nested_list, _depth=_depth + 1) for item in items]
+        return [host_unpack_data(item, _depth=_depth + 1) for item in items]
     if is_split_grid(wire):
-        return host_unpack_split_grid(wire, as_nested_list=as_nested_list)
+        return host_unpack_split_grid(wire)
     # Plain dict only: CrossHair AttrDict is isinstance(dict) but blows up on __ch_pytype__ when iterating.
     # OrderedDict and other mappings come back as-is, nested envelopes still packed.
     # child_pack_result rebuilds plain dicts, so production does not hit this.
     if type(wire) is dict:
-        return {k: host_unpack_data(v, as_nested_list=as_nested_list, _depth=_depth + 1) for k, v in wire.items()}
+        return {k: host_unpack_data(v, _depth=_depth + 1) for k, v in wire.items()}
     if isinstance(wire, (list, tuple)):
-        unpacked = [host_unpack_data(v, as_nested_list=as_nested_list, _depth=_depth + 1) for v in wire]
+        unpacked = [host_unpack_data(v, _depth=_depth + 1) for v in wire]
         # Tuple subclasses (namedtuple) collapse to a plain tuple. type(obj)(items)
         # TypeErrors when __new__ does not take one iterable, and a script-local
         # namedtuple is not importable on the host.
@@ -1700,7 +1717,7 @@ def host_unpack_data(wire: Any, *, as_nested_list: bool = True, _depth: int = 0)
         and isinstance(obj.get("shape"), list)
         and len(obj["shape"]) in (1, 2)
         and all(_nonneg_shape_dim(d) for d in obj["shape"])
-        and (isinstance(obj.get("buffer"), bytes) or isinstance(obj.get("b64"), str))
+        and isinstance(obj.get("buffer"), bytes)
     )
 )
 def is_split_grid(obj: Any) -> bool:
@@ -1796,7 +1813,7 @@ def child_unpack_split_grid(envelope: dict[str, Any]) -> Any:
         raise
 
 
-def _is_numeric_wire_kind(kind: str | None) -> bool:
+def is_numeric_wire_kind(kind: str | None) -> bool:
     """True when ``astype(float64)`` on split_grid keeps the value.
 
     Integer, unsigned, float, and bool only. Complex (``c``) would drop the
@@ -1872,7 +1889,7 @@ def child_pack_split_grid(arr: Any) -> dict[str, Any]:
         if arr.ndim not in (1, 2):
             raise ValueError(f"split_grid supports rank 1 or 2, got ndim {arr.ndim}")
         kind = getattr(getattr(arr, "dtype", None), "kind", None)
-        if not _is_numeric_wire_kind(kind):
+        if not is_numeric_wire_kind(kind):
             raise ValueError(
                 f"split_grid float64 lane accepts dtype kinds i/u/f/b, got {kind!r}"
             )
@@ -1991,10 +2008,10 @@ def child_pack_result(
                 # Only i/u/f/b kinds take the binary lane. A deny-list of text
                 # kinds would let complex (``c``) through, where astype(float64)
                 # drops the imaginary part, and void/structured, which raise
-                # inside the cast. Same kind rule (_is_numeric_wire_kind) as the DataFrame path.
+                # inside the cast. Same kind rule (is_numeric_wire_kind) as the DataFrame path.
                 if (
                     result.ndim in (1, 2)
-                    and _is_numeric_wire_kind(kind)
+                    and is_numeric_wire_kind(kind)
                     and should_use_binary_envelope(shape, min_cells=min_cells, force=force)
                 ):
                     return child_pack_split_grid(result)

@@ -56,8 +56,9 @@ from plugin.scripting.payload_codec import (
     describe_wire_value,
     find_image_payloads,
     is_split_grid,
+    pack_multi_data_envelope,
 )
-from plugin.scripting.venv.to_wire import _figure_to_image_payload, to_wire
+from plugin.scripting.venv.to_wire import figure_to_image_payload, to_wire
 from plugin.scripting.venv import optional_import
 from plugin.scripting.config_limits import python_exec_timeout_default
 from plugin.framework.ipc import UserStopped
@@ -640,14 +641,11 @@ def _capture_open_figures_payload(*, fmt: str = "svg") -> tuple[dict[str, Any] |
     try:
         figs = [plt_mod.figure(num) for num in fignums]
         if len(figs) > 1:
-            items = [_figure_to_image_payload(fig, fmt=fmt) for fig in figs]
-            payload = {
-                "__wa_payload__": "multi_data",
-                "items": items,
-            }
+            items = [figure_to_image_payload(fig, fmt=fmt) for fig in figs]
+            payload = pack_multi_data_envelope(items)
             note = f"Captured {len(figs)} open figures.\n"
         else:
-            payload = _figure_to_image_payload(figs[0], fmt=fmt)
+            payload = figure_to_image_payload(figs[0], fmt=fmt)
         return payload, note
     finally:
         # Close even when rendering raises or figure(num) fails; a figure left

@@ -25,7 +25,7 @@ from typing import Any, Callable, Sequence
 
 import numpy as np
 
-from .coerce import _LO_ERROR_TOKENS, is_missing_value
+from .coerce import LO_ERROR_TOKENS, is_missing_value
 
 _SERIAL_OFFSET: int = 693594
 
@@ -339,7 +339,7 @@ def is_calc_error(val: Any) -> bool:
     if isinstance(val, (float, np.floating)):
         return math.isnan(float(val))
     if isinstance(val, str):
-        return val.strip() in _LO_ERROR_TOKENS
+        return val.strip() in LO_ERROR_TOKENS
     return False
 
 

@@ -278,6 +278,8 @@ After unpack, `=PY()` exposes a `CalcRange` (see [data shapes](../calc/py-data-s
 
 #### Egress (child → host / Calc)
 
+Image and dataframe envelopes are built by `pack_image_envelope` / `pack_dataframe_envelope` beside their detectors, and readers use the detectors.
+
 | Child `result` | Host / UI after unpack |
 |----------------|------------------------|
 | `np.ndarray` with `np.nan` | `float('nan')` preserved (Calc error on `=PY()` egress) |
@@ -453,7 +455,7 @@ This caches **execution output** on the host — separate from the worker [**cod
 
 **Status:** Shipped — varargs IDL + `multi_data` of `calc_range` envelopes.
 
-Multiple ranges use a `multi_data` envelope (`__wa_payload__`: `"multi_data"`, `items`: per-range `calc_range` payloads). Each `calc_range` wraps an inner list or `split_grid`. In the venv, this becomes `ranges: list[CalcRange]` with `data = ranges[0]`.
+Multiple ranges use a `multi_data` envelope (`__wa_payload__`: `"multi_data"`, `items`: per-range `calc_range` payloads, built by `payload_codec.pack_multi_data_envelope`). Each `calc_range` wraps an inner list or `split_grid`. In the venv, this becomes `ranges: list[CalcRange]` with `data = ranges[0]`.
 
 | Layer | Module |
 |-------|--------|
