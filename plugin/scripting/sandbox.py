@@ -65,6 +65,7 @@ except (ImportError, ModuleNotFoundError):
     )
 
 
+# Policy overview: docs/enabling_numpy_in_libreoffice.md (Import blocklist).
 # VENV_AUTHORIZED_IMPORTS is checked before the blocklist (import_authorized), so a
 # row admits a name even when a block entry covers it. Two kinds of row decide
 # anything: the plugin.scripting.* rows, the only way a plugin.* name passes the

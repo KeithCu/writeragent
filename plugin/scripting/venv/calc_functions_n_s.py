@@ -215,7 +215,7 @@ def normsinv(prob: Any) -> float:
 def _npf_call(kind: str, a: Any, b: Any, c: Any, d: Any, type_val: Any) -> float:
     # Only type 1 is beginning-of-period, same rule as PMT/FV/PV; any other
     # type is end-of-period, never a multiplier in (1 + rate*type).
-    # float() of an oversized int raises OverflowError, which the worker returns as #NUM!.
+    # float() of an oversized int raises OverflowError, which the worker returns as #NUM! (Excel: #VALUE!).
     a_f = float(a)
     b_f = float(b)
     c_f = float(c)

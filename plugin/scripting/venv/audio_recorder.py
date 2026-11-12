@@ -13,7 +13,12 @@ import threading
 import wave
 from typing import Any, Callable
 
-from plugin.scripting.audio_silence_detector import SilenceDetector, SilenceDetectorConfig
+from plugin.scripting.audio_silence_detector import (
+    RECORDER_STATUS_AUTO_STOPPED,
+    RECORDER_STATUS_SILENCE_PROGRESS,
+    SilenceDetector,
+    SilenceDetectorConfig,
+)
 
 SAMPLE_RATE = 16000
 CHANNELS = 1
@@ -111,7 +116,7 @@ def record_to_wav(
                 and vad.should_emit_silence_progress(result)
             ):
                 on_ipc_emit(
-                    {"status": "silence_progress", "ms": result.silence_ms, "rms": round(result.rms, 5)}
+                    {"status": RECORDER_STATUS_SILENCE_PROGRESS, "ms": result.silence_ms, "rms": round(result.rms, 5)}
                 )
         except Exception as exc:
             note_failure(2, exc)
@@ -170,5 +175,5 @@ def record_to_wav(
     # Emit auto_stopped on the main thread after the WAV is closed. Emitting
     # from the PortAudio callback publishes a header whose length is still 0.
     if auto_stopped and on_ipc_emit is not None:
-        on_ipc_emit({"status": "auto_stopped", "path": output_path})
+        on_ipc_emit({"status": RECORDER_STATUS_AUTO_STOPPED, "path": output_path})
     return auto_stopped
