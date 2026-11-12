@@ -17,7 +17,7 @@ from typing import Any
 import pytest
 
 from plugin.scripting import text_analytics as ta
-from plugin.scripting.helper_domain import header_prefix
+from plugin.scripting.domain_registry import get_domain_wiring
 from plugin.scripting.text_analytics_ui import format_text_analytics_result_for_display
 from plugin.scripting.venv import text_analytics as vta
 
@@ -64,12 +64,12 @@ def test_run_text_analytics_dispatcher():
 
 
 def test_text_analytics_templates_include_run_call():
-    temps = ta.get_text_analytics_script_templates()
+    temps = get_domain_wiring("text").templates()
     assert isinstance(temps, dict)
     for h in ("full", "readability", "entities", "key_phrases"):
         if h in temps:
             code = temps[h]
-            assert header_prefix("text") not in code
+            assert "# writeragent:" not in code
             assert "from writeragent.scripting.text_analytics import run_text_analytics" in code
 
 
@@ -159,7 +159,7 @@ def test_text_analytics_topics_in_helernames_and_templates(value, value_2, value
     from plugin.scripting.helper_registry import names
 
     assert value in names("text")
-    temps = ta.get_text_analytics_script_templates()
+    temps = get_domain_wiring("text").templates()
     assert value_2 in temps
     code = temps[value_3]
     assert value_4 in code

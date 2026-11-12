@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-from plugin.scripting.forecast import get_forecast_template
+from plugin.scripting.domain_registry import get_domain_wiring
 from tests.scripting.python_runner_test_support import execute_and_insert_result
 
 
@@ -34,7 +34,7 @@ def test_execute_and_insert_forecast_venv_path(mock_venv, mock_insert):
             },
         }
         mock_insert.return_value = 5
-        code = get_forecast_template("forecast_time_series")
+        code = get_domain_wiring("forecast").templates()["forecast_time_series"]
         assert code is not None
         outcome = execute_and_insert_result(ctx, doc, code, data_range="Sheet1.A1:B37")
 

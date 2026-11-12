@@ -9,7 +9,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 from tests.scripting.python_runner_test_support import execute_and_insert_result
-from plugin.scripting.units import get_units_script_templates
+from plugin.scripting.domain_registry import get_domain_wiring
 
 
 @patch("plugin.scripting.units.insert_units_result_into_doc")
@@ -29,7 +29,7 @@ def test_execute_and_insert_units_skips_fast_path(mock_venv, mock_insert):
                 "magnitude": 36.0,
             },
         }
-        code = get_units_script_templates()["convert_quantity"]
+        code = get_domain_wiring("units").templates()["convert_quantity"]
         outcome = execute_and_insert_result(ctx, doc, code)
 
     assert outcome["ok"] is True

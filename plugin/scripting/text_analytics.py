@@ -2,7 +2,7 @@
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Text analytics helper templates, host RPC, and Writer egress (LO host).
+"""Text analytics helper host RPC and Writer egress (LO host).
 
 Compute is lazy-loaded from ``plugin.scripting.venv.text_analytics`` via ``__getattr__``.
 """
@@ -23,7 +23,6 @@ from plugin.doc.text_helpers import (
 )
 from plugin.framework.errors import ToolExecutionError, reraise_if_disposed
 from plugin.scripting._lazy_venv import install_lazy_exports
-from plugin.scripting.domain_registry import get_domain_wiring
 from plugin.scripting.helper_registry import is_text_diagnostics, names
 
 _TEXT_VENV_EXPORTS = frozenset({"analyze_text", "check_diagnostics", "run_text_analytics"})
@@ -32,9 +31,6 @@ install_lazy_exports(globals(), "text_analytics", _TEXT_VENV_EXPORTS)
 
 log = logging.getLogger(__name__)
 
-
-def get_text_analytics_script_templates() -> dict[str, str]:
-    return get_domain_wiring("text").templates()
 
 def resolve_text_analytics_document_inputs(
     doc: Any,
