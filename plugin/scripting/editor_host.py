@@ -37,13 +37,14 @@ import uuid
 from collections import deque
 from dataclasses import dataclass, field
 from typing import IO, Any, Callable, cast
+
 from plugin.chatbot.dialogs import msgbox_with_report
 from plugin.framework.appearance import get_monaco_theme_info
 from plugin.framework.config import get_config
-from plugin.framework.thread_guard import background, main_thread_only
 from plugin.framework.event_bus import get_event_bus
 from plugin.framework.i18n import _
 from plugin.framework.queue_executor import MainThread, main
+from plugin.framework.thread_guard import background, main_thread_only
 from plugin.framework.uno_context import get_desktop, product_display_name, wait_while_pumping
 from plugin.framework.worker_pool import BackgroundHandle, run_in_background
 from plugin.scripting.config_limits import VENV_IPC_WRITE_TIMEOUT_SEC, configured_python_exec_timeout

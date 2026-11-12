@@ -301,7 +301,7 @@ def test_confirm_unsaved_cell_edit_maps_yes_no_cancel():
     ctx.getServiceManager.return_value = smgr
     desktop = MagicMock()
     desktop.getCurrentFrame.return_value.getContainerWindow.return_value = MagicMock()
-    with patch("plugin.framework.uno_context.get_desktop", return_value=desktop):
+    with patch("plugin.scripting.editor_host.get_desktop", return_value=desktop):
         box.execute.return_value = 2
         assert confirm_unsaved_cell_edit(ctx, "A1") == "save"
         box.execute.return_value = 3
