@@ -32,12 +32,12 @@ import json
 import logging
 from typing import Any, ClassVar
 
-from plugin.chatbot.smol_agent import SmolToolAdapter, run_inner_tool_agent
+from plugin.chatbot.smol_agent import InnerCallRecorder, run_inner_tool_agent
 from plugin.framework.doc_type import agent_label_for_context
 from plugin.framework.prompts import DELEGATE_ANCHOR_RULE
 from plugin.doc.specialized_catalog import (
-    DOMAIN_LOOP_HINTS,
     InnerToolCall,
+    loop_hint,
     normalize_inner_result,
 )
 from plugin.framework.errors import user_stopped_payload
@@ -241,16 +241,13 @@ def _domain_loop_hints(parent_ctx: ToolContext, domains: list[str], agent_label:
     """Small suffixes the single-domain specialized loop adds, when those domains are requested.
 
     Shapes canvas is a UNO read, so it is fetched on the main thread. Footnotes
-    and charts lines match ``DelegateToSpecializedBase.execute`` (static text).
+    and charts lines come from loop_hint, the same sentences the gateway adds.
     """
     parts: list[str] = []
-    if "footnotes" in domains and agent_label in DOMAIN_LOOP_HINTS["footnotes"]:
-        parts.append(" " + DOMAIN_LOOP_HINTS["footnotes"][agent_label])
-    if "charts" in domains:
-        if agent_label == "Calc":
-            parts.append(" " + DOMAIN_LOOP_HINTS["charts"]["Calc"])
-        elif agent_label in ("Writer", "Draw"):
-            parts.append(" " + DOMAIN_LOOP_HINTS["charts"]["Writer"])
+    for domain in domains:
+        hint = loop_hint(domain, agent_label)
+        if hint:
+            parts.append(" " + hint)
     if "shapes" in domains:
         from plugin.doc.specialized_shapes_context import format_shapes_canvas_context
 
@@ -261,19 +258,6 @@ def _domain_loop_hints(parent_ctx: ToolContext, domains: list[str], agent_label:
         if canvas:
             parts.append(canvas if canvas.startswith(" ") else " " + canvas)
     return "".join(parts)
-
-
-class _InnerCallRecorder(SmolToolAdapter):
-    _calls: list[InnerToolCall]
-
-    def __init__(self, tool: ToolBase, tctx: ToolContext, calls: list[InnerToolCall]) -> None:
-        super().__init__(tool, tctx, safe=True, inputs_style="specialized")
-        self._calls = calls
-
-    def forward(self, *args: Any, **kwargs: Any) -> Any:
-        result = super().forward(*args, **kwargs)
-        self._calls.append(InnerToolCall(self.name, result, self.mutating))
-        return result
 
 
 def run_inner_domain_tool_agent(parent_ctx: ToolContext, domains: list[str], task: str) -> dict[str, Any]:
@@ -293,7 +277,7 @@ def run_inner_domain_tool_agent(parent_ctx: ToolContext, domains: list[str], tas
     inner_calls: list[InnerToolCall] = []
     # inputs_style="specialized" keeps enum / items / descriptions, same as other
     # specialized loops — not the slim librarian input shape.
-    smol_tools = [_InnerCallRecorder(tool, inner_ctx, inner_calls) for tool in ordered]
+    smol_tools = [InnerCallRecorder(tool, inner_ctx, inner_calls) for tool in ordered]
     domain_list = ", ".join(domains)
     hints = _domain_loop_hints(parent_ctx, domains, label)
     # Shapes mutators are not on this tool list. One script loops the API.

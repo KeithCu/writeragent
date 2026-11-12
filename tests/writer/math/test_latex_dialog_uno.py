@@ -227,7 +227,7 @@ def test_prefill_failed_export_cancels_without_corrupting_formula(ctx: Any, doc:
     with patch("plugin.writer.math.latex_dialog.get_active_document", return_value=doc), \
          patch("plugin.writer.math.latex_dialog.monaco_editor_available", return_value=(None, False)), \
          patch("plugin.writer.math.math_mml_export.selected_math_embeds", return_value=[embed]), \
-         patch("plugin.writer.math.math_mml_export.convert_starmath_to_latex", return_value=MathExportResult(False, None, None, "err")), \
+         patch("plugin.writer.math.math_mml_export.convert_starmath_to_latex", return_value=MathExportResult(False, None, "err")), \
          patch("plugin.writer.math.latex_dialog.msgbox"), \
          patch("plugin.writer.math.latex_dialog.show_latex_input_dialog", return_value=None) as mock_dlg:
         insert_latex_math_dialog(ctx)

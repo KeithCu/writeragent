@@ -139,7 +139,7 @@ The delegate block reuses the web-research *shape* (two `web_search` steps) only
 ## 8. What is already unified (keep it that way)
 
 - Single smol HTTP entry: **`WriterAgentSmolModel`** only.
-- Shared **`build_toolcalling_agent`**, **`run_inner_tool_agent`**, **`to_smol_inputs`**, **`SmolToolAdapter`**. `run_inner_tool_agent` is the shared build-and-execute used by the specialized gateway, the two inner agents, and `run_smol_side_turn`. Librarian owns its own `execute_safe` call. Web research and PPT-Master do not use the helper.
+- Shared **`build_toolcalling_agent`**, **`run_inner_tool_agent`**, **`to_smol_inputs`**, **`SmolToolAdapter`**, **`InnerCallRecorder`** (records inner calls for `apply_inner_outcome`). `run_inner_tool_agent` is the shared build-and-execute used by the specialized gateway, the two inner agents, and `run_smol_side_turn`. Librarian owns its own `execute_safe` call. Web research and PPT-Master do not use the helper.
 - No second copy of **`LlmClient`** behavior inside librarian/specialized.
 
 Do **not** merge **`tool_loop`** with **`ToolCallingAgent`** without a product decision—that duplicates **transcript semantics**, not HTTP reuse.
