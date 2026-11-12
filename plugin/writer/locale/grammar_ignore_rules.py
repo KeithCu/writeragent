@@ -9,7 +9,7 @@ from __future__ import annotations
 import re
 from typing import final
 
-from .grammar_persistence import grammar_registry
+from .grammar_persistence import get_persistence, grammar_registry
 
 # The venv LanguageTool checker imports this leaf, not this module, because
 # this module imports grammar_persistence, which imports config.
@@ -110,8 +110,6 @@ class IgnoreSet:
 
 def doc_ignored_rules(doc_id: str) -> set[str]:
     """Document-scoped ignored rule reasons (normalized strings in persistence)."""
-    from .grammar_persistence import get_persistence
-
     p = get_persistence(doc_id)
     return p.ignored_rules_snapshot() if p else set()
 

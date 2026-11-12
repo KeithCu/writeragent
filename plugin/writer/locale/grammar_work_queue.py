@@ -327,6 +327,7 @@ class GrammarWorkQueue:
                     locale=locale,
                     item_count=len(group_items),
                 )
+                # grammar_worker imports this module at its top (grammar_worker.py:39); a module-level import here is a cycle.
                 import plugin.writer.locale.grammar_worker as grammar_worker
 
                 grammar_worker.run_llm_and_cache_batch(group_items, grammar_queue_instance=self)

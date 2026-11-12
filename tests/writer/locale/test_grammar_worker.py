@@ -88,7 +88,7 @@ def test_call_grammar_llm_single() -> None:
     ec = _ec(client)
     with patch("plugin.writer.locale.grammar_worker.get_grammar_status", return_value=MagicMock()), \
          patch("plugin.framework.llm_lanes.grammar_llm_request_gate"), \
-         patch("plugin.writer.locale.grammar_ignore_rules.collect_ignored_reasons", return_value=set()):
+         patch("plugin.writer.locale.grammar_worker.collect_ignored_reasons", return_value=set()):
         results, elapsed = call_grammar_llm([(item, item.text)], "en-US", ec)
     assert len(results) == 1
     assert elapsed >= 0
@@ -103,7 +103,7 @@ def test_call_grammar_llm_batch() -> None:
     ec = _ec(client)
     with patch("plugin.writer.locale.grammar_worker.get_grammar_status", return_value=MagicMock()), \
          patch("plugin.framework.llm_lanes.grammar_llm_request_gate"), \
-         patch("plugin.writer.locale.grammar_ignore_rules.collect_ignored_reasons", return_value=set()):
+         patch("plugin.writer.locale.grammar_worker.collect_ignored_reasons", return_value=set()):
         results, _ = call_grammar_llm([(a, a.text), (b, b.text)], "en-US", ec)
     assert len(results) == 2
     args, kwargs = client.chat_completion_sync.call_args
@@ -118,7 +118,7 @@ def test_call_grammar_llm_passes_minimal_reasoning() -> None:
     ec = _ec(client)
     with patch("plugin.writer.locale.grammar_worker.get_grammar_status", return_value=MagicMock()), \
          patch("plugin.framework.llm_lanes.grammar_llm_request_gate"), \
-         patch("plugin.writer.locale.grammar_ignore_rules.collect_ignored_reasons", return_value=set()):
+         patch("plugin.writer.locale.grammar_worker.collect_ignored_reasons", return_value=set()):
         call_grammar_llm([(item, item.text)], "en-US", ec)
     _, kwargs = client.chat_completion_sync.call_args
     assert kwargs.get("chat_extra") == {"reasoning": {"effort": "minimal"}}
@@ -131,7 +131,7 @@ def test_call_grammar_llm_empty_single_returns_clean_result() -> None:
     ec = _ec(client)
     with patch("plugin.writer.locale.grammar_worker.get_grammar_status", return_value=MagicMock()), \
          patch("plugin.framework.llm_lanes.grammar_llm_request_gate"), \
-         patch("plugin.writer.locale.grammar_ignore_rules.collect_ignored_reasons", return_value=set()):
+         patch("plugin.writer.locale.grammar_worker.collect_ignored_reasons", return_value=set()):
         results, _ = call_grammar_llm([(item, item.text)], "en-US", ec)
     assert len(results) == 1
     assert results[0] == []
@@ -192,7 +192,7 @@ def test_grammar_check_equivalent_tags_no_locale_change() -> None:
          patch("plugin.writer.locale.grammar_worker.get_grammar_status", return_value=MagicMock()), \
          patch("plugin.writer.locale.grammar_ignore_rules.doc_ignored_rules", return_value=set()), \
          patch("plugin.writer.locale.grammar_ignore_rules.ignored_rules_snapshot", return_value=set()), \
-         patch("plugin.writer.locale.grammar_proofread_text.normalize_errors_for_text", return_value=[]), \
+         patch("plugin.writer.locale.grammar_proofread_cache.normalize_errors_for_text", return_value=[]), \
          patch("plugin.writer.locale.grammar_proofread_cache.cache_put_sentence"), \
          patch("plugin.writer.locale.grammar_worker.apply_language_change") as mock_apply:
         run_grammar_check(chunk, "ja-JP", "ja", ec)
@@ -345,7 +345,7 @@ def test_run_llm_and_cache_batch_success() -> None:
          patch("plugin.writer.locale.grammar_proofread_cache.cache_get_sentence", return_value=None), \
          patch("plugin.writer.locale.grammar_proofread_cache.cache_put_sentence") as mock_put, \
          patch("plugin.writer.locale.grammar_worker.get_grammar_status", return_value=MagicMock()), \
-         patch("plugin.writer.locale.grammar_proofread_text.normalize_errors_for_text") as mock_norm, \
+         patch("plugin.writer.locale.grammar_proofread_cache.normalize_errors_for_text") as mock_norm, \
          patch("plugin.writer.locale.grammar_ignore_rules.ignored_rules_snapshot", return_value=set()):
 
         mock_client = mock_client_cls.return_value
@@ -397,7 +397,7 @@ def test_run_llm_and_cache_batch_size_1() -> None:
          patch("plugin.writer.locale.grammar_proofread_cache.cache_get_sentence", return_value=None), \
          patch("plugin.writer.locale.grammar_proofread_cache.cache_put_sentence") as mock_put, \
          patch("plugin.writer.locale.grammar_worker.get_grammar_status", return_value=MagicMock()), \
-         patch("plugin.writer.locale.grammar_proofread_text.normalize_errors_for_text") as mock_norm, \
+         patch("plugin.writer.locale.grammar_proofread_cache.normalize_errors_for_text") as mock_norm, \
          patch("plugin.writer.locale.grammar_ignore_rules.ignored_rules_snapshot", return_value=set()):
 
         mock_client = mock_client_cls.return_value
@@ -438,7 +438,7 @@ def test_locale_mismatch_proceeds_and_double_caches(
          patch("plugin.writer.locale.grammar_worker.get_grammar_status", return_value=MagicMock()), \
          patch("plugin.writer.locale.grammar_worker.grammar_obs") as mock_obs, \
          patch("plugin.framework.client.llm_client.LlmClient") as mock_llm_client, \
-         patch("plugin.writer.locale.grammar_proofread_text.normalize_errors_for_text", return_value=[]):
+         patch("plugin.writer.locale.grammar_proofread_cache.normalize_errors_for_text", return_value=[]):
 
         # Mock LLM client to return Japanese detection then grammar result
         mock_client_inst = mock_llm_client.return_value
@@ -600,7 +600,7 @@ def test_grammar_empty_single_response_caches_clean() -> None:
          patch("plugin.writer.locale.grammar_worker.requeue_individual_item") as mock_requeue, \
          patch("plugin.writer.locale.grammar_ignore_rules.doc_ignored_rules", return_value=set()), \
          patch("plugin.writer.locale.grammar_ignore_rules.ignored_rules_snapshot", return_value=set()), \
-         patch("plugin.writer.locale.grammar_proofread_text.normalize_errors_for_text", return_value=[]), \
+         patch("plugin.writer.locale.grammar_proofread_cache.normalize_errors_for_text", return_value=[]), \
          patch("plugin.writer.locale.grammar_proofread_cache.cache_put_sentence") as mock_put:
         run_grammar_check(chunk, "en-US", "en-US", ec)
     mock_put.assert_called_once()
@@ -879,7 +879,7 @@ def test_process_grammar_results_caches_ignored_rules_and_excludes_from_status()
     mock_status = MagicMock()
     with (
         patch("plugin.writer.locale.grammar_worker.get_grammar_status", return_value=mock_status),
-        patch("plugin.writer.locale.grammar_proofread_text.normalize_errors_for_text", return_value=[norm_err]),
+        patch("plugin.writer.locale.grammar_proofread_cache.normalize_errors_for_text", return_value=[norm_err]),
         patch("plugin.writer.locale.grammar_ignore_rules.doc_ignored_rules", return_value={"agr"}),
         patch("plugin.writer.locale.grammar_proofread_cache.cache_put_sentence") as mock_put,
     ):
@@ -927,7 +927,7 @@ def test_call_grammar_llm_and_cache_cap_prefix() -> None:
         patch("plugin.writer.locale.grammar_worker.get_grammar_status", return_value=MagicMock()),
         patch("plugin.writer.locale.grammar_worker.grammar_obs"),
         patch("plugin.framework.client.llm_client.LlmClient") as mock_llm_client,
-        patch("plugin.writer.locale.grammar_proofread_text.normalize_errors_for_text", return_value=[]),
+        patch("plugin.writer.locale.grammar_proofread_cache.normalize_errors_for_text", return_value=[]),
     ):
         mock_client = mock_llm_client.return_value
         mock_client.chat_completion_sync.return_value = '{"errors": []}'
@@ -966,7 +966,7 @@ def test_worker_runs_model_from_checker_identity() -> None:
         patch("plugin.writer.locale.grammar_worker.grammar_obs"),
         patch("plugin.framework.client.model_fetcher.get_grammar_model", return_value="model-b"),
         patch("plugin.framework.client.llm_client.LlmClient") as mock_llm_client,
-        patch("plugin.writer.locale.grammar_proofread_text.normalize_errors_for_text", return_value=[]),
+        patch("plugin.writer.locale.grammar_proofread_cache.normalize_errors_for_text", return_value=[]),
     ):
         mock_client = mock_llm_client.return_value
         mock_client.chat_completion_sync.return_value = '{"errors": []}'

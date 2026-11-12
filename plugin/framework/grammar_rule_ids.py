@@ -222,4 +222,4 @@ _SNOWBALL_SPECS: tuple[tuple[str, str | None, tuple[str, ...]], ...] = (
 )
 
 STOPWORDS_ISO_KEY: dict[str, str] = {snow: iso for snow, iso, _keys in _SNOWBALL_SPECS if iso is not None}
-_ISO_TO_SNOWBALL: dict[str, str] = {iso: snow for snow, _iso, keys in _SNOWBALL_SPECS for iso in keys}
+ISO_TO_SNOWBALL: dict[str, str] = {iso: snow for snow, _iso, keys in _SNOWBALL_SPECS for iso in keys}

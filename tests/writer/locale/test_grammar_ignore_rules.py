@@ -80,7 +80,7 @@ class TestGrammarIgnoreRules:
         dp.ignored_rules_snapshot.return_value = {"avoid passive voice"}
         global_rule = f"{WA_G_RULE_PREFIX}Use 'an' instead of 'a'."
         with (
-            patch("plugin.writer.locale.grammar_persistence.get_persistence", return_value=dp),
+            patch("plugin.writer.locale.grammar_ignore_rules.get_persistence", return_value=dp),
             patch("plugin.writer.locale.grammar_ignore_rules.ignored_rules_snapshot", return_value={global_rule}),
         ):
             reasons = collect_ignored_reasons("doc-x")
@@ -92,7 +92,7 @@ class TestGrammarIgnoreRules:
         dp.ignored_rules_snapshot.return_value = set()
         global_rule = make_rule_identifier(HARPER_RULE_PREFIX, "SpellCheck")
         with (
-            patch("plugin.writer.locale.grammar_persistence.get_persistence", return_value=dp),
+            patch("plugin.writer.locale.grammar_ignore_rules.get_persistence", return_value=dp),
             patch("plugin.writer.locale.grammar_ignore_rules.ignored_rules_snapshot", return_value={global_rule}),
         ):
             reasons = collect_ignored_reasons("doc-x")
@@ -104,7 +104,7 @@ class TestGrammarIgnoreRules:
         dp.ignored_rules_snapshot.return_value = set()
         raw = "Legacy Bare Rule!"
         with (
-            patch("plugin.writer.locale.grammar_persistence.get_persistence", return_value=dp),
+            patch("plugin.writer.locale.grammar_ignore_rules.get_persistence", return_value=dp),
             patch("plugin.writer.locale.grammar_ignore_rules.ignored_rules_snapshot", return_value={raw}),
         ):
             reasons = collect_ignored_reasons("doc-x")
@@ -114,7 +114,7 @@ class TestGrammarIgnoreRules:
         dp = MagicMock()
         dp.ignored_rules_snapshot.return_value = set()
         with (
-            patch("plugin.writer.locale.grammar_persistence.get_persistence", return_value=dp),
+            patch("plugin.writer.locale.grammar_ignore_rules.get_persistence", return_value=dp),
             patch("plugin.writer.locale.grammar_ignore_rules.ignored_rules_snapshot", return_value={WA_G_RULE_PREFIX}),
         ):
             reasons = collect_ignored_reasons("doc-x")
@@ -122,7 +122,7 @@ class TestGrammarIgnoreRules:
         assert len(reasons) == 0
 
     def test_doc_ignored_rules_empty_when_no_persistence(self) -> None:
-        with patch("plugin.writer.locale.grammar_persistence.get_persistence", return_value=None):
+        with patch("plugin.writer.locale.grammar_ignore_rules.get_persistence", return_value=None):
             assert (doc_ignored_rules("missing")) == (set())
 
     def test_normalize_reason(self) -> None:
@@ -173,7 +173,7 @@ class TestGrammarIgnoreRules:
         )
 
         u16_map = Utf16OffsetMap("This was done by him. This is a apple.")
-        with patch("plugin.writer.locale.grammar_persistence.get_persistence", return_value=dp):
+        with patch("plugin.writer.locale.grammar_ignore_rules.get_persistence", return_value=dp):
             res = _cached_errors_to_uno_tuple(cached, doc_id, u16_map)
 
         assert (len(res)) == (1)
@@ -274,7 +274,7 @@ def test_cached_errors_to_uno_tuple_filters_stable_ignored_rules(prefix: str, ig
     )
 
     u16_map = Utf16OffsetMap("This was done by him. This is a apple.")
-    with patch("plugin.writer.locale.grammar_persistence.get_persistence", return_value=dp):
+    with patch("plugin.writer.locale.grammar_ignore_rules.get_persistence", return_value=dp):
         res = _cached_errors_to_uno_tuple(cached, doc_id, u16_map)
 
     assert len(res) == 1
@@ -300,7 +300,7 @@ def test_cached_errors_to_uno_tuple_filters_stable_after_reload(prefix: str, ign
 
     u16_map = Utf16OffsetMap("This was done by him. This is a apple.")
     with (
-        patch("plugin.writer.locale.grammar_persistence.get_persistence", return_value=dp),
+        patch("plugin.writer.locale.grammar_ignore_rules.get_persistence", return_value=dp),
         patch("plugin.writer.locale.grammar_ignore_rules.ignored_rules_snapshot", return_value=set()),
     ):
         res = _cached_errors_to_uno_tuple(cached, doc_id, u16_map)

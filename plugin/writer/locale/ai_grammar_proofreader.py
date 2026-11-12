@@ -69,8 +69,16 @@ except ImportError:
 _GRAMMAR_DISABLED_NOTICE_LOCK = threading.Lock()
 _GRAMMAR_DISABLED_NOTICE_EMITTED = False
 
-from plugin.writer.locale.grammar_ignore_rules import ignore_rule_add, ignore_rules_clear
-from plugin.writer.locale.grammar_proofread_cache import cache_get_sentence
+from plugin.writer.locale.grammar_ignore_rules import (
+    IgnoreSet,
+    canonical_rule_key,
+    ignore_rule_add,
+    ignore_rules_clear,
+)
+from plugin.writer.locale.grammar_proofread_cache import (
+    cache_get_sentence,
+    store_sentence_result,
+)
 from plugin.framework.grammar_rule_ids import (
     GRAMMAR_REGISTRY_LOCALE_TAGS,
     normalize_uno_locale_to_bcp47,
@@ -172,7 +180,7 @@ def _resolve_proofread_writer_model(ctx: Any, doc_id: str) -> Any | None:
 def _ensure_persistence_bound(ctx: Any, doc_id: str) -> Any | None:
     """Bind ``DocumentPersistence`` to the Writer model being proofread.
 
-    ``get_document_model_for_id`` only returns ``p._model`` when a
+    ``get_document_model_for_id`` only returns ``p.model`` when a
     ``DocumentPersistence`` for the id is already in the map, so the
     first ``doProofreading`` always gets None and returns. Udprops
     never load and save listeners never register.
@@ -212,7 +220,6 @@ def _ignore_rule_on_main(ctx: Any, doc_id: str, rule_identifier: str) -> None:
     p = _persistence_for_doc(ctx, doc_id)
     if not p:
         return
-    from .grammar_ignore_rules import canonical_rule_key
 
     stored = canonical_rule_key(rule_identifier)
     if stored is None:
@@ -249,8 +256,6 @@ def _cached_errors_to_uno_tuple(
     doc_id: str,
     u16_map: Utf16OffsetMap,
 ) -> tuple[Any, ...]:
-    from plugin.writer.locale.grammar_ignore_rules import IgnoreSet
-
     ignore_set = IgnoreSet.for_document(doc_id)
     markup_type = _proofreading_markup_type()
 
@@ -303,6 +308,7 @@ def ensure_writeragent_proofreader_configured(ctx: Any) -> None:
         log.debug("[grammar] skip harper warmup: user config dir not ready")
         return
     try:
+        # harper.py loads the harper-ls LSP client and binary downloader; import it only on the Harper path.
         from plugin.writer.locale.harper import maybe_start_harper_async
 
         maybe_start_harper_async(ctx, user_config_dir=ucd)
@@ -551,6 +557,7 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
         if profile.provider == "harper":
             # Harper lints English only. hasLocale and doProofreading both read this rule,
             # and HarperProofreader inherits it through its fixed "harper" profile.
+            # harper.py loads the harper-ls LSP client and binary downloader; import it only on the Harper path.
             from plugin.writer.locale.harper import normalize_harper_locale_to_bcp47
 
             return normalize_harper_locale_to_bcp47(a_locale)
@@ -633,8 +640,7 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
             return
         from plugin.framework.config import user_config_dir
 
-        from plugin.writer.locale.grammar_ignore_rules import IgnoreSet
-        from plugin.writer.locale.grammar_proofread_cache import store_sentence_result
+        # harper.py loads the harper-ls LSP client and binary downloader; import it only on the Harper path.
         from plugin.writer.locale.harper import harper_try_lint
 
         cfg_dir = user_config_dir() or ""
@@ -890,6 +896,7 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
         ready = False
         if not pending:
             try:
+                # harper.py loads the harper-ls LSP client and binary downloader; import it only on the Harper path.
                 from plugin.writer.locale.harper import runtime
 
                 ready = self._resolved_profile().provider == "harper" and runtime.is_ready()

@@ -370,7 +370,7 @@ def test_dump_grammar_cache_for_recheck_clears_l1_and_active_l2_only() -> None:
             return ""
 
         with (
-            patch("plugin.framework.uno_context.get_active_document", return_value=model_a),
+            patch("plugin.writer.locale.grammar_proofread_cache.get_active_document", return_value=model_a),
             patch("plugin.framework.uno_context.get_runtime_uid", side_effect=fake_uid),
             patch.object(pa, "_persist_to_udprops"),
         ):
@@ -393,7 +393,7 @@ def test_recheck_active_document_grammar_broadcasts_from_live_proofreader() -> N
     pr = _Live()
     grammar_registry.register_live_proofreader(pr)
     try:
-        with patch("plugin.framework.uno_context.get_active_document", return_value=None):
+        with patch("plugin.writer.locale.grammar_proofread_cache.get_active_document", return_value=None):
             gc.recheck_active_document_grammar(MagicMock())
         pr.broadcast_proofread_again.assert_called_once()
     finally:

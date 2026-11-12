@@ -380,7 +380,7 @@ def test_run_llm_skips_split_when_item_text_set() -> None:
         patch("plugin.framework.client.llm_client.LlmClient") as client_cls,
         patch("plugin.writer.locale.grammar_proofread_text.split_into_sentences", side_effect=_split_must_not_run),
         patch("plugin.writer.locale.grammar_proofread_json.parse_grammar_json", return_value=[]),
-        patch("plugin.writer.locale.grammar_proofread_text.normalize_errors_for_text", return_value=[]),
+        patch("plugin.writer.locale.grammar_proofread_cache.normalize_errors_for_text", return_value=[]),
         patch("plugin.writer.locale.grammar_proofread_cache.cache_put_sentence"),
     ):
         lane_ctx.return_value.__enter__ = MagicMock()
@@ -400,7 +400,7 @@ def test_partial_sentence_adds_prompt_note() -> None:
         patch("plugin.framework.llm_lanes.grammar_llm_request_gate") as lane_ctx,
         patch("plugin.framework.client.llm_client.LlmClient") as client_cls,
         patch("plugin.writer.locale.grammar_proofread_json.parse_grammar_json", return_value=[]),
-        patch("plugin.writer.locale.grammar_proofread_text.normalize_errors_for_text", return_value=[]),
+        patch("plugin.writer.locale.grammar_proofread_cache.normalize_errors_for_text", return_value=[]),
         patch("plugin.writer.locale.grammar_proofread_cache.cache_put_sentence"),
     ):
         lane_ctx.return_value.__enter__ = MagicMock()
@@ -767,7 +767,7 @@ class TestTypingIntegration:
         with (
             patch("plugin.writer.locale.grammar_proofread_text.split_into_sentences") as mock_split,
             patch("plugin.writer.locale.harper.harper_try_lint", return_value={"errors": []}),
-            patch("plugin.writer.locale.grammar_proofread_text.normalize_errors_for_text", return_value=[]),
+            patch("plugin.writer.locale.grammar_proofread_cache.normalize_errors_for_text", return_value=[]),
             patch.object(proofreader, "grammar_obs") as mock_obs,
         ):
             mock_split.return_value = [(0, sentence)]
@@ -979,7 +979,7 @@ def test_ensure_persistence_bound_passes_current_text_component() -> None:
             proofreader._ensure_persistence_bound(ctx, "2")
         bound = gp.get_persistence("2")
         assert bound is not None
-        assert bound._model is writer
+        assert bound.model is writer
         assert mock_load.call_count == again_loads
     finally:
         gp.grammar_registry.clear_all()
@@ -1011,7 +1011,7 @@ def test_ensure_persistence_bound_uses_only_open_writer() -> None:
             proofreader._ensure_persistence_bound(ctx, "4")
         bound = gp.get_persistence("4")
         assert bound is not None
-        assert bound._model is writer
+        assert bound.model is writer
     finally:
         gp.grammar_registry.clear_all()
 
@@ -1218,7 +1218,7 @@ def test_try_harper_fast_path_emits_status_when_ready() -> None:
         patch("plugin.writer.locale.ai_grammar_proofreader.get_grammar_status") as mock_status_fn,
         patch("plugin.writer.locale.grammar_ignore_rules.doc_ignored_rules", return_value=set()),
         patch("plugin.writer.locale.grammar_ignore_rules.ignored_rules_snapshot", return_value=()),
-        patch("plugin.writer.locale.grammar_proofread_text.normalize_errors_for_text", return_value=[]),
+        patch("plugin.writer.locale.grammar_proofread_cache.normalize_errors_for_text", return_value=[]),
         patch("plugin.writer.locale.grammar_proofread_cache.cache_put_sentence"),
     ):
         pr._try_harper_fast_path("doc", "en-US", [(0, 18, "This are an test.")], combined, checker_identity="harper")
@@ -1292,7 +1292,7 @@ def test_ensure_persistence_bound_prioritizes_runtime_uid_over_current_component
             proofreader._ensure_persistence_bound(ctx, "match-id")
         bound = gp.get_persistence("match-id")
         assert bound is not None
-        assert bound._model is writer_match
+        assert bound.model is writer_match
     finally:
         gp.grammar_registry.clear_all()
 
@@ -1550,7 +1550,7 @@ def test_doc_ignored_rules_runs_once_for_multi_sentence_harper(
         patch("plugin.writer.locale.harper.harper_try_lint", return_value={"errors": []}),
         patch("plugin.writer.locale.grammar_ignore_rules.doc_ignored_rules", return_value=set()) as mock_doc_ignored,
         patch("plugin.writer.locale.grammar_ignore_rules.ignored_rules_snapshot", return_value=()),
-        patch("plugin.writer.locale.grammar_proofread_text.normalize_errors_for_text", return_value=[]),
+        patch("plugin.writer.locale.grammar_proofread_cache.normalize_errors_for_text", return_value=[]),
         patch("plugin.writer.locale.grammar_proofread_cache.cache_put_sentence"),
         patch("plugin.writer.locale.ai_grammar_proofreader.get_grammar_status", return_value=MagicMock()),
     ):
@@ -1645,7 +1645,7 @@ def test_harper_fast_path_caches_ignored_rules_and_excludes_from_status(mock_con
         patch("plugin.writer.locale.harper.harper_try_lint", return_value={"errors": [{"wrong": "They is"}]}),
         patch("plugin.writer.locale.grammar_ignore_rules.doc_ignored_rules", return_value={"agr"}),
         patch("plugin.writer.locale.grammar_ignore_rules.ignored_rules_snapshot", return_value=()),
-        patch("plugin.writer.locale.grammar_proofread_text.normalize_errors_for_text", return_value=[norm_err]),
+        patch("plugin.writer.locale.grammar_proofread_cache.normalize_errors_for_text", return_value=[norm_err]),
         patch("plugin.writer.locale.grammar_proofread_cache.cache_put_sentence") as mock_put,
         patch("plugin.writer.locale.ai_grammar_proofreader.get_grammar_status") as mock_status_fn,
     ):

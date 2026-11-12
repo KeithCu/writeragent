@@ -38,8 +38,9 @@ from plugin.writer.locale.grammar_proofread_locale import uno_locales_for_tags
 
 log = logging.getLogger("writeragent.grammar")
 
+from plugin.framework.config import init_config, user_config_dir
 from plugin.framework.constants import EXTENSION_ID_LIBREHARPER
-from plugin.writer.locale.harper import HARPER_LOCALE_TAGS
+from plugin.writer.locale.harper import HARPER_LOCALE_TAGS, maybe_start_harper_async
 
 IMPLEMENTATION_NAME = f"{EXTENSION_ID_LIBREHARPER}.comp.pyuno.HarperProofreader"
 SERVICE_DISPLAY_NAME = "LibreHarper"
@@ -96,9 +97,6 @@ class HarperProofreader(WriterAgentAiGrammarProofreader):  # pyright: ignore[rep
             return
         # LibreHarper has no OnStartApp job; start harper-ls only once the profile path exists.
         try:
-            from plugin.framework.config import init_config, user_config_dir
-            from plugin.writer.locale.harper import maybe_start_harper_async
-
             init_config(ctx)
             ucd = user_config_dir() or ""
             if ucd:

@@ -16,6 +16,7 @@ through the UI thread / ``guard_uno``.
 
 from __future__ import annotations
 
+import importlib
 import logging
 import threading
 import time
@@ -25,6 +26,7 @@ from typing import Any
 
 from plugin.writer.locale import grammar_settings
 from . import grammar_proofread_cache, grammar_proofread_json, grammar_proofread_locale, grammar_persistence
+from .grammar_ignore_rules import IgnoreSet, collect_ignored_reasons
 from .grammar_obs import (
     get_grammar_status,
     grammar_obs,
@@ -74,8 +76,7 @@ def _get_or_create_thread_llm_client(api_cfg: dict[str, Any], ctx: Any) -> Any:
     if cached_client is not None:
         best_effort(cached_client.stop, "grammar LLM client stop failed")
 
-    import importlib
-
+    # llm_client / model_fetcher are not shipped in LibreHarper (empty client package); resolve at call time.
     llm_client_mod = importlib.import_module("plugin.framework.client.llm_client")
     new_client = llm_client_mod.LlmClient(api_cfg, ctx, register_with_send=False)
     _grammar_worker_tls.client = new_client
@@ -160,8 +161,6 @@ def process_grammar_results(
     ec: GrammarWorkerContext,
 ) -> None:
     """Normalize errors, write sentence cache, emit done status."""
-    from .grammar_ignore_rules import IgnoreSet
-
     summary = _BatchResultSummary()
     doc_id = chunk[0][0].doc_id
     ignore_set = IgnoreSet.for_document(doc_id) if doc_id else None
@@ -220,12 +219,14 @@ def run_single_sentence_provider(
 
 
 def _run_languagetool(ctx: Any, text: str, bcp47: str, _cfg_dir: str) -> Any:
+    # not shipped in the LibreHarper OXT (scripts/libreharper_bundle_paths.py); this module is.
     from plugin.scripting.client import run_languagetool_check
 
     return run_languagetool_check(ctx, text, bcp47)
 
 
 def _run_vale(ctx: Any, text: str, _bcp47: str, cfg_dir: str) -> Any:
+    # not shipped in the LibreHarper OXT (scripts/libreharper_bundle_paths.py); this module is.
     from plugin.scripting.client import run_vale_check
 
     return run_vale_check(ctx, text, cfg_dir, "Microsoft,Google,write-good")
@@ -482,8 +483,6 @@ def call_grammar_llm(
     ec: GrammarWorkerContext,
 ) -> tuple[list[Any], int]:
     """Run grammar LLM for one sentence or a batch; return parsed results and elapsed ms."""
-    from .grammar_ignore_rules import collect_ignored_reasons
-
     batch = len(chunk) > 1
     doc_id = chunk[0][0].doc_id
     ignored_reasons = collect_ignored_reasons(doc_id)
@@ -571,6 +570,7 @@ def _detect_languages_via_langdetect(
     ec: GrammarWorkerContext,
 ) -> None:
     """Fill pending slots via PyPI langdetect in the embeddings venv worker."""
+    # not shipped in the LibreHarper OXT (scripts/libreharper_bundle_paths.py); this module is.
     from plugin.writer.locale.langdetect_service import detect_languages
 
     pending = [idx for idx, lang in enumerate(detected_langs) if lang is None]
@@ -855,8 +855,7 @@ def run_llm_and_cache_batch(
             if ident.startswith("llm:"):
                 model = ident[4:]
             if not model:
-                import importlib
-
+                # llm_client / model_fetcher are not shipped in LibreHarper (empty client package); resolve at call time.
                 model_fetcher = importlib.import_module("plugin.framework.client.model_fetcher")
                 model = model_fetcher.get_grammar_model()
             client = _get_or_create_thread_llm_client(config.get_api_config(), ctx)
