@@ -32,11 +32,11 @@ from plugin.scripting.session_key import (
 )
 from plugin.scripting.venv.coerce import (
     resolve_df,
-    table_from_df as _table_from_df,
+    table_from_df,
 )
 from plugin.scripting.venv.results import error_result
 from plugin.scripting.venv.trusted_dispatch import (
-    ok_result as _ok_result,
+    ok_result,
 )
 
 log = logging.getLogger(__name__)
@@ -643,7 +643,7 @@ def _ok_sql_result(
     files_used: list[str] | None = None,
 ) -> dict[str, Any]:
     """Shape a SQL DataFrame like analysis helpers: tables + flags + metrics."""
-    table = _table_from_df(df, name="sql_result", max_rows=MAX_TABLE_ROWS)
+    table = table_from_df(df, name="sql_result", max_rows=MAX_TABLE_ROWS)
     # table_from_df already sets truncated / total_rows; keep columns/rows at
     # top level so existing chat/tool callers keep working.
     total = table["total_rows"]
@@ -671,7 +671,7 @@ def _ok_sql_result(
         payload["warning"] = warning
         # ``message`` is a priority key in generic RPS HTML insert — bold, not a footnote.
         payload["message"] = warning
-    return _ok_result(helper, **payload)
+    return ok_result(helper, **payload)
 
 
 def _validate_files(scoped_dir: str, files: list[str] | None) -> list[str]:

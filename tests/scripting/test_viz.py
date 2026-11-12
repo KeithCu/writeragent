@@ -1186,3 +1186,62 @@ def test_try_insert_plot_result_mixed_multi_data_is_not_a_plot():
     assert res is False
     mock_insert.assert_not_called()
     mock_sheet.assert_not_called()
+
+
+_PIN_VIZ_GRID = [["Region", "Sales", "Units"], ["N", 10, 1], ["S", 20, 2], ["E", 30, 3], ["W", 40, 4]]
+
+
+@pytest.mark.parametrize(
+    ("call", "expected_code", "expected_message", "expected_helper"),
+    [
+        (
+            lambda v: v.plot_data(_PIN_VIZ_GRID, spec={"chart_type": "pie"}),
+            "INVALID_PARAM",
+            "chart_type must be line, scatter, histogram, or bar",
+            "plot_data",
+        ),
+        (
+            lambda v: v.plot_data(_PIN_VIZ_GRID, spec={"y": "Nope"}),
+            "UNKNOWN_COLUMN",
+            "Unknown columns: Nope",
+            "plot_data",
+        ),
+        (
+            lambda v: v.quick_plot(_PIN_VIZ_GRID, y_col="Region"),
+            "NON_NUMERIC_COLUMN",
+            "Non-numeric columns: Region",
+            "quick_plot",
+        ),
+        (
+            lambda v: v.plot_data(_PIN_VIZ_GRID, spec={"chart_type": "scatter", "x": "Region", "y": "Sales"}),
+            "NON_NUMERIC_COLUMN",
+            "Non-numeric columns: Region",
+            "plot_data",
+        ),
+    ],
+)
+@patch("plugin.scripting.venv.viz._require_matplotlib", return_value=MagicMock())
+def test_viz_helper_errors_keep_code_message_helper(
+    _mock_plt,
+    call,
+    expected_code: str,
+    expected_message: str,
+    expected_helper: str,
+):
+    from plugin.scripting.venv import viz as venv_viz
+
+    assert call(venv_viz) == {
+        "status": "error",
+        "code": expected_code,
+        "message": expected_message,
+        "helper": expected_helper,
+    }
+
+
+@patch("plugin.scripting.venv.viz._require_matplotlib", return_value=MagicMock())
+def test_plot_data_passes_plain_value_error(_mock_plt):
+    from plugin.scripting.venv import viz as venv_viz
+
+    with pytest.raises(ValueError, match="header_row 99 is outside the grid") as exc:
+        venv_viz.plot_data(_PIN_VIZ_GRID, header_row=99)
+    assert type(exc.value) is ValueError

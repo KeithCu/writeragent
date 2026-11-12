@@ -17,11 +17,11 @@ import re
 from typing import Any, Callable
 
 from plugin.scripting.helper_registry import helper
-from plugin.scripting.venv.results import error_result
+from plugin.scripting.venv.results import HelperError, error_result
 from plugin.scripting.venv.trusted_dispatch import (
     is_blank_param,
-    missing_package_error as _missing_package_error,
-    ok_result as _ok_result,
+    missing_package_error,
+    ok_result,
     run_domain,
 )
 
@@ -45,14 +45,6 @@ _KNOWN_CALL_NAMES = frozenset(_SYMPY_NAMES) | {"ln", "e"}
 def _undefined_call_names(text: str) -> list[str]:
     found = (match.group(1) for match in _CALL_NAME.finditer(text))
     return list(dict.fromkeys(name for name in found if name not in _KNOWN_CALL_NAMES))
-
-
-class _SymbolicError(Exception):
-    code: str
-
-    def __init__(self, code: str, message: str) -> None:
-        super().__init__(message)
-        self.code = code
 
 
 def _require_sympy() -> Any | None:
@@ -117,22 +109,22 @@ def _reject_unsafe_expression(text: str) -> None:
     before it or after it is a digit (``1.5``, ``.5``, ``1.``, ``x.5``).
     """
     if "__" in text:
-        raise _SymbolicError("PARSE_ERROR", "Dunder attribute access is not allowed in expressions.")
+        raise HelperError("PARSE_ERROR", "Dunder attribute access is not allowed in expressions.")
     for index, char in enumerate(text):
         if char != ".":
             continue
         prev_digit = index > 0 and text[index - 1].isdigit()
         next_digit = index + 1 < len(text) and text[index + 1].isdigit()
         if not prev_digit and not next_digit:
-            raise _SymbolicError("PARSE_ERROR", "Attribute access is not allowed in expressions.")
+            raise HelperError("PARSE_ERROR", "Attribute access is not allowed in expressions.")
 
 
 def _parse_expression(sp: Any, expr: Any, *, variable: Any | None = None) -> Any:
     text = _param_text(expr)
     if not text:
-        raise _SymbolicError("PARSE_ERROR", "empty expression")
+        raise HelperError("PARSE_ERROR", "empty expression")
     if len(text) > _MAX_SYMBOLIC_EXPR_CHARS:
-        raise _SymbolicError("PARSE_ERROR", f"expression longer than {_MAX_SYMBOLIC_EXPR_CHARS} characters")
+        raise HelperError("PARSE_ERROR", f"expression longer than {_MAX_SYMBOLIC_EXPR_CHARS} characters")
     _reject_unsafe_expression(text)
     from sympy.parsing.sympy_parser import parse_expr
 
@@ -158,15 +150,15 @@ def _parse_expression(sp: Any, expr: Any, *, variable: Any | None = None) -> Any
         if isinstance(exc, NameError):
             names = _undefined_call_names(text)
             if names:
-                raise _SymbolicError("PARSE_ERROR", f"Undefined function in expression: {', '.join(names)}") from exc
-        raise _SymbolicError("PARSE_ERROR", f"Could not parse expression: {exc}") from exc
+                raise HelperError("PARSE_ERROR", f"Undefined function in expression: {', '.join(names)}") from exc
+        raise HelperError("PARSE_ERROR", f"Could not parse expression: {exc}") from exc
 
     # parse_expr returns a Python str, list, tuple, or dict for quotes, brackets,
     # and braces, and returns the Float class for 1.0.func. Those objects have no
     # .atoms. The wrapper reported SYMBOLIC_ERROR with 'str' object has no attribute
     # 'atoms'. They are not expressions, so the failure is PARSE_ERROR.
     if not isinstance(parsed, sp.Basic):
-        raise _SymbolicError("PARSE_ERROR", "Not a math expression.")
+        raise HelperError("PARSE_ERROR", "Not a math expression.")
 
     return parsed
 
@@ -187,7 +179,7 @@ def _symbolic_helper(func: Callable[..., dict[str, Any]]) -> Callable[..., dict[
 
     The wrapper passes the module in, so helpers do not look it up again and
     do not assert on it (asserts vanish under ``python -O``).
-    Parse failures raise ``_SymbolicError`` with their own code (PARSE_ERROR).
+    Parse failures raise ``HelperError`` with their own code (PARSE_ERROR).
     Any other exception, such as a ``ValueError`` from simplify, integrate or
     solve, becomes SYMBOLIC_ERROR, so the user can tell a bad expression from a
     math failure.
@@ -199,10 +191,10 @@ def _symbolic_helper(func: Callable[..., dict[str, Any]]) -> Callable[..., dict[
         helper = func.__name__
         sp = _require_sympy()
         if sp is None:
-            return _missing_package_error(helper, "sympy")
+            return missing_package_error(helper, "sympy")
         try:
             return func(sp, *args, **kwargs)
-        except _SymbolicError as exc:
+        except HelperError as exc:
             return error_result(exc.code, str(exc), helper=helper)
         except Exception as exc:
             return error_result("SYMBOLIC_ERROR", str(exc), helper=helper)
@@ -220,7 +212,7 @@ def symbolic_simplify(sp: Any, *, expression: Any) -> dict[str, Any]:
     expr = _parse_expression(sp, expression)
     simplified = sp.simplify(expr)
     latex = str(sp.latex(simplified))
-    return _ok_result("symbolic_simplify", latex=latex, text=str(simplified), writer_cleanup_hints=[])
+    return ok_result("symbolic_simplify", latex=latex, text=str(simplified), writer_cleanup_hints=[])
 
 
 @helper("symbolic")
@@ -235,7 +227,7 @@ def differentiate(sp: Any, *, expression: Any, variable: Any = "x") -> dict[str,
     result = sp.diff(expr, sym)
     latex = str(sp.latex(result))
     # Echo str(sym), the stripped name. The raw parameter can still contain spaces.
-    return _ok_result("differentiate", latex=latex, text=str(result), variable=str(sym), writer_cleanup_hints=[])
+    return ok_result("differentiate", latex=latex, text=str(result), variable=str(sym), writer_cleanup_hints=[])
 
 
 @helper("symbolic")
@@ -254,7 +246,7 @@ def integrate(
     if is_blank_param(lower, strip=True) != is_blank_param(upper, strip=True):
         # Exactly one bound is MISSING_PARAM. Both absent is indefinite;
         # both present is definite.
-        raise _SymbolicError("MISSING_PARAM", "Both lower and upper bounds must be provided for definite integration.")
+        raise HelperError("MISSING_PARAM", "Both lower and upper bounds must be provided for definite integration.")
 
     if not is_blank_param(lower, strip=True):
         a = _parse_expression(sp, lower, variable=sym)
@@ -266,10 +258,10 @@ def integrate(
     # integrate returns Integral(...) when it has no closed form and the
     # helper must not report that object as success.
     if result.has(sp.Integral):
-        raise _SymbolicError("NO_CLOSED_FORM", f"No closed form: {result}")
+        raise HelperError("NO_CLOSED_FORM", f"No closed form: {result}")
 
     latex = str(sp.latex(result))
-    return _ok_result("integrate", latex=latex, text=str(result), variable=str(sym), writer_cleanup_hints=[])
+    return ok_result("integrate", latex=latex, text=str(result), variable=str(sym), writer_cleanup_hints=[])
 
 
 @helper("symbolic")
@@ -285,16 +277,16 @@ def solve_equation(sp: Any, *, equation: Any, variable: Any = "x") -> dict[str, 
     sym = _parse_variable(sp, variable)
     text = _param_text(equation)
     if not text:
-        raise _SymbolicError("MISSING_PARAM", "equation is required")
+        raise HelperError("MISSING_PARAM", "equation is required")
     # Inequalities and '==' are INVALID_PARAM. split("=", 1) would cut
     # '<=' and '==' into pieces parse_expr cannot accept. `!=` stays rejected:
     # the tokenizer fuses it, so factorial_notation never sees a bare `!`.
     if re.search(r"<=|>=|!=|==|<|>", text):
-        raise _SymbolicError("INVALID_PARAM", "Inequalities and '==' are not supported in solve_equation; use '=' or expression equal to zero.")
+        raise HelperError("INVALID_PARAM", "Inequalities and '==' are not supported in solve_equation; use '=' or expression equal to zero.")
     if "=" in text:
         parts = text.split("=")
         if len(parts) > 2:
-            raise _SymbolicError("INVALID_PARAM", "Equation cannot contain multiple '=' signs.")
+            raise HelperError("INVALID_PARAM", "Equation cannot contain multiple '=' signs.")
         lhs = _parse_expression(sp, parts[0], variable=sym)
         rhs = _parse_expression(sp, parts[1], variable=sym)
         target = sp.Eq(lhs, rhs)
@@ -315,14 +307,14 @@ def solve_equation(sp: Any, *, equation: Any, variable: Any = "x") -> dict[str, 
     if not solutions:
         solution_set = sp.solveset(target, sym, domain=sp.S.Complexes)
         if solution_set == sp.S.EmptySet:
-            raise _SymbolicError("NO_SOLUTION", "No solution.")
+            raise HelperError("NO_SOLUTION", "No solution.")
         exprs = [solution_set]
     else:
         exprs = solutions
     latex = ", ".join(str(sp.latex(expr)) for expr in exprs)
     text_sol = ", ".join(str(expr) for expr in exprs)
     solution_strs = [str(expr) for expr in exprs]
-    return _ok_result(
+    return ok_result(
         "solve_equation",
         latex=latex,
         text=text_sol,
@@ -344,13 +336,13 @@ def latex_to_math_object(sp: Any, *, latex: Any) -> dict[str, Any]:
     """
     trimmed = _param_text(latex)
     if not trimmed:
-        raise _SymbolicError("MISSING_PARAM", "latex is required")
+        raise HelperError("MISSING_PARAM", "latex is required")
     if len(trimmed) > _MAX_SYMBOLIC_EXPR_CHARS:
-        raise _SymbolicError("PARSE_ERROR", f"latex longer than {_MAX_SYMBOLIC_EXPR_CHARS} characters")
+        raise HelperError("PARSE_ERROR", f"latex longer than {_MAX_SYMBOLIC_EXPR_CHARS} characters")
     if not any(cue in trimmed for cue in _LATEX_CUES):
         expr = _parse_expression(sp, trimmed)
         trimmed = str(sp.latex(expr))
-    return _ok_result("latex_to_math_object", latex=trimmed, text=trimmed, writer_cleanup_hints=[])
+    return ok_result("latex_to_math_object", latex=trimmed, text=trimmed, writer_cleanup_hints=[])
 
 
 def run_symbolic(

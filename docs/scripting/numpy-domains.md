@@ -117,6 +117,8 @@ flowchart TD
 
 **Sheet layout flags:** `headers` and `header_row` sit on the spec next to `helper`, not inside `params`. The host client copies them onto the trusted-action packet, and the worker puts them back on the spec before `parse_trusted_spec`. Dropping them defaulted `headers` to true, so `headers=false` from `forecast_data` / `optimize_data` read the first data row as column names. The host copies `headers` and `header_row` onto the packet without `bool()` or `int()`, and the worker returns `INVALID_SPEC` when `header_row` is not an integer or `headers` is not a boolean `coerce_bool` accepts. The string `"false"` is false.
 
+**Helper errors:** Coercers in `venv/coerce.py` and helper-local validators raise `HelperError(code, message)` from `venv/results.py`. Each result-dict helper in `analysis`, `forecast`, `optimize`, and `viz` carries `@catch_helper_error` under `@helper(...)`, which turns `HelperError` into `error_result(code, message, helper=<name>)`. `symbolic`'s `_symbolic_helper` wrapper catches the same class. Any other exception propagates (`run_domain` maps it to `<DOMAIN>_FAILED`, and a direct `=PY` or Python call raises).
+
 **Visualization note:** Phase A uses the venv worker and `__wa_payload__: "image"` envelope for raw matplotlib (no trusted module required). **Phases B–C shipped:** Run Python Script image egress and trusted Viz helpers (`viz.py`, `[Viz]` templates, `plot_data`, analysis auto-plot).
 
 ### New Domain Proposals
