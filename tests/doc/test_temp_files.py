@@ -11,10 +11,13 @@ import os
 import sys
 import tempfile as tempfile_mod
 
+import pytest
+
 from plugin.doc.temp_files import (
     _resolve_temp_dir,
     with_temp_buffer,
 )
+from tests.uno_fakes import PyUnoSimulatedException
 
 
 def test_with_temp_buffer_yields_three_slash_file_url():
@@ -37,3 +40,17 @@ def test_resolve_temp_dir_avoids_gettempdir_under_crosshair(monkeypatch):
     assert _resolve_temp_dir() == os.curdir
     monkeypatch.setenv("TMPDIR", "/custom/tmp")
     assert _resolve_temp_dir() == "/custom/tmp"
+
+
+def test_with_temp_buffer_passes_uno_style_exception_through_unchanged():
+    recorded_path: str | None = None
+    exc_instance = PyUnoSimulatedException("UnknownPropertyException: Formula")
+    with pytest.raises(PyUnoSimulatedException) as ei:
+        with with_temp_buffer(content="dummy", ext=".html") as (path, _url):
+            recorded_path = path
+            assert os.path.exists(recorded_path)
+            raise exc_instance
+
+    assert ei.value is exc_instance
+    assert recorded_path is not None
+    assert not os.path.exists(recorded_path)

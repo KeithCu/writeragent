@@ -392,7 +392,6 @@ def test_array_preview_capped():
 
 
 def test_sort_range_bounds_and_valid_types():
-    from unittest.mock import patch
     bridge = MagicMock()
     mock_range = MagicMock()
     mock_addr = SimpleNamespace(StartColumn=0, EndColumn=1, StartRow=0, EndRow=10)
@@ -401,16 +400,50 @@ def test_sort_range_bounds_and_valid_types():
     manipulator = CellManipulator(bridge)
     with (
         patch("plugin.calc.manipulator._uno_range_address", return_value=mock_addr),
-        patch("plugin.calc.manipulator.TableSortField", create=True),
+        patch("plugin.calc.manipulator.TableSortField", create=True) as tsf_cls,
     ):
         with pytest.raises(CalcError, match=r"0 to 1"):
             manipulator.range_sort("A1:B10", sort_column=2)
         mock_range.createSortDescriptor.assert_not_called()
 
-        mock_range.createSortDescriptor.return_value = []
-        res = manipulator.range_sort("A1:B10", sort_column=0, ascending=True, has_header=True)
-        assert "sorted" in res
+        p_sort_fields = SimpleNamespace(Name="SortFields", Value=())
+        p_contains_header = SimpleNamespace(Name="ContainsHeader", Value=False)
+        mock_range.createSortDescriptor.return_value = [p_sort_fields, p_contains_header]
+
+        with patch("uno.Any") as any_mock:
+            mock_key_range = mock_range.getCellRangeByPosition.return_value
+            mock_key_range.getDataArray.return_value = (("a",), ("b",))
+            res = manipulator.range_sort("A1:B10", sort_column=0, ascending=True, has_header=True)
+            mock_range.sort.assert_called_once()
+            any_mock.assert_called_once_with("[]com.sun.star.table.TableSortField", (tsf_cls.return_value,))
+            assert p_sort_fields.Value == any_mock.return_value
+            assert p_contains_header.Value is True
+            mock_range.getCellRangeByPosition.assert_called_with(0, 1, 0, 10)
+            assert "no rows moved" in res
+
+            mock_key_range.getDataArray.side_effect = [(("b",), ("a",)), (("a",), ("b",))]
+            res_moved = manipulator.range_sort("A1:B10", sort_column=0, ascending=True, has_header=True)
+            assert "sorted ascending by column 0" in res_moved
+            assert "no rows moved" not in res_moved
+
+
+def test_sort_range_skips_key_read_for_single_data_row():
+    bridge = MagicMock()
+    mock_range = MagicMock()
+    mock_addr = SimpleNamespace(StartColumn=0, EndColumn=1, StartRow=0, EndRow=1)
+    bridge.resolve_range_or_address.return_value = mock_range
+    mock_range.createSortDescriptor.return_value = []
+
+    manipulator = CellManipulator(bridge)
+    with (
+        patch("plugin.calc.manipulator._uno_range_address", return_value=mock_addr),
+        patch("plugin.calc.manipulator.TableSortField", create=True),
+        patch("uno.Any"),
+    ):
+        res = manipulator.range_sort("A1:B2", sort_column=0, ascending=True, has_header=True)
+        mock_range.getCellRangeByPosition.assert_not_called()
         mock_range.sort.assert_called_once()
+        assert "no rows moved" in res
 
 
 def test_quiet_probe_cleanup():

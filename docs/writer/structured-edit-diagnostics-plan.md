@@ -27,7 +27,7 @@ Why: prompt instructions carry complex API-mechanics rules largely because tool 
 
 - **Error factory:** `make_tool_error(message, code="TOOL_EXECUTION_ERROR", **details)` in `plugin/framework/errors.py:404-414`. `ToolBase._tool_error` in `plugin/framework/tool.py:242-251` forwards keyword arguments to it. `format_error_payload` (`plugin/framework/errors.py:255-267`) formats exceptions into `{"status": "error", "code", "message", "details"?}`. Extra keyword arguments are nested under `details`.
 - **Codes in use on the Writer edit path:**
-  - Standard codes already emitted: `INVALID_PARAM`, `INVALID_REGEX`, `TABLE_INSERT_FAILED`, `HYPERLINK_UPDATE_FAILED`, `SHAPE_REPLACE_FAILED`, `OCCURRENCE_OUT_OF_RANGE`, `SEARCH_FAILED`, `ROLLBACK_FAILED`, `TOOL_EXECUTION_ERROR`.
+  - Standard codes already emitted: `INVALID_PARAM`, `INVALID_REGEX`, `TABLE_INSERT_FAILED`, `MATH_IMPORT_FAILED`, `HYPERLINK_UPDATE_FAILED`, `SHAPE_REPLACE_FAILED`, `OCCURRENCE_OUT_OF_RANGE`, `SEARCH_FAILED`, `ROLLBACK_FAILED`, `TOOL_EXECUTION_ERROR`.
   - Existing codes in the tree missing from prior catalogs: `UNDO_UNAVAILABLE` (`plugin/writer/apply_document_content.py:644, 722, 1468`) and `TABLE_IN_ANCHOR_RANGE` (`plugin/writer/apply_document_content.py:1579`).
   - Uncoded `_tool_error(...)` calls falling back to `TOOL_EXECUTION_ERROR`:
     - `plugin/writer/apply_document_content.py`: `dry_run` target conflict (line 892), `position` errors (lines 903, 1186, 1188, 1192), content type/item errors (lines 1207, 1211), empty content on insert targets (line 1214), math segments with `position='before'/'after'` (line 1631), and table cell `position='before'/'after'` (line 1639).
@@ -233,7 +233,7 @@ Each phase is independently shippable, maintains green tests, and requires no te
 ## 5. Items 16 and 21 interaction
 
 - **Item 21 (Search regex errors):** Shipped as `INVALID_REGEX` validated via LibreOffice's `TextSearch2` (ICU) service before searching. `details.engine` omitted (no consumer). Avoids conflicts with `invalid_regex_tool_message` (`plugin/writer/search.py:151`).
-- **Item 16 (Math object import):** Successfully created Math objects return success metadata in their own response field (not a `Diagnostic`). However, a failed Math formula import that inserts `[Math import failed]` into the document (`plugin/writer/html_import.py:226`) represents dropped content and can report a `Diagnostic` warning (e.g. `MATH_IMPORT_FAILED`) once Phase 0 plumbing lands.
+- **Item 16 (Math object import):** Successfully created Math objects return metadata in their own response field `math_objects`. A failed Math formula import that inserts `[Math import failed]` into the document (`plugin/writer/html_import.py`) represents dropped content and reports a `Diagnostic` warning with code `MATH_IMPORT_FAILED` and `math_objects`.
 
 ## 6. Risks and mitigations
 

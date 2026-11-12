@@ -11,6 +11,7 @@ from plugin.framework.config import (
     CONFIG_BACKUP_SUFFIX,
     CONFIG_SCHEMA_COMMENT,
     _resolve_config_path_from_ctx,
+    atomic_write_text,
     get_api_key_for_endpoint,
     set_api_key_for_endpoint,
     get_config,
@@ -1481,17 +1482,55 @@ def test_bad_save_rolls_back_cache_and_keeps_disk(tmp_path):
         assert get_config("text_model") == "good-model"
 
 
-def test_save_does_not_fsync(tmp_path):
+def test_save_fsyncs_before_replace(tmp_path):
+    reset_config_for_tests()
+    cfg_file = tmp_path / "writeragent.json"
+    order: list[str] = []
+    replace_srcs: list[str] = []
+    real_fsync = os.fsync
+    real_replace = os.replace
+
+    def _fsync(fd: int) -> None:
+        order.append("fsync")
+        real_fsync(fd)
+
+    def _replace(src: str, dst: str) -> None:
+        order.append("replace")
+        replace_srcs.append(src)
+        real_replace(src, dst)
+
+    with patch("plugin.framework.config.get_config_file_path", return_value=str(cfg_file)), patch(
+        "plugin.framework.config.os.fsync", side_effect=_fsync
+    ), patch("plugin.framework.config.os.replace", side_effect=_replace):
+        save({"text_model": "m"})
+
+    assert order == ["fsync", "replace"]
+    assert len(replace_srcs) == 1
+    assert os.path.basename(replace_srcs[0]).startswith(".writeragent-")
+    parsed = parse_config_json_text(cfg_file.read_text(encoding="utf-8"))
+    assert parsed is not None
+    assert parsed.get("text_model") == "m"
+
+
+def test_atomic_write_text_default_does_not_fsync(tmp_path):
+    target = tmp_path / "a.txt"
+    with patch("plugin.framework.config.os.fsync") as mock_fsync:
+        atomic_write_text(str(target), "x")
+    mock_fsync.assert_not_called()
+    assert target.read_text(encoding="utf-8") == "x"
+
+
+def test_save_fsync_error_raises_config_error(tmp_path):
     reset_config_for_tests()
     cfg_file = tmp_path / "writeragent.json"
     with patch("plugin.framework.config.get_config_file_path", return_value=str(cfg_file)), patch(
-        "plugin.framework.config.os.fsync"
-    ) as mock_fsync:
-        save({"text_model": "m"})
-        mock_fsync.assert_not_called()
-        parsed = parse_config_json_text(cfg_file.read_text(encoding="utf-8"))
-        assert parsed is not None
-        assert parsed.get("text_model") == "m"
+        "plugin.framework.config.os.fsync", side_effect=OSError(5, "io")
+    ):
+        with pytest.raises(ConfigError) as exc_info:
+            save({"text_model": "m"})
+        assert exc_info.value.code == "CONFIG_SAVE_ERROR"
+    assert not cfg_file.exists()
+    assert list(tmp_path.glob(".writeragent-*")) == []
 
 
 def test_unknown_key_raises():
