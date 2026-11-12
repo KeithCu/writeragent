@@ -63,6 +63,7 @@ def insert_symbolic_result_into_writer(ctx: Any, doc: Any, result: dict[str, Any
             details={"symbolic_result": result},
         )
 
+    # host only: not in the compute bundle
     from plugin.writer.math.math_mml_convert import convert_latex_to_starmath, insert_writer_math_formula
 
     conv = convert_latex_to_starmath(ctx, latex, display_block=display_block)
@@ -87,7 +88,7 @@ def insert_symbolic_result_into_doc(ctx: Any, doc: Any, result: dict[str, Any], 
         insert_symbolic_result_into_writer(ctx, doc, result, display_block=display_block)
         return 1
     if is_calc(doc):
-        from plugin.calc.tabular_egress import insert_tabular_result_into_calc
+        from plugin.calc.tabular_egress import insert_tabular_result_into_calc  # host only: not in the compute bundle
 
         return insert_tabular_result_into_calc(doc, ctx, format_symbolic_for_calc(result))
     raise ToolExecutionError(_("Unsupported document type for symbolic insertion."), code="SYMBOLIC_ERROR")

@@ -904,7 +904,7 @@ Checklist for implementers / QA:
 | `insert_into_document` | Default `true` — insert HTML at Writer cursor or Calc cell below anchor |
 | `params` | Optional vision overrides (`engine`, `lang`, …) merged with `vision.*` settings |
 
-**Prompt rule:** You must use `domain=vision` delegation (empty `task`) to perform OCR when the venv stack is available — extracts text and structure from the selected graphic and inserts a high-quality representation into the document (no nested sub-agent).
+**Prompt rule:** You must use `domain=vision` delegation (empty `task`) to perform OCR when the venv stack is available — extracts text and structure from the selected graphic and inserts a high-quality representation into the document (no nested sub-agent). Writer: `vision` catalog line in the specialized domain list (only when vision is available); Calc/Draw: `get_vision_core_directive`.
 
 **Multimodal chat models:** Native vision APIs do not receive embedded doc images today — local `vision` remains authoritative for OCR + document insert. Optional future: attach exported graphic bytes to chat for semantic Q&A ([§18.2](#182-multimodal-llm-vision-optional-after-tool)).
 

@@ -114,15 +114,14 @@ def test_html_fragment_rules_appear_once_in_writer_prompt():
 
 def test_prompt_rules_enforced_by_tools_are_gone():
     from plugin.framework.prompts import (
+        DEFAULT_CHAT_SYSTEM_PROMPT_TEMPLATE,
         TOOL_USAGE_PATTERNS,
         TRANSLATION_RULES,
-        WRITER_CHAT_TOOLS_SECTION,
     )
 
     assert "Failed tool call" not in TOOL_USAGE_PATTERNS
     assert "whole-document translation" not in TRANSLATION_RULES
-    assert "get_guidance" in WRITER_CHAT_TOOLS_SECTION
-    assert "search_in_document:" not in WRITER_CHAT_TOOLS_SECTION
+    assert "get_guidance" not in DEFAULT_CHAT_SYSTEM_PROMPT_TEMPLATE
 
 
 def test_writer_chat_prompt_opens_with_persona_and_color_guidance():
@@ -134,23 +133,21 @@ def test_writer_chat_prompt_opens_with_persona_and_color_guidance():
 
 
 def test_writer_chat_prompt_section_order_matches_assembly():
-    """Writer system prompt sections appear in model-facing order (persona → format → tools → HTML last)."""
+    """Writer system prompt sections appear in model-facing order (persona → format → HTML last)."""
     from plugin.framework.prompts import (
         CONFIRM_EDITS_FROM_STRUCTURED_FIELDS,
         SIDEBAR_VS_DOCUMENT,
         WRITER_APPLY_DOCUMENT_HTML_RULES,
-        WRITER_CHAT_TOOLS_SECTION,
     )
 
     model = MagicMock()
     model.supportsService.return_value = False
     prompt = get_chat_system_prompt_for_document(model)
     chat_fmt = prompt.index("CHAT RESPONSE FORMAT")
-    tools = prompt.index(WRITER_CHAT_TOOLS_SECTION)
     html_rules = prompt.index(WRITER_APPLY_DOCUMENT_HTML_RULES)
     sidebar = prompt.index(SIDEBAR_VS_DOCUMENT)
     confirm = prompt.index(CONFIRM_EDITS_FROM_STRUCTURED_FIELDS)
-    assert chat_fmt < tools < sidebar < html_rules < confirm
+    assert chat_fmt < sidebar < html_rules < confirm
     assert prompt.index("LibreOffice Writer assistant") < chat_fmt
 
 
@@ -239,7 +236,11 @@ def test_writer_eval_chat_prompt_includes_sidebar_vs_document_routing():
 
 
 def test_writer_apply_document_math_latex_rules_document_only():
-    from plugin.framework.prompts import HTML_FRAGMENT_RULES, WRITER_APPLY_DOCUMENT_HTML_RULES
+    from plugin.framework.prompts import (
+        HTML_FRAGMENT_RULES,
+        HTML_MATH_AND_LINK_EXAMPLES,
+        WRITER_APPLY_DOCUMENT_HTML_RULES,
+    )
 
     assert "Math (CRITICAL)" in WRITER_APPLY_DOCUMENT_HTML_RULES
     assert r"\(" in WRITER_APPLY_DOCUMENT_HTML_RULES
@@ -248,13 +249,16 @@ def test_writer_apply_document_math_latex_rules_document_only():
     assert "Math (CRITICAL)" not in HTML_FRAGMENT_RULES
     assert "old_content is a substring and may span paragraphs" in WRITER_APPLY_DOCUMENT_HTML_RULES
     assert "target='search' also edits headers and footers" in WRITER_APPLY_DOCUMENT_HTML_RULES
-    assert "data-lo-style and data-lo-para are applied on full_document, beginning, end, and header/footer writes" in WRITER_APPLY_DOCUMENT_HTML_RULES
-    assert "Track Changes off" in WRITER_APPLY_DOCUMENT_HTML_RULES
+    assert "is listed in warnings" in WRITER_APPLY_DOCUMENT_HTML_RULES
+    assert "Track Changes off" not in WRITER_APPLY_DOCUMENT_HTML_RULES
+    assert "header/footer writes" not in WRITER_APPLY_DOCUMENT_HTML_RULES
     assert "position='before'/'after' applies neither" in WRITER_APPLY_DOCUMENT_HTML_RULES
     assert "middle line must equal a whole paragraph" not in WRITER_APPLY_DOCUMENT_HTML_RULES
     assert "Landmark-to-landmark replace: pass start_anchor and end_anchor" in WRITER_APPLY_DOCUMENT_HTML_RULES
     assert "interior line" not in WRITER_APPLY_DOCUMENT_HTML_RULES
-    assert "|outline" in WRITER_APPLY_DOCUMENT_HTML_RULES
+    assert "|outline" not in WRITER_APPLY_DOCUMENT_HTML_RULES
+    assert "|outline" in HTML_MATH_AND_LINK_EXAMPLES
+    assert "Good math" in HTML_MATH_AND_LINK_EXAMPLES
     assert "page-number" in WRITER_APPLY_DOCUMENT_HTML_RULES
     assert 'delegate_to_specialized_writer_toolset(domain="page"' not in WRITER_APPLY_DOCUMENT_HTML_RULES
     assert "page_get_header_footer_text" not in WRITER_APPLY_DOCUMENT_HTML_RULES
@@ -268,6 +272,23 @@ def test_writer_apply_document_math_latex_rules_document_only():
     model.supportsService.return_value = False
     prompt = get_chat_system_prompt_for_document(model)
     assert "Math (CRITICAL)" in prompt
+    assert "Good math" not in prompt
+    assert "|outline" not in prompt
+
+
+def test_writer_html_rules_leave_clear_direct_and_para_lists_to_tools():
+    from plugin.framework.prompts import WRITER_APPLY_DOCUMENT_HTML_RULES
+
+    for removed in (
+        "clear_direct",
+        "quote indent",
+        "On write, alignment",
+        "read-only",
+        "Reported on both",
+    ):
+        assert removed not in WRITER_APPLY_DOCUMENT_HTML_RULES
+    assert "position='before'/'after' applies neither" in WRITER_APPLY_DOCUMENT_HTML_RULES
+    assert "unknown token → Standard" in WRITER_APPLY_DOCUMENT_HTML_RULES
 
 
 def test_writer_chat_prompt_fix_this_grammar_defaults():
@@ -369,9 +390,10 @@ def test_get_core_directives_for_type_is_string_only():
 def test_writer_and_draw_python_orchestrator_not_direct_shapes():
     """Python-as-orchestrator stays on domain=python; a plain rectangle still uses shapes."""
     from plugin.framework.prompts import python_orchestrator_routing_line
+    from plugin.writer.specialized_base import DelegateToSpecializedWriter
 
     for text, toolset in (
-        (WRITER_CORE_DIRECTIVES, "delegate_to_specialized_writer_toolset"),
+        (DelegateToSpecializedWriter.description, "delegate_to_specialized_writer_toolset"),
         (DRAW_CORE_DIRECTIVES, "delegate_to_specialized_draw_toolset"),
     ):
         assert python_orchestrator_routing_line(delegate_toolset=toolset) in text
@@ -379,6 +401,7 @@ def test_writer_and_draw_python_orchestrator_not_direct_shapes():
         assert 'rather than domain="shapes"' in text
         assert "draw a rectangle" in text
         assert 'still uses domain="shapes"' in text
+    assert python_orchestrator_routing_line(delegate_toolset="delegate_to_specialized_writer_toolset") not in WRITER_CORE_DIRECTIVES
     assert 'domain="python"' not in CALC_CORE_DIRECTIVES
     tip = (
         'Do delegate_to_specialized_draw_toolset(domain="shapes") then '
@@ -392,9 +415,31 @@ def test_get_core_directives_writer():
     directives = get_core_directives_for_type("writer")
     assert directives == WRITER_CORE_DIRECTIVES
     assert 'delegate_to_specialized_writer_toolset(domain="document_research")' in directives
-    assert 'delegate_to_specialized_writer_toolset(domain="web_research")' in directives
-    assert 'delegate_to_specialized_writer_toolset(domain="python")' in directives
+    assert "web_research" not in directives
+    assert 'domain="python"' not in directives
     assert DELEGATION_USER_FILE_DATA_HINT in directives
+
+
+def test_writer_chat_prompt_says_research_triggers_once():
+    model = MagicMock()
+    model.supportsService.return_value = False
+    prompt = get_chat_system_prompt_for_document(model)
+    assert prompt.count("web_research") == 1
+    assert prompt.count("to research public topics") == 1
+
+
+def test_writer_chat_prompt_ocr_routing_is_the_vision_catalog_line():
+    model = MagicMock()
+    model.supportsService.return_value = False
+
+    with patch("plugin.vision.vision_availability.vision_venv_configured", return_value=True):
+        prompt_with_vision = get_chat_system_prompt_for_document(model, ctx=MagicMock())
+    assert prompt_with_vision.count("vision: OCR:") == 1
+    assert "When the user wants OCR" not in prompt_with_vision
+
+    with patch("plugin.vision.vision_availability.vision_venv_configured", return_value=False):
+        prompt_without_vision = get_chat_system_prompt_for_document(model, ctx=MagicMock())
+    assert "vision:" not in prompt_without_vision
 
 
 def test_writer_chat_prompt_delegation_routing_local_vs_web():

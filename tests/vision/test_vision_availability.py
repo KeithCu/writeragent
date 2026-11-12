@@ -129,3 +129,12 @@ def test_filter_vision_delegate_schemas_skips_odd_entries_and_does_not_mutate():
     assert filtered[0] == {**schema, "function": {**schema["function"], "parameters": {"type": "object", "properties": {"domain": {"type": "string", "enum": ["writing"]}}}}}
     assert filtered[1:] == ["junk", junk, {"type": "function"}]
 
+
+@patch("plugin.vision.vision_availability.vision_venv_configured", return_value=True)
+def test_get_vision_core_directive_writer_is_empty(_mock_avail):
+    from plugin.vision.vision_availability import get_vision_core_directive
+
+    writer_doc = MagicMock()
+    writer_doc.supportsService.side_effect = lambda svc: svc == "com.sun.star.text.TextDocument"
+    assert get_vision_core_directive(writer_doc, MagicMock()) == ""
+

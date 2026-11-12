@@ -18,6 +18,7 @@ concurrency contract, which the in-process sidebar never needs). Its consumers:
   channel, plus JIT state in tool results);
 - the sidebar agent, for the reference pieces (search/navigation/images) its HYBRID prompt keeps
   out of the ambient text — get_guidance is tier "core" so the sidebar can call it;
+  editing-html also appends HTML_MATH_AND_LINK_EXAMPLES that the ambient sidebar block leaves out;
 - the agent-backend path (send_handlers), which injects full_manual() — it talks to the HTTP
   server, so it takes the whole manual including the MCP extras.
 
@@ -39,6 +40,7 @@ from plugin.framework.prompts import (
     DRAW_CORE_DIRECTIVES,
     DRAW_GET_IMAGE_TOOL_LINE,
     GENERIC_EDIT_CONFIRMATION_RULES,
+    HTML_MATH_AND_LINK_EXAMPLES,
     TOOL_USAGE_PATTERNS,
     TRANSLATION_RULES,
     WRITER_APPLY_DOCUMENT_HTML_RULES,
@@ -105,8 +107,8 @@ _WRITER_TOPICS: tuple[_Topic, ...] = (
     ),
     _Topic(
         "editing-html",
-        WRITER_APPLY_DOCUMENT_HTML_RULES,
-        "apply_document_content contract: targets, HTML array, math, styles, reach",
+        WRITER_APPLY_DOCUMENT_HTML_RULES + HTML_MATH_AND_LINK_EXAMPLES,
+        "apply_document_content contract: targets, HTML array, math and heading-link examples, styles, reach",
     ),
     _Topic(
         "review-modes",

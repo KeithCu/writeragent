@@ -114,6 +114,23 @@ def _resolve_unit_alias(primary: Any, alias: Any) -> tuple[Any, bool]:
     return primary, False
 
 
+def _resolve_convert_units(
+    from_unit: Any,
+    from_alias: Any,
+    to_unit: Any,
+    to_alias: Any,
+) -> tuple[Any, Any] | dict[str, Any]:
+    """Resolve ``from``/``to`` aliases or return an ``INVALID_SPEC`` error dict."""
+    helper = "convert_quantity"
+    from_text, from_conflict = _resolve_unit_alias(from_unit, from_alias)
+    if from_conflict:
+        return error_result("INVALID_SPEC", "from and from_unit disagree", helper=helper)
+    to_text, to_conflict = _resolve_unit_alias(to_unit, to_alias)
+    if to_conflict:
+        return error_result("INVALID_SPEC", "to and to_unit disagree", helper=helper)
+    return from_text, to_text
+
+
 def _finite_magnitude(value: Any, *, empty_message: str) -> float:
     """Float magnitude. A blank is an error, not zero.
 
@@ -208,13 +225,13 @@ def convert_quantity(
     if get_ureg() is None:
         return missing_package_error(helper, "pint")
 
-    from_text, from_conflict = _resolve_unit_alias(from_unit, kwargs.get("from"))
-    if from_conflict:
-        return error_result("INVALID_SPEC", "from and from_unit disagree", helper=helper)
-    to_text, to_conflict = _resolve_unit_alias(to_unit, kwargs.get("to"))
-    if to_conflict:
-        return error_result("INVALID_SPEC", "to and to_unit disagree", helper=helper)
+    resolved = _resolve_convert_units(from_unit, kwargs.get("from"), to_unit, kwargs.get("to"))
+    if isinstance(resolved, dict):
+        return resolved
+    from_text, to_text = resolved
 
+    # A blank string or None is MISSING_PARAM here, while a one-cell range
+    # holding a blank becomes "#VALUE!" through map_over_range.
     if is_blank_param(from_text, strip=True) or is_blank_param(to_text, strip=True):
         return error_result("MISSING_PARAM", "from and to units are required", helper=helper)
 
@@ -271,6 +288,8 @@ def format_quantity(
     helper = "format_quantity"
     if get_ureg() is None:
         return missing_package_error(helper, "pint")
+    # A blank string or None is MISSING_PARAM here, while a one-cell range
+    # holding a blank becomes "#VALUE!" through map_over_range.
     if is_blank_param(units, strip=True):
         return error_result("MISSING_PARAM", "units is required", helper=helper)
     return map_over_range(
@@ -402,14 +421,19 @@ def _convert_formatted(flat: list[Any], suffixes: list[str]) -> list[Any]:
 @helper("units", "convert_quantity")
 def _dispatch_convert(params: dict[str, Any]) -> dict[str, Any]:
     name = "convert_quantity"
-    raw_from, from_conflict = _resolve_unit_alias(params.get("from_unit"), params.get("from"))
-    if from_conflict:
-        return error_result("INVALID_SPEC", "from and from_unit disagree", helper=name)
-    raw_to, to_conflict = _resolve_unit_alias(params.get("to_unit"), params.get("to"))
-    if to_conflict:
-        return error_result("INVALID_SPEC", "to and to_unit disagree", helper=name)
+    resolved = _resolve_convert_units(
+        params.get("from_unit"),
+        params.get("from"),
+        params.get("to_unit"),
+        params.get("to"),
+    )
+    if isinstance(resolved, dict):
+        return resolved
+    raw_from, raw_to = resolved
     raw_val = params.get("value")
     if inspect_input(raw_val).is_scalar and inspect_input(raw_from).is_scalar and inspect_input(raw_to).is_scalar:
+        # A unit unwrapping to blank ("", None, 0 in a one-cell range) is
+        # MISSING_PARAM here, because the RPC answers one value.
         from_text = "" if is_blank_param(raw_from) else str(_scalar_cell(raw_from) or "").strip()
         to_text = "" if is_blank_param(raw_to) else str(_scalar_cell(raw_to) or "").strip()
         if not from_text or not to_text:
@@ -476,6 +500,8 @@ def _dispatch_format(params: dict[str, Any]) -> dict[str, Any]:
     raw_units = params.get("units")
     raw_spec = str(params.get("format_spec") or "").strip()
     if inspect_input(raw_mag).is_scalar and inspect_input(raw_units).is_scalar:
+        # A unit unwrapping to blank ("", None, 0 in a one-cell range) is
+        # MISSING_PARAM here, because the RPC answers one value.
         units_text = str(_scalar_cell(raw_units) or "").strip()
         if not units_text:
             return error_result("MISSING_PARAM", "units is required", helper=name)

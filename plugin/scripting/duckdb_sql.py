@@ -12,9 +12,9 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from plugin.framework.deal_shim import DEAL_MAX_TOKEN, deal
+from plugin.framework.deal_shim import deal
 from plugin.scripting._lazy_venv import install_lazy_exports, venv_attr
-from plugin.scripting.helper_domain import is_status_helper_result
+from plugin.scripting.helper_domain import insert_helper_result_into_calc, is_status_helper_result
 
 # --- Constants (host) ---
 
@@ -98,11 +98,6 @@ def get_sql_script_templates() -> dict[str, str]:
 
 
 
-# Dual-profile closed dict for is_sql_result.
-_DEAL_SQL_RESULT_KEYS = 32
-_DEAL_SQL_RESULT_STR = DEAL_MAX_TOKEN
-
-
 def _deal_sql_result_value_ok_pytest(value: object) -> bool:
     # A SQL error string is longer than a token. The cap raised
     # PreContractError instead of is_sql_result returning a bool.
@@ -128,8 +123,6 @@ def insert_sql_result_into_calc(
     start_row: int | None = None,
 ) -> int:
     """Write formatted SQL output starting at the selection (or given anchor)."""
-    from plugin.scripting.helper_domain import insert_helper_result_into_calc
-
     return insert_helper_result_into_calc(
         doc,
         uno_ctx,
