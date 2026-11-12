@@ -907,6 +907,41 @@ def test_launch_keeps_dirty_session_while_child_runs():
         _reset_persistent_editor()
 
 
+def test_launch_while_child_runs_preserves_clean_session_for_same_target():
+    """A running child skips the dead-child purge and reuses the existing session for the same target."""
+    pe = launch_mod._PERSISTENT_EDITOR
+    _reset_persistent_editor()
+    proc = MagicMock()
+    proc.poll.return_value = None
+    pe._proc = proc
+
+    closed: list[str] = []
+    state = launch_mod.EditorSessionState(
+        "sid",
+        "latex",
+        {"resource": "F1"},
+        on_save=MagicMock(),
+        on_closed=lambda: closed.append("sid"),
+    )
+    pe.register_session(state)
+    sent_messages: list[dict] = []
+    pe.send = MagicMock(side_effect=sent_messages.append)
+    try:
+        ok = launch_mod.launch_monaco_editor(
+            MagicMock(),
+            exe="/venv/bin/python",
+            load_message={"type": "load", "mode": "latex", "resource": "F1", "code": "y"},
+            on_save=MagicMock(),
+        )
+        assert ok is True
+        assert closed == []
+        assert pe.lookup("sid") is state
+        assert len(sent_messages) == 1
+        assert sent_messages[0]["session_id"] == "sid"
+    finally:
+        _reset_persistent_editor()
+
+
 def test_deferred_run_sends_result_later_and_keeps_pending_load():
     """Monaco Run must not block the save handler, and must not consume a queued switch."""
     editor = PersistentEditor()

@@ -1326,8 +1326,9 @@ def launch_monaco_editor(
     # One gate covers cell, Run Script, init script, and LaTeX. Replacing the
     # focused buffer before asking dropped the other buffer: the cell editor
     # only asked for mode calc_cell, and Run Python Script never asked.
-    # Cancel and queued save return before the dead-session purge and the load. Discard is
-    # marked on the session so _register_load_session may replace it.
+    # Cancel and queued save return before the dead-session purge and the
+    # load. Discard is marked on the session so _register_load_session may
+    # replace it.
     decision = prepare_monaco_buffer_replace(ctx, ipc_message, on_save, closed_handler)
     if decision != "proceed":
         return True
@@ -1378,7 +1379,7 @@ def launch_monaco_editor(
 
     try:
         ipc_message = enrich_monaco_load_message(ipc_message)
-        _unused_state, stamped = _register_load_session(ipc_message, on_save, closed_handler)
+        stamped = _register_load_session(ipc_message, on_save, closed_handler)[1]
         _PERSISTENT_EDITOR.send(stamped)
     except DirtyBufferError:
         # The confirm gate should have queued, cancelled, or marked discard.
