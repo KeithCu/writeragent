@@ -279,7 +279,7 @@ def _region_shapes(
     Snapshots shapes from the draw page first so copy's insertTextContent does
     not mutate the list being iterated. A read failure raises and each caller
     decides its fallback. A page-anchored shape has no anchor
-    (cite SwXShape::getAnchor, sw/source/core/unocore/unodraw.cxx) and is skipped.
+    (SwXShape::getAnchor, sw/source/core/unocore/unodraw.cxx) and is skipped.
     """
     draw_page = doc.getDrawPage()
     count = int(draw_page.getCount())
@@ -296,7 +296,7 @@ def _empty_scan() -> dict[str, Any]:
     """Return an empty scan result dictionary.
 
     A function provides a fresh dictionary per call because callers may mutate
-    the nested lists or fields. This prevents unintended shared state across calls.
+    the nested lists or fields.
     """
     return {"fields": [], "images": [], "has_table": False, "paragraph_count": 0}
 
@@ -1064,6 +1064,7 @@ def _find_region_matches(text_obj: Any, needle: str, case_sensitive: bool) -> tu
 
 def _grow_cursor(cursor: Any, offset: int, length: int) -> bool:
     """Advance and expand the cursor. False when either goRight cannot land."""
+    # _match_offsets indexes the same portion-walk string that goRight steps through.
     # `is False`: a mock goRight() is truthy and must not abort the walk.
     if offset and cursor.goRight(offset, False) is False:
         return False

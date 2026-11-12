@@ -1925,3 +1925,68 @@ def test_region_shapes_snapshot_skips_page_anchored_shape():
     assert isinstance(shapes, list)
     assert len(shapes) == 1
     assert shapes[0][0] is anchored_shape
+
+
+def test_copy_page_style_unreadable_region_copies_as_empty_and_disposal_raises():
+    """An unreadable region walk copies as empty; document disposal raises.
+
+    When cloning a page style whose region cannot be walked, the region is copied
+    as empty rather than failing the clone. If the failure is due to document
+    disposal, uno_read raises DocumentDisposedError immediately.
+    """
+    from plugin.framework.errors import DocumentDisposedError
+
+    class DisposedException(Exception):
+        pass
+
+    src_text = MagicMock()
+    src_text.getString.return_value = ""
+    src_text.createEnumeration.side_effect = lambda: _enum_of(
+        [_paragraph([_portion("TextField", field=_page_number_field())])]
+    )
+
+    dest_text = MagicMock()
+    dest_text.getString.return_value = ""
+
+    source = MagicMock()
+    source.getParentStyle.return_value = ""
+
+    def _src_get_prop(name: str):
+        if name == "HeaderIsOn":
+            return True
+        if name.endswith("IsOn"):
+            return False
+        if name == "HeaderText":
+            return src_text
+        return 0
+
+    source.getPropertyValue.side_effect = _src_get_prop
+
+    clone = MagicMock()
+
+    def _clone_get_prop(name: str):
+        if name == "HeaderText":
+            return dest_text
+        return 0
+
+    clone.getPropertyValue.side_effect = _clone_get_prop
+
+    family = MagicMock()
+    family.hasByName.side_effect = lambda name: name == "Src"
+    family.getByName.return_value = source
+    family.getElementNames.return_value = ("Src",)
+
+    doc = MagicMock()
+    doc.getStyleFamilies.return_value.getByName.return_value = family
+    doc.createInstance.return_value = clone
+
+    with patch("plugin.writer.styles._copy_direct_style_properties", return_value=([], [])), \
+         patch("plugin.writer.range_copy._copy_flow_into_xtext") as mock_flow:
+        doc.getDrawPage.side_effect = RuntimeError("bridge hiccup")
+        res = copy_page_style(doc, "Src", "Dst")
+        assert res["shapes_copied"] == 0
+        mock_flow.assert_not_called()
+
+        doc.getDrawPage.side_effect = DisposedException("closed")
+        with pytest.raises(DocumentDisposedError):
+            copy_page_style(doc, "Src", "Dst2")
