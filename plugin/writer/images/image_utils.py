@@ -70,6 +70,34 @@ def validated_image_suffix(data: bytes) -> str:
     return suffix
 
 
+def fetch_image_url(
+    url: str,
+    *,
+    cancel: SendCancellation | None = None,
+    status_callback: Any = None,
+) -> tuple[bytes, str]:
+    """GET an image URL; return (body, sniffed suffix such as ".png").
+
+    sync_request owns TLS verification, Stop, retries, redirects and the
+    IMAGE_DOWNLOAD_MAX_BYTES cap. This adds the image rules: a denylisted
+    Content-Type (an HTML/text/JSON error page) or bytes without image magic
+    raise RuntimeError.
+    """
+    result = sync_request(
+        url,
+        parse_json=False,
+        include_meta=True,
+        timeout=get_config("request_timeout"),
+        max_bytes=IMAGE_DOWNLOAD_MAX_BYTES,
+        cancel=cancel,
+        status_callback=status_callback,
+    )
+    content_type = (result.content_type or "").split(";")[0].strip().lower()
+    if content_type in IMAGE_CONTENT_TYPE_DENYLIST:
+        raise RuntimeError("Invalid Content-Type '%s' for image download" % content_type)
+    return result.body, validated_image_suffix(result.body)
+
+
 def write_temp_image(data: bytes, suffix: str) -> str:
     """Write image bytes to a temporary file prefixed with 'wa-img-'. Unlink on failure."""
     fd, path = tempfile.mkstemp(prefix="wa-img-", suffix=suffix)
@@ -138,20 +166,8 @@ class EndpointImageProvider:
         return _write_temp_image(base64.b64decode(b64_data))
 
     def _save_url(self, url: str, *, cancel: SendCancellation | None = None, status_callback: Any = None) -> str:
-        resp = sync_request(
-            url,
-            parse_json=False,
-            include_meta=True,
-            timeout=get_config("request_timeout"),
-            max_bytes=IMAGE_DOWNLOAD_MAX_BYTES,
-            cancel=cancel,
-            status_callback=status_callback,
-        )
-        body = getattr(resp, "body", resp)
-        content_type = (getattr(resp, "content_type", "") or "").split(";")[0].strip().lower()
-        if content_type in IMAGE_CONTENT_TYPE_DENYLIST:
-            raise RuntimeError("Invalid Content-Type '%s' for image download" % content_type)
-        return _write_temp_image(body)
+        body, suffix = fetch_image_url(url, cancel=cancel, status_callback=status_callback)
+        return write_temp_image(body, suffix)
 
     def _save_image_ref(
         self,

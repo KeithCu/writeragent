@@ -82,6 +82,11 @@ def get_visual_doc_type(doc: Any) -> str:
     return doc_type_label_for_enum(doc_type)
 
 
+def is_writer_like(doc_type: str) -> bool:
+    """True for "writer" and "web": text documents whose graphics live in the text, not on draw pages."""
+    return doc_type in ("writer", "web")
+
+
 # 1 inch = 2540 1/100 mm = 96 CSS px. Round both directions: truncating
 # px_to_units made units_to_px(px_to_units(10)) return 9.
 UNITS_PER_INCH = 2540
@@ -466,7 +471,7 @@ def graphic_objects_in_selection(doc: Any) -> list[tuple[str, Any]]:
         if not selection:
             return []
 
-        if get_visual_doc_type(doc) not in ("writer", "web"):
+        if not is_writer_like(get_visual_doc_type(doc)):
             graphic = selected_graphic_object(doc)
             if graphic is None:
                 return []
@@ -517,7 +522,7 @@ def get_active_draw_page(doc: Any, doc_type: str | None = None) -> Any | None:
     Writer uses ``doc.getDrawPage()`` (document canvas for forms/shapes), with or without a controller.
     """
     inside = doc_type or get_visual_doc_type(doc)
-    if inside in ("writer", "web"):
+    if is_writer_like(inside):
         # Writer has one document draw page (forms, shapes); no controller needed.
         return uno_read(lambda: doc.getDrawPage(), None)
     # A closed document raises DocumentDisposedError (uno_read) so execute_safe reports

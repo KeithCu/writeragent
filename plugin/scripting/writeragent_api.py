@@ -1297,15 +1297,14 @@ class _ImagesProxy:
         """
         return call_host_tool("image_delete", name=name, sheet_index=sheet_index)
 
-    def download(self, url: str, *, force: bool | None = None, verify_ssl: str | None = None) -> dict[str, Any]:
+    def download(self, url: str, *, force: bool | None = None) -> dict[str, Any]:
         """Download an image from URL to local cache. Returns local path for image_insert/image_replace.
 
         Args:
             url (required): URL of the image to download.
             force (optional): Force re-download even if cached (default: false).
-            verify_ssl (optional): Scripting-only parameter.
         """
-        return call_host_tool("image_download", url=url, force=force, verify_ssl=verify_ssl)
+        return call_host_tool("image_download", url=url, force=force)
 
     def generate(self, prompt: str, *, source_image: str | None = None, aspect_ratio: str = 'square', base_size: int = 1024, width: int | None = None, height: int | None = None, image_model: str | None = None) -> dict[str, Any]:
         """Generate an image from a text prompt using the Settings endpoint and insert it. To edit an existing image, pass source_image='selection' (or omit it while a graphic is selected).

@@ -13,6 +13,7 @@ sys.path.insert(0, os.path.dirname(get_plugin_dir()))
 
 from plugin.writer.images.image_utils import ImageService, EndpointImageProvider, IMAGE_DOWNLOAD_MAX_BYTES
 from plugin.framework.client.base_provider_shim import canonical_aspect_ratio, canonical_resolution
+from plugin.framework.client.http_transport import HttpResult
 from plugin.framework.client.llm_client import LlmClient
 from plugin.tests.testing_utils import MockContext, create_mock_client
 
@@ -34,7 +35,7 @@ class TestEndpointImageProvider:
             "images": [{"image_url": {"url": "http://example.com/image.png"}}]
         }
         self.mock_client.request_with_tools.return_value = mock_resp
-        mock_sync.return_value = b"\x89PNG\r\n\x1a\nfake-image-data"
+        mock_sync.return_value = HttpResult(200, b"\x89PNG\r\n\x1a\nfake-image-data", "image/png")
 
         paths, err = self.provider.generate("test prompt")
         
@@ -97,7 +98,7 @@ class TestEndpointImageProvider:
             "images": []
         }
         self.mock_client.request_with_tools.return_value = mock_resp
-        mock_sync.return_value = b"\x89PNG\r\n\x1a\nfallback-image-data"
+        mock_sync.return_value = HttpResult(200, b"\x89PNG\r\n\x1a\nfallback-image-data", "image/png")
 
         paths, err = self.provider.generate("test prompt")
         
@@ -843,7 +844,7 @@ def test_temp_cleanup_on_failure():
             provider._save_url("https://example.com/fail.png")
 
     huge_data = b"x" * (IMAGE_DOWNLOAD_MAX_BYTES + 1)
-    with patch("plugin.writer.images.image_utils.sync_request", return_value=huge_data):
+    with patch("plugin.writer.images.image_utils.sync_request", return_value=HttpResult(200, huge_data, "image/png")):
         with pytest.raises(RuntimeError) as exc_info:
             provider._save_url("https://example.com/huge.png")
         assert "exceeded" in str(exc_info.value)
@@ -896,6 +897,30 @@ def test_save_b64_rejects_non_image_bytes():
     finally:
         if os.path.exists(path):
             os.unlink(path)
+
+
+def test_fetch_image_url_returns_body_and_suffix_and_rejects_denylisted_type():
+    from plugin.writer.images.image_utils import fetch_image_url
+
+    png_bytes = b"\x89PNG\r\n\x1a\nfake-image-bytes"
+    with patch(
+        "plugin.writer.images.image_utils.sync_request",
+        return_value=HttpResult(200, png_bytes, "image/png"),
+    ) as mock_sync:
+        body, suffix = fetch_image_url("https://example.com/pic.png")
+    assert body == png_bytes
+    assert suffix == ".png"
+    assert mock_sync.call_args.kwargs["max_bytes"] == IMAGE_DOWNLOAD_MAX_BYTES
+
+    # Denylisted Content-Type raises RuntimeError
+    with patch(
+        "plugin.writer.images.image_utils.sync_request",
+        return_value=HttpResult(200, png_bytes, "text/html; charset=utf-8"),
+    ):
+        with pytest.raises(RuntimeError) as exc_info:
+            fetch_image_url("https://example.com/error.html")
+        assert "Invalid Content-Type" in str(exc_info.value)
+
 
 
 
