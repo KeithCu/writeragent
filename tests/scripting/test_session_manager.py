@@ -723,13 +723,11 @@ def test_save_as_url_resets_orphaned_unsaved_session():
 
     doc = MagicMock()
     doc.getURL.return_value = "file:///saved_doc.ods"
-    ctx = MagicMock()
 
     with (
         patch("plugin.scripting.session_manager.get_document_property", side_effect=["unsaved:1234-uuid", None]),
         patch("plugin.scripting.session_manager.remove_document_property") as mock_remove,
         patch("plugin.scripting.venv_worker.reset_python_session") as mock_reset,
-        patch("plugin.framework.uno_context.get_ctx", return_value=ctx),
     ):
         from plugin.scripting.session_manager import mint_document_key
 
@@ -831,7 +829,6 @@ def test_reset_calc_retires_unsaved_orphan_then_resets_url() -> None:
     with (
         patch("plugin.scripting.session_manager.get_document_property", side_effect=["unsaved:abc", None]),
         patch("plugin.scripting.session_manager.remove_document_property") as mock_remove,
-        patch("plugin.framework.uno_context.get_ctx", return_value=ctx),
         patch("plugin.scripting.venv_worker.reset_python_session", return_value={"status": "ok"}) as mock_reset,
         patch("plugin.scripting.document_scripts.build_python_eval_init_kwargs", return_value={}),
         patch("plugin.scripting.document_scripts.get_calc_init_script", return_value=""),
@@ -861,7 +858,6 @@ def test_reset_calc_skips_orphan_ipc_when_property_remains() -> None:
     with (
         patch("plugin.scripting.session_manager.get_document_property", return_value="unsaved:abc"),
         patch("plugin.scripting.session_manager.remove_document_property") as mock_remove,
-        patch("plugin.framework.uno_context.get_ctx", return_value=ctx),
         patch("plugin.scripting.venv_worker.reset_python_session", return_value={"status": "ok"}) as mock_reset,
         patch("plugin.scripting.document_scripts.build_python_eval_init_kwargs", return_value={}),
         patch("plugin.scripting.document_scripts.get_calc_init_script", return_value=""),
@@ -968,7 +964,6 @@ def test_reset_headless_one_draw_resets_rps() -> None:
 
     with (
         patch("plugin.scripting.session_manager.get_desktop", return_value=desktop),
-        patch("plugin.framework.uno_context.get_desktop", return_value=desktop),
         patch("plugin.scripting.session_manager.is_calc", return_value=False),
         patch("plugin.scripting.session_manager.is_writer", return_value=False),
         patch("plugin.scripting.session_manager.is_draw", return_value=True),
@@ -1002,7 +997,6 @@ def test_reset_headless_refuses_several_draw_documents() -> None:
 
     with (
         patch("plugin.scripting.session_manager.get_desktop", return_value=desktop),
-        patch("plugin.framework.uno_context.get_desktop", return_value=desktop),
         patch("plugin.scripting.session_manager.is_calc", return_value=False),
         patch("plugin.scripting.session_manager.is_writer", return_value=False),
         patch("plugin.scripting.session_manager.is_draw", return_value=True),

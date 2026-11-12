@@ -102,6 +102,7 @@ def _enumerated_matching_models(ctx: Any, predicate: Any, *, label: str = "sessi
 
 def focused_calc_document(ctx: Any) -> Any | None:
     """Focused Calc document, else the only open Calc document; None when none or several are open. The geometric-recalc Settings listener uses it to pick the workbook to reconcile when the flag turns on. =PY() never comes here: it gets its document from the add-in caller argument."""
+    # getCurrentComponent() is None headless or while focus is outside a document frame (e.g. the Settings dialog), so fall back to the only open Calc model.
     desktop = get_desktop(ctx)
     doc = desktop.getCurrentComponent() if desktop else None
     if doc is not None:
@@ -227,7 +228,7 @@ def calc_init_session_id(doc: Any) -> str:
     return SessionKey.parse(calc_workbook_base_session_id(doc)).with_init_suffix().wire()
 
 
-def workbook_session_id(doc: Any | None = None) -> str | None:
+def workbook_session_id(doc: Any | None) -> str | None:
     """Return ``calc:…`` session id when shared mode and *doc* is Calc, else ``None``.
 
     *doc* is the caller's document (for ``=PY()``, the add-in caller argument).
@@ -246,7 +247,7 @@ def workbook_session_id(doc: Any | None = None) -> str | None:
         return None
 
 
-def rps_session_id(doc: Any | None = None) -> str | None:
+def rps_session_id(doc: Any | None) -> str | None:
     """Document-keyed shared kernel for Run Python Script (library cache + user globals).
 
     Calc uses the same ``calc:…`` id as ``=PY()``. Writer/Draw use ``rps:…`` from
@@ -324,7 +325,7 @@ def document_for_script_session(ctx: Any, session_id: str | None) -> Any | None:
     return matches[0] if matches else None
 
 
-def notebook_session_id(doc: Any | None = None) -> str | None:
+def notebook_session_id(doc: Any | None) -> str | None:
     """Return ``notebook:…`` for a Writer document (always shared when interactive notebook is used)."""
     if doc is None or not is_writer(doc):
         return None
