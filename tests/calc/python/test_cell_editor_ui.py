@@ -511,7 +511,7 @@ def test_open_unquoted_ref_loads_followed_cell_text():
         captured["load_message"] = load_message
         return True
 
-    with patch.object(ed, "get_active_session", return_value=None), patch.object(
+    with patch.object(
         ed, "_get_active_calc_cell", return_value=(doc, formula_cell)
     ), patch.object(
         ed, "_load_cell_editor_code", return_value=("$A$1", parts, "=PY($A$1; C1:C10)")
@@ -547,7 +547,7 @@ def test_open_quoted_a1_does_not_follow_code_cell():
         captured["load_message"] = load_message
         return True
 
-    with patch.object(ed, "get_active_session", return_value=None), patch.object(
+    with patch.object(
         ed, "_get_active_calc_cell", return_value=(doc, cell)
     ), patch.object(
         ed, "_load_cell_editor_code", return_value=("A1", parts, '=PY("A1")')
@@ -585,7 +585,7 @@ def _open_with_formula(formula, *, resolve_cell=None, initial_code=None):
         return True
 
     resolve_target = resolve_cell if resolve_cell is not None else MagicMock()
-    with patch.object(ed, "get_active_session", return_value=None), patch.object(
+    with patch.object(
         ed, "_get_active_calc_cell", return_value=(doc, cell)
     ), patch.object(
         ed, "_load_cell_editor_code", return_value=(code, parts, formula)
@@ -661,7 +661,7 @@ def test_open_missing_code_cell_shows_error():
     formula = "=PY(Missing.A1)"
     parts = PyFormula.parse(formula)
     assert parts is not None
-    with patch.object(ed, "get_active_session", return_value=None), patch.object(
+    with patch.object(
         ed, "_get_active_calc_cell", return_value=(doc, cell)
     ), patch.object(
         ed, "_load_cell_editor_code", return_value=("Missing.A1", parts, formula)

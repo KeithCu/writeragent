@@ -177,7 +177,8 @@ def normdist(x: Any, mean: Any, stdev: Any, c: Any = 1) -> float:
     x_val = float(x)
     m = float(mean)
     s = float(stdev)
-    cum = bool(float(c))
+    # ScNormDist reads the flag with GetBool (GetDouble() != 0), so a blank cell or an empty fourth argument is the density.
+    cum = as_nonzero(c)
     if s <= 0:
         return float("nan")
     # integralPhi / phi from ScNormDist. scipy.stats was imported inside

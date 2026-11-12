@@ -24,9 +24,9 @@ if _PROJECT_ROOT not in sys.path:
     sys.path.insert(0, _PROJECT_ROOT)
 
 from compute_service import error_codes as ec
-from compute_service.config import ComputeSettings, MAX_BODY_BYTES, read_allowlisted_file
-from compute_service.json_forward import COMPUTE_MAX_PAYLOAD_BYTES
-from compute_service.worker_base import BaseProcessPool, PoolSingleton, bind_pool_singleton, resolve_override, run_compute_worker
+from compute_service.config import COMPUTE_MAX_PAYLOAD_BYTES, ComputeSettings, MAX_BODY_BYTES, read_allowlisted_file
+from compute_service.worker_base import BaseProcessPool, PoolSingleton, bind_pool_singleton, resolve_override
+from compute_service.worker_stdio import run_compute_worker
 from plugin.framework.child_runtime import Deadline
 from plugin.framework.child_runtime import error_dict
 
@@ -136,6 +136,7 @@ def _handle_request(req: dict[str, Any]) -> dict[str, Any]:
         image_bytes = image_bytes_raw
 
     try:
+        # OCR backends are optional in the image
         from plugin.vision.venv.vision import run_vision
     except (ModuleNotFoundError, ImportError):
         return error_dict(ec.VISION_UNAVAILABLE, "OCR is not installed in this server", req_id=req_id)

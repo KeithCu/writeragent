@@ -890,8 +890,8 @@ its inputs again. No hop is wrong. The path is what costs.
   and a re-test in the child (08-1).
 - `session_id` is validated at the server with one error code and again in
   the pool with a second code that no HTTP caller can receive.
-- The prepared run in `python_runner` is a dict in three shapes, and three
-  readers pick the shape by `"helper_name" in prepared` (05-3).
+- The prepared run in `python_runner` was a dict in three shapes (05-3);
+  it is now three records switched on by type.
 
 This is kind 2 seen along a path. The per-file decision rule cannot settle
 it, because whether a re-check is redundant depends on a caller in another
@@ -940,7 +940,8 @@ the one piece it needed.
   monitor (04-3; now one `Recording` object, #3350).
 - One open editor window is `PersistentEditor`, `EditorSessionState`, an
   `EditorSession` wrapper whose only behaviour is `_finish`, a module global
-  and an `RLock`, with one save token stored in two of them (05-1). The
+  and an `RLock`, with one save token stored in two of them (05-1; now
+  `PersistentEditor` owns the one state and one save token, this PR). The
   session table beside them never holds two entries.
 
 It is the opposite of kind 7. There, one thing is mirrored into two

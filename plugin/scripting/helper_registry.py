@@ -26,14 +26,6 @@ class HelperSpec:
     ship: bool = True
     param_help: str = ""
 
-    @property
-    def default_params(self) -> dict[str, Any]:
-        return dict(self.defaults)
-
-    @property
-    def shipped_template(self) -> bool:
-        return self.ship
-
 
 _SPECS: tuple[HelperSpec, ...] = (
     # --- Analysis ---

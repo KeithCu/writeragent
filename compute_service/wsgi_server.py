@@ -67,11 +67,9 @@ def request_conn(environ: dict[str, Any]) -> RequestConn:
     return rc
 
 
-def listener_thread_count(max_threads: int | None) -> int:
-    """Listener threads for ``max_threads``: ``None`` is the class default of 16, otherwise ``max(8, n + 4)``."""
-    if max_threads is None:
-        return 16
-    return max(8, max_threads + 4)
+def listener_thread_count(threads: int) -> int:
+    """Listener threads for *threads* worker processes: ``max(8, n + 4)``."""
+    return max(8, threads + 4)
 
 
 def admission_permits(settings: ComputeSettings) -> int:
@@ -271,18 +269,14 @@ class WSGIDualStackServer(DualStackThreadPoolHTTPServer, WSGIServer):
 
     server_name: str
     server_port: int
-    srv: Any
     _conns: dict[socket.socket, ConnState]
     _park_lock: threading.Lock
     _park_queue: queue.SimpleQueue[ConnState]
     _parking_closed: bool
     _last_park_error_warn: float = 0.0
 
-    def __init__(self, host: str, port: int, max_threads: int | None = None, *, listener_threads: int | None = None) -> None:
-        # listener_threads is the final pool size. Passing that number through
-        # max_threads would add four again.
-        effective_threads = listener_threads if listener_threads is not None else listener_thread_count(max_threads)
-        DualStackThreadPoolHTTPServer.__init__(self, (host, port), DeadlineRequestHandler, bind_and_activate=True, max_threads=effective_threads)
+    def __init__(self, host: str, port: int, *, listener_threads: int) -> None:
+        DualStackThreadPoolHTTPServer.__init__(self, (host, port), DeadlineRequestHandler, bind_and_activate=True, max_threads=listener_threads)
         raw_host = str(self.server_address[0])
         self.server_name = raw_host if raw_host and raw_host not in ("", "0.0.0.0", "::") else "localhost"
         self.server_port = self.server_address[1]
@@ -291,7 +285,6 @@ class WSGIDualStackServer(DualStackThreadPoolHTTPServer, WSGIServer):
         self._park_queue = queue.SimpleQueue()
         self._parking_closed = False
         self.setup_environ()
-        self.srv = self
 
     def _park_register(self, request: Any, client_address: Any) -> bool:
         """Queue an idle connection (new or after a response) for the accept thread; False leaves it with the caller."""

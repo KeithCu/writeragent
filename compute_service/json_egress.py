@@ -45,6 +45,7 @@ def sanitize_for_strict_json(obj: Any) -> Any:
 
 def _ndarray_to_lists(arr: Any) -> Any:
     """Convert ndarray to nested Python lists with NaN/Inf → null."""
+    # numpy is already loaded when an ndarray or numpy scalar reaches here; the module imports without it
     import numpy as np
 
     if arr.ndim == 0:
@@ -128,6 +129,7 @@ def to_dumb_json_value(obj: Any, *, drop_image_ids: set[int] | None = None) -> A
     mod = getattr(type(obj), "__module__", "")
     if mod == "numpy":
         try:
+            # numpy is already loaded when an ndarray or numpy scalar reaches here; the module imports without it
             import numpy as np
 
             if isinstance(obj, (np.integer,)):
