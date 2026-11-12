@@ -52,7 +52,8 @@ class ManagedSubprocess:
     On the worker path, ``stdin`` may be ``PIPE`` or ``DEVNULL`` and ``stderr`` may be
     ``PIPE`` or ``DEVNULL``; ``stdout`` is always ``PIPE``.
     raw_spawn=True is the TTS path and does not do those things. Callers of raw mode
-    own stop and reap. run does not create an instance.
+    own stop and reap. The raw Popen still passes CREATE_NO_WINDOW on Windows so
+    PowerShell playback does not open a console. run does not create an instance.
     Callers own the stdout and stdin pipes (e.g. for JSON-RPC or custom framing).
     This layer handles environment merging, process-tree killing, and cleanup.
     These knobs default to the worker spawn (binary pipes, explicit merged env,
@@ -512,6 +513,8 @@ class ManagedSubprocess:
             errors=self._raw_errors,
             env=self._env,
             cwd=self._cwd,
+            # TTS PowerShell (winmm, SoundPlayer, SAPI) would otherwise flash a console.
+            **get_subprocess_creationflags(),
         )
         self._proc = proc
 

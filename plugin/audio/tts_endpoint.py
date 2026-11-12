@@ -10,7 +10,6 @@ import dataclasses
 import logging
 import re
 import struct
-import sys
 import time
 import urllib.parse
 from typing import Any, Callable
@@ -230,8 +229,12 @@ def _post_audio_speech(
 
 
 def _default_endpoint_format() -> str:
-    """First response_format to ask for. Windows plays WAV with SoundPlayer."""
-    return "wav" if sys.platform == "win32" else "mp3"
+    """First response_format to ask for. MP3 is smaller than WAV or PCM.
+
+    A server that rejects mp3 is retried once. Windows plays the mp3 with
+    winmm and still uses SoundPlayer when the bytes are WAV.
+    """
+    return "mp3"
 
 
 def _resolve_tts_voice(model: str, voice: str, endpoint_url: str | None = None) -> str:

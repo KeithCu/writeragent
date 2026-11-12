@@ -962,7 +962,20 @@ def test_play_audio_file_windows_path_not_in_script(mock_popen):
     cmd = mock_popen.call_args.args[0]
     assert path not in " ".join(cmd)
     assert "$env:WA_AUDIO_PATH" in cmd[-1]
+    assert "SoundPlayer" in cmd[-1]
+    assert "mpegvideo" not in cmd[-1]
     assert mock_popen.call_args.kwargs["env"]["WA_AUDIO_PATH"] == path
+
+    mock_popen.reset_mock()
+    mp3 = 'C:\\Users\\o"neil $x\\clip.mp3'
+    with patch("sys.platform", "win32"):
+        _play_audio_file(mp3, cancel)
+    mp3_cmd = mock_popen.call_args.args[0]
+    assert mp3 not in " ".join(mp3_cmd)
+    assert "mpegvideo" in mp3_cmd[-1]
+    assert "SoundPlayer" not in mp3_cmd[-1]
+    assert "$env:WA_AUDIO_PATH" in mp3_cmd[-1]
+    assert mock_popen.call_args.kwargs["env"]["WA_AUDIO_PATH"] == mp3
 
 
 def test_piper_timeout_scaling_and_reap(tmp_path):

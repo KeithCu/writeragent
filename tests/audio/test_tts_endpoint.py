@@ -536,9 +536,10 @@ def test_speech_http_error_redacts_api_key(caplog):
         cfg._tts_response_format.clear()
 
 
-def test_default_endpoint_format_is_wav_on_windows_only():
+def test_default_endpoint_format_is_mp3():
+    """MP3 is the first request on every platform, including Windows."""
     with patch("sys.platform", "win32"):
-        assert _default_endpoint_format() == "wav"
+        assert _default_endpoint_format() == "mp3"
     with patch("sys.platform", "linux"):
         assert _default_endpoint_format() == "mp3"
 

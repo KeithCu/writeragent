@@ -1077,10 +1077,14 @@ def test_raw_spawn_passes_stdio_env_and_skips_worker_defaults(
         "errors": None,
         "env": env,
         "cwd": None,
+        **ms.get_subprocess_creationflags(),
     }
     assert kwargs["env"] is env
     assert "start_new_session" not in kwargs
-    assert "creationflags" not in kwargs
+    if sys.platform == "win32":
+        assert kwargs["creationflags"] == subprocess.CREATE_NO_WINDOW
+    else:
+        assert "creationflags" not in kwargs
     assert "bufsize" not in kwargs
     assert subp not in ms._instances
     assert subp.stderr_tail is None
@@ -1132,6 +1136,7 @@ def test_raw_spawn_text_pipes_for_communicate(
         "errors": "replace",
         "env": None,
         "cwd": None,
+        **ms.get_subprocess_creationflags(),
     }
     assert kwargs["env"] is None
     assert kwargs["cwd"] is None
