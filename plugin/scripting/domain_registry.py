@@ -21,8 +21,6 @@ from typing import Any, Literal
 
 from plugin.framework.i18n import N_, _
 from plugin.scripting.helper_domain import (
-    HelperScriptMeta,
-    ScriptFacts,
     build_helper_script_template,
     format_elapsed_time,
     is_status_helper_result,
@@ -100,7 +98,6 @@ class DomainWiring:
     leading_data: bool = False
     invoke: str = "direct"
     extra_comment_lines: tuple[str, ...] = ("# Edit the run call below, then Run.",)
-    header_tag: str | None = None
 
     def insert(self, ctx: Any, doc: Any, result: dict[str, Any], **kwargs: Any) -> Any:
         fn = _resolve_module_attr(self.insert_ref)
@@ -205,19 +202,6 @@ class DomainWiring:
             for spec in specs(self.helper_domain)
             if spec.ship
         }
-
-    def parse_header(self, code: str) -> HelperScriptMeta | None:
-        tag = self.header_tag or self.id
-        h_names = names(self.helper_domain) if self.helper_domain else None
-        return ScriptFacts.from_source(code).header(tag=tag, helper_names=h_names)
-
-    def template_for(self, helper: str) -> str | None:
-        if not self.helper_domain:
-            return None
-        for spec in specs(self.helper_domain):
-            if spec.name == helper:
-                return self._template_body(spec)
-        return None
 
 
 WIRING_TABLE: tuple[DomainWiring, ...] = (
@@ -395,13 +379,13 @@ def get_post_venv_domains() -> tuple[DomainWiring, ...]:
 
 @dataclass(frozen=True)
 class PickerWiring:
-    """Declarative picker section: supports/templates resolved lazily via module:attr strings."""
+    """Declarative picker section. `origin` is the WIRING_TABLE id whose `templates()` fills the section unless `templates_ref` names a `module:attr` function (vision and sql keep their own template builders)."""
 
     origin: str
     display_prefix: str
     title: str
     supports_ref: str  # "module.path:attr" (e.g. "plugin.framework.doc_type:is_calc")
-    templates_ref: str  # "module.path:attr" returning dict[str, str]
+    templates_ref: str | None = None  # "module.path:attr" returning dict[str, str]
 
     def supports(self, doc: Any) -> bool:
         # None must not reach is_calc: @main_thread_only runs before the None return.
@@ -414,6 +398,8 @@ class PickerWiring:
             return False
 
     def templates(self) -> dict[str, str]:
+        if self.templates_ref is None:
+            return get_domain_wiring(self.origin).templates()
         return _resolve_module_attr(self.templates_ref)()
 
 
@@ -430,21 +416,18 @@ PICKER_WIRING: tuple[PickerWiring, ...] = (
         display_prefix="[Math] ",
         title=N_("Math Helpers"),
         supports_ref="plugin.scripting.helper_domain:supports_calc_or_writer_manual",
-        templates_ref="plugin.scripting.symbolic:get_math_script_templates",
     ),
     PickerWiring(
         origin="units",
         display_prefix="[Units] ",
         title=N_("Units Helpers"),
         supports_ref="plugin.scripting.helper_domain:supports_calc_or_writer_manual",
-        templates_ref="plugin.scripting.units:get_units_script_templates",
     ),
     PickerWiring(
         origin=SCRIPT_ORIGIN_ANALYSIS,
         display_prefix=ANALYSIS_SCRIPT_DISPLAY_PREFIX,
         title=N_("Analysis Helpers"),
         supports_ref="plugin.framework.doc_type:is_calc",
-        templates_ref="plugin.scripting.analysis:get_analysis_script_templates",
     ),
     PickerWiring(
         origin="sql",
@@ -458,7 +441,6 @@ PICKER_WIRING: tuple[PickerWiring, ...] = (
         display_prefix="[Viz] ",
         title=N_("Viz Helpers"),
         supports_ref="plugin.scripting.helper_domain:supports_calc_or_writer_manual",
-        templates_ref="plugin.scripting.viz:get_viz_script_templates",
     ),
     PickerWiring(
         origin="quant",
@@ -466,21 +448,18 @@ PICKER_WIRING: tuple[PickerWiring, ...] = (
         title=N_("Quant Helpers"),
         # quant manual egress is Calc-only (insert_quant_result_into_calc); Writer must not claim supports_quant_manual or users get stringified table dicts.
         supports_ref="plugin.framework.doc_type:is_calc",
-        templates_ref="plugin.scripting.quant:get_quant_script_templates",
     ),
     PickerWiring(
         origin="optimize",
         display_prefix="[Optimize] ",
         title=N_("Optimize Helpers"),
         supports_ref="plugin.framework.doc_type:is_calc",
-        templates_ref="plugin.scripting.optimize:get_optimize_script_templates",
     ),
     PickerWiring(
         origin="forecast",
         display_prefix="[Forecast] ",
         title=N_("Forecast Helpers"),
         supports_ref="plugin.framework.doc_type:is_calc",
-        templates_ref="plugin.scripting.forecast:get_forecast_script_templates",
     ),
 )
 

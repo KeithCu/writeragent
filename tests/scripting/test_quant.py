@@ -15,20 +15,17 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from plugin.scripting.helper_domain import header_prefix
+from plugin.scripting.domain_registry import get_domain_wiring
 from plugin.scripting.helper_registry import names
-from plugin.scripting.quant import (
-    get_quant_template,
-)
 from plugin.scripting.venv.quant import run_quant as venv_run_quant
 
 
 def test_quant_template_is_executable():
-    code = get_quant_template("fetch_historical_data")
+    code = get_domain_wiring("quant").templates()["fetch_historical_data"]
     assert code is not None
     assert "from writeragent.scripting.quant import run_quant" in code
     assert "fetch_historical_data" in code
-    assert header_prefix("quant") not in code.splitlines()[0]
+    assert not code.splitlines()[0].startswith("# writeragent:")
     assert "'tickers': 'AAPL'" in code
     assert "'tickers': 'data'" not in code
 
@@ -78,8 +75,7 @@ def test_fetch_historical_data_calc_range(monkeypatch):
 
 
 def test_helper_names_cover_templates():
-    for helper in names("quant"):
-        assert get_quant_template(helper) is not None
+    assert set(get_domain_wiring("quant").templates()) == names("quant")
 
 
 def test_portfolio_tearsheet_portfolio_returns_grid():

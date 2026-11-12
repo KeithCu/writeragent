@@ -2,7 +2,7 @@
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Symbolic helper templates, host RPC, and document egress (LO host).
+"""Symbolic helper host RPC and document egress (LO host).
 
 Compute is lazy-loaded from ``plugin.scripting.venv.symbolic`` via ``__getattr__``.
 """
@@ -20,15 +20,6 @@ from plugin.scripting.helper_registry import names
 _SYMBOLIC_VENV_EXPORTS = names("symbolic") | {"run_symbolic"}
 
 install_lazy_exports(globals(), "symbolic", _SYMBOLIC_VENV_EXPORTS)
-
-
-# --- Templates ---
-
-
-def get_math_script_templates() -> dict[str, str]:
-    from plugin.scripting.domain_registry import get_domain_wiring
-
-    return get_domain_wiring("math").templates()
 
 
 # --- Egress ---
