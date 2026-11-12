@@ -22,7 +22,7 @@ import zlib
 from html import escape as html_escape
 from typing import Any, Callable, Iterator
 
-from plugin.framework.errors import best_effort
+from plugin.doc.temp_files import with_temp_buffer
 from plugin.doc.text_helpers import (
     get_string_without_tracked_deletions,
     iter_elements,
@@ -30,8 +30,9 @@ from plugin.doc.text_helpers import (
     walk_cap_warning,
     _visible_portions as _shared_visible_portions,
 )
-from plugin.framework.errors import ToolExecutionError, reraise_if_disposed, uno_read
+from plugin.framework.errors import ToolExecutionError, best_effort, reraise_if_disposed, uno_read
 from plugin.framework.scratch_writer import new_blank_writer
+from plugin.framework.uno_context import create_property_value
 from plugin.writer.math.math_mml_export import (
     _OBJECT_REPLACEMENT,
     inject_exported_math_tex,
@@ -143,9 +144,6 @@ def _truncate_html(content: str, max_chars: int) -> str:
 
 
 def _read_filter_text(doc: Any, filter_name: str, ext: str = ".html") -> str:
-    from plugin.doc.temp_files import with_temp_buffer
-    from plugin.framework.uno_context import create_property_value
-
     with with_temp_buffer(ext=ext) as (path, file_url):
         props = (create_property_value("FilterName", filter_name),)
         doc.storeToURL(file_url, props)
@@ -177,10 +175,10 @@ def _autostyle_maps(doc: Any) -> tuple[dict[str, str], dict[str, str], bool | No
     works, just without autostyle-name recovery and without the direct-formatting report).
 
     Both scopes report overrides: the range path copies the source paragraphs' direct formatting
-    onto the temp document first (see _paint_direct_formatting)."""
+    onto the temp document first (see paint_direct_formatting)."""
     def read_maps() -> tuple[dict[str, str], dict[str, str], bool | None]:
         fodt = _read_filter_text(doc, FLAT_ODF_FILTER, ext=FODT_EXTENSION)
-        parents, overrides = xhtml_post._parse_fodt_autostyles(fodt)
+        parents, overrides = xhtml_post.parse_fodt_autostyles(fodt)
         return (parents, overrides, "<text:ruby" in fodt)
 
     failed: tuple[dict[str, str], dict[str, str], bool | None] = ({}, {}, None)
@@ -325,7 +323,7 @@ def _trim_to_source(text: Any, element: Any, para_text: str, source: Any) -> tup
 
 # (element, visible para text) -> (trim_start, trim_end) in visible coordinates
 # (_visible_portions, tracked deletions removed), or None to skip the element.
-# The pair is always returned, even when nothing is cut, because _paint_direct_formatting
+# The pair is always returned, even when nothing is cut, because paint_direct_formatting
 # and _hyperlink_urls index portions with it.
 _Window = Callable[[Any, str], "tuple[int, int] | None"]
 
@@ -396,7 +394,7 @@ def _copy_formula_runs(
             # A formula portion can be zero-length; keep it when it sits inside the window.
             if run_start < trim_start or run_start > trim_end:
                 continue
-            slice_text = range_copy._record_math_placeholder(math_records, emb, display_block=display_block)
+            slice_text = range_copy.record_math_placeholder(math_records, emb, display_block=display_block)
         else:
             if run_end <= trim_start or run_start >= trim_end:
                 continue
@@ -405,7 +403,7 @@ def _copy_formula_runs(
             slice_text = chunk[s_start:s_end]
         if not slice_text:
             continue
-        range_copy._copy_text_run(p, temp_text, temp_cursor, slice_text)
+        range_copy.copy_text_run(p, temp_text, temp_cursor, slice_text)
 
 
 def _copy_window_to_scratch(
@@ -434,7 +432,7 @@ def _copy_window_to_scratch(
             continue
         if past_end(el):
             break
-        if range_copy._supports_service(el, "com.sun.star.text.TextTable"):
+        if range_copy.supports_service(el, "com.sun.star.text.TextTable"):
             # Tables are in this enumeration and have no ParaStyleName.
             style = ""
         else:
@@ -460,7 +458,7 @@ def _copy_window_to_scratch(
             applied = range_copy.apply_temp_para_style(temp_doc, temp_cursor, style)
         else:
             temp_cursor.gotoEnd(False)
-            temp_text.insertControlCharacter(temp_cursor, range_copy._PARAGRAPH_BREAK, False)
+            temp_text.insertControlCharacter(temp_cursor, range_copy.PARAGRAPH_BREAK, False)
             # After insertControlCharacter the cursor is still before the break, not in the
             # new paragraph. Move into it before setting style/content, otherwise setString
             # clobbers the previous paragraph instead of filling the new one.
@@ -471,7 +469,7 @@ def _copy_window_to_scratch(
         if not has_formula:
             temp_cursor.setString(para_text)
             src_style = range_copy.source_style(model, style, style_cache) if applied else None
-            range_copy._paint_direct_formatting(el, portions, temp_text, trim_start, trim_end, src_style)
+            range_copy.paint_direct_formatting(el, portions, temp_text, trim_start, trim_end, src_style)
         else:
             _copy_formula_runs(portions, trim_start, trim_end, temp_text, temp_cursor, math_records)
 
@@ -733,13 +731,13 @@ def _page_number_numbering_type_to_name(num_type: Any) -> str:
 def extract_page_number_fields(text_obj: Any) -> list[dict[str, Any]]:
     """Walk *text_obj* in document order and collect PageNumber field properties."""
     fields: list[dict[str, Any]] = []
-    for para in range_copy._iter_xtext_paragraphs(text_obj):
+    for para in range_copy.iter_xtext_paragraphs(text_obj):
         try:
             portions = para.createEnumeration()
         except Exception as e:
             log.debug("extract_page_number_fields createEnumeration failed: %s", e)
             continue
-        for portion, kind in range_copy._iter_portions(portions):
+        for portion, kind in range_copy.iter_portions(portions):
             if kind == "TextField":
                 try:
                     field = portion.getPropertyValue("TextField")
@@ -788,7 +786,7 @@ def _inject_page_number_attributes(content: str, fields: list[dict[str, Any]]) -
         if nt_name != "ARABIC":
             attrs += f' data-numbering-type="{nt_name}"'
         out.append(content[last_end:match.start()])
-        out.append(xhtml_post._inject_attr(match.group(0), attrs) if attrs else match.group(0))
+        out.append(xhtml_post.inject_attr(match.group(0), attrs) if attrs else match.group(0))
         last_end = match.end()
     out.append(content[last_end:])
     return "".join(out)
@@ -822,7 +820,7 @@ def xtext_to_content(
         )
     try:
         math_records: list[tuple[str, str, bool]] = []
-        range_copy._copy_xtext_into_doc(model, text_obj, temp_doc, math_records=math_records)
+        range_copy.copy_xtext_into_doc(model, text_obj, temp_doc, math_records=math_records)
         content = document_to_content(
             temp_doc,
             ctx,

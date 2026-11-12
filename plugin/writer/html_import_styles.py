@@ -142,7 +142,7 @@ def _para_writers() -> dict[str, Callable[[str], tuple[str, Any] | None]]:
 
     def text_align(val: str) -> tuple[str, Any] | None:
         try:
-            return ("ParaAdjust", _para_adjust_to_uno(xhtml_post._ODF_TEXT_ALIGN.get(val, val)))
+            return ("ParaAdjust", _para_adjust_to_uno(xhtml_post.ODF_TEXT_ALIGN.get(val, val)))
         except ValueError:
             return None
 
@@ -213,7 +213,7 @@ class _OpenBlock:
         self.slot_index: int | None = slot_index
 
 
-class _BlockLoStyleExtractor(xhtml_post._HtmlPassthroughParser):
+class _BlockLoStyleExtractor(xhtml_post.HtmlPassthroughParser):
     """Collect data-lo-style and data-lo-para per TOP-LEVEL block (document order) and strip
     the attributes from the HTML, so the StarWriter import sees clean markup and we apply the
     formatting ourselves afterwards. Content inside <table> is left to the import (avoids order desync)."""

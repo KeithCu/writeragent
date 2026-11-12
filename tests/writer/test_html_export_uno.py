@@ -71,14 +71,14 @@ def test_copy_xtext_keeps_nested_text_table_uno(ctx: Any, doc: Any) -> None:
     nested.getCellByName("B1").setString("NEST_B")
 
     from plugin.framework.scratch_writer import new_blank_writer
-    from plugin.writer.range_copy import _copy_xtext_into_doc
+    from plugin.writer.range_copy import copy_xtext_into_doc
     from plugin.writer.specialized.tables import TableGetCells, TableList
     from tests.testing_utils import TestingFactory
 
     temp_doc = None
     try:
         temp_doc = new_blank_writer(ctx)
-        _copy_xtext_into_doc(doc, doc.getText(), temp_doc)
+        copy_xtext_into_doc(doc, doc.getText(), temp_doc)
         tool_ctx = TestingFactory.create_context(doc=temp_doc, ctx=ctx, env="native")
         listed = TableList().execute(tool_ctx)
         assert listed.get("status") == "ok", listed
@@ -121,14 +121,14 @@ def test_copy_table_keeps_merged_banner_d2_uno(ctx: Any, doc: Any) -> None:
     table.getCellByName("D2").setString("Telèfon responsable")
 
     from plugin.framework.scratch_writer import new_blank_writer
-    from plugin.writer.range_copy import _copy_xtext_into_doc
+    from plugin.writer.range_copy import copy_xtext_into_doc
     from plugin.writer.specialized.tables import TableGetCells, TableList
     from tests.testing_utils import TestingFactory
 
     temp_doc = None
     try:
         temp_doc = new_blank_writer(ctx)
-        _copy_xtext_into_doc(doc, doc.getText(), temp_doc)
+        copy_xtext_into_doc(doc, doc.getText(), temp_doc)
         tool_ctx = TestingFactory.create_context(doc=temp_doc, ctx=ctx, env="native")
         listed = TableList().execute(tool_ctx)
         assert listed.get("status") == "ok", listed

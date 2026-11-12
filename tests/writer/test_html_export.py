@@ -80,7 +80,7 @@ def _range_export(style: str, *, has_style: bool, set_style_raises: bool = False
         patch("plugin.writer.html_export._element_overlaps", return_value=True),
         patch("plugin.writer.html_export._trim_to_source", side_effect=lambda text, element, para_text, source: (0, len(para_text))),
         patch("plugin.writer.html_export.starts_at_or_after", return_value=False),
-        patch("plugin.writer.range_copy._paint_direct_formatting"),
+        patch("plugin.writer.range_copy.paint_direct_formatting"),
         patch("plugin.writer.html_export._hyperlink_urls", return_value=[]),
         patch("plugin.writer.html_ruby._ruby_spans_in_window", return_value=[]),
         patch("plugin.writer.html_export._export_xhtml", return_value="<p>Hello</p><p>Hello</p>"),
@@ -270,7 +270,7 @@ def test_empty_xhtml_export_of_a_document_with_text_falls_back():
 
     with patch.object(html_export, "_export_xhtml", return_value=""), \
          patch.object(html_export, "_autostyle_maps", return_value=({}, {}, None)), \
-         patch("plugin.doc.temp_files.with_temp_buffer") as buf, \
+         patch("plugin.writer.html_export.with_temp_buffer") as buf, \
          patch("builtins.open") as opener:
         buf.return_value.__enter__.return_value = ("/tmp/x.html", "file:///tmp/x.html")
         opener.return_value.__enter__.return_value.read.return_value = "<p>Texto do documento</p>"
@@ -284,7 +284,7 @@ def test_full_export_fallback_reports_missing_style_tokens():
     warnings: list[str] = []
     with (
         patch.object(html_export, "_export_xhtml", side_effect=PermissionError("Permission denied")),
-        patch("plugin.doc.temp_files.with_temp_buffer") as buf,
+        patch("plugin.writer.html_export.with_temp_buffer") as buf,
         patch("builtins.open") as opener,
         patch("plugin.writer.html_export.inject_exported_math_tex", side_effect=lambda model, ctx, content: content),
         patch("plugin.writer.html_ruby._inject_ruby_from_model", side_effect=lambda model, content, spans: content),
@@ -388,7 +388,7 @@ def test_copy_flow_into_xtext_one_paragraph_text_then_field():
     from plugin.writer.range_copy import (
         _COPIED_CHAR_PROPERTIES,
         _COPIED_PARA_PROPERTIES,
-        _copy_flow_into_xtext,
+        copy_flow_into_xtext,
     )
 
     doc = MagicMock()
@@ -416,7 +416,7 @@ def test_copy_flow_into_xtext_one_paragraph_text_then_field():
     with patch("plugin.writer.range_copy._copy_field_into", return_value=True) as mock_field_into, \
          patch("plugin.writer.range_copy._copy_properties") as mock_props, \
          patch("plugin.writer.html_export.new_blank_writer") as mock_blank:
-        res = _copy_flow_into_xtext(doc, src_text, dest_text)
+        res = copy_flow_into_xtext(doc, src_text, dest_text)
 
     assert res == 1
     cursor.setString.assert_called_with("")
@@ -431,7 +431,7 @@ def test_copy_flow_into_xtext_one_paragraph_text_then_field():
 
 
 def test_copy_flow_into_xtext_breaks_only_between_paragraphs():
-    from plugin.writer.range_copy import _PARAGRAPH_BREAK, _copy_flow_into_xtext
+    from plugin.writer.range_copy import PARAGRAPH_BREAK, copy_flow_into_xtext
 
     doc = MagicMock()
     src_text = MagicMock()
@@ -457,9 +457,9 @@ def test_copy_flow_into_xtext_breaks_only_between_paragraphs():
     dest_text.createTextCursor.return_value = cursor
 
     with patch("plugin.writer.range_copy._copy_properties"):
-        _copy_flow_into_xtext(doc, src_text, dest_text)
+        copy_flow_into_xtext(doc, src_text, dest_text)
 
-    dest_text.insertControlCharacter.assert_called_once_with(cursor, _PARAGRAPH_BREAK, False)
+    dest_text.insertControlCharacter.assert_called_once_with(cursor, PARAGRAPH_BREAK, False)
 
     insert_calls = [c.args[1] for c in dest_text.insertString.call_args_list]
     assert insert_calls == ["A", "B"]
@@ -487,7 +487,7 @@ def test_xtext_to_content_propagates_export_error_and_closes():
     temp.getText.return_value = MagicMock()
     with (
         patch.object(html_export, "new_blank_writer", return_value=temp),
-        patch.object(html_export.range_copy, "_copy_xtext_into_doc"),
+        patch.object(html_export.range_copy, "copy_xtext_into_doc"),
         patch.object(
             html_export,
             "document_to_content",
@@ -601,7 +601,7 @@ def test_range_xhtml_disposal_does_not_fall_back():
         patch("plugin.writer.html_export._element_overlaps", return_value=True),
         patch("plugin.writer.html_export._trim_to_source", side_effect=lambda text, element, para_text, source: (0, len(para_text))),
         patch("plugin.writer.html_export.starts_at_or_after", return_value=False),
-        patch("plugin.writer.range_copy._paint_direct_formatting"),
+        patch("plugin.writer.range_copy.paint_direct_formatting"),
         patch("plugin.writer.html_export._hyperlink_urls", return_value=[]),
         patch("plugin.writer.html_ruby._ruby_spans_in_window", return_value=[]),
         patch("plugin.writer.html_export._export_xhtml", side_effect=_DisposedException("disposed")),
@@ -653,7 +653,7 @@ def test_selection_compare_failure_is_not_a_silent_skip(exc, expected, match):
         patch("plugin.writer.html_export._visible_portions", side_effect=_portions),
         patch("plugin.writer.html_export._trim_to_source", side_effect=lambda text, element, para_text, source: (0, len(para_text))),
         patch("plugin.writer.html_export.starts_at_or_after", return_value=False),
-        patch("plugin.writer.range_copy._paint_direct_formatting"),
+        patch("plugin.writer.range_copy.paint_direct_formatting"),
         patch("plugin.writer.html_export._hyperlink_urls", return_value=[]),
         patch("plugin.writer.html_ruby._ruby_spans_in_window", return_value=[]),
         pytest.raises(expected, match=match),
@@ -699,7 +699,7 @@ def test_range_export_does_not_read_para_style_on_a_table():
         patch("plugin.writer.html_export._element_overlaps", return_value=True),
         patch("plugin.writer.html_export._trim_to_source", side_effect=lambda text, element, para_text, source: (0, len(para_text))),
         patch("plugin.writer.html_export.starts_at_or_after", return_value=False),
-        patch("plugin.writer.range_copy._paint_direct_formatting"),
+        patch("plugin.writer.range_copy.paint_direct_formatting"),
         patch("plugin.writer.html_export._hyperlink_urls", return_value=[]),
         patch("plugin.writer.html_ruby._ruby_spans_in_window", return_value=[]),
         patch("plugin.writer.html_export._export_xhtml", return_value="<p>Hello</p>"),
@@ -818,7 +818,7 @@ def test_xtext_injects_nonzero_page_offset():
     fields = [{"SubType": 2, "Offset": 1, "NumberingType": 4}]
     with (
         patch.object(html_export, "new_blank_writer", return_value=temp),
-        patch.object(html_export.range_copy, "_copy_xtext_into_doc"),
+        patch.object(html_export.range_copy, "copy_xtext_into_doc"),
         patch.object(html_export, "extract_page_number_fields", return_value=fields),
         patch.object(html_export, "document_to_content", return_value=html),
     ):
@@ -887,7 +887,7 @@ def test_page_number_converters():
 
 
 def test_copy_xtext_into_doc_does_not_select_and_clones_graphic():
-    from plugin.writer.range_copy import _copy_xtext_into_doc
+    from plugin.writer.range_copy import copy_xtext_into_doc
 
     src_text = MagicMock()
     src_text.createEnumeration.return_value = _Enum([])
@@ -919,7 +919,7 @@ def test_copy_xtext_into_doc_does_not_select_and_clones_graphic():
     src_text.createTextCursor.return_value = measure
     src_text.getString.return_value = ""
 
-    _copy_xtext_into_doc(src_doc, src_text, dest_doc)
+    copy_xtext_into_doc(src_doc, src_text, dest_doc)
 
     src_doc.getCurrentController().select.assert_not_called()
     dest_doc.createInstance.assert_called_with("com.sun.star.text.TextGraphicObject")
@@ -932,7 +932,7 @@ def test_copy_xtext_into_doc_does_not_select_and_clones_graphic():
 def test_uno_read_probes_raise_on_disposal_and_default_otherwise():
     from plugin.framework.errors import DocumentDisposedError
     from plugin.writer.html_export import _raise_if_empty_export
-    from plugin.writer.range_copy import _supports_service, _writer_table_copy_layout
+    from plugin.writer.range_copy import supports_service, _writer_table_copy_layout
 
     class DisposedException(Exception):
         pass
@@ -943,11 +943,11 @@ def test_uno_read_probes_raise_on_disposal_and_default_otherwise():
     closed = MagicMock()
     closed.supportsService.side_effect = DisposedException("closed")
     with pytest.raises(DocumentDisposedError):
-        _supports_service(closed, "com.sun.star.text.TextTable")
+        supports_service(closed, "com.sun.star.text.TextTable")
 
     odd = MagicMock()
     odd.supportsService.side_effect = RuntimeException("uno")
-    assert _supports_service(odd, "com.sun.star.text.TextTable") is False
+    assert supports_service(odd, "com.sun.star.text.TextTable") is False
 
     # A failed text read still counts as "has text" and the export error is raised.
     model = MagicMock()
@@ -1019,7 +1019,7 @@ def test_range_export_skips_flat_odf_when_no_autostyle():
         patch("plugin.writer.html_export._element_overlaps", return_value=True),
         patch("plugin.writer.html_export._trim_to_source", side_effect=lambda text, element, para_text, source: (0, len(para_text))),
         patch("plugin.writer.html_export.starts_at_or_after", return_value=False),
-        patch("plugin.writer.range_copy._paint_direct_formatting"),
+        patch("plugin.writer.range_copy.paint_direct_formatting"),
         patch("plugin.writer.html_export._hyperlink_urls", return_value=[]),
         patch("plugin.writer.html_ruby._ruby_spans_in_window", return_value=[]),
         patch("plugin.writer.html_export._export_xhtml", return_value=xhtml_named),
@@ -1043,7 +1043,7 @@ def test_range_export_skips_flat_odf_when_no_autostyle():
         patch("plugin.writer.html_export._element_overlaps", return_value=True),
         patch("plugin.writer.html_export._trim_to_source", side_effect=lambda text, element, para_text, source: (0, len(para_text))),
         patch("plugin.writer.html_export.starts_at_or_after", return_value=False),
-        patch("plugin.writer.range_copy._paint_direct_formatting"),
+        patch("plugin.writer.range_copy.paint_direct_formatting"),
         patch("plugin.writer.html_export._hyperlink_urls", return_value=[]),
         patch("plugin.writer.html_ruby._ruby_spans_in_window", return_value=[]),
         patch("plugin.writer.html_export._export_xhtml", return_value=xhtml_auto),

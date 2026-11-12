@@ -105,6 +105,16 @@ def test_search_in_document_icu_only_regex_warns_on_shape_skip():
     assert res.get("warning") == "shape/comment text not searched: pattern uses ICU-only syntax"
 
 
+def test_shape_sweep_skip_reason():
+    from plugin.writer.search import shape_sweep_skip_reason
+
+    assert shape_sweep_skip_reason(r"\p{Lu}", True) == (
+        "shape/comment text not searched: pattern uses ICU-only syntax"
+    )
+    assert shape_sweep_skip_reason(r"\p{Lu}", False) is None
+    assert shape_sweep_skip_reason("a.c", True) is None
+
+
 def test_search_return_offsets_rejects_regex():
     from plugin.writer.search import SearchInDocument
 
@@ -190,7 +200,7 @@ def test_search_in_document_getstring_failure_is_truncated(caplog):
     assert "search_in_document: getString failed" in caplog.text
 
 
-@pytest.mark.parametrize("bad_val", [0, -1, True, False, None, "20", 1.5])
+@pytest.mark.parametrize("bad_val", [0, -1])
 def test_search_in_document_max_results_rejects_non_positive(bad_val):
     from plugin.writer.search import SearchInDocument
 
@@ -200,6 +210,32 @@ def test_search_in_document_max_results_rejects_non_positive(bad_val):
     assert res["status"] == "error"
     assert res["code"] == "INVALID_PARAM"
     doc.createSearchDescriptor.assert_not_called()
+
+
+@pytest.mark.parametrize("bad_val", [True, False, "20", 1.5])
+def test_search_in_document_max_results_wrong_type_is_rejected_before_execute(bad_val):
+    from types import SimpleNamespace
+
+    from plugin.framework.tool import prepare_tool_call
+    from plugin.writer.search import SearchInDocument
+
+    ctx = SimpleNamespace(doc_type="writer", caller="test")
+    prep = prepare_tool_call(SearchInDocument(), ctx, "search_in_document", {"pattern": "test", "max_results": bad_val})
+    assert prep.error is not None
+    assert prep.error["code"] == "VALIDATION_ERROR"
+    assert prep.error["message"].startswith("Invalid type for max_results: expected integer")
+
+
+def test_search_in_document_null_max_results_uses_the_default():
+    from types import SimpleNamespace
+
+    from plugin.framework.tool import prepare_tool_call
+    from plugin.writer.search import SearchInDocument
+
+    ctx = SimpleNamespace(doc_type="writer", caller="test")
+    prep = prepare_tool_call(SearchInDocument(), ctx, "search_in_document", {"pattern": "test", "max_results": None})
+    assert prep.error is None
+    assert prep.kwargs == {"pattern": "test"}
 
 
 def test_search_in_document_default_max_results_is_20():

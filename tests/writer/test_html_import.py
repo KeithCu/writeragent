@@ -515,7 +515,7 @@ def test_insert_inline_at_cursor_paints_ruby_instead_of_gluing_the_reading():
 
     cursor = MagicMock()
     with patch.object(html_import, "insert_html_fragment_at_cursor") as frag, \
-         patch.object(range_copy, "_prefix_char_count", return_value=7), \
+         patch.object(range_copy, "prefix_char_count", return_value=7), \
          patch.object(html_ruby, "_apply_ruby_spans") as paint:
         html_import.insert_inline_at_cursor(MagicMock(), MagicMock(), cursor, "<ruby>漢字<rt>かんじ</rt></ruby>")
     assert frag.call_args.args[1] == "漢字"
@@ -528,7 +528,7 @@ def test_insert_inline_at_cursor_skips_prefix_count_without_ruby():
     from plugin.writer import html_import, range_copy
 
     cursor = MagicMock()
-    with patch.object(range_copy, "_prefix_char_count") as count, \
+    with patch.object(range_copy, "prefix_char_count") as count, \
          patch.object(html_import, "insert_html_fragment_at_cursor"):
         html_import.insert_inline_at_cursor(MagicMock(), MagicMock(), cursor, "<b>x</b>")
     count.assert_not_called()
@@ -539,7 +539,7 @@ def test_insert_mixed_or_plain_html_skips_prefix_count_without_ruby():
     from plugin.writer import html_import, range_copy
 
     cursor = MagicMock()
-    with patch.object(range_copy, "_prefix_char_count") as count, \
+    with patch.object(range_copy, "prefix_char_count") as count, \
          patch.object(html_import, "_insert_starwriter_html_at_cursor"):
         html_import._insert_mixed_or_plain_html(MagicMock(), MagicMock(), cursor, "<p>hi</p>")
     count.assert_not_called()
@@ -550,7 +550,7 @@ def test_insert_mixed_html_and_math_skips_prefix_count_without_ruby():
     from plugin.writer import html_import, range_copy
 
     cursor = MagicMock()
-    with patch.object(range_copy, "_prefix_char_count") as count, \
+    with patch.object(range_copy, "prefix_char_count") as count, \
          patch.object(html_import, "_insert_starwriter_html_at_cursor"), \
          patch("plugin.writer.math.html_math_segment.html_fragment_contains_mixed_math", return_value=True):
         html_import._insert_mixed_html_and_math_at_cursor(
@@ -565,7 +565,7 @@ def test_insert_mixed_html_and_math_counts_prefix_when_segment_contains_ruby():
 
     cursor = MagicMock()
     calls = []
-    with patch.object(range_copy, "_prefix_char_count", side_effect=lambda t, c: calls.append("count") or 5) as count, \
+    with patch.object(range_copy, "prefix_char_count", side_effect=lambda t, c: calls.append("count") or 5) as count, \
          patch.object(html_import, "_insert_starwriter_html_at_cursor", side_effect=lambda *a, **k: calls.append("insert")), \
          patch.object(html_ruby, "_apply_ruby_spans") as paint, \
          patch("plugin.writer.math.html_math_segment.html_fragment_contains_mixed_math", return_value=True):
@@ -935,7 +935,7 @@ def test_every_read_para_name_has_a_writer_or_is_listed_read_only():
 def test_round_trip_read_fodt_autostyle_value():
     from unittest.mock import MagicMock, call
     from plugin.writer import html_import_styles
-    from plugin.writer.xhtml_style_postprocess import _parse_fodt_autostyles
+    from plugin.writer.xhtml_style_postprocess import parse_fodt_autostyles
 
     fodt = """<?xml version="1.0" encoding="UTF-8"?>
 <office:document xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0"
@@ -945,7 +945,7 @@ def test_round_trip_read_fodt_autostyle_value():
   <style:paragraph-properties fo:margin-left="3.25cm" fo:text-indent="0cm" fo:text-align="start"/>
  </style:style>
 </office:document>"""
-    emitted = _parse_fodt_autostyles(fodt)[1]["P2"]
+    emitted = parse_fodt_autostyles(fodt)[1]["P2"]
     assert emitted == "margin-left:3.25cm; text-indent:0cm; text-align:left"
 
     props, dropped = html_import_styles.parse_data_lo_para(emitted)

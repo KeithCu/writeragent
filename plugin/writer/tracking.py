@@ -136,7 +136,7 @@ def _set_recording(doc: Any, record: bool) -> dict[str, Any]:
 _REDLINE_FIELD_UNREADABLE = "tracking_list: redline field unreadable"
 
 
-def _redline_text(redline: Any, start: Any = None) -> str:
+def redline_text(redline: Any, start: Any = None) -> str:
     # Text: for an insertion the live span RedlineStart..RedlineEnd holds it; for a
     # deletion that span is collapsed, so fall back to RedlineText (the removed text).
     if start is None:
@@ -192,7 +192,7 @@ def _describe_redline(redline: Any, index: int, doc: Any, labeler: LocationLabel
             entry["location"] = (labeler or LocationLabeler(doc)).describe(start)
         except Exception:
             log.debug(_REDLINE_FIELD_UNREADABLE, exc_info=True)
-    txt = _redline_text(redline, start=start)
+    txt = redline_text(redline, start=start)
     if txt:
         entry["text"] = txt
     return entry
