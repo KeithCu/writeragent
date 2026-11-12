@@ -979,6 +979,10 @@ def test_play_audio_file_windows_path_not_in_script(mock_popen):
     assert "try {" in mp3_cmd[-1]
     assert "catch { exit 1 }" in mp3_cmd[-1]
     assert "$env:WA_AUDIO_PATH" in mp3_cmd[-1]
+    assert "$wmp.controls.play()" in mp3_cmd[-1]
+    assert "while (-not $started" in mp3_cmd[-1]
+    assert "while ($wmp.playState -in 3, 6, 7, 9)" in mp3_cmd[-1]
+    assert '"' not in mp3_cmd[-1]
     assert mock_popen.call_args.kwargs["env"]["WA_AUDIO_PATH"] == mp3
 
 
