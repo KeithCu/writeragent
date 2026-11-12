@@ -50,26 +50,12 @@ def test_partition_tool_errors_changed_arguments_is_recovered() -> None:
     ok = {"status": "ok", "result": "24133"}
     # A retry of the same tool with corrected arguments recovers the error.
     calls = [
-        InnerToolCall("run_venv_python_script", err, mutating=True, arguments={"code": "sp.prime(100)"}),
-        InnerToolCall("run_venv_python_script", ok, mutating=True, arguments={"code": "import sympy as sp; sp.prime(100)"}),
+        InnerToolCall("run_venv_python_script", err, mutating=True),
+        InnerToolCall("run_venv_python_script", ok, mutating=True),
     ]
     unrecovered, recovered = partition_tool_errors(calls)
     assert unrecovered == []
     assert recovered == [err]
-
-
-def test_make_inner_tool_call_extracts_arguments() -> None:
-    from unittest.mock import MagicMock
-    from plugin.doc.specialized_catalog import make_inner_tool_call
-
-    adapter = MagicMock()
-    adapter.name = "paragraph_edit"
-    adapter.mutating = True
-
-    call = make_inner_tool_call(adapter, {"status": "ok"}, kwargs={"index": 5, "text": "hello"})
-    assert call.name == "paragraph_edit"
-    assert call.mutating is True
-    assert call.arguments == {"index": 5, "text": "hello"}
 
 
 def test_expects_edits_checks_read_only_domains() -> None:

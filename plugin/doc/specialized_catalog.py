@@ -2,7 +2,6 @@
 """Specialized domain catalog for delegate tools and MCP discovery."""
 from __future__ import annotations
 
-import logging
 from typing import Any, NamedTuple, Sequence
 
 from plugin.framework.prompts import (
@@ -13,8 +12,6 @@ from plugin.framework.prompts import (
     WRITER_SIDEBAR_ONLY_DOMAINS,
     WRITER_SPECIALIZED_DELEGATION_TEMPLATE,
 )
-
-log = logging.getLogger(__name__)
 
 DOMAIN_LOOP_HINTS: dict[str, dict[str | None, str]] = {
     "footnotes": {
@@ -154,21 +151,6 @@ class InnerToolCall(NamedTuple):
     name: str
     result: Any
     mutating: bool
-    arguments: dict[str, Any] | None = None
-
-
-def make_inner_tool_call(
-    adapter: Any,
-    result: Any,
-    kwargs: dict[str, Any] | None = None,
-) -> InnerToolCall:
-    """Build an InnerToolCall from a tool adapter invocation."""
-    return InnerToolCall(
-        name=adapter.name,
-        result=result,
-        mutating=adapter.mutating,
-        arguments=dict(kwargs or {}),
-    )
 
 
 FINISH_TOOL_NAME = "specialized_workflow_finished"

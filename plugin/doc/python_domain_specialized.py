@@ -38,7 +38,6 @@ from plugin.framework.prompts import DELEGATE_ANCHOR_RULE
 from plugin.doc.specialized_catalog import (
     DOMAIN_LOOP_HINTS,
     InnerToolCall,
-    make_inner_tool_call,
     normalize_inner_result,
 )
 from plugin.framework.errors import user_stopped_payload
@@ -273,7 +272,7 @@ class _InnerCallRecorder(SmolToolAdapter):
 
     def forward(self, *args: Any, **kwargs: Any) -> Any:
         result = super().forward(*args, **kwargs)
-        self._calls.append(make_inner_tool_call(self, result, kwargs=kwargs))
+        self._calls.append(InnerToolCall(self.name, result, self.mutating))
         return result
 
 

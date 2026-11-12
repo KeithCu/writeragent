@@ -40,11 +40,11 @@ from plugin.doc.peer_prompt import (
 )
 from plugin.doc.specialized_catalog import (
     DOMAIN_LOOP_HINTS,
+    InnerToolCall,
     READ_ONLY_DOMAINS,
     apply_inner_outcome,
     catalog_entries_from_base,
     expects_edits,
-    make_inner_tool_call,
 )
 from plugin.framework.i18n import _
 from plugin.chatbot.smol_agent import SmolToolAdapter, run_inner_tool_agent
@@ -280,7 +280,7 @@ class DelegateToSpecializedBase(ToolBase):
         class _CaptureInstructionAdapter(SmolToolAdapter):
             def forward(self, *args: Any, **kwargs: Any) -> Any:
                 result = super().forward(*args, **kwargs)
-                cap.calls.append(make_inner_tool_call(self, result, kwargs=kwargs))
+                cap.calls.append(InnerToolCall(self.name, result, self.mutating))
                 if not isinstance(result, dict):
                     return result
                 if result.get("instruction"):
