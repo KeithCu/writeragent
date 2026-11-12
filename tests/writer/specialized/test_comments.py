@@ -24,7 +24,7 @@ def test_read_annotation_falls_back_to_paragraph_context():
     }.get(p, "")
     doc_svc = MagicMock()
     doc_svc.find_paragraph_for_range.return_value = 7
-    with patch("plugin.writer.search.enclosing_paragraph_text", return_value="  the clause the comment covers  "):
+    with patch("plugin.writer.specialized.comments.enclosing_paragraph_text", return_value="  the clause the comment covers  "):
         entry = _read_annotation(field, [], MagicMock(), doc_svc)
     assert entry["anchor_preview"] == "the clause the comment covers"
     assert entry["anchor_is_paragraph_context"] is True
@@ -845,8 +845,8 @@ def test_read_annotation_unconfirmed_zero_omits_paragraph_index():
     doc_svc = MagicMock()
     doc_svc.find_paragraph_for_range.return_value = None
 
-    with patch("plugin.writer.search.describe_match_location", return_value="body"), \
-         patch("plugin.framework.uno_context.uno_same", return_value=True):
+    with patch("plugin.writer.specialized.comments.describe_match_location", return_value="body"), \
+         patch("plugin.writer.specialized.comments.uno_same", return_value=True):
         entry = _read_annotation(field, [], text_obj, doc_svc)
 
     assert "paragraph_index" not in entry
@@ -1383,4 +1383,15 @@ def test_comment_edit_locked_undo_manager():
     res = CommentEdit().execute(ctx, name="target", content="new")
     assert res["code"] == "UNDO_UNAVAILABLE"
     field.setPropertyValue.assert_not_called()
+
+
+def test_comment_list_start_index_type_stops_at_validator():
+    from plugin.framework.tool import prepare_tool_call
+    from plugin.writer.specialized.comments import CommentList
+
+    ctx = MagicMock()
+    ctx.doc_type = "writer"
+    prep = prepare_tool_call(CommentList(), ctx, "comment_list", {"start_index": "abc"})
+    assert prep.error is not None
+    assert prep.error["code"] == "VALIDATION_ERROR"
 

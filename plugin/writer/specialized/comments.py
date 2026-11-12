@@ -23,11 +23,22 @@ from plugin.framework.constants import WORKFLOW_TASK_PREFIXES, now_aware
 from plugin.framework.errors import make_tool_error, reraise_if_disposed, uno_read
 import uno
 
+from plugin.doc.paragraph_search import paragraph_entries
 from plugin.doc.text_helpers import iter_elements
 from plugin.doc.undo import commit_or_rollback_mutation
 from plugin.framework.tool import ToolBase
 from plugin.framework.errors import name_miss_details
-from ..search import CASE_SENSITIVE_DESCRIPTION, resolve_case_sensitive
+from plugin.framework.uno_context import uno_same
+from ..edit_review import next_agent_edit_undo_title
+from ..search import (
+    CASE_SENSITIVE_DESCRIPTION,
+    LocationLabeler,
+    describe_match_location,
+    enclosing_paragraph_text,
+    occurrence_range_or_error,
+    parse_non_negative_int,
+    resolve_case_sensitive,
+)
 from ..specialized_base import ToolWriterCommentBase, enum_param
 
 log = logging.getLogger("writeragent.writer.comments")
@@ -49,9 +60,6 @@ def _prop(field: Any, name: str, default: Any = "") -> Any:
 
 
 def _annotation_reader(ctx: Any) -> Any:
-    from plugin.doc.paragraph_search import paragraph_entries
-    from plugin.writer.search import LocationLabeler
-
     doc = ctx.doc
     doc_svc = ctx.services.document
     para_ranges = doc_svc.get_paragraph_ranges(doc)
@@ -107,19 +115,10 @@ class CommentList(ToolWriterCommentBase):
     }
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
-        from ..search import parse_non_negative_int
-
         author_filter = kwargs.get("author_filter")
-        start_raw = kwargs.get("start_index", 0)
+        # prepare_tool_call has already checked that start_index is an integer; negatives clamp to 0.
+        start_index = max(0, kwargs.get("start_index") or 0)
         max_raw = kwargs.get("max_comments", 100)
-        try:
-            start_index = max(0, int(start_raw if start_raw is not None else 0))
-        except (TypeError, ValueError):
-            return self._tool_error(
-                "start_index must be a non-negative integer.",
-                code="INVALID_PARAM",
-                parameter="start_index",
-            )
         max_val, max_err = parse_non_negative_int(max_raw, name="max_comments", coerce=True)
         if max_err:
             return self._tool_error(max_err, code="INVALID_PARAM", parameter="max_comments")
@@ -205,7 +204,6 @@ class AddComment(ToolBase):
         search_text = kwargs.get("search")
         if not search_text:
             return self._tool_error("Provide search.")
-        from ..search import occurrence_range_or_error
 
         doc = ctx.doc
         case_sensitive = resolve_case_sensitive(kwargs.get("case_sensitive"))
@@ -326,8 +324,6 @@ class CommentDelete(ToolWriterCommentBase):
                 deleted=0,
             )
 
-        from ..edit_review import next_agent_edit_undo_title
-
         undo_title = next_agent_edit_undo_title()
 
         def mutate() -> dict[str, Any] | None:
@@ -377,7 +373,6 @@ class CommentResolve(ToolWriterCommentBase):
         if isinstance(target, dict):
             return target
 
-        from ..edit_review import next_agent_edit_undo_title
         undo_title = next_agent_edit_undo_title()
         reply_name = None
 
@@ -434,8 +429,6 @@ class CommentEdit(ToolWriterCommentBase):
         target = _annotation_or_error(doc, comment_name)
         if isinstance(target, dict):
             return target
-
-        from ..edit_review import next_agent_edit_undo_title
 
         undo_title = next_agent_edit_undo_title()
 
@@ -707,9 +700,6 @@ def _read_annotation(
     labeler: Any = None,
 ) -> dict[str, Any]:
     """Extract annotation properties into a plain dict."""
-    from plugin.framework.uno_context import uno_same
-    from plugin.writer.search import LocationLabeler, describe_match_location
-
     entry: dict[str, Any] = {}
     props_read = 0
     last_exc: Exception | None = None
@@ -773,8 +763,6 @@ def _read_annotation(
             except Exception:
                 preview = ""
             if not preview:
-                from plugin.writer.search import enclosing_paragraph_text
-
                 ptxt = (enclosing_paragraph_text(anchor) or "").strip()
                 if ptxt:
                     preview = ptxt[:120]

@@ -13,11 +13,20 @@ import hashlib
 from typing import Any
 
 from plugin.doc.text_helpers import iter_elements
+from plugin.doc.udprops import (
+    get_document_property,
+    list_user_defined_document_properties,
+    read_builtin_document_properties,
+    remove_document_property,
+    set_document_property,
+    write_builtin_document_properties,
+)
 from plugin.doc.undo import commit_or_rollback_mutation
 from plugin.framework.errors import is_disposal, reraise_if_disposed
 from plugin.framework.tool import ToolBase
 
 from ..edit_review import next_agent_edit_undo_title
+from ..search import LocationLabeler
 from ..specialized_base import ToolWriterFieldBase, target_params
 from ..target_resolver import insert_at_target
 
@@ -62,10 +71,6 @@ def _specific_field_service(field: Any) -> str:
 
 
 def _iter_body_field_identity(doc: Any, hasher: Any) -> Any:
-    # Deferred: plugin.writer.search pulls the UNO document helpers in, and this module is
-    # imported wherever the field tools are registered.
-    from ..search import LocationLabeler
-
     fields = doc.getTextFields()
     enum = fields.createEnumeration()
     labeler = LocationLabeler(doc)
@@ -282,14 +287,13 @@ class FieldsInsert(ToolWriterFieldBase):
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         field_type = kwargs["field"]
         doc = ctx.doc
-        if not hasattr(doc, "createInstance"):
-            return self._tool_error("Document does not support creating instances.")
 
         properties = dict(kwargs.get("properties") or {})
         if field_type == "PageNumber":
             # Bare UNO PageNumber is NumberingType=0/SubType=PREV: blank on page 1.
             properties.setdefault("NumberingType", 4)
             if "SubType" not in properties:
+                # Lazy: uno is looked up when this runs; unit tests swap sys.modules["uno"] for mocks, and a module-level binding would keep a stale one.
                 import uno
                 properties["SubType"] = uno.Enum("com.sun.star.text.PageNumberType", "CURRENT")
 
@@ -345,12 +349,6 @@ class DocumentPropertiesGet(ToolBase):
     parameters: dict[str, Any] | None = {"type": "object", "properties": {}, "required": []}
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
-        from plugin.doc.udprops import (
-            get_document_property,
-            list_user_defined_document_properties,
-            read_builtin_document_properties,
-        )
-
         builtins = read_builtin_document_properties(ctx.doc)
         user_defined: dict[str, str] = {}
         internal_omitted: list[str] = []
@@ -407,12 +405,6 @@ class DocumentPropertiesSet(ToolBase):
     }
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
-        from plugin.doc.udprops import (
-            remove_document_property,
-            set_document_property,
-            write_builtin_document_properties,
-        )
-
         title = kwargs.get("title")
         subject = kwargs.get("subject")
         author = kwargs.get("author")
@@ -421,29 +413,16 @@ class DocumentPropertiesSet(ToolBase):
         user_defined = kwargs.get("user_defined")
         remove_user_defined = kwargs.get("remove_user_defined")
 
-        if keywords is not None and not isinstance(keywords, list):
+        # The validator checks top-level JSON types, but not items inside arrays and objects.
+        if keywords is not None and any(not isinstance(item, str) for item in keywords):
             return self._tool_error(
                 "keywords must be an array of strings.",
                 code="INVALID_PARAM",
                 parameter="keywords",
             )
-        if keywords is not None:
-            for item in keywords:
-                if not isinstance(item, str):
-                    return self._tool_error(
-                        "keywords must be an array of strings.",
-                        code="INVALID_PARAM",
-                        parameter="keywords",
-                    )
 
         ud_writes: dict[str, str] = {}
         if user_defined is not None:
-            if not isinstance(user_defined, dict):
-                return self._tool_error(
-                    "user_defined must be an object of string values.",
-                    code="INVALID_PARAM",
-                    parameter="user_defined",
-                )
             for key, val in user_defined.items():
                 if not isinstance(key, str) or not isinstance(val, str):
                     return self._tool_error(
@@ -461,12 +440,6 @@ class DocumentPropertiesSet(ToolBase):
 
         ud_removes: list[str] = []
         if remove_user_defined is not None:
-            if not isinstance(remove_user_defined, list):
-                return self._tool_error(
-                    "remove_user_defined must be an array of property names.",
-                    code="INVALID_PARAM",
-                    parameter="remove_user_defined",
-                )
             for key in remove_user_defined:
                 if not isinstance(key, str):
                     return self._tool_error(

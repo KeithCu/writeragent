@@ -1055,6 +1055,48 @@ def shape_text_span(
     )
 
 
+def replace_text_in_shape(
+    shape: Any,
+    old: str,
+    new: str,
+    *,
+    case_sensitive: bool = SEARCH_CASE_SENSITIVE_DEFAULT,
+    use_regex: bool = False,
+) -> bool:
+    """Replace the first occurrence of *old* with *new* inside a drawing shape's own text,
+    preserving the formatting of the surrounding text via a text cursor. Returns True on success.
+
+    Uses character-offset navigation (goRight) which aligns with getString() for single-paragraph
+    shape text (the common case for callouts / text boxes). Returns False on an ordinary UNO failure;
+    a disposed document propagates."""
+    try:
+        xtext = shape.getText()
+        s = xtext.getString()
+    except Exception as exc:
+        reraise_if_disposed(exc, object_type="Text")
+        return False
+    span = shape_text_span(s, old, case_sensitive=case_sensitive, use_regex=use_regex)
+    if span is None:
+        return False
+    start, end = span
+    # goRight counts UTF-16 code units, while str offsets count code points. Convert so astral
+    # characters (emoji, rare CJK) in the shape text don't misalign the selection / corrupt text.
+    left_units = len(s[:start].encode("utf-16-le")) // 2
+    old_units = len(s[start:end].encode("utf-16-le")) // 2
+    if old_units <= 0:
+        return False
+    try:
+        cursor = xtext.createTextCursorByRange(xtext.getStart())
+        if left_units:
+            cursor.goRight(left_units, False)
+        cursor.goRight(old_units, True)
+        cursor.setString(new)
+        return True
+    except Exception as exc:
+        reraise_if_disposed(exc, object_type="Text")
+        return False
+
+
 def shape_text_hits(shape_text: str, pattern: str, use_regex: bool, case_sensitive: bool) -> list[str]:
     return [
         shape_text[start:end]

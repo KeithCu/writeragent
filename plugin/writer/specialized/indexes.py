@@ -30,18 +30,34 @@ import logging
 from typing import Any, Callable, cast
 
 from plugin.doc.text_helpers import iter_elements
+from plugin.doc.undo import commit_or_rollback_mutation
 from plugin.framework.errors import reraise_if_disposed, uno_read
 from plugin.framework.uno_context import create_property_value
 
-from plugin.writer.html_import import content_has_markup
-from plugin.writer.hyperlink_fixup import LINK_STYLE_PROPS, read_link_look, write_link_look
+from plugin.writer.edit_review import collapsed_anchor, next_agent_edit_undo_title
+from plugin.writer.html_import import content_has_markup, replace_preserving_format
+from plugin.writer.hyperlink_fixup import (
+    LINK_STYLE_PROPS,
+    capture_outline_hyperlinks,
+    plan_outline_updates,
+    public_hyperlink_reports,
+    read_link_look,
+    restore_outline_hyperlinks,
+    write_link_look,
+)
 from plugin.writer.specialized_base import (
     ToolWriterIndexBase,
     enum_param,
     index_error,
     target_params,
 )
-from ..search import CASE_SENSITIVE_DESCRIPTION, parse_non_negative_int
+from ..search import (
+    CASE_SENSITIVE_DESCRIPTION,
+    LocationLabeler,
+    find_all_ranges,
+    parse_non_negative_int,
+    resolve_case_sensitive,
+)
 from ..target_resolver import insert_at_target
 
 log = logging.getLogger("writeragent.writer.specialized.indexes")
@@ -253,6 +269,7 @@ def set_bibliography_field_values(field: Any, pairs: dict[str, Any]) -> None:
     must go through ``uno.invoke`` (same pattern as CustomShapeGeometry).
     Set this on the descriptor *before* insert so attach() applies aPropSeq.
     """
+    # Lazy: uno is looked up when this runs; unit tests swap sys.modules["uno"] for mocks, and a module-level binding would keep a stale one.
     import uno
 
     uno_any = getattr(uno, "Any")
@@ -368,10 +385,8 @@ def toc_match(
     case_sensitive: bool | None = None,
 ) -> tuple[Any | None, str | None]:
     """The *occurrence* search hit that lies inside the TOC anchor."""
-    from .. import search as search_mod
-
-    cs = search_mod.resolve_case_sensitive(case_sensitive)
-    ranges = search_mod.find_all_ranges(doc, old_content, case_sensitive=cs) or []
+    cs = resolve_case_sensitive(case_sensitive)
+    ranges = find_all_ranges(doc, old_content, case_sensitive=cs) or []
     text = anchor.getText()
     inside = [
         found for found in ranges
@@ -433,12 +448,8 @@ def _commit_toc_mutation(
         preview["dry_run"] = True
         return preview
 
-    from ..edit_review import next_agent_edit_undo_title
-
-    # Attribute fallback is for a live index without getPropertyValue.
-    # A disposed index must not be edited.
-    read = uno_read(lambda: bool(idx.getPropertyValue("IsProtected")), None)
-    was_protected = bool(getattr(idx, "IsProtected", False)) if read is None else read
+    # A failed read raises before anything is edited and execute_safe reports it.
+    was_protected = bool(idx.getPropertyValue("IsProtected"))
 
     def _wrapped_mutate() -> dict[str, Any] | None:
         if was_protected:
@@ -461,8 +472,6 @@ def _commit_toc_mutation(
         if restore_err is not None:
             return restore_err
         return res
-
-    from plugin.doc.undo import commit_or_rollback_mutation
 
     undo_title = next_agent_edit_undo_title()
     error = commit_or_rollback_mutation(
@@ -684,6 +693,7 @@ def _snapshot_tab_stops(para: Any) -> tuple[Any, ...]:
     tabs: list[Any] = uno_read(lambda: list(para.getPropertyValue("ParaTabStops") or ()), [])
     if not tabs:
         return ()
+    # Lazy: uno is looked up when this runs; unit tests swap sys.modules["uno"] for mocks, and a module-level binding would keep a stale one.
     import uno
 
     built = []
@@ -698,6 +708,7 @@ def _snapshot_tab_stops(para: Any) -> tuple[Any, ...]:
 
 
 def _apply_tab_stops(cursor: Any, stops: tuple[Any, ...]) -> None:
+    # Lazy: uno is looked up when this runs; unit tests swap sys.modules["uno"] for mocks, and a module-level binding would keep a stale one.
     import uno
 
     uno_rt = cast("Any", uno)
@@ -862,12 +873,6 @@ class IndexesRefreshTocEntry(ToolWriterIndexBase):
         return None
 
     def _preview(self, found: Any, content: str, override: Any) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
-        from ..hyperlink_fixup import (
-            capture_outline_hyperlinks,
-            plan_outline_updates,
-            public_hyperlink_reports,
-        )
-
         # capture_outline_hyperlinks returns a snapshot and does not raise.
         snapshot = capture_outline_hyperlinks(found)
         err = self._override_error(override, snapshot)
@@ -894,13 +899,6 @@ class IndexesRefreshTocEntry(ToolWriterIndexBase):
         preview: Any,
         dry_run: bool,
     ) -> dict[str, Any]:
-        from ..edit_review import collapsed_anchor
-        from ..html_import import replace_preserving_format
-        from ..hyperlink_fixup import (
-            capture_outline_hyperlinks,
-            restore_outline_hyperlinks,
-        )
-
         def mutate() -> dict[str, Any] | None:
             # capture_outline_hyperlinks returns a snapshot and does not raise.
             snapshot = capture_outline_hyperlinks(found)
@@ -998,14 +996,10 @@ class IndexesDeleteTocEntry(ToolWriterIndexBase):
         )
 
 
-def _page_text(raw: Any) -> tuple[str | None, str | None]:
+def _page_text(raw: str | None) -> tuple[str | None, str | None]:
     if raw is None:
         return None, None
-    if isinstance(raw, bool) or isinstance(raw, float):
-        return None, "page must be plain text (or an integer)."
-    if isinstance(raw, int):
-        return str(raw), None
-    if not isinstance(raw, str) or not raw.strip():
+    if not raw.strip():
         return None, "page must be plain text."
     page = _one_line(raw.strip(), " ")
     if content_has_markup(page):
@@ -1100,7 +1094,7 @@ class IndexesInsertTocEntry(ToolWriterIndexBase):
                     "occurrence is only used when position is before or after.",
                     code="INVALID_PARAM")
         else:
-            if not isinstance(old_content, str) or not old_content.strip():
+            if not (old_content or "").strip():
                 return self._tool_error(
                     "old_content is required when position is before or after.",
                     code="INVALID_PARAM")
@@ -1111,7 +1105,7 @@ class IndexesInsertTocEntry(ToolWriterIndexBase):
         if occurrence_error:
             return self._tool_error(occurrence_error, code="INVALID_PARAM")
         level = kwargs.get("level")
-        if level is not None and (type(level) is not int or not 1 <= level <= 10):
+        if level is not None and not 1 <= level <= 10:
             return self._tool_error("level must be an integer from 1 to 10.", code="INVALID_PARAM")
         idx, anchor, _pos, err = _resolve_toc_target(self, doc, kwargs.get("index"))
         if err is not None:
@@ -1284,8 +1278,6 @@ class IndexesListCites(ToolWriterIndexBase):
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         doc = ctx.doc
-
-        from ..search import LocationLabeler
 
         fields = doc.getTextFields()
         enum = fields.createEnumeration()

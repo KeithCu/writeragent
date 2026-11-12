@@ -11,8 +11,11 @@ import logging
 from typing import Any
 
 from plugin.doc.text_helpers import FAILED, get_string_without_tracked_deletions
-from plugin.writer.record_changes import is_recording_changes
+from plugin.framework.doc_type import is_draw
 from plugin.framework.errors import ToolExecutionError, format_error_payload, is_disposal, make_tool_error, uno_read
+from plugin.framework.uno_context import resolve_uno_context, uno_same
+from plugin.writer.html_import import run_writer_mutation_with_optional_review
+from plugin.writer.record_changes import is_recording_changes
 
 from ..range_copy import writer_cell_position  # LibrePy-shipped; do not invert
 from ..specialized_base import ToolWriterTableBase, enum_param
@@ -22,22 +25,11 @@ from ..table_nesting import (
     cell_plain_siblings,
     set_host_paragraphs,
 )  # LibrePy-shipped; do not invert
-from plugin.framework.uno_context import resolve_uno_context, uno_same
 
 log = logging.getLogger("writeragent.writer.specialized.tables")
 
 # The zero-width joiner Writer drops into an empty row to anchor its tracked deletion.
 _EMPTY_ROW_ANCHOR = "\u200d"
-
-
-def _is_draw_doc(doc: Any) -> bool:
-    """True for Draw/Impress. Mocks without supportsService are treated as Writer."""
-
-    def probe() -> bool:
-        ss = getattr(doc, "supportsService", None)
-        return callable(ss) and bool(ss("com.sun.star.drawing.DrawingDocument") or ss("com.sun.star.presentation.PresentationDocument"))
-
-    return uno_read(probe, False)
 
 
 def _tables(doc: Any) -> Any:
@@ -347,7 +339,8 @@ class TableList(ToolWriterTableBase):
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         # execute_safe already returns TOOL_EXECUTION_ERROR; this did not name a table.
-        if _is_draw_doc(ctx.doc):
+        if is_draw(ctx.doc):
+            # Lazy: cross-app; Draw table helpers load only when the target is a Draw/Impress document.
             from plugin.draw.tables import list_draw_tables
 
             out = list_draw_tables(ctx.doc)
@@ -414,7 +407,8 @@ class TableGetCells(ToolWriterTableBase):
         name = str(kwargs.get("name") or "").strip()
         cell_raw = str(kwargs.get("cell") or "").strip()
         try:
-            if _is_draw_doc(ctx.doc):
+            if is_draw(ctx.doc):
+                # Lazy: cross-app; Draw table helpers load only when the target is a Draw/Impress document.
                 from plugin.draw.tables import get_draw_cell, get_draw_cells, resolve_draw_table
 
                 entry = resolve_draw_table(ctx.doc, name=name, page=kwargs.get("page"), index=kwargs.get("index"))
@@ -510,7 +504,8 @@ class TableSetCell(ToolWriterTableBase):
         # type/required checks are done by the tool schema in ToolRegistry
         text = kwargs["text"]
         try:
-            if _is_draw_doc(ctx.doc):
+            if is_draw(ctx.doc):
+                # Lazy: cross-app; Draw table helpers load only when the target is a Draw/Impress document.
                 from plugin.draw.tables import resolve_draw_table, set_draw_cell
 
                 entry = resolve_draw_table(ctx.doc, name=name, page=kwargs.get("page"), index=kwargs.get("index"))
@@ -593,7 +588,8 @@ class ManageTableStructure(ToolWriterTableBase):
             return self._tool_error("index must be non-negative.")
         insert = action == "insert"
         try:
-            if _is_draw_doc(ctx.doc):
+            if is_draw(ctx.doc):
+                # Lazy: cross-app; Draw table helpers load only when the target is a Draw/Impress document.
                 from plugin.draw.tables import manage_draw_structure, resolve_draw_table
 
                 entry = resolve_draw_table(
@@ -665,7 +661,8 @@ class TableInsert(ToolWriterTableBase):
             # The Draw branch sits inside the try. Outside it,
             # insert_draw_table raises past the tool error. The Writer path
             # already catches; this matches it.
-            if _is_draw_doc(ctx.doc):
+            if is_draw(ctx.doc):
+                # Lazy: cross-app; Draw table helpers load only when the target is a Draw/Impress document.
                 from plugin.draw.tables import insert_draw_table
 
                 if parent or cell_raw:
@@ -739,7 +736,6 @@ class TableInsert(ToolWriterTableBase):
                 created_name = uno_read(lambda: str(table.getName()), "")
 
             uno_ctx = resolve_uno_context(ctx)
-            from plugin.writer.html_import import run_writer_mutation_with_optional_review
             run_writer_mutation_with_optional_review(doc, uno_ctx, _apply)
 
             return {
@@ -777,7 +773,8 @@ class TableDelete(ToolWriterTableBase):
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         name = str(kwargs.get("name") or "").strip()
         try:
-            if _is_draw_doc(ctx.doc):
+            if is_draw(ctx.doc):
+                # Lazy: cross-app; Draw table helpers load only when the target is a Draw/Impress document.
                 from plugin.draw.tables import delete_draw_table
 
                 result = delete_draw_table(
@@ -793,8 +790,6 @@ class TableDelete(ToolWriterTableBase):
                 # who tracks changes by hand has it on already. Either way the deletion must
                 # be recorded, not silently applied.
                 return bool(delete_writer_table(ctx.doc, uno_ctx, table, name, nesting))
-
-            from plugin.writer.html_import import run_writer_mutation_with_optional_review
 
             tracked = bool(run_writer_mutation_with_optional_review(ctx.doc, uno_ctx, _apply))
             if tracked:

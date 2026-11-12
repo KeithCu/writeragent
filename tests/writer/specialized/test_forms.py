@@ -236,7 +236,7 @@ def test_form_generate_blocks_llm_wait_off_ui_thread(monkeypatch):
 
     ctx = MagicMock()
 
-    with patch("plugin.framework.config.get_api_config"), \
+    with patch("plugin.writer.specialized.forms.get_api_config"), \
          patch("plugin.framework.client.llm_client.LlmClient"):
         res = tool.execute(ctx, description="test form")
 
@@ -490,7 +490,7 @@ def test_form_generate_passes_stop_checker_and_handles_user_stopped(monkeypatch)
     ctx.send_cancellation = scope
     ctx.status_callback = status_callback
 
-    with patch("plugin.framework.config.get_api_config"), \
+    with patch("plugin.writer.specialized.forms.get_api_config"), \
          patch("plugin.framework.client.llm_client.LlmClient", return_value=mock_client):
         res = tool.execute(ctx, description="test form")
 
