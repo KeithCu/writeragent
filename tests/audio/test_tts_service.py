@@ -956,7 +956,7 @@ def test_play_audio_file_windows_path_not_in_script(mock_popen):
     from plugin.audio.tts_service import _play_audio_file
 
     cancel = SendCancellation()
-    path = 'C:\\Users\\o"neil $x\\clip.wav'
+    path = "C:\\Users\\o'neil $x\\clip.wav"
     with patch("sys.platform", "win32"):
         _play_audio_file(path, cancel)
     cmd = mock_popen.call_args.args[0]
@@ -967,7 +967,7 @@ def test_play_audio_file_windows_path_not_in_script(mock_popen):
     assert mock_popen.call_args.kwargs["env"]["WA_AUDIO_PATH"] == path
 
     mock_popen.reset_mock()
-    mp3 = 'C:\\Users\\o"neil $x\\clip.mp3'
+    mp3 = "C:\\Users\\o'neil $x\\clip.mp3"
     with patch("sys.platform", "win32"):
         _play_audio_file(mp3, cancel)
     mp3_cmd = mock_popen.call_args.args[0]

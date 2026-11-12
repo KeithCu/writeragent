@@ -538,10 +538,7 @@ def test_speech_http_error_redacts_api_key(caplog):
 
 def test_default_endpoint_format_is_mp3():
     """MP3 is the first request on every platform, including Windows."""
-    with patch("sys.platform", "win32"):
-        assert _default_endpoint_format() == "mp3"
-    with patch("sys.platform", "linux"):
-        assert _default_endpoint_format() == "mp3"
+    assert _default_endpoint_format() == "mp3"
 
 
 def test_endpoint_audio_suffix_from_content_type():

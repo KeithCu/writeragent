@@ -59,7 +59,7 @@ jobs:
       run:
         shell: bash
 
-    # Windows runners default Python stdio to cp1252; pyspector prints U+1F4A1.
+    # Windows runners default Python stdio to cp1252; keep UTF-8 for Python tools and logs.
     # Do not set WRITERAGENT_CI_DEBUG_DIR here: runner is not available in
     # jobs.<job_id>.env (startup_failure 33452656845). Run steps export
     # $RUNNER_TEMP/pytest-ci-debug instead; upload-artifact path uses
