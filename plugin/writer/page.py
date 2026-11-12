@@ -147,7 +147,7 @@ if TYPE_CHECKING:
 # shared pair left both cases unreachable — read and write silently hit the wrong page.
 # When the corresponding *IsShared* flag is on, the variant mirrors the shared text, so asking for
 # it is always safe.
-_REGION_PROPS = {
+REGION_PROPS = {
     "header": ("HeaderIsOn", "HeaderText"),
     "footer": ("FooterIsOn", "FooterText"),
     "header_first": ("HeaderIsOn", "HeaderTextFirst"),
@@ -247,7 +247,7 @@ def _disable_blocked_by_content(doc: Any, style: Any, kwargs: dict[str, Any]) ->
         if kw not in kwargs or kwargs[kw]:
             continue
         held: list[str] = []
-        for region, (_unused_is_on, text_prop) in _REGION_PROPS.items():
+        for region, (_unused_is_on, text_prop) in REGION_PROPS.items():
             if _region_kind(region) != kind:
                 continue
             if _region_mirrors_shared(style, region):
@@ -481,7 +481,7 @@ def _copy_page_regions(
     """
     shapes_copied = 0
     skipped_shapes: list[str] = []
-    for region, (is_on_prop, text_prop) in _REGION_PROPS.items():
+    for region, (is_on_prop, text_prop) in REGION_PROPS.items():
         # First/left variants that only mirror the shared region would duplicate it.
         if _region_mirrors_shared(source, region):
             continue
@@ -833,7 +833,7 @@ class PageGetHeaderFooterText(ToolWriterPageBase):
         "properties": {
             "style": _STYLE_PROPERTY,
             "region": enum_param(
-                list(_REGION_PROPS),
+                list(REGION_PROPS),
                 (
                     "Which region to read. 'header'/'footer' are the shared ones. Use the "
                     "'_first' variants for a 'different first page' letterhead and the '_left' "
@@ -866,7 +866,7 @@ class PageGetHeaderFooterText(ToolWriterPageBase):
             return resolved
         style = resolved
 
-        is_on_prop, text_prop = _REGION_PROPS[region]
+        is_on_prop, text_prop = REGION_PROPS[region]
         is_on = bool(style.getPropertyValue(is_on_prop))
         # F5: disabling the region *clears* HeaderText — typically None
         # while off. Still export if a text object is present.
@@ -934,7 +934,7 @@ class PageSetHeaderFooterText(ToolWriterPageBase):
         "properties": {
             "style": _STYLE_PROPERTY,
             "region": enum_param(
-                list(_REGION_PROPS),
+                list(REGION_PROPS),
                 (
                     "Which region to set. 'header'/'footer' are the shared ones; '_first' targets a "
                     "'different first page' letterhead and '_left' the left-hand pages."
@@ -980,7 +980,7 @@ class PageSetHeaderFooterText(ToolWriterPageBase):
         if _region_mirrors_shared(style, region):
             return _mirrored_region_skip(style_name, region)
 
-        is_on_prop, text_prop = _REGION_PROPS[region]
+        is_on_prop, text_prop = REGION_PROPS[region]
         was_on = _region_is_on(style, is_on_prop)
 
         auto_height = kwargs.get("auto_height")
@@ -1252,7 +1252,7 @@ class PageReplaceHeaderFooterText(ToolWriterPageBase):
                 "description": "Page style name. Defaults to 'Standard'.",
             },
             "region": enum_param(
-                list(_REGION_PROPS),
+                list(REGION_PROPS),
                 (
                     "Which region to edit. 'header'/'footer' are the shared ones. "
                     "'_first' and '_left' are skipped when they only mirror the shared region."
@@ -1317,7 +1317,7 @@ class PageReplaceHeaderFooterText(ToolWriterPageBase):
         if _region_mirrors_shared(style, region):
             return _mirrored_region_skip(style_name, region)
 
-        is_on_prop, text_prop = _REGION_PROPS[region]
+        is_on_prop, text_prop = REGION_PROPS[region]
         if not _region_is_on(style, is_on_prop):
             return self._tool_error(
                 "The %s is off on page style '%s'. Turn it on before replacing text."
