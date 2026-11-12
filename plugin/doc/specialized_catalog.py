@@ -2,7 +2,7 @@
 """Specialized domain catalog for delegate tools and MCP discovery."""
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, NamedTuple, Sequence
 
 from plugin.framework.prompts import (
     CALC_HIDDEN_SPECIALIZED_DOMAINS,
@@ -145,8 +145,115 @@ def get_specialized_delegation_tool_hint(agent_label: str, *, ctx: Any = None) -
     return template.format(domains=domains_str)
 
 
-# normalize_inner_result records tool errors and incomplete runs—same contract as DelegateToSpecializedBase.
-def normalize_inner_result(final_ans: Any, domains: list[str], tool_errors: list[dict[str, Any]]) -> dict[str, Any]:
+class InnerToolCall(NamedTuple):
+    """One tool call the inner smol agent made, in call order."""
+
+    name: str
+    result: Any
+    mutating: bool
+
+
+FINISH_TOOL_NAME = "specialized_workflow_finished"
+NO_EDIT_TOOL_NOTE = "No document-editing tool ran during this delegation; the document is unchanged by it."
+READ_ONLY_DOMAINS: frozenset[str] = frozenset({"document_research", "web_research"})
+
+
+def expects_edits(domains: str | Sequence[str] | frozenset[str]) -> bool:
+    """Whether any of the given domain(s) expect document-mutating edits.
+
+    Read-only domains (document_research, web_research) do not expect edits.
+    """
+    if isinstance(domains, str):
+        return domains not in READ_ONLY_DOMAINS
+    domain_set = set(domains)
+    return bool(domain_set) and not domain_set <= READ_ONLY_DOMAINS
+
+
+def _err_text(err: Any) -> str:
+    """Format an error entry into a diagnostic message string."""
+    if isinstance(err, dict):
+        return str(err.get("message") or err.get("error") or err)
+    return str(err)
+
+
+def partition_tool_errors(
+    calls: Sequence[InnerToolCall],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Partition tool error dicts into unrecovered and recovered groups.
+
+    An error call is considered recovered when a later call to the same tool name returned a
+    non-error dict, including retries with corrected arguments.
+    """
+    unrecovered: list[dict[str, Any]] = []
+    recovered: list[dict[str, Any]] = []
+    for idx, call in enumerate(calls):
+        if not (isinstance(call.result, dict) and call.result.get("status") == "error"):
+            continue
+        is_recovered = any(
+            later.name == call.name
+            and isinstance(later.result, dict)
+            and later.result.get("status") != "error"
+            for later in calls[idx + 1 :]
+        )
+        if is_recovered:
+            recovered.append(call.result)
+        else:
+            unrecovered.append(call.result)
+    return unrecovered, recovered
+
+
+def apply_inner_outcome(
+    payload: dict[str, Any],
+    final_ans: Any,
+    calls: Sequence[InnerToolCall],
+    *,
+    expect_edits: bool,
+) -> dict[str, Any]:
+    """Set status/code/message on a sub-agent payload from the observed call log.
+
+    Mutates and returns payload so the main agent sees an accurate report of what tools
+    ran, whether failures were recovered, and whether any document edits took place.
+    """
+    unrecovered, recovered = partition_tool_errors(calls)
+    if unrecovered:
+        # Unrecovered tool errors fail the delegation; the finish answer is kept in answer.
+        messages = [_err_text(err) for err in unrecovered]
+        text = "; ".join(messages) or "Specialized tool error."
+        payload["status"] = "error"
+        payload["code"] = "SPECIALIZED_TOOL_ERROR"
+        payload["message"] = text
+        payload["error"] = text
+        return payload
+
+    finish_seen = any(c.name == FINISH_TOOL_NAME for c in calls)
+    finished = finish_seen or (isinstance(final_ans, dict) and final_ans.get("finished") is True)
+
+    if not finished:
+        # A plain-text return without finish is not a silent ok; move it from result to message
+        # so the main agent sees it once.
+        if isinstance(final_ans, dict):
+            text = str(final_ans.get("message") or final_ans.get("answer") or final_ans.get("result") or final_ans)
+        else:
+            popped = payload.pop("result", "")
+            text = "" if final_ans is None else str(popped)
+        payload.update(status="incomplete", code="SPECIALIZED_WORKFLOW_INCOMPLETE", message=text)
+        return payload
+
+    if recovered:
+        payload["recovered_tool_errors"] = [_err_text(err) for err in recovered]
+
+    if expect_edits and not any(c.mutating for c in calls):
+        payload["note"] = NO_EDIT_TOOL_NOTE
+
+    return payload
+
+
+def normalize_inner_result(
+    final_ans: Any,
+    domains: list[str],
+    calls: Sequence[InnerToolCall],
+) -> dict[str, Any]:
+    """Map inner domain agent results to the standard specialized tool response payload."""
     if isinstance(final_ans, dict) and final_ans.get("status") == "error":
         return final_ans
     payload: dict[str, Any]
@@ -155,20 +262,10 @@ def normalize_inner_result(final_ans: Any, domains: list[str], tool_errors: list
     else:
         payload = {"status": "ok", "result": "" if final_ans is None else str(final_ans)}
     payload["domains"] = list(domains)
-    if tool_errors:
-        # Discussion #2268: the finish answer stays in answer only, not copied into message and error.
-        messages = [str(err.get("message") or err.get("error") or err) for err in tool_errors]
-        text = "; ".join(messages) or "Specialized tool error."
-        payload.update(status="error", code="SPECIALIZED_TOOL_ERROR", message=text, error=text)
-        return payload
-    if payload.get("finished") is True:
-        return payload
-    # Discussion #2262: a plain-text return sits in result; move it to message instead of copying it.
-    if isinstance(final_ans, dict):
-        text = str(final_ans.get("message") or final_ans.get("answer") or final_ans.get("result") or final_ans)
-    else:
-        text = payload.pop("result")
-    payload.update(status="incomplete", code="SPECIALIZED_WORKFLOW_INCOMPLETE", message=text)
-    return payload
-
+    return apply_inner_outcome(
+        payload,
+        final_ans,
+        calls,
+        expect_edits=expects_edits(domains),
+    )
 

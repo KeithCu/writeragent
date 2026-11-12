@@ -116,6 +116,11 @@ class SmolToolAdapter(SmolTool):
         self.output_type = "any" if inputs_style == "librarian" else "object"
         super().__init__()
 
+    @property
+    def mutating(self) -> bool:
+        """Whether the wrapped tool detects document mutation."""
+        return self._inner_tool.detects_mutation()
+
     def forward(self, *args: Any, **kwargs: Any) -> Any:
         # Handle positional args robustly
         if len(args) == 1 and isinstance(args[0], dict):

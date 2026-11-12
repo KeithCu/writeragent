@@ -438,6 +438,7 @@ def test_build_specialized_sub_agent_instructions():
     instr = build_specialized_sub_agent_instructions("Writer", "indexes")
     assert "Writer" in instr
     assert "'indexes'" in instr
+    assert "If this domain cannot do the task, say so in the answer instead of claiming it was done." in instr
     assert DELEGATE_ANCHOR_RULE in instr
 
     instr_extra = build_specialized_sub_agent_instructions("Calc", "python", extra=" extra hint")

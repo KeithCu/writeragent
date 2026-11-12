@@ -38,7 +38,14 @@ from plugin.doc.peer_prompt import (
     annotate_outer_peer_wait,
     looks_like_peer_work_envelope,
 )
-from plugin.doc.specialized_catalog import DOMAIN_LOOP_HINTS, catalog_entries_from_base
+from plugin.doc.specialized_catalog import (
+    DOMAIN_LOOP_HINTS,
+    InnerToolCall,
+    READ_ONLY_DOMAINS,
+    apply_inner_outcome,
+    catalog_entries_from_base,
+    expects_edits,
+)
 from plugin.framework.i18n import _
 from plugin.chatbot.smol_agent import SmolToolAdapter, run_inner_tool_agent
 from plugin.doc.peer_message import PEER_RESULT_TOOL_NAME, PEER_TOOL_NAMES
@@ -161,12 +168,10 @@ class DelegateToSpecializedBase(ToolBase):
     # Domains whose work is read-only -> a long-running delegation to them must NOT
     # take the per-document mutation lock (it would needlessly serialize research on
     # the same doc). The gateway itself is is_mutation=True for the mutating domains.
-    _READ_ONLY_DOMAINS: ClassVar[frozenset[str]] = frozenset({"document_research", "web_research"})
-
     def requires_document_lock(self, arguments: Any = None) -> bool:
         domain = field_from_tool_arguments(arguments, "domain")
-        # requires_document_lock runs before schema validation—non-string domain must not hit _READ_ONLY_DOMAINS membership.
-        if isinstance(domain, str) and domain in self._READ_ONLY_DOMAINS:
+        # requires_document_lock runs before schema validation—non-string domain must not hit READ_ONLY_DOMAINS membership.
+        if isinstance(domain, str) and domain in READ_ONLY_DOMAINS:
             return False
         return super().requires_document_lock(arguments)
 
@@ -269,19 +274,15 @@ class DelegateToSpecializedBase(ToolBase):
             peer_result_send_invoked=False,
             captured_tool_results=[],
             create_sheet_ran=False,
-            workflow_finished=False,
-            inner_tool_errors=[],
+            calls=[],
         )
 
         class _CaptureInstructionAdapter(SmolToolAdapter):
             def forward(self, *args: Any, **kwargs: Any) -> Any:
                 result = super().forward(*args, **kwargs)
-                if self.name == "specialized_workflow_finished":
-                    cap.workflow_finished = True
+                cap.calls.append(InnerToolCall(self.name, result, self.mutating))
                 if not isinstance(result, dict):
                     return result
-                if result.get("status") == "error":
-                    cap.inner_tool_errors.append(result)
                 if result.get("instruction"):
                     cap.captured_tool_results.append(result)
                 # Accepted delivery only. PEER_NOT_FOUND, PEER_SIDEBAR_NOT_OPEN,
@@ -425,29 +426,12 @@ class DelegateToSpecializedBase(ToolBase):
             # Idle-after-send for ask / accepted delivery sends.
             payload = annotate_outer_peer_wait(payload, peer_send_invoked=cap.peer_send_invoked)
 
-        # Discussion #2029:
-        # Map inner tool errors to status error/incomplete; free-text answers without finish are not silent ok.
-        is_finished = cap.workflow_finished or (isinstance(final_ans, dict) and final_ans.get("finished") is True)
-        if cap.inner_tool_errors:
-            combined_message = "; ".join(
-                str(e.get("message") or e.get("error") or e) for e in cap.inner_tool_errors
-            )
-            payload["status"] = "error"
-            payload["code"] = "SPECIALIZED_TOOL_ERROR"
-            payload["message"] = combined_message
-            payload["error"] = combined_message
-        elif not is_finished:
-            # Discussion #2262: a plain-text return sits in result (plus any peer note); move it to
-            # message instead of copying it, so the text is sent once.
-            if isinstance(final_ans, dict):
-                model_text = str(final_ans.get("message") or final_ans.get("answer") or final_ans.get("result") or final_ans)
-            else:
-                model_text = "" if final_ans is None else payload.pop("result")
-            payload["status"] = "incomplete"
-            payload["code"] = "SPECIALIZED_WORKFLOW_INCOMPLETE"
-            payload["message"] = model_text
-
-        return payload
+        return apply_inner_outcome(
+            payload,
+            final_ans,
+            cap.calls,
+            expect_edits=expects_edits(domain),
+        )
 
 
 def narrow_delegate_domain_enums(schemas: list[dict[str, Any]], tools: list[Any], uno_services: frozenset[str] | None) -> list[dict[str, Any]]:

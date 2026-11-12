@@ -551,6 +551,74 @@ def test_run_inner_domain_tool_agent_inner_tool_error_is_error():
     assert result["domains"] == ["footnotes"]
 
 
+def test_run_inner_domain_tool_agent_finish_only_stays_ok():
+    from plugin.doc.specialized_catalog import NO_EDIT_TOOL_NOTE
+    from plugin.doc.document_research_tools import ListNearbyFiles
+
+    # finish-only on an editing domain -> status "ok", finished true, answer kept, note == NO_EDIT_TOOL_NOTE
+    registry = ToolRegistry(services={})
+    registry.register(FootnotesInsert())
+    registry.register(SpecializedWorkflowFinished())
+    parent = _ctx(registry, "writer", "com.sun.star.text.TextDocument")
+
+    def fake_run_inner(inner_ctx, tools, **kwargs):
+        by_name = {tool.name: tool for tool in tools}
+        return by_name["specialized_workflow_finished"](answer="No footnote added")
+
+    with patch("plugin.doc.python_domain_specialized.run_inner_tool_agent", side_effect=fake_run_inner):
+        result = run_inner_domain_tool_agent(parent, ["footnotes"], "Add a note")
+
+    assert result["status"] == "ok"
+    assert result["finished"] is True
+    assert result["domains"] == ["footnotes"]
+    assert result["answer"] == "No footnote added"
+    assert result.get("note") == NO_EDIT_TOOL_NOTE
+
+    # finish-only on a read-only domain (document_research) -> status "ok", no note
+    registry_ro = ToolRegistry(services={})
+    registry_ro.register(ListNearbyFiles())
+    registry_ro.register(SpecializedWorkflowFinished())
+    parent_ro = _ctx(registry_ro, "writer", "com.sun.star.text.TextDocument")
+
+    def fake_run_inner_ro(inner_ctx, tools, **kwargs):
+        by_name = {tool.name: tool for tool in tools}
+        return by_name["specialized_workflow_finished"](answer="Research completed")
+
+    with patch("plugin.doc.python_domain_specialized.run_inner_tool_agent", side_effect=fake_run_inner_ro):
+        result_ro = run_inner_domain_tool_agent(parent_ro, ["document_research"], "Search files")
+
+    assert result_ro["status"] == "ok"
+    assert result_ro["finished"] is True
+    assert result_ro["domains"] == ["document_research"]
+    assert result_ro["answer"] == "Research completed"
+    assert "note" not in result_ro
+
+
+def test_run_inner_domain_tool_agent_read_only_domain_skips_note():
+    from plugin.doc.document_research_tools import ListNearbyFiles
+
+    registry = ToolRegistry(services={})
+    registry.register(ListNearbyFiles())
+    registry.register(SpecializedWorkflowFinished())
+    parent = _ctx(registry, "writer", "com.sun.star.text.TextDocument")
+
+    def fake_run_inner(inner_ctx, tools, **kwargs):
+        by_name = {tool.name: tool for tool in tools}
+        by_name["list_nearby_files"]()
+        return by_name["specialized_workflow_finished"](answer="Found files")
+
+    with (
+        patch.object(ListNearbyFiles, "execute", return_value={"status": "ok", "files": []}),
+        patch("plugin.doc.python_domain_specialized.run_inner_tool_agent", side_effect=fake_run_inner),
+    ):
+        result = run_inner_domain_tool_agent(parent, ["document_research"], "Find files")
+
+    assert result["status"] == "ok"
+    assert result["finished"] is True
+    assert result["domains"] == ["document_research"]
+    assert "note" not in result
+
+
 @patch("plugin.chatbot.smol_agent.build_toolcalling_agent")
 @patch("plugin.chatbot.smol_agent.SmolAgentExecutor")
 def test_run_inner_domain_tool_agent_user_stop_passes_through(mock_executor_cls, mock_build):

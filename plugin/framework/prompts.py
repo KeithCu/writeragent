@@ -244,6 +244,7 @@ def build_specialized_sub_agent_instructions(
     base = (
         f"You are a specialized {agent_label} task executor focused on the '{domain}' domain. "
         "You have a focused set of tools to accomplish your task. Use them to fulfill the user's request. "
+        "If this domain cannot do the task, say so in the answer instead of claiming it was done. "
         f"{DELEGATE_ANCHOR_RULE}"
     )
     if extra:
