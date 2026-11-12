@@ -286,15 +286,15 @@ def solve_equation(sp: Any, *, equation: Any, variable: Any = "x") -> dict[str, 
     text = _param_text(equation)
     if not text:
         raise _SymbolicError("MISSING_PARAM", "equation is required")
-    # Inequalities and '==' are INVALID_PARAMS. split("=", 1) would cut
+    # Inequalities and '==' are INVALID_PARAM. split("=", 1) would cut
     # '<=' and '==' into pieces parse_expr cannot accept. `!=` stays rejected:
     # the tokenizer fuses it, so factorial_notation never sees a bare `!`.
     if re.search(r"<=|>=|!=|==|<|>", text):
-        raise _SymbolicError("INVALID_PARAMS", "Inequalities and '==' are not supported in solve_equation; use '=' or expression equal to zero.")
+        raise _SymbolicError("INVALID_PARAM", "Inequalities and '==' are not supported in solve_equation; use '=' or expression equal to zero.")
     if "=" in text:
         parts = text.split("=")
         if len(parts) > 2:
-            raise _SymbolicError("INVALID_PARAMS", "Equation cannot contain multiple '=' signs.")
+            raise _SymbolicError("INVALID_PARAM", "Equation cannot contain multiple '=' signs.")
         lhs = _parse_expression(sp, parts[0], variable=sym)
         rhs = _parse_expression(sp, parts[1], variable=sym)
         target = sp.Eq(lhs, rhs)
