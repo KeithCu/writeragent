@@ -689,7 +689,6 @@ def attach_math_objects(
             f"document as literal '[Math import failed] <formula>' text: {listing}. "
             f"Correct the formula and replace that literal text with target='search'."
         ),
-        "math_objects": list(math_objects),
     }
     existing = result.get("warnings")
     if isinstance(existing, list):

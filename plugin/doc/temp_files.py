@@ -36,14 +36,10 @@ class with_temp_buffer:
     *ext* overrides the file extension (e.g. ``".xhtml"`` for the read filter).
     The file is deleted on exit.
 
-    A class-based context manager avoids modifying in-flight exceptions
-    during unwinding. A generator context manager assigns ``__traceback__``
-    on the exception via ``contextlib._GeneratorContextManager.__exit__``.
-    Because pyuno exception classes route attribute assignment into the UNO
-    struct (cite: ``pyuno/source/module/uno.py:_uno_struct__setattr__``), assigning
-    a traceback object fails inside pyuno's type conversion and turns the original
-    UNO exception into a ``RuntimeException: Couldn't convert <traceback object> to a UNO type``.
-    The class form leaves the exception untouched.
+    Class form avoids exception masking: generator context managers assign
+    ``__traceback__`` on exit, which pyuno routes into the UNO struct
+    (cite: ``pyuno/source/module/uno.py:_uno_struct__setattr__``), turning the
+    error into a ``RuntimeException: Couldn't convert <traceback object> to a UNO type``.
     """
 
     def __init__(self, content: Any = None, ext: str = ".html") -> None:

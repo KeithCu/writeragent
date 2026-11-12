@@ -1283,7 +1283,6 @@ def test_full_document_failed_math_attempt_reports_math_import_failed_warning(mo
     assert len(res["warnings"]) == 1
     diag = res["warnings"][0]
     assert diag["code"] == "MATH_IMPORT_FAILED"
-    assert diag["math_objects"] == entries
     assert "b" in diag["message"]
     assert "invalid" in diag["message"]
 

@@ -284,7 +284,7 @@ def test_end_invalid_tex_reports_math_import_failed_warning_uno(ctx, doc):
     warnings = res.get("warnings", [])
     assert len(warnings) == 1, res
     assert warnings[0].get("code") == "MATH_IMPORT_FAILED", res
-    math_objs_res = warnings[0].get("math_objects", [])
+    math_objs_res = res.get("math_objects", [])
     assert len(math_objs_res) == 1, res
     assert math_objs_res[0].get("ok") is False, res
     assert math_objs_res[0].get("error") == "NoAvailableTokensError", res

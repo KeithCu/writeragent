@@ -233,7 +233,6 @@ def test_attach_math_objects_any_failure_is_math_import_failed_warning() -> None
     assert len(res["warnings"]) == 1
     diag = res["warnings"][0]
     assert diag["code"] == html_import_styles.MATH_IMPORT_FAILED
-    assert diag["math_objects"] == entries
     assert r"\sqrt{" in diag["message"]
     assert "NoAvailableTokensError" in diag["message"]
 
