@@ -269,10 +269,9 @@ class HarperRuntime:
         except Exception as exc:
             log.exception("[harper] Background ensure failed")
             get_grammar_status().failed("Harper", result=str(exc))
-            # An ensure failure always sets FAILED with failed_at. Guarding
-            # the transition on "state is not RESOLVING" never records it:
-            # harper_ensure_ready_async sets RESOLVING before submitting the
-            # job, so ensure_async refuses while RESOLVING.
+            # An ensure failure always records FAILED with failed_at. The state is
+            # RESOLVING here (harper_ensure_ready_async sets it before submitting this
+            # job), so a "not RESOLVING" check would never record the failure.
             with self.lock:
                 self.state = HarperRuntimeState.FAILED
                 self.failed_at = time.monotonic()
@@ -545,8 +544,8 @@ class HarperLSClient:
     def _read(self, deadline: float) -> dict[str, Any] | None:
         if not self.proc:
             raise RuntimeError("harper-ls process not running")
-        # Snapshot the event for this lint. ``None`` keeps the old one-shot
-        # get so a plain timeout still fails on the first empty read.
+        # Snapshot the event for this lint. With no event, the read is one get with
+        # the full deadline, so a plain timeout fails on the first empty read.
         cancel = self._lint_cancel
         while True:
             if cancel is not None and cancel.is_set():
@@ -687,9 +686,9 @@ class HarperLSClient:
     def close(self) -> None:
         """Tear down harper-ls without blocking on stuck pipes or the reader.
 
-        The previous path wrote LSP shutdown/exit then waited. On Windows a
-        hung harper-ls fills the stdin pipe; ``stdin.write`` blocks forever
-        and xdist workers never exit (CI sat ~19 min after pytest 99%).
+        Writing LSP shutdown/exit and waiting is not safe: on Windows a
+        hung harper-ls fills the stdin pipe, ``stdin.write`` blocks forever,
+        and the process (or an xdist worker) never exits.
         Closing **stdout** while ``_read_loop`` is blocked in ``readline`` also
         deadlocks on Windows (Release Verify fixture timeout via
         ``shutdown_harper_runtime`` → ``close``). Close stdin only, terminate/kill
@@ -876,11 +875,10 @@ def harper_try_lint(text: str, user_config_dir: str, bcp47: str = "en-US", *, ct
         grammar_obs("harper_try_lint_none", reason="lock_timeout", ensure_submitted=False)
         return None
     except Exception:
-        # restart=False: do not Popen on the linguistic thread. The
-        # walk returns empty; background ensure restarts harper-ls.
-        # Leave the state IDLE. FAILED starts the 30s cooldown, so the
-        # following harper_ensure_ready_async call no-ops instead of
-        # restarting.
+        # Do not restart harper-ls (Popen) on the linguistic thread: this walk
+        # returns empty and the background ensure below restarts it. Leave the
+        # state IDLE; FAILED would start the 30 s cooldown and that ensure
+        # call would no-op.
         log.exception("[harper] lint failed on ready client; empty aErrors this walk")
         runtime.mark_idle()
         harper_ensure_ready_async(user_config_dir, bcp47)

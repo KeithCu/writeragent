@@ -214,7 +214,7 @@ def cache_put_sentence(
         if p:
             _align_persistence_identity(p, ident)
             p.put(entry.fingerprint, locale_key, entry.errors)
-        # Note: document mode skips incomplete-sentence prefix compaction logic (scans _SENTENCE_CACHE only)
+        # Note: document mode skips incomplete-sentence prefix compaction logic (scans grammar_registry.sentence_cache only)
         # but we still performed _populate_memory_cache_only above.
         return
 

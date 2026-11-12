@@ -396,10 +396,9 @@ def resolve_locator(model: Any, locator: str) -> dict[str, Any]:
         except (TypeError, ValueError) as exc:
             raise ToolExecutionError("Cannot resolve paragraph:%s" % loc_value) from exc
 
-    # bookmark: is not resolved here. The old branch returned
-    # find_paragraph_for_range's fallback 0 when the anchor could not be
-    # placed, so a stale name still navigated to the first paragraph.
-    # TreeService.resolve_writer_locator rejects that anchor.
+    # bookmark: is not resolved here. TreeService.resolve_writer_locator
+    # rejects an anchor it cannot place, so a stale bookmark name fails
+    # instead of navigating to paragraph 0.
     tree = _writer_tree_service()
     try:
         resolved = tree.resolve_writer_locator(model, loc_type, loc_value)

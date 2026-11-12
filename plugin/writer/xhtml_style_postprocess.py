@@ -96,8 +96,8 @@ def xhtml_has_paragraph_autostyle(xhtml: str) -> bool:
 #
 # Geometry, paragraph-level font, and paragraph colour are reported: a .docx reused as a model
 # carries its font as a whole-paragraph override, which is precisely what makes an applied style
-# look like it did nothing. fo:color was missing here, so Issue-1-style center+red never showed
-# red in data-lo-para (char spans could still carry colour).
+# look like it did nothing. fo:color is included so a centred red paragraph shows its red in
+# data-lo-para, not only in char spans.
 #
 # On write, html_import_styles._para_writers() maps each name here onto a paragraph property after
 # the style is set (full_document, beginning, and end targets, and whole-paragraph selection/search
@@ -305,11 +305,9 @@ class _SemanticTransformer(HtmlPassthroughParser):
         export keeps the parent and ``Pn`` is the same name in both exports — so the real style
         name is recovered. CSS fingerprint is the fallback when there is no FODT map.
 
-        Whole-paragraph direct overrides: on write, alignment, horizontal margins, and
-        background color from data-lo-para apply after the named style on full_document,
-        beginning, and end, as well as whole-paragraph selection and search writes; other
-        properties arrive in warnings. Table cells, position before/after, and partial or
-        recorded replacements do not apply data-lo-para.
+        Whole-paragraph direct overrides travel separately in ``data-lo-para``;
+        which properties a write applies, and on which targets, is described once
+        in the comment above ``_FODT_OVERRIDE_ATTRS``.
         """
         # crosshair: off
         if _AUTOSTYLE_RE.match(suffix):
@@ -421,10 +419,12 @@ def xhtml_to_semantic_html(full_xhtml: str, autostyle_parents: dict[str, str] | 
     emit ``data-lo-style`` compact tokens for named paragraph styles, drop trailing ghost
     paragraphs. Pure string work — fully unit-testable without LibreOffice.
 
-    *autostyle_parents* — ``{Pn: parent_style_name}`` from ``parse_fodt_autostyles``
-    on a paired flat-ODF export. Joined by autostyle name (``paragraph-Pn`` suffix), not block
-    index. Recovers the base style **name** after StarWriter write→read when CSS fingerprint
-    fails; does not recover whole-paragraph Para* overrides (v1 limitation — see plan doc).
+    *autostyle_parents* — ``{Pn: parent_style_name}`` and *autostyle_overrides* —
+    ``{Pn: css}``, both from ``parse_fodt_autostyles`` on a paired flat-ODF
+    export, joined by autostyle name (``paragraph-Pn`` suffix), not block
+    index. The parent recovers the base style name after a StarWriter
+    write→read when the CSS fingerprint fails; the overrides are emitted as
+    ``data-lo-para`` on autostyle paragraphs outside tables.
     """
     # crosshair: off
     raw_map, norm_map = parse_style_block(full_xhtml)

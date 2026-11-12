@@ -539,8 +539,8 @@ def visible_portions(
 def _paragraph_visible_text(para: Any) -> str:
     """Visible text of one paragraph via ``visible_portions``.
 
-    Falls back to ``getString()`` only when the portion enum cannot be opened
-    (same as the old helper). An empty walk after a successful enum is kept
+    Falls back to ``getString()`` only when the portion enum cannot be opened.
+    An empty walk after a successful enum is kept
     empty so tracked-only paragraphs do not re-include deleted text.
     """
     chunks = list(visible_portions(para))
@@ -753,9 +753,10 @@ def get_document_length(model: Any) -> int:
 
     Writer: the length of the visible text (pending tracked deletions hidden, paragraph breaks
     counted, fields and footnote numbers as shown), read with the same helper
-    get_document_content scope='range' counts its offsets with. It was the ``CharacterCount``
-    statistic, which leaves out the breaks and the deleted text, so a range read near the end
-    was cut short ("o dan"). Cursor steps minus the deleted text is no substitute: a field or
+    get_document_content scope='range' counts its offsets with. It does not use the
+    ``CharacterCount`` statistic, which leaves out the breaks and the deleted text, so a
+    range read near the end would be cut short. Cursor steps minus
+    the deleted text is no substitute: a field or
     footnote anchor is one step but several characters (314 against 324 on 12 footnotes).
     Returns 0 for a non-Writer document or on error.
     """

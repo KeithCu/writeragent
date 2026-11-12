@@ -184,13 +184,14 @@ def _region_holds_content(
 ) -> bool:
     """True if the header/footer XText still holds text, fields, images, or tables.
 
-    F5: disabling the region (``HeaderIsOn`` / ``FooterIsOn`` = false) *clears*
-    its content. A ``None`` text object is the usual off-state absence. The
-    #646 refuse uses this so ``*_is_on=false`` does not silently wipe — same
-    idea as LibreOffice's delete-header prompt. Clear via ``page_set`` first,
-    then turn off.
-    ``getString()`` misses logos and can hide tables; the #638 region scan plus a
-    table walk covers those. Every read raises on failure rather than passing
+    Turning the region off (``HeaderIsOn`` / ``FooterIsOn`` = false) deletes its
+    content: LibreOffice drops the header/footer format with its text section
+    (sw/source/core/layout/atrfrm.cxx lcl_DelHFFormat), and turning it back on gives
+    an empty region. ``_disable_blocked_by_content`` uses this so ``*_is_on=false``
+    does not silently wipe, which is the same idea as LibreOffice's delete-header prompt.
+    Clear via ``page_set`` first, then turn off.
+    ``getString()`` misses logos and can hide tables; ``_scan_region_content``
+    (fields, images, tables) covers those. Every read raises on failure rather than passing
     for "no content", so the guard fails closed.
     """
     if text_obj is None:
@@ -209,9 +210,9 @@ def _region_mirrors_shared(style: Any, region: str) -> bool:
     ``FirstIsShared=True`` means HeaderTextFirst / FooterTextFirst mirror
     HeaderText / FooterText; ``HeaderIsShared`` / ``FooterIsShared`` do the
     same for ``*_left``. Windows can still report leftover ``getString()``
-    on the mirror after the shared region was cleared (GHA 35466498641),
-    which made the disable guard refuse ``header_first`` even though first
-    page is shared. ``is True`` so unit-test MagicMocks stay conservative
+    on the mirror after the shared region was cleared, which would make
+    the disable guard refuse ``header_first`` even though the first page is
+    shared. ``is True`` so unit-test MagicMocks stay conservative
     (treated as independent).
     """
     if region.endswith("_first"):
@@ -226,7 +227,7 @@ def _region_mirrors_shared(style: Any, region: str) -> bool:
 def _disable_blocked_by_content(doc: Any, style: Any, kwargs: dict[str, Any]) -> str | None:
     """Error text if ``header_is_on=false`` / ``footer_is_on=false`` would wipe content.
 
-    F5: turning the region off *clears* its content (not "LO keeps HeaderText").
+    Turning the region off deletes its content (see ``_region_holds_content``).
     Refuse ``*_is_on=false`` while content remains so we don't silently wipe —
     same idea as LibreOffice's delete-header prompt. Clear via ``page_set``
     first, then turn off.
@@ -310,7 +311,7 @@ def _scan_region_content(doc: Any, text_obj: Any) -> dict[str, Any]:
 
     HTML ``content`` already carries structure; these lists are machine-readable so a
     caller can see logos and live fields without parsing the markup. Returns
-    ``{"fields": [...], "images": [...], "paragraph_count": int}``. Raises on a read
+    ``{"fields": [...], "images": [...], "has_table": bool, "paragraph_count": int}``. Raises on a read
     failure; lenient callers wrap the call in ``uno_read`` with ``_empty_scan()``.
     """
     out = _empty_scan()
@@ -437,8 +438,7 @@ def _copy_page_regions(
 ) -> tuple[int, list[str]]:
     """Copy on, non-mirror header/footer regions onto the clone.
 
-    Flow is copied in-document; this no longer opens a hidden Writer or reads
-    the HTML import config service.
+    Flow is copied inside the same document.
     """
     shapes_copied = 0
     skipped_shapes: list[str] = []
@@ -453,7 +453,10 @@ def _copy_page_regions(
             continue
         clone.setPropertyValue(is_on_prop, True)
 
-        # Issue #1424: Apply size values after turning the region on
+        # Copy size values after turning the region on: Header*/Footer* size
+        # properties live in the region's own item set, which exists only
+        # while the region is on (sw/source/core/unocore/unostyle.cxx
+        # SwXPageStyle::SetPropertyValues_Impl skips them otherwise).
         prefix = _region_kind(region).title()
         for size_prop in (
             "IsDynamicHeight", "DynamicSpacing",
@@ -490,14 +493,6 @@ def _copy_page_regions(
     return shapes_copied, skipped_shapes
 
 
-# Page-style UNO objects created by copy_page_style, held on purpose.
-#
-# LibreOffice race (crash seen as "Binary URP bridge disposed" on the next
-# pages.getByName(new_name), soffice "Fatal exception: Signal 6", frame
-# ImplInheritanceHelper<SwXBaseStyle,...>::queryInterface in libswlo):
-# when Python drops its last reference to the created SwXPageStyle, the
-# release goes out as a oneway URP call and runs on a separate threadpool
-# thread. Its refcount reaches 0 and the destructor queues for the
 def copy_page_style(
     doc: Any,
     source_name: str,
@@ -505,8 +500,8 @@ def copy_page_style(
 ) -> dict[str, Any]:
     """Clone a page style: direct properties, header/footer flow, floating graphics.
 
-    FollowStyle is not copied. A new page style's FollowStyle defaults to itself
-    (probe C3); copying the source's would chain the clone into the old next style.
+    FollowStyle is not copied. A new page style's FollowStyle defaults to itself;
+    copying the source's would chain the clone into the source's next style.
     Called by style_clone. Not a tool of its own.
 
     The direct-property helper lives in styles.py. This function imports it at
@@ -553,8 +548,6 @@ def get_page_style_properties(doc: Any, style_name: str = "Standard") -> dict[st
     """Read dimensions, margins, and header/footer state of a Writer page style.
 
     Shared by ``page_get_style_properties`` and ``style_get_info(family=PageStyles)``.
-    A future Option B could hard-merge those two public APIs into one (winner TBD:
-    general ``style_get_info`` vs the page toolkit); deferred for now.
     """
     try:
         style = resolve_page_style(doc, style_name)
@@ -700,9 +693,9 @@ class PageSetStyleProperties(ToolWriterPageBase):
             return resolved
         style = resolved
 
-        # F5: HeaderIsOn/FooterIsOn=false *clears* content. Refuse while
-        # content remains so we don't silently wipe (same idea as LO's
-        # delete-header prompt). Clear via page_set first, then turn off.
+        # Turning a header/footer off deletes its content. Refuse while
+        # content remains (same idea as LO's delete-header prompt); clear
+        # via page_set first, then turn off.
         blocked = _disable_blocked_by_content(doc, style, kwargs)
         if blocked:
             return self._tool_error(blocked)
@@ -821,8 +814,8 @@ class PageGetHeaderFooterText(ToolWriterPageBase):
 
         is_on_prop, text_prop = REGION_PROPS[region]
         is_on = bool(style.getPropertyValue(is_on_prop))
-        # F5: disabling the region *clears* HeaderText — typically None
-        # while off. Still export if a text object is present.
+        # While a region is off its text property is None (turning it off
+        # deleted the content). Still export if a text object is present.
         text_obj = uno_read(lambda: style.getPropertyValue(text_prop), None)
         content = ""
         if text_obj is not None:
@@ -1095,7 +1088,7 @@ def _anchor_point_in_match(text: Any, anchor: Any, cursor: Any) -> bool:
 def _character_anchor_in_matches(doc: Any, text_obj: Any, cursors: list[Any]) -> str | None:
     """Name of an AT_CHARACTER shape whose anchor lies inside a match, if any.
 
-    Probe A: setString on footer text left an AT_PARAGRAPH graphic and its
+    setString on footer text leaves an AT_PARAGRAPH graphic and its
     HyperLinkURL alone. An AT_CHARACTER anchor sits in the text range, so
     setString there can drop the image. Refuse before writing. An unreadable
     draw page raises, so the refuse fails closed; nothing has been written yet.

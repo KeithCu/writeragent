@@ -73,12 +73,12 @@ def _render_writer_page_png(doc: Any, page: int) -> tuple[bytes | None, str | No
 
     NATIVE LibreOffice path ONLY — the writer_png_Export graphic filter, targeted per page with the
     view cursor (jumpToPage): cross-platform, no external binary, no PDF round-trip, and the filter
-    reuses LO's own page painting (headers, frames, shapes, images all faithful). The XRenderable
-    route was abandoned: on real multi-page documents its getRendererCount reports 1 page no matter
-    which options are passed, and its getDIB() bitmaps are build-dependent (BUG-5 diagnostics,
-    2026-07-01). The view cursor is saved and restored best-effort (the jump may briefly scroll the
-    window). There is intentionally NO fallback — on any failure this returns a clear reason
-    (surfaced by the caller as a tool error), never a silent failure or an empty image."""
+    reuses LO's own page painting (headers, frames, shapes, images all faithful). XRenderable
+    is not used: on real multi-page documents its getRendererCount reports 1 page whatever
+    options are passed, and its getDIB() bitmaps are build-dependent. The view cursor is saved and
+    restored best-effort (the jump may briefly scroll the window). There is intentionally NO fallback — on
+    any failure this returns a clear reason (surfaced by the caller as a tool error), never a
+    silent failure or an empty image."""
     try:
         vc = doc.getCurrentController().getViewCursor()
     except Exception as e:
@@ -86,8 +86,9 @@ def _render_writer_page_png(doc: Any, page: int) -> tuple[bytes | None, str | No
         reraise_if_disposed(e)
         return None, "could not render page %d: no document view available (%s)" % (page, e)
 
-    # Full SwXTextViewCursor: createTextCursorByRange raises RuntimeException on a
-    # Writer body (PR #796). A failed save only skips the restore below.
+    # Save the view cursor so the page jump can be undone. clone_text_range
+    # copies it through the cursor's own XText; if that raises, the restore
+    # below is skipped.
     saved = best_effort(lambda: clone_text_range(vc), "save view cursor before page render")
 
     try:

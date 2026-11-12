@@ -24,8 +24,8 @@ def detect_languages(ctx: Any, texts: list[str]) -> list[str | None]:
         result = run_trusted_worker_action(ctx, domain="langdetect", helper="detect", params={}, additional_data={"texts": list(texts)}, session_id=_LANGDETECT_SESSION_ID, timeout_sec=embeddings_worker_timeout_sec(), worker_pool=WORKER_POOL_EMBEDDINGS, error_code="LANGDETECT_ERROR", error_label="Language detection")
     except ToolExecutionError as exc:
         message = str(exc)
-        # The worker's ImportError text already contains this install line, so a
-        # second append duplicated it; other venv failures still need the line once.
+        # The worker's ImportError text already contains this install line;
+        # appending it again would repeat it. Other venv failures still need the line once.
         if EMBEDDINGS_VENV_PIP_INSTALL not in message and ("venv" in message.lower() or "langdetect" in message.lower()):
             raise ToolExecutionError(f"{message} Install with: {EMBEDDINGS_VENV_PIP_INSTALL}", code="LANGDETECT_ERROR", details=getattr(exc, "details", None)) from exc
         raise

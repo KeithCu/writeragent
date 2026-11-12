@@ -92,7 +92,7 @@ def _writer_named_cells(table: Any) -> list[str]:
 
     ``getColumns()`` is the first row's box count (``SwXTableColumns::getCount``;
     the ``IsTableComplex`` guard above that return is commented out). After
-    merging A1:D1 on a 5×4 table it reports 1, so ``range(cols)`` skipped D2.
+    merging A1:D1 on a 5×4 table it reports 1, so a ``range(cols)`` walk would skip D2.
     SwXTextTable::getCellNames (sw/source/core/unocore/unotbl.cxx) returns an
     empty list itself for a table without a format and does not throw. Any other
     failure is raised so a delete guard does not treat it as "no nested tables".
@@ -305,9 +305,8 @@ def _remove_writer_table(doc: Any, table: Any, name: str, nesting: dict[str, Any
 def _hosted_in_band(table: Any, axis_arg: str, idx: int) -> list[str]:
     """Nested table names hosted in the row/column about to be deleted.
 
-    Scan ``getCellNames()`` and keep names on that row or column. The old
-    ``range(cols)`` walk used ``getColumns()`` (first-row box count) and missed
-    D2 after an A1:D1 merge. Column index uses the Writer base-52 parser, not
+    Scan ``getCellNames()`` (``_writer_named_cells`` says why) and keep names on
+    that row or column. Column index uses the Writer base-52 parser, not
     spreadsheet ``parse_a1``.
     """
     hosted: list[str] = []
@@ -338,7 +337,6 @@ class TableList(ToolWriterTableBase):
     parameters: dict[str, Any] | None = {"type": "object", "properties": {}, "required": []}
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
-        # execute_safe already returns TOOL_EXECUTION_ERROR; this did not name a table.
         if is_draw(ctx.doc):
             # Lazy: cross-app; Draw table helpers load only when the target is a Draw/Impress document.
             from plugin.draw.tables import list_draw_tables
@@ -353,10 +351,8 @@ class TableList(ToolWriterTableBase):
                 table_obj = tables.getByName(name)
                 rows, cols = table_dims(table_obj)
             except Exception as exc:
-                # One bad or corrupt table must not fail the entire table_list
-                # call. _dims(tables.getByName(name)) raises inside the iteration.
-                # Catch per-table errors, re-raise document disposal, log a
-                # warning, and skip.
+                # One bad or corrupt table must not fail the whole table_list call:
+                # re-raise document disposal, log a warning, and skip the table.
                 if is_disposal(exc):
                     raise
                 log.warning("table_list: skipping unreadable table '%s': %s", name, exc)
@@ -422,8 +418,6 @@ class TableGetCells(ToolWriterTableBase):
                 return payload
             table = _require_table(ctx.doc, name)
             rows, cols = table_dims(table)
-            # getColumns() is the first row's box count (SwXTableColumns::getCount),
-            # so range(cols) skipped D2 after A1:D1 merge. getCellNames() is the list.
             all_cell_names = _writer_named_cells(table)
             resolved = ""
             if cell_raw:
@@ -445,7 +439,7 @@ class TableGetCells(ToolWriterTableBase):
                         nested_in_cells[cell_name] = hosted
                     # Host cells omit concatenated inner-table text. get_string_without_tracked_deletions
                     # hides pending tracked deletions: getString() also returns deleted text, so a
-                    # pending "velha" -> "nova" read "celula novavelha" here (relato #43).
+                    # pending "velha" -> "nova" would read "celula novavelha" here.
                     cells[cell_name] = cell_plain_siblings(c) if hosted else get_string_without_tracked_deletions(c)
                 except Exception as exc:
                     # Per-cell read errors must not disappear into a bare continue.

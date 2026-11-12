@@ -133,8 +133,8 @@ def find_next_after_match(doc: Any, found: Any, sd: Any) -> Any:
     A zero-length hit does not advance getEnd(), so returning None is what stops
     the edit-path loops at one empty range.
     """
-    # A getString failure means the range is dead. Swallowing it only delayed the
-    # same error until findNext.
+    # A getString failure means the range is dead; it is not caught here because
+    # findNext would raise the same error.
     if found.getString() == "":
         return None
     return doc.findNext(found.getEnd(), sd)
@@ -233,7 +233,7 @@ def prepare_old_content(raw: Any) -> str:
 
 
 # LibreOffice search also sees text a pending tracked change deleted, so visible text that runs
-# across such a deletion ("a) no pressuposto" around a struck word) is never found (relato #43).
+# across such a deletion ("a) no pressuposto" around a struck word) is never found.
 _TRACKED_DELETION_HINT = (
     " This document has pending tracked deletions: the search also sees the deleted text, so a"
     " phrase that runs across a deletion is not found. Use a shorter piece on one side of it."
@@ -562,14 +562,12 @@ def _chain_hit_range(found: Any, parts: list[str], anchor_idx: int) -> Any | Non
             first_start_cursor = _offset_cursor(backward_cursor, offset_len)
 
     start_range = first_start_cursor.getStart() if first_start_cursor else found.getStart()
-    # Use getEnd(): last_end_cursor is collapsed (goRight with expand=False), so
-    # last_end_cursor is collapsed today, but getEnd() is the correct range endpoint
-    # if that cursor is ever widened.
+    # last_end_cursor is collapsed (goRight with expand=False), so getEnd()
+    # equals its start; getEnd() stays correct if that cursor is ever widened.
     end_range = last_end_cursor.getEnd() if last_end_cursor else found.getEnd()
 
-    # Same-text combine failures propagate as UNO errors instead of being logged and
-    # dropped. Ranges in different XText objects are still skipped without counting
-    # as a dropped hit.
+    # Same-text combine failures propagate as UNO errors. Ranges in different
+    # XText objects are skipped without counting as a dropped hit.
     if uno_same(start_range.getText(), end_range.getText()):
         result_range = text.createTextCursorByRange(start_range)
         result_range.gotoRange(end_range, True)

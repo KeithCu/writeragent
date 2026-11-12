@@ -486,9 +486,9 @@ class ManageTrackedChanges(WriterAgentSpecialTracking, ToolCalcSpecialTracking):
             )
 
         # To accept/reject a specific change, we select its text range then use the dispatcher.
-        # Redline objects from getRedlines() have NO getAnchor() (live probe: AttributeError) —
-        # they are property sets exposing RedlineStart/RedlineEnd (XTextRange). The old
-        # getAnchor() call meant every real change died here with "Failed to select".
+        # Redline objects from getRedlines() have no getAnchor() (SwXRedline,
+        # sw/inc/unoredline.hxx, is not an XTextContent); they are property sets
+        # exposing RedlineStart/RedlineEnd (XTextRange).
         start = target_redline.getPropertyValue("RedlineStart")
         cur = start.getText().createTextCursorByRange(start)
         end = start

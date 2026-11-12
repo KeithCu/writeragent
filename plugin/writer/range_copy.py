@@ -293,11 +293,11 @@ def _copy_field_into(dest_doc: Any, dest_text: Any, dest_cursor: Any, src_field:
     new_field = uno_read(lambda: dest_doc.createInstance(svc), FAILED)
     if new_field is FAILED:
         return False
-    # Page-style clone copies header/footer fields through this helper
-    # (test_copy_page_style_clones_next_page_number_and_roman). The old XHTML
-    # path re-injected data-offset; this tuple omitted Offset, so a NEXT field
-    # with Offset 1 was cloned as Offset 0. Properties the service does not
-    # have still fail the try/except below and are skipped.
+    # Page-style clones copy header/footer fields through this helper
+    # (test_copy_page_style_clones_next_page_number_and_roman). Offset must be
+    # in this tuple: without it a NEXT page-number field with Offset 1 is cloned
+    # as Offset 0. Properties the service does not have fail the try/except below
+    # and are skipped.
     for prop in ("NumberingType", "SubType", "Offset", "IsDate", "IsFixed", "Format"):
         try:
             new_field.setPropertyValue(prop, src_field.getPropertyValue(prop))
@@ -510,7 +510,7 @@ def _append_table(
 ) -> Any:
     """Copy *src_table* into *dest_text* and return a cursor at the new end.
 
-    The old cursor sits before the table once inserted, so appending subsequent
+    The cursor used for the insert sits before the table once inserted, so appending subsequent
     flow content needs a fresh cursor moved to the end of *dest_text*.
     """
     _copy_table(src_table, dest_doc, dest_text, math_records=math_records)

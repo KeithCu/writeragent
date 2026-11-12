@@ -429,7 +429,7 @@ _KNOWN_CHARACTER_PROPERTIES = {
     "CharWordMode": {"type": "boolean", "description": "Whether underline/strikeout applies only to words."}
 }
 
-# Schema metadata only — names come from format.CLEARABLE_PARA_PROPERTIES so the
+# Schema metadata only — names come from CLEARABLE_PARA_PROPERTIES (above) so the
 # inspect set and the clear_direct wipe cannot drift.
 _PARA_PROPERTY_SCHEMA = {
     "ParaTopMargin": {"type": "integer", "description": "Top margin in 1/100th mm (1 inch = 2540)."},
@@ -525,7 +525,7 @@ def _missing_style_error(
     miss_details: dict[str, Any] = {"hint": "Call style_list with family=%s." % family}
     if close:
         miss_details["similar"] = close[:5]
-    # Only an unambiguous single match is safe to replay (§3.4 rule 2).
+    # Only an unambiguous single match is safe to replay (docs/writer/structured-edit-diagnostics-plan.md §3.4).
     suggested = suggest_call(str(tool.name), **{**replay, "style": close[0]}) if replay is not None and len(close) == 1 else None
 
     if label == "parent_style":
@@ -544,7 +544,7 @@ def _missing_style_error(
 
 
 def para_adjust_to_uno(value: Any) -> int:
-    """Schema word → UNO integer. Integers are refused (the old 0/1/2/3 trap)."""
+    """Schema word → UNO integer. Integers are refused: UNO's order (1 right, 2 justify, 3 center) is easy to get wrong."""
     if isinstance(value, str):
         key = value.strip().lower()
         if key in _PARA_ADJUST_TO_UNO:
@@ -622,8 +622,8 @@ def _schema_prop_value(prop_name: str, raw: Any) -> Any:
 
 # Properties whose value is a UNO struct, not a simple type. PyUNO cannot take a
 # plain dict for these: setPropertyValue calls getTypes() on whatever it is given,
-# so a dict raised "AttributeError: 'dict' object has no attribute 'getTypes'" and
-# the whole update failed. Line spacing is the one users hit — it is the only way
+# so a dict would raise "AttributeError: 'dict' object has no attribute 'getTypes'" and
+# fail the whole update. Line spacing is the one users hit — it is the only way
 # to set 1.5 lines or an exact leading on a style.
 _STRUCT_PROPERTIES = {
     "ParaLineSpacing": "com.sun.star.style.LineSpacing",
@@ -657,7 +657,7 @@ _LINE_SPACING_MODES = {
 
 
 # Field lists for reading a struct back as JSON. A UNO struct is not JSON-serializable:
-# returning one made update_style apply the change and then fail to report it.
+# returning one would make update_style apply the change and then fail to report it.
 _STRUCT_FIELDS = {
     "com.sun.star.style.LineSpacing": ("Mode", "Height"),
     "com.sun.star.style.DropCapFormat": ("Lines", "Count", "Distance"),
@@ -697,7 +697,7 @@ def _coerce_uno_field(struct: Any, field: str, value: Any) -> Any:
     """Strings into UNO enum / char fields, detected from the field's own default.
 
     TabStop.Alignment is a com.sun.star.style.TabAlign enum and FillChar a UNO char:
-    setattr with a plain "LEFT" or "." is refused, so the whole update failed.
+    setattr with a plain "LEFT" or "." is refused, which would fail the whole update.
     """
     if not isinstance(value, str):
         return value
@@ -855,10 +855,10 @@ def _no_character_style_token_error(tool: Any, family: str, style_name: str) -> 
     return None
 
 
-# Metadata, plus read-only diffs that fail or change value when copied (probe C9).
+# Metadata, plus read-only diffs that fail or change value when copied.
 # FollowStyle is not in the direct-value walk: paragraph clones set it explicitly
 # (even when inherited), and a new page style's FollowStyle must stay itself
-# (probe C3 — copying the source chains the clone into the old next style).
+# (copying the source's would chain the clone into the source's next style).
 _CLONE_SKIP_PROPS = frozenset({
     "Name", "DisplayName", "IsPhysical", "IsUserDefined", "Category",
     "ParentStyle", "FollowStyle", "IsInUse", "UserDefinedAttributes",
@@ -1186,8 +1186,7 @@ class StyleGetInfo(ToolWriterStyleBase):
         family = kwargs.get("family", "ParagraphStyles")
 
         # In-process dispatch to the same reader page_get_style_properties uses — not an error
-        # bounce and not a nested LLM call. Option B (deferred): hard-merge to a single public
-        # API (winner TBD: general style_get_info vs the page toolkit).
+        # bounce and not a nested LLM call.
         if family == "PageStyles":
             result = get_page_style_properties(ctx.doc, style_name or "Standard")
             if result.get("status") == "ok":

@@ -260,7 +260,8 @@ class RegisterDataSource(ToolWriterMailMergeBase):
 
         file_url = _to_file_url(path)
 
-        # Tip: change in place; revoke-then-register lost the old registration on failure.
+        # Change an existing registration in place: revoke-then-register would
+        # lose it if the register call fails.
         try:
             if db_ctx.hasByName(name):
                 db_ctx.changeDatabaseLocation(name, file_url)

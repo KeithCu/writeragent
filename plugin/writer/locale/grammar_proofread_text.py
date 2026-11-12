@@ -225,10 +225,9 @@ def split_into_sentences(ctx: Any, locale_key: str, text: str) -> list[tuple[int
                     new_u16 = bi.endOfSentence(text, u16_k, locale)
                     new_end = u16_map.utf16_to_py(new_u16)
                     grammar_obs("split_abbrev_skip", word=word, abbrev_len=abbrev_len, i=i, k=k, new_end_pos=new_end)
-                    # Forward-progress guard: BreakIterator has been observed to return
-                    # a position <= the abbreviation period itself (e.g. UNO. followed
-                    # by text it cannot bound), which spun this inner loop forever and
-                    # bloated the debug log to hundreds of MB. Bail out when that happens.
+                    # Forward-progress guard: BreakIterator can return a position <= the
+                    # abbreviation period itself (e.g. UNO. followed by text it cannot bound);
+                    # without this check the inner loop spins forever and floods the debug log.
                     if new_end <= end_pos:
                         end_pos = len(text)
                         break
@@ -504,9 +503,9 @@ def normalize_errors_for_text(full_text: str, items: Iterable[dict[str, Any]], c
 
         # 1. Resolve position (provider span or anchor)
         # Harper returns diagnostics grouped by rule, not text position. Re-searching those
-        # substrings in order moved a final single-space error into an earlier space run and
-        # then dropped earlier-word diagnostics. Trust validated LSP offsets so each issue
-        # remains attached to the span Harper actually reported.
+        # substrings in order would move a final single-space error into an earlier space run and
+        # drop earlier-word diagnostics, so validated LSP offsets are trusted and each issue
+        # stays on the span Harper reported.
         provider_span = _provider_error_span(full_text, it, wrong)
         if provider_span is not None:
             pos, length = provider_span
@@ -527,10 +526,9 @@ def normalize_errors_for_text(full_text: str, items: Iterable[dict[str, Any]], c
                 continue
 
         # 3. Check for span collisions.
-        # A zero-width insert is a point, not a character range. Recording it
-        # in ``used_spans`` would make a later positive span that covers that
-        # Zero-length spans are not added to used_spans so they do not block
-        # later positive diagnostics that share the same position.
+        # A zero-width insert is a point, not a character range. It is not added
+        # to used_spans, so it does not block a later positive diagnostic at the
+        # same position.
         if length > 0:
             span = (pos, pos + length)
             if any(span_overlaps_range(span[0], span[1], s, e) for s, e in used_spans):

@@ -129,7 +129,7 @@ def _apply_image_export_options(content: str, *, include_images: bool) -> str:
 def _truncate_html(content: str, max_chars: int) -> str:
     """Cut *content* to *max_chars* without ending inside a tag or an entity.
 
-    The old slice ``content[:max_chars]`` handed the model an unclosed
+    A plain slice ``content[:max_chars]`` can hand the model an unclosed
     ``<a href="…`` or a trailing ``&nb``. The marker stays so
     get_document_content can set ``truncated``.
     """
@@ -558,7 +558,7 @@ def _range_to_content_via_temp_doc(
         reraise_if_disposed(e)
         if isinstance(e, ToolExecutionError):
             raise
-        # Same silent "ok with empty content" as the full read (relato #63): say why instead.
+        # Same rule as the full read: a failed read raises with its reason instead of returning ok with empty content.
         raise ToolExecutionError("Could not read that part of the document (%s)." % _reason(e)) from e
     finally:
         if temp_doc is not None:
@@ -662,10 +662,9 @@ def document_to_content(
     except Exception as e:
         # Disposal is not a double export failure.
         reraise_if_disposed(e)
-        # When both exports fail, returning "" makes get_document_content
-        # answer status ok with empty content (relato #63: document_length
-        # 57003, content ""), so neither the agent nor the log reader can
-        # tell why. The failure surfaces as a tool error that names both
+        # If both exports fail, returning "" would make get_document_content
+        # answer status ok with empty content, and neither the agent nor the
+        # log reader could tell why. Raise a tool error that names both
         # reasons (a full /tmp, a filter error, ...).
         raise ToolExecutionError(
             "Could not read the document: the XHTML export failed (%s) and the HTML export "

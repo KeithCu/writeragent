@@ -148,7 +148,7 @@ PEER_INNER_CHOICE_RULES = (
 
 
 def _agent_for_model(model: Any) -> str:
-    # Unknown and None stay Writer, same as the previous else branches.
+    # Unknown document types and None are treated as Writer.
     if is_calc(model):
         return "Calc"
     if is_draw(model):

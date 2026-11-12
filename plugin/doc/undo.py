@@ -5,10 +5,9 @@
 
 """Undo/redo tools for all document types via XUndoManager.
 
-Re-enabled (was ToolBaseDummy): with review mode off an agent's bad edit was unrecoverable
-except by the user's own Ctrl+Z — the agent had no rollback at all. The undo stack is SHARED
-with the user's manual edits, so the descriptions steer the model to undo only its own last
-action and to tell the user."""
+With review mode off, these tools are the agent's only way to roll back its own bad edit;
+otherwise only the user's Ctrl+Z can. The undo stack is SHARED with the user's manual edits,
+so the descriptions steer the model to undo only its own last action and to tell the user."""
 
 from __future__ import annotations
 
