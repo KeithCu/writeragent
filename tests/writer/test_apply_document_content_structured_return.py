@@ -1511,8 +1511,10 @@ def test_replace_all_mutate_error_rollback_status(monkeypatch):
 
 def test_shape_search_miss_review_mode_returns_shape_text_needs_delegation(monkeypatch):
     monkeypatch.setattr(search_mod, "find_first_range", lambda doc, s: None)
+    monkeypatch.setattr("plugin.writer.apply_document_content.review_recording_enabled", lambda: True)
     mock_shape = MagicMock()
     monkeypatch.setattr(search_mod, "drawing_shape_object_containing", lambda doc, text, **k: mock_shape)
+    monkeypatch.setattr(search_mod, "drawing_shape_containing", lambda *a, **k: "Banner")
     monkeypatch.setattr(search_mod, "shape_display_name", lambda shape: "Banner")
 
     res = ApplyDocumentContent().execute(
@@ -1521,6 +1523,7 @@ def test_shape_search_miss_review_mode_returns_shape_text_needs_delegation(monke
     assert res["status"] == "error"
     assert res["code"] == "SHAPE_TEXT_NEEDS_DELEGATION"
     assert "shapes toolset" in res["message"]
+    assert "In review mode" in res["message"]
 
 
 def test_parameter_validations_return_invalid_param():

@@ -16,11 +16,8 @@ from plugin.writer.html_import import plain_text_if_markup
 from plugin.writer.search import (
     CASE_SENSITIVE_DESCRIPTION,
     describe_match_location,
-    drawing_shape_containing,
-    find_occurrence_range,
-    parse_non_negative_int,
+    occurrence_range_or_error,
     resolve_case_sensitive,
-    shape_only_search_message,
 )
 
 log = logging.getLogger("writeragent.writer")
@@ -76,13 +73,7 @@ class SetSelection(ToolBase):
         if not has_search and not has_char:
             return self._tool_error("Provide search_text or char_start/char_end.", code="INVALID_PARAM")
 
-        occurrence = 0
-        if has_search:
-            occ_val, occ_err = parse_non_negative_int(kwargs.get("occurrence", 0))
-            if occ_err:
-                return self._tool_error(occ_err, code="INVALID_PARAM")
-            occurrence = 0 if occ_val is None else occ_val
-        else:
+        if not has_search:
             if char_start is None or char_end is None:
                 return self._tool_error("char_start and char_end must both be provided.", code="INVALID_PARAM")
             if type(char_start) is not int or type(char_end) is not int:
@@ -105,7 +96,7 @@ class SetSelection(ToolBase):
             if not search_str.strip():
                 return self._tool_error("search_text is empty after normalization.", code="INVALID_PARAM")
 
-            res = self._select_by_search(doc, controller, search_str, occurrence, case_sensitive)
+            res = self._select_by_search(doc, controller, search_str, kwargs.get("occurrence", 0), case_sensitive)
             res["matched_case_sensitive"] = case_sensitive
             return res
 
@@ -132,29 +123,18 @@ class SetSelection(ToolBase):
         return result
 
     def _select_by_search(
-        self, doc: Any, controller: Any, search_str: str, occurrence: int, case_sensitive: bool
+        self, doc: Any, controller: Any, search_str: str, raw_occurrence: Any, case_sensitive: bool
     ) -> dict[str, Any]:
-        try:
-            target_range = find_occurrence_range(
-                doc, search_str, occurrence=occurrence, case_sensitive=case_sensitive
-            )
-        except IndexError as e:
-            return self._tool_error(str(e), code="OCCURRENCE_OUT_OF_RANGE")
+        found, err = occurrence_range_or_error(
+            doc, search_str, raw_occurrence, case_sensitive=case_sensitive, subject="search_text"
+        )
+        if err:
+            return err
 
-        if target_range is None:
-            shape_name = drawing_shape_containing(doc, search_str, case_sensitive=case_sensitive)
-            if shape_name:
-                return self._tool_error(shape_only_search_message("search_text", shape_name), code="SHAPE_TEXT_NEEDS_DELEGATION")
-            return self._tool_error(
-                "No match for search_text '%s'%s."
-                % (search_str, (" at occurrence %d" % occurrence) if occurrence else ""),
-                code="OLD_CONTENT_NOT_FOUND",
-            )
-
-        controller.select(target_range)
-        fields = _read_selection_fields(target_range)
+        controller.select(found)
+        fields = _read_selection_fields(found)
         return {
             "status": "ok",
             **fields,
-            "location": describe_match_location(target_range, doc),
+            "location": describe_match_location(found, doc),
         }

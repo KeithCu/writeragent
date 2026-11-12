@@ -59,7 +59,6 @@ def test_search_hit_returns_cursor_in_match_text(monkeypatch):
 def test_search_miss_uses_generic_hint(monkeypatch):
     ctx, _ = _ctx()
     monkeypatch.setattr("plugin.writer.target_resolver.search_mod.find_first_range", lambda doc, s: None)
-    monkeypatch.setattr("plugin.writer.target_resolver.search_mod.drawing_shape_containing", lambda doc, s: None)
     with pytest.raises(ValueError, match="old_content not found in document") as exc_info:
         resolve_target_cursor(ctx, "search", "needle")
     assert "shorter, unique substring" in str(exc_info.value)
@@ -68,7 +67,7 @@ def test_search_miss_uses_generic_hint(monkeypatch):
 def test_search_miss_inside_shape_names_the_shape(monkeypatch):
     ctx, _ = _ctx()
     monkeypatch.setattr("plugin.writer.target_resolver.search_mod.find_first_range", lambda doc, s: None)
-    monkeypatch.setattr("plugin.writer.target_resolver.search_mod.drawing_shape_containing", lambda doc, s: "Frame 1")
+    monkeypatch.setattr("plugin.writer.search.drawing_shape_containing", lambda doc, s, **k: "Frame 1")
     with pytest.raises(ValueError) as exc_info:
         resolve_target_cursor(ctx, "search", "needle")
     err_msg = str(exc_info.value)
@@ -93,7 +92,6 @@ def test_search_converts_markup_before_find(monkeypatch):
 def test_search_oversized_old_content_raises_value_error(monkeypatch):
     ctx, _ = _ctx()
     monkeypatch.setattr("plugin.writer.target_resolver.search_mod.find_first_range", lambda doc, s: None)
-    monkeypatch.setattr("plugin.writer.target_resolver.search_mod.drawing_shape_containing", lambda doc, s: None)
     monkeypatch.setattr("plugin.writer.target_resolver.search_mod.old_content_covers_most", lambda doc, n: True)
     with pytest.raises(ValueError, match="target='full_document'"):
         resolve_target_cursor(ctx, "search", "half or more of doc")
@@ -102,7 +100,6 @@ def test_search_oversized_old_content_raises_value_error(monkeypatch):
 def test_search_miss_includes_closest_mismatch(monkeypatch):
     ctx, _ = _ctx()
     monkeypatch.setattr("plugin.writer.target_resolver.search_mod.find_first_range", lambda doc, s: None)
-    monkeypatch.setattr("plugin.writer.target_resolver.search_mod.drawing_shape_containing", lambda doc, s: None)
     monkeypatch.setattr(
         "plugin.writer.target_resolver.search_mod.search_closest_mismatch",
         lambda doc, s, lenient=True: {"message": "closest match starts 'needle…', differs at character 3: l vs x", "closest_match": "needle…", "diff_at": 3},

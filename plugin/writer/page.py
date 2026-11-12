@@ -37,7 +37,9 @@ from .html_export import PAGE_NUMBER_NUMBERING_TYPE_NAMES
 from .range_copy import _ANCHORED_GRAPHIC_PROPS
 from .search import (
     CASE_SENSITIVE_DESCRIPTION,
+    occurrence_range_or_error,
     parse_non_negative_int,
+    prepare_old_content,
     resolve_case_sensitive,
 )
 from .specialized_base import ToolWriterPageBase, enum_param
@@ -1645,25 +1647,22 @@ class PageInsertBreak(ToolWriterPageBase):
         case_sensitive: bool,
         raw_occurrence: Any,
     ) -> dict[str, Any]:
-        anchor = str(before_text or after_text)
-        occ_val, occ_err = parse_non_negative_int(raw_occurrence, coerce=True)
-        if occ_err:
-            return self._tool_error(occ_err)
-        occurrence = 0 if occ_val is None else occ_val
-        sd = doc.createSearchDescriptor()
-        sd.SearchString = anchor
-        sd.SearchRegularExpression = False
-        sd.SearchCaseSensitive = case_sensitive
-        found = doc.findFirst(sd)
-        for _unused in range(occurrence):
-            if found is None:
-                break
-            found = doc.findNext(found.getEnd(), sd)
-        if found is None:
+        anchor = prepare_old_content(before_text or after_text)
+        if not anchor:
             return self._tool_error(
-                "Anchor text '%s' not found%s."
-                % (anchor, (" at occurrence %d" % occurrence) if occurrence else "")
+                "before_text / after_text is empty after normalization.",
+                code="INVALID_PARAM",
             )
+        found, err = occurrence_range_or_error(
+            doc,
+            anchor,
+            raw_occurrence,
+            case_sensitive=case_sensitive,
+            subject="before_text" if before_text else "after_text",
+        )
+        if err:
+            return err
+        assert found is not None
         text = found.getText()
         # BreakType is a PARAGRAPH property. before_text -> the match's own paragraph;
         # after_text -> the paragraph that FOLLOWS the match.

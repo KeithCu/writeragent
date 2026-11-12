@@ -26,8 +26,7 @@ from plugin.framework.errors import ToolExecutionError, uno_read
 from plugin.writer.record_changes import is_recording_changes
 from plugin.writer.search import (
     CASE_SENSITIVE_DESCRIPTION,
-    find_occurrence_range,
-    parse_non_negative_int,
+    occurrence_range_or_error,
     resolve_case_sensitive,
 )
 
@@ -146,24 +145,10 @@ class FootnotesInsert(ToolWriterFootnoteBase):
     def _resolve_insert_range(
         self, doc: Any, insert_after: str, raw_occurrence: Any, case_sensitive: bool
     ) -> Any:
-        occ_val, occ_err = parse_non_negative_int(raw_occurrence, coerce=True)
-        if occ_err:
-            return self._tool_error(occ_err)
-        occurrence = 0 if occ_val is None else occ_val
-
-        # Shared LO search: NBSP/space normalization plus the newline-chained fallback.
-        try:
-            rng = find_occurrence_range(
-                doc, insert_after, occurrence=occurrence, case_sensitive=case_sensitive
-            )
-        except IndexError:
-            return self._tool_error(
-                f"No match for insert_after_text at occurrence {occurrence} "
-                "(not enough occurrences)."
-            )
-        if rng is None:
-            return self._tool_error("No match for insert_after_text in the document.")
-        return rng
+        rng, err = occurrence_range_or_error(
+            doc, insert_after, raw_occurrence, case_sensitive=case_sensitive, subject="insert_after"
+        )
+        return err if err is not None else rng
 
 
 class FootnotesList(ToolWriterFootnoteBase):

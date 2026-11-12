@@ -93,9 +93,8 @@ def resolve_target_cursor(
     found = search_mod.find_first_range(doc, search_string, **find_kw)
 
     if found is None:
-        shape_name = search_mod.drawing_shape_containing(doc, search_string, **find_kw)
         raise ValueError(
-            search_mod.search_miss_message(doc, search_string, shape_name=shape_name)
+            search_mod.build_search_not_found_response(doc, search_string, **find_kw)["message"]
         )
 
     # Build the cursor in the MATCH's own text object, not the body: a match inside a table cell

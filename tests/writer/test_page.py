@@ -1048,7 +1048,31 @@ def test_page_break_anchor_not_found():
     doc.findFirst.return_value = None
     # com.sun.star.style.BreakType is a mocked module; the import inside execute resolves via the uno mock.
     res = PageInsertBreak().execute(SimpleNamespace(doc=doc), before_text="Signature")
-    assert res["status"] == "error" and "not found" in res["message"]
+    assert res["status"] == "error"
+    assert res["code"] == "OLD_CONTENT_NOT_FOUND"
+    assert "before_text not found in document" in res["message"]
+
+
+def test_page_break_anchor_occurrence_out_of_range():
+    from plugin.writer.page import PageInsertBreak
+    doc = MagicMock()
+    m1 = MagicMock()
+    doc.findFirst.return_value = m1
+    doc.findNext.return_value = None
+    res = PageInsertBreak().execute(SimpleNamespace(doc=doc), before_text="Signature", occurrence=1)
+    assert res["status"] == "error"
+    assert res["code"] == "OCCURRENCE_OUT_OF_RANGE"
+    assert "use 0..0" in res["message"]
+
+
+def test_page_break_anchor_strips_markup_before_find():
+    from plugin.writer.page import PageInsertBreak
+    from plugin.writer.search import escape_for_lo_regex
+
+    doc, para = _pagebreak_doc()
+    res = PageInsertBreak().execute(SimpleNamespace(doc=doc), before_text="<b>Assinaturas</b>")
+    assert res["status"] == "ok"
+    assert doc.createSearchDescriptor.return_value.SearchString == escape_for_lo_regex("Assinaturas")
 
 
 def test_page_break_unknown_page_style_changes_nothing():
