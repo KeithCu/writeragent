@@ -28,7 +28,7 @@ from compute_service import error_codes as ec
 from compute_service.config import DEFAULT_SETTINGS
 from compute_service.json_egress import normalize_execute_response
 from compute_service.json_forward import json_forward_envelope
-from compute_service.worker_base import configure_compute_worker_env, run_compute_worker
+from compute_service.worker_stdio import configure_compute_worker_env, run_compute_worker
 from plugin.framework.child_runtime import error_dict
 from plugin.scripting.session_key import SessionKey, SessionKind
 
@@ -68,7 +68,7 @@ def _handle_request(req: dict[str, Any]) -> dict[str, Any]:
                 missing.append(str(pkg))
         if missing:
             return error_dict(
-                "MISSING_DEPENDENCIES",
+                ec.MISSING_DEPENDENCIES,
                 f"Missing required dependencies in worker environment: {', '.join(missing)}",
                 req_id=req_id,
                 missing=missing,
@@ -78,6 +78,7 @@ def _handle_request(req: dict[str, Any]) -> dict[str, Any]:
     if action == "reset_session":
         session_id = req.get("session_id")
         if session_id and isinstance(session_id, str):
+            # imported per request: the sandbox graph is heavy and loads after the ready handshake
             from plugin.scripting.venv.venv_sandbox import reset_sandbox_session
 
             res = reset_sandbox_session(session_id)
@@ -90,7 +91,7 @@ def _handle_request(req: dict[str, Any]) -> dict[str, Any]:
     if not code or not isinstance(code, str):
         return json_forward_envelope(
             error_dict(
-                "MISSING_CODE",
+                ec.MISSING_CODE,
                 "Missing or invalid 'code' parameter",
                 req_id=req_id,
                 stdout="",
@@ -101,9 +102,6 @@ def _handle_request(req: dict[str, Any]) -> dict[str, Any]:
         )
 
     session_id = req.get("session_id")
-    # Pool execute() derives this internal mode from the validated session_id,
-    # never from a client mode field.
-    mode = req.get("mode", "isolated")
     timeout_sec = req.get("timeout_sec")
     init_script = req.get("init_script")
 
@@ -116,10 +114,8 @@ def _handle_request(req: dict[str, Any]) -> dict[str, Any]:
 
         eff_timeout = DEFAULT_SETTINGS.default_timeout_sec if timeout_sec is None else timeout_sec
 
-        # Shared kernel only when explicitly requested *and* a session id is provided.
-        use_session: str | None = None
-        if mode == "shared" and isinstance(session_id, str) and session_id.strip():
-            use_session = session_id.strip()
+        # The pool sends a session id only for a sticky call; isolated calls carry None.
+        use_session: str | None = session_id if isinstance(session_id, str) and session_id else None
 
         # Stable init_session_id so run_sandboxed_code runs init once per worker and
         # seeds later cells from that namespace (hash change replaces the snapshot).

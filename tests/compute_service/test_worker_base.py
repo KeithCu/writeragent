@@ -346,7 +346,7 @@ def test_pool_init_kills_workers_when_a_later_spawn_fails(monkeypatch: pytest.Mo
 def test_restricted_unpickler_blocks_arbitrary_globals() -> None:
     import pickle
     import pytest
-    from compute_service.worker_base import unpack_restricted_pickle_frame
+    from compute_service.worker_stdio import unpack_restricted_pickle_frame
 
     # Safe builtins
     safe_data = {"id": "123", "status": "ok", "numbers": [1, 2, 3], "bytes": b"hello", "flag": True}
@@ -393,7 +393,7 @@ def test_restricted_unpickler_blocks_arbitrary_globals() -> None:
 )
 def test_restricted_unpickler_rejects_sized_buffer_alloc(payload: bytes) -> None:
     """bytes(n) and bytearray(n) constructors are refused on all opcodes."""
-    from compute_service.worker_base import unpack_restricted_pickle_frame
+    from compute_service.worker_stdio import unpack_restricted_pickle_frame
 
     with pytest.raises(ValueError, match="bytes allocation from an int"):
         unpack_restricted_pickle_frame(payload)
@@ -402,7 +402,7 @@ def test_restricted_unpickler_rejects_sized_buffer_alloc(payload: bytes) -> None
 def test_restricted_unpickler_accepts_valid_bytearray() -> None:
     """Legitimate protocol 4 and 5 bytearrays are accepted."""
     import pickle
-    from compute_service.worker_base import unpack_restricted_pickle_frame
+    from compute_service.worker_stdio import unpack_restricted_pickle_frame
 
     p4 = pickle.dumps(bytearray(b"xyz"), protocol=4)
     assert unpack_restricted_pickle_frame(p4) == bytearray(b"xyz")
@@ -413,7 +413,7 @@ def test_restricted_unpickler_accepts_valid_bytearray() -> None:
 def test_restricted_unpickler_rejects_oversized_bytearray8() -> None:
     """BYTEARRAY8 length exceeding available frame data is rejected without allocation."""
     import tracemalloc
-    from compute_service.worker_base import unpack_restricted_pickle_frame
+    from compute_service.worker_stdio import unpack_restricted_pickle_frame
 
     frame_body = pickle.BYTEARRAY8 + struct.pack("<Q", 4_000_000)
     payload = b"\x80\x05\x95" + struct.pack("<Q", len(frame_body)) + frame_body
@@ -441,7 +441,7 @@ def test_restricted_unpickler_rejects_oversized_bytearray8() -> None:
 )
 def test_restricted_unpickler_maps_struct_error_to_value_error(payload: bytes) -> None:
     """Truncated headers raising struct.error are mapped to ValueError."""
-    from compute_service.worker_base import unpack_restricted_pickle_frame
+    from compute_service.worker_stdio import unpack_restricted_pickle_frame
 
     with pytest.raises(ValueError, match="unpack requires a buffer"):
         unpack_restricted_pickle_frame(payload)
@@ -451,7 +451,7 @@ def test_host_unpicklers_share_allowlist_and_keep_policies() -> None:
     """Compute and scripting frames share one unpickler; the allowlists stay different."""
     import pickle
 
-    from compute_service.worker_base import RestrictedUnpickler, unpack_restricted_pickle_frame
+    from compute_service.worker_stdio import RestrictedUnpickler, unpack_restricted_pickle_frame
     from plugin.framework.ipc import AllowlistUnpickler, _SafeUnpickler, unpack_pickle_frame
 
     assert issubclass(RestrictedUnpickler, AllowlistUnpickler)
@@ -474,7 +474,7 @@ def test_run_worker_stdio_loop_breaks_on_decode_error(monkeypatch: pytest.Monkey
     import io
     import struct
     import sys
-    from compute_service.worker_base import run_worker_stdio_loop
+    from compute_service.worker_stdio import run_worker_stdio_loop
 
     # Provide a frame with invalid/corrupt pickle bytes
     corrupt_body = b"not-a-valid-pickle-stream"
@@ -622,7 +622,7 @@ def test_run_worker_stdio_loop_oversized_result_recovers(monkeypatch: pytest.Mon
     import io
     import sys
     import types
-    from compute_service.worker_base import run_worker_stdio_loop
+    from compute_service.worker_stdio import run_worker_stdio_loop
     from plugin.framework.ipc import pack_pickle_frame, read_pickle_frame
 
     # Request 1 returns oversized bytes; Request 2 returns normal result
@@ -669,7 +669,7 @@ def test_run_worker_stdio_loop_catches_base_exception(monkeypatch: pytest.Monkey
     import io
     import sys
     import types
-    from compute_service.worker_base import run_worker_stdio_loop
+    from compute_service.worker_stdio import run_worker_stdio_loop
     from plugin.framework.ipc import pack_pickle_frame, read_pickle_frame
 
     req1 = {"id": "req-base-exc"}
@@ -1590,7 +1590,7 @@ def test_run_compute_worker_sets_identity_and_payload_cap(monkeypatch: pytest.Mo
     """Both children share identity env vars, single-threaded math defaults, and frame cap."""
     import os
 
-    from compute_service.json_forward import COMPUTE_MAX_PAYLOAD_BYTES
+    from compute_service.config import COMPUTE_MAX_PAYLOAD_BYTES
     from compute_service.worker_stdio import COMPUTE_THREAD_ENV_VARS, run_compute_worker
 
     seen: dict[str, object] = {}
@@ -2989,7 +2989,7 @@ def test_install_image_pkgs_adds_sibling_directory(tmp_path: Path, monkeypatch: 
     """
     import sys
 
-    from compute_service.worker_base import install_image_pkgs
+    from compute_service.worker_stdio import install_image_pkgs
 
     pkgs = tmp_path / "pkgs"
     pkgs.mkdir()
@@ -3002,6 +3002,27 @@ def test_install_image_pkgs_adds_sibling_directory(tmp_path: Path, monkeypatch: 
     monkeypatch.setattr(sys, "path", ["/usr/lib/python"])
     install_image_pkgs(str(tmp_path / "no-such-root"))
     assert sys.path == ["/usr/lib/python"]
+
+
+def test_run_compute_worker_puts_image_pkgs_on_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import sys
+    import compute_service.worker_stdio as ws
+
+    pkgs = tmp_path / "pkgs"
+    pkgs.mkdir()
+    monkeypatch.setattr(ws, "_SERVICE_ROOT", str(tmp_path))
+    monkeypatch.setattr(sys, "path", ["/usr/lib/python"])
+
+    seen_path_zero: list[str] = []
+
+    def fake_loop(handler: Any, *, max_payload_bytes: int = 0) -> int:
+        seen_path_zero.append(sys.path[0])
+        return 0
+
+    monkeypatch.setattr(ws, "run_worker_stdio_loop", fake_loop)
+    ret = ws.run_compute_worker(lambda req: {})
+    assert ret == 0
+    assert seen_path_zero == [str(pkgs)]
 
 
 def test_respawn_popen_kwargs_scrub_session_and_drain(monkeypatch: pytest.MonkeyPatch) -> None:
