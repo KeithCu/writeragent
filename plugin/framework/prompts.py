@@ -145,6 +145,15 @@ def python_orchestrator_routing_line(*, delegate_toolset: str) -> str:
 # keep the user's edit wording and name source_image='selection'.
 DELEGATE_SPECIALIZED_TASK_PARAM_HINT = "What the specialized task should accomplish. For edit/change/restyle of an existing or selected image, instruct image_generate(source_image='selection') and keep the user's wording so img2img replaces the graphic in place."
 
+# Later tool calls read the live document directly; echoing modified content
+# back into chat history wastes context and corrupts links on round-trip retypes.
+DELEGATE_ANCHOR_RULE = (
+    "The document is the shared state: for edit tasks, name where data is "
+    "(TOC entry text, heading, cell range, Draw page and shape name) "
+    "and give counts rather than pasting rows, values, or links back; "
+    "for a read request, return what the user asked for."
+)
+
 # Shared guidance for writing `task` strings when delegating to specialized sub-agents.
 # Must stay a single line (delegation templates are one line; tests assert no newlines).
 SPECIALIZED_TASK_RULES = (
@@ -152,7 +161,11 @@ SPECIALIZED_TASK_RULES = (
     "When the user wants to edit, change, or restyle an existing or selected image, "
     "the task must instruct image_generate(source_image='selection') and keep the "
     "user's wording (for example 'make it look like a wizard') so img2img replaces "
-    "the graphic in place."
+    "the graphic in place. "
+    "For data already in the document, name where it is (heading, TOC entry text, "
+    "cell range, Draw page and shape name) in task and let the executor read and edit it there; "
+    "do not paste rows, values, or links read from the document into task. "
+    "Pass user-given new text or targets into task verbatim."
 )
 
 
@@ -219,6 +232,23 @@ Prioritize what reduces future user steering."""
 # becomes common for generated formulas, prefer the two-cell pattern
 # (=PY($A$1; range) — Monaco already follows that ref) instead of lengthening
 # this prompt. Not scheduled.
+
+
+def build_specialized_sub_agent_instructions(
+    agent_label: str,
+    domain: str,
+    *,
+    extra: str = "",
+) -> str:
+    """Build system instructions for a specialized domain sub-agent executor."""
+    base = (
+        f"You are a specialized {agent_label} task executor focused on the '{domain}' domain. "
+        "You have a focused set of tools to accomplish your task. Use them to fulfill the user's request. "
+        f"{DELEGATE_ANCHOR_RULE}"
+    )
+    if extra:
+        return f"{base}{extra}"
+    return base
 
 
 def images_specialized_sub_agent_hint() -> str:

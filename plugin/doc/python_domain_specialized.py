@@ -34,6 +34,7 @@ from typing import Any, ClassVar
 
 from plugin.chatbot.smol_agent import SmolToolAdapter, run_inner_tool_agent
 from plugin.framework.doc_type import agent_label_for_context
+from plugin.framework.prompts import DELEGATE_ANCHOR_RULE
 from plugin.doc.specialized_catalog import (
     DOMAIN_LOOP_HINTS,
     InnerToolCall,
@@ -313,6 +314,7 @@ def run_inner_domain_tool_agent(parent_ctx: ToolContext, domains: list[str], tas
         f"You are an inner {label} agent with tools for these specialized domains: {domain_list}. "
         "Use those tools to accomplish the task. Do not invent tools outside this list."
         f"{script_hint}"
+        f" {DELEGATE_ANCHOR_RULE}"
         " Call specialized_workflow_finished with a compact summary when done."
         f"{hints}"
     )

@@ -119,6 +119,8 @@ def test_delegate_status_workflow_finished_ok(
 
     assert result["status"] == "ok"
     assert result["answer"] == "Navigated to page 3"
+    from plugin.framework.prompts import DELEGATE_ANCHOR_RULE
+    assert DELEGATE_ANCHOR_RULE in mock_run_inner.call_args.kwargs["instructions"]
 
 
 def test_delegate_status_inner_tool_error(

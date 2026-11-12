@@ -407,15 +407,58 @@ def test_writer_chat_prompt_delegation_routing_local_vs_web():
     assert "Insert a Calc spreadsheet OLE in the active Writer document only" in prompt
 
 
+def test_writer_chat_prompt_domain_descriptions_do_not_address_main_chat_as_executor():
+    from plugin.doc.specialized_catalog import catalog_entries_from_base
+
+    model = MagicMock()
+    model.supportsService.return_value = False
+    prompt = get_chat_system_prompt_for_document(model)
+    assert "indexes_create kind=toc" in prompt
+    for label in ("Writer", "Calc", "Draw"):
+        for entry in catalog_entries_from_base(agent_label=label):
+            assert "yourself" not in entry["description"], entry["domain"]
+
+
+def test_delegate_anchor_rule_is_one_fixed_line():
+    from plugin.framework.prompts import DELEGATE_ANCHOR_RULE
+
+    assert "\n" not in DELEGATE_ANCHOR_RULE
+    assert "TOC entry text" in DELEGATE_ANCHOR_RULE
+    assert "cell range" in DELEGATE_ANCHOR_RULE
+    assert "Draw page and shape name" in DELEGATE_ANCHOR_RULE
+    assert "read request" in DELEGATE_ANCHOR_RULE
+
+
+def test_build_specialized_sub_agent_instructions():
+    from plugin.framework.prompts import (
+        DELEGATE_ANCHOR_RULE,
+        build_specialized_sub_agent_instructions,
+    )
+
+    instr = build_specialized_sub_agent_instructions("Writer", "indexes")
+    assert "Writer" in instr
+    assert "'indexes'" in instr
+    assert DELEGATE_ANCHOR_RULE in instr
+
+    instr_extra = build_specialized_sub_agent_instructions("Calc", "python", extra=" extra hint")
+    assert instr_extra.endswith(" extra hint")
+    assert DELEGATE_ANCHOR_RULE in instr_extra
+
+
 def test_specialized_delegation_block_is_single_line():
     from plugin.framework.prompts import SPECIALIZED_TASK_RULES, get_specialized_delegation_tool_hint
 
-    block = get_specialized_delegation_tool_hint("Writer")
-    assert "SPECIALIZED WRITER" in block
-    assert SPECIALIZED_TASK_RULES in block
-    assert "source_image='selection'" in block
-    assert "Enumerate what must be true" not in block
-    assert "\n" not in block
+    for kind in ("Writer", "Calc", "Draw"):
+        block = get_specialized_delegation_tool_hint(kind)
+        assert SPECIALIZED_TASK_RULES in block
+        assert "\n" not in block
+    assert "source_image='selection'" in SPECIALIZED_TASK_RULES
+    assert "TOC entry text" in SPECIALIZED_TASK_RULES
+    assert "cell range" in SPECIALIZED_TASK_RULES
+    assert "Draw page and shape name" in SPECIALIZED_TASK_RULES
+    assert "read from the document" in SPECIALIZED_TASK_RULES
+    assert "user-given" in SPECIALIZED_TASK_RULES
+    assert "Enumerate what must be true" not in SPECIALIZED_TASK_RULES
 
 
 def test_calc_core_directives_local_before_web():

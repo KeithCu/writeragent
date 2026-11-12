@@ -27,6 +27,7 @@ from plugin.framework.errors import is_disposal
 from plugin.framework.tool import ToolBase, ToolContext, field_from_tool_arguments, tool_supports_document
 from plugin.framework.prompts import (
     attach_sheets_create_completion_instruction,
+    build_specialized_sub_agent_instructions,
     DELEGATE_SPECIALIZED_TASK_PARAM_HINT,
     images_specialized_sub_agent_hint,
     python_specialized_sub_agent_hint,
@@ -357,11 +358,10 @@ class DelegateToSpecializedBase(ToolBase):
                 hints.append(images_specialized_sub_agent_hint())
             if domain == "python":
                 hints.append(python_specialized_sub_agent_hint(self._agent_label))
-            instructions = (
-                f"You are a specialized {self._agent_label} task executor focused on the '{domain}' domain. "
-                f"You have a focused set of tools to accomplish your task. Use them to fulfill the user's request. "
-                "If this domain cannot do the task, say so in the answer instead of claiming it was done."
-                + "".join(hints)
+            instructions = build_specialized_sub_agent_instructions(
+                self._agent_label,
+                domain,
+                extra="".join(hints),
             )
 
             examples_key = f"{self._agent_label.lower()}:{domain}"

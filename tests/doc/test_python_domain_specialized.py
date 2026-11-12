@@ -19,6 +19,7 @@ from plugin.doc.python_domain_specialized import (
     validate_requested_domains,
 )
 from plugin.doc.specialized_base import DelegateToSpecializedBase
+from plugin.framework.prompts import DELEGATE_ANCHOR_RULE
 from plugin.framework.tool import ToolBase, ToolContext, ToolRegistry
 from plugin.writer.specialized.footnotes import FootnotesInsert
 from plugin.writer.specialized_base import (
@@ -390,6 +391,7 @@ def test_run_inner_domain_tool_agent_unions_full_schemas(mock_executor_cls, mock
     assert "undo" in allowed
     assert "run_venv_python_script" not in allowed
     instructions = mock_build.call_args.kwargs["instructions"]
+    assert DELEGATE_ANCHOR_RULE in instructions
     assert "footnotes" in instructions
     assert "shapes" in instructions
     assert "wa.shape.upsert" in instructions

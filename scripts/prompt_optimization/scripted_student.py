@@ -710,6 +710,78 @@ SCRIPTS["py_refuse_overlap"] = [
 ]
 SCRIPTS["py_no_bulk_read"] = [_PY_WRITE, _stop("wrote =PY at J1 without reading the block")]
 
+from toc_fixture import EDIT_RENAMES, FIXTURE_ROWS
+
+_TOC_LIST_ANSWER = "\n".join(
+    f"{r.title} (level {r.level})" for r in FIXTURE_ROWS
+)
+SCRIPTS["toc_list_entries"] = [
+    _tools(
+        _tc(
+            "delegate_to_specialized_writer_toolset",
+            {
+                "domain": "indexes",
+                "task": "List table of contents entries without hyperlinks.",
+            },
+            "del_idx_list",
+        )
+    ),
+    _tools(_tc("indexes_list_toc_entries", {}, "list_toc_1")),
+    _tools(
+        _tc(
+            "specialized_workflow_finished",
+            {"answer": _TOC_LIST_ANSWER},
+            "fin_idx_list",
+        )
+    ),
+    _stop(),
+]
+
+_TOC_REFRESH_CALLS = [
+    _tc(
+        "indexes_refresh_toc_entry",
+        {"old_content": old, "content": new},
+        f"ref_{i}",
+    )
+    for i, (old, new) in enumerate(EDIT_RENAMES)
+]
+SCRIPTS["toc_renumber_insert"] = [
+    _tools(
+        _tc(
+            "delegate_to_specialized_writer_toolset",
+            {
+                "domain": "indexes",
+                "task": (
+                    "Renumber chapters 4 and 5 to 5 and 6 in the table of contents, "
+                    "including section rows, and insert 'Chapter 4 Interim Review' "
+                    "after 'Section 3.4 Topic'."
+                ),
+            },
+            "del_idx_edit",
+        )
+    ),
+    _tools(*_TOC_REFRESH_CALLS),
+    _tools(
+        _tc(
+            "indexes_insert_toc_entry",
+            {
+                "content": "Chapter 4 Interim Review",
+                "position": "after",
+                "old_content": "Section 3.4 Topic",
+            },
+            "ins_toc_1",
+        )
+    ),
+    _tools(
+        _tc(
+            "specialized_workflow_finished",
+            {"answer": "TOC renumbered and review chapter inserted."},
+            "fin_idx_edit",
+        )
+    ),
+    _stop(),
+]
+
 
 class ScriptedStudent:
     """Play the next scripted round; stop when a content-only round is returned."""

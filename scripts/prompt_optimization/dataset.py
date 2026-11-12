@@ -1,13 +1,13 @@
 """
 Fixed examples for prompt optimization / eval (scripts/prompt_optimization/).
 
-ALL_EXAMPLES is 20 tasks: 12 Writer (including style_consistency, smart_summarization,
-section_refactor, comment_management) + flowchart_gen / org_chart_gen / solar_sld_gen
-(Draw) + data_sorting / tax_column (Calc) + two Phase F =PY dest rows (refuse overlap,
-no bulk read) + python_shapes_flag (Writer, backend=lo). Rows omit ``backend`` to stay
-on the string world. ``org_chart_gen``, ``solar_sld_gen``, and the flag declare
-``backend=lo`` (native Draw / Writer); they cannot run on the string simulator.
-Structural tasks are scored from the exported final document (oracles + honest substring
+ALL_EXAMPLES is 22 tasks: 14 Writer (including style_consistency, smart_summarization,
+section_refactor, comment_management, plus two TOC rows: toc_list_entries, toc_renumber_insert)
++ flowchart_gen / org_chart_gen / solar_sld_gen (Draw) + data_sorting / tax_column (Calc)
++ two Phase F =PY dest rows (refuse overlap, no bulk read) + python_shapes_flag (Writer, backend=lo).
+Rows omit ``backend`` to stay on the string world. ``org_chart_gen``, ``solar_sld_gen``, the flag,
+and the two TOC rows declare ``backend=lo`` (native Draw / Writer); they cannot run on the string
+simulator. Structural tasks are scored from the exported final document (oracles + honest substring
 checks). A quality judge runs after the hard gate for resume, rewriting, summarization,
 and the two table tasks. See docs/eval/eval-dev-plan.md.
 """
@@ -498,6 +498,47 @@ PYTHON_SHAPES_FLAG = {
     ),
 }
 
+TOC_LIST_ENTRIES = {
+    "document_content": "Quarterly engineering report with an eight-chapter table of contents.",
+    "user_question": "List the entries in the table of contents with their levels. I do not need the links.",
+    "task_id": "toc_list_entries",
+    "fixture": "toc_outline_40",
+    "expected_contains": [],
+    "reject_contains": [],
+    "is_non_trivial": True,
+    "category": "structural",
+    "backend": "lo",
+    "rubric": (
+        "Headless Writer with TOC fixture. Trace must show delegate domain=indexes "
+        "and indexes_list_toc_entries. Answer must report at least 36 of 40 titles "
+        "without echoing corrupted links."
+    ),
+}
+
+TOC_RENUMBER_INSERT = {
+    "document_content": "Quarterly engineering report with an eight-chapter table of contents.",
+    "user_question": (
+        "In the table of contents, renumber chapters 4 and 5 to 5 and 6, including "
+        "their section rows (4.1 becomes 5.1 and so on), then add a new row "
+        "'Chapter 4 Interim Review' right after 'Section 3.4 Topic'. "
+        "Do not rebuild the index."
+    ),
+    "task_id": "toc_renumber_insert",
+    "fixture": "toc_outline_40",
+    "expected_contains": [],
+    "reject_contains": [],
+    "is_non_trivial": True,
+    "category": "structural",
+    "backend": "lo",
+    "rubric": (
+        "Headless Writer with TOC fixture. Trace must show delegate domain=indexes, "
+        "10 indexes_refresh_toc_entry calls without hyperlink_url, and "
+        "indexes_insert_toc_entry. Exported .odt must have updated titles and "
+        "preserved outline URLs without indexes_update_all. Links are checked "
+        "for text substitution only, not live outline navigation."
+    ),
+}
+
 
 # Solar SLD Gen — native Draw (backend=lo). Partial-home backup: Solar AC
 # Disconnect comes from the main panel; MID and everything downstream of that
@@ -578,6 +619,8 @@ ALL_EXAMPLES.append(TAX_COLUMN)
 ALL_EXAMPLES.append(PY_REFUSE_OVERLAP)
 ALL_EXAMPLES.append(PY_NO_BULK_READ)
 ALL_EXAMPLES.append(PYTHON_SHAPES_FLAG)
+ALL_EXAMPLES.append(TOC_LIST_ENTRIES)
+ALL_EXAMPLES.append(TOC_RENUMBER_INSERT)
 
 
 
@@ -620,6 +663,7 @@ def to_eval_examples(examples=None):
                 category=ex.get("category", "structural"),
                 use_quality_judge=ex.get("use_quality_judge", False),
                 backend=ex.get("backend", "string"),
+                fixture=ex.get("fixture", ""),
             )
         )
     return out
@@ -664,6 +708,7 @@ def to_dspy_examples(examples=None, with_inputs=True):
             category=ex.get("category", "structural"),
             use_quality_judge=ex.get("use_quality_judge", False),
             backend=ex.get("backend", "string"),
+            fixture=ex.get("fixture", ""),
         ).with_inputs("document_content", "user_question", "task_id") if with_inputs else dspy.Example(**ex)
         out.append(e)
     return out
