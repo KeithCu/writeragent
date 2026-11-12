@@ -19,12 +19,11 @@ import hypothesis.strategies as st
 from hypothesis import strategies
 
 import plugin.scripting.payload_codec as pc
-from plugin.scripting.calc_range import ensure_rectangular_2d
+from plugin.scripting.calc_range import ensure_rectangular_2d, materialize_calc_range
 from plugin.scripting.payload_codec import (
     BINARY_MIN_CELLS,
     PAYLOAD_MULTI_DATA,
     ForceBinary,
-    child_unpack_data,
     host_pack_data,
     host_unpack_data,
     is_numeric_grid,
@@ -351,7 +350,8 @@ def grid_cell_count(grid: list[Any] | list[list[Any]]) -> int:
 
 
 def codec_child_materialization(grid: list[Any] | list[list[Any]], *, force: ForceBinary) -> Any:
-    return child_unpack_data(host_pack_data(grid, force=force))
+    """Production child ingress (venv_sandbox._inject_data -> materialize_inputs)."""
+    return materialize_calc_range(host_pack_data(grid, force=force)).values
 
 
 def codec_host_decode(grid: list[Any] | list[list[Any]], *, force: ForceBinary) -> Any:
@@ -877,15 +877,6 @@ MULTI_RANGE_FIXTURES: list[tuple[list[list[Any] | list[list[Any]]], str]] = [
 ]
 
 
-def multi_range_child_materialization(
-    grids: list[list[Any] | list[list[Any]]],
-    *,
-    force: ForceBinary = "auto",
-) -> Any:
-    """Child-side materialization for a list of Calc ranges (multi_data envelope)."""
-    return child_unpack_data(_pack_multi_data(grids, force=force))
-
-
 def run_multi_venv_echo(
     grids: list[list[Any] | list[list[Any]]],
     *,
@@ -990,7 +981,6 @@ __all__ = [
     "is_valid_grid_for_pack",
     "hypothesis_grid_ok",
     "MULTI_RANGE_FIXTURES",
-    "multi_range_child_materialization",
     "run_multi_venv_echo",
     "BINARY_MIN_CELLS",
     "multi_range_grid",

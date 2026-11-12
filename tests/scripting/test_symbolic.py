@@ -174,11 +174,11 @@ def test_solve_equation_rejects_inequalities_and_double_equals():
     for eq in ("x <= 2", "x >= 2", "x != 2", "x == 2", "x < 2", "x > 2"):
         res = solve_equation(equation=eq, variable="x")
         assert res["status"] == "error"
-        assert res["code"] == "INVALID_PARAMS"
+        assert res["code"] == "INVALID_PARAM"
 
     res_multi = solve_equation(equation="x = 1 = 2", variable="x")
     assert res_multi["status"] == "error"
-    assert res_multi["code"] == "INVALID_PARAMS"
+    assert res_multi["code"] == "INVALID_PARAM"
 
 
 def test_variable_returned_stripped():
@@ -282,7 +282,7 @@ def test_factorial_equation_needs_a_space_before_equals():
     for equation in ("n!=720", "5!=120"):
         res = solve_equation(equation=equation, variable="n")
         assert res["status"] == "error"
-        assert res["code"] == "INVALID_PARAMS"
+        assert res["code"] == "INVALID_PARAM"
 
     spaced = solve_equation(equation="n! = 720", variable="n")
     assert spaced["status"] == "error"

@@ -17,8 +17,9 @@ from plugin.scripting.session_key import (
     is_unsaved_document_key,
     new_unsaved_document_key,
 )
+from plugin.scripting.sandbox import build_sandbox_policy
 from plugin.scripting.venv.duckdb_sql import persistable_duckdb_session_id
-from plugin.scripting.venv.venv_sandbox import SESSIONS
+from plugin.scripting.venv.venv_sandbox import SessionStore
 
 
 @pytest.mark.parametrize(
@@ -107,12 +108,11 @@ def test_empty_rest_calc_and_init_lookup_and_duckdb_none() -> None:
     assert persistable_duckdb_session_id(":init") is None
 
     # :init pops no sandbox cell
-    exe, _ = SESSIONS.get_or_create("", 5)
-    try:
-        assert SESSIONS.reset(":init")["status"] == "ok"
-        assert SESSIONS.executor("") is exe
-    finally:
-        SESSIONS.clear_all()
+    store = SessionStore()
+    exe, created = store.get_or_create("", 5, policy=build_sandbox_policy())
+    assert created is True
+    assert store.reset(":init")["status"] == "ok"
+    assert store.executor("") is exe
 
 
 def test_ppt_master_active_lookup_not_persistable_default_wire() -> None:

@@ -7,26 +7,23 @@
 from __future__ import annotations
 
 import ast
+from collections import OrderedDict
+from typing import cast
 from unittest.mock import patch
 
 import pytest
 
-from typing import TYPE_CHECKING, cast
-
-if TYPE_CHECKING:
-    from collections.abc import Generator
-
 from plugin.contrib.smolagents.local_python_executor import BASE_BUILTIN_MODULES
 from plugin.scripting import sandbox_cache as hot_cache
-from plugin.scripting.sandbox_cache import clear_python_code_hot_cache, get_hot_entry, validate_sandbox_ast
+from plugin.scripting.sandbox_cache import get_hot_entry, validate_sandbox_ast
 from plugin.scripting.venv.venv_sandbox import run_sandboxed_code
 
 
 @pytest.fixture(autouse=True)
-def _clear_hot_cache() -> Generator[None, None, None]:
-    clear_python_code_hot_cache()
-    yield
-    clear_python_code_hot_cache()
+def _fresh_hot_cache(monkeypatch: pytest.MonkeyPatch) -> None:
+    # get_hot_entry reads the module-level _cache on each call, so an empty
+    # OrderedDict gives this test its own cache; monkeypatch restores the shared one.
+    monkeypatch.setattr(hot_cache, "_cache", OrderedDict())
 
 
 def test_get_hot_entry_returns_same_module_object() -> None:
@@ -90,7 +87,6 @@ def test_syntax_error_cached() -> None:
 
 
 def test_lru_eviction() -> None:
-    clear_python_code_hot_cache()
     original_max = hot_cache._DEFAULT_MAX_ENTRIES
     hot_cache._DEFAULT_MAX_ENTRIES = 2
     try:

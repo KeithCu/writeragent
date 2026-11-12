@@ -241,7 +241,6 @@
           "host_unpack_split_grid",
           "host_unpack_data",
           "child_unpack_split_grid",
-          "child_unpack_data",
           "child_pack_split_grid",
           "child_pack_result",
           "cell_count",

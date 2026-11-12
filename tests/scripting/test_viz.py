@@ -757,7 +757,7 @@ def test_correlation_heatmap_rejects_unknown_method(method):
     result = run_viz({"helper": "correlation_heatmap", "params": {"method": method}}, df, {})
 
     assert result["status"] == "error"
-    assert result["code"] == "INVALID_PARAMS"
+    assert result["code"] == "INVALID_PARAM"
     assert result["message"] == "method must be pearson, kendall, or spearman"
     assert result["helper"] == "correlation_heatmap"
 
@@ -1035,7 +1035,7 @@ def test_quick_plot_y_cols_key_is_invalid(mock_plt):
     result = run_viz({"helper": "quick_plot", "params": {"y_cols": ["B"]}}, df, {})
 
     assert result["status"] == "error"
-    assert result["code"] == "INVALID_PARAMS"
+    assert result["code"] == "INVALID_PARAM"
     assert result["message"] == "quick_plot takes y_col, not y_cols"
     plt_mod.subplots.assert_not_called()
 
@@ -1049,7 +1049,7 @@ def test_quick_plot_y_col_list_is_invalid(mock_plt):
     result = run_viz({"helper": "quick_plot", "params": {"y_col": ["B"]}}, df, {})
 
     assert result["status"] == "error"
-    assert result["code"] == "INVALID_PARAMS"
+    assert result["code"] == "INVALID_PARAM"
     assert result["message"] == "y_col must be one column name"
     plt_mod.subplots.assert_not_called()
 
@@ -1064,7 +1064,7 @@ def test_plot_data_unknown_chart_type(mock_plt, bad_type):
     result = run_viz({"helper": "plot_data", "params": {"spec": {"chart_type": bad_type}}}, df, {})
 
     assert result["status"] == "error"
-    assert result["code"] == "INVALID_PARAMS"
+    assert result["code"] == "INVALID_PARAM"
     assert result["message"] == "chart_type must be line, scatter, histogram, or bar"
     assert result["helper"] == "plot_data"
     plt_mod.subplots.assert_not_called()

@@ -113,13 +113,13 @@ def _to_py(v: Any) -> Any:
 def _optional_numpy() -> Any:
     """Return the NumPy module, or None when this interpreter has no NumPy.
 
-    ``child_pack_result``, ``_needs_elementwise_pack``,
-    ``_container_has_packable_nested``, and ``_child_unpack_single_data``
-    import NumPy only after the value needs ndarray checks. A plain dict or list
-    must not raise ``ImportError`` in a venv without NumPy (LibreOffice's Python
-    ships without it, and some user venvs omit it). ``ModuleNotFoundError``
-    is an ``ImportError``. Callers skip ndarray checks when this returns
-    None. Numeric ``split_grid`` envelopes still import NumPy on their own.
+    ``child_pack_result``, ``_needs_elementwise_pack``, and
+    ``_container_has_packable_nested`` import NumPy only after the value
+    needs ndarray checks. A plain dict or list must not raise ``ImportError`` in
+    a venv without NumPy (LibreOffice's Python ships without it, and some user
+    venvs omit it). ``ModuleNotFoundError`` is an ``ImportError``. Callers skip
+    ndarray checks when this returns None. Numeric ``split_grid`` envelopes
+    still import NumPy on their own.
     """
     try:
         import numpy as np
@@ -907,8 +907,9 @@ def _is_numeric_coercible_impl(value: Any) -> bool:
     never coercible here — even ``\"02138\"`` parses as a float — so mixed
     grids stay lists after child split_grid unpack (zip codes and labels
     preserved). Empty and whitespace strings return True because they match
-    Calc blanks. ``np.array(..., dtype=float64)`` still raises ``ValueError``
-    on them, and ``_child_unpack_single_data`` keeps the list in that case.
+    Calc blanks. The child decoder never consults this gate;
+    ``child_unpack_split_grid`` returns a mixed envelope as lists, and this
+    predicate serves the serialization A/B oracle and the policy tests.
     """
     # crosshair: off
     if value is None or isinstance(value, (bool, int, float)):
@@ -1844,124 +1845,6 @@ def child_unpack_split_grid(envelope: dict[str, Any]) -> Any:
         return _to_py(list_result)
     except Exception:
         log.exception("payload_codec child_unpack split_grid failed for envelope %s", describe_wire_value(envelope))
-        raise
-
-
-@deal.post(lambda *a, result=_DEAL_RETURN, **k: _deal_return(*a, result=result) is not None)
-@deal.raises(ValueError, TypeError, AttributeError)
-def _child_unpack_single_data(wire: Any) -> Any:
-    """Materialize one range payload in the venv (split_grid or nested list)."""
-    # crosshair: off
-    np = _optional_numpy()
-
-    unpacked = child_unpack_split_grid(wire) if is_split_grid(wire) else wire
-
-    # Single-cell ranges become scalars; multi-range outer list is handled by child_unpack_data.
-    if np is not None and isinstance(unpacked, np.ndarray):
-        if unpacked.size == 1:
-            # Keep 1.0 as float; int(val) would make a 1×1 cell an int while a
-            # longer float64 column stays 1.0.
-            # Asymmetry, left as-is: this size==1 ndarray (a length-1 vector, or
-            # force="always" on [[x]]) becomes a scalar. A nested list [[x]] is
-            # not an ndarray yet and stays 2D
-            # (test_child_unpack_single_entry_auto_scalar_and_integer_coercion).
-            # force="auto" never binary-packs one cell, so production single
-            # cells arrive as lists. Do not collapse [[x]] to match this path.
-            return unpacked.item()
-    elif isinstance(unpacked, (list, tuple)):
-        if len(unpacked) == 1 and type(unpacked[0]) not in (list, tuple):
-            return unpacked[0]
-
-        grid: list[Any] | list[list[Any]]
-        if unpacked and (type(unpacked[0]) in (list, tuple)):
-            # list(row) on a later int raises TypeError, and this function has
-            # no grid pre for deal to reject it first. Host pack already raises
-            # ValueError via _split_grid_row_width. A real row is a list or
-            # tuple. A str has a length but is not a row ("ab" must not become
-            # two cells).
-            grid = []
-            for row in unpacked:
-                _split_grid_row_width(row)
-                grid.append(list(row))
-        else:
-            grid = list(unpacked)
-        if is_numeric_grid(grid):
-            # _is_numeric_coercible_impl treats whitespace/"" as Calc blanks, but
-            # np.float64 cannot convert those strings (ValueError). Keep the list.
-            # No NumPy: a numeric list cannot become an ndarray. Return it so
-            # plain inbound data still materializes.
-            if np is None:
-                log.debug(
-                    "payload_codec child_unpack json_list as-is (numpy unavailable) %s",
-                    describe_wire_value(unpacked),
-                )
-                return grid
-            try:
-                arr = np.array(grid, dtype=np.float64)
-            except ValueError:
-                log.debug(
-                    "payload_codec child_unpack json_list as-is (non-floatable blanks) %s",
-                    describe_wire_value(unpacked),
-                )
-                return grid
-            log.debug(
-                "payload_codec child_unpack json_list -> ndarray shape=%s",
-                arr.shape,
-            )
-            return arr
-        if log.isEnabledFor(logging.DEBUG):
-            log.debug("payload_codec child_unpack json_list as-is %s", describe_wire_value(unpacked))
-        return grid
-    return unpacked
-
-
-def _deal_child_unpack_wire_ok(*args: Any, **kwargs: Any) -> bool:
-    return True
-
-
-@deal.pre(lambda wire, *_unused, **__: _deal_child_unpack_wire_ok(wire))
-@deal.post(lambda *a, result=_DEAL_RETURN, **k: _deal_return(*a, result=result) is not None)
-@deal.raises(ValueError, TypeError, AttributeError)
-def child_unpack_data(wire: Any, *, _depth: int = 0) -> Any:
-    """Materialize worker ``data`` in venv.
-
-    For ``calc_range`` / ``multi_data`` of ranges, returns a :class:`CalcRange` or
-    list of CalcRange (caller should prefer :func:`materialize_inputs`).
-    Legacy bare grids still become ndarray/list.
-    """
-    # crosshair: off
-    if _depth > _MAX_UNPACK_DEPTH:
-        raise ValueError("payload_codec: child_unpack_data maximum recursion depth exceeded")
-    try:
-        from plugin.scripting.calc_range import materialize_calc_range
-
-        if is_calc_range_payload(wire):
-            return materialize_calc_range(wire)
-        if is_multi_data(wire):
-            items = wire.get("items") or []
-            return [child_unpack_data(item, _depth=_depth + 1) for item in items]
-        if is_split_grid(wire):
-            return _child_unpack_single_data(wire)
-        if is_image_payload(wire):
-            return wire
-        # Host walks plain dicts, and so must this: returned unchanged, a
-        # split_grid nested under a dict would reach user code still packed.
-        # Lists stay as-is: the list arm is the grid materializer, and turning
-        # a numeric list stored in a dict into an ndarray would change
-        # test_child_unpack_plain_python_without_numpy. Only dict values can
-        # be envelopes. OrderedDict is not ``type is dict`` (same AttrDict
-        # rule as host_unpack_data).
-        if type(wire) is dict:
-            return {
-                k: child_unpack_data(v, _depth=_depth + 1) if type(v) is dict else v
-                for k, v in wire.items()
-            }
-        return _child_unpack_single_data(wire)
-    except Exception:
-        log.exception(
-            "payload_codec child_unpack failed for wire %s",
-            describe_wire_value(wire),
-        )
         raise
 
 

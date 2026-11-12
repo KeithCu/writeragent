@@ -12,6 +12,7 @@
 #   - JS Script Manager:        plugin/contrib/scripting/assets/editor/scripts_manager.js
 #   - Host Bridge:              plugin/scripting/editor_host.py
 # Parent-to-child types that the child queues are PARENT_TO_CHILD_TYPES in this file, and a new type is added there only when the host sends it and editor_shell.js or scripts_manager.js handles it.
+# Child-to-parent types are CHILD_TO_PARENT_TYPES; a new one is added there, sent from venv/editor_main.py, and handled in PersistentEditor._incoming_handlers.
 # =========================================================================================
 
 from __future__ import annotations
@@ -33,6 +34,7 @@ from plugin.framework.ipc import (
 )
 
 __all__ = [
+    "CHILD_TO_PARENT_TYPES",
     "EDITOR_DEFAULT_TITLE",
     "PARENT_TO_CHILD_TYPES",
     "message_type",
@@ -63,6 +65,23 @@ PARENT_TO_CHILD_TYPES = frozenset({
     "theme",
     "scripts_list",
     "unsaved_choice",
+})
+
+# Types the editor child (venv/editor_main.py) sends to LibreOffice. The host
+# handles each one in PersistentEditor._incoming_handlers (editor_host.py).
+# The four picker names are also document_scripts.SCRIPT_PICKER_MESSAGE_TYPES;
+# they are written out here because the venv child imports this module and must
+# not import document_scripts (that module loads the UNO document helpers).
+CHILD_TO_PARENT_TYPES = frozenset({
+    "ready",
+    "closed",
+    "dirty",
+    "save",
+    "ask_unsaved",
+    "request_scripts",
+    "select_script",
+    "save_script",
+    "delete_script",
 })
 
 # Identity keys on every session message (omit empties).

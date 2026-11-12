@@ -50,7 +50,7 @@ def test_run_quant_invalid_params(monkeypatch):
     monkeypatch.setitem(sys.modules, "yfinance", object())
     result = venv_run_quant({"helper": "fetch_historical_data", "params": {}})
     assert result["status"] == "error"
-    assert result["code"] == "INVALID_PARAMS"
+    assert result["code"] == "INVALID_PARAM"
     assert result["helper"] == "fetch_historical_data"
     from plugin.scripting.domain_registry import get_domain_wiring
 
@@ -210,7 +210,7 @@ def test_portfolio_tearsheet_bad_column(monkeypatch):
         data=grid,
     )
     assert result["status"] == "error"
-    assert result["code"] == "INVALID_PARAMS"
+    assert result["code"] == "INVALID_PARAM"
     assert "NonExistent" in result["message"]
 
 
@@ -408,7 +408,7 @@ def test_technical_analysis_unknown_indicator(monkeypatch):
         data=grid,
     )
     assert result["status"] == "error"
-    assert result["code"] == "INVALID_PARAMS"
+    assert result["code"] == "INVALID_PARAM"
     assert "invalid_indicator" in result["message"]
 
 
@@ -543,7 +543,7 @@ def test_technical_analysis_rejects_non_list_indicators(monkeypatch):
         data=[["Close"], [1.0]],
     )
     assert result["status"] == "error"
-    assert result["code"] == "INVALID_PARAMS"
+    assert result["code"] == "INVALID_PARAM"
 
 
 def test_portfolio_tearsheet_sorts_and_averages_duplicate_dates(monkeypatch):
@@ -716,13 +716,13 @@ def test_efficient_frontier_rejects_bad_bounds_and_rate(monkeypatch):
         data=grid,
     )
     assert bounds["status"] == "error"
-    assert bounds["code"] == "INVALID_PARAMS"
+    assert bounds["code"] == "INVALID_PARAM"
     rate = venv_run_quant(
         {"helper": "efficient_frontier", "params": {"risk_free_rate": "nope"}},
         data=grid,
     )
     assert rate["status"] == "error"
-    assert rate["code"] == "INVALID_PARAMS"
+    assert rate["code"] == "INVALID_PARAM"
     mock_ef_class.assert_not_called()
 
 
