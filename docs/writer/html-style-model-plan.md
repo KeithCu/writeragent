@@ -76,7 +76,7 @@ LibreOffice has **no filter** for “styles only.” Any `storeToURL` path (XHTM
 **Recommended shape:**
 
 1. **Cached UNO paragraph style index** — one `text.createEnumeration()` pass per document revision: top-level block index → compact token via `ParaStyleName` + `compact_lo_style_name()`. Cache invalidated on `document:cache_invalidated` (same pattern as [`TreeService`](../../plugin/writer/tree.py)). Cost: O(paragraphs) RPC, **no filter pipeline**.
-2. **Scoped HTML export** — agent uses `get_document_content(scope=range)` (existing [`_range_to_content_via_temp_doc`](../../plugin/writer/html_export.py) already copies `ParaStyleName` into temp docs). Merge styles from the index for that para range only.
+2. **Scoped HTML export** — agent uses `get_document_content(scope=range)` (existing [`_range_to_content_via_temp_doc`](../../plugin/writer/html_export.py) already copies `ParaStyleName` into temp docs, copying missing styles from the source document ancestors first). Merge styles from the index for that para range only.
 3. **Navigation first** — `get_document_tree`, `search_in_document`, `nav_heading_children` before full reads ([`lo-dom-semantic-tree.md`](lo-dom-semantic-tree.md), [`../chat/multi-document-dev-plan.md`](../chat/multi-document-dev-plan.md)).
 
 **Why UNO index is better than FODT sidecar for scale:** Probe B proved UNO `ParaStyleName` stays correct when XHTML export lies. The sidecar fixes the same gap via export strings (v1 purity bet); UNO is lighter and more authoritative for **paragraph names only**.
@@ -251,6 +251,10 @@ The range read reports it too. `_range_to_content_via_temp_doc` carries the sour
 direct `Para*` names in `range_copy._COPIED_PARA_PROPERTIES` (margins, indent, alignment,
 line height, background) and paints each text portion's direct `Char*` onto the copy, skipping
 anything the paragraph style already provides so an inherited value is not reported as hand-set.
+A paragraph style missing from the scratch document is copied from the source, ancestors first,
+and an existing scratch name is left alone. `FollowStyle` is set only when that name is already in the
+scratch family. A failed copy leaves the factory style and paints direct properties. The comparison
+that decides direct formatting is still the source style object.
 The property list covers every property written from `data-lo-para`, and a unit test pins this.
 A range slice that crosses a bold run therefore reads back with the bold in place.
 

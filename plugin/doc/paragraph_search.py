@@ -219,15 +219,13 @@ def paragraph_index_for_anchor(
 def _confirm_paragraph_index(text_obj: Any, anchor: Any, para_ranges: list[Any], para_idx: Any) -> int | None:
     """Return *para_idx* when it is a real hit, or None for the unplaced fallback.
 
-    ``find_paragraph_for_range`` returns None when unplaced; this guard
-    keeps a legacy or literal 0 only when the anchor start lies in element 0.
-    ``bookmark:`` locators then navigate and edit
-    paragraph 0 and report success. A stale ``_mcp_`` mark after
-    save/reopen or ``bookmark_cleanup`` still has a name, so the
-    missing-name error never runs; only the finder fails. Index 0
-    is kept only when the anchor start lies in that element. Any
-    other non-negative index is a hit inside the search, not the
-    fallback.
+    ``find_paragraph_for_range`` returns None when it cannot place the anchor, but
+    it can still return 0 for a point in a leading gap, and a custom finder may
+    return a literal 0. Index 0 is accepted only when the anchor start lies in
+    element 0. Without this check, a stale ``_mcp_`` bookmark (after save/reopen or
+    ``bookmark_cleanup``) still has a name, so the missing-name error never runs,
+    and a ``bookmark:`` locator would edit paragraph 0 and report success. Any
+    other non-negative index is a real hit.
     """
     if not isinstance(para_idx, int) or isinstance(para_idx, bool) or para_idx < 0:
         return None

@@ -26,7 +26,7 @@ if TYPE_CHECKING:
 log = logging.getLogger("writeragent.embedded")
 
 # Integer constants (PyUNO enums are ints; pytest has no com.sun.star.embed types).
-# math_mml_convert.py:26 AnchorType AS_CHARACTER; math_insert.py:36 MSOLE_CONTENT aspect.
+# Same values as math_mml_convert._ANCHOR_AS_CHARACTER and plugin/draw/math_insert._ASPECT_CONTENT (MSOLE_CONTENT).
 _ANCHOR_AS_CHARACTER = 1
 _EMBED_STATE_RUNNING = 1
 _EMBED_STATE_INPLACE_ACTIVE = 3
