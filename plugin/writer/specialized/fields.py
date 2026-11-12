@@ -19,7 +19,7 @@ from plugin.framework.tool import ToolBase
 
 from ..edit_review import next_agent_edit_undo_title
 from ..specialized_base import ToolWriterFieldBase, target_params
-from ..target_resolver import resolve_target_cursor
+from ..target_resolver import insert_at_target
 
 
 KNOWN_PROPERTIES = (
@@ -285,14 +285,6 @@ class FieldsInsert(ToolWriterFieldBase):
         if not hasattr(doc, "createInstance"):
             return self._tool_error("Document does not support creating instances.")
 
-        target = kwargs.get("target", "selection")
-        old_content = kwargs.get("old_content")
-
-        try:
-            cursor = resolve_target_cursor(ctx, target, old_content, case_sensitive=kwargs.get("case_sensitive"))
-        except ValueError as ve:
-            return self._tool_error(str(ve))
-
         properties = dict(kwargs.get("properties") or {})
         if field_type == "PageNumber":
             # Bare UNO PageNumber is NumberingType=0/SubType=PREV: blank on page 1.
@@ -317,34 +309,16 @@ class FieldsInsert(ToolWriterFieldBase):
                     raise
                 return self._tool_error(f"Failed to set property '{key}' to '{value}': {e}")
 
-        # Insert at resolved cursor
-        if target == "search" and old_content:
-            undo_title = next_agent_edit_undo_title()
-
-            def mutate() -> dict[str, Any] | None:
-                cursor.setString("")
-                text = cursor.getText()
-                text.insertTextContent(cursor, field, False)
-                return None
-
-            err = commit_or_rollback_mutation(
-                self,
-                doc,
-                undo_title,
-                mutate,
-                undo_unavailable_msg="Cannot replace the matched text atomically (no usable undo context).",
-                rollback_msg="Failed to insert field; the change was rolled back",
-            )
-            if err is not None:
-                return err
-        else:
-            try:
-                text = cursor.getText()
-                text.insertTextContent(cursor, field, False)
-            except Exception as e:
-                if is_disposal(e):
-                    raise
-                return self._tool_error(f"Failed to insert field: {e}")
+        # Resolve target and insert as one undo step (insert_at_target).
+        err = insert_at_target(
+            self,
+            ctx,
+            kwargs,
+            lambda cursor: cursor.getText().insertTextContent(cursor, field, False),
+            what="the field",
+        )
+        if err is not None:
+            return err
 
         return {"status": "ok", "message": f"Successfully inserted {field_type} field.", "applied_properties": properties}
 

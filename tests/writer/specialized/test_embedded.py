@@ -170,8 +170,8 @@ def test_embedded_insert_sequence_and_cell_writes():
     data = [["Label", 1], ["=SUM(B2:B3)", 2], [3, None]]
     expected_size = embedded_mod._embed_size_for_used_range(len(data), max(len(row) for row in data))
     with (
-        patch("plugin.writer.specialized.embedded.resolve_target_cursor", return_value=cursor),
-        patch("plugin.writer.specialized.embedded.commit_or_rollback_mutation", side_effect=_commit),
+        patch("plugin.writer.target_resolver.resolve_target_cursor", return_value=cursor),
+        patch("plugin.writer.target_resolver.commit_or_rollback_mutation", side_effect=_commit),
     ):
         res = EmbeddedInsert().execute(
             ctx,
@@ -214,8 +214,8 @@ def test_embedded_insert_name_unchanged_skips_get_embedded_object():
         return err
 
     with (
-        patch("plugin.writer.specialized.embedded.resolve_target_cursor", return_value=cursor),
-        patch("plugin.writer.specialized.embedded.commit_or_rollback_mutation", side_effect=_commit),
+        patch("plugin.writer.target_resolver.resolve_target_cursor", return_value=cursor),
+        patch("plugin.writer.target_resolver.commit_or_rollback_mutation", side_effect=_commit),
     ):
         res = EmbeddedInsert().execute(ctx, object_type="spreadsheet", target="end")
 
@@ -243,8 +243,8 @@ def test_embedded_insert_duplicate_name_before_create():
         return mutate()
 
     with (
-        patch("plugin.writer.specialized.embedded.resolve_target_cursor", return_value=cursor),
-        patch("plugin.writer.specialized.embedded.commit_or_rollback_mutation", side_effect=_commit),
+        patch("plugin.writer.target_resolver.resolve_target_cursor", return_value=cursor),
+        patch("plugin.writer.target_resolver.commit_or_rollback_mutation", side_effect=_commit),
     ):
         res = EmbeddedInsert().execute(
             ctx,
@@ -279,8 +279,8 @@ def test_embedded_insert_get_embedded_object_failure():
         return mutate()
 
     with (
-        patch("plugin.writer.specialized.embedded.resolve_target_cursor", return_value=cursor),
-        patch("plugin.writer.specialized.embedded.commit_or_rollback_mutation", side_effect=_commit),
+        patch("plugin.writer.target_resolver.resolve_target_cursor", return_value=cursor),
+        patch("plugin.writer.target_resolver.commit_or_rollback_mutation", side_effect=_commit),
     ):
         res = EmbeddedInsert().execute(ctx, object_type="spreadsheet", target="end")
 
