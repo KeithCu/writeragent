@@ -90,8 +90,8 @@ class PeerPendingTurn:
     """One queued extracted send on a listener.
 
     Turns compare by identity (eq=False). The queue removes turns by identity
-    so value equality does not inadvertently drop a distinct turn with identical
-    text during busy re-queue or rollback.
+    so value equality does not inadvertently drop a different equal turn during
+    the busy re-queue path, mutating already_appended after enqueue.
     """
 
     wrapped_text: str
@@ -112,11 +112,7 @@ class PeerListener(Protocol):
 
 
 class PeerQueue:
-    """Pending peer turns for every sidebar, oldest first, in one deque of (weakref, turn).
-
-    Turns never leave the deque until they start, so Stop, dispose, and the queue cap
-    always observe all pending entries even while a kick or send pump is in flight.
-    """
+    """Pending peer turns for every sidebar, oldest first, in one deque of (weakref, turn)."""
 
     def __init__(self) -> None:
         self._items: deque[tuple[weakref.ref[Any], PeerPendingTurn]] = deque()
@@ -124,25 +120,24 @@ class PeerQueue:
     def __len__(self) -> int:
         return len(self._items)
 
-    def __contains__(self, turn: object) -> bool:
-        """True if turn is currently queued (by identity)."""
-        return any(item[1] is turn for item in self._items)
-
-    def entries(self) -> list[tuple[PeerListener, PeerPendingTurn]]:
-        """Snapshot of live (listener, turn) pairs, oldest first."""
-        result: list[tuple[PeerListener, PeerPendingTurn]] = []
-        for ref, turn in self._items:
-            listener = ref()
-            if listener is not None:
-                result.append((listener, turn))
-        return result
-
     def pending(self, listener: object) -> int:
         """Count live pending turns for this listener (used for cap check and test assertions)."""
         return sum(1 for item in self._items if item[0]() is listener)
 
     def append(self, listener: PeerListener, turn: PeerPendingTurn) -> None:
         self._items.append((weakref.ref(listener), turn))
+
+    def push_front(self, listener: PeerListener, turn: PeerPendingTurn) -> None:
+        self._items.appendleft((weakref.ref(listener), turn))
+
+    def pop_oldest(self) -> tuple[PeerListener, PeerPendingTurn] | None:
+        """Pop the oldest entry whose listener is still alive; discards dead references."""
+        while self._items:
+            ref, turn = self._items.popleft()
+            listener = ref()
+            if listener is not None:
+                return listener, turn
+        return None
 
     def _keep(self, pred: Callable[[Any, PeerPendingTurn], bool]) -> None:
         kept: list[tuple[weakref.ref[Any], PeerPendingTurn]] = []
@@ -389,11 +384,22 @@ def kick_pending_peer_starts() -> None:
     assert_main_thread("peer_message.kick_pending_peer_starts")
     if get_drain_owner() is not None:
         return
-    for listener, turn in peer_queue.entries():
-        if turn not in peer_queue:
-            continue
+    skipped: list[tuple[PeerListener, PeerPendingTurn]] = []
+    started = False
+    while not started:
+        item = peer_queue.pop_oldest()
+        if item is None:
+            break
+        listener, turn = item
         if listener.is_busy() or get_drain_owner() is not None:
+            skipped.append(item)
             continue
+        # The turn is already popped from peer_queue so a nested kick after
+        # this send's drain does not start it twice. send_state refuses
+        # EXTRACTED_SEND while the hands-free mic records, so the turn is lost
+        # and an already-appended user message sits unanswered.
+        # start_extracted_peer_send has no side effects when it returns False,
+        # so put the turn back like the busy case above.
         try:
             res = listener.start_extracted_peer_send(
                 turn.wrapped_text, already_appended=turn.already_appended
@@ -401,18 +407,19 @@ def kick_pending_peer_starts() -> None:
         except Exception:
             log.exception("kick_pending_peer_starts: start_extracted_peer_send raised")
             # If the send took the turn (listener busy or live drain owner),
-            # the in-flight send owns the envelope: remove it so a second
-            # start after the drain does not deliver it twice.
+            # the in-flight send owns the envelope: do not re-queue, as a second
+            # start after the drain would deliver it twice.
             if listener.is_busy() or get_drain_owner() is not None:
-                peer_queue.remove(turn)
-                break
+                started = True
+                continue
+            skipped.append(item)
             continue
-        # send_state refuses EXTRACTED_SEND while the hands-free mic records,
-        # so start returns False. Leave the turn in the queue to retry when idle.
         if res is False:
+            skipped.append(item)
             continue
-        peer_queue.remove(turn)
-        break
+        started = True
+    for listener, turn in reversed(skipped):
+        peer_queue.push_front(listener, turn)
 
 
 def _on_drain_idle() -> None:

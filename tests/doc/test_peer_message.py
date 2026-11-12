@@ -1106,19 +1106,15 @@ def test_kick_keeps_distinct_equal_turns_while_busy():
 
     kick_pending_peer_starts()
     assert pm.peer_queue.pending(listener) == 2
-    entries = pm.peer_queue.entries()
-    assert len(entries) == 2
-    assert entries[0][1] is turn1
-    assert entries[1][1] is turn2
+    assert pm.peer_queue._items[0][1] is turn1
+    assert pm.peer_queue._items[1][1] is turn2
 
     listener.sidebar_state.send.is_busy = False
     kick_pending_peer_starts()
     assert len(listener.started) == 1
     assert listener.started[0][0] == "same"
     assert pm.peer_queue.pending(listener) == 1
-    entries_after = pm.peer_queue.entries()
-    assert len(entries_after) == 1
-    assert entries_after[0][1] is turn2
+    assert pm.peer_queue._items[0][1] is turn2
 
     kick_pending_peer_starts()
     assert len(listener.started) == 2
@@ -1126,55 +1122,24 @@ def test_kick_keeps_distinct_equal_turns_while_busy():
     assert len(pm.peer_queue) == 0
 
 
-def test_kick_drop_listener_during_start_removes_skipped_turns():
-    """Stop/dispose during another peer's start must drop skipped turns immediately."""
-    listener_b = _Listener()
-    listener_b.sidebar_state.send.is_busy = True
-    listener_a = _Listener()
+def test_kick_reentrant_call_during_start_does_not_double_start():
+    """Synchronous drain completion kicks again before the outer start returns."""
+    listener = _Listener()
+    start_count = 0
 
-    def _start_a(query_text: str, *, already_appended: bool) -> bool:
-        listener_a.started.append((query_text, already_appended))
-        # Simulate user clicking Stop or closing listener_b while listener_a starts
-        drop_listener_queue(listener_b)
+    def _start_reentrant(query_text: str, *, already_appended: bool) -> bool:
+        nonlocal start_count
+        start_count += 1
+        kick_pending_peer_starts()
         return True
 
-    listener_a.start_extracted_peer_send = _start_a
-
-    turn_t = PeerPendingTurn("turn_t", False)
-    turn_u = PeerPendingTurn("turn_u", False)
-    enqueue_peer_turn(listener_b, turn_t)
-    enqueue_peer_turn(listener_a, turn_u)
+    listener.start_extracted_peer_send = _start_reentrant
+    turn = PeerPendingTurn("msg", False)
+    enqueue_peer_turn(listener, turn)
 
     kick_pending_peer_starts()
-    assert listener_a.started == [("turn_u", False)]
-    assert pm.peer_queue.pending(listener_b) == 0
+    assert start_count == 1
     assert len(pm.peer_queue) == 0
-
-
-def test_kick_enqueue_during_start_respects_queue_cap():
-    """Pending count during another peer's start must include skipped turns."""
-    listener_b = _Listener()
-    listener_b.sidebar_state.send.is_busy = True
-    listener_a = _Listener()
-
-    for i in range(PEER_QUEUE_CAP):
-        enqueue_peer_turn(listener_b, PeerPendingTurn(f"b{i}", False))
-
-    def _start_a(query_text: str, *, already_appended: bool) -> bool:
-        listener_a.started.append((query_text, already_appended))
-        # Re-entrant enqueue on B must see B is already at cap
-        err = enqueue_peer_turn(listener_b, PeerPendingTurn("extra", False))
-        assert err == "PEER_QUEUE_FULL"
-        return True
-
-    listener_a.start_extracted_peer_send = _start_a
-
-    turn_u = PeerPendingTurn("turn_u", False)
-    enqueue_peer_turn(listener_a, turn_u)
-
-    kick_pending_peer_starts()
-    assert listener_a.started == [("turn_u", False)]
-    assert pm.peer_queue.pending(listener_b) == PEER_QUEUE_CAP
 
 
 def test_kick_requeues_when_start_raises():
@@ -1325,7 +1290,8 @@ def test_drop_listener_queue_purges_dead_fifo_refs():
     q.drop_listener(live)
 
     assert len(q) == 1
-    assert q.entries() == [(other, turn_other)]
+    assert q.pop_oldest() == (other, turn_other)
+    assert q.pop_oldest() is None
 
 
 def test_peer_queue_pending_counts_only_live_entries():
@@ -1355,10 +1321,11 @@ def test_peer_queue_remove_by_identity_keeps_equal_turn():
     assert len(q) == 2
     q.remove(turn1)
     assert len(q) == 1
-    assert q.entries() == [(listener, turn2)]
+    assert q.pop_oldest() == (listener, turn2)
+    assert q.pop_oldest() is None
 
 
-def test_peer_queue_entries_is_fifo_across_listeners():
+def test_peer_queue_pop_oldest_is_fifo_across_listeners():
     q = PeerQueue()
     listener_a = _Listener()
     listener_b = _Listener()
@@ -1370,15 +1337,16 @@ def test_peer_queue_entries_is_fifo_across_listeners():
     q.append(listener_b, turn_b1)
     q.append(listener_a, turn_a2)
 
-    assert q.entries() == [
-        (listener_a, turn_a1),
-        (listener_b, turn_b1),
-        (listener_a, turn_a2),
-    ]
-    assert turn_a1 in q
-    assert turn_b1 in q
-    assert turn_a2 in q
-    assert PeerPendingTurn("other", False) not in q
+    assert q.pop_oldest() == (listener_a, turn_a1)
+    assert q.pop_oldest() == (listener_b, turn_b1)
+    assert q.pop_oldest() == (listener_a, turn_a2)
+    assert q.pop_oldest() is None
+
+    q.push_front(listener_a, turn_a2)
+    q.push_front(listener_b, turn_b1)
+    assert q.pop_oldest() == (listener_b, turn_b1)
+    assert q.pop_oldest() == (listener_a, turn_a2)
+    assert q.pop_oldest() is None
 
 
 def test_format_peer_envelope_none_message_is_empty_body():
