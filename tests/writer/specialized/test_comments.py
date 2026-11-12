@@ -679,25 +679,24 @@ def test_add_comment_search_index_error_and_none_return_not_found():
     from plugin.writer.specialized.comments import AddComment
 
     doc = MagicMock()
+    doc.getDrawPage.return_value = None
     ctx = SimpleNamespace(doc=doc)
 
     with patch("plugin.writer.search.find_occurrence_range", side_effect=IndexError("out of range")):
         res_idx = AddComment().execute(ctx, content="note", search="hit", occurrence=3)
-    assert res_idx == {
-        "status": "error",
-        "message": "Text 'hit' not found at occurrence 3.",
-        "matched": False,
-        "comment_added": False,
-    }
+    assert res_idx["status"] == "error"
+    assert res_idx["code"] == "OCCURRENCE_OUT_OF_RANGE"
+    assert res_idx["message"] == "out of range"
+    assert res_idx["matched"] is False
+    assert res_idx["comment_added"] is False
 
     with patch("plugin.writer.search.find_occurrence_range", return_value=None):
         res_none = AddComment().execute(ctx, content="note", search="missing", occurrence=0)
-    assert res_none == {
-        "status": "error",
-        "message": "Text 'missing' not found.",
-        "matched": False,
-        "comment_added": False,
-    }
+    assert res_none["status"] == "error"
+    assert res_none["code"] == "OLD_CONTENT_NOT_FOUND"
+    assert res_none["message"].startswith("search not found in document")
+    assert res_none["matched"] is False
+    assert res_none["comment_added"] is False
 
 
 def test_comment_resolve_failed_reply_insert_does_not_set_resolved():

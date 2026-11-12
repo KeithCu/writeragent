@@ -68,6 +68,9 @@ LIBREHARPER_PLUGIN_FILES: tuple[str, ...] = (
     "plugin/framework/uno_context.py",
     "plugin/framework/vcl_pumping.py",
     "plugin/framework/worker_pool.py",
+    # harper.py and grammar_work_queue.py register their quit hooks at import;
+    # LibreHarper installs no terminate listener, so they never run there.
+    "plugin/framework/quit_hooks.py",
     # harper.py imports ManagedSubprocess at load; the LibreHarper import-closure test requires this file.
     "plugin/framework/managed_subprocess.py",
     # managed_subprocess.py imports scrub_subprocess_env at load time.

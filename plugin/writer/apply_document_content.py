@@ -565,8 +565,8 @@ class ApplyDocumentContent(ToolBase):
     - **Search** (``target='search'`` only): ``old_content`` must be a **substring** to find —
       a phrase, sentence, or multi-paragraph **block**, not the entire document. To replace
       **all** document content, you **must** use ``target='full_document'`` with ``content`` only;
-      **never** pass the full body as ``old_content``. Search uses ``search.find_chained_range`` (LO
-      regex + paragraph chaining). See ``tests/writer/test_content_search_uno.py``.
+      **never** pass the full body as ``old_content``. Search uses ``search.iter_literal_ranges`` (LO
+      regex search, then paragraph chaining). See ``tests/writer/test_content_search_uno.py``.
       A match that sits in an outline hyperlink (``#…|outline``) also updates that
       target when the matched text occurs once in the URL outside that suffix, or
       when ``hyperlink_url`` is passed for that one link. ``content`` may equal
@@ -773,36 +773,20 @@ class ApplyDocumentContent(ToolBase):
         reports = reports_holder[0] if reports_holder else []
         return reports, None
 
-    def _finish_search_miss(
-        self,
-        doc: Any,
-        search_string: str,
-        opts_pattern: str,
-        regex_opt: bool,
-        opts_cs: bool,
-        track_reviewable: bool,
-        new_text: str,
-        *,
-        all_matches: bool,
-        use_opts: bool,
-    ) -> dict[str, Any]:
+    def _finish_search_miss(self, doc: Any, params: EditParams) -> dict[str, Any]:
         shape = search_mod.drawing_shape_object_containing(
-            doc, opts_pattern,
-            use_regex=regex_opt, case_sensitive=opts_cs)
-        if shape is not None:
+            doc, params.pattern,
+            use_regex=params.regex, case_sensitive=params.case_sensitive)
+        # Review mode cannot track a shape edit, and a failed shape replace is rolled back.
+        # Both fall through to build_search_not_found_response, whose sweep finds the same
+        # shape and returns the delegation (review wording via review=).
+        if shape is not None and not params.track_reviewable:
             shape_name = search_mod.shape_display_name(shape)
-            if track_reviewable:
-                return {
-                    "status": "error",
-                    "code": "SHAPE_TEXT_NEEDS_DELEGATION",
-                    "message": search_mod.shape_only_search_message("old_content", shape_name, review=True),
-                    "replaced_count": 0,
-                }
             # commit_or_rollback wraps shape replacement so a failed replace_text_in_shape
             # rolls back instead of leaving a partial setString in the document.
             def mutate() -> dict[str, Any] | None:
                 edited = replace_text_in_shape(
-                    shape, opts_pattern, new_text, case_sensitive=opts_cs, use_regex=regex_opt
+                    shape, params.pattern, params.plain, case_sensitive=params.case_sensitive, use_regex=params.regex
                 )
                 if not edited:
                     return {"status": "error", "code": "SHAPE_REPLACE_FAILED"}
@@ -824,9 +808,16 @@ class ApplyDocumentContent(ToolBase):
                 if err is not None and err.get("code") == "ROLLBACK_FAILED":
                     return err
                 if err is not None and err.get("code") == "SHAPE_REPLACE_FAILED":
-                    return search_mod.build_search_not_found_response(
-                        shape_name=shape_name,
-                    )
+                    pass  # Failed shape replacement rolled back; fall through to delegation response below
+                else:
+                    result = attach_edited_context(
+                        {"status": "ok",
+                          "message": ("Replaced 1 occurrence inside drawing shape '%s' (edited the "
+                                      "shape's own text directly — NOT a tracked change; surrounding "
+                                      "formatting preserved)." % shape_name),
+                          "replaced_count": 1, "review_bypassed": True},
+                        None)
+                    return annotate_review_status(result)
             except UndoUnavailable:
                 return self._tool_error(
                     "Cannot edit text inside the drawing shape '%s' atomically "
@@ -835,21 +826,15 @@ class ApplyDocumentContent(ToolBase):
                     code="UNDO_UNAVAILABLE",
                 )
 
-            result = attach_edited_context(
-                {"status": "ok",
-                  "message": ("Replaced 1 occurrence inside drawing shape '%s' (edited the "
-                              "shape's own text directly — NOT a tracked change; surrounding "
-                              "formatting preserved)." % shape_name),
-                  "replaced_count": 1, "review_bypassed": True},
-                None)
-            return annotate_review_status(result)
-
         return search_mod.build_search_not_found_response(
             doc,
-            search_string,
-            all_matches=all_matches,
-            lenient=not use_opts,
-            use_regex=regex_opt,
+            params.pattern,
+            case_sensitive=params.case_sensitive,
+            use_regex=params.regex,
+            all_matches=bool(params.all_matches),
+            lenient=not params.use_opts,
+            refuse_oversized=True,
+            review=params.track_reviewable,
         )
 
     def _replace_found(self, session: EditReviewSession, doc: Any, found: Any, *,
@@ -1112,12 +1097,9 @@ class ApplyDocumentContent(ToolBase):
             result["warning"] = shape_comment_warning
         if not ranges:
             res = search_mod.build_search_not_found_response(
-                ctx.doc, s, lenient=not use_opts, use_regex=regex
+                ctx.doc, pattern, case_sensitive=cs, use_regex=regex, lenient=not use_opts, refuse_oversized=True
             )
-            result["message"] = res["message"]
-            if "closest_match" in res:
-                result["closest_match"] = res["closest_match"]
-                result["diff_at"] = res["diff_at"]
+            result.update({k: res[k] for k in ("message", "closest_match", "diff_at") if k in res})
         result["normalized_old_content"] = s
         if occurrence is not None and ranges:
             selected = ranges[occurrence]
@@ -1582,9 +1564,7 @@ class ApplyDocumentContent(ToolBase):
         ranges = _find_ranges(
             doc, params.pattern, params.regex, params.case_sensitive, params.use_opts, all_matches=True)
         if not ranges:
-            return self._finish_search_miss(
-                doc, params.search_string, params.pattern, params.regex, params.case_sensitive,
-                params.track_reviewable, params.plain, all_matches=True, use_opts=params.use_opts)
+            return self._finish_search_miss(doc, params)
         max_limit_hit = len(ranges) >= search_mod.MAX_SEARCH_REPLACEMENTS
         # Decide before any replace. An empty replacement that is the last text
         # in a table deletes the table instead of leaving an empty shell; those
@@ -1711,17 +1691,9 @@ class ApplyDocumentContent(ToolBase):
             anchor_text = anchor.start if miss_kind == "start" else anchor.end
             subject = "start_anchor" if miss_kind == "start" else "end_anchor"
             cs = anchor.case_sensitive
-            shape = search_mod.drawing_shape_object_containing(
-                doc, anchor_text, use_regex=False, case_sensitive=cs
-            )
-            if shape is not None:
-                shape_name = search_mod.shape_display_name(shape)
-                return {
-                    "status": "error",
-                    "code": "SHAPE_TEXT_NEEDS_DELEGATION",
-                    "message": search_mod.shape_only_search_message(subject, shape_name),
-                    "replaced_count": 0,
-                }
+            shape_name = search_mod.drawing_shape_containing(doc, anchor_text, case_sensitive=cs)
+            if shape_name:
+                return search_mod.shape_only_search_response(subject, shape_name)
         return {
             "status": "error",
             "code": _ANCHOR_MISS_CODES[miss_kind],
@@ -1771,9 +1743,7 @@ class ApplyDocumentContent(ToolBase):
                 found = _find_ranges(
                     doc, params.pattern, params.regex, params.case_sensitive, params.use_opts, all_matches=False)
             if found is None:
-                return self._finish_search_miss(
-                    doc, params.search_string, params.pattern, params.regex, params.case_sensitive,
-                    params.track_reviewable, params.plain, all_matches=False, use_opts=params.use_opts)
+                return self._finish_search_miss(doc, params)
             if params.position in ("before", "after"):
                 res = self._edit_insert_next_to_match(ctx, session, params, found)
             else:

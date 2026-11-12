@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import sys
+import threading
 import time
 import types
 from typing import Any
@@ -127,6 +128,10 @@ def _ensure_grammar_debug_logging():
     yield
     proofreader.log.setLevel(old_level)
 
+@pytest.fixture(autouse=True)
+def _reset_grammar_worker_tls(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(grammar_worker, "_grammar_worker_tls", threading.local())
+
 from plugin.writer.locale import ai_grammar_proofreader as proofreader
 from plugin.writer.locale import grammar_proofread_cache as gc
 from plugin.writer.locale.grammar_proofread_text import Utf16OffsetMap
@@ -147,8 +152,9 @@ from plugin.writer.locale.grammar_proofread_locale import (
     looks_complete_sentence,
 )
 from plugin.writer.locale.grammar_proofread_text import NormalizedProofError
+from plugin.writer.locale import grammar_worker
 from plugin.writer.locale.grammar_work_queue import GrammarWorkItem, GrammarWorkQueue, enqueue_misses
-from plugin.writer.locale.grammar_worker import reset_grammar_llm_client_cache, run_llm_and_cache_batch
+from plugin.writer.locale.grammar_worker import run_llm_and_cache_batch
 
 
 def _run_llm_one(
@@ -160,7 +166,7 @@ def _run_llm_one(
     partial_sentence: bool = False,
     **kwargs: Any,
 ) -> None:
-    reset_grammar_llm_client_cache()
+    grammar_worker._grammar_worker_tls = threading.local()
     item = GrammarWorkItem(
         ctx=ctx,
         text=text,

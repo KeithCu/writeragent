@@ -1387,7 +1387,7 @@ class ApplyStyle(FrameworkToolBase):
             return res
 
         # target='search' resolves its own ranges here (find_first_range / find_all_ranges) so a
-        # miss returns the structured build_search_not_found_response with a code;
+        # miss returns the structured build_search_not_found_response;
         # resolve_target_cursor below serves the other targets and raises plain ValueError. Each
         # match gets a cursor in its own text object (cell/frame safe).
         all_matches = bool(kwargs.get("all_matches"))
@@ -1396,7 +1396,6 @@ class ApplyStyle(FrameworkToolBase):
         if target == "search":
             from plugin.writer.search import (
                 build_search_not_found_response,
-                drawing_shape_containing,
                 find_all_ranges,
                 find_first_range,
                 prepare_old_content,
@@ -1416,9 +1415,8 @@ class ApplyStyle(FrameworkToolBase):
             if all_matches or occ_raw is not None:
                 ranges = find_all_ranges(ctx.doc, s, case_sensitive=cs) if s else []
                 if not ranges:
-                    shape_name = drawing_shape_containing(ctx.doc, s, case_sensitive=cs)
                     res = build_search_not_found_response(
-                        ctx.doc, s, all_matches=True, shape_name=shape_name
+                        ctx.doc, s, case_sensitive=cs, all_matches=True, refuse_oversized=True
                     )
                     res.update({"target": "search", "applied": False, "matched": False})
                     return res
@@ -1493,8 +1491,7 @@ class ApplyStyle(FrameworkToolBase):
 
             found = find_first_range(ctx.doc, s, case_sensitive=cs)
             if found is None:
-                shape_name = drawing_shape_containing(ctx.doc, s, case_sensitive=cs)
-                res = build_search_not_found_response(ctx.doc, s, shape_name=shape_name)
+                res = build_search_not_found_response(ctx.doc, s, case_sensitive=cs, refuse_oversized=True)
                 res.update({"target": "search", "applied": False, "matched": False})
                 return res
 

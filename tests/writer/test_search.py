@@ -123,14 +123,14 @@ def test_find_ranges_regex_case_caps_at_max_search_replacements():
     assert len(out) == MAX_SEARCH_REPLACEMENTS
 
 
-def test_find_lo_regex_ranges_caps_at_max_search_replacements():
-    from plugin.writer.search import find_lo_regex_ranges, MAX_SEARCH_REPLACEMENTS
+def test_find_all_ranges_caps_at_max_search_replacements():
+    from plugin.writer.search import find_all_ranges, MAX_SEARCH_REPLACEMENTS
 
     doc = MagicMock()
     doc.createSearchDescriptor.return_value = MagicMock()
     doc.findFirst.return_value = MagicMock()
     doc.findNext.side_effect = lambda found, sd: MagicMock()
-    out = find_lo_regex_ranges(doc, "x", all_matches=True)
+    out = find_all_ranges(doc, "x")
     assert len(out) == MAX_SEARCH_REPLACEMENTS
 
 
@@ -138,9 +138,14 @@ def test_not_found_hints_at_pending_tracked_deletions():
     """#43: visible text across a struck word is never found; say why instead of just 'shorter'."""
     from plugin.writer.search import build_search_not_found_response
 
-    msg = build_search_not_found_response(tracked_deletions=True)["message"]
+    doc = MagicMock()
+    doc.getDrawPage.return_value = None
+    with patch("plugin.writer.search.document_has_tracked_deletions", return_value=True):
+        msg = build_search_not_found_response(doc, "needle")["message"]
     assert "pending tracked deletions" in msg
-    assert "pending tracked" not in build_search_not_found_response()["message"]
+    doc2 = MagicMock()
+    doc2.getDrawPage.return_value = None
+    assert "pending tracked" not in build_search_not_found_response(doc2, "needle")["message"]
 
 
 def test_search_in_document_zero_width_sets_truncated():
@@ -501,27 +506,46 @@ def test_search_in_document_missing_pattern_returns_invalid_param():
 def test_build_search_not_found_response_codes():
     from plugin.writer.search import build_search_not_found_response
 
+    doc = MagicMock()
+    doc.getDrawPage.return_value = None
+
     # Standard miss
-    res_standard = build_search_not_found_response()
+    res_standard = build_search_not_found_response(doc, "needle")
     assert res_standard["status"] == "error"
     assert res_standard["code"] == "OLD_CONTENT_NOT_FOUND"
     assert res_standard["replaced_count"] == 0
 
-    # Shape miss
-    res_shape = build_search_not_found_response(shape_name="Box1")
-    assert res_shape["status"] == "error"
-    assert res_shape["code"] == "SHAPE_TEXT_NEEDS_DELEGATION"
-    assert res_shape["replaced_count"] == 0
+    # Custom subject miss
+    res_subject = build_search_not_found_response(doc, "needle", subject="search_text")
+    assert res_subject["message"].startswith("search_text not found")
 
-    # Oversized refusal
-    doc = MagicMock()
-    doc.getText.return_value.getString.return_value = "short"
+    # Shape miss
+    with patch("plugin.writer.search.drawing_shape_containing", return_value="Box1"):
+        res_shape = build_search_not_found_response(doc, "needle")
+        assert res_shape["status"] == "error"
+        assert res_shape["code"] == "SHAPE_TEXT_NEEDS_DELEGATION"
+        assert res_shape["replaced_count"] == 0
+        assert "Box1" in res_shape["message"]
+        assert "old_content" in res_shape["message"]
+
+        # Review mode shape miss
+        res_review = build_search_not_found_response(doc, "needle", review=True)
+        assert "In review mode" in res_review["message"]
+
+    # Oversized refusal (opt-in via refuse_oversized=True)
+    doc_oversized = MagicMock()
+    doc_oversized.getDrawPage.return_value = None
+    doc_oversized.getText.return_value.getString.return_value = "short"
     with patch("plugin.writer.search.old_content_covers_most", return_value=True):
-        res_oversized = build_search_not_found_response(doc=doc, needle="longneedle")
+        res_oversized = build_search_not_found_response(doc_oversized, "longneedle", refuse_oversized=True)
+        res_non_oversized = build_search_not_found_response(doc_oversized, "longneedle")
+        res_non_old_content = build_search_not_found_response(doc_oversized, "longneedle", subject="search_text")
     assert res_oversized["status"] == "error"
     assert res_oversized["code"] == "OLD_CONTENT_TOO_LARGE"
     assert res_oversized["oversized"] is True
     assert res_oversized["replaced_count"] == 0
+    assert res_non_oversized["code"] == "OLD_CONTENT_NOT_FOUND"
+    assert res_non_old_content["code"] == "OLD_CONTENT_NOT_FOUND"
 
 
 def test_search_hit_cap_includes_shapes():
@@ -601,8 +625,8 @@ def test_shape_text_hits_regex_timeout():
         monkeypatch.undo()
 
 
-def test_find_chained_range_same_text_combine_failure_propagates():
-    from plugin.writer.search import find_chained_range
+def test_find_first_range_chain_combine_failure_propagates():
+    from plugin.writer.search import find_first_range
 
     doc = MagicMock()
     found = MagicMock()
@@ -622,14 +646,14 @@ def test_find_chained_range_same_text_combine_failure_propagates():
 
     text.createTextCursorByRange.side_effect = _make
     doc.findFirst.return_value = found
-    with patch("plugin.writer.search.find_lo_regex_ranges", return_value=None), \
+    with patch("plugin.writer.search._iter_lo_matches", return_value=iter(())), \
          patch("plugin.writer.search.get_string_without_tracked_deletions", side_effect=["Hello", "World"]):
         with pytest.raises(RuntimeError, match="combine failed"):
-            find_chained_range(doc, "Hello\nWorld", all_matches=False)
+            find_first_range(doc, "Hello\nWorld")
 
 
-def test_find_chained_range_cross_text_is_skipped():
-    from plugin.writer.search import find_chained_range
+def test_find_first_range_chain_cross_text_is_skipped():
+    from plugin.writer.search import find_first_range
 
     doc = MagicMock()
     found = MagicMock()
@@ -652,10 +676,47 @@ def test_find_chained_range_cross_text_is_skipped():
         return cursor
 
     text.createTextCursorByRange.side_effect = _make
-    with patch("plugin.writer.search.find_lo_regex_ranges", return_value=None), \
+    with patch("plugin.writer.search._iter_lo_matches", return_value=iter(())), \
          patch("plugin.writer.search.get_string_without_tracked_deletions", side_effect=["Hello", "World"]):
-        assert find_chained_range(doc, "Hello\nWorld", all_matches=False) is None
+        assert find_first_range(doc, "Hello\nWorld") is None
     assert n["i"] == 7
+
+
+def test_occurrence_range_or_error_payloads():
+    from plugin.writer.search import occurrence_range_or_error
+
+    doc = MagicMock()
+    doc.getDrawPage.return_value = None
+
+    # Bad occurrence
+    rng, err = occurrence_range_or_error(doc, "text", "bad", case_sensitive=False, subject="test_param")
+    assert rng is None
+    assert err is not None
+    assert err["code"] == "INVALID_PARAM"
+
+    # Out of range (IndexError)
+    with patch("plugin.writer.search.find_occurrence_range", side_effect=IndexError("occurrence 2 out of range")):
+        rng, err = occurrence_range_or_error(doc, "text", 2, case_sensitive=False, subject="test_param")
+        assert rng is None
+        assert err is not None
+        assert err["code"] == "OCCURRENCE_OUT_OF_RANGE"
+        assert "occurrence 2 out of range" in err["message"]
+
+    # Not found (None)
+    with patch("plugin.writer.search.find_occurrence_range", return_value=None):
+        rng, err = occurrence_range_or_error(doc, "text", 0, case_sensitive=True, subject="test_param")
+        assert rng is None
+        assert err is not None
+        assert err["code"] == "OLD_CONTENT_NOT_FOUND"
+        assert err["message"].startswith("test_param not found in document")
+
+    # Hit
+    mock_found = MagicMock()
+    with patch("plugin.writer.search.find_occurrence_range", return_value=mock_found) as mock_find:
+        rng, err = occurrence_range_or_error(doc, "text", "1", case_sensitive=True, subject="test_param")
+        assert rng is mock_found
+        assert err is None
+        mock_find.assert_called_once_with(doc, "text", occurrence=1, case_sensitive=True)
 
 
 def test_uno_read_probes_raise_on_disposal_and_default_otherwise():
@@ -1409,7 +1470,7 @@ def test_search_selection_apply_shared_case_default_on_sample_text():
 
     sel_exact_miss = SetSelection().execute(ctx, search_text="APPLE", case_sensitive=True)
     assert sel_exact_miss["status"] == "error"
-    assert "No match" in sel_exact_miss["message"]
+    assert "search_text not found in document" in sel_exact_miss["message"]
     assert sel_exact_miss["matched_case_sensitive"] is True
 
     # 3. apply_document_content (dry_run preview)
