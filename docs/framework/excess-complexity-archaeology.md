@@ -940,7 +940,8 @@ the one piece it needed.
   monitor (04-3; now one `Recording` object, #3350).
 - One open editor window is `PersistentEditor`, `EditorSessionState`, an
   `EditorSession` wrapper whose only behaviour is `_finish`, a module global
-  and an `RLock`, with one save token stored in two of them (05-1). The
+  and an `RLock`, with one save token stored in two of them (05-1; now
+  `PersistentEditor` owns the one state and one save token, this PR). The
   session table beside them never holds two entries.
 
 It is the opposite of kind 7. There, one thing is mirrored into two
