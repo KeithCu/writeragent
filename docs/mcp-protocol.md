@@ -471,7 +471,7 @@ Orientation for AI assistants: [`AGENTS.md`](../AGENTS.md). Deep threading notes
 
 ## Historical archive (pre-`plugin/` layout)
 
-> **Archive mixed with later notes.** Subsections that still say `core/*.py` or REST `GET /tools` / `POST /tools/{name}` are design history — **not** the live map. Prefer [Current HTTP MCP (2026)](#current-http-mcp-2026) and [Current Status](#current-status--what-was-implemented) when anything conflicts. Rough path map: `core/mcp_server.py` → `plugin/mcp/`; main-thread helpers → `plugin/framework/queue_executor.py`; `core/async_stream.py` → `plugin/framework/async_stream.py`; prompt constants → `plugin/framework/prompts.py`; `core/config.py` → `plugin/framework/config.py`; `core/format_support.py` → `plugin/writer/format.py`.
+> **Archive mixed with later notes.** Subsections that still say `core/*.py` or REST `GET /tools` / `POST /tools/{name}` are design history — **not** the live map. Prefer [Current HTTP MCP (2026)](#current-http-mcp-2026) and [Current Status](#current-status--what-was-implemented) when anything conflicts. Rough path map: `core/mcp_server.py` → `plugin/mcp/`; main-thread helpers → `plugin/framework/queue_executor.py`; `core/async_stream.py` → `plugin/framework/async_stream.py`; prompt constants → `plugin/framework/prompts.py`; `core/config.py` → `plugin/framework/config.py`; `core/format_support.py` → `plugin/writer/html_import.py` / `html_export.py`.
 
 ### What Had Already Been Done (Writer Tools, Pre-MCP)
 
@@ -898,7 +898,7 @@ WriterAgent already handles settings.
 The standalone extension has no `AGENT.md` (the file doesn't exist — `GET /` returns empty
 instructions). So this comparison is entirely about tool `description` strings in
 `mcp_server.py` vs WriterAgent's descriptions (archive paths `core/writer_ops.py`,
-`core/format_support.py`, `core/constants.py` → live `plugin/writer/`, `plugin/writer/format.py`,
+`core/format_support.py`, `core/constants.py` → live `plugin/writer/`, `plugin/writer/html_import.py`, `plugin/writer/html_export.py`,
 `plugin/framework/prompts.py`).
 
 ---

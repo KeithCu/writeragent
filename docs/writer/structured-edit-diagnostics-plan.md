@@ -105,7 +105,7 @@ def suggest_call(tool: str, **arguments: Any) -> SuggestedCall:
 
 *Affected test assertions updating in Phase 1:*
 - `warnings` assertions: `tests/writer/test_apply_document_content_structured_return.py:273, 294, 1032`, `tests/writer/test_page.py:423`, `tests/writer/test_page_header_html_uno.py:534, 548`, `tests/writer/test_html_import_uno.py:540`.
-- `warning` assertions: `tests/writer/test_content.py:639, 682`, `tests/writer/test_content_style_model_uno.py:401, 432, 470, 501, 537, 581`.
+- `warning` assertions: `tests/writer/test_apply_document_content.py`, `tests/writer/test_content_style_model_uno.py:401, 432, 470, 501, 537, 581`.
 
 ### 3.3 Code catalog
 
@@ -189,7 +189,7 @@ For each style skip, `result["warnings"]` receives a `Diagnostic`:
 11. **Before/after insertions:** Before/after inserts currently drop `data-lo-style` silently via `apply_styles=False`. In v1, leave before/after style behavior scoped out; any future warning for before/after must account for boundary snapping (`_paragraph_boundary_cursor`).
 
 **Tests for item 4:**
-- `tests/writer/test_content.py`: verify `Diagnostic` payload, `code`, flat count fields, and omission of `suggested_call` when recording changes, style is unresolvable, or text contains newlines.
+- `tests/writer/test_apply_document_content.py`: verify `Diagnostic` payload, `code`, flat count fields, and omission of `suggested_call` when recording changes, style is unresolvable, or text contains newlines.
 - `tests/writer/test_content_style_model_uno.py` (UNO replay): Execute the `suggested_call` against a live LibreOffice instance. Assert that the host paragraph receives the style and that **neighbouring paragraphs** retain their original styles.
 - Schema validation: run the test validator over emitted suggestions to ensure they match `apply_style` schema requirements.
 
@@ -209,7 +209,7 @@ Each phase is independently shippable, maintains green tests, and requires no te
 - Build `suggested_call` for `apply_style` adhering strictly to §3.5 rules (new text `params.plain`, single paragraph, unique resolved style, exact match count, gated on recording).
 - Update `attach_para_warnings` in `plugin/writer/html_import_styles.py` to emit `Diagnostic` dicts (`PARA_PROPERTY_UNSUPPORTED`). (This simultaneously updates `page.py:1017` header/footer writes).
 - Note: Full-document replacement already routes through `attach_para_warnings`, automatically picking up the new diagnostic shape.
-- Tests: `tests/writer/test_content.py`, `tests/writer/test_apply_document_content_structured_return.py`, `tests/writer/test_page.py`, `tests/writer/test_html_import.py`, and UNO replay in `tests/writer/test_content_style_model_uno.py`.
+- Tests: `tests/writer/test_apply_document_content.py`, `tests/writer/test_apply_document_content_structured_return.py`, `tests/writer/test_page.py`, `tests/writer/test_html_import.py`, and UNO replay in `tests/writer/test_content_style_model_uno.py`.
 
 ### Phase 2: Code all Writer edit errors
 - Assign explicit `code` strings to all uncoded `_tool_error(...)` sites across `plugin/writer/apply_document_content.py`, `plugin/writer/styles.py`, `plugin/writer/selection.py`, and `plugin/writer/search.py` according to §3.3.
@@ -251,7 +251,7 @@ Each phase is independently shippable, maintains green tests, and requires no te
 | Module | Test File | Key Assertions |
 |--------|-----------|----------------|
 | `plugin/framework/errors.py` | `tests/framework/test_errors.py` | Payload format with/without `suggested_call`; schema validation helper for suggestions. |
-| `plugin/writer/apply_document_content.py` | `tests/writer/test_content.py` | `STYLE_IGNORED_PARTIAL_MATCH` warning emission, suggested call arguments, count fields, recording gate. |
+| `plugin/writer/apply_document_content.py` | `tests/writer/test_apply_document_content.py` | `STYLE_IGNORED_PARTIAL_MATCH` warning emission, suggested call arguments, count fields, recording gate. |
 | `plugin/writer/html_import.py` | `tests/writer/test_html_import.py` | `_lo_style_for_replaced_range` returns diagnostic codes; table cell block HTML errors. |
 | `plugin/writer/styles.py` | `tests/writer/test_styles.py` | Coded error responses for style lookup, occurrence out of range, clear_direct validation, search misses. |
 | `plugin/writer/selection.py` | `tests/writer/test_selection.py` | Coded error responses for parameter conflicts, missing view, not found. |

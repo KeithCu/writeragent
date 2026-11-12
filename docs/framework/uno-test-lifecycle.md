@@ -582,7 +582,7 @@ Same run:
 `test_apply_style_known_limitation_direct_equals_old_default_uno`
 FAIL (`origin detection improved`) under leftover writer reuse;
 suite continued (passed=10 failed=1) until the later apply hang.
-Linux still pins CharWeight=150; `format.py` still compares value
+Linux still pins CharWeight=150; `styles.py` still compares value
 vs old style default. Windows leftover skip
 (`windows leftover skip: apply_style origin canary leftover reuse`)
 — leftover pollution, not a product change.

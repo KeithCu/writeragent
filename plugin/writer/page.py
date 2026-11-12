@@ -312,8 +312,8 @@ def _scan_region_content(doc: Any, text_obj: Any) -> dict[str, Any]:
     out = _empty_scan()
     para_enum = text_obj.createEnumeration()
     notes: list[str] = []
-    # `is True` and the hard caps match the enumeration walk in format.py: a UNO enumeration that
-    # misbehaves otherwise spins here forever.
+    # `is True` and the hard cap from `iter_elements_limited` (plugin/doc/text_helpers.py, the capped
+    # walk the text helpers share) stop here: a UNO enumeration that misbehaves otherwise spins forever.
     for para in iter_elements_limited(para_enum, _SCAN_PARA_LIMIT):
         out["paragraph_count"] += 1
         is_table = para.supportsService("com.sun.star.text.TextTable") is True

@@ -462,11 +462,11 @@ class ApplyDocumentContent(ToolBase):
 
     - **Two edit paths**:
       - *Import path* (HTML/markup): for structural rewrites (tables, headings,
-        page changes) we prepare HTML in `format_support` and import it via
+        page changes) we prepare HTML in `html_import` and import it via
         ``insertDocumentFromURL``. This is what all of the `insert_*` helpers
         use.
       - *Format‑preserving path* (plain text): for small textual corrections
-        we avoid HTML entirely and call `format_support.replace_preserving_format`,
+        we avoid HTML entirely and call `html_import.replace_preserving_format`,
         which mutates characters in place so existing character‑level styling
         (bold, colors, background fills, etc.) is preserved even when the
         replacement text length differs.
@@ -581,13 +581,13 @@ class ApplyDocumentContent(ToolBase):
     @staticmethod
     def _replacement_plain(content: Any) -> str:
         """Visible text a search replace will insert, for outline-URL substitution."""
-        from . import html_import as format_support
+        from . import html_import
 
         if isinstance(content, list):
             content = "\n".join(str(part) for part in content)
         text = "" if content is None else str(content)
-        if format_support.content_has_markup(text):
-            return format_support.plain_text_if_markup(text)
+        if html_import.content_has_markup(text):
+            return html_import.plain_text_if_markup(text)
         return text.replace("\\n", "\n").replace("\\t", "\t")
 
     def _read_outline_snapshot(self, found: Any, log_message: str) -> OutlineSnapshot:
@@ -759,7 +759,7 @@ class ApplyDocumentContent(ToolBase):
         match opens one when a URL write is needed. Returns the hyperlink reports; failures
         raise ToolExecutionError with the code the caller publishes.
         """
-        from . import html_import as format_support
+        from . import html_import
 
         # An anchor span's text never equals one link title, so outline fixup has nothing to match.
         anchor = None
@@ -786,7 +786,7 @@ class ApplyDocumentContent(ToolBase):
                 # The all_matches loop already entered an undo context. A second
                 # record_html_atomically would nest another and close it early.
                 def replace_one(f: Any = found) -> None:
-                    report.extend(format_support.replace_single_range_with_content(
+                    report.extend(html_import.replace_single_range_with_content(
                         doc, f, content, ctx.ctx))
 
                 session.record_mutation(
@@ -794,7 +794,7 @@ class ApplyDocumentContent(ToolBase):
                     original_preview=original, proposed_preview=plain)
             else:
                 def replace_single() -> None:
-                    report.extend(format_support.replace_single_range_with_content(
+                    report.extend(html_import.replace_single_range_with_content(
                         doc, found, content, ctx.ctx))
 
                 record_html_atomically(
@@ -1159,7 +1159,7 @@ class ApplyDocumentContent(ToolBase):
         self, kwargs: Any, start_anchor: Any, end_anchor: Any
     ) -> AnchorSpec | dict[str, Any]:
         """Validate and normalize start_anchor and end_anchor; returns AnchorSpec or error dict."""
-        from . import html_import as format_support
+        from . import html_import
 
         unsupported = self._reject_unsupported_with_anchors(kwargs)
         if unsupported is not None:
@@ -1169,17 +1169,17 @@ class ApplyDocumentContent(ToolBase):
             return self._tool_error("start_anchor and end_anchor are both required.", code="INVALID_PARAM")
         if not isinstance(start_anchor, str) or not isinstance(end_anchor, str):
             return self._tool_error("start_anchor and end_anchor must both be strings.", code="INVALID_PARAM")
-        norm_start = search_mod.normalize_search_string_for_find(format_support.plain_text_if_markup(start_anchor))
+        norm_start = search_mod.normalize_search_string_for_find(html_import.plain_text_if_markup(start_anchor))
         if not norm_start:
             return self._tool_error("start_anchor is empty after normalization.", code="INVALID_PARAM")
-        norm_end = search_mod.normalize_search_string_for_find(format_support.plain_text_if_markup(end_anchor))
+        norm_end = search_mod.normalize_search_string_for_find(html_import.plain_text_if_markup(end_anchor))
         if not norm_end:
             return self._tool_error("end_anchor is empty after normalization.", code="INVALID_PARAM")
         cs = search_mod.resolve_case_sensitive(kwargs.get("case_sensitive"))
         return AnchorSpec(start=norm_start, end=norm_end, case_sensitive=cs)
 
     def _parse_edit_params(self, ctx: ToolContext, kwargs: Any) -> EditParams | dict[str, Any]:
-        from . import html_import as format_support
+        from . import html_import
         content = kwargs.get("content", "")
         old_content = kwargs.get("old_content")
         start_anchor = kwargs.get("start_anchor")
@@ -1253,11 +1253,11 @@ class ApplyDocumentContent(ToolBase):
         # styles and headings across the span do not bleed into the new text. Single-line plain
         # anchor text remains unwrapped so mid-paragraph edits stay on the inline path without splitting
         # the host paragraph. Entities are left intact here because the HTML parser decodes them during import.
-        use_preserve = (not format_support.content_needs_html_import(content)) and anchor is None
+        use_preserve = (not html_import.content_needs_html_import(content)) and anchor is None
 
-        if not format_support.content_needs_html_import(content):
+        if not html_import.content_needs_html_import(content):
             content = content.replace("\\n", "\n").replace("\\t", "\t")
-            if anchor is not None and not format_support.html_fragment_contains_mixed_math(content):
+            if anchor is not None and not html_import.html_fragment_contains_mixed_math(content):
                 if "\n" in content:
                     lines = [line for line in content.split("\n") if line.strip()]
                     content = "\n".join("<p>%s</p>" % line for line in lines)
@@ -1309,7 +1309,7 @@ class ApplyDocumentContent(ToolBase):
             # Invariant: branch on use_preserve, not on the decoded content (an entity may decode to markup).
             if (position == "replace" and not kwargs.get("regex")
                     and use_preserve
-                    and not format_support.content_has_markup(str(old_content))):
+                    and not html_import.content_has_markup(str(old_content))):
                 content, separator = _match_stripped_edges(str(old_content), content)
                 plain = content
 
@@ -1360,7 +1360,7 @@ class ApplyDocumentContent(ToolBase):
     def _edit_full_document(
         self, ctx: ToolContext, session: EditReviewSession, params: EditParams,
     ) -> dict[str, Any]:
-        from . import html_import as format_support
+        from . import html_import
         content = params.content
         plain = params.plain
         has_table = params.has_table
@@ -1368,7 +1368,7 @@ class ApplyDocumentContent(ToolBase):
             # Delete-then-import: make it atomic so a failed import can't strand a cleared document.
             report = record_html_atomically(
                 session, ctx.doc,
-                lambda: format_support.replace_full_document(
+                lambda: html_import.replace_full_document(
                     ctx.doc, ctx.ctx, content
                 ),
                 proposed_preview=plain)
@@ -1387,7 +1387,7 @@ class ApplyDocumentContent(ToolBase):
     def _edit_insert_at(
         self, ctx: ToolContext, session: EditReviewSession, params: EditParams,
     ) -> dict[str, Any]:
-        from . import html_import as format_support
+        from . import html_import
         content = params.content
         plain = params.plain
         has_table = params.has_table
@@ -1395,7 +1395,7 @@ class ApplyDocumentContent(ToolBase):
         tables_before = _doc_table_count(ctx.doc) if has_table else None
         with session:
             report = session.record_mutation(
-                lambda: format_support.insert_content_at_position(
+                lambda: html_import.insert_content_at_position(
                     ctx.doc, ctx.ctx, content, target
                 ),
                 proposed_preview=plain)
@@ -1415,7 +1415,7 @@ class ApplyDocumentContent(ToolBase):
     def _edit_selection(
         self, ctx: ToolContext, session: EditReviewSession, params: EditParams,
     ) -> dict[str, Any]:
-        from . import html_import as format_support
+        from . import html_import
         content = params.content
         plain = params.plain
         has_table = params.has_table
@@ -1427,7 +1427,7 @@ class ApplyDocumentContent(ToolBase):
             # Selection insert clears the selection first, then imports -> atomic (full_document above).
             report = record_html_atomically(
                 session, ctx.doc,
-                lambda: format_support.insert_content_at_position(
+                lambda: html_import.insert_content_at_position(
                     ctx.doc, ctx.ctx, content, "selection"
                 ),
                 proposed_preview=plain)
@@ -1632,7 +1632,7 @@ class ApplyDocumentContent(ToolBase):
     def _edit_insert_next_to_match(
         self, ctx: ToolContext, session: EditReviewSession, params: EditParams, found: Any,
     ) -> dict[str, Any]:
-        from . import html_import as format_support
+        from . import html_import
         doc = ctx.doc
         content = params.content
         plain = params.plain
@@ -1648,7 +1648,7 @@ class ApplyDocumentContent(ToolBase):
         # roll back either way): math segments are not wired into the next-to-match insert
         # below, and the HTML import path is not cell-safe (same nested-XText hazard the
         # replace path detects).
-        if format_support.html_fragment_contains_mixed_math(str(content)):
+        if html_import.html_fragment_contains_mixed_math(str(content)):
             return self._tool_error(
                 "position='before'/'after' does not support content with math segments yet; "
                 "use position='replace' including the math, or target='end'.",
@@ -1680,7 +1680,7 @@ class ApplyDocumentContent(ToolBase):
         if use_preserve:
             is_block = "\n" in content
         else:
-            is_block = format_support._content_has_block_markup(str(content)) or "\n" in str(content)
+            is_block = html_import._content_has_block_markup(str(content)) or "\n" in str(content)
         text_obj = found.getText()
         if is_block:
             insert_cursor, snapped = _paragraph_boundary_cursor(text_obj, found, position)
@@ -1692,9 +1692,9 @@ class ApplyDocumentContent(ToolBase):
 
         def _insert_next_to_match() -> None:
             if not is_block:
-                format_support.insert_inline_at_cursor(doc, ctx.ctx, insert_cursor, str(content))
+                html_import.insert_inline_at_cursor(doc, ctx.ctx, insert_cursor, str(content))
             elif position != "after":
-                format_support.insert_html_at_cursor(doc, ctx.ctx, insert_cursor, content, apply_styles=False)
+                html_import.insert_html_at_cursor(doc, ctx.ctx, insert_cursor, content, apply_styles=False)
             else:
                 # Importing at a paragraph END merges the first block into that paragraph; at a
                 # paragraph START it does not. Open an empty paragraph and import at its start.
@@ -1703,7 +1703,7 @@ class ApplyDocumentContent(ToolBase):
                 # which is then left over empty. This cursor stays at its start through the
                 # import (checked live, also with a table next and at the end of the text).
                 leftover = text_obj.createTextCursorByRange(insert_cursor.getStart())
-                format_support.insert_html_at_cursor(doc, ctx.ctx, insert_cursor, content, apply_styles=False)
+                html_import.insert_html_at_cursor(doc, ctx.ctx, insert_cursor, content, apply_styles=False)
                 leftover.gotoEndOfParagraph(True)
                 if leftover.getString() == "":
                     # Delete the last imported block's break; a tracked insertion swallows it.
