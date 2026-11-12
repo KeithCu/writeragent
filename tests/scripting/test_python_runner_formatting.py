@@ -200,7 +200,7 @@ def test_insert_result_into_calc_primitive():
 
     doc = _calc_doc_with_selection(0, 0)
     ctx = MagicMock()
-    with patch("plugin.calc.rich_html.insert_cell_html_rich") as mock_rich:
+    with patch("plugin.scripting.python_runner.insert_cell_html_rich") as mock_rich:
         insert_result_into_calc(doc, ctx, 42)
     mock_rich.assert_called_once_with(doc, ctx, "A1", "42")
 
@@ -213,7 +213,7 @@ def test_insert_result_into_calc_list_at_selection():
     doc = _calc_doc_with_selection(1, 2)
     ctx = MagicMock()
     rows = [["a", "b"], [1, 2]]
-    with patch("plugin.calc.rich_html.insert_cell_html_rich") as mock_rich:
+    with patch("plugin.scripting.python_runner.insert_cell_html_rich") as mock_rich:
         insert_result_into_calc(doc, ctx, rows)
     mock_rich.assert_called_once()
     assert mock_rich.call_args[0][2] == "B3"
@@ -228,7 +228,7 @@ def test_insert_result_into_calc_dict_title_and_table():
     doc = _calc_doc_with_selection(0, 0)
     ctx = MagicMock()
     result = {"title": "My Title", "rows": [{"A": 1, "B": 2}]}
-    with patch("plugin.calc.rich_html.insert_cell_html_rich") as mock_rich:
+    with patch("plugin.scripting.python_runner.insert_cell_html_rich") as mock_rich:
         insert_result_into_calc(doc, ctx, result)
     mock_rich.assert_called_once()
     assert mock_rich.call_args[0][2] == "A1"
@@ -246,7 +246,7 @@ def test_insert_result_into_calc_dataframe_envelope():
     doc = _calc_doc_with_selection(0, 0)
     ctx = MagicMock()
     envelope = {"__wa_payload__": PAYLOAD_DATAFRAME, "columns": ["a"], "data": [[1]]}
-    with patch("plugin.calc.rich_html.insert_cell_html_rich") as mock_rich:
+    with patch("plugin.scripting.python_runner.insert_cell_html_rich") as mock_rich:
         insert_result_into_calc(doc, ctx, envelope)
     mock_rich.assert_called_once()
     assert mock_rich.call_args[0][2] == "A1"
@@ -271,7 +271,7 @@ def test_insert_result_into_calc_skips_shape_status_dict():
     from plugin.scripting.python_runner import insert_result_into_calc
 
     doc = MagicMock()
-    with patch("plugin.calc.rich_html.insert_cell_html_rich") as rich:
+    with patch("plugin.scripting.python_runner.insert_cell_html_rich") as rich:
         insert_result_into_calc(
             doc,
             MagicMock(),

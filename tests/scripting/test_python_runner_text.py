@@ -25,7 +25,7 @@ def test_execute_and_insert_text_skips_fast_path(mock_venv, mock_insert):
     with (
         patch("plugin.scripting.python_runner.is_writer", return_value=True),
         patch(
-            "plugin.scripting.text_analytics.resolve_text_analytics_document_inputs",
+            "plugin.scripting.python_runner.resolve_text_analytics_document_inputs",
             return_value=("Sample document text.", {}),
         ),
     ):
@@ -63,7 +63,7 @@ def test_execute_and_insert_text_uses_body_helper(mock_venv, mock_insert):
     with (
         patch("plugin.scripting.python_runner.is_writer", return_value=True),
         patch(
-            "plugin.scripting.text_analytics.resolve_text_analytics_document_inputs",
+            "plugin.scripting.python_runner.resolve_text_analytics_document_inputs",
             return_value=("section text", {"lang": "en"}),
         ),
     ):
@@ -127,7 +127,7 @@ def test_topics_and_sentiment_bind_section_list(mock_venv, mock_insert):
         with (
             patch("plugin.scripting.python_runner.is_writer", return_value=True),
             patch(
-                "plugin.scripting.text_analytics.resolve_text_analytics_document_inputs",
+                "plugin.scripting.python_runner.resolve_text_analytics_document_inputs",
                 return_value=(sections, {"lang": "en"}),
             ),
         ):
@@ -149,11 +149,11 @@ def test_text_analytics_input_type_assertions():
     code = get_domain_wiring("text").templates()["full"]
 
     with patch("plugin.scripting.python_runner.is_writer", return_value=True):
-        with patch("plugin.scripting.text_analytics.resolve_text_analytics_document_inputs", return_value=(123, {})):
+        with patch("plugin.scripting.python_runner.resolve_text_analytics_document_inputs", return_value=(123, {})):
             with pytest.raises(AssertionError):
                 _prepare_rps_execution(ctx, doc, code)
 
-        with patch("plugin.scripting.text_analytics.resolve_text_analytics_document_inputs", return_value=("valid text", "not a dict")):
+        with patch("plugin.scripting.python_runner.resolve_text_analytics_document_inputs", return_value=("valid text", "not a dict")):
             with pytest.raises(AssertionError):
                 _prepare_rps_execution(ctx, doc, code)
 

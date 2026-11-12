@@ -61,7 +61,7 @@ def test_prepare_rps_session_failure_logs_prepare_not_execute(caplog):
     with (
         patch("plugin.scripting.session_manager.pin_script_document", return_value="doc:tok"),
         patch("plugin.scripting.session_manager.release_script_document") as mock_release,
-        patch("plugin.scripting.session_manager.rps_session_id", side_effect=RuntimeError("session lookup failed")),
+        patch("plugin.scripting.python_runner.rps_session_id", side_effect=RuntimeError("session lookup failed")),
         caplog.at_level(logging.ERROR, logger="writeragent.scripting"),
     ):
         outcome = execute_and_insert_result(ctx, doc, "x = 1")

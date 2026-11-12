@@ -77,7 +77,8 @@ def _calc_cell_ui_strings() -> dict[str, str]:
     return ui
 
 
-def _attach_unavailable_label(*, no_document: bool) -> str:
+def attach_unavailable_label(*, no_document: bool) -> str:
+    """Label text when the attach-to-document checkbox is disabled."""
     if no_document:
         return _("Attach to this document (no document is open)")
     return _("Attach to this document (this document is read-only)")
@@ -92,8 +93,8 @@ def _run_script_ui_strings() -> dict[str, str]:
             "new_script_title": _("New Python Script"),
             "script_name_label": _("Script name:"),
             "attach_to_document_label": _("Attach to this document"),
-            "attach_unavailable_no_document": _attach_unavailable_label(no_document=True),
-            "attach_unavailable_readonly": _attach_unavailable_label(no_document=False),
+            "attach_unavailable_no_document": attach_unavailable_label(no_document=True),
+            "attach_unavailable_readonly": attach_unavailable_label(no_document=False),
             "attach_unavailable_stale": _(
                 "Attach to this document (this document changed)"
             ),
