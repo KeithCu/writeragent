@@ -120,17 +120,13 @@ _TEXT_DOCUMENT_SERVICE = "com.sun.star.text.TextDocument"
 
 
 def _is_text_document(model: Any) -> bool:
-    """True only when UNO reports a Writer model.
-
-    ``supportsService`` on a ``MagicMock`` is truthy but not ``True``. Treating
-    that as a document would bind a fake model during unit tests.
-    """
+    """True only when UNO reports a Writer model. ``supportsService`` is the only probe; ``None`` or an object without it is not a document."""
     if model is None:
         return False
     supports = getattr(model, "supportsService", None)
     if not callable(supports):
         return False
-    return supports(_TEXT_DOCUMENT_SERVICE) is True
+    return bool(supports(_TEXT_DOCUMENT_SERVICE))
 
 
 def _current_component(desktop: Any) -> Any | None:

@@ -6,11 +6,13 @@
 
 from __future__ import annotations
 
+import threading
 from dataclasses import replace
 from typing import Any
 import pytest
 from unittest.mock import ANY, MagicMock, patch
 
+import plugin.writer.locale.grammar_worker as grammar_worker
 from plugin.writer.locale.grammar_worker import (
     _detect_lang_instruction,
     _detected_target_bcp47,
@@ -54,12 +56,8 @@ def _item(
 
 
 @pytest.fixture(autouse=True)
-def _reset_grammar_client_cache():
-    from plugin.writer.locale.grammar_worker import reset_grammar_llm_client_cache
-
-    reset_grammar_llm_client_cache()
-    yield
-    reset_grammar_llm_client_cache()
+def _reset_grammar_client_cache(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(grammar_worker, "_grammar_worker_tls", threading.local())
 
 
 def _ec(client: MagicMock | None = None, *, detect_lang_mode: str = "llm") -> MagicMock:
