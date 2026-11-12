@@ -3,7 +3,7 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-"""Doc package marker (LibrePy: doc_type, text_helpers, udprops, visual_helpers, compound_undo helpers only).
+"""Doc package marker. LibrePy ships only text_helpers, udprops, visual_helpers, compound_undo and temp_files from this package (scripts/librepy_bundle_paths.py); the document-type guards it also uses are plugin/framework/doc_type.py.
 
 WriterAgent ``load_modules`` looks for a ``ModuleBase`` subclass on this
 package. ``common_module.py`` is omitted from the LibrePy OXT, so the

@@ -532,3 +532,68 @@ def test_nothing_landed_follows_undo_or_unchanged_session():
     outcome3 = commit_or_rollback(doc, "Title", mutate_ok, session=session)
     assert outcome3.rolled_back is False
     assert outcome3.nothing_landed is True
+
+
+def test_commit_or_rollback_mutation_code_is_top_level_and_extras_are_mirrored():
+    from plugin.doc.undo import Undo, commit_or_rollback_mutation
+
+    tool = Undo()
+
+    def _failing_doc():
+        doc = MagicMock()
+        mgr = MagicMock()
+        mgr.isLocked.return_value = False
+        mgr.getAllUndoActionTitles.side_effect = [(), ("T",)]
+        doc.getUndoManager.return_value = mgr
+        return doc
+
+    def _boom():
+        raise RuntimeError("boom")
+
+    res = commit_or_rollback_mutation(
+        tool,
+        _failing_doc(),
+        "T",
+        _boom,
+        "unavailable",
+        "rollback",
+        code="INSERT_FRAME_FAILED",
+    )
+    assert res is not None
+    assert res["code"] == "INSERT_FRAME_FAILED"
+    assert "details" not in res
+
+    res = commit_or_rollback_mutation(
+        tool,
+        _failing_doc(),
+        "T",
+        _boom,
+        "unavailable",
+        "rollback",
+        deleted=0,
+    )
+    assert res is not None
+    assert res["code"] == "TOOL_EXECUTION_ERROR"
+    assert res["details"] == {"deleted": 0}
+    assert res["deleted"] == 0
+
+    res = commit_or_rollback_mutation(
+        tool,
+        _failing_doc(),
+        "T",
+        _boom,
+        "unavailable",
+        "rollback",
+    )
+    assert res is not None
+    assert res["code"] == "TOOL_EXECUTION_ERROR"
+    assert "details" not in res
+
+
+def test_undo_without_undo_manager_reports_error():
+    from types import SimpleNamespace
+    from plugin.doc.undo import Undo
+
+    res = Undo().execute(SimpleNamespace(doc=object()))
+    assert res["status"] == "error"
+    assert res["message"] == "Document does not support undo."
