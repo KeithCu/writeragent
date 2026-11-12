@@ -71,6 +71,17 @@ def test_format_run_output_text_skips_image_result():
     assert text == ""
 
 
+def test_format_run_output_text_hides_multi_data_of_images():
+    from plugin.scripting.payload_codec import pack_image_envelope, pack_multi_data_envelope
+
+    img = pack_image_envelope(b"png-bytes", "png")
+    only_images = pack_multi_data_envelope([img, img])
+    assert format_run_output_text({"status": "ok", "stdout": "", "result": only_images}) == ""
+
+    mixed = pack_multi_data_envelope([img, 1])
+    assert format_run_output_text({"status": "ok", "stdout": "", "result": mixed}) != ""
+
+
 def test_format_run_output_text_unpack_failure_renders_raw_wire():
     wire = {"raw": "payload"}
     with patch("plugin.notebook.notebook_runner.host_unpack_data", side_effect=ValueError("bad")):

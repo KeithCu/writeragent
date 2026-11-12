@@ -695,7 +695,7 @@ def test_time_series_plots_rows_in_date_order(mock_plt, _mock_payload):
     assert list(ax.plot.call_args[0][1]) == [1.0, 2.0, 3.0]
 
 
-@patch("plugin.scripting.venv.venv_sandbox._figure_to_image_payload", side_effect=RuntimeError("render failed"))
+@patch("plugin.scripting.venv.viz.figure_to_image_payload", side_effect=RuntimeError("render failed"))
 @patch("plugin.scripting.venv.viz._require_matplotlib")
 def test_figure_closes_when_savefig_raises(mock_plt, _mock_payload):
     """Savefig used to skip plt.close, and trusted actions never call _close_open_figures."""
@@ -712,7 +712,7 @@ def test_figure_closes_when_savefig_raises(mock_plt, _mock_payload):
 
 @patch("plugin.scripting.venv.viz._MAX_SVG_BYTES", 10)
 @patch(
-    "plugin.scripting.venv.venv_sandbox._figure_to_image_payload",
+    "plugin.scripting.venv.viz.figure_to_image_payload",
     side_effect=[
         {"__wa_payload__": "image", "format": "svg", "data": b"x" * 11},
         {"__wa_payload__": "image", "format": "png", "data": b"\x89PNG"},
@@ -733,7 +733,7 @@ def test_figure_payload_rerenders_oversized_svg_as_png(mock_plt, mock_render):
 
 @patch("plugin.scripting.venv.viz._MAX_SVG_BYTES", 10)
 @patch(
-    "plugin.scripting.venv.venv_sandbox._figure_to_image_payload",
+    "plugin.scripting.venv.viz.figure_to_image_payload",
     side_effect=[
         {"__wa_payload__": "image", "format": "svg", "data": b"x" * 5},
     ],

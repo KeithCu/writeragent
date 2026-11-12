@@ -100,11 +100,11 @@ def test_host_unpack_data_passthrough():
 def test_figure_to_image_payload_svg_default():
     """Default format is SVG for crisp rendering in LibreOffice."""
     plt = pytest.importorskip("matplotlib.pyplot")
-    from plugin.scripting.venv.to_wire import _figure_to_image_payload
+    from plugin.scripting.venv.to_wire import figure_to_image_payload
 
     fig, ax = plt.subplots()
     ax.plot([1, 2, 3])
-    payload = _figure_to_image_payload(fig)
+    payload = figure_to_image_payload(fig)
     plt.close(fig)
 
     assert payload["__wa_payload__"] == PAYLOAD_IMAGE
@@ -117,11 +117,11 @@ def test_figure_to_image_payload_svg_default():
 def test_figure_to_image_payload_png_explicit():
     """Explicit fmt='png' produces a PNG raster."""
     plt = pytest.importorskip("matplotlib.pyplot")
-    from plugin.scripting.venv.to_wire import _figure_to_image_payload
+    from plugin.scripting.venv.to_wire import figure_to_image_payload
 
     fig, ax = plt.subplots()
     ax.plot([1, 2, 3])
-    payload = _figure_to_image_payload(fig, fmt="png")
+    payload = figure_to_image_payload(fig, fmt="png")
     plt.close(fig)
 
     assert payload["__wa_payload__"] == PAYLOAD_IMAGE
@@ -585,7 +585,7 @@ def test_capture_open_figures_closes_when_render_raises(monkeypatch):
     def boom(fig, *, fmt="svg"):
         raise RuntimeError("bad figure")
 
-    monkeypatch.setattr(vs, "_figure_to_image_payload", boom)
+    monkeypatch.setattr(vs, "figure_to_image_payload", boom)
     # Capture skips work until pyplot is imported; don't depend on test order.
     monkeypatch.setitem(sys.modules, "matplotlib.pyplot", _Plt())
     with pytest.raises(RuntimeError, match="bad figure"):
