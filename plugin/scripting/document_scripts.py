@@ -110,8 +110,9 @@ def _fail_unreadable(message: str, *args: object, exc_info: bool = False) -> tup
 def _readonly_document_error() -> DocumentScriptError:
     """Document is read-only or properties cannot be written.
 
-    This sentence does not claim a My Scripts save; only the read-only
-    fallback does, and only after this error returns.
+    No saver falls back to My Scripts on this error; the native dialog,
+    the Monaco picker and Monaco Run / Save show this sentence and write
+    nothing (see save_script_to_origin).
     """
     return DocumentScriptError(
         _("Document is read-only or properties cannot be written."),
@@ -176,8 +177,7 @@ def set_document_scripts(doc: Any, scripts: dict[str, str]) -> DocumentScriptErr
             DocumentScriptErrorCode.TOO_LARGE,
         )
     if is_document_readonly_for_scripts(doc):
-        # The message does not promise a My Scripts copy: Save As, New, and
-        # Monaco attach show it and do not write My Scripts.
+        # No saver falls back to My Scripts on this error; every saver reports it and writes nothing.
         return _readonly_document_error()
     try:
         set_document_property(doc, DOCUMENT_SCRIPTS_UDPROP, payload)
@@ -585,18 +585,6 @@ def read_only_helper_message() -> str:
     return _("Built-in helpers are read-only. Use Save As to copy one into My Scripts.")
 
 
-def readonly_fallback_saved_message(name: str, document_error: object) -> str:
-    return _("Could not save '{0}' to this document ({1}). Saved it to My Scripts instead.").format(
-        name, document_error
-    )
-
-
-def readonly_fallback_name_taken_message(name: str, document_error: object) -> str:
-    return _("Could not save '{0}' to this document ({1}). A script named '{0}' already exists in My Scripts.").format(
-        name, document_error
-    )
-
-
 def save_user_script(name: str, code: str) -> DocumentScriptError | None:
     # Reserved script names return DocumentScriptError instead of ValueError so Monaco picker shows translated errors.
     if is_reserved_script_name(name):
@@ -621,6 +609,41 @@ def delete_user_script(name: str) -> DocumentScriptError | None:
     return None
 
 
+def save_script_to_origin(doc: Any, name: str, origin: str, code: str) -> DocumentScriptError | None:
+    """Save *code* as storage *name* in the store *origin* names, and nowhere else.
+
+    SCRIPT_ORIGIN_DOCUMENT writes the document property map (*name* is the raw
+    storage name, not the "[Doc] " label); any other writable origin writes My
+    Scripts. Callers check script_origin_is_writable first. A read-only document
+    returns its READONLY error and nothing is written to My Scripts, so the native
+    dialog, the Monaco picker and Monaco Run / Save all fail with the same sentence.
+    A None *doc* returns NO_DOCUMENT from set_document_scripts.
+    """
+    if origin == SCRIPT_ORIGIN_DOCUMENT:
+        return save_document_script(doc, name, code)
+    return save_user_script(name, code)
+
+
+def script_saved_message(name: str, origin: str) -> str:
+    """Success sentence both script pickers show after save_script_to_origin."""
+    if origin == SCRIPT_ORIGIN_DOCUMENT:
+        return _("Script '%s' saved to this document.") % name
+    return _("Script '%s' saved successfully.") % name
+
+
+def delete_script_from_origin(doc: Any, name: str, origin: str) -> DocumentScriptError | None:
+    """Delete storage *name* from the store *origin* names (document map or My Scripts).
+
+    delete_document_script on a None document would report the name as missing,
+    so the no-document case is answered here first.
+    """
+    if origin == SCRIPT_ORIGIN_DOCUMENT:
+        if doc is None:
+            return DocumentScriptError(_("No document is open."), DocumentScriptErrorCode.NO_DOCUMENT)
+        return delete_document_script(doc, name)
+    return delete_user_script(name)
+
+
 def is_picker_template_name(name: str) -> bool:
     """True for a read-only built-in picker label such as ``[Vision] …``."""
     return any(parse_picker_display_name(domain.display_prefix, name) for domain in PICKER_WIRING)
@@ -637,6 +660,7 @@ def save_selected_script(
 
     Returns None on success or when *display_name* is a built-in template and
     *allow_builtin_skip* is True. Returns an error message string otherwise.
+    A read-only document returns its READONLY error; nothing is written to My Scripts.
     """
     if not display_name:
         return None
@@ -745,44 +769,20 @@ def _on_save_script(
     )
     if target is None:
         return True
-    name, origin, storage_name = target
+    _raw_name, origin, storage_name = target
     raw_code = msg.get("code", "")
     script_code = raw_code if isinstance(raw_code, str) else ""
 
-    def _finish_user_save(saved_name: str, ok_text: str, *, log_user: bool = False) -> bool:
-        user_err = save_user_script(saved_name, script_code)
-        if user_err:
-            send_list(status_error_text=str(user_err))
-            return True
-        config.save({resolve_run_script_name_config_key(session_doc): saved_name})
-        if log_user:
-            log.info("scripts picker: save_script '%s' (user)", saved_name)
-        send_list(status_ok_text=ok_text)
+    err = save_script_to_origin(session_doc, storage_name, origin, script_code)
+    if err:
+        send_list(status_error_text=str(err))
         return True
 
-    if origin == SCRIPT_ORIGIN_DOCUMENT:
-        save_err = save_document_script(session_doc, storage_name, script_code)
-        if save_err:
-            # Fall back to My Scripts only for READONLY (read-only document or
-            # unwritable properties). Other save errors, including 'INIT' and
-            # too-large, go back to the user. A blanket fallback skipped validation.
-            if getattr(save_err, "code", None) == DocumentScriptErrorCode.READONLY:
-                if storage_name in get_user_scripts():
-                    send_list(
-                        status_error_text=readonly_fallback_name_taken_message(storage_name, save_err)
-                    )
-                    return True
-                return _finish_user_save(
-                    storage_name,
-                    readonly_fallback_saved_message(storage_name, save_err),
-                )
-            send_list(status_error_text=str(save_err))
-            return True
-        display_name = document_script_display_name(storage_name)
-        config.save({resolve_run_script_name_config_key(session_doc): display_name})
-        send_list(status_ok_text=_("Saved script '{0}' to this document.").format(storage_name))
-        return True
-    return _finish_user_save(name, _("Saved script '{0}'.").format(name), log_user=True)
+    selected = document_script_display_name(storage_name) if origin == SCRIPT_ORIGIN_DOCUMENT else storage_name
+    config.save({resolve_run_script_name_config_key(session_doc): selected})
+    log.info("scripts picker: save_script '%s' (%s)", storage_name, origin or SCRIPT_ORIGIN_USER)
+    send_list(status_ok_text=script_saved_message(storage_name, origin))
+    return True
 
 
 def _on_delete_script(
@@ -795,20 +795,13 @@ def _on_delete_script(
     target = _validate_script_target(msg, send_list, session_doc=session_doc, session_doc_url=session_doc_url)
     if target is None:
         return True
-    name, origin, storage_name = target
-    if origin == SCRIPT_ORIGIN_DOCUMENT:
-        del_err = delete_document_script(session_doc, storage_name)
-        if del_err:
-            send_list(status_error_text=str(del_err))
-            return True
-        send_list(status_ok_text=_("Deleted document script '{0}'.").format(storage_name))
-        return True
-    del_err = delete_user_script(name)
+    _raw_name, origin, storage_name = target
+    del_err = delete_script_from_origin(session_doc, storage_name, origin)
     if del_err:
         send_list(status_error_text=str(del_err))
         return True
-    log.info("scripts picker: delete_script '%s' (user)", name)
-    send_list(status_ok_text=_("Deleted script '{0}'.").format(name))
+    log.info("scripts picker: delete_script '%s' (%s)", storage_name, origin or SCRIPT_ORIGIN_USER)
+    send_list(status_ok_text=_("Script '%s' deleted.") % storage_name)
     return True
 
 

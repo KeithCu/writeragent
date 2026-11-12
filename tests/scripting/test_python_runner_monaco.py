@@ -771,7 +771,7 @@ def test_show_python_input_dialog_run_button_keeps_dialog_open():
         with _patch_modal_native():
             with patch.object(ui, "save") as mock_set:
                 with patch.object(ui, "get_user_scripts", return_value={"Universal Sample": "result = 0"}):
-                    with patch.object(ui, "save_user_script") as mock_save:
+                    with patch.object(ui, "save_script_to_origin", return_value=None) as mock_save:
                         with patch.object(ui, "get_config", return_value=""):
                             scheduled = {}
 
@@ -795,7 +795,7 @@ def test_show_python_input_dialog_run_button_keeps_dialog_open():
                                 dlg.endDialog.assert_not_called()
                                 dlg.setVisible.assert_not_called()
                                 mock_set.assert_any_call({"last_python_script_name_writer": "Universal Sample"})
-                                mock_save.assert_called_with("Universal Sample", "result = 42")
+                                mock_save.assert_called_with(None, "Universal Sample", ui.SCRIPT_ORIGIN_USER, "result = 42")
                                 # Run returns before the venv wait. The dialog event
                                 # thread must not call execute_and_insert_result.
                                 assert scheduled["func"].__name__ == "_native_script_run_worker"
@@ -860,7 +860,7 @@ def test_show_python_input_dialog_save_button():
         with _patch_modal_native():
             with patch.object(ui, "save"):
                 with patch.object(ui, "get_user_scripts", return_value={"Universal Sample": "print('hello')"}):
-                    with patch.object(ui, "save_user_script") as mock_save:
+                    with patch.object(ui, "save_script_to_origin", return_value=None) as mock_save:
                         with patch.object(ui, "get_config", return_value=""):
                             def fake_execute():
                                 listeners[0].actionPerformed(MagicMock())
@@ -868,7 +868,7 @@ def test_show_python_input_dialog_save_button():
 
                             ui.show_python_input_dialog(ctx)
 
-                            mock_save.assert_called_with("Universal Sample", "print('hello world')")
+                            mock_save.assert_called_with(None, "Universal Sample", ui.SCRIPT_ORIGIN_USER, "print('hello world')")
 
 
 def test_persistent_editor_dispatches_script_actions():
