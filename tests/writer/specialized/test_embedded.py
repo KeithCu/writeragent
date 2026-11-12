@@ -41,11 +41,24 @@ def test_embedded_edit_fails_immediately():
 
 
 def test_embedded_insert_rejects_bad_object_type_and_bool_cell():
+    from plugin.framework.tool import prepare_tool_call
+
     ctx = MagicMock()
+    ctx.doc_type = "writer"
     tool = EmbeddedInsert()
-    bad_type = tool.execute(ctx, object_type="chart")
-    assert bad_type["status"] == "error"
-    assert ctx.doc.createInstance.call_count == 0
+    bad_type = prepare_tool_call(tool, ctx, "embedded_insert", {"object_type": "chart"})
+    assert bad_type.error is not None
+    assert bad_type.error["code"] == "VALIDATION_ERROR"
+
+    bad_data = prepare_tool_call(tool, ctx, "embedded_insert", {"object_type": "spreadsheet", "data": "x"})
+    assert bad_data.error is not None
+    assert bad_data.error["code"] == "VALIDATION_ERROR"
+
+    bad_width = prepare_tool_call(
+        tool, ctx, "embedded_insert", {"object_type": "spreadsheet", "width": True, "height": 5}
+    )
+    assert bad_width.error is not None
+    assert bad_width.error["code"] == "VALIDATION_ERROR"
 
     bad_bool = tool.execute(
         ctx,

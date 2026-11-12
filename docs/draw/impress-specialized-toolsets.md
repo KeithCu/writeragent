@@ -362,7 +362,7 @@ class AlignShapes(ToolDrawShapeBase):
 
 #### 5.2.3 Tables (`domain="tables"`)
 
-**Design:** Slide table manipulation uses the specialized table tools in [`plugin/writer/specialized/tables.py`](../../plugin/writer/specialized/tables.py) (`TableInsert`, `TableDelete`, `TableList`, `TableGetCells`, `TableSetCell`, `ManageTableStructure`), which branch on `_is_draw_doc(ctx.doc)` to delegate to Draw TableShape helpers in [`plugin/draw/tables.py`](../../plugin/draw/tables.py).
+**Design:** Slide table manipulation uses the specialized table tools in [`plugin/writer/specialized/tables.py`](../../plugin/writer/specialized/tables.py) (`TableInsert`, `TableDelete`, `TableList`, `TableGetCells`, `TableSetCell`, `ManageTableStructure`), which branch on `is_draw(ctx.doc)` (`plugin/framework/doc_type.py`) to delegate to Draw TableShape helpers in [`plugin/draw/tables.py`](../../plugin/draw/tables.py).
 
 **Implementation:**
 - `insert_draw_table`: oversized `data` is rejected before any shape is created.

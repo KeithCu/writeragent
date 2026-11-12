@@ -329,9 +329,7 @@ class InsertField(ToolWriterMailMergeBase):
         if not column_name:
             return self._tool_error("column_name is required.")
 
-        doc = getattr(ctx, "doc", None)
-        if not doc or not hasattr(doc, "createInstance"):
-            return self._tool_error("Document does not support creating UNO instances.")
+        doc = ctx.doc
 
         cmd_type_val = _COMMAND_TYPES[command_type_str]
 
@@ -395,9 +393,7 @@ class ListFields(ToolWriterMailMergeBase):
     parameters: dict[str, Any] | None = {"type": "object", "properties": {}, "required": []}
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
-        doc = getattr(ctx, "doc", None)
-        if not doc:
-            return self._tool_error("Document does not support text fields.")
+        doc = ctx.doc
 
         fields_container = doc.getTextFields()
         enum = fields_container.createEnumeration()
@@ -544,7 +540,7 @@ class RunMerge(ToolWriterMailMergeBase):
         if not data_source_name or not table_name:
             return self._tool_error("data_source_name and table_name are required.")
 
-        doc = getattr(ctx, "doc", None)
+        doc = ctx.doc
 
         # Resolve document URL
         doc_url = ""
@@ -556,7 +552,7 @@ class RunMerge(ToolWriterMailMergeBase):
                     f"Template not found: {doc_url_arg}", code="FILE_NOT_FOUND", path=template_path
                 )
             doc_url = _to_file_url(template_path)
-        elif doc:
+        else:
             try:
                 modified = doc.isModified()
                 url = doc.getURL()

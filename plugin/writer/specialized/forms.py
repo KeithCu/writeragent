@@ -22,17 +22,22 @@ They do not fill PDF/AcroForm widgets. Draw "paper forms" (empty TextShapes next
 to labels) use get_draw_tree + shape_fill_fields / shape_upsert instead.
 """
 
+from datetime import datetime
 import logging
 import re
 from typing import Any
 from com.sun.star.awt import Point, Size
 from com.sun.star.text.TextContentAnchorType import AS_CHARACTER
 
+from ..html_import import insert_html_fragment_at_cursor
 from ..specialized_base import ToolWriterFormBase, enum_param, index_error
-from plugin.framework.doc_type import is_calc, is_draw
-from plugin.doc.text_helpers import clone_text_range
+from plugin.doc.compound_undo import UndoUnavailable, commit_or_rollback
+from plugin.doc.text_helpers import clone_text_range, selected_text_range
+from plugin.doc.undo import commit_or_rollback_mutation
 from plugin.doc.visual_helpers import get_active_draw_page
 from plugin.draw.tree import CONTROL_TYPE_MAP, coerce_control_state, control_snapshot, readable_control_type
+from plugin.framework.config import get_api_config
+from plugin.framework.doc_type import is_calc, is_draw
 from plugin.framework.errors import format_error_payload, make_tool_error, ToolExecutionError, is_disposal, reraise_if_disposed
 from plugin.framework.queue_executor import main
 from plugin.framework.uno_context import uno_same
@@ -55,6 +60,7 @@ def _resolve_form_page(doc: Any, page: Any = None) -> Any:
     Writer/Calc ignore *page* (Writer has one canvas; Calc uses the active sheet).
     """
     if page is not None and is_draw(doc):
+        # Lazy: cross-app; the Draw bridge and shape helpers load only when the target is a Draw/Impress document.
         from plugin.draw.bridge import DrawBridge
 
         try:
@@ -145,8 +151,6 @@ def _coerce_items(raw: Any) -> list[str] | None:
 
 
 def _parse_date_default_value(raw: str) -> tuple[int, int, int] | None:
-    from datetime import datetime
-
     s = raw.strip()
     for fmt in ("%d.%m.%Y", "%Y-%m-%d"):
         try:
@@ -228,8 +232,6 @@ def _commit_form_batch(
     mutate: Any,
     undo_message: str,
 ) -> dict[str, Any] | None:
-    from plugin.doc.compound_undo import UndoUnavailable, commit_or_rollback
-
     try:
         outcome = commit_or_rollback(doc, title, mutate)
         outcome.raise_mutate_error()
@@ -426,6 +428,7 @@ def _create_control(ctx: Any, *, page_cursors: Any = None, **kwargs: Any) -> dic
         if control_type == "date" and date_val is not None:
             year, month, day = date_val
             try:
+                # Lazy: uno is looked up when this runs; unit tests swap sys.modules["uno"] for mocks, and a module-level binding would keep a stale one.
                 import uno
                 d_struct = uno.createUnoStruct("com.sun.star.util.Date")
                 setattr(d_struct, "Year", year)
@@ -477,7 +480,6 @@ def _create_control(ctx: Any, *, page_cursors: Any = None, **kwargs: Any) -> dic
         else:
             # Anchor 'As Character' so it flows with text
             shape.setPropertyValue("AnchorType", AS_CHARACTER)
-            from plugin.doc.text_helpers import selected_text_range
 
             anchor = selected_text_range(doc.getCurrentController())
             if anchor is None:
@@ -585,7 +587,7 @@ class FormGenerate(ToolWriterFormBase):
         return True
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
-        from plugin.framework.config import get_api_config
+        # Lazy: LlmClient brings in the HTTP client stack (plugin.framework.client loads it on attribute access); only FormGenerate needs it.
         from plugin.framework.client.llm_client import LlmClient
 
         description = kwargs["description"]
@@ -692,6 +694,7 @@ Output ONLY the HTML content. No explanations. No Markdown like # Header.
             if is_calc(doc):
                 _append_text_to_calc_active_area(doc, plain + " ")
                 return
+            # Lazy: cross-app; the Draw bridge and shape helpers load only when the target is a Draw/Impress document.
             from plugin.draw.bridge import DrawBridge
             from plugin.draw.shapes import DrawShapes
 
@@ -705,8 +708,6 @@ Output ONLY the HTML content. No explanations. No Markdown like # Header.
             )
             shape.setString(plain)
             return
-
-        from ..html_import import insert_html_fragment_at_cursor
 
         vc = doc.getCurrentController().getViewCursor()
         cursor_range = clone_text_range(vc)
@@ -877,8 +878,6 @@ class FormEditControl(ToolWriterFormBase):
                 sz = shape.getSize()
                 shape.setSize(Size(kwargs.get("width", sz.Width), kwargs.get("height", sz.Height)))
 
-        from plugin.doc.undo import commit_or_rollback_mutation
-
         batch_err = commit_or_rollback_mutation(
             self,
             ctx.doc,
@@ -931,8 +930,6 @@ class FormDeleteControl(ToolWriterFormBase):
 
         def mutate() -> None:
             dp.remove(shape)
-
-        from plugin.doc.undo import commit_or_rollback_mutation
 
         batch_err = commit_or_rollback_mutation(
             self,

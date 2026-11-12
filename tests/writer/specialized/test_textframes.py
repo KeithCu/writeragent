@@ -95,13 +95,13 @@ def _ctx_for_frame(frame: Any) -> MagicMock:
 
 
 def test_frame_set_properties_validation():
+    from plugin.framework.tool import prepare_tool_call
+
     bad_calls = [
         {"name": "Box", "width_mm": 0},
         {"name": "Box", "width_mm": -1},
         {"name": "Box", "width_mm": float("inf")},
         {"name": "Box", "anchor_type": 5},
-        {"name": "Box", "anchor_type": True},
-        {"name": "Box", "hori_orient": True},
         {"name": "Box"},
     ]
     tool = FrameSetProperties()
@@ -111,6 +111,15 @@ def test_frame_set_properties_validation():
         res = tool.execute(ctx, **bad)
         assert res["status"] == "error"
         assert len(frame.writes) == 0
+
+    for bad_type in [
+        {"name": "Box", "anchor_type": True},
+        {"name": "Box", "hori_orient": True},
+    ]:
+        ctx = SimpleNamespace(doc_type="writer", caller="test")
+        prep = prepare_tool_call(tool, ctx, "frame_set_properties", bad_type)
+        assert prep.error is not None
+        assert prep.error["code"] == "VALIDATION_ERROR"
 
 
 def test_frame_set_properties_units():
@@ -282,6 +291,32 @@ def test_frame_insert_default_size_and_undo_path():
     host_text.insertTextContent.assert_called_once()
     frame.setName.assert_called_once_with("MyFrame")
     frame_text.insertString.assert_called_once_with(frame_cursor, "hello", False)
+
+
+def test_frame_tools_wrong_types_stop_at_validator():
+    from plugin.framework.tool import prepare_tool_call
+    from plugin.writer.specialized.textframes import FrameInsert, FrameSetProperties
+
+    ctx = MagicMock(doc=MagicMock())
+    ctx.doc_type = "writer"
+
+    prep_orient = prepare_tool_call(
+        FrameSetProperties(), ctx, "frame_set_properties", {"name": "F", "hori_orient": "x"}
+    )
+    assert prep_orient.error is not None
+    assert prep_orient.error["code"] == "VALIDATION_ERROR"
+
+    prep_w = prepare_tool_call(
+        FrameSetProperties(), ctx, "frame_set_properties", {"name": "F", "width_mm": True}
+    )
+    assert prep_w.error is not None
+    assert prep_w.error["code"] == "VALIDATION_ERROR"
+
+    prep_a = prepare_tool_call(
+        FrameInsert(), ctx, "frame_insert", {"anchor_type": 1.5}
+    )
+    assert prep_a.error is not None
+    assert prep_a.error["code"] == "VALIDATION_ERROR"
 
 
 def test_frame_insert_invalid_width_and_anchor():

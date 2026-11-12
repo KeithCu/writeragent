@@ -23,10 +23,11 @@ import logging
 import uuid
 from typing import Any, ClassVar, Generator
 
-from plugin.doc.document_helpers import is_cacheable_doc_key
-from plugin.doc.paragraph_search import get_paragraph_ranges, paragraph_index_for_anchor
+from plugin.doc.document_helpers import compute_doc_key, is_cacheable_doc_key
+from plugin.doc.paragraph_search import get_paragraph_ranges, paragraph_entries, paragraph_index_for_anchor
 from plugin.framework.errors import best_effort, name_miss_details, reraise_if_disposed
 from plugin.framework.service import ServiceBase
+from plugin.framework.uno_context import uno_same
 from plugin.framework.uno_listeners import BaseDocumentEventListener
 from ..specialized_base import ToolWriterBookmarkBase
 
@@ -124,8 +125,6 @@ class BookmarkService(ServiceBase):
     def _doc_key(self, doc: Any) -> str:
         if self._doc_svc is not None:
             return self._doc_svc.doc_key(doc)
-        from plugin.doc.document_helpers import compute_doc_key
-
         return compute_doc_key(doc)
 
     def _ignore_cache(self) -> Any:
@@ -181,8 +180,6 @@ class BookmarkService(ServiceBase):
                 return result, []
             if para_ranges is None:
                 para_ranges = get_paragraph_ranges(doc)
-            from plugin.doc.paragraph_search import paragraph_entries
-
             entries = paragraph_entries(para_ranges)
             text_obj = doc.getText()
             for name in mcp_names:
@@ -358,7 +355,6 @@ class BookmarkService(ServiceBase):
         key = self._doc_key(doc)
         if key in _PENDING_STRIPS:
             return key
-        from plugin.framework.uno_context import uno_same
 
         for stored_key, rec in _PENDING_STRIPS.items():
             if rec.doc is not None and uno_same(doc, rec.doc):

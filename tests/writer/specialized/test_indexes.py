@@ -558,7 +558,7 @@ def test_insert_toc_entry_param_errors_and_dry_run():
 
     with patch("plugin.writer.specialized.indexes._paragraphs_in_anchor", return_value=[sibling]):
         leveled = tool.execute(
-            ctx, content="Gamma title", page=4, level=2, dry_run=True,
+            ctx, content="Gamma title", page="4", level=2, dry_run=True,
             hyperlink_url="#1.Gamma title|outline")
         table_link = tool.execute(
             ctx, content="Annex cover", page="9", dry_run=True,
@@ -1078,13 +1078,15 @@ def test_toc_entry_tools_reject_non_integer_occurrence_index_and_level():
     assert res["status"] == "error"
     assert res["code"] == "INVALID_PARAM"
 
-    res = ins_tool.execute(ctx, content="Beta", level="1")
-    assert res["status"] == "error"
-    assert res["code"] == "INVALID_PARAM"
+    from plugin.framework.tool import prepare_tool_call
 
-    res = ins_tool.execute(ctx, content="Beta", level=True)
-    assert res["status"] == "error"
-    assert res["code"] == "INVALID_PARAM"
+    prep_str = prepare_tool_call(ins_tool, ctx, "indexes_insert_toc_entry", {"content": "Beta", "level": "1"})
+    assert prep_str.error is not None
+    assert prep_str.error["code"] == "VALIDATION_ERROR"
+
+    prep_bool = prepare_tool_call(ins_tool, ctx, "indexes_insert_toc_entry", {"content": "Beta", "level": True})
+    assert prep_bool.error is not None
+    assert prep_bool.error["code"] == "VALIDATION_ERROR"
 
 
 def test_paragraphs_in_anchor_stops_at_the_anchor_end():
@@ -1394,7 +1396,7 @@ def test_toc_match_case_sensitive():
         calls.append((s, case_sensitive))
         return [r_exact] if case_sensitive else [r_insensitive]
 
-    with patch("plugin.writer.search.find_all_ranges", side_effect=fake_find_all), \
+    with patch("plugin.writer.specialized.indexes.find_all_ranges", side_effect=fake_find_all), \
          patch("plugin.writer.specialized.indexes._contained", return_value=True), \
          patch("plugin.writer.specialized.indexes._para_style_name", return_value="Contents 1"):
         # Omitted / None

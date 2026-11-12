@@ -155,21 +155,9 @@ class _EmbedRequest(NamedTuple):
 
 
 def _validate_embed_args(tool: Any, kwargs: Mapping[str, Any]) -> _EmbedRequest | dict[str, Any]:
-    object_type = kwargs.get("object_type")
-    if object_type != "spreadsheet":
-        return tool._tool_error(
-            "object_type must be 'spreadsheet'.",
-            code="INVALID_PARAM",
-            parameter="object_type",
-        )
-
-    data = kwargs.get("data")
-    if data is None:
-        data = []
-    elif isinstance(data, bool) or not isinstance(data, list):
-        return tool._tool_error("data must be an array of rows.", code="INVALID_PARAM", parameter="data")
+    data = kwargs.get("data") or []
     for row_idx, row in enumerate(data):
-        if isinstance(row, bool) or not isinstance(row, list):
+        if not isinstance(row, list):
             return tool._tool_error(
                 f"data row {row_idx} must be an array.",
                 code="INVALID_PARAM",
@@ -190,9 +178,9 @@ def _validate_embed_args(tool: Any, kwargs: Mapping[str, Any]) -> _EmbedRequest 
             "width and height must both be set or both omitted.",
             code="INVALID_PARAM",
         )
-    if width is not None and (not isinstance(width, int) or isinstance(width, bool) or width <= 0):
+    if width is not None and width <= 0:
         return tool._tool_error("width must be a positive integer.", code="INVALID_PARAM", parameter="width")
-    if height is not None and (not isinstance(height, int) or isinstance(height, bool) or height <= 0):
+    if height is not None and height <= 0:
         return tool._tool_error("height must be a positive integer.", code="INVALID_PARAM", parameter="height")
 
     embed_name = kwargs.get("name")

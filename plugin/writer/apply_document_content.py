@@ -46,7 +46,7 @@ from plugin.writer.edit_review import (
 )
 from plugin.doc.compound_undo import UndoUnavailable, commit_or_rollback
 from plugin.writer.review_scan import document_has_tracked_deletions
-from plugin.writer.specialized.shapes import replace_text_in_shape
+from plugin.writer.search import replace_text_in_shape
 from plugin.writer.specialized.tables import record_table_deletions
 from plugin.writer.table_nesting import cell_hosted_table_names
 from plugin.writer.specialized_base import INSERT_TARGETS, enum_param

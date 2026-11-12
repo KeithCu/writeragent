@@ -118,8 +118,11 @@ def test_document_properties_set_no_changes_and_conflicts():
     )
     assert conflict["code"] == "INVALID_PARAM"
 
-    bad_kw = DocumentPropertiesSet().execute(ctx, keywords="one,two")
-    assert bad_kw["code"] == "INVALID_PARAM"
+    from plugin.framework.tool import prepare_tool_call
+
+    bad_kw = prepare_tool_call(DocumentPropertiesSet(), ctx, "document_properties_set", {"keywords": "one,two"})
+    assert bad_kw.error is not None
+    assert bad_kw.error["code"] == "VALIDATION_ERROR"
 
     bad_kw_item = DocumentPropertiesSet().execute(ctx, keywords=["ok", 1])
     assert bad_kw_item["code"] == "INVALID_PARAM"
@@ -144,7 +147,7 @@ def test_document_properties_set_partial_updated_on_ud_failure():
     with (
         patch("plugin.framework.queue_executor.main.run", side_effect=lambda fn: fn()),
         patch(
-            "plugin.doc.udprops.set_document_property",
+            "plugin.writer.specialized.fields.set_document_property",
             side_effect=lambda _doc, key, _val: key != "bad",
         ),
     ):
