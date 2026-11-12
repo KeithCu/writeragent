@@ -732,10 +732,10 @@ class PersistentEditor:
                 log.warning("editor_host: ignored incoming message from old process")
 
     def _marshal_timeout(self) -> float:
-        """UI wait for a save/close. Matches configured_python_exec_timeout plus slack so long script budgets are not cut off at a fixed 60s."""
-        from plugin.scripting.config_limits import configured_python_exec_timeout
+        """UI wait for a save/close. Matches python_exec_timeout plus slack so long script budgets are not cut off at a fixed 60s."""
+        from plugin.scripting.config_limits import python_exec_timeout
 
-        return float(configured_python_exec_timeout()) + 5.0
+        return float(python_exec_timeout()) + 5.0
 
     def _run_on_main(self, fn: Callable[[], None], label: str) -> Exception | None:
         """Queue *fn* on the UI thread. Return the marshal failure, else None."""

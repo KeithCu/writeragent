@@ -279,7 +279,7 @@
         "priority": "high",
         "tool": "deal+hypothesis",
         "functions_contracted": [
-          "resolve_python_exec_timeout"
+          "python_exec_timeout"
         ],
         "ci_integration": true
       },

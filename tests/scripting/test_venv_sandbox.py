@@ -623,7 +623,7 @@ def test_init_result_lambda_is_not_seeded(fresh_sandbox_sessions) -> None:
     assert r1["status"] == "ok"
     assert r1["result"] == 4
 
-    exe = _new_executor(5, policy=build_sandbox_policy())
+    exe = _new_executor(build_sandbox_policy())
     CellNamespace(exe).seed(init_sid, copy=True)
     assert cast("Any", exe.state["helper"])() == 4
     assert "result" not in exe.state
@@ -1365,24 +1365,23 @@ def test_sandbox_runtime_extra_modules_allows_importlib() -> None:
 
 
 def test_inject_auto_imports_ignores_nested_scope_bindings() -> None:
-    from plugin.scripting.config_limits import python_exec_timeout_default
     from plugin.scripting.venv import optional_import
     from plugin.scripting.venv.venv_sandbox import (
         _new_executor,
         inject_auto_imports,
     )
 
-    executor = _new_executor(python_exec_timeout_default(), policy=build_sandbox_policy())
+    executor = _new_executor(build_sandbox_policy())
     inject_auto_imports(executor, "def f():\n    dt = 1\nresult = dt")
     assert "dt" in executor.state
     res = executor("def g():\n    dt = 1\nresult = dt.date(2020, 1, 1).isoformat()")
     assert res.output == "2020-01-01"
 
-    executor_class = _new_executor(python_exec_timeout_default(), policy=build_sandbox_policy())
+    executor_class = _new_executor(build_sandbox_policy())
     inject_auto_imports(executor_class, "class C:\n    dt = 1\nresult = 1")
     assert "dt" in executor_class.state
 
-    executor2 = _new_executor(python_exec_timeout_default(), policy=build_sandbox_policy())
+    executor2 = _new_executor(build_sandbox_policy())
     inject_auto_imports(executor2, "def f():\n    import numpy as np\nresult = 1")
     if optional_import.optional_module("numpy") is not None:
         assert "np" in executor2.state
@@ -1441,17 +1440,17 @@ def test_get_or_create_rebuilds_on_policy_mismatch(fresh_sandbox_sessions) -> No
     sid = "calc:get-or-create-policy-mismatch"
     policy_net = build_sandbox_policy(network=True)
     policy_default = build_sandbox_policy()
-    exec1, created1 = store.get_or_create(sid, timeout_sec=10, policy=policy_net)
+    exec1, created1 = store.get_or_create(sid, policy=policy_net)
     assert created1 is True
     exec1.send_variables({"MARKER": 42})
     exec2, created2 = store.get_or_create(
-        sid, timeout_sec=10, policy=policy_default
+        sid, policy=policy_default
     )
     assert created2 is True
     assert exec2 is not exec1
     assert exec2.state.get("MARKER") is None
     exec3, created3 = store.get_or_create(
-        sid, timeout_sec=10, policy=policy_default
+        sid, policy=policy_default
     )
     assert created3 is False
     assert exec3 is exec2
@@ -1508,3 +1507,38 @@ def test_shared_policy_change_drops_cell_before_first_init(fresh_sandbox_session
     )
     assert r2["status"] == "ok"
     assert r2["result"] == 5
+
+
+def test_arm_alarm_is_the_alarm_writer() -> None:
+    import time as time_mod
+    from plugin.scripting.venv.venv_sandbox import _arm_alarm, _new_executor
+
+    exe = _new_executor(build_sandbox_policy())
+    assert _arm_alarm(exe, time_mod.monotonic() + 2.2, 7) is None
+    assert exe.timeout_seconds == 3
+    assert _arm_alarm(exe, time_mod.monotonic() + 0.1, 7) is None
+    assert exe.timeout_seconds == 1
+    res = _arm_alarm(exe, time_mod.monotonic() - 1, 7)
+    assert res == {
+        "status": "error",
+        "message": "Code execution exceeded the maximum execution time of 7 seconds",
+    }
+    assert exe.timeout_seconds == 1
+
+
+def test_run_sandboxed_code_arms_the_cell_from_the_request_budget(fresh_sandbox_sessions) -> None:
+    sid = "calc:budget-arm-test"
+    res = run_sandboxed_code(
+        "result = 123",
+        session_id=sid,
+        timeout_sec=3,
+        init_script="import time\ntime.sleep(1)",
+        init_session_id=sid + ":init",
+        init_script_hash="h",
+    )
+    assert res["status"] == "ok"
+    assert res["result"] == 123
+    exe = fresh_sandbox_sessions.executor(sid)
+    assert exe is not None
+    assert exe.timeout_seconds <= 3
+

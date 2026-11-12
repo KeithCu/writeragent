@@ -78,6 +78,7 @@ def test_handle_request_reset_session_action():
 
 
 def test_run_code_in_user_venv_forwards_session_id():
+    from plugin.scripting.session_key import SessionKey
     from plugin.scripting.venv_worker import run_code_in_user_venv
 
     with patch("plugin.scripting.venv_worker._get_worker_manager") as mock_mgr:
@@ -86,7 +87,8 @@ def test_run_code_in_user_venv_forwards_session_id():
         manager.execute.return_value = {"status": "ok", "result": 1}
         run_code_in_user_venv("result = 1", session_id="calc:wb1")
         manager.execute.assert_called_once()
-        assert manager.execute.call_args.kwargs.get("session_id") == "calc:wb1"
+        req = manager.execute.call_args.args[0]
+        assert req.session == SessionKey.from_host("calc:wb1")
 
 
 def test_shared_session_result_does_not_hijack_subsequent_last_expression_cells():

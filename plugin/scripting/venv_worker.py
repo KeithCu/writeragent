@@ -35,9 +35,7 @@ from plugin.scripting.config_limits import (
     HOST_IPC_READ_GRACE_SEC,
     VENV_IPC_WRITE_TIMEOUT_SEC,
     WARM_WORKER_TIMEOUT_SEC,
-    configured_python_exec_timeout,
-    python_exec_timeout_default,
-    resolve_python_exec_timeout,
+    python_exec_timeout,
 )
 from plugin.framework.send_cancellation import SendCancellation, is_cancelled
 from plugin.framework.ipc import (
@@ -152,22 +150,16 @@ def _worker_error_message(exc: BaseException) -> str:
     return f"Python worker failed: {text}"
 
 
-def host_script_session_id(request_session_id: Any, script_session_id: str | None) -> str | None:
+def host_script_session_id(session: SessionKey | None, pin: str | None) -> str | None:
     """Document id for host tool RPC.
 
-    An explicit pin (chat ``ctx.doc``) wins. Otherwise the worker namespace
-    id on the request is used (Run Python Script, ``=PY()``, PPT-Master).
+    Pin (chat ctx.doc) wins; else the worker namespace id; else None.
     The child does not choose this value, and a pin is not written into the
     request, so Isolated mode still gets a fresh namespace.
     """
-    explicit = script_session_id.strip() if isinstance(script_session_id, str) else ""
-    if explicit:
-        return explicit
-    if isinstance(request_session_id, str):
-        raw = request_session_id.strip()
-        if raw:
-            return raw
-    return None
+    if pin:
+        return pin
+    return session.wire() if session is not None else None
 
 
 def _maybe_dispatch_intermediate_response(
@@ -304,8 +296,8 @@ def _classify_read_failure(exc: BaseException, state: _TurnState) -> NotStarted 
     raise exc
 
 
-@dataclass(frozen=True)
-class _ExecRequest:
+@dataclass(frozen=True, kw_only=True)
+class ExecRequest:
     """One host execute. ``wire()`` is the child pickle; host-only fields stay off it.
 
     ``request_id`` is minted once so a pre-start retry writes the same ``id``.
@@ -314,7 +306,7 @@ class _ExecRequest:
     code: str | None = None
     data: Any = None
     bindings: dict[str, Any] | None = None
-    timeout_sec: int | None = None
+    timeout_sec: int
     session: SessionKey | None = None
     action: str | None = None
     init_script: str | None = None
@@ -333,9 +325,7 @@ class _ExecRequest:
     def wire(self) -> dict[str, Any]:
         # Key insertion order is the pickle order. Do not sort, do not
         # dataclasses.asdict (it would copy host fields and deepcopy ``data``).
-        request: dict[str, Any] = {"id": self.request_id}
-        if self.timeout_sec is not None:
-            request["timeout_sec"] = self.timeout_sec
+        request: dict[str, Any] = {"id": self.request_id, "timeout_sec": self.timeout_sec}
         if self.session is not None:
             request["session_id"] = self.session.wire()
         if self.data is not None:
@@ -524,11 +514,11 @@ class PythonWorkerManager:
         body: Callable[[Any], dict[str, Any] | RetryWithNewLease],
         *,
         cancel: SendCancellation | None = None,
-        timeout_sec: int | None = None,
+        timeout_sec: int,
         lease_wait_sec: float | None = None,
     ) -> dict[str, Any]:
         """Run *body* while this manager holds the pipe, or return the session error."""
-        spawn_deadline = Deadline(float(timeout_sec if timeout_sec is not None else WARM_WORKER_TIMEOUT_SEC))
+        spawn_deadline = Deadline(float(timeout_sec))
         for attempt in range(2):
             with self._io_session(cancel, spawn_deadline=spawn_deadline, lease_wait_sec=lease_wait_sec) as session:
                 if isinstance(session, dict):
@@ -587,7 +577,7 @@ class PythonWorkerManager:
         if self._primed and self._primed_generation == leased.generation and self._warm is not None and self._warm.is_alive():
             return None
         prime = self._execute_ipc_unlocked(
-            _ExecRequest("result = None", timeout_sec=WARM_WORKER_TIMEOUT_SEC),
+            ExecRequest(code="result = None", timeout_sec=WARM_WORKER_TIMEOUT_SEC),
             leased=leased,
         )
         if isinstance(prime, RetryWithNewLease):
@@ -660,7 +650,7 @@ class PythonWorkerManager:
         self,
         stdout: IO[bytes],
         stdin: IO[bytes],
-        req: _ExecRequest,
+        req: ExecRequest,
         wire: dict[str, Any],
         state: _TurnState,
         *,
@@ -757,11 +747,9 @@ class PythonWorkerManager:
         except (subprocess.TimeoutExpired, IpcPartialFrameTimeout, ValueError, OSError, RuntimeError) as exc:
             return _classify_read_failure(exc, state)
 
-    def _execute_ipc_unlocked(self, req: _ExecRequest, *, leased: Lease) -> dict[str, Any] | RetryWithNewLease:
+    def _execute_ipc_unlocked(self, req: ExecRequest, *, leased: Lease) -> dict[str, Any] | RetryWithNewLease:
         wire = req.wire()
         timeout_sec = req.timeout_sec
-        if timeout_sec is None:
-            raise RuntimeError("timeout_sec is required")
         stdin = leased.stdin
         stdout = leased.stdout
         # Host-only preparation. A failure here must not reach the worker-kill
@@ -773,7 +761,7 @@ class PythonWorkerManager:
             # Pin wins over the kernel session id. Chat passes doc:… and
             # leaves request session_id unset. RPS / =PY() / PPT-Master
             # omit the pin and keep the request id.
-            resolved_script_session_id = host_script_session_id(wire.get("session_id"), req.pin)
+            resolved_script_session_id = host_script_session_id(req.session, req.pin)
         except Exception as exc:
             log.warning("Python worker request preparation failed: %s", exc)
             return self._err("WORKER_IPC_ERROR", f"Failed to prepare request: {exc}")
@@ -876,63 +864,16 @@ class PythonWorkerManager:
             log.warning("Python worker result rejected (not replaying): %s", e)
             return self._fail_ipc_no_replay(e)
 
-    def execute(
-        self,
-        code: str | None = None,
-        *,
-        data: Any = None,
-        bindings: dict[str, Any] | None = None,
-        timeout_sec: int | None = None,
-        session_id: str | None = None,
-        action: str | None = None,
-        init_script: str | None = None,
-        init_session_id: str | None = None,
-        init_script_hash: str | None = None,
-        allow_heartbeat: bool = False,
-        on_heartbeat: Callable[[dict[str, Any]], None] | None = None,
-        python_tool_domain: str | None = None,
-        script_session_id: str | None = None,
-        cancel: SendCancellation | None = None,
-        sandbox_policy: dict[str, Any] | None = None,
-        lease_wait_sec: float | None = None,
-    ) -> dict[str, Any]:
-        """Run *code* in the warm worker, or handle *action* (e.g. reset_session).
+    def execute(self, request: ExecRequest, *, lease_wait_sec: float | None = None) -> dict[str, Any]:
+        """Run *request* in the warm worker.
 
-        Without *session_id*, each execute uses a fresh namespace in the child. With
-        *session_id*, the child reuses one LocalPythonExecutor per id.
-
-        *script_session_id* is host-only. Tool RPC resolves the document from it
-        ahead of *session_id*. It is not sent to the child.
-
-        Cold start: spawn + auto-imports run first under :data:`WARM_WORKER_TIMEOUT_SEC`
-        and are not charged against *timeout_sec*.
+        Cold start under :data:`WARM_WORKER_TIMEOUT_SEC` is not charged
+        against ``request.timeout_sec``; ``request.pin`` is host-only.
         """
-        if timeout_sec is None:
-            timeout_sec = python_exec_timeout_default()
-
         return self._run_in_session(
-            lambda leased: self._execute_ipc_unlocked(
-                _ExecRequest(
-                    code,
-                    data=data,
-                    bindings=bindings,
-                    timeout_sec=timeout_sec,
-                    session=SessionKey.from_host(session_id),
-                    action=action,
-                    init_script=init_script,
-                    init_session=SessionKey.from_host(init_session_id),
-                    init_script_hash=init_script_hash,
-                    allow_heartbeat=allow_heartbeat,
-                    on_heartbeat=on_heartbeat,
-                    python_tool_domain=python_tool_domain,
-                    pin=script_session_id,
-                    cancel=cancel,
-                    sandbox_policy=sandbox_policy,
-                ),
-                leased=leased,
-            ),
-            cancel=cancel,
-            timeout_sec=timeout_sec,
+            lambda leased: self._execute_ipc_unlocked(request, leased=leased),
+            cancel=request.cancel,
+            timeout_sec=request.timeout_sec,
             lease_wait_sec=lease_wait_sec,
         )
 
@@ -962,22 +903,16 @@ class PythonWorkerManager:
         # ppt_master_turn does not use it as a Python namespace.
         raw_session = payload.get("session_id")
         session_id = raw_session.strip() if isinstance(raw_session, str) else ""
-        raw = self._run_in_session(
-            lambda leased: self._execute_ipc_unlocked(
-                _ExecRequest(
-                    data=payload,
-                    timeout_sec=timeout_sec,
-                    action="ppt_master_turn",
-                    session=SessionKey.from_host(session_id),
-                    on_worker_event=on_worker_event,
-                    cancel=cancel,
-                    caller="ppt_master_venv",
-                ),
-                leased=leased,
-            ),
-            cancel=cancel,
+        request = ExecRequest(
+            data=payload,
             timeout_sec=timeout_sec,
+            action="ppt_master_turn",
+            session=SessionKey.from_host(session_id),
+            on_worker_event=on_worker_event,
+            cancel=cancel,
+            caller="ppt_master_venv",
         )
+        raw = self.execute(request)
         if raw.get("status") == "error":
             return raw
         inner = raw.get("result")
@@ -1271,7 +1206,6 @@ def run_code_in_user_venv(
     on_heartbeat: Callable[[dict[str, Any]], None] | None = None,
     action: str | None = None,
     cancel: SendCancellation | None = None,
-    sandbox_policy: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Execute *code* or handle *action* via :class:`PythonWorkerManager` (warm process).
 
@@ -1296,10 +1230,10 @@ def run_code_in_user_venv(
         assert err is not None
         return err
 
-    configured = configured_python_exec_timeout()
-    timeout_sec = resolve_python_exec_timeout(timeout_sec, configured=configured)
+    timeout = python_exec_timeout(timeout_sec)
 
-    if sandbox_policy is None and not action:
+    sandbox_policy = None
+    if not action:
         allow_network = bool(get_config("scripting.python_allow_network"))
         allow_files = bool(get_config("scripting.python_allow_files"))
         allow_os = bool(get_config("scripting.python_allow_os"))
@@ -1312,21 +1246,23 @@ def run_code_in_user_venv(
         }
 
     return manager.execute(
-        code,
-        data=data,
-        bindings=bindings,
-        timeout_sec=timeout_sec,
-        session_id=session_id,
-        init_script=init_script,
-        init_session_id=init_session_id,
-        init_script_hash=init_script_hash,
-        allow_heartbeat=allow_heartbeat,
-        on_heartbeat=on_heartbeat,
-        action=action,
-        python_tool_domain=python_tool_domain,
-        script_session_id=script_session_id,
-        cancel=cancel,
-        sandbox_policy=sandbox_policy,
+        ExecRequest(
+            code=code,
+            data=data,
+            bindings=bindings,
+            timeout_sec=timeout,
+            session=SessionKey.from_host(session_id),
+            action=action,
+            init_script=init_script,
+            init_session=SessionKey.from_host(init_session_id),
+            init_script_hash=init_script_hash,
+            allow_heartbeat=allow_heartbeat,
+            on_heartbeat=on_heartbeat,
+            python_tool_domain=python_tool_domain,
+            pin=script_session_id,
+            cancel=cancel,
+            sandbox_policy=sandbox_policy,
+        )
     )
 
 
@@ -1352,14 +1288,12 @@ def reset_python_session(
     if not manager._is_worker_alive():
         return {"status": "ok"}
 
-    configured = configured_python_exec_timeout()
-    timeout_sec = resolve_python_exec_timeout(timeout_sec, configured=configured)
-
     return manager.execute(
-        None,
-        timeout_sec=timeout_sec,
-        session_id=session_id,
-        action="reset_session",
+        ExecRequest(
+            timeout_sec=python_exec_timeout(timeout_sec),
+            session=SessionKey.from_host(session_id),
+            action="reset_session",
+        ),
         lease_wait_sec=lease_wait_sec,
     )
 
@@ -1383,14 +1317,16 @@ def warm_venv_worker(pool: str = WORKER_POOL_DEFAULT) -> None:
             if model:
                 timeout_val = embeddings_worker_timeout_sec()
                 res = manager.execute(
-                    action="run_trusted_action",
-                    data={
-                        "domain": "embeddings_index",
-                        "helper": "warm_embedder",
-                        "params": {"model": model},
-                    },
-                    timeout_sec=timeout_val,
-                    allow_heartbeat=True,
+                    ExecRequest(
+                        action="run_trusted_action",
+                        data={
+                            "domain": "embeddings_index",
+                            "helper": "warm_embedder",
+                            "params": {"model": model},
+                        },
+                        timeout_sec=timeout_val,
+                        allow_heartbeat=True,
+                    )
                 )
                 if res.get("status") != "ok":
                     log.warning("Embedding model pre-warm returned status %s: %s", res.get("status"), res.get("message"))
@@ -1399,6 +1335,7 @@ def warm_venv_worker(pool: str = WORKER_POOL_DEFAULT) -> None:
 
 
 __all__ = [
+    "ExecRequest",
     "PythonWorkerManager",
     "parse_worker_stdout_frame",
     "reset_python_session",

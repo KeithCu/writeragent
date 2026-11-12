@@ -82,7 +82,8 @@ def assert_cython_vs_python_parity(
         result_python = run_venv_roundtrip(grid, code, pack_force="always")
 
     assert_semantically_equal(result_cython, result_python, label=f"{label} (Cython vs Python)")
-from plugin.scripting.venv_worker import PythonWorkerManager
+from plugin.scripting.config_limits import python_exec_timeout
+from plugin.scripting.venv_worker import ExecRequest, PythonWorkerManager
 from plugin.scripting.venv.venv_sandbox import run_sandboxed_code
 from tests.calc.serialization_cases import SerializationCase, all_serialization_cases
 from tests.scripting.payload_codec_test_support import (
@@ -493,7 +494,7 @@ def run_venv_roundtrip(
         wire = host_pack_data(grid, force=pack_force)
     if use_subprocess:
         mgr = PythonWorkerManager.get(sys.executable, _WORKER_ENV, pool=_TEST_SUBPROCESS_POOL)
-        response = mgr.execute(code, data=wire)
+        response = mgr.execute(ExecRequest(code=code, data=wire, timeout_sec=python_exec_timeout()))
         if response.get("status") != "ok":
             raise AssertionError(f"Worker error: {response.get('message')}")
         return response.get("result")
@@ -888,7 +889,7 @@ def run_multi_venv_echo(
     wire = _pack_multi_data(grids, force=pack_force)
     if use_subprocess:
         mgr = PythonWorkerManager.get(sys.executable, _WORKER_ENV, pool=_TEST_SUBPROCESS_POOL)
-        response = mgr.execute(code, data=wire)
+        response = mgr.execute(ExecRequest(code=code, data=wire, timeout_sec=python_exec_timeout()))
         if response.get("status") != "ok":
             raise AssertionError(f"Worker error: {response.get('message')}")
         return response.get("result")

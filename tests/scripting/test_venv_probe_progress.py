@@ -7,6 +7,7 @@ from plugin.scripting.venv_diagnostics import (
     _run_named_json_probe as orig_named_probe,
     run_venv_self_check_with_progress,
 )
+from plugin.scripting.venv_worker import ExecRequest
 
 
 def test_run_venv_self_check_with_progress_emits_grouped_present_missing() -> None:
@@ -14,8 +15,9 @@ def test_run_venv_self_check_with_progress_emits_grouped_present_missing() -> No
     statuses: list[str] = []
     execute_timeouts: list[int] = []
 
-    def fake_execute(_self, script, timeout_sec=10):
-        execute_timeouts.append(timeout_sec)
+    def fake_execute(req: ExecRequest):
+        execute_timeouts.append(req.timeout_sec)
+        script = req.code or ""
         if "platform" in script:
             return {"status": "ok", "result": {"v": "3.12.0", "arch": "x86_64"}}
         if "numpy" in script:
@@ -23,7 +25,7 @@ def test_run_venv_self_check_with_progress_emits_grouped_present_missing() -> No
         return {"status": "ok", "result": None}
 
     mock_mgr = MagicMock()
-    mock_mgr.execute.side_effect = lambda script, timeout_sec=10: fake_execute(None, script, timeout_sec)
+    mock_mgr.execute.side_effect = fake_execute
 
     with (
         patch("plugin.scripting.venv_worker.PythonWorkerManager.get", return_value=mock_mgr),
@@ -74,7 +76,8 @@ def test_run_venv_self_check_with_progress_continues_after_sandbox_probe_error()
     displays: list[str] = []
     call_count = {"n": 0}
 
-    def fake_execute(_self, script, timeout_sec=10):
+    def fake_execute(req: ExecRequest):
+        script = req.code or ""
         if "platform" in script:
             return {"status": "ok", "result": {"v": "3.12.0", "arch": "x86_64"}}
         call_count["n"] += 1
@@ -83,7 +86,7 @@ def test_run_venv_self_check_with_progress_continues_after_sandbox_probe_error()
         return {"status": "ok", "result": None}
 
     mock_mgr = MagicMock()
-    mock_mgr.execute.side_effect = lambda script, timeout_sec=10: fake_execute(None, script, timeout_sec)
+    mock_mgr.execute.side_effect = fake_execute
 
     with (
         patch("plugin.scripting.venv_worker.PythonWorkerManager.get", return_value=mock_mgr),
@@ -106,13 +109,14 @@ def test_run_venv_self_check_with_progress_continues_after_sandbox_probe_error()
 def test_run_venv_self_check_with_progress_skips_audio_and_vector_search() -> None:
     displays: list[str] = []
 
-    def fake_execute(_self, script, timeout_sec=10):
+    def fake_execute(req: ExecRequest):
+        script = req.code or ""
         if "platform" in script:
             return {"status": "ok", "result": {"v": "3.12.0", "arch": "x86_64"}}
         return {"status": "ok", "result": None}
 
     mock_mgr = MagicMock()
-    mock_mgr.execute.side_effect = lambda script, timeout_sec=10: fake_execute(None, script, timeout_sec)
+    mock_mgr.execute.side_effect = fake_execute
 
     mock_runner = MagicMock(
         side_effect=lambda exe, name, timeout=None: (
@@ -145,7 +149,8 @@ def test_run_venv_self_check_with_progress_skips_audio_and_vector_search() -> No
 def test_partial_group_title_is_translated(monkeypatch) -> None:
     displays: list[str] = []
 
-    def fake_execute(_self, script, timeout_sec=10):
+    def fake_execute(req: ExecRequest):
+        script = req.code or ""
         if "platform" in script:
             return {"status": "ok", "result": {"v": "3.12.0", "arch": "x86_64"}}
         if "numpy" in script:
@@ -153,7 +158,7 @@ def test_partial_group_title_is_translated(monkeypatch) -> None:
         return {"status": "ok", "result": None}
 
     mock_mgr = MagicMock()
-    mock_mgr.execute.side_effect = lambda script, timeout_sec=10: fake_execute(None, script, timeout_sec)
+    mock_mgr.execute.side_effect = fake_execute
 
     monkeypatch.setattr("plugin.scripting.venv_diagnostics._", lambda message: f"L:{message}")
 
