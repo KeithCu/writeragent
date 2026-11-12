@@ -69,7 +69,9 @@ def test_pyspector_skipped_on_windows_cpython_313() -> None:
     specs = [item for item in dev if isinstance(item, str) and item.startswith("pyspector")]
     assert specs == ["pyspector>=0.2.1; sys_platform != 'win32' or python_version < '3.13'"]
     text = MAKEFILE.read_text(encoding="utf-8")
+    assert "ifeq ($(OS),Windows_NT)" in text
     assert "pyspector not installed — skipped" in text
+    assert "pyspector not found — run: uv sync" in text
 
 
 def test_makefile_typecheck_full_uses_committed_json() -> None:

@@ -975,7 +975,8 @@ bandit:
 # Cross-file / AI-agent SAST (part of make typecheck / make test; not build/release).
 # Wrapper disables reviewed FP rules; see scripts/run_pyspector.py.
 # PyPI has no CPython 3.13 Windows wheel, so uv sync does not install pyspector
-# there. Skip instead of failing typecheck. Linux and macOS still run the scan.
+# there. Skip on Windows instead of failing typecheck; Linux and macOS still fail if missing.
+ifeq ($(OS),Windows_NT)
 pyspector:
 	@if "$(PYTHON)" -c "import pyspector" >/dev/null 2>&1; then \
 		"$(PYTHON)" $(SCRIPTS)/run_timed.py pyspector "$(PYTHON)" $(SCRIPTS)/run_pyspector.py scan plugin --ai -c pyspector.toml --msg=False; \
@@ -990,6 +991,16 @@ pyspector-report:
 	else \
 		echo "pyspector not installed — skipped"; \
 	fi
+else
+pyspector:
+	@"$(PYTHON)" -c "import pyspector" 2>/dev/null || (echo "pyspector not found — run: uv sync" && exit 1)
+	@"$(PYTHON)" $(SCRIPTS)/run_timed.py pyspector "$(PYTHON)" $(SCRIPTS)/run_pyspector.py scan plugin --ai -c pyspector.toml --msg=False
+
+pyspector-report:
+	@"$(PYTHON)" -c "import pyspector" 2>/dev/null || (echo "pyspector not found — run: uv sync" && exit 1)
+	@$(MKDIR) build
+	"$(PYTHON)" $(SCRIPTS)/run_pyspector.py scan plugin --ai -c pyspector.toml --msg=False -f json -o build/pyspector-report.json
+endif
 
 # Dead code analysis with repo whitelist
 vulture:
