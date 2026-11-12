@@ -18,23 +18,11 @@ from unittest.mock import patch
 import pytest
 
 from compute_service.config import ComputeSettings
-from compute_service.formula_pool import (
-    FormulaProcessPool,
-    get_formula_pool,
-    shutdown_formula_pool,
-)
+from compute_service.formula_pool import FormulaProcessPool, get_formula_pool, shutdown_formula_pool
 from compute_service.server import WSGIDualStackServer, create_wsgi_app
 from plugin.framework.child_runtime import Deadline
 from compute_service.vision import get_vision_pool, shutdown_vision_pool
-from tests.compute_service.conftest import (
-    decode_result_json,
-    fake_child,
-    get_free_port,
-    pool_without_children,
-    run_cell,
-    session_worker,
-    worker_sessions,
-)
+from tests.compute_service.conftest import decode_result_json, fake_child, get_free_port, pool_without_children, run_cell, session_worker, worker_sessions
 
 
 def _wait_until_not_alive(worker: Any, timeout: float = 5.0) -> None:
@@ -72,13 +60,14 @@ def test_no_session_id_runs_isolated(empty_sid: str | None) -> None:
 
 
 def test_replaced_child_drops_only_that_workers_session(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A replaced child drops that slot's session. Another slot's child stays."""
+    """A replaced child drops that slot's session. Another slot's child stays.
+
+    Rows store the Child, not a pid: a reused pid can belong to a live slot
+    by the time the scan runs. A reservation has no child yet and stays.
+    """
     from compute_service.formula_pool import _Session
 
-    monkeypatch.setattr(
-        "compute_service.worker_base.BaseProcessWorker.respawn",
-        lambda self, timeout_sec=0.0, deadline=None: None,
-    )
+    monkeypatch.setattr("compute_service.worker_base.BaseProcessWorker.respawn", lambda self, timeout_sec=0.0, deadline=None: None)
     pool = FormulaProcessPool(settings=ComputeSettings(workers=2, idle_worker_ttl_sec=0))
     try:
         owner, other = pool.workers
@@ -103,10 +92,7 @@ def test_dead_managed_child_drops_its_session(monkeypatch: pytest.MonkeyPatch) -
     """A session whose Child is dead drops even when it is still the slot's child."""
     from compute_service.formula_pool import _Session
 
-    monkeypatch.setattr(
-        "compute_service.worker_base.BaseProcessWorker.respawn",
-        lambda self, timeout_sec=0.0, deadline=None: None,
-    )
+    monkeypatch.setattr("compute_service.worker_base.BaseProcessWorker.respawn", lambda self, timeout_sec=0.0, deadline=None: None)
     pool = FormulaProcessPool(settings=ComputeSettings(workers=2, idle_worker_ttl_sec=0))
     try:
         w1, w2 = pool.workers
@@ -127,13 +113,13 @@ def test_dead_managed_child_drops_its_session(monkeypatch: pytest.MonkeyPatch) -
 
 
 def test_shutdown_clears_sessions(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Shutdown drops session maps with the workers."""
+    """Shutdown drops session maps with the workers.
+
+    A pool object kept after shutdown must not advertise session ids.
+    """
     from compute_service.formula_pool import _Session
 
-    monkeypatch.setattr(
-        "compute_service.worker_base.BaseProcessWorker.respawn",
-        lambda self, timeout_sec=0.0, deadline=None: None,
-    )
+    monkeypatch.setattr("compute_service.worker_base.BaseProcessWorker.respawn", lambda self, timeout_sec=0.0, deadline=None: None)
     pool = FormulaProcessPool(settings=ComputeSettings(workers=1, idle_worker_ttl_sec=0))
     worker = pool.workers[0]
     with pool._cond:
@@ -218,20 +204,12 @@ class TestFormulaPoolSupervisor:
         try:
             session_id = "test-workbook-session-42"
             # First cell execution: set a variable
-            res1 = run_cell(pool, 
-                code="x = 100\nresult = x",
-                session_id=session_id,
-                req_id="c-1",
-            )
+            res1 = run_cell(pool, code="x = 100\nresult = x", session_id=session_id, req_id="c-1")
             assert res1.get("status") == "ok"
             assert res1.get("result") == 100
 
             # Second cell execution: read and increment variable in same session
-            res2 = run_cell(pool, 
-                code="x += 50\nresult = x",
-                session_id=session_id,
-                req_id="c-2",
-            )
+            res2 = run_cell(pool, code="x += 50\nresult = x", session_id=session_id, req_id="c-2")
             assert res2.get("status") == "ok"
             assert res2.get("result") == 150
         finally:
@@ -284,16 +262,7 @@ class TestFormulaPoolSupervisor:
     def test_formula_worker_blocks_document_tools(self) -> None:
         pool = FormulaProcessPool(settings=ComputeSettings(workers=1, default_timeout_sec=30))
         try:
-            res = run_cell(pool, 
-                code=(
-                    "from plugin.scripting.host_tool_call import call_host_tool\n"
-                    "try:\n"
-                    "    call_host_tool('list_open_documents')\n"
-                    "    result = 'called'\n"
-                    "except Exception as exc:\n"
-                    "    result = str(exc)\n"
-                )
-            )
+            res = run_cell(pool, code=("from plugin.scripting.host_tool_call import call_host_tool\ntry:\n    call_host_tool('list_open_documents')\n    result = 'called'\nexcept Exception as exc:\n    result = str(exc)\n"))
             assert res.get("status") == "ok", res
             assert "compute service" in str(res.get("result"))
         finally:
@@ -336,17 +305,7 @@ class TestFormulaPoolSupervisor:
 
         monkeypatch.setattr(wc, "SPAWN_READY_TIMEOUT_SEC", 0.5)
         script = tmp_path / "hang_worker.py"
-        script.write_text(
-            "\n".join(
-                [
-                    "import sys, time",
-                    "sys.stderr.write('hang-before-ready\\n')",
-                    "sys.stderr.flush()",
-                    "time.sleep(30)",
-                ]
-            ),
-            encoding="utf-8",
-        )
+        script.write_text("\n".join(["import sys, time", "sys.stderr.write('hang-before-ready\\n')", "sys.stderr.flush()", "time.sleep(30)"]), encoding="utf-8")
         with caplog.at_level(logging.ERROR, logger="compute_service.worker"):
             worker = BaseProcessWorker(1, str(script), worker_name="Hang worker")
         try:
@@ -363,17 +322,7 @@ class TestFormulaPoolSupervisor:
         from compute_service.worker_base import BaseProcessWorker
 
         script = tmp_path / "garbage_worker.py"
-        script.write_text(
-            "\n".join(
-                [
-                    "import sys, time",
-                    "sys.stdout.write('Error: boom\\n')",
-                    "sys.stdout.flush()",
-                    "time.sleep(30)",
-                ]
-            ),
-            encoding="utf-8",
-        )
+        script.write_text("\n".join(["import sys, time", "sys.stdout.write('Error: boom\\n')", "sys.stdout.flush()", "time.sleep(30)"]), encoding="utf-8")
         t0 = time.monotonic()
         with caplog.at_level(logging.ERROR, logger="compute_service.worker"):
             worker = BaseProcessWorker(1, str(script), worker_name="Garbage worker")
@@ -412,19 +361,7 @@ class TestFormulaPoolSupervisor:
 
         root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
         script = tmp_path / "booting_worker.py"
-        script.write_text(
-            "\n".join(
-                [
-                    "import sys, time",
-                    f"sys.path.insert(0, {root!r})",
-                    "from plugin.framework.ipc import write_pickle_frame",
-                    "write_pickle_frame(sys.stdout.buffer, {'status': 'booting'})",
-                    "sys.stdout.buffer.flush()",
-                    "time.sleep(30)",
-                ]
-            ),
-            encoding="utf-8",
-        )
+        script.write_text("\n".join(["import sys, time", f"sys.path.insert(0, {root!r})", "from plugin.framework.ipc import write_pickle_frame", "write_pickle_frame(sys.stdout.buffer, {'status': 'booting'})", "sys.stdout.buffer.flush()", "time.sleep(30)"]), encoding="utf-8")
         t0 = time.monotonic()
         with caplog.at_level(logging.ERROR, logger="compute_service.worker"):
             worker = BaseProcessWorker(1, str(script), worker_name="Booting worker")
@@ -447,19 +384,7 @@ class TestFormulaPoolSupervisor:
         root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
         script = tmp_path / "reap_worker.py"
         script.write_text(
-            "\n".join(
-                [
-                    "import sys",
-                    f"sys.path.insert(0, {root!r})",
-                    "from compute_service.worker_stdio import run_worker_stdio_loop",
-                    "def handle(req):",
-                    "    return {'status': 'ok'}",
-                    "if __name__ == '__main__':",
-                    "    raise SystemExit(run_worker_stdio_loop(handle))",
-                    "",
-                ]
-            ),
-            encoding="utf-8",
+            "\n".join(["import sys", f"sys.path.insert(0, {root!r})", "from compute_service.worker_stdio import run_worker_stdio_loop", "def handle(req):", "    return {'status': 'ok'}", "if __name__ == '__main__':", "    raise SystemExit(run_worker_stdio_loop(handle))", ""]), encoding="utf-8"
         )
         worker = BaseProcessWorker(1, str(script), worker_name="Reap worker")
         previous = worker.process
@@ -512,17 +437,7 @@ class TestFormulaPoolSupervisor:
         script = tmp_path / "slow_ready.py"
         script.write_text(
             "\n".join(
-                [
-                    "import sys, time",
-                    f"sys.path.insert(0, {root!r})",
-                    "time.sleep(0.35)",
-                    "from compute_service.worker_stdio import run_worker_stdio_loop",
-                    "def handle(req):",
-                    "    return {'status': 'ok'}",
-                    "if __name__ == '__main__':",
-                    "    raise SystemExit(run_worker_stdio_loop(handle))",
-                    "",
-                ]
+                ["import sys, time", f"sys.path.insert(0, {root!r})", "time.sleep(0.35)", "from compute_service.worker_stdio import run_worker_stdio_loop", "def handle(req):", "    return {'status': 'ok'}", "if __name__ == '__main__':", "    raise SystemExit(run_worker_stdio_loop(handle))", ""]
             ),
             encoding="utf-8",
         )
@@ -539,13 +454,7 @@ class TestFormulaPoolSupervisor:
         import sys
 
         root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-        code = "\n".join(
-            [
-                "import sys",
-                "import compute_service.formula_worker",
-                "assert 'plugin.scripting.venv.venv_sandbox' not in sys.modules",
-            ]
-        )
+        code = "\n".join(["import sys", "import compute_service.formula_worker", "assert 'plugin.scripting.venv.venv_sandbox' not in sys.modules"])
         env = os.environ.copy()
         env["PYTHONPATH"] = root + os.pathsep + env.get("PYTHONPATH", "")
         proc = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, env=env, check=False)
@@ -556,33 +465,20 @@ class TestFormulaPoolSupervisor:
         pool = FormulaProcessPool(settings=ComputeSettings(workers=2, default_timeout_sec=15))
         try:
             sid = "occupancy-session"
-            first = run_cell(pool, 
-                code="x = 5\nresult = x",
-                session_id=sid,
-                req_id="occ-1",
-            )
+            first = run_cell(pool, code="x = 5\nresult = x", session_id=sid, req_id="occ-1")
             assert first.get("status") == "ok"
             owner = session_worker(pool, sid)
             assert owner is not None and owner.process is not None
             shared_pid = owner.process.pid
 
             before = owner.tasks_executed
-            isolated = run_cell(pool, 
-                code="result = 99",
-                timeout_sec=10,
-                req_id="occ-iso",
-            )
+            isolated = run_cell(pool, code="result = 99", timeout_sec=10, req_id="occ-iso")
             assert isolated.get("status") == "ok"
             assert isolated.get("result") == 99
             # The isolated cell did not run on the process that owns the session.
             assert owner.tasks_executed == before
             assert owner.process is not None and owner.process.pid == shared_pid
-            shared = run_cell(pool, 
-                code="result = x",
-                session_id=sid,
-                timeout_sec=10,
-                req_id="occ-2",
-            )
+            shared = run_cell(pool, code="result = x", session_id=sid, timeout_sec=10, req_id="occ-2")
             assert shared.get("status") == "ok"
             assert shared.get("result") == 5
         finally:
@@ -592,11 +488,7 @@ class TestFormulaPoolSupervisor:
         pool = FormulaProcessPool(settings=ComputeSettings(workers=1, default_timeout_sec=1))
         try:
             # Code that takes longer than 1s timeout
-            res = run_cell(pool, 
-                code="import time\ntime.sleep(5)\nresult = 'done'",
-                timeout_sec=1,
-                req_id="f-timeout",
-            )
+            res = run_cell(pool, code="import time\ntime.sleep(5)\nresult = 'done'", timeout_sec=1, req_id="f-timeout")
             assert res.get("status") == "error"
             # Code is either EXECUTION_TIMEOUT from pool or timeout from sandbox
             assert "code execution exceeded the maximum execution time of 1 seconds" in str(res.get("error", "")).lower() or "timeout" in str(res.get("code", "")).lower()
@@ -609,11 +501,7 @@ class TestFormulaPoolSupervisor:
     def test_timeout_tight_loop_then_next_cell(self) -> None:
         pool = FormulaProcessPool(settings=ComputeSettings(workers=1, default_timeout_sec=1))
         try:
-            res = run_cell(pool, 
-                code="while True:\n    pass\nresult = 0",
-                timeout_sec=1,
-                req_id="f-loop",
-            )
+            res = run_cell(pool, code="while True:\n    pass\nresult = 0", timeout_sec=1, req_id="f-loop")
             assert res.get("status") == "error"
             nxt = run_cell(pool, code="result = 2", timeout_sec=10, req_id="f-loop-next")
             assert nxt.get("status") == "ok"
@@ -624,12 +512,7 @@ class TestFormulaPoolSupervisor:
     def test_shared_hang_does_not_wedge_pool(self) -> None:
         pool = FormulaProcessPool(settings=ComputeSettings(workers=2, default_timeout_sec=1))
         try:
-            hung = run_cell(pool, 
-                code="import time\ntime.sleep(5)\nresult = 1",
-                session_id="s-hang",
-                timeout_sec=1,
-                req_id="sh-1",
-            )
+            hung = run_cell(pool, code="import time\ntime.sleep(5)\nresult = 1", session_id="s-hang", timeout_sec=1, req_id="sh-1")
             assert hung.get("status") == "error"
             iso = run_cell(pool, code="result = 3", timeout_sec=10, req_id="sh-iso")
             assert iso.get("status") == "ok"
@@ -647,12 +530,7 @@ class TestFormulaPoolSupervisor:
             assert kept.get("result") == 7
             worker = pool.workers[0]
             pid = worker.process.pid if worker.process is not None else None
-            hung = run_cell(pool, 
-                code="import time\ntime.sleep(30)\nresult = 1",
-                session_id="doc-hang",
-                timeout_sec=1,
-                req_id="hang-1",
-            )
+            hung = run_cell(pool, code="import time\ntime.sleep(30)\nresult = 1", session_id="doc-hang", timeout_sec=1, req_id="hang-1")
             assert hung.get("status") == "error"
             assert hung.get("code") != "EXECUTION_TIMEOUT"
             assert worker.process is not None and worker.process.pid == pid
@@ -728,12 +606,7 @@ class TestFormulaPoolSupervisor:
         # Repeatedly attempt sticky-mode execution while shutdown races; must not raise IndexError
         for i in range(20):
             try:
-                run_cell(pool, 
-                    code="result = 1",
-                    session_id=f"race-session-{i % 4}",
-                    timeout_sec=2,
-                    req_id=f"race-{i}",
-                )
+                run_cell(pool, code="result = 1", session_id=f"race-session-{i % 4}", timeout_sec=2, req_id=f"race-{i}")
             except IndexError as exc:
                 errors.append(exc)
             except Exception:
@@ -1003,22 +876,12 @@ class TestFormulaPoolSupervisor:
         try:
             sid = "init-reset"
             init = "items = [1]"
-            first = run_cell(pool, 
-                code="items.append(2)\nresult = list(items)",
-                session_id=sid,
-                init_script=init,
-                req_id="init-1",
-            )
+            first = run_cell(pool, code="items.append(2)\nresult = list(items)", session_id=sid, init_script=init, req_id="init-1")
             assert first.get("status") == "ok"
             assert first.get("result") == [1, 2]
             reset = pool.reset_session(sid)
             assert reset.get("status") == "ok"
-            second = run_cell(pool, 
-                code="result = list(items)",
-                session_id=sid,
-                init_script=init,
-                req_id="init-2",
-            )
+            second = run_cell(pool, code="result = list(items)", session_id=sid, init_script=init, req_id="init-2")
             assert second.get("status") == "ok"
             assert second.get("result") == [1]
         finally:
@@ -1086,6 +949,7 @@ class TestFormulaPoolSupervisor:
             target_worker = pool.workers[2]
             with pool._cond:
                 from compute_service.formula_pool import _Session
+
                 assert target_worker.child is not None
                 pool._sessions[sid] = _Session(worker=target_worker, child=target_worker.child)
 
@@ -1187,12 +1051,7 @@ class TestFormulaPoolSupervisor:
             pid = owner.process.pid
             # The budget is the original 30s. The deadline is only about a
             # second from now, which is what the child must honor.
-            hung = run_cell(pool, 
-                code="import time\ntime.sleep(8)\nresult = 1",
-                session_id="doc-hang",
-                deadline=Deadline.from_absolute(30.0, time.monotonic() + 1.2),
-                req_id="budget-hang",
-            )
+            hung = run_cell(pool, code="import time\ntime.sleep(8)\nresult = 1", session_id="doc-hang", deadline=Deadline.from_absolute(30.0, time.monotonic() + 1.2), req_id="budget-hang")
             assert hung.get("status") == "error"
             assert hung.get("code") != "EXECUTION_TIMEOUT"
             assert owner.process is not None and owner.process.pid == pid
@@ -1248,11 +1107,7 @@ class TestFormulaHttpEndpoint:
     @pytest.fixture
     def formula_server(self):
         port = get_free_port()
-        settings = ComputeSettings(
-            host="127.0.0.1",
-            port=port,
-            api_key="formula-secret",
-        )
+        settings = ComputeSettings(host="127.0.0.1", port=port, api_key="formula-secret")
         app = create_wsgi_app(settings)
         server = WSGIDualStackServer("127.0.0.1", port, listener_threads=8)
         server.set_app(app)
@@ -1265,13 +1120,7 @@ class TestFormulaHttpEndpoint:
         server.server_close()
         thread.join(timeout=3)
 
-    def _post(
-        self,
-        url: str,
-        payload: dict,
-        headers: dict | None = None,
-        path: str = "/v1/execute",
-    ) -> tuple[int, dict]:
+    def _post(self, url: str, payload: dict, headers: dict | None = None, path: str = "/v1/execute") -> tuple[int, dict]:
         req_headers = {"Content-Type": "application/json"}
         if headers:
             req_headers.update(headers)
@@ -1286,11 +1135,7 @@ class TestFormulaHttpEndpoint:
             return e.code, body
 
     def test_execute_success(self, formula_server: str) -> None:
-        status, body = self._post(
-            formula_server,
-            {"id": "req-1", "code": "result = 7 * 8"},
-            headers={"Authorization": "Bearer formula-secret"},
-        )
+        status, body = self._post(formula_server, {"id": "req-1", "code": "result = 7 * 8"}, headers={"Authorization": "Bearer formula-secret"})
         assert status == 200
         assert body.get("id") == "req-1"
         assert body.get("status") == "ok"
@@ -1299,47 +1144,23 @@ class TestFormulaHttpEndpoint:
     def test_http_timeout_is_200_error_then_next_ok(self, formula_server: str) -> None:
         # Tip: warm a worker first. A cold spawn on a slow Windows runner can use up the
         # 1.5 s budget before the code runs, which is a 503 QUEUE_TIMEOUT, not this case.
-        warm_status, _warm = self._post(
-            formula_server,
-            {"id": "warm", "code": "result = 0"},
-            headers={"Authorization": "Bearer formula-secret"},
-        )
+        warm_status, _warm = self._post(formula_server, {"id": "warm", "code": "result = 0"}, headers={"Authorization": "Bearer formula-secret"})
         assert warm_status == 200
-        status, body = self._post(
-            formula_server,
-            {
-                "id": "slow-1",
-                "code": "import time\ntime.sleep(5)\nresult = 1",
-                "timeout_ms": 1500,
-            },
-            headers={"Authorization": "Bearer formula-secret"},
-        )
+        status, body = self._post(formula_server, {"id": "slow-1", "code": "import time\ntime.sleep(5)\nresult = 1", "timeout_ms": 1500}, headers={"Authorization": "Bearer formula-secret"})
         assert status == 200, body
         assert body.get("status") == "error"
-        status2, body2 = self._post(
-            formula_server,
-            {"id": "slow-2", "code": "result = 4"},
-            headers={"Authorization": "Bearer formula-secret"},
-        )
+        status2, body2 = self._post(formula_server, {"id": "slow-2", "code": "result = 4"}, headers={"Authorization": "Bearer formula-secret"})
         assert status2 == 200
         assert body2.get("status") == "ok"
         assert body2.get("result") == 4
 
     def test_http_code_too_large(self, formula_server: str) -> None:
-        status, body = self._post(
-            formula_server,
-            {"id": "big", "code": "result = 1\n" + ("x = 1\n" * 200000)},
-            headers={"Authorization": "Bearer formula-secret"},
-        )
+        status, body = self._post(formula_server, {"id": "big", "code": "result = 1\n" + ("x = 1\n" * 200000)}, headers={"Authorization": "Bearer formula-secret"})
         assert status == 400
         assert body.get("code") == "CODE_TOO_LARGE"
 
     def test_http_eval_error_is_200(self, formula_server: str) -> None:
-        status, body = self._post(
-            formula_server,
-            {"id": "div0", "code": "result = 1 / 0"},
-            headers={"Authorization": "Bearer formula-secret"},
-        )
+        status, body = self._post(formula_server, {"id": "div0", "code": "result = 1 / 0"}, headers={"Authorization": "Bearer formula-secret"})
         assert status == 200
         assert body.get("status") == "error"
         assert body.get("id") == "div0"
@@ -1347,61 +1168,31 @@ class TestFormulaHttpEndpoint:
 
     def test_execute_shared_session(self, formula_server: str) -> None:
         session_id = "session-http-123"
-        status1, body1 = self._post(
-            formula_server,
-            {"id": "req-s1", "code": "val = 42\nresult = val", "mode": "shared"},
-            headers={"Authorization": "Bearer formula-secret"},
-            path=f"/v1/execute?session_id={session_id}",
-        )
+        status1, body1 = self._post(formula_server, {"id": "req-s1", "code": "val = 42\nresult = val", "mode": "shared"}, headers={"Authorization": "Bearer formula-secret"}, path=f"/v1/execute?session_id={session_id}")
         assert status1 == 200
         assert body1.get("result") == 42
 
-        status2, body2 = self._post(
-            formula_server,
-            {"id": "req-s2", "code": "val += 8\nresult = val", "mode": "shared"},
-            headers={"Authorization": "Bearer formula-secret"},
-            path=f"/v1/execute?session_id={session_id}",
-        )
+        status2, body2 = self._post(formula_server, {"id": "req-s2", "code": "val += 8\nresult = val", "mode": "shared"}, headers={"Authorization": "Bearer formula-secret"}, path=f"/v1/execute?session_id={session_id}")
         assert status2 == 200
         assert body2.get("result") == 50
 
     def test_http_session_reset_unknown_is_ok(self, formula_server: str) -> None:
-        status, body = self._post(
-            formula_server,
-            {"id": "reset-unknown"},
-            headers={"Authorization": "Bearer formula-secret"},
-            path="/v1/session/reset?session_id=never-created",
-        )
+        status, body = self._post(formula_server, {"id": "reset-unknown"}, headers={"Authorization": "Bearer formula-secret"}, path="/v1/session/reset?session_id=never-created")
         assert status == 200
         assert body == {"id": "reset-unknown", "status": "ok"}
 
     def test_http_session_reset_clears_shared_state(self, formula_server: str) -> None:
         session_id = "session-reset-http"
         headers = {"Authorization": "Bearer formula-secret"}
-        status1, body1 = self._post(
-            formula_server,
-            {"id": "rs-1", "code": "kept = 19\nresult = kept", "mode": "shared"},
-            headers=headers,
-            path=f"/v1/execute?session_id={session_id}",
-        )
+        status1, body1 = self._post(formula_server, {"id": "rs-1", "code": "kept = 19\nresult = kept", "mode": "shared"}, headers=headers, path=f"/v1/execute?session_id={session_id}")
         assert status1 == 200
         assert body1.get("result") == 19
 
-        status_reset, reset_body = self._post(
-            formula_server,
-            {"id": "rs-reset"},
-            headers=headers,
-            path=f"/v1/session/reset?session_id={session_id}",
-        )
+        status_reset, reset_body = self._post(formula_server, {"id": "rs-reset"}, headers=headers, path=f"/v1/session/reset?session_id={session_id}")
         assert status_reset == 200
         assert reset_body == {"id": "rs-reset", "status": "ok"}
 
-        status2, body2 = self._post(
-            formula_server,
-            {"id": "rs-2", "code": "result = kept", "mode": "shared"},
-            headers=headers,
-            path=f"/v1/execute?session_id={session_id}",
-        )
+        status2, body2 = self._post(formula_server, {"id": "rs-2", "code": "result = kept", "mode": "shared"}, headers=headers, path=f"/v1/execute?session_id={session_id}")
         assert status2 == 200
         assert body2.get("status") == "error"
         assert "kept" in body2.get("error", "") or "NameError" in body2.get("error", "")
@@ -1481,11 +1272,7 @@ class TestFormulaHttpEndpoint:
                 return real_execute(payload, timeout_sec, **kwargs)
 
             setattr(worker, "execute", spy_execute)
-            res = run_cell(pool, 
-                code="result = 42",
-                deadline=Deadline.from_absolute(30.0, time.monotonic() + 0.5),
-                req_id="subsecond-test",
-            )
+            res = run_cell(pool, code="result = 42", deadline=Deadline.from_absolute(30.0, time.monotonic() + 0.5), req_id="subsecond-test")
             assert res.get("code") == "QUEUE_TIMEOUT"
             assert calls == []
             assert worker.is_alive()
@@ -1538,12 +1325,7 @@ class TestFormulaHttpEndpoint:
             assert not worker.is_alive()
             worker.max_payload_bytes = 32
             try:
-                rejected = run_cell(pool, 
-                    code="result = 1",
-                    data={"blob": "x" * 200},
-                    session_id=sid,
-                    req_id="too-big",
-                )
+                rejected = run_cell(pool, code="result = 1", data={"blob": "x" * 200}, session_id=sid, req_id="too-big")
             finally:
                 worker.max_payload_bytes = saved_cap
             assert rejected.get("code") == "PAYLOAD_TOO_LARGE"
@@ -1836,6 +1618,7 @@ class TestFormulaHttpEndpoint:
             dead_child = _DeadProcess()
 
             from compute_service.formula_pool import _Session
+
             with pool._cond:
                 # Stale row older than idle_worker_ttl_sec
                 pool._sessions["stale-old"] = _Session(worker=worker, child=dead_child, last_used=old_time, stale_since=old_time)
@@ -1884,10 +1667,7 @@ class TestFormulaHttpEndpoint:
                 assert sid in pool._sessions
 
             # Next sticky call on that session must report session_reset is True and x is gone
-            r2 = run_cell(pool, 
-                code="try:\n    result = x\nexcept NameError:\n    result = 'gone'",
-                session_id=sid,
-            )
+            r2 = run_cell(pool, code="try:\n    result = x\nexcept NameError:\n    result = 'gone'", session_id=sid)
             assert r2.get("status") == "ok"
             assert r2.get("result") == "gone"
             assert r2.get("session_reset") is True
@@ -2006,6 +1786,7 @@ class TestFormulaHttpEndpoint:
             w1 = pool.workers[0]
             w2 = pool.workers[1]
             from compute_service.formula_pool import _Session
+
             assert pool._worker_session_count(w1) == 0
             assert not pool._worker_has_sessions(w1)
             assert worker_sessions(pool, w1) == []
@@ -2045,6 +1826,7 @@ class TestFormulaHttpEndpoint:
         try:
             w = pool.workers[0]
             from compute_service.formula_pool import _Session
+
             with pool._cond:
                 pool._sessions["drop-clean"] = _Session(worker=w, child=w.child)
 
@@ -2089,11 +1871,7 @@ class TestFormulaHttpEndpoint:
                 return orig(sid)
 
             setattr(pool, "_select_shared_worker", slow)
-            res = run_cell(pool, 
-                code="result = 2",
-                session_id="budget-sid",
-                deadline=Deadline.from_absolute(30.0, time.monotonic() + 0.05),
-            )
+            res = run_cell(pool, code="result = 2", session_id="budget-sid", deadline=Deadline.from_absolute(30.0, time.monotonic() + 0.05))
             assert res.get("code") == "QUEUE_TIMEOUT"
             assert called == []
             assert session_worker(pool, "budget-sid") is None
@@ -2126,6 +1904,7 @@ def test_idle_ttl_zero_or_none_does_not_start_reaper(monkeypatch: pytest.MonkeyP
     before = _idle_reaper_idents()
     from compute_service.formula_pool import _WORKER_SCRIPT
     from compute_service.worker_base import BaseProcessPool
+
     pool_none = BaseProcessPool(script_path=_WORKER_SCRIPT, num_workers=0, idle_worker_ttl_sec=None)
     try:
         assert _idle_reaper_idents() - before == set()
@@ -2138,7 +1917,7 @@ def test_run_execution_alarm_keeps_full_remaining_second(monkeypatch: pytest.Mon
     from compute_service.worker_base import BaseProcessWorker
     from plugin.scripting.config_limits import HOST_IPC_READ_GRACE_SEC
 
-    worker = BaseProcessWorker(1, "unused.py")
+    worker = BaseProcessWorker(1, "unused.py", start=False)
     seen: dict[str, Any] = {}
 
     def _capture(payload: dict[str, Any], timeout_sec: float, *, req_id: Any = None) -> dict[str, Any]:
@@ -2154,7 +1933,6 @@ def test_run_execution_alarm_keeps_full_remaining_second(monkeypatch: pytest.Mon
         assert seen["host"] == 2 + HOST_IPC_READ_GRACE_SEC
     finally:
         pool.shutdown()
-
 
 
 def test_drain_timeout_then_pool_teardown_unblocks_inflight_formula(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -2522,7 +2300,7 @@ def test_run_execution_lifts_one_second_budget_once(monkeypatch: pytest.MonkeyPa
     from compute_service.worker_base import BaseProcessWorker
     from plugin.scripting.config_limits import HOST_IPC_READ_GRACE_SEC
 
-    worker = BaseProcessWorker(1, "unused.py")
+    worker = BaseProcessWorker(1, "unused.py", start=False)
     seen: dict[str, Any] = {}
 
     def _capture(payload: dict[str, Any], timeout_sec: float, *, req_id: Any = None) -> dict[str, Any]:
@@ -2540,6 +2318,7 @@ def test_run_execution_lifts_one_second_budget_once(monkeypatch: pytest.MonkeyPa
         assert seen["host"] == 1 + HOST_IPC_READ_GRACE_SEC
     finally:
         pool.shutdown()
+
 
 def test_is_session_live_reads_the_child_process(monkeypatch: pytest.MonkeyPatch) -> None:
     """_is_session_live returns True only when the stored child matches the active slot and is alive."""

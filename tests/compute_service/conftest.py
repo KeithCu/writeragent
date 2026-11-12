@@ -41,34 +41,12 @@ def decode_result_json(envelope: dict[str, Any]) -> dict[str, Any]:
     return envelope
 
 
-def run_cell(
-    pool: FormulaProcessPool,
-    code: str,
-    *,
-    data: Any = None,
-    data_json: bytes | None = None,
-    session_id: str | None = None,
-    init_script: str | None = None,
-    req_id: str | None = None,
-    timeout_sec: float | None = None,
-    deadline: Deadline | None = None,
-) -> dict[str, Any]:
+def run_cell(pool: FormulaProcessPool, code: str, *, data: Any = None, data_json: bytes | None = None, session_id: str | None = None, init_script: str | None = None, req_id: str | None = None, timeout_sec: float | None = None, deadline: Deadline | None = None) -> dict[str, Any]:
     """Run formula execution on pool and decode result_json."""
     if data is not None and data_json is None:
         data_json = json.dumps(data, allow_nan=False).encode("utf-8")
-    clock = (
-        deadline
-        if deadline is not None
-        else Deadline(float(pool.default_timeout_sec if timeout_sec is None else timeout_sec))
-    )
-    envelope = pool.execute(
-        code,
-        data_json=data_json,
-        session_id=session_id,
-        init_script=init_script,
-        req_id=req_id,
-        deadline=clock,
-    )
+    clock = deadline if deadline is not None else Deadline(float(pool.default_timeout_sec if timeout_sec is None else timeout_sec))
+    envelope = pool.execute(code, data_json=data_json, session_id=session_id, init_script=init_script, req_id=req_id, deadline=clock)
     return decode_result_json(envelope)
 
 
@@ -111,19 +89,12 @@ def fake_child(worker: Any, *, alive: bool = True) -> Child:
     proc = _FakePopen(returncode=rc)
     wname = worker.worker_name
     wid = worker.worker_id
-    return Child(
-        ManagedSubprocess.wrap_existing(proc, label=f"{wname} #{wid}"),
-        worker_name=wname,
-        worker_id=wid,
-    )
+    return Child(ManagedSubprocess.wrap_existing(proc, label=f"{wname} #{wid}"), worker_name=wname, worker_id=wid)
 
 
 def pool_without_children(monkeypatch: pytest.MonkeyPatch, **settings: Any) -> FormulaProcessPool:
     """Create a FormulaProcessPool with no initial child processes spawned."""
-    monkeypatch.setattr(
-        "compute_service.worker_base.BaseProcessWorker.respawn",
-        lambda self, timeout_sec=0.0, deadline=None: None,
-    )
+    monkeypatch.setattr("compute_service.worker_base.BaseProcessWorker.respawn", lambda self, timeout_sec=0.0, deadline=None: None)
     cfg_kwargs: dict[str, Any] = {"workers": 1, "idle_worker_ttl_sec": 0}
     cfg_kwargs.update(settings)
     pool = FormulaProcessPool(settings=ComputeSettings(**cfg_kwargs))

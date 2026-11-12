@@ -41,18 +41,9 @@ from plugin.framework.child_runtime import Deadline
 
 
 SCENARIOS = {
-    "1. Micro Calculation (x = 1 + 2)": {
-        "code": "result = 1 + 2",
-        "data": None,
-    },
-    "2. NumPy Vector Math (1,000 floats)": {
-        "code": "import numpy as np\narr = np.array(data, dtype=np.float64)\nresult = float(np.sum(arr ** 2) / arr.size)",
-        "data": [[float(i) for i in range(1000)]],
-    },
-    "3. Tabular 2D Grid (100x10 matrix)": {
-        "code": "import numpy as np\narr = np.array(data, dtype=np.float64)\nresult = [float(np.mean(arr[:, col])) for col in range(arr.shape[1])]",
-        "data": [[float(r * 10 + c) for c in range(10)] for r in range(100)],
-    },
+    "1. Micro Calculation (x = 1 + 2)": {"code": "result = 1 + 2", "data": None},
+    "2. NumPy Vector Math (1,000 floats)": {"code": "import numpy as np\narr = np.array(data, dtype=np.float64)\nresult = float(np.sum(arr ** 2) / arr.size)", "data": [[float(i) for i in range(1000)]]},
+    "3. Tabular 2D Grid (100x10 matrix)": {"code": "import numpy as np\narr = np.array(data, dtype=np.float64)\nresult = [float(np.mean(arr[:, col])) for col in range(arr.shape[1])]", "data": [[float(r * 10 + c) for c in range(10)] for r in range(100)]},
 }
 
 
@@ -90,7 +81,7 @@ def run_benchmark(iterations: int = 100) -> None:
             for _ in range(iterations):
                 t0 = time.perf_counter()
                 raw = pickle_pool.execute(code, data_json=data_json, deadline=Deadline(30.0))
-                res = json.loads(raw["result_json"])
+                res = json.loads(raw["result_json"]) if "result_json" in raw else raw
                 t1 = time.perf_counter()
                 assert res.get("status") == "ok", f"Pickle IPC failed: {res}"
                 pickle_times_ms.append((t1 - t0) * 1000.0)
