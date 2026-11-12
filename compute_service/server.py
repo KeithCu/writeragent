@@ -591,17 +591,17 @@ Handle = Callable[[dict[str, Any], Any, ComputeSettings, _Admission], list[bytes
 class _Route:
     """One POST endpoint. ``_gated`` runs ``prepare`` before the permit and ``handle`` under it.
 
-    ``parse``, the two error strings and ``default_timeout_sec`` are read by
-    ``_admit_parts`` (execute, vision); ``_admit_reset`` ignores them.
+    ``default_timeout_sec`` sets the default admission wait. ``parse`` and the
+    two error strings are read by ``_admit_parts`` (execute, vision).
     """
 
     method: str
     prepare: Prepare
     handle: Handle
+    default_timeout_sec: int
     parse: Parse | None = None
     multipart_error: str = ""
     other_error: str = ""
-    default_timeout_sec: int = 0
     busy_code: str = ec.WORKER_POOL_BUSY
     busy_message: str = "All compute workers are currently busy."
 
@@ -647,14 +647,13 @@ def _admit_reset(
     """Admit and validate optional reset request body, returning an _Admission or error response.
 
     The row's parse fields do not apply here because session reset receives an
-    optional JSON body and waits up to ``settings.default_timeout_sec``.
+    optional JSON body.
     """
-    del route
     data, err = _read_optional_request_json(environ, settings, start_response)
     if err is not None:
         return None, err
     assert data is not None
-    return _admission(environ, float(settings.default_timeout_sec), data, data.get("id")), None
+    return _admission(environ, float(route.default_timeout_sec), data, data.get("id")), None
 
 
 def _admit_vision(
@@ -784,6 +783,7 @@ def _handle_execute(
         code = exc.code if exc.code is not None else ec.BAD_REQUEST_BODY
         return _error(start_response, code, str(exc), req_id=req_id)
 
+    # Resolved per request (shutdown can replace the pool); after validation so a bad request does not start workers.
     run_execute = get_execute()
     result_payload = run_execute(code=code, data_json=parts.data_json, session_id=session_id, init_script=init_script, req_id=req_id, deadline=admission.deadline)
     return _send_execution_result(start_response, result_payload, req_id)
@@ -820,6 +820,7 @@ def _handle_session_reset(
     # Reset leases within the admission deadline, capped at SESSION_RESET_TIMEOUT_SEC.
     # The floor lets a just-expired clock still return.
     timeout_sec = min(SESSION_RESET_TIMEOUT_SEC, max(0.01, admission.deadline.left()))
+    # Resolved per request (shutdown can replace the pool); after validation so a bad request does not start workers.
     run_reset = get_reset()
     result_payload = run_reset(session_id, timeout_sec=timeout_sec)
 
@@ -922,24 +923,25 @@ def create_wsgi_app(settings: ComputeSettings, *, execute_fn: ExecuteFn | None =
             "POST",
             _admit_parts,
             partial(_handle_execute, get_execute=_get_execute),
+            default_timeout_sec=settings.default_timeout_sec,
             parse=parse_execute_request,
             multipart_error="Invalid multipart execute body",
             other_error="Invalid JSON",
-            default_timeout_sec=settings.default_timeout_sec,
         ),
         "/v1/session/reset": _Route(
             "POST",
             _admit_reset,
             partial(_handle_session_reset, get_reset=_get_reset),
+            default_timeout_sec=settings.default_timeout_sec,
         ),
         "/v1/vision": _Route(
             "POST",
             _admit_vision,
             _handle_vision,
+            default_timeout_sec=settings.ocr_timeout_sec,
             parse=parse_multipart_vision,
             multipart_error="Invalid multipart vision body",
             other_error="Invalid vision body",
-            default_timeout_sec=settings.ocr_timeout_sec,
             busy_code=ec.VISION_POOL_BUSY,
             busy_message="All vision workers are currently busy.",
         ),
