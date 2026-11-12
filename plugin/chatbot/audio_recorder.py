@@ -205,7 +205,7 @@ class AudioRecorder:
         recording = self._recording
         if recording is None:
             return
-        # One handoff shared with stop. The monitor is the only stdout reader
+        # The recording's handoff is shared with stop. The monitor is the only stdout reader
         # after ready; stop waits on the handoff instead of reading the same pipe.
         recording.start_monitor(
             on_auto_stopped=lambda path: self._notify_auto_stop(path),

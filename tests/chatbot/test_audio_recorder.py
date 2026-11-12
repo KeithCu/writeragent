@@ -94,28 +94,28 @@ def _release_stale_start_gate_and_assert_none(
 @pytest.fixture
 def recording_mocks(tmp_path):
     wav_path = str(tmp_path / "test.wav")
-    proc = MagicMock()
-    proc.stdin = MagicMock()
-    proc.stdout = MagicMock()
-    proc.stdout.readline.return_value = ""
-    proc.poll.return_value = None  # simulate running subprocess; stop path calls finish
-    child = _recording_child(proc)
+    spawned_children: list[Recording] = []
 
-    def fake_finish(*args, **kwargs):
-        child.monitor = None
-        return wav_path
+    def make_child(*args: Any, **kwargs: Any) -> Recording:
+        proc = MagicMock()
+        proc.stdin = MagicMock()
+        proc.stdout = MagicMock()
+        proc.stdout.readline.return_value = ""
+        proc.poll.return_value = None  # simulate running subprocess; stop path calls finish
+        child = _recording_child(proc)
+        spawned_children.append(child)
+        return child
 
     with (
         patch("plugin.chatbot.audio_recorder.resolve_recording_python", return_value=("/usr/bin/python", "")),
         patch("plugin.chatbot.audio_recorder.make_temp_wav_path", return_value=wav_path),
-        patch("plugin.chatbot.audio_recorder.spawn_recording_process", return_value=child) as spawn,
-        patch.object(child, "wait_ready") as wait_ready,
-        patch.object(child, "finish", side_effect=fake_finish) as stop_proc,
+        patch("plugin.chatbot.audio_recorder.spawn_recording_process", side_effect=make_child) as spawn,
+        patch.object(Recording, "wait_ready") as wait_ready,
+        patch.object(Recording, "finish", return_value=wav_path) as stop_proc,
     ):
         yield {
             "wav_path": wav_path,
-            "proc": proc,
-            "child": child,
+            "spawned_children": spawned_children,
             "spawn": spawn,
             "wait_ready": wait_ready,
             "stop_proc": stop_proc,
@@ -1031,10 +1031,10 @@ def test_notify_auto_stop_once_per_take(monkeypatch):
 
 def test_stop_finishes_the_published_recording(recording_mocks):
     recorder = AudioRecorder()
-    child = recording_mocks["child"]
     try:
         recorder.start_recording()
         _settle(recorder)
+        child = recording_mocks["spawned_children"][0]
         rec = recorder._recording
         assert rec is child and rec.monitor_started
         recorder.stop_recording()

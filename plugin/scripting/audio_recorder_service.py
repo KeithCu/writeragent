@@ -368,6 +368,7 @@ class Recording:
         self._reap(_RECORDING_REAP_TIMEOUT_SEC)
 
     def kill_tree(self) -> None:
+        """Calls kill_process_tree directly, not ManagedSubprocess.kill_tree, so Stop-during-start keeps the error path it had (no swallow-and-log arm)."""
         kill_process_tree(self.popen)
 
 
