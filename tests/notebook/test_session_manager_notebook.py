@@ -18,53 +18,48 @@ def _writer_doc(url: str = "file:///tmp/nb.odt"):
 
 
 def test_notebook_session_id_with_url():
-    ctx = MagicMock()
     doc = _writer_doc()
     with patch("plugin.scripting.session_manager.is_writer", return_value=True):
-        sid = notebook_session_id(ctx, doc)
+        sid = notebook_session_id(doc)
     assert sid == "notebook:file:///tmp/nb.odt"
 
 
 def test_notebook_session_id_untitled_uses_property():
-    ctx = MagicMock()
     doc = _writer_doc("")
     with (
         patch("plugin.scripting.session_manager.is_writer", return_value=True),
         patch("plugin.scripting.session_manager.get_document_property", return_value="uuid-1"),
     ):
-        sid = notebook_session_id(ctx, doc)
+        sid = notebook_session_id(doc)
     assert sid == "notebook:uuid-1"
 
 def test_notebook_session_id_save_as_follows_url():
-    ctx = MagicMock()
     doc = _writer_doc("file:///tmp/new.odt")
     with (
         patch("plugin.scripting.session_manager.is_writer", return_value=True),
         patch("plugin.scripting.session_manager.get_document_property", return_value="uuid-1"),
-        patch("plugin.doc.udprops.remove_document_property") as rm,
+        patch("plugin.scripting.session_manager.remove_document_property") as rm,
     ):
-        sid = notebook_session_id(ctx, doc)
+        sid = notebook_session_id(doc)
     assert sid == "notebook:file:///tmp/new.odt"
     rm.assert_called_once()
 
 
 def test_notebook_session_id_non_writer_returns_none():
-    ctx = MagicMock()
     doc = MagicMock()
     with patch("plugin.scripting.session_manager.is_writer", return_value=False):
-        assert notebook_session_id(ctx, doc) is None
+        assert notebook_session_id(doc) is None
 
 
 def test_reset_notebook_python_session_calls_worker():
     ctx = MagicMock()
     doc = _writer_doc()
     with (
-        patch("plugin.scripting.session_manager._writer_document", return_value=doc),
-        patch("plugin.scripting.session_manager._has_notebook_registry", return_value=True),
+        patch("plugin.scripting.session_manager.has_notebook_registry", return_value=True),
         patch("plugin.scripting.venv_worker.reset_python_session", return_value={"status": "ok"}) as mock_reset,
         patch("plugin.scripting.session_manager._msgbox"),
     ):
-        reset_notebook_python_session(ctx)
+        reset_notebook_python_session(ctx, doc)
     mock_reset.assert_called_once_with("notebook:file:///tmp/nb.odt")
 
 
@@ -74,14 +69,13 @@ def test_reset_notebook_python_session_resets_execution_counter():
     state = MagicMock()
     state.next_execution_count = 9
     with (
-        patch("plugin.scripting.session_manager._writer_document", return_value=doc),
-        patch("plugin.scripting.session_manager._has_notebook_registry", return_value=True),
+        patch("plugin.scripting.session_manager.has_notebook_registry", return_value=True),
         patch("plugin.scripting.venv_worker.reset_python_session", return_value={"status": "ok"}),
         patch("plugin.scripting.session_manager._msgbox"),
-        patch("plugin.notebook.cell_registry.load_registry", return_value=state) as load,
-        patch("plugin.notebook.cell_registry.save_registry") as save,
+        patch("plugin.scripting.session_manager.load_registry", return_value=state) as load,
+        patch("plugin.scripting.session_manager.save_registry") as save,
     ):
-        reset_notebook_python_session(ctx)
+        reset_notebook_python_session(ctx, doc)
     load.assert_called_once_with(doc)
     assert state.next_execution_count == 1
     save.assert_called_once_with(doc, state)
@@ -93,14 +87,13 @@ def test_reset_notebook_python_session_resets_count_when_worker_fails():
     state = MagicMock()
     state.next_execution_count = 9
     with (
-        patch("plugin.scripting.session_manager._writer_document", return_value=doc),
-        patch("plugin.scripting.session_manager._has_notebook_registry", return_value=True),
+        patch("plugin.scripting.session_manager.has_notebook_registry", return_value=True),
         patch("plugin.scripting.venv_worker.reset_python_session", return_value={"status": "error"}),
         patch("plugin.scripting.session_manager._msgbox"),
-        patch("plugin.notebook.cell_registry.load_registry", return_value=state),
-        patch("plugin.notebook.cell_registry.save_registry") as save,
+        patch("plugin.scripting.session_manager.load_registry", return_value=state),
+        patch("plugin.scripting.session_manager.save_registry") as save,
     ):
-        reset_notebook_python_session(ctx)
+        reset_notebook_python_session(ctx, doc)
     assert state.next_execution_count == 1
     save.assert_called_once_with(doc, state)
 
@@ -111,12 +104,12 @@ def test_reset_notebook_does_not_mint_without_existing_key():
     state = MagicMock()
     state.next_execution_count = 5
     with (
-        patch("plugin.scripting.session_manager._has_notebook_registry", return_value=True),
+        patch("plugin.scripting.session_manager.has_notebook_registry", return_value=True),
         patch("plugin.scripting.session_manager.get_document_property", return_value=None),
         patch("plugin.scripting.session_manager.set_document_property") as mock_set_prop,
         patch("plugin.scripting.venv_worker.reset_python_session") as mock_reset,
-        patch("plugin.notebook.cell_registry.load_registry", return_value=state) as mock_load,
-        patch("plugin.notebook.cell_registry.save_registry") as mock_save,
+        patch("plugin.scripting.session_manager.load_registry", return_value=state) as mock_load,
+        patch("plugin.scripting.session_manager.save_registry") as mock_save,
         patch("plugin.scripting.session_manager._msgbox") as mock_msgbox,
     ):
         reset_notebook_python_session(ctx, doc)
@@ -150,7 +143,7 @@ def test_reset_workbook_python_session_dispatches_to_notebook():
         patch("plugin.framework.uno_context.get_desktop", return_value=desktop),
         patch("plugin.scripting.session_manager.is_calc", return_value=False),
         patch("plugin.scripting.session_manager.is_writer", return_value=True),
-        patch("plugin.scripting.session_manager._has_notebook_registry", return_value=True),
+        patch("plugin.scripting.session_manager.has_notebook_registry", return_value=True),
         patch("plugin.scripting.session_manager.reset_notebook_python_session") as mock_nb_reset,
         patch("plugin.scripting.session_manager._reset_rps_python_session") as mock_rps,
     ):

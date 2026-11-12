@@ -44,7 +44,7 @@ def test_shared_kernel_reset_session_uno(ctx, doc):
 
         func = PythonFunction(ctx)
 
-        sid = sm.workbook_session_id(ctx, doc=doc)
+        sid = sm.workbook_session_id(doc=doc)
         assert sid is not None
         assert sid.startswith("calc:")
 

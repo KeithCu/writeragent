@@ -154,7 +154,7 @@ def _session_key_tuple(ctx: Any, code: str, doc: Any | None, *, on_main: bool) -
         if target is not None:
             url_val = getattr(target, "getURL", lambda: "")()
             doc_url = url_val if isinstance(url_val, str) else ""
-            sid = workbook_session_id(ctx, doc=target) or ""
+            sid = workbook_session_id(target) or ""
             from plugin.calc.python.formula_locator_cache import locate_formula_cell_in_doc
 
             located = locate_formula_cell_in_doc(target, code)

@@ -902,7 +902,7 @@ def test_isolated_workbook_key_never_empty():
     with patch(
         "plugin.scripting.session_manager.python_session_mode", return_value="isolated"
     ):
-        assert sm.workbook_session_id(None, doc) is None
+        assert sm.workbook_session_id(doc) is None
         sid = geometric_workbook_key(doc)
     assert sid == "calc:file:///isolated.ods"
     assert sid.startswith("calc:")
@@ -1856,4 +1856,41 @@ def test_save_geometric_registry_skips_when_unchanged(monkeypatch):
 
     save_geometric_registry_for_doc(doc, wk)
     assert set_calls == []  # Skipped because payload matches!
+
+
+def test_flag_on_reconciles_focused_calc_document(monkeypatch):
+    from unittest.mock import MagicMock, patch
+    from plugin.calc.python import geometric_recalc
+    from plugin.calc.python.geometric_recalc import _on_geometric_config_changed
+
+    ctx = MagicMock()
+    doc = MagicMock()
+    monkeypatch.setattr(geometric_recalc._RUNTIME, "last_flag", False)
+    monkeypatch.setattr(geometric_recalc, "geometric_flag_enabled", lambda: True)
+
+    with (
+        patch("plugin.calc.python.geometric_recalc.focused_calc_document", return_value=doc),
+        patch("plugin.calc.python.geometric_recalc.reconcile") as mock_reconcile,
+    ):
+        _on_geometric_config_changed(ctx=ctx)
+
+    mock_reconcile.assert_called_once_with(ctx, doc)
+
+
+def test_flag_on_without_calc_document_does_nothing(monkeypatch):
+    from unittest.mock import MagicMock, patch
+    from plugin.calc.python import geometric_recalc
+    from plugin.calc.python.geometric_recalc import _on_geometric_config_changed
+
+    ctx = MagicMock()
+    monkeypatch.setattr(geometric_recalc._RUNTIME, "last_flag", False)
+    monkeypatch.setattr(geometric_recalc, "geometric_flag_enabled", lambda: True)
+
+    with (
+        patch("plugin.calc.python.geometric_recalc.focused_calc_document", return_value=None),
+        patch("plugin.calc.python.geometric_recalc.reconcile") as mock_reconcile,
+    ):
+        _on_geometric_config_changed(ctx=ctx)
+
+    mock_reconcile.assert_not_called()
 
