@@ -97,16 +97,14 @@ class SessionStore:
         self._isolated_init_lru: OrderedDict[SessionKey, None] = OrderedDict()
 
     @staticmethod
-    def _policy_current(
-        rec: SessionRecord | None, policy: SandboxPolicy | None
-    ) -> bool:
-        # None policy means the caller does not care, so never drop for policy alone.
-        if rec is None or rec.executor is None or policy is None:
+    def _policy_current(rec: SessionRecord | None, policy: SandboxPolicy) -> bool:
+        # No cached executor means nothing was built under another policy.
+        if rec is None or rec.executor is None:
             return True
         return rec.executor._sandbox_policy == policy
 
     def _drop_if_policy_mismatch_unlocked(
-        self, key: SessionKey, policy: SandboxPolicy | None
+        self, key: SessionKey, policy: SandboxPolicy
     ) -> None:
         if not self._policy_current(self._records.get(key), policy):
             self._drop_unlocked(key)
@@ -134,29 +132,16 @@ class SessionStore:
             rec = self._records.get(SessionKey.parse(session_id))
             return rec.executor if rec else None
 
-    def init_script_hash(self, session_id: str) -> str | None:
-        with self._lock:
-            rec = self._records.get(SessionKey.parse(session_id))
-            return rec.init_script_hash if rec else None
-
     def seeded_digest(self, session_id: str) -> str | None:
         with self._lock:
             rec = self._records.get(SessionKey.parse(session_id))
             return rec.seeded_digest if rec else None
 
-    def isolated_lru_len(self) -> int:
-        with self._lock:
-            return len(self._isolated_init_lru)
-
-    def is_isolated_lru(self, session_id: str) -> bool:
-        with self._lock:
-            return SessionKey.parse(session_id) in self._isolated_init_lru
-
     def init_is_current(
         self,
         init_session_id: str,
         script_digest: str,
-        policy: SandboxPolicy | None,
+        policy: SandboxPolicy,
     ) -> bool:
         """Return True when init already ran for *script_digest* (refresh isolated LRU)."""
         with self._lock:
@@ -191,7 +176,7 @@ class SessionStore:
         session_id: str,
         timeout_sec: int,
         *,
-        policy: SandboxPolicy | None = None,
+        policy: SandboxPolicy,
     ) -> tuple[LocalPythonExecutor, bool]:
         with self._lock:
             key = SessionKey.parse(session_id)
@@ -202,8 +187,7 @@ class SessionStore:
             created = False
             if executor is None:
                 executor = _new_executor(timeout_sec, policy=policy)
-                if policy is not None:
-                    executor._sandbox_policy = policy
+                executor._sandbox_policy = policy
                 if rec is None:
                     rec = SessionRecord()
                     self._records[key] = rec
@@ -213,31 +197,21 @@ class SessionStore:
                 executor.timeout_seconds = timeout_sec
             return executor, created
 
-    def set_init_hash(self, session_id: str, digest: str) -> None:
-        with self._lock:
-            key = SessionKey.parse(session_id)
-            rec = self._records.setdefault(key, SessionRecord())
-            rec.init_script_hash = digest
-
     def set_seeded_digest(self, session_id: str, digest: str) -> None:
         with self._lock:
             key = SessionKey.parse(session_id)
             rec = self._records.setdefault(key, SessionRecord())
             rec.seeded_digest = digest
 
-    def note_isolated_access(self, init_session_id: str) -> None:
-        with self._lock:
-            self._note_isolated_access_unlocked(SessionKey.parse(init_session_id))
-
     def _note_isolated_access_unlocked(self, key: SessionKey) -> None:
         self._isolated_init_lru[key] = None
         self._isolated_init_lru.move_to_end(key)
         while len(self._isolated_init_lru) > _MAX_ISOLATED_INIT_SNAPSHOTS:
-            oldest_key = next(iter(self._isolated_init_lru))
-            # Same path as an explicit reset: executor, hash, DuckDB, and the LRU slot.
-            # The pop after clear is what stops the loop if the id is not isolated.
+            # Take the least recently used slot out first, then drop what it
+            # cached through the same path as an explicit reset (executor,
+            # init digest, DuckDB catalog and the cell companion).
+            oldest_key = self._isolated_init_lru.popitem(last=False)[0]
             self._clear_init_unlocked(oldest_key)
-            self._isolated_init_lru.pop(oldest_key, None)
 
     def _clear_init_unlocked(self, key: SessionKey) -> None:
         cell_sid = key.without_init().wire() if key.init else None
@@ -276,13 +250,6 @@ class SessionStore:
         with self._lock:
             self._drop_unlocked(SessionKey.parse(session_id))
         return {"status": "ok"}
-
-    def clear_all(self) -> None:
-        """Clear every cached session (tests)."""
-        with self._lock:
-            self._records.clear()
-            self._isolated_init_lru.clear()
-        _reset_session_duckdb(None)
 
     def drop_if_policy_mismatch(self, session_id: str, policy: SandboxPolicy) -> None:
         with self._lock:
@@ -367,7 +334,7 @@ def _install_timeout_context_pool() -> None:
 _install_timeout_context_pool()
 
 
-def _reset_session_duckdb(session_id: str | None) -> None:
+def _reset_session_duckdb(session_id: str) -> None:
     """Close the Phase D DuckDB catalog for *session_id* (LibrePy has no module)."""
     try:
         from plugin.scripting.venv.duckdb_sql import reset_session_duckdb
@@ -476,7 +443,7 @@ class CellNamespace:
     @classmethod
     def fresh(
         cls,
-        policy: SandboxPolicy | None = None,
+        policy: SandboxPolicy,
         timeout_sec: int = 30,
     ) -> CellNamespace:
         return cls(_new_executor(timeout_sec, policy=policy))
@@ -695,10 +662,8 @@ def _capture_open_figures_payload(*, fmt: str = "svg") -> tuple[dict[str, Any] |
 
 def _new_executor(
     timeout_sec: int,
-    policy: SandboxPolicy | None = None,
+    policy: SandboxPolicy,
 ) -> LocalPythonExecutor:
-    if policy is None:
-        policy = build_sandbox_policy()
     # open must be in static_tools; pass in additional_functions so send_tools keeps it.
     additional_functions = {"open": open} if policy.files else None
     executor = LocalPythonExecutor(
@@ -835,7 +800,7 @@ def _ensure_init_executed(
     timeout_sec: int,
     deadline: float,
     init_script_hash: str | None = None,
-    policy: SandboxPolicy | None = None,
+    policy: SandboxPolicy,
 ) -> dict[str, Any] | None:
     """Run *init_script* once in the persistent init session. Returns error dict or None."""
     script = (init_script or "").strip()
