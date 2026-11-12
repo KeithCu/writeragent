@@ -17,6 +17,7 @@ import pytest
 
 from plugin.scripting.editor_ipc import (
     _TARGET_KEYS,
+    CHILD_TO_PARENT_TYPES,
     PARENT_TO_CHILD_TYPES,
     normalize_target,
     read_message,
@@ -216,3 +217,15 @@ def test_parent_to_child_types_match_js_handlers():
         found.update(pattern.findall(js_path.read_text(encoding="utf-8")))
 
     assert found == set(PARENT_TO_CHILD_TYPES)
+
+
+def test_child_to_parent_types_match_editor_main_senders():
+    # Every message literal sent by editor_main.py must be registered in CHILD_TO_PARENT_TYPES.
+    # If a new outgoing message type is added to the child script without updating the set,
+    # the dispatch tables drift and this test fails.
+    repo_root = Path(__file__).resolve().parents[2]
+    editor_main_py = repo_root / "plugin/scripting/venv/editor_main.py"
+    pattern = re.compile(r"""["']type["']\s*:\s*["']([A-Za-z0-9_]+)["']""")
+    found = set(pattern.findall(editor_main_py.read_text(encoding="utf-8")))
+
+    assert found == set(CHILD_TO_PARENT_TYPES)

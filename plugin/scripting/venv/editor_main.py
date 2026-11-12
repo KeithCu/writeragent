@@ -70,6 +70,7 @@ _ASSETS_DIR = os.path.normpath(
 )
 try:
     from plugin.scripting.editor_ipc import (
+    CHILD_TO_PARENT_TYPES,
     EDITOR_DEFAULT_TITLE,
     PARENT_TO_CHILD_TYPES,
     message_type,
@@ -261,6 +262,9 @@ def _emit(message: dict[str, Any]) -> None:
 
 def _write_parent(message: dict[str, Any]) -> None:
     kind = message_type(message)
+    # Child-side twin of PersistentEditor.send's check; the message is still sent.
+    if kind not in CHILD_TO_PARENT_TYPES:
+        log.warning("editor_main: type %s is not handled by the host", kind)
     if kind and kind != "ready":
         message = session.stamp(message)
     _emit(message)
