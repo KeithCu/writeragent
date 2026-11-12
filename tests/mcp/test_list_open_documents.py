@@ -61,7 +61,7 @@ def test_list_open_documents_execute():
     mock_desktop.getComponents.return_value.createEnumeration.return_value = mock_enum
 
     with patch("plugin.framework.uno_context.get_desktop", return_value=mock_desktop), \
-         patch("plugin.doc.document_research._system_path_from_url", side_effect=lambda u: u.replace("file://", "") if u else None), \
+         patch("plugin.doc.document_research.system_path_from_url", side_effect=lambda u: u.replace("file://", "") if u else None), \
          patch("plugin.doc.document_research.get_document_type") as mock_get_doc_type:
 
         # Let mock_get_doc_type identify mock_doc2 as calc
@@ -152,7 +152,7 @@ def test_get_open_documents_skips_non_office_document_components():
     desktop.getComponents.return_value.createEnumeration.return_value = enum
 
     with patch("plugin.framework.uno_context.get_desktop", return_value=desktop), \
-         patch("plugin.doc.document_research._system_path_from_url",
+         patch("plugin.doc.document_research.system_path_from_url",
                side_effect=lambda u: u.replace("file://", "") if u else None):
         docs = get_open_documents(MagicMock(), active_model=None)
 

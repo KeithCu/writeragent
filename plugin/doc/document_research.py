@@ -12,7 +12,7 @@ from __future__ import annotations
 import logging
 import os
 import sys
-from typing import TYPE_CHECKING, Any, Literal, TypedDict
+from typing import TYPE_CHECKING, Any, Literal, NamedTuple, TypedDict
 
 import uno
 
@@ -20,7 +20,7 @@ from plugin.framework.doc_type import doc_type_family_label, get_document_type
 from plugin.doc.text_helpers import get_document_path
 from plugin.embeddings.embeddings_fs import ALL_INDEXABLE_EXTENSIONS
 from plugin.framework.errors import best_effort, make_tool_error, uno_read, user_stopped_payload
-from plugin.framework.send_cancellation import SendCancellation, is_cancelled
+from plugin.framework.send_cancellation import SendCancellation, SendCancelled, is_cancelled
 from plugin.framework.uno_context import enum_has_more, resolve_document_by_url
 from plugin.framework.url_utils import normalize_file_url, path_to_file_url
 
@@ -109,7 +109,8 @@ def _normalize_path(path: str) -> str:
     return os.path.normpath(os.path.abspath(path))
 
 
-def _system_path_from_url(url: str) -> str | None:
+def system_path_from_url(url: str) -> str | None:
+    """Accepts file:/ via normalize_file_url; returns None for non-file or unconvertible URLs."""
     if not url or not str(url).startswith("file:"):
         return None
     url = normalize_file_url(str(url))
@@ -155,7 +156,7 @@ def _resolve_lo_directory_path(ctx: Any, raw: str) -> str | None:
     if not text:
         return None
     if text.startswith("file://"):
-        resolved = _system_path_from_url(text)
+        resolved = system_path_from_url(text)
     else:
         resolved = _normalize_path(text)
     if resolved and os.path.isdir(resolved):
@@ -234,7 +235,7 @@ def _collect_open_file_urls(
                 url = model.getURL()
                 if not url or not str(url).startswith("file://"):
                     continue
-                path = _system_path_from_url(str(url))
+                path = system_path_from_url(str(url))
                 if not path:
                     continue
                 if exclude_norm and _normalize_path(path) == exclude_norm:
@@ -276,7 +277,7 @@ def _scan_directory(
     entries: list[FileEntry] = []
     for idx, name in enumerate(names):
         if idx % 50 == 0 and is_cancelled(cancel):
-            raise InterruptedError("USER_STOPPED")
+            raise SendCancelled()
         if _should_skip_filename(name):
             continue
         ext = os.path.splitext(name)[1].lower()
@@ -375,7 +376,41 @@ def file_entry_for_path(path: str) -> FileEntry:
     )
 
 
-_USE_DEFAULT = object()
+class ListingState(NamedTuple):
+    """What a nearby listing needs from LibreOffice, read once on the main thread.
+
+    ``exclude_path`` is the active document's normalized path (left out of the
+    listing), ``open_paths`` maps normalized path to file URL for other open
+    documents, and ``listing_root`` is the folder to scan (None lists the open
+    documents only).
+    """
+
+    exclude_path: str | None
+    open_paths: dict[str, str]
+    listing_root: str | None
+
+
+def resolve_listing_state(
+    ctx: Any,
+    active_model: Any,
+    extensions: frozenset[str] = ALL_INDEXABLE_EXTENSIONS,
+) -> ListingState:
+    """Read the listing's UNO state in one main-thread hop (inline when already on main).
+
+    Raises SendCancelled when the user stops the send before the hop runs.
+    """
+    from plugin.framework.queue_executor import main
+
+    def _read_listing_state() -> ListingState:
+        active_path = get_document_path(active_model) if active_model is not None else None
+        exclude_path = _normalize_path(active_path) if active_path else None
+        return ListingState(
+            exclude_path=exclude_path,
+            open_paths=_collect_open_file_urls(ctx, exclude_path=exclude_path, extensions=extensions),
+            listing_root=resolve_listing_directory(ctx, active_model),
+        )
+
+    return main.run(_read_listing_state)
 
 
 def list_nearby_files(
@@ -384,65 +419,57 @@ def list_nearby_files(
     *,
     filter: str | None = None,
     file_kind: FileKind = "documents",
-    exclude_path: Any = _USE_DEFAULT,
-    open_paths: Any = _USE_DEFAULT,
-    listing_root: Any = _USE_DEFAULT,
     cancel: SendCancellation | None = None,
 ) -> dict[str, Any]:
-    """List nearby files for the outer document_research agent.
+    """List nearby files for a tool result: scan_nearby_files, with Stop as the USER_STOPPED payload."""
+    try:
+        return scan_nearby_files(ctx, active_model, filter=filter, file_kind=file_kind, cancel=cancel)
+    except SendCancelled:
+        return user_stopped_payload()
 
+
+def scan_nearby_files(
+    ctx: Any,
+    active_model: Any,
+    *,
+    filter: str | None = None,
+    file_kind: FileKind = "documents",
+    state: ListingState | None = None,
+    cancel: SendCancellation | None = None,
+) -> dict[str, Any]:
+    """List nearby files; raises SendCancelled when the user stops.
+
+    Tool entry points call ``list_nearby_files``; helpers that already handle Stop call this.
     *file_kind* ``documents`` (default): LibreOffice office formats only.
     *file_kind* ``images``: image files only (listable; not readable via delegate_read_document).
+    *state* skips the main-thread read when the caller already has it
+    (resolve_listing_state with the same extensions).
 
     Returns a dict with ``files``, ``truncated``, and optional ``listing_root``.
     """
     extensions = NEARBY_IMAGE_EXTENSIONS if file_kind == "images" else ALL_INDEXABLE_EXTENSIONS
+    if state is None:
+        state = resolve_listing_state(ctx, active_model, extensions)
 
-    def _fetch_uno_state() -> tuple[Any, Any, Any]:
-        res_exclude = exclude_path
-        res_open = open_paths
-        res_root = listing_root
-
-        if res_exclude is _USE_DEFAULT:
-            active_path = get_document_path(active_model) if active_model is not None else None
-            res_exclude = _normalize_path(active_path) if active_path else None
-
-        if res_open is _USE_DEFAULT:
-            res_open = _collect_open_file_urls(ctx, exclude_path=res_exclude, extensions=extensions)
-
-        if res_root is _USE_DEFAULT:
-            res_root = resolve_listing_directory(ctx, active_model)
-
-        return res_exclude, res_open, res_root
-
-    from plugin.framework.queue_executor import main
-    from plugin.framework.send_cancellation import SendCancelled
-
-    try:
-        exclude_path, open_paths, listing_root = main.run(_fetch_uno_state)
-    except SendCancelled:
-        return user_stopped_payload()
-
+    listing_root = state.listing_root
     if listing_root:
         try:
             files, truncated = _scan_directory(
                 listing_root,
                 extensions=extensions,
                 filter_substring=filter,
-                exclude_path=exclude_path,
-                open_paths=open_paths,
+                exclude_path=state.exclude_path,
+                open_paths=state.open_paths,
                 cancel=cancel,
             )
-            return {"status": "ok", "files": files, "truncated": truncated, "listing_root": listing_root, **(
-                {"hint": "Listing stopped at 100. Pass filter to narrow the name."} if truncated else {}
-            )}
-        except InterruptedError:
-            return user_stopped_payload()
         except OSError as e:
             return make_tool_error(str(e), path=listing_root)
+        return {"status": "ok", "files": files, "truncated": truncated, "listing_root": listing_root, **(
+            {"hint": "Listing stopped at 100. Pass filter to narrow the name."} if truncated else {}
+        )}
 
     # No directory: list other open documents only
-    files, truncated = _entries_from_open_only(open_paths, filter_substring=filter)
+    files, truncated = _entries_from_open_only(state.open_paths, filter_substring=filter)
     if not files:
         return make_tool_error(
             "No nearby files found. Save the document or open sibling files in LibreOffice."
@@ -459,6 +486,7 @@ def resolve_path_or_name(
 ) -> tuple[str | None, str | None]:
     """Resolve a path, file URL, or basename to an absolute path and file URL.
 
+    Raises SendCancelled when the user stops during the listing.
     Returns (path, url) or (None, error_message).
     """
     raw = str(path_or_name).strip()
@@ -473,7 +501,7 @@ def resolve_path_or_name(
     # the opener uses, then treat the result as an absolute path
     # (not a basename filter).
     if raw.startswith("file:"):
-        resolved = _system_path_from_url(raw)
+        resolved = system_path_from_url(raw)
         if resolved and os.path.isfile(resolved):
             return resolved, path_to_file_url(resolved)
         return None, f"No file matching {raw!r}"
@@ -482,7 +510,7 @@ def resolve_path_or_name(
         norm = _normalize_path(raw)
         return norm, path_to_file_url(norm)
 
-    listing = list_nearby_files(ctx, active_model, filter=raw)
+    listing = scan_nearby_files(ctx, active_model, filter=raw)
     if listing.get("status") != "ok":
         return None, listing.get("message", "Could not resolve file")
 
@@ -549,7 +577,7 @@ def open_document_for_read(ctx: Any, path_or_url: str) -> tuple[Any | None, str 
     raw = str(path_or_url).strip()
     if raw.startswith("file:"):
         url = normalize_file_url(raw)
-        path = _system_path_from_url(url)
+        path = system_path_from_url(url)
     # Leading "/" is absolute on POSIX; on Windows os.path.isabs is false for it.
     elif (os.path.isabs(raw) or raw.startswith("/")) and os.path.isfile(raw):
         path = _normalize_path(raw)
@@ -685,7 +713,7 @@ def get_open_documents(uno_ctx: Any, active_model: Any = None) -> list[dict[str,
         # An untitled doc has no URL, so its uid is the ONLY handle a caller can target it by.
         # Never drop it on a type-lookup failure -- list it with doc_type "unknown" instead.
         untitled = not url_raw
-        path = "" if untitled else (_system_path_from_url(str(url_raw)) or "")
+        path = "" if untitled else (system_path_from_url(str(url_raw)) or "")
         # str, not DocTypeGuess: the enum fallback below yields any doc_type label.
         doc_type_guess: str = "unknown" if untitled or not path else guess_doc_type_from_path(path)
         if doc_type_guess == "unknown":

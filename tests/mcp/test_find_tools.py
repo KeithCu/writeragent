@@ -797,3 +797,13 @@ def test_tools_list_does_not_swallow_get_ctx(monkeypatch):
     monkeypatch.setattr("plugin.framework.uno_context.get_ctx", _boom)
     with pytest.raises(RuntimeError, match="off main thread"):
         handler._mcp_tools_list({})
+
+
+def test_sidebar_only_tool_names_registry_failure_is_raised_not_an_empty_set():
+    # An empty set would let every sidebar-only tool into the direct_flat tools/list.
+    from plugin.doc.find_tools_tool import sidebar_only_tool_names
+
+    registry = MagicMock()
+    registry.get_tools.side_effect = RuntimeError("registry broken")
+    with pytest.raises(RuntimeError, match="registry broken"):
+        sidebar_only_tool_names(registry, None, doc_type="writer", uno_services_supported=frozenset())

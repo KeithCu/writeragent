@@ -6,7 +6,7 @@ import urllib.request
 import pytest
 
 from plugin.mcp.server import mcp_endpoint_url
-from plugin.mcp.mcp_protocol import _format_mcp_clock_context, build_initialize_instructions
+from plugin.mcp.mcp_protocol import format_mcp_clock_context, build_initialize_instructions
 
 
 def test_mcp_endpoint_url_helper():
@@ -17,7 +17,7 @@ def test_mcp_endpoint_url_helper():
 def test_mcp_clock_context_is_offset_free_wall_time():
     """Clock stamp matches Calc write ISO (no +HH:MM / Z); weekday/tz name stay human-facing."""
     now = datetime.datetime(2026, 8, 6, 13, 11, 0, tzinfo=datetime.timezone(datetime.timedelta(hours=-4), "EDT"))
-    text = _format_mcp_clock_context(now)
+    text = format_mcp_clock_context(now)
     local = now.astimezone()
     wall = local.replace(tzinfo=None).isoformat(timespec="seconds")
     weekday = local.strftime("%A")

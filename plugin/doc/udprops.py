@@ -11,7 +11,6 @@ Grammar persistence and other light callers need get/set udprops without pulling
 from __future__ import annotations
 
 import logging
-import sys
 from typing import Any
 
 import uno
@@ -25,19 +24,6 @@ from plugin.framework.errors import (
 )
 
 log = logging.getLogger(__name__)
-
-# GHA 33763078357: hang dump named uno_call at getDocumentProperties. When
-# True, each UNO step is also printed to stderr so the last line names the
-# exact call. _clear_writeragent_udprops turns this on for insert_cell_html
-# teardown only (production saves stay quiet).
-_TRACE_UDPROPS = False
-
-
-def _udprops_step(msg: str) -> None:
-    """log.debug always; stderr only when teardown tracing is on."""
-    log.debug(msg)
-    if _TRACE_UDPROPS:
-        print(msg, file=sys.stderr, flush=True)
 
 
 def _user_defined_property_exists(props: Any, name: str) -> bool:
@@ -55,16 +41,10 @@ def _user_defined_properties(model: Any) -> Any:
     PropertyBag hasPropertyByName / addProperty is unreliable through the
     guard proxy; unwrap the model then talk to the raw PropertyBag.
     """
-    raw_model = thread_guard.unwrap_uno(model)
-    if raw_model is None:
-        raise UnoObjectError("Document Model is null", code="UNO_NULL_OBJECT")
-    if not hasattr(raw_model, "getDocumentProperties"):
-        return None
-    doc_props = _document_properties_bag(raw_model)
+    doc_props = _document_properties_bag(model)
     if doc_props is None:
         return None
-    props = thread_guard.unwrap_uno(getattr(doc_props, "UserDefinedProperties", None))
-    return props
+    return thread_guard.unwrap_uno(getattr(doc_props, "UserDefinedProperties", None))
 
 
 def get_document_property(model: Any, name: str, default: Any = None) -> Any:
@@ -98,25 +78,19 @@ def set_document_property(model: Any, name: str, value: Any) -> bool:
     Same dispatch-thread note as get_document_property (notebook File Open).
     """
     try:
-        _udprops_step("set_document_property: getDocumentProperties start name=%s" % name)
         props = _user_defined_properties(model)
-        _udprops_step("set_document_property: getDocumentProperties done")
         if props is None:
             return False
 
         if _user_defined_property_exists(props, name):
             if not hasattr(props, "setPropertyValue"):
                 return False
-            _udprops_step("set_document_property: setPropertyValue start name=%s" % name)
             uno_call(lambda: props.setPropertyValue(name, str(value)), "Set property value")
-            _udprops_step("set_document_property: setPropertyValue done")
         else:
             if not hasattr(props, "addProperty"):
                 return False
             REMOVABLE = uno.getConstantByName("com.sun.star.beans.PropertyAttribute.REMOVABLE")
-            _udprops_step("set_document_property: addProperty start name=%s" % name)
             uno_call(lambda: props.addProperty(name, REMOVABLE, str(value)), "Add property")
-            _udprops_step("set_document_property: addProperty done")
         return True
 
     except UnoObjectError:

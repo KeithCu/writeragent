@@ -170,14 +170,14 @@ The old guard against `NumberFormat.DURATION` never fired. **Shipped:** [`is_ela
 
 ### 4.1 Connection-Time Clock Context
 
-[plugin/mcp/mcp_protocol.py](../../plugin/mcp/mcp_protocol.py) injects current local clock context into MCP system instructions via `_format_mcp_clock_context` (see source for the current implementation).
+[plugin/mcp/mcp_protocol.py](../../plugin/mcp/mcp_protocol.py) injects current local clock context into MCP system instructions via `format_mcp_clock_context` (see source for the current implementation).
 
 Example string prepended to system instructions:
 `Current local date and time: Friday, 2026-08-07T11:04:25 (EDT).`
 
 The numeric stamp is the local wall clock in Calc's accepted ISO shape (no `+HH:MM` / `Z`). Weekday and timezone *name* are locale/OS-facing; the stamp itself stays copy-pasteable into `write_formula_range`.
 
-**Why a second channel (tool piggyback):** MCP treats `InitializeResult.instructions` as an optional client hint (`MAY` add to the system prompt). Some hosts never forward that field to the model, so connection-time clock alone is unreliable. The same `_format_mcp_clock_context` stamp is therefore also returned as `current_local_datetime` on [`list_open_documents`](../../plugin/doc/document_research_tools.py) and on no-topic [`get_guidance()`](../../plugin/doc/document_research_tools.py) — tools models already call early. No dedicated clock tool; one shared formatter everywhere. Sidebar chat separately injects a short “Today's date is …” line via [`llm_client.py`](../../plugin/framework/client/llm_client.py) and does not use the MCP initialize path.
+**Why a second channel (tool piggyback):** MCP treats `InitializeResult.instructions` as an optional client hint (`MAY` add to the system prompt). Some hosts never forward that field to the model, so connection-time clock alone is unreliable. The same `format_mcp_clock_context` stamp is therefore also returned as `current_local_datetime` on [`list_open_documents`](../../plugin/doc/document_research_tools.py) and on no-topic [`get_guidance()`](../../plugin/doc/document_research_tools.py) — tools models already call early. No dedicated clock tool; one shared formatter everywhere. Sidebar chat separately injects a short “Today's date is …” line via [`llm_client.py`](../../plugin/framework/client/llm_client.py) and does not use the MCP initialize path.
 
 **Policy (resolved):** Calc serials are timezone-less, and offset-bearing strings such as `2026-08-08T08:00:00-04:00` stay literal text. This costs nothing to enforce — Calc's own scanner rejects both `Z` and numeric offsets in every locale tested (§8). The write-tool description and MCP Calc hint still tell the model not to re-append an offset or `Z` from other sources.
 
