@@ -1121,8 +1121,7 @@ def _clear_writeragent_udprops(doc, ctx=None) -> None:
     # scripts UDProp the same way as the session ids so we never call
     # isReadonly(). Empty string is missing to get_document_scripts.
     # GHA 33763078357: that workaround relocated the hang to
-    # getDocumentProperties() — do not skip this write; probe first, then
-    # trace each UNO step inside set_document_property.
+    # getDocumentProperties() — do not skip this write; probe first.
     from plugin.doc import udprops as udprops_mod
 
     # Keep suite noise low: the desktop/clipboard probe runs only when

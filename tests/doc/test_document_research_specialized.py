@@ -1187,7 +1187,6 @@ def test_run_inner_read_agent_unknown_doc_type_is_coded_error():
     assert "No read tools configured" in res["message"]
 
 
-
 def test_delegate_read_document_stop_while_resolving_name_is_user_stopped():
     from plugin.framework.send_cancellation import SendCancelled
 

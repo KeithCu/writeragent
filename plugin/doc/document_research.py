@@ -110,6 +110,7 @@ def _normalize_path(path: str) -> str:
 
 
 def system_path_from_url(url: str) -> str | None:
+    """Accepts file:/ via normalize_file_url; returns None for non-file or unconvertible URLs."""
     if not url or not str(url).startswith("file:"):
         return None
     url = normalize_file_url(str(url))
@@ -484,6 +485,7 @@ def resolve_path_or_name(
 ) -> tuple[str | None, str | None]:
     """Resolve a path, file URL, or basename to an absolute path and file URL.
 
+    Raises SendCancelled when the user stops during the listing.
     Returns (path, url) or (None, error_message).
     """
     raw = str(path_or_name).strip()

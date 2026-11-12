@@ -5,7 +5,7 @@
 # it under the terms of the GNU General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
-"""Document research outer-agent tools: list nearby files in the same folder."""
+"""Document research and MCP helper tools: list nearby files, list open documents, read the guidance manual."""
 
 from __future__ import annotations
 

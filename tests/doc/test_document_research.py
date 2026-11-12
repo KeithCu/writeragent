@@ -172,7 +172,7 @@ def test_list_nearby_truncated(monkeypatch):
 
 
 def test_list_nearby_files_no_active_model_returns_open_docs():
-    """When active_model is None and exclude_path is default, list other open documents without TypeError."""
+    """When active_model is None, list other open documents without TypeError."""
     ctx = MagicMock()
     open_paths = {"/path/to/Doc1.odt": "file:///path/to/Doc1.odt"}
     with patch("plugin.doc.document_research._collect_open_file_urls", return_value=open_paths) as mock_collect:

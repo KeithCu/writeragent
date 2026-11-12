@@ -40,7 +40,8 @@ log = logging.getLogger(__name__)
 # stops at 30 snippets (stopped_early). Draw also sets that hit's partial
 # when _DRAW_GREP_SHAPE_CAP (200) is hit with result budget left. A hit's
 # partial: true means that file has more matches than were returned. Stop
-# returns USER_STOPPED and drops hits.
+# returns USER_STOPPED and drops hits. Stop during the listing also returns
+# USER_STOPPED.
 DEFAULT_GREP_MAX_FILES = 50
 DEFAULT_GREP_MAX_RESULTS_PER_FILE = 5
 DEFAULT_GREP_MAX_TOTAL_RESULTS = 30
