@@ -15,6 +15,7 @@ from plugin.scripting.domain_registry import (
     POST_VENV_DOMAIN_ORDER,
     WIRING_TABLE,
     FormatOkKind,
+    get_domain_wiring,
     get_post_venv_domains,
 )
 from plugin.scripting.helper_domain import _RUN_DATA_BINDING_CALLS
@@ -34,7 +35,8 @@ def test_registry_module_attr_targets_resolve():
         if w.insert_kwargs_from_code is not None:
             targets.append(w.insert_kwargs_from_code)
     for p in PICKER_WIRING:
-        targets.append(p.templates_ref)
+        if p.templates_ref is not None:
+            targets.append(p.templates_ref)
         targets.append(p.supports_ref)
 
     for target in targets:
@@ -192,7 +194,6 @@ def test_picker_supports_logs_when_the_check_raises(caplog):
         display_prefix="[Test] ",
         title="Test",
         supports_ref="plugin.scripting.domain_registry:does_not_exist",
-        templates_ref="",
     )
     with caplog.at_level(logging.DEBUG, logger="writeragent.scripting"):
         assert wiring.supports(object()) is False
@@ -295,4 +296,14 @@ def test_units_format_ok_joins_formatted_list():
     assert "36 km/h, 72 km/h" in out["status_ok_text"]
     assert "['36 km/h'" not in out["status_ok_text"]
 
+
+def test_picker_rows_without_templates_ref_use_their_wiring_row():
+    # Only vision and SQL retain external template builders; all other picker rows
+    # resolve templates directly from their WIRING_TABLE row via get_domain_wiring.
+    assert {row.origin for row in PICKER_WIRING if row.templates_ref is not None} == {"vision", "sql"}
+    for row in PICKER_WIRING:
+        if row.templates_ref is None:
+            templates = row.templates()
+            assert templates == get_domain_wiring(row.origin).templates()
+            assert len(templates) > 0
 

@@ -993,12 +993,10 @@ def test_format_sql_for_calc_shows_truncation_note():
 
 def test_is_sql_result_long_message_is_bool():
     from plugin.framework.deal_shim import DEAL_MAX_TOKEN
-    from plugin.scripting.duckdb_sql import is_sql_result, parse_sql_script_header
+    from plugin.scripting.duckdb_sql import is_sql_result
 
     message = "Catalog Error: " + ("x" * (DEAL_MAX_TOKEN + 1))
     assert is_sql_result({"status": "error", "code": "DUCKDB_ERROR", "message": message}) is True
-    header = "SELECT 1;\n" * 400
-    assert parse_sql_script_header(header) is None
 
 
 def test_insert_sql_result_into_calc() -> None:
@@ -1147,6 +1145,8 @@ def test_host_duckdb_sql_exports_and_constants():
 
     assert host_duckdb.MAX_TABLE_ROWS == MAX_TABLE_ROWS
     templates = host_duckdb.get_sql_script_templates()
+    for code in templates.values():
+        assert not code.startswith("# writeragent:")
     assert str(MAX_TABLE_ROWS) in templates["query_folder_sql"]
     assert str(MAX_TABLE_ROWS) in templates["query_sheet_sql"]
     assert "MAX_TABLE_ROWS" in templates["query_folder_sql"]

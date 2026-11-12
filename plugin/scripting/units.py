@@ -2,7 +2,7 @@
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Units helper templates, host RPC, and document egress (LO host).
+"""Units helper host RPC and document egress (LO host).
 
 Compute is lazy-loaded from ``plugin.scripting.venv.units`` via ``__getattr__``.
 """
@@ -23,15 +23,6 @@ from plugin.scripting.calc_range import ensure_rectangular_2d
 _UNITS_VENV_EXPORTS = names("units") | {"run_units"}
 
 install_lazy_exports(globals(), "units", _UNITS_VENV_EXPORTS)
-
-
-# --- Templates ---
-
-
-def get_units_script_templates() -> dict[str, str]:
-    from plugin.scripting.domain_registry import get_domain_wiring
-
-    return get_domain_wiring("units").templates()
 
 
 # --- Egress ---

@@ -999,7 +999,7 @@ Shipped domains per [numpy-domains.md](numpy-domains.md): **Analysis**, **Visual
 | [`quant.py`](../../plugin/scripting/venv/quant.py) | `run_quant` |
 | [`text_analytics.py`](../../plugin/scripting/venv/text_analytics.py) | `run_text_analytics` |
 
-Requires [Layer 1](#layer-1--trusted-rpc) + [`domain_registry.py`](../../plugin/scripting/domain_registry.py) for RPS picker templates and fast-path headers (`writeragent:forecast`, etc.).
+Requires [Layer 1](#layer-1--trusted-rpc) + [`domain_registry.py`](../../plugin/scripting/domain_registry.py) for RPS picker templates.
 
 ### Calc runners / egress (not chat tool classes)
 
