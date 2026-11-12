@@ -931,7 +931,7 @@ def run_stress_suite(
 
             # Subphase 5A: Worker permit saturation + short deadline wait (503)
             # Occupy all workers with blocking sleeps. The incoming request with a 1.0s deadline
-            # (the server's clamp_timeout_sec minimum integer floor) must wait >=850ms then return 503.
+            # (the server's clamp_timeout_ms minimum integer floor) must wait >=850ms then return 503.
             sat_sleep_sec = 1.8
             sat_payload = json.dumps({
                 "code": f"import time\ntime.sleep({sat_sleep_sec})\nresult = 'sat_done'",

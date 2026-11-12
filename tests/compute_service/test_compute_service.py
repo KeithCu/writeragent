@@ -23,7 +23,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from compute_service.config import ComputeSettings, ConfigError, clamp_timeout_sec, load_settings
+from compute_service.config import ComputeSettings, ConfigError, clamp_timeout_ms, load_settings
 from compute_service.formula_worker import _handle_request
 from compute_service.formula_pool import FormulaProcessPool, shutdown_formula_pool
 from compute_service.json_egress import normalize_execute_response, sanitize_for_strict_json, to_dumb_json_value
@@ -89,13 +89,13 @@ def compute_server_info():
     # shared sessions this module keeps do not occupy every process;
     # isolated calls are not allowed to run on those processes.
     app = create_wsgi_app(ComputeSettings(host="127.0.0.1", port=port, workers=4))
-    server = WSGIDualStackServer("", port)
+    server = WSGIDualStackServer("", port, listener_threads=16)
     server.set_app(app)
 
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     time.sleep(0.2)
-    yield port, server.srv
+    yield port, server
     server.shutdown()
     server.server_close()
     thread.join(timeout=5)
@@ -269,16 +269,18 @@ class TestJsonEgressUnit:
 
 class TestTimeoutHelpers:
     def test_timeout_ms_rounds_up(self) -> None:
-        assert clamp_timeout_sec(1500, is_ms=True) == 2
-        assert clamp_timeout_sec(1000, is_ms=True) == 1
-        assert clamp_timeout_sec(0, is_ms=True) == 30
-        assert clamp_timeout_sec(float("inf"), is_ms=True) == 30
-        assert clamp_timeout_sec(float("-inf"), is_ms=True) == 30
-        assert clamp_timeout_sec(99999) == 600
+        assert clamp_timeout_ms(1500, default=30, maximum=600) == 2
+        assert clamp_timeout_ms(1000, default=30, maximum=600) == 1
+        assert clamp_timeout_ms(1500.7, default=30, maximum=600) == 2
+        assert clamp_timeout_ms(1, default=30, maximum=600) == 1
+        assert clamp_timeout_ms(0, default=30, maximum=600) == 30
+        assert clamp_timeout_ms(-5, default=30, maximum=600) == 30
+        assert clamp_timeout_ms(None, default=30, maximum=600) == 30
+        assert clamp_timeout_ms(99_999_000, default=30, maximum=600) == 600
 
     def test_max_timeout_sec_1800_honored(self) -> None:
-        assert clamp_timeout_sec(1200, max_timeout_sec=1800) == 1200
-        assert clamp_timeout_sec(99999, max_timeout_sec=1800) == 1800
+        assert clamp_timeout_ms(1_200_000, default=30, maximum=1800) == 1200
+        assert clamp_timeout_ms(99_999_000, default=30, maximum=1800) == 1800
         res = json.loads(_handle_request({"code": "result = 42", "timeout_sec": 1200})["result_json"])
         assert res["status"] == "ok"
         assert res["result"] == 42
@@ -288,18 +290,17 @@ class TestTimeoutHelpers:
 
 
 class TestExecuteLocal:
-    def test_mode_isolated_ignores_session(self) -> None:
-        sid = "iso-test-session"
-        r1 = json.loads(_handle_request({"code": "x = 7\nresult = x", "session_id": sid, "mode": "isolated"})["result_json"])
+    def test_no_session_id_runs_isolated(self) -> None:
+        r1 = json.loads(_handle_request({"code": "x = 7\nresult = x"})["result_json"])
         assert r1["status"] == "ok" and r1["result"] == 7
-        r2 = json.loads(_handle_request({"code": "result = x", "session_id": sid, "mode": "isolated"})["result_json"])
+        r2 = json.loads(_handle_request({"code": "result = x"})["result_json"])
         assert r2["status"] == "error"
 
-    def test_mode_shared_keeps_state(self) -> None:
+    def test_session_id_keeps_state(self) -> None:
         sid = "shared-test-session"
-        r1 = json.loads(_handle_request({"code": "x = 11\nresult = x", "session_id": sid, "mode": "shared"})["result_json"])
+        r1 = json.loads(_handle_request({"code": "x = 11\nresult = x", "session_id": sid})["result_json"])
         assert r1["status"] == "ok" and r1["result"] == 11
-        r2 = json.loads(_handle_request({"code": "result = x + 1", "session_id": sid, "mode": "shared"})["result_json"])
+        r2 = json.loads(_handle_request({"code": "result = x + 1", "session_id": sid})["result_json"])
         assert r2["status"] == "ok" and r2["result"] == 12
 
     def test_large_matrix_is_nested_lists_not_split_grid(self) -> None:
@@ -320,17 +321,16 @@ class TestExecuteLocal:
         r1 = json.loads(_handle_request({
             "code": "result = HELPER + 1",
             "session_id": sid,
-            "mode": "shared",
             "init_script": "HELPER = 41",
         })["result_json"])
         assert r1["status"] == "ok", r1
         assert r1["result"] == 42
-        r2 = json.loads(_handle_request({"code": "result = HELPER + 2", "session_id": sid, "mode": "shared"})["result_json"])
+        r2 = json.loads(_handle_request({"code": "result = HELPER + 2", "session_id": sid})["result_json"])
         assert r2["status"] == "ok"
         assert r2["result"] == 43
 
     def test_init_script_isolated_seeds_request(self) -> None:
-        r = json.loads(_handle_request({"code": "result = HELPER", "mode": "isolated", "init_script": "HELPER = 7"})["result_json"])
+        r = json.loads(_handle_request({"code": "result = HELPER", "init_script": "HELPER = 7"})["result_json"])
         assert r["status"] == "ok", r
         assert r["result"] == 7
 
@@ -342,8 +342,8 @@ class TestExecuteLocal:
         vs.SESSIONS.clear_all()
         init = "ONCE_ISO = 7"
         with patch.object(vs, "_run_on_executor", wraps=vs._run_on_executor) as mock_run:
-            r1 = json.loads(_handle_request({"code": "result = ONCE_ISO", "mode": "isolated", "init_script": init})["result_json"])
-            r2 = json.loads(_handle_request({"code": "result = ONCE_ISO + 1", "mode": "isolated", "init_script": init})["result_json"])
+            r1 = json.loads(_handle_request({"code": "result = ONCE_ISO", "init_script": init})["result_json"])
+            r2 = json.loads(_handle_request({"code": "result = ONCE_ISO + 1", "init_script": init})["result_json"])
         assert r1["status"] == "ok" and r1["result"] == 7, r1
         assert r2["status"] == "ok" and r2["result"] == 8, r2
         # One init execution + two isolated cell executions (not init twice).
@@ -358,11 +358,10 @@ class TestExecuteLocal:
         sid = "shared-init-once"
         init = "ONCE_SHARED = 10"
         with patch.object(vs, "_run_on_executor", wraps=vs._run_on_executor) as mock_run:
-            r1 = json.loads(_handle_request({"code": "result = ONCE_SHARED", "session_id": sid, "mode": "shared", "init_script": init})["result_json"])
+            r1 = json.loads(_handle_request({"code": "result = ONCE_SHARED", "session_id": sid, "init_script": init})["result_json"])
             r2 = json.loads(_handle_request({
                 "code": "result = ONCE_SHARED + 1",
                 "session_id": sid,
-                "mode": "shared",
                 "init_script": init,
             })["result_json"])
         assert r1["status"] == "ok" and r1["result"] == 10, r1
@@ -397,7 +396,7 @@ class TestComputeHttp:
             return {"status": "ok", "result_json": b'{"status":"ok","result":1,"stdout":""}'}
 
         app = create_wsgi_app(ComputeSettings(host="127.0.0.1", port=port, workers=1), execute_fn=execute_fn)
-        server = WSGIDualStackServer("127.0.0.1", port, max_threads=1)
+        server = WSGIDualStackServer("127.0.0.1", port, listener_threads=8)
         server.set_app(app)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
@@ -447,11 +446,11 @@ class TestComputeHttp:
             assert hold.wait(timeout=10)
             return {"status": "ok", "result_json": b'{"status":"ok","result":1,"stdout":""}'}
 
-        # 1 worker, semaphore size 1. Explicit max_threads=1 is listener_thread_count:
-        # max(8, n + 4) = 8. Overflow waits on the permit instead of a fast 503.
+        # 1 worker, semaphore size 1. listener_threads=8: overflow waits on the
+        # permit instead of a fast 503.
         sem = threading.Semaphore(1)
         app = create_wsgi_app(ComputeSettings(host="127.0.0.1", port=port, workers=1), execute_fn=execute_fn, semaphore=sem)
-        server = WSGIDualStackServer("127.0.0.1", port, max_threads=1)
+        server = WSGIDualStackServer("127.0.0.1", port, listener_threads=8)
         server.set_app(app)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
@@ -531,7 +530,7 @@ class TestComputeHttp:
 
         sem = threading.Semaphore(1)
         app = create_wsgi_app(ComputeSettings(host="127.0.0.1", port=port, workers=1), execute_fn=execute_fn, semaphore=sem)
-        server = WSGIDualStackServer("127.0.0.1", port, max_threads=1)
+        server = WSGIDualStackServer("127.0.0.1", port, listener_threads=8)
         server.set_app(app)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
@@ -1318,12 +1317,12 @@ class TestComputeSettings:
         """Verify WSGIDualStackServer binds cleanly when port=0 and assigns matching port."""
         from compute_service.server import WSGIDualStackServer
 
-        server = WSGIDualStackServer("127.0.0.1", 0)
+        server = WSGIDualStackServer("127.0.0.1", 0, listener_threads=16)
         try:
-            assert len(server.srv.sockets) >= 1
-            port = server.srv.server_address[1]
+            assert len(server.sockets) >= 1
+            port = server.server_address[1]
             assert port > 0
-            for sock in server.srv.sockets:
+            for sock in server.sockets:
                 assert sock.getsockname()[1] == port
         finally:
             server.server_close()
@@ -1349,7 +1348,7 @@ def auth_server():
 
     settings = ComputeSettings(host="127.0.0.1", port=port, api_key="correct-secret")
     app = create_wsgi_app(settings, execute_fn=fake_execute, reset_fn=fake_reset)
-    server = WSGIDualStackServer("127.0.0.1", port)
+    server = WSGIDualStackServer("127.0.0.1", port, listener_threads=16)
     server.set_app(app)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -2269,7 +2268,7 @@ class TestSessionResetHttp:
         assert status.startswith("200")
         assert body.get("id") == "mode-1"
         assert body.get("status") == "ok"
-        assert seen.get("mode") == "isolated"
+        assert "mode" not in seen and seen.get("session_id") is None
 
     def test_peel_init_script_over_cap_is_400(self) -> None:
         def execute_fn(**_kwargs):
@@ -2724,7 +2723,7 @@ def test_expect_100_continue_before_body() -> None:
         return {"status": "ok", "result_json": b'{"status":"ok","result":1,"stdout":""}'}
 
     app = create_wsgi_app(ComputeSettings(host="127.0.0.1", port=port, workers=1), execute_fn=execute_fn)
-    server = WSGIDualStackServer("127.0.0.1", port, max_threads=4)
+    server = WSGIDualStackServer("127.0.0.1", port, listener_threads=8)
     server.set_app(app)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -2770,7 +2769,7 @@ def test_expect_100_oversized_body_gets_413_without_continue() -> None:
     def execute_fn(**_kwargs):
         raise AssertionError("oversized body must not run")
 
-    server = WSGIDualStackServer("127.0.0.1", port, max_threads=4)
+    server = WSGIDualStackServer("127.0.0.1", port, listener_threads=8)
     server.max_body_bytes = settings.max_body_bytes
     server.set_app(create_wsgi_app(settings, execute_fn=execute_fn))
     thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -3128,16 +3127,6 @@ def test_ocr_path_is_allowed_nonexistent_file(tmp_path) -> None:
     assert ocr_path_is_allowed(str(missing), ("/other/dir",)) is False
 
 
-def test_clamp_timeout_sec_infinite_and_nan() -> None:
-    """clamp_timeout_sec must handle OverflowError and non-finite floats gracefully."""
-    from compute_service.config import clamp_timeout_sec
-
-    assert clamp_timeout_sec(float("inf"), default_timeout_sec=30) == 30
-    assert clamp_timeout_sec(float("-inf"), default_timeout_sec=30) == 30
-    assert clamp_timeout_sec(float("nan"), default_timeout_sec=30) == 30
-    assert clamp_timeout_sec(1e309, default_timeout_sec=30) == 30
-
-
 def test_ocr_path_is_allowed_root_directory() -> None:
     """Allowlisted root directory '/' must not fail due to double slash '//'."""
     from compute_service.config import ocr_path_is_allowed
@@ -3150,9 +3139,9 @@ def test_address_string_avoids_reverse_dns() -> None:
     """_DeadlineRequestHandler.address_string must return raw IP without socket.getfqdn()."""
     from compute_service.server import WSGIDualStackServer
 
-    server = WSGIDualStackServer("127.0.0.1", 0, max_threads=1)
+    server = WSGIDualStackServer("127.0.0.1", 0, listener_threads=8)
     try:
-        handler_cls = server.srv.RequestHandlerClass
+        handler_cls = server.RequestHandlerClass
         with patch("socket.getfqdn") as mock_fqdn:
             handler = handler_cls.__new__(handler_cls)
             handler.client_address = ("127.0.0.1", 54321)
@@ -3160,14 +3149,6 @@ def test_address_string_avoids_reverse_dns() -> None:
             mock_fqdn.assert_not_called()
     finally:
         server.server_close()
-
-
-def test_clamp_timeout_sec_boolean() -> None:
-    """clamp_timeout_sec must treat booleans as invalid and return default_timeout_sec."""
-    from compute_service.config import clamp_timeout_sec
-
-    assert clamp_timeout_sec(True, default_timeout_sec=30) == 30
-    assert clamp_timeout_sec(False, default_timeout_sec=30) == 30
 
 
 def test_source_text_from_part_unicode_chars() -> None:
@@ -3208,13 +3189,13 @@ def test_accept_time_tracked_on_connection() -> None:
     """The accept map is keyed by the connection object, not id(conn)."""
     from compute_service.server import WSGIDualStackServer
 
-    server = WSGIDualStackServer("127.0.0.1", 0, max_threads=1)
+    server = WSGIDualStackServer("127.0.0.1", 0, listener_threads=8)
     try:
-        handler_cls = server.srv.RequestHandlerClass
+        handler_cls = server.RequestHandlerClass
         handler = handler_cls.__new__(handler_cls)
         mock_conn = MagicMock()
         handler.connection = mock_conn
-        handler.server = server.srv
+        handler.server = server
         handler.server._accept_times[mock_conn] = 12345.678
         handler.client_address = ("127.0.0.1", 54321)
         handler.request_version = "HTTP/1.1"
@@ -3229,7 +3210,7 @@ def test_accept_time_tracked_on_connection() -> None:
             assert request_conn(environ).accept_time == 12345.678
     finally:
         server.server_close()
-        assert len(server.srv._accept_times) == 0
+        assert len(server._accept_times) == 0
 
 
 def test_wsgi_app_uses_the_current_formula_pool() -> None:
@@ -3342,10 +3323,10 @@ def test_real_socket_queue_timeout() -> None:
         return {"status": "ok"}
 
     app = create_wsgi_app(settings, execute_fn=fake_execute)
-    server = WSGIDualStackServer("127.0.0.1", 0, max_threads=1)
+    server = WSGIDualStackServer("127.0.0.1", 0, listener_threads=8)
 
     # Delay processing of the second request to ensure it hits the queue timeout
-    original_process_request = server.srv.process_request
+    original_process_request = server.process_request
     req_count = 0
 
     def intercept(request: Any, client_address: Any, **kwargs: Any) -> None:
@@ -3355,11 +3336,11 @@ def test_real_socket_queue_timeout() -> None:
             time.sleep(1.0)
         original_process_request(request, client_address, **kwargs)
 
-    server.srv.process_request = intercept # type: ignore
+    server.process_request = intercept # type: ignore
 
     server.set_app(app)
 
-    port = server.srv.server_port
+    port = server.server_port
     t = threading.Thread(target=server.serve_forever, daemon=True)
     t.start()
 
@@ -3413,10 +3394,10 @@ def test_real_socket_queue_absorption() -> None:
 
     # Single-worker gate to force request 2 into the admission queue
     app = create_wsgi_app(settings, execute_fn=fake_execute, semaphore=threading.Semaphore(1))
-    server = WSGIDualStackServer("127.0.0.1", 0, max_threads=4)
+    server = WSGIDualStackServer("127.0.0.1", 0, listener_threads=8)
     server.set_app(app)
 
-    port = server.srv.server_port
+    port = server.server_port
     t = threading.Thread(target=server.serve_forever, daemon=True)
     t.start()
 
@@ -3753,7 +3734,7 @@ def test_malformed_client_mode_is_ignored() -> None:
     seen: list[str] = []
 
     def execute_fn(**kwargs):
-        seen.append(kwargs.get("mode", ""))
+        seen.append(kwargs.get("session_id"))
         return {"status": "ok", "result_json": b'{"status":"ok","result":1}'}
 
     app = create_wsgi_app(ComputeSettings(), execute_fn=execute_fn)
@@ -3761,7 +3742,7 @@ def test_malformed_client_mode_is_ignored() -> None:
         body = json.dumps({"code": "result = 1", "mode": mode}).encode()
         status, _headers, _parsed = _wsgi_post(app, body, path="/v1/execute", headers={"Content-Type": "application/json"})
         assert status.startswith("200")
-    assert seen == ["isolated"] * 4
+    assert seen == [None] * 4
 
 
 def test_slow_body_drip_is_408() -> None:
