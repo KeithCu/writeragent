@@ -140,7 +140,7 @@ def insert_cell_html_rich(doc: Any, uno_ctx: Any, cell_address: str, html: str) 
         cursor = text.createTextCursor()
         cursor.gotoStart(False)
         step = _step("insert HTML into hidden Writer")
-        html_import._insert_starwriter_html_at_cursor(temp_doc, cursor, prepared)
+        html_import.insert_html_fragment_at_cursor(cursor, prepared, wrap=False, advance=True)
 
         # Hidden Writer docs must not use getViewCursor() — it can crash the
         # process (no real view). Select the whole body with a text cursor and

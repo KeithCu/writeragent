@@ -20,7 +20,7 @@ import contextlib
 import logging
 import re
 import uuid
-from typing import Any, Literal
+from typing import Any
 
 
 from plugin.framework.errors import best_effort
@@ -145,20 +145,20 @@ def insert_html_fragment_at_cursor(
     *,
     extra_css: str | None = None,
     wrap: bool = True,
-    model: Any = None,
+    advance: bool = False,
 ) -> None:
     """Import a fragment via the StarWriter HTML filter at *cursor*.
 
     When *wrap* is True, wraps bare fragments in a full HTML document.
     *extra_css* is injected into ``<head>`` (e.g. sidebar list margins).
-    When *model* is provided, moves *cursor* past the imported content
-    (needed for multi-segment Writer inserts).
+    When *advance* is True, moves *cursor* past the imported content
+    (multi-segment Writer inserts).
     """
     from plugin.framework.html_stripper import escape_prose_angle_brackets
 
     html_fragment = escape_prose_angle_brackets(html_fragment)
     prepared = _wrap_html_fragment(html_fragment, extra_css=extra_css) if wrap else html_fragment
-    tail = _parked_cursor(cursor) if model is not None else None
+    tail = _parked_cursor(cursor) if advance else None
     from plugin.doc.temp_files import with_temp_buffer
     from plugin.framework.uno_context import create_property_value
     from .html_export import HTML_FILTER
@@ -182,14 +182,6 @@ def insert_html_fragment_at_cursor(
             raise
     if tail is not None:
         cursor.gotoRange(tail.getStart(), False)
-
-
-
-def _insert_starwriter_html_at_cursor(model: Any, cursor: Any, prepared_html: str) -> None:
-    """Import one HTML fragment through the StarWriter HTML filter at *cursor*."""
-    insert_html_fragment_at_cursor(
-        cursor, prepared_html, wrap=False, model=model
-    )
 
 
 
@@ -240,7 +232,7 @@ def _insert_mixed_html_and_math_at_cursor(
 
             sub = _ensure_html_linebreaks(chunk)
             seg_ruby_skip = html_ruby._ruby_skip(cursor.getText(), cursor, seg_ruby)
-            _insert_starwriter_html_at_cursor(model, cursor, sub)
+            insert_html_fragment_at_cursor(cursor, sub, wrap=False, advance=True)
             if seg_ruby:
                 html_ruby._apply_ruby_spans(cursor.getText(), seg_ruby, skip_chars=seg_ruby_skip)
             continue
@@ -312,15 +304,14 @@ def _insert_mixed_or_plain_html(
     unescaped_content: str,
     *,
     apply_styles: bool = True,
-    math_out: list[dict[str, Any]] | None = None,
-) -> list[str]:
+) -> html_import_styles.WriteReport:
     """HTML import (optional MathML + TeX layer).
 
     data-lo-style and data-lo-para paragraph styling is applied via UNO after import when *apply_styles*
     is True (``full_document``, ``beginning``/``end`` after absorb prep, and whole-paragraph ``selection``/``search``
     replacements when Track Changes is off). Partial matches or replaces during tracked change recording
     pass False so pre-existing content is not restyled. We still strip attributes for a clean
-    StarWriter import either way. Returns CSS property names that failed to apply.
+    StarWriter import either way. Returns the WriteReport for this import.
     """
     nonce = uuid.uuid4().hex[:8]
     unescaped_content = field_restore.rewrite_exported_field_spans(unescaped_content, nonce=nonce)
@@ -348,11 +339,10 @@ def _insert_mixed_or_plain_html(
 
     if has_math:
         math_entries = _insert_mixed_html_and_math_at_cursor(model, ctx, cursor, clean)
-        if math_out is not None:
-            math_out.extend(math_entries)
     else:
+        math_entries = []
         single = _ensure_html_linebreaks(clean)
-        _insert_starwriter_html_at_cursor(None if styled else model, cursor, single)
+        insert_html_fragment_at_cursor(cursor, single, wrap=False, advance=not styled)
 
     if styled:
         # Per-paragraph failures are already logged inside apply_block_lo_styles.
@@ -376,7 +366,11 @@ def _insert_mixed_or_plain_html(
     # data-lo-para on inline tags and on blocks inside tables is stripped, never applied.
     failures.extend(html_import_styles.declared_para_names(skipped_paras))
     _apply_ruby_and_restore_fields(model, text_obj, ruby_spans, nonce, skip_chars=ruby_skip)
-    return failures
+    return html_import_styles.WriteReport(
+        unapplied_para=failures,
+        style_tokens=list(dict.fromkeys(s for s in block_styles if s)),
+        math=math_entries,
+    )
 
 
 
@@ -527,7 +521,7 @@ def insert_inline_at_cursor(model: Any, ctx: Any, cursor: Any, content: str) -> 
             text.insertString(cursor, trail, False)
             cursor.goLeft(len(trail), False)
         if core:
-            insert_html_fragment_at_cursor(cursor, core, wrap=False, model=None)
+            insert_html_fragment_at_cursor(cursor, core, wrap=False)
         _apply_ruby_and_restore_fields(model, text, ruby_spans, nonce, skip_chars=ruby_skip)
 
 
@@ -539,12 +533,9 @@ def _range_covers_whole_paragraphs(text_range: Any) -> bool:
     return bool(start.isStartOfParagraph() and end.isEndOfParagraph())
 
 
-StyleSkipCode = Literal["STYLE_IGNORED_PARTIAL_MATCH", "STYLE_IGNORED_RECORDING"]
-
-
 def _lo_style_for_replaced_range(
     model: Any, content: str, text_range: Any
-) -> tuple[bool, StyleSkipCode | None]:
+) -> tuple[bool, html_import_styles.StyleSkipCode | None]:
     """Determine whether to apply block data-lo-style or data-lo-para on a replaced range.
 
     Both attributes require the replaced range to cover whole paragraphs and Track Changes
@@ -570,14 +561,12 @@ def insert_content_at_position(
     ctx: Any,
     content: str,
     position: str,
-    *,
-    math_out: list[dict[str, Any]] | None = None,
-) -> tuple[list[str], StyleSkipCode | None]:
+) -> html_import_styles.WriteReport:
     """Insert formatted content at *position* (``'beginning'``, ``'end'``, or ``'selection'``).
 
-    Returns ``(unapplied_css_names, style_skip_note)``. The skip note is only populated
-    when *position* is ``'selection'`` and a ``data-lo-style`` attribute could not be applied
-    due to a partial match or tracked change recording.
+    Returns the WriteReport for this insert. ``style_skips`` gets the skip code only
+    for ``'selection'`` when a ``data-lo-style`` attribute could not be applied due to a
+    partial match or tracked change recording.
     """
     with image_placeholders._keep_placeholder_images(model, content) as swapped:
         content = html_import_styles._decode_complete_character_references(swapped)
@@ -651,10 +640,12 @@ def insert_content_at_position(
         # the replaced paragraphs were already emptied by setString("").
         if position in ("beginning", "end"):
             cursor = _ensure_empty_absorb_for_styled_insert(text, cursor, position)
-        failures = _insert_mixed_or_plain_html(
-            model, ctx, cursor, content, apply_styles=styled, math_out=math_out
+        report = _insert_mixed_or_plain_html(
+            model, ctx, cursor, content, apply_styles=styled
         )
-        return failures, note
+        if note:
+            report.style_skips.append(note)
+        return report
 
 
 
@@ -703,8 +694,8 @@ def _drop_absorb_paragraph_props(cursor: Any) -> None:
 
 
 def replace_full_document(
-    model: Any, ctx: Any, content: str, *, math_out: list[dict[str, Any]] | None = None
-) -> list[str]:
+    model: Any, ctx: Any, content: str
+) -> html_import_styles.WriteReport:
     """Clear the document and insert *content*."""
     with image_placeholders._keep_placeholder_images(model, content) as swapped:
         content = html_import_styles._decode_complete_character_references(swapped)
@@ -718,7 +709,7 @@ def replace_full_document(
         cursor.gotoStart(False)
         if not record_changes.is_recording_changes(model):
             _drop_absorb_paragraph_props(cursor)
-            return _insert_mixed_or_plain_html(model, ctx, cursor, content, math_out=math_out)
+            return _insert_mixed_or_plain_html(model, ctx, cursor, content)
         # In review mode the deleted text stays in place, and an import at
         # its start takes the character formatting of the first old
         # paragraph as direct formatting -- a document opening with an 18pt
@@ -736,7 +727,7 @@ def replace_full_document(
         with record_changes.record_changes(model, False):
             _drop_absorb_paragraph_props(cursor)
         leftover = text.createTextCursorByRange(cursor.getStart())
-        failures = _insert_mixed_or_plain_html(model, ctx, cursor, content, math_out=math_out)
+        report = _insert_mixed_or_plain_html(model, ctx, cursor, content)
         leftover.gotoEndOfParagraph(True)
         if leftover.getString() == "":
             leftover.collapseToStart()
@@ -744,7 +735,7 @@ def replace_full_document(
             # Tip: a tracked delete of this break joins paragraphs ('initiativeproject'); delete it untracked.
             with record_changes.record_changes(model, False):
                 leftover.setString("")
-        return failures
+        return report
 
 
 
@@ -754,14 +745,10 @@ def replace_single_range_with_content(
     text_range: Any,
     content: str,
     ctx: Any,
-    *,
-    math_out: list[dict[str, Any]] | None = None,
-) -> tuple[list[str], StyleSkipCode | None]:
+) -> html_import_styles.WriteReport:
     """Replace the given text range with rendered *content* (HTML path).
 
-    Returns ``(unapplied_css_names, style_skip_note)``. The style skip note is populated
-    only when a ``data-lo-style`` attribute could not be applied due to a partial match
-    or tracked change recording.
+    Returns the WriteReport for this replacement.
     """
     with image_placeholders._keep_placeholder_images(model, content) as swapped:
         prepared = html_import_styles._decode_complete_character_references(swapped)
@@ -800,11 +787,11 @@ def replace_single_range_with_content(
             anchor = text_obj.createTextCursorByRange(cursor.getStart())
             # Insert the inline fragment RAW (do not route through _ensure_html_linebreaks:
             # it does not recognise <span> as HTML and would wrap it in <p>, creating an
-            # extra body paragraph). model=None leaves the cursor at the end of the
+            # extra body paragraph). advance=False leaves the cursor at the end of the
             # INSERTED content (not the document end), so [anchor, cursor] bounds it.
             inline_html, ruby_spans, nonce = _prep_field_ruby(prepared)
             ruby_skip = html_ruby._ruby_skip(text_obj, anchor, ruby_spans)
-            insert_html_fragment_at_cursor(cursor, inline_html, wrap=False, model=None)
+            insert_html_fragment_at_cursor(cursor, inline_html, wrap=False)
             _apply_ruby_and_restore_fields(model, text_obj, ruby_spans, nonce, skip_chars=ruby_skip)
             # Re-apply the saved paragraph style (the HTML import can demote Heading -> body).
             # Skip it while Track Changes is recording: setString("") above leaves the old text in
@@ -821,7 +808,9 @@ def replace_single_range_with_content(
                 best_effort(restore_style, "replace_single_range_with_content: could not restore ParaStyleName")
             # Inline content has no blocks, so data-lo-para exists only on stripped inline tags.
             _clean, _styles, _paras, skipped = html_import_styles.extract_block_lo_styles(prepared)
-            return (html_import_styles.declared_para_names(skipped), None)
+            return html_import_styles.WriteReport(
+                unapplied_para=html_import_styles.declared_para_names(skipped)
+            )
         else:
             # A whole-paragraph range has no leftover text in host paragraphs, so data-lo-style
             # and data-lo-para can safely be applied post-import. A partial range leaves neighbor text
@@ -829,8 +818,8 @@ def replace_single_range_with_content(
             # text as a deletion that a paragraph style would turn into a format change; both skip
             # styling and warn.
             try:
-                failures = _insert_mixed_or_plain_html(
-                    model, ctx, cursor, prepared, apply_styles=apply_styles, math_out=math_out
+                report = _insert_mixed_or_plain_html(
+                    model, ctx, cursor, prepared, apply_styles=apply_styles
                 )
             except Exception as e:
                 reraise_if_disposed(e)
@@ -845,12 +834,16 @@ def replace_single_range_with_content(
                         code="TABLE_BLOCK_IN_CELL",
                     ) from e
                 raise
-            return failures, note
+            if note:
+                report.style_skips.append(note)
+            return report
 
 
 
 
-def replace_xtext_with_html(text_obj: Any, html: str, *, model: Any) -> list[str]:
+def replace_xtext_with_html(
+    text_obj: Any, html: str, *, model: Any
+) -> html_import_styles.WriteReport:
     """Clear *text_obj* and import *html* via the shared StarWriter path.
 
     Field spans from ``document_to_content`` / ``xtext_to_content`` are
@@ -861,7 +854,7 @@ def replace_xtext_with_html(text_obj: Any, html: str, *, model: Any) -> list[str
     afterwards, the same way as a ``full_document`` write. Stripping also matters
     for the import itself: a tag with a long data-lo-para runs past the tag-length
     limit in ``escape_prose_angle_brackets`` and would land as literal text.
-    Returns the CSS property names that were not applied.
+    Returns the WriteReport for this import.
 
     The clear and import are protected by a document undo context: any
     failure rolls back to the previous state, preserving graphics and fields.
@@ -876,7 +869,10 @@ def replace_xtext_with_html(text_obj: Any, html: str, *, model: Any) -> list[str
     clean, block_styles, block_paras, skipped_paras = html_import_styles.extract_block_lo_styles(rewritten)
     prepared = _ensure_html_linebreaks(clean)
     # data-lo-para on inline tags and on blocks inside tables is stripped, never applied.
-    failures = html_import_styles.declared_para_names(skipped_paras)
+    report = html_import_styles.WriteReport(
+        unapplied_para=html_import_styles.declared_para_names(skipped_paras),
+        style_tokens=list(dict.fromkeys(s for s in block_styles if s)),
+    )
     cursor = text_obj.createTextCursor()
     cursor.gotoStart(False)
     cursor.gotoEnd(True)
@@ -890,12 +886,12 @@ def replace_xtext_with_html(text_obj: Any, html: str, *, model: Any) -> list[str
         cursor.setString("")
         cursor.gotoStart(False)
         insert_html_fragment_at_cursor(
-            cursor, prepared, wrap=False, model=None,
+            cursor, prepared, wrap=False,
         )
         if any(block_styles) or any(block_paras):
             # The whole region was replaced, so the walk starts at the text start and
             # needs no end bound: it stops after the last imported block.
-            failures.extend(html_import_styles.apply_block_lo_styles(
+            report.unapplied_para.extend(html_import_styles.apply_block_lo_styles(
                 model, text_obj, text_obj.getStart(), block_styles, paras=block_paras,
             ))
         _apply_ruby_and_restore_fields(model, text_obj, ruby_spans, nonce)
@@ -946,7 +942,7 @@ def replace_xtext_with_html(text_obj: Any, html: str, *, model: Any) -> list[str
             f"the header/footer was written and could not be rolled back: {outcome.error.get('message')}"
         )
     outcome.raise_mutate_error()
-    return failures
+    return report
 
 
 def content_has_markup(content: str | None) -> bool:

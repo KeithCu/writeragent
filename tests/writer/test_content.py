@@ -8,7 +8,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from plugin.framework.errors import DocumentDisposedError
+from plugin.framework.errors import DocumentDisposedError, ToolExecutionError
+from plugin.writer import html_import_styles
 from plugin.writer.apply_document_content import ApplyDocumentContent
 
 def _edit_ctx():
@@ -500,7 +501,7 @@ def test_get_document_content_surfaces_tracked_changes():
     ctx.doc = doc
     ctx.ctx = MagicMock()
     ctx.services.get.return_value = MagicMock()
-    with patch("plugin.writer.tracking._redline_text", side_effect=["novo", "velho"]), \
+    with patch("plugin.writer.tracking.redline_text", side_effect=["novo", "velho"]), \
          patch("plugin.writer.html_export.document_to_content", return_value="body"):
         res = GetDocumentContent().execute(ctx)
     assert res["status"] == "ok"
@@ -624,7 +625,7 @@ def test_all_matches_hoists_plain_text_conversion():
          patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=None), \
          patch("plugin.writer.apply_document_content.capture_outline_hyperlinks") as cap_links, \
          patch.object(format_support, "plain_text_if_markup", return_value="hi") as mock_html_plain, \
-         patch.object(format_support, "replace_single_range_with_content", return_value=([], None)):
+         patch.object(format_support, "replace_single_range_with_content", return_value=html_import_styles.WriteReport()):
         cap_links.return_value.links = []
         cap_links.return_value.preserve_url = None
         res = ApplyDocumentContent().execute(
@@ -655,7 +656,7 @@ def test_search_replace_attaches_style_note_warning():
          patch("plugin.writer.search.find_all_ranges", return_value=[post_range]), \
          patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=None), \
          patch("plugin.writer.apply_document_content.capture_outline_hyperlinks") as cap_links, \
-         patch.object(format_support, "replace_single_range_with_content", return_value=([], "STYLE_IGNORED_PARTIAL_MATCH")):
+         patch.object(format_support, "replace_single_range_with_content", return_value=html_import_styles.WriteReport(style_skips=["STYLE_IGNORED_PARTIAL_MATCH"], style_tokens=["Heading2"])):
         cap_links.return_value.links = []
         cap_links.return_value.preserve_url = None
         res = ApplyDocumentContent().execute(
@@ -684,11 +685,11 @@ def test_search_replace_attaches_style_note_warning():
     }
     assert_valid_suggested_call(diag["suggested_call"])
 
-    # When replace_single_range_with_content returns ([], None), warning is absent
+    # When replace_single_range_with_content returns WriteReport(), warning is absent
     with patch("plugin.writer.search.find_first_range", return_value=found), \
          patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=None), \
          patch("plugin.writer.apply_document_content.capture_outline_hyperlinks") as cap_links, \
-         patch.object(format_support, "replace_single_range_with_content", return_value=([], None)):
+         patch.object(format_support, "replace_single_range_with_content", return_value=html_import_styles.WriteReport()):
         cap_links.return_value.links = []
         cap_links.return_value.preserve_url = None
         res_no_warn = ApplyDocumentContent().execute(
@@ -713,8 +714,11 @@ def test_all_matches_reports_skip_count_in_warning():
     r1.getString.return_value = "old"
     r2.getString.return_value = "old"
 
-    # First match styled ([], None), second match partial ([], "STYLE_IGNORED_PARTIAL_MATCH")
-    side_effects = [([], None), ([], "STYLE_IGNORED_PARTIAL_MATCH")]
+    # First match styled (WriteReport()), second match partial (WriteReport(style_skips=..., style_tokens=...))
+    side_effects = [
+        html_import_styles.WriteReport(),
+        html_import_styles.WriteReport(style_skips=["STYLE_IGNORED_PARTIAL_MATCH"], style_tokens=["Heading2"]),
+    ]
     post1, post2 = MagicMock(), MagicMock()
 
     with patch("plugin.writer.search.find_all_ranges") as mock_find, \
@@ -766,7 +770,7 @@ def test_suggested_call_omitted_when_recording_changes():
          patch("plugin.writer.record_changes.is_recording_changes", return_value=True), \
          patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=None), \
          patch("plugin.writer.apply_document_content.capture_outline_hyperlinks") as cap_links, \
-         patch.object(format_support, "replace_single_range_with_content", return_value=([], "STYLE_IGNORED_PARTIAL_MATCH")):
+         patch.object(format_support, "replace_single_range_with_content", return_value=html_import_styles.WriteReport(style_skips=["STYLE_IGNORED_PARTIAL_MATCH"], style_tokens=["Heading2"])):
         cap_links.return_value.links = []
         cap_links.return_value.preserve_url = None
         res = ApplyDocumentContent().execute(
@@ -794,7 +798,7 @@ def test_suggested_call_omitted_when_style_unresolvable():
     with patch("plugin.writer.search.find_first_range", return_value=found), \
          patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=None), \
          patch("plugin.writer.apply_document_content.capture_outline_hyperlinks") as cap_links, \
-         patch.object(format_support, "replace_single_range_with_content", return_value=([], "STYLE_IGNORED_PARTIAL_MATCH")):
+         patch.object(format_support, "replace_single_range_with_content", return_value=html_import_styles.WriteReport(style_skips=["STYLE_IGNORED_PARTIAL_MATCH"], style_tokens=["UnknownStyle"])):
         cap_links.return_value.links = []
         cap_links.return_value.preserve_url = None
         res = ApplyDocumentContent().execute(
@@ -825,7 +829,7 @@ def test_suggested_call_omitted_when_text_has_newlines():
          patch("plugin.writer.search.find_all_ranges", return_value=[post_range]), \
          patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=None), \
          patch("plugin.writer.apply_document_content.capture_outline_hyperlinks") as cap_links, \
-         patch.object(format_support, "replace_single_range_with_content", return_value=([], "STYLE_IGNORED_PARTIAL_MATCH")):
+         patch.object(format_support, "replace_single_range_with_content", return_value=html_import_styles.WriteReport(style_skips=["STYLE_IGNORED_PARTIAL_MATCH"], style_tokens=["Heading2"])):
         cap_links.return_value.links = []
         cap_links.return_value.preserve_url = None
         res = ApplyDocumentContent().execute(
@@ -849,7 +853,7 @@ def test_suggested_call_omitted_for_selection_target():
     ctx.doc.getStyleFamilies.return_value.getByName.return_value = fam
 
     with patch("plugin.writer.apply_document_content.selection_anchor", return_value=None), \
-         patch.object(format_support, "insert_content_at_position", return_value=([], "STYLE_IGNORED_PARTIAL_MATCH")):
+         patch.object(format_support, "insert_content_at_position", return_value=html_import_styles.WriteReport(style_skips=["STYLE_IGNORED_PARTIAL_MATCH"], style_tokens=["Heading2"])):
         res = ApplyDocumentContent().execute(
             ctx, content='<p data-lo-style="Heading2">new</p>', target="selection"
         )
@@ -878,7 +882,7 @@ def test_suggested_call_omitted_when_post_match_count_mismatches():
          patch("plugin.writer.search.find_all_ranges", return_value=[m1, m2]), \
          patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=None), \
          patch("plugin.writer.apply_document_content.capture_outline_hyperlinks") as cap_links, \
-         patch.object(format_support, "replace_single_range_with_content", return_value=([], "STYLE_IGNORED_PARTIAL_MATCH")):
+         patch.object(format_support, "replace_single_range_with_content", return_value=html_import_styles.WriteReport(style_skips=["STYLE_IGNORED_PARTIAL_MATCH"], style_tokens=["Heading2"])):
         cap_links.return_value.links = []
         cap_links.return_value.preserve_url = None
         res = ApplyDocumentContent().execute(
@@ -1089,8 +1093,8 @@ def test_target_end_entity_decoded_proposed_preview():
 
     ctx = _edit_ctx()
     with patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=None), \
-         patch.object(format_support, "insert_content_at_position", return_value=([], None)), \
-         patch.object(EditReviewSession, "record_mutation", return_value=([], None)) as mock_record:
+         patch.object(format_support, "insert_content_at_position", return_value=html_import_styles.WriteReport()), \
+         patch.object(EditReviewSession, "record_mutation", return_value=html_import_styles.WriteReport()) as mock_record:
         res = ApplyDocumentContent().execute(
             ctx, target="end", content="&lt;b&gt;hi&lt;/b&gt;"
         )
@@ -1161,7 +1165,7 @@ def test_empty_full_document_is_not_the_insert_error():
 
     ctx = _edit_ctx()
     with patch("plugin.writer.html_import.replace_full_document") as mock_replace:
-        mock_replace.return_value = []
+        mock_replace.return_value = html_import_styles.WriteReport()
         res = ApplyDocumentContent().execute(ctx, content="", target="full_document")
     assert res["status"] == "ok"
     assert "content is empty; nothing was inserted." not in (res.get("message") or "")
@@ -1355,20 +1359,20 @@ def test_outline_undo_says_when_rollback_fails():
     mgr.getAllUndoActionTitles.side_effect = [(), ("Agent Edit",)]
     mgr.undo.side_effect = RuntimeError("undo failed")
     with patch("plugin.writer.apply_document_content.next_agent_edit_undo_title", return_value="Agent Edit"):
-        _, err = ApplyDocumentContent()._outline_undo(doc, session, failing_run)
-    assert err is not None
-    assert err["code"] == "HYPERLINK_UPDATE_FAILED"
-    assert "could not be rolled back" in err["message"]
-    assert "boom" in err["message"]
+        with pytest.raises(ToolExecutionError) as exc_info:
+            ApplyDocumentContent()._outline_undo(doc, session, failing_run)
+    assert exc_info.value.code == "HYPERLINK_UPDATE_FAILED"
+    assert "could not be rolled back" in str(exc_info.value)
+    assert "boom" in str(exc_info.value)
 
     mgr.undo.side_effect = None
     mgr.getAllUndoActionTitles.side_effect = [(), ("Agent Edit",)]
     with patch("plugin.writer.apply_document_content.next_agent_edit_undo_title", return_value="Agent Edit"):
-        _, err2 = ApplyDocumentContent()._outline_undo(doc, session, failing_run)
-    assert err2 is not None
-    assert err2["code"] == "HYPERLINK_UPDATE_FAILED"
-    assert "was rolled back" in err2["message"]
-    assert "could not be rolled back" not in err2["message"]
+        with pytest.raises(ToolExecutionError) as exc_info2:
+            ApplyDocumentContent()._outline_undo(doc, session, failing_run)
+    assert exc_info2.value.code == "HYPERLINK_UPDATE_FAILED"
+    assert "was rolled back" in str(exc_info2.value)
+    assert "could not be rolled back" not in str(exc_info2.value)
 
 
 def test_outline_undo_propagates_disposed_document():
@@ -1456,7 +1460,7 @@ def test_redline_cap_reports_truncation(monkeypatch):
     doc.getRedlines.return_value = redlines
 
     monkeypatch.setattr(gdc, "_MAX_TRACKED_CHANGES", 1)
-    with patch("plugin.writer.tracking._redline_text", side_effect=["one", "two"]):
+    with patch("plugin.writer.tracking.redline_text", side_effect=["one", "two"]):
         changes, found, total, reliable, truncated = _summarize_redlines(doc)
     assert len(changes) == 1
     assert found == 2
@@ -1469,7 +1473,7 @@ def test_redline_cap_reports_truncation(monkeypatch):
     ctx = MagicMock()
     ctx.doc = doc
     ctx.services.document.get_document_length.return_value = 10
-    with patch("plugin.writer.tracking._redline_text", side_effect=["one", "two"]), \
+    with patch("plugin.writer.tracking.redline_text", side_effect=["one", "two"]), \
          patch("plugin.writer.html_export.document_to_content", return_value="<p>body</p>"):
         res = GetDocumentContent().execute(ctx)
     assert res.get("tracked_changes_truncated") is True
@@ -1495,7 +1499,7 @@ def test_inserted_image_redline_without_text_is_not_truncated():
     ctx = MagicMock()
     ctx.doc = doc
     ctx.services.document.get_document_length.return_value = 10
-    with patch("plugin.writer.tracking._redline_text", side_effect=["", ""]), \
+    with patch("plugin.writer.tracking.redline_text", side_effect=["", ""]), \
          patch("plugin.writer.html_export.document_to_content", return_value="<p>body</p>"):
         res = GetDocumentContent().execute(ctx)
     assert "tracked_changes_truncated" not in res
@@ -1519,15 +1523,50 @@ def test_range_rejects_invalid_bounds_and_max_chars():
             assert mock_dtc.call_count == 0
 
 
-def test_range_result_uses_validated_ints():
+def test_range_result_reports_the_offsets_it_read():
     from plugin.writer.get_document_content import GetDocumentContent
 
     ctx = MagicMock()
     ctx.services.document.get_document_length.return_value = 100
-    with patch("plugin.writer.html_export.document_to_content", return_value="<p>slice</p>"):
-        res = GetDocumentContent().execute(ctx, scope="range", start="2", end="4")
+    with patch("plugin.writer.html_export.document_to_content", return_value="<p>slice</p>") as mock_dtc:
+        res = GetDocumentContent().execute(ctx, scope="range", start=2, end=4)
     assert res["status"] == "ok"
     assert res["start"] == 2 and res["end"] == 4
+    assert mock_dtc.call_args.kwargs["range_start"] == 2
+    assert mock_dtc.call_args.kwargs["range_end"] == 4
+
+
+def test_range_scope_without_both_offsets_is_an_error():
+    from plugin.writer.get_document_content import GetDocumentContent
+
+    ctx = MagicMock()
+    with patch("plugin.writer.html_export.document_to_content") as mock_dtc:
+        for kwargs in ({"scope": "range"}, {"scope": "range", "start": 2}, {"scope": "range", "end": 4}):
+            res = GetDocumentContent().execute(ctx, **kwargs)
+            assert res["status"] == "error"
+            assert res["message"] == "scope 'range' requires integer start and end."
+    mock_dtc.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "args, message",
+    [
+        ({"scope": "whole"}, "Invalid value for scope: 'whole'. Valid options: full, selection, range"),
+        ({"max_chars": True}, "Invalid type for max_chars: expected integer, got bool"),
+        ({"scope": "range", "start": "2", "end": 4}, "Invalid type for start: expected integer, got str"),
+    ],
+)
+def test_get_document_content_wrong_arguments_are_rejected_before_execute(args, message):
+    from types import SimpleNamespace
+
+    from plugin.framework.tool import prepare_tool_call
+    from plugin.writer.get_document_content import GetDocumentContent
+
+    ctx = SimpleNamespace(doc_type="writer", caller="test")
+    prep = prepare_tool_call(GetDocumentContent(), ctx, "get_document_content", args)
+    assert prep.error is not None
+    assert prep.error["code"] == "VALIDATION_ERROR"
+    assert prep.error["message"] == message
 
 
 def test_selection_with_no_content_warns():
@@ -1684,7 +1723,7 @@ def test_all_matches_failure_keeps_a_code_and_reraises_disposed():
     def replace_found(*_args, **_kwargs):
         calls["n"] += 1
         if calls["n"] == 1:
-            return [], None
+            return []
         raise RuntimeError("boom")
 
     with patch("plugin.writer.search.find_all_ranges", return_value=[r1, r2]), \
@@ -1703,7 +1742,7 @@ def test_all_matches_failure_keeps_a_code_and_reraises_disposed():
     def replace_coded(*_args, **_kwargs):
         calls["n"] += 1
         if calls["n"] == 1:
-            return [], None
+            return []
         raise ToolExecutionError("coded", code="HYPERLINK_UPDATE_FAILED")
 
     with patch("plugin.writer.search.find_all_ranges", return_value=[r1, r2]), \
@@ -1720,12 +1759,11 @@ def test_all_matches_failure_keeps_a_code_and_reraises_disposed():
     def replace_link(*_args, **_kwargs):
         calls["n"] += 1
         if calls["n"] == 1:
-            return [], None
-        return None, {
-            "status": "error",
-            "code": "INVALID_PARAM",
-            "message": "hyperlink_url applies only when the match overlaps exactly one outline hyperlink (|outline).",
-        }
+            return []
+        raise ToolExecutionError(
+            "hyperlink_url applies only when the match overlaps exactly one outline hyperlink (|outline).",
+            code="INVALID_PARAM",
+        )
 
     with patch("plugin.writer.search.find_all_ranges", return_value=[r1, r2]), \
          patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=None), \
@@ -1746,6 +1784,40 @@ def test_all_matches_failure_keeps_a_code_and_reraises_disposed():
         with pytest.raises(DocumentDisposedError):
             ApplyDocumentContent().execute(
                 ctx, content="x", target="search", old_content="old", all_matches=True)
+
+
+def test_all_matches_outline_update_failure_reports_hyperlink_code():
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+    from plugin.writer.hyperlink_fixup import OutlineLink, OutlineSnapshot
+
+    ctx = _edit_ctx()
+    r1 = MagicMock()
+    r1.getString.return_value = "old"
+
+    snapshot = OutlineSnapshot(
+        links=[OutlineLink("#1.old|outline", "old", "old")],
+        prefix="X",
+        suffix="",
+        matched="old",
+        single_paragraph=True,
+    )
+
+    with patch("plugin.writer.search.find_all_ranges", return_value=[r1]), \
+         patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=None), \
+         patch("plugin.writer.apply_document_content.writer_tables_emptied_by_matches", return_value=[]), \
+         patch("plugin.writer.apply_document_content.capture_outline_hyperlinks", return_value=snapshot), \
+         patch("plugin.writer.html_import.replace_single_range_with_content", return_value=html_import_styles.WriteReport()), \
+         patch("plugin.writer.apply_document_content.next_agent_edit_undo_title", return_value="Agent Edit"):
+        ctx.doc.getUndoManager.return_value.getAllUndoActionTitles.side_effect = [(), ("Agent Edit",)]
+        res = ApplyDocumentContent().execute(
+            ctx, content="new", target="search", old_content="old", all_matches=True
+        )
+
+    assert res["status"] == "error"
+    assert res["code"] == "HYPERLINK_UPDATE_FAILED"
+    assert res["partial_failure"] is True
+    assert "rolled back" in res["message"]
+    assert "Could not locate the replaced text" in res["message"]
 
 
 def test_position_after_cell_probe_reraises_disposed():
@@ -1959,7 +2031,7 @@ def test_all_matches_truthy_non_bool_islocked_is_not_locked():
     with patch("plugin.writer.search.find_all_ranges", return_value=[MagicMock()]), \
          patch("plugin.writer.apply_document_content.writer_tables_emptied_by_matches", return_value=[]), \
          patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=None), \
-         patch.object(ApplyDocumentContent, "_replace_found", return_value=([], None)):
+         patch.object(ApplyDocumentContent, "_replace_found", return_value=[]):
         res = ApplyDocumentContent().execute(ctx, content="x", target="search", old_content="old", all_matches=True)
     assert res["status"] == "ok"
     assert res["replaced_count"] == 1
@@ -1969,7 +2041,7 @@ def test_selection_table_insert_fails_when_the_doc_already_has_a_table():
     ctx = _edit_ctx()
     ctx.doc.getTextTables.return_value.getCount.side_effect = [1, 1]
     with patch("plugin.writer.apply_document_content.selection_anchor", return_value=None), \
-         patch("plugin.writer.html_import.insert_content_at_position", return_value=([], None)):
+         patch("plugin.writer.html_import.insert_content_at_position", return_value=html_import_styles.WriteReport()):
         res = ApplyDocumentContent().execute(
             ctx, content="<table><tr><td>X</td></tr></table>", target="selection")
     assert res["status"] == "error"
@@ -1983,7 +2055,7 @@ def test_search_replace_table_insert_fails_when_the_doc_already_has_a_table():
     with patch("plugin.writer.search.find_first_range", return_value=MagicMock()), \
          patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=None), \
          patch("plugin.writer.apply_document_content.writer_tables_emptied_by_matches", return_value=[]), \
-         patch.object(ApplyDocumentContent, "_replace_found", return_value=([], None)):
+         patch.object(ApplyDocumentContent, "_replace_found", return_value=[]):
         res = ApplyDocumentContent().execute(
             ctx, content="<table><tr><td>X</td></tr></table>", target="search", old_content="old")
     assert res["status"] == "error"

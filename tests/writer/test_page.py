@@ -3,6 +3,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from plugin.tests.testing_utils import TestingFactory
+from plugin.writer import html_import_styles
 
 
 # Set up BreakType PAGE_BEFORE constant explicitly if needed for the test
@@ -143,7 +144,7 @@ def test_set_header_footer_text():
 
     ctx = TestingFactory.create_context(doc=doc, doc_type="writer")
     tool = PageSetHeaderFooterText()
-    with patch("plugin.writer.html_import.replace_xtext_with_html", return_value=[]) as replace_html:
+    with patch("plugin.writer.html_import.replace_xtext_with_html", return_value=html_import_styles.WriteReport()) as replace_html:
         res = tool.execute(
             ctx,
             style="Standard",
@@ -395,7 +396,7 @@ def test_set_header_footer_imports_html_even_when_a_logo_is_present():
     doc, style = _page_style_doc(text_obj, shapes=[_logo_anchored_in(text_obj)])
     html = '<p>ESCRITORIO ZOLET <img src="data:image/png;base64,xx" alt="TIMBRE"/></p>'
 
-    with patch("plugin.writer.html_import.replace_xtext_with_html", return_value=[]) as replace_html:
+    with patch("plugin.writer.html_import.replace_xtext_with_html", return_value=html_import_styles.WriteReport()) as replace_html:
         res = PageSetHeaderFooterText().execute(
             TestingFactory.create_context(doc=doc, doc_type="writer"),
             style="Standard", region="header", content=html)
@@ -415,7 +416,7 @@ def test_set_header_footer_reports_unapplied_data_lo_para():
     doc, _style = _page_style_doc(text_obj)
     html = '<p data-lo-para="margin-left:1cm; font-weight:bold">Header</p>'
 
-    with patch("plugin.writer.html_import.replace_xtext_with_html", return_value=["font-weight"]):
+    with patch("plugin.writer.html_import.replace_xtext_with_html", return_value=html_import_styles.WriteReport(unapplied_para=["font-weight"])):
         res = PageSetHeaderFooterText().execute(
             TestingFactory.create_context(doc=doc, doc_type="writer"),
             style="Standard", region="header", content=html)
@@ -437,7 +438,7 @@ def test_set_header_footer_imports_field_html_without_force():
     doc, _style = _page_style_doc(text_obj)
     html = '<p>Confidential | <span title="page-number"/></p>'
 
-    with patch("plugin.writer.html_import.replace_xtext_with_html", return_value=[]) as replace_html:
+    with patch("plugin.writer.html_import.replace_xtext_with_html", return_value=html_import_styles.WriteReport()) as replace_html:
         res = PageSetHeaderFooterText().execute(
             TestingFactory.create_context(doc=doc, doc_type="writer"),
             style="Standard", region="footer", content=html)
@@ -457,7 +458,7 @@ def test_set_header_footer_imports_table_html_without_force():
     doc, _style = _page_style_doc(text_obj)
     html = "<table><tr><td>Logo cell</td><td>Address cell</td></tr></table>"
 
-    with patch("plugin.writer.html_import.replace_xtext_with_html", return_value=[]) as replace_html:
+    with patch("plugin.writer.html_import.replace_xtext_with_html", return_value=html_import_styles.WriteReport()) as replace_html:
         res = PageSetHeaderFooterText().execute(
             TestingFactory.create_context(doc=doc, doc_type="writer"),
             style="Standard", region="header", content=html)
@@ -476,7 +477,7 @@ def test_set_header_footer_enables_a_region_that_is_off():
     doc, style = _page_style_doc(text_obj)
     style.getPropertyValue.side_effect = lambda n: False if n.endswith("IsOn") else text_obj
 
-    with patch("plugin.writer.html_import.replace_xtext_with_html", return_value=[]) as replace_html:
+    with patch("plugin.writer.html_import.replace_xtext_with_html", return_value=html_import_styles.WriteReport()) as replace_html:
         res = PageSetHeaderFooterText().execute(
             TestingFactory.create_context(doc=doc, doc_type="writer"),
             style="Standard", region="footer", content="Rua Exemplo, 123")
@@ -1249,7 +1250,7 @@ def test_copy_page_regions_does_not_export_html():
     doc = MagicMock()
     doc.getDrawPage.return_value.getCount.return_value = 0
 
-    with patch("plugin.writer.range_copy._copy_flow_into_xtext", return_value=1) as mock_flow, \
+    with patch("plugin.writer.page.copy_flow_into_xtext", return_value=1) as mock_flow, \
          patch("plugin.writer.html_export.xtext_to_content") as mock_xtext_to_content, \
          patch("plugin.writer.html_import.replace_xtext_with_html") as mock_replace_html:
         _copy_page_regions(doc, source, clone)
@@ -1981,7 +1982,7 @@ def test_copy_page_style_unreadable_region_copies_as_empty_and_disposal_raises()
     doc.createInstance.return_value = clone
 
     with patch("plugin.writer.styles._copy_direct_style_properties", return_value=([], [])), \
-         patch("plugin.writer.range_copy._copy_flow_into_xtext") as mock_flow:
+         patch("plugin.writer.range_copy.copy_flow_into_xtext") as mock_flow:
         doc.getDrawPage.side_effect = RuntimeError("bridge hiccup")
         res = copy_page_style(doc, "Src", "Dst")
         assert res["shapes_copied"] == 0

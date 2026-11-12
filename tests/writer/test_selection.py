@@ -209,12 +209,14 @@ def test_set_selection_mixed_args_error():
     assert "Cannot combine" in res["message"]
 
 
-def test_set_selection_char_range_bool_error():
-    ctx, doc, controller = _selection_ctx()
-    res = SetSelection().execute(ctx, char_start=True, char_end=10)
-    assert res["status"] == "error"
-    assert res["code"] == "INVALID_PARAM"
-    assert "integer" in res["message"]
+def test_set_selection_char_range_bool_is_rejected_before_execute():
+    from plugin.framework.tool import prepare_tool_call
+
+    ctx = SimpleNamespace(doc_type="writer", caller="test")
+    prep = prepare_tool_call(SetSelection(), ctx, "set_selection", {"char_start": True, "char_end": 10})
+    assert prep.error is not None
+    assert prep.error["code"] == "VALIDATION_ERROR"
+    assert prep.error["message"] == "Invalid type for char_start: expected integer, got bool"
 
 
 def test_set_selection_char_range_negative_error():

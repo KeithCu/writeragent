@@ -17,6 +17,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from plugin.framework.errors import ToolExecutionError
 from plugin.doc.text_helpers import iter_elements
 from plugin.writer.hyperlink_fixup import (
     OutlineLink,
@@ -582,11 +583,19 @@ def test_paint_refuses_a_selection_that_does_not_match_the_replacement():
     doc = _Doc([title])
     snapshot = OutlineSnapshot([OutlineLink(_OUTLINE, "", "")], "X", "", "Old title", True)
     plan = {"new_url": "#1.New title|outline", "new_name": None, "new_target": None}
-    with pytest.raises(RuntimeError, match="Could not select the replaced text"):
+    with pytest.raises(ToolExecutionError, match="Could not select the replaced text") as exc_info:
         _paint(doc, _Pos(0), snapshot, "New title", plan, required=True)
+    assert exc_info.value.code == "HYPERLINK_UPDATE_FAILED"
     assert title.url == _OUTLINE
     assert _paint(doc, _Pos(0), snapshot, "New title", plan, required=False) is False
     assert title.url == _OUTLINE
+
+
+def test_restore_without_anchor_raises_hyperlink_update_failed():
+    snapshot = OutlineSnapshot([OutlineLink(_OUTLINE, "", "")], "X", "", "Old title", True)
+    with pytest.raises(ToolExecutionError, match="Could not locate the replaced text") as exc_info:
+        restore_outline_hyperlinks(None, snapshot, "x", None)
+    assert exc_info.value.code == "HYPERLINK_UPDATE_FAILED"
 
 
 def test_iter_portions_skips_redline_markers():

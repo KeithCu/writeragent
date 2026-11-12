@@ -27,6 +27,7 @@ from typing import Any, NamedTuple, cast
 from plugin.framework.errors import ToolExecutionError, name_miss_details
 from plugin.framework.service import ServiceBase
 from plugin.doc.document_helpers import is_cacheable_doc_key
+from plugin.doc.paragraph_search import find_paragraph_for_range
 from plugin.doc.text_helpers import (
     build_heading_tree,
     find_heading_by_chapter_number,
@@ -343,7 +344,6 @@ class TreeService(ServiceBase):
         if placed is None:
             if accept_name is not None:
                 # If unplaced in paragraphs, check if it maps to the accepted table
-                from plugin.doc.paragraph_search import find_paragraph_for_range
                 raw_idx = find_paragraph_for_range(anchor, para_ranges)
                 if (
                     isinstance(raw_idx, int)

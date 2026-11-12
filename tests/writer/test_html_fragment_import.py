@@ -69,20 +69,29 @@ def test_prewrapped_skips_rewrap():
     assert holder["content"] == prewrapped
 
 
-def test_advances_cursor_when_model_given():
+def test_advances_cursor_when_advance_true():
     """The cursor continues right after the imported content, in its own text. Jumping to the
     BODY end sent later segments of a mid-document edit to the end (#46/#47) and raised
     RuntimeException for a cursor in a frame or cell (#52)."""
     cursor = MagicMock()
-    model = MagicMock()
     parked = cursor.getText.return_value.createTextCursorByRange.return_value
 
     with _capture_temp_buffer({}):
-        insert_html_fragment_at_cursor(cursor, "<p>Hi</p>", model=model)
+        insert_html_fragment_at_cursor(cursor, "<p>Hi</p>", advance=True)
 
     cursor.getText.return_value.createTextCursorByRange.assert_called_once_with(cursor.getEnd())
     cursor.gotoRange.assert_called_once_with(parked.getStart(), False)
-    model.getText.assert_not_called()
+
+
+def test_insert_html_fragment_at_cursor_advance_false_leaves_cursor():
+    """Without advance=True, no parked cursor is created and cursor.gotoRange is not called."""
+    cursor = MagicMock()
+
+    with _capture_temp_buffer({}):
+        insert_html_fragment_at_cursor(cursor, "<p>Hi</p>", advance=False)
+
+    cursor.getText.return_value.createTextCursorByRange.assert_not_called()
+    cursor.gotoRange.assert_not_called()
 
 
 def test_content_has_block_markup_inline_span():
@@ -130,7 +139,7 @@ def test_replace_full_document_and_insert_content_call_restore_with_text_obj():
     cur.getText.return_value = body_text
 
     with (
-        patch("plugin.writer.html_import._insert_starwriter_html_at_cursor"),
+        patch("plugin.writer.html_import.insert_html_fragment_at_cursor"),
         patch("plugin.writer.field_restore._restore_field_placeholders") as mock_restore,
     ):
         replace_full_document(doc, MagicMock(), "<p>Page <span title='page-number'/></p>")
@@ -140,7 +149,7 @@ def test_replace_full_document_and_insert_content_call_restore_with_text_obj():
         assert mock_restore.call_args[1]["nonce"] is not None
 
     with (
-        patch("plugin.writer.html_import._insert_starwriter_html_at_cursor"),
+        patch("plugin.writer.html_import.insert_html_fragment_at_cursor"),
         patch("plugin.writer.field_restore._restore_field_placeholders") as mock_restore,
     ):
         insert_content_at_position(doc, MagicMock(), "<p>Page <span title='page-number'/></p>", "beginning")

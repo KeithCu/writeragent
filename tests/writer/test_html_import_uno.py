@@ -767,8 +767,7 @@ def test_full_document_review_margins_follow_new_style_and_reject_keeps_old_uno(
     ) = _seed_direct_margins(doc)
 
     doc.setPropertyValue("RecordChanges", True)
-    failures = replace_full_document(doc, ctx, "<p>a</p><p>b</p>")
-    assert failures == []
+    assert replace_full_document(doc, ctx, "<p>a</p><p>b</p>").unapplied_para == []
 
     border_names = ("LeftBorder", "RightBorder", "TopBorder", "BottomBorder")
     paras = _body_paragraphs(doc)

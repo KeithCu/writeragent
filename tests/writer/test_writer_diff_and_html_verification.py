@@ -22,7 +22,7 @@ from plugin.writer.word_diff_split import (
     tokenize,
 )
 from plugin.writer.xhtml_style_postprocess import (
-    _parse_fodt_autostyles,
+    parse_fodt_autostyles,
     compact_lo_style_name,
     decode_lo_css_class_suffix,
     parse_style_block,
@@ -92,7 +92,7 @@ def test_hypothesis_compact_lo_style_name_removes_spaces(name: str) -> None:
 @given(fodt=_SHORT_TEXT)
 @settings(max_examples=vhs_max_examples(40, 400), deadline=None)
 def test_hypothesis_extract_autostyle_parents_from_fodt_invariant(fodt: str) -> None:
-    res = _parse_fodt_autostyles(fodt)[0]
+    res = parse_fodt_autostyles(fodt)[0]
     assert isinstance(res, dict)
     for k, v in res.items():
         assert isinstance(k, str)
@@ -102,7 +102,7 @@ def test_hypothesis_extract_autostyle_parents_from_fodt_invariant(fodt: str) -> 
 @given(fodt=_SHORT_TEXT)
 @settings(max_examples=vhs_max_examples(40, 400), deadline=None)
 def test_hypothesis_extract_autostyle_overrides_from_fodt_invariant(fodt: str) -> None:
-    res = _parse_fodt_autostyles(fodt)[1]
+    res = parse_fodt_autostyles(fodt)[1]
     assert isinstance(res, dict)
     for k, v in res.items():
         assert isinstance(k, str)

@@ -99,7 +99,7 @@ def test_begin_next_paragraph_steps_into_the_new_paragraph_and_survives_a_refuse
     dest_text = MagicMock()
     cursor = MagicMock()
     rc._begin_next_paragraph(dest_text, cursor)
-    dest_text.insertControlCharacter.assert_called_once_with(cursor, rc._PARAGRAPH_BREAK, False)
+    dest_text.insertControlCharacter.assert_called_once_with(cursor, rc.PARAGRAPH_BREAK, False)
     cursor.gotoNextParagraph.assert_called_once_with(False)
 
     dest_text.reset_mock()

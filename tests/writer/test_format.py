@@ -361,19 +361,22 @@ def test_insert_content_at_position_whole_paragraph_selection_applies_styles():
     model = MagicMock()
     model.getCurrentController.return_value = controller
 
+    from plugin.writer.html_import_styles import WriteReport
+
     with patch("plugin.doc.text_helpers.selected_text_range", return_value=rng), \
          patch("plugin.writer.html_import._selection_is_draw_shape", return_value=False), \
          patch("plugin.writer.table_nesting.raise_if_range_hosts_nested_table"), \
          patch("plugin.writer.record_changes.is_recording_changes", return_value=False), \
          patch("plugin.writer.html_import._insert_mixed_or_plain_html") as mock_insert:
-        failures, note = insert_content_at_position(
+        mock_insert.return_value = WriteReport()
+        report = insert_content_at_position(
             model, MagicMock(), '<p data-lo-style="Heading1">x</p>', "selection"
         )
 
     rng.setString.assert_called_once_with("")
     mock_insert.assert_called_once()
     assert mock_insert.call_args.kwargs.get("apply_styles") is True
-    assert note is None
+    assert report.style_skips == []
 
 
 def test_ensure_empty_absorb_inserts_break_when_end_para_has_text():
@@ -1440,7 +1443,7 @@ def test_paint_direct_formatting_still_paints_char_when_para_copy_raises():
             raise RuntimeError("refused Para*")
 
     with patch.object(rc, "_copy_properties", side_effect=copy_side_effect) as copy:
-        rc._paint_direct_formatting(para, [(portion, "bold")], temp_text, 0, 4)
+        rc.paint_direct_formatting(para, [(portion, "bold")], temp_text, 0, 4)
 
     names_seen = [c.args[2] for c in copy.call_args_list]
     assert rc._COPIED_PARA_PROPERTIES in names_seen

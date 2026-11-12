@@ -79,6 +79,9 @@ log = logging.getLogger("writeragent.writer")
 # com.sun.star.text.ControlCharacter.PARAGRAPH_BREAK
 _PARAGRAPH_BREAK = 0
 _TABLE_INSERT_FAILED_MSG = "Table insert produced no table in document."
+_OVERRIDE_NEEDS_ONE_LINK = (
+    "hyperlink_url applies only when the match overlaps exactly one outline hyperlink (|outline)."
+)
 
 
 def _paragraph_boundary_cursor(text_obj: Any, found: Any, position: str) -> tuple[Any, bool]:
@@ -395,94 +398,6 @@ def _partial_match_style_suggestion(
     return suggest_call("apply_style", **suggestion_args)
 
 
-def _attach_style_notes(
-    result: dict[str, Any],
-    notes: list[str],
-    *,
-    total_matches: int = 1,
-    doc: Any,
-    params: EditParams,
-) -> dict[str, Any]:
-    """Append unapplied data-lo-style diagnostic warnings to result's warnings and message fields."""
-    if not isinstance(result, dict) or result.get("status") != "ok" or not notes:
-        return result
-
-    partial_count = notes.count("STYLE_IGNORED_PARTIAL_MATCH")
-    recording_count = notes.count("STYLE_IGNORED_RECORDING")
-    if partial_count == 0 and recording_count == 0:
-        return result
-
-    if not params.content or "data-lo-style" not in params.content:
-        return result
-
-    from . import html_import_styles
-
-    _clean, styles, _paras, _skipped = html_import_styles.extract_block_lo_styles(params.content)
-    distinct_styles = list(dict.fromkeys(s for s in styles if s))
-    if not distinct_styles:
-        return result
-    style_token = distinct_styles[0] if len(distinct_styles) == 1 else None
-
-    subject = f"data-lo-style='{style_token}'" if style_token else "data-lo-style"
-    diagnostics: list[Diagnostic] = []
-
-    if partial_count > 0:
-        scope_clause = (
-            f" to {partial_count} of {total_matches} matches because they do not cover whole paragraphs"
-            if total_matches > 1
-            else " because the replaced range does not cover a whole paragraph"
-        )
-        msg = (
-            f"{subject} was not applied{scope_clause}; "
-            "applying it would restyle neighboring text in the host paragraph. "
-            "apply_style restyles the whole paragraph containing the match. "
-            "Restyle with apply_style(target='search', old_content=...)."
-        )
-        partial_diag: Diagnostic = {
-            "code": "STYLE_IGNORED_PARTIAL_MATCH",
-            "message": msg,
-            "matches_skipped": partial_count,
-            "matches_total": total_matches,
-        }
-        suggested = _partial_match_style_suggestion(doc, params, style_token, total_matches)
-        if suggested is not None:
-            partial_diag["suggested_call"] = suggested
-        diagnostics.append(partial_diag)
-
-    if recording_count > 0:
-        rec_scope = f" to {recording_count} of {total_matches} matches" if total_matches > 1 else ""
-        rec_msg = (
-            f"{subject} was not applied{rec_scope} while tracked changes are recording, "
-            "because a paragraph style on this replace would turn the deletion into a format change. "
-            "Restyle with apply_style(target='search', old_content=...) after the change is accepted."
-        )
-        rec_diag: Diagnostic = {
-            "code": "STYLE_IGNORED_RECORDING",
-            "message": rec_msg,
-            "matches_skipped": recording_count,
-            "matches_total": total_matches,
-        }
-        diagnostics.append(rec_diag)
-
-    if not diagnostics:
-        return result
-
-    existing_warnings = result.get("warnings")
-    if isinstance(existing_warnings, list):
-        existing_warnings.extend(diagnostics)
-    else:
-        result["warnings"] = diagnostics
-
-    note_text = " ".join(d["message"] for d in diagnostics)
-    existing_message = result.get("message") or ""
-    if existing_message:
-        result["message"] = f"{existing_message} {note_text}"
-    else:
-        result["message"] = note_text
-
-    return result
-
-
 def _run_on_main_thread(fn: Any) -> Any:
     if main.is_current():
         return fn()
@@ -675,51 +590,45 @@ class ApplyDocumentContent(ToolBase):
             return format_support.plain_text_if_markup(text)
         return text.replace("\\n", "\n").replace("\\t", "\t")
 
-    def _outline_override_error(self) -> dict[str, Any]:
-        return self._tool_error(
-            "hyperlink_url applies only when the match overlaps exactly one outline hyperlink (|outline).",
-            code="INVALID_PARAM")
-
-    def _read_outline_snapshot(self, found: Any, log_message: str) -> tuple[OutlineSnapshot | None, dict[str, Any] | None]:
+    def _read_outline_snapshot(self, found: Any, log_message: str) -> OutlineSnapshot:
         try:
-            return capture_outline_hyperlinks(found), None
+            return capture_outline_hyperlinks(found)
         except Exception as exc:
             reraise_if_disposed(exc)
             log.exception(log_message)
-            return None, self._tool_error(
+            raise ToolExecutionError(
                 "Could not read the outline hyperlink on this match.",
-                code="HYPERLINK_UPDATE_FAILED")
+                code="HYPERLINK_UPDATE_FAILED",
+            ) from exc
 
-    def _outline_match_fields(self, found: Any, plain_fn: Any, override: str | None) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    def _outline_match_fields(self, found: Any, plain_fn: Any, override: str | None) -> dict[str, Any]:
         """dry_run fields for one match. Empty fields when the match has no outline link.
 
-        A failed outline read is returned as the error tuple, not empty fields.
-        *plain_fn* is called only when a preview is actually needed, so a markup dry_run
-        that does not touch an outline link does not open a hidden document. An override
-        on a non-outline match is not previewed as a new link; the caller rejects it.
+        A failed outline read or a rejected override raises; the dry-run branch of `_execute`
+        turns it into the error payload. *plain_fn* is called only when a preview is
+        actually needed, so a markup dry_run that does not touch an outline link does not open
+        a hidden document. An override on a non-outline match is not previewed as a new link;
+        the caller rejects it.
         """
         # Invariant: a failed outline read is HYPERLINK_UPDATE_FAILED (never "no link"); disposal propagates.
-        snapshot, err = self._read_outline_snapshot(found, "apply_document_content: outline hyperlink preview failed")
-        if err:
-            return {}, err
-        assert snapshot is not None
+        snapshot = self._read_outline_snapshot(found, "apply_document_content: outline hyperlink preview failed")
         if not snapshot.links:
             if override:
-                return {}, self._outline_override_error()
-            return {}, None
+                raise ToolExecutionError(_OVERRIDE_NEEDS_ONE_LINK, code="INVALID_PARAM")
+            return {}
         plain = plain_fn()
         plans = plan_outline_updates(snapshot.links, snapshot.matched, plain, override)
         reports = public_hyperlink_reports(plans)
         if not reports:
             if override:
-                return {}, self._outline_override_error()
-            return {}, None
+                raise ToolExecutionError(_OVERRIDE_NEEDS_ONE_LINK, code="INVALID_PARAM")
+            return {}
         if override and len(reports) != 1:
-            return {}, self._outline_override_error()
+            raise ToolExecutionError(_OVERRIDE_NEEDS_ONE_LINK, code="INVALID_PARAM")
         fields = dict(reports[0])
         if len(reports) > 1:
             fields["hyperlinks"] = reports
-        return fields, None
+        return fields
 
     def _attach_hyperlink_reports(self, resp: Any, reports: list[dict[str, Any]]) -> dict[str, Any]:
         if not reports:
@@ -729,11 +638,12 @@ class ApplyDocumentContent(ToolBase):
             resp.update(reports[0])
         return resp
 
-    def _outline_undo(self, doc: Any, session: EditReviewSession, run: Any) -> tuple[list[dict[str, Any]] | None, dict[str, Any] | None]:
+    def _outline_undo(self, doc: Any, session: EditReviewSession, run: Any) -> list[dict[str, Any]]:
         """Run *run* inside one undo step so the text replace and the URL write are one Ctrl+Z.
 
         The HTML path and a surgical review replace each close their own undo context
         before returning. Without this outer step the URL write would be a second undo.
+        Raises ToolExecutionError when the URL write fails; the text change is rolled back first.
         """
         reports_holder: list[list[dict[str, Any]]] = []
 
@@ -749,29 +659,28 @@ class ApplyDocumentContent(ToolBase):
                 mutate,
                 session=session,
             )
-        except UndoUnavailable:
-            return None, self._tool_error(
+        except UndoUnavailable as exc:
+            raise ToolExecutionError(
                 "Cannot update the outline hyperlink atomically (no usable undo context); "
                 "refusing rather than risk a text change that leaves the link stale.",
                 code="UNDO_UNAVAILABLE",
-            )
+            ) from exc
         if outcome.mutate_error is not None:
-            exc = outcome.mutate_error
-            reraise_if_disposed(exc)
+            mutate_err = outcome.mutate_error
+            reraise_if_disposed(mutate_err)
             log.exception("apply_document_content: outline hyperlink update failed")
             if outcome.nothing_landed:
-                msg = f"Outline hyperlink update failed; the text change was rolled back ({exc})."
+                msg = f"Outline hyperlink update failed; the text change was rolled back ({mutate_err})."
             else:
-                msg = f"Outline hyperlink update failed; the text change could not be rolled back and may still be in the document ({exc})."
-            return None, self._tool_error(msg, code="HYPERLINK_UPDATE_FAILED")
+                msg = f"Outline hyperlink update failed; the text change could not be rolled back and may still be in the document ({mutate_err})."
+            raise ToolExecutionError(msg, code="HYPERLINK_UPDATE_FAILED") from mutate_err
 
         err = outcome.error
         if err is not None and err.get("code") == "ROLLBACK_FAILED":
             msg = f"Outline hyperlink update failed; the text change could not be rolled back and may still be in the document ({err.get('message')})."
-            return None, self._tool_error(msg, code="HYPERLINK_UPDATE_FAILED")
+            raise ToolExecutionError(msg, code="HYPERLINK_UPDATE_FAILED")
 
-        reports = reports_holder[0] if reports_holder else []
-        return reports, None
+        return reports_holder[0] if reports_holder else []
 
     def _finish_search_miss(self, doc: Any, params: EditParams) -> dict[str, Any]:
         shape = search_mod.drawing_shape_object_containing(
@@ -842,14 +751,13 @@ class ApplyDocumentContent(ToolBase):
                        ctx: ToolContext, track_reviewable: bool,
                        override: str | None, batch: bool,
                        plain: str,
-                       style_notes: list[str],
-                       para_failures: list[str],
-                       fix_outline: bool = True,
-                       math_out: list[dict[str, Any]] | None = None) -> tuple[list[dict[str, Any]] | None, dict[str, Any] | None]:
+                       report: html_import_styles.WriteReport,
+                       fix_outline: bool = True) -> list[dict[str, Any]]:
         """Replace one search match and, when it sits in an outline link, fix that URL.
 
         *batch* is the all_matches loop, which already holds the undo context. A single
-        match opens one when a URL write is needed. Returns ``(reports, error_or_None)``.
+        match opens one when a URL write is needed. Returns the hyperlink reports; failures
+        raise ToolExecutionError with the code the caller publishes.
         """
         from . import html_import as format_support
 
@@ -860,14 +768,11 @@ class ApplyDocumentContent(ToolBase):
         if fix_outline:
             anchor = collapsed_anchor(found)
             # Invariant: a failed capture refuses the edit (HYPERLINK_UPDATE_FAILED) before any text change; disposal propagates.
-            snapshot, err = self._read_outline_snapshot(found, "apply_document_content: outline hyperlink capture failed")
-            if err:
-                return None, err
-            assert snapshot is not None
+            snapshot = self._read_outline_snapshot(found, "apply_document_content: outline hyperlink capture failed")
             if override and len(snapshot.links) != 1:
                 # Before the text edit. One override on two outline links would stamp
                 # both with the same target. Zero links would paint a bookmark or plain text.
-                return None, self._outline_override_error()
+                raise ToolExecutionError(_OVERRIDE_NEEDS_ONE_LINK, code="INVALID_PARAM")
             # preserve_url: a bookmark target covering the match. A same-length setString
             # keeps HyperLinkURL. HTML setString("") and a length-changing preserve-format
             # replace can clear it on the new characters; put that target back unchanged.
@@ -881,39 +786,33 @@ class ApplyDocumentContent(ToolBase):
                 # The all_matches loop already entered an undo context. A second
                 # record_html_atomically would nest another and close it early.
                 def replace_one(f: Any = found) -> None:
-                    failed, note = format_support.replace_single_range_with_content(
-                        doc, f, content, ctx.ctx, math_out=math_out)
-                    para_failures.extend(failed)
-                    if note:
-                        style_notes.append(note)
+                    report.extend(format_support.replace_single_range_with_content(
+                        doc, f, content, ctx.ctx))
 
                 session.record_mutation(
                     replace_one,
                     original_preview=original, proposed_preview=plain)
             else:
                 def replace_single() -> None:
-                    failed, note = format_support.replace_single_range_with_content(
-                        doc, found, content, ctx.ctx, math_out=math_out)
-                    para_failures.extend(failed)
-                    if note:
-                        style_notes.append(note)
+                    report.extend(format_support.replace_single_range_with_content(
+                        doc, found, content, ctx.ctx))
 
                 record_html_atomically(
                     session, doc,
                     replace_single,
                     original_preview=original, proposed_preview=plain)
-            if not needs_fix or anchor is None or snapshot is None:
+            if not needs_fix or snapshot is None:
                 return []
             return restore_outline_hyperlinks(anchor, snapshot, plain, override)
 
         if batch:
-            return run(), None
+            return run()
         # A single match has to enter the review session here, outline link or not
         # (all_matches already entered it around the loop), or record mode would
         # only track replaces that happen to sit in an outline URL.
         if not needs_fix:
             with session:
-                return run(), None
+                return run()
 
         def once() -> list[dict[str, Any]]:
             with session:
@@ -1053,16 +952,12 @@ class ApplyDocumentContent(ToolBase):
                 # The override is one destination for the match execute would edit.
                 # Other rows show automatic substitution only.
                 row_override = override if idx == edit_idx else None
-                fields, outline_err = self._outline_match_fields(found, _plain, row_override)
-                if outline_err:
-                    return outline_err
-                row.update(fields)
+                row.update(self._outline_match_fields(found, _plain, row_override))
             replaceable.append(row)
-        shape_comment_warning: str | None = None
-        if regex and search_mod.validate_regex_pattern(pattern) is not None:
+        shape_comment_warning = search_mod.shape_sweep_skip_reason(pattern, regex)
+        if shape_comment_warning is not None:
             shape_hits = []
             comment_hits = []
-            shape_comment_warning = "shape/comment text not searched: pattern uses ICU-only syntax"
         else:
             shape_hits = search_mod.sweep_draw_shape_preview_matches(ctx.doc, pattern, regex, cs, limit=search_mod.MAX_SEARCH_HITS)
             comment_hits = search_mod.sweep_comment_preview_matches(ctx.doc, pattern, regex, cs, limit=search_mod.MAX_SEARCH_HITS)
@@ -1110,10 +1005,7 @@ class ApplyDocumentContent(ToolBase):
                 "text": selected_text,
             }
             if rewrites_outline:
-                fields, outline_err = self._outline_match_fields(selected, _plain, override)
-                if outline_err:
-                    return outline_err
-                selected_match.update(fields)
+                selected_match.update(self._outline_match_fields(selected, _plain, override))
             result["selected_match"] = selected_match
         return result
 
@@ -1165,7 +1057,12 @@ class ApplyDocumentContent(ToolBase):
         if kwargs.get("dry_run"):
             # The preview reads ranges and text through UNO, so a worker-thread call
             # (tool-sync-apply_document_content) marshals it like the edit path does.
-            return _run_on_main_thread(lambda: self._dry_run_preview(ctx, **kwargs))
+            # The preview's outline helpers raise like the edit path; this is the one
+            # place the dry-run turns them into the payload.
+            try:
+                return _run_on_main_thread(lambda: self._dry_run_preview(ctx, **kwargs))
+            except ToolExecutionError as e:
+                return self._tool_error(str(e), code=e.code)
         wait_seconds = self._review_wait_seconds()
         session_box: list[Any] = []
 
@@ -1177,7 +1074,7 @@ class ApplyDocumentContent(ToolBase):
             session = EditReviewSession(ctx.doc, ctx.ctx, enabled=parsed.track_reviewable)
             session_box.append(session)
             result = self._dispatch_edit(ctx, session, parsed)
-            result = html_import_styles.attach_link_warnings(result, diags)
+            result = html_import_styles.append_warnings(result, diags)
             return result, session
 
         if get_agent_edit_review_mode() != "wait" or on_main:
@@ -1467,15 +1364,14 @@ class ApplyDocumentContent(ToolBase):
         content = params.content
         plain = params.plain
         has_table = params.has_table
-        math_objects: list[dict[str, Any]] = []
         with session:
             # Delete-then-import: make it atomic so a failed import can't strand a cleared document.
-            failed = record_html_atomically(
+            report = record_html_atomically(
                 session, ctx.doc,
                 lambda: format_support.replace_full_document(
-                    ctx.doc, ctx.ctx, content, math_out=math_objects
+                    ctx.doc, ctx.ctx, content
                 ),
-                proposed_preview=plain) or []
+                proposed_preview=plain)
         err = self._table_insert_error(ctx.doc, has_table, None)
         if err:
             return err
@@ -1486,8 +1382,7 @@ class ApplyDocumentContent(ToolBase):
             "paragraph_count": summary["paragraph_count"],
             "headings": summary["headings"],
         }
-        res = html_import_styles.attach_para_warnings(res, failed)
-        return html_import_styles.attach_math_objects(res, math_objects)
+        return html_import_styles.attach_write_report(res, report)
 
     def _edit_insert_at(
         self, ctx: ToolContext, session: EditReviewSession, params: EditParams,
@@ -1498,11 +1393,10 @@ class ApplyDocumentContent(ToolBase):
         has_table = params.has_table
         target = params.target
         tables_before = _doc_table_count(ctx.doc) if has_table else None
-        math_objects: list[dict[str, Any]] = []
         with session:
-            failed, _note = session.record_mutation(
+            report = session.record_mutation(
                 lambda: format_support.insert_content_at_position(
-                    ctx.doc, ctx.ctx, content, target, math_out=math_objects
+                    ctx.doc, ctx.ctx, content, target
                 ),
                 proposed_preview=plain)
         err = self._table_insert_error(ctx.doc, has_table, tables_before)
@@ -1516,8 +1410,7 @@ class ApplyDocumentContent(ToolBase):
             anchor = collapsed_anchor(ctx.doc.getText().getStart())
         res = attach_edited_context(
             {"status": "ok", "message": msg}, anchor)
-        res = html_import_styles.attach_para_warnings(res, failed)
-        return html_import_styles.attach_math_objects(res, math_objects)
+        return html_import_styles.attach_write_report(res, report)
 
     def _edit_selection(
         self, ctx: ToolContext, session: EditReviewSession, params: EditParams,
@@ -1530,26 +1423,22 @@ class ApplyDocumentContent(ToolBase):
         # collapsed position (not the selection range itself) survives the replace.
         anchor = selection_anchor(ctx.doc)
         tables_before = _doc_table_count(ctx.doc) if has_table else None
-        math_objects: list[dict[str, Any]] = []
         with session:
             # Selection insert clears the selection first, then imports -> atomic (full_document above).
-            failed, note = record_html_atomically(
+            report = record_html_atomically(
                 session, ctx.doc,
                 lambda: format_support.insert_content_at_position(
-                    ctx.doc, ctx.ctx, content, "selection", math_out=math_objects
+                    ctx.doc, ctx.ctx, content, "selection"
                 ),
-                proposed_preview=plain) or ([], None)
+                proposed_preview=plain)
         err = self._table_insert_error(ctx.doc, has_table, tables_before)
         if err:
             return err
         res = attach_edited_context(
             {"status": "ok", "message": "Inserted content at selection."}, anchor)
-        if isinstance(note, str):
-            _attach_style_notes(res, [note], total_matches=1, doc=ctx.doc, params=params)
-        res = html_import_styles.attach_para_warnings(
-            res, failed, reason=note if isinstance(note, str) else None
-        )
-        return html_import_styles.attach_math_objects(res, math_objects)
+        return html_import_styles.attach_write_report(
+            res, report,
+            suggest_style_fix=functools.partial(_partial_match_style_suggestion, ctx.doc, params))
 
 
     def _edit_replace_all(
@@ -1577,10 +1466,7 @@ class ApplyDocumentContent(ToolBase):
         else:
             anchor = collapsed_anchor(ranges[0])
         count = 0
-        style_notes: list[str] = []
-        para_failures: list[str] = []
-        math_objects: list[dict[str, Any]] = []
-        link_failure_holder: list[dict[str, Any] | None] = [None]
+        report = html_import_styles.WriteReport()
         link_reports: list[dict[str, Any]] = []
         tracked_delete_box = [False]
 
@@ -1593,16 +1479,11 @@ class ApplyDocumentContent(ToolBase):
                     found = _grow_over_edge_space(found, params.separator)
                     # batch=True: this loop already holds the undo context, so the
                     # outline URL write stays in the same Ctrl+Z as the text.
-                    reports, link_err = self._replace_found(
+                    reports = self._replace_found(
                         session, doc, found, use_preserve=params.use_preserve,
                         content=params.content, ctx=ctx,
                         track_reviewable=params.track_reviewable, override=params.override, batch=True,
-                        plain=params.plain, style_notes=style_notes,
-                        para_failures=para_failures,
-                        math_out=math_objects)
-                    if link_err:
-                        link_failure_holder[0] = link_err
-                        raise RuntimeError(link_err.get("message") or "outline hyperlink update failed")
+                        plain=params.plain, report=report)
                     if reports:
                         link_reports.extend(reports)
                     count += 1
@@ -1627,8 +1508,6 @@ class ApplyDocumentContent(ToolBase):
             payload: dict[str, Any]
             if isinstance(e, ToolExecutionError):
                 payload = format_error_payload(e)
-            elif link_failure_holder[0] is not None:
-                payload = dict(link_failure_holder[0])
             else:
                 payload = {"status": "error", "code": "TOOL_EXECUTION_ERROR"}
             if outcome.nothing_landed:
@@ -1673,12 +1552,11 @@ class ApplyDocumentContent(ToolBase):
                 if "pending_review" in deletion:
                     resp["pending_review"] = deletion["pending_review"]
                 resp["message"] = (resp.get("message") or "").rstrip() + " " + deletion["message"]
-        _attach_style_notes(resp, style_notes, total_matches=count, doc=doc, params=params)
-        reason = next((n for n in style_notes if n in ("STYLE_IGNORED_PARTIAL_MATCH", "STYLE_IGNORED_RECORDING")), None)
-        html_import_styles.attach_para_warnings(resp, para_failures, reason=reason)
+        html_import_styles.attach_write_report(
+            resp, report, total_matches=count,
+            suggest_style_fix=functools.partial(_partial_match_style_suggestion, doc, params))
         self._attach_hyperlink_reports(resp, link_reports)
-        res = attach_edited_context(resp, anchor)
-        return html_import_styles.attach_math_objects(res, math_objects)
+        return attach_edited_context(resp, anchor)
 
     def _anchor_miss(
         self, doc: Any, anchor: AnchorSpec, miss_kind: search_mod.AnchorMissKind
@@ -1856,8 +1734,11 @@ class ApplyDocumentContent(ToolBase):
             insert_resp["snapped_to_paragraph"] = True
         if occurrence is not None:
             insert_resp["occurrence"] = occurrence
-        html_import_styles.attach_para_warnings(
-            insert_resp, html_import_styles.unapplied_para_names_for_content(str(content))
+        html_import_styles.attach_write_report(
+            insert_resp,
+            html_import_styles.WriteReport(
+                unapplied_para=html_import_styles.unapplied_para_names_for_content(str(content))
+            ),
         )
         return attach_edited_context(insert_resp, anchor)
 
@@ -1887,19 +1768,13 @@ class ApplyDocumentContent(ToolBase):
             with session:
                 tracked_delete = record_table_deletions(session, doc, ctx, doomed)
             return _table_deletion_result([name for _table, name in doomed], tracked_delete)
-        style_notes: list[str] = []
-        para_failures: list[str] = []
-        math_objects: list[dict[str, Any]] = []
-        reports, link_err = self._replace_found(
+        report = html_import_styles.WriteReport()
+        reports = self._replace_found(
             session, doc, found, use_preserve=params.use_preserve,
             content=params.content, ctx=ctx,
             track_reviewable=params.track_reviewable, override=params.override, batch=False,
-            plain=params.plain, style_notes=style_notes,
-            para_failures=para_failures,
-            fix_outline=params.anchor is None,
-            math_out=math_objects)
-        if link_err:
-            return link_err
+            plain=params.plain, report=report,
+            fix_outline=params.anchor is None)
         if params.anchor is not None:
             resp = build_search_replace_response(
                 1,
@@ -1913,9 +1788,8 @@ class ApplyDocumentContent(ToolBase):
         err = self._table_insert_error(doc, params.has_table, tables_before)
         if err:
             return err
-        _attach_style_notes(resp, style_notes, total_matches=1, doc=doc, params=params)
-        reason = next((n for n in style_notes if n in ("STYLE_IGNORED_PARTIAL_MATCH", "STYLE_IGNORED_RECORDING")), None)
-        html_import_styles.attach_para_warnings(resp, para_failures, reason=reason)
-        self._attach_hyperlink_reports(resp, reports or [])
-        res = attach_edited_context(resp, anchor)
-        return html_import_styles.attach_math_objects(res, math_objects)
+        html_import_styles.attach_write_report(
+            resp, report, total_matches=1,
+            suggest_style_fix=functools.partial(_partial_match_style_suggestion, doc, params))
+        self._attach_hyperlink_reports(resp, reports)
+        return attach_edited_context(resp, anchor)

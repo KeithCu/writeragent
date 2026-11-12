@@ -13,11 +13,12 @@ import, and resolves/applies paragraph styles via UNO after import.
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 import html as html_mod
 import logging
 import re
 from urllib.parse import unquote
-from typing import TYPE_CHECKING, Any, ClassVar, final
+from typing import TYPE_CHECKING, Any, ClassVar, Literal, final
 
 from plugin.framework.errors import Diagnostic, reraise_if_disposed, uno_read
 from plugin.framework.uno_context import enum_has_more
@@ -26,6 +27,7 @@ from . import xhtml_style_postprocess as xhtml_post
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable
+    from plugin.framework.errors import SuggestedCall
 
 log = logging.getLogger("writeragent.writer")
 
@@ -142,7 +144,7 @@ def _para_writers() -> dict[str, Callable[[str], tuple[str, Any] | None]]:
 
     def text_align(val: str) -> tuple[str, Any] | None:
         try:
-            return ("ParaAdjust", _para_adjust_to_uno(xhtml_post._ODF_TEXT_ALIGN.get(val, val)))
+            return ("ParaAdjust", _para_adjust_to_uno(xhtml_post.ODF_TEXT_ALIGN.get(val, val)))
         except ValueError:
             return None
 
@@ -213,7 +215,7 @@ class _OpenBlock:
         self.slot_index: int | None = slot_index
 
 
-class _BlockLoStyleExtractor(xhtml_post._HtmlPassthroughParser):
+class _BlockLoStyleExtractor(xhtml_post.HtmlPassthroughParser):
     """Collect data-lo-style and data-lo-para per TOP-LEVEL block (document order) and strip
     the attributes from the HTML, so the StarWriter import sees clean markup and we apply the
     formatting ourselves afterwards. Content inside <table> is left to the import (avoids order desync)."""
@@ -618,91 +620,178 @@ def unapplied_para_names_for_content(content: str) -> list[str]:
     return declared_para_names(paras, skipped)
 
 
-def attach_para_warnings(
-    result: dict[str, Any], unapplied: list[str], *, reason: str | None = None
-) -> dict[str, Any]:
-    """Attach warnings for unapplied data-lo-para properties on a successful edit result.
-
-    Every write tool that takes data-lo-para reports through here, so the model sees one
-    message shape. Names are deduplicated in first-seen order. An optional *reason*
-    differentiates range-level skips (partial match, tracked change recording) from unsupported
-    read-only properties.
-    """
-    if not unapplied or result.get("status") != "ok":
-        return result
-    deduped = list(dict.fromkeys(unapplied))
-    if reason in ("STYLE_IGNORED_PARTIAL_MATCH", "partial_match", "PARA_IGNORED_PARTIAL_MATCH"):
-        code = "PARA_IGNORED_PARTIAL_MATCH"
-        msg_suffix = " because the replaced range does not cover a whole paragraph"
-    elif reason in ("STYLE_IGNORED_RECORDING", "recording", "PARA_IGNORED_RECORDING"):
-        code = "PARA_IGNORED_RECORDING"
-        msg_suffix = " because tracked changes are recording"
-    elif reason:
-        code = "PARA_PROPERTY_UNSUPPORTED"
-        msg_suffix = f" ({reason})"
-    else:
-        code = "PARA_PROPERTY_UNSUPPORTED"
-        msg_suffix = ""
-
-    diag_list: list[Diagnostic] = [
-        {
-            "code": code,
-            "message": f"data-lo-para property '{name}' was not applied{msg_suffix}",
-        }
-        for name in deduped
-    ]
-    existing = result.get("warnings")
-    if isinstance(existing, list):
-        existing.extend(diag_list)
-    else:
-        result["warnings"] = diag_list
-    return result
-
-
-def attach_math_objects(
-    result: dict[str, Any], math_objects: list[dict[str, Any]]
-) -> dict[str, Any]:
-    """Attach attempted math object entries and diagnostics to an edit result.
-
-    Only published when the edit succeeded (``status == "ok"``) and attempted at
-    least one formula conversion. Empty attempts or error results are returned
-    unchanged because a failed or rolled-back edit left none of these objects in
-    the document. ``ok`` means a Math object was inserted into the document,
-    not accepted in review; the review outcome is reported separately under
-    ``review``. If any formula conversion failed, a ``MATH_IMPORT_FAILED``
-    diagnostic is added to ``warnings`` while preserving the overall ``ok`` status,
-    so review workflows and surrounding edit metadata (counts, edited context)
-    remain intact.
-    """
-    if not math_objects or result.get("status") != "ok":
-        return result
-    result["math_objects"] = list(math_objects)
-    failed = [m for m in math_objects if not m.get("ok")]
-    if not failed:
-        return result
-    listing = "; ".join(
-        f"{m.get('snippet', '')}: {m.get('error') or 'conversion failed'}"
-        for m in failed
-    )
-    diag: Diagnostic = {
-        "code": MATH_IMPORT_FAILED,
-        "message": (
-            f"The content was written, but {len(failed)} of {len(math_objects)} "
-            f"formula(s) could not be converted to a Math object and stand in the "
-            f"document as literal '[Math import failed] <formula>' text: {listing}. "
-            f"Correct the formula and replace that literal text with target='search'."
-        ),
-    }
-    existing = result.get("warnings")
-    if isinstance(existing, list):
-        existing.append(diag)
-    else:
-        result["warnings"] = [diag]
-    return result
-
-
 MATH_IMPORT_FAILED = "MATH_IMPORT_FAILED"
 LINK_TARGET_NOT_FOUND = "LINK_TARGET_NOT_FOUND"
+
+StyleSkipCode = Literal["STYLE_IGNORED_PARTIAL_MATCH", "STYLE_IGNORED_RECORDING"]
+
+
+@dataclass
+class WriteReport:
+    """What one HTML write could not apply, reported on the tool result as ``warnings``.
+
+    Every write function in ``html_import`` returns one. ``unapplied_para`` holds the
+    data-lo-para property names that were not applied. ``style_skips`` holds one code per
+    write whose data-lo-style (and data-lo-para) was skipped because the replaced range was
+    not whole paragraphs or tracked changes were recording. ``style_tokens`` is the distinct
+    non-empty data-lo-style tokens in the content, in first-seen order; a skip with no token
+    still explains the data-lo-para skip but names no style. ``math`` is one entry per
+    formula conversion attempt. all_matches merges one report per match with ``extend``.
+    """
+
+    unapplied_para: list[str] = field(default_factory=list)
+    style_skips: list[StyleSkipCode] = field(default_factory=list)
+    style_tokens: list[str] = field(default_factory=list)
+    math: list[dict[str, Any]] = field(default_factory=list)
+
+    def extend(self, other: WriteReport) -> None:
+        self.unapplied_para.extend(other.unapplied_para)
+        self.style_skips.extend(other.style_skips)
+        self.style_tokens = list(dict.fromkeys(self.style_tokens + other.style_tokens))
+        self.math.extend(other.math)
+
+
+def append_warnings(
+    result: dict[str, Any], diags: list[Diagnostic]
+) -> dict[str, Any]:
+    """Append diagnostics to result["warnings"] on a successful result (creates the list)."""
+    if not diags or result.get("status") != "ok":
+        return result
+    existing = result.get("warnings")
+    if isinstance(existing, list):
+        existing.extend(diags)
+    else:
+        result["warnings"] = list(diags)
+    return result
+
+
+def attach_write_report(
+    result: dict[str, Any],
+    report: WriteReport,
+    *,
+    total_matches: int = 1,
+    suggest_style_fix: Callable[[str, int], SuggestedCall | None] | None = None,
+) -> dict[str, Any]:
+    """Turn one WriteReport into warnings (and math_objects) on a successful edit result.
+
+    Every write tool that takes formatted HTML reports through here, so the model sees one
+    message shape. Order: STYLE_IGNORED_* (also appended to message), PARA_* (deduped names,
+    reason from the first style skip), then math_objects + MATH_IMPORT_FAILED.
+    suggest_style_fix(token, total_matches) is called only for a partial-match skip with
+    exactly one style token.
+
+    math_objects is only published when the edit succeeded (``status == "ok"``) and attempted
+    at least one formula conversion. Empty attempts or error results are returned unchanged
+    because a failed or rolled-back edit left none of these objects in the document. ``ok``
+    means a Math object was inserted into the document, not accepted in review; the review
+    outcome is reported separately under ``review``. If any formula conversion failed, a
+    ``MATH_IMPORT_FAILED`` diagnostic is added to ``warnings`` while preserving the overall
+    ``ok`` status, so review workflows and surrounding edit metadata (counts, edited context)
+    remain intact.
+    """
+    if result.get("status") != "ok":
+        return result
+
+    diags: list[Diagnostic] = []
+
+    if report.style_skips and report.style_tokens:
+        style_tokens = report.style_tokens
+        token = style_tokens[0] if len(style_tokens) == 1 else None
+        subject = f"data-lo-style='{token}'" if token else "data-lo-style"
+
+        partial_count = report.style_skips.count("STYLE_IGNORED_PARTIAL_MATCH")
+        recording_count = report.style_skips.count("STYLE_IGNORED_RECORDING")
+
+        style_diags: list[Diagnostic] = []
+        if partial_count > 0:
+            scope_clause = (
+                f" to {partial_count} of {total_matches} matches because they do not cover whole paragraphs"
+                if total_matches > 1
+                else " because the replaced range does not cover a whole paragraph"
+            )
+            msg = (
+                f"{subject} was not applied{scope_clause}; "
+                "applying it would restyle neighboring text in the host paragraph. "
+                "apply_style restyles the whole paragraph containing the match. "
+                "Restyle with apply_style(target='search', old_content=...)."
+            )
+            partial_diag: Diagnostic = {
+                "code": "STYLE_IGNORED_PARTIAL_MATCH",
+                "message": msg,
+                "matches_skipped": partial_count,
+                "matches_total": total_matches,
+            }
+            if token is not None and suggest_style_fix is not None:
+                suggested = suggest_style_fix(token, total_matches)
+                if suggested is not None:
+                    partial_diag["suggested_call"] = suggested
+            style_diags.append(partial_diag)
+
+        if recording_count > 0:
+            rec_scope = f" to {recording_count} of {total_matches} matches" if total_matches > 1 else ""
+            rec_msg = (
+                f"{subject} was not applied{rec_scope} while tracked changes are recording, "
+                "because a paragraph style on this replace would turn the deletion into a format change. "
+                "Restyle with apply_style(target='search', old_content=...) after the change is accepted."
+            )
+            rec_diag: Diagnostic = {
+                "code": "STYLE_IGNORED_RECORDING",
+                "message": rec_msg,
+                "matches_skipped": recording_count,
+                "matches_total": total_matches,
+            }
+            style_diags.append(rec_diag)
+
+        if style_diags:
+            diags.extend(style_diags)
+            note_text = " ".join(d["message"] for d in style_diags)
+            existing_message = result.get("message") or ""
+            if existing_message:
+                result["message"] = f"{existing_message} {note_text}"
+            else:
+                result["message"] = note_text
+
+    if report.unapplied_para:
+        deduped = list(dict.fromkeys(report.unapplied_para))
+        skip_reason = report.style_skips[0] if report.style_skips else None
+        if skip_reason == "STYLE_IGNORED_PARTIAL_MATCH":
+            para_code = "PARA_IGNORED_PARTIAL_MATCH"
+            para_suffix = " because the replaced range does not cover a whole paragraph"
+        elif skip_reason == "STYLE_IGNORED_RECORDING":
+            para_code = "PARA_IGNORED_RECORDING"
+            para_suffix = " because tracked changes are recording"
+        else:
+            para_code = "PARA_PROPERTY_UNSUPPORTED"
+            para_suffix = ""
+
+        for name in deduped:
+            diags.append({
+                "code": para_code,
+                "message": f"data-lo-para property '{name}' was not applied{para_suffix}",
+            })
+
+    if report.math:
+        # Math objects are published only on successful edits (status == "ok"); a failed
+        # or rolled-back edit left none of these objects in the document. MATH_IMPORT_FAILED
+        # remains a warning so review workflows and surrounding edit metadata stay intact.
+        result["math_objects"] = list(report.math)
+        failed = [m for m in report.math if not m.get("ok")]
+        if failed:
+            listing = "; ".join(
+                f"{m.get('snippet', '')}: {m.get('error') or 'conversion failed'}"
+                for m in failed
+            )
+            diags.append({
+                "code": MATH_IMPORT_FAILED,
+                "message": (
+                    f"The content was written, but {len(failed)} of {len(report.math)} "
+                    f"formula(s) could not be converted to a Math object and stand in the "
+                    f"document as literal '[Math import failed] <formula>' text: {listing}. "
+                    f"Correct the formula and replace that literal text with target='search'."
+                ),
+            })
+
+    return append_warnings(result, diags)
 
 _HREF_FRAGMENT_RE = re.compile(r'(<a\b[^>]*?\bhref=)(["\'])#([^"\']*)\2', re.IGNORECASE)
 _ID_NAME_RE = re.compile(r'(?<![-\w])(?:id|name)=(["\'])(.*?)\1', re.IGNORECASE)
@@ -788,20 +877,6 @@ def resolve_heading_links(
 
     rewritten = _HREF_FRAGMENT_RE.sub(_replace_link, content)
     return rewritten, diagnostics
-
-
-def attach_link_warnings(
-    result: dict[str, Any], diags: list[Diagnostic]
-) -> dict[str, Any]:
-    """Attach link target diagnostics on a successful edit result."""
-    if not diags or result.get("status") != "ok":
-        return result
-    existing = result.get("warnings")
-    if isinstance(existing, list):
-        existing.extend(diags)
-    else:
-        result["warnings"] = list(diags)
-    return result
 
 
 def declared_para_names(*css_lists: Iterable[str | None]) -> list[str]:
