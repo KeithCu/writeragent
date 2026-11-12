@@ -1096,4 +1096,3 @@ def test_indexes_create_end_is_one_undo_step(ctx, doc):
     assert doc.getDocumentIndexes().getCount() == 1
     um.undo()
     assert doc.getDocumentIndexes().getCount() == 0
-

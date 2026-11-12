@@ -309,7 +309,7 @@ class FieldsInsert(ToolWriterFieldBase):
                     raise
                 return self._tool_error(f"Failed to set property '{key}' to '{value}': {e}")
 
-        # Insert at resolved cursor
+        # Resolve target and insert as one undo step (insert_at_target).
         err = insert_at_target(
             self,
             ctx,

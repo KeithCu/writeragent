@@ -166,4 +166,3 @@ def insert_at_target(
         f"Failed to insert {what}; the change was rolled back",
         code=code,
     )
-

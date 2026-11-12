@@ -2,7 +2,7 @@
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Tests for resolve_target_cursor."""
+"""Tests for resolve_target_cursor and insert_at_target."""
 
 from types import SimpleNamespace
 from typing import Any
@@ -317,5 +317,3 @@ def test_insert_at_target_insert_error_dict_is_returned_after_rollback(monkeypat
     res = insert_at_target(tool, ctx, {"target": "end"}, lambda c: err_dict, what="the thing")
     assert res == err_dict
     undo_mgr.undo.assert_called_once()
-
-

@@ -220,6 +220,8 @@ class EmbeddedInsert(ToolWriterEmbeddedBase):
         if embed_name is not None and embed_name == "":
             return self._tool_error("name cannot be empty.", code="INVALID_PARAM", parameter="name")
 
+        # Deselect before insert_at_target resolves the target: target="selection" must see
+        # the cursor after the OLE anchor that deselect leaves, not the pre-deselect view cursor.
         deselect_err = _deselect_inplace_embed(ctx.doc, self)
         if deselect_err is not None:
             return deselect_err
