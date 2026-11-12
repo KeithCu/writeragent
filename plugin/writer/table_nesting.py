@@ -12,12 +12,8 @@ portions. Callers run on the UI thread: the read helper is @main_thread_only.
 """
 from typing import Any, Iterator
 
-from plugin.doc.text_helpers import get_string_without_tracked_deletions
-from plugin.framework.uno_context import enum_has_more
+from plugin.doc.text_helpers import FAILED, get_string_without_tracked_deletions, iter_elements
 from plugin.framework.errors import ToolExecutionError, uno_read
-
-# uno_read default for sites where None is a real UNO result.
-_FAILED: Any = object()
 
 
 def _service_named(obj: Any, name: str) -> bool:
@@ -50,22 +46,15 @@ def _container_xtext(obj: Any) -> Any | None:
     return uno_read(lambda: obj.getText(), None)
 
 
-def _safe_enumerate(obj: Any) -> Iterator[Any]:
-    """Yield elements from an object's XEnumeration, re-raising disposal."""
-    enum = uno_read(lambda: obj.createEnumeration(), None)
-    if enum is None:
-        return
-    while (element := uno_read(lambda: enum.nextElement() if enum_has_more(enum) else _FAILED, _FAILED)) is not _FAILED:
-        yield element
-
-
+# Each walk wraps createEnumeration in uno_read so a plain fake or covered cell,
+# which cannot enumerate, yields nothing; a disposed document still raises.
 def _iter_text_frames_in_para(para: Any) -> Iterator[Any]:
     """As-character TextFrames in *para* (portion property ``TextFrame``).
 
     Probed: a frame in a cell is not an XEnumeration sibling — the cell enum
     is only Paragraph; the frame hangs off a portion.
     """
-    for portion in _safe_enumerate(para):
+    for portion in iter_elements(uno_read(lambda: para.createEnumeration(), None)):
         frame = uno_read(lambda: portion.getPropertyValue("TextFrame"), None)
         if frame is not None:
             yield frame
@@ -79,7 +68,7 @@ def _iter_nested_tables(xtext: Any, *, into_containers: bool = True) -> Iterator
     the frame's own portions do not re-enter the same frame (UNO hands back a
     new proxy each time).
     """
-    for element in _safe_enumerate(xtext):
+    for element in iter_elements(uno_read(lambda: xtext.createEnumeration(), None)):
         if _is_text_table(element):
             yield element
             continue
@@ -97,7 +86,7 @@ def _iter_nested_tables(xtext: Any, *, into_containers: bool = True) -> Iterator
 
 def _host_paragraphs(cell: Any) -> Iterator[Any]:
     """Direct paragraph children of a host cell (frame text is a different XText)."""
-    for element in _safe_enumerate(cell):
+    for element in iter_elements(uno_read(lambda: cell.createEnumeration(), None)):
         if not _is_text_table(element) and _service_named(element, "com.sun.star.text.Paragraph"):
             yield element
 
@@ -124,10 +113,10 @@ def raise_if_range_hosts_nested_table(text_range: Any) -> None:
     def host_text() -> Any:
         text_obj = text_range.getText()
         cur = text_obj.createTextCursorByRange(text_range.getStart())
-        return _FAILED if cur.getPropertyValue("TextTable") is None else text_obj
+        return FAILED if cur.getPropertyValue("TextTable") is None else text_obj
 
-    text_obj = uno_read(host_text, _FAILED)
-    hosted = [] if text_obj is _FAILED else cell_hosted_table_names(text_obj)
+    text_obj = uno_read(host_text, FAILED)
+    hosted = [] if text_obj is FAILED else cell_hosted_table_names(text_obj)
     if not hosted:
         return
 

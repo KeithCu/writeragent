@@ -314,35 +314,20 @@ def _restore_fields_by_cursor(model: Any, text_obj: Any, nonce: str) -> int:
         if prefix not in plain:
             continue
 
-        try:
-            enum = xtext.createEnumeration()
-        except Exception as exc:
-            reraise_if_disposed(exc)
-            log.debug("_restore_fields_by_cursor createEnumeration failed: %s", exc)
-            continue
-
+        enum = uno_read(lambda: xtext.createEnumeration(), None)
+        # An unreadable paragraph is skipped and an unreadable portion ends that paragraph,
+        # while a disposed document still raises DocumentDisposedError. The outer arm
+        # keeps the hits already found when a cursor step fails.
         try:
             for para in iter_elements(enum):
-                try:
-                    portions = para.createEnumeration()
-                except Exception as exc:
-                    reraise_if_disposed(exc)
-                    continue
-                if portions is None:
-                    continue
+                portions = uno_read(lambda: para.createEnumeration(), None)
                 for portion in iter_elements(portions):
-                    try:
-                        kind = portion.getPropertyValue("TextPortionType")
-                    except Exception as exc:
-                        reraise_if_disposed(exc)
+                    kind = uno_read(lambda: portion.getPropertyValue("TextPortionType"), FAILED)
+                    if kind is FAILED:
                         break
                     if kind == "TextField":
                         continue
-                    try:
-                        chunk = portion.getString() or ""
-                    except Exception as exc:
-                        reraise_if_disposed(exc)
-                        chunk = ""
+                    chunk = uno_read(lambda: portion.getString() or "", "")
                     if not isinstance(chunk, str):
                         chunk = str(chunk)
                     for m in _FIELD_TOKEN_RE.finditer(chunk):

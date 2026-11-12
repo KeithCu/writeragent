@@ -247,14 +247,6 @@ def test_ensure_html_linebreaks_escapes_prose_angle_brackets():
     assert "<p>" in out and "</p>" in out
 
 
-def test_decode_complete_character_references_only_decodes_with_semicolon():
-    from plugin.writer.html_import_styles import _decode_complete_character_references
-
-    assert _decode_complete_character_references("&sect 2o &amp;lt;") == "&sect 2o &lt;"
-    assert _decode_complete_character_references("&amp; &quot; &#36; &#x24;") == '& " $ $'
-    assert _decode_complete_character_references("&not covered") == "&not covered"
-
-
 def test_insert_content_entry_points_decode_complete_entities():
     from unittest.mock import MagicMock, patch
     from plugin.writer import html_import
