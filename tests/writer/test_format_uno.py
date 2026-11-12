@@ -377,7 +377,7 @@ def test_cross_paragraph_same_length_replacement_preserves_colors(ctx, doc):
     # impress recycle still printed native_doc leftover writer reuse.
     # skip_windows_leftover_hidden_load did not fire. Sibling
     # test_same_length_replacement_preserves_colors passed on that
-    # reuse path — leftover body/findFirst pollution, not format.py.
+    # reuse path — leftover body/findFirst pollution, not html_import.py.
     # #809's \r\n color filter was not enough. Do not factory-load a
     # second Hidden _blank (34652644656 hung 30s at leftover_open=0).
     skip_windows_pooled_writer_reuse("format_uno cross-paragraph color pooled reuse")

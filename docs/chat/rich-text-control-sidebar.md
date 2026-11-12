@@ -234,7 +234,7 @@ Why not repaint per batch: a wipe-and-refill about 3 times a second built 3 hidd
 
 The stream appends the new suffix of an open row without stripping the row again. History reload is `paint_message_items`. `append_formatted_rows` is the turn-end tail. During direct copy from the hidden document, `element_skipped` marks a partially written element, whereas a not-yet-written element is inserted as its own visible text.
 
-Shared HTML import and theme: [`format.py`](../../plugin/writer/format.py) (`insert_html_fragment_at_cursor`), [`rich_text.py`](../../plugin/chatbot/rich_text.py) (`_append_rich_text_with_span`, `get_theme_colors`, `contains_html_tag`, sidebar list CSS via `_SIDEBAR_LIST_CSS`).
+Shared HTML import and theme: [`html_import.py`](../../plugin/writer/html_import.py) (`insert_html_fragment_at_cursor`), [`rich_text.py`](../../plugin/chatbot/rich_text.py) (`_append_rich_text_with_span`, `get_theme_colors`, `contains_html_tag`, sidebar list CSS via `_SIDEBAR_LIST_CSS`).
 
 ### Scroll behavior (follow the caret)
 

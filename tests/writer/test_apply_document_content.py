@@ -2,7 +2,7 @@
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""ApplyDocumentContent dry-run coverage. No LibreOffice."""
+"""ApplyDocumentContent tool coverage (plugin/writer/apply_document_content.py). No LibreOffice."""
 from typing import Any
 from unittest.mock import MagicMock, patch
 
@@ -157,7 +157,7 @@ def test_position_after_inserts_at_match_edge_without_replacing():
     styles, result carries inserted=true/position and NO replaced_count."""
     from unittest.mock import patch
 
-    from plugin.writer import html_import as format_support
+    from plugin.writer import html_import
     from plugin.writer.apply_document_content import ApplyDocumentContent
 
     found = MagicMock()
@@ -170,8 +170,8 @@ def test_position_after_inserts_at_match_edge_without_replacing():
 
     with patch("plugin.writer.search.find_first_range", return_value=found), \
          patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=None), \
-         patch.object(format_support, "html_fragment_contains_mixed_math", return_value=False), \
-         patch.object(format_support, "insert_html_at_cursor") as ins:
+         patch.object(html_import, "html_fragment_contains_mixed_math", return_value=False), \
+         patch.object(html_import, "insert_html_at_cursor") as ins:
         res = ApplyDocumentContent().execute(
             ctx, content=["<p>novo</p>"], target="search", old_content="clausula", position="after")
 
@@ -186,7 +186,7 @@ def test_position_after_inserts_at_match_edge_without_replacing():
 def test_position_before_inserts_at_match_start():
     from unittest.mock import patch
 
-    from plugin.writer import html_import as format_support
+    from plugin.writer import html_import
     from plugin.writer.apply_document_content import ApplyDocumentContent
 
     found = MagicMock()
@@ -196,8 +196,8 @@ def test_position_before_inserts_at_match_start():
     ctx.doc.getUndoManager.return_value.isLocked.return_value = False
     with patch("plugin.writer.search.find_first_range", return_value=found), \
          patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=None), \
-         patch.object(format_support, "html_fragment_contains_mixed_math", return_value=False), \
-         patch.object(format_support, "insert_html_at_cursor") as ins:
+         patch.object(html_import, "html_fragment_contains_mixed_math", return_value=False), \
+         patch.object(html_import, "insert_html_at_cursor") as ins:
         res = ApplyDocumentContent().execute(
             ctx, content=["<p>prefix</p>"], target="search", old_content="clause", position="before")
     assert res["status"] == "ok" and res["inserted"] is True and res["position"] == "before"
@@ -223,16 +223,16 @@ def test_position_after_block_opens_a_paragraph_after_the_matched_one():
     """#59: a block imported at the match end split "... EM DOBRO" mid-paragraph and glued the
     first block onto it. It must go into a fresh paragraph after the matched one, and the empty
     paragraph the import leaves behind must be removed."""
-    from plugin.writer import html_import as format_support
+    from plugin.writer import html_import
     from plugin.writer.apply_document_content import ApplyDocumentContent
 
     found, cursor = _next_to_match_found(at_paragraph_edge=False)
     ctx = _edit_ctx()
     with patch("plugin.writer.search.find_first_range", return_value=found), \
          patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=None), \
-         patch.object(format_support, "html_fragment_contains_mixed_math", return_value=False), \
-         patch.object(format_support, "insert_inline_at_cursor") as inline, \
-         patch.object(format_support, "insert_html_at_cursor") as ins:
+         patch.object(html_import, "html_fragment_contains_mixed_math", return_value=False), \
+         patch.object(html_import, "insert_inline_at_cursor") as inline, \
+         patch.object(html_import, "insert_html_at_cursor") as ins:
         res = ApplyDocumentContent().execute(
             ctx, content=["<p>NOVO A</p><p>NOVO B</p>"], target="search", old_content="EM", position="after")
 
@@ -248,14 +248,14 @@ def test_position_after_block_opens_a_paragraph_after_the_matched_one():
 
 
 def test_position_after_block_keeps_a_non_empty_paragraph_after_import():
-    from plugin.writer import html_import as format_support
+    from plugin.writer import html_import
     from plugin.writer.apply_document_content import ApplyDocumentContent
 
     found, cursor = _next_to_match_found(at_paragraph_edge=True, leftover="texto do usuario")
     with patch("plugin.writer.search.find_first_range", return_value=found), \
          patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=None), \
-         patch.object(format_support, "html_fragment_contains_mixed_math", return_value=False), \
-         patch.object(format_support, "insert_html_at_cursor"):
+         patch.object(html_import, "html_fragment_contains_mixed_math", return_value=False), \
+         patch.object(html_import, "insert_html_at_cursor"):
         res = ApplyDocumentContent().execute(
             _edit_ctx(), content=["<p>novo</p>"], target="search", old_content="fim.", position="after")
     assert res["status"] == "ok" and "snapped_to_paragraph" not in res
@@ -264,7 +264,7 @@ def test_position_after_block_keeps_a_non_empty_paragraph_after_import():
 
 def test_position_after_table_preserves_table():
     """Tip: stepping left from a paragraph following a table spans into the table; don't delete it."""
-    from plugin.writer import html_import as format_support
+    from plugin.writer import html_import
     from plugin.writer.apply_document_content import ApplyDocumentContent
 
     found, cursor = _next_to_match_found(at_paragraph_edge=False)
@@ -275,8 +275,8 @@ def test_position_after_table_preserves_table():
     ctx.doc.getTextTables.return_value.getCount.side_effect = [0, 1, 1]
     with patch("plugin.writer.search.find_first_range", return_value=found), \
          patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=None), \
-         patch.object(format_support, "html_fragment_contains_mixed_math", return_value=False), \
-         patch.object(format_support, "insert_html_at_cursor"):
+         patch.object(html_import, "html_fragment_contains_mixed_math", return_value=False), \
+         patch.object(html_import, "insert_html_at_cursor"):
         res = ApplyDocumentContent().execute(
             ctx, content=["<table><tr><td>Cell 1</td></tr></table>"],
             target="search", old_content="world", position="after")
@@ -288,7 +288,7 @@ def test_position_after_table_preserves_table():
 
 def test_table_insert_reports_failure_when_no_table_produced():
     """Tip: table insert must honestly report failure if table count did not increase."""
-    from plugin.writer import html_import as format_support
+    from plugin.writer import html_import
     from plugin.writer.apply_document_content import ApplyDocumentContent
 
     found, cursor = _next_to_match_found(at_paragraph_edge=False)
@@ -298,8 +298,8 @@ def test_table_insert_reports_failure_when_no_table_produced():
     ctx.doc.getTextTables.return_value.getCount.return_value = 0
     with patch("plugin.writer.search.find_first_range", return_value=found), \
          patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=None), \
-         patch.object(format_support, "html_fragment_contains_mixed_math", return_value=False), \
-         patch.object(format_support, "insert_html_at_cursor"):
+         patch.object(html_import, "html_fragment_contains_mixed_math", return_value=False), \
+         patch.object(html_import, "insert_html_at_cursor"):
         res = ApplyDocumentContent().execute(
             ctx, content=["<table><tr><td>Cell 1</td></tr></table>"],
             target="search", old_content="world", position="after")
@@ -310,14 +310,14 @@ def test_table_insert_reports_failure_when_no_table_produced():
 
 
 def test_position_before_block_goes_to_paragraph_start_without_a_break():
-    from plugin.writer import html_import as format_support
+    from plugin.writer import html_import
     from plugin.writer.apply_document_content import ApplyDocumentContent
 
     found, cursor = _next_to_match_found(at_paragraph_edge=False)
     with patch("plugin.writer.search.find_first_range", return_value=found), \
          patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=None), \
-         patch.object(format_support, "html_fragment_contains_mixed_math", return_value=False), \
-         patch.object(format_support, "insert_html_at_cursor") as ins:
+         patch.object(html_import, "html_fragment_contains_mixed_math", return_value=False), \
+         patch.object(html_import, "insert_html_at_cursor") as ins:
         res = ApplyDocumentContent().execute(
             _edit_ctx(), content=["<h2>Nova</h2>"], target="search", old_content="meio", position="before")
     assert res["status"] == "ok" and res["snapped_to_paragraph"] is True
@@ -328,15 +328,15 @@ def test_position_before_block_goes_to_paragraph_start_without_a_break():
 
 def test_position_before_inline_stays_at_the_exact_match_edge():
     """#59: plain text went through <p> wrapping and split the paragraph around the word."""
-    from plugin.writer import html_import as format_support
+    from plugin.writer import html_import
     from plugin.writer.apply_document_content import ApplyDocumentContent
 
     found, cursor = _next_to_match_found(at_paragraph_edge=False)
     with patch("plugin.writer.search.find_first_range", return_value=found), \
          patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=None), \
-         patch.object(format_support, "html_fragment_contains_mixed_math", return_value=False), \
-         patch.object(format_support, "insert_inline_at_cursor") as inline, \
-         patch.object(format_support, "insert_html_at_cursor") as ins:
+         patch.object(html_import, "html_fragment_contains_mixed_math", return_value=False), \
+         patch.object(html_import, "insert_inline_at_cursor") as inline, \
+         patch.object(html_import, "insert_html_at_cursor") as ins:
         res = ApplyDocumentContent().execute(
             _edit_ctx(), content=["bem "], target="search", old_content="inteiro.", position="before")
     assert res["status"] == "ok" and "snapped_to_paragraph" not in res
@@ -349,15 +349,15 @@ def test_position_before_inline_stays_at_the_exact_match_edge():
 def test_position_after_plain_text_with_line_breaks_is_block(content):
     """Plain text with line breaks on the inline path went in as manual line breaks glued onto
     the matched paragraph ("inteiro.Novo A\\n\\nNovo B")."""
-    from plugin.writer import html_import as format_support
+    from plugin.writer import html_import
     from plugin.writer.apply_document_content import ApplyDocumentContent
 
     found, _cursor = _next_to_match_found(at_paragraph_edge=True)
     with patch("plugin.writer.search.find_first_range", return_value=found), \
          patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=None), \
-         patch.object(format_support, "html_fragment_contains_mixed_math", return_value=False), \
-         patch.object(format_support, "insert_inline_at_cursor") as inline, \
-         patch.object(format_support, "insert_html_at_cursor") as ins:
+         patch.object(html_import, "html_fragment_contains_mixed_math", return_value=False), \
+         patch.object(html_import, "insert_inline_at_cursor") as inline, \
+         patch.object(html_import, "insert_html_at_cursor") as ins:
         res = ApplyDocumentContent().execute(
             _edit_ctx(), content=[content], target="search", old_content="inteiro.", position="after")
     assert res["status"] == "ok"
@@ -368,7 +368,7 @@ def test_position_after_plain_text_with_line_breaks_is_block(content):
 def test_position_after_rejects_math_and_table_cells():
     from unittest.mock import patch
 
-    from plugin.writer import html_import as format_support
+    from plugin.writer import html_import
     from plugin.writer.apply_document_content import ApplyDocumentContent
 
     ctx = MagicMock()
@@ -376,7 +376,7 @@ def test_position_after_rejects_math_and_table_cells():
 
     found = MagicMock()
     with patch("plugin.writer.search.find_first_range", return_value=found), \
-         patch.object(format_support, "html_fragment_contains_mixed_math", return_value=True):
+         patch.object(html_import, "html_fragment_contains_mixed_math", return_value=True):
         res = ApplyDocumentContent().execute(
             ctx, content=["<p>\\(x^2\\)</p>"], target="search", old_content="c", position="after")
     assert res["status"] == "error" and "math" in res["message"]
@@ -385,7 +385,7 @@ def test_position_after_rejects_math_and_table_cells():
     cell_cursor.getPropertyValue.return_value = MagicMock()  # TextTable set -> inside a cell
     found.getText.return_value.createTextCursorByRange.return_value = cell_cursor
     with patch("plugin.writer.search.find_first_range", return_value=found), \
-         patch.object(format_support, "html_fragment_contains_mixed_math", return_value=False):
+         patch.object(html_import, "html_fragment_contains_mixed_math", return_value=False):
         res = ApplyDocumentContent().execute(
             ctx, content=["<p>x</p>"], target="search", old_content="c", position="after")
     assert res["status"] == "error" and "table cell" in res["message"]
@@ -428,91 +428,6 @@ def test_apply_document_content_validate_accepts_string_or_array():
     assert ok is False
     assert err is not None and "Invalid type for content" in err
 
-
-
-def test_truncated_flag_on_get_document_content():
-    from unittest.mock import patch
-
-    from plugin.writer import html_export as format_support
-    from plugin.writer.get_document_content import GetDocumentContent
-
-    ctx = MagicMock()
-    ctx.services.document.get_document_length.return_value = 800
-    with patch.object(format_support, "document_to_content",
-                      return_value="<p>short</p>\n\n[... truncated ...]"):
-        res = GetDocumentContent().execute(ctx, max_chars=10)
-    assert res.get("truncated") is True
-    assert "scope='range'" in res.get("hint", "")
-    assert "document_length" in res.get("hint", "")
-    assert "next_range" not in res
-    with patch.object(format_support, "document_to_content", return_value="<p>all</p>"):
-        res = GetDocumentContent().execute(ctx, max_chars=10)
-    assert "truncated" not in res
-    assert "hint" not in res
-
-
-def test_get_document_content_surfaces_portion_walk_warning():
-    """Range/selection paint that hits _COPY_PORTION_LIMIT must not look complete."""
-    from unittest.mock import patch
-
-    from plugin.writer import html_export as format_support
-    from plugin.writer.get_document_content import GetDocumentContent
-
-    ctx = MagicMock()
-    ctx.services.document.get_document_length.return_value = 800
-
-    def _fake_export(*_args, **kwargs):
-        dest = kwargs.get("walk_warnings")
-        if dest is not None:
-            dest.append(
-                "Walk stopped after 2 text portions (cap 2). Later content was not read, "
-                "so formatting may be incomplete."
-            )
-            dest.append("Second walk warning.")
-        return "<p>partial</p>"
-
-    with patch.object(format_support, "document_to_content", side_effect=_fake_export):
-        res = GetDocumentContent().execute(ctx, scope="range", start=0, end=10)
-
-    assert res["status"] == "ok"
-    assert "incomplete" in res["warning"]
-    assert "Second walk warning." in res["warning"]
-
-
-def test_get_document_content_surfaces_tracked_changes():
-    from plugin.writer.get_document_content import GetDocumentContent
-
-    doc = MagicMock()
-    doc.getPropertyValue.return_value = True
-    redlines = MagicMock()
-    redlines.getCount.return_value = 2
-    rl1 = MagicMock()
-    rl1.getPropertyValue.side_effect = lambda prop: "Insert" if prop == "RedlineType" else None
-    rl2 = MagicMock()
-    rl2.getPropertyValue.side_effect = lambda prop: "Delete" if prop == "RedlineType" else None
-    enum = MagicMock()
-    enum.hasMoreElements.side_effect = [True, True, False]
-    enum.hasMoreElements.side_effect = [True, True, False]
-    enum.nextElement.side_effect = [rl1, rl2]
-    redlines.createEnumeration.return_value = enum
-    doc.getRedlines.return_value = redlines
-
-    ctx = MagicMock()
-    ctx.doc = doc
-    ctx.ctx = MagicMock()
-    ctx.services.get.return_value = MagicMock()
-    with patch("plugin.writer.tracking.redline_text", side_effect=["novo", "velho"]), \
-         patch("plugin.writer.html_export.document_to_content", return_value="body"):
-        res = GetDocumentContent().execute(ctx)
-    assert res["status"] == "ok"
-    assert res["tracked_changes"] == [
-        {"type": "insertion", "text": "novo"},
-        {"type": "deletion", "text": "velho"},
-    ]
-    assert res["tracked_changes_total"] == 2
-    assert "tracked_changes_note" in res
-    assert res["tracked_changes_note"]
-    assert "could not list" not in res.get("warning", "")
 
 
 @pytest.mark.parametrize("old, new, expected", [
@@ -613,7 +528,7 @@ def test_grow_over_edge_space_is_a_no_op_without_edges():
 
 
 def test_all_matches_hoists_plain_text_conversion():
-    from plugin.writer import html_import as format_support
+    from plugin.writer import html_import
     from plugin.writer.apply_document_content import ApplyDocumentContent
 
     ctx = _edit_ctx()
@@ -624,8 +539,8 @@ def test_all_matches_hoists_plain_text_conversion():
     with patch("plugin.writer.search.find_all_ranges", return_value=[r1, r2]), \
          patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=None), \
          patch("plugin.writer.apply_document_content.capture_outline_hyperlinks") as cap_links, \
-         patch.object(format_support, "plain_text_if_markup", return_value="hi") as mock_html_plain, \
-         patch.object(format_support, "replace_single_range_with_content", return_value=html_import_styles.WriteReport()):
+         patch.object(html_import, "plain_text_if_markup", return_value="hi") as mock_html_plain, \
+         patch.object(html_import, "replace_single_range_with_content", return_value=html_import_styles.WriteReport()):
         cap_links.return_value.links = []
         cap_links.return_value.preserve_url = None
         res = ApplyDocumentContent().execute(
@@ -639,7 +554,7 @@ def test_all_matches_hoists_plain_text_conversion():
 
 
 def test_search_replace_attaches_style_note_warning():
-    from plugin.writer import html_import as format_support
+    from plugin.writer import html_import
     from plugin.writer.apply_document_content import ApplyDocumentContent
     from tests.framework.suggested_call_access import assert_valid_suggested_call
 
@@ -656,7 +571,7 @@ def test_search_replace_attaches_style_note_warning():
          patch("plugin.writer.search.find_all_ranges", return_value=[post_range]), \
          patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=None), \
          patch("plugin.writer.apply_document_content.capture_outline_hyperlinks") as cap_links, \
-         patch.object(format_support, "replace_single_range_with_content", return_value=html_import_styles.WriteReport(style_skips=["STYLE_IGNORED_PARTIAL_MATCH"], style_tokens=["Heading2"])):
+         patch.object(html_import, "replace_single_range_with_content", return_value=html_import_styles.WriteReport(style_skips=["STYLE_IGNORED_PARTIAL_MATCH"], style_tokens=["Heading2"])):
         cap_links.return_value.links = []
         cap_links.return_value.preserve_url = None
         res = ApplyDocumentContent().execute(
@@ -689,7 +604,7 @@ def test_search_replace_attaches_style_note_warning():
     with patch("plugin.writer.search.find_first_range", return_value=found), \
          patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=None), \
          patch("plugin.writer.apply_document_content.capture_outline_hyperlinks") as cap_links, \
-         patch.object(format_support, "replace_single_range_with_content", return_value=html_import_styles.WriteReport()):
+         patch.object(html_import, "replace_single_range_with_content", return_value=html_import_styles.WriteReport()):
         cap_links.return_value.links = []
         cap_links.return_value.preserve_url = None
         res_no_warn = ApplyDocumentContent().execute(
@@ -701,7 +616,7 @@ def test_search_replace_attaches_style_note_warning():
 
 
 def test_all_matches_reports_skip_count_in_warning():
-    from plugin.writer import html_import as format_support
+    from plugin.writer import html_import
     from plugin.writer.apply_document_content import ApplyDocumentContent
     from tests.framework.suggested_call_access import assert_valid_suggested_call
 
@@ -724,8 +639,8 @@ def test_all_matches_reports_skip_count_in_warning():
     with patch("plugin.writer.search.find_all_ranges") as mock_find, \
          patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=None), \
          patch("plugin.writer.apply_document_content.capture_outline_hyperlinks") as cap_links, \
-         patch.object(format_support, "plain_text_if_markup", return_value="new"), \
-         patch.object(format_support, "replace_single_range_with_content", side_effect=side_effects):
+         patch.object(html_import, "plain_text_if_markup", return_value="new"), \
+         patch.object(html_import, "replace_single_range_with_content", side_effect=side_effects):
         mock_find.side_effect = [[r1, r2], [post1, post2]]
         cap_links.return_value.links = []
         cap_links.return_value.preserve_url = None
@@ -759,7 +674,7 @@ def test_all_matches_reports_skip_count_in_warning():
 
 
 def test_suggested_call_omitted_when_recording_changes():
-    from plugin.writer import html_import as format_support
+    from plugin.writer import html_import
     from plugin.writer.apply_document_content import ApplyDocumentContent
 
     ctx = _edit_ctx()
@@ -770,7 +685,7 @@ def test_suggested_call_omitted_when_recording_changes():
          patch("plugin.writer.record_changes.is_recording_changes", return_value=True), \
          patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=None), \
          patch("plugin.writer.apply_document_content.capture_outline_hyperlinks") as cap_links, \
-         patch.object(format_support, "replace_single_range_with_content", return_value=html_import_styles.WriteReport(style_skips=["STYLE_IGNORED_PARTIAL_MATCH"], style_tokens=["Heading2"])):
+         patch.object(html_import, "replace_single_range_with_content", return_value=html_import_styles.WriteReport(style_skips=["STYLE_IGNORED_PARTIAL_MATCH"], style_tokens=["Heading2"])):
         cap_links.return_value.links = []
         cap_links.return_value.preserve_url = None
         res = ApplyDocumentContent().execute(
@@ -784,7 +699,7 @@ def test_suggested_call_omitted_when_recording_changes():
 
 
 def test_suggested_call_omitted_when_style_unresolvable():
-    from plugin.writer import html_import as format_support
+    from plugin.writer import html_import
     from plugin.writer.apply_document_content import ApplyDocumentContent
 
     ctx = _edit_ctx()
@@ -798,7 +713,7 @@ def test_suggested_call_omitted_when_style_unresolvable():
     with patch("plugin.writer.search.find_first_range", return_value=found), \
          patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=None), \
          patch("plugin.writer.apply_document_content.capture_outline_hyperlinks") as cap_links, \
-         patch.object(format_support, "replace_single_range_with_content", return_value=html_import_styles.WriteReport(style_skips=["STYLE_IGNORED_PARTIAL_MATCH"], style_tokens=["UnknownStyle"])):
+         patch.object(html_import, "replace_single_range_with_content", return_value=html_import_styles.WriteReport(style_skips=["STYLE_IGNORED_PARTIAL_MATCH"], style_tokens=["UnknownStyle"])):
         cap_links.return_value.links = []
         cap_links.return_value.preserve_url = None
         res = ApplyDocumentContent().execute(
@@ -812,7 +727,7 @@ def test_suggested_call_omitted_when_style_unresolvable():
 
 
 def test_suggested_call_omitted_when_text_has_newlines():
-    from plugin.writer import html_import as format_support
+    from plugin.writer import html_import
     from plugin.writer.apply_document_content import ApplyDocumentContent
 
     ctx = _edit_ctx()
@@ -829,7 +744,7 @@ def test_suggested_call_omitted_when_text_has_newlines():
          patch("plugin.writer.search.find_all_ranges", return_value=[post_range]), \
          patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=None), \
          patch("plugin.writer.apply_document_content.capture_outline_hyperlinks") as cap_links, \
-         patch.object(format_support, "replace_single_range_with_content", return_value=html_import_styles.WriteReport(style_skips=["STYLE_IGNORED_PARTIAL_MATCH"], style_tokens=["Heading2"])):
+         patch.object(html_import, "replace_single_range_with_content", return_value=html_import_styles.WriteReport(style_skips=["STYLE_IGNORED_PARTIAL_MATCH"], style_tokens=["Heading2"])):
         cap_links.return_value.links = []
         cap_links.return_value.preserve_url = None
         res = ApplyDocumentContent().execute(
@@ -843,7 +758,7 @@ def test_suggested_call_omitted_when_text_has_newlines():
 
 
 def test_suggested_call_omitted_for_selection_target():
-    from plugin.writer import html_import as format_support
+    from plugin.writer import html_import
     from plugin.writer.apply_document_content import ApplyDocumentContent
 
     ctx = _edit_ctx()
@@ -853,7 +768,7 @@ def test_suggested_call_omitted_for_selection_target():
     ctx.doc.getStyleFamilies.return_value.getByName.return_value = fam
 
     with patch("plugin.writer.apply_document_content.selection_anchor", return_value=None), \
-         patch.object(format_support, "insert_content_at_position", return_value=html_import_styles.WriteReport(style_skips=["STYLE_IGNORED_PARTIAL_MATCH"], style_tokens=["Heading2"])):
+         patch.object(html_import, "insert_content_at_position", return_value=html_import_styles.WriteReport(style_skips=["STYLE_IGNORED_PARTIAL_MATCH"], style_tokens=["Heading2"])):
         res = ApplyDocumentContent().execute(
             ctx, content='<p data-lo-style="Heading2">new</p>', target="selection"
         )
@@ -865,7 +780,7 @@ def test_suggested_call_omitted_for_selection_target():
 
 
 def test_suggested_call_omitted_when_post_match_count_mismatches():
-    from plugin.writer import html_import as format_support
+    from plugin.writer import html_import
     from plugin.writer.apply_document_content import ApplyDocumentContent
 
     ctx = _edit_ctx()
@@ -882,7 +797,7 @@ def test_suggested_call_omitted_when_post_match_count_mismatches():
          patch("plugin.writer.search.find_all_ranges", return_value=[m1, m2]), \
          patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=None), \
          patch("plugin.writer.apply_document_content.capture_outline_hyperlinks") as cap_links, \
-         patch.object(format_support, "replace_single_range_with_content", return_value=html_import_styles.WriteReport(style_skips=["STYLE_IGNORED_PARTIAL_MATCH"], style_tokens=["Heading2"])):
+         patch.object(html_import, "replace_single_range_with_content", return_value=html_import_styles.WriteReport(style_skips=["STYLE_IGNORED_PARTIAL_MATCH"], style_tokens=["Heading2"])):
         cap_links.return_value.links = []
         cap_links.return_value.preserve_url = None
         res = ApplyDocumentContent().execute(
@@ -1068,15 +983,15 @@ def test_edge_spaces_with_use_preserve():
 
 
 def test_position_after_string_with_backslash_is_not_block():
-    from plugin.writer import html_import as format_support
+    from plugin.writer import html_import
     from plugin.writer.apply_document_content import ApplyDocumentContent
 
     found, cursor = _next_to_match_found(at_paragraph_edge=False)
     with patch("plugin.writer.search.find_first_range", return_value=found), \
          patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=None), \
-         patch.object(format_support, "html_fragment_contains_mixed_math", return_value=False), \
-         patch.object(format_support, "insert_inline_at_cursor") as inline, \
-         patch.object(format_support, "insert_html_at_cursor") as ins:
+         patch.object(html_import, "html_fragment_contains_mixed_math", return_value=False), \
+         patch.object(html_import, "insert_inline_at_cursor") as inline, \
+         patch.object(html_import, "insert_html_at_cursor") as ins:
         res = ApplyDocumentContent().execute(
             _edit_ctx(), content="<b>C:\\new</b>", target="search", old_content="inteiro.", position="after"
         )
@@ -1087,13 +1002,13 @@ def test_position_after_string_with_backslash_is_not_block():
 
 
 def test_target_end_entity_decoded_proposed_preview():
-    from plugin.writer import html_import as format_support
+    from plugin.writer import html_import
     from plugin.writer.apply_document_content import ApplyDocumentContent
     from plugin.writer.edit_review import EditReviewSession
 
     ctx = _edit_ctx()
     with patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=None), \
-         patch.object(format_support, "insert_content_at_position", return_value=html_import_styles.WriteReport()), \
+         patch.object(html_import, "insert_content_at_position", return_value=html_import_styles.WriteReport()), \
          patch.object(EditReviewSession, "record_mutation", return_value=html_import_styles.WriteReport()) as mock_record:
         res = ApplyDocumentContent().execute(
             ctx, target="end", content="&lt;b&gt;hi&lt;/b&gt;"
@@ -1395,229 +1310,6 @@ def test_outline_undo_propagates_disposed_document():
     mgr.undo.assert_called_once()
 
 
-def test_get_document_content_warns_when_redlines_are_not_listed():
-    from plugin.writer.get_document_content import GetDocumentContent
-
-    doc = MagicMock()
-    redlines = MagicMock()
-    redlines.getCount.return_value = 2
-    redlines.createEnumeration.return_value.hasMoreElements.return_value = True
-    redlines.createEnumeration.return_value.nextElement.side_effect = RuntimeError("boom")
-    doc.getRedlines.return_value = redlines
-    ctx = MagicMock()
-    ctx.doc = doc
-    ctx.services.document.get_document_length.return_value = 10
-    with patch("plugin.writer.html_export.document_to_content", return_value="<p>body</p>"):
-        res = GetDocumentContent().execute(ctx)
-    assert res["status"] == "ok"
-    assert "tracked_changes" not in res
-    assert "could not list tracked changes" in res["warning"]
-    assert "do not accept or reject" in res["warning"]
-
-
-def test_format_only_redlines_are_reported_without_a_listing_failure():
-    from plugin.writer.get_document_content import GetDocumentContent
-
-    doc = MagicMock()
-    redlines = MagicMock()
-    redlines.getCount.return_value = 1
-    rl = MagicMock()
-    rl.getPropertyValue.side_effect = lambda prop: "Format" if prop == "RedlineType" else None
-    enum = MagicMock()
-    enum.hasMoreElements.side_effect = [True, False]
-    enum.nextElement.return_value = rl
-    redlines.createEnumeration.return_value = enum
-    doc.getRedlines.return_value = redlines
-
-    ctx = MagicMock()
-    ctx.doc = doc
-    ctx.services.document.get_document_length.return_value = 10
-    with patch("plugin.writer.html_export.document_to_content", return_value="<p>body</p>"):
-        res = GetDocumentContent().execute(ctx)
-    assert res["status"] == "ok"
-    assert res.get("tracked_changes_total") == 1
-    assert "tracked_changes" not in res
-    assert "formatting" in res.get("tracked_changes_note", "")
-    assert "could not list" not in res.get("warning", "")
-
-
-def test_redline_cap_reports_truncation(monkeypatch):
-    import plugin.writer.get_document_content as gdc
-    from plugin.writer.get_document_content import GetDocumentContent, _summarize_redlines
-
-    doc = MagicMock()
-    redlines = MagicMock()
-    redlines.getCount.return_value = 2
-    rl1 = MagicMock()
-    rl1.getPropertyValue.side_effect = lambda prop: "Insert" if prop == "RedlineType" else None
-    rl2 = MagicMock()
-    rl2.getPropertyValue.side_effect = lambda prop: "Insert" if prop == "RedlineType" else None
-    enum = MagicMock()
-    enum.hasMoreElements.side_effect = [True, True, False]
-    enum.hasMoreElements.side_effect = [True, True, False]
-    enum.nextElement.side_effect = [rl1, rl2]
-    redlines.createEnumeration.return_value = enum
-    doc.getRedlines.return_value = redlines
-
-    monkeypatch.setattr(gdc, "_MAX_TRACKED_CHANGES", 1)
-    with patch("plugin.writer.tracking.redline_text", side_effect=["one", "two"]):
-        changes, found, total, reliable, truncated = _summarize_redlines(doc)
-    assert len(changes) == 1
-    assert found == 2
-    assert total == 2
-    assert reliable is True
-    assert truncated is True
-
-    enum.hasMoreElements.side_effect = [True, True, False]
-    enum.nextElement.side_effect = [rl1, rl2]
-    ctx = MagicMock()
-    ctx.doc = doc
-    ctx.services.document.get_document_length.return_value = 10
-    with patch("plugin.writer.tracking.redline_text", side_effect=["one", "two"]), \
-         patch("plugin.writer.html_export.document_to_content", return_value="<p>body</p>"):
-        res = GetDocumentContent().execute(ctx)
-    assert res.get("tracked_changes_truncated") is True
-
-
-def test_inserted_image_redline_without_text_is_not_truncated():
-    from plugin.writer.get_document_content import GetDocumentContent
-
-    doc = MagicMock()
-    redlines = MagicMock()
-    redlines.getCount.return_value = 2
-    rl1 = MagicMock()
-    rl1.getPropertyValue.side_effect = lambda prop: "Insert" if prop == "RedlineType" else None
-    rl2 = MagicMock()
-    rl2.getPropertyValue.side_effect = lambda prop: "Insert" if prop == "RedlineType" else None
-    enum = MagicMock()
-    enum.hasMoreElements.side_effect = [True, True, False]
-    enum.hasMoreElements.side_effect = [True, True, False]
-    enum.nextElement.side_effect = [rl1, rl2]
-    redlines.createEnumeration.return_value = enum
-    doc.getRedlines.return_value = redlines
-
-    ctx = MagicMock()
-    ctx.doc = doc
-    ctx.services.document.get_document_length.return_value = 10
-    with patch("plugin.writer.tracking.redline_text", side_effect=["", ""]), \
-         patch("plugin.writer.html_export.document_to_content", return_value="<p>body</p>"):
-        res = GetDocumentContent().execute(ctx)
-    assert "tracked_changes_truncated" not in res
-    assert "insertion/deletion change(s) are listed" not in res.get("tracked_changes_note", "")
-
-
-def test_range_rejects_invalid_bounds_and_max_chars():
-    from plugin.writer.get_document_content import GetDocumentContent
-
-    ctx = MagicMock()
-    tool = GetDocumentContent()
-    with patch("plugin.writer.html_export.document_to_content") as mock_dtc:
-        for kwargs in [
-            {"scope": "range", "start": 5, "end": 5},
-            {"scope": "range", "start": -1, "end": 5},
-            {"max_chars": 0},
-            {"max_chars": -5},
-        ]:
-            res = tool.execute(ctx, **kwargs)
-            assert res["status"] == "error"
-            assert mock_dtc.call_count == 0
-
-
-def test_range_result_reports_the_offsets_it_read():
-    from plugin.writer.get_document_content import GetDocumentContent
-
-    ctx = MagicMock()
-    ctx.services.document.get_document_length.return_value = 100
-    with patch("plugin.writer.html_export.document_to_content", return_value="<p>slice</p>") as mock_dtc:
-        res = GetDocumentContent().execute(ctx, scope="range", start=2, end=4)
-    assert res["status"] == "ok"
-    assert res["start"] == 2 and res["end"] == 4
-    assert mock_dtc.call_args.kwargs["range_start"] == 2
-    assert mock_dtc.call_args.kwargs["range_end"] == 4
-
-
-def test_range_scope_without_both_offsets_is_an_error():
-    from plugin.writer.get_document_content import GetDocumentContent
-
-    ctx = MagicMock()
-    with patch("plugin.writer.html_export.document_to_content") as mock_dtc:
-        for kwargs in ({"scope": "range"}, {"scope": "range", "start": 2}, {"scope": "range", "end": 4}):
-            res = GetDocumentContent().execute(ctx, **kwargs)
-            assert res["status"] == "error"
-            assert res["message"] == "scope 'range' requires integer start and end."
-    mock_dtc.assert_not_called()
-
-
-@pytest.mark.parametrize(
-    "args, message",
-    [
-        ({"scope": "whole"}, "Invalid value for scope: 'whole'. Valid options: full, selection, range"),
-        ({"max_chars": True}, "Invalid type for max_chars: expected integer, got bool"),
-        ({"scope": "range", "start": "2", "end": 4}, "Invalid type for start: expected integer, got str"),
-    ],
-)
-def test_get_document_content_wrong_arguments_are_rejected_before_execute(args, message):
-    from types import SimpleNamespace
-
-    from plugin.framework.tool import prepare_tool_call
-    from plugin.writer.get_document_content import GetDocumentContent
-
-    ctx = SimpleNamespace(doc_type="writer", caller="test")
-    prep = prepare_tool_call(GetDocumentContent(), ctx, "get_document_content", args)
-    assert prep.error is not None
-    assert prep.error["code"] == "VALIDATION_ERROR"
-    assert prep.error["message"] == message
-
-
-def test_selection_with_no_content_warns():
-    from plugin.writer.get_document_content import GetDocumentContent
-
-    ctx = MagicMock()
-    ctx.services.document.get_document_length.return_value = 100
-    with patch("plugin.writer.html_export.document_to_content", return_value=""):
-        res = GetDocumentContent().execute(ctx, scope="selection")
-    assert res["status"] == "ok"
-    assert "does not mean the document is empty" in res.get("warning", "")
-
-
-def test_schema_documents_plain_text_offsets():
-    from plugin.writer.get_document_content import GetDocumentContent
-
-    tool = GetDocumentContent()
-    start_desc = tool.parameters["properties"]["start"]["description"]
-    assert "Plain-text" in start_desc
-    assert "document_length" in start_desc
-    assert "tracked_changes_total" in tool.description
-
-
-def test_document_length_zero_warns():
-    from plugin.writer.get_document_content import GetDocumentContent
-
-    ctx = MagicMock()
-    ctx.services.document.get_document_length.return_value = 0
-    with patch("plugin.writer.html_export.document_to_content", return_value="<p>x</p>"):
-        res = GetDocumentContent().execute(ctx)
-    assert "document_length came back 0" in res.get("warning", "")
-
-    with patch("plugin.writer.html_export.document_to_content", return_value=""):
-        res = GetDocumentContent().execute(ctx)
-    assert "document_length came back 0" not in res.get("warning", "")
-
-
-def test_get_document_content_redline_read_reraises_disposed():
-    from plugin.framework.errors import DocumentDisposedError
-    from plugin.writer.get_document_content import GetDocumentContent
-
-    doc = MagicMock()
-    doc.getRedlines.side_effect = type("DisposedException", (Exception,), {})("gone")
-    ctx = MagicMock()
-    ctx.doc = doc
-    ctx.services.document.get_document_length.return_value = 10
-    with patch("plugin.writer.html_export.document_to_content", return_value="<p>body</p>"):
-        with pytest.raises(DocumentDisposedError):
-            GetDocumentContent().execute(ctx)
-
-
 def test_shape_edit_refuses_without_undo_context():
     from plugin.writer.apply_document_content import ApplyDocumentContent
 
@@ -1821,15 +1513,15 @@ def test_all_matches_outline_update_failure_reports_hyperlink_code():
 
 
 def test_position_after_cell_probe_reraises_disposed():
-    from plugin.writer import html_import as format_support
+    from plugin.writer import html_import
     from plugin.writer.apply_document_content import ApplyDocumentContent
 
     found, cursor = _next_to_match_found(at_paragraph_edge=False)
     cursor.getPropertyValue.side_effect = type("DisposedException", (Exception,), {})("gone")
     with patch("plugin.writer.search.find_first_range", return_value=found), \
          patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=None), \
-         patch.object(format_support, "html_fragment_contains_mixed_math", return_value=False), \
-         patch.object(format_support, "insert_html_at_cursor") as ins:
+         patch.object(html_import, "html_fragment_contains_mixed_math", return_value=False), \
+         patch.object(html_import, "insert_html_at_cursor") as ins:
         with pytest.raises(Exception) as exc_info:
             ApplyDocumentContent().execute(
                 _edit_ctx(), content=["<p>x</p>"], target="search", old_content="c", position="after")
@@ -2064,15 +1756,15 @@ def test_search_replace_table_insert_fails_when_the_doc_already_has_a_table():
 
 
 def test_position_before_table_insert_reports_failure():
-    from plugin.writer import html_import as format_support
+    from plugin.writer import html_import
 
     found, _cursor = _next_to_match_found(at_paragraph_edge=False)
     ctx = _edit_ctx()
     ctx.doc.getTextTables.return_value.getCount.return_value = 0
     with patch("plugin.writer.search.find_first_range", return_value=found), \
          patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=None), \
-         patch.object(format_support, "html_fragment_contains_mixed_math", return_value=False), \
-         patch.object(format_support, "insert_html_at_cursor"):
+         patch.object(html_import, "html_fragment_contains_mixed_math", return_value=False), \
+         patch.object(html_import, "insert_html_at_cursor"):
         res = ApplyDocumentContent().execute(
             ctx, content="<table><tr><td>Cell 1</td></tr></table>",
             target="search", old_content="world", position="before")

@@ -1,6 +1,6 @@
 # PM & Development Plan: Semantic Style Models in HTML
 
-**Status:** v1 **implemented** (read/write `data-lo-style` in [`format.py`](../../plugin/writer/format.py) + [`xhtml_style_postprocess.py`](../../plugin/writer/xhtml_style_postprocess.py)). Post-v1 performance path documented below.
+**Status:** v1 **implemented** (read in [`html_export.py`](../../plugin/writer/html_export.py) / write in [`html_import_styles.py`](../../plugin/writer/html_import_styles.py) + [`xhtml_style_postprocess.py`](../../plugin/writer/xhtml_style_postprocess.py)). Post-v1 performance path documented below.
 
 ## Problem Statement
 
@@ -58,7 +58,7 @@ Two phases solve different problems. **v1** fixes read→write→read idempotenc
 
 **Why flat ODF:** Probe B showed UNO still has `ParaStyleName = Caption` after write, but XHTML re-export emits autostyle `paragraph-P1` with no `.paragraph-Caption` rule — string-only XHTML post-process cannot recover the token. Flat ODF keeps `style:parent-style-name` on automatic styles; the autostyle name `Pn` is identical in both exports. Probe C ruled out symmetric **XHTML Writer File** import on write (0 body paragraphs inserted on test LO build).
 
-**Entry points (v1):** [`document_to_content()`](../../plugin/writer/html_export.py) calls `_export_xhtml` + `_autostyle_parents`, then `xhtml_to_semantic_html(xhtml, parents)`. Write path in [`html_import.py`](../../plugin/writer/html_import.py): `extract_block_lo_styles` → StarWriter import → `apply_block_lo_styles`. Search text is this pure function, and the write path is still StarWriter. Callers import from `plugin.writer.html_export`.
+**Entry points (v1):** [`document_to_content()`](../../plugin/writer/html_export.py) calls `_export_xhtml` + `_autostyle_maps`, then `xhtml_to_semantic_html(xhtml, parents)`. Write path in [`html_import.py`](../../plugin/writer/html_import.py): `extract_block_lo_styles` → StarWriter import → `apply_block_lo_styles`. Search text is this pure function, and the write path is still StarWriter. Callers import from `plugin.writer.html_export`.
 
 **v1 cost:** Two full `storeToURL` exports on every `get_document_content(scope=full)` (XHTML + FODT). Acceptable for correctness; **not** the long-doc architecture.
 
@@ -76,7 +76,7 @@ LibreOffice has **no filter** for “styles only.” Any `storeToURL` path (XHTM
 **Recommended shape:**
 
 1. **Cached UNO paragraph style index** — one `text.createEnumeration()` pass per document revision: top-level block index → compact token via `ParaStyleName` + `compact_lo_style_name()`. Cache invalidated on `document:cache_invalidated` (same pattern as [`TreeService`](../../plugin/writer/tree.py)). Cost: O(paragraphs) RPC, **no filter pipeline**.
-2. **Scoped HTML export** — agent uses `get_document_content(scope=range)` (existing [`_range_to_content_via_temp_doc`](../../plugin/writer/format.py) already copies `ParaStyleName` into temp docs). Merge styles from the index for that para range only.
+2. **Scoped HTML export** — agent uses `get_document_content(scope=range)` (existing [`_range_to_content_via_temp_doc`](../../plugin/writer/html_export.py) already copies `ParaStyleName` into temp docs). Merge styles from the index for that para range only.
 3. **Navigation first** — `get_document_tree`, `search_in_document`, `nav_heading_children` before full reads ([`lo-dom-semantic-tree.md`](lo-dom-semantic-tree.md), [`../chat/multi-document-dev-plan.md`](../chat/multi-document-dev-plan.md)).
 
 **Why UNO index is better than FODT sidecar for scale:** Probe B proved UNO `ParaStyleName` stays correct when XHTML export lies. The sidecar fixes the same gap via export strings (v1 purity bet); UNO is lighter and more authoritative for **paragraph names only**.
@@ -154,13 +154,13 @@ See **Phase 0: Filter probe** at the bottom of this doc for the active probe wor
 
 ## Phase 1: Update the Read Path (`get_document_content`)
 
-*Target files:* [`plugin/writer/format.py`](../../plugin/writer/format.py) (imported elsewhere as `format_support`), new [`plugin/writer/xhtml_style_postprocess.py`](../../plugin/writer/xhtml_style_postprocess.py) (pure string/CSS — no UNO).
+*Target files:* [`plugin/writer/html_export.py`](../../plugin/writer/html_export.py), new [`plugin/writer/xhtml_style_postprocess.py`](../../plugin/writer/xhtml_style_postprocess.py) (pure string/CSS — no UNO).
 
 **Pipeline (order matters):**
 
 1. **Export (read path only):** Switch `document_to_content()` / `_range_to_content_via_temp_doc()` from `HTML (StarWriter)` to `XHTML Writer File`. Keep `HTML (StarWriter)` for **import** until Phase 2 applies styles via UNO after insert.
 
-1b. **Embedded images (optional):** XHTML export inlines graphics as `data:image/...;base64,...`. `get_document_content` accepts **`include_images`** (default `false`); when false, [`strip_embedded_image_data()`](../../plugin/writer/format.py) removes base64 payloads after post-processing. External `<img src="...">` URLs are unchanged. Either way, [`shorten_outline_anchor_ids()`](../../plugin/writer/html_export.py) renames LibreOffice's heading outline anchors (`<a id="a__…">`) longer than 200 characters to `a__<crc32>`, together with any `href="#…"` that points to them. The export names those anchors after the heading text, and a picture anchored in the heading put its whole base64 into the id (40-65 KB per heading).
+1b. **Embedded images (optional):** XHTML export inlines graphics as `data:image/...;base64,...`. `get_document_content` accepts **`include_images`** (default `false`); when false, [`strip_embedded_image_data()`](../../plugin/writer/html_export.py) removes base64 payloads after post-processing. External `<img src="...">` URLs are unchanged. Either way, [`shorten_outline_anchor_ids()`](../../plugin/writer/html_export.py) renames LibreOffice's heading outline anchors (`<a id="a__…">`) longer than 200 characters to `a__<crc32>`, together with any `href="#…"` that points to them. The export names those anchors after the heading text, and a picture anchored in the heading put its whole base64 into the id (40-65 KB per heading).
 
 2. **Parse `<style>` block:** Build `class → declaration` map for `.text-*` and `.paragraph-*`. Normalize whitespace for fingerprint comparison.
 
@@ -199,7 +199,7 @@ See **Phase 0: Filter probe** at the bottom of this doc for the active probe wor
 
 After probe C failed, v1 adds a second export on every read (full document and range-via-temp-doc):
 
-1. **Second export:** Same document via filter `OpenDocument Text Flat XML` ([`_autostyle_parents()`](../../plugin/writer/format.py)).
+1. **Second export:** Same document via filter `OpenDocument Text Flat XML` ([`_autostyle_maps()`](../../plugin/writer/html_export.py)).
 2. **Parse map:** [`parse_fodt_autostyles()`](../../plugin/writer/xhtml_style_postprocess.py) scans `style:style` elements with `style:family="paragraph"`; for automatic names matching `P\d+`, record `Pn → style:parent-style-name` (ODF-encoded parent names decoded at use).
 3. **Join to XHTML:** In `_paragraph_token()`, when the block class is `paragraph-Pn`, look up `Pn` in the map and emit `compact_lo_style_name(decode(parent))`. **No block-index walk** — the join is by autostyle name only, so tables and nested structure cannot desync it.
 4. **Fallback:** If FODT export fails, map is `{}` and CSS fingerprint matching applies (same as pre-1b). If still ambiguous, omit `data-lo-style`.
@@ -210,7 +210,7 @@ FODT fixes probe B (write→read style **name** recovery). It does **not** repla
 
 ## Phase 2: Update the Write Path (`apply_document_content`)
 
-*Target file:* [`plugin/writer/format.py`](../../plugin/writer/format.py)
+*Target file:* [`plugin/writer/html_import.py`](../../plugin/writer/html_import.py) + [`plugin/writer/html_import_styles.py`](../../plugin/writer/html_import_styles.py)
 
 StarWriter HTML import does not understand `data-lo-style`. Write path:
 
@@ -296,7 +296,7 @@ These are intentional trade-offs in v1. Tests document the behavior ([`test_xhtm
 
 ## Phase 4: Long-term — UNO style index (post-v1)
 
-*Target files:* new helper (e.g. `plugin/writer/paragraph_style_index.py`), [`plugin/writer/format.py`](../../plugin/writer/format.py), optional [`plugin/writer/tree.py`](../../plugin/writer/tree.py).
+*Target files:* new helper (e.g. `plugin/writer/paragraph_style_index.py`), [`plugin/writer/html_export.py`](../../plugin/writer/html_export.py), optional [`plugin/writer/tree.py`](../../plugin/writer/tree.py).
 
 1. **Build index:** Single enumeration of top-level text content; record `ParaStyleName` per block index; compact tokens; cache per doc key until invalidation.
 2. **Merge on read:** `xhtml_to_semantic_html` (or caller) fills `data-lo-style` from index when XHTML omits; use index alone for range reads instead of second full FODT export.

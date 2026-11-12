@@ -287,7 +287,7 @@ with that (as in **Current scope** above).
 
 `WriterStreamedRewriteSession` / `WriterStreamedAppendSession` ([`edit_review.py`](../../plugin/writer/edit_review.py))
 collapse to one redline but do not use `deletion_author()` on the delete half of a rewrite. Match
-the `format.py` split-author pattern so by-author coloring distinguishes insertions and deletions.
+the `html_import.py` split-author pattern (`_deletion_author`) so by-author coloring distinguishes insertions and deletions.
 
 ### Inline review polish
 

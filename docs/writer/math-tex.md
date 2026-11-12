@@ -14,7 +14,7 @@ Canonical design and execution reference for **editable math** in WriterAgent: H
 | **Phase 3** (robustness) | **Not started** | See [Phase 3](#phase-3-robustness-and-quality). |
 | **MathML → LaTeX export** | **Done** (core) | StarMath → LO filter ``MathML XML (Math)`` → vendored **`mathml-to-latex`**; enumerator + splice into `document_to_content` / chat. Not a bit-identical TeX round-trip. Edit-in-place tool still backlog. |
 
-**Shipped modules (WriterAgent):** `plugin/writer/math/html_math_segment.py` (MathML + TeX segmentation), `plugin/writer/math/math_mml_convert.py` (MathML + LaTeX→MathML→StarMath, OLE insert), `plugin/writer/math/math_mml_export.py` (StarMath→MathML→LaTeX), `plugin/writer/math/latex_dialog.py` (LaTeX dialog); orchestration in `format.py` / `html_export.py` (`html_fragment_contains_mixed_math`, `content_has_markup` TeX patterns), `plugin/writer/math/math_mml_export.py` (`inject_exported_math_tex`); trusted SymPy helpers (`symbolic_math` tool, Run Python Script **[Math]**) insert via `plugin/scripting/symbolic.py` (`insert_symbolic_result_into_writer`) → `convert_latex_to_starmath` → `insert_writer_math_formula`; vendored **`latex2mathml`** and **`mathml-to-latex`** via `requirements-vendor.txt` (see `pyproject.toml` dev group for typecheck); tests under `tests/` (including collocated `*_uno.py`); agent context in `AGENTS.md`; model hints in `plugin/framework/prompts.py` (`WRITER_APPLY_DOCUMENT_HTML_RULES`) and `plugin/writer/apply_document_content.py` (`ApplyDocumentContent`).
+**Shipped modules (WriterAgent):** `plugin/writer/math/html_math_segment.py` (MathML + TeX segmentation), `plugin/writer/math/math_mml_convert.py` (MathML + LaTeX→MathML→StarMath, OLE insert), `plugin/writer/math/math_mml_export.py` (StarMath→MathML→LaTeX), `plugin/writer/math/latex_dialog.py` (LaTeX dialog); orchestration in `html_import.py` (`html_fragment_contains_mixed_math`, `content_has_markup` TeX patterns), `plugin/writer/math/math_mml_export.py` (`inject_exported_math_tex`); trusted SymPy helpers (`symbolic_math` tool, Run Python Script **[Math]**) insert via `plugin/scripting/symbolic.py` (`insert_symbolic_result_into_writer`) → `convert_latex_to_starmath` → `insert_writer_math_formula`; vendored **`latex2mathml`** and **`mathml-to-latex`** via `requirements-vendor.txt` (see `pyproject.toml` dev group for typecheck); tests under `tests/` (including collocated `*_uno.py`); agent context in `AGENTS.md`; model hints in `plugin/framework/prompts.py` (`WRITER_APPLY_DOCUMENT_HTML_RULES`) and `plugin/writer/apply_document_content.py` (`ApplyDocumentContent`).
 
 **Next priorities (pick from):** Phase 3 quality; Phase 1 backlog (test matrix, reviewer examples); optional `"".join` for `apply_document_content` list `content`; policy for true multi-line / `mtable` vs global `newline` stripping; trim DEBUG logging; upstream LO Writer OLE + `newline` rendering; optional KaTeX annotation fallback; TexMaths-inspired UX/interop ([TexMaths feature review](#texmaths-feature-review-porting-candidates)); dedicated `get_math_in_range` / replace-in-place edit loop.
 
@@ -84,7 +84,7 @@ The task is **detect math islands inside HTML**, then convert through a math-awa
 
 ### Why this fits WriterAgent
 
-Math is a **specialized preprocessor** in front of `format.py` HTML import — not a rewrite of the whole stack. Math has its own representation, failure modes, and insertion semantics (see also [specialized-toolsets.md](specialized-toolsets.md); equations ship on core `apply_document_content`, not a separate specialized domain).
+Math is a **specialized preprocessor** in front of `html_import.py` HTML import — not a rewrite of the whole stack. Math has its own representation, failure modes, and insertion semantics (see also [specialized-toolsets.md](specialized-toolsets.md); equations ship on core `apply_document_content`, not a separate specialized domain).
 
 ### External references (research)
 
@@ -250,7 +250,7 @@ Support the most structured and realistic first wave of HTML math inputs.
 | MathML → StarMath; LaTeX → MathML (`latex2mathml`) → StarMath; `newline` mitigation; OLE insert | [`plugin/writer/math/math_mml_convert.py`](../../plugin/writer/math/math_mml_convert.py) |
 | MathML / LaTeX export | [`plugin/writer/math/math_mml_export.py`](../../plugin/writer/math/math_mml_export.py) |
 | LaTeX dialog | [`plugin/writer/math/latex_dialog.py`](../../plugin/writer/math/latex_dialog.py) |
-| HTML + math orchestration, `content_has_markup` (`<math`, `$$`, `\(`, `\[`) | [`plugin/writer/format.py`](../../plugin/writer/format.py) |
+| HTML + math orchestration, `content_has_markup` (`<math`, `$$`, `\(`, `\[`) | [`plugin/writer/html_import.py`](../../plugin/writer/html_import.py) |
 | Chat / tool text for `apply_document_content` | [`plugin/framework/prompts.py`](../../plugin/framework/prompts.py) (`WRITER_APPLY_DOCUMENT_HTML_RULES`: prompt recommends inline `\\(...\\)` only, no longer forbids `$`; `content_needs_html_import` routes a complete `$…$` on tag-less content; parser also accepts display delimiters `$...$`, `$$...$$`, `\\[...\\]`), [`plugin/writer/apply_document_content.py`](../../plugin/writer/apply_document_content.py) (`ApplyDocumentContent`) |
 | Unit tests | `tests/writer/math/test_html_math_segment.py`, `tests/writer/math/test_math_mml_convert.py`, `tests/writer/math/test_math_mml_export.py`, `tests/writer/math/test_latex_dialog.py` |
 | UNO tests | `tests/writer/math/test_math_formula_insert_uno.py`, `tests/writer/math/test_math_mml_export_uno.py`, `tests/writer/math/test_latex_dialog_uno.py` |
@@ -261,7 +261,7 @@ Support the most structured and realistic first wave of HTML math inputs.
 - **StarMath `newline` (word)** — Not ASCII `\n`. LibreOffice MathML import builds a root layout that serializes with the `newline` **operator** (`starmath` `SmNodeToTextVisitor`, root table-of-lines from `mathmlimport.cxx`). Writer’s **embedded** formula paint often showed **`?`** per `newline`; we **collapse** those tokens for Writer embeds in `math_mml_convert.py` (comment points at LO sources). **Tradeoff:** true multi-line / `mtable` via `newline` is not preserved until we add a policy (see **Current status**).
 - **List `content` arrays** — `"\n".join` still used in `apply_document_content`; newlines stay **between** HTML fragments only; optional change to `"".join` is backlog, not done.
 - **Cursor** — After each `insertDocumentFromURL`, cursor must move to document end or later segments overwrite earlier HTML.
-- **DEBUG logging** — Optional verbose logs in `apply_document_content.py` / `format.py` / `math_mml_convert.py`; trim or gate when stable.
+- **DEBUG logging** — Optional verbose logs in `apply_document_content.py` / `html_import.py` / `math_mml_convert.py`; trim or gate when stable.
 
 ### Not done yet (still Phase 1 scope or immediate backlog)
 
@@ -911,7 +911,7 @@ flowchart TB
 | Capability | WriterAgent |
 |------------|-------------|
 | LaTeX entry UI | [`latex_dialog.py`](../../plugin/writer/math/latex_dialog.py) + `writer.insert_latex_dialog` |
-| TeX in HTML → editable math | [`html_math_segment.py`](../../plugin/writer/math/html_math_segment.py), [`format.py`](../../plugin/writer/format.py) |
+| TeX in HTML → editable math | [`html_math_segment.py`](../../plugin/writer/math/html_math_segment.py), [`html_import.py`](../../plugin/writer/html_import.py) |
 | Display vs inline | `display_block` on insert + delimiter rules in prompts |
 | LLM-driven authoring | `apply_document_content` with structured math rules |
 
@@ -943,7 +943,7 @@ See also: [Math extraction and edit loops](#math-extraction-and-edit-loops-roadm
 
 | Area | Path |
 |------|------|
-| HTML + math orchestration | [`plugin/writer/format.py`](../../plugin/writer/format.py) |
+| HTML + math orchestration | [`plugin/writer/html_import.py`](../../plugin/writer/html_import.py) |
 | MathML + TeX segmentation | [`plugin/writer/math/html_math_segment.py`](../../plugin/writer/math/html_math_segment.py) |
 | MathML / LaTeX conversion & formula OLE insert | [`plugin/writer/math/math_mml_convert.py`](../../plugin/writer/math/math_mml_convert.py) |
 | MathML / LaTeX export | [`plugin/writer/math/math_mml_export.py`](../../plugin/writer/math/math_mml_export.py) |
