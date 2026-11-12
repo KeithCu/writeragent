@@ -554,13 +554,7 @@ def test_header_unapplied_data_lo_para_is_reported_uno(ctx, doc):
 @native_test
 @with_native_doc("writer")
 def test_header_custom_style_read_reports_margin_uno(ctx, doc):
-    """A custom paragraph style absent from a scratch doc reports its margin on read.
-
-    A blank scratch Writer document does not have user-defined styles. Comparing against the
-    source custom style when the scratch paragraph falls back to Standard would skip the
-    custom style's margin as inherited, so the read must copy direct properties when the
-    scratch document lacks the style.
-    """
+    """A custom paragraph style copied into the scratch doc keeps its name and inherited margin."""
     para_styles = doc.getStyleFamilies().getByName("ParagraphStyles")
     custom = doc.createInstance("com.sun.star.style.ParagraphStyle")
     para_styles.insertByName("CustomLetterhead", custom)
@@ -575,5 +569,17 @@ def test_header_custom_style_read_reports_margin_uno(ctx, doc):
     para.setPropertyValue("ParaStyleName", "CustomLetterhead")
 
     read = _get(doc, ctx, "header")["content"]
-    assert "margin-left:" in read, read
+    assert 'data-lo-style="CustomLetterhead"' in read, read
     assert "Letterhead Header" in read, read
+    assert "margin-left" not in read, read
+    assert "text-align" not in read, read
+
+    res = _set(doc, ctx, "header", read)
+    assert res.get("status") == "ok", res
+    warnings = res.get("warnings") or []
+    assert not any("CustomLetterhead" in (w.get("message", "") if isinstance(w, dict) else str(w)) for w in warnings)
+
+    para_after = _first_paragraph(_region_text(doc, "header"))
+    assert para_after.getPropertyValue("ParaStyleName") == "CustomLetterhead"
+    assert para_after.getPropertyState("ParaLeftMargin").value == "DEFAULT_VALUE"
+    assert abs(para_after.getPropertyValue("ParaLeftMargin") - 2000) <= 1

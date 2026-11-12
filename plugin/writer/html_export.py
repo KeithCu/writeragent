@@ -454,7 +454,7 @@ def _copy_window_to_scratch(
         applied = False
         if not added_any:
             temp_cursor.gotoStart(False)
-            applied = range_copy.apply_temp_para_style(temp_doc, temp_cursor, style)
+            applied = range_copy.apply_temp_para_style(temp_doc, temp_cursor, style, model)
         else:
             temp_cursor.gotoEnd(False)
             temp_text.insertControlCharacter(temp_cursor, range_copy.PARAGRAPH_BREAK, False)
@@ -463,7 +463,7 @@ def _copy_window_to_scratch(
             # clobbers the previous paragraph instead of filling the new one.
             temp_cursor.gotoNextParagraph(False)
             temp_cursor.gotoEndOfParagraph(True)
-            applied = range_copy.apply_temp_para_style(temp_doc, temp_cursor, style)
+            applied = range_copy.apply_temp_para_style(temp_doc, temp_cursor, style, model)
 
         if not has_formula:
             temp_cursor.setString(para_text)
@@ -563,6 +563,7 @@ def _range_to_content_via_temp_doc(
     finally:
         if temp_doc is not None:
             best_effort(lambda: temp_doc.close(True), "_range_to_content_via_temp_doc: close temp doc failed")
+            range_copy.release_scratch_style_holds(temp_doc)
 
 
 
@@ -834,5 +835,6 @@ def xtext_to_content(
         return content
     finally:
         best_effort(lambda: temp_doc.close(True), "xtext_to_content: close temp doc failed")
+        range_copy.release_scratch_style_holds(temp_doc)
 
 

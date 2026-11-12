@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Iterator
 
-from plugin.framework.errors import best_effort, uno_read
+from plugin.framework.errors import DocumentDisposedError, best_effort, reraise_if_disposed, uno_read
 from plugin.framework.uno_context import uno_same
 from plugin.doc.text_helpers import FAILED, iter_elements
 from plugin.writer.math.math_mml_export import (
@@ -166,16 +166,151 @@ def source_style(model: Any, style_name: str, cache: dict[str, Any]) -> Any:
     return style
 
 
-def apply_temp_para_style(temp_doc: Any, temp_cursor: Any, style: str) -> bool:
-    """Apply *style* on the scratch paragraph when that style exists there.
+# Holds references to paragraph style proxies cloned into scratch documents.
+# These proxies must stay alive until the scratch document is closed, otherwise
+# dropping the proxy during export triggers a race in LibreOffice's style lookup.
+# This per-document hold avoids polluting the global _STYLE_KEEPALIVE deque.
+_scratch_style_holds: dict[int, list[Any]] = {}
 
-    Selection and range export copy each paragraph into a blank
-    scratch document and set ``ParaStyleName`` with no check. A custom
-    or foreign style is not in that document, so ``setPropertyValue``
-    raises and the broad handler returns ``""``, discarding the whole
-    selection. Skip the missing style (the scratch default stays) and
-    keep copying. One style miss must not discard the range.
-    Returns True if the style was applied to the scratch paragraph, False otherwise.
+
+def _hold_scratch_style(temp_doc: Any, clone: Any) -> None:
+    _scratch_style_holds.setdefault(id(temp_doc), []).append(clone)
+
+
+def release_scratch_style_holds(temp_doc: Any) -> None:
+    """Release any style proxies held for *temp_doc* after it is closed."""
+    _scratch_style_holds.pop(id(temp_doc), None)
+
+
+def _clone_missing_paragraph_style(
+    src_doc: Any,
+    dest_doc: Any,
+    dest_family: Any,
+    name: str,
+    _chain: tuple[str, ...] = (),
+) -> bool:
+    """Clone paragraph style *name* and missing ancestors from *src_doc* into *dest_doc*.
+
+    Returns True when *name* already exists in *dest_family* or was successfully cloned and
+    inserted. Returns False when the style or an ancestor could not be created, leaving the
+    destination style family untouched for *name*.
+    """
+    try:
+        from .styles import copy_direct_style_properties
+    except ImportError:
+        return False
+
+    if not name or name in _chain or len(_chain) >= 16:
+        return False
+
+    try:
+        if dest_family.hasByName(name):
+            return True
+    except Exception as exc:
+        reraise_if_disposed(exc)
+        return False
+
+    if src_doc is None:
+        return False
+
+    try:
+        src_family = src_doc.getStyleFamilies().getByName("ParagraphStyles")
+        if not src_family.hasByName(name):
+            return False
+        source = src_family.getByName(name)
+    except Exception as exc:
+        reraise_if_disposed(exc)
+        return False
+
+    parent = ""
+    try:
+        raw_parent = source.getParentStyle()
+        if isinstance(raw_parent, str) and raw_parent != name:
+            parent = raw_parent
+    except Exception as exc:
+        reraise_if_disposed(exc)
+        parent = ""
+
+    if parent:
+        try:
+            has_parent = dest_family.hasByName(parent)
+        except Exception as exc:
+            reraise_if_disposed(exc)
+            has_parent = False
+        if not has_parent:
+            if not _clone_missing_paragraph_style(src_doc, dest_doc, dest_family, parent, _chain + (name,)):
+                return False
+
+    try:
+        clone = dest_doc.createInstance("com.sun.star.style.ParagraphStyle")
+    except Exception as exc:
+        reraise_if_disposed(exc)
+        return False
+    if clone is None:
+        return False
+
+    if parent:
+        try:
+            if dest_family.hasByName(parent):
+                clone.setParentStyle(parent)
+        except Exception as exc:
+            reraise_if_disposed(exc)
+            return False
+
+    try:
+        copy_direct_style_properties(source, clone)
+    except DocumentDisposedError:
+        raise
+    except RuntimeError:
+        return False
+    except Exception as exc:
+        reraise_if_disposed(exc)
+        return False
+
+    try:
+        dest_family.insertByName(name, clone)
+    except Exception as exc:
+        reraise_if_disposed(exc)
+        return False
+
+    _hold_scratch_style(dest_doc, clone)
+
+    # Set FollowStyle only when that name is already in the destination family.
+    # A missing follow style must not fail the copy because paragraph export only
+    # requires the current style and its inherited ancestors.
+    follow = ""
+    try:
+        raw_follow = source.getPropertyValue("FollowStyle")
+        if isinstance(raw_follow, str):
+            follow = raw_follow
+    except Exception as exc:
+        reraise_if_disposed(exc)
+        follow = ""
+
+    if follow:
+        try:
+            if dest_family.hasByName(follow):
+                clone.setPropertyValue("FollowStyle", follow)
+        except Exception as exc:
+            reraise_if_disposed(exc)
+            log.debug("failed to set FollowStyle %r on scratch paragraph style %r: %s", follow, name, exc)
+
+    return True
+
+
+def apply_temp_para_style(
+    temp_doc: Any,
+    temp_cursor: Any,
+    style: str,
+    src_doc: Any = None,
+) -> bool:
+    """Apply *style* on the scratch paragraph, cloning it from *src_doc* when missing.
+
+    A paragraph style missing from the scratch document is copied from the source
+    when that document can supply it. If the copy cannot be made, the scratch
+    paragraph stays on its factory style so that one missing style does not abort
+    the whole read. Returns True if the style was applied to the scratch paragraph,
+    False otherwise.
     """
     if not style:
         return False
@@ -183,13 +318,22 @@ def apply_temp_para_style(temp_doc: Any, temp_cursor: Any, style: str) -> bool:
         families = temp_doc.getStyleFamilies()
         para_styles = families.getByName("ParagraphStyles")
         if not para_styles.hasByName(style):
-            log.debug(
-                "range export: paragraph style %r is not in the scratch document; keeping the default",
-                style,
-            )
-            return False
+            if src_doc is None:
+                log.debug(
+                    "range export: paragraph style %r is not in the scratch document and no source document was provided",
+                    style,
+                )
+                return False
+            if not _clone_missing_paragraph_style(src_doc, temp_doc, para_styles, style):
+                log.debug(
+                    "range export: paragraph style %r could not be cloned into the scratch document; keeping the default",
+                    style,
+                )
+                return False
         temp_cursor.setPropertyValue("ParaStyleName", style)
         return True
+    except DocumentDisposedError:
+        raise
     except Exception:
         log.debug(
             "range export: skipped paragraph style %r on the scratch document",
@@ -531,10 +675,11 @@ def _copy_xtext_by_portions(
     view is on the first page (``FirstIsShared=False``).
 
     With *src_doc*, each copy gets its source paragraph style, and only values that
-    differ from that style are copied. Without the style, the export would report
-    ``Standard`` for a ``Header`` paragraph, and every inherited margin and font would
-    come back as a hand-set ``data-lo-para`` override (same rule as range export, see
-    ``_copy_properties``).
+    differ from that style are copied. The style object used for the direct-formatting
+    comparison is the source style, after the scratch document has that style.
+    Without the style, the export would report ``Standard`` for a ``Header`` paragraph,
+    and every inherited margin and font would come back as a hand-set ``data-lo-para``
+    override (same rule as range export, see ``_copy_properties``).
     """
     style_cache: dict[str, Any] = {}
     dest_text = dest_doc.getText()
@@ -563,7 +708,7 @@ def _copy_xtext_by_portions(
         style = None
         if src_doc is not None:
             style_name = uno_read(lambda: el.getPropertyValue("ParaStyleName"), "")
-            if apply_temp_para_style(dest_doc, dest_cursor, style_name):
+            if apply_temp_para_style(dest_doc, dest_cursor, style_name, src_doc):
                 style = source_style(src_doc, style_name, style_cache)
         _copy_visible_portions(portions, dest_doc, dest_text, dest_cursor, el, math_records, style)
         _copy_para_properties_to_end(dest_text, dest_cursor, el, style)
