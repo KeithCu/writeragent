@@ -119,6 +119,7 @@ def _line_height_fields(val: str) -> dict[str, Any] | None:
 # a bold run). An agent copying a paragraph back would silently flatten its spans.
 # test_every_read_para_name_has_a_writer_or_is_listed_read_only keeps this set and the
 # writers table covering every name the read side emits.
+# range_copy._COPIED_PARA_PROPERTIES must hold every UNO property a writer sets (pinned by test_range_copy).
 _READ_ONLY_PARA_NAMES = frozenset({"font-family", "font-size", "font-weight", "font-style", "color"})
 
 

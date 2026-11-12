@@ -519,3 +519,42 @@ def test_header_math_xtext_to_content_uno(ctx: Any, doc: Any) -> None:
     assert "y = m x + b" in content or "y=mx+b" in content or "m x" in content
     assert "$" in content
 
+
+@native_test
+@with_native_doc("writer")
+def test_range_and_header_reads_report_line_height_uno(ctx: Any, doc: Any) -> None:
+    """Range and header reads must report hand-set line height in data-lo-para."""
+    import re
+
+    skip_windows_leftover_hidden_load("html_export Hidden _default temp_doc")
+    from plugin.writer import html_export
+
+    text = doc.getText()
+    cur = text.createTextCursor()
+    text.insertString(cur, "Alpha spaced line", False)
+    text.insertControlCharacter(cur, 0, False)
+    text.insertString(cur, "Beta indented", False)
+    text.insertControlCharacter(cur, 0, False)
+    text.insertString(cur, "Gamma plain", False)
+
+    en = text.createEnumeration()
+    paras = []
+    while en.hasMoreElements():
+        paras.append(en.nextElement())
+
+    ls = uno.createUnoStruct("com.sun.star.style.LineSpacing")
+    ls.Mode = 0
+    ls.Height = 150
+    paras[0].setPropertyValue("ParaLineSpacing", ls)
+    paras[1].setPropertyValue("ParaLeftMargin", 1000)
+
+    n = len(text.getString())
+    range_html = html_export.document_to_content(doc, ctx, scope="range", range_start=0, range_end=n)
+    xtext_html = html_export.xtext_to_content(text, doc, ctx)
+
+    for html in (range_html, xtext_html):
+        paras_html = re.findall(r"<p\b[^>]*>", html)
+        assert len(paras_html) >= 3
+        assert 'data-lo-para="line-height:150%"' in paras_html[0]
+        assert "data-lo-para=" not in paras_html[2]
+

@@ -20,14 +20,6 @@ def test_nav_tools_declare_read_only():
         assert tool_cls().detects_mutation() is False, tool_cls.name
 
 
-def test_nav_heading_returns_service_error_dict():
-    prox = MagicMock()
-    prox.navigate_heading.return_value = {"error": "No next heading — already at last heading"}
-    result = NavHeading().execute(_ctx(prox=prox), locator="paragraph:0", direction="next")
-    assert result["status"] == "error"
-    assert "No next heading" in result["message"]
-
-
 def test_nav_heading_returns_raised_service_error():
     prox = MagicMock()
     prox.navigate_heading.side_effect = ToolExecutionError("Cannot resolve locator: nope")

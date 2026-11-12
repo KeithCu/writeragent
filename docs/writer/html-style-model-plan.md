@@ -247,12 +247,12 @@ whole-paragraph override, which is what makes an applied style look like it did 
 Run colour also appears on spans as inline `style`. Nothing is reported when the sidecar is
 unavailable, rather than guessing from the flattened CSS.
 
-The range read reports it too. `_range_to_content_via_temp_doc` used to copy plain text plus the
-paragraph style name, so every override — `data-lo-para` and character runs alike — was already
-gone before the export. It now carries the source paragraph's direct `Para*` and paints each text
-portion's direct `Char*` onto the copy, skipping anything the paragraph style already provides so
-an inherited value is not reported as hand-set. A range slice that crosses a bold run therefore
-reads back with the bold in place.
+The range read reports it too. `_range_to_content_via_temp_doc` carries the source paragraph's
+direct `Para*` names in `range_copy._COPIED_PARA_PROPERTIES` (margins, indent, alignment,
+line height, background) and paints each text portion's direct `Char*` onto the copy, skipping
+anything the paragraph style already provides so an inherited value is not reported as hand-set.
+The property list covers every property written from `data-lo-para`, and a unit test pins this.
+A range slice that crosses a bold run therefore reads back with the bold in place.
 
 On **write**, `data-lo-para` is applied after the named style: `text-align`, all four margins, `text-indent`, `line-height`, and `background-color` round-trip on `full_document`, `beginning`, `end`, and header/footer writes (`page_set_header_footer_text`, which also applies `data-lo-style`), as well as whole-paragraph `selection` and `search` replacements when Track Changes is off. Paragraph-level `font-family`, `font-size`, `font-weight`, `font-style`, and `color` are read-only and arrive in `warnings`: Writer sets them over the whole paragraph and flattens bold or coloured spans (`_READ_ONLY_PARA_NAMES` in `html_import_styles.py`). A unit test pins every read name to a writer or to that read-only set. Table cells, position before/after, and partial or recorded replacements do not apply the attribute.
 To make a style win over hand-set values, `apply_style` takes `clear_direct`

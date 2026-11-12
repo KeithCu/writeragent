@@ -119,6 +119,31 @@ def test_nav_heading_tool_reports_unresolved_locator():
     assert "No heading matching 'Missing'" in result["message"]
 
 
+def test_navigate_heading_raises_when_there_is_no_next_heading():
+    doc, prox = _nav_stack([ElementStub("Alpha", outline_level=1)])
+    with pytest.raises(ToolExecutionError, match="No next heading — already at last heading"):
+        prox.navigate_heading(doc, "heading_text:Alpha", "next")
+
+
+def test_navigate_heading_raises_when_document_has_no_headings():
+    doc, prox = _nav_stack([ElementStub("body")])
+    with pytest.raises(ToolExecutionError, match="Document has no headings"):
+        prox.navigate_heading(doc, "paragraph:0", "next")
+
+
+def test_nav_heading_tool_maps_raised_miss_to_the_same_error():
+    doc, prox = _nav_stack([ElementStub("Alpha", outline_level=1)])
+    ctx = MagicMock()
+    ctx.doc = doc
+    ctx.services.writer_proximity = prox
+    result = NavHeading().execute(ctx, locator="heading_text:Alpha", direction="next")
+    assert result == {
+        "status": "error",
+        "code": "TOOL_EXECUTION_ERROR",
+        "message": "No next heading — already at last heading",
+    }
+
+
 def test_navigate_missing_bookmark_raises():
     doc, prox = _nav_stack([ElementStub("Alpha", outline_level=1)])
 

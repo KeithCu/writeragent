@@ -107,6 +107,12 @@ def _copy_math_or_text(
 # empty marks). Painting them from the Text run copies None. Recreating live
 # ruby on the temp doc would still glue in XHTML (no text:ruby rule). Range
 # export instead rewrites HTML from source spans (inject_ruby_into_html).
+# Every UNO property that html_import_styles._para_writers() sets must be listed
+# in _COPIED_PARA_PROPERTIES so range, selection, and header reads (as well as
+# page-style clone) carry it into the destination. test_every_para_writer_property_is_copied_by_range_reads
+# pins this coverage. ParaLineSpacing holds a LineSpacing struct; pyuno compares
+# structs by value, so an inherited line spacing equal to the style's value is
+# still skipped by _copy_properties.
 _COPIED_CHAR_PROPERTIES = (
     "CharStyleName", "CharFontName", "CharHeight", "CharWeight", "CharPosture",
     "CharUnderline", "CharStrikeout", "CharColor", "CharBackColor", "CharCaseMap",
@@ -115,7 +121,7 @@ _COPIED_CHAR_PROPERTIES = (
 )
 _COPIED_PARA_PROPERTIES = (
     "ParaLeftMargin", "ParaRightMargin", "ParaTopMargin", "ParaBottomMargin",
-    "ParaFirstLineIndent", "ParaAdjust", "ParaBackColor",
+    "ParaFirstLineIndent", "ParaAdjust", "ParaBackColor", "ParaLineSpacing",
 )
 
 
@@ -348,17 +354,11 @@ def _copy_cell_xtext(
     for para in iter_elements(para_enum):
         if _supports_service(para, "com.sun.star.text.TextTable"):
             # Recreate the nested table inside dest_cell (same walk as body _copy_table).
-            _copy_table(para, dest_doc, dest_cell, math_records=math_records)
-            dest_cursor = dest_cell.createTextCursor()
-            dest_cursor.gotoEnd(False)
+            dest_cursor = _append_table(para, dest_doc, dest_cell, math_records)
             first_para = False
             continue
         if not first_para:
-            try:
-                dest_cell.insertControlCharacter(dest_cursor, _PARAGRAPH_BREAK, False)
-                dest_cursor.gotoNextParagraph(False)
-            except Exception as exc:
-                log.debug("_copy_cell_xtext: paragraph break failed: %s", exc)
+            _begin_next_paragraph(dest_cell, dest_cursor)
         first_para = False
         try:
             portions = para.createEnumeration()
@@ -487,6 +487,38 @@ def _copy_table(
     _goto_doc_end(dest_doc)
 
 
+def _begin_next_paragraph(dest_text: Any, cursor: Any) -> None:
+    """Step into the next paragraph when appending flow to *dest_text*.
+
+    The cursor sits at the end of *dest_text*. insertControlCharacter leaves
+    the cursor in front of the break, so without gotoNextParagraph the next run
+    lands in the previous paragraph. A refused break is logged and the copy goes
+    on: the text joins the previous paragraph rather than the whole copy failing.
+    """
+    try:
+        dest_text.insertControlCharacter(cursor, _PARAGRAPH_BREAK, False)
+        cursor.gotoNextParagraph(False)
+    except Exception as exc:
+        log.debug("range copy: paragraph break failed: %s", exc)
+
+
+def _append_table(
+    src_table: Any,
+    dest_doc: Any,
+    dest_text: Any,
+    math_records: list[tuple[str, str, bool]] | None = None,
+) -> Any:
+    """Copy *src_table* into *dest_text* and return a cursor at the new end.
+
+    The old cursor sits before the table once inserted, so appending subsequent
+    flow content needs a fresh cursor moved to the end of *dest_text*.
+    """
+    _copy_table(src_table, dest_doc, dest_text, math_records=math_records)
+    cursor = dest_text.createTextCursor()
+    cursor.gotoEnd(False)
+    return cursor
+
+
 def _copy_xtext_by_portions(
     src_text: Any,
     dest_doc: Any,
@@ -517,18 +549,11 @@ def _copy_xtext_by_portions(
     first_para = True
     for el in iter_elements(enum):
         if _supports_service(el, "com.sun.star.text.TextTable"):
-            _copy_table(el, dest_doc, math_records=math_records)
-            _goto_doc_end(dest_doc)
-            dest_cursor = dest_text.createTextCursor()
-            dest_cursor.gotoEnd(False)
+            dest_cursor = _append_table(el, dest_doc, dest_text, math_records)
             first_para = False
             continue
         if not first_para:
-            try:
-                dest_text.insertControlCharacter(dest_cursor, _PARAGRAPH_BREAK, False)
-                dest_cursor.gotoNextParagraph(False)
-            except Exception as exc:
-                log.debug("_copy_xtext_by_portions: paragraph break failed: %s", exc)
+            _begin_next_paragraph(dest_text, dest_cursor)
         first_para = False
         try:
             portions = el.createEnumeration()
@@ -574,20 +599,11 @@ def _copy_flow_into_xtext(doc: Any, src_text: Any, dest_text: Any) -> int:  # py
     first_para = True
     for el in iter_elements(enum):
         if _supports_service(el, "com.sun.star.text.TextTable"):
-            _copy_table(el, doc, dest_text)
-            cursor = dest_text.createTextCursor()
-            cursor.gotoEnd(False)
+            cursor = _append_table(el, doc, dest_text, None)
             first_para = False
             continue
         if not first_para:
-            try:
-                dest_text.insertControlCharacter(cursor, _PARAGRAPH_BREAK, False)
-            except Exception as exc:
-                log.debug("_copy_flow_into_xtext: paragraph break failed: %s", exc)
-            try:
-                cursor.gotoNextParagraph(False)
-            except Exception as exc:
-                log.debug("_copy_flow_into_xtext: gotoNextParagraph failed: %s", exc)
+            _begin_next_paragraph(dest_text, cursor)
         first_para = False
         try:
             portions = el.createEnumeration()
