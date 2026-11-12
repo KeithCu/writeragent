@@ -18,18 +18,19 @@ from typing import Any, Callable
 
 import numpy as np
 
-from .calc_functions_a_c import _coupon_schedule
 from .calc_functions_util import (
-    _as_nonzero,
-    _date_to_serial,
-    _days360,
-    _extract_numeric_array,
-    _npf_result,
-    _round_half_up,
-    _round_sig,
-    _scipy_stats,
-    _serial_to_date,
+    as_nonzero,
+    coupon_schedule,
+    date_to_serial,
+    days360_dates,
+    extract_numeric_array,
+    finite_or_nan,
     match_criteria,
+    npf_result,
+    round_half_up,
+    round_sig,
+    scipy_stats,
+    serial_to_date,
     yearfrac,
 )
 from .coerce import header_label, is_missing_value
@@ -142,8 +143,8 @@ def _roll_ymd(year: int, month: int, day: int) -> dt.date:
 
 
 def datedif(start_date: Any, end_date: Any, unit: str = "D") -> float:
-    sd = _serial_to_date(start_date)
-    ed = _serial_to_date(end_date)
+    sd = serial_to_date(start_date)
+    ed = serial_to_date(end_date)
     if sd is None or ed is None or sd > ed:
         return float("nan")
     u = str(unit).strip('"').upper()
@@ -189,7 +190,7 @@ def datevalue(text: Any) -> float:
     s = str(text).strip().strip('"')
     for fmt in ("%Y-%m-%d", "%m/%d/%Y", "%d/%m/%Y", "%Y/%m/%d", "%d-%b-%Y"):
         try:
-            return _date_to_serial(dt.datetime.strptime(s, fmt))
+            return date_to_serial(dt.datetime.strptime(s, fmt))
         except ValueError:
             continue
     return float("nan")
@@ -305,15 +306,15 @@ def days(end_date: Any, start_date: Any) -> float:
 
 
 def days360(start_date: Any, end_date: Any, method: Any = False) -> float:
-    sd = _serial_to_date(start_date)
-    ed = _serial_to_date(end_date)
+    sd = serial_to_date(start_date)
+    ed = serial_to_date(end_date)
     if sd is None or ed is None:
         return float("nan")
     try:
-        european = _as_nonzero(method)
+        european = as_nonzero(method)
     except (ValueError, TypeError, OverflowError):
         return float("nan")
-    return _days360(sd, ed, european=european)
+    return days360_dates(sd, ed, european=european)
 
 
 def db(cost: Any, salvage: Any, life: Any, period: Any, month: Any = 12) -> float:
@@ -331,7 +332,7 @@ def db(cost: Any, salvage: Any, life: Any, period: Any, month: Any = 12) -> floa
     # LibreOffice ScDB rounds the depreciation rate half away from zero with
     # approxFloor((fOffRate * 1000.0) + 0.5) / 1000.0 (interpr2.cxx). Python round()
     # is half-to-even, which rounded ties down.
-    rate = float(_round_half_up(1.0 - math.pow(s / c, 1.0 / life_val), 3))
+    rate = float(round_half_up(1.0 - math.pow(s / c, 1.0 / life_val), 3))
     val = c
     dep = 0.0
     for i in range(1, p + 1):
@@ -399,7 +400,7 @@ def delta(n1: Any, n2: Any = 0) -> float:
 
 
 def devsq(*args: Any) -> float:
-    arr = _extract_numeric_array(*args, propagate_nan=False)
+    arr = extract_numeric_array(*args, propagate_nan=False)
     if not arr.size:
         return float("nan")
     # Overflow on huge inputs yields inf like LibreOffice; silence numpy's RuntimeWarning.
@@ -432,7 +433,7 @@ def disc(settlement: Any, maturity: Any, pr: Any, redemption: Any, basis: Any = 
     if math.isnan(yf) or yf <= 0:
         return float("nan")
     result = (red - p) / red / yf
-    return float(result) if math.isfinite(result) else float("nan")
+    return finite_or_nan(float(result))
 
 
 def dmax(db: Any, field: Any, criteria: Any) -> float:
@@ -460,7 +461,7 @@ def dollar(number: Any, decimals: Any = 2) -> str | float:
     dec = int(float(decimals))
     if not math.isfinite(val):
         return float("nan")
-    q = _round_half_up(val, dec)
+    q = round_half_up(val, dec)
     magnitude = _format_quantized(abs(q), dec, commas=True)
     return f"-${magnitude}" if q < 0 else f"${magnitude}"
 
@@ -528,7 +529,7 @@ def duration(settlement: Any, maturity: Any, coupon: Any, yld: Any, frequency: A
         return float("nan")
 
     try:
-        _p_ser, _c_ser, days_in_per, k, _a_days, dsc_days = _coupon_schedule(s, m, f, b)
+        _p_ser, _c_ser, days_in_per, k, _a_days, dsc_days = coupon_schedule(s, m, f, b)
     except (ValueError, TypeError, OverflowError):
         return float("nan")
 
@@ -559,7 +560,7 @@ def duration(settlement: Any, maturity: Any, coupon: Any, yld: Any, frequency: A
             return float("nan")
         res = (weighted_t / pv) / f
 
-    return float(res) if math.isfinite(res) else float("nan")
+    return finite_or_nan(float(res))
 
 
 def dvar(db: Any, field: Any, criteria: Any) -> float:
@@ -571,7 +572,7 @@ def dvarp(db: Any, field: Any, criteria: Any) -> float:
 
 
 def _month_shift_serial(start_date: Any, months: Any, *, end_of_month: bool) -> float:
-    sd = _serial_to_date(start_date)
+    sd = serial_to_date(start_date)
     if sd is None:
         return float("nan")
     month_delta = int(float(months))
@@ -581,7 +582,7 @@ def _month_shift_serial(start_date: Any, months: Any, *, end_of_month: bool) -> 
         dim = calendar.monthrange(y, m)[1]
         d = dim if end_of_month else min(sd.day, dim)
         res_date = dt.date(y, m, d)
-        return float(_date_to_serial(res_date))
+        return float(date_to_serial(res_date))
     except (ValueError, OverflowError):
         return float("nan")
 
@@ -601,7 +602,7 @@ def effect(nominal_rate: Any, npery: Any) -> float:
         return float("nan")
     # OverflowError is left to the worker exception path, which returns #NUM!
     res = (1 + nr / n_per) ** n_per - 1
-    return res if math.isfinite(res) else float("nan")
+    return finite_or_nan(res)
 
 
 def encodeurl(text: Any) -> str:
@@ -609,7 +610,7 @@ def encodeurl(text: Any) -> str:
 
 
 def eomonth(start_date: Any, months: Any) -> float:
-    # Last day of the month via _serial_to_date and calendar.monthrange.
+    # Last day of the month via serial_to_date and calendar.monthrange.
     return _month_shift_serial(start_date, months, end_of_month=True)
 
 
@@ -647,7 +648,7 @@ def euroconvert(value: Any, from_currency: Any, to_currency: Any, full_precision
                 sig = int(sig_f)
             except (ValueError, TypeError, OverflowError):
                 return float("nan")
-            eur_val = _round_sig(eur_val, sig)
+            eur_val = round_sig(eur_val, sig)
 
     if to_curr == "EUR":
         res = eur_val
@@ -655,7 +656,7 @@ def euroconvert(value: Any, from_currency: Any, to_currency: Any, full_precision
         res = eur_val * _EURO[to_curr][0]
 
     try:
-        is_full = _as_nonzero(full_precision)
+        is_full = as_nonzero(full_precision)
     except (ValueError, TypeError, OverflowError):
         return float("nan")
 
@@ -664,7 +665,7 @@ def euroconvert(value: Any, from_currency: Any, to_currency: Any, full_precision
 
     if not is_full:
         # Half away from zero, same as FIXED and DOLLAR. Python round() is half-to-even.
-        res = float(_round_half_up(res, _EURO[to_curr][1]))
+        res = float(round_half_up(res, _EURO[to_curr][1]))
     return res
 
 
@@ -681,14 +682,14 @@ def even(n: Any) -> float:
 
 
 def _flag_default_true(val: Any) -> bool:
-    # _as_nonzero treats a blank as false. These three flags treat it as true.
+    # as_nonzero treats a blank as false. These three flags treat it as true.
     if val is None or val == "":
         return True
-    return _as_nonzero(val)
+    return as_nonzero(val)
 
 
 def expondist(x: Any, lambda_: Any, c: Any = 1) -> float:
-    st = _scipy_stats()
+    st = scipy_stats()
     if st is None:
         return float("nan")
 
@@ -727,7 +728,7 @@ def factdouble(n: Any) -> float:
 
 
 def fdist(x: Any, r1: Any, r2: Any) -> float:
-    st = _scipy_stats()
+    st = scipy_stats()
     if st is None:
         return float("nan")
 
@@ -762,7 +763,7 @@ def filter(range_arr: Any, criteria: Any, if_empty: Any | None = None) -> Any:
         elem = arr.ndim == 2 and crit.ndim == 2 and crit.shape == arr.shape
         if not (row or col or elem):
             return "#VALUE!"
-        mask = np.asarray([_as_nonzero(x) for x in crit.ravel()])
+        mask = np.asarray([as_nonzero(x) for x in crit.ravel()])
         out = arr[mask] if row else arr[:, mask] if col else arr[mask.reshape(arr.shape)]
     except (ValueError, TypeError, IndexError, OverflowError):
         return "#VALUE!"
@@ -772,7 +773,7 @@ def filter(range_arr: Any, criteria: Any, if_empty: Any | None = None) -> Any:
 
 
 def finv(p: Any, r1: Any, r2: Any) -> float:
-    st = _scipy_stats()
+    st = scipy_stats()
     if st is None:
         return float("nan")
 
@@ -784,7 +785,7 @@ def finv(p: Any, r1: Any, r2: Any) -> float:
     if prob <= 0 or prob > 1 or df1 < 1 or df2 < 1:
         return float("nan")
     result = float(st.f.isf(prob, df1, df2))
-    return result if math.isfinite(result) else float("nan")
+    return finite_or_nan(result)
 
 
 def fisher(x: Any) -> float:
@@ -803,14 +804,14 @@ def fixed(number: Any, decimals: Any = 2, no_commas: Any = False) -> str | float
     val = float(number)
     dec = int(float(decimals))
     try:
-        nc = _as_nonzero(no_commas)
+        nc = as_nonzero(no_commas)
     except (ValueError, TypeError, OverflowError):
         return "#VALUE!"
-    # Non-finite input is #NUM!. _round_half_up(inf) raises ValueError (#VALUE!).
+    # Non-finite input is #NUM!. round_half_up(inf) raises ValueError (#VALUE!).
     if not math.isfinite(val):
         return float("nan")
     # Half away from zero (2.5 -> 3, -2.5 -> -3). Python round() is half-to-even.
-    return _format_quantized(_round_half_up(val, dec), dec, commas=not nc)
+    return _format_quantized(round_half_up(val, dec), dec, commas=not nc)
 
 
 def forecast(x: Any, data_y: Any, data_x: Any) -> float:
@@ -833,8 +834,8 @@ def frequency(data: Any, bins: Any) -> Any:
     # Numeric cells only, bins sorted, counts from searchsorted, plus the
     # overflow bin. A text cell is skipped, not an empty result.
     try:
-        data_arr = _extract_numeric_array(data, propagate_nan=False)
-        bins_arr = _extract_numeric_array(bins, propagate_nan=False)
+        data_arr = extract_numeric_array(data, propagate_nan=False)
+        bins_arr = extract_numeric_array(bins, propagate_nan=False)
         sorted_bins = np.sort(bins_arr)
         indices = np.searchsorted(sorted_bins, data_arr, side="left")
         counts = np.bincount(indices, minlength=len(sorted_bins) + 1)
@@ -853,7 +854,7 @@ def fv(rate: Any, nper: Any, pmt_val: Any, pv_val: Any = 0, type_val: Any = 0) -
     # Only type 1 is beginning-of-period. Any other type is end, matching
     # the old branch (it did not plug the raw type into the annuity).
     t = 1 if int(float(type_val)) == 1 else 0
-    return _npf_result("fv", r, n, pm, p, t)
+    return npf_result("fv", r, n, pm, p, t)
 
 
 def fvschedule(principal: Any, schedule: Any) -> float:
@@ -873,7 +874,7 @@ def gamma(x: Any) -> float:
 
 
 def gammadist(x: Any, alpha: Any, beta: Any, c: Any = 1) -> float:
-    st = _scipy_stats()
+    st = scipy_stats()
     if st is None:
         return float("nan")
 
@@ -893,7 +894,7 @@ def gammadist(x: Any, alpha: Any, beta: Any, c: Any = 1) -> float:
 
 
 def gammainv(p: Any, alpha: Any, beta: Any) -> float:
-    st = _scipy_stats()
+    st = scipy_stats()
     if st is None:
         return float("nan")
 
@@ -905,7 +906,7 @@ def gammainv(p: Any, alpha: Any, beta: Any) -> float:
     if prob < 0 or prob >= 1 or a <= 0 or b <= 0:
         return float("nan")
     result = float(st.gamma.ppf(prob, a, scale=b))
-    return result if math.isfinite(result) else float("nan")
+    return finite_or_nan(result)
 
 
 def gammaln(x: Any) -> float:
@@ -918,7 +919,7 @@ def gammaln(x: Any) -> float:
 
 
 def gauss(x: Any) -> float:
-    st = _scipy_stats()
+    st = scipy_stats()
     if st is None:
         return float("nan")
 
@@ -927,7 +928,7 @@ def gauss(x: Any) -> float:
 
 def geomean(*args: Any) -> float:
     # exp(mean(log(arr))). Same result as scipy.stats.gmean, without the import.
-    arr = _extract_numeric_array(*args, propagate_nan=False)
+    arr = extract_numeric_array(*args, propagate_nan=False)
     if not arr.size or np.any(arr <= 0):
         return float("nan")
     return float(np.exp(np.mean(np.log(arr))))
@@ -974,14 +975,14 @@ def growth(known_y: Any, known_x: Any = None, new_x: Any = None, const: Any = Tr
 
 def harmean(*args: Any) -> float:
     # len(arr) / sum(1/arr). Same result as scipy.stats.hmean, without the import.
-    arr = _extract_numeric_array(*args, propagate_nan=False)
+    arr = extract_numeric_array(*args, propagate_nan=False)
     if not arr.size or np.any(arr <= 0):
         return float("nan")
     return float(len(arr) / np.sum(1.0 / arr))
 
 
 def hypgeomdist(x: Any, n_sample: Any, successes: Any, n_pop: Any) -> float:
-    st = _scipy_stats()
+    st = scipy_stats()
     if st is None:
         return float("nan")
 

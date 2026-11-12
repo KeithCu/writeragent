@@ -19,18 +19,18 @@ from typing import Any
 import numpy as np
 
 from .calc_functions_util import (
-    _as_bool_flag,
-    _as_nonzero,
-    _build_holiday_set,
-    _clean_paired_arrays,
-    _collect_a_values,
-    _date_to_serial,
-    _extract_numeric_array,
-    _is_calc_error,
-    _parse_weekend,
-    _scipy_stats,
-    _serial_to_date,
-    _wildcard_fullmatch,
+    as_bool_flag,
+    as_nonzero,
+    build_holiday_set,
+    clean_paired_arrays,
+    collect_a_values,
+    date_to_serial,
+    extract_numeric_array,
+    is_calc_error,
+    parse_weekend,
+    scipy_stats,
+    serial_to_date,
+    wildcard_fullmatch,
     yearfrac,
 )
 from .coerce import _LO_ERROR_TOKENS, is_blank_value
@@ -89,7 +89,8 @@ def tdist(x: Any, df: Any, tails: Any) -> float:
     tail_count = int(float(tails))
     if d < 1 or tail_count not in (1, 2) or val < 0:
         return float("nan")
-    if (st := _scipy_stats()) is None:
+    st = scipy_stats()
+    if st is None:
         return float("nan")
 
     # tdist in Calc/Excel returns 1 - cdf(val) for 1 tail
@@ -169,10 +170,10 @@ def text(val: Any, fmt: Any) -> str | float:
         lower = fmt_str.lower()
         date_fmt = _DATE_FORMATS.get(lower)
         if date_fmt is not None or lower == "mmm d, yyyy":
-            # _serial_to_date is the same +693594 ordinal. A bad serial stays
+            # serial_to_date is the same +693594 ordinal. A bad serial stays
             # the original text, as the hand-rolled fromordinal path did.
             # "%d" would zero-pad the day; this format does not.
-            day = _serial_to_date(val)
+            day = serial_to_date(val)
             if day is None:
                 return str(val)
             if date_fmt is not None:
@@ -207,7 +208,7 @@ def _text_before_or_after(text: Any, delimiter: Any, instance_num: Any, match_mo
     try:
         # bool("0") is true, so a zero flag invented a virtual delimiter.
         # ScTextBeforeOrAfter uses GetBool(), which is GetDouble() != 0.
-        use_end = _as_nonzero(match_end)
+        use_end = as_nonzero(match_end)
         s = str(text)
         delim = str(delimiter)
         inst = int(float(instance_num))
@@ -280,7 +281,7 @@ def textjoin(delim: Any, ignore_empty: Any, *args: Any) -> str | float:
     # bool("0") and bool("FALSE") are true, so a zero or text flag skipped
     # empty cells. ScTextJoin_MS uses GetDouble() != 0.
     try:
-        skip_empty = _as_nonzero(ignore_empty)
+        skip_empty = as_nonzero(ignore_empty)
     except (ValueError, TypeError, OverflowError):
         return "#VALUE!"
     parts = []
@@ -291,7 +292,7 @@ def textjoin(delim: Any, ignore_empty: Any, *args: Any) -> str | float:
         values = _flatten_range(arg) if _is_calc_range(arg) else np.asarray(arg, dtype=object).ravel()
         for val in values:
             # Formula errors stop TEXTJOIN like Calc; blanks use is_blank_value, not is_missing_value, so #VALUE! is not silently dropped.
-            if _is_calc_error(val):
+            if is_calc_error(val):
                 if isinstance(val, str):
                     return val.strip()
                 return float("nan")
@@ -329,7 +330,7 @@ def textsplit(text: Any, col_delimiter: Any, row_delimiter: Any = None, ignore_e
         ci = (match_mode == 1)
         # bool("0") is true, so a zero flag dropped empty pieces.
         # ScTextSplit uses GetBool(), which is GetDouble() != 0.
-        skip_empty = _as_nonzero(ignore_empty)
+        skip_empty = as_nonzero(ignore_empty)
 
         if col_delimiter is None and row_delimiter is None:
             return float("nan")
@@ -391,7 +392,8 @@ def tinv(prob: Any, df: Any) -> float:
     d = math.floor(float(df))
     if p <= 0 or p > 1 or d < 1:
         return float("nan")
-    if (st := _scipy_stats()) is None:
+    st = scipy_stats()
+    if st is None:
         return float("nan")
 
     # TINV is the 2-tailed inverse. ppf(1 - p/2) rounds the
@@ -439,8 +441,8 @@ def trend(*args: Any) -> Any:
             return "#VALUE!"
 
         # bool("FALSE") is True, so a const string kept the intercept.
-        # _as_bool_flag maps "FALSE" / "TRUE" / 0.
-        const = _as_bool_flag(args[3]) if len(args) > 3 else True
+        # as_bool_flag maps "FALSE" / "TRUE" / 0.
+        const = as_bool_flag(args[3]) if len(args) > 3 else True
 
         if const:
             data_x = np.c_[data_x, np.ones(data_x.shape[0])]
@@ -451,13 +453,13 @@ def trend(*args: Any) -> Any:
         return pred.tolist()
     except (ValueError, TypeError, OverflowError, ZeroDivisionError, np.linalg.LinAlgError):
         # A broad Exception hid programming errors as #VALUE!. A bad const
-        # string still raises ValueError inside _as_bool_flag and stays #VALUE!.
+        # string still raises ValueError inside as_bool_flag and stays #VALUE!.
         return "#VALUE!"
 
 
 def trimmean(r: Any, percent: Any) -> float:
     # Skip blanks, text, and bools. A formula error (NaN) still propagates.
-    arr = _extract_numeric_array(r, propagate_nan=True)
+    arr = extract_numeric_array(r, propagate_nan=True)
     if len(arr) == 0 or np.any(np.isnan(arr)):
         return float("nan")
     # float(10**400) raises OverflowError. The handler only caught
@@ -483,18 +485,19 @@ def ttest(data1: Any, data2: Any, tails: Any, type_: Any) -> float:
         return float("nan")
 
     if type_num == 1:
-        cleaned = _clean_paired_arrays(data1, data2)
+        cleaned = clean_paired_arrays(data1, data2)
         if cleaned is None:
             return float("nan")
         d1_clean, d2_clean = cleaned
     else:
-        d1_clean = _extract_numeric_array(data1, propagate_nan=False)
-        d2_clean = _extract_numeric_array(data2, propagate_nan=False)
+        d1_clean = extract_numeric_array(data1, propagate_nan=False)
+        d2_clean = extract_numeric_array(data2, propagate_nan=False)
 
     if len(d1_clean) < 2 or len(d2_clean) < 2:
         return float("nan")
 
-    if (st := _scipy_stats()) is None:
+    st = scipy_stats()
+    if st is None:
         return float("nan")
 
     res = st.ttest_rel(d1_clean, d2_clean) if type_num == 1 else st.ttest_ind(d1_clean, d2_clean, equal_var=type_num == 2)
@@ -506,7 +509,7 @@ def ttest(data1: Any, data2: Any, tails: Any, type_: Any) -> float:
 
 def type(val: Any) -> float:
     # np.bool_ is logical (4), same as bool (bool subclasses int).
-    if _is_calc_error(val):
+    if is_calc_error(val):
         return 16.0
     if isinstance(val, (bool, np.bool_)):
         return 4.0
@@ -580,8 +583,8 @@ def unique(arr: Any, by_col: bool = False, unique_only: bool = False) -> list[An
     # exactly-once filter. ScUnique uses GetDouble() != 0, and a
     # non-numeric string is #VALUE!.
     try:
-        by_column = _as_nonzero(by_col)
-        once = _as_nonzero(unique_only)
+        by_column = as_nonzero(by_col)
+        once = as_nonzero(unique_only)
     except (ValueError, TypeError, OverflowError):
         return "#VALUE!"
     # dtype=object. A bare asarray makes 1 and '1' the same string.
@@ -608,13 +611,13 @@ def unique(arr: Any, by_col: bool = False, unique_only: bool = False) -> list[An
 
 
 def vara(*args: Any) -> float:
-    vals = _collect_a_values(*args)
+    vals = collect_a_values(*args)
     # numpy gives NaN for too few samples.
     return float(np.var(vals, ddof=1))
 
 
 def varpa(*args: Any) -> float:
-    vals = _collect_a_values(*args)
+    vals = collect_a_values(*args)
     # numpy gives NaN for too few samples.
     return float(np.var(vals, ddof=0))
 
@@ -630,9 +633,9 @@ _WEEKNUM_WEEK_START: dict[int, int] = {
 
 
 def weekday(serial: Any, return_type: int | float = 1) -> float:
-    # _serial_to_date returns None for a bad serial. A non-numeric return_type
+    # serial_to_date returns None for a bad serial. A non-numeric return_type
     # raises ValueError, which the worker returns as #VALUE!.
-    d = _serial_to_date(serial)
+    d = serial_to_date(serial)
     rt = int(float(return_type))
     if d is None:
         return float("nan")
@@ -680,7 +683,7 @@ def weeknum(serial: Any, return_type: int | float = 1) -> float:
     # The body ignored return_type and always returned the ISO week. ISO is
     # only return_type 21 (and 150, the Gnumeric alias). isoweeknum already
     # covers that path; system 1 is a different numbering.
-    day = _serial_to_date(serial)
+    day = serial_to_date(serial)
     rt = int(float(return_type))
     if day is None:
         return float("nan")
@@ -702,13 +705,14 @@ def weibull(x: Any, alpha: Any, beta: Any, cumulative: Any = True) -> float:
         return float("nan")
     if val < 0 or a <= 0 or b <= 0:
         return float("nan")
-    if (st := _scipy_stats()) is None:
+    st = scipy_stats()
+    if st is None:
         return float("nan")
 
     # In scipy, c=alpha (shape), scale=beta. Note: Calc calls alpha shape and beta scale.
     # bool("0") is true, so a zero flag returned the CDF.
     # ScWeibull uses GetDouble() == 0 for the density.
-    if _as_nonzero(cumulative):
+    if as_nonzero(cumulative):
         return float(st.weibull_min.cdf(val, a, scale=b))
     return float(st.weibull_min.pdf(val, a, scale=b))
 
@@ -779,7 +783,7 @@ def _workday_serial(
     weekend_days: set[int],
     holidays: Any | None,
 ) -> float:
-    curr = _serial_to_date(start_date)
+    curr = serial_to_date(start_date)
     if curr is None:
         return float("nan")
     # days sat outside the start-date try, so a text days cell raised.
@@ -787,12 +791,12 @@ def _workday_serial(
         remaining = int(float(days))
     except (ValueError, TypeError, OverflowError):
         return float("nan")
-    end = _advance_workdays(curr, remaining, weekend_days, _build_holiday_set(holidays))
+    end = _advance_workdays(curr, remaining, weekend_days, build_holiday_set(holidays))
     if end is None:
         return float("nan")
-    # The return retyped 693594. _date_to_serial subtracts _SERIAL_OFFSET,
+    # The return retyped 693594. date_to_serial subtracts _SERIAL_OFFSET,
     # the one Excel epoch in this package.
-    return _date_to_serial(end)
+    return date_to_serial(end)
 
 
 def workday(start_date: Any, days: Any, holidays: Any | None = None) -> float:
@@ -801,7 +805,7 @@ def workday(start_date: Any, days: Any, holidays: Any | None = None) -> float:
 
 
 def workday_intl(start_date: Any, days: Any, weekend: Any = 1, holidays: Any | None = None) -> float:
-    wk_days = _parse_weekend(weekend)
+    wk_days = parse_weekend(weekend)
     if not isinstance(wk_days, set):
         return float("nan")
     return _workday_serial(start_date, days, wk_days, holidays)
@@ -876,7 +880,7 @@ def _find_match_index(
 
     if mm == 2 and isinstance(lookup_val, str):
         return next(
-            (idx for idx in indices if isinstance(l_flat[idx], str) and _wildcard_fullmatch(lookup_val, l_flat[idx])),
+            (idx for idx in indices if isinstance(l_flat[idx], str) and wildcard_fullmatch(lookup_val, l_flat[idx])),
             None,
         )
     if mm not in (0, -1, 1, 2):
@@ -1076,7 +1080,7 @@ def ztest(data: Any, x: Any, sigma: Any | None = None) -> float:
     # and blanks. dtype=float raised on None, so one blank made the call
     # NaN. isfinite then dropped error cells instead of propagating them.
     # Fewer than 2 numbers is #DIV/0! even when sigma is supplied.
-    d = _extract_numeric_array(data, ignore_bool=False, propagate_nan=True)
+    d = extract_numeric_array(data, ignore_bool=False, propagate_nan=True)
     if len(d) < 2 or np.any(np.isnan(d)):
         return float("nan")
     val = float(x)
@@ -1092,7 +1096,8 @@ def ztest(data: Any, x: Any, sigma: Any | None = None) -> float:
         return float("nan")
 
     z = (m - val) / (s / math.sqrt(n))
-    if (st := _scipy_stats()) is None:
+    st = scipy_stats()
+    if st is None:
         return float("nan")
 
     return float(st.norm.sf(z))
