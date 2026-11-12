@@ -1146,6 +1146,44 @@ def test_time_series_band_only_still_plots(mock_plt, _mock_payload):
     ax.fill_between.assert_called_once()
 
 
+@patch("plugin.scripting.venv.viz._figure_payload", return_value=_mock_figure_payload())
+@patch("plugin.scripting.venv.viz._require_matplotlib")
+def test_time_series_all_null_overlays_are_not_drawn(mock_plt, _mock_payload):
+    plt_mod = _mock_plt_module()
+    mock_plt.return_value = plt_mod
+    unused_fig, ax = plt_mod.subplots.return_value
+    ax.get_legend_handles_labels.return_value = ([], [])
+    df = pd.DataFrame(
+        {
+            "date": ["2024-01-01", "2024-02-01"],
+            "Value": [1.0, 2.0],
+            "forecast": [None, None],
+            "lower": [None, 3.0],
+            "upper": [4.0, None],
+        }
+    )
+
+    result = run_viz(
+        {
+            "helper": "time_series_plot",
+            "params": {
+                "date_col": "date",
+                "value_col": "Value",
+                "forecast_col": "forecast",
+                "lower_col": "lower",
+                "upper_col": "upper",
+            },
+        },
+        df,
+        {},
+    )
+
+    assert result["status"] == "ok"
+    assert ax.plot.call_count == 1
+    assert ax.plot.call_args.kwargs["label"] == "Value"
+    ax.fill_between.assert_not_called()
+
+
 def test_try_insert_plot_result_multi_data_images():
     from plugin.scripting import viz
 
@@ -1189,6 +1227,7 @@ def test_try_insert_plot_result_mixed_multi_data_is_not_a_plot():
 
 
 _PIN_VIZ_GRID = [["Region", "Sales", "Units"], ["N", 10, 1], ["S", 20, 2], ["E", 30, 3], ["W", 40, 4]]
+_PIN_VIZ_TEXT_GRID = [["Region", "Rep"], ["N", "Ann"], ["S", "Bo"]]
 
 
 @pytest.mark.parametrize(
@@ -1204,6 +1243,18 @@ _PIN_VIZ_GRID = [["Region", "Sales", "Units"], ["N", 10, 1], ["S", 20, 2], ["E",
             lambda v: v.plot_data(_PIN_VIZ_GRID, spec={"y": "Nope"}),
             "UNKNOWN_COLUMN",
             "Unknown columns: Nope",
+            "plot_data",
+        ),
+        (
+            lambda v: v.quick_plot(_PIN_VIZ_TEXT_GRID),
+            "NO_NUMERIC_COLUMNS",
+            "No numeric columns to plot.",
+            "quick_plot",
+        ),
+        (
+            lambda v: v.plot_data(_PIN_VIZ_TEXT_GRID, spec={"chart_type": "bar"}),
+            "NO_NUMERIC_COLUMNS",
+            "No numeric columns to plot.",
             "plot_data",
         ),
         (
