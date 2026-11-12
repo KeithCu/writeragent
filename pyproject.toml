@@ -81,7 +81,10 @@ dev = [
     "types-unopy",
     "basedpyright>=1.39.0",
     "bandit[toml]>=1.8.0",
-    "pyspector>=0.2.1",
+    # No CPython 3.13 Windows wheel (0.2.x ships cp312 win_amd64 and Linux).
+    # The sdist builds a Rust extension and needs kernel32.lib from the
+    # Windows SDK, so a default uv sync must not try to compile it there.
+    "pyspector>=0.2.1; sys_platform != 'win32' or python_version < '3.13'",
     "ruff>=0.9.0",
     "pyrefly>=0.61.0",
     "openpyxl>=3.1.0",
