@@ -260,8 +260,8 @@ def test_text_analytics_sentiment_accepts_list_for_sections():
     assert res["per_section"][1]["label"] == "negative"
 
 
-def test_result_to_html_table_double_escapes_markup():
-    html = ta._result_to_html_table({"key_phrases": [{"lemma": "<script>"}]})
+def test_report_html_double_escapes_markup():
+    html = ta.text_analytics_report_html({"status": "ok", "result": {"key_phrases": [{"lemma": "<script>"}]}})
     assert "&amp;lt;script&amp;gt;" in html
     assert "<script>" not in html
 
@@ -938,8 +938,8 @@ def test_selection_extraction_failure_is_empty_and_logged(caplog, monkeypatch):
 
 
 def test_html_table_ignores_overall_key():
-    assert ta._result_to_html_table({"overall": {"score": 0.4, "label": "positive"}}) == ""
-    assert "positive" in ta._result_to_html_table({"sentiment": {"score": 0.4, "label": "positive"}})
+    assert ta.text_analytics_report_html({"status": "ok", "result": {"overall": {"score": 0.4, "label": "positive"}}}) == ""
+    assert "positive" in ta.text_analytics_report_html({"status": "ok", "result": {"sentiment": {"score": 0.4, "label": "positive"}}})
 
 
 def test_insert_empty_ok_result_raises_and_inserts_nothing(monkeypatch):
@@ -990,15 +990,15 @@ def test_insert_topic_inner_error_raises(monkeypatch):
 
 def test_payload_has_content_and_error():
     res_ok = {"status": "ok", "result": {"readability": {"flesch_reading_ease": 60}}}
-    assert bool(ta._result_to_html_table(ta._result_payload(res_ok))) is True
+    assert bool(ta.text_analytics_report_html(res_ok)) is True
     assert ta.text_analytics_payload_error(res_ok) is None
 
-    res_empty_ents = {"entities": []}
-    assert bool(ta._result_to_html_table(ta._result_payload(res_empty_ents))) is False
+    res_empty_ents = {"status": "ok", "entities": []}
+    assert ta.text_analytics_report_html(res_empty_ents) == ""
     assert ta.text_analytics_payload_error(res_empty_ents) is None
 
-    res_note = {"note": "no text"}
-    assert bool(ta._result_to_html_table(ta._result_payload(res_note))) is False
+    res_note = {"status": "ok", "note": "no text"}
+    assert ta.text_analytics_report_html(res_note) == ""
     assert ta.text_analytics_payload_error(res_note) == "no text"
 
 
