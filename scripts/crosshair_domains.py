@@ -569,12 +569,6 @@ def _patch_payload_codec(module: Any) -> None:
         or module._is_ndarray(wire)
         or getattr(type(wire), "__module__", "") == "numpy"
     )
-    module._deal_child_unpack_wire_ok = lambda wire, *_unused, **__: (
-        module._is_any_payload_envelope(wire)
-        or isinstance(wire, (list, tuple, dict, str, int, float, bool))
-        or wire is None
-        or (hasattr(wire, "__class__") and wire.__class__.__name__ == "ndarray")
-    )
 
 
 def _patch_subprocess_env(module: Any) -> None:

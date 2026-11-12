@@ -85,7 +85,7 @@ When you run `make crosshair-cover` or pipe raw `crosshair cover -v` through [`s
 host_pack_split_grid([])
 host_pack_split_grid([0])
 is_numeric_grid([False])
-child_unpack_data([])
+wire_cell_count([])
 should_use_binary_envelope((), min_cells=0, force='always')
 ```
 
@@ -134,7 +134,7 @@ Sample filtered stream:
 [COVER EXAMPLE          ] host_pack_split_grid([])
 [COVER EXAMPLE          ] host_pack_split_grid([0])
 [COVER EXPLORE          ] payload_codec child_unpack split_grid failed for envelope dict(keys=[])
-[COVER EXAMPLE          ] child_unpack_data({})
+[COVER EXAMPLE          ] host_unpack_data({})
 
 === CrossHair COVER DONE (exit 0) ===
   lines read: 842 (suppressed 800)

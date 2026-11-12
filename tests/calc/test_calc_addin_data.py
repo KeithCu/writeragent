@@ -23,9 +23,9 @@ from plugin.calc.calc_addin_data import (
     values_from_inspector_range,
 )
 from plugin.framework.errors import DocumentDisposedError
-from plugin.scripting.calc_range import CalcRange, is_calc_range_payload
+from plugin.scripting.calc_range import CalcRange, is_calc_range_payload, materialize_inputs
 from plugin.scripting.config_limits import _schema_int
-from plugin.scripting.payload_codec import child_unpack_data, is_multi_data, is_split_grid, wire_cell_count
+from plugin.scripting.payload_codec import is_multi_data, is_split_grid, wire_cell_count
 
 
 def test_none_returns_none():
@@ -155,7 +155,7 @@ def test_calc_logical_float_sums_through_wire():
     wire = pack_calc_data_for_wire([[1.0]])
     assert is_calc_range_payload(wire)
     assert not is_split_grid(wire["data"])
-    rng = child_unpack_data(wire)
+    (rng,) = materialize_inputs(wire)
     assert isinstance(rng, CalcRange)
     assert float(np.sum(rng)) == pytest.approx(1.0)
 
@@ -219,9 +219,7 @@ def test_named_range_header_survives_py_pack_when_definition_is_used():
     assert packed[0][0] == "Order_ID"
     assert packed[0][2] == "Region"
     wire = pack_calc_data_for_wire(packed)
-    rng = child_unpack_data(wire)
-    if not hasattr(rng, "to_pandas"):
-        rng = rng[0]
+    (rng,) = materialize_inputs(wire)
     cols = list(rng.to_pandas().columns)
     assert "Region" in cols
     assert "Order_ID" in cols
@@ -233,7 +231,7 @@ def test_pack_calc_multi_data_for_wire_roundtrip():
     wire = pack_calc_multi_data_for_wire(ranges, force="always")
     assert is_multi_data(wire)
     assert wire_cell_count(wire) == 6
-    unpacked = child_unpack_data(wire)
+    unpacked = materialize_inputs(wire)
     assert len(unpacked) == 2
     assert all(isinstance(r, CalcRange) for r in unpacked)
     assert float(np.sum(unpacked[0])) == pytest.approx(6.0)

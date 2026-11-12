@@ -25,6 +25,7 @@ from unittest.mock import patch
 import pytest
 
 from plugin.scripting import payload_codec
+from plugin.scripting.calc_range import materialize_inputs
 from plugin.scripting.payload_codec import (
     BINARY_MIN_CELLS,
     PAYLOAD_CALC_RANGE,
@@ -33,7 +34,6 @@ from plugin.scripting.payload_codec import (
     PAYLOAD_SPLIT_GRID,
     _is_numeric_coercible_impl,
     child_pack_result,
-    child_unpack_data,
     child_unpack_split_grid,
     describe_wire_value,
     host_pack_data,
@@ -120,7 +120,7 @@ def test_round_trip_host_split_grid_child_ndarray():
     grid = [[1.0, 2.0], [3.0, 4.0], [5.0, 6.0], [7.0, 8.0]]
     wire = host_pack_data(grid, force="always")
     assert wire["__wa_payload__"] == PAYLOAD_SPLIT_GRID
-    arr = child_unpack_data(wire)
+    arr = child_unpack_split_grid(wire)
     assert isinstance(arr, np.ndarray)
     assert not isinstance(arr, list)  # perf sentinel: pure-numeric split_grid must not regress to list materialization
     assert arr.shape == (4, 2)
@@ -204,7 +204,7 @@ def test_split_grid_bool_beside_float_stays_float_in_child():
     grid = [[1.5, True], [2.5, False]]
     wire = host_pack_data(grid, force="always")
     assert wire["column_kinds"] == ["float", "bool"]
-    child = child_unpack_data(wire)
+    child = child_unpack_split_grid(wire)
     assert isinstance(child, np.ndarray)
     assert child.dtype == np.float64
     assert type(child[0, 1].item()) is float
@@ -287,7 +287,7 @@ def test_child_unpack_float_frombuffer_is_readonly():
 def test_none_becomes_nan_in_split_grid():
     pytest.importorskip("numpy")
     wire = host_pack_data([[1.0, None, 3.0]], force="always")
-    arr = child_unpack_data(wire)
+    arr = child_unpack_split_grid(wire)
     assert arr.shape == (1, 3)
     assert math.isnan(float(arr[0, 1]))
 
@@ -303,18 +303,16 @@ def test_child_pack_plain_python_without_numpy() -> None:
         assert child_pack_result(result, force="auto") == result
 
 
-def test_child_unpack_plain_python_without_numpy() -> None:
-    """Inbound lists and dicts materialize when NumPy is unavailable.
+def test_materialize_inputs_plain_python_without_numpy() -> None:
+    """Inbound lists materialize when NumPy is unavailable.
 
     A numeric list stays a list: there is no ndarray to build. ``split_grid``
     still needs NumPy and is not covered here.
     """
     text = [["pays", "paid"]]
-    numbers = [1.0, 2.0]
     with patch.dict(sys.modules, {"numpy": None}):
-        assert child_unpack_data(text) == text
-        assert child_unpack_data({"changes": text}) == {"changes": text}
-        assert child_unpack_data(numbers) == numbers
+        assert materialize_inputs(text)[0].values == text
+        assert materialize_inputs([1.5, 2.5])[0].values == [[1.5, 2.5]]
 
 
 def test_scalar_egress_stays_json():
@@ -337,13 +335,6 @@ def test_describe_wire_value_split_grid():
 def test_wire_cell_count_split_grid():
     wire = host_pack_data([[1.0] * 4 for _ in range(4)], force="always")
     assert wire_cell_count(wire) == 16
-
-
-def test_child_list_path_array():
-    pytest.importorskip("numpy")
-    wire = host_pack_data([1.0, 2.0, 3.0], force="never")
-    arr = child_unpack_data(wire)
-    assert list(arr) == pytest.approx([1.0, 2.0, 3.0])
 
 
 def test_host_pack_split_grid_mixed():
@@ -378,7 +369,7 @@ def test_round_trip_split_grid():
         [4.5, "", 40.4]
     ]
     wire = host_pack_data(grid, force="always")
-    reconstructed = child_unpack_data(wire)
+    reconstructed = child_unpack_split_grid(wire)
     
     assert isinstance(reconstructed, list)
     assert len(reconstructed) == 4
@@ -419,7 +410,7 @@ def test_round_trip_split_grid_1d():
     assert wire_num["shape"] == [4]
     
     # Unpack in child -> should be purely numeric ndarray
-    child_unpacked_num = child_unpack_data(wire_num)
+    child_unpacked_num = child_unpack_split_grid(wire_num)
     assert isinstance(child_unpacked_num, np.ndarray)
     assert child_unpacked_num.shape == (4,)
     assert list(child_unpacked_num) == pytest.approx(grid_num_1d)
@@ -443,7 +434,7 @@ def test_round_trip_split_grid_1d():
     assert wire_mixed["strings"] == {1: "banana"}
     
     # Unpack in child -> reconstructed mixed list
-    child_unpacked_mixed = child_unpack_data(wire_mixed)
+    child_unpacked_mixed = child_unpack_split_grid(wire_mixed)
     assert isinstance(child_unpacked_mixed, list)
     assert child_unpacked_mixed == [1.5, "banana", None, 4.5]
     
@@ -462,45 +453,6 @@ def test_round_trip_split_grid_1d():
     assert host_unpacked_mixed[1] == "banana"
     assert math.isnan(host_unpacked_mixed[2])
     assert host_unpacked_mixed[3] == 4.5
-
-
-def test_child_unpack_single_entry_auto_scalar_and_integer_coercion():
-    """Single-cell float64 columns must unpack as float, same as multi-cell float columns."""
-    np = pytest.importorskip("numpy")
-
-    # 1. 1-element numeric list representing a whole-number float
-    wire_int_float = [100000.0]
-    unpacked_int_float = child_unpack_data(wire_int_float)
-    assert isinstance(unpacked_int_float, float)
-    assert unpacked_int_float == 100000.0
-
-    # 2. 1-element numeric list representing a real float
-    wire_real_float = [3.14]
-    unpacked_real_float = child_unpack_data(wire_real_float)
-    assert isinstance(unpacked_real_float, float)
-    assert unpacked_real_float == pytest.approx(3.14)
-
-    # 3. 1-element string list
-    wire_str = ["hello"]
-    unpacked_str = child_unpack_data(wire_str)
-    assert isinstance(unpacked_str, str)
-    assert unpacked_str == "hello"
-
-    # 4. 1-element boolean list
-    wire_bool = [True]
-    unpacked_bool = child_unpack_data(wire_bool)
-    assert isinstance(unpacked_bool, bool)
-    assert unpacked_bool is True
-
-    # 5. 1-element numpy array representing a whole-number float
-    arr_int_float = np.array([100000.0])
-    unpacked_arr_int_float = child_unpack_data(arr_int_float)
-    assert isinstance(unpacked_arr_int_float, float)
-    assert unpacked_arr_int_float == 100000.0
-
-    # 6. Multi-element list or 2D list should NOT be unpacked to scalar
-    assert isinstance(child_unpack_data([100000.0, 200000.0]), np.ndarray)
-    assert child_unpack_data([[100000.0]]) == [[100000.0]]  # 2D list preserved
 
 
 def test_iter_split_grid_cells_row_major_order() -> None:
@@ -559,6 +511,9 @@ def test_non_sequence_row_raises_valueerror() -> None:
 
     Deal's pre rejects the grid before the body. Release builds strip deal,
     so the body must still raise ValueError for non-sequence rows, not TypeError.
+    wire_cell_count has no grid pre, so deal does not hide the TypeError;
+    is_numeric_grid's pre rejects the grid; the stripped body must still raise
+    ValueError.
     """
     from tests.harness.strip_bundle import expect_pre_or_body
 
@@ -573,21 +528,6 @@ def test_non_sequence_row_raises_valueerror() -> None:
         expect_pre_or_body(
             lambda grid=grid: host_pack_data(grid, force="always"), body_exc=ValueError
         )
-
-
-def test_child_unpack_non_sequence_row_raises_valueerror() -> None:
-    """[[1, 2], 3] is ValueError, not TypeError from list(row) or len(row).
-
-    _child_unpack_single_data and wire_cell_count have no grid pre, so deal
-    did not hide the TypeError. is_numeric_grid's pre rejects the grid; the
-    stripped body must still raise ValueError.
-    """
-    from tests.harness.strip_bundle import expect_pre_or_body
-
-    for grid in ([[1, 2], 3], [[1, 2], "ab"]):
-        with pytest.raises(ValueError, match="not a list or tuple") as caught:
-            child_unpack_data(grid)
-        assert type(caught.value) is ValueError
         with pytest.raises(ValueError, match="not a list or tuple") as counted:
             wire_cell_count(grid)
         assert type(counted.value) is ValueError
@@ -672,7 +612,7 @@ def test_none_numeric_ingress_child_gets_np_nan() -> None:
     """Numeric-only ingress: empty Calc cells become np.nan in child ndarray, not Python None."""
     np = pytest.importorskip("numpy")
     grid = [[1.0, None, 3.0, 4.0], [5.0, 6.0, None, 8.0], [9.0, 10.0, 11.0, 12.0]]
-    arr = child_unpack_data(host_pack_data(grid, force="always"))
+    arr = child_unpack_split_grid(host_pack_data(grid, force="always"))
     assert isinstance(arr, np.ndarray)
     assert not isinstance(arr, list)  # perf sentinel: pure-numeric split_grid fast path must return ndarray (not list-of-lists from tolist)
     assert np.isnan(arr[0, 1])
@@ -683,7 +623,7 @@ def test_none_mixed_ingress_child_gets_python_none() -> None:
     """Mixed grid ingress: empty cells become None in the nested list (not np.nan)."""
     pytest.importorskip("numpy")
     grid = [[1.0, None, "label"], [2.0, 3.0, "x"]] * 2  # 12 cells, rectangular
-    out = child_unpack_data(host_pack_data(grid, force="always"))
+    out = child_unpack_split_grid(host_pack_data(grid, force="always"))
     assert isinstance(out, list)
     assert out[0][1] is None
 
@@ -708,7 +648,7 @@ def test_none_host_egress_round_trip() -> None:
     import math
     grid = [[1.0, None, 3.0, 4.0], [5.0, 6.0, None, 8.0], [9.0, 10.0, 11.0, 12.0]]
     wire = host_pack_data(grid, force="always")
-    arr = child_unpack_data(wire)
+    arr = child_unpack_split_grid(wire)
     assert isinstance(arr, np.ndarray)
     back = host_unpack_data(wire, as_nested_list=True)
     assert math.isnan(back[0][1])
@@ -730,7 +670,7 @@ def test_pickle5_roundtrip_preserves_nan_buffer() -> None:
     grid = [[1.0, None, 3.0, 4.0], [5.0, 6.0, 7.0, 8.0], [9.0, 10.0, 11.0, 12.0]]
     wire = pickle5_roundtrip(host_pack_data(grid, force="always"))
     np = pytest.importorskip("numpy")
-    arr = child_unpack_data(wire)
+    arr = child_unpack_split_grid(wire)
     assert isinstance(arr, np.ndarray)
     assert np.isnan(arr[0, 1])
 
@@ -740,7 +680,7 @@ def test_mixed_grid_preserves_zip_code_strings() -> None:
     wire = host_pack_data(MIXED_WITH_ZIP, force="always")
     assert wire["strings"][1] == "02138"
     pytest.importorskip("numpy")
-    out = child_unpack_data(wire)
+    out = child_unpack_split_grid(wire)
     assert out[0][1] == "02138"
 
 
@@ -750,7 +690,7 @@ def test_mixed_grid_preserves_non_numeric_string() -> None:
     wire = host_pack_data(grid, force="always")
     assert "hello" in wire["strings"].values()
     pytest.importorskip("numpy")
-    out = child_unpack_data(wire)
+    out = child_unpack_split_grid(wire)
     assert out[0][1] == "hello"
 
 
@@ -766,7 +706,7 @@ def test_mixed_grid_preserves_non_numeric_string() -> None:
 def test_whitespace_only_cell_does_not_crash_child_unpack(value, expected) -> None:
     pytest.importorskip("numpy")
     grid = [[1.0, value, 3.0, 4.0], [5.0, 6.0, 7.0, 8.0], [9.0, 10.0, 11.0, 12.0]]
-    out = child_unpack_data(host_pack_data(grid, force="always"))
+    out = child_unpack_split_grid(host_pack_data(grid, force="always"))
     assert isinstance(out, list)
     assert out[0][1] == expected
 
@@ -774,7 +714,7 @@ def test_mixed_grid_real_nan_becomes_none_on_child() -> None:
     """Documented: mixed-grid ingress has no blank-vs-NaN wire bit."""
     pytest.importorskip("numpy")
     grid = [[1.0, float("nan")], ["label", 4.0]]
-    out = child_unpack_data(host_pack_data(grid, force="always"))
+    out = child_unpack_split_grid(host_pack_data(grid, force="always"))
     assert out[0][1] is None
     assert out[1][0] == "label"
 
@@ -784,7 +724,7 @@ def test_decimal_split_grid_stays_float_not_truncated_int() -> None:
     pytest.importorskip("numpy")
     grid = [[Decimal("1.5"), Decimal("2.25")], [Decimal("3.0"), Decimal("4.75")]]
     with cython_accelerator_context(enabled=False):
-        out = child_unpack_data(host_pack_data(grid, force="always"))
+        out = child_unpack_split_grid(host_pack_data(grid, force="always"))
     assert out[0][0] == pytest.approx(1.5)
     assert out[0][1] == pytest.approx(2.25)
 
@@ -995,7 +935,7 @@ def test_wide_sheet_above_shape_dim_unpacks() -> None:
     assert unpacked[0][-1] == pytest.approx(float(ncols - 1))
 
     np = pytest.importorskip("numpy")
-    arr = child_unpack_data(wire)
+    arr = child_unpack_split_grid(wire)
     assert isinstance(arr, np.ndarray)
     assert arr.shape == (1, ncols)
     assert float(arr[0, -1]) == pytest.approx(float(ncols - 1))
@@ -1012,7 +952,7 @@ def test_bool_cells_round_trip_in_numeric_grid() -> None:
     """Calc booleans in an all-numeric grid become 0.0/1.0 in child ndarray (float64 lane)."""
     np = pytest.importorskip("numpy")
     grid = [[True, False, 1.0, 2.0], [False, True, 3.0, 4.0], [True, False, 5.0, 6.0]]
-    arr = child_unpack_data(host_pack_data(grid, force="always"))
+    arr = child_unpack_split_grid(host_pack_data(grid, force="always"))
     assert isinstance(arr, np.ndarray)
     assert arr[0, 0] == pytest.approx(1.0)
     assert arr[0, 1] == pytest.approx(0.0)
@@ -1022,7 +962,7 @@ def test_bool_col_11_split_grid_sums() -> None:
     """11 logical cells use split_grid inside calc_range; bools encode as 0/1."""
     np = pytest.importorskip("numpy")
     from plugin.calc.calc_addin_data import calc_addin_data_to_python, pack_calc_data_for_wire
-    from plugin.scripting.calc_range import CalcRange, is_calc_range_payload
+    from plugin.scripting.calc_range import CalcRange, is_calc_range_payload, materialize_inputs
 
     pattern = (True, True, True, False, True, False, True, False, True, True, False)
     # Column range stays N×1 under the shape-preserving contract.
@@ -1032,7 +972,7 @@ def test_bool_col_11_split_grid_sums() -> None:
     assert is_split_grid(wire["data"])
     assert wire_cell_count(wire) == 11
     assert wire["shape"] == [11, 1]
-    rng = child_unpack_data(wire)
+    (rng,) = materialize_inputs(wire)
     assert isinstance(rng, CalcRange)
     assert rng.shape == (11, 1)
     assert float(np.sum(rng)) == pytest.approx(7.0)
@@ -1080,13 +1020,13 @@ def test_split_grid_flat_row_10_shape() -> None:
     """1×10 row stays 2D calc_range; inner split_grid is 1×10."""
     np = pytest.importorskip("numpy")
     from plugin.calc.calc_addin_data import calc_addin_data_to_python, pack_calc_data_for_wire
-    from plugin.scripting.calc_range import CalcRange, is_calc_range_payload
+    from plugin.scripting.calc_range import CalcRange, is_calc_range_payload, materialize_inputs
 
     wire = pack_calc_data_for_wire(calc_addin_data_to_python((tuple(float(i + 1) for i in range(10)),)), force="always")
     assert is_calc_range_payload(wire)
     assert is_split_grid(wire["data"])
     assert wire["shape"] == [1, 10]
-    rng = child_unpack_data(wire)
+    (rng,) = materialize_inputs(wire)
     assert isinstance(rng, CalcRange)
     assert rng.shape == (1, 10)
     assert float(np.sum(rng)) == pytest.approx(55.0)
@@ -1185,7 +1125,7 @@ def test_integers_past_float64_mantissa_round_only_on_split_grid() -> None:
     np = pytest.importorskip("numpy")
     arr = np.array([[big, 1], [2, 3]], dtype=np.int64)
     assert host_unpack_data(child_pack_result(arr, force="always"))[0][0] == 2**53
-    child = child_unpack_data(host_pack_data(grid, force="always"))
+    child = child_unpack_split_grid(host_pack_data(grid, force="always"))
     assert int(child[0, 0]) == 2**53
 
 
@@ -1264,7 +1204,7 @@ def test_cython_canary_failure_disables_accelerator() -> None:
 def test_child_mixed_2d_returns_list_not_ndarray() -> None:
     """Any string column forces nested lists in child, not ndarray."""
     np = pytest.importorskip("numpy")
-    out = child_unpack_data(host_pack_data(MIXED_LABEL_GRID, force="always"))
+    out = child_unpack_split_grid(host_pack_data(MIXED_LABEL_GRID, force="always"))
     assert isinstance(out, list)
     assert not isinstance(out, np.ndarray)
 
@@ -1288,7 +1228,7 @@ def test_pickle5_roundtrip_numeric_4x4() -> None:
     """Production path: split_grid envelope survives Pickle5 unchanged."""
     wire = pickle5_roundtrip(host_pack_data(NUMERIC_4X4, force="always"))
     pytest.importorskip("numpy")
-    arr = child_unpack_data(wire)
+    arr = child_unpack_split_grid(wire)
     assert arr.shape == (4, 4)
     assert arr[0, 0] == pytest.approx(0.0)
 
@@ -1297,7 +1237,7 @@ def test_1d_numeric_host_to_child_ndarray() -> None:
     """Flat 1D numeric list materializes as 1D ndarray in child."""
     np = pytest.importorskip("numpy")
     grid = [1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5, 9.5, 10.5]
-    arr = child_unpack_data(host_pack_data(grid, force="always"))
+    arr = child_unpack_split_grid(host_pack_data(grid, force="always"))
     assert isinstance(arr, np.ndarray)
     assert arr.shape == (10,)
 
@@ -1306,7 +1246,7 @@ def test_1d_mixed_child_returns_list() -> None:
     """Flat 1D list with a string stays a Python list in child."""
     pytest.importorskip("numpy")
     grid = [1.5, "banana", None, 4.5, 5.5, 6.5, 7.5, 8.5, 9.5, 10.5]
-    out = child_unpack_data(host_pack_data(grid, force="always"))
+    out = child_unpack_split_grid(host_pack_data(grid, force="always"))
     assert out == [1.5, "banana", None, 4.5, 5.5, 6.5, 7.5, 8.5, 9.5, 10.5]
 
 
@@ -1323,7 +1263,7 @@ def test_split_grid_numpy_scalars_in_lists():
     assert wire["strings"] == {}  # NumPy scalars should NOT be treated as strings!
     
     # Round-trip check
-    unpacked = child_unpack_data(wire)
+    unpacked = child_unpack_split_grid(wire)
     assert isinstance(unpacked, np.ndarray)
     assert unpacked[0, 0] == pytest.approx(1.5)
     assert unpacked[0, 1] == pytest.approx(7.0)
@@ -1350,7 +1290,7 @@ def test_split_grid_boolean_roundtrip_fidelity():
     # 2. Test round-trip unpacking in child
     wire = host_pack_data(grid, force="always")
     assert wire["column_kinds"] == ["bool", "float", "int"]
-    child_unpacked = child_unpack_data(wire)
+    child_unpacked = child_unpack_split_grid(wire)
     assert isinstance(child_unpacked, list)
     assert child_unpacked[0] == [True, "apple", 10]
     assert child_unpacked[1] == [False, "banana", 20]
@@ -1373,7 +1313,7 @@ def test_split_grid_numpy_bool_scalars():
     grid = [[np.bool_(True)], [np.bool_(False)]]
     wire = host_pack_data(grid, force="always")
     assert wire["column_kinds"] == ["bool"]
-    unpacked = child_unpack_data(wire)
+    unpacked = child_unpack_split_grid(wire)
     assert isinstance(unpacked, np.ndarray)
     assert unpacked.dtype == np.bool_
     assert bool(unpacked[0, 0]) is True
@@ -1398,7 +1338,7 @@ def test_split_grid_pure_numeric_fast_path():
     assert wire["strings"] == {}
     assert wire["column_kinds"] == ["float", "float"]
     
-    unpacked = child_unpack_data(wire)
+    unpacked = child_unpack_split_grid(wire)
     assert isinstance(unpacked, np.ndarray)
     assert unpacked.shape == (2, 2)
     assert unpacked[1, 0] == pytest.approx(30.5)
@@ -1416,21 +1356,6 @@ def test_split_grid_logical_coercion_at_calc_ingress():
     raw_grid = [["TRUE", "FALSCH"], ["banana", 100.0]]
     coerced = calc_addin_data_to_python(raw_grid)
     assert coerced == [[True, "FALSCH"], ["banana", 100.0]]
-
-
-def test_split_grid_single_cell_scalar_coercion():
-    """Single-cell whole-number floats stay floats, matching a longer float64 column."""
-    np = pytest.importorskip("numpy")
-
-    assert child_unpack_data([100.0]) == 100.0
-    assert isinstance(child_unpack_data([100.0]), float)
-
-    assert child_unpack_data([3.14]) == pytest.approx(3.14)
-    assert isinstance(child_unpack_data([3.14]), float)
-
-    arr = np.array([42.0])
-    assert child_unpack_data(arr) == 42.0
-    assert isinstance(child_unpack_data(arr), float)
 
 
 def test_split_grid_lattice_promotion_comprehensive():
@@ -1460,7 +1385,7 @@ def test_host_pack_multi_data_numeric_columns():
     assert is_multi_data(wire)
     assert wire["__wa_payload__"] == PAYLOAD_MULTI_DATA
     assert wire_cell_count(wire) == 6
-    unpacked = child_unpack_data(wire)
+    unpacked = materialize_inputs(wire)
     assert len(unpacked) == 2
     assert float(np.sum(unpacked[0])) == pytest.approx(6.0)
     assert float(np.sum(unpacked[1])) == pytest.approx(15.0)
@@ -1473,9 +1398,10 @@ def test_host_unpack_multi_data_mixed_grids():
     assert len(host_decoded) == 2
     assert host_decoded[0] == [[1.0, "a"], [2.0, "b"]]
     assert host_decoded[1] == [[3.0, "c"]]
-    child_decoded = child_unpack_data(wire)
-    assert isinstance(child_decoded, list)
+    child_decoded = materialize_inputs(wire)
+    assert isinstance(child_decoded, tuple)
     assert len(child_decoded) == 2
+    assert [r.values for r in child_decoded] == host_decoded
 
 
 def test_child_pack_nested_dict_ndarray() -> None:
@@ -1691,9 +1617,8 @@ def test_date_and_datetime_serialization_handling():
     dt = datetime.datetime(2026, 6, 25, 14, 30, 0)
     
     wire_list = host_pack_data([d, dt], force="never")
-    child_unpacked_list = child_unpack_data(wire_list)
-    assert child_unpacked_list[0] == d
-    assert child_unpacked_list[1] == dt
+    (rng,) = materialize_inputs(wire_list)
+    assert rng.values == [[d, dt]]
 
     # 2. Above threshold (split_grid / always binary)
     grid = [[d, dt] * 50]  # 100 cells
@@ -1706,7 +1631,7 @@ def test_date_and_datetime_serialization_handling():
     assert wire_sg["strings"][1] == "2026-06-25 14:30:00"
 
     # Child unpacks them as strings
-    child_unpacked_sg = child_unpack_data(wire_sg)
+    child_unpacked_sg = child_unpack_split_grid(wire_sg)
     assert isinstance(child_unpacked_sg, list)
     assert child_unpacked_sg[0][0] == "2026-06-25"
     assert child_unpacked_sg[0][1] == "2026-06-25 14:30:00"
@@ -1728,7 +1653,7 @@ def test_date_and_datetime_serialization_handling():
     assert wire_ts["__wa_payload__"] == PAYLOAD_SPLIT_GRID
     assert wire_ts["strings"][0] == "2026-06-25 14:30:00"
     
-    child_unpacked_ts = child_unpack_data(wire_ts)
+    child_unpacked_ts = child_unpack_split_grid(wire_ts)
     assert child_unpacked_ts[0][0] == "2026-06-25 14:30:00"
 
 
@@ -2171,16 +2096,6 @@ def test_split_grid_unpack_rejects_duplicate_stringified_keys() -> None:
         host_unpack_split_grid(envelope)
     with pytest.raises(ValueError, match="collide"):
         child_unpack_split_grid(envelope)
-
-
-def test_child_unpack_plain_dict_unpacks_nested_split_grid() -> None:
-    """A split_grid nested in a plain dict unpacks. A nested list stays a list."""
-    np = pytest.importorskip("numpy")
-    grid = [[float(i)] for i in range(4)]
-    out = child_unpack_data({"label": host_pack_data(grid, force="always")})
-    assert isinstance(out["label"], np.ndarray)
-    assert out["label"].shape == (4, 1)
-    assert child_unpack_data({"changes": [[1.0, 2.0]]}) == {"changes": [[1.0, 2.0]]}
 
 
 def test_host_pack_empty_rows_skip_binary_shortcut() -> None:

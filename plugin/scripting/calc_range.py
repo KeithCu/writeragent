@@ -467,11 +467,16 @@ def _is_pandas_frame_or_series(obj: Any) -> bool:
 
 @deal.pre(lambda inner: _deal_materialize_inner_ok(inner))
 def _materialize_inner_grid(inner: Any) -> list[list[Any]]:
-    """Unpack split_grid / ndarray / DataFrame / nested lists to a rectangular ``list[list]``."""
+    """Unpack split_grid / ndarray / DataFrame / nested lists to a rectangular ``list[list]``.
+
+    This is the child's only split_grid decode site. A numeric envelope arrives
+    as a float64 ndarray and a mixed one as nested lists, and the ndarray /
+    list / scalar arms below turn both into the rectangular grid.
+    """
     # crosshair: off
     from plugin.scripting.payload_codec import (
         _numpy_scalar_item,
-        child_unpack_data,
+        child_unpack_split_grid,
         is_split_grid,
     )
 
@@ -479,7 +484,7 @@ def _materialize_inner_grid(inner: Any) -> list[list[Any]]:
         return [list(row) for row in inner.values]
 
     if is_split_grid(inner):
-        unpacked = child_unpack_data(inner)
+        unpacked = child_unpack_split_grid(inner)
     else:
         unpacked = inner
 

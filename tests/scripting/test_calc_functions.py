@@ -13,6 +13,7 @@ import time
 import pytest
 
 import plugin.scripting.calc_functions as calc
+from plugin.scripting.sandbox import build_sandbox_policy
 
 
 def test_conditional_aggregates():
@@ -115,7 +116,7 @@ def test_always_injected_calc_does_not_resolve_bare_x():
     from plugin.scripting.config_limits import python_exec_timeout_default
     from plugin.scripting.venv.venv_sandbox import _new_executor, inject_auto_imports
 
-    executor = _new_executor(python_exec_timeout_default())
+    executor = _new_executor(python_exec_timeout_default(), policy=build_sandbox_policy())
     inject_auto_imports(executor, "result = x")
     assert "calc" in executor.state
     assert "xl" not in executor.state
@@ -146,7 +147,7 @@ def test_auto_imports_inject_st_dt_plt_aliases():
     if oi.optional_module("matplotlib.pyplot") is not None:
         assert "import matplotlib.pyplot as plt" in code
 
-    executor = _new_executor(python_exec_timeout_default())
+    executor = _new_executor(python_exec_timeout_default(), policy=build_sandbox_policy())
     inject_auto_imports(executor, "result = 1")
     assert "dt" in executor.state
     assert "datetime" not in executor.state
@@ -163,15 +164,15 @@ def test_inject_auto_imports_skips_bound_names():
     from plugin.scripting.config_limits import python_exec_timeout_default
     from plugin.scripting.venv.venv_sandbox import _new_executor, inject_auto_imports
 
-    executor = _new_executor(python_exec_timeout_default())
+    executor = _new_executor(python_exec_timeout_default(), policy=build_sandbox_policy())
     inject_auto_imports(executor, "dt = 123\nresult = dt")
     assert "dt" not in executor.state
 
-    executor2 = _new_executor(python_exec_timeout_default())
+    executor2 = _new_executor(python_exec_timeout_default(), policy=build_sandbox_policy())
     inject_auto_imports(executor2, "def dt(): pass\nresult = 1")
     assert "dt" not in executor2.state
 
-    executor3 = _new_executor(python_exec_timeout_default())
+    executor3 = _new_executor(python_exec_timeout_default(), policy=build_sandbox_policy())
     inject_auto_imports(executor3, "import datetime as dt\nresult = 1")
     assert "dt" not in executor3.state
 

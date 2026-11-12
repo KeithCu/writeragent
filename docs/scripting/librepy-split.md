@@ -62,7 +62,7 @@ Aligned with [../enabling_numpy_in_libreoffice.md](../enabling_numpy_in_libreoff
 
 #### Calc-parity `xl` helpers (deferred from LibrePy) {#calc-parity-xl-helpers-deferred-from-librepy}
 
-WriterAgent ships [`plugin/scripting/calc_functions.py`](../../plugin/scripting/calc_functions.py) and [`plugin/scripting/venv/calc_functions_*.py`](../../plugin/scripting/venv/) — **261** Calc/Excel formula parity helpers auto-imported as **`calc`** in the venv (e.g. `calc.sumif(...)`, `calc.xlookup(...)`). They were built so the **prototype** spreadsheet import could emit compact Python instead of pasting inline `def` blocks per workbook ([../calc/spreadsheet-to-python-import.md](../calc/spreadsheet-to-python-import.md), low priority). This is **not** the same as Microsoft Python in Excel’s `xl()` range bridge ([comparison](../calc/spreadsheet-to-python-import.md#microsoft-xl-vs-writeragent-calc)).
+WriterAgent ships [`plugin/scripting/calc_functions.py`](../../plugin/scripting/calc_functions.py) and [`plugin/scripting/venv/calc_functions_*.py`](../../plugin/scripting/venv/) — **257** Calc/Excel formula parity helpers auto-imported as **`calc`** in the venv (e.g. `calc.sumif(...)`, `calc.xlookup(...)`). They were built so the **prototype** spreadsheet import could emit compact Python instead of pasting inline `def` blocks per workbook ([../calc/spreadsheet-to-python-import.md](../calc/spreadsheet-to-python-import.md), low priority). This is **not** the same as Microsoft Python in Excel’s `xl()` range bridge ([comparison](../calc/spreadsheet-to-python-import.md#microsoft-xl-vs-writeragent-calc)).
 
 **LibrePy (core OXT) excludes them for now** (~134 KB source; filtered in [`scripts/librepy_bundle_paths.py`](../../scripts/librepy_bundle_paths.py) via `LIBREPY_CALC_FUNCTIONS_EXCLUDES`). Rationale:
 
@@ -70,7 +70,7 @@ WriterAgent ships [`plugin/scripting/calc_functions.py`](../../plugin/scripting/
 - **Spreadsheet import is WriterAgent-only** — menu, translator, and chat tool are not in the core bundle; nothing in LibrePy menus calls `calc.*` today.
 - **Coverage not fully exercised in core QA** — parity tests live in WriterAgent (`tests/scripting/test_calc_functions.py`); bundling without a core conversion workflow would ship dead weight for most installs.
 
-**What LibrePy still ships:** [`calc_functions_common.py`](../../plugin/scripting/calc_functions_common.py) — host-side name frozensets for Analysis, Viz, Forecast, etc. (no NumPy on the LO host).
+**What LibrePy still ships:** [`calc_functions_common.py`](../../plugin/scripting/calc_functions_common.py) — row and column caps for the tables the venv helper domains (analysis, forecast, optimize, duckdb_sql) return.
 
 **Runtime without the library:** `inject_auto_imports` skips `calc` when the module is absent; `=PY()` and Run Python Script work with `np`/`pd` and domain helpers. Only `calc.*` in user scripts or converted formulas would fail.
 
@@ -296,7 +296,7 @@ Required for NumPy domain helpers, Vision OCR, and any `run_trusted_worker_actio
 | [`plugin/scripting/_lazy_venv.py`](../../plugin/scripting/_lazy_venv.py) | Lazy `plugin.scripting.*` → `plugin.scripting.venv.*` |
 | [`plugin/scripting/helper_domain.py`](../../plugin/scripting/helper_domain.py) | Shared helper-domain glue |
 | [`plugin/scripting/domain_registry.py`](../../plugin/scripting/domain_registry.py) | RPS fast-path, picker origins, post-venv specs/order (routing helper in `python_runner.py`) |
-| [`plugin/scripting/calc_functions_common.py`](../../plugin/scripting/calc_functions_common.py) | Helper name frozensets (no numpy on host) |
+| [`plugin/scripting/calc_functions_common.py`](../../plugin/scripting/calc_functions_common.py) | Row/column caps for helper-domain result tables |
 | [`plugin/scripting/import_policy.py`](../../plugin/scripting/import_policy.py) | LLM import-policy text generation |
 | [`plugin/scripting/venv_diagnostics.py`](../../plugin/scripting/venv_diagnostics.py) | Settings → Python **Test** self-check |
 

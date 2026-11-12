@@ -309,7 +309,7 @@ _SPECS: tuple[HelperSpec, ...] = (
         defaults=(),
         bind="present",
         allow=("x_col", "y_col"),
-        forbid=(("y_cols", "INVALID_PARAMS", "quick_plot takes y_col, not y_cols"),),
+        forbid=(("y_cols", "INVALID_PARAM", "quick_plot takes y_col, not y_cols"),),
     ),
     HelperSpec(
         domain="viz",
@@ -510,3 +510,18 @@ def helper(domain: str, name: str | None = None) -> Callable[[Callable[..., Any]
 def bound(domain: str, name: str) -> Callable[..., Any]:
     """Return the registered callable for *(domain, name)*."""
     return _BOUND[(domain, name)]
+
+
+_TEXT_DIAGNOSTICS_NAMES: frozenset[str] = frozenset({"diagnostics", "check"})
+
+
+def is_text_diagnostics(helper: object) -> bool:
+    """True when *helper* names the text domain's venv check (``diagnostics`` or ``check``).
+
+    Diagnostics take no document text and return an install report instead of an
+    analysis, so the dialog, the result check and the child dispatcher branch on it.
+    A non-string helper (for example a list from a malformed spec) is False rather
+    than a TypeError from hashing it.
+    """
+    return isinstance(helper, str) and helper in _TEXT_DIAGNOSTICS_NAMES
+

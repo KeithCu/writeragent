@@ -494,7 +494,7 @@ def _docling_error(exc: Exception, helper: str) -> dict[str, Any]:
     if isinstance(exc, LayoutModelError):
         return error_result("LAYOUT_MODEL_UNAVAILABLE", str(exc), helper=helper)
     if isinstance(exc, ValueError):
-        return error_result("INVALID_PARAMS", str(exc), helper=helper)
+        return error_result("INVALID_PARAM", str(exc), helper=helper)
     log.exception("Docling %s failed", helper)
     return error_result("VISION_ERROR", str(exc), helper=helper)
 
