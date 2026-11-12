@@ -484,7 +484,7 @@ def visible_portions(
     Shared by ``get_string_without_tracked_deletions`` and range_copy paint so
     an offset taken from the helper string indexes these chunks without drift.
 
-    Paint (``range_copy._paint_direct_formatting``) passes
+    Paint (``range_copy.paint_direct_formatting``) passes
     ``abort_on_portion_error=True``: a failed ``nextElement`` / portion type
     would desync character offsets, so the walk stops. The helper continues
     past a bad portion so later runs can still contribute text.

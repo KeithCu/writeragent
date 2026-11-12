@@ -159,7 +159,7 @@ def _iter_ruby_spans_in_paragraph(para: Any) -> Iterator[_RubySpan]:
     base_parts: list[str] = []
     base_start = 0
     offset = 0
-    for portion, kind in range_copy._iter_portions(portion_enum):
+    for portion, kind in range_copy.iter_portions(portion_enum):
         if kind == "Redline":
             try:
                 if str(portion.getPropertyValue("RedlineType")) == "Delete":
@@ -214,7 +214,7 @@ def _inject_ruby_from_model(model: Any, content: str, fodt_has_ruby: bool | None
     spans = best_effort(
         lambda: [
             span
-            for para in range_copy._iter_xtext_paragraphs(model.getText())
+            for para in range_copy.iter_xtext_paragraphs(model.getText())
             for span in _iter_ruby_spans_in_paragraph(para)
         ],
         "_inject_ruby_from_model: portion walk failed",
@@ -310,7 +310,7 @@ def _ruby_skip(text_obj: Any, cursor: Any, spans: list[Any]) -> int:
     """
     if not spans:
         return 0
-    return range_copy._prefix_char_count(text_obj, cursor)
+    return range_copy.prefix_char_count(text_obj, cursor)
 
 
 
