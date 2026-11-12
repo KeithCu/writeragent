@@ -138,13 +138,13 @@ def _para_writers() -> dict[str, Callable[[str], tuple[str, Any] | None]]:
     (pinned by test_every_para_writer_property_is_copied_by_range_reads).
     """
     try:
-        from .styles import _dict_to_uno_struct, _para_adjust_to_uno, _style_color_to_uno
+        from .styles import dict_to_uno_struct, para_adjust_to_uno, style_color_to_uno
     except ImportError:
         return {}
 
     def text_align(val: str) -> tuple[str, Any] | None:
         try:
-            return ("ParaAdjust", _para_adjust_to_uno(xhtml_post.ODF_TEXT_ALIGN.get(val, val)))
+            return ("ParaAdjust", para_adjust_to_uno(xhtml_post.ODF_TEXT_ALIGN.get(val, val)))
         except ValueError:
             return None
 
@@ -152,10 +152,10 @@ def _para_writers() -> dict[str, Callable[[str], tuple[str, Any] | None]]:
         fields = _line_height_fields(val)
         if fields is None:
             return None
-        return ("ParaLineSpacing", _dict_to_uno_struct("ParaLineSpacing", "com.sun.star.style.LineSpacing", fields))
+        return ("ParaLineSpacing", dict_to_uno_struct("ParaLineSpacing", "com.sun.star.style.LineSpacing", fields))
 
     def background(val: str) -> tuple[str, Any] | None:
-        col = _style_color_to_uno(val)
+        col = style_color_to_uno(val)
         # _apply_para_props turns ParaBackColor into the FillColor/FillStyle pair.
         return None if col is None else ("ParaBackColor", col)
 
@@ -195,7 +195,7 @@ def parse_data_lo_para(css: str) -> tuple[dict[str, tuple[str, Any]], list[str]]
         try:
             result = writer(val.strip()) if writer is not None else None
         except ValueError:
-            # _dict_to_uno_struct raises ValueError when a struct field rejects the value.
+            # dict_to_uno_struct raises ValueError when a struct field rejects the value.
             result = None
         if result is None:
             dropped.append(prop)

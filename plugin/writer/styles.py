@@ -64,9 +64,10 @@ from plugin.framework.errors import (
 )
 from plugin.framework.doc_type import CALC_DOCUMENT_SERVICE, TEXT_DOCUMENT_SERVICE
 from plugin.framework.tool import ToolBase as FrameworkToolBase
+from plugin.framework.uno_context import get_toolkit
 from plugin.writer.edit_review import flag_style_unreviewed, next_agent_edit_undo_title
 from . import search as search_mod
-from .page import get_page_style_properties
+from .page import copy_page_style, get_page_style_properties
 from plugin.writer.specialized_base import INSERT_TARGETS, ToolWriterStyleBase, enum_param
 from .target_resolver import cursor_spanning_range, resolve_target_cursor
 
@@ -102,7 +103,7 @@ FONT_SLANT_TO_INT: dict[str, int] = {
 }
 
 
-def _reset_properties_to_default(cursor: Any, names: Iterable[str]) -> list[str]:
+def reset_properties_to_default(cursor: Any, names: Iterable[str]) -> list[str]:
     """Drop *names* as direct attributes on *cursor* so they fall back to the paragraph style."""
     names = tuple(names)
     if not names:
@@ -296,7 +297,7 @@ def apply_paragraph_style_preserving_direct_char(
     below exists to undo. Re-applying the style a paragraph already has does not reset Char*
     (LibreOffice 26.2). It *does* drop the paragraph's direct Para* (margins, alignment, first-line
     indent) — so re-applying Standard does not keep a hand-set quote indent. Clearing a Char*
-    override is never a side effect to rely on; see _reset_properties_to_default.
+    override is never a side effect to rely on; see reset_properties_to_default.
     ``getPropertyState`` is unreliable at the text-portion level (except for hint-level
     overrides on hyperlinks, see ``read_link_look`` in ``hyperlink_fixup``), so overrides
     are detected by VALUE (Char* differs from the paragraph's current style default).
@@ -359,8 +360,8 @@ def apply_paragraph_style_preserving_direct_char(
             STYLE_GOVERNED_CHAR_PROPERTIES if clear_direct == "style_props"
             else sorted({n for _pc, props in overrides for n in props})
         )
-        report["cleared_char_properties"] = _reset_properties_to_default(capture_cursor, char_targets)
-        report["cleared_paragraph_properties"] = _reset_properties_to_default(capture_cursor, CLEARABLE_PARA_PROPERTIES)
+        report["cleared_char_properties"] = reset_properties_to_default(capture_cursor, char_targets)
+        report["cleared_paragraph_properties"] = reset_properties_to_default(capture_cursor, CLEARABLE_PARA_PROPERTIES)
 
     if capture_failures > 0:
         walk_notes.append("Some direct formatting overrides could not be read; the capture may be incomplete.")
@@ -542,7 +543,7 @@ def _missing_style_error(
     )
 
 
-def _para_adjust_to_uno(value: Any) -> int:
+def para_adjust_to_uno(value: Any) -> int:
     """Schema word → UNO integer. Integers are refused (the old 0/1/2/3 trap)."""
     if isinstance(value, str):
         key = value.strip().lower()
@@ -569,7 +570,7 @@ def _para_adjust_from_uno(raw: Any | None) -> str | None:
 _AUTO_COLOR_WORDS = frozenset({"automatic", "auto", "transparent", "none"})
 
 
-def _style_color_to_uno(val: Any) -> int | None:
+def style_color_to_uno(val: Any) -> int | None:
     # Style properties allow -1 / auto / transparent for automatic or no fill.
     # parse_color_to_uno_int masks integers to 24-bit RGB (& 0xFFFFFF) turning -1 into
     # white (0xFFFFFF), so handle -1 and auto words before passing to parse_color_to_uno_int.
@@ -721,7 +722,7 @@ def _struct_field_value(struct_name: str, field: str, value: Any) -> Any:
     """Translate the handful of fields that read better as words."""
     if field == "Color":
         # BorderLine2.Color accepts hex, integer, or -1 / automatic / transparent.
-        col = _style_color_to_uno(value)
+        col = style_color_to_uno(value)
         if col is None:
             raise ValueError("%s.Color is not a color: %r" % (struct_name, value))
         return col
@@ -736,7 +737,7 @@ def _struct_field_value(struct_name: str, field: str, value: Any) -> Any:
     return value
 
 
-def _dict_to_uno_struct(prop_name: str, struct_name: str, value: Any) -> Any:
+def dict_to_uno_struct(prop_name: str, struct_name: str, value: Any) -> Any:
     """Build a UNO struct from a plain dict."""
     if not isinstance(value, dict):
         raise ValueError(
@@ -793,7 +794,7 @@ def _apply_style_updates(style: Any, updates: dict[str, Any]) -> tuple[dict[str,
     for prop_name, prop_val in updates.items():
         # Handle color conversions (None = unparseable; do not pass raw strings to UNO).
         if prop_name in ("CharColor", "CharBackColor", "CharUnderlineColor", "ParaBackColor"):
-            parsed = _style_color_to_uno(prop_val)
+            parsed = style_color_to_uno(prop_val)
             if parsed is None:
                 failed[prop_name] = "Invalid color: %r" % (prop_val,)
                 continue
@@ -872,7 +873,7 @@ _CLONE_SKIP_PROPS = frozenset({
 })
 
 
-def _copy_direct_style_properties(source: Any, dest: Any) -> tuple[list[str], list[str]]:
+def copy_direct_style_properties(source: Any, dest: Any) -> tuple[list[str], list[str]]:
     """Copy DIRECT_VALUE properties. Inherited defaults stay inherited.
 
     Returns (copied names, names that were direct but could not be set).
@@ -941,7 +942,7 @@ def _clone_text_style(
         follow = source.getPropertyValue("FollowStyle")
         if follow:
             clone.setPropertyValue("FollowStyle", follow)
-    copied, skipped = _copy_direct_style_properties(source, clone)
+    copied, skipped = copy_direct_style_properties(source, clone)
     style_family.insertByName(new_name, clone)
     keep_style_alive(clone)
     return {
@@ -956,15 +957,15 @@ def _normalize_property_updates(property_updates: Any) -> dict[str, Any]:
     """Copy updates and translate ParaAdjust and UNO structs."""
     updates = dict(property_updates)
     if "ParaAdjust" in updates:
-        updates["ParaAdjust"] = _para_adjust_to_uno(updates["ParaAdjust"])
+        updates["ParaAdjust"] = para_adjust_to_uno(updates["ParaAdjust"])
     for name, struct_name in _STRUCT_PROPERTIES.items():
         if name in updates:
             val = updates[name]
             if name == "ParaTabStops":
                 if isinstance(val, list):
-                    updates[name] = tuple(_dict_to_uno_struct(name, struct_name, item) for item in val)
+                    updates[name] = tuple(dict_to_uno_struct(name, struct_name, item) for item in val)
             elif isinstance(val, dict):
-                updates[name] = _dict_to_uno_struct(name, struct_name, val)
+                updates[name] = dict_to_uno_struct(name, struct_name, val)
     return updates
 
 
@@ -1008,8 +1009,6 @@ def _installed_font_names(ctx: ToolContext) -> set[str] | None:
     if _installed_font_names_cache is not None:
         return _installed_font_names_cache
     try:
-        from plugin.framework.uno_context import get_toolkit
-
         toolkit = get_toolkit(getattr(ctx, "ctx", None))
         if toolkit is None:
             return None
@@ -1811,9 +1810,6 @@ class StyleClone(ToolWriterStyleBase):
 
         with WriterCompoundUndo(doc, "WriterAgent: Clone style"):
             if family == "PageStyles":
-                # Local import: page.copy_page_style imports this module at call time.
-                from .page import copy_page_style
-
                 stats = copy_page_style(doc, style_name, new_name)
             else:
                 stats = _clone_text_style(

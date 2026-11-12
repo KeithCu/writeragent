@@ -24,6 +24,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
+from plugin.doc.compound_undo import UndoUnavailable, commit_or_rollback
 from plugin.doc.text_helpers import iter_elements_limited, record_walk_cap
 from plugin.framework.errors import (
     best_effort,
@@ -33,8 +34,10 @@ from plugin.framework.errors import (
     uno_read,
 )
 from plugin.framework.uno_context import uno_same
-from .edit_review import flag_style_unreviewed
-from .html_export import PAGE_NUMBER_NUMBERING_TYPE_NAMES
+from .edit_review import flag_style_unreviewed, next_agent_edit_undo_title
+from .html_export import PAGE_NUMBER_NUMBERING_TYPE_NAMES, xtext_to_content
+from .html_import import replace_xtext_with_html
+from .html_import_styles import attach_write_report
 from .range_copy import ANCHORED_GRAPHIC_PROPS, copy_flow_into_xtext
 from .search import (
     CASE_SENSITIVE_DESCRIPTION,
@@ -79,6 +82,7 @@ def _page_style_layout_to_uno(val: Any) -> Any:
     """Validate int 0..3 and return UNO PageStyleLayout enum constant."""
     if val not in (0, 1, 2, 3):
         raise ValueError("page_style_layout must be 0=ALL, 1=LEFT, 2=RIGHT, or 3=MIRRORED.")
+    # UNO constant: com.sun.star names resolve only through PyUNO's import hook (pyuno/source/module/uno.py _uno_import), so it is imported when the function runs.
     from com.sun.star.style.PageStyleLayout import ALL, LEFT, RIGHT, MIRRORED
     return (ALL, LEFT, RIGHT, MIRRORED)[val]
 
@@ -508,7 +512,7 @@ def copy_page_style(
     The direct-property helper lives in styles.py. This function imports it at
     call time because styles.py already imports this module at load.
     """
-    from .styles import _copy_direct_style_properties, keep_style_alive
+    from .styles import copy_direct_style_properties, keep_style_alive
 
     source = resolve_page_style(doc, source_name)
     styles = doc.getStyleFamilies().getByName("PageStyles")
@@ -526,7 +530,7 @@ def copy_page_style(
     styles.insertByName(new_name, clone)
     keep_style_alive(clone)
     try:
-        copied, skipped = _copy_direct_style_properties(source, clone)
+        copied, skipped = copy_direct_style_properties(source, clone)
         shapes_copied, skipped_shapes = _copy_page_regions(doc, source, clone)
     except Exception:
         try:
@@ -804,8 +808,6 @@ class PageGetHeaderFooterText(ToolWriterPageBase):
     }
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        from .html_export import xtext_to_content
-
         style_name = kwargs.get("style", "Standard")
         region = kwargs["region"]
         assert isinstance(region, str)
@@ -910,9 +912,6 @@ class PageSetHeaderFooterText(ToolWriterPageBase):
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        from .html_import import replace_xtext_with_html
-        from .html_import_styles import attach_write_report
-
         style_name = kwargs.get("style", "Standard")
         region = kwargs["region"]
         assert isinstance(region, str)
@@ -1101,6 +1100,7 @@ def _character_anchor_in_matches(doc: Any, text_obj: Any, cursors: list[Any]) ->
     setString there can drop the image. Refuse before writing. An unreadable
     draw page raises, so the refuse fails closed; nothing has been written yet.
     """
+    # UNO constant: com.sun.star names resolve only through PyUNO's import hook (pyuno/source/module/uno.py _uno_import), so it is imported when the function runs.
     from com.sun.star.text.TextContentAnchorType import AT_CHARACTER
 
     for shape, anchor in _region_shapes(doc, text_obj):
@@ -1118,9 +1118,6 @@ def _apply_match_cursors(doc: Any, text_obj: Any, cursors: list[Any], new_text: 
     A failed before-scan raises before anything is written; a failed after-scan
     is a mutate error and rolls back.
     """
-    from .edit_review import next_agent_edit_undo_title
-    from plugin.doc.compound_undo import UndoUnavailable, commit_or_rollback
-
     before = _scan_region_content(doc, text_obj)
     after_box: list[dict[str, Any]] = [before]
     title = next_agent_edit_undo_title()
@@ -1479,6 +1476,7 @@ def _apply_page_break(para: Any, page_style: str | None, restart: int | None) ->
     the current sequence, so this function does not write 0. The offset is
     written after PageDescName. Nothing is read back.
     """
+    # UNO constant: com.sun.star names resolve only through PyUNO's import hook (pyuno/source/module/uno.py _uno_import), so it is imported when the function runs.
     from com.sun.star.style.BreakType import PAGE_BEFORE
     para.setPropertyValue("BreakType", PAGE_BEFORE)
     if page_style is not None:

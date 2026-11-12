@@ -257,7 +257,7 @@ A range slice that crosses a bold run therefore reads back with the bold in plac
 On **write**, `data-lo-para` is applied after the named style: `text-align`, all four margins, `text-indent`, `line-height`, and `background-color` round-trip on `full_document`, `beginning`, `end`, and header/footer writes (`page_set_header_footer_text`, which also applies `data-lo-style`), as well as whole-paragraph `selection` and `search` replacements when Track Changes is off. Paragraph-level `font-family`, `font-size`, `font-weight`, `font-style`, and `color` are read-only and arrive in `warnings`: Writer sets them over the whole paragraph and flattens bold or coloured spans (`_READ_ONLY_PARA_NAMES` in `html_import_styles.py`). A unit test pins every read name to a writer or to that read-only set. Table cells, position before/after, and partial or recorded replacements do not apply the attribute.
 To make a style win over hand-set values, `apply_style` takes `clear_direct`
 (`none` | `style_props` | `all`). **Default is `style_props`**: house font name + size win
-(via `STYLE_GOVERNED_CHAR_PROPERTIES` + `_reset_properties_to_default`), bold/italic/colour stay,
+(via `STYLE_GOVERNED_CHAR_PROPERTIES` + `reset_properties_to_default`), bold/italic/colour stay,
 and `CLEARABLE_PARA_PROPERTIES` (indents/alignment) are cleared so the style shows. `none` is an
 explicit opt-in that keeps a hand-set font (historical “masking Times” behaviour). `all` is
 Ctrl+M-ish and is refused on `target='full_document'` (that would flatten emphasis across the
