@@ -283,7 +283,7 @@ def _append_text_to_calc_active_area(doc: Any, text: str) -> None:
     elif selection is not None and hasattr(selection, "getRangeAddresses"):
         ranges = selection.getRangeAddresses()
         if ranges:
-            # Why-comment: a multi-range has no getRangeAddress, and A1 is not that selection.
+            # A multi-range has no getRangeAddress, and A1 is not that selection.
             addr = ranges[0]
             col, row = addr.StartColumn, addr.StartRow
     cell = sheet.getCellByPosition(col, row)
@@ -386,7 +386,7 @@ def _create_control(ctx: Any, *, page_cursors: Any = None, **kwargs: Any) -> dic
     if items_err:
         return items_err
 
-    # Check duplicate name on page (Item 26)
+    # Refuse a duplicate control name on the page before inserting.
     try:
         dp = _resolve_form_page(doc, kwargs.get("page"))
     except ToolExecutionError as exc:
@@ -668,7 +668,7 @@ Output ONLY the HTML content. No explanations. No Markdown like # Header.
                         field_names.append("")
                 else:
                     if part:
-                        # A TypeError after a partial insert was inserting the text again and hiding the error.
+                        # Errors propagate: retrying after a partial insert would insert the text twice and hide the error.
                         self._insert_text(ctx, part, page_cursors=page_cursors)
 
             return _field_failure_result(self, field_results, action="form_generate", names=field_names)
@@ -823,7 +823,7 @@ class FormEditControl(ToolWriterFormBase):
         model = shape.Control
         ctrl_type = readable_control_type(model)
 
-        # Validate unsupported properties before mutating (Item 26)
+        # Refuse unsupported properties before mutating anything.
         if "label" in kwargs and not hasattr(model, "Label"):
             return self._tool_error(f"{ctrl_type} control has no label.")
         if "text" in kwargs and not hasattr(model, "Text"):

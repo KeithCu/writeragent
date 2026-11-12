@@ -58,8 +58,8 @@ def resolve_target_cursor(
         return cursor
     elif target == "selection":
         # Resolve the explicit selection, else the view cursor. NEVER silently fall back to the end
-        # of the document (the old `except: gotoEnd` appended edits at the very end and still
-        # reported ok). Only when BOTH are unavailable do we raise a clear error, so a headless MCP
+        # of the document (a gotoEnd fallback would append edits at the very end and still
+        # report ok). Only when BOTH are unavailable do we raise a clear error, so a headless MCP
         # client that never set a selection is told to use set_selection / target='search'.
         controller = uno_read(doc.getCurrentController, None)
         rng = None

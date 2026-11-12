@@ -545,9 +545,9 @@ def filter_peer_message_schemas(
 ) -> list[dict[str, Any]]:
     """Hide peer send tools on the outer chat wire.
 
-    Master/#672 advertised this on main chat when a peer was open. This
-    experiment shows both tools only on ``document_research`` schemas, and only
-    when a resolvable other v1 peer exists. Catalog is baked into each description.
+    Peer send tools are shown only on ``document_research`` schemas, and only when a
+    resolvable other v1 peer exists; the main chat never sees them. The catalog is
+    baked into each description.
     """
     if not any(_schema_function_name(s) in PEER_TOOL_NAMES for s in schemas):
         return schemas

@@ -34,7 +34,7 @@ Why: prompt instructions carry complex API-mechanics rules largely because tool 
     - `plugin/writer/styles.py`: style missing error `_missing_style_error` (lines 518-525), empty style name (line 1312), `clear_direct` validations (lines 1338, 1342, 1347), occurrence out-of-range without code (line 1385), `UndoUnavailable` (line 1403), and mutation failures (lines 1407, 1408, 1426).
     - `plugin/writer/selection.py`: parameter conflicts and validations (lines 75, 77, 87-95), occurrence parse (line 83), missing document view/controller (line 99), empty search text (line 106), cursor build failure (lines 116, 120), occurrence `IndexError` (line 142), shape-only match (line 147), and search text not found (line 148).
     - `plugin/writer/search.py`: pattern required (line 1401) and query required (line 1526).
-  - Unhandled exception: `TABLE_BLOCK_IN_CELL` raises raw `RuntimeError` (`plugin/writer/html_import.py:739`) instead of returning a coded tool error.
+  - `TABLE_BLOCK_IN_CELL`: block HTML into a table cell raises `ToolExecutionError(code="TABLE_BLOCK_IN_CELL")` in `replace_single_range_with_content` (`plugin/writer/html_import.py`); when this plan was written it was a raw `RuntimeError`.
 - **Hand-built error dicts bypassing `make_tool_error`:**
   - `build_search_not_found_response` in `plugin/writer/search.py:1262` (also reused in `plugin/writer/styles.py:1379`).
   - Search near-miss responses (`closest_match`, `diff_at`), oversized refusals (`oversized: True`), and zero-replacement responses (`replaced_count: 0`) in `plugin/writer/search.py:1253, 1303`.

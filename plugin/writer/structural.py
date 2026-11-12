@@ -405,8 +405,8 @@ class CloneHeadingBlock(ToolBaseDummy):
         clones: list[tuple[str, Any]] = []
         skipped_tables = 0
         for el in elements:
-            # Why-comment: a table is in this enumeration and has no ParaStyleName
-            # (same fact as html_export.py:767-772); do not add a table copier.
+            # A table is in this enumeration and has no ParaStyleName
+            # (same fact as html_export._copy_window_to_scratch); do not add a table copier.
             if _is_text_table(el):
                 skipped_tables += 1
                 continue

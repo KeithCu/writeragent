@@ -197,7 +197,7 @@ class ProximityService(ServiceBase):
             if target_entry is None:
                 raise ToolExecutionError("No previous sibling heading")
 
-        # heading_ref already defaults missing body_paragraphs to 0 (was body_default=True).
+        # heading_ref already defaults missing body_paragraphs to 0.
         return {
             "heading": heading_ref(
                 target_entry["node"],

@@ -241,7 +241,7 @@ def fields_sequence_to_dict(raw: Any) -> dict[str, Any]:
 
 
 def index_kind_from_uno(idx: Any) -> str:
-    """Prefer getServiceName(); fall back to the old SwX* remaps."""
+    """Prefer getServiceName(); fall back to the implementation-name table (_INDEX_IMPL_TO_KIND)."""
     # A missing service name falls through; a closed document must not list as "unknown".
     service = uno_read(lambda: idx.getServiceName() or "", "")
     kind = _INDEX_SERVICE_TO_KIND.get(service)

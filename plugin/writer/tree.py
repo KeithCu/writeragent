@@ -150,7 +150,7 @@ class TreeService(ServiceBase):
         """
         key = self._doc_svc.doc_key(doc)
         # Cheap stale-cache check when XModifyListener misses a programmatic edit.
-        # Windows leftover Writer reuse (GHA 35466498641) can leave a live
+        # Reusing a leftover Writer on Windows can leave a live
         # RuntimeUID listener that does not fire on ``insertString``;
         # ``CharacterCount`` still moves. ``None`` means no signal — keep
         # listener-only caching (WriterDocStub / missing property).
@@ -372,7 +372,7 @@ class TreeService(ServiceBase):
                     vc.jumpToStartOfPage()
                     return vc.getStart()
 
-                # Why-comment: restoring inside the lock leaves a view cursor that
+                # Restoring inside the lock leaves a view cursor that
                 # started in a table cell or frame on the target page. Do not add a
                 # second save/restore.
                 anchor = with_view_cursor_left_body_locked(doc, vc, _jump)

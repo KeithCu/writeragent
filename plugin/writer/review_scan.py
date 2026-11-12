@@ -254,7 +254,7 @@ def new_redlines_since(doc: Any, before: set[Any]) -> tuple[list[Any], bool]:
     is not a stable id. Deleting text that is another author's
     tracked insertion stacks our Delete on that SAME redline (same
     identifier), so the deletion is never tagged and never shows up
-    as an agent change (relato #34). Deleting inside the middle of
+    as an agent change. Deleting inside the middle of
     someone else's insertion splits it, and the tail piece gets a
     NEW identifier, so the user's own text would be tagged as an
     agent change (Accept/Reject would then resolve it). A redline
