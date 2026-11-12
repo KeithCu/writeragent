@@ -9,8 +9,6 @@ Collects data-lo-style attributes per top-level block, strips them before StarWr
 import, and resolves/applies paragraph styles via UNO after import.
 """
 
-# pyright: reportUnusedFunction=false
-
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -20,10 +18,14 @@ import re
 from urllib.parse import unquote
 from typing import TYPE_CHECKING, Any, ClassVar, Literal, final
 
+from plugin.doc.text_helpers import normalize_linebreaks
+from plugin.doc.visual_helpers import UNITS_PER_INCH, mm_to_unit
 from plugin.framework.errors import Diagnostic, reraise_if_disposed, uno_read
+from plugin.framework.html_stripper import escape_prose_angle_brackets
 from plugin.framework.uno_context import enum_has_more
 
-from . import xhtml_style_postprocess as xhtml_post
+from . import html_export, html_ruby, xhtml_style_postprocess as xhtml_post
+from .math.html_math_segment import html_fragment_contains_mixed_math
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable
@@ -64,7 +66,6 @@ def _parse_length_to_unit(val: str) -> int | None:
         num = float(num_str)
     except ValueError:
         return None
-    from plugin.doc.visual_helpers import UNITS_PER_INCH, mm_to_unit
 
     if unit == "cm":
         return mm_to_unit(num * 10)
@@ -486,7 +487,7 @@ def expand_escapes(text: str) -> str:
     return text.replace("\\n", "\n").replace("\\t", "\t")
 
 
-def _plain_paragraphs(content: str) -> list[str]:
+def plain_paragraphs(content: str) -> list[str]:
     """Split plain-text content into paragraphs, collapsing 3+ newlines and dropping empty pieces."""
     collapsed = re.sub(r"\n{3,}", "\n\n", content)
     return [p for p in collapsed.split("\n\n") if p.strip()]
@@ -501,16 +502,12 @@ def _prepare_import_html(content: str) -> str:
     """
     if not isinstance(content, str) or not content:
         return ""
-    from plugin.doc.text_helpers import normalize_linebreaks as normalize
-    from plugin.framework.html_stripper import escape_prose_angle_brackets
-    from . import html_export, html_ruby
-    from .math.html_math_segment import html_fragment_contains_mixed_math
 
     content = decode_complete_character_references(content)
     content = expand_escapes(content)
     if not html_fragment_contains_mixed_math(content):
         content, _unused_ruby = html_ruby.extract_and_strip_ruby(content)
-    content = escape_prose_angle_brackets(normalize(content))
+    content = escape_prose_angle_brackets(normalize_linebreaks(content))
     if re.search(r"<!DOCTYPE\s+html|<html[\s>]", content, re.IGNORECASE):
         content = html_export.strip_html_boilerplate(content)
     return content
@@ -551,7 +548,7 @@ def summarize_written_blocks(
     parser = _summarize_blocks(content)
     if parser is None:
         prepared = _prepare_import_html(content)
-        paras = _plain_paragraphs(prepared)
+        paras = plain_paragraphs(prepared)
         return {"paragraph_count": len(paras), "headings": []}
 
     drop_set = frozenset(drop_heading_styles)

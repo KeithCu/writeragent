@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from plugin.doc.text_helpers import selected_text_range
 from plugin.doc.undo import commit_or_rollback_mutation
 from plugin.framework.errors import reraise_if_disposed, uno_read
 from plugin.writer import search as search_mod
@@ -63,8 +64,6 @@ def resolve_target_cursor(
         controller = uno_read(doc.getCurrentController, None)
         rng = None
         if controller is not None:
-            from plugin.doc.text_helpers import selected_text_range
-
             rng = uno_read(lambda: selected_text_range(controller), None)
             if rng is None:
                 rng = uno_read(controller.getViewCursor, None)

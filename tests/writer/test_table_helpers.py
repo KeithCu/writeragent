@@ -10,7 +10,7 @@ from typing import Any
 
 import pytest
 
-from plugin.writer.table_helpers import _set_cell_string, fill_table_cells, table_dims
+from plugin.writer.table_helpers import set_cell_string, fill_table_cells, table_dims
 
 
 class DisposedException(Exception):
@@ -70,7 +70,7 @@ def test_set_cell_string_writes_via_get_text():
             outer_writes.append(text)
 
     cell = Cell()
-    _set_cell_string(cell, "hello")
+    set_cell_string(cell, "hello")
     assert inner_writes == ["hello"]
     assert outer_writes == []
 
@@ -83,7 +83,7 @@ def test_set_cell_string_uses_set_string_without_get_text():
             writes.append(text)
 
     cell = Cell()
-    _set_cell_string(cell, "hello")
+    set_cell_string(cell, "hello")
     assert writes == ["hello"]
 
 
@@ -103,7 +103,7 @@ def test_set_cell_string_write_failure_propagates():
 
     cell = Cell()
     with pytest.raises(RuntimeError, match="write failed"):
-        _set_cell_string(cell, "hello")
+        set_cell_string(cell, "hello")
     assert outer_writes == []
 
 
@@ -114,7 +114,7 @@ def test_set_cell_string_disposal_propagates():
 
     cell = Cell()
     with pytest.raises(DisposedException, match="object disposed"):
-        _set_cell_string(cell, "hello")
+        set_cell_string(cell, "hello")
 
 
 def test_fill_table_cells_write_failure_is_not_a_success():

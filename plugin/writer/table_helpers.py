@@ -5,7 +5,7 @@
 """Shared cell text writer and table manipulation helpers for Writer and Draw text tables.
 
 Public surface:
-- ``_set_cell_string``: Set string on a cell (via getText() or setString).
+- ``set_cell_string``: Set string on a cell (via getText() or setString).
 - ``check_grid``: Validate row/column counts for a 2D grid write.
 - ``fill_table_cells``: Validate and write a 2D grid into a table by column and row coordinates.
 - ``table_dims``: Return (rows, cols) dimensions of a table.
@@ -17,7 +17,7 @@ from __future__ import annotations
 from typing import Any
 
 __all__ = [
-    "_set_cell_string",
+    "set_cell_string",
     "check_grid",
     "edit_table_band",
     "fill_table_cells",
@@ -25,7 +25,7 @@ __all__ = [
 ]
 
 
-def _set_cell_string(cell: Any, text: str) -> None:
+def set_cell_string(cell: Any, text: str) -> None:
     """Set text on a Writer or Draw cell."""
     # Write errors and disposal must propagate instead of being swallowed by a probe,
     # and availability is determined by hasattr rather than trial write.
@@ -58,7 +58,7 @@ def fill_table_cells(table: Any, data: Any) -> int:
     for r_idx, row in enumerate(data):
         for c_idx, val in enumerate(row):
             cell = table.getCellByPosition(c_idx, r_idx)
-            _set_cell_string(cell, "" if val is None else str(val))
+            set_cell_string(cell, "" if val is None else str(val))
             written += 1
     return written
 
