@@ -135,7 +135,7 @@ def test_resolve_all_global_unconfirmed_after_dispatch():
         return views[idx]
 
     with patch("plugin.writer.inline_review.scan_redline_view", side_effect=next_view), \
-         patch("plugin.writer.inline_review._execute_dispatch"):
+         patch("plugin.writer.inline_review.execute_dispatch"):
         res = _resolve_all_agent_changes(MagicMock(), MagicMock(), True)
     assert res.status == ResolveStatus.PARTIAL
     assert res.resolved == 0
@@ -175,7 +175,7 @@ def test_fast_path_noop_message_no_user_tracked_changes():
     )
     view = RedlineView(reliable=True, total=2, rows=rows)
     with patch("plugin.writer.inline_review.scan_redline_view", return_value=view), \
-         patch("plugin.writer.inline_review._execute_dispatch"):
+         patch("plugin.writer.inline_review.execute_dispatch"):
         res = _resolve_all_agent_changes(MagicMock(), MagicMock(), True)
         assert res.status == ResolveStatus.NO_OP
         assert res.resolved == 0
@@ -205,7 +205,7 @@ def test_fast_path_partial_clear_message_no_user_tracked_changes():
         return views[idx]
 
     with patch("plugin.writer.inline_review.scan_redline_view", side_effect=next_view), \
-         patch("plugin.writer.inline_review._execute_dispatch"):
+         patch("plugin.writer.inline_review.execute_dispatch"):
         res = _resolve_all_agent_changes(MagicMock(), MagicMock(), True)
         assert res.status == ResolveStatus.PARTIAL
         assert res.resolved == 1

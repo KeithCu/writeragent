@@ -14,6 +14,7 @@ from plugin.writer.review_scan import (
     is_agent_token,
     read_redline_comment,
     make_agent_token,
+    redline_identity_key,
     redline_is_agent_change,
     scan_redlines,
     session_token_prefix,
@@ -386,4 +387,31 @@ def test_tracked_deletion_scan_skips_an_unreadable_redline():
     enum.hasMoreElements.side_effect = [True, True, False]
     enum.nextElement.side_effect = [bad, good]
     assert document_has_tracked_deletions(doc) is True
+
+
+def test_redline_identity_key_uses_given_comment():
+    class CountingRedline:
+        def __init__(self):
+            self.reads = {"RedlineComment": 0}
+
+        def getPropertyValue(self, name):
+            if name == "RedlineIdentifier":
+                return "id1"
+            if name == "RedlineComment":
+                self.reads["RedlineComment"] += 1
+                return "from_prop"
+            return None
+
+    rl = CountingRedline()
+    key_c = redline_identity_key(rl, comment="c")
+    assert key_c[4] == "c"
+    assert rl.reads["RedlineComment"] == 0
+
+    key_none = redline_identity_key(rl, comment=None)
+    assert key_none[4] is None
+    assert rl.reads["RedlineComment"] == 0
+
+    key_default = redline_identity_key(rl)
+    assert key_default[4] == "from_prop"
+    assert rl.reads["RedlineComment"] == 1
 

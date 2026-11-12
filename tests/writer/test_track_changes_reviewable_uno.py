@@ -28,7 +28,6 @@ from plugin.writer.edit_review import (
     WriterStreamedRewriteSession,
 )
 from plugin.writer.apply_document_content import ApplyDocumentContent
-import plugin.writer.edit_review as _content
 from plugin.writer.edit_review import EditReviewSession, get_agent_edit_review_mode
 from plugin.framework.config import save, get_config
 from plugin.writer import html_import
@@ -279,10 +278,13 @@ def test_split_authors_whole_block_on_two_colors_uno(ctx, doc):
     forces the whole-block path; accept must still reconstruct exactly the new text (atomicity)."""
     _reset(doc, ctx, "Old clause body here.")
     prev = get_config(_FLAG)
-    prev_split, prev_thresh = _content._SPLIT_AUTHOR_COLORS, _content._WORD_DIFF_THRESHOLD
-    save({_FLAG: "record"})
-    _content._SPLIT_AUTHOR_COLORS = True
-    _content._WORD_DIFF_THRESHOLD = 0.0  # any change -> ONE whole block (not surgical)
+    prev_split = get_config("doc.agent_edit_split_author_colors")
+    prev_thresh = get_config("doc.agent_edit_diff_threshold")
+    save({
+        _FLAG: "record",
+        "doc.agent_edit_split_author_colors": True,
+        "doc.agent_edit_diff_threshold": 0.0,
+    })
     try:
         res = ApplyDocumentContent().execute(
             _tool_ctx(doc, ctx), target="search", old_content="Old clause body here.", content=["New clause body here."])
@@ -295,8 +297,11 @@ def test_split_authors_whole_block_on_two_colors_uno(ctx, doc):
         assert _para_text(doc) == "New clause body here.", \
             "accept must reconstruct exactly the new text (whole-block atomicity), got %r" % _para_text(doc)
     finally:
-        save({_FLAG: prev})
-        _content._SPLIT_AUTHOR_COLORS, _content._WORD_DIFF_THRESHOLD = prev_split, prev_thresh
+        save({
+            _FLAG: prev,
+            "doc.agent_edit_split_author_colors": prev_split,
+            "doc.agent_edit_diff_threshold": prev_thresh,
+        })
         if len(doc.getRedlines()):
             _reject_all(doc, ctx)
 
@@ -308,10 +313,13 @@ def test_split_authors_whole_block_off_one_color_uno(ctx, doc):
     stays atomic -- accept reconstructs exactly the new text."""
     _reset(doc, ctx, "Old clause body here.")
     prev = get_config(_FLAG)
-    prev_split, prev_thresh = _content._SPLIT_AUTHOR_COLORS, _content._WORD_DIFF_THRESHOLD
-    save({_FLAG: "record"})
-    _content._SPLIT_AUTHOR_COLORS = False
-    _content._WORD_DIFF_THRESHOLD = 0.0  # force whole-block
+    prev_split = get_config("doc.agent_edit_split_author_colors")
+    prev_thresh = get_config("doc.agent_edit_diff_threshold")
+    save({
+        _FLAG: "record",
+        "doc.agent_edit_split_author_colors": False,
+        "doc.agent_edit_diff_threshold": 0.0,
+    })
     try:
         res = ApplyDocumentContent().execute(
             _tool_ctx(doc, ctx), target="search", old_content="Old clause body here.", content=["New clause body here."])
@@ -322,8 +330,11 @@ def test_split_authors_whole_block_off_one_color_uno(ctx, doc):
         assert _para_text(doc) == "New clause body here.", \
             "accept must reconstruct exactly the new text, got %r" % _para_text(doc)
     finally:
-        save({_FLAG: prev})
-        _content._SPLIT_AUTHOR_COLORS, _content._WORD_DIFF_THRESHOLD = prev_split, prev_thresh
+        save({
+            _FLAG: prev,
+            "doc.agent_edit_split_author_colors": prev_split,
+            "doc.agent_edit_diff_threshold": prev_thresh,
+        })
         if len(doc.getRedlines()):
             _reject_all(doc, ctx)
 
@@ -367,9 +378,11 @@ def test_split_authors_surgical_off_one_color_uno(ctx, doc):
     """Toggle OFF collapses the SURGICAL path to one author too (consistency both ways)."""
     _reset(doc, ctx, "Old clause body here.")
     prev = get_config(_FLAG)
-    prev_split = _content._SPLIT_AUTHOR_COLORS
-    save({_FLAG: "record"})
-    _content._SPLIT_AUTHOR_COLORS = False  # default threshold -> small change takes the surgical path
+    prev_split = get_config("doc.agent_edit_split_author_colors")
+    save({
+        _FLAG: "record",
+        "doc.agent_edit_split_author_colors": False,
+    })
     try:
         res = ApplyDocumentContent().execute(
             _tool_ctx(doc, ctx), target="search", old_content="Old clause body here.", content=["New clause body here."])
@@ -379,8 +392,10 @@ def test_split_authors_surgical_off_one_color_uno(ctx, doc):
         _accept_all(doc, ctx)
         assert _para_text(doc) == "New clause body here.", "accept must yield the new text, got %r" % _para_text(doc)
     finally:
-        save({_FLAG: prev})
-        _content._SPLIT_AUTHOR_COLORS = prev_split
+        save({
+            _FLAG: prev,
+            "doc.agent_edit_split_author_colors": prev_split,
+        })
         if len(doc.getRedlines()):
             _reject_all(doc, ctx)
 

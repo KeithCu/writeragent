@@ -152,14 +152,6 @@ def test_split_off_when_not_recording_single_change_uno(ctx, doc):
 
 
 @native_test
-def test_diff_threshold_default_constant_uno():
-    """The surgical-vs-block threshold is a named module constant (env-overridable via
-    WRITERAGENT_AGENT_EDIT_DIFF_THRESHOLD, NOT a settings-UI config key), defaulting to 0.6."""
-    from plugin.writer.edit_review import _WORD_DIFF_THRESHOLD
-    assert _WORD_DIFF_THRESHOLD == 0.6, "_WORD_DIFF_THRESHOLD should default to 0.6"
-
-
-@native_test
 @with_native_doc("writer")
 def test_review_payload_includes_final_text_uno(ctx, doc):
     """Per-change final_text is the CHANGE's OWN region (scoped to its anchor span), not

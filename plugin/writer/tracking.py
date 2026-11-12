@@ -28,8 +28,9 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from plugin.calc.base import ToolCalcSpecialTracking
-from plugin.doc.text_helpers import iter_elements
+from plugin.doc.text_helpers import iter_elements_limited
 from plugin.framework.uno_context import uno_same
+from plugin.writer.inline_review import agent_self_resolution_block_reason, execute_dispatch
 from plugin.writer.review_scan import is_agent_token, redline_identity_key, redline_is_agent_change
 from plugin.writer.search import LocationLabeler
 from .specialized_base import WriterAgentSpecialTracking, enum_param
@@ -45,12 +46,7 @@ _TRACK_CHANGES_UNO_SERVICES = ["com.sun.star.text.TextDocument", "com.sun.star.s
 def _enumerate_redlines(redlines: Any) -> tuple[list[Any], int]:
     # Cap at getCount() and return (objs, total) so callers can detect truncation.
     total = int(redlines.getCount())
-    enum = redlines.createEnumeration()
-    objs: list[Any] = []
-    for elem in iter_elements(enum):
-        if len(objs) >= total:
-            break
-        objs.append(elem)
+    objs = list(iter_elements_limited(redlines.createEnumeration(), total))
     return objs, total
 
 
@@ -129,13 +125,6 @@ def _resolve_outcome(index: int, before_keys: list[tuple[Any, ...]], after_keys:
         return None
 
     return "wrong"
-
-
-def _dispatch(ctx: ToolContext, cmd: str) -> Any:
-    smgr = ctx.ctx.ServiceManager
-    dispatcher = smgr.createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx.ctx)
-    frame = ctx.doc.getCurrentController().getFrame()
-    return dispatcher.executeDispatch(frame, cmd, "", 0, ())
 
 
 def _set_recording(doc: Any, record: bool) -> dict[str, Any]:
@@ -424,7 +413,6 @@ class ManageTrackedChanges(WriterAgentSpecialTracking, ToolCalcSpecialTracking):
     def _execute_all(self, ctx: ToolContext, is_accept: bool) -> dict[str, Any]:
         # Guard: never let the agent bulk-resolve its OWN (wa-review) edits -- those are the human's
         # to review. Allowed when no agent changes are pending (see agent_self_resolution_block_reason).
-        from plugin.writer.inline_review import agent_self_resolution_block_reason
         blocked = agent_self_resolution_block_reason(ctx.doc)
         if blocked:
             return self._tool_error(blocked)
@@ -434,7 +422,7 @@ class ManageTrackedChanges(WriterAgentSpecialTracking, ToolCalcSpecialTracking):
             before = int(ctx.doc.getRedlines().getCount())
 
         cmd = ".uno:AcceptAllTrackedChanges" if is_accept else ".uno:RejectAllTrackedChanges"
-        res = _dispatch(ctx, cmd)
+        res = execute_dispatch(ctx.ctx, ctx.doc.getCurrentController(), cmd)
 
         msg = "All tracked changes accepted." if is_accept else "All tracked changes rejected."
         if not has_redlines:
@@ -532,7 +520,7 @@ class ManageTrackedChanges(WriterAgentSpecialTracking, ToolCalcSpecialTracking):
 
         try:
             cmd = ".uno:AcceptTrackedChange" if is_accept else ".uno:RejectTrackedChange"
-            _dispatch(ctx, cmd)
+            execute_dispatch(ctx.ctx, controller, cmd)
 
             objs2, total2 = _enumerate_redlines(redlines)
             after_keys = _identity_keys(objs2) if len(objs2) == total2 else None

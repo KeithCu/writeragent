@@ -171,13 +171,21 @@ def redline_date_key(dt: Any) -> tuple[Any, ...] | None:
     )
 
 
-def redline_identity_key(rl: Any, *, strict_date: bool = False) -> tuple[Any, ...]:
+_UNREAD = object()
+
+
+def redline_identity_key(
+    rl: Any, *, strict_date: bool = False, comment: Any = _UNREAD
+) -> tuple[Any, ...]:
     """``(RedlineIdentifier, type, author, date, comment)`` of one redline.
 
     Only the identifier must be readable (a failure raises, so the caller marks the scan
     unreliable); the other fields read as None when they fail.
     When strict_date is True, an unreadable RedlineDateTime raises so callers can fail the scan
     (no split-piece check without it).
+    *comment* is the raw ``RedlineComment`` a caller has already read (``inline_review.scan_redline_view``
+    reads it once to classify the row, and re-reading it would double the per-redline UNO reads
+    on every scan). When omitted, it is read here and is None if the read fails.
     tracking_manage uses this whole key, not ``RedlineIdentifier`` alone, because a
     stacked Delete reuses the identifier.
     """
@@ -191,7 +199,14 @@ def redline_identity_key(rl: Any, *, strict_date: bool = False) -> tuple[Any, ..
                 raise
             return None
 
-    return (rid, prop("RedlineType"), prop("RedlineAuthor"), redline_date_key(prop("RedlineDateTime")), prop("RedlineComment"))
+    comment_val = prop("RedlineComment") if comment is _UNREAD else comment
+    return (
+        rid,
+        prop("RedlineType"),
+        prop("RedlineAuthor"),
+        redline_date_key(prop("RedlineDateTime")),
+        comment_val,
+    )
 
 
 def _stacked_on_someone_else(rl: Any) -> bool:
