@@ -1766,3 +1766,53 @@ def test_apply_paragraph_style_negative_caches_failed_property_set_info():
     assert "preserved_char_overrides" not in rep1
     assert "preserved_char_overrides" not in rep2
 
+
+def test_capture_direct_char_overrides_counts_one_failure_and_continues():
+    from unittest.mock import MagicMock
+    from plugin.writer import styles as fmt
+
+    doc = MagicMock()
+    para_styles = MagicMock()
+    doc.getStyleFamilies.return_value.getByName.return_value = para_styles
+    style = MagicMock()
+    para_styles.getByName.return_value = style
+    style.getPropertyValue.return_value = 100
+
+    # Para 1: getPropertyValue("ParaStyleName") raises RuntimeError
+    para1 = MagicMock()
+    para1.supportsService.side_effect = lambda s: s == "com.sun.star.text.Paragraph"
+    para1.getPropertyValue.side_effect = RuntimeError("failed to read style")
+
+    # Para 2: normal paragraph with 1 portion having CharWeight=150 override
+    prop = MagicMock()
+    prop.Name = "CharWeight"
+    prop.Attributes = 0
+    info = MagicMock()
+    info.getProperties.return_value = [prop]
+
+    portion = MagicMock()
+    portion.getPropertyValue.side_effect = lambda name: "Text" if name == "TextPortionType" else (150 if name == "CharWeight" else None)
+    portion.getPropertySetInfo.return_value = info
+    pc = MagicMock()
+    portion.getText.return_value.createTextCursorByRange.return_value = pc
+
+    para2 = MagicMock()
+    para2.supportsService.side_effect = lambda s: s == "com.sun.star.text.Paragraph"
+    para2.getPropertyValue.side_effect = lambda name: "Standard" if name == "ParaStyleName" else None
+    para2_enum = MagicMock()
+    para2_enum.hasMoreElements.side_effect = [True, False]
+    para2_enum.nextElement.side_effect = [portion]
+    para2.createEnumeration.return_value = para2_enum
+
+    cursor = MagicMock()
+    doc_enum = MagicMock()
+    doc_enum.hasMoreElements.side_effect = [True, True, False]
+    doc_enum.nextElement.side_effect = [para1, para2]
+    cursor.createEnumeration.return_value = doc_enum
+
+    overrides, failures, notes = fmt._capture_direct_char_overrides(doc, cursor, {})
+    assert len(overrides) == 1
+    assert failures == 1
+    assert notes == []
+    assert overrides[0][1] == {"CharWeight": 150}
+
