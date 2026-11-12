@@ -15,8 +15,9 @@ from pathlib import Path
 project_root = Path(__file__).parent.parent.absolute()
 sys.path.insert(0, str(project_root))
 
+from plugin.scripting.config_limits import python_exec_timeout
 from plugin.scripting.sandbox import resolve_libreoffice_python, resolve_venv_python
-from plugin.scripting.venv_worker import PythonWorkerManager
+from plugin.scripting.venv_worker import ExecRequest, PythonWorkerManager
 
 
 def find_config_path():
@@ -112,13 +113,15 @@ def benchmark_in_process_matrix(size, iterations=10):
 
 
 def benchmark_worker(mgr, code, iterations=10):
+    timeout_sec = python_exec_timeout()
+    req = ExecRequest(code=code, timeout_sec=timeout_sec)
     # Warmup
-    mgr.execute(code)
+    mgr.execute(req)
     
     times = []
     for _ in range(iterations):
         start = time.perf_counter()
-        resp = mgr.execute(code)
+        resp = mgr.execute(req)
         end = time.perf_counter()
         times.append(end - start)
     
@@ -130,11 +133,13 @@ def benchmark_worker(mgr, code, iterations=10):
 def run_benchmark_for_pickle(exe, code, iterations=10):
     """Run worker benchmark with production Pickle5 protocol."""
     mgr = PythonWorkerManager.get(exe, {})
+    timeout_sec = python_exec_timeout()
+    req = ExecRequest(code=code, timeout_sec=timeout_sec)
     
     # 1. Cold start
     mgr._terminate_worker()
     start_cold = time.perf_counter()
-    mgr.execute(code)
+    mgr.execute(req)
     end_cold = time.perf_counter()
     cold_sec = end_cold - start_cold
     

@@ -34,7 +34,7 @@ from typing import Any
 
 log = logging.getLogger(__name__)
 
-# ``LocalPythonExecutor.timeout()`` needs ``int | None`` (at least 1, or None when spent).
+# ``LocalPythonExecutor.timeout()`` needs an int ≥ 1.
 # ``child_runtime.Deadline.run_for()`` returns a float; ceil with a one-second floor matches alarm semantics.
 _EXECUTOR_ALARM_MIN_SEC = 1.0
 
@@ -174,7 +174,6 @@ class SessionStore:
     def get_or_create(
         self,
         session_id: str,
-        timeout_sec: int,
         *,
         policy: SandboxPolicy,
     ) -> tuple[LocalPythonExecutor, bool]:
@@ -186,15 +185,13 @@ class SessionStore:
 
             created = False
             if executor is None:
-                executor = _new_executor(timeout_sec, policy=policy)
+                executor = _new_executor(policy=policy)
                 executor._sandbox_policy = policy
                 if rec is None:
                     rec = SessionRecord()
                     self._records[key] = rec
                 rec.executor = executor
                 created = True
-            else:
-                executor.timeout_seconds = timeout_sec
             return executor, created
 
     def set_seeded_digest(self, session_id: str, digest: str) -> None:
@@ -245,8 +242,7 @@ class SessionStore:
         ``_clear_init_unlocked`` closes DuckDB for this id and for the
         :init companion. Do not close again after the lock.
         """
-        if not (session_id or "").strip():
-            return {"status": "error", "message": "No session_id provided."}
+        # The harness and the compute child refuse a blank id before calling.
         with self._lock:
             self._drop_unlocked(SessionKey.parse(session_id))
         return {"status": "ok"}
@@ -444,9 +440,8 @@ class CellNamespace:
     def fresh(
         cls,
         policy: SandboxPolicy,
-        timeout_sec: int = 30,
     ) -> CellNamespace:
-        return cls(_new_executor(timeout_sec, policy=policy))
+        return cls(_new_executor(policy=policy))
 
     def seed(self, init_session_id: str, *, copy: bool = False) -> None:
         _seed_executor_from_init(self.executor, init_session_id, copy_values=copy, skip_keys=self.SKIP_KEYS)
@@ -477,13 +472,14 @@ class CellNamespace:
         code: str = "",
         data: Any = None,
         bindings: dict[str, Any] | None = None,
+        scoped_dir: str | None,
     ) -> None:
         inject_auto_imports(self.executor, code)
         ranges = _inject_data(self.executor, data)
         _inject_excel_xl(self.executor, ranges)
         self.executor.state.pop("scoped_dir", None)
         _inject_bindings(self.executor, bindings)
-        _inject_session_duckdb(self.executor, _host_scoped_dir(bindings))
+        _inject_session_duckdb(self.executor, scoped_dir)
 
 
 def _code_says_imported(code: str, module_name: str) -> bool:
@@ -661,15 +657,14 @@ def _capture_open_figures_payload(*, fmt: str = "svg") -> tuple[dict[str, Any] |
 
 
 def _new_executor(
-    timeout_sec: int,
     policy: SandboxPolicy,
 ) -> LocalPythonExecutor:
     # open must be in static_tools; pass in additional_functions so send_tools keeps it.
     additional_functions = {"open": open} if policy.files else None
+    # timeout_seconds uses the vendored default until _arm_alarm writes it before each run.
     executor = LocalPythonExecutor(
         additional_authorized_imports=policy_allowlist(policy),
         additional_functions=additional_functions,
-        timeout_seconds=timeout_sec,
     )
     # Upstream only merges BASE_PYTHON_TOOLS (sum, len, …) after send_tools(); without this,
     # static_tools stays None and builtins like sum() are rejected.
@@ -772,25 +767,15 @@ def reset_sandbox_session(session_id: str) -> dict[str, Any]:
     return SESSIONS.reset(session_id)
 
 
-def _executor_alarm_seconds(deadline_end: float) -> int | None:
-    """Whole seconds for ``LocalPythonExecutor.timeout()``, or None when the budget is spent.
-
-    The executor rejects non-int timeouts and values below 1; ``signal.alarm(0)`` cancels.
-    A one-second floor matches ``child_runtime.Deadline.run_for()`` without using its float API.
-    """
-    left = deadline_end - time.monotonic()
+def _arm_alarm(executor: LocalPythonExecutor, deadline: float, timeout_sec: int) -> dict[str, Any] | None:
+    """Sole writer of executor.timeout_seconds before each init and cell run; returns the budget-spent error when the deadline has passed."""
+    left = deadline - time.monotonic()
     if left <= 0:
-        return None
-    return math.ceil(max(left, _EXECUTOR_ALARM_MIN_SEC))
-
-
-def _budget_timeout_error(timeout_sec: int) -> dict[str, Any]:
-    return {
-        "status": "error",
-        "message": (
-            f"Code execution exceeded the maximum execution time of {timeout_sec} seconds"
-        ),
-    }
+        return error_result(
+            message=f"Code execution exceeded the maximum execution time of {timeout_sec} seconds"
+        )
+    executor.timeout_seconds = math.ceil(max(left, _EXECUTOR_ALARM_MIN_SEC))
+    return None
 
 
 def _ensure_init_executed(
@@ -811,16 +796,13 @@ def _ensure_init_executed(
     if SESSIONS.init_is_current(init_session_id, script_digest, policy):
         return None
 
-    init_executor, _ = SESSIONS.get_or_create(
-        init_session_id, timeout_sec, policy=policy
-    )
+    init_executor, _ = SESSIONS.get_or_create(init_session_id, policy=policy)
     # Init shares the request deadline with the cell. A full budget for each
     # could outlast the host's single read, and the host would then kill this
     # worker and every other workbook's session on it.
-    left = _executor_alarm_seconds(deadline)
-    if left is None:
-        return _budget_timeout_error(timeout_sec)
-    init_executor.timeout_seconds = left
+    spent = _arm_alarm(init_executor, deadline, timeout_sec)
+    if spent is not None:
+        return spent
     inject_auto_imports(init_executor, script)
     result = _run_on_executor(init_executor, script, result_optional=True)
     if result.get("status") != "ok":
@@ -1259,27 +1241,25 @@ def run_sandboxed_code(
 
         if session_id:
             executor, created = SESSIONS.get_or_create(
-                session_id, timeout_sec, policy=policy
+                session_id, policy=policy
             )
             ns = CellNamespace(executor)
             if init_sid:
                 ns.seed_shared(session_id, init_sid, init_digest)
         else:
-            ns = CellNamespace.fresh(policy, timeout_sec)
+            ns = CellNamespace.fresh(policy)
             executor = ns.executor
             created = False
             if init_sid:
                 ns.seed(init_sid, copy=True)
 
-        left = _executor_alarm_seconds(deadline)
-        if left is None:
-            err = _budget_timeout_error(timeout_sec)
+        spent = _arm_alarm(executor, deadline, timeout_sec)
+        if spent is not None:
             if session_id:
-                err["namespace_created"] = created
-            return err
-        executor.timeout_seconds = left
+                spent["namespace_created"] = created
+            return spent
 
-        ns.bind(code=code, data=data, bindings=bindings)
+        ns.bind(code=code, data=data, bindings=bindings, scoped_dir=host_folder)
         raw = _run_on_executor(executor, code, force=force)
         if session_id:
             raw["namespace_created"] = created
