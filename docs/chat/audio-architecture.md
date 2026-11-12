@@ -51,7 +51,7 @@ The status words and the stop command are the `RECORDER_*` constants defined in 
 | Direction | Payload |
 |-----------|---------|
 | child → host | `{"status":"ready"}` after the input stream starts |
-| host → child | `{"command":"stop"}` on stdin; legacy plain `stop` is still accepted by the child. The stdin thread sets the stop event from a `finally`: stop command, EOF, and a raised read (`UnicodeDecodeError` or `OSError`). A dead reader must not sit in the 4-hour cap. |
+| host → child | `{"command":"stop"}` on stdin. The stdin thread sets the stop event from a `finally`: stop command, EOF, and a raised read (`UnicodeDecodeError` or `OSError`). A dead reader must not sit in the 4-hour cap. |
 | child → host | `{"status":"ok","path":"/abs/path.wav"}` or `{"status":"error","message":"…"}` |
 
 The JSON-line framing uses [`plugin/scripting/ipc.py`](../../plugin/scripting/ipc.py), which also enforces the host-side ready/stop read timeouts so a hung recorder cannot block forever waiting on `readline()`. The child does not write `silence_progress` until `on_stream_started` has returned, because that callback writes `ready` and `Recording.wait_ready` reads one line. The PortAudio callback may run inside `RawInputStream.start()`; those samples are written and fed to the silence detector, and the progress line is held.

@@ -213,11 +213,11 @@ def test_stop_gets_ok_path_already_consumed_by_stdout_monitor():
     assert json.loads(proc.stdin.getvalue()) == {"command": "stop"}
 
 
-def test_audio_record_main_accepts_json_and_legacy_stop_commands():
+def test_audio_record_main_accepts_only_json_stop_command():
     from plugin.scripting.venv.audio_record_main import _is_stop_command
 
     assert _is_stop_command(json.dumps({"command": "stop"}))
-    assert _is_stop_command("stop\n")
+    assert not _is_stop_command("stop\n")
     assert not _is_stop_command(json.dumps({"command": "continue"}))
 
 
@@ -233,7 +233,7 @@ def test_stdin_stop_reader_sets_event_on_eof(monkeypatch):
 def test_stdin_stop_reader_sets_event_on_stop_and_returns(monkeypatch):
     from plugin.scripting.venv.audio_record_main import _stdin_stop_reader
 
-    monkeypatch.setattr(sys, "stdin", io.StringIO("stop\nNEXT\n"))
+    monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps({"command": "stop"}) + "\nNEXT\n"))
     stop_event = threading.Event()
     _stdin_stop_reader(stop_event)
     assert stop_event.is_set()

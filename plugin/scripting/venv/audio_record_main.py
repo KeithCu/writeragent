@@ -49,8 +49,6 @@ def _emit(payload: dict[str, object]) -> None:
 
 def _is_stop_command(line: str) -> bool:
     stripped = line.strip()
-    if stripped.lower() == RECORDER_COMMAND_STOP:
-        return True
     try:
         payload = json.loads(stripped)
     except json.JSONDecodeError:
