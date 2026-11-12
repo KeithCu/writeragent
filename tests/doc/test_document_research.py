@@ -17,7 +17,7 @@ from plugin.doc.document_research import (
     NEARBY_IMAGE_EXTENSIONS,
     _collect_open_file_urls,
     _is_same_document,
-    _system_path_from_url,
+    system_path_from_url,
     close_document_research_document,
     file_entry_for_path,
     get_document_directory,
@@ -89,9 +89,9 @@ def test_system_path_from_url_uses_shared_file_url_repair():
         "plugin.doc.document_research.uno.fileUrlToSystemPath",
         return_value="/home/user/Writing/Test.odt",
     ), patch("plugin.doc.document_research._normalize_path", side_effect=lambda path: path):
-        assert _system_path_from_url("file:/home/user/Writing/Test.odt") == "/home/user/Writing/Test.odt"
-        assert _system_path_from_url("") is None
-        assert _system_path_from_url("private:factory/swriter") is None
+        assert system_path_from_url("file:/home/user/Writing/Test.odt") == "/home/user/Writing/Test.odt"
+        assert system_path_from_url("") is None
+        assert system_path_from_url("private:factory/swriter") is None
 
 
 def test_get_document_directory():
@@ -227,7 +227,7 @@ def test_get_work_directory_file_url():
         path_settings.getPropertyValue.return_value = path_to_file_url(tmp)
         ctx.getValueByName.side_effect = lambda name: path_settings if name == "/singletons/com.sun.star.util.thePathSettings" else None
         norm = os.path.normpath(tmp)
-        with patch("plugin.doc.document_research._system_path_from_url", return_value=norm):
+        with patch("plugin.doc.document_research.system_path_from_url", return_value=norm):
             assert get_work_directory(ctx) == norm
 
 
@@ -376,7 +376,7 @@ def test_collect_open_file_urls_skips_broken_desktop_component():
         with (
             patch("plugin.framework.uno_context.get_desktop", return_value=desktop),
             patch(
-                "plugin.doc.document_research._system_path_from_url",
+                "plugin.doc.document_research.system_path_from_url",
                 side_effect=lambda url: budget_norm if url == budget_url else None,
             ),
             patch("plugin.framework.thread_guard.guard_uno", side_effect=lambda obj: obj),
@@ -423,7 +423,7 @@ def test_collect_open_file_urls_skips_geturl_failure():
         with (
             patch("plugin.framework.uno_context.get_desktop", return_value=desktop),
             patch(
-                "plugin.doc.document_research._system_path_from_url",
+                "plugin.doc.document_research.system_path_from_url",
                 side_effect=lambda url: budget_norm if url == budget_url else None,
             ),
             patch("plugin.framework.thread_guard.guard_uno", side_effect=lambda obj: obj),
@@ -725,3 +725,51 @@ def test_get_open_documents_runtime_error_is_not_disposal_or_empty():
             assert "not disposed" in str(exc)
             return
     raise AssertionError("runtime error was reported as an empty document list")
+
+
+def test_resolve_listing_state_reads_active_path_open_docs_and_root():
+    from plugin.doc.document_research import ListingState, resolve_listing_state
+
+    open_paths = {"/docs/Other.odt": "file:///docs/Other.odt"}
+    with (
+        patch("plugin.doc.document_research.get_document_path", return_value="/docs/sub/../Active.odt"),
+        patch("plugin.doc.document_research._collect_open_file_urls", return_value=open_paths) as mock_collect,
+        patch("plugin.doc.document_research.resolve_listing_directory", return_value="/docs"),
+    ):
+        state = resolve_listing_state(MagicMock(), MagicMock())
+    assert state == ListingState(exclude_path=os.path.normpath("/docs/Active.odt"), open_paths=open_paths, listing_root="/docs")
+    assert mock_collect.call_args.kwargs["exclude_path"] == os.path.normpath("/docs/Active.odt")
+
+
+def test_scan_nearby_files_with_state_does_not_read_uno_again():
+    from plugin.doc.document_research import ListingState, scan_nearby_files
+
+    with tempfile.TemporaryDirectory() as tmp:
+        with open(os.path.join(tmp, "Budget.ods"), "wb"):
+            pass
+        with patch("plugin.doc.document_research.resolve_listing_state") as mock_resolve:
+            result = scan_nearby_files(MagicMock(), MagicMock(), state=ListingState(None, {}, tmp))
+    mock_resolve.assert_not_called()
+    assert [f["name"] for f in result["files"]] == ["Budget.ods"]
+
+
+def test_list_nearby_files_stop_during_directory_scan_is_user_stopped():
+    from plugin.doc.document_research import ListingState
+    from plugin.framework.send_cancellation import SendCancellation
+
+    scope = SendCancellation()
+    scope.cancel()
+    with tempfile.TemporaryDirectory() as tmp:
+        with open(os.path.join(tmp, "Budget.ods"), "wb"):
+            pass
+        with patch("plugin.doc.document_research.resolve_listing_state", return_value=ListingState(None, {}, tmp)):
+            result = list_nearby_files(MagicMock(), MagicMock(), cancel=scope)
+    assert result == {"status": "error", "code": "USER_STOPPED", "message": "Document read stopped by user."}
+
+
+def test_list_nearby_files_stop_before_main_thread_read_is_user_stopped():
+    from plugin.framework.send_cancellation import SendCancelled
+
+    with patch("plugin.framework.queue_executor.main.run", side_effect=SendCancelled()):
+        result = list_nearby_files(MagicMock(), MagicMock())
+    assert result["code"] == "USER_STOPPED"

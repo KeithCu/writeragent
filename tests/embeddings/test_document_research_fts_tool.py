@@ -34,7 +34,7 @@ def test_search_nearby_files_disabled():
 def test_search_nearby_files_indexing_status():
     tool = SearchNearbyFiles()
     with patch("plugin.framework.constants.folder_search_enabled", return_value=True):
-        with patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn: fn()):
+        with patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *a, **k: fn()):
             with patch("plugin.framework.queue_executor.main.is_current", return_value=False):
                 with patch("plugin.doc.document_research.resolve_listing_directory", return_value="/tmp/folder"):
                     with patch("plugin.doc.document_research.get_document_path", return_value="/tmp/folder/a.ods"):
@@ -56,10 +56,10 @@ def test_search_nearby_files_does_not_block_main_thread_for_rpc():
     tool = SearchNearbyFiles()
 
     # We want to ensure call is NOT called for hybrid_search
-    # It SHOULD be called for _resolve_uno_context and _wakeup
+    # It SHOULD be called for _read_listing_state and _wakeup
     execute_calls = []
 
-    def fake_call(fn):
+    def fake_call(fn, *args, **kwargs):
         execute_calls.append(fn.__name__)
         return fn()
 
@@ -85,9 +85,9 @@ def test_search_nearby_files_does_not_block_main_thread_for_rpc():
     wakeup_mock.assert_called_once()
 
     # The RPC call should NOT be wrapped in call
-    assert "_resolve_uno_context" in execute_calls
+    assert "_read_listing_state" in execute_calls
     assert "_wakeup" in execute_calls
-    assert len([c for c in execute_calls if c in ("_resolve_uno_context", "_wakeup")]) == 2
+    assert len([c for c in execute_calls if c in ("_read_listing_state", "_wakeup")]) == 2
 
 
 def test_search_nearby_files_model_change_does_not_query(tmp_path):
@@ -138,7 +138,7 @@ def test_search_nearby_files_backend_error_surfaced():
     ctx.send_cancellation = None
 
     with patch("plugin.framework.constants.folder_search_enabled", return_value=True):
-        with patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn: fn()):
+        with patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *a, **k: fn()):
             with patch("plugin.framework.queue_executor.main.is_current", return_value=True):
                 with patch(
                     "plugin.embeddings.embeddings_cache.resolve_index_context",
@@ -161,7 +161,7 @@ def test_search_nearby_files_passes_cancel_scope():
     ctx.send_cancellation = scope
 
     with patch("plugin.framework.constants.folder_search_enabled", return_value=True):
-        with patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn: fn()):
+        with patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *a, **k: fn()):
             with patch("plugin.framework.queue_executor.main.is_current", return_value=True):
                 with patch("plugin.doc.document_research.resolve_listing_directory", return_value="/tmp/folder"):
                     with patch("plugin.doc.document_research.get_document_path", return_value="/tmp/folder/a.ods"):
@@ -192,7 +192,7 @@ def _run_search_with_subset(*, grep_return, hybrid_side_effect=None, hybrid_retu
     if hybrid_side_effect is not None:
         hybrid_kwargs = {"side_effect": hybrid_side_effect}
     with patch("plugin.framework.constants.folder_search_enabled", return_value=True):
-        with patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn: fn()):
+        with patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *a, **k: fn()):
             with patch("plugin.framework.queue_executor.main.is_current", return_value=True):
                 with patch("plugin.doc.document_research.resolve_listing_directory", return_value="/tmp/folder"):
                     with patch("plugin.doc.document_research.get_document_path", return_value="/tmp/folder/a.ods"):
