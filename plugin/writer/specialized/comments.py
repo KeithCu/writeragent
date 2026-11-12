@@ -185,14 +185,10 @@ class AddComment(ToolBase):
         # (same shape as CommentResolve) without setting Resolved. Do not walk to the
         # thread root — nesting under a reply matches LO's Reply button (#636).
         if parent_name:
-            parent = _find_annotation_by_name(ctx.doc, parent_name)
-            if parent is None:
-                # comment_added is top-level, via top_level, so clients branch on one field.
-                return _comment_not_found(
-                    "Comment '%s' not found. Call comment_list to see the current names." % parent_name,
-                    comment_added=False,
-                    details=_comment_miss_details(ctx.doc, parent_name),
-                )
+            # comment_added is top-level, via top_level, so clients branch on one field.
+            parent = _annotation_or_error(ctx.doc, parent_name, comment_added=False)
+            if isinstance(parent, dict):
+                return parent
             try:
                 reply_name = _insert_annotation_reply(ctx.doc, parent, parent_name, content, author)
             except _ReplyNotRegistered as exc:
@@ -377,12 +373,9 @@ class CommentResolve(ToolWriterCommentBase):
         author = kwargs.get("author", "AI")
 
         doc = ctx.doc
-        target = _find_annotation_by_name(doc, comment_name)
-        if target is None:
-            return _comment_not_found(
-                "Comment '%s' not found. Call comment_list to see the current names." % comment_name,
-                details=_comment_miss_details(doc, comment_name),
-            )
+        target = _annotation_or_error(doc, comment_name)
+        if isinstance(target, dict):
+            return target
 
         from ..edit_review import next_agent_edit_undo_title
         undo_title = next_agent_edit_undo_title()
@@ -438,12 +431,9 @@ class CommentEdit(ToolWriterCommentBase):
             return self._tool_error("Provide content.")
 
         doc = ctx.doc
-        target = _find_annotation_by_name(doc, comment_name)
-        if target is None:
-            return _comment_not_found(
-                "Comment '%s' not found. Call comment_list to see the current names." % comment_name,
-                details=_comment_miss_details(doc, comment_name),
-            )
+        target = _annotation_or_error(doc, comment_name)
+        if isinstance(target, dict):
+            return target
 
         from ..edit_review import next_agent_edit_undo_title
 
@@ -613,12 +603,19 @@ class CommentCheckStop(ToolWriterCommentBase):
 # ------------------------------------------------------------------
 
 
-def _find_annotation_by_name(doc: Any, comment_name: str) -> Any | None:
-    """Return the Annotation field whose Name matches *comment_name*, or None."""
+def _annotation_or_error(doc: Any, comment_name: str, **top_level: Any) -> Any:
+    """The Annotation field whose Name is comment_name, or the COMMENT_NOT_FOUND error dict
+    ("Comment '%s' not found. Call comment_list to see the current names.") with
+    details.hint / details.similar from _comment_miss_details. top_level fields
+    (comment_added=False on the reply path) sit beside code and message."""
     for field in _iter_annotations(doc):
         if field.getPropertyValue("Name") == comment_name:
             return field
-    return None
+    return _comment_not_found(
+        "Comment '%s' not found. Call comment_list to see the current names." % comment_name,
+        details=_comment_miss_details(doc, comment_name),
+        **top_level,
+    )
 
 
 def _annotation_name(field: Any) -> str:
