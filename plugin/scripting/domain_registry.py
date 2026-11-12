@@ -46,7 +46,6 @@ ANALYSIS_SCRIPT_DISPLAY_PREFIX = "[Analysis] "
 VISION_SCRIPT_DISPLAY_PREFIX = "[Vision] "
 
 
-
 def is_reserved_script_name(name: str) -> bool:
     """True when *name* begins with any reserved UI prefix (e.g. '[Doc] ', '[Vision] ')."""
     return any(name.startswith(p) for p in RESERVED_SCRIPT_PREFIXES)
@@ -60,9 +59,9 @@ def _resolve_module_attr(target: str) -> Any:
     return getattr(importlib.import_module(mod_name), attr_name)
 
 
-# Opening block tags only. A substring count of "<p" / "<h" also matched
-# <pre>, <param>, <html>, <head>, <header>, and <hr>, so the status line
-# over-counted structure blocks when metrics omitted line_count.
+# Opening block tags only. A substring count of "<p" / "<h" would also match
+# <pre>, <param>, <html>, <head>, <header>, and <hr>, and the status line
+# would over-count structure blocks when metrics omit line_count.
 _VISION_BLOCK_OPEN_TAG = re.compile(r"<(?:p|h[1-6]|table)\b", re.IGNORECASE)
 
 
@@ -106,12 +105,12 @@ class DomainWiring:
     def insert(self, ctx: Any, doc: Any, result: dict[str, Any], **kwargs: Any) -> Any:
         fn = _resolve_module_attr(self.insert_ref)
         # Sheet egress is (doc, uno_ctx, result). Calling it as (ctx, doc, result)
-        # passed the component context into calc_anchor_from_selection, which then
-        # failed and the Run Python Script dialog reported an insert error.
+        # would pass the component context to calc_anchor_from_selection, which
+        # fails, and the Run Python Script dialog would report an insert error.
         args = (doc, ctx) if self.post_venv_calc_only else (ctx, doc)
         ret = fn(*args, result, **kwargs)
-        # int(ret) raises when an inserter returns a non-integer after a
-        # successful insert, and the UI shows "Failed to insert result".
+        # An inserter may return a non-integer after a successful insert;
+        # int(ret) would raise and the UI would show "Failed to insert result".
         # Return ret only when it is already an int and not a bool, else None.
         if isinstance(ret, int) and not isinstance(ret, bool):
             return ret
@@ -170,8 +169,8 @@ class DomainWiring:
             fn = _resolve_module_attr(self.is_result_ref)
         except ImportError as exc:
             # Bundles that omit a domain module (LibrePy drops duckdb_sql) raise
-            # ImportError when resolving is_result. That aborted routing of a
-            # plain Calc result. An unresolvable module means "not this domain".
+            # ImportError when resolving is_result. An unresolvable module means
+            # "not this domain"; raising would abort routing of a plain Calc result.
             log.debug("Domain %s is_result module unavailable: %s", self.id, exc)
             return False
         return fn(value)

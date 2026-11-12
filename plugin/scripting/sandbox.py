@@ -30,7 +30,7 @@ from plugin.framework.deal_shim import (
 # CrossHair patches this module attribute to shrink basename preconditions.
 _DEAL_BASENAME_LEN = DEAL_MAX_PATH
 
-# --- Import whitelist (shared by venv_sandbox and import_policy) ---
+# --- Import policy: blocklists and the alias list (read through import_authorized) ---
 
 # LibreHarper bundles this module for wrap_command_for_sandbox and does not
 # bundle smolagents. The fallback keeps `import plugin.scripting.sandbox` working.
@@ -65,13 +65,17 @@ except (ImportError, ModuleNotFoundError):
     )
 
 
-# Curated by WriterAgent (see docs/enabling_numpy_in_libreoffice.md)—not "whatever is in the venv".
-# No ``writeragent.*``: that wildcard is not an allow. See ``import_authorized``.
-# These libraries (pandas.*, numpy.*, PIL.*, matplotlib.*) can read/write files
-# (e.g. DataFrame.to_csv, plt.savefig). That is accepted on purpose: compute callers
-# are presumed trusted, and the container plus a scrubbed environment is the boundary.
-# We do not want arbitrary writes as a goal; if callers ever become untrusted, revisit
-# this allowlist (narrow to the submodules formulas need). Review noted 2026-10-06.
+# VENV_AUTHORIZED_IMPORTS is checked before the blocklist (import_authorized), so a
+# row admits a name even when a block entry covers it. Two kinds of row decide
+# anything: the plugin.scripting.* rows, the only way a plugin.* name passes the
+# "plugin" block, and the alias gate (writeragent.X passes only when plugin.X or the
+# alias itself is listed). The stdlib and third-party rows sit on no blocklist and
+# decide nothing today; they stay listed (plugin/scripting/AGENTS.md).
+# No writeragent.* wildcard: _compile_allowlist skips it.
+# pandas, numpy, PIL and matplotlib can read and write files (DataFrame.to_csv,
+# plt.savefig). That is accepted: compute callers are presumed trusted, and the
+# container plus a scrubbed environment is the boundary. If callers become
+# untrusted, narrow these rows to the submodules formulas need and block the rest.
 _VENV_STDLIB: tuple[str, ...] = (
     "copy",
     "csv",
@@ -139,12 +143,9 @@ _VENV_PACKAGES: tuple[str, ...] = (
     "spacytextblob.*",
     "pint",
     "pint.*",
-    # duckdb stays importable so user scripts can call connect/execute/df on
-    # the raw C module. Removing it from this allowlist made `import duckdb`
-    # raise "Import of duckdb is not allowed" before get_safe_module could
-    # return that module. session_duckdb() still returns
-    # GuardedDuckDBConnection for trusted SQL. import_policy keeps the name
-    # out of LLM blurbs.
+    # duckdb is on no blocklist, so scripts reach the raw C module
+    # (connect/execute/df) with or without these rows; AGENTS.md keeps them.
+    # session_duckdb() still returns GuardedDuckDBConnection for trusted SQL.
     "duckdb",
     "duckdb.*",
     "sentence_transformers",
@@ -166,11 +167,11 @@ _VENV_PACKAGES: tuple[str, ...] = (
     "plugin.scripting.calc_functions.*",
 )
 
-# Script imports whose plugin path stays off the direct list.
+# Aliases a script may import whose plugin module stays off the list, so only
+# the writeragent.* spelling passes the "plugin" block.
 # vision: ``from writeragent.vision import run_vision`` (not plugin.vision.venv.vision).
-# duckdb_sql: SQL templates. ``plugin.scripting.duckdb_sql`` stays unlisted so
-# the LLM blurb and the import-policy test do not grow a direct plugin entry.
-# ``duckdb`` / ``duckdb.*`` above are unchanged.
+# duckdb_sql: SQL templates; test_sandbox pins that ``plugin.scripting.duckdb_sql``
+# itself stays refused.
 _ALIAS_ONLY_IMPORTS: tuple[str, ...] = (
     "writeragent.vision",
     "writeragent.scripting.duckdb_sql",
@@ -196,9 +197,9 @@ def _compile_allowlist(authorized_imports: tuple[str, ...]) -> tuple[frozenset[s
     wildcards: list[str] = []
     for entry in authorized_imports:
         if entry == "writeragent.*" or entry == "*":
-            # writeragent.* authorized every alias, including plugin.framework.config.
-            # "*" compiled to prefix "" and matched every name, including os.
-            # Explicit writeragent.X and name.* entries still compile.
+            # writeragent.* would authorize every alias, including plugin.framework.config,
+            # and "*" would compile to prefix "" and match every name, including os.
+            # Skip both; explicit writeragent.X and name.* entries still compile.
             continue
         elif entry.endswith(".*"):
             prefix = entry[:-2]
@@ -672,11 +673,10 @@ def _python_beside_soffice(soffice_path: str) -> str | None:
     # crosshair: off
     """Office-bundled interpreter next to soffice (not checkout ``.venv``).
 
-    Windows ``sys.executable`` is often ``soffice.exe``; Darwin is empty or
-    ``Contents/MacOS/soffice``. Sibling / Resources python is the same
-    interpreter Linux leftover Shared already uses via ``sys.executable``.
-    Seeding checkout ``.venv`` as ``python_venv_path`` made A3 Isolated
-    (GHA 33751116865 Linux, 33752809831 Mac).
+    On Windows ``sys.executable`` is often ``soffice.exe``; on macOS it is empty or
+    ``Contents/MacOS/soffice``. The sibling or ``Resources`` python is the office
+    interpreter that Linux gets straight from ``sys.executable``. This never returns
+    a checkout ``.venv``.
     """
     program = os.path.dirname(os.path.abspath(soffice_path))
     if not program:
@@ -686,7 +686,7 @@ def _python_beside_soffice(soffice_path: str) -> str | None:
         candidate = os.path.join(program, name)
         if _is_usable_python_file(candidate):
             return candidate
-    # Darwin: Contents/MacOS/soffice → Contents/Resources/python (PR #561).
+    # Darwin: Contents/MacOS/soffice → Contents/Resources/python.
     resources = os.path.join(os.path.dirname(program), "Resources", "python")
     if _is_usable_python_file(resources):
         return resources
@@ -739,9 +739,9 @@ def _bundled_lo_python_candidates() -> list[str]:
 def resolve_libreoffice_python() -> str | None:
     """Return a usable office Python: ``sys.executable``, else bundled neighbor.
 
-    Under PyUNO this is normally the office-bundled Python. On Windows/macOS
-    ``sys.executable`` is often soffice or empty (GHA 33752806292 / 33749078050)
-    — look next to that binary and at the install layouts before giving up.
+    Under PyUNO this is normally the office-bundled Python. On Windows and macOS
+    ``sys.executable`` is often soffice or empty, so look next to that binary and at
+    the install layouts before giving up.
     Callers still surface an error so the user can set a venv.
     """
     # crosshair: off

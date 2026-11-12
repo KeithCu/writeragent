@@ -167,10 +167,10 @@ def resolve_allowed_tools(python_tool_domain: str | None) -> frozenset[str] | No
         names = domain_proxy_tool_names(part)
         if names is None:
             # LibrePy's domain_proxy_tool_names returns None when writeragent_api
-            # is not installed. Treating that None as an empty allowlist refused
-            # every document tool with the =PY() disabled message. None means
-            # unrestricted, matching python_tool_domain is None. A real unknown
-            # domain name is an empty set, not None.
+            # is not installed. None means unrestricted, matching python_tool_domain
+            # None; treating it as an empty allowlist would refuse every document tool
+            # with the =PY() disabled message. A real unknown domain name is an empty
+            # set, not None.
             return None
         allowed |= names
     # Blocked even when a domain entry lists it (``DOMAIN_TOOLS['python']``).
@@ -202,7 +202,6 @@ def _proxy_methods_by_tool() -> dict[str, Any] | None:
         if callable(method):
             found[tool_name] = method
     return found
-
 
 
 def _format_proxy_call(namespace: str, method: Any) -> str:
@@ -291,17 +290,14 @@ def format_script_api_catalog(domains: list[str]) -> str:
 
 
 def _script_target_doc(uno_ctx: Any, script_session_id: str | None) -> Any:
-    # A venv tool must not always use the focused document. A PPT-Master
-    # turn started on deck A exported into B after the user switched
-    # windows, because the frame URL lived only inside the child payload
-    # and this RPC had no session id. Named scripts already resolve
-    # document_for_script_session before get_active_document. The IPC
-    # request carries ppt_master:{url}, and that lookup matches the open
-    # component's URL. Chat run_venv_python_script passes a doc: pin of
-    # ctx.doc the same way. That pin is host-only and is not the worker
-    # namespace id.
-    # Passed from the worker turn. A process-global was overwritten by the
-    # embeddings pool, so wa.doc followed the focused window.
+    # A venv tool targets the document of its worker turn, not the focused
+    # window. The request carries ppt_master:{url} (PPT-Master) or a host-only
+    # doc: pin of ctx.doc (chat run_venv_python_script), and
+    # document_for_script_session matches it to the open component, so a turn
+    # started on deck A still exports into A after the user switches windows.
+    # The id comes from the turn, not from a process-global that another pool
+    # (embeddings) would overwrite. The pin is not the worker namespace id.
+    # Only when nothing matches does the focused document win.
     from plugin.framework.uno_context import get_active_document
     from plugin.scripting.session_manager import document_for_script_session
 
@@ -325,11 +321,10 @@ def execute_tool(
         raise RuntimeError(
             f"Tool {tool_name!r} cannot run from a venv script (it would re-enter the worker)."
         )
-    # Named-script tools must hit this gate. Dispatching them first let =PY()
-    # recalc, which passes an empty allowlist, return every user script's
-    # source from get_named_python_script and list_named_python_scripts. An
-    # empty allowlist is recalc-only and refuses those tools with the same
-    # error as every other tool. A non-empty domain allowlist still reaches
+    # Named-script tools must hit this gate first. An empty allowlist means
+    # =PY() recalc; dispatching them before it would let recalc return every
+    # user script's source from get_named_python_script and
+    # list_named_python_scripts. A non-empty domain allowlist still reaches
     # the named-script branch below.
     if allowed_tools is not None and not allowed_tools:
         raise RuntimeError(
@@ -341,7 +336,8 @@ def execute_tool(
         from plugin.framework.queue_executor import main
         from plugin.framework.thread_guard import in_sync_host_dispatch
 
-        # Off-main callers cannot wait on main.call (deadlock #402).
+        # Inside a synchronous host dispatch off the main thread, the main thread
+        # is waiting on this one, so main.call would deadlock (thread_guard.sync_host_dispatch).
         # =PY() recalc never reaches here: its allowlist is empty and refused above.
         # User scripts are a config dict. Document scripts need UNO.
         if in_sync_host_dispatch() and not main.is_current():
@@ -501,11 +497,10 @@ def handle_tool_call_frame(
                 _error_frame(f"Result not serializable: {exc}"), max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES
             )
 
-        # A broken worker pipe raises from stdin_write (e.g. ValueError when
-        # writing to a closed file in Python, or OSError). Letting that escape
-        # aborted the stop path, so the child never received USER_STOPPED and
-        # kept calling tools after the sidebar went idle (or the host replayed
-        # Pipe write failures are logged without aborting the worker loop so Stop and further frames can still be processed.
+        # A broken worker pipe makes stdin_write raise (ValueError when writing to
+        # a closed file, or OSError). Log it and do not let it escape: an escaping
+        # error would abort the Stop path, so the child would never get
+        # USER_STOPPED and could keep calling tools after the sidebar went idle.
         try:
             stdin_write(frame)
         except (OSError, ValueError):
@@ -519,10 +514,10 @@ def handle_tool_call_frame(
     if args is not None and not isinstance(args, dict):
         _reply(_error_frame("args must be a dictionary"))
         return True
-    # Stop was checked once before the venv turn, so the child kept calling
-    # host tools, including export, after the sidebar went idle. The same
-    # scope the LLM frame already receives refuses the call and tells the
-    # child to end with USER_STOPPED.
+    # Stop is checked once before the venv turn; without this check the child
+    # could keep calling host tools, including export, after the sidebar went
+    # idle. The same scope the LLM frame receives refuses the call and tells
+    # the child to end with USER_STOPPED.
     if is_cancelled(cancel):
         _reply(
             _error_frame("Stopped by user.", code="USER_STOPPED"),
@@ -543,8 +538,8 @@ def handle_tool_call_frame(
     except Exception as exc:
         log.exception("venv tool_call %s failed", tool_name)
         # Copy code onto the response when the exception has one
-        # (ToolExecutionError code="USER_STOPPED", domain codes). A payload of
-        # only status and message hid that code from the child worker.
+        # (ToolExecutionError code="USER_STOPPED", domain codes); a payload of
+        # only status and message would hide that code from the child worker.
         err_code = getattr(exc, "code", None)
         # resolve_exception_message, not str(exc): this runs on the pipe holder (see errors._exception_text).
         tool_response = _error_frame(resolve_exception_message(exc), code=str(err_code) if err_code else None)

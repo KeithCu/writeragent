@@ -37,8 +37,8 @@ _MAX_SVG_BYTES = 8 * 1024 * 1024
 
 
 def _figure_payload(fig: Any) -> dict[str, Any]:
-    # Render only. _open_figure closes the figure, including when savefig raises.
-    # _open_figure closes the figure even when savefig fails so the warm worker does not leak pyplot state into the next cell.
+    # Render only. _open_figure closes the figure, including when savefig raises,
+    # so the warm worker does not leak pyplot state into the next cell.
     from plugin.scripting.venv.venv_sandbox import _figure_to_image_payload
 
     payload = _figure_to_image_payload(fig)

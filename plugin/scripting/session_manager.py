@@ -110,7 +110,7 @@ def _enumerated_matching_models(ctx: Any, predicate: Any, *, label: str = "sessi
 
 def _find_document_by_predicate(ctx: Any, predicate: Any) -> Any | None:
     """Find active document matching *predicate*. The focused component wins; the desktop fallback returns the only matching model, or None when zero or several match."""
-    # Bugfix (#411): In headless mode or when focus is outside the frame, getCurrentComponent()
+    # In headless mode or when focus is outside the frame, getCurrentComponent()
     # returns None. Fall back to desktop.getComponents() enumeration so UI commands
     # (session reset) still resolve the document model. =PY() never comes here.
     from plugin.framework.errors import UnoObjectError, reraise_if_disposed
@@ -125,10 +125,10 @@ def _find_document_by_predicate(ctx: Any, predicate: Any) -> Any | None:
             if unwrap_uno(doc) is None:
                 raise UnoObjectError("Object is null", code="UNO_NULL_OBJECT")
             ctrl = getattr(doc, "getCurrentController", lambda: None)()
-            # Headless soffice returns None from getCurrentController().
-            # Requiring a controller skipped the open model, so session reset
-            # and shared-kernel lookup never saw it. A controller with no
-            # frame is an unfocused window — keep searching in that case.
+            # Headless soffice returns None from getCurrentController(), so a
+            # missing controller still counts: requiring one would skip the open
+            # model, and session reset and shared-kernel lookup would never see it.
+            # A controller with no frame is an unfocused window; keep searching.
             if ctrl is None or getattr(ctrl, "getFrame", lambda: None)() is not None:
                 if predicate(doc):
                     return guard_uno(doc)
@@ -233,10 +233,10 @@ def mint_document_key(doc: Any) -> str:
     new_id = new_unsaved_document_key()
     try:
         set_document_property(raw_doc, PYTHON_WORKBOOK_SESSION_PROP, new_id)
-        # set_document_property returns without writing when the document has
-        # no UserDefinedProperties bag, and it does not raise. Returning the
-        # minted id made the next call mint a different key. Read it back;
-        # otherwise use the unsaved:uuid fallback.
+        # set_document_property returns without writing (and without raising)
+        # when the document has no UserDefinedProperties bag. Read the value back:
+        # returning the minted id unchecked would make the next call mint a
+        # different key. Otherwise use the unsaved:uuid fallback.
         stored = get_document_property(raw_doc, PYTHON_WORKBOOK_SESSION_PROP)
         if stored is not None and str(stored) == new_id:
             return new_id
@@ -480,7 +480,7 @@ def _reset_on_main(ctx: Any, doc: Any | None = None) -> None:
     # (WriterAgentPythonSessionId); the inner functions tell the user when
     # there is no session to reset. A focused Base, Math, or Start Center
     # window is not Writer, Draw, or Calc; falling through to desktop
-    # enumeration cleared a background Calc document. Tell the user and return.
+    # enumeration would clear a background Calc document. Tell the user and return.
     resets = (
         (is_calc, _reset_calc_python_sessions),
         (is_writer, _reset_writer_sessions),

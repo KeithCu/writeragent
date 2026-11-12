@@ -128,7 +128,7 @@ def _parse_complex(val: Any) -> tuple[complex, str]:
     ``suffix`` is ``"i"``, ``"j"``, or ``""`` when the text has no imaginary
     unit. ``Complex::Add`` / ``Mult`` (``analysishelper.hxx``) keep the first
     non-empty unit: a real number stores ``c == '\\0'`` and does not override
-    Preserve the first imaginary unit letter so ``IMSUM`` does not rewrite ``j`` results to ``i`` incorrectly.
+    it. Callers keep that first unit, so ``IMSUM`` of ``j`` values answers in ``j``, not ``i``.
 
     A bool is a number. It is an ``int`` subclass, and ``str(True)`` is not
     a complex literal.
@@ -284,9 +284,8 @@ imtanh = _im_unary(cmath.tanh)
 
 
 def intercept(data_y: Any, data_x: Any) -> float:
-    # steyx imports intercept, so this import stays inside the function.
-    # A module-level import of n_s would cycle. The absolute import failed
-    # when the worker's package root was not the repo root.
+    # calc_functions_n_s imports only calc_functions_util and coerce, so this
+    # import could also sit at module level.
     from .calc_functions_n_s import slope
 
     # slope drops text pairs. Re-parsing the original arrays with
@@ -355,12 +354,12 @@ def irr(values: Any, guess: Any = 0.1) -> float:
     # below (#NUM!, not #DIV/0!). A huge (1+x)**i raises OverflowError,
     # which the worker returns as #NUM!.
     x = 0.1 if estimated == -1.0 else estimated
-    # The stop must not be abs(NPV) < 1e-7 for 100 steps. ScIRR stops when.
-    # the rate step drops below SCdEpsilon (1e-7), and it gives up after
-    # 20 steps (NoConvergence). At a 1e9 scale the NPV residual sticks
-    # near 1.2e-7 while the step is already ~1e-16, so the old test
-    # returned NaN for a rate Calc finds. A guess of exactly 0 that lands
-    # within 1e-7 of 0 is snapped to 0 before that check.
+    # ScIRR stops when the rate step drops below SCdEpsilon (1e-7), and it gives
+    # up after 20 steps (NoConvergence). The stop is the step, not
+    # abs(NPV) < 1e-7: at a 1e9 scale the NPV residual sticks near 1.2e-7 while
+    # the step is already ~1e-16, so an NPV test would return NaN for a rate
+    # Calc finds. A guess of exactly 0 that lands within 1e-7 of 0 is snapped
+    # to 0 before that check.
     eps = 1.0
     for _unused in range(20):
         if not math.isfinite(x) or x == -1.0:
@@ -458,7 +457,7 @@ def ispmt(rate: Any, per: Any, nper: Any, pv_val: Any) -> float:
     p = float(per)
     n = float(nper)
     pv_f = float(pv_val)
-    # nper == 0 must not raise ZeroDivisionError (pv / nper). Excel/Calc are.
+    # nper == 0 must not raise ZeroDivisionError (pv / nper). Excel/Calc are
     # #NUM!; this module returns NaN. Same guard as pmt.
     if n == 0:
         return float("nan")
@@ -498,9 +497,9 @@ def jis(text: Any) -> str:
 
 def kurt(*args: Any) -> float:
     # ScKurt (interpr3.cxx). Fewer than 4 numbers, or a zero sample stdev,
-    # is #DIV/0!. This is the unbiased excess kurtosis. scipy.stats.kurtosis
-    # (bias=False) is the same expression, and a missing scipy must not make.
-    # every call NaN.
+    # is #DIV/0!. This is the unbiased excess kurtosis, the same expression as
+    # scipy.stats.kurtosis(bias=False), written out so a missing scipy does not
+    # make every call NaN.
     arr = _extract_numeric_array(*args)
     count = len(arr)
     if count < 4:
@@ -613,9 +612,8 @@ def loginv(p: Any, mean: Any, stdev: Any) -> float:
     # IllegalArgument. gaussinv(0) is -inf and gaussinv(1) is +inf.
     if prob <= 0 or prob >= 1 or s <= 0:
         return float("nan")
-    # exp(mue + sigma * gaussinv(p)). statistics.NormalDist is that
-    # inverse CDF. scipy.stats must not be imported inside the call, so.
-    # a missing scipy made every probability NaN.
+    # exp(mue + sigma * gaussinv(p)). statistics.NormalDist is that inverse CDF,
+    # so a missing scipy does not make every probability NaN.
     # exp(1e308) raises OverflowError, which the worker returns as #NUM!.
     # exp(inf) returns inf, and IFERROR does not treat inf as an error.
     res = math.exp(m + s * statistics.NormalDist().inv_cdf(prob))
@@ -677,9 +675,9 @@ def _lookup_keys(data: np.ndarray) -> tuple[np.ndarray, np.ndarray] | None:
 
 def lookup(lookup_val: Any, *args: Any) -> Any:
     # dtype=object keeps numbers as numbers. Text compares case-insensitively.
-    # ScLookup (interpr1.cxx) requires data <= query and the same type. A
-    # number does not match text. str(None) must not be the text "None", so.
-    # lookup(20, ["10x"]) returned "10x". A miss is #N/A, not Python None.
+    # ScLookup (interpr1.cxx) requires data <= query and the same type, so a
+    # number does not match text: lookup(20, ["10x"]) is #N/A. str(None) must
+    # not become the text "None". A miss is #N/A, not Python None.
     if not args:
         return "#N/A"
     parsed = _lookup_keys(np.asarray(args[0], dtype=object))
@@ -768,8 +766,8 @@ def mirr(values: Any, finance_rate: Any, reinvest_rate: Any) -> float:
     vals = [float(x) for x in np.asarray(values).ravel()]
     fr = float(finance_rate)
     rr = float(reinvest_rate)
-    # rate == -1 must not divide by zero (later negative flows) or return a.
-    # finite number (reinvest rate -1). numpy-financial's NPV is undefined
+    # rate == -1 must not divide by zero (later negative flows) or return a
+    # finite number (reinvest rate -1). numpy-financial's MIRR is undefined
     # there and returns NaN, which is Excel #NUM!.
     return _npf_result("mirr", vals, fr, rr)
 
@@ -785,9 +783,9 @@ def mmult(array1: Any, array2: Any) -> Any:
 
 def mode(*args: Any) -> Any:
     # ScModalValue (interpr3.cxx) takes one or more arguments and keeps
-    # numbers only. mode(1, 2, 2) must not raise TypeError. Text is not a.
-    # candidate. A Calc bool is a numeric cell, so True and 1 are the same
-    # value and must stay merged.
+    # numbers only, so mode(1, 2, 2) works and text is not a candidate.
+    # A Calc bool is a numeric cell, so True and 1 are the same value and
+    # must stay merged.
     arr = _extract_numeric_array(*args, ignore_bool=False, propagate_nan=False)
     if not arr.size:
         return float("nan")
@@ -868,8 +866,8 @@ def multinomial(*args: Any) -> float:
 
 def munit(dimension: Any) -> Any:
     # ScEMat (interpr5.cxx): GetUInt32 truncates, then dimension 0 is
-    # IllegalArgument. np.eye(0) must not return []. Above 1024 the identity.
-    # is more than a million Python floats. Calc pushes MatrixSize when the
+    # IllegalArgument, so np.eye(0) must not return []. Above 1024 the identity
+    # is more than a million Python floats; Calc pushes MatrixSize when the
     # square is not allocatable instead of building it.
     try:
         size = int(dimension)

@@ -89,8 +89,6 @@ def format_venv_import_policy_for_prompt(*, compact: bool = False) -> str:
     return " ".join(parts)
 
 
-
-
 _DRAW_PLOT_HINT = (
     "PLOTS: plt.plot(...) or result=fig; then image_insert(image_path=<returned path>) on the slide/page."
 )

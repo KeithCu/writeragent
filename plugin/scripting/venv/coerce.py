@@ -231,14 +231,13 @@ _TOKEN_RE = re.compile(r"[A-Za-z0-9]+")
 
 
 def _is_date_like_column_name(name: str) -> bool:
-    """Check if column name contains exact temporal indicator tokens.
+    """True when the column name has a whole temporal token (date, time, ...).
 
-    The substring 'or's matched 'candidate' / 'runtime'; a boundary regex
-    misses 'OrderDate' and 'datetime'.
+    Splitting camelCase humps and then matching whole tokens accepts
+    ``OrderDate`` and ``datetime`` and rejects ``candidate`` and ``runtime``.
+    A substring test would accept the last two; a word-boundary regex would
+    miss the first two.
     """
-    # Substring checks matched candidate, runtime, etc. A boundary regex
-    # missed OrderDate and datetime. Splitting on camelCase humps and extracting
-    # alphanumeric tokens matches exact temporal components.
     spaced = _CAMEL_CASE_RE.sub(" ", str(name))
     tokens = _TOKEN_RE.findall(spaced.lower())
     return any(tok in _DATE_NAME_TOKENS for tok in tokens)
@@ -302,8 +301,10 @@ def _coerce_column_types(
 
     for col in target_date_cols:
         series = out[col]
-        # A numeric dtype, including nullable Float64, must go through
-        # parse_date_column handles numeric and mixed string dates so serials and year integers are not misread as Excel day units only.
+        # Every date column, numeric dtypes included (nullable Float64 too),
+        # goes through parse_date_column, which reads Calc serials and bare
+        # years; pd.to_datetime alone would read a serial as nanoseconds
+        # since 1970.
         out[col] = parse_date_column(series, date_origin=date_origin)
 
     # 2. General string inference if requested
@@ -866,8 +867,8 @@ def grid_to_dataframe(
 
 def table_from_df(df: Any, *, name: str, max_rows: int = 50) -> dict[str, Any]:
     limited = df.head(max_rows)
-    # where(..., None) on a float column stores NaN again, so decomposition edges
-    # became the JSON token NaN and Calc error cells.
+    # Cast to object first: where(..., None) on a float column stores NaN
+    # again, and NaN reaches JSON as the token NaN and Calc as error cells.
     obj_df = limited.astype(object).where(limited.notna(), None)
     return {
         "name": name,

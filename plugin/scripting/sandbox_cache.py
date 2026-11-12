@@ -33,7 +33,8 @@ from plugin.scripting.sandbox import active_blocked_imports, import_authorized
 
 
 def _deal_sandbox_imports_ok_pytest(authorized_imports: object) -> bool:
-    # Production passes VENV_AUTHORIZED_IMPORTS (tuple, ~99 names), not a short list.
+    # Production passes the executor's authorized_imports, a list:
+    # BASE_BUILTIN_MODULES plus policy_allowlist extras (vendored local_python_executor).
     if not isinstance(authorized_imports, (list, tuple)):
         return False
     return all(isinstance(x, str) and "\0" not in x and str_bounded(x, DEAL_MAX_TOKEN) for x in authorized_imports)
@@ -91,8 +92,8 @@ def validate_sandbox_ast(
             return "Decorators are not supported in the sandbox"
         if isinstance(node, ast.Import):
             for alias in node.names:
-                # writeragent.X is checked as plugin.X. A blanket writeragent.*
-                # Reject unauthorized writeragent.* aliases before AliasImporter can pull host-only modules.
+                # import_authorized checks writeragent.X as plugin.X and refuses an alias whose
+                # plugin module is not listed, before AliasImporter can load a host-only module.
                 if not import_authorized(alias.name, authorized_imports, blocked_imports=effective_blocked):
                     # Keep the message short. Never leak the blocklist or extras.
                     return f"Import of {alias.name} is not allowed."
@@ -173,9 +174,9 @@ def _build_entry(
     authorized_imports: Sequence[str],
 ) -> HotEntry:
     # A long 1+1+... chain makes ast.parse or validate_sandbox_ast raise
-    # RecursionError (an Exception). execute_with_return logged it with
-    # log.exception as an internal fault. It is bad user source, so return
-    # a HotEntry error and do not log.
+    # RecursionError. That is bad user source, not an internal fault: return
+    # a HotEntry error (the except below) so execute_with_return does not log
+    # a traceback.
     try:
         try:
             module = ast.parse(code)

@@ -265,7 +265,7 @@ The split-grid codec is the project's reference Tier-0 verification target: `dea
 | `str` (including `"02138"`) | `NaN` | text preserved by flat index |
 | Python `complex` or a NumPy complex scalar | `NaN` | `str(val)`, imaginary part kept |
 
-Grids with **&lt; 100 cells** use nested Pickle lists ([`BINARY_MIN_CELLS`](../../plugin/scripting/payload_codec.py)); `_cell_for_json` only normalizes Python `None`; `float('nan')` is preserved so it becomes a Calc error on egress (not a silent blank). `child_pack_result` does not itself turn `np.generic`, `Decimal`, or `Fraction` cells into host-unpickleable-safe leaves. `to_wire` (depth 64) coerces list/dict results, DataFrame/Series object grids, object-ndarray `tolist()` output, and datetime64/timedelta64 arrays (timedelta becomes fractional days) before that pack. A rectangular list whose cells are themselves lists or tuples is not one split_grid: each row is packed on its own, so a list of grids is not stringified.
+Grids with **&lt; 100 cells** use nested Pickle lists ([`BINARY_MIN_CELLS`](../../plugin/scripting/payload_codec.py)); below the threshold `child_pack_result` copies cells unchanged and `None` stays `None`; `float('nan')` is preserved so it becomes a Calc error on egress (not a silent blank). `child_pack_result` does not itself turn `np.generic`, `Decimal`, or `Fraction` cells into host-unpickleable-safe leaves. `to_wire` (depth 64) coerces list/dict results, DataFrame/Series object grids, object-ndarray `tolist()` output, and datetime64/timedelta64 arrays (timedelta becomes fractional days) before that pack. A rectangular list whose cells are themselves lists or tuples is not one split_grid: each row is packed on its own, so a list of grids is not stringified.
 
 #### Child materialization (ingress, before CalcRange wrap)
 
@@ -393,7 +393,7 @@ The implementation was simplified in May 2026 to unify the 1D and 2D packing pat
 | [`plugin/scripting/venv_worker.py`](../../plugin/scripting/venv_worker.py) | `_normalize_response`: `host_unpack_data` on worker `result` (all callers); respects `column_kinds` |
 | [`plugin/calc/python/function.py`](../../plugin/calc/python/function.py) | `=PY()` ingress pack + matrix/session flattening (result already unpacked) |
 | [`plugin/calc/python/venv.py`](../../plugin/calc/python/venv.py) | Chat tool ingress pack |
-| [`plugin/scripting/venv/venv_sandbox.py`](../../plugin/scripting/venv/venv_sandbox.py) | `child_unpack_data` before inject; `child_pack_result` in `serialize_result` |
+| [`plugin/scripting/venv/venv_sandbox.py`](../../plugin/scripting/venv/venv_sandbox.py) | `materialize_inputs` (`calc_range.py`) before inject (it calls `child_unpack_data` on a split_grid); `child_pack_result` in `serialize_result` |
 | [`tests/scripting/test_payload_codec.py`](../../tests/scripting/test_payload_codec.py) | Unit tests (threshold, round-trip, mixed text → lists) |
 | [`tests/scripting/test_venv_worker.py`](../../tests/scripting/test_venv_worker.py) | Harness integration with split_grid payloads |
 
@@ -409,7 +409,7 @@ Calc UNO range
   → pack_calc_data_for_wire → host_pack_data (host: split_grid or nested list)
   → pickle.dumps(request)        (host: binary payload, protocol 5; split_grid contains raw bytes)
   → pickle.loads(payload)        (child: parse request dict)
-  → child_unpack_data → ndarray  (child: frombuffer + reshape when split_grid and strings is empty)
+  → materialize_inputs → CalcRange (child: child_unpack_data on split_grid: frombuffer + reshape when strings is empty)
   → send_variables({"data": ...}) (child: ndarray or list in fresh namespace)
   → user code (NumPy/pandas)
   → serialize_result → child_pack_result (child: split_grid or list for large numeric result)

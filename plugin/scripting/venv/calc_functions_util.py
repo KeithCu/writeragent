@@ -114,11 +114,11 @@ def _days360(sd: dt.date, ed: dt.date, european: bool = False) -> float:
 
 def _days_between(d1: Any, d2: Any, basis: int) -> float:
     """Days between two dates under financial basis (0=US 30/360, 1=Act/Act, 2=Act/360, 3=Act/365, 4=Eur 30/360)."""
-    # 30/360 day count, including the 31st and end-of-month adjustments from DAYS360.
     sd = _serial_to_date(d1)
     ed = _serial_to_date(d2)
     if sd is None or ed is None:
         return float("nan")
+    # 30/360 day count, including the 31st and end-of-month adjustments from DAYS360.
     if basis in (0, 4):
         return _days360(sd, ed, european=(basis == 4))
     return float((ed - sd).days)
@@ -209,11 +209,12 @@ def _round_sig(x: float, sig: int) -> float:
 
 
 def _as_bool_flag(val: Any) -> bool:
-    """LINEST / LOGEST ``const``.
+    """LINEST / LOGEST / TREND ``const``.
 
-    A blank cell is false (``GetBool`` of an empty cell). ``"TRUE"`` and
-    ``"FALSE"`` are those booleans. ``"0"`` is false. ``bool("0")`` and
-    ``FALSE`` and ``0`` strings are false so LINEST const matches Calc and does not keep an intercept incorrectly.
+    A blank cell is false (``GetBool`` of an empty cell). The strings ``"TRUE"`` and
+    ``"FALSE"`` are those booleans, and ``"0"`` is false. Python's ``bool("0")`` and
+    ``bool("FALSE")`` are true, so without this map a text ``const`` would keep an
+    intercept that Calc drops. Any other text goes to ``_as_nonzero``.
     """
     if isinstance(val, str):
         token = val.strip().upper()
@@ -324,7 +325,8 @@ def _scipy_stats() -> Any | None:
 
 def _collect_a_values(*args: Any) -> np.ndarray:
     """Collect flat float array for *A functions (AVERAGEA, MAXA, etc.)."""
-    # *A functions skip blanks. Text and blanks evaluate to 0, while errors propagate as NaN.
+    # *A functions skip None (an empty cell). Text and blank strings count as 0; an error
+    # token stays NaN so it propagates.
     vals: list[float] = []
     for arg in args:
         for v in np.asarray(arg, dtype=object).ravel():

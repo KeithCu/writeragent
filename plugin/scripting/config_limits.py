@@ -67,6 +67,7 @@ _DATA_CELLS_CONFIG_KEY = "scripting.python_max_data_cells"
 
 def _schema_int(field_name: str, name: str, *, fallback: int | None = None, required: bool = False) -> int:
     """One scripting schema field. Fallbacks cover trees without plugin._manifest."""
+    # Lazy: the compute bundle ships this module for its constants, not config_schema.
     from plugin.framework.config_schema import get_config_schema
 
     field = get_config_schema(f"scripting.{field_name}")
@@ -112,6 +113,7 @@ def python_exec_timeout_default() -> int:
 
 def _timeout_int(value: object, fallback: int) -> int:
     """User/config timeout; anything unparseable uses *fallback*."""
+    # Lazy: the compute bundle ships this module for its constants, not config_schema.
     from plugin.framework.config_schema import parse_int_robust
 
     try:
@@ -135,6 +137,7 @@ def resolve_python_exec_timeout(
 
 def _configured_int(key: str, fallback: Callable[[], int]) -> int:
     """Read one settings int; a failed read uses the schema default, not the clamp floor."""
+    # Lazy: the compute bundle ships this module for its constants, not plugin.framework.config.
     from plugin.framework.config import get_config
 
     try:

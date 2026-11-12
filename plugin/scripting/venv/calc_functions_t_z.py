@@ -83,10 +83,9 @@ def tdist(x: Any, df: Any, tails: Any) -> float:
     # ScTDist floors df (approxFloor) before the < 1 check. 2.7 was
     # passed through to the t distribution.
     d = math.floor(float(df))
-    # ``t`` is the public T() function. A local with that name would hide it.
-    # int(float("inf")) on tails raises OverflowError. The handler only
-    # caught ValueError and TypeError, so TDIST(x, df, inf) raised instead
-    # of the NaN already returned for every other tail count outside 1 or 2.
+    # ``t`` is the public T() function, so the local is tail_count. A text
+    # tails raises ValueError (#VALUE!) and inf raises OverflowError (#NUM!)
+    # in the worker; any other count outside 1 or 2 is NaN.
     tail_count = int(float(tails))
     if d < 1 or tail_count not in (1, 2) or val < 0:
         return float("nan")
@@ -239,9 +238,10 @@ def _text_before_or_after(text: Any, delimiter: Any, instance_num: Any, match_mo
             return if_not_found
         # A negative instance counts from the end of that same list.
         chosen = spans[inst - 1] if inst > 0 else spans[inst]
-        # after=True must not return the start for a negative instance and let.
-        # TEXTAFTER add len(delim). A case-folded match can be a different
-        # length than the delimiter, so the cut is the span's own end.
+        # TEXTAFTER cuts at the chosen span's end and TEXTBEFORE at its start, for
+        # positive and negative instances alike. A case-folded match can be a
+        # different length than the delimiter, so the cut is the span's own end,
+        # not start + len(delim).
         idx = chosen[1] if after else chosen[0]
         return s[idx:] if after else s[:idx]
     except (ValueError, TypeError, OverflowError):
@@ -322,8 +322,8 @@ def textsplit(text: Any, col_delimiter: Any, row_delimiter: Any = None, ignore_e
     # change the pieces, not just the match.
     try:
         s = str(text)
-        # ScTextSplit PushIllegalParameter on empty text. This helper's
-        # Empty text and illegal parameters return NaN like Calc; they do not split to [[""]].
+        # ScTextSplit pushes IllegalParameter on empty text, so empty text is NaN,
+        # not [[""]].
         if s == "":
             return float("nan")
         ci = (match_mode == 1)
@@ -630,9 +630,8 @@ _WEEKNUM_WEEK_START: dict[int, int] = {
 
 
 def weekday(serial: Any, return_type: int | float = 1) -> float:
-    # _serial_to_date returns None for a bad serial. fromordinal raises
-    # ValueError or OverflowError, not OSError, so the old OSError arm was dead.
-    # A bad return_type still raises into the decorator.
+    # _serial_to_date returns None for a bad serial. A non-numeric return_type
+    # raises ValueError, which the worker returns as #VALUE!.
     d = _serial_to_date(serial)
     rt = int(float(return_type))
     if d is None:
@@ -919,20 +918,18 @@ def xlookup(lookup_val: Any, lookup_arr: Any, return_arr: Any, if_not_found: Any
     # so the hit was "5" instead of the number 5. The lookup path
     # already keeps numbers as numbers.
     r_flat = np.asarray(return_arr, dtype=object)
-    # A return array shorter than the matched index must not raise IndexError.
+    # A return array shorter than the matched index must not raise IndexError
     # (xlookup("b", ["a", "b"], [1])). The match succeeded, so this is not
     # if_not_found; it is a bad range. Report #VALUE!, same as other shape
-    # mismatches, instead of letting the exception escape.
+    # mismatches.
     try:
         if r_flat.ndim == 2:
             l_shape = np.asarray(lookup_arr).shape
-            # Row slice: (N, 1) with N > 1, or a flat (N,) lookup whose return
-            # has one row per lookup value. A flat lookup must not take the.
-            # column whenever best_idx < width, so
-            # xlookup("b", ["a","b","c"], [["x","y"],["z","w"],["p","q"]])
-            # returned ["y","w","q"] instead of ["z","w"]. A wide return whose
-            # columns match the lookup length still uses the column slice
-            # below. A (1, N) lookup is that column slice.
+            # Row slice: (N, 1) with N > 1, or a flat (N,) lookup whose return has one
+            # row per lookup value. A flat lookup takes the row even when
+            # best_idx < width: xlookup("b", ["a","b","c"], [["x","y"],["z","w"],["p","q"]])
+            # is ["z","w"], not the column ["y","w","q"]. A wide return whose columns
+            # match the lookup length, and a (1, N) lookup, use the column slice below.
             if (len(l_shape) == 2 and l_shape[0] > 1 and l_shape[1] == 1) or (
                 len(l_shape) == 1 and r_flat.shape[0] == l_shape[0]
             ):

@@ -65,8 +65,9 @@ def record_to_wav(
         if latched is None or rank >= latched[0]:
             latched = (rank, exc)
 
-    # Open the WAV before PortAudio. A disk or permission error must not be
-    # reported as PORTAUDIO_LINUX_HINT.
+    # Open the WAV before the PortAudio input stream. A disk or permission
+    # error then fails with "Failed to create audio WAV file" before the
+    # microphone is opened, not as a stream or PortAudio error.
     wav_file: Any = None
     try:
         wav_file = wave.open(output_path, "wb")

@@ -431,8 +431,8 @@ def _forecast_holt_winters(series: Any, *, periods: int, seasonal_periods: int, 
     from statsmodels.tsa.holtwinters import ExponentialSmoothing
 
     # Positional endog: a gapped DatetimeIndex has no frequency, statsmodels
-    # raises No supported index is available, and auto must not substitute a flat.
-    # moving average. Dates come from _future_index.
+    # raises "No supported index is available", and auto would then fall back
+    # to a flat moving average. Dates come from _future_index.
     endog = pd.Series(series.to_numpy(), index=pd.RangeIndex(len(series)))
     model = ExponentialSmoothing(
         endog,
@@ -484,8 +484,8 @@ def _forecast_arima(series: Any, *, periods: int, future_dates: Any, freq_label:
     from statsmodels.tsa.arima.model import ARIMA
 
     # Positional endog: a gapped DatetimeIndex has no frequency, statsmodels
-    # raises No supported index is available, and auto must not substitute a flat.
-    # moving average. Dates come from _future_index.
+    # raises "No supported index is available", and auto would then fall back
+    # to a flat moving average. Dates come from _future_index.
     endog = pd.Series(series.to_numpy(), index=pd.RangeIndex(len(series)))
     model = ARIMA(endog, order=(1, 1, 1))
     fit = model.fit()

@@ -122,13 +122,12 @@ def fetch_historical_data(params: dict[str, Any]) -> dict[str, Any]:
     try:
         # progress=False: yfinance writes a progress bar to stdout and that
         # breaks IPC framing. An empty frame is NO_DATA, not ok.
-        # multi_level_index arrived in yfinance 0.2.48. An older download()
-        # raises TypeError for that keyword; retry without it. Any other
-        # TypeError still falls through to EXECUTION_ERROR.
-        # auto_adjust default flipped to True in yfinance 0.2.51. Leaving it
-        # unset made Close unadjusted and added Adj Close on older installs,
-        # so both the numbers and the column set depended on the package.
-        # Pin True: OHLC is split-adjusted and there is no Adj Close column.
+        # multi_level_index needs yfinance 0.2.48+; an older download() raises
+        # TypeError for that keyword, so retry without it. Any other TypeError
+        # still falls through to EXECUTION_ERROR.
+        # auto_adjust is pinned True because its default differs before 0.2.51
+        # (unadjusted Close plus Adj Close): OHLC is split-adjusted and there is
+        # no Adj Close column on every version.
         download_kwargs: dict[str, Any] = {
             "start": start_date,
             "end": end_date,
@@ -180,9 +179,9 @@ def technical_analysis(
         return _missing_package_error("technical_analysis", "pandas-ta")
 
     raw_indicators = params.get("indicators", _INDICATOR_NAMES)
-    # A string is one indicator name, not a sequence of characters.
-    # An unknown name is INVALID_PARAMS. An int must not be replaced with.
-    # the default list and return ok.
+    # A string is one indicator name, not a sequence of characters. An unknown
+    # name, or a value that is neither a name nor a list (such as an int), is an
+    # invalid-parameter error rather than a silent run of the default list.
     if raw_indicators is None:
         indicators = list(_INDICATOR_NAMES)
     elif isinstance(raw_indicators, str):
@@ -367,8 +366,9 @@ def efficient_frontier(
             noun = "row" if n_dropped_rows == 1 else "rows"
             notes.append(f"Dropped {n_dropped_rows} {noun} with missing or non-finite returns.")
 
-        # A non-numeric rate must not escape as EXECUTION_ERROR. A weight_bounds.
-        # value that was not a pair was ignored, and the library default ran.
+        # A non-numeric rate must not escape as EXECUTION_ERROR, and a
+        # weight_bounds value that is not a pair is an invalid-parameter error
+        # rather than being ignored in favour of the library default.
         raw_rfr = params.get("risk_free_rate", 0.02)
         try:
             rfr = float(raw_rfr)

@@ -180,9 +180,8 @@ def datedif(start_date: Any, end_date: Any, unit: str = "D") -> float:
     except (ValueError, OverflowError):
         return float("nan")
     # ScGetDateDif (interpr2.cxx) returns the day count when the dates are
-    # equal, before it checks the unit. Any other unknown unit is
-    # PushIllegalArgument. The fall-through must not return the day count.
-    # for "X" as well.
+    # equal, before it checks the unit, so an unknown unit such as "X" is 0
+    # then. With different dates an unknown unit is PushIllegalArgument (NaN).
     return 0.0 if sd == ed else float("nan")
 
 
@@ -276,7 +275,7 @@ def _dagg(
     # Strings are not numbers. ScDBQueryParamBase starts with
     # mbSkipString true (queryparam.cxx). DSUM uses that iterator.
     # DCOUNTA and DGET do not come through here, so text still counts
-    # there. float("5") must not add the text. A bool stays: Calc stores.
+    # there. float("5") must not add the text. A bool stays: Calc stores
     # TRUE as a numeric cell, so float(True) is 1. NaN is missing
     # (is_missing_value) and must not poison the aggregate.
     vals: list[float] = []
@@ -474,9 +473,8 @@ def _dollar_frac(amount: Any, fraction: Any, *, to_decimal: bool) -> float:
         if not math.isfinite(amt) or not math.isfinite(frac):
             return float("nan")
         f = int(frac)
-    # int(inf) and float(10**400) raise OverflowError, not ValueError.
-    # math.floor(inf) must not sit outside this try, so dollarde(1.02, inf).
-    # crashed. Overflow returns NaN (#NUM!).
+    # float(10**400) raises OverflowError, not ValueError; overflow returns NaN
+    # (#NUM!). Non-finite inputs return above, so math.floor below cannot see inf.
     except OverflowError:
         return float("nan")
     if f <= 0:
@@ -494,7 +492,6 @@ def _dollar_frac(amount: Any, fraction: Any, *, to_decimal: bool) -> float:
     return sign * (i_part + part)
 
 
-# Group B - Financial 2
 def dollarde(fractional_dollar: Any, fraction: Any) -> float:
     return _dollar_frac(fractional_dollar, fraction, to_decimal=True)
 
@@ -958,9 +955,9 @@ def growth(known_y: Any, known_x: Any = None, new_x: Any = None, const: Any = Tr
             new_x_arr = np.asarray(new_x, dtype=float).ravel()
 
         y_log = np.log(y)
-        # A text "0" is truthy in Python, so GROWTH fitted an intercept.
-        # expondist and fixed coerce with bool(float()). "FALSE" raises
-        # and the handler below returns "#VALUE!".
+        # _flag_default_true reads the flag as GetDouble() != 0, so the text "0"
+        # drops the intercept (bool("0") would keep it). The text "FALSE" fails
+        # float() and the handler below returns "#VALUE!".
         use_const = _flag_default_true(const)
         if use_const:
             coeffs = np.polyfit(x, y_log, 1)

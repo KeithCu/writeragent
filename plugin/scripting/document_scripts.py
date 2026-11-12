@@ -176,19 +176,18 @@ def set_document_scripts(doc: Any, scripts: dict[str, str]) -> DocumentScriptErr
             DocumentScriptErrorCode.TOO_LARGE,
         )
     if is_document_readonly_for_scripts(doc):
-        # The previous sentence claimed a My Scripts write that only two
-        # callers perform. Save As, New, and Monaco attach show this string
-        # and do not write My Scripts.
+        # The message does not promise a My Scripts copy: Save As, New, and
+        # Monaco attach show it and do not write My Scripts.
         return _readonly_document_error()
     try:
         set_document_property(doc, DOCUMENT_SCRIPTS_UDPROP, payload)
     except Exception as exc:
-        # A disposed document is not "read-only". Callers that swallow the
-        # Disposed documents re-raise instead of returning read-only so callers do not keep saving after close.
+        # A disposed document is not "read-only": re-raise so callers stop
+        # saving to a closed document instead of showing a read-only error.
         if is_disposal(exc):
             raise
         log.exception("document_scripts: failed to persist on document")
-        # Same false My Scripts claim as the read-only return above.
+        # Any other write failure reports the same read-only error.
         return _readonly_document_error()
     # set_document_property returns None after a real write and also when the
     # document has no UserDefinedProperties bag (that path does not raise).

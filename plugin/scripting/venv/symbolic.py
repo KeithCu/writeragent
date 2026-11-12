@@ -186,9 +186,11 @@ def _symbolic_helper(func: Callable[..., dict[str, Any]]) -> Callable[..., dict[
     """Resolve sympy once and turn helper failures into result dicts.
 
     The wrapper passes the module in, so helpers do not look it up again and
-    do not assert on it. Those asserts disappeared under ``python -O``.
-    Parse failures raise ``_SymbolicError`` directly. A ``ValueError`` from
-    Math ``ValueError`` from simplify/integrate/solve is distinct from parse failures so users see the right error code.
+    do not assert on it (asserts vanish under ``python -O``).
+    Parse failures raise ``_SymbolicError`` with their own code (PARSE_ERROR).
+    Any other exception, such as a ``ValueError`` from simplify, integrate or
+    solve, becomes SYMBOLIC_ERROR, so the user can tell a bad expression from a
+    math failure.
     """
     public_sig = _public_signature(func)
 

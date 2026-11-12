@@ -113,9 +113,8 @@ def negbinomdist(x: Any, r: Any, p: Any) -> float:
     st = _scipy_stats()
     if st is None:
         return float("nan")
-    # int(float(+inf)) and int() of an oversized count raise OverflowError.
-    # The old except only named ValueError, so that input escaped. Excel
-    # NEGBINOMDIST is #NUM!, which this module returns as NaN.
+    # int(float(+inf)) and int() of an oversized count raise OverflowError,
+    # which the worker returns as #NUM! (Excel NEGBINOMDIST is #NUM!).
     k = int(float(x))
     r_val = int(float(r))
     prob = float(p)
@@ -214,9 +213,9 @@ def normsinv(prob: Any) -> float:
 
 
 def _npf_call(kind: str, a: Any, b: Any, c: Any, d: Any, type_val: Any) -> float:
-    # Only type 1 is beginning-of-period, same rule as PMT/FV/PV.
-    # The old closed form plugged any integer into (1+rate*type).
-    # float() of an oversized int raises OverflowError. Excel is #VALUE!.
+    # Only type 1 is beginning-of-period, same rule as PMT/FV/PV; any other
+    # type is end-of-period, never a multiplier in (1 + rate*type).
+    # float() of an oversized int raises OverflowError, which the worker returns as #NUM!.
     a_f = float(a)
     b_f = float(b)
     c_f = float(c)
@@ -503,7 +502,7 @@ def permut(n: Any, k: Any) -> float:
 
 
 def pmt(rate: Any, nper: Any, pv: Any, fv_val: Any = 0, type_val: Any = 0) -> float:
-    # nper == 0 must not raise ZeroDivisionError. numpy-financial returns.
+    # nper == 0 must not raise ZeroDivisionError. numpy-financial returns
     # ±inf; Calc/Excel are #DIV/0!, returned here as NaN.
     return _npf_call("pmt", rate, nper, pv, fv_val, type_val)
 
@@ -544,9 +543,9 @@ def pv(rate: Any, nper: Any, pmt_val: Any, fv_val: Any = 0, type_val: Any = 0) -
 
 
 def quartile(r: Any, q: Any) -> float | str:
-    # Non-numeric quart must not raise ValueError from float(). Out-of-range.
-    # quart fell through to `qi * 25` and np.percentile raised ValueError
-    # (percentile outside 0..100). Excel QUARTILE returns #NUM! for both.
+    # A non-numeric quart is NaN, not a ValueError from float(). A quart outside
+    # 0..4 is NaN too; qi * 25 would put np.percentile outside 0..100.
+    # Excel QUARTILE returns #NUM! for both.
     try:
         qi = int(float(q))
     except (ValueError, TypeError, OverflowError):
@@ -836,7 +835,7 @@ def sortby(range_arr: Any, by_array: Any, sort_order: int | float = 1, *extra: A
     # Excel SORTBY of a non-range is #VALUE!, returned here as NaN.
     if arr.ndim == 0:
         return float("nan")
-    # *extra must not be ignored, so by_array2/sort_order2 never affected the order.
+    # *extra holds by_array2, sort_order2, ...; every pair takes part in the order.
     specs: list[tuple[Any, int]] = []
     tokens = [by_array, sort_order, *extra]
     idx = 0
@@ -965,7 +964,7 @@ def _cell_number(val: Any) -> float | None:
 
 
 def subtotal(fn_num: Any, r: Any) -> float:
-    # int(float(fn_num)) raises on text. Match small() / steyx and return NaN.
+    # A text fn_num raises ValueError here, which the worker returns as #VALUE!.
     fn = int(float(fn_num))
     # dtype=object keeps True and "5" distinct. Default asarray turned
     # [1, True, "5"] into strings, then float("True") dropped the bool
@@ -1033,7 +1032,7 @@ def sumif(r: Any, crit: Any, sr: Any | None = None) -> float:
 
 def sumifs(sr: Any, *args: Any) -> float:
     # Criteria ranges must match the sum range in shape. A shorter range, or a
-    # 2x3 next to a 3x2, must not truncate or line up after ravel. That is NaN.
+    # 2x3 next to a 3x2, must not truncate or line up after ravel; that is NaN
     # here, same as an odd argument count. No pairs still sums nothing.
     if len(args) % 2 != 0:
         return float("nan")
