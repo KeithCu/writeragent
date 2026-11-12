@@ -490,7 +490,7 @@ def test_restore_fields_by_cursor_skips_unreadable_reads():
             return self._text
 
         def getStart(self):
-            return "pstart"
+            return self
 
     class _Enum:
         def __init__(self, items):
@@ -521,9 +521,6 @@ def test_restore_fields_by_cursor_skips_unreadable_reads():
         def createEnumeration(self):
             return _Enum([_Portion(tok_page)])
 
-    cursor = MagicMock()
-    cursor.getString.return_value = tok_page
-
     class _Text:
         def getString(self):
             return full_text
@@ -532,7 +529,9 @@ def test_restore_fields_by_cursor_skips_unreadable_reads():
             return _Enum([_Para1(), _Para2(), _Para3(), _Para4()])
 
         def createTextCursorByRange(self, start):
-            return cursor
+            c = MagicMock()
+            c.getString.return_value = getattr(start, "_text", "")
+            return c
 
     text = _Text()
     model = MagicMock()

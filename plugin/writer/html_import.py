@@ -481,9 +481,11 @@ def insert_inline_at_cursor(model: Any, ctx: Any, cursor: Any, content: str) -> 
     the same way ``replace_single_range_with_content`` handles inline replacements.
     """
     with image_placeholders._keep_placeholder_images(model, content) as swapped:
-        # No html.unescape here: apply_document_content.py already decoded complete character references on the
-        # plain path (html_import_styles.decode_complete_character_references), and a full unescape turns "&sect 2o" into "§ 2o"; the HTML import
-        # decodes entities in markup itself.
+        # No html.unescape here: apply_document_content.py already decoded complete
+        # character references on the plain path
+        # (html_import_styles.decode_complete_character_references), and a full
+        # unescape turns "&sect 2o" into "§ 2o"; the HTML import decodes entities
+        # in markup itself.
         if not content_needs_html_import(swapped):
             cursor.getText().insertString(cursor, swapped, False)
             return

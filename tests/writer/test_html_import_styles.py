@@ -330,4 +330,3 @@ def test_decode_complete_character_references_only_decodes_with_semicolon() -> N
     assert decode("&sect 2o &amp;lt;") == "&sect 2o &lt;"
     assert decode("&amp; &quot; &#36; &#x24;") == '& " $ $'
     assert decode("&not covered") == "&not covered"
-

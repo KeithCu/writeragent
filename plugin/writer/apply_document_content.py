@@ -1259,10 +1259,10 @@ class ApplyDocumentContent(ToolBase):
                 # HTML entry points decode complete references once, and the StarWriter
                 # filter decodes what remains in markup. This format-preserving path must
                 # do the same, or content lands verbatim. content_has_markup() sees no tag
-                # in "R&#36;5.000,00", so an escaped dollar sign takes the plain path. Decode
-                # ONLY complete references (decode_complete_character_references; ";" required); unescaping the whole
-                # string also expands semicolon-less names ("&sect 2o" -> "§ 2o"). A bare "&"
-                # in "Banco & Cia" is never touched.
+                # in "R&#36;5.000,00", so an escaped dollar sign takes the plain path.
+                # Decode ONLY complete references (decode_complete_character_references;
+                # ";" required); unescaping the whole string also expands semicolon-less
+                # names ("&sect 2o" -> "§ 2o"). A bare "&" in "Banco & Cia" is never touched.
                 content = html_import_styles.decode_complete_character_references(content)
 
         # Opt-in review mode: when doc.agent_edit_review_mode is record/wait, EditReviewSession records
