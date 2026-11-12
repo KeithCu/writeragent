@@ -43,24 +43,33 @@ def test_apply_character_properties_italic_uses_font_slant_italic(ctx, doc):
 
 
 @native_test
-@with_native_doc("calc")
+@with_native_doc("calc", reuse=False)
 def test_calc_list_active_page_and_remove_uno(ctx: Any, doc: Any) -> None:
     controller = doc.getCurrentController()
     sheet = controller.getActiveSheet()
     page = sheet.getDrawPage()
+    count_before = page.getCount()
     shape = doc.createInstance(DRAW_GRAPHIC_SERVICE)
     page.add(shape)
-    shape.setName("Logo")
+    try:
+        shape.setName("Logo")
 
-    items = list_graphic_objects(doc)
-    assert len(items) == 1
-    assert items[0][0] == "Logo"
-    assert getattr(items[0], "sheet_index", None) == 0
-    assert getattr(items[0], "sheet_name", None) == sheet.getName()
-    assert get_active_draw_page(doc) == page
+        items = list_graphic_objects(doc)
+        assert any(
+            item[0] == "Logo"
+            and getattr(item, "sheet_index", None) == 0
+            and getattr(item, "sheet_name", None) == sheet.getName()
+            for item in items
+        )
+        assert get_active_draw_page(doc) == page
 
-    assert remove_graphic_from_draw_pages(doc, page.getByIndex(0)) is True
-    assert page.getCount() == 0
+        # page.getByIndex returns a fresh wrapper distinct in Python identity from shape;
+        # remove_graphic_from_draw_pages matches it via UNO identity (PyUNO_cmp).
+        assert remove_graphic_from_draw_pages(doc, page.getByIndex(page.getCount() - 1)) is True
+        assert page.getCount() == count_before
+    finally:
+        if page.getCount() > count_before:
+            page.remove(shape)
 
 
 @native_test
