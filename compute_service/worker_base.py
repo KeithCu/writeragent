@@ -37,18 +37,12 @@ from plugin.framework.process_worker import BaseProcessWorker
 from plugin.framework.worker_pool import run_in_background
 from plugin.framework.ipc import DEFAULT_MAX_PAYLOAD_BYTES
 
-__all__ = ["BaseProcessPool", "BaseProcessWorker", "PoolSingleton", "bind_pool_singleton", "resolve_override"]
+__all__ = ["BaseProcessPool", "BaseProcessWorker", "PoolSingleton", "bind_pool_singleton"]
 
 log = logging.getLogger("compute_service.worker")
 
 _PoolT = TypeVar("_PoolT", bound="BaseProcessPool")
 _SettingsT = TypeVar("_SettingsT")
-_ValT = TypeVar("_ValT")
-
-
-def resolve_override(override: _ValT | None, default: _ValT) -> _ValT:
-    """Return *override* if not None, else *default*."""
-    return default if override is None else override
 
 
 class PoolSingleton(Generic[_PoolT]):

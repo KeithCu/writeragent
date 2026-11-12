@@ -45,7 +45,7 @@ def test_editor_save_timeout_clears_the_token_and_reports():
         sent.append(message)
 
     pe.send = _send  # type: ignore[method-assign]
-    with patch("plugin.scripting.editor_host.configured_python_exec_timeout", return_value=30):
+    with patch("plugin.scripting.editor_host.python_exec_timeout", return_value=30):
         pe._dispatch_incoming({"type": "save", "code": "x = 1", "session_id": "s1"})
     assert pe._save_token is None
     assert state.pending_load is None
@@ -68,7 +68,7 @@ def test_editor_script_picker_uses_marshal_timeout():
         sent.append(message)
 
     pe.send = _send  # type: ignore[method-assign]
-    with patch("plugin.scripting.editor_host.configured_python_exec_timeout", return_value=30):
+    with patch("plugin.scripting.editor_host.python_exec_timeout", return_value=30):
         pe._dispatch_incoming({"type": "request_scripts"})
     assert pe.executor.call.call_args.kwargs["timeout"] == 35.0
     assert pe.executor.call.call_args.kwargs["bound_scope"] is None

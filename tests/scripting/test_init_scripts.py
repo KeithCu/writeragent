@@ -320,6 +320,7 @@ def test_build_python_eval_init_kwargs():
 
 
 def test_run_code_forwards_init_kwargs():
+    from plugin.scripting.session_key import SessionKey
     from plugin.scripting.venv_worker import run_code_in_user_venv
 
     props = _UserDefinedProperties()
@@ -333,7 +334,10 @@ def test_run_code_forwards_init_kwargs():
         mock_mgr.return_value = (manager, None)
         manager.execute.return_value = {"status": "ok", "result": 1}
         run_code_in_user_venv("result = 1", init_script="x = 1", init_session_id="calc:k:init", init_script_hash="abc")
-        assert manager.execute.call_args.kwargs.get("init_script") == "x = 1"
+        req = manager.execute.call_args.args[0]
+        assert req.init_script == "x = 1"
+        assert req.init_session == SessionKey.from_host("calc:k:init")
+        assert req.init_script_hash == "abc"
 
 
 def test_workbook_session_id_recursion_off_main_thread(monkeypatch: pytest.MonkeyPatch) -> None:

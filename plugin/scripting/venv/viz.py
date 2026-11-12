@@ -19,6 +19,7 @@ from plugin.scripting.venv.coerce import (
 )
 from plugin.scripting.helper_registry import helper
 from plugin.scripting.venv.results import error_result as _error_result
+from plugin.scripting.venv.to_wire import figure_to_image_payload
 from plugin.scripting.venv.trusted_dispatch import (
     missing_package_error as _missing_package_error,
     run_domain,
@@ -39,12 +40,10 @@ _MAX_SVG_BYTES = 8 * 1024 * 1024
 def _figure_payload(fig: Any) -> dict[str, Any]:
     # Render only. _open_figure closes the figure, including when savefig raises,
     # so the warm worker does not leak pyplot state into the next cell.
-    from plugin.scripting.venv.venv_sandbox import _figure_to_image_payload
-
-    payload = _figure_to_image_payload(fig)
+    payload = figure_to_image_payload(fig)
     if payload["format"] == "svg" and len(payload["data"]) > _MAX_SVG_BYTES:
         # A dense SVG can exceed the IPC frame cap.
-        payload = _figure_to_image_payload(fig, fmt="png")
+        payload = figure_to_image_payload(fig, fmt="png")
     return payload
 
 

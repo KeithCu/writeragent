@@ -47,7 +47,7 @@ from plugin.framework.queue_executor import MainThread, main
 from plugin.framework.thread_guard import background, main_thread_only
 from plugin.framework.uno_context import get_desktop, product_display_name, wait_while_pumping
 from plugin.framework.worker_pool import BackgroundHandle, run_in_background
-from plugin.scripting.config_limits import VENV_IPC_WRITE_TIMEOUT_SEC, configured_python_exec_timeout
+from plugin.scripting.config_limits import VENV_IPC_WRITE_TIMEOUT_SEC, python_exec_timeout
 from plugin.scripting.editor_errors import (
     exception_traceback,
     failure_detail,
@@ -740,8 +740,8 @@ class PersistentEditor:
                 log.warning("editor_host: ignored incoming message from old process")
 
     def _marshal_timeout(self) -> float:
-        """UI wait for a save/close. Matches configured_python_exec_timeout plus slack so long script budgets are not cut off at a fixed 60s."""
-        return float(configured_python_exec_timeout()) + 5.0
+        """UI wait for a save/close. Matches python_exec_timeout plus slack so long script budgets are not cut off at a fixed 60s."""
+        return float(python_exec_timeout()) + 5.0
 
     def _run_on_main(self, fn: Callable[[], None], label: str) -> Exception | None:
         """Queue *fn* on the UI thread. Return the marshal failure, else None."""

@@ -22,7 +22,7 @@ from __future__ import annotations
 from typing import Any
 
 from plugin.scripting.calc_range import ensure_rectangular_2d, pack_calc_range_envelope
-from plugin.scripting.payload_codec import ForceBinary, host_pack_data, PAYLOAD_MULTI_DATA, wire_cell_count
+from plugin.scripting.payload_codec import ForceBinary, host_pack_data, pack_multi_data_envelope, wire_cell_count
 
 
 from plugin.framework.deal_shim import deal
@@ -154,7 +154,7 @@ def pack_calc_multi_data_for_wire(py_data: list[list[list[Any]]], *, force: Forc
     if len(addrs) < len(py_data):
         addrs.extend([None] * (len(py_data) - len(addrs)))
     items = [pack_calc_data_for_wire(grid, force=force, address=addr) for grid, addr in zip(py_data, addrs)]
-    return {"__wa_payload__": PAYLOAD_MULTI_DATA, "items": items}
+    return pack_multi_data_envelope(items)
 
 
 def pack_calc_data_for_wire(py_data: list[list[Any]] | list[Any] | None, *, force: ForceBinary = "auto", address: str | None = None) -> Any:

@@ -13,9 +13,9 @@ if TYPE_CHECKING:
 
 from plugin.scripting.config_limits import (
     DOCLING_WORKER_TIMEOUT_SEC,
-    configured_python_exec_timeout,
     long_trusted_worker_timeout_sec,
     LANGUAGETOOL_WORKER_TIMEOUT_SEC,
+    python_exec_timeout,
     VALE_WORKER_TIMEOUT_SEC,
     VISION_WORKER_TIMEOUT_SEC,
 )
@@ -53,7 +53,7 @@ def _run_spec_domain(
     timeout_sec = (
         long_trusted_worker_timeout_sec()
         if row.long_timeout
-        else configured_python_exec_timeout()
+        else python_exec_timeout()
     )
     helper, params = _split_spec(spec)
     return run_trusted_worker_action(
@@ -197,7 +197,7 @@ def run_folder_sql(
         ctx,
         domain="sql",
         helper="query_folder_sql",
-        timeout_sec=configured_python_exec_timeout(),
+        timeout_sec=python_exec_timeout(),
         error_code="DUCKDB_SQL_ERROR",
         error_label="DuckDB SQL",
         additional_data={

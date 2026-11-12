@@ -196,9 +196,12 @@ def test_run_venv_self_check_with_progress_unexpected_version_is_displayed():
 
 
 def test_run_venv_self_check_with_progress_package_worker_error_continues():
+    from plugin.scripting.venv_worker import ExecRequest
+
     mock_mgr = MagicMock()
 
-    def _execute(script, timeout_sec=None):
+    def _execute(req: ExecRequest):
+        script = req.code or ""
         if "platform" in script:
             return {"status": "ok", "result": {"v": "3.12.0", "arch": "x86_64"}}
         if "import pandas\n" in script:
@@ -949,7 +952,10 @@ def test_duckdb_probe_script_is_not_sandboxed():
 
 
 def test_run_venv_self_check_with_progress_reports_duckdb():
-    def fake_execute(script, timeout_sec=10):
+    from plugin.scripting.venv_worker import ExecRequest
+
+    def fake_execute(req: ExecRequest):
+        script = req.code or ""
         if "platform" in script:
             return {"status": "ok", "result": {"v": "3.12.0", "arch": "x86_64"}}
         if "pint" in script:

@@ -230,7 +230,7 @@ def run_egress(
             ("child_pack", lambda _: child_pack_result(kind_pack(), min_cells=min_cells, force=pack_force)),
             ("child_dump", lambda res: pickle.dumps({"id": "b", "result": res}, protocol=5)),
             ("host_load", lambda b: pickle.loads(b)["result"]),
-            ("host_mat", lambda res: host_unpack_data(res, as_nested_list=True)),
+            ("host_mat", lambda res: host_unpack_data(res)),
         ]
     elif wire_format == "json+sg":
         def pack_b64(r: Any) -> dict[str, Any]:
@@ -249,7 +249,7 @@ def run_egress(
             ("child_pack", lambda _: child_pack_result(kind_pack(), min_cells=min_cells, force="never")),
             ("child_dump", lambda res: json.dumps({"id": "b", "result": res}, default=str) + "\n"),
             ("host_load", lambda line: json.loads(line)["result"]),
-            ("host_mat", lambda res: host_unpack_data(res, as_nested_list=True)),
+            ("host_mat", lambda res: host_unpack_data(res)),
         ]
 
     times, _last_res = _bench_parts(parts, warmup=warmup, iters=iters)

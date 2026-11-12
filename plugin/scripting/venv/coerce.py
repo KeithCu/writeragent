@@ -20,8 +20,9 @@ from typing import Any, cast, overload
 
 from plugin.framework.deal_shim import deal
 from plugin.scripting.calc_range import CalcRange, ensure_rectangular_2d
+from plugin.scripting.venv.results import error_result
 
-_LO_ERROR_TOKENS = frozenset(
+LO_ERROR_TOKENS = frozenset(
     {
         "#N/A",
         "#DIV/0!",
@@ -77,7 +78,7 @@ def is_missing_value(value: Any) -> bool:
     if isinstance(value, str):
         stripped = value.strip()
         # Case-fold so lower/mixed case error tokens like "#n/a" and "#div/0!" match.
-        return stripped == "" or stripped.upper() in _LO_ERROR_TOKENS
+        return stripped == "" or stripped.upper() in LO_ERROR_TOKENS
     if isinstance(value, float):
         return math.isnan(value)
     try:
@@ -122,7 +123,7 @@ def _signed_magnitude(sign_a: str | None, sign_b: str | None, digits: str) -> fl
 
 def _parse_numeric_string(text: str) -> float | None:
     stripped = text.strip()
-    if not stripped or stripped in _LO_ERROR_TOKENS:
+    if not stripped or stripped in LO_ERROR_TOKENS:
         return None
     pct = _PERCENT_RE.match(stripped)
     if pct:
@@ -765,16 +766,12 @@ def resolve_columns(
             matched.append(col)
 
     if missing:
-        from plugin.scripting.venv.results import error_result
-
         return error_result("UNKNOWN_COLUMN", f"Unknown columns: {', '.join(missing)}", helper=helper)
 
     if numeric:
         num_set = set(df.select_dtypes(include="number").columns)
         bad = [str(c) for c in matched if c not in num_set]
         if bad:
-            from plugin.scripting.venv.results import error_result
-
             return error_result("NON_NUMERIC_COLUMN", f"Non-numeric columns: {', '.join(bad)}", helper=helper)
 
     return matched
