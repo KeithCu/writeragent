@@ -190,6 +190,7 @@ def get_sub_agent_instructions(mode_instructions: str, *, tool_names: Sequence[s
     from plugin.chatbot.skills import format_humanizer_guidance_prompt_block
     from plugin.framework.prompts import (
         APPLY_DOCUMENT_TARGET_RULES,
+        HTML_MATH_AND_LINK_EXAMPLES,
         SUB_AGENT_HTML_CONTENT_RULES,
         get_chat_response_format_instructions,
     )
@@ -198,6 +199,8 @@ def get_sub_agent_instructions(mode_instructions: str, *, tool_names: Sequence[s
     tool_set = set(tool_names)
     if tool_set & {"apply_document_content", "write_document_section", "save_design_spec"}:
         parts.append(SUB_AGENT_HTML_CONTENT_RULES.strip())
+        # Sub-agents have no get_guidance, so the examples ride along.
+        parts.append(HTML_MATH_AND_LINK_EXAMPLES.strip())
     if "apply_document_content" in tool_set:
         parts.append(APPLY_DOCUMENT_TARGET_RULES.strip())
     parts.append(get_chat_response_format_instructions())

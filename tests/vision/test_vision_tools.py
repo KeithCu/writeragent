@@ -319,10 +319,11 @@ def test_delegate_vision_requires_document_lock_when_sub_agent():
 
 
 @patch("plugin.vision.vision_availability.vision_venv_configured", return_value=True)
-def test_get_vision_core_directive_when_available(_mock_avail, writer_doc):
+def test_get_vision_core_directive_calc_when_available(_mock_avail, calc_doc):
     from plugin.vision.vision_availability import get_vision_core_directive
 
-    text = get_vision_core_directive(writer_doc, MagicMock())
+    text = get_vision_core_directive(calc_doc, MagicMock())
+    assert 'delegate_to_specialized_calc_toolset(domain="vision"' in text
     assert "domain=\"vision\"" in text
     assert "text and structure" in text
     assert "high-quality" in text
