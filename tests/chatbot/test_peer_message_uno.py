@@ -4,13 +4,12 @@ from __future__ import annotations
 
 import sys
 
-from plugin.doc.live_panels import register_live_panel, reset_live_panels
+from plugin.doc.live_panels import register_live_panel, unregister_live_panel
+import plugin.doc.peer_message as pm
 from plugin.doc.peer_message import (
     SendPeerWork,
     drop_listener_queue,
     kick_pending_peer_starts,
-    listener_queue_len,
-    reset_peer_queues,
     resolve_peer_target,
 )
 from plugin.framework.async_drain_guard import drain_owner_scope, reset_sentry_state
@@ -28,15 +27,22 @@ from plugin.tests.testing_utils import (
 class _Listener:
     def __init__(self):
         self.session = _Session()
-        self.appended = []
+        self.injected = []
         self.started = []
         self.sidebar_state = _SendState()
-        self._active_q = None
-        self._send_cancellation = None
-        self.chat_mode_selector = None
 
-    def _append_response(self, text, role="assistant"):
-        self.appended.append((text, role))
+    def is_busy(self) -> bool:
+        return bool(self.sidebar_state.send.is_busy)
+
+    def in_chat_mode(self) -> bool:
+        return True
+
+    def inject_user_turn(self, text: str) -> bool:
+        if self.session is None:
+            return False
+        self.session.add_user_message(text)
+        self.injected.append(text)
+        return True
 
     def start_extracted_peer_send(self, query_text, *, already_appended):
         self.started.append((query_text, already_appended))
@@ -210,8 +216,6 @@ def _tool_ctx(ctx, doc):
 
 @native_test
 def test_peer_missing_deck_is_clear_error(ctx):
-    reset_peer_queues()
-    reset_live_panels()
     reset_sentry_state()
     writer = None
     other = None
@@ -227,17 +231,15 @@ def test_peer_missing_deck_is_clear_error(ctx):
     finally:
         _close(other)
         _close(writer)
-        reset_peer_queues()
-        reset_live_panels()
 
 
 @native_test
 def test_peer_inject_defers_until_drain_idle(ctx):
-    reset_peer_queues()
-    reset_live_panels()
     reset_sentry_state()
     writer = None
     other = None
+    panel = None
+    other_uid = ""
     listener = _Listener()
     try:
         writer = _load(ctx, "private:factory/swriter")
@@ -258,20 +260,20 @@ def test_peer_inject_defers_until_drain_idle(ctx):
         assert listener.started[0][1] is True
     finally:
         drop_listener_queue(listener)
+        if other_uid and panel is not None:
+            unregister_live_panel(other_uid, panel)
         _close(other)
         _close(writer)
-        reset_peer_queues()
-        reset_live_panels()
         reset_sentry_state()
 
 
 @native_test
 def test_peer_busy_queues_then_starts(ctx):
-    reset_peer_queues()
-    reset_live_panels()
     reset_sentry_state()
     writer = None
     other = None
+    panel = None
+    other_uid = ""
     listener = _Listener()
     try:
         writer = _load(ctx, "private:factory/swriter")
@@ -284,16 +286,16 @@ def test_peer_busy_queues_then_starts(ctx):
         result = tool.execute(_tool_ctx(ctx, writer), document_url=other_uid, message="Queued")
         assert result["status"] == "ok"
         assert listener.started == []
-        assert listener_queue_len(listener) == 1
+        assert pm.peer_queue.pending(listener) == 1
         listener.sidebar_state.send.is_busy = False
         kick_pending_peer_starts()
         assert listener.started
     finally:
         drop_listener_queue(listener)
+        if other_uid and panel is not None:
+            unregister_live_panel(other_uid, panel)
         _close(other)
         _close(writer)
-        reset_peer_queues()
-        reset_live_panels()
         reset_sentry_state()
 
 
@@ -303,8 +305,6 @@ def test_peer_unique_name_and_self_reject(ctx):
 
     import uno
 
-    reset_peer_queues()
-    reset_live_panels()
     writer = None
     calc = None
     try:
@@ -331,8 +331,6 @@ def test_peer_unique_name_and_self_reject(ctx):
     finally:
         _close(calc)
         _close(writer)
-        reset_peer_queues()
-        reset_live_panels()
 
 
 # Windows: skip all Writer/Calc close_doc in this file (34544965319).
@@ -346,11 +344,11 @@ def test_peer_impress_resolves_as_v1_peer(ctx):
     """Writer can resolve a live Impress model and inject a queued turn."""
     from plugin.doc.peer_message import v1_peer_type_label
 
-    reset_peer_queues()
-    reset_live_panels()
     reset_sentry_state()
     writer = None
     impress = None
+    panel = None
+    impress_uid = ""
     listener = _Listener()
     try:
         writer = _load(ctx, "private:factory/swriter")
@@ -381,9 +379,9 @@ def test_peer_impress_resolves_as_v1_peer(ctx):
         assert listener.started[0][1] is True
     finally:
         drop_listener_queue(listener)
+        if impress_uid and panel is not None:
+            unregister_live_panel(impress_uid, panel)
         writer, impress = _teardown_peer_pair(writer, impress, ctx)
-        reset_peer_queues()
-        reset_live_panels()
         reset_sentry_state()
 
 
@@ -393,7 +391,6 @@ def test_peer_catalog_labels_impress_explicitly(ctx):
     from plugin.doc.document_research import get_open_documents
     from plugin.doc.peer_message import list_v1_peers
 
-    reset_live_panels()
     writer = None
     impress = None
     try:

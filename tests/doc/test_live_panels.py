@@ -1,10 +1,12 @@
 """Unit tests for the production live-panel uid map."""
 
+import pytest
+
+import plugin.doc.live_panels as live_panels
 from plugin.doc.live_panels import (
     get_live_panel,
     iter_live_panel_uids,
     register_live_panel,
-    reset_live_panels,
     unregister_live_panel,
 )
 
@@ -14,12 +16,9 @@ class _Panel:
         self.name = name
 
 
-def setup_function():
-    reset_live_panels()
-
-
-def teardown_function():
-    reset_live_panels()
+@pytest.fixture(autouse=True)
+def _clean_panels(monkeypatch):
+    monkeypatch.setattr(live_panels, "_PANELS", {})
 
 
 def test_register_and_get():

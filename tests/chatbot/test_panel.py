@@ -313,6 +313,57 @@ class TestSendDispose:
         listener.status_control.setText.assert_called_once_with("Starting...")
         listener.audio_recorder.start_recording.assert_not_called()
 
+    def test_is_busy_sees_fsm_turn_and_scope(self) -> None:
+        from plugin.chatbot.tool_loop_actions import TurnController
+
+        listener = _make_send_listener()
+        assert listener.is_busy() is False
+
+        listener._send_cancellation = SendCancellation()
+        assert listener.is_busy() is True
+        listener._send_cancellation = None
+        assert listener.is_busy() is False
+
+        turn = TurnController(listener.session)
+        turn.queue = MagicMock()
+        turn.alive = True
+        listener._turn = turn
+        assert listener.is_busy() is True
+        turn.queue = None
+        assert listener.is_busy() is False
+
+    def test_in_chat_mode_true_with_no_selector(self) -> None:
+        from plugin.chatbot.chat_sidebar_mode import CHAT_MODE_LIBRARIAN, _modes_for
+
+        listener = _make_send_listener()
+        listener.chat_mode_selector = None
+        assert listener.in_chat_mode() is True
+
+        modes = _modes_for(listener.sidebar_mode_flags)
+        lib_idx = modes.index(CHAT_MODE_LIBRARIAN)
+        selector = MagicMock()
+        selector.getSelectedItemPos.return_value = lib_idx
+        listener.chat_mode_selector = selector
+        assert listener.in_chat_mode() is False
+
+    def test_inject_user_turn_writes_user_row_and_repaints(self) -> None:
+        from plugin.chatbot.chat_session import ChatSession
+
+        listener = _make_send_listener()
+        session = ChatSession(session_id="test_peer_session")
+        listener.session = session
+        listener.render_session_messages = MagicMock()
+
+        ok = listener.inject_user_turn("hello peer")
+        assert ok is True
+        assert session.messages[-1] == {"role": "user", "content": "hello peer"}
+        listener.render_session_messages.assert_called_once_with(session)
+
+        listener.session = None
+        listener.render_session_messages.reset_mock()
+        assert listener.inject_user_turn("another message") is False
+        listener.render_session_messages.assert_not_called()
+
     def test_disposing_unsubscribes_mcp_on_the_services_bus(self) -> None:
         from plugin.framework.event_bus import EventBus
 
