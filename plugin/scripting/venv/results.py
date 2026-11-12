@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import traceback
 from typing import Any
 
 
@@ -28,7 +29,5 @@ def error_result(
     if stdout is not None:
         out["stdout"] = stdout
     if with_traceback:
-        import traceback
-
         out["traceback"] = traceback.format_exc()
     return out

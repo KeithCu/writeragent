@@ -265,12 +265,12 @@ def _file_url_to_system_path_without_pyuno(url: str) -> str:
     """
     from urllib.parse import urlparse
 
-    from plugin.scripting.sandbox import _path_from_file_url
+    from plugin.scripting.sandbox import path_from_file_url
 
     host = urlparse(url).netloc.lower()
     if host not in ("", "localhost") and os.name != "nt":
         raise RuntimeError("Couldn't convert %s to a system path" % url)
-    path = _path_from_file_url(url)
+    path = path_from_file_url(url)
     if path is None:
         raise RuntimeError("Couldn't convert %s to a system path" % url)
     return path

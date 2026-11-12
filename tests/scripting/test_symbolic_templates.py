@@ -15,8 +15,8 @@ def test_get_math_script_templates_include_run_call():
     sym_specs = specs("symbolic")
     expected_keys = {"differentiate", "integrate", "solve_equation", "symbolic_simplify"}
     assert set(templates) == expected_keys
-    assert {s.name for s in sym_specs if s.shipped_template} == expected_keys
-    assert {s.name for s in sym_specs if s.description and s.shipped_template} == expected_keys
+    assert {s.name for s in sym_specs if s.ship} == expected_keys
+    assert {s.name for s in sym_specs if s.description and s.ship} == expected_keys
     assert "latex_to_math_object" not in templates
 
     assert "solve_equation" in templates
