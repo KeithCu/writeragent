@@ -6,7 +6,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from dataclasses import dataclass
 import logging
 from typing import Any
@@ -261,8 +260,8 @@ def _duplicate_date_flags(coerced: CoerceResult) -> list[str]:
     return [f"Aggregated {int(collapsed)} duplicate date rows by mean"]
 
 
-def _future_index(series: Any, calendar: Calendar, periods: int) -> tuple[Any, str, bool]:
-    """Dates after the last observation, frequency label, and irregular flag."""
+def _future_index(series: Any, calendar: Calendar, periods: int) -> Any:
+    """Dates after the last observation."""
     import pandas as pd
 
     last_date = series.index[-1]
@@ -270,19 +269,17 @@ def _future_index(series: Any, calendar: Calendar, periods: int) -> tuple[Any, s
         future = pd.DatetimeIndex([last_date + calendar.step * k for k in range(1, periods + 1)])
     else:
         future = pd.date_range(start=last_date + calendar.step, periods=periods, freq=calendar.step)
-    return future, calendar.label, calendar.irregular
+    return future
 
 
-def _resolve_period(series: Any, period: Any, helper: str, calendar: Calendar | None = None) -> int:
+def _resolve_period(series: Any, period: Any, helper: str) -> int:
     coerced_period = coerce_optional_int(period, name="period")
 
     if coerced_period is not None and coerced_period <= 1:
         raise HelperError("INVALID_PARAM", "period must be an integer greater than 1")
 
-    if calendar is None:
-        calendar = Calendar.compute(series)
-
-    season = coerced_period if coerced_period is not None else calendar.season
+    calendar_season = Calendar.compute(series).season
+    season = coerced_period if coerced_period is not None else calendar_season
     if season is None or season < 2:
         raise HelperError(
             "INSUFFICIENT_DATA",
@@ -332,20 +329,39 @@ def _forecast_moving_average(series: Any, *, periods: int, future_dates: Any, fr
     return forecast_df, metrics
 
 
-def _fallback_ma(series: Any, periods: int, future_dates: Any, freq_label: str, reason: str | None) -> tuple[Any, dict[str, Any], list[str]]:
-    """Moving average plus its flags.
+def _fit_model(
+    name: str,
+    series: Any,
+    *,
+    periods: int,
+    season: int | None,
+    future_dates: Any,
+    freq_label: str,
+) -> tuple[Any, dict[str, Any], list[str]]:
+    """Fit one model by name; return its forecast table, metrics and the model's own flags.
 
-    `reason` is appended before the fixed interval sentence. None means there
-    is no reason (explicit moving_average with no seasonal_periods). The
-    Holt-Winters fallback must pass the Holt-Winters exception; the inner
-    ARIMA exception is discarded on purpose.
+    name is one of holt_winters, arima, moving_average. The caller adds any
+    fallback flag; this function only fits.
     """
-    forecast_df, metrics = _forecast_moving_average(series, periods=periods, future_dates=future_dates, freq_label=freq_label)
-    ma_flags: list[str] = []
-    if reason is not None:
-        ma_flags.append(reason)
-    ma_flags.append("moving_average has no prediction interval")
-    return forecast_df, metrics, ma_flags
+    if name == "holt_winters":
+        # The plan lists holt_winters only after a season has passed the cycle check.
+        assert season is not None
+        return _forecast_holt_winters(
+            series,
+            periods=periods,
+            seasonal_periods=season,
+            future_dates=future_dates,
+            freq_label=freq_label,
+        )
+    if name == "arima":
+        forecast_df, metrics = _forecast_arima(
+            series, periods=periods, future_dates=future_dates, freq_label=freq_label
+        )
+        return forecast_df, metrics, []
+    forecast_df, metrics = _forecast_moving_average(
+        series, periods=periods, future_dates=future_dates, freq_label=freq_label
+    )
+    return forecast_df, metrics, ["moving_average has no prediction interval"]
 
 
 # HoltWintersResults has forecast/predict/simulate and no get_prediction.
@@ -555,7 +571,7 @@ def forecast_time_series(
     # Build the horizon once here so every model returns a parameter error.
     calendar = Calendar.compute(series)
     try:
-        future_dates, freq_label, irregular_dates = _future_index(series, calendar, periods_clamped)
+        future_dates = _future_index(series, calendar, periods_clamped)
     except (ValueError, OverflowError):
         return error_result(
             "INVALID_PARAM",
@@ -563,18 +579,20 @@ def forecast_time_series(
             helper=helper,
         )
 
-    candidates: list[tuple[str, Callable[[], tuple[Any, dict[str, Any], list[str]]]]] = []
+    plan: list[str]
+    season: int | None = None
 
     if model_name == "moving_average":
-        reason = "seasonal_periods does not apply to moving_average; ignored" if seasonal_periods_val is not None else None
-        candidates = [("moving_average", lambda: _fallback_ma(series, periods_clamped, future_dates, freq_label, reason))]
+        plan = ["moving_average"]
+        if seasonal_periods_val is not None:
+            flags.append("seasonal_periods does not apply to moving_average; ignored")
     elif _require_statsmodels() is None:
-        if model_name == "auto":
-            candidates = [("moving_average", lambda: _fallback_ma(series, periods_clamped, future_dates, freq_label, "statsmodels missing; used moving_average fallback"))]
-        else:
+        if model_name != "auto":
             return missing_package_error(helper, "statsmodels")
+        plan = ["moving_average"]
+        flags.append("statsmodels missing; used moving_average fallback")
     elif model_name == "holt_winters":
-        season = seasonal_periods_val if (seasonal_periods_val is not None and seasonal_periods_val > 1) else calendar.season
+        season = seasonal_periods_val if seasonal_periods_val is not None else calendar.season
         if season is None:
             return error_result(
                 "INSUFFICIENT_DATA",
@@ -584,78 +602,57 @@ def forecast_time_series(
         shortfall = _cycle_shortfall(series, season)
         if shortfall is not None:
             return error_result("INSUFFICIENT_DATA", shortfall, helper=helper)
-        hw_season = season
-        candidates = [("holt_winters", lambda: _forecast_holt_winters(series, periods=periods_clamped, seasonal_periods=hw_season, future_dates=future_dates, freq_label=freq_label))]
+        plan = ["holt_winters"]
     elif model_name == "arima":
         if seasonal_periods_val is not None:
             flags.append("seasonal_periods does not apply to non-seasonal ARIMA(1,1,1); ignored")
-        candidates = [("arima", lambda: (*_forecast_arima(series, periods=periods_clamped, future_dates=future_dates, freq_label=freq_label), []))]
+        plan = ["arima"]
     else:
         # model_name == "auto"
-        if seasonal_periods_val is not None:
-            season = seasonal_periods_val
-            has_enough = len(series) >= season * _MIN_DECOMPOSE_CYCLES
-            if not has_enough:
-                need = seasonal_periods_val * _MIN_DECOMPOSE_CYCLES
+        if seasonal_periods_val is None:
+            season = calendar.season
+            if season is None:
+                flags.append(calendar.season_reason or "")
+        else:
+            need = seasonal_periods_val * _MIN_DECOMPOSE_CYCLES
+            if len(series) < need:
                 flags.append(
                     f"seasonal_periods={seasonal_periods_val} needs at least {need} observations; got {len(series)}; used trend-only"
                 )
-        else:
-            season = calendar.season
-            has_enough = season is not None
-            if not has_enough:
-                flags.append(calendar.season_reason or "")
+            else:
+                season = seasonal_periods_val
+        plan = ["arima", "moving_average"] if season is None else ["holt_winters", "arima", "moving_average"]
 
-        if has_enough:
-            assert season is not None
-            hw_season = season
-
-            def fit_hw() -> tuple[Any, dict[str, Any], list[str]]:
-                return _forecast_holt_winters(series, periods=periods_clamped, seasonal_periods=hw_season, future_dates=future_dates, freq_label=freq_label)
-
-            def fit_arima_after_hw() -> tuple[Any, dict[str, Any], list[str]]:
-                df_res, metrics_res = _forecast_arima(series, periods=periods_clamped, future_dates=future_dates, freq_label=freq_label)
-                return df_res, metrics_res, [f"primary model failed ({primary_exc}); used arima"]
-
-            def fit_ma_after_hw() -> tuple[Any, dict[str, Any], list[str]]:
-                return _fallback_ma(series, periods_clamped, future_dates, freq_label, f"statsmodels forecast failed ({primary_exc}); used moving_average")
-
-            candidates = [
-                ("holt_winters", fit_hw),
-                ("arima", fit_arima_after_hw),
-                ("moving_average", fit_ma_after_hw),
-            ]
-        else:
-            def fit_arima_clean() -> tuple[Any, dict[str, Any], list[str]]:
-                df_res, metrics_res = _forecast_arima(series, periods=periods_clamped, future_dates=future_dates, freq_label=freq_label)
-                return df_res, metrics_res, []
-
-            def fit_ma_after_arima() -> tuple[Any, dict[str, Any], list[str]]:
-                return _fallback_ma(series, periods_clamped, future_dates, freq_label, f"statsmodels forecast failed ({primary_exc}); used moving_average")
-
-            candidates = [
-                ("arima", fit_arima_clean),
-                ("moving_average", fit_ma_after_arima),
-            ]
-
-    forecast_df: Any = None
-    metrics: dict[str, Any] = {}
-    primary_exc: Exception | None = None
+    # auto tries the plan in order. A fallback flag names the exception of the
+    # first model that failed: when holt_winters and then arima both fail, the
+    # moving_average flag reports why holt_winters failed. FORECAST_FAILED, when
+    # every model fails, carries the last exception.
+    first_exc: Exception | None = None
     last_exc: Exception | None = None
-
-    for _c_name, fit_fn in candidates:
+    for name in plan:
         try:
-            forecast_df, metrics, model_flags = fit_fn()
-            flags.extend(model_flags)
-            break
+            forecast_df, metrics, model_flags = _fit_model(
+                name,
+                series,
+                periods=periods_clamped,
+                season=season,
+                future_dates=future_dates,
+                freq_label=calendar.label,
+            )
         except Exception as exc:
+            if first_exc is None:
+                first_exc = exc
             last_exc = exc
-            if primary_exc is None:
-                primary_exc = exc
+            continue
+        if first_exc is not None:
+            lead = "primary model failed" if name == "arima" else "statsmodels forecast failed"
+            flags.append(f"{lead} ({first_exc}); used {name}")
+        flags.extend(model_flags)
+        break
     else:
         return error_result("FORECAST_FAILED", str(last_exc), helper=helper)
 
-    if irregular_dates:
+    if calendar.irregular:
         flags.append("Dates are irregular, so the forecast assumes equal spacing between observations.")
     flags.extend(_dropped_row_flags(coerced))
 
