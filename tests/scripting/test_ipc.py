@@ -17,6 +17,8 @@ import subprocess
 import sys
 import threading
 import time
+import types
+from typing import Callable
 from unittest.mock import MagicMock
 
 import pytest
@@ -38,6 +40,26 @@ from plugin.framework.ipc import (
     write_packed_frame_with_timeout,
     write_pickle_frame,
 )
+
+
+def _patch_ipc_clock(
+    monkeypatch: pytest.MonkeyPatch,
+    monotonic: Callable[[], float],
+    sleep: Callable[[float], object] | None = None,
+) -> list[float]:
+    """Swap the module-level time name in ipc to keep clock fakes private to ipc.
+
+    ipc reaches the clock through its own module-level time name, so swapping
+    that name keeps the fake private to ipc. Patching time.monotonic on the
+    shared time module would also feed every other thread in the pytest worker;
+    idle reapers left by earlier tests read the clock about once a second, and
+    one such read steals a value from a scripted clock.
+    """
+    slept: list[float] = []
+    sleep_fn = slept.append if sleep is None else sleep
+    fake_time = types.SimpleNamespace(monotonic=monotonic, sleep=sleep_fn)
+    monkeypatch.setattr(plugin.framework.ipc, "time", fake_time)
+    return slept
 
 
 def test_pickle_frame_roundtrip_with_bytes():
@@ -559,7 +581,7 @@ def test_win32_read_raising_cancel_keeps_reading(monkeypatch):
     stream.fileno.return_value = 3
     stream.read.side_effect = [struct.pack("!I", 4), b"abcd"]
     monkeypatch.setattr(ipc, "_peek_pipe_bytes_available", lambda fd: 4)
-    monkeypatch.setattr(ipc.time, "monotonic", lambda: 0.0)
+    _patch_ipc_clock(monkeypatch, lambda: 0.0)
     seen: list[BaseException] = []
 
     class _RaisingCancel(SendCancellation):
@@ -618,21 +640,63 @@ def test_read_frame_payload_raising_cancel_select_path_returns_frame():
 
 
 def test_win32_pickle_read_timeout_clamps_when_peek_crosses_deadline(monkeypatch):
-    """PeekNamedPipe can finish after the deadline; sleep(negative) is ValueError."""
+    """Peek returns 1 ms before the deadline, so the clamp sleeps only the remainder.
+
+    Sleeping the full 1 ms slice would overshoot the deadline, while an un-clamped
+    negative remainder would raise ValueError. The next poll check raises TimeoutExpired.
+    """
     from plugin.framework import ipc
 
     monkeypatch.setattr(sys, "platform", "win32")
-    slept: list[float] = []
-    monkeypatch.setattr(ipc.time, "sleep", lambda sec: slept.append(sec))
     times = iter([0.0, 0.009, 0.011, 0.011])
-    monkeypatch.setattr(ipc.time, "monotonic", lambda: next(times))
+    slept = _patch_ipc_clock(monkeypatch, lambda: next(times))
     monkeypatch.setattr(ipc, "_peek_pipe_bytes_available", lambda fd: 0)
     stream = MagicMock()
     stream.fileno.return_value = 3
     with pytest.raises(subprocess.TimeoutExpired):
         ipc.read_frame_payload(stream, 0.01, deadline=0.01, cmd="IPC frame")
     assert slept == [0.001]
+    assert all(sec >= 0.0 for sec in slept)
     stream.read.assert_not_called()
+
+
+def test_win32_clamp_clock_is_private_to_ipc(monkeypatch):
+    """Foreign threads calling time.monotonic() do not steal scripted clock ticks.
+
+    The clock fake is isolated to the ipc module so background threads reading time.monotonic()
+    cannot advance ipc's scripted clock sequence and alter timeout sleep durations.
+    """
+    from plugin.framework import ipc
+
+    monkeypatch.setattr(sys, "platform", "win32")
+    go = threading.Event()
+    done = threading.Event()
+
+    def intruder() -> None:
+        go.wait()
+        time.monotonic()
+        done.set()
+
+    t = threading.Thread(target=intruder, daemon=True)
+    t.start()
+    try:
+        def peek(_fd: int) -> int:
+            go.set()
+            done.wait(5.0)
+            return 0
+
+        times = iter([0.0, 0.009, 0.011, 0.011])
+        slept = _patch_ipc_clock(monkeypatch, lambda: next(times))
+        monkeypatch.setattr(ipc, "_peek_pipe_bytes_available", peek)
+        stream = MagicMock()
+        stream.fileno.return_value = 3
+        with pytest.raises(subprocess.TimeoutExpired):
+            ipc.read_frame_payload(stream, 0.01, deadline=0.01, cmd="IPC frame")
+        assert slept == [0.001]
+        assert all(sec >= 0.0 for sec in slept)
+    finally:
+        go.set()
+        t.join(5.0)
 
 
 def test_win32_pickle_read_breaks_when_child_exits_before_ready(monkeypatch):
@@ -640,7 +704,7 @@ def test_win32_pickle_read_breaks_when_child_exits_before_ready(monkeypatch):
     from plugin.framework import ipc
 
     monkeypatch.setattr(sys, "platform", "win32")
-    monkeypatch.setattr(ipc.time, "monotonic", lambda: 0.0)
+    _patch_ipc_clock(monkeypatch, lambda: 0.0)
     monkeypatch.setattr(ipc, "_peek_pipe_bytes_available", lambda fd: 0)
     stream = MagicMock()
     stream.fileno.return_value = 3
@@ -658,8 +722,7 @@ def test_win32_read_drains_queued_bytes_when_child_already_dead(monkeypatch):
     from plugin.framework import ipc
 
     monkeypatch.setattr(sys, "platform", "win32")
-    slept: list[float] = []
-    monkeypatch.setattr(ipc.time, "sleep", lambda sec: slept.append(sec))
+    slept = _patch_ipc_clock(monkeypatch, time.monotonic)
     monkeypatch.setattr(ipc, "_peek_pipe_bytes_available", MagicMock(side_effect=[4, 4]))
 
     stream = MagicMock()
@@ -691,16 +754,15 @@ def test_win32_readline_sleep_clamps_when_peek_crosses_deadline(monkeypatch):
     from plugin.framework import ipc
 
     monkeypatch.setattr(ipc.sys, "platform", "win32")
-    slept: list[float] = []
-    monkeypatch.setattr(ipc.time, "sleep", lambda sec: slept.append(sec))
     times = iter([0.0, 0.009, 0.011, 0.011])
-    monkeypatch.setattr(ipc.time, "monotonic", lambda: next(times))
+    slept = _patch_ipc_clock(monkeypatch, lambda: next(times))
     monkeypatch.setattr(ipc, "_peek_pipe_bytes_available", lambda fd: 0)
     stream = MagicMock()
     stream.fileno.return_value = 3
     with pytest.raises(subprocess.TimeoutExpired):
         ipc._readline_with_timeout(stream, 0.01, 1024)
     assert slept == [0.0]
+    assert all(sec >= 0.0 for sec in slept)
 
 
 def test_win32_partial_json_line_times_out_then_resumes(monkeypatch):
@@ -741,8 +803,7 @@ def test_win32_partial_json_line_times_out_then_resumes(monkeypatch):
 
     monkeypatch.setattr(ipc, "_peek_pipe_bytes_available", peek)
     monkeypatch.setattr(ipc.os, "read", fake_read)
-    monkeypatch.setattr(ipc.time, "monotonic", lambda: clock["t"])
-    monkeypatch.setattr(ipc.time, "sleep", lambda sec: clock.__setitem__("t", clock["t"] + 1.0))
+    _patch_ipc_clock(monkeypatch, lambda: clock["t"], sleep=lambda sec: clock.__setitem__("t", clock["t"] + 1.0))
 
     with pytest.raises(subprocess.TimeoutExpired):
         ipc._readline_with_timeout(stream, 0.2, 1024)
@@ -819,8 +880,7 @@ def test_untimed_read_json_line_uses_saved_partial(monkeypatch):
     clock = {"t": 0.0}
     monkeypatch.setattr(ipc, "_peek_pipe_bytes_available", peek)
     monkeypatch.setattr(ipc.os, "read", fake_read)
-    monkeypatch.setattr(ipc.time, "monotonic", lambda: clock["t"])
-    monkeypatch.setattr(ipc.time, "sleep", lambda sec: clock.__setitem__("t", clock["t"] + 1.0))
+    _patch_ipc_clock(monkeypatch, lambda: clock["t"], sleep=lambda sec: clock.__setitem__("t", clock["t"] + 1.0))
     with pytest.raises(subprocess.TimeoutExpired):
         ipc._readline_with_timeout(stream, 0.2, 1024)
     assert read_json_line(stream) == {"a": 1}
@@ -877,7 +937,7 @@ def test_exchange_tool_call_reads_reply_before_budget_timeout(monkeypatch):
         return {"status": "ok", "id": message["id"], "result": {"n": 1}}
 
     monkeypatch.setattr(signal, "setitimer", _setitimer)
-    monkeypatch.setattr(ipc.time, "monotonic", _monotonic)
+    _patch_ipc_clock(monkeypatch, _monotonic)
     monkeypatch.setattr(ipc, "write_pickle_frame", _write)
     monkeypatch.setattr(ipc, "read_pickle_frame", _read)
     with pytest.raises(TimeoutError, match="tool call"):
@@ -1469,8 +1529,7 @@ def test_read_pickle_frame_win32_is_alive_honored(monkeypatch):
     assert ipc.read_pickle_frame(stream, 1.0, is_alive=lambda: False, unpacker=lambda _payload: {"ok": 1}) == {"ok": 1}
 
     # When peek is 0 and is_alive is False, it returns None without sleeping out the deadline
-    slept: list[float] = []
-    monkeypatch.setattr(ipc.time, "sleep", lambda sec: slept.append(sec))
+    slept = _patch_ipc_clock(monkeypatch, time.monotonic)
     stream.read.reset_mock()
     monkeypatch.setattr(ipc, "_peek_pipe_bytes_available", lambda fd: 0)
     assert ipc.read_pickle_frame(stream, 10.0, is_alive=lambda: False, unpacker=lambda _payload: {"ok": 1}) is None
