@@ -928,12 +928,12 @@ def test_substitute_math_placeholders_entities_and_fallback():
     def fake_convert(self: object, starmath: str | None = None) -> exp.MathExportResult:
         expr = self if starmath is None else starmath
         if expr == "a + b":
-            return exp.MathExportResult(True, "a + b", None, None)
+            return exp.MathExportResult(True, "a + b", None)
         if expr == "x":
-            return exp.MathExportResult(True, "x", None, None)
-        return exp.MathExportResult(False, None, None, "error")
+            return exp.MathExportResult(True, "x", None)
+        return exp.MathExportResult(False, None, "error")
 
-    with patch.object(exp._MathExportBatch, "convert_starmath_to_latex", side_effect=fake_convert):
+    with patch.object(exp.MathExportBatch, "convert_starmath_to_latex", side_effect=fake_convert):
         out = exp.substitute_math_placeholders(html, records, object())
 
     assert "$a + b$" in out

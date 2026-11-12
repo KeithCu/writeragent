@@ -1471,6 +1471,19 @@ def test_replace_header_footer_refuses_character_anchored_image():
     assert seen and seen[0].written is None
 
 
+def test_replace_header_footer_undo_leak_says_text_was_written():
+    doc, text_obj = _replace_doc([_text_portion("Annex")], hay="Annex")
+    seen = _cursors_for(text_obj, "Annex")
+    um = doc.getUndoManager.return_value
+    um.isLocked.return_value = False
+    um.leaveUndoContext.side_effect = RuntimeError("leave failed")
+    res = _replace(doc)
+    assert res["status"] == "error"
+    assert "the replacement was written" in res["message"]
+    assert "leave failed" in res["message"]
+    assert [c.written for c in seen] == ["Appendix"]
+
+
 def test_mm_to_hmm_rounds():
     from plugin.writer.page import _mm_to_hmm
     assert _mm_to_hmm(2.3) == 230

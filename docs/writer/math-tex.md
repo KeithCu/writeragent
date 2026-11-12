@@ -628,14 +628,14 @@ The extension **normalizes** both into **LibreOffice Math** embedded objects (`T
 
 - Segmentation: [`plugin/writer/math/html_math_segment.py`](../../plugin/writer/math/html_math_segment.py)
 - Conversion (import): [`plugin/writer/math/math_mml_convert.py`](../../plugin/writer/math/math_mml_convert.py) (`convert_latex_to_starmath`, `convert_mathml_to_starmath`)
-- Conversion (export): [`plugin/writer/math/math_mml_export.py`](../../plugin/writer/math/math_mml_export.py) (`convert_starmath_to_mathml`, `convert_mathml_to_latex`, `iter_writer_math_objects`)
+- Conversion (export): [`plugin/writer/math/math_mml_export.py`](../../plugin/writer/math/math_mml_export.py) (`convert_starmath_to_latex`, `MathExportBatch`, `convert_mathml_to_latex`, `iter_writer_math_objects`)
 - Insertion: [`plugin/writer/math/math_mml_convert.py`](../../plugin/writer/math/math_mml_convert.py) (`insert_writer_math_formula`)
 - Orchestration: [`plugin/writer/html_import.py`](../../plugin/writer/html_import.py) / [`plugin/writer/html_export.py`](../../plugin/writer/html_export.py)
 
 For a **second turn** (“edit this equation”), the model needs a **stable, prompt-friendly** representation of what is in the document:
 
 - **Input** path (TeX / MathML → object) is implemented.
-- **Output** path (object → TeX): **core shipped** via `document_to_content` (`inject_math_tex_into_html` replaces XHTML Writer File ``<math>`` with `$…$` / `$$…$$`; it does not append a second copy). Round-trip is **lossy**. TeX is converted from the `<math>` already in the XHTML (no hidden Math document per formula); a failed conversion is `<span data-math-export-error="…">StarMath</span>`, never fake `$…$` TeX. Replace-in-place targeting by index is still backlog.
+- **Output** path (object → TeX): **core shipped** via `document_to_content` (`inject_math_tex_into_html` replaces XHTML Writer File ``<math>`` with `$…$` / `$$…$$`; it does not append a second copy). Round-trip is **lossy**. TeX is converted from the `<math>` already in the XHTML (no hidden Math document per formula); a failed conversion is `<span data-math-export-error="…">StarMath</span>`, never fake `$…$` TeX. The StarMath fallback and the range/selection/header exports share one hidden Math document per export run, and a disposed document raises `DocumentDisposedError` instead of yielding content with formulas dropped. Replace-in-place targeting by index is still backlog.
 
 ### Chat `[DOCUMENT CONTENT]` does not inline Math OLE (on purpose)
 

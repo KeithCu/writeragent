@@ -27,7 +27,7 @@ from __future__ import annotations
 from typing import Any
 
 from plugin.framework.doc_type import agent_label_for_doc_type
-from plugin.doc.specialized_catalog import DOMAIN_LOOP_HINTS, get_specialized_domain_catalog
+from plugin.doc.specialized_catalog import get_specialized_domain_catalog, loop_hint
 from plugin.framework.prompts import (
     IMPRESS_DRAW_SIDEBAR_ONLY_DOMAINS,
     WRITER_SIDEBAR_ONLY_DOMAINS,
@@ -54,13 +54,10 @@ def get_domain_guidance(domain: str, *, agent_label: str | None = "Writer") -> s
     Returns ``""`` when there is no supplementary hint beyond ``specialized_domain_description``.
     """
     if domain == "footnotes":
-        return DOMAIN_LOOP_HINTS["footnotes"][None]
+        # Direct mode has no sub-agent executor, so the app-neutral sentence regardless of app.
+        return loop_hint("footnotes", None)
     if domain == "charts":
-        if agent_label == "Calc":
-            return DOMAIN_LOOP_HINTS["charts"]["Calc"]
-        if agent_label is None:
-            return DOMAIN_LOOP_HINTS["charts"][None]
-        return DOMAIN_LOOP_HINTS["charts"]["Writer"]
+        return loop_hint("charts", agent_label)
     if domain == "images":
         from plugin.framework.prompts import images_specialized_sub_agent_hint
 

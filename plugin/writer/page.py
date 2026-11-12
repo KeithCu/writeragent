@@ -1222,7 +1222,9 @@ def _apply_match_cursors(doc: Any, text_obj: Any, cursors: list[Any], new_text: 
     err = outcome.error
     if err is not None:
         if err.get("code") == "UNDO_CONTEXT_LEAK":
-            return "Could not close the header/footer undo context.", 0, 0
+            # The text is already in the header or footer and the undo group is still open,
+            # so the message must not read as "nothing was replaced".
+            return "the replacement was written, but its undo step could not be closed (%s)" % err.get("message"), 0, 0
         err_msg = str(err.get("message", "undo error"))
         if not outcome.rolled_back:
             err_msg = "the replacement was written and could not be rolled back: " + err_msg
