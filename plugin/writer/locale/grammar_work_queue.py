@@ -56,8 +56,6 @@ from dataclasses import dataclass
 from typing import Any
 
 from plugin.framework.quit_hooks import register_quit_hook
-
-
 from . import (
     grammar_proofread_locale,
 )

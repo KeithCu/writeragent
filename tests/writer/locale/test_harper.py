@@ -2129,11 +2129,10 @@ def test_lint_keeps_constructor_heartbeat() -> None:
     assert client._heartbeat_fn is recorder
 
 
-def test_lint_restart_reports_through_constructor_heartbeat() -> None:
+def test_lint_restart_keeps_constructor_heartbeat() -> None:
     client = _bare_harper_client()
-    calls: list[dict[str, str]] = []
-    recorder = calls.append
-    client._heartbeat_fn = recorder
+    heartbeat = MagicMock()
+    client._heartbeat_fn = heartbeat
     mock_init = MagicMock()
     with (
         patch.object(client, "is_alive", return_value=False),
@@ -2144,7 +2143,7 @@ def test_lint_restart_reports_through_constructor_heartbeat() -> None:
     ):
         client.lint("Hi.", bcp47="en-US")
     mock_init.assert_called_once()
-    assert client._heartbeat_fn is recorder
+    assert client._heartbeat_fn is heartbeat
 
 
 def test_shutdown_harper_runtime_is_a_quit_hook() -> None:

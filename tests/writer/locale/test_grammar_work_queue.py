@@ -9,6 +9,7 @@ from __future__ import annotations
 import inspect
 from pathlib import Path
 import threading
+from typing import Any
 
 
 from plugin.writer.locale.grammar_obs import GrammarStatus
@@ -535,7 +536,7 @@ def test_forget_document_prunes_only_that_document() -> None:
 
 def test_remove_persistence_if_prunes_queue_generations() -> None:
     import time
-    from typing import Any, cast
+    from typing import cast
     from plugin.writer.locale.grammar_persistence import grammar_registry
     from plugin.writer.locale.grammar_work_queue import grammar_queue
 
@@ -575,18 +576,17 @@ def test_enqueue_misses_emits_one_queued_status() -> None:
 
 def test_stop_retires_worker_without_dispatching() -> None:
     q = GrammarWorkQueue()
-    exited = threading.Event()
-    real_drain = q._drain_loop
+    worker_threads: list[threading.Thread] = []
 
-    def wrapped_drain() -> None:
-        try:
-            real_drain()
-        finally:
-            exited.set()
+    def fake_run_in_background(fn: Any, *args: Any, **kwargs: Any) -> threading.Thread:
+        t = threading.Thread(target=fn, args=args, daemon=True)
+        worker_threads.append(t)
+        t.start()
+        return t
 
-    q._drain_loop = wrapped_drain  # type: ignore[assignment]
     mock_run = MagicMock()
     with (
+        patch("plugin.framework.worker_pool.run_in_background", side_effect=fake_run_in_background),
         patch("plugin.writer.locale.grammar_proofread_locale.grammar_max_in_flight", return_value=1),
         patch("plugin.writer.locale.grammar_proofread_locale.GRAMMAR_COMPLETE_COALESCE_S", 0.5),
         patch("plugin.writer.locale.grammar_worker.run_llm_and_cache_batch", mock_run),
@@ -594,7 +594,9 @@ def test_stop_retires_worker_without_dispatching() -> None:
         q._ensure_workers()
         q.enqueue(_item(1, key="doc1|en-US|complete-stop", partial=False))
         q.stop()
-        assert exited.wait(timeout=2.0)
+        assert len(worker_threads) == 1
+        worker_threads[0].join(timeout=2.0)
+        assert not worker_threads[0].is_alive()
         mock_run.assert_not_called()
 
 

@@ -132,13 +132,15 @@ class HarperRuntime:
         """Close every cached harper-ls client.
 
         Runs as a quit hook on the UI thread (Desktop::terminate has already
-        closed every frame, so no doProofreading can start a lint) and from
-        the pytest teardown fixture. A lint worker may hold ``lock`` across
-        ``client.lint`` and can be blocked in pipe I/O, so this acquire is
-        timed. On timeout the holder is ``lint_now`` with ``linting_client``
-        set: closing that client aborts its pipe I/O, ``lint`` raises and
-        ``lint_now`` releases the lock on its own. Nothing is written to
-        ``clients`` or ``state`` on that path; the holder keeps what it set.
+        closed every frame, so no new doProofreading can start a lint) and from
+        the pytest teardown fixture. A ``harper_try_lint`` already in flight
+        can re-ensure after this hook, and that child ends on stdin EOF as
+        before. A lint worker may hold ``lock`` across ``client.lint`` and can
+        be blocked in pipe I/O, so this acquire is timed. On timeout the holder
+        is ``lint_now`` with ``linting_client`` set: closing that client
+        aborts its pipe I/O, ``lint`` raises and ``lint_now`` releases the lock
+        on its own. Nothing is written to ``clients`` or ``state`` on that path;
+        the holder keeps what it set.
         """
         if not self.lock.acquire(timeout=_SHUTDOWN_LOCK_WAIT_SEC):
             self.abort_lint()
