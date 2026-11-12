@@ -26,9 +26,12 @@ from plugin.framework.deal_shim import (
 )
 from plugin.scripting.payload_codec import (
     PAYLOAD_CALC_RANGE,
+    child_unpack_split_grid,
     is_calc_range_payload,
     is_dataframe_payload,
     is_multi_data,
+    is_split_grid,
+    numpy_scalar_item,
 )
 
 log = logging.getLogger(__name__)
@@ -303,6 +306,7 @@ class CalcRange:
             date_origin: Base epoch for serial numbers (default '1899-12-30').
         """
         # crosshair: off
+        # Lazy (venv-only and a cycle): coerce imports this module at its top.
         from plugin.scripting.venv.coerce import grid_to_dataframe
 
         return grid_to_dataframe(
@@ -452,7 +456,7 @@ def _deal_materialize_inner_ok(*args: Any, **kwargs: Any) -> bool:
     return True
 
 
-def _is_pandas_frame_or_series(obj: Any) -> bool:
+def is_pandas_frame_or_series(obj: Any) -> bool:
     """True for a pandas DataFrame or Series, including subclasses, without importing pandas.
 
     Host LibreOffice Python has no pandas.
@@ -474,12 +478,6 @@ def _materialize_inner_grid(inner: Any) -> list[list[Any]]:
     list / scalar arms below turn both into the rectangular grid.
     """
     # crosshair: off
-    from plugin.scripting.payload_codec import (
-        _numpy_scalar_item,
-        child_unpack_split_grid,
-        is_split_grid,
-    )
-
     if isinstance(inner, CalcRange):
         return [list(row) for row in inner.values]
 
@@ -489,7 +487,7 @@ def _materialize_inner_grid(inner: Any) -> list[list[Any]]:
         unpacked = inner
 
     # Only pandas DataFrame/Series expand to grids; other objects stay single cells and to_numpy failures propagate.
-    if _is_pandas_frame_or_series(unpacked):
+    if is_pandas_frame_or_series(unpacked):
         unpacked = unpacked.to_numpy()
 
     np: Any = None
@@ -501,14 +499,14 @@ def _materialize_inner_grid(inner: Any) -> list[list[Any]]:
         if unpacked.ndim == 0:
             val = unpacked.item()
             if unpacked.dtype == object:
-                val = _numpy_scalar_item(val)
+                val = numpy_scalar_item(val)
             return [[val]]
         raw = unpacked.tolist()
         if unpacked.dtype == object:
             if unpacked.ndim == 1:
-                raw = [_numpy_scalar_item(v) for v in raw]
+                raw = [numpy_scalar_item(v) for v in raw]
             else:
-                raw = [[_numpy_scalar_item(c) for c in row] for row in raw]
+                raw = [[numpy_scalar_item(c) for c in row] for row in raw]
         if unpacked.ndim == 1:
             return [raw]
         return raw

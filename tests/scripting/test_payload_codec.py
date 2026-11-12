@@ -30,6 +30,7 @@ from plugin.scripting.payload_codec import (
     BINARY_MIN_CELLS,
     PAYLOAD_CALC_RANGE,
     PAYLOAD_DATAFRAME,
+    PAYLOAD_IMAGE,
     PAYLOAD_MULTI_DATA,
     PAYLOAD_SPLIT_GRID,
     _is_numeric_coercible_impl,
@@ -40,9 +41,13 @@ from plugin.scripting.payload_codec import (
     host_unpack_data,
     host_unpack_split_grid,
     is_dataframe_payload,
+    is_image_payload,
     is_multi_data,
     is_numeric_grid,
     is_split_grid,
+    pack_dataframe_envelope,
+    pack_image_envelope,
+    pack_multi_data_envelope,
     should_use_binary_envelope,
     wire_cell_count,
 )
@@ -133,7 +138,7 @@ def test_round_trip_child_split_grid_host_list():
     arr = np.arange(12, dtype=np.float64).reshape(3, 4)
     wire = child_pack_result(arr, force="always")
     assert wire["__wa_payload__"] == PAYLOAD_SPLIT_GRID
-    back = host_unpack_data(wire, as_nested_list=True)
+    back = host_unpack_data(wire)
     assert len(back) == 3
     assert len(back[0]) == 4
     assert back[0][0] == pytest.approx(0.0)
@@ -156,7 +161,7 @@ def test_host_unpack_restores_integer_grid():
     wire = host_pack_data(grid, force="always")
     assert wire["dtype"] == "float64"
     assert wire["column_kinds"] == ["int", "int"]
-    back = host_unpack_data(wire, as_nested_list=True)
+    back = host_unpack_data(wire)
     assert back == grid
     assert all(isinstance(cell, int) for row in back for cell in row)
 
@@ -165,7 +170,7 @@ def test_host_unpack_mixed_int_float_columns():
     grid = [[100, 1.5], [101, 2.5], [102, 3.5], [103, 4.5], [104, 5.5]]
     wire = host_pack_data(grid, force="always")
     assert wire["column_kinds"] == ["int", "float"]
-    back = host_unpack_data(wire, as_nested_list=True)
+    back = host_unpack_data(wire)
     assert back[0] == [100, 1.5]
     assert isinstance(back[0][0], int)
     assert isinstance(back[0][1], float)
@@ -179,7 +184,7 @@ def test_child_pack_integer_ndarray_sets_column_kinds():
     wire = child_pack_result(np.arange(12, dtype=np.int64).reshape(3, 4), force="always")
     assert wire["dtype"] == "float64"
     assert wire["column_kinds"] == ["int", "int", "int", "int"]
-    back = host_unpack_data(wire, as_nested_list=True)
+    back = host_unpack_data(wire)
     assert back[0][0] == 0
     assert isinstance(back[0][0], int)
 
@@ -190,7 +195,7 @@ def test_child_pack_bool_ndarray_sets_column_kinds():
 
     wire = child_pack_split_grid(np.array([[True, False], [False, True]]))
     assert wire["column_kinds"] == ["bool", "bool"]
-    back = host_unpack_data(wire, as_nested_list=True)
+    back = host_unpack_data(wire)
     assert back == [[True, False], [False, True]]
 
 
@@ -218,10 +223,7 @@ def test_split_grid_bool_beside_float_stays_float_in_child():
 
 
 def test_decode_split_grid_buffer_rejects_non_bytes() -> None:
-    """bytearray and memoryview are TypeError, including when deal is stripped.
-
-    Pack and b64decode hand this helper bytes. Do not coerce a legacy buffer.
-    """
+    """Pack hands this helper bytes. Do not coerce another buffer type."""
     payload = array.array("d", [1.0]).tobytes()
     base = {
         "__wa_payload__": PAYLOAD_SPLIT_GRID,
@@ -421,7 +423,7 @@ def test_round_trip_split_grid_1d():
     assert wire_child_num["shape"] == [4]
     
     # Unpack on host -> should return a flat list
-    host_unpacked_num = host_unpack_data(wire_child_num, as_nested_list=True)
+    host_unpacked_num = host_unpack_data(wire_child_num)
     assert isinstance(host_unpacked_num, list)
     assert host_unpacked_num == pytest.approx(grid_num_1d)
     
@@ -448,7 +450,7 @@ def test_round_trip_split_grid_1d():
     # A Python None in the list (hole) was packed via split_grid (nan in buffer, no strings entry).
     # With the egress policy, host unpack now preserves it as nan (Calc will show error for that slot).
     import math
-    host_unpacked_mixed = host_unpack_data(wire_child_mixed, as_nested_list=True)
+    host_unpacked_mixed = host_unpack_data(wire_child_mixed)
     assert host_unpacked_mixed[0] == 1.5
     assert host_unpacked_mixed[1] == "banana"
     assert math.isnan(host_unpacked_mixed[2])
@@ -534,13 +536,14 @@ def test_non_sequence_row_raises_valueerror() -> None:
         expect_pre_or_body(lambda grid=grid: is_numeric_grid(grid), body_exc=ValueError)
 
 
-def test_split_grid_bad_b64_raises_valueerror() -> None:
-    """A bad legacy b64 is ValueError, not binascii.Error or UnicodeEncodeError.
+def test_b64_only_split_grid_envelope_is_not_split_grid() -> None:
+    """An envelope with only b64 and no buffer is not split_grid (decision 7).
 
-    binascii and Unicode failures subclass ValueError. Unpack must raise plain
-    ValueError so deal.raises and release builds agree on the error type.
+    host_unpack_data returns it as a plain dict, host_unpack_split_grid rejects
+    it under deal pre or ValueError, and _decode_split_grid_buffer raises ValueError.
     """
     import base64
+    from tests.harness.strip_bundle import expect_pre_or_body
 
     raw = array.array("d", [1.5]).tobytes()
     good = base64.b64encode(raw).decode("ascii")
@@ -550,20 +553,39 @@ def test_split_grid_bad_b64_raises_valueerror() -> None:
         "dtype": "float64",
         "column_kinds": ["float"],
         "strings": {},
+        "b64": good,
     }
-    good_env = {**envelope, "b64": good}
-    assert host_unpack_split_grid(good_env) == [1.5]
-    pytest.importorskip("numpy")
-    child = child_unpack_split_grid(good_env)
-    assert float(child[0]) == pytest.approx(1.5)
+    assert is_split_grid(envelope) is False
+    assert host_unpack_data(envelope) == envelope
+    expect_pre_or_body(lambda: host_unpack_split_grid(envelope), body_exc=ValueError)
+    with pytest.raises(ValueError, match="no buffer"):
+        payload_codec._decode_split_grid_buffer(envelope, 1)
 
-    junk = good[:4] + "!" + good[4:]
-    for bad in ("!!!!", "abc", junk, "café"):
-        bad_env = {**envelope, "b64": bad}
-        for unpack in (host_unpack_split_grid, child_unpack_split_grid):
-            with pytest.raises(ValueError, match="not valid base64") as caught:
-                unpack(bad_env)
-            assert type(caught.value) is ValueError
+
+def test_envelope_builders_pass_their_detectors() -> None:
+    """Envelope builders construct dicts matching the detector and tag constants."""
+    img = pack_image_envelope(b"x", "png")
+    assert is_image_payload(img) is True
+    assert img == {
+        "__wa_payload__": PAYLOAD_IMAGE,
+        "format": "png",
+        "data": b"x",
+    }
+
+    md = pack_multi_data_envelope([[1]])
+    assert is_multi_data(md) is True
+    assert md == {
+        "__wa_payload__": PAYLOAD_MULTI_DATA,
+        "items": [[1]],
+    }
+
+    df = pack_dataframe_envelope(["a"], [[1]])
+    assert is_dataframe_payload(df) is True
+    assert df == {
+        "__wa_payload__": PAYLOAD_DATAFRAME,
+        "columns": ["a"],
+        "data": [[1]],
+    }
 
 
 def test_envelope_detectors_reject_bool_shape_dims() -> None:
@@ -633,7 +655,7 @@ def test_nan_egress_child_pack_host_unpack() -> None:
     np = pytest.importorskip("numpy")
     import math
     wire = child_pack_result(np.array([1.0, np.nan, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]), force="always")
-    back = host_unpack_data(wire, as_nested_list=True)
+    back = host_unpack_data(wire)
     assert back[0] == pytest.approx(1.0)
     assert math.isnan(back[1])
 
@@ -650,7 +672,7 @@ def test_none_host_egress_round_trip() -> None:
     wire = host_pack_data(grid, force="always")
     arr = child_unpack_split_grid(wire)
     assert isinstance(arr, np.ndarray)
-    back = host_unpack_data(wire, as_nested_list=True)
+    back = host_unpack_data(wire)
     assert math.isnan(back[0][1])
     assert math.isnan(back[1][2])
 
@@ -660,7 +682,7 @@ def test_inf_egress_from_numpy_result() -> None:
     np = pytest.importorskip("numpy")
     vals = [1.0, float("inf"), -float("inf"), 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]
     wire = child_pack_result(np.array(vals, dtype=np.float64), force="always")
-    back = host_unpack_data(wire, as_nested_list=True)
+    back = host_unpack_data(wire)
     assert back[1] == float("inf")
     assert back[2] == float("-inf")
 
@@ -1021,7 +1043,7 @@ def test_large_string_ndarray_packs_instead_of_raising() -> None:
     wire = child_pack_result(texts)
     assert is_split_grid(wire)
     assert wire["strings"][n - 1] == "02138"
-    back = host_unpack_data(wire, as_nested_list=True)
+    back = host_unpack_data(wire)
     assert back[0] == "z"
     assert back[-1] == "02138"
 
@@ -1030,7 +1052,7 @@ def test_large_string_ndarray_packs_instead_of_raising() -> None:
     obj[-1, -1] = "cd"
     packed = serialize_result(obj)
     assert is_split_grid(packed)
-    restored = host_unpack_data(packed, as_nested_list=True)
+    restored = host_unpack_data(packed)
     assert restored[0][0] == "ab"
     assert restored[-1][-1] == "cd"
 
@@ -1333,7 +1355,7 @@ def test_split_grid_boolean_roundtrip_fidelity():
     # 3. Test round-trip unpacking on host.
     # Holes (None) become bare NaN slots (no strings entry). Host unpack preserves nan (Calc error policy).
     import math
-    host_unpacked = host_unpack_data(wire, as_nested_list=True)
+    host_unpacked = host_unpack_data(wire)
     assert host_unpacked[0] == [True, "apple", 10]
     assert host_unpacked[1] == [False, "banana", 20]
     assert host_unpacked[2][0] is True and host_unpacked[2][1] == "cherry" and math.isnan(host_unpacked[2][2])
@@ -1565,7 +1587,7 @@ def test_dataframe_envelope_roundtrips_through_host_unpack():
         "columns": ["num", "label"],
         "data": inner,
     }
-    unpacked = host_unpack_data(df_env, as_nested_list=True)
+    unpacked = host_unpack_data(df_env)
     assert is_dataframe_payload(unpacked)
     assert unpacked["columns"] == ["num", "label"]
     data = unpacked["data"]
@@ -2033,7 +2055,7 @@ def test_huge_int_list_serializes_as_text() -> None:
     assert is_split_grid(packed)
     assert packed["strings"][0] == str(huge)
     assert packed["strings"][1] == str(-huge)
-    restored = host_unpack_data(packed, as_nested_list=True)
+    restored = host_unpack_data(packed)
     assert restored[0] == str(huge)
     assert restored[1] == str(-huge)
 
@@ -2090,7 +2112,7 @@ def test_numpy_complex_scalar_keeps_imaginary_part() -> None:
     assert "2j" in packed["strings"][0]
     assert "2j" in packed["strings"][1]
     assert "2j" in packed["strings"][2]
-    restored = host_unpack_data(packed, as_nested_list=True)
+    restored = host_unpack_data(packed)
     assert restored[0] == [str(cell) for cell in cells]
 
 

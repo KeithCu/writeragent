@@ -19,21 +19,23 @@ from __future__ import annotations
 
 from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass, field
-import json
 import logging
 import math
 import os
 import threading
 import time
-from typing import Any, Generator
+from typing import TYPE_CHECKING, Any, Generator
 
 from compute_service import error_codes as ec
-from compute_service.config import COMPUTE_MAX_PAYLOAD_BYTES, ComputeSettings
+from compute_service.config import COMPUTE_MAX_PAYLOAD_BYTES, DEFAULT_SETTINGS, ComputeSettings
 from compute_service.json_forward import ExecuteRequestError, validate_session_id
-from compute_service.worker_base import BaseProcessPool, BaseProcessWorker, PoolSingleton, bind_pool_singleton, resolve_override
+from compute_service.worker_base import BaseProcessPool, BaseProcessWorker, PoolSingleton, bind_pool_singleton
 from plugin.framework.child_runtime import Deadline
 from plugin.framework.child_runtime import error_dict
 from plugin.scripting.config_limits import HOST_IPC_READ_GRACE_SEC
+
+if TYPE_CHECKING:
+    from plugin.framework.warm_child import Child
 
 log = logging.getLogger("compute_service.formula")
 
@@ -57,7 +59,7 @@ class _Session:
     """
 
     worker: BaseProcessWorker
-    child: object | None
+    child: Child | None
     last_used: float = field(default_factory=time.monotonic)
     stale_since: float | None = None
 
@@ -78,36 +80,26 @@ class _SharedAdmission:
     had_binding: bool
 
 
-def decode_worker_result(res: dict[str, Any]) -> dict[str, Any]:
-    """Materialize ``result_json`` for pool tests / callers that want a dict.
-
-    The HTTP server must not use this on the success path — it forwards the
-    raw bytes instead of re-dumping.
-    """
-    raw = res.get("result_json")
-    if isinstance(raw, (bytes, bytearray)):
-        parsed = json.loads(bytes(raw).decode("utf-8"))
-        if isinstance(parsed, dict):
-            return parsed
-    return res
-
-
 class FormulaProcessPool(BaseProcessPool):
     """Bounded pool of persistent worker subprocesses for formula calculations."""
 
-    def __init__(self, settings: ComputeSettings | None = None, num_workers: int | None = None, default_timeout_sec: int | None = None, max_tasks: int | None = None, idle_worker_ttl_sec: float | None = None) -> None:
-        cfg = settings or ComputeSettings()
-        eff_num_workers = resolve_override(num_workers, cfg.workers)
-        eff_timeout = resolve_override(default_timeout_sec, cfg.default_timeout_sec)
-        eff_max_tasks = resolve_override(max_tasks, cfg.worker_max_tasks)
-        eff_idle_ttl = resolve_override(idle_worker_ttl_sec, cfg.idle_worker_ttl_sec)
+    def __init__(self, settings: ComputeSettings | None = None) -> None:
+        cfg = DEFAULT_SETTINGS if settings is None else settings
 
         # Session counts are derived from this map. A parallel index had to
         # stay in sync across set, delete, pop, and clear.
         self._sessions: dict[str, _Session] = {}
         self._session_locks: dict[str, _SessionGate] = {}
         self._recycling: set[BaseProcessWorker] = set()
-        super().__init__(script_path=_WORKER_SCRIPT, num_workers=eff_num_workers, default_timeout_sec=eff_timeout, max_tasks=eff_max_tasks, worker_name="Formula worker", idle_worker_ttl_sec=eff_idle_ttl, max_payload_bytes=COMPUTE_MAX_PAYLOAD_BYTES)
+        super().__init__(
+            script_path=_WORKER_SCRIPT,
+            num_workers=cfg.workers,
+            default_timeout_sec=cfg.default_timeout_sec,
+            max_tasks=cfg.worker_max_tasks,
+            worker_name="Formula worker",
+            idle_worker_ttl_sec=cfg.idle_worker_ttl_sec,
+            max_payload_bytes=COMPUTE_MAX_PAYLOAD_BYTES,
+        )
 
     def _clear_pool_state_unlocked(self) -> None:
         # A pool kept after shutdown advertises no sessions.
@@ -146,11 +138,12 @@ class FormulaProcessPool(BaseProcessPool):
                     self._session_locks.pop(session_id, None)
 
     def _is_session_live(self, s: _Session) -> bool:
-        return (
-            s.child is not None
-            and s.child is getattr(s.worker, "child", None)
-            and self._session_child_live(s.child)
-        )
+        # A session row is live only while its recorded Child remains the worker's
+        # active process and has not been reaped.
+        child = s.child
+        if child is None or child is not s.worker.child:
+            return False
+        return child.managed.is_alive()
 
     def _expire_stale_sessions_unlocked(self) -> None:
         """Drop stale session rows that have been stale for longer than idle_worker_ttl_sec.
@@ -195,38 +188,6 @@ class FormulaProcessPool(BaseProcessPool):
 
     def _worker_has_sessions(self, worker: BaseProcessWorker) -> bool:
         return any(s.worker is worker and self._is_session_live(s) for s in self._sessions.values())
-
-    def _worker_sessions_for(self, worker: BaseProcessWorker) -> list[str]:
-        return [sid for sid, s in self._sessions.items() if s.worker is worker and self._is_session_live(s)]
-
-    def _session_child_live(self, child: object) -> bool:
-        """True when *child* still has a running process.
-
-        A stand-in with no ``managed`` stays live until the slot's ``child``
-        pointer changes. ``is_alive`` reaps a zombie; that is a dead kernel.
-        """
-        managed = getattr(child, "managed", None)
-        if managed is None:
-            return True
-        is_alive = getattr(managed, "is_alive", None)
-        if not callable(is_alive):
-            return True
-        try:
-            return bool(is_alive())
-        except Exception:
-            log.debug("session child poll failed", exc_info=True)
-            return False
-
-    def live_session_worker(self, session_id: str) -> BaseProcessWorker | None:
-        """The process that still owns *session_id*, or None once that child is gone.
-
-        Test helper. Production code does not call this.
-        """
-        with self._cond:
-            s = self._sessions.get(session_id)
-            if s is not None and self._is_session_live(s):
-                return s.worker
-            return None
 
     def should_recycle_worker(self, worker: BaseProcessWorker) -> bool:
         """Recycle worker if tasks_executed >= max_tasks, unless holding active shared sessions.
@@ -379,36 +340,28 @@ class FormulaProcessPool(BaseProcessPool):
             target_worker = self._select_shared_worker(session_id)
         return _SharedAdmission(worker=target_worker, had_binding=had_binding)
 
-    def _run_execution(self, leased: BaseProcessWorker, payload: dict[str, Any], clock: Deadline, req_id: str | None, decode_result: bool, expect_namespace: bool = False) -> dict[str, Any]:
-        """Send execution payload to leased worker and format response.
+    def _run_execution(
+        self,
+        leased: BaseProcessWorker,
+        payload: dict[str, Any],
+        clock: Deadline,
+        req_id: str | None,
+        expect_namespace: bool = False,
+    ) -> dict[str, Any]:
+        """Send execution payload to leased worker and return response envelope.
 
         The caller already checked *clock* after the lease. The child alarm is
         the remaining budget rounded up, and the host waits alarm + grace so
-        the alarm, not a SIGKILL, ends a long cell.
+        the alarm, not a SIGKILL, ends a long cell. The worker stamps
+        ``session_reset`` into the envelope and body when ``expect_namespace``
+        is set and it created the namespace (formula_worker.py:148).
         """
         child_alarm = math.ceil(clock.run_for())
         payload["timeout_sec"] = child_alarm
         if expect_namespace:
             payload["expect_namespace"] = True
         host_timeout = child_alarm + HOST_IPC_READ_GRACE_SEC
-        res = leased.execute(payload, timeout_sec=host_timeout, req_id=req_id)
-        created = bool(res.get("namespace_created")) if isinstance(res, dict) else False
-        if expect_namespace and created and isinstance(res, dict):
-            if "result_json" not in res:
-                res["session_reset"] = True
-        if decode_result and isinstance(res, dict):
-            try:
-                decoded = decode_worker_result(res)
-            except (json.JSONDecodeError, UnicodeDecodeError, RecursionError, MemoryError) as exc:
-                # A bad result blob is a decode failure, not a crash: the child stays up.
-                failed = error_dict(ec.RESULT_DECODE_ERROR, f"Worker result_json could not be decoded: {exc}", req_id=req_id)
-                if expect_namespace and created:
-                    failed["session_reset"] = True
-                return failed
-            if expect_namespace and created and isinstance(decoded, dict):
-                decoded["session_reset"] = True
-            return decoded
-        return res
+        return leased.execute(payload, timeout_sec=host_timeout, req_id=req_id)
 
     def _finalize_session(
         self,
@@ -451,30 +404,21 @@ class FormulaProcessPool(BaseProcessPool):
     def execute(
         self,
         code: str,
-        data: Any = None,
-        session_id: str | None = None,
-        timeout_sec: int | None = None,
         *,
+        data_json: bytes | None = None,
+        session_id: str | None = None,
         init_script: str | None = None,
         req_id: str | None = None,
-        data_json: bytes | None = None,
-        decode_result: bool = True,
-        deadline: Deadline | None = None,
+        deadline: Deadline,
     ) -> dict[str, Any]:
         """Execute formula code on an appropriate worker subprocess.
 
-        A non-empty *session_id* selects the sticky shared kernel; without
-        one the call is isolated.
-
-        *deadline* is the HTTP admission clock. Without one the clock is
-        *timeout_sec* (or the default) from now. It is checked once before
-        the lease and once after.
-
-        The one payload is raw ``data_json`` bytes. The worker dumps the
-        result once. The HTTP server sets ``decode_result=False`` so it can
-        forward ``result_json`` without a second dumps. A ``data`` object is
-        only a convenience for in-process callers: it is JSON-encoded into
-        ``data_json`` here, not packed as a second wire.
+        One execution convention: raw ``data_json`` bytes in, the worker's envelope
+        out (``{"id", "status", "result_json": bytes, ...}`` or host error dict).
+        The HTTP server forwards ``result_json`` directly without a second dumps.
+        *deadline* is the admission clock checked before and after the lease.
+        A non-empty *session_id* selects the sticky shared kernel; without one the
+        call is isolated.
         """
         if self._is_shutdown or not self.workers:
             return error_dict(ec.SERVICE_SHUTDOWN, "Formula compute pool is shutting down.", req_id=req_id)
@@ -486,17 +430,15 @@ class FormulaProcessPool(BaseProcessPool):
         except ExecuteRequestError as exc:
             return error_dict(ec.INVALID_REQUEST, str(exc), req_id=req_id)
 
-        # Only None means "use the default". Zero is an explicit timeout.
-        clock = deadline if deadline is not None else Deadline(float(self.default_timeout_sec if timeout_sec is None else timeout_sec))
+        clock = deadline
         # Before select, so a miss does not reserve a session or consume the
         # lost-session marker.
         if clock.usable() is None:
             return error_dict(ec.QUEUE_TIMEOUT, "Request deadline expired before a worker lease.", req_id=req_id)
 
-        try:
-            payload = self._build_execute_payload(code=code, data=data, data_json=data_json, session_id=session_id, init_script=init_script, req_id=req_id)
-        except ExecuteRequestError as exc:
-            return error_dict(ec.INVALID_REQUEST, str(exc), req_id=req_id)
+        payload: dict[str, Any] = {"id": req_id, "code": code, "session_id": session_id, "init_script": init_script}
+        if data_json is not None:
+            payload["data_json"] = bytes(data_json)
 
         gate = (
             self._session_gate(session_id, max(clock.left(), 0.0))
@@ -539,28 +481,11 @@ class FormulaProcessPool(BaseProcessPool):
                     payload=payload,
                     clock=clock,
                     req_id=req_id,
-                    decode_result=decode_result,
                     expect_namespace=(admission is not None and admission.had_binding),
                 )
                 return result
             finally:
                 self._finalize_session(leased, session_id, result=result)
-
-    @staticmethod
-    def _build_execute_payload(*, code: str, data: Any = None, data_json: bytes | None = None, session_id: str | None = None, init_script: str | None = None, req_id: str | None = None) -> dict[str, Any]:
-        # pickle is not a second payload. timeout_sec is set later by
-        # _run_execution from the remaining budget.
-        payload: dict[str, Any] = {"id": req_id, "code": code, "session_id": session_id, "init_script": init_script}
-        blob = data_json
-        if blob is None and data is not None:
-            # In-process callers only; HTTP supplies data_json, which is forwarded unvalidated.
-            try:
-                blob = json.dumps(data, allow_nan=False).encode("utf-8")
-            except (TypeError, ValueError) as exc:
-                raise ExecuteRequestError(f"data is not JSON-serializable: {exc}") from exc
-        if blob is not None:
-            payload["data_json"] = bytes(blob)
-        return payload
 
 
 # Global singleton per server process

@@ -163,8 +163,8 @@ No `viz.py` yet. Matplotlib figures from user/LLM code are captured in the venv 
 
 | Component | Module | Behavior |
 |-----------|--------|----------|
-| Figure → bytes | [`venv/venv_sandbox.py`](../../plugin/scripting/venv/venv_sandbox.py) | `_figure_to_image_payload()` (SVG default); `_capture_open_figures_payload()` merges multiple open figures vertically; `serialize_result()` for returned `Figure`; `Agg` backend; figure cleanup |
-| Wire format | [`payload_codec.py`](../../plugin/scripting/payload_codec.py) | `PAYLOAD_IMAGE`, `is_image_payload()`; shared temp-file helper |
+| Figure → bytes | [`venv/to_wire.py`](../../plugin/scripting/venv/to_wire.py) | `figure_to_image_payload()` (SVG default); `_capture_open_figures_payload()` merges multiple open figures vertically; `serialize_result()` for returned `Figure`; `Agg` backend; figure cleanup |
+| Wire format | [`payload_codec.py`](../../plugin/scripting/payload_codec.py) | `PAYLOAD_IMAGE`, `pack_image_envelope()`, `is_image_payload()`; shared temp-file helper |
 | Calc `=PYTHON()` | [`function.py`](../../plugin/calc/python/function.py), [`python_image_egress.py`](../../plugin/calc/python/image_egress.py) | `insert_image_result_on_sheet()` → `GraphicObjectShape` anchored to formula cell on its owning sheet |
 | Chat / LLM | [`venv.py`](../../plugin/calc/python/venv.py) | **Calc:** auto-insert on the tool document (`ctx.doc`), not the front window, plus `image_path`. **Writer/Draw:** `image_path` → `image_insert` |
 | Writer notebook | [`writer_importer.py`](../../plugin/notebook/writer_importer.py) | Shared inline image insertion (`insert_run_image`, `_insert_image_in_flow`); cell run orchestration in `notebook_runner.py` |
