@@ -911,7 +911,7 @@ class PageSetHeaderFooterText(ToolWriterPageBase):
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         from .html_import import replace_xtext_with_html
-        from .html_import_styles import attach_para_warnings
+        from .html_import_styles import attach_write_report
 
         style_name = kwargs.get("style", "Standard")
         region = kwargs["region"]
@@ -947,7 +947,7 @@ class PageSetHeaderFooterText(ToolWriterPageBase):
             if not text_obj:
                 raise RuntimeError(f"Could not retrieve text object for {region} on style '{style_name}'.")
 
-            unapplied = replace_xtext_with_html(
+            report = replace_xtext_with_html(
                 text_obj, content, model=ctx.doc,
             )
             result: dict[str, Any] = {
@@ -960,7 +960,7 @@ class PageSetHeaderFooterText(ToolWriterPageBase):
             if auto_height is not None:
                 result["auto_height"] = bool(auto_height)
             flag_style_unreviewed(result)
-            return attach_para_warnings(result, unapplied)
+            return attach_write_report(result, report)
         except Exception as e:
             if is_disposal(e):
                 raise

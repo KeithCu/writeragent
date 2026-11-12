@@ -173,7 +173,7 @@ def test_resolve_heading_links_deduplicates_encoded_and_plain_fragment() -> None
     assert diags[0]["link_target"] == "#My Heading"
 
 
-def test_attach_link_warnings() -> None:
+def test_append_warnings() -> None:
     """Diagnostics are attached to successful results and ignored on errors."""
     diags = [
         {
@@ -183,11 +183,11 @@ def test_attach_link_warnings() -> None:
         }
     ]
     err_res = {"status": "error", "message": "Failed"}
-    assert html_import_styles.attach_link_warnings(err_res, diags) == err_res
+    assert html_import_styles.append_warnings(err_res, diags) == err_res
     assert "warnings" not in err_res
 
     ok_res = {"status": "ok", "message": "Done"}
-    updated = html_import_styles.attach_link_warnings(ok_res, diags)
+    updated = html_import_styles.append_warnings(ok_res, diags)
     assert updated.get("warnings") == diags
 
     # Extends existing warnings list
@@ -195,7 +195,7 @@ def test_attach_link_warnings() -> None:
         "status": "ok",
         "warnings": [{"code": "EXISTING", "message": "Prior warning"}],
     }
-    updated_existing = html_import_styles.attach_link_warnings(existing_res, diags)
+    updated_existing = html_import_styles.append_warnings(existing_res, diags)
     assert len(updated_existing["warnings"]) == 2
     assert updated_existing["warnings"][0]["code"] == "EXISTING"
     assert updated_existing["warnings"][1]["code"] == html_import_styles.LINK_TARGET_NOT_FOUND
@@ -207,7 +207,7 @@ def test_attach_math_objects_all_ok_attaches_list() -> None:
         {"kind": "tex", "display_block": False, "snippet": "a", "ok": True},
         {"kind": "mml", "display_block": True, "snippet": "<math></math>", "ok": True},
     ]
-    res = html_import_styles.attach_math_objects(ok_res, entries)
+    res = html_import_styles.attach_write_report(ok_res, html_import_styles.WriteReport(math=entries))
     assert res["status"] == "ok"
     assert res["math_objects"] == entries
     assert "warnings" not in res
@@ -225,7 +225,7 @@ def test_attach_math_objects_any_failure_is_math_import_failed_warning() -> None
         },
     ]
     ok_res = {"status": "ok", "message": "Done", "paragraph_count": 2}
-    res = html_import_styles.attach_math_objects(ok_res, entries)
+    res = html_import_styles.attach_write_report(ok_res, html_import_styles.WriteReport(math=entries))
     assert res["status"] == "ok"
     assert res["paragraph_count"] == 2
     assert res["math_objects"] == entries
@@ -237,4 +237,89 @@ def test_attach_math_objects_any_failure_is_math_import_failed_warning() -> None
     assert "NoAvailableTokensError" in diag["message"]
 
     err_res = {"status": "error", "message": "Failed"}
-    assert html_import_styles.attach_math_objects(err_res, entries) == err_res
+    assert html_import_styles.attach_write_report(err_res, html_import_styles.WriteReport(math=entries)) == err_res
+
+
+def test_attach_write_report_style_skip_builds_diagnostic_and_message() -> None:
+    """A partial-match style skip with a token builds a diagnostic, suggested call, and updates message."""
+    from plugin.framework.errors import suggest_call
+
+    cb_calls: list[tuple[str, int]] = []
+
+    def fake_suggest(token: str, total_matches: int):
+        cb_calls.append((token, total_matches))
+        return suggest_call("apply_style", style=token, all_matches=True)
+
+    report = html_import_styles.WriteReport(
+        style_skips=["STYLE_IGNORED_PARTIAL_MATCH"],
+        style_tokens=["Heading2"],
+    )
+    res = {"status": "ok", "message": "Replaced 2 occurrence(s)."}
+    out = html_import_styles.attach_write_report(
+        res,
+        report,
+        total_matches=2,
+        suggest_style_fix=fake_suggest,
+    )
+    assert cb_calls == [("Heading2", 2)]
+    assert "warnings" in out
+    assert len(out["warnings"]) == 1
+    diag = out["warnings"][0]
+    assert diag["code"] == "STYLE_IGNORED_PARTIAL_MATCH"
+    assert diag["matches_skipped"] == 1
+    assert diag["matches_total"] == 2
+    assert diag["suggested_call"] == suggest_call("apply_style", style="Heading2", all_matches=True)
+    expected_clause = "to 1 of 2 matches because they do not cover whole paragraphs"
+    assert expected_clause in diag["message"]
+    assert "data-lo-style='Heading2' was not applied" in diag["message"]
+    assert out["message"] == f"Replaced 2 occurrence(s). {diag['message']}"
+
+
+def test_attach_write_report_skip_without_style_token_only_explains_para() -> None:
+    """When content declares no data-lo-style token, a style skip only explains data-lo-para."""
+    cb_called = False
+
+    def fake_suggest(_token: str, _total: int):
+        nonlocal cb_called
+        cb_called = True
+        return None
+
+    report = html_import_styles.WriteReport(
+        unapplied_para=["margin-left"],
+        style_skips=["STYLE_IGNORED_RECORDING"],
+    )
+    res = {"status": "ok", "message": "Inserted content."}
+    out = html_import_styles.attach_write_report(
+        res,
+        report,
+        total_matches=1,
+        suggest_style_fix=fake_suggest,
+    )
+    assert not cb_called
+    assert "warnings" in out
+    assert len(out["warnings"]) == 1
+    diag = out["warnings"][0]
+    assert diag["code"] == "PARA_IGNORED_RECORDING"
+    assert diag["message"] == "data-lo-para property 'margin-left' was not applied because tracked changes are recording"
+    assert out["message"] == "Inserted content."
+
+
+def test_write_report_extend_preserves_order_and_unions_tokens() -> None:
+    """extend concatenates unapplied_para, style_skips, math and unions style_tokens preserving order."""
+    r1 = html_import_styles.WriteReport(
+        unapplied_para=["color", "margin-top"],
+        style_skips=["STYLE_IGNORED_PARTIAL_MATCH"],
+        style_tokens=["Heading1", "Heading2"],
+        math=[{"snippet": "a", "ok": True}],
+    )
+    r2 = html_import_styles.WriteReport(
+        unapplied_para=["margin-bottom", "color"],
+        style_skips=["STYLE_IGNORED_RECORDING"],
+        style_tokens=["Heading2", "Heading3", "Heading1"],
+        math=[{"snippet": "b", "ok": False}],
+    )
+    r1.extend(r2)
+    assert r1.unapplied_para == ["color", "margin-top", "margin-bottom", "color"]
+    assert r1.style_skips == ["STYLE_IGNORED_PARTIAL_MATCH", "STYLE_IGNORED_RECORDING"]
+    assert r1.style_tokens == ["Heading1", "Heading2", "Heading3"]
+    assert r1.math == [{"snippet": "a", "ok": True}, {"snippet": "b", "ok": False}]

@@ -15,6 +15,7 @@ from unittest.mock import MagicMock
 import pytest
 
 import plugin.writer.html_import as format_mod
+import plugin.writer.html_import_styles as html_import_styles
 import plugin.writer.search as search_mod
 from plugin.writer.apply_document_content import (
     ApplyDocumentContent,
@@ -86,7 +87,7 @@ def _no_libreoffice(monkeypatch):
     monkeypatch.setattr(format_mod, "content_has_markup", lambda *a, **k: False)
     monkeypatch.setattr(search_mod, "normalize_search_string_for_find", lambda s: s)
     monkeypatch.setattr(format_mod, "replace_preserving_format", lambda *a, **k: None)
-    monkeypatch.setattr(format_mod, "replace_single_range_with_content", lambda *a, **k: ([], None))
+    monkeypatch.setattr(format_mod, "replace_single_range_with_content", lambda *a, **k: html_import_styles.WriteReport())
     monkeypatch.setattr(search_mod, "drawing_shape_object_containing", lambda *a, **k: None)
 
 
@@ -261,22 +262,18 @@ def test_dry_run_reports_normalized_old_content_and_miss_fields(monkeypatch):
 
 def test_mapped_data_lo_para_full_document_has_no_warnings():
     """Clean write with no unapplied properties produces no warnings."""
-    from plugin.writer.html_import_styles import attach_para_warnings
-
-    res = attach_para_warnings(
+    res = html_import_styles.attach_write_report(
         {"status": "ok", "message": "Replaced entire document."},
-        [],
+        html_import_styles.WriteReport(),
     )
     assert "warnings" not in res
 
 
 def test_unmapped_data_lo_para_full_document_warns_for_unmapped_property():
     """Unmapped properties report one warning per dropped property name."""
-    from plugin.writer.html_import_styles import attach_para_warnings
-
-    res = attach_para_warnings(
+    res = html_import_styles.attach_write_report(
         {"status": "ok", "message": "Replaced entire document."},
-        ["font-size"],
+        html_import_styles.WriteReport(unapplied_para=["font-size"]),
     )
     assert res.get("warnings") == [
         {"code": "PARA_PROPERTY_UNSUPPORTED", "message": "data-lo-para property 'font-size' was not applied"}
@@ -285,12 +282,11 @@ def test_unmapped_data_lo_para_full_document_warns_for_unmapped_property():
 
 def test_unmapped_data_lo_para_partial_match_warns_with_reason():
     """Partial match skip specifies that range does not cover a whole paragraph."""
-    from plugin.writer.html_import_styles import attach_para_warnings
-
-    res = attach_para_warnings(
+    res = html_import_styles.attach_write_report(
         {"status": "ok", "message": "Replaced content."},
-        ["margin-left"],
-        reason="STYLE_IGNORED_PARTIAL_MATCH",
+        html_import_styles.WriteReport(
+            unapplied_para=["margin-left"], style_skips=["STYLE_IGNORED_PARTIAL_MATCH"]
+        ),
     )
     assert res.get("warnings") == [
         {
@@ -302,12 +298,11 @@ def test_unmapped_data_lo_para_partial_match_warns_with_reason():
 
 def test_unmapped_data_lo_para_recording_warns_with_reason():
     """Recording skip specifies that tracked changes are recording."""
-    from plugin.writer.html_import_styles import attach_para_warnings
-
-    res = attach_para_warnings(
+    res = html_import_styles.attach_write_report(
         {"status": "ok", "message": "Replaced content."},
-        ["margin-left"],
-        reason="STYLE_IGNORED_RECORDING",
+        html_import_styles.WriteReport(
+            unapplied_para=["margin-left"], style_skips=["STYLE_IGNORED_RECORDING"]
+        ),
     )
     assert res.get("warnings") == [
         {
@@ -319,10 +314,13 @@ def test_unmapped_data_lo_para_recording_warns_with_reason():
 
 def test_failed_write_is_not_annotated():
     """Nothing was written, so there is nothing to say about what was not applied."""
-    from plugin.writer.html_import_styles import attach_para_warnings
-
     original = {"status": "error", "message": "old_content not found."}
-    assert attach_para_warnings(original, ["margin-left"]) == original
+    assert (
+        html_import_styles.attach_write_report(
+            original, html_import_styles.WriteReport(unapplied_para=["margin-left"])
+        )
+        == original
+    )
 
 
 def test_search_target_warns_for_mapped_property(monkeypatch):
@@ -330,7 +328,9 @@ def test_search_target_warns_for_mapped_property(monkeypatch):
     monkeypatch.setattr(format_mod, "content_has_markup", lambda *a, **k: True)
     monkeypatch.setattr(search_mod, "find_first_range", lambda doc, s: MockRange())
     monkeypatch.setattr(
-        format_mod, "replace_single_range_with_content", lambda *a, **k: (["text-align"], None)
+        format_mod,
+        "replace_single_range_with_content",
+        lambda *a, **k: html_import_styles.WriteReport(unapplied_para=["text-align"]),
     )
     res = ApplyDocumentContent().execute(
         _ctx(),
@@ -349,7 +349,11 @@ def test_search_target_warns_with_partial_match_code(monkeypatch):
     monkeypatch.setattr(format_mod, "content_has_markup", lambda *a, **k: True)
     monkeypatch.setattr(search_mod, "find_first_range", lambda doc, s: MockRange())
     monkeypatch.setattr(
-        format_mod, "replace_single_range_with_content", lambda *a, **k: (["margin-left"], "STYLE_IGNORED_PARTIAL_MATCH")
+        format_mod,
+        "replace_single_range_with_content",
+        lambda *a, **k: html_import_styles.WriteReport(
+            unapplied_para=["margin-left"], style_skips=["STYLE_IGNORED_PARTIAL_MATCH"]
+        ),
     )
     res = ApplyDocumentContent().execute(
         _ctx(),
@@ -371,7 +375,11 @@ def test_search_target_warns_with_recording_code(monkeypatch):
     monkeypatch.setattr(format_mod, "content_has_markup", lambda *a, **k: True)
     monkeypatch.setattr(search_mod, "find_first_range", lambda doc, s: MockRange())
     monkeypatch.setattr(
-        format_mod, "replace_single_range_with_content", lambda *a, **k: (["margin-left"], "STYLE_IGNORED_RECORDING")
+        format_mod,
+        "replace_single_range_with_content",
+        lambda *a, **k: html_import_styles.WriteReport(
+            unapplied_para=["margin-left"], style_skips=["STYLE_IGNORED_RECORDING"]
+        ),
     )
     res = ApplyDocumentContent().execute(
         _ctx(),
@@ -393,7 +401,7 @@ def test_search_target_reports_no_warning_when_import_applied_everything(monkeyp
     monkeypatch.setattr(format_mod, "content_has_markup", lambda *a, **k: True)
     monkeypatch.setattr(search_mod, "find_first_range", lambda doc, s: MockRange())
     monkeypatch.setattr(
-        format_mod, "replace_single_range_with_content", lambda *a, **k: ([], None)
+        format_mod, "replace_single_range_with_content", lambda *a, **k: html_import_styles.WriteReport()
     )
     res = ApplyDocumentContent().execute(
         _ctx(),
@@ -415,8 +423,8 @@ def test_search_all_matches_unions_failures_with_dedupe(monkeypatch):
     def fake_replace(*a, **k):
         calls.append(len(calls))
         if len(calls) == 1:
-            return (["text-align"], None)
-        return (["text-align", "font-size"], None)
+            return html_import_styles.WriteReport(unapplied_para=["text-align"])
+        return html_import_styles.WriteReport(unapplied_para=["text-align", "font-size"])
 
     monkeypatch.setattr(format_mod, "replace_single_range_with_content", fake_replace)
     res = ApplyDocumentContent().execute(
@@ -477,7 +485,7 @@ def test_search_target_resolves_heading_link_to_outline(monkeypatch):
 
     def mock_replace(doc, found, content, *args, **kwargs):
         passed_down.append(content)
-        return [], None
+        return html_import_styles.WriteReport()
 
     monkeypatch.setattr(format_mod, "replace_single_range_with_content", mock_replace)
     res = ApplyDocumentContent().execute(
@@ -1129,7 +1137,7 @@ def test_anchor_plain_text_wraps_in_p_and_skips_hyperlinks(monkeypatch):
 
     def fake_replace(doc, found, content, ctx, **k):
         recorded_content.append(content)
-        return ([], None)
+        return html_import_styles.WriteReport()
 
     monkeypatch.setattr(format_mod, "replace_single_range_with_content", fake_replace)
     with patch("plugin.writer.apply_document_content.capture_outline_hyperlinks") as mock_capture:
@@ -1151,7 +1159,7 @@ def test_anchor_plain_text_single_line_unwrapped(monkeypatch):
 
     def fake_replace(doc, found, content, ctx, **k):
         recorded_content.append(content)
-        return ([], None)
+        return html_import_styles.WriteReport()
 
     monkeypatch.setattr(format_mod, "replace_single_range_with_content", fake_replace)
     res = ApplyDocumentContent().execute(
@@ -1171,7 +1179,7 @@ def test_anchor_markup_not_wrapped_again(monkeypatch):
 
     def fake_replace(doc, found, content, ctx, **k):
         recorded_content.append(content)
-        return ([], None)
+        return html_import_styles.WriteReport()
 
     monkeypatch.setattr(format_mod, "replace_single_range_with_content", fake_replace)
     res = ApplyDocumentContent().execute(
@@ -1189,7 +1197,7 @@ def test_full_document_structured_return_paragraphs_and_headings():
 
     content = ["<h1>Title</h1>", '<p data-lo-style="Heading2">Section</p>', "<p>Body</p>"]
     with patch("plugin.writer.html_import.replace_full_document") as mock_replace:
-        mock_replace.return_value = []
+        mock_replace.return_value = html_import_styles.WriteReport()
         res = ApplyDocumentContent().execute(_ctx(), content=content, target="full_document")
     assert res["status"] == "ok"
     assert res["message"] == "Replaced entire document."
@@ -1206,7 +1214,7 @@ def test_full_document_non_heading_style_dropped_from_headings():
 
     content = '<h1 data-lo-style="Quotations">Title</h1>'
     with patch("plugin.writer.html_import.replace_full_document") as mock_replace:
-        mock_replace.return_value = []
+        mock_replace.return_value = html_import_styles.WriteReport()
         res = ApplyDocumentContent().execute(_ctx(), content=content, target="full_document")
     assert res["status"] == "ok"
     assert res["paragraph_count"] == 1
@@ -1218,7 +1226,7 @@ def test_full_document_empty_content_returns_zero_paragraphs():
     from unittest.mock import patch
 
     with patch("plugin.writer.html_import.replace_full_document") as mock_replace:
-        mock_replace.return_value = []
+        mock_replace.return_value = html_import_styles.WriteReport()
         res = ApplyDocumentContent().execute(_ctx(), content="", target="full_document")
     assert res["status"] == "ok"
     assert res["paragraph_count"] == 0
@@ -1230,7 +1238,7 @@ def test_full_document_data_lo_para_warnings():
 
     content = '<p data-lo-para="line-height:150%">Hello</p>'
     with patch("plugin.writer.html_import.replace_full_document") as mock_replace:
-        mock_replace.return_value = ["line-height"]
+        mock_replace.return_value = html_import_styles.WriteReport(unapplied_para=["line-height"])
         res = ApplyDocumentContent().execute(_ctx(), content=content, target="full_document")
     assert res["status"] == "ok"
     assert res["paragraph_count"] == 1
@@ -1246,10 +1254,8 @@ def test_full_document_reports_math_objects(monkeypatch):
         {"kind": "tex", "display_block": True, "snippet": "b", "ok": True},
     ]
 
-    def fake_replace_full_document(doc, ctx, content, *, math_out=None):
-        if math_out is not None:
-            math_out.extend(entries)
-        return []
+    def fake_replace_full_document(doc, ctx, content):
+        return html_import_styles.WriteReport(math=list(entries))
 
     monkeypatch.setattr(format_mod, "replace_full_document", fake_replace_full_document)
     content = r"<p>\(a\)</p><p>$$b$$</p>"
@@ -1267,10 +1273,8 @@ def test_full_document_failed_math_attempt_reports_math_import_failed_warning(mo
         {"kind": "tex", "display_block": True, "snippet": "b", "ok": False, "error": "invalid"},
     ]
 
-    def fake_replace_full_document(doc, ctx, content, *, math_out=None):
-        if math_out is not None:
-            math_out.extend(entries)
-        return []
+    def fake_replace_full_document(doc, ctx, content):
+        return html_import_styles.WriteReport(math=list(entries))
 
     monkeypatch.setattr(format_mod, "replace_full_document", fake_replace_full_document)
     content = r"<p>\(a\)</p><p>$$b$$</p>"
@@ -1295,10 +1299,8 @@ def test_wait_mode_waits_for_review_when_math_import_fails(monkeypatch):
         {"kind": "tex", "display_block": True, "snippet": r"\sqrt{", "ok": False, "error": "NoAvailableTokensError"},
     ]
 
-    def fake_replace_full_document(doc, ctx, content, *, math_out=None):
-        if math_out is not None:
-            math_out.extend(entries)
-        return []
+    def fake_replace_full_document(doc, ctx, content):
+        return html_import_styles.WriteReport(math=list(entries))
 
     monkeypatch.setattr(format_mod, "replace_full_document", fake_replace_full_document)
 
@@ -1324,9 +1326,8 @@ def test_wait_mode_waits_for_review_when_math_import_fails(monkeypatch):
 
 
 def test_full_document_plain_html_omits_math_objects(monkeypatch):
-    def fake_replace_full_document(doc, ctx, content, *, math_out=None):
-        # Plain HTML leaves math_out untouched (empty)
-        return []
+    def fake_replace_full_document(doc, ctx, content):
+        return html_import_styles.WriteReport()
 
     monkeypatch.setattr(format_mod, "replace_full_document", fake_replace_full_document)
     res = ApplyDocumentContent().execute(_ctx(), content="<p>Hello</p>", target="full_document")
@@ -1339,10 +1340,8 @@ def test_target_end_and_search_report_math_objects(monkeypatch):
 
     end_entry = {"kind": "tex", "display_block": False, "snippet": "end_formula", "ok": True}
 
-    def fake_insert_at_pos(doc, ctx, content, position, *, math_out=None):
-        if math_out is not None:
-            math_out.append(end_entry)
-        return [], None
+    def fake_insert_at_pos(doc, ctx, content, position):
+        return html_import_styles.WriteReport(math=[end_entry])
 
     monkeypatch.setattr(format_mod, "insert_content_at_position", fake_insert_at_pos)
     res = ApplyDocumentContent().execute(_ctx(), content=r"<p>\(end_formula\)</p>", target="end")
@@ -1352,10 +1351,8 @@ def test_target_end_and_search_report_math_objects(monkeypatch):
 
     search_entry = {"kind": "tex", "display_block": False, "snippet": "search_formula", "ok": True}
 
-    def fake_replace_single(doc, text_range, content, ctx, *, math_out=None):
-        if math_out is not None:
-            math_out.append(search_entry)
-        return [], None
+    def fake_replace_single(doc, text_range, content, ctx):
+        return html_import_styles.WriteReport(math=[search_entry])
 
     monkeypatch.setattr(format_mod, "replace_single_range_with_content", fake_replace_single)
     monkeypatch.setattr(search_mod, "find_first_range", lambda doc, s: MockRange())
@@ -1385,10 +1382,8 @@ def test_error_or_rollback_omits_math_objects(monkeypatch):
     """When an edit fails or rolls back, attempted math objects must not be published."""
     entry = {"kind": "tex", "display_block": False, "snippet": "x^2", "ok": True}
 
-    def fake_replace_full_document(doc, ctx, content, *, math_out=None):
-        if math_out is not None:
-            math_out.append(entry)
-        return []
+    def fake_replace_full_document(doc, ctx, content):
+        return html_import_styles.WriteReport(math=[entry])
 
     monkeypatch.setattr(format_mod, "replace_full_document", fake_replace_full_document)
     monkeypatch.setattr(

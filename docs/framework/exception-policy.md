@@ -74,19 +74,19 @@ Code constants remain string literals across call sites. Codes are JSON wire val
 | `TABLE_IN_ANCHOR_RANGE` | error | `apply_document_content.py` | None |
 | `TABLE_BLOCK_IN_CELL` | error | Block HTML inserted in table cell (`html_import.py`) | None |
 | `TABLE_INSERT_FAILED` | error | Table creation or insertion failed (`apply_document_content.py`) | None |
-| `HYPERLINK_UPDATE_FAILED` | error | Updating hyperlink URL or bookmark target failed (`apply_document_content.py`) | None |
+| `HYPERLINK_UPDATE_FAILED` | error | Updating hyperlink URL or bookmark target failed (`apply_document_content.py`, `hyperlink_fixup.py`, also reported by `all_matches`) | None |
 | `UNDO_UNAVAILABLE` | error | `apply_document_content.py`, `styles.py`, `target_resolver.py` (`insert_at_target`) | None |
 | `ROLLBACK_FAILED` | error | `apply_document_content.py`, `styles.py`, `target_resolver.py` (`insert_at_target`) | None |
 | `UNDO_CONTEXT_LEAK` | error | `commit_or_rollback` (`compound_undo.py`) when `leaveUndoContext` fails after a successful edit; reworded by `page.py` and `styles.py`, returned as-is by `commit_or_rollback_mutation` | None |
 | `VALIDATION_ERROR` | error | Produced by `prepare_tool_call` / `ToolBase.validate` for missing required, unknown, wrong-type or non-enum arguments before `execute`. Tool bodies check only ranges, conditional requirements and nested items, with `INVALID_PARAM`. | None |
 | `INVALID_PARAM` | error | Parameter validation failures (`INVALID_PARAM` is the only spelling; `INVALID_PARAMETER` is not used): missing query/pattern (`search.py`); invalid style/clear_direct (`styles.py`); selection parameter conflicts/empty values (`selection.py`); `apply_document_content` parameter conflicts/empty strings | None |
 | `INVALID_REGEX` | error | `validate_icu_regex` / `invalid_regex_tool_message` (`search.py`) | None |
-| `STYLE_IGNORED_PARTIAL_MATCH` | warning | Partial match style skip (`html_import.py`, `apply_document_content.py`) | `apply_style(target="search", old_content=<params.plain>, style=<style>, case_sensitive=True)` when every check in `_partial_match_style_suggestion` (`apply_document_content.py`) passes; never for `target='selection'` or while recording. |
-| `STYLE_IGNORED_RECORDING` | warning | Tracked changes recording skip (`html_import.py`, `apply_document_content.py`) | None (`apply_style` is not tracked). |
-| `PARA_PROPERTY_UNSUPPORTED` | warning | Unapplied `data-lo-para` property (`html_import_styles.attach_para_warnings`) | None |
-| `PARA_IGNORED_PARTIAL_MATCH` | warning | Partial match `data-lo-para` skip (`html_import_styles.attach_para_warnings`) | None |
-| `PARA_IGNORED_RECORDING` | warning | Tracked changes recording `data-lo-para` skip (`html_import_styles.attach_para_warnings`) | None |
-| `MATH_IMPORT_FAILED` | warning | Formula conversion failed during HTML/math import (`html_import_styles.attach_math_objects`) | None |
+| `STYLE_IGNORED_PARTIAL_MATCH` | warning | Partial match style skip (`html_import.py`, `html_import_styles.attach_write_report`) | `apply_style(target="search", old_content=<params.plain>, style=<style>, case_sensitive=True)` when every check in `_partial_match_style_suggestion` (`apply_document_content.py`) passes; never for `target='selection'` or while recording. |
+| `STYLE_IGNORED_RECORDING` | warning | Tracked changes recording skip (`html_import.py`, `html_import_styles.attach_write_report`) | None (`apply_style` is not tracked). |
+| `PARA_PROPERTY_UNSUPPORTED` | warning | Unapplied `data-lo-para` property (`html_import_styles.attach_write_report`) | None |
+| `PARA_IGNORED_PARTIAL_MATCH` | warning | Partial match `data-lo-para` skip (`html_import_styles.attach_write_report`) | None |
+| `PARA_IGNORED_RECORDING` | warning | Tracked changes recording `data-lo-para` skip (`html_import_styles.attach_write_report`) | None |
+| `MATH_IMPORT_FAILED` | warning | Formula conversion failed during HTML/math import (`html_import_styles.attach_write_report`) | None |
 
 *Naming invariant:* A code names the underlying condition, not the tool. Once shipped, a code is never renamed.
 

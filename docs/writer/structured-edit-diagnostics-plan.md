@@ -45,8 +45,8 @@ Why: prompt instructions carry complex API-mechanics rules largely because tool 
   - *Invariant on hand-built dicts:* `is_replaced_zero_result` in `plugin/chatbot/tool_loop_actions.py:218-224` explicitly checks top-level `result_data.get("replaced_count") == 0`, and unit tests directly inspect top-level `closest_match`, `diff_at`, and `oversized`. These dicts must not be routed through `make_tool_error` (which moves extra kwargs under `details` and invokes `_()` on untranslated runtime text). Instead, each hand-built dict directly receives a `"code": "..."` field.
 - **Warning fields today:**
   - Writer maintains two distinct warning fields with differing shapes:
-    1. `warnings: list[str]`: reports dropped `data-lo-para` properties via `html_import_styles.attach_para_warnings` (`plugin/writer/html_import_styles.py:593-605`). Callers are `apply_document_content.py:1347, 1373, 1403, 1608` and `page.py:1017` (header/footer writes).
-    2. `warning: str` (singular): reports `data-lo-style` skips via `_attach_style_notes` (`plugin/writer/apply_document_content.py:324-371`), which formats `_LO_STYLE_PARTIAL_MATCH_NOTE` and `_LO_STYLE_RECORDING_NOTE` into singular `warning` and appends to `message`. Other Writer tools also write singular `warning` strings for unrelated conditions (`styles.py:372, 1276-1278`, `page.py:381, 901, 1413`, `selection.py:128`, `search.py:1484`, `get_document_content.py:166`).
+    1. `warnings: list[str]`: reports dropped `data-lo-para` properties via `html_import_styles.attach_para_warnings` (now `html_import_styles.attach_write_report` in `plugin/writer/html_import_styles.py`). Callers are `apply_document_content.py` and `page.py` (header/footer writes).
+    2. `warning: str` (singular): reports `data-lo-style` skips via `_attach_style_notes` (later unified into `html_import_styles.attach_write_report` via `WriteReport`), which formats `_LO_STYLE_PARTIAL_MATCH_NOTE` and `_LO_STYLE_RECORDING_NOTE` into singular `warning` and appends to `message`. Other Writer tools also write singular `warning` strings for unrelated conditions (`styles.py:372, 1276-1278`, `page.py:381, 901, 1413`, `selection.py:128`, `search.py:1484`, `get_document_content.py:166`).
   - Silent style drop on before/after: block content next to a match (`apply_document_content.py:1674, 1683`) passes `apply_styles=False` to `insert_html_at_cursor`, stripping `data-lo-style` without emitting any warning note (`html_import.py:296, 305`).
   - Draw, Calc, and vision: `result["warnings"]` is a `list[str]` (`plugin/draw/shapes.py:675-707`, `plugin/calc/charts.py:762-764`, `vision/venv/vision.py:71`).
 
@@ -98,7 +98,7 @@ def suggest_call(tool: str, **arguments: Any) -> SuggestedCall:
 
 **Decision: Option A.**
 - Writer unifies style skips and `data-lo-para` drops into `result["warnings"]: list[Diagnostic]`.
-- Style skips in `_attach_style_notes` move from the singular `warning` string to `warnings: list[Diagnostic]`. `_attach_style_notes` stops writing the singular `warning` field, since the explanatory sentence is already appended to `message` (avoiding duplicate text).
+- Style skips in `_attach_style_notes` move from the singular `warning` string to `warnings: list[Diagnostic]`. `_attach_style_notes` stops writing the singular `warning` field, since the explanatory sentence is already appended to `message` (avoiding duplicate text). (Style skips and para warnings are unified in `html_import_styles.attach_write_report`).
 - Other tools emitting singular `warning` strings (e.g. `selection.py`, `page.py`) remain untouched.
 - `attach_para_warnings` in `plugin/writer/html_import_styles.py` converts to output `list[Diagnostic]` with code `PARA_PROPERTY_UNSUPPORTED`. Because `page.py:1017` calls `attach_para_warnings`, page header/footer writes switch to `Diagnostic` concurrently in Phase 1.
 - Draw, Calc, and vision remain `list[str]` for now and can adopt `Diagnostic` opportunistically.
@@ -129,7 +129,7 @@ Code constants remain string literals across call sites, consistent with the cod
 | `INVALID_REGEX` | error | `validate_icu_regex` / `invalid_regex_tool_message` (`search.py`) | None (item 21 shipped; validated via ICU engine; `details.engine` dropped). |
 | `STYLE_IGNORED_PARTIAL_MATCH` | warning | Partial match style skip (`_LO_STYLE_PARTIAL_MATCH_NOTE`, `html_import.py:507`) | `apply_style(target="search", old_content=<params.plain>, style=<style>, case_sensitive=True)` if conditions in §3.5 hold. |
 | `STYLE_IGNORED_RECORDING` | warning | Tracked changes recording skip (`_LO_STYLE_RECORDING_NOTE`, `html_import.py:511`) | None (`apply_style` is not tracked). |
-| `PARA_PROPERTY_UNSUPPORTED` | warning | Unapplied `data-lo-para` property (`html_import_styles.attach_para_warnings:593`) | None |
+| `PARA_PROPERTY_UNSUPPORTED` | warning | Unapplied `data-lo-para` property (`html_import_styles.attach_write_report`) | None |
 | `LINK_TARGET_NOT_FOUND` | warning | `resolve_heading_links` (`html_import_styles.py`) | None |
 
 *Heading link resolution:* `resolve_heading_links` rewrites bare `href="#Heading"` fragments to `href="#Heading|outline"` when the fragment matches an outline heading text (derived from headings written in the HTML plus existing body headings; skipped for `full_document`). Targets matching an element `id` or `name` in the written HTML, or an existing bookmark in the document, are exempted from rewrite and warning. Unmatched bare fragments emit a `LINK_TARGET_NOT_FOUND` diagnostic warning once per distinct fragment.
@@ -204,11 +204,11 @@ Each phase is independently shippable, maintains green tests, and requires no te
 - Tests: `tests/framework/test_errors.py` (payload shape with and without `suggested_call`, schema validation helper).
 
 ### Phase 1: Item 4 — Partial-match style skips as diagnostics (Writer)
-- Migrate `_attach_style_notes` in `plugin/writer/apply_document_content.py` to append `Diagnostic` dicts to `result["warnings"]` and discontinue writing singular `warning`.
+- Migrate `_attach_style_notes` in `plugin/writer/apply_document_content.py` (now `html_import_styles.attach_write_report`) to append `Diagnostic` dicts to `result["warnings"]` and discontinue writing singular `warning`.
 - Update `_lo_style_for_replaced_range` in `plugin/writer/html_import.py` to return diagnostic codes (`STYLE_IGNORED_PARTIAL_MATCH`, `STYLE_IGNORED_RECORDING`) rather than note strings, simplifying aggregation.
 - Build `suggested_call` for `apply_style` adhering strictly to §3.5 rules (new text `params.plain`, single paragraph, unique resolved style, exact match count, gated on recording).
 - Update `attach_para_warnings` in `plugin/writer/html_import_styles.py` to emit `Diagnostic` dicts (`PARA_PROPERTY_UNSUPPORTED`). (This simultaneously updates `page.py:1017` header/footer writes).
-- Note: Full-document replacement already routes through `attach_para_warnings` (`apply_document_content.py:1347`), automatically picking up the new diagnostic shape.
+- Note: Full-document replacement already routes through `attach_para_warnings`, automatically picking up the new diagnostic shape.
 - Tests: `tests/writer/test_content.py`, `tests/writer/test_apply_document_content_structured_return.py`, `tests/writer/test_page.py`, `tests/writer/test_html_import.py`, and UNO replay in `tests/writer/test_content_style_model_uno.py`.
 
 ### Phase 2: Code all Writer edit errors
