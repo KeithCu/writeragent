@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import calendar
 import datetime as dt
-from decimal import Decimal
 import math
 import urllib.parse
 from typing import Any, Callable
@@ -19,12 +18,14 @@ from typing import Any, Callable
 import numpy as np
 
 from .calc_functions_util import (
+    as_bool_flag,
     as_nonzero,
     coupon_schedule,
     date_to_serial,
     days360_dates,
     extract_numeric_array,
     finite_or_nan,
+    format_quantized,
     match_criteria,
     npf_result,
     round_half_up,
@@ -446,15 +447,6 @@ def dmin(db: Any, field: Any, criteria: Any) -> float:
     return _dagg(db, field, criteria, np.min, min_n=1, empty=0.0)
 
 
-def _format_quantized(q: Decimal, decimals: int, *, commas: bool) -> str:
-    places = max(0, decimals)
-    # Decimal('-0.00') formats as "-0.00". A rounded zero has no sign.
-    # FIXED(-0.001, 2) was "-0.00". DOLLAR already hides it via q < 0.
-    if q == 0:
-        q = abs(q)
-    return f"{q:,.{places}f}" if commas else f"{q:.{places}f}"
-
-
 def dollar(number: Any, decimals: Any = 2) -> str | float:
     # The minus sits before the dollar sign (-$1,234.57), after half-up rounding.
     val = float(number)
@@ -462,7 +454,7 @@ def dollar(number: Any, decimals: Any = 2) -> str | float:
     if not math.isfinite(val):
         return float("nan")
     q = round_half_up(val, dec)
-    magnitude = _format_quantized(abs(q), dec, commas=True)
+    magnitude = format_quantized(abs(q), dec, commas=True)
     return f"-${magnitude}" if q < 0 else f"${magnitude}"
 
 
@@ -682,7 +674,7 @@ def even(n: Any) -> float:
 
 
 def _flag_default_true(val: Any) -> bool:
-    # as_nonzero treats a blank as false. These three flags treat it as true.
+    # EXPONDIST and GAMMADIST read a blank flag as cumulative. Calc's GetBool reads a blank cell or an empty argument as 0, the density (ScExpDist, ScGammaDist in interpr3.cxx).
     if val is None or val == "":
         return True
     return as_nonzero(val)
@@ -695,10 +687,8 @@ def expondist(x: Any, lambda_: Any, c: Any = 1) -> float:
 
     x_val = float(x)
     lam = float(lambda_)
-    try:
-        cum = _flag_default_true(c)
-    except (ValueError, TypeError, OverflowError):
-        return float("nan")
+    # A text flag raises ValueError (#VALUE!), as GetBool does in Calc.
+    cum = _flag_default_true(c)
     # st.expon.pdf of a negative x is 0. scale=1/lam is ZeroDivisionError when lam is 0.
     # Excel EXPONDIST is #NUM! for both.
     if x_val < 0 or lam <= 0:
@@ -811,7 +801,7 @@ def fixed(number: Any, decimals: Any = 2, no_commas: Any = False) -> str | float
     if not math.isfinite(val):
         return float("nan")
     # Half away from zero (2.5 -> 3, -2.5 -> -3). Python round() is half-to-even.
-    return _format_quantized(round_half_up(val, dec), dec, commas=not nc)
+    return format_quantized(round_half_up(val, dec), dec, commas=not nc)
 
 
 def forecast(x: Any, data_y: Any, data_x: Any) -> float:
@@ -881,10 +871,8 @@ def gammadist(x: Any, alpha: Any, beta: Any, c: Any = 1) -> float:
     x_val = float(x)
     a = float(alpha)
     b = float(beta)
-    try:
-        cum = _flag_default_true(c)
-    except (ValueError, TypeError, OverflowError):
-        return float("nan")
+    # A text flag raises ValueError (#VALUE!), as GetBool does in Calc.
+    cum = _flag_default_true(c)
     # st.gamma.pdf of a negative x is 0. Excel is #NUM!.
     if x_val < 0 or a <= 0 or b <= 0:
         return float("nan")
@@ -956,10 +944,8 @@ def growth(known_y: Any, known_x: Any = None, new_x: Any = None, const: Any = Tr
             new_x_arr = np.asarray(new_x, dtype=float).ravel()
 
         y_log = np.log(y)
-        # _flag_default_true reads the flag as GetDouble() != 0, so the text "0"
-        # drops the intercept (bool("0") would keep it). The text "FALSE" fails
-        # float() and the handler below returns "#VALUE!".
-        use_const = _flag_default_true(const)
+        # GROWTH reads const the way TREND does; both are CalculateTrendGrowth (interpr5.cxx) with GetBool. A blank, 0, "0" or the text FALSE is false, and TRUE keeps the intercept. as_bool_flag is that reading.
+        use_const = as_bool_flag(const)
         if use_const:
             coeffs = np.polyfit(x, y_log, 1)
             res = np.exp(np.polyval(coeffs, new_x_arr))

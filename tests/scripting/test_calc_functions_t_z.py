@@ -582,3 +582,14 @@ def test_text_date_time_formats():
     assert calc.text(-0.25, "hh:mm:ss") == "18:00:00"
 
 
+def test_text_and_trend_shared_helpers_unchanged():
+    assert calc.text(0.285, "0%") == "29%"
+    assert calc.text(-0.001, "0.00") == "0.00"
+    assert calc.text(-2.5, "0") == "-3"
+    assert calc.text(1e30, "#,##0.00") == "1," + "000," * 9 + "000.00"
+    assert calc.text(float("inf"), "0.00") == "inf"
+    assert np.allclose(calc.trend([1, 2, 3], [[1, 2, 3]], [[4], [5]]), [4.0, 5.0])
+    assert np.allclose(calc.trend([1, 2, 3, 4], [[1, 2, 3, 4], [2, 1, 5, 4]], [[5], [6]]), [5.0])
+    assert np.allclose(calc.trend(5, 3), [5.0])
+
+

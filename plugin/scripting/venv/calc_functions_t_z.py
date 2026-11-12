@@ -13,7 +13,7 @@ import calendar
 import datetime as dt
 import math
 import re
-from decimal import Decimal, InvalidOperation, ROUND_HALF_UP, localcontext
+from decimal import Decimal
 from typing import Any
 
 import numpy as np
@@ -26,8 +26,11 @@ from .calc_functions_util import (
     collect_a_values,
     date_to_serial,
     extract_numeric_array,
+    format_quantized,
     is_calc_error,
+    orient_columns,
     parse_weekend,
+    round_half_up,
     scipy_stats,
     serial_to_date,
     wildcard_fullmatch,
@@ -140,19 +143,7 @@ def _format_number_pattern(value: float, places: int, grouped: bool, *, scale: i
     """
     if not math.isfinite(value):
         return str(value)
-    dec = Decimal(str(value))
-    if scale != 1:
-        dec *= scale
-    quant = Decimal(1).scaleb(-places)
-    # Default precision is 28. quantize of 1e30 raised InvalidOperation,
-    # and TEXT then returned the scientific fallback "1e+30".
-    with localcontext() as ctx:
-        ctx.prec = max(28, abs(dec.adjusted()) + places + 2)
-        rounded = dec.quantize(quant, rounding=ROUND_HALF_UP)
-    # Decimal("-0") < 0 is false, so a rounded zero prints "0", not "-0".
-    negative = rounded < 0
-    body = f"{abs(rounded):{',' if grouped else ''}.{places}f}"
-    return f"-{body}" if negative else body
+    return format_quantized(round_half_up(Decimal(str(value)) * scale, places), places, commas=grouped)
 
 
 def text(val: Any, fmt: Any) -> str | float:
@@ -184,7 +175,7 @@ def text(val: Any, fmt: Any) -> str | float:
             h, rem = divmod(total_sec, 3600)
             m, s = divmod(rem, 60)
             return f"{h:02d}:{m:02d}:{s:02d}"
-    except (ValueError, TypeError, OverflowError, InvalidOperation):
+    except (ValueError, TypeError, OverflowError):
         return str(val)
     # ScText calls NFGetPreviewStringGuess and PushIllegalArgument (Err:502)
     # when the format is rejected. The tables above are the whole set this
@@ -411,15 +402,8 @@ def trend(*args: Any) -> Any:
         if data_y.size == 0 or np.any(np.isnan(data_y)):
             return "#VALUE!"
         if len(args) > 1 and args[1] is not None:
-            # A scalar is 0-d. GetMatrix (interpr5.cxx) stores that double
-            # as a 1×1 matrix. shape[0] on the 0-d array raised IndexError,
-            # which this handler does not catch, so TREND of a scalar known_x
-            # escaped instead of fitting.
-            data_x = np.atleast_1d(np.asarray(args[1], dtype=float))
-            if data_x.ndim == 1:
-                data_x = data_x[:, np.newaxis]
-            elif data_x.ndim == 2 and data_x.shape[0] != data_y.shape[0] and data_x.shape[1] == data_y.shape[0]:
-                data_x = data_x.T
+            # A scalar is 0-d; GetMatrix (interpr5.cxx) stores it as a 1×1 matrix.
+            data_x = orient_columns(np.atleast_1d(np.asarray(args[1], dtype=float)), len(data_y), axis=0)
         else:
             data_x = np.arange(1, len(data_y) + 1, dtype=float)[:, np.newaxis]
 
@@ -427,13 +411,8 @@ def trend(*args: Any) -> Any:
             return "#VALUE!"
 
         if len(args) > 2 and args[2] is not None:
-            # Same 0-d scalar as known_x. CalculateTrendGrowth predicts
-            # every element of the 1×1 new_x matrix.
-            new_data_x = np.atleast_1d(np.asarray(args[2], dtype=float))
-            if new_data_x.ndim == 1:
-                new_data_x = new_data_x[:, np.newaxis]
-            elif new_data_x.ndim == 2 and new_data_x.shape[1] != data_x.shape[1] and new_data_x.shape[0] == data_x.shape[1]:
-                new_data_x = new_data_x.T
+            # A scalar is 0-d; GetMatrix (interpr5.cxx) stores it as a 1×1 matrix.
+            new_data_x = orient_columns(np.atleast_1d(np.asarray(args[2], dtype=float)), data_x.shape[1], axis=1)
         else:
             new_data_x = data_x
 
