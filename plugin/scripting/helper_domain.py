@@ -385,14 +385,19 @@ def _exception_detail(error: BaseException) -> str:
 def rps_error_outcome(
     message: str,
     *,
-    t0: float,
+    t0: float | None,
     traceback: str | None = None,
 ) -> dict[str, Any]:
-    """Standard ``{ok: False, message}`` with elapsed time when not a timeout."""
-    elapsed = _elapsed_since(t0)
+    """Standard ``{ok: False, message}`` with elapsed time when not a timeout.
+
+    When ``t0`` is ``None``, the message is returned as given with no elapsed time.
+    Callers use this for refusals before the run starts or failures with no run clock.
+    """
     err_msg = str(message)
-    if "timed out" not in err_msg.lower() and "timeout" not in err_msg.lower():
-        err_msg = f"{err_msg} (took {format_elapsed_time(elapsed)})"
+    if t0 is not None:
+        elapsed = _elapsed_since(t0)
+        if "timed out" not in err_msg.lower() and "timeout" not in err_msg.lower():
+            err_msg = f"{err_msg} (took {format_elapsed_time(elapsed)})"
     out: dict[str, Any] = {"ok": False, "message": err_msg}
     if traceback is not None:
         out["traceback"] = traceback
@@ -426,7 +431,13 @@ def rps_ok_outcome(
     *,
     result: Any,
     stdout: str | None = None,
+    no_output: bool = False,
 ) -> dict[str, Any]:
+    """Standard ``{ok: True, status_ok_text, result}`` outcome dictionary.
+
+    The returned dictionary contains ``ok``, ``status_ok_text``, and ``result``.
+    Optional keys include ``stdout`` when non-None, and ``no_output`` when True.
+    """
     out: dict[str, Any] = {
         "ok": True,
         "status_ok_text": status_ok_text,
@@ -434,6 +445,8 @@ def rps_ok_outcome(
     }
     if stdout is not None:
         out["stdout"] = stdout
+    if no_output:
+        out["no_output"] = True
     return out
 
 

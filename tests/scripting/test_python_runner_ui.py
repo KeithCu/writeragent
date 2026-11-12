@@ -203,20 +203,20 @@ def test_start_native_script_run_worker_splits_main_and_venv():
         assert passed_ctx is ctx
         assert passed_doc is doc
         assert data_range is None
-        return {
-            "early_outcome": None,
-            "ctx": passed_ctx,
-            "doc": passed_doc,
-            "code": code,
-            "t0": 0.0,
-            "py_data": None,
-            "bindings": None,
-            "session_id": "rps:doc",
-        }
+        return pr.PreparedScript(
+            ctx=passed_ctx,
+            doc=passed_doc,
+            code=code,
+            t0=0.0,
+            bindings=None,
+            py_data=None,
+            session_id="rps:doc",
+            script_session_id=None,
+        )
 
     def _run(prepared):
         order.append("venv")
-        assert prepared["code"] == "result = 1" and prepared["bindings"] is None
+        assert prepared.code == "result = 1" and prepared.bindings is None
         return {"status": "ok", "result": 1, "stdout": ""}
 
     def _finish(prepared, response):
@@ -252,7 +252,7 @@ def test_start_native_script_run_forwards_data_range():
         assert passed_doc is doc
         assert code == "result = 1"
         assert data_range == "A1:B2"
-        return {"early_outcome": {"ok": True, "status_ok_text": "bound"}}
+        return pr.EarlyOutcome(outcome={"ok": True, "status_ok_text": "bound"})
 
     def _inline(func, *args, **kwargs):
         func()
@@ -278,16 +278,16 @@ def test_start_native_script_run_reports_venv_failure():
     seen = []
 
     def _prepare(passed_ctx, passed_doc, code, *, data_range=None, pin_token=None):
-        return {
-            "early_outcome": None,
-            "ctx": passed_ctx,
-            "doc": passed_doc,
-            "code": code,
-            "t0": 0.0,
-            "py_data": None,
-            "bindings": None,
-            "session_id": None,
-        }
+        return pr.PreparedScript(
+            ctx=passed_ctx,
+            doc=passed_doc,
+            code=code,
+            t0=0.0,
+            bindings=None,
+            py_data=None,
+            session_id="",
+            script_session_id=None,
+        )
 
     def _inline(func, *args, **kwargs):
         func()
@@ -331,7 +331,16 @@ def test_start_native_script_run_releases_pin_when_finish_is_not_run():
         func()
         return MagicMock()
 
-    prepared = {"early_outcome": None, "script_session_id": "doc:leak"}
+    prepared = pr.PreparedScript(
+        ctx=ctx,
+        doc=doc,
+        code="result = 1",
+        t0=0.0,
+        bindings=None,
+        py_data=None,
+        session_id="rps:leak",
+        script_session_id="doc:leak",
+    )
 
     with (
         _deliver_posted_native_run(),
@@ -352,6 +361,46 @@ def test_start_native_script_run_releases_pin_when_finish_is_not_run():
     mock_release.assert_called_once_with("doc:leak")
     assert seen and seen[0]["ok"] is False
     assert "timed out" in seen[0]["message"]
+
+
+def test_start_native_script_run_finish_failure_carries_traceback():
+    ctx = MagicMock()
+    doc = MagicMock()
+    seen = []
+
+    def _inline(func, *args, **kwargs):
+        func()
+        return MagicMock()
+
+    prepared = pr.PreparedScript(
+        ctx=ctx,
+        doc=doc,
+        code="result = 1",
+        t0=0.0,
+        bindings=None,
+        py_data=None,
+        session_id="rps:err",
+        script_session_id=None,
+    )
+
+    with (
+        _deliver_posted_native_run(),
+        patch.object(pr, "run_in_background", side_effect=_inline),
+        patch(
+            "plugin.framework.queue_executor.main.call",
+            side_effect=[
+                prepared,
+                RuntimeError("insert blew up"),
+            ],
+        ),
+        patch("plugin.scripting.python_runner._run_prepared_rps", return_value={"status": "ok", "result": 1}),
+    ):
+        pr.start_native_script_run(ctx, doc, "result = 1", on_complete=seen.append)
+
+    assert seen and seen[0]["ok"] is False
+    assert "insert blew up" in seen[0]["message"]
+    assert "(took" not in seen[0]["message"]
+    assert "traceback" in seen[0]
 
 
 def test_start_native_script_run_prepare_timeout_releases_pin():
