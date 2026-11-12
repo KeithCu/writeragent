@@ -32,7 +32,7 @@ from plugin.doc.text_helpers import (
     starts_at_or_after,
     with_view_cursor_left_body_locked,
 )
-from plugin.framework.errors import reraise_if_disposed, uno_read
+from plugin.framework.errors import make_tool_error, reraise_if_disposed, uno_read
 from plugin.framework.tool import ToolBase, ToolBaseDummy
 from plugin.framework.uno_context import get_ctx, get_service_manager, uno_same
 from plugin.framework.worker_pool import run_in_background
@@ -249,43 +249,63 @@ def parse_non_negative_int(
     return raw, None
 
 
-def shape_only_search_message(subject: str, shape_name: str, *, review: bool = False) -> str:
-    """Format the message when content is only found inside a drawing shape."""
+def shape_only_search_response(subject: str, shape_name: str, *, review: bool = False) -> dict[str, Any]:
+    """SHAPE_TEXT_NEEDS_DELEGATION payload: status, code, message, replaced_count 0."""
     note = "In review mode it cannot be edited as a tracked change; " if review else ""
     verb = "edit" if review else "Edit"
-    return (
+    message = (
         f"{subject} is only inside a drawing shape / floating text box ('{shape_name}'). "
         f"{note}{verb} it via the shapes toolset (delegate_to_specialized_writer_toolset domain='shapes')."
     )
+    return {
+        "status": "error",
+        "code": "SHAPE_TEXT_NEEDS_DELEGATION",
+        "message": message,
+        "replaced_count": 0,
+    }
 
 
 def build_search_not_found_response(
-    doc: Any = None,
-    needle: str = "",
+    doc: Any,
+    needle: str,
     *,
-    all_matches: bool = False,
-    shape_name: str | None = None,
-    lenient: bool = True,
+    case_sensitive: bool = SEARCH_CASE_SENSITIVE_DEFAULT,
     use_regex: bool = False,
-    tracked_deletions: bool = False,
-    closest: dict[str, Any] | None = None,
+    all_matches: bool = False,
+    lenient: bool = True,
+    subject: str = "old_content",
+    refuse_oversized: bool = False,
+    review: bool = False,
 ) -> dict[str, Any]:
-    """Standardized search not-found response dictionary."""
-    if shape_name:
+    """Standardized search not-found response dictionary.
+
+    The builder sweeps floating shapes so any search tool whose needle is confined
+    to a shape directs the caller to the shapes toolset. The subject parameter names
+    the tool parameter visible to the model (such as 'old_content' or 'search_text').
+    The document model doc and a non-empty search needle are required.
+    When refuse_oversized is True (used by old_content replace tools), a needle covering
+    more than 50% of the document body without a close mismatch returns OLD_CONTENT_TOO_LARGE.
+    """
+    if not needle:
         return {
             "status": "error",
-            "code": "SHAPE_TEXT_NEEDS_DELEGATION",
-            "message": shape_only_search_message("old_content", shape_name),
+            "code": "OLD_CONTENT_NOT_FOUND",
+            "message": f"{subject} not found in document. Try a shorter, unique substring.",
             "replaced_count": 0,
         }
+
+    shape_name = drawing_shape_containing(doc, needle, use_regex=use_regex, case_sensitive=case_sensitive)
+    if shape_name:
+        return shape_only_search_response(subject, shape_name, review=review)
 
     # Near-miss mismatch detection: check if there is a close match in the document.
     # We compute closest first so that a typo in a needle covering >50% of the body
     # still receives the helpful near-miss hint rather than an oversized refusal.
-    if closest is None and doc is not None and needle and not use_regex:
-        closest = search_closest_mismatch(doc, needle, lenient=lenient)
+    closest = search_closest_mismatch(doc, needle, lenient=lenient) if not use_regex else None
 
-    if closest is None and doc is not None and needle and not use_regex and old_content_covers_most(doc, len(needle)):
+    # The oversized refusal tells the model to use target='full_document', which
+    # only the old_content edit tools have; callers opt in via refuse_oversized=True.
+    if refuse_oversized and closest is None and not use_regex and old_content_covers_most(doc, len(needle)):
         return {
             "status": "error",
             "code": "OLD_CONTENT_TOO_LARGE",
@@ -294,14 +314,12 @@ def build_search_not_found_response(
             "oversized": True,
         }
 
-    from plugin.writer.review_scan import document_has_tracked_deletions
-
-    has_tracked = tracked_deletions or (doc is not None and document_has_tracked_deletions(doc))
+    has_tracked = document_has_tracked_deletions(doc)
     hint = _TRACKED_DELETION_HINT if has_tracked else ""
     if all_matches:
         base_msg = "Replaced 0 occurrence(s). No matches found. Try a shorter substring." + hint
     else:
-        base_msg = "old_content not found in document. Try a shorter, unique substring." + hint
+        base_msg = f"{subject} not found in document. Try a shorter, unique substring." + hint
 
     if closest:
         base_msg = f"{base_msg} {closest['message']}"
@@ -316,27 +334,6 @@ def build_search_not_found_response(
         resp["closest_match"] = closest["closest_match"]
         resp["diff_at"] = closest["diff_at"]
     return resp
-
-
-def search_miss_message(
-    doc: Any,
-    needle: str,
-    *,
-    shape_name: str | None = None,
-    lenient: bool = True,
-    all_matches: bool = False,
-    use_regex: bool = False,
-) -> str:
-    """Format the error message for a failed search (for target_resolver and diagnostics)."""
-    resp = build_search_not_found_response(
-        doc,
-        needle,
-        shape_name=shape_name,
-        lenient=lenient,
-        all_matches=all_matches,
-        use_regex=use_regex,
-    )
-    return str(resp.get("message", ""))
 
 
 AnchorMissKind = Literal["start", "end", "different_text"]
@@ -479,21 +476,6 @@ def _iter_lo_matches(
     yield from _iter_descriptor_hits(doc, sd, after=after)
 
 
-def find_lo_regex_ranges(
-    doc: Any,
-    candidate: str,
-    all_matches: bool = False,
-    *,
-    case_sensitive: bool = SEARCH_CASE_SENSITIVE_DEFAULT,
-) -> Any:
-    """LO regex findFirst/findNext for one candidate string."""
-    limit = MAX_SEARCH_REPLACEMENTS if all_matches else 1
-    ranges = list(islice(_iter_lo_matches(doc, candidate, case_sensitive), limit))
-    if ranges:
-        return ranges if all_matches else ranges[0]
-    return [] if all_matches else None
-
-
 def _chain_hit_range(found: Any, parts: list[str], anchor_idx: int) -> Any | None:
     text = found.getText()
 
@@ -581,7 +563,7 @@ def _chain_hit_range(found: Any, parts: list[str], anchor_idx: int) -> Any | Non
         result_range.gotoRange(end_range, True)
         return result_range
 
-    log.debug("find_chained_range: chain crosses XText; no single range")
+    log.debug("_chain_hit_range: chain crosses XText; no single range")
     return None
 
 
@@ -608,74 +590,6 @@ def _anchor_index(parts: list[str]) -> int:
     return -1
 
 
-def find_chained_range(
-    doc: Any,
-    search_string: str,
-    all_matches: bool = False,
-    *,
-    case_sensitive: bool = SEARCH_CASE_SENSITIVE_DEFAULT,
-) -> Any:
-    """Find search_string via LO regex (literal + newline-collapsed retry) then paragraph chaining.
-
-    doc.findFirst covers body, table cells, and text frames. Chaining handles real paragraph
-    breaks that LO regex cannot cross.
-
-    Not for whole-document replace: use apply_document_content(target='full_document') instead
-    of passing the entire body as old_content.
-    """
-    miss: list[Any] | None = [] if all_matches else None
-    if not search_string:
-        return miss
-
-    for candidate in _search_try_strings(search_string):
-        result = find_lo_regex_ranges(
-            doc, candidate, all_matches=all_matches, case_sensitive=case_sensitive
-        )
-        if all_matches:
-            if result:
-                return result
-        elif result is not None:
-            return result
-
-    parts = search_string.split('\n')
-    if len(parts) <= 1:
-        return miss
-
-    anchor_idx = _anchor_index(parts)
-    if anchor_idx == -1:
-        return miss
-
-    matched_ranges = []
-    for match in _iter_chain_matches(doc, parts, anchor_idx, case_sensitive):
-        if not all_matches:
-            return match
-        matched_ranges.append(match)
-        if len(matched_ranges) >= MAX_SEARCH_REPLACEMENTS:
-            return matched_ranges
-
-    return matched_ranges or miss
-
-
-def find_first_range(
-    doc: Any,
-    search_string: str,
-    *,
-    case_sensitive: bool = SEARCH_CASE_SENSITIVE_DEFAULT,
-) -> Any:
-    """First match: LO native search with chaining fallback."""
-    return find_chained_range(doc, search_string, all_matches=False, case_sensitive=case_sensitive)
-
-
-def find_all_ranges(
-    doc: Any,
-    search_string: str,
-    *,
-    case_sensitive: bool = SEARCH_CASE_SENSITIVE_DEFAULT,
-) -> list[Any]:
-    """All occurrences as TextRanges in document order (NBSP-aware native search with chaining)."""
-    return find_chained_range(doc, search_string, all_matches=True, case_sensitive=case_sensitive)
-
-
 def iter_literal_ranges(
     doc: Any,
     search_string: str,
@@ -689,6 +603,9 @@ def iter_literal_ranges(
     matches, those hits are emitted and search stops. When all_candidates is True (e.g. for
     anchor end searches), yields hits across all candidates followed by chain matches so
     downstream filtering can find matches in the target text container or boundary.
+
+    Not for whole-document replace: use apply_document_content(target='full_document') instead
+    of passing the entire body as old_content.
     """
     if not search_string:
         return
@@ -712,6 +629,26 @@ def iter_literal_ranges(
             yield from _iter_chain_matches(
                 doc, parts, anchor_idx, case_sensitive, after=after
             )
+
+
+def find_first_range(
+    doc: Any,
+    search_string: str,
+    *,
+    case_sensitive: bool = SEARCH_CASE_SENSITIVE_DEFAULT,
+) -> Any:
+    """First match in document order; native search with newline chaining."""
+    return next(iter_literal_ranges(doc, search_string, case_sensitive=case_sensitive), None)
+
+
+def find_all_ranges(
+    doc: Any,
+    search_string: str,
+    *,
+    case_sensitive: bool = SEARCH_CASE_SENSITIVE_DEFAULT,
+) -> list[Any]:
+    """All occurrences, capped at MAX_SEARCH_REPLACEMENTS."""
+    return list(islice(iter_literal_ranges(doc, search_string, case_sensitive=case_sensitive), MAX_SEARCH_REPLACEMENTS))
 
 
 def find_occurrence_range(
@@ -746,6 +683,34 @@ def find_occurrence_range(
         return None
 
     return _nth(iter_literal_ranges(doc, search_string, case_sensitive=case_sensitive))
+
+
+def occurrence_range_or_error(
+    doc: Any,
+    text: str,
+    raw_occurrence: Any,
+    *,
+    case_sensitive: bool,
+    subject: str,
+) -> tuple[Any | None, dict[str, Any] | None]:
+    """Resolve the occurrence-th body match of *text* for a tool.
+
+    Returns (range, None) on a hit, else (None, payload): INVALID_PARAM for a bad
+    occurrence, OCCURRENCE_OUT_OF_RANGE when there are fewer matches, or the
+    search-miss payload from build_search_not_found_response (subject names the
+    tool parameter in the sentence). Callers add their own top-level fields.
+    """
+    occurrence, occ_err = parse_non_negative_int(raw_occurrence, coerce=True)
+    if occ_err:
+        return None, make_tool_error(occ_err, code="INVALID_PARAM")
+    occurrence = 0 if occurrence is None else occurrence
+    try:
+        found = find_occurrence_range(doc, text, occurrence=occurrence, case_sensitive=case_sensitive)
+    except IndexError as exc:
+        return None, make_tool_error(str(exc), code="OCCURRENCE_OUT_OF_RANGE")
+    if found is None:
+        return None, build_search_not_found_response(doc, text, case_sensitive=case_sensitive, subject=subject)
+    return found, None
 
 
 def _is_same_text(candidate: Any, boundary_end: Any) -> bool:

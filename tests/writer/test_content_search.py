@@ -168,6 +168,8 @@ def test_old_content_covers_most_boundaries():
 
 
 def test_build_search_not_found_response_oversized_with_near_miss():
+    from unittest.mock import patch
+
     doc = _FakeDocForSteps(200)
     # 120-char needle is > half of 200-char doc, but has a closest mismatch
     needle = "A" * 120
@@ -176,14 +178,16 @@ def test_build_search_not_found_response_oversized_with_near_miss():
         "diff_at": 119,
         "message": "closest match starts '...', differs at character 119: A vs B",
     }
-    resp = build_search_not_found_response(doc, needle, closest=closest)
+    with patch("plugin.writer.search.search_closest_mismatch", return_value=closest):
+        resp = build_search_not_found_response(doc, needle)
     assert resp["status"] == "error"
     assert "target='full_document'" not in resp["message"]
     assert "closest match starts" in resp["message"]
     assert resp.get("oversized") is not True
 
     # When no closest mismatch is found, oversized refusal triggers
-    resp_oversized = build_search_not_found_response(doc, needle, closest=None)
+    with patch("plugin.writer.search.search_closest_mismatch", return_value=None):
+        resp_oversized = build_search_not_found_response(doc, needle, refuse_oversized=True)
     assert resp_oversized["status"] == "error"
     assert "target='full_document'" in resp_oversized["message"]
     assert resp_oversized.get("oversized") is True

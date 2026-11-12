@@ -213,38 +213,20 @@ class AddComment(ToolBase):
         search_text = kwargs.get("search")
         if not search_text:
             return self._tool_error("Provide search.")
-        from ..search import find_occurrence_range, parse_non_negative_int
-
-        # coerce=True lets occurrence accept string numbers and floats from the model;
-        # without it, values like "2" or 1.0 are rejected as non-integers.
-        occ_val, occ_err = parse_non_negative_int(kwargs.get("occurrence", 0), coerce=True)
-        if occ_err:
-            return self._tool_error(occ_err)
-        occurrence = 0 if occ_val is None else occ_val
+        from ..search import occurrence_range_or_error
 
         doc = ctx.doc
         case_sensitive = resolve_case_sensitive(kwargs.get("case_sensitive"))
 
-        try:
-            found = find_occurrence_range(
-                doc,
-                search_text,
-                occurrence=occurrence,
-                case_sensitive=case_sensitive,
-            )
-        except IndexError:
-            found = None
-
         # status="error" (not "not_found"): an anchor miss is a failure, so the chat FSM and
         # MCP host don't treat a no-op as success. anchor_text is returned on success only.
+        found, err = occurrence_range_or_error(
+            doc, search_text, kwargs.get("occurrence", 0), case_sensitive=case_sensitive, subject="search"
+        )
         if found is None:
-            where = (" at occurrence %d" % occurrence) if occurrence else ""
-            return {
-                "status": "error",
-                "message": "Text '%s' not found%s." % (search_text, where),
-                "matched": False,
-                "comment_added": False,
-            }
+            res = err or self._tool_error("Anchor not found")
+            res.update({"matched": False, "comment_added": False})
+            return res
 
         annotation = doc.createInstance("com.sun.star.text.textfield.Annotation")
         annotation.setPropertyValue("Author", author)

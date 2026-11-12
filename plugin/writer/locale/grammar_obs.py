@@ -470,6 +470,6 @@ def get_grammar_status() -> GrammarStatus:
 
 
 def set_grammar_status(sink: GrammarStatus | None) -> None:
-    """Override or reset status sink (for tests and teardown)."""
+    """Install a status sink. Production never calls this: ``get_grammar_status`` picks the sink once per product. Tests install a recording sink here instead of patching ``_STATUS_SINK``."""
     global _STATUS_SINK
     _STATUS_SINK = sink
