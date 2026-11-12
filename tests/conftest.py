@@ -1054,4 +1054,3 @@ def fresh_sandbox_sessions(monkeypatch):
     reset_session_duckdb()
     yield store
     reset_session_duckdb()
-

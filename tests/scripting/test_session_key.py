@@ -110,6 +110,7 @@ def test_empty_rest_calc_and_init_lookup_and_duckdb_none() -> None:
     # :init pops no sandbox cell
     store = SessionStore()
     exe, created = store.get_or_create("", 5, policy=build_sandbox_policy())
+    assert created is True
     assert store.reset(":init")["status"] == "ok"
     assert store.executor("") is exe
 

@@ -7,14 +7,11 @@
 from __future__ import annotations
 
 import ast
+from collections import OrderedDict
+from typing import cast
 from unittest.mock import patch
 
 import pytest
-
-from typing import cast
-
-from collections import OrderedDict
-
 
 from plugin.contrib.smolagents.local_python_executor import BASE_BUILTIN_MODULES
 from plugin.scripting import sandbox_cache as hot_cache
@@ -23,7 +20,7 @@ from plugin.scripting.venv.venv_sandbox import run_sandboxed_code
 
 
 @pytest.fixture(autouse=True)
-def _fresh_hot_cache(monkeypatch):
+def _fresh_hot_cache(monkeypatch: pytest.MonkeyPatch) -> None:
     # get_hot_entry reads the module-level _cache on each call, so an empty
     # OrderedDict gives this test its own cache; monkeypatch restores the shared one.
     monkeypatch.setattr(hot_cache, "_cache", OrderedDict())

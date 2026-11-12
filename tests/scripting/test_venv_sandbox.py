@@ -726,6 +726,7 @@ def test_harness_calls_exit_on_abandoned_timeout(monkeypatch: pytest.MonkeyPatch
         lpe.abandoned_timeout = False
         from plugin.scripting.host_tool_call import set_process_role
 
+        # main() sets the process role to worker; put it back so later tests run as host.
         set_process_role(None)
 
     assert exit_calls == [1]
