@@ -314,9 +314,22 @@ class TestSendDispose:
         listener.audio_recorder.start_recording.assert_not_called()
 
     def test_is_busy_sees_fsm_turn_and_scope(self) -> None:
+        from dataclasses import replace
+        from plugin.chatbot.send_state import SendMode
         from plugin.chatbot.tool_loop_actions import TurnController
 
         listener = _make_send_listener()
+        assert listener.is_busy() is False
+
+        listener.sidebar_state = replace(
+            listener.sidebar_state,
+            send=replace(listener.sidebar_state.send, mode=SendMode.BUSY),
+        )
+        assert listener.is_busy() is True
+        listener.sidebar_state = replace(
+            listener.sidebar_state,
+            send=replace(listener.sidebar_state.send, mode=SendMode.IDLE),
+        )
         assert listener.is_busy() is False
 
         listener._send_cancellation = SendCancellation()

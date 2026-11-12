@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import sys
+from contextlib import contextmanager
 
 from plugin.doc.live_panels import register_live_panel, unregister_live_panel
 import plugin.doc.peer_message as pm
 from plugin.doc.peer_message import (
+    PeerQueue,
     SendPeerWork,
     drop_listener_queue,
     kick_pending_peer_starts,
@@ -214,123 +216,137 @@ def _tool_ctx(ctx, doc):
     return ToolContext(doc=doc, ctx=ctx, doc_type="writer", services=None, caller="chat")
 
 
+@contextmanager
+def _fresh_peer_queue():
+    orig = pm.peer_queue
+    pm.peer_queue = PeerQueue()
+    try:
+        yield
+    finally:
+        pm.peer_queue = orig
+
+
 @native_test
 def test_peer_missing_deck_is_clear_error(ctx):
-    reset_sentry_state()
-    writer = None
-    other = None
-    try:
-        writer = _load(ctx, "private:factory/swriter")
-        other = _load(ctx, "private:factory/swriter")
-        other_uid = get_runtime_uid(other)
-        tool = SendPeerWork()
-        result = tool.execute(_tool_ctx(ctx, writer), document_url=other_uid, message="Hello peer")
-        assert result["status"] == "error"
-        assert result["code"] == "PEER_SIDEBAR_NOT_OPEN"
-        assert "sidebar" in result["message"].lower()
-    finally:
-        _close(other)
-        _close(writer)
+    with _fresh_peer_queue():
+        reset_sentry_state()
+        writer = None
+        other = None
+        try:
+            writer = _load(ctx, "private:factory/swriter")
+            other = _load(ctx, "private:factory/swriter")
+            other_uid = get_runtime_uid(other)
+            tool = SendPeerWork()
+            result = tool.execute(_tool_ctx(ctx, writer), document_url=other_uid, message="Hello peer")
+            assert result["status"] == "error"
+            assert result["code"] == "PEER_SIDEBAR_NOT_OPEN"
+            assert "sidebar" in result["message"].lower()
+        finally:
+            _close(other)
+            _close(writer)
 
 
 @native_test
 def test_peer_inject_defers_until_drain_idle(ctx):
-    reset_sentry_state()
-    writer = None
-    other = None
-    panel = None
-    other_uid = ""
-    listener = _Listener()
-    try:
-        writer = _load(ctx, "private:factory/swriter")
-        other = _load(ctx, "private:factory/swriter")
-        other_uid = get_runtime_uid(other)
-        panel = type("P", (), {"send_listener": listener})()
-        register_live_panel(other_uid, panel)
-        tool = SendPeerWork()
-        with drain_owner_scope("stream"):
-            result = tool.execute(_tool_ctx(ctx, writer), document_url=other_uid, message="Compute Q4")
-            assert result["status"] == "ok"
-            assert result["accepted"] is True
-            assert listener.started == []
-            assert listener.session.messages
-            assert "[Peer work from:" in listener.session.messages[0]["content"]
-        kick_pending_peer_starts()
-        assert listener.started
-        assert listener.started[0][1] is True
-    finally:
-        drop_listener_queue(listener)
-        if other_uid and panel is not None:
-            unregister_live_panel(other_uid, panel)
-        _close(other)
-        _close(writer)
+    with _fresh_peer_queue():
         reset_sentry_state()
+        writer = None
+        other = None
+        panel = None
+        other_uid = ""
+        listener = _Listener()
+        try:
+            writer = _load(ctx, "private:factory/swriter")
+            other = _load(ctx, "private:factory/swriter")
+            other_uid = get_runtime_uid(other)
+            panel = type("P", (), {"send_listener": listener})()
+            register_live_panel(other_uid, panel)
+            tool = SendPeerWork()
+            with drain_owner_scope("stream"):
+                result = tool.execute(_tool_ctx(ctx, writer), document_url=other_uid, message="Compute Q4")
+                assert result["status"] == "ok"
+                assert result["accepted"] is True
+                assert listener.started == []
+                assert listener.session.messages
+                assert "[Peer work from:" in listener.session.messages[0]["content"]
+            kick_pending_peer_starts()
+            assert listener.started
+            assert listener.started[0][1] is True
+        finally:
+            drop_listener_queue(listener)
+            if other_uid and panel is not None:
+                unregister_live_panel(other_uid, panel)
+            _close(other)
+            _close(writer)
+            reset_sentry_state()
 
 
 @native_test
 def test_peer_busy_queues_then_starts(ctx):
-    reset_sentry_state()
-    writer = None
-    other = None
-    panel = None
-    other_uid = ""
-    listener = _Listener()
-    try:
-        writer = _load(ctx, "private:factory/swriter")
-        other = _load(ctx, "private:factory/swriter")
-        other_uid = get_runtime_uid(other)
-        panel = type("P", (), {"send_listener": listener})()
-        register_live_panel(other_uid, panel)
-        listener.sidebar_state.send.is_busy = True
-        tool = SendPeerWork()
-        result = tool.execute(_tool_ctx(ctx, writer), document_url=other_uid, message="Queued")
-        assert result["status"] == "ok"
-        assert listener.started == []
-        assert pm.peer_queue.pending(listener) == 1
-        listener.sidebar_state.send.is_busy = False
-        kick_pending_peer_starts()
-        assert listener.started
-    finally:
-        drop_listener_queue(listener)
-        if other_uid and panel is not None:
-            unregister_live_panel(other_uid, panel)
-        _close(other)
-        _close(writer)
+    with _fresh_peer_queue():
         reset_sentry_state()
+        writer = None
+        other = None
+        panel = None
+        other_uid = ""
+        listener = _Listener()
+        try:
+            writer = _load(ctx, "private:factory/swriter")
+            other = _load(ctx, "private:factory/swriter")
+            other_uid = get_runtime_uid(other)
+            panel = type("P", (), {"send_listener": listener})()
+            register_live_panel(other_uid, panel)
+            listener.sidebar_state.send.is_busy = True
+            tool = SendPeerWork()
+            result = tool.execute(_tool_ctx(ctx, writer), document_url=other_uid, message="Queued")
+            assert result["status"] == "ok"
+            assert listener.started == []
+            assert pm.peer_queue.pending(listener) == 1
+            listener.sidebar_state.send.is_busy = False
+            kick_pending_peer_starts()
+            assert listener.started
+        finally:
+            drop_listener_queue(listener)
+            if other_uid and panel is not None:
+                unregister_live_panel(other_uid, panel)
+            _close(other)
+            _close(writer)
+            reset_sentry_state()
 
 
 @native_test
 def test_peer_unique_name_and_self_reject(ctx):
-    import tempfile
+    with _fresh_peer_queue():
+        import tempfile
 
-    import uno
+        import uno
 
-    writer = None
-    calc = None
-    try:
-        writer = _load(ctx, "private:factory/swriter")
-        calc = _load(ctx, "private:factory/scalc")
-        from plugin.doc.peer_message import list_v1_peers
+        writer = None
+        calc = None
+        try:
+            writer = _load(ctx, "private:factory/swriter")
+            calc = _load(ctx, "private:factory/scalc")
+            from plugin.doc.peer_message import list_v1_peers
 
-        writer_uid = get_runtime_uid(writer)
-        model, code, _msg = resolve_peer_target(ctx, writer, writer_uid)
-        assert model is None
-        assert code == "PEER_SELF"
-        # Untitled Writer + Calc both catalog as "Untitled"; save Calc so the
-        # display name is unique and document_url-as-name can resolve.
-        calc_path = tempfile.mkdtemp() + "/BudgetPeer.ods"
-        calc.storeAsURL(uno.systemPathToFileUrl(calc_path), ())
-        peers = list_v1_peers(ctx, writer)
-        calc_uid = get_runtime_uid(calc)
-        rec = next((p for p in peers if p.get("uid") == calc_uid), None)
-        assert rec is not None, peers
-        assert rec["name"] == "BudgetPeer.ods"
-        model, code, _msg = resolve_peer_target(ctx, writer, rec["name"])
-        assert code is None, _msg
-        assert get_runtime_uid(model) == calc_uid
-    finally:
-        _close(calc)
-        _close(writer)
+            writer_uid = get_runtime_uid(writer)
+            model, code, _msg = resolve_peer_target(ctx, writer, writer_uid)
+            assert model is None
+            assert code == "PEER_SELF"
+            # Untitled Writer + Calc both catalog as "Untitled"; save Calc so the
+            # display name is unique and document_url-as-name can resolve.
+            calc_path = tempfile.mkdtemp() + "/BudgetPeer.ods"
+            calc.storeAsURL(uno.systemPathToFileUrl(calc_path), ())
+            peers = list_v1_peers(ctx, writer)
+            calc_uid = get_runtime_uid(calc)
+            rec = next((p for p in peers if p.get("uid") == calc_uid), None)
+            assert rec is not None, peers
+            assert rec["name"] == "BudgetPeer.ods"
+            model, code, _msg = resolve_peer_target(ctx, writer, rec["name"])
+            assert code is None, _msg
+            assert get_runtime_uid(model) == calc_uid
+        finally:
+            _close(calc)
+            _close(writer)
 
 
 # Windows: skip all Writer/Calc close_doc in this file (34544965319).
@@ -342,68 +358,70 @@ def test_peer_unique_name_and_self_reject(ctx):
 @native_test
 def test_peer_impress_resolves_as_v1_peer(ctx):
     """Writer can resolve a live Impress model and inject a queued turn."""
-    from plugin.doc.peer_message import v1_peer_type_label
+    with _fresh_peer_queue():
+        from plugin.doc.peer_message import v1_peer_type_label
 
-    reset_sentry_state()
-    writer = None
-    impress = None
-    panel = None
-    impress_uid = ""
-    listener = _Listener()
-    try:
-        writer = _load(ctx, "private:factory/swriter")
-        impress = _load(ctx, "private:factory/simpress")
-        assert writer is not None and impress is not None
-        impress_uid = get_runtime_uid(impress)
-        assert impress_uid
-        model, code, msg = resolve_peer_target(ctx, writer, impress_uid)
-        assert code is None, msg
-        assert model is not None
-        assert get_runtime_uid(model) == impress_uid
-        assert v1_peer_type_label(model) == "impress"
-
-        panel = type("P", (), {"send_listener": listener})()
-        register_live_panel(impress_uid, panel)
-        tool = SendPeerWork()
-        with drain_owner_scope("stream"):
-            result = tool.execute(
-                _tool_ctx(ctx, writer), document_url=impress_uid, message="Add a title slide"
-            )
-            assert result["status"] == "ok"
-            assert result["accepted"] is True
-            assert listener.started == []
-            assert listener.session.messages
-            assert "[Peer work from:" in listener.session.messages[0]["content"]
-        kick_pending_peer_starts()
-        assert listener.started
-        assert listener.started[0][1] is True
-    finally:
-        drop_listener_queue(listener)
-        if impress_uid and panel is not None:
-            unregister_live_panel(impress_uid, panel)
-        writer, impress = _teardown_peer_pair(writer, impress, ctx)
         reset_sentry_state()
+        writer = None
+        impress = None
+        panel = None
+        impress_uid = ""
+        listener = _Listener()
+        try:
+            writer = _load(ctx, "private:factory/swriter")
+            impress = _load(ctx, "private:factory/simpress")
+            assert writer is not None and impress is not None
+            impress_uid = get_runtime_uid(impress)
+            assert impress_uid
+            model, code, msg = resolve_peer_target(ctx, writer, impress_uid)
+            assert code is None, msg
+            assert model is not None
+            assert get_runtime_uid(model) == impress_uid
+            assert v1_peer_type_label(model) == "impress"
+
+            panel = type("P", (), {"send_listener": listener})()
+            register_live_panel(impress_uid, panel)
+            tool = SendPeerWork()
+            with drain_owner_scope("stream"):
+                result = tool.execute(
+                    _tool_ctx(ctx, writer), document_url=impress_uid, message="Add a title slide"
+                )
+                assert result["status"] == "ok"
+                assert result["accepted"] is True
+                assert listener.started == []
+                assert listener.session.messages
+                assert "[Peer work from:" in listener.session.messages[0]["content"]
+            kick_pending_peer_starts()
+            assert listener.started
+            assert listener.started[0][1] is True
+        finally:
+            drop_listener_queue(listener)
+            if impress_uid and panel is not None:
+                unregister_live_panel(impress_uid, panel)
+            writer, impress = _teardown_peer_pair(writer, impress, ctx)
+            reset_sentry_state()
 
 
 @native_test
 def test_peer_catalog_labels_impress_explicitly(ctx):
     """get_open_documents still labels Impress as draw; v1 catalog uses type=impress."""
-    from plugin.doc.document_research import get_open_documents
-    from plugin.doc.peer_message import list_v1_peers
+    with _fresh_peer_queue():
+        from plugin.doc.document_research import get_open_documents
+        from plugin.doc.peer_message import list_v1_peers
 
-    writer = None
-    impress = None
-    try:
-        writer = _load(ctx, "private:factory/swriter")
-        impress = _load(ctx, "private:factory/simpress")
-        catalog = get_open_documents(ctx, writer)
-        impress_uid = get_runtime_uid(impress)
-        rec = next((r for r in catalog if r.get("uid") == impress_uid), None)
-        assert rec is not None
-        assert rec.get("doc_type") == "draw"
-        peers = list_v1_peers(ctx, writer)
-        peer = next((p for p in peers if p.get("uid") == impress_uid), None)
-        assert peer is not None, peers
-        assert peer.get("type") == "impress"
-    finally:
-        writer, impress = _teardown_peer_pair(writer, impress, ctx)
+        writer = None
+        impress = None
+        try:
+            writer = _load(ctx, "private:factory/swriter")
+            impress = _load(ctx, "private:factory/simpress")
+            catalog = get_open_documents(ctx, writer)
+            impress_uid = get_runtime_uid(impress)
+            rec = next((r for r in catalog if r.get("uid") == impress_uid), None)
+            assert rec is not None
+            assert rec.get("doc_type") == "draw"
+            peers = list_v1_peers(ctx, writer)
+            peer = next((p for p in peers if p.get("uid") == impress_uid), None)
+            assert peer is not None, peers
+            assert peer.get("type") == "impress"
+        finally:
+            writer, impress = _teardown_peer_pair(writer, impress, ctx)

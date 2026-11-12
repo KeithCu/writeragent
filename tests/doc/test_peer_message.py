@@ -934,21 +934,15 @@ def test_summarize_peer_tool_on_wire():
 
 
 def test_kick_start_extracted_peer_send_returns_false():
-    class FakeListener:
-        def __init__(self):
-            self.started = 0
+    listener = _Listener()
+    start_calls = 0
 
-        def is_busy(self) -> bool:
-            return False
+    def _start_extracted(query_text: str, *, already_appended: bool) -> bool:
+        nonlocal start_calls
+        start_calls += 1
+        return start_calls > 1
 
-        def start_extracted_peer_send(self, text, already_appended=True):
-            if self.started == 0:
-                self.started += 1
-                return False
-            self.started += 1
-            return True
-
-    listener = FakeListener()
+    listener.start_extracted_peer_send = _start_extracted
     turn = PeerPendingTurn(wrapped_text="hi", already_appended=True)
 
     # enqueue manually to avoid schedule_peer_turn calling kick_pending_peer_starts immediately
@@ -957,12 +951,12 @@ def test_kick_start_extracted_peer_send_returns_false():
     # first kick -> start_fn returns False -> turn put back in queue
     kick_pending_peer_starts()
     assert pm.peer_queue.pending(listener) == 1
-    assert listener.started == 1
+    assert start_calls == 1
 
     # second kick -> start_fn returns True -> turn removed from queue
     kick_pending_peer_starts()
     assert pm.peer_queue.pending(listener) == 0
-    assert listener.started == 2
+    assert start_calls == 2
 
 
 def test_chat_tier_excluded_from_mcp_frozensets():

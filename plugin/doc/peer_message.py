@@ -25,7 +25,7 @@ import unicodedata
 import weakref
 from collections import deque
 from dataclasses import dataclass
-from typing import Any, Callable, ClassVar, Protocol
+from typing import Any, ClassVar, Protocol
 
 from plugin.framework.doc_type import (
     DOCUMENT_SERVICES,
@@ -141,22 +141,24 @@ class PeerQueue:
                 return listener, turn
         return None
 
-    def _keep(self, pred: Callable[[Any, PeerPendingTurn], bool]) -> None:
+    def remove(self, turn: PeerPendingTurn) -> None:
+        """Drop turn by identity; also purges dead listener references."""
         kept: list[tuple[weakref.ref[Any], PeerPendingTurn]] = []
-        for ref, turn in self._items:
-            listener = ref()
-            if listener is not None and pred(listener, turn):
-                kept.append((ref, turn))
+        for ref, item_turn in self._items:
+            if ref() is not None and item_turn is not turn:
+                kept.append((ref, item_turn))
         self._items.clear()
         self._items.extend(kept)
 
-    def remove(self, turn: PeerPendingTurn) -> None:
-        """Drop turn by identity; also purges dead listener references."""
-        self._keep(lambda listener_obj, item_turn: item_turn is not turn)
-
     def drop_listener(self, listener: object) -> None:
         """Drop all turns for listener; also purges dead listener references."""
-        self._keep(lambda listener_obj, item_turn: listener_obj is not listener)
+        kept: list[tuple[weakref.ref[Any], PeerPendingTurn]] = []
+        for ref, item_turn in self._items:
+            ref_listener = ref()
+            if ref_listener is not None and ref_listener is not listener:
+                kept.append((ref, item_turn))
+        self._items.clear()
+        self._items.extend(kept)
 
 
 peer_queue: PeerQueue = PeerQueue()
