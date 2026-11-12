@@ -556,10 +556,10 @@ def test_duration_and_mduration_excel_doc_examples():
 
 
 def test_round_sig_and_euroconvert_precision():
-    from plugin.scripting.venv.calc_functions_util import _round_sig
+    from plugin.scripting.venv.calc_functions_util import round_sig
 
-    assert math.isnan(_round_sig(float("nan"), 3))
-    assert math.isinf(_round_sig(float("inf"), 3))
+    assert math.isnan(round_sig(float("nan"), 3))
+    assert math.isinf(round_sig(float("inf"), 3))
     assert math.isnan(calc.euroconvert(100, "DEM", "ATS", False, 109))
     assert math.isnan(calc.euroconvert(100, "DEM", "ATS", False, 2))
     assert math.isnan(calc.euroconvert(100, "DEM", "ATS", False, -1))

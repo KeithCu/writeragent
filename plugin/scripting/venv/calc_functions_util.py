@@ -2,7 +2,7 @@
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Internal shared utilities for calc_functions formula emulation.
+"""Shared helpers for the calc_functions_* letter files. Names without a leading underscore are what the letter files import; underscore names are used only inside this module.
 
 Formula error contract:
 Parameter coercion errors (ValueError, TypeError) propagate to the worker as #VALUE!,
@@ -11,7 +11,6 @@ return float("nan") or raise CalcError(CalcError.NUM). The @calc_function decora
 preserves the legacy NaN collapse for helpers that require it, while catching CalcError
 to emit either NaN (#NUM!) or error token strings (#VALUE!, #DIV/0!, #N/A).
 """
-# pyright: reportUnusedFunction=false
 
 from __future__ import annotations
 
@@ -78,7 +77,7 @@ def calc_function(fn: Callable[..., Any]) -> Callable[..., Any]:
     return wrapper
 
 
-def _serial_to_date(serial: Any) -> dt.date | None:
+def serial_to_date(serial: Any) -> dt.date | None:
     """Convert an Excel serial date number or date object to datetime.date (+693594 offset), or None."""
     if isinstance(serial, dt.datetime):
         return serial.date()
@@ -90,12 +89,12 @@ def _serial_to_date(serial: Any) -> dt.date | None:
         return None
 
 
-def _date_to_serial(d: dt.date) -> float:
+def date_to_serial(d: dt.date) -> float:
     """Convert a datetime.date object to Excel serial date number (-693594 offset)."""
     return float(d.toordinal() - _SERIAL_OFFSET)
 
 
-def _days360(sd: dt.date, ed: dt.date, european: bool = False) -> float:
+def days360_dates(sd: dt.date, ed: dt.date, european: bool = False) -> float:
     """Days between two dates using 30/360 rules (NASD US or European)."""
     d1, m1, y1 = sd.day, sd.month, sd.year
     d2, m2, y2 = ed.day, ed.month, ed.year
@@ -114,13 +113,13 @@ def _days360(sd: dt.date, ed: dt.date, european: bool = False) -> float:
 
 def _days_between(d1: Any, d2: Any, basis: int) -> float:
     """Days between two dates under financial basis (0=US 30/360, 1=Act/Act, 2=Act/360, 3=Act/365, 4=Eur 30/360)."""
-    sd = _serial_to_date(d1)
-    ed = _serial_to_date(d2)
+    sd = serial_to_date(d1)
+    ed = serial_to_date(d2)
     if sd is None or ed is None:
         return float("nan")
     # 30/360 day count, including the 31st and end-of-month adjustments from DAYS360.
     if basis in (0, 4):
-        return _days360(sd, ed, european=(basis == 4))
+        return days360_dates(sd, ed, european=(basis == 4))
     return float((ed - sd).days)
 
 
@@ -166,10 +165,9 @@ def yearfrac(start_date: Any, end_date: Any, basis: Any = 0) -> float:
         return float("nan")
     if s > e:
         s, e = e, s
-    # _days360 is what days360() calls. Importing days360 from calc_functions_d_h
-    # pulled that module back while it imports yearfrac at load time.
-    sd = _serial_to_date(s)
-    ed = _serial_to_date(e)
+    # yearfrac reaches DAYS360 through _days_between → days360_dates rather than d_h.days360, because calc_functions_d_h imports yearfrac from this module.
+    sd = serial_to_date(s)
+    ed = serial_to_date(e)
     if sd is None or ed is None:
         return float("nan")
     days = _days_between(sd, ed, b)
@@ -178,7 +176,66 @@ def yearfrac(start_date: Any, end_date: Any, basis: Any = 0) -> float:
     return days / (365.0 if b == 3 else 360.0)
 
 
-def _round_half_up(val: float, decimals: int) -> Decimal:
+def _get_coupon_dates(
+    settlement: Any, maturity: Any, frequency: Any, basis: Any = 0
+) -> tuple[float, float, float, float, int]:
+    """Calculate previous and next coupon dates stepping backwards from maturity in calendar months.
+
+    Returns (prev_serial, curr_serial, days_in_period, num_coupons, basis_code).
+    """
+    # Step back by calendar months from maturity. freq in (1, 2, 4), basis in
+    # (0..4), settlement < maturity. A bad frequency (1e9) never terminates,
+    # and a fixed day step (180, 182.5) drifts off the coupon date.
+    freq = int(float(frequency))
+    b = int(float(basis))
+    if freq not in (1, 2, 4) or b not in (0, 1, 2, 3, 4):
+        raise ValueError("Invalid coupon frequency or basis")
+    s_date = serial_to_date(settlement)
+    m_date = serial_to_date(maturity)
+    if s_date is None or m_date is None or s_date >= m_date:
+        raise ValueError("Invalid settlement or maturity date")
+
+    m_step = 12 // freq
+    d_mat = m_date.day
+    mat_is_eom = d_mat == calendar.monthrange(m_date.year, m_date.month)[1]
+    mat_month_idx = m_date.year * 12 + m_date.month - 1
+    k = 0
+    curr = m_date
+    prev = m_date
+    while curr > s_date:
+        k += 1
+        m_idx = mat_month_idx - k * m_step
+        y = m_idx // 12
+        m = (m_idx % 12) + 1
+        dim = calendar.monthrange(y, m)[1]
+        d = dim if (mat_is_eom or d_mat > dim) else d_mat
+        prev = dt.date(y, m, d)
+        if prev <= s_date:
+            break
+        curr = prev
+
+    p_ser = date_to_serial(prev)
+    c_ser = date_to_serial(curr)
+    if b in (0, 2, 4):
+        days_in_per = 360.0 / freq
+    elif b == 3:
+        days_in_per = 365.0 / freq
+    else:
+        days_in_per = float((curr - prev).days)
+
+    return p_ser, c_ser, days_in_per, float(k), b
+
+
+def coupon_schedule(settlement: Any, maturity: Any, frequency: Any, basis: Any = 0) -> tuple[float, float, float, float, float, float]:
+    """Compute coupon schedule: (p_ser, c_ser, days_in_per, k, a_days, dsc_days)."""
+    p_ser, c_ser, days_in_per, k, b = _get_coupon_dates(settlement, maturity, frequency, basis)
+    # _days_between truncates each serial to its calendar day, so a fractional settlement counts from that day.
+    a_days = float(_days_between(p_ser, settlement, b))
+    dsc_days = float(_days_between(settlement, c_ser, b))
+    return p_ser, c_ser, days_in_per, k, a_days, dsc_days
+
+
+def round_half_up(val: float, decimals: int) -> Decimal:
     """Round a float half-away-from-zero matching Excel/Calc rounding rules."""
     # Half away from zero (2.5 -> 3, 2.675 -> 2.68). Python round() is half-to-even.
     if not math.isfinite(val):
@@ -194,7 +251,7 @@ def _round_half_up(val: float, decimals: int) -> Decimal:
         raise ValueError("decimal quantize failed") from None
 
 
-def _round_sig(x: float, sig: int) -> float:
+def round_sig(x: float, sig: int) -> float:
     """Round float to significant digits using half-up rounding. Keeps non-finite values unchanged."""
     if not math.isfinite(x):
         return x
@@ -203,18 +260,18 @@ def _round_sig(x: float, sig: int) -> float:
     exponent = math.floor(math.log10(abs(x)))
     decimals = sig - 1 - exponent
     try:
-        return float(_round_half_up(x, decimals))
+        return float(round_half_up(x, decimals))
     except ValueError:
         return float("nan")
 
 
-def _as_bool_flag(val: Any) -> bool:
+def as_bool_flag(val: Any) -> bool:
     """LINEST / LOGEST / TREND ``const``.
 
     A blank cell is false (``GetBool`` of an empty cell). The strings ``"TRUE"`` and
     ``"FALSE"`` are those booleans, and ``"0"`` is false. Python's ``bool("0")`` and
     ``bool("FALSE")`` are true, so without this map a text ``const`` would keep an
-    intercept that Calc drops. Any other text goes to ``_as_nonzero``.
+    intercept that Calc drops. Any other text goes to ``as_nonzero``.
     """
     if isinstance(val, str):
         token = val.strip().upper()
@@ -222,15 +279,15 @@ def _as_bool_flag(val: Any) -> bool:
             return True
         if token == "FALSE":
             return False
-    return _as_nonzero(val)
+    return as_nonzero(val)
 
 
-def _as_nonzero(val: Any) -> bool:
+def as_nonzero(val: Any) -> bool:
     """Calc ``GetDouble() != 0`` for a flag.
 
     ``bool("0")`` and ``bool("FALSE")`` are true. GetDouble of ``"0"`` is
     0, and a non-numeric string is ``#VALUE!``. The words TRUE and FALSE
-    are not booleans here; that map is LINEST's ``_as_bool_flag``. A blank
+    are not booleans here; that map is LINEST's ``as_bool_flag``. A blank
     cell is 0.
     """
     if val is None or val == "":
@@ -238,19 +295,19 @@ def _as_nonzero(val: Any) -> bool:
     return bool(float(val))
 
 
-def _build_holiday_set(holidays: Any | None = None) -> set[dt.date]:
+def build_holiday_set(holidays: Any | None = None) -> set[dt.date]:
     """Build a set of datetime.date from a holiday argument (scalar or array)."""
     h_dates: set[dt.date] = set()
     if holidays is not None:
         for h in np.asarray(holidays).ravel():
             if h is not None and h != "":
-                d = _serial_to_date(h)
+                d = serial_to_date(h)
                 if d is not None:
                     h_dates.add(d)
     return h_dates
 
 
-def _parse_weekend(weekend: Any = 1) -> set[int] | float:
+def parse_weekend(weekend: Any = 1) -> set[int] | float:
     """Parse a Calc weekend argument into weekday integers, or NaN if invalid.
 
     GetWeekendAndHolidayMasks_MS (interpr2.cxx) accepts a string only when it
@@ -275,7 +332,7 @@ def _parse_weekend(weekend: Any = 1) -> set[int] | float:
 
 
 
-def _is_calc_error(val: Any) -> bool:
+def is_calc_error(val: Any) -> bool:
     """Return True if val is a Calc error (NaN or a recognized error token string like #VALUE!)."""
     if isinstance(val, (bool, np.bool_)):
         return False
@@ -292,7 +349,16 @@ def is_number(val: Any) -> bool:
     return isinstance(val, (int, float, np.integer, np.floating)) and not isinstance(val, (bool, np.bool_))
 
 
-def _clean_paired_arrays(data1: Any, data2: Any) -> tuple[np.ndarray, np.ndarray] | None:
+def finite_or_nan(x: float) -> float:
+    """x, or NaN when x is inf or NaN.
+
+    Calc turns an infinite result into #NUM! (GetDoubleErrorValue, include/formula/errorcodes.hxx).
+    Here NaN is the error value; IFERROR and is_calc_error do not treat inf as an error.
+    """
+    return x if math.isfinite(x) else float("nan")
+
+
+def clean_paired_arrays(data1: Any, data2: Any) -> tuple[np.ndarray, np.ndarray] | None:
     """Extract 1D float arrays of matching length, keeping only pairs where both cells are finite numbers."""
     # conversion failures are left to the worker exception path, which returns #VALUE!
     d1 = np.asarray(data1, dtype=object).ravel()
@@ -314,16 +380,16 @@ def _clean_paired_arrays(data1: Any, data2: Any) -> tuple[np.ndarray, np.ndarray
     return np.asarray(c1, dtype=float), np.asarray(c2, dtype=float)
 
 
-def _scipy_stats() -> Any | None:
+def scipy_stats() -> Any | None:
     """Return scipy.stats module if available, else None."""
     try:
-        import scipy.stats
+        import scipy.stats  # optional and heavy: loaded on first use so calc imports without scipy
         return scipy.stats
     except ImportError:
         return None
 
 
-def _collect_a_values(*args: Any) -> np.ndarray:
+def collect_a_values(*args: Any) -> np.ndarray:
     """Collect flat float array for *A functions (AVERAGEA, MAXA, etc.)."""
     # *A functions skip None (an empty cell). Text and blank strings count as 0; an error
     # token stays NaN so it propagates.
@@ -332,7 +398,7 @@ def _collect_a_values(*args: Any) -> np.ndarray:
         for v in np.asarray(arg, dtype=object).ravel():
             if v is None:
                 continue
-            if _is_calc_error(v):
+            if is_calc_error(v):
                 vals.append(float("nan"))
                 continue
             # A Python int bigger than the float range raises OverflowError, which
@@ -345,7 +411,7 @@ def _collect_a_values(*args: Any) -> np.ndarray:
 
 
 
-def _npf_result(kind: str, *args: Any) -> float:
+def npf_result(kind: str, *args: Any) -> float:
     """One numpy-financial scalar, or NaN where Calc/Excel are #NUM! / #DIV/0!.
 
     The library returns ±inf for a zero period count and for an NPER that
@@ -353,7 +419,7 @@ def _npf_result(kind: str, *args: Any) -> float:
     0 or 1. A missing install is the same NaN as a missing scipy helper.
     """
     try:
-        import numpy_financial as npf  # type: ignore[import-untyped]
+        import numpy_financial as npf  # optional and heavy: loaded on first use so calc imports without numpy_financial
     except ImportError:
         return float("nan")
     try:
@@ -368,7 +434,7 @@ def _npf_result(kind: str, *args: Any) -> float:
     return result
 
 
-def _wildcard_fullmatch(pattern: str, text: str) -> bool:
+def wildcard_fullmatch(pattern: str, text: str) -> bool:
     """Excel-style *, ? and ~ wildcard match against the whole text (case-insensitive)."""
     # pattern is re.escape'd; re.error cannot occur
     out: list[str] = []
@@ -474,14 +540,14 @@ def _parse_criterion(crit: Any) -> Callable[[Any], bool]:
             return _CMP[op](v_num, c_num)
         if (c_num is None) != (v_num is None):
             if c_num is not None and isinstance(val, str) and op in ("=", "<>"):
-                matched = _wildcard_fullmatch(c_pattern, str(val))
+                matched = wildcard_fullmatch(c_pattern, str(val))
                 return matched if op == "=" else not matched
             return op == "<>"
         v_str = str(val)
         if op == "=":
-            return _wildcard_fullmatch(c_pattern, v_str)
+            return wildcard_fullmatch(c_pattern, v_str)
         if op == "<>":
-            return not _wildcard_fullmatch(c_pattern, v_str)
+            return not wildcard_fullmatch(c_pattern, v_str)
         return _CMP[op](v_str.casefold(), c_pattern.casefold())
 
     return matcher
@@ -492,7 +558,7 @@ def match_criteria(val: Any, crit: Any) -> bool:
     return _parse_criterion(crit)(val)
 
 
-def _extract_numeric_array(
+def extract_numeric_array(
     *args: Any,
     ignore_bool: bool = True,
     propagate_nan: bool = True,
@@ -501,7 +567,7 @@ def _extract_numeric_array(
     vals: list[float] = []
     for arg in args:
         for x in np.asarray(arg, dtype=object).ravel():
-            if _is_calc_error(x):
+            if is_calc_error(x):
                 if propagate_nan:
                     vals.append(float("nan"))
                 continue
@@ -516,14 +582,14 @@ def _extract_numeric_array(
     return np.asarray(vals, dtype=float)
 
 
-def _criteria_numbers(values: Any, pairs: Sequence[tuple[Any, Any]]) -> list[float] | None:
+def criteria_numbers(values: Any, pairs: Sequence[tuple[Any, Any]]) -> list[float] | None:
     """Matching numbers for one or more (range, criterion) pairs. ``pairs`` is non-empty."""
     v_arr = np.asarray(values, dtype=object)
-    mask = _multi_criteria_mask(pairs, base_shape=v_arr.shape)
+    mask = multi_criteria_mask(pairs, base_shape=v_arr.shape)
     if mask is None:
         return None
     # Defaults keep error cells and NaN (SUMIFS) and skip text and bools.
-    return _extract_numeric_array(v_arr.ravel()[mask]).tolist()
+    return extract_numeric_array(v_arr.ravel()[mask]).tolist()
 
 
 def _complex_coeff(n: float) -> str:
@@ -531,7 +597,7 @@ def _complex_coeff(n: float) -> str:
     return str(int(n)) if n.is_integer() else str(n)
 
 
-def _from_complex(c: complex, suffix: str = "i") -> str:
+def from_complex(c: complex, suffix: str = "i") -> str:
     """Convert Python complex to Calc string.
 
     ``Complex::GetString`` (``analysishelper.cxx``) calls ``finiteOrThrow``
@@ -551,7 +617,7 @@ def _from_complex(c: complex, suffix: str = "i") -> str:
     return _complex_coeff(real) + ("+" if imag > 0 else "") + imag_part
 
 
-def _multi_criteria_mask(
+def multi_criteria_mask(
     pairs: Sequence[tuple[Any, Any]],
     base_shape: tuple[int, ...] | None = None,
 ) -> np.ndarray | None:

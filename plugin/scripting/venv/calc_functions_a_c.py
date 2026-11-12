@@ -10,8 +10,6 @@ Semantics mirror the inline helpers formerly pasted by spreadsheet import transl
 from __future__ import annotations
 
 import builtins
-import calendar
-import datetime as dt
 import math
 import operator
 import sys
@@ -19,20 +17,19 @@ from typing import Any
 
 import numpy as np
 
+from .calc_functions_i_m import mode
 from .calc_functions_util import (
-    _as_nonzero,
-    _collect_a_values,
-    _criteria_numbers,
-    _date_to_serial,
-    _days_between,
-    _extract_numeric_array,
-    _from_complex,
-    _multi_criteria_mask,
-    _npf_result,
-    _round_half_up,
-    _scipy_stats,
-    _serial_to_date,
+    as_nonzero,
+    collect_a_values,
+    coupon_schedule,
+    criteria_numbers,
+    extract_numeric_array,
+    from_complex,
     match_criteria,
+    multi_criteria_mask,
+    npf_result,
+    round_half_up,
+    scipy_stats,
     yearfrac,
 )
 from .coerce import is_missing_value
@@ -167,7 +164,7 @@ def address(row: Any, col: Any, abs_num: Any = 1, a1: Any = True, sheet: Any = N
         abs_n = int(float(abs_num))
         if r < 1 or c < 1 or abs_n not in (1, 2, 3, 4):
             return "#VALUE!"
-        is_a1 = a1 is None or a1 == "" or _as_nonzero(a1)
+        is_a1 = a1 is None or a1 == "" or as_nonzero(a1)
     except (ValueError, TypeError, OverflowError):
         return "#VALUE!"
 
@@ -282,8 +279,6 @@ def aggregate(function_num: Any, options: Any, *args: Any) -> float:
         # ScModalValue on the numbers already kept above. mode() would
         # count True as 1 if given the raw args. Tie-break is the lowest
         # value. No repeat is #N/A (NaN).
-        from .calc_functions_i_m import mode
-
         return float(mode(arr.tolist()))
     return float("nan")
 
@@ -294,7 +289,7 @@ def _round_amor(value: float) -> float:
     GetAmordegrc uses rtl::math::round (analysishelper.cxx). Python
     round() is half-to-even, so 0.5 became 0 and 2.5 became 2.
     """
-    return float(_round_half_up(value, 0))
+    return float(round_half_up(value, 0))
 
 
 def _parse_amor(
@@ -492,7 +487,7 @@ def asc(text: Any) -> str:
 
 def avedev(*args: Any) -> float:
     # Excel/Calc AVEDEV ignores text and logicals.
-    arr = _extract_numeric_array(*args, propagate_nan=False)
+    arr = extract_numeric_array(*args, propagate_nan=False)
     if not arr.size:
         return float("nan")
     return float(np.mean(np.abs(arr - np.mean(arr))))
@@ -500,16 +495,16 @@ def avedev(*args: Any) -> float:
 
 def averagea(*args: Any) -> float:
     # Blank strings and whitespace stay in the denominator as 0, same as text:
-    # Calc AVERAGEA(10,"",20) is 10, not 15. _collect_a_values counts blank
+    # Calc AVERAGEA(10,"",20) is 10, not 15. collect_a_values counts blank
     # and text as 0 and skips None (an empty cell).
-    vals = _collect_a_values(*args)
+    vals = collect_a_values(*args)
     if not vals.size:
         return float("nan")
     return float(np.mean(vals))
 
 
 def averageif(r: Any, crit: Any, ar: Any | None = None) -> float:
-    vals = _criteria_numbers(r if ar is None else ar, [(r, crit)])
+    vals = criteria_numbers(r if ar is None else ar, [(r, crit)])
     if vals is None or not vals:
         return float("nan")
     return float(np.mean(vals))
@@ -531,7 +526,7 @@ def averageifs(ar: Any, *args: Any) -> float | str:
     pairs = _criteria_pairs(args)
     if pairs is None:
         return "#VALUE!"
-    vals = _criteria_numbers(ar, pairs)
+    vals = criteria_numbers(ar, pairs)
     if vals is None:
         return "#VALUE!"
     if not vals:
@@ -558,14 +553,14 @@ def base(number: Any, radix: Any, min_length: Any = 0) -> str:
 def _bessel_call(name: str, x: Any, n: Any, *, positive_x: bool) -> float:
     """One scipy.special Bessel, or NaN when scipy is missing or the input is illegal.
 
-    A missing install is the same NaN as _npf_result, not a raised ImportError.
+    A missing install is the same NaN as npf_result, not a raised ImportError.
     """
     xv = float(x)
     nv = int(float(n))
     if nv < 0 or (positive_x and xv <= 0):
         return float("nan")
     try:
-        import scipy.special  # type: ignore[import-untyped]
+        import scipy.special  # optional and heavy: loaded on first Bessel call
 
         return float(getattr(scipy.special, name)(nv, xv))
     except (ValueError, TypeError, OverflowError):
@@ -596,7 +591,7 @@ def _scipy_parsed(parse: Any) -> tuple[Any, Any] | None:
     Call only after an arity check. The stats method stays in the caller,
     outside this try.
     """
-    stats = _scipy_stats()
+    stats = scipy_stats()
     if stats is None:
         return None
     try:
@@ -656,7 +651,7 @@ def binomdist(*args: Any) -> float:
         int(float(args[0])),
         int(float(args[1])),
         float(args[2]),
-        _as_nonzero(args[3]),
+        as_nonzero(args[3]),
     ))
     if got is None:
         return float("nan")
@@ -844,7 +839,7 @@ def complex(real_num: Any, imag_num: Any = 0.0, suffix: Any = "i") -> str:
         s = str(suffix).strip()
         if s.lower() not in ("i", "j"):
             return "#VALUE!"
-        return _from_complex(builtins.complex(r, i), suffix=s.lower())
+        return from_complex(builtins.complex(r, i), suffix=s.lower())
     except (ValueError, TypeError, OverflowError):
         return "#VALUE!"
 
@@ -885,75 +880,16 @@ def countifs(*args: Any) -> float | str:
     pairs = _criteria_pairs(args)
     if pairs is None:
         return "#VALUE!"
-    mask = _multi_criteria_mask(pairs)
+    mask = multi_criteria_mask(pairs)
     if mask is None:
         return "#VALUE!"
     return float(np.sum(mask))
 
 
-def _get_coupon_dates(
-    settlement: Any, maturity: Any, frequency: Any, basis: Any = 0
-) -> tuple[float, float, float, float, int]:
-    """Calculate previous and next coupon dates stepping backwards from maturity in calendar months.
-
-    Returns (prev_serial, curr_serial, days_in_period, num_coupons, basis_code).
-    """
-    # Step back by calendar months from maturity. freq in (1, 2, 4), basis in
-    # (0..4), settlement < maturity. A bad frequency (1e9) never terminates,
-    # and a fixed day step (180, 182.5) drifts off the coupon date.
-    freq = int(float(frequency))
-    b = int(float(basis))
-    if freq not in (1, 2, 4) or b not in (0, 1, 2, 3, 4):
-        raise ValueError("Invalid coupon frequency or basis")
-    s_date = _serial_to_date(settlement)
-    m_date = _serial_to_date(maturity)
-    if s_date is None or m_date is None or s_date >= m_date:
-        raise ValueError("Invalid settlement or maturity date")
-
-    m_step = 12 // freq
-    d_mat = m_date.day
-    mat_is_eom = d_mat == calendar.monthrange(m_date.year, m_date.month)[1]
-    mat_month_idx = m_date.year * 12 + m_date.month - 1
-    k = 0
-    curr = m_date
-    prev = m_date
-    while curr > s_date:
-        k += 1
-        m_idx = mat_month_idx - k * m_step
-        y = m_idx // 12
-        m = (m_idx % 12) + 1
-        dim = calendar.monthrange(y, m)[1]
-        d = dim if (mat_is_eom or d_mat > dim) else d_mat
-        prev = dt.date(y, m, d)
-        if prev <= s_date:
-            break
-        curr = prev
-
-    p_ser = _date_to_serial(prev)
-    c_ser = _date_to_serial(curr)
-    if b in (0, 2, 4):
-        days_in_per = 360.0 / freq
-    elif b == 3:
-        days_in_per = 365.0 / freq
-    else:
-        days_in_per = float((curr - prev).days)
-
-    return p_ser, c_ser, days_in_per, float(k), b
-
-
-def _coupon_schedule(settlement: Any, maturity: Any, frequency: Any, basis: Any = 0) -> tuple[float, float, float, float, float, float]:
-    """Compute coupon schedule: (p_ser, c_ser, days_in_per, k, a_days, dsc_days)."""
-    p_ser, c_ser, days_in_per, k, b = _get_coupon_dates(settlement, maturity, frequency, basis)
-    # _days_between truncates via _serial_to_date, same as the old date/serial round trip.
-    a_days = float(_days_between(p_ser, settlement, b))
-    dsc_days = float(_days_between(settlement, c_ser, b))
-    return p_ser, c_ser, days_in_per, k, a_days, dsc_days
-
-
 def _coupon(settlement: Any, maturity: Any, frequency: Any, basis: Any, idx: int) -> float:
-    # _coupon_schedule order: 0 p_ser, 1 c_ser, 2 days_in_per, 3 k, 4 a_days, 5 dsc_days.
+    # coupon_schedule order: 0 p_ser, 1 c_ser, 2 days_in_per, 3 k, 4 a_days, 5 dsc_days.
     try:
-        return _coupon_schedule(settlement, maturity, frequency, basis)[idx]
+        return coupon_schedule(settlement, maturity, frequency, basis)[idx]
     except (ValueError, TypeError, OverflowError):
         return float("nan")
 
@@ -1045,7 +981,7 @@ def _cum_payment(
     if r <= 0 or n <= 0 or p <= 0 or s < 1 or e < s or e > n:
         return float("nan")
     pers = np.arange(s, e + 1)
-    return _npf_result(kind, r, pers, n, p, 0, t)
+    return npf_result(kind, r, pers, n, p, 0, t)
 
 
 def cumipmt(rate: Any, nper: Any, pv: Any, start_period: Any, end_period: Any, type_val: Any) -> float:
