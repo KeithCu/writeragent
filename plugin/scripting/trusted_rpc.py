@@ -48,7 +48,7 @@ def parse_worker_dict_result(
 
 
 def run_trusted_worker_action(
-    ctx: Any,
+    ctx: object | None,
     *,
     domain: str,
     helper: str = "",
@@ -65,7 +65,10 @@ def run_trusted_worker_action(
     error_label: str = "Trusted action",
     cancel: SendCancellation | None = None,
 ) -> dict[str, Any]:
-    """Execute a trusted action in the warm venv worker without user code strings."""
+    """Execute a trusted action in the warm venv worker without user code strings.
+
+    *ctx* may be a ToolContext, a UNO component context or None; only its optional ``send_cancellation`` is read, as the Stop scope when *cancel* is not given.
+    """
     if cancel is None and ctx is not None:
         cancel = getattr(ctx, "send_cancellation", None)
 

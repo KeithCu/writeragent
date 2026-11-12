@@ -527,7 +527,6 @@ def test_sandbox_import_writeragent_without_api_has_doc():
 def test_rps_session_id_writer_is_document_keyed():
     from plugin.scripting import session_manager as sm
 
-    ctx = MagicMock()
     doc_a = MagicMock()
     doc_a.getURL.return_value = "file:///a.odt"
     doc_b = MagicMock()
@@ -536,8 +535,8 @@ def test_rps_session_id_writer_is_document_keyed():
         patch.object(sm, "python_session_mode", return_value="shared"),
         patch.object(sm, "is_calc", return_value=False),
     ):
-        sid_a = sm.rps_session_id(ctx, doc_a)
-        sid_b = sm.rps_session_id(ctx, doc_b)
+        sid_a = sm.rps_session_id(doc_a)
+        sid_b = sm.rps_session_id(doc_b)
     assert sid_a == "rps:file:///a.odt"
     assert sid_b == "rps:file:///b.odt"
     assert sid_a != sid_b
@@ -546,10 +545,9 @@ def test_rps_session_id_writer_is_document_keyed():
 def test_rps_session_id_isolated_is_none():
     from plugin.scripting import session_manager as sm
 
-    ctx = MagicMock()
     doc = MagicMock()
     with patch.object(sm, "python_session_mode", return_value="isolated"):
-        assert sm.rps_session_id(ctx, doc) is None
+        assert sm.rps_session_id(doc) is None
 
 
 def test_host_rpc_named_script_blocked_when_tools_disabled():
@@ -584,8 +582,8 @@ def test_host_rpc_named_script_still_allowed_for_domain_allowlist():
     with (
         patch("plugin.scripting.document_scripts.get_user_scripts", return_value={"Helpers": code}),
         patch("plugin.scripting.document_scripts.get_document_scripts", return_value={}),
-        patch("plugin.framework.uno_context.get_ctx", return_value=MagicMock()),
-        patch("plugin.framework.uno_context.get_active_document", return_value=MagicMock()),
+        patch("plugin.scripting.host_rpc.get_ctx", return_value=MagicMock()),
+        patch("plugin.scripting.host_rpc.get_active_document", return_value=MagicMock()),
         patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn: fn()),
     ):
         out = execute_tool(
@@ -606,7 +604,7 @@ def test_off_main_py_named_script_skips_main_thread_marshal():
 
     with (
         patch("plugin.scripting.document_scripts.get_user_scripts", return_value={"Helpers": code}),
-        patch("plugin.framework.thread_guard.in_sync_host_dispatch", return_value=True),
+        patch("plugin.scripting.host_rpc.in_sync_host_dispatch", return_value=True),
         patch("plugin.framework.queue_executor.main.is_current", return_value=False),
         patch("plugin.framework.queue_executor.main.call", side_effect=_must_not_marshal),
     ):
@@ -614,7 +612,7 @@ def test_off_main_py_named_script_skips_main_thread_marshal():
     assert out["code"] == code
     with (
         patch("plugin.scripting.document_scripts.get_user_scripts", return_value={"Helpers": code}),
-        patch("plugin.framework.thread_guard.in_sync_host_dispatch", return_value=True),
+        patch("plugin.scripting.host_rpc.in_sync_host_dispatch", return_value=True),
         patch("plugin.framework.queue_executor.main.is_current", return_value=False),
     ):
         with pytest.raises(RuntimeError, match="Document scripts"):
@@ -920,7 +918,7 @@ def test_named_script_tool_reads_document_scripts_only_when_needed():
     # User origin and missing origin key
     with (
         patch("plugin.scripting.document_scripts.get_user_scripts", return_value={"Helpers": code}),
-        patch("plugin.framework.uno_context.get_ctx", side_effect=_fail_ctx),
+        patch("plugin.scripting.host_rpc.get_ctx", side_effect=_fail_ctx),
         patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn: fn()),
     ):
         out1 = execute_tool(
@@ -940,7 +938,7 @@ def test_named_script_tool_reads_document_scripts_only_when_needed():
     # Origin "nope"
     with (
         patch("plugin.scripting.document_scripts.get_user_scripts", side_effect=_fail_user),
-        patch("plugin.framework.uno_context.get_ctx", side_effect=_fail_ctx),
+        patch("plugin.scripting.host_rpc.get_ctx", side_effect=_fail_ctx),
         patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn: fn()),
     ):
         with pytest.raises(RuntimeError, match="Unknown named-script origin 'nope'"):
@@ -955,7 +953,7 @@ def test_named_script_tool_reads_document_scripts_only_when_needed():
     sentinel_doc = object()
     with (
         patch("plugin.scripting.document_scripts.get_user_scripts", return_value={}),
-        patch("plugin.framework.uno_context.get_ctx", return_value=mock_ctx),
+        patch("plugin.scripting.host_rpc.get_ctx", return_value=mock_ctx),
         patch("plugin.scripting.session_manager.document_for_script_session", return_value=sentinel_doc),
         patch("plugin.scripting.document_scripts.get_document_scripts", return_value={"Cover": code}) as mock_get_doc,
         patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn: fn()),
@@ -971,7 +969,7 @@ def test_named_script_tool_reads_document_scripts_only_when_needed():
     # LIST_NAMED_PYTHON_SCRIPTS
     with (
         patch("plugin.scripting.document_scripts.get_user_scripts", return_value={"Helpers": code}),
-        patch("plugin.framework.uno_context.get_ctx", return_value=mock_ctx),
+        patch("plugin.scripting.host_rpc.get_ctx", return_value=mock_ctx),
         patch("plugin.scripting.session_manager.document_for_script_session", return_value=sentinel_doc),
         patch("plugin.scripting.document_scripts.get_document_scripts", return_value={"Cover": code}) as mock_get_doc,
         patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn: fn()),

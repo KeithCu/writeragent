@@ -34,7 +34,10 @@ from typing import Any, Callable
 
 from plugin.framework.errors import resolve_exception_message
 from plugin.framework.ipc import DEFAULT_MAX_PAYLOAD_BYTES, IpcFrameError, pack_pickle_frame
+from plugin.framework.queue_executor import main
 from plugin.framework.send_cancellation import SendCancellation, is_cancelled
+from plugin.framework.thread_guard import in_sync_host_dispatch
+from plugin.framework.uno_context import get_active_document, get_ctx
 
 log = logging.getLogger(__name__)
 
@@ -298,7 +301,6 @@ def _script_target_doc(uno_ctx: Any, script_session_id: str | None) -> Any:
     # The id comes from the turn, not from a process-global that another pool
     # (embeddings) would overwrite. The pin is not the worker namespace id.
     # Only when nothing matches does the focused document win.
-    from plugin.framework.uno_context import get_active_document
     from plugin.scripting.session_manager import document_for_script_session
 
     doc = document_for_script_session(uno_ctx, script_session_id)
@@ -333,9 +335,6 @@ def execute_tool(
         )
     payload = args if isinstance(args, dict) else {}
     if tool_name in _NAMED_SCRIPT_TOOLS:
-        from plugin.framework.queue_executor import main
-        from plugin.framework.thread_guard import in_sync_host_dispatch
-
         # Inside a synchronous host dispatch off the main thread, the main thread
         # is waiting on this one, so main.call would deadlock (thread_guard.sync_host_dispatch).
         # =PY() recalc never reaches here: its allowlist is empty and refused above.
@@ -353,7 +352,6 @@ def execute_tool(
         try:
             from plugin.framework.doc_type import is_calc, is_draw, is_writer
             from plugin.framework.tool import ToolContext
-            from plugin.framework.uno_context import get_ctx
             from plugin.app import get_tools
         except ImportError as exc:
             raise RuntimeError(
@@ -387,8 +385,6 @@ def execute_tool(
         is_async = tool is not None and tool.is_async()
         return registry, tctx, is_async
 
-    from plugin.framework.queue_executor import main
-
     # We keep two hops; collapsing resolve+execute into one hop changes queue semantics/races.
     # Known window: the doc in tctx is resolved in the first hop and used in the second,
     # so it can be closed in between and the tool then sees a dead UNO proxy
@@ -402,7 +398,6 @@ def execute_tool(
 
 
 def _document_script_store(script_session_id: str | None) -> dict[str, str]:
-    from plugin.framework.uno_context import get_ctx
     from plugin.scripting.document_scripts import get_document_scripts
 
     uno_ctx = get_ctx()

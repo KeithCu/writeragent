@@ -2840,14 +2840,14 @@ def test_run_with_logging_deadline_errors_before_headers() -> None:
         del headers, exc_info
         calls.append(status)
 
-    def handle(_environ: Any, _start: Any, _adm: Any) -> list[bytes]:
+    def handle(_environ: Any, _start: Any, _settings: Any, _adm: Any) -> list[bytes]:
         raise RuntimeError("early")
 
-    def prepare(_environ: Any, _start: Any) -> tuple[_Admission | None, list[bytes] | None]:
+    def prepare(_environ: Any, _settings: Any, _start: Any, _route: Any) -> tuple[_Admission | None, list[bytes] | None]:
         return (_Admission(deadline=Deadline(5.0), parsed={"id": "early"}, req_id="early"), None)
 
     sem = threading.Semaphore(1)
-    route = _Route("POST", True, prepare, handle, busy_code="WORKER_POOL_BUSY", busy_message="busy")
+    route = _Route("POST", prepare, handle, default_timeout_sec=5, busy_code="WORKER_POOL_BUSY", busy_message="busy")
     body = _gated({"PATH_INFO": "/v1/execute", "HTTP_HOST": "127.0.0.1"}, start_response, ComputeSettings(), sem, route)
     assert calls == ["500 Internal Server Error"]
     assert b"INTERNAL_ERROR" in b"".join(body)
@@ -3367,14 +3367,13 @@ def test_gated_does_not_start_response_twice() -> None:
     def execute_fn(**_kwargs: Any) -> dict[str, Any]:
         return {"status": "ok", "result_json": b'{"status":"ok"}'}
 
-    app = create_wsgi_app(ComputeSettings(), execute_fn=execute_fn)
-
-    def boom(environ: dict, start: Any, settings: ComputeSettings, _run: Any, admission: Any = None) -> list[bytes]:
-        del environ, settings, _run, admission
+    def boom(environ: dict, start: Any, settings: ComputeSettings, admission: Any, *, get_execute: Any = None) -> list[bytes]:
+        del environ, settings, admission, get_execute
         start("200 OK", [("Content-Type", "application/json"), ("Content-Length", "2")])
         raise RuntimeError("after headers")
 
     with patch("compute_service.server._handle_execute", boom):
+        app = create_wsgi_app(ComputeSettings(), execute_fn=execute_fn)
         out = b"".join(app({"PATH_INFO": "/v1/execute", "REQUEST_METHOD": "POST", "QUERY_STRING": "", "CONTENT_LENGTH": "2", "HTTP_HOST": "127.0.0.1", "wsgi.input": io.BytesIO(b"{}")}, start_response))
     assert calls == ["200 OK"]
     assert out == b""
@@ -3383,8 +3382,8 @@ def test_gated_does_not_start_response_twice() -> None:
 def test_gated_prepare_exception_is_json_internal_error() -> None:
     """An unexpected prepare failure stays on the JSON error path and takes no permit.
 
-    What was wrong: prepare ran before the try that maps route failures to
-    INTERNAL_ERROR, so a body-read bug escaped as an HTML 500.
+    A failure in prepare must be mapped to INTERNAL_ERROR, otherwise an
+    unhandled error could escape as an unformatted HTML 500.
     """
     from compute_service.server import _Admission, _Route, _gated
 
@@ -3394,14 +3393,14 @@ def test_gated_prepare_exception_is_json_internal_error() -> None:
         del headers, exc_info
         statuses.append(status)
 
-    def prepare(_environ: Any, _start: Any) -> tuple[_Admission | None, list[bytes] | None]:
+    def prepare(_environ: Any, _settings: Any, _start: Any, _route: Any) -> tuple[_Admission | None, list[bytes] | None]:
         raise RuntimeError("prepare blew up")
 
-    def handle(_environ: Any, _start: Any, _admission: _Admission) -> list[bytes]:
+    def handle(_environ: Any, _start: Any, _settings: Any, _admission: _Admission) -> list[bytes]:
         return []
 
     sem = threading.Semaphore(1)
-    route = _Route("POST", True, prepare, handle, busy_code="WORKER_POOL_BUSY", busy_message="busy")
+    route = _Route("POST", prepare, handle, default_timeout_sec=5, busy_code="WORKER_POOL_BUSY", busy_message="busy")
     body = _gated({"PATH_INFO": "/v1/execute", "HTTP_HOST": "127.0.0.1"}, start_response, ComputeSettings(), sem, route)
     assert statuses == ["500 Internal Server Error"]
     assert b"INTERNAL_ERROR" in b"".join(body)
@@ -3706,16 +3705,16 @@ def test_reset_queue_timeout_closes_connection() -> None:
     def start_response(status: str, headers: list[tuple[str, str]], exc_info: Any = None) -> None:
         statuses.append(status)
 
-    def prepare(_environ: Any, _start: Any) -> tuple[_Admission | None, list[bytes] | None]:
+    def prepare(_environ: Any, _settings: Any, _start: Any, _route: Any) -> tuple[_Admission | None, list[bytes] | None]:
         return (_Admission(deadline=Deadline.from_absolute(1.0, 1.0), parsed={}), None)
 
-    def handle(_environ: Any, _start: Any, _admission: _Admission) -> list[bytes]:
+    def handle(_environ: Any, _start: Any, _settings: Any, _admission: _Admission) -> list[bytes]:
         return []
 
     sem = threading.Semaphore(1)
     env = {"REQUEST_METHOD": "POST", "PATH_INFO": "/v1/session/reset", "QUERY_STRING": "session_id=abc", "HTTP_TRANSFER_ENCODING": "chunked", "HTTP_HOST": "127.0.0.1", "wsgi.input": stream}
     request_conn(env).accept_time = 0.0
-    route = _Route("POST", True, prepare, handle, busy_code="WORKER_POOL_BUSY", busy_message="busy")
+    route = _Route("POST", prepare, handle, default_timeout_sec=1, busy_code="WORKER_POOL_BUSY", busy_message="busy")
     res = _gated(env, start_response, ComputeSettings(), sem, route)
     payload = json.loads(b"".join(res).decode("utf-8"))
     assert statuses[0].startswith("503")
@@ -3732,6 +3731,64 @@ def test_reset_queue_timeout_closes_connection() -> None:
     assert statuses_app[0].startswith("400") or statuses_app[0].startswith("503")
     assert request_conn(env_app).close_connection is True
     assert stream_app.tell() == 0
+
+
+def test_close_if_unread_body_sites() -> None:
+    """A declared body left unread sets close_connection across all endpoints."""
+    app = create_wsgi_app(ComputeSettings())
+
+    test_cases = [
+        ("GET", "/health", "5", "200 OK", True, None),
+        ("POST", "/health", "5", "405 Method Not Allowed", True, "GET"),
+        ("POST", "/nope", "5", "404 Not Found", True, None),
+        ("GET", "/v1/execute", "5", "405 Method Not Allowed", True, "POST"),
+        ("GET", "/health", None, "200 OK", False, None),
+    ]
+
+    for method, path, content_len, expected_status, expected_close, expected_allow in test_cases:
+        status_holder: list[str] = []
+        headers_holder: list[list[tuple[str, str]]] = []
+
+        def start_response(status: str, headers: list[tuple[str, str]], _exc_info: Any = None) -> None:
+            status_holder.append(status)
+            headers_holder.append(headers)
+
+        environ: dict[str, Any] = {
+            "REQUEST_METHOD": method,
+            "PATH_INFO": path,
+            "HTTP_HOST": "127.0.0.1",
+            "wsgi.input": io.BytesIO(b"12345" if content_len else b""),
+        }
+        if content_len is not None:
+            environ["CONTENT_LENGTH"] = content_len
+
+        _ = b"".join(app(environ, start_response))
+        assert status_holder == [expected_status], f"Mismatch for {method} {path}"
+        assert request_conn(environ).close_connection is expected_close, f"Close mismatch for {method} {path}"
+        if expected_allow is not None:
+            headers_dict = dict(headers_holder[0])
+            assert headers_dict.get("Allow") == expected_allow
+
+
+def test_vision_default_timeout_is_ocr_timeout() -> None:
+    """Vision endpoint default deadline matches ocr_timeout_sec when timeout_ms is omitted."""
+    recorded_deadline: list[Any] = []
+
+    class FakeVisionPool:
+        def execute(self, **kwargs: Any) -> dict[str, Any]:
+            recorded_deadline.append(kwargs["deadline"])
+            return {"status": "ok"}
+
+    settings = ComputeSettings(ocr_timeout_sec=7, ocr_workers=1)
+    app = create_wsgi_app(settings)
+    fake_pool = FakeVisionPool()
+    with patch("compute_service.vision.get_vision_pool", return_value=fake_pool):
+        status, _headers, _body = _wsgi_vision_post(app, {"id": "vis-test"}, image=b"fake-image")
+
+    assert status == "200 OK"
+    assert len(recorded_deadline) == 1
+    left = recorded_deadline[0].left()
+    assert 6.0 < left <= 7.0
 
 
 def test_reset_body_read_before_permit(monkeypatch: pytest.MonkeyPatch) -> None:

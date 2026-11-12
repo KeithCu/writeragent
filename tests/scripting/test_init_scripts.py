@@ -347,12 +347,13 @@ def test_workbook_session_id_recursion_off_main_thread(monkeypatch: pytest.Monke
     monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: False)
     monkeypatch.setattr("plugin.scripting.session_manager.python_session_mode", lambda: "shared")
 
-    doc = MagicMock()
-    monkeypatch.setattr("plugin.scripting.session_manager._calc_document", lambda ctx: doc)
+    def _fail_finder(*_a: object, **_kw: object) -> object:
+        raise AssertionError("focused_calc_document must not be called when doc is None")
+
+    monkeypatch.setattr("plugin.scripting.session_manager.focused_calc_document", _fail_finder)
     monkeypatch.setattr("plugin.scripting.session_manager.calc_workbook_base_session_id", lambda d: "test-wb-1")
 
-    ctx = MagicMock()
-    res = workbook_session_id(ctx)
+    res = workbook_session_id(None)
     assert res is None
 
 
