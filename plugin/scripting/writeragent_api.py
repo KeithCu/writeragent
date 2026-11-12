@@ -654,7 +654,7 @@ class _ChartProxy:
         return call_host_tool("chart_get_info", name=name, sheet=sheet, page=page)
 
     def list(self, *, sheet: str | None = None, page: int | None = None) -> dict[str, Any]:
-        """List charts in the current document (active sheet, document body, or all slides).
+        """List every chart in the current document (all sheets, the Writer body and frames, or all slides/pages). sheet and page do not narrow the list.
 
         Args:
             sheet (optional): Sheet to search for the chart (Calc only; omit to search all sheets).

@@ -29,11 +29,10 @@ from plugin.framework.deal_shim import deal
 from plugin.framework.errors import CalcError, reraise_if_disposed
 
 
-# Logical string coercion targets. Static baseline sets are used instead of
-# XFormulaOpCodeMapper discovery: XFormulaOpCodeMapper in LibreOffice does
-# not expose getAvailableSymbolTokens (only getMappings/getAvailableMappings)
-# and FormulaToken lacks a .Token attribute, so dynamic mapping was dead code
-# that always failed at runtime and fell back to these English defaults.
+# Logical string coercion targets: static English sets. These strings cannot
+# be discovered at runtime: XFormulaOpCodeMapper offers only getMappings /
+# getAvailableMappings (offapi/com/sun/star/sheet/XFormulaOpCodeMapper.idl)
+# and FormulaToken has OpCode and Data, no Token (FormulaToken.idl).
 _TRUE_STRINGS: set[str] = {"=TRUE()", "TRUE", "True"}
 _FALSE_STRINGS: set[str] = {"=FALSE()", "FALSE", "False"}
 
@@ -70,8 +69,7 @@ def finalize_python_data(raw: Any) -> list[list[Any]] | None:
         return None
     if isinstance(raw, str):
         return [[raw]]
-    # Plain list/tuple only — namedtuple subclasses tuple and must not be treated as a grid
-    # (CrossHair found SplitResultBytes → TypeError iterating int fields in ensure_rectangular_2d).
+    # Plain list/tuple only: a namedtuple subclasses tuple and is not a grid (SplitResultBytes would iterate its int fields in ensure_rectangular_2d and raise TypeError).
     if type(raw) is not list and type(raw) is not tuple:
         return [[raw]]
     if not raw:
@@ -95,7 +93,7 @@ def _is_legacy_single_column_range(items: list[Any]) -> bool:
 def split_python_addin_data_args(raw: Any) -> list[Any]:
     """Split the ``=PYTHON()`` varargs ``data`` parameter into individual formula arguments.
 
-      Calc packs all trailing arguments into ``sequence<any>``. Unit tests may pass a bare range
+    Calc packs all trailing arguments into ``sequence<any>``. Unit tests may pass a bare range
     or scalar without the outer sequence wrapper.
     """
     if raw is None:
@@ -161,10 +159,7 @@ def pack_calc_data_for_wire(py_data: list[list[Any]] | list[Any] | None, *, forc
     """Pack one Calc range as a ``calc_range`` envelope (inner list or split_grid)."""
     if py_data is None:
         return None
-    # pack_calc_range_envelope runs ensure_rectangular_2d and sets shape from
-    # that grid. Doing it here first copied every cell again on the =PY()
-    # pack path. materialize_calc_range already stopped the matching double
-    # walk on the way back in.
+    # pack_calc_range_envelope runs ensure_rectangular_2d and sets the shape from that grid; rectangularizing here too would copy every cell again.
     envelope = pack_calc_range_envelope(py_data, address=address)
     envelope["data"] = host_pack_data(envelope["data"], force=force)
     return envelope

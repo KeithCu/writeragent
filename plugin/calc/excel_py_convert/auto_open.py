@@ -268,10 +268,11 @@ def install_excel_py_auto_convert(ctx: Any) -> None:
                 if name in _GEOMETRIC_OPEN_EVENTS:
                     try:
                         log.info("excel_py lifecycle: geometric on_open event=%s has_doc=%s", name, doc is not None)
-                        # VCL OnNew/OnCreate is often not Python's MainThread.
-                        # Leftover Shared =PY() then sees session_id=None.
-                        # Inlines when main.is_current() is true, including an untagged Dummy thread.
-                        # Release bundles keep UNTAGGED_DUMMY_IS_CURRENT False (linguistic Dummy-21), so a URP open there still marshals and can time out.
+                        # VCL OnNew/OnCreate is often not Python's MainThread. main.run inlines when
+                        # main.is_current() is true (including an untagged Dummy thread in dev
+                        # builds), so a leftover shared =PY() sees the session id. Release bundles
+                        # keep UNTAGGED_DUMMY_IS_CURRENT False, so a URP open there still marshals
+                        # and can time out.
                         from plugin.framework.queue_executor import main
 
                         main.run(_geometric_open_job, ctx, doc)
@@ -290,10 +291,9 @@ def install_excel_py_auto_convert(ctx: Any) -> None:
                         # Pass the callable first—do not pass ctx as the first positional (main treats it as fn).
                         main.run(maybe_rewrite_collabora_py_formulas, doc)
                     except Exception:
-                        # FIXME: this swallows marshal/rewrite failures (e.g. TypeError
-                        # from a mis-wired main.run) so UNO tests still
-                        # pass; only the log shows it. Narrow or re-raise after the
-                        # listener is proven not to abort OnLoadFinished.
+                        # FIXME: failures are logged and the open continues. This also hides a
+                        # mis-wired main.run (TypeError); narrow it once a raise here is shown not
+                        # to abort OnLoadFinished for other listeners.
                         log.warning("collabora PY rewrite on open failed", exc_info=True)
                     return
                 if name in _SAVE_DONE_EVENTS:

@@ -131,7 +131,6 @@ def maybe_rewrite_collabora_py_formulas(doc: Any) -> int:
     """
     if doc is None:
         return 0
-    # auto_open returns when doc is None and logs a raised rewrite.
     if not doc.supportsService("com.sun.star.sheet.SpreadsheetDocument"):
         return 0
 
@@ -150,7 +149,7 @@ def maybe_rewrite_collabora_py_formulas(doc: Any) -> int:
     # Scan failures propagate; auto_open already logs them.
     doc.lockControllers()
     try:
-        # Reuses the shared hidden/locked undo context; do not create a new undo-context module.
+        # undo_lock hides the rewrite inside the existing undo action (or locks an empty stack), so opening the file adds no undo step.
         with undo_lock(doc):
             sheets = doc.getSheets()
             for i in range(int(sheets.getCount())):

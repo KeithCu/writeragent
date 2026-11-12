@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""In-place UNO apply of a DAG report on OnLoadFinished, ; separators, spill clear before rewrite."""
+"""Write a DAG conversion report into the open Calc document on OnLoadFinished: script-bank sheets, ;-separated =PY formulas, and a spill clear before each rewrite."""
 
 from __future__ import annotations
 

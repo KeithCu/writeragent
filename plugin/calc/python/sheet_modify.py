@@ -15,10 +15,11 @@ and geometric repair run as separate jobs — geometric then does its own
 See ``docs/calc/geometric-recalc-order.md`` §3.6 / Phase 3.
 
 Listeners and debounce timers are keyed by the workbook lifecycle id
-(RuntimeUID), not the file URL. Every unsaved workbook has an empty URL, and
-Save-As changes the URL; either one shared or duplicated the single
-``addModifyListener``. ``modified`` reconciles the document that owns the
-sheet, not whichever component is currently active.
+(RuntimeUID), not the file URL. A URL key would be wrong: every unsaved
+workbook has an empty URL (they would share one listener) and Save As changes
+it (the sheet would get a second ``addModifyListener``). ``modified``
+reconciles the document that owns the sheet, not whichever component is
+currently active.
 """
 
 from __future__ import annotations
@@ -58,9 +59,6 @@ def reset_sheet_modify_runtime_for_tests() -> None:
     for s in WorkbookState.all_states():
         s.debounce.cancel_all()
     _DISPATCH_DEPTH = 0
-
-
-
 
 
 def _owning_calc_doc(sheet: Any) -> Any | None:
@@ -256,9 +254,9 @@ def dispatch_sheet_modified(
     sheet = getattr(event, "Source", None)
     if sheet is None:
         return
-    # Prefer the sheet's owner, then the document stored when the listener
-    # was attached. _get_calc_doc is the active window, so a modify in a
-    # background workbook was scheduled against that other document.
+    # Prefer the sheet's owner, then the document stored when the listener was
+    # attached. Not _get_calc_doc: that is the focused window, and a modify in a
+    # background workbook would be scheduled against the wrong document.
     owner = _owning_calc_doc(sheet)
     if owner is None:
         owner = doc

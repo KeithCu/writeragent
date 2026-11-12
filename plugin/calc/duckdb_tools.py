@@ -165,12 +165,10 @@ class QueryFolderSqlTool(ToolCalcPythonSqlBase):
                     raise ToolExecutionError(f"Duplicate SQL table name {table_name!r} for {spec!r}; give each tables/files source a distinct name", code="DUCKDB_SQL_ERROR")
                 full_path = os.path.join(scoped, bn)
                 if not os.path.isfile(full_path):
-                    # Used to append the basename to direct_files so DuckDB failed
-                    # later with a generic IO / missing-FROM error.
+                    # A missing folder file fails here; passing the basename on would make DuckDB fail later with a generic IO or missing-FROM error.
                     raise ToolExecutionError(f"Folder file {bn!r} was not found under the document folder", code="MISSING_FILE")
                 if ext in EXCEL_EXTENSIONS + (".ods",):
-                    # Office files that exist must preload or fail loud. A silent
-                    # (None, None) skip must not treat the basename as a flat file without a loaded table.
+                    # Office files that exist preload into a table or raise: _read_sibling_office_file_as_grid returns a grid or raises ToolExecutionError.
                     office_grid = _read_sibling_office_file_as_grid(ctx.ctx, full_path, file_spec)
                     preloaded[table_name] = {"grid": office_grid, "headers": headers}
                     continue
@@ -401,8 +399,7 @@ def _export_model_to_cached_ods(model: Any, dest: Path) -> None:
     from plugin.framework.uno_context import create_property_value
 
     dest.parent.mkdir(parents=True, exist_ok=True)
-    # Unique per writer: a fixed ".partial" name let two cache writes unlink
-    # each other's in-progress export.
+    # Unique temp name per writer: two cache writes sharing one .partial name would unlink each other's in-progress export.
     tmp = dest.parent / f"{dest.name}.{uuid.uuid4().hex}.partial"
     try:
         url = uno.systemPathToFileUrl(str(tmp.resolve()))

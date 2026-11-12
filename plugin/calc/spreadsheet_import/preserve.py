@@ -39,7 +39,7 @@ def apply_output_to_sheet(target_sheet: Any, output: OutputSheetModel) -> None:
         col, row = parse_address(address)
         cell = target_sheet.getCellByPosition(col, row)
         # Do not str()/float() preserved values: leading zeros and formula-looking text stay as written.
-        # Bools route through _classify_write_cell as 1.0/0.0, not the string "True".
+        # Bools store 1.0/0.0 (setValue), not the text "True", the same as CellManipulator._classify_write_cell.
         if oc.formula:
             cell.setFormula(oc.formula)
         elif isinstance(value, bool):

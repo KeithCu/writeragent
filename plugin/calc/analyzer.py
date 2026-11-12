@@ -15,10 +15,7 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
-"""Sheet analyzer — summarizes the structure of Calc sheets.
-
-Ported from core/calc_sheet_analyzer.py for the plugin framework.
-"""
+"""Sheet analyzer — summarizes the structure of Calc sheets."""
 
 from __future__ import annotations
 
@@ -233,7 +230,7 @@ def get_calc_context_for_chat(
                             from plugin.calc.inspector import CellInspector
 
                             inspector = CellInspector(vs.bridge)
-                            # LLM-facing context: enrich dates like read_cell_range (#374 Bug 3).
+                            # LLM-facing context: enrich dates the same way read_cell_range does.
                             cells = inspector.read_range(sel_range, include_format_info=True)
                             ctx_str += "Selection Content (CSV-like):\n"
                             for row in cells:

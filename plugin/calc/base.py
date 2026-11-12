@@ -14,7 +14,22 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
-"""Base classes for specialized Calc toolsets."""
+"""Base classes for specialized Calc toolsets: the Calc delegate's domain catalog.
+
+Each direct subclass of ``ToolCalcSpecialBase`` is one row of the Calc
+delegate's domain list: ``specialized_catalog.catalog_entries_from_base``
+and ``SpecializedBase.domains_for_services`` walk
+``ToolCalcSpecialBase.__subclasses__()`` (direct subclasses only). A class
+here owns its row's domain and description, ``tier``,
+``required_core_tools`` and ``uno_services``; it owns no tool behaviour.
+One row is defined elsewhere: ``ToolWriterFormBase`` (forms) in
+``plugin/writer/specialized_base.py``. Three rows have no tool subclass in
+this package: ``images`` is served by the shared ``ToolWriterImageBase``
+tools (``plugin/writer/images/images.py``, which also run on Calc),
+``web_research`` is run by the delegate gateway itself
+(``plugin/doc/specialized_base.py``), and ``document_research`` by the
+``plugin/doc/document_research_*`` tools that declare that domain.
+"""
 
 from typing import ClassVar
 

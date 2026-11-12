@@ -73,7 +73,12 @@ class TranslationResult:
 
 @dataclass
 class TodoCell:
-    """Formula cell left unconverted with a reason code."""
+    """Formula cell left unconverted, with its report code.
+
+    ``reason`` is one of: ``UNSUPPORTED_FUNCTION``, ``UNSUPPORTED_ARITY``,
+    ``PARSE_ERROR`` (from ``translate``), and ``PROMPT``, ``ARRAY_FORMULA``,
+    ``CIRCULAR_REF``, ``EMIT_ERROR`` (from ``emit.build_converted_output_model``).
+    """
 
     address: str
     reason: str

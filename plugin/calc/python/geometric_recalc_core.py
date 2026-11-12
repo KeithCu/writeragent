@@ -113,10 +113,9 @@ def rebuild_formula_with_data_args(formula: str, data_args: list[str]) -> str | 
     if parts is None:
         return None
     old_args = parts.data_args()
-    # Join existing user args verbatim; format only a new/replaced last pred.
-    # ``build_data_suffix`` / ``_format_py_data_range_body`` strip ``$`` from
-    # every token. Keep the parsed original spelling; only the appended/replaced
-    # predecessor is formatted.
+    # Join existing user args verbatim; format only a new or replaced last
+    # predecessor. format_py_data_range strips $ from every token, so the
+    # parsed original spelling is kept for the other args.
     if not data_args:
         suffix = ")"
     else:
@@ -202,7 +201,7 @@ def _plan_cell(
 
 
 def _rule2_candidate_score(old: str, rec: GeometricRecord, live: str, desired: str) -> tuple[int, int] | None:
-    """``pred + (live − old)`` equals *desired* — the cell moved with its formula."""
+    """Rule 2 of the rehome rules (docs/calc/geometric-recalc-order.md §3.4): ``pred + (live − old)`` equals *desired* — the cell moved with its formula."""
     parsed_old = parse_local(old)
     parsed_live = parse_local(live)
     if parsed_old is None or parsed_live is None:
@@ -279,11 +278,11 @@ def _rehome_or_keep_record(
     for old, rec in incoming.items():
         if old in consumed:
             continue
-        # Gone, rule-2 moved, or overwritten. Live unclaimed keys stay for in-place.
+        # Gone, rule-2 moved, or overwritten. Live unclaimed keys stay for in-place. (§3.4)
         if old not in evicted and old in live_keys and old not in rule2_claimed:
             continue
         score = _rule2_candidate_score(old, rec, key, desired)
-        # Rule 1: pred already equals desired, and only when old is gone (true orphan).
+        # Rule 1: pred already equals desired, and only when old is gone (true orphan). (§3.4)
         if score is None and same_cell_ref(rec.predecessor, desired) and old not in live_keys:
             score = (1, 0)
         if score is None:
@@ -339,7 +338,7 @@ def compute_sheet_repair(
     """List-diff + splice for one sheet. No UNO.
 
     *cells* must already be row-major.
-    An exact 100 is chained.
+    The caller has already skipped a capped sheet; every cell given here is chained.
     """
     incoming = {local_a1(k): v for k, v in (records or {}).items()}
     working = dict(incoming)

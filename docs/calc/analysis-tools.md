@@ -2,7 +2,7 @@
 
 This document describes the specialized tools for performing analysis in LibreOffice Calc.
 
-**Chat (2026):** Calc hides `analysis` and `python` (`CALC_HIDDEN_SPECIALIZED_DOMAINS`). Main chat runs Python only as **`=PY()`** via `write_formula_range` into an empty cell outside the data range (no in-place overwrite). Classes below remain for tests and Run Python Script helpers.
+**Chat (2026):** Calc hides `analysis` and `python` (`CALC_HIDDEN_SPECIALIZED_DOMAINS`). Main chat runs Python only as **`=PY()`** via `write_formula_range` into an empty cell outside the data range (no in-place overwrite). Classes below remain for tests and Run Python Script helpers. They are `ToolBaseDummy` (not registered as chat or MCP tools).
 
 Previously, tools lived under the **`analysis`** specialized domain (`delegate_to_specialized_calc_toolset(domain="analysis", task=…)`):
 
@@ -123,7 +123,7 @@ The Solver is used for more complex optimization problems involving multiple var
 
 ## 4. Implementation Details
 
-- **`analyze_data`**: Host reads range via `CellInspector` → `analysis_client.run_analysis` → warm venv worker executing `plugin.scripting.analysis.run_analysis`.
+- **`analyze_data`**: Host reads range via `CellInspector` → `plugin.scripting.client.run_analysis` → warm venv worker executing `plugin.scripting.analysis.run_analysis`.
 - **Goal Seek**: Uses the `com.sun.star.sheet.XGoalSeek` interface on the Spreadsheet Document model.
 - **Solver**:
     - **Engine Enumeration**: Discovers registered solver implementations via `XContentEnumerationAccess`.

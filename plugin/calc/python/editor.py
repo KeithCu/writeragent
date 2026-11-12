@@ -156,10 +156,9 @@ def _get_active_calc_cell(ctx: Any) -> tuple[Any, Any] | None:
     except Exception:
         log.warning("python_editor: selection has no RangeAddress", exc_info=True)
         return None
-    # Selection sheet and the active sheet can differ. Falling back to
-    # get_active_sheet() when getByIndex failed read a different sheet at
-    # the same column and row. Refuse; the caller already explains that
-    # no cell was selected.
+    # The selection's sheet can differ from the active sheet. Do not fall back
+    # to get_active_sheet(): it would read the same column and row on the wrong
+    # sheet. Refuse; the caller already explains that no cell was selected.
     sheet_idx = int(addr.Sheet)
     sheets = model.getSheets()
     sheet = uno_read(lambda: sheets.getByIndex(sheet_idx), None)
@@ -219,8 +218,8 @@ def _apply_followed_ref_save(formula_cell: Any, *, code_cell: Any, code_ref: str
     if data_binding_text is not None:
         data_args = parse_data_binding_text(data_binding_text)
         old_args = _existing_data_args(parsed_parts)
-        # Leave the formula cell alone when only the code changed. Native follow
-        # Empty Data on save must not rewrite =PY($A$1) (Err:508) when ranges are unchanged.
+        # Leave the formula cell alone when only the code changed: save always
+        # sends Data, and rewriting =PY($A$1) when the ranges are unchanged gives Err:508.
         if data_args != old_args:
             # Keep the original ref token ($A$1). format_py_data_range strips $
             # which would make an absolute code ref relative after save.
@@ -306,9 +305,7 @@ def _launch_editor_with_code(ctx: Any, doc: Any, cell: Any, *, initial_code: str
         found = editor_error_markers(entry.message, entry.traceback, initial_code)
         if found:
             load_msg["markers"] = found
-    # Unsaved calc-cell, Run Script, init-script, and LaTeX buffers are
-    # confirmed or flushed inside launch_monaco_editor before this load
-    # replaces the window. A calc-only check here dropped the other modes.
+    # launch_monaco_editor confirms or flushes every unsaved buffer (calc cell, Run Script, init script, LaTeX) before this load replaces the window.
     launch_monaco_editor(ctx, exe=exe, load_message=load_msg, on_save=on_save)
 
 
@@ -334,9 +331,6 @@ def _open_python_cell_editor_impl(ctx: Any) -> None:
     doc, cell = resolved
 
     # Follow =PY($A$1) into A1 (plain code cell). Do not quote the ref on save.
-    # Prompting the LLM to emit this two-cell pattern is deferred: auto-imports
-    # and helpers usually fit in Calc MAXSTRLEN (1024). Revisit CALC_FORMULA_SYNTAX
-    # if Err:513 shows up for generated =PY("…").
     formulas = _cell_formula_strings(cell)
     initial_code, parsed_parts, source_formula = _load_cell_editor_code(cell, formulas=formulas)
     code_cell: Any | None = None

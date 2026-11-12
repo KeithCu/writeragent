@@ -288,8 +288,8 @@ def _sheet_name(sheet: Any) -> str:
 def geometric_cells_on_sheet(doc: Any, sheet: Any) -> tuple[list[GeometricCell], str, bool]:
     """Discover one sheet as Phase 1 cells. Address is local A1 (per-sheet map).
 
-    Third value is discovery ``truncated`` — cap-hit skip uses this, not
-    ``len >= 100``.
+    The third value is discovery's ``truncated`` flag; callers skip a capped
+    sheet on that flag (a completed scan of exactly 100 cells is not capped).
     """
     discovery = discover_python_cells_on_sheet(sheet)
     name = _sheet_name(sheet)
@@ -413,8 +413,9 @@ def _repair_one_sheet(
         # the incoming record when there was one, otherwise leave the key
         # absent. _apply_patches_to_sheet can fail (a protected sheet throws
         # in setFormula, or the cell formula changed concurrently). Saving
-        # result.records directly records those failed appends and removes,
-        # so a stale record marks a group strip-safe and strips real data.
+        # ``compute_sheet_repair``'s records unchanged would keep those failed
+        # appends and removes, and a stale record marks a group strip-safe and
+        # strips real data.
         unapplied_patches = [p for p in patches if local_a1(p.address) not in applied_addrs]
         for patch in unapplied_patches:
             key = local_a1(patch.address)
@@ -485,7 +486,7 @@ def after_py_cell_save(doc: Any, cell: Any, ctx: Any = None) -> None:
 
 
 def maybe_geometric_on_document_open(ctx: Any, doc: Any) -> None:
-    """Load UDProp; reconcile when the flag is on. Always record Isolated session."""
+    """Load the geometric UDProp on open. With the flag on, reconcile every sheet; with it off, still rebuild the strip-safe index so the eval strip works for cells that are already attached."""
     if doc is None or not uno_read(lambda: doc.supportsService("com.sun.star.sheet.SpreadsheetDocument"), False):
         return
     if geometric_flag_enabled():
@@ -501,7 +502,7 @@ def ensure_geometric_strip_index_for_eval(
     *,
     cell_ctx: Any = None,
 ) -> None:
-    """UI-thread only: rebuild ``_STRIP_SAFE`` from UDProp before packing ``data``."""
+    """UI-thread only: rebuild the strip-safe index (``_RUNTIME.strip_safe``) from UDProp before packing ``data``."""
     if cell_ctx is not None:
         if not cell_ctx.on_main:
             return
