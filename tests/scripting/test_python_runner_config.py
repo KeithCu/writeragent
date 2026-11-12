@@ -84,16 +84,18 @@ class TestPythonRunnerConfig:
         assert (config.last_python_script_name_draw) == ("Universal Sample")
 
     def test_run_python_script_receives_sandbox_policy(self):
-        from plugin.scripting.python_runner import _run_prepared_rps
+        from plugin.scripting.python_runner import PreparedScript, _run_prepared_rps
 
-        prepared = {
-            "ctx": MagicMock(),
-            "code": "result = 42",
-            "bindings": None,
-            "py_data": None,
-            "session_id": "rps:sid",
-            "script_session_id": "doc:pin",
-        }
+        prepared = PreparedScript(
+            ctx=MagicMock(),
+            doc=None,
+            code="result = 42",
+            t0=0.0,
+            bindings=None,
+            py_data=None,
+            session_id="rps:sid",
+            script_session_id="doc:pin",
+        )
         with (
             patch("plugin.scripting.venv_worker.python_exec_timeout", return_value=10),
             patch("plugin.scripting.venv_worker.resolve_libreoffice_python", return_value=sys.executable),

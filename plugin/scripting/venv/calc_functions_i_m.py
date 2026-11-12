@@ -22,6 +22,7 @@ import numpy as np
 
 from .calc_functions_util import (
     as_bool_flag,
+    as_nonzero,
     clean_paired_arrays,
     collect_a_values,
     extract_numeric_array,
@@ -31,6 +32,7 @@ from .calc_functions_util import (
     is_number,
     match_criteria,
     npf_result,
+    orient_columns,
     serial_to_date,
     yearfrac,
 )
@@ -557,11 +559,7 @@ def _regression_inputs(
     elif args[1] is None:
         raise ValueError
     else:
-        data_x = _numeric_only(args[1])
-        if data_x.ndim == 1:
-            data_x = data_x[:, np.newaxis]
-        elif data_x.ndim == 2 and data_x.shape[0] != len(data_y) and data_x.shape[1] == len(data_y):
-            data_x = data_x.T
+        data_x = orient_columns(_numeric_only(args[1]), len(data_y), axis=0)
     if data_x.shape[0] != len(data_y):
         raise ValueError
     raw_const = kwargs.get("const", args[2] if len(args) > 2 else True)
@@ -623,7 +621,8 @@ def lognormdist(x: Any, mean: Any, stdev: Any, c: Any = 1) -> float:
     x_val = float(x)
     m = float(mean)
     s = float(stdev)
-    cum = bool(float(c))
+    # ScLogNormDist reads the flag with GetBool (GetDouble() != 0), so a blank cell or an empty fourth argument is the density.
+    cum = as_nonzero(c)
     if s <= 0:
         return float("nan")
     # ScLogNormDist (interpr3.cxx): cumulative of x <= 0 is 0. The

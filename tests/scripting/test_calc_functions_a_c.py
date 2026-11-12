@@ -437,4 +437,29 @@ def test_oracle_coup_functions_table():
     assert calc.coupnum(s, m, freq, 0) == 12.0
 
 
+@pytest.mark.parametrize(
+    ("fn_name", "args", "exc_type"),
+    [
+        ("betadist", ("x", 2, 3), ValueError),
+        ("betainv", (0.5, "a", 3), ValueError),
+        ("binomdist", (3, 10, 0.5, "abc"), ValueError),
+        ("binomdist", ("x", 10, 0.5, 1), ValueError),
+        ("chidist", ("abc", 3), ValueError),
+        ("chidist", (1, ""), ValueError),
+        ("chidist", (None, 3), TypeError),
+        ("chidist", (1, float("inf")), OverflowError),
+        ("chiinv", ("x", 3), ValueError),
+        ("confidence", (0.05, "s", 50), ValueError),
+        ("confidence", (0.05, 1, float("inf")), OverflowError),
+        ("critbinom", ("t", 0.5, 0.5), ValueError),
+    ],
+)
+def test_a_c_distribution_bad_argument_raises(fn_name: str, args: tuple[object, ...], exc_type: type[BaseException]) -> None:
+    with pytest.raises(exc_type):
+        getattr(calc, fn_name)(*args)
+
+
+def test_binomdist_blank_flag_is_mass_function():
+    # ScBinomDist reads the flag with GetBool; a blank is 0, the mass function.
+    assert calc.binomdist(3, 10, 0.5, "") == calc.binomdist(3, 10, 0.5, False)
 
