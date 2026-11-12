@@ -274,7 +274,7 @@ Viz helpers close the matplotlib figure on every exit, including when savefig fa
 
 **Threading:** `forecast_data` and `optimize_data` are async. Sheet reads and result or chart writes run on the LibreOffice main thread. Venv forecast, optimize, and auto-plot viz IPC stay on the worker. Auto-plot history is a `calc_range` envelope from `_resolve_python_data`; [`merge_forecast_plot_data`](../../plugin/calc/forecast_auto_plot.py) materializes that envelope before building the band table. Sheet data resolution passes `doc` directly to `_resolve_python_data`.
 
-**Fallback:** Simple moving-average projection in pandas when statsmodels forecasting APIs unavailable (`forecast_time_series` with `model="auto"` or `"moving_average"`).
+**Fallback:** Simple moving-average projection in pandas when statsmodels forecasting APIs unavailable (`forecast_time_series` with `model="auto"` or `"moving_average"`). `model="auto"` tries Holt-Winters (when a season passes the two-cycle check), then ARIMA(1,1,1), then the moving average; the fallback flag names the first model's exception ("primary model failed (…); used arima" / "statsmodels forecast failed (…); used moving_average"), and if every model fails the result is `FORECAST_FAILED` with the last exception.
 
 **Tests:** [`test_forecast.py`](../../tests/scripting/test_forecast.py), [`test_forecast_templates.py`](../../tests/scripting/test_forecast_templates.py), [`test_python_runner_forecast.py`](../../tests/scripting/test_python_runner_forecast.py), [`test_forecast_data.py`](../../tests/calc/test_forecast_data.py), [`test_forecast_auto_plot.py`](../../tests/calc/test_forecast_auto_plot.py).
 

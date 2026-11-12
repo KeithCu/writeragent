@@ -92,6 +92,10 @@ def test_forecast_moving_average_fallback():
         result = forecast_time_series(data, periods=4, model="auto")
     assert result["status"] == "ok"
     assert result["metrics"]["model"] == "moving_average"
+    assert result["flags"] == [
+        "statsmodels missing; used moving_average fallback",
+        "moving_average has no prediction interval",
+    ]
 
 
 def test_run_forecast_unknown_helper():
@@ -811,6 +815,60 @@ def test_decompose_helper_error_keeps_code_message_helper():
         "message": "period must be an integer greater than 1",
         "helper": "decompose_time_series",
     }
+
+
+def _boom(message: str):
+    def _raise(*args: Any, **kwargs: Any) -> Any:
+        raise RuntimeError(message)
+
+    return _raise
+
+
+def test_auto_holt_winters_failure_falls_back_to_arima(monkeypatch):
+    _require_statsmodels_installed()
+    monkeypatch.setattr(venv_forecast, "_forecast_holt_winters", _boom("hw-boom"))
+    result = forecast_time_series(_seasonal_series(), periods=3, model="auto")
+    assert result["status"] == "ok", result
+    assert result["metrics"]["model"] == "arima"
+    assert result["flags"] == ["primary model failed (hw-boom); used arima"]
+
+
+def test_auto_moving_average_fallback_names_the_first_failure(monkeypatch):
+    _require_statsmodels_installed()
+    monkeypatch.setattr(venv_forecast, "_forecast_holt_winters", _boom("hw-boom"))
+    monkeypatch.setattr(venv_forecast, "_forecast_arima", _boom("arima-boom"))
+    result = forecast_time_series(_seasonal_series(), periods=3, model="auto")
+    assert result["status"] == "ok", result
+    assert result["metrics"]["model"] == "moving_average"
+    assert result["flags"] == [
+        "statsmodels forecast failed (hw-boom); used moving_average",
+        "moving_average has no prediction interval",
+    ]
+
+
+def test_trend_only_arima_failure_falls_back_to_moving_average(monkeypatch):
+    _require_statsmodels_installed()
+    monkeypatch.setattr(venv_forecast, "_forecast_arima", _boom("arima-boom"))
+    result = forecast_time_series(_seasonal_series(10), periods=3, model="auto")
+    assert result["status"] == "ok", result
+    assert result["metrics"]["model"] == "moving_average"
+    assert result["flags"][0].startswith("not enough cycles")
+    assert result["flags"][-2:] == [
+        "statsmodels forecast failed (arima-boom); used moving_average",
+        "moving_average has no prediction interval",
+    ]
+
+
+def test_auto_every_model_failing_is_forecast_failed(monkeypatch):
+    _require_statsmodels_installed()
+    monkeypatch.setattr(venv_forecast, "_forecast_holt_winters", _boom("hw-boom"))
+    monkeypatch.setattr(venv_forecast, "_forecast_arima", _boom("arima-boom"))
+    monkeypatch.setattr(venv_forecast, "_forecast_moving_average", _boom("ma-boom"))
+    result = forecast_time_series(_seasonal_series(), periods=3, model="auto")
+    assert result["status"] == "error"
+    assert result["code"] == "FORECAST_FAILED"
+    assert result["message"] == "ma-boom"
+
 
 
 
