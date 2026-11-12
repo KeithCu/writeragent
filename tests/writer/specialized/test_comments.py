@@ -1008,7 +1008,8 @@ def test_reply_and_resolve_call_shared_helper(monkeypatch):
 
     # 1. AddComment reply path
     target = MagicMock()
-    monkeypatch.setattr(comments, "_find_annotation_by_name", lambda doc, name: target)
+    monkeypatch.setattr(comments, "_iter_annotations", lambda doc: [target])
+    target.getPropertyValue.side_effect = lambda p: "c1" if p == "Name" else None
     ctx = MagicMock()
     _setup_mock_undo_manager(ctx.doc)
     add_res = comments.AddComment().execute(ctx, content="my reply", parent_name="c1", author="Author1")

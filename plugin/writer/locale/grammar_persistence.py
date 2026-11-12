@@ -208,8 +208,8 @@ def get_document_model_for_id(doc_id: str) -> Any | None:
     """Return the Writer model for a proofreading document id, if already bound via get_persistence."""
     with grammar_registry.lock:
         p = grammar_registry.doc_persistence_instances.get(doc_id)
-        if p is not None and p._model is not None:
-            return p._model
+        if p is not None and p.model is not None:
+            return p.model
     return None
 
 
@@ -251,7 +251,9 @@ class DocumentPersistence:
         self._entries: dict[str, dict[str, list[dict[str, Any]]]] = {}
         self._blob_identity: str | None = None
         self._session_identity: str | None = None
-        self._model: Any = None
+        # The Writer model once bound, None until _bind_model runs, written under _lock.
+        # get_document_model_for_id and grammar_obs._frame_from_bound_grammar_docs read it.
+        self.model: Any = None
         self._doc_listener: Any = None
         self._teardown_done = False
         self._load_done: threading.Event = threading.Event()
@@ -277,9 +279,9 @@ class DocumentPersistence:
         with self._lock:
             if self._teardown_done:
                 return
-            already = self._model is not None
+            already = self.model is not None
             if not already:
-                self._model = model
+                self.model = model
         if already:
             self._load_done.wait()
             return
@@ -291,19 +293,19 @@ class DocumentPersistence:
         log.debug("[grammar] DocumentPersistence: bound model for doc_id=%s", self._doc_id[:32] if self._doc_id else "")
 
     def _register_listeners(self) -> None:
-        if not _HAVE_UNO_DOC_EVENTS or self._model is None:
+        if not _HAVE_UNO_DOC_EVENTS or self.model is None:
             return
         # XDocumentEventListener handles both OnSave/OnUnload (via documentEventOccured)
         # and broadcaster teardown (via disposing inherited from lang.XEventListener),
         # so a single registration on XDocumentEventBroadcaster covers both paths.
         try:
             self._doc_listener = _GrammarDocumentEventListener(self)
-            self._model.addDocumentEventListener(self._doc_listener)
+            self.model.addDocumentEventListener(self._doc_listener)
         except Exception as e:
             log.warning("[grammar] DocumentPersistence: listener registration failed: %s", e)
 
     def _unregister_listeners(self) -> None:
-        m = self._model
+        m = self.model
         if m is None:
             return
         try:
@@ -355,10 +357,10 @@ class DocumentPersistence:
     def _load_from_udprops(self) -> None:
         from plugin.doc.udprops import get_document_property
 
-        if not self._model:
+        if not self.model:
             return
         try:
-            raw = get_document_property(self._model, GRAMMAR_DOC_CACHE_UDPROP, None)
+            raw = get_document_property(self.model, GRAMMAR_DOC_CACHE_UDPROP, None)
             if not raw or not isinstance(raw, str):
                 log.debug("[grammar] DocumentPersistence: no cached property on doc_id=%s", self._doc_id[:32] if self._doc_id else "")
                 return
@@ -522,7 +524,7 @@ class DocumentPersistence:
             with self._lock:
                 # Capture the model once; _teardown can clear it mid-save and
                 # set_document_property(None, ...) would raise.
-                model = self._model
+                model = self.model
                 if self._teardown_done or model is None:
                     return
                 if self._blob_identity == _V2_LLM_PENDING:
@@ -609,7 +611,7 @@ class DocumentPersistence:
         with self._lock:
             self._reset_session_locked()
         grammar_registry.remove_persistence_if(self._doc_id, self)
-        self._model = None
+        self.model = None
 
     def get(
         self,
@@ -712,7 +714,7 @@ def persistence_for_model(model: Any) -> DocumentPersistence | None:
     with grammar_registry.lock:
         instances = list(grammar_registry.doc_persistence_instances.values())
     for p in instances:
-        other = p._model
+        other = p.model
         if other is None:
             continue
         if uid:

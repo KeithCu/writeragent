@@ -361,7 +361,7 @@ class FormCreateControl(ToolWriterFormBase):
     }
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
-        return main.run(_create_control, ctx, **kwargs)
+        return _create_control(ctx, **kwargs)
 
 
 def _create_control(ctx: Any, *, page_cursors: Any = None, **kwargs: Any) -> dict[str, Any]:
@@ -741,9 +741,6 @@ class FormListControls(ToolWriterFormBase):
     parameters: dict[str, Any] | None = _PAGE_ONLY_PARAMETERS
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
-        return main.run(self._execute_main, ctx, **kwargs)
-
-    def _execute_main(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         doc = ctx.doc
         dp = _resolve_form_page(doc, kwargs.get("page"))
         if dp is None:
@@ -818,9 +815,6 @@ class FormEditControl(ToolWriterFormBase):
     }
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
-        return main.run(self._execute_main, ctx, **kwargs)
-
-    def _execute_main(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         _unused_dp, idx, shape, err = _resolve_form_page_and_control(ctx.doc, kwargs)
         if err:
             return err
@@ -931,9 +925,6 @@ class FormDeleteControl(ToolWriterFormBase):
     }
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
-        return main.run(self._execute_main, ctx, **kwargs)
-
-    def _execute_main(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         dp, idx, shape, err = _resolve_form_page_and_control(ctx.doc, kwargs)
         if err:
             return err

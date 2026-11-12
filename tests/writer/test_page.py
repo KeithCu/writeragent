@@ -144,7 +144,7 @@ def test_set_header_footer_text():
 
     ctx = TestingFactory.create_context(doc=doc, doc_type="writer")
     tool = PageSetHeaderFooterText()
-    with patch("plugin.writer.html_import.replace_xtext_with_html", return_value=html_import_styles.WriteReport()) as replace_html:
+    with patch("plugin.writer.page.replace_xtext_with_html", return_value=html_import_styles.WriteReport()) as replace_html:
         res = tool.execute(
             ctx,
             style="Standard",
@@ -349,7 +349,7 @@ def test_get_header_footer_returns_html_and_still_lists_logo_and_field():
     ])
     doc, _style = _page_style_doc(text_obj, shapes=[_logo_anchored_in(text_obj)])
 
-    with patch("plugin.writer.html_export.xtext_to_content",
+    with patch("plugin.writer.page.xtext_to_content",
                return_value='<p>ESCRITORIO ZOLET <span title="page-number"/></p>') as export:
         res = PageGetHeaderFooterText().execute(
             TestingFactory.create_context(doc=doc, doc_type="writer"),
@@ -373,13 +373,13 @@ def test_get_header_propagates_export_error_and_disposal():
     doc, _style = _page_style_doc(text_obj)
     ctx = TestingFactory.create_context(doc=doc, doc_type="writer")
     with (
-        patch("plugin.writer.html_export.xtext_to_content", side_effect=ToolExecutionError("Could not read the document: boom")),
+        patch("plugin.writer.page.xtext_to_content", side_effect=ToolExecutionError("Could not read the document: boom")),
         pytest.raises(ToolExecutionError, match="boom"),
     ):
         PageGetHeaderFooterText().execute(ctx, style="Standard", region="header")
     with (
         patch(
-            "plugin.writer.html_export.xtext_to_content",
+            "plugin.writer.page.xtext_to_content",
             side_effect=DocumentDisposedError("closed", object_type="document"),
         ),
         pytest.raises(DocumentDisposedError),
@@ -396,7 +396,7 @@ def test_set_header_footer_imports_html_even_when_a_logo_is_present():
     doc, style = _page_style_doc(text_obj, shapes=[_logo_anchored_in(text_obj)])
     html = '<p>ESCRITORIO ZOLET <img src="data:image/png;base64,xx" alt="TIMBRE"/></p>'
 
-    with patch("plugin.writer.html_import.replace_xtext_with_html", return_value=html_import_styles.WriteReport()) as replace_html:
+    with patch("plugin.writer.page.replace_xtext_with_html", return_value=html_import_styles.WriteReport()) as replace_html:
         res = PageSetHeaderFooterText().execute(
             TestingFactory.create_context(doc=doc, doc_type="writer"),
             style="Standard", region="header", content=html)
@@ -416,7 +416,7 @@ def test_set_header_footer_reports_unapplied_data_lo_para():
     doc, _style = _page_style_doc(text_obj)
     html = '<p data-lo-para="margin-left:1cm; font-weight:bold">Header</p>'
 
-    with patch("plugin.writer.html_import.replace_xtext_with_html", return_value=html_import_styles.WriteReport(unapplied_para=["font-weight"])):
+    with patch("plugin.writer.page.replace_xtext_with_html", return_value=html_import_styles.WriteReport(unapplied_para=["font-weight"])):
         res = PageSetHeaderFooterText().execute(
             TestingFactory.create_context(doc=doc, doc_type="writer"),
             style="Standard", region="header", content=html)
@@ -438,7 +438,7 @@ def test_set_header_footer_imports_field_html_without_force():
     doc, _style = _page_style_doc(text_obj)
     html = '<p>Confidential | <span title="page-number"/></p>'
 
-    with patch("plugin.writer.html_import.replace_xtext_with_html", return_value=html_import_styles.WriteReport()) as replace_html:
+    with patch("plugin.writer.page.replace_xtext_with_html", return_value=html_import_styles.WriteReport()) as replace_html:
         res = PageSetHeaderFooterText().execute(
             TestingFactory.create_context(doc=doc, doc_type="writer"),
             style="Standard", region="footer", content=html)
@@ -458,7 +458,7 @@ def test_set_header_footer_imports_table_html_without_force():
     doc, _style = _page_style_doc(text_obj)
     html = "<table><tr><td>Logo cell</td><td>Address cell</td></tr></table>"
 
-    with patch("plugin.writer.html_import.replace_xtext_with_html", return_value=html_import_styles.WriteReport()) as replace_html:
+    with patch("plugin.writer.page.replace_xtext_with_html", return_value=html_import_styles.WriteReport()) as replace_html:
         res = PageSetHeaderFooterText().execute(
             TestingFactory.create_context(doc=doc, doc_type="writer"),
             style="Standard", region="header", content=html)
@@ -477,7 +477,7 @@ def test_set_header_footer_enables_a_region_that_is_off():
     doc, style = _page_style_doc(text_obj)
     style.getPropertyValue.side_effect = lambda n: False if n.endswith("IsOn") else text_obj
 
-    with patch("plugin.writer.html_import.replace_xtext_with_html", return_value=html_import_styles.WriteReport()) as replace_html:
+    with patch("plugin.writer.page.replace_xtext_with_html", return_value=html_import_styles.WriteReport()) as replace_html:
         res = PageSetHeaderFooterText().execute(
             TestingFactory.create_context(doc=doc, doc_type="writer"),
             style="Standard", region="footer", content="Rua Exemplo, 123")
@@ -534,7 +534,7 @@ def test_get_header_footer_surfaces_walk_cap_warning(monkeypatch):
     text_obj.createEnumeration.side_effect = lambda: _enum_of([_paragraph(extra)])
     doc, _style = _page_style_doc(text_obj)
     monkeypatch.setattr(pg, "_SCAN_PORTION_LIMIT", 1)
-    with patch("plugin.writer.html_export.xtext_to_content", return_value="<p>plain</p>"):
+    with patch("plugin.writer.page.xtext_to_content", return_value="<p>plain</p>"):
         res = PageGetHeaderFooterText().execute(
             TestingFactory.create_context(doc=doc, doc_type="writer"),
             style="Standard", region="header")
@@ -590,7 +590,7 @@ def test_get_header_reports_logo_when_anchor_text_wrapper_differs():
 
     with (
         patch.object(sys.modules["uno"], "isSame", side_effect=lambda a, b: {a, b} == {text_obj, other}),
-        patch("plugin.writer.html_export.xtext_to_content", return_value=""),
+        patch("plugin.writer.page.xtext_to_content", return_value=""),
     ):
         res = PageGetHeaderFooterText().execute(
             TestingFactory.create_context(doc=doc, doc_type="writer"), style="Standard", region="header")
@@ -1205,7 +1205,7 @@ def test_copy_page_style_inserts_without_touching_follow_style():
     doc.createInstance.return_value = clone
 
     with patch(
-        "plugin.writer.styles._copy_direct_style_properties",
+        "plugin.writer.styles.copy_direct_style_properties",
         return_value=(["LeftMargin"], []),
     ) as copier:
         stats = copy_page_style(doc, "Src", "Dst")
@@ -1251,8 +1251,8 @@ def test_copy_page_regions_does_not_export_html():
     doc.getDrawPage.return_value.getCount.return_value = 0
 
     with patch("plugin.writer.page.copy_flow_into_xtext", return_value=1) as mock_flow, \
-         patch("plugin.writer.html_export.xtext_to_content") as mock_xtext_to_content, \
-         patch("plugin.writer.html_import.replace_xtext_with_html") as mock_replace_html:
+         patch("plugin.writer.page.xtext_to_content") as mock_xtext_to_content, \
+         patch("plugin.writer.page.replace_xtext_with_html") as mock_replace_html:
         _copy_page_regions(doc, source, clone)
 
     mock_flow.assert_called_once_with(doc, src_text, dest_text)
@@ -1638,7 +1638,7 @@ def test_set_header_rolls_back_enable_when_import_fails():
     doc.getStyleFamilies().getByName().getByName.return_value = style
     ctx = SimpleNamespace(doc=doc)
 
-    with patch("plugin.writer.html_import.replace_xtext_with_html", side_effect=RuntimeError("import failed")):
+    with patch("plugin.writer.page.replace_xtext_with_html", side_effect=RuntimeError("import failed")):
         res = PageSetHeaderFooterText().execute(ctx, region="header", content="<p>Test</p>")
         assert res["status"] == "error"
         calls = [c.args for c in style.setPropertyValue.call_args_list if c.args[0] == "HeaderIsOn"]
@@ -1832,7 +1832,7 @@ def test_get_header_footer_omits_scan_extras_when_draw_page_unreadable():
     doc, _style = _page_style_doc(text_obj)
     doc.getDrawPage.side_effect = RuntimeError("bridge hiccup")
     ctx = TestingFactory.create_context(doc=doc, doc_type="writer")
-    with patch("plugin.writer.html_export.xtext_to_content", return_value="<p>x</p>"):
+    with patch("plugin.writer.page.xtext_to_content", return_value="<p>x</p>"):
         res = PageGetHeaderFooterText().execute(ctx, style="Standard", region="header")
     assert res["status"] == "ok"
     assert res["content"] == "<p>x</p>"
@@ -1981,8 +1981,8 @@ def test_copy_page_style_unreadable_region_copies_as_empty_and_disposal_raises()
     doc.getStyleFamilies.return_value.getByName.return_value = family
     doc.createInstance.return_value = clone
 
-    with patch("plugin.writer.styles._copy_direct_style_properties", return_value=([], [])), \
-         patch("plugin.writer.range_copy.copy_flow_into_xtext") as mock_flow:
+    with patch("plugin.writer.styles.copy_direct_style_properties", return_value=([], [])), \
+         patch("plugin.writer.page.copy_flow_into_xtext") as mock_flow:
         doc.getDrawPage.side_effect = RuntimeError("bridge hiccup")
         res = copy_page_style(doc, "Src", "Dst")
         assert res["shapes_copied"] == 0

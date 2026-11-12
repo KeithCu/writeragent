@@ -22,7 +22,7 @@ from plugin.writer.specialized_base import (
     enum_param,
     index_error,
 )
-from plugin.framework.errors import ToolExecutionError, uno_read
+from plugin.framework.errors import ToolExecutionError, make_tool_error, uno_read
 from plugin.writer.record_changes import is_recording_changes
 from plugin.writer.search import (
     CASE_SENSITIVE_DESCRIPTION,
@@ -50,12 +50,12 @@ def _note_api(doc: Any, note_type: str, kind: str) -> Any:
     return getattr(doc, method_name)()
 
 
-def _note_at_index(doc: Any, note_type: str, index: int) -> tuple[Any, Any, str | None]:
+def _note_at_index(doc: Any, note_type: str, index: int) -> tuple[Any, Any, dict[str, Any] | None]:
     notes = _note_api(doc, note_type, "notes")
     count = notes.getCount()
     err = index_error(index, count, note_type)
     if err:
-        return None, None, err
+        return None, None, make_tool_error(err)
     return notes, notes.getByIndex(index), None
 
 
@@ -194,8 +194,8 @@ class FootnotesEdit(ToolWriterFootnoteBase):
         note_type = kwargs["note"]
         index = kwargs["index"]
         _notes, note, err = _note_at_index(ctx.doc, note_type, index)
-        if err:
-            return self._tool_error(err)
+        if err is not None:
+            return err
 
         if "text" in kwargs:
             note.setString(kwargs["text"])
@@ -223,8 +223,8 @@ class FootnotesDelete(ToolWriterFootnoteBase):
         note_type = kwargs["note"]
         index = kwargs["index"]
         notes, note, err = _note_at_index(ctx.doc, note_type, index)
-        if err:
-            return self._tool_error(err)
+        if err is not None:
+            return err
         before = notes.getCount()
         note.getAnchor().setString("")
         after = notes.getCount()

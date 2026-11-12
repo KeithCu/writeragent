@@ -323,3 +323,10 @@ def test_write_report_extend_preserves_order_and_unions_tokens() -> None:
     assert r1.style_skips == ["STYLE_IGNORED_PARTIAL_MATCH", "STYLE_IGNORED_RECORDING"]
     assert r1.style_tokens == ["Heading1", "Heading2", "Heading3"]
     assert r1.math == [{"snippet": "a", "ok": True}, {"snippet": "b", "ok": False}]
+
+
+def test_decode_complete_character_references_only_decodes_with_semicolon() -> None:
+    decode = html_import_styles.decode_complete_character_references
+    assert decode("&sect 2o &amp;lt;") == "&sect 2o &lt;"
+    assert decode("&amp; &quot; &#36; &#x24;") == '& " $ $'
+    assert decode("&not covered") == "&not covered"

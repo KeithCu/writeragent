@@ -72,7 +72,7 @@ class TestGrammarPersistence:
             pb = gp.get_persistence("2")
             assert (pa) is not None
             assert (pa) is (pb)
-            assert (pa._model) is (model)
+            assert (pa.model) is (model)
         finally:
             gp.grammar_registry.clear_all()
 
@@ -93,7 +93,7 @@ class TestGrammarPersistence:
                 hit = dp.get("fp_cached", "")
             assert (hit) is not None
             assert (len(hit)) == (1)
-            assert (dp._model) is (model)
+            assert (dp.model) is (model)
         finally:
             gp.grammar_registry.clear_all()
 
@@ -111,14 +111,14 @@ class TestGrammarPersistence:
                  patch("plugin.doc.udprops.get_document_property", return_value=json.dumps(cached)):
                 dp = gp.DocumentPersistence("2")
                 gp.grammar_registry.doc_persistence_instances["2"] = dp
-                assert (dp._model) is None
+                assert (dp.model) is None
                 gp.get_persistence("2", model=model)
                 hit = dp.get("fp_cached", "")
 
             assert (hit) is not None
             assert (len(hit)) == (1)
             assert (hit[0]["n_error_start"]) == (0)
-            assert (dp._model) is (model)
+            assert (dp.model) is (model)
         finally:
             gp.grammar_registry.clear_all()
 
@@ -633,11 +633,11 @@ class TestGrammarPersistence:
             with patch("plugin.doc.udprops.get_document_property", return_value=None) as mock_get:
                 dp = gp.get_persistence("2", model=first)
                 assert dp is not None
-                assert dp._model is first
+                assert dp.model is first
                 loads = mock_get.call_count
                 again = gp.get_persistence("2", model=second)
                 assert again is dp
-                assert dp._model is first
+                assert dp.model is first
                 assert mock_get.call_count == loads
         finally:
             gp.grammar_registry.clear_all()

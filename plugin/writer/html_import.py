@@ -42,19 +42,6 @@ from .math.math_mml_convert import convert_latex_to_starmath, convert_mathml_to_
 log = logging.getLogger("writeragent.writer")
 
 
-# HTML block-level elements that define paragraphs. <br> is separate: it breaks a line but
-# does not make the content block-level for routing.
-_BLOCK_TAGS = (
-    "p|div|h[1-6]|ul|ol|li|dl|dt|dd|caption"
-    "|table|thead|tbody|tfoot|tr|td|th"
-    "|blockquote|pre|hr|section|article|aside|header|footer|nav|main"
-    "|figure|figcaption|address|details|summary|form|fieldset|legend|hgroup"
-)
-_BLOCK_MARKUP_RE = re.compile(r"<(?:%s)\b" % _BLOCK_TAGS, re.IGNORECASE)
-# Same tags plus closing forms and <br>: anything here already defines its own paragraphs.
-_LINEBREAK_MARKUP_RE = re.compile(r"</?(?:%s|br)\b" % _BLOCK_TAGS, re.IGNORECASE)
-
-
 def _wrap_html_fragment(html_content: str, extra_css: str | None = None) -> str:
     """Wrap an HTML fragment in a full document structure for LO's filter."""
     if not html_content or not isinstance(html_content, str):
@@ -90,7 +77,7 @@ def _ensure_html_linebreaks(content: str) -> str:
         from .html_export import strip_html_boilerplate
         content = strip_html_boilerplate(content)
     # A block tag or <br> means the content has its own paragraphs; wrapping it in <p> is invalid.
-    if _LINEBREAK_MARKUP_RE.search(content):
+    if html_import_styles.LINEBREAK_MARKUP_RE.search(content):
         return _wrap_html_fragment(content)
 
     paras = html_import_styles._plain_paragraphs(content)
@@ -184,11 +171,6 @@ def insert_html_fragment_at_cursor(
         cursor.gotoRange(tail.getStart(), False)
 
 
-
-def _expand_escapes(text: str) -> str:
-    return text.replace("\\n", "\n").replace("\\t", "\t")
-
-
 def _math_attempt_entry(
     seg: Any, snippet: str, *, ok: bool, error: str | None = None
 ) -> dict[str, Any]:
@@ -227,7 +209,7 @@ def _insert_mixed_html_and_math_at_cursor(
                 continue
 
             # Expand literal \n and \t for plain HTML without math
-            chunk = _expand_escapes(chunk)
+            chunk = html_import_styles.expand_escapes(chunk)
             chunk, seg_ruby = html_ruby.extract_and_strip_ruby(chunk)
 
             sub = _ensure_html_linebreaks(chunk)
@@ -319,7 +301,7 @@ def _insert_mixed_or_plain_html(
     # attributes anyway); we re-apply formatting via UNO afterwards only when apply_styles is True.
     clean, block_styles, block_paras, skipped_paras = html_import_styles.extract_block_lo_styles(unescaped_content)
     # Expand literal \n and \t before measuring ruby offsets and StarWriter import
-    clean = _expand_escapes(clean)
+    clean = html_import_styles.expand_escapes(clean)
     has_math = html_fragment_contains_mixed_math(clean)
     if not has_math:
         # Strip <rt> so StarWriter does not concatenate reading into the body; paint RubyText after.
@@ -484,7 +466,7 @@ def _ensure_empty_absorb_for_styled_insert(text: Any, cursor: Any, position: str
 def _prep_field_ruby(html: str) -> tuple[str, list[Any], str]:
     nonce = uuid.uuid4().hex[:8]
     inline_html = field_restore.rewrite_exported_field_spans(html, nonce=nonce)
-    inline_html = _expand_escapes(inline_html)
+    inline_html = html_import_styles.expand_escapes(inline_html)
     inline_html, ruby_spans = html_ruby.extract_and_strip_ruby(inline_html)
     return inline_html, ruby_spans, nonce
 
@@ -499,9 +481,11 @@ def insert_inline_at_cursor(model: Any, ctx: Any, cursor: Any, content: str) -> 
     the same way ``replace_single_range_with_content`` handles inline replacements.
     """
     with image_placeholders._keep_placeholder_images(model, content) as swapped:
-        # No html.unescape here: apply_document_content.py already decoded complete character references on the
-        # plain path (_ENTITY_RE), and a full unescape turns "&sect 2o" into "§ 2o"; the HTML import
-        # decodes entities in markup itself.
+        # No html.unescape here: apply_document_content.py already decoded complete
+        # character references on the plain path
+        # (html_import_styles.decode_complete_character_references), and a full
+        # unescape turns "&sect 2o" into "§ 2o"; the HTML import decodes entities
+        # in markup itself.
         if not content_needs_html_import(swapped):
             cursor.getText().insertString(cursor, swapped, False)
             return
@@ -569,7 +553,7 @@ def insert_content_at_position(
     partial match or tracked change recording.
     """
     with image_placeholders._keep_placeholder_images(model, content) as swapped:
-        content = html_import_styles._decode_complete_character_references(swapped)
+        content = html_import_styles.decode_complete_character_references(swapped)
 
         text = model.getText()
         cursor = text.createTextCursor()
@@ -675,9 +659,10 @@ def _drop_absorb_paragraph_props(cursor: Any) -> None:
     from `data-lo-para` is applied later. `CLEARABLE_PARA_PROPERTIES` remains the
     clear-direct subset for Ctrl+M / `clear_direct`.
     """
-    from .styles import CLEARABLE_PARA_PROPERTIES, _reset_properties_to_default
+    # Imported at call time: styles.py is WriterAgent-only (not in scripts/librepy_bundle_paths.py) and imports this module back through edit_review.
+    from .styles import CLEARABLE_PARA_PROPERTIES, reset_properties_to_default
 
-    _reset_properties_to_default(
+    reset_properties_to_default(
         cursor,
         CLEARABLE_PARA_PROPERTIES
         + (
@@ -698,7 +683,7 @@ def replace_full_document(
 ) -> html_import_styles.WriteReport:
     """Clear the document and insert *content*."""
     with image_placeholders._keep_placeholder_images(model, content) as swapped:
-        content = html_import_styles._decode_complete_character_references(swapped)
+        content = html_import_styles.decode_complete_character_references(swapped)
 
         text = model.getText()
         cursor = text.createTextCursor()
@@ -751,7 +736,7 @@ def replace_single_range_with_content(
     Returns the WriteReport for this replacement.
     """
     with image_placeholders._keep_placeholder_images(model, content) as swapped:
-        prepared = html_import_styles._decode_complete_character_references(swapped)
+        prepared = html_import_styles.decode_complete_character_references(swapped)
         text_obj = text_range.getText()
 
         # Detect a table-cell target up front (the cursor's TextTable property is set inside a cell).
@@ -863,7 +848,7 @@ def replace_xtext_with_html(
         raise ToolExecutionError("No text object to import into.")
     nonce = uuid.uuid4().hex[:8]
     expanded = html if isinstance(html, str) else ("" if html is None else str(html))
-    expanded = _expand_escapes(expanded)
+    expanded = html_import_styles.expand_escapes(expanded)
     expanded, ruby_spans = html_ruby.extract_and_strip_ruby(expanded)
     rewritten = field_restore.rewrite_exported_field_spans(expanded, nonce=nonce)
     clean, block_styles, block_paras, skipped_paras = html_import_styles.extract_block_lo_styles(rewritten)
@@ -980,7 +965,7 @@ def _content_has_block_markup(content: str | None) -> bool:
     """Return ``True`` if *content* contains block-level HTML (paragraph-defining)."""
     if not content or not isinstance(content, str):
         return False
-    return bool(_BLOCK_MARKUP_RE.search(content))
+    return bool(html_import_styles.BLOCK_MARKUP_RE.search(content))
 
 
 

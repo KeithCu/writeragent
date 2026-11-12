@@ -2,18 +2,18 @@
 
 import snowballstemmer
 
-from plugin.framework.grammar_rule_ids import _ISO_TO_SNOWBALL
+from plugin.framework.grammar_rule_ids import ISO_TO_SNOWBALL
 from plugin.writer.locale.stop_words import STOP_WORDS, stop_words_for_snowball
 
 
 def test_stop_words_cover_iso_to_snowball_languages():
-    snowball_langs = set(_ISO_TO_SNOWBALL.values())
+    snowball_langs = set(ISO_TO_SNOWBALL.values())
     assert snowball_langs <= set(STOP_WORDS.keys())
 
 
 def test_stop_words_cover_snowballstemmer_algorithms_used_by_writer():
     # porter / dutch_porter are English variants; writer maps ISO langs only.
-    writer_langs = set(_ISO_TO_SNOWBALL.values())
+    writer_langs = set(ISO_TO_SNOWBALL.values())
     for algo in snowballstemmer.algorithms():
         if algo in ("porter", "dutch_porter"):
             continue

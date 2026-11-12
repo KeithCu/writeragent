@@ -1473,9 +1473,9 @@ def test_installed_font_names_cached_after_success_not_after_none():
     toolkit = MagicMock()
     toolkit.createScreenCompatibleDevice.return_value = device
     try:
-        with patch("plugin.framework.uno_context.get_toolkit", return_value=None):
+        with patch("plugin.writer.styles.get_toolkit", return_value=None):
             assert styles_mod._installed_font_names(ctx) is None
-        with patch("plugin.framework.uno_context.get_toolkit", return_value=toolkit):
+        with patch("plugin.writer.styles.get_toolkit", return_value=toolkit):
             assert styles_mod._installed_font_names(ctx) == {"liberation serif"}
             assert styles_mod._installed_font_names(ctx) == {"liberation serif"}
         toolkit.createScreenCompatibleDevice.assert_called_once()
@@ -1506,7 +1506,7 @@ def test_copy_direct_style_properties_reraises_disposed():
     from types import SimpleNamespace
 
     from plugin.framework.errors import DocumentDisposedError
-    from plugin.writer.styles import _copy_direct_style_properties
+    from plugin.writer.styles import copy_direct_style_properties
 
     DisposedEx = type("DisposedException", (Exception,), {})
     props = [SimpleNamespace(Name="CharWeight", Attributes=0)]
@@ -1514,13 +1514,13 @@ def test_copy_direct_style_properties_reraises_disposed():
     source = MagicMock()
     source.getPropertySetInfo.side_effect = DisposedEx("gone")
     with pytest.raises(DocumentDisposedError):
-        _copy_direct_style_properties(source, MagicMock())
+        copy_direct_style_properties(source, MagicMock())
 
     source = MagicMock()
     source.getPropertySetInfo.return_value.getProperties.return_value = props
     source.getPropertyState.side_effect = DisposedEx("gone")
     with pytest.raises(DocumentDisposedError):
-        _copy_direct_style_properties(source, MagicMock())
+        copy_direct_style_properties(source, MagicMock())
 
     source = MagicMock()
     source.getPropertySetInfo.return_value.getProperties.return_value = props
@@ -1529,13 +1529,13 @@ def test_copy_direct_style_properties_reraises_disposed():
     dest = MagicMock()
     dest.setPropertyValue.side_effect = DisposedEx("gone")
     with pytest.raises(DocumentDisposedError):
-        _copy_direct_style_properties(source, dest)
+        copy_direct_style_properties(source, dest)
 
     # Ordinary failures stay best-effort.
     source = MagicMock()
     source.getPropertySetInfo.return_value.getProperties.return_value = props
     source.getPropertyState.side_effect = RuntimeError("no such property")
-    copied, skipped = _copy_direct_style_properties(source, MagicMock())
+    copied, skipped = copy_direct_style_properties(source, MagicMock())
     assert copied == [] and skipped == ["CharWeight"]
 
 

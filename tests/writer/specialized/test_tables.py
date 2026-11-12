@@ -1493,17 +1493,12 @@ def test_resolve_uno_context():
 
 def test_read_helpers_reraise_disposal():
     from unittest.mock import MagicMock
-    from plugin.writer.table_nesting import _is_text_table, _safe_enumerate, cell_hosted_table_names
+    from plugin.writer.table_nesting import _is_text_table, cell_hosted_table_names
 
     disposed_obj = MagicMock()
     disposed_obj.supportsService.side_effect = DisposedException("disposed")
     with pytest.raises(Exception):
         _is_text_table(disposed_obj)
-
-    disposed_xtext = MagicMock()
-    disposed_xtext.createEnumeration.side_effect = DisposedException("disposed")
-    with pytest.raises(Exception):
-        list(_safe_enumerate(disposed_xtext))
 
     disposed_cell = MagicMock()
     disposed_cell.createEnumeration.side_effect = DisposedException("disposed")

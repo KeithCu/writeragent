@@ -350,31 +350,22 @@ class DocumentPropertiesGet(ToolBase):
             list_user_defined_document_properties,
             read_builtin_document_properties,
         )
-        from plugin.framework.queue_executor import main
-        from plugin.framework.send_cancellation import SendCancelled
-        from plugin.framework.errors import user_stopped_payload
 
-        def _run() -> dict[str, Any]:
-            builtins = read_builtin_document_properties(ctx.doc)
-            user_defined: dict[str, str] = {}
-            internal_omitted: list[str] = []
-            for prop_name in list_user_defined_document_properties(ctx.doc):
-                if _is_product_udprop(prop_name):
-                    internal_omitted.append(prop_name)
-                    continue
-                val = get_document_property(ctx.doc, prop_name, default="")
-                user_defined[prop_name] = str(val) if val is not None else ""
-            return {
-                "status": "ok",
-                **builtins,
-                "user_defined": user_defined,
-                "internal_omitted": sorted(internal_omitted),
-            }
-
-        try:
-            return main.run(_run)
-        except SendCancelled:
-            return user_stopped_payload()
+        builtins = read_builtin_document_properties(ctx.doc)
+        user_defined: dict[str, str] = {}
+        internal_omitted: list[str] = []
+        for prop_name in list_user_defined_document_properties(ctx.doc):
+            if _is_product_udprop(prop_name):
+                internal_omitted.append(prop_name)
+                continue
+            val = get_document_property(ctx.doc, prop_name, default="")
+            user_defined[prop_name] = str(val) if val is not None else ""
+        return {
+            "status": "ok",
+            **builtins,
+            "user_defined": user_defined,
+            "internal_omitted": sorted(internal_omitted),
+        }
 
 
 class DocumentPropertiesSet(ToolBase):
@@ -421,9 +412,6 @@ class DocumentPropertiesSet(ToolBase):
             set_document_property,
             write_builtin_document_properties,
         )
-        from plugin.framework.queue_executor import main
-        from plugin.framework.send_cancellation import SendCancelled
-        from plugin.framework.errors import user_stopped_payload
 
         title = kwargs.get("title")
         subject = kwargs.get("subject")
@@ -515,32 +503,26 @@ class DocumentPropertiesSet(ToolBase):
         if not builtin_fields and not ud_writes and not ud_removes:
             return self._tool_error("No properties to set.", code="NO_CHANGES")
 
-        def _run() -> dict[str, Any]:
-            updated: list[str] = list(write_builtin_document_properties(ctx.doc, **builtin_fields))
-            removed: list[str] = []
-            for key, val in ud_writes.items():
-                if not set_document_property(ctx.doc, key, val):
-                    return self._tool_error(
-                        "Could not write user-defined property %r." % key,
-                        code="SET_PROPERTY_FAILED",
-                        updated=updated,
-                        removed=removed,
-                    )
-                updated.append("user_defined:%s" % key)
-            for key in ud_removes:
-                if remove_document_property(ctx.doc, key):
-                    removed.append(key)
-                else:
-                    return self._tool_error(
-                        "Could not remove user-defined property %r." % key,
-                        code="REMOVE_PROPERTY_FAILED",
-                        updated=updated,
-                        removed=removed,
-                    )
-            return {"status": "ok", "updated": updated, "removed": removed}
-
-        try:
-            return main.run(_run)
-        except SendCancelled:
-            return user_stopped_payload()
+        updated: list[str] = list(write_builtin_document_properties(ctx.doc, **builtin_fields))
+        removed: list[str] = []
+        for key, val in ud_writes.items():
+            if not set_document_property(ctx.doc, key, val):
+                return self._tool_error(
+                    "Could not write user-defined property %r." % key,
+                    code="SET_PROPERTY_FAILED",
+                    updated=updated,
+                    removed=removed,
+                )
+            updated.append("user_defined:%s" % key)
+        for key in ud_removes:
+            if remove_document_property(ctx.doc, key):
+                removed.append(key)
+            else:
+                return self._tool_error(
+                    "Could not remove user-defined property %r." % key,
+                    code="REMOVE_PROPERTY_FAILED",
+                    updated=updated,
+                    removed=removed,
+                )
+        return {"status": "ok", "updated": updated, "removed": removed}
 

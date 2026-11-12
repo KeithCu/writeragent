@@ -10,13 +10,22 @@ Sentence-boundary tables and ``looks_complete_sentence`` live in ``grammar_proof
 from __future__ import annotations
 
 import copy
+from dataclasses import asdict
 import logging
 from typing import Any, Iterable
 
 log = logging.getLogger("writeragent.grammar")
 
+from plugin.framework.grammar_rule_ids import grammar_bcp47_tags_match
+from plugin.framework.uno_context import get_active_document
 from plugin.writer.locale import grammar_settings
-from .grammar_persistence import SentenceCacheEntry, get_persistence, grammar_registry
+from .grammar_ignore_rules import IgnoreSet
+from .grammar_persistence import (
+    SentenceCacheEntry,
+    get_persistence,
+    grammar_registry,
+    persistence_for_model,
+)
 from .grammar_proofread_locale import (
     MAX_CACHE_SIZE,
     MAX_RECENT_INCOMPLETE_SCAN,
@@ -25,6 +34,7 @@ from .grammar_proofread_locale import (
     normalize_for_sentence_cache,
     sentence_identity_fp,
 )
+from .grammar_proofread_text import normalize_errors_for_text
 
 
 def _sanitize_checker_identity(identity: str) -> str:
@@ -95,9 +105,6 @@ def dump_l1_sentence_cache() -> None:
 def recheck_active_document_grammar(ctx: Any) -> None:
     """Dump caches for the active document and ask Writer to walk it again."""
     dump_l1_sentence_cache()
-    from plugin.framework.uno_context import get_active_document
-    from plugin.writer.locale.grammar_persistence import persistence_for_model
-
     model = get_active_document(ctx)
     if model is not None:
         p = persistence_for_model(model)
@@ -244,14 +251,9 @@ def store_sentence_result(
     checker_identity: str | None = None,
     *,
     alt_locale: str = "",
-    ignore_set: Any | None = None,
+    ignore_set: IgnoreSet | None = None,
 ) -> list[dict[str, Any]]:
     """Normalize raw errors, cache the sentence payload, and return active (non-ignored) errors."""
-    from dataclasses import asdict
-    from plugin.framework.grammar_rule_ids import grammar_bcp47_tags_match
-    from .grammar_ignore_rules import IgnoreSet
-    from .grammar_proofread_text import normalize_errors_for_text
-
     norm_errors = normalize_errors_for_text(text, raw_errors, ctx, locale)
     if ignore_set is None:
         ignore_set = IgnoreSet.for_document(doc_id)
