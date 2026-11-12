@@ -3037,7 +3037,7 @@ def insert_user_redline(doc: Any, ctx: Any, text: str, start_idx: int, end_idx: 
 
     from plugin.writer import review_authors
     prior = review_authors.begin(ctx)
-    review_authors._set_office_author(ctx, "Test User")
+    review_authors.set_office_author(ctx, "Test User")
 
     try:
         body = doc.getText()

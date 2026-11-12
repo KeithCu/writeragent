@@ -116,7 +116,7 @@ def test_deletion_author_failed_swap_runs_body_and_does_not_restore(
     review_authors.begin(ctx)
     initial_commits = len(commits)
 
-    # Monkeypatch _set_office_author to fail during deletion_author
+    # Monkeypatch set_office_author to fail during deletion_author
     call_count = 0
 
     def _failing_set(c: Any, given: str) -> bool:
@@ -124,13 +124,13 @@ def test_deletion_author_failed_swap_runs_body_and_does_not_restore(
         call_count += 1
         return False
 
-    monkeypatch.setattr(review_authors, "_set_office_author", _failing_set)
+    monkeypatch.setattr(review_authors, "set_office_author", _failing_set)
 
     ran = False
     with review_authors.deletion_author():
         ran = True
     assert ran
-    # _set_office_author was called once for delete, returned False, so body yielded and finally was not reached
+    # set_office_author was called once for delete, returned False, so body yielded and finally was not reached
     assert call_count == 1
     assert len(commits) == initial_commits
 
@@ -153,7 +153,7 @@ def test_deletion_author_failed_restore_is_swallowed(
         ran = True
         assert store["givenname"] == "WriterAgent (deletions)"
     assert ran
-    # Restore failed and was caught by _set_office_author, so store is still deletions
+    # Restore failed and was caught by set_office_author, so store is still deletions
     assert store["givenname"] == "WriterAgent (deletions)"
 
 
@@ -202,7 +202,7 @@ def test_end_restores_after_debug_hook_set_office_author(
     assert prior == ("OriginalGiven", "OriginalSn")
 
     # Debug hook writes "Test User"
-    assert review_authors._set_office_author(ctx, "Test User") is True
+    assert review_authors.set_office_author(ctx, "Test User") is True
     assert store["givenname"] == "Test User"
     assert getattr(review_authors._state, "last", None) == "Test User"
 

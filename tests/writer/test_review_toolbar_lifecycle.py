@@ -85,7 +85,7 @@ def test_toolbar_docks_once_per_document(review_registry):
     rva._get_or_create(model)
     with patch("plugin.writer.review_view_attachment.layout_manager", return_value=MagicMock()), \
          patch("plugin.writer.review_view_attachment._dock_top") as dock, \
-         patch("plugin.writer.review_scan.agent_change_presence", side_effect=[(1, True), (0, True), (1, True)]):
+         patch("plugin.writer.review_view_attachment.agent_change_presence", side_effect=[(1, True), (0, True), (1, True)]):
         rva.refresh_review_toolbar(model)
         rva.refresh_review_toolbar(model)
         rva.refresh_review_toolbar(model)
@@ -215,7 +215,7 @@ def test_non_writer_unload_does_not_ask_disposed_controller(review_registry):
     broadcaster = MagicMock()
     ctx = MagicMock()
     ctx.getServiceManager.return_value.createInstanceWithContext.return_value = broadcaster
-    with patch("plugin.framework.uno_context.get_desktop", return_value=None):
+    with patch("plugin.writer.review_view_attachment.get_desktop", return_value=None):
         rva.install(ctx)
         listener = broadcaster.addDocumentEventListener.call_args.args[0]
     impress = MagicMock()
@@ -235,7 +235,7 @@ def test_dock_failure_is_retried_on_the_next_show(review_registry):
     lm = MagicMock()
     with patch.object(rva, "layout_manager", return_value=lm), \
          patch.object(rva, "_dock_top", side_effect=[False, True]) as dock, \
-         patch("plugin.writer.review_scan.agent_change_presence",
+         patch("plugin.writer.review_view_attachment.agent_change_presence",
                side_effect=[(1, True), (0, True), (1, True)]):
         rva.refresh_review_toolbar(model)
         assert not review_registry.get(key, rva.ReviewViewAttachment(key, model)).toolbar_docked
@@ -259,21 +259,21 @@ def test_refresh_review_toolbar_show_hide_unreliable():
     with patch.object(rva, "layout_manager", return_value=lm), \
          patch.object(rva, "_dock_top", return_value=True):
         # 1 pending change -> show
-        with patch("plugin.writer.review_scan.agent_change_presence", return_value=(1, True)):
+        with patch("plugin.writer.review_view_attachment.agent_change_presence", return_value=(1, True)):
             rva.refresh_review_toolbar(model)
             lm.showElement.assert_called_once_with(rva.TOOLBAR_RESOURCE_URL)
             lm.hideElement.assert_not_called()
 
         lm.reset_mock()
         # 0 pending changes -> hide
-        with patch("plugin.writer.review_scan.agent_change_presence", return_value=(0, True)):
+        with patch("plugin.writer.review_view_attachment.agent_change_presence", return_value=(0, True)):
             rva.refresh_review_toolbar(model)
             lm.hideElement.assert_called_once_with(rva.TOOLBAR_RESOURCE_URL)
             lm.showElement.assert_not_called()
 
         lm.reset_mock()
         # unreliable scan -> no-op
-        with patch("plugin.writer.review_scan.agent_change_presence", return_value=(0, False)):
+        with patch("plugin.writer.review_view_attachment.agent_change_presence", return_value=(0, False)):
             rva.refresh_review_toolbar(model)
             lm.showElement.assert_not_called()
             lm.hideElement.assert_not_called()
@@ -282,7 +282,7 @@ def test_refresh_review_toolbar_show_hide_unreliable():
 def test_install_review_toolbar_warns_on_sweep_failure(review_registry):
     ctx = MagicMock()
     ctx.getServiceManager.return_value.createInstanceWithContext.return_value = MagicMock()
-    with patch("plugin.framework.uno_context.get_desktop", side_effect=RuntimeError("sweep error")), \
+    with patch("plugin.writer.review_view_attachment.get_desktop", side_effect=RuntimeError("sweep error")), \
          patch.object(rva.log, "warning") as warn:
         rva.install(ctx)
         warn.assert_any_call("review_view_attachment: initial sweep failed", exc_info=True)
@@ -291,7 +291,7 @@ def test_install_review_toolbar_warns_on_sweep_failure(review_registry):
 def test_install_review_toolbar_warns_on_listener_install_failure(review_registry):
     ctx = MagicMock()
     ctx.getServiceManager.return_value.createInstanceWithContext.side_effect = RuntimeError("service error")
-    with patch("plugin.framework.uno_context.get_desktop", return_value=None), \
+    with patch("plugin.writer.review_view_attachment.get_desktop", return_value=None), \
          patch("plugin.framework.uno_listeners.log.warning") as warn:
         rva.install(ctx)
         warn.assert_any_call("%s: doc-event listener install failed", "review_view_attachment", exc_info=True)

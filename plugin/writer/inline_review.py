@@ -30,6 +30,8 @@ from enum import Enum, auto
 import logging
 from typing import Any, Generator, NamedTuple
 
+from plugin.chatbot.dialogs import msgbox
+from plugin.doc.compound_undo import WriterCompoundUndo
 from plugin.framework.errors import is_disposal
 from plugin.framework.i18n import _
 from plugin.framework.uno_context import uno_same
@@ -215,7 +217,6 @@ def show_review_message(ctx: Any, message: str) -> None:
     """Surface a review outcome to the user so a click that resolves nothing isn't silent."""
     if not message:
         return
-    from plugin.chatbot.dialogs import msgbox
 
     msgbox(ctx, _("Review agent changes"), message)
 
@@ -745,8 +746,6 @@ def resolve_agent_change(
 @contextlib.contextmanager
 def _grouped_resolve_undo(model: Any) -> Generator[None, None, None]:
     """Group dispatches into one undo step; keeps landed edits on failure."""
-    from plugin.doc.compound_undo import WriterCompoundUndo
-
     with WriterCompoundUndo(model, _("Resolve agent changes")):
         yield
 

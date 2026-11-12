@@ -40,7 +40,7 @@ def test_show_popup_uncollapsed_cursor_does_not_enumerate_or_create_popup(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     ctx = MagicMock()
-    monkeypatch.setattr("plugin.framework.uno_context.get_ctx", lambda: ctx)
+    monkeypatch.setattr("plugin.writer.review_click_popup.get_ctx", lambda: ctx)
 
     vc = MagicMock()
     vc.isCollapsed.return_value = False
@@ -63,7 +63,7 @@ def test_show_popup_zero_redlines_does_not_enumerate_or_create_popup(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     ctx = MagicMock()
-    monkeypatch.setattr("plugin.framework.uno_context.get_ctx", lambda: ctx)
+    monkeypatch.setattr("plugin.writer.review_click_popup.get_ctx", lambda: ctx)
 
     vc = MagicMock()
     vc.isCollapsed.return_value = True
@@ -94,7 +94,7 @@ def test_show_popup_plain_click_creates_popup_and_does_not_select_change(
     popup.execute.return_value = 1  # Accept
     smgr.createInstanceWithContext.return_value = popup
     ctx.getServiceManager.return_value = smgr
-    monkeypatch.setattr("plugin.framework.uno_context.get_ctx", lambda: ctx)
+    monkeypatch.setattr("plugin.writer.review_click_popup.get_ctx", lambda: ctx)
 
     vc = MagicMock()
     vc.isCollapsed.return_value = True
@@ -124,8 +124,8 @@ def test_show_popup_plain_click_creates_popup_and_does_not_select_change(
         resolved.append((accept, token))
         return True, "ok"
 
-    monkeypatch.setattr("plugin.writer.inline_review.resolve_change_at_cursor", _fake_resolve)
-    monkeypatch.setattr("plugin.writer.inline_review.cursor_in_agent_change", lambda mdl, view=None: "wa-review:s:1")
+    monkeypatch.setattr("plugin.writer.review_click_popup.resolve_change_at_cursor", _fake_resolve)
+    monkeypatch.setattr("plugin.writer.review_click_popup.cursor_in_agent_change", lambda mdl, view=None: "wa-review:s:1")
 
     source_win = object()
     review_click_popup._show_popup_and_resolve(model, source_win, 10, 20)
@@ -146,7 +146,7 @@ def test_show_popup_dismissal_does_not_resolve(
     popup.execute.return_value = 0  # Dismissed
     smgr.createInstanceWithContext.return_value = popup
     ctx.getServiceManager.return_value = smgr
-    monkeypatch.setattr("plugin.framework.uno_context.get_ctx", lambda: ctx)
+    monkeypatch.setattr("plugin.writer.review_click_popup.get_ctx", lambda: ctx)
 
     vc = MagicMock()
     vc.isCollapsed.return_value = True
@@ -161,9 +161,9 @@ def test_show_popup_dismissal_does_not_resolve(
     model.getRedlines.return_value = redlines
 
     resolve_mock = MagicMock()
-    monkeypatch.setattr("plugin.writer.inline_review.resolve_change_at_cursor", resolve_mock)
-    monkeypatch.setattr("plugin.writer.inline_review.cursor_in_agent_change", lambda mdl, view=None: "wa-review:s:1")
-    monkeypatch.setattr("plugin.writer.inline_review.scan_redline_view", lambda mdl: MagicMock())
+    monkeypatch.setattr("plugin.writer.review_click_popup.resolve_change_at_cursor", resolve_mock)
+    monkeypatch.setattr("plugin.writer.review_click_popup.cursor_in_agent_change", lambda mdl, view=None: "wa-review:s:1")
+    monkeypatch.setattr("plugin.writer.review_click_popup.scan_redline_view", lambda mdl: MagicMock())
 
     review_click_popup._show_popup_and_resolve(model, object(), 10, 20)
 
@@ -211,10 +211,10 @@ class FakeHandler:
 def test_registration_dedup_and_detach(
     monkeypatch: pytest.MonkeyPatch, review_registry: dict[str, Any]
 ) -> None:
-    monkeypatch.setattr(review_click_popup, "_make_handler", lambda mdl, detach: FakeHandler(mdl))
+    monkeypatch.setattr(review_click_popup, "ClickReviewHandler", lambda mdl, detach: FakeHandler(mdl))
     monkeypatch.setattr(
-        "plugin.writer.change_context_menu._make_interceptor",
-        lambda m: MagicMock(_model=m),
+        "plugin.writer.change_context_menu.make_interceptor",
+        lambda m: MagicMock(model=m),
     )
     model = MagicMock()
     model.supportsService.return_value = True
@@ -241,10 +241,10 @@ def test_registration_dedup_and_detach(
 def test_handler_disposing_calls_remove_mouse_click_handler(
     monkeypatch: pytest.MonkeyPatch, review_registry: dict[str, Any]
 ) -> None:
-    monkeypatch.setattr(review_click_popup, "_make_handler", lambda mdl, detach: FakeHandler(mdl))
+    monkeypatch.setattr(review_click_popup, "ClickReviewHandler", lambda mdl, detach: FakeHandler(mdl))
     monkeypatch.setattr(
-        "plugin.writer.change_context_menu._make_interceptor",
-        lambda m: MagicMock(_model=m),
+        "plugin.writer.change_context_menu.make_interceptor",
+        lambda m: MagicMock(model=m),
     )
     model = MagicMock()
     model.supportsService.return_value = True
@@ -262,10 +262,10 @@ def test_handler_disposing_calls_remove_mouse_click_handler(
 def test_cleanup_disposed_controllers(
     monkeypatch: pytest.MonkeyPatch, review_registry: dict[str, Any]
 ) -> None:
-    monkeypatch.setattr(review_click_popup, "_make_handler", lambda mdl, detach: FakeHandler(mdl))
+    monkeypatch.setattr(review_click_popup, "ClickReviewHandler", lambda mdl, detach: FakeHandler(mdl))
     monkeypatch.setattr(
-        "plugin.writer.change_context_menu._make_interceptor",
-        lambda m: MagicMock(_model=m),
+        "plugin.writer.change_context_menu.make_interceptor",
+        lambda m: MagicMock(model=m),
     )
     live_model = MagicMock()
     live_model.supportsService.return_value = True
@@ -299,12 +299,11 @@ def test_double_click_cancels_popup_and_never_consumes(monkeypatch: pytest.Monke
     awt = types.ModuleType("com.sun.star.awt")
     awt.XMouseClickHandler = type("XMouseClickHandler", (), {})  # type: ignore[attr-defined]
     monkeypatch.setitem(sys.modules, "com.sun.star.awt", awt)
-    monkeypatch.setattr(review_click_popup, "_handler_cls", None)
     monkeypatch.setattr(review_click_popup, "_DOUBLE_CLICK_SEC", 0.05)
     shown: list[tuple[int, int]] = []
     monkeypatch.setattr(review_click_popup, "_show_popup_and_resolve", lambda _m, _s, x, y: shown.append((x, y)))
     monkeypatch.setattr("plugin.framework.queue_executor.main.post", lambda fn, *a: fn(*a))
-    handler = review_click_popup._make_handler(MagicMock(), detach=lambda handler: None)
+    handler = review_click_popup.ClickReviewHandler(MagicMock(), detach=lambda handler: None)
 
     # Double-click: press/release/press/release inside the window -> no popup, nothing consumed.
     assert handler.mousePressed(_click(10, 10, 1)) is False
