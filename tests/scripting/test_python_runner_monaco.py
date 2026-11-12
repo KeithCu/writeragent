@@ -99,7 +99,6 @@ def test_run_python_dialog_cancel_keeps_dirty_cell_and_skips_native():
     ctx = MagicMock()
     doc = MagicMock()
     pe = launch_mod._PERSISTENT_EDITOR
-    launch_mod.set_active_session(None)
     pe.sessions.clear()
     pe.focused_id = None
     pe._proc = None
@@ -144,7 +143,6 @@ def test_run_python_dialog_cancel_keeps_dirty_cell_and_skips_native():
         assert pe.focused() is state
         assert state.dirty is True
     finally:
-        launch_mod.set_active_session(None)
         pe.sessions.clear()
         pe.focused_id = None
         pe._proc = None
