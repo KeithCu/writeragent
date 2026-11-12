@@ -24,6 +24,8 @@ Do **not** wrap UNO dispose as `ToolExecutionError(str(e))`. That strips dispose
 
 `if is_disposal(exc): raise` before a generic wrap ensures real disposal propagates.
 
+For UNO exceptions that must keep their type (`is_disposal`, error-message paths) across a context manager boundary, do not use generator-based `@contextlib.contextmanager` (as in `with_temp_buffer` in `plugin/doc/temp_files.py` and `undo_lock` in `plugin/calc/python/undo.py`). `contextlib._GeneratorContextManager.__exit__` assigns `exc.__traceback__ = traceback` while unwinding, and pyuno exception classes route attribute assignment into the UNO struct (cite: `pyuno/source/module/uno.py:_uno_struct__setattr__`), converting the exception into `RuntimeException: Couldn't convert <traceback object> to a UNO type`. Use a class with `__enter__`/`__exit__` (such as `with_temp_buffer` or `undo_lock`) so the original exception unwinds untouched. Generator context managers that only manage internal Python state without yielding across UNO mutations (such as `sheet_modify_scope` or `ignore_cache_invalidation`) are unaffected.
+
 ### Disposal predicate truth table
 
 | Exception kind | `is_disposal(exc)` | `_looks_like_teardown(exc)` |
@@ -80,6 +82,7 @@ Code constants remain string literals across call sites. Codes are JSON wire val
 | `PARA_PROPERTY_UNSUPPORTED` | warning | Unapplied `data-lo-para` property (`html_import_styles.attach_para_warnings`) | None |
 | `PARA_IGNORED_PARTIAL_MATCH` | warning | Partial match `data-lo-para` skip (`html_import_styles.attach_para_warnings`) | None |
 | `PARA_IGNORED_RECORDING` | warning | Tracked changes recording `data-lo-para` skip (`html_import_styles.attach_para_warnings`) | None |
+| `MATH_IMPORT_FAILED` | warning | Formula conversion failed during HTML/math import (`html_import_styles.attach_math_objects`) | None |
 
 *Naming invariant:* A code names the underlying condition, not the tool. Once shipped, a code is never renamed.
 
