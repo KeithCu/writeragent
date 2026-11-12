@@ -563,7 +563,7 @@ def test_image_download_prepare_tool_call_drops_verify_ssl_for_every_caller():
 
 
 def test_download_image_to_cache_unlinks_stale_partials(tmp_path, monkeypatch):
-    monkeypatch.setattr("plugin.writer.images.image_tools._image_cache_dir", lambda: str(tmp_path))
+    monkeypatch.setattr("plugin.writer.images.image_tools.image_cache_dir", lambda: str(tmp_path))
 
     old_partial = tmp_path / "img-old.partial"
     old_partial.write_bytes(b"old")
@@ -812,7 +812,7 @@ def test_image_delete_draw_ambiguous_name():
 
 
 def test_download_cache_hit_skips_second_request(tmp_path, monkeypatch):
-    monkeypatch.setattr("plugin.writer.images.image_tools._image_cache_dir", lambda: str(tmp_path))
+    monkeypatch.setattr("plugin.writer.images.image_tools.image_cache_dir", lambda: str(tmp_path))
     png_bytes = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15c4"
 
     with patch(
@@ -840,7 +840,7 @@ def test_download_cache_hit_skips_second_request(tmp_path, monkeypatch):
     ],
 )
 def test_download_failure_leaves_no_cache_file(tmp_path, monkeypatch, sync_outcome):
-    monkeypatch.setattr("plugin.writer.images.image_tools._image_cache_dir", lambda: str(tmp_path))
+    monkeypatch.setattr("plugin.writer.images.image_tools.image_cache_dir", lambda: str(tmp_path))
     patch_kwargs = (
         {"side_effect": sync_outcome}
         if isinstance(sync_outcome, Exception)
@@ -1116,20 +1116,20 @@ def test_image_list_disposal_is_not_a_short_list():
 
 
 def test_image_set_properties_rejects_anchor_type():
+    from plugin.framework.tool import prepare_tool_call
+
     ctx = TestingFactory.create_context(doc_type="writer")
-    ok, err = ImageSetProperties().validate(name="G", anchor_type=9)
+    tool = ImageSetProperties()
+    ok, err = tool.validate(name="G", anchor_type=9)
     assert not ok
 
-    with patch("plugin.doc.visual_helpers.get_graphic_object_by_name") as mock_get:
-        res = ImageSetProperties().execute(ctx, name="G", anchor_type=9)
-        assert res["code"] == "INVALID_PARAM"
-        mock_get.assert_not_called()
+    for bad in (9, True):
+        prep = prepare_tool_call(tool, ctx, "image_set_properties", {"name": "G", "anchor_type": bad})
+        assert prep.error is not None
+        assert prep.error["code"] == "VALIDATION_ERROR"
+        assert "anchor_type" in prep.error["message"]
 
-        res_bool = ImageSetProperties().execute(ctx, name="G", anchor_type=True)
-        assert res_bool["code"] == "INVALID_PARAM"
-        mock_get.assert_not_called()
-
-    ok2, err2 = ImageSetProperties().validate(name="G", anchor_type=2)
+    ok2, err2 = tool.validate(name="G", anchor_type=2)
     assert ok2
 
 
@@ -1267,11 +1267,15 @@ def test_image_crop_rejects_non_positive_width_mm():
         assert res.get("code") == "INVALID_PARAM"
         assert res.get("details", {}).get("parameter") == "width_mm"
 
-        # 3. width_mm = True (bool) is rejected
-        res = ImageCropAndHighlight().execute(ctx, name="Pic", crop_box=[0, 0, 10, 10], width_mm=True)
-        assert res["status"] != "ok"
-        assert res.get("code") == "INVALID_PARAM"
-        assert res.get("details", {}).get("parameter") == "width_mm"
+        # 3. width_mm = True (bool) is rejected by schema validation
+        from plugin.framework.tool import prepare_tool_call
+
+        prep = prepare_tool_call(
+            ImageCropAndHighlight(), ctx, "image_crop_and_highlight", {"name": "Pic", "crop_box": [0, 0, 10, 10], "width_mm": True}
+        )
+        assert prep.error is not None
+        assert prep.error["code"] == "VALIDATION_ERROR"
+        assert "width_mm" in prep.error["message"]
 
         # 4. omitted width_mm keeps size.Width (1000 hundredths mm -> 10.0 mm)
         res = ImageCropAndHighlight().execute(ctx, name="Pic", crop_box=[0, 0, 10, 10])
@@ -1514,7 +1518,7 @@ def test_image_list_paragraph_anchor_restores_cloned_cursor():
     with (
         patch("plugin.doc.visual_helpers.get_visual_doc_type", return_value="writer"),
         patch("plugin.doc.visual_helpers.list_graphic_objects", return_value=[("ParaPic", graphic)]),
-        patch("plugin.writer.images.images._cursor_for_writer_view", return_value=(MagicMock(), saved_cursor)),
+        patch("plugin.writer.images.images.cursor_for_writer_view", return_value=(MagicMock(), saved_cursor)),
     ):
         res = ImageList().execute(ctx)
 
@@ -1542,7 +1546,7 @@ def test_image_list_cursor_save_fails_skips_gotorange_and_page():
     with (
         patch("plugin.doc.visual_helpers.get_visual_doc_type", return_value="writer"),
         patch("plugin.doc.visual_helpers.list_graphic_objects", return_value=[("Pic", graphic)]),
-        patch("plugin.writer.images.images._cursor_for_writer_view", side_effect=RuntimeError("cannot clone")),
+        patch("plugin.writer.images.images.cursor_for_writer_view", side_effect=RuntimeError("cannot clone")),
     ):
         res = ImageList().execute(ctx)
 
@@ -1572,7 +1576,7 @@ def test_image_list_page_zero_omitted():
     with (
         patch("plugin.doc.visual_helpers.get_visual_doc_type", return_value="writer"),
         patch("plugin.doc.visual_helpers.list_graphic_objects", return_value=[("Pic", graphic)]),
-        patch("plugin.writer.images.images._cursor_for_writer_view", return_value=(MagicMock(), saved_cursor)),
+        patch("plugin.writer.images.images.cursor_for_writer_view", return_value=(MagicMock(), saved_cursor)),
     ):
         res = ImageList().execute(ctx)
 
@@ -1749,6 +1753,8 @@ def test_image_set_properties_draw_shape_unsupported_properties_rejected():
 
 
 def test_image_set_properties_rejects_negative_crop():
+    from plugin.framework.tool import prepare_tool_call
+
     ctx = TestingFactory.create_context(doc_type="writer")
     graphic = MagicMock()
     with patch("plugin.doc.visual_helpers.get_graphic_object_by_name", return_value=graphic):
@@ -1758,11 +1764,10 @@ def test_image_set_properties_rejects_negative_crop():
         assert res.get("details", {}).get("parameter") == "crop_top_mm"
         graphic.setPropertyValue.assert_not_called()
 
-        res_bool = ImageSetProperties().execute(ctx, name="Pic", crop_right_mm=True)
-        assert res_bool["status"] != "ok"
-        assert res_bool.get("code") == "INVALID_PARAM"
-        assert res_bool.get("details", {}).get("parameter") == "crop_right_mm"
-        graphic.setPropertyValue.assert_not_called()
+    prep = prepare_tool_call(ImageSetProperties(), ctx, "image_set_properties", {"name": "Pic", "crop_right_mm": True})
+    assert prep.error is not None
+    assert prep.error["code"] == "VALIDATION_ERROR"
+    assert "crop_right_mm" in prep.error["message"]
 
 
 def test_image_set_properties_tiny_width_mm_clamps_to_one_unit():
@@ -1865,7 +1870,7 @@ def test_download_image_to_cache_rejects_non_http_schemes():
 
 
 def test_download_image_to_cache_html_body_not_cached(tmp_path, monkeypatch):
-    monkeypatch.setattr("plugin.writer.images.image_tools._image_cache_dir", lambda: str(tmp_path))
+    monkeypatch.setattr("plugin.writer.images.image_tools.image_cache_dir", lambda: str(tmp_path))
 
     with patch(
         "plugin.writer.images.image_utils.sync_request",
@@ -2201,7 +2206,7 @@ def test_image_get_info_draw_skips_paragraph_lookup():
     ],
 )
 def test_download_for_tool_stop_returns_user_stopped(tmp_path, monkeypatch, sync_outcome, cancel_first):
-    monkeypatch.setattr("plugin.writer.images.image_tools._image_cache_dir", lambda: str(tmp_path))
+    monkeypatch.setattr("plugin.writer.images.image_tools.image_cache_dir", lambda: str(tmp_path))
     scope = SendCancellation()
     if cancel_first:
         scope.cancel()
@@ -2215,7 +2220,7 @@ def test_download_for_tool_stop_returns_user_stopped(tmp_path, monkeypatch, sync
 
 
 def test_download_image_to_cache_expired_after_24h(tmp_path, monkeypatch):
-    monkeypatch.setattr("plugin.writer.images.image_tools._image_cache_dir", lambda: str(tmp_path))
+    monkeypatch.setattr("plugin.writer.images.image_tools.image_cache_dir", lambda: str(tmp_path))
 
     png_bytes = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15c4"
     downloads = {"count": 0}
@@ -2241,7 +2246,7 @@ def test_download_image_to_cache_expired_after_24h(tmp_path, monkeypatch):
 
 
 def test_download_image_to_cache_fetches_through_sync_request(tmp_path, monkeypatch):
-    monkeypatch.setattr("plugin.writer.images.image_tools._image_cache_dir", lambda: str(tmp_path))
+    monkeypatch.setattr("plugin.writer.images.image_tools.image_cache_dir", lambda: str(tmp_path))
     monkeypatch.setattr(
         "plugin.writer.images.image_utils.get_config",
         lambda key: 42 if key == "request_timeout" else 1024,
@@ -2269,7 +2274,7 @@ def test_download_image_to_cache_loopback_end_to_end(tmp_path, monkeypatch):
     from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
     import threading
 
-    monkeypatch.setattr("plugin.writer.images.image_tools._image_cache_dir", lambda: str(tmp_path))
+    monkeypatch.setattr("plugin.writer.images.image_tools.image_cache_dir", lambda: str(tmp_path))
     monkeypatch.setattr(
         "plugin.writer.images.image_utils.get_config",
         lambda key: 15 if key == "request_timeout" else 1024,

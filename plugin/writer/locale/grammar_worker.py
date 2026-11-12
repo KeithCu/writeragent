@@ -131,20 +131,40 @@ def _item_is_complete(item: GrammarWorkItem, text: str) -> bool:
     return not item.partial_sentence and grammar_proofread_locale.looks_complete_sentence(text)
 
 
+@dataclass(frozen=True)
+class _ProviderSpec:
+    name: str
+    obs_event: str
+    run: Any
+
+
+@dataclass(frozen=True)
+class GrammarWorkerContext:
+    """Shared I/O context for grammar worker phases (LLM, queue, document)."""
+    ctx: Any
+    client: Any
+    gq: GrammarWorkQueue
+    model: str
+    grammar_bcp47: str
+    max_tok: int
+    detect_lang_mode: str = "off"
+    spec: _ProviderSpec | None = None
+
+
 def process_grammar_results(
-    chunk: list[tuple[Any, str]],
+    chunk: list[tuple[GrammarWorkItem, str]],
     results: list[Any],
     bcp47: str,
     original_bcp47: str,
     elapsed_ms: int,
-    ec: Any,
+    ec: GrammarWorkerContext,
 ) -> None:
     """Normalize errors, write sentence cache, emit done status."""
     from .grammar_ignore_rules import IgnoreSet
 
     summary = _BatchResultSummary()
     doc_id = chunk[0][0].doc_id
-    ignore_set = IgnoreSet.for_document(ec.ctx, doc_id) if doc_id else None
+    ignore_set = IgnoreSet.for_document(doc_id) if doc_id else None
     for (item, text), errors in zip(chunk, results):
         if ec.gq.inflight_superseded(item.inflight_key, item.enqueue_seq):
             continue
@@ -178,11 +198,11 @@ def process_grammar_results(
 
 def run_single_sentence_provider(
     spec: _ProviderSpec,
-    chunk: list[tuple[Any, str]],
+    chunk: list[tuple[GrammarWorkItem, str]],
     bcp47: str,
     original_bcp47: str,
     cfg_dir: str,
-    ec: Any,
+    ec: GrammarWorkerContext,
 ) -> None:
     """Execute a single-sentence local checker (LanguageTool, Vale), record metrics, and cache results."""
     for item, text in chunk:
@@ -197,13 +217,6 @@ def run_single_sentence_provider(
         except Exception as ex:
             log.exception("[grammar] %s check failed", spec.name)
             get_grammar_status().failed(f"{spec.name} check", result=str(ex))
-
-
-@dataclass(frozen=True)
-class _ProviderSpec:
-    name: str
-    obs_event: str
-    run: Any
 
 
 def _run_languagetool(ctx: Any, text: str, bcp47: str, _cfg_dir: str) -> Any:
@@ -227,15 +240,15 @@ _SINGLE_SENTENCE_PROVIDERS: dict[str, _ProviderSpec] = {
 def _get_paragraph_text_for_range(model: Any, rng: Any) -> str | None:
     """Return the entire paragraph string containing rng, or None."""
     try:
-        text_obj = getattr(rng, "getText", lambda: None)()
-        if text_obj is None and model is not None:
-            text_obj = getattr(model, "getText", lambda: None)()
-        if text_obj is not None:
-            tc = text_obj.createTextCursorByRange(rng)
-            if hasattr(tc, "gotoStartOfParagraph") and hasattr(tc, "gotoEndOfParagraph"):
-                tc.gotoStartOfParagraph(False)
-                tc.gotoEndOfParagraph(True)
-                return tc.getString()
+        # A Writer range always has a parent text (SwXTextRange::getText); the
+        # body text covers the case where LibreOffice returns none.
+        text_obj = rng.getText()
+        if text_obj is None:
+            text_obj = model.getText()
+        tc = text_obj.createTextCursorByRange(rng)
+        tc.gotoStartOfParagraph(False)
+        tc.gotoEndOfParagraph(True)
+        return tc.getString()
     except Exception as exc:
         log.debug("paragraph text for range failed (%s)", type(exc).__name__)
     return None
@@ -265,39 +278,33 @@ def apply_language_change(
         def _paragraph_ok(rng: Any) -> bool:
             return not paragraph_text or _get_paragraph_text_for_range(model, rng) == paragraph_text
 
-        ctrl = getattr(model, "getCurrentController", lambda: None)()
-        view_cursor = getattr(ctrl, "getViewCursor", lambda: None)() if ctrl else None
+        ctrl = model.getCurrentController()
+        view_cursor = ctrl.getViewCursor() if ctrl is not None else None
 
         found_range = None
-        # Paragraph-relative cursor check: verify sentence text and paragraph text if provided.
-        # The paragraph-relative cursor is built for every start_pos,
-        # including 0. n_start is the sentence offset inside the
-        # proofread paragraph, so 0 is its first sentence, not "search
-        # from the caret". findNext from the view cursor retags a
-        # different copy of the same sentence when 0 is treated as "no
-        # offset". Offset 0 still selects from the start of that
-        # paragraph. start_pos > 0 still moves, then expands, on the same
-        # cursor.
+        # Paragraph-relative cursor: start at the paragraph that holds the caret,
+        # move start_pos characters in and select the sentence. start_pos is the
+        # sentence offset inside the proofread paragraph, so 0 is that paragraph's
+        # first sentence, not "search from the caret". It counts only when the
+        # selection is the sentence and its paragraph equals paragraph_text.
         if view_cursor is not None:
-            # Document-wide search from the start — view-cursor-relative findNext can miss
-            # the sentence Writer just proofread when the caret is elsewhere.
             text_obj = model.getText()
             doc_cursor = text_obj.createTextCursorByRange(view_cursor.getStart())
-            if hasattr(doc_cursor, "gotoStartOfParagraph"):
-                doc_cursor.gotoStartOfParagraph(False)
-                if start_pos > 0:
-                    doc_cursor.goRight(start_pos, False)
-                doc_cursor.goRight(len(sentence_text), True)
-                if doc_cursor.getString() == sentence_text and _paragraph_ok(doc_cursor):
-                    found_range = doc_cursor
+            doc_cursor.gotoStartOfParagraph(False)
+            if start_pos > 0:
+                doc_cursor.goRight(start_pos, False)
+            doc_cursor.goRight(len(sentence_text), True)
+            if doc_cursor.getString() == sentence_text and _paragraph_ok(doc_cursor):
+                found_range = doc_cursor
 
         if found_range:
             found_range.setPropertyValue("CharLocale", new_locale)
             log.info("[grammar] Updated CharLocale for sentence to %s", detected_bcp47)
             return True
 
-        # Fast path missed; fallback to findAll. Keep a hit only when that
-        # range's paragraph string equals paragraph_text. One remaining hit is retagged.
+        # Fallback when the caret sits in another paragraph: search the whole
+        # document. A hit counts only when its paragraph string equals
+        # paragraph_text; exactly one hit is retagged, zero or several write nothing.
         search_desc = model.createSearchDescriptor()
         search_desc.setSearchString(sentence_text)
         search_desc.SearchCaseSensitive = True
@@ -305,8 +312,7 @@ def apply_language_change(
         matches = model.findAll(search_desc)
         matched_ranges = []
         if matches is not None:
-            count = getattr(matches, "getCount", lambda: 0)()
-            for i in range(count):
+            for i in range(matches.getCount()):
                 rng = matches.getByIndex(i)
                 if _paragraph_ok(rng):
                     matched_ranges.append(rng)
@@ -343,10 +349,10 @@ def _apply_language_retag(
 
 
 def run_grammar_check(
-    chunk: list[tuple[Any, str]],
+    chunk: list[tuple[GrammarWorkItem, str]],
     bcp47: str,
     original_bcp47: str,
-    ec: Any,
+    ec: GrammarWorkerContext,
 ) -> None:
     """Grammar check dispatcher: executes LLM, LanguageTool, or Vale, then caches results."""
     try:
@@ -400,7 +406,6 @@ def run_grammar_check(
 
 
 def persisted_grammar_skip_lang_detect(
-    ctx: Any,
     doc_id: str,
     text: str,
     locale: str = "",
@@ -414,7 +419,7 @@ def persisted_grammar_skip_lang_detect(
     if not doc_id:
         return False
     fp = grammar_proofread_locale.sentence_identity_fp(text)
-    p = grammar_persistence.get_persistence(ctx, doc_id)
+    p = grammar_persistence.get_persistence(doc_id)
     # Do not adopt a v2/v3 row here. That probe would retag an unknown
     # locale as this chunk's CharLocale before proofreading reads it.
     return p is not None and p.get(fp, locale, adopt_legacy=False) is not None
@@ -443,7 +448,7 @@ def build_grammar_system_prompt(
     return sys_prompt
 
 
-def language_detect_llm_sync(ec: Any, messages: list[dict[str, str]], max_tokens: int) -> str:
+def language_detect_llm_sync(ec: GrammarWorkerContext, messages: list[dict[str, str]], max_tokens: int) -> str:
     """Sync language-detect LLM call with one retry when the model returns empty content."""
     model = ec.model or None
     caps = (max_tokens, max(max_tokens * 2, grammar_proofread_locale.GRAMMAR_LANGUAGE_DETECT_MAX_TOKENS_SINGLE))
@@ -472,16 +477,16 @@ def language_detect_llm_sync(ec: Any, messages: list[dict[str, str]], max_tokens
 
 
 def call_grammar_llm(
-    chunk: list[tuple[Any, str]],
+    chunk: list[tuple[GrammarWorkItem, str]],
     bcp47: str,
-    ec: Any,
+    ec: GrammarWorkerContext,
 ) -> tuple[list[Any], int]:
     """Run grammar LLM for one sentence or a batch; return parsed results and elapsed ms."""
     from .grammar_ignore_rules import collect_ignored_reasons
 
     batch = len(chunk) > 1
     doc_id = chunk[0][0].doc_id
-    ignored_reasons = collect_ignored_reasons(ec.ctx, doc_id)
+    ignored_reasons = collect_ignored_reasons(doc_id)
     any_partial = any(not _item_is_complete(item, text) for item, text in chunk)
     sys_prompt = build_grammar_system_prompt(bcp47, ignored_reasons, batch=batch, any_partial=any_partial)
     max_tokens = ec.max_tok
@@ -539,8 +544,8 @@ def _remember_language(text: str, raw: str) -> str:
 
 
 def _fill_from_cache_and_persistence(
-    chunk: list[tuple[Any, str]],
-    ec: Any,
+    chunk: list[tuple[GrammarWorkItem, str]],
+    ec: GrammarWorkerContext,
 ) -> list[str | None]:
     """Fill detected languages from LRU cache or persisted grammar heuristic; return list with None for misses."""
     detected_langs: list[str | None] = []
@@ -550,7 +555,7 @@ def _fill_from_cache_and_persistence(
             canon = normalize_detected_bcp47(cached) or cached
             detected_langs.append(canon)
             _obs_lang_detect_item(idx, "cache", cached, canon, text)
-        elif persisted_grammar_skip_lang_detect(ec.ctx, item.doc_id, text, ec.grammar_bcp47):
+        elif persisted_grammar_skip_lang_detect(item.doc_id, text, ec.grammar_bcp47):
             grammar_obs("lang_detect_skip", reason="persisted_grammar_heuristic", doc_id=item.doc_id[:32] if item.doc_id else "")
             canon = _remember_language(text, ec.grammar_bcp47)
             detected_langs.append(canon)
@@ -561,9 +566,9 @@ def _fill_from_cache_and_persistence(
 
 
 def _detect_languages_via_langdetect(
-    chunk: list[tuple[Any, str]],
+    chunk: list[tuple[GrammarWorkItem, str]],
     detected_langs: list[str | None],
-    ec: Any,
+    ec: GrammarWorkerContext,
 ) -> None:
     """Fill pending slots via PyPI langdetect in the embeddings venv worker."""
     from plugin.writer.locale.langdetect_service import detect_languages
@@ -595,7 +600,7 @@ def _detect_languages_via_langdetect(
 def _detect_via_llm_batch(
     texts: list[str],
     detect_lang_instruction: str,
-    ec: Any,
+    ec: GrammarWorkerContext,
 ) -> list[str | None]:
     """Run batch language detection via LLM and return canonical BCP47 or None per item."""
     user_content = "\n".join(f"{idx+1}. {text}" for idx, text in enumerate(texts))
@@ -631,7 +636,7 @@ def _detect_via_llm_batch(
 def _detect_via_llm_single(
     text: str,
     detect_lang_instruction: str,
-    ec: Any,
+    ec: GrammarWorkerContext,
 ) -> str | None:
     """Run single-sentence language detection via LLM and return canonical BCP47 or None."""
     detect_prompt = grammar_proofread_locale.LANGUAGE_DETECT_SYSTEM_PROMPT.format(
@@ -660,9 +665,9 @@ def _detect_via_llm_single(
 
 
 def detect_languages_for_chunk(
-    chunk: list[tuple[Any, str]],
+    chunk: list[tuple[GrammarWorkItem, str]],
     detect_lang_instruction: str,
-    ec: Any,
+    ec: GrammarWorkerContext,
 ) -> list[str | None]:
     """Resolve BCP47 per sentence (cache, optional persistence heuristic, LLM, or langdetect)."""
     detected_langs = _fill_from_cache_and_persistence(chunk, ec)
@@ -687,19 +692,6 @@ def detect_languages_for_chunk(
 def _detected_target_bcp47(raw: str | None, grammar_bcp47: str) -> str:
     norm = normalize_detected_bcp47(raw) if raw else None
     return norm or normalize_detected_bcp47(grammar_bcp47) or grammar_bcp47
-
-
-@dataclass(frozen=True)
-class GrammarWorkerContext:
-    """Shared I/O context for grammar worker phases (LLM, queue, document)."""
-    ctx: Any
-    client: Any
-    gq: GrammarWorkQueue
-    model: str
-    grammar_bcp47: str
-    max_tok: int
-    detect_lang_mode: str = "off"
-    spec: _ProviderSpec | None = None
 
 
 def requeue_individual_item(
@@ -743,17 +735,16 @@ def _worker_batch_gates(items: list[GrammarWorkItem], provider_name: str) -> boo
 
 def _worker_ready_items(
     chunk: list[tuple[GrammarWorkItem, str]],
-    gq: Any,
+    gq: GrammarWorkQueue,
     grammar_bcp47: str,
-    ctx: Any,
 ) -> list[tuple[GrammarWorkItem, str]]:
     ready: list[tuple[GrammarWorkItem, str]] = []
     for item, text in chunk:
-        if gq.inflight_superseded(item.inflight_key, item.enqueue_seq) is True:
+        if gq.inflight_superseded(item.inflight_key, item.enqueue_seq):
             grammar_obs("worker_skip", reason="superseded_before_process", enqueue_seq=item.enqueue_seq, inflight_key=item.inflight_key)
             continue
         cached = grammar_proofread_cache.cache_get_sentence(
-            grammar_bcp47, text, ctx=ctx, doc_id=item.doc_id, checker_identity=_item_cache_identity(item)
+            grammar_bcp47, text, doc_id=item.doc_id, checker_identity=_item_cache_identity(item)
         )
         if cached is None:
             ready.append((item, text))
@@ -781,7 +772,7 @@ def _retarget_item_locale(
         item.doc_id, target_bcp47, text, _item_is_complete(item, text)
     )
     new_seq = next_enqueue_seq()
-    if ec.gq.note_inflight_generation(new_key, new_seq) is True:
+    if ec.gq.note_inflight_generation(new_key, new_seq):
         grammar_obs(
             "worker_skip",
             reason="superseded_before_process",
@@ -806,7 +797,7 @@ def _worker_process_chunk(
     original_bcp47: str,
 ) -> None:
     """Run the grammar LLM for one chunk of ready items."""
-    current_chunk = _worker_ready_items(chunk, ec.gq, grammar_bcp47, ec.ctx)
+    current_chunk = _worker_ready_items(chunk, ec.gq, grammar_bcp47)
     if not current_chunk:
         grammar_obs("worker_chunk_skip", reason="empty_result_chunk", chunk_len=len(chunk))
         return
@@ -843,7 +834,6 @@ def run_llm_and_cache_batch(
             [(item, cache_lookup_text(item)) for item in items],
             grammar_queue_instance,
             grammar_bcp47,
-            ctx,
         )
         if not valid_items:
             grammar_obs("worker_batch_skip", reason="all_cached_or_superseded", item_count=len(items))
@@ -922,7 +912,7 @@ def run_llm_and_cache_batch(
                         items_by_target_locale[target_bcp47].append((item, text))
 
             for loc, loc_items in items_by_target_locale.items():
-                ready_items = _worker_ready_items(loc_items, ec.gq, loc, ec.ctx)
+                ready_items = _worker_ready_items(loc_items, ec.gq, loc)
                 if not ready_items:
                     continue
                 for chunk in _chunkify(ready_items):

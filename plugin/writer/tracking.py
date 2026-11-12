@@ -30,6 +30,7 @@ from typing import TYPE_CHECKING, Any
 from plugin.calc.base import ToolCalcSpecialTracking
 from plugin.doc.text_helpers import iter_elements_limited
 from plugin.framework.uno_context import uno_same
+from plugin.writer.edit_review import get_agent_edit_review_mode
 from plugin.writer.inline_review import agent_self_resolution_block_reason, execute_dispatch
 from plugin.writer.review_scan import is_agent_token, redline_identity_key, redline_is_agent_change
 from plugin.writer.search import LocationLabeler
@@ -228,8 +229,6 @@ def _agent_review_mode() -> Any | None:
     """Best-effort agent review mode, so 'recording: false' is never read as 'my edits are
     not being tracked' while record/wait mode is active."""
     try:
-        from plugin.writer.edit_review import get_agent_edit_review_mode
-
         return get_agent_edit_review_mode()
     except Exception:
         log.exception("tracking_list: could not read agent review mode")
@@ -328,7 +327,6 @@ class TrackChangesShow(WriterAgentSpecialTracking, ToolCalcSpecialTracking):  # 
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         show_b: bool = kwargs["show"]
-        assert isinstance(show_b, bool)
         # Writer vs Calc is decided by getRedlines on the document, not view settings, because
         # Calc controllers may still expose getViewSettings.
         if hasattr(ctx.doc, "getRedlines"):
@@ -394,7 +392,6 @@ class ManageTrackedChanges(WriterAgentSpecialTracking, ToolCalcSpecialTracking):
         if action in ("accept_all", "reject_all"):
             return self._execute_all(ctx, is_accept=(action == "accept_all"))
         index = kwargs.get("index")
-        assert index is None or (isinstance(index, int) and not isinstance(index, bool))
         if index is None or index < 0:
             return self._tool_error("Valid integer index is required for action='%s'." % action)
         return self._execute_single(ctx, index, is_accept=(action == "accept"))

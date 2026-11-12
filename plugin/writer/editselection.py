@@ -30,10 +30,17 @@ from plugin.framework.config import get_config, get_current_endpoint
 from plugin.framework.client.model_fetcher import get_text_model
 from plugin.framework.model_lru import update_lru_history
 from plugin.framework.errors import format_error_message
-from plugin.chatbot.dialogs import msgbox
 from plugin.framework.i18n import _
-from plugin.chatbot.selection import create_validated_client, prompt_for_edit_instructions, stream_completion
-from plugin.doc.text_helpers import get_string_without_tracked_deletions, selected_text_range
+from plugin.chatbot.dialogs import msgbox
+from plugin.chatbot.selection import (
+    bind_selection_cancel,
+    create_validated_client,
+    end_selection_cancel,
+    prompt_for_edit_instructions,
+    stream_completion,
+)
+from plugin.doc.agent_undo import record_agent_turn_after, record_agent_turn_before
+from plugin.doc.text_helpers import get_string_without_tracked_deletions, normalize_linebreaks, selected_text_range
 from plugin.writer.edit_review import (
     TRACKED_SELECTION_MESSAGE,
     TrackedChangesInSelection,
@@ -91,9 +98,6 @@ def _stream_into_session(
     sidebar_notify: Callable[[str], None] | None = None,
     host: Any | None = None,
 ) -> None:
-    from plugin.doc.agent_undo import record_agent_turn_after
-    from plugin.chatbot.selection import bind_selection_cancel, end_selection_cancel
-
     completion_meta: dict[str, Any] = {}
 
     # Chunks already in hand are document writes and land (session.append_chunk).
@@ -175,8 +179,6 @@ def do_extend_selection(
     system_prompt = get_config("extend_selection_system_prompt")
     max_tokens = get_config("chatbot.extend_selection_max_tokens")
 
-    from plugin.doc.agent_undo import record_agent_turn_before
-
     record_agent_turn_before(model)
     session = WriterStreamedAppendSession(
         model, text_range, original_text,
@@ -196,9 +198,6 @@ def do_extend_selection(
 
 def _whole_body_target(ctx: Any, model: Any, title: str) -> tuple[Any, str] | None:
     """Writer body range and text when slash rewrite has no selection."""
-    from plugin.doc.text_helpers import get_string_without_tracked_deletions, normalize_linebreaks
-    from plugin.writer.edit_review import refuse_tracked_insert_or_delete, TrackedChangesInSelection
-
     body = model.getText()
     cursor = body.createTextCursor()
     cursor.gotoStart(False)
@@ -265,8 +264,6 @@ def do_edit_selection(
     prompt = build_writer_rewrite_prompt(original_text, user_input)
     system_prompt = extra_instructions or get_config("edit_selection_system_prompt")
     max_tokens = len(original_text) + get_config("chatbot.edit_selection_max_new_tokens")
-
-    from plugin.doc.agent_undo import record_agent_turn_before
 
     record_agent_turn_before(model)
     session = WriterStreamedRewriteSession(

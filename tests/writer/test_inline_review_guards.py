@@ -1367,7 +1367,7 @@ def test_scan_count_click_popup_enumerates_once():
     mock_ctx = MagicMock()
     mock_ctx.getServiceManager.return_value = mock_smgr
 
-    with patch("plugin.framework.uno_context.get_ctx", return_value=mock_ctx):
+    with patch("plugin.writer.review_click_popup.get_ctx", return_value=mock_ctx):
         _show_popup_and_resolve(model, MagicMock(), 100, 100)
 
     assert model._rl.enums == 1

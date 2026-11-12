@@ -553,7 +553,7 @@ def test_get_document_context_for_chat_writer_disposed():
     model = MagicMock()
     model.supportsService.side_effect = lambda s: s == "com.sun.star.text.TextDocument"
 
-    with patch("plugin.doc.text_helpers._writer_char_count", side_effect=DocumentDisposedError("stale")):
+    with patch("plugin.doc.text_helpers.writer_char_count", side_effect=DocumentDisposedError("stale")):
         with pytest.raises(DocumentDisposedError):
             get_document_context_for_chat(model, 1000, ctx=MagicMock())
 
@@ -581,7 +581,7 @@ def test_excerpt_overlap_other_xtext_is_false():
 
 
 def test_document_service_open_documents_magicmock_enum_is_empty():
-    with patch("plugin.framework.uno_context.get_desktop") as mock_desktop:
+    with patch("plugin.doc.document_helpers.get_desktop") as mock_desktop:
         mock_desktop.return_value = MagicMock()
         mock_desktop.return_value.getComponents.return_value.createEnumeration.return_value = MagicMock()
         docs = DocumentService().open_documents()

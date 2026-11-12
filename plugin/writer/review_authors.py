@@ -39,6 +39,7 @@ def _disarm() -> None:
 
 
 def _author_access(ctx: Any) -> Any:
+    # com.sun.star names resolve through PyUNO's import hook (pyuno/source/module/uno.py _uno_import); importing here keeps a missing type inside this try.
     from com.sun.star.beans import NamedValue
 
     smgr = ctx.getServiceManager()
@@ -56,7 +57,7 @@ def _commit_author(access: Any, given: str, sn: str) -> None:
     access.commitChanges()
 
 
-def _set_office_author(ctx: Any, given: str) -> bool:
+def set_office_author(ctx: Any, given: str) -> bool:
     try:
         access = _author_access(ctx)
         _commit_author(access, given, "")
@@ -115,10 +116,10 @@ def deletion_author() -> Generator[None, None, None]:
     """Author the tracked deletion inside this block as the DELETE author, then restore the
     INSERT author. A no-op unless ``begin()`` armed split authoring on this thread."""
     ctx = getattr(_state, "ctx", None)
-    if ctx is None or not _set_office_author(ctx, DELETE_AUTHOR):
+    if ctx is None or not set_office_author(ctx, DELETE_AUTHOR):
         yield
         return
     try:
         yield
     finally:
-        _set_office_author(ctx, INSERT_AUTHOR)
+        set_office_author(ctx, INSERT_AUTHOR)

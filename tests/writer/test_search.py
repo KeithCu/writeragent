@@ -1558,7 +1558,7 @@ def test_search_selection_apply_shared_case_default_on_sample_text():
     with patch("plugin.writer.apply_document_content.get_agent_edit_review_mode", return_value="off"), \
          patch("plugin.writer.edit_review.get_agent_edit_review_mode", return_value="off"), \
          patch("plugin.writer.apply_document_content.edit_review_wait_seconds", return_value=0), \
-         patch("plugin.writer.html_import.replace_preserving_format", side_effect=fake_replace_preserving), \
+         patch("plugin.writer.edit_review.replace_preserving_format", side_effect=fake_replace_preserving), \
          patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=MagicMock()):
         res_replace = ApplyDocumentContent().execute(
             ctx_replace, content=["cherry"], target="search", old_content="apple", all_matches=True,

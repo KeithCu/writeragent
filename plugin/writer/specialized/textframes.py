@@ -28,7 +28,7 @@ from plugin.doc.undo import commit_or_rollback_mutation
 from plugin.doc.visual_helpers import anchor_type_index, mm_to_unit
 from plugin.framework.uno_context import uno_same
 from ..specialized_base import ToolWriterTextFramesBase, target_params
-from ..target_resolver import resolve_target_cursor
+from ..target_resolver import insert_at_target
 
 _FRAME_INFO_MAX_CHARS = 4000
 
@@ -307,8 +307,6 @@ class FrameInsert(ToolWriterTextFramesBase):
     is_mutation: bool | None = True
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
-        target = kwargs.get("target", "selection")
-        old_content = kwargs.get("old_content")
         frame_name = kwargs.get("name")
         text = kwargs.get("text") or ""
         width_mm = kwargs.get("width_mm")
@@ -331,10 +329,6 @@ class FrameInsert(ToolWriterTextFramesBase):
                     code="INVALID_PARAM",
                     parameter="name",
                 )
-        try:
-            cursor = resolve_target_cursor(ctx, target, old_content, case_sensitive=kwargs.get("case_sensitive"))
-        except ValueError as ve:
-            return self._tool_error(str(ve))
 
         from com.sun.star.awt import Size
 
@@ -345,11 +339,7 @@ class FrameInsert(ToolWriterTextFramesBase):
         frame.setPropertyValue("Size", size)
         frame.setPropertyValue("AnchorType", text_content_anchor(anchor_type))
 
-        replace_match = target == "search" and bool(old_content)
-
-        def mutate() -> dict[str, Any] | None:
-            if replace_match:
-                cursor.setString("")
+        def mutate(cursor: Any) -> dict[str, Any] | None:
             host = cursor.getText()
             host.insertTextContent(cursor, frame, False)
             if frame_name:
@@ -362,13 +352,13 @@ class FrameInsert(ToolWriterTextFramesBase):
                 frame_text.insertString(frame_cursor, text, False)
             return None
 
-        err = commit_or_rollback_mutation(
+        err = insert_at_target(
             self,
-            doc,
-            "WriterAgent: Insert text frame",
+            ctx,
+            kwargs,
             mutate,
-            "Undo is unavailable; the text frame was not inserted.",
-            "Failed to insert text frame; the change was rolled back",
+            what="the text frame",
+            undo_title="WriterAgent: Insert text frame",
             code="INSERT_FRAME_FAILED",
         )
         if err is not None:

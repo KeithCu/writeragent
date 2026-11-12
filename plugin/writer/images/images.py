@@ -19,6 +19,9 @@
 The seven image tools stay separate; an action-union schema is not the plan.
 """
 
+# UNO structs and constants (uno, com.sun.star.*) are imported inside the functions that use them.
+# The pytest stub module com.sun.star.text has no GraphicCrop and Size takes arguments there;
+# tests add or replace them per test through sys.modules, which only a call-time import sees.
 import base64
 from dataclasses import dataclass
 import hashlib
@@ -48,8 +51,8 @@ _DOCUMENT_MARSHAL_TIMEOUT_SEC = 120.0
 from .image_utils import (
     IMAGE_DOWNLOAD_MAX_BYTES,
     ImageService,
-    _unlink_temp_paths,
     fetch_image_url,
+    unlink_temp_paths,
 )
 from . import image_mark, image_tools
 from plugin.framework.config import get_config
@@ -58,11 +61,13 @@ from plugin.framework.client.base_provider_shim import canonical_aspect_ratio, c
 from plugin.framework.client.model_fetcher import get_image_model
 from plugin.framework.model_lru import update_lru_history
 from plugin.doc.document_research import list_nearby_files
+from plugin.doc.paragraph_search import paragraph_entries
 from plugin.doc import visual_helpers
 from plugin.doc.undo import commit_or_rollback_mutation
+from plugin.writer.specialized.textframes import text_content_anchor
 from .image_tools import (
-    _cursor_for_writer_view,
     add_image_to_gallery,
+    cursor_for_writer_view,
     export_graphic_object_to_bytes,
     insert_image,
     insert_image_at_locator,
@@ -302,10 +307,10 @@ class ImageGenerate(ToolWriterImageBase):
         add_frame = bool(get_config("image_insert_frame"))
 
         source_image = args.get("source_image")
-        if isinstance(source_image, str):
+        if source_image is not None:
             source_image = source_image.strip() or None
 
-        if source_image is not None and (not isinstance(source_image, str) or source_image.lower() != "selection"):
+        if source_image is not None and source_image.lower() != "selection":
             return self._tool_error(
                 "Invalid source_image: only 'selection' or omitted is supported.",
                 code="INVALID_PARAM",
@@ -419,7 +424,7 @@ class ImageGenerate(ToolWriterImageBase):
         try:
             msg = main.run(_insert_or_replace, timeout=_DOCUMENT_MARSHAL_TIMEOUT_SEC, bound_scope=None)
         finally:
-            _unlink_temp_paths(paths)
+            unlink_temp_paths(paths)
 
         image_model_used = str(args.get("image_model") or get_image_model() or "").strip()
         if image_model_used:
@@ -552,8 +557,6 @@ class ImageList(ToolWriterImageBase):
         entries = None
         if is_writer and doc_svc:
             para_ranges = doc_svc.get_paragraph_ranges(doc)
-            from plugin.doc.paragraph_search import paragraph_entries
-
             entries = paragraph_entries(para_ranges)
             text_obj = doc.getText()
 
@@ -616,7 +619,7 @@ class ImageList(ToolWriterImageBase):
                                     ctrl = doc.getCurrentController()
                                     vc = ctrl.getViewCursor() if ctrl is not None else None
                                     if vc is not None:
-                                        _, saved_vc = _cursor_for_writer_view(vc)
+                                        _, saved_vc = cursor_for_writer_view(vc)
                                 except Exception:
                                     saved_vc = None
                             try:
@@ -881,16 +884,10 @@ class ImageSetProperties(ToolWriterImageBase):
             return dim_err
 
         anchor_type = kwargs.get("anchor_type")
-        if anchor_type is not None and (type(anchor_type) is not int or anchor_type not in (0, 1, 2, 3, 4)):
-            return self._tool_error(
-                "anchor_type must be an integer 0, 1, 2, 3, or 4.",
-                code="INVALID_PARAM",
-                parameter="anchor_type",
-            )
 
         for crop_key in _CROP_KEYS:
             crop_val = kwargs.get(crop_key)
-            if crop_val is not None and (isinstance(crop_val, bool) or not isinstance(crop_val, (int, float)) or crop_val < 0):
+            if crop_val is not None and crop_val < 0:
                 return self._tool_error(f"{crop_key} must be 0 or greater.", code="INVALID_PARAM", parameter=crop_key)
 
         sheet_index = kwargs.get("sheet_index")
@@ -966,8 +963,6 @@ class ImageSetProperties(ToolWriterImageBase):
 
                 # Anchor type
                 if anchor_type is not None:
-                    from plugin.writer.specialized.textframes import text_content_anchor
-
                     graphic.setPropertyValue("AnchorType", text_content_anchor(anchor_type))
                     updated.append("anchor_type")
 
@@ -1114,7 +1109,7 @@ class ImageCropAndHighlight(ToolWriterImageBase):
         size = obj.getSize()
         width_mm = kwargs.get("width_mm")
         if width_mm is not None:
-            if isinstance(width_mm, bool) or not isinstance(width_mm, (int, float)) or int(round(width_mm * 100)) < 1:
+            if int(round(width_mm * 100)) < 1:
                 return self._tool_error("width_mm must be greater than 0.", code="INVALID_PARAM", parameter="width_mm")
             width_100mm = int(round(width_mm * 100))
         else:
@@ -1602,7 +1597,7 @@ def _download_image_to_cache(
     if parsed.scheme.lower() not in ("http", "https"):
         raise ValueError("Unsupported URL scheme '%s': only http and https are allowed" % parsed.scheme)
 
-    cache_dir = image_tools._image_cache_dir()
+    cache_dir = image_tools.image_cache_dir()
     os.makedirs(cache_dir, exist_ok=True)
     _unlink_stale_partials(cache_dir)
 

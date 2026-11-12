@@ -14,7 +14,7 @@ from plugin.framework.errors import best_effort, uno_read
 from plugin.framework.uno_context import uno_same
 from plugin.doc.text_helpers import FAILED, iter_elements
 from plugin.writer.math.math_mml_export import (
-    _OBJECT_REPLACEMENT,
+    OBJECT_REPLACEMENT,
     portion_math_embed,
     read_starmath,
 )
@@ -85,7 +85,7 @@ def _copy_math_or_text(
         emb = portion_math_embed(portion)
         if emb is not None:
             raw = parent_el.getString() if hasattr(parent_el, "getString") else ""
-            stripped = raw.replace(_OBJECT_REPLACEMENT, "").strip()
+            stripped = raw.replace(OBJECT_REPLACEMENT, "").strip()
             ph = record_math_placeholder(math_records, emb, display_block=stripped == "")
             dest_text.insertString(dest_cursor, ph, False)
             return

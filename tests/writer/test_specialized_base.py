@@ -73,6 +73,15 @@ def test_target_params_extra_kwargs() -> None:
     assert props["target"]["default"] == "end"
 
 
+def test_target_params_old_content_description_override() -> None:
+    override = "Text to find if target = 'search'; the mark or cite goes at the start of the match and the text is kept."
+    props = target_params("the mark or cite", old_content_description=override)
+    assert props["old_content"]["description"] == override
+    assert props["target"]["description"] == "Where to insert the mark or cite."
+    assert props["target"]["enum"] == INSERT_TARGETS
+    assert props["case_sensitive"]["type"] == "boolean"
+
+
 def test_index_error_valid_index() -> None:
     assert index_error(0, 3, "footnote") is None
     assert index_error(1, 3, "footnote") is None

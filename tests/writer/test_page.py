@@ -22,6 +22,7 @@ from plugin.writer.page import (
     _disable_blocked_by_content,
     _region_holds_content,
     _region_mirrors_shared,
+    _region_shapes,
     _scan_region_content,
     copy_page_style,
 )
@@ -544,11 +545,11 @@ def test_get_header_footer_surfaces_walk_cap_warning(monkeypatch):
 def test_first_page_region_targets_its_own_text_object():
     """A 'different first page' letterhead lives in HeaderTextFirst; the shared HeaderText never
     reaches it."""
-    from plugin.writer.page import _REGION_PROPS
+    from plugin.writer.page import REGION_PROPS
 
-    assert _REGION_PROPS["header_first"] == ("HeaderIsOn", "HeaderTextFirst")
-    assert _REGION_PROPS["footer_first"] == ("FooterIsOn", "FooterTextFirst")
-    assert _REGION_PROPS["header_left"] == ("HeaderIsOn", "HeaderTextLeft")
+    assert REGION_PROPS["header_first"] == ("HeaderIsOn", "HeaderTextFirst")
+    assert REGION_PROPS["footer_first"] == ("FooterIsOn", "FooterTextFirst")
+    assert REGION_PROPS["header_left"] == ("HeaderIsOn", "HeaderTextLeft")
 
 
 def test_first_page_region_uses_the_header_height_properties():
@@ -736,7 +737,7 @@ def test_scan_region_skips_table_element_and_marks_has_table():
     text_obj = MagicMock()
     text_obj.getString.return_value = ""
     text_obj.createEnumeration.side_effect = lambda: _enum_of([table])
-    scan = _scan_region_content(doc, text_obj, strict=True)
+    scan = _scan_region_content(doc, text_obj)
     assert scan["has_table"] is True
     assert scan["paragraph_count"] == 1
     assert _region_holds_content(doc, text_obj) is True
@@ -1803,3 +1804,189 @@ def test_page_break_page_style_in_table_cell_still_errors():
     text_cursor.setPropertyValue.assert_not_called()
 
 
+def test_scan_region_content_raises_on_unreadable_portion():
+    """Unreadable portions in a header/footer region enumeration must raise.
+
+    The region scanner does not silently ignore portion read failures. Callers
+    that tolerate partial reads decide when to wrap the walk in uno_read.
+    """
+    portion = MagicMock()
+    portion.getPropertyValue.side_effect = RuntimeError("bridge hiccup")
+    text_obj = MagicMock()
+    text_obj.createEnumeration.side_effect = lambda: _enum_of([_paragraph([portion])])
+    doc = MagicMock()
+    with pytest.raises(RuntimeError, match="bridge hiccup"):
+        _scan_region_content(doc, text_obj)
+
+
+def test_get_header_footer_omits_scan_extras_when_draw_page_unreadable():
+    """An unreadable draw page drops extra scan metadata without failing the get tool.
+
+    When reading shapes from the draw page raises an error, the scan falls back
+    to an empty scan rather than returning partially populated extras.
+    """
+    portion = _portion("TextField", field=_page_number_field())
+    text_obj = MagicMock()
+    text_obj.createEnumeration.side_effect = lambda: _enum_of([_paragraph([portion])])
+    doc, _style = _page_style_doc(text_obj)
+    doc.getDrawPage.side_effect = RuntimeError("bridge hiccup")
+    ctx = TestingFactory.create_context(doc=doc, doc_type="writer")
+    with patch("plugin.writer.html_export.xtext_to_content", return_value="<p>x</p>"):
+        res = PageGetHeaderFooterText().execute(ctx, style="Standard", region="header")
+    assert res["status"] == "ok"
+    assert res["content"] == "<p>x</p>"
+    assert "fields" not in res
+    assert "images" not in res
+    assert res["paragraph_count"] == 0
+
+
+def test_get_header_footer_reports_disposed_region_text():
+    """Accessing region text on a disposed document returns DOCUMENT_DISPOSED."""
+    class DisposedException(Exception):
+        pass
+
+    text_obj = MagicMock()
+    doc, style = _page_style_doc(text_obj)
+
+    def props(name):
+        if name == "HeaderText":
+            raise DisposedException("closed")
+        if name.endswith("IsOn"):
+            return True
+        return text_obj
+
+    style.getPropertyValue.side_effect = props
+    ctx = TestingFactory.create_context(doc=doc, doc_type="writer")
+    res = PageGetHeaderFooterText().execute_safe(ctx, style="Standard", region="header")
+    assert res["status"] == "error"
+    assert res["code"] == "DOCUMENT_DISPOSED"
+
+
+def test_replace_reports_disposed_instead_of_region_off():
+    """A disposed document returns DOCUMENT_DISPOSED rather than reporting the region is off.
+
+    When reading the region's IsOn flag fails due to document disposal, uno_read raises
+    so the tool reports document disposal instead of claiming the region is turned off.
+    """
+    class DisposedException(Exception):
+        pass
+
+    text_obj = MagicMock()
+    doc, style = _page_style_doc(text_obj)
+
+    def props(name):
+        if name == "FooterIsOn":
+            raise DisposedException("closed")
+        return text_obj
+
+    style.getPropertyValue.side_effect = props
+    ctx = TestingFactory.create_context(doc=doc, doc_type="writer")
+    res = PageReplaceHeaderFooterText().execute_safe(
+        ctx, style="Standard", region="footer", old_content="a", content="b"
+    )
+    assert res["status"] == "error"
+    assert res["code"] == "DOCUMENT_DISPOSED"
+    assert "is off" not in res["message"]
+
+
+def test_replace_refuses_when_draw_page_unreadable():
+    """An unreadable draw page fails the replace tool before modifying any content.
+
+    If the draw page cannot be read, the anchor check cannot verify whether an image
+    would be affected. The operation fails closed and no text is written.
+    """
+    doc, text_obj = _replace_doc([_text_portion("Annex")], hay="Annex")
+    seen = _cursors_for(text_obj, "Annex")
+    doc.getDrawPage.side_effect = RuntimeError("bridge hiccup")
+    ctx = TestingFactory.create_context(doc=doc, doc_type="writer")
+    res = PageReplaceHeaderFooterText().execute_safe(
+        ctx, style="Standard", region="footer", old_content="Annex", content="B"
+    )
+    assert res["status"] == "error"
+    assert res["code"] == "TOOL_EXECUTION_ERROR"
+    assert seen and all(c.written is None for c in seen)
+
+
+def test_region_shapes_snapshot_skips_page_anchored_shape():
+    """Page-anchored shapes lack an anchor text object and are skipped.
+
+    Only shapes anchored in the given region XText are returned in the snapshot list.
+    """
+    text_obj = MagicMock()
+    page_shape = MagicMock()
+    page_shape.getAnchor.return_value = None
+    anchored_shape = _logo_anchored_in(text_obj)
+    doc = MagicMock()
+    draw_page = MagicMock()
+    draw_page.getCount.return_value = 2
+    draw_page.getByIndex.side_effect = lambda i: [page_shape, anchored_shape][i]
+    doc.getDrawPage.return_value = draw_page
+    shapes = _region_shapes(doc, text_obj)
+    assert isinstance(shapes, list)
+    assert len(shapes) == 1
+    assert shapes[0][0] is anchored_shape
+
+
+def test_copy_page_style_unreadable_region_copies_as_empty_and_disposal_raises():
+    """An unreadable region walk copies as empty; document disposal raises.
+
+    When cloning a page style whose region cannot be walked, the region is copied
+    as empty rather than failing the clone. If the failure is due to document
+    disposal, uno_read raises DocumentDisposedError immediately.
+    """
+    from plugin.framework.errors import DocumentDisposedError
+
+    class DisposedException(Exception):
+        pass
+
+    src_text = MagicMock()
+    src_text.getString.return_value = ""
+    src_text.createEnumeration.side_effect = lambda: _enum_of(
+        [_paragraph([_portion("TextField", field=_page_number_field())])]
+    )
+
+    dest_text = MagicMock()
+    dest_text.getString.return_value = ""
+
+    source = MagicMock()
+    source.getParentStyle.return_value = ""
+
+    def _src_get_prop(name: str):
+        if name == "HeaderIsOn":
+            return True
+        if name.endswith("IsOn"):
+            return False
+        if name == "HeaderText":
+            return src_text
+        return 0
+
+    source.getPropertyValue.side_effect = _src_get_prop
+
+    clone = MagicMock()
+
+    def _clone_get_prop(name: str):
+        if name == "HeaderText":
+            return dest_text
+        return 0
+
+    clone.getPropertyValue.side_effect = _clone_get_prop
+
+    family = MagicMock()
+    family.hasByName.side_effect = lambda name: name == "Src"
+    family.getByName.return_value = source
+    family.getElementNames.return_value = ("Src",)
+
+    doc = MagicMock()
+    doc.getStyleFamilies.return_value.getByName.return_value = family
+    doc.createInstance.return_value = clone
+
+    with patch("plugin.writer.styles._copy_direct_style_properties", return_value=([], [])), \
+         patch("plugin.writer.range_copy.copy_flow_into_xtext") as mock_flow:
+        doc.getDrawPage.side_effect = RuntimeError("bridge hiccup")
+        res = copy_page_style(doc, "Src", "Dst")
+        assert res["shapes_copied"] == 0
+        mock_flow.assert_not_called()
+
+        doc.getDrawPage.side_effect = DisposedException("closed")
+        with pytest.raises(DocumentDisposedError):
+            copy_page_style(doc, "Src", "Dst2")

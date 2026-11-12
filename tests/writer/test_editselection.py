@@ -333,9 +333,9 @@ def test_edit_selection_preset_whole_body_without_select_first_msgbox(
     model.CurrentController.getSelection.return_value = None
 
     with patch("plugin.writer.editselection.selected_text_range", return_value=None), \
-         patch("plugin.doc.text_helpers.get_string_without_tracked_deletions", return_value="Para one\nPara two"), \
-         patch("plugin.doc.text_helpers.normalize_linebreaks", return_value="Para one\nPara two"), \
-         patch("plugin.writer.edit_review.refuse_tracked_insert_or_delete"), \
+         patch("plugin.writer.editselection.get_string_without_tracked_deletions", return_value="Para one\nPara two"), \
+         patch("plugin.writer.editselection.normalize_linebreaks", return_value="Para one\nPara two"), \
+         patch("plugin.writer.editselection.refuse_tracked_insert_or_delete"), \
          patch("plugin.writer.editselection.review_recording_enabled", return_value=False), \
          patch("plugin.writer.editselection.get_config", return_value=100), \
          patch("plugin.writer.editselection.WriterStreamedRewriteSession") as session_cls:

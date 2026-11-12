@@ -31,6 +31,7 @@ from __future__ import annotations
 import logging
 import weakref
 from contextlib import contextmanager
+from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, cast
 
 if TYPE_CHECKING:
@@ -48,11 +49,14 @@ from plugin.framework.errors import (
     DocumentDisposedError, UnoObjectError,
     uno_call,
 )
+from plugin.framework.event_bus import get_event_bus
 from plugin.framework.service import ServiceBase
 from plugin.framework.thread_guard import main_thread_only
 from plugin.framework.uno_context import (
+    enum_has_more,
     get_active_document,
     get_ctx,
+    get_desktop,
     get_runtime_uid,
     normalize_doc_url,
     resolve_document_by_url as _resolve_document_by_url,
@@ -90,6 +94,8 @@ except ImportError:
 def _writer_has_math_ole(model: Any) -> bool:
     """True when the Writer doc has at least one LibreOffice Math embedded object."""
     try:
+        # Lazy: importing plugin.writer loads tree, bookmarks and review_view_attachment,
+        # which import from this module (import cycle).
         from plugin.writer.math.math_mml_convert import MATH_CLSID
 
         container = model.getEmbeddedObjects()
@@ -130,7 +136,7 @@ def _writer_excerpt_overlaps_selection(
     exc_cursor = _text_helpers.get_text_cursor_at_range(model, excerpt_start, excerpt_end)
     if exc_cursor is None:
         return False
-    if not _text_helpers._position_text_is_body(model, sel_start_pos, "Get selection text"):
+    if not _text_helpers.position_text_is_body(model, sel_start_pos, "Get selection text"):
         # Different XText (table, frame, header). compareRegionStarts
         # Nested text vs body compareRegionStarts raises; treat as non-overlapping instead of failing chat context.
         return False
@@ -169,6 +175,8 @@ def get_document_context_for_chat(
     try:
         doc_type = _doc_type.get_document_type(model)
 
+        # Cross-app imports stay inside their branch so a Writer chat context does not
+        # load the calc or draw packages.
         if doc_type == _doc_type.DocumentType.CALC:
             from plugin.calc.analyzer import get_calc_context_for_chat
 
@@ -184,7 +192,7 @@ def get_document_context_for_chat(
             try:
                 if model is None:
                     raise UnoObjectError("Document Model is null", code="UNO_NULL_OBJECT")
-                doc_len = _text_helpers._writer_char_count(model)
+                doc_len = _text_helpers.writer_char_count(model)
             except UnoObjectError:
                 logging.getLogger(__name__).exception("get_document_context_for_chat Writer failed, trying fallback to selection-only")
                 sel_text = _text_helpers.get_selection_text(model)
@@ -220,7 +228,7 @@ def get_document_context_for_chat(
 
             start_offset, end_offset = (0, 0)
             if include_selection:
-                sel_positions = _text_helpers._get_writer_selection_positions(model)
+                sel_positions = _text_helpers.get_writer_selection_positions(model)
                 if sel_positions is not None and _writer_selection_overlaps_windows(model, excerpt_windows, sel_positions[1], sel_positions[2]):
                     start_offset, end_offset = _text_helpers.get_selection_range(model, doc_len=doc_len)
                     start_offset = max(0, min(start_offset, doc_len))
@@ -233,8 +241,8 @@ def get_document_context_for_chat(
 
             if use_head_tail:
                 tail_start = max(0, doc_len - end_chars)
-                start_excerpt = _text_helpers._read_writer_text_slice(model, 0, start_chars)
-                end_excerpt = _text_helpers._read_writer_text_slice(model, tail_start, end_chars)
+                start_excerpt = _text_helpers.read_writer_text_slice(model, 0, start_chars)
+                end_excerpt = _text_helpers.read_writer_text_slice(model, tail_start, end_chars)
                 start_excerpt = _inject_selection_markers(model, start_excerpt, 0, start_chars, start_offset, end_offset, "[DOCUMENT START]\n", "\n[DOCUMENT END]")
                 # Note: snapshot_text is now the only [END DOCUMENT] closer; do not add a trailing closer here.
                 end_excerpt = _inject_selection_markers(model, end_excerpt, tail_start, doc_len, start_offset, end_offset, "[DOCUMENT CONTINUE]\n", "")
@@ -245,7 +253,7 @@ def get_document_context_for_chat(
                 )
 
             take = min(doc_len, max_context)
-            excerpt = _text_helpers._read_writer_text_slice(model, 0, take)
+            excerpt = _text_helpers.read_writer_text_slice(model, 0, take)
             if doc_len > max_context:
                 excerpt += "\n\n[... document truncated ...]"
             # Note: snapshot_text is now the only [END DOCUMENT] closer; do not add a trailing closer here.
@@ -290,7 +298,7 @@ def _inject_selection_markers(
             return 0
         if offset >= excerpt_end:
             return visible_len
-        prefix_text = _text_helpers._read_writer_text_slice(model, excerpt_start, offset - excerpt_start)
+        prefix_text = _text_helpers.read_writer_text_slice(model, excerpt_start, offset - excerpt_start)
         return min(len(prefix_text), visible_len)
 
     s = _visible(sel_start)
@@ -331,6 +339,8 @@ def _writer_tree_service() -> Any:
     this function runs outside bootstrap (pytest, or before the writer
     module loads). Its document service is a plain DocumentService.
     """
+    # Lazy like the codebase's other in-function plugin.app imports: plugin.app loads
+    # plugin.bootstrap and the config schema.
     import plugin.app as app
 
     global _FALLBACK_WRITER_TREE
@@ -346,8 +356,7 @@ def _writer_tree_service() -> Any:
     if _FALLBACK_WRITER_TREE is not None:
         return _FALLBACK_WRITER_TREE
 
-    from types import SimpleNamespace
-
+    # Lazy: plugin.writer.tree imports is_cacheable_doc_key from this module (import cycle).
     from plugin.writer.tree import TreeService
 
     class _Events:
@@ -426,8 +435,6 @@ def compute_doc_key(doc: Any) -> str:
 
 
 def _emit_cache_invalidated(*, doc: Any | None = None, key: str | None = None) -> None:
-    from plugin.framework.event_bus import get_event_bus
-
     payload: dict[str, Any] = {}
     if key is not None:
         payload["key"] = key
@@ -588,8 +595,6 @@ class DocumentService(ServiceBase):
 
     def open_documents(self) -> list[Any]:
         """Every open real document (Start Center excluded), in desktop order. Main-thread only."""
-        from plugin.framework.uno_context import enum_has_more, get_desktop
-
         docs = []
         try:
             desktop = get_desktop()
