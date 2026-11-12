@@ -14,13 +14,11 @@ from __future__ import annotations
 import logging
 from typing import Any, NamedTuple
 
-from plugin.doc.undo import commit_or_rollback_mutation
 from plugin.framework.errors import is_disposal, reraise_if_disposed, uno_read
 from plugin.framework.tool import ToolBaseDummy
 from plugin.framework.uno_context import create_property_value
-from ..edit_review import next_agent_edit_undo_title
 from ..specialized_base import ToolWriterEmbeddedBase, enum_param, target_params
-from ..target_resolver import resolve_target_cursor
+from ..target_resolver import insert_at_target
 
 log = logging.getLogger("writeragent.embedded")
 
@@ -222,14 +220,6 @@ class EmbeddedInsert(ToolWriterEmbeddedBase):
         if embed_name is not None and embed_name == "":
             return self._tool_error("name cannot be empty.", code="INVALID_PARAM", parameter="name")
 
-        target = kwargs.get("target", "selection")
-        old_content = kwargs.get("old_content")
-
-        try:
-            cursor = resolve_target_cursor(ctx, target, old_content, case_sensitive=kwargs.get("case_sensitive"))
-        except ValueError as ve:
-            return self._tool_error(str(ve))
-
         deselect_err = _deselect_inplace_embed(ctx.doc, self)
         if deselect_err is not None:
             return deselect_err
@@ -240,12 +230,9 @@ class EmbeddedInsert(ToolWriterEmbeddedBase):
             return self._tool_error(str(ve), code="INVALID_PARAM")
 
         doc = ctx.doc
-        replace_match = target == "search" and bool(old_content)
         result_holder: list[dict[str, Any]] = []
 
-        def mutate() -> dict[str, Any] | None:
-            if replace_match:
-                cursor.setString("")
+        def mutate(cursor: Any) -> dict[str, Any] | None:
             text = cursor.getText()
             container = doc.getEmbeddedObjects()
             before_names = set(container.getElementNames())
@@ -323,14 +310,7 @@ class EmbeddedInsert(ToolWriterEmbeddedBase):
             )
             return None
 
-        error = commit_or_rollback_mutation(
-            self,
-            doc,
-            next_agent_edit_undo_title(),
-            mutate,
-            "Cannot insert the spreadsheet OLE atomically (no usable undo context).",
-            "Failed to insert spreadsheet OLE; the change was rolled back",
-        )
+        error = insert_at_target(self, ctx, kwargs, mutate, what="the spreadsheet OLE")
         if error is not None:
             return error
         return result_holder[0]

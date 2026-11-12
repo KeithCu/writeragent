@@ -1230,7 +1230,7 @@ def _search_create_undo(locked=False, insert_error=None, undo_error=None):
 
 def test_indexes_create_search_rolls_back_failed_insert():
     tool, ctx, cursor, mgr = _search_create_undo(insert_error=RuntimeError("insert failed"))
-    with patch("plugin.writer.specialized.indexes.resolve_target_cursor", return_value=cursor):
+    with patch("plugin.writer.target_resolver.resolve_target_cursor", return_value=cursor):
         res = tool.execute(ctx, kind="toc", target="search", old_content="placeholder")
     assert res["status"] == "error"
     assert res["code"] == "TOOL_EXECUTION_ERROR"
@@ -1242,7 +1242,7 @@ def test_indexes_create_search_rolls_back_failed_insert():
 
 def test_indexes_create_search_locked_undo_does_not_delete():
     tool, ctx, cursor, mgr = _search_create_undo(locked=True)
-    with patch("plugin.writer.specialized.indexes.resolve_target_cursor", return_value=cursor):
+    with patch("plugin.writer.target_resolver.resolve_target_cursor", return_value=cursor):
         res = tool.execute(ctx, kind="toc", target="search", old_content="placeholder")
     assert res["status"] == "error"
     assert res["code"] == "UNDO_UNAVAILABLE"
@@ -1255,7 +1255,7 @@ def test_indexes_create_search_rollback_failure_keeps_the_cause():
         insert_error=RuntimeError("insert failed"),
         undo_error=RuntimeError("undo broke"),
     )
-    with patch("plugin.writer.specialized.indexes.resolve_target_cursor", return_value=cursor):
+    with patch("plugin.writer.target_resolver.resolve_target_cursor", return_value=cursor):
         res = tool.execute(ctx, kind="toc", target="search", old_content="placeholder")
     assert res["status"] == "error"
     assert res["code"] == "ROLLBACK_FAILED"

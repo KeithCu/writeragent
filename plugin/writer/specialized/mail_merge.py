@@ -27,10 +27,9 @@ from typing import Any
 from urllib.parse import unquote, urlparse
 
 from ..specialized_base import ToolWriterMailMergeBase, enum_param, target_params
-from ..target_resolver import resolve_target_cursor
+from ..target_resolver import insert_at_target
 from plugin.doc.text_helpers import iter_elements
-from plugin.doc.undo import commit_or_rollback_mutation
-from plugin.framework.errors import is_disposal, reraise_if_disposed
+from plugin.framework.errors import reraise_if_disposed
 from plugin.framework.uno_context import get_service_manager, resolve_uno_context
 from plugin.framework.url_utils import normalize_file_url, path_to_file_url
 
@@ -326,8 +325,6 @@ class InsertField(ToolWriterMailMergeBase):
         data_source_name = kwargs.get("data_source_name", "")
         table_name = kwargs.get("table_name", "")
         command_type_str = kwargs.get("command_type", "table")
-        target = kwargs.get("target", "selection")
-        old_content = kwargs.get("old_content")
 
         if not column_name:
             return self._tool_error("column_name is required.")
@@ -335,11 +332,6 @@ class InsertField(ToolWriterMailMergeBase):
         doc = getattr(ctx, "doc", None)
         if not doc or not hasattr(doc, "createInstance"):
             return self._tool_error("Document does not support creating UNO instances.")
-
-        try:
-            cursor = resolve_target_cursor(ctx, target, old_content, case_sensitive=kwargs.get("case_sensitive"))
-        except ValueError as ve:
-            return self._tool_error(str(ve))
 
         cmd_type_val = _COMMAND_TYPES[command_type_str]
 
@@ -370,33 +362,15 @@ class InsertField(ToolWriterMailMergeBase):
             return self._tool_error("Failed to create database textfield service.")
         field.attachTextFieldMaster(master)
 
-        if target == "search" and old_content:
-            from ..edit_review import next_agent_edit_undo_title
-
-            undo_title = next_agent_edit_undo_title()
-
-            def mutate() -> None:
-                cursor.setString("")
-                cursor.getText().insertTextContent(cursor, field, False)
-
-            # Delete + insert as one undo step, so a failed insert does not lose the matched text.
-            err = commit_or_rollback_mutation(
-                self,
-                doc,
-                undo_title,
-                mutate,
-                undo_unavailable_msg="Cannot replace the matched text atomically (no usable undo context).",
-                rollback_msg="Failed to insert the merge field; the change was rolled back",
-            )
-            if err is not None:
-                return err
-        else:
-            try:
-                cursor.getText().insertTextContent(cursor, field, False)
-            except Exception as exc:
-                if is_disposal(exc):
-                    raise
-                return self._tool_error(f"Failed to insert merge field: {exc}")
+        err = insert_at_target(
+            self,
+            ctx,
+            kwargs,
+            lambda cursor: cursor.getText().insertTextContent(cursor, field, False),
+            what="the merge field",
+        )
+        if err is not None:
+            return err
 
         return {
             "status": "ok",

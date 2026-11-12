@@ -75,8 +75,8 @@ Code constants remain string literals across call sites. Codes are JSON wire val
 | `TABLE_BLOCK_IN_CELL` | error | Block HTML inserted in table cell (`html_import.py`) | None |
 | `TABLE_INSERT_FAILED` | error | Table creation or insertion failed (`apply_document_content.py`) | None |
 | `HYPERLINK_UPDATE_FAILED` | error | Updating hyperlink URL or bookmark target failed (`apply_document_content.py`) | None |
-| `UNDO_UNAVAILABLE` | error | `apply_document_content.py`, `styles.py` | None |
-| `ROLLBACK_FAILED` | error | `apply_document_content.py`, `styles.py` | None |
+| `UNDO_UNAVAILABLE` | error | `apply_document_content.py`, `styles.py`, `target_resolver.py` (`insert_at_target`) | None |
+| `ROLLBACK_FAILED` | error | `apply_document_content.py`, `styles.py`, `target_resolver.py` (`insert_at_target`) | None |
 | `UNDO_CONTEXT_LEAK` | error | `commit_or_rollback` (`compound_undo.py`) when `leaveUndoContext` fails after a successful edit; reworded by `page.py` and `styles.py`, returned as-is by `commit_or_rollback_mutation` | None |
 | `INVALID_PARAM` | error | Parameter validation failures (`INVALID_PARAM` is the only spelling; `INVALID_PARAMETER` is not used): missing query/pattern (`search.py`); invalid style/clear_direct (`styles.py`); selection parameter conflicts/empty values (`selection.py`); `apply_document_content` parameter conflicts/empty strings | None |
 | `INVALID_REGEX` | error | `validate_icu_regex` / `invalid_regex_tool_message` (`search.py`) | None |

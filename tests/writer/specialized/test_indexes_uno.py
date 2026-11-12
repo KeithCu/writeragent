@@ -1048,3 +1048,52 @@ def test_toc_fixture_export_and_read_rows_uno(ctx, doc):
             os.unlink(path)
         except OSError:
             pass
+
+
+@native_test
+@with_native_doc("writer")
+def test_indexes_add_mark_search_keeps_the_matched_text(ctx, doc):
+    """indexes_add_mark on target='search' places mark at start and keeps matched text."""
+    from plugin.framework.uno_context import enum_has_more
+
+    doc.getText().setString("alpha TARGET omega")
+    tctx = _tool_ctx(ctx, doc)
+    res = IndexesAddMark().execute(
+        tctx,
+        text="mark",
+        kind="alphabetical",
+        target="search",
+        old_content="TARGET",
+    )
+    assert res.get("status") == "ok", res
+    assert doc.getText().getString() == "alpha TARGET omega"
+
+    para_enum = doc.getText().createEnumeration()
+    assert enum_has_more(para_enum)
+    para = para_enum.nextElement()
+    portion_enum = para.createEnumeration()
+    portions = []
+    while enum_has_more(portion_enum):
+        p = portion_enum.nextElement()
+        portions.append((p.TextPortionType, p.getString()))
+
+    mark_idx = next(i for i, (ptype, _) in enumerate(portions) if ptype == "DocumentIndexMark")
+    assert mark_idx + 1 < len(portions)
+    assert portions[mark_idx + 1][0] == "Text"
+    assert portions[mark_idx + 1][1] == "TARGET omega"
+
+
+@native_test
+@with_native_doc("writer")
+def test_indexes_create_end_is_one_undo_step(ctx, doc):
+    """indexes_create at target='end' groups insertion into one undo step."""
+    tctx = _tool_ctx(ctx, doc)
+    um = doc.getUndoManager()
+    um.clear()
+    res = IndexesCreate().execute(tctx, kind="toc", target="end")
+    assert res.get("status") == "ok", res
+    assert len(um.getAllUndoActionTitles()) == 1
+    assert doc.getDocumentIndexes().getCount() == 1
+    um.undo()
+    assert doc.getDocumentIndexes().getCount() == 0
+
