@@ -5,7 +5,7 @@ from plugin.framework.errors import DocumentDisposedError, ToolExecutionError
 from plugin.writer.field_restore import (
     _FIELD_TITLE_TO_SERVICE,
     _insert_restored_field,
-    _restore_field_placeholders,
+    restore_field_placeholders,
     rewrite_exported_field_spans,
 )
 
@@ -131,7 +131,7 @@ def test_restore_field_placeholders_creates_mapped_services():
     model.findFirst.side_effect = find_first
     model.findNext.side_effect = find_next
 
-    restored = _restore_field_placeholders(model, text_obj, nonce="nonce")
+    restored = restore_field_placeholders(model, text_obj, nonce="nonce")
     assert restored == len(_FIELD_TITLE_TO_SERVICE)
     model.findFirst.assert_called_once()
     assert all(title in sd_captured[0] for title in _FIELD_TITLE_TO_SERVICE)
@@ -162,14 +162,14 @@ def test_restore_field_placeholders_scopes_region_with_uno_same():
         patch.object(fr, "uno_same", return_value=True),
         patch.object(fr, "_insert_restored_field", return_value=None) as insert,
     ):
-        assert fr._restore_field_placeholders(model, header, nonce="nonce") >= 1
+        assert fr.restore_field_placeholders(model, header, nonce="nonce") >= 1
         assert insert.called
 
     with (
         patch.object(fr, "uno_same", return_value=False),
         patch.object(fr, "_insert_restored_field", return_value=None) as insert,
     ):
-        assert fr._restore_field_placeholders(model, header, nonce="nonce") == 0
+        assert fr.restore_field_placeholders(model, header, nonce="nonce") == 0
         insert.assert_not_called()
 
 
@@ -248,7 +248,7 @@ def test_restore_fields_by_cursor_single_walk_last_token_first():
         return True
 
     with patch("plugin.writer.field_restore._insert_restored_field", side_effect=_inserted):
-        restored = _restore_field_placeholders(model, text, nonce=nonce)
+        restored = restore_field_placeholders(model, text, nonce=nonce)
 
     assert restored == 3
     model.findFirst.assert_not_called()
@@ -311,7 +311,7 @@ def test_restore_fields_in_region_without_document_search():
         return True
 
     with patch("plugin.writer.field_restore._insert_restored_field", side_effect=_inserted):
-        restored = _restore_field_placeholders(model, text, nonce=nonce)
+        restored = restore_field_placeholders(model, text, nonce=nonce)
 
     assert restored == 1
     model.findFirst.assert_not_called()
@@ -319,7 +319,7 @@ def test_restore_fields_in_region_without_document_search():
     # Region with no token: findFirst is not called.
     clean_text = _Text()
     clean_text.plain = "Clean region without token"
-    assert _restore_field_placeholders(model, clean_text, nonce=nonce) == 0
+    assert restore_field_placeholders(model, clean_text, nonce=nonce) == 0
     model.findFirst.assert_not_called()
 
 
@@ -391,7 +391,7 @@ def test_restore_fields_in_region_two_paragraphs_advances_past_break():
         return True
 
     with patch("plugin.writer.field_restore._insert_restored_field", side_effect=_inserted):
-        restored = _restore_field_placeholders(model, text, nonce=nonce)
+        restored = restore_field_placeholders(model, text, nonce=nonce)
 
     assert restored == 1
     # goRight is portion-local: m.start() (0) then len(needle)
@@ -614,7 +614,7 @@ def test_restore_field_placeholders_falls_through_to_find_first_if_token_remains
         patch("plugin.writer.field_restore.uno_same", return_value=True),
         patch("plugin.writer.field_restore._insert_restored_field", side_effect=_clear_token) as insert,
     ):
-        restored = _restore_field_placeholders(model, text, nonce=nonce)
+        restored = restore_field_placeholders(model, text, nonce=nonce)
 
     assert restored >= 2
     assert model.findFirst.called
@@ -634,7 +634,7 @@ def test_restore_field_placeholders_raises_when_token_remains_after_find_first()
         patch("plugin.writer.field_restore._restore_fields_by_cursor", return_value=1),
         pytest.raises(ToolExecutionError, match=r"\[\[WA-FIELD:test1234:page-number\]\]"),
     ):
-        _restore_field_placeholders(model, text, nonce=nonce)
+        restore_field_placeholders(model, text, nonce=nonce)
     assert text.getString() == "Unresolved " + needle
 
 
@@ -737,7 +737,7 @@ def test_restore_field_placeholders_search_error_propagates():
     text = MagicMock()
     text.getString.return_value = "[[WA-FIELD:nonce:page-number]]"
     with pytest.raises(RuntimeError, match="no search"):
-        _restore_field_placeholders(model, text, nonce="nonce")
+        restore_field_placeholders(model, text, nonce="nonce")
 
 
 def test_restore_field_placeholders_find_error_propagates():
@@ -746,7 +746,7 @@ def test_restore_field_placeholders_find_error_propagates():
     text = MagicMock()
     text.getString.return_value = "[[WA-FIELD:nonce:page-number]]"
     with pytest.raises(RuntimeError, match="find failed"):
-        _restore_field_placeholders(model, text, nonce="nonce")
+        restore_field_placeholders(model, text, nonce="nonce")
 
 
 def test_restore_field_placeholders_ignores_token_with_different_or_missing_nonce():
@@ -758,7 +758,7 @@ def test_restore_field_placeholders_ignores_token_with_different_or_missing_nonc
     model.findFirst.return_value = None
 
     with patch("plugin.writer.field_restore._insert_restored_field") as mock_insert:
-        restored = _restore_field_placeholders(model, text, nonce="thiscall")
+        restored = restore_field_placeholders(model, text, nonce="thiscall")
 
     assert restored == 0
     mock_insert.assert_not_called()
@@ -839,7 +839,7 @@ def test_restore_fields_by_cursor_single_walk_reverse_order():
 
 def test_restore_field_placeholders_skips_when_prefix_absent():
     """When the field token prefix is absent from plain text, return 0 without document search."""
-    from plugin.writer.field_restore import _restore_field_placeholders
+    from plugin.writer.field_restore import restore_field_placeholders
 
     # To avoid MagicMock infinite enumeration loop, set createEnumeration return_value
     text = MagicMock()
@@ -849,7 +849,7 @@ def test_restore_field_placeholders_skips_when_prefix_absent():
     text.createEnumeration.return_value = enum
     model = MagicMock()
 
-    restored = _restore_field_placeholders(model, text, nonce="abc123")
+    restored = restore_field_placeholders(model, text, nonce="abc123")
     assert restored == 0
     model.createSearchDescriptor.assert_not_called()
 
@@ -913,7 +913,7 @@ def test_restore_field_placeholders_in_table_cell_walk():
         return True
 
     with patch("plugin.writer.field_restore._insert_restored_field", side_effect=fake_insert):
-        restored = _restore_field_placeholders(model, body, nonce=nonce)
+        restored = restore_field_placeholders(model, body, nonce=nonce)
 
     assert restored == 1
     assert inserted_cursors == [cursor]
@@ -966,7 +966,7 @@ def test_restore_field_placeholders_find_first_fallback_accepts_cell_hit_in_body
         patch("plugin.writer.field_restore._restore_fields_by_cursor", return_value=0),
         patch("plugin.writer.field_restore._insert_restored_field", side_effect=fake_insert) as mock_insert,
     ):
-        restored = _restore_field_placeholders(model, body, nonce=nonce)
+        restored = restore_field_placeholders(model, body, nonce=nonce)
 
     assert restored == 1
     mock_insert.assert_called_once()
@@ -1008,4 +1008,4 @@ def test_restore_field_placeholders_remaining_cell_token_raises_tool_execution_e
         patch("plugin.writer.field_restore._restore_fields_by_cursor", return_value=0),
         pytest.raises(ToolExecutionError, match=r"\[\[WA-FIELD:test1234:page-number\]\]"),
     ):
-        _restore_field_placeholders(model, body, nonce=nonce)
+        restore_field_placeholders(model, body, nonce=nonce)

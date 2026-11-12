@@ -10,7 +10,7 @@ from plugin.writer.html_export import (
     xtext_to_content,
 )
 from plugin.writer.html_ruby import (
-    _RubySpan,
+    RubySpan,
     extract_and_strip_ruby,
     inject_ruby_into_html,
 )
@@ -82,7 +82,7 @@ def _range_export(style: str, *, has_style: bool, set_style_raises: bool = False
         patch("plugin.writer.html_export.starts_at_or_after", return_value=False),
         patch("plugin.writer.range_copy.paint_direct_formatting"),
         patch("plugin.writer.html_export._hyperlink_urls", return_value=[]),
-        patch("plugin.writer.html_ruby._ruby_spans_in_window", return_value=[]),
+        patch("plugin.writer.html_ruby.ruby_spans_in_window", return_value=[]),
         patch("plugin.writer.html_export._export_xhtml", return_value="<p>Hello</p><p>Hello</p>"),
         patch("plugin.writer.html_export._autostyle_maps", return_value=({}, {}, False)),
         patch("plugin.writer.html_export.inject_exported_math_tex", side_effect=lambda model, ctx, content: content),
@@ -150,7 +150,7 @@ def test_html_export_uno_skips_windows_leftover_hidden_temp_doc() -> None:
 def test_inject_ruby_rewrites_glued_xhtml():
     """Full XHTML filter concatenates base+reading; rewrite must unglue them."""
     html = '<p data-lo-style="Standard">漢字かんじです</p>'
-    out = inject_ruby_into_html(html, [_RubySpan("漢字", "かんじ")])
+    out = inject_ruby_into_html(html, [RubySpan("漢字", "かんじ")])
     assert "漢字かんじです" not in out
     assert "<ruby>漢字<rt>かんじ</rt></ruby>です" in out
 
@@ -158,7 +158,7 @@ def test_inject_ruby_rewrites_glued_xhtml():
 def test_inject_ruby_wraps_base_when_reading_was_dropped():
     """Range/portion-copy drops RubyText; wrap the surviving base."""
     html = '<p data-lo-style="Standard">漢字です</p>'
-    out = inject_ruby_into_html(html, [_RubySpan("漢字", "かんじ")])
+    out = inject_ruby_into_html(html, [RubySpan("漢字", "かんじ")])
     assert "<ruby>漢字<rt>かんじ</rt></ruby>です" in out
     assert "漢字かんじです" not in out
 
@@ -166,51 +166,51 @@ def test_inject_ruby_wraps_base_when_reading_was_dropped():
 def test_inject_ruby_wraps_styled_base_when_reading_was_dropped():
     """Contiguous base inside a span stays inside that span (same as glued-in-span)."""
     html = '<p><span style="font-weight:bold">漢字</span>です</p>'
-    out = inject_ruby_into_html(html, [_RubySpan("漢字", "かんじ")])
+    out = inject_ruby_into_html(html, [RubySpan("漢字", "かんじ")])
     assert '<span style="font-weight:bold"><ruby>漢字<rt>かんじ</rt></ruby></span>です' in out
 
 
 def test_inject_ruby_keeps_inner_tags_on_base():
     html = '<p><span style="font-weight:bold">漢字</span>かんじです</p>'
-    out = inject_ruby_into_html(html, [_RubySpan("漢字", "かんじ")])
+    out = inject_ruby_into_html(html, [RubySpan("漢字", "かんじ")])
     assert '<span style="font-weight:bold"><ruby>漢字<rt>かんじ</rt></ruby></span>です' in out
     assert "漢字かんじ" not in out.replace("<rt>かんじ</rt>", "")
 
 
 def test_inject_ruby_inside_one_span_is_contiguous():
     html = '<p><span style="font-weight:bold">漢字かんじです</span></p>'
-    out = inject_ruby_into_html(html, [_RubySpan("漢字", "かんじ")])
+    out = inject_ruby_into_html(html, [RubySpan("漢字", "かんじ")])
     assert '<span style="font-weight:bold"><ruby>漢字<rt>かんじ</rt></ruby>です</span>' in out
 
 
 def test_inject_ruby_is_idempotent():
     html = "<p><ruby>漢字<rt>かんじ</rt></ruby>です</p>"
-    out = inject_ruby_into_html(html, [_RubySpan("漢字", "かんじ")])
+    out = inject_ruby_into_html(html, [RubySpan("漢字", "かんじ")])
     assert out.count("<ruby>") == 1
     assert out == html
 
 
 def test_inject_ruby_sequential_spans():
     html = "<p>東京とうきょうと京都きょうと</p>"
-    out = inject_ruby_into_html(html, [_RubySpan("東京", "とうきょう"), _RubySpan("京都", "きょうと")])
+    out = inject_ruby_into_html(html, [RubySpan("東京", "とうきょう"), RubySpan("京都", "きょうと")])
     assert "<ruby>東京<rt>とうきょう</rt></ruby>と<ruby>京都<rt>きょうと</rt></ruby>" in out
 
 
 def test_inject_ruby_empty_is_noop():
     assert inject_ruby_into_html("<p>漢字です</p>", []) == "<p>漢字です</p>"
-    assert inject_ruby_into_html("", [_RubySpan("漢字", "かんじ")]) == ""
-    assert inject_ruby_into_html("<p>x</p>", [_RubySpan("漢字", "")]) == "<p>x</p>"
+    assert inject_ruby_into_html("", [RubySpan("漢字", "かんじ")]) == ""
+    assert inject_ruby_into_html("<p>x</p>", [RubySpan("漢字", "")]) == "<p>x</p>"
 
 
 def test_inject_ruby_keeps_under_position():
-    under_html = inject_ruby_into_html("<p>東京とうきょう</p>", [_RubySpan("東京", "とうきょう", is_above=False)])
+    under_html = inject_ruby_into_html("<p>東京とうきょう</p>", [RubySpan("東京", "とうきょう", is_above=False)])
     assert '<ruby style="ruby-position: under">東京<rt>とうきょう</rt></ruby>' in under_html
-    over_html = inject_ruby_into_html("<p>東京とうきょう</p>", [_RubySpan("東京", "とうきょう", is_above=True)])
+    over_html = inject_ruby_into_html("<p>東京とうきょう</p>", [RubySpan("東京", "とうきょう", is_above=True)])
     assert "<ruby>東京<rt>とうきょう</rt></ruby>" in over_html
 
 
 def test_ruby_position_round_trips():
-    under_html = inject_ruby_into_html("<p>東京とうきょう</p>", [_RubySpan("東京", "とうきょう", is_above=False)])
+    under_html = inject_ruby_into_html("<p>東京とうきょう</p>", [RubySpan("東京", "とうきょう", is_above=False)])
     _clean, spans = extract_and_strip_ruby(under_html)
     assert len(spans) == 1
     assert spans[0].is_above is False
@@ -219,7 +219,7 @@ def test_ruby_position_round_trips():
 
 def test_inject_ruby_wraps_every_copy_when_reading_is_absent():
     html = "<p>漢字と漢字と漢字</p>"
-    spans = [_RubySpan("漢字", "かんじ"), _RubySpan("漢字", "かんじ"), _RubySpan("漢字", "かんじ")]
+    spans = [RubySpan("漢字", "かんじ"), RubySpan("漢字", "かんじ"), RubySpan("漢字", "かんじ")]
     out = inject_ruby_into_html(html, spans)
     assert out.count("<ruby>") == 3
     assert out == "<p><ruby>漢字<rt>かんじ</rt></ruby>と<ruby>漢字<rt>かんじ</rt></ruby>と<ruby>漢字<rt>かんじ</rt></ruby></p>"
@@ -227,13 +227,13 @@ def test_inject_ruby_wraps_every_copy_when_reading_is_absent():
 
 def test_inject_ruby_crosses_br_to_the_reading():
     html = "<p>漢字<br>かんじです</p>"
-    out = inject_ruby_into_html(html, [_RubySpan("漢字", "かんじ")])
+    out = inject_ruby_into_html(html, [RubySpan("漢字", "かんじ")])
     assert out == "<p><ruby>漢字<rt>かんじ</rt></ruby><br>です</p>"
 
 
 def test_inject_ruby_prefers_glued_copy_over_an_earlier_plain_base():
     html = "<p>漢字と漢字かんじ</p>"
-    out = inject_ruby_into_html(html, [_RubySpan("漢字", "かんじ")])
+    out = inject_ruby_into_html(html, [RubySpan("漢字", "かんじ")])
     assert out == "<p>漢字と<ruby>漢字<rt>かんじ</rt></ruby></p>"
 
 
@@ -287,7 +287,7 @@ def test_full_export_fallback_reports_missing_style_tokens():
         patch("plugin.writer.html_export.with_temp_buffer") as buf,
         patch("builtins.open") as opener,
         patch("plugin.writer.html_export.inject_exported_math_tex", side_effect=lambda model, ctx, content: content),
-        patch("plugin.writer.html_ruby._inject_ruby_from_model", side_effect=lambda model, content, spans: content),
+        patch("plugin.writer.html_ruby.inject_ruby_from_model", side_effect=lambda model, content, spans: content),
     ):
         buf.return_value.__enter__.return_value = ("/tmp/x.html", "file:///tmp/x.html")
         opener.return_value.__enter__.return_value.read.return_value = "<p>Texto do documento</p>"
@@ -307,7 +307,7 @@ def test_full_export_happy_path_produces_no_fallback_warning():
         patch.object(html_export, "_autostyle_maps", return_value=({}, {}, False)),
         patch("plugin.writer.xhtml_style_postprocess.xhtml_to_semantic_html", side_effect=lambda xhtml, parents, overrides: xhtml),
         patch("plugin.writer.html_export.inject_exported_math_tex", side_effect=lambda model, ctx, content: content),
-        patch("plugin.writer.html_ruby._inject_ruby_from_model", side_effect=lambda model, content, spans: content),
+        patch("plugin.writer.html_ruby.inject_ruby_from_model", side_effect=lambda model, content, spans: content),
     ):
         out = html_export.document_to_content(_content_doc(), None, walk_warnings=warnings)
     assert "<p>x</p>" in out
@@ -603,7 +603,7 @@ def test_range_xhtml_disposal_does_not_fall_back():
         patch("plugin.writer.html_export.starts_at_or_after", return_value=False),
         patch("plugin.writer.range_copy.paint_direct_formatting"),
         patch("plugin.writer.html_export._hyperlink_urls", return_value=[]),
-        patch("plugin.writer.html_ruby._ruby_spans_in_window", return_value=[]),
+        patch("plugin.writer.html_ruby.ruby_spans_in_window", return_value=[]),
         patch("plugin.writer.html_export._export_xhtml", side_effect=_DisposedException("disposed")),
         pytest.raises(DocumentDisposedError),
     ):
@@ -655,7 +655,7 @@ def test_selection_compare_failure_is_not_a_silent_skip(exc, expected, match):
         patch("plugin.writer.html_export.starts_at_or_after", return_value=False),
         patch("plugin.writer.range_copy.paint_direct_formatting"),
         patch("plugin.writer.html_export._hyperlink_urls", return_value=[]),
-        patch("plugin.writer.html_ruby._ruby_spans_in_window", return_value=[]),
+        patch("plugin.writer.html_ruby.ruby_spans_in_window", return_value=[]),
         pytest.raises(expected, match=match),
     ):
         _range_to_content_via_temp_doc(
@@ -701,7 +701,7 @@ def test_range_export_does_not_read_para_style_on_a_table():
         patch("plugin.writer.html_export.starts_at_or_after", return_value=False),
         patch("plugin.writer.range_copy.paint_direct_formatting"),
         patch("plugin.writer.html_export._hyperlink_urls", return_value=[]),
-        patch("plugin.writer.html_ruby._ruby_spans_in_window", return_value=[]),
+        patch("plugin.writer.html_ruby.ruby_spans_in_window", return_value=[]),
         patch("plugin.writer.html_export._export_xhtml", return_value="<p>Hello</p>"),
         patch("plugin.writer.html_export._autostyle_maps", return_value=({}, {}, False)),
         patch("plugin.writer.html_export.inject_exported_math_tex", side_effect=lambda model, ctx, content: content),
@@ -738,7 +738,7 @@ def test_document_to_content_max_chars_does_not_split_a_tag():
         patch.object(html_export, "_export_xhtml", return_value=long_html),
         patch.object(html_export, "_autostyle_maps", return_value=({}, {}, False)),
         patch.object(html_export, "inject_exported_math_tex", side_effect=lambda model, ctx, content: content),
-        patch.object(html_ruby, "_inject_ruby_from_model", side_effect=lambda model, content, fodt_has_ruby=None: content),
+        patch.object(html_ruby, "inject_ruby_from_model", side_effect=lambda model, content, fodt_has_ruby=None: content),
         patch(
             "plugin.writer.html_export.xhtml_post.xhtml_to_semantic_html",
             side_effect=lambda xhtml, parents, overrides: xhtml,
@@ -1021,7 +1021,7 @@ def test_range_export_skips_flat_odf_when_no_autostyle():
         patch("plugin.writer.html_export.starts_at_or_after", return_value=False),
         patch("plugin.writer.range_copy.paint_direct_formatting"),
         patch("plugin.writer.html_export._hyperlink_urls", return_value=[]),
-        patch("plugin.writer.html_ruby._ruby_spans_in_window", return_value=[]),
+        patch("plugin.writer.html_ruby.ruby_spans_in_window", return_value=[]),
         patch("plugin.writer.html_export._export_xhtml", return_value=xhtml_named),
         patch("plugin.writer.html_export._autostyle_maps", return_value=({"P1": "Standard"}, {"P1": "margin:0"}, False)) as autostyle_mock,
         patch("plugin.writer.html_export.inject_exported_math_tex", side_effect=lambda model, ctx, content: content),
@@ -1045,7 +1045,7 @@ def test_range_export_skips_flat_odf_when_no_autostyle():
         patch("plugin.writer.html_export.starts_at_or_after", return_value=False),
         patch("plugin.writer.range_copy.paint_direct_formatting"),
         patch("plugin.writer.html_export._hyperlink_urls", return_value=[]),
-        patch("plugin.writer.html_ruby._ruby_spans_in_window", return_value=[]),
+        patch("plugin.writer.html_ruby.ruby_spans_in_window", return_value=[]),
         patch("plugin.writer.html_export._export_xhtml", return_value=xhtml_auto),
         patch("plugin.writer.html_export._autostyle_maps", return_value=(expected_parents, expected_overrides, False)) as autostyle_mock,
         patch("plugin.writer.html_export.inject_exported_math_tex", side_effect=lambda model, ctx, content: content),

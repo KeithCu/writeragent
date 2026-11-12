@@ -59,10 +59,10 @@ from plugin.framework.errors import (
     suggest_call,
     uno_read,
 )
-from plugin.framework.uno_context import enum_has_more
+from plugin.doc.text_helpers import build_heading_tree, iter_heading_nodes
+from plugin.framework.uno_context import enum_has_more, uno_same
 from plugin.framework.json_utils import safe_json_loads
-from plugin.writer import search as search_mod
-from plugin.writer import html_import_styles
+from plugin.writer import html_import, html_import_styles, record_changes, search as search_mod
 from plugin.writer.hyperlink_fixup import (
     OutlineSnapshot,
     capture_outline_hyperlinks,
@@ -184,8 +184,6 @@ def _range_in_cell(found: Any, cell: Any) -> bool:
     """
 
     def same_text() -> bool:
-        from plugin.framework.uno_context import uno_same
-
         return bool(uno_same(found.getText(), cell))
 
     def cursor_fits() -> bool:
@@ -343,8 +341,6 @@ def _partial_match_style_suggestion(
     if params.target == "selection":
         return None
 
-    from . import record_changes
-
     if record_changes.is_recording_changes(doc):
         return None
 
@@ -354,8 +350,6 @@ def _partial_match_style_suggestion(
 
     if not style_token:
         return None
-
-    from . import html_import_styles
 
     fam = uno_read(lambda: doc.getStyleFamilies().getByName("ParagraphStyles"), None)
     if fam is None:
@@ -367,8 +361,6 @@ def _partial_match_style_suggestion(
     )
     if resolved_style == "Standard" and style_token != "Standard":
         return None
-
-    from . import search as search_mod
 
     try:
         matches = search_mod.find_all_ranges(doc, plain, case_sensitive=True)
@@ -575,8 +567,6 @@ class ApplyDocumentContent(ToolBase):
     @staticmethod
     def _replacement_plain(content: Any) -> str:
         """Visible text a search replace will insert, for outline-URL substitution."""
-        from . import html_import
-
         if isinstance(content, list):
             content = "\n".join(str(part) for part in content)
         text = "" if content is None else str(content)
@@ -753,8 +743,6 @@ class ApplyDocumentContent(ToolBase):
         match opens one when a URL write is needed. Returns the hyperlink reports; failures
         raise ToolExecutionError with the code the caller publishes.
         """
-        from . import html_import
-
         # An anchor span's text never equals one link title, so outline fixup has nothing to match.
         anchor = None
         snapshot = None
@@ -1016,8 +1004,6 @@ class ApplyDocumentContent(ToolBase):
         if not html_import_styles.has_bare_fragment_links(params.content):
             return params, []
 
-        from plugin.doc.text_helpers import build_heading_tree, iter_heading_nodes
-
         document_headings: list[str] = (
             []
             if params.target == "full_document"
@@ -1153,8 +1139,6 @@ class ApplyDocumentContent(ToolBase):
         self, kwargs: Any, start_anchor: Any, end_anchor: Any
     ) -> AnchorSpec | dict[str, Any]:
         """Validate and normalize start_anchor and end_anchor; returns AnchorSpec or error dict."""
-        from . import html_import
-
         unsupported = self._reject_unsupported_with_anchors(kwargs)
         if unsupported is not None:
             return unsupported
@@ -1173,7 +1157,6 @@ class ApplyDocumentContent(ToolBase):
         return AnchorSpec(start=norm_start, end=norm_end, case_sensitive=cs)
 
     def _parse_edit_params(self, ctx: ToolContext, kwargs: Any) -> EditParams | dict[str, Any]:
-        from . import html_import
         content = kwargs.get("content", "")
         old_content = kwargs.get("old_content")
         start_anchor = kwargs.get("start_anchor")
@@ -1353,7 +1336,6 @@ class ApplyDocumentContent(ToolBase):
     def _edit_full_document(
         self, ctx: ToolContext, session: EditReviewSession, params: EditParams,
     ) -> dict[str, Any]:
-        from . import html_import
         content = params.content
         plain = params.plain
         has_table = params.has_table
@@ -1380,7 +1362,6 @@ class ApplyDocumentContent(ToolBase):
     def _edit_insert_at(
         self, ctx: ToolContext, session: EditReviewSession, params: EditParams,
     ) -> dict[str, Any]:
-        from . import html_import
         content = params.content
         plain = params.plain
         has_table = params.has_table
@@ -1408,7 +1389,6 @@ class ApplyDocumentContent(ToolBase):
     def _edit_selection(
         self, ctx: ToolContext, session: EditReviewSession, params: EditParams,
     ) -> dict[str, Any]:
-        from . import html_import
         content = params.content
         plain = params.plain
         has_table = params.has_table
@@ -1625,7 +1605,6 @@ class ApplyDocumentContent(ToolBase):
     def _edit_insert_next_to_match(
         self, ctx: ToolContext, session: EditReviewSession, params: EditParams, found: Any,
     ) -> dict[str, Any]:
-        from . import html_import
         doc = ctx.doc
         content = params.content
         plain = params.plain
@@ -1673,7 +1652,7 @@ class ApplyDocumentContent(ToolBase):
         if use_preserve:
             is_block = "\n" in content
         else:
-            is_block = html_import._content_has_block_markup(str(content)) or "\n" in str(content)
+            is_block = html_import.content_has_block_markup(str(content)) or "\n" in str(content)
         text_obj = found.getText()
         if is_block:
             insert_cursor, snapped = _paragraph_boundary_cursor(text_obj, found, position)

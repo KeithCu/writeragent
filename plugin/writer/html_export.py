@@ -10,7 +10,7 @@ Public entries: ``document_to_content`` and ``xtext_to_content``.
 CJK ruby: the XHTML filter concatenates ``text:ruby`` children and range copy
 drops ``RubyText``. ``inject_ruby_into_html`` restores ``<ruby><rt>`` after
 semantic post-process. Apply strips ``<rt>`` then sets ``RubyText`` on the
-base run (``html_ruby.extract_and_strip_ruby`` / ``_apply_ruby_spans``).
+base run (``html_ruby.extract_and_strip_ruby`` / ``apply_ruby_spans``).
 """
 
 from __future__ import annotations
@@ -476,7 +476,7 @@ def _copy_window_to_scratch(
         # RubyText lives on the empty Ruby start mark, not the Text run, so
         # _COPIED_CHAR_PROPERTIES cannot recreate ruby on the temp doc.
         # Collect source spans and rewrite the exported HTML after XHTML.
-        copied_ruby.extend(html_ruby._ruby_spans_in_window(el, trim_start, trim_end))
+        copied_ruby.extend(html_ruby.ruby_spans_in_window(el, trim_start, trim_end))
         added_any = True
 
     return (copied_urls, copied_ruby, math_records) if added_any else None
@@ -608,7 +608,7 @@ def document_to_content(
     def finish(content: str, ruby_flag: bool | None, why: str) -> str:
         content = _apply_image_export_options(content, include_images=include_images)
         content = inject_exported_math_tex(model, ctx, content)
-        content = html_ruby._inject_ruby_from_model(model, content, ruby_flag)
+        content = html_ruby.inject_ruby_from_model(model, content, ruby_flag)
         _raise_if_empty_export(model, content, why)
         if max_chars and len(content) > max_chars:
             content = _truncate_html(content, max_chars)

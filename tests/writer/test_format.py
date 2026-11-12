@@ -12,7 +12,7 @@ import base64
 import pytest
 
 from plugin.writer.html_import import (
-    _content_has_block_markup,
+    content_has_block_markup,
 )
 from plugin.writer.html_export import (
     _apply_image_export_options,
@@ -133,7 +133,6 @@ def test_replace_preserving_format_atomic_setstring_when_not_in_undo_context():
 def test_insert_content_at_position_text_selection_clears_range():
     from unittest.mock import MagicMock, patch
 
-    from plugin.doc import visual_helpers
     from plugin.writer.html_import import insert_content_at_position
 
     text_rng = MagicMock()
@@ -151,11 +150,11 @@ def test_insert_content_at_position_text_selection_clears_range():
     model.getCurrentController.return_value = controller
     model.getText.return_value.createTextCursor.return_value = MagicMock()
 
-    with patch.object(visual_helpers, "is_graphic_object", return_value=False), patch(
+    with patch("plugin.writer.html_import.is_graphic_object", return_value=False), patch(
         "plugin.writer.html_import._insert_mixed_or_plain_html"
     ), patch(
         # Master nested-table check walks MagicMock enumerations forever.
-        "plugin.writer.table_nesting.raise_if_range_hosts_nested_table",
+        "plugin.writer.html_import.raise_if_range_hosts_nested_table",
     ):
         insert_content_at_position(model, MagicMock(), "<p>hi</p>", "selection")
 
@@ -165,7 +164,6 @@ def test_insert_content_at_position_text_selection_clears_range():
 def test_insert_content_at_position_two_ranges_clears_non_collapsed_range():
     from unittest.mock import MagicMock, patch
 
-    from plugin.doc import visual_helpers
     from plugin.writer.html_import import insert_content_at_position
 
     rng0 = MagicMock()
@@ -192,10 +190,10 @@ def test_insert_content_at_position_two_ranges_clears_non_collapsed_range():
     model.getCurrentController.return_value = controller
     model.getText.return_value.createTextCursor.return_value = MagicMock()
 
-    with patch.object(visual_helpers, "is_graphic_object", return_value=False), patch(
+    with patch("plugin.writer.html_import.is_graphic_object", return_value=False), patch(
         "plugin.writer.html_import._insert_mixed_or_plain_html"
     ), patch(
-        "plugin.writer.table_nesting.raise_if_range_hosts_nested_table",
+        "plugin.writer.html_import.raise_if_range_hosts_nested_table",
     ):
         insert_content_at_position(model, MagicMock(), "<p>hi</p>", "selection")
 
@@ -230,7 +228,7 @@ def test_insert_content_at_position_shape_selection_falls_back_to_doc_end():
     model.getCurrentController.return_value = controller
     model.getText.return_value = body_text
 
-    with patch("plugin.doc.visual_helpers.is_graphic_object", return_value=False), patch(
+    with patch("plugin.writer.html_import.is_graphic_object", return_value=False), patch(
         "plugin.writer.html_import._insert_mixed_or_plain_html"
     ) as mock_insert:
         insert_content_at_position(model, MagicMock(), "<p>hi</p>", "selection")
@@ -260,7 +258,7 @@ def test_insert_content_at_position_empty_selection_uses_doc_end():
     model.getCurrentController.return_value = controller
     model.getText.return_value = body_text
 
-    with patch("plugin.doc.visual_helpers.is_graphic_object", return_value=False), patch(
+    with patch("plugin.writer.html_import.is_graphic_object", return_value=False), patch(
         "plugin.writer.html_import._insert_mixed_or_plain_html"
     ) as mock_insert:
         insert_content_at_position(model, MagicMock(), "<p>hi</p>", "selection")
@@ -340,7 +338,7 @@ def test_insert_content_at_position_empty_selection_skips_styles():
     model.getCurrentController.return_value = controller
     model.getText.return_value = body_text
 
-    with patch("plugin.doc.visual_helpers.is_graphic_object", return_value=False), patch(
+    with patch("plugin.writer.html_import.is_graphic_object", return_value=False), patch(
         "plugin.writer.html_import._insert_mixed_or_plain_html"
     ) as mock_insert:
         insert_content_at_position(model, MagicMock(), "<p data-lo-style=\"Heading1\">x</p>", "selection")
@@ -363,9 +361,9 @@ def test_insert_content_at_position_whole_paragraph_selection_applies_styles():
 
     from plugin.writer.html_import_styles import WriteReport
 
-    with patch("plugin.doc.text_helpers.selected_text_range", return_value=rng), \
+    with patch("plugin.writer.html_import.selected_text_range", return_value=rng), \
          patch("plugin.writer.html_import._selection_is_draw_shape", return_value=False), \
-         patch("plugin.writer.table_nesting.raise_if_range_hosts_nested_table"), \
+         patch("plugin.writer.html_import.raise_if_range_hosts_nested_table"), \
          patch("plugin.writer.record_changes.is_recording_changes", return_value=False), \
          patch("plugin.writer.html_import._insert_mixed_or_plain_html") as mock_insert:
         mock_insert.return_value = WriteReport()
@@ -469,7 +467,6 @@ def test_ensure_empty_absorb_noop_for_beginning():
 def test_insert_content_at_position_nested_table_is_not_appended_at_end():
     from unittest.mock import MagicMock, patch
 
-    from plugin.doc import visual_helpers
     from plugin.framework.errors import ToolExecutionError
     from plugin.writer.html_import import insert_content_at_position
 
@@ -486,10 +483,10 @@ def test_insert_content_at_position_nested_table_is_not_appended_at_end():
     model.getCurrentController.return_value = controller
     model.getText.return_value.createTextCursor.return_value = body_cursor
 
-    with patch.object(visual_helpers, "is_graphic_object", return_value=False), patch(
+    with patch("plugin.writer.html_import.is_graphic_object", return_value=False), patch(
         "plugin.writer.html_import._insert_mixed_or_plain_html"
     ) as mock_insert, patch(
-        "plugin.writer.table_nesting.raise_if_range_hosts_nested_table",
+        "plugin.writer.html_import.raise_if_range_hosts_nested_table",
         side_effect=ToolExecutionError("nested tables"),
     ):
         with pytest.raises(ToolExecutionError, match="nested tables"):
@@ -501,7 +498,6 @@ def test_insert_content_at_position_nested_table_is_not_appended_at_end():
 def test_insert_content_at_position_clear_failure_is_not_moved_to_end():
     from unittest.mock import MagicMock, patch
 
-    from plugin.doc import visual_helpers
     from plugin.writer.html_import import insert_content_at_position
 
     text_rng = MagicMock()
@@ -518,10 +514,10 @@ def test_insert_content_at_position_clear_failure_is_not_moved_to_end():
     model.getCurrentController.return_value = controller
     model.getText.return_value.createTextCursor.return_value = body_cursor
 
-    with patch.object(visual_helpers, "is_graphic_object", return_value=False), patch(
+    with patch("plugin.writer.html_import.is_graphic_object", return_value=False), patch(
         "plugin.writer.html_import._insert_mixed_or_plain_html"
     ) as mock_insert, patch(
-        "plugin.writer.table_nesting.raise_if_range_hosts_nested_table",
+        "plugin.writer.html_import.raise_if_range_hosts_nested_table",
     ):
         with pytest.raises(RuntimeError, match="clear failed"):
             insert_content_at_position(model, MagicMock(), "<p>hi</p>", "selection")
@@ -532,7 +528,6 @@ def test_insert_content_at_position_clear_failure_is_not_moved_to_end():
 def test_insert_content_at_position_attribute_error_still_uses_doc_end():
     from unittest.mock import MagicMock, patch
 
-    from plugin.doc import visual_helpers
     from plugin.writer.html_import import insert_content_at_position
 
     text_rng = MagicMock()
@@ -550,7 +545,7 @@ def test_insert_content_at_position_attribute_error_still_uses_doc_end():
     model.getCurrentController.return_value = controller
     model.getText.return_value = body_text
 
-    with patch.object(visual_helpers, "is_graphic_object", return_value=False), patch(
+    with patch("plugin.writer.html_import.is_graphic_object", return_value=False), patch(
         "plugin.writer.html_import._insert_mixed_or_plain_html"
     ) as mock_insert:
         insert_content_at_position(model, MagicMock(), "<p>hi</p>", "selection")
@@ -1491,22 +1486,22 @@ def test_format_uno_skips_windows_leftover_hidden_apply() -> None:
 # error in replace_single_range_with_content.
 
 def test_plain_text_is_not_block():
-    assert _content_has_block_markup("hello world") is False
+    assert content_has_block_markup("hello world") is False
 
 
 def test_inline_tags_are_not_block():
     # <b>/<span>/<i> are inline -> they go through the in-cell path that works; the cell-error
     # gate must NOT fire for them.
-    assert _content_has_block_markup("<b>bold</b> text") is False
+    assert content_has_block_markup("<b>bold</b> text") is False
 
 
 def test_paragraph_is_block():
     # <p> is block -> the path that can raise inside a table cell; the clear-error gate fires here.
-    assert _content_has_block_markup("<p>a paragraph</p>") is True
+    assert content_has_block_markup("<p>a paragraph</p>") is True
 
 
 def test_heading_is_block():
-    assert _content_has_block_markup("<h1>title</h1>") is True
+    assert content_has_block_markup("<h1>title</h1>") is True
 
 
 def test_apply_paragraph_style_preserving_direct_char_caches_style_and_props():

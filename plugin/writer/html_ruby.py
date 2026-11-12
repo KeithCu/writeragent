@@ -3,8 +3,6 @@
 Extracted from plugin.writer.html_export and plugin.writer.html_import.
 """
 
-# pyright: reportUnusedFunction=false
-
 from __future__ import annotations
 
 from html import escape, unescape
@@ -29,7 +27,7 @@ _BR_RE = re.compile(r"<br\b[^>]*>", re.IGNORECASE)
 _PARA_END_RE = re.compile(r"</(?:p|h[1-6])\s*>", re.IGNORECASE)
 
 
-class _RubySpan(NamedTuple):
+class RubySpan(NamedTuple):
     """One CJK ruby (furigana) pair from a Writer portion walk.
 
     ``start`` / ``end`` are offsets in the paragraph's visible text (base only;
@@ -94,7 +92,7 @@ def _ruby_markup(base: str, reading: str, is_above: bool = True) -> str:
 
 
 
-def inject_ruby_into_html(html: str, spans: Sequence[_RubySpan]) -> str:
+def inject_ruby_into_html(html: str, spans: Sequence[RubySpan]) -> str:
     """Rewrite glued or dropped ruby encodings to semantic ``<ruby><rt>``.
 
     The XHTML Writer filter has no ``text:ruby`` rule, so full export concatenates
@@ -141,8 +139,8 @@ def inject_ruby_into_html(html: str, spans: Sequence[_RubySpan]) -> str:
 
 
 
-def _iter_ruby_spans_in_paragraph(para: Any) -> Iterator[_RubySpan]:
-    """Yield ``_RubySpan`` for each Ruby start/end pair in *para*.
+def _iter_ruby_spans_in_paragraph(para: Any) -> Iterator[RubySpan]:
+    """Yield ``RubySpan`` for each Ruby start/end pair in *para*.
 
     Writer stores ruby as ``TextPortionType="Ruby"`` marks: the start has
     ``RubyText`` / ``RubyIsAbove`` / ``RubyAdjust``; the base is a normal
@@ -179,7 +177,7 @@ def _iter_ruby_spans_in_paragraph(para: Any) -> Iterator[_RubySpan]:
             else:
                 base = "".join(base_parts)
                 if base and reading:
-                    yield _RubySpan(base, reading, base_start, base_start + len(base), is_above)
+                    yield RubySpan(base, reading, base_start, base_start + len(base), is_above)
                 in_ruby = False
             continue
         chunk = uno_read(lambda: portion.getString() or "", "")
@@ -191,7 +189,7 @@ def _iter_ruby_spans_in_paragraph(para: Any) -> Iterator[_RubySpan]:
 
 
 
-def _ruby_spans_in_window(para: Any, trim_start: int, trim_end: int) -> list[_RubySpan]:
+def ruby_spans_in_window(para: Any, trim_start: int, trim_end: int) -> list[RubySpan]:
     """Ruby pairs whose entire base lies inside the copied visible-text window."""
     return [
         span
@@ -201,7 +199,7 @@ def _ruby_spans_in_window(para: Any, trim_start: int, trim_end: int) -> list[_Ru
 
 
 
-def _inject_ruby_from_model(model: Any, content: str, fodt_has_ruby: bool | None = None) -> str:
+def inject_ruby_from_model(model: Any, content: str, fodt_has_ruby: bool | None = None) -> str:
     """Walk the live model and rewrite *content* when ruby is (or may be) present.
 
     *fodt_has_ruby* is True/False from the paired FODT sidecar, or None when
@@ -217,7 +215,7 @@ def _inject_ruby_from_model(model: Any, content: str, fodt_has_ruby: bool | None
             for para in range_copy.iter_xtext_paragraphs(model.getText())
             for span in _iter_ruby_spans_in_paragraph(para)
         ],
-        "_inject_ruby_from_model: portion walk failed",
+        "inject_ruby_from_model: portion walk failed",
     )
     if spans is None:
         return content
@@ -225,7 +223,7 @@ def _inject_ruby_from_model(model: Any, content: str, fodt_has_ruby: bool | None
 
 
 
-class _ImportRubySpan(NamedTuple):
+class ImportRubySpan(NamedTuple):
     base: str
     reading: str
     is_above: bool
@@ -255,14 +253,14 @@ def _kept_text_len(fragment: str) -> int:
 
 
 
-def extract_and_strip_ruby(html: str) -> tuple[str, list[_ImportRubySpan]]:
+def extract_and_strip_ruby(html: str) -> tuple[str, list[ImportRubySpan]]:
     """Replace ``<ruby>`` with its base and return ``(clean_html, spans)``.
 
     Each span is ``(base, reading, is_above, visible_offset)`` in document order.
     ``visible_offset`` counts the text StarWriter keeps: tags are dropped, each
     ``<br>`` and paragraph end keeps one character. StarWriter concatenates ruby
     children, so the import must see base only; ``RubyText`` is painted afterwards
-    via ``_apply_ruby_spans``, which starts at this offset instead of the first
+    via ``apply_ruby_spans``, which starts at this offset instead of the first
     copy of the base.
     """
     if not html:
@@ -273,7 +271,7 @@ def extract_and_strip_ruby(html: str) -> tuple[str, list[_ImportRubySpan]]:
     # Unclosed <ruby> makes the DOTALL regex scan to end from every open tag.
     if lower.count("<ruby") != lower.count("</ruby>"):
         return _RT_RE.sub("", _RP_RE.sub("", html)), []
-    spans: list[_ImportRubySpan] = []
+    spans: list[ImportRubySpan] = []
     out: list[str] = []
     visible_len = 0
     pos = 0
@@ -293,7 +291,7 @@ def extract_and_strip_ruby(html: str) -> tuple[str, list[_ImportRubySpan]]:
         base = _visible_html_text(base_html)
         is_above = _RUBY_UNDER_RE.search(attrs) is None
         if base and reading:
-            spans.append(_ImportRubySpan(base, reading, is_above, visible_len))
+            spans.append(ImportRubySpan(base, reading, is_above, visible_len))
         out.append(base_html)
         visible_len += _kept_text_len(base_html)
         pos = match.end()
@@ -302,7 +300,7 @@ def extract_and_strip_ruby(html: str) -> tuple[str, list[_ImportRubySpan]]:
 
 
 
-def _ruby_skip(text_obj: Any, cursor: Any, spans: list[Any]) -> int:
+def ruby_skip(text_obj: Any, cursor: Any, spans: list[Any]) -> int:
     """Character count before *cursor* when *spans* is non-empty, else 0.
 
     Building the prefix cursor and calling ``getString()`` reads the entire
@@ -314,7 +312,7 @@ def _ruby_skip(text_obj: Any, cursor: Any, spans: list[Any]) -> int:
 
 
 
-def _apply_ruby_spans(text_obj: Any, spans: list[Any], skip_chars: int = 0) -> None:
+def apply_ruby_spans(text_obj: Any, spans: list[Any], skip_chars: int = 0) -> None:
     """Set ``RubyText`` on each *spans* base, ignoring the first *skip_chars*.
 
     After a StarWriter import the document has base characters only. Offsets
@@ -351,11 +349,11 @@ def _apply_ruby_spans(text_obj: Any, spans: list[Any], skip_chars: int = 0) -> N
         if target_offset >= pos and target_offset + len(base) <= len(haystack) and haystack[target_offset : target_offset + len(base)] == base:
             idx = target_offset
         else:
-            log.debug("_apply_ruby_spans: base %r not at offset %d, falling back to find", base, target_offset)
+            log.debug("apply_ruby_spans: base %r not at offset %d, falling back to find", base, target_offset)
             idx = haystack.find(base, pos)
 
         if idx < 0:
-            log.debug("_apply_ruby_spans: base %r not found in imported text", base)
+            log.debug("apply_ruby_spans: base %r not found in imported text", base)
             continue
 
         try:
@@ -390,7 +388,7 @@ def _apply_ruby_spans(text_obj: Any, spans: list[Any], skip_chars: int = 0) -> N
 
             if sel.getString() != base:
                 log.debug(
-                    "_apply_ruby_spans: offset mismatch want %r got %r",
+                    "apply_ruby_spans: offset mismatch want %r got %r",
                     base, sel.getString(),
                 )
                 go_right(cur, len(base), False)
@@ -407,6 +405,6 @@ def _apply_ruby_spans(text_obj: Any, spans: list[Any], skip_chars: int = 0) -> N
             pos = idx + len(base)
         except Exception as exc:
             reraise_if_disposed(exc)
-            log.warning("_apply_ruby_spans: failed for %r", base, exc_info=True)
+            log.warning("apply_ruby_spans: failed for %r", base, exc_info=True)
             cur = None
             pos = idx + len(base)

@@ -11,8 +11,6 @@ These helpers rewrite exported field spans to placeholders before import and
 restore them back into live UNO text fields afterwards.
 """
 
-# pyright: reportUnusedFunction=false
-
 from __future__ import annotations
 
 import logging
@@ -23,6 +21,7 @@ from typing import Any
 from plugin.doc.text_helpers import FAILED, iter_elements
 from plugin.framework.errors import ToolExecutionError, reraise_if_disposed, uno_read
 from plugin.framework.uno_context import uno_same
+from .html_export import PAGE_NUMBER_NUMBERING_TYPE_NAMES, PAGE_NUMBER_NUMBERING_TYPE_VALS
 
 log = logging.getLogger("writeragent.writer")
 
@@ -106,8 +105,6 @@ def _matching_span_end(html: str, start_pos: int) -> int | None:
 
 
 def _field_token(field_nonce: str, title: str, attrs: dict[str, str]) -> str:
-    from .html_export import PAGE_NUMBER_NUMBERING_TYPE_NAMES, PAGE_NUMBER_NUMBERING_TYPE_VALS
-
     props = []
     if title == "page-number":
         st_raw = attrs.get("data-subtype")
@@ -187,7 +184,6 @@ def rewrite_exported_field_spans(html: str, nonce: str | None = None) -> str:
 
 
 def _page_number_properties(props: dict[str, str]) -> list[tuple[str, Any]]:
-    from .html_export import PAGE_NUMBER_NUMBERING_TYPE_VALS
     import uno
 
     return [
@@ -353,7 +349,7 @@ def _restore_fields_by_cursor(model: Any, text_obj: Any, nonce: str) -> int:
     return len(hits)
 
 
-def _restore_field_placeholders(model: Any, text_obj: Any, nonce: str) -> int:
+def restore_field_placeholders(model: Any, text_obj: Any, nonce: str) -> int:
     """Turn ``[[WA-FIELD:…]]`` tokens back into UNO fields.
 
     When *text_obj* is set, walk that XText first. ``findFirst`` misses a

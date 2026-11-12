@@ -10,7 +10,7 @@ insert as the body path, pointed at a region ``XText``). It applies
 data-lo-style and data-lo-para like a ``full_document`` write.
 
 CJK ruby: StarWriter concatenates ``<rt>`` into the body. ``extract_and_strip_ruby``
-drops the reading before import; ``_apply_ruby_spans`` sets ``RubyText`` on each
+drops the reading before import; ``apply_ruby_spans`` sets ``RubyText`` on each
 base run. Not a text field — do not use ``TextField.Ruby``.
 """
 
@@ -23,21 +23,28 @@ import uuid
 from typing import Any
 
 
-from plugin.framework.errors import best_effort
+from plugin.doc.compound_undo import UndoUnavailable, commit_or_rollback
+from plugin.doc.temp_files import with_temp_buffer
 from plugin.doc.text_helpers import (
     clear_direct_numbering,
     go_right,
     iter_elements,
     normalize_linebreaks as _normalize,
+    selected_text_range,
 )
-from plugin.framework.errors import ToolExecutionError, reraise_if_disposed, uno_read
+from plugin.doc.visual_helpers import is_graphic_object
+from plugin.framework.errors import ToolExecutionError, best_effort, reraise_if_disposed, uno_read
+from plugin.framework.html_stripper import escape_prose_angle_brackets, html_to_search_text, text_has_real_html_tag
+from plugin.framework.uno_context import create_property_value
 from . import field_restore, html_import_styles, html_ruby, image_placeholders, record_changes
+from .html_export import HTML_FILTER, strip_html_boilerplate
 from .math.html_math_segment import (
     html_fragment_contains_mixed_math,
     html_fragment_contains_tex_math,
     segment_html_with_mixed_math,
 )
 from .math.math_mml_convert import convert_latex_to_starmath, convert_mathml_to_starmath, insert_writer_math_formula
+from .table_nesting import raise_if_range_hosts_nested_table
 
 log = logging.getLogger("writeragent.writer")
 
@@ -58,7 +65,7 @@ def _wrap_html_fragment(html_content: str, extra_css: str | None = None) -> str:
 
 
 
-def _ensure_html_linebreaks(content: str) -> str:
+def ensure_html_linebreaks(content: str) -> str:
     """Convert newlines to ``<br>``/``<p>`` when content is plain text
     and the active format is HTML, so LO's filter preserves them.
 
@@ -69,18 +76,16 @@ def _ensure_html_linebreaks(content: str) -> str:
     """
     if not isinstance(content, str) or not content:
         return content
-    from plugin.framework.html_stripper import escape_prose_angle_brackets
 
     content = escape_prose_angle_brackets(_normalize(content))
     # Vision/Docling export full documents; nesting another wrapper breaks StarWriter import.
     if re.search(r"<!DOCTYPE\s+html|<html[\s>]", content, re.IGNORECASE):
-        from .html_export import strip_html_boilerplate
         content = strip_html_boilerplate(content)
     # A block tag or <br> means the content has its own paragraphs; wrapping it in <p> is invalid.
     if html_import_styles.LINEBREAK_MARKUP_RE.search(content):
         return _wrap_html_fragment(content)
 
-    paras = html_import_styles._plain_paragraphs(content)
+    paras = html_import_styles.plain_paragraphs(content)
     out = []
     for p in paras:
         p_html = p.replace("\n", "<br>\n")
@@ -100,7 +105,6 @@ def html_to_plain_text(html_string: str) -> str:
     # Plain text without markup or entities needs no parsing.
     if "<" not in html_string and "&" not in html_string:
         return html_string.strip()
-    from plugin.framework.html_stripper import html_to_search_text
 
     stripped, _unused_ruby = html_ruby.extract_and_strip_ruby(html_string)
     return html_to_search_text(stripped).strip()
@@ -141,14 +145,9 @@ def insert_html_fragment_at_cursor(
     When *advance* is True, moves *cursor* past the imported content
     (multi-segment Writer inserts).
     """
-    from plugin.framework.html_stripper import escape_prose_angle_brackets
-
     html_fragment = escape_prose_angle_brackets(html_fragment)
     prepared = _wrap_html_fragment(html_fragment, extra_css=extra_css) if wrap else html_fragment
     tail = _parked_cursor(cursor) if advance else None
-    from plugin.doc.temp_files import with_temp_buffer
-    from plugin.framework.uno_context import create_property_value
-    from .html_export import HTML_FILTER
     with with_temp_buffer(prepared) as (_path, file_url):
         filter_name = HTML_FILTER
         filter_props = (create_property_value("FilterName", filter_name),)
@@ -212,11 +211,11 @@ def _insert_mixed_html_and_math_at_cursor(
             chunk = html_import_styles.expand_escapes(chunk)
             chunk, seg_ruby = html_ruby.extract_and_strip_ruby(chunk)
 
-            sub = _ensure_html_linebreaks(chunk)
-            seg_ruby_skip = html_ruby._ruby_skip(cursor.getText(), cursor, seg_ruby)
+            sub = ensure_html_linebreaks(chunk)
+            seg_ruby_skip = html_ruby.ruby_skip(cursor.getText(), cursor, seg_ruby)
             insert_html_fragment_at_cursor(cursor, sub, wrap=False, advance=True)
             if seg_ruby:
-                html_ruby._apply_ruby_spans(cursor.getText(), seg_ruby, skip_chars=seg_ruby_skip)
+                html_ruby.apply_ruby_spans(cursor.getText(), seg_ruby, skip_chars=seg_ruby_skip)
             continue
         snippet = (seg.text or "").replace("\n", " ")[:120]
         if seg.kind == "tex":
@@ -274,9 +273,9 @@ def _paragraph_after(text_obj: Any, before_para: Any) -> Any:
 def _apply_ruby_and_restore_fields(
     model: Any, text_obj: Any, spans: list[Any], nonce: str, skip_chars: int = 0
 ) -> None:
-    html_ruby._apply_ruby_spans(text_obj, spans, skip_chars=skip_chars)
+    html_ruby.apply_ruby_spans(text_obj, spans, skip_chars=skip_chars)
     if model is not None:
-        field_restore._restore_field_placeholders(model, text_obj, nonce=nonce)
+        field_restore.restore_field_placeholders(model, text_obj, nonce=nonce)
 
 
 def _insert_mixed_or_plain_html(
@@ -310,7 +309,7 @@ def _insert_mixed_or_plain_html(
         ruby_spans = []
     styled = bool(apply_styles and (any(block_styles) or any(block_paras)))
     text_obj = cursor.getText()
-    ruby_skip = html_ruby._ruby_skip(text_obj, cursor, ruby_spans)
+    ruby_skip = html_ruby.ruby_skip(text_obj, cursor, ruby_spans)
     # Parked at the insert point, this ends up after the imported content (see _parked_cursor).
     imported_end = _parked_cursor(cursor) if styled else None
     # The math path moves *cursor* past each segment, so keep the paragraph before the insert.
@@ -323,7 +322,7 @@ def _insert_mixed_or_plain_html(
         math_entries = _insert_mixed_html_and_math_at_cursor(model, ctx, cursor, clean)
     else:
         math_entries = []
-        single = _ensure_html_linebreaks(clean)
+        single = ensure_html_linebreaks(clean)
         insert_html_fragment_at_cursor(cursor, single, wrap=False, advance=not styled)
 
     if styled:
@@ -365,7 +364,7 @@ def insert_html_at_cursor(
     apply_styles: bool = True,
 ) -> None:
     """Insert HTML or plain text at *cursor* (public API for tools)."""
-    with image_placeholders._keep_placeholder_images(model, unescaped_content) as content:
+    with image_placeholders.keep_placeholder_images(model, unescaped_content) as content:
         _insert_mixed_or_plain_html(model, ctx, cursor, content, apply_styles=apply_styles)
 
 
@@ -388,8 +387,6 @@ def _selection_is_draw_shape(obj: Any) -> bool:
     if obj is None:
         return False
     try:
-        from plugin.doc.visual_helpers import is_graphic_object
-
         if is_graphic_object(obj):
             return True
     except Exception:
@@ -474,13 +471,13 @@ def _prep_field_ruby(html: str) -> tuple[str, list[Any], str]:
 def insert_inline_at_cursor(model: Any, ctx: Any, cursor: Any, content: str) -> None:
     """Insert inline *content* at a collapsed *cursor* without splitting its paragraph.
 
-    ``insert_html_at_cursor`` routes plain text through ``_ensure_html_linebreaks``, which
+    ``insert_html_at_cursor`` routes plain text through ``ensure_html_linebreaks``, which
     wraps it in ``<p>``: imported mid-paragraph, that ``<p>`` splits the host paragraph in
     two, so inserting "bem " before a word left "... bem" / "inteiro." as two paragraphs.
     Plain text goes in with ``insertString``; inline markup is imported RAW (no ``<p>``),
     the same way ``replace_single_range_with_content`` handles inline replacements.
     """
-    with image_placeholders._keep_placeholder_images(model, content) as swapped:
+    with image_placeholders.keep_placeholder_images(model, content) as swapped:
         # No html.unescape here: apply_document_content.py already decoded complete
         # character references on the plain path
         # (html_import_styles.decode_complete_character_references), and a full
@@ -496,7 +493,7 @@ def insert_inline_at_cursor(model: Any, ctx: Any, cursor: Any, content: str) -> 
         lead = inline_html[: len(inline_html) - len(inline_html.lstrip())]
         trail = inline_html[len(inline_html.rstrip()):]
         text = cursor.getText()
-        ruby_skip = html_ruby._ruby_skip(text, cursor, ruby_spans)
+        ruby_skip = html_ruby.ruby_skip(text, cursor, ruby_spans)
         if lead:
             text.insertString(cursor, lead, False)
         if trail:
@@ -552,7 +549,7 @@ def insert_content_at_position(
     for ``'selection'`` when a ``data-lo-style`` attribute could not be applied due to a
     partial match or tracked change recording.
     """
-    with image_placeholders._keep_placeholder_images(model, content) as swapped:
+    with image_placeholders.keep_placeholder_images(model, content) as swapped:
         content = html_import_styles.decode_complete_character_references(swapped)
 
         text = model.getText()
@@ -574,8 +571,6 @@ def insert_content_at_position(
                 return c
 
             controller = uno_read(lambda: model.getCurrentController(), None)
-
-            from plugin.doc.text_helpers import selected_text_range
 
             rng = selected_text_range(controller)
 
@@ -600,8 +595,6 @@ def insert_content_at_position(
                         raise AttributeError("insertDocumentFromURL")
                     # Clear only real text selections (never shapes).
                     if hasattr(rng, "setString"):
-                        from plugin.writer.table_nesting import raise_if_range_hosts_nested_table
-
                         raise_if_range_hosts_nested_table(rng)
                         styled, note = _lo_style_for_replaced_range(model, content, rng)
                         rng.setString("")
@@ -682,7 +675,7 @@ def replace_full_document(
     model: Any, ctx: Any, content: str
 ) -> html_import_styles.WriteReport:
     """Clear the document and insert *content*."""
-    with image_placeholders._keep_placeholder_images(model, content) as swapped:
+    with image_placeholders.keep_placeholder_images(model, content) as swapped:
         content = html_import_styles.decode_complete_character_references(swapped)
 
         text = model.getText()
@@ -735,7 +728,7 @@ def replace_single_range_with_content(
 
     Returns the WriteReport for this replacement.
     """
-    with image_placeholders._keep_placeholder_images(model, content) as swapped:
+    with image_placeholders.keep_placeholder_images(model, content) as swapped:
         prepared = html_import_styles.decode_complete_character_references(swapped)
         text_obj = text_range.getText()
 
@@ -749,7 +742,7 @@ def replace_single_range_with_content(
         # headings (e.g. "Heading 3" -> "Text body"). For inline-only content (no
         # block-level tags, no math), insert without jumping the cursor to the document
         # end so we can reapply the original paragraph style across the inserted range.
-        inline_preserve = not _content_has_block_markup(prepared) and not html_fragment_contains_mixed_math(prepared)
+        inline_preserve = not content_has_block_markup(prepared) and not html_fragment_contains_mixed_math(prepared)
         saved_style = None
         if inline_preserve:
             saved_style = uno_read(lambda: text_obj.createTextCursorByRange(text_range.getStart()).getPropertyValue("ParaStyleName"), None)
@@ -760,22 +753,22 @@ def replace_single_range_with_content(
             apply_styles, note = _lo_style_for_replaced_range(model, prepared, text_range)
 
         cursor = text_obj.createTextCursorByRange(text_range)
-        from plugin.writer.table_nesting import raise_if_range_hosts_nested_table
 
         # setString on a host cell wipes nested TextTables — same refuse as table_set_cell.
         raise_if_range_hosts_nested_table(text_range)
+        # Imported at call time: styles.py is WriterAgent-only (not in scripts/librepy_bundle_paths.py) and imports this module back through edit_review.
         from .styles import apply_paragraph_style_preserving_direct_char
         with _deletion_author():  # author the deletion distinctly (split by-author coloring)
             cursor.setString("")
 
         if saved_style is not None:
             anchor = text_obj.createTextCursorByRange(cursor.getStart())
-            # Insert the inline fragment RAW (do not route through _ensure_html_linebreaks:
+            # Insert the inline fragment RAW (do not route through ensure_html_linebreaks:
             # it does not recognise <span> as HTML and would wrap it in <p>, creating an
             # extra body paragraph). advance=False leaves the cursor at the end of the
             # INSERTED content (not the document end), so [anchor, cursor] bounds it.
             inline_html, ruby_spans, nonce = _prep_field_ruby(prepared)
-            ruby_skip = html_ruby._ruby_skip(text_obj, anchor, ruby_spans)
+            ruby_skip = html_ruby.ruby_skip(text_obj, anchor, ruby_spans)
             insert_html_fragment_at_cursor(cursor, inline_html, wrap=False)
             _apply_ruby_and_restore_fields(model, text_obj, ruby_spans, nonce, skip_chars=ruby_skip)
             # Re-apply the saved paragraph style (the HTML import can demote Heading -> body).
@@ -811,7 +804,7 @@ def replace_single_range_with_content(
                 # Block/rich HTML into a table cell can raise an empty RuntimeException from the StarWriter
                 # HTML import (nested-XText cursor mapping). Surface a clear, actionable message instead of
                 # the opaque error; the atomic wrapper rolls back the partial edit either way.
-                if in_table_cell and _content_has_block_markup(prepared):
+                if in_table_cell and content_has_block_markup(prepared):
                     raise ToolExecutionError(
                         "Rich/block HTML can't be inserted inside a table cell yet (the LibreOffice HTML "
                         "import mishandles nested cell text). Use plain text or inline tags only inside "
@@ -852,7 +845,7 @@ def replace_xtext_with_html(
     expanded, ruby_spans = html_ruby.extract_and_strip_ruby(expanded)
     rewritten = field_restore.rewrite_exported_field_spans(expanded, nonce=nonce)
     clean, block_styles, block_paras, skipped_paras = html_import_styles.extract_block_lo_styles(rewritten)
-    prepared = _ensure_html_linebreaks(clean)
+    prepared = ensure_html_linebreaks(clean)
     # data-lo-para on inline tags and on blocks inside tables is stripped, never applied.
     report = html_import_styles.WriteReport(
         unapplied_para=html_import_styles.declared_para_names(skipped_paras),
@@ -862,8 +855,8 @@ def replace_xtext_with_html(
     cursor.gotoStart(False)
     cursor.gotoEnd(True)
 
+    # Imported at call time: edit_review imports this module at its top (edit_review.py:66), so a module-level import is a cycle; LibrePy does not ship edit_review, and only page.py's header/footer write reaches this function.
     from .edit_review import next_agent_edit_undo_title
-    from plugin.doc.compound_undo import UndoUnavailable, commit_or_rollback
 
     title = next_agent_edit_undo_title()
 
@@ -934,7 +927,6 @@ def content_has_markup(content: str | None) -> bool:
     """Return ``True`` if *content* appears to contain HTML or math markup."""
     if not content or not isinstance(content, str):
         return False
-    from plugin.framework.html_stripper import text_has_real_html_tag
 
     if text_has_real_html_tag(content):
         return True
@@ -961,7 +953,7 @@ def plain_text_if_markup(text: str) -> str:
 
 
 
-def _content_has_block_markup(content: str | None) -> bool:
+def content_has_block_markup(content: str | None) -> bool:
     """Return ``True`` if *content* contains block-level HTML (paragraph-defining)."""
     if not content or not isinstance(content, str):
         return False
@@ -1059,8 +1051,6 @@ def replace_preserving_format(
     # createTextCursorByRange() raises "End of content node doesn't have the proper
     # start node". target_range.getText() resolves to the cell (or body) correctly,
     # matching the markup path which already uses found.getText().
-    from plugin.writer.table_nesting import raise_if_range_hosts_nested_table
-
     raise_if_range_hosts_nested_table(target_range)
     text = target_range.getText()
     old_text = _normalize(target_range.getString())

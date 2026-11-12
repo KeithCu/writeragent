@@ -77,7 +77,7 @@ def test_insert_cell_html_rich_loads_temp_writer_on_named_frame(caplog):
     ):
         mock_bridge = mock_bridge_cls.return_value
         mock_bridge.get_cell_by_address.return_value = cell
-        mock_fmt._ensure_html_linebreaks.side_effect = lambda html: html
+        mock_fmt.ensure_html_linebreaks.side_effect = lambda html: html
         mock_fmt.insert_html_fragment_at_cursor.side_effect = lambda *_a, **_k: order.append("insert")
 
         insert_cell_html_rich(calc_doc, MagicMock(), "Z99", "Plain <b>BoldBit</b> tail")
@@ -131,7 +131,7 @@ def test_insert_cell_html_rich_steps_go_to_stderr(capsys):
     ):
         mock_bridge = mock_bridge_cls.return_value
         mock_bridge.get_cell_by_address.return_value = cell
-        mock_fmt._ensure_html_linebreaks.side_effect = lambda html: html
+        mock_fmt.ensure_html_linebreaks.side_effect = lambda html: html
         mock_fmt.create_property_value.return_value = object()
         insert_cell_html_rich(calc_doc, MagicMock(), "Z99", "Plain <b>BoldBit</b> tail")
     err = capsys.readouterr().err
@@ -155,7 +155,7 @@ def test_insert_cell_html_rich_error_names_the_last_step():
     ):
         mock_bridge = mock_bridge_cls.return_value
         mock_bridge.get_cell_by_address.return_value = cell
-        mock_fmt._ensure_html_linebreaks.side_effect = lambda html: html
+        mock_fmt.ensure_html_linebreaks.side_effect = lambda html: html
         mock_fmt.create_property_value.return_value = object()
         insert_cell_html_rich(calc_doc, MagicMock(), "Z99", "<b>x</b>")
 
@@ -173,7 +173,7 @@ def test_failure_after_a_paste_keeps_the_keeper():
     ):
         mock_bridge = mock_bridge_cls.return_value
         mock_bridge.get_cell_by_address.return_value = cell
-        mock_fmt._ensure_html_linebreaks.side_effect = lambda html: html
+        mock_fmt.ensure_html_linebreaks.side_effect = lambda html: html
         mock_fmt.create_property_value.return_value = object()
 
         insert_cell_html_rich(calc_doc, MagicMock(), "Z99", "<b>x</b>")
@@ -202,7 +202,7 @@ def test_insert_cell_html_rich_raises_when_hidden_writer_stays_dirty():
     ):
         mock_bridge = mock_bridge_cls.return_value
         mock_bridge.get_cell_by_address.return_value = cell
-        mock_fmt._ensure_html_linebreaks.side_effect = lambda html: html
+        mock_fmt.ensure_html_linebreaks.side_effect = lambda html: html
         mock_fmt.create_property_value.return_value = object()
         insert_cell_html_rich(calc_doc, MagicMock(), "Z99", "<b>x</b>")
 
@@ -266,7 +266,7 @@ def test_insert_cell_html_rich_releases_clipboard_and_keeps_writer():
     ):
         mock_bridge = mock_bridge_cls.return_value
         mock_bridge.get_cell_by_address.return_value = cell
-        mock_fmt._ensure_html_linebreaks.side_effect = lambda html: html
+        mock_fmt.ensure_html_linebreaks.side_effect = lambda html: html
         mock_fmt.create_property_value.return_value = object()
         insert_cell_html_rich(calc_doc, uno_ctx, "Z99", "<b>x</b>")
 
@@ -290,7 +290,7 @@ def test_insert_cell_html_rich_closes_writer_when_paste_never_happened():
     ):
         mock_bridge = mock_bridge_cls.return_value
         mock_bridge.get_cell_by_address.return_value = cell
-        mock_fmt._ensure_html_linebreaks.side_effect = lambda html: html
+        mock_fmt.ensure_html_linebreaks.side_effect = lambda html: html
         mock_fmt.create_property_value.return_value = object()
         insert_cell_html_rich(calc_doc, MagicMock(), "Z99", "<b>x</b>")
 
@@ -391,7 +391,7 @@ def test_insert_cell_html_rich_passes_sheet_prefix_to_bridge():
     ):
         mock_bridge = mock_bridge_cls.return_value
         mock_bridge.get_cell_by_address.return_value = cell
-        mock_fmt._ensure_html_linebreaks.side_effect = lambda html: html
+        mock_fmt.ensure_html_linebreaks.side_effect = lambda html: html
         mock_fmt.insert_html_fragment_at_cursor.return_value = None
         insert_cell_html_rich(calc_doc, MagicMock(), "Sheet2.A1", "<b>x</b>")
     mock_bridge.get_cell_by_address.assert_called_once_with("Sheet2.A1")
