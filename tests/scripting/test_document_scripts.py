@@ -18,6 +18,7 @@ from plugin.scripting.document_scripts import (
     SCRIPT_PICKER_MESSAGE_TYPES,
     _MAX_DOCUMENT_SCRIPTS_BYTES,
     _closed_document_scripts_list,
+    DocumentScriptError,
     DocumentScriptErrorCode,
     attach_document_script,
     build_scripts_list_message,
@@ -899,7 +900,7 @@ def test_save_script_to_origin_routes_by_origin():
 
         doc.isReadonly.return_value = True
         err = save_script_to_origin(doc, "doc_s", SCRIPT_ORIGIN_DOCUMENT, "x = 99")
-        assert getattr(err, "code", None) == DocumentScriptErrorCode.READONLY
+        assert isinstance(err, DocumentScriptError) and err.code == DocumentScriptErrorCode.READONLY
         assert get_document_scripts(doc) == {"doc_s": "x = 1"}
         assert "doc_s" not in store["saved_python_scripts"]
 

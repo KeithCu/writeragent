@@ -730,7 +730,7 @@ def _validate_script_target(
     session_doc: Any | None = None,
     session_doc_url: str | None = None,
     action_label: str = "delete",
-) -> tuple[str, str, str] | None:
+) -> tuple[str, str] | None:
     name = str(msg.get("name", "") or "").strip()
     origin = str(msg.get("origin", "") or "").strip()
     if not name:
@@ -750,7 +750,7 @@ def _validate_script_target(
         storage_name = parse_document_script_display_name(name) or name
     else:
         storage_name = name
-    return name, origin, storage_name
+    return origin, storage_name
 
 
 def _on_save_script(
@@ -769,7 +769,7 @@ def _on_save_script(
     )
     if target is None:
         return True
-    _raw_name, origin, storage_name = target
+    origin, storage_name = target
     raw_code = msg.get("code", "")
     script_code = raw_code if isinstance(raw_code, str) else ""
 
@@ -795,7 +795,7 @@ def _on_delete_script(
     target = _validate_script_target(msg, send_list, session_doc=session_doc, session_doc_url=session_doc_url)
     if target is None:
         return True
-    _raw_name, origin, storage_name = target
+    origin, storage_name = target
     del_err = delete_script_from_origin(session_doc, storage_name, origin)
     if del_err:
         send_list(status_error_text=str(del_err))
