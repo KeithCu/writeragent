@@ -60,15 +60,15 @@ Code constants remain string literals across call sites. Codes are JSON wire val
 
 | Code | Kind | Trigger site(s) | `suggested_call` |
 |------|------|-----------------|------------------|
-| `OLD_CONTENT_NOT_FOUND` | error | `build_search_not_found_response` (`search.py`, `apply_document_content.py`, `styles.py`); direct `_tool_error` in `_select_by_search` (`selection.py`, no near-miss fields) | None in v1 (near-miss `closest_match` is a 16-character preview + ellipsis; replaying would replace the wrong text). |
+| `OLD_CONTENT_NOT_FOUND` | error | `build_search_not_found_response` (`search.py`), reached by `apply_document_content`, `apply_style`, `set_selection`, `comment_add`, `footnotes_insert`, `page_insert_break` through `occurrence_range_or_error` | None in v1 (near-miss `closest_match` is a 16-character preview + ellipsis; replaying would replace the wrong text). |
 | `OLD_CONTENT_TOO_LARGE` | error | Oversized old_content refusal (`search.py`) | None (suggesting blank content violates tool schema). |
 | `SEARCH_FAILED` | error | Search execution or regex evaluation failed (`search.py`, `apply_document_content.py`) | None |
 | `ANCHOR_START_NOT_FOUND` | error | `_anchor_miss` with `miss_kind="start"` (`apply_document_content.py`) | None |
 | `ANCHOR_END_NOT_FOUND` | error | `_anchor_miss` with `miss_kind="end"` (`apply_document_content.py`) | None |
 | `ANCHOR_TEXT_DIFFERENT` | error | `_anchor_miss` with `miss_kind="different_text"` (`apply_document_content.py`) | None |
-| `SHAPE_TEXT_NEEDS_DELEGATION` | error | `shape_only_search_message` in `search.py`, `apply_document_content.py`, `selection.py` | None (delegation tool requires free-text task and active inner-agent endpoint). |
+| `SHAPE_TEXT_NEEDS_DELEGATION` | error | `shape_only_search_response` in `search.py` (builder and `_anchor_miss`) | None (delegation tool requires free-text task and active inner-agent endpoint). |
 | `STYLE_NOT_FOUND` | error | `_missing_style_error` in `styles.py` | `apply_style` with the corrected `style` when `similar` has exactly one entry; omitted when `old_content` is over 100 characters (no truncated needle). |
-| `OCCURRENCE_OUT_OF_RANGE` | error | `apply_document_content.py`, `styles.py`, `selection.py` | None |
+| `OCCURRENCE_OUT_OF_RANGE` | error | `apply_document_content.py`, `styles.py`, `selection.py`, `search.py` (`occurrence_range_or_error`), `comments.py`, `footnotes.py`, `page.py` | None |
 | `TABLE_IN_ANCHOR_RANGE` | error | `apply_document_content.py` | None |
 | `TABLE_BLOCK_IN_CELL` | error | Block HTML inserted in table cell (`html_import.py`) | None |
 | `TABLE_INSERT_FAILED` | error | Table creation or insertion failed (`apply_document_content.py`) | None |

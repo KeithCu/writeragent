@@ -168,6 +168,7 @@ def test_footnotes_insert_failed_create_is_a_tool_error():
 
 def test_footnotes_insert_anchor_no_match():
     doc = MagicMock()
+    doc.getDrawPage.return_value = None
     doc.supportsService.return_value = True
     doc.createSearchDescriptor.return_value = MagicMock()
     doc.findFirst.return_value = None
@@ -179,8 +180,9 @@ def test_footnotes_insert_anchor_no_match():
         insert_after="not in document",
     )
     assert res["status"] == "error"
+    assert res["code"] == "OLD_CONTENT_NOT_FOUND"
     assert res["matched_case_sensitive"] is False
-    assert "No match" in res["message"]
+    assert "insert_after not found in document" in res["message"]
 
 
 def test_footnotes_insert_anchor_occurrence_too_high():
@@ -199,8 +201,9 @@ def test_footnotes_insert_anchor_occurrence_too_high():
         occurrence=1,
     )
     assert res["status"] == "error"
+    assert res["code"] == "OCCURRENCE_OUT_OF_RANGE"
     assert res["matched_case_sensitive"] is False
-    assert "not enough occurrences" in res["message"]
+    assert "use 0..0" in res["message"]
 
 
 def test_footnotes_list():

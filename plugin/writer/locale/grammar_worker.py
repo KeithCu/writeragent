@@ -54,15 +54,6 @@ _GRAMMAR_CHAT_EXTRA = {"reasoning": {"effort": "minimal"}}
 _grammar_worker_tls = threading.local()
 
 
-def reset_grammar_llm_client_cache() -> None:
-    """Clear thread-local cached LlmClient instance (for tests and cleanup)."""
-    cached = getattr(_grammar_worker_tls, "client", None)
-    if cached is not None:
-        best_effort(cached.stop, "grammar LLM client stop failed")
-    _grammar_worker_tls.client = None
-    _grammar_worker_tls.cache_key = None
-
-
 def _get_or_create_thread_llm_client(api_cfg: dict[str, Any], ctx: Any) -> Any:
     """Return a thread-local LlmClient, reused across batches unless endpoint/key/timeout change or client stopped."""
     cache_key = (
