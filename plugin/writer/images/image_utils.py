@@ -28,8 +28,9 @@ from typing import Any
 
 from plugin.framework.client.base_provider_shim import canonical_aspect_ratio, canonical_resolution
 from plugin.framework.client.llm_client import LlmClient
+from plugin.framework.client.model_fetcher import get_image_model, is_image_only_model
 from plugin.framework.client.requests import sync_request
-from plugin.framework.config import get_config
+from plugin.framework.config import get_api_config, get_config
 from plugin.framework.config_schema import DEFAULT_IMAGE_BASE_SIZE
 from plugin.framework.errors import NetworkError, ToolExecutionError, resolve_exception_message
 from plugin.framework.send_cancellation import SendCancellation, is_cancelled
@@ -70,6 +71,34 @@ def validated_image_suffix(data: bytes) -> str:
     return suffix
 
 
+def fetch_image_url(
+    url: str,
+    *,
+    cancel: SendCancellation | None = None,
+    status_callback: Any = None,
+) -> tuple[bytes, str]:
+    """GET an image URL; return (body, sniffed suffix such as ".png").
+
+    sync_request owns TLS verification, Stop, retries, redirects and the
+    IMAGE_DOWNLOAD_MAX_BYTES cap. This adds the image rules: a denylisted
+    Content-Type (an HTML/text/JSON error page) or bytes without image magic
+    raise RuntimeError.
+    """
+    result = sync_request(
+        url,
+        parse_json=False,
+        include_meta=True,
+        timeout=get_config("request_timeout"),
+        max_bytes=IMAGE_DOWNLOAD_MAX_BYTES,
+        cancel=cancel,
+        status_callback=status_callback,
+    )
+    content_type = (result.content_type or "").split(";")[0].strip().lower()
+    if content_type in IMAGE_CONTENT_TYPE_DENYLIST:
+        raise RuntimeError("Invalid Content-Type '%s' for image download" % content_type)
+    return result.body, validated_image_suffix(result.body)
+
+
 def write_temp_image(data: bytes, suffix: str) -> str:
     """Write image bytes to a temporary file prefixed with 'wa-img-'. Unlink on failure."""
     fd, path = tempfile.mkstemp(prefix="wa-img-", suffix=suffix)
@@ -89,7 +118,8 @@ def _write_temp_image(data: bytes) -> str:
     return write_temp_image(data, suffix=validated_image_suffix(data))
 
 
-def _unlink_temp_paths(paths: list[str]) -> None:
+def unlink_temp_paths(paths: list[str]) -> None:
+    """Delete wa-img-* files directly in the temp dir; leave any other path alone."""
     temp_dir = os.path.realpath(tempfile.gettempdir())
     for p in paths:
         try:
@@ -103,7 +133,7 @@ def _unlink_temp_paths(paths: list[str]) -> None:
 def _abandon_image_paths(
     paths: list[str], cancel: SendCancellation | None, exc: Exception, log_message: str
 ) -> tuple[list[str], str]:
-    _unlink_temp_paths(paths)
+    unlink_temp_paths(paths)
     if (isinstance(exc, NetworkError) and getattr(exc, "code", None) == "STOPPED") or is_cancelled(cancel):
         log.debug("Image generation cancelled by Stop: %s", exc)
         raise ToolExecutionError("Image generation stopped by user.", code="USER_STOPPED") from exc
@@ -127,8 +157,6 @@ class EndpointImageProvider:
     model: str
 
     def __init__(self, api_config: Any, ctx: Any) -> None:
-        from plugin.framework.client.model_fetcher import get_image_model
-
         self.client = LlmClient(api_config, ctx)
         self.model = str(api_config.get("model") or get_image_model() or "").strip()
 
@@ -138,20 +166,8 @@ class EndpointImageProvider:
         return _write_temp_image(base64.b64decode(b64_data))
 
     def _save_url(self, url: str, *, cancel: SendCancellation | None = None, status_callback: Any = None) -> str:
-        resp = sync_request(
-            url,
-            parse_json=False,
-            include_meta=True,
-            timeout=get_config("request_timeout"),
-            max_bytes=IMAGE_DOWNLOAD_MAX_BYTES,
-            cancel=cancel,
-            status_callback=status_callback,
-        )
-        body = getattr(resp, "body", resp)
-        content_type = (getattr(resp, "content_type", "") or "").split(";")[0].strip().lower()
-        if content_type in IMAGE_CONTENT_TYPE_DENYLIST:
-            raise RuntimeError("Invalid Content-Type '%s' for image download" % content_type)
-        return _write_temp_image(body)
+        body, suffix = fetch_image_url(url, cancel=cancel, status_callback=status_callback)
+        return write_temp_image(body, suffix)
 
     def _save_image_ref(
         self,
@@ -227,8 +243,6 @@ class EndpointImageProvider:
             if not is_openrouter:
                 completion_log = "Image generation failed"
             else:
-                from plugin.framework.client.model_fetcher import is_image_only_model
-
                 if is_image_only_model(self.client._endpoint(), model):
                     completion_log = "OpenRouter dedicated image generation failed"
             if completion_log:
@@ -334,9 +348,6 @@ class ImageService:
     def generate_image(
         self, prompt: str, status_callback: Any = None, cancel: SendCancellation | None = None, **kwargs: Any
     ) -> tuple[list[str], str]:
-        from plugin.framework.config import get_api_config
-        from plugin.framework.client.model_fetcher import get_image_model
-
         api_config = get_api_config().copy()
         api_config["model"] = get_image_model()
         provider = EndpointImageProvider(api_config, self.ctx)

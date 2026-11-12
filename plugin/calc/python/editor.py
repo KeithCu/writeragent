@@ -40,10 +40,8 @@ from plugin.framework.thread_guard import guard_uno, main_thread_only
 from plugin.framework.uno_context import get_desktop, product_display_name
 from plugin.scripting.editor_host import (
     ask_save_discard_cancel,
-    get_active_session,
     launch_monaco_editor,
     monaco_editor_available,
-    set_active_session,
 )
 from plugin.scripting.editor_errors import editor_error_markers, failure_message
 
@@ -329,10 +327,6 @@ def open_python_cell_editor(ctx: Any) -> None:
 
 
 def _open_python_cell_editor_impl(ctx: Any) -> None:
-    existing = get_active_session()
-    if existing is not None and not existing.is_running:
-        set_active_session(None)
-
     resolved = _get_active_calc_cell(ctx)
     if resolved is None:
         msgbox(ctx, product_display_name(ctx), _("Select a cell in a Calc spreadsheet to edit Python."))
@@ -359,7 +353,7 @@ def _open_python_cell_editor_impl(ctx: Any) -> None:
 
     log.info("python_editor: initial_code len=%s parsed=%s source=%r follow=%s", len(initial_code), parsed_parts is not None, (source_formula or "")[:80], code_ref)
 
-    exe, monaco_available = monaco_editor_available(ctx)
+    exe, monaco_available = monaco_editor_available()
     if not monaco_available or exe is None:
         from plugin.calc.python.cell_editor_ui import show_native_python_cell_editor
 

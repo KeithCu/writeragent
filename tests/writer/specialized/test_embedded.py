@@ -41,11 +41,24 @@ def test_embedded_edit_fails_immediately():
 
 
 def test_embedded_insert_rejects_bad_object_type_and_bool_cell():
+    from plugin.framework.tool import prepare_tool_call
+
     ctx = MagicMock()
+    ctx.doc_type = "writer"
     tool = EmbeddedInsert()
-    bad_type = tool.execute(ctx, object_type="chart")
-    assert bad_type["status"] == "error"
-    assert ctx.doc.createInstance.call_count == 0
+    bad_type = prepare_tool_call(tool, ctx, "embedded_insert", {"object_type": "chart"})
+    assert bad_type.error is not None
+    assert bad_type.error["code"] == "VALIDATION_ERROR"
+
+    bad_data = prepare_tool_call(tool, ctx, "embedded_insert", {"object_type": "spreadsheet", "data": "x"})
+    assert bad_data.error is not None
+    assert bad_data.error["code"] == "VALIDATION_ERROR"
+
+    bad_width = prepare_tool_call(
+        tool, ctx, "embedded_insert", {"object_type": "spreadsheet", "width": True, "height": 5}
+    )
+    assert bad_width.error is not None
+    assert bad_width.error["code"] == "VALIDATION_ERROR"
 
     bad_bool = tool.execute(
         ctx,
@@ -170,8 +183,8 @@ def test_embedded_insert_sequence_and_cell_writes():
     data = [["Label", 1], ["=SUM(B2:B3)", 2], [3, None]]
     expected_size = embedded_mod._embed_size_for_used_range(len(data), max(len(row) for row in data))
     with (
-        patch("plugin.writer.specialized.embedded.resolve_target_cursor", return_value=cursor),
-        patch("plugin.writer.specialized.embedded.commit_or_rollback_mutation", side_effect=_commit),
+        patch("plugin.writer.target_resolver.resolve_target_cursor", return_value=cursor),
+        patch("plugin.writer.target_resolver.commit_or_rollback_mutation", side_effect=_commit),
     ):
         res = EmbeddedInsert().execute(
             ctx,
@@ -191,6 +204,56 @@ def test_embedded_insert_sequence_and_cell_writes():
     assert emb.Width == expected_size.width
     assert emb.Height == expected_size.height
     emb.getExtendedControlOverEmbeddedObject.assert_not_called()
+
+
+def test_embedded_insert_explicit_size_reported():
+    doc = MagicMock()
+    cursor = MagicMock()
+    host_text = MagicMock()
+    cursor.getText.return_value = host_text
+
+    emb = MagicMock()
+    doc.createInstance.return_value = emb
+
+    inner = MagicMock()
+    inner.supportsService.return_value = True
+    sheet = MagicMock()
+    inner.getSheets.return_value.getByIndex.return_value = sheet
+    emb.getEmbeddedObject.return_value = inner
+
+    container = MagicMock()
+    container.getElementNames.side_effect = [(), ("SheetEmbed",)]
+    container.hasByName.return_value = False
+    doc.getEmbeddedObjects.return_value = container
+
+    ctx = MagicMock(doc=doc, ctx=MagicMock(getServiceManager=lambda: _fake_config(
+        "abc-def",
+        factory=embedded_mod._EMBED_FACTORY,
+        doc_service=embedded_mod._SPREADSHEET_DOC_SERVICE,
+    )))
+
+    def _commit(_tool, _doc, _title, mutate, *_args, **_kwargs):
+        mutate()
+        return None
+
+    with (
+        patch("plugin.writer.target_resolver.resolve_target_cursor", return_value=cursor),
+        patch("plugin.writer.target_resolver.commit_or_rollback_mutation", side_effect=_commit),
+    ):
+        res = EmbeddedInsert().execute(
+            ctx,
+            object_type="spreadsheet",
+            target="end",
+            width=4000,
+            height=1500,
+            data=[["a"]],
+        )
+
+    assert res["status"] == "ok"
+    assert emb.Width == 4000
+    assert emb.Height == 1500
+    assert res["width"] == 4000
+    assert res["height"] == 1500
 
 
 def test_embedded_insert_name_unchanged_skips_get_embedded_object():
@@ -214,22 +277,20 @@ def test_embedded_insert_name_unchanged_skips_get_embedded_object():
         return err
 
     with (
-        patch("plugin.writer.specialized.embedded.resolve_target_cursor", return_value=cursor),
-        patch("plugin.writer.specialized.embedded.commit_or_rollback_mutation", side_effect=_commit),
+        patch("plugin.writer.target_resolver.resolve_target_cursor", return_value=cursor),
+        patch("plugin.writer.target_resolver.commit_or_rollback_mutation", side_effect=_commit),
     ):
         res = EmbeddedInsert().execute(ctx, object_type="spreadsheet", target="end")
 
     assert res["status"] == "error"
+    assert res["code"] == "TOOL_EXECUTION_ERROR"
     assert "not installed" in res["message"]
     emb.getEmbeddedObject.assert_not_called()
 
 
-def test_embedded_insert_duplicate_name_before_create():
+def test_embedded_insert_duplicate_name_rejected_before_undo_step():
     doc = MagicMock()
-    cursor = MagicMock()
-    cursor.getText.return_value = MagicMock()
     container = MagicMock()
-    container.getElementNames.return_value = ("Sales",)
     container.hasByName.return_value = True
     doc.getEmbeddedObjects.return_value = container
     ctx = MagicMock(doc=doc, ctx=MagicMock(getServiceManager=lambda: _fake_config(
@@ -238,12 +299,12 @@ def test_embedded_insert_duplicate_name_before_create():
         doc_service=embedded_mod._SPREADSHEET_DOC_SERVICE,
     )))
 
-    def _commit(_tool, _doc, _title, mutate, *_args, **_kwargs):
-        return mutate()
+    mock_resolve = MagicMock()
+    mock_commit = MagicMock()
 
     with (
-        patch("plugin.writer.specialized.embedded.resolve_target_cursor", return_value=cursor),
-        patch("plugin.writer.specialized.embedded.commit_or_rollback_mutation", side_effect=_commit),
+        patch("plugin.writer.target_resolver.resolve_target_cursor", mock_resolve),
+        patch("plugin.writer.target_resolver.commit_or_rollback_mutation", mock_commit),
     ):
         res = EmbeddedInsert().execute(
             ctx,
@@ -253,7 +314,11 @@ def test_embedded_insert_duplicate_name_before_create():
         )
 
     assert res["status"] == "error"
+    assert res["code"] == "INVALID_PARAM"
+    assert "already exists" in res["message"]
     doc.createInstance.assert_not_called()
+    mock_resolve.assert_not_called()
+    mock_commit.assert_not_called()
 
 
 def test_embedded_insert_get_embedded_object_failure():
@@ -277,10 +342,11 @@ def test_embedded_insert_get_embedded_object_failure():
         return mutate()
 
     with (
-        patch("plugin.writer.specialized.embedded.resolve_target_cursor", return_value=cursor),
-        patch("plugin.writer.specialized.embedded.commit_or_rollback_mutation", side_effect=_commit),
+        patch("plugin.writer.target_resolver.resolve_target_cursor", return_value=cursor),
+        patch("plugin.writer.target_resolver.commit_or_rollback_mutation", side_effect=_commit),
     ):
         res = EmbeddedInsert().execute(ctx, object_type="spreadsheet", target="end")
 
     assert res["status"] == "error"
+    assert res["code"] == "TOOL_EXECUTION_ERROR"
     assert "broken ole" in res["message"]

@@ -5,6 +5,7 @@ from typing import Any
 import pytest
 
 from plugin.framework.client.anthropic_shim import AnthropicShim, _parse_tool_input
+from plugin.framework.client.shim_helpers import snapshot_text
 from plugin.framework.errors import NetworkError
 
 def test_anthropic_shim_tool_parsing():
@@ -16,11 +17,19 @@ def test_anthropic_shim_tool_parsing():
     assert _parse_tool_input("{bad json") is None
     assert _parse_tool_input("[\"not an object\"]") is None
 
+class _DummyClientBase:
+    def _endpoint(self) -> str:
+        return "http://test"
+
+    def _headers(self) -> dict[str, str]:
+        return {}
+
+    def anthropic_previous_message_id(self, cache_session_id: str | None = None) -> str | None:
+        return None
+
+
 def test_anthropic_shim_build_chat():
-    class DummyClient:
-        def _endpoint(self): return "http://test"
-        def _headers(self): return {}
-    shim = AnthropicShim(DummyClient())
+    shim = AnthropicShim(_DummyClientBase())
 
     # temperature clamping & output_config
     messages = [{"role": "user", "content": "hi"}]
@@ -60,10 +69,7 @@ def test_anthropic_shim_build_chat():
     assert user_msg["content"][0]["tool_use_id"] == "good1"
 
 def test_anthropic_shim_stream_state():
-    class DummyClient:
-        def _endpoint(self): return "http://test"
-        def _headers(self): return {}
-    shim = AnthropicShim(DummyClient())
+    shim = AnthropicShim(_DummyClientBase())
 
     state1: dict[str, Any] = {}
     state2: dict[str, Any] = {}
@@ -83,10 +89,7 @@ def test_anthropic_shim_stream_state():
 
 
 def test_anthropic_shim_skipped_tool_calls():
-    class DummyClient:
-        def _endpoint(self): return "http://test"
-        def _headers(self): return {}
-    shim = AnthropicShim(DummyClient())
+    shim = AnthropicShim(_DummyClientBase())
 
     messages = [
         {"role": "assistant", "content": "", "tool_calls": [
@@ -137,14 +140,7 @@ def test_anthropic_shim_skipped_tool_calls():
 
 
 def _shim() -> AnthropicShim:
-    class DummyClient:
-        def _endpoint(self) -> str:
-            return "http://test"
-
-        def _headers(self) -> dict[str, str]:
-            return {}
-
-    return AnthropicShim(DummyClient())
+    return AnthropicShim(_DummyClientBase())
 
 
 def _message_blocks(body: bytes) -> list[dict[str, Any]]:
@@ -196,7 +192,9 @@ def test_developer_joins_system_and_unknown_role_is_skipped(caplog: pytest.LogCa
             messages, 20, None, None, False, "claude-sonnet-4-5", None, None
         )
     data = json.loads(body)
-    assert data["system"] == "sys\n\ndev line"
+    assert data["system"] == [{"type": "text", "text": "sys\n\ndev line", "cache_control": {"type": "ephemeral", "ttl": "1h"}}]
+    assert data["diagnostics"] == {"previous_message_id": None}
+    assert "cache_control" not in data
     assert data["messages"] == [{"role": "user", "content": [{"type": "text", "text": "hi"}]}]
     assert "do not send" not in body.decode()
     assert "function" in caplog.text
@@ -285,12 +283,8 @@ def test_stream_usage_is_normalized_without_summing():
 
 
 def test_anthropic_passes_xhigh_and_omits_unknown() -> None:
-    class DummyClientNoConfig:
-        def _endpoint(self) -> str:
-            return "http://test"
-
-        def _headers(self) -> dict[str, str]:
-            return {}
+    class DummyClientNoConfig(_DummyClientBase):
+        pass
 
     shim = AnthropicShim(DummyClientNoConfig())
     _m, _p, body1, _h = shim.build_chat_request(
@@ -307,14 +301,8 @@ def test_anthropic_passes_xhigh_and_omits_unknown() -> None:
 
 
 def test_anthropic_setting_when_chat_extra_absent() -> None:
-    class DummyClientWithConfig:
+    class DummyClientWithConfig(_DummyClientBase):
         config = {"reasoning_effort": "high"}
-
-        def _endpoint(self) -> str:
-            return "http://test"
-
-        def _headers(self) -> dict[str, str]:
-            return {}
 
     shim = AnthropicShim(DummyClientWithConfig())
     _m, _p, body, _h = shim.build_chat_request(
@@ -324,14 +312,8 @@ def test_anthropic_setting_when_chat_extra_absent() -> None:
 
 
 def test_anthropic_grammar_beats_setting() -> None:
-    class DummyClientWithConfig:
+    class DummyClientWithConfig(_DummyClientBase):
         config = {"reasoning_effort": "high"}
-
-        def _endpoint(self) -> str:
-            return "http://test"
-
-        def _headers(self) -> dict[str, str]:
-            return {}
 
     shim = AnthropicShim(DummyClientWithConfig())
     _m, _p, body, _h = shim.build_chat_request(
@@ -342,14 +324,8 @@ def test_anthropic_grammar_beats_setting() -> None:
 
 
 def test_anthropic_unset_omits_output_config() -> None:
-    class DummyClientUnset:
+    class DummyClientUnset(_DummyClientBase):
         config = {}
-
-        def _endpoint(self) -> str:
-            return "http://test"
-
-        def _headers(self) -> dict[str, str]:
-            return {}
 
     shim = AnthropicShim(DummyClientUnset())
     _m, _p, body, _h = shim.build_chat_request(
@@ -361,14 +337,7 @@ def test_anthropic_unset_omits_output_config() -> None:
 def test_anthropic_tool_loop_prompt_caching_and_merge():
     from plugin.framework.client.shim_helpers import snapshot_text
 
-    class DummyClient:
-        def _endpoint(self):
-            return "http://test"
-
-        def _headers(self):
-            return {}
-
-    shim = AnthropicShim(DummyClient())
+    shim = AnthropicShim(_DummyClientBase())
     snap = snapshot_text("Current doc context")
     messages = [
         {
@@ -420,14 +389,7 @@ def test_anthropic_tool_loop_prompt_caching_and_merge():
 def test_anthropic_user_send_prompt_caching():
     from plugin.framework.client.shim_helpers import snapshot_text
 
-    class DummyClient:
-        def _endpoint(self):
-            return "http://test"
-
-        def _headers(self):
-            return {}
-
-    shim = AnthropicShim(DummyClient())
+    shim = AnthropicShim(_DummyClientBase())
     snap = snapshot_text("Document snapshot")
     messages = [
         {
@@ -471,14 +433,7 @@ def test_anthropic_user_send_prompt_caching():
 
 
 def test_anthropic_tool_choice():
-    class DummyClient:
-        def _endpoint(self):
-            return "http://test"
-
-        def _headers(self):
-            return {}
-
-    shim = AnthropicShim(DummyClient())
+    shim = AnthropicShim(_DummyClientBase())
     tools = [{"type": "function", "function": {"name": "lookup", "parameters": {"type": "object"}}}]
     messages = [{"role": "user", "content": "hi"}]
 
@@ -502,14 +457,7 @@ def test_anthropic_tool_choice():
 def test_anthropic_single_tool_round_cache_breakpoint():
     from plugin.framework.client.shim_helpers import snapshot_text
 
-    class DummyClient:
-        def _endpoint(self):
-            return "http://test"
-
-        def _headers(self):
-            return {}
-
-    shim = AnthropicShim(DummyClient())
+    shim = AnthropicShim(_DummyClientBase())
     snap = snapshot_text("Document text")
     messages = [
         {
@@ -552,15 +500,9 @@ def test_anthropic_single_tool_round_cache_breakpoint():
 
 
 def test_anthropic_omits_cache_session_id():
-    class DummyClient:
+    class DummyClient(_DummyClientBase):
         def _get_provider(self):
             return "anthropic"
-
-        def _endpoint(self):
-            return "http://test"
-
-        def _headers(self):
-            return {}
 
     shim = AnthropicShim(DummyClient())
     messages = [{"role": "user", "content": "hi"}]
@@ -571,3 +513,105 @@ def test_anthropic_omits_cache_session_id():
     assert "session_id" not in data
     assert "prompt_cache_key" not in data
     assert "x-grok-conv-id" not in headers
+
+
+def test_anthropic_cache_breakpoints_system_tools_snapshot():
+    shim = _shim()
+    snap = snapshot_text("doc text")
+    messages = [
+        {"role": "system", "content": "You are a writing assistant."},
+        {"role": "user", "content": [{"type": "text", "text": "hello"}, {"type": "text", "text": snap}]},
+    ]
+    tools = [
+        {"type": "function", "function": {"name": "t1", "description": "tool 1", "parameters": {"type": "object"}}},
+        {"type": "function", "function": {"name": "t2", "description": "tool 2", "parameters": {"type": "object"}}},
+    ]
+    _method, _path, body, _headers = shim.build_chat_request(
+        messages, 100, None, tools, False, "claude-3-5-sonnet", None
+    )
+    data = json.loads(body)
+    assert "cache_control" not in data
+    assert data["system"] == [{"type": "text", "text": "You are a writing assistant.", "cache_control": {"type": "ephemeral", "ttl": "1h"}}]
+    # Tools remain unmarked because the system breakpoint covers tools and system prefix
+    assert "cache_control" not in data["tools"][0]
+    assert "cache_control" not in data["tools"][1]
+    # User message: pre-snapshot block is marked, snapshot is unmarked
+    u_content = data["messages"][0]["content"]
+    assert u_content[0]["text"] == "hello"
+    assert u_content[0]["cache_control"] == {"type": "ephemeral"}
+    assert "ttl" not in u_content[0]["cache_control"]
+    assert u_content[1]["text"] == snap
+    assert "cache_control" not in u_content[1]
+    assert json.dumps(data).count("cache_control") == 2
+
+
+def test_anthropic_cache_breakpoints_no_system_two_tools_snapshot():
+    shim = _shim()
+    snap = snapshot_text("doc text")
+    messages = [
+        {"role": "user", "content": [{"type": "text", "text": "hello"}, {"type": "text", "text": snap}]},
+    ]
+    tools = [
+        {"type": "function", "function": {"name": "t1", "description": "tool 1", "parameters": {"type": "object"}}},
+        {"type": "function", "function": {"name": "t2", "description": "tool 2", "parameters": {"type": "object"}}},
+    ]
+    _method, _path, body, _headers = shim.build_chat_request(
+        messages, 100, None, tools, False, "claude-3-5-sonnet", None
+    )
+    data = json.loads(body)
+    assert "system" not in data
+    assert "cache_control" not in data
+    assert "cache_control" not in data["tools"][0]
+    assert data["tools"][1]["cache_control"] == {"type": "ephemeral", "ttl": "1h"}
+    u_content = data["messages"][0]["content"]
+    assert u_content[0]["cache_control"] == {"type": "ephemeral"}
+    assert "ttl" not in u_content[0]["cache_control"]
+    assert "cache_control" not in u_content[1]
+    assert json.dumps(data).count("cache_control") == 2
+
+
+def test_anthropic_cache_breakpoints_long_transcript():
+    shim = _shim()
+    snap = snapshot_text("doc text")
+    messages = [
+        {"role": "system", "content": "Base instructions."},
+        {"role": "user", "content": "turn 1"},
+        {"role": "assistant", "content": "response 1"},
+        {"role": "user", "content": "turn 2"},
+        {"role": "assistant", "content": "response 2"},
+        {"role": "user", "content": [{"type": "text", "text": "turn 3"}, {"type": "text", "text": snap}]},
+    ]
+    tools = [
+        {"type": "function", "function": {"name": "t1", "description": "tool 1", "parameters": {"type": "object"}}},
+    ]
+    _method, _path, body, _headers = shim.build_chat_request(
+        messages, 100, None, tools, False, "claude-3-5-sonnet", None
+    )
+    data = json.loads(body)
+    assert data["system"][0]["cache_control"] == {"type": "ephemeral", "ttl": "1h"}
+    assert "cache_control" not in data["tools"][0]
+    last_msg = data["messages"][-1]
+    assert last_msg["content"][0]["cache_control"] == {"type": "ephemeral"}
+    assert "cache_control" not in last_msg["content"][1]
+    assert json.dumps(data).count("cache_control") == 2
+
+
+def test_anthropic_diagnostics_previous_message_id_passthrough():
+    class DummyClient(_DummyClientBase):
+        def anthropic_previous_message_id(self, cache_session_id: str | None = None) -> str | None:
+            return "msg_abc" if cache_session_id == "conv-1" else None
+
+    shim = AnthropicShim(DummyClient())
+    messages = [{"role": "user", "content": "hi"}]
+    _method, _path, body, _headers = shim.build_chat_request(
+        messages, 100, None, None, False, "claude-3-5-sonnet", None, cache_session_id="conv-1"
+    )
+    data = json.loads(body)
+    assert data["diagnostics"] == {"previous_message_id": "msg_abc"}
+    assert "session_id" not in data
+    assert "prompt_cache_key" not in data
+
+    _method2, _path2, body2, _headers2 = shim.build_chat_request(
+        messages, 100, None, None, False, "claude-3-5-sonnet", None, cache_session_id=None
+    )
+    assert json.loads(body2)["diagnostics"] == {"previous_message_id": None}

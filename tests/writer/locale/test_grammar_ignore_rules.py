@@ -76,58 +76,54 @@ class TestGrammarIgnoreRules:
         assert (parse_prefixed_rule_identifier(f"{HARPER_RULE_PREFIX}", HARPER_RULE_PREFIX)) is None
 
     def test_collect_ignored_reasons_merges_doc_and_global(self) -> None:
-        ctx = MagicMock()
         dp = MagicMock()
         dp.ignored_rules_snapshot.return_value = {"avoid passive voice"}
         global_rule = f"{WA_G_RULE_PREFIX}Use 'an' instead of 'a'."
         with (
-            patch("plugin.writer.locale.grammar_persistence.get_persistence", return_value=dp),
+            patch("plugin.writer.locale.grammar_ignore_rules.get_persistence", return_value=dp),
             patch("plugin.writer.locale.grammar_ignore_rules.ignored_rules_snapshot", return_value={global_rule}),
         ):
-            reasons = collect_ignored_reasons(ctx, "doc-x")
+            reasons = collect_ignored_reasons("doc-x")
         assert ("avoid passive voice") in (reasons)
         assert (normalize_reason(global_rule[len(WA_G_RULE_PREFIX) :])) in (reasons)
 
     def test_collect_ignored_reasons_stable_global_uses_bare_code(self) -> None:
-        ctx = MagicMock()
         dp = MagicMock()
         dp.ignored_rules_snapshot.return_value = set()
         global_rule = make_rule_identifier(HARPER_RULE_PREFIX, "SpellCheck")
         with (
-            patch("plugin.writer.locale.grammar_persistence.get_persistence", return_value=dp),
+            patch("plugin.writer.locale.grammar_ignore_rules.get_persistence", return_value=dp),
             patch("plugin.writer.locale.grammar_ignore_rules.ignored_rules_snapshot", return_value={global_rule}),
         ):
-            reasons = collect_ignored_reasons(ctx, "doc-x")
+            reasons = collect_ignored_reasons("doc-x")
         assert ("SpellCheck") in (reasons)
         assert ("harper spellcheck") not in (reasons)
 
     def test_collect_ignored_reasons_bare_global_uses_normalized_key(self) -> None:
-        ctx = MagicMock()
         dp = MagicMock()
         dp.ignored_rules_snapshot.return_value = set()
         raw = "Legacy Bare Rule!"
         with (
-            patch("plugin.writer.locale.grammar_persistence.get_persistence", return_value=dp),
+            patch("plugin.writer.locale.grammar_ignore_rules.get_persistence", return_value=dp),
             patch("plugin.writer.locale.grammar_ignore_rules.ignored_rules_snapshot", return_value={raw}),
         ):
-            reasons = collect_ignored_reasons(ctx, "doc-x")
+            reasons = collect_ignored_reasons("doc-x")
         assert (normalize_reason(raw)) in (reasons)
 
     def test_collect_ignored_reasons_drops_empty_keys(self) -> None:
-        ctx = MagicMock()
         dp = MagicMock()
         dp.ignored_rules_snapshot.return_value = set()
         with (
-            patch("plugin.writer.locale.grammar_persistence.get_persistence", return_value=dp),
+            patch("plugin.writer.locale.grammar_ignore_rules.get_persistence", return_value=dp),
             patch("plugin.writer.locale.grammar_ignore_rules.ignored_rules_snapshot", return_value={WA_G_RULE_PREFIX}),
         ):
-            reasons = collect_ignored_reasons(ctx, "doc-x")
+            reasons = collect_ignored_reasons("doc-x")
         assert "" not in reasons
         assert len(reasons) == 0
 
     def test_doc_ignored_rules_empty_when_no_persistence(self) -> None:
-        with patch("plugin.writer.locale.grammar_persistence.get_persistence", return_value=None):
-            assert (doc_ignored_rules(MagicMock(), "missing")) == (set())
+        with patch("plugin.writer.locale.grammar_ignore_rules.get_persistence", return_value=None):
+            assert (doc_ignored_rules("missing")) == (set())
 
     def test_normalize_reason(self) -> None:
         assert (normalize_reason("Avoid passive voice.")) == ("avoid passive voice")
@@ -153,7 +149,6 @@ class TestGrammarIgnoreRules:
         assert ("avoid passive voice") in (written["ignored_rules"])
 
     def test_cached_errors_to_uno_tuple_filters_ignored_rules(self) -> None:
-        ctx = MagicMock()
         doc_id = "doc-x"
         dp = MagicMock()
         dp.ignored_rules_snapshot.return_value = {"avoid passive voice"}
@@ -178,8 +173,8 @@ class TestGrammarIgnoreRules:
         )
 
         u16_map = Utf16OffsetMap("This was done by him. This is a apple.")
-        with patch("plugin.writer.locale.grammar_persistence.get_persistence", return_value=dp):
-            res = _cached_errors_to_uno_tuple(cached, ctx, doc_id, u16_map)
+        with patch("plugin.writer.locale.grammar_ignore_rules.get_persistence", return_value=dp):
+            res = _cached_errors_to_uno_tuple(cached, doc_id, u16_map)
 
         assert (len(res)) == (1)
         assert (res[0].aRuleIdentifier) == ("wa_g_rule||Use 'an' instead of 'a'.")
@@ -215,7 +210,7 @@ class TestGrammarIgnoreRules:
                 patch("plugin.writer.locale.grammar_persistence.get_persistence", return_value=dp) as mock_get,
             ):
                 pr.ignoreRule("wa_g_rule||Avoid passive voice.", None)
-                mock_get.assert_called_with(ctx, "2")
+                mock_get.assert_called_with("2")
                 assert "avoid passive voice" in dp.ignored_rules_snapshot()
                 assert mock_save.call_count == 1
 
@@ -255,7 +250,6 @@ def test_is_rule_ignored_stable_not_ignored(prefix: str, ignored_code: str, othe
 
 @pytest.mark.parametrize("prefix,ignored_code,other_code", _STABLE_PREFIX_CASES)
 def test_cached_errors_to_uno_tuple_filters_stable_ignored_rules(prefix: str, ignored_code: str, other_code: str) -> None:
-    ctx = MagicMock()
     doc_id = "doc-x"
     dp = MagicMock()
     dp.ignored_rules_snapshot.return_value = {ignored_code}
@@ -280,8 +274,8 @@ def test_cached_errors_to_uno_tuple_filters_stable_ignored_rules(prefix: str, ig
     )
 
     u16_map = Utf16OffsetMap("This was done by him. This is a apple.")
-    with patch("plugin.writer.locale.grammar_persistence.get_persistence", return_value=dp):
-        res = _cached_errors_to_uno_tuple(cached, ctx, doc_id, u16_map)
+    with patch("plugin.writer.locale.grammar_ignore_rules.get_persistence", return_value=dp):
+        res = _cached_errors_to_uno_tuple(cached, doc_id, u16_map)
 
     assert len(res) == 1
     assert res[0].aRuleIdentifier == make_rule_identifier(prefix, other_code)
@@ -289,7 +283,6 @@ def test_cached_errors_to_uno_tuple_filters_stable_ignored_rules(prefix: str, ig
 
 @pytest.mark.parametrize("prefix,ignored_code,other_code", _STABLE_PREFIX_CASES)
 def test_cached_errors_to_uno_tuple_filters_stable_after_reload(prefix: str, ignored_code: str, other_code: str) -> None:
-    ctx = MagicMock()
     doc_id = "doc-x"
     dp = MagicMock()
     dp.ignored_rules_snapshot.return_value = {ignored_code}
@@ -307,10 +300,10 @@ def test_cached_errors_to_uno_tuple_filters_stable_after_reload(prefix: str, ign
 
     u16_map = Utf16OffsetMap("This was done by him. This is a apple.")
     with (
-        patch("plugin.writer.locale.grammar_persistence.get_persistence", return_value=dp),
+        patch("plugin.writer.locale.grammar_ignore_rules.get_persistence", return_value=dp),
         patch("plugin.writer.locale.grammar_ignore_rules.ignored_rules_snapshot", return_value=set()),
     ):
-        res = _cached_errors_to_uno_tuple(cached, ctx, doc_id, u16_map)
+        res = _cached_errors_to_uno_tuple(cached, doc_id, u16_map)
 
     assert len(res) == 0
 
@@ -357,12 +350,11 @@ def test_rule_prefixes_come_from_framework_leaf() -> None:
 
 
 def test_ignore_set_for_document_and_allows() -> None:
-    ctx = MagicMock()
     with (
         patch("plugin.writer.locale.grammar_ignore_rules.doc_ignored_rules", return_value={"avoid passive voice"}),
         patch("plugin.writer.locale.grammar_ignore_rules.ignored_rules_snapshot", return_value={"global-rule"}),
     ):
-        iset = IgnoreSet.for_document(ctx, "doc1")
+        iset = IgnoreSet.for_document("doc1")
         assert not iset.allows(f"{WA_G_RULE_PREFIX}Avoid passive voice.")
         assert not iset.allows("global-rule")
         assert iset.allows("unrelated-rule")

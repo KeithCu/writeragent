@@ -442,7 +442,7 @@ def test_apply_document_content_table_failure_reported_uno(ctx, doc):
     """Tip: tool must report failure honestly if a table insert produces no table."""
     skip_windows_leftover_hidden_load("apply_document_content Hidden _default swriter")
     from unittest.mock import patch
-    from plugin.writer import html_import as format_support
+    from plugin.writer import html_import
 
     text = doc.getText()
     cur = text.createTextCursor()
@@ -452,7 +452,7 @@ def test_apply_document_content_table_failure_reported_uno(ctx, doc):
     html = "<table><tr><td>Fail</td></tr></table>"
 
     # Simulate an import failure where no table is produced in the document
-    with patch.object(format_support, "insert_html_at_cursor"):
+    with patch.object(html_import, "insert_html_at_cursor"):
         res = ApplyDocumentContent().execute(
             tool_ctx,
             content=[html],

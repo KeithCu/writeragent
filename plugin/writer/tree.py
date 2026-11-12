@@ -27,6 +27,7 @@ from typing import Any, NamedTuple, cast
 from plugin.framework.errors import ToolExecutionError, name_miss_details
 from plugin.framework.service import ServiceBase
 from plugin.doc.document_helpers import is_cacheable_doc_key
+from plugin.doc.paragraph_search import find_paragraph_for_range
 from plugin.doc.text_helpers import (
     build_heading_tree,
     find_heading_by_chapter_number,
@@ -149,7 +150,7 @@ class TreeService(ServiceBase):
         """
         key = self._doc_svc.doc_key(doc)
         # Cheap stale-cache check when XModifyListener misses a programmatic edit.
-        # Windows leftover Writer reuse (GHA 35466498641) can leave a live
+        # Reusing a leftover Writer on Windows can leave a live
         # RuntimeUID listener that does not fire on ``insertString``;
         # ``CharacterCount`` still moves. ``None`` means no signal — keep
         # listener-only caching (WriterDocStub / missing property).
@@ -343,7 +344,6 @@ class TreeService(ServiceBase):
         if placed is None:
             if accept_name is not None:
                 # If unplaced in paragraphs, check if it maps to the accepted table
-                from plugin.doc.paragraph_search import find_paragraph_for_range
                 raw_idx = find_paragraph_for_range(anchor, para_ranges)
                 if (
                     isinstance(raw_idx, int)
@@ -372,7 +372,7 @@ class TreeService(ServiceBase):
                     vc.jumpToStartOfPage()
                     return vc.getStart()
 
-                # Why-comment: restoring inside the lock leaves a view cursor that
+                # Restoring inside the lock leaves a view cursor that
                 # started in a table cell or frame on the target page. Do not add a
                 # second save/restore.
                 anchor = with_view_cursor_left_body_locked(doc, vc, _jump)

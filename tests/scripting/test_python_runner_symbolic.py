@@ -9,7 +9,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 from tests.scripting.python_runner_test_support import execute_and_insert_result
-from plugin.scripting.symbolic import get_math_script_templates
+from plugin.scripting.domain_registry import get_domain_wiring
 
 
 @patch("plugin.scripting.symbolic.insert_symbolic_result_into_doc")
@@ -29,7 +29,7 @@ def test_execute_and_insert_math_skips_fast_path(mock_venv, mock_run, mock_inser
                 "text": "-2, 2",
             },
         }
-        code = get_math_script_templates()["solve_equation"]
+        code = get_domain_wiring("math").templates()["solve_equation"]
         outcome = execute_and_insert_result(ctx, doc, code)
 
     assert outcome["ok"] is True

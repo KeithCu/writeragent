@@ -74,7 +74,7 @@ def test_filter_document_research_discovery_tools_respects_config():
     r.register(SpecializedWorkflowFinished())
     tools = r.get_tools(doc=MagicMock(), active_domain="document_research", exclude_tiers=())
 
-    with patch("plugin.framework.constants.folder_search_enabled", return_value=False):
+    with patch("plugin.doc.document_research.folder_search_enabled", return_value=False):
         filtered = filter_document_research_discovery_tools(tools)
     names = {t.name for t in filtered}
     assert "list_nearby_files" in names
@@ -84,7 +84,7 @@ def test_filter_document_research_discovery_tools_respects_config():
     assert "search_embeddings" not in names
     assert "search_nearby_files" not in names
 
-    with patch("plugin.framework.constants.folder_search_enabled", return_value=True):
+    with patch("plugin.doc.document_research.folder_search_enabled", return_value=True):
         filtered = filter_document_research_discovery_tools(tools)
     names = {t.name for t in filtered}
     assert "search_nearby_files" in names
@@ -838,9 +838,9 @@ def test_get_open_documents():
     mock_desktop.getComponents.return_value.createEnumeration.return_value.hasMoreElements.side_effect = [True, False]
     mock_desktop.getComponents.return_value.createEnumeration.return_value.nextElement.return_value = mock_comp
 
-    with patch("plugin.framework.uno_context.get_desktop", return_value=mock_desktop), \
+    with patch("plugin.doc.document_research.get_desktop", return_value=mock_desktop), \
          patch("plugin.doc.document_research.get_document_type", return_value=DocumentType.CALC), \
-         patch("plugin.doc.document_research._system_path_from_url", return_value="/tmp/Budget.ods"):
+         patch("plugin.doc.document_research.system_path_from_url", return_value="/tmp/Budget.ods"):
         docs = get_open_documents(mock_ctx)
         assert len(docs) == 1
         assert docs[0]["name"] == "Budget.ods"
@@ -1178,3 +1178,25 @@ def test_delegate_read_document_missing_file_error_has_flat_details(mock_resolve
     assert result["details"]["path_or_name"] == "x"
     assert "details" not in result["details"]
 
+
+def test_run_inner_read_agent_unknown_doc_type_is_coded_error():
+    res = run_inner_read_agent(MagicMock(), MagicMock(), "nope", "task")
+    assert isinstance(res, dict)
+    assert res["status"] == "error"
+    assert res["code"] == "TOOL_EXECUTION_ERROR"
+    assert "No read tools configured" in res["message"]
+
+
+def test_delegate_read_document_stop_while_resolving_name_is_user_stopped():
+    from plugin.framework.send_cancellation import SendCancelled
+
+    r = ToolRegistry(services={})
+    r.register(DelegateReadDocument())
+    ctx = MagicMock()
+    ctx.services = {"tools": r}
+    tool = r.get("delegate_read_document")
+    assert tool is not None
+    with patch("plugin.doc.document_research.resolve_listing_state", side_effect=SendCancelled()):
+        result = tool.execute_safe(ctx, path_or_name="Budget", task="Q4")
+    assert result["status"] == "error"
+    assert result["code"] == "USER_STOPPED"

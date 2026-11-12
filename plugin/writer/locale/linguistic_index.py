@@ -39,7 +39,7 @@ log = logging.getLogger("writeragent.writer.index")
 
 # ── Language mapping (ISO 639-1 -> snowballstemmer algorithm) ─────────
 
-from plugin.framework.grammar_rule_ids import _ISO_TO_SNOWBALL
+from plugin.framework.grammar_rule_ids import ISO_TO_SNOWBALL
 
 # ── Tokenisation ──────────────────────────────────────────────────────
 
@@ -236,13 +236,13 @@ class IndexService(ServiceBase):
 
         t0 = time.perf_counter()
         detected = self._detect_language_iso(doc)
-        lang = (_ISO_TO_SNOWBALL.get(detected) if detected else None) or "english"
+        lang = (ISO_TO_SNOWBALL.get(detected) if detected else None) or "english"
         stemmer = self._get_stemmer(lang)
         stop_words = _normalized_stop_words(lang)
 
         idx = _DocIndex()
         idx.detected_language = detected
-        idx.stem_fallback = detected is not None and detected not in _ISO_TO_SNOWBALL
+        idx.stem_fallback = detected is not None and detected not in ISO_TO_SNOWBALL
         idx.language = lang
         text_obj = doc.getText()
         enum = text_obj.createEnumeration()

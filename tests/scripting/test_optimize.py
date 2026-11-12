@@ -1,6 +1,8 @@
 import sys
-import pandas as pd
+
 import numpy as np
+import pandas as pd
+import pytest
 
 from plugin.scripting.optimize import (
     linear_programming,
@@ -662,6 +664,53 @@ def test_lp_solution_table_caps_at_200():
     assert len(res["tables"][0]["rows"]) == 200
     assert res["tables"][0]["truncated"] is True
     assert res["tables"][0]["total_rows"] == 250
+
+
+_LP_GRID = [["c", "a1", "b"], [1, 1, 4], [2, 1, 4]]
+_PIN_GRID = [["Region", "Sales", "Units"], ["N", 10, 1], ["S", 20, 2], ["E", 30, 3], ["W", 40, 4]]
+
+
+@pytest.mark.parametrize(
+    ("call", "expected_code", "expected_message", "expected_helper"),
+    [
+        (
+            lambda: linear_programming(_LP_GRID, c_col="c", a_cols=["a1"], b_col="b", bounds="x"),
+            "INVALID_PARAM",
+            "bounds must be one [low, high] pair or a list of one pair per variable",
+            "linear_programming",
+        ),
+        (
+            lambda: linear_programming(_LP_GRID, c_col="c", a_cols=["a1"], b_col="b", maximize="maybe"),
+            "INVALID_PARAM",
+            "maximize must be a boolean, got 'maybe'",
+            "linear_programming",
+        ),
+        (
+            lambda: optimize_portfolio(_PIN_GRID, returns_col=["Nope"]),
+            "UNKNOWN_COLUMN",
+            "Unknown columns: Nope",
+            "optimize_portfolio",
+        ),
+        (
+            lambda: solve_scheduling_problem(_PIN_GRID, cost_cols=5),
+            "INVALID_PARAM",
+            "cost_cols must be a column list, got 5",
+            "solve_scheduling_problem",
+        ),
+    ],
+)
+def test_optimize_helper_errors_keep_code_message_helper(
+    call,
+    expected_code: str,
+    expected_message: str,
+    expected_helper: str,
+):
+    assert call() == {
+        "status": "error",
+        "code": expected_code,
+        "message": expected_message,
+        "helper": expected_helper,
+    }
 
 
 

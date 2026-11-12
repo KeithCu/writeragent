@@ -74,7 +74,7 @@ def test_run_vision_uses_config_worker_timeout(ctx):
     spec = {"helper": "extract_text", "params": {}}
 
     with (
-        patch("plugin.framework.config.get_config", return_value=999),
+        patch("plugin.scripting.client.get_config", return_value=999),
         patch("plugin.scripting.client.run_trusted_worker_action", return_value=worker_result) as mock_run,
     ):
         run_vision(ctx, spec, b"png")
@@ -94,7 +94,7 @@ def test_run_vision_worker_error(ctx):
 def test_run_vision_non_dict_spec_uses_long_budget(ctx):
     worker_result = {"status": "ok", "helper": "extract_text", "full_text": "hi"}
     with (
-        patch("plugin.framework.config.get_config", return_value=300),
+        patch("plugin.scripting.client.get_config", return_value=300),
         patch("plugin.scripting.client.run_trusted_worker_action", return_value=worker_result) as mock_run,
     ):
         result = run_vision(ctx, ["extract_text"], b"png")

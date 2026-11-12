@@ -2,7 +2,7 @@
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Optimize helper templates, host RPC, and Calc egress (LO host).
+"""Optimize helper host RPC and Calc egress (LO host).
 
 Compute is lazy-loaded from ``plugin.scripting.venv.optimize`` via ``__getattr__``.
 """
@@ -10,7 +10,6 @@ Compute is lazy-loaded from ``plugin.scripting.venv.optimize`` via ``__getattr__
 from __future__ import annotations
 
 import functools
-from typing import Any
 
 from plugin.scripting._lazy_venv import install_lazy_exports
 from plugin.scripting.helper_domain import insert_helper_result_into_calc
@@ -19,27 +18,6 @@ from plugin.scripting.helper_registry import names
 _OPTIMIZE_VENV_EXPORTS = names("optimize") | {"run_optimize"}
 
 install_lazy_exports(globals(), "optimize", _OPTIMIZE_VENV_EXPORTS)
-
-
-# --- Templates ---
-
-
-def parse_optimize_script_header(code: str) -> Any:
-    from plugin.scripting.domain_registry import get_domain_wiring
-
-    return get_domain_wiring("optimize").parse_header(code)
-
-
-def get_optimize_script_templates() -> dict[str, str]:
-    from plugin.scripting.domain_registry import get_domain_wiring
-
-    return get_domain_wiring("optimize").templates()
-
-
-def get_optimize_template(helper: str) -> str | None:
-    from plugin.scripting.domain_registry import get_domain_wiring
-
-    return get_domain_wiring("optimize").template_for(helper)
 
 
 # --- Egress ---

@@ -2,7 +2,7 @@
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Symbolic helper templates, host RPC, and document egress (LO host).
+"""Symbolic helper host RPC and document egress (LO host).
 
 Compute is lazy-loaded from ``plugin.scripting.venv.symbolic`` via ``__getattr__``.
 """
@@ -20,15 +20,6 @@ from plugin.scripting.helper_registry import names
 _SYMBOLIC_VENV_EXPORTS = names("symbolic") | {"run_symbolic"}
 
 install_lazy_exports(globals(), "symbolic", _SYMBOLIC_VENV_EXPORTS)
-
-
-# --- Templates ---
-
-
-def get_math_script_templates() -> dict[str, str]:
-    from plugin.scripting.domain_registry import get_domain_wiring
-
-    return get_domain_wiring("math").templates()
 
 
 # --- Egress ---
@@ -72,6 +63,7 @@ def insert_symbolic_result_into_writer(ctx: Any, doc: Any, result: dict[str, Any
             details={"symbolic_result": result},
         )
 
+    # host only: not in the compute bundle
     from plugin.writer.math.math_mml_convert import convert_latex_to_starmath, insert_writer_math_formula
 
     conv = convert_latex_to_starmath(ctx, latex, display_block=display_block)
@@ -96,7 +88,7 @@ def insert_symbolic_result_into_doc(ctx: Any, doc: Any, result: dict[str, Any], 
         insert_symbolic_result_into_writer(ctx, doc, result, display_block=display_block)
         return 1
     if is_calc(doc):
-        from plugin.calc.tabular_egress import insert_tabular_result_into_calc
+        from plugin.calc.tabular_egress import insert_tabular_result_into_calc  # host only: not in the compute bundle
 
         return insert_tabular_result_into_calc(doc, ctx, format_symbolic_for_calc(result))
     raise ToolExecutionError(_("Unsupported document type for symbolic insertion."), code="SYMBOLIC_ERROR")

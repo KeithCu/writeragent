@@ -62,7 +62,7 @@ def test_bcp47_tags_isolation() -> None:
 
 def test_bcp47_constants_and_tables() -> None:
     from plugin.framework.grammar_rule_ids import (
-        _ISO_TO_SNOWBALL,
+        ISO_TO_SNOWBALL,
         STOPWORDS_ISO_KEY,
         normalize_uno_locale_to_bcp47,
     )
@@ -70,8 +70,8 @@ def test_bcp47_constants_and_tables() -> None:
 
     assert HARPER_LOCALE_TAGS == ("en-US", "en-GB", "en-AU", "en-CA", "en-IN")
     assert STOPWORDS_ISO_KEY["serbian"] == "hr"
-    assert _ISO_TO_SNOWBALL["sr"] == "serbian"
-    assert "hr" not in _ISO_TO_SNOWBALL
+    assert ISO_TO_SNOWBALL["sr"] == "serbian"
+    assert "hr" not in ISO_TO_SNOWBALL
 
     overrides = {
         ("en", "UK"): "en-GB",
@@ -125,7 +125,7 @@ def test_raw_lang_to_bcp47_table() -> None:
 
 
 def test_harper_locale_normalization_contract() -> None:
-    from plugin.writer.locale.harper_proofreader import normalize_harper_locale_to_bcp47
+    from plugin.writer.locale.harper import normalize_harper_locale_to_bcp47
 
     assert normalize_harper_locale_to_bcp47(SimpleNamespace(Language="en-NZ", Country="", Variant="")) == "en-US"
     assert normalize_harper_locale_to_bcp47(SimpleNamespace(Language="en", Country="NZ", Variant="")) == "en-US"

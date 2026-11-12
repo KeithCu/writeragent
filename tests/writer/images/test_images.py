@@ -20,8 +20,11 @@ from plugin.tests.testing_utils import TestingFactory
 from plugin.framework.config_schema import DEFAULT_IMAGE_BASE_SIZE
 from plugin.doc.document_research_tools import ListNearbyFiles
 from plugin.doc.visual_helpers import anchor_type_index
-from plugin.framework.errors import DocumentDisposedError
+from plugin.framework.client.http_transport import HttpResult
+from plugin.framework.errors import DocumentDisposedError, NetworkError
+from plugin.framework.send_cancellation import SendCancellation
 from plugin.framework.tool import ToolContext, ToolRegistry
+from plugin.writer.images.image_utils import IMAGE_DOWNLOAD_MAX_BYTES
 from plugin.writer.images.images import (
     ImageCropAndHighlight,
     ImageDelete,
@@ -528,16 +531,16 @@ def test_images_domain_includes_list_nearby_image_files_not_document_research_li
     assert "specialized_workflow_finished" in names
 
 
-def test_image_download_verifies_tls_by_default():
+def test_image_download_has_no_tls_opt_out():
     import inspect
 
-    assert inspect.signature(_download_image_to_cache).parameters["verify_ssl"].default is True
+    assert "verify_ssl" not in inspect.signature(_download_image_to_cache).parameters
+    assert ImageDownload.scripting_only_parameters == frozenset()
     props = (ImageDownload.parameters.get("properties") if ImageDownload.parameters else {}) or {}
     assert "verify_ssl" not in props
-    assert "verify_ssl" in ImageDownload.scripting_only_parameters
 
 
-def test_image_download_prepare_tool_call_hides_verify_ssl_from_chat():
+def test_image_download_prepare_tool_call_drops_verify_ssl_for_every_caller():
     from plugin.framework.tool import prepare_tool_call
 
     tool = ImageDownload()
@@ -550,127 +553,17 @@ def test_image_download_prepare_tool_call_hides_verify_ssl_from_chat():
     assert "verify_ssl" not in prep_chat.kwargs
     assert prep_chat.kwargs == {"url": "https://example.com/a.png"}
 
-    # Script caller: verify_ssl is preserved
+    # Script caller: verify_ssl is also dropped
     script_ctx = TestingFactory.create_context(doc_type="writer")
     script_ctx.caller = "script"
     prep_script = prepare_tool_call(tool, script_ctx, "image_download", {"url": "https://example.com/a.png", "verify_ssl": False})
     assert prep_script.error is None
-    assert prep_script.kwargs.get("verify_ssl") is False
-
-
-def test_download_image_to_cache_does_not_disable_tls(tmp_path, monkeypatch):
-    import ssl
-
-    from plugin.writer.images import images as images_mod
-
-    monkeypatch.setattr("plugin.writer.images.image_tools._image_cache_dir", lambda: str(tmp_path))
-    seen = {}
-
-    class _Resp:
-        def __init__(self) -> None:
-            self._chunks = [b"\x89PNG"]
-            self.headers = {}
-
-        def read(self, _size: int = -1) -> bytes:
-            if not self._chunks:
-                return b""
-            return self._chunks.pop(0)
-
-        def __enter__(self) -> "_Resp":
-            return self
-
-        def __exit__(self, *_args: object) -> bool:
-            return False
-
-    def _open(request, context=None, timeout=None):
-        seen["context"] = context
-        seen["timeout"] = timeout
-        return _Resp()
-
-    monkeypatch.setattr(images_mod.urllib.request, "urlopen", _open)
-    monkeypatch.setattr(
-        "plugin.writer.images.images.get_config",
-        lambda key: 15 if key == "request_timeout" else 1024,
-    )
-    path = _download_image_to_cache("https://example.com/logo.png")
-    assert path.startswith(str(tmp_path))
-    assert seen["context"] is None
-    assert not isinstance(seen["context"], ssl.SSLContext)
-    assert seen["timeout"] == 15
-    with open(path, "rb") as fh:
-        assert fh.read() == b"\x89PNG"
-
-
-def test_set_read_timeout_finds_socket_on_every_response_shape(caplog):
-    from types import SimpleNamespace
-
-    from plugin.writer.images.images import _set_read_timeout
-
-    class _Sock:
-        def __init__(self) -> None:
-            self.timeouts: list[float] = []
-
-        def settimeout(self, value: float) -> None:
-            self.timeouts.append(value)
-
-    shapes = [
-        lambda s: SimpleNamespace(sock=s),
-        lambda s: SimpleNamespace(fp=SimpleNamespace(raw=SimpleNamespace(_sock=s))),
-        lambda s: SimpleNamespace(fp=SimpleNamespace(_sock=s)),
-    ]
-    for build in shapes:
-        sock = _Sock()
-        assert _set_read_timeout(build(sock), 1.0) is True
-        assert sock.timeouts == [1.0]
-
-    class _BadSock:
-        def settimeout(self, _value: float) -> None:
-            raise OSError("closed")
-
-    with caplog.at_level("WARNING", logger="writeragent.writer"):
-        assert _set_read_timeout(SimpleNamespace(fp=None), 1.0) is False
-        assert _set_read_timeout(SimpleNamespace(sock=_BadSock()), 1.0) is False
-    assert sum("Stop may wait" in r.getMessage() for r in caplog.records) == 2
-
-
-def test_download_image_to_cache_sets_short_read_timeout(tmp_path, monkeypatch):
-    from types import SimpleNamespace
-
-    from plugin.writer.images import images as images_mod
-
-    monkeypatch.setattr("plugin.writer.images.image_tools._image_cache_dir", lambda: str(tmp_path))
-    timeouts: list[float] = []
-    sock = SimpleNamespace(settimeout=timeouts.append)
-
-    class _Resp:
-        def __init__(self) -> None:
-            self._chunks = [b"\x89PNG"]
-            self.headers = {}
-            self.fp = SimpleNamespace(raw=SimpleNamespace(_sock=sock))
-
-        def read(self, _size: int = -1) -> bytes:
-            return self._chunks.pop(0) if self._chunks else b""
-
-        def __enter__(self) -> "_Resp":
-            return self
-
-        def __exit__(self, *_args: object) -> bool:
-            return False
-
-    monkeypatch.setattr(images_mod.urllib.request, "urlopen", lambda request, context=None, timeout=None: _Resp())
-    monkeypatch.setattr(
-        "plugin.writer.images.images.get_config",
-        lambda key: 15 if key == "request_timeout" else 1024,
-    )
-    _download_image_to_cache("https://example.com/timeout.png")
-    assert timeouts == [1.0]
+    assert "verify_ssl" not in prep_script.kwargs
+    assert prep_script.kwargs == {"url": "https://example.com/a.png"}
 
 
 def test_download_image_to_cache_unlinks_stale_partials(tmp_path, monkeypatch):
-    import time
-    from plugin.writer.images import images as images_mod
-
-    monkeypatch.setattr("plugin.writer.images.image_tools._image_cache_dir", lambda: str(tmp_path))
+    monkeypatch.setattr("plugin.writer.images.image_tools.image_cache_dir", lambda: str(tmp_path))
 
     old_partial = tmp_path / "img-old.partial"
     old_partial.write_bytes(b"old")
@@ -681,43 +574,17 @@ def test_download_image_to_cache_unlinks_stale_partials(tmp_path, monkeypatch):
     os.utime(str(old_partial), (now - 1000, now - 1000))
     os.utime(str(young_partial), (now - 10, now - 10))
 
-    class _Resp:
-        def __init__(self) -> None:
-            self._chunks = [b"\x89PNG"]
-            self.headers = {}
-
-        def read(self, _size: int = -1) -> bytes:
-            if not self._chunks:
-                return b""
-            return self._chunks.pop(0)
-
-        def __enter__(self) -> "_Resp":
-            return self
-
-        def __exit__(self, *_args: object) -> bool:
-            return False
-
-    monkeypatch.setattr(images_mod.urllib.request, "urlopen", lambda *args, **kwargs: _Resp())
-    monkeypatch.setattr(
-        "plugin.writer.images.images.get_config",
-        lambda key: 15 if key == "request_timeout" else 1024,
-    )
-
-    path = _download_image_to_cache("https://example.com/logo.png")
+    with patch(
+        "plugin.writer.images.image_utils.sync_request",
+        return_value=HttpResult(200, b"\x89PNG\r\n\x1a\nfake", "image/png"),
+    ):
+        path = _download_image_to_cache("https://example.com/logo.png")
     assert not old_partial.exists()
     assert young_partial.exists()
     assert os.path.exists(path)
 
 
-def test_image_download_omitted_verify_ssl_requests_verification():
-    ctx = TestingFactory.create_context(doc_type="writer")
-    with patch("plugin.writer.images.images._download_image_to_cache", return_value="/tmp/logo.png") as download:
-        result = ImageDownload().execute(ctx, url="https://example.com/logo.png")
-    assert result["status"] == "ok"
-    assert download.call_args.kwargs["verify_ssl"] is True
-
-
-def test_image_replace_https_download_verifies_tls():
+def test_image_replace_https_path_downloads_url():
     ctx = TestingFactory.create_context(doc_type="writer")
     graphic = MagicMock()
     with (
@@ -729,7 +596,6 @@ def test_image_replace_https_download_verifies_tls():
         result = ImageReplace().execute(ctx, name="Logo", path="https://example.com/logo.png")
     assert result["status"] == "ok"
     assert download.call_args.args == ("https://example.com/logo.png",)
-    assert download.call_args.kwargs.get("verify_ssl", True) is True
 
 
 def test_image_generate_marshals_insert_unscoped():
@@ -945,174 +811,44 @@ def test_image_delete_draw_ambiguous_name():
     assert "Several shapes named 'Pic'" in res["message"]
 
 
-def test_download_cache_hit_skips_second_urlopen(tmp_path, monkeypatch):
-    from plugin.writer.images import images as images_mod
+def test_download_cache_hit_skips_second_request(tmp_path, monkeypatch):
+    monkeypatch.setattr("plugin.writer.images.image_tools.image_cache_dir", lambda: str(tmp_path))
+    png_bytes = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15c4"
 
-    monkeypatch.setattr("plugin.writer.images.image_tools._image_cache_dir", lambda: str(tmp_path))
-
-    class _Resp:
-        def __init__(self) -> None:
-            self._chunks = [b"\x89PNG"]
-            self.headers = {}
-
-        def read(self, _size: int = -1) -> bytes:
-            if not self._chunks:
-                return b""
-            return self._chunks.pop(0)
-
-        def __enter__(self) -> "_Resp":
-            return self
-
-        def __exit__(self, *_args: object) -> bool:
-            return False
-
-    monkeypatch.setattr(images_mod.urllib.request, "urlopen", lambda req, context=None, timeout=None: _Resp())
-    path1 = _download_image_to_cache("https://example.com/logo.png")
+    with patch(
+        "plugin.writer.images.image_utils.sync_request",
+        return_value=HttpResult(200, png_bytes, "image/png"),
+    ):
+        path1 = _download_image_to_cache("https://example.com/logo.png")
     assert os.path.isfile(path1)
 
-    def _fail_open(*args, **kwargs):
-        raise AssertionError("urlopen called on cache hit")
-
-    monkeypatch.setattr(images_mod.urllib.request, "urlopen", _fail_open)
-    path2 = _download_image_to_cache("https://example.com/logo.png")
+    with patch(
+        "plugin.writer.images.image_utils.sync_request",
+        side_effect=AssertionError("sync_request called on cache hit"),
+    ):
+        path2 = _download_image_to_cache("https://example.com/logo.png")
     assert path1 == path2
 
 
-def test_download_over_cap_is_not_cached(tmp_path, monkeypatch):
-    import pytest
-    from plugin.writer.images import images as images_mod
-
-    monkeypatch.setattr("plugin.writer.images.image_tools._image_cache_dir", lambda: str(tmp_path))
-    monkeypatch.setattr("plugin.writer.images.images.IMAGE_DOWNLOAD_MAX_BYTES", 4)
-
-    opens = 0
-
-    class _OverResp:
-        def __init__(self) -> None:
-            self.headers = {}
-            self._chunks = [b"abcdef", b""]
-
-        def read(self, _size: int = -1) -> bytes:
-            if not self._chunks:
-                return b""
-            return self._chunks.pop(0)
-
-        def __enter__(self) -> "_OverResp":
-            return self
-
-        def __exit__(self, *_args: object) -> bool:
-            return False
-
-    def _open(request, context=None, timeout=None):
-        nonlocal opens
-        opens += 1
-        return _OverResp()
-
-    monkeypatch.setattr(images_mod.urllib.request, "urlopen", _open)
-
-    with pytest.raises(RuntimeError) as exc_info:
-        _download_image_to_cache("https://example.com/big.png")
-    assert "exceeded" in str(exc_info.value)
-    assert list(tmp_path.iterdir()) == []
-    assert opens == 1
-
-    with pytest.raises(RuntimeError):
-        _download_image_to_cache("https://example.com/big.png")
-    assert opens == 2
-
-    # Cover Content-Length: 999999 with the real cap: read must not be called, directory stays empty.
-    monkeypatch.setattr("plugin.writer.images.images.IMAGE_DOWNLOAD_MAX_BYTES", 32 * 1024 * 1024)
-    read_called = False
-
-    class _CLResp:
-        def __init__(self) -> None:
-            self.headers = {"Content-Length": "99999999"}
-
-        def read(self, _size: int = -1) -> bytes:
-            nonlocal read_called
-            read_called = True
-            return b"data"
-
-        def __enter__(self) -> "_CLResp":
-            return self
-
-        def __exit__(self, *_args: object) -> bool:
-            return False
-
-    monkeypatch.setattr(images_mod.urllib.request, "urlopen", lambda req, context=None, timeout=None: _CLResp())
-    with pytest.raises(RuntimeError) as exc_info:
-        _download_image_to_cache("https://example.com/huge.png")
-    assert "exceeded" in str(exc_info.value)
-    assert not read_called
-    assert list(tmp_path.iterdir()) == []
-
-
-def test_download_partial_read_is_not_cached(tmp_path, monkeypatch):
-    import urllib.error
-    import pytest
-    from plugin.writer.images import images as images_mod
-
-    monkeypatch.setattr("plugin.writer.images.image_tools._image_cache_dir", lambda: str(tmp_path))
-    opens = 0
-
-    class _PartialResp:
-        def __init__(self) -> None:
-            self.headers = {}
-            self._calls = 0
-
-        def read(self, _size: int = -1) -> bytes:
-            self._calls += 1
-            if self._calls == 1:
-                return b"abc"
-            raise urllib.error.URLError("reset")
-
-        def __enter__(self) -> "_PartialResp":
-            return self
-
-        def __exit__(self, *_args: object) -> bool:
-            return False
-
-    def _open(request, context=None, timeout=None):
-        nonlocal opens
-        opens += 1
-        return _PartialResp()
-
-    monkeypatch.setattr(images_mod.urllib.request, "urlopen", _open)
-
-    with pytest.raises(urllib.error.URLError):
-        _download_image_to_cache("https://example.com/part.png")
-    assert list(tmp_path.iterdir()) == []
-    assert opens == 1
-
-    with pytest.raises(urllib.error.URLError):
-        _download_image_to_cache("https://example.com/part.png")
-    assert opens == 2
-
-
-def test_download_empty_body_is_not_cached(tmp_path, monkeypatch):
-    import pytest
-    from plugin.writer.images import images as images_mod
-
-    monkeypatch.setattr("plugin.writer.images.image_tools._image_cache_dir", lambda: str(tmp_path))
-
-    class _EmptyResp:
-        def __init__(self) -> None:
-            self.headers = {}
-
-        def read(self, _size: int = -1) -> bytes:
-            return b""
-
-        def __enter__(self) -> "_EmptyResp":
-            return self
-
-        def __exit__(self, *_args: object) -> bool:
-            return False
-
-    monkeypatch.setattr(images_mod.urllib.request, "urlopen", lambda req, context=None, timeout=None: _EmptyResp())
-
-    with pytest.raises(RuntimeError) as exc_info:
-        _download_image_to_cache("https://example.com/empty.png")
-    assert "empty image download" in str(exc_info.value)
+@pytest.mark.parametrize(
+    "sync_outcome",
+    [
+        NetworkError("HTTP response exceeded 33554432 bytes", code="HTTP_ERROR"),
+        TimeoutError("HTTP read timed out"),
+        HttpResult(200, b"", "image/png"),
+        HttpResult(200, b"not-an-image", "image/png"),
+    ],
+)
+def test_download_failure_leaves_no_cache_file(tmp_path, monkeypatch, sync_outcome):
+    monkeypatch.setattr("plugin.writer.images.image_tools.image_cache_dir", lambda: str(tmp_path))
+    patch_kwargs = (
+        {"side_effect": sync_outcome}
+        if isinstance(sync_outcome, Exception)
+        else {"return_value": sync_outcome}
+    )
+    with patch("plugin.writer.images.image_utils.sync_request", **patch_kwargs):
+        with pytest.raises(Exception):
+            _download_image_to_cache("https://example.com/sample.png")
     assert list(tmp_path.iterdir()) == []
 
 
@@ -1380,20 +1116,20 @@ def test_image_list_disposal_is_not_a_short_list():
 
 
 def test_image_set_properties_rejects_anchor_type():
+    from plugin.framework.tool import prepare_tool_call
+
     ctx = TestingFactory.create_context(doc_type="writer")
-    ok, err = ImageSetProperties().validate(name="G", anchor_type=9)
+    tool = ImageSetProperties()
+    ok, err = tool.validate(name="G", anchor_type=9)
     assert not ok
 
-    with patch("plugin.doc.visual_helpers.get_graphic_object_by_name") as mock_get:
-        res = ImageSetProperties().execute(ctx, name="G", anchor_type=9)
-        assert res["code"] == "INVALID_PARAMETER"
-        mock_get.assert_not_called()
+    for bad in (9, True):
+        prep = prepare_tool_call(tool, ctx, "image_set_properties", {"name": "G", "anchor_type": bad})
+        assert prep.error is not None
+        assert prep.error["code"] == "VALIDATION_ERROR"
+        assert "anchor_type" in prep.error["message"]
 
-        res_bool = ImageSetProperties().execute(ctx, name="G", anchor_type=True)
-        assert res_bool["code"] == "INVALID_PARAMETER"
-        mock_get.assert_not_called()
-
-    ok2, err2 = ImageSetProperties().validate(name="G", anchor_type=2)
+    ok2, err2 = tool.validate(name="G", anchor_type=2)
     assert ok2
 
 
@@ -1493,7 +1229,7 @@ def test_image_crop_and_highlight_bake_value_error_is_invalid_parameter():
     ):
         res = ImageCropAndHighlight().execute(ctx, name="Pic", crop_box=[0, 0, 45000, 45000])
     assert res["status"] != "ok"
-    assert res.get("code") == "INVALID_PARAMETER"
+    assert res.get("code") == "INVALID_PARAM"
     assert res.get("details", {}).get("width_px") == 50000
     assert res.get("details", {}).get("height_px") == 50000
     obj.setPropertyValue.assert_not_called()
@@ -1522,20 +1258,24 @@ def test_image_crop_rejects_non_positive_width_mm():
         # 1. width_mm = 0 is rejected
         res = ImageCropAndHighlight().execute(ctx, name="Pic", crop_box=[0, 0, 10, 10], width_mm=0)
         assert res["status"] != "ok"
-        assert res.get("code") == "INVALID_PARAMETER"
+        assert res.get("code") == "INVALID_PARAM"
         assert res.get("details", {}).get("parameter") == "width_mm"
 
         # 2. width_mm = -5 is rejected
         res = ImageCropAndHighlight().execute(ctx, name="Pic", crop_box=[0, 0, 10, 10], width_mm=-5)
         assert res["status"] != "ok"
-        assert res.get("code") == "INVALID_PARAMETER"
+        assert res.get("code") == "INVALID_PARAM"
         assert res.get("details", {}).get("parameter") == "width_mm"
 
-        # 3. width_mm = True (bool) is rejected
-        res = ImageCropAndHighlight().execute(ctx, name="Pic", crop_box=[0, 0, 10, 10], width_mm=True)
-        assert res["status"] != "ok"
-        assert res.get("code") == "INVALID_PARAMETER"
-        assert res.get("details", {}).get("parameter") == "width_mm"
+        # 3. width_mm = True (bool) is rejected by schema validation
+        from plugin.framework.tool import prepare_tool_call
+
+        prep = prepare_tool_call(
+            ImageCropAndHighlight(), ctx, "image_crop_and_highlight", {"name": "Pic", "crop_box": [0, 0, 10, 10], "width_mm": True}
+        )
+        assert prep.error is not None
+        assert prep.error["code"] == "VALIDATION_ERROR"
+        assert "width_mm" in prep.error["message"]
 
         # 4. omitted width_mm keeps size.Width (1000 hundredths mm -> 10.0 mm)
         res = ImageCropAndHighlight().execute(ctx, name="Pic", crop_box=[0, 0, 10, 10])
@@ -1639,7 +1379,7 @@ def test_image_crop_and_info_unmeasurable_graphic():
     ):
         res = ImageCropAndHighlight().execute(ctx, name="Pic", crop_box=[0, 0, 10, 10])
         assert res["status"] != "ok"
-        assert res.get("code") == "INVALID_PARAMETER"
+        assert res.get("code") == "INVALID_PARAM"
         mock_bake.assert_not_called()
 
         info = ImageGetInfo().execute(ctx, name="Pic")
@@ -1678,11 +1418,11 @@ def test_image_generate_invalid_source_image_parameter():
     ctx = TestingFactory.create_context(doc_type="writer")
     res = ImageGenerate().execute(ctx, prompt="test", source_image="https://example.com/pic.png")
     assert res["status"] != "ok"
-    assert res.get("code") == "INVALID_PARAMETER"
+    assert res.get("code") == "INVALID_PARAM"
 
     res2 = ImageGenerate().execute(ctx, prompt="test", source_image="/tmp/pic.png")
     assert res2["status"] != "ok"
-    assert res2.get("code") == "INVALID_PARAMETER"
+    assert res2.get("code") == "INVALID_PARAM"
 
 
 def test_image_generate_rejects_huge_selection_export():
@@ -1696,7 +1436,7 @@ def test_image_generate_rejects_huge_selection_export():
     ):
         res = ImageGenerate().execute(ctx, prompt="p", source_image="selection")
         assert res["status"] != "ok"
-        assert res.get("code") == "INVALID_PARAMETER"
+        assert res.get("code") == "INVALID_PARAM"
         assert res.get("details", {}).get("parameter") == "source_image"
         mock_svc.assert_not_called()
 
@@ -1778,7 +1518,7 @@ def test_image_list_paragraph_anchor_restores_cloned_cursor():
     with (
         patch("plugin.doc.visual_helpers.get_visual_doc_type", return_value="writer"),
         patch("plugin.doc.visual_helpers.list_graphic_objects", return_value=[("ParaPic", graphic)]),
-        patch("plugin.writer.images.images._cursor_for_writer_view", return_value=(MagicMock(), saved_cursor)),
+        patch("plugin.writer.images.images.cursor_for_writer_view", return_value=(MagicMock(), saved_cursor)),
     ):
         res = ImageList().execute(ctx)
 
@@ -1806,7 +1546,7 @@ def test_image_list_cursor_save_fails_skips_gotorange_and_page():
     with (
         patch("plugin.doc.visual_helpers.get_visual_doc_type", return_value="writer"),
         patch("plugin.doc.visual_helpers.list_graphic_objects", return_value=[("Pic", graphic)]),
-        patch("plugin.writer.images.images._cursor_for_writer_view", side_effect=RuntimeError("cannot clone")),
+        patch("plugin.writer.images.images.cursor_for_writer_view", side_effect=RuntimeError("cannot clone")),
     ):
         res = ImageList().execute(ctx)
 
@@ -1836,7 +1576,7 @@ def test_image_list_page_zero_omitted():
     with (
         patch("plugin.doc.visual_helpers.get_visual_doc_type", return_value="writer"),
         patch("plugin.doc.visual_helpers.list_graphic_objects", return_value=[("Pic", graphic)]),
-        patch("plugin.writer.images.images._cursor_for_writer_view", return_value=(MagicMock(), saved_cursor)),
+        patch("plugin.writer.images.images.cursor_for_writer_view", return_value=(MagicMock(), saved_cursor)),
     ):
         res = ImageList().execute(ctx)
 
@@ -1851,7 +1591,7 @@ def test_image_set_properties_unknown_hori_orient_no_writes():
     with patch("plugin.doc.visual_helpers.get_graphic_object_by_name", return_value=graphic):
         res = ImageSetProperties().execute(ctx, name="Pic", hori_orient="nowhere")
     assert res["status"] != "ok"
-    assert res.get("code") == "INVALID_PARAMETER"
+    assert res.get("code") == "INVALID_PARAM"
     graphic.setPropertyValue.assert_not_called()
 
 
@@ -2013,20 +1753,21 @@ def test_image_set_properties_draw_shape_unsupported_properties_rejected():
 
 
 def test_image_set_properties_rejects_negative_crop():
+    from plugin.framework.tool import prepare_tool_call
+
     ctx = TestingFactory.create_context(doc_type="writer")
     graphic = MagicMock()
     with patch("plugin.doc.visual_helpers.get_graphic_object_by_name", return_value=graphic):
         res = ImageSetProperties().execute(ctx, name="Pic", crop_top_mm=-1)
         assert res["status"] != "ok"
-        assert res.get("code") == "INVALID_PARAMETER"
+        assert res.get("code") == "INVALID_PARAM"
         assert res.get("details", {}).get("parameter") == "crop_top_mm"
         graphic.setPropertyValue.assert_not_called()
 
-        res_bool = ImageSetProperties().execute(ctx, name="Pic", crop_right_mm=True)
-        assert res_bool["status"] != "ok"
-        assert res_bool.get("code") == "INVALID_PARAMETER"
-        assert res_bool.get("details", {}).get("parameter") == "crop_right_mm"
-        graphic.setPropertyValue.assert_not_called()
+    prep = prepare_tool_call(ImageSetProperties(), ctx, "image_set_properties", {"name": "Pic", "crop_right_mm": True})
+    assert prep.error is not None
+    assert prep.error["code"] == "VALIDATION_ERROR"
+    assert "crop_right_mm" in prep.error["message"]
 
 
 def test_image_set_properties_tiny_width_mm_clamps_to_one_unit():
@@ -2120,44 +1861,25 @@ def test_image_generate_temp_files_cleaned_up_on_insert_exception():
 
 
 def test_download_image_to_cache_rejects_non_http_schemes():
-    import pytest
-    from plugin.writer.images.images import _download_image_to_cache
-
-    with patch("urllib.request.urlopen") as mock_open:
+    with patch("plugin.writer.images.image_utils.sync_request") as mock_sync:
         for bad_url in ("file:///etc/passwd", "ftp://example.com/pic.png", "data:image/png;base64,abc"):
             with pytest.raises(ValueError) as exc_info:
                 _download_image_to_cache(bad_url)
             assert "Unsupported URL scheme" in str(exc_info.value)
-        mock_open.assert_not_called()
+        mock_sync.assert_not_called()
 
 
 def test_download_image_to_cache_html_body_not_cached(tmp_path, monkeypatch):
-    import pytest
-    from plugin.writer.images import images as images_mod
-    from plugin.writer.images.images import _download_image_to_cache
+    monkeypatch.setattr("plugin.writer.images.image_tools.image_cache_dir", lambda: str(tmp_path))
 
-    monkeypatch.setattr("plugin.writer.images.image_tools._image_cache_dir", lambda: str(tmp_path))
-
-    class _HtmlResp:
-        def __init__(self) -> None:
-            self.headers = {"Content-Type": "text/html; charset=utf-8"}
-            self._chunks = [b"<!DOCTYPE html><html><body>Error</body></html>"]
-
-        def read(self, _size: int = -1) -> bytes:
-            return self._chunks.pop(0) if self._chunks else b""
-
-        def __enter__(self) -> "_HtmlResp":
-            return self
-
-        def __exit__(self, *_args: object) -> bool:
-            return False
-
-    monkeypatch.setattr(images_mod.urllib.request, "urlopen", lambda req, context=None, timeout=None: _HtmlResp())
-
-    with pytest.raises(ValueError) as exc_info:
-        _download_image_to_cache("https://example.com/fake.png")
-    assert "Invalid Content-Type" in str(exc_info.value)
-    assert list(tmp_path.iterdir()) == []
+    with patch(
+        "plugin.writer.images.image_utils.sync_request",
+        return_value=HttpResult(200, b"<!DOCTYPE html><html><body>Error</body></html>", "text/html; charset=utf-8"),
+    ):
+        with pytest.raises(RuntimeError) as exc_info:
+            _download_image_to_cache("https://example.com/fake.png")
+        assert "Invalid Content-Type" in str(exc_info.value)
+        assert list(tmp_path.iterdir()) == []
 
 
 def test_schema_properties_removed():
@@ -2339,63 +2061,30 @@ def test_tools_reject_non_positive_sizes():
     ctx = TestingFactory.create_context(doc_type="writer")
 
     # ImageInsert rejects width_mm / height_mm <= 0
-    assert ImageInsert().execute(ctx, path="/tmp/a.png", width_mm=0)["code"] == "INVALID_PARAMETER"
-    assert ImageInsert().execute(ctx, path="/tmp/a.png", width_mm=-1)["code"] == "INVALID_PARAMETER"
-    assert ImageInsert().execute(ctx, path="/tmp/a.png", height_mm=0)["code"] == "INVALID_PARAMETER"
-    assert ImageInsert().execute(ctx, path="/tmp/a.png", height_mm=-5)["code"] == "INVALID_PARAMETER"
+    assert ImageInsert().execute(ctx, path="/tmp/a.png", width_mm=0)["code"] == "INVALID_PARAM"
+    assert ImageInsert().execute(ctx, path="/tmp/a.png", width_mm=-1)["code"] == "INVALID_PARAM"
+    assert ImageInsert().execute(ctx, path="/tmp/a.png", height_mm=0)["code"] == "INVALID_PARAM"
+    assert ImageInsert().execute(ctx, path="/tmp/a.png", height_mm=-5)["code"] == "INVALID_PARAM"
 
     # ImageReplace rejects width_mm / height_mm <= 0
-    assert ImageReplace().execute(ctx, name="Pic", path="/tmp/a.png", width_mm=0)["code"] == "INVALID_PARAMETER"
-    assert ImageReplace().execute(ctx, name="Pic", path="/tmp/a.png", width_mm=-2)["code"] == "INVALID_PARAMETER"
-    assert ImageReplace().execute(ctx, name="Pic", path="/tmp/a.png", height_mm=0)["code"] == "INVALID_PARAMETER"
-    assert ImageReplace().execute(ctx, name="Pic", path="/tmp/a.png", height_mm=-10)["code"] == "INVALID_PARAMETER"
+    assert ImageReplace().execute(ctx, name="Pic", path="/tmp/a.png", width_mm=0)["code"] == "INVALID_PARAM"
+    assert ImageReplace().execute(ctx, name="Pic", path="/tmp/a.png", width_mm=-2)["code"] == "INVALID_PARAM"
+    assert ImageReplace().execute(ctx, name="Pic", path="/tmp/a.png", height_mm=0)["code"] == "INVALID_PARAM"
+    assert ImageReplace().execute(ctx, name="Pic", path="/tmp/a.png", height_mm=-10)["code"] == "INVALID_PARAM"
 
     # ImageSetProperties rejects width_mm / height_mm <= 0
-    assert ImageSetProperties().execute(ctx, name="Pic", width_mm=0)["code"] == "INVALID_PARAMETER"
-    assert ImageSetProperties().execute(ctx, name="Pic", width_mm=-1)["code"] == "INVALID_PARAMETER"
-    assert ImageSetProperties().execute(ctx, name="Pic", height_mm=0)["code"] == "INVALID_PARAMETER"
-    assert ImageSetProperties().execute(ctx, name="Pic", height_mm=-3)["code"] == "INVALID_PARAMETER"
+    assert ImageSetProperties().execute(ctx, name="Pic", width_mm=0)["code"] == "INVALID_PARAM"
+    assert ImageSetProperties().execute(ctx, name="Pic", width_mm=-1)["code"] == "INVALID_PARAM"
+    assert ImageSetProperties().execute(ctx, name="Pic", height_mm=0)["code"] == "INVALID_PARAM"
+    assert ImageSetProperties().execute(ctx, name="Pic", height_mm=-3)["code"] == "INVALID_PARAM"
 
     # ImageGenerate rejects base_size, width, height <= 0
-    assert ImageGenerate().execute(ctx, prompt="p", base_size=0)["code"] == "INVALID_PARAMETER"
-    assert ImageGenerate().execute(ctx, prompt="p", base_size=-50)["code"] == "INVALID_PARAMETER"
-    assert ImageGenerate().execute(ctx, prompt="p", width=0)["code"] == "INVALID_PARAMETER"
-    assert ImageGenerate().execute(ctx, prompt="p", width=-10)["code"] == "INVALID_PARAMETER"
-    assert ImageGenerate().execute(ctx, prompt="p", height=0)["code"] == "INVALID_PARAMETER"
-    assert ImageGenerate().execute(ctx, prompt="p", height=-10)["code"] == "INVALID_PARAMETER"
-
-
-def test_download_image_to_cache_stop_aborts(tmp_path, monkeypatch):
-    import plugin.writer.images.images as images_mod
-    from plugin.framework.send_cancellation import SendCancellation
-    from plugin.writer.images.images import _download_image_to_cache, _DownloadStopped
-
-    monkeypatch.setattr("plugin.writer.images.image_tools._image_cache_dir", lambda: str(tmp_path))
-
-    scope = SendCancellation()
-
-    class _ChunkResp:
-        def __init__(self):
-            self.headers = {"Content-Type": "image/png"}
-
-        def read(self, size=-1):
-            scope.cancel()
-            return b"somepngdata"
-
-        def close(self):
-            pass
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *args):
-            return False
-
-    monkeypatch.setattr(images_mod.urllib.request, "urlopen", lambda req, context=None, timeout=None: _ChunkResp())
-
-    with pytest.raises(_DownloadStopped):
-        _download_image_to_cache("https://example.com/test.png", cancel=scope)
-    assert list(tmp_path.iterdir()) == []
+    assert ImageGenerate().execute(ctx, prompt="p", base_size=0)["code"] == "INVALID_PARAM"
+    assert ImageGenerate().execute(ctx, prompt="p", base_size=-50)["code"] == "INVALID_PARAM"
+    assert ImageGenerate().execute(ctx, prompt="p", width=0)["code"] == "INVALID_PARAM"
+    assert ImageGenerate().execute(ctx, prompt="p", width=-10)["code"] == "INVALID_PARAM"
+    assert ImageGenerate().execute(ctx, prompt="p", height=0)["code"] == "INVALID_PARAM"
+    assert ImageGenerate().execute(ctx, prompt="p", height=-10)["code"] == "INVALID_PARAM"
 
 
 def test_image_insert_vector_proportional_fallback_from_100th_mm():
@@ -2509,63 +2198,148 @@ def test_image_get_info_draw_skips_paragraph_lookup():
     ctx.services.document.get_paragraph_ranges.assert_not_called()
 
 
-def test_download_for_tool_stop_returns_user_stopped():
-    import plugin.writer.images.images as images_mod
-    from plugin.framework.send_cancellation import SendCancellation
-
+@pytest.mark.parametrize(
+    "sync_outcome,cancel_first",
+    [
+        (NetworkError("LLM request aborted by Stop", code="STOPPED"), False),
+        (TimeoutError("timed out"), True),
+    ],
+)
+def test_download_for_tool_stop_returns_user_stopped(tmp_path, monkeypatch, sync_outcome, cancel_first):
+    monkeypatch.setattr("plugin.writer.images.image_tools.image_cache_dir", lambda: str(tmp_path))
     scope = SendCancellation()
-    scope.cancel()
+    if cancel_first:
+        scope.cancel()
     ctx = TestingFactory.create_context(doc_type="writer", send_cancellation=scope)
 
-    with patch("plugin.writer.images.images._download_image_to_cache", side_effect=images_mod._DownloadStopped):
+    with patch("plugin.writer.images.image_utils.sync_request", side_effect=sync_outcome):
         res = ImageDownload().execute(ctx, url="https://example.com/pic.png")
-    assert res["status"] != "ok"
+    assert res["status"] == "error"
     assert res.get("code") == "USER_STOPPED"
+    assert list(tmp_path.iterdir()) == []
 
 
 def test_download_image_to_cache_expired_after_24h(tmp_path, monkeypatch):
-    import plugin.writer.images.images as images_mod
-    from plugin.writer.images.images import _download_image_to_cache
-
-    monkeypatch.setattr("plugin.writer.images.image_tools._image_cache_dir", lambda: str(tmp_path))
+    monkeypatch.setattr("plugin.writer.images.image_tools.image_cache_dir", lambda: str(tmp_path))
 
     png_bytes = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15c4"
-
-    class _Resp:
-        def __init__(self):
-            self.headers = {"Content-Type": "image/png"}
-            self._data = [png_bytes]
-
-        def read(self, size=-1):
-            return self._data.pop(0) if self._data else b""
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *args):
-            return False
-
     downloads = {"count": 0}
 
-    def _fake_urlopen(req, context=None, timeout=None):
+    def _fake_sync(*_args, **_kwargs):
         downloads["count"] += 1
-        return _Resp()
+        return HttpResult(200, png_bytes, "image/png")
 
-    monkeypatch.setattr(images_mod.urllib.request, "urlopen", _fake_urlopen)
+    with patch("plugin.writer.images.image_utils.sync_request", side_effect=_fake_sync):
+        path1 = _download_image_to_cache("https://example.com/exp.png")
+        assert downloads["count"] == 1
+        assert path1.endswith(".png")
 
-    path1 = _download_image_to_cache("https://example.com/exp.png")
-    assert downloads["count"] == 1
-    assert path1.endswith(".png")
+        path2 = _download_image_to_cache("https://example.com/exp.png")
+        assert downloads["count"] == 1
+        assert path1 == path2
 
-    path2 = _download_image_to_cache("https://example.com/exp.png")
-    assert downloads["count"] == 1
-    assert path1 == path2
+        old_time = time.time() - (25 * 3600)
+        os.utime(path1, (old_time, old_time))
 
-    old_time = time.time() - (25 * 3600)
-    os.utime(path1, (old_time, old_time))
+        _download_image_to_cache("https://example.com/exp.png")
+        assert downloads["count"] == 2
 
-    _download_image_to_cache("https://example.com/exp.png")
-    assert downloads["count"] == 2
+
+def test_download_image_to_cache_fetches_through_sync_request(tmp_path, monkeypatch):
+    monkeypatch.setattr("plugin.writer.images.image_tools.image_cache_dir", lambda: str(tmp_path))
+    monkeypatch.setattr(
+        "plugin.writer.images.image_utils.get_config",
+        lambda key: 42 if key == "request_timeout" else 1024,
+    )
+    scope = SendCancellation()
+    png_bytes = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15c4"
+    with patch(
+        "plugin.writer.images.image_utils.sync_request",
+        return_value=HttpResult(200, png_bytes, "image/png"),
+    ) as mock_sync:
+        path = _download_image_to_cache("https://example.com/test.png", cancel=scope)
+    assert os.path.isfile(path)
+    mock_sync.assert_called_once_with(
+        "https://example.com/test.png",
+        parse_json=False,
+        include_meta=True,
+        timeout=42,
+        max_bytes=IMAGE_DOWNLOAD_MAX_BYTES,
+        cancel=scope,
+        status_callback=None,
+    )
+
+
+def test_download_image_to_cache_loopback_end_to_end(tmp_path, monkeypatch):
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+    import threading
+
+    monkeypatch.setattr("plugin.writer.images.image_tools.image_cache_dir", lambda: str(tmp_path))
+    monkeypatch.setattr(
+        "plugin.writer.images.image_utils.get_config",
+        lambda key: 15 if key == "request_timeout" else 1024,
+    )
+
+    png_bytes = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15c4"
+    redirect_hits = 0
+
+    class _Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            nonlocal redirect_hits
+            if self.path == "/start":
+                redirect_hits += 1
+                self.send_response(302)
+                self.send_header("Location", "/image.png")
+                self.end_headers()
+            elif self.path == "/image.png":
+                self.send_response(200)
+                self.send_header("Content-Type", "image/png")
+                self.send_header("Content-Length", str(len(png_bytes)))
+                self.end_headers()
+                self.wfile.write(png_bytes)
+            else:
+                self.send_response(404)
+                self.end_headers()
+
+        def log_message(self, *args):
+            pass
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
+    host, port = server.server_address
+    thread = threading.Thread(target=server.serve_forever)
+    thread.daemon = True
+    thread.start()
+
+    try:
+        url = f"http://{host}:{port}/start"
+        path1 = _download_image_to_cache(url)
+        assert os.path.isfile(path1)
+        assert path1.endswith(".png")
+        with open(path1, "rb") as fh:
+            assert fh.read() == png_bytes
+        assert redirect_hits == 1
+
+        path2 = _download_image_to_cache(url)
+        assert path1 == path2
+        assert redirect_hits == 1
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5.0)
+
+
+def test_image_delete_draw_miss_has_list_hint():
+    ctx = TestingFactory.create_context(doc_type="draw")
+    graphic = MagicMock()
+    with (
+        patch("plugin.doc.visual_helpers.get_graphic_object_by_name", return_value=graphic),
+        patch("plugin.doc.visual_helpers.remove_graphic_from_draw_pages", return_value=False),
+    ):
+        res = ImageDelete().execute(ctx, name="MissingPic")
+    assert res["status"] == "error"
+    assert res["code"] == "IMAGE_NOT_FOUND"
+    assert "details" in res
+    assert res["details"]["hint"] == "Call image_list to list names."
 
 
 def test_prune_image_cache_drops_oldest(tmp_path):

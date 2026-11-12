@@ -313,6 +313,73 @@ class TestSendDispose:
         listener.status_control.setText.assert_called_once_with("Starting...")
         listener.audio_recorder.start_recording.assert_not_called()
 
+    def test_is_busy_sees_fsm_turn_and_scope(self) -> None:
+        from dataclasses import replace
+        from plugin.chatbot.send_state import SendMode
+        from plugin.chatbot.tool_loop_actions import TurnController
+
+        listener = _make_send_listener()
+        assert listener.is_busy() is False
+
+        listener.sidebar_state = replace(
+            listener.sidebar_state,
+            send=replace(listener.sidebar_state.send, mode=SendMode.BUSY),
+        )
+        assert listener.is_busy() is True
+        listener.sidebar_state = replace(
+            listener.sidebar_state,
+            send=replace(listener.sidebar_state.send, mode=SendMode.IDLE),
+        )
+        assert listener.is_busy() is False
+
+        listener._send_cancellation = SendCancellation()
+        assert listener.is_busy() is True
+        listener._send_cancellation = None
+        assert listener.is_busy() is False
+
+        turn = TurnController(listener.session)
+        turn.queue = MagicMock()
+        turn.alive = True
+        listener._turn = turn
+        assert listener.is_busy() is True
+        turn.queue = None
+        assert listener.is_busy() is False
+
+    def test_in_chat_mode_true_with_no_selector(self) -> None:
+        from plugin.chatbot.chat_sidebar_mode import (
+            CHAT_MODE_LIBRARIAN,
+            set_selector_mode_with_flags,
+        )
+
+        listener = _make_send_listener()
+        listener.chat_mode_selector = None
+        assert listener.in_chat_mode() is True
+
+        selector = MagicMock()
+        set_selector_mode_with_flags(selector, CHAT_MODE_LIBRARIAN, listener.sidebar_mode_flags)
+        pos = selector.selectItemPos.call_args[0][0]
+        selector.getSelectedItemPos.return_value = pos
+        listener.chat_mode_selector = selector
+        assert listener.in_chat_mode() is False
+
+    def test_inject_user_turn_writes_user_row_and_repaints(self) -> None:
+        from plugin.chatbot.chat_session import ChatSession
+
+        listener = _make_send_listener()
+        session = ChatSession(session_id="test_peer_session")
+        listener.session = session
+        listener.render_session_messages = MagicMock()
+
+        ok = listener.inject_user_turn("hello peer")
+        assert ok is True
+        assert session.messages[-1] == {"role": "user", "content": "hello peer"}
+        listener.render_session_messages.assert_called_once_with(session)
+
+        listener.session = None
+        listener.render_session_messages.reset_mock()
+        assert listener.inject_user_turn("another message") is False
+        listener.render_session_messages.assert_not_called()
+
     def test_disposing_unsubscribes_mcp_on_the_services_bus(self) -> None:
         from plugin.framework.event_bus import EventBus
 

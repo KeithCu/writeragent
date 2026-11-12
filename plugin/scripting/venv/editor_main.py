@@ -69,16 +69,18 @@ _ASSETS_DIR = os.path.normpath(
     os.path.join(_SCRIPT_DIR, "..", "..", "contrib", "scripting", "assets", "editor")
 )
 try:
+    from plugin.framework.ipc import claim_ipc_channel
     from plugin.scripting.editor_ipc import (
-    EDITOR_DEFAULT_TITLE,
-    PARENT_TO_CHILD_TYPES,
-    message_type,
-    normalize_target,
-    read_message,
-    session_id_of,
-    stamp_session,
-    write_message,
-)
+        CHILD_TO_PARENT_TYPES,
+        EDITOR_DEFAULT_TITLE,
+        PARENT_TO_CHILD_TYPES,
+        message_type,
+        normalize_target,
+        read_message,
+        session_id_of,
+        stamp_session,
+        write_message,
+    )
 except ImportError as e:
     _fatal(f"editor_main: cannot import plugin.scripting dependencies ({e}). sys.path={sys.path!r}", exc=e)
 
@@ -159,18 +161,6 @@ class EditorSession:
         self.ready_sent: bool = False
         self.window: Any = None
 
-    def reset(self) -> None:
-        """Reset state for tests."""
-        with self.lock:
-            self.session_id = ""
-            self.mode = ""
-            self.target = {}
-            self.closed_for = None
-            self.shutting_down = False
-            self.gui_loop_entered = False
-            self.ready_sent = False
-            self.window = None
-
     def remember_session(self, msg: dict[str, Any]) -> None:
         sid = session_id_of(msg)
         mode = str(msg.get("mode") or "")
@@ -246,14 +236,6 @@ def _js_str(value: Any) -> str:
     return "" if value is None else str(value)
 
 
-def _remember_js_session(session_id: str, mode: str, target: Any) -> None:
-    session.remember_session({"session_id": session_id, "mode": mode, "target": target or {}})
-
-
-def _note_load(msg: dict[str, Any]) -> None:
-    session.load(msg)
-
-
 def _emit(message: dict[str, Any]) -> None:
     with _stdout_lock:
         write_message(_ipc_stream, message)
@@ -261,6 +243,9 @@ def _emit(message: dict[str, Any]) -> None:
 
 def _write_parent(message: dict[str, Any]) -> None:
     kind = message_type(message)
+    # Child-side twin of PersistentEditor.send's check; the message is still sent.
+    if kind not in CHILD_TO_PARENT_TYPES:
+        log.warning("editor_main: type %s is not handled by the host", kind)
     if kind and kind != "ready":
         message = session.stamp(message)
     _emit(message)
@@ -284,11 +269,10 @@ def _send_closed_once() -> None:
             log.debug("editor_main: closed write failed", exc_info=True)
 
 
-def _pipe_reader_loop(stdin: IO[bytes] | None = None) -> None:
-    stream: IO[bytes] = sys.stdin.buffer if stdin is None else stdin
+def _pipe_reader_loop(stdin: IO[bytes]) -> None:
     try:
         while not session.shutting_down:
-            msg = read_message(stream)
+            msg = read_message(stdin)
             if msg is None:
                 break
             kind = message_type(msg)
@@ -316,10 +300,6 @@ def _pipe_reader_loop(stdin: IO[bytes] | None = None) -> None:
                 pass
 
 
-def _claim_gui_loop() -> bool:
-    return session.claim_gui_loop()
-
-
 class MonacoEditorApi:
     """JS API exposed via pywebview (runs on the GUI thread)."""
 
@@ -340,7 +320,7 @@ class MonacoEditorApi:
             batch.append(msg)
             if msg.get("type") == "load":
                 log.info("editor_main: poll_messages received load; showing window")
-                _note_load(msg)
+                session.load(msg)
                 try:
                     if session.window is not None:
                         title = msg.get("title")
@@ -423,7 +403,7 @@ class MonacoEditorApi:
         return outcome
 
     def notify_dirty(self, dirty: bool = True, session_id: str = "", mode: str = "", target: Any = None) -> None:
-        _remember_js_session(session_id, mode, target)
+        session.remember_session({"session_id": session_id, "mode": mode, "target": target or {}})
         _write_parent({"type": "dirty", "dirty": bool(dirty)})
 
     def notify_save(
@@ -444,7 +424,7 @@ class MonacoEditorApi:
         }
         if action and action != "cell_save":
             payload["action"] = action
-        _remember_js_session(session_id, mode, target)
+        session.remember_session({"session_id": session_id, "mode": mode, "target": target or {}})
         _write_parent(payload)
 
     def notify_run(self, code: str, session_id: str = "", mode: str = "", target: Any = None) -> None:
@@ -603,7 +583,6 @@ def wsgi_app(environ: dict[str, Any], start_response: Any) -> list[bytes]:
 
 def main() -> None:
     global _ipc_stream
-    from plugin.framework.ipc import claim_ipc_channel
     _ipc_stream = claim_ipc_channel()
 
     logging.basicConfig(level=logging.INFO)
@@ -645,7 +624,7 @@ def main() -> None:
     _bind_window_events(session.window)
 
     # Listen for parent messages after window and API events are set up.
-    threading.Thread(target=_pipe_reader_loop, name="editor-stdin-reader", daemon=True).start()
+    threading.Thread(target=_pipe_reader_loop, args=(sys.stdin.buffer,), name="editor-stdin-reader", daemon=True).start()
 
     start_kw: dict[str, Any] = {"debug": False, "http_server": True}
     gui = os.environ.get("WRITERAGENT_PYWEBVIEW_GUI", "").strip()
@@ -653,7 +632,7 @@ def main() -> None:
         start_kw["gui"] = gui
 
     try:
-        if not _claim_gui_loop():
+        if not session.claim_gui_loop():
             log.info("editor_main: stdin closed before the GUI loop; not calling webview.start")
             return
         webview.start(**start_kw)

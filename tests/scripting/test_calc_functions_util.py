@@ -19,39 +19,41 @@ from plugin.scripting.venv.calc_functions_a_c import (
 from plugin.scripting.venv.calc_functions_d_h import _dollar_frac
 from plugin.scripting.venv.calc_functions_t_z import _find_match_index
 from plugin.scripting.venv.calc_functions_util import (
-    CalcError,
-    _build_holiday_set,
-    _collect_a_values,
-    _criteria_numbers,
-    _extract_numeric_array,
-    _npf_result,
-    _parse_weekend,
-    _serial_to_date,
-    _wildcard_fullmatch,
+    build_holiday_set,
     calc_function,
+    collect_a_values,
+    criteria_numbers,
+    extract_numeric_array,
+    format_quantized,
     match_criteria,
+    npf_result,
+    orient_columns,
+    parse_weekend,
+    round_half_up,
+    serial_to_date,
+    wildcard_fullmatch,
 )
 
 
 
 def test_npf_result_valid_and_invalid():
     # PMT(0.05/12, 60, 10000) approx -188.71
-    res = _npf_result("pmt", 0.05 / 12, 60, 10000, 0, 0)
+    res = npf_result("pmt", 0.05 / 12, 60, 10000, 0, 0)
     assert abs(res - (-188.712336)) < 1e-2
 
     # Invalid input should return NaN, not raise exception
-    assert math.isnan(_npf_result("pmt", "invalid", 60, 10000, 0, 0))
-    assert math.isnan(_npf_result("unknown_func", 1, 2, 3))
+    assert math.isnan(npf_result("pmt", "invalid", 60, 10000, 0, 0))
+    assert math.isnan(npf_result("unknown_func", 1, 2, 3))
 
 
 def test_wildcard_fullmatch():
-    assert _wildcard_fullmatch("apple", "apple") is True
-    assert _wildcard_fullmatch("app*", "apple") is True
-    assert _wildcard_fullmatch("*ple", "apple") is True
-    assert _wildcard_fullmatch("a??le", "apple") is True
-    assert _wildcard_fullmatch("a?le", "apple") is False
-    assert _wildcard_fullmatch("*banana*", "green banana fruit") is True
-    assert _wildcard_fullmatch("*banana*", "apple") is False
+    assert wildcard_fullmatch("apple", "apple") is True
+    assert wildcard_fullmatch("app*", "apple") is True
+    assert wildcard_fullmatch("*ple", "apple") is True
+    assert wildcard_fullmatch("a??le", "apple") is True
+    assert wildcard_fullmatch("a?le", "apple") is False
+    assert wildcard_fullmatch("*banana*", "green banana fruit") is True
+    assert wildcard_fullmatch("*banana*", "apple") is False
 
 
 def test_match_criteria_comparisons():
@@ -110,85 +112,85 @@ def test_extract_numeric_array():
     data = [1.0, "text", True, False, 2.5, None, float("nan"), 3.0]
 
     # Default ignores text and bool, keeps finite and nan
-    arr = _extract_numeric_array(data)
+    arr = extract_numeric_array(data)
     assert len(arr) == 4
     assert np.allclose(arr[:2], [1.0, 2.5])
     assert math.isnan(arr[2])
     assert arr[3] == 3.0
 
     # Ignore NaN
-    arr_no_nan = _extract_numeric_array(data, propagate_nan=False)
+    arr_no_nan = extract_numeric_array(data, propagate_nan=False)
     assert np.allclose(arr_no_nan, [1.0, 2.5, 3.0])
 
     # Allow booleans
-    arr_with_bool = _extract_numeric_array([10.0, True, False], ignore_bool=False)
+    arr_with_bool = extract_numeric_array([10.0, True, False], ignore_bool=False)
     assert np.allclose(arr_with_bool, [10.0, 1.0, 0.0])
 
 
 def test_collect_a_values():
     # None is skipped (blank cell), while "" and "text" evaluate to 0.0
-    res = _collect_a_values([1.0, 2.0], True, False, "text", "", None, [3.0, np.bool_(True)])
+    res = collect_a_values([1.0, 2.0], True, False, "text", "", None, [3.0, np.bool_(True)])
     assert isinstance(res, np.ndarray)
     assert np.allclose(res, [1.0, 2.0, 1.0, 0.0, 0.0, 0.0, 3.0, 1.0])
-    empty_res = _collect_a_values()
+    empty_res = collect_a_values()
     assert len(empty_res) == 0
-    assert list(_collect_a_values(10**400)) == [0.0]
-    assert list(_collect_a_values(-(10**400))) == [0.0]
+    assert list(collect_a_values(10**400)) == [0.0]
+    assert list(collect_a_values(-(10**400))) == [0.0]
 
 
 def test_serial_to_date():
     # 46181 corresponds to 2026-06-08 (46181 + 693594 = 739775)
-    assert _serial_to_date(46181) == dt.date(2026, 6, 8)
-    assert _serial_to_date("46181") == dt.date(2026, 6, 8)
-    assert _serial_to_date(46181.75) == dt.date(2026, 6, 8)
+    assert serial_to_date(46181) == dt.date(2026, 6, 8)
+    assert serial_to_date("46181") == dt.date(2026, 6, 8)
+    assert serial_to_date(46181.75) == dt.date(2026, 6, 8)
 
     # Invalid values should return None without raising
-    assert _serial_to_date("invalid") is None
-    assert _serial_to_date(None) is None
-    assert _serial_to_date(float("nan")) is None
-    assert _serial_to_date(float("inf")) is None
-    assert _serial_to_date(100_000_000) is None  # Exceeds max ordinal
+    assert serial_to_date("invalid") is None
+    assert serial_to_date(None) is None
+    assert serial_to_date(float("nan")) is None
+    assert serial_to_date(float("inf")) is None
+    assert serial_to_date(100_000_000) is None  # Exceeds max ordinal
 
 
 def test_build_holiday_set():
-    assert _build_holiday_set(None) == set()
-    assert _build_holiday_set([]) == set()
+    assert build_holiday_set(None) == set()
+    assert build_holiday_set([]) == set()
 
     # Scalar and list of serials
-    h1 = _build_holiday_set(46181)
+    h1 = build_holiday_set(46181)
     assert h1 == {dt.date(2026, 6, 8)}
 
-    h2 = _build_holiday_set([46181, "46182", "", None, "invalid", 46181])
+    h2 = build_holiday_set([46181, "46182", "", None, "invalid", 46181])
     assert h2 == {dt.date(2026, 6, 8), dt.date(2026, 6, 9)}
 
 
 def test_parse_weekend():
 
     # Standard numeric weekend codes
-    assert _parse_weekend(1) == {5, 6}   # Sat, Sun
-    assert _parse_weekend(2) == {6, 0}   # Sun, Mon
-    assert _parse_weekend(11) == {6}     # Sun only
-    assert _parse_weekend(17) == {5}     # Sat only
+    assert parse_weekend(1) == {5, 6}   # Sat, Sun
+    assert parse_weekend(2) == {6, 0}   # Sun, Mon
+    assert parse_weekend(11) == {6}     # Sun only
+    assert parse_weekend(17) == {5}     # Sat only
 
     # String masks (7 chars: 1 = non-working, 0 = working, Monday-first)
-    assert _parse_weekend("0000011") == {5, 6}
-    assert _parse_weekend("1000000") == {0}
-    assert _parse_weekend("0000000") == set()
-    assert _parse_weekend("1111111") == {0, 1, 2, 3, 4, 5, 6}
+    assert parse_weekend("0000011") == {5, 6}
+    assert parse_weekend("1000000") == {0}
+    assert parse_weekend("0000000") == set()
+    assert parse_weekend("1111111") == {0, 1, 2, 3, 4, 5, 6}
 
     # A string must be exactly seven characters of 0 or 1.
-    assert math.isnan(_parse_weekend("abc"))
-    assert math.isnan(_parse_weekend("1"))
-    assert math.isnan(_parse_weekend("0000012"))
-    assert math.isnan(_parse_weekend("00000110"))
+    assert math.isnan(parse_weekend("abc"))
+    assert math.isnan(parse_weekend("1"))
+    assert math.isnan(parse_weekend("0000012"))
+    assert math.isnan(parse_weekend("00000110"))
 
     # Invalid numeric codes must return NaN
-    assert math.isnan(_parse_weekend(0))
-    assert math.isnan(_parse_weekend(8))
-    assert math.isnan(_parse_weekend(18))
+    assert math.isnan(parse_weekend(0))
+    assert math.isnan(parse_weekend(8))
+    assert math.isnan(parse_weekend(18))
 
     # Invalid non-numeric input returns NaN
-    assert math.isnan(_parse_weekend(None))
+    assert math.isnan(parse_weekend(None))
 
 
 def test_int_bitwise():
@@ -225,17 +227,17 @@ def test_int_shift():
 
 def test_criteria_numbers():
     # Same range for criteria and values
-    assert _criteria_numbers([10, 20, 30, 40], [([10, 20, 30, 40], ">20")]) == [30.0, 40.0]
+    assert criteria_numbers([10, 20, 30, 40], [([10, 20, 30, 40], ">20")]) == [30.0, 40.0]
 
     # Separate value range with text and NaN filtering
     cond = ["yes", "no", "yes", "yes"]
     vals = [10.0, 20.0, "bad", 30.0]
-    assert _criteria_numbers(vals, [(cond, "yes")]) == [10.0, 30.0]
+    assert criteria_numbers(vals, [(cond, "yes")]) == [10.0, 30.0]
 
     # No matches returns empty list
-    assert _criteria_numbers([1, 2, 3], [([1, 2, 3], ">10")]) == []
+    assert criteria_numbers([1, 2, 3], [([1, 2, 3], ">10")]) == []
     # Numeric text and bools are not numbers in the value range.
-    assert _criteria_numbers(["5", True, 4.0], [(["yes", "yes", "yes"], "yes")]) == [4.0]
+    assert criteria_numbers(["5", True, 4.0], [(["yes", "yes", "yes"], "yes")]) == [4.0]
 
 
 def test_dollar_fraction_terms():
@@ -285,18 +287,18 @@ def test_match_criteria_wildcards_and_case():
 
 
 def test_is_calc_error_helper():
-    from plugin.scripting.venv.calc_functions_util import _is_calc_error
+    from plugin.scripting.venv.calc_functions_util import is_calc_error
 
-    assert _is_calc_error(float("nan")) is True
-    assert _is_calc_error(np.nan) is True
-    assert _is_calc_error("#VALUE!") is True
-    assert _is_calc_error("#N/A") is True
-    assert _is_calc_error("#REF!") is True
-    assert _is_calc_error("#hashtag") is False
-    assert _is_calc_error("#1") is False
-    assert _is_calc_error("hello") is False
-    assert _is_calc_error(123) is False
-    assert _is_calc_error(True) is False
+    assert is_calc_error(float("nan")) is True
+    assert is_calc_error(np.nan) is True
+    assert is_calc_error("#VALUE!") is True
+    assert is_calc_error("#N/A") is True
+    assert is_calc_error("#REF!") is True
+    assert is_calc_error("#hashtag") is False
+    assert is_calc_error("#1") is False
+    assert is_calc_error("hello") is False
+    assert is_calc_error(123) is False
+    assert is_calc_error(True) is False
 
 
 def test_calc_sort_key():
@@ -323,20 +325,20 @@ def test_calc_sort_key():
 
 
 def test_clean_paired_arrays():
-    from plugin.scripting.venv.calc_functions_util import _clean_paired_arrays
+    from plugin.scripting.venv.calc_functions_util import clean_paired_arrays
 
     # Clean paired extraction
-    res = _clean_paired_arrays([1, 2, np.nan, 4], [10, 20, 30, 40])
+    res = clean_paired_arrays([1, 2, np.nan, 4], [10, 20, 30, 40])
     assert res is not None
     y, x = res
     assert np.array_equal(y, [1.0, 2.0, 4.0])
     assert np.array_equal(x, [10.0, 20.0, 40.0])
 
     # Length mismatch returns None
-    assert _clean_paired_arrays([1, 2], [1, 2, 3]) is None
+    assert clean_paired_arrays([1, 2], [1, 2, 3]) is None
 
     # Text cells return None
-    assert _clean_paired_arrays(["a", "b"], [1, 2]) is None
+    assert clean_paired_arrays(["a", "b"], [1, 2]) is None
 
 
 def test_int_shift_and_bitwise_limits():
@@ -356,20 +358,20 @@ def test_int_shift_and_bitwise_limits():
 
 
 def test_round_half_up():
-    from plugin.scripting.venv.calc_functions_util import _round_half_up
+    from plugin.scripting.venv.calc_functions_util import round_half_up
 
-    assert _round_half_up(2.5, 0) == Decimal("3")
-    assert _round_half_up(-2.5, 0) == Decimal("-3")
-    assert _round_half_up(1.25, 1) == Decimal("1.3")
-    assert _round_half_up(-1.25, 1) == Decimal("-1.3")
-    assert _round_half_up(0.5, 40) == Decimal("0.5")
+    assert round_half_up(2.5, 0) == Decimal("3")
+    assert round_half_up(-2.5, 0) == Decimal("-3")
+    assert round_half_up(1.25, 1) == Decimal("1.3")
+    assert round_half_up(-1.25, 1) == Decimal("-1.3")
+    assert round_half_up(0.5, 40) == Decimal("0.5")
 
     with pytest.raises(ValueError):
-        _round_half_up(0.5, 10**20)
+        round_half_up(0.5, 10**20)
     with pytest.raises(ValueError):
-        _round_half_up(float("nan"), 0)
+        round_half_up(float("nan"), 0)
     with pytest.raises(ValueError):
-        _round_half_up(float("inf"), 0)
+        round_half_up(float("inf"), 0)
 
 
 def test_eval_d_criteria():
@@ -407,61 +409,49 @@ def test_eval_d_criteria():
 
 
 def test_multi_criteria_mask():
-    from plugin.scripting.venv.calc_functions_util import _multi_criteria_mask
+    from plugin.scripting.venv.calc_functions_util import multi_criteria_mask
 
     # Matching lengths
     pairs = [([1, 2, 3], ">1"), (["a", "b", "c"], "<>a")]
-    mask = _multi_criteria_mask(pairs)
+    mask = multi_criteria_mask(pairs)
     assert mask is not None
     assert list(mask) == [False, True, True]
 
     # Mismatched lengths returns None
     pairs_bad = [([1, 2], ">0"), ([1, 2, 3], ">0")]
-    assert _multi_criteria_mask(pairs_bad) is None
+    assert multi_criteria_mask(pairs_bad) is None
 
     # Same cell count, different shape. 2x3 and 3x2 both ravel to 6.
     wide = [[1, 2, 3], [4, 5, 6]]
     tall = [[1, 4], [2, 5], [3, 6]]
-    assert _multi_criteria_mask([(wide, ">0"), (tall, ">0")]) is None
-    assert _multi_criteria_mask([(wide, ">0")], base_shape=(3, 2)) is None
-    same = _multi_criteria_mask([(wide, ">3")], base_shape=(2, 3))
+    assert multi_criteria_mask([(wide, ">0"), (tall, ">0")]) is None
+    assert multi_criteria_mask([(wide, ">0")], base_shape=(3, 2)) is None
+    same = multi_criteria_mask([(wide, ">3")], base_shape=(2, 3))
     assert same is not None
     assert list(same) == [False, False, False, True, True, True]
 
 
-def test_get_coupon_dates_calendar_stepping():
-    from plugin.scripting.venv.calc_functions_a_c import _get_coupon_dates
+def test_coupon_schedule_calendar_stepping():
+    from plugin.scripting.venv.calc_functions_util import coupon_schedule
 
-    # 2020-01-01 to 2020-06-01, freq=2, basis=0
-    p_ser, c_ser, days_in_per, k, basis_code = _get_coupon_dates(43831, 43983, 2, 0)
+    # 2020-01-01 to 2020-06-01, freq=2, basis=0 (30/360)
+    p_ser, c_ser, days_in_per, k, a_days, dsc_days = coupon_schedule(43831, 43983, 2, 0)
     assert p_ser == 43800.0  # 2019-12-01
     assert c_ser == 43983.0  # 2020-06-01
     assert days_in_per == 180.0
     assert k == 1.0
-    assert basis_code == 0
+    assert a_days == 30.0  # 2019-12-01 to 2020-01-01 under 30/360
+    assert dsc_days == 150.0  # 2020-01-01 to 2020-06-01 under 30/360
 
     # Invalid frequency or basis raises ValueError
     with pytest.raises(ValueError):
-        _get_coupon_dates(43831, 43983, 3, 0)
+        coupon_schedule(43831, 43983, 3, 0)
     with pytest.raises(ValueError):
-        _get_coupon_dates(43831, 43983, 2, 5)
+        coupon_schedule(43831, 43983, 2, 5)
 
     # Settlement >= maturity raises ValueError
     with pytest.raises(ValueError):
-        _get_coupon_dates(43983, 43831, 2, 0)
-
-
-def test_calc_error():
-    err = CalcError(CalcError.VALUE)
-    assert str(err) == "#VALUE!"
-    assert err.token == "#VALUE!"
-
-    for tok in (CalcError.VALUE, CalcError.NUM, CalcError.DIV0, CalcError.NA):
-        e = CalcError(tok)
-        assert e.token == tok
-
-    with pytest.raises(ValueError):
-        CalcError("NOT_AN_ERROR")
+        coupon_schedule(43983, 43831, 2, 0)
 
 
 def test_calc_function():
@@ -479,14 +469,6 @@ def test_calc_function():
             raise TypeError("bad type")
         if kind == "overflow_err":
             raise OverflowError("overflow")
-        if kind == "calc_num":
-            raise CalcError(CalcError.NUM)
-        if kind == "calc_val":
-            raise CalcError(CalcError.VALUE)
-        if kind == "calc_div0":
-            raise CalcError(CalcError.DIV0)
-        if kind == "calc_na":
-            raise CalcError(CalcError.NA)
         if kind == "zero_div":
             raise ZeroDivisionError("zero")
         if kind == "index_err":
@@ -496,10 +478,6 @@ def test_calc_function():
     assert math.isnan(error_fn("value_err"))
     assert math.isnan(error_fn("type_err"))
     assert math.isnan(error_fn("overflow_err"))
-    assert math.isnan(error_fn("calc_num"))
-    assert error_fn("calc_val") == "#VALUE!"
-    assert error_fn("calc_div0") == "#DIV/0!"
-    assert error_fn("calc_na") == "#N/A"
 
     with pytest.raises(ZeroDivisionError):
         error_fn("zero_div")
@@ -508,7 +486,40 @@ def test_calc_function():
     assert error_fn("none") == "ok"
 
 
+def test_round_half_up_decimal_input():
+    assert round_half_up(Decimal("0.285") * 100, 0) == Decimal("29")
+    assert round_half_up(Decimal("-2.5"), 0) == Decimal("-3")
+    with pytest.raises(ValueError):
+        round_half_up(Decimal("Infinity"), 0)
+    with pytest.raises(ValueError):
+        round_half_up(Decimal("NaN"), 0)
+    assert round_half_up(2.675, 2) == Decimal("2.68")
 
 
+def test_format_quantized():
+    assert format_quantized(Decimal("-0.00"), 2, commas=False) == "0.00"
+    assert format_quantized(Decimal("-1234.57"), 2, commas=True) == "-1,234.57"
+    assert format_quantized(Decimal("12"), -1, commas=False) == "12"
 
+
+def test_orient_columns():
+    # 1-D length 3 gives shape (3, 1)
+    arr_1d = np.array([1, 2, 3])
+    assert orient_columns(arr_1d, 3, axis=0).shape == (3, 1)
+
+    # a (2, 3) block with size=3, axis=0 is transposed to (3, 2)
+    arr_2x3 = np.zeros((2, 3))
+    assert orient_columns(arr_2x3, 3, axis=0).shape == (3, 2)
+
+    # a (3, 2) block with size=3, axis=0 is unchanged
+    arr_3x2 = np.zeros((3, 2))
+    assert orient_columns(arr_3x2, 3, axis=0).shape == (3, 2)
+
+    # a (2, 1) block with size=2, axis=1 becomes (1, 2)
+    arr_2x1 = np.zeros((2, 1))
+    assert orient_columns(arr_2x1, 2, axis=1).shape == (1, 2)
+
+    # a 0-d array is returned unchanged
+    arr_0d = np.array(5)
+    assert orient_columns(arr_0d, 1, axis=0).shape == ()
 

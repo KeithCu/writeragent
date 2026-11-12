@@ -5,7 +5,7 @@
 # it under the terms of the GNU General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
-"""Document research outer-agent tools: list nearby files in the same folder."""
+"""Document research and MCP helper tools: list nearby files, list open documents, read the guidance manual."""
 
 from __future__ import annotations
 
@@ -95,11 +95,12 @@ class ListOpenDocuments(ToolBase):
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         def _run() -> dict[str, Any]:
-            from plugin.mcp.mcp_protocol import _format_mcp_clock_context
+            # Lazy: plugin.mcp.mcp_protocol pulls in the MCP server stack (config, HTTP server, sessions; ~60 modules) that this tool module does not otherwise need.
+            from plugin.mcp.mcp_protocol import format_mcp_clock_context
 
             docs = get_open_documents(ctx.ctx, ctx.doc)
             # Piggyback clock for MCP hosts that ignore initialize.instructions (#374 Bug 1).
-            return {"status": "ok", "documents": docs, "current_local_datetime": _format_mcp_clock_context()}
+            return {"status": "ok", "documents": docs, "current_local_datetime": format_mcp_clock_context()}
 
         try:
             return main.run(_run)
@@ -137,7 +138,8 @@ class GetGuidance(ToolBase):
         # Guidance must match the document being worked on (a Calc session must never read Writer
         # advice). Resolve the target document the same way every other tool does; with no document
         # open, serve the neutral index / the always-available generic topics.
-        from plugin.mcp.mcp_protocol import _format_mcp_clock_context
+        # Lazy: plugin.mcp.mcp_protocol pulls in the MCP server stack (config, HTTP server, sessions; ~60 modules) that this tool module does not otherwise need.
+        from plugin.mcp.mcp_protocol import format_mcp_clock_context
 
         doc_type = doc_type_of(ctx.doc)
         raw = (kwargs.get("topic") or "").strip()
@@ -149,14 +151,13 @@ class GetGuidance(ToolBase):
                 "doc_type": doc_type,
                 "topics": list_topics(doc_type),
                 "index": manual_index(doc_type),
-                "current_local_datetime": _format_mcp_clock_context(),
+                "current_local_datetime": format_mcp_clock_context(),
             }
         section = get_section(raw, doc_type)
         if section is None:
-            return {
-                "status": "error",
-                "code": "UNKNOWN_TOPIC",
-                "message": "Unknown guidance topic '%s' for this document type. Available topics: %s." % (raw, ", ".join(list_topics(doc_type))),
-                "topics": list_topics(doc_type),
-            }
+            return self._tool_error(
+                "Unknown guidance topic '%s' for this document type. Available topics: %s." % (raw, ", ".join(list_topics(doc_type))),
+                code="UNKNOWN_TOPIC",
+                top_level={"topics": list_topics(doc_type)},
+            )
         return {"status": "ok", "doc_type": doc_type, "topic": normalize_topic(raw, doc_type), "guidance": section}

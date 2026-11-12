@@ -6,12 +6,12 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 from plugin.writer.html_import import (
-    _ensure_html_linebreaks,
+    ensure_html_linebreaks,
     content_has_markup,
     replace_xtext_with_html,
 )
 from plugin.writer.html_ruby import (
-    _apply_ruby_spans,
+    apply_ruby_spans,
     extract_and_strip_ruby,
 )
 
@@ -122,7 +122,7 @@ def test_ruby_reading_attaches_to_later_base_not_the_first_copy():
     assert clean == "<p>漢字と漢字</p>"
     assert spans == [("漢字", "かんじ", True, len("漢字と"))]
     text = _RubyText("漢字と漢字")
-    _apply_ruby_spans(text, spans)
+    apply_ruby_spans(text, spans)
     painted = [cursor.ruby for cursor in text.cursors if cursor.ruby]
     assert painted == [(len("漢字と"), len("漢字と漢字"), "かんじ")]
 
@@ -133,7 +133,7 @@ def test_ruby_offset_is_relative_to_the_imported_suffix():
     suffix = "漢字と漢字"
     text = _RubyText(prefix + suffix)
     spans = [("漢字", "かんじ", True, len("漢字と"))]
-    _apply_ruby_spans(text, spans, skip_chars=len(prefix))
+    apply_ruby_spans(text, spans, skip_chars=len(prefix))
     painted = [cursor.ruby for cursor in text.cursors if cursor.ruby]
     start = len(prefix) + len("漢字と")
     assert painted == [(start, start + len("漢字"), "かんじ")]
@@ -145,7 +145,7 @@ def test_ruby_readings_stay_on_their_own_repeated_base():
     assert [span[1] for span in spans] == ["いち", "に"]
     assert [span[3] for span in spans] == [0, len("漢字")]
     text = _RubyText("漢字漢字")
-    _apply_ruby_spans(text, spans)
+    apply_ruby_spans(text, spans)
     painted = [cursor.ruby for cursor in text.cursors if cursor.ruby]
     assert painted == [(0, 2, "いち"), (2, 4, "に")]
 
@@ -156,7 +156,7 @@ def test_ruby_offset_counts_br_before_the_base():
     assert clean == "<p>漢字<br>x漢字</p>"
     assert spans == [("漢字", "かんじ", True, len("漢字\nx"))]
     text = _RubyText("漢字\nx漢字")
-    _apply_ruby_spans(text, spans)
+    apply_ruby_spans(text, spans)
     painted = [cursor.ruby for cursor in text.cursors if cursor.ruby]
     assert painted == [(4, 6, "かんじ")]
 
@@ -172,7 +172,7 @@ def test_ruby_repeated_base_after_br_keeps_own_reading():
     html = "<p><ruby>漢字<rt>いち</rt></ruby>漢字<br><ruby>漢字<rt>に</rt></ruby></p>"
     _clean, spans = extract_and_strip_ruby(html)
     text = _RubyText("漢字漢字\n漢字")
-    _apply_ruby_spans(text, spans)
+    apply_ruby_spans(text, spans)
     painted = [cursor.ruby for cursor in text.cursors if cursor.ruby]
     assert painted == [(0, 2, "いち"), (5, 7, "に")]
 
@@ -196,7 +196,7 @@ def test_ruby_spans_forward_cursor_walk():
         offset += len(base)
     full_text = "".join(parts)
     text = _RubyText(full_text)
-    _apply_ruby_spans(text, spans)
+    apply_ruby_spans(text, spans)
     painted = [c.ruby for c in text.cursors if c.ruby]
     assert painted == expected_painted
     assert len(text.cursors) <= 205
@@ -229,30 +229,22 @@ def test_ensure_html_linebreaks_does_not_unescape_again():
     """
     once = html_mod.unescape("&amp;lt;p&amp;gt;hello&amp;lt;/p&amp;gt;")
     assert once == "&lt;p&gt;hello&lt;/p&gt;"
-    out = _ensure_html_linebreaks(once)
+    out = ensure_html_linebreaks(once)
     assert "<p>hello</p>" not in out
     assert "&lt;p&gt;hello&lt;/p&gt;" in out
 
     inside = html_mod.unescape("<p>see &amp;lt;b&amp;gt;x&amp;lt;/b&amp;gt;</p>")
-    wrapped = _ensure_html_linebreaks(inside)
+    wrapped = ensure_html_linebreaks(inside)
     assert "<b>" not in wrapped
     assert "&lt;b&gt;x&lt;/b&gt;" in wrapped
     assert "<p>see" in wrapped
 
 
 def test_ensure_html_linebreaks_escapes_prose_angle_brackets():
-    out = _ensure_html_linebreaks("<p>List<String> and 2 < 3</p>")
+    out = ensure_html_linebreaks("<p>List<String> and 2 < 3</p>")
     assert "List&lt;String&gt;" in out
     assert "2 &lt; 3" in out
     assert "<p>" in out and "</p>" in out
-
-
-def test_decode_complete_character_references_only_decodes_with_semicolon():
-    from plugin.writer.html_import_styles import _decode_complete_character_references
-
-    assert _decode_complete_character_references("&sect 2o &amp;lt;") == "&sect 2o &lt;"
-    assert _decode_complete_character_references("&amp; &quot; &#36; &#x24;") == '& " $ $'
-    assert _decode_complete_character_references("&not covered") == "&not covered"
 
 
 def test_insert_content_entry_points_decode_complete_entities():
@@ -278,7 +270,7 @@ def test_insert_content_entry_points_decode_complete_entities():
     text_range = MagicMock()
     text_range.getText.return_value = MagicMock()
     with patch.object(html_import, "_insert_mixed_or_plain_html") as mock_mixed, \
-         patch("plugin.writer.table_nesting.raise_if_range_hosts_nested_table"):
+         patch("plugin.writer.html_import.raise_if_range_hosts_nested_table"):
         html_import.replace_single_range_with_content(model, text_range, raw, MagicMock())
         assert mock_mixed.call_args.args[3] == expected
 
@@ -296,7 +288,7 @@ def test_replace_single_range_block_html_in_cell_raises_coded_error():
     text_range.getText.return_value = text_obj
 
     with patch.object(html_import, "_insert_mixed_or_plain_html", side_effect=RuntimeError("nested xtext failure")), \
-         patch("plugin.writer.table_nesting.raise_if_range_hosts_nested_table"):
+         patch("plugin.writer.html_import.raise_if_range_hosts_nested_table"):
         with pytest.raises(ToolExecutionError) as exc_info:
             html_import.replace_single_range_with_content(model, text_range, "<p>block</p>", MagicMock())
         assert exc_info.value.code == "TABLE_BLOCK_IN_CELL"
@@ -383,7 +375,7 @@ def test_replace_xtext_with_html_applies_and_reports_data_lo_attrs():
     assert args[1] is text and args[3] == ["Header"]
     assert kwargs["paras"] == ["margin-left:1cm; font-weight:bold"]
     # The table-cell declaration is never applied, so it is reported.
-    assert failed == ["margin-top", "font-weight"]
+    assert failed.unapplied_para == ["margin-top", "font-weight"]
 
 
 def test_replace_xtext_with_html_plain_html_skips_style_walk():
@@ -391,7 +383,7 @@ def test_replace_xtext_with_html_plain_html_skips_style_walk():
     with patch("plugin.writer.html_import.insert_html_fragment_at_cursor"), patch(
         "plugin.writer.html_import_styles.apply_block_lo_styles",
     ) as apply_styles:
-        assert replace_xtext_with_html(text, "<p>New</p>", model=_undo_model()) == []
+        assert replace_xtext_with_html(text, "<p>New</p>", model=_undo_model()).unapplied_para == []
     apply_styles.assert_not_called()
 
 
@@ -415,8 +407,8 @@ def test_replace_xtext_with_html_undo_rollback_on_field_restore_failure():
     model.getUndoManager.return_value = undo_mgr
 
     with patch("plugin.writer.html_import.insert_html_fragment_at_cursor"), \
-         patch("plugin.writer.html_ruby._apply_ruby_spans"), \
-         patch("plugin.writer.field_restore._restore_field_placeholders", side_effect=RuntimeError("field failed")):
+         patch("plugin.writer.html_ruby.apply_ruby_spans"), \
+         patch("plugin.writer.field_restore.restore_field_placeholders", side_effect=RuntimeError("field failed")):
         with pytest.raises(RuntimeError, match="field failed"):
             replace_xtext_with_html(text, "<p>New</p>", model=model)
 
@@ -515,8 +507,8 @@ def test_insert_inline_at_cursor_paints_ruby_instead_of_gluing_the_reading():
 
     cursor = MagicMock()
     with patch.object(html_import, "insert_html_fragment_at_cursor") as frag, \
-         patch.object(range_copy, "_prefix_char_count", return_value=7), \
-         patch.object(html_ruby, "_apply_ruby_spans") as paint:
+         patch.object(range_copy, "prefix_char_count", return_value=7), \
+         patch.object(html_ruby, "apply_ruby_spans") as paint:
         html_import.insert_inline_at_cursor(MagicMock(), MagicMock(), cursor, "<ruby>漢字<rt>かんじ</rt></ruby>")
     assert frag.call_args.args[1] == "漢字"
     assert paint.call_args.args[1] == [("漢字", "かんじ", True, 0)]
@@ -528,7 +520,7 @@ def test_insert_inline_at_cursor_skips_prefix_count_without_ruby():
     from plugin.writer import html_import, range_copy
 
     cursor = MagicMock()
-    with patch.object(range_copy, "_prefix_char_count") as count, \
+    with patch.object(range_copy, "prefix_char_count") as count, \
          patch.object(html_import, "insert_html_fragment_at_cursor"):
         html_import.insert_inline_at_cursor(MagicMock(), MagicMock(), cursor, "<b>x</b>")
     count.assert_not_called()
@@ -539,8 +531,8 @@ def test_insert_mixed_or_plain_html_skips_prefix_count_without_ruby():
     from plugin.writer import html_import, range_copy
 
     cursor = MagicMock()
-    with patch.object(range_copy, "_prefix_char_count") as count, \
-         patch.object(html_import, "_insert_starwriter_html_at_cursor"):
+    with patch.object(range_copy, "prefix_char_count") as count, \
+         patch.object(html_import, "insert_html_fragment_at_cursor"):
         html_import._insert_mixed_or_plain_html(MagicMock(), MagicMock(), cursor, "<p>hi</p>")
     count.assert_not_called()
 
@@ -550,9 +542,9 @@ def test_insert_mixed_html_and_math_skips_prefix_count_without_ruby():
     from plugin.writer import html_import, range_copy
 
     cursor = MagicMock()
-    with patch.object(range_copy, "_prefix_char_count") as count, \
-         patch.object(html_import, "_insert_starwriter_html_at_cursor"), \
-         patch("plugin.writer.math.html_math_segment.html_fragment_contains_mixed_math", return_value=True):
+    with patch.object(range_copy, "prefix_char_count") as count, \
+         patch.object(html_import, "insert_html_fragment_at_cursor"), \
+         patch.object(html_import, "html_fragment_contains_mixed_math", return_value=True):
         html_import._insert_mixed_html_and_math_at_cursor(
             MagicMock(), MagicMock(), cursor, "<p>text before</p> \\(x^2\\) <p>text after</p>"
         )
@@ -565,10 +557,10 @@ def test_insert_mixed_html_and_math_counts_prefix_when_segment_contains_ruby():
 
     cursor = MagicMock()
     calls = []
-    with patch.object(range_copy, "_prefix_char_count", side_effect=lambda t, c: calls.append("count") or 5) as count, \
-         patch.object(html_import, "_insert_starwriter_html_at_cursor", side_effect=lambda *a, **k: calls.append("insert")), \
-         patch.object(html_ruby, "_apply_ruby_spans") as paint, \
-         patch("plugin.writer.math.html_math_segment.html_fragment_contains_mixed_math", return_value=True):
+    with patch.object(range_copy, "prefix_char_count", side_effect=lambda t, c: calls.append("count") or 5) as count, \
+         patch.object(html_import, "insert_html_fragment_at_cursor", side_effect=lambda *a, **k: calls.append("insert")), \
+         patch.object(html_ruby, "apply_ruby_spans") as paint, \
+         patch.object(html_import, "html_fragment_contains_mixed_math", return_value=True):
         html_import._insert_mixed_html_and_math_at_cursor(
             MagicMock(), MagicMock(), cursor, "<p><ruby>漢字<rt>かんじ</rt></ruby></p> \\(x^2\\)"
         )
@@ -935,7 +927,7 @@ def test_every_read_para_name_has_a_writer_or_is_listed_read_only():
 def test_round_trip_read_fodt_autostyle_value():
     from unittest.mock import MagicMock, call
     from plugin.writer import html_import_styles
-    from plugin.writer.xhtml_style_postprocess import _parse_fodt_autostyles
+    from plugin.writer.xhtml_style_postprocess import parse_fodt_autostyles
 
     fodt = """<?xml version="1.0" encoding="UTF-8"?>
 <office:document xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0"
@@ -945,7 +937,7 @@ def test_round_trip_read_fodt_autostyle_value():
   <style:paragraph-properties fo:margin-left="3.25cm" fo:text-indent="0cm" fo:text-align="start"/>
  </style:style>
 </office:document>"""
-    emitted = _parse_fodt_autostyles(fodt)[1]["P2"]
+    emitted = parse_fodt_autostyles(fodt)[1]["P2"]
     assert emitted == "margin-left:3.25cm; text-indent:0cm; text-align:left"
 
     props, dropped = html_import_styles.parse_data_lo_para(emitted)
@@ -1750,17 +1742,17 @@ def test_paragraph_after_none_is_text_start():
 
 
 def test_content_has_block_markup_whitespace_and_inline_tags():
-    from plugin.writer.html_import import _content_has_block_markup
+    from plugin.writer.html_import import content_has_block_markup
 
-    assert _content_has_block_markup("<p\n style=a>") is True
-    assert _content_has_block_markup("<p\tx>") is True
-    assert _content_has_block_markup("<span>") is False
-    assert _content_has_block_markup("<param>") is False
-    assert _content_has_block_markup("List<String>") is False
-    assert _content_has_block_markup("<dl><dt>x</dt></dl>") is True
-    assert _content_has_block_markup("<figure></figure>") is True
-    assert _content_has_block_markup("<header>h</header>") is True
-    assert _content_has_block_markup("<span>a<br>b</span>") is False
+    assert content_has_block_markup("<p\n style=a>") is True
+    assert content_has_block_markup("<p\tx>") is True
+    assert content_has_block_markup("<span>") is False
+    assert content_has_block_markup("<param>") is False
+    assert content_has_block_markup("List<String>") is False
+    assert content_has_block_markup("<dl><dt>x</dt></dl>") is True
+    assert content_has_block_markup("<figure></figure>") is True
+    assert content_has_block_markup("<header>h</header>") is True
+    assert content_has_block_markup("<span>a<br>b</span>") is False
 
 
 def test_collect_range_portions_magic_mock_returns_immediately():
@@ -1922,7 +1914,7 @@ def test_styled_insert_epilogue_cursor_move():
     parked = MagicMock()
     cursor_text.createTextCursorByRange.return_value = parked
 
-    with patch.object(html_import, "_insert_starwriter_html_at_cursor"), \
+    with patch.object(html_import, "insert_html_fragment_at_cursor"), \
          patch("plugin.writer.html_import_styles.apply_block_lo_styles"), \
          patch.object(html_import, "_apply_ruby_and_restore_fields"):
         html_import._insert_mixed_or_plain_html(
@@ -2022,7 +2014,7 @@ def test_insert_mixed_html_and_math_reports_every_attempt():
     with patch.object(html_import, "convert_latex_to_starmath", side_effect=fake_tex), \
          patch.object(html_import, "convert_mathml_to_starmath", side_effect=fake_mathml), \
          patch.object(html_import, "insert_writer_math_formula") as mock_formula, \
-         patch.object(html_import, "_insert_starwriter_html_at_cursor"):
+         patch.object(html_import, "insert_html_fragment_at_cursor"):
         attempts = html_import._insert_mixed_html_and_math_at_cursor(model, ctx, cursor, content)
 
     assert attempts == [
@@ -2036,7 +2028,7 @@ def test_insert_mixed_html_and_math_reports_every_attempt():
     )
 
 
-def test_mixed_inserters_thread_math_out_and_preserve_returns():
+def test_mixed_inserters_report_math_and_preserve_returns():
     from unittest.mock import MagicMock, patch
     from plugin.writer import html_import
 
@@ -2053,37 +2045,34 @@ def test_mixed_inserters_thread_math_out_and_preserve_returns():
     def fake_mixed_math(mod, c, cur, unescaped):
         return list(fake_attempt)
 
-    # 1. replace_full_document extends math_out and returns list[str]
-    math_out_full: list[dict[str, Any]] = []
+    # 1. replace_full_document returns WriteReport with math
     with patch.object(html_import, "_insert_mixed_html_and_math_at_cursor", side_effect=fake_mixed_math), \
-         patch("plugin.writer.math.html_math_segment.html_fragment_contains_mixed_math", return_value=True):
-        ret_full = html_import.replace_full_document(model, ctx, r"<p>\(a\)</p>", math_out=math_out_full)
-    assert ret_full == []
-    assert math_out_full == fake_attempt
+         patch.object(html_import, "html_fragment_contains_mixed_math", return_value=True):
+        ret_full = html_import.replace_full_document(model, ctx, r"<p>\(a\)</p>")
+    assert ret_full.unapplied_para == []
+    assert ret_full.math == fake_attempt
 
-    # 2. insert_content_at_position(..., "end") extends math_out and returns (list[str], None)
-    math_out_end: list[dict[str, Any]] = []
+    # 2. insert_content_at_position(..., "end") returns WriteReport with math
     with patch.object(html_import, "_insert_mixed_html_and_math_at_cursor", side_effect=fake_mixed_math), \
-         patch("plugin.writer.math.html_math_segment.html_fragment_contains_mixed_math", return_value=True):
-        ret_end = html_import.insert_content_at_position(model, ctx, r"<p>\(a\)</p>", "end", math_out=math_out_end)
-    assert ret_end == ([], None)
-    assert math_out_end == fake_attempt
+         patch.object(html_import, "html_fragment_contains_mixed_math", return_value=True):
+        ret_end = html_import.insert_content_at_position(model, ctx, r"<p>\(a\)</p>", "end")
+    assert ret_end.unapplied_para == []
+    assert ret_end.math == fake_attempt
 
-    # 3. replace_single_range_with_content extends math_out and returns (failures, style note)
-    math_out_range: list[dict[str, Any]] = []
+    # 3. replace_single_range_with_content returns WriteReport with math
     with patch.object(html_import, "_insert_mixed_html_and_math_at_cursor", side_effect=fake_mixed_math), \
-         patch("plugin.writer.table_nesting.raise_if_range_hosts_nested_table"), \
-         patch("plugin.writer.math.html_math_segment.html_fragment_contains_mixed_math", return_value=True):
+         patch("plugin.writer.html_import.raise_if_range_hosts_nested_table"), \
+         patch.object(html_import, "html_fragment_contains_mixed_math", return_value=True):
         ret_range = html_import.replace_single_range_with_content(
-            model, text_range, r"<p>\(a\)</p>", ctx, math_out=math_out_range
+            model, text_range, r"<p>\(a\)</p>", ctx
         )
-    assert ret_range == ([], None)
-    assert math_out_range == fake_attempt
+    assert ret_range.unapplied_para == []
+    assert ret_range.math == fake_attempt
 
 
 def test_replace_single_range_returns_failures_and_inline_skipped():
     from unittest.mock import MagicMock, patch
-    from plugin.writer import html_import
+    from plugin.writer import html_import, html_import_styles
 
     model = MagicMock()
     ctx = MagicMock()
@@ -2094,43 +2083,43 @@ def test_replace_single_range_returns_failures_and_inline_skipped():
     text_obj.createTextCursorByRange.return_value = cursor
 
     # Block replacement returns failures from _insert_mixed_or_plain_html
-    with patch("plugin.writer.table_nesting.raise_if_range_hosts_nested_table"), \
-         patch.object(html_import, "_insert_mixed_or_plain_html", return_value=["font-size"]) as mock_ins, \
+    fake_report = html_import_styles.WriteReport(unapplied_para=["font-size"])
+    with patch("plugin.writer.html_import.raise_if_range_hosts_nested_table"), \
+         patch.object(html_import, "_insert_mixed_or_plain_html", return_value=fake_report) as mock_ins, \
          patch.object(html_import, "_lo_style_for_replaced_range", return_value=(True, None)):
-        failures, note = html_import.replace_single_range_with_content(
+        rep = html_import.replace_single_range_with_content(
             model, text_range, '<p data-lo-para="font-size:12pt">text</p>', ctx
         )
-    assert failures == ["font-size"]
-    assert note is None
+    assert rep.unapplied_para == ["font-size"]
+    assert rep.style_skips == []
     mock_ins.assert_called_once()
 
     # Inline replacement returns property names from skipped inline tags
     cursor.getPropertyValue.return_value = "Standard"
-    with patch("plugin.writer.table_nesting.raise_if_range_hosts_nested_table"), \
+    with patch("plugin.writer.html_import.raise_if_range_hosts_nested_table"), \
          patch.object(html_import, "insert_html_fragment_at_cursor"), \
          patch("plugin.writer.record_changes.is_recording_changes", return_value=False):
-        failures_inline, note_inline = html_import.replace_single_range_with_content(
+        rep_inline = html_import.replace_single_range_with_content(
             model, text_range, '<span data-lo-para="text-align:center; font-size:10pt">inline</span>', ctx
         )
-    assert failures_inline == ["text-align", "font-size"]
-    assert note_inline is None
+    assert rep_inline.unapplied_para == ["text-align", "font-size"]
+    assert rep_inline.style_skips == []
 
 
-def test_plain_html_leaves_math_out_empty():
+def test_plain_html_leaves_math_empty():
     from unittest.mock import MagicMock, patch
     from plugin.writer import html_import
 
     model = MagicMock()
     cursor = MagicMock()
     ctx = MagicMock()
-    math_out: list[dict[str, Any]] = []
 
-    with patch.object(html_import, "_insert_starwriter_html_at_cursor"):
-        failures = html_import._insert_mixed_or_plain_html(
-            model, ctx, cursor, "<p>hi</p>", math_out=math_out
+    with patch.object(html_import, "insert_html_fragment_at_cursor"):
+        report = html_import._insert_mixed_or_plain_html(
+            model, ctx, cursor, "<p>hi</p>"
         )
-    assert failures == []
-    assert math_out == []
+    assert report.unapplied_para == []
+    assert report.math == []
 
 
 def test_drop_absorb_paragraph_props_resets_extended_properties() -> None:

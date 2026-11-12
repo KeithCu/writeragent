@@ -6,7 +6,7 @@ WriterAgent documents (Writer, Calc, Draw/Impress) embed raster images: scans, s
 
 **Priority:** Ship **direct user access** first (Settings + **Run Python Script → Vision Helpers**). Wire the same helpers to the chat agent (`analyze_image`) only after the manual path works.
 
-**Phase 1 scope (Writer):** insert OCR **`html`** at the text cursor via [`insert_content_at_position`](../../plugin/writer/format.py) (StarWriter HTML filter). **Phase 1b (Calc):** same HTML via [`insert_cell_html_rich`](../../plugin/calc/rich_html.py) into the cell below the graphic anchor ([`plugin/calc/vision_egress.py`](../../plugin/calc/vision_egress.py)). Draw/Impress → **Phase 1b.2**.
+**Phase 1 scope (Writer):** insert OCR **`html`** at the text cursor via [`insert_content_at_position`](../../plugin/writer/html_import.py) (StarWriter HTML filter). **Phase 1b (Calc):** same HTML via [`insert_cell_html_rich`](../../plugin/calc/rich_html.py) into the cell below the graphic anchor ([`plugin/calc/vision_egress.py`](../../plugin/calc/vision_egress.py)). Draw/Impress → **Phase 1b.2**.
 
 **Related:** [Scientific Python / venv bridge](../enabling_numpy_in_libreoffice.md) · [NumPy domain helpers](../scripting/numpy-domains.md) · [Analysis helpers UX (template)](../calc/analysis-tools.md) · [Analysis sub-agent (dev-plan style)](../calc/analysis-sub-agent.md) · [Image generation (remote)](generation.md) · [LO-DOM for vector Draw content](../writer/lo-dom-semantic-tree.md) · [Embeddings index (text, not vision)](../embeddings.md)
 
@@ -91,7 +91,7 @@ Mirror [**Analysis Helpers**](../calc/analysis-tools.md#1b-run-python-script--an
 |-------|---------|
 | **Entry** | **WriterAgent → Run Python Script…** (already on menu for Writer/Calc/Draw/Impress) |
 | **Picker section** | **Vision Helpers →** e.g. `[Vision] extract_text`, `[Vision] extract_structure`, … |
-| **Templates** | [`vision_templates.py`](../../plugin/vision/vision_templates.py) with `# writeragent:vision helper=… params=…` header; params include optional **`image_name`** (from `image_list`) |
+| **Templates** | [`vision_templates.py`](../../plugin/vision/vision_templates.py) calling `run_vision(...)`; kwargs include optional **`image_name`** (from `image_list`) |
 | **Input** | User **selects an embedded graphic**, or sets **`image_name`** in params; host exports PNG bytes |
 | **Run** | Fast path in `execute_and_insert_result` → `run_trusted_vision` → [`run_vision`](../../plugin/scripting/client.py) |
 | **App scope** | **Writer, Calc, Draw, Impress** — Vision Helpers when [`supports_vision_manual`](plugin/vision/vision_runner.py); Draw/Impress OCR is return-only (no insert). Text-box egress → **Phase 1b.2** |
@@ -224,7 +224,7 @@ sequenceDiagram
   participant Venv as vision.py
 
   User->>RPS: Vision Helpers extract_text Run
-  RPS->>Host: parse_vision_script_header
+  RPS->>Host: ScriptFacts.first_run_spec("run_vision")
   Host->>Export: get_selected_image_bytes
   Export-->>Host: PNG bytes
   Host->>VC: run_vision spec image context
@@ -241,7 +241,7 @@ sequenceDiagram
 |------|------|
 | [`plugin/vision/venv/vision.py`](../../plugin/vision/venv/vision.py) | `HELPER_NAMES`, `run_vision`, `_extract_text` via PaddleOCR (lazy engine singleton per worker) |
 | [`plugin/scripting/client.py`](../../plugin/scripting/client.py) | Host entry `run_vision`; fixed stub IPC like analysis |
-| [`plugin/vision/vision_templates.py`](../../plugin/vision/vision_templates.py) | `# writeragent:vision helper=… params=…`; Phase 1 template: **`extract_text` only** |
+| [`plugin/vision/vision_templates.py`](../../plugin/vision/vision_templates.py) | Calls `run_vision(...)`; Phase 1 template: **`extract_text` only** |
 | [`plugin/vision/vision_runner.py`](../../plugin/vision/vision_runner.py) | `get_selected_image_bytes(ctx, doc)`, `run_trusted_vision(...)` — host-side export + RPC |
 | [`plugin/vision/vision_egress.py`](../../plugin/vision/vision_egress.py) | `is_vision_result`, `vision_html_from_result`, `insert_vision_result` |
 
@@ -259,7 +259,7 @@ result = _run(data["spec"], data.get("image"), data.get("context") or {})
 | File | Change |
 |------|--------|
 | [`document_scripts.py`](../../plugin/scripting/document_scripts.py) | `SCRIPT_ORIGIN_VISION`, `VISION_SCRIPT_DISPLAY_PREFIX = "[Vision] "`, `_vision_script_section(doc)` gated on **`is_writer(doc)`**; wire `build_xdl_script_picker_state` / `build_scripts_list_message` / `resolve_script_picker_entry` |
-| [`python_runner.py`](../../plugin/scripting/python_runner.py) | Before generic venv run: if `parse_vision_script_header(code)` → export bytes → `run_trusted_vision` → `insert_vision_result` (Writer or Calc) |
+| [`python_runner.py`](../../plugin/scripting/python_runner.py) | Before generic venv run: if `ScriptFacts.first_run_spec("run_vision")` → export bytes → `run_trusted_vision` → `insert_vision_result` (Writer or Calc) |
 | [`sandbox.py`](../../plugin/scripting/sandbox.py) | Add `plugin.vision.venv.vision` |
 | [`scripts_manager.js`](../../plugin/contrib/scripting/assets/editor/scripts_manager.js) | `isBuiltInVision = currentOrigin === "vision"`; disable Attach like analysis |
 
@@ -306,7 +306,7 @@ return png_bytes
 
 | File | Covers |
 |------|--------|
-| `tests/vision/test_vision_templates.py` | Template coverage, `parse_vision_script_header` round-trip |
+| `tests/vision/test_vision_templates.py` | Template coverage, `run_vision` call generation |
 | `tests/vision/venv/test_vision.py` | `run_vision` / `_extract_text` with mocked Paddle |
 | `tests/vision/test_vision_egress.py` | `is_vision_result`, `vision_html_from_result`, `insert_vision_result` |
 | `tests/scripting/test_python_runner_vision.py` | Fast path in `execute_and_insert_result` (mock export + RPC + insert) |
@@ -437,7 +437,7 @@ pip install docling rapidocr-paddle paddleocr paddlepaddle ultralytics numpy pil
 
 Helpers degrade with `DOCLING_UNAVAILABLE` / `PADDLEOCR_UNAVAILABLE` / `OCR_BACKEND_UNAVAILABLE` / `YOLO_UNAVAILABLE` and messages pointing to **Settings → Python**.
 
-Template params for OCR research (in `# writeragent:vision … params=…`):
+Template params for OCR research (keyword arguments of the `run_vision(...)` call):
 
 | Param | Default | Values |
 |-------|---------|--------|
@@ -644,7 +644,7 @@ def is_vision_result(value: Any) -> bool:
 4. **`convert_latex_delimiters_to_mathml`** — leftover `$$…$$` / `\[…\]` / `\(...\)` (and conservative `$…$`) → `<math display="block|inline">` via vendored `latex2mathml`, so Writer’s mixed HTML+math insert creates native editable Math objects. Currency like `$ 35,934` is left alone. Conversion is skipped if `latex2mathml` is missing. When it is not already importable, the loader looks in `<extension root>/vendor` and `<extension root>/plugin/lib`. That root is three directories above `plugin/vision/venv/` (`venv → vision → plugin → root`), the same depth `ensure_plugin_on_path` uses for a file directly under `plugin/<pkg>/`.
 5. **`promote_table_header_rows`** — first row that already has `<th>` is wrapped in `<thead>` (remaining rows `<tbody>`). Layout tables with `border:none` (two-column bbox HTML) are skipped. Section rows such as `ASSETS:` stay in the body.
 6. **`augment_lo_table_styles`** — `border="1"` plus `border-collapse` / `1px solid #ccc` on data tables and cells; `<th>` gets `background-color: #f0f0f0; font-weight: bold`. StarWriter often drops stylesheet table rules; the HTML attribute plus inline CSS keep gridlines.
-7. Host [`insert_vision_result`](../../plugin/vision/vision_egress.py) → [`prepare_vision_writer_insert`](../../plugin/vision/vision_egress.py) (paragraph after graphic + collapse UI caret) → [`insert_html_at_cursor`](../../plugin/writer/format.py) (StarWriter filter; full documents are stripped to body markup before wrap).
+7. Host [`insert_vision_result`](../../plugin/vision/vision_egress.py) → [`prepare_vision_writer_insert`](../../plugin/vision/vision_egress.py) (paragraph after graphic + collapse UI caret) → [`insert_html_at_cursor`](../../plugin/writer/html_import.py) (StarWriter filter; full documents are stripped to body markup before wrap).
 
 **What you should see:** section headings **bold and larger** than body paragraphs; **visible table gridlines** and distinct header rows (`<thead>` / shaded `<th>`, which LibreOffice can repeat on each page); LaTeX formulas as **editable LibreOffice Math** objects when Docling emitted TeX or MathML. **Not expected:** flyer colors, multi-column layout, or panel backgrounds (Docling does not export that visual design). For a **future dev plan** to improve visual fidelity, see [§21 Visual/layout HTML fidelity (deferred dev plan)](#21-visuallayout-html-fidelity-deferred-dev-plan).
 
@@ -904,7 +904,7 @@ Checklist for implementers / QA:
 | `insert_into_document` | Default `true` — insert HTML at Writer cursor or Calc cell below anchor |
 | `params` | Optional vision overrides (`engine`, `lang`, …) merged with `vision.*` settings |
 
-**Prompt rule:** You must use `domain=vision` delegation (empty `task`) to perform OCR when the venv stack is available — extracts text and structure from the selected graphic and inserts a high-quality representation into the document (no nested sub-agent).
+**Prompt rule:** You must use `domain=vision` delegation (empty `task`) to perform OCR when the venv stack is available — extracts text and structure from the selected graphic and inserts a high-quality representation into the document (no nested sub-agent). Writer: `vision` catalog line in the specialized domain list (only when vision is available); Calc/Draw: `get_vision_core_directive`.
 
 **Multimodal chat models:** Native vision APIs do not receive embedded doc images today — local `vision` remains authoritative for OCR + document insert. Optional future: attach exported graphic bytes to chat for semantic Q&A ([§18.2](#182-multimodal-llm-vision-optional-after-tool)).
 
@@ -958,7 +958,7 @@ Copy when handing work to an coding agent:
 |-------|--------|
 | **Docling `export_to_html`** | Semantic tree → HTML with a generic Docling stylesheet. Section labels become `<h2>`; body lines become plain `<p>`. **No** panel backgrounds, **no** column grid, **no** per-line colors from the raster. |
 | **css-inline + augment** ([`vision_html_export.py`](../../plugin/vision/venv/vision_html_export.py)) | Fixes LO’s dropped `<style>` blocks; adds bold/size on headings, Arial on bare `<p>`, table gridlines/`<thead>`, and TeX→MathML. Still **monochrome flow** in one column. |
-| **HTML (StarWriter) import** ([`format.py`](../../plugin/writer/format.py)) | Inline `style=` on tags survives for **font-weight**, **font-size**, **color**, and **background-color** on simple blocks — but **not** reliable CSS grid/flex, and nested `<div>` layout often collapses to stacked paragraphs. |
+| **HTML (StarWriter) import** ([`html_import.py`](../../plugin/writer/html_import.py)) | Inline `style=` on tags survives for **font-weight**, **font-size**, **color**, and **background-color** on simple blocks — but **not** reliable CSS grid/flex, and nested `<div>` layout often collapses to stacked paragraphs. |
 | **Akihabara fixture** | Docling yields **9× `<h2>`, 7× `<p>`, 0 tables** — layout information exists in **block bboxes** in the Docling model, not in exported HTML. |
 
 So “look better” requires **generating HTML Docling does not export**, or **post-processing the Docling document model + source PNG** before insert.
@@ -1105,7 +1105,7 @@ Only if inline HTML + tables still collapse in Writer:
 
 | Option | Pros | Cons |
 |--------|------|------|
-| **`data-lo-style` + post-apply** ([`format.py`](../../plugin/writer/format.py) `apply_block_lo_styles`) | Native Heading 1/2 styles | Today `insert_content_at_position` uses `apply_styles=False` beside selection to avoid corrupting neighbor paragraphs — needs **vision-only** insert helper |
+| **`data-lo-style` + post-apply** ([`html_import_styles.py`](../../plugin/writer/html_import_styles.py) `apply_block_lo_styles`) | Native Heading 1/2 styles | Today `insert_content_at_position` uses `apply_styles=False` beside selection to avoid corrupting neighbor paragraphs — needs **vision-only** insert helper |
 | **XHTML import path** | Preserves class/style model on read path | Write path untested for vision; spike 0b |
 | **Writer text frames** ([`plugin/writer/shapes.py`](../../plugin/writer/shapes.py) patterns) | True positioned columns | Heavy UNO; Calc egress differs; Draw/Impress separate |
 | **Insert as ODT fragment** | Full layout control | Largest scope; new filter/temp-doc dance |

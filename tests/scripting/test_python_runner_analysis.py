@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-from plugin.scripting.analysis import get_analysis_script_templates
+from plugin.scripting.domain_registry import get_domain_wiring
 from tests.scripting.python_runner_test_support import execute_and_insert_result
 
 
@@ -32,7 +32,7 @@ def test_execute_and_insert_analysis_skips_fast_path(mock_venv, mock_run, mock_i
             "result": {"status": "ok", "helper": "describe_data", "metrics": {"row_count": 1}},
         }
         mock_insert.return_value = 5
-        code = get_analysis_script_templates()["describe_data"]
+        code = get_domain_wiring("analysis").templates()["describe_data"]
         outcome = execute_and_insert_result(ctx, doc, code, data_range="Sheet1.A1:B2")
 
     assert outcome["ok"] is True

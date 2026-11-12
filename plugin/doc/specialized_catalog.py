@@ -2,7 +2,7 @@
 """Specialized domain catalog for delegate tools and MCP discovery."""
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, NamedTuple, Sequence
 
 from plugin.framework.prompts import (
     CALC_HIDDEN_SPECIALIZED_DOMAINS,
@@ -13,40 +13,55 @@ from plugin.framework.prompts import (
     WRITER_SPECIALIZED_DELEGATION_TEMPLATE,
 )
 
-DOMAIN_LOOP_HINTS: dict[str, dict[str | None, str]] = {
+_FOOTNOTES_DIRECT_HINT = (
+    "For footnotes_insert: if the task quotes or names the document anchor "
+    "(e.g. a sentence), pass that exact string as insert_after so the "
+    "note is placed after that text."
+)
+_FOOTNOTES_LOOP_HINT = (
+    "For footnotes_insert: if the task quotes or names the document anchor (e.g. a sentence), "
+    "pass that exact string as insert_after so the note is placed after that text; "
+    "the task executor cannot move the view cursor."
+)
+_CHARTS_CALC_HINT = (
+    "When creating a chart in Calc, you MUST specify the data range explicitly (e.g. data_range='A1:B10')."
+)
+_CHARTS_HEADERS_ROWS_HINT = (
+    "When creating or editing a chart in Writer or Draw/Impress, you MUST specify both the `headers` and `rows` parameters."
+)
+_CHARTS_NEUTRAL_HINT = (
+    "For charts: in Calc you MUST pass an explicit data range (e.g. "
+    "data_range='A1:B10'); in Writer or Draw/Impress you MUST pass both the "
+    "`headers` and `rows` parameters."
+)
+
+_LOOP_HINTS: dict[str, dict[str | None, str]] = {
     "footnotes": {
-        None: (
-            "For footnotes_insert: if the task quotes or names the document anchor "
-            "(e.g. a sentence), pass that exact string as insert_after so the "
-            "note is placed after that text."
-        ),
-        "Writer": (
-            "For footnotes_insert: if the task quotes or names the document anchor (e.g. a sentence), "
-            "pass that exact string as insert_after so the note is placed after that text; "
-            "the task executor cannot move the view cursor."
-        ),
-        "Calc": (
-            "For footnotes_insert: if the task quotes or names the document anchor (e.g. a sentence), "
-            "pass that exact string as insert_after so the note is placed after that text; "
-            "the task executor cannot move the view cursor."
-        ),
-        "Draw": (
-            "For footnotes_insert: if the task quotes or names the document anchor (e.g. a sentence), "
-            "pass that exact string as insert_after so the note is placed after that text; "
-            "the task executor cannot move the view cursor."
-        ),
+        None: _FOOTNOTES_DIRECT_HINT,
+        "Writer": _FOOTNOTES_LOOP_HINT,
+        "Calc": _FOOTNOTES_LOOP_HINT,
+        "Draw": _FOOTNOTES_LOOP_HINT,
     },
     "charts": {
-        "Calc": "When creating a chart in Calc, you MUST specify the data range explicitly (e.g. data_range='A1:B10').",
-        "Writer": "When creating or editing a chart in Writer or Draw/Impress, you MUST specify both the `headers` and `rows` parameters.",
-        "Draw": "When creating or editing a chart in Writer or Draw/Impress, you MUST specify both the `headers` and `rows` parameters.",
-        None: (
-            "For charts: in Calc you MUST pass an explicit data range (e.g. "
-            "data_range='A1:B10'); in Writer or Draw/Impress you MUST pass both the "
-            "`headers` and `rows` parameters."
-        ),
+        "Calc": _CHARTS_CALC_HINT,
+        "Writer": _CHARTS_HEADERS_ROWS_HINT,
+        "Draw": _CHARTS_HEADERS_ROWS_HINT,
+        None: _CHARTS_NEUTRAL_HINT,
     },
 }
+
+
+def loop_hint(domain: str, agent_label: str | None) -> str:
+    """Prompt sentence a specialized loop adds for *domain*, or "" when there is none.
+
+    agent_label is "Writer" / "Calc" / "Draw" for a running sub-agent loop, or None for
+    MCP find_tools direct guidance with no app known (the host model runs the tools
+    itself, so footnotes has no "task executor" clause and charts names both apps).
+    Charts differ per app (Calc passes data_range; Writer and Draw pass headers/rows).
+    Footnotes is one sentence for every app. Unknown domain or label -> "".
+    """
+    return _LOOP_HINTS.get(domain, {}).get(agent_label, "")
+
 
 def catalog_entries_from_base(*, agent_label: str | None = None, ctx: Any = None, for_discovery: bool = False) -> list[dict[str, str]]:
     """Build ``[{domain, description}, …]`` for one specialized base class (delegate/MCP catalog).
@@ -71,6 +86,7 @@ def catalog_entries_from_base(*, agent_label: str | None = None, ctx: Any = None
         if agent_label == "Draw" and domain in IMPRESS_DRAW_SIDEBAR_ONLY_DOMAINS:
             continue
         if ctx is not None:
+            # Lazy: vision_availability loads the vision venv and scripting sandbox modules.
             from plugin.vision.vision_availability import specialized_domain_available
 
             if not specialized_domain_available(str(domain), ctx):
@@ -80,6 +96,8 @@ def catalog_entries_from_base(*, agent_label: str | None = None, ctx: Any = None
 
 
 def _special_base(agent_label: str | None) -> Any:
+    # Lazy: plugin.writer.specialized_base imports plugin.doc.specialized_base, which
+    # imports this module (import cycle); the Calc and Draw bases are cross-app.
     if agent_label == "Calc":
         from plugin.calc.base import ToolCalcSpecialBase
         return ToolCalcSpecialBase
@@ -145,8 +163,122 @@ def get_specialized_delegation_tool_hint(agent_label: str, *, ctx: Any = None) -
     return template.format(domains=domains_str)
 
 
-# normalize_inner_result records tool errors and incomplete runs—same contract as DelegateToSpecializedBase.
-def normalize_inner_result(final_ans: Any, domains: list[str], tool_errors: list[dict[str, Any]]) -> dict[str, Any]:
+class InnerToolCall(NamedTuple):
+    """One tool call the inner smol agent made, in call order."""
+
+    name: str
+    result: Any
+    mutating: bool
+
+
+FINISH_TOOL_NAME = "specialized_workflow_finished"
+NO_EDIT_TOOL_NOTE = "No document-editing tool ran during this delegation; the document is unchanged by it."
+READ_ONLY_DOMAINS: frozenset[str] = frozenset({"document_research", "web_research"})
+
+
+def expects_edits(domains: str | Sequence[str] | frozenset[str]) -> bool:
+    """Whether any of the given domain(s) expect document-mutating edits.
+
+    Read-only domains (document_research, web_research) do not expect edits.
+    """
+    if isinstance(domains, str):
+        return domains not in READ_ONLY_DOMAINS
+    domain_set = set(domains)
+    return bool(domain_set) and not domain_set <= READ_ONLY_DOMAINS
+
+
+def _err_text(err: Any) -> str:
+    """Format an error entry into a diagnostic message string."""
+    if isinstance(err, dict):
+        return str(err.get("message") or err.get("error") or err)
+    return str(err)
+
+
+def partition_tool_errors(
+    calls: Sequence[InnerToolCall],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Partition tool error dicts into unrecovered and recovered groups.
+
+    An error call is considered recovered when a later call to the same tool name returned a
+    non-error dict, including retries with corrected arguments.
+    """
+    unrecovered: list[dict[str, Any]] = []
+    recovered: list[dict[str, Any]] = []
+    for idx, call in enumerate(calls):
+        if not (isinstance(call.result, dict) and call.result.get("status") == "error"):
+            continue
+        is_recovered = any(
+            later.name == call.name
+            and isinstance(later.result, dict)
+            and later.result.get("status") != "error"
+            for later in calls[idx + 1 :]
+        )
+        if is_recovered:
+            recovered.append(call.result)
+        else:
+            unrecovered.append(call.result)
+    return unrecovered, recovered
+
+
+def apply_inner_outcome(
+    payload: dict[str, Any],
+    final_ans: Any,
+    calls: Sequence[InnerToolCall],
+    *,
+    expect_edits: bool,
+) -> dict[str, Any]:
+    """Set status/code/message on a sub-agent payload from the observed call log.
+
+    Mutates and returns payload so the main agent sees an accurate report of what tools
+    ran, whether failures were recovered, and whether any document edits took place.
+    """
+    unrecovered, recovered = partition_tool_errors(calls)
+    if unrecovered:
+        # Unrecovered tool errors fail the delegation; the finish answer is kept in answer.
+        messages = [_err_text(err) for err in unrecovered]
+        text = "; ".join(messages) or "Specialized tool error."
+        payload["status"] = "error"
+        payload["code"] = "SPECIALIZED_TOOL_ERROR"
+        payload["message"] = text
+        payload["error"] = text
+        return payload
+
+    finish_seen = any(c.name == FINISH_TOOL_NAME for c in calls)
+    finished = finish_seen or (isinstance(final_ans, dict) and final_ans.get("finished") is True)
+
+    if not finished:
+        # A plain-text return without finish is not a silent ok; move it from result to message
+        # so the main agent sees it once.
+        if isinstance(final_ans, dict):
+            text = str(final_ans.get("message") or final_ans.get("answer") or final_ans.get("result") or final_ans)
+        else:
+            popped = payload.pop("result", "")
+            text = "" if final_ans is None else str(popped)
+        payload.update(status="incomplete", code="SPECIALIZED_WORKFLOW_INCOMPLETE", message=text)
+        return payload
+
+    if recovered:
+        payload["recovered_tool_errors"] = [_err_text(err) for err in recovered]
+
+    if expect_edits and not any(c.mutating for c in calls):
+        payload["note"] = NO_EDIT_TOOL_NOTE
+
+    return payload
+
+
+def start_inner_payload(
+    final_ans: Any,
+    domains: Sequence[str],
+    *,
+    text_message: str | None = None,
+) -> dict[str, Any]:
+    """Shape the inner loop's final answer into the payload apply_inner_outcome then grades.
+
+    An error dict (user stop, crash) is returned as the same object so the caller can
+    pass it through unchanged. A dict with a status is copied. Anything else is the
+    loop's plain text: {"status": "ok", "result": text} (None -> ""), plus
+    "message": text_message when given. Every non-error payload gets "domains".
+    """
     if isinstance(final_ans, dict) and final_ans.get("status") == "error":
         return final_ans
     payload: dict[str, Any]
@@ -154,21 +286,25 @@ def normalize_inner_result(final_ans: Any, domains: list[str], tool_errors: list
         payload = dict(final_ans)
     else:
         payload = {"status": "ok", "result": "" if final_ans is None else str(final_ans)}
+        if text_message is not None:
+            payload["message"] = text_message
     payload["domains"] = list(domains)
-    if tool_errors:
-        # Discussion #2268: the finish answer stays in answer only, not copied into message and error.
-        messages = [str(err.get("message") or err.get("error") or err) for err in tool_errors]
-        text = "; ".join(messages) or "Specialized tool error."
-        payload.update(status="error", code="SPECIALIZED_TOOL_ERROR", message=text, error=text)
-        return payload
-    if payload.get("finished") is True:
-        return payload
-    # Discussion #2262: a plain-text return sits in result; move it to message instead of copying it.
-    if isinstance(final_ans, dict):
-        text = str(final_ans.get("message") or final_ans.get("answer") or final_ans.get("result") or final_ans)
-    else:
-        text = payload.pop("result")
-    payload.update(status="incomplete", code="SPECIALIZED_WORKFLOW_INCOMPLETE", message=text)
     return payload
 
+
+def normalize_inner_result(
+    final_ans: Any,
+    domains: list[str],
+    calls: Sequence[InnerToolCall],
+) -> dict[str, Any]:
+    """Map inner domain agent results to the standard specialized tool response payload."""
+    payload = start_inner_payload(final_ans, domains)
+    if payload.get("status") == "error":
+        return payload
+    return apply_inner_outcome(
+        payload,
+        final_ans,
+        calls,
+        expect_edits=expects_edits(domains),
+    )
 

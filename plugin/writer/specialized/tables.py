@@ -10,35 +10,26 @@ Writer: named text tables (table_list / getCellByName). Draw: TableShape on a pa
 import logging
 from typing import Any
 
-from plugin.doc.text_helpers import get_string_without_tracked_deletions
-from plugin.writer.record_changes import is_recording_changes
+from plugin.doc.text_helpers import FAILED, get_string_without_tracked_deletions
+from plugin.framework.doc_type import is_draw
 from plugin.framework.errors import ToolExecutionError, format_error_payload, is_disposal, make_tool_error, uno_read
+from plugin.framework.uno_context import resolve_uno_context, uno_same
+from plugin.writer.html_import import run_writer_mutation_with_optional_review
+from plugin.writer.record_changes import is_recording_changes
 
 from ..range_copy import writer_cell_position  # LibrePy-shipped; do not invert
 from ..specialized_base import ToolWriterTableBase, enum_param
 from ..table_helpers import check_grid, edit_table_band, fill_table_cells, table_dims
 from ..table_nesting import (
-    _FAILED,
     cell_hosted_table_names,
     cell_plain_siblings,
     set_host_paragraphs,
 )  # LibrePy-shipped; do not invert
-from plugin.framework.uno_context import resolve_uno_context, uno_same
 
 log = logging.getLogger("writeragent.writer.specialized.tables")
 
 # The zero-width joiner Writer drops into an empty row to anchor its tracked deletion.
 _EMPTY_ROW_ANCHOR = "\u200d"
-
-
-def _is_draw_doc(doc: Any) -> bool:
-    """True for Draw/Impress. Mocks without supportsService are treated as Writer."""
-
-    def probe() -> bool:
-        ss = getattr(doc, "supportsService", None)
-        return callable(ss) and bool(ss("com.sun.star.drawing.DrawingDocument") or ss("com.sun.star.presentation.PresentationDocument"))
-
-    return uno_read(probe, False)
 
 
 def _tables(doc: Any) -> Any:
@@ -101,9 +92,12 @@ def _writer_named_cells(table: Any) -> list[str]:
 
     ``getColumns()`` is the first row's box count (``SwXTableColumns::getCount``;
     the ``IsTableComplex`` guard above that return is commented out). After
-    merging A1:D1 on a 5×4 table it reports 1, so ``range(cols)`` skipped D2.
+    merging A1:D1 on a 5×4 table it reports 1, so a ``range(cols)`` walk would skip D2.
+    SwXTextTable::getCellNames (sw/source/core/unocore/unotbl.cxx) returns an
+    empty list itself for a table without a format and does not throw. Any other
+    failure is raised so a delete guard does not treat it as "no nested tables".
     """
-    return list(uno_read(lambda: table.getCellNames(), []) or ())
+    return list(table.getCellNames() or ())
 
 
 def _unknown_cell_message(cell_raw: str, table_name: str, names: list[str]) -> str:
@@ -139,14 +133,14 @@ def _writer_nesting(
     cell_counts: dict[str, int] = {}
 
     for parent_name in names:
-        parent = uno_read(lambda: tables.getByName(parent_name), _FAILED)
-        cell_names = _FAILED if parent is _FAILED else uno_read(lambda: parent.getCellNames(), _FAILED)
-        if cell_names is _FAILED:
+        parent = uno_read(lambda: tables.getByName(parent_name), FAILED)
+        cell_names = FAILED if parent is FAILED else uno_read(lambda: parent.getCellNames(), FAILED)
+        if cell_names is FAILED:
             continue
         cell_counts[parent_name] = len(cell_names)
         for cell_name in cell_names:
-            cell = uno_read(lambda: parent.getCellByName(cell_name), _FAILED)
-            if cell is _FAILED:
+            cell = uno_read(lambda: parent.getCellByName(cell_name), FAILED)
+            if cell is FAILED:
                 continue
             children = cell_hosted_table_names(cell)
             if not children:
@@ -311,9 +305,8 @@ def _remove_writer_table(doc: Any, table: Any, name: str, nesting: dict[str, Any
 def _hosted_in_band(table: Any, axis_arg: str, idx: int) -> list[str]:
     """Nested table names hosted in the row/column about to be deleted.
 
-    Scan ``getCellNames()`` and keep names on that row or column. The old
-    ``range(cols)`` walk used ``getColumns()`` (first-row box count) and missed
-    D2 after an A1:D1 merge. Column index uses the Writer base-52 parser, not
+    Scan ``getCellNames()`` (``_writer_named_cells`` says why) and keep names on
+    that row or column. Column index uses the Writer base-52 parser, not
     spreadsheet ``parse_a1``.
     """
     hosted: list[str] = []
@@ -324,8 +317,8 @@ def _hosted_in_band(table: Any, axis_arg: str, idx: int) -> list[str]:
         col_idx, row_idx = pos
         if (row_idx if axis_arg == "row" else col_idx) != idx:
             continue
-        cell = uno_read(lambda: table.getCellByName(cell_name), _FAILED)
-        if cell is not _FAILED:
+        cell = uno_read(lambda: table.getCellByName(cell_name), FAILED)
+        if cell is not FAILED:
             hosted.extend(cell_hosted_table_names(cell))
     return list(dict.fromkeys(hosted))
 
@@ -344,8 +337,8 @@ class TableList(ToolWriterTableBase):
     parameters: dict[str, Any] | None = {"type": "object", "properties": {}, "required": []}
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
-        # execute_safe already returns TOOL_EXECUTION_ERROR; this did not name a table.
-        if _is_draw_doc(ctx.doc):
+        if is_draw(ctx.doc):
+            # Lazy: cross-app; Draw table helpers load only when the target is a Draw/Impress document.
             from plugin.draw.tables import list_draw_tables
 
             out = list_draw_tables(ctx.doc)
@@ -358,10 +351,8 @@ class TableList(ToolWriterTableBase):
                 table_obj = tables.getByName(name)
                 rows, cols = table_dims(table_obj)
             except Exception as exc:
-                # One bad or corrupt table must not fail the entire table_list
-                # call. _dims(tables.getByName(name)) raises inside the iteration.
-                # Catch per-table errors, re-raise document disposal, log a
-                # warning, and skip.
+                # One bad or corrupt table must not fail the whole table_list call:
+                # re-raise document disposal, log a warning, and skip the table.
                 if is_disposal(exc):
                     raise
                 log.warning("table_list: skipping unreadable table '%s': %s", name, exc)
@@ -412,7 +403,8 @@ class TableGetCells(ToolWriterTableBase):
         name = str(kwargs.get("name") or "").strip()
         cell_raw = str(kwargs.get("cell") or "").strip()
         try:
-            if _is_draw_doc(ctx.doc):
+            if is_draw(ctx.doc):
+                # Lazy: cross-app; Draw table helpers load only when the target is a Draw/Impress document.
                 from plugin.draw.tables import get_draw_cell, get_draw_cells, resolve_draw_table
 
                 entry = resolve_draw_table(ctx.doc, name=name, page=kwargs.get("page"), index=kwargs.get("index"))
@@ -426,8 +418,6 @@ class TableGetCells(ToolWriterTableBase):
                 return payload
             table = _require_table(ctx.doc, name)
             rows, cols = table_dims(table)
-            # getColumns() is the first row's box count (SwXTableColumns::getCount),
-            # so range(cols) skipped D2 after A1:D1 merge. getCellNames() is the list.
             all_cell_names = _writer_named_cells(table)
             resolved = ""
             if cell_raw:
@@ -449,7 +439,7 @@ class TableGetCells(ToolWriterTableBase):
                         nested_in_cells[cell_name] = hosted
                     # Host cells omit concatenated inner-table text. get_string_without_tracked_deletions
                     # hides pending tracked deletions: getString() also returns deleted text, so a
-                    # pending "velha" -> "nova" read "celula novavelha" here (relato #43).
+                    # pending "velha" -> "nova" would read "celula novavelha" here.
                     cells[cell_name] = cell_plain_siblings(c) if hosted else get_string_without_tracked_deletions(c)
                 except Exception as exc:
                     # Per-cell read errors must not disappear into a bare continue.
@@ -508,7 +498,8 @@ class TableSetCell(ToolWriterTableBase):
         # type/required checks are done by the tool schema in ToolRegistry
         text = kwargs["text"]
         try:
-            if _is_draw_doc(ctx.doc):
+            if is_draw(ctx.doc):
+                # Lazy: cross-app; Draw table helpers load only when the target is a Draw/Impress document.
                 from plugin.draw.tables import resolve_draw_table, set_draw_cell
 
                 entry = resolve_draw_table(ctx.doc, name=name, page=kwargs.get("page"), index=kwargs.get("index"))
@@ -591,7 +582,8 @@ class ManageTableStructure(ToolWriterTableBase):
             return self._tool_error("index must be non-negative.")
         insert = action == "insert"
         try:
-            if _is_draw_doc(ctx.doc):
+            if is_draw(ctx.doc):
+                # Lazy: cross-app; Draw table helpers load only when the target is a Draw/Impress document.
                 from plugin.draw.tables import manage_draw_structure, resolve_draw_table
 
                 entry = resolve_draw_table(
@@ -663,7 +655,8 @@ class TableInsert(ToolWriterTableBase):
             # The Draw branch sits inside the try. Outside it,
             # insert_draw_table raises past the tool error. The Writer path
             # already catches; this matches it.
-            if _is_draw_doc(ctx.doc):
+            if is_draw(ctx.doc):
+                # Lazy: cross-app; Draw table helpers load only when the target is a Draw/Impress document.
                 from plugin.draw.tables import insert_draw_table
 
                 if parent or cell_raw:
@@ -737,7 +730,6 @@ class TableInsert(ToolWriterTableBase):
                 created_name = uno_read(lambda: str(table.getName()), "")
 
             uno_ctx = resolve_uno_context(ctx)
-            from plugin.writer.html_import import run_writer_mutation_with_optional_review
             run_writer_mutation_with_optional_review(doc, uno_ctx, _apply)
 
             return {
@@ -775,7 +767,8 @@ class TableDelete(ToolWriterTableBase):
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         name = str(kwargs.get("name") or "").strip()
         try:
-            if _is_draw_doc(ctx.doc):
+            if is_draw(ctx.doc):
+                # Lazy: cross-app; Draw table helpers load only when the target is a Draw/Impress document.
                 from plugin.draw.tables import delete_draw_table
 
                 result = delete_draw_table(
@@ -791,8 +784,6 @@ class TableDelete(ToolWriterTableBase):
                 # who tracks changes by hand has it on already. Either way the deletion must
                 # be recorded, not silently applied.
                 return bool(delete_writer_table(ctx.doc, uno_ctx, table, name, nesting))
-
-            from plugin.writer.html_import import run_writer_mutation_with_optional_review
 
             tracked = bool(run_writer_mutation_with_optional_review(ctx.doc, uno_ctx, _apply))
             if tracked:

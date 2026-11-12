@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import sys
+import threading
 import time
 import types
 from typing import Any
@@ -127,6 +128,10 @@ def _ensure_grammar_debug_logging():
     yield
     proofreader.log.setLevel(old_level)
 
+@pytest.fixture(autouse=True)
+def _reset_grammar_worker_tls(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(grammar_worker, "_grammar_worker_tls", threading.local())
+
 from plugin.writer.locale import ai_grammar_proofreader as proofreader
 from plugin.writer.locale import grammar_proofread_cache as gc
 from plugin.writer.locale.grammar_proofread_text import Utf16OffsetMap
@@ -147,8 +152,9 @@ from plugin.writer.locale.grammar_proofread_locale import (
     looks_complete_sentence,
 )
 from plugin.writer.locale.grammar_proofread_text import NormalizedProofError
+from plugin.writer.locale import grammar_worker
 from plugin.writer.locale.grammar_work_queue import GrammarWorkItem, GrammarWorkQueue, enqueue_misses
-from plugin.writer.locale.grammar_worker import reset_grammar_llm_client_cache, run_llm_and_cache_batch
+from plugin.writer.locale.grammar_worker import GrammarWorkerContext, run_llm_and_cache_batch
 
 
 def _run_llm_one(
@@ -160,7 +166,7 @@ def _run_llm_one(
     partial_sentence: bool = False,
     **kwargs: Any,
 ) -> None:
-    reset_grammar_llm_client_cache()
+    grammar_worker._grammar_worker_tls = threading.local()
     item = GrammarWorkItem(
         ctx=ctx,
         text=text,
@@ -374,7 +380,7 @@ def test_run_llm_skips_split_when_item_text_set() -> None:
         patch("plugin.framework.client.llm_client.LlmClient") as client_cls,
         patch("plugin.writer.locale.grammar_proofread_text.split_into_sentences", side_effect=_split_must_not_run),
         patch("plugin.writer.locale.grammar_proofread_json.parse_grammar_json", return_value=[]),
-        patch("plugin.writer.locale.grammar_proofread_text.normalize_errors_for_text", return_value=[]),
+        patch("plugin.writer.locale.grammar_proofread_cache.normalize_errors_for_text", return_value=[]),
         patch("plugin.writer.locale.grammar_proofread_cache.cache_put_sentence"),
     ):
         lane_ctx.return_value.__enter__ = MagicMock()
@@ -394,7 +400,7 @@ def test_partial_sentence_adds_prompt_note() -> None:
         patch("plugin.framework.llm_lanes.grammar_llm_request_gate") as lane_ctx,
         patch("plugin.framework.client.llm_client.LlmClient") as client_cls,
         patch("plugin.writer.locale.grammar_proofread_json.parse_grammar_json", return_value=[]),
-        patch("plugin.writer.locale.grammar_proofread_text.normalize_errors_for_text", return_value=[]),
+        patch("plugin.writer.locale.grammar_proofread_cache.normalize_errors_for_text", return_value=[]),
         patch("plugin.writer.locale.grammar_proofread_cache.cache_put_sentence"),
     ):
         lane_ctx.return_value.__enter__ = MagicMock()
@@ -473,13 +479,10 @@ class TestTypingIntegration:
         assert "INCOMPLETE_WRITER_AGENT_INTERNAL_STRING" in list(keys)[0]
 
     def test_slow_typing_cache_hit(self, mock_config_fixture, mock_locale_fixture, mock_queue_fixture):
-        # Pass ctx + doc_id so write and read target the same cache layer under both
-        # USE_SQLITE_CACHE=True (global SQLite/JSON singleton) and USE_SQLITE_CACHE=False
-        # (per-doc DocumentPersistence keyed by doc_id). doProofreading reads with
-        # ctx=self.ctx, doc_id="test-doc"; the test must match that.
+        # Pass doc_id so write and read target the same per-document cache; doProofreading reads with doc_id="test-doc".
         pr = _make_proofreader()
         sentence = "The boy runs."
-        gc.cache_put_sentence("en-US", sentence, [{"n_error_start": 4, "n_error_length": 3, "rule_identifier": "r1"}], ctx=pr.ctx, doc_id="test-doc")
+        gc.cache_put_sentence("en-US", sentence, [{"n_error_start": 4, "n_error_length": 3, "rule_identifier": "r1"}], doc_id="test-doc")
         res = pr.doProofreading("test-doc", sentence, mock_locale_fixture, 0, len(sentence), ())
         assert len(res.aErrors) == 1
         mock_queue_fixture.enqueue.assert_not_called()
@@ -497,7 +500,7 @@ class TestTypingIntegration:
         pr = _make_proofreader()
         sentences = ["First sentence.", "Second sentence.", "Third sentence."]
         for sent in sentences:
-            gc.cache_put_sentence("en-US", sent, [{"n_error_start": 0, "n_error_length": 1, "rule_identifier": "r"}], ctx=pr.ctx, doc_id="test-doc")
+            gc.cache_put_sentence("en-US", sent, [{"n_error_start": 0, "n_error_length": 1, "rule_identifier": "r"}], doc_id="test-doc")
         edited_text = sentences[0] + " SecondX sentence. " + sentences[2]
         enqueued_items = []
         mock_queue_fixture.enqueue.side_effect = lambda item: enqueued_items.append(item)
@@ -514,8 +517,8 @@ class TestTypingIntegration:
         pr = _make_proofreader()
         s1, s2, s3 = "Alpha sentence.", "Beta sentence.", "Gamma sentence."
         paragraph = f"{s1} {s2} {s3}"
-        gc.cache_put_sentence("en-US", s1, [{"n_error_start": 0, "n_error_length": 1, "rule_identifier": "r1"}], ctx=pr.ctx, doc_id="test-doc")
-        gc.cache_put_sentence("en-US", s3, [{"n_error_start": 0, "n_error_length": 1, "rule_identifier": "r3"}], ctx=pr.ctx, doc_id="test-doc")
+        gc.cache_put_sentence("en-US", s1, [{"n_error_start": 0, "n_error_length": 1, "rule_identifier": "r1"}], doc_id="test-doc")
+        gc.cache_put_sentence("en-US", s3, [{"n_error_start": 0, "n_error_length": 1, "rule_identifier": "r3"}], doc_id="test-doc")
 
         enqueued_items: list[Any] = []
         mock_queue_fixture.enqueue.side_effect = lambda item: enqueued_items.append(item)
@@ -588,7 +591,6 @@ class TestTypingIntegration:
             "en-US",
             s1,
             [{"n_error_start": 0, "n_error_length": 5, "rule_identifier": "harper||s1"}],
-            ctx=pr.ctx,
             doc_id="test-doc",
             checker_identity="harper",
         )
@@ -631,7 +633,7 @@ class TestTypingIntegration:
         s1, s2 = "First sentence.", "Second sentence."
         paragraph = f"{s1} {s2}"
         off2 = len(s1) + 1
-        cache_kwargs: dict[str, Any] = {"ctx": pr.ctx, "doc_id": "test-doc", "checker_identity": "harper"}
+        cache_kwargs: dict[str, Any] = {"doc_id": "test-doc", "checker_identity": "harper"}
         gc.cache_put_sentence(
             "en-US",
             s1,
@@ -765,7 +767,7 @@ class TestTypingIntegration:
         with (
             patch("plugin.writer.locale.grammar_proofread_text.split_into_sentences") as mock_split,
             patch("plugin.writer.locale.harper.harper_try_lint", return_value={"errors": []}),
-            patch("plugin.writer.locale.grammar_proofread_text.normalize_errors_for_text", return_value=[]),
+            patch("plugin.writer.locale.grammar_proofread_cache.normalize_errors_for_text", return_value=[]),
             patch.object(proofreader, "grammar_obs") as mock_obs,
         ):
             mock_split.return_value = [(0, sentence)]
@@ -848,7 +850,6 @@ class TestTypingIntegration:
             "en-US",
             s1,
             [{"n_error_start": 0, "n_error_length": 5, "rule_identifier": "r1"}],
-            ctx=pr.ctx,
             doc_id="test-doc",
         )
         enqueued_items: list[Any] = []
@@ -976,9 +977,9 @@ def test_ensure_persistence_bound_passes_current_text_component() -> None:
             proofreader._ensure_persistence_bound(ctx, "2")
             again_loads = mock_load.call_count
             proofreader._ensure_persistence_bound(ctx, "2")
-        bound = gp.get_persistence(ctx, "2")
+        bound = gp.get_persistence("2")
         assert bound is not None
-        assert bound._model is writer
+        assert bound.model is writer
         assert mock_load.call_count == again_loads
     finally:
         gp.grammar_registry.clear_all()
@@ -1008,9 +1009,9 @@ def test_ensure_persistence_bound_uses_only_open_writer() -> None:
             patch("plugin.doc.udprops.get_document_property", return_value=None),
         ):
             proofreader._ensure_persistence_bound(ctx, "4")
-        bound = gp.get_persistence(ctx, "4")
+        bound = gp.get_persistence("4")
         assert bound is not None
-        assert bound._model is writer
+        assert bound.model is writer
     finally:
         gp.grammar_registry.clear_all()
 
@@ -1217,7 +1218,7 @@ def test_try_harper_fast_path_emits_status_when_ready() -> None:
         patch("plugin.writer.locale.ai_grammar_proofreader.get_grammar_status") as mock_status_fn,
         patch("plugin.writer.locale.grammar_ignore_rules.doc_ignored_rules", return_value=set()),
         patch("plugin.writer.locale.grammar_ignore_rules.ignored_rules_snapshot", return_value=()),
-        patch("plugin.writer.locale.grammar_proofread_text.normalize_errors_for_text", return_value=[]),
+        patch("plugin.writer.locale.grammar_proofread_cache.normalize_errors_for_text", return_value=[]),
         patch("plugin.writer.locale.grammar_proofread_cache.cache_put_sentence"),
     ):
         pr._try_harper_fast_path("doc", "en-US", [(0, 18, "This are an test.")], combined, checker_identity="harper")
@@ -1289,9 +1290,9 @@ def test_ensure_persistence_bound_prioritizes_runtime_uid_over_current_component
             patch("plugin.framework.uno_context.get_runtime_uid", side_effect=["other-id", "match-id"]),
         ):
             proofreader._ensure_persistence_bound(ctx, "match-id")
-        bound = gp.get_persistence(ctx, "match-id")
+        bound = gp.get_persistence("match-id")
         assert bound is not None
-        assert bound._model is writer_match
+        assert bound.model is writer_match
     finally:
         gp.grammar_registry.clear_all()
 
@@ -1348,11 +1349,14 @@ def test_llm_checker_identity_cache_roundtrip_preserves_rows_and_ignores(
         assert item1.provider == "llm"
         assert item1.checker_identity == "llm:gpt-test"
 
-        ec = MagicMock()
-        ec.ctx = pr.ctx
-        ec.gq = MagicMock()
-        ec.gq.inflight_superseded.return_value = False
-        ec.model = "gpt-test"
+        ec = GrammarWorkerContext(
+            ctx=pr.ctx,
+            client=MagicMock(),
+            gq=GrammarWorkQueue(),
+            model="gpt-test",
+            grammar_bcp47="en-US",
+            max_tok=512,
+        )
         err1 = {
             "wrong": "are",
             "correct": "is",
@@ -1371,7 +1375,7 @@ def test_llm_checker_identity_cache_roundtrip_preserves_rows_and_ignores(
         assert res1.aErrors[0].aRuleIdentifier == "grammar||Agreement"
         mock_queue_fixture.enqueue.assert_not_called()
 
-        p = gp.get_persistence(pr.ctx, "test-doc")
+        p = gp.get_persistence("test-doc")
         assert p is not None
         p._ignored_rules.add("some-ignored-rule")
 
@@ -1423,10 +1427,14 @@ def test_local_provider_checker_identity_and_persistence(
         assert item1.provider == "languagetool"
         assert item1.checker_identity == "languagetool"
 
-        ec = MagicMock()
-        ec.ctx = pr.ctx
-        ec.gq = MagicMock()
-        ec.gq.inflight_superseded.return_value = False
+        ec = GrammarWorkerContext(
+            ctx=pr.ctx,
+            client=MagicMock(),
+            gq=GrammarWorkQueue(),
+            model="",
+            grammar_bcp47="en-US",
+            max_tok=512,
+        )
         err1 = {
             "wrong": "are",
             "correct": "is",
@@ -1458,7 +1466,7 @@ def test_local_provider_checker_identity_and_persistence(
         }
         process_grammar_results([(item2, s2)], [[err2]], "en-US", "", 10, ec)
 
-        p = gp.get_persistence(pr.ctx, "test-doc")
+        p = gp.get_persistence("test-doc")
         assert p is not None
         assert len(p._entries) == 2
 
@@ -1479,7 +1487,6 @@ def test_harper_partial_hit_converts_uno_tuple_once(
         "en-US",
         s1,
         [{"n_error_start": 5, "n_error_length": 3, "rule_identifier": "r1"}],
-        ctx=pr.ctx,
         doc_id="test-doc",
     )
 
@@ -1519,10 +1526,10 @@ def test_get_constant_by_name_runs_once_per_conversion() -> None:
     u16_map = Utf16OffsetMap("abcdefghijklmnop")
     with patch.object(proofreader, "uno_mod", fake_uno):
         proofreader._PROOFREADING_MARKUP_TYPE = None
-        res = proofreader._cached_errors_to_uno_tuple(cached, None, "doc-1", u16_map)
+        res = proofreader._cached_errors_to_uno_tuple(cached, "doc-1", u16_map)
         assert len(res) == 3
         assert mock_get_const.call_count == 1
-        proofreader._cached_errors_to_uno_tuple(cached, None, "doc-1", u16_map)
+        proofreader._cached_errors_to_uno_tuple(cached, "doc-1", u16_map)
         assert mock_get_const.call_count == 1
 
 
@@ -1543,7 +1550,7 @@ def test_doc_ignored_rules_runs_once_for_multi_sentence_harper(
         patch("plugin.writer.locale.harper.harper_try_lint", return_value={"errors": []}),
         patch("plugin.writer.locale.grammar_ignore_rules.doc_ignored_rules", return_value=set()) as mock_doc_ignored,
         patch("plugin.writer.locale.grammar_ignore_rules.ignored_rules_snapshot", return_value=()),
-        patch("plugin.writer.locale.grammar_proofread_text.normalize_errors_for_text", return_value=[]),
+        patch("plugin.writer.locale.grammar_proofread_cache.normalize_errors_for_text", return_value=[]),
         patch("plugin.writer.locale.grammar_proofread_cache.cache_put_sentence"),
         patch("plugin.writer.locale.ai_grammar_proofreader.get_grammar_status", return_value=MagicMock()),
     ):
@@ -1583,7 +1590,6 @@ def test_emoji_shifts_cached_error_offsets(mock_config_fixture, mock_locale_fixt
             "full_comment": "agr",
             "rule_identifier": "wa_g_rule||agr",
         }],
-        ctx=pr.ctx,
         doc_id="doc-emoji",
     )
     res = pr.doProofreading("doc-emoji", text, mock_locale_fixture, 0, len(text), ())
@@ -1613,7 +1619,6 @@ def test_nonzero_start_after_emoji_selects_sentence(mock_config_fixture, mock_lo
             "full_comment": "test",
             "rule_identifier": "wa_g_rule||test",
         }],
-        ctx=pr.ctx,
         doc_id="doc-emoji-next",
     )
     res = pr.doProofreading("doc-emoji-next", text, mock_locale_fixture, 11, 25, ())
@@ -1640,7 +1645,7 @@ def test_harper_fast_path_caches_ignored_rules_and_excludes_from_status(mock_con
         patch("plugin.writer.locale.harper.harper_try_lint", return_value={"errors": [{"wrong": "They is"}]}),
         patch("plugin.writer.locale.grammar_ignore_rules.doc_ignored_rules", return_value={"agr"}),
         patch("plugin.writer.locale.grammar_ignore_rules.ignored_rules_snapshot", return_value=()),
-        patch("plugin.writer.locale.grammar_proofread_text.normalize_errors_for_text", return_value=[norm_err]),
+        patch("plugin.writer.locale.grammar_proofread_cache.normalize_errors_for_text", return_value=[norm_err]),
         patch("plugin.writer.locale.grammar_proofread_cache.cache_put_sentence") as mock_put,
         patch("plugin.writer.locale.ai_grammar_proofreader.get_grammar_status") as mock_status_fn,
     ):
@@ -1671,7 +1676,6 @@ def test_reset_ignore_rules_broadcasts_and_subsequent_call_returns_error(
             "full_comment": "agr",
             "rule_identifier": rid,
         }],
-        ctx=pr.ctx,
         doc_id="doc-reset",
     )
     listener = MagicMock()
@@ -1771,12 +1775,11 @@ def test_llm_cache_hits_use_checked_grammar_text_prefix(mock_config_fixture, moc
             "en-US",
             prefix,
             [{"n_error_start": 0, "n_error_length": 5, "rule_identifier": "r1"}],
-            ctx=pr.ctx,
             doc_id="test-doc",
             checker_identity="llm:model-x",
         )
 
-        assert gc.cache_get_sentence("en-US", full_sentence, ctx=pr.ctx, doc_id="test-doc", checker_identity="llm:model-x") is None
+        assert gc.cache_get_sentence("en-US", full_sentence, doc_id="test-doc", checker_identity="llm:model-x") is None
 
         combined, uncached = pr._process_cache_hits("test-doc", "en-US", [(0, len(full_sentence), full_sentence)], checker_identity="llm:model-x")
         assert len(combined) == 1
@@ -1787,7 +1790,6 @@ def test_llm_cache_hits_use_checked_grammar_text_prefix(mock_config_fixture, moc
             "en-US",
             full_sentence,
             [{"n_error_start": 0, "n_error_length": 5, "rule_identifier": "r2"}],
-            ctx=pr.ctx,
             doc_id="test-doc",
             checker_identity="harper",
         )

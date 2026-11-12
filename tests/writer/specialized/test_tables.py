@@ -20,6 +20,7 @@ from plugin.writer.specialized.tables import (
     TableSetCell,
     _hosted_in_band,
     _unknown_cell_message,
+    _writer_named_cells,
     record_table_deletions,
 )
 from plugin.writer.range_copy import (
@@ -837,6 +838,18 @@ def test_hosted_in_band_sees_nest_in_split_cell_name():
     assert _hosted_in_band(parent, "row", 1) == []
 
 
+def test_writer_named_cells_raises_on_a_failed_read() -> None:
+    """A failed getCellNames raises immediately so callers fail closed."""
+    from unittest.mock import MagicMock
+
+    table = MagicMock()
+    table.getCellNames.side_effect = RuntimeError("bridge")
+    with pytest.raises(RuntimeError, match="bridge"):
+        _writer_named_cells(table)
+    with pytest.raises(RuntimeError, match="bridge"):
+        _hosted_in_band(table, "row", 0)
+
+
 def test_delete_last_column_guard():
     t = FakeTable(2, 1)
     res = ManageTableStructure().execute(
@@ -1480,17 +1493,12 @@ def test_resolve_uno_context():
 
 def test_read_helpers_reraise_disposal():
     from unittest.mock import MagicMock
-    from plugin.writer.table_nesting import _is_text_table, _safe_enumerate, cell_hosted_table_names
+    from plugin.writer.table_nesting import _is_text_table, cell_hosted_table_names
 
     disposed_obj = MagicMock()
     disposed_obj.supportsService.side_effect = DisposedException("disposed")
     with pytest.raises(Exception):
         _is_text_table(disposed_obj)
-
-    disposed_xtext = MagicMock()
-    disposed_xtext.createEnumeration.side_effect = DisposedException("disposed")
-    with pytest.raises(Exception):
-        list(_safe_enumerate(disposed_xtext))
 
     disposed_cell = MagicMock()
     disposed_cell.createEnumeration.side_effect = DisposedException("disposed")

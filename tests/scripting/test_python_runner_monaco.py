@@ -99,7 +99,6 @@ def test_run_python_dialog_cancel_keeps_dirty_cell_and_skips_native():
     ctx = MagicMock()
     doc = MagicMock()
     pe = launch_mod._PERSISTENT_EDITOR
-    launch_mod.set_active_session(None)
     pe.sessions.clear()
     pe.focused_id = None
     pe._proc = None
@@ -144,7 +143,6 @@ def test_run_python_dialog_cancel_keeps_dirty_cell_and_skips_native():
         assert pe.focused() is state
         assert state.dirty is True
     finally:
-        launch_mod.set_active_session(None)
         pe.sessions.clear()
         pe.focused_id = None
         pe._proc = None
@@ -322,12 +320,12 @@ def test_run_python_dialog_no_msgbox_when_monaco_not_expected_and_native_opens()
     mock_report.assert_not_called()
 
 
-def test_run_python_monaco_writer_skips_calc_selection_import():
+def test_run_python_monaco_writer_skips_calc_selection():
     ctx = MagicMock()
     doc = MagicMock()
 
     with patch.object(pr, "is_calc", return_value=False):
-        with patch("plugin.calc.bridge.calc_selection_to_a1") as mock_sel:
+        with patch.object(pr, "calc_selection_to_a1") as mock_sel:
             with patch.object(pr, "launch_monaco_editor", return_value=True):
                 ok = pr._run_python_monaco(
                     ctx,
@@ -702,7 +700,19 @@ def test_execute_and_insert_result_returns_error_on_failure():
     from tests.scripting.python_runner_test_support import execute_and_insert_result
 
     ctx = MagicMock()
-    with patch("plugin.scripting.python_runner._prepare_rps_execution", return_value={"early_outcome": None, "t0": 0.0, "py_data": None, "bindings": None, "doc": MagicMock(), "ctx": ctx, "code": "bad()"}):
+    with patch(
+        "plugin.scripting.python_runner._prepare_rps_execution",
+        return_value=pr.PreparedScript(
+            ctx=ctx,
+            doc=MagicMock(),
+            code="bad()",
+            t0=0.0,
+            bindings=None,
+            py_data=None,
+            session_id="rps:t",
+            script_session_id=None,
+        ),
+    ):
         with patch.object(pr, "_run_prepared_rps", return_value={"status": "error", "message": "boom"}):
             outcome = execute_and_insert_result(ctx, MagicMock(), "bad()")
     assert outcome["ok"] is False
@@ -771,7 +781,7 @@ def test_show_python_input_dialog_run_button_keeps_dialog_open():
         with _patch_modal_native():
             with patch.object(ui, "save") as mock_set:
                 with patch.object(ui, "get_user_scripts", return_value={"Universal Sample": "result = 0"}):
-                    with patch.object(ui, "save_user_script") as mock_save:
+                    with patch.object(ui, "save_script_to_origin", return_value=None) as mock_save:
                         with patch.object(ui, "get_config", return_value=""):
                             scheduled = {}
 
@@ -795,7 +805,7 @@ def test_show_python_input_dialog_run_button_keeps_dialog_open():
                                 dlg.endDialog.assert_not_called()
                                 dlg.setVisible.assert_not_called()
                                 mock_set.assert_any_call({"last_python_script_name_writer": "Universal Sample"})
-                                mock_save.assert_called_with("Universal Sample", "result = 42")
+                                mock_save.assert_called_with(None, "Universal Sample", ui.SCRIPT_ORIGIN_USER, "result = 42")
                                 # Run returns before the venv wait. The dialog event
                                 # thread must not call execute_and_insert_result.
                                 assert scheduled["func"].__name__ == "_native_script_run_worker"
@@ -860,7 +870,7 @@ def test_show_python_input_dialog_save_button():
         with _patch_modal_native():
             with patch.object(ui, "save"):
                 with patch.object(ui, "get_user_scripts", return_value={"Universal Sample": "print('hello')"}):
-                    with patch.object(ui, "save_user_script") as mock_save:
+                    with patch.object(ui, "save_script_to_origin", return_value=None) as mock_save:
                         with patch.object(ui, "get_config", return_value=""):
                             def fake_execute():
                                 listeners[0].actionPerformed(MagicMock())
@@ -868,7 +878,7 @@ def test_show_python_input_dialog_save_button():
 
                             ui.show_python_input_dialog(ctx)
 
-                            mock_save.assert_called_with("Universal Sample", "print('hello world')")
+                            mock_save.assert_called_with(None, "Universal Sample", ui.SCRIPT_ORIGIN_USER, "print('hello world')")
 
 
 def test_persistent_editor_dispatches_script_actions():
@@ -1158,19 +1168,18 @@ def test_picker_selected_name_listbox_uses_item_pos():
 
 def test_monaco_editor_available_respects_force_internal():
     from plugin.scripting.editor_host import _PROBE_CACHE, monaco_editor_available
-    ctx = MagicMock()
-    
-    with patch("plugin.framework.config.get_config", return_value=True) as mock_get:
-        exe, ok = monaco_editor_available(ctx)
+
+    with patch("plugin.scripting.editor_host.get_config", return_value=True) as mock_get:
+        exe, ok = monaco_editor_available()
         assert exe is None
         assert ok is False
         mock_get.assert_called_with("scripting.force_internal_script_editor")
- 
-    with patch("plugin.framework.config.get_config", return_value=False):
+
+    with patch("plugin.scripting.editor_host.get_config", return_value=False):
         with patch("plugin.scripting.editor_host.resolve_editor_python", return_value=("/fake/python", None)):
             _PROBE_CACHE["/fake/python"] = (True, "")
             try:
-                exe, ok = monaco_editor_available(ctx)
+                exe, ok = monaco_editor_available()
                 assert exe == "/fake/python"
                 assert ok is True
             finally:

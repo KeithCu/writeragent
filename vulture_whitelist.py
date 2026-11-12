@@ -369,10 +369,8 @@ _.adopt_chat_sidebar  # function: plugin/chatbot/sidebar_test_hooks.py:1673
 _.approval_active  # function: plugin/chatbot/sidebar_test_hooks.py:2613
 _.assert_no_empty_graphics  # function: plugin/chatbot/sidebar_test_hooks.py:3106
 _.audio_status  # function: plugin/chatbot/sidebar_test_hooks.py:2684
-_.clear_all  # function: plugin/scripting/venv/venv_sandbox.py
 _.clear_fake_stt  # function: plugin/chatbot/sidebar_test_hooks.py:611
 _.clear_fake_tts  # function: plugin/chatbot/sidebar_test_hooks.py:926
-_.clear_python_code_hot_cache  # function: plugin/scripting/sandbox_cache.py:230
 _.clear_research_fluff_words_cache  # function: plugin/chatbot/web_research_cache.py:165
 _.clear_session  # function: plugin/ppt_master/venv/runner.py:332
 _.clear_sidebar_chat  # function: plugin/chatbot/sidebar_test_hooks.py:2499
@@ -391,7 +389,6 @@ _.insert_user_redline  # function: plugin/chatbot/sidebar_test_hooks.py:2934
 _.install_fake_stt  # function: plugin/chatbot/sidebar_test_hooks.py:581
 _.install_fake_tts  # function: plugin/chatbot/sidebar_test_hooks.py:915
 _.list_redlines  # function: plugin/chatbot/sidebar_test_hooks.py:2895
-_.listener_queue_len  # function: plugin/doc/peer_message.py:327
 _.native_test  # function: plugin/testing_runner.py:1381
 _.next_hello_ok  # function: plugin/chatbot/sidebar_test_hooks.py:2960
 _.open_calc_document  # function: plugin/chatbot/sidebar_test_hooks.py:1648
@@ -410,14 +407,11 @@ _.reset_desktop_create_is_unsafe_for_tests  # function: plugin/framework/uno_con
 _.reset_extension_update_check_schedule_for_tests  # function: plugin/chatbot/extension_update_check.py:138
 _.reset_frame_sessions  # function: plugin/framework/frame_session.py:119
 _.reset_geometric_runtime_for_tests  # function: plugin/calc/python/geometric_recalc.py:79
-_.reset_grammar_llm_client_cache  # function: plugin/writer/locale/grammar_worker.py:47
 _.reset_history_keepers_for_tests  # function: plugin/chatbot/history_db.py:93
 _.reset_host_pacing_for_tests  # function: plugin/framework/client/request_controls.py:236
 _.reset_i18n  # function: plugin/framework/i18n.py:52
-_.reset_live_panels  # function: plugin/doc/live_panels.py:61
 _.reset_local_unverified_hosts_for_tests  # function: plugin/framework/client/request_controls.py:399
 _.reset_package_extension_id_for_tests  # function: plugin/framework/uno_context.py:190
-_.reset_peer_queues  # function: plugin/doc/peer_message.py:384
 _.reset_sentry_state  # function: plugin/framework/async_drain_guard.py:241
 _.reset_suppressed_vcl_pump_count  # function: plugin/framework/async_drain_guard.py:179
 _.set_drain_scheduler_override  # function: plugin/framework/async_stream.py:1145

@@ -80,7 +80,7 @@ LibrePy Run Python Script, text analytics, Excel auto-open, and Writer selection
 | Symbol | Purpose |
 |--------|---------|
 | `normalize_linebreaks` | `\r\n` / `\r` → `\n` so offsets match (Windows UNO/clipboard). |
-| `get_string_without_tracked_deletions` | Skip redline Delete portions. A paragraph concatenates visible portions without a mid-`\n`; a document or multi-para range still joins with `\n` and descends into table cells (nested included). Shares `_visible_portions` with range_copy paint (paint aborts on portion-enum failure to avoid offset drift; the helper continues). Draw shapes (`com.sun.star.drawing.Shape`, also `shape.getText()`, including Writer shapes with an attached text box) return `getString()`; editeng has no redlines and discarded editeng proxies corrupt the heap over URP. |
+| `get_string_without_tracked_deletions` | Skip redline Delete portions. A paragraph concatenates visible portions without a mid-`\n`; a document or multi-para range still joins with `\n` and descends into table cells (nested included). Shares `visible_portions` with the `html_export._visible_portions` paint walk used by range copy (paint aborts on portion-enum failure to avoid offset drift; the helper continues). Draw shapes (`com.sun.star.drawing.Shape`, also `shape.getText()`, including Writer shapes with an attached text box) return `getString()`; editeng has no redlines and discarded editeng proxies corrupt the heap over URP. |
 | `normalize_file_url` | Repair `file:/path` → `file:///path` (legacy `urljoin`). Shared with research. |
 | `get_document_path` | `file:` URL → repair then `uno.fileUrlToSystemPath`; `None` if untitled / non-file. |
 | `get_selection_range` | Writer `(start, end)` character offsets (cursor = equal ends). |
@@ -88,7 +88,7 @@ LibrePy Run Python Script, text analytics, Excel auto-open, and Writer selection
 | `build_heading_tree` | Single-pass outline tree (`HeadingTreeNode`). Optional `chapter_number` from Chapter Numbering (`ListLabelString`, trailing `.` stripped). |
 | `get_document_length` | Visible Writer character length (tracked deletions hidden, paragraph breaks counted, includes table-cell text; returns 0 for non-Writer or on error) = the space of `get_document_content` `document_length` and `scope='range'`. |
 | `get_text_cursor_at_range` | Cursor covering `[start, end)` (chunked `goRight`). |
-| `_writer_char_count` / `_read_writer_text_slice` | Body length in cursor steps (paragraph breaks and pending deleted text count, as in `goRight` / `get_selection_range`); slice reads for chat excerpts. Not `CharacterCount`: that statistic leaves both out and recomputes after an edit (slower than the walk). |
+| `writer_char_count` / `read_writer_text_slice` | Body length in cursor steps (paragraph breaks and pending deleted text count, as in `goRight` / `get_selection_range`); slice reads for chat excerpts. Not `CharacterCount`: that statistic leaves both out and recomputes after an edit (slower than the walk). |
 
 Paragraph index helpers used by `DocumentService` live in [`plugin/doc/paragraph_search.py`](../../plugin/doc/paragraph_search.py) (`get_paragraph_ranges`, `find_paragraph_for_range`, `search_paragraph_texts`) — shared, but Writer-oriented. `get_paragraph_ranges` keeps tables in the list so indices match the text enumeration (heading trees, bookmarks, and grep count every element). `find_paragraph_for_range` compares only `com.sun.star.text.Paragraph` elements — `SwXTextTable` is not an `XTextRange` — and a point in the gap between paragraphs (a table anchor) maps to that table's slot. `find_paragraph_for_range` returns `None` when the point cannot be placed (empty body, before the first or after the last paragraph, or a compare failure); only a real hit returns `0`.
 
@@ -211,6 +211,8 @@ Shared across Writer / Calc / Draw / Impress image and shape tools. **Not** inse
 | `get_active_draw_page` / `draw_page_for_insert` / `position_on_draw_page` / `remove_graphic_from_draw_pages` | Draw/Impress page and position helpers. |
 | `SHAPE_TOOL_UNO_SERVICES` | Union of Writer/Calc/Draw/Impress services for shared tool names. |
 
+Visual helpers read UNO through method spellings only, because PyUNO serves `getX()` and the pseudo-property `X` from the same Invocation; `remove_graphic_from_draw_pages` matches the shape to remove with `==`, which is UNO identity for PyUNO wrappers.
+
 `mm_to_unit` / `mm_to_units` round to the nearest 1/100 mm (`int(round(mm * 100))`); they used to truncate with `int(mm) * 100`, so 12.7 mm became 12 mm. `px_to_units`, `units_to_px`, and `graphic_pixel_size` share `UNITS_PER_INCH = 2540` / `PX_PER_INCH = 96` and round in both directions, so a px → unit → px round trip is stable (it used to lose 1 px: `units_to_px(px_to_units(10))` was 9). `has_uno_property`, `safe_set_property`, `safe_try_method`, `graphic_from_object`, and `graphic_objects_in_selection` raise `DocumentDisposedError` for a closed document and keep their `False` / `None` / `[]` result for ordinary UNO failures; `selected_graphic_object` stays a probe that returns `None`.
 
 `image_tools.get_type_doc`, `_has_uno_property`, `_safe_set_property`, `_selection_graphic_object` are **already** one-line delegates into this module.
@@ -259,9 +261,9 @@ There is **no** single shared converter. Live implementations:
 | (inline) | `styles.py`, `get_image.py`, `duckdb_tools.py`, `calc/python/image_egress.py`, `librepy/sidebar_menus.py` | path → URL | Raw `uno.systemPathToFileUrl`. |
 | `normalize_file_url` | `url_utils` | URL repair | `file:/path` → `file:///path`. Shared by `get_document_path` and research. **Landed.** |
 | `get_document_path` | `text_helpers` | URL → path | Repair then `file://` prefix; `uno.fileUrlToSystemPath`. |
-| `_system_path_from_url` | `document_research` | URL → path | Accepts `file:`; uses shared `normalize_file_url`; then `fileUrlToSystemPath` + `abspath`. `resolve_path_or_name` uses this so a `file:` URL (including ones from `list_nearby_files` / `list_open_documents`) is an absolute path, not a listing filter. |
+| `system_path_from_url` | `document_research` | URL → path | Accepts `file:`; uses shared `normalize_file_url`; then `fileUrlToSystemPath` + `abspath`. `resolve_path_or_name` uses this so a `file:` URL (including ones from `list_nearby_files` / `list_open_documents`) is an absolute path, not a listing filter. |
 | `get_extension_path` | `uno_context` | URL → path | `file://` → `fileUrlToSystemPath`; else returns the URL string (`vnd.sun.star.extension://…`). |
-| `_path_from_file_url` | `scripting/sandbox.py` | URL → path | **stdlib only** (`urlparse`/`unquote`); Windows drive + UNC. |
+| `path_from_file_url` | `scripting/sandbox.py` | URL → path | **stdlib only** (`urlparse`/`unquote`); Windows drive + UNC. |
 | `_system_dir_from_file_url` | `scripting/session_manager.py` | URL → parent dir | **stdlib, no UNO** (off-main `=PY()`); Windows drive letter. |
 
 **Why two conversion styles exist**
@@ -276,7 +278,7 @@ There is **no** single shared converter. Live implementations:
 |---------|--------|
 | `Path.as_uri()` sites (`document_research`, `embeddings_fs`, `format`) | **Landed** as `url_utils.path_to_file_url` (filesystem section). Same stdlib, no UNO, no `@deal`. |
 | `uno.systemPathToFileUrl` at GraphicProvider / `loadComponentFromURL` image/math sites | Optional later; behavior matches `Path.as_uri()` on POSIX. Leave until a Windows mismatch is proven. |
-| `get_document_path` vs `_system_path_from_url` | **Landed the `file:/` repair** on `get_document_path` via shared `url_utils.normalize_file_url`. Research still adds `abspath`. |
+| `get_document_path` vs `system_path_from_url` | **Landed the `file:/` repair** on `get_document_path` via shared `url_utils.normalize_file_url`. Research still adds `abspath`. |
 | sandbox / session_manager stdlib parsers | **Stay separate** — no UNO, Windows UNC/drive, off-main. |
 | `mail_merge._to_file_url` | Domain helper; can call a shared path→URL once one exists. |
 
@@ -318,15 +320,15 @@ Three **different** PathSettings properties; do not collapse the meanings.
 
 | Call site | Lookup | Property | Meaning |
 |-----------|--------|----------|---------|
-| `document_research._path_settings_from_ctx` + `get_work_directory` | singleton `thePathSettings`, else create `PathSettings` | `Work` | LibreOffice “My Documents”; listing root when the active doc is unsaved. |
+| `document_research.path_settings_from_ctx` + `get_work_directory` | singleton `thePathSettings`, else create `PathSettings` | `Work` | LibreOffice “My Documents”; listing root when the active doc is unsaved. |
 | `config._resolve_config_path_from_ctx` | create `PathSettings` | `UserConfig` | Directory for `writeragent.json`. |
 | `image_tools.add_image_to_gallery` | singleton `thePathSettings` | `Storage_writable` | Gallery theme files. |
 
-`document_research` also expands `$(home)` via `thePathSubstitution` (`_substitute_lo_path_variables`) and requires the result to be an existing directory (`_resolve_lo_directory_path`). Config and gallery do not substitute variables.
+`document_research` also expands `$(home)` via `thePathSubstitution` (`_substitute_lo_path_variables`) and requires the result to be an existing directory (`resolve_lo_directory_path`). Config and gallery do not substitute variables.
 
 `resolve_listing_directory`: active doc parent (`get_document_directory` → `get_document_path`) else `get_work_directory`.
 
-**Share lookup, not meaning.** A shared `_path_settings_from_ctx` would be reasonable; `Work` vs `UserConfig` vs `Storage_writable` stay separate.
+**Share lookup, not meaning.** A shared `path_settings_from_ctx` would be reasonable; `Work` vs `UserConfig` vs `Storage_writable` stay separate.
 
 ### 2.5 HTTP / API URL helpers vs document URLs
 
@@ -384,7 +386,7 @@ Most converters rely on UNO or `Path.as_uri()` and have **no** extra Windows bra
 
 Explicit POSIX/Windows splits that exist today:
 
-- `sandbox._path_from_file_url`: `os.name == "nt"` drive-letter (`/C:` → `C:\`) and UNC (`file://server/share`).
+- `sandbox.path_from_file_url`: `os.name == "nt"` drive-letter (`/C:` → `C:\`) and UNC (`file://server/share`).
 - `session_manager._system_dir_from_file_url`: same drive-letter strip; no UNC branch.
 - `text_helpers.normalize_linebreaks`: comments Windows `\r\n` from UNO/clipboard.
 - Tests name the POSIX `file:///` requirement (`test_path_to_file_url_uses_three_slashes_on_unix`).
@@ -443,7 +445,7 @@ Unifying `detect_doc_type` onto `doc_type_label_for_enum` would change unknown �
 
 **URL → path**
 
-`get_document_path` and `_system_path_from_url` both repair `file:/` via `url_utils.normalize_file_url`. Research still applies `abspath` after conversion. Untitled / non-file URLs still return `None`.
+`get_document_path` and `system_path_from_url` both repair `file:/` via `url_utils.normalize_file_url`. Research still applies `abspath` after conversion. Untitled / non-file URLs still return `None`.
 
 **Active document**
 
@@ -465,7 +467,7 @@ Unifying `detect_doc_type` onto `doc_type_label_for_enum` would change unknown �
 
 - Document click handlers use the sidebar frame's controller. They do not call `get_desktop` / `getCurrentComponent()`.
 - `main.py._load_icon_graphic` vs `librepy/sidebar_menus.py` GraphicProvider-from-URL (LibrePy also tries filesystem).
-- `create_property_value` (`uno_context.py`, re-exported by `writer/format.py`) vs inline `PropertyValue()` / `createUnoStruct` at load sites. `open_document_for_read` already imports `create_property_value`.
+- `create_property_value` (`uno_context.py`) vs inline `PropertyValue()` / `createUnoStruct` at load sites. `open_document_for_read` already imports `create_property_value`.
 
 **Notebook markdown images**
 
@@ -501,12 +503,12 @@ Do **not** re-merge a monolithic `uno_helpers.py`. Prefer the smallest existing 
 
 1. **Delete `document_scripts._normalize_doc_url`.** **Landed.** Callers import public `uno_context.normalize_doc_url`. Tests: `tests/doc/test_document.py`, `tests/scripting/test_document_scripts.py`.
 2. **UNO-free `path_to_file_url`.** **Landed** in `url_utils` filesystem / document `file:` section (not HTTP helpers, not `text_helpers`, not a new `file_urls.py`). `document_research`, `embeddings_fs`, and `format` import it; old copies deleted; no aliases. Tests: `tests/framework/test_url_utils.py`, `tests/doc/test_document_research.py`, `tests/embeddings/test_embeddings_fs.py`.
-3. **Document URL→path: teach `get_document_path` the `file:/` repair.** **Landed.** Shared `url_utils.normalize_file_url`; `get_document_path` and `_system_path_from_url` both use it. Sandbox / session_manager stdlib copies stay. Tests: `tests/doc/test_text_helpers.py`, `tests/doc/test_document_research.py`.
+3. **Document URL→path: teach `get_document_path` the `file:/` repair.** **Landed.** Shared `url_utils.normalize_file_url`; `get_document_path` and `system_path_from_url` both use it. Sandbox / session_manager stdlib copies stay. Tests: `tests/doc/test_text_helpers.py`, `tests/doc/test_document_research.py`.
 
 ### P2 — candidate unify after documenting behavior
 
 4. **Desktop enumeration.** Have `resolve_document_by_url` and `get_open_documents` share `_office_model_from_desktop_element` (or move that helper next to `get_desktop`). Keep match policy (URL+uid vs listing metadata) at the callers.
-5. **Shared PathSettings locator** (`_path_settings_from_ctx`) used by research, config, gallery. Keep property names at call sites.
+5. **Shared PathSettings locator** (`path_settings_from_ctx`) used by research, config, gallery. Keep property names at call sites.
 6. **`DocumentService.detect_doc_type`** → `doc_type_family_label` **only if** tests accept unknown → `"unknown"` or an explicit `default="writer"` is added.
 7. **`get_active_document_for_scripts`** → **Landed.** The helper was removed. The script picker lists and writes only the document captured at launch.
 8. **`_current_document_controller`** → frame controller, not another Desktop create. **Landed** as `FrameSession`: the click handler uses `frame.getController()` and does not call `getCurrentComponent()`.

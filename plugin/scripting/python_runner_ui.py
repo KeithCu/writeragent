@@ -84,22 +84,19 @@ from plugin.chatbot.dialogs import (
 from plugin.scripting.script_dialogs import show_new_script_dialog
 from plugin.framework.worker_pool import run_in_background
 from plugin.scripting.document_scripts import (
-    DocumentScriptErrorCode,
     attach_document_script,
     build_xdl_script_picker_state,
-    delete_document_script,
-    delete_user_script,
+    delete_script_from_origin,
     document_script_display_name,
     get_document_scripts,
     get_user_scripts,
     read_only_helper_message,
-    readonly_fallback_name_taken_message,
-    readonly_fallback_saved_message,
     resolve_run_script_name_config_key,
     resolve_script_picker_entry,
-    save_document_script,
+    save_script_to_origin,
     save_user_script,
     script_origin_is_writable,
+    script_saved_message,
 )
 from plugin.scripting.domain_registry import SCRIPT_ORIGIN_DOCUMENT, SCRIPT_ORIGIN_USER
 from plugin.scripting.editor_errors import exception_traceback
@@ -114,7 +111,7 @@ class _ScriptSaveResult:
     channel: Literal["builtin", "modal"] | None
 
 
-def _report_script_dialog_error(ctx: Any, dlg: Any, exc: BaseException, where: str, doc: Any = None) -> None:
+def _report_script_dialog_error(ctx: Any, dlg: Any, exc: BaseException, where: str) -> None:
     """Show Save / Save As / Delete / New failures in the dialog label, not only in the log."""
     log.exception("%s failed in dialog", where)
     text = _("The document is no longer open.") if is_disposal(exc) else resolve_exception_message(exc)
@@ -299,37 +296,12 @@ class NativePythonScriptDialog:
             # unchecked, copies a helper into My Scripts. Do not add a Copy button and
             # do not edit the XDL.
             return _ScriptSaveResult(read_only_helper_message(), "builtin")
-        if origin == SCRIPT_ORIGIN_DOCUMENT:
-            if self._doc is None:
-                return _ScriptSaveResult(_("No document is open to save scripts."), "modal")
-            err = save_document_script(self._doc, real_name, t)
-            # Document save errors surface in the label; only READONLY failures fall back to My Scripts, matching Monaco behavior.
-            if err is None:
-                self._current_scripts[display_name] = t
-                return _ScriptSaveResult(_("Script '%s' saved to this document.") % real_name, None)
-            if getattr(err, "code", None) != DocumentScriptErrorCode.READONLY:
-                return _ScriptSaveResult(str(err), "modal")
-            if real_name in get_user_scripts():
-                return _ScriptSaveResult(
-                    readonly_fallback_name_taken_message(real_name, err),
-                    "modal",
-                )
-            user_err = save_user_script(real_name, t)
-            if user_err:
-                return _ScriptSaveResult(user_err, "modal")
-            # After falling back to My Scripts, refresh the dropdown and
-            # select the saved user script. Leaving the [Doc] entry
-            # selected disagrees with where the script was stored.
-            self._refresh_script_dropdown(select_display=real_name)
-            return _ScriptSaveResult(
-                readonly_fallback_saved_message(real_name, err),
-                "modal",
-            )
-        user_err = save_user_script(real_name, t)
-        if user_err:
-            return _ScriptSaveResult(user_err, "modal")
+        # A read-only document returns its error here; nothing is written to My Scripts.
+        err = save_script_to_origin(self._doc, real_name, origin, t)
+        if err:
+            return _ScriptSaveResult(str(err), "modal")
         self._current_scripts[display_name] = t
-        return _ScriptSaveResult(_("Script '%s' saved successfully.") % real_name, None)
+        return _ScriptSaveResult(script_saved_message(real_name, origin), None)
 
     def _store_script(
         self,
@@ -420,6 +392,7 @@ class NativePythonScriptDialog:
                     finally:
                         set_control_enabled(btn_run, True)
 
+                # Cycle: python_runner imports this module at its top.
                 from plugin.scripting.python_runner import start_native_script_run
 
                 start_native_script_run(ctx, doc, t, on_complete=_on_complete)
@@ -439,7 +412,7 @@ class NativePythonScriptDialog:
                 if res.text:
                     set_control_text(lbl, res.text)
             except Exception as exc:
-                _report_script_dialog_error(ctx, dlg, exc, "Save", doc=self._doc)
+                _report_script_dialog_error(ctx, dlg, exc, "Save")
 
         def _on_save_as() -> None:
             try:
@@ -472,7 +445,7 @@ class NativePythonScriptDialog:
                     user_success_msg=_("Script '%s' saved to My Scripts."),
                 )
             except Exception as exc:
-                _report_script_dialog_error(ctx, dlg, exc, "Save As", doc=self._doc)
+                _report_script_dialog_error(ctx, dlg, exc, "Save As")
 
         def _on_delete() -> None:
             try:
@@ -490,24 +463,17 @@ class NativePythonScriptDialog:
                     _("Are you sure you want to delete script '%s'?") % real_name,
                     _("Delete Script"),
                 ):
-                    if origin == SCRIPT_ORIGIN_DOCUMENT:
-                        if doc is None:
-                            set_control_text(lbl, _("No document is open."))
-                            return
-                        err = delete_document_script(doc, real_name)
-                        if err:
-                            set_control_text(lbl, err)
-                            return
-                    else:
-                        # delete_user_script errors are shown instead of a false deleted message when the row is missing.
-                        err = delete_user_script(real_name)
-                        if err is not None:
-                            set_control_text(lbl, err)
-                            return
+                    # Origin-specific delete checks (missing row in My Scripts or
+                    # closed/missing document) return an error so the dialog does
+                    # not claim success when nothing was deleted.
+                    err = delete_script_from_origin(doc, real_name, origin)
+                    if err:
+                        set_control_text(lbl, err)
+                        return
                     self._refresh_script_dropdown()
                     set_control_text(lbl, _("Script '%s' deleted.") % real_name)
             except Exception as exc:
-                _report_script_dialog_error(ctx, dlg, exc, "Delete", doc=self._doc)
+                _report_script_dialog_error(ctx, dlg, exc, "Delete")
 
         def _on_new() -> None:
             try:
@@ -529,7 +495,7 @@ class NativePythonScriptDialog:
                     if ec is not None:
                         set_control_text(ec, starter_code)
             except Exception as exc:
-                _report_script_dialog_error(ctx, dlg, exc, "New script", doc=self._doc)
+                _report_script_dialog_error(ctx, dlg, exc, "New script")
 
         def _on_cancel() -> None:
             log.debug("native script dialog: BtnCancel")

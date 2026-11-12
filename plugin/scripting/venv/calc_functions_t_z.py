@@ -13,27 +13,30 @@ import calendar
 import datetime as dt
 import math
 import re
-from decimal import Decimal, InvalidOperation, ROUND_HALF_UP, localcontext
+from decimal import Decimal
 from typing import Any
 
 import numpy as np
 
 from .calc_functions_util import (
-    _as_bool_flag,
-    _as_nonzero,
-    _build_holiday_set,
-    _clean_paired_arrays,
-    _collect_a_values,
-    _date_to_serial,
-    _extract_numeric_array,
-    _is_calc_error,
-    _parse_weekend,
-    _scipy_stats,
-    _serial_to_date,
-    _wildcard_fullmatch,
+    as_bool_flag,
+    as_nonzero,
+    build_holiday_set,
+    clean_paired_arrays,
+    collect_a_values,
+    date_to_serial,
+    extract_numeric_array,
+    format_quantized,
+    is_calc_error,
+    orient_columns,
+    parse_weekend,
+    round_half_up,
+    scipy_stats,
+    serial_to_date,
+    wildcard_fullmatch,
     yearfrac,
 )
-from .coerce import _LO_ERROR_TOKENS, is_blank_value
+from .coerce import LO_ERROR_TOKENS, is_blank_value
 
 
 __all__ = [
@@ -83,14 +86,14 @@ def tdist(x: Any, df: Any, tails: Any) -> float:
     # ScTDist floors df (approxFloor) before the < 1 check. 2.7 was
     # passed through to the t distribution.
     d = math.floor(float(df))
-    # ``t`` is the public T() function. A local with that name would hide it.
-    # int(float("inf")) on tails raises OverflowError. The handler only
-    # caught ValueError and TypeError, so TDIST(x, df, inf) raised instead
-    # of the NaN already returned for every other tail count outside 1 or 2.
+    # ``t`` is the public T() function, so the local is tail_count. A text
+    # tails raises ValueError (#VALUE!) and inf raises OverflowError (#NUM!)
+    # in the worker; any other count outside 1 or 2 is NaN.
     tail_count = int(float(tails))
     if d < 1 or tail_count not in (1, 2) or val < 0:
         return float("nan")
-    if (st := _scipy_stats()) is None:
+    st = scipy_stats()
+    if st is None:
         return float("nan")
 
     # tdist in Calc/Excel returns 1 - cdf(val) for 1 tail
@@ -140,19 +143,7 @@ def _format_number_pattern(value: float, places: int, grouped: bool, *, scale: i
     """
     if not math.isfinite(value):
         return str(value)
-    dec = Decimal(str(value))
-    if scale != 1:
-        dec *= scale
-    quant = Decimal(1).scaleb(-places)
-    # Default precision is 28. quantize of 1e30 raised InvalidOperation,
-    # and TEXT then returned the scientific fallback "1e+30".
-    with localcontext() as ctx:
-        ctx.prec = max(28, abs(dec.adjusted()) + places + 2)
-        rounded = dec.quantize(quant, rounding=ROUND_HALF_UP)
-    # Decimal("-0") < 0 is false, so a rounded zero prints "0", not "-0".
-    negative = rounded < 0
-    body = f"{abs(rounded):{',' if grouped else ''}.{places}f}"
-    return f"-{body}" if negative else body
+    return format_quantized(round_half_up(Decimal(str(value)) * scale, places), places, commas=grouped)
 
 
 def text(val: Any, fmt: Any) -> str | float:
@@ -170,10 +161,10 @@ def text(val: Any, fmt: Any) -> str | float:
         lower = fmt_str.lower()
         date_fmt = _DATE_FORMATS.get(lower)
         if date_fmt is not None or lower == "mmm d, yyyy":
-            # _serial_to_date is the same +693594 ordinal. A bad serial stays
+            # serial_to_date is the same +693594 ordinal. A bad serial stays
             # the original text, as the hand-rolled fromordinal path did.
             # "%d" would zero-pad the day; this format does not.
-            day = _serial_to_date(val)
+            day = serial_to_date(val)
             if day is None:
                 return str(val)
             if date_fmt is not None:
@@ -184,7 +175,7 @@ def text(val: Any, fmt: Any) -> str | float:
             h, rem = divmod(total_sec, 3600)
             m, s = divmod(rem, 60)
             return f"{h:02d}:{m:02d}:{s:02d}"
-    except (ValueError, TypeError, OverflowError, InvalidOperation):
+    except (ValueError, TypeError, OverflowError):
         return str(val)
     # ScText calls NFGetPreviewStringGuess and PushIllegalArgument (Err:502)
     # when the format is rejected. The tables above are the whole set this
@@ -208,7 +199,7 @@ def _text_before_or_after(text: Any, delimiter: Any, instance_num: Any, match_mo
     try:
         # bool("0") is true, so a zero flag invented a virtual delimiter.
         # ScTextBeforeOrAfter uses GetBool(), which is GetDouble() != 0.
-        use_end = _as_nonzero(match_end)
+        use_end = as_nonzero(match_end)
         s = str(text)
         delim = str(delimiter)
         inst = int(float(instance_num))
@@ -239,9 +230,10 @@ def _text_before_or_after(text: Any, delimiter: Any, instance_num: Any, match_mo
             return if_not_found
         # A negative instance counts from the end of that same list.
         chosen = spans[inst - 1] if inst > 0 else spans[inst]
-        # after=True must not return the start for a negative instance and let.
-        # TEXTAFTER add len(delim). A case-folded match can be a different
-        # length than the delimiter, so the cut is the span's own end.
+        # TEXTAFTER cuts at the chosen span's end and TEXTBEFORE at its start, for
+        # positive and negative instances alike. A case-folded match can be a
+        # different length than the delimiter, so the cut is the span's own end,
+        # not start + len(delim).
         idx = chosen[1] if after else chosen[0]
         return s[idx:] if after else s[:idx]
     except (ValueError, TypeError, OverflowError):
@@ -280,8 +272,9 @@ def textjoin(delim: Any, ignore_empty: Any, *args: Any) -> str | float:
     # bool("0") and bool("FALSE") are true, so a zero or text flag skipped
     # empty cells. ScTextJoin_MS uses GetDouble() != 0.
     try:
-        skip_empty = _as_nonzero(ignore_empty)
+        skip_empty = as_nonzero(ignore_empty)
     except (ValueError, TypeError, OverflowError):
+        # Calc shows #VALUE! for a text flag; this returns #VALUE!, pinned by test_flag_strings_follow_getdouble.
         return "#VALUE!"
     parts = []
     for arg in args:
@@ -291,7 +284,7 @@ def textjoin(delim: Any, ignore_empty: Any, *args: Any) -> str | float:
         values = _flatten_range(arg) if _is_calc_range(arg) else np.asarray(arg, dtype=object).ravel()
         for val in values:
             # Formula errors stop TEXTJOIN like Calc; blanks use is_blank_value, not is_missing_value, so #VALUE! is not silently dropped.
-            if _is_calc_error(val):
+            if is_calc_error(val):
                 if isinstance(val, str):
                     return val.strip()
                 return float("nan")
@@ -322,14 +315,14 @@ def textsplit(text: Any, col_delimiter: Any, row_delimiter: Any = None, ignore_e
     # change the pieces, not just the match.
     try:
         s = str(text)
-        # ScTextSplit PushIllegalParameter on empty text. This helper's
-        # Empty text and illegal parameters return NaN like Calc; they do not split to [[""]].
+        # ScTextSplit pushes IllegalParameter on empty text, so empty text is NaN,
+        # not [[""]].
         if s == "":
             return float("nan")
         ci = (match_mode == 1)
         # bool("0") is true, so a zero flag dropped empty pieces.
         # ScTextSplit uses GetBool(), which is GetDouble() != 0.
-        skip_empty = _as_nonzero(ignore_empty)
+        skip_empty = as_nonzero(ignore_empty)
 
         if col_delimiter is None and row_delimiter is None:
             return float("nan")
@@ -391,7 +384,8 @@ def tinv(prob: Any, df: Any) -> float:
     d = math.floor(float(df))
     if p <= 0 or p > 1 or d < 1:
         return float("nan")
-    if (st := _scipy_stats()) is None:
+    st = scipy_stats()
+    if st is None:
         return float("nan")
 
     # TINV is the 2-tailed inverse. ppf(1 - p/2) rounds the
@@ -409,15 +403,8 @@ def trend(*args: Any) -> Any:
         if data_y.size == 0 or np.any(np.isnan(data_y)):
             return "#VALUE!"
         if len(args) > 1 and args[1] is not None:
-            # A scalar is 0-d. GetMatrix (interpr5.cxx) stores that double
-            # as a 1×1 matrix. shape[0] on the 0-d array raised IndexError,
-            # which this handler does not catch, so TREND of a scalar known_x
-            # escaped instead of fitting.
-            data_x = np.atleast_1d(np.asarray(args[1], dtype=float))
-            if data_x.ndim == 1:
-                data_x = data_x[:, np.newaxis]
-            elif data_x.ndim == 2 and data_x.shape[0] != data_y.shape[0] and data_x.shape[1] == data_y.shape[0]:
-                data_x = data_x.T
+            # A scalar is 0-d; GetMatrix (interpr5.cxx) stores it as a 1×1 matrix.
+            data_x = orient_columns(np.atleast_1d(np.asarray(args[1], dtype=float)), len(data_y), axis=0)
         else:
             data_x = np.arange(1, len(data_y) + 1, dtype=float)[:, np.newaxis]
 
@@ -425,13 +412,8 @@ def trend(*args: Any) -> Any:
             return "#VALUE!"
 
         if len(args) > 2 and args[2] is not None:
-            # Same 0-d scalar as known_x. CalculateTrendGrowth predicts
-            # every element of the 1×1 new_x matrix.
-            new_data_x = np.atleast_1d(np.asarray(args[2], dtype=float))
-            if new_data_x.ndim == 1:
-                new_data_x = new_data_x[:, np.newaxis]
-            elif new_data_x.ndim == 2 and new_data_x.shape[1] != data_x.shape[1] and new_data_x.shape[0] == data_x.shape[1]:
-                new_data_x = new_data_x.T
+            # A scalar is 0-d; GetMatrix (interpr5.cxx) stores it as a 1×1 matrix.
+            new_data_x = orient_columns(np.atleast_1d(np.asarray(args[2], dtype=float)), data_x.shape[1], axis=1)
         else:
             new_data_x = data_x
 
@@ -439,8 +421,8 @@ def trend(*args: Any) -> Any:
             return "#VALUE!"
 
         # bool("FALSE") is True, so a const string kept the intercept.
-        # _as_bool_flag maps "FALSE" / "TRUE" / 0.
-        const = _as_bool_flag(args[3]) if len(args) > 3 else True
+        # as_bool_flag maps "FALSE" / "TRUE" / 0.
+        const = as_bool_flag(args[3]) if len(args) > 3 else True
 
         if const:
             data_x = np.c_[data_x, np.ones(data_x.shape[0])]
@@ -451,13 +433,13 @@ def trend(*args: Any) -> Any:
         return pred.tolist()
     except (ValueError, TypeError, OverflowError, ZeroDivisionError, np.linalg.LinAlgError):
         # A broad Exception hid programming errors as #VALUE!. A bad const
-        # string still raises ValueError inside _as_bool_flag and stays #VALUE!.
+        # string still raises ValueError inside as_bool_flag and stays #VALUE!.
         return "#VALUE!"
 
 
 def trimmean(r: Any, percent: Any) -> float:
     # Skip blanks, text, and bools. A formula error (NaN) still propagates.
-    arr = _extract_numeric_array(r, propagate_nan=True)
+    arr = extract_numeric_array(r, propagate_nan=True)
     if len(arr) == 0 or np.any(np.isnan(arr)):
         return float("nan")
     # float(10**400) raises OverflowError. The handler only caught
@@ -483,18 +465,19 @@ def ttest(data1: Any, data2: Any, tails: Any, type_: Any) -> float:
         return float("nan")
 
     if type_num == 1:
-        cleaned = _clean_paired_arrays(data1, data2)
+        cleaned = clean_paired_arrays(data1, data2)
         if cleaned is None:
             return float("nan")
         d1_clean, d2_clean = cleaned
     else:
-        d1_clean = _extract_numeric_array(data1, propagate_nan=False)
-        d2_clean = _extract_numeric_array(data2, propagate_nan=False)
+        d1_clean = extract_numeric_array(data1, propagate_nan=False)
+        d2_clean = extract_numeric_array(data2, propagate_nan=False)
 
     if len(d1_clean) < 2 or len(d2_clean) < 2:
         return float("nan")
 
-    if (st := _scipy_stats()) is None:
+    st = scipy_stats()
+    if st is None:
         return float("nan")
 
     res = st.ttest_rel(d1_clean, d2_clean) if type_num == 1 else st.ttest_ind(d1_clean, d2_clean, equal_var=type_num == 2)
@@ -506,7 +489,7 @@ def ttest(data1: Any, data2: Any, tails: Any, type_: Any) -> float:
 
 def type(val: Any) -> float:
     # np.bool_ is logical (4), same as bool (bool subclasses int).
-    if _is_calc_error(val):
+    if is_calc_error(val):
         return 16.0
     if isinstance(val, (bool, np.bool_)):
         return 4.0
@@ -580,9 +563,10 @@ def unique(arr: Any, by_col: bool = False, unique_only: bool = False) -> list[An
     # exactly-once filter. ScUnique uses GetDouble() != 0, and a
     # non-numeric string is #VALUE!.
     try:
-        by_column = _as_nonzero(by_col)
-        once = _as_nonzero(unique_only)
+        by_column = as_nonzero(by_col)
+        once = as_nonzero(unique_only)
     except (ValueError, TypeError, OverflowError):
+        # Calc shows #VALUE! for a text flag; this returns #VALUE!, pinned by test_flag_strings_follow_getdouble.
         return "#VALUE!"
     # dtype=object. A bare asarray makes 1 and '1' the same string.
     data = np.asarray(arr, dtype=object)
@@ -608,13 +592,13 @@ def unique(arr: Any, by_col: bool = False, unique_only: bool = False) -> list[An
 
 
 def vara(*args: Any) -> float:
-    vals = _collect_a_values(*args)
+    vals = collect_a_values(*args)
     # numpy gives NaN for too few samples.
     return float(np.var(vals, ddof=1))
 
 
 def varpa(*args: Any) -> float:
-    vals = _collect_a_values(*args)
+    vals = collect_a_values(*args)
     # numpy gives NaN for too few samples.
     return float(np.var(vals, ddof=0))
 
@@ -630,10 +614,9 @@ _WEEKNUM_WEEK_START: dict[int, int] = {
 
 
 def weekday(serial: Any, return_type: int | float = 1) -> float:
-    # _serial_to_date returns None for a bad serial. fromordinal raises
-    # ValueError or OverflowError, not OSError, so the old OSError arm was dead.
-    # A bad return_type still raises into the decorator.
-    d = _serial_to_date(serial)
+    # serial_to_date returns None for a bad serial. A non-numeric return_type
+    # raises ValueError, which the worker returns as #VALUE!.
+    d = serial_to_date(serial)
     rt = int(float(return_type))
     if d is None:
         return float("nan")
@@ -681,7 +664,7 @@ def weeknum(serial: Any, return_type: int | float = 1) -> float:
     # The body ignored return_type and always returned the ISO week. ISO is
     # only return_type 21 (and 150, the Gnumeric alias). isoweeknum already
     # covers that path; system 1 is a different numbering.
-    day = _serial_to_date(serial)
+    day = serial_to_date(serial)
     rt = int(float(return_type))
     if day is None:
         return float("nan")
@@ -703,13 +686,14 @@ def weibull(x: Any, alpha: Any, beta: Any, cumulative: Any = True) -> float:
         return float("nan")
     if val < 0 or a <= 0 or b <= 0:
         return float("nan")
-    if (st := _scipy_stats()) is None:
+    st = scipy_stats()
+    if st is None:
         return float("nan")
 
     # In scipy, c=alpha (shape), scale=beta. Note: Calc calls alpha shape and beta scale.
     # bool("0") is true, so a zero flag returned the CDF.
     # ScWeibull uses GetDouble() == 0 for the density.
-    if _as_nonzero(cumulative):
+    if as_nonzero(cumulative):
         return float(st.weibull_min.cdf(val, a, scale=b))
     return float(st.weibull_min.pdf(val, a, scale=b))
 
@@ -780,7 +764,7 @@ def _workday_serial(
     weekend_days: set[int],
     holidays: Any | None,
 ) -> float:
-    curr = _serial_to_date(start_date)
+    curr = serial_to_date(start_date)
     if curr is None:
         return float("nan")
     # days sat outside the start-date try, so a text days cell raised.
@@ -788,12 +772,12 @@ def _workday_serial(
         remaining = int(float(days))
     except (ValueError, TypeError, OverflowError):
         return float("nan")
-    end = _advance_workdays(curr, remaining, weekend_days, _build_holiday_set(holidays))
+    end = _advance_workdays(curr, remaining, weekend_days, build_holiday_set(holidays))
     if end is None:
         return float("nan")
-    # The return retyped 693594. _date_to_serial subtracts _SERIAL_OFFSET,
+    # The return retyped 693594. date_to_serial subtracts _SERIAL_OFFSET,
     # the one Excel epoch in this package.
-    return _date_to_serial(end)
+    return date_to_serial(end)
 
 
 def workday(start_date: Any, days: Any, holidays: Any | None = None) -> float:
@@ -802,7 +786,7 @@ def workday(start_date: Any, days: Any, holidays: Any | None = None) -> float:
 
 
 def workday_intl(start_date: Any, days: Any, weekend: Any = 1, holidays: Any | None = None) -> float:
-    wk_days = _parse_weekend(weekend)
+    wk_days = parse_weekend(weekend)
     if not isinstance(wk_days, set):
         return float("nan")
     return _workday_serial(start_date, days, wk_days, holidays)
@@ -877,7 +861,7 @@ def _find_match_index(
 
     if mm == 2 and isinstance(lookup_val, str):
         return next(
-            (idx for idx in indices if isinstance(l_flat[idx], str) and _wildcard_fullmatch(lookup_val, l_flat[idx])),
+            (idx for idx in indices if isinstance(l_flat[idx], str) and wildcard_fullmatch(lookup_val, l_flat[idx])),
             None,
         )
     if mm not in (0, -1, 1, 2):
@@ -919,20 +903,18 @@ def xlookup(lookup_val: Any, lookup_arr: Any, return_arr: Any, if_not_found: Any
     # so the hit was "5" instead of the number 5. The lookup path
     # already keeps numbers as numbers.
     r_flat = np.asarray(return_arr, dtype=object)
-    # A return array shorter than the matched index must not raise IndexError.
+    # A return array shorter than the matched index must not raise IndexError
     # (xlookup("b", ["a", "b"], [1])). The match succeeded, so this is not
     # if_not_found; it is a bad range. Report #VALUE!, same as other shape
-    # mismatches, instead of letting the exception escape.
+    # mismatches.
     try:
         if r_flat.ndim == 2:
             l_shape = np.asarray(lookup_arr).shape
-            # Row slice: (N, 1) with N > 1, or a flat (N,) lookup whose return
-            # has one row per lookup value. A flat lookup must not take the.
-            # column whenever best_idx < width, so
-            # xlookup("b", ["a","b","c"], [["x","y"],["z","w"],["p","q"]])
-            # returned ["y","w","q"] instead of ["z","w"]. A wide return whose
-            # columns match the lookup length still uses the column slice
-            # below. A (1, N) lookup is that column slice.
+            # Row slice: (N, 1) with N > 1, or a flat (N,) lookup whose return has one
+            # row per lookup value. A flat lookup takes the row even when
+            # best_idx < width: xlookup("b", ["a","b","c"], [["x","y"],["z","w"],["p","q"]])
+            # is ["z","w"], not the column ["y","w","q"]. A wide return whose columns
+            # match the lookup length, and a (1, N) lookup, use the column slice below.
             if (len(l_shape) == 2 and l_shape[0] > 1 and l_shape[1] == 1) or (
                 len(l_shape) == 1 and r_flat.shape[0] == l_shape[0]
             ):
@@ -1021,7 +1003,7 @@ def xor(*args: Any) -> bool | float | str:
                 if math.isnan(number):
                     return float("nan")
                 bit = number != 0.0
-            elif isinstance(val, str) and val.strip() in _LO_ERROR_TOKENS:
+            elif isinstance(val, str) and val.strip() in LO_ERROR_TOKENS:
                 return val.strip()
             elif in_range and (val is None or isinstance(val, str)):
                 continue
@@ -1079,7 +1061,7 @@ def ztest(data: Any, x: Any, sigma: Any | None = None) -> float:
     # and blanks. dtype=float raised on None, so one blank made the call
     # NaN. isfinite then dropped error cells instead of propagating them.
     # Fewer than 2 numbers is #DIV/0! even when sigma is supplied.
-    d = _extract_numeric_array(data, ignore_bool=False, propagate_nan=True)
+    d = extract_numeric_array(data, ignore_bool=False, propagate_nan=True)
     if len(d) < 2 or np.any(np.isnan(d)):
         return float("nan")
     val = float(x)
@@ -1095,7 +1077,8 @@ def ztest(data: Any, x: Any, sigma: Any | None = None) -> float:
         return float("nan")
 
     z = (m - val) / (s / math.sqrt(n))
-    if (st := _scipy_stats()) is None:
+    st = scipy_stats()
+    if st is None:
         return float("nan")
 
     return float(st.norm.sf(z))

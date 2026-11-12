@@ -15,24 +15,50 @@ from plugin.tests.testing_utils import skip_windows_leftover_hidden_load, with_n
 def _skip_windows_leftover_hidden_mathml() -> None:
     """GHA 34678020608: leftover Hidden ``_blank`` ``.mml`` / ``smath`` hang."""
     skip_windows_leftover_hidden_load("math export Hidden _blank smath")
-from plugin.writer.math.math_mml_convert import convert_latex_to_starmath, insert_writer_math_formula
+from plugin.writer.math.math_mml_convert import (
+    MATH_CLSID,
+    convert_latex_to_starmath,
+    insert_writer_math_formula,
+)
 from plugin.writer.math.math_mml_export import (
     convert_starmath_to_latex,
-    convert_starmath_to_mathml,
     iter_writer_math_objects,
+    portion_math_embed,
+    read_starmath,
 )
 
 
 @native_test
 @with_native_doc("writer")
-def test_starmath_to_mathml_fraction(ctx: Any, doc: Any) -> None:
+def test_portion_math_embed_finds_as_character_formula_uno(ctx: Any, doc: Any) -> None:
     _skip_windows_leftover_hidden_mathml()
-    res = convert_starmath_to_mathml(ctx, "{a} over {b}")
-    assert res.ok, res.error_message
-    assert res.mathml
-    low = res.mathml.lower()
-    assert "<math" in low
-    assert "frac" in low or "over" in low or "<mi>a</mi>" in low
+    from plugin.doc.text_helpers import iter_elements
+
+    text = doc.getText()
+    cur = text.createTextCursor()
+    cur.gotoEnd(False)
+    text.insertString(cur, "Hello ", False)
+    insert_writer_math_formula(doc, cur, "a + b", display_block=False)
+    text.insertString(cur, " World", False)
+
+    para_enum = text.createEnumeration()
+    math_portions = []
+    other_portions = 0
+    for para in iter_elements(para_enum):
+        portion_enum = para.createEnumeration()
+        for portion in iter_elements(portion_enum):
+            emb = portion_math_embed(portion)
+            if emb is not None:
+                math_portions.append(emb)
+            else:
+                other_portions += 1
+
+    assert len(math_portions) == 1
+    assert other_portions >= 2
+    embed = math_portions[0]
+    assert getattr(embed, "CLSID", "").lower() == MATH_CLSID.lower()
+    formula = read_starmath(embed)
+    assert "a" in formula and "b" in formula
 
 
 @native_test

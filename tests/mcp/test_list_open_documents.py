@@ -60,8 +60,8 @@ def test_list_open_documents_execute():
     mock_enum.nextElement.side_effect = next_elem
     mock_desktop.getComponents.return_value.createEnumeration.return_value = mock_enum
 
-    with patch("plugin.framework.uno_context.get_desktop", return_value=mock_desktop), \
-         patch("plugin.doc.document_research._system_path_from_url", side_effect=lambda u: u.replace("file://", "") if u else None), \
+    with patch("plugin.doc.document_research.get_desktop", return_value=mock_desktop), \
+         patch("plugin.doc.document_research.system_path_from_url", side_effect=lambda u: u.replace("file://", "") if u else None), \
          patch("plugin.doc.document_research.get_document_type") as mock_get_doc_type:
 
         # Let mock_get_doc_type identify mock_doc2 as calc
@@ -99,7 +99,7 @@ def test_list_open_documents_execute():
 def test_get_open_documents_magicmock_enum_does_not_hang():
     """Default MagicMock.hasMoreElements() is always truthy; must not spin."""
     desktop = MagicMock()
-    with patch("plugin.framework.uno_context.get_desktop", return_value=desktop):
+    with patch("plugin.doc.document_research.get_desktop", return_value=desktop):
         docs = get_open_documents(MagicMock(), active_model=None)
     assert docs == []
 
@@ -120,7 +120,7 @@ def test_get_open_documents_lists_untitled_even_when_type_lookup_fails():
     enum.nextElement.side_effect = lambda: elems.pop(0)
     desktop.getComponents.return_value.createEnumeration.return_value = enum
 
-    with patch("plugin.framework.uno_context.get_desktop", return_value=desktop), \
+    with patch("plugin.doc.document_research.get_desktop", return_value=desktop), \
          patch("plugin.doc.document_research.get_document_type", side_effect=RuntimeError("boom")):
         docs = get_open_documents(MagicMock(), active_model=None)
 
@@ -151,8 +151,8 @@ def test_get_open_documents_skips_non_office_document_components():
     enum.nextElement.side_effect = lambda: elems.pop(0)
     desktop.getComponents.return_value.createEnumeration.return_value = enum
 
-    with patch("plugin.framework.uno_context.get_desktop", return_value=desktop), \
-         patch("plugin.doc.document_research._system_path_from_url",
+    with patch("plugin.doc.document_research.get_desktop", return_value=desktop), \
+         patch("plugin.doc.document_research.system_path_from_url",
                side_effect=lambda u: u.replace("file://", "") if u else None):
         docs = get_open_documents(MagicMock(), active_model=None)
 

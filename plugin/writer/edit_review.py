@@ -46,25 +46,27 @@ import contextlib
 from dataclasses import dataclass
 import itertools
 import logging
-import os
 import re
 import time
 import uuid
-from typing import TYPE_CHECKING, Any, Callable, ClassVar, Generator
+from typing import Any, Callable, ClassVar, Generator
 
-if TYPE_CHECKING:
-    from plugin.doc.compound_undo import WriterCompoundUndo
-
-from plugin.doc.text_helpers import FAILED, go_right, iter_elements
+from plugin.doc.compound_undo import UndoOutcome, UndoUnavailable, WriterCompoundUndo, commit_or_rollback
+from plugin.doc.text_helpers import FAILED, go_right, iter_elements, selected_text_range
+# Module-qualified on purpose: plugin/testing_runner.py replaces config.get_config while native
+# suites run (review mode reads "off" unless a test sets it); a from-import would keep the original.
+from plugin.framework import config
 from plugin.framework.errors import ToolExecutionError, reraise_if_disposed, uno_read
 from plugin.framework.errors import document_is_disposed
 from plugin.framework.send_cancellation import SendCancellation, is_cancelled
 from plugin.framework.i18n import N_, _
+from plugin.framework.uno_context import get_ctx
 from plugin.writer import review_authors
 from plugin.writer import review_scan as _review_scan
+from plugin.writer.html_import import replace_preserving_format
 from plugin.writer.record_changes import is_recording_changes, record_changes
 from plugin.writer.review_view_attachment import refresh_review_toolbar
-from plugin.writer.word_diff_split import DEFAULT_THRESHOLD
+from plugin.writer.word_diff_split import split_change
 
 log = logging.getLogger(__name__)
 
@@ -85,9 +87,7 @@ _AGENT_EDIT_REVIEW_MODES = frozenset({"off", "record", "wait"})
 
 def get_agent_edit_review_mode() -> str:
     """Read ``doc.agent_edit_review_mode`` (off / record / wait); unknown values → off."""
-    from plugin.framework.config import get_config
-
-    raw = get_config("doc.agent_edit_review_mode")
+    raw = config.get_config("doc.agent_edit_review_mode")
     if isinstance(raw, str):
         mode = raw.strip().lower()
         if mode in _AGENT_EDIT_REVIEW_MODES:
@@ -142,11 +142,9 @@ def annotate_review_status(result: Any) -> dict[str, Any]:
 
 def edit_review_wait_seconds() -> int:
     """Max seconds ``apply_document_content`` may block waiting for review; 0 = don't wait."""
-    from plugin.framework.config import get_config
-
     if get_agent_edit_review_mode() != "wait":
         return 0
-    return max(0, int(get_config("doc.edit_review_timeout")))
+    return max(0, int(config.get_config("doc.edit_review_timeout")))
 
 
 def _tag_new_redlines(redlines: list[Any], token: str) -> tuple[bool, int]:
@@ -190,6 +188,64 @@ def _tag_new_redlines(redlines: list[Any], token: str) -> tuple[bool, int]:
     return True, 0
 
 
+def _tag_new_change(
+    doc: Any,
+    before: set[Any],
+    before_ok: bool,
+    mint_token: Callable[[], str],
+    who: str,
+) -> tuple[str, list[Any]] | None:
+    """Find newly produced redlines and stamp them with a minted agent token.
+
+    Fails closed (returns None) on four rungs:
+    - pre-edit snapshot unreliable: a partial snapshot could stamp a user redline,
+      which Accept/Reject All would later resolve;
+    - post-edit scan incomplete: could register only one mark of a Delete/Insert pair,
+      leaving a half-tagged change;
+    - no new redlines found: nothing to tag;
+    - tagging failure: partial tag set is reverted; if any orphan tags remain, surfaces
+      them loudly.
+    An untagged edit reads as the user's own and is never resolved in bulk.
+    The token is minted via *mint_token* only once there is something to tag, so
+    no change index is burned on untagged edits or early aborts.
+    """
+    if not before_ok:
+        log.warning(
+            "%s: pre-edit redline snapshot unreliable; leaving this edit untagged "
+            "(not a reviewable agent change) to avoid mis-tagging user redlines",
+            who,
+        )
+        return None
+    new_redlines, after_ok = _review_scan.new_redlines_since(doc, before)
+    if not after_ok:
+        log.warning(
+            "%s: post-edit redline scan incomplete; leaving this edit untagged "
+            "to avoid registering a half-tagged change",
+            who,
+        )
+        return None
+    if not new_redlines:
+        return None
+    token = mint_token()
+    success, orphans = _tag_new_redlines(new_redlines, token)
+    if not success:
+        if orphans:
+            log.warning(
+                "%s: tagging failed and %d orphan tag(s) could not be reverted; "
+                "leaving this edit unregistered",
+                who,
+                orphans,
+            )
+        else:
+            log.warning(
+                "%s: tagging failed and was reverted; leaving this edit untagged "
+                "(not a reviewable agent change)",
+                who,
+            )
+        return None
+    return token, new_redlines
+
+
 def tag_agent_redlines(doc: Any, before_ids: set[Any], change_index: int = 0,
                        before_reliable: bool = False) -> str | None:
     """Stamp a fresh ``wa-review:<session>:<n>`` token on every redline created since
@@ -206,33 +262,20 @@ def tag_agent_redlines(doc: Any, before_ids: set[Any], change_index: int = 0,
     its redlines just stay untagged -> treated as the user's -> never auto-resolved. *before_reliable*
     defaults to False (fail closed): a caller must explicitly assert a verified-complete snapshot
     (the boolean returned by ``snapshot_redline_ids``) to enable tagging."""
-    if not before_reliable:
-        log.warning("tag_agent_redlines: pre-edit snapshot unreliable; not tagging (avoids "
-                    "mis-tagging a user redline as an agent change)")
-        return None
-    # Find the new redlines with a COMPLETE post-edit scan; if it's incomplete we can't be sure we
-    # found the whole change, so refuse rather than tag a fragment.
-    new_redlines, after_ok = _review_scan.new_redlines_since(doc, before_ids)
-    if not after_ok:
-        log.warning("tag_agent_redlines: post-edit redline scan incomplete; not tagging (avoids a "
-                    "half-tagged change)")
-        return None
-    if not new_redlines:
-        return None
-    token = _review_scan.make_agent_token(uuid.uuid4().hex[:8], change_index)
-    success, orphans = _tag_new_redlines(new_redlines, token)  # all-or-nothing (reverts on failure)
-    if not success:
-        # Not a success path -- do NOT register. orphans == 0 -> clean revert; orphans > 0 -> the
-        # revert could not remove every tag, so surface the residual loudly.
-        if orphans:
-            log.warning("tag_agent_redlines: tagging failed and %d orphan tag(s) could not be "
-                        "reverted; not registering this change", orphans)
+    tagged = _tag_new_change(
+        doc,
+        before_ids,
+        before_reliable,
+        lambda: _review_scan.make_agent_token(uuid.uuid4().hex[:8], change_index),
+        "tag_agent_redlines",
+    )
+    if tagged is None:
         return None
     # Full success. Streamed edit paths tag their redlines here instead of via record_mutation, so
     # this is where they must reveal the review fast-travel toolbar (#2) -- otherwise it never appears
     # for those edits. Best-effort/silent; runs on the edit's (main) thread.
     refresh_review_toolbar(doc)
-    return token
+    return tagged[0]
 
 
 def _string_skipping_redline(text_range: Any, skip_type: str) -> str:
@@ -385,33 +428,11 @@ class EditReviewSession:
         if not self._active:
             return apply_fn()
 
-        from plugin.doc.compound_undo import WriterCompoundUndo
-
         group = WriterCompoundUndo.try_enter(self.doc, _AGENT_EDIT_UNDO_TITLE)
         try:
-            # We rescan all redlines per edit, not track deltas, because only a complete scan lets us fail closed; batches are capped at _MAX_SURGICAL_RUNS.
+            # We rescan all redlines per edit, not track deltas, because only a complete scan lets us fail closed; batches are capped at doc.agent_edit_max_surgical_runs.
             before, before_ok = self._redline_idents()
             result = apply_fn()
-            if not before_ok:
-                # The pre-edit redline snapshot was incomplete, so we can't reliably tell which redlines
-                # are NEW (ours) from pre-existing ones (the user's). Tagging now could stamp a user's
-                # redline as an agent change -> Accept/Reject All would later resolve it. Fail closed:
-                # the edit still applied, but we DON'T tag or register it -- its redlines stay untagged,
-                # so they read as the user's own and are never auto-resolved.
-                log.warning("EditReviewSession: pre-edit redline snapshot unreliable; leaving this edit "
-                            "untagged (not a reviewable agent change) to avoid mis-tagging user redlines")
-                return result
-
-            # Find the new redlines with a COMPLETE post-edit scan. If incomplete we can't be sure we
-            # found the whole change (e.g. only one mark of a Delete/Insert pair), so fail closed: leave
-            # the edit untagged rather than register a fragment.
-            new_redlines, after_ok = _review_scan.new_redlines_since(self.doc, before)
-            if not after_ok:
-                log.warning("EditReviewSession: post-edit redline scan incomplete; leaving this edit "
-                            "untagged to avoid registering a half-tagged change")
-                return result
-            if not new_redlines:
-                return result
 
             # A failed tag or a failed missing-bookmark clear can leave
             # wa-review:<session>:<n> on a redline without appending a ChangeRecord.
@@ -419,23 +440,14 @@ class EditReviewSession:
             # the next registered token and wait_for_review stays blocked after the
             # user resolves the new change.
             n = self._next_change
-            self._next_change += 1
-            token = _review_scan.make_agent_token(self.session_id, n)
-            # All-or-nothing: register ONLY on full success. On any failure the partial set is
-            # reverted; orphans==0 is a clean revert, orphans>0 means a tag could not be removed
-            # (broken UNO state) -- surface it loudly. Either way leave the edit unregistered.
-            success, orphans = _tag_new_redlines(new_redlines, token)
-            if not success:
-                if orphans:
-                    # The token can remain on the redline. The leftover stays unregistered,
-                    # its index is not issued again, and _pending_tokens will not treat that
-                    # leftover as a reason to keep waiting.
-                    log.warning("EditReviewSession: tagging failed and %d orphan tag(s) could not be "
-                                "reverted; leaving this edit unregistered", orphans)
-                else:
-                    log.warning("EditReviewSession: tagging failed and was reverted; leaving this edit "
-                                "untagged (not a reviewable agent change)")
+            def mint() -> str:
+                self._next_change = n + 1
+                return _review_scan.make_agent_token(self.session_id, n)
+
+            tagged = _tag_new_change(self.doc, before, before_ok, mint, "EditReviewSession")
+            if tagged is None:
                 return result
+            token, new_redlines = tagged
 
             # Bounding span across the new redlines -> anchor bookmark + expected end states.
             # Built with cursor.gotoRange(range, expand=True): XTextRangeCompare is unreliable on
@@ -734,26 +746,6 @@ class EditReviewSession:
 # ---------------------------------------------------------------------------
 
 
-def _env_num(name: str, default: Any, cast: Any, ok: Any) -> Any:
-    """Read tuning knob *name* from the environment, *cast* it, and return it only if *ok(v)*;
-    otherwise the fixed *default*. Never raises -- a bad env value must never break an edit."""
-    try:
-        v = cast(os.environ[name])
-        return v if ok(v) else default
-    except (KeyError, ValueError, TypeError):
-        return default
-
-
-_WORD_DIFF_THRESHOLD = _env_num(
-    "WRITERAGENT_AGENT_EDIT_DIFF_THRESHOLD", DEFAULT_THRESHOLD, float, lambda v: 0.0 <= v <= 1.0)
-
-_MAX_SURGICAL_RUNS = _env_num(
-    "WRITERAGENT_AGENT_EDIT_MAX_SURGICAL_RUNS", 40, int, lambda v: v >= 1)
-
-_SPLIT_AUTHOR_COLORS = os.environ.get(
-    "WRITERAGENT_AGENT_EDIT_SPLIT_AUTHOR_COLORS", "1").strip().lower() not in ("0", "false", "no", "off", "")
-
-
 _OFFSET_SAFE_PORTION_TYPES = frozenset({"Text", "SoftPageBreak"})
 
 
@@ -802,8 +794,6 @@ def next_agent_edit_undo_title() -> str:
 def record_html_atomically(session: EditReviewSession, doc: Any, mutate: Callable[[], Any],
                            **record_kwargs: Any) -> Any:
     """Record an HTML/import mutation that DELETES before it inserts."""
-    from plugin.doc.compound_undo import UndoUnavailable, commit_or_rollback
-
     undo_title = next_agent_edit_undo_title()
     result_holder: list[Any] = []
 
@@ -846,7 +836,6 @@ def selection_anchor(doc: Any) -> Any | None:
         controller = doc.getCurrentController()
         if controller is None:
             return None
-        from plugin.doc.text_helpers import selected_text_range
 
         rng = selected_text_range(controller)
         if rng is not None:
@@ -894,16 +883,31 @@ def attach_edited_context(result: Any, anchor: Any | None) -> dict[str, Any]:
     return result
 
 
+def _raise_batch_failure(outcome: UndoOutcome, mutate_errors: list[Exception]) -> None:
+    """Re-raise the primary mutation error from a compound undo batch.
+
+    ``commit_or_rollback`` clears ``mutate_error`` when the rollback itself fails
+    (``plugin/doc/compound_undo.py`` ``commit_or_rollback``, ROLLBACK_FAILED branch),
+    so each batch closure records its exception and re-raises it here. The caller
+    then sees the real failure type (for example the drifted-offset RuntimeError),
+    not a rollback message. The closures return None, so ROLLBACK_FAILED with
+    nothing recorded raises the rollback message rather than reporting a
+    half-applied edit as success.
+    """
+    if outcome.error is not None and outcome.error.get("code") == "ROLLBACK_FAILED":
+        if mutate_errors:
+            raise mutate_errors[0]
+        raise RuntimeError(outcome.error.get("message"))
+    outcome.raise_mutate_error()
+
+
 def record_preserve_replace(session: EditReviewSession, doc: Any, found: Any, new_text: str,
                             uno_ctx: Any, split: bool) -> None:
     """Record a format-preserving replace as ONE reviewable change, or -- when *split* (review
     recording is on) and only PART of the block changed -- as several SURGICAL sub-changes,
     each its own tracked Delete+Insert with its own accept/reject outcome.
     """
-    from .html_import import replace_preserving_format
-    from plugin.doc.compound_undo import UndoUnavailable, commit_or_rollback
-
-    split_author = split and _SPLIT_AUTHOR_COLORS
+    split_author = split and bool(config.get_config("doc.agent_edit_split_author_colors"))
 
     def _whole() -> None:
         original = found.getString()
@@ -938,11 +942,7 @@ def record_preserve_replace(session: EditReviewSession, doc: Any, found: Any, ne
                     original_preview=_preview(original), proposed_preview=_preview(new_text))
                 return
 
-            if outcome.error is not None and outcome.error.get("code") == "ROLLBACK_FAILED":
-                if whole_exc:
-                    raise whole_exc[0]
-                raise RuntimeError(outcome.error.get("message"))
-            outcome.raise_mutate_error()
+            _raise_batch_failure(outcome, whole_exc)
         else:
             session.record_mutation(
                 lambda: replace_preserving_format(
@@ -952,16 +952,14 @@ def record_preserve_replace(session: EditReviewSession, doc: Any, found: Any, ne
 
     result = None
     if split:
-        from plugin.writer.word_diff_split import split_change
-
-        result = split_change(found.getString(), new_text, _WORD_DIFF_THRESHOLD)
+        result = split_change(found.getString(), new_text, config.get_config("doc.agent_edit_diff_threshold"))
         if result.is_surgical and not result.sub_edits:
             return
 
     if (
         result is None
         or not result.is_surgical
-        or len(result.sub_edits) > _MAX_SURGICAL_RUNS
+        or len(result.sub_edits) > config.get_config("doc.agent_edit_max_surgical_runs")
         or not _block_safe_for_surgical(found)
     ):
         _whole()
@@ -1023,11 +1021,7 @@ def record_preserve_replace(session: EditReviewSession, doc: Any, found: Any, ne
         _whole()
         return
 
-    if outcome.error is not None and outcome.error.get("code") == "ROLLBACK_FAILED":
-        if surgical_exc:
-            raise surgical_exc[0]
-        raise RuntimeError(outcome.error.get("message"))
-    outcome.raise_mutate_error()
+    _raise_batch_failure(outcome, surgical_exc)
 
 
 def build_writer_rewrite_prompt(original_text: str, instructions: str) -> str:
@@ -1080,8 +1074,8 @@ def _replace_range_with_paragraph_text(text_range: Any, text: str, *, collapse_b
     if not text:
         return
     if collapse_blank_paragraph_lines:
-        # Bugfix (QA B6): the model often returns "\\n\\n" between paragraphs; split("\\n")
-        # turned each blank line into an extra empty paragraph. Collapse newline runs first.
+        # The model often returns "\\n\\n" between paragraphs; split("\\n") would
+        # turn each blank line into an extra empty paragraph, so newline runs collapse first.
         parts = re.split(r"\n+", text.strip("\n"))
     else:
         parts = text.split("\n")
@@ -1149,7 +1143,7 @@ def range_has_tracked_insert_or_delete(text_range: Any) -> bool:
 
     A text cursor enumerates paragraphs; a paragraph enumerates portions. Portions
     are leaves — calling ``createEnumeration`` on them is not part of this walk.
-    ``hasMoreElements() is True`` so a MagicMock enum cannot spin. When the walk
+    ``iter_elements`` (``enum_has_more``) stops on a MagicMock enum. When the walk
     starts and then fails, the result is True: ``setString`` must not run on a
     range we could not prove is free of Insert/Delete redlines.
     """
@@ -1224,7 +1218,6 @@ def _stream_write_warning(exc: Exception | None) -> str | None:
 
 def _begin_streamed_edit(doc: Any, text_range: Any, title: str) -> tuple[WriterCompoundUndo, bool, Any]:
     refuse_tracked_insert_or_delete(text_range)
-    from plugin.doc.compound_undo import WriterCompoundUndo
 
     record_cm = record_changes(doc, False)
     was_recording = record_cm.__enter__()
@@ -1297,8 +1290,7 @@ class _WriterStreamedSessionBase:
                 before_ids_ok = False
                 if self.track_reviewable:
                     try:
-                        from plugin.writer.review_scan import snapshot_redline_ids
-                        before_ids, before_ids_ok = snapshot_redline_ids(self.doc)
+                        before_ids, before_ids_ok = _review_scan.snapshot_redline_ids(self.doc)
                     except Exception:
                         log.debug("%s: review tagging setup failed", label, exc_info=True)
 
@@ -1306,7 +1298,6 @@ class _WriterStreamedSessionBase:
                 self.text_range.setString(self.original_text)
 
                 if self.track_reviewable:
-                    from plugin.framework.uno_context import get_ctx
                     with EditReviewSession(self.doc, get_ctx(), enabled=True):
                         collapse_fn()
                 else:

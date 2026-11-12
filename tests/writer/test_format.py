@@ -12,7 +12,7 @@ import base64
 import pytest
 
 from plugin.writer.html_import import (
-    _content_has_block_markup,
+    content_has_block_markup,
 )
 from plugin.writer.html_export import (
     _apply_image_export_options,
@@ -133,7 +133,6 @@ def test_replace_preserving_format_atomic_setstring_when_not_in_undo_context():
 def test_insert_content_at_position_text_selection_clears_range():
     from unittest.mock import MagicMock, patch
 
-    from plugin.doc import visual_helpers
     from plugin.writer.html_import import insert_content_at_position
 
     text_rng = MagicMock()
@@ -151,11 +150,11 @@ def test_insert_content_at_position_text_selection_clears_range():
     model.getCurrentController.return_value = controller
     model.getText.return_value.createTextCursor.return_value = MagicMock()
 
-    with patch.object(visual_helpers, "is_graphic_object", return_value=False), patch(
+    with patch("plugin.writer.html_import.is_graphic_object", return_value=False), patch(
         "plugin.writer.html_import._insert_mixed_or_plain_html"
     ), patch(
         # Master nested-table check walks MagicMock enumerations forever.
-        "plugin.writer.table_nesting.raise_if_range_hosts_nested_table",
+        "plugin.writer.html_import.raise_if_range_hosts_nested_table",
     ):
         insert_content_at_position(model, MagicMock(), "<p>hi</p>", "selection")
 
@@ -165,7 +164,6 @@ def test_insert_content_at_position_text_selection_clears_range():
 def test_insert_content_at_position_two_ranges_clears_non_collapsed_range():
     from unittest.mock import MagicMock, patch
 
-    from plugin.doc import visual_helpers
     from plugin.writer.html_import import insert_content_at_position
 
     rng0 = MagicMock()
@@ -192,10 +190,10 @@ def test_insert_content_at_position_two_ranges_clears_non_collapsed_range():
     model.getCurrentController.return_value = controller
     model.getText.return_value.createTextCursor.return_value = MagicMock()
 
-    with patch.object(visual_helpers, "is_graphic_object", return_value=False), patch(
+    with patch("plugin.writer.html_import.is_graphic_object", return_value=False), patch(
         "plugin.writer.html_import._insert_mixed_or_plain_html"
     ), patch(
-        "plugin.writer.table_nesting.raise_if_range_hosts_nested_table",
+        "plugin.writer.html_import.raise_if_range_hosts_nested_table",
     ):
         insert_content_at_position(model, MagicMock(), "<p>hi</p>", "selection")
 
@@ -230,7 +228,7 @@ def test_insert_content_at_position_shape_selection_falls_back_to_doc_end():
     model.getCurrentController.return_value = controller
     model.getText.return_value = body_text
 
-    with patch("plugin.doc.visual_helpers.is_graphic_object", return_value=False), patch(
+    with patch("plugin.writer.html_import.is_graphic_object", return_value=False), patch(
         "plugin.writer.html_import._insert_mixed_or_plain_html"
     ) as mock_insert:
         insert_content_at_position(model, MagicMock(), "<p>hi</p>", "selection")
@@ -260,7 +258,7 @@ def test_insert_content_at_position_empty_selection_uses_doc_end():
     model.getCurrentController.return_value = controller
     model.getText.return_value = body_text
 
-    with patch("plugin.doc.visual_helpers.is_graphic_object", return_value=False), patch(
+    with patch("plugin.writer.html_import.is_graphic_object", return_value=False), patch(
         "plugin.writer.html_import._insert_mixed_or_plain_html"
     ) as mock_insert:
         insert_content_at_position(model, MagicMock(), "<p>hi</p>", "selection")
@@ -340,7 +338,7 @@ def test_insert_content_at_position_empty_selection_skips_styles():
     model.getCurrentController.return_value = controller
     model.getText.return_value = body_text
 
-    with patch("plugin.doc.visual_helpers.is_graphic_object", return_value=False), patch(
+    with patch("plugin.writer.html_import.is_graphic_object", return_value=False), patch(
         "plugin.writer.html_import._insert_mixed_or_plain_html"
     ) as mock_insert:
         insert_content_at_position(model, MagicMock(), "<p data-lo-style=\"Heading1\">x</p>", "selection")
@@ -361,19 +359,22 @@ def test_insert_content_at_position_whole_paragraph_selection_applies_styles():
     model = MagicMock()
     model.getCurrentController.return_value = controller
 
-    with patch("plugin.doc.text_helpers.selected_text_range", return_value=rng), \
+    from plugin.writer.html_import_styles import WriteReport
+
+    with patch("plugin.writer.html_import.selected_text_range", return_value=rng), \
          patch("plugin.writer.html_import._selection_is_draw_shape", return_value=False), \
-         patch("plugin.writer.table_nesting.raise_if_range_hosts_nested_table"), \
+         patch("plugin.writer.html_import.raise_if_range_hosts_nested_table"), \
          patch("plugin.writer.record_changes.is_recording_changes", return_value=False), \
          patch("plugin.writer.html_import._insert_mixed_or_plain_html") as mock_insert:
-        failures, note = insert_content_at_position(
+        mock_insert.return_value = WriteReport()
+        report = insert_content_at_position(
             model, MagicMock(), '<p data-lo-style="Heading1">x</p>', "selection"
         )
 
     rng.setString.assert_called_once_with("")
     mock_insert.assert_called_once()
     assert mock_insert.call_args.kwargs.get("apply_styles") is True
-    assert note is None
+    assert report.style_skips == []
 
 
 def test_ensure_empty_absorb_inserts_break_when_end_para_has_text():
@@ -466,7 +467,6 @@ def test_ensure_empty_absorb_noop_for_beginning():
 def test_insert_content_at_position_nested_table_is_not_appended_at_end():
     from unittest.mock import MagicMock, patch
 
-    from plugin.doc import visual_helpers
     from plugin.framework.errors import ToolExecutionError
     from plugin.writer.html_import import insert_content_at_position
 
@@ -483,10 +483,10 @@ def test_insert_content_at_position_nested_table_is_not_appended_at_end():
     model.getCurrentController.return_value = controller
     model.getText.return_value.createTextCursor.return_value = body_cursor
 
-    with patch.object(visual_helpers, "is_graphic_object", return_value=False), patch(
+    with patch("plugin.writer.html_import.is_graphic_object", return_value=False), patch(
         "plugin.writer.html_import._insert_mixed_or_plain_html"
     ) as mock_insert, patch(
-        "plugin.writer.table_nesting.raise_if_range_hosts_nested_table",
+        "plugin.writer.html_import.raise_if_range_hosts_nested_table",
         side_effect=ToolExecutionError("nested tables"),
     ):
         with pytest.raises(ToolExecutionError, match="nested tables"):
@@ -498,7 +498,6 @@ def test_insert_content_at_position_nested_table_is_not_appended_at_end():
 def test_insert_content_at_position_clear_failure_is_not_moved_to_end():
     from unittest.mock import MagicMock, patch
 
-    from plugin.doc import visual_helpers
     from plugin.writer.html_import import insert_content_at_position
 
     text_rng = MagicMock()
@@ -515,10 +514,10 @@ def test_insert_content_at_position_clear_failure_is_not_moved_to_end():
     model.getCurrentController.return_value = controller
     model.getText.return_value.createTextCursor.return_value = body_cursor
 
-    with patch.object(visual_helpers, "is_graphic_object", return_value=False), patch(
+    with patch("plugin.writer.html_import.is_graphic_object", return_value=False), patch(
         "plugin.writer.html_import._insert_mixed_or_plain_html"
     ) as mock_insert, patch(
-        "plugin.writer.table_nesting.raise_if_range_hosts_nested_table",
+        "plugin.writer.html_import.raise_if_range_hosts_nested_table",
     ):
         with pytest.raises(RuntimeError, match="clear failed"):
             insert_content_at_position(model, MagicMock(), "<p>hi</p>", "selection")
@@ -529,7 +528,6 @@ def test_insert_content_at_position_clear_failure_is_not_moved_to_end():
 def test_insert_content_at_position_attribute_error_still_uses_doc_end():
     from unittest.mock import MagicMock, patch
 
-    from plugin.doc import visual_helpers
     from plugin.writer.html_import import insert_content_at_position
 
     text_rng = MagicMock()
@@ -547,7 +545,7 @@ def test_insert_content_at_position_attribute_error_still_uses_doc_end():
     model.getCurrentController.return_value = controller
     model.getText.return_value = body_text
 
-    with patch.object(visual_helpers, "is_graphic_object", return_value=False), patch(
+    with patch("plugin.writer.html_import.is_graphic_object", return_value=False), patch(
         "plugin.writer.html_import._insert_mixed_or_plain_html"
     ) as mock_insert:
         insert_content_at_position(model, MagicMock(), "<p>hi</p>", "selection")
@@ -1142,7 +1140,7 @@ def test_clear_direct_paragraph_properties_uses_multi_variant():
     from plugin.writer import styles as st
 
     cursor = _MultiStatesCursor()
-    cleared = st._reset_properties_to_default(cursor, st.CLEARABLE_PARA_PROPERTIES)
+    cleared = st.reset_properties_to_default(cursor, st.CLEARABLE_PARA_PROPERTIES)
 
     assert cursor.cleared == st.CLEARABLE_PARA_PROPERTIES
     assert cleared == list(st.CLEARABLE_PARA_PROPERTIES)
@@ -1152,7 +1150,7 @@ def test_clear_direct_paragraph_properties_falls_back_one_at_a_time():
     from plugin.writer import styles as st
 
     cursor = _SingleStateCursor(unsupported={"ParaSplit"})
-    cleared = st._reset_properties_to_default(cursor, st.CLEARABLE_PARA_PROPERTIES)
+    cleared = st.reset_properties_to_default(cursor, st.CLEARABLE_PARA_PROPERTIES)
 
     assert "ParaLeftMargin" in cleared and "ParaFirstLineIndent" in cleared
     assert "ParaSplit" not in cleared  # reported honestly as not cleared
@@ -1275,7 +1273,7 @@ def test_reset_properties_to_default_is_a_noop_on_empty_names():
     from plugin.writer import styles as st
 
     cursor = _MultiStatesCursor()
-    assert st._reset_properties_to_default(cursor, ()) == []
+    assert st.reset_properties_to_default(cursor, ()) == []
     assert cursor.cleared is None  # never call UNO with an empty set
 
 
@@ -1284,7 +1282,7 @@ def test_reset_properties_to_default_takes_the_caller_s_names():
     from plugin.writer import styles as st
 
     cursor = _MultiStatesCursor()
-    st._reset_properties_to_default(cursor, st.STYLE_GOVERNED_CHAR_PROPERTIES)
+    st.reset_properties_to_default(cursor, st.STYLE_GOVERNED_CHAR_PROPERTIES)
 
     assert cursor.cleared == st.STYLE_GOVERNED_CHAR_PROPERTIES
 
@@ -1440,7 +1438,7 @@ def test_paint_direct_formatting_still_paints_char_when_para_copy_raises():
             raise RuntimeError("refused Para*")
 
     with patch.object(rc, "_copy_properties", side_effect=copy_side_effect) as copy:
-        rc._paint_direct_formatting(para, [(portion, "bold")], temp_text, 0, 4)
+        rc.paint_direct_formatting(para, [(portion, "bold")], temp_text, 0, 4)
 
     names_seen = [c.args[2] for c in copy.call_args_list]
     assert rc._COPIED_PARA_PROPERTIES in names_seen
@@ -1488,22 +1486,22 @@ def test_format_uno_skips_windows_leftover_hidden_apply() -> None:
 # error in replace_single_range_with_content.
 
 def test_plain_text_is_not_block():
-    assert _content_has_block_markup("hello world") is False
+    assert content_has_block_markup("hello world") is False
 
 
 def test_inline_tags_are_not_block():
     # <b>/<span>/<i> are inline -> they go through the in-cell path that works; the cell-error
     # gate must NOT fire for them.
-    assert _content_has_block_markup("<b>bold</b> text") is False
+    assert content_has_block_markup("<b>bold</b> text") is False
 
 
 def test_paragraph_is_block():
     # <p> is block -> the path that can raise inside a table cell; the clear-error gate fires here.
-    assert _content_has_block_markup("<p>a paragraph</p>") is True
+    assert content_has_block_markup("<p>a paragraph</p>") is True
 
 
 def test_heading_is_block():
-    assert _content_has_block_markup("<h1>title</h1>") is True
+    assert content_has_block_markup("<h1>title</h1>") is True
 
 
 def test_apply_paragraph_style_preserving_direct_char_caches_style_and_props():
@@ -1765,4 +1763,52 @@ def test_apply_paragraph_style_negative_caches_failed_property_set_info():
     assert rep2.get("capture_incomplete") is True
     assert "preserved_char_overrides" not in rep1
     assert "preserved_char_overrides" not in rep2
+
+
+def test_capture_direct_char_overrides_counts_one_failure_and_continues():
+    from unittest.mock import MagicMock
+    from plugin.writer import styles as fmt
+
+    doc = MagicMock()
+    para_styles = MagicMock()
+    doc.getStyleFamilies.return_value.getByName.return_value = para_styles
+    style = MagicMock()
+    para_styles.getByName.return_value = style
+    style.getPropertyValue.return_value = 100
+
+    # Para 1: getPropertyValue("ParaStyleName") raises RuntimeError
+    para1 = MagicMock()
+    para1.supportsService.side_effect = lambda s: s == "com.sun.star.text.Paragraph"
+    para1.getPropertyValue.side_effect = RuntimeError("failed to read style")
+
+    # Para 2: normal paragraph with 1 portion having CharWeight=150 override
+    prop = MagicMock()
+    prop.Name = "CharWeight"
+    prop.Attributes = 0
+    info = MagicMock()
+    info.getProperties.return_value = [prop]
+
+    portion = MagicMock()
+    portion.getPropertyValue.side_effect = lambda name: "Text" if name == "TextPortionType" else (150 if name == "CharWeight" else None)
+    portion.getPropertySetInfo.return_value = info
+
+    para2 = MagicMock()
+    para2.supportsService.side_effect = lambda s: s == "com.sun.star.text.Paragraph"
+    para2.getPropertyValue.side_effect = lambda name: "Standard" if name == "ParaStyleName" else None
+    para2_enum = MagicMock()
+    para2_enum.hasMoreElements.side_effect = [True, False]
+    para2_enum.nextElement.side_effect = [portion]
+    para2.createEnumeration.return_value = para2_enum
+
+    cursor = MagicMock()
+    doc_enum = MagicMock()
+    doc_enum.hasMoreElements.side_effect = [True, True, False]
+    doc_enum.nextElement.side_effect = [para1, para2]
+    cursor.createEnumeration.return_value = doc_enum
+
+    overrides, failures, notes = fmt._capture_direct_char_overrides(doc, cursor, {})
+    assert len(overrides) == 1
+    assert failures == 1
+    assert notes == []
+    assert overrides[0][1] == {"CharWeight": 150}
 

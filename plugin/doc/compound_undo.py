@@ -173,7 +173,18 @@ class UndoOutcome:
     ``nothing_landed`` compares the session change count to the pre-mutate snapshot (or is
     True when undo ran). Callers should read it only on failure paths (``error`` or
     ``mutate_error`` set); on success it can be True even when no rollback was needed.
-    ``ROLLBACK_FAILED`` in ``error`` means undo itself failed after a failed mutate.
+    ``error`` is None when the edit succeeded (or when mutate raised and was rolled
+    back; then ``mutate_error`` holds the exception). Otherwise it is one of three dicts:
+
+    * the dict ``mutate`` returned. Rollback was tried only if the undo context closed.
+    * ``code == "UNDO_CONTEXT_LEAK"``: mutate succeeded but ``leaveUndoContext`` failed.
+      The edit is in the document, nothing was rolled back, and the undo group is still
+      open. A caller that checks only ``ROLLBACK_FAILED`` is therefore reporting "the edit
+      landed; the undo group is still open". ``page.py`` and ``styles.py`` turn it into
+      an error that says the text was written.
+    * ``code == "ROLLBACK_FAILED"``: mutate failed and the undo that should have
+      reverted it raised. The message carries the original cause; ``mutate_error`` is
+      None even if mutate raised.
     Document disposal still raises from :func:`commit_or_rollback`; it is never stored
     on ``mutate_error``.
     """
@@ -245,8 +256,8 @@ def commit_or_rollback(
             if undone:
                 rolled_back = True
                 if session is not None and changes_snapshot is not None:
-                    # Same rule as the old on_fail callback: discard review records only when
-                    # undo actually ran, so a partial edit still in the document keeps them.
+                    # Discard review records only when undo actually ran, so a partial
+                    # edit still in the document keeps them.
                     try:
                         session.discard_changes_since(changes_snapshot)
                     except Exception:

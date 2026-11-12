@@ -22,15 +22,16 @@ class _QuietExc(Exception):
 def test_exception_message_non_empty_for_empty_str_uno_style() -> None:
     from plugin.writer.math import math_mml_convert as mmc
 
-    assert mmc._exception_message(_QuietExc()) == "_QuietExc"
-    assert "ValueError" in mmc._exception_message(ValueError("bad"))
+    assert mmc.exception_message(_QuietExc()) == "_QuietExc"
+    assert mmc.exception_message(ValueError("bad")) == "ValueError: bad"
+    assert mmc.exception_message(ValueError()) == "ValueError"
 
     class _Uno(Exception):
         def __init__(self) -> None:
             super().__init__("")
             self.Message = "filter failed"
 
-    assert mmc._exception_message(_Uno()) == "_Uno: filter failed"
+    assert mmc.exception_message(_Uno()) == "_Uno: filter failed"
 
 
 def test_math_root_extraction() -> None:

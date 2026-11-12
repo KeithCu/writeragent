@@ -59,7 +59,7 @@ def test_enumerate_designs_from_mocked_pathsettings(tmp_path):
     ctx = MagicMock()
     ctx.getValueByName.side_effect = lambda name: settings if name == "/singletons/com.sun.star.util.thePathSettings" else None
 
-    with patch("plugin.draw.designs._resolve_lo_directory_path", return_value=str(tmp_path / "common")):
+    with patch("plugin.draw.designs.resolve_lo_directory_path", return_value=str(tmp_path / "common")):
         designs = enumerate_impress_designs(ctx)
     assert len(designs) == 1
     assert designs[0]["id"] == "metropolis"
@@ -95,7 +95,7 @@ def test_enumerate_includes_derived_look(tmp_path):
     ctx = MagicMock()
     ctx.getValueByName.side_effect = lambda name: settings if name == "/singletons/com.sun.star.util.thePathSettings" else None
 
-    with patch("plugin.draw.designs._resolve_lo_directory_path", return_value=str(presnt)):
+    with patch("plugin.draw.designs.resolve_lo_directory_path", return_value=str(presnt)):
         designs = enumerate_impress_designs(ctx)
     assert len(designs) == 1
     assert designs[0]["look"] == "dark background; blue accents; graphic chrome"
@@ -407,7 +407,7 @@ def test_enumerate_skip_look_does_not_open_zip(tmp_path):
     ctx = MagicMock()
     ctx.getValueByName.side_effect = lambda name: settings if name == "/singletons/com.sun.star.util.thePathSettings" else None
     with (
-        patch("plugin.draw.designs._resolve_lo_directory_path", return_value=str(presnt)),
+        patch("plugin.draw.designs.resolve_lo_directory_path", return_value=str(presnt)),
         patch("plugin.draw.designs.derive_otp_look") as look,
     ):
         designs = enumerate_impress_designs(ctx, include_look=False)

@@ -39,6 +39,16 @@ NOISE_EMA_TAU_SEC = 0.25
 STEADY_NOISE_MS = 400
 DEFAULT_SILENCE_STOP_MS = 3000
 
+# Subprocess recording IPC protocol. The child writes one line-delimited JSON
+# status frame per event on stdout, and the host sends one stop command on
+# stdin; both processes import this module, so the spelling lives here once.
+RECORDER_STATUS_READY = "ready"
+RECORDER_STATUS_OK = "ok"
+RECORDER_STATUS_ERROR = "error"
+RECORDER_STATUS_AUTO_STOPPED = "auto_stopped"
+RECORDER_STATUS_SILENCE_PROGRESS = "silence_progress"
+RECORDER_COMMAND_STOP = "stop"
+
 
 @dataclass(frozen=True)
 class SilenceDetectorConfig:
@@ -80,6 +90,7 @@ def pcm_energy_int16(pcm: bytes) -> tuple[float, float]:
 
 def load_silence_detector_config() -> SilenceDetectorConfig:
     """Build detector settings from writeragent.json. 0 = manual Stop Rec only."""
+    # Lazy (boundary): the recorder child imports this module (venv/audio_recorder.py) and must not load the host's plugin.framework.config; only the host calls this function.
     from plugin.framework.config import get_config
 
     try:

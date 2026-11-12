@@ -41,7 +41,7 @@ from plugin.framework.ipc import (
     write_child_ipc_frame,
     write_pickle_frame,
 )
-from plugin.framework.child_runtime import die_with_parent
+from plugin.framework.child_runtime import announce_ready, die_with_parent
 
 # claim_ipc_channel runs before other scripting imports when this file is the main entry so stdout is not dup'd onto the IPC pipe before the claim. Library imports (tests) skip this block.
 if __name__ == "__main__":
@@ -53,6 +53,8 @@ from plugin.scripting.sandbox import install_alias_authorizer
 register_alias_importer()
 install_alias_authorizer()
 
+from plugin.scripting.host_tool_call import ROLE_WORKER, set_process_role
+from plugin.scripting.trusted_action_registry import get_trusted_action_wiring
 from plugin.scripting.venv.results import error_result
 
 log = logging.getLogger("worker_harness")
@@ -89,8 +91,6 @@ def _handle_trusted_action(
     stdout: Any | None = None,
 ) -> dict[str, Any] | None:
     """Dispatch run_trusted_action via the declarative registry. None means the terminal frame is already written."""
-    from plugin.scripting.trusted_action_registry import get_trusted_action_wiring
-
     domain = str(data.get("domain") or "")
     emit_result_frame = bool(request.get("allow_heartbeat")) and stdout is not None
     # Resolve wiring inside the try. A bad domain or a contract error must be
@@ -132,6 +132,7 @@ def _handle_trusted_action(
 
 
 def _action_ppt_master_turn(request: dict[str, Any]) -> dict[str, Any] | None:
+    # Lazy (weight): the ppt-master agent stack loads only for this action.
     from plugin.ppt_master.venv.runner import run_turn
 
     data = request.get("data")
@@ -145,6 +146,7 @@ def _action_ppt_master_turn(request: dict[str, Any]) -> dict[str, Any] | None:
 
 
 def _action_execute(request: dict[str, Any]) -> dict[str, Any] | None:
+    # Lazy (weight): venv_sandbox loads the smolagents executor; importing this harness as a library or serving only trusted actions must not (test_harness_library_import_does_not_claim_or_load_sandbox).
     from plugin.scripting.venv.venv_sandbox import run_sandboxed_code
 
     code = request.get("code")
@@ -173,6 +175,7 @@ def _handle_request(request: dict[str, Any], *, stdout: Any | None = None) -> di
     if action is None or action == "" or action == "execute":
         return _action_execute(request)
     if action == "reset_session":
+        # Lazy for the same reason as _action_execute.
         from plugin.scripting.venv.venv_sandbox import reset_sandbox_session
 
         session_id = _clean_str(request.get("session_id"))
@@ -206,8 +209,6 @@ def _init_logging() -> None:
 
 
 def main() -> None:
-    from plugin.scripting.host_tool_call import ROLE_WORKER, set_process_role
-
     set_process_role(ROLE_WORKER)
     die_with_parent()
     _init_logging()
@@ -218,8 +219,6 @@ def main() -> None:
     # Idempotent. The script entry already claimed before later imports. This
     # call is the one in-process tests replace.
     stdout = claim_ipc_channel()
-    from plugin.framework.child_runtime import announce_ready
-
     announce_ready(stdout)
 
     while True:

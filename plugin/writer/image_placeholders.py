@@ -12,8 +12,6 @@ restore or clean them up afterwards.
 An empty src written with single quotes or spaces is refused the same way, never passed through.
 """
 
-# pyright: reportUnusedFunction=false
-
 from __future__ import annotations
 
 import contextlib
@@ -34,12 +32,12 @@ log = logging.getLogger("writeragent.writer")
 # get_document_content leaves image data out (include_images=false), so a picture comes back as
 # its frame's wrapper -- <div ... id="Name"> for paragraph/character/page anchors, <span ...
 # id="Name"> inside a line -- around <img src="">, and a floating frame is followed by a
-# clear:both <div>. Imported as is, the picture was lost: the edit deleted the original with the
-# old text and the import made nothing (a signature vanished on "Accept all"), and the clear:both
-# <div> became an extra empty paragraph that shifted the next data-lo-style by one.
-# A picture inside a heading comes back with a <p> between the wrapper and the <img>
-# (<span id="Name"><p><img src=""/></p></span>); without that optional <p> the pattern missed
-# it and the whole edit was refused as "an image without its data".
+# clear:both <div>. Imported as is, the picture would be lost: the edit deletes the
+# original with the old text and the import makes nothing (a signature vanishes on "Accept all"),
+# and the clear:both <div> becomes an extra empty paragraph that shifts the next data-lo-style by
+# one. A picture inside a heading comes back with a <p> between the wrapper and the <img>
+# (<span id="Name"><p><img src=""/></p></span>); the optional <p> in the pattern catches it, so the
+# edit is not refused as "an image without its data".
 _IMAGE_PLACEHOLDER_RE = re.compile(
     r'<(div|span)\b[^>]*\bid="([^"]+)"[^>]*>\s*(?:<p\b[^>]*>\s*)?<img\b[^>]*\bsrc=""[^>]*>\s*(?:</p>\s*)?</\1>'
     r'(?:\s*<div style="clear:both;[^"]*">(?:\s|&nbsp;|\xa0)*</div>)?',
@@ -238,7 +236,7 @@ def _restore_image_placeholders(model: Any, kept: list[_KeptImage]) -> None:
 
 
 @contextlib.contextmanager
-def _keep_placeholder_images(model: Any, content: str) -> Generator[str, None, None]:
+def keep_placeholder_images(model: Any, content: str) -> Generator[str, None, None]:
     """Yield *content* with data-less images swapped for markers; put the pictures back after."""
     swapped, kept = _swap_image_placeholders(model, content)
     yield swapped

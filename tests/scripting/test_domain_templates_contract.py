@@ -2,7 +2,7 @@
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Contract tests for domain helper templates and header parsers."""
+"""Contract tests for domain helper templates."""
 
 from __future__ import annotations
 
@@ -12,17 +12,8 @@ import inspect
 
 import pytest
 
-from plugin.scripting.analysis import get_analysis_script_templates, parse_analysis_script_header
-from plugin.scripting.forecast import get_forecast_template, parse_forecast_script_header
+from plugin.scripting.domain_registry import get_domain_wiring
 from plugin.scripting.helper_registry import names, specs
-from plugin.scripting.optimize import get_optimize_template, parse_optimize_script_header
-from plugin.scripting.quant import get_quant_template, parse_quant_script_header
-from plugin.scripting.text_analytics import (
-    get_text_analytics_script_templates,
-)
-from plugin.scripting.units import (
-    get_units_script_templates,
-)
 
 ANALYSIS_HELPERS = names("analysis")
 FORECAST_HELPERS = names("forecast")
@@ -32,28 +23,28 @@ TEXT_HELPERS = names("text")
 
 
 @pytest.mark.parametrize(
-    "templates_fn,helper_names,parse_fn,public_only",
+    "wiring_id,helper_names,public_only",
     [
-        (get_analysis_script_templates, ANALYSIS_HELPERS, parse_analysis_script_header, False),
+        ("analysis", ANALYSIS_HELPERS, False),
     ],
 )
-def test_domain_templates_cover_helpers(templates_fn, helper_names, parse_fn, public_only):
-    templates = templates_fn()
+def test_domain_templates_cover_helpers(wiring_id, helper_names, public_only):
+    templates = get_domain_wiring(wiring_id).templates()
     expected = {h for h in helper_names if not (public_only and h in ("diagnostics", "check"))}
     assert set(templates.keys()) == expected
 
 
 def test_units_templates_cover_shipped_helpers():
-    shipped = {s.name for s in specs("units") if s.shipped_template}
-    templates = get_units_script_templates()
+    shipped = {s.name for s in specs("units") if s.ship}
+    templates = get_domain_wiring("units").templates()
     assert set(templates.keys()) == shipped
     for helper, code in templates.items():
         assert f"from writeragent.scripting.units import {helper}" in code
 
 
 def test_text_templates_cover_shipped_helpers():
-    shipped = {s.name for s in specs("text") if s.shipped_template}
-    templates = get_text_analytics_script_templates()
+    shipped = {s.name for s in specs("text") if s.ship}
+    templates = get_domain_wiring("text").templates()
     assert set(templates.keys()) == shipped
     public = {h for h in TEXT_HELPERS if h not in ("diagnostics", "check")}
     assert set(templates.keys()) == public
@@ -63,37 +54,20 @@ def test_text_templates_cover_shipped_helpers():
 
 
 @pytest.mark.parametrize(
-    "template_fn,helper_names,module_path,import_name",
+    "wiring_id,helper_names,module_path,import_name",
     [
-        (get_forecast_template, FORECAST_HELPERS, "writeragent.scripting.forecast", None),
-        (get_optimize_template, OPTIMIZE_HELPERS, "writeragent.scripting.optimize", None),
-        (get_quant_template, QUANT_HELPERS, "writeragent.scripting.quant", "run_quant"),
+        ("forecast", FORECAST_HELPERS, "writeragent.scripting.forecast", None),
+        ("optimize", OPTIMIZE_HELPERS, "writeragent.scripting.optimize", None),
+        ("quant", QUANT_HELPERS, "writeragent.scripting.quant", "run_quant"),
     ],
 )
-def test_per_helper_templates_are_executable(template_fn, helper_names, module_path, import_name):
+def test_per_helper_templates_are_executable(wiring_id, helper_names, module_path, import_name):
+    templates = get_domain_wiring(wiring_id).templates()
     for helper in helper_names:
-        code = template_fn(helper)
-        assert code is not None
+        code = templates[helper]
         imported = import_name or helper
         assert f"from {module_path} import {imported}" in code
         assert "# writeragent:" not in code.splitlines()[0]
-
-
-def test_legacy_header_parsers_still_work():
-    code = '# writeragent:quant helper=technical_analysis params={"indicators":["rsi"]}\n'
-    meta = parse_quant_script_header(code)
-    assert meta is not None
-    assert meta.helper == "technical_analysis"
-
-    code = '# writeragent:optimize helper=linear_programming params={"c_col":"c"}\n'
-    meta = parse_optimize_script_header(code)
-    assert meta is not None
-    assert meta.helper == "linear_programming"
-
-    code = '# writeragent:forecast helper=forecast_time_series params={"periods":6}\n'
-    meta = parse_forecast_script_header(code)
-    assert meta is not None
-    assert meta.helper == "forecast_time_series"
 
 
 def _assert_template_is_python_and_binds(code: str) -> None:
@@ -128,21 +102,11 @@ def _assert_template_is_python_and_binds(code: str) -> None:
 
 
 def test_shipped_templates_bind_child_signatures():
-    from plugin.scripting.symbolic import get_math_script_templates
-    from plugin.scripting.viz import get_viz_script_templates
-
-    codes: list[str] = []
-    codes.extend(get_analysis_script_templates().values())
-    codes.extend(get_text_analytics_script_templates().values())
-    codes.extend(get_units_script_templates().values())
-    codes.extend(get_math_script_templates().values())
-    codes.extend(get_viz_script_templates().values())
-    for helper in FORECAST_HELPERS:
-        codes.append(get_forecast_template(helper))
-    for helper in OPTIMIZE_HELPERS:
-        codes.append(get_optimize_template(helper))
-    for helper in QUANT_HELPERS:
-        codes.append(get_quant_template(helper))
+    codes = [
+        code
+        for wid in ("analysis", "text", "units", "math", "viz", "forecast", "optimize", "quant")
+        for code in get_domain_wiring(wid).templates().values()
+    ]
     assert codes
     for code in codes:
         assert code

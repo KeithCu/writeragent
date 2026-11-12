@@ -17,7 +17,7 @@ from plugin.doc.document_research import (
     NEARBY_IMAGE_EXTENSIONS,
     _collect_open_file_urls,
     _is_same_document,
-    _system_path_from_url,
+    system_path_from_url,
     close_document_research_document,
     file_entry_for_path,
     get_document_directory,
@@ -89,9 +89,9 @@ def test_system_path_from_url_uses_shared_file_url_repair():
         "plugin.doc.document_research.uno.fileUrlToSystemPath",
         return_value="/home/user/Writing/Test.odt",
     ), patch("plugin.doc.document_research._normalize_path", side_effect=lambda path: path):
-        assert _system_path_from_url("file:/home/user/Writing/Test.odt") == "/home/user/Writing/Test.odt"
-        assert _system_path_from_url("") is None
-        assert _system_path_from_url("private:factory/swriter") is None
+        assert system_path_from_url("file:/home/user/Writing/Test.odt") == "/home/user/Writing/Test.odt"
+        assert system_path_from_url("") is None
+        assert system_path_from_url("private:factory/swriter") is None
 
 
 def test_get_document_directory():
@@ -172,7 +172,7 @@ def test_list_nearby_truncated(monkeypatch):
 
 
 def test_list_nearby_files_no_active_model_returns_open_docs():
-    """When active_model is None and exclude_path is default, list other open documents without TypeError."""
+    """When active_model is None, list other open documents without TypeError."""
     ctx = MagicMock()
     open_paths = {"/path/to/Doc1.odt": "file:///path/to/Doc1.odt"}
     with patch("plugin.doc.document_research._collect_open_file_urls", return_value=open_paths) as mock_collect:
@@ -184,6 +184,16 @@ def test_list_nearby_files_no_active_model_returns_open_docs():
     assert result["files"][0]["name"] == "Doc1.odt"
     mock_collect.assert_called_once()
     assert mock_collect.call_args.kwargs.get("exclude_path") is None
+
+
+def test_list_nearby_files_no_directory_no_open_docs_is_coded_error():
+    ctx = MagicMock()
+    with patch("plugin.doc.document_research._collect_open_file_urls", return_value={}):
+        with patch("plugin.doc.document_research.resolve_listing_directory", return_value=None):
+            result = list_nearby_files(ctx, None)
+    assert result["status"] == "error"
+    assert result["code"] == "TOOL_EXECUTION_ERROR"
+    assert "No nearby files" in result["message"]
 
 
 def test_get_work_directory():
@@ -217,7 +227,7 @@ def test_get_work_directory_file_url():
         path_settings.getPropertyValue.return_value = path_to_file_url(tmp)
         ctx.getValueByName.side_effect = lambda name: path_settings if name == "/singletons/com.sun.star.util.thePathSettings" else None
         norm = os.path.normpath(tmp)
-        with patch("plugin.doc.document_research._system_path_from_url", return_value=norm):
+        with patch("plugin.doc.document_research.system_path_from_url", return_value=norm):
             assert get_work_directory(ctx) == norm
 
 
@@ -364,12 +374,12 @@ def test_collect_open_file_urls_skips_broken_desktop_component():
             [broken, good]
         )
         with (
-            patch("plugin.framework.uno_context.get_desktop", return_value=desktop),
+            patch("plugin.doc.document_research.get_desktop", return_value=desktop),
             patch(
-                "plugin.doc.document_research._system_path_from_url",
+                "plugin.doc.document_research.system_path_from_url",
                 side_effect=lambda url: budget_norm if url == budget_url else None,
             ),
-            patch("plugin.framework.thread_guard.guard_uno", side_effect=lambda obj: obj),
+            patch("plugin.doc.document_research.guard_uno", side_effect=lambda obj: obj),
         ):
             out = _collect_open_file_urls(
                 object(), exclude_path=None, extensions=ALL_INDEXABLE_EXTENSIONS
@@ -411,12 +421,12 @@ def test_collect_open_file_urls_skips_geturl_failure():
             [broken, good]
         )
         with (
-            patch("plugin.framework.uno_context.get_desktop", return_value=desktop),
+            patch("plugin.doc.document_research.get_desktop", return_value=desktop),
             patch(
-                "plugin.doc.document_research._system_path_from_url",
+                "plugin.doc.document_research.system_path_from_url",
                 side_effect=lambda url: budget_norm if url == budget_url else None,
             ),
-            patch("plugin.framework.thread_guard.guard_uno", side_effect=lambda obj: obj),
+            patch("plugin.doc.document_research.guard_uno", side_effect=lambda obj: obj),
         ):
             out = _collect_open_file_urls(
                 object(), exclude_path=None, extensions=ALL_INDEXABLE_EXTENSIONS
@@ -523,7 +533,7 @@ def test_hidden_readonly_load_args_named_on_windows(monkeypatch):
 
 
 @patch("plugin.doc.document_research.get_document_type")
-@patch("plugin.framework.uno_context.get_desktop")
+@patch("plugin.doc.document_research.get_desktop")
 @patch("plugin.doc.document_research.resolve_document_by_url", return_value=(None, None))
 @patch("plugin.doc.document_research.os.path.isfile", return_value=True)
 def test_open_document_for_read_sets_close_flag_on_new_load(mock_isfile, mock_resolve, mock_desktop, mock_dtype):
@@ -545,7 +555,7 @@ def test_open_document_for_read_sets_close_flag_on_new_load(mock_isfile, mock_re
 
 
 @patch("plugin.doc.document_research.get_document_type")
-@patch("plugin.framework.uno_context.get_desktop")
+@patch("plugin.doc.document_research.get_desktop")
 @patch("plugin.doc.document_research.resolve_document_by_url", return_value=(None, None))
 @patch("plugin.doc.document_research.os.path.isfile", return_value=True)
 def test_open_document_for_read_closes_unsupported_type(mock_isfile, mock_resolve, mock_desktop, mock_dtype):
@@ -565,7 +575,7 @@ def test_open_document_for_read_closes_unsupported_type(mock_isfile, mock_resolv
 
 
 @patch("plugin.doc.document_research.get_document_type")
-@patch("plugin.framework.uno_context.get_desktop")
+@patch("plugin.doc.document_research.get_desktop")
 @patch("plugin.doc.document_research.resolve_document_by_url", return_value=(None, None))
 @patch("plugin.doc.document_research.os.path.isfile", return_value=True)
 def test_open_document_for_read_closes_when_post_load_raises(mock_isfile, mock_resolve, mock_desktop, mock_dtype):
@@ -624,7 +634,7 @@ def test_get_open_documents_disposed_desktop_is_not_an_empty_list():
     enum.hasMoreElements.side_effect = _DisposedException("enum dead")
     desktop.getComponents.return_value.createEnumeration.return_value = enum
     docs = None
-    with patch("plugin.framework.uno_context.get_desktop", return_value=desktop):
+    with patch("plugin.doc.document_research.get_desktop", return_value=desktop):
         try:
             try:
                 docs = get_open_documents(MagicMock())
@@ -639,7 +649,7 @@ def test_get_open_documents_disposed_desktop_is_not_an_empty_list():
 def test_get_open_documents_disposed_component_access_is_not_empty():
     desktop = MagicMock()
     desktop.getComponents.side_effect = _DisposedException("desktop gone")
-    with patch("plugin.framework.uno_context.get_desktop", return_value=desktop):
+    with patch("plugin.doc.document_research.get_desktop", return_value=desktop):
         try:
             try:
                 get_open_documents(MagicMock())
@@ -654,7 +664,7 @@ def test_get_open_documents_disposed_component_access_is_not_empty():
 def test_get_open_documents_empty_desktop_is_not_disposed():
     desktop = MagicMock()
     desktop.getComponents.return_value = None
-    with patch("plugin.framework.uno_context.get_desktop", return_value=desktop):
+    with patch("plugin.doc.document_research.get_desktop", return_value=desktop):
         try:
             docs = get_open_documents(MagicMock())
         except ListenerBoundary as boundary:
@@ -706,7 +716,7 @@ def test_get_open_documents_runtime_error_is_not_disposal_or_empty():
     enum = MagicMock()
     enum.hasMoreElements.side_effect = RuntimeError("not disposed")
     desktop.getComponents.return_value.createEnumeration.return_value = enum
-    with patch("plugin.framework.uno_context.get_desktop", return_value=desktop):
+    with patch("plugin.doc.document_research.get_desktop", return_value=desktop):
         try:
             get_open_documents(MagicMock())
         except ListenerBoundary as boundary:
@@ -715,3 +725,51 @@ def test_get_open_documents_runtime_error_is_not_disposal_or_empty():
             assert "not disposed" in str(exc)
             return
     raise AssertionError("runtime error was reported as an empty document list")
+
+
+def test_resolve_listing_state_reads_active_path_open_docs_and_root():
+    from plugin.doc.document_research import ListingState, resolve_listing_state
+
+    open_paths = {"/docs/Other.odt": "file:///docs/Other.odt"}
+    with (
+        patch("plugin.doc.document_research.get_document_path", return_value="/docs/sub/../Active.odt"),
+        patch("plugin.doc.document_research._collect_open_file_urls", return_value=open_paths) as mock_collect,
+        patch("plugin.doc.document_research.resolve_listing_directory", return_value="/docs"),
+    ):
+        state = resolve_listing_state(MagicMock(), MagicMock())
+    assert state == ListingState(exclude_path=os.path.normpath("/docs/Active.odt"), open_paths=open_paths, listing_root="/docs")
+    assert mock_collect.call_args.kwargs["exclude_path"] == os.path.normpath("/docs/Active.odt")
+
+
+def test_scan_nearby_files_with_state_does_not_read_uno_again():
+    from plugin.doc.document_research import ListingState, scan_nearby_files
+
+    with tempfile.TemporaryDirectory() as tmp:
+        with open(os.path.join(tmp, "Budget.ods"), "wb"):
+            pass
+        with patch("plugin.doc.document_research.resolve_listing_state") as mock_resolve:
+            result = scan_nearby_files(MagicMock(), MagicMock(), state=ListingState(None, {}, tmp))
+    mock_resolve.assert_not_called()
+    assert [f["name"] for f in result["files"]] == ["Budget.ods"]
+
+
+def test_list_nearby_files_stop_during_directory_scan_is_user_stopped():
+    from plugin.doc.document_research import ListingState
+    from plugin.framework.send_cancellation import SendCancellation
+
+    scope = SendCancellation()
+    scope.cancel()
+    with tempfile.TemporaryDirectory() as tmp:
+        with open(os.path.join(tmp, "Budget.ods"), "wb"):
+            pass
+        with patch("plugin.doc.document_research.resolve_listing_state", return_value=ListingState(None, {}, tmp)):
+            result = list_nearby_files(MagicMock(), MagicMock(), cancel=scope)
+    assert result == {"status": "error", "code": "USER_STOPPED", "message": "Document read stopped by user."}
+
+
+def test_list_nearby_files_stop_before_main_thread_read_is_user_stopped():
+    from plugin.framework.send_cancellation import SendCancelled
+
+    with patch("plugin.framework.queue_executor.main.run", side_effect=SendCancelled()):
+        result = list_nearby_files(MagicMock(), MagicMock())
+    assert result["code"] == "USER_STOPPED"

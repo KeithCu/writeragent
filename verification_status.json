@@ -241,7 +241,6 @@
           "host_unpack_split_grid",
           "host_unpack_data",
           "child_unpack_split_grid",
-          "child_unpack_data",
           "child_pack_split_grid",
           "child_pack_result",
           "cell_count",
@@ -280,7 +279,7 @@
         "priority": "high",
         "tool": "deal+hypothesis",
         "functions_contracted": [
-          "resolve_python_exec_timeout"
+          "python_exec_timeout"
         ],
         "ci_integration": true
       },
@@ -301,8 +300,6 @@
         "priority": "high",
         "tool": "deal+hypothesis",
         "functions_contracted": [
-          "header_prefix",
-          "ScriptFacts.header",
           "ScriptFacts.first_run_spec"
         ],
         "ci_integration": true
@@ -321,8 +318,7 @@
         "priority": "high",
         "tool": "deal+hypothesis",
         "functions_contracted": [
-          "get_sql_script_templates",
-          "parse_sql_script_header"
+          "get_sql_script_templates"
         ],
         "ci_integration": true
       },

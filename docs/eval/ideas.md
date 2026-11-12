@@ -17,7 +17,7 @@ Each test is assigned a **Mode** to ensure appropriate weight distribution:
 
 ### Level 2: Structural Manipulation (Advanced)
 6.  **Table Engineering**: "Convert this comma-separated list into a 2-column table with headers." -> Verify `write_table_cells` (2D batch). **[String-ok (HTML table via apply_document_content)]**
-7.  **Markdown Import**: "Replace the second paragraph with a Markdown table from the clipboard." -> Verify `apply_markdown`. **[String-ok (HTML/markdown support in format_support)]**
+7.  **Markdown Import**: "Replace the second paragraph with a Markdown table from the clipboard." -> Verify `apply_markdown`. **[String-ok (HTML/markdown support in html_import)]**
 8.  **TOC Generation**: "Insert a Table of Contents at the start of the document." -> Verify TOC structure nodes. **[LO-required (TOC fields/indexes)]**
 9.  **Section Break**: "Insert a section break and set the next page to Landscape orientation." -> Complex layout tool call. **[LO-required (page styles, sections)]**
 10. **Bulk Cleanup**: "Remove all double spaces and ensure every sentence is followed by exactly one space." -> Regex-style cleanup. **[String-ok (text normalization)]**

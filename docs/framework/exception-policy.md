@@ -56,33 +56,38 @@ A bare `RuntimeException` is not disposal: the callback logs it and returns `Non
 
 Writer editing tools (`apply_document_content`, `apply_style`, `search_in_document`, `set_selection`) report stable `code` identifiers on hard errors and in `warnings` entries (`Diagnostic`).
 
-Code constants remain string literals across call sites. Codes are JSON wire values compared as strings (`result.get("code") == "..."`) and consumed directly by the model; string literals keep payloads plain and `make_tool_error(code=str)` uniform. Codes are consolidated into non-overlapping identifiers: do not invent overlapping variants (`PARAM_CONFLICT`, `CONTENT_EMPTY`, `OLD_CONTENT_EMPTY`, `ANCHOR_UNSUPPORTED_OPTION`) for parameter validation errors; use `INVALID_PARAM` unless the model must take a distinctly different action.
+Inside a tool method, report errors via `self._tool_error(message, code=..., top_level={...}, **details)`. In a module helper that returns a payload, call `make_tool_error(...)` with the same keywords. In a helper that aborts, `raise ToolExecutionError(message, code=..., details=...)` and let `execute_safe` format it (no top-level fields on that path). For example, `self._tool_error("Not found", code="NOT_FOUND", top_level={"count": 0})` places `count` at the top level next to `code` and `message`. A `{"status": "error", ...}` literal is allowed only where a comment names the top-level field or the cache reason that forces it; today that is the search-miss builder in `search.py`, the edit-path dicts in `apply_document_content.py`, and the undo-context dicts in `compound_undo.py`.
+
+Code constants remain string literals across call sites. Two warning codes in `html_import_styles.py` (`MATH_IMPORT_FAILED`, `LINK_TARGET_NOT_FOUND`) are module constants; new codes are literals. Codes are JSON wire values compared as strings (`result.get("code") == "..."`) and consumed directly by the model; string literals keep payloads plain and `make_tool_error(code=str)` uniform. Codes are consolidated into non-overlapping identifiers: do not invent overlapping variants (`PARAM_CONFLICT`, `CONTENT_EMPTY`, `OLD_CONTENT_EMPTY`, `ANCHOR_UNSUPPORTED_OPTION`) for parameter validation errors; use `INVALID_PARAM` unless the model must take a distinctly different action.
 
 | Code | Kind | Trigger site(s) | `suggested_call` |
 |------|------|-----------------|------------------|
-| `OLD_CONTENT_NOT_FOUND` | error | `build_search_not_found_response` (`search.py`, `apply_document_content.py`, `styles.py`); direct `_tool_error` in `_select_by_search` (`selection.py`, no near-miss fields) | None in v1 (near-miss `closest_match` is a 16-character preview + ellipsis; replaying would replace the wrong text). |
+| `OLD_CONTENT_NOT_FOUND` | error | `build_search_not_found_response` (`search.py`), reached by `apply_document_content`, `apply_style`, `set_selection`, `comment_add`, `footnotes_insert`, `page_insert_break` through `occurrence_range_or_error` | None in v1 (near-miss `closest_match` is a 16-character preview + ellipsis; replaying would replace the wrong text). |
 | `OLD_CONTENT_TOO_LARGE` | error | Oversized old_content refusal (`search.py`) | None (suggesting blank content violates tool schema). |
 | `SEARCH_FAILED` | error | Search execution or regex evaluation failed (`search.py`, `apply_document_content.py`) | None |
 | `ANCHOR_START_NOT_FOUND` | error | `_anchor_miss` with `miss_kind="start"` (`apply_document_content.py`) | None |
 | `ANCHOR_END_NOT_FOUND` | error | `_anchor_miss` with `miss_kind="end"` (`apply_document_content.py`) | None |
 | `ANCHOR_TEXT_DIFFERENT` | error | `_anchor_miss` with `miss_kind="different_text"` (`apply_document_content.py`) | None |
-| `SHAPE_TEXT_NEEDS_DELEGATION` | error | `shape_only_search_message` in `search.py`, `apply_document_content.py`, `selection.py` | None (delegation tool requires free-text task and active inner-agent endpoint). |
-| `STYLE_NOT_FOUND` | error | `_missing_style_error` in `styles.py` | `apply_style` with the corrected `style` when `similar` has exactly one entry; omitted when `old_content` is over 100 characters (no truncated needle). |
-| `OCCURRENCE_OUT_OF_RANGE` | error | `apply_document_content.py`, `styles.py`, `selection.py` | None |
+| `SHAPE_TEXT_NEEDS_DELEGATION` | error | `shape_only_search_response` in `search.py` (builder and `_anchor_miss`) | None (delegation tool requires free-text task and active inner-agent endpoint). |
+| `STYLE_NOT_FOUND` | error | `_missing_style_error` in `styles.py` | `apply_style` with the corrected `style` when `similar` has exactly one entry; omitted when `old_content` is over 100 characters (no truncated needle). `_missing_style_error` attaches the replay itself when the caller passes `replay`. |
+| `OCCURRENCE_OUT_OF_RANGE` | error | `apply_document_content.py`, `styles.py`, `selection.py`, `search.py` (`occurrence_range_or_error`), `comments.py`, `footnotes.py`, `page.py` | None |
 | `TABLE_IN_ANCHOR_RANGE` | error | `apply_document_content.py` | None |
 | `TABLE_BLOCK_IN_CELL` | error | Block HTML inserted in table cell (`html_import.py`) | None |
 | `TABLE_INSERT_FAILED` | error | Table creation or insertion failed (`apply_document_content.py`) | None |
-| `HYPERLINK_UPDATE_FAILED` | error | Updating hyperlink URL or bookmark target failed (`apply_document_content.py`) | None |
-| `UNDO_UNAVAILABLE` | error | `apply_document_content.py`, `styles.py` | None |
-| `ROLLBACK_FAILED` | error | `apply_document_content.py`, `styles.py` | None |
-| `INVALID_PARAM` | error | Parameter validation failures: missing query/pattern (`search.py`); invalid style/clear_direct (`styles.py`); selection parameter conflicts/empty values (`selection.py`); `apply_document_content` parameter conflicts/empty strings | None |
+| `HYPERLINK_UPDATE_FAILED` | error | Updating hyperlink URL or bookmark target failed (`apply_document_content.py`, `hyperlink_fixup.py`, also reported by `all_matches`) | None |
+| `UNDO_UNAVAILABLE` | error | `apply_document_content.py`, `styles.py`, `target_resolver.py` (`insert_at_target`) | None |
+| `ROLLBACK_FAILED` | error | `apply_document_content.py`, `styles.py`, `target_resolver.py` (`insert_at_target`) | None |
+| `UNDO_CONTEXT_LEAK` | error | `commit_or_rollback` (`compound_undo.py`) when `leaveUndoContext` fails after a successful edit; reworded by `page.py` and `styles.py`, returned as-is by `commit_or_rollback_mutation` | None |
+| `VALIDATION_ERROR` | error | Produced by `prepare_tool_call` / `ToolBase.validate` for missing required, unknown, wrong-type or non-enum arguments before `execute`. Tool bodies check only ranges, conditional requirements and nested items, with `INVALID_PARAM`. | None |
+| `INVALID_PARAM` | error | Parameter validation failures (`INVALID_PARAM` is the only spelling; `INVALID_PARAMETER` is not used): missing query/pattern (`search.py`); invalid style/clear_direct (`styles.py`); selection parameter conflicts/empty values (`selection.py`); `apply_document_content` parameter conflicts/empty strings | None |
 | `INVALID_REGEX` | error | `validate_icu_regex` / `invalid_regex_tool_message` (`search.py`) | None |
-| `STYLE_IGNORED_PARTIAL_MATCH` | warning | Partial match style skip (`html_import.py`, `apply_document_content.py`) | `apply_style(target="search", old_content=<params.plain>, style=<style>, case_sensitive=True)` when every check in `_partial_match_style_suggestion` (`apply_document_content.py`) passes; never for `target='selection'` or while recording. |
-| `STYLE_IGNORED_RECORDING` | warning | Tracked changes recording skip (`html_import.py`, `apply_document_content.py`) | None (`apply_style` is not tracked). |
-| `PARA_PROPERTY_UNSUPPORTED` | warning | Unapplied `data-lo-para` property (`html_import_styles.attach_para_warnings`) | None |
-| `PARA_IGNORED_PARTIAL_MATCH` | warning | Partial match `data-lo-para` skip (`html_import_styles.attach_para_warnings`) | None |
-| `PARA_IGNORED_RECORDING` | warning | Tracked changes recording `data-lo-para` skip (`html_import_styles.attach_para_warnings`) | None |
-| `MATH_IMPORT_FAILED` | warning | Formula conversion failed during HTML/math import (`html_import_styles.attach_math_objects`) | None |
+| `STYLE_IGNORED_PARTIAL_MATCH` | warning | Partial match style skip (`html_import.py`, `html_import_styles.attach_write_report`) | `apply_style(target="search", old_content=<params.plain>, style=<style>, case_sensitive=True)` when every check in `_partial_match_style_suggestion` (`apply_document_content.py`) passes; never for `target='selection'` or while recording. |
+| `STYLE_IGNORED_RECORDING` | warning | Tracked changes recording skip (`html_import.py`, `html_import_styles.attach_write_report`) | None (`apply_style` is not tracked). |
+| `PARA_PROPERTY_UNSUPPORTED` | warning | Unapplied `data-lo-para` property (`html_import_styles.attach_write_report`) | None |
+| `PARA_IGNORED_PARTIAL_MATCH` | warning | Partial match `data-lo-para` skip (`html_import_styles.attach_write_report`) | None |
+| `PARA_IGNORED_RECORDING` | warning | Tracked changes recording `data-lo-para` skip (`html_import_styles.attach_write_report`) | None |
+| `MATH_IMPORT_FAILED` | warning | Formula conversion failed during HTML/math import (`html_import_styles.attach_write_report`) | None |
+| `LINK_TARGET_NOT_FOUND` | warning | Bare `href="#…"` fragment that matches no heading, element id/name or bookmark (`html_import_styles.resolve_heading_links`); carries `link_target` | None |
 
 *Naming invariant:* A code names the underlying condition, not the tool. Once shipped, a code is never renamed.
 

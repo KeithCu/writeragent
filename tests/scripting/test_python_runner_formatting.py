@@ -6,6 +6,7 @@
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
 
+import re
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 import pytest
@@ -199,7 +200,7 @@ def test_insert_result_into_calc_primitive():
 
     doc = _calc_doc_with_selection(0, 0)
     ctx = MagicMock()
-    with patch("plugin.calc.rich_html.insert_cell_html_rich") as mock_rich:
+    with patch("plugin.scripting.python_runner.insert_cell_html_rich") as mock_rich:
         insert_result_into_calc(doc, ctx, 42)
     mock_rich.assert_called_once_with(doc, ctx, "A1", "42")
 
@@ -212,7 +213,7 @@ def test_insert_result_into_calc_list_at_selection():
     doc = _calc_doc_with_selection(1, 2)
     ctx = MagicMock()
     rows = [["a", "b"], [1, 2]]
-    with patch("plugin.calc.rich_html.insert_cell_html_rich") as mock_rich:
+    with patch("plugin.scripting.python_runner.insert_cell_html_rich") as mock_rich:
         insert_result_into_calc(doc, ctx, rows)
     mock_rich.assert_called_once()
     assert mock_rich.call_args[0][2] == "B3"
@@ -227,7 +228,7 @@ def test_insert_result_into_calc_dict_title_and_table():
     doc = _calc_doc_with_selection(0, 0)
     ctx = MagicMock()
     result = {"title": "My Title", "rows": [{"A": 1, "B": 2}]}
-    with patch("plugin.calc.rich_html.insert_cell_html_rich") as mock_rich:
+    with patch("plugin.scripting.python_runner.insert_cell_html_rich") as mock_rich:
         insert_result_into_calc(doc, ctx, result)
     mock_rich.assert_called_once()
     assert mock_rich.call_args[0][2] == "A1"
@@ -245,7 +246,7 @@ def test_insert_result_into_calc_dataframe_envelope():
     doc = _calc_doc_with_selection(0, 0)
     ctx = MagicMock()
     envelope = {"__wa_payload__": PAYLOAD_DATAFRAME, "columns": ["a"], "data": [[1]]}
-    with patch("plugin.calc.rich_html.insert_cell_html_rich") as mock_rich:
+    with patch("plugin.scripting.python_runner.insert_cell_html_rich") as mock_rich:
         insert_result_into_calc(doc, ctx, envelope)
     mock_rich.assert_called_once()
     assert mock_rich.call_args[0][2] == "A1"
@@ -270,7 +271,7 @@ def test_insert_result_into_calc_skips_shape_status_dict():
     from plugin.scripting.python_runner import insert_result_into_calc
 
     doc = MagicMock()
-    with patch("plugin.calc.rich_html.insert_cell_html_rich") as rich:
+    with patch("plugin.scripting.python_runner.insert_cell_html_rich") as rich:
         insert_result_into_calc(
             doc,
             MagicMock(),
@@ -325,12 +326,59 @@ def test_try_rps_post_venv_reports_ordinary_insert_error():
 
 
 def test_finish_script_execution_reraises_document_disposed():
-    prepared = {"ctx": MagicMock(), "doc": MagicMock(), "code": "x", "t0": 0.0}
+    prepared = pr.PreparedScript(
+        ctx=MagicMock(),
+        doc=MagicMock(),
+        code="x",
+        t0=0.0,
+        bindings=None,
+        py_data=None,
+        session_id="rps:x",
+        script_session_id=None,
+    )
     with (
         patch.object(pr, "is_calc", return_value=True),
         patch.object(pr, "insert_result_into_calc", side_effect=_DisposedException("gone")),
     ):
         with pytest.raises(DocumentDisposedError):
             pr._finish_script_execution(prepared, {"status": "ok", "result": "hi"})
+
+
+def test_finish_script_execution_no_output_text_and_flag():
+    prepared = pr.PreparedScript(
+        ctx=MagicMock(),
+        doc=MagicMock(),
+        code="x",
+        t0=0.0,
+        bindings=None,
+        py_data=None,
+        session_id="rps:x",
+        script_session_id=None,
+    )
+    outcome = pr._finish_script_execution(prepared, {"status": "ok", "result": None, "stdout": ""})
+    assert outcome["ok"] is True
+    assert outcome["no_output"] is True
+    assert re.search(r"returned no result and produced no output\. \(took .+\)$", outcome["status_ok_text"])
+
+
+def test_finish_script_execution_unsupported_document_keeps_took_suffix():
+    prepared = pr.PreparedScript(
+        ctx=MagicMock(),
+        doc=MagicMock(),
+        code="x",
+        t0=0.0,
+        bindings=None,
+        py_data=None,
+        session_id="rps:x",
+        script_session_id=None,
+    )
+    with (
+        patch.object(pr, "is_calc", return_value=False),
+        patch.object(pr, "is_writer", return_value=False),
+        patch.object(pr, "is_draw", return_value=False),
+    ):
+        outcome = pr._finish_script_execution(prepared, {"status": "ok", "result": "hi"})
+    assert outcome["ok"] is False
+    assert re.match(r"^Unsupported document type for result insertion\. \(took .+\)$", outcome["message"])
 
 

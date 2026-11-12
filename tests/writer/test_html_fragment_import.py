@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, patch
 
 from plugin.writer.html_export import HTML_FILTER
 from plugin.writer.html_import import (
-    _content_has_block_markup,
+    content_has_block_markup,
     _wrap_html_fragment,
     insert_html_fragment_at_cursor,
 )
@@ -17,7 +17,7 @@ def _capture_temp_buffer(content_holder):
         content_holder["content"] = content
         yield ("/tmp/fake.html", "file:///tmp/fake.html")
 
-    with patch("plugin.doc.temp_files.with_temp_buffer", side_effect=fake_with_temp_buffer):
+    with patch("plugin.writer.html_import.with_temp_buffer", side_effect=fake_with_temp_buffer):
         yield
 
 
@@ -69,34 +69,43 @@ def test_prewrapped_skips_rewrap():
     assert holder["content"] == prewrapped
 
 
-def test_advances_cursor_when_model_given():
+def test_advances_cursor_when_advance_true():
     """The cursor continues right after the imported content, in its own text. Jumping to the
     BODY end sent later segments of a mid-document edit to the end (#46/#47) and raised
     RuntimeException for a cursor in a frame or cell (#52)."""
     cursor = MagicMock()
-    model = MagicMock()
     parked = cursor.getText.return_value.createTextCursorByRange.return_value
 
     with _capture_temp_buffer({}):
-        insert_html_fragment_at_cursor(cursor, "<p>Hi</p>", model=model)
+        insert_html_fragment_at_cursor(cursor, "<p>Hi</p>", advance=True)
 
     cursor.getText.return_value.createTextCursorByRange.assert_called_once_with(cursor.getEnd())
     cursor.gotoRange.assert_called_once_with(parked.getStart(), False)
-    model.getText.assert_not_called()
+
+
+def test_insert_html_fragment_at_cursor_advance_false_leaves_cursor():
+    """Without advance=True, no parked cursor is created and cursor.gotoRange is not called."""
+    cursor = MagicMock()
+
+    with _capture_temp_buffer({}):
+        insert_html_fragment_at_cursor(cursor, "<p>Hi</p>", advance=False)
+
+    cursor.getText.return_value.createTextCursorByRange.assert_not_called()
+    cursor.gotoRange.assert_not_called()
 
 
 def test_content_has_block_markup_inline_span():
-    assert _content_has_block_markup('<span style="background: transparent">Title</span>') is False
-    assert _content_has_block_markup("<b>Title</b>") is False
-    assert _content_has_block_markup("") is False
-    assert _content_has_block_markup(None) is False
+    assert content_has_block_markup('<span style="background: transparent">Title</span>') is False
+    assert content_has_block_markup("<b>Title</b>") is False
+    assert content_has_block_markup("") is False
+    assert content_has_block_markup(None) is False
 
 
 def test_content_has_block_markup_block_tags():
-    assert _content_has_block_markup("<p>x</p>") is True
-    assert _content_has_block_markup("<h3>x</h3>") is True
-    assert _content_has_block_markup("<ul><li>x</li></ul>") is True
-    assert _content_has_block_markup("<P>X</P>") is True
+    assert content_has_block_markup("<p>x</p>") is True
+    assert content_has_block_markup("<h3>x</h3>") is True
+    assert content_has_block_markup("<ul><li>x</li></ul>") is True
+    assert content_has_block_markup("<P>X</P>") is True
 
 
 def test_filter_name_starwriter():
@@ -112,7 +121,7 @@ def test_filter_name_starwriter():
 
     cursor.insertDocumentFromURL.side_effect = capture_insert
 
-    with patch("plugin.doc.temp_files.with_temp_buffer", side_effect=fake_with_temp_buffer):
+    with patch("plugin.writer.html_import.with_temp_buffer", side_effect=fake_with_temp_buffer):
         insert_html_fragment_at_cursor(cursor, "<p>Hi</p>")
 
     assert filter_holder["props"][0].Name == "FilterName"
@@ -130,8 +139,8 @@ def test_replace_full_document_and_insert_content_call_restore_with_text_obj():
     cur.getText.return_value = body_text
 
     with (
-        patch("plugin.writer.html_import._insert_starwriter_html_at_cursor"),
-        patch("plugin.writer.field_restore._restore_field_placeholders") as mock_restore,
+        patch("plugin.writer.html_import.insert_html_fragment_at_cursor"),
+        patch("plugin.writer.field_restore.restore_field_placeholders") as mock_restore,
     ):
         replace_full_document(doc, MagicMock(), "<p>Page <span title='page-number'/></p>")
         mock_restore.assert_called_once()
@@ -140,8 +149,8 @@ def test_replace_full_document_and_insert_content_call_restore_with_text_obj():
         assert mock_restore.call_args[1]["nonce"] is not None
 
     with (
-        patch("plugin.writer.html_import._insert_starwriter_html_at_cursor"),
-        patch("plugin.writer.field_restore._restore_field_placeholders") as mock_restore,
+        patch("plugin.writer.html_import.insert_html_fragment_at_cursor"),
+        patch("plugin.writer.field_restore.restore_field_placeholders") as mock_restore,
     ):
         insert_content_at_position(doc, MagicMock(), "<p>Page <span title='page-number'/></p>", "beginning")
         mock_restore.assert_called_once()

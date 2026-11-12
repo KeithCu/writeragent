@@ -71,14 +71,14 @@ def test_copy_xtext_keeps_nested_text_table_uno(ctx: Any, doc: Any) -> None:
     nested.getCellByName("B1").setString("NEST_B")
 
     from plugin.framework.scratch_writer import new_blank_writer
-    from plugin.writer.range_copy import _copy_xtext_into_doc
+    from plugin.writer.range_copy import copy_xtext_into_doc
     from plugin.writer.specialized.tables import TableGetCells, TableList
     from tests.testing_utils import TestingFactory
 
     temp_doc = None
     try:
         temp_doc = new_blank_writer(ctx)
-        _copy_xtext_into_doc(doc, doc.getText(), temp_doc)
+        copy_xtext_into_doc(doc, doc.getText(), temp_doc)
         tool_ctx = TestingFactory.create_context(doc=temp_doc, ctx=ctx, env="native")
         listed = TableList().execute(tool_ctx)
         assert listed.get("status") == "ok", listed
@@ -121,14 +121,14 @@ def test_copy_table_keeps_merged_banner_d2_uno(ctx: Any, doc: Any) -> None:
     table.getCellByName("D2").setString("Telèfon responsable")
 
     from plugin.framework.scratch_writer import new_blank_writer
-    from plugin.writer.range_copy import _copy_xtext_into_doc
+    from plugin.writer.range_copy import copy_xtext_into_doc
     from plugin.writer.specialized.tables import TableGetCells, TableList
     from tests.testing_utils import TestingFactory
 
     temp_doc = None
     try:
         temp_doc = new_blank_writer(ctx)
-        _copy_xtext_into_doc(doc, doc.getText(), temp_doc)
+        copy_xtext_into_doc(doc, doc.getText(), temp_doc)
         tool_ctx = TestingFactory.create_context(doc=temp_doc, ctx=ctx, env="native")
         listed = TableList().execute(tool_ctx)
         assert listed.get("status") == "ok", listed
@@ -518,4 +518,164 @@ def test_header_math_xtext_to_content_uno(ctx: Any, doc: Any) -> None:
     assert content, "Expected non-empty HTML from header xtext_to_content"
     assert "y = m x + b" in content or "y=mx+b" in content or "m x" in content
     assert "$" in content
+
+
+@native_test
+@with_native_doc("writer")
+def test_range_and_header_reads_report_line_height_uno(ctx: Any, doc: Any) -> None:
+    """Range and header reads must report hand-set line height in data-lo-para."""
+    import re
+
+    skip_windows_leftover_hidden_load("html_export Hidden _default temp_doc")
+    from plugin.writer import html_export
+
+    text = doc.getText()
+    cur = text.createTextCursor()
+    text.insertString(cur, "Alpha spaced line", False)
+    text.insertControlCharacter(cur, 0, False)
+    text.insertString(cur, "Beta indented", False)
+    text.insertControlCharacter(cur, 0, False)
+    text.insertString(cur, "Gamma plain", False)
+
+    en = text.createEnumeration()
+    paras = []
+    while en.hasMoreElements():
+        paras.append(en.nextElement())
+
+    ls = uno.createUnoStruct("com.sun.star.style.LineSpacing")
+    ls.Mode = 0
+    ls.Height = 150
+    paras[0].setPropertyValue("ParaLineSpacing", ls)
+    paras[1].setPropertyValue("ParaLeftMargin", 1000)
+
+    n = len(text.getString())
+    range_html = html_export.document_to_content(doc, ctx, scope="range", range_start=0, range_end=n)
+    xtext_html = html_export.xtext_to_content(text, doc, ctx)
+
+    for html in (range_html, xtext_html):
+        paras_html = re.findall(r"<p\b[^>]*>", html)
+        assert len(paras_html) >= 3
+        assert 'data-lo-para="line-height:150%"' in paras_html[0]
+        assert "data-lo-para=" not in paras_html[2]
+
+
+@native_test
+@with_native_doc("writer")
+def test_range_export_custom_para_style_keeps_name_uno(ctx: Any, doc: Any) -> None:
+    """A custom paragraph style cloned into scratch keeps its name and avoids direct CSS."""
+    skip_windows_leftover_hidden_load("html_export Hidden _default temp_doc")
+    para_styles = doc.getStyleFamilies().getByName("ParagraphStyles")
+    standard = para_styles.getByName("Standard")
+    custom = doc.createInstance("com.sun.star.style.ParagraphStyle")
+    para_styles.insertByName("CustomBody", custom)
+    custom.setPropertyValue("ParaLeftMargin", 2000)
+    custom.setPropertyValue("CharFontName", standard.getPropertyValue("CharFontName"))
+
+    text = doc.getText()
+    text.setString("Styled body")
+    cursor = text.createTextCursor()
+    cursor.gotoStart(False)
+    cursor.gotoEndOfParagraph(True)
+    cursor.setPropertyValue("ParaStyleName", "CustomBody")
+
+    from plugin.writer import html_export
+
+    html = html_export.document_to_content(
+        doc, ctx, scope="range", range_start=0, range_end=len(text.getString())
+    )
+    assert 'data-lo-style="CustomBody"' in html, html
+    assert "Styled body" in html, html
+    assert "margin-left" not in html, html
+    assert "margin-right" not in html, html
+    assert "margin-top" not in html, html
+    assert "margin-bottom" not in html, html
+    assert "font-family" not in html, html
+
+
+@native_test
+@with_native_doc("writer")
+def test_range_export_parent_chain_names_the_child_uno(ctx: Any, doc: Any) -> None:
+    """Cloning a child style copies missing parent styles first, preserving inheritance."""
+    skip_windows_leftover_hidden_load("html_export Hidden _default temp_doc")
+    para_styles = doc.getStyleFamilies().getByName("ParagraphStyles")
+    parent_style = doc.createInstance("com.sun.star.style.ParagraphStyle")
+    para_styles.insertByName("LetterParent", parent_style)
+    parent_style.setPropertyValue("ParaLeftMargin", 2000)
+    ls = uno.createUnoStruct("com.sun.star.style.LineSpacing")
+    ls.Mode = 0
+    ls.Height = 150
+    parent_style.setPropertyValue("ParaLineSpacing", ls)
+
+    child_style = doc.createInstance("com.sun.star.style.ParagraphStyle")
+    para_styles.insertByName("LetterChild", child_style)
+    child_style.setParentStyle("LetterParent")
+
+    from plugin.framework.scratch_writer import new_blank_writer
+    from plugin.writer.range_copy import _clone_missing_paragraph_style, release_scratch_style_holds
+
+    temp_doc = new_blank_writer(ctx)
+    try:
+        dest_family = temp_doc.getStyleFamilies().getByName("ParagraphStyles")
+        dest_standard = dest_family.getByName("Standard")
+        dest_standard.setPropertyValue("ParaBackColor", 0xAABBCC)
+
+        cloned = _clone_missing_paragraph_style(doc, temp_doc, dest_family, "LetterChild")
+        assert cloned is True
+        assert dest_family.hasByName("LetterParent")
+        assert dest_family.hasByName("LetterChild")
+
+        dest_child = dest_family.getByName("LetterChild")
+        assert dest_child.getParentStyle() == "LetterParent"
+        assert abs(dest_child.getPropertyValue("ParaLeftMargin") - 2000) <= 1
+        assert dest_child.getPropertyState("ParaLeftMargin").value != "DIRECT_VALUE"
+
+        assert dest_standard.getPropertyValue("ParaBackColor") == 0xAABBCC
+
+        dest_parent = dest_family.getByName("LetterParent")
+        assert dest_parent.getPropertyValue("ParaLineSpacing").Height == 150
+    finally:
+        release_scratch_style_holds(temp_doc)
+        temp_doc.close(True)
+
+    text = doc.getText()
+    text.setString("Child paragraph")
+    cursor = text.createTextCursor()
+    cursor.gotoStart(False)
+    cursor.gotoEndOfParagraph(True)
+    cursor.setPropertyValue("ParaStyleName", "LetterChild")
+
+    from plugin.writer import html_export
+
+    html = html_export.document_to_content(
+        doc, ctx, scope="range", range_start=0, range_end=len(text.getString())
+    )
+    assert 'data-lo-style="LetterChild"' in html, html
+    assert "Child paragraph" in html, html
+    assert "margin-left" not in html, html
+
+
+@native_test
+@with_native_doc("writer")
+def test_range_export_missing_follow_style_keeps_name_uno(ctx: Any, doc: Any) -> None:
+    """A custom style whose FollowStyle is missing still exports its data-lo-style token."""
+    skip_windows_leftover_hidden_load("html_export Hidden _default temp_doc")
+    para_styles = doc.getStyleFamilies().getByName("ParagraphStyles")
+    style = doc.createInstance("com.sun.star.style.ParagraphStyle")
+    para_styles.insertByName("FollowedHead", style)
+    style.setPropertyValue("FollowStyle", "NoSuchFollow")
+
+    text = doc.getText()
+    text.setString("Followed heading")
+    cursor = text.createTextCursor()
+    cursor.gotoStart(False)
+    cursor.gotoEndOfParagraph(True)
+    cursor.setPropertyValue("ParaStyleName", "FollowedHead")
+
+    from plugin.writer import html_export
+
+    html = html_export.document_to_content(
+        doc, ctx, scope="range", range_start=0, range_end=len(text.getString())
+    )
+    assert 'data-lo-style="FollowedHead"' in html, html
+    assert "Followed heading" in html, html
 

@@ -15,14 +15,14 @@ from plugin.scripting.helper_registry import helper
 from plugin.scripting.venv.coerce import (
     date_column,
     flat_label,
-    is_missing_value as _is_missing_value,
+    is_missing_value,
     parse_date_column,
-    resolve_df as _resolve_df,
+    resolve_df,
 )
 from plugin.scripting.venv.results import error_result
 from plugin.scripting.venv.trusted_dispatch import (
-    missing_package_error as _missing_package_error,
-    ok_result as _ok_result,
+    missing_package_error,
+    ok_result,
     run_domain,
 )
 
@@ -55,7 +55,7 @@ def _flatten_tickers(raw_tickers: Any) -> list[str]:
         else:
             cells = (row,)
         for cell in cells:
-            if _is_missing_value(cell):
+            if is_missing_value(cell):
                 continue
             clean.extend(part.strip() for part in str(cell).split(",") if part.strip())
     return clean
@@ -109,11 +109,11 @@ def fetch_historical_data(params: dict[str, Any]) -> dict[str, Any]:
     try:
         import yfinance as yf  # type: ignore
     except ImportError:
-        return _missing_package_error("fetch_historical_data", "yfinance")
+        return missing_package_error("fetch_historical_data", "yfinance")
 
     tickers = _flatten_tickers(params.get("tickers", []))
     if not tickers:
-        return error_result("INVALID_PARAMS", "tickers parameter is required.", helper="fetch_historical_data")
+        return error_result("INVALID_PARAM", "tickers parameter is required.", helper="fetch_historical_data")
 
     start_date = params.get("start_date")
     end_date = params.get("end_date")
@@ -122,13 +122,12 @@ def fetch_historical_data(params: dict[str, Any]) -> dict[str, Any]:
     try:
         # progress=False: yfinance writes a progress bar to stdout and that
         # breaks IPC framing. An empty frame is NO_DATA, not ok.
-        # multi_level_index arrived in yfinance 0.2.48. An older download()
-        # raises TypeError for that keyword; retry without it. Any other
-        # TypeError still falls through to EXECUTION_ERROR.
-        # auto_adjust default flipped to True in yfinance 0.2.51. Leaving it
-        # unset made Close unadjusted and added Adj Close on older installs,
-        # so both the numbers and the column set depended on the package.
-        # Pin True: OHLC is split-adjusted and there is no Adj Close column.
+        # multi_level_index needs yfinance 0.2.48+; an older download() raises
+        # TypeError for that keyword, so retry without it. Any other TypeError
+        # still falls through to EXECUTION_ERROR.
+        # auto_adjust is pinned True because its default differs before 0.2.51
+        # (unadjusted Close plus Adj Close): OHLC is split-adjusted and there is
+        # no Adj Close column on every version.
         download_kwargs: dict[str, Any] = {
             "start": start_date,
             "end": end_date,
@@ -153,7 +152,7 @@ def fetch_historical_data(params: dict[str, Any]) -> dict[str, Any]:
         columns = [flat_label(col) for col in data.columns]
         records = data.values.tolist()
 
-        return _ok_result(
+        return ok_result(
             "fetch_historical_data",
             table={
                 "columns": columns,
@@ -177,12 +176,12 @@ def technical_analysis(
         # Importing pandas_ta registers DataFrame.ta. The module object is unused.
         importlib.import_module("pandas_ta")
     except ImportError:
-        return _missing_package_error("technical_analysis", "pandas-ta")
+        return missing_package_error("technical_analysis", "pandas-ta")
 
     raw_indicators = params.get("indicators", _INDICATOR_NAMES)
-    # A string is one indicator name, not a sequence of characters.
-    # An unknown name is INVALID_PARAMS. An int must not be replaced with.
-    # the default list and return ok.
+    # A string is one indicator name, not a sequence of characters. An unknown
+    # name, or a value that is neither a name nor a list (such as an int), is an
+    # invalid-parameter error rather than a silent run of the default list.
     if raw_indicators is None:
         indicators = list(_INDICATOR_NAMES)
     elif isinstance(raw_indicators, str):
@@ -191,7 +190,7 @@ def technical_analysis(
         indicators = list(raw_indicators)
     else:
         return error_result(
-            "INVALID_PARAMS",
+            "INVALID_PARAM",
             f"indicators must be a name or a list. Supported: {', '.join(_INDICATOR_NAMES)}.",
             helper="technical_analysis",
         )
@@ -199,14 +198,14 @@ def technical_analysis(
     unknown = [str(ind) for ind in indicators if str(ind).strip().lower() not in _INDICATOR_NAMES]
     if unknown:
         return error_result(
-            "INVALID_PARAMS",
+            "INVALID_PARAM",
             f"Unknown indicator(s): {', '.join(unknown)}. Supported: {', '.join(_INDICATOR_NAMES)}.",
             helper="technical_analysis",
         )
 
     # Coerce inside the try so a bad grid is a result error, not a worker crash.
     try:
-        res = _resolve_df(data, headers=headers, header_row=header_row)
+        res = resolve_df(data, headers=headers, header_row=header_row)
         df = res.df
 
         # headers=False leaves integer column labels. str() before lower().
@@ -228,7 +227,7 @@ def technical_analysis(
 
         _stringify_datetimes(df)
 
-        return _ok_result(
+        return ok_result(
             "technical_analysis",
             table={
                 "columns": list(df.columns),
@@ -252,11 +251,11 @@ def portfolio_tearsheet(
         import pandas as pd
         import quantstats as qs  # type: ignore
     except ImportError:
-        return _missing_package_error("portfolio_tearsheet", "quantstats")
+        return missing_package_error("portfolio_tearsheet", "quantstats")
 
     # Coerce inside the try so a bad grid is a result error, not a worker crash.
     try:
-        res = _resolve_df(data, headers=headers, header_row=header_row)
+        res = resolve_df(data, headers=headers, header_row=header_row)
         df = res.df
 
         if df.empty:
@@ -268,13 +267,13 @@ def portfolio_tearsheet(
 
         col_param = params.get("column")
         if col_param is not None and str(col_param).strip() != "":
-            # An unknown column is INVALID_PARAMS. Averaging every column would
+            # An unknown column is INVALID_PARAM. Averaging every column would
             # hide the typo. A string "0" is the integer label 0 when the
             # frame was built with integer columns.
             if col_param not in numeric_df.columns:
                 matches = [col for col in numeric_df.columns if str(col) == str(col_param)]
                 if len(matches) != 1:
-                    return error_result("INVALID_PARAMS", f"Specified column {col_param!r} not found in numeric columns.", helper="portfolio_tearsheet")
+                    return error_result("INVALID_PARAM", f"Specified column {col_param!r} not found in numeric columns.", helper="portfolio_tearsheet")
                 col_param = matches[0]
             returns = numeric_df[col_param]
         else:
@@ -316,7 +315,7 @@ def portfolio_tearsheet(
         else:
             metrics_dict = metrics.to_dict()
 
-        return _ok_result(
+        return ok_result(
             "portfolio_tearsheet",
             metrics=metrics_dict,
             **({"warning": " ".join(warnings)} if warnings else {}),
@@ -339,11 +338,11 @@ def efficient_frontier(
         from pypfopt.expected_returns import mean_historical_return  # type: ignore
         from pypfopt.risk_models import CovarianceShrinkage  # type: ignore
     except ImportError:
-        return _missing_package_error("efficient_frontier", "PyPortfolioOpt")
+        return missing_package_error("efficient_frontier", "PyPortfolioOpt")
 
     # Coerce inside the try so a bad grid is a result error, not a worker crash.
     try:
-        res = _resolve_df(data, headers=headers, header_row=header_row)
+        res = resolve_df(data, headers=headers, header_row=header_row)
         df = res.df
 
         # Case-insensitive date column, shared with portfolio_tearsheet
@@ -367,8 +366,9 @@ def efficient_frontier(
             noun = "row" if n_dropped_rows == 1 else "rows"
             notes.append(f"Dropped {n_dropped_rows} {noun} with missing or non-finite returns.")
 
-        # A non-numeric rate must not escape as EXECUTION_ERROR. A weight_bounds.
-        # value that was not a pair was ignored, and the library default ran.
+        # A non-numeric rate must not escape as EXECUTION_ERROR, and a
+        # weight_bounds value that is not a pair is an invalid-parameter error
+        # rather than being ignored in favour of the library default.
         raw_rfr = params.get("risk_free_rate", 0.02)
         try:
             rfr = float(raw_rfr)
@@ -376,7 +376,7 @@ def efficient_frontier(
                 raise ValueError
         except (TypeError, ValueError):
             return error_result(
-                "INVALID_PARAMS",
+                "INVALID_PARAM",
                 "risk_free_rate must be a finite number.",
                 helper="efficient_frontier",
             )
@@ -394,7 +394,7 @@ def efficient_frontier(
                 bounds = (lo, hi)
             except (TypeError, ValueError):
                 return error_result(
-                    "INVALID_PARAMS",
+                    "INVALID_PARAM",
                     "weight_bounds must be a pair of finite numbers.",
                     helper="efficient_frontier",
                 )
@@ -407,7 +407,7 @@ def efficient_frontier(
         ef.max_sharpe(risk_free_rate=rfr)
         cleaned_weights = ef.clean_weights()
 
-        return _ok_result(
+        return ok_result(
             "efficient_frontier",
             weights=cleaned_weights,
             **({"warning": " ".join(notes)} if notes else {}),

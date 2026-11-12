@@ -120,12 +120,12 @@ PARAGRAPH_INDEX_DIRECTIVE = (
 
 
 def delegation_math_to_python_hint(*, delegate_toolset: str) -> str:
-    """Writer/Draw: route computational math to the python specialized sub-agent (fast local venv)."""
+    """Writer delegate description and Draw core directives: route computational math to the python sub-agent."""
     return f'For computational or numeric math (exact values, primes, statistics, symbolic algebra, or non-trivial calculation), do not answer from memory—use {delegate_toolset}(domain="python") for fast local numeric computation.'
 
 
 def python_orchestrator_routing_line(*, delegate_toolset: str) -> str:
-    """Main-chat line: python-as-orchestrator stays on domain=python.
+    """Draw main-chat line and Writer delegate description: python-as-orchestrator stays on domain=python.
 
     A plain shape request still goes to domain=shapes. Only bias when the user
     asked for the python specialized path (script, via python, python agent,
@@ -244,6 +244,7 @@ def build_specialized_sub_agent_instructions(
     base = (
         f"You are a specialized {agent_label} task executor focused on the '{domain}' domain. "
         "You have a focused set of tools to accomplish your task. Use them to fulfill the user's request. "
+        "If this domain cannot do the task, say so in the answer instead of claiming it was done. "
         f"{DELEGATE_ANCHOR_RULE}"
     )
     if extra:
@@ -380,18 +381,12 @@ SIDEBAR_VS_DOCUMENT = """SIDEBAR CHAT (main agent): Chat history is the sidebar 
 MUST use apply_document_content for drafts, reports, and research output; sidebar gets at most a brief confirmation.
 Follow CHAT RESPONSE FORMAT for that short reply."""
 
-# Writer main chat: delegation routing (paired with SIDEBAR_VS_DOCUMENT in the system prompt).
+# Writer main chat: the file-research rule the domain catalog cannot carry (never ask the user
+# to upload or paste). The web_research trigger is its catalog line; python/shapes routing and
+# the research `task` hint are in DelegateToSpecializedWriter.description.
 WRITER_CORE_DIRECTIVES = f"""When the user wants {DELEGATION_USER_FILE_DATA_HINT}:
 - You MUST NOT ask the user where to find it, or to upload or paste its contents.
-- You MUST call delegate_to_specialized_writer_toolset(domain="document_research") once with their described file(s) and task in task; the specialized task lists nearby files to match (paths not required).
-When the user wants {DELEGATION_PUBLIC_WEB_HINT}, delegate_to_specialized_writer_toolset(domain="web_research").
-For web_research and document_research: describe what to research in `task` (topics, sections, depth).
-
-{delegation_math_to_python_hint(delegate_toolset="delegate_to_specialized_writer_toolset")}
-{python_orchestrator_routing_line(delegate_toolset="delegate_to_specialized_writer_toolset")}"""
-
-
-WRITER_CHAT_TOOLS_SECTION = """TOOLS: get_guidance reads the how-to manual on demand — no topic lists the topics; one topic (e.g. 'search', 'navigation', 'images') reads just that section."""
+- You MUST call delegate_to_specialized_writer_toolset(domain="document_research") once with their described file(s) and task in task; the specialized task lists nearby files to match (paths not required)."""
 
 
 TRANSLATION_RULES = """TRANSLATION: get_document_content(scope=full) -> translate -> apply_document_content(target='full_document', content=translated).
@@ -442,22 +437,26 @@ SUB_AGENT_HTML_CONTENT_RULES = f"""- `content` is a JSON array of HTML strings (
 - Named styles: get_document_content marks each block `data-lo-style` = style name with spaces removed (`Heading 1`→`Heading1`).
   Copy tokens exactly. Prefer named styles; unknown token → Standard.
   inline style="" is a character override on top of the named style.
-  data-lo-style and data-lo-para are applied on full_document, beginning, end, and header/footer writes, and on selection/search when the match covers whole paragraphs with Track Changes off; anything skipped is listed in warnings (run warnings[].suggested_call when present). position='before'/'after' applies neither.
+  A data-lo-style or data-lo-para that is not applied is listed in warnings (run warnings[].suggested_call when present); position='before'/'after' applies neither.
 - Fields: Writer fields are empty spans whose title is the field kind, e.g. <span title="page-number"/>. Same shape in body HTML and in headers/footers.
-- Hand-set formatting: `data-lo-para` (e.g. `data-lo-para="margin-left:3.25cm; font-size:12pt"`) reports what a paragraph has set directly. On write, alignment, all four margins, text-indent, line-height, and background-color are applied. Paragraph-level font, size, weight, style, and color are read-only (setting them would flatten bold or coloured spans); put those on spans with inline style. Anything not applied is named in warnings. It is how you tell a block quote from body text in a document formatted by hand. Reported on both scope='full' and scope='range'.
-  apply_style defaults to clear_direct='style_props': the style's font name/size and paragraph indents show; bold/italic/colour stay. Pass clear_direct='none' only to keep a hand-set font. clear_direct='all' is Ctrl+M (refused on target='full_document').
-  Re-applying a style via apply_style does not keep a quote indent — LibreOffice drops direct Para* (margins/alignment) when ParaStyleName is set.
+- Hand-set formatting: `data-lo-para` (e.g. `data-lo-para="margin-left:3.25cm"`) reports what a paragraph has set directly — how you tell a hand-formatted block quote from body text.
 
 EXAMPLES:
 - Good: ["<h1>Title</h1>", "<p>Paragraph with <strong>bold</strong> text and \\"quotes\\".</p>"]
-- Good math: ["<p>The identity \\(a^2+b^2=c^2\\) holds.</p>", "\\[E = mc^2\\]", "<p>Water molecule: H<sub>2</sub>O, 10<sup>th</sup> edition.</p>"]
 - Good styles (target='full_document'): ["<p data-lo-style=\\"Heading1\\">Section title</p>", "<p data-lo-style=\\"Quotations\\">A quoted clause.</p>"]
-- Good outline link: ["<p><a href=\\"#Introduction|outline\\">Introduction</a></p>"]
 - Good field: ["<p>Page <span title=\"page-number\"/></p>"]
 - Bad: <h1>Title</h1><p>Paragraph</p> (must be a list of strings)
 """
 
 WRITER_APPLY_DOCUMENT_HTML_RULES = f"{APPLY_DOCUMENT_TARGET_RULES}\n{SUB_AGENT_HTML_CONTENT_RULES}"
+
+# Examples served on demand: the editing-html get_guidance topic and the sub-agent HTML block
+# append these; the sidebar ambient prompt does not. The Math rule above already gives the
+# delimiters, and html_import rewrites a bare href="#Heading" to the |outline form.
+HTML_MATH_AND_LINK_EXAMPLES = """MORE EXAMPLES:
+- Good math: ["<p>The identity \\(a^2+b^2=c^2\\) holds.</p>", "\\[E = mc^2\\]", "<p>Water molecule: H<sub>2</sub>O, 10<sup>th</sup> edition.</p>"]
+- Good outline link: ["<p><a href=\\"#Introduction|outline\\">Introduction</a></p>"]
+"""
 
 
 # Single-line blocks: MCP tool descriptions and many clients do not render newlines inside JSON strings.
@@ -517,7 +516,6 @@ DEFAULT_CHAT_SYSTEM_PROMPT_TEMPLATE = "\n\n".join(
         WRITER_CHAT_PERSONA,
         CHAT_RESPONSE_FORMAT,
         "{core_directives}",
-        WRITER_CHAT_TOOLS_SECTION,
         TRANSLATION_RULES,
         TOOL_USAGE_PATTERNS,
         WRITER_REVIEW_MODES_RULES,

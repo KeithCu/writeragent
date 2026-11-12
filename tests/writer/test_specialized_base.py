@@ -73,6 +73,15 @@ def test_target_params_extra_kwargs() -> None:
     assert props["target"]["default"] == "end"
 
 
+def test_target_params_old_content_description_override() -> None:
+    override = "Text to find if target = 'search'; the mark or cite goes at the start of the match and the text is kept."
+    props = target_params("the mark or cite", old_content_description=override)
+    assert props["old_content"]["description"] == override
+    assert props["target"]["description"] == "Where to insert the mark or cite."
+    assert props["target"]["enum"] == INSERT_TARGETS
+    assert props["case_sensitive"]["type"] == "boolean"
+
+
 def test_index_error_valid_index() -> None:
     assert index_error(0, 3, "footnote") is None
     assert index_error(1, 3, "footnote") is None
@@ -109,4 +118,32 @@ def test_indexes_domain_description_tells_main_chat_to_delegate_toc_jobs() -> No
     assert "yourself" not in desc
     assert "internal hyperlink" not in desc
     assert "verbatim" not in desc
+
+
+def test_writer_gateway_description_carries_python_routing_and_research_task_hint() -> None:
+    from plugin.framework.prompts import (
+        DELEGATION_USER_FILE_DATA_HINT,
+        delegation_math_to_python_hint,
+        python_orchestrator_routing_line,
+    )
+
+    desc = DelegateToSpecializedWriter.description
+    assert delegation_math_to_python_hint(delegate_toolset="delegate_to_specialized_writer_toolset") in desc
+    assert python_orchestrator_routing_line(delegate_toolset="delegate_to_specialized_writer_toolset") in desc
+    assert "topics, sections, depth" in desc
+    assert DELEGATION_USER_FILE_DATA_HINT not in desc
+    assert "\n" not in desc
+
+
+def test_writer_vision_catalog_line_routes_ocr() -> None:
+    from plugin.writer.specialized_base import ToolWriterVisionBase
+
+    desc = ToolWriterVisionBase.specialized_domain_description or ""
+    assert "OCR" in desc
+    assert "selected graphic" in desc
+    assert "insert it into the document" in desc
+    assert "task is ignored" in desc
+    lowered = desc.lower()
+    for banned in ("html", "docling", "rapidocr", "recognized text", "yourself"):
+        assert banned not in lowered
 

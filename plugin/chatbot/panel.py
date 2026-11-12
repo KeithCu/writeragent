@@ -1427,6 +1427,43 @@ class SendButtonListener(BaseActionListener):
                 self._restore_query_text(query_text)
             raise
 
+    # PeerListener (plugin/doc/peer_message.py)
+
+    def is_busy(self) -> bool:
+        """True while a send, a live stream drain, or a Stop scope holds this panel.
+
+        peer_message queues a peer turn instead of starting it while this is True.
+        The FSM flag alone misses the window after SEND_COMPLETED where the stream
+        drain or the cancellation scope is still live, and a turn started then would
+        run two drains on one panel.
+        """
+        if self.sidebar_state.send.is_busy:
+            return True
+        turn = self._turn
+        if turn is not None and turn.queue is not None and turn.alive:
+            return True
+        return self._send_cancellation is not None
+
+    def in_chat_mode(self) -> bool:
+        """Peer turns land only in Chat mode (not Librarian, Image, or a sub-agent)."""
+        from plugin.chatbot.chat_sidebar_mode import CHAT_MODE_CHAT
+
+        return self._selector_mode() == CHAT_MODE_CHAT
+
+    def inject_user_turn(self, text: str) -> bool:
+        """Write a peer envelope as a user row and repaint. True when the session took it.
+
+        Called only while idle, so there is no live turn to fold into: the paint goes
+        through render_session_messages. The extracted send appends the row itself
+        when this returns False.
+        """
+        session = self.session
+        if session is None:
+            return False
+        session.add_user_message(text)
+        self.render_session_messages(session)
+        return True
+
     def start_extracted_peer_send(self, query_text: str, *, already_appended: bool) -> bool:
         """Start a peer-injected turn. Caller must not hold a drain owner.
 

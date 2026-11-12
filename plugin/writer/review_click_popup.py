@@ -19,13 +19,21 @@ per controller, UNO-identity dedup.
 
 from __future__ import annotations
 
-# pyright: reportUnusedFunction=false
-
 import logging
 import time
 from typing import TYPE_CHECKING, Any
 
+from plugin.framework.i18n import _
+from plugin.framework.queue_executor import main
+from plugin.framework.uno_context import get_ctx
 from plugin.framework.uno_listeners import BaseMouseClickHandler
+from plugin.framework.worker_pool import run_in_background
+from plugin.writer.inline_review import (
+    cursor_in_agent_change,
+    resolve_change_at_cursor,
+    scan_redline_view,
+    show_review_message,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -34,8 +42,6 @@ log = logging.getLogger(__name__)
 
 _CLICK_SLOP = 4
 _DOUBLE_CLICK_SEC = 0.5
-
-_handler_cls: Any = None
 
 
 def _same_click_point(pressed: tuple[int, int] | None, x: int, y: int) -> bool:
@@ -46,15 +52,6 @@ def _same_click_point(pressed: tuple[int, int] | None, x: int, y: int) -> bool:
 
 def _show_popup_and_resolve(model: Any, source_window: Any, x: int, y: int) -> None:
     try:
-        from plugin.framework.i18n import _
-        from plugin.framework.uno_context import get_ctx
-        from plugin.writer.inline_review import (
-            cursor_in_agent_change,
-            resolve_change_at_cursor,
-            scan_redline_view,
-            show_review_message,
-        )
-
         ctx = get_ctx()
         if ctx is None:
             return
@@ -77,6 +74,7 @@ def _show_popup_and_resolve(model: Any, source_window: Any, x: int, y: int) -> N
         if token is None:
             return
 
+        # com.sun.star names resolve through PyUNO's import hook (pyuno/source/module/uno.py _uno_import); importing here keeps a missing type inside this try.
         from com.sun.star.awt import Rectangle
 
         smgr = ctx.getServiceManager()
@@ -98,68 +96,61 @@ def _show_popup_and_resolve(model: Any, source_window: Any, x: int, y: int) -> N
         log.warning("review_click_popup: popup failed", exc_info=True)
 
 
-def _make_handler(model: Any, detach: Callable[[Any], Any | None]) -> Any:
-    global _handler_cls
-    if _handler_cls is None:
+class ClickReviewHandler(BaseMouseClickHandler):
+    """Per-view click handler: a plain left click on an agent change opens the Accept/Reject popup."""
 
-        class _ClickReviewHandler(BaseMouseClickHandler):
-            _model: Any
-            _detach: Callable[[Any], Any | None]
-            _press: tuple[int, int] | None
-            _click_gen: int
+    _model: Any
+    _detach: Callable[[Any], Any | None]
+    _press: tuple[int, int] | None
+    _click_gen: int
 
-            def __init__(self, model: Any, detach: Callable[[Any], Any | None]) -> None:
-                super().__init__()
-                self._model = model
-                self._detach = detach
-                self._press = None
-                self._click_gen = 0
+    def __init__(self, model: Any, detach: Callable[[Any], Any | None]) -> None:
+        super().__init__()
+        self._model = model
+        self._detach = detach
+        self._press = None
+        self._click_gen = 0
 
-            def _deferred(self, gen: int, source: Any, x: int, y: int) -> None:
-                time.sleep(_DOUBLE_CLICK_SEC)
-                from plugin.framework.queue_executor import main
+    def _deferred(self, gen: int, source: Any, x: int, y: int) -> None:
+        time.sleep(_DOUBLE_CLICK_SEC)
 
-                def _fire() -> None:
-                    if gen != self._click_gen:
-                        return
-                    _show_popup_and_resolve(self._model, source, x, y)
+        def _fire() -> None:
+            if gen != self._click_gen:
+                return
+            _show_popup_and_resolve(self._model, source, x, y)
 
-                main.post(_fire)
+        main.post(_fire)
 
-            def on_mouse_pressed(self, e: Any) -> bool:
-                # Reset coordinates on unreadable event attributes so release does not match a stale press.
-                try:
-                    self._press = (e.X, e.Y)
-                    self._click_gen += 1
-                except AttributeError:
-                    self._press = None
+    def on_mouse_pressed(self, e: Any) -> bool:
+        # Reset coordinates on unreadable event attributes so release does not match a stale press.
+        try:
+            self._press = (e.X, e.Y)
+            self._click_gen += 1
+        except AttributeError:
+            self._press = None
+        return False
+
+    def on_mouse_released(self, e: Any) -> bool:
+        if e.ClickCount == 1 and e.Buttons == 1 and not e.PopupTrigger:
+            if not _same_click_point(self._press, e.X, e.Y):
                 return False
 
-            def on_mouse_released(self, e: Any) -> bool:
-                if e.ClickCount == 1 and e.Buttons == 1 and not e.PopupTrigger:
-                    if not _same_click_point(self._press, e.X, e.Y):
-                        return False
-                    from plugin.framework.worker_pool import run_in_background
+            run_in_background(
+                self._deferred,
+                self._click_gen,
+                e.Source,
+                e.X,
+                e.Y,
+                name="review-click-popup",
+            )
+        return False
 
-                    run_in_background(
-                        self._deferred,
-                        self._click_gen,
-                        e.Source,
-                        e.X,
-                        e.Y,
-                        name="review-click-popup",
-                    )
-                return False
-
-            def on_disposing(self, Source: Any) -> None:  # noqa: N803 -- UNO API
-                controller = self._detach(self)
-                if controller is None:
-                    return
-                try:
-                    if controller.getModel() is not None:
-                        controller.removeMouseClickHandler(self)
-                except Exception:  # noqa: S110 - best-effort cleanup on dispose
-                    pass
-
-        _handler_cls = _ClickReviewHandler
-    return _handler_cls(model, detach)
+    def on_disposing(self, Source: Any) -> None:  # noqa: N803 -- UNO API
+        controller = self._detach(self)
+        if controller is None:
+            return
+        try:
+            if controller.getModel() is not None:
+                controller.removeMouseClickHandler(self)
+        except Exception:  # noqa: S110 - best-effort cleanup on dispose
+            pass

@@ -62,7 +62,7 @@ Aligned with [../enabling_numpy_in_libreoffice.md](../enabling_numpy_in_libreoff
 
 #### Calc-parity `xl` helpers (deferred from LibrePy) {#calc-parity-xl-helpers-deferred-from-librepy}
 
-WriterAgent ships [`plugin/scripting/calc_functions.py`](../../plugin/scripting/calc_functions.py) and [`plugin/scripting/venv/calc_functions_*.py`](../../plugin/scripting/venv/) — **261** Calc/Excel formula parity helpers auto-imported as **`calc`** in the venv (e.g. `calc.sumif(...)`, `calc.xlookup(...)`). They were built so the **prototype** spreadsheet import could emit compact Python instead of pasting inline `def` blocks per workbook ([../calc/spreadsheet-to-python-import.md](../calc/spreadsheet-to-python-import.md), low priority). This is **not** the same as Microsoft Python in Excel’s `xl()` range bridge ([comparison](../calc/spreadsheet-to-python-import.md#microsoft-xl-vs-writeragent-calc)).
+WriterAgent ships [`plugin/scripting/calc_functions.py`](../../plugin/scripting/calc_functions.py) and [`plugin/scripting/venv/calc_functions_*.py`](../../plugin/scripting/venv/) — **257** Calc/Excel formula parity helpers auto-imported as **`calc`** in the venv (e.g. `calc.sumif(...)`, `calc.xlookup(...)`). They were built so the **prototype** spreadsheet import could emit compact Python instead of pasting inline `def` blocks per workbook ([../calc/spreadsheet-to-python-import.md](../calc/spreadsheet-to-python-import.md), low priority). This is **not** the same as Microsoft Python in Excel’s `xl()` range bridge ([comparison](../calc/spreadsheet-to-python-import.md#microsoft-xl-vs-writeragent-calc)).
 
 **LibrePy (core OXT) excludes them for now** (~134 KB source; filtered in [`scripts/librepy_bundle_paths.py`](../../scripts/librepy_bundle_paths.py) via `LIBREPY_CALC_FUNCTIONS_EXCLUDES`). Rationale:
 
@@ -70,7 +70,7 @@ WriterAgent ships [`plugin/scripting/calc_functions.py`](../../plugin/scripting/
 - **Spreadsheet import is WriterAgent-only** — menu, translator, and chat tool are not in the core bundle; nothing in LibrePy menus calls `calc.*` today.
 - **Coverage not fully exercised in core QA** — parity tests live in WriterAgent (`tests/scripting/test_calc_functions.py`); bundling without a core conversion workflow would ship dead weight for most installs.
 
-**What LibrePy still ships:** [`calc_functions_common.py`](../../plugin/scripting/calc_functions_common.py) — host-side name frozensets for Analysis, Viz, Forecast, etc. (no NumPy on the LO host).
+**What LibrePy still ships:** [`calc_functions_common.py`](../../plugin/scripting/calc_functions_common.py) — row and column caps for the tables the venv helper domains (analysis, forecast, optimize, duckdb_sql) return.
 
 **Runtime without the library:** `inject_auto_imports` skips `calc` when the module is absent; `=PY()` and Run Python Script work with `np`/`pd` and domain helpers. Only `calc.*` in user scripts or converted formulas would fail.
 
@@ -296,7 +296,7 @@ Required for NumPy domain helpers, Vision OCR, and any `run_trusted_worker_actio
 | [`plugin/scripting/_lazy_venv.py`](../../plugin/scripting/_lazy_venv.py) | Lazy `plugin.scripting.*` → `plugin.scripting.venv.*` |
 | [`plugin/scripting/helper_domain.py`](../../plugin/scripting/helper_domain.py) | Shared helper-domain glue |
 | [`plugin/scripting/domain_registry.py`](../../plugin/scripting/domain_registry.py) | RPS fast-path, picker origins, post-venv specs/order (routing helper in `python_runner.py`) |
-| [`plugin/scripting/calc_functions_common.py`](../../plugin/scripting/calc_functions_common.py) | Helper name frozensets (no numpy on host) |
+| [`plugin/scripting/calc_functions_common.py`](../../plugin/scripting/calc_functions_common.py) | Row/column caps for helper-domain result tables |
 | [`plugin/scripting/import_policy.py`](../../plugin/scripting/import_policy.py) | LLM import-policy text generation |
 | [`plugin/scripting/venv_diagnostics.py`](../../plugin/scripting/venv_diagnostics.py) | Settings → Python **Test** self-check |
 
@@ -528,7 +528,7 @@ flowchart TB
 2. **Narrow IDL** — core RDB is [`extension-core/idl/XPythonFunction.idl`](../extension-core/idl/XPythonFunction.idl) only (no Prompt).
 3. **Separate extension id** — `org.extension.librepy` in [`extension-core/`](../extension-core/). Add-in implementation name stays `org.extension.writeragent.PythonFunction` so `=PY()` formulas stay portable.
 4. **`doc_type.py` / `udprops.py` / `text_helpers.py` / `compound_undo.py`** — type detection, document properties, Writer text/path helpers, and compound undo context manager. `document_helpers.py` is WriterAgent-only and **must not re-export** those names.
-5. **`format.py` local-imports** — `ops` / `review_authors` stay local; optional `edit_review` via `ImportError`. Do not hoist.
+5. **`html_import.py` local-imports** — `styles` / `review_authors` stay local; optional `edit_review` via `ImportError`. Do not hoist.
 6. **Sandbox slimming** — `local_python_executor.send_tools` takes a dict; LibrePy does not ship `tools.py` / `agent_types.py` / `tool_validation.py` / `_function_type_hints_utils.py`.
 7. **`pkgutil.extend_path`** in [`plugin/__init__.py`](../../plugin/__init__.py).
 8. **Slim bootstrap** — [`plugin/main_core.py`](../../plugin/main_core.py); `make build-core` / `deploy-core`. `deploy-core` removes WriterAgent (xor install).
@@ -833,7 +833,7 @@ Allowlist: [`scripts/librepy_bundle_paths.py`](../../scripts/librepy_bundle_path
 
 ### Layer 2 adds (~18 paths)
 
-`python_runner.py`, `python_runner_ui.py`, `document_scripts.py`, `chatbot/dialogs.py` (shared XDL kit), `uno_context.py`, `worker_pool.py`, `appearance.py`, `doc/visual_helpers.py`, `writer/format.py`, `writer/xhtml_style_postprocess.py`, `calc/bridge.py`, `calc/address_utils.py`, `calc/manipulator.py`, `calc/array_formula.py`, `calc/formula_fill.py`, `calc/tabular_egress.py`, `calc/rich_html.py`, `main_core.py`, `scripting/native_binaries.py` (Cython pack download; `audio_recorder_service.py` is WriterAgent-only)
+`python_runner.py`, `python_runner_ui.py`, `document_scripts.py`, `chatbot/dialogs.py` (shared XDL kit), `uno_context.py`, `worker_pool.py`, `appearance.py`, `doc/visual_helpers.py`, `writer/html_import.py`, `writer/html_export.py`, `writer/xhtml_style_postprocess.py`, `calc/bridge.py`, `calc/address_utils.py`, `calc/manipulator.py`, `calc/array_formula.py`, `calc/formula_fill.py`, `calc/tabular_egress.py`, `calc/rich_html.py`, `main_core.py`, `scripting/native_binaries.py` (Cython pack download; `audio_recorder_service.py` is WriterAgent-only)
 
 ### Layer 3 adds (~25 paths)
 
@@ -905,7 +905,7 @@ See [numpy-domains.md](numpy-domains.md) and [../images/recognition.md](../image
 
 ## Appendix D — TeX/Math import
 
-WriterAgent exposes **Insert LaTeX Math…** (`writer.insert_latex_dialog`) and embeds math in **Run Python Script** Writer HTML via [`format.py`](../../plugin/writer/format.py) + [`html_math_segment.py`](../../plugin/writer/math/html_math_segment.py).
+WriterAgent exposes **Insert LaTeX Math…** (`writer.insert_latex_dialog`) and embeds math in **Run Python Script** Writer HTML via [`html_import.py`](../../plugin/writer/html_import.py) + [`html_math_segment.py`](../../plugin/writer/math/html_math_segment.py).
 
 ### Menu path (Writer formula object)
 
@@ -999,7 +999,7 @@ Shipped domains per [numpy-domains.md](numpy-domains.md): **Analysis**, **Visual
 | [`quant.py`](../../plugin/scripting/venv/quant.py) | `run_quant` |
 | [`text_analytics.py`](../../plugin/scripting/venv/text_analytics.py) | `run_text_analytics` |
 
-Requires [Layer 1](#layer-1--trusted-rpc) + [`domain_registry.py`](../../plugin/scripting/domain_registry.py) for RPS picker templates and fast-path headers (`writeragent:forecast`, etc.).
+Requires [Layer 1](#layer-1--trusted-rpc) + [`domain_registry.py`](../../plugin/scripting/domain_registry.py) for RPS picker templates.
 
 ### Calc runners / egress (not chat tool classes)
 

@@ -187,7 +187,6 @@ def _stub_template_body(helper: str, params: dict[str, Any]) -> str:
             f"    {params_json}.get('files', ['yourfile.csv']),\n"
         )
     return (
-        f"# writeragent:sql helper={helper} params={params_json}\n"
         f"# {desc}\n"
         f"# {note}\n"
         f"{how_to}"
@@ -533,9 +532,6 @@ def _patch_calc_range(module: Any) -> None:
 
 
 def _patch_duckdb_sql(module: Any) -> None:
-    module._DEAL_SQL_RESULT_KEYS = 4
-    module._DEAL_SQL_RESULT_STR = 8
-    module._deal_sql_code_ok = lambda code: isinstance(code, str) and len(code) <= 16
     module._deal_sql_result_value_ok = _stub_deal_sql_result_value_ok_crosshair
     _swap_code(module._template_body, _stub_template_body)
 
@@ -550,11 +546,6 @@ def _patch_editor_ipc(module: Any) -> None:
 
 
 def _patch_helper_domain(module: Any) -> None:
-    from plugin.framework.deal_shim import ascii_bounded, str_bounded
-
-    module._deal_user_code_ok = lambda code, run_name="": (
-        str_bounded(code, 16) and ascii_bounded(run_name, 16)
-    )
     _swap_code(module.ScriptFacts.first_run_spec, _stub_script_facts_first_run_spec)
     _swap_code(module._elapsed_since, _stub_elapsed_since)
 
@@ -568,12 +559,6 @@ def _patch_payload_codec(module: Any) -> None:
         or wire is None
         or module._is_ndarray(wire)
         or getattr(type(wire), "__module__", "") == "numpy"
-    )
-    module._deal_child_unpack_wire_ok = lambda wire, *_unused, **__: (
-        module._is_any_payload_envelope(wire)
-        or isinstance(wire, (list, tuple, dict, str, int, float, bool))
-        or wire is None
-        or (hasattr(wire, "__class__") and wire.__class__.__name__ == "ndarray")
     )
 
 

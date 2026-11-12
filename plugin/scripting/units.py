@@ -2,7 +2,7 @@
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Units helper templates, host RPC, and document egress (LO host).
+"""Units helper host RPC and document egress (LO host).
 
 Compute is lazy-loaded from ``plugin.scripting.venv.units`` via ``__getattr__``.
 """
@@ -23,15 +23,6 @@ from plugin.scripting.calc_range import ensure_rectangular_2d
 _UNITS_VENV_EXPORTS = names("units") | {"run_units"}
 
 install_lazy_exports(globals(), "units", _UNITS_VENV_EXPORTS)
-
-
-# --- Templates ---
-
-
-def get_units_script_templates() -> dict[str, str]:
-    from plugin.scripting.domain_registry import get_domain_wiring
-
-    return get_domain_wiring("units").templates()
 
 
 # --- Egress ---
@@ -112,7 +103,7 @@ def insert_units_result_into_writer(ctx: Any, doc: Any, result: dict[str, Any]) 
             details={"units_result": result},
         )
 
-    from plugin.writer.html_import import insert_content_at_position
+    from plugin.writer.html_import import insert_content_at_position  # host only: not in the compute bundle
 
     insert_content_at_position(doc, ctx, text, "selection")
 
@@ -129,7 +120,7 @@ def insert_units_result_into_doc(
         insert_units_result_into_writer(ctx, doc, result)
         return 1
     if is_calc(doc):
-        from plugin.calc.tabular_egress import insert_tabular_result_into_calc
+        from plugin.calc.tabular_egress import insert_tabular_result_into_calc  # host only: not in the compute bundle
 
         grid = format_units_for_calc(result, output_style=output_style)
         return insert_tabular_result_into_calc(doc, ctx, grid)

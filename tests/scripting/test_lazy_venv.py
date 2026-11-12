@@ -57,6 +57,7 @@ assert "run_sql" in dir(host)
 assert "plugin.scripting.venv.duckdb_sql" not in sys.modules
 templates = host.get_sql_script_templates()
 assert "plugin.scripting.venv.duckdb_sql" in sys.modules
+assert "plugin.scripting.venv.venv_sandbox" not in sys.modules
 rows = str(host.MAX_TABLE_ROWS)
 assert rows in templates["query_folder_sql"]
 assert rows in templates["query_sheet_sql"]
@@ -72,7 +73,6 @@ names = dir(host)
 assert "run_analysis" in names
 assert "CoerceResult" in names
 assert "grid_to_dataframe" in names
-assert "get_analysis_script_templates" in names
 assert "plugin.scripting.venv.analysis" not in sys.modules
 assert "plugin.scripting.venv.coerce" not in sys.modules
 host.CoerceResult

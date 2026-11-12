@@ -236,7 +236,7 @@ def test_form_generate_blocks_llm_wait_off_ui_thread(monkeypatch):
 
     ctx = MagicMock()
 
-    with patch("plugin.framework.config.get_api_config"), \
+    with patch("plugin.writer.specialized.forms.get_api_config"), \
          patch("plugin.framework.client.llm_client.LlmClient"):
         res = tool.execute(ctx, description="test form")
 
@@ -344,7 +344,7 @@ def test_forms_edit_invalid_state_leaves_model_untouched():
 
     ctx = SimpleNamespace(doc=doc)
     with patch("plugin.writer.specialized.forms._resolve_form_page", return_value=dp):
-        res = FormEditControl()._execute_main(ctx, name="target_ctrl", state="not-a-state", new_name="new_ctrl", label="Should Not Change")
+        res = FormEditControl().execute(ctx, name="target_ctrl", state="not-a-state", new_name="new_ctrl", label="Should Not Change")
         assert res["status"] == "error"
         assert "Could not interpret" in res["message"]
         # Neither Name nor Label were updated
@@ -490,7 +490,7 @@ def test_form_generate_passes_stop_checker_and_handles_user_stopped(monkeypatch)
     ctx.send_cancellation = scope
     ctx.status_callback = status_callback
 
-    with patch("plugin.framework.config.get_api_config"), \
+    with patch("plugin.writer.specialized.forms.get_api_config"), \
          patch("plugin.framework.client.llm_client.LlmClient", return_value=mock_client):
         res = tool.execute(ctx, description="test form")
 
@@ -785,7 +785,7 @@ def test_form_list_controls_handles_failing_shape(monkeypatch):
     doc = MagicMock()
     monkeypatch.setattr("plugin.writer.specialized.forms._resolve_form_page", lambda d, p: dp)
 
-    res = FormListControls()._execute_main(SimpleNamespace(doc=doc))
+    res = FormListControls().execute(SimpleNamespace(doc=doc))
     assert res["status"] == "ok"
     assert res["count"] == 2
     assert res["controls"][0]["stale"] is True
@@ -823,7 +823,7 @@ def test_radio_edit_rename_preserves_group(monkeypatch):
     tool = FormEditControl()
 
     # Rename shape only
-    res = tool._execute_main(ctx, name="radio1", new_name="radio1_renamed")
+    res = tool.execute(ctx, name="radio1", new_name="radio1_renamed")
     assert res["status"] == "ok"
     assert shape.Name == "radio1_renamed"
     assert model.Name == "Group1"
@@ -831,7 +831,7 @@ def test_radio_edit_rename_preserves_group(monkeypatch):
     assert res["group_name"] == "Group1"
 
     # Rename group only
-    res2 = tool._execute_main(ctx, name="radio1_renamed", group_name="Group2")
+    res2 = tool.execute(ctx, name="radio1_renamed", group_name="Group2")
     assert res2["status"] == "ok"
     assert model.Name == "Group2"
     assert shape.Name == "radio1_renamed"
@@ -863,7 +863,7 @@ def test_form_edit_and_delete_undo_atomic(monkeypatch):
 
     # Locked undo manager on edit -> UNDO_UNAVAILABLE
     edit_tool = FormEditControl()
-    res = edit_tool._execute_main(ctx, name="ctrl1", label="New")
+    res = edit_tool.execute(ctx, name="ctrl1", label="New")
     assert res["status"] == "error"
     assert res["code"] == "UNDO_UNAVAILABLE"
 
@@ -878,7 +878,7 @@ def test_form_edit_and_delete_undo_atomic(monkeypatch):
     mgr.enterUndoContext.reset_mock()
     mgr.getAllUndoActionTitles.side_effect = lambda: ["WriterAgent: Edit form control"] if mgr.enterUndoContext.called else []
     shape.setPosition.side_effect = RuntimeError("drawing engine crashed")
-    res_crash = edit_tool._execute_main(ctx, name="ctrl1", x=999)
+    res_crash = edit_tool.execute(ctx, name="ctrl1", x=999)
     assert res_crash["status"] == "error"
     mgr.undo.assert_called()
 
@@ -901,17 +901,17 @@ def test_forms_edit_rejects_unsupported_properties(monkeypatch):
     tool = FormEditControl()
 
     # Model has no Label
-    res = tool._execute_main(ctx, name="chk1", label="new label")
+    res = tool.execute(ctx, name="chk1", label="new label")
     assert res["status"] == "error"
     assert "checkbox control has no label." in res["message"]
 
     # Model has no Text
-    res = tool._execute_main(ctx, name="chk1", text="some text")
+    res = tool.execute(ctx, name="chk1", text="some text")
     assert res["status"] == "error"
     assert "checkbox control has no text." in res["message"]
 
     # Model has no StringItemList
-    res = tool._execute_main(ctx, name="chk1", items=["a", "b"])
+    res = tool.execute(ctx, name="chk1", items=["a", "b"])
     assert res["status"] == "error"
     assert "checkbox control has no items." in res["message"]
 

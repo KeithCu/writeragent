@@ -2,7 +2,7 @@
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Unit tests for shared helper-domain header/template glue."""
+"""Unit tests for shared helper-domain template glue."""
 
 from __future__ import annotations
 
@@ -13,39 +13,12 @@ from plugin.scripting.helper_domain import (
     ScriptFacts,
     build_helper_script_template,
     format_elapsed_time,
+    rps_error_outcome,
     rps_insert_failed_outcome,
+    rps_ok_outcome,
     supports_calc_or_writer_manual,
 )
 import pytest
-
-
-def test_parse_valid_header():
-    code = '# writeragent:units helper=convert_quantity params={"value":"10"}\nresult = 1\n'
-    meta = ScriptFacts.from_source(code).header(tag="units", helper_names={"convert_quantity"})
-    assert meta is not None
-    assert meta.helper == "convert_quantity"
-    assert meta.params == {"value": "10"}
-
-
-@pytest.mark.parametrize(
-    "value, tag, value_2",
-    [
-        pytest.param('# writeragent:analysis helper=describe_data params={}\n', "units", "convert_quantity", id="test_parse_missing_tag"),
-        pytest.param("# writeragent:analysis helper=not_real params={}\n", "analysis", "describe_data", id="test_parse_unknown_helper"),
-    ],
-)
-def test_parse_missing_tag(value, tag, value_2):
-    code = value
-    assert ScriptFacts.from_source(code).header(tag=tag, helper_names={value_2}) is None
-
-def test_parse_bad_json_empty():
-    code = "# writeragent:units helper=convert_quantity params={not-json}\n"
-    meta = ScriptFacts.from_source(code).header(
-        tag="units",
-        helper_names={"convert_quantity"},
-    )
-    assert meta is not None
-    assert meta.params == {}
 
 
 def test_build_run_import_template_has_header_and_import():
@@ -320,63 +293,55 @@ def test_format_elapsed_time_boundary_rounding():
 
 
 def test_run_trusted_calc_data_helper_sheet_disposal_propagates():
+    from plugin.scripting.domain_registry import get_domain_wiring
     from plugin.scripting.helper_domain import run_trusted_calc_data_helper
     from plugin.framework.errors import DocumentDisposedError
 
     class DisposedException(Exception):
         pass
 
+    row = get_domain_wiring("forecast")
     client_mock = MagicMock()
     with (
         patch("plugin.framework.queue_executor.main.is_current", return_value=True),
         patch("plugin.calc.calc_addin_data._resolve_python_data", return_value=([[1]], None)),
         patch("plugin.calc.bridge.CalcBridge") as mock_bridge,
+        patch("plugin.scripting.client.run_forecast", client_mock),
     ):
         mock_bridge.return_value.get_active_sheet.side_effect = DisposedException("disposed")
         with pytest.raises(DocumentDisposedError):
             run_trusted_calc_data_helper(
                 MagicMock(),
                 MagicMock(),
+                row,
                 helper="forecast_time_series",
-                helper_names=frozenset({"forecast_time_series"}),
-                error_code="FORECAST_ERROR",
-                empty_data_message="No data to forecast",
                 data=[[1]],
-                data_range=None,
-                headers=True,
-                params=None,
-                task_hint=None,
-                client_run=client_mock,
             )
     client_mock.assert_not_called()
 
 
 def test_run_trusted_calc_data_helper_sheet_name_failure_is_best_effort():
+    from plugin.scripting.domain_registry import get_domain_wiring
     from plugin.scripting.helper_domain import run_trusted_calc_data_helper
 
     class RuntimeException(Exception):
         pass
 
+    row = get_domain_wiring("forecast")
     client_mock = MagicMock(return_value={"status": "ok"})
     with (
         patch("plugin.framework.queue_executor.main.is_current", return_value=True),
         patch("plugin.calc.calc_addin_data._resolve_python_data", return_value=([[1]], None)),
         patch("plugin.calc.bridge.CalcBridge") as mock_bridge,
+        patch("plugin.scripting.client.run_forecast", client_mock),
     ):
         mock_bridge.return_value.get_active_sheet.side_effect = RuntimeError("no sheet")
         res1 = run_trusted_calc_data_helper(
             MagicMock(),
             MagicMock(),
+            row,
             helper="forecast_time_series",
-            helper_names=frozenset({"forecast_time_series"}),
-            error_code="FORECAST_ERROR",
-            empty_data_message="No data to forecast",
             data=[[1]],
-            data_range=None,
-            headers=True,
-            params=None,
-            task_hint=None,
-            client_run=client_mock,
         )
         assert res1 == {"status": "ok"}
         client_mock.assert_called_once()
@@ -388,16 +353,9 @@ def test_run_trusted_calc_data_helper_sheet_name_failure_is_best_effort():
         res2 = run_trusted_calc_data_helper(
             MagicMock(),
             MagicMock(),
+            row,
             helper="forecast_time_series",
-            helper_names=frozenset({"forecast_time_series"}),
-            error_code="FORECAST_ERROR",
-            empty_data_message="No data to forecast",
             data=[[1]],
-            data_range=None,
-            headers=True,
-            params=None,
-            task_hint=None,
-            client_run=client_mock,
         )
         assert res2 == {"status": "ok"}
         client_mock.assert_called_once()
@@ -421,7 +379,7 @@ def test_supports_calc_or_writer_manual():
     assert supports_calc_or_writer_manual(doc_other) is False
 
 
-def test_script_header_needs_data_binding_on_calc_domains():
+def test_needs_data_binding_on_calc_domains():
 
     calc_doc = object()
     with patch("plugin.framework.doc_type.is_calc", return_value=True):
@@ -435,21 +393,21 @@ def test_script_header_needs_data_binding_on_calc_domains():
         assert ScriptFacts.from_source('print("hi")\n').needs_data_binding(doc=calc_doc) is False
 
 
-def test_script_header_needs_data_binding_for_direct_helper_templates():
-    from plugin.scripting.analysis import get_analysis_script_templates
+def test_needs_data_binding_for_direct_helper_templates():
+    from plugin.scripting.domain_registry import get_domain_wiring
     from plugin.scripting.duckdb_sql import get_sql_script_templates
 
     calc_doc = object()
     with patch("plugin.framework.doc_type.is_calc", return_value=True):
         assert ScriptFacts.from_source(
-            get_analysis_script_templates()["describe_data"],
+            get_domain_wiring("analysis").templates()["describe_data"],
         ).needs_data_binding(doc=calc_doc) is True
         assert ScriptFacts.from_source(
             get_sql_script_templates()["query_sheet_sql"],
         ).needs_data_binding(doc=calc_doc) is True
 
 
-def test_script_header_needs_data_binding_ignores_comments_and_non_calc():
+def test_needs_data_binding_ignores_comments_and_non_calc():
 
     calc_doc = object()
     non_calc_doc = object()
@@ -486,6 +444,37 @@ def test_script_header_needs_data_binding_ignores_comments_and_non_calc():
         assert ScriptFacts.from_source("run_viz()\n").needs_data_binding(doc=non_calc_doc) is False
         assert ScriptFacts.from_source(viz_code).needs_data_binding(doc=non_calc_doc) is False
         assert ScriptFacts.from_source(viz_code).needs_data_binding(doc=calc_doc) is True
+
+
+def test_rps_error_outcome_without_run_clock_keeps_message():
+    assert rps_error_outcome("boom", t0=None) == {"ok": False, "message": "boom"}
+    assert rps_error_outcome("boom", t0=None, traceback="tb") == {
+        "ok": False,
+        "message": "boom",
+        "traceback": "tb",
+    }
+
+
+def test_rps_ok_outcome_no_output_flag():
+    out = rps_ok_outcome("done", result=None, stdout=None, no_output=True)
+    assert out == {"ok": True, "status_ok_text": "done", "result": None, "no_output": True}
+    assert "stdout" not in out
+
+    out_normal = rps_ok_outcome("done", result=42)
+    assert out_normal == {"ok": True, "status_ok_text": "done", "result": 42}
+    assert "no_output" not in out_normal
+    assert "stdout" not in out_normal
+
+
+def test_escape_for_html_insert_survives_one_unescape():
+    import html
+
+    from plugin.scripting.helper_domain import escape_for_html_insert
+
+    escaped = escape_for_html_insert("<b>&")
+    assert escaped == "&amp;lt;b&amp;gt;&amp;amp;"
+    assert html.unescape(escaped) == "&lt;b&gt;&amp;"
+    assert escape_for_html_insert(3) == "3"
 
 
 

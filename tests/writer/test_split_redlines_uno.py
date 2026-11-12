@@ -11,8 +11,8 @@ import uno  # noqa: F401
 
 from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import agent_changes, with_native_doc
-from plugin.writer.edit_review import record_preserve_replace
-from plugin.writer.edit_review import EditReviewSession
+from plugin.writer import edit_review
+from plugin.writer.edit_review import EditReviewSession, record_preserve_replace
 from plugin.writer.inline_review import ResolveStatus, resolve_agent_change
 
 _PARA_BREAK = uno.getConstantByName("com.sun.star.text.ControlCharacter.PARAGRAPH_BREAK")
@@ -149,14 +149,6 @@ def test_split_off_when_not_recording_single_change_uno(ctx, doc):
     session.cleanup()
     changes = agent_changes(doc)
     assert len(changes) == 1, "split=False must keep the old single-change behaviour: %r" % changes
-
-
-@native_test
-def test_diff_threshold_default_constant_uno():
-    """The surgical-vs-block threshold is a named module constant (env-overridable via
-    WRITERAGENT_AGENT_EDIT_DIFF_THRESHOLD, NOT a settings-UI config key), defaulting to 0.6."""
-    from plugin.writer.edit_review import _WORD_DIFF_THRESHOLD
-    assert _WORD_DIFF_THRESHOLD == 0.6, "_WORD_DIFF_THRESHOLD should default to 0.6"
 
 
 @native_test
@@ -354,7 +346,7 @@ def test_surgical_partial_apply_rolls_back_atomically_uno(ctx, doc):
     redlines_before = len(doc.getRedlines())
     bookmarks_before = set(doc.getBookmarks().getElementNames())
 
-    real = fmt.replace_preserving_format
+    real = edit_review.replace_preserving_format
     state = {"n": 0}
 
     def flaky(*a, **k):
@@ -365,6 +357,7 @@ def test_surgical_partial_apply_rolls_back_atomically_uno(ctx, doc):
 
     raised = False
     fmt.replace_preserving_format = flaky
+    edit_review.replace_preserving_format = flaky
     try:
         with EditReviewSession(doc, ctx, enabled=True) as session:
             record_preserve_replace(session, doc, found, new, ctx, True)
@@ -373,6 +366,7 @@ def test_surgical_partial_apply_rolls_back_atomically_uno(ctx, doc):
         assert "mid-apply failure" in str(e), e
     finally:
         fmt.replace_preserving_format = real
+        edit_review.replace_preserving_format = real
     session.cleanup()
 
     assert raised, "a mid-apply sub-edit failure must propagate (honest failure), not be swallowed"
@@ -408,13 +402,14 @@ def test_surgical_first_subedit_failure_preserves_prior_undo_uno(ctx, doc):
     found = _find(doc, base)
     new = base.replace("beta", "BETA").replace("delta", "DELTA")  # two surgical sub-edits
 
-    real = fmt.replace_preserving_format
+    real = edit_review.replace_preserving_format
 
     def always_fail(*a, **k):
         raise RuntimeError("first sub-edit fails before mutating")
 
     raised = False
     fmt.replace_preserving_format = always_fail
+    edit_review.replace_preserving_format = always_fail
     try:
         with EditReviewSession(doc, ctx, enabled=True) as session:
             record_preserve_replace(session, doc, found, new, ctx, True)
@@ -422,6 +417,7 @@ def test_surgical_first_subedit_failure_preserves_prior_undo_uno(ctx, doc):
         raised = True
     finally:
         fmt.replace_preserving_format = real
+        edit_review.replace_preserving_format = real
     session.cleanup()
 
     assert raised, "the failure must propagate"
@@ -446,7 +442,7 @@ def test_prior_surgical_batch_survives_later_empty_failed_batch_uno(ctx, doc):
     new1 = b1.replace("quick", "fast").replace("lazy", "sleepy")
     new2 = b2.replace("nimble", "quick").replace("small", "tiny")
 
-    real = fmt.replace_preserving_format
+    real = edit_review.replace_preserving_format
     raised = False
     with EditReviewSession(doc, ctx, enabled=True) as session:
         record_preserve_replace(session, doc, _find(doc, b1), new1, ctx, True)  # batch 1 succeeds
@@ -457,12 +453,14 @@ def test_prior_surgical_batch_survives_later_empty_failed_batch_uno(ctx, doc):
             raise RuntimeError("batch2 boom")
 
         fmt.replace_preserving_format = always_fail
+        edit_review.replace_preserving_format = always_fail
         try:
             record_preserve_replace(session, doc, _find(doc, b2), new2, ctx, True)
         except RuntimeError:
             raised = True
         finally:
             fmt.replace_preserving_format = real
+            edit_review.replace_preserving_format = real
 
         assert raised, "batch 2's failure must propagate"
         assert len(session.changes) == changes_after_b1, "batch 2 must not drop batch 1's records"

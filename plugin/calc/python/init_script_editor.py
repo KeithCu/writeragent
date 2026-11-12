@@ -37,13 +37,13 @@ def open_init_script_editor(ctx: Any) -> None:
         msgbox(ctx, title, _("Open a Calc spreadsheet first."), box_type=1)
         return
 
-    exe, monaco_available = monaco_editor_available(ctx)
+    exe, monaco_available = monaco_editor_available()
     if not monaco_available or exe is None:
         if get_config("scripting.force_internal_script_editor"):
             msgbox(ctx, title, _('The Monaco editor is disabled by "scripting.force_internal_script_editor" in writeragent.json.'), box_type=3)
             return
         if not exe:
-            _unused, err = resolve_editor_python(ctx)
+            _unused, err = resolve_editor_python()
             msgbox(ctx, title, err or _("Configure a Python venv path in Settings → Python."), box_type=3)
             return
         probe_row = cached_webview_probe(exe)

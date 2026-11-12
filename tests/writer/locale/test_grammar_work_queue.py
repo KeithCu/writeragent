@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import inspect
 from pathlib import Path
+import threading
+from typing import Any
 
 
 from plugin.writer.locale.grammar_obs import GrammarStatus
@@ -104,7 +106,7 @@ def test_drain_loop_dispatches_highest_seq_for_same_key() -> None:
 
     def fake_run(group_items, *, grammar_queue_instance=None):
         drained.append(list(group_items))
-        q._q.put(None)
+        q.stop()
         drain_done.set()
 
     for it in items:
@@ -151,7 +153,7 @@ def test_drain_loop_distinct_keys_both_dispatch() -> None:
 
     def fake_run(group_items, *, grammar_queue_instance=None):
         drained.append(list(group_items))
-        q._q.put(None)
+        q.stop()
         drain_done.set()
 
     for it in items:
@@ -221,7 +223,7 @@ def test_drain_loop_collapses_same_key_items_during_burst() -> None:
     def fake_run(group_items, *, grammar_queue_instance=None):
         drained.append(list(group_items))
         if len(drained) == 2:
-            q._q.put(None)
+            q.stop()
             drain_done.set()
 
     for it in items:
@@ -259,7 +261,7 @@ def test_drain_loop_complete_latency_under_one_second() -> None:
 
     def fake_run(group_items, *, grammar_queue_instance=None):
         drained.append(list(group_items))
-        q._q.put(None)
+        q.stop()
         done_evt.set()
 
     start_time = time.monotonic()
@@ -285,7 +287,7 @@ def test_drain_loop_partial_debounces_until_quiet_period() -> None:
 
     def fake_run(group_items, *, grammar_queue_instance=None):
         drained.append(list(group_items))
-        q._q.put(None)
+        q.stop()
         done_evt.set()
 
     key = "doc1|en-US|INCOMPLETE_WRITER_AGENT_INTERNAL_STRING"
@@ -319,7 +321,7 @@ def test_drain_loop_complete_dispatched_while_partial_pending() -> None:
         if len(drained) == 1:
             complete_done.set()
         elif len(drained) == 2:
-            q._q.put(None)
+            q.stop()
             all_done.set()
 
     incomplete_key = "doc1|en-US|INCOMPLETE_WRITER_AGENT_INTERNAL_STRING"
@@ -357,7 +359,7 @@ def test_drain_loop_exception_resilience() -> None:
             first_failed.set()
             raise RuntimeError("Boom!")
         if seq == 2:
-            q._q.put(None)
+            q.stop()
             second_done.set()
 
     with patch("plugin.writer.locale.grammar_worker.run_llm_and_cache_batch", side_effect=fake_run), \
@@ -534,7 +536,7 @@ def test_forget_document_prunes_only_that_document() -> None:
 
 def test_remove_persistence_if_prunes_queue_generations() -> None:
     import time
-    from typing import Any, cast
+    from typing import cast
     from plugin.writer.locale.grammar_persistence import grammar_registry
     from plugin.writer.locale.grammar_work_queue import grammar_queue
 
@@ -570,6 +572,47 @@ def test_enqueue_misses_emits_one_queued_status() -> None:
         )
     mock_status.start.assert_called_once_with("2 sentences", result="queued", routine=True)
     assert queue.enqueue.call_count == 2
+
+
+def test_stop_retires_worker_without_dispatching() -> None:
+    q = GrammarWorkQueue()
+    worker_threads: list[threading.Thread] = []
+
+    def fake_run_in_background(fn: Any, *args: Any, **kwargs: Any) -> threading.Thread:
+        t = threading.Thread(target=fn, args=args, daemon=True)
+        worker_threads.append(t)
+        t.start()
+        return t
+
+    mock_run = MagicMock()
+    with (
+        patch("plugin.framework.worker_pool.run_in_background", side_effect=fake_run_in_background),
+        patch("plugin.writer.locale.grammar_proofread_locale.grammar_max_in_flight", return_value=1),
+        patch("plugin.writer.locale.grammar_proofread_locale.GRAMMAR_COMPLETE_COALESCE_S", 0.5),
+        patch("plugin.writer.locale.grammar_worker.run_llm_and_cache_batch", mock_run),
+    ):
+        q._ensure_workers()
+        q.enqueue(_item(1, key="doc1|en-US|complete-stop", partial=False))
+        q.stop()
+        assert len(worker_threads) == 1
+        worker_threads[0].join(timeout=2.0)
+        assert not worker_threads[0].is_alive()
+        mock_run.assert_not_called()
+
+
+def test_stop_blocks_new_workers() -> None:
+    q = GrammarWorkQueue()
+    q.stop()
+    assert q._worker_count == 0
+    q.enqueue(_item(1, key="doc1|en-US|k", partial=False))
+    assert q._worker_count == 0
+
+
+def test_stop_is_a_quit_hook() -> None:
+    from plugin.framework import quit_hooks
+    from plugin.writer.locale.grammar_work_queue import grammar_queue
+
+    assert grammar_queue.stop in quit_hooks._hooks
 
 
 

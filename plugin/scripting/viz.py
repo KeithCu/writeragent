@@ -2,7 +2,7 @@
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Viz helper templates, host RPC, and document egress (LO host).
+"""Viz helper host RPC and document egress (LO host).
 
 A viz result is ``{status, helper, title, image}``; the host inserts every image
 envelope found in it, not only a top-level ``image`` key. ``status="error"`` is
@@ -39,21 +39,6 @@ _VIZ_VENV_EXPORTS = names("viz") | {"run_viz"}
 install_lazy_exports(globals(), "viz", _VIZ_VENV_EXPORTS)
 
 
-# --- Templates ---
-
-
-def get_viz_script_templates() -> dict[str, str]:
-    from plugin.scripting.domain_registry import get_domain_wiring
-
-    return get_domain_wiring("viz").templates()
-
-
-def parse_viz_script_header(code: str) -> Any:
-    from plugin.scripting.domain_registry import get_domain_wiring
-
-    return get_domain_wiring("viz").parse_header(code)
-
-
 # --- Egress ---
 
 def is_viz_result(value: Any) -> bool:
@@ -82,7 +67,7 @@ def insert_image_payload_for_doc(
 ) -> None:
     """Insert an image envelope into Calc, Writer, or Draw/Impress."""
     if is_calc(doc):
-        from plugin.calc.python.image_egress import insert_image_result_on_sheet
+        from plugin.calc.python.image_egress import insert_image_result_on_sheet  # host only: not in the compute bundle
 
         # Pass the same document =PY() already read. Omitting doc= wrote the
         # chart to desktop.getCurrentComponent(), so image egress fell back to
@@ -92,6 +77,7 @@ def insert_image_payload_for_doc(
     writer = is_writer(doc)
     if not writer and not is_draw(doc):
         raise ToolExecutionError(_("Unsupported document type for plot insertion."), code="VIZ_ERROR")
+    # host only: not in the compute bundle
     from plugin.framework.uno_context import product_display_name
     from plugin.writer.images.image_tools import insert_image, insert_image_at_locator
 

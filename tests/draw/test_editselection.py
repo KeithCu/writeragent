@@ -128,7 +128,7 @@ def _draw_model(selection):
     model = MagicMock()
     um = _UndoManager()
     model.getUndoManager.return_value = um
-    with patch("plugin.draw.editselection._controller_selection", return_value=selection):
+    with patch("plugin.draw.editselection.controller_selection", return_value=selection):
         yield model, um
 
 
@@ -240,7 +240,7 @@ def test_draw_no_selection_allow_whole_document_notifies_sidebar():
     sidebar: list[str] = []
     run = MagicMock()
 
-    with patch("plugin.draw.editselection._controller_selection", return_value=None), \
+    with patch("plugin.draw.editselection.controller_selection", return_value=None), \
          patch("plugin.draw.editselection.get_config", side_effect=_config), \
          patch("plugin.draw.editselection.create_validated_client", return_value=object()), \
          patch("plugin.draw.editselection.stream_completion_tasks", run):
@@ -262,7 +262,7 @@ def test_draw_no_selection_without_sidebar_msgbox():
 
     model = MagicMock()
 
-    with patch("plugin.draw.editselection._controller_selection", return_value=None), \
+    with patch("plugin.draw.editselection.controller_selection", return_value=None), \
          patch("plugin.draw.editselection.get_config", side_effect=_config), \
          patch("plugin.draw.editselection.msgbox") as msgbox:
         do_draw_extend_edit(MagicMock(), model, is_edit=False)

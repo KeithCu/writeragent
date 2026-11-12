@@ -14,7 +14,7 @@ def test_normalize_doc_url():
 def test_inject_markers_into_excerpt():
     text = "0123456789"
     with patch(
-        "plugin.doc.text_helpers._read_writer_text_slice",
+        "plugin.doc.text_helpers.read_writer_text_slice",
         side_effect=lambda _model, start, length: text[start:start + length],
     ):
         # Excerpt covers 0-10, selection is 2-5

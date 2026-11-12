@@ -19,13 +19,13 @@ from plugin.scripting.venv.coerce import (
     coerce_bool,
     coerce_optional_float,
     coerce_str_list,
-    resolve_df as _resolve_df,
-    table_from_df as _table_from_df,
+    resolve_df,
+    table_from_df,
 )
-from plugin.scripting.venv.results import error_result as _error_result
+from plugin.scripting.venv.results import HelperError, catch_helper_error, error_result
 from plugin.scripting.venv.trusted_dispatch import (
-    missing_package_error as _missing_package_error,
-    ok_result as _ok_result,
+    missing_package_error,
+    ok_result,
     run_domain,
 )
 
@@ -66,7 +66,7 @@ def _linprog_bounds(bounds: Any, n_vars: int) -> Any:
         and all(_is_bound_pair(item) for item in bounds)
     ):
         return [(item[0], item[1]) for item in bounds]
-    raise ValueError(_BOUNDS_ERROR)
+    raise HelperError("INVALID_PARAM", _BOUNDS_ERROR)
 
 
 def _constraint_bounds(b: Any, n_constraints: int) -> Any:
@@ -99,6 +99,7 @@ def _with_flags(result: dict[str, Any], flags: list[str]) -> dict[str, Any]:
 
 
 @helper("optimize")
+@catch_helper_error
 def linear_programming(
     data: Any,
     *,
@@ -126,40 +127,37 @@ def linear_programming(
     try:
         from scipy import optimize as scipy_optimize
     except ImportError:
-        return _missing_package_error(helper, "scipy")
+        return missing_package_error(helper, "scipy")
 
     for name, raw in (("c_col", c_col), ("b_col", b_col)):
         if not isinstance(raw, str) or not raw.strip():
-            return _error_result("INVALID_PARAM", f"{name} must be a string, got {raw!r}", helper=helper)
+            return error_result("INVALID_PARAM", f"{name} must be a string, got {raw!r}", helper=helper)
     c_col, b_col = c_col.strip(), b_col.strip()
 
-    try:
-        a_cols_list = coerce_str_list(a_cols, name="a_cols")
-        if not a_cols_list:
-            return _error_result("INVALID_PARAM", "a_cols is required", helper=helper)
+    a_cols_list = coerce_str_list(a_cols, name="a_cols")
+    if not a_cols_list:
+        return error_result("INVALID_PARAM", "a_cols is required", helper=helper)
 
-        all_lp_cols = [c_col, b_col, *a_cols_list]
-        duplicates = [col_name for col_name, count in Counter(all_lp_cols).items() if count > 1]
-        if duplicates:
-            names = ", ".join(duplicates)
-            return _error_result(
-                "INVALID_PARAM",
-                f"c_col, b_col, and a_cols must name distinct columns; repeated: {names}",
-                helper=helper,
-            )
+    all_lp_cols = [c_col, b_col, *a_cols_list]
+    duplicates = [col_name for col_name, count in Counter(all_lp_cols).items() if count > 1]
+    if duplicates:
+        names = ", ".join(duplicates)
+        return error_result(
+            "INVALID_PARAM",
+            f"c_col, b_col, and a_cols must name distinct columns; repeated: {names}",
+            helper=helper,
+        )
 
-        maximize_val = coerce_bool(maximize, name="maximize", default=False)
-    except ValueError as exc:
-        return _error_result("INVALID_PARAM", str(exc), helper=helper)
+    maximize_val = coerce_bool(maximize, name="maximize", default=False)
 
-    coerced = _resolve_df(data, headers=headers, header_row=header_row, sheet_hint=sheet_hint)
+    coerced = resolve_df(data, headers=headers, header_row=header_row, sheet_hint=sheet_hint)
     df = coerced.df
 
     available = [str(c) for c in df.columns]
     needed_cols = [c_col, b_col] + a_cols_list
     missing = [c for c in needed_cols if c not in df.columns]
     if missing:
-        return _error_result(
+        return error_result(
             "UNKNOWN_COLUMN",
             f"Columns not found: {', '.join(missing)}. Available: {', '.join(available)}",
             helper=helper,
@@ -171,7 +169,7 @@ def linear_programming(
     keep_mask = numeric_df.notna().all(axis=1)
     clean_df = numeric_df[keep_mask]
     if clean_df.empty:
-        return _error_result("INSUFFICIENT_DATA", "No data for linear programming", helper=helper)
+        return error_result("INSUFFICIENT_DATA", "No data for linear programming", helper=helper)
 
     # Objective coefficients, one per variable row.
     c = clean_df[c_col].to_numpy(dtype=float)
@@ -184,7 +182,7 @@ def linear_programming(
     A_ub = coeff.T
     b_ub = _constraint_bounds(clean_df[b_col].to_numpy(dtype=float), n_constraints)
     if b_ub is None:
-        return _error_result(
+        return error_result(
             "SHAPE_MISMATCH",
             (
                 "linear_programming constraint shapes do not match: "
@@ -210,25 +208,22 @@ def linear_programming(
     ):
         bounds = [item for item, keep in zip(bounds, keep_mask) if bool(keep)]
 
-    try:
-        lp_bounds = _linprog_bounds(bounds, len(c))
-    except ValueError as exc:
-        return _error_result("INVALID_PARAM", str(exc), helper=helper)
+    lp_bounds = _linprog_bounds(bounds, len(c))
 
     try:
         res = scipy_optimize.linprog(c, A_ub=A_ub, b_ub=b_ub, bounds=lp_bounds)
     except Exception as e:
-        return _error_result("OPTIMIZATION_FAILED", str(e), helper=helper)
+        return error_result("OPTIMIZATION_FAILED", str(e), helper=helper)
 
     if not res.success:
         code = {2: "INFEASIBLE", 3: "UNBOUNDED"}.get(int(res.status), "OPTIMIZATION_FAILED")
-        return _error_result(code, res.message, helper=helper, details={"solver_status": int(res.status)})
+        return error_result(code, res.message, helper=helper, details={"solver_status": int(res.status)})
 
     solution_df = pd.DataFrame({
         "variable_index": range(len(res.x)),
         "optimal_value": np.round(res.x, 4)
     })
-    table = _table_from_df(solution_df, name="lp_solution", max_rows=ANALYSIS_DATA_TABLE_ROWS)
+    table = table_from_df(solution_df, name="lp_solution", max_rows=ANALYSIS_DATA_TABLE_ROWS)
 
     metrics = {
         "objective_value": float(-res.fun) if maximize_val else float(res.fun),
@@ -236,10 +231,11 @@ def linear_programming(
         "iterations": int(res.nit)
     }
 
-    return _ok_result(helper, metrics=metrics, tables=[table], metadata=coerced.metadata)
+    return ok_result(helper, metrics=metrics, tables=[table], metadata=coerced.metadata)
 
 
 @helper("optimize")
+@catch_helper_error
 def optimize_portfolio(
     data: Any,
     *,
@@ -264,26 +260,20 @@ def optimize_portfolio(
     try:
         from scipy import optimize as scipy_optimize
     except ImportError:
-        return _missing_package_error(helper, "scipy")
-    try:
-        returns_col_list = coerce_str_list(returns_col, name="returns_col")
-        target_return_val = coerce_optional_float(target_return, name="target_return")
-        rf_val = coerce_optional_float(risk_free_rate, name="risk_free_rate") or 0.0
-    except ValueError as exc:
-        return _error_result("INVALID_PARAM", str(exc), helper=helper)
+        return missing_package_error(helper, "scipy")
+    returns_col_list = coerce_str_list(returns_col, name="returns_col")
+    target_return_val = coerce_optional_float(target_return, name="target_return")
+    rf_val = coerce_optional_float(risk_free_rate, name="risk_free_rate") or 0.0
 
-    coerced = _resolve_df(data, headers=headers, header_row=header_row, sheet_hint=sheet_hint)
+    coerced = resolve_df(data, headers=headers, header_row=header_row, sheet_hint=sheet_hint)
     df = coerced.df
 
     flags: list[str] = []
-    try:
-        numeric_cols = auto_numeric(df, returns_col_list, flags)
-    except ValueError as exc:
-        return _error_result("UNKNOWN_COLUMN", str(exc), helper=helper)
+    numeric_cols = auto_numeric(df, returns_col_list, flags)
 
     if not numeric_cols or len(numeric_cols) < 2:
         return _with_flags(
-            _error_result("INSUFFICIENT_DATA", "Need at least two numeric columns (assets).", helper=helper),
+            error_result("INSUFFICIENT_DATA", "Need at least two numeric columns (assets).", helper=helper),
             flags,
         )
 
@@ -295,14 +285,14 @@ def optimize_portfolio(
         flags.append(f"Dropped {dropped_rows} return rows with a missing value")
 
     if len(returns) < 2:
-        return _error_result("INSUFFICIENT_DATA", "Need at least two complete return rows.", helper=helper)
+        return error_result("INSUFFICIENT_DATA", "Need at least two complete return rows.", helper=helper)
 
     cov_matrix = returns.cov().to_numpy()
     mean_returns = returns.mean().to_numpy()
 
     scale = float(np.mean(np.diag(cov_matrix)))
     if not np.isfinite(cov_matrix).all() or not math.isfinite(scale) or scale <= 0:
-        return _error_result("INSUFFICIENT_DATA", "Return covariance is not positive.", helper=helper)
+        return error_result("INSUFFICIENT_DATA", "Return covariance is not positive.", helper=helper)
 
     scaled_cov = cov_matrix / scale
     num_assets = len(numeric_cols)
@@ -327,7 +317,7 @@ def optimize_portfolio(
     init_guess = np.array(num_assets * [1.0 / num_assets])
     if target_return_val is not None:
         if target_return_val < min_mean - 1e-12 or target_return_val > max_mean + 1e-12:
-            return _error_result(
+            return error_result(
                 "INFEASIBLE_TARGET",
                 f"target_return {target_return_val} is outside the achievable long-only "
                 f"range [{min_mean}, {max_mean}].",
@@ -357,10 +347,10 @@ def optimize_portfolio(
             options={"ftol": 1e-12},
         )
     except Exception as e:
-        return _error_result("OPTIMIZATION_FAILED", str(e), helper=helper)
+        return error_result("OPTIMIZATION_FAILED", str(e), helper=helper)
 
     if not result.success:
-        return _error_result("OPTIMIZATION_FAILED", result.message, helper=helper)
+        return error_result("OPTIMIZATION_FAILED", result.message, helper=helper)
 
     raw_weights = result.x
     expected_return = float(np.sum(mean_returns * raw_weights))
@@ -372,7 +362,7 @@ def optimize_portfolio(
         "asset": numeric_cols,
         "weight": np.round(raw_weights, 4)
     })
-    table = _table_from_df(weights_df, name="portfolio_weights", max_rows=ANALYSIS_DATA_TABLE_ROWS)
+    table = table_from_df(weights_df, name="portfolio_weights", max_rows=ANALYSIS_DATA_TABLE_ROWS)
 
     metrics = {
         "expected_return": expected_return,
@@ -381,12 +371,13 @@ def optimize_portfolio(
     }
 
     return _with_flags(
-        _ok_result(helper, metrics=metrics, tables=[table], metadata=coerced.metadata),
+        ok_result(helper, metrics=metrics, tables=[table], metadata=coerced.metadata),
         flags,
     )
 
 
 @helper("optimize")
+@catch_helper_error
 def solve_scheduling_problem(
     data: Any,
     *,
@@ -405,32 +396,26 @@ def solve_scheduling_problem(
     try:
         from scipy import optimize as scipy_optimize
     except ImportError:
-        return _missing_package_error(helper, "scipy")
+        return missing_package_error(helper, "scipy")
 
-    try:
-        cost_cols_list = coerce_str_list(cost_cols, name="cost_cols")
-    except ValueError as exc:
-        return _error_result("INVALID_PARAM", str(exc), helper=helper)
+    cost_cols_list = coerce_str_list(cost_cols, name="cost_cols")
 
-    coerced = _resolve_df(data, headers=headers, header_row=header_row, sheet_hint=sheet_hint)
+    coerced = resolve_df(data, headers=headers, header_row=header_row, sheet_hint=sheet_hint)
     df = coerced.df
 
     flags: list[str] = []
-    try:
-        numeric_cols = auto_numeric(df, cost_cols_list, flags)
-    except ValueError as exc:
-        return _error_result("UNKNOWN_COLUMN", str(exc), helper=helper)
+    numeric_cols = auto_numeric(df, cost_cols_list, flags)
 
     if not numeric_cols:
         return _with_flags(
-            _error_result("INSUFFICIENT_DATA", "Need numeric columns for cost matrix.", helper=helper),
+            error_result("INSUFFICIENT_DATA", "Need numeric columns for cost matrix.", helper=helper),
             flags,
         )
 
     df_cost = df[numeric_cols].apply(pd.to_numeric, errors="coerce")
     df_clean = df_cost.dropna()
     if df_clean.empty:
-        return _error_result("INSUFFICIENT_DATA", "Need numeric columns for cost matrix.", helper=helper)
+        return error_result("INSUFFICIENT_DATA", "Need numeric columns for cost matrix.", helper=helper)
 
     n_rows = len(df_clean)
     n_cols = len(numeric_cols)
@@ -449,7 +434,7 @@ def solve_scheduling_problem(
     try:
         row_ind, col_ind = scipy_optimize.linear_sum_assignment(cost_matrix)
     except Exception as e:
-        return _error_result("OPTIMIZATION_FAILED", str(e), helper=helper)
+        return error_result("OPTIMIZATION_FAILED", str(e), helper=helper)
 
     total_cost = float(cost_matrix[row_ind, col_ind].sum())
 
@@ -462,7 +447,7 @@ def solve_scheduling_problem(
         "cost": cost_matrix[row_ind, col_ind]
     })
 
-    table = _table_from_df(assignment_df, name="optimal_assignment", max_rows=ANALYSIS_DATA_TABLE_ROWS)
+    table = table_from_df(assignment_df, name="optimal_assignment", max_rows=ANALYSIS_DATA_TABLE_ROWS)
 
     metrics = {
         "total_cost": total_cost,
@@ -472,7 +457,7 @@ def solve_scheduling_problem(
     }
 
     return _with_flags(
-        _ok_result(helper, metrics=metrics, tables=[table], metadata=coerced.metadata),
+        ok_result(helper, metrics=metrics, tables=[table], metadata=coerced.metadata),
         flags,
     )
 

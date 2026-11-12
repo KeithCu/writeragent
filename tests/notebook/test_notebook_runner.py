@@ -71,6 +71,17 @@ def test_format_run_output_text_skips_image_result():
     assert text == ""
 
 
+def test_format_run_output_text_hides_multi_data_of_images():
+    from plugin.scripting.payload_codec import pack_image_envelope, pack_multi_data_envelope
+
+    img = pack_image_envelope(b"png-bytes", "png")
+    only_images = pack_multi_data_envelope([img, img])
+    assert format_run_output_text({"status": "ok", "stdout": "", "result": only_images}) == ""
+
+    mixed = pack_multi_data_envelope([img, 1])
+    assert format_run_output_text({"status": "ok", "stdout": "", "result": mixed}) != ""
+
+
 def test_format_run_output_text_unpack_failure_renders_raw_wire():
     wire = {"raw": "payload"}
     with patch("plugin.notebook.notebook_runner.host_unpack_data", side_effect=ValueError("bad")):
@@ -357,17 +368,15 @@ def test_insert_run_image_svg_mime(value, value_2, expected):
     insert_flow.assert_called_once()
     assert insert_flow.call_args.kwargs["mime"] == expected
 
-def test_shared_notebook_session_via_sandbox():
-    from plugin.scripting.venv.venv_sandbox import SESSIONS, run_sandboxed_code
+def test_shared_notebook_session_via_sandbox(fresh_sandbox_sessions):
+    from plugin.scripting.venv.venv_sandbox import run_sandboxed_code
 
-    SESSIONS.clear_all()
     sid = "notebook:test-runner"
     r1 = run_sandboxed_code("x = 41\nresult = x + 1", None, session_id=sid)
     assert r1["status"] == "ok"
     r2 = run_sandboxed_code("result = x + 1", None, session_id=sid)
     assert r2["status"] == "ok"
     assert r2["result"] == 42
-    SESSIONS.clear_all()
 
 
 @pytest.mark.parametrize(

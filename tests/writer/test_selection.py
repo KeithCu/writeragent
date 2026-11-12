@@ -130,7 +130,7 @@ def test_set_selection_by_search_text_selects_and_reports():
     ctx, doc, controller = _selection_ctx()
     found = MagicMock()
     found.getString.return_value = "clause 3.2"
-    with patch("plugin.writer.selection.find_occurrence_range", return_value=found):
+    with patch("plugin.writer.search.find_occurrence_range", return_value=found):
         res = SetSelection().execute(ctx, search_text="clause 3.2")
     assert res["status"] == "ok" and res["selected_text"] == "clause 3.2"
     assert res["matched_case_sensitive"] is False
@@ -141,7 +141,7 @@ def test_set_selection_occurrence_walks_findNext():
     ctx, doc, controller = _selection_ctx()
     second = MagicMock()
     second.getString.return_value = "hit2"
-    with patch("plugin.writer.selection.find_occurrence_range", return_value=second) as mock_find:
+    with patch("plugin.writer.search.find_occurrence_range", return_value=second) as mock_find:
         res = SetSelection().execute(ctx, search_text="hit", occurrence=1)
     assert res["status"] == "ok" and res["selected_text"] == "hit2"
     assert res["matched_case_sensitive"] is False
@@ -151,10 +151,12 @@ def test_set_selection_occurrence_walks_findNext():
 
 def test_set_selection_no_match_errors():
     ctx, doc, controller = _selection_ctx()
-    with patch("plugin.writer.selection.find_occurrence_range", return_value=None), \
-         patch("plugin.writer.selection.drawing_shape_containing", return_value=None):
+    with patch("plugin.writer.search.find_occurrence_range", return_value=None), \
+         patch("plugin.writer.search.drawing_shape_containing", return_value=None):
         res = SetSelection().execute(ctx, search_text="nope")
-    assert res["status"] == "error" and "No match" in res["message"]
+    assert res["status"] == "error"
+    assert "search_text not found in document" in res["message"]
+    assert "closest_match" not in res
     assert res["code"] == "OLD_CONTENT_NOT_FOUND"
     assert res["matched_case_sensitive"] is False
     controller.select.assert_not_called()
@@ -163,10 +165,10 @@ def test_set_selection_no_match_errors():
 def test_set_selection_shape_match_returns_shape_message():
     ctx, doc, controller = _selection_ctx()
     mock_shape = MagicMock(return_value="Box 1")
-    with patch("plugin.writer.selection.find_occurrence_range", return_value=None), \
-         patch("plugin.writer.selection.drawing_shape_containing", mock_shape):
+    with patch("plugin.writer.search.find_occurrence_range", return_value=None), \
+         patch("plugin.writer.search.drawing_shape_containing", mock_shape):
         res = SetSelection().execute(ctx, search_text="in_shape")
-    mock_shape.assert_called_once_with(doc, "in_shape", case_sensitive=False)
+    mock_shape.assert_called_once_with(doc, "in_shape", use_regex=False, case_sensitive=False)
     assert res["status"] == "error"
     assert res["code"] == "SHAPE_TEXT_NEEDS_DELEGATION"
     assert res["matched_case_sensitive"] is False
@@ -177,7 +179,7 @@ def test_set_selection_shape_match_returns_shape_message():
 
 def test_set_selection_occurrence_out_of_range():
     ctx, doc, controller = _selection_ctx()
-    with patch("plugin.writer.selection.find_occurrence_range", side_effect=IndexError("occurrence 3 out of range (found 2 match(es), use 0..1).")):
+    with patch("plugin.writer.search.find_occurrence_range", side_effect=IndexError("occurrence 3 out of range (found 2 match(es), use 0..1).")):
         res = SetSelection().execute(ctx, search_text="hit", occurrence=3)
     assert res["status"] == "error"
     assert res["code"] == "OCCURRENCE_OUT_OF_RANGE"
@@ -207,12 +209,14 @@ def test_set_selection_mixed_args_error():
     assert "Cannot combine" in res["message"]
 
 
-def test_set_selection_char_range_bool_error():
-    ctx, doc, controller = _selection_ctx()
-    res = SetSelection().execute(ctx, char_start=True, char_end=10)
-    assert res["status"] == "error"
-    assert res["code"] == "INVALID_PARAM"
-    assert "integer" in res["message"]
+def test_set_selection_char_range_bool_is_rejected_before_execute():
+    from plugin.framework.tool import prepare_tool_call
+
+    ctx = SimpleNamespace(doc_type="writer", caller="test")
+    prep = prepare_tool_call(SetSelection(), ctx, "set_selection", {"char_start": True, "char_end": 10})
+    assert prep.error is not None
+    assert prep.error["code"] == "VALIDATION_ERROR"
+    assert prep.error["message"] == "Invalid type for char_start: expected integer, got bool"
 
 
 def test_set_selection_char_range_negative_error():
@@ -336,14 +340,14 @@ def test_apply_document_content_selection_failure_not_silent():
     from plugin.framework.config import save
     save({'doc.agent_edit_review_mode': 'none'})
     from plugin.framework.errors import ToolExecutionError
-    from plugin.writer import html_import as format_support
+    from plugin.writer import html_import
     from plugin.writer.apply_document_content import ApplyDocumentContent
 
     ctx = MagicMock()
     ctx.doc.getUndoManager.return_value.isLocked.return_value = False
     ctx.services.get.return_value = MagicMock()
     with patch("plugin.writer.apply_document_content.selection_anchor", return_value=MagicMock()), \
-         patch.object(format_support, "insert_content_at_position",
+         patch.object(html_import, "insert_content_at_position",
                       side_effect=ToolExecutionError("Could not resolve the current selection")):
         # _execute maps ToolExecutionError to the standard tool error dict so chat/MCP
         # see status=error (nested-table follow-up). Raising here was the old contract
@@ -365,22 +369,52 @@ def test_set_selection_disposal_is_document_disposed():
 
 def test_set_selection_markup_search_miss_shows_stripped_string():
     ctx, doc, controller = _selection_ctx()
-    with patch("plugin.writer.selection.find_occurrence_range", return_value=None), \
-         patch("plugin.writer.selection.drawing_shape_containing", return_value=None):
+    with patch("plugin.writer.search.find_occurrence_range", return_value=None) as mock_find, \
+         patch("plugin.writer.search.drawing_shape_containing", return_value=None):
         res = SetSelection().execute(ctx, search_text="<b>missing_word</b>")
     assert res["status"] == "error"
-    assert "missing_word" in res["message"]
-    assert "<b>" not in res["message"]
+    assert res["code"] == "OLD_CONTENT_NOT_FOUND"
+    mock_find.assert_called_once_with(doc, "missing_word", occurrence=0, case_sensitive=False)
 
 
-def test_set_selection_non_int_occurrence_does_not_touch_controller():
+def test_set_selection_non_int_occurrence_does_not_select():
     ctx, doc, controller = _selection_ctx()
     res = SetSelection().execute(ctx, search_text="hello", occurrence="first")
     assert res["status"] == "error"
     assert res["code"] == "INVALID_PARAM"
     assert res["message"] == "occurrence must be a non-negative integer."
     controller.select.assert_not_called()
-    doc.getCurrentController.assert_not_called()
+
+
+def test_set_selection_miss_reports_closest_match():
+    ctx, doc, controller = _selection_ctx()
+    closest = {
+        "closest_match": "helpo...",
+        "diff_at": 3,
+        "message": "closest match differs at 3",
+    }
+    with patch("plugin.writer.search.find_occurrence_range", return_value=None), \
+         patch("plugin.writer.search.drawing_shape_containing", return_value=None), \
+         patch("plugin.writer.search.search_closest_mismatch", return_value=closest):
+        res = SetSelection().execute(ctx, search_text="hello")
+    assert res["status"] == "error"
+    assert res["code"] == "OLD_CONTENT_NOT_FOUND"
+    assert res["closest_match"] == "helpo..."
+    assert res["diff_at"] == 3
+
+
+def test_set_selection_oversized_search_does_not_refuse():
+    ctx, doc, controller = _selection_ctx()
+    with patch("plugin.writer.search.find_occurrence_range", return_value=None), \
+         patch("plugin.writer.search.drawing_shape_containing", return_value=None), \
+         patch("plugin.writer.search.search_closest_mismatch", return_value=None), \
+         patch("plugin.writer.search.old_content_covers_most", return_value=True):
+        res = SetSelection().execute(ctx, search_text="long needle covering most of doc")
+    assert res["status"] == "error"
+    assert res["code"] == "OLD_CONTENT_NOT_FOUND"
+    assert "target='full_document'" not in res["message"]
+    assert "search_text not found in document" in res["message"]
+    controller.select.assert_not_called()
 
 
 def test_set_selection_read_failure_on_truncated_range_keeps_both_warnings():
@@ -398,7 +432,7 @@ def test_set_selection_read_failure_on_truncated_range_keeps_both_warnings():
 
 def test_set_selection_blank_search_text_errors_after_normalization():
     ctx, doc, controller = _selection_ctx()
-    with patch("plugin.writer.selection.find_occurrence_range") as mock_find:
+    with patch("plugin.writer.search.find_occurrence_range") as mock_find:
         for blank in ("   ", "<b></b>"):
             res = SetSelection().execute(ctx, search_text=blank)
             assert res["status"] == "error"

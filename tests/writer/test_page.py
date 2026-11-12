@@ -3,6 +3,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from plugin.tests.testing_utils import TestingFactory
+from plugin.writer import html_import_styles
 
 
 # Set up BreakType PAGE_BEFORE constant explicitly if needed for the test
@@ -22,6 +23,7 @@ from plugin.writer.page import (
     _disable_blocked_by_content,
     _region_holds_content,
     _region_mirrors_shared,
+    _region_shapes,
     _scan_region_content,
     copy_page_style,
 )
@@ -142,7 +144,7 @@ def test_set_header_footer_text():
 
     ctx = TestingFactory.create_context(doc=doc, doc_type="writer")
     tool = PageSetHeaderFooterText()
-    with patch("plugin.writer.html_import.replace_xtext_with_html", return_value=[]) as replace_html:
+    with patch("plugin.writer.page.replace_xtext_with_html", return_value=html_import_styles.WriteReport()) as replace_html:
         res = tool.execute(
             ctx,
             style="Standard",
@@ -347,7 +349,7 @@ def test_get_header_footer_returns_html_and_still_lists_logo_and_field():
     ])
     doc, _style = _page_style_doc(text_obj, shapes=[_logo_anchored_in(text_obj)])
 
-    with patch("plugin.writer.html_export.xtext_to_content",
+    with patch("plugin.writer.page.xtext_to_content",
                return_value='<p>ESCRITORIO ZOLET <span title="page-number"/></p>') as export:
         res = PageGetHeaderFooterText().execute(
             TestingFactory.create_context(doc=doc, doc_type="writer"),
@@ -371,13 +373,13 @@ def test_get_header_propagates_export_error_and_disposal():
     doc, _style = _page_style_doc(text_obj)
     ctx = TestingFactory.create_context(doc=doc, doc_type="writer")
     with (
-        patch("plugin.writer.html_export.xtext_to_content", side_effect=ToolExecutionError("Could not read the document: boom")),
+        patch("plugin.writer.page.xtext_to_content", side_effect=ToolExecutionError("Could not read the document: boom")),
         pytest.raises(ToolExecutionError, match="boom"),
     ):
         PageGetHeaderFooterText().execute(ctx, style="Standard", region="header")
     with (
         patch(
-            "plugin.writer.html_export.xtext_to_content",
+            "plugin.writer.page.xtext_to_content",
             side_effect=DocumentDisposedError("closed", object_type="document"),
         ),
         pytest.raises(DocumentDisposedError),
@@ -394,7 +396,7 @@ def test_set_header_footer_imports_html_even_when_a_logo_is_present():
     doc, style = _page_style_doc(text_obj, shapes=[_logo_anchored_in(text_obj)])
     html = '<p>ESCRITORIO ZOLET <img src="data:image/png;base64,xx" alt="TIMBRE"/></p>'
 
-    with patch("plugin.writer.html_import.replace_xtext_with_html", return_value=[]) as replace_html:
+    with patch("plugin.writer.page.replace_xtext_with_html", return_value=html_import_styles.WriteReport()) as replace_html:
         res = PageSetHeaderFooterText().execute(
             TestingFactory.create_context(doc=doc, doc_type="writer"),
             style="Standard", region="header", content=html)
@@ -414,7 +416,7 @@ def test_set_header_footer_reports_unapplied_data_lo_para():
     doc, _style = _page_style_doc(text_obj)
     html = '<p data-lo-para="margin-left:1cm; font-weight:bold">Header</p>'
 
-    with patch("plugin.writer.html_import.replace_xtext_with_html", return_value=["font-weight"]):
+    with patch("plugin.writer.page.replace_xtext_with_html", return_value=html_import_styles.WriteReport(unapplied_para=["font-weight"])):
         res = PageSetHeaderFooterText().execute(
             TestingFactory.create_context(doc=doc, doc_type="writer"),
             style="Standard", region="header", content=html)
@@ -436,7 +438,7 @@ def test_set_header_footer_imports_field_html_without_force():
     doc, _style = _page_style_doc(text_obj)
     html = '<p>Confidential | <span title="page-number"/></p>'
 
-    with patch("plugin.writer.html_import.replace_xtext_with_html", return_value=[]) as replace_html:
+    with patch("plugin.writer.page.replace_xtext_with_html", return_value=html_import_styles.WriteReport()) as replace_html:
         res = PageSetHeaderFooterText().execute(
             TestingFactory.create_context(doc=doc, doc_type="writer"),
             style="Standard", region="footer", content=html)
@@ -456,7 +458,7 @@ def test_set_header_footer_imports_table_html_without_force():
     doc, _style = _page_style_doc(text_obj)
     html = "<table><tr><td>Logo cell</td><td>Address cell</td></tr></table>"
 
-    with patch("plugin.writer.html_import.replace_xtext_with_html", return_value=[]) as replace_html:
+    with patch("plugin.writer.page.replace_xtext_with_html", return_value=html_import_styles.WriteReport()) as replace_html:
         res = PageSetHeaderFooterText().execute(
             TestingFactory.create_context(doc=doc, doc_type="writer"),
             style="Standard", region="header", content=html)
@@ -475,7 +477,7 @@ def test_set_header_footer_enables_a_region_that_is_off():
     doc, style = _page_style_doc(text_obj)
     style.getPropertyValue.side_effect = lambda n: False if n.endswith("IsOn") else text_obj
 
-    with patch("plugin.writer.html_import.replace_xtext_with_html", return_value=[]) as replace_html:
+    with patch("plugin.writer.page.replace_xtext_with_html", return_value=html_import_styles.WriteReport()) as replace_html:
         res = PageSetHeaderFooterText().execute(
             TestingFactory.create_context(doc=doc, doc_type="writer"),
             style="Standard", region="footer", content="Rua Exemplo, 123")
@@ -532,7 +534,7 @@ def test_get_header_footer_surfaces_walk_cap_warning(monkeypatch):
     text_obj.createEnumeration.side_effect = lambda: _enum_of([_paragraph(extra)])
     doc, _style = _page_style_doc(text_obj)
     monkeypatch.setattr(pg, "_SCAN_PORTION_LIMIT", 1)
-    with patch("plugin.writer.html_export.xtext_to_content", return_value="<p>plain</p>"):
+    with patch("plugin.writer.page.xtext_to_content", return_value="<p>plain</p>"):
         res = PageGetHeaderFooterText().execute(
             TestingFactory.create_context(doc=doc, doc_type="writer"),
             style="Standard", region="header")
@@ -544,11 +546,11 @@ def test_get_header_footer_surfaces_walk_cap_warning(monkeypatch):
 def test_first_page_region_targets_its_own_text_object():
     """A 'different first page' letterhead lives in HeaderTextFirst; the shared HeaderText never
     reaches it."""
-    from plugin.writer.page import _REGION_PROPS
+    from plugin.writer.page import REGION_PROPS
 
-    assert _REGION_PROPS["header_first"] == ("HeaderIsOn", "HeaderTextFirst")
-    assert _REGION_PROPS["footer_first"] == ("FooterIsOn", "FooterTextFirst")
-    assert _REGION_PROPS["header_left"] == ("HeaderIsOn", "HeaderTextLeft")
+    assert REGION_PROPS["header_first"] == ("HeaderIsOn", "HeaderTextFirst")
+    assert REGION_PROPS["footer_first"] == ("FooterIsOn", "FooterTextFirst")
+    assert REGION_PROPS["header_left"] == ("HeaderIsOn", "HeaderTextLeft")
 
 
 def test_first_page_region_uses_the_header_height_properties():
@@ -588,7 +590,7 @@ def test_get_header_reports_logo_when_anchor_text_wrapper_differs():
 
     with (
         patch.object(sys.modules["uno"], "isSame", side_effect=lambda a, b: {a, b} == {text_obj, other}),
-        patch("plugin.writer.html_export.xtext_to_content", return_value=""),
+        patch("plugin.writer.page.xtext_to_content", return_value=""),
     ):
         res = PageGetHeaderFooterText().execute(
             TestingFactory.create_context(doc=doc, doc_type="writer"), style="Standard", region="header")
@@ -736,7 +738,7 @@ def test_scan_region_skips_table_element_and_marks_has_table():
     text_obj = MagicMock()
     text_obj.getString.return_value = ""
     text_obj.createEnumeration.side_effect = lambda: _enum_of([table])
-    scan = _scan_region_content(doc, text_obj, strict=True)
+    scan = _scan_region_content(doc, text_obj)
     assert scan["has_table"] is True
     assert scan["paragraph_count"] == 1
     assert _region_holds_content(doc, text_obj) is True
@@ -1045,10 +1047,35 @@ def test_page_break_both_anchors_still_rejected_when_page_style_set():
 def test_page_break_anchor_not_found():
     from plugin.writer.page import PageInsertBreak
     doc = MagicMock()
+    doc.getDrawPage.return_value = None
     doc.findFirst.return_value = None
     # com.sun.star.style.BreakType is a mocked module; the import inside execute resolves via the uno mock.
     res = PageInsertBreak().execute(SimpleNamespace(doc=doc), before_text="Signature")
-    assert res["status"] == "error" and "not found" in res["message"]
+    assert res["status"] == "error"
+    assert res["code"] == "OLD_CONTENT_NOT_FOUND"
+    assert "before_text not found in document" in res["message"]
+
+
+def test_page_break_anchor_occurrence_out_of_range():
+    from plugin.writer.page import PageInsertBreak
+    doc = MagicMock()
+    m1 = MagicMock()
+    doc.findFirst.return_value = m1
+    doc.findNext.return_value = None
+    res = PageInsertBreak().execute(SimpleNamespace(doc=doc), before_text="Signature", occurrence=1)
+    assert res["status"] == "error"
+    assert res["code"] == "OCCURRENCE_OUT_OF_RANGE"
+    assert "use 0..0" in res["message"]
+
+
+def test_page_break_anchor_strips_markup_before_find():
+    from plugin.writer.page import PageInsertBreak
+    from plugin.writer.search import escape_for_lo_regex
+
+    doc, para = _pagebreak_doc()
+    res = PageInsertBreak().execute(SimpleNamespace(doc=doc), before_text="<b>Assinaturas</b>")
+    assert res["status"] == "ok"
+    assert doc.createSearchDescriptor.return_value.SearchString == escape_for_lo_regex("Assinaturas")
 
 
 def test_page_break_unknown_page_style_changes_nothing():
@@ -1178,7 +1205,7 @@ def test_copy_page_style_inserts_without_touching_follow_style():
     doc.createInstance.return_value = clone
 
     with patch(
-        "plugin.writer.styles._copy_direct_style_properties",
+        "plugin.writer.styles.copy_direct_style_properties",
         return_value=(["LeftMargin"], []),
     ) as copier:
         stats = copy_page_style(doc, "Src", "Dst")
@@ -1223,9 +1250,9 @@ def test_copy_page_regions_does_not_export_html():
     doc = MagicMock()
     doc.getDrawPage.return_value.getCount.return_value = 0
 
-    with patch("plugin.writer.range_copy._copy_flow_into_xtext", return_value=1) as mock_flow, \
-         patch("plugin.writer.html_export.xtext_to_content") as mock_xtext_to_content, \
-         patch("plugin.writer.html_import.replace_xtext_with_html") as mock_replace_html:
+    with patch("plugin.writer.page.copy_flow_into_xtext", return_value=1) as mock_flow, \
+         patch("plugin.writer.page.xtext_to_content") as mock_xtext_to_content, \
+         patch("plugin.writer.page.replace_xtext_with_html") as mock_replace_html:
         _copy_page_regions(doc, source, clone)
 
     mock_flow.assert_called_once_with(doc, src_text, dest_text)
@@ -1446,6 +1473,19 @@ def test_replace_header_footer_refuses_character_anchored_image():
     assert seen and seen[0].written is None
 
 
+def test_replace_header_footer_undo_leak_says_text_was_written():
+    doc, text_obj = _replace_doc([_text_portion("Annex")], hay="Annex")
+    seen = _cursors_for(text_obj, "Annex")
+    um = doc.getUndoManager.return_value
+    um.isLocked.return_value = False
+    um.leaveUndoContext.side_effect = RuntimeError("leave failed")
+    res = _replace(doc)
+    assert res["status"] == "error"
+    assert "the replacement was written" in res["message"]
+    assert "leave failed" in res["message"]
+    assert [c.written for c in seen] == ["Appendix"]
+
+
 def test_mm_to_hmm_rounds():
     from plugin.writer.page import _mm_to_hmm
     assert _mm_to_hmm(2.3) == 230
@@ -1481,6 +1521,7 @@ def test_set_page_style_stops_and_reports_updated():
 
     res = PageSetStyleProperties().execute(ctx, width_mm=10, height_mm=20)
     assert res["status"] == "error"
+    assert res["code"] == "TOOL_EXECUTION_ERROR"
     assert res["updated"] == ["width"]
     assert "height" in res["failed"]
 
@@ -1597,7 +1638,7 @@ def test_set_header_rolls_back_enable_when_import_fails():
     doc.getStyleFamilies().getByName().getByName.return_value = style
     ctx = SimpleNamespace(doc=doc)
 
-    with patch("plugin.writer.html_import.replace_xtext_with_html", side_effect=RuntimeError("import failed")):
+    with patch("plugin.writer.page.replace_xtext_with_html", side_effect=RuntimeError("import failed")):
         res = PageSetHeaderFooterText().execute(ctx, region="header", content="<p>Test</p>")
         assert res["status"] == "error"
         calls = [c.args for c in style.setPropertyValue.call_args_list if c.args[0] == "HeaderIsOn"]
@@ -1764,3 +1805,189 @@ def test_page_break_page_style_in_table_cell_still_errors():
     text_cursor.setPropertyValue.assert_not_called()
 
 
+def test_scan_region_content_raises_on_unreadable_portion():
+    """Unreadable portions in a header/footer region enumeration must raise.
+
+    The region scanner does not silently ignore portion read failures. Callers
+    that tolerate partial reads decide when to wrap the walk in uno_read.
+    """
+    portion = MagicMock()
+    portion.getPropertyValue.side_effect = RuntimeError("bridge hiccup")
+    text_obj = MagicMock()
+    text_obj.createEnumeration.side_effect = lambda: _enum_of([_paragraph([portion])])
+    doc = MagicMock()
+    with pytest.raises(RuntimeError, match="bridge hiccup"):
+        _scan_region_content(doc, text_obj)
+
+
+def test_get_header_footer_omits_scan_extras_when_draw_page_unreadable():
+    """An unreadable draw page drops extra scan metadata without failing the get tool.
+
+    When reading shapes from the draw page raises an error, the scan falls back
+    to an empty scan rather than returning partially populated extras.
+    """
+    portion = _portion("TextField", field=_page_number_field())
+    text_obj = MagicMock()
+    text_obj.createEnumeration.side_effect = lambda: _enum_of([_paragraph([portion])])
+    doc, _style = _page_style_doc(text_obj)
+    doc.getDrawPage.side_effect = RuntimeError("bridge hiccup")
+    ctx = TestingFactory.create_context(doc=doc, doc_type="writer")
+    with patch("plugin.writer.page.xtext_to_content", return_value="<p>x</p>"):
+        res = PageGetHeaderFooterText().execute(ctx, style="Standard", region="header")
+    assert res["status"] == "ok"
+    assert res["content"] == "<p>x</p>"
+    assert "fields" not in res
+    assert "images" not in res
+    assert res["paragraph_count"] == 0
+
+
+def test_get_header_footer_reports_disposed_region_text():
+    """Accessing region text on a disposed document returns DOCUMENT_DISPOSED."""
+    class DisposedException(Exception):
+        pass
+
+    text_obj = MagicMock()
+    doc, style = _page_style_doc(text_obj)
+
+    def props(name):
+        if name == "HeaderText":
+            raise DisposedException("closed")
+        if name.endswith("IsOn"):
+            return True
+        return text_obj
+
+    style.getPropertyValue.side_effect = props
+    ctx = TestingFactory.create_context(doc=doc, doc_type="writer")
+    res = PageGetHeaderFooterText().execute_safe(ctx, style="Standard", region="header")
+    assert res["status"] == "error"
+    assert res["code"] == "DOCUMENT_DISPOSED"
+
+
+def test_replace_reports_disposed_instead_of_region_off():
+    """A disposed document returns DOCUMENT_DISPOSED rather than reporting the region is off.
+
+    When reading the region's IsOn flag fails due to document disposal, uno_read raises
+    so the tool reports document disposal instead of claiming the region is turned off.
+    """
+    class DisposedException(Exception):
+        pass
+
+    text_obj = MagicMock()
+    doc, style = _page_style_doc(text_obj)
+
+    def props(name):
+        if name == "FooterIsOn":
+            raise DisposedException("closed")
+        return text_obj
+
+    style.getPropertyValue.side_effect = props
+    ctx = TestingFactory.create_context(doc=doc, doc_type="writer")
+    res = PageReplaceHeaderFooterText().execute_safe(
+        ctx, style="Standard", region="footer", old_content="a", content="b"
+    )
+    assert res["status"] == "error"
+    assert res["code"] == "DOCUMENT_DISPOSED"
+    assert "is off" not in res["message"]
+
+
+def test_replace_refuses_when_draw_page_unreadable():
+    """An unreadable draw page fails the replace tool before modifying any content.
+
+    If the draw page cannot be read, the anchor check cannot verify whether an image
+    would be affected. The operation fails closed and no text is written.
+    """
+    doc, text_obj = _replace_doc([_text_portion("Annex")], hay="Annex")
+    seen = _cursors_for(text_obj, "Annex")
+    doc.getDrawPage.side_effect = RuntimeError("bridge hiccup")
+    ctx = TestingFactory.create_context(doc=doc, doc_type="writer")
+    res = PageReplaceHeaderFooterText().execute_safe(
+        ctx, style="Standard", region="footer", old_content="Annex", content="B"
+    )
+    assert res["status"] == "error"
+    assert res["code"] == "TOOL_EXECUTION_ERROR"
+    assert seen and all(c.written is None for c in seen)
+
+
+def test_region_shapes_snapshot_skips_page_anchored_shape():
+    """Page-anchored shapes lack an anchor text object and are skipped.
+
+    Only shapes anchored in the given region XText are returned in the snapshot list.
+    """
+    text_obj = MagicMock()
+    page_shape = MagicMock()
+    page_shape.getAnchor.return_value = None
+    anchored_shape = _logo_anchored_in(text_obj)
+    doc = MagicMock()
+    draw_page = MagicMock()
+    draw_page.getCount.return_value = 2
+    draw_page.getByIndex.side_effect = lambda i: [page_shape, anchored_shape][i]
+    doc.getDrawPage.return_value = draw_page
+    shapes = _region_shapes(doc, text_obj)
+    assert isinstance(shapes, list)
+    assert len(shapes) == 1
+    assert shapes[0][0] is anchored_shape
+
+
+def test_copy_page_style_unreadable_region_copies_as_empty_and_disposal_raises():
+    """An unreadable region walk copies as empty; document disposal raises.
+
+    When cloning a page style whose region cannot be walked, the region is copied
+    as empty rather than failing the clone. If the failure is due to document
+    disposal, uno_read raises DocumentDisposedError immediately.
+    """
+    from plugin.framework.errors import DocumentDisposedError
+
+    class DisposedException(Exception):
+        pass
+
+    src_text = MagicMock()
+    src_text.getString.return_value = ""
+    src_text.createEnumeration.side_effect = lambda: _enum_of(
+        [_paragraph([_portion("TextField", field=_page_number_field())])]
+    )
+
+    dest_text = MagicMock()
+    dest_text.getString.return_value = ""
+
+    source = MagicMock()
+    source.getParentStyle.return_value = ""
+
+    def _src_get_prop(name: str):
+        if name == "HeaderIsOn":
+            return True
+        if name.endswith("IsOn"):
+            return False
+        if name == "HeaderText":
+            return src_text
+        return 0
+
+    source.getPropertyValue.side_effect = _src_get_prop
+
+    clone = MagicMock()
+
+    def _clone_get_prop(name: str):
+        if name == "HeaderText":
+            return dest_text
+        return 0
+
+    clone.getPropertyValue.side_effect = _clone_get_prop
+
+    family = MagicMock()
+    family.hasByName.side_effect = lambda name: name == "Src"
+    family.getByName.return_value = source
+    family.getElementNames.return_value = ("Src",)
+
+    doc = MagicMock()
+    doc.getStyleFamilies.return_value.getByName.return_value = family
+    doc.createInstance.return_value = clone
+
+    with patch("plugin.writer.styles.copy_direct_style_properties", return_value=([], [])), \
+         patch("plugin.writer.page.copy_flow_into_xtext") as mock_flow:
+        doc.getDrawPage.side_effect = RuntimeError("bridge hiccup")
+        res = copy_page_style(doc, "Src", "Dst")
+        assert res["shapes_copied"] == 0
+        mock_flow.assert_not_called()
+
+        doc.getDrawPage.side_effect = DisposedException("closed")
+        with pytest.raises(DocumentDisposedError):
+            copy_page_style(doc, "Src", "Dst2")

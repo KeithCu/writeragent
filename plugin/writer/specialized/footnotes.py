@@ -22,12 +22,11 @@ from plugin.writer.specialized_base import (
     enum_param,
     index_error,
 )
-from plugin.framework.errors import ToolExecutionError, uno_read
+from plugin.framework.errors import ToolExecutionError, make_tool_error, uno_read
 from plugin.writer.record_changes import is_recording_changes
 from plugin.writer.search import (
     CASE_SENSITIVE_DESCRIPTION,
-    find_occurrence_range,
-    parse_non_negative_int,
+    occurrence_range_or_error,
     resolve_case_sensitive,
 )
 
@@ -51,12 +50,12 @@ def _note_api(doc: Any, note_type: str, kind: str) -> Any:
     return getattr(doc, method_name)()
 
 
-def _note_at_index(doc: Any, note_type: str, index: int) -> tuple[Any, Any, str | None]:
+def _note_at_index(doc: Any, note_type: str, index: int) -> tuple[Any, Any, dict[str, Any] | None]:
     notes = _note_api(doc, note_type, "notes")
     count = notes.getCount()
     err = index_error(index, count, note_type)
     if err:
-        return None, None, err
+        return None, None, make_tool_error(err)
     return notes, notes.getByIndex(index), None
 
 
@@ -103,11 +102,14 @@ class FootnotesInsert(ToolWriterFootnoteBase):
         doc = ctx.doc
 
         if has_search:
-            rng_or_err = self._resolve_insert_range(doc, insert_after, kwargs.get("occurrence", 0), case_sensitive)
-            if isinstance(rng_or_err, dict):
-                rng_or_err["matched_case_sensitive"] = case_sensitive
-                return rng_or_err
-            rng = rng_or_err
+            rng, err = occurrence_range_or_error(
+                doc, insert_after, kwargs.get("occurrence", 0), case_sensitive=case_sensitive, subject="insert_after"
+            )
+            if err is not None:
+                err["matched_case_sensitive"] = case_sensitive
+                return err
+            if rng is None:
+                return self._tool_error("Failed to find insertion point.")
         else:
             # View cursor: active insertion point in the UI.
             ctrl = doc.getCurrentController()
@@ -142,28 +144,6 @@ class FootnotesInsert(ToolWriterFootnoteBase):
         if has_search:
             res["matched_case_sensitive"] = case_sensitive
         return res
-
-    def _resolve_insert_range(
-        self, doc: Any, insert_after: str, raw_occurrence: Any, case_sensitive: bool
-    ) -> Any:
-        occ_val, occ_err = parse_non_negative_int(raw_occurrence, coerce=True)
-        if occ_err:
-            return self._tool_error(occ_err)
-        occurrence = 0 if occ_val is None else occ_val
-
-        # Shared LO search: NBSP/space normalization plus the newline-chained fallback.
-        try:
-            rng = find_occurrence_range(
-                doc, insert_after, occurrence=occurrence, case_sensitive=case_sensitive
-            )
-        except IndexError:
-            return self._tool_error(
-                f"No match for insert_after_text at occurrence {occurrence} "
-                "(not enough occurrences)."
-            )
-        if rng is None:
-            return self._tool_error("No match for insert_after_text in the document.")
-        return rng
 
 
 class FootnotesList(ToolWriterFootnoteBase):
@@ -214,8 +194,8 @@ class FootnotesEdit(ToolWriterFootnoteBase):
         note_type = kwargs["note"]
         index = kwargs["index"]
         _notes, note, err = _note_at_index(ctx.doc, note_type, index)
-        if err:
-            return self._tool_error(err)
+        if err is not None:
+            return err
 
         if "text" in kwargs:
             note.setString(kwargs["text"])
@@ -243,8 +223,8 @@ class FootnotesDelete(ToolWriterFootnoteBase):
         note_type = kwargs["note"]
         index = kwargs["index"]
         notes, note, err = _note_at_index(ctx.doc, note_type, index)
-        if err:
-            return self._tool_error(err)
+        if err is not None:
+            return err
         before = notes.getCount()
         note.getAnchor().setString("")
         after = notes.getCount()
@@ -328,8 +308,6 @@ class FootnotesSettingsUpdate(ToolWriterFootnoteBase):
                 msg = f"Failed to set property '{prop_name}' to '{prop_val}': {str(e)}"
                 if updated_props:
                     msg = f"{msg}. Already updated: {', '.join(updated_props)}."
-                err = self._tool_error(msg)
-                err["updated_properties"] = updated_props
-                return err
+                return self._tool_error(msg, top_level={"updated_properties": updated_props})
 
         return {"status": "ok", "message": f"Successfully updated {note_type} settings.", "updated_properties": updated_props}

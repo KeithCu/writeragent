@@ -12,9 +12,9 @@ from typing import TYPE_CHECKING, Any, cast
 
 from plugin.framework.errors import ToolExecutionError, is_disposal
 from plugin.writer.table_helpers import (
-    _set_cell_string,
     edit_table_band,
     fill_table_cells,
+    set_cell_string,
     table_dims,
 )
 
@@ -238,7 +238,7 @@ def get_draw_cell(entry: dict[str, Any], cell_raw: str) -> str:
 def set_draw_cell(entry: dict[str, Any], cell_raw: str, text: str) -> tuple[str, str]:
     cell = _cell_or_raise(entry, cell_raw)
     old = _cell_string(cell)
-    _set_cell_string(cell, text)
+    set_cell_string(cell, text)
     return old, text
 
 

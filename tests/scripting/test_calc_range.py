@@ -13,7 +13,7 @@ pytest.importorskip("numpy")
 
 from plugin.calc.calc_addin_data import pack_calc_data_for_wire
 from plugin.scripting.calc_range import CalcRange, dataframe_to_labeled_grid, materialize_inputs, result_to_calc_grid
-from plugin.scripting.payload_codec import PAYLOAD_DATAFRAME, child_unpack_data, is_calc_range_payload
+from plugin.scripting.payload_codec import PAYLOAD_DATAFRAME, is_calc_range_payload
 from plugin.scripting.venv.coerce import grid_to_dataframe
 
 
@@ -70,8 +70,18 @@ def test_wire_roundtrip_materialize_inputs():
     assert len(inputs) == 1
     assert inputs[0].address == "Sheet1.A1:B2"
     assert inputs[0].values == [["H1", "H2"], [1, 2]]
-    rng = child_unpack_data(wire)
-    assert isinstance(rng, CalcRange)
+
+
+def test_materialize_inner_grid_uses_split_grid_decoder():
+    from plugin.scripting.payload_codec import host_pack_data
+
+    numeric_grid = [[1.5, 2.5], [3.5, 4.5]]
+    num_wire = host_pack_data(numeric_grid, force="always")
+    assert CalcRange(num_wire).values == CalcRange(numeric_grid).values
+
+    mixed_grid = [[1.5, "alpha"], [2.5, "beta"]]
+    mixed_wire = host_pack_data(mixed_grid, force="always")
+    assert CalcRange(mixed_wire).values == CalcRange(mixed_grid).values
 
 
 def test_materialize_json_list_of_grids_as_multi_inputs():

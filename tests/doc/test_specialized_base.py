@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import json
+from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
@@ -56,7 +57,7 @@ def test_requires_document_lock_string_domains(writer_gateway: DelegateToSpecial
     assert writer_gateway.requires_document_lock({"domain": "document_research"}) is False
     assert writer_gateway.requires_document_lock({"domain": "web_research"}) is False
 
-    # Vision requires lock even though listed in _READ_ONLY_DOMAINS
+    # Vision requires lock even though listed in READ_ONLY_DOMAINS
     assert writer_gateway.requires_document_lock({"domain": "vision"}) is True
 
     # Mutating domains require lock
@@ -204,7 +205,7 @@ def test_delegate_status_incomplete_no_finish_no_tool_error(
     assert result["message"] == "I searched but could not find the heading."
 
 
-def _structural_registry(writer_gateway: DelegateToSpecializedWriter) -> MagicMock:
+def _structural_registry(writer_gateway: DelegateToSpecializedWriter, tool: Any = None) -> MagicMock:
     from plugin.framework.tool import ToolRegistry
     from plugin.writer.specialized_base import SpecializedWorkflowFinished, ToolWriterStructuralBase
 
@@ -217,7 +218,7 @@ def _structural_registry(writer_gateway: DelegateToSpecializedWriter) -> MagicMo
             return {"status": "ok"}
 
     reg = ToolRegistry(services={})
-    reg.register(_DummyStructuralTool())
+    reg.register(tool if tool is not None else _DummyStructuralTool())
     reg.register(SpecializedWorkflowFinished())
     reg.register(writer_gateway)
 
@@ -295,6 +296,7 @@ def test_delegate_finished_payload_does_not_duplicate_answer(
 
     def fake_run_inner(ctx, tools, **kwargs):
         tool_map = {t.name: t for t in tools}
+        tool_map["dummy_structural_tool"]()
         return tool_map["specialized_workflow_finished"](answer=answer)
 
     with patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *a, **kw: fn(*a, **kw)):
@@ -304,6 +306,7 @@ def test_delegate_finished_payload_does_not_duplicate_answer(
     assert result["status"] == "ok"
     assert result["finished"] is True
     assert result["answer"] == answer
+    assert result["domains"] == ["structural"]
     assert "result" not in result
     assert json.dumps(result).count("ENTRY-") == 1
 
@@ -386,6 +389,7 @@ def test_delegate_completed_message_uses_static_msgid(
 
     def fake_run_inner(ctx, tools, **kwargs):
         tool_map = {t.name: t for t in tools}
+        tool_map["dummy_structural_tool"]()
         tool_map["specialized_workflow_finished"](answer="Done")
         return "All done."
 
@@ -395,6 +399,124 @@ def test_delegate_completed_message_uses_static_msgid(
 
     assert result["status"] == "ok"
     assert result["message"] == "Specialized task (structural) completed."
+
+
+def test_delegate_finish_only_stays_ok(
+    writer_gateway: DelegateToSpecializedWriter,
+) -> None:
+    from unittest.mock import patch
+    from plugin.chatbot.tool_loop_actions import format_delegate_result_chat_line
+    from plugin.doc.specialized_catalog import NO_EDIT_TOOL_NOTE
+    from plugin.writer.specialized_base import ToolWriterDocumentResearchBase
+
+    answer = "All done without tools."
+
+    def fake_run_inner(ctx, tools, **kwargs):
+        tool_map = {t.name: t for t in tools}
+        return tool_map["specialized_workflow_finished"](answer=answer)
+
+    # finish-only on an editing domain -> status "ok", finished true, answer kept, note == NO_EDIT_TOOL_NOTE
+    ctx_edit = _structural_registry(writer_gateway)
+
+    with patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *a, **kw: fn(*a, **kw)):
+        with patch("plugin.doc.specialized_base.run_inner_tool_agent", side_effect=fake_run_inner):
+            result_edit = writer_gateway.execute(ctx_edit, domain="structural", task="Check headings")
+
+    assert result_edit["status"] == "ok"
+    assert result_edit["finished"] is True
+    assert result_edit["answer"] == answer
+    assert result_edit.get("note") == NO_EDIT_TOOL_NOTE
+    chat_line = format_delegate_result_chat_line({"domain": "structural"}, result_edit)
+    assert "done" in chat_line
+
+    # finish-only on a read-only domain (document_research) -> status "ok", no note
+    class _DummyDocResearchTool(ToolWriterDocumentResearchBase):
+        name = "dummy_doc_research_tool"
+        description = "A dummy doc research tool."
+        parameters = {"type": "object", "properties": {}}
+
+        def execute(self, ctx, **kw):
+            return {"status": "ok"}
+
+    ctx_ro = _structural_registry(writer_gateway, tool=_DummyDocResearchTool())
+
+    with patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *a, **kw: fn(*a, **kw)):
+        with patch("plugin.doc.specialized_base.run_inner_tool_agent", side_effect=fake_run_inner):
+            result_ro = writer_gateway.execute(ctx_ro, domain="document_research", task="Search docs")
+
+    assert result_ro["status"] == "ok"
+    assert result_ro["finished"] is True
+    assert result_ro["answer"] == answer
+    assert "note" not in result_ro
+
+
+def test_delegate_retried_tool_error_is_recovered(
+    writer_gateway: DelegateToSpecializedWriter,
+) -> None:
+    from unittest.mock import patch
+    from plugin.writer.specialized_base import ToolWriterStructuralBase
+
+    class _RetryingStructuralTool(ToolWriterStructuralBase):
+        name = "retrying_structural_tool"
+        description = "A retrying structural tool."
+        parameters = {"type": "object", "properties": {}}
+
+        def __init__(self) -> None:
+            super().__init__()
+            self._attempt = 0
+
+        def execute(self, ctx, **kw):
+            self._attempt += 1
+            if self._attempt == 1:
+                return {"status": "error", "message": "First attempt failed"}
+            return {"status": "ok"}
+
+    ctx = _structural_registry(writer_gateway, tool=_RetryingStructuralTool())
+
+    def fake_run_inner(ctx, tools, **kwargs):
+        tool_map = {t.name: t for t in tools}
+        tool_map["retrying_structural_tool"]()
+        tool_map["retrying_structural_tool"]()
+        return tool_map["specialized_workflow_finished"](answer="Succeeded after retry")
+
+    with patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *a, **kw: fn(*a, **kw)):
+        with patch("plugin.doc.specialized_base.run_inner_tool_agent", side_effect=fake_run_inner):
+            result = writer_gateway.execute(ctx, domain="structural", task="Retry inspect")
+
+    assert result["status"] == "ok"
+    assert result["finished"] is True
+    assert result["recovered_tool_errors"] == ["First attempt failed"]
+
+
+def test_delegate_read_only_tools_on_edit_domain_carry_note(
+    writer_gateway: DelegateToSpecializedWriter,
+) -> None:
+    from unittest.mock import patch
+    from plugin.doc.specialized_catalog import NO_EDIT_TOOL_NOTE
+    from plugin.writer.specialized_base import ToolWriterStructuralBase
+
+    class _ReadOnlyStructuralTool(ToolWriterStructuralBase):
+        name = "readonly_structural_tool"
+        description = "A read-only structural tool."
+        parameters = {"type": "object", "properties": {}}
+        is_mutation = False
+
+        def execute(self, ctx, **kw):
+            return {"status": "ok"}
+
+    ctx = _structural_registry(writer_gateway, tool=_ReadOnlyStructuralTool())
+
+    def fake_run_inner(ctx, tools, **kwargs):
+        tool_map = {t.name: t for t in tools}
+        tool_map["readonly_structural_tool"]()
+        return tool_map["specialized_workflow_finished"](answer="Read done")
+
+    with patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *a, **kw: fn(*a, **kw)):
+        with patch("plugin.doc.specialized_base.run_inner_tool_agent", side_effect=fake_run_inner):
+            result = writer_gateway.execute(ctx, domain="structural", task="Read inspect")
+
+    assert result["status"] == "ok"
+    assert result["note"] == NO_EDIT_TOOL_NOTE
 
 
 def test_draw_gateway_enum_narrowed_by_uno_services_not_doc_type_label() -> None:
@@ -432,3 +554,39 @@ def test_draw_gateway_enum_narrowed_by_uno_services_not_doc_type_label() -> None
     # Unknown services leave the schema alone; the shared instance enum is never mutated.
     assert narrow_delegate_domain_enums([oa], [gateway], None) == [oa]
     assert impress_only <= set(gateway.parameters["properties"]["domain"]["enum"])
+
+
+def test_delegate_footnotes_hint_reaches_inner_instructions(
+    writer_gateway: DelegateToSpecializedWriter,
+) -> None:
+    from unittest.mock import patch
+    from plugin.framework.tool import ToolRegistry
+    from plugin.writer.specialized.footnotes import FootnotesList
+    from plugin.writer.specialized_base import SpecializedWorkflowFinished
+
+    class _DummyFootnotesList(FootnotesList):
+        def execute(self, ctx, **kwargs):
+            return {"status": "ok", "footnotes": [], "endnotes": []}
+
+    reg = ToolRegistry(services={})
+    reg.register(_DummyFootnotesList())
+    reg.register(SpecializedWorkflowFinished())
+    reg.register(writer_gateway)
+
+    ctx = MagicMock(spec=ToolContext)
+    ctx.ctx = MagicMock()
+    ctx.doc = MagicMock()
+    ctx.doc.supportsService.return_value = True
+    ctx.services = {"tools": reg}
+    ctx.stop_checker = lambda: False
+
+    mock_run_inner = MagicMock(return_value={"status": "ok", "finished": True, "answer": "done"})
+
+    with patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *a, **kw: fn(*a, **kw)):
+        with patch("plugin.doc.specialized_base.run_inner_tool_agent", mock_run_inner):
+            writer_gateway.execute(ctx, domain="footnotes", task="List footnotes")
+
+    assert mock_run_inner.called
+    instructions = mock_run_inner.call_args.kwargs["instructions"]
+    assert "insert_after" in instructions
+    assert "cannot move the view cursor" in instructions

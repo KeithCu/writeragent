@@ -754,15 +754,63 @@ def test_default_params_match_venv_signatures():
     from plugin.scripting.helper_registry import specs
 
     for spec in specs("forecast"):
-        if spec.default_params is None:
-            continue
         fn = getattr(venv_forecast, spec.name)
         sig = inspect.signature(fn)
-        for param_name, expected_default in spec.default_params.items():
+        for param_name, expected_default in spec.defaults:
             assert param_name in sig.parameters, f"{param_name} not in {spec.name} signature"
             assert sig.parameters[param_name].default == expected_default, (
                 f"{spec.name}.{param_name} default {sig.parameters[param_name].default!r} != {expected_default!r}"
             )
+
+
+_PIN_TS = [["Date", "Value"]] + [[f"2024-{m:02d}-01", float(m)] for m in range(1, 13)]
+
+
+@pytest.mark.parametrize(
+    ("call", "expected_code", "expected_message", "expected_helper"),
+    [
+        (
+            lambda: forecast_time_series(_PIN_TS, periods="x"),
+            "INVALID_PARAM",
+            "periods must be an integer, got 'x'",
+            "forecast_time_series",
+        ),
+        (
+            lambda: forecast_time_series(_PIN_TS, value_col="Nope"),
+            "UNKNOWN_COLUMN",
+            "Column 'Nope' not found",
+            "forecast_time_series",
+        ),
+        (
+            lambda: anomaly_detection_time_series(_PIN_TS, include_all="maybe"),
+            "INVALID_PARAM",
+            "include_all must be a boolean, got 'maybe'",
+            "anomaly_detection_time_series",
+        ),
+    ],
+)
+def test_forecast_helper_errors_keep_code_message_helper(
+    call,
+    expected_code: str,
+    expected_message: str,
+    expected_helper: str,
+):
+    assert call() == {
+        "status": "error",
+        "code": expected_code,
+        "message": expected_message,
+        "helper": expected_helper,
+    }
+
+
+def test_decompose_helper_error_keeps_code_message_helper():
+    _require_statsmodels_installed()
+    assert decompose_time_series(_PIN_TS, period=1) == {
+        "status": "error",
+        "code": "INVALID_PARAM",
+        "message": "period must be an integer greater than 1",
+        "helper": "decompose_time_series",
+    }
 
 
 

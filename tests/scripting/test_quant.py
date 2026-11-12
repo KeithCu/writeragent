@@ -15,20 +15,17 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from plugin.scripting.helper_domain import header_prefix
+from plugin.scripting.domain_registry import get_domain_wiring
 from plugin.scripting.helper_registry import names
-from plugin.scripting.quant import (
-    get_quant_template,
-)
 from plugin.scripting.venv.quant import run_quant as venv_run_quant
 
 
 def test_quant_template_is_executable():
-    code = get_quant_template("fetch_historical_data")
+    code = get_domain_wiring("quant").templates()["fetch_historical_data"]
     assert code is not None
     assert "from writeragent.scripting.quant import run_quant" in code
     assert "fetch_historical_data" in code
-    assert header_prefix("quant") not in code.splitlines()[0]
+    assert not code.splitlines()[0].startswith("# writeragent:")
     assert "'tickers': 'AAPL'" in code
     assert "'tickers': 'data'" not in code
 
@@ -53,7 +50,7 @@ def test_run_quant_invalid_params(monkeypatch):
     monkeypatch.setitem(sys.modules, "yfinance", object())
     result = venv_run_quant({"helper": "fetch_historical_data", "params": {}})
     assert result["status"] == "error"
-    assert result["code"] == "INVALID_PARAMS"
+    assert result["code"] == "INVALID_PARAM"
     assert result["helper"] == "fetch_historical_data"
     from plugin.scripting.domain_registry import get_domain_wiring
 
@@ -78,8 +75,7 @@ def test_fetch_historical_data_calc_range(monkeypatch):
 
 
 def test_helper_names_cover_templates():
-    for helper in names("quant"):
-        assert get_quant_template(helper) is not None
+    assert set(get_domain_wiring("quant").templates()) == names("quant")
 
 
 def test_portfolio_tearsheet_portfolio_returns_grid():
@@ -214,7 +210,7 @@ def test_portfolio_tearsheet_bad_column(monkeypatch):
         data=grid,
     )
     assert result["status"] == "error"
-    assert result["code"] == "INVALID_PARAMS"
+    assert result["code"] == "INVALID_PARAM"
     assert "NonExistent" in result["message"]
 
 
@@ -412,7 +408,7 @@ def test_technical_analysis_unknown_indicator(monkeypatch):
         data=grid,
     )
     assert result["status"] == "error"
-    assert result["code"] == "INVALID_PARAMS"
+    assert result["code"] == "INVALID_PARAM"
     assert "invalid_indicator" in result["message"]
 
 
@@ -547,7 +543,7 @@ def test_technical_analysis_rejects_non_list_indicators(monkeypatch):
         data=[["Close"], [1.0]],
     )
     assert result["status"] == "error"
-    assert result["code"] == "INVALID_PARAMS"
+    assert result["code"] == "INVALID_PARAM"
 
 
 def test_portfolio_tearsheet_sorts_and_averages_duplicate_dates(monkeypatch):
@@ -720,13 +716,13 @@ def test_efficient_frontier_rejects_bad_bounds_and_rate(monkeypatch):
         data=grid,
     )
     assert bounds["status"] == "error"
-    assert bounds["code"] == "INVALID_PARAMS"
+    assert bounds["code"] == "INVALID_PARAM"
     rate = venv_run_quant(
         {"helper": "efficient_frontier", "params": {"risk_free_rate": "nope"}},
         data=grid,
     )
     assert rate["status"] == "error"
-    assert rate["code"] == "INVALID_PARAMS"
+    assert rate["code"] == "INVALID_PARAM"
     mock_ef_class.assert_not_called()
 
 

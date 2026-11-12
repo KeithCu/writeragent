@@ -2,7 +2,7 @@
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Text analytics helper templates, host RPC, and Writer egress (LO host).
+"""Text analytics helper host RPC and Writer egress (LO host).
 
 Compute is lazy-loaded from ``plugin.scripting.venv.text_analytics`` via ``__getattr__``.
 """
@@ -23,7 +23,8 @@ from plugin.doc.text_helpers import (
 )
 from plugin.framework.errors import ToolExecutionError, reraise_if_disposed
 from plugin.scripting._lazy_venv import install_lazy_exports
-from plugin.scripting.domain_registry import get_domain_wiring
+from plugin.scripting.helper_domain import escape_for_html_insert
+from plugin.scripting.helper_registry import is_text_diagnostics, names
 
 _TEXT_VENV_EXPORTS = frozenset({"analyze_text", "check_diagnostics", "run_text_analytics"})
 
@@ -31,9 +32,6 @@ install_lazy_exports(globals(), "text_analytics", _TEXT_VENV_EXPORTS)
 
 log = logging.getLogger(__name__)
 
-
-def get_text_analytics_script_templates() -> dict[str, str]:
-    return get_domain_wiring("text").templates()
 
 def resolve_text_analytics_document_inputs(
     doc: Any,
@@ -206,13 +204,12 @@ def is_text_analytics_result(value: Any) -> bool:
     # raw dict as generic Writer text and reported success.
     status = value.get("status")
     helper = value.get("helper")
-    from plugin.scripting.helper_registry import names
 
     if status == "error":
         return str(value.get("code") or "") in ("TEXT_ANALYTICS_ERROR", "UNKNOWN_HELPER") or (
             isinstance(helper, str) and helper in names("text")
         )
-    if isinstance(helper, str) and helper in ("diagnostics", "check"):
+    if is_text_diagnostics(helper):
         return status == "ok"
     if status != "ok":
         return False
@@ -233,13 +230,11 @@ def _result_to_html_table(data: dict[str, Any]) -> str:
     before the StarWriter HTML filter, so a single ``html.escape`` would turn
     a lemma such as ``<script>`` back into markup.
     """
-    from plugin.scripting.python_runner import _html_insert_text
-
     rows: list[str] = []
 
     def _row(label: object, value: object) -> None:
         rows.append(
-            f"<tr><td>{_html_insert_text(label)}</td><td>{_html_insert_text(value)}</td></tr>"
+            f"<tr><td>{escape_for_html_insert(label)}</td><td>{escape_for_html_insert(value)}</td></tr>"
         )
 
     rd = data.get("readability") or {}
@@ -303,6 +298,18 @@ def _result_payload(result: Any) -> dict[str, Any]:
     return result
 
 
+def text_analytics_report_html(result: Any) -> str:
+    """Return a compact HTML report table for *result*, or ``""`` when empty/non-ok.
+
+    The text-analytics dialog enables Insert only on a non-empty return, and
+    ``insert_text_analytics_result_into_doc`` writes this same table, so the
+    two cannot disagree.
+    """
+    if not isinstance(result, dict) or result.get("status") != "ok":
+        return ""
+    return _result_to_html_table(_result_payload(result))
+
+
 def text_analytics_payload_error(data: Any) -> str | None:
     """Return a top-level error or note from a payload dict."""
     if not isinstance(data, dict):
@@ -316,7 +323,7 @@ def text_analytics_payload_error(data: Any) -> str | None:
 
 def insert_text_analytics_result_into_doc(ctx: Any, doc: Any, result: dict[str, Any]) -> int:
     """Insert a compact HTML report for the text analytics result (Writer)."""
-    from plugin.writer.html_import import insert_content_at_position
+    from plugin.writer.html_import import insert_content_at_position  # weight: the Writer HTML import stack is only needed on Insert
 
     if not is_writer(doc):
         raise ToolExecutionError("Text analytics insert requires a Writer document.", code="TEXT_ANALYTICS_ERROR")
@@ -328,9 +335,9 @@ def insert_text_analytics_result_into_doc(ctx: Any, doc: Any, result: dict[str, 
             details={"result": result},
         )
 
-    data = _result_payload(result)
-    html = _result_to_html_table(data)
+    html = text_analytics_report_html(result)
     if not html:
+        data = _result_payload(result)
         err = text_analytics_payload_error(data) or text_analytics_payload_error(result) or "Nothing to insert."
         raise ToolExecutionError(err, code="TEXT_ANALYTICS_ERROR", details={"result": result})
 

@@ -12,17 +12,15 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from plugin.framework.deal_shim import DEAL_MAX_TOKEN, deal
+from plugin.framework.deal_shim import deal
 from plugin.scripting._lazy_venv import install_lazy_exports, venv_attr
-from plugin.scripting.helper_domain import HelperScriptMeta, ScriptFacts, header_prefix, is_status_helper_result
+from plugin.scripting.helper_domain import insert_helper_result_into_calc, is_status_helper_result
 
 # --- Constants (host) ---
 
 SQL_HELPER_NAMES = frozenset({"query_folder_sql", "query_sheet_sql"})
 SQL_RESULT_HELPERS = frozenset({"query_folder_sql", "query_sheet_sql", "run_sql"})
 SQL_RESULT_ERROR_CODES = frozenset({"READONLY_VIOLATION", "DUCKDB_SQL_ERROR", "DUCKDB_ERROR", "MISSING_SCOPED_DIR"})
-
-SQL_HEADER_PREFIX = header_prefix("sql")
 
 _DEFAULT_PARAMS: dict[str, dict[str, Any]] = {
     "query_folder_sql": {"files": ["data.csv"]},
@@ -83,7 +81,6 @@ def _template_body(helper: str, params: dict[str, Any]) -> str:
             f"    {params_json}.get('files', ['yourfile.csv']),\n"
         )
     return (
-        f"{SQL_HEADER_PREFIX} helper={helper} params={params_json}\n"
         f"# {desc}\n"
         f"# {note}\n"
         f"{how_to}"
@@ -94,34 +91,11 @@ def _template_body(helper: str, params: dict[str, Any]) -> str:
     )
 
 
-def _deal_sql_code_ok_pytest(code: object) -> bool:
-    # User SQL is longer than DEAL_MAX_SOURCE. The cap raised
-    # PreContractError before the header parser returned None.
-    return isinstance(code, str)
-
-
-_deal_sql_code_ok = _deal_sql_code_ok_pytest
-
-
 @deal.post(lambda result: isinstance(result, dict) and "query_folder_sql" in result and "query_sheet_sql" in result)
 def get_sql_script_templates() -> dict[str, str]:
     """Return built-in SQL helper templates for the Run Python Script picker."""
     return {helper: _template_body(helper, dict(_DEFAULT_PARAMS.get(helper, {}))) for helper in sorted(SQL_HELPER_NAMES)}
 
-
-@deal.pre(lambda code: _deal_sql_code_ok(code))
-@deal.post(lambda result: result is None or isinstance(result, HelperScriptMeta))
-def parse_sql_script_header(code: str) -> HelperScriptMeta | None:
-    """Parse machine header from SQL script template."""
-    # Header regex ``params=({.*})`` hangs deep check even via this thin wrapper.
-    # crosshair: off
-    return ScriptFacts.from_source(code).header(tag="sql", helper_names=SQL_HELPER_NAMES)
-
-
-
-# Dual-profile closed dict for is_sql_result.
-_DEAL_SQL_RESULT_KEYS = 32
-_DEAL_SQL_RESULT_STR = DEAL_MAX_TOKEN
 
 
 def _deal_sql_result_value_ok_pytest(value: object) -> bool:
@@ -149,8 +123,6 @@ def insert_sql_result_into_calc(
     start_row: int | None = None,
 ) -> int:
     """Write formatted SQL output starting at the selection (or given anchor)."""
-    from plugin.scripting.helper_domain import insert_helper_result_into_calc
-
     return insert_helper_result_into_calc(
         doc,
         uno_ctx,

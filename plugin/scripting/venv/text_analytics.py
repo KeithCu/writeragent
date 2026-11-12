@@ -11,7 +11,11 @@ from functools import lru_cache
 import importlib.metadata
 import importlib.util
 import re
+import sys
 from typing import Any, cast
+
+from plugin.scripting.helper_registry import is_text_diagnostics
+from plugin.scripting.venv.trusted_dispatch import run_domain
 
 _LANG_MODELS: dict[str, tuple[str, ...]] = {
     "en": ("en_core_web_sm", "en_core_web_md", "en_core_web_lg"),
@@ -512,7 +516,6 @@ def check_diagnostics(lang: Any = None) -> dict[str, Any]:
     The output includes the python executable being used and the exact install command.
     """
     # Always capture the python the worker is actually using.
-    import sys
     python_exe = sys.executable
 
     # _lang_prefix treats non-string lang as None to avoid AttributeError.
@@ -578,9 +581,9 @@ def dispatch_text_analytics(
     params: dict[str, Any],
     context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Execute text analytics helper or alias on *text*."""
+    """Execute the registry text helper *helper* on *text* (``run_domain`` has already checked the name)."""
     lang = params.get("lang") or (context or {}).get("lang")
-    if helper in ("diagnostics", "check"):
+    if is_text_diagnostics(helper):
         return {"status": "ok", "helper": helper, "result": check_diagnostics(lang=lang)}
 
     # Preserve original list form for section-aware helpers (topics, sentiment).
@@ -591,24 +594,24 @@ def dispatch_text_analytics(
         return {"status": "ok", "result": {}, "note": "no text provided"}
 
     # For the minimal dialog we mainly use "full" or specific helpers.
-    if helper in ("full", "analyze", "all"):
+    if helper == "full":
         return analyze_text(flat, lang=lang, context=context)
 
     # Narrow helpers: run nlp(text) once and extract only the requested subset,
     # skipping the unneeded NER / noun-chunk / textdescriptives work.
-    if helper in ("readability", "stats", "descriptive"):
+    if helper == "readability":
         def _readability_body(doc: Any) -> dict[str, Any]:
             rd, ds = _extract_readability(doc)
             return {"readability": rd, "descriptive_stats": ds}
         return _nlp_result(flat, lang, context, _readability_body)
 
-    if helper in ("entities", "ner"):
+    if helper == "entities":
         return _nlp_result(flat, lang, context, lambda doc: {"entities": _extract_entities(doc)})
 
-    if helper in ("key_phrases", "keyphrases", "chunks"):
+    if helper == "key_phrases":
         return _nlp_result(flat, lang, context, lambda doc: {"key_phrases": _extract_key_phrases(doc)})
 
-    if helper in ("topics", "topic", "topic_model"):
+    if helper == "topics":
         # Use preserved original (may still be list) for per-section support.
         topic_data = _extract_topics(text, n_topics=params.get("n_topics", 4))
         # Normalize into the same result envelope the rest of the system expects.
@@ -629,26 +632,19 @@ def dispatch_text_analytics(
 
         return {"status": "ok", "result": res_dict}
 
-    if helper in ("sentiment", "polarity"):
-        # Pass params so model can be overridden via JSON config (see WriterAgentConfig).
-        sent_data = _extract_sentiment(text, params=params)
-        if sent_data.get("error"):
-            # A missing model must not be status ok, so the runner reported success.
-            return _text_analytics_error(helper, str(sent_data.get("error")), sent_data)
-        res = {
-            "sentiment": sent_data.get("overall", {}),
-            "meta": {"n_sections": sent_data.get("n_sections")}
-        }
-        if "per_section" in sent_data:
-            res["per_section"] = sent_data["per_section"]
-        return {"status": "ok", "result": res}
-
-    return {
-        "status": "error",
-        "code": "UNKNOWN_HELPER",
-        "helper": str(helper),
-        "message": f"Unknown text analytics helper {helper!r}",
+    # helper is "sentiment": run_domain has rejected names outside names("text"), and test_helper_registry pins one branch per name.
+    # Pass params so model can be overridden via JSON config (see WriterAgentConfig).
+    sent_data = _extract_sentiment(text, params=params)
+    if sent_data.get("error"):
+        # A missing model must not be status ok, so the runner reported success.
+        return _text_analytics_error(helper, str(sent_data.get("error")), sent_data)
+    res = {
+        "sentiment": sent_data.get("overall", {}),
+        "meta": {"n_sections": sent_data.get("n_sections")}
     }
+    if "per_section" in sent_data:
+        res["per_section"] = sent_data["per_section"]
+    return {"status": "ok", "result": res}
 
 
 def run_text_analytics(
@@ -663,6 +659,4 @@ def run_text_analytics(
 
     `text` is the document text (or list of section texts).
     """
-    from plugin.scripting.venv.trusted_dispatch import run_domain
-
     return run_domain("text", spec, text, context=context)

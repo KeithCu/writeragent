@@ -12,6 +12,7 @@ from plugin.scripting.named_scripts import (
     python_identifier_from_script_name,
     script_body_hash,
 )
+from plugin.scripting.sandbox import build_sandbox_policy
 
 
 def test_host_list_omits_workbook_init_script():
@@ -103,7 +104,7 @@ def test_extract_library_source_rejects_calls_in_lambda_defaults():
     def record():
         recorded.append(1)
 
-    exe = _new_executor(10)
+    exe = _new_executor(build_sandbox_policy())
     exe.custom_tools["evil"] = record
     with pytest.raises(ValueError, match="not library definitions"):
         _eval_library(exe, "helper = lambda x=evil(): x\n", "Evil")
@@ -366,7 +367,7 @@ def test_script_library_uses_bound_executor_not_contextvar():
     from plugin.scripting.venv.venv_sandbox import _new_executor
 
     code = "def hello():\n    return 'Hello, Keith'\n"
-    exe = _new_executor(10)
+    exe = _new_executor(build_sandbox_policy())
     lib = ScriptLibrary(SCRIPT_ORIGIN_DOCUMENT)
     lib._executor = exe
 
@@ -395,7 +396,7 @@ def test_library_defs_do_not_leak_into_executor_custom_tools():
     from plugin.scripting.named_scripts import _eval_library
     from plugin.scripting.venv.venv_sandbox import _new_executor
 
-    exe = _new_executor(10)
+    exe = _new_executor(build_sandbox_policy())
     exe.custom_tools["helper"] = lambda: 7
     ns = _eval_library(exe, "def added():\n    return helper()\n", "Helpers")
     assert ns.added() == 7
@@ -409,8 +410,8 @@ def test_bind_keeps_each_executor_library():
     from plugin.scripting.venv.venv_sandbox import _new_executor
 
     code = "def hello():\n    return 'from-a'\n"
-    exe_a = _new_executor(10)
-    exe_b = _new_executor(10)
+    exe_a = _new_executor(build_sandbox_policy())
+    exe_b = _new_executor(build_sandbox_policy())
     token = _current_executor.set(_current_executor.get())
     try:
         bind_named_scripts_executor(exe_a)
@@ -450,8 +451,8 @@ def test_library_lookup_prefers_contextvar_executor():
     from plugin.scripting.venv.venv_sandbox import _new_executor
 
     code = "def n():\n    return 'from-context'\n"
-    exe_a = _new_executor(10)
-    exe_b = _new_executor(10)
+    exe_a = _new_executor(build_sandbox_policy())
+    exe_b = _new_executor(build_sandbox_policy())
     lib = ScriptLibrary(SCRIPT_ORIGIN_USER)
     lib._executor = exe_a
     token = _current_executor.set(exe_b)
@@ -483,7 +484,7 @@ def test_attach_binds_librepy_namespace_stub():
     from plugin.scripting.named_scripts import ScriptLibrary, attach_named_script_libraries
     from plugin.scripting.venv.venv_sandbox import _new_executor
 
-    exe = _new_executor(10)
+    exe = _new_executor(build_sandbox_policy())
     attach_named_script_libraries(exe)
     assert isinstance(ns.scripts, ScriptLibrary)
     assert isinstance(ns.doc, ScriptLibrary)
@@ -526,7 +527,6 @@ def test_sandbox_import_writeragent_without_api_has_doc():
 def test_rps_session_id_writer_is_document_keyed():
     from plugin.scripting import session_manager as sm
 
-    ctx = MagicMock()
     doc_a = MagicMock()
     doc_a.getURL.return_value = "file:///a.odt"
     doc_b = MagicMock()
@@ -535,8 +535,8 @@ def test_rps_session_id_writer_is_document_keyed():
         patch.object(sm, "python_session_mode", return_value="shared"),
         patch.object(sm, "is_calc", return_value=False),
     ):
-        sid_a = sm.rps_session_id(ctx, doc_a)
-        sid_b = sm.rps_session_id(ctx, doc_b)
+        sid_a = sm.rps_session_id(doc_a)
+        sid_b = sm.rps_session_id(doc_b)
     assert sid_a == "rps:file:///a.odt"
     assert sid_b == "rps:file:///b.odt"
     assert sid_a != sid_b
@@ -545,10 +545,9 @@ def test_rps_session_id_writer_is_document_keyed():
 def test_rps_session_id_isolated_is_none():
     from plugin.scripting import session_manager as sm
 
-    ctx = MagicMock()
     doc = MagicMock()
     with patch.object(sm, "python_session_mode", return_value="isolated"):
-        assert sm.rps_session_id(ctx, doc) is None
+        assert sm.rps_session_id(doc) is None
 
 
 def test_host_rpc_named_script_blocked_when_tools_disabled():
@@ -583,8 +582,8 @@ def test_host_rpc_named_script_still_allowed_for_domain_allowlist():
     with (
         patch("plugin.scripting.document_scripts.get_user_scripts", return_value={"Helpers": code}),
         patch("plugin.scripting.document_scripts.get_document_scripts", return_value={}),
-        patch("plugin.framework.uno_context.get_ctx", return_value=MagicMock()),
-        patch("plugin.framework.uno_context.get_active_document", return_value=MagicMock()),
+        patch("plugin.scripting.host_rpc.get_ctx", return_value=MagicMock()),
+        patch("plugin.scripting.host_rpc.get_active_document", return_value=MagicMock()),
         patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn: fn()),
     ):
         out = execute_tool(
@@ -605,7 +604,7 @@ def test_off_main_py_named_script_skips_main_thread_marshal():
 
     with (
         patch("plugin.scripting.document_scripts.get_user_scripts", return_value={"Helpers": code}),
-        patch("plugin.framework.thread_guard.in_sync_host_dispatch", return_value=True),
+        patch("plugin.scripting.host_rpc.in_sync_host_dispatch", return_value=True),
         patch("plugin.framework.queue_executor.main.is_current", return_value=False),
         patch("plugin.framework.queue_executor.main.call", side_effect=_must_not_marshal),
     ):
@@ -613,7 +612,7 @@ def test_off_main_py_named_script_skips_main_thread_marshal():
     assert out["code"] == code
     with (
         patch("plugin.scripting.document_scripts.get_user_scripts", return_value={"Helpers": code}),
-        patch("plugin.framework.thread_guard.in_sync_host_dispatch", return_value=True),
+        patch("plugin.scripting.host_rpc.in_sync_host_dispatch", return_value=True),
         patch("plugin.framework.queue_executor.main.is_current", return_value=False),
     ):
         with pytest.raises(RuntimeError, match="Document scripts"):
@@ -833,7 +832,7 @@ def test_eval_library_binds_unpack_and_class_docstring():
     from plugin.scripting.named_scripts import _eval_library
     from plugin.scripting.venv.venv_sandbox import _new_executor
 
-    exe = _new_executor(10)
+    exe = _new_executor(build_sandbox_policy())
     ns1 = _eval_library(exe, "a, b = 1, 2\ndef add(x):\n    return x + a + b\n", "Test1")
     assert ns1.a == 1
     assert ns1.b == 2
@@ -865,7 +864,7 @@ def test_eval_library_rejects_class_target_call():
     from plugin.scripting.named_scripts import _eval_library
     from plugin.scripting.venv.venv_sandbox import _new_executor
 
-    exe = _new_executor(10)
+    exe = _new_executor(build_sandbox_policy())
     code = (
         "def make():\n"
         "    return object()\n"
@@ -919,7 +918,7 @@ def test_named_script_tool_reads_document_scripts_only_when_needed():
     # User origin and missing origin key
     with (
         patch("plugin.scripting.document_scripts.get_user_scripts", return_value={"Helpers": code}),
-        patch("plugin.framework.uno_context.get_ctx", side_effect=_fail_ctx),
+        patch("plugin.scripting.host_rpc.get_ctx", side_effect=_fail_ctx),
         patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn: fn()),
     ):
         out1 = execute_tool(
@@ -939,7 +938,7 @@ def test_named_script_tool_reads_document_scripts_only_when_needed():
     # Origin "nope"
     with (
         patch("plugin.scripting.document_scripts.get_user_scripts", side_effect=_fail_user),
-        patch("plugin.framework.uno_context.get_ctx", side_effect=_fail_ctx),
+        patch("plugin.scripting.host_rpc.get_ctx", side_effect=_fail_ctx),
         patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn: fn()),
     ):
         with pytest.raises(RuntimeError, match="Unknown named-script origin 'nope'"):
@@ -954,7 +953,7 @@ def test_named_script_tool_reads_document_scripts_only_when_needed():
     sentinel_doc = object()
     with (
         patch("plugin.scripting.document_scripts.get_user_scripts", return_value={}),
-        patch("plugin.framework.uno_context.get_ctx", return_value=mock_ctx),
+        patch("plugin.scripting.host_rpc.get_ctx", return_value=mock_ctx),
         patch("plugin.scripting.session_manager.document_for_script_session", return_value=sentinel_doc),
         patch("plugin.scripting.document_scripts.get_document_scripts", return_value={"Cover": code}) as mock_get_doc,
         patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn: fn()),
@@ -970,7 +969,7 @@ def test_named_script_tool_reads_document_scripts_only_when_needed():
     # LIST_NAMED_PYTHON_SCRIPTS
     with (
         patch("plugin.scripting.document_scripts.get_user_scripts", return_value={"Helpers": code}),
-        patch("plugin.framework.uno_context.get_ctx", return_value=mock_ctx),
+        patch("plugin.scripting.host_rpc.get_ctx", return_value=mock_ctx),
         patch("plugin.scripting.session_manager.document_for_script_session", return_value=sentinel_doc),
         patch("plugin.scripting.document_scripts.get_document_scripts", return_value={"Cover": code}) as mock_get_doc,
         patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn: fn()),

@@ -5,6 +5,9 @@
 
 from unittest.mock import patch
 
+import pytest
+
+from plugin.framework.errors import DocumentDisposedError
 from plugin.writer.math.math_mml_export import (
     MathExportResult,
     convert_mathml_to_latex,
@@ -123,9 +126,9 @@ def test_inject_falls_back_to_starmath_when_mathml_fails() -> None:
     hit = _Hit("x")
     hit.starmath = "a over b"
     with patch.object(exp, "iter_writer_math_objects", return_value=[hit]), patch.object(
-        exp, "convert_mathml_to_latex", return_value=MathExportResult(False, None, None, "boom")
+        exp, "convert_mathml_to_latex", return_value=MathExportResult(False, None, "boom")
     ), patch.object(
-        exp, "convert_starmath_to_latex", return_value=MathExportResult(True, "y", None, None)
+        exp.MathExportBatch, "convert_starmath_to_latex", return_value=MathExportResult(True, "y", None)
     ):
         out = inject_math_tex_into_html(object(), object(), html)
     assert "$y$" in out
@@ -178,14 +181,21 @@ def test_substitute_uses_one_batch() -> None:
             self.closed = 0
             instances.append(self)
 
+        def __enter__(self) -> "FakeBatch":
+            return self
+
+        def __exit__(self, exc_type: object, exc: object, tb: object) -> bool:
+            self.close()
+            return False
+
         def convert_starmath_to_latex(self, starmath: str) -> exp.MathExportResult:
             self.calls.append(starmath)
-            return exp.MathExportResult(True, starmath, None, None)
+            return exp.MathExportResult(True, starmath, None)
 
         def close(self) -> None:
             self.closed += 1
 
-    with patch.object(exp, "_MathExportBatch", FakeBatch):
+    with patch.object(exp, "MathExportBatch", FakeBatch):
         out = exp.substitute_math_placeholders(html, records, object())
 
     assert len(instances) == 1
@@ -212,10 +222,9 @@ def test_math_export_batch_converts_repeated_formula_once() -> None:
     with patch.object(exp, "get_desktop", return_value=fake_desktop), patch.object(
         exp, "path_to_file_url", side_effect=lambda path: path
     ):
-        batch = exp._MathExportBatch(object())
-        res1 = batch.convert_starmath_to_latex("x")
-        res2 = batch.convert_starmath_to_latex("x")
-        batch.close()
+        with exp.MathExportBatch(object()) as batch:
+            res1 = batch.convert_starmath_to_latex("x")
+            res2 = batch.convert_starmath_to_latex("x")
 
     assert res1.ok and res2.ok
     assert res1.latex == "x" and res2.latex == "x"
@@ -235,9 +244,8 @@ def test_math_export_batch_failure_does_not_open_second_doc() -> None:
     with patch.object(exp, "get_desktop", return_value=fake_desktop), patch.object(
         exp, "path_to_file_url", side_effect=lambda path: path
     ):
-        batch = exp._MathExportBatch(object())
-        res = batch.convert_starmath_to_latex("x")
-        batch.close()
+        with exp.MathExportBatch(object()) as batch:
+            res = batch.convert_starmath_to_latex("x")
 
     assert not res.ok
     assert "store failed" in (res.error_message or "")
@@ -246,11 +254,19 @@ def test_math_export_batch_failure_does_not_open_second_doc() -> None:
 
 
 def test_substitute_math_failure_is_not_tex() -> None:
-    from plugin.writer.math.math_mml_export import substitute_math_placeholders
+    from unittest.mock import MagicMock
+    from plugin.writer.math import math_mml_export as exp
 
-    out = substitute_math_placeholders("<p>\ue000</p>", [(chr(0xE000), "x^", False)], None)
+    fake_desktop = MagicMock()
+    fake_desktop.loadComponentFromURL.return_value = None
+
+    with patch.object(exp, "get_desktop", return_value=fake_desktop):
+        out = exp.substitute_math_placeholders(
+            "<p>\ue000</p>", [(chr(0xE000), "x^", False)], object()
+        )
     assert "$" not in out
     assert 'data-math-export-error="' in out
+    assert 'data-math-export-error="smath_factory_returned_none"' in out
     assert "x^" in out
 
 
@@ -269,18 +285,64 @@ def test_portion_math_embed_and_read_starmath() -> None:
     from plugin.writer.math.math_mml_convert import MATH_CLSID
     from plugin.writer.math.math_mml_export import portion_math_embed, read_starmath
 
-    portion = MagicMock()
+    class _Enum:
+        def __init__(self, items: list[object]) -> None:
+            self._items = list(items)
+
+        def hasMoreElements(self) -> bool:
+            return bool(self._items)
+
+        def nextElement(self) -> object:
+            return self._items.pop(0)
+
     embed = MagicMock()
     embed.CLSID = MATH_CLSID
     embed.getEmbeddedObject.return_value.Formula = "x + 1"
-    portion.getPropertyValue.side_effect = lambda k: embed if k == "TextEmbeddedObject" else None
 
-    assert portion_math_embed(portion) is embed
+    frame_portion = MagicMock()
+    frame_portion.getPropertyValue.return_value = "Frame"
+    frame_portion.createContentEnumeration.return_value = _Enum([embed])
+
+    assert portion_math_embed(frame_portion) is embed
     assert read_starmath(embed) == "x + 1"
+
+    text_portion = MagicMock()
+    text_portion.getPropertyValue.return_value = "Text"
+    assert portion_math_embed(text_portion) is None
+    text_portion.createContentEnumeration.assert_not_called()
+
+
+def test_inject_exported_math_tex_raises_on_disposed_document() -> None:
+    from unittest.mock import MagicMock
+    from plugin.writer.math.math_mml_export import inject_exported_math_tex
+
+    class DisposedException(Exception):
+        pass
+
+    model = MagicMock()
+    model.getText.return_value.createEnumeration.side_effect = DisposedException("disposed")
+    html = "<p><math xmlns='http://www.w3.org/1998/Math/MathML'><mi>x</mi></math></p>"
+
+    with pytest.raises(DocumentDisposedError):
+        inject_exported_math_tex(model, object(), html)
+
+
+def test_read_starmath_raises_on_disposed_embed() -> None:
+    from unittest.mock import MagicMock
+    from plugin.writer.math.math_mml_export import read_starmath
+
+    class DisposedException(Exception):
+        pass
+
+    embed = MagicMock()
+    embed.getEmbeddedObject.side_effect = DisposedException("gone")
+
+    with pytest.raises(DocumentDisposedError):
+        read_starmath(embed)
 
 
 def test_math_export_result_shape() -> None:
-    r = MathExportResult(False, None, None, "empty_mathml")
+    r = MathExportResult(False, None, "empty_mathml")
     assert r.ok is False
 
 
@@ -291,16 +353,3 @@ def test_math_mml_export_uno_skips_windows_leftover_hidden_smath() -> None:
     src = Path(__file__).with_name("test_math_mml_export_uno.py").read_text(encoding="utf-8")
     assert "skip_windows_leftover_hidden_load" in src
     assert "math export Hidden _blank smath" in src
-
-
-def test_exception_message_prefers_uno_message() -> None:
-    from plugin.writer.math import math_mml_export as exp
-
-    class _Uno(Exception):
-        def __init__(self) -> None:
-            super().__init__("")
-            self.Message = "filter failed"
-
-    assert exp._exception_message(_Uno()) == "_Uno: filter failed"
-    assert exp._exception_message(ValueError("bad")) == "ValueError: bad"
-    assert exp._exception_message(ValueError()) == "ValueError"

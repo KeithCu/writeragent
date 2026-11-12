@@ -36,9 +36,9 @@ COMPUTE_PLUGIN_EXTRAS = (
 
 # Traced closure of import server+formula_pool+vision and execute_code
 # (result=1, numpy/pandas, matplotlib svg, init_script, shared session),
-# plus venv/coerce.py for CalcRange.to_pandas. Checked against
-# collect_librepy_plugin_paths. The two extras are the only names LibrePy
-# does not already ship.
+# plus venv/coerce.py for CalcRange.to_pandas. collect_compute_plugin_paths
+# requires every entry to be in collect_librepy_plugin_paths or in
+# COMPUTE_PLUGIN_EXTRAS.
 COMPUTE_PLUGIN_FILES = (
     "plugin/__init__.py",
     "plugin/version.py",

@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 
 from plugin.doc.find_tools_tool import FindTools, get_domain_guidance
 from plugin.doc.specialized_catalog import get_specialized_domain_catalog
-from plugin.framework.tool import ToolBase, ToolRegistry
+from plugin.framework.tool import ToolBase, ToolRegistry, prepare_tool_call
 from plugin.framework.send_cancellation import SendCancellation
 from plugin.mcp.mcp_protocol import MCPProtocolHandler, _PreparedMcpCall
 from plugin.writer.specialized_base import ToolWriterSpecialBase
@@ -43,7 +43,7 @@ def test_get_domain_guidance():
 
 def test_document_research_guidance_has_no_peer_tools():
     from unittest.mock import patch
-    with patch("plugin.framework.prompts.get_document_research_workflow_hint", return_value="HINT") as hint:
+    with patch("plugin.doc.find_tools_tool.get_document_research_workflow_hint", return_value="HINT") as hint:
         assert get_domain_guidance("document_research") == "HINT"
     hint.assert_called_once_with()
     assert "send_peer" not in get_domain_guidance("document_research")
@@ -413,13 +413,12 @@ def test_execute_tolerates_malformed_schemas_in_domain_listing():
     assert "footnotes_insert" in {t["name"] for t in result["tools"]}
 
 
-def test_execute_tolerates_non_string_domain():
-    registry = MagicMock()
-    registry.get_schemas.return_value = [_schema("a")]
-    registry.get_tools.return_value = []
-    result = FindTools().execute(_ctx(registry), domain=123)
-    assert result["status"] == "ok"
-    assert result["tools"] == []
+def test_non_string_domain_is_rejected_by_the_validator():
+    tool = FindTools()
+    prepared = prepare_tool_call(tool, _ctx(MagicMock()), tool.name, {"domain": 123})
+    assert prepared.error is not None
+    assert prepared.error["code"] == "VALIDATION_ERROR"
+    assert "domain" in prepared.error["message"]
 
 
 def test_execute_normalizes_domain_case_and_whitespace():
@@ -797,3 +796,13 @@ def test_tools_list_does_not_swallow_get_ctx(monkeypatch):
     monkeypatch.setattr("plugin.framework.uno_context.get_ctx", _boom)
     with pytest.raises(RuntimeError, match="off main thread"):
         handler._mcp_tools_list({})
+
+
+def test_sidebar_only_tool_names_registry_failure_is_raised_not_an_empty_set():
+    # An empty set would let every sidebar-only tool into the direct_flat tools/list.
+    from plugin.doc.find_tools_tool import sidebar_only_tool_names
+
+    registry = MagicMock()
+    registry.get_tools.side_effect = RuntimeError("registry broken")
+    with pytest.raises(RuntimeError, match="registry broken"):
+        sidebar_only_tool_names(registry, None, doc_type="writer", uno_services_supported=frozenset())

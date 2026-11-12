@@ -10,7 +10,7 @@ Public entries: ``document_to_content`` and ``xtext_to_content``.
 CJK ruby: the XHTML filter concatenates ``text:ruby`` children and range copy
 drops ``RubyText``. ``inject_ruby_into_html`` restores ``<ruby><rt>`` after
 semantic post-process. Apply strips ``<rt>`` then sets ``RubyText`` on the
-base run (``html_ruby.extract_and_strip_ruby`` / ``_apply_ruby_spans``).
+base run (``html_ruby.extract_and_strip_ruby`` / ``apply_ruby_spans``).
 """
 
 from __future__ import annotations
@@ -20,20 +20,22 @@ import re
 import time
 import zlib
 from html import escape as html_escape
-from typing import Any, Iterator
+from typing import Any, Callable, Iterator
 
-from plugin.framework.errors import best_effort
+from plugin.doc.temp_files import with_temp_buffer
 from plugin.doc.text_helpers import (
     get_string_without_tracked_deletions,
+    get_writer_selection_positions,
     iter_elements,
     starts_at_or_after,
+    visible_portions,
     walk_cap_warning,
-    _visible_portions as _shared_visible_portions,
 )
-from plugin.framework.errors import ToolExecutionError, reraise_if_disposed, uno_read
+from plugin.framework.errors import ToolExecutionError, best_effort, reraise_if_disposed, uno_read
 from plugin.framework.scratch_writer import new_blank_writer
+from plugin.framework.uno_context import create_property_value
 from plugin.writer.math.math_mml_export import (
-    _OBJECT_REPLACEMENT,
+    OBJECT_REPLACEMENT,
     inject_exported_math_tex,
     portion_math_embed,
     substitute_math_placeholders,
@@ -127,7 +129,7 @@ def _apply_image_export_options(content: str, *, include_images: bool) -> str:
 def _truncate_html(content: str, max_chars: int) -> str:
     """Cut *content* to *max_chars* without ending inside a tag or an entity.
 
-    The old slice ``content[:max_chars]`` handed the model an unclosed
+    A plain slice ``content[:max_chars]`` can hand the model an unclosed
     ``<a href="…`` or a trailing ``&nb``. The marker stays so
     get_document_content can set ``truncated``.
     """
@@ -143,9 +145,6 @@ def _truncate_html(content: str, max_chars: int) -> str:
 
 
 def _read_filter_text(doc: Any, filter_name: str, ext: str = ".html") -> str:
-    from plugin.doc.temp_files import with_temp_buffer
-    from plugin.framework.uno_context import create_property_value
-
     with with_temp_buffer(ext=ext) as (path, file_url):
         props = (create_property_value("FilterName", filter_name),)
         doc.storeToURL(file_url, props)
@@ -177,10 +176,10 @@ def _autostyle_maps(doc: Any) -> tuple[dict[str, str], dict[str, str], bool | No
     works, just without autostyle-name recovery and without the direct-formatting report).
 
     Both scopes report overrides: the range path copies the source paragraphs' direct formatting
-    onto the temp document first (see _paint_direct_formatting)."""
+    onto the temp document first (see paint_direct_formatting)."""
     def read_maps() -> tuple[dict[str, str], dict[str, str], bool | None]:
         fodt = _read_filter_text(doc, FLAT_ODF_FILTER, ext=FODT_EXTENSION)
-        parents, overrides = xhtml_post._parse_fodt_autostyles(fodt)
+        parents, overrides = xhtml_post.parse_fodt_autostyles(fodt)
         return (parents, overrides, "<text:ruby" in fodt)
 
     failed: tuple[dict[str, str], dict[str, str], bool | None] = ({}, {}, None)
@@ -203,7 +202,7 @@ def _visible_portions(para: Any, limit: int = _COPY_PORTION_LIMIT, truncated_out
     Char* runs without a signal.
     """
     hit: list[int] = []
-    yield from _shared_visible_portions(
+    yield from visible_portions(
         para, abort_on_portion_error=True, limit=limit, truncated_out=hit
     )
     if hit:
@@ -260,23 +259,26 @@ def _restore_anchor_hrefs(content: str, urls: list[str]) -> str:
 
 def _starts_before(text: Any, left: Any, right: Any) -> bool:
     """True when *left* is strictly before *right* (``compareRegionStarts`` == 1)."""
-    return uno_read(lambda: int(text.compareRegionStarts(left, right)) == 1, False)
+    return int(text.compareRegionStarts(left, right)) == 1
 
 
 def _ends_after(text: Any, left: Any, right: Any) -> bool:
     """True when *left* ends strictly after *right* (``compareRegionEnds`` == -1)."""
-    return uno_read(lambda: int(text.compareRegionEnds(left, right)) == -1, False)
+    return int(text.compareRegionEnds(left, right)) == -1
 
 
 def _element_overlaps(text: Any, element: Any, source: Any) -> bool:
-    """True when *element* and *source* share a character."""
-    try:
-        return (
-            _starts_before(text, element.getStart(), source.getEnd())
-            and _ends_after(text, element.getEnd(), source.getStart())
-        )
-    except Exception:
-        return False
+    """True when *element* and *source* share a character.
+
+    SwXText::ComparePositions (sw/source/core/unocore/unotext.cxx) throws only
+    when a range is not in this text. The caller's window comes from that same
+    text, so a failure means the read cannot place the paragraph, and the
+    range read raises instead of guessing.
+    """
+    return (
+        _starts_before(text, element.getStart(), source.getEnd())
+        and _ends_after(text, element.getEnd(), source.getStart())
+    )
 
 
 def _selection_cursor(model: Any) -> Any | None:
@@ -285,9 +287,7 @@ def _selection_cursor(model: Any) -> Any | None:
     Selection scope builds a cursor in the selection's own XText instead of body
     character offsets, so index/TOC selections do not export a later body paragraph.
     """
-    from plugin.doc.text_helpers import _get_writer_selection_positions
-
-    found = _get_writer_selection_positions(model)
+    found = get_writer_selection_positions(model)
     if not found:
         return None
     text, start, end = found
@@ -301,8 +301,8 @@ def _selection_cursor(model: Any) -> Any | None:
 
 def _trim_to_source(text: Any, element: Any, para_text: str, source: Any) -> tuple[int, int]:
     """Visible-text window of *element* that lies inside *source*."""
-    # getStart/getEnd do not fail on a live range. Compare helpers already
-    # catch. Swallowing a failure here exported the whole paragraph.
+    # getStart/getEnd and region comparisons run on ranges from the same text;
+    # any failure raises to the outer handler so the slice does not guess.
     start_inside = _starts_before(text, element.getStart(), source.getStart())
     end_inside = _ends_after(text, element.getEnd(), source.getEnd())
     if not start_inside and not end_inside:
@@ -318,6 +318,185 @@ def _trim_to_source(text: Any, element: Any, para_text: str, source: Any) -> tup
         cur.gotoRange(source.getEnd(), True)
         trim_end = len(get_string_without_tracked_deletions(cur))
     return trim_start, trim_end
+
+
+# (element, visible para text) -> (trim_start, trim_end) in visible coordinates
+# (_visible_portions, tracked deletions removed), or None to skip the element.
+# The pair is always returned, even when nothing is cut, because paint_direct_formatting
+# and _hyperlink_urls index portions with it.
+_Window = Callable[[Any, str], "tuple[int, int] | None"]
+
+
+def _selection_window(text: Any, source: Any) -> tuple[Callable[[Any], bool], _Window]:
+    """Window filter and stop predicate for selection-range export."""
+    def past_end(el: Any) -> bool:
+        return starts_at_or_after(text, el.getStart(), source.getEnd())
+
+    def window(el: Any, para_text: str) -> tuple[int, int] | None:
+        if not _element_overlaps(text, el, source):
+            return None
+        return _trim_to_source(text, el, para_text, source)
+
+    return past_end, window
+
+
+def _offset_window(text: Any, start: int, end: int) -> tuple[Callable[[Any], bool], _Window]:
+    """Window filter for character-offset slice export.
+
+    One cursor walks forward so each paragraph costs only its gap from the
+    previous element. A failed gap measurement raises rather than shifting the
+    window across subsequent paragraphs. Returns the window in the paragraph's
+    own coordinates with tracked deletions removed, keeping (0, len) when uncut
+    so portion indexing matches.
+    """
+    walker = text.createTextCursor()
+    walker.gotoStart(False)
+    running = 0
+
+    def window(el: Any, para_text: str) -> tuple[int, int] | None:
+        nonlocal running
+        gap = text.createTextCursorByRange(walker.getStart())
+        gap.gotoRange(el.getStart(), True)
+        running += len(get_string_without_tracked_deletions(gap))
+        walker.gotoRange(el.getStart(), False)
+        para_start = running
+        para_end = para_start + len(para_text)
+        if para_end <= start or para_start >= end:
+            return None
+        return max(0, start - para_start), len(para_text) - max(0, para_end - end)
+
+    return (lambda _el: False), window
+
+
+def _copy_formula_runs(
+    portions: list[tuple[Any, str]],
+    trim_start: int,
+    trim_end: int,
+    temp_text: Any,
+    temp_cursor: Any,
+    math_records: list[tuple[str, str, bool]],
+) -> None:
+    """Copy formula and text runs into *temp_text*, recording placeholders."""
+    # Standalone formula: paragraph has no other visible text.
+    display_block = not any(
+        chunk.strip() and chunk != OBJECT_REPLACEMENT and not portion_math_embed(p)
+        for p, chunk in portions
+    )
+    cur_offset = 0
+    for p, chunk in portions:
+        run_len = len(chunk)
+        run_start = cur_offset
+        run_end = cur_offset + run_len
+        cur_offset += run_len
+        emb = portion_math_embed(p)
+        if emb is not None:
+            # A formula portion can be zero-length; keep it when it sits inside the window.
+            if run_start < trim_start or run_start > trim_end:
+                continue
+            slice_text = range_copy.record_math_placeholder(math_records, emb, display_block=display_block)
+        else:
+            if run_end <= trim_start or run_start >= trim_end:
+                continue
+            s_start = max(0, trim_start - run_start)
+            s_end = run_len - max(0, run_end - trim_end)
+            slice_text = chunk[s_start:s_end]
+        if not slice_text:
+            continue
+        range_copy.copy_text_run(p, temp_text, temp_cursor, slice_text)
+
+
+def _copy_window_to_scratch(
+    model: Any,
+    text: Any,
+    temp_doc: Any,
+    past_end: Callable[[Any], bool],
+    window: _Window,
+    walk_warnings: list[str] | None,
+) -> tuple[list[str], list[Any], list[tuple[str, str, bool]]] | None:
+    """Copy elements matching *window* into *temp_doc*.
+
+    Returns (copied_urls, copied_ruby, math_records), or None when no element was copied.
+    """
+    temp_text = temp_doc.getText()
+    temp_cursor = temp_text.createTextCursor()
+    style_cache: dict[str, Any] = {}
+    enum = text.createEnumeration()
+    added_any = False
+    copied_urls = []
+    copied_ruby = []
+    math_records: list[tuple[str, str, bool]] = []
+
+    for el in iter_elements(enum):
+        if not hasattr(el, "getString"):
+            continue
+        if past_end(el):
+            break
+        if range_copy.supports_service(el, "com.sun.star.text.TextTable"):
+            # Tables are in this enumeration and have no ParaStyleName.
+            style = ""
+        else:
+            # Paragraphs always have ParaStyleName.
+            style = el.getPropertyValue("ParaStyleName") or ""
+
+        # Same _visible_portions walk as get_string_without_tracked_deletions so
+        # paint offsets match the helper string. Still walk here (not just the
+        # helper) because we need the portion objects to copy Char* properties.
+        portions = list(_visible_portions(el, truncated_out=walk_warnings))
+        has_formula = any(portion_math_embed(p) is not None for p, _unused in portions)
+        para_text = "".join(chunk for _unused, chunk in portions)
+
+        trim = window(el, para_text)
+        if trim is None:
+            continue
+        trim_start, trim_end = trim
+        para_text = para_text[trim_start:trim_end]
+
+        applied = False
+        if not added_any:
+            temp_cursor.gotoStart(False)
+            applied = range_copy.apply_temp_para_style(temp_doc, temp_cursor, style, model)
+        else:
+            temp_cursor.gotoEnd(False)
+            temp_text.insertControlCharacter(temp_cursor, range_copy.PARAGRAPH_BREAK, False)
+            # After insertControlCharacter the cursor is still before the break, not in the
+            # new paragraph. Move into it before setting style/content, otherwise setString
+            # clobbers the previous paragraph instead of filling the new one.
+            temp_cursor.gotoNextParagraph(False)
+            temp_cursor.gotoEndOfParagraph(True)
+            applied = range_copy.apply_temp_para_style(temp_doc, temp_cursor, style, model)
+
+        if not has_formula:
+            temp_cursor.setString(para_text)
+            src_style = range_copy.source_style(model, style, style_cache) if applied else None
+            range_copy.paint_direct_formatting(el, portions, temp_text, trim_start, trim_end, src_style)
+        else:
+            _copy_formula_runs(portions, trim_start, trim_end, temp_text, temp_cursor, math_records)
+
+        copied_urls.extend(_hyperlink_urls(portions, trim_start, trim_end))
+        # RubyText lives on the empty Ruby start mark, not the Text run, so
+        # _COPIED_CHAR_PROPERTIES cannot recreate ruby on the temp doc.
+        # Collect source spans and rewrite the exported HTML after XHTML.
+        copied_ruby.extend(html_ruby.ruby_spans_in_window(el, trim_start, trim_end))
+        added_any = True
+
+    return (copied_urls, copied_ruby, math_records) if added_any else None
+
+
+def _export_semantic(doc: Any, *, read_ruby: bool) -> tuple[str, bool | None]:
+    """Export *doc* as XHTML and convert to semantic HTML using flat-ODF autostyles.
+
+    The sidecar is a second full export. It runs when there are autostyles to
+    name, or when the caller needs the ruby flag (the full read skips a portion
+    walk with it). has_ruby is None when the sidecar did not run, and finish()
+    then walks portions itself. The function raises on export failure, and each
+    caller owns its fallback.
+    """
+    xhtml = _export_xhtml(doc)
+    if read_ruby or xhtml_post.xhtml_has_paragraph_autostyle(xhtml):
+        parents, overrides, has_ruby = _autostyle_maps(doc)
+    else:
+        parents, overrides, has_ruby = {}, {}, None
+    return xhtml_post.xhtml_to_semantic_html(xhtml, parents, overrides), has_ruby
 
 
 def _range_to_content_via_temp_doc(
@@ -338,7 +517,6 @@ def _range_to_content_via_temp_doc(
     """
     temp_doc = None
     try:
-        # ctx.getServiceManager() was an unused probe; new_blank_writer is the check.
         # Blank scratch doc: the factory URL honours the user's default template,
         # and this function reads the whole body back (see new_blank_writer).
         temp_doc = new_blank_writer(ctx, target="_default")
@@ -349,131 +527,19 @@ def _range_to_content_via_temp_doc(
                 "Could not read that part of the document (no scratch document)."
             )
 
-        temp_text = temp_doc.getText()
-        temp_cursor = temp_text.createTextCursor()
-        style_cache: dict[str, Any] = {}
         text = source_range.getText() if source_range is not None else model.getText()
-        enum = text.createEnumeration()
-        first_para = True
-        added_any = False
-        copied_urls = []
-        copied_ruby = []
-        # One cursor walking forward. Selecting back to the document start for
-        # every paragraph copied a growing prefix (quadratic — the selection
-        # read that hung on a long file). The gap since the previous element
-        # is the same offset the old prefix measurement produced.
-        walker = text.createTextCursor()
-        walker.gotoStart(False)
-        running = 0
-
-        math_records: list[tuple[str, str, bool]] = []
-        for el in iter_elements(enum):
-            if not hasattr(el, "getString"):
-                continue
-            if source_range is not None and starts_at_or_after(text, el.getStart(), source_range.getEnd()):
-                break
-            if range_copy._supports_service(el, "com.sun.star.text.TextTable"):
-                # Tables are in this enumeration and have no ParaStyleName.
-                style = ""
-            else:
-                # Paragraphs always have ParaStyleName.
-                style = el.getPropertyValue("ParaStyleName") or ""
-            # Same _visible_portions walk as get_string_without_tracked_deletions so
-            # paint offsets match the helper string. Still walk here (not just the
-            # helper) because we need the portion objects to copy Char* properties.
-            portions = list(_visible_portions(el, truncated_out=walk_warnings))
-
-            has_formula = any(portion_math_embed(p) is not None for p, _unused in portions)
-            para_text = "".join(chunk for _unused, chunk in portions)
-            if source_range is not None:
-                if not _element_overlaps(text, el, source_range):
-                    continue
-                trim_start, trim_end = _trim_to_source(text, el, para_text, source_range)
-                para_text = para_text[trim_start:trim_end]
-            else:
-                gap = text.createTextCursorByRange(walker.getStart())
-                # An offset failure must not shift the window. Swallowing it
-                # mapped every later paragraph to the wrong range and returned
-                # that slice as ok.
-                gap.gotoRange(el.getStart(), True)
-                running += len(get_string_without_tracked_deletions(gap))
-                walker.gotoRange(el.getStart(), False)
-                para_start = running
-                para_end = para_start + len(para_text)
-                if para_end <= start or para_start >= end:
-                    continue
-                # The window in the paragraph's own (tracked-deletions removed) coordinates. Kept even
-                # when nothing is trimmed: _paint_direct_formatting indexes portions with it.
-                trim_start, trim_end = 0, len(para_text)
-                if para_start < start or para_end > end:
-                    trim_start = max(0, start - para_start)
-                    trim_end = len(para_text) - max(0, para_end - end)
-                    para_text = para_text[trim_start:trim_end]
-
-            applied = False
-            if first_para:
-                temp_cursor.gotoStart(False)
-                applied = range_copy.apply_temp_para_style(temp_doc, temp_cursor, style)
-                first_para = False
-            else:
-                temp_cursor.gotoEnd(False)
-                temp_text.insertControlCharacter(temp_cursor, range_copy._PARAGRAPH_BREAK, False)
-                # After insertControlCharacter the cursor is still before the break, not in the
-                # new paragraph. Move into it before setting style/content, otherwise setString
-                # clobbers the previous paragraph instead of filling the new one.
-                temp_cursor.gotoNextParagraph(False)
-                temp_cursor.gotoEndOfParagraph(True)
-                applied = range_copy.apply_temp_para_style(temp_doc, temp_cursor, style)
-
-            if not has_formula:
-                temp_cursor.setString(para_text)
-                src_style = range_copy.source_style(model, style, style_cache) if applied else None
-                range_copy._paint_direct_formatting(el, portions, temp_text, trim_start, trim_end, src_style)
-            else:
-                # Standalone formula: paragraph has no other visible text
-                display_block = not any(
-                    chunk.strip() and chunk != _OBJECT_REPLACEMENT and not portion_math_embed(p)
-                    for p, chunk in portions
-                )
-                cur_offset = 0
-                for p, chunk in portions:
-                    run_len = len(chunk)
-                    run_start = cur_offset
-                    run_end = cur_offset + run_len
-                    cur_offset += run_len
-                    emb = portion_math_embed(p)
-                    if emb is not None:
-                        # A formula portion can be zero-length; keep it when it sits inside the window.
-                        if run_start < trim_start or run_start > trim_end:
-                            continue
-                        slice_text = range_copy._record_math_placeholder(math_records, emb, display_block=display_block)
-                    else:
-                        if run_end <= trim_start or run_start >= trim_end:
-                            continue
-                        s_start = max(0, trim_start - run_start)
-                        s_end = run_len - max(0, run_end - trim_end)
-                        slice_text = chunk[s_start:s_end]
-                    if not slice_text:
-                        continue
-                    range_copy._copy_text_run(p, temp_text, temp_cursor, slice_text)
-
-            copied_urls.extend(_hyperlink_urls(portions, trim_start, trim_end))
-            # RubyText lives on the empty Ruby start mark, not the Text run, so
-            # _COPIED_CHAR_PROPERTIES cannot recreate ruby on the temp doc.
-            # Collect source spans and rewrite the exported HTML after XHTML.
-            copied_ruby.extend(html_ruby._ruby_spans_in_window(el, trim_start, trim_end))
-            added_any = True
-
-        if not added_any:
+        past_end, window = (
+            _selection_window(text, source_range)
+            if source_range is not None
+            else _offset_window(text, start, end)
+        )
+        copied = _copy_window_to_scratch(model, text, temp_doc, past_end, window, walk_warnings)
+        if copied is None:
             return ""
+        copied_urls, copied_ruby, math_records = copied
 
         try:
-            xhtml = _export_xhtml(temp_doc)
-            if xhtml_post.xhtml_has_paragraph_autostyle(xhtml):
-                parents, overrides, _unused_ruby = _autostyle_maps(temp_doc)
-            else:
-                parents, overrides = {}, {}
-            content = xhtml_post.xhtml_to_semantic_html(xhtml, parents, overrides)
+            content, _unused_ruby = _export_semantic(temp_doc, read_ruby=False)
         except Exception as e:
             # A closed document must not start a second export.
             reraise_if_disposed(e)
@@ -492,11 +558,12 @@ def _range_to_content_via_temp_doc(
         reraise_if_disposed(e)
         if isinstance(e, ToolExecutionError):
             raise
-        # Same silent "ok with empty content" as the full read (relato #63): say why instead.
+        # Same rule as the full read: a failed read raises with its reason instead of returning ok with empty content.
         raise ToolExecutionError("Could not read that part of the document (%s)." % _reason(e)) from e
     finally:
         if temp_doc is not None:
             best_effort(lambda: temp_doc.close(True), "_range_to_content_via_temp_doc: close temp doc failed")
+            range_copy.release_scratch_style_holds(temp_doc)
 
 
 
@@ -542,7 +609,7 @@ def document_to_content(
     def finish(content: str, ruby_flag: bool | None, why: str) -> str:
         content = _apply_image_export_options(content, include_images=include_images)
         content = inject_exported_math_tex(model, ctx, content)
-        content = html_ruby._inject_ruby_from_model(model, content, ruby_flag)
+        content = html_ruby.inject_ruby_from_model(model, content, ruby_flag)
         _raise_if_empty_export(model, content, why)
         if max_chars and len(content) > max_chars:
             content = _truncate_html(content, max_chars)
@@ -575,10 +642,7 @@ def document_to_content(
     # scope == "full" — preferred: XHTML (+ flat-ODF parent map) -> semantic data-lo-style.
     xhtml_error: Exception | None = None
     try:
-        xhtml = _export_xhtml(model)
-        # Full export always runs _autostyle_maps: fodt_has_ruby skips the ruby portion walk, and None triggers it.
-        parents, overrides, fodt_has_ruby = _autostyle_maps(model)
-        content = xhtml_post.xhtml_to_semantic_html(xhtml, parents, overrides)
+        content, fodt_has_ruby = _export_semantic(model, read_ruby=True)
         content = finish(content, fodt_has_ruby, "the XHTML export came back empty")
         return _done(content, "xhtml")
     except Exception as e:
@@ -599,10 +663,9 @@ def document_to_content(
     except Exception as e:
         # Disposal is not a double export failure.
         reraise_if_disposed(e)
-        # When both exports fail, returning "" makes get_document_content
-        # answer status ok with empty content (relato #63: document_length
-        # 57003, content ""), so neither the agent nor the log reader can
-        # tell why. The failure surfaces as a tool error that names both
+        # If both exports fail, returning "" would make get_document_content
+        # answer status ok with empty content, and neither the agent nor the
+        # log reader could tell why. Raise a tool error that names both
         # reasons (a full /tmp, a filter error, ...).
         raise ToolExecutionError(
             "Could not read the document: the XHTML export failed (%s) and the HTML export "
@@ -667,13 +730,13 @@ def _page_number_numbering_type_to_name(num_type: Any) -> str:
 def extract_page_number_fields(text_obj: Any) -> list[dict[str, Any]]:
     """Walk *text_obj* in document order and collect PageNumber field properties."""
     fields: list[dict[str, Any]] = []
-    for para in range_copy._iter_xtext_paragraphs(text_obj):
+    for para in range_copy.iter_xtext_paragraphs(text_obj):
         try:
             portions = para.createEnumeration()
         except Exception as e:
             log.debug("extract_page_number_fields createEnumeration failed: %s", e)
             continue
-        for portion, kind in range_copy._iter_portions(portions):
+        for portion, kind in range_copy.iter_portions(portions):
             if kind == "TextField":
                 try:
                     field = portion.getPropertyValue("TextField")
@@ -722,7 +785,7 @@ def _inject_page_number_attributes(content: str, fields: list[dict[str, Any]]) -
         if nt_name != "ARABIC":
             attrs += f' data-numbering-type="{nt_name}"'
         out.append(content[last_end:match.start()])
-        out.append(xhtml_post._inject_attr(match.group(0), attrs) if attrs else match.group(0))
+        out.append(xhtml_post.inject_attr(match.group(0), attrs) if attrs else match.group(0))
         last_end = match.end()
     out.append(content[last_end:])
     return "".join(out)
@@ -756,7 +819,7 @@ def xtext_to_content(
         )
     try:
         math_records: list[tuple[str, str, bool]] = []
-        range_copy._copy_xtext_into_doc(model, text_obj, temp_doc, math_records=math_records)
+        range_copy.copy_xtext_into_doc(model, text_obj, temp_doc, math_records=math_records)
         content = document_to_content(
             temp_doc,
             ctx,
@@ -771,5 +834,6 @@ def xtext_to_content(
         return content
     finally:
         best_effort(lambda: temp_doc.close(True), "xtext_to_content: close temp doc failed")
+        range_copy.release_scratch_style_holds(temp_doc)
 
 

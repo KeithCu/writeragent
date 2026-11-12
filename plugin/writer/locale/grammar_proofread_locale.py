@@ -209,7 +209,7 @@ def normalize_for_sentence_cache(text: str) -> str:
       "Hello?" and "Hello?..." share one, but "Hello?" and "Hello." remain distinct.
 
     The regex below matches all sentence terminators in ``grammar_proofread_locale.GRAMMAR_SENTENCE_TERMINATORS``
-    (the full Unicode STerm set). Both ``looks_complete_sentence`` and cache key normalization
+    (common prose terminals, not the full Unicode STerm set). Both ``looks_complete_sentence`` and cache key normalization
     are fully aligned and use the exact same character set.
     """
     s = text.rstrip()

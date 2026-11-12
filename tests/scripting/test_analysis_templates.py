@@ -6,20 +6,17 @@
 
 from __future__ import annotations
 
-from plugin.scripting.analysis import (
-    get_analysis_script_templates,
-    parse_analysis_script_header,
-)
+from plugin.scripting.domain_registry import get_domain_wiring
 from plugin.scripting.helper_registry import names
 
 
 def test_templates_cover_all_helpers():
-    templates = get_analysis_script_templates()
+    templates = get_domain_wiring("analysis").templates()
     assert set(templates.keys()) == names("analysis")
 
 
 def test_template_body_round_trip():
-    templates = get_analysis_script_templates()
+    templates = get_domain_wiring("analysis").templates()
     code = templates["describe_data"]
     assert "# writeragent:analysis" not in code
     assert "from writeragent.scripting.analysis import describe_data" in code
@@ -28,24 +25,10 @@ def test_template_body_round_trip():
     assert "format_percent(data, decimals=1)" in templates["format_percent"]
 
 
-def test_parse_header_with_params():
-    code = '# writeragent:analysis helper=kpi_summary params={"metrics":["Revenue"]}\nresult = 1\n'
-    meta = parse_analysis_script_header(code)
-    assert meta is not None
-    assert meta.helper == "kpi_summary"
-    assert meta.params == {"metrics": ["Revenue"]}
-
-
-def test_parse_header_rejects_unknown_helper():
-    code = "# writeragent:analysis helper=not_real params={}\n"
-    assert parse_analysis_script_header(code) is None
-
-
 def test_defaults_and_descriptions_cover_all_helpers():
     from plugin.scripting.helper_registry import names, specs
 
     analysis_specs = specs("analysis")
     assert {s.name for s in analysis_specs} == names("analysis")
     assert {s.name for s in analysis_specs if s.description} == names("analysis")
-    assert {s.name for s in analysis_specs if s.default_params is not None} == names("analysis")
 

@@ -440,7 +440,7 @@ def _resolve(token, token_sets, policy=ResolvePolicy.EXACT_THEN_PARAGRAPH, forei
         return RedlineView(reliable=reliable, total=len(rows), rows=tuple(rows))
 
     with patch("plugin.writer.inline_review.scan_redline_view", side_effect=_fake_scan), \
-         patch("plugin.writer.inline_review._execute_dispatch"):
+         patch("plugin.writer.inline_review.execute_dispatch"):
         res, _view = resolve_agent_change(model, MagicMock(), token, True, policy=policy)
         return res.status
 
@@ -727,7 +727,7 @@ def test_resolve_does_not_dispatch_when_before_token_snapshot_unreliable():
         rows=(RedlineRow(token="T", start=FakeRange(10, 15), end=FakeRange(15, 20)),),
     )
     with patch("plugin.writer.inline_review.scan_redline_view", return_value=unreliable_view), \
-         patch("plugin.writer.inline_review._execute_dispatch") as dispatch:
+         patch("plugin.writer.inline_review.execute_dispatch") as dispatch:
         res, _ = resolve_agent_change(model, MagicMock(), "T", True)
     assert res.status == ResolveStatus.UNRELIABLE
     dispatch.assert_not_called()
@@ -744,7 +744,7 @@ def test_resolve_does_not_dispatch_when_before_foreign_snapshot_unreliable():
         ),
     )
     with patch("plugin.writer.inline_review.scan_redline_view", return_value=unreliable_view), \
-         patch("plugin.writer.inline_review._execute_dispatch") as dispatch:
+         patch("plugin.writer.inline_review.execute_dispatch") as dispatch:
         res, _ = resolve_agent_change(model, MagicMock(), "T", True)
     assert res.status == ResolveStatus.UNRELIABLE
     dispatch.assert_not_called()
@@ -861,7 +861,7 @@ def _dispatch_removing(items, *per_pass):
 
 def test_overlapping_agent_changes_resolve_together():
     model, items, t1, t2 = _overlap_doc()
-    with patch("plugin.writer.inline_review._execute_dispatch", side_effect=_dispatch_removing(items, {t1, t2})):
+    with patch("plugin.writer.inline_review.execute_dispatch", side_effect=_dispatch_removing(items, {t1, t2})):
         assert _resolve_overlapping_agent_changes(model, MagicMock(), t1, True).resolved_count == 2
     assert items == []
 
@@ -871,14 +871,14 @@ def test_overlapping_reject_takes_one_layer_per_pass():
     over what is left of the group finishes it (the first live run left "palavra sobrando ")."""
     model, items, t1, t2 = _overlap_doc()
     fake = _dispatch_removing(items, {t2}, {t1})
-    with patch("plugin.writer.inline_review._execute_dispatch", side_effect=fake) as dispatch:
+    with patch("plugin.writer.inline_review.execute_dispatch", side_effect=fake) as dispatch:
         assert _resolve_overlapping_agent_changes(model, MagicMock(), t1, False).resolved_count == 2
     assert dispatch.call_count == 2
 
 
 def test_overlapping_group_refuses_a_user_redline_inside():
     model, items, t1, _t2 = _overlap_doc(FakeRedline("", 7, 8))
-    with patch("plugin.writer.inline_review._execute_dispatch") as dispatch:
+    with patch("plugin.writer.inline_review.execute_dispatch") as dispatch:
         assert _resolve_overlapping_agent_changes(model, MagicMock(), t1, True).resolved_count == 0
     dispatch.assert_not_called()
 
@@ -886,7 +886,7 @@ def test_overlapping_group_refuses_a_user_redline_inside():
 def test_a_lone_change_is_not_a_group():
     lone = TOKEN_PREFIX + "c:0"
     model = _ViewModel(FakeRedlines([FakeRedline(lone, 0, 4), FakeRedline(TOKEN_PREFIX + "d:0", 8, 9)]))
-    with patch("plugin.writer.inline_review._execute_dispatch") as dispatch:
+    with patch("plugin.writer.inline_review.execute_dispatch") as dispatch:
         assert _resolve_overlapping_agent_changes(model, MagicMock(), lone, True).resolved_count == 0
     dispatch.assert_not_called()
 
@@ -896,7 +896,7 @@ def test_touching_agent_changes_are_not_grouped():
     (an 'after' insert beside an earlier one) is left alone."""
     t1, t2 = TOKEN_PREFIX + "a:0", TOKEN_PREFIX + "b:0"
     model = _ViewModel(FakeRedlines([FakeRedline(t1, 0, 4), FakeRedline(t2, 4, 8)]))
-    with patch("plugin.writer.inline_review._execute_dispatch") as dispatch:
+    with patch("plugin.writer.inline_review.execute_dispatch") as dispatch:
         assert _resolve_overlapping_agent_changes(model, MagicMock(), t1, True).resolved_count == 0
     dispatch.assert_not_called()
 
@@ -908,7 +908,7 @@ def test_a_pass_that_uncovers_a_user_change_stops_there():
         # Popping T2's layer left a user redline where it was.
         items[:] = [rl for rl in items if rl.getPropertyValue("RedlineComment") != t2] + [FakeRedline("", 4, 6)]
 
-    with patch("plugin.writer.inline_review._execute_dispatch", side_effect=first_pass) as dispatch:
+    with patch("plugin.writer.inline_review.execute_dispatch", side_effect=first_pass) as dispatch:
         res = _resolve_overlapping_agent_changes(model, MagicMock(), t1, False)
         assert res.status == ResolveStatus.PARTIAL and res.resolved_count == 0
     assert dispatch.call_count == 1
@@ -926,13 +926,13 @@ def test_closed_document_resolve_fails_closed_without_dispatch():
     model = _ClosedDocument()
     ctx = MagicMock()
     token = TOKEN_PREFIX + "s:1"
-    with patch("plugin.writer.inline_review._execute_dispatch") as dispatch:
+    with patch("plugin.writer.inline_review.execute_dispatch") as dispatch:
         assert resolve_agent_change(model, ctx, token, True)[0].status == ResolveStatus.UNRELIABLE
         assert _resolve_all_agent_changes(model, ctx, True).status == ResolveStatus.UNRELIABLE
         assert _resolve_all_agent_changes(model, ctx, True).resolved == 0
         assert _resolve_overlapping_agent_changes(model, ctx, token, True).status == ResolveStatus.UNRELIABLE
     dispatch.assert_not_called()
-    # Global AcceptAll/RejectAll uses the service manager, not _execute_dispatch.
+    # Global AcceptAll/RejectAll uses the service manager, not execute_dispatch.
     ctx.getServiceManager.assert_not_called()
 
     n, msg = resolve_all_with_feedback(model, ctx, True)
@@ -1128,7 +1128,7 @@ def test_scan_count_exact_resolve_agent_change_success():
     def fake_dispatch(ctx, ctrl, accept):
         items.clear()
 
-    with patch("plugin.writer.inline_review._execute_dispatch", side_effect=fake_dispatch):
+    with patch("plugin.writer.inline_review.execute_dispatch", side_effect=fake_dispatch):
         res, _ = resolve_agent_change(model, ctx, t, True)
     assert res.status == ResolveStatus.RESOLVED
     assert model._rl.enums == 2
@@ -1156,7 +1156,7 @@ def test_scan_count_resolve_change_at_cursor_exact_success():
     def fake_dispatch(ctx, ctrl, accept):
         items.clear()
 
-    with patch("plugin.writer.inline_review._execute_dispatch", side_effect=fake_dispatch):
+    with patch("plugin.writer.inline_review.execute_dispatch", side_effect=fake_dispatch):
         ok, _ = resolve_change_at_cursor(model, MagicMock(), True)
     assert ok is True
     assert model._rl.enums == 2
@@ -1191,7 +1191,7 @@ def test_scan_count_resolve_change_at_cursor_with_provided_view():
     token = cursor_in_agent_change(model, view=view)
     assert token == t
 
-    with patch("plugin.writer.inline_review._execute_dispatch", side_effect=fake_dispatch):
+    with patch("plugin.writer.inline_review.execute_dispatch", side_effect=fake_dispatch):
         ok, _ = resolve_change_at_cursor(model, MagicMock(), True, token=token, view=view)
     assert ok is True
     assert model._rl.enums == 2
@@ -1216,7 +1216,7 @@ def test_scan_count_two_change_group_cleared_in_one_dispatch():
     def fake_dispatch(ctx, ctrl, accept):
         items.clear()
 
-    with patch("plugin.writer.inline_review._execute_dispatch", side_effect=fake_dispatch):
+    with patch("plugin.writer.inline_review.execute_dispatch", side_effect=fake_dispatch):
         res = _resolve_overlapping_agent_changes(model, MagicMock(), t1, True)
     assert res.status == ResolveStatus.RESOLVED and res.resolved_count == 2
     assert model._rl.enums == 2
@@ -1286,7 +1286,7 @@ def test_scan_count_resolve_all_mixed_three_changes_with_user_redline():
                 items.pop(i)
                 break
 
-    with patch("plugin.writer.inline_review._execute_dispatch", side_effect=fake_dispatch):
+    with patch("plugin.writer.inline_review.execute_dispatch", side_effect=fake_dispatch):
         n = _resolve_all_agent_changes(model, ctx, True).resolved
     assert n == 3
     assert model._rl.enums == 4
@@ -1307,7 +1307,7 @@ def test_resolve_agent_change_gotorange_raises_before_dispatch():
 
     model = ThrowingGotoModel(FakeRedlines(items))
     ctx = MagicMock()
-    with patch("plugin.writer.inline_review._execute_dispatch") as dispatch:
+    with patch("plugin.writer.inline_review.execute_dispatch") as dispatch:
         res, _ = resolve_agent_change(model, ctx, t, True)
         assert res.status == ResolveStatus.UNRELIABLE
         dispatch.assert_not_called()
@@ -1367,7 +1367,7 @@ def test_scan_count_click_popup_enumerates_once():
     mock_ctx = MagicMock()
     mock_ctx.getServiceManager.return_value = mock_smgr
 
-    with patch("plugin.framework.uno_context.get_ctx", return_value=mock_ctx):
+    with patch("plugin.writer.review_click_popup.get_ctx", return_value=mock_ctx):
         _show_popup_and_resolve(model, MagicMock(), 100, 100)
 
     assert model._rl.enums == 1

@@ -1085,3 +1085,27 @@ def test_exchange_content_length_over_max_bytes_closes_connection():
     close.assert_called_once()
 
 
+def test_exchange_with_max_bytes_stop_during_body_raises_stopped():
+    transport = LlmHttpTransport(lambda: "https://example.invalid", lambda: 5)
+    cancel = SendCancellation()
+    response = MagicMock()
+    response.status = 200
+    response.reason = "OK"
+    response.getheader.return_value = None
+
+    def read_chunk(*_args, **_kwargs):
+        cancel.cancel()
+        return b"first-chunk"
+
+    response.read.side_effect = read_chunk
+
+    def sender(method, path, body, headers, *, cancel=None, status_callback=None):
+        return response
+
+    with pytest.raises(NetworkError) as exc_info:
+        transport.exchange("GET", "/test", None, {}, sender=sender, parse_json=False, max_bytes=1000, cancel=cancel)
+    assert exc_info.value.code == "STOPPED"
+    assert response.read.call_count == 1
+
+
+

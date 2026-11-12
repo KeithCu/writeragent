@@ -13,10 +13,12 @@ import logging
 from typing import Any, ClassVar
 
 from plugin.chatbot.smol_agent import SmolToolAdapter, run_inner_tool_agent
-from plugin.framework.errors import user_stopped_payload
-from plugin.framework.tool import ToolBase, ToolContext
-from plugin.framework.queue_executor import main
 from plugin.doc.document_research import close_document_research_document, open_document_for_read, resolve_path_or_name
+from plugin.doc.specialized_catalog import normalize_inner_result
+from plugin.framework.errors import make_tool_error, user_stopped_payload
+from plugin.framework.queue_executor import main
+from plugin.framework.send_cancellation import SendCancelled, is_cancelled
+from plugin.framework.tool import ToolBase, ToolContext
 
 log = logging.getLogger(__name__)
 
@@ -38,7 +40,7 @@ def run_inner_read_agent(parent_ctx: ToolContext, opened_model: Any, doc_type: s
     registry = parent_ctx.services.get("tools")
     allowlist = READ_TOOLS_BY_DOC_TYPE.get(doc_type)
     if not allowlist:
-        return {"status": "error", "message": f"No read tools configured for doc_type {doc_type!r}"}
+        return make_tool_error(f"No read tools configured for doc_type {doc_type!r}")
 
     inner_ctx = parent_ctx.derive(
         doc=opened_model,
@@ -60,7 +62,6 @@ def run_inner_read_agent(parent_ctx: ToolContext, opened_model: Any, doc_type: s
             exclude_tiers=(),
         )
 
-    from plugin.framework.send_cancellation import SendCancelled
     try:
         tools = main.run(_fetch_inner_tools)
     except SendCancelled:
@@ -77,7 +78,7 @@ def run_inner_read_agent(parent_ctx: ToolContext, opened_model: Any, doc_type: s
         log.warning("Inner document_research agent missing tools: %s", missing)
 
     if not ordered:
-        return {"status": "error", "message": "No read tools available for opened document"}
+        return make_tool_error("No read tools available for opened document")
 
     smol_tools = [SmolToolAdapter(t, inner_ctx, safe=True, inputs_style="specialized") for t in ordered]
 
@@ -134,8 +135,6 @@ class DelegateReadDocument(ToolBase):
         return True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        from plugin.framework.send_cancellation import SendCancelled
-
         path_or_name = kwargs["path_or_name"]
         task = kwargs["task"]
         if not path_or_name or not task:
@@ -154,8 +153,6 @@ class DelegateReadDocument(ToolBase):
         if model is None or doc_type is None:
             return self._tool_error(err or "Open failed", path=path)
         try:
-            from plugin.framework.send_cancellation import is_cancelled
-
             scope = ctx.send_cancellation
             if is_cancelled(scope):
                 return user_stopped_payload()
@@ -193,7 +190,5 @@ class DelegateReadDocument(ToolBase):
         if not isinstance(result, dict):
             # Discussion #2262: a plain-text return means the read agent never called the finish
             # tool (output-limit truncation or max steps); report it with the #2029 incomplete contract.
-            from plugin.doc.specialized_catalog import normalize_inner_result
-
             return {**normalize_inner_result(result, ["document_research"], []), "path": path, "doc_type": doc_type}
         return {"status": "ok", "path": path, "doc_type": doc_type, "result": str(payload)}

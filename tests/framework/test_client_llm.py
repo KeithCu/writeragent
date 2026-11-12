@@ -1,5 +1,6 @@
 import socket
 import json
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -1105,9 +1106,10 @@ def test_make_chat_request_coalesces_system_messages(client):
         # The system string should be a combination of the two
         # Plus the injected date prepended
         system_content = request_body.get("system")
-        assert "Base instructions." in system_content
-        assert "Document context." in system_content
-        assert "Today's date is" in system_content
+        system_text = system_content[0]["text"] if isinstance(system_content, list) else system_content
+        assert "Base instructions." in system_text
+        assert "Document context." in system_text
+        assert "Today's date is" in system_text
             
     # And check Google as well
     with patch("plugin.framework.client.llm_client.LlmClient._resolve_auth") as mock_auth:
@@ -1432,6 +1434,9 @@ def test_is_image_only_model(client):
 
 def test_anthropic_shim(client):
     client.config["model"] = "claude-sonnet-4-5"
+    client.config["provider"] = "anthropic"
+    client.config["api_key"] = "test-key"
+    client.config["endpoint"] = "https://api.anthropic.com"
 
     with patch("plugin.framework.client.llm_client.LlmClient._resolve_auth") as mock_auth:
         mock_auth.return_value = {"provider": "anthropic"}
@@ -1448,7 +1453,9 @@ def test_anthropic_shim(client):
 
         data = json.loads(body)
         assert data["model"] == "claude-sonnet-4-5"
-        assert data["system"].endswith("You are a helpful assistant.")
+        assert data["system"][0]["text"].endswith("You are a helpful assistant.")
+        assert data["system"][0]["cache_control"] == {"type": "ephemeral", "ttl": "1h"}
+        assert data["diagnostics"]["previous_message_id"] is None
         assert data["messages"] == [{"role": "user", "content": [{"type": "text", "text": "Hello!"}]}]
         assert data["max_tokens"] == 100
 
@@ -1463,6 +1470,9 @@ def test_anthropic_blank_model_raises(client):
 
 def test_anthropic_joins_system_messages_and_maps_reasoning_effort(client):
     client.config["model"] = "claude-sonnet-4-5"
+    client.config["provider"] = "anthropic"
+    client.config["api_key"] = "test-key"
+    client.config["endpoint"] = "https://api.anthropic.com"
     with patch("plugin.framework.client.llm_client.LlmClient._resolve_auth") as mock_auth:
         mock_auth.return_value = {"provider": "anthropic"}
         messages = [
@@ -1478,8 +1488,10 @@ def test_anthropic_joins_system_messages_and_maps_reasoning_effort(client):
         assert method == "POST"
         assert "/v1/messages" in path
         data = json.loads(body)
-        assert "Date line." in data["system"]
-        assert "Extra instructions." in data["system"]
+        assert "Date line." in data["system"][0]["text"]
+        assert "Extra instructions." in data["system"][0]["text"]
+        assert data["system"][0]["cache_control"] == {"type": "ephemeral", "ttl": "1h"}
+        assert data["diagnostics"]["previous_message_id"] is None
         assert data["output_config"] == {"effort": "low"}
 
 
@@ -1752,6 +1764,231 @@ def test_cache_read_count_helper():
     assert cache_read_count({}) is None
     assert cache_read_count(None) is None
     assert cache_read_count({"prompt_tokens_details": None}) is None
+    assert cache_read_count({"prompt_cache_hit_tokens": 12}) == 12
+    assert cache_read_count({"prompt_cache_hit_tokens": 0}) == 0
+    assert cache_read_count({"prompt_cache_hit_tokens": True}) is None
+    assert cache_read_count({"prompt_cache_hit_tokens": "12"}) is None
+    assert cache_read_count({"cache_read_input_tokens": 9, "prompt_cache_hit_tokens": 12}) == 9
+    assert cache_read_count({"prompt_tokens_details": {"cached_tokens": 4}, "prompt_cache_hit_tokens": 12}) == 4
+
+
+def test_anthropic_response_cache_facts():
+    from plugin.framework.client.shim_helpers import anthropic_response_cache_facts
+
+    chunk_miss = {
+        "type": "message_start",
+        "message": {
+            "id": "msg_01",
+            "diagnostics": {"cache_miss_reason": {"type": "system_changed", "cache_missed_input_tokens": 10}},
+        },
+    }
+    assert anthropic_response_cache_facts(chunk_miss) == (
+        "msg_01",
+        {"cache_miss_reason": {"type": "system_changed", "cache_missed_input_tokens": 10}},
+    )
+
+    chunk_null_reason = {
+        "type": "message_start",
+        "message": {
+            "id": "msg_02",
+            "diagnostics": {"cache_miss_reason": None},
+        },
+    }
+    assert anthropic_response_cache_facts(chunk_null_reason) == (
+        "msg_02",
+        {"cache_miss_reason": None},
+    )
+
+    assert anthropic_response_cache_facts({"type": "content_block_delta", "delta": {"text": "hi"}}) is None
+    assert anthropic_response_cache_facts({"id": "chatcmpl-123", "object": "chat.completion.chunk"}) is None
+
+
+def test_anthropic_cache_diagnostics_stream_wiring(client, caplog):
+    import logging
+
+    client.config["model"] = "claude-sonnet-4-5"
+    client.config["provider"] = "anthropic"
+    client.config["api_key"] = "test-key"
+    client.config["endpoint"] = "https://api.anthropic.com"
+
+    payloads1 = [
+        '{"type":"message_start","message":{"id":"msg_turn1","diagnostics":{"cache_miss_reason":{"type":"system_changed","cache_missed_input_tokens":10}},"usage":{"input_tokens":25,"output_tokens":1,"cache_read_input_tokens":9,"cache_creation_input_tokens":16}}}',
+        '{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hi"}}',
+        '{"type":"message_delta","delta":{"stop_reason":"end_turn","stop_sequence":null},"usage":{"output_tokens":15}}',
+        '{"type":"message_stop"}',
+        "[DONE]",
+    ]
+
+    sent_requests: list[dict[str, Any]] = []
+
+    def mock_request(*args, **kwargs):
+        body = kwargs.get("body") or (args[2] if len(args) > 2 else None)
+        if body:
+            sent_requests.append(json.loads(body.decode("utf-8") if isinstance(body, bytes) else body))
+
+    def iterate1(_response):
+        yield from payloads1
+
+    with (
+        caplog.at_level(logging.INFO),
+        patch("plugin.framework.client.llm_client.LlmClient._resolve_auth", return_value={"provider": "anthropic"}),
+        patch("http.client.HTTPSConnection") as mock_https,
+        patch("plugin.framework.client.llm_client.iterate_sse", side_effect=iterate1),
+        patch("plugin.framework.client.http_transport.get_verified_ssl_context"),
+    ):
+        mock_conn = MagicMock()
+        mock_conn.request.side_effect = mock_request
+        mock_https.return_value = mock_conn
+        mock_response = MagicMock()
+        mock_response.status = 200
+        mock_conn.getresponse.return_value = mock_response
+
+        client.stream_request_with_tools(
+            messages=[{"role": "user", "content": "Hi"}],
+            max_tokens=10,
+            cache_session_id="sess-1",
+        )
+
+    # First request sent previous_message_id: null
+    assert len(sent_requests) == 1
+    assert sent_requests[0]["diagnostics"] == {"previous_message_id": None}
+
+    # After the call, client remembered msg_turn1 for sess-1, and None for unset session
+    assert client.anthropic_previous_message_id("sess-1") == "msg_turn1"
+    assert client.anthropic_previous_message_id(None) is None
+
+    # A second request with sess-1 sends previous_message_id: msg_turn1
+    with patch("plugin.framework.client.llm_client.LlmClient._resolve_auth", return_value={"provider": "anthropic"}):
+        _m, _p, body2, _h = client.make_chat_request(
+            [{"role": "user", "content": "Hi again"}], max_tokens=10, cache_session_id="sess-1"
+        )
+    data2 = json.loads(body2)
+    assert data2["diagnostics"]["previous_message_id"] == "msg_turn1"
+
+    # In dev build, caplog contains diagnostics line with cache_miss_reason, cache_read_input_tokens, cache_creation_input_tokens
+    if not is_release_build():
+        diag_records = [r for r in caplog.records if "Anthropic cache diagnostics:" in r.getMessage()]
+        assert len(diag_records) == 1
+        msg = diag_records[0].getMessage()
+        assert "cache_miss_reason={'type': 'system_changed', 'cache_missed_input_tokens': 10}" in msg
+        assert "cache_read_input_tokens=9" in msg
+        assert "cache_creation_input_tokens=16" in msg
+
+    # Follow-up stream_request_with_tools without cache_session_id does not replace sess-1's id
+    payloads2 = [
+        '{"type":"message_start","message":{"id":"msg_turn2","diagnostics":null,"usage":{"input_tokens":10,"output_tokens":1}}}',
+        '{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hello"}}',
+        '{"type":"message_stop"}',
+        "[DONE]",
+    ]
+
+    def iterate2(_response):
+        yield from payloads2
+
+    with (
+        patch("plugin.framework.client.llm_client.LlmClient._resolve_auth", return_value={"provider": "anthropic"}),
+        patch("http.client.HTTPSConnection") as mock_https2,
+        patch("plugin.framework.client.llm_client.iterate_sse", side_effect=iterate2),
+        patch("plugin.framework.client.http_transport.get_verified_ssl_context"),
+    ):
+        mock_conn2 = MagicMock()
+        mock_https2.return_value = mock_conn2
+        mock_resp2 = MagicMock()
+        mock_resp2.status = 200
+        mock_conn2.getresponse.return_value = mock_resp2
+
+        client.stream_request_with_tools(
+            messages=[{"role": "user", "content": "Grammar prompt"}],
+            max_tokens=10,
+        )
+
+    # sess-1 id is preserved and not overwritten
+    assert client.anthropic_previous_message_id("sess-1") == "msg_turn1"
+
+    # Patch provider to openrouter: remember does not write and anthropic_previous_message_id returns None
+    with patch.object(client, "_get_provider", return_value="openrouter"):
+        client.remember_anthropic_message_id("sess-openrouter", "msg_never_write")
+        assert client.anthropic_previous_message_id("sess-1") is None
+        assert client.anthropic_previous_message_id("sess-openrouter") is None
+
+
+def test_anthropic_cache_diagnostics_sync_wiring(client, caplog):
+    import logging
+
+    client.config["model"] = "claude-sonnet-4-5"
+    client.config["provider"] = "anthropic"
+    client.config["api_key"] = "test-key"
+    client.config["endpoint"] = "https://api.anthropic.com"
+
+    sync_response = {
+        "type": "message",
+        "id": "msg_sync",
+        "content": [{"type": "text", "text": "Sync reply"}],
+        "stop_reason": "end_turn",
+        "diagnostics": {"cache_miss_reason": {"type": "system_changed", "cache_missed_input_tokens": 15}},
+        "usage": {
+            "input_tokens": 30,
+            "output_tokens": 5,
+            "cache_read_input_tokens": 12,
+            "cache_creation_input_tokens": 18,
+        },
+    }
+
+    with (
+        caplog.at_level(logging.INFO),
+        patch.object(client, "_exchange_json", return_value=sync_response),
+    ):
+        result = client.request_with_tools(
+            messages=[{"role": "user", "content": "Hello sync"}],
+            stream=False,
+            cache_session_id="sess-sync-1",
+        )
+
+    assert result["content"] == "Sync reply"
+    assert client.anthropic_previous_message_id("sess-sync-1") == "msg_sync"
+
+    if not is_release_build():
+        diag_records = [r for r in caplog.records if "Anthropic cache diagnostics:" in r.getMessage()]
+        assert len(diag_records) == 1
+        msg = diag_records[0].getMessage()
+        assert "cache_miss_reason={'type': 'system_changed', 'cache_missed_input_tokens': 15}" in msg
+        assert "cache_read_input_tokens=12" in msg
+        assert "cache_creation_input_tokens=18" in msg
+        assert "cache_read=12" in msg
+
+
+@pytest.mark.parametrize(
+    "candidate,expected",
+    [
+        ("msg_abc", True),
+        ("msg_" + "x" * 252, True),
+        ("msg_" + "x" * 253, False),
+        ("chatcmpl-1", False),
+        ("", False),
+        (True, False),
+        (None, False),
+        (123, False),
+    ],
+)
+def test_is_anthropic_message_id(candidate, expected):
+    from plugin.framework.client.shim_helpers import is_anthropic_message_id
+
+    assert is_anthropic_message_id(candidate) is expected
+
+
+def test_remember_anthropic_message_id_rejects_invalid_ids(client):
+    client.config["provider"] = "anthropic"
+    client.config["api_key"] = "test-key"
+    client.config["endpoint"] = "https://api.anthropic.com"
+
+    client.remember_anthropic_message_id("sess-1", "chatcmpl-invalid")
+    assert client.anthropic_previous_message_id("sess-1") is None
+
+    client.remember_anthropic_message_id("sess-1", "msg_" + "x" * 300)
+    assert client.anthropic_previous_message_id("sess-1") is None
+
+    client.remember_anthropic_message_id("sess-1", "msg_valid_1")
+    assert client.anthropic_previous_message_id("sess-1") == "msg_valid_1"
 
 
 def test_make_chat_request_coalesces_mixed_system_messages(client):

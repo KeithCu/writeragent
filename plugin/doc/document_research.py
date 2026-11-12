@@ -12,16 +12,27 @@ from __future__ import annotations
 import logging
 import os
 import sys
-from typing import TYPE_CHECKING, Any, Literal, TypedDict
+from typing import TYPE_CHECKING, Any, Literal, NamedTuple, TypedDict
 
 import uno
 
+from plugin.framework.constants import folder_search_enabled
 from plugin.framework.doc_type import doc_type_family_label, get_document_type
 from plugin.doc.text_helpers import get_document_path
 from plugin.embeddings.embeddings_fs import ALL_INDEXABLE_EXTENSIONS
-from plugin.framework.errors import best_effort, uno_read, user_stopped_payload
-from plugin.framework.send_cancellation import SendCancellation, is_cancelled
-from plugin.framework.uno_context import enum_has_more, resolve_document_by_url
+from plugin.framework.errors import best_effort, make_tool_error, uno_read, user_stopped_payload
+from plugin.framework.queue_executor import main
+from plugin.framework.send_cancellation import SendCancellation, SendCancelled, is_cancelled
+from plugin.framework.thread_guard import assert_main_thread, guard_uno
+from plugin.framework.uno_context import (
+    create_property_value,
+    enum_has_more,
+    get_desktop,
+    get_runtime_uid,
+    iter_open_models,
+    resolve_document_by_url,
+)
+from plugin.framework.uno_listeners import reraise_listener_boundary
 from plugin.framework.url_utils import normalize_file_url, path_to_file_url
 
 if TYPE_CHECKING:
@@ -99,8 +110,6 @@ def guess_doc_type_from_path(path: str) -> DocTypeGuess:
 
 def filter_document_research_discovery_tools(tools: list[ToolBase]) -> list[ToolBase]:
     """Hide cross-file search tools that do not apply to the current folder_search_mode; list/delegate always kept."""
-    from plugin.framework.constants import folder_search_enabled
-
     hidden = "grep_nearby_files" if folder_search_enabled() else "search_nearby_files"
     return [t for t in tools if t.name != hidden]
 
@@ -109,7 +118,8 @@ def _normalize_path(path: str) -> str:
     return os.path.normpath(os.path.abspath(path))
 
 
-def _system_path_from_url(url: str) -> str | None:
+def system_path_from_url(url: str) -> str | None:
+    """Accepts file:/ via normalize_file_url; returns None for non-file or unconvertible URLs."""
     if not url or not str(url).startswith("file:"):
         return None
     url = normalize_file_url(str(url))
@@ -118,7 +128,7 @@ def _system_path_from_url(url: str) -> str | None:
     return best_effort(lambda: _normalize_path(str(uno.fileUrlToSystemPath(url))), f"fileUrlToSystemPath failed for {url}")
 
 
-def _should_skip_filename(name: str) -> bool:
+def should_skip_filename(name: str) -> bool:
     if name.startswith("~$"):
         return True
     lower = name.lower()
@@ -134,14 +144,14 @@ def get_document_directory(model: Any) -> str | None:
     return parent if os.path.isdir(parent) else None
 
 
-def _path_settings_from_ctx(ctx: Any) -> Any | None:
+def path_settings_from_ctx(ctx: Any) -> Any | None:
     """Return LO PathSettings singleton, or None when UNO is unavailable."""
     if ctx is None or not hasattr(ctx, "getValueByName"):
         return None
     return ctx.getValueByName("/singletons/com.sun.star.util.thePathSettings")
 
 
-def _resolve_lo_directory_path(ctx: Any, raw: str) -> str | None:
+def resolve_lo_directory_path(ctx: Any, raw: str) -> str | None:
     """Normalize a PathSettings directory value to an existing absolute path."""
     text = str(raw).strip()
     if text and ctx is not None and hasattr(ctx, "getValueByName"):
@@ -155,7 +165,7 @@ def _resolve_lo_directory_path(ctx: Any, raw: str) -> str | None:
     if not text:
         return None
     if text.startswith("file://"):
-        resolved = _system_path_from_url(text)
+        resolved = system_path_from_url(text)
     else:
         resolved = _normalize_path(text)
     if resolved and os.path.isdir(resolved):
@@ -165,13 +175,13 @@ def _resolve_lo_directory_path(ctx: Any, raw: str) -> str | None:
 
 def get_work_directory(ctx: Any) -> str | None:
     """Return LibreOffice My Documents folder (Work path setting), or None."""
-    settings = _path_settings_from_ctx(ctx)
+    settings = path_settings_from_ctx(ctx)
     if settings is None:
         return None
     work_raw = settings.getPropertyValue("Work")
     if work_raw is None:
         return None
-    return _resolve_lo_directory_path(ctx, str(work_raw))
+    return resolve_lo_directory_path(ctx, str(work_raw))
 
 
 def resolve_listing_directory(ctx: Any, active_model: Any) -> str | None:
@@ -185,8 +195,8 @@ def resolve_listing_directory(ctx: Any, active_model: Any) -> str | None:
 def _office_model_from_desktop_element(elem: Any) -> Any | None:
     """Document model for a desktop component, wrapped at this boundary.
 
-    Same policy as the old inline walks: if the element has a controller, use
-    ``controller.getModel()``; otherwise treat the element as the model.
+    If the element has a controller, use ``controller.getModel()``;
+    otherwise the element is the model.
     ``guard_uno`` here is the chokepoint (viral wrap from ``get_desktop()`` is
     not enough for MagicMock tests, and matches panel / open_document_for_read).
     """
@@ -197,10 +207,10 @@ def _office_model_from_desktop_element(elem: Any) -> Any | None:
         if hasattr(elem, "getController") and elem.getController():
             model = elem.getController().getModel()
     except Exception as exc:
-        # GHA 34593327841: leftover HTML-paste Writers (close skipped
-        # pasted=True) stay on the desktop. getController/getModel on those
-        # can raise, including PyUNO "Couldn't convert traceback … getTypes".
-        # An uncaught raise aborted list_nearby_files. Skip this component.
+        # Leftover hidden HTML-paste Writers can stay on the desktop, and
+        # getController/getModel on them can raise, including PyUNO
+        # "Couldn't convert traceback … getTypes". Skip the component so one
+        # broken entry does not abort list_nearby_files.
         # Do not log exc_info: formatting a UNO exception can raise the same
         # traceback-conversion RuntimeException.
         log.debug(
@@ -210,8 +220,6 @@ def _office_model_from_desktop_element(elem: Any) -> Any | None:
         return None
     if model is None:
         return None
-    from plugin.framework.thread_guard import guard_uno
-
     return guard_uno(model)
 
 
@@ -222,8 +230,6 @@ def _collect_open_file_urls(
     extensions: frozenset[str],
 ) -> dict[str, str]:
     """Map normalized path -> file URL for open LO components matching *extensions*."""
-    from plugin.framework.uno_context import get_desktop, iter_open_models
-
     out: dict[str, str] = {}
     exclude_norm = _normalize_path(exclude_path) if exclude_path else None
     try:
@@ -234,7 +240,7 @@ def _collect_open_file_urls(
                 url = model.getURL()
                 if not url or not str(url).startswith("file://"):
                     continue
-                path = _system_path_from_url(str(url))
+                path = system_path_from_url(str(url))
                 if not path:
                     continue
                 if exclude_norm and _normalize_path(path) == exclude_norm:
@@ -243,15 +249,15 @@ def _collect_open_file_urls(
                     continue
                 out[_normalize_path(path)] = str(url)
             except Exception as exc:
-                # GHA 34593327841: one leftover/broken component raised
-                # through getURL and aborted the whole nearby listing.
+                # One leftover or broken component can raise through getURL;
+                # skip it so the whole nearby listing does not abort.
                 log.debug(
                     "_collect_open_file_urls: skip component (%s)",
                     type(exc).__name__,
                 )
                 continue
     except Exception as exc:
-        # log.debug, not log.exception: formatting a UNO traceback can raise (GHA 34593327841).
+        # log.debug, not log.exception: formatting a UNO traceback can raise.
         log.debug("_collect_open_file_urls failed (%s)", type(exc).__name__)
     return out
 
@@ -276,8 +282,8 @@ def _scan_directory(
     entries: list[FileEntry] = []
     for idx, name in enumerate(names):
         if idx % 50 == 0 and is_cancelled(cancel):
-            raise InterruptedError("USER_STOPPED")
-        if _should_skip_filename(name):
+            raise SendCancelled()
+        if should_skip_filename(name):
             continue
         ext = os.path.splitext(name)[1].lower()
         if ext not in extensions:
@@ -317,7 +323,7 @@ def _entries_from_open_only(
     entries: list[FileEntry] = []
     for norm, url in open_paths.items():
         name = os.path.basename(norm)
-        if _should_skip_filename(name):
+        if should_skip_filename(name):
             continue
         if filter_lower and filter_lower not in name.lower():
             continue
@@ -375,7 +381,39 @@ def file_entry_for_path(path: str) -> FileEntry:
     )
 
 
-_USE_DEFAULT = object()
+class ListingState(NamedTuple):
+    """What a nearby listing needs from LibreOffice, read once on the main thread.
+
+    ``exclude_path`` is the active document's normalized path (left out of the
+    listing), ``open_paths`` maps normalized path to file URL for other open
+    documents, and ``listing_root`` is the folder to scan (None lists the open
+    documents only).
+    """
+
+    exclude_path: str | None
+    open_paths: dict[str, str]
+    listing_root: str | None
+
+
+def resolve_listing_state(
+    ctx: Any,
+    active_model: Any,
+    extensions: frozenset[str] = ALL_INDEXABLE_EXTENSIONS,
+) -> ListingState:
+    """Read the listing's UNO state in one main-thread hop (inline when already on main).
+
+    Raises SendCancelled when the user stops the send before the hop runs.
+    """
+    def _read_listing_state() -> ListingState:
+        active_path = get_document_path(active_model) if active_model is not None else None
+        exclude_path = _normalize_path(active_path) if active_path else None
+        return ListingState(
+            exclude_path=exclude_path,
+            open_paths=_collect_open_file_urls(ctx, exclude_path=exclude_path, extensions=extensions),
+            listing_root=resolve_listing_directory(ctx, active_model),
+        )
+
+    return main.run(_read_listing_state)
 
 
 def list_nearby_files(
@@ -384,70 +422,61 @@ def list_nearby_files(
     *,
     filter: str | None = None,
     file_kind: FileKind = "documents",
-    exclude_path: Any = _USE_DEFAULT,
-    open_paths: Any = _USE_DEFAULT,
-    listing_root: Any = _USE_DEFAULT,
     cancel: SendCancellation | None = None,
 ) -> dict[str, Any]:
-    """List nearby files for the outer document_research agent.
+    """List nearby files for a tool result: scan_nearby_files, with Stop as the USER_STOPPED payload."""
+    try:
+        return scan_nearby_files(ctx, active_model, filter=filter, file_kind=file_kind, cancel=cancel)
+    except SendCancelled:
+        return user_stopped_payload()
 
+
+def scan_nearby_files(
+    ctx: Any,
+    active_model: Any,
+    *,
+    filter: str | None = None,
+    file_kind: FileKind = "documents",
+    state: ListingState | None = None,
+    cancel: SendCancellation | None = None,
+) -> dict[str, Any]:
+    """List nearby files; raises SendCancelled when the user stops.
+
+    Tool entry points call ``list_nearby_files``; helpers that already handle Stop call this.
     *file_kind* ``documents`` (default): LibreOffice office formats only.
     *file_kind* ``images``: image files only (listable; not readable via delegate_read_document).
+    *state* skips the main-thread read when the caller already has it
+    (resolve_listing_state with the same extensions).
 
     Returns a dict with ``files``, ``truncated``, and optional ``listing_root``.
     """
     extensions = NEARBY_IMAGE_EXTENSIONS if file_kind == "images" else ALL_INDEXABLE_EXTENSIONS
+    if state is None:
+        state = resolve_listing_state(ctx, active_model, extensions)
 
-    def _fetch_uno_state() -> tuple[Any, Any, Any]:
-        res_exclude = exclude_path
-        res_open = open_paths
-        res_root = listing_root
-
-        if res_exclude is _USE_DEFAULT:
-            active_path = get_document_path(active_model) if active_model is not None else None
-            res_exclude = _normalize_path(active_path) if active_path else None
-
-        if res_open is _USE_DEFAULT:
-            res_open = _collect_open_file_urls(ctx, exclude_path=res_exclude, extensions=extensions)
-
-        if res_root is _USE_DEFAULT:
-            res_root = resolve_listing_directory(ctx, active_model)
-
-        return res_exclude, res_open, res_root
-
-    from plugin.framework.queue_executor import main
-    from plugin.framework.send_cancellation import SendCancelled
-
-    try:
-        exclude_path, open_paths, listing_root = main.run(_fetch_uno_state)
-    except SendCancelled:
-        return user_stopped_payload()
-
+    listing_root = state.listing_root
     if listing_root:
         try:
             files, truncated = _scan_directory(
                 listing_root,
                 extensions=extensions,
                 filter_substring=filter,
-                exclude_path=exclude_path,
-                open_paths=open_paths,
+                exclude_path=state.exclude_path,
+                open_paths=state.open_paths,
                 cancel=cancel,
             )
-            return {"status": "ok", "files": files, "truncated": truncated, "listing_root": listing_root, **(
-                {"hint": "Listing stopped at 100. Pass filter to narrow the name."} if truncated else {}
-            )}
-        except InterruptedError:
-            return user_stopped_payload()
         except OSError as e:
-            return {"status": "error", "message": str(e), "details": {"path": listing_root}}
+            return make_tool_error(str(e), path=listing_root)
+        return {"status": "ok", "files": files, "truncated": truncated, "listing_root": listing_root, **(
+            {"hint": "Listing stopped at 100. Pass filter to narrow the name."} if truncated else {}
+        )}
 
     # No directory: list other open documents only
-    files, truncated = _entries_from_open_only(open_paths, filter_substring=filter)
+    files, truncated = _entries_from_open_only(state.open_paths, filter_substring=filter)
     if not files:
-        return {
-            "status": "error",
-            "message": "No nearby files found. Save the document or open sibling files in LibreOffice.",
-        }
+        return make_tool_error(
+            "No nearby files found. Save the document or open sibling files in LibreOffice."
+        )
     return {"status": "ok", "files": files, "truncated": truncated, "listing_root": None, **(
         {"hint": "Listing stopped at 100. Pass filter to narrow the name."} if truncated else {}
     )}
@@ -460,6 +489,7 @@ def resolve_path_or_name(
 ) -> tuple[str | None, str | None]:
     """Resolve a path, file URL, or basename to an absolute path and file URL.
 
+    Raises SendCancelled when the user stops during the listing.
     Returns (path, url) or (None, error_message).
     """
     raw = str(path_or_name).strip()
@@ -474,7 +504,7 @@ def resolve_path_or_name(
     # the opener uses, then treat the result as an absolute path
     # (not a basename filter).
     if raw.startswith("file:"):
-        resolved = _system_path_from_url(raw)
+        resolved = system_path_from_url(raw)
         if resolved and os.path.isfile(resolved):
             return resolved, path_to_file_url(resolved)
         return None, f"No file matching {raw!r}"
@@ -483,7 +513,7 @@ def resolve_path_or_name(
         norm = _normalize_path(raw)
         return norm, path_to_file_url(norm)
 
-    listing = list_nearby_files(ctx, active_model, filter=raw)
+    listing = scan_nearby_files(ctx, active_model, filter=raw)
     if listing.get("status") != "ok":
         return None, listing.get("message", "Could not resolve file")
 
@@ -515,20 +545,15 @@ _WINDOWS_HIDDEN_READONLY_TARGET = "_wa_doc_research"
 
 
 def _hidden_readonly_load_args() -> tuple[str, int]:
-    """Target + FrameSearchFlag for Hidden+ReadOnly sibling open.
+    """Target + FrameSearchFlag for a Hidden+ReadOnly sibling open.
 
-    GHA 34636251918 stored Budget via the pooled Calc (``store
-    budget via active`` OK; ``test_list_nearby_excludes_active``
-    OK). ``open_document_for_read`` then ``loadComponentFromURL``
-    of that file with ``_default`` flags=0 raises ``Could not
-    create system bitmap!`` The next sibling open hangs 30s at the
-    same call. Leftover Hidden ``_wa_calc_html`` paste Writers
-    (uids 26/27) poison ``_default`` / ``_blank`` — same family as
-    leftover Hidden factory (34597506651 / 34599838644) and leftover
-    notebook detect (34619751330). ``rich_html.py`` already avoids
-    those names. Use one CREATE|GLOBAL name. Hidden+ReadOnly and
-    the reuse / close-flag contract stay the same. POSIX keeps
-    ``_default``.
+    On Windows, ``_default`` and ``_blank`` can pick up a leftover hidden frame (for
+    example a ``_wa_calc_html`` paste Writer), and ``loadComponentFromURL`` then
+    raises "Could not create system bitmap!" or hangs about 30 s. Windows
+    therefore uses one named CREATE|GLOBAL target that nothing else uses
+    (``rich_html.py`` avoids the same names). Hidden+ReadOnly and the reuse /
+    close-flag contract are the same on every platform. POSIX keeps ``_default``
+    with flags 0.
     """
     if sys.platform == "win32":
         return _WINDOWS_HIDDEN_READONLY_TARGET, _HIDDEN_READONLY_SEARCH_FLAGS
@@ -543,14 +568,12 @@ def open_document_for_read(ctx: Any, path_or_url: str) -> tuple[Any | None, str 
     :func:`close_document_research_document` after the read finishes. Reused desktop documents are not closed.
     A load that is not returned (unsupported type, or an exception after load) is closed here.
     """
-    from plugin.framework.uno_context import get_desktop
-
     path: str | None = None
     url: str | None = None
     raw = str(path_or_url).strip()
     if raw.startswith("file:"):
         url = normalize_file_url(raw)
-        path = _system_path_from_url(url)
+        path = system_path_from_url(url)
     # Leading "/" is absolute on POSIX; on Windows os.path.isabs is false for it.
     elif (os.path.isabs(raw) or raw.startswith("/")) and os.path.isfile(raw):
         path = _normalize_path(raw)
@@ -574,7 +597,6 @@ def open_document_for_read(ctx: Any, path_or_url: str) -> tuple[Any | None, str 
     # this function returns.
     model: Any = None
     try:
-        from plugin.framework.uno_context import create_property_value
         desktop = get_desktop(ctx)
         load_props = (
             create_property_value("Hidden", True),
@@ -588,7 +610,6 @@ def open_document_for_read(ctx: Any, path_or_url: str) -> tuple[Any | None, str 
         if doc_type == "unknown":
             close_document_research_document(model, opened_for_document_research=True)
             return None, None, f"Unsupported document type for {path}", False
-        from plugin.framework.thread_guard import guard_uno
 
         return guard_uno(model), doc_type, None, True
     except Exception as e:
@@ -620,13 +641,11 @@ def _is_same_document(model: Any, active_model: Any) -> bool:
     """Proxy-safe document identity for the is_active flag.
 
     ``model == active_model`` is ALWAYS False on guard-enabled builds: both sides are fresh
-    _UnoThreadGuardProxy instances (no __eq__), so the old identity compare reported
+    _UnoThreadGuardProxy instances (no __eq__), so an identity compare would report
     is_active=false even for the genuinely active document. Compare the stable runtime uid
     instead, falling back to the URL for models without one."""
     if model is None or active_model is None:
         return False
-    from plugin.framework.uno_context import get_runtime_uid
-
     ua, ub = get_runtime_uid(model), get_runtime_uid(active_model)
     if ua and ub:
         return ua == ub
@@ -641,10 +660,6 @@ def get_open_documents(uno_ctx: Any, active_model: Any = None) -> list[dict[str,
     leaves as ``ListenerBoundary``. A runtime error is re-raised as itself,
     not as disposal and not as ``[]``.
     """
-    from plugin.framework.thread_guard import assert_main_thread
-    from plugin.framework.uno_context import get_desktop, get_runtime_uid
-    from plugin.framework.uno_listeners import reraise_listener_boundary
-
     try:
         assert_main_thread("document_research.get_open_documents")
         desktop = get_desktop(uno_ctx)
@@ -686,7 +701,7 @@ def get_open_documents(uno_ctx: Any, active_model: Any = None) -> list[dict[str,
         # An untitled doc has no URL, so its uid is the ONLY handle a caller can target it by.
         # Never drop it on a type-lookup failure -- list it with doc_type "unknown" instead.
         untitled = not url_raw
-        path = "" if untitled else (_system_path_from_url(str(url_raw)) or "")
+        path = "" if untitled else (system_path_from_url(str(url_raw)) or "")
         # str, not DocTypeGuess: the enum fallback below yields any doc_type label.
         doc_type_guess: str = "unknown" if untitled or not path else guess_doc_type_from_path(path)
         if doc_type_guess == "unknown":

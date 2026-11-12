@@ -1121,17 +1121,13 @@ def _clear_writeragent_udprops(doc, ctx=None) -> None:
     # scripts UDProp the same way as the session ids so we never call
     # isReadonly(). Empty string is missing to get_document_scripts.
     # GHA 33763078357: that workaround relocated the hang to
-    # getDocumentProperties() — do not skip this write; probe first, then
-    # trace each UNO step inside set_document_property.
+    # getDocumentProperties() — do not skip this write; probe first.
     from plugin.doc import udprops as udprops_mod
 
-    prev_trace = udprops_mod._TRACE_UDPROPS
-    # Keep suite noise low: desktop/clipboard probe + per-UNO-step stderr
-    # only when with_native_doc armed teardown logs (test_insert_cell_html).
-    if _LOG_NATIVE_DOC_TEARDOWN:
-        if ctx is not None:
-            _probe_soffice_before_udprops(doc, ctx)
-        udprops_mod._TRACE_UDPROPS = True
+    # Keep suite noise low: the desktop/clipboard probe runs only when
+    # with_native_doc armed teardown logs (test_insert_cell_html).
+    if _LOG_NATIVE_DOC_TEARDOWN and ctx is not None:
+        _probe_soffice_before_udprops(doc, ctx)
     try:
         from plugin.scripting.document_scripts import DOCUMENT_SCRIPTS_UDPROP
         from plugin.scripting.session_manager import PYTHON_WORKBOOK_SESSION_PROP
@@ -1144,8 +1140,6 @@ def _clear_writeragent_udprops(doc, ctx=None) -> None:
         _native_teardown_progress("udprops clear: all done")
     except Exception:
         pass
-    finally:
-        udprops_mod._TRACE_UDPROPS = prev_trace
 
 
 def _reset_calc_doc(doc, ctx) -> None:  # ctx unused; same signature as writer reset

@@ -130,3 +130,43 @@ def test_custom_object_parity():
     grid = [[CustomObject(), 1.0], [2.5, CustomObject()]]
     assert_cython_vs_python_parity(grid, VENV_CODE_ECHO, label="custom object parity")
 
+
+def test_int_subclass_after_text_cell_parity() -> None:
+    """Int subclasses after a text cell match between Python and Cython.
+
+    Both column kinds and host unpack results must agree across pure Python and
+    the Cython accelerator. This verifies that classes named float16 or boolish
+    that inherit from int preserve int semantics regardless of earlier text cells.
+    """
+    from plugin.scripting.payload_codec import (
+        _flatten_grid_to_components,
+        host_pack_split_grid,
+        host_unpack_split_grid,
+    )
+
+    class Widget(int):
+        pass
+
+    class float16(int):
+        pass
+
+    class boolish(int):
+        pass
+
+    grids: list[list[Any] | list[list[Any]]] = [
+        [["x", Widget(7)]],
+        [["x", float16(7)]],
+        [["x", boolish(7)]],
+        ["x", float16(7)],
+    ]
+    for grid in grids:
+        with cython_accelerator_context(enabled=True):
+            cy_kinds = _flatten_grid_to_components(grid)[2]
+            cy_unpacked = host_unpack_split_grid(host_pack_split_grid(grid))
+        with cython_accelerator_context(enabled=False):
+            py_kinds = _flatten_grid_to_components(grid)[2]
+            py_unpacked = host_unpack_split_grid(host_pack_split_grid(grid))
+        assert cy_kinds == py_kinds
+        assert cy_unpacked == py_unpacked
+
+

@@ -30,7 +30,7 @@ def test_run_analysis_happy_path(ctx):
     context = {"sheet_name": "Sheet1"}
 
     with (
-        patch("plugin.scripting.client.configured_python_exec_timeout", return_value=30),
+        patch("plugin.scripting.client.python_exec_timeout", return_value=30),
         patch("plugin.scripting.client.run_trusted_worker_action", return_value=worker_result) as mock_run,
     ):
         result = run_analysis(ctx, spec, data, context=context)
@@ -55,7 +55,7 @@ def test_run_analysis_happy_path(ctx):
 )
 def test_run_analysis_worker_error(ctx, value, match):
     with (
-        patch("plugin.scripting.client.configured_python_exec_timeout", return_value=10),
+        patch("plugin.scripting.client.python_exec_timeout", return_value=10),
         patch(
             "plugin.scripting.client.run_trusted_worker_action",
             side_effect=ToolExecutionError(value, code="ANALYSIS_ERROR"),

@@ -55,7 +55,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 from typing import Any
 
-
+from plugin.framework.quit_hooks import register_quit_hook
 from . import (
     grammar_proofread_locale,
 )
@@ -166,6 +166,7 @@ class GrammarWorkQueue:
         self._lock: threading.Lock = threading.Lock()
         self._latest_seq: dict[str, int] = {}
         self._worker_count: int = 0
+        self._stopping: bool = False
 
     def inflight_superseded(self, inflight_key: str, enqueue_seq: int) -> bool:
         """True if a newer grammar enqueue has been recorded for this key (e.g. user kept typing)."""
@@ -261,13 +262,29 @@ class GrammarWorkQueue:
         self._q.put(item)
         self._ensure_workers()
 
+    def stop(self) -> None:
+        """Retire every drain worker; runs as a quit hook.
+
+        After this call no batch is dispatched: workers already waiting leave on
+        their sentinel, a worker that is mid-batch returns from the batch and
+        then leaves, and whatever is still queued or debouncing is dropped.
+        Nothing is joined: harper-ls and the LLM are not waited on at quit.
+        ``_worker_count`` is read under the lock that ``_ensure_workers``
+        increments it under, so every started worker gets exactly one sentinel.
+        """
+        with self._lock:
+            self._stopping = True
+            count = self._worker_count
+        for _unused in range(count):
+            self._q.put(None)
+
     def _ensure_workers(self) -> None:
         from plugin.framework.worker_pool import run_in_background
 
         desired = grammar_proofread_locale.grammar_max_in_flight()
         while True:
             with self._lock:
-                if self._worker_count >= desired:
+                if self._stopping or self._worker_count >= desired:
                     return
                 i = self._worker_count
                 self._worker_count += 1
@@ -277,8 +294,7 @@ class GrammarWorkQueue:
     def _drain_loop(self) -> None:
         """Block-dequeue, batch-drain pending items (newest seq per key), process one batch.
 
-        ``None`` is a poison-pill; nothing enqueues it today. A real shutdown must
-        put one ``None`` per drain thread, or extra workers block forever.
+        ``None`` is the sentinel ``stop`` puts once per worker; the worker returns without dispatching.
         """
         completes: dict[str, GrammarWorkItem] = {}
         partials: dict[str, tuple[float, GrammarWorkItem]] = {}
@@ -295,7 +311,7 @@ class GrammarWorkQueue:
                     completes[item.inflight_key] = item
 
         def _dispatch(batch: list[GrammarWorkItem]) -> None:
-            if not batch:
+            if not batch or self._stopping:
                 return
             grammar_obs(
                 "queue_drain_batch",
@@ -311,15 +327,10 @@ class GrammarWorkQueue:
                     locale=locale,
                     item_count=len(group_items),
                 )
+                # grammar_worker imports this module at its top (grammar_worker.py:39); a module-level import here is a cycle.
                 import plugin.writer.locale.grammar_worker as grammar_worker
 
                 grammar_worker.run_llm_and_cache_batch(group_items, grammar_queue_instance=self)
-
-        def _flush_and_stop() -> None:
-            remaining = list(completes.values()) + [item for _dl, item in partials.values()]
-            completes.clear()
-            partials.clear()
-            _dispatch(remaining)
 
         def _slurp(deadline: float) -> bool:
             while True:
@@ -357,8 +368,6 @@ class GrammarWorkQueue:
                         continue
 
                     if first is None:
-                        # Poison-pill: dispatch anything already absorbed, then stop.
-                        _flush_and_stop()
                         return
 
                     _absorb(first)
@@ -368,7 +377,6 @@ class GrammarWorkQueue:
                     # Fixed coalesce window (deadline does not move when more items arrive)
                     coalesce_deadline = time.monotonic() + grammar_proofread_locale.GRAMMAR_COMPLETE_COALESCE_S
                     if _slurp(coalesce_deadline):
-                        _flush_and_stop()
                         return
 
                     batch = list(completes.values())
@@ -380,3 +388,4 @@ class GrammarWorkQueue:
 
 
 grammar_queue = GrammarWorkQueue()
+register_quit_hook(grammar_queue.stop)

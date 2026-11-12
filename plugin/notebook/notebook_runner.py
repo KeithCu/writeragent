@@ -41,7 +41,7 @@ from plugin.notebook.writer_importer import (
     resolve_para_style,
     strip_ansi,
 )
-from plugin.scripting.payload_codec import find_image_payloads, host_unpack_data, is_image_payload
+from plugin.scripting.payload_codec import find_image_payloads, host_unpack_data, is_image_payload, is_multi_data
 from plugin.scripting.session_manager import notebook_session_id, pin_script_document, release_script_document
 from plugin.scripting.venv_worker import run_code_in_user_venv
 
@@ -139,7 +139,7 @@ def execute_code(ctx: Any, doc: Any, code: str) -> dict[str, Any]:
     cell is not seen until the worker returns. Stop therefore skips cells that
     have not started; it does not abort the in-flight cell.
     """
-    session_id = notebook_session_id(ctx, doc)
+    session_id = notebook_session_id(doc)
     if not session_id:
         return {"status": "error", "message": "Could not resolve notebook Python session."}
     from plugin.calc.python.workbook_lifecycle import ensure_python_session_cleared_on_unload
@@ -586,11 +586,11 @@ def format_run_output_text(result: dict[str, Any], execution_count: int | None =
         def is_only_images(obj: Any) -> bool:
             if is_image_payload(obj):
                 return True
-            if isinstance(obj, list) and obj and all(is_only_images(x) for x in obj):
-                return True
-            if isinstance(obj, dict) and obj.get("__wa_payload__") == "multi_data":
-                items = obj.get("items")
-                if isinstance(items, list) and items and all(is_only_images(x) for x in items):
+            if isinstance(obj, list):
+                return bool(obj) and all(is_only_images(x) for x in obj)
+            if is_multi_data(obj):
+                items = obj["items"]
+                if items and all(is_only_images(x) for x in items):
                     return True
             return False
 
