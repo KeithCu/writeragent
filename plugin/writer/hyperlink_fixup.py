@@ -50,7 +50,9 @@ still splits the run onto Internet-link chrome, and ``CharColor`` on that
 subrange repaints the whole link. To prevent painting that subrange from
 turning inherited style colors into direct attributes, the direct values
 and link styles captured before the replace are written on the whole
-paragraph after assigning the same URL.
+paragraph after assigning the same URL. Failures raise
+ToolExecutionError(code="HYPERLINK_UPDATE_FAILED") and the caller rolls the text
+change back.
 """
 
 from __future__ import annotations
@@ -60,7 +62,7 @@ import logging
 from typing import Any, Iterator
 
 from plugin.doc.text_helpers import go_right, iter_elements
-from plugin.framework.errors import uno_read, uno_write
+from plugin.framework.errors import ToolExecutionError, uno_read, uno_write
 
 log = logging.getLogger("writeragent.writer.hyperlink")
 
@@ -318,9 +320,10 @@ def _set_prop(cursor: Any, name: str, value: str) -> None:
     except Exception as exc:
         # A protected index refuses the property write. The caller rolls the text
         # change back with this error instead of leaving a stale outline target.
-        raise RuntimeError(
+        raise ToolExecutionError(
             "Could not update the outline hyperlink (the index may be protected "
-            "against manual changes): %s" % exc
+            "against manual changes): %s" % exc,
+            code="HYPERLINK_UPDATE_FAILED",
         ) from exc
 
 
@@ -445,8 +448,10 @@ def _paint(text: Any, anchor: Any, snapshot: OutlineSnapshot, new_plain: str,
     selected = None if cursor is None else uno_read(lambda: str(cursor.getString() or ""), None)
     if cursor is None or selected != new_plain:
         if required:
-            raise RuntimeError(
-                "Could not select the replaced text to update its outline hyperlink.")
+            raise ToolExecutionError(
+                "Could not select the replaced text to update its outline hyperlink.",
+                code="HYPERLINK_UPDATE_FAILED",
+            )
         log.debug("outline hyperlink: could not reselect the replaced text to restore its URL")
         return False
     planned = plan.get("new_url")
@@ -466,7 +471,10 @@ def restore_outline_hyperlinks(anchor: Any, snapshot: OutlineSnapshot,
     """
     if anchor is None:
         if snapshot.links or override:
-            raise RuntimeError("Could not locate the replaced text to update its outline hyperlink.")
+            raise ToolExecutionError(
+                "Could not locate the replaced text to update its outline hyperlink.",
+                code="HYPERLINK_UPDATE_FAILED",
+            )
         return []
 
     new_plain = measured_replacement(anchor, snapshot)
@@ -481,8 +489,9 @@ def restore_outline_hyperlinks(anchor: Any, snapshot: OutlineSnapshot,
     try:
         text = anchor.getText()
     except Exception as exc:
-        raise RuntimeError(
-            "Could not locate the replaced text to update its outline hyperlink: %s" % exc
+        raise ToolExecutionError(
+            "Could not locate the replaced text to update its outline hyperlink: %s" % exc,
+            code="HYPERLINK_UPDATE_FAILED",
         ) from exc
     # Writing HyperLinkURL on a *subrange* of an already-linked TOC
     # line (the title only) splits that portion and LibreOffice paints
@@ -553,8 +562,9 @@ def restore_outline_hyperlinks(anchor: Any, snapshot: OutlineSnapshot,
                 continue
             pending.append((portion.getStart(), portion.getEnd(), plan, read_link_look(portion)))
         except Exception as exc:
-            raise RuntimeError(
-                "Could not locate an outline hyperlink run to update: %s" % exc
+            raise ToolExecutionError(
+                "Could not locate an outline hyperlink run to update: %s" % exc,
+                code="HYPERLINK_UPDATE_FAILED",
             ) from exc
     for start, end, plan, portion_look in pending:
         cursor = text.createTextCursorByRange(start)

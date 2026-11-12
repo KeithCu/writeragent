@@ -78,7 +78,7 @@ def test_insert_cell_html_rich_loads_temp_writer_on_named_frame(caplog):
         mock_bridge = mock_bridge_cls.return_value
         mock_bridge.get_cell_by_address.return_value = cell
         mock_fmt._ensure_html_linebreaks.side_effect = lambda html: html
-        mock_fmt._insert_starwriter_html_at_cursor.side_effect = lambda *_a, **_k: order.append("insert")
+        mock_fmt.insert_html_fragment_at_cursor.side_effect = lambda *_a, **_k: order.append("insert")
 
         insert_cell_html_rich(calc_doc, MagicMock(), "Z99", "Plain <b>BoldBit</b> tail")
 
@@ -91,7 +91,7 @@ def test_insert_cell_html_rich_loads_temp_writer_on_named_frame(caplog):
     assert args[2] == _HTML_WRITER_SEARCH_FLAGS
     assert args[3] == (hidden_prop,)
     mock_cpv.assert_called_once_with("Hidden", True)
-    mock_fmt._insert_starwriter_html_at_cursor.assert_called_once()
+    mock_fmt.insert_html_fragment_at_cursor.assert_called_once()
     writer_ctrl.getTransferable.assert_called_once()
     calc_ctrl.select.assert_called_once_with(cell)
     calc_ctrl.insertTransferable.assert_called_once()
@@ -392,6 +392,6 @@ def test_insert_cell_html_rich_passes_sheet_prefix_to_bridge():
         mock_bridge = mock_bridge_cls.return_value
         mock_bridge.get_cell_by_address.return_value = cell
         mock_fmt._ensure_html_linebreaks.side_effect = lambda html: html
-        mock_fmt._insert_starwriter_html_at_cursor.return_value = None
+        mock_fmt.insert_html_fragment_at_cursor.return_value = None
         insert_cell_html_rich(calc_doc, MagicMock(), "Sheet2.A1", "<b>x</b>")
     mock_bridge.get_cell_by_address.assert_called_once_with("Sheet2.A1")

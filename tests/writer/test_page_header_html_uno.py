@@ -422,7 +422,7 @@ def test_undo_rollback_restores_header_fields_and_logo(ctx, doc):
     cur.gotoStart(False)
     cur.gotoEnd(True)
     cur.setString("")
-    insert_html_fragment_at_cursor(cur, "<p>replaced</p>", wrap=False, model=None)
+    insert_html_fragment_at_cursor(cur, "<p>replaced</p>", wrap=False)
     mgr.leaveUndoContext()
 
     titles = mgr.getAllUndoActionTitles()
