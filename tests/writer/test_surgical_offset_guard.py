@@ -403,6 +403,8 @@ def test_rollback_failed_reraises_original_exception_type(mode):
                 session=session,
                 replace_side_effect=[None, InsertFailed("x")],
             )
+        assert um.undos == 1
+        assert session.discarded_to is None
     else:
         def replace_that_mutates_and_explodes(*args, **kwargs):
             um.record_action()
@@ -419,6 +421,8 @@ def test_rollback_failed_reraises_original_exception_type(mode):
                 split_author=True,
                 replace_fn=replace_that_mutates_and_explodes,
             )
+        assert um.undos == 1
+        assert session.discarded_to is None
 
 
 def test_first_subedit_failure_skips_undo_when_context_empty():

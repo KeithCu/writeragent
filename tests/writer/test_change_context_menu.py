@@ -19,9 +19,8 @@ from plugin.framework.uno_listeners import ListenerBoundary
 from plugin.writer import change_context_menu, review_view_attachment as rva
 
 
-def _registered_controllers(registry: dict[str, Any] | None = None) -> list[tuple[Any, Any]]:
-    reg = rva._attachments if registry is None else registry
-    return [(c, i) for att in reg.values() for c, i, _h in att.controllers]
+def _registered_controllers(registry: dict[str, Any]) -> list[tuple[Any, Any]]:
+    return [(c, i) for att in registry.values() for c, i, _h in att.controllers]
 
 
 class DisposedException(Exception):
@@ -161,20 +160,19 @@ def test_register_controller_dedups_by_uno_identity(monkeypatch, review_registry
 
 
 def _seed_controller_hooks(
+    registry: dict[str, Any],
     controller: Any,
     interceptor: Any,
     click_handler: Any | None = None,
-    registry: dict[str, Any] | None = None,
 ) -> None:
-    reg = rva._attachments if registry is None else registry
     handler = click_handler if click_handler is not None else MagicMock()
     model = getattr(interceptor, "_model", None)
     key = rva.attachment_key(model) if model is not None else "test:%d" % id(controller)
     with rva._lock:
-        attachment = reg.get(key)
+        attachment = registry.get(key)
         if attachment is None:
             attachment = rva.ReviewViewAttachment(key=key, model=model)
-            reg[key] = attachment
+            registry[key] = attachment
         attachment.controllers.append((controller, interceptor, handler))
 
 
@@ -188,8 +186,8 @@ def test_unload_removes_interceptor_and_pair(review_registry: dict[str, Any]):
     interceptor1 = SimpleNamespace(_model=model1)
     interceptor2 = SimpleNamespace(_model=model2)
 
-    _seed_controller_hooks(ctrl1, interceptor1, registry=review_registry)
-    _seed_controller_hooks(ctrl2, interceptor2, registry=review_registry)
+    _seed_controller_hooks(review_registry, ctrl1, interceptor1)
+    _seed_controller_hooks(review_registry, ctrl2, interceptor2)
 
     rva.unregister_controllers_for_model(model1)
     assert ctrl1.removed == [interceptor1]
@@ -206,7 +204,7 @@ def test_unload_swallows_removal_disposal(review_registry: dict[str, Any]):
         raise RuntimeError("gone")
 
     ctrl.releaseContextMenuInterceptor = _raise_gone
-    _seed_controller_hooks(ctrl, interceptor, registry=review_registry)
+    _seed_controller_hooks(review_registry, ctrl, interceptor)
 
     rva.unregister_controllers_for_model(model)
     assert _registered_controllers(review_registry) == []
@@ -218,7 +216,7 @@ def test_on_unload_event_removes_registered_interceptor(review_registry: dict[st
     ctrl = _StubController("c", model)
     interceptor = SimpleNamespace(_model=model)
 
-    _seed_controller_hooks(ctrl, interceptor, registry=review_registry)
+    _seed_controller_hooks(review_registry, ctrl, interceptor)
     listener = _build_listener()
 
     event = SimpleNamespace(EventName="OnUnload", ViewController=None, Source=model)
