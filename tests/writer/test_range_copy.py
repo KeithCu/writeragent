@@ -1,7 +1,17 @@
 """Unit tests for plugin/writer/range_copy.py."""
 from unittest.mock import MagicMock, call, patch
 
+import pytest
+
+from plugin.framework.errors import DocumentDisposedError
 from plugin.writer import range_copy as rc
+
+
+@pytest.fixture(autouse=True)
+def _clear_scratch_style_holds():
+    rc._scratch_style_holds.clear()
+    yield
+    rc._scratch_style_holds.clear()
 
 
 class _Enum:
@@ -136,6 +146,7 @@ def test_apply_temp_para_style_clones_missing_style_parents_first() -> None:
     child_clone.setParentStyle.assert_called_once_with("LetterParent")
     temp_cursor.setPropertyValue.assert_called_once_with("ParaStyleName", "LetterChild")
     assert len(_STYLE_KEEPALIVE) == initial_keepalive_len
+    rc.release_scratch_style_holds(temp_doc)
 
 
 def test_apply_temp_para_style_missing_follow_style_returns_true() -> None:
@@ -212,6 +223,49 @@ def test_apply_temp_para_style_missing_follow_style_returns_true() -> None:
     assert res2 is True
     temp_cursor2.setPropertyValue.assert_called_with("ParaStyleName", "SelfFollow")
     assert call_order == ["insert:SelfFollow", "follow:SelfFollow"]
+    rc.release_scratch_style_holds(temp_doc)
+    rc.release_scratch_style_holds(temp_doc2)
+
+
+def test_apply_temp_para_style_disposal_propagates() -> None:
+    temp_doc = MagicMock()
+    temp_cursor = MagicMock()
+    temp_doc.getStyleFamilies.return_value.getByName.return_value.hasByName.return_value = False
+
+    src_doc = MagicMock()
+    src_family = src_doc.getStyleFamilies.return_value.getByName.return_value
+    src_family.hasByName.return_value = True
+    src_family.getByName.side_effect = DocumentDisposedError("test document disposed")
+
+    with pytest.raises(DocumentDisposedError):
+        rc.apply_temp_para_style(temp_doc, temp_cursor, "CustomStyle", src_doc=src_doc)
+
+
+def test_apply_temp_para_style_non_str_parent_does_not_recurse() -> None:
+    from typing import Any
+
+    temp_doc = MagicMock()
+    temp_cursor = MagicMock()
+    dest_family = temp_doc.getStyleFamilies.return_value.getByName.return_value
+    inserted_styles: dict[str, Any] = {}
+    dest_family.hasByName.side_effect = lambda name: name in inserted_styles
+    dest_family.insertByName.side_effect = lambda name, clone: inserted_styles.setdefault(name, clone)
+
+    src_doc = MagicMock()
+    src_family = src_doc.getStyleFamilies.return_value.getByName.return_value
+    src_family.hasByName.return_value = True
+    source_style = MagicMock()
+    # Mock getParentStyle returns a truthy non-str (MagicMock)
+    source_style.getParentStyle.return_value = MagicMock()
+    source_style.getPropertyValue.return_value = ""
+    src_family.getByName.return_value = source_style
+
+    with patch("plugin.writer.styles.copy_direct_style_properties", return_value=([], [])):
+        res = rc.apply_temp_para_style(temp_doc, temp_cursor, "MyStyle", src_doc=src_doc)
+
+    assert res is True
+    assert temp_doc.createInstance.call_count == 1
+    assert temp_cursor.setPropertyValue.call_args_list == [call("ParaStyleName", "MyStyle")]
 
 
 def test_release_scratch_style_holds_drops_the_proxy() -> None:

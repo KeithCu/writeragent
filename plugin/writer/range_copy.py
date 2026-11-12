@@ -167,9 +167,10 @@ def source_style(model: Any, style_name: str, cache: dict[str, Any]) -> Any:
 
 
 # Holds references to paragraph style proxies cloned into scratch documents.
-# These proxies must stay alive until the scratch document is closed, otherwise
-# dropping the proxy during export triggers a race in LibreOffice's style lookup.
-# This per-document hold avoids polluting the global _STYLE_KEEPALIVE deque.
+# These proxies must stay alive until the scratch document is closed; otherwise,
+# dropping the proxy during export triggers a race in LibreOffice's style lookup
+# (see styles.keep_style_alive). The global deque is bounded (maxlen=256), so placing
+# scratch clones there would evict live-document styles.
 _scratch_style_holds: dict[int, list[Any]] = {}
 
 
@@ -251,18 +252,13 @@ def _clone_missing_paragraph_style(
 
     if parent:
         try:
-            if dest_family.hasByName(parent):
-                clone.setParentStyle(parent)
+            clone.setParentStyle(parent)
         except Exception as exc:
             reraise_if_disposed(exc)
             return False
 
     try:
         copy_direct_style_properties(source, clone)
-    except DocumentDisposedError:
-        raise
-    except RuntimeError:
-        return False
     except Exception as exc:
         reraise_if_disposed(exc)
         return False
@@ -318,12 +314,6 @@ def apply_temp_para_style(
         families = temp_doc.getStyleFamilies()
         para_styles = families.getByName("ParagraphStyles")
         if not para_styles.hasByName(style):
-            if src_doc is None:
-                log.debug(
-                    "range export: paragraph style %r is not in the scratch document and no source document was provided",
-                    style,
-                )
-                return False
             if not _clone_missing_paragraph_style(src_doc, temp_doc, para_styles, style):
                 log.debug(
                     "range export: paragraph style %r could not be cloned into the scratch document; keeping the default",
