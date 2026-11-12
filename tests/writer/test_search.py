@@ -526,15 +526,17 @@ def test_build_search_not_found_response_codes():
         res_review = build_search_not_found_response(MagicMock(), "needle", review=True)
         assert "In review mode" in res_review["message"]
 
-    # Oversized refusal
+    # Oversized refusal (only applies to old_content)
     doc = MagicMock()
     doc.getText.return_value.getString.return_value = "short"
     with patch("plugin.writer.search.old_content_covers_most", return_value=True):
         res_oversized = build_search_not_found_response(doc, "longneedle")
+        res_non_old_content = build_search_not_found_response(doc, "longneedle", subject="search_text")
     assert res_oversized["status"] == "error"
     assert res_oversized["code"] == "OLD_CONTENT_TOO_LARGE"
     assert res_oversized["oversized"] is True
     assert res_oversized["replaced_count"] == 0
+    assert res_non_old_content["code"] == "OLD_CONTENT_NOT_FOUND"
 
 
 def test_search_hit_cap_includes_shapes():
@@ -614,7 +616,7 @@ def test_shape_text_hits_regex_timeout():
         monkeypatch.undo()
 
 
-def test_find_chained_range_same_text_combine_failure_propagates():
+def test_find_first_range_chain_combine_failure_propagates():
     from plugin.writer.search import find_first_range
 
     doc = MagicMock()
@@ -641,7 +643,7 @@ def test_find_chained_range_same_text_combine_failure_propagates():
             find_first_range(doc, "Hello\nWorld")
 
 
-def test_find_chained_range_cross_text_is_skipped():
+def test_find_first_range_chain_cross_text_is_skipped():
     from plugin.writer.search import find_first_range
 
     doc = MagicMock()

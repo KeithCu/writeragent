@@ -291,7 +291,9 @@ def build_search_not_found_response(
     # still receives the helpful near-miss hint rather than an oversized refusal.
     closest = search_closest_mismatch(doc, needle, lenient=lenient) if not use_regex else None
 
-    if closest is None and doc is not None and needle and not use_regex and old_content_covers_most(doc, len(needle)):
+    # The oversized refusal tells the model to use target='full_document', which
+    # only the old_content edit tools have; other search tools fall through to not-found.
+    if closest is None and subject == "old_content" and not use_regex and old_content_covers_most(doc, len(needle)):
         return {
             "status": "error",
             "code": "OLD_CONTENT_TOO_LARGE",
@@ -300,7 +302,7 @@ def build_search_not_found_response(
             "oversized": True,
         }
 
-    has_tracked = doc is not None and document_has_tracked_deletions(doc)
+    has_tracked = document_has_tracked_deletions(doc)
     hint = _TRACKED_DELETION_HINT if has_tracked else ""
     if all_matches:
         base_msg = "Replaced 0 occurrence(s). No matches found. Try a shorter substring." + hint

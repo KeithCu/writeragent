@@ -777,6 +777,9 @@ class ApplyDocumentContent(ToolBase):
         shape = search_mod.drawing_shape_object_containing(
             doc, params.pattern,
             use_regex=params.regex, case_sensitive=params.case_sensitive)
+        # Review mode cannot track a shape edit, and a failed shape replace is rolled back.
+        # Both fall through to build_search_not_found_response, whose sweep finds the same
+        # shape and returns the delegation (review wording via review=).
         if shape is not None and not params.track_reviewable:
             shape_name = search_mod.shape_display_name(shape)
             # commit_or_rollback wraps shape replacement so a failed replace_text_in_shape

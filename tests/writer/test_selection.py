@@ -375,7 +375,7 @@ def test_set_selection_markup_search_miss_shows_stripped_string():
     mock_find.assert_called_once_with(doc, "missing_word", occurrence=0, case_sensitive=False)
 
 
-def test_set_selection_non_int_occurrence_does_not_touch_controller():
+def test_set_selection_non_int_occurrence_does_not_select():
     ctx, doc, controller = _selection_ctx()
     res = SetSelection().execute(ctx, search_text="hello", occurrence="first")
     assert res["status"] == "error"
