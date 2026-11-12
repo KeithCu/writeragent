@@ -67,7 +67,7 @@ def insert_image_payload_for_doc(
 ) -> None:
     """Insert an image envelope into Calc, Writer, or Draw/Impress."""
     if is_calc(doc):
-        from plugin.calc.python.image_egress import insert_image_result_on_sheet
+        from plugin.calc.python.image_egress import insert_image_result_on_sheet  # host only: not in the compute bundle
 
         # Pass the same document =PY() already read. Omitting doc= wrote the
         # chart to desktop.getCurrentComponent(), so image egress fell back to
@@ -77,6 +77,7 @@ def insert_image_payload_for_doc(
     writer = is_writer(doc)
     if not writer and not is_draw(doc):
         raise ToolExecutionError(_("Unsupported document type for plot insertion."), code="VIZ_ERROR")
+    # host only: not in the compute bundle
     from plugin.framework.uno_context import product_display_name
     from plugin.writer.images.image_tools import insert_image, insert_image_at_locator
 

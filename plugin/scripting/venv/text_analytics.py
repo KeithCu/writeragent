@@ -11,9 +11,11 @@ from functools import lru_cache
 import importlib.metadata
 import importlib.util
 import re
+import sys
 from typing import Any, cast
 
 from plugin.scripting.helper_registry import is_text_diagnostics
+from plugin.scripting.venv.trusted_dispatch import run_domain
 
 _LANG_MODELS: dict[str, tuple[str, ...]] = {
     "en": ("en_core_web_sm", "en_core_web_md", "en_core_web_lg"),
@@ -514,7 +516,6 @@ def check_diagnostics(lang: Any = None) -> dict[str, Any]:
     The output includes the python executable being used and the exact install command.
     """
     # Always capture the python the worker is actually using.
-    import sys
     python_exe = sys.executable
 
     # _lang_prefix treats non-string lang as None to avoid AttributeError.
@@ -658,6 +659,4 @@ def run_text_analytics(
 
     `text` is the document text (or list of section texts).
     """
-    from plugin.scripting.venv.trusted_dispatch import run_domain
-
     return run_domain("text", spec, text, context=context)
