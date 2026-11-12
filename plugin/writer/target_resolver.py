@@ -94,7 +94,7 @@ def resolve_target_cursor(
 
     if found is None:
         raise ValueError(
-            search_mod.build_search_not_found_response(doc, search_string, **find_kw)["message"]
+            search_mod.build_search_not_found_response(doc, search_string, refuse_oversized=True, **find_kw)["message"]
         )
 
     # Build the cursor in the MATCH's own text object, not the body: a match inside a table cell

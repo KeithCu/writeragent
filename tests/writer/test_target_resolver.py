@@ -17,6 +17,7 @@ def _ctx():
     cursor = MagicMock()
     text.createTextCursor.return_value = cursor
     doc = MagicMock()
+    doc.getDrawPage.return_value = None
     doc.getText.return_value = text
     return SimpleNamespace(doc=doc, ctx=MagicMock(), services=MagicMock()), cursor
 

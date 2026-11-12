@@ -187,7 +187,7 @@ def test_build_search_not_found_response_oversized_with_near_miss():
 
     # When no closest mismatch is found, oversized refusal triggers
     with patch("plugin.writer.search.search_closest_mismatch", return_value=None):
-        resp_oversized = build_search_not_found_response(doc, needle)
+        resp_oversized = build_search_not_found_response(doc, needle, refuse_oversized=True)
     assert resp_oversized["status"] == "error"
     assert "target='full_document'" in resp_oversized["message"]
     assert resp_oversized.get("oversized") is True

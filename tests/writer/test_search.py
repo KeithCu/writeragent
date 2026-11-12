@@ -139,10 +139,13 @@ def test_not_found_hints_at_pending_tracked_deletions():
     from plugin.writer.search import build_search_not_found_response
 
     doc = MagicMock()
+    doc.getDrawPage.return_value = None
     with patch("plugin.writer.search.document_has_tracked_deletions", return_value=True):
         msg = build_search_not_found_response(doc, "needle")["message"]
     assert "pending tracked deletions" in msg
-    assert "pending tracked" not in build_search_not_found_response(MagicMock(), "needle")["message"]
+    doc2 = MagicMock()
+    doc2.getDrawPage.return_value = None
+    assert "pending tracked" not in build_search_not_found_response(doc2, "needle")["message"]
 
 
 def test_search_in_document_zero_width_sets_truncated():
@@ -503,19 +506,22 @@ def test_search_in_document_missing_pattern_returns_invalid_param():
 def test_build_search_not_found_response_codes():
     from plugin.writer.search import build_search_not_found_response
 
+    doc = MagicMock()
+    doc.getDrawPage.return_value = None
+
     # Standard miss
-    res_standard = build_search_not_found_response(MagicMock(), "needle")
+    res_standard = build_search_not_found_response(doc, "needle")
     assert res_standard["status"] == "error"
     assert res_standard["code"] == "OLD_CONTENT_NOT_FOUND"
     assert res_standard["replaced_count"] == 0
 
     # Custom subject miss
-    res_subject = build_search_not_found_response(MagicMock(), "needle", subject="search_text")
+    res_subject = build_search_not_found_response(doc, "needle", subject="search_text")
     assert res_subject["message"].startswith("search_text not found")
 
     # Shape miss
     with patch("plugin.writer.search.drawing_shape_containing", return_value="Box1"):
-        res_shape = build_search_not_found_response(MagicMock(), "needle")
+        res_shape = build_search_not_found_response(doc, "needle")
         assert res_shape["status"] == "error"
         assert res_shape["code"] == "SHAPE_TEXT_NEEDS_DELEGATION"
         assert res_shape["replaced_count"] == 0
@@ -523,19 +529,22 @@ def test_build_search_not_found_response_codes():
         assert "old_content" in res_shape["message"]
 
         # Review mode shape miss
-        res_review = build_search_not_found_response(MagicMock(), "needle", review=True)
+        res_review = build_search_not_found_response(doc, "needle", review=True)
         assert "In review mode" in res_review["message"]
 
-    # Oversized refusal (only applies to old_content)
-    doc = MagicMock()
-    doc.getText.return_value.getString.return_value = "short"
+    # Oversized refusal (opt-in via refuse_oversized=True)
+    doc_oversized = MagicMock()
+    doc_oversized.getDrawPage.return_value = None
+    doc_oversized.getText.return_value.getString.return_value = "short"
     with patch("plugin.writer.search.old_content_covers_most", return_value=True):
-        res_oversized = build_search_not_found_response(doc, "longneedle")
-        res_non_old_content = build_search_not_found_response(doc, "longneedle", subject="search_text")
+        res_oversized = build_search_not_found_response(doc_oversized, "longneedle", refuse_oversized=True)
+        res_non_oversized = build_search_not_found_response(doc_oversized, "longneedle")
+        res_non_old_content = build_search_not_found_response(doc_oversized, "longneedle", subject="search_text")
     assert res_oversized["status"] == "error"
     assert res_oversized["code"] == "OLD_CONTENT_TOO_LARGE"
     assert res_oversized["oversized"] is True
     assert res_oversized["replaced_count"] == 0
+    assert res_non_oversized["code"] == "OLD_CONTENT_NOT_FOUND"
     assert res_non_old_content["code"] == "OLD_CONTENT_NOT_FOUND"
 
 
@@ -677,6 +686,7 @@ def test_occurrence_range_or_error_payloads():
     from plugin.writer.search import occurrence_range_or_error
 
     doc = MagicMock()
+    doc.getDrawPage.return_value = None
 
     # Bad occurrence
     rng, err = occurrence_range_or_error(doc, "text", "bad", case_sensitive=False, subject="test_param")

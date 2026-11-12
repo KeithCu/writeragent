@@ -1045,6 +1045,7 @@ def test_page_break_both_anchors_still_rejected_when_page_style_set():
 def test_page_break_anchor_not_found():
     from plugin.writer.page import PageInsertBreak
     doc = MagicMock()
+    doc.getDrawPage.return_value = None
     doc.findFirst.return_value = None
     # com.sun.star.style.BreakType is a mocked module; the import inside execute resolves via the uno mock.
     res = PageInsertBreak().execute(SimpleNamespace(doc=doc), before_text="Signature")

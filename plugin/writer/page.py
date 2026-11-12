@@ -1660,9 +1660,8 @@ class PageInsertBreak(ToolWriterPageBase):
             case_sensitive=case_sensitive,
             subject="before_text" if before_text else "after_text",
         )
-        if err:
-            return err
-        assert found is not None
+        if found is None:
+            return err or self._tool_error("Anchor not found")
         text = found.getText()
         # BreakType is a PARAGRAPH property. before_text -> the match's own paragraph;
         # after_text -> the paragraph that FOLLOWS the match.

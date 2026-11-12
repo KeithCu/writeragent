@@ -102,11 +102,14 @@ class FootnotesInsert(ToolWriterFootnoteBase):
         doc = ctx.doc
 
         if has_search:
-            rng_or_err = self._resolve_insert_range(doc, insert_after, kwargs.get("occurrence", 0), case_sensitive)
-            if isinstance(rng_or_err, dict):
-                rng_or_err["matched_case_sensitive"] = case_sensitive
-                return rng_or_err
-            rng = rng_or_err
+            rng, err = occurrence_range_or_error(
+                doc, insert_after, kwargs.get("occurrence", 0), case_sensitive=case_sensitive, subject="insert_after"
+            )
+            if err is not None:
+                err["matched_case_sensitive"] = case_sensitive
+                return err
+            if rng is None:
+                return self._tool_error("Failed to find insertion point.")
         else:
             # View cursor: active insertion point in the UI.
             ctrl = doc.getCurrentController()
@@ -141,14 +144,6 @@ class FootnotesInsert(ToolWriterFootnoteBase):
         if has_search:
             res["matched_case_sensitive"] = case_sensitive
         return res
-
-    def _resolve_insert_range(
-        self, doc: Any, insert_after: str, raw_occurrence: Any, case_sensitive: bool
-    ) -> Any:
-        rng, err = occurrence_range_or_error(
-            doc, insert_after, raw_occurrence, case_sensitive=case_sensitive, subject="insert_after"
-        )
-        return err if err is not None else rng
 
 
 class FootnotesList(ToolWriterFootnoteBase):

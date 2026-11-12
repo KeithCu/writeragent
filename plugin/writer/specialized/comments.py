@@ -223,10 +223,10 @@ class AddComment(ToolBase):
         found, err = occurrence_range_or_error(
             doc, search_text, kwargs.get("occurrence", 0), case_sensitive=case_sensitive, subject="search"
         )
-        if err:
-            err.update({"matched": False, "comment_added": False})
-            return err
-        assert found is not None
+        if found is None:
+            res = err or self._tool_error("Anchor not found")
+            res.update({"matched": False, "comment_added": False})
+            return res
 
         annotation = doc.createInstance("com.sun.star.text.textfield.Annotation")
         annotation.setPropertyValue("Author", author)

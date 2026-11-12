@@ -807,7 +807,9 @@ class ApplyDocumentContent(ToolBase):
                     )
                 if err is not None and err.get("code") == "ROLLBACK_FAILED":
                     return err
-                if err is None or err.get("code") != "SHAPE_REPLACE_FAILED":
+                if err is not None and err.get("code") == "SHAPE_REPLACE_FAILED":
+                    pass  # Failed shape replacement rolled back; fall through to delegation response below
+                else:
                     result = attach_edited_context(
                         {"status": "ok",
                           "message": ("Replaced 1 occurrence inside drawing shape '%s' (edited the "
@@ -831,6 +833,7 @@ class ApplyDocumentContent(ToolBase):
             use_regex=params.regex,
             all_matches=bool(params.all_matches),
             lenient=not params.use_opts,
+            refuse_oversized=True,
             review=params.track_reviewable,
         )
 
@@ -1094,7 +1097,7 @@ class ApplyDocumentContent(ToolBase):
             result["warning"] = shape_comment_warning
         if not ranges:
             res = search_mod.build_search_not_found_response(
-                ctx.doc, pattern, case_sensitive=cs, use_regex=regex, lenient=not use_opts
+                ctx.doc, pattern, case_sensitive=cs, use_regex=regex, lenient=not use_opts, refuse_oversized=True
             )
             result.update({k: res[k] for k in ("message", "closest_match", "diff_at") if k in res})
         result["normalized_old_content"] = s

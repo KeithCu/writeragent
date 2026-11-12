@@ -401,6 +401,20 @@ def test_set_selection_miss_reports_closest_match():
     assert res["diff_at"] == 3
 
 
+def test_set_selection_oversized_search_does_not_refuse():
+    ctx, doc, controller = _selection_ctx()
+    with patch("plugin.writer.search.find_occurrence_range", return_value=None), \
+         patch("plugin.writer.search.drawing_shape_containing", return_value=None), \
+         patch("plugin.writer.search.search_closest_mismatch", return_value=None), \
+         patch("plugin.writer.search.old_content_covers_most", return_value=True):
+        res = SetSelection().execute(ctx, search_text="long needle covering most of doc")
+    assert res["status"] == "error"
+    assert res["code"] == "OLD_CONTENT_NOT_FOUND"
+    assert "target='full_document'" not in res["message"]
+    assert "search_text not found in document" in res["message"]
+    controller.select.assert_not_called()
+
+
 def test_set_selection_read_failure_on_truncated_range_keeps_both_warnings():
     ctx, doc, controller = _selection_ctx()
     rng = MagicMock()

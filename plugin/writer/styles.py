@@ -1416,7 +1416,7 @@ class ApplyStyle(FrameworkToolBase):
                 ranges = find_all_ranges(ctx.doc, s, case_sensitive=cs) if s else []
                 if not ranges:
                     res = build_search_not_found_response(
-                        ctx.doc, s, case_sensitive=cs, all_matches=True
+                        ctx.doc, s, case_sensitive=cs, all_matches=True, refuse_oversized=True
                     )
                     res.update({"target": "search", "applied": False, "matched": False})
                     return res
@@ -1491,7 +1491,7 @@ class ApplyStyle(FrameworkToolBase):
 
             found = find_first_range(ctx.doc, s, case_sensitive=cs)
             if found is None:
-                res = build_search_not_found_response(ctx.doc, s, case_sensitive=cs)
+                res = build_search_not_found_response(ctx.doc, s, case_sensitive=cs, refuse_oversized=True)
                 res.update({"target": "search", "applied": False, "matched": False})
                 return res
 

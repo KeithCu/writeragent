@@ -274,6 +274,7 @@ def build_search_not_found_response(
     all_matches: bool = False,
     lenient: bool = True,
     subject: str = "old_content",
+    refuse_oversized: bool = False,
     review: bool = False,
 ) -> dict[str, Any]:
     """Standardized search not-found response dictionary.
@@ -281,7 +282,18 @@ def build_search_not_found_response(
     The builder sweeps floating shapes so any search tool whose needle is confined
     to a shape directs the caller to the shapes toolset. The subject parameter names
     the tool parameter visible to the model (such as 'old_content' or 'search_text').
+    The document model doc and a non-empty search needle are required.
+    When refuse_oversized is True (used by old_content replace tools), a needle covering
+    more than 50% of the document body without a close mismatch returns OLD_CONTENT_TOO_LARGE.
     """
+    if not needle:
+        return {
+            "status": "error",
+            "code": "OLD_CONTENT_NOT_FOUND",
+            "message": f"{subject} not found in document. Try a shorter, unique substring.",
+            "replaced_count": 0,
+        }
+
     shape_name = drawing_shape_containing(doc, needle, use_regex=use_regex, case_sensitive=case_sensitive)
     if shape_name:
         return shape_only_search_response(subject, shape_name, review=review)
@@ -292,8 +304,8 @@ def build_search_not_found_response(
     closest = search_closest_mismatch(doc, needle, lenient=lenient) if not use_regex else None
 
     # The oversized refusal tells the model to use target='full_document', which
-    # only the old_content edit tools have; other search tools fall through to not-found.
-    if closest is None and subject == "old_content" and not use_regex and old_content_covers_most(doc, len(needle)):
+    # only the old_content edit tools have; callers opt in via refuse_oversized=True.
+    if refuse_oversized and closest is None and not use_regex and old_content_covers_most(doc, len(needle)):
         return {
             "status": "error",
             "code": "OLD_CONTENT_TOO_LARGE",
@@ -910,7 +922,7 @@ def iter_draw_shapes(container: Any) -> Iterator[Any]:
             reraise_if_disposed(exc)
             log.debug("iter_draw_shapes: getByIndex(%s) failed", i, exc_info=True)
             continue
-        is_group = uno_read(lambda: shape.supportsService("com.sun.star.drawing.GroupShape") is True, False)
+        is_group = uno_read(lambda: shape.supportsService("com.sun.star.drawing.GroupShape"), False)
         if is_group:
             yield from iter_draw_shapes(shape)
         else:

@@ -168,6 +168,7 @@ def test_footnotes_insert_failed_create_is_a_tool_error():
 
 def test_footnotes_insert_anchor_no_match():
     doc = MagicMock()
+    doc.getDrawPage.return_value = None
     doc.supportsService.return_value = True
     doc.createSearchDescriptor.return_value = MagicMock()
     doc.findFirst.return_value = None

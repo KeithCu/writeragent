@@ -679,6 +679,7 @@ def test_add_comment_search_index_error_and_none_return_not_found():
     from plugin.writer.specialized.comments import AddComment
 
     doc = MagicMock()
+    doc.getDrawPage.return_value = None
     ctx = SimpleNamespace(doc=doc)
 
     with patch("plugin.writer.search.find_occurrence_range", side_effect=IndexError("out of range")):

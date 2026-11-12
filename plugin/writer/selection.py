@@ -128,8 +128,8 @@ class SetSelection(ToolBase):
         found, err = occurrence_range_or_error(
             doc, search_str, raw_occurrence, case_sensitive=case_sensitive, subject="search_text"
         )
-        if err:
-            return err
+        if found is None:
+            return err or self._tool_error("search_text not found")
 
         controller.select(found)
         fields = _read_selection_fields(found)
