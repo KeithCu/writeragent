@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import struct
 import wave
+from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, patch
 
 from plugin.framework.managed_subprocess import ManagedSubprocess
@@ -19,9 +20,13 @@ from plugin.scripting.audio_silence_detector import (
 )
 import pytest
 
+if TYPE_CHECKING:
+    from plugin.scripting.audio_recorder_service import Recording
 
-def _recording_child(proc: MagicMock, drain: object | None = None) -> ManagedSubprocess:
-    return ManagedSubprocess.wrap_existing(proc, label="audio-recorder", stderr_tail=drain)  # type: ignore[arg-type]
+
+def _recording_child(proc: MagicMock, drain: object | None = None) -> Recording:
+    from plugin.scripting.audio_recorder_service import Recording
+    return Recording(ManagedSubprocess.wrap_existing(proc, label="audio-recorder", stderr_tail=drain))  # type: ignore[arg-type]
 
 
 def _pcm_silence(sample_count: int) -> bytes:
@@ -265,8 +270,6 @@ def test_monitor_recording_stdout_invokes_auto_stop_callback(tmp_path):
     from io import StringIO
     from unittest.mock import MagicMock
 
-    from plugin.scripting.audio_recorder_service import RecordingStopHandoff, monitor_recording_stdout
-
     voice_file = str(tmp_path / "voice.wav")
     proc = MagicMock()
     proc.poll.side_effect = [None, None, 0]
@@ -277,14 +280,13 @@ def test_monitor_recording_stdout_invokes_auto_stop_callback(tmp_path):
     seen: list[str] = []
     progress: list[int] = []
 
-    handoff = RecordingStopHandoff()
-    thread = monitor_recording_stdout(
-        _recording_child(proc),
-        handoff=handoff,
+    child = _recording_child(proc)
+    child.start_monitor(
         on_auto_stopped=seen.append,
         on_silence_progress=progress.append,
     )
-    thread.join(timeout=2.0)
+    assert child.monitor is not None
+    child.monitor.join(timeout=2.0)
     proc.stdout.close()
 
     assert seen == [voice_file]
