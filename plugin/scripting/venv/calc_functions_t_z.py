@@ -274,6 +274,7 @@ def textjoin(delim: Any, ignore_empty: Any, *args: Any) -> str | float:
     try:
         skip_empty = as_nonzero(ignore_empty)
     except (ValueError, TypeError, OverflowError):
+        # Calc shows #VALUE! for a text flag; this returns #VALUE!, pinned by test_flag_strings_follow_getdouble.
         return "#VALUE!"
     parts = []
     for arg in args:
@@ -565,6 +566,7 @@ def unique(arr: Any, by_col: bool = False, unique_only: bool = False) -> list[An
         by_column = as_nonzero(by_col)
         once = as_nonzero(unique_only)
     except (ValueError, TypeError, OverflowError):
+        # Calc shows #VALUE! for a text flag; this returns #VALUE!, pinned by test_flag_strings_follow_getdouble.
         return "#VALUE!"
     # dtype=object. A bare asarray makes 1 and '1' the same string.
     data = np.asarray(arr, dtype=object)

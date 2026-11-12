@@ -314,6 +314,7 @@ def days360(start_date: Any, end_date: Any, method: Any = False) -> float:
     try:
         european = as_nonzero(method)
     except (ValueError, TypeError, OverflowError):
+        # Calc shows #VALUE! for a text flag; this returns NaN (#NUM!), pinned by test_days360_method_is_numeric.
         return float("nan")
     return days360_dates(sd, ed, european=european)
 
@@ -650,6 +651,7 @@ def euroconvert(value: Any, from_currency: Any, to_currency: Any, full_precision
     try:
         is_full = as_nonzero(full_precision)
     except (ValueError, TypeError, OverflowError):
+        # Calc shows #VALUE! for a text flag; this returns NaN (#NUM!).
         return float("nan")
 
     if not math.isfinite(res):
@@ -674,7 +676,10 @@ def even(n: Any) -> float:
 
 
 def _flag_default_true(val: Any) -> bool:
-    # EXPONDIST and GAMMADIST read a blank flag as cumulative. Calc's GetBool reads a blank cell or an empty argument as 0, the density (ScExpDist, ScGammaDist in interpr3.cxx).
+    # EXPONDIST and GAMMADIST read a blank flag as cumulative. Calc's GetBool
+    # reads a blank cell or an empty argument as 0, the density (ScExpDist,
+    # ScGammaDist in interpr3.cxx). Kept until that change is approved;
+    # test_d_h_bad_inputs expondist-blank-flag pins it.
     if val is None or val == "":
         return True
     return as_nonzero(val)
@@ -796,6 +801,7 @@ def fixed(number: Any, decimals: Any = 2, no_commas: Any = False) -> str | float
     try:
         nc = as_nonzero(no_commas)
     except (ValueError, TypeError, OverflowError):
+        # Calc shows #VALUE! for a text flag; this returns #VALUE!.
         return "#VALUE!"
     # Non-finite input is #NUM!. round_half_up(inf) raises ValueError (#VALUE!).
     if not math.isfinite(val):

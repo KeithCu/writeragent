@@ -523,8 +523,3 @@ def test_orient_columns():
     arr_0d = np.array(5)
     assert orient_columns(arr_0d, 1, axis=0).shape == ()
 
-
-
-
-
-

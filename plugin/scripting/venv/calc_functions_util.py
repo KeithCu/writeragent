@@ -14,7 +14,7 @@ How a helper reports a sheet error. Each function uses one of these, and its tes
 2. Return float("nan"). The cell shows #NUM! (a plain NaN is IllegalFPOperation in
    GetDoubleErrorValue). Used for arguments outside a function's domain and for results that
    are not finite (finite_or_nan). A few helpers return NaN where Excel shows #VALUE!, #DIV/0!
-   or #N/A; the comment at that return says which.
+   or #N/A (e.g. days360 and euroconvert text flags); the comment at that return says which.
 3. Return an error token string ("#VALUE!", "#N/A", "#NUM!", "#DIV/0!"). The add-in shows that
    error. Used where the cell must show a token other than #NUM! and the helper catches its own
    parse errors (lookup, text, array and regression helpers).

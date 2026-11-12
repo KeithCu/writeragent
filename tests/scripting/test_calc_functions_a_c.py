@@ -460,8 +460,6 @@ def test_a_c_distribution_bad_argument_raises(fn_name: str, args: tuple[object, 
 
 
 def test_binomdist_blank_flag_is_mass_function():
-    # A blank flag stays the probability mass function (density)
+    # ScBinomDist reads the flag with GetBool; a blank is 0, the mass function.
     assert calc.binomdist(3, 10, 0.5, "") == calc.binomdist(3, 10, 0.5, False)
-
-
 

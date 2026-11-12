@@ -592,4 +592,3 @@ def test_text_and_trend_shared_helpers_unchanged():
     assert np.allclose(calc.trend([1, 2, 3, 4], [[1, 2, 3, 4], [2, 1, 5, 4]], [[5], [6]]), [5.0])
     assert np.allclose(calc.trend(5, 3), [5.0])
 
-
