@@ -339,8 +339,11 @@ class AnthropicShim(BaseProviderShim):
         *,
         cache_session_id: str | None = None,
     ) -> tuple[str, str, bytes, dict[str, str]]:
-        # Anthropic Messages has no routing-key field; prompt caching there is the `cache_control` marker from `annotate_anthropic_cache`.
-        del cache_session_id
+        # Anthropic Messages has no routing-key field (prompt caching uses explicit
+        # cache_control breakpoints instead). It accepts previous_message_id under
+        # diagnostics to report cache hit/miss metadata against a prior turn. Top-level
+        # automatic cache_control is omitted because it would place the breakpoint on the
+        # trailing document snapshot (see docs/chat/chat-prompt-caching.md).
         endpoint = self.client._endpoint()
         url = f"{endpoint}/v1/messages"
         model = model_name.strip() if isinstance(model_name, str) else ""
@@ -358,13 +361,24 @@ class AnthropicShim(BaseProviderShim):
             hint = "Respond with a single JSON object and no other text."
             system_msg = f"{system_msg}\n\n{hint}" if system_msg else hint
         if system_msg:
-            data["system"] = system_msg
+            # A 1-hour breakpoint on system covers both tools and system instructions
+            # because Anthropic caches tools before system in prefix order. A 1-hour
+            # breakpoint must sit before any 5-minute breakpoint; reversing the order
+            # makes a 1-hour miss ignore an earlier 5-minute hit.
+            data["system"] = [{"type": "text", "text": system_msg, "cache_control": {"type": "ephemeral", "ttl": "1h"}}]
         if tools:
             converted_tools = [tool_def for tool_def in (_anthropic_tool_def(t) for t in tools) if tool_def]
             if converted_tools:
+                if not system_msg:
+                    # When system text is omitted, mark the last tool with 1-hour TTL
+                    # so the tools prefix is still cached with the long TTL. When system
+                    # text is present, tools remain unmarked because the system marker covers them.
+                    converted_tools[-1]["cache_control"] = {"type": "ephemeral", "ttl": "1h"}
                 data["tools"] = converted_tools
                 if tool_choice == "none":
                     data["tool_choice"] = {"type": "none"}
+        prev_id = self.client.anthropic_previous_message_id(cache_session_id)
+        data["diagnostics"] = {"previous_message_id": prev_id}
         # effort_payload sends only supported Anthropic effort levels.
         data.update(effort_payload("anthropic", self._requested_effort_level(chat_extra)))
 

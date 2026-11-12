@@ -116,11 +116,11 @@ def _parked_cursor(cursor: Any) -> Any:
 
     Multi-segment inserts must not move the cursor to the END OF THE
     BODY after each segment. That only works when inserting at the
-    end. A search replace whose content has math leaves "[Math import
+    end. A search replace whose content has math would leave "[Math import
     failed] ..." and the rest of the content orphaned at the end of
-    the document (relatos #46/#47/#48), and any cursor in a frame,
-    cell or header raises an empty RuntimeException (#52): it cannot
-    go to a range in another text. The HTML import, ``insertString``
+    the document, and any cursor in a frame, cell or header raises an
+    empty RuntimeException: it cannot go to a range in another text.
+    The HTML import, ``insertString``
     and ``insertTextContent`` all leave a cursor parked at the insert
     point AFTER what they insert (checked live; the import leaves
     *cursor* itself BEFORE it), so going back to the parked cursor
@@ -327,8 +327,6 @@ def _insert_mixed_or_plain_html(
 
     if styled:
         # Per-paragraph failures are already logged inside apply_block_lo_styles.
-        # This wrapper swallowed compareRegionStarts, so a closed document
-        # still looked like a finished insert.
         if has_math:
             start = _paragraph_after(text_obj, before_para)
         else:
@@ -402,7 +400,7 @@ def _paragraph_has_non_text_portion(para: Any) -> bool:
     """True when *para* holds an image, field, frame, or other non-text portion.
 
     ``getString()`` is empty for those, so a paragraph holding only a picture
-    looked empty and the import merged its first block into it.
+    would look empty and the import would merge its first block into it.
     """
     try:
         portions = para.createEnumeration()
@@ -473,7 +471,7 @@ def insert_inline_at_cursor(model: Any, ctx: Any, cursor: Any, content: str) -> 
 
     ``insert_html_at_cursor`` routes plain text through ``ensure_html_linebreaks``, which
     wraps it in ``<p>``: imported mid-paragraph, that ``<p>`` splits the host paragraph in
-    two, so inserting "bem " before a word left "... bem" / "inteiro." as two paragraphs.
+    two, so inserting "bem " before a word would leave "... bem" / "inteiro." as two paragraphs.
     Plain text goes in with ``insertString``; inline markup is imported RAW (no ``<p>``),
     the same way ``replace_single_range_with_content`` handles inline replacements.
     """
@@ -487,8 +485,8 @@ def insert_inline_at_cursor(model: Any, ctx: Any, cursor: Any, content: str) -> 
             cursor.getText().insertString(cursor, swapped, False)
             return
         inline_html, ruby_spans, nonce = _prep_field_ruby(swapped)
-        # The HTML import drops whitespace at the edges of a fragment, so "<b>muito</b> " lost
-        # its trailing space and fused with the next word. Put edge whitespace in as text.
+        # The HTML import drops whitespace at the edges of a fragment, so "<b>muito</b> " would lose
+        # its trailing space and fuse with the next word. Put edge whitespace in as text.
         core = inline_html.strip()
         lead = inline_html[: len(inline_html) - len(inline_html.lstrip())]
         trail = inline_html[len(inline_html.rstrip()):]
@@ -733,8 +731,8 @@ def replace_single_range_with_content(
         text_obj = text_range.getText()
 
         # Detect a table-cell target up front (the cursor's TextTable property is set inside a cell).
-        # Block/rich HTML import into a cell's nested XText can raise an empty RuntimeException (see the
-        # FOLLOW-UP above); we use this to turn that opaque failure into a clear, actionable message.
+        # Block/rich HTML import into a cell's nested XText can raise an empty RuntimeException; this
+        # flag turns that opaque failure into a clear, actionable message below.
         in_table_cell = uno_read(lambda: text_obj.createTextCursorByRange(text_range.getStart()).getPropertyValue("TextTable") is not None, False)
 
         # Preserve the target paragraph style for INLINE replacements. The StarWriter

@@ -33,7 +33,7 @@ not only the replaced characters. A TOC link usually also covers the number,
 the tab, and the page number; painting just the title splits one link into two
 targets.
 
-Discussion #819 follow-up: assigning ``HyperLinkURL`` on a *subrange* of an
+Subrange writes: assigning ``HyperLinkURL`` on a *subrange* of an
 already-linked line (the title only) splits that portion and LibreOffice
 paints Internet-link defaults (navy + single underline) on the title and the
 leftover punctuation/tab. Numbering and the page number are usually their
@@ -437,12 +437,9 @@ def _paint(text: Any, anchor: Any, snapshot: OutlineSnapshot, new_plain: str,
     the link stale. A bookmark put-back is best-effort so a selection failure does
     not roll back a text replace that did not ask to change the target.
 
-    Skip when those characters already have ``new_url``. A preserve-format
-    replace keeps HyperLinkURL on the whole TOC line; the pending pass already
-    rewrote that one portion. Writing the URL again on just the title is a
-    subrange assignment: LibreOffice splits the run and paints Internet-link
-    chrome on the title and the leftover punctuation/tab. CharColor set on a
-    later cursor does not undo that.
+    Skip when those characters already have ``new_url``: a preserve-format
+    replace keeps the URL on the whole TOC line, and a title-only rewrite is a
+    subrange write (see the module docstring).
     """
     cursor = _select_replacement(text, anchor, snapshot, new_plain)
     selected = None if cursor is None else uno_read(lambda: str(cursor.getString() or ""), None)
@@ -493,15 +490,10 @@ def restore_outline_hyperlinks(anchor: Any, snapshot: OutlineSnapshot,
             "Could not locate the replaced text to update its outline hyperlink: %s" % exc,
             code="HYPERLINK_UPDATE_FAILED",
         ) from exc
-    # Writing HyperLinkURL on a *subrange* of an already-linked TOC
-    # line (the title only) splits that portion and LibreOffice paints
-    # Internet-link defaults (navy + single underline) on the new
-    # fragments. replace_preserving_format keeps CharColor /
-    # CharUnderline and the old URL on the whole line; the pending pass
-    # already rewrites that URL. Skip the subrange write when the
-    # replacement already has the new URL. When a paint is still needed
-    # (HTML dropped the URL), put the snapshotted look on the same
-    # cursor immediately after the assignment.
+    # A title-only HyperLinkURL write repaints Internet-link chrome
+    # (module docstring). _paint skips it when the replacement already
+    # has the new URL; otherwise the snapshotted look goes back on the
+    # same cursor right after the assignment.
     look_runs = _snapshot_char_look(text, anchor)
     title_look = dict(
         _look_covering(

@@ -173,10 +173,10 @@ def resolve_edit_generation_size(base_size: int, src_width: int, src_height: int
     """Output pixels for an edit. The long edge follows ``base_size``, not the file.
 
     The selection's pixel count is not a vendor tier. People edit phone photos,
-    screenshots, and logos, and a JPEG often has no ``SizePixel``, so the old
-    path copied the on-page frame. That frame is capped at 135mm (~510px), and
-    ``canonical_resolution`` turned it into ``resolution`` ``512``, which
-    gemini-3.1-flash-lite-image rejects (``Accepted: 1K``). The source bytes
+    screenshots, and logos, and a JPEG often has no ``SizePixel``. Sizing from the
+    on-page frame (capped at 135mm, ~510px) would make ``canonical_resolution`` pick
+    ``resolution`` ``512``, which gemini-3.1-flash-lite-image rejects (``Accepted: 1K``).
+    The source bytes
     are not resized. The long edge is ``base_size`` (not the create-path short
     edge, which turns 16:9 at 1024 into ~1792px and a ``2K`` tier). The closest
     standard aspect is used even past the 7% window, so a 1:2 photo becomes

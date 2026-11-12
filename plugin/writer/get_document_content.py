@@ -165,7 +165,7 @@ class GetDocumentContent(ToolBase):
             )
         if doc_len == 0 and isinstance(content, str) and content.strip():
             _append_warning(result, "document_length came back 0; do not use it as a range offset.")
-        # Machine-readable truncation signal: without it the only clue was the in-band marker
+        # Machine-readable truncation signal: without it the only clue would be the in-band marker
         # string, which a model must know to look for. (length counts HTML chars; document_length
         # and scope='range' offsets are plain-text chars — use those for follow-up range reads.)
         # Capped reads also set top-level ``hint`` (no ``next_range`` — HTML length ≠ plain-text range).
@@ -186,9 +186,9 @@ class GetDocumentContent(ToolBase):
         # text) and say they await the user's review — so the model treats them as pending, not errors,
         # and never resolves them itself.
         try:
-            # The old body walk could not see a header/footer change and reported "could not list"
-            # for a format-only redline; getRedlines() sees the whole document and costs only the
-            # change count. A non-int count is the unit-test mock.
+            # getRedlines() sees the whole document, including header/footer and
+            # format-only changes, and costs only the change count. A non-int count
+            # is the unit-test mock.
             redlines = ctx.doc.getRedlines()
             count = redlines.getCount() if redlines is not None else 0
             if isinstance(count, int) and not isinstance(count, bool) and count > 0:

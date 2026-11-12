@@ -222,13 +222,11 @@ class AddComment(ToolBase):
         annotation.setPropertyValue("Author", author)
         annotation.setPropertyValue("Content", content)
         _set_annotation_date(annotation)
-        # Intended spanning-anchor insert (PR #365 Q15): cursor covers the match,
-        # absorb=True. Use found.getText() so table cells / frames still work.
-        # There is no insert/balloon bug. Writer still shows the comment when
-        # View > Comments (ShowAnnotations) is on; a missing balloon is
-        # display-off, not a failed insert. PR #493 switched to a point insert
-        # on that mistaken diagnosis; this restores the original API and keeps
-        # only that PR's field-count check.
+        # Spanning-anchor insert: the cursor covers the match, absorb=True;
+        # found.getText() keeps table cells and frames working. A comment that
+        # seems missing after insert is usually hidden by View > Comments
+        # (ShowAnnotations off), not a failed insert; the field-count check
+        # below confirms it.
         anchor_text = found.getString()
         names_before = _annotation_field_names(doc)
         match_text = found.getText()
@@ -679,7 +677,7 @@ def _insert_annotation_reply(
     names_before = _annotation_field_names(doc)
     assigned_name = _ensure_annotation_name(reply, names_before)
     _set_annotation_date(reply)
-    # Why-comment: the body XText does not own an annotation anchored in a cell or frame.
+    # The body XText does not own an annotation anchored in a cell or frame.
     anchor = parent.getAnchor()
     host = anchor.getText()
     cursor = host.createTextCursorByRange(anchor.getStart())

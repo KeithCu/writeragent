@@ -63,20 +63,48 @@ messages:   user / assistant / tool history          append-only, never rewritte
      That stays the same.
 3. **Mid-loop refresh after a mutating tool** puts a new snapshot in the same tail
    position. History before it is untouched, so the cache survives the whole tool loop.
-4. **Cache marker:**
-   - **Anthropic:** add it in the provider layer, as an explicit marker on the last block
-     **before** the snapshot. That is the user's text on a send, or the last
-     `tool_result` block in a loop. Do not use top-level automatic caching here: it
-     marks the last block, which is the snapshot, so every request would pay a cache write
-     for bytes that are never read back. This covers `anthropic_shim.py` and OpenRouter
-     `anthropic/*` models.
+4. **Cache markers (two explicit breakpoints):**
+   - **Opening system breakpoint (1-hour TTL):** on Anthropic (native and OpenRouter
+     `anthropic/*`), the last opening system block receives
+     `{"type": "ephemeral", "ttl": "1h"}`. In native Anthropic cache ordering,
+     `tools` precede `system`, so the system breakpoint covers both tools and
+     system instructions. If system text is omitted, native Anthropic places the
+     1-hour breakpoint on the last tool definition instead. OpenRouter chat tool
+     schemas do not document tool cache control, so OpenRouter marks only the system
+     block. For the six Alibaba models supporting explicit caching (`deepseek/deepseek-v3.2`,
+     `qwen/qwen3-max`, `qwen/qwen-plus`, `qwen/qwen3.6-plus`, `qwen/qwen3-coder-plus`,
+     `qwen/qwen3-coder-flash`), Alibaba supports only 5-minute TTL without a `ttl`
+     parameter, so they receive `{"type": "ephemeral"}` with no `ttl`.
+   - **Prefix stability:** the daily date line and `USER.md` are rendered inside the
+     system prompt prefix. Changing memory or crossing midnight creates a new 1-hour
+     cache entry, but subsequent chat turns and compaction that only rewrite later
+     messages hit the warm 1-hour cache.
+   - **Pre-snapshot breakpoint (5-minute TTL):** placed as an explicit
+     `{"type": "ephemeral"}` marker on the block immediately preceding the live
+     document snapshot. The live snapshot itself is never marked.
+   - **Breakpoint ordering (1-hour before 5-minute):** Anthropic prompt cache ordering
+     is `tools` → `system` → `messages`. A 1-hour breakpoint must always precede any
+     5-minute breakpoint; reversing the order would cause a later 1-hour cache miss to
+     invalidate an earlier 5-minute hit. Placing the 1-hour breakpoint on the opening
+     system prompt covers tools and system instructions, while the subsequent 5-minute
+     ephemeral marker covers prior conversational turns.
+   - **Why top-level automatic caching is not sent:** Anthropic automatic caching
+     places the cache breakpoint on the very last block of the request. In WriterAgent,
+     the trailing block is the dynamic document snapshot, so automatic caching would
+     write the volatile snapshot and miss on every document change or cursor movement.
+   - **OpenRouter exact allow-list:** explicit cache markers are sent only for
+     `anthropic/*` and the six Alibaba models above (resolving dynamic suffixes like
+     `:nitro` or `:floor` to their base catalog IDs). Static variants like `:free`
+     and snapshot models (e.g. `qwen/qwen3.5-plus-02-15`) do not support explicit
+     breakpoints and remain unmarked. Other providers (Gemini 2.5+ implicit caching,
+     OpenAI automatic caching, Grok, native DeepSeek, Moonshot) need no breakpoints.
    - **Anthropic role order:** in a tool loop the shim merges the trailing snapshot
      message into the user message that carries the tool results. The `tool_result`
      blocks come first and the snapshot text after them. The API would accept two user
      messages in a row, but one merged message keeps the request identical to what the
      model sees.
    - **Provider-layer snapshot split:** in `anthropic_shim` and `OpenRouterShim`
-     (for `anthropic/*` models), the provider layer splits the snapshot back out of the
+     (for explicit cache families), the provider layer splits the snapshot back out of the
      trailing tool result into a trailing text block (native) or trailing user message
      (OpenRouter). Anthropic caches through the whole run of tool results (measured
      2026-11-09), so keeping the snapshot inside any `tool_result` invalidates the entire

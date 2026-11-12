@@ -10,6 +10,7 @@ from __future__ import annotations
 from typing import Any
 
 from plugin.framework.errors import NetworkError
+from plugin.framework.openrouter_model_id import resolve_openrouter_catalog_id
 from .anthropic_shim import AnthropicShim
 from .shim_helpers import openai_model_leaf, annotate_anthropic_cache
 from .base_provider_shim import (
@@ -237,6 +238,39 @@ class OllamaShim(BaseProviderShim):
         return super().parse_image_responses(response_data)
 
 
+_ALIBABA_EXPLICIT_CACHE_IDS: frozenset[str] = frozenset({
+    "deepseek/deepseek-v3.2",
+    "qwen/qwen3-max",
+    "qwen/qwen-plus",
+    "qwen/qwen3.6-plus",
+    "qwen/qwen3-coder-plus",
+    "qwen/qwen3-coder-flash",
+})
+
+
+def openrouter_system_cache_control(model_name: str | None) -> dict[str, str] | None:
+    """Return explicit cache control for OpenRouter model families that require it.
+
+    Anthropic routes support a 1-hour system breakpoint. The six Alibaba models
+    that support explicit caching receive an ephemeral breakpoint without a TTL
+    parameter because OpenRouter documents only a 5-minute TTL there (a 1h value
+    can cause HTTP 400).
+
+    The Alibaba match uses an exact catalog ID lookup rather than a prefix because
+    dated snapshots (such as qwen/qwen3.5-plus-02-15) and static variants (:free)
+    reject explicit caching. All other models (including Gemini implicit caching
+    and OpenAI) return None so requests remain unmarked.
+    """
+    raw = model_name.strip().lower() if isinstance(model_name, str) else ""
+    if not raw:
+        return None
+    if raw.startswith("anthropic/"):
+        return {"type": "ephemeral", "ttl": "1h"}
+    if resolve_openrouter_catalog_id(raw) in _ALIBABA_EXPLICIT_CACHE_IDS:
+        return {"type": "ephemeral"}
+    return None
+
+
 class OpenRouterShim(BaseProviderShim):
     """Shim for OpenRouter specifically (handles dedicated /images endpoint)."""
 
@@ -254,8 +288,9 @@ class OpenRouterShim(BaseProviderShim):
         *,
         cache_session_id: str | None = None,
     ) -> tuple[str, str, bytes, dict[str, str]]:
-        if isinstance(model_name, str) and model_name.startswith("anthropic/"):
-            messages = annotate_anthropic_cache(messages)
+        control = openrouter_system_cache_control(model_name)
+        if control is not None:
+            messages = annotate_anthropic_cache(messages, system_cache_control=control)
         return super().build_chat_request(
             messages,
             max_tokens,

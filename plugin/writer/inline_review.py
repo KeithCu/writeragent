@@ -238,13 +238,13 @@ def _is_all_redlines_agent(view: RedlineView) -> bool:
 
 
 # --- Agent-self-resolution guard (used by the agent-facing tracking_* tools) -------------
-# BUG (reported): the agent accepted its OWN edits. wa-review changes are recorded for the HUMAN
-# to accept/reject in the review UI; the agent must never resolve them. HOW IT HAPPENED:
-# tracking.py's accept/reject tools drive the native .uno:Accept/Reject(All)TrackedChanges, which
-# is blind to the wa-review token, and they are reachable by the LLM (domain='tracking'), so a tool
-# call could resolve the very changes the same turn just made. WHY THIS FIXES IT: these two
-# token-scoped, fail-closed gates let the tools refuse the agent's own changes while still allowing
-# the user's own redlines to be resolved on request.
+# wa-review changes are recorded for the HUMAN to accept/reject in the review UI;
+# the agent must never resolve them. tracking.py's accept/reject tools drive the
+# native .uno:Accept/Reject(All)TrackedChanges, which cannot see the wa-review token,
+# and the LLM can reach them (domain='tracking'). Without a gate, a tool call could
+# resolve the changes the same turn just made. These two token-scoped, fail-closed
+# gates refuse the agent's own changes while still letting the user's own redlines
+# be resolved on request.
 _BULK_UNRELIABLE_MSG = (
     "Couldn't read this document's tracked changes reliably, so accept/reject-all is blocked to "
     "avoid resolving agent edits that are awaiting your review. Resolve changes in LibreOffice "
