@@ -814,6 +814,12 @@ def test_int_subclass_column_kind_matches_cython() -> None:
     class Color(enum.IntEnum):
         RED = 1
 
+    class float16(int):
+        pass
+
+    class boolish(int):
+        pass
+
     def _check() -> None:
         # [[Widget(7), Color.RED]] -> column_kinds == ["int", "int"], host unpack [[7, 1]], both cells type is int.
         wire_pair = host_pack_split_grid([[Widget(7), Color.RED]])
@@ -837,6 +843,33 @@ def test_int_subclass_column_kind_matches_cython() -> None:
         assert unpacked_slow[0][0] == 7
         assert type(unpacked_slow[0][0]) is int
         assert unpacked_slow[0][1] == "x"
+
+        # An int subclass after a text cell must keep column kind 'int' and unpack as int.
+        wire_after_text = host_pack_split_grid([["x", Widget(7)]])
+        assert wire_after_text["column_kinds"] == ["float", "int"]
+        unpacked_after_text = host_unpack_split_grid(wire_after_text)
+        assert unpacked_after_text == [["x", 7]]
+        assert type(unpacked_after_text[0][1]) is int
+
+        # An int subclass whose class name starts with float or bool must still be recognized as int.
+        wire_float16 = host_pack_split_grid([["x", float16(7)]])
+        assert wire_float16["column_kinds"] == ["float", "int"]
+        unpacked_float16 = host_unpack_split_grid(wire_float16)
+        assert unpacked_float16 == [["x", 7]]
+        assert type(unpacked_float16[0][1]) is int
+
+        wire_boolish = host_pack_split_grid([["x", boolish(7)]])
+        assert wire_boolish["column_kinds"] == ["float", "int"]
+        unpacked_boolish = host_unpack_split_grid(wire_boolish)
+        assert unpacked_boolish == [["x", 7]]
+        assert type(unpacked_boolish[0][1]) is int
+
+        # A 1D int subclass cell following a text cell in the same column resolves to kind 'int'.
+        wire_1d_float16 = host_pack_split_grid(["x", float16(7)])
+        assert wire_1d_float16["column_kinds"] == ["int"]
+        unpacked_1d_float16 = host_unpack_split_grid(wire_1d_float16)
+        assert unpacked_1d_float16 == ["x", 7]
+        assert type(unpacked_1d_float16[1]) is int
 
         # [[True], [Widget(1)]] -> column_kinds == ["int"].
         wire_bool = host_pack_split_grid([[True], [Widget(1)]])

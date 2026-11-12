@@ -104,24 +104,24 @@ def test_resolve_venv_python_accepts_uppercase_file_url(tmp_path):
 
 
 def test_path_from_file_url_scheme_case_and_unc(monkeypatch):
-    from plugin.scripting.sandbox import _path_from_file_url
+    from plugin.scripting.sandbox import path_from_file_url
 
     # Check the POSIX rules first, even on Windows; the nt rules (UNC paths) are below.
     monkeypatch.setattr("plugin.scripting.sandbox.os.name", "posix")
-    assert _path_from_file_url("FILE:///tmp/x") == "/tmp/x"
-    assert _path_from_file_url("File:/tmp/x") == "/tmp/x"
-    assert _path_from_file_url("file://localhost/tmp/x") == "/tmp/x"
-    assert _path_from_file_url("file://server/share/a") == "/share/a"
-    assert _path_from_file_url("file:tmp") is None
-    assert _path_from_file_url("FILE:") is None
+    assert path_from_file_url("FILE:///tmp/x") == "/tmp/x"
+    assert path_from_file_url("File:/tmp/x") == "/tmp/x"
+    assert path_from_file_url("file://localhost/tmp/x") == "/tmp/x"
+    assert path_from_file_url("file://server/share/a") == "/share/a"
+    assert path_from_file_url("file:tmp") is None
+    assert path_from_file_url("FILE:") is None
 
     monkeypatch.setattr("plugin.scripting.sandbox.os.name", "nt")
-    assert _path_from_file_url("file:///C:/x") == r"C:\x"
-    assert _path_from_file_url("FILE:///C:/x") == r"C:\x"
-    assert _path_from_file_url("file://localhost/C:/x") == r"C:\x"
-    assert _path_from_file_url("file://LocalHost/C:/Users/a") == r"C:\Users\a"
-    assert _path_from_file_url("file://server/share/a") == r"\\server\share\a"
-    assert _path_from_file_url("file://server/C:/x") == r"\\server\C:\x"
+    assert path_from_file_url("file:///C:/x") == r"C:\x"
+    assert path_from_file_url("FILE:///C:/x") == r"C:\x"
+    assert path_from_file_url("file://localhost/C:/x") == r"C:\x"
+    assert path_from_file_url("file://LocalHost/C:/Users/a") == r"C:\Users\a"
+    assert path_from_file_url("file://server/share/a") == r"\\server\share\a"
+    assert path_from_file_url("file://server/C:/x") == r"\\server\C:\x"
 
 
 def test_normalize_venv_path_input_uppercase_file_scheme():
@@ -1041,6 +1041,23 @@ def test_plugin_public_alias_allowed_but_framework_blocked() -> None:
     assert import_authorized("writeragent.scripting.analysis", ()) is True
     assert import_authorized("plugin.framework.config", ()) is False
     assert import_authorized("writeragent.framework.config", ()) is False
+
+
+def test_dangerous_modules_fallback_matches_vendored(monkeypatch):
+    """LibreHarper ships sandbox.py without smolagents; its fallback copy must block the same modules."""
+    import importlib.util
+    from plugin.contrib.smolagents.local_python_executor import DANGEROUS_MODULES as vendored
+
+    # None in sys.modules makes the vendored import raise ModuleNotFoundError, so the fresh copy
+    # runs its except arm. @dataclass needs the copy registered in sys.modules while it executes.
+    monkeypatch.setitem(sys.modules, "plugin.contrib.smolagents.local_python_executor", None)
+    spec = importlib.util.spec_from_file_location("sandbox_without_smolagents", sandbox.__file__)
+    assert spec is not None and spec.loader is not None
+    bare = importlib.util.module_from_spec(spec)
+    monkeypatch.setitem(sys.modules, spec.name, bare)
+    spec.loader.exec_module(bare)
+    assert bare.DANGEROUS_MODULES == tuple(vendored)
+
 
 
 

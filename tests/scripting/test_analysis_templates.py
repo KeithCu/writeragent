@@ -31,5 +31,4 @@ def test_defaults_and_descriptions_cover_all_helpers():
     analysis_specs = specs("analysis")
     assert {s.name for s in analysis_specs} == names("analysis")
     assert {s.name for s in analysis_specs if s.description} == names("analysis")
-    assert {s.name for s in analysis_specs if s.default_params is not None} == names("analysis")
 

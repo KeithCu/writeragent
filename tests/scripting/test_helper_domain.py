@@ -13,7 +13,9 @@ from plugin.scripting.helper_domain import (
     ScriptFacts,
     build_helper_script_template,
     format_elapsed_time,
+    rps_error_outcome,
     rps_insert_failed_outcome,
+    rps_ok_outcome,
     supports_calc_or_writer_manual,
 )
 import pytest
@@ -457,6 +459,26 @@ def test_needs_data_binding_ignores_comments_and_non_calc():
         assert ScriptFacts.from_source("run_viz()\n").needs_data_binding(doc=non_calc_doc) is False
         assert ScriptFacts.from_source(viz_code).needs_data_binding(doc=non_calc_doc) is False
         assert ScriptFacts.from_source(viz_code).needs_data_binding(doc=calc_doc) is True
+
+
+def test_rps_error_outcome_without_run_clock_keeps_message():
+    assert rps_error_outcome("boom", t0=None) == {"ok": False, "message": "boom"}
+    assert rps_error_outcome("boom", t0=None, traceback="tb") == {
+        "ok": False,
+        "message": "boom",
+        "traceback": "tb",
+    }
+
+
+def test_rps_ok_outcome_no_output_flag():
+    out = rps_ok_outcome("done", result=None, stdout=None, no_output=True)
+    assert out == {"ok": True, "status_ok_text": "done", "result": None, "no_output": True}
+    assert "stdout" not in out
+
+    out_normal = rps_ok_outcome("done", result=42)
+    assert out_normal == {"ok": True, "status_ok_text": "done", "result": 42}
+    assert "no_output" not in out_normal
+    assert "stdout" not in out_normal
 
 
 

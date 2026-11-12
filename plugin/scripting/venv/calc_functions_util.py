@@ -4,12 +4,22 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Shared helpers for the calc_functions_* letter files. Names without a leading underscore are what the letter files import; underscore names are used only inside this module.
 
-Formula error contract:
-Parameter coercion errors (ValueError, TypeError) propagate to the worker as #VALUE!,
-ZeroDivisionError as #DIV/0!, and unhandled OverflowError as #NUM!. Domain failures
-return float("nan") or raise CalcError(CalcError.NUM). The @calc_function decorator
-preserves the legacy NaN collapse for helpers that require it, while catching CalcError
-to emit either NaN (#NUM!) or error token strings (#VALUE!, #DIV/0!, #N/A).
+How a helper reports a sheet error. Each function uses one of these, and its tests pin which:
+
+1. Raise. The exception reaches the =PY() worker, which picks the cell error from its type
+   (worker_exception_error_code, plugin/calc/python/addin_values.py): ZeroDivisionError is #DIV/0!,
+   OverflowError is #NUM!, anything else (ValueError, TypeError) is #VALUE!. Text in a numeric
+   argument takes this path in every distribution function, as Calc's GetDouble turns text it
+   cannot convert into #VALUE! (ScGlobal::ConvertStringToValue, sc/source/core/data/global2.cxx).
+2. Return float("nan"). The cell shows #NUM! (a plain NaN is IllegalFPOperation in
+   GetDoubleErrorValue). Used for arguments outside a function's domain and for results that
+   are not finite (finite_or_nan). A few helpers return NaN where Excel shows #VALUE!, #DIV/0!
+   or #N/A (e.g. days360 and euroconvert text flags); the comment at that return says which.
+3. Return an error token string ("#VALUE!", "#N/A", "#NUM!", "#DIV/0!"). The add-in shows that
+   error. Used where the cell must show a token other than #NUM! and the helper catches its own
+   parse errors (lookup, text, array and regression helpers).
+4. @calc_function. A ValueError, TypeError or OverflowError inside the helper becomes NaN
+   (#NUM!); any other exception still raises.
 """
 
 from __future__ import annotations
@@ -47,30 +57,12 @@ _WEEKEND_MAPPING: dict[int, tuple[int, ...]] = {
 }
 
 
-class CalcError(Exception):
-    """Sheet error raised inside a helper. Not framework.errors.CalcError."""
-
-    VALUE: str = "#VALUE!"
-    NUM: str = "#NUM!"
-    DIV0: str = "#DIV/0!"
-    NA: str = "#N/A"
-
-    token: str
-
-    def __init__(self, token: str) -> None:
-        if token not in (self.VALUE, self.NUM, self.DIV0, self.NA):
-            raise ValueError(token)
-        super().__init__(token)
-        self.token = token
-
-
 def calc_function(fn: Callable[..., Any]) -> Callable[..., Any]:
+    """Turn ValueError, TypeError and OverflowError raised inside fn into NaN (#NUM!). Other exceptions propagate."""
     @wraps(fn)
     def wrapper(*args: Any, **kwargs: Any) -> Any:
         try:
             return fn(*args, **kwargs)
-        except CalcError as exc:
-            return float("nan") if exc.token == CalcError.NUM else exc.token
         except (ValueError, TypeError, OverflowError):
             return float("nan")
 
@@ -235,13 +227,12 @@ def coupon_schedule(settlement: Any, maturity: Any, frequency: Any, basis: Any =
     return p_ser, c_ser, days_in_per, k, a_days, dsc_days
 
 
-def round_half_up(val: float, decimals: int) -> Decimal:
-    """Round a float half-away-from-zero matching Excel/Calc rounding rules."""
-    # Half away from zero (2.5 -> 3, 2.675 -> 2.68). Python round() is half-to-even.
-    if not math.isfinite(val):
+def round_half_up(val: float | Decimal, decimals: int) -> Decimal:
+    """Round a float or Decimal half away from zero (Excel/Calc rounding). A Decimal input is used as is, so a caller can scale it exactly first."""
+    d = val if isinstance(val, Decimal) else Decimal(str(val))
+    if not d.is_finite():
         raise ValueError("Non-finite value cannot be rounded")
     # Widen decimal context for large place counts so quantize failures become ValueError and formulas return NaN instead of InvalidOperation escaping.
-    d = Decimal(str(val))
     try:
         exp = Decimal("1e" + str(-decimals))
         with localcontext() as ctx:
@@ -265,13 +256,21 @@ def round_sig(x: float, sig: int) -> float:
         return float("nan")
 
 
-def as_bool_flag(val: Any) -> bool:
-    """LINEST / LOGEST / TREND ``const``.
+def format_quantized(q: Decimal, decimals: int, *, commas: bool) -> str:
+    """Format a quantized Decimal to a fixed place count, optionally grouping thousands."""
+    places = max(0, decimals)
+    # Decimal('-0.00') formats as "-0.00". A rounded zero has no sign.
+    if q == 0:
+        q = abs(q)
+    return f"{q:,.{places}f}" if commas else f"{q:.{places}f}"
 
-    A blank cell is false (``GetBool`` of an empty cell). The strings ``"TRUE"`` and
-    ``"FALSE"`` are those booleans, and ``"0"`` is false. Python's ``bool("0")`` and
-    ``bool("FALSE")`` are true, so without this map a text ``const`` would keep an
-    intercept that Calc drops. Any other text goes to ``as_nonzero``.
+
+def as_bool_flag(val: Any) -> bool:
+    """LINEST / LOGEST / TREND / GROWTH ``const``.
+
+    A blank cell is false (GetBool of an empty cell). The text ``"TRUE"`` and
+    ``"FALSE"`` are those booleans and ``"0"`` is false, as in Calc. Any other
+    text goes to ``as_nonzero``.
     """
     if isinstance(val, str):
         token = val.strip().upper()
@@ -378,6 +377,22 @@ def clean_paired_arrays(data1: Any, data2: Any) -> tuple[np.ndarray, np.ndarray]
     if not c1:
         return None
     return np.asarray(c1, dtype=float), np.asarray(c2, dtype=float)
+
+
+def orient_columns(arr: np.ndarray, size: int, axis: int) -> np.ndarray:
+    """A regression range with one variable per column.
+
+    A 1-D range is one column. A 2-D block whose ``axis`` length is not ``size``
+    while its other axis is ``size`` is transposed: known_x uses axis 0 and the
+    number of known_y values, new_x uses axis 1 and the number of x variables.
+    Any other shape is returned unchanged for the caller's shape check
+    (CheckMatrix in sc/source/core/tool/interpr5.cxx accepts both orientations).
+    """
+    if arr.ndim == 1:
+        return arr[:, np.newaxis]
+    if arr.ndim == 2 and arr.shape[axis] != size and arr.shape[1 - axis] == size:
+        return arr.T
+    return arr
 
 
 def scipy_stats() -> Any | None:

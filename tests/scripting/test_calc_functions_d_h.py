@@ -146,7 +146,15 @@ def test_growth_rejects_non_positive_known_y():
     assert math.isfinite(through_origin[0])
     # A text "0" is truthy in Python. It must follow the numeric 0 path.
     assert calc.growth([1.0, 2.0, 4.0], [1.0, 2.0, 3.0], 4, "0") == through_origin
-    assert calc.growth([1.0, 2.0, 4.0], [1.0, 2.0, 3.0], 4, "FALSE") == "#VALUE!"
+    # GROWTH(B1:B3;C1:C3;4;A3) with A3="FALSE" evaluates through origin (4.876...)
+    assert calc.growth([1.0, 2.0, 4.0], [1.0, 2.0, 3.0], 4, "FALSE") == through_origin
+    # Text "TRUE" keeps intercept (fitted, 8.0)
+    assert calc.growth([1.0, 2.0, 4.0], [1.0, 2.0, 3.0], 4, "TRUE") == fitted
+    # GROWTH(...;A1) with A1 blank / empty argument evaluates through origin (4.876...)
+    assert calc.growth([1.0, 2.0, 4.0], [1.0, 2.0, 3.0], 4, None) == through_origin
+    assert calc.growth([1.0, 2.0, 4.0], [1.0, 2.0, 3.0], 4, "") == through_origin
+    # Text "abc" fails GetDouble and returns #VALUE!
+    assert calc.growth([1.0, 2.0, 4.0], [1.0, 2.0, 3.0], 4, "abc") == "#VALUE!"
     assert calc.growth([]) == "#VALUE!"
     assert calc.growth([1.0, 2.0], [1.0, 2.0, 3.0], 4) == "#VALUE!"
     assert calc.growth([1.0, 2.0, 4.0], [1.0, 2.0, 3.0], 4) == fitted
@@ -295,6 +303,9 @@ _D_H_BAD_INPUTS = [
     ("even-blank", "even", ("",), ValueError),
     ("expondist-text", "expondist", ("x", 1), ValueError),
     ("expondist-blank", "expondist", ("", 1), ValueError),
+    ("expondist-text-flag", "expondist", (1, 1, "abc"), ValueError),
+    # Calc gives the density (0.3679) for a blank flag; this pins today's cumulative reading (Later item).
+    ("expondist-blank-flag", "expondist", (1, 1, None), 1 - math.exp(-1)),
     ("expondist-zero", "expondist", (1, 0), _NAN),
     ("expondist-oor", "expondist", (-1, 1), _NAN),
     ("fact-text", "fact", ("x",), ValueError),
@@ -336,6 +347,7 @@ _D_H_BAD_INPUTS = [
     ("gamma-oor", "gamma", (200,), OverflowError),
     ("gammadist-text", "gammadist", ("x", 2, 1), ValueError),
     ("gammadist-blank", "gammadist", ("", 2, 1), ValueError),
+    ("gammadist-text-flag", "gammadist", (1, 2, 1, "abc"), ValueError),
     ("gammadist-zero", "gammadist", (1, 0, 1), _NAN),
     ("gammadist-oor", "gammadist", (-1, 2, 1), _NAN),
     ("gammainv-text", "gammainv", ("x", 2, 1), ValueError),

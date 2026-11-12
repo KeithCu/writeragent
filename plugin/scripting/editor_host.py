@@ -4,6 +4,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Monaco editor host: spawn child process, pipe bridge, and session launch.
 
+The open editor buffer is the focused `EditorSessionState` in `PersistentEditor.sessions`; nothing else holds it.
+
 Concurrency:
 _PROBE_LOCK guards the webview probe caches (_PROBE_CACHE, _PROBE_FAILURE_CACHE),
 _probe_generation, _probe_wanted, and _probe_running. UI thread code only reads
@@ -332,11 +334,6 @@ def spawn_editor_process(exe: str) -> subprocess.Popen[bytes]:
 
 # --- Pipe bridge ---
 
-# RLock is required: set_active_session() holds _SESSION_LOCK while invoking
-# _finish() or session transition callbacks, which re-enter _SESSION_LOCK on
-# the same thread to clear or check _ACTIVE_SESSION.
-_SESSION_LOCK = threading.RLock()
-_ACTIVE_SESSION: EditorSession | None = None
 # Set on a dirty session after the user picks Don't save. _register_load_session
 # refuses to overwrite a live dirty buffer unless this is present.
 _REPLACE_CONFIRMED = "replace_confirmed"
@@ -385,7 +382,6 @@ class EditorSessionState:
     pending_load: dict[str, Any] | None = None
     pending_on_save: EditorSaveCallback | None = None
     pending_on_closed: Callable[[], None] | None = None
-    save_token: object | None = None
     extra: dict[str, Any] = field(default_factory=dict)
 
     def _clear_pending(self) -> None:
@@ -476,6 +472,14 @@ class PersistentEditor:
                 state.on_closed()
             except Exception:
                 log.exception("Editor on_closed failed while ending session %s", session_id)
+
+    def end_all_sessions(self) -> None:
+        """End every registered session and run each on_closed.
+
+        Used when the child is gone (terminate, or a launch that finds it dead)
+        so no buffer of a dead process stays registered."""
+        for state in list(self.sessions.values()):
+            self.end_session(state.session_id, call_closed=True)
 
     def resolve_incoming(self, msg: dict[str, Any]) -> EditorSessionState | None:
         sid = session_id_of(msg)
@@ -811,6 +815,10 @@ class PersistentEditor:
         if state is not None:
             state.dirty = bool(msg.get("dirty"))
 
+    def _save_superseded(self, token: object) -> bool:
+        """True when a newer save replaced *token* or its handler timed out. Call with _save_lock held."""
+        return self._save_token is not token
+
     def _on_save(self, msg: dict[str, Any]) -> None:
         state = self.resolve_incoming(msg)
         if state is None:
@@ -830,13 +838,12 @@ class PersistentEditor:
         token = object()
         with self._save_lock:
             self._save_token = token
-            captured.save_token = token
 
         def _send_save(payload: dict[str, Any]) -> None:
             with self._save_lock:
                 # A deferred Run delivers on a later UI turn. A newer save
                 # replaces this token, so a late result must not clear dirty.
-                if self._save_token is not token or captured.save_token is not token:
+                if self._save_superseded(token):
                     return
                 if payload.get("type") == "saved" or payload.get("ok"):
                     captured.dirty = False
@@ -845,7 +852,7 @@ class PersistentEditor:
 
         def _handle_save() -> None:
             with self._save_lock:
-                if self._save_token is not token or captured.save_token is not token:
+                if self._save_superseded(token):
                     # executor.execute(..., timeout) raising TimeoutError does not
                     # cancel the queued _handle_save. Check the save token before
                     # on_save, or the save runs after the user was told it timed out.
@@ -900,7 +907,6 @@ class PersistentEditor:
         if exc is not None:
             with self._save_lock:
                 self._save_token = None
-                captured.save_token = None
             captured._clear_pending()
             self._report_marshal_failure(lambda payload: self.send(payload, session=captured), isinstance(exc, TimeoutError), (_("Saving the script timed out."), _("Saving the script failed.")), "save handler")
 
@@ -919,8 +925,6 @@ class PersistentEditor:
             finally:
                 if captured_id:
                     self.end_session(captured_id, call_closed=False)
-                if not self.sessions:
-                    set_active_session(None)
 
         self._run_on_main(_handle_close, "Editor close handler")
 
@@ -969,8 +973,6 @@ class PersistentEditor:
             finally:
                 for state in snapshot:
                     self.end_session(state.session_id, call_closed=False)
-                if not self.sessions:
-                    set_active_session(None)
 
         self._run_on_main(_handle_close, "Editor disconnect handler")
 
@@ -978,92 +980,9 @@ class PersistentEditor:
 _PERSISTENT_EDITOR = PersistentEditor()
 
 
-class EditorSession:
-    """One editor session wrapper, delegating to the PersistentEditor singleton."""
-
-    _proc: subprocess.Popen[bytes]
-    _on_save: EditorSaveCallback
-    _on_closed: Callable[[], None]
-    session_id: str
-
-    def __init__(
-        self,
-        proc: subprocess.Popen[bytes],
-        *,
-        on_save: EditorSaveCallback,
-        on_closed: Callable[[], None],
-        session_id: str = "",
-    ) -> None:
-        self._proc = proc
-        self._on_save = on_save
-        self._on_closed = on_closed
-        self.session_id = session_id
-
-    @property
-    def is_running(self) -> bool:
-        return _PERSISTENT_EDITOR.is_running
-
-    def start_reader(self) -> None:
-        if _PERSISTENT_EDITOR.proc is not self._proc:
-            _PERSISTENT_EDITOR.start(self._proc)
-
-    def _finish(self, *, clearing: bool = False) -> None:
-        if self.session_id:
-            live = _PERSISTENT_EDITOR.lookup(self.session_id)
-            # This identity is the wrapper's ownership of the state. _register_load_session
-            # replaces on_save when the same target is reused. A wrapper whose callback
-            # is no longer the state's must not end_session it.
-            if live is not None and live.on_save is self._on_save:
-                # On a target switch (clearing=False), _finish does not end the session; _register_load_session ends the prior one with call_closed=True so on_closed still runs. Session end here happens only when clearing or the subprocess died.
-                if clearing or not _PERSISTENT_EDITOR.is_running:
-                    _PERSISTENT_EDITOR.end_session(self.session_id, call_closed=True)
-
-        global _ACTIVE_SESSION
-        with _SESSION_LOCK:
-            if _ACTIVE_SESSION is self:
-                _ACTIVE_SESSION = None
-
-
-def get_active_session() -> EditorSession | None:
-    with _SESSION_LOCK:
-        return _ACTIVE_SESSION
-
-
-def set_active_session(session: EditorSession | None) -> None:
-    global _ACTIVE_SESSION
-    with _SESSION_LOCK:
-        if session is None and _ACTIVE_SESSION is not None:
-            old = _ACTIVE_SESSION
-            _ACTIVE_SESSION = None
-            old._finish(clearing=True)
-            return
-        if session is not None and _ACTIVE_SESSION is not None and _ACTIVE_SESSION is not session:
-            old = _ACTIVE_SESSION
-            old._finish(clearing=False)
-        _ACTIVE_SESSION = session
-
-
 def terminate_persistent_editor() -> None:
-    """Force terminate the background Monaco editor process."""
-    # terminate_persistent_editor must call on_closed and clear _ACTIVE_SESSION.
-    # Leaving the session stale made the next set_active_session call _finish
-    # on a dead session. Snapshot sessions, call on_closed on each, reset
-    # _ACTIVE_SESSION to None under _SESSION_LOCK, and terminate the subprocess
-    # (closing all standard streams).
-    global _ACTIVE_SESSION
-    with _SESSION_LOCK:
-        snapshot = list(_PERSISTENT_EDITOR.sessions.values())
-        _PERSISTENT_EDITOR.sessions.clear()
-        _PERSISTENT_EDITOR.focused_id = None
-        _PERSISTENT_EDITOR.run_script_doc = None
-        _PERSISTENT_EDITOR.run_script_doc_url = None
-        _ACTIVE_SESSION = None
-    for state in snapshot:
-        if state.on_closed is not None:
-            try:
-                state.on_closed()
-            except Exception:
-                log.exception("Editor on_closed failed during terminate")
+    """End every session (on_closed runs) and force terminate the editor process."""
+    _PERSISTENT_EDITOR.end_all_sessions()
     _PERSISTENT_EDITOR.terminate()
 
 
@@ -1407,11 +1326,19 @@ def launch_monaco_editor(
     # One gate covers cell, Run Script, init script, and LaTeX. Replacing the
     # focused buffer before asking dropped the other buffer: the cell editor
     # only asked for mode calc_cell, and Run Python Script never asked.
-    # Cancel and queued save return before set_active_session. Discard is
-    # marked on the session so _register_load_session may replace it.
+    # Cancel and queued save return before the dead-session purge and the
+    # load. Discard is marked on the session so _register_load_session may
+    # replace it.
     decision = prepare_monaco_buffer_replace(ctx, ipc_message, on_save, closed_handler)
     if decision != "proceed":
         return True
+
+    if not _PERSISTENT_EDITOR.is_running:
+        # The reader thread reports a child exit through _handle_disconnect, but
+        # this launch can run on the UI thread first. Ending the dead child's
+        # buffers here keeps the same target from reusing their session id, which
+        # the late disconnect handler would then end under the new child.
+        _PERSISTENT_EDITOR.end_all_sessions()
 
     if ipc_message.get("mode") == "run_script":
         run_script_doc = ipc_message.pop("run_script_doc", None)
@@ -1421,10 +1348,6 @@ def launch_monaco_editor(
 
     if _PERSISTENT_EDITOR.is_running:
         log.info("editor_host: reusing running editor background process")
-        proc = _PERSISTENT_EDITOR.proc
-        assert proc is not None
-        session = EditorSession(proc, on_save=on_save, on_closed=closed_handler)
-        set_active_session(session)
     else:
         log.info("editor_host: spawning new editor background process")
         try:
@@ -1434,14 +1357,12 @@ def launch_monaco_editor(
             msg = failure_message(_("Could not start the Python editor."), exc=e)
             return _launch_fail(msg, "Python editor spawn failed")
 
-        session = EditorSession(proc, on_save=on_save, on_closed=closed_handler)
-        set_active_session(session)
-        session.start_reader()
+        _PERSISTENT_EDITOR.start(proc)
 
         if not _PERSISTENT_EDITOR.wait_for_ready(ctx, timeout_sec=45.0):
             detail = _PERSISTENT_EDITOR.read_stderr_tail()
-            # set_active_session(None) does not kill the child. The next open
-            # saw is_running and skipped wait_for_ready.
+            # terminate_persistent_editor ends the sessions and kills the child;
+            # a live child with no session would make the next open skip wait_for_ready.
             terminate_persistent_editor()
             msg = failure_message(_("The Python editor window did not start."), detail=detail)
             return _launch_fail(msg, "Python editor did not start")
@@ -1451,16 +1372,14 @@ def launch_monaco_editor(
         # thread joins.
         run_in_background(warm_venv_worker, name="warm-venv-worker", dedicated=False)
 
-    if not session.is_running:
+    if not _PERSISTENT_EDITOR.is_running:
         detail = _PERSISTENT_EDITOR.read_stderr_tail()
-        set_active_session(None)
         msg = failure_message(_("The Python editor exited before it could load your code."), detail=detail)
         return _launch_fail(msg, "Python editor exited early")
 
     try:
         ipc_message = enrich_monaco_load_message(ipc_message)
-        state, stamped = _register_load_session(ipc_message, on_save, closed_handler)
-        session.session_id = state.session_id
+        stamped = _register_load_session(ipc_message, on_save, closed_handler)[1]
         _PERSISTENT_EDITOR.send(stamped)
     except DirtyBufferError:
         # The confirm gate should have queued, cancelled, or marked discard.

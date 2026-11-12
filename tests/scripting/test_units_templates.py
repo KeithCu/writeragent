@@ -28,7 +28,7 @@ def test_units_template_sets_match_helpers():
     unit_specs = {s.name: s for s in specs("units")}
     unit_names = names("units")
     templates = get_domain_wiring("units").templates()
-    shipped = {s.name for s in unit_specs.values() if s.shipped_template}
+    shipped = {s.name for s in unit_specs.values() if s.ship}
     assert set(templates) == shipped <= unit_names
     assert {s.name for s in unit_specs.values() if s.description} == unit_names
     assert "format_quantity" in unit_names

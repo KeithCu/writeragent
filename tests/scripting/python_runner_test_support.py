@@ -23,14 +23,13 @@ def execute_and_insert_result(ctx: Any, doc: Any, code: str, *, data_range: str 
     pin_token = pin_script_document(doc)
     try:
         prepared = python_runner._prepare_rps_execution(ctx, doc, code, data_range=data_range, pin_token=pin_token)
-        early = prepared.get("early_outcome")
-        if early is not None:
-            return early
+        if isinstance(prepared, python_runner.EarlyOutcome):
+            return prepared.outcome
         try:
             response = python_runner._run_prepared_rps(prepared)
         except Exception as e:
             log.exception("execute_and_insert_result failed")
-            return rps_error_outcome(str(e), t0=prepared["t0"], traceback=exception_traceback(e))
+            return rps_error_outcome(str(e), t0=prepared.t0, traceback=exception_traceback(e))
         return python_runner._finish_rps_execution(prepared, response)
     finally:
         release_script_document(pin_token)
