@@ -165,6 +165,9 @@ def run_domain(
         else:
             helper = str(spec or "full")
             params = {}
+        # The child accepts only the registry's text names, the same rule as every other domain.
+        if helper not in names("text"):
+            return error_result("UNKNOWN_HELPER", f"Unknown text analytics helper {helper!r}", helper=helper)
         from plugin.scripting.venv.text_analytics import dispatch_text_analytics
         return dispatch_text_analytics(helper, data, params, context=ctx)
     else:

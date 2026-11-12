@@ -103,7 +103,7 @@ def quick_plot(
     the bar ticks and is the line chart's x values when that column exists.
     """
     if isinstance(y_col, (list, tuple)):
-        return _error_result("INVALID_PARAMS", "y_col must be one column name", helper="quick_plot")
+        return _error_result("INVALID_PARAM", "y_col must be one column name", helper="quick_plot")
 
     plt = _require_matplotlib()
     if plt is None:
@@ -159,7 +159,7 @@ def _parse_chart_type(raw: Any) -> str | dict[str, Any]:
         if stripped in _CHART_TYPES:
             return stripped
     return _error_result(
-        "INVALID_PARAMS",
+        "INVALID_PARAM",
         "chart_type must be line, scatter, histogram, or bar",
         helper="plot_data",
     )
@@ -262,7 +262,7 @@ def correlation_heatmap(
     method_name = method.strip().lower() if isinstance(method, str) else ""
     if method_name not in _CORR_METHODS:
         return _error_result(
-            "INVALID_PARAMS",
+            "INVALID_PARAM",
             "method must be pearson, kendall, or spearman",
             helper="correlation_heatmap",
         )

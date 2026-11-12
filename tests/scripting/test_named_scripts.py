@@ -12,6 +12,7 @@ from plugin.scripting.named_scripts import (
     python_identifier_from_script_name,
     script_body_hash,
 )
+from plugin.scripting.sandbox import build_sandbox_policy
 
 
 def test_host_list_omits_workbook_init_script():
@@ -103,7 +104,7 @@ def test_extract_library_source_rejects_calls_in_lambda_defaults():
     def record():
         recorded.append(1)
 
-    exe = _new_executor(10)
+    exe = _new_executor(10, policy=build_sandbox_policy())
     exe.custom_tools["evil"] = record
     with pytest.raises(ValueError, match="not library definitions"):
         _eval_library(exe, "helper = lambda x=evil(): x\n", "Evil")
@@ -366,7 +367,7 @@ def test_script_library_uses_bound_executor_not_contextvar():
     from plugin.scripting.venv.venv_sandbox import _new_executor
 
     code = "def hello():\n    return 'Hello, Keith'\n"
-    exe = _new_executor(10)
+    exe = _new_executor(10, policy=build_sandbox_policy())
     lib = ScriptLibrary(SCRIPT_ORIGIN_DOCUMENT)
     lib._executor = exe
 
@@ -395,7 +396,7 @@ def test_library_defs_do_not_leak_into_executor_custom_tools():
     from plugin.scripting.named_scripts import _eval_library
     from plugin.scripting.venv.venv_sandbox import _new_executor
 
-    exe = _new_executor(10)
+    exe = _new_executor(10, policy=build_sandbox_policy())
     exe.custom_tools["helper"] = lambda: 7
     ns = _eval_library(exe, "def added():\n    return helper()\n", "Helpers")
     assert ns.added() == 7
@@ -409,8 +410,8 @@ def test_bind_keeps_each_executor_library():
     from plugin.scripting.venv.venv_sandbox import _new_executor
 
     code = "def hello():\n    return 'from-a'\n"
-    exe_a = _new_executor(10)
-    exe_b = _new_executor(10)
+    exe_a = _new_executor(10, policy=build_sandbox_policy())
+    exe_b = _new_executor(10, policy=build_sandbox_policy())
     token = _current_executor.set(_current_executor.get())
     try:
         bind_named_scripts_executor(exe_a)
@@ -450,8 +451,8 @@ def test_library_lookup_prefers_contextvar_executor():
     from plugin.scripting.venv.venv_sandbox import _new_executor
 
     code = "def n():\n    return 'from-context'\n"
-    exe_a = _new_executor(10)
-    exe_b = _new_executor(10)
+    exe_a = _new_executor(10, policy=build_sandbox_policy())
+    exe_b = _new_executor(10, policy=build_sandbox_policy())
     lib = ScriptLibrary(SCRIPT_ORIGIN_USER)
     lib._executor = exe_a
     token = _current_executor.set(exe_b)
@@ -483,7 +484,7 @@ def test_attach_binds_librepy_namespace_stub():
     from plugin.scripting.named_scripts import ScriptLibrary, attach_named_script_libraries
     from plugin.scripting.venv.venv_sandbox import _new_executor
 
-    exe = _new_executor(10)
+    exe = _new_executor(10, policy=build_sandbox_policy())
     attach_named_script_libraries(exe)
     assert isinstance(ns.scripts, ScriptLibrary)
     assert isinstance(ns.doc, ScriptLibrary)
@@ -833,7 +834,7 @@ def test_eval_library_binds_unpack_and_class_docstring():
     from plugin.scripting.named_scripts import _eval_library
     from plugin.scripting.venv.venv_sandbox import _new_executor
 
-    exe = _new_executor(10)
+    exe = _new_executor(10, policy=build_sandbox_policy())
     ns1 = _eval_library(exe, "a, b = 1, 2\ndef add(x):\n    return x + a + b\n", "Test1")
     assert ns1.a == 1
     assert ns1.b == 2
@@ -865,7 +866,7 @@ def test_eval_library_rejects_class_target_call():
     from plugin.scripting.named_scripts import _eval_library
     from plugin.scripting.venv.venv_sandbox import _new_executor
 
-    exe = _new_executor(10)
+    exe = _new_executor(10, policy=build_sandbox_policy())
     code = (
         "def make():\n"
         "    return object()\n"

@@ -334,12 +334,12 @@ class TestExecuteLocal:
         assert r["status"] == "ok", r
         assert r["result"] == 7
 
+    @pytest.mark.usefixtures("fresh_sandbox_sessions")
     def test_init_script_runs_once_isolated(self) -> None:
         from unittest.mock import patch
 
         from plugin.scripting.venv import venv_sandbox as vs
 
-        vs.SESSIONS.clear_all()
         init = "ONCE_ISO = 7"
         with patch.object(vs, "_run_on_executor", wraps=vs._run_on_executor) as mock_run:
             r1 = json.loads(_handle_request({"code": "result = ONCE_ISO", "init_script": init})["result_json"])
@@ -349,12 +349,12 @@ class TestExecuteLocal:
         # One init execution + two isolated cell executions (not init twice).
         assert mock_run.call_count == 3
 
+    @pytest.mark.usefixtures("fresh_sandbox_sessions")
     def test_init_script_runs_once_shared(self) -> None:
         from unittest.mock import patch
 
         from plugin.scripting.venv import venv_sandbox as vs
 
-        vs.SESSIONS.clear_all()
         sid = "shared-init-once"
         init = "ONCE_SHARED = 10"
         with patch.object(vs, "_run_on_executor", wraps=vs._run_on_executor) as mock_run:

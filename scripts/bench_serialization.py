@@ -26,7 +26,7 @@ from plugin.scripting.payload_codec import (  # noqa: E402
     ForceBinary,
     cell_count,
     child_pack_result,
-    child_unpack_data,
+    child_unpack_split_grid,
     host_pack_data,
     host_unpack_data,
     fast_flatten_grid_2d,
@@ -172,7 +172,7 @@ def run_ingress(
             ("host_pack", lambda _: host_pack_data(grid, min_cells=min_cells, force=pack_force)),
             ("host_dump", lambda data: pickle.dumps({"id": "b", "data": data}, protocol=5)),
             ("child_load", lambda b: pickle.loads(b)["data"]),
-            ("child_mat", lambda data: child_unpack_data(data) if wire_format == "pickle5+sg" else child_materialize_list(data)),
+            ("child_mat", lambda data: child_unpack_split_grid(data) if wire_format == "pickle5+sg" else child_materialize_list(data)),
         ]
     elif wire_format == "json+sg":
         parts = [
@@ -290,7 +290,7 @@ def run_child_only(
         return child_materialize_list(pickle.loads(bytes_pickle)["data"])
 
     def mat_pickle5_sg() -> Any:
-        return child_unpack_data(pickle.loads(bytes_pickle_sg)["data"])
+        return child_unpack_split_grid(pickle.loads(bytes_pickle_sg)["data"])
 
     _, list_ms = _bench(mat_list, warmup=warmup, iters=iters)
     _, json_sg_ms = _bench(mat_json_sg, warmup=warmup, iters=iters)

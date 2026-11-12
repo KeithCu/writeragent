@@ -180,7 +180,7 @@ def test_extract_text_unknown_ocr_backend():
         result = extract_text(b"png", {"ocr_backend": "nope"})
 
     assert result["status"] == "error"
-    assert result["code"] == "INVALID_PARAMS"
+    assert result["code"] == "INVALID_PARAM"
 
     with patch(
         "plugin.vision.venv.vision_docling._convert_image_bytes",

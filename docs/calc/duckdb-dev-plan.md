@@ -180,7 +180,7 @@ duckdb.sql("SELECT dept, AVG(revenue) FROM sheet1 GROUP BY 1").df()
 
 ### Engineering
 
-- **Reuses shipped bridge:** `read_range` → `host_pack_data` → `child_unpack_data` → `coerce_to_dataframe` ([`plugin/calc/inspector.py`](../../plugin/calc/inspector.py), [`plugin/scripting/payload_codec.py`](../../plugin/scripting/payload_codec.py), [`plugin/scripting/venv/coerce.py`](../../plugin/scripting/venv/coerce.py)).
+- **Reuses shipped bridge:** `read_range` → `host_pack_data` → `materialize_inputs` → `coerce_to_dataframe` ([`plugin/calc/inspector.py`](../../plugin/calc/inspector.py), [`plugin/scripting/payload_codec.py`](../../plugin/scripting/payload_codec.py), [`plugin/scripting/venv/coerce.py`](../../plugin/scripting/venv/coerce.py)).
 - **Same execution shell as Analysis/Viz:** Warm venv worker, trusted module, no LLM-submitted arbitrary imports beyond sandbox blocklist (duckdb is not blocked; prompt omits it).
 - **No ABI risk:** DuckDB runs in the child interpreter only.
 - **Build-on mountain:** Future Parquet export ([pyarrow](../enabling_numpy_in_libreoffice.md), deferred) makes DuckDB faster; shared-kernel session cache (Phase D) reuses one connection across `=PY()` cells.
@@ -206,7 +206,7 @@ duckdb.sql("SELECT dept, AVG(revenue) FROM sheet1 GROUP BY 1").df()
                              ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │ User venv worker                                                │
-│  • child_unpack_data                                            │
+│  • materialize_inputs                                           │
 │  • coerce_to_dataframe (per table)                              │
 │  • session_duckdb() or duckdb.connect(); register(name, df)        │
 │  • read_csv_auto / read_parquet / JSON (scoped paths only)       │
@@ -281,7 +281,7 @@ Folder discovery aligns with [document research](../chat/multi-document-dev-plan
 
 1. Tool or template accepts `data_range` (existing pattern from [`analyze_data`](analysis-tools.md)).
 2. Host: `read_range` → strip to values via [`calc_addin_data`](../../plugin/calc/calc_addin_data.py) → `host_pack_data`.
-3. Worker: `child_unpack_data` → `coerce_to_dataframe(..., headers=True)` → `con.register("data", df)`.
+3. Worker: `materialize_inputs` → `coerce_to_dataframe(..., headers=True)` → `con.register("data", df)`.
 4. Run user/LLM SQL; assign `result` for egress.
 
 **Parameters (mirror analysis):**

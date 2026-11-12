@@ -393,7 +393,7 @@ The implementation was simplified in May 2026 to unify the 1D and 2D packing pat
 | [`plugin/scripting/venv_worker.py`](../../plugin/scripting/venv_worker.py) | `_normalize_response`: `host_unpack_data` on worker `result` (all callers); respects `column_kinds` |
 | [`plugin/calc/python/function.py`](../../plugin/calc/python/function.py) | `=PY()` ingress pack + matrix/session flattening (result already unpacked) |
 | [`plugin/calc/python/venv.py`](../../plugin/calc/python/venv.py) | Chat tool ingress pack |
-| [`plugin/scripting/venv/venv_sandbox.py`](../../plugin/scripting/venv/venv_sandbox.py) | `materialize_inputs` (`calc_range.py`) before inject (it calls `child_unpack_data` on a split_grid); `child_pack_result` in `serialize_result` |
+| [`plugin/scripting/venv/venv_sandbox.py`](../../plugin/scripting/venv/venv_sandbox.py) | `materialize_inputs` (`calc_range.py`) before inject (it calls `child_unpack_split_grid` on a split_grid); `child_pack_result` in `serialize_result` |
 | [`tests/scripting/test_payload_codec.py`](../../tests/scripting/test_payload_codec.py) | Unit tests (threshold, round-trip, mixed text → lists) |
 | [`tests/scripting/test_venv_worker.py`](../../tests/scripting/test_venv_worker.py) | Harness integration with split_grid payloads |
 
@@ -409,7 +409,7 @@ Calc UNO range
   → pack_calc_data_for_wire → host_pack_data (host: split_grid or nested list)
   → pickle.dumps(request)        (host: binary payload, protocol 5; split_grid contains raw bytes)
   → pickle.loads(payload)        (child: parse request dict)
-  → materialize_inputs → CalcRange (child: child_unpack_data on split_grid: frombuffer + reshape when strings is empty)
+  → materialize_inputs → CalcRange (child: child_unpack_split_grid on split_grid: frombuffer + reshape when strings is empty)
   → send_variables({"data": ...}) (child: ndarray or list in fresh namespace)
   → user code (NumPy/pandas)
   → serialize_result → child_pack_result (child: split_grid or list for large numeric result)
@@ -419,7 +419,7 @@ Calc UNO range
   → finalize_python_return / write_formula_range
 ```
 
-Plain dicts and lists pack (`child_pack_result`) and unpack (`child_unpack_data`) without NumPy. A numeric list stays a list when NumPy is absent; a `split_grid` envelope still needs NumPy in the child. Numeric and mixed-string child unpack both require the float buffer's length to equal `nrows * ncols` before reshape. A short or long mixed buffer raises `ValueError` instead of becoming a different-sized 1D list.
+Plain dicts and lists pack (`child_pack_result`) without NumPy, and `materialize_inputs` wraps a plain list without NumPy; a `split_grid` envelope still needs NumPy in the child. Numeric and mixed-string child unpack both require the float buffer's length to equal `nrows * ncols` before reshape. A short or long mixed buffer raises `ValueError` instead of becoming a different-sized 1D list.
 
 | Stage | Module | What happens | Large dense numeric `data` (shipped path) |
 |-------|--------|--------------|-------------------------------------------|
@@ -482,7 +482,7 @@ With the highly optimized pure-Python/NumPy vectorized object-masking strategy i
 
 Re-run when changing [`payload_codec.py`](../../plugin/scripting/payload_codec.py) or considering vendored codecs or mmap. **Standalone bench (outside LO):** [`scripts/bench_serialization.py`](../../scripts/bench_serialization.py) — asymmetric host (stdlib) vs child (NumPy), ingress and egress, scalar/list/ndarray sizes up to 100 000 cells (includes 20 000×5); compares `json_list`, `json+sg`, `pickle5`, and `pickle5+sg`. Production path is `pickle5+sg`; `json+sg` is the historical JSON/Base64 diagnostic lane. Production policy matches bench defaults (`BINARY_MIN_CELLS = 100`).
 
-**Regression note (2026-06):** A change in June 2026 inadvertently made the pure-numeric (`strings == {}`) path in `child_unpack_split_grid` do `.tolist()` + recursive conversion even for split_grid envelopes. This regressed the C-speed `frombuffer` materialize (visible as ~52 ms child mat on 20k×5 / 100k cells in ingress bench vs the prior microsecond numbers). The contract ("return ndarray directly" for no-strings case) and calling code in `_child_unpack_single_data` were restored; the fast path is now guarded by an explicit ndarray-vs-list sentinel in tests. Re-bench `pickle5+sg` ingress after edits to `payload_codec.py`.
+**Regression note (2026-06):** A change in June 2026 inadvertently made the pure-numeric (`strings == {}`) path in `child_unpack_split_grid` do `.tolist()` + recursive conversion even for split_grid envelopes. This regressed the C-speed `frombuffer` materialize (visible as ~52 ms child mat on 20k×5 / 100k cells in ingress bench vs the prior microsecond numbers). The contract ("return ndarray directly" for no-strings case) and calling code in `calc_range._materialize_inner_grid` were restored; the fast path is now guarded by an explicit ndarray-vs-list sentinel in tests. Re-bench `pickle5+sg` ingress after edits to `payload_codec.py`.
 
 ```bash
 python scripts/bench_serialization.py --direction both
