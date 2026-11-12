@@ -163,7 +163,7 @@ def _expand_to_full_paragraphs(cur: Any) -> Any:
 
 class _CountingReader:
     """UNO getter wrapper for the capture walk: a failed read returns _READ_FAILED and counts
-    once; a disposed document re-raises as DocumentDisposedError (uno_read)."""
+    once; a disposed document re-raises as DocumentDisposedError (reraise_if_disposed)."""
 
     failures: int
 
@@ -504,7 +504,11 @@ def _missing_style_error(
     label: str = "Style",
     replay: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Not-found error with a Did-you-mean hint and a short sample of names."""
+    """Not-found error with a Did-you-mean hint and a short sample of names.
+
+    *replay* is the caller's own arguments, or None when an old_content search needle
+    would be truncated (over 100 characters).
+    """
     try:
         names = [str(n) for n in style_family.getElementNames()]
     except Exception as exc:
@@ -516,6 +520,7 @@ def _missing_style_error(
     miss_details: dict[str, Any] = {"hint": "Call style_list with family=%s." % family}
     if close:
         miss_details["similar"] = close[:5]
+    # Only an unambiguous single match is safe to replay (§3.4 rule 2).
     suggested = suggest_call(str(tool.name), **{**replay, "style": close[0]}) if replay is not None and len(close) == 1 else None
 
     if label == "parent_style":
@@ -1311,9 +1316,13 @@ class ApplyStyle(FrameworkToolBase):
         uno_value: str,
         kwargs: dict[str, Any],
     ) -> dict[str, Any] | None:
+        """Resolve the style name before any document write so near-miss names return a guided
+        tool error with case-insensitive suggestions instead of an opaque UNO
+        IllegalArgumentException.
+        """
         fam = uno_read(lambda: ctx.doc.getStyleFamilies().getByName(family), None)
         if fam is None or uno_read(lambda: fam.hasByName(uno_value), True):
-            return None  # unreadable families: let the apply path report, as today
+            return None  # can't enumerate styles (exotic doc): let the apply path report
         props = (self.parameters or {}).get("properties", {})
         args = {k: v for k, v in kwargs.items() if k in props}
         old_c = args.get("old_content")
@@ -1327,7 +1336,7 @@ class ApplyStyle(FrameworkToolBase):
     ) -> tuple[list[Any], dict[str, Any] | None]:
         # target='search' resolves its own ranges here so a miss returns the structured
         # build_search_not_found_response payload; resolve_target_cursor serves other targets
-        # and raises ValueError.
+        # and raises ValueError. Each match gets a cursor in its own text object (cell/frame safe).
         s = search_mod.prepare_old_content(kwargs.get("old_content"))
         if not s:
             return [], self._tool_error(
@@ -1347,9 +1356,10 @@ class ApplyStyle(FrameworkToolBase):
             res = search_mod.build_search_not_found_response(
                 ctx.doc, s, case_sensitive=cs, all_matches=many, refuse_oversized=True
             )
-            res.update({"target": "search", "applied": False, "matched": False})  # builder has no top_level kwarg (Keith decision 3 exempts it)
+            res.update({"target": "search", "applied": False, "matched": False})  # build_search_not_found_response takes no top_level kwarg; the shared builder's payload is extended here
             return [], res
         if occ is not None:
+            # Schema type integer (bool fails). validate has no min/max.
             if occ < 0 or occ >= len(ranges):
                 return [], self._tool_error(
                     "occurrence %s out of range (found %d match(es), use 0..%d)."
@@ -1370,6 +1380,8 @@ class ApplyStyle(FrameworkToolBase):
     ) -> tuple[list[ParagraphStyleApplyReport | None], dict[str, Any] | None]:
         # A single range is already an atomic undo action; the compound undo bracket
         # exists so multiple ranges undo together as one step.
+        # execute_safe reports a failed apply. This catch hid a closed document
+        # as "Could not apply style".
         if len(cursors) == 1:
             return [self._apply_one(ctx, family, uno_value, cursors[0], clear_direct)], None
 
