@@ -25,15 +25,16 @@ from typing import Any, Callable, Iterator
 from plugin.framework.errors import best_effort
 from plugin.doc.text_helpers import (
     get_string_without_tracked_deletions,
+    get_writer_selection_positions,
     iter_elements,
     starts_at_or_after,
+    visible_portions,
     walk_cap_warning,
-    _visible_portions as _shared_visible_portions,
 )
 from plugin.framework.errors import ToolExecutionError, reraise_if_disposed, uno_read
 from plugin.framework.scratch_writer import new_blank_writer
 from plugin.writer.math.math_mml_export import (
-    _OBJECT_REPLACEMENT,
+    OBJECT_REPLACEMENT,
     inject_exported_math_tex,
     portion_math_embed,
     substitute_math_placeholders,
@@ -203,7 +204,7 @@ def _visible_portions(para: Any, limit: int = _COPY_PORTION_LIMIT, truncated_out
     Char* runs without a signal.
     """
     hit: list[int] = []
-    yield from _shared_visible_portions(
+    yield from visible_portions(
         para, abort_on_portion_error=True, limit=limit, truncated_out=hit
     )
     if hit:
@@ -288,9 +289,7 @@ def _selection_cursor(model: Any) -> Any | None:
     Selection scope builds a cursor in the selection's own XText instead of body
     character offsets, so index/TOC selections do not export a later body paragraph.
     """
-    from plugin.doc.text_helpers import _get_writer_selection_positions
-
-    found = _get_writer_selection_positions(model)
+    found = get_writer_selection_positions(model)
     if not found:
         return None
     text, start, end = found
@@ -382,7 +381,7 @@ def _copy_formula_runs(
     """Copy formula and text runs into *temp_text*, recording placeholders."""
     # Standalone formula: paragraph has no other visible text.
     display_block = not any(
-        chunk.strip() and chunk != _OBJECT_REPLACEMENT and not portion_math_embed(p)
+        chunk.strip() and chunk != OBJECT_REPLACEMENT and not portion_math_embed(p)
         for p, chunk in portions
     )
     cur_offset = 0

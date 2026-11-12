@@ -164,7 +164,7 @@ _MCP_GUIDANCE_POINTER = (
 )
 
 
-def _format_mcp_clock_context(now: datetime.datetime | None = None) -> str:
+def format_mcp_clock_context(now: datetime.datetime | None = None) -> str:
     """Return connection-time local clock context for an MCP host's model prompt.
 
     Emits the local wall clock in Calc's accepted ISO shape (no offset / ``Z``).
@@ -197,7 +197,7 @@ def build_initialize_instructions(mode: str, *, now: datetime.datetime | None = 
         mode_hint = " Call find_tools with no arguments for the full specialized domain catalog, then find_tools(domain=…) for tool schemas in that area; call tools by name. No WriterAgent LLM endpoint is required."
     else:
         mode_hint = " For specialized capabilities, call delegate_to_specialized_*_toolset with domain and task (requires a WriterAgent chat endpoint for the inner agent)."
-    return _format_mcp_clock_context(now) + " " + base + mode_hint + _MCP_CALC_DATETIME_HINT + _MCP_GUIDANCE_POINTER
+    return format_mcp_clock_context(now) + " " + base + mode_hint + _MCP_CALC_DATETIME_HINT + _MCP_GUIDANCE_POINTER
 
 
 def _validate_http_protocol_version(handler: Any) -> tuple[int, dict[str, Any]] | None:

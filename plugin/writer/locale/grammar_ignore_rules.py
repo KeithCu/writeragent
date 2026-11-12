@@ -7,7 +7,7 @@
 from __future__ import annotations
 
 import re
-from typing import Any, final
+from typing import final
 
 from .grammar_persistence import grammar_registry
 
@@ -98,8 +98,8 @@ class IgnoreSet:
         self._global_ignored = global_ignored
 
     @classmethod
-    def for_document(cls, ctx: Any, doc_id: str) -> IgnoreSet:
-        doc_ignored = doc_ignored_rules(ctx, doc_id) if (ctx and doc_id) else set()
+    def for_document(cls, doc_id: str) -> IgnoreSet:
+        doc_ignored = doc_ignored_rules(doc_id)
         global_ignored = ignored_rules_snapshot()
         return cls(doc_ignored, global_ignored)
 
@@ -108,20 +108,20 @@ class IgnoreSet:
         return not is_rule_ignored(rule_identifier, self._doc_ignored, self._global_ignored)
 
 
-def doc_ignored_rules(ctx: Any, doc_id: str) -> set[str]:
+def doc_ignored_rules(doc_id: str) -> set[str]:
     """Document-scoped ignored rule reasons (normalized strings in persistence)."""
     from .grammar_persistence import get_persistence
 
-    p = get_persistence(ctx, doc_id)
+    p = get_persistence(doc_id)
     return p.ignored_rules_snapshot() if p else set()
 
 
-def collect_ignored_reasons(ctx: Any, doc_id: str) -> set[str]:
+def collect_ignored_reasons(doc_id: str) -> set[str]:
     """Document + global ignored grammar rules, normalized for prompt-side filtering.
 
     Not the same as ``is_rule_ignored`` (membership test vs set of canonical keys).
     """
-    ignored_reasons = doc_ignored_rules(ctx, doc_id)
+    ignored_reasons = doc_ignored_rules(doc_id)
     for rule_id in ignored_rules_snapshot():
         key = canonical_rule_key(rule_id)
         if key is not None:

@@ -34,7 +34,6 @@ from plugin.writer.locale.ai_grammar_proofreader import (
     SERVICE_NAME,
     WriterAgentAiGrammarProofreader,
 )
-from plugin.framework.grammar_rule_ids import normalize_detected_bcp47
 from plugin.writer.locale.grammar_proofread_locale import uno_locales_for_tags
 
 log = logging.getLogger("writeragent.grammar")
@@ -44,20 +43,6 @@ from plugin.writer.locale.harper import HARPER_LOCALE_TAGS
 
 IMPLEMENTATION_NAME = f"{EXTENSION_ID_LIBREHARPER}.comp.pyuno.HarperProofreader"
 SERVICE_DISPLAY_NAME = "LibreHarper"
-def normalize_harper_locale_to_bcp47(a_locale: Any) -> str | None:
-    """Preserve the regional English dialects understood by Harper."""
-    if a_locale is None:
-        return None
-    language = str(getattr(a_locale, "Language", "") or "").strip()
-    country = str(getattr(a_locale, "Country", "") or "").strip()
-    tag = language
-    # Explicit Country wins over a plain Language; a Language that already
-    # carries a region ("en-GB", "en_GB") keeps it; normalize splits and
-    # upper-cases either form.
-    if country and language and "-" not in language and "_" not in language:
-        tag = f"{language}-{country}"
-    normalized = normalize_detected_bcp47(tag)
-    return normalized if normalized in HARPER_LOCALE_TAGS else None
 
 
 class HarperProofreader(WriterAgentAiGrammarProofreader):  # pyright: ignore[reportGeneralTypeIssues]
@@ -120,9 +105,6 @@ class HarperProofreader(WriterAgentAiGrammarProofreader):  # pyright: ignore[rep
                 maybe_start_harper_async(ctx, user_config_dir=ucd)
         except Exception as e:
             log.warning("[grammar] LibreHarper harper warmup start failed: %s", e)
-
-    def _normalize_locale(self, a_locale: Any) -> str | None:
-        return normalize_harper_locale_to_bcp47(a_locale)
 
     def _ensure_harper_locales(self) -> None:
         """Retry locale construction after a degraded register.

@@ -42,7 +42,7 @@ from plugin.writer.specialized_base import (
     target_params,
 )
 from ..search import CASE_SENSITIVE_DESCRIPTION, parse_non_negative_int
-from ..target_resolver import resolve_target_cursor
+from ..target_resolver import insert_at_target
 
 log = logging.getLogger("writeragent.writer.specialized.indexes")
 
@@ -1345,8 +1345,6 @@ class IndexesCreate(ToolWriterIndexBase):
         index_kind = kwargs["kind"]
         title = kwargs.get("title")
         create_from_outline = kwargs.get("create_from_outline", True)
-        target = kwargs.get("target", "selection")
-        old_content = kwargs.get("old_content")
 
         # schema enum rejects an unknown kind before execute.
         service_name = _INDEX_KIND_TO_SERVICE[index_kind]
@@ -1358,39 +1356,13 @@ class IndexesCreate(ToolWriterIndexBase):
         if index_kind == "toc":
             index.CreateFromOutline = create_from_outline
 
-        try:
-            cursor = resolve_target_cursor(
-                ctx, target, old_content, case_sensitive=kwargs.get("case_sensitive")
-            )
-        except ValueError as ve:
-            return self._tool_error(str(ve))
-
-        replace_match = target == "search" and bool(old_content)
-
-        def mutate() -> dict[str, Any] | None:
-            if replace_match:
-                cursor.setString("")
-            text = cursor.getText()
-            text.insertTextContent(cursor, index, False)
+        def mutate(cursor: Any) -> None:
+            cursor.getText().insertTextContent(cursor, index, False)
             index.update()
-            return None
 
-        if replace_match:
-            from ..edit_review import next_agent_edit_undo_title
-            from plugin.doc.undo import commit_or_rollback_mutation
-
-            error = commit_or_rollback_mutation(
-                self,
-                doc,
-                next_agent_edit_undo_title(),
-                mutate,
-                "Cannot replace the matched text atomically (no usable undo context).",
-                "Failed to create index; the change was rolled back",
-            )
-            if error is not None:
-                return error
-        else:
-            mutate()
+        error = insert_at_target(self, ctx, kwargs, mutate, what="the index")
+        if error is not None:
+            return error
 
         return {"status": "ok", "message": f"Created '{index_kind}' index successfully", "title": title}
 
@@ -1399,6 +1371,7 @@ class IndexesAddMark(ToolWriterIndexBase):
     name: str | None = "indexes_add_mark"
     description: str = (
         "Insert an index mark or a bibliography cite at target. "
+        "With target='search' the mark or cite is placed at the start of the match and the matched text is kept, not replaced. "
         "kind=alphabetical|user creates DocumentIndexMark / UserIndexMark (primary_key/secondary_key). "
         "kind=bibliography creates TextField.Bibliography — not an index mark; "
         "set Identifier/Author/Title/Year/Pages (text defaults to Identifier). "
@@ -1427,7 +1400,12 @@ class IndexesAddMark(ToolWriterIndexBase):
                 "type": "object",
                 "description": "Extra/override Fields names (Identifier, Author, ISBN, …). Ignored unless kind=bibliography.",
             },
-            **target_params("the mark or cite"),
+            **target_params(
+                "the mark or cite",
+                old_content_description=(
+                    "Text to find if target = 'search'; the mark or cite goes at the start of the match and the text is kept."
+                ),
+            ),
         },
         "required": ["text"],
     }
@@ -1439,19 +1417,10 @@ class IndexesAddMark(ToolWriterIndexBase):
         index_kind = kwargs.get("kind", "alphabetical")
         primary_key = kwargs.get("primary_key")
         secondary_key = kwargs.get("secondary_key")
-        target = kwargs.get("target", "selection")
-        old_content = kwargs.get("old_content")
-
-        try:
-            cursor = resolve_target_cursor(
-                ctx, target, old_content, case_sensitive=kwargs.get("case_sensitive")
-            )
-        except ValueError as ve:
-            return self._tool_error(str(ve))
 
         # schema enum.
         if index_kind == "bibliography":
-            return self._insert_bibliography_cite(doc, cursor, kwargs)
+            return self._insert_bibliography_cite(ctx, kwargs)
 
         service_name = "com.sun.star.text.DocumentIndexMark"
         if index_kind == "user":
@@ -1467,12 +1436,20 @@ class IndexesAddMark(ToolWriterIndexBase):
             mark.setPropertyValue("PrimaryKey", primary_key or "")
             mark.setPropertyValue("SecondaryKey", secondary_key or "")
 
-        text = cursor.getText()
-        text.insertTextContent(cursor, mark, False)
+        err = insert_at_target(
+            self,
+            ctx,
+            kwargs,
+            lambda cursor: cursor.getText().insertTextContent(cursor, mark, False),
+            what="the index mark",
+            replace_match=False,
+        )
+        if err is not None:
+            return err
 
         return {"status": "ok", "message": f"Added '{index_kind}' index mark for '{mark_text}'"}
 
-    def _insert_bibliography_cite(self, doc: Any, cursor: Any, kwargs: Any) -> dict[str, Any]:
+    def _insert_bibliography_cite(self, ctx: Any, kwargs: Any) -> dict[str, Any]:
         pairs = collect_bibliography_field_pairs(kwargs)
         identifier = str(pairs.get("Identifier") or "")
         if not identifier:
@@ -1480,14 +1457,23 @@ class IndexesAddMark(ToolWriterIndexBase):
                 "Bibliography cite needs identifier or text (used as Identifier)."
             )
 
+        doc = ctx.doc
         field = doc.createInstance(_BIB_CITE_SERVICE)
         if not field:
             return self._tool_error("Failed to create textfield.Bibliography")
         # Fields must be set on the descriptor before insert. A plain tuple is
         # dropped; set_bibliography_field_values uses a typed Any via uno.invoke.
         set_bibliography_field_values(field, pairs)
-        text = cursor.getText()
-        text.insertTextContent(cursor, field, False)
+        err = insert_at_target(
+            self,
+            ctx,
+            kwargs,
+            lambda cursor: cursor.getText().insertTextContent(cursor, field, False),
+            what="the bibliography cite",
+            replace_match=False,
+        )
+        if err is not None:
+            return err
         return {
             "status": "ok",
             "message": "Added bibliography cite '%s'" % identifier,

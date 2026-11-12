@@ -49,20 +49,24 @@ import logging
 import re
 import time
 import uuid
-from typing import TYPE_CHECKING, Any, Callable, ClassVar, Generator
+from typing import Any, Callable, ClassVar, Generator
 
-if TYPE_CHECKING:
-    from plugin.doc.compound_undo import UndoOutcome, WriterCompoundUndo
-
-from plugin.doc.text_helpers import FAILED, go_right, iter_elements
+from plugin.doc.compound_undo import UndoOutcome, UndoUnavailable, WriterCompoundUndo, commit_or_rollback
+from plugin.doc.text_helpers import FAILED, go_right, iter_elements, selected_text_range
+# Module-qualified on purpose: plugin/testing_runner.py replaces config.get_config while native
+# suites run (review mode reads "off" unless a test sets it); a from-import would keep the original.
+from plugin.framework import config
 from plugin.framework.errors import ToolExecutionError, reraise_if_disposed, uno_read
 from plugin.framework.errors import document_is_disposed
 from plugin.framework.send_cancellation import SendCancellation, is_cancelled
 from plugin.framework.i18n import N_, _
+from plugin.framework.uno_context import get_ctx
 from plugin.writer import review_authors
 from plugin.writer import review_scan as _review_scan
+from plugin.writer.html_import import replace_preserving_format
 from plugin.writer.record_changes import is_recording_changes, record_changes
 from plugin.writer.review_view_attachment import refresh_review_toolbar
+from plugin.writer.word_diff_split import split_change
 
 log = logging.getLogger(__name__)
 
@@ -83,9 +87,7 @@ _AGENT_EDIT_REVIEW_MODES = frozenset({"off", "record", "wait"})
 
 def get_agent_edit_review_mode() -> str:
     """Read ``doc.agent_edit_review_mode`` (off / record / wait); unknown values → off."""
-    from plugin.framework.config import get_config
-
-    raw = get_config("doc.agent_edit_review_mode")
+    raw = config.get_config("doc.agent_edit_review_mode")
     if isinstance(raw, str):
         mode = raw.strip().lower()
         if mode in _AGENT_EDIT_REVIEW_MODES:
@@ -140,11 +142,9 @@ def annotate_review_status(result: Any) -> dict[str, Any]:
 
 def edit_review_wait_seconds() -> int:
     """Max seconds ``apply_document_content`` may block waiting for review; 0 = don't wait."""
-    from plugin.framework.config import get_config
-
     if get_agent_edit_review_mode() != "wait":
         return 0
-    return max(0, int(get_config("doc.edit_review_timeout")))
+    return max(0, int(config.get_config("doc.edit_review_timeout")))
 
 
 def _tag_new_redlines(redlines: list[Any], token: str) -> tuple[bool, int]:
@@ -427,8 +427,6 @@ class EditReviewSession:
         """
         if not self._active:
             return apply_fn()
-
-        from plugin.doc.compound_undo import WriterCompoundUndo
 
         group = WriterCompoundUndo.try_enter(self.doc, _AGENT_EDIT_UNDO_TITLE)
         try:
@@ -796,8 +794,6 @@ def next_agent_edit_undo_title() -> str:
 def record_html_atomically(session: EditReviewSession, doc: Any, mutate: Callable[[], Any],
                            **record_kwargs: Any) -> Any:
     """Record an HTML/import mutation that DELETES before it inserts."""
-    from plugin.doc.compound_undo import UndoUnavailable, commit_or_rollback
-
     undo_title = next_agent_edit_undo_title()
     result_holder: list[Any] = []
 
@@ -840,7 +836,6 @@ def selection_anchor(doc: Any) -> Any | None:
         controller = doc.getCurrentController()
         if controller is None:
             return None
-        from plugin.doc.text_helpers import selected_text_range
 
         rng = selected_text_range(controller)
         if rng is not None:
@@ -912,11 +907,7 @@ def record_preserve_replace(session: EditReviewSession, doc: Any, found: Any, ne
     recording is on) and only PART of the block changed -- as several SURGICAL sub-changes,
     each its own tracked Delete+Insert with its own accept/reject outcome.
     """
-    from .html_import import replace_preserving_format
-    from plugin.doc.compound_undo import UndoUnavailable, commit_or_rollback
-    from plugin.framework.config import get_config
-
-    split_author = split and bool(get_config("doc.agent_edit_split_author_colors"))
+    split_author = split and bool(config.get_config("doc.agent_edit_split_author_colors"))
 
     def _whole() -> None:
         original = found.getString()
@@ -961,16 +952,14 @@ def record_preserve_replace(session: EditReviewSession, doc: Any, found: Any, ne
 
     result = None
     if split:
-        from plugin.writer.word_diff_split import split_change
-
-        result = split_change(found.getString(), new_text, get_config("doc.agent_edit_diff_threshold"))
+        result = split_change(found.getString(), new_text, config.get_config("doc.agent_edit_diff_threshold"))
         if result.is_surgical and not result.sub_edits:
             return
 
     if (
         result is None
         or not result.is_surgical
-        or len(result.sub_edits) > get_config("doc.agent_edit_max_surgical_runs")
+        or len(result.sub_edits) > config.get_config("doc.agent_edit_max_surgical_runs")
         or not _block_safe_for_surgical(found)
     ):
         _whole()
@@ -1229,7 +1218,6 @@ def _stream_write_warning(exc: Exception | None) -> str | None:
 
 def _begin_streamed_edit(doc: Any, text_range: Any, title: str) -> tuple[WriterCompoundUndo, bool, Any]:
     refuse_tracked_insert_or_delete(text_range)
-    from plugin.doc.compound_undo import WriterCompoundUndo
 
     record_cm = record_changes(doc, False)
     was_recording = record_cm.__enter__()
@@ -1302,8 +1290,7 @@ class _WriterStreamedSessionBase:
                 before_ids_ok = False
                 if self.track_reviewable:
                     try:
-                        from plugin.writer.review_scan import snapshot_redline_ids
-                        before_ids, before_ids_ok = snapshot_redline_ids(self.doc)
+                        before_ids, before_ids_ok = _review_scan.snapshot_redline_ids(self.doc)
                     except Exception:
                         log.debug("%s: review tagging setup failed", label, exc_info=True)
 
@@ -1311,7 +1298,6 @@ class _WriterStreamedSessionBase:
                 self.text_range.setString(self.original_text)
 
                 if self.track_reviewable:
-                    from plugin.framework.uno_context import get_ctx
                     with EditReviewSession(self.doc, get_ctx(), enabled=True):
                         collapse_fn()
                 else:

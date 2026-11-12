@@ -5,7 +5,6 @@ import pytest
 
 from plugin.doc.compound_undo import WriterCompoundUndo, _is_undo_locked, undo_titles
 from plugin.framework.errors import DocumentDisposedError
-import plugin.writer.edit_review as edit_review
 
 
 class _MockUndoManager:
@@ -56,10 +55,6 @@ class _MockDoc:
 
     def getUndoManager(self):
         return self.undo
-
-
-def test_edit_review_has_no_writer_compound_undo_attribute():
-    assert not hasattr(edit_review, "WriterCompoundUndo")
 
 
 def test_writer_compound_undo_enter_close_and_idempotent():

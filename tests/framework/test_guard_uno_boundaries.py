@@ -138,7 +138,7 @@ class TestGuardUnoBoundaries:
         guarded_ctx.ServiceManager = sm
         sm.createInstanceWithContext.return_value = gp
         with (
-            patch("plugin.framework.uno_context.get_ctx", return_value=guarded_ctx) as mock_get_ctx,
+            patch("plugin.writer.images.image_tools.get_ctx", return_value=guarded_ctx) as mock_get_ctx,
             patch(
                 "plugin.writer.images.image_tools.uno.getComponentContext",
                 side_effect=AssertionError("uno.getComponentContext must not be used; call get_ctx()"),

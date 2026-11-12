@@ -267,8 +267,8 @@ def test_frame_insert_default_size_and_undo_path():
         return None
 
     with (
-        patch("plugin.writer.specialized.textframes.resolve_target_cursor", return_value=cursor),
-        patch("plugin.writer.specialized.textframes.commit_or_rollback_mutation", side_effect=_commit),
+        patch("plugin.writer.target_resolver.resolve_target_cursor", return_value=cursor),
+        patch("plugin.writer.target_resolver.commit_or_rollback_mutation", side_effect=_commit),
         patch("plugin.writer.specialized.textframes.mm_to_unit", side_effect=lambda mm: int(mm * 100)),
     ):
         res = FrameInsert().execute(ctx, target="beginning", text="hello", name="MyFrame")

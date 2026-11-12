@@ -2,7 +2,6 @@
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-# pyright: reportUnusedFunction=false
 """Writer right-click review: accept/reject the agent's tracked changes, as whole units.
 
 Adds two entries to the Writer text context menu (only while the document holds pending AGENT
@@ -77,21 +76,21 @@ def _build_menu(model: Any, event: Any, ignored: Any, continue_modified: Any) ->
         return ignored
 
 
-def _make_interceptor(model: Any) -> Any:
+def make_interceptor(model: Any) -> Any:
     global _interceptor_cls
     if _interceptor_cls is None:
         from com.sun.star.ui import XContextMenuInterceptor
         from com.sun.star.ui.ContextMenuInterceptorAction import CONTINUE_MODIFIED, IGNORED
 
         class _ChangeContextMenuInterceptor(unohelper.Base, XContextMenuInterceptor):  # type: ignore[misc, valid-type]
-            _model: Any
+            model: Any
 
             def __init__(self, model: Any) -> None:
                 super().__init__()
-                self._model = model
+                self.model = model
 
             def notifyContextMenuExecute(self, aEvent: Any) -> Any:  # noqa: N802, N803 -- UNO API
-                return _build_menu(self._model, aEvent, IGNORED, CONTINUE_MODIFIED)
+                return _build_menu(self.model, aEvent, IGNORED, CONTINUE_MODIFIED)
 
         _interceptor_cls = _ChangeContextMenuInterceptor
     return _interceptor_cls(model)

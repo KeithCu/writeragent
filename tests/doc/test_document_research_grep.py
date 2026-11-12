@@ -41,7 +41,7 @@ def test_resolve_grep_candidates_budget_filter():
 
         model = MagicMock()
         ctx = MagicMock()
-        with patch("plugin.doc.document_research_grep.list_nearby_files") as mock_list:
+        with patch("plugin.doc.document_research_grep.scan_nearby_files") as mock_list:
             mock_list.return_value = {
                 "status": "ok",
                 "files": [
@@ -78,7 +78,7 @@ def test_resolve_grep_candidates_file_url_opens_that_file():
         path = f.name
     try:
         file_url = Path(path).as_uri()
-        with patch("plugin.doc.document_research_grep.list_nearby_files") as mock_list:
+        with patch("plugin.doc.document_research_grep.scan_nearby_files") as mock_list:
             candidates, truncated, err = resolve_grep_candidates(MagicMock(), MagicMock(), file_subset=file_url)
             mock_list.assert_not_called()
         assert err is None
@@ -95,7 +95,7 @@ def test_resolve_grep_candidates_missing_file_url_is_an_error():
     # Under the temp dir so as_uri() also works on Windows (it needs a drive letter).
     missing_path = os.path.join(tempfile.gettempdir(), "nonexistent-writeragent-dir", "missing.ods")
     missing_url = Path(missing_path).as_uri()
-    with patch("plugin.doc.document_research_grep.list_nearby_files") as mock_list:
+    with patch("plugin.doc.document_research_grep.scan_nearby_files") as mock_list:
         candidates, truncated, err = resolve_grep_candidates(MagicMock(), MagicMock(), file_subset=missing_url)
         mock_list.assert_not_called()
     assert candidates == []
@@ -108,7 +108,7 @@ def test_resolve_grep_candidates_missing_file_url_is_an_error():
 def test_resolve_grep_candidates_unc_file_url_rejected():
     unc_url = "file://server/share/Budget.ods"
     with patch("os.path.isfile", return_value=True):
-        with patch("plugin.doc.document_research_grep.list_nearby_files") as mock_list:
+        with patch("plugin.doc.document_research_grep.scan_nearby_files") as mock_list:
             candidates, truncated, err = resolve_grep_candidates(MagicMock(), MagicMock(), file_subset=unc_url)
             mock_list.assert_not_called()
     assert candidates == []
@@ -136,7 +136,7 @@ def test_resolve_grep_candidates_listing_truncated_flag():
                 }
             )
 
-        with patch("plugin.doc.document_research_grep.list_nearby_files") as mock_list:
+        with patch("plugin.doc.document_research_grep.scan_nearby_files") as mock_list:
             mock_list.return_value = {"status": "ok", "files": files, "truncated": True}
             candidates, truncated, err = resolve_grep_candidates(MagicMock(), MagicMock(), file_subset="budget")
 
@@ -148,7 +148,7 @@ def test_resolve_grep_candidates_listing_truncated_flag():
 def test_resolve_grep_candidates_open_files_first():
     closed = "/tmp/closed.ods"
     open_f = "/tmp/open.ods"
-    with patch("plugin.doc.document_research_grep.list_nearby_files") as mock_list:
+    with patch("plugin.doc.document_research_grep.scan_nearby_files") as mock_list:
         mock_list.return_value = {
             "status": "ok",
             "files": [
@@ -884,3 +884,19 @@ def test_grep_nearby_files_tool_wrapper_matched_case_sensitive():
         assert res_cs["status"] == "ok"
         assert res_cs["matched_case_sensitive"] is True
         assert mock_grep.call_args.kwargs["case_sensitive"] is True
+
+
+@patch("plugin.doc.document_research_grep.open_document_for_read")
+def test_grep_nearby_files_stop_during_listing_is_user_stopped(mock_open):
+    from plugin.doc.document_research import ListingState
+    from plugin.framework.send_cancellation import SendCancellation
+
+    scope = SendCancellation()
+    scope.cancel()
+    with tempfile.TemporaryDirectory() as tmp:
+        with open(os.path.join(tmp, "Budget.ods"), "wb"):
+            pass
+        with patch("plugin.doc.document_research.resolve_listing_state", return_value=ListingState(None, {}, tmp)):
+            result = grep_nearby_files(MagicMock(), MagicMock(), MagicMock(), "Q4", cancel=scope)
+    assert result == {"status": "error", "code": "USER_STOPPED", "message": "Document read stopped by user."}
+    mock_open.assert_not_called()

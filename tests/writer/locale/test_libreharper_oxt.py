@@ -10,7 +10,7 @@ import ast
 import os
 from types import SimpleNamespace
 
-from plugin.writer.locale.harper_proofreader import normalize_harper_locale_to_bcp47
+from plugin.writer.locale.harper import normalize_harper_locale_to_bcp47
 
 
 def _repo_root() -> str:

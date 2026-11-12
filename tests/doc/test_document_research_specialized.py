@@ -840,7 +840,7 @@ def test_get_open_documents():
 
     with patch("plugin.framework.uno_context.get_desktop", return_value=mock_desktop), \
          patch("plugin.doc.document_research.get_document_type", return_value=DocumentType.CALC), \
-         patch("plugin.doc.document_research._system_path_from_url", return_value="/tmp/Budget.ods"):
+         patch("plugin.doc.document_research.system_path_from_url", return_value="/tmp/Budget.ods"):
         docs = get_open_documents(mock_ctx)
         assert len(docs) == 1
         assert docs[0]["name"] == "Budget.ods"
@@ -1186,3 +1186,17 @@ def test_run_inner_read_agent_unknown_doc_type_is_coded_error():
     assert res["code"] == "TOOL_EXECUTION_ERROR"
     assert "No read tools configured" in res["message"]
 
+
+def test_delegate_read_document_stop_while_resolving_name_is_user_stopped():
+    from plugin.framework.send_cancellation import SendCancelled
+
+    r = ToolRegistry(services={})
+    r.register(DelegateReadDocument())
+    ctx = MagicMock()
+    ctx.services = {"tools": r}
+    tool = r.get("delegate_read_document")
+    assert tool is not None
+    with patch("plugin.doc.document_research.resolve_listing_state", side_effect=SendCancelled()):
+        result = tool.execute_safe(ctx, path_or_name="Budget", task="Q4")
+    assert result["status"] == "error"
+    assert result["code"] == "USER_STOPPED"

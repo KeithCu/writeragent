@@ -56,7 +56,10 @@ def test_symbolic_math_uno_services():
 def test_symbolic_math_in_python_domain():
     from plugin.app import get_tools
 
-    with patch("plugin.framework.uno_context.get_desktop", return_value=None):
+    with (
+        patch("plugin.framework.uno_context.get_desktop", return_value=None),
+        patch("plugin.writer.review_view_attachment.get_desktop", return_value=None),
+    ):
         registry = get_tools()
     doc = MagicMock()
     doc.supportsService.return_value = True

@@ -1398,7 +1398,7 @@ class _IndexProxy:
     """Proxy for index tools."""
 
     def add_mark(self, text: str, *, kind: str | None = None, primary_key: str | None = None, secondary_key: str | None = None, identifier: str | None = None, author: str | None = None, title: str | None = None, year: Any | None = None, pages: str | None = None, bibliographic_type: Any | None = None, fields: dict[str, Any] | None = None, target: str | None = None, old_content: str | None = None, case_sensitive: bool | None = None) -> dict[str, Any]:
-        """Insert an index mark or a bibliography cite at target. kind=alphabetical|user creates DocumentIndexMark / UserIndexMark (primary_key/secondary_key). kind=bibliography creates TextField.Bibliography — not an index mark; set Identifier/Author/Title/Year/Pages (text defaults to Identifier). primary_key is ignored for cites. After cite changes call indexes_update_all so the bibliography table refreshes. Do not use fields_insert for product cites.
+        """Insert an index mark or a bibliography cite at target. With target='search' the mark or cite is placed at the start of the match and the matched text is kept, not replaced. kind=alphabetical|user creates DocumentIndexMark / UserIndexMark (primary_key/secondary_key). kind=bibliography creates TextField.Bibliography — not an index mark; set Identifier/Author/Title/Year/Pages (text defaults to Identifier). primary_key is ignored for cites. After cite changes call indexes_update_all so the bibliography table refreshes. Do not use fields_insert for product cites.
 
         Args:
             text (required): Index mark entry, or Identifier fallback for kind=bibliography.
@@ -1413,7 +1413,7 @@ class _IndexProxy:
             bibliographic_type (optional): BibliographyDataType name or int (book, article, …). Ignored unless kind=bibliography.
             fields (optional): Extra/override Fields names (Identifier, Author, ISBN, …). Ignored unless kind=bibliography.
             target (optional): Where to insert the mark or cite. One of: beginning, end, selection, full_document, search.
-            old_content (optional): Text to find and replace if target = 'search'.
+            old_content (optional): Text to find if target = 'search'; the mark or cite goes at the start of the match and the text is kept.
             case_sensitive (optional): For target='search': Case-sensitive match (default: false). The result includes matched_case_sensitive for the mode that ran.
         """
         return call_host_tool("indexes_add_mark", text=text, kind=kind, primary_key=primary_key, secondary_key=secondary_key, identifier=identifier, author=author, title=title, year=year, pages=pages, bibliographic_type=bibliographic_type, fields=fields, target=target, old_content=old_content, case_sensitive=case_sensitive)

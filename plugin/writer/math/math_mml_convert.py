@@ -11,7 +11,8 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
-from plugin.framework.uno_context import get_desktop
+from plugin.doc.temp_files import with_temp_buffer
+from plugin.framework.uno_context import create_property_value, get_desktop
 
 log = logging.getLogger("writeragent.writer")
 
@@ -36,17 +37,22 @@ class MathConversionResult:
     error_message: str | None
 
 
-_MATH_ROOT_RE = re.compile(r"(?is)<math[\s>][\s\S]*?</math>")
+MATH_ROOT_RE = re.compile(r"(?is)<math[\s>][\s\S]*?</math>")
 
 
 def math_root(fragment: str) -> str | None:
     """Extract a <math>...</math> root element from MathML markup."""
-    m = _MATH_ROOT_RE.search(fragment)
+    m = MATH_ROOT_RE.search(fragment)
     return m.group(0) if m else None
 
 
-def _exception_message(exc: Exception) -> str:
-    """Non-empty diagnostic for UNO / latex2mathml failures (some bridges return ``str(exc)==''``)."""
+def exception_message(exc: Exception) -> str:
+    """Non-empty diagnostic for UNO / latex2mathml failures (some bridges return ``str(exc)==''``).
+
+    Kept beside resolve_exception_message because error_message always carries the
+    exception type, which names the failing layer (latex2mathml, mathml-to-latex,
+    UNO filter).
+    """
     name = type(exc).__name__
     raw = getattr(exc, "Message", None) or str(exc)
     text = raw.strip() if isinstance(raw, str) else ""
@@ -82,6 +88,8 @@ def convert_latex_to_starmath(ctx: Any, latex: str, *, display_block: bool = Fal
     trimmed = latex.strip()
     if not trimmed:
         return MathConversionResult(False, None, "empty_latex")
+    # latex2mathml is a vendor package copied into plugin/lib at build time; a missing
+    # copy is reported as latex2mathml_import instead of failing this module's import.
     try:
         from latex2mathml.converter import convert as latex2mathml_convert
     except ImportError as exc:
@@ -91,7 +99,7 @@ def convert_latex_to_starmath(ctx: Any, latex: str, *, display_block: bool = Fal
         mathml = latex2mathml_convert(trimmed, display=display_mode)
     except Exception as exc:
         log.debug("latex2mathml convert failed: %s", exc, exc_info=True)
-        return MathConversionResult(False, None, _exception_message(exc))
+        return MathConversionResult(False, None, exception_message(exc))
     assert isinstance(mathml, str)
     mathml_stripped = mathml.strip()
     if not mathml_stripped:
@@ -113,9 +121,6 @@ def convert_mathml_to_starmath(ctx: Any, mathml_fragment: str) -> MathConversion
 
     payload = '<?xml version="1.0" encoding="UTF-8"?>\n' + root
     try:
-        from plugin.doc.temp_files import with_temp_buffer
-        from plugin.framework.uno_context import create_property_value
-
         with with_temp_buffer(content=payload, ext=".mml") as (_path, url):
             desktop = get_desktop(ctx)
             hidden = (create_property_value("Hidden", True),)
@@ -144,7 +149,7 @@ def convert_mathml_to_starmath(ctx: Any, mathml_fragment: str) -> MathConversion
                     log.debug("math doc close: %s", exc)
     except Exception as exc:
         log.debug("convert_mathml_to_starmath failed: %s", exc, exc_info=True)
-        return MathConversionResult(False, None, _exception_message(exc))
+        return MathConversionResult(False, None, exception_message(exc))
 
 
 

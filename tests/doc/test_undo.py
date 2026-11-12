@@ -413,26 +413,30 @@ def test_commit_or_rollback_mutation_extra_code_sets_payload_code():
     assert "details" not in res
 
 
-def test_undo_tolerates_null_and_non_numeric_steps():
+def test_undo_null_steps_is_one_and_non_integer_steps_is_rejected_by_registry():
+    from plugin.framework.tool import ToolContext, ToolRegistry
     from plugin.doc.undo import Undo
 
+    doc = MagicMock()
     um = MagicMock()
     um.isUndoPossible.return_value = True
     um.isRedoPossible.return_value = True
-    ctx = MagicMock()
-    ctx.doc.getUndoManager.return_value = um
+    doc.getUndoManager.return_value = um
 
-    res = Undo().execute(ctx, steps=None)
+    reg = ToolRegistry(services={})
+    reg.register(Undo())
+    ctx = ToolContext(doc, MagicMock(), "writer", reg)
+
+    res = reg.execute("undo", ctx, steps=None)
     assert res["status"] == "ok"
     assert res["undone"] == 1
 
     um.reset_mock()
-    um.isUndoPossible.return_value = True
-    um.isRedoPossible.return_value = True
-
-    res2 = Undo().execute(ctx, steps="abc")
-    assert res2["status"] == "ok"
-    assert res2["undone"] == 1
+    err = reg.execute("undo", ctx, steps="abc")
+    assert err["status"] == "error"
+    assert err["code"] == "VALIDATION_ERROR"
+    assert err["message"] == "Invalid type for steps: expected integer, got str"
+    um.undo.assert_not_called()
 
 
 def test_undo_tool_propagates_disposal():

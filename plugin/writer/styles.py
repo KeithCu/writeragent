@@ -25,7 +25,7 @@ from collections import deque
 import copy
 import logging
 import os
-from typing import TYPE_CHECKING, Any, Iterable, Literal, TypedDict, cast
+from typing import TYPE_CHECKING, Any, Callable, Iterable, Literal, TypedDict, cast
 
 if TYPE_CHECKING:
     import uno
@@ -48,6 +48,7 @@ else:
                 self.Name = Name
                 self.Value = Value
 
+from plugin.doc.compound_undo import UndoUnavailable, WriterCompoundUndo, commit_or_rollback
 from plugin.doc.text_helpers import (
     iter_elements_limited,
     record_walk_cap,
@@ -59,13 +60,14 @@ from plugin.framework.errors import (
     reraise_if_disposed,
     similar_names,
     suggest_call,
+    uno_read,
 )
 from plugin.framework.doc_type import CALC_DOCUMENT_SERVICE, TEXT_DOCUMENT_SERVICE
 from plugin.framework.tool import ToolBase as FrameworkToolBase
-from plugin.writer.edit_review import flag_style_unreviewed
+from plugin.writer.edit_review import flag_style_unreviewed, next_agent_edit_undo_title
+from . import search as search_mod
 from .page import get_page_style_properties
 from plugin.writer.specialized_base import INSERT_TARGETS, ToolWriterStyleBase, enum_param
-from .search import CASE_SENSITIVE_DESCRIPTION
 from .target_resolver import cursor_spanning_range, resolve_target_cursor
 
 
@@ -90,8 +92,8 @@ REPORTED_CHAR_PROPERTIES = (
 _CAPTURE_PARA_LIMIT = 200000
 _CAPTURE_PORTION_LIMIT = 50000
 
-_STYLE_PROP_FAILED = object()
-_CHAR_PROPS_FAILED = object()
+_READONLY = 16  # com.sun.star.beans.PropertyAttribute.READONLY (udkapi/com/sun/star/beans/PropertyAttribute.idl)
+_READ_FAILED = object()
 _CHAR_PROPS_KEY = "__writable_char_props__"
 FONT_SLANT_TO_INT: dict[str, int] = {
     "none": 0,
@@ -128,15 +130,9 @@ def _summarize_char_overrides(overrides: Any) -> dict[str, Any]:
     for _pc, props in overrides:
         for name in REPORTED_CHAR_PROPERTIES:
             if name in props and name not in summary:
-                val = props[name]
-                if getattr(type(val), "__module__", None) in ("uno", "pyuno"):
-                    inner = getattr(val, "value", None)
-                    if inner is not None:
-                        val = inner
-                if name == "CharPosture" and isinstance(val, str):
-                    low = val.strip().lower()
-                    if low in FONT_SLANT_TO_INT:
-                        val = FONT_SLANT_TO_INT[low]
+                val = _uno_scalar_to_json(props[name])
+                if name == "CharPosture":
+                    val = _font_slant_to_int(val)
                 if isinstance(val, (str, int, float, bool)):
                     summary[name] = val
     return summary
@@ -151,6 +147,139 @@ class ParagraphStyleApplyReport(TypedDict, total=False):
     cleared_paragraph_properties: list[str]
     warning: str
     capture_incomplete: bool
+
+
+def _expand_to_full_paragraphs(cur: Any) -> Any:
+    """Expand cursor *cur* to cover the full paragraphs it touches."""
+    text = cur.getText()
+    start = text.createTextCursorByRange(cur.getStart())
+    end = text.createTextCursorByRange(cur.getEnd())
+    start.gotoStartOfParagraph(False)
+    end.gotoEndOfParagraph(True)
+    expanded = text.createTextCursorByRange(start.getStart())
+    expanded.gotoRange(end.getEnd(), True)
+    return expanded
+
+
+class _CountingReader:
+    """UNO getter wrapper for the capture walk: a failed read returns _READ_FAILED and counts
+    once; a disposed document re-raises as DocumentDisposedError (reraise_if_disposed)."""
+
+    failures: int
+
+    def __init__(self) -> None:
+        self.failures = 0
+
+    def __call__(self, fn: Callable[..., Any], *args: Any) -> Any:
+        try:
+            return fn(*args)
+        except Exception as exc:
+            reraise_if_disposed(exc)
+            self.failures += 1
+            return _READ_FAILED
+
+    def fail(self) -> None:
+        """Record one failure (e.g. for cached negative reads that count per portion)."""
+        self.failures += 1
+
+
+def _writable_char_names(portion: Any) -> list[str] | object:
+    """Return writable Char* property names, or _READ_FAILED when property info cannot be read."""
+    info = portion.getPropertySetInfo()
+    if info is None:
+        return _READ_FAILED
+    return [
+        p.Name for p in info.getProperties()
+        if p.Name.startswith("Char") and not (getattr(p, "Attributes", 0) & _READONLY)
+    ]
+
+
+def _capture_direct_char_overrides(
+    doc: Any,
+    cursor: Any,
+    style_cache: dict[Any, Any],
+) -> tuple[list[tuple[Any, dict[str, Any]]], int, list[str]]:
+    """Capture direct character formatting overrides within *cursor*.
+
+    The walk follows one rule: read it; on failure count one and skip; disposal re-raises.
+
+    Cached across calls via *style_cache*, which holds three key shapes:
+      - style name -> style UNO object or _READ_FAILED
+      - (style name, prop name) -> default style value or _READ_FAILED
+      - _CHAR_PROPS_KEY -> list of writable Char* property names or _READ_FAILED
+    """
+    read = _CountingReader()
+    notes: list[str] = []
+    overrides: list[tuple[Any, dict[str, Any]]] = []
+
+    para_styles = read(lambda: doc.getStyleFamilies().getByName("ParagraphStyles"))
+    para_enum = read(cursor.createEnumeration)
+    if para_styles is _READ_FAILED or para_enum is _READ_FAILED:
+        return [], read.failures, notes
+
+    paras = 0
+    for para in iter_elements_limited(para_enum, _CAPTURE_PARA_LIMIT):
+        paras += 1
+        if not (hasattr(para, "supportsService") and para.supportsService("com.sun.star.text.Paragraph")):
+            continue
+
+        name = read(para.getPropertyValue, "ParaStyleName")
+        if name is _READ_FAILED:
+            continue
+
+        if name not in style_cache:
+            style_cache[name] = read(para_styles.getByName, name)
+        old_style = style_cache[name]
+        if old_style is _READ_FAILED:
+            continue
+
+        portion_enum = read(para.createEnumeration)
+        if portion_enum is _READ_FAILED:
+            continue
+
+        portions = 0
+        for portion in iter_elements_limited(portion_enum, _CAPTURE_PORTION_LIMIT):
+            portions += 1
+            if read(portion.getPropertyValue, "TextPortionType") != "Text":
+                continue
+
+            if _CHAR_PROPS_KEY not in style_cache:
+                style_cache[_CHAR_PROPS_KEY] = uno_read(lambda: _writable_char_names(portion), _READ_FAILED)
+
+            char_names = style_cache[_CHAR_PROPS_KEY]
+            if char_names is _READ_FAILED:
+                read.fail()
+                continue
+            if not char_names:
+                continue
+
+            props: dict[str, Any] = {}
+            for prop_name in char_names:
+                val = read(portion.getPropertyValue, prop_name)
+                if val is _READ_FAILED:
+                    continue
+
+                cache_key = (name, prop_name)
+                if cache_key in style_cache:
+                    style_val = style_cache[cache_key]
+                else:
+                    style_val = read(old_style.getPropertyValue, prop_name)
+                    style_cache[cache_key] = style_val
+
+                if style_val is _READ_FAILED:
+                    continue
+                if val == style_val:
+                    continue
+                props[prop_name] = val
+
+            if props:
+                pc = read(cursor_spanning_range, portion)
+                if pc is not _READ_FAILED:
+                    overrides.append((pc, props))
+
+        record_walk_cap(portion_enum, portions, _CAPTURE_PORTION_LIMIT, "text portions", notes)
+    record_walk_cap(para_enum, paras, _CAPTURE_PARA_LIMIT, "paragraphs", notes)
+    return overrides, read.failures, notes
 
 
 def apply_paragraph_style_preserving_direct_char(
@@ -190,153 +319,12 @@ def apply_paragraph_style_preserving_direct_char(
     KNOWN LIMITATION: a direct override whose value equals the old style default is not
     captured; applying a style with a different default can change that property visibly.
     """
-    walk_notes: list[str] = []
-    capture_failures = 0
     restore_failures = 0
     if style_cache is None:
         style_cache = {}
 
-    def _expand_to_full_paragraphs(cur: Any) -> Any:
-        text = cur.getText()
-        start = text.createTextCursorByRange(cur.getStart())
-        end = text.createTextCursorByRange(cur.getEnd())
-        start.gotoStartOfParagraph(False)
-        end.gotoEndOfParagraph(True)
-        expanded = text.createTextCursorByRange(start.getStart())
-        expanded.gotoRange(end.getEnd(), True)
-        return expanded
-
-    def _capture_direct_char_overrides(capture_cursor: Any) -> list[Any]:
-        nonlocal capture_failures
-        overrides: list[Any] = []
-        try:
-            para_styles = doc.getStyleFamilies().getByName("ParagraphStyles")
-        except Exception as exc:
-            reraise_if_disposed(exc)
-            capture_failures += 1
-            return overrides
-
-        READONLY = uno.getConstantByName("com.sun.star.beans.PropertyAttribute.READONLY")
-        if not isinstance(READONLY, int):
-            READONLY = 16
-        try:
-            para_enum = capture_cursor.createEnumeration()
-        except Exception as exc:
-            reraise_if_disposed(exc)
-            capture_failures += 1
-            return overrides
-
-        _paras = 0
-        for para in iter_elements_limited(para_enum, _CAPTURE_PARA_LIMIT):
-            _paras += 1
-            if not (hasattr(para, "supportsService") and para.supportsService("com.sun.star.text.Paragraph")):
-                continue
-
-            try:
-                cur_style_name = para.getPropertyValue("ParaStyleName")
-            except Exception as exc:
-                reraise_if_disposed(exc)
-                capture_failures += 1
-                continue
-
-            if cur_style_name in style_cache:
-                old_style = style_cache[cur_style_name]
-            else:
-                try:
-                    old_style = para_styles.getByName(cur_style_name)
-                except Exception as exc:
-                    reraise_if_disposed(exc)
-                    capture_failures += 1
-                    old_style = None
-                style_cache[cur_style_name] = old_style
-
-            if old_style is None:
-                continue
-
-            try:
-                portion_enum = para.createEnumeration()
-            except Exception as exc:
-                reraise_if_disposed(exc)
-                capture_failures += 1
-                continue
-
-            _portions = 0
-            for portion in iter_elements_limited(portion_enum, _CAPTURE_PORTION_LIMIT):
-                _portions += 1
-
-                try:
-                    portion_type = portion.getPropertyValue("TextPortionType")
-                except Exception as exc:
-                    reraise_if_disposed(exc)
-                    capture_failures += 1
-                    continue
-                if portion_type != "Text":
-                    continue
-
-                if _CHAR_PROPS_KEY not in style_cache:
-                    try:
-                        info = portion.getPropertySetInfo()
-                        if info is None:
-                            style_cache[_CHAR_PROPS_KEY] = _CHAR_PROPS_FAILED
-                        else:
-                            style_cache[_CHAR_PROPS_KEY] = [
-                                p.Name for p in info.getProperties()
-                                if p.Name.startswith("Char") and not (getattr(p, "Attributes", 0) & READONLY)
-                            ]
-                    except Exception as exc:
-                        reraise_if_disposed(exc)
-                        style_cache[_CHAR_PROPS_KEY] = _CHAR_PROPS_FAILED
-
-                char_names = style_cache[_CHAR_PROPS_KEY]
-                if char_names is _CHAR_PROPS_FAILED:
-                    capture_failures += 1
-                    continue
-                if not char_names:
-                    continue
-
-                props = {}
-                for name in char_names:
-                    try:
-                        val = portion.getPropertyValue(name)
-                    except Exception as exc:
-                        reraise_if_disposed(exc)
-                        capture_failures += 1
-                        continue
-
-                    cache_key = (cur_style_name, name)
-                    if cache_key in style_cache:
-                        style_val = style_cache[cache_key]
-                    else:
-                        try:
-                            style_val = old_style.getPropertyValue(name)
-                        except Exception as exc:
-                            reraise_if_disposed(exc)
-                            capture_failures += 1
-                            style_val = _STYLE_PROP_FAILED
-                        style_cache[cache_key] = style_val
-
-                    if style_val is _STYLE_PROP_FAILED:
-                        continue
-                    if val == style_val:
-                        continue
-                    props[name] = val
-
-                if props:
-                    try:
-                        pc = portion.getText().createTextCursorByRange(portion.getStart())
-                        pc.gotoRange(portion.getEnd(), True)
-                        overrides.append((pc, props))
-                    except Exception as exc:
-                        reraise_if_disposed(exc)
-                        capture_failures += 1
-                        continue
-
-            record_walk_cap(portion_enum, _portions, _CAPTURE_PORTION_LIMIT, "text portions", walk_notes)
-        record_walk_cap(para_enum, _paras, _CAPTURE_PARA_LIMIT, "paragraphs", walk_notes)
-        return overrides
-
     capture_cursor = _expand_to_full_paragraphs(cursor)
-    overrides = _capture_direct_char_overrides(capture_cursor)
+    overrides, capture_failures, walk_notes = _capture_direct_char_overrides(doc, capture_cursor, style_cache)
     found = _summarize_char_overrides(overrides)
     try:
         cursor.setPropertyValue("ParaStyleName", style_name)
@@ -518,8 +506,13 @@ def _missing_style_error(
     style_family: Any,
     *,
     label: str = "Style",
+    replay: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Not-found error with a Did-you-mean hint and a short sample of names."""
+    """Not-found error with a Did-you-mean hint and a short sample of names.
+
+    *replay* is the caller's own arguments, or None when an old_content search needle
+    would be truncated (over 100 characters).
+    """
     try:
         names = [str(n) for n in style_family.getElementNames()]
     except Exception as exc:
@@ -531,16 +524,20 @@ def _missing_style_error(
     miss_details: dict[str, Any] = {"hint": "Call style_list with family=%s." % family}
     if close:
         miss_details["similar"] = close[:5]
+    # Only an unambiguous single match is safe to replay (§3.4 rule 2).
+    suggested = suggest_call(str(tool.name), **{**replay, "style": close[0]}) if replay is not None and len(close) == 1 else None
 
     if label == "parent_style":
         return tool._tool_error(
             "parent_style '%s' is not a %s style.%s%s" % (style_name, family, hint, sample),
             code="STYLE_NOT_FOUND",
+            suggested_call=suggested,
             **miss_details,
         )
     return tool._tool_error(
         "Style '%s' not found in %s.%s%s" % (style_name, family, hint, sample),
         code="STYLE_NOT_FOUND",
+        suggested_call=suggested,
         **miss_details,
     )
 
@@ -896,8 +893,7 @@ def _copy_direct_style_properties(source: Any, dest: Any) -> tuple[list[str], li
             attrs = int(getattr(prop, "Attributes", 0) or 0)
         except (TypeError, ValueError):
             attrs = 0
-        # PropertyAttribute.READONLY is the IDL constant 16.
-        if attrs & 16:
+        if attrs & _READONLY:
             continue
         try:
             state = source.getPropertyState(name)
@@ -1243,7 +1239,7 @@ class ApplyStyle(FrameworkToolBase):
             "family": enum_param(_TEXT_STYLE_FAMILIES, ("Style family. Default: ParagraphStyles.")),
             "target": enum_param(INSERT_TARGETS, "Where to apply the style."),
             "old_content": {"type": "string", "description": "Text to find and apply style to if target = 'search'."},
-            "case_sensitive": {"type": "boolean", "description": f"For target='search': {CASE_SENSITIVE_DESCRIPTION}"},
+            "case_sensitive": {"type": "boolean", "description": f"For target='search': {search_mod.CASE_SENSITIVE_DESCRIPTION}"},
             "all_matches": {"type": "boolean", "description": "For target='search': apply to EVERY occurrence of old_content (default false = first only)."},
             "occurrence": {"type": "integer", "description": "For target='search': apply to this single 0-based occurrence instead of the first."},
             "clear_direct": {"type": "string", "enum": ["none", "style_props", "all"], "default": "style_props", "description": (
@@ -1316,12 +1312,151 @@ class ApplyStyle(FrameworkToolBase):
             return "style_props"
         return val
 
+    def _style_not_found(
+        self,
+        ctx: ToolContext,
+        style_name: str,
+        family: str,
+        uno_value: str,
+        kwargs: dict[str, Any],
+    ) -> dict[str, Any] | None:
+        """Resolve the style name before any document write so near-miss names return a guided
+        tool error with case-insensitive suggestions instead of an opaque UNO
+        IllegalArgumentException.
+        """
+        fam = uno_read(lambda: ctx.doc.getStyleFamilies().getByName(family), None)
+        if fam is None or uno_read(lambda: fam.hasByName(uno_value), True):
+            return None  # can't enumerate styles (exotic doc): let the apply path report
+        props = (self.parameters or {}).get("properties", {})
+        args = {k: v for k, v in kwargs.items() if k in props}
+        old_c = args.get("old_content")
+        replay = None if isinstance(old_c, str) and len(old_c) > 100 else args  # no truncated needle
+        return _missing_style_error(self, style_name, family, fam, replay=replay)
+
+    def _search_cursors(
+        self,
+        ctx: ToolContext,
+        kwargs: dict[str, Any],
+    ) -> tuple[list[Any], dict[str, Any] | None]:
+        # target='search' resolves its own ranges here so a miss returns the structured
+        # build_search_not_found_response payload; resolve_target_cursor serves other targets
+        # and raises ValueError. Each match gets a cursor in its own text object (cell/frame safe).
+        s = search_mod.prepare_old_content(kwargs.get("old_content"))
+        if not s:
+            return [], self._tool_error(
+                "target='search' requires old_content.",
+                code="INVALID_PARAM",
+                top_level={"applied": False, "matched": False},
+            )
+        cs = search_mod.resolve_case_sensitive(kwargs.get("case_sensitive"))
+        occ = kwargs.get("occurrence")
+        many = bool(kwargs.get("all_matches")) or occ is not None
+        if many:
+            ranges = search_mod.find_all_ranges(ctx.doc, s, case_sensitive=cs)
+        else:
+            found = search_mod.find_first_range(ctx.doc, s, case_sensitive=cs)
+            ranges = [] if found is None else [found]
+        if not ranges:
+            res = search_mod.build_search_not_found_response(
+                ctx.doc, s, case_sensitive=cs, all_matches=many, refuse_oversized=True
+            )
+            res.update({"target": "search", "applied": False, "matched": False})  # build_search_not_found_response takes no top_level kwarg; the shared builder's payload is extended here
+            return [], res
+        if occ is not None:
+            # Schema type integer (bool fails). validate has no min/max.
+            if occ < 0 or occ >= len(ranges):
+                return [], self._tool_error(
+                    "occurrence %s out of range (found %d match(es), use 0..%d)."
+                    % (occ, len(ranges), len(ranges) - 1),
+                    code="OCCURRENCE_OUT_OF_RANGE",
+                )
+            ranges = [ranges[occ]]
+        return [cursor_spanning_range(r) for r in ranges], None
+
+    def _apply_cursors(
+        self,
+        ctx: ToolContext,
+        cursors: list[Any],
+        family: str,
+        uno_value: str,
+        clear_direct: Literal["none", "style_props", "all"],
+        style_name: str,
+    ) -> tuple[list[ParagraphStyleApplyReport | None], dict[str, Any] | None]:
+        # A single range is already an atomic undo action; the compound undo bracket
+        # exists so multiple ranges undo together as one step.
+        # No try/except here: execute_safe reports a failed apply, and catching it
+        # would turn a closed document into a generic 'Could not apply style'.
+        if len(cursors) == 1:
+            return [self._apply_one(ctx, family, uno_value, cursors[0], clear_direct)], None
+
+        title = next_agent_edit_undo_title()
+        reports: list[ParagraphStyleApplyReport | None] = []
+
+        def mutate() -> None:
+            for c in cursors:
+                reports.append(self._apply_one(ctx, family, uno_value, c, clear_direct))
+
+        try:
+            outcome = commit_or_rollback(ctx.doc, title, mutate)
+        except UndoUnavailable:
+            return [], self._tool_error(
+                "Cannot apply the style to every match in one undo step. Nothing was changed.",
+                code="UNDO_UNAVAILABLE",
+            )
+        if outcome.mutate_error is not None:
+            error = outcome.mutate_error
+            if outcome.rolled_back:
+                return [], self._tool_error("Nothing was changed: %s" % (error,), code="TOOL_EXECUTION_ERROR")
+            return [], self._tool_error(
+                "Applied to %d of %d; failed on one match: %s. Earlier matches stay applied."
+                % (len(reports), len(cursors), error),
+                code="TOOL_EXECUTION_ERROR",
+            )
+
+        err = outcome.error
+        if err is not None:
+            if err.get("code") == "UNDO_CONTEXT_LEAK":
+                return [], self._tool_error(
+                    "Applied style '%s' to %d match(es), but the undo step could not be closed (%s). "
+                    "The changes are in the document and the undo context is still open."
+                    % (style_name, len(reports), err.get("message")),
+                    code="TOOL_EXECUTION_ERROR",
+                )
+            if err.get("code") == "ROLLBACK_FAILED":
+                return [], self._tool_error(
+                    "Applied to %d of %d; failed on one match: %s. Earlier matches stay applied."
+                    % (len(reports), len(cursors), err.get("message")),
+                    code="ROLLBACK_FAILED",
+                )
+        return reports, None
+
+    def _success(
+        self,
+        style_name: str,
+        family: str,
+        target: str,
+        reports: list[ParagraphStyleApplyReport | None],
+    ) -> dict[str, Any]:
+        res: dict[str, Any] = {
+            "status": "ok",
+            "style_name": style_name,
+            "family": family,
+            "target": target,
+            "applied": True,
+        }
+        if target == "search":
+            res.update({"matched": True, "applied_count": len(reports)})
+            res["message"] = "Applied style '%s' (%s) to %d match(es)." % (style_name, family, len(reports))
+        else:
+            res["message"] = "Applied style '%s' (%s) to %s." % (style_name, family, target)
+        res.update(self._merge_reports(reports))
+        flag_style_unreviewed(res)
+        return res
+
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         result = self._execute(ctx, **kwargs)
         if kwargs.get("target") == "search":
-            from plugin.writer.search import prepare_old_content
-
-            result.setdefault("normalized_old_content", prepare_old_content(kwargs.get("old_content")))
+            result.setdefault("normalized_old_content", search_mod.prepare_old_content(kwargs.get("old_content")))
         return result
 
     def _execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
@@ -1330,37 +1465,16 @@ class ApplyStyle(FrameworkToolBase):
             return self._tool_error("style is required.", code="INVALID_PARAM")
 
         family = kwargs.get("family", "ParagraphStyles")
+        target = kwargs.get("target", "selection")
 
         # UNO quirk: the default character style is applied by setting
         # CharStyleName to an empty string.
         uno_value = "" if (family == "CharacterStyles" and style_name == "No Character Style") else style_name
 
-        # Resolve the style name before any document write so near-miss names return a guided
-        # tool error with case-insensitive suggestions instead of an opaque UNO
-        # IllegalArgumentException.
         if uno_value:
-            try:
-                fam = ctx.doc.getStyleFamilies().getByName(family)
-                if not fam.hasByName(uno_value):
-                    res = _missing_style_error(self, style_name, family, fam)
-                    similar = (res.get("details") or {}).get("similar") or []
-                    # Only an unambiguous single match is safe to replay (§3.4 rule 2).
-                    if len(similar) == 1:
-                        props = (self.parameters or {}).get("properties", {})
-                        args = {k: v for k, v in kwargs.items() if k in props}
-                        old_c = args.get("old_content")
-                        # Bounded string argument (plan §3.4 rule 5); never emit a truncated needle (rule 1).
-                        if not (isinstance(old_c, str) and len(old_c) > 100):
-                            args["style"] = similar[0]
-                            res["suggested_call"] = suggest_call("apply_style", **args)
-                    return res
-            except Exception as e:
-                if is_disposal(e):
-                    raise
-                pass  # can't enumerate styles (exotic doc) -> let the apply path report
-
-        target = kwargs.get("target", "selection")
-        old_content = kwargs.get("old_content")
+            miss = self._style_not_found(ctx, style_name, family, uno_value, kwargs)
+            if miss is not None:
+                return miss
 
         clear_direct_raw = self._resolve_clear_direct(family, kwargs.get("clear_direct"))
         if clear_direct_raw not in ("none", "style_props", "all"):
@@ -1379,147 +1493,21 @@ class ApplyStyle(FrameworkToolBase):
                     "(target='search') instead, or omit clear_direct to use style_props.",
                     code="INVALID_PARAM")
 
-        def _finish_success(res: dict[str, Any], rep_list: list[Any]) -> dict[str, Any]:
-            res.update(self._merge_reports(rep_list))
-            if target == "search" and "matched" not in res:
-                res["matched"] = True
-            flag_style_unreviewed(res)
-            return res
-
-        # target='search' resolves its own ranges here (find_first_range / find_all_ranges) so a
-        # miss returns the structured build_search_not_found_response;
-        # resolve_target_cursor below serves the other targets and raises plain ValueError. Each
-        # match gets a cursor in its own text object (cell/frame safe).
-        all_matches = bool(kwargs.get("all_matches"))
-        occ_raw = kwargs.get("occurrence")
-        case_sensitive = kwargs.get("case_sensitive")
         if target == "search":
-            from plugin.writer.search import (
-                build_search_not_found_response,
-                find_all_ranges,
-                find_first_range,
-                prepare_old_content,
-                resolve_case_sensitive,
-            )
+            cursors, err = self._search_cursors(ctx, kwargs)
+        else:
+            try:
+                cursors, err = [resolve_target_cursor(ctx, target, kwargs.get("old_content"), case_sensitive=kwargs.get("case_sensitive"))], None
+            except ValueError as ve:
+                return self._tool_error(str(ve), code="INVALID_PARAM")
+        if err is not None:
+            return err
 
-            s = prepare_old_content(old_content)
-            if not s:
-                return self._tool_error(
-                    "target='search' requires old_content.",
-                    code="INVALID_PARAM",
-                    top_level={"applied": False, "matched": False},
-                )
-            cs = resolve_case_sensitive(case_sensitive)
-            if all_matches or occ_raw is not None:
-                ranges = find_all_ranges(ctx.doc, s, case_sensitive=cs) if s else []
-                if not ranges:
-                    res = build_search_not_found_response(
-                        ctx.doc, s, case_sensitive=cs, all_matches=True, refuse_oversized=True
-                    )
-                    res.update({"target": "search", "applied": False, "matched": False})
-                    return res
-                if occ_raw is not None:
-                    # Schema type integer (bool fails). validate has no min/max.
-                    if occ_raw < 0 or occ_raw >= len(ranges):
-                        return self._tool_error(
-                            "occurrence %s out of range (found %d match(es), use 0..%d)." % (occ_raw, len(ranges), len(ranges) - 1),
-                            code="OCCURRENCE_OUT_OF_RANGE",
-                        )
-                    ranges = [ranges[occ_raw]]
-                reports = []
+        reports, err = self._apply_cursors(ctx, cursors, family, uno_value, clear_direct, style_name)
+        if err is not None:
+            return err
 
-                if len(ranges) > 1:
-                    from .edit_review import next_agent_edit_undo_title
-                    from plugin.doc.compound_undo import UndoUnavailable, commit_or_rollback
-
-                    title = next_agent_edit_undo_title()
-
-                    def mutate() -> None:
-                        for found in ranges:
-                            c = cursor_spanning_range(found)
-                            reports.append(self._apply_one(ctx, family, uno_value, c, clear_direct))
-
-                    try:
-                        outcome = commit_or_rollback(ctx.doc, title, mutate)
-                    except UndoUnavailable:
-                        return self._tool_error(
-                            "Cannot apply the style to every match in one undo step. Nothing was changed.",
-                            code="UNDO_UNAVAILABLE",
-                        )
-                    if outcome.mutate_error is not None:
-                        error = outcome.mutate_error
-                        if outcome.rolled_back:
-                            return self._tool_error("Nothing was changed: %s" % (error,), code="TOOL_EXECUTION_ERROR")
-                        return self._tool_error(
-                            "Applied to %d of %d; failed on one match: %s. Earlier matches stay applied."
-                            % (len(reports), len(ranges), error),
-                            code="TOOL_EXECUTION_ERROR",
-                        )
-
-                    err = outcome.error
-                    if err is not None:
-                        if err.get("code") == "UNDO_CONTEXT_LEAK":
-                            return self._tool_error(
-                                "Applied style '%s' to %d match(es), but the undo step could not be closed (%s). "
-                                "The changes are in the document and the undo context is still open."
-                                % (style_name, len(reports), err.get("message")),
-                                code="TOOL_EXECUTION_ERROR",
-                            )
-                        if err.get("code") == "ROLLBACK_FAILED":
-                            return self._tool_error(
-                                "Applied to %d of %d; failed on one match: %s. Earlier matches stay applied."
-                                % (len(reports), len(ranges), err.get("message")),
-                                code="ROLLBACK_FAILED",
-                            )
-                else:
-                    for found in ranges:
-                        c = cursor_spanning_range(found)
-                        reports.append(self._apply_one(ctx, family, uno_value, c, clear_direct))
-
-                return _finish_success({
-                    "status": "ok",
-                    "message": "Applied style '%s' (%s) to %d match(es)." % (style_name, family, len(reports)),
-                    "style_name": style_name,
-                    "family": family,
-                    "target": "search",
-                    "applied": True,
-                    "matched": True,
-                    "applied_count": len(reports),
-                }, reports)
-
-            found = find_first_range(ctx.doc, s, case_sensitive=cs)
-            if found is None:
-                res = build_search_not_found_response(ctx.doc, s, case_sensitive=cs, refuse_oversized=True)
-                res.update({"target": "search", "applied": False, "matched": False})
-                return res
-
-            cursor = cursor_spanning_range(found)
-            report = self._apply_one(ctx, family, uno_value, cursor, clear_direct)
-            return _finish_success({
-                "status": "ok",
-                "message": "Applied style '%s' (%s) to %s." % (style_name, family, target),
-                "style_name": style_name,
-                "family": family,
-                "target": target,
-                "applied": True,
-            }, [report])
-
-        try:
-            cursor = resolve_target_cursor(ctx, target, old_content, case_sensitive=case_sensitive)
-        except ValueError as ve:
-            return self._tool_error(str(ve), code="INVALID_PARAM")
-
-        # execute_safe reports a failed apply. This catch hid a closed document
-        # as "Could not apply style".
-        report = self._apply_one(ctx, family, uno_value, cursor, clear_direct)
-        return _finish_success({
-            "status": "ok",
-            "message": "Applied style '%s' (%s) to %s." % (style_name, family, target),
-            "style_name": style_name,
-            "family": family,
-            "target": target,
-            "applied": True,
-        }, [report])
+        return self._success(style_name, family, target, reports)
 
 
 class StyleUpdate(ToolWriterStyleBase):
@@ -1820,8 +1808,6 @@ class StyleClone(ToolWriterStyleBase):
             return _missing_style_error(self, style_name, family, style_family)
         if style_family.hasByName(new_name):
             return self._tool_error("Style '%s' already exists in %s." % (new_name, family), code="INVALID_PARAM")
-
-        from plugin.doc.compound_undo import WriterCompoundUndo
 
         with WriterCompoundUndo(doc, "WriterAgent: Clone style"):
             if family == "PageStyles":

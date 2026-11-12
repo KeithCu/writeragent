@@ -89,16 +89,14 @@ def sidebar_only_tool_names(
     callers must pass ``doc_type`` and ``uno_services_supported`` (as
     ``direct_flat`` does). Otherwise ``get_tools`` rejects every tool that
     declares ``uno_services``, the name set is empty, and those tools leak.
+    A registry failure raises; tools/list then fails instead of listing sidebar-only tools.
     """
-    try:
-        tools = registry.get_tools(
-            doc_type=doc_type,
-            uno_services_supported=uno_services_supported,
-            exclude_tiers=(),
-            **_doc_filter(doc),
-        )
-    except Exception:
-        return frozenset()
+    tools = registry.get_tools(
+        doc_type=doc_type,
+        uno_services_supported=uno_services_supported,
+        exclude_tiers=(),
+        **_doc_filter(doc),
+    )
     out = set()
     for t in tools:
         if getattr(t, "specialized_domain", None) in _SIDEBAR_ONLY_DOMAINS:

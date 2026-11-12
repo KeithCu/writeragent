@@ -193,7 +193,7 @@ def _ensure_persistence_bound(ctx: Any, doc_id: str) -> Any | None:
         model = _resolve_proofread_writer_model(ctx, doc_id)
         if model is None:
             return None
-        get_persistence(ctx, doc_id, model=model)
+        get_persistence(doc_id, model=model)
         return model
     except Exception:
         log.exception("[grammar] persistence bind failed")
@@ -204,7 +204,7 @@ def _persistence_for_doc(ctx: Any, doc_id: str) -> Any | None:
     _ensure_persistence_bound(ctx, doc_id)
     from plugin.writer.locale.grammar_persistence import get_persistence
 
-    return get_persistence(ctx, doc_id)
+    return get_persistence(doc_id)
 
 
 def _ignore_rule_on_main(ctx: Any, doc_id: str, rule_identifier: str) -> None:
@@ -246,13 +246,12 @@ def _proofreading_markup_type() -> int:
 
 def _cached_errors_to_uno_tuple(
     cached: tuple[dict[str, Any], ...],
-    ctx: Any,
     doc_id: str,
     u16_map: Utf16OffsetMap,
 ) -> tuple[Any, ...]:
     from plugin.writer.locale.grammar_ignore_rules import IgnoreSet
 
-    ignore_set = IgnoreSet.for_document(ctx, doc_id)
+    ignore_set = IgnoreSet.for_document(doc_id)
     markup_type = _proofreading_markup_type()
 
     out: list[Any] = []
@@ -550,8 +549,9 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
         """Return the grammar locale used by this proofreader implementation."""
         profile = self._resolved_profile()
         if profile.provider == "harper":
-            # Harper is English-only; keep hasLocale and doProofreading on one path.
-            from plugin.writer.locale.harper_proofreader import normalize_harper_locale_to_bcp47
+            # Harper lints English only. hasLocale and doProofreading both read this rule,
+            # and HarperProofreader inherits it through its fixed "harper" profile.
+            from plugin.writer.locale.harper import normalize_harper_locale_to_bcp47
 
             return normalize_harper_locale_to_bcp47(a_locale)
         return normalize_uno_locale_to_bcp47(a_locale)
@@ -612,7 +612,7 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
                 if is_llm
                 else sent_text
             )
-            cached = cache_get_sentence(loc_key, lookup_text, ctx=self.ctx, doc_id=a_doc_id, checker_identity=checker_identity)
+            cached = cache_get_sentence(loc_key, lookup_text, doc_id=a_doc_id, checker_identity=checker_identity)
             grammar_obs("do_proofreading_sentence_cache", doc_id=a_doc_id, sent_start=sent_start, sent_len=len(sent_text), cache_hit=cached is not None, sent_preview=slice_preview_debug(sent_text, 48))
             if cached is None:
                 uncached_spans.append((sent_start, _sent_end, sent_text))
@@ -641,7 +641,7 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
         if uncached_spans[0][2]:
             get_grammar_status().start(uncached_spans[0][2], result="Harper", routine=True)
         issue_count = 0
-        ignore_set = IgnoreSet.for_document(self.ctx, a_doc_id)
+        ignore_set = IgnoreSet.for_document(a_doc_id)
         for sent_start, _sent_end, sent_text in uncached_spans:
             # Pass ctx so READY lint can PE2I; missing ctx blocks typing.
             res = harper_try_lint(sent_text, cfg_dir, bcp47=loc_key, ctx=self.ctx)
@@ -792,7 +792,7 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
                         result_source = "enqueue"
 
                 if combined_errors:
-                    a_res.aErrors = _cached_errors_to_uno_tuple(tuple(combined_errors), self.ctx, aDocumentIdentifier, u16_map)
+                    a_res.aErrors = _cached_errors_to_uno_tuple(tuple(combined_errors), aDocumentIdentifier, u16_map)
 
                 _obs_result_window(
                     aDocumentIdentifier,

@@ -57,10 +57,10 @@ def _set(doc, ctx, region, content, **kwargs):
 
 
 def _region_text(doc, region):
-    from plugin.writer.page import _REGION_PROPS
+    from plugin.writer.page import REGION_PROPS
 
     style, _name = _style(doc)
-    _is_on, text_prop = _REGION_PROPS[region]
+    _is_on, text_prop = REGION_PROPS[region]
     return style.getPropertyValue(text_prop)
 
 

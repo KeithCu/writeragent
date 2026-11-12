@@ -12,8 +12,8 @@ paths, selection range calculation, and Writer text-slice reads. Those must not
 load ``document_helpers`` → chat context / ``DocumentService``.
 
 Offsets: visible-text offsets (``get_string_without_tracked_deletions``,
-``get_document_length``, ``_read_writer_text_slice`` results) and cursor-step
-offsets (``_writer_char_count``, ``get_text_cursor_at_range*``,
+``get_document_length``, ``read_writer_text_slice`` results) and cursor-step
+offsets (``writer_char_count``, ``get_text_cursor_at_range*``,
 ``get_selection_range``) are different spaces; convert with a slice read.
 """
 
@@ -132,7 +132,7 @@ def go_right(cursor: Any, n: int, expand: bool) -> bool:
     return True
 
 
-def _writer_char_count(model: Any) -> int:
+def writer_char_count(model: Any) -> int:
     """Length of the Writer body in cursor steps: the space every offset here uses
     (``get_text_cursor_at_range``, ``get_selection_range``, the chat excerpt reads).
 
@@ -170,11 +170,14 @@ def _writer_char_count(model: Any) -> int:
                 step //= 2
         return count
     except UnoObjectError:
-        log.exception("_writer_char_count failed")
+        log.exception("writer_char_count failed")
         return 0
 
 
-def _position_text_is_body(model: Any, position: Any, step_label: str) -> bool:
+def position_text_is_body(model: Any, position: Any, step_label: str) -> bool:
+    """True when *position* lies in the document body XText; False for a table cell,
+    frame, header or footer. A position object with no ``getText`` counts as body.
+    *step_label* names the getText step in the UnoObjectError that uno_call raises."""
     get_pos_text = getattr(position, "getText", None)
     if not callable(get_pos_text):
         return True
@@ -185,7 +188,7 @@ def _position_text_is_body(model: Any, position: Any, step_label: str) -> bool:
 
 def _char_offset_of_position(model: Any, target_start: Any, doc_len: int) -> int:
     """Cursor-step offset of a body text position from the document start, or -1 when the position is outside the body or cannot be measured."""
-    if not _position_text_is_body(model, target_start, "Get position text"):
+    if not position_text_is_body(model, target_start, "Get position text"):
         # Selection is in a table cell, frame, or header. compareRegionStarts
         # Nested vs body compare failures return -1, not 0 (document start).
         return -1
@@ -300,7 +303,7 @@ def starts_at_or_after(text: Any, left: Any, right: Any) -> bool:
     return cmp_val != 1
 
 
-def _get_writer_selection_positions(model: Any) -> tuple[Any, Any, Any] | None:
+def get_writer_selection_positions(model: Any) -> tuple[Any, Any, Any] | None:
     """Return (text, sel_start_pos, sel_end_pos) or None when selection unavailable."""
     try:
         if model is None:
@@ -327,12 +330,12 @@ def get_selection_range(model: Any, doc_len: int | None = None) -> tuple[int, in
     try:
         if model is None:
             raise UnoObjectError("Document Model is null", code="UNO_NULL_OBJECT")
-        sel_positions = _get_writer_selection_positions(model)
+        sel_positions = get_writer_selection_positions(model)
         if sel_positions is None:
             return (0, 0)
         _text, sel_start_pos, sel_end_pos = sel_positions
         if doc_len is None:
-            doc_len = _writer_char_count(model)
+            doc_len = writer_char_count(model)
         start_offset = _char_offset_of_position(model, sel_start_pos, doc_len)
         equal = sel_start_pos == sel_end_pos or uno_same(sel_start_pos, sel_end_pos)
         if not equal and hasattr(_text, "compareRegionStarts"):
@@ -469,7 +472,7 @@ def _range_is_paragraph(text_range: Any) -> bool:
     return uno_read(first_is_portion, False, object_type="TextRange")
 
 
-def _visible_portions(
+def visible_portions(
     para: Any,
     *,
     abort_on_portion_error: bool = False,
@@ -534,13 +537,13 @@ def _visible_portions(
 
 
 def _paragraph_visible_text(para: Any) -> str:
-    """Visible text of one paragraph via ``_visible_portions``.
+    """Visible text of one paragraph via ``visible_portions``.
 
     Falls back to ``getString()`` only when the portion enum cannot be opened
     (same as the old helper). An empty walk after a successful enum is kept
     empty so tracked-only paragraphs do not re-include deleted text.
     """
-    chunks = list(_visible_portions(para))
+    chunks = list(visible_portions(para))
     if chunks:
         return "".join(chunk for _unused, chunk in chunks)
     try:
@@ -605,7 +608,7 @@ def get_string_without_tracked_deletions(text_range: Any) -> str:
                 continue
             # Each paragraph's portion enum is independent; Delete start/end
             # markers for this walk live in that para. Reset is inside
-            # _visible_portions (same as UNO per-paragraph redline markers).
+            # visible_portions (same as UNO per-paragraph redline markers).
             parts.append(_paragraph_visible_text(para))
     except Exception as exc:
         # Return deletion-free prefix on mid-walk error; do not fall back to getString().
@@ -729,7 +732,7 @@ def get_selection_text(model: Any) -> str | None:
     return None
 
 
-def _read_writer_text_slice(model: Any, start_offset: int, length: int) -> str:  # pyright: ignore[reportUnusedFunction]
+def read_writer_text_slice(model: Any, start_offset: int, length: int) -> str:
     """Read up to *length* characters from *start_offset* without loading the full document.
 
     Used by ``document_helpers.get_document_context_for_chat`` (Writer excerpts).
@@ -840,7 +843,7 @@ def get_text_cursor_at_range_reached(model: Any, start_offset: int, end_offset: 
         if model is None:
             raise UnoObjectError("Document Model is null", code="UNO_NULL_OBJECT")
         # Offsets are not clamped here. Writer callers use visible-text offsets
-        # (get_document_length) or cursor-step offsets (_writer_char_count);
+        # (get_document_length) or cursor-step offsets (writer_char_count);
         # either way goRight stops at the end of the text on its own.
         start_offset = max(0, start_offset)
         end_offset = max(0, end_offset)

@@ -18,13 +18,13 @@ if TYPE_CHECKING:
 
 from plugin.doc.document_research import (
     FileEntry,
+    ListingState,
     close_document_research_document,
     file_entry_for_path,
     guess_doc_type_from_path,
-    list_nearby_files,
     open_document_for_read,
-    _system_path_from_url,
-    _USE_DEFAULT,
+    scan_nearby_files,
+    system_path_from_url,
 )
 from plugin.calc.spreadsheet_search import search_spreadsheet_cells
 from plugin.doc.paragraph_search import compile_search_pattern, search_paragraph_texts
@@ -40,7 +40,8 @@ log = logging.getLogger(__name__)
 # stops at 30 snippets (stopped_early). Draw also sets that hit's partial
 # when _DRAW_GREP_SHAPE_CAP (200) is hit with result budget left. A hit's
 # partial: true means that file has more matches than were returned. Stop
-# returns USER_STOPPED and drops hits.
+# returns USER_STOPPED and drops hits. Stop during the listing also returns
+# USER_STOPPED.
 DEFAULT_GREP_MAX_FILES = 50
 DEFAULT_GREP_MAX_RESULTS_PER_FILE = 5
 DEFAULT_GREP_MAX_TOTAL_RESULTS = 30
@@ -60,12 +61,10 @@ def resolve_grep_candidates(
     active_model: Any,
     *,
     file_subset: str | None = None,
-    exclude_path: Any = _USE_DEFAULT,
-    open_paths: Any = _USE_DEFAULT,
-    listing_root: Any = _USE_DEFAULT,
+    state: ListingState | None = None,
     cancel: SendCancellation | None = None,
 ) -> tuple[list[FileEntry], bool, str | None]:
-    """Return (candidates, truncated_files, error_message).
+    """Return (candidates, truncated_files, error_message); raises SendCancelled on Stop.
 
     *file_subset* is a basename token (e.g. ``budget`` → ``*budget*.od*``),
     an absolute path, or a ``file://`` URL of one file.
@@ -75,7 +74,7 @@ def resolve_grep_candidates(
     if raw and raw.startswith("file:"):
         # urlparse + url2pathname drops the host of file://server/share/...;
         # document research already converts with uno.fileUrlToSystemPath.
-        local_path = _system_path_from_url(raw)
+        local_path = system_path_from_url(raw)
         if local_path and os.path.isfile(local_path):
             return [file_entry_for_path(local_path)], False, None
         return [], False, f"No file matching {raw!r}"
@@ -83,19 +82,15 @@ def resolve_grep_candidates(
     if raw and os.path.isabs(raw) and os.path.isfile(raw):
         return [file_entry_for_path(raw)], False, None
 
-    listing = list_nearby_files(
+    listing = scan_nearby_files(
         ctx,
         active_model,
         filter=raw,
         file_kind="documents",
-        exclude_path=exclude_path,
-        open_paths=open_paths,
-        listing_root=listing_root,
+        state=state,
         cancel=cancel,
     )
     if listing.get("status") != "ok":
-        if listing.get("code") == "USER_STOPPED":
-            raise InterruptedError()
         return [], False, listing.get("message", "Could not list nearby files")
 
     files: list[FileEntry] = list(listing.get("files") or [])
@@ -405,7 +400,7 @@ def grep_nearby_files(
             file_subset=subset_norm,
             cancel=cancel,
         )
-    except InterruptedError:
+    except SendCancelled:
         return user_stopped_payload()
 
     if list_err:

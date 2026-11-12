@@ -4,7 +4,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """UNO tests for get_string_without_tracked_deletions paragraph vs multi-para walks."""
 
-from plugin.doc.text_helpers import _visible_portions, get_string_without_tracked_deletions
+from plugin.doc.text_helpers import get_string_without_tracked_deletions, visible_portions
 from plugin.framework.uno_context import enum_has_more, get_desktop
 from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import TestingFactory
@@ -80,7 +80,7 @@ def test_get_string_without_tracked_deletions_paragraph_bold_run_no_newline(ctx)
         got = get_string_without_tracked_deletions(para)
         assert got == visible
         assert "\n" not in got
-        assert got == "".join(chunk for _unused, chunk in _visible_portions(para))
+        assert got == "".join(chunk for _unused, chunk in visible_portions(para))
         assert got == "".join(chunk for _unused, chunk in html_visible_portions(para))
 
         # A cursor covering that single paragraph is document-mode (one child)

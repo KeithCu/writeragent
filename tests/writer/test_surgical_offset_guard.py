@@ -198,7 +198,7 @@ def _run(found, old, new, max_runs=10_000, threshold=_THRESHOLD, doc=None, repla
                side_effect={"doc.agent_edit_diff_threshold": threshold,
                             "doc.agent_edit_max_surgical_runs": max_runs,
                             "doc.agent_edit_split_author_colors": split_author}.__getitem__), \
-         patch("plugin.writer.html_import.replace_preserving_format",
+         patch("plugin.writer.edit_review.replace_preserving_format",
                side_effect=wire) as mock_replace:
         record_preserve_replace(session, doc, found, new, MagicMock(), split=True)
     return session, mock_replace

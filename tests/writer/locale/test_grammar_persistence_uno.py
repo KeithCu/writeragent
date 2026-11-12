@@ -31,7 +31,7 @@ def test_apply_language_change_retags_only_matching_paragraph(ctx: Any, doc: Any
 
         doc_id = "test-retag-doc"
         gp.grammar_registry.clear_all()
-        dp = gp.get_persistence(ctx, doc_id, model=doc)
+        dp = gp.get_persistence(doc_id, model=doc)
         assert dp is not None
 
         # Apply language change targeting the duplicate sentence in paragraph 2

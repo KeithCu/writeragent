@@ -50,7 +50,7 @@ def test_do_proofreading_returns_cached_errors(ctx: Any) -> None:
             ctx=ctx,
             loc_key="en-US",
         )
-        gc.cache_put_sentence("en-US", text, [asdict(n) for n in norms], ctx=ctx, doc_id="doc-42")
+        gc.cache_put_sentence("en-US", text, [asdict(n) for n in norms], doc_id="doc-42")
 
         res = pr.doProofreading("doc-42", text, loc, 0, len(text), ())
         assert res is not None
@@ -82,7 +82,7 @@ def test_ignore_rule_filters_cached_error(ctx: Any) -> None:
         )
         assert len(norms) == 1
         rid = norms[0].rule_identifier
-        gc.cache_put_sentence("en-US", text, [asdict(n) for n in norms], ctx=ctx, doc_id="doc-99")
+        gc.cache_put_sentence("en-US", text, [asdict(n) for n in norms], doc_id="doc-99")
         res1 = pr.doProofreading("doc-99", text, loc, 0, len(text), ())
         assert len(tuple(res1.aErrors)) == 1
 
@@ -118,7 +118,7 @@ def test_incomplete_short_sentence_skips_before_cache_lookup(ctx: Any) -> None:
             ctx=ctx,
             loc_key="en-US",
         )
-        gc.cache_put_sentence("en-US", text, [asdict(n) for n in norms], ctx=ctx, doc_id="doc-123")
+        gc.cache_put_sentence("en-US", text, [asdict(n) for n in norms], doc_id="doc-123")
 
         res = pr.doProofreading("doc-123", text, loc, 0, len(text), ())
         assert len(tuple(res.aErrors)) == 0
@@ -144,7 +144,7 @@ def test_incomplete_long_sentence_uses_cache_when_allowed(ctx: Any) -> None:
             ctx=ctx,
             loc_key="en-US",
         )
-        gc.cache_put_sentence("en-US", text, [asdict(n) for n in norms], ctx=ctx, doc_id="doc-124")
+        gc.cache_put_sentence("en-US", text, [asdict(n) for n in norms], doc_id="doc-124")
 
         res = pr.doProofreading("doc-124", text, loc, 0, len(text), ())
         assert len(tuple(res.aErrors)) == 1
@@ -174,7 +174,7 @@ def test_paragraph_two_cached_sentences_return_both_errors(ctx: Any) -> None:
                 ctx=ctx,
                 loc_key="en-US",
             )
-            gc.cache_put_sentence("en-US", st, [asdict(n) for n in norms], ctx=ctx, doc_id="doc-pair")
+            gc.cache_put_sentence("en-US", st, [asdict(n) for n in norms], doc_id="doc-pair")
         res = pr.doProofreading("doc-pair", text, loc, 0, len(text), ())
         assert len(tuple(res.aErrors)) == 2
     finally:
@@ -202,7 +202,7 @@ def test_incremental_nonzero_start_returns_only_overlapping_sentence(ctx: Any) -
             ctx=ctx,
             loc_key="en-US",
         )
-        gc.cache_put_sentence("en-US", t_txt, [asdict(n) for n in norms], ctx=ctx, doc_id="doc-inc")
+        gc.cache_put_sentence("en-US", t_txt, [asdict(n) for n in norms], doc_id="doc-inc")
         res = pr.doProofreading("doc-inc", text, loc, t_off, t_off + len(t_txt), ())
         errs = tuple(res.aErrors)
         assert len(errs) == 1
@@ -241,7 +241,7 @@ def test_native_break_iterator_and_proofreader_emoji_utf16(ctx: Any) -> None:
             ctx=ctx,
             loc_key="en-US",
         )
-        gc.cache_put_sentence("en-US", text, [asdict(n) for n in norms], ctx=ctx, doc_id="doc-uno-emoji")
+        gc.cache_put_sentence("en-US", text, [asdict(n) for n in norms], doc_id="doc-uno-emoji")
         res = pr.doProofreading("doc-uno-emoji", text, loc, 0, len(text), ())
         assert res is not None
         errs = tuple(res.aErrors)

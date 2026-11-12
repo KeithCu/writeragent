@@ -63,11 +63,9 @@ def commit_or_rollback_mutation(
 
 
 def _undo_steps(kwargs: dict[str, Any]) -> int:
-    try:
-        steps = int(kwargs.get("steps") or 1)
-    except (TypeError, ValueError):
-        steps = 1
-    return max(1, min(steps, 10))
+    """Requested step count clamped to 1..10. The registry validator has already
+    rejected a non-integer ``steps``; a missing, null or 0 value means one step."""
+    return max(1, min(kwargs.get("steps") or 1, 10))
 
 
 def _step_undo_manager(
