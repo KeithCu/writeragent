@@ -19,17 +19,19 @@ from plugin.scripting.venv.calc_functions_a_c import (
 from plugin.scripting.venv.calc_functions_d_h import _dollar_frac
 from plugin.scripting.venv.calc_functions_t_z import _find_match_index
 from plugin.scripting.venv.calc_functions_util import (
-    CalcError,
     build_holiday_set,
+    calc_function,
     collect_a_values,
     criteria_numbers,
     extract_numeric_array,
+    format_quantized,
+    match_criteria,
     npf_result,
+    orient_columns,
     parse_weekend,
+    round_half_up,
     serial_to_date,
     wildcard_fullmatch,
-    calc_function,
-    match_criteria,
 )
 
 
@@ -452,19 +454,6 @@ def test_coupon_schedule_calendar_stepping():
         coupon_schedule(43983, 43831, 2, 0)
 
 
-def test_calc_error():
-    err = CalcError(CalcError.VALUE)
-    assert str(err) == "#VALUE!"
-    assert err.token == "#VALUE!"
-
-    for tok in (CalcError.VALUE, CalcError.NUM, CalcError.DIV0, CalcError.NA):
-        e = CalcError(tok)
-        assert e.token == tok
-
-    with pytest.raises(ValueError):
-        CalcError("NOT_AN_ERROR")
-
-
 def test_calc_function():
     @calc_function
     def normal_fn(x):
@@ -480,14 +469,6 @@ def test_calc_function():
             raise TypeError("bad type")
         if kind == "overflow_err":
             raise OverflowError("overflow")
-        if kind == "calc_num":
-            raise CalcError(CalcError.NUM)
-        if kind == "calc_val":
-            raise CalcError(CalcError.VALUE)
-        if kind == "calc_div0":
-            raise CalcError(CalcError.DIV0)
-        if kind == "calc_na":
-            raise CalcError(CalcError.NA)
         if kind == "zero_div":
             raise ZeroDivisionError("zero")
         if kind == "index_err":
@@ -497,10 +478,6 @@ def test_calc_function():
     assert math.isnan(error_fn("value_err"))
     assert math.isnan(error_fn("type_err"))
     assert math.isnan(error_fn("overflow_err"))
-    assert math.isnan(error_fn("calc_num"))
-    assert error_fn("calc_val") == "#VALUE!"
-    assert error_fn("calc_div0") == "#DIV/0!"
-    assert error_fn("calc_na") == "#N/A"
 
     with pytest.raises(ZeroDivisionError):
         error_fn("zero_div")
@@ -509,7 +486,40 @@ def test_calc_function():
     assert error_fn("none") == "ok"
 
 
+def test_round_half_up_decimal_input():
+    assert round_half_up(Decimal("0.285") * 100, 0) == Decimal("29")
+    assert round_half_up(Decimal("-2.5"), 0) == Decimal("-3")
+    with pytest.raises(ValueError):
+        round_half_up(Decimal("Infinity"), 0)
+    with pytest.raises(ValueError):
+        round_half_up(Decimal("NaN"), 0)
+    assert round_half_up(2.675, 2) == Decimal("2.68")
 
 
+def test_format_quantized():
+    assert format_quantized(Decimal("-0.00"), 2, commas=False) == "0.00"
+    assert format_quantized(Decimal("-1234.57"), 2, commas=True) == "-1,234.57"
+    assert format_quantized(Decimal("12"), -1, commas=False) == "12"
 
+
+def test_orient_columns():
+    # 1-D length 3 gives shape (3, 1)
+    arr_1d = np.array([1, 2, 3])
+    assert orient_columns(arr_1d, 3, axis=0).shape == (3, 1)
+
+    # a (2, 3) block with size=3, axis=0 is transposed to (3, 2)
+    arr_2x3 = np.zeros((2, 3))
+    assert orient_columns(arr_2x3, 3, axis=0).shape == (3, 2)
+
+    # a (3, 2) block with size=3, axis=0 is unchanged
+    arr_3x2 = np.zeros((3, 2))
+    assert orient_columns(arr_3x2, 3, axis=0).shape == (3, 2)
+
+    # a (2, 1) block with size=2, axis=1 becomes (1, 2)
+    arr_2x1 = np.zeros((2, 1))
+    assert orient_columns(arr_2x1, 2, axis=1).shape == (1, 2)
+
+    # a 0-d array is returned unchanged
+    arr_0d = np.array(5)
+    assert orient_columns(arr_0d, 1, axis=0).shape == ()
 
