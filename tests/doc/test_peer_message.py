@@ -9,6 +9,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+import plugin.doc.peer_message as pm
 from plugin.doc.peer_message import (
     PEER_QUEUE_CAP,
     PEER_RESULT_TOOL_NAME,
@@ -17,21 +18,20 @@ from plugin.doc.peer_message import (
     PEER_WORK_DELIVERY_FOOTER,
     PEER_WORK_TOOL_NAME,
     PeerPendingTurn,
+    PeerQueue,
     SendPeerResult,
     SendPeerWork,
+    _peer_in_chat_mode,
     drop_listener_queue,
     enqueue_peer_turn,
     filter_peer_message_schemas,
     filter_peer_tools_for_specialized,
     format_peer_envelope,
     format_peer_catalog,
-    _peer_not_chat_mode,
     identity_from_doc,
     kick_pending_peer_starts,
     list_v1_peers,
-    listener_queue_len,
     peer_send_caller_allowed,
-    reset_peer_queues,
     resolve_peer_target,
     schedule_peer_turn,
     v1_peer_type_label,
@@ -46,25 +46,36 @@ class _Listener:
     def __init__(self):
         self.session = MagicMock()
         self.session.messages = []
-        self.appended = []
+        self.injected = []
         self.started = []
         self.sidebar_state = MagicMock()
         self.sidebar_state.send.is_busy = False
-        self._active_q = None
-        self._send_cancellation = None
-        self.chat_mode_selector = None
 
-    def _append_response(self, text, role="assistant"):
-        self.appended.append((text, role))
+    def is_busy(self) -> bool:
+        return bool(self.sidebar_state.send.is_busy)
 
-    def start_extracted_peer_send(self, query_text, *, already_appended):
+    def in_chat_mode(self) -> bool:
+        return True
+
+    def inject_user_turn(self, text: str) -> bool:
+        if self.session is None:
+            return False
+        self.session.add_user_message(text)
+        self.injected.append(text)
+        return True
+
+    def start_extracted_peer_send(self, query_text: str, *, already_appended: bool) -> bool:
         self.started.append((query_text, already_appended))
         return True
 
 
 def setup_function():
-    reset_peer_queues()
     reset_sentry_state()
+
+
+@pytest.fixture(autouse=True)
+def _clean_peer_queue(monkeypatch):
+    monkeypatch.setattr(pm, "peer_queue", PeerQueue())
 
 
 @pytest.fixture(autouse=True)
@@ -75,7 +86,6 @@ def _register_prompt_catalog_for_peer_tests():
 
 
 def teardown_function():
-    reset_peer_queues()
     reset_sentry_state()
 
 
@@ -389,11 +399,11 @@ def test_queue_fifo_cap_overflow_and_stop_drops():
     turns = [PeerPendingTurn(f"t{i}", False) for i in range(PEER_QUEUE_CAP)]
     for turn in turns:
         assert enqueue_peer_turn(listener, turn) is None
-    assert listener_queue_len(listener) == PEER_QUEUE_CAP
+    assert pm.peer_queue.pending(listener) == PEER_QUEUE_CAP
     overflow = enqueue_peer_turn(listener, PeerPendingTurn("extra", False))
     assert overflow == "PEER_QUEUE_FULL"
     drop_listener_queue(listener)
-    assert listener_queue_len(listener) == 0
+    assert pm.peer_queue.pending(listener) == 0
 
 
 def test_schedule_does_not_start_while_drain_owned():
@@ -402,12 +412,12 @@ def test_schedule_does_not_start_while_drain_owned():
     with drain_owner_scope("stream"):
         err = schedule_peer_turn(listener, turn)
         assert err is None
-        assert listener_queue_len(listener) == 1
+        assert pm.peer_queue.pending(listener) == 1
         assert listener.started == []
     # idle callback may schedule but testing post is deferred; kick explicitly
     kick_pending_peer_starts()
     assert listener.started == [("wrapped", True)]
-    assert listener_queue_len(listener) == 0
+    assert pm.peer_queue.pending(listener) == 0
 
 
 def test_user_busy_wins_over_queued_inject():
@@ -416,7 +426,7 @@ def test_user_busy_wins_over_queued_inject():
     turn = PeerPendingTurn("wrapped", False)
     assert schedule_peer_turn(listener, turn) is None
     assert listener.started == []
-    assert listener_queue_len(listener) == 1
+    assert pm.peer_queue.pending(listener) == 1
     listener.sidebar_state.send.is_busy = False
     kick_pending_peer_starts()
     assert listener.started == [("wrapped", False)]
@@ -433,11 +443,11 @@ def test_p3_busy_then_queue_reply():
     turn = PeerPendingTurn(wrapped, False)
     assert schedule_peer_turn(listener, turn) is None
     assert listener.started == []
-    assert listener_queue_len(listener) == 1
+    assert pm.peer_queue.pending(listener) == 1
     listener.sidebar_state.send.is_busy = False
     kick_pending_peer_starts()
     assert listener.started == [(wrapped, False)]
-    assert listener_queue_len(listener) == 0
+    assert pm.peer_queue.pending(listener) == 0
 
 
 def test_p3_execute_queues_reply_while_writer_busy():
@@ -459,10 +469,10 @@ def test_p3_execute_queues_reply_while_writer_busy():
                 )
     assert result["status"] == "ok"
     assert result["accepted"] is True
-    assert listener.appended == []
+    assert listener.injected == []
     listener.session.add_user_message.assert_not_called()
     assert listener.started == []
-    assert listener_queue_len(listener) == 1
+    assert pm.peer_queue.pending(listener) == 1
     listener.sidebar_state.send.is_busy = False
     kick_pending_peer_starts()
     assert listener.started and listener.started[0][1] is False
@@ -486,7 +496,7 @@ def test_execute_status_ok_accepted():
     assert "peer_ask_id" not in result
     assert "specialized_workflow_finished immediately" in result["message"]
     assert listener.session.add_user_message.called
-    assert listener.appended
+    assert listener.injected
 
 
 def test_execute_refuses_mcp_caller():
@@ -555,7 +565,7 @@ def test_execute_queue_full():
     panel.send_listener = listener
     for i in range(PEER_QUEUE_CAP):
         enqueue_peer_turn(listener, PeerPendingTurn(f"t{i}", False))
-    queued = listener_queue_len(listener)
+    queued = pm.peer_queue.pending(listener)
 
     # Stay inside the drain scope. Leaving it kicks already-queued turns
     # (t0...), which is separate from the rejected send.
@@ -567,17 +577,17 @@ def test_execute_queue_full():
                     assert result["status"] == "error"
                     assert result["code"] == "PEER_QUEUE_FULL"
                     listener.session.add_user_message.assert_not_called()
-                    assert listener.appended == []
+                    assert listener.injected == []
                     assert listener.started == []
-                    assert listener_queue_len(listener) == queued
+                    assert pm.peer_queue.pending(listener) == queued
 
                     retry = tool.execute(ctx, document_url="peer-uid", message="retry after full")
                     assert retry["status"] == "error"
                     assert retry["code"] == "PEER_QUEUE_FULL"
                     listener.session.add_user_message.assert_not_called()
-                    assert listener.appended == []
+                    assert listener.injected == []
                     assert listener.started == []
-                    assert listener_queue_len(listener) == queued
+                    assert pm.peer_queue.pending(listener) == queued
 
 
 def test_registry_chat_tier_on_default_list():
@@ -924,47 +934,29 @@ def test_summarize_peer_tool_on_wire():
 
 
 def test_kick_start_extracted_peer_send_returns_false():
-    from plugin.doc.peer_message import (
-        _global_fifo,
-        _listener_queues,
-        kick_pending_peer_starts,
-        reset_peer_queues,
-        PeerPendingTurn,
-    )
+    listener = _Listener()
+    start_calls = 0
 
-    reset_peer_queues()
-    try:
-        class FakeListener:
-            def __init__(self):
-                self.started = 0
-            def start_extracted_peer_send(self, text, already_appended=True):
-                if self.started == 0:
-                    self.started += 1
-                    return False
-                self.started += 1
-                return True
+    def _start_extracted(query_text: str, *, already_appended: bool) -> bool:
+        nonlocal start_calls
+        start_calls += 1
+        return start_calls > 1
 
-        listener = FakeListener()
-        turn = PeerPendingTurn(wrapped_text="hi", already_appended=True)
-        from plugin.doc.peer_message import enqueue_peer_turn
+    listener.start_extracted_peer_send = _start_extracted
+    turn = PeerPendingTurn(wrapped_text="hi", already_appended=True)
 
-        # enqueue manually to avoid schedule_peer_turn calling kick_pending_peer_starts immediately
-        enqueue_peer_turn(listener, turn)
+    # enqueue manually to avoid schedule_peer_turn calling kick_pending_peer_starts immediately
+    enqueue_peer_turn(listener, turn)
 
-        # first kick -> start_fn returns False -> turn put back in queue
-        kick_pending_peer_starts()
-        assert len(_global_fifo) == 1
-        assert len(_listener_queues[listener]) == 1
-        assert listener.started == 1
+    # first kick -> start_fn returns False -> turn put back in queue
+    kick_pending_peer_starts()
+    assert pm.peer_queue.pending(listener) == 1
+    assert start_calls == 1
 
-        # second kick -> start_fn returns True -> turn removed from queue
-        kick_pending_peer_starts()
-        assert len(_global_fifo) == 0
-        assert len(_listener_queues[listener]) == 0
-        assert listener.started == 2
-
-    finally:
-        reset_peer_queues()
+    # second kick -> start_fn returns True -> turn removed from queue
+    kick_pending_peer_starts()
+    assert pm.peer_queue.pending(listener) == 0
+    assert start_calls == 2
 
 
 def test_chat_tier_excluded_from_mcp_frozensets():
@@ -1030,17 +1022,14 @@ def test_format_peer_catalog_flattens_fields():
     assert catalog == "Open peers: A  B (uid=u 1, url=file:///tmp/x y, type=calc)."
 
 
-def test_peer_not_chat_mode_logs_probe_failure(caplog):
+def test_peer_in_chat_mode_logs_probe_failure(caplog):
     class _FailingListener:
-        sidebar_state = None
-
-        @property
-        def chat_mode_selector(self):
+        def in_chat_mode(self):
             raise RuntimeError("selector gone")
 
     listener = _FailingListener()
     with caplog.at_level(logging.DEBUG, logger="writeragent.doc.peer_message"):
-        assert _peer_not_chat_mode(listener) is False
+        assert _peer_in_chat_mode(listener) is True
         assert any(r.exc_info for r in caplog.records)
 
 
@@ -1099,27 +1088,7 @@ def test_list_v1_peers_omits_self_when_self_uid_empty():
     assert peers == []
 
 
-def test_drop_listener_queue_mutates_imported_fifo():
-    from plugin.doc.peer_message import _global_fifo as fifo
-    import plugin.doc.peer_message as pm
-
-    listener_a = _Listener()
-    listener_b = _Listener()
-    turn_a = PeerPendingTurn("turn-a", False)
-    turn_b = PeerPendingTurn("turn-b", False)
-    enqueue_peer_turn(listener_a, turn_a)
-    enqueue_peer_turn(listener_b, turn_b)
-
-    drop_listener_queue(listener_a)
-
-    assert fifo is pm._global_fifo
-    assert len(fifo) == 1
-    assert fifo[0][1] is turn_b
-
-
 def test_kick_keeps_distinct_equal_turns_while_busy():
-    from plugin.doc.peer_message import _listener_queues, _global_fifo
-
     listener = _Listener()
     listener.sidebar_state.send.is_busy = True
     turn1 = PeerPendingTurn("same", False)
@@ -1129,27 +1098,41 @@ def test_kick_keeps_distinct_equal_turns_while_busy():
     enqueue_peer_turn(listener, turn2)
 
     kick_pending_peer_starts()
-    q = _listener_queues[listener]
-    assert len(q) == 2
-    assert q[0] is turn1
-    assert q[1] is turn2
+    assert pm.peer_queue.pending(listener) == 2
 
     listener.sidebar_state.send.is_busy = False
     kick_pending_peer_starts()
     assert len(listener.started) == 1
     assert listener.started[0][0] == "same"
-    assert len(q) == 1
-    assert q[0] is turn2
+    assert pm.peer_queue.pending(listener) == 1
 
     kick_pending_peer_starts()
     assert len(listener.started) == 2
-    assert len(q) == 0
-    assert len(_global_fifo) == 0
+    assert pm.peer_queue.pending(listener) == 0
+    assert len(pm.peer_queue) == 0
+
+
+def test_kick_reentrant_call_during_start_does_not_double_start():
+    """Synchronous drain completion kicks again before the outer start returns."""
+    listener = _Listener()
+    start_count = 0
+
+    def _start_reentrant(query_text: str, *, already_appended: bool) -> bool:
+        nonlocal start_count
+        start_count += 1
+        kick_pending_peer_starts()
+        return True
+
+    listener.start_extracted_peer_send = _start_reentrant
+    turn = PeerPendingTurn("msg", False)
+    enqueue_peer_turn(listener, turn)
+
+    kick_pending_peer_starts()
+    assert start_count == 1
+    assert len(pm.peer_queue) == 0
 
 
 def test_kick_requeues_when_start_raises():
-    from plugin.doc.peer_message import _global_fifo
-
     listener = _Listener()
     listener.sidebar_state.send.is_busy = False
 
@@ -1161,13 +1144,11 @@ def test_kick_requeues_when_start_raises():
     enqueue_peer_turn(listener, turn)
 
     kick_pending_peer_starts()
-    assert listener_queue_len(listener) == 1
-    assert len(_global_fifo) == 1
+    assert pm.peer_queue.pending(listener) == 1
+    assert len(pm.peer_queue) == 1
 
 
 def test_kick_drops_turn_when_start_raises_after_busy():
-    from plugin.doc.peer_message import _global_fifo
-
     listener = _Listener()
     listener.sidebar_state.send.is_busy = False
 
@@ -1180,8 +1161,8 @@ def test_kick_drops_turn_when_start_raises_after_busy():
     enqueue_peer_turn(listener, turn)
 
     kick_pending_peer_starts()
-    assert listener_queue_len(listener) == 0
-    assert len(_global_fifo) == 0
+    assert pm.peer_queue.pending(listener) == 0
+    assert len(pm.peer_queue) == 0
 
 
 def test_queue_ops_assert_main_thread():
@@ -1274,39 +1255,9 @@ def test_filter_schemas_catalog_error_hides_tools():
     assert not (PEER_TOOL_NAMES & set(names))
 
 
-def test_kick_missing_start_drops_turn_and_starts_next(caplog):
-    import logging
-    from plugin.doc.peer_message import _global_fifo
-
-    class _NoStartListener:
-        def __init__(self):
-            self.sidebar_state = MagicMock()
-            self.sidebar_state.send.is_busy = False
-
-    no_start = _NoStartListener()
-    real = _Listener()
-    turn_lost = PeerPendingTurn("lost", False)
-    turn_kept = PeerPendingTurn("kept", False)
-
-    enqueue_peer_turn(no_start, turn_lost)
-    enqueue_peer_turn(real, turn_kept)
-
-    with caplog.at_level(logging.ERROR, logger="writeragent.doc.peer_message"):
-        kick_pending_peer_starts()
-
-    assert listener_queue_len(no_start) == 0
-    assert len(_global_fifo) == 0
-    assert real.started == [("kept", False)]
-    assert any(
-        "no start_extracted_peer_send" in record.message and "_NoStartListener" in record.message
-        for record in caplog.records
-    )
-
-
 def test_drop_listener_queue_purges_dead_fifo_refs():
     import gc
     import weakref
-    from plugin.doc.peer_message import _global_fifo
 
     dead = _Listener()
     live = _Listener()
@@ -1316,20 +1267,84 @@ def test_drop_listener_queue_purges_dead_fifo_refs():
     turn_live = PeerPendingTurn("live", False)
     turn_other = PeerPendingTurn("other", False)
 
-    enqueue_peer_turn(dead, turn_dead)
-    enqueue_peer_turn(live, turn_live)
-    enqueue_peer_turn(other, turn_other)
+    q = PeerQueue()
+    q.append(dead, turn_dead)
+    q.append(live, turn_live)
+    q.append(other, turn_other)
 
     dead_ref = weakref.ref(dead)
     del dead
     gc.collect()
     assert dead_ref() is None
 
-    drop_listener_queue(live)
+    q.drop_listener(live)
 
-    assert len(_global_fifo) == 1
-    assert _global_fifo[0][1] is turn_other
-    assert _global_fifo[0][0]() is not None
+    assert len(q) == 1
+    assert q.pop_oldest() == (other, turn_other)
+    assert q.pop_oldest() is None
+
+
+def test_peer_queue_pending_counts_only_live_entries():
+    import gc
+    import weakref
+
+    q = PeerQueue()
+    listener = _Listener()
+    dead = _Listener()
+    dead_ref = weakref.ref(dead)
+    turn1 = PeerPendingTurn("t1", False)
+    turn2 = PeerPendingTurn("t2", False)
+    q.append(listener, turn1)
+    q.append(dead, turn2)
+    assert q.pending(listener) == 1
+    assert q.pending(dead) == 1
+    assert len(q) == 2
+
+    del dead
+    gc.collect()
+    assert dead_ref() is None
+    assert len(q) == 2
+    assert q.pending(listener) == 1
+    fresh = _Listener()
+    assert q.pending(fresh) == 0
+
+
+def test_peer_queue_remove_by_identity_keeps_equal_turn():
+    q = PeerQueue()
+    listener = _Listener()
+    turn1 = PeerPendingTurn("same", False)
+    turn2 = PeerPendingTurn("same", False)
+    q.append(listener, turn1)
+    q.append(listener, turn2)
+    assert len(q) == 2
+    q.remove(turn1)
+    assert len(q) == 1
+    assert q.pop_oldest() == (listener, turn2)
+    assert q.pop_oldest() is None
+
+
+def test_peer_queue_pop_oldest_is_fifo_across_listeners():
+    q = PeerQueue()
+    listener_a = _Listener()
+    listener_b = _Listener()
+    turn_a1 = PeerPendingTurn("a1", False)
+    turn_b1 = PeerPendingTurn("b1", False)
+    turn_a2 = PeerPendingTurn("a2", False)
+
+    q.append(listener_a, turn_a1)
+    q.append(listener_b, turn_b1)
+    q.append(listener_a, turn_a2)
+
+    assert q.pop_oldest() == (listener_a, turn_a1)
+    assert q.pop_oldest() == (listener_b, turn_b1)
+    assert q.pop_oldest() == (listener_a, turn_a2)
+    assert q.pop_oldest() is None
+
+    q.push_front(listener_a, turn_a2)
+    q.push_front(listener_b, turn_b1)
+    assert q.pop_oldest() == (listener_b, turn_b1)
+    assert q.pop_oldest() == (listener_a, turn_a2)
+    assert q.pop_oldest() is None
 
 
 def test_format_peer_envelope_none_message_is_empty_body():

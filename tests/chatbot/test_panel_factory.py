@@ -391,14 +391,15 @@ def test_panel_root_window_uses_element_ctx():
     assert create.call_args[0][1] is el.ctx
 
 
-def test_release_live_sidebar_keeps_the_newer_window():
+def test_release_live_sidebar_keeps_the_newer_window(monkeypatch):
     from unittest.mock import MagicMock
 
     from plugin.chatbot.panel_factory import release_live_sidebar
-    from plugin.doc.live_panels import get_live_panel, register_live_panel, reset_live_panels
+    import plugin.doc.live_panels as live_panels
+    from plugin.doc.live_panels import get_live_panel, register_live_panel
     from plugin.framework.frame_session import FrameSession, reset_frame_sessions
 
-    reset_live_panels()
+    monkeypatch.setattr(live_panels, "_PANELS", {})
     reset_frame_sessions()
     first = _thin_panel_element()
     second = _thin_panel_element()
@@ -426,7 +427,6 @@ def test_release_live_sidebar_keeps_the_newer_window():
         assert get_live_panel("shared") is None
         assert second_session.focus_pin is None
     finally:
-        reset_live_panels()
         reset_frame_sessions()
 
 

@@ -790,7 +790,8 @@ def test_inflate_history_uid_pads_writer_when_soffice_current_is_calc(
     """
     from plugin.chatbot import sidebar_test_hooks as hooks
     from plugin.chatbot.sidebar_test_hooks import debug_sidebar_snapshot_path
-    from plugin.doc.live_panels import register_live_panel, reset_live_panels
+    import plugin.doc.live_panels as live_panels
+    from plugin.doc.live_panels import register_live_panel
 
     class _Session:
         def __init__(self, name: str) -> None:
@@ -813,24 +814,21 @@ def test_inflate_history_uid_pads_writer_when_soffice_current_is_calc(
     calc_sl.slash_popup = "leftover"
     calc_sl.model_selector = None
     writer = _Panel(writer_sl)
-    reset_live_panels()
+    monkeypatch.setattr(live_panels, "_PANELS", {})
     register_live_panel("writer-uid", writer)
     monkeypatch.setattr(hooks, "adopt_runtime_send_listeners", lambda: 0)
     # Soffice current is leftover Calc — the #802 path would pad this session.
     monkeypatch.setattr(hooks, "_listener_for_current_doc", lambda: calc_sl)
     monkeypatch.setattr(hooks, "send_listener", lambda frame=None: calc_sl)
     monkeypatch.setattr(hooks, "_listener_with_slash_popup", lambda sl: sl)
-    try:
-        handle_debug_sidebar_command("chatbot.debug_sidebar.INFLATE_HISTORY&uid=writer-uid")
-        path = debug_sidebar_snapshot_path()
-        assert os.path.isfile(path)
-        os.remove(path)
-        assert sum(len(str(m.get("content") or "")) for m in writer_session.messages) >= 20000
-        assert calc_session.messages == [{"role": "system", "content": "calc"}]
-        assert send_listener_for_uid("writer-uid") is writer_sl
-        assert send_listener_for_uid("missing") is None
-    finally:
-        reset_live_panels()
+    handle_debug_sidebar_command("chatbot.debug_sidebar.INFLATE_HISTORY&uid=writer-uid")
+    path = debug_sidebar_snapshot_path()
+    assert os.path.isfile(path)
+    os.remove(path)
+    assert sum(len(str(m.get("content") or "")) for m in writer_session.messages) >= 20000
+    assert calc_session.messages == [{"role": "system", "content": "calc"}]
+    assert send_listener_for_uid("writer-uid") is writer_sl
+    assert send_listener_for_uid("missing") is None
 
 
 def test_clear_sidebar_chat_resets_session_and_widget(fake_listener: _FakeListener) -> None:

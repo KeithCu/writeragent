@@ -570,13 +570,14 @@ def test_stream_completion_tasks_stop_between_tasks() -> None:
     assert len(finished_calls) == 1
 
 
-def test_end_selection_cancel_kicks_queued_peer_turn() -> None:
+def test_end_selection_cancel_kicks_queued_peer_turn(monkeypatch: pytest.MonkeyPatch) -> None:
     from plugin.chatbot.panel import SendButtonListener
     from plugin.chatbot.selection import bind_selection_cancel, end_selection_cancel
     from plugin.chatbot.send_state import SendEventKind
-    from plugin.doc.peer_message import enqueue_peer_turn, PeerPendingTurn, reset_peer_queues
+    import plugin.doc.peer_message as pm
+    from plugin.doc.peer_message import PeerPendingTurn, PeerQueue, enqueue_peer_turn
 
-    reset_peer_queues()
+    monkeypatch.setattr(pm, "peer_queue", PeerQueue())
 
     class FakeHostWithPeer:
         def __init__(self) -> None:
@@ -587,6 +588,9 @@ def test_end_selection_cancel_kicks_queued_peer_turn() -> None:
             self.started: list[tuple[str, bool]] = []
             self.flushed_restarts = 0
             self._voice = SimpleNamespace(_flush_sticky_restart=self._flush_sticky_restart)
+
+        def is_busy(self) -> bool:
+            return bool(self.sidebar_state.send.is_busy)
 
         def _flush_sticky_restart(self) -> None:
             self.flushed_restarts += 1

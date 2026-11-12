@@ -96,12 +96,12 @@ This is user-send equivalence.
 | Per-document session | `ChatSession` in [`plugin/chatbot/panel.py`](../../plugin/chatbot/panel.py) | One transcript per sidebar. `active_specialized_domain` is **session-local**. History via `get_chat_history(session_id)`. |
 | Send entry | `SendButtonListener._do_send` → `ToolCallingMixin._do_send_chat_with_tools` | Reads the Ask box, clears it, `setFocus`, may route to librarian/image. **Wrong entry for inject.** See [§4.9](#49-implementation-map). |
 | Extract target | `_do_send_chat_with_tools(query_text, model, doc_type)` in [`plugin/chatbot/tool_loop.py`](../../plugin/chatbot/tool_loop.py) | Already takes text, refreshes `[DOCUMENT CONTENT]`, **also** `add_user_message`. Gateway must not wrap *and* call this, or the user turn double-posts. |
-| Busy | `sidebar_state.send.is_busy` ([`send_state.py`](../../plugin/chatbot/send_state.py)); also a live turn queue, `_send_cancellation` | `SEND_CLICKED` while busy is a silent no-op — do not use that as the error path. |
+| Busy | `SendButtonListener.is_busy()` (FSM flag, live turn queue, or Stop scope) | `SEND_CLICKED` while busy is a silent no-op — do not use that as the error path. |
 | Tool context per call | `build_tool_execute_fn` in [`plugin/chatbot/tool_loop_actions.py`](../../plugin/chatbot/tool_loop_actions.py) | Builds `ToolContext(doc=…)` for **that** sidebar’s doc. No frame / listener / session on `ToolContext`. The caller of send_peer_work/send_peer_result does not rebind this. |
 | Frame → model | `_get_document_model` → `get_document_from_frame` | Sidebar stays on **its** window. Envelope sender uses `ctx.doc` (same model). |
 | FSM | `next_state` in [`plugin/chatbot/tool_loop_state.py`](../../plugin/chatbot/tool_loop_state.py) | Pure. Success is `status == "ok"` or `success is True`. No inject-user-message event. |
 | Schema filter | `ToolRegistry.get_schemas("openai", doc_type=…)` | Default excludes `specialized`, `specialized_control`, `mcp`. Precedent: `filter_vision_delegate_schemas` in [`plugin/framework/tool.py`](../../plugin/framework/tool.py). |
-| Live panels | Production `WeakValueDictionary` uid → panel in [`plugin/doc/live_panels.py`](../../plugin/doc/live_panels.py); debug `WeakSet` remains for tests | Register after `_wire_buttons`. Tool reads the map — [§4.3](#43-live-panel--busy--queue--deck). |
+| Live panels | Production uid → weakref list in [`plugin/doc/live_panels.py`](../../plugin/doc/live_panels.py); debug `WeakSet` remains for tests | Register after `_wire_buttons`. Tool reads the map — [§4.3](#43-live-panel--busy--queue--deck). |
 
 Draw already registers a sidebar deck (`DrawingDocument` in `extension/registry/.../Sidebar.xcu`; Impress is also on that ContextList). A1 still needs that deck **constructed once** so a live panel exists.
 
@@ -140,7 +140,7 @@ That path **rebinds** a fresh `ToolContext` and **blocks** the caller tool until
 
 Colors from [uno-thread-safety.md](../framework/uno-thread-safety.md): **RED** = main/UNO, **BLUE** = workers, **YELLOW** = sync host dispatch.
 
-Keep both peer send tools **`is_async=False`** so `execute()` runs on the caller’s drain thread (RED). Resolve / inject stay on RED without marshal. `long_running` is MCP-only and unused here. Queue functions (`enqueue_peer_turn`, `kick_pending_peer_starts`, `drop_listener_queue`) assert the main thread (`assert_main_thread`).
+Keep both peer send tools **`is_async=False`** so `execute()` runs on the caller’s drain thread (RED). Resolve / inject stay on RED without marshal. `long_running` is MCP-only and unused here. Queue functions (`enqueue_peer_turn`, `kick_pending_peer_starts`, `drop_listener_queue`) assert the main thread (`assert_main_thread`). Pending turns are one `PeerQueue` (`peer_queue`), oldest first across all sidebars; targets implement the `PeerListener` protocol (`is_busy`, `in_chat_mode`, `inject_user_turn`, `start_extracted_peer_send`).
 
 **Two sidebars cannot drain in parallel** on today’s pump. [`run_stream_drain_loop`](../../plugin/framework/async_stream.py) takes [`drain_owner_scope("stream")`](../../plugin/framework/async_drain_guard.py). Same owner name **nests** (depth++); a different name **raises**. `pump_ui_idle` always pumps VCL. If caller `execute()` starts (or posts into the live pump) the peer’s `_run_send_drain` → `_do_send_chat_with_tools` → `_start_tool_calling_async`, the inner drain runs to completion **before** `execute()` returns. That is accidental A2.
 
@@ -264,7 +264,7 @@ Same idea as `filter_vision_delegate_schemas`: filter at schema time, not only a
 
 **Deck not built:** LibreOffice may not construct the Calc/Draw (or Writer) deck until the user opens it. Open doc ≠ live panel. **Error** (clear, user-facing): open the peer sidebar once. **No silent A2 fallback** in v1.
 
-**Busy + queue (v1):** if that listener is in a send / drain (`sidebar_state.send.is_busy`, a live turn queue, or `_send_cancellation`), **enqueue** the wrapped turn. Same for a target that is idle but the **process** drain owner is still `"stream"` (caller has not exited) — schedule, do not start.
+**Busy + queue (v1):** if that listener is in a send / drain (`is_busy()`), **enqueue** the wrapped turn. Same for a target that is idle but the **process** drain owner is still `"stream"` (caller has not exited) — schedule, do not start.
 
 Queue policy:
 
