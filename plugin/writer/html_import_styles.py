@@ -659,20 +659,46 @@ def attach_para_warnings(
 def attach_math_objects(
     result: dict[str, Any], math_objects: list[dict[str, Any]]
 ) -> dict[str, Any]:
-    """Attach attempted math object entries to a successful edit result.
+    """Attach attempted math object entries and diagnostics to an edit result.
 
     Only published when the edit succeeded (``status == "ok"``) and attempted at
     least one formula conversion. Empty attempts or error results are returned
     unchanged because a failed or rolled-back edit left none of these objects in
-    the document. ``ok`` means inserted into the document, not accepted in
-    review; the review outcome is reported separately under ``review``.
+    the document. ``ok`` means a Math object was inserted into the document,
+    not accepted in review; the review outcome is reported separately under
+    ``review``. If any formula conversion failed, a ``MATH_IMPORT_FAILED``
+    diagnostic is added to ``warnings`` while preserving the overall ``ok`` status,
+    so review workflows and surrounding edit metadata (counts, edited context)
+    remain intact.
     """
     if not math_objects or result.get("status") != "ok":
         return result
     result["math_objects"] = list(math_objects)
+    failed = [m for m in math_objects if not m.get("ok")]
+    if not failed:
+        return result
+    listing = "; ".join(
+        f"{m.get('snippet', '')}: {m.get('error') or 'conversion failed'}"
+        for m in failed
+    )
+    diag: Diagnostic = {
+        "code": MATH_IMPORT_FAILED,
+        "message": (
+            f"The content was written, but {len(failed)} of {len(math_objects)} "
+            f"formula(s) could not be converted to a Math object and stand in the "
+            f"document as literal '[Math import failed] <formula>' text: {listing}. "
+            f"Correct the formula and replace that literal text with target='search'."
+        ),
+    }
+    existing = result.get("warnings")
+    if isinstance(existing, list):
+        existing.append(diag)
+    else:
+        result["warnings"] = [diag]
     return result
 
 
+MATH_IMPORT_FAILED = "MATH_IMPORT_FAILED"
 LINK_TARGET_NOT_FOUND = "LINK_TARGET_NOT_FOUND"
 
 _HREF_FRAGMENT_RE = re.compile(r'(<a\b[^>]*?\bhref=)(["\'])#([^"\']*)\2', re.IGNORECASE)

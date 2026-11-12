@@ -108,7 +108,7 @@ The feature is successful when all of the following are true:
 4. unsupported math does not silently disappear
 5. the implementation is covered by unit tests and UNO tests
 
-**As of 2026-04:** (1)–(4) are **met** for MathML-backed HTML; (5) is **met for core paths** with gaps listed under Phase 1 **Not done yet** (full test matrix; structured reporting is now shipped via `math_objects` on successful `apply_document_content` results). **As of Phase 2 ship:** common TeX-delimited math in the same HTML import path meets the same visibility and test bar as MathML for core cases (subset of LaTeX via `latex2mathml`; not full TeX compatibility).
+**As of 2026-04:** (1)–(4) are **met** for MathML-backed HTML; (5) is **met for core paths** with gaps listed under Phase 1 **Not done yet** (full test matrix; structured reporting is now shipped via `math_objects` and `MATH_IMPORT_FAILED` warnings on `apply_document_content` results). **As of Phase 2 ship:** common TeX-delimited math in the same HTML import path meets the same visibility and test bar as MathML for core cases (subset of LaTeX via `latex2mathml`; not full TeX compatibility).
 
 ## Recommended release strategy
 
@@ -181,7 +181,7 @@ Originally a standalone prototype; **delivered** as production helpers + tests:
 - [x] LibreOffice MathML import reused (hidden Math doc from temp `.mml`)
 - [x] `Formula` read back and post-processed for Writer embed (`newline` collapse)
 - [x] Inline vs block insertion path (`insert_writer_math_formula` in `math_mml_convert.py` + `display="block"` / `mode="display"`)
-- [x] Failure modes: visible `[Math import failed]…` fallback + debug logging
+- [x] Failure modes: visible `[Math import failed]…` fallback + debug logging + `MATH_IMPORT_FAILED` warning
 
 ### Tasks
 
@@ -229,7 +229,7 @@ Support the most structured and realistic first wave of HTML math inputs.
 2. [x] Segmentation (`segment_html_with_mixed_math`; `segment_html_with_mathml` is an alias)
 3. [x] Formula insertion & MathML → StarMath (`math_mml_convert.py`, LO Math doc + `collapse_starmath_newline_tokens_for_writer_embed`)
 4. [x] Orchestration (`format.py`, all `insertDocumentFromURL` entry paths + cursor-to-end after each segment)
-5. [x] Unsupported conversion: `[Math import failed]…` text + debug log (not structured tool JSON)
+5. [x] Unsupported conversion: `[Math import failed]…` text + debug log + `MATH_IMPORT_FAILED` warning
 6. [x] Tests: unit + UNO (not every row of the “minimum test matrix” below—see **Not done yet**)
 
 ### Acceptance criteria
@@ -268,7 +268,7 @@ Support the most structured and realistic first wave of HTML math inputs.
 These are **not** Phase 2 TeX work unless noted:
 
 - [ ] Full **minimum test matrix** row coverage (e.g. malformed MathML fixture, KaTeX-shaped HTML file fixture, table-with-math) beyond what `test_writer_mathml_import` already hits.
-- [x] **Structured** tool reporting on `apply_document_content` return JSON: a successful edit includes `math_objects` for attempts made (with `kind`, `display_block`, `snippet`, `ok`, and `error` when conversion fails); fallback marker string and debug log remain, while general `warnings` stays the `data-lo-para` list.
+- [x] **Structured** tool reporting on `apply_document_content` return JSON: `math_objects` reports attempted conversions on ok results; any conversion failure reports a `MATH_IMPORT_FAILED` warning with `math_objects`, marker text still inserted in the document. General `warnings` stays the `data-lo-para` list.
 - [ ] **KaTeX/MathJax DOM** detection without relying on `<math>` (only needed if we must handle math with no MathML).
 - [ ] **Reviewer-facing** example document set in-repo (optional `docs/` or fixtures zip).
 
@@ -353,7 +353,7 @@ Improve quality and reduce edge-case regressions after MVP ships.
 
 ## Work breakdown by implementation area
 
-Cross-cutting status: **1** done for MathML + common TeX delimiters; KaTeX/MathJax **without** `<math>` or TeX markers still **not done**. **2** done (LO MathML + `latex2mathml` → MathML). **3** done (insertion). **4** done (structured `math_objects` reporting on `apply_document_content`; visible fallback string and debug log remain). **5** partial (see Phase 1 **Not done yet**).
+Cross-cutting status: **1** done for MathML + common TeX delimiters; KaTeX/MathJax **without** `<math>` or TeX markers still **not done**. **2** done (LO MathML + `latex2mathml` → MathML). **3** done (insertion). **4** done (structured `math_objects` reporting and `MATH_IMPORT_FAILED` warnings on `apply_document_content`; visible fallback string and debug log remain). **5** partial (see Phase 1 **Not done yet**).
 
 ## 1. Parsing and detection
 
@@ -561,7 +561,7 @@ The implementation could become an open-ended parser project.
 | 1 | Visible fallback for unsupported formulas: plain text, marker, or both? | **Marker + snippet** — `[Math import failed]` plus truncated source in document; not silent. |
 | 2 | Ship MathML-only before TeX? | **Yes** historically; **Phase 2 TeX path is now shipped** (MathML still preferred in prompts). |
 | 3 | Auto-repair malformed MathML? | **No** — unclosed `<math>` tails fall back to HTML segment behavior; no repair pass. |
-| 4 | Warnings in logs only vs tool JSON? | **Logs + visible insert + tool JSON** — fallback marker string and debug logs remain, and successful `apply_document_content` returns now include `math_objects` for attempts made (kind, display_block, snippet, ok, error). General `warnings` stays the `data-lo-para` list. |
+| 4 | Warnings in logs only vs tool JSON? | **Logs + visible insert + tool JSON** — fallback marker string and debug logs remain. Successful `apply_document_content` returns include `math_objects` for attempted conversions; any conversion failure reports a `MATH_IMPORT_FAILED` entry in `warnings` with `math_objects`, while preserving the edit's ok status and metadata. General `warnings` stays the `data-lo-para` list. |
 
 ## Task sequence (for agents)
 
