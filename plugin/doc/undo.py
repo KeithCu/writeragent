@@ -16,16 +16,10 @@ import logging
 from typing import Any
 
 from plugin.doc.compound_undo import UndoUnavailable, commit_or_rollback
+from plugin.framework.errors import is_disposal, reraise_if_disposed
 from plugin.framework.tool import ToolBase, ToolContext
 
 log = logging.getLogger("writeragent.undo")
-
-
-def _get_undo_manager(doc: Any) -> Any:
-    """Return the UndoManager for any document type."""
-    if hasattr(doc, "getUndoManager"):
-        return doc.getUndoManager()
-    raise RuntimeError("Document does not support undo.")
 
 
 def commit_or_rollback_mutation(
@@ -39,34 +33,33 @@ def commit_or_rollback_mutation(
     code: str = "TOOL_EXECUTION_ERROR",
     **extra_error: Any,
 ) -> dict[str, Any] | None:
-    """Execute mutate inside an undo transaction, reporting tool errors on failure."""
-    from plugin.framework.errors import is_disposal
+    """Run mutate inside an undo transaction and turn a failure into a tool error.
 
+    ``code`` is the error code used when mutate fails or the wrapper itself fails.
+    ``extra_error`` keys (for example ``deleted=0``) sit at the top level of that error.
+    Undo-manager problems use UNDO_UNAVAILABLE, and any ``UndoOutcome.error``
+    (including UNDO_CONTEXT_LEAK and ROLLBACK_FAILED) is returned unchanged.
+    """
     try:
         outcome = commit_or_rollback(doc, undo_title, mutate)
     except UndoUnavailable:
-        return tool._tool_error(
-            undo_unavailable_msg,
-            code="UNDO_UNAVAILABLE",
-        )
+        return tool._tool_error(undo_unavailable_msg, code="UNDO_UNAVAILABLE")
     except Exception as e:
-        # Mutate failures are returned on UndoOutcome; this path is for rare wrapper faults
-        # (e.g. session snapshot) so tools still get extra_error instead of a raw traceback.
+        # Mutate failures come back on UndoOutcome; this arm catches rare faults in the
+        # wrapper itself (such as the session snapshot), so the tool still gets a
+        # structured error with its extra fields instead of a raw traceback.
         if is_disposal(e):
             raise
-        return tool._tool_error(
-            f"{rollback_msg} ({e}).",
-            code=code,
-            top_level=extra_error,
-        )
-    if outcome.mutate_error is not None:
-        mut_exc = outcome.mutate_error
-        return tool._tool_error(
-            f"{rollback_msg} ({mut_exc}).",
-            code=code,
-            top_level=extra_error,
-        )
-    return outcome.error
+        cause: Exception = e
+    else:
+        if outcome.mutate_error is None:
+            return outcome.error
+        cause = outcome.mutate_error
+    return tool._tool_error(
+        f"{rollback_msg} ({cause}).",
+        code=code,
+        top_level=extra_error,
+    )
 
 
 def _undo_steps(kwargs: dict[str, Any]) -> int:
@@ -83,11 +76,11 @@ def _step_undo_manager(
     action_key: str,
     kwargs: dict[str, Any],
 ) -> dict[str, Any]:
-    from plugin.framework.errors import reraise_if_disposed
-
     steps = _undo_steps(kwargs)
     try:
-        um = _get_undo_manager(ctx.doc)
+        if not hasattr(ctx.doc, "getUndoManager"):
+            return tool._tool_error("Document does not support undo.")
+        um = ctx.doc.getUndoManager()
         count = 0
         possible_fn = um.isRedoPossible if action_key == "redone" else um.isUndoPossible
         step_fn = um.redo if action_key == "redone" else um.undo

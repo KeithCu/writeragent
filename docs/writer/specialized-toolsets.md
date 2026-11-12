@@ -179,6 +179,7 @@ The outcome of sub-agent delegation is evaluated by `apply_inner_outcome` (share
   - May include `note`: set to `"No document-editing tool ran during this delegation; the document is unchanged by it."` when an editing domain ran only read-only tools before finishing or when finish was the only call. Note: tool mutation is based on the tool's declared `detects_mutation()` capability; a mutating tool that returns without changes counts as an editing attempt.
 - **`status: "incomplete"`, `code: "SPECIALIZED_WORKFLOW_INCOMPLETE"`**: The sub-agent returned without signaling workflow finish (e.g. stopped without reaching the finish tool).
 - **`status: "error"`, `code: "SPECIALIZED_TOOL_ERROR"`**: One or more domain tools encountered errors that were never retried and resolved.
+- Every delegation payload except a pass-through error carries `domains` (the gateway's one domain as a one-element list; the python loop's requested list), built by `start_inner_payload`. Per-domain loop prompt sentences (footnotes, charts) come from `loop_hint` in `specialized_catalog.py` and are the same text in the gateway, the python inner loop, and MCP `find_tools`.
 
 ---
 

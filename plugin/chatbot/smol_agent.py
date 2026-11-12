@@ -29,6 +29,7 @@ from plugin.chatbot import smol_examples
 from plugin.framework.errors import ToolExecutionError, make_tool_error
 from plugin.framework.client.llm_client import LlmClient
 from plugin.framework.tool import field_from_tool_arguments, prepare_tool_call
+from plugin.doc.specialized_catalog import InnerToolCall
 
 
 def get_api_config() -> dict[str, Any]:
@@ -167,6 +168,33 @@ class SmolToolAdapter(SmolTool):
 
         if self._on_result is not None:
             self._on_result(self.name, result)
+        return result
+
+
+class InnerCallRecorder(SmolToolAdapter):
+    """SmolToolAdapter that logs every call as InnerToolCall(name, result, mutating) into *calls*.
+
+    Specialized loops hand that log to apply_inner_outcome to grade the delegation.
+    safe=True and inputs_style="specialized" are the settings every specialized loop uses.
+    """
+
+    _calls: list[InnerToolCall]
+
+    def __init__(
+        self,
+        tool: ToolBase,
+        tctx: ToolContext,
+        calls: list[InnerToolCall],
+        *,
+        safe: bool = True,
+        inputs_style: SmolInputsStyle = "specialized",
+    ) -> None:
+        super().__init__(tool, tctx, safe=safe, inputs_style=inputs_style)
+        self._calls = calls
+
+    def forward(self, *args: Any, **kwargs: Any) -> Any:
+        result = super().forward(*args, **kwargs)
+        self._calls.append(InnerToolCall(self.name, result, self.mutating))
         return result
 
 
