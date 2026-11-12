@@ -7,33 +7,18 @@
 
 from __future__ import annotations
 
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
-from plugin.scripting.helper_domain import (
-    HelperScriptMeta,
-    ScriptFacts,
-    header_prefix,
-)
+from plugin.scripting.helper_domain import ScriptFacts
 from plugin.scripting.trusted_action_registry import (
     TrustedActionWiring,
     get_trusted_action_wiring,
 )
-from plugin.scripting.duckdb_sql import (
-    get_sql_script_templates,
-    parse_sql_script_header,
-)
+from plugin.scripting.duckdb_sql import get_sql_script_templates
 
 
-@given(tag=st.text(min_size=1, max_size=20))
-@settings(max_examples=50)
-def test_header_prefix_format(tag: str) -> None:
-    prefix = header_prefix(tag)
-    assert isinstance(prefix, str)
-    assert prefix.startswith("# writeragent:")
-
-
-def test_sql_script_templates_and_header_parsing() -> None:
+def test_sql_script_templates_cover_both_helpers() -> None:
     templates = get_sql_script_templates()
     assert isinstance(templates, dict)
     assert "query_folder_sql" in templates
@@ -41,10 +26,7 @@ def test_sql_script_templates_and_header_parsing() -> None:
 
     for helper, code in templates.items():
         assert isinstance(code, str)
-        meta = parse_sql_script_header(code)
-        assert isinstance(meta, HelperScriptMeta)
-        assert meta.helper == helper
-        assert isinstance(meta.params, dict)
+        assert "query_folder_sql(" in code
 
 
 def test_is_sql_result_matches_is_status_helper_result():

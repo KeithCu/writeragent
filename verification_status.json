@@ -300,8 +300,6 @@
         "priority": "high",
         "tool": "deal+hypothesis",
         "functions_contracted": [
-          "header_prefix",
-          "ScriptFacts.header",
           "ScriptFacts.first_run_spec"
         ],
         "ci_integration": true
@@ -320,8 +318,7 @@
         "priority": "high",
         "tool": "deal+hypothesis",
         "functions_contracted": [
-          "get_sql_script_templates",
-          "parse_sql_script_header"
+          "get_sql_script_templates"
         ],
         "ci_integration": true
       },

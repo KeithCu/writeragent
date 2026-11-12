@@ -13,7 +13,7 @@ import pytest
 from tests.harness.strip_bundle import requires_asserts
 
 from tests.scripting.python_runner_test_support import execute_and_insert_result
-from plugin.scripting.text_analytics import get_text_analytics_script_templates
+from plugin.scripting.domain_registry import get_domain_wiring
 
 
 @patch("plugin.scripting.text_analytics.insert_text_analytics_result_into_doc")
@@ -36,7 +36,7 @@ def test_execute_and_insert_text_skips_fast_path(mock_venv, mock_insert):
                 "result": {"readability": {"flesch_reading_ease": 60}, "entities": []},
             },
         }
-        code = get_text_analytics_script_templates()["full"]
+        code = get_domain_wiring("text").templates()["full"]
         outcome = execute_and_insert_result(ctx, doc, code)
 
     assert outcome["ok"] is True
@@ -123,7 +123,7 @@ def test_topics_and_sentiment_bind_section_list(mock_venv, mock_insert):
     }
     for helper in ("topics", "sentiment"):
         mock_venv.reset_mock()
-        code = get_text_analytics_script_templates()[helper]
+        code = get_domain_wiring("text").templates()[helper]
         with (
             patch("plugin.scripting.python_runner.is_writer", return_value=True),
             patch(
@@ -146,7 +146,7 @@ def test_text_analytics_input_type_assertions():
 
     ctx = MagicMock()
     doc = MagicMock()
-    code = get_text_analytics_script_templates()["full"]
+    code = get_domain_wiring("text").templates()["full"]
 
     with patch("plugin.scripting.python_runner.is_writer", return_value=True):
         with patch("plugin.scripting.text_analytics.resolve_text_analytics_document_inputs", return_value=(123, {})):

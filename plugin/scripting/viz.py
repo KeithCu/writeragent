@@ -2,7 +2,7 @@
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Viz helper templates, host RPC, and document egress (LO host).
+"""Viz helper host RPC and document egress (LO host).
 
 A viz result is ``{status, helper, title, image}``; the host inserts every image
 envelope found in it, not only a top-level ``image`` key. ``status="error"`` is
@@ -37,21 +37,6 @@ _DRAW_PLOT_SIZE = (400, 300)
 _VIZ_VENV_EXPORTS = names("viz") | {"run_viz"}
 
 install_lazy_exports(globals(), "viz", _VIZ_VENV_EXPORTS)
-
-
-# --- Templates ---
-
-
-def get_viz_script_templates() -> dict[str, str]:
-    from plugin.scripting.domain_registry import get_domain_wiring
-
-    return get_domain_wiring("viz").templates()
-
-
-def parse_viz_script_header(code: str) -> Any:
-    from plugin.scripting.domain_registry import get_domain_wiring
-
-    return get_domain_wiring("viz").parse_header(code)
 
 
 # --- Egress ---

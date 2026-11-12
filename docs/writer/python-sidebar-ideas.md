@@ -47,11 +47,7 @@ Insert still uses the Writer HTML / Math / plot egress the runner already has.
 
 ## Parameters (units, topic count, OCR engine, …)
 
-Helpers are templates whose knobs live in the machine header:
-
-`# writeragent:<tag> helper=… params={…}`
-
-plus the `run_*` call. Selection already fills implicit args (`text`, `data`, `image`). Sticky knobs are the rest (`from`/`to` on units, `n_topics`, vision `engine`).
+Helpers are templates whose knobs are the literal arguments of the helper or `run_*` call (`ScriptFacts.first_run_spec` reads them). Selection already fills implicit args (`text`, `data`, `image`). Sticky knobs are the rest (`from`/`to` on units, `n_topics`, vision `engine`).
 
 **Do not** add a generic JSON/param form in the AWT sidebar. Monaco (or the native multiline dialog) is the parameter UI.
 
