@@ -573,7 +573,8 @@ def test_run_code_in_user_venv_forwards_python_tool_domain():
         mock_mgr.return_value = (manager, None)
         manager.execute.return_value = {"status": "ok", "result": 1}
         run_code_in_user_venv("result = 1", python_tool_domain="writer")
-        assert manager.execute.call_args.kwargs.get("python_tool_domain") == "writer"
+        req = manager.execute.call_args.args[0]
+        assert req.python_tool_domain == "writer"
 
 
 def test_apply_document_content_proxy_omits_optional_defaults():

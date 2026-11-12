@@ -123,7 +123,7 @@ def test_spawn_retries_plain_when_scoped_start_raises(monkeypatch):
     monkeypatch.setattr(vw.WarmChild, "lease", lease_stub)
     monkeypatch.setattr(mgr, "_ensure_warmed_unlocked", lambda leased: None)
     monkeypatch.setattr(mgr, "_execute_ipc_unlocked", lambda req, *, leased: {"status": "ok", "result": 1})
-    result = mgr.execute("result = 1", timeout_sec=1)
+    result = mgr.execute(vw.ExecRequest(code="result = 1", timeout_sec=1))
     assert result["status"] == "ok"
     assert attempts["n"] == 2
     assert vw._systemd_scope_disabled

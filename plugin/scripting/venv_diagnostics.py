@@ -738,7 +738,7 @@ def run_venv_self_check_with_progress(
     answered, including when packages are missing. Returns (False, message) when
     the interpreter cannot be started or the version probe fails.
     """
-    from plugin.scripting.venv_worker import PythonWorkerManager
+    from plugin.scripting.venv_worker import ExecRequest, PythonWorkerManager
 
     # scripting.python_exec_timeout is the user-script budget. These probes
     # always use SELF_CHECK_IMPORT_PROBE_TIMEOUT_SEC, VISION_PROBE_TIMEOUT_SEC,
@@ -755,7 +755,9 @@ def run_venv_self_check_with_progress(
     )
 
     report_status(_("Reading Python version..."))
-    response = manager.execute(_VERSION_PROBE_SCRIPT, timeout_sec=SELF_CHECK_IMPORT_PROBE_TIMEOUT_SEC)
+    response = manager.execute(
+        ExecRequest(code=_VERSION_PROBE_SCRIPT, timeout_sec=SELF_CHECK_IMPORT_PROBE_TIMEOUT_SEC)
+    )
 
     if response.get("status") != "ok":
         msg = str(response.get("message", "Unknown error"))
@@ -812,7 +814,9 @@ def run_venv_self_check_with_progress(
             report_status(f"{group_spec.title}: {pkg}")
             # sympy and matplotlib are listed in more than one group.
             if pkg not in packages_seen:
-                pkg_resp = manager.execute(_package_probe_script(pkg), timeout_sec=SELF_CHECK_IMPORT_PROBE_TIMEOUT_SEC)
+                pkg_resp = manager.execute(
+                    ExecRequest(code=_package_probe_script(pkg), timeout_sec=SELF_CHECK_IMPORT_PROBE_TIMEOUT_SEC)
+                )
                 if pkg_resp.get("status") != "ok":
                     msg = str(pkg_resp.get("message", "Unknown error"))
                     log.warning("Package probe failed for %s: %s", pkg, msg)
