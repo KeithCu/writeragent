@@ -120,7 +120,7 @@ def test_envelope_from_ctx_doc():
     doc.getTitle.return_value = "Budget 2026.ods"
     doc.getRuntimeUID.return_value = "uid-budget"
     doc.RuntimeUID = "uid-budget"
-    with patch("plugin.doc.text_helpers.get_document_path", return_value="/tmp/Budget 2026.ods"):
+    with patch("plugin.doc.peer_message.get_document_path", return_value="/tmp/Budget 2026.ods"):
         ident = identity_from_doc(doc)
     assert ident["name"] == "Budget 2026.ods"
     assert ident["uid"] == "uid-budget"
@@ -144,7 +144,7 @@ def test_identity_basename_untitled_kept():
     doc.getTitle.return_value = "Real Title"
     doc.getRuntimeUID.return_value = "uid-untitled"
     doc.RuntimeUID = "uid-untitled"
-    with patch("plugin.doc.text_helpers.get_document_path", return_value="/tmp/Untitled"):
+    with patch("plugin.doc.peer_message.get_document_path", return_value="/tmp/Untitled"):
         ident = identity_from_doc(doc)
     assert ident["name"] == "Untitled"
     assert ident["uid"] == "uid-untitled"
@@ -189,10 +189,10 @@ def test_list_v1_peers_includes_impress_type():
     )
     catalog = [{"name": "Deck.odp", "uid": "impress-uid", "url": "file:///tmp/Deck.odp", "doc_type": "draw"}]
 
-    with patch("plugin.framework.thread_guard.assert_main_thread"):
-        with patch("plugin.framework.uno_context.get_runtime_uid", side_effect=lambda m: "self" if m is self_doc else "impress-uid"):
+    with patch("plugin.doc.peer_message.assert_main_thread"):
+        with patch("plugin.doc.peer_message.get_runtime_uid", side_effect=lambda m: "self" if m is self_doc else "impress-uid"):
             with patch("plugin.doc.document_research.get_open_documents", return_value=catalog):
-                with patch("plugin.framework.uno_context.resolve_document_by_url", return_value=(impress, "draw")):
+                with patch("plugin.doc.peer_message.resolve_document_by_url", return_value=(impress, "draw")):
                     peers = list_v1_peers(object(), self_doc)
     assert peers == [
         {"name": "Deck.odp", "uid": "impress-uid", "url": "file:///tmp/Deck.odp", "type": "impress"}
@@ -210,9 +210,9 @@ def test_addressing_impress_accepted():
         "com.sun.star.presentation.PresentationDocument",
     )
 
-    with patch("plugin.framework.uno_context.resolve_document_by_url", return_value=(impress, "draw")):
+    with patch("plugin.doc.peer_message.resolve_document_by_url", return_value=(impress, "draw")):
         with patch(
-            "plugin.framework.uno_context.get_runtime_uid",
+            "plugin.doc.peer_message.get_runtime_uid",
             side_effect=lambda m: "self" if m is self_doc else "impress-uid",
         ):
             model, code, _msg = resolve_peer_target(object(), self_doc, "impress-uid")
@@ -229,9 +229,9 @@ def test_addressing_unsupported_unknown_model():
     other.getRuntimeUID.return_value = "other-uid"
     other.supportsService.return_value = False
 
-    with patch("plugin.framework.uno_context.resolve_document_by_url", return_value=(other, "unknown")):
+    with patch("plugin.doc.peer_message.resolve_document_by_url", return_value=(other, "unknown")):
         with patch(
-            "plugin.framework.uno_context.get_runtime_uid",
+            "plugin.doc.peer_message.get_runtime_uid",
             side_effect=lambda m: "self" if m is self_doc else "other-uid",
         ):
             model, code, msg = resolve_peer_target(object(), self_doc, "other-uid")
@@ -344,8 +344,8 @@ def test_addressing_self_rejected():
     peer.getRuntimeUID.return_value = "uid-self"
     peer.RuntimeUID = "uid-self"
     peer.supportsService.side_effect = lambda s: s == "com.sun.star.text.TextDocument"
-    with patch("plugin.framework.uno_context.resolve_document_by_url", return_value=(peer, "writer")):
-        with patch("plugin.framework.uno_context.get_runtime_uid", return_value="uid-self"):
+    with patch("plugin.doc.peer_message.resolve_document_by_url", return_value=(peer, "writer")):
+        with patch("plugin.doc.peer_message.get_runtime_uid", return_value="uid-self"):
             model, code, _msg = resolve_peer_target(object(), self_doc, "uid-self")
     assert model is None
     assert code == "PEER_SELF"
@@ -353,7 +353,7 @@ def test_addressing_self_rejected():
 
 def test_addressing_missing():
     self_doc = MagicMock()
-    with patch("plugin.framework.uno_context.resolve_document_by_url", return_value=(None, None)):
+    with patch("plugin.doc.peer_message.resolve_document_by_url", return_value=(None, None)):
         with patch("plugin.doc.peer_message.list_v1_peers", return_value=[]):
             model, code, _msg = resolve_peer_target(object(), self_doc, "file:///missing.odt")
     assert model is None
@@ -366,7 +366,7 @@ def test_addressing_ambiguous_name():
         {"name": "Budget.ods", "uid": "a", "url": "", "type": "calc"},
         {"name": "Budget.ods", "uid": "b", "url": "", "type": "calc"},
     ]
-    with patch("plugin.framework.uno_context.resolve_document_by_url", return_value=(None, None)):
+    with patch("plugin.doc.peer_message.resolve_document_by_url", return_value=(None, None)):
         with patch("plugin.doc.peer_message.list_v1_peers", return_value=peers):
             model, code, _msg = resolve_peer_target(object(), self_doc, "Budget.ods")
     assert model is None
@@ -386,9 +386,9 @@ def test_addressing_unique_name():
             return peer, "calc"
         return None, None
 
-    with patch("plugin.framework.uno_context.resolve_document_by_url", side_effect=_resolve):
+    with patch("plugin.doc.peer_message.resolve_document_by_url", side_effect=_resolve):
         with patch("plugin.doc.peer_message.list_v1_peers", return_value=peers):
-            with patch("plugin.framework.uno_context.get_runtime_uid", side_effect=lambda m: "self" if m is self_doc else "peer-uid"):
+            with patch("plugin.doc.peer_message.get_runtime_uid", side_effect=lambda m: "self" if m is self_doc else "peer-uid"):
                 model, code, _msg = resolve_peer_target(object(), self_doc, "Budget.ods")
     assert code is None
     assert model is peer
@@ -460,8 +460,8 @@ def test_p3_execute_queues_reply_while_writer_busy():
     panel = MagicMock()
     panel.send_listener = listener
     with patch("plugin.doc.peer_message.resolve_peer_target", return_value=(peer, None, "")):
-        with patch("plugin.framework.uno_context.get_runtime_uid", return_value="peer-uid"):
-            with patch("plugin.doc.live_panels.get_live_panel", return_value=panel):
+        with patch("plugin.doc.peer_message.get_runtime_uid", return_value="peer-uid"):
+            with patch("plugin.doc.peer_message.get_live_panel", return_value=panel):
                 result = tool.execute(
                     ctx,
                     document_url="peer-uid",
@@ -486,8 +486,8 @@ def test_execute_status_ok_accepted():
     panel = MagicMock()
     panel.send_listener = listener
     with patch("plugin.doc.peer_message.resolve_peer_target", return_value=(peer, None, "")):
-        with patch("plugin.framework.uno_context.get_runtime_uid", return_value="peer-uid"):
-            with patch("plugin.doc.live_panels.get_live_panel", return_value=panel):
+        with patch("plugin.doc.peer_message.get_runtime_uid", return_value="peer-uid"):
+            with patch("plugin.doc.peer_message.get_live_panel", return_value=panel):
                 with drain_owner_scope("stream"):
                     result = tool.execute(ctx, document_url="peer-uid", message="Do the thing")
     assert result["status"] == "ok"
@@ -517,8 +517,8 @@ def test_execute_allows_specialized_document_research_caller():
     panel = MagicMock()
     panel.send_listener = listener
     with patch("plugin.doc.peer_message.resolve_peer_target", return_value=(peer, None, "")):
-        with patch("plugin.framework.uno_context.get_runtime_uid", return_value="peer-uid"):
-            with patch("plugin.doc.live_panels.get_live_panel", return_value=panel):
+        with patch("plugin.doc.peer_message.get_runtime_uid", return_value="peer-uid"):
+            with patch("plugin.doc.peer_message.get_live_panel", return_value=panel):
                 with drain_owner_scope("stream"):
                     result = tool.execute(ctx, document_url="peer-uid", message="Do the thing")
     assert result["status"] == "ok"
@@ -543,8 +543,8 @@ def test_execute_missing_sidebar():
     ctx = _ctx()
     peer = MagicMock()
     with patch("plugin.doc.peer_message.resolve_peer_target", return_value=(peer, None, "")):
-        with patch("plugin.framework.uno_context.get_runtime_uid", return_value="peer-uid"):
-            with patch("plugin.doc.live_panels.get_live_panel", return_value=None):
+        with patch("plugin.doc.peer_message.get_runtime_uid", return_value="peer-uid"):
+            with patch("plugin.doc.peer_message.get_live_panel", return_value=None):
                 result = tool.execute(ctx, document_url="peer-uid", message="hi")
     assert result["status"] == "error"
     assert result["code"] == "PEER_SIDEBAR_NOT_OPEN"
@@ -570,8 +570,8 @@ def test_execute_queue_full():
     # Stay inside the drain scope. Leaving it kicks already-queued turns
     # (t0...), which is separate from the rejected send.
     with patch("plugin.doc.peer_message.resolve_peer_target", return_value=(peer, None, "")):
-        with patch("plugin.framework.uno_context.get_runtime_uid", return_value="peer-uid"):
-            with patch("plugin.doc.live_panels.get_live_panel", return_value=panel):
+        with patch("plugin.doc.peer_message.get_runtime_uid", return_value="peer-uid"):
+            with patch("plugin.doc.peer_message.get_live_panel", return_value=panel):
                 with drain_owner_scope("stream"):
                     result = tool.execute(ctx, document_url="peer-uid", message="one more")
                     assert result["status"] == "error"
@@ -1042,8 +1042,8 @@ def test_execute_idle_without_add_user_message_does_not_mark_appended():
     panel = MagicMock()
     panel.send_listener = listener
     with patch("plugin.doc.peer_message.resolve_peer_target", return_value=(peer, None, "")):
-        with patch("plugin.framework.uno_context.get_runtime_uid", return_value="peer-uid"):
-            with patch("plugin.doc.live_panels.get_live_panel", return_value=panel):
+        with patch("plugin.doc.peer_message.get_runtime_uid", return_value="peer-uid"):
+            with patch("plugin.doc.peer_message.get_live_panel", return_value=panel):
                 result = tool.execute(ctx, document_url="peer-uid", message="Do the thing")
     assert result["status"] == "ok"
     assert result["accepted"] is True
@@ -1054,8 +1054,8 @@ def test_execute_idle_without_add_user_message_does_not_mark_appended():
 def test_resolve_self_when_caller_uid_empty():
     self_doc = MagicMock()
     self_doc.supportsService.side_effect = lambda s: s == "com.sun.star.text.TextDocument"
-    with patch("plugin.framework.uno_context.resolve_document_by_url", return_value=(self_doc, "writer")):
-        with patch("plugin.framework.uno_context.get_runtime_uid", side_effect=["", "uid-self"]):
+    with patch("plugin.doc.peer_message.resolve_document_by_url", return_value=(self_doc, "writer")):
+        with patch("plugin.doc.peer_message.get_runtime_uid", side_effect=["", "uid-self"]):
             model, code, msg = resolve_peer_target(object(), self_doc, "uid-self")
     assert code == "PEER_SELF"
     assert model is None
@@ -1066,9 +1066,9 @@ def test_resolve_not_self_when_other_doc_uid_missing_on_caller():
     self_doc = MagicMock()
     other_doc = MagicMock()
     other_doc.supportsService.side_effect = lambda s: s == "com.sun.star.text.TextDocument"
-    with patch("plugin.framework.uno_context.resolve_document_by_url", return_value=(other_doc, "writer")):
-        with patch("plugin.framework.uno_context.get_runtime_uid", side_effect=["", "peer-uid"]):
-            with patch("plugin.framework.uno_context.uno_same", return_value=False):
+    with patch("plugin.doc.peer_message.resolve_document_by_url", return_value=(other_doc, "writer")):
+        with patch("plugin.doc.peer_message.get_runtime_uid", side_effect=["", "peer-uid"]):
+            with patch("plugin.doc.peer_message.uno_same", return_value=False):
                 model, code, _msg = resolve_peer_target(object(), self_doc, "peer-uid")
     assert code is None
     assert model is other_doc
@@ -1080,10 +1080,10 @@ def test_list_v1_peers_omits_self_when_self_uid_empty():
     self_doc = MagicMock()
     self_doc.supportsService.side_effect = lambda s: s == "com.sun.star.text.TextDocument"
     catalog = [{"name": "Doc.odt", "uid": "doc-uid", "url": "file:///tmp/Doc.odt", "doc_type": "writer"}]
-    with patch("plugin.framework.thread_guard.assert_main_thread"):
-        with patch("plugin.framework.uno_context.get_runtime_uid", return_value=""):
+    with patch("plugin.doc.peer_message.assert_main_thread"):
+        with patch("plugin.doc.peer_message.get_runtime_uid", return_value=""):
             with patch("plugin.doc.document_research.get_open_documents", return_value=catalog):
-                with patch("plugin.framework.uno_context.resolve_document_by_url", return_value=(self_doc, "writer")):
+                with patch("plugin.doc.peer_message.resolve_document_by_url", return_value=(self_doc, "writer")):
                     peers = list_v1_peers(object(), self_doc)
     assert peers == []
 
@@ -1168,7 +1168,7 @@ def test_kick_drops_turn_when_start_raises_after_busy():
 def test_queue_ops_assert_main_thread():
     listener = _Listener()
     turn = PeerPendingTurn("msg", False)
-    with patch("plugin.framework.thread_guard.assert_main_thread") as mock_assert:
+    with patch("plugin.doc.peer_message.assert_main_thread") as mock_assert:
         enqueue_peer_turn(listener, turn)
         kick_pending_peer_starts()
         drop_listener_queue(listener)
@@ -1364,9 +1364,9 @@ def test_resolve_self_display_name_is_peer_self():
     self_doc.getRuntimeUID.return_value = "self-uid"
     self_doc.RuntimeUID = "self-uid"
 
-    with patch("plugin.framework.uno_context.resolve_document_by_url", return_value=(None, None)):
+    with patch("plugin.doc.peer_message.resolve_document_by_url", return_value=(None, None)):
         with patch("plugin.doc.peer_message.list_v1_peers", return_value=[]):
-            with patch("plugin.doc.text_helpers.get_document_path", return_value="/tmp/Mine.odt"):
+            with patch("plugin.doc.peer_message.get_document_path", return_value="/tmp/Mine.odt"):
                 res1 = resolve_peer_target(object(), self_doc, "Mine.odt")
                 res2 = resolve_peer_target(object(), self_doc, "Other.odt")
 
@@ -1386,9 +1386,9 @@ def test_resolve_ambiguous_name_not_overridden_by_self_title():
     self_doc.getRuntimeUID.return_value = "self-uid"
     self_doc.RuntimeUID = "self-uid"
 
-    with patch("plugin.framework.uno_context.resolve_document_by_url", return_value=(None, None)):
+    with patch("plugin.doc.peer_message.resolve_document_by_url", return_value=(None, None)):
         with patch("plugin.doc.peer_message.list_v1_peers", return_value=peers):
-            with patch("plugin.doc.text_helpers.get_document_path", return_value="/tmp/Budget.ods"):
+            with patch("plugin.doc.peer_message.get_document_path", return_value="/tmp/Budget.ods"):
                 model, code, _msg = resolve_peer_target(object(), self_doc, "Budget.ods")
 
     assert model is None
@@ -1414,9 +1414,9 @@ def test_resolve_unique_peer_name_wins_over_caller_title():
             return peer_model, "calc"
         return None, None
 
-    with patch("plugin.framework.uno_context.resolve_document_by_url", side_effect=_resolve):
+    with patch("plugin.doc.peer_message.resolve_document_by_url", side_effect=_resolve):
         with patch("plugin.doc.peer_message.list_v1_peers", return_value=[peer]):
-            with patch("plugin.doc.text_helpers.get_document_path", return_value="/tmp/Budget.ods"):
+            with patch("plugin.doc.peer_message.get_document_path", return_value="/tmp/Budget.ods"):
                 model, code, _msg = resolve_peer_target(object(), self_doc, "Budget.ods")
 
     assert model is peer_model
@@ -1426,7 +1426,7 @@ def test_resolve_unique_peer_name_wins_over_caller_title():
 def test_identity_from_doc_reraises_main_thread_runtimeerror():
     doc = MagicMock()
     doc.getURL.return_value = "file:///tmp/Mine.odt"
-    with patch("plugin.doc.text_helpers.get_document_path", side_effect=RuntimeError("UNO thread violation")):
+    with patch("plugin.doc.peer_message.get_document_path", side_effect=RuntimeError("UNO thread violation")):
         with pytest.raises(RuntimeError, match="UNO thread violation"):
             identity_from_doc(doc)
 
@@ -1436,8 +1436,8 @@ def test_identity_from_doc_reraises_get_runtime_uid():
     doc = MagicMock()
     doc.getURL.return_value = "file:///tmp/Mine.odt"
     doc.getTitle.return_value = "Mine.odt"
-    with patch("plugin.framework.uno_context.get_runtime_uid", side_effect=RuntimeError("UNO thread violation")):
-        with patch("plugin.doc.text_helpers.get_document_path") as get_path:
+    with patch("plugin.doc.peer_message.get_runtime_uid", side_effect=RuntimeError("UNO thread violation")):
+        with patch("plugin.doc.peer_message.get_document_path") as get_path:
             with pytest.raises(RuntimeError, match="UNO thread violation"):
                 identity_from_doc(doc)
     get_path.assert_not_called()
@@ -1446,8 +1446,8 @@ def test_identity_from_doc_reraises_get_runtime_uid():
 
 def test_list_v1_peers_reraises_get_runtime_uid():
     self_doc = MagicMock()
-    with patch("plugin.framework.thread_guard.assert_main_thread"):
-        with patch("plugin.framework.uno_context.get_runtime_uid", side_effect=RuntimeError("UNO thread violation")):
+    with patch("plugin.doc.peer_message.assert_main_thread"):
+        with patch("plugin.doc.peer_message.get_runtime_uid", side_effect=RuntimeError("UNO thread violation")):
             with patch("plugin.doc.document_research.get_open_documents") as catalog:
                 with pytest.raises(RuntimeError, match="UNO thread violation"):
                     list_v1_peers(object(), self_doc)
@@ -1456,8 +1456,8 @@ def test_list_v1_peers_reraises_get_runtime_uid():
 
 def test_resolve_peer_target_reraises_self_uid():
     self_doc = MagicMock()
-    with patch("plugin.framework.uno_context.get_runtime_uid", side_effect=RuntimeError("UNO thread violation")):
-        with patch("plugin.framework.uno_context.resolve_document_by_url") as resolve:
+    with patch("plugin.doc.peer_message.get_runtime_uid", side_effect=RuntimeError("UNO thread violation")):
+        with patch("plugin.doc.peer_message.resolve_document_by_url") as resolve:
             with pytest.raises(RuntimeError, match="UNO thread violation"):
                 resolve_peer_target(object(), self_doc, "file:///tmp/x.odt")
     resolve.assert_not_called()
@@ -1473,8 +1473,8 @@ def test_resolve_peer_target_reraises_peer_uid():
             return "self-uid"
         raise RuntimeError("UNO thread violation")
 
-    with patch("plugin.framework.uno_context.resolve_document_by_url", return_value=(peer, "writer")):
-        with patch("plugin.framework.uno_context.get_runtime_uid", side_effect=_uid):
+    with patch("plugin.doc.peer_message.resolve_document_by_url", return_value=(peer, "writer")):
+        with patch("plugin.doc.peer_message.get_runtime_uid", side_effect=_uid):
             with pytest.raises(RuntimeError, match="UNO thread violation"):
                 resolve_peer_target(object(), self_doc, "peer-uid")
 

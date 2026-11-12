@@ -23,7 +23,7 @@ from plugin.chatbot.selection import (
     stream_completion_tasks,
 )
 from plugin.doc.compound_undo import WriterCompoundUndo
-from plugin.doc.visual_helpers import _controller_selection
+from plugin.doc.visual_helpers import controller_selection
 from plugin.draw.draw_undo import register_draw_text_edit_undo
 from plugin.draw.tables import _is_table_shape
 from plugin.draw.tree import _is_group, _iter_children
@@ -181,7 +181,7 @@ def do_draw_extend_edit(
     """
     del allow_whole_document
 
-    selection = _controller_selection(model)
+    selection = controller_selection(model)
     text_targets, saw_table = iter_draw_rewrite_targets(selection)
 
     user_input = ""

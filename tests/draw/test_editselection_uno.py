@@ -6,7 +6,7 @@ from __future__ import annotations
 from typing import Any
 from unittest.mock import patch
 
-from plugin.doc.visual_helpers import _controller_selection
+from plugin.doc.visual_helpers import controller_selection
 from plugin.draw.editselection import do_draw_extend_edit, iter_draw_rewrite_targets
 from plugin.draw.tables import _cell_string, _table_model, iter_table_shapes
 from plugin.draw.transform_engine import _set_shape_text
@@ -53,7 +53,7 @@ def test_impress_text_shape_selection_target(ctx: Any, doc: Any) -> None:
         controller.setCurrentPage(page)
     controller.select(shape)
 
-    targets, saw_table = iter_draw_rewrite_targets(_controller_selection(doc))
+    targets, saw_table = iter_draw_rewrite_targets(controller_selection(doc))
     assert saw_table is False
     assert len(targets) == 1
     assert targets[0].getString() == "Hello"
@@ -104,7 +104,7 @@ def test_draw_table_selection_saw_table_no_targets(ctx: Any, doc: Any) -> None:
     controller = doc.getCurrentController()
     controller.select(table_shape)
 
-    targets, saw_table = iter_draw_rewrite_targets(_controller_selection(doc))
+    targets, saw_table = iter_draw_rewrite_targets(controller_selection(doc))
     assert saw_table is True
     assert targets == []
 

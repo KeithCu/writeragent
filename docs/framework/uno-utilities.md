@@ -320,15 +320,15 @@ Three **different** PathSettings properties; do not collapse the meanings.
 
 | Call site | Lookup | Property | Meaning |
 |-----------|--------|----------|---------|
-| `document_research._path_settings_from_ctx` + `get_work_directory` | singleton `thePathSettings`, else create `PathSettings` | `Work` | LibreOffice “My Documents”; listing root when the active doc is unsaved. |
+| `document_research.path_settings_from_ctx` + `get_work_directory` | singleton `thePathSettings`, else create `PathSettings` | `Work` | LibreOffice “My Documents”; listing root when the active doc is unsaved. |
 | `config._resolve_config_path_from_ctx` | create `PathSettings` | `UserConfig` | Directory for `writeragent.json`. |
 | `image_tools.add_image_to_gallery` | singleton `thePathSettings` | `Storage_writable` | Gallery theme files. |
 
-`document_research` also expands `$(home)` via `thePathSubstitution` (`_substitute_lo_path_variables`) and requires the result to be an existing directory (`_resolve_lo_directory_path`). Config and gallery do not substitute variables.
+`document_research` also expands `$(home)` via `thePathSubstitution` (`_substitute_lo_path_variables`) and requires the result to be an existing directory (`resolve_lo_directory_path`). Config and gallery do not substitute variables.
 
 `resolve_listing_directory`: active doc parent (`get_document_directory` → `get_document_path`) else `get_work_directory`.
 
-**Share lookup, not meaning.** A shared `_path_settings_from_ctx` would be reasonable; `Work` vs `UserConfig` vs `Storage_writable` stay separate.
+**Share lookup, not meaning.** A shared `path_settings_from_ctx` would be reasonable; `Work` vs `UserConfig` vs `Storage_writable` stay separate.
 
 ### 2.5 HTTP / API URL helpers vs document URLs
 
@@ -508,7 +508,7 @@ Do **not** re-merge a monolithic `uno_helpers.py`. Prefer the smallest existing 
 ### P2 — candidate unify after documenting behavior
 
 4. **Desktop enumeration.** Have `resolve_document_by_url` and `get_open_documents` share `_office_model_from_desktop_element` (or move that helper next to `get_desktop`). Keep match policy (URL+uid vs listing metadata) at the callers.
-5. **Shared PathSettings locator** (`_path_settings_from_ctx`) used by research, config, gallery. Keep property names at call sites.
+5. **Shared PathSettings locator** (`path_settings_from_ctx`) used by research, config, gallery. Keep property names at call sites.
 6. **`DocumentService.detect_doc_type`** → `doc_type_family_label` **only if** tests accept unknown → `"unknown"` or an explicit `default="writer"` is added.
 7. **`get_active_document_for_scripts`** → **Landed.** The helper was removed. The script picker lists and writes only the document captured at launch.
 8. **`_current_document_controller`** → frame controller, not another Desktop create. **Landed** as `FrameSession`: the click handler uses `frame.getController()` and does not call `getCurrentComponent()`.

@@ -30,6 +30,7 @@ from plugin.calc.spreadsheet_search import search_spreadsheet_cells
 from plugin.doc.paragraph_search import compile_search_pattern, search_paragraph_texts
 from plugin.doc.text_helpers import get_string_without_tracked_deletions
 from plugin.framework.errors import make_tool_error, uno_read, user_stopped_payload
+from plugin.framework.queue_executor import main
 from plugin.framework.send_cancellation import SendCancelled, SendCancellation, is_cancelled
 from plugin.writer.search import SEARCH_CASE_SENSITIVE_DEFAULT
 
@@ -390,8 +391,6 @@ def grep_nearby_files(
         return make_tool_error(str(exc), code="INVALID_PARAM")
 
     subset_norm = str(file_subset).strip() if file_subset else None
-
-    from plugin.framework.queue_executor import main
 
     try:
         candidates, truncated_files, list_err = resolve_grep_candidates(

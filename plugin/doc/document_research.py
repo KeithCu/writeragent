@@ -16,12 +16,23 @@ from typing import TYPE_CHECKING, Any, Literal, NamedTuple, TypedDict
 
 import uno
 
+from plugin.framework.constants import folder_search_enabled
 from plugin.framework.doc_type import doc_type_family_label, get_document_type
 from plugin.doc.text_helpers import get_document_path
 from plugin.embeddings.embeddings_fs import ALL_INDEXABLE_EXTENSIONS
 from plugin.framework.errors import best_effort, make_tool_error, uno_read, user_stopped_payload
+from plugin.framework.queue_executor import main
 from plugin.framework.send_cancellation import SendCancellation, SendCancelled, is_cancelled
-from plugin.framework.uno_context import enum_has_more, resolve_document_by_url
+from plugin.framework.thread_guard import assert_main_thread, guard_uno
+from plugin.framework.uno_context import (
+    create_property_value,
+    enum_has_more,
+    get_desktop,
+    get_runtime_uid,
+    iter_open_models,
+    resolve_document_by_url,
+)
+from plugin.framework.uno_listeners import reraise_listener_boundary
 from plugin.framework.url_utils import normalize_file_url, path_to_file_url
 
 if TYPE_CHECKING:
@@ -99,8 +110,6 @@ def guess_doc_type_from_path(path: str) -> DocTypeGuess:
 
 def filter_document_research_discovery_tools(tools: list[ToolBase]) -> list[ToolBase]:
     """Hide cross-file search tools that do not apply to the current folder_search_mode; list/delegate always kept."""
-    from plugin.framework.constants import folder_search_enabled
-
     hidden = "grep_nearby_files" if folder_search_enabled() else "search_nearby_files"
     return [t for t in tools if t.name != hidden]
 
@@ -119,7 +128,7 @@ def system_path_from_url(url: str) -> str | None:
     return best_effort(lambda: _normalize_path(str(uno.fileUrlToSystemPath(url))), f"fileUrlToSystemPath failed for {url}")
 
 
-def _should_skip_filename(name: str) -> bool:
+def should_skip_filename(name: str) -> bool:
     if name.startswith("~$"):
         return True
     lower = name.lower()
@@ -135,14 +144,14 @@ def get_document_directory(model: Any) -> str | None:
     return parent if os.path.isdir(parent) else None
 
 
-def _path_settings_from_ctx(ctx: Any) -> Any | None:
+def path_settings_from_ctx(ctx: Any) -> Any | None:
     """Return LO PathSettings singleton, or None when UNO is unavailable."""
     if ctx is None or not hasattr(ctx, "getValueByName"):
         return None
     return ctx.getValueByName("/singletons/com.sun.star.util.thePathSettings")
 
 
-def _resolve_lo_directory_path(ctx: Any, raw: str) -> str | None:
+def resolve_lo_directory_path(ctx: Any, raw: str) -> str | None:
     """Normalize a PathSettings directory value to an existing absolute path."""
     text = str(raw).strip()
     if text and ctx is not None and hasattr(ctx, "getValueByName"):
@@ -166,13 +175,13 @@ def _resolve_lo_directory_path(ctx: Any, raw: str) -> str | None:
 
 def get_work_directory(ctx: Any) -> str | None:
     """Return LibreOffice My Documents folder (Work path setting), or None."""
-    settings = _path_settings_from_ctx(ctx)
+    settings = path_settings_from_ctx(ctx)
     if settings is None:
         return None
     work_raw = settings.getPropertyValue("Work")
     if work_raw is None:
         return None
-    return _resolve_lo_directory_path(ctx, str(work_raw))
+    return resolve_lo_directory_path(ctx, str(work_raw))
 
 
 def resolve_listing_directory(ctx: Any, active_model: Any) -> str | None:
@@ -211,8 +220,6 @@ def _office_model_from_desktop_element(elem: Any) -> Any | None:
         return None
     if model is None:
         return None
-    from plugin.framework.thread_guard import guard_uno
-
     return guard_uno(model)
 
 
@@ -223,8 +230,6 @@ def _collect_open_file_urls(
     extensions: frozenset[str],
 ) -> dict[str, str]:
     """Map normalized path -> file URL for open LO components matching *extensions*."""
-    from plugin.framework.uno_context import get_desktop, iter_open_models
-
     out: dict[str, str] = {}
     exclude_norm = _normalize_path(exclude_path) if exclude_path else None
     try:
@@ -278,7 +283,7 @@ def _scan_directory(
     for idx, name in enumerate(names):
         if idx % 50 == 0 and is_cancelled(cancel):
             raise SendCancelled()
-        if _should_skip_filename(name):
+        if should_skip_filename(name):
             continue
         ext = os.path.splitext(name)[1].lower()
         if ext not in extensions:
@@ -318,7 +323,7 @@ def _entries_from_open_only(
     entries: list[FileEntry] = []
     for norm, url in open_paths.items():
         name = os.path.basename(norm)
-        if _should_skip_filename(name):
+        if should_skip_filename(name):
             continue
         if filter_lower and filter_lower not in name.lower():
             continue
@@ -399,8 +404,6 @@ def resolve_listing_state(
 
     Raises SendCancelled when the user stops the send before the hop runs.
     """
-    from plugin.framework.queue_executor import main
-
     def _read_listing_state() -> ListingState:
         active_path = get_document_path(active_model) if active_model is not None else None
         exclude_path = _normalize_path(active_path) if active_path else None
@@ -570,8 +573,6 @@ def open_document_for_read(ctx: Any, path_or_url: str) -> tuple[Any | None, str 
     :func:`close_document_research_document` after the read finishes. Reused desktop documents are not closed.
     A load that is not returned (unsupported type, or an exception after load) is closed here.
     """
-    from plugin.framework.uno_context import get_desktop
-
     path: str | None = None
     url: str | None = None
     raw = str(path_or_url).strip()
@@ -601,7 +602,6 @@ def open_document_for_read(ctx: Any, path_or_url: str) -> tuple[Any | None, str 
     # this function returns.
     model: Any = None
     try:
-        from plugin.framework.uno_context import create_property_value
         desktop = get_desktop(ctx)
         load_props = (
             create_property_value("Hidden", True),
@@ -615,7 +615,6 @@ def open_document_for_read(ctx: Any, path_or_url: str) -> tuple[Any | None, str 
         if doc_type == "unknown":
             close_document_research_document(model, opened_for_document_research=True)
             return None, None, f"Unsupported document type for {path}", False
-        from plugin.framework.thread_guard import guard_uno
 
         return guard_uno(model), doc_type, None, True
     except Exception as e:
@@ -652,8 +651,6 @@ def _is_same_document(model: Any, active_model: Any) -> bool:
     instead, falling back to the URL for models without one."""
     if model is None or active_model is None:
         return False
-    from plugin.framework.uno_context import get_runtime_uid
-
     ua, ub = get_runtime_uid(model), get_runtime_uid(active_model)
     if ua and ub:
         return ua == ub
@@ -668,10 +665,6 @@ def get_open_documents(uno_ctx: Any, active_model: Any = None) -> list[dict[str,
     leaves as ``ListenerBoundary``. A runtime error is re-raised as itself,
     not as disposal and not as ``[]``.
     """
-    from plugin.framework.thread_guard import assert_main_thread
-    from plugin.framework.uno_context import get_desktop, get_runtime_uid
-    from plugin.framework.uno_listeners import reraise_listener_boundary
-
     try:
         assert_main_thread("document_research.get_open_documents")
         desktop = get_desktop(uno_ctx)

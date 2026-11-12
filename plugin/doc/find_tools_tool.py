@@ -31,6 +31,9 @@ from plugin.doc.specialized_catalog import get_specialized_domain_catalog, loop_
 from plugin.framework.prompts import (
     IMPRESS_DRAW_SIDEBAR_ONLY_DOMAINS,
     WRITER_SIDEBAR_ONLY_DOMAINS,
+    get_document_research_workflow_hint,
+    images_specialized_sub_agent_hint,
+    python_specialized_sub_agent_hint,
 )
 from plugin.framework.tool import ToolBase, ToolContext
 
@@ -59,19 +62,15 @@ def get_domain_guidance(domain: str, *, agent_label: str | None = "Writer") -> s
     if domain == "charts":
         return loop_hint("charts", agent_label)
     if domain == "images":
-        from plugin.framework.prompts import images_specialized_sub_agent_hint
-
         return images_specialized_sub_agent_hint().strip()
     if domain == "python":
         if agent_label is None:
             return ("run_venv_python_script: in Calc, pass `data_range` (an A1 address) to inject "
                     "cell values as `data`; in Writer or Draw/Impress it does not inject "
                     "spreadsheet data -- use document tools for content.")
-        from plugin.framework.prompts import python_specialized_sub_agent_hint
         return (python_specialized_sub_agent_hint(agent_label) or "").strip()
     if domain == "document_research":
         # MCP never advertises peer tools, so leave the peer-choice block out.
-        from plugin.framework.prompts import get_document_research_workflow_hint
         return (get_document_research_workflow_hint() or "").strip()
     return ""
 
@@ -145,14 +144,14 @@ class FindTools(ToolBase):
         if registry is None:
             return self._tool_error("Tool registry unavailable.", code="SERVICE_UNAVAILABLE")
 
-        domain = domain.strip().lower() if isinstance(domain, str) and domain.strip() else None
+        domain = domain.strip().lower() if domain and domain.strip() else None
 
-        doc = getattr(ctx, "doc", None)
-        agent_label = agent_label_for_doc_type(getattr(ctx, "doc_type", None)) if doc is not None else None
+        doc = ctx.doc
+        agent_label = agent_label_for_doc_type(ctx.doc_type) if doc is not None else None
         # for_discovery: this catalog is what a direct_discovery client uses to find tools, so it
         # must cover everything the flat tool list exposes. Exclusions that only shape a chat
         # prompt would otherwise make a listed, callable tool impossible to discover.
-        catalog = get_specialized_domain_catalog(agent_label=agent_label, ctx=getattr(ctx, "ctx", None),
+        catalog = get_specialized_domain_catalog(agent_label=agent_label, ctx=ctx.ctx,
                                                  for_discovery=True)
 
         out: dict[str, Any] = {
@@ -179,8 +178,9 @@ class FindTools(ToolBase):
             )
 
         schemas = registry.get_schemas("mcp", doc=doc, active_domain=domain, **_doc_filter(doc))
+        # Lazy: plugin.mcp.mcp_protocol pulls in the MCP server stack (config, HTTP server, sessions; ~60 modules) that this tool module does not otherwise need.
         from plugin.mcp.mcp_protocol import drop_unavailable_domains
-        schemas = drop_unavailable_domains(schemas, registry, getattr(ctx, "ctx", None))
+        schemas = drop_unavailable_domains(schemas, registry, ctx.ctx)
 
         tools: list[dict[str, Any]] = []
         for s in (schemas or []):

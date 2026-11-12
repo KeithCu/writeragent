@@ -36,8 +36,17 @@ from plugin.framework.doc_type import (
     doc_type_label_for_enum,
     get_document_type,
 )
+# Module import, not a name import: tests patch plugin.doc.document_research.get_open_documents
+# at the owner, and that one patch must also cover list_v1_peers here (same reason as
+# specialized_base.py's module imports).
+from plugin.doc import document_research
+from plugin.doc.live_panels import get_live_panel
+from plugin.doc.text_helpers import get_document_path
 from plugin.framework.async_drain_guard import add_drain_idle_callback, get_drain_owner
+from plugin.framework.queue_executor import Policy, main
+from plugin.framework.thread_guard import assert_main_thread
 from plugin.framework.tool import ToolBase, ToolContext
+from plugin.framework.uno_context import get_runtime_uid, resolve_document_by_url, uno_same
 
 log = logging.getLogger("writeragent.doc.peer_message")
 
@@ -171,8 +180,6 @@ def v1_peer_type_label(model: Any) -> str | None:
 
 def identity_from_doc(doc: Any) -> dict[str, str]:
     """Sender fields from ``ToolContext.doc`` (not authored in ``message``)."""
-    from plugin.framework.uno_context import get_runtime_uid
-
     if doc is None:
         return {"name": "Untitled", "uid": "", "url": ""}
     # Do not catch. get_runtime_uid and get_document_path are @main_thread_only;
@@ -182,8 +189,6 @@ def identity_from_doc(doc: Any) -> dict[str, str]:
     url = str(doc.getURL() or "")
     name = ""
     if url:
-        from plugin.doc.text_helpers import get_document_path
-
         path = get_document_path(doc) or ""
         name = os.path.basename(path) if path else ""
     if not name:
@@ -254,8 +259,6 @@ def format_peer_catalog(peers: list[dict[str, str]]) -> str:
 
 
 def _resolve_open_model(uno_ctx: Any, key: str) -> Any | None:
-    from plugin.framework.uno_context import resolve_document_by_url
-
     try:
         model, _unused_type = resolve_document_by_url(uno_ctx, key)
     except Exception:
@@ -269,17 +272,13 @@ def list_v1_peers(uno_ctx: Any, self_doc: Any) -> list[dict[str, str]]:
     Desktop catalog + RuntimeUID. Callers marshal to the main thread
     (specialized scaffolding / ``get_peer_inner_choice_block``) or this asserts.
     """
-    from plugin.doc.document_research import get_open_documents
-    from plugin.framework.thread_guard import assert_main_thread
-    from plugin.framework.uno_context import get_runtime_uid, uno_same
-
     assert_main_thread("peer_message.list_v1_peers")
     self_uid = ""
     if self_doc is not None:
         self_uid = get_runtime_uid(self_doc) or ""
     peers: list[dict[str, str]] = []
     try:
-        catalog = get_open_documents(uno_ctx, self_doc)
+        catalog = document_research.get_open_documents(uno_ctx, self_doc)
     except Exception:
         log.debug("list_v1_peers: get_open_documents failed", exc_info=True)
         return []
@@ -318,8 +317,6 @@ def resolve_peer_target(
 
     Returns ``(model, error_code, error_message)``. Success: ``(model, None, "")``.
     """
-    from plugin.framework.uno_context import get_runtime_uid, uno_same
-
     target = (document_url or "").strip()
     if not target:
         return None, "VALIDATION_ERROR", "document_url is required."
@@ -361,8 +358,6 @@ def resolve_peer_target(
 
 def enqueue_peer_turn(listener: PeerListener, turn: PeerPendingTurn) -> str | None:
     """Queue *turn*. Returns ``PEER_QUEUE_FULL`` or None."""
-    from plugin.framework.thread_guard import assert_main_thread
-
     assert_main_thread("peer_message.enqueue_peer_turn")
     if peer_queue.pending(listener) >= PEER_QUEUE_CAP:
         return "PEER_QUEUE_FULL"
@@ -374,16 +369,12 @@ def drop_listener_queue(listener: PeerListener | None) -> None:
     """Stop / dispose: drop that listener's pending injects only."""
     if listener is None:
         return
-    from plugin.framework.thread_guard import assert_main_thread
-
     assert_main_thread("peer_message.drop_listener_queue")
     peer_queue.drop_listener(listener)
 
 
 def kick_pending_peer_starts() -> None:
     """Start at most one queued extracted send when the process drain is idle."""
-    from plugin.framework.thread_guard import assert_main_thread
-
     assert_main_thread("peer_message.kick_pending_peer_starts")
     if get_drain_owner() is not None:
         return
@@ -440,8 +431,6 @@ def _on_drain_idle() -> None:
     if not peer_queue:
         return
     try:
-        from plugin.framework.queue_executor import Policy, main
-
         if main.policy is not Policy.test_inline:
             main.post(kick_pending_peer_starts)
     except Exception:
@@ -509,7 +498,7 @@ def _document_research_domain(active_domain: str | None) -> bool:
     return base == PEER_SPECIALIZED_DOMAIN
 
 
-def peer_send_caller_allowed(ctx: Any) -> bool:
+def peer_send_caller_allowed(ctx: ToolContext) -> bool:
     """True for sidebar chat and document_research specialized; MCP stays out.
 
     Specialized smol loops reuse the parent ``ToolContext`` (``caller="chat"``)
@@ -517,12 +506,12 @@ def peer_send_caller_allowed(ctx: Any) -> bool:
     enough today, but the domain clause keeps execute working if a specialized
     caller is not tagged ``chat``.
     """
-    caller = str(getattr(ctx, "caller", "") or "")
+    caller = ctx.caller or ""
     if caller in _PEER_SEND_BLOCKED_CALLERS:
         return False
     if caller == "chat":
         return True
-    return _document_research_domain(getattr(ctx, "active_domain", None))
+    return _document_research_domain(ctx.active_domain)
 
 
 def _list_v1_peers_or_empty(uno_ctx: Any, doc: Any, where: str) -> list[dict[str, str]]:
@@ -661,9 +650,6 @@ class _SendPeerBase(ToolBase):
         model, err_code, err_msg = resolve_peer_target(ctx.ctx, ctx.doc, document_url)
         if err_code or model is None:
             return self._tool_error(err_msg, code=err_code or "PEER_NOT_FOUND")
-
-        from plugin.doc.live_panels import get_live_panel
-        from plugin.framework.uno_context import get_runtime_uid
 
         uid = get_runtime_uid(model) or ""
         if not uid:

@@ -48,7 +48,7 @@ import tempfile
 from typing import Any, NamedTuple
 
 from plugin.framework.doc_type import is_impress
-from plugin.doc.document_research import _path_settings_from_ctx, _resolve_lo_directory_path, _should_skip_filename
+from plugin.doc.document_research import path_settings_from_ctx, resolve_lo_directory_path, should_skip_filename
 from plugin.draw.base import DRAW_AND_IMPRESS
 from plugin.draw.design_look import derive_otp_look
 from plugin.draw.masters import find_master, iter_masters
@@ -200,7 +200,7 @@ def _split_pathsettings_value(raw: str) -> list[str]:
 
 def _iter_template_directories(ctx: Any) -> list[str]:
     """Resolve existing template directories from PathSettings (no install prefix)."""
-    settings = _path_settings_from_ctx(ctx)
+    settings = path_settings_from_ctx(ctx)
     if settings is None:
         return []
     found: list[str] = []
@@ -214,7 +214,7 @@ def _iter_template_directories(ctx: Any) -> list[str]:
         if raw is None:
             continue
         for chunk in _split_pathsettings_value(str(raw)):
-            resolved = _resolve_lo_directory_path(ctx, chunk)
+            resolved = resolve_lo_directory_path(ctx, chunk)
             if resolved is None:
                 continue
             key = os.path.normcase(resolved)
@@ -234,7 +234,7 @@ def enumerate_impress_designs(ctx: Any, *, include_look: bool = True) -> list[di
             dirnames.sort()
             files.sort()
             for filename in files:
-                if _should_skip_filename(filename):
+                if should_skip_filename(filename):
                     continue
                 if not filename.lower().endswith(_OTP_EXT):
                     continue

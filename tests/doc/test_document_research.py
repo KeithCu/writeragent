@@ -374,12 +374,12 @@ def test_collect_open_file_urls_skips_broken_desktop_component():
             [broken, good]
         )
         with (
-            patch("plugin.framework.uno_context.get_desktop", return_value=desktop),
+            patch("plugin.doc.document_research.get_desktop", return_value=desktop),
             patch(
                 "plugin.doc.document_research.system_path_from_url",
                 side_effect=lambda url: budget_norm if url == budget_url else None,
             ),
-            patch("plugin.framework.thread_guard.guard_uno", side_effect=lambda obj: obj),
+            patch("plugin.doc.document_research.guard_uno", side_effect=lambda obj: obj),
         ):
             out = _collect_open_file_urls(
                 object(), exclude_path=None, extensions=ALL_INDEXABLE_EXTENSIONS
@@ -421,12 +421,12 @@ def test_collect_open_file_urls_skips_geturl_failure():
             [broken, good]
         )
         with (
-            patch("plugin.framework.uno_context.get_desktop", return_value=desktop),
+            patch("plugin.doc.document_research.get_desktop", return_value=desktop),
             patch(
                 "plugin.doc.document_research.system_path_from_url",
                 side_effect=lambda url: budget_norm if url == budget_url else None,
             ),
-            patch("plugin.framework.thread_guard.guard_uno", side_effect=lambda obj: obj),
+            patch("plugin.doc.document_research.guard_uno", side_effect=lambda obj: obj),
         ):
             out = _collect_open_file_urls(
                 object(), exclude_path=None, extensions=ALL_INDEXABLE_EXTENSIONS
@@ -533,7 +533,7 @@ def test_hidden_readonly_load_args_named_on_windows(monkeypatch):
 
 
 @patch("plugin.doc.document_research.get_document_type")
-@patch("plugin.framework.uno_context.get_desktop")
+@patch("plugin.doc.document_research.get_desktop")
 @patch("plugin.doc.document_research.resolve_document_by_url", return_value=(None, None))
 @patch("plugin.doc.document_research.os.path.isfile", return_value=True)
 def test_open_document_for_read_sets_close_flag_on_new_load(mock_isfile, mock_resolve, mock_desktop, mock_dtype):
@@ -555,7 +555,7 @@ def test_open_document_for_read_sets_close_flag_on_new_load(mock_isfile, mock_re
 
 
 @patch("plugin.doc.document_research.get_document_type")
-@patch("plugin.framework.uno_context.get_desktop")
+@patch("plugin.doc.document_research.get_desktop")
 @patch("plugin.doc.document_research.resolve_document_by_url", return_value=(None, None))
 @patch("plugin.doc.document_research.os.path.isfile", return_value=True)
 def test_open_document_for_read_closes_unsupported_type(mock_isfile, mock_resolve, mock_desktop, mock_dtype):
@@ -575,7 +575,7 @@ def test_open_document_for_read_closes_unsupported_type(mock_isfile, mock_resolv
 
 
 @patch("plugin.doc.document_research.get_document_type")
-@patch("plugin.framework.uno_context.get_desktop")
+@patch("plugin.doc.document_research.get_desktop")
 @patch("plugin.doc.document_research.resolve_document_by_url", return_value=(None, None))
 @patch("plugin.doc.document_research.os.path.isfile", return_value=True)
 def test_open_document_for_read_closes_when_post_load_raises(mock_isfile, mock_resolve, mock_desktop, mock_dtype):
@@ -634,7 +634,7 @@ def test_get_open_documents_disposed_desktop_is_not_an_empty_list():
     enum.hasMoreElements.side_effect = _DisposedException("enum dead")
     desktop.getComponents.return_value.createEnumeration.return_value = enum
     docs = None
-    with patch("plugin.framework.uno_context.get_desktop", return_value=desktop):
+    with patch("plugin.doc.document_research.get_desktop", return_value=desktop):
         try:
             try:
                 docs = get_open_documents(MagicMock())
@@ -649,7 +649,7 @@ def test_get_open_documents_disposed_desktop_is_not_an_empty_list():
 def test_get_open_documents_disposed_component_access_is_not_empty():
     desktop = MagicMock()
     desktop.getComponents.side_effect = _DisposedException("desktop gone")
-    with patch("plugin.framework.uno_context.get_desktop", return_value=desktop):
+    with patch("plugin.doc.document_research.get_desktop", return_value=desktop):
         try:
             try:
                 get_open_documents(MagicMock())
@@ -664,7 +664,7 @@ def test_get_open_documents_disposed_component_access_is_not_empty():
 def test_get_open_documents_empty_desktop_is_not_disposed():
     desktop = MagicMock()
     desktop.getComponents.return_value = None
-    with patch("plugin.framework.uno_context.get_desktop", return_value=desktop):
+    with patch("plugin.doc.document_research.get_desktop", return_value=desktop):
         try:
             docs = get_open_documents(MagicMock())
         except ListenerBoundary as boundary:
@@ -716,7 +716,7 @@ def test_get_open_documents_runtime_error_is_not_disposal_or_empty():
     enum = MagicMock()
     enum.hasMoreElements.side_effect = RuntimeError("not disposed")
     desktop.getComponents.return_value.createEnumeration.return_value = enum
-    with patch("plugin.framework.uno_context.get_desktop", return_value=desktop):
+    with patch("plugin.doc.document_research.get_desktop", return_value=desktop):
         try:
             get_open_documents(MagicMock())
         except ListenerBoundary as boundary:
