@@ -532,8 +532,6 @@ def _patch_calc_range(module: Any) -> None:
 
 
 def _patch_duckdb_sql(module: Any) -> None:
-    module._DEAL_SQL_RESULT_KEYS = 4
-    module._DEAL_SQL_RESULT_STR = 8
     module._deal_sql_result_value_ok = _stub_deal_sql_result_value_ok_crosshair
     _swap_code(module._template_body, _stub_template_body)
 

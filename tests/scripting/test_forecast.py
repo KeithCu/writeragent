@@ -870,6 +870,3 @@ def test_auto_every_model_failing_is_forecast_failed(monkeypatch):
     assert result["message"] == "ma-boom"
 
 
-
-
-

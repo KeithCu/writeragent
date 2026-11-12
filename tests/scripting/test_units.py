@@ -694,3 +694,24 @@ def test_is_units_result_uses_helper_names():
     assert is_res({"status": "ok", "values": [[36.0]], "magnitudes": [36.0]}) is False
     assert is_res({"status": "error", "code": "PARSE_ERROR"}) is False
     assert is_res("36 km/h") is False
+
+
+def test_blank_one_cell_unit_is_value_error_direct_and_missing_param_rpc():
+    assert convert_quantity(5, [[""]], "m") == "#VALUE!"
+    assert format_quantity(magnitude=5, units=[[""]]) == "#VALUE!"
+    assert (
+        run_units(
+            {"helper": "convert_quantity", "params": {"value": 5, "from_unit": [[""]], "to_unit": "m"}},
+            None,
+            {},
+        )["code"]
+        == "MISSING_PARAM"
+    )
+    assert (
+        run_units(
+            {"helper": "format_quantity", "params": {"magnitude": 5, "units": [[""]]}},
+            None,
+            {},
+        )["code"]
+        == "MISSING_PARAM"
+    )

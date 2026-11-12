@@ -103,7 +103,7 @@ def insert_units_result_into_writer(ctx: Any, doc: Any, result: dict[str, Any]) 
             details={"units_result": result},
         )
 
-    from plugin.writer.html_import import insert_content_at_position
+    from plugin.writer.html_import import insert_content_at_position  # host only: not in the compute bundle
 
     insert_content_at_position(doc, ctx, text, "selection")
 
@@ -120,7 +120,7 @@ def insert_units_result_into_doc(
         insert_units_result_into_writer(ctx, doc, result)
         return 1
     if is_calc(doc):
-        from plugin.calc.tabular_egress import insert_tabular_result_into_calc
+        from plugin.calc.tabular_egress import insert_tabular_result_into_calc  # host only: not in the compute bundle
 
         grid = format_units_for_calc(result, output_style=output_style)
         return insert_tabular_result_into_calc(doc, ctx, grid)

@@ -1848,5 +1848,15 @@ def test_apply_style_description_does_not_repeat_clear_direct_param():
     assert "'style_props' (default)" in ApplyStyle.parameters["properties"]["clear_direct"]["description"]
 
 
+def test_apply_style_is_the_one_home_for_clear_direct_and_quote_indent():
+    assert ApplyStyle.description is not None
+    assert ApplyStyle.parameters is not None
+    assert "quote indent" in ApplyStyle.description
+    clear_direct_desc = ApplyStyle.parameters["properties"]["clear_direct"]["description"]
+    assert "not 'clear only what this style defines'" in clear_direct_desc
+    assert "Ctrl+M" in clear_direct_desc
+    assert "full_document" in clear_direct_desc
+
+
 
 

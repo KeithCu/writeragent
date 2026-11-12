@@ -19,7 +19,6 @@ Monaco on_save checks and updates it on the UI thread only. It is not locked.
 """
 
 from dataclasses import dataclass
-import html as html_mod
 import logging
 import time
 from typing import Any, Callable
@@ -66,6 +65,7 @@ from plugin.scripting.document_scripts import (
 )
 from plugin.scripting.helper_domain import (
     ScriptFacts,
+    escape_for_html_insert,
     format_elapsed_time,
     plot_insert_ok_outcome,
     rps_error_outcome,
@@ -119,20 +119,9 @@ def _monaco_run_document_key(doc: Any) -> str:
     return ("uid:" + uid) if uid else f"id:{id(doc)}"
 
 
-def _html_insert_text(value: Any) -> str:
-    """Escape a script result so it stays text after Writer/Calc HTML insert.
-
-    ``insert_content_at_position`` and ``insert_cell_html_rich`` call
-    ``html.unescape`` before the StarWriter HTML filter, so a single
-    ``html.escape`` is undone and ``<`` becomes markup again. Double-escape
-    so a literal ``<`` survives as text (``&amp;lt;`` → ``&lt;`` → ``<``).
-    """
-    return html_mod.escape(html_mod.escape(str(value)))
-
-
 def _html_row(cells: list[Any] | tuple[Any, ...], tag: str = "td") -> str:
     """One ``<tr>`` of ``th`` or ``td`` cells. Same bytes as the old per-cell appends."""
-    inner = "".join(f"<{tag}>{_html_insert_text(cell)}</{tag}>" for cell in cells)
+    inner = "".join(f"<{tag}>{escape_for_html_insert(cell)}</{tag}>" for cell in cells)
     return "<tr>" + inner + "</tr>"
 
 
@@ -198,7 +187,7 @@ def _format_list_to_table(data: list[Any], *, headers: list[Any] | None = None) 
         return _html_table(body)
 
     # Fallback: list of primitives
-    return "<br>".join(_html_insert_text(x) for x in data)
+    return "<br>".join(escape_for_html_insert(x) for x in data)
 
 
 def is_shape_tool_status_result(result: Any) -> bool:
@@ -245,19 +234,19 @@ def format_result_for_writer(result: Any) -> str:
             if isinstance(val, list) and val:
                 table = _format_list_to_table(val)
                 if table:
-                    html_parts.append(f"<h3>{_html_insert_text(key)}</h3>")
+                    html_parts.append(f"<h3>{escape_for_html_insert(key)}</h3>")
                     html_parts.append(table)
             else:
-                escaped = _html_insert_text(val).replace("\n", "<br>")
+                escaped = escape_for_html_insert(val).replace("\n", "<br>")
                 lower_key = str(key).lower()
                 if lower_key in priority_keys:
                     html_parts.append(f"<p><b>{escaped}</b></p>")
                 else:
-                    html_parts.append(f"<p><b>{_html_insert_text(key)}:</b> {escaped}</p>")
+                    html_parts.append(f"<p><b>{escape_for_html_insert(key)}:</b> {escaped}</p>")
 
         return "\n".join(html_parts)
 
-    return _html_insert_text(result).replace("\n", "<br>")
+    return escape_for_html_insert(result).replace("\n", "<br>")
 
 
 def insert_result_into_calc(doc: Any, uno_ctx: Any, result: Any) -> None:

@@ -273,15 +273,20 @@ class TestPromptToolMatching:
         # Writing plan: write_document_section only -> content rules present, target search rules absent
         w_instr = get_sub_agent_instructions("BASE", tool_names=["write_document_section"])
         assert "`content` is a JSON array of HTML strings" in w_instr
+        assert "Good math" in w_instr
+        assert "|outline" in w_instr
         assert "target='search'" not in w_instr
 
         # Deep research with apply_document_content -> both present
         d_instr = get_sub_agent_instructions("BASE", tool_names=["apply_document_content"])
         assert "`content` is a JSON array of HTML strings" in d_instr
+        assert "Good math" in d_instr
+        assert "|outline" in d_instr
         assert "APPLY_DOCUMENT_CONTENT AND HTML (CRITICAL):" in d_instr
         assert "target='search'" in d_instr
 
         # No HTML tools -> neither content nor target rules
         plain_instr = get_sub_agent_instructions("BASE", tool_names=["other_tool"])
         assert "`content` is a JSON array of HTML strings" not in plain_instr
+        assert "Good math" not in plain_instr
         assert "target='search'" not in plain_instr

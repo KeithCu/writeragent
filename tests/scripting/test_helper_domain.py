@@ -293,63 +293,55 @@ def test_format_elapsed_time_boundary_rounding():
 
 
 def test_run_trusted_calc_data_helper_sheet_disposal_propagates():
+    from plugin.scripting.domain_registry import get_domain_wiring
     from plugin.scripting.helper_domain import run_trusted_calc_data_helper
     from plugin.framework.errors import DocumentDisposedError
 
     class DisposedException(Exception):
         pass
 
+    row = get_domain_wiring("forecast")
     client_mock = MagicMock()
     with (
         patch("plugin.framework.queue_executor.main.is_current", return_value=True),
         patch("plugin.calc.calc_addin_data._resolve_python_data", return_value=([[1]], None)),
         patch("plugin.calc.bridge.CalcBridge") as mock_bridge,
+        patch("plugin.scripting.client.run_forecast", client_mock),
     ):
         mock_bridge.return_value.get_active_sheet.side_effect = DisposedException("disposed")
         with pytest.raises(DocumentDisposedError):
             run_trusted_calc_data_helper(
                 MagicMock(),
                 MagicMock(),
+                row,
                 helper="forecast_time_series",
-                helper_names=frozenset({"forecast_time_series"}),
-                error_code="FORECAST_ERROR",
-                empty_data_message="No data to forecast",
                 data=[[1]],
-                data_range=None,
-                headers=True,
-                params=None,
-                task_hint=None,
-                client_run=client_mock,
             )
     client_mock.assert_not_called()
 
 
 def test_run_trusted_calc_data_helper_sheet_name_failure_is_best_effort():
+    from plugin.scripting.domain_registry import get_domain_wiring
     from plugin.scripting.helper_domain import run_trusted_calc_data_helper
 
     class RuntimeException(Exception):
         pass
 
+    row = get_domain_wiring("forecast")
     client_mock = MagicMock(return_value={"status": "ok"})
     with (
         patch("plugin.framework.queue_executor.main.is_current", return_value=True),
         patch("plugin.calc.calc_addin_data._resolve_python_data", return_value=([[1]], None)),
         patch("plugin.calc.bridge.CalcBridge") as mock_bridge,
+        patch("plugin.scripting.client.run_forecast", client_mock),
     ):
         mock_bridge.return_value.get_active_sheet.side_effect = RuntimeError("no sheet")
         res1 = run_trusted_calc_data_helper(
             MagicMock(),
             MagicMock(),
+            row,
             helper="forecast_time_series",
-            helper_names=frozenset({"forecast_time_series"}),
-            error_code="FORECAST_ERROR",
-            empty_data_message="No data to forecast",
             data=[[1]],
-            data_range=None,
-            headers=True,
-            params=None,
-            task_hint=None,
-            client_run=client_mock,
         )
         assert res1 == {"status": "ok"}
         client_mock.assert_called_once()
@@ -361,16 +353,9 @@ def test_run_trusted_calc_data_helper_sheet_name_failure_is_best_effort():
         res2 = run_trusted_calc_data_helper(
             MagicMock(),
             MagicMock(),
+            row,
             helper="forecast_time_series",
-            helper_names=frozenset({"forecast_time_series"}),
-            error_code="FORECAST_ERROR",
-            empty_data_message="No data to forecast",
             data=[[1]],
-            data_range=None,
-            headers=True,
-            params=None,
-            task_hint=None,
-            client_run=client_mock,
         )
         assert res2 == {"status": "ok"}
         client_mock.assert_called_once()
@@ -479,6 +464,17 @@ def test_rps_ok_outcome_no_output_flag():
     assert out_normal == {"ok": True, "status_ok_text": "done", "result": 42}
     assert "no_output" not in out_normal
     assert "stdout" not in out_normal
+
+
+def test_escape_for_html_insert_survives_one_unescape():
+    import html
+
+    from plugin.scripting.helper_domain import escape_for_html_insert
+
+    escaped = escape_for_html_insert("<b>&")
+    assert escaped == "&amp;lt;b&amp;gt;&amp;amp;"
+    assert html.unescape(escaped) == "&lt;b&gt;&amp;"
+    assert escape_for_html_insert(3) == "3"
 
 
 
