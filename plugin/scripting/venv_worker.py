@@ -35,12 +35,15 @@ from plugin.scripting.config_limits import (
     HOST_IPC_READ_GRACE_SEC,
     VENV_IPC_WRITE_TIMEOUT_SEC,
     WARM_WORKER_TIMEOUT_SEC,
+    embeddings_worker_timeout_sec,
     python_exec_timeout,
 )
 from plugin.framework.send_cancellation import SendCancellation, is_cancelled
 from plugin.framework.ipc import (
     DEFAULT_MAX_PAYLOAD_BYTES,
     EXEC_STARTED,
+    FRAME_HEARTBEAT,
+    FRAME_RESULT,
     IpcFrameError,
     IpcPartialFrameTimeout,
     pack_pickle_frame,
@@ -48,6 +51,7 @@ from plugin.framework.ipc import (
     unpack_pickle_frame,
     write_packed_frame_with_timeout,
 )
+from plugin.scripting.host_rpc import handle_tool_call_frame, resolve_allowed_tools
 from plugin.scripting.session_key import SessionKey
 from plugin.scripting.payload_codec import HOST_UNPACK_ERRORS, host_unpack_data
 from plugin.framework.subprocess_env import scrub_subprocess_env
@@ -173,8 +177,6 @@ def _maybe_dispatch_intermediate_response(
     script_session_id: str | None = None,
 ) -> bool:
     """Handle tool_call (any build). ppt-master llm_request / worker_event only for that caller."""
-    from plugin.scripting.host_rpc import handle_tool_call_frame
-
     # Tool RPC is the shared venv→LO path (Run Python Script, chat python, ppt-master).
     # Handle it here so LibrePy / WriterAgent-without-ppt_master still round-trip.
     if handle_tool_call_frame(
@@ -383,15 +385,12 @@ class PythonWorkerManager:
     def _on_worker_death(self, death: Death) -> None:
         self._clear_host_state_after_worker_death()
 
-    def _spawn_command_wrapper(self, cmd: list[str], *, env: dict[str, str] | None = None, cwd: str | None = None) -> list[str]:
-        return wrap_worker_command(cmd, env=env, cwd=cwd)
-
     def _create_warm_child(self) -> WarmChild:
         spec = ChildSpec(
             name=f"venv:{self.pool}",
             argv=[self.exe, _HARNESS_PATH],
             env=dict(self.env),
-            command_wrapper=self._spawn_command_wrapper,
+            command_wrapper=wrap_worker_command,
             ready_timeout_sec=float(WARM_WORKER_TIMEOUT_SEC),
             max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES,
             # log_start_failure=False: a missing interpreter must stay OSError (systemd retry depends on it).
@@ -755,8 +754,6 @@ class PythonWorkerManager:
         # Host-only preparation. A failure here must not reach the worker-kill
         # handlers below: no request byte has been written yet.
         try:
-            from plugin.scripting.host_rpc import resolve_allowed_tools
-
             allowed_tools = resolve_allowed_tools(req.python_tool_domain)
             # Pin wins over the kernel session id. Chat passes doc:… and
             # leaves request session_id unset. RPS / =PY() / PPT-Master
@@ -1033,15 +1030,12 @@ class PythonWorkerManager:
         grace_sec: float,
         on_heartbeat: Callable[[dict[str, Any]], None] | None,
         cancel: SendCancellation | None = None,
-        absolute_cap_sec: float | None = None,
     ) -> dict[str, Any] | None | FailedAfterStart:
-        from plugin.framework.ipc import FRAME_HEARTBEAT, FRAME_RESULT
-
         # Heartbeats extend the wait only up to an absolute ceiling so endless heartbeat loops cannot hold the warm-child pipe lock forever.
         # _read_until_terminal starts a new ceiling after a non-heartbeat
         # frame. Trusted actions emit heartbeats until one result, so for
         # them this call is the whole job.
-        cap = float(HEARTBEAT_ABSOLUTE_CAP_SEC if absolute_cap_sec is None else absolute_cap_sec)
+        cap = float(HEARTBEAT_ABSOLUTE_CAP_SEC)
         start = time.monotonic()
         ceiling = start + cap
         # First-byte wait is timeout_sec, not max(timeout, grace). Grace is only
@@ -1310,8 +1304,8 @@ def warm_venv_worker(pool: str = WORKER_POOL_DEFAULT) -> None:
     # Pre-load the active embedding model inside the embeddings pool worker so first query executes instantly
     if pool == WORKER_POOL_EMBEDDINGS:
         try:
+            # Lazy: the embeddings package is not in the LibrePy bundle.
             from plugin.embeddings.embedding_client import get_embedding_model
-            from plugin.scripting.config_limits import embeddings_worker_timeout_sec
 
             model = get_embedding_model()
             if model:

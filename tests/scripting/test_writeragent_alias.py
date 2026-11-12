@@ -139,8 +139,8 @@ def test_writeragent_api_in_process_rpc():
     import writeragent
 
     with patch("plugin.app.get_tools") as mock_get_tools, \
-         patch("plugin.framework.uno_context.get_ctx") as mock_get_ctx, \
-         patch("plugin.framework.uno_context.get_active_document") as mock_get_doc, \
+         patch("plugin.scripting.host_rpc.get_ctx") as mock_get_ctx, \
+         patch("plugin.scripting.host_rpc.get_active_document") as mock_get_doc, \
          patch("plugin.framework.doc_type.is_calc") as mock_is_calc:
 
         mock_registry = MagicMock()
@@ -173,8 +173,8 @@ def test_venv_worker_bidirectional_tool_call():
     )
 
     with patch("plugin.app.get_tools") as mock_get_tools, \
-         patch("plugin.framework.uno_context.get_ctx") as mock_get_ctx, \
-         patch("plugin.framework.uno_context.get_active_document") as mock_get_doc, \
+         patch("plugin.scripting.host_rpc.get_ctx") as mock_get_ctx, \
+         patch("plugin.scripting.host_rpc.get_active_document") as mock_get_doc, \
          patch("plugin.framework.doc_type.is_calc") as mock_is_calc, \
          patch("plugin.framework.doc_type.is_writer") as mock_is_writer, \
          patch("plugin.framework.doc_type.is_draw") as mock_is_draw:

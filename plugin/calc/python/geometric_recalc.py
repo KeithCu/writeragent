@@ -41,6 +41,7 @@ from plugin.calc.python.geometric_recalc_core import (
 from plugin.framework.errors import best_effort, is_disposal, uno_read
 from plugin.framework.i18n import _
 from plugin.framework.queue_executor import main
+from plugin.scripting.session_manager import focused_calc_document
 
 log = logging.getLogger(__name__)
 
@@ -537,9 +538,7 @@ def _on_geometric_config_changed(**kwargs: Any) -> None:
     ctx = kwargs.get("ctx")
     if ctx is None:
         return
-    from plugin.scripting.session_manager import _calc_document
-
-    doc = _calc_document(ctx)
+    doc = focused_calc_document(ctx)
     if doc is None:
         return
     reconcile(ctx, doc)

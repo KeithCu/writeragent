@@ -16,6 +16,7 @@ import subprocess
 import sys
 from typing import Any, Callable, NamedTuple
 
+from plugin.framework.constants import WORKER_POOL_DIAGNOSTICS
 from plugin.framework.i18n import N_, _
 from plugin.scripting.config_limits import (
     SELF_CHECK_IMPORT_PROBE_TIMEOUT_SEC,
@@ -453,12 +454,8 @@ def _docling_ocr_ready(probe: dict[str, Any]) -> bool:
     return probe.get("docling") == "present" and probe.get("rapidocr") == "present"
 
 
-def vision_ocr_stack_ready(probe: dict[str, Any]) -> bool:
-    """True when an OCR backend and css-inline are present (Settings Test / diagnostics).
-
-    css-inline is not part of this check; vision_ocr_stack_ready adds it.
-    Docling OCR readiness requires rapidocr as well as docling and css-inline so settings do not report OCR ready when the default rapidocr backend is missing.
-    """
+def _vision_ocr_stack_ready(probe: dict[str, Any]) -> bool:
+    """True when an OCR backend and css-inline are both present. The backend is Docling with rapidocr (rapidocr is Docling's default OCR backend, so docling alone is not ready) or paddleocr with paddle. The Settings Test and the grouped diagnostics view use this so they never report OCR ready while the backend is missing."""
     ocr_backend = _docling_ocr_ready(probe) or (
         probe.get("paddleocr") == "present" and probe.get("paddle") == "present"
     )
@@ -507,7 +504,7 @@ def _format_vision_group_lines(title: str, keys: tuple[str, ...] | list[str], pa
     present = [key for key in keys if packages.get(key) == "present"]
     lines: list[str] = [f"\n{title}: {', '.join(present)}" if present else f"\n{title}:"]
     optional_missing = [key for key in _VISION_OPTIONAL_KEYS if packages.get(key) != "present"]
-    if vision_ocr_stack_ready(packages):
+    if _vision_ocr_stack_ready(packages):
         engine = "Docling" if _docling_ocr_ready(packages) else "Paddle"
         lines.append(f"OCR: ready ({engine})")
         if not _docling_ocr_ready(packages):
@@ -552,7 +549,7 @@ class GroupResult:
 
     def missing_keys(self, packages: dict[str, Any]) -> list[str]:
         if self.key == "vision":
-            if not vision_ocr_stack_ready(packages):
+            if not _vision_ocr_stack_ready(packages):
                 return [k for k in _VISION_OCR_PRIMARY_KEYS if packages.get(k) != "present"]
             return []
         effective_keys = [
@@ -738,6 +735,7 @@ def run_venv_self_check_with_progress(
     answered, including when packages are missing. Returns (False, message) when
     the interpreter cannot be started or the version probe fails.
     """
+    # Lazy: the worker manager stack (warm_child, ipc, config) loads only when a probe runs.
     from plugin.scripting.venv_worker import ExecRequest, PythonWorkerManager
 
     # scripting.python_exec_timeout is the user-script budget. These probes
@@ -746,8 +744,6 @@ def run_venv_self_check_with_progress(
     report_status = on_status if on_status is not None else lambda text: None
 
     report_status(_("Starting Python worker..."))
-    from plugin.framework.constants import WORKER_POOL_DIAGNOSTICS
-
     manager = PythonWorkerManager.get(
         python_exe,
         scrub_subprocess_env(dict(os.environ)),

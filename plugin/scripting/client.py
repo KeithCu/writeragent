@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from plugin.framework.send_cancellation import SendCancellation
 
+from plugin.framework.config import get_config
 from plugin.scripting.config_limits import (
     DOCLING_WORKER_TIMEOUT_SEC,
     long_trusted_worker_timeout_sec,
@@ -19,6 +20,7 @@ from plugin.scripting.config_limits import (
     VALE_WORKER_TIMEOUT_SEC,
     VISION_WORKER_TIMEOUT_SEC,
 )
+from plugin.scripting.domain_registry import get_domain_wiring
 from plugin.scripting.sheet_layout import extract_sheet_layout
 from plugin.scripting.trusted_rpc import run_trusted_worker_action
 from plugin.vision.vision_common import resolve_engine
@@ -44,8 +46,6 @@ def _run_spec_domain(
     *,
     context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    from plugin.scripting.domain_registry import get_domain_wiring
-
     wiring_id = "math" if domain == "symbolic" else domain
     row = get_domain_wiring(wiring_id)
     error_code = row.error_code or f"{domain.upper()}_ERROR"
@@ -137,8 +137,6 @@ def _resolve_vision_timeout_sec(params: dict[str, Any]) -> int:
     # Read vision.worker_timeout_sec via get_config for both engines.
     # A hardcoded 120s for Paddle ignored the user override, and swallowing
     # the lookup hid config errors.
-    from plugin.framework.config import get_config
-
     custom = get_config("vision.worker_timeout_sec")
     # DOCLING_WORKER_TIMEOUT_SEC (300) is the schema default in module.yaml.
     # An explicit override (custom != 300 and custom > 0) overrides both engines.
@@ -226,8 +224,6 @@ def run_text_analytics(
     For sentiment: uses transformers + a multilingual model (default: XLM-RoBERTa based).
     Requires `spacy` + `textdescriptives` for other helpers; `transformers` + `torch` (CPU) for sentiment.
     """
-    from plugin.framework.config import get_config
-
     model = get_config("text_analytics_sentiment_model") or None
 
     helper, params = _split_spec(spec)

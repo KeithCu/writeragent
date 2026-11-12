@@ -1723,7 +1723,7 @@ def test_maybe_dispatch_tool_call_forwards_cancel():
 
     scope = SendCancellation()
     written: list[bytes] = []
-    with patch('plugin.scripting.host_rpc.handle_tool_call_frame', return_value=True) as mock_tool:
+    with patch('plugin.scripting.venv_worker.handle_tool_call_frame', return_value=True) as mock_tool:
         handled = _maybe_dispatch_intermediate_response({'type': 'tool_call', 'id': 't1', 'tool': 'apply_document_content', 'args': {'content': ['x']}}, stdin_write=written.append, cancel=scope)
     assert handled is True
     mock_tool.assert_called_once()
@@ -2037,9 +2037,13 @@ def test_heartbeats_cannot_extend_past_absolute_cap():
     def parse(_frame: bytes) -> dict[str, object]:
         return {'frame_type': FRAME_HEARTBEAT, 'payload': {'phase': 'spin'}}
     started = time.monotonic()
-    with patch.object(mgr, '_read_frame_bytes', return_value=b'dummy'), patch('plugin.scripting.venv_worker.parse_worker_stdout_frame', side_effect=parse):
+    with (
+        patch.object(mgr, '_read_frame_bytes', return_value=b'dummy'),
+        patch('plugin.scripting.venv_worker.parse_worker_stdout_frame', side_effect=parse),
+        patch('plugin.scripting.venv_worker.HEARTBEAT_ABSOLUTE_CAP_SEC', 0.3),
+    ):
         with pytest.raises(subprocess.TimeoutExpired):
-            mgr._read_response_with_heartbeats(io.BytesIO(), 30, 30, None, absolute_cap_sec=0.3)
+            mgr._read_response_with_heartbeats(io.BytesIO(), 30, 30, None)
     assert time.monotonic() - started < 10.0
 
 def test_unknown_frame_does_not_extend_heartbeat_deadline(caplog: pytest.LogCaptureFixture):
@@ -2052,7 +2056,7 @@ def test_unknown_frame_does_not_extend_heartbeat_deadline(caplog: pytest.LogCapt
     with caplog.at_level(logging.WARNING):
         with patch.object(mgr, '_read_frame_bytes', return_value=b'dummy'), patch('plugin.scripting.venv_worker.parse_worker_stdout_frame', side_effect=parse):
             with pytest.raises(subprocess.TimeoutExpired):
-                mgr._read_response_with_heartbeats(io.BytesIO(), 0.25, 0.25, None, absolute_cap_sec=30)
+                mgr._read_response_with_heartbeats(io.BytesIO(), 0.25, 0.25, None)
     assert time.monotonic() - started < 10.0
     assert 'unknown frame type' in caplog.text
 
@@ -2595,7 +2599,7 @@ def test_first_frame_stall_uses_timeout_not_grace(caplog: pytest.LogCaptureFixtu
     started = time.monotonic()
     with patch.object(mgr, '_read_frame_bytes', return_value=b'dummy'), patch('plugin.scripting.venv_worker.parse_worker_stdout_frame', side_effect=parse):
         with pytest.raises(subprocess.TimeoutExpired) as excinfo:
-            mgr._read_response_with_heartbeats(io.BytesIO(), timeout_sec=0.2, grace_sec=30.0, on_heartbeat=None, absolute_cap_sec=30)
+            mgr._read_response_with_heartbeats(io.BytesIO(), timeout_sec=0.2, grace_sec=30.0, on_heartbeat=None)
     elapsed = time.monotonic() - started
     assert elapsed < 10.0
     assert excinfo.value.timeout == pytest.approx(0.2)
@@ -2616,7 +2620,7 @@ def test_heartbeat_then_stall_uses_grace():
     started = time.monotonic()
     with patch.object(mgr, '_read_frame_bytes', return_value=b'dummy'), patch('plugin.scripting.venv_worker.parse_worker_stdout_frame', side_effect=parse):
         with pytest.raises(subprocess.TimeoutExpired) as excinfo:
-            mgr._read_response_with_heartbeats(io.BytesIO(), timeout_sec=0.2, grace_sec=0.4, on_heartbeat=None, absolute_cap_sec=30)
+            mgr._read_response_with_heartbeats(io.BytesIO(), timeout_sec=0.2, grace_sec=0.4, on_heartbeat=None)
     elapsed = time.monotonic() - started
     assert elapsed >= 0.35
     assert elapsed < 10.0
@@ -2656,7 +2660,7 @@ def test_allowed_tools_resolved_before_request_write(monkeypatch: pytest.MonkeyP
     def _resolve(domain: str | None) -> frozenset[str]:
         events.append('resolve')
         return frozenset()
-    monkeypatch.setattr('plugin.scripting.host_rpc.resolve_allowed_tools', _resolve)
+    monkeypatch.setattr('plugin.scripting.venv_worker.resolve_allowed_tools', _resolve)
 
     def _write(stdin: Any, message: Any, **kwargs: Any) -> None:
         events.append('write')
@@ -2680,7 +2684,7 @@ def test_resolve_allowed_tools_failure_does_not_write(monkeypatch: pytest.Monkey
 
     def _fail_resolve(domain: str | None) -> frozenset[str]:
         raise RuntimeError('domain map failed')
-    monkeypatch.setattr('plugin.scripting.host_rpc.resolve_allowed_tools', _fail_resolve)
+    monkeypatch.setattr('plugin.scripting.venv_worker.resolve_allowed_tools', _fail_resolve)
     mgr._write_frame_with_timeout = MagicMock()
     mgr._terminate_worker = MagicMock()
     result = _run_ipc_with_mock(mgr, ExecRequest(code='result = 1', timeout_sec=1), proc)
@@ -2971,7 +2975,7 @@ def test_run_in_session_does_not_warm_when_stopped():
 
 def test_host_preparation_failure_does_not_kill_worker(monkeypatch):
     mgr = PythonWorkerManager(sys.executable, {'PATH': os.environ.get('PATH', '')})
-    monkeypatch.setattr('plugin.scripting.host_rpc.resolve_allowed_tools', MagicMock(side_effect=RuntimeError('boom')))
+    monkeypatch.setattr('plugin.scripting.venv_worker.resolve_allowed_tools', MagicMock(side_effect=RuntimeError('boom')))
     terminate_calls: list[Any] = []
     monkeypatch.setattr(mgr, '_terminate_worker', lambda *args, **kwargs: terminate_calls.append((args, kwargs)))
     mgr._ensure_warmed_unlocked = lambda *args, **kwargs: None

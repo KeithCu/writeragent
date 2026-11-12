@@ -919,7 +919,7 @@ def test_geometric_isolated_flag_on_noop_and_strip(ctx, doc):
         assert sid.startswith("calc:"), sid
         assert sid != "calc:"
         assert sid[5:], sid
-        assert workbook_session_id(ctx, doc) is None
+        assert workbook_session_id(doc) is None
 
         sheet = doc.getSheets().getByIndex(0)
         a1 = sheet.getCellByPosition(0, 0)

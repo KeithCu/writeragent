@@ -368,7 +368,7 @@ def _prepare_rps_execution(
         bindings = {"text": text, "document_context": document_context}
 
     try:
-        rps_sid = rps_session_id(ctx, doc)
+        rps_sid = rps_session_id(doc)
         ensure_python_session_cleared_on_unload(ctx, doc, rps_sid)
     except Exception as e:
         log.exception("prepare Run Python Script failed")
