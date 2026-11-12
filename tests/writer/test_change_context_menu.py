@@ -142,11 +142,11 @@ def test_register_controller_dedups_by_uno_identity(monkeypatch, review_registry
 
     monkeypatch.setattr(
         change_context_menu,
-        "_make_interceptor",
-        lambda m: SimpleNamespace(_model=m),
+        "make_interceptor",
+        lambda m: SimpleNamespace(model=m),
     )
     monkeypatch.setattr(
-        "plugin.writer.review_click_popup._make_handler",
+        "plugin.writer.review_click_popup.ClickReviewHandler",
         lambda m, detach: MagicMock(),
     )
 
@@ -166,7 +166,7 @@ def _seed_controller_hooks(
     click_handler: Any | None = None,
 ) -> None:
     handler = click_handler if click_handler is not None else MagicMock()
-    model = getattr(interceptor, "_model", None)
+    model = getattr(interceptor, "model", None)
     key = rva.attachment_key(model) if model is not None else "test:%d" % id(controller)
     with rva._lock:
         attachment = registry.get(key)
@@ -183,8 +183,8 @@ def test_unload_removes_interceptor_and_pair(review_registry: dict[str, Any]):
     ctrl1 = _StubController("c1", model1)
     ctrl2 = _StubController("c2", model2)
 
-    interceptor1 = SimpleNamespace(_model=model1)
-    interceptor2 = SimpleNamespace(_model=model2)
+    interceptor1 = SimpleNamespace(model=model1)
+    interceptor2 = SimpleNamespace(model=model2)
 
     _seed_controller_hooks(review_registry, ctrl1, interceptor1)
     _seed_controller_hooks(review_registry, ctrl2, interceptor2)
@@ -198,7 +198,7 @@ def test_unload_removes_interceptor_and_pair(review_registry: dict[str, Any]):
 def test_unload_swallows_removal_disposal(review_registry: dict[str, Any]):
     model = SimpleNamespace(ident="m")
     ctrl = _StubController("c", model)
-    interceptor = SimpleNamespace(_model=model)
+    interceptor = SimpleNamespace(model=model)
 
     def _raise_gone(inter):
         raise RuntimeError("gone")
@@ -214,7 +214,7 @@ def test_on_unload_event_removes_registered_interceptor(review_registry: dict[st
     model = MagicMock()
     model.supportsService.return_value = True
     ctrl = _StubController("c", model)
-    interceptor = SimpleNamespace(_model=model)
+    interceptor = SimpleNamespace(model=model)
 
     _seed_controller_hooks(review_registry, ctrl, interceptor)
     listener = _build_listener()
@@ -368,7 +368,7 @@ def test_interceptor_passes_uno_enums(uno_menu_stubs, monkeypatch):
         lambda m, stop_at_first=True: (0, True),
     )
     model = MagicMock()
-    interceptor = change_context_menu._make_interceptor(model)
+    interceptor = change_context_menu.make_interceptor(model)
     container = MagicMock()
     res = interceptor.notifyContextMenuExecute(SimpleNamespace(ActionTriggerContainer=container))
     assert res is uno_menu_stubs.ignored
