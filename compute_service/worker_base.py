@@ -26,30 +26,18 @@ from __future__ import annotations
 
 import contextlib
 import logging
-import os
-import sys
 import threading
 import time
 from collections import OrderedDict
 from collections.abc import Callable, Generator
 from typing import Generic, TypeVar
 
-from compute_service.worker_stdio import COMPUTE_THREAD_ENV_VARS, RestrictedUnpickler, configure_compute_worker_env, run_compute_worker, run_worker_stdio_loop, unpack_restricted_pickle_frame
+from compute_service.worker_stdio import unpack_restricted_pickle_frame
 from plugin.framework.process_worker import BaseProcessWorker
 from plugin.framework.worker_pool import run_in_background
 from plugin.framework.ipc import DEFAULT_MAX_PAYLOAD_BYTES
 
-
-def install_image_pkgs(project_root: str) -> None:
-    """Put the runner image's ``<root>/pkgs`` on sys.path by path; the scrubbed child env never carries ``PYTHONPATH``."""
-    pkgs = os.path.join(project_root, "pkgs")
-    if os.path.isdir(pkgs) and pkgs not in sys.path:
-        sys.path.insert(0, pkgs)
-
-
-install_image_pkgs(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-
-__all__ = ["BaseProcessPool", "BaseProcessWorker", "COMPUTE_THREAD_ENV_VARS", "PoolSingleton", "RestrictedUnpickler", "bind_pool_singleton", "configure_compute_worker_env", "install_image_pkgs", "resolve_override", "run_compute_worker", "run_worker_stdio_loop", "unpack_restricted_pickle_frame"]
+__all__ = ["BaseProcessPool", "BaseProcessWorker", "PoolSingleton", "bind_pool_singleton", "resolve_override"]
 
 log = logging.getLogger("compute_service.worker")
 

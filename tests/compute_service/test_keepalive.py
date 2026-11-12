@@ -56,7 +56,7 @@ class ConnectionReader:
 
 
 def _start_server(
-    max_threads: int = 2,
+    listener_threads: int = 8,
     semaphore: threading.Semaphore | None = None,
     settings_override: dict[str, Any] | None = None,
 ) -> tuple[WSGIDualStackServer, int, threading.Thread]:
@@ -67,11 +67,11 @@ def _start_server(
         return {"status": "ok", "result": 1, "id": kwargs.get("req_id")}
 
     app = create_wsgi_app(ComputeSettings(**opts), execute_fn=_exec, semaphore=semaphore)
-    server = WSGIDualStackServer("127.0.0.1", 0, max_threads=max_threads)
+    server = WSGIDualStackServer("127.0.0.1", 0, listener_threads=listener_threads)
     server.set_app(app)
     t = threading.Thread(target=server.serve_forever, daemon=True)
     t.start()
-    return server, server.srv.server_port, t
+    return server, server.server_port, t
 
 
 def _stop_server(server: WSGIDualStackServer, t: threading.Thread) -> None:
@@ -388,7 +388,7 @@ def test_next_action() -> None:
 
 def _offline_server() -> WSGIDualStackServer:
     """A bound server whose accept loop never runs, so a test can drive ``_park_tick`` itself."""
-    return WSGIDualStackServer("127.0.0.1", 0, max_threads=1)
+    return WSGIDualStackServer("127.0.0.1", 0, listener_threads=8)
 
 
 def test_park_register_failure_closes_connection() -> None:

@@ -19,7 +19,6 @@ from compute_service.json_forward import (
     ExecuteRequestParts,
     MAX_META_BYTES,
     _disposition_name,
-    derive_execute_mode,
     dumps_response,
     is_multipart_content_type,
     parse_execute_request,
@@ -118,7 +117,6 @@ class TestPeelExecuteRequest:
         parts = peel_execute_request(body)
         assert parts.req_id == "r1"
         assert parts.code == "result = data"
-        assert parts.mode == "isolated"
         assert parts.data_json == data_literal
         assert parts.has_session_id is False
 
@@ -132,7 +130,6 @@ class TestPeelExecuteRequest:
         body = b'{"code":"x = \\"data\\"\\nresult = 1","mode":"shared"}'
         parts = peel_execute_request(body)
         assert parts.data_json is None
-        assert parts.mode == "shared"
 
     def test_session_id_in_body_is_flagged(self) -> None:
         parts = peel_execute_request(b'{"code":"result=1","session_id":"nope"}')
@@ -194,7 +191,6 @@ class TestMultipartExecute:
         assert parts.req_id == "p-1"
         assert parts.code == b"result = 1"
         assert parts.init_script is None
-        assert parts.mode == "isolated"
         assert parts.data_json == GRID_BYTES
         assert parts.has_session_id is False
 
@@ -248,7 +244,6 @@ class TestMultipartExecute:
         )
         parts = parse_multipart_execute(body, content_type)
         assert parts.req_id == "ord"
-        assert parts.mode == "shared"
         assert parts.code == code
         assert parts.init_script == init
         assert parts.data_json == GRID_BYTES
@@ -888,12 +883,12 @@ class TestPeelAndMultipartAgree:
         status_m, seen_m, _out_m = self._run(multipart, content_type, limit=limit)
         assert status_p.startswith("200"), _out_p
         assert status_m.startswith("200"), _out_m
-        for key in ("code", "init_script", "mode", "data_json", "session_id"):
+        for key in ("code", "init_script", "data_json", "session_id"):
             assert seen_p[key] == seen_m[key]
         assert seen_p["code"] == code
         assert seen_p["init_script"] == init
         assert seen_p["data_json"] == data
-        assert seen_p["mode"] == "isolated"
+        assert seen_p["session_id"] is None
 
     def test_over_cap_rejected_on_both(self) -> None:
         limit = 64
@@ -919,8 +914,24 @@ class TestPeelAndMultipartAgree:
             for body, ctype in ((peel_mode, "application/json"), (mp_body, mp_type)):
                 status, seen, _out = self._run(body, ctype, limit=64)
                 assert status.startswith("200"), (mode, ctype)
-                assert seen.get("mode") == "isolated"
+                assert "mode" not in seen
                 assert seen.get("session_id") is None
+
+    def test_bool_and_nonfinite_timeout_rejected_on_both(self) -> None:
+        peel_bool = b'{"code":"result = 1","timeout_ms":true}'
+        content_type_b, mp_bool = encode_multipart_execute({"timeout_ms": True}, code="result = 1")
+        for body, ctype in ((peel_bool, "application/json"), (mp_bool, content_type_b)):
+            status, seen, out = self._run(body, ctype, limit=64)
+            assert status.startswith("400"), (ctype, out)
+            assert seen == {}
+            payload = json.loads(out)
+            assert payload.get("error") == "timeout_ms must be a scalar"
+            assert payload.get("code") == "INVALID_REQUEST"
+
+        peel_inf = b'{"code":"result = 1","timeout_ms":1e9999}'
+        status_inf, seen_inf, _out_inf = self._run(peel_inf, "application/json", limit=64)
+        assert status_inf.startswith("400")
+        assert seen_inf == {}
 
     def test_empty_init_script_is_absent_on_both(self) -> None:
         peel = json.dumps({"id": "e", "code": "result = 1", "init_script": ""}).encode()
@@ -1009,13 +1020,6 @@ class TestHttpLargeRoundTrip:
         assert parsed["id"] == "http-mp-big"
         assert parsed["result"][0][0] == 0.0
         assert parsed["result"][-1][-1] == float(rows * cols - 1)
-
-
-def test_derive_execute_mode_from_session_id() -> None:
-    assert derive_execute_mode(None) == "isolated"
-    assert derive_execute_mode("") == "isolated"
-    assert derive_execute_mode("   ") == "isolated"
-    assert derive_execute_mode("doc-7") == "shared"
 
 
 def test_validate_session_id() -> None:

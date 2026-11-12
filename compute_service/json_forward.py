@@ -27,9 +27,6 @@ from typing import Any
 from compute_service import error_codes as ec
 from plugin.scripting.session_key import is_reserved_caller_id, reserved_caller_id_error_message
 
-# HTTP max_body_bytes is 32 MiB; pickle of the envelope needs a little slack.
-COMPUTE_MAX_PAYLOAD_BYTES = 33 * 1024 * 1024
-
 # ``meta`` is id / mode / timeout_ms only. Cap it so a stuffed part cannot
 # force ``json.loads`` of a payload-sized buffer.
 MAX_META_BYTES = 64 * 1024
@@ -51,7 +48,7 @@ class ExecuteRequestError(ValueError):
         self.code = code
 
 
-def _reject_json_constant(token: str) -> None:
+def reject_json_constant(token: str) -> None:
     """``json.loads`` accepts NaN/Infinity. The peel walker does not.
 
     ``timeout_ms: Infinity`` then raised OverflowError outside the execute
@@ -60,7 +57,7 @@ def _reject_json_constant(token: str) -> None:
     raise ValueError(token)
 
 
-def _reject_nonfinite_number(value: Any) -> None:
+def reject_nonfinite_number(value: Any) -> None:
     """Reject ``inf`` from numeric overflow, not only NaN/Infinity tokens.
 
     ``json.loads`` turns ``1e9999`` into ``inf`` without calling
@@ -72,21 +69,19 @@ def _reject_nonfinite_number(value: Any) -> None:
             raise ExecuteRequestError("non-finite JSON number")
     elif isinstance(value, list):
         for item in value:
-            _reject_nonfinite_number(item)
+            reject_nonfinite_number(item)
     elif isinstance(value, dict):
         for _k, v in value.items():
-            _reject_nonfinite_number(v)
+            reject_nonfinite_number(v)
 
 
-def derive_execute_mode(session_id: str | None) -> str:
-    """Sticky shared when a non-empty *session_id* is present; else one-shot isolated.
+def check_req_id(req_id: Any) -> None:
+    """Validate that *req_id* is a scalar suitable for echoing on responses.
 
-    HTTP supplies *session_id* only via ``?session_id=``. Leftover ``mode`` in JSON
-    or multipart ``meta`` is ignored for routing; clients may still send it.
+    Every reply echoes the id, so it must be a str or int (not a bool).
     """
-    if isinstance(session_id, str) and session_id.strip():
-        return "shared"
-    return "isolated"
+    if req_id is not None and (not isinstance(req_id, (str, int)) or isinstance(req_id, bool)):
+        raise ExecuteRequestError("id must be a scalar", code=ec.INVALID_REQUEST)
 
 
 def validate_session_id(session_id: Any) -> str:
@@ -115,7 +110,6 @@ class ExecuteRequestParts:
 
     req_id: Any
     code: Any
-    mode: Any
     timeout_ms: Any
     init_script: Any
     data_json: bytes | None
@@ -200,7 +194,6 @@ def parse_multipart_execute(body: bytes, content_type: str) -> ExecuteRequestPar
     return ExecuteRequestParts(
         req_id=meta.get("id"),
         code=named.get("code"),
-        mode=meta.get("mode"),
         timeout_ms=meta.get("timeout_ms"),
         init_script=named.get("init_script"),
         data_json=named.get("data"),
@@ -485,7 +478,7 @@ def _parse_meta_object(meta_bytes: bytes, forbidden_keys: tuple[str, ...] | froz
     if len(meta_bytes) > MAX_META_BYTES:
         raise ExecuteRequestError("meta part exceeds size cap")
     try:
-        obj = json.loads(meta_bytes.decode("utf-8"), parse_constant=_reject_json_constant)
+        obj = json.loads(meta_bytes.decode("utf-8"), parse_constant=reject_json_constant)
     except Exception as exc:
         raise ExecuteRequestError("invalid meta JSON") from exc
     if not isinstance(obj, dict):
@@ -498,10 +491,9 @@ def _parse_meta_object(meta_bytes: bytes, forbidden_keys: tuple[str, ...] | froz
     # 1e9999 survives parse_constant (that hook only sees NaN / Infinity
     # tokens) and becomes inf. Echoing it as id crashed allow_nan=False.
     # Checked before the field checks so it stays a body (JSON) error.
-    _reject_nonfinite_number(req_id)
-    _reject_nonfinite_number(timeout_ms)
-    if req_id is not None and (not isinstance(req_id, (str, int)) or isinstance(req_id, bool)):
-        raise ExecuteRequestError("id must be a scalar", code=ec.INVALID_REQUEST)
+    reject_nonfinite_number(req_id)
+    reject_nonfinite_number(timeout_ms)
+    check_req_id(req_id)
     if timeout_ms is not None and (not isinstance(timeout_ms, (int, float)) or isinstance(timeout_ms, bool)):
         raise ExecuteRequestError("timeout_ms must be a scalar", code=ec.INVALID_REQUEST)
     return obj
@@ -526,7 +518,8 @@ def parse_execute_request(body: bytes, content_type: str | None) -> ExecuteReque
     if is_multipart_content_type(content_type):
         return parse_multipart_execute(body, content_type or "")
     # Transitional Collabora contract. Keep until kit ships multipart;
-    # then delete this peel branch. Multipart is the long-term ingress.
+    # then delete this peel branch. Multipart is the long-term ingress;
+    # imported here because json_peel imports this module at its top.
     from compute_service.json_peel import peel_execute_request
 
     return peel_execute_request(body)
