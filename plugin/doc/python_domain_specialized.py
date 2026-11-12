@@ -273,7 +273,7 @@ class _InnerCallRecorder(SmolToolAdapter):
 
     def forward(self, *args: Any, **kwargs: Any) -> Any:
         result = super().forward(*args, **kwargs)
-        self._calls.append(make_inner_tool_call(self, result, args=args, kwargs=kwargs))
+        self._calls.append(make_inner_tool_call(self, result, kwargs=kwargs))
         return result
 
 

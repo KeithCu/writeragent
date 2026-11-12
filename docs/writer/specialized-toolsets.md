@@ -175,8 +175,8 @@ The `delegate_to_specialized_writer_toolset` tool uses sub-agent delegation:
 The outcome of sub-agent delegation is evaluated by `apply_inner_outcome` (shared between the gateway and Python inner-domain loops) into a structured payload:
 
 - **`status: "ok"`**: The sub-agent invoked `specialized_workflow_finished`.
-  - May include `recovered_tool_errors`: a list of error messages from earlier tool attempts that were subsequently resolved by a successful retry of the same tool.
-  - May include `note`: set to `"No document-editing tool ran during this delegation; the document is unchanged by it."` when an editing domain ran only read-only tools before finishing or when finish was the only call.
+  - May include `recovered_tool_errors`: a list of error messages from earlier tool attempts that were subsequently resolved by a later successful call of the same tool (including retries with corrected arguments).
+  - May include `note`: set to `"No document-editing tool ran during this delegation; the document is unchanged by it."` when an editing domain ran only read-only tools before finishing or when finish was the only call. Note: tool mutation is based on the tool's declared `detects_mutation()` capability; a mutating tool that returns without changes counts as an editing attempt.
 - **`status: "incomplete"`, `code: "SPECIALIZED_WORKFLOW_INCOMPLETE"`**: The sub-agent returned without signaling workflow finish (e.g. stopped without reaching the finish tool).
 - **`status: "error"`, `code: "SPECIALIZED_TOOL_ERROR"`**: One or more domain tools encountered errors that were never retried and resolved.
 

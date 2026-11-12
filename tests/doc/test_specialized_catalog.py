@@ -45,28 +45,17 @@ def test_partition_tool_errors_same_tool_later_ok_is_recovered() -> None:
     assert recovered3 == []
 
 
-def test_partition_tool_errors_different_arguments_not_recovered() -> None:
-    err_para3 = {"status": "error", "message": "Failed to edit paragraph 3"}
-    ok_para7 = {"status": "ok", "message": "Edited paragraph 7"}
-
-    # Different arguments: error on index 3 is not recovered by ok on index 7
+def test_partition_tool_errors_changed_arguments_is_recovered() -> None:
+    err = {"status": "error", "message": "Syntax error in python script"}
+    ok = {"status": "ok", "result": "24133"}
+    # A retry of the same tool with corrected arguments recovers the error.
     calls = [
-        InnerToolCall("paragraph_edit", err_para3, mutating=True, arguments={"index": 3}),
-        InnerToolCall("paragraph_edit", ok_para7, mutating=True, arguments={"index": 7}),
+        InnerToolCall("run_venv_python_script", err, mutating=True, arguments={"code": "sp.prime(100)"}),
+        InnerToolCall("run_venv_python_script", ok, mutating=True, arguments={"code": "import sympy as sp; sp.prime(100)"}),
     ]
     unrecovered, recovered = partition_tool_errors(calls)
-    assert unrecovered == [err_para3]
-    assert recovered == []
-
-    # Matching arguments: error on index 3 is recovered by later ok on index 3
-    ok_para3 = {"status": "ok", "message": "Edited paragraph 3"}
-    calls_matched = [
-        InnerToolCall("paragraph_edit", err_para3, mutating=True, arguments={"index": 3}),
-        InnerToolCall("paragraph_edit", ok_para3, mutating=True, arguments={"index": 3}),
-    ]
-    unrecovered_matched, recovered_matched = partition_tool_errors(calls_matched)
-    assert unrecovered_matched == []
-    assert recovered_matched == [err_para3]
+    assert unrecovered == []
+    assert recovered == [err]
 
 
 def test_make_inner_tool_call_extracts_arguments() -> None:
@@ -75,13 +64,25 @@ def test_make_inner_tool_call_extracts_arguments() -> None:
 
     adapter = MagicMock()
     adapter.name = "paragraph_edit"
-    adapter.inputs = {"index": {}, "text": {}}
-    adapter._inner_tool.detects_mutation.return_value = True
+    adapter.mutating = True
 
     call = make_inner_tool_call(adapter, {"status": "ok"}, kwargs={"index": 5, "text": "hello"})
     assert call.name == "paragraph_edit"
     assert call.mutating is True
     assert call.arguments == {"index": 5, "text": "hello"}
+
+
+def test_expects_edits_checks_read_only_domains() -> None:
+    from plugin.doc.specialized_catalog import expects_edits
+
+    assert expects_edits("structural") is True
+    assert expects_edits("document_research") is False
+    assert expects_edits("web_research") is False
+    assert expects_edits(["footnotes"]) is True
+    assert expects_edits(["document_research"]) is False
+    assert expects_edits(["document_research", "web_research"]) is False
+    assert expects_edits(["document_research", "footnotes"]) is True
+    assert expects_edits([]) is False
 
 
 def test_apply_inner_outcome_finish_only_stays_ok() -> None:
@@ -173,10 +174,14 @@ def test_apply_inner_outcome_read_only_calls_note() -> None:
     assert "note" not in res3
 
 
-def test_apply_inner_outcome_unobserved_finished_dict_stays_ok() -> None:
+def test_apply_inner_outcome_mutating_calls_no_note() -> None:
     finish = {"status": "ok", "finished": True, "answer": "Done"}
     payload = dict(finish)
-    result = apply_inner_outcome(payload, finish, calls=[], expect_edits=True)
+    calls = [
+        InnerToolCall("edit_shape", {"status": "ok"}, mutating=True),
+        InnerToolCall(FINISH_TOOL_NAME, finish, mutating=False),
+    ]
+    result = apply_inner_outcome(payload, finish, calls=calls, expect_edits=True)
     assert result["status"] == "ok"
     assert result["finished"] is True
     assert "note" not in result

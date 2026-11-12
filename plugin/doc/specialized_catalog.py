@@ -160,25 +160,14 @@ class InnerToolCall(NamedTuple):
 def make_inner_tool_call(
     adapter: Any,
     result: Any,
-    args: tuple[Any, ...] = (),
     kwargs: dict[str, Any] | None = None,
 ) -> InnerToolCall:
     """Build an InnerToolCall from a tool adapter invocation."""
-    kw = dict(kwargs or {})
-    if len(args) == 1 and isinstance(args[0], dict):
-        kw = {**args[0], **kw}
-    elif args:
-        input_keys = list(adapter.inputs.keys())
-        for i, val in enumerate(args):
-            if i < len(input_keys):
-                kw[input_keys[i]] = val
-            else:
-                kw[f"_arg_{i}"] = val
     return InnerToolCall(
         name=adapter.name,
         result=result,
-        mutating=adapter._inner_tool.detects_mutation(),
-        arguments=kw,
+        mutating=adapter.mutating,
+        arguments=dict(kwargs or {}),
     )
 
 
@@ -187,23 +176,39 @@ NO_EDIT_TOOL_NOTE = "No document-editing tool ran during this delegation; the do
 READ_ONLY_DOMAINS: frozenset[str] = frozenset({"document_research", "web_research"})
 
 
+def expects_edits(domains: str | Sequence[str] | frozenset[str]) -> bool:
+    """Whether any of the given domain(s) expect document-mutating edits.
+
+    Read-only domains (document_research, web_research) do not expect edits.
+    """
+    if isinstance(domains, str):
+        return domains not in READ_ONLY_DOMAINS
+    domain_set = set(domains)
+    return bool(domain_set) and not domain_set <= READ_ONLY_DOMAINS
+
+
+def _err_text(err: Any) -> str:
+    """Format an error entry into a diagnostic message string."""
+    if isinstance(err, dict):
+        return str(err.get("message") or err.get("error") or err)
+    return str(err)
+
+
 def partition_tool_errors(
     calls: Sequence[InnerToolCall],
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """Partition tool error dicts into unrecovered and recovered groups.
 
-    An error call is considered recovered when a later call to the same tool name with the same
-    arguments returned a non-error dict.
+    An error call is considered recovered when a later call to the same tool name returned a
+    non-error dict, including retries with corrected arguments.
     """
     unrecovered: list[dict[str, Any]] = []
     recovered: list[dict[str, Any]] = []
     for idx, call in enumerate(calls):
         if not (isinstance(call.result, dict) and call.result.get("status") == "error"):
             continue
-        call_args = call.arguments or {}
         is_recovered = any(
             later.name == call.name
-            and (later.arguments or {}) == call_args
             and isinstance(later.result, dict)
             and later.result.get("status") != "error"
             for later in calls[idx + 1 :]
@@ -230,7 +235,7 @@ def apply_inner_outcome(
     unrecovered, recovered = partition_tool_errors(calls)
     if unrecovered:
         # Unrecovered tool errors fail the delegation; the finish answer is kept in answer.
-        messages = [str(err.get("message") or err.get("error") or err) for err in unrecovered]
+        messages = [_err_text(err) for err in unrecovered]
         text = "; ".join(messages) or "Specialized tool error."
         payload["status"] = "error"
         payload["code"] = "SPECIALIZED_TOOL_ERROR"
@@ -253,12 +258,9 @@ def apply_inner_outcome(
         return payload
 
     if recovered:
-        payload["recovered_tool_errors"] = [
-            str(err.get("message") or err.get("error") or err) for err in recovered
-        ]
+        payload["recovered_tool_errors"] = [_err_text(err) for err in recovered]
 
-    # Synthetic runs with unobserved calls (empty call log) omit the note; real runs always observe at least finish.
-    if expect_edits and calls and not any(c.mutating for c in calls):
+    if expect_edits and not any(c.mutating for c in calls):
         payload["note"] = NO_EDIT_TOOL_NOTE
 
     return payload
@@ -278,11 +280,10 @@ def normalize_inner_result(
     else:
         payload = {"status": "ok", "result": "" if final_ans is None else str(final_ans)}
     payload["domains"] = list(domains)
-    expect_edits = bool(domains) and not (set(domains) <= READ_ONLY_DOMAINS)
     return apply_inner_outcome(
         payload,
         final_ans,
         calls,
-        expect_edits=expect_edits,
+        expect_edits=expects_edits(domains),
     )
 

@@ -43,6 +43,7 @@ from plugin.doc.specialized_catalog import (
     READ_ONLY_DOMAINS,
     apply_inner_outcome,
     catalog_entries_from_base,
+    expects_edits,
     make_inner_tool_call,
 )
 from plugin.framework.i18n import _
@@ -279,7 +280,7 @@ class DelegateToSpecializedBase(ToolBase):
         class _CaptureInstructionAdapter(SmolToolAdapter):
             def forward(self, *args: Any, **kwargs: Any) -> Any:
                 result = super().forward(*args, **kwargs)
-                cap.calls.append(make_inner_tool_call(self, result, args=args, kwargs=kwargs))
+                cap.calls.append(make_inner_tool_call(self, result, kwargs=kwargs))
                 if not isinstance(result, dict):
                     return result
                 if result.get("instruction"):
@@ -429,7 +430,7 @@ class DelegateToSpecializedBase(ToolBase):
             payload,
             final_ans,
             cap.calls,
-            expect_edits=domain not in READ_ONLY_DOMAINS,
+            expect_edits=expects_edits(domain),
         )
 
 
