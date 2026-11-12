@@ -500,7 +500,9 @@ _PY_NS = "http://schemas.microsoft.com/office/spreadsheetml/2022/pythonscript"
 
 def python_scripts_xml(scripts: Sequence[str]) -> bytes:
     """Serialize ordered script bank to ``xl/pythonScripts.xml`` bytes (UTF-8)."""
-    # Built by hand, not ElementTree: \r must be written as &#13; so Excel keeps CRLF in the script text.
+    # Built by hand: ElementTree does not escape \r in text, and an XML parser
+    # normalizes a raw \r to \n; &#13; keeps CRLF in the script
+    # (test_python_scripts_xml_cr_roundtrip_and_invalid_xml_char).
     chunks = ['<?xml version="1.0" encoding="UTF-8"?>\n', f'<pythonScripts xmlns="{_PY_NS}">\n']
     for body in scripts:
         raw = body or ""

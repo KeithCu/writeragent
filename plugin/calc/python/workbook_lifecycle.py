@@ -198,8 +198,9 @@ class _CalcPythonUnloadListener(BaseDocumentEventListener):
 
     def _teardown(self) -> None:
         # Take the lock: _teardown_done, the session id and the extra-session-id
-        # set are written by note_calc_identity off the main thread, and a Save
-        # during unload must not leave the new kernel out of the reset list.
+        # set are written by note_calc_identity off the main thread, so copying
+        # the set while it changes would raise, and a Save during unload must
+        # not leave the new kernel out of the reset list.
         with _LOCK:
             if self._teardown_done:
                 return

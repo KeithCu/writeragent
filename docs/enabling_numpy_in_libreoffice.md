@@ -680,12 +680,12 @@ Do not wrap returns in `float()` / `int()` / `str()` for Calc’s sake — [`to_
 | ------- | ----------- | ------- |
 | **Bare NumPy / expression** | Default for short inline code | `=PY("np.sum(data)"; B1:B10)` |
 | **Code in a cell** | Multi-line / huge scripts (avoids `MAXSTRLEN`) | `A1` = script text (**Save without =PY()**); `=PY($A$1; B1:B10)` (or `Sheet2.A1` / `'My Sheet'.$B$2`). Opening the formula cell edits the code cell; **Data:** on the formula stays editable. |
-
-The chat prompt does not ask the model to emit this two-cell pattern: auto-imports and helpers usually fit in Calc's `MAXSTRLEN` (1024). Revisit `CALC_FORMULA_SYNTAX` if `Err:513` shows up for generated `=PY("…")`.
 | **ASCII quotes only** | Always when pasting / generating formulas | Normalize curly `“”` → `"` (WriterAgent does this on parse) |
 | **Comma vs semicolon** | Match file/locale | XLSX OOXML → commas; Calc UI often `;` |
 | **XLSX test sheets** | Manual serialization regression | See [`scripts/generate_serialization_spreadsheet.py`](../scripts/generate_serialization_spreadsheet.py) |
 | **Excel Python-in-Excel `.xlsx`** | Open in Calc with the Python/`=PY` extension | Auto-rewrites to DAG `=PY` on load; `=PY(...)` formulas **>1000 chars** parked on visible `py_code_<Sheet>` at the same A1, shorter stay inline ([`script_bank.py`](../plugin/calc/excel_py_convert/script_bank.py)) — see [ms-py §5.8](scripting/ms-py-compatibility.md#58-ooxml--xlfnpy-import) |
+
+The **Code in a cell** pattern: the chat prompt does not ask the model to emit this two-cell pattern: auto-imports and helpers usually fit in Calc's `MAXSTRLEN` (1024). Revisit `CALC_FORMULA_SYNTAX` if `Err:513` shows up for generated `=PY("…")`.
 
 **XLSX input cells must be numeric, not text:** if the sheet stores values as strings (e.g. `"1.0"` from `str()` in a generator), Calc passes them as text, `split_grid` lands them in the `strings` map, and `np.sum(data)` fails with a Unicode dtype `TypeError`. Regenerate [`serialization_tests.xlsx`](../tests/fixtures/serialization_tests.xlsx) after fixing the generator so ints/floats are written as native cell types.
 

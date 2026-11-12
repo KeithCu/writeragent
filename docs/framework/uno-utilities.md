@@ -116,7 +116,7 @@ Module: [`plugin/doc/document_helpers.py`](../../plugin/doc/document_helpers.py)
 
 ### 1.5 Type guards
 
-Module: [`plugin/doc/doc_type.py`](../../plugin/doc/doc_type.py)
+Module: [`plugin/framework/doc_type.py`](../../plugin/framework/doc_type.py)
 
 | Symbol | Purpose |
 |--------|---------|
