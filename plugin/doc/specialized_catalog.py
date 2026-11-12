@@ -2,6 +2,7 @@
 """Specialized domain catalog for delegate tools and MCP discovery."""
 from __future__ import annotations
 
+import logging
 from typing import Any, NamedTuple, Sequence
 
 from plugin.framework.prompts import (
@@ -153,9 +154,10 @@ class InnerToolCall(NamedTuple):
     mutating: bool
 
 
+log = logging.getLogger(__name__)
+
 FINISH_TOOL_NAME = "specialized_workflow_finished"
 NO_EDIT_TOOL_NOTE = "No document-editing tool ran during this delegation; the document is unchanged by it."
-NO_TOOL_CALLS_MESSAGE = "The sub-agent finished without calling any tool, so nothing was done; its answer is in answer."
 READ_ONLY_DOMAINS: frozenset[str] = frozenset({"document_research", "web_research"})
 
 
@@ -212,12 +214,13 @@ def apply_inner_outcome(
     finished = finish_seen or (isinstance(final_ans, dict) and final_ans.get("finished") is True)
 
     if finish_seen and all(c.name == FINISH_TOOL_NAME for c in calls):
-        # A sub-agent that called only finish did not perform any domain work.
-        payload.pop("finished", None)
-        payload["status"] = "incomplete"
-        payload["code"] = "SPECIALIZED_NO_TOOL_CALLS"
-        payload["message"] = NO_TOOL_CALLS_MESSAGE
-        return payload
+        # Record finish-only runs to measure how often sub-agents complete without invoking domain tools.
+        domains = payload.get("domains") or payload.get("domain")
+        log.info(
+            "Specialized sub-agent finished without domain tool calls (domains=%s, expect_edits=%s)",
+            domains,
+            expect_edits,
+        )
 
     if not finished:
         # A plain-text return without finish is not a silent ok; move it from result to message

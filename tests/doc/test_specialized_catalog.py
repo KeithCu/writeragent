@@ -5,7 +5,6 @@ import json
 from plugin.doc.specialized_catalog import (
     FINISH_TOOL_NAME,
     NO_EDIT_TOOL_NOTE,
-    NO_TOOL_CALLS_MESSAGE,
     InnerToolCall,
     apply_inner_outcome,
     partition_tool_errors,
@@ -46,19 +45,28 @@ def test_partition_tool_errors_same_tool_later_ok_is_recovered() -> None:
     assert recovered3 == []
 
 
-def test_apply_inner_outcome_finish_only_is_no_tool_calls() -> None:
+def test_apply_inner_outcome_finish_only_stays_ok() -> None:
     answer = "No tools needed, task finished directly."
     final_ans = {"status": "ok", "finished": True, "answer": answer}
-    payload = dict(final_ans)
     calls = [InnerToolCall(FINISH_TOOL_NAME, final_ans, mutating=False)]
 
-    result = apply_inner_outcome(payload, final_ans, calls, expect_edits=True)
-    assert result["status"] == "incomplete"
-    assert result["code"] == "SPECIALIZED_NO_TOOL_CALLS"
-    assert result["message"] == NO_TOOL_CALLS_MESSAGE
-    assert "finished" not in result
-    assert result["answer"] == answer
-    assert json.dumps(result).count(answer) == 1
+    # finish-only on an editing domain -> status "ok", finished true, answer kept, note == NO_EDIT_TOOL_NOTE
+    payload_edit = dict(final_ans)
+    result_edit = apply_inner_outcome(payload_edit, final_ans, calls, expect_edits=True)
+    assert result_edit["status"] == "ok"
+    assert result_edit["finished"] is True
+    assert result_edit["answer"] == answer
+    assert result_edit.get("note") == NO_EDIT_TOOL_NOTE
+    assert json.dumps(result_edit).count(answer) == 1
+
+    # finish-only on a read-only domain (document_research) -> status "ok", no note
+    payload_ro = dict(final_ans)
+    result_ro = apply_inner_outcome(payload_ro, final_ans, calls, expect_edits=False)
+    assert result_ro["status"] == "ok"
+    assert result_ro["finished"] is True
+    assert result_ro["answer"] == answer
+    assert "note" not in result_ro
+    assert json.dumps(result_ro).count(answer) == 1
 
 
 def test_apply_inner_outcome_recovered_error_stays_ok() -> None:

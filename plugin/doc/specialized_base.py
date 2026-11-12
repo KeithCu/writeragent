@@ -356,8 +356,7 @@ class DelegateToSpecializedBase(ToolBase):
             instructions = (
                 f"You are a specialized {self._agent_label} task executor focused on the '{domain}' domain. "
                 f"You have a focused set of tools to accomplish your task. Use them to fulfill the user's request. "
-                "Call at least one domain tool before specialized_workflow_finished; if this domain cannot do the task, "
-                "say so in the answer instead of claiming it was done."
+                "If this domain cannot do the task, say so in the answer instead of claiming it was done."
                 + "".join(hints)
             )
 

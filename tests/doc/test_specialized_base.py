@@ -398,29 +398,53 @@ def test_delegate_completed_message_uses_static_msgid(
     assert result["message"] == "Specialized task (structural) completed."
 
 
-def test_delegate_finish_without_tools_is_incomplete(
+def test_delegate_finish_only_stays_ok(
     writer_gateway: DelegateToSpecializedWriter,
 ) -> None:
     from unittest.mock import patch
     from plugin.chatbot.tool_loop_actions import format_delegate_result_chat_line
+    from plugin.doc.specialized_catalog import NO_EDIT_TOOL_NOTE
+    from plugin.writer.specialized_base import ToolWriterDocumentResearchBase
 
     answer = "All done without tools."
-    ctx = _structural_registry(writer_gateway)
 
     def fake_run_inner(ctx, tools, **kwargs):
         tool_map = {t.name: t for t in tools}
         return tool_map["specialized_workflow_finished"](answer=answer)
 
+    # finish-only on an editing domain -> status "ok", finished true, answer kept, note == NO_EDIT_TOOL_NOTE
+    ctx_edit = _structural_registry(writer_gateway)
+
     with patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *a, **kw: fn(*a, **kw)):
         with patch("plugin.doc.specialized_base.run_inner_tool_agent", side_effect=fake_run_inner):
-            result = writer_gateway.execute(ctx, domain="structural", task="Check headings")
+            result_edit = writer_gateway.execute(ctx_edit, domain="structural", task="Check headings")
 
-    assert result["status"] == "incomplete"
-    assert result["code"] == "SPECIALIZED_NO_TOOL_CALLS"
-    assert result["answer"] == answer
-    assert "finished" not in result
-    chat_line = format_delegate_result_chat_line({"domain": "ranges"}, result)
-    assert "incomplete" in chat_line
+    assert result_edit["status"] == "ok"
+    assert result_edit["finished"] is True
+    assert result_edit["answer"] == answer
+    assert result_edit.get("note") == NO_EDIT_TOOL_NOTE
+    chat_line = format_delegate_result_chat_line({"domain": "structural"}, result_edit)
+    assert "done" in chat_line
+
+    # finish-only on a read-only domain (document_research) -> status "ok", no note
+    class _DummyDocResearchTool(ToolWriterDocumentResearchBase):
+        name = "dummy_doc_research_tool"
+        description = "A dummy doc research tool."
+        parameters = {"type": "object", "properties": {}}
+
+        def execute(self, ctx, **kw):
+            return {"status": "ok"}
+
+    ctx_ro = _structural_registry(writer_gateway, tool=_DummyDocResearchTool())
+
+    with patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *a, **kw: fn(*a, **kw)):
+        with patch("plugin.doc.specialized_base.run_inner_tool_agent", side_effect=fake_run_inner):
+            result_ro = writer_gateway.execute(ctx_ro, domain="document_research", task="Search docs")
+
+    assert result_ro["status"] == "ok"
+    assert result_ro["finished"] is True
+    assert result_ro["answer"] == answer
+    assert "note" not in result_ro
 
 
 def test_delegate_retried_tool_error_is_recovered(

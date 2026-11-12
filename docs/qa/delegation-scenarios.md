@@ -13,7 +13,7 @@ Reusable headed checks that the main chat still delegates Writer and Calc work t
 ## Pass criteria (every scenario)
 
 1. Delegation went to the expected domain, or no delegation where none is expected. A reasonable alternative domain is a pass — note which.
-2. If delegated: the result has `"finished": true`. It is not `SPECIALIZED_WORKFLOW_INCOMPLETE`, `SPECIALIZED_NO_TOOL_CALLS`, or `SPECIALIZED_TOOL_ERROR`.
+2. If delegated: the result has `"finished": true`. It is not `SPECIALIZED_WORKFLOW_INCOMPLETE` or `SPECIALIZED_TOOL_ERROR`.
 3. The report makes sense: for an edit, it names where the change is and gives counts; for a read, it returns what was asked. It is not empty and does not dump the whole document.
 4. No loops: no repeated identical delegate, no "Reached max steps". The main agent takes about six rounds or fewer.
 5. The document actually shows the change.
