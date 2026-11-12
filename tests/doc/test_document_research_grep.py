@@ -272,6 +272,7 @@ def test_grep_nearby_files_open_error_continues(mock_resolve, mock_open, mock_cl
 def test_grep_nearby_files_requires_pattern():
     result = grep_nearby_files(MagicMock(), MagicMock(), MagicMock(), "  ")
     assert result["status"] == "error"
+    assert result["code"] == "INVALID_PARAM"
 
 
 def _draw_text_shape(text: str) -> MagicMock:
@@ -576,6 +577,7 @@ def test_grep_nearby_files_invalid_regex_does_not_open_files(mock_resolve, mock_
         regex=True,
     )
     assert result["status"] == "error"
+    assert result["code"] == "INVALID_PARAM"
     assert "Invalid regex:" in result["message"]
     mock_resolve.assert_not_called()
     mock_open.assert_not_called()

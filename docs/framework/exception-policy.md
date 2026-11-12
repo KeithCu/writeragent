@@ -56,6 +56,8 @@ A bare `RuntimeException` is not disposal: the callback logs it and returns `Non
 
 Writer editing tools (`apply_document_content`, `apply_style`, `search_in_document`, `set_selection`) report stable `code` identifiers on hard errors and in `warnings` entries (`Diagnostic`).
 
+Inside a tool method, report errors via `self._tool_error(message, code=..., top_level={...}, **details)`. In a module helper that returns a payload, call `make_tool_error(...)` with the same keywords. In a helper that aborts, `raise ToolExecutionError(message, code=..., details=...)` and let `execute_safe` format it (no top-level fields on that path). For example, `self._tool_error("Not found", code="NOT_FOUND", top_level={"count": 0})` places `count` at the top level next to `code` and `message`. A `{"status": "error", ...}` literal is allowed only where a comment names the top-level field or the cache reason that forces it; today that is the search-miss builder in `search.py` and the edit-path dicts in `apply_document_content.py`.
+
 Code constants remain string literals across call sites. Codes are JSON wire values compared as strings (`result.get("code") == "..."`) and consumed directly by the model; string literals keep payloads plain and `make_tool_error(code=str)` uniform. Codes are consolidated into non-overlapping identifiers: do not invent overlapping variants (`PARAM_CONFLICT`, `CONTENT_EMPTY`, `OLD_CONTENT_EMPTY`, `ANCHOR_UNSUPPORTED_OPTION`) for parameter validation errors; use `INVALID_PARAM` unless the model must take a distinctly different action.
 
 | Code | Kind | Trigger site(s) | `suggested_call` |
@@ -75,7 +77,7 @@ Code constants remain string literals across call sites. Codes are JSON wire val
 | `HYPERLINK_UPDATE_FAILED` | error | Updating hyperlink URL or bookmark target failed (`apply_document_content.py`) | None |
 | `UNDO_UNAVAILABLE` | error | `apply_document_content.py`, `styles.py` | None |
 | `ROLLBACK_FAILED` | error | `apply_document_content.py`, `styles.py` | None |
-| `INVALID_PARAM` | error | Parameter validation failures: missing query/pattern (`search.py`); invalid style/clear_direct (`styles.py`); selection parameter conflicts/empty values (`selection.py`); `apply_document_content` parameter conflicts/empty strings | None |
+| `INVALID_PARAM` | error | Parameter validation failures (`INVALID_PARAM` is the only spelling; `INVALID_PARAMETER` is not used): missing query/pattern (`search.py`); invalid style/clear_direct (`styles.py`); selection parameter conflicts/empty values (`selection.py`); `apply_document_content` parameter conflicts/empty strings | None |
 | `INVALID_REGEX` | error | `validate_icu_regex` / `invalid_regex_tool_message` (`search.py`) | None |
 | `STYLE_IGNORED_PARTIAL_MATCH` | warning | Partial match style skip (`html_import.py`, `apply_document_content.py`) | `apply_style(target="search", old_content=<params.plain>, style=<style>, case_sensitive=True)` when every check in `_partial_match_style_suggestion` (`apply_document_content.py`) passes; never for `target='selection'` or while recording. |
 | `STYLE_IGNORED_RECORDING` | warning | Tracked changes recording skip (`html_import.py`, `apply_document_content.py`) | None (`apply_style` is not tracked). |

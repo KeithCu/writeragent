@@ -1468,9 +1468,11 @@ class SearchInDocument(ToolBase):
         except Exception as exc:
             reraise_if_disposed(exc)
             log.exception("search_in_document: createSearchDescriptor / findFirst failed")
-            err = self._tool_error("search failed: %s" % exc, code="SEARCH_FAILED")
-            err["matched_case_sensitive"] = case_sensitive
-            return err
+            return self._tool_error(
+                "search failed: %s" % exc,
+                code="SEARCH_FAILED",
+                top_level={"matched_case_sensitive": case_sensitive},
+            )
 
         matches: list[dict[str, str]] = []
 

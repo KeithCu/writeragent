@@ -93,7 +93,7 @@ def test_document_properties_set_writes_and_rejects_internal():
 
     bad = DocumentPropertiesSet().execute(ctx, user_defined={"WriterAgentSecret": "nope"})
     assert bad["status"] == "error"
-    assert bad["code"] == "INVALID_PARAMETER"
+    assert bad["code"] == "INVALID_PARAM"
 
 
 def test_document_properties_set_no_changes_and_conflicts():
@@ -116,13 +116,13 @@ def test_document_properties_set_no_changes_and_conflicts():
         user_defined={"Same": "a"},
         remove_user_defined=["Same"],
     )
-    assert conflict["code"] == "INVALID_PARAMETER"
+    assert conflict["code"] == "INVALID_PARAM"
 
     bad_kw = DocumentPropertiesSet().execute(ctx, keywords="one,two")
-    assert bad_kw["code"] == "INVALID_PARAMETER"
+    assert bad_kw["code"] == "INVALID_PARAM"
 
     bad_kw_item = DocumentPropertiesSet().execute(ctx, keywords=["ok", 1])
-    assert bad_kw_item["code"] == "INVALID_PARAMETER"
+    assert bad_kw_item["code"] == "INVALID_PARAM"
 
 
 def test_document_properties_set_partial_updated_on_ud_failure():
@@ -175,3 +175,15 @@ def test_document_properties_set_keywords_array():
         res = DocumentPropertiesSet().execute(ctx, keywords=["a", "b"])
     assert res["status"] == "ok"
     assert bag.Keywords == ("a", "b")
+
+
+def test_get_guidance_unknown_topic():
+    from plugin.doc.document_research_tools import GetGuidance
+
+    ctx = MagicMock()
+    ctx.doc.supportsService.return_value = False
+    res = GetGuidance().execute(ctx, topic="nonexistent_topic_xyz")
+    assert res["status"] == "error"
+    assert res["code"] == "UNKNOWN_TOPIC"
+    assert "topics" in res
+    assert "details" not in res

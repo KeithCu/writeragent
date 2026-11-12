@@ -1386,11 +1386,11 @@ def test_image_set_properties_rejects_anchor_type():
 
     with patch("plugin.doc.visual_helpers.get_graphic_object_by_name") as mock_get:
         res = ImageSetProperties().execute(ctx, name="G", anchor_type=9)
-        assert res["code"] == "INVALID_PARAMETER"
+        assert res["code"] == "INVALID_PARAM"
         mock_get.assert_not_called()
 
         res_bool = ImageSetProperties().execute(ctx, name="G", anchor_type=True)
-        assert res_bool["code"] == "INVALID_PARAMETER"
+        assert res_bool["code"] == "INVALID_PARAM"
         mock_get.assert_not_called()
 
     ok2, err2 = ImageSetProperties().validate(name="G", anchor_type=2)
@@ -1493,7 +1493,7 @@ def test_image_crop_and_highlight_bake_value_error_is_invalid_parameter():
     ):
         res = ImageCropAndHighlight().execute(ctx, name="Pic", crop_box=[0, 0, 45000, 45000])
     assert res["status"] != "ok"
-    assert res.get("code") == "INVALID_PARAMETER"
+    assert res.get("code") == "INVALID_PARAM"
     assert res.get("details", {}).get("width_px") == 50000
     assert res.get("details", {}).get("height_px") == 50000
     obj.setPropertyValue.assert_not_called()
@@ -1522,19 +1522,19 @@ def test_image_crop_rejects_non_positive_width_mm():
         # 1. width_mm = 0 is rejected
         res = ImageCropAndHighlight().execute(ctx, name="Pic", crop_box=[0, 0, 10, 10], width_mm=0)
         assert res["status"] != "ok"
-        assert res.get("code") == "INVALID_PARAMETER"
+        assert res.get("code") == "INVALID_PARAM"
         assert res.get("details", {}).get("parameter") == "width_mm"
 
         # 2. width_mm = -5 is rejected
         res = ImageCropAndHighlight().execute(ctx, name="Pic", crop_box=[0, 0, 10, 10], width_mm=-5)
         assert res["status"] != "ok"
-        assert res.get("code") == "INVALID_PARAMETER"
+        assert res.get("code") == "INVALID_PARAM"
         assert res.get("details", {}).get("parameter") == "width_mm"
 
         # 3. width_mm = True (bool) is rejected
         res = ImageCropAndHighlight().execute(ctx, name="Pic", crop_box=[0, 0, 10, 10], width_mm=True)
         assert res["status"] != "ok"
-        assert res.get("code") == "INVALID_PARAMETER"
+        assert res.get("code") == "INVALID_PARAM"
         assert res.get("details", {}).get("parameter") == "width_mm"
 
         # 4. omitted width_mm keeps size.Width (1000 hundredths mm -> 10.0 mm)
@@ -1639,7 +1639,7 @@ def test_image_crop_and_info_unmeasurable_graphic():
     ):
         res = ImageCropAndHighlight().execute(ctx, name="Pic", crop_box=[0, 0, 10, 10])
         assert res["status"] != "ok"
-        assert res.get("code") == "INVALID_PARAMETER"
+        assert res.get("code") == "INVALID_PARAM"
         mock_bake.assert_not_called()
 
         info = ImageGetInfo().execute(ctx, name="Pic")
@@ -1678,11 +1678,11 @@ def test_image_generate_invalid_source_image_parameter():
     ctx = TestingFactory.create_context(doc_type="writer")
     res = ImageGenerate().execute(ctx, prompt="test", source_image="https://example.com/pic.png")
     assert res["status"] != "ok"
-    assert res.get("code") == "INVALID_PARAMETER"
+    assert res.get("code") == "INVALID_PARAM"
 
     res2 = ImageGenerate().execute(ctx, prompt="test", source_image="/tmp/pic.png")
     assert res2["status"] != "ok"
-    assert res2.get("code") == "INVALID_PARAMETER"
+    assert res2.get("code") == "INVALID_PARAM"
 
 
 def test_image_generate_rejects_huge_selection_export():
@@ -1696,7 +1696,7 @@ def test_image_generate_rejects_huge_selection_export():
     ):
         res = ImageGenerate().execute(ctx, prompt="p", source_image="selection")
         assert res["status"] != "ok"
-        assert res.get("code") == "INVALID_PARAMETER"
+        assert res.get("code") == "INVALID_PARAM"
         assert res.get("details", {}).get("parameter") == "source_image"
         mock_svc.assert_not_called()
 
@@ -1851,7 +1851,7 @@ def test_image_set_properties_unknown_hori_orient_no_writes():
     with patch("plugin.doc.visual_helpers.get_graphic_object_by_name", return_value=graphic):
         res = ImageSetProperties().execute(ctx, name="Pic", hori_orient="nowhere")
     assert res["status"] != "ok"
-    assert res.get("code") == "INVALID_PARAMETER"
+    assert res.get("code") == "INVALID_PARAM"
     graphic.setPropertyValue.assert_not_called()
 
 
@@ -2018,13 +2018,13 @@ def test_image_set_properties_rejects_negative_crop():
     with patch("plugin.doc.visual_helpers.get_graphic_object_by_name", return_value=graphic):
         res = ImageSetProperties().execute(ctx, name="Pic", crop_top_mm=-1)
         assert res["status"] != "ok"
-        assert res.get("code") == "INVALID_PARAMETER"
+        assert res.get("code") == "INVALID_PARAM"
         assert res.get("details", {}).get("parameter") == "crop_top_mm"
         graphic.setPropertyValue.assert_not_called()
 
         res_bool = ImageSetProperties().execute(ctx, name="Pic", crop_right_mm=True)
         assert res_bool["status"] != "ok"
-        assert res_bool.get("code") == "INVALID_PARAMETER"
+        assert res_bool.get("code") == "INVALID_PARAM"
         assert res_bool.get("details", {}).get("parameter") == "crop_right_mm"
         graphic.setPropertyValue.assert_not_called()
 
@@ -2339,30 +2339,30 @@ def test_tools_reject_non_positive_sizes():
     ctx = TestingFactory.create_context(doc_type="writer")
 
     # ImageInsert rejects width_mm / height_mm <= 0
-    assert ImageInsert().execute(ctx, path="/tmp/a.png", width_mm=0)["code"] == "INVALID_PARAMETER"
-    assert ImageInsert().execute(ctx, path="/tmp/a.png", width_mm=-1)["code"] == "INVALID_PARAMETER"
-    assert ImageInsert().execute(ctx, path="/tmp/a.png", height_mm=0)["code"] == "INVALID_PARAMETER"
-    assert ImageInsert().execute(ctx, path="/tmp/a.png", height_mm=-5)["code"] == "INVALID_PARAMETER"
+    assert ImageInsert().execute(ctx, path="/tmp/a.png", width_mm=0)["code"] == "INVALID_PARAM"
+    assert ImageInsert().execute(ctx, path="/tmp/a.png", width_mm=-1)["code"] == "INVALID_PARAM"
+    assert ImageInsert().execute(ctx, path="/tmp/a.png", height_mm=0)["code"] == "INVALID_PARAM"
+    assert ImageInsert().execute(ctx, path="/tmp/a.png", height_mm=-5)["code"] == "INVALID_PARAM"
 
     # ImageReplace rejects width_mm / height_mm <= 0
-    assert ImageReplace().execute(ctx, name="Pic", path="/tmp/a.png", width_mm=0)["code"] == "INVALID_PARAMETER"
-    assert ImageReplace().execute(ctx, name="Pic", path="/tmp/a.png", width_mm=-2)["code"] == "INVALID_PARAMETER"
-    assert ImageReplace().execute(ctx, name="Pic", path="/tmp/a.png", height_mm=0)["code"] == "INVALID_PARAMETER"
-    assert ImageReplace().execute(ctx, name="Pic", path="/tmp/a.png", height_mm=-10)["code"] == "INVALID_PARAMETER"
+    assert ImageReplace().execute(ctx, name="Pic", path="/tmp/a.png", width_mm=0)["code"] == "INVALID_PARAM"
+    assert ImageReplace().execute(ctx, name="Pic", path="/tmp/a.png", width_mm=-2)["code"] == "INVALID_PARAM"
+    assert ImageReplace().execute(ctx, name="Pic", path="/tmp/a.png", height_mm=0)["code"] == "INVALID_PARAM"
+    assert ImageReplace().execute(ctx, name="Pic", path="/tmp/a.png", height_mm=-10)["code"] == "INVALID_PARAM"
 
     # ImageSetProperties rejects width_mm / height_mm <= 0
-    assert ImageSetProperties().execute(ctx, name="Pic", width_mm=0)["code"] == "INVALID_PARAMETER"
-    assert ImageSetProperties().execute(ctx, name="Pic", width_mm=-1)["code"] == "INVALID_PARAMETER"
-    assert ImageSetProperties().execute(ctx, name="Pic", height_mm=0)["code"] == "INVALID_PARAMETER"
-    assert ImageSetProperties().execute(ctx, name="Pic", height_mm=-3)["code"] == "INVALID_PARAMETER"
+    assert ImageSetProperties().execute(ctx, name="Pic", width_mm=0)["code"] == "INVALID_PARAM"
+    assert ImageSetProperties().execute(ctx, name="Pic", width_mm=-1)["code"] == "INVALID_PARAM"
+    assert ImageSetProperties().execute(ctx, name="Pic", height_mm=0)["code"] == "INVALID_PARAM"
+    assert ImageSetProperties().execute(ctx, name="Pic", height_mm=-3)["code"] == "INVALID_PARAM"
 
     # ImageGenerate rejects base_size, width, height <= 0
-    assert ImageGenerate().execute(ctx, prompt="p", base_size=0)["code"] == "INVALID_PARAMETER"
-    assert ImageGenerate().execute(ctx, prompt="p", base_size=-50)["code"] == "INVALID_PARAMETER"
-    assert ImageGenerate().execute(ctx, prompt="p", width=0)["code"] == "INVALID_PARAMETER"
-    assert ImageGenerate().execute(ctx, prompt="p", width=-10)["code"] == "INVALID_PARAMETER"
-    assert ImageGenerate().execute(ctx, prompt="p", height=0)["code"] == "INVALID_PARAMETER"
-    assert ImageGenerate().execute(ctx, prompt="p", height=-10)["code"] == "INVALID_PARAMETER"
+    assert ImageGenerate().execute(ctx, prompt="p", base_size=0)["code"] == "INVALID_PARAM"
+    assert ImageGenerate().execute(ctx, prompt="p", base_size=-50)["code"] == "INVALID_PARAM"
+    assert ImageGenerate().execute(ctx, prompt="p", width=0)["code"] == "INVALID_PARAM"
+    assert ImageGenerate().execute(ctx, prompt="p", width=-10)["code"] == "INVALID_PARAM"
+    assert ImageGenerate().execute(ctx, prompt="p", height=0)["code"] == "INVALID_PARAM"
+    assert ImageGenerate().execute(ctx, prompt="p", height=-10)["code"] == "INVALID_PARAM"
 
 
 def test_download_image_to_cache_stop_aborts(tmp_path, monkeypatch):

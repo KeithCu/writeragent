@@ -13,7 +13,7 @@ import logging
 from typing import Any, ClassVar
 
 from plugin.chatbot.smol_agent import SmolToolAdapter, run_inner_tool_agent
-from plugin.framework.errors import user_stopped_payload
+from plugin.framework.errors import make_tool_error, user_stopped_payload
 from plugin.framework.tool import ToolBase, ToolContext
 from plugin.framework.queue_executor import main
 from plugin.doc.document_research import close_document_research_document, open_document_for_read, resolve_path_or_name
@@ -38,7 +38,7 @@ def run_inner_read_agent(parent_ctx: ToolContext, opened_model: Any, doc_type: s
     registry = parent_ctx.services.get("tools")
     allowlist = READ_TOOLS_BY_DOC_TYPE.get(doc_type)
     if not allowlist:
-        return {"status": "error", "message": f"No read tools configured for doc_type {doc_type!r}"}
+        return make_tool_error(f"No read tools configured for doc_type {doc_type!r}")
 
     inner_ctx = parent_ctx.derive(
         doc=opened_model,
@@ -77,7 +77,7 @@ def run_inner_read_agent(parent_ctx: ToolContext, opened_model: Any, doc_type: s
         log.warning("Inner document_research agent missing tools: %s", missing)
 
     if not ordered:
-        return {"status": "error", "message": "No read tools available for opened document"}
+        return make_tool_error("No read tools available for opened document")
 
     smol_tools = [SmolToolAdapter(t, inner_ctx, safe=True, inputs_style="specialized") for t in ordered]
 

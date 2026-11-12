@@ -1085,6 +1085,9 @@ def test_style_color_par_back_and_automatic():
 
     style.reset_mock()
     res = StyleUpdate().execute(ctx, style="MyStyle", property_updates={"ParaBackColor": "not-a-color"})
+    assert res["status"] == "error"
+    assert res["code"] == "TOOL_EXECUTION_ERROR"
+    assert res["message"] == "Failed to apply any updates."
     assert "ParaBackColor" in res.get("failed_properties", {})
     style.setPropertyValue.assert_not_called()
 

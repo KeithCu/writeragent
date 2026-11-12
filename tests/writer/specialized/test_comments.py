@@ -344,6 +344,7 @@ def test_add_comment_errors_when_annotation_does_not_register():
     doc.getTextFields.return_value = empty
     res = AddComment().execute(SimpleNamespace(doc=doc), content="note", search="hit")
     assert res["status"] == "error" and res["comment_added"] is False and res["matched"] is True
+    assert res["code"] == "TOOL_EXECUTION_ERROR"
 
 
 def test_add_comment_not_found_at_occurrence():
@@ -713,6 +714,7 @@ def test_comment_resolve_failed_reply_insert_does_not_set_resolved():
     with patch("plugin.writer.specialized.comments._set_annotation_date"):
         res = CommentResolve().execute(ctx, name="target", resolution="Failed to register")
     assert res["status"] == "error"
+    assert res["code"] == "TOOL_EXECUTION_ERROR"
     assert "did not register an annotation" in res["message"]
     for call_item in field.setPropertyValue.call_args_list:
         assert call_item[0][0] != "Resolved"
@@ -1015,6 +1017,12 @@ def test_reply_and_resolve_call_shared_helper(monkeypatch):
     assert add_res["comment_added"] is True
     assert add_res["name"] == "new_reply_name"
     assert helper_calls[-1] == ("c1", "my reply", "Author1")
+
+    add_fail = comments.AddComment().execute(ctx, content="fail", parent_name="c1", author="Author1")
+    assert add_fail["status"] == "error"
+    assert add_fail["code"] == "TOOL_EXECUTION_ERROR"
+    assert add_fail["parent_name"] == "c1"
+    assert add_fail["comment_added"] is False
 
     # 2. CommentResolve failure does not set Resolved
     target.reset_mock()
@@ -1331,7 +1339,7 @@ def test_comment_list_paging_and_author_filter_order():
 
         bad_page = CommentList().execute(ctx, max_comments="nope")
         assert bad_page["status"] == "error"
-        assert bad_page["code"] == "INVALID_PARAMETER"
+        assert bad_page["code"] == "INVALID_PARAM"
 
 
 def test_comment_edit_sets_content_only():

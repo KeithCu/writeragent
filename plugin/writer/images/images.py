@@ -256,7 +256,7 @@ class ImageGenerate(ToolWriterImageBase):
         if source_image is not None and (not isinstance(source_image, str) or source_image.lower() != "selection"):
             return self._tool_error(
                 "Invalid source_image: only 'selection' or omitted is supported.",
-                code="INVALID_PARAMETER",
+                code="INVALID_PARAM",
                 parameter="source_image",
             )
 
@@ -319,7 +319,7 @@ class ImageGenerate(ToolWriterImageBase):
             return self._tool_error(
                 "Selected image is larger than %d MB; crop it or choose a smaller image to edit."
                 % (IMAGE_DOWNLOAD_MAX_BYTES // (1024 * 1024)),
-                code="INVALID_PARAMETER",
+                code="INVALID_PARAM",
                 parameter="source_image",
             )
         if source_image is not None and tag != "ok":
@@ -690,7 +690,7 @@ def _validate_dimensions(
     for key in keys:
         val = kwargs.get(key)
         if val is not None and val <= 0:
-            return tool._tool_error("%s must be greater than 0." % key, code="INVALID_PARAMETER", parameter=key)
+            return tool._tool_error("%s must be greater than 0." % key, code="INVALID_PARAM", parameter=key)
     return None
 
 
@@ -888,14 +888,14 @@ class ImageSetProperties(ToolWriterImageBase):
         if anchor_type is not None and (type(anchor_type) is not int or anchor_type not in (0, 1, 2, 3, 4)):
             return self._tool_error(
                 "anchor_type must be an integer 0, 1, 2, 3, or 4.",
-                code="INVALID_PARAMETER",
+                code="INVALID_PARAM",
                 parameter="anchor_type",
             )
 
         for crop_key in _CROP_KEYS:
             crop_val = kwargs.get(crop_key)
             if crop_val is not None and (isinstance(crop_val, bool) or not isinstance(crop_val, (int, float)) or crop_val < 0):
-                return self._tool_error(f"{crop_key} must be 0 or greater.", code="INVALID_PARAMETER", parameter=crop_key)
+                return self._tool_error(f"{crop_key} must be 0 or greater.", code="INVALID_PARAM", parameter=crop_key)
 
         sheet_index = kwargs.get("sheet_index")
         graphic, resolve_err = _resolve_graphic(self, ctx, image_name, sheet_index=sheet_index)
@@ -910,7 +910,7 @@ class ImageSetProperties(ToolWriterImageBase):
             if val is not None:
                 resolved, err = _resolve_orient(val, kind)
                 if err:
-                    return self._tool_error(err, code="INVALID_PARAMETER", parameter=param)
+                    return self._tool_error(err, code="INVALID_PARAM", parameter=param)
                 assert resolved is not None
                 resolved_orient[prop] = resolved
 
@@ -1100,7 +1100,7 @@ class ImageCropAndHighlight(ToolWriterImageBase):
                 extra["width_px"] = width_px
             if height_px is not None:
                 extra["height_px"] = height_px
-            return self._tool_error(msg, code="INVALID_PARAMETER", **extra)
+            return self._tool_error(msg, code="INVALID_PARAM", **extra)
 
         try:
             width_px, height_px = visual_helpers.pixel_size(source)
@@ -1119,7 +1119,7 @@ class ImageCropAndHighlight(ToolWriterImageBase):
         width_mm = kwargs.get("width_mm")
         if width_mm is not None:
             if isinstance(width_mm, bool) or not isinstance(width_mm, (int, float)) or int(round(width_mm * 100)) < 1:
-                return self._tool_error("width_mm must be greater than 0.", code="INVALID_PARAMETER", parameter="width_mm")
+                return self._tool_error("width_mm must be greater than 0.", code="INVALID_PARAM", parameter="width_mm")
             width_100mm = int(round(width_mm * 100))
         else:
             width_100mm = int(size.Width)
@@ -1392,7 +1392,7 @@ class ImageInsert(ToolWriterImageBase):
                     y_mm=kwargs.get("y_mm"),
                 )
             except IndexError as exc:
-                return self._tool_error(str(exc), code="INVALID_PARAMETER", parameter="page")
+                return self._tool_error(str(exc), code="INVALID_PARAM", parameter="page")
             if graphic is None:
                 return self._tool_error("Failed to insert image.", code="INSERT_FAILED", path=image_path)
 

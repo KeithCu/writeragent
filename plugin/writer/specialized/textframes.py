@@ -70,7 +70,7 @@ def _validate_frame_mm(tool: Any, param_name: str, val: Any) -> dict[str, Any] |
     except (TypeError, ValueError):
         return tool._tool_error(
             f"{param_name} must be a positive finite number.",
-            code="INVALID_PARAMETER",
+            code="INVALID_PARAM",
             parameter=param_name,
         )
     return None
@@ -80,7 +80,7 @@ def _validate_frame_anchor_type(tool: Any, val: Any) -> dict[str, Any] | None:
     if type(val) is not int or not (0 <= val <= 4):
         return tool._tool_error(
             "anchor_type must be an integer between 0 and 4.",
-            code="INVALID_PARAMETER",
+            code="INVALID_PARAM",
             parameter="anchor_type",
         )
     return None
@@ -90,7 +90,7 @@ def _validate_frame_orientation(tool: Any, param_name: str, val: Any) -> dict[st
     if type(val) is not int:
         return tool._tool_error(
             f"{param_name} must be an integer.",
-            code="INVALID_PARAMETER",
+            code="INVALID_PARAM",
             parameter=param_name,
         )
     return None
@@ -328,7 +328,7 @@ class FrameInsert(ToolWriterTextFramesBase):
             if text_frames.hasByName(frame_name):
                 return self._tool_error(
                     "Text frame %r already exists." % frame_name,
-                    code="INVALID_PARAMETER",
+                    code="INVALID_PARAM",
                     parameter="name",
                 )
         try:

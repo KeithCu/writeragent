@@ -732,6 +732,7 @@ def test_manage_tracked_changes_bulk_unsupported_when_dispatch_returns_none(acti
     assert res["status"] == "error"
     assert res["code"] == "UNSUPPORTED"
     assert res["tracked_changes_bulk_unsupported"] is True
+    assert "details" not in res
     assert res["message"] == "Accepting or rejecting all tracked changes is not supported on this document."
 
 

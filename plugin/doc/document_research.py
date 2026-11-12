@@ -19,7 +19,7 @@ import uno
 from plugin.framework.doc_type import doc_type_family_label, get_document_type
 from plugin.doc.text_helpers import get_document_path
 from plugin.embeddings.embeddings_fs import ALL_INDEXABLE_EXTENSIONS
-from plugin.framework.errors import best_effort, uno_read, user_stopped_payload
+from plugin.framework.errors import best_effort, make_tool_error, uno_read, user_stopped_payload
 from plugin.framework.send_cancellation import SendCancellation, is_cancelled
 from plugin.framework.uno_context import enum_has_more, resolve_document_by_url
 from plugin.framework.url_utils import normalize_file_url, path_to_file_url
@@ -439,15 +439,14 @@ def list_nearby_files(
         except InterruptedError:
             return user_stopped_payload()
         except OSError as e:
-            return {"status": "error", "message": str(e), "details": {"path": listing_root}}
+            return make_tool_error(str(e), path=listing_root)
 
     # No directory: list other open documents only
     files, truncated = _entries_from_open_only(open_paths, filter_substring=filter)
     if not files:
-        return {
-            "status": "error",
-            "message": "No nearby files found. Save the document or open sibling files in LibreOffice.",
-        }
+        return make_tool_error(
+            "No nearby files found. Save the document or open sibling files in LibreOffice."
+        )
     return {"status": "ok", "files": files, "truncated": truncated, "listing_root": None, **(
         {"hint": "Listing stopped at 100. Pass filter to narrow the name."} if truncated else {}
     )}

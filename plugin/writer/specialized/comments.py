@@ -20,7 +20,7 @@ import logging
 from typing import Any, cast
 
 from plugin.framework.constants import WORKFLOW_TASK_PREFIXES, now_aware
-from plugin.framework.errors import reraise_if_disposed, uno_read
+from plugin.framework.errors import make_tool_error, reraise_if_disposed, uno_read
 import uno
 
 from plugin.doc.text_helpers import iter_elements
@@ -72,14 +72,11 @@ class _ReplyNotRegistered(Exception):
 
 
 def _comment_not_found(message: str, *, details: dict[str, Any] | None = None, **extra: Any) -> dict[str, Any]:
-    payload: dict[str, Any] = {"status": "error", "code": "COMMENT_NOT_FOUND", "message": message, **extra}
-    if details:
-        payload["details"] = details
-    return payload
+    return make_tool_error(message, code="COMMENT_NOT_FOUND", top_level=extra, **(details or {}))
 
 
 def _reply_error(message: str, parent_name: str, **extra: Any) -> dict[str, Any]:
-    return {"status": "error", "message": message, "parent_name": parent_name, **extra}
+    return make_tool_error(message, top_level={"parent_name": parent_name, **extra})
 
 
 class CommentList(ToolWriterCommentBase):
@@ -120,12 +117,12 @@ class CommentList(ToolWriterCommentBase):
         except (TypeError, ValueError):
             return self._tool_error(
                 "start_index must be a non-negative integer.",
-                code="INVALID_PARAMETER",
+                code="INVALID_PARAM",
                 parameter="start_index",
             )
         max_val, max_err = parse_non_negative_int(max_raw, name="max_comments", coerce=True)
         if max_err:
-            return self._tool_error(max_err, code="INVALID_PARAMETER", parameter="max_comments")
+            return self._tool_error(max_err, code="INVALID_PARAM", parameter="max_comments")
         max_comments = max(1, max_val if max_val is not None else 100)
         doc = ctx.doc
         # One field scan first: a comment-free document should not pay for the paragraph map.
@@ -190,8 +187,7 @@ class AddComment(ToolBase):
         if parent_name:
             parent = _find_annotation_by_name(ctx.doc, parent_name)
             if parent is None:
-                # Top-level comment_added (not _tool_error details) matches the
-                # search-miss payload so clients can branch on one field.
+                # comment_added is top-level, via top_level, so clients branch on one field.
                 return _comment_not_found(
                     "Comment '%s' not found. Call comment_list to see the current names." % parent_name,
                     comment_added=False,
@@ -265,13 +261,14 @@ class AddComment(ToolBase):
         match_text.insertTextContent(cursor, annotation, True)
         names_after = _annotation_field_names(doc)
         if len(names_after) <= len(names_before):
-            return {
-                "status": "error",
-                "message": "Comment insert did not register an annotation.",
-                "matched": True,
-                "comment_added": False,
-                "anchor_text": anchor_text or search_text,
-            }
+            return self._tool_error(
+                "Comment insert did not register an annotation.",
+                top_level={
+                    "matched": True,
+                    "comment_added": False,
+                    "anchor_text": anchor_text or search_text,
+                },
+            )
 
         prior = set(n for n in names_before if n)
         new_name = next((n for n in names_after if n and n not in prior), "")

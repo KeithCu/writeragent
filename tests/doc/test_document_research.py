@@ -186,6 +186,16 @@ def test_list_nearby_files_no_active_model_returns_open_docs():
     assert mock_collect.call_args.kwargs.get("exclude_path") is None
 
 
+def test_list_nearby_files_no_directory_no_open_docs_is_coded_error():
+    ctx = MagicMock()
+    with patch("plugin.doc.document_research._collect_open_file_urls", return_value={}):
+        with patch("plugin.doc.document_research.resolve_listing_directory", return_value=None):
+            result = list_nearby_files(ctx, None)
+    assert result["status"] == "error"
+    assert result["code"] == "TOOL_EXECUTION_ERROR"
+    assert "No nearby files" in result["message"]
+
+
 def test_get_work_directory():
     with tempfile.TemporaryDirectory() as tmp:
         ctx = MagicMock()

@@ -773,13 +773,10 @@ class PageSetStyleProperties(ToolWriterPageBase):
         def fail(label: str, exc: Exception) -> dict[str, Any]:
             prefix = f"Failed to set {label} on page style '{style_name}': {exc}. "
             suffix = "Nothing was changed." if not updated else f"Earlier properties ({', '.join(updated)}) stay applied."
-            return {
-                "status": "error",
-                "style_name": style_name,
-                "updated": updated,
-                "failed": {label: str(exc)},
-                "message": prefix + suffix,
-            }
+            return self._tool_error(
+                prefix + suffix,
+                top_level={"style_name": style_name, "updated": updated, "failed": {label: str(exc)}},
+            )
 
         # is_landscape is applied first. If width/height were not passed, restore
         # the snapshotted dimensions so the setter doesn't swap them silently.

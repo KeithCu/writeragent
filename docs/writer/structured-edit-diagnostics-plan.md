@@ -25,7 +25,7 @@ Why: prompt instructions carry complex API-mechanics rules largely because tool 
 
 ## 2. What exists today (verified in the tree)
 
-- **Error factory:** `make_tool_error(message, code="TOOL_EXECUTION_ERROR", **details)` in `plugin/framework/errors.py:404-414`. `ToolBase._tool_error` in `plugin/framework/tool.py:242-251` forwards keyword arguments to it. `format_error_payload` (`plugin/framework/errors.py:255-267`) formats exceptions into `{"status": "error", "code", "message", "details"?}`. Extra keyword arguments are nested under `details`.
+- **Error factory:** `make_tool_error(message, code="TOOL_EXECUTION_ERROR", **details)` in `plugin/framework/errors.py:404-414`. `ToolBase._tool_error` in `plugin/framework/tool.py:242-251` forwards keyword arguments to it. `format_error_payload` (`plugin/framework/errors.py:255-267`) formats exceptions into `{"status": "error", "code", "message", "details"?}`. Extra keyword arguments nest under `details`; `top_level=` places fields beside `code`.
 - **Codes in use on the Writer edit path:**
   - Standard codes already emitted: `INVALID_PARAM`, `INVALID_REGEX`, `TABLE_INSERT_FAILED`, `MATH_IMPORT_FAILED`, `HYPERLINK_UPDATE_FAILED`, `SHAPE_REPLACE_FAILED`, `OCCURRENCE_OUT_OF_RANGE`, `SEARCH_FAILED`, `ROLLBACK_FAILED`, `TOOL_EXECUTION_ERROR`.
   - Existing codes in the tree missing from prior catalogs: `UNDO_UNAVAILABLE` (`plugin/writer/apply_document_content.py:644, 722, 1468`) and `TABLE_IN_ANCHOR_RANGE` (`plugin/writer/apply_document_content.py:1579`).
