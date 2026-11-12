@@ -1591,13 +1591,17 @@ def test_init_and_cell_share_one_timeout_without_killing_worker():
 
 def test_session_executor_updates_timeout_seconds():
     """SESSIONS.get_or_create updates timeout_seconds on an existing session."""
-    from plugin.scripting.venv.venv_sandbox import SESSIONS, reset_sandbox_session
+    from plugin.scripting.sandbox import build_sandbox_policy
+    from plugin.scripting.venv import venv_sandbox as vs
+    from plugin.scripting.venv.venv_sandbox import reset_sandbox_session
+
     sid = 'test-dynamic-timeout-session'
     try:
-        exec1, created1 = SESSIONS.get_or_create(sid, timeout_sec=10)
+        policy = build_sandbox_policy()
+        exec1, created1 = vs.SESSIONS.get_or_create(sid, timeout_sec=10, policy=policy)
         assert created1 is True
         assert exec1.timeout_seconds == 10
-        exec2, created2 = SESSIONS.get_or_create(sid, timeout_sec=3)
+        exec2, created2 = vs.SESSIONS.get_or_create(sid, timeout_sec=3, policy=policy)
         assert created2 is False
         assert exec2 is exec1
         assert exec2.timeout_seconds == 3

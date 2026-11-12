@@ -1033,3 +1033,25 @@ def make_mock_send_button_listener(
 def mock_send_listener():
     """Shared pytest fixture returning a mock SendButtonListener."""
     return make_mock_send_button_listener()
+
+
+@pytest.fixture
+def fresh_sandbox_sessions(monkeypatch):
+    """Run the test against an empty sandbox session store.
+
+    venv_sandbox reads its module-level SESSIONS on every call, so swapping in a
+    new SessionStore gives the test no cached executors, init digests or LRU
+    slots; monkeypatch puts the shared store back afterwards. DuckDB catalogs
+    live in duckdb_sql, not in the store, so all of them are closed before and
+    after the test. Otherwise a table one test creates would still exist for the
+    next test that uses the same session id.
+    """
+    from plugin.scripting.venv import venv_sandbox
+    from plugin.scripting.venv.duckdb_sql import reset_session_duckdb
+
+    store = venv_sandbox.SessionStore()
+    monkeypatch.setattr(venv_sandbox, "SESSIONS", store)
+    reset_session_duckdb()
+    yield store
+    reset_session_duckdb()
+

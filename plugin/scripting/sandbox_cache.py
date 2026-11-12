@@ -216,8 +216,3 @@ def get_hot_entry(
             _cache.popitem(last=False)
     return entry
 
-
-def clear_python_code_hot_cache() -> None:
-    """Clear the hot cache (tests)."""
-    with _lock:
-        _cache.clear()
