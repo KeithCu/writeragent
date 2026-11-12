@@ -702,7 +702,19 @@ def test_execute_and_insert_result_returns_error_on_failure():
     from tests.scripting.python_runner_test_support import execute_and_insert_result
 
     ctx = MagicMock()
-    with patch("plugin.scripting.python_runner._prepare_rps_execution", return_value={"early_outcome": None, "t0": 0.0, "py_data": None, "bindings": None, "doc": MagicMock(), "ctx": ctx, "code": "bad()"}):
+    with patch(
+        "plugin.scripting.python_runner._prepare_rps_execution",
+        return_value=pr.PreparedScript(
+            ctx=ctx,
+            doc=MagicMock(),
+            code="bad()",
+            t0=0.0,
+            bindings=None,
+            py_data=None,
+            session_id="rps:t",
+            script_session_id=None,
+        ),
+    ):
         with patch.object(pr, "_run_prepared_rps", return_value={"status": "error", "message": "boom"}):
             outcome = execute_and_insert_result(ctx, MagicMock(), "bad()")
     assert outcome["ok"] is False
