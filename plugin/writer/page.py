@@ -30,6 +30,7 @@ from plugin.framework.errors import (
     is_disposal,
     make_tool_error,
     resolve_exception_message,
+    uno_read,
 )
 from plugin.framework.uno_context import uno_same
 from .edit_review import flag_style_unreviewed
@@ -136,7 +137,6 @@ _PAGE_SET_SPECS = (
 _OPTIONAL_PAGE_PROPS = frozenset({"register_paragraph_style", "first_is_shared", "page_style_layout"})
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
     from plugin.framework.tool import ToolContext
 
 # region name -> (is_on property, text property)
@@ -168,17 +168,14 @@ def _region_kind(region: str) -> str:
 
 
 def _region_is_on(style: Any, prop: str) -> bool:
-    try:
-        return style.getPropertyValue(prop) is True
-    except Exception:
-        return False
+    """False when the property is missing; a disposed document raises."""
+    return uno_read(lambda: style.getPropertyValue(prop) is True, False)
 
 
 def _region_holds_content(
     doc: Any,
     text_obj: Any | None,
     *,
-    strict: bool = True,
     include_images: bool = True,
 ) -> bool:
     """True if the header/footer XText still holds text, fields, images, or tables.
@@ -189,21 +186,15 @@ def _region_holds_content(
     idea as LibreOffice's delete-header prompt. Clear via ``page_set`` first,
     then turn off.
     ``getString()`` misses logos and can hide tables; the #638 region scan plus a
-    table walk covers those. Every read is strict: a failed read raises rather
-    than passing for "no content", so the guard fails closed.
+    table walk covers those. Every read raises on failure rather than passing
+    for "no content", so the guard fails closed.
     """
     if text_obj is None:
         return False
-    if strict:
-        plain = text_obj.getString()
-    else:
-        try:
-            plain = text_obj.getString()
-        except Exception:
-            plain = ""
+    plain = text_obj.getString()
     if isinstance(plain, str) and plain.strip():
         return True
-    scan = _scan_region_content(doc, text_obj, strict=strict)
+    scan = _scan_region_content(doc, text_obj)
     has_images = bool(scan["images"]) if include_images else False
     return bool(scan["fields"] or has_images or scan["has_table"])
 
@@ -282,112 +273,82 @@ def _disable_blocked_by_content(doc: Any, style: Any, kwargs: dict[str, Any]) ->
 def _region_shapes(
     doc: Any,
     text_obj: Any,
-    *,
-    strict: bool = False,
-) -> Iterator[tuple[Any, Any]]:
-    """Yield (shape, anchor) for shapes whose anchor text matches text_obj.
+) -> list[tuple[Any, Any]]:
+    """Return (shape, anchor) pairs for shapes whose anchor text matches text_obj.
 
     Snapshots shapes from the draw page first so copy's insertTextContent does
-    not mutate the list being iterated. When strict is True (used by the disable
-    guard), read failures re-raise so we fail closed.
+    not mutate the list being iterated. A read failure raises and each caller
+    decides its fallback. A page-anchored shape has no anchor
+    (cite SwXShape::getAnchor, sw/source/core/unocore/unodraw.cxx) and is skipped.
     """
-    try:
-        draw_page = doc.getDrawPage()
-        count = int(draw_page.getCount())
-    except Exception:
-        if strict:
-            raise
-        return
-    shapes: list[Any] = []
-    for i in range(min(count, _SCAN_SHAPE_LIMIT)):
-        try:
-            shapes.append(draw_page.getByIndex(i))
-        except Exception:
-            if strict:
-                raise
-            break
+    draw_page = doc.getDrawPage()
+    count = int(draw_page.getCount())
+    shapes = [draw_page.getByIndex(i) for i in range(min(count, _SCAN_SHAPE_LIMIT))]
+    out: list[tuple[Any, Any]] = []
     for shape in shapes:
-        try:
-            anchor = shape.getAnchor()
-            if anchor is None:
-                continue
-            if not uno_same(anchor.getText(), text_obj):
-                continue
-        except Exception as exc:
-            if strict:
-                raise
-            log.debug("region shapes: anchor unreadable: %s", exc)
-            continue
-        yield shape, anchor
+        anchor = shape.getAnchor()
+        if anchor is not None and uno_same(anchor.getText(), text_obj):
+            out.append((shape, anchor))
+    return out
 
 
-def _scan_region_content(doc: Any, text_obj: Any, *, strict: bool = False) -> dict[str, Any]:
+def _empty_scan() -> dict[str, Any]:
+    """Return an empty scan result dictionary.
+
+    A function provides a fresh dictionary per call because callers may mutate
+    the nested lists or fields. This prevents unintended shared state across calls.
+    """
+    return {"fields": [], "images": [], "has_table": False, "paragraph_count": 0}
+
+
+def _scan_region_content(doc: Any, text_obj: Any) -> dict[str, Any]:
     """Report fields and anchored images in a header/footer as get-side extras.
 
     HTML ``content`` already carries structure; these lists are machine-readable so a
     caller can see logos and live fields without parsing the markup. Returns
-    ``{"fields": [...], "images": [...], "paragraph_count": int}``. ``strict``
-    (the disable guard) re-raises read failures instead of skipping them.
+    ``{"fields": [...], "images": [...], "paragraph_count": int}``. Raises on a read
+    failure; lenient callers wrap the call in ``uno_read`` with ``_empty_scan()``.
     """
-    out: dict[str, Any] = {"fields": [], "images": [], "has_table": False, "paragraph_count": 0}
-    try:
-        para_enum = text_obj.createEnumeration()
-    except Exception:
-        if strict:
-            raise
-        return out
+    out = _empty_scan()
+    para_enum = text_obj.createEnumeration()
     notes: list[str] = []
     # `is True` and the hard caps match the enumeration walk in format.py: a UNO enumeration that
     # misbehaves otherwise spins here forever.
     for para in iter_elements_limited(para_enum, _SCAN_PARA_LIMIT):
         out["paragraph_count"] += 1
-        try:
-            is_table = para.supportsService("com.sun.star.text.TextTable") is True
-        except Exception:
-            if strict:
-                raise
-            is_table = False
+        is_table = para.supportsService("com.sun.star.text.TextTable") is True
         if is_table:
             # A TextTable is in the region XText but has no createEnumeration();
             # walking it made the disable guard report a read failure.
             out["has_table"] = True
             continue
-        try:
-            portions = para.createEnumeration()
-        except Exception:
-            if strict:
-                raise
-            continue
+        portions = para.createEnumeration()
         seen_portions = 0
         for portion in iter_elements_limited(portions, _SCAN_PORTION_LIMIT):
             seen_portions += 1
-            try:
-                if portion.getPropertyValue("TextPortionType") != "TextField":
-                    continue
-                field = portion.getPropertyValue("TextField")
-            except Exception:
-                if strict:
-                    raise
-                break
-            try:
-                # Same argument sense as fields_list: presentation is what the reader sees
-                # ("1"), content is what the field IS ("Page number"). Swapping them would have
-                # the two tools describe the same field in opposite terms.
-                out["fields"].append({"presentation": field.getPresentation(False),
-                                      "content": field.getPresentation(True)})
-            except Exception:
-                out["fields"].append({"presentation": "", "content": ""})
+            if portion.getPropertyValue("TextPortionType") != "TextField":
+                continue
+            field = portion.getPropertyValue("TextField")
+            # Same argument sense as fields_list: presentation is what the reader sees
+            # ("1"), content is what the field IS ("Page number"). Swapping them would have
+            # the two tools describe the same field in opposite terms.
+            out["fields"].append(
+                uno_read(
+                    lambda: {
+                        "presentation": field.getPresentation(False),
+                        "content": field.getPresentation(True),
+                    },
+                    {"presentation": "", "content": ""},
+                )
+            )
         record_walk_cap(portions, seen_portions, _SCAN_PORTION_LIMIT, "text portions", notes)
     record_walk_cap(para_enum, out["paragraph_count"], _SCAN_PARA_LIMIT, "paragraphs", notes)
     if notes:
         out["warning"] = notes[0]
     # Images anchored in the region live on the draw page, whatever their anchor type, so they are
     # found by matching the anchor's text object rather than by walking portions.
-    for shape, _anchor in _region_shapes(doc, text_obj, strict=strict):
-        try:
-            out["images"].append(str(shape.getName()) or "unnamed")
-        except Exception:
-            out["images"].append("unnamed")
+    for shape, _anchor in _region_shapes(doc, text_obj):
+        out["images"].append(_shape_name(shape))
     return out
 
 
@@ -421,11 +382,7 @@ def resolve_page_style(doc: Any, style_name: str = "Standard") -> Any:
 
 
 def _shape_name(shape: Any) -> str:
-    try:
-        name = shape.getName()
-    except Exception:
-        return "unnamed"
-    text = str(name or "").strip()
+    text = str(uno_read(shape.getName, "") or "").strip()
     return text or "unnamed"
 
 
@@ -439,14 +396,12 @@ def _copy_region_graphics(doc: Any, src_text: Any, dest_text: Any) -> tuple[int,
     """
     copied = 0
     skipped: list[str] = []
-    for shape, _anchor in _region_shapes(doc, src_text):
+    # An unreadable draw page copies no graphics; the clone still succeeds.
+    src_shapes: list[tuple[Any, Any]] = uno_read(lambda: _region_shapes(doc, src_text), [])
+    for shape, _anchor in src_shapes:
         label = _shape_name(shape)
-        try:
-            # `is True`: MagicMock supportsService() is truthy and would copy a frame.
-            if shape.supportsService("com.sun.star.text.TextGraphicObject") is not True:
-                skipped.append(label)
-                continue
-        except Exception:
+        # `is True`: a mock supportsService() is truthy and would copy a frame.
+        if uno_read(lambda: shape.supportsService("com.sun.star.text.TextGraphicObject") is True, False) is not True:
             skipped.append(label)
             continue
         try:
@@ -455,15 +410,17 @@ def _copy_region_graphics(doc: Any, src_text: Any, dest_text: Any) -> tuple[int,
                 skipped.append(label)
                 continue
             for prop in _ANCHORED_GRAPHIC_PROPS:
-                try:
-                    clone.setPropertyValue(prop, shape.getPropertyValue(prop))
-                except Exception:
-                    log.debug("page style clone: graphic %s has no %s", label, prop)
+                best_effort(
+                    lambda: clone.setPropertyValue(prop, shape.getPropertyValue(prop)),
+                    "page style clone: graphic %s has no %s" % (label, prop),
+                )
             cursor = dest_text.createTextCursor()
             cursor.gotoEnd(False)
             dest_text.insertTextContent(cursor, clone, False)
             copied += 1
-        except Exception:
+        except Exception as exc:
+            if is_disposal(exc):
+                raise
             log.warning("page style clone: could not copy graphic %s", label, exc_info=True)
             skipped.append(label)
     return copied, skipped
@@ -487,10 +444,7 @@ def _copy_page_regions(
             continue
         if not _region_is_on(source, is_on_prop):
             continue
-        try:
-            src_text = source.getPropertyValue(text_prop)
-        except Exception:
-            src_text = None
+        src_text = uno_read(lambda: source.getPropertyValue(text_prop), None)
         if src_text is None:
             continue
         clone.setPropertyValue(is_on_prop, True)
@@ -503,26 +457,28 @@ def _copy_page_regions(
             "LeftMargin", "RightMargin"
         ):
             prop_name = f"{prefix}{size_prop}"
-            try:
-                clone.setPropertyValue(prop_name, source.getPropertyValue(prop_name))
-            except Exception as e:
-                log.debug("_copy_page_regions failed to copy %s: %s", prop_name, e)
+            best_effort(
+                lambda: clone.setPropertyValue(prop_name, source.getPropertyValue(prop_name)),
+                "_copy_page_regions: %s not on this page style" % prop_name,
+            )
 
         dest_text = clone.getPropertyValue(text_prop)
         if dest_text is None:
             raise RuntimeError("Page style clone: no %s text on the new style." % region)
-        if _region_holds_content(doc, src_text, strict=False, include_images=False):
+        # An unreadable source region is copied as empty; the clone still succeeds.
+        if uno_read(lambda: _region_holds_content(doc, src_text, include_images=False), False):
             # Region text is copied in-document via _copy_flow_into_xtext instead of
             # select/clipboard/XHTML export, which can corrupt soffice when headers
             # hold titled draw frames processed through libxslt.
             from .range_copy import _copy_flow_into_xtext
 
             fields_copied = _copy_flow_into_xtext(doc, src_text, dest_text)
-            try:
-                plain = dest_text.getString() or ""
-            except Exception:
-                plain = ""
-            if not str(plain).strip() and fields_copied == 0 and not _scan_region_content(doc, dest_text)["has_table"]:
+            plain = uno_read(dest_text.getString, None) or ""
+            if (
+                not str(plain).strip()
+                and fields_copied == 0
+                and not uno_read(lambda: _scan_region_content(doc, dest_text)["has_table"], False)
+            ):
                 raise RuntimeError(
                     "Page style clone: copied %s flow content was empty." % region
                 )
@@ -563,10 +519,7 @@ def copy_page_style(
     clone = doc.createInstance("com.sun.star.style.PageStyle")
     if not clone:
         raise RuntimeError("Failed to create a page style instance.")
-    try:
-        parent = str(source.getParentStyle() or "")
-    except Exception:
-        parent = ""
+    parent = str(uno_read(source.getParentStyle, "") or "")
     if parent:
         clone.setParentStyle(parent)
     # Insert before header/footer copy: those XText objects exist once the style
@@ -870,10 +823,7 @@ class PageGetHeaderFooterText(ToolWriterPageBase):
         is_on = bool(style.getPropertyValue(is_on_prop))
         # F5: disabling the region *clears* HeaderText — typically None
         # while off. Still export if a text object is present.
-        try:
-            text_obj = style.getPropertyValue(text_prop)
-        except Exception:
-            text_obj = None
+        text_obj = uno_read(lambda: style.getPropertyValue(text_prop), None)
         content = ""
         if text_obj is not None:
             content = xtext_to_content(
@@ -889,8 +839,8 @@ class PageGetHeaderFooterText(ToolWriterPageBase):
             "format": "html",
         }
         if text_obj is not None:
-            # Machine-readable extras; HTML already has the structure. Not a write refuse gate.
-            scan = _scan_region_content(ctx.doc, text_obj)
+            # Extras only; an unreadable walk reports no fields or images rather than failing the read.
+            scan = uno_read(lambda: _scan_region_content(ctx.doc, text_obj), _empty_scan())
             result["paragraph_count"] = scan["paragraph_count"]
             if scan["fields"]:
                 result["fields"] = scan["fields"]
@@ -903,6 +853,8 @@ class PageGetHeaderFooterText(ToolWriterPageBase):
             result["auto_height"] = bool(style.getPropertyValue(props[0]))
             result["height_mm"] = round(style.getPropertyValue(props[2]) / 100.0, 1)
         except Exception as exc:
+            if is_disposal(exc):
+                raise
             log.debug("page header/footer read: auto_height or height unreadable: %s", exc)
         return result
 
@@ -986,10 +938,7 @@ class PageSetHeaderFooterText(ToolWriterPageBase):
         auto_height = kwargs.get("auto_height")
         old_auto_height = None
         if auto_height is not None:
-            try:
-                old_auto_height = bool(style.getPropertyValue(_height_props(region)[0]))
-            except Exception:
-                old_auto_height = None
+            old_auto_height = uno_read(lambda: bool(style.getPropertyValue(_height_props(region)[0])), None)
 
         try:
             style.setPropertyValue(is_on_prop, True)
@@ -1041,24 +990,17 @@ _FIELD_CURSOR_STEP = "\x01"
 
 def _portion_cursor_text(portion: Any) -> str:
     """Text this portion contributes to a goRight index. A field is one step."""
-    try:
-        kind = portion.getPropertyValue("TextPortionType")
-    except Exception:
-        return ""
+    kind = uno_read(lambda: portion.getPropertyValue("TextPortionType"), None)
     if kind == "TextField":
         return _FIELD_CURSOR_STEP
-    try:
-        chunk = portion.getString()
-    except Exception:
-        return ""
+    chunk = uno_read(portion.getString, None)
     return chunk if isinstance(chunk, str) else ""
 
 
 def _paragraph_cursor_text(para: Any) -> str | None:
     """Concatenate portion steps for one paragraph. None when it cannot be walked."""
-    try:
-        portions = para.createEnumeration()
-    except Exception:
+    portions = uno_read(para.createEnumeration, None)
+    if portions is None:
         return None
     parts: list[str] = []
     seen = 0
@@ -1105,9 +1047,8 @@ def _find_region_matches(text_obj: Any, needle: str, case_sensitive: bool) -> tu
     """
     hits: list[tuple[Any, int]] = []
     notes: list[str] = []
-    try:
-        enum = text_obj.createEnumeration()
-    except Exception:
+    enum = uno_read(text_obj.createEnumeration, None)
+    if enum is None:
         return hits, notes
     seen = 0
     for para in iter_elements_limited(enum, _SCAN_PARA_LIMIT):
@@ -1121,41 +1062,35 @@ def _find_region_matches(text_obj: Any, needle: str, case_sensitive: bool) -> tu
     return hits, notes
 
 
+def _grow_cursor(cursor: Any, offset: int, length: int) -> bool:
+    """Advance and expand the cursor. False when either goRight cannot land."""
+    # `is False`: a mock goRight() is truthy and must not abort the walk.
+    if offset and cursor.goRight(offset, False) is False:
+        return False
+    if cursor.goRight(length, True) is False:
+        return False
+    return True
+
+
 def _cursor_for_match(text_obj: Any, para: Any, offset: int, length: int) -> Any | None:
     """Collapsed cursor grown to the match. None when goRight cannot land there."""
-    try:
-        cursor = text_obj.createTextCursorByRange(para.getStart())
-    except Exception:
-        return None
-
-    # _match_offsets indexes the same portion-walk string that goRight steps through.
-    try:
-        # `is False`: a MagicMock goRight() is truthy and must not abort the walk.
-        if offset and cursor.goRight(offset, False) is False:
-            return None
-        if cursor.goRight(length, True) is False:
-            return None
-    except Exception:
+    cursor = uno_read(lambda: text_obj.createTextCursorByRange(para.getStart()), None)
+    if cursor is None or not uno_read(lambda: _grow_cursor(cursor, offset, length), False):
         return None
     return cursor
 
 
 def _point_before(text: Any, left: Any, right: Any) -> bool:
     """True when *left* starts before *right* (compareRegionStarts == 1)."""
-    try:
-        return int(text.compareRegionStarts(left, right)) == 1
-    except Exception:
-        return False
+    return uno_read(lambda: int(text.compareRegionStarts(left, right)) == 1, False)
 
 
 def _anchor_point_in_match(text: Any, anchor: Any, cursor: Any) -> bool:
     """True when a collapsed anchor's start lies inside [cursor.start, cursor.end)."""
-    try:
-        a_start = anchor.getStart()
-        m_start = cursor.getStart()
-        m_end = cursor.getEnd()
-    except Exception:
+    points = uno_read(lambda: (anchor.getStart(), cursor.getStart(), cursor.getEnd()), None)
+    if points is None:
         return False
+    a_start, m_start, m_end = points
     return not _point_before(text, a_start, m_start) and _point_before(text, a_start, m_end)
 
 
@@ -1164,16 +1099,13 @@ def _character_anchor_in_matches(doc: Any, text_obj: Any, cursors: list[Any]) ->
 
     Probe A: setString on footer text left an AT_PARAGRAPH graphic and its
     HyperLinkURL alone. An AT_CHARACTER anchor sits in the text range, so
-    setString there can drop the image. Refuse before writing.
+    setString there can drop the image. Refuse before writing. An unreadable
+    draw page raises, so the refuse fails closed; nothing has been written yet.
     """
     from com.sun.star.text.TextContentAnchorType import AT_CHARACTER
 
     for shape, anchor in _region_shapes(doc, text_obj):
-        try:
-            if shape.getPropertyValue("AnchorType") != AT_CHARACTER:
-                continue
-        except Exception as exc:
-            log.debug("_character_anchor_in_matches: AnchorType unreadable: %s", exc)
+        if uno_read(lambda: shape.getPropertyValue("AnchorType"), None) != AT_CHARACTER:
             continue
         for cursor in cursors:
             if _anchor_point_in_match(text_obj, anchor, cursor):
@@ -1182,7 +1114,11 @@ def _character_anchor_in_matches(doc: Any, text_obj: Any, cursors: list[Any]) ->
 
 
 def _apply_match_cursors(doc: Any, text_obj: Any, cursors: list[Any], new_text: str) -> tuple[str | None, int, int]:
-    """setString from the last match backward. Returns (error, fields, shapes)."""
+    """setString from the last match backward. Returns (error, fields, shapes).
+
+    A failed before-scan raises before anything is written; a failed after-scan
+    is a mutate error and rolls back.
+    """
     from .edit_review import next_agent_edit_undo_title
     from plugin.doc.compound_undo import UndoUnavailable, commit_or_rollback
 
@@ -1208,6 +1144,8 @@ def _apply_match_cursors(doc: Any, text_obj: Any, cursors: list[Any], new_text: 
             after = after_box[0]
             return None, len(after["fields"]), len(after["images"])
         except Exception as exc:
+            if is_disposal(exc):
+                raise
             return "the replacement was written and could not be rolled back: " + str(exc), 0, 0
     if outcome.mutate_error is not None:
         mut_exc = outcome.mutate_error
@@ -1323,10 +1261,7 @@ class PageReplaceHeaderFooterText(ToolWriterPageBase):
                 "The %s is off on page style '%s'. Turn it on before replacing text."
                 % (region, style_name)
             )
-        try:
-            text_obj = style.getPropertyValue(text_prop)
-        except Exception:
-            text_obj = None
+        text_obj = uno_read(lambda: style.getPropertyValue(text_prop), None)
         if text_obj is None:
             return self._tool_error(
                 "Could not retrieve text object for %s on style '%s'." % (region, style_name)
@@ -1375,10 +1310,7 @@ class PageReplaceHeaderFooterText(ToolWriterPageBase):
                 return self._tool_error(
                     "Could not select '%s' in the %s. Nothing was changed." % (old_content, region)
                 )
-            try:
-                selected = cursor.getString()
-            except Exception:
-                selected = None
+            selected = uno_read(cursor.getString, None)
             # The portion index and the cursor must name the same characters.
             # A miss here means a field was counted wrong; do not setString.
             if not isinstance(selected, str) or (pair := _fold(selected, old_content, case_sensitive))[0] != pair[1]:
