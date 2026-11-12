@@ -1005,7 +1005,7 @@ def grid_from_nested_list(grid: list[Any] | list[list[Any]]) -> list[Any] | list
 
 
 def _flatten_update_column_state(column_states: list[int], c: int, val: Any) -> None:
-    """Upgrade per-column numeric kind after a successful float(val) on the fast path.
+    """Upgrade per-column numeric kind after a cell stored as float64 (both stdlib lanes).
 
     Column state, shared with Cython ``_update_column_state`` (do not merge
     the loops; the fast/slow split is the perf design):
@@ -1158,77 +1158,25 @@ def _flatten_append_cell_slow(
     column_has_none: list[bool],
     nan: float,
 ) -> None:
-    """Full per-cell flatten semantics (None, strings, NumPy scalars, column metadata)."""
-    # crosshair: off
+    """Per-cell flatten once a text cell has switched the stdlib loop off its fast path.
 
+    None is NaN and marks the column. Any str (np.str_ included) is text;
+    str() yields a builtin str because host unpickle has no NumPy. Every
+    other cell goes through ``_store_numeric_cell`` (float64 or text), and
+    a cell that stored as a number updates the column kind through
+    ``_flatten_update_column_state``, the one owner of that rule, so a
+    value is tagged the same kind before and after a text cell and the
+    same as Cython ``_flatten_cell``.
+    """
+    # crosshair: off
     if val is None:
         buf_append(nan)
         column_has_none[c] = True
-    elif val is True or val is False:
-        buf_append(float(val))
-        if column_states[c] == 0:
-            column_states[c] = 1
-    elif type(val) is int:
-        # Huge ints are text. float(10**400) must not raise out of this branch.
-        if _store_numeric_cell(val, idx, buf_append=buf_append, strings=strings, nan=nan) and column_states[c] < 2:
-            column_states[c] = 2
-    elif type(val) is float:
-        buf_append(val)
-        column_states[c] = 3
-    else:
-        t = type(val)
-        dtype = getattr(val, "dtype", None)
-        if dtype is not None:
-            kind = getattr(dtype, "kind", None)
-            if kind == "f":
-                if _store_numeric_cell(val, idx, buf_append=buf_append, strings=strings, nan=nan):
-                    column_states[c] = 3
-            elif kind in ("i", "u"):
-                if _store_numeric_cell(val, idx, buf_append=buf_append, strings=strings, nan=nan) and column_states[c] < 2:
-                    column_states[c] = 2
-            elif kind == "b":
-                if _store_numeric_cell(val, idx, buf_append=buf_append, strings=strings, nan=nan) and column_states[c] == 0:
-                    column_states[c] = 1
-            else:
-                # np.str_ subclasses str and Cython PyUnicode_Check stores it
-                # before trying float. Storing it raw fails host unpickle
-                # (LibreOffice Python has no NumPy). str() yields a builtin str.
-                # Other unknown kinds (dtype "O" with __float__) must not be
-                # stringified here, or the same value is 1.5 before a text
-                # cell and "W" after one. Cython PyFloat_AsDouble keeps the
-                # float. Kind "c" is the exception: float() keeps the real
-                # part, so _numeric_cell_to_float stringifies it.
-                if isinstance(val, str):
-                    buf_append(nan)
-                    strings[idx] = str(val)
-                elif _store_numeric_cell(val, idx, buf_append=buf_append, strings=strings, nan=nan) and column_states[c] != 3:
-                    _flatten_update_column_state(column_states, c, val)
-            return
-        tname = t.__name__
-        if tname.startswith("bool"):
-            if _store_numeric_cell(val, idx, buf_append=buf_append, strings=strings, nan=nan) and column_states[c] == 0:
-                column_states[c] = 1
-        elif tname.startswith(("int", "uint")):
-            if _store_numeric_cell(val, idx, buf_append=buf_append, strings=strings, nan=nan) and column_states[c] < 2:
-                column_states[c] = 2
-        elif tname.startswith("float"):
-            if _store_numeric_cell(val, idx, buf_append=buf_append, strings=strings, nan=nan):
-                column_states[c] = 3
-        elif not isinstance(val, str):
-            # The fast path and Cython ``_flatten_cell`` float() a Decimal or
-            # Fraction, and this branch (reached only after an earlier cell set
-            # has_non_numeric) must do the same; str() here would make the same
-            # number 1.25 or the text "1.25" / "1/4" depending on position.
-            # Scripts may import decimal and fractions, and a pandas object
-            # column reaches this flatten without the pickle-leaf coerce.
-            # Strings stay text (zip codes). A value ``float()`` rejects (huge
-            # Fraction, Python complex) is text via ``_numeric_cell_to_float``.
-            if _store_numeric_cell(val, idx, buf_append=buf_append, strings=strings, nan=nan) and column_states[c] != 3:
-                _flatten_update_column_state(column_states, c, val)
-        else:
-            buf_append(nan)
-            # Same as the dtype branch above: plain str, not np.str_.
-            strings[idx] = str(val)
+    elif isinstance(val, str):
+        buf_append(nan)
+        strings[idx] = str(val)
+    elif _store_numeric_cell(val, idx, buf_append=buf_append, strings=strings, nan=nan):
+        _flatten_update_column_state(column_states, c, val)
 
 
 def _split_grid_row_width(row: Any) -> int:
