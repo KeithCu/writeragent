@@ -786,7 +786,7 @@ def _handle_execute(environ: dict[str, Any], start_response: Any, settings: Comp
         code = exc.code if exc.code is not None else ec.BAD_REQUEST_BODY
         return _error(start_response, code, str(exc), req_id=req_id)
 
-    result_payload = run_execute(code=code, data_json=parts.data_json, session_id=session_id, init_script=init_script, req_id=req_id, decode_result=False, deadline=admission.deadline)
+    result_payload = run_execute(code=code, data_json=parts.data_json, session_id=session_id, init_script=init_script, req_id=req_id, deadline=admission.deadline)
     return _send_execution_result(start_response, result_payload, req_id)
 
 

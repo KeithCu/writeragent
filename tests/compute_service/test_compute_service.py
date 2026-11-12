@@ -1728,16 +1728,6 @@ class TestSessionResetHttp:
         assert status.startswith("500")
         assert body.get("code") == "WORKER_CRASHED"
 
-    def test_execute_result_decode_error_is_500(self) -> None:
-        def decode_failed(**_kwargs):
-            return {"status": "error", "code": "RESULT_DECODE_ERROR", "error": "Worker result_json could not be decoded: bad"}
-
-        app = create_wsgi_app(ComputeSettings(), execute_fn=decode_failed)
-        status, _headers, body = _wsgi_post(app, json.dumps({"id": "dec-1", "code": "result = 1"}).encode("utf-8"), path="/v1/execute")
-        assert status.startswith("500")
-        assert body.get("code") == "RESULT_DECODE_ERROR"
-        assert body.get("id") == "dec-1"
-
     def test_execute_rejected_frame_is_500(self) -> None:
         """A bad response frame killed the child. It is not a retryable 503."""
 
@@ -3666,7 +3656,7 @@ def test_empty_multi_data_result() -> None:
 
 def test_query_session_id_selects_shared_ignoring_client_mode() -> None:
     """?session_id= enables sticky shared state even when the body still says mode=isolated."""
-    pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15)
+    pool = FormulaProcessPool(settings=ComputeSettings(workers=1, default_timeout_sec=15))
     app = create_wsgi_app(
         ComputeSettings(host="127.0.0.1", workers=1),
         execute_fn=lambda **kw: pool.execute(**kw),
@@ -3704,7 +3694,7 @@ def test_query_session_id_selects_shared_ignoring_client_mode() -> None:
 
 def test_omitted_query_session_id_is_isolated_even_with_mode_shared() -> None:
     """Without ?session_id=, leftover mode=shared in JSON does not keep state."""
-    pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15)
+    pool = FormulaProcessPool(settings=ComputeSettings(workers=1, default_timeout_sec=15))
     app = create_wsgi_app(
         ComputeSettings(host="127.0.0.1", workers=1),
         execute_fn=lambda **kw: pool.execute(**kw),

@@ -35,7 +35,9 @@ def _execute_code(code: str, data: Any = None) -> dict[str, Any]:
 
 
 # Standalone micro-worker for Pickle IPC benchmarking
+from compute_service.config import ComputeSettings
 from compute_service.formula_pool import FormulaProcessPool
+from plugin.framework.child_runtime import Deadline
 
 
 SCENARIOS = {
@@ -61,17 +63,18 @@ def run_benchmark(iterations: int = 100) -> None:
     print(f"Python: {sys.version.split()[0]} ({sys.executable})")
     print("=" * 80)
 
-    pickle_pool = FormulaProcessPool(num_workers=1, default_timeout_sec=30)
+    pickle_pool = FormulaProcessPool(settings=ComputeSettings(workers=1, default_timeout_sec=30))
     time.sleep(0.2)  # warm up
 
     try:
         for name, scen in SCENARIOS.items():
             code = scen["code"]
             data = scen["data"]
+            data_json = json.dumps(data, allow_nan=False).encode("utf-8") if data is not None else None
 
             # Warmup runs
             _execute_code(code, data)
-            pickle_pool.execute(code, data)
+            pickle_pool.execute(code, data_json=data_json, deadline=Deadline(30.0))
 
             # Benchmark In-Process
             inproc_times_ms: list[float] = []
@@ -86,7 +89,8 @@ def run_benchmark(iterations: int = 100) -> None:
             pickle_times_ms: list[float] = []
             for _ in range(iterations):
                 t0 = time.perf_counter()
-                res = pickle_pool.execute(code, data)
+                raw = pickle_pool.execute(code, data_json=data_json, deadline=Deadline(30.0))
+                res = json.loads(raw["result_json"])
                 t1 = time.perf_counter()
                 assert res.get("status") == "ok", f"Pickle IPC failed: {res}"
                 pickle_times_ms.append((t1 - t0) * 1000.0)

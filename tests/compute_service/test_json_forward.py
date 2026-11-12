@@ -13,7 +13,9 @@ from unittest.mock import patch
 import pytest
 
 from compute_service.config import ComputeSettings
-from compute_service.formula_pool import FormulaProcessPool, decode_worker_result, shutdown_formula_pool
+from compute_service.formula_pool import FormulaProcessPool, shutdown_formula_pool
+from plugin.framework.child_runtime import Deadline
+from tests.compute_service.conftest import decode_result_json, run_cell
 from compute_service.json_forward import (
     ExecuteRequestError,
     ExecuteRequestParts,
@@ -489,7 +491,6 @@ class TestHttpBlobForward:
         assert status.startswith("200")
         assert seen["data_json"] == data_literal
         assert "data" not in seen
-        assert seen.get("decode_result") is False
         # Host forwarded the worker bytes — no second dumps of the result.
         assert out == result_json
 
@@ -525,7 +526,6 @@ class TestHttpBlobForward:
         assert seen["init_script"] is None
         assert seen["data_json"] == GRID_BYTES
         assert "data" not in seen
-        assert seen.get("decode_result") is False
         assert out == CUSTOM_RESULT_JSON
 
     def test_multipart_host_does_not_json_loads_grid(self) -> None:
@@ -776,10 +776,11 @@ class TestFormulaPoolWire:
         # 40×30 = 1200 cells (above compute pickle min_cells=1000) but under
         # DEAL_MAX_SHAPE_DIM so materialize_inputs' list-of-grids pre still holds.
         grid = [[float(r * 30 + c) for c in range(30)] for r in range(40)]
-        pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15)
+        pool = FormulaProcessPool(settings=ComputeSettings(workers=1, default_timeout_sec=15))
         try:
             with patch("plugin.scripting.payload_codec.host_pack_data") as mock_pack:
-                res = pool.execute(
+                res = run_cell(
+                    pool,
                     code="result = [len(data.values), data.values[-1][-1]]",
                     data=grid,
                     req_id="jf-1",
@@ -793,7 +794,7 @@ class TestFormulaPoolWire:
     def test_data_json_bytes_reach_worker_unchanged(self) -> None:
         blob = b'[[1, 2], [3, "caf\xc3\xa9"]]'
         captured: dict = {}
-        pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15)
+        pool = FormulaProcessPool(settings=ComputeSettings(workers=1, default_timeout_sec=15))
         try:
             real_write = pool.workers[0].execute
 
@@ -804,7 +805,8 @@ class TestFormulaPoolWire:
                 return real_write(payload, timeout_sec, **kwargs)
 
             with patch.object(pool.workers[0], "execute", side_effect=spy):
-                res = pool.execute(
+                res = run_cell(
+                    pool,
                     code="result = data[1][1]",
                     data_json=blob,
                     req_id="blob-1",
@@ -816,16 +818,16 @@ class TestFormulaPoolWire:
         finally:
             pool.shutdown()
 
-    def test_decode_result_false_returns_result_json_bytes(self) -> None:
-        pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15)
+    def test_execute_returns_result_json_bytes(self) -> None:
+        pool = FormulaProcessPool(settings=ComputeSettings(workers=1, default_timeout_sec=15))
         try:
             raw = pool.execute(
                 code="result = [[1, 2], [3, 4]]",
                 req_id="raw-1",
-                decode_result=False,
+                deadline=Deadline(15.0),
             )
             assert isinstance(raw.get("result_json"), (bytes, bytearray))
-            parsed = decode_worker_result(raw)
+            parsed = decode_result_json(raw)
             assert parsed.get("status") == "ok"
             assert parsed.get("result") == [[1, 2], [3, 4]]
             assert parsed.get("id") == "raw-1"
@@ -836,14 +838,14 @@ class TestFormulaPoolWire:
         rows, cols = 40, 30  # 1200 cells
         grid = [[r * cols + c for c in range(cols)] for r in range(rows)]
         data_json = json.dumps(grid, allow_nan=False).encode("utf-8")
-        pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15)
+        pool = FormulaProcessPool(settings=ComputeSettings(workers=1, default_timeout_sec=15))
         try:
             with patch("plugin.scripting.payload_codec.host_pack_data") as mock_pack:
                 res = pool.execute(
                     code="result = data",
                     data_json=data_json,
                     req_id="big-1",
-                    decode_result=False,
+                    deadline=Deadline(15.0),
                 )
             assert mock_pack.call_count == 0
             body = res["result_json"]
@@ -968,7 +970,7 @@ class TestHttpLargeRoundTrip:
             "data": grid,
         }
         body = json.dumps(payload, allow_nan=False).encode("utf-8")
-        pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15)
+        pool = FormulaProcessPool(settings=ComputeSettings(workers=1, default_timeout_sec=15))
         app = create_wsgi_app(
             ComputeSettings(host="127.0.0.1", workers=1),
             execute_fn=lambda **kw: pool.execute(**kw),
@@ -999,7 +1001,7 @@ class TestHttpLargeRoundTrip:
             data_json,
             code="result = data",
         )
-        pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15)
+        pool = FormulaProcessPool(settings=ComputeSettings(workers=1, default_timeout_sec=15))
         app = create_wsgi_app(
             ComputeSettings(host="127.0.0.1", workers=1),
             execute_fn=lambda **kw: pool.execute(**kw),

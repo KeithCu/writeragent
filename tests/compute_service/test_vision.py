@@ -169,7 +169,7 @@ class TestVisionPoolSupervisor:
 
     def test_zero_timeout_is_pool_busy(self) -> None:
         """timeout_sec=0 expires immediately. It used to become the OCR default."""
-        pool = VisionProcessPool(num_workers=1, default_timeout_sec=30)
+        pool = VisionProcessPool(settings=ComputeSettings(ocr_workers=1, ocr_timeout_sec=30))
         try:
             res = pool.execute(helper="extract_text", image=b"\x89PNG", timeout_sec=0, req_id="zero")
             assert res.get("id") == "zero"
@@ -178,7 +178,7 @@ class TestVisionPoolSupervisor:
             pool.shutdown()
 
     def test_pool_lifecycle(self) -> None:
-        pool = VisionProcessPool(num_workers=1, default_timeout_sec=15)
+        pool = VisionProcessPool(settings=ComputeSettings(ocr_workers=1, ocr_timeout_sec=15))
         try:
             assert pool.is_enabled()
             assert len(pool.workers) == 1
@@ -191,7 +191,7 @@ class TestVisionPoolSupervisor:
             assert not pool.is_enabled()
 
     def test_pool_disabled(self) -> None:
-        pool = VisionProcessPool(num_workers=0)
+        pool = VisionProcessPool(settings=ComputeSettings(ocr_workers=0))
         assert not pool.is_enabled()
         res = pool.execute(helper="extract_text", image=base64.b64decode(_TINY_PNG_B64), req_id="v-disabled")
         assert res.get("status") == "error"
@@ -201,7 +201,7 @@ class TestVisionPoolSupervisor:
         img_path = tmp_path / "test_image.png"
         img_path.write_bytes(base64.b64decode(_TINY_PNG_B64))
 
-        pool = VisionProcessPool(num_workers=1, default_timeout_sec=15)
+        pool = VisionProcessPool(settings=ComputeSettings(ocr_workers=1, ocr_timeout_sec=15))
         try:
             res = pool.execute(
                 helper="extract_text",
@@ -215,7 +215,7 @@ class TestVisionPoolSupervisor:
             pool.shutdown()
 
     def test_pool_file_path_not_found(self) -> None:
-        pool = VisionProcessPool(num_workers=1, default_timeout_sec=15)
+        pool = VisionProcessPool(settings=ComputeSettings(ocr_workers=1, ocr_timeout_sec=15))
         try:
             denied = pool.execute(
                 helper="extract_text",
@@ -236,7 +236,7 @@ class TestVisionPoolSupervisor:
             pool.shutdown()
 
     def test_busy_lease_waits_until_worker_is_free(self) -> None:
-        pool = VisionProcessPool(num_workers=1, default_timeout_sec=15)
+        pool = VisionProcessPool(settings=ComputeSettings(ocr_workers=1, ocr_timeout_sec=15))
         held = pool.lease_any(timeout_sec=1.0)
         assert held is not None
         result: list[dict] = []
@@ -426,7 +426,7 @@ class TestVisionPoolSupervisor:
         assert err.get("code") == "FILE_PATH_DENIED"
 
     def test_worker_crash_recovery(self) -> None:
-        pool = VisionProcessPool(num_workers=1, default_timeout_sec=10)
+        pool = VisionProcessPool(settings=ComputeSettings(ocr_workers=1, ocr_timeout_sec=10))
         try:
             worker = pool.workers[0]
             # Kill worker externally
@@ -678,7 +678,7 @@ def test_one_second_budget_with_time_left_still_runs() -> None:
     """
     from unittest.mock import MagicMock
 
-    pool = VisionProcessPool(num_workers=0, idle_worker_ttl_sec=0)
+    pool = VisionProcessPool(settings=ComputeSettings(ocr_workers=0, idle_worker_ttl_sec=0))
     pool.num_workers = 1
     mock_worker = MagicMock()
     mock_worker.tasks_executed = 0
