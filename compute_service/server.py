@@ -26,18 +26,18 @@ if _PROJECT_ROOT not in sys.path:
 
 from compute_service import __version__
 from compute_service import error_codes as ec
-from compute_service.config import DEFAULT_SETTINGS, ComputeSettings, ConfigError, clamp_timeout_sec, load_settings, ocr_path_is_allowed
+from compute_service.config import DEFAULT_SETTINGS, ComputeSettings, ConfigError, clamp_timeout_ms, load_settings, ocr_path_is_allowed
 from compute_service.wsgi_server import HTTP_DRAIN_SEC, REQUEST_READ_TIMEOUT_SEC, REQUEST_WRITE_TIMEOUT_SEC, WSGIDualStackServer, admission_permits, listener_thread_count, request_conn
 from plugin.framework.child_runtime import Deadline
 from compute_service.json_forward import (
     ExecuteRequestError,
     ExecuteRequestParts,
     VisionRequestParts,
-    _reject_nonfinite_number,
-    derive_execute_mode,
+    check_req_id,
     is_multipart_content_type,
     parse_execute_request,
     parse_multipart_vision,
+    reject_json_constant,
     validate_session_id,
 )
 from plugin.vision.vision_common import IMPLEMENTED_HELPERS
@@ -64,6 +64,7 @@ def check_dependencies(pool: Any) -> None:
     ok, err = pool.check_dependencies()
     if not ok:
         print(err or "Error: Required dependencies are not installed in the worker Python environment.\nPlease start the server using './compute_service/start.sh' or activate the correct virtual environment.", file=sys.stderr)
+        # pool stack loads on first use (see create_wsgi_app)
         from compute_service.formula_pool import shutdown_formula_pool
 
         shutdown_formula_pool()
@@ -409,11 +410,8 @@ def _read_request_json(environ: dict[str, Any], settings: ComputeSettings, start
         return None, err_resp
     assert body is not None
 
-    def _reject_const(token: str) -> None:
-        raise ValueError(token)
-
     try:
-        data = json.loads(body.decode("utf-8"), parse_constant=_reject_const)
+        data = json.loads(body.decode("utf-8"), parse_constant=reject_json_constant)
     except Exception:
         return None, _error(start_response, ec.BAD_REQUEST_BODY, "Invalid JSON")
 
@@ -423,9 +421,7 @@ def _read_request_json(environ: dict[str, Any], settings: ComputeSettings, start
     # The id is echoed on every reply, so it must be a finite scalar before it is cached.
     req_id = data.get("id")
     try:
-        if req_id is not None and (not isinstance(req_id, (str, int)) or isinstance(req_id, bool)):
-            raise ExecuteRequestError("id must be a scalar")
-        _reject_nonfinite_number(req_id)
+        check_req_id(req_id)
     except ExecuteRequestError:
         return None, _error(start_response, ec.BAD_REQUEST_BODY, "Invalid JSON")
 
@@ -591,11 +587,10 @@ def _admit_body(
         return None, err
     assert parts is not None
     timeout_sec = float(
-        clamp_timeout_sec(
+        clamp_timeout_ms(
             parts.timeout_ms,
-            is_ms=True,
-            default_timeout_sec=settings.default_timeout_sec if default_timeout_sec is None else default_timeout_sec,
-            max_timeout_sec=settings.max_timeout_sec,
+            default=settings.default_timeout_sec if default_timeout_sec is None else default_timeout_sec,
+            maximum=settings.max_timeout_sec,
         )
     )
     return _admission(environ, timeout_sec, parts, parts.req_id), None
@@ -666,13 +661,9 @@ def _gated(
     """
     started = False
 
-    def _start(status: str, headers: list[tuple[str, str]], exc_info: Any = None) -> Any:
+    def _start(status: str, headers: list[tuple[str, str]]) -> Any:
         nonlocal started
         started = True
-        # Pass exc_info only when set. Test doubles and some WSGI callers
-        # take (status, headers) and reject a trailing None.
-        if exc_info is not None:
-            return start_response(status, headers, exc_info)
         return start_response(status, headers)
 
     auth_resp = _authenticate_or_401(environ, settings, _start)
@@ -789,14 +780,13 @@ def _handle_execute(environ: dict[str, Any], start_response: Any, settings: Comp
 
         # Parsed here, inside the 400 mapping, so a bad session_id is a client error.
         session_id = _parse_session_id(environ)
-        mode = derive_execute_mode(session_id)
 
         init_script = _validate_source_text(parts.init_script, limit=settings.max_code_chars, label="init_script", required=False, max_bytes=settings.max_body_bytes)
     except ExecuteRequestError as exc:
         code = exc.code if exc.code is not None else ec.BAD_REQUEST_BODY
         return _error(start_response, code, str(exc), req_id=req_id)
 
-    result_payload = run_execute(code=code, data_json=parts.data_json, session_id=session_id, mode=mode, init_script=init_script, req_id=req_id, decode_result=False, deadline=admission.deadline)
+    result_payload = run_execute(code=code, data_json=parts.data_json, session_id=session_id, init_script=init_script, req_id=req_id, decode_result=False, deadline=admission.deadline)
     return _send_execution_result(start_response, result_payload, req_id)
 
 
@@ -817,6 +807,7 @@ def _handle_session_reset(environ: dict[str, Any], start_response: Any, settings
     if not session_id:
         return _error(start_response, ec.BAD_REQUEST_BODY, "Missing 'session_id' URL query parameter (?session_id=...).", req_id=req_id)
 
+    # pool stack loads on first use (see create_wsgi_app)
     from compute_service.formula_pool import SESSION_RESET_TIMEOUT_SEC
 
     # Reset leases within the admission deadline, capped at SESSION_RESET_TIMEOUT_SEC.
@@ -868,6 +859,7 @@ def _handle_vision(environ: dict[str, Any], start_response: Any, settings: Compu
     else:
         return _error(start_response, ec.INVALID_REQUEST, "params must be an object.", req_id=req_id)
 
+    # pool stack loads on first use (see create_wsgi_app)
     from compute_service.vision import get_vision_pool
 
     vision_pool = get_vision_pool(settings)
@@ -886,9 +878,9 @@ def _handle_vision(environ: dict[str, Any], start_response: Any, settings: Compu
 def create_wsgi_app(settings: ComputeSettings, *, execute_fn: ExecuteFn | None = None, reset_fn: ResetFn | None = None, semaphore: threading.Semaphore | None = None) -> Callable[[dict[str, Any], Any], list[bytes]]:
     """Build a WSGI app bound to *settings* (and optional test hooks).
 
-    The formula pool is imported on the request path so config/auth startup
-    does not pull WriterAgent ``plugin.framework.config``. Each execute and
-    reset resolves the current pool.
+    The pools are imported on first use so the HTTP, config and auth layer
+    does not load the process-pool stack (``process_worker``, ``warm_child``,
+    ``managed_subprocess``). Each execute and reset resolves the current pool.
 
     Execute (isolated or sticky), session reset and vision share one
     semaphore of ``admission_permits`` (listeners minus two, so ``GET /health``
@@ -994,6 +986,7 @@ def run_server(settings: ComputeSettings) -> None:
     auth_note = "auth=yes" if settings.auth_required else "auth=no (insecure)"
     log.info("Starting Python Compute Service on %s:%d (%s, workers=%d, ocr_workers=%d)...", settings.host, settings.port, auth_note, settings.workers, settings.ocr_workers)
 
+    # pool stack loads on first use (see create_wsgi_app)
     from compute_service.formula_pool import get_formula_pool
 
     formula_pool = get_formula_pool(settings)
@@ -1003,6 +996,7 @@ def run_server(settings: ComputeSettings) -> None:
         check_dependencies(formula_pool)
 
         if settings.ocr_workers > 0:
+            # pool stack loads on first use (see create_wsgi_app)
             from compute_service.vision import get_vision_pool
 
             get_vision_pool(settings)
@@ -1044,6 +1038,7 @@ def run_server(settings: ComputeSettings) -> None:
             server.drain_executor(HTTP_DRAIN_SEC)
             server.server_close()
     finally:
+        # pool stack loads on first use (see create_wsgi_app)
         from compute_service.formula_pool import shutdown_formula_pool
         from compute_service.vision import shutdown_vision_pool
 

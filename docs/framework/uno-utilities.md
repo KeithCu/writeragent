@@ -263,7 +263,7 @@ There is **no** single shared converter. Live implementations:
 | `get_document_path` | `text_helpers` | URL → path | Repair then `file://` prefix; `uno.fileUrlToSystemPath`. |
 | `system_path_from_url` | `document_research` | URL → path | Accepts `file:`; uses shared `normalize_file_url`; then `fileUrlToSystemPath` + `abspath`. `resolve_path_or_name` uses this so a `file:` URL (including ones from `list_nearby_files` / `list_open_documents`) is an absolute path, not a listing filter. |
 | `get_extension_path` | `uno_context` | URL → path | `file://` → `fileUrlToSystemPath`; else returns the URL string (`vnd.sun.star.extension://…`). |
-| `_path_from_file_url` | `scripting/sandbox.py` | URL → path | **stdlib only** (`urlparse`/`unquote`); Windows drive + UNC. |
+| `path_from_file_url` | `scripting/sandbox.py` | URL → path | **stdlib only** (`urlparse`/`unquote`); Windows drive + UNC. |
 | `_system_dir_from_file_url` | `scripting/session_manager.py` | URL → parent dir | **stdlib, no UNO** (off-main `=PY()`); Windows drive letter. |
 
 **Why two conversion styles exist**
@@ -386,7 +386,7 @@ Most converters rely on UNO or `Path.as_uri()` and have **no** extra Windows bra
 
 Explicit POSIX/Windows splits that exist today:
 
-- `sandbox._path_from_file_url`: `os.name == "nt"` drive-letter (`/C:` → `C:\`) and UNC (`file://server/share`).
+- `sandbox.path_from_file_url`: `os.name == "nt"` drive-letter (`/C:` → `C:\`) and UNC (`file://server/share`).
 - `session_manager._system_dir_from_file_url`: same drive-letter strip; no UNC branch.
 - `text_helpers.normalize_linebreaks`: comments Windows `\r\n` from UNO/clipboard.
 - Tests name the POSIX `file:///` requirement (`test_path_to_file_url_uses_three_slashes_on_unix`).

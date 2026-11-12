@@ -45,14 +45,20 @@ def cleanup_formula_pool():
     shutdown_formula_pool()
 
 
-def test_shared_mode_without_session_id_runs_isolated() -> None:
-    """Leftover mode=shared without a session id is one-shot isolated (no sticky state)."""
+@pytest.mark.parametrize("empty_sid", [None, ""])
+def test_no_session_id_runs_isolated(empty_sid: str | None) -> None:
+    """Missing or empty session_id runs one-shot isolated, while whitespace-only is rejected."""
     pool = FormulaProcessPool(num_workers=1, idle_worker_ttl_sec=0)
     try:
-        r1 = pool.execute(code="a = 5\nresult = a", mode="shared", req_id="iso-1")
+        r1 = pool.execute(code="a = 5\nresult = a", session_id=empty_sid, req_id="iso-1")
         assert r1.get("status") == "ok" and r1.get("result") == 5
-        r2 = pool.execute(code="result = a", mode="shared", req_id="iso-2")
+        r2 = pool.execute(code="result = a", session_id=empty_sid, req_id="iso-2")
         assert r2.get("status") == "error"
+        with pool._cond:
+            assert len(pool._sessions) == 0
+
+        bad = pool.execute(code="result = 1", session_id="   ")
+        assert bad.get("code") == "INVALID_REQUEST"
     finally:
         pool.shutdown()
 
@@ -260,7 +266,6 @@ class TestFormulaPoolSupervisor:
             res1 = pool.execute(
                 code="x = 100\nresult = x",
                 session_id=session_id,
-                mode="shared",
                 req_id="c-1",
             )
             assert res1.get("status") == "ok"
@@ -270,7 +275,6 @@ class TestFormulaPoolSupervisor:
             res2 = pool.execute(
                 code="x += 50\nresult = x",
                 session_id=session_id,
-                mode="shared",
                 req_id="c-2",
             )
             assert res2.get("status") == "ok"
@@ -300,15 +304,15 @@ class TestFormulaPoolSupervisor:
         try:
             sid_a = "sess-a"
             sid_b = "sess-b"
-            res_a = pool.execute(code="marker = 'a'\nresult = marker", session_id=sid_a, mode="shared")
-            res_b = pool.execute(code="marker = 'b'\nresult = marker", session_id=sid_b, mode="shared")
+            res_a = pool.execute(code="marker = 'a'\nresult = marker", session_id=sid_a)
+            res_b = pool.execute(code="marker = 'b'\nresult = marker", session_id=sid_b)
             assert res_a.get("status") == "ok", res_a
             assert res_b.get("status") == "ok", res_b
             worker = pool._sessions[sid_a].worker
             assert pool._sessions[sid_b].worker is worker
             worker.kill()
             assert not worker.is_alive()
-            again = pool.execute(code="result = marker", session_id=sid_a, mode="shared")
+            again = pool.execute(code="result = marker", session_id=sid_a)
             assert again.get("status") == "error"
             assert again.get("session_reset") is True
             assert sid_b in pool._sessions
@@ -316,7 +320,7 @@ class TestFormulaPoolSupervisor:
             assert pool._sessions[sid_b].child is not worker.child
             assert pool.live_session_worker(sid_a) is worker
             assert worker.is_alive()
-            again_b = pool.execute(code="result = marker", session_id=sid_b, mode="shared")
+            again_b = pool.execute(code="result = marker", session_id=sid_b)
             assert again_b.get("status") == "error"
             assert again_b.get("session_reset") is True
         finally:
@@ -350,7 +354,7 @@ class TestFormulaPoolSupervisor:
                 [
                     "import os, sys",
                     f"sys.path.insert(0, {os.path.abspath('.')!r})",
-                    "from compute_service.worker_base import run_worker_stdio_loop",
+                    "from compute_service.worker_stdio import run_worker_stdio_loop",
                     "def handle(req):",
                     "    sys.stderr.write('x' * 200000)",
                     "    sys.stderr.flush()",
@@ -492,7 +496,7 @@ class TestFormulaPoolSupervisor:
                 [
                     "import sys",
                     f"sys.path.insert(0, {root!r})",
-                    "from compute_service.worker_base import run_worker_stdio_loop",
+                    "from compute_service.worker_stdio import run_worker_stdio_loop",
                     "def handle(req):",
                     "    return {'status': 'ok'}",
                     "if __name__ == '__main__':",
@@ -526,7 +530,7 @@ class TestFormulaPoolSupervisor:
                 [
                     "import os, sys",
                     f"sys.path.insert(0, {root!r})",
-                    "from compute_service.worker_base import run_worker_stdio_loop",
+                    "from compute_service.worker_stdio import run_worker_stdio_loop",
                     "def handle(req):",
                     "    return {'status': 'ok', 'pythonpath': os.environ.get('PYTHONPATH'), 'secret': os.environ.get('PYTHON_COMPUTE_TEST_SECRET')}",
                     "if __name__ == '__main__':",
@@ -557,7 +561,7 @@ class TestFormulaPoolSupervisor:
                     "import sys, time",
                     f"sys.path.insert(0, {root!r})",
                     "time.sleep(0.35)",
-                    "from compute_service.worker_base import run_worker_stdio_loop",
+                    "from compute_service.worker_stdio import run_worker_stdio_loop",
                     "def handle(req):",
                     "    return {'status': 'ok'}",
                     "if __name__ == '__main__':",
@@ -600,7 +604,6 @@ class TestFormulaPoolSupervisor:
             first = pool.execute(
                 code="x = 5\nresult = x",
                 session_id=sid,
-                mode="shared",
                 req_id="occ-1",
             )
             assert first.get("status") == "ok"
@@ -611,7 +614,6 @@ class TestFormulaPoolSupervisor:
             before = owner.tasks_executed
             isolated = pool.execute(
                 code="result = 99",
-                mode="isolated",
                 timeout_sec=10,
                 req_id="occ-iso",
             )
@@ -623,7 +625,6 @@ class TestFormulaPoolSupervisor:
             shared = pool.execute(
                 code="result = x",
                 session_id=sid,
-                mode="shared",
                 timeout_sec=10,
                 req_id="occ-2",
             )
@@ -671,12 +672,11 @@ class TestFormulaPoolSupervisor:
             hung = pool.execute(
                 code="import time\ntime.sleep(5)\nresult = 1",
                 session_id="s-hang",
-                mode="shared",
                 timeout_sec=1,
                 req_id="sh-1",
             )
             assert hung.get("status") == "error"
-            iso = pool.execute(code="result = 3", mode="isolated", timeout_sec=10, req_id="sh-iso")
+            iso = pool.execute(code="result = 3", timeout_sec=10, req_id="sh-iso")
             assert iso.get("status") == "ok"
             assert iso.get("result") == 3
         finally:
@@ -687,7 +687,7 @@ class TestFormulaPoolSupervisor:
         """A cell timeout must not SIGKILL the worker and drop other workbooks on it."""
         pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15)
         try:
-            kept = pool.execute(code="keep = 7\nresult = keep", session_id="doc-keep", mode="shared", req_id="keep-1")
+            kept = pool.execute(code="keep = 7\nresult = keep", session_id="doc-keep", req_id="keep-1")
             assert kept.get("status") == "ok"
             assert kept.get("result") == 7
             worker = pool.workers[0]
@@ -695,14 +695,13 @@ class TestFormulaPoolSupervisor:
             hung = pool.execute(
                 code="import time\ntime.sleep(30)\nresult = 1",
                 session_id="doc-hang",
-                mode="shared",
                 timeout_sec=1,
                 req_id="hang-1",
             )
             assert hung.get("status") == "error"
             assert hung.get("code") != "EXECUTION_TIMEOUT"
             assert worker.process is not None and worker.process.pid == pid
-            again = pool.execute(code="result = keep", session_id="doc-keep", mode="shared", req_id="keep-2")
+            again = pool.execute(code="result = keep", session_id="doc-keep", req_id="keep-2")
             assert again.get("status") == "ok"
             assert again.get("result") == 7
         finally:
@@ -711,9 +710,9 @@ class TestFormulaPoolSupervisor:
     def test_isolated_does_not_leak_globals(self) -> None:
         pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15)
         try:
-            first = pool.execute(code="x = 1\nresult = x", mode="isolated", req_id="iso-1")
+            first = pool.execute(code="x = 1\nresult = x", req_id="iso-1")
             assert first.get("status") == "ok"
-            second = pool.execute(code="result = x", mode="isolated", req_id="iso-2")
+            second = pool.execute(code="result = x", req_id="iso-2")
             assert second.get("status") == "error"
         finally:
             pool.shutdown()
@@ -721,11 +720,11 @@ class TestFormulaPoolSupervisor:
     def test_shared_sessions_do_not_cross(self) -> None:
         pool = FormulaProcessPool(num_workers=2, default_timeout_sec=15)
         try:
-            a = pool.execute(code="x = 11\nresult = x", session_id="doc-A", mode="shared", req_id="xa")
+            a = pool.execute(code="x = 11\nresult = x", session_id="doc-A", req_id="xa")
             assert a.get("status") == "ok"
-            b = pool.execute(code="result = x", session_id="doc-B", mode="shared", req_id="xb")
+            b = pool.execute(code="result = x", session_id="doc-B", req_id="xb")
             assert b.get("status") == "error"
-            a2 = pool.execute(code="result = x", session_id="doc-A", mode="shared", req_id="xa2")
+            a2 = pool.execute(code="result = x", session_id="doc-A", req_id="xa2")
             assert a2.get("status") == "ok"
             assert a2.get("result") == 11
         finally:
@@ -777,7 +776,6 @@ class TestFormulaPoolSupervisor:
                 pool.execute(
                     code="result = 1",
                     session_id=f"race-session-{i % 4}",
-                    mode="shared",
                     timeout_sec=2,
                     req_id=f"race-{i}",
                 )
@@ -793,17 +791,17 @@ class TestFormulaPoolSupervisor:
         pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15, max_tasks=2)
         try:
             sid = "shared-persist-test"
-            r1 = pool.execute(code="val = 100\nresult = val", session_id=sid, mode="shared", req_id="sp-1")
+            r1 = pool.execute(code="val = 100\nresult = val", session_id=sid, req_id="sp-1")
             assert r1.get("status") == "ok"
             assert r1.get("result") == 100
 
-            r2 = pool.execute(code="val += 50\nresult = val", session_id=sid, mode="shared", req_id="sp-2")
+            r2 = pool.execute(code="val += 50\nresult = val", session_id=sid, req_id="sp-2")
             assert r2.get("status") == "ok"
             assert r2.get("result") == 150
 
             # tasks_executed is now 2 (== max_tasks). Without session awareness, release_worker would kill process.
             # With session awareness, recycling is skipped and state is preserved.
-            r3 = pool.execute(code="val += 25\nresult = val", session_id=sid, mode="shared", req_id="sp-3")
+            r3 = pool.execute(code="val += 25\nresult = val", session_id=sid, req_id="sp-3")
             assert r3.get("status") == "ok"
             assert r3.get("result") == 175, "State must persist across task count >= max_tasks for shared sessions"
 
@@ -817,7 +815,7 @@ class TestFormulaPoolSupervisor:
             assert pool.reset_session("never-mapped-session").get("status") == "ok"
 
             # Execute an isolated task; worker will recycle because tasks_executed (3) >= max_tasks (2) and no active sessions
-            r4 = pool.execute(code="result = 'fresh'", mode="isolated", req_id="sp-4")
+            r4 = pool.execute(code="result = 'fresh'", req_id="sp-4")
             assert r4.get("status") == "ok"
 
             pid_after = pool.workers[0].process.pid if pool.workers[0].process else None
@@ -830,7 +828,7 @@ class TestFormulaPoolSupervisor:
         pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15, idle_worker_ttl_sec=3600.0)
         try:
             sid = "ttl-evict-test"
-            r1 = pool.execute(code="val = 42\nresult = val", session_id=sid, mode="shared", req_id="ttl-1")
+            r1 = pool.execute(code="val = 42\nresult = val", session_id=sid, req_id="ttl-1")
             assert r1.get("status") == "ok"
             assert pool.live_session_worker(sid) is not None
 
@@ -846,7 +844,7 @@ class TestFormulaPoolSupervisor:
                 assert sid in pool._sessions
 
             # Later sticky call reports session_reset and does not see the old name
-            r2 = pool.execute(code="try:\n    result = val\nexcept NameError:\n    result = 'missing'", session_id=sid, mode="shared", req_id="ttl-2")
+            r2 = pool.execute(code="try:\n    result = val\nexcept NameError:\n    result = 'missing'", session_id=sid, req_id="ttl-2")
             assert r2.get("status") == "ok", r2
             assert r2.get("result") == "missing"
             assert r2.get("session_reset") is True
@@ -887,7 +885,7 @@ class TestFormulaPoolSupervisor:
         pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15, idle_worker_ttl_sec=0.05)
         try:
             sid = "busy-worker-test"
-            r1 = pool.execute(code="val = 'persisted'\nresult = val", session_id=sid, mode="shared")
+            r1 = pool.execute(code="val = 'persisted'\nresult = val", session_id=sid)
             assert r1.get("status") == "ok"
             worker = pool.live_session_worker(sid)
             assert worker is not None
@@ -902,7 +900,7 @@ class TestFormulaPoolSupervisor:
                 assert worker.is_alive()
 
             # Second sticky call still reads the name set before the lease. No session_reset.
-            r2 = pool.execute(code="result = val", session_id=sid, mode="shared")
+            r2 = pool.execute(code="result = val", session_id=sid)
             assert r2.get("status") == "ok"
             assert r2.get("result") == "persisted"
             assert r2.get("session_reset") is not True
@@ -915,9 +913,9 @@ class TestFormulaPoolSupervisor:
         try:
             sid1 = "sess-1"
             sid2 = "sess-2"
-            r1 = pool.execute(code="val1 = 111\nresult = val1", session_id=sid1, mode="shared")
+            r1 = pool.execute(code="val1 = 111\nresult = val1", session_id=sid1)
             assert r1.get("status") == "ok"
-            r2 = pool.execute(code="val2 = 222\nresult = val2", session_id=sid2, mode="shared")
+            r2 = pool.execute(code="val2 = 222\nresult = val2", session_id=sid2)
             assert r2.get("status") == "ok"
 
             worker = pool.live_session_worker(sid1)
@@ -936,12 +934,12 @@ class TestFormulaPoolSupervisor:
                 assert sid2 in pool._sessions
 
             # Each next sticky call reports session_reset once
-            r3 = pool.execute(code="try:\n    result = val1\nexcept NameError:\n    result = 'gone'", session_id=sid1, mode="shared")
+            r3 = pool.execute(code="try:\n    result = val1\nexcept NameError:\n    result = 'gone'", session_id=sid1)
             assert r3.get("status") == "ok"
             assert r3.get("result") == "gone"
             assert r3.get("session_reset") is True
 
-            r4 = pool.execute(code="try:\n    result = val2\nexcept NameError:\n    result = 'gone'", session_id=sid2, mode="shared")
+            r4 = pool.execute(code="try:\n    result = val2\nexcept NameError:\n    result = 'gone'", session_id=sid2)
             assert r4.get("status") == "ok"
             assert r4.get("result") == "gone"
             assert r4.get("session_reset") is True
@@ -952,7 +950,7 @@ class TestFormulaPoolSupervisor:
         pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15)
         try:
             sid = "busy-reset"
-            ok = pool.execute(code="x = 1\nresult = x", session_id=sid, mode="shared", req_id="busy-1")
+            ok = pool.execute(code="x = 1\nresult = x", session_id=sid, req_id="busy-1")
             assert ok.get("status") == "ok"
             worker = pool._sessions[sid].worker
             held = pool.lease_specific(worker, timeout_sec=1)
@@ -971,7 +969,7 @@ class TestFormulaPoolSupervisor:
         pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15)
         try:
             sid = "busy-reset"
-            ok = pool.execute(code="x = 1\nresult = x", session_id=sid, mode="shared", req_id="busy-1")
+            ok = pool.execute(code="x = 1\nresult = x", session_id=sid, req_id="busy-1")
             assert ok.get("status") == "ok"
             worker = pool._sessions[sid].worker
             held = pool.lease_specific(worker, timeout_sec=1)
@@ -983,7 +981,7 @@ class TestFormulaPoolSupervisor:
                     assert sid in pool._sessions
             finally:
                 pool.release_worker(held)
-            again = pool.execute(code="result = x", session_id=sid, mode="shared")
+            again = pool.execute(code="result = x", session_id=sid)
             assert again.get("status") == "ok"
             assert again.get("result") == 1
             assert again.get("session_reset") is not True
@@ -1007,7 +1005,7 @@ class TestFormulaPoolSupervisor:
 
             for i in range(300):
                 sid = f"s{i}"
-                res = pool.execute(code="result = 1", session_id=sid, mode="shared")
+                res = pool.execute(code="result = 1", session_id=sid)
                 assert res.get("status") == "ok"
                 assert res.get("session_reset") is not True
 
@@ -1022,7 +1020,7 @@ class TestFormulaPoolSupervisor:
         pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15)
         try:
             sid = "reset-fail-keeps-map"
-            ok = pool.execute(code="x = 9\nresult = x", session_id=sid, mode="shared", req_id="rf-1")
+            ok = pool.execute(code="x = 9\nresult = x", session_id=sid, req_id="rf-1")
             assert ok.get("status") == "ok"
             worker = pool._sessions[sid].worker
             real_execute = worker.execute
@@ -1039,7 +1037,7 @@ class TestFormulaPoolSupervisor:
             assert pool.live_session_worker(sid) is worker
             assert sid in pool._worker_sessions_for(worker)
             assert "keeping session map" in caplog.text
-            again = pool.execute(code="result = x", session_id=sid, mode="shared", req_id="rf-2")
+            again = pool.execute(code="result = x", session_id=sid, req_id="rf-2")
             assert again.get("status") == "ok"
             assert again.get("result") == 9
         finally:
@@ -1053,7 +1051,6 @@ class TestFormulaPoolSupervisor:
             first = pool.execute(
                 code="items.append(2)\nresult = list(items)",
                 session_id=sid,
-                mode="shared",
                 init_script=init,
                 req_id="init-1",
             )
@@ -1064,7 +1061,6 @@ class TestFormulaPoolSupervisor:
             second = pool.execute(
                 code="result = list(items)",
                 session_id=sid,
-                mode="shared",
                 init_script=init,
                 req_id="init-2",
             )
@@ -1073,22 +1069,13 @@ class TestFormulaPoolSupervisor:
         finally:
             pool.shutdown()
 
-    def test_worker_does_not_recheck_mode(self) -> None:
-        """Stdio does not reject a mode the pool already checked.
-
-        ``data`` is not a payload field. A false mode is not re-validated
-        here; pool execute() still rejects it before stdio.
-        """
+    def test_worker_ignores_data_field(self) -> None:
+        """data is not a payload field; the child reads only data_json."""
         from compute_service.formula_worker import _handle_request
         from compute_service.formula_pool import decode_worker_result
 
         plain = decode_worker_result(_handle_request({"id": "data-field", "code": "result = data", "data": [1, 2, 3]}))
         assert plain.get("result") != [1, 2, 3]
-
-        bad_mode = decode_worker_result(_handle_request({"id": "m", "code": "result = 1", "mode": False}))
-        assert bad_mode.get("status") == "ok"
-        assert bad_mode.get("code") != "INVALID_REQUEST"
-        assert bad_mode.get("result") == 1
 
     def test_worker_error_omits_traceback(self) -> None:
         from compute_service.formula_worker import _handle_request
@@ -1148,7 +1135,7 @@ class TestFormulaPoolSupervisor:
                 assert target_worker.child is not None
                 pool._sessions[sid] = _Session(worker=target_worker, child=target_worker.child)
 
-            res = pool.execute(code="state = 42\nresult = state", session_id=sid, mode="shared")
+            res = pool.execute(code="state = 42\nresult = state", session_id=sid)
             assert res.get("status") == "ok"
             assert res.get("result") == 42
             with pool._cond:
@@ -1189,7 +1176,6 @@ class TestFormulaPoolSupervisor:
             data={"x": float("nan")},
             data_json=b'{"x": NaN}',
             session_id=None,
-            mode="isolated",
             init_script=None,
             req_id="wire",
         )
@@ -1226,7 +1212,7 @@ class TestFormulaPoolSupervisor:
         pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15)
         try:
             sid = "dies-with-pid"
-            created = pool.execute(code="keep = 5\nresult = keep", session_id=sid, mode="shared", req_id="die-1")
+            created = pool.execute(code="keep = 5\nresult = keep", session_id=sid, req_id="die-1")
             assert created.get("status") == "ok"
             assert created.get("result") == 5
             owner = pool.live_session_worker(sid)
@@ -1235,7 +1221,7 @@ class TestFormulaPoolSupervisor:
             os.kill(pid, signal.SIGKILL)
             owner.process.wait(timeout=2)
             assert pool.live_session_worker(sid) is None
-            again = pool.execute(code="result = keep", session_id=sid, mode="shared", timeout_sec=15, req_id="die-2")
+            again = pool.execute(code="result = keep", session_id=sid, timeout_sec=15, req_id="die-2")
             assert again.get("status") == "error"
             assert again.get("result") != 5
             assert again.get("session_reset") is True
@@ -1245,8 +1231,8 @@ class TestFormulaPoolSupervisor:
     def test_sigkill_drops_every_session_on_the_pid(self) -> None:
         pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15)
         try:
-            first = pool.execute(code="a = 1\nresult = a", session_id="sess-a", mode="shared")
-            second = pool.execute(code="b = 2\nresult = b", session_id="sess-b", mode="shared")
+            first = pool.execute(code="a = 1\nresult = a", session_id="sess-a")
+            second = pool.execute(code="b = 2\nresult = b", session_id="sess-b")
             assert first.get("status") == "ok"
             assert second.get("status") == "ok"
             owner = pool.live_session_worker("sess-a")
@@ -1268,7 +1254,7 @@ class TestFormulaPoolSupervisor:
         """
         pool = FormulaProcessPool(num_workers=1, default_timeout_sec=30)
         try:
-            kept = pool.execute(code="keep = 7\nresult = keep", session_id="doc-keep", mode="shared", req_id="budget-keep")
+            kept = pool.execute(code="keep = 7\nresult = keep", session_id="doc-keep", req_id="budget-keep")
             assert kept.get("status") == "ok"
             owner = pool.live_session_worker("doc-keep")
             assert owner is not None and owner.process is not None
@@ -1278,7 +1264,6 @@ class TestFormulaPoolSupervisor:
             hung = pool.execute(
                 code="import time\ntime.sleep(8)\nresult = 1",
                 session_id="doc-hang",
-                mode="shared",
                 deadline=Deadline.from_absolute(30.0, time.monotonic() + 1.2),
                 req_id="budget-hang",
             )
@@ -1286,30 +1271,21 @@ class TestFormulaPoolSupervisor:
             assert hung.get("code") != "EXECUTION_TIMEOUT"
             assert owner.process is not None and owner.process.pid == pid
             assert owner.is_alive()
-            again = pool.execute(code="result = keep", session_id="doc-keep", mode="shared", timeout_sec=15, req_id="budget-again")
+            again = pool.execute(code="result = keep", session_id="doc-keep", timeout_sec=15, req_id="budget-again")
             assert again.get("status") == "ok"
             assert again.get("result") == 7
-        finally:
-            pool.shutdown()
-
-    def test_bad_client_mode_runs_isolated(self) -> None:
-        pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15)
-        try:
-            res = pool.execute(code="result = 1", mode="Shared", req_id="bad-mode")
-            assert res.get("status") == "ok"
-            assert res.get("result") == 1
         finally:
             pool.shutdown()
 
     def test_isolated_leases_session_process_when_all_workers_have_sessions(self) -> None:
         pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15)
         try:
-            created = pool.execute(code="keep = 1\nresult = keep", session_id="only-shared", mode="shared")
+            created = pool.execute(code="keep = 1\nresult = keep", session_id="only-shared")
             assert created.get("status") == "ok"
             owner = pool.live_session_worker("only-shared")
             assert owner is not None and owner.process is not None
             pid = owner.process.pid
-            ran = pool.execute(code="result = 1", mode="isolated", timeout_sec=1, req_id="iso-blocked")
+            ran = pool.execute(code="result = 1", timeout_sec=1, req_id="iso-blocked")
             assert ran.get("status") == "ok"
             assert ran.get("result") == 1
             assert owner.is_alive()
@@ -1323,7 +1299,7 @@ class TestFormulaPoolSupervisor:
         pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15, idle_worker_ttl_sec=3600.0)
         try:
             sid = "ttl-dead"
-            created = pool.execute(code="result = 1", session_id=sid, mode="shared", req_id="ttl-dead-1")
+            created = pool.execute(code="result = 1", session_id=sid, req_id="ttl-dead-1")
             assert created.get("status") == "ok"
             worker = pool.workers[0]
             old_child = worker.child
@@ -1352,7 +1328,7 @@ class TestFormulaHttpEndpoint:
             api_key="formula-secret",
         )
         app = create_wsgi_app(settings)
-        server = WSGIDualStackServer("127.0.0.1", port, max_threads=2)
+        server = WSGIDualStackServer("127.0.0.1", port, listener_threads=8)
         server.set_app(app)
 
         thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -1510,12 +1486,12 @@ class TestFormulaHttpEndpoint:
         try:
             # First session lands on the least-loaded live worker. On a tie
             # that is the lowest worker_id (hash() used to depend on PYTHONHASHSEED).
-            res1 = pool.execute(code="result = 1", session_id="sess-1", mode="shared")
+            res1 = pool.execute(code="result = 1", session_id="sess-1")
             assert res1.get("status") == "ok"
             w1 = pool.live_session_worker("sess-1")
 
             # Second session should pick the other worker because it has 0 sessions
-            res2 = pool.execute(code="result = 2", session_id="sess-2", mode="shared")
+            res2 = pool.execute(code="result = 2", session_id="sess-2")
             assert res2.get("status") == "ok"
             w2 = pool.live_session_worker("sess-2")
 
@@ -1531,7 +1507,7 @@ class TestFormulaHttpEndpoint:
         pool = FormulaProcessPool(num_workers=2, default_timeout_sec=15)
         try:
             # Register a shared session on one worker
-            res1 = pool.execute(code="x = 10; result = x", session_id="shared-worker-test", mode="shared")
+            res1 = pool.execute(code="x = 10; result = x", session_id="shared-worker-test")
             assert res1.get("status") == "ok"
             shared_worker = pool.live_session_worker("shared-worker-test")
 
@@ -1549,9 +1525,9 @@ class TestFormulaHttpEndpoint:
         """When all idle workers hold shared sessions, _pick_idle_worker still picks an idle worker."""
         pool = FormulaProcessPool(num_workers=2, default_timeout_sec=15)
         try:
-            res1 = pool.execute(code="result = 1", session_id="s1", mode="shared")
+            res1 = pool.execute(code="result = 1", session_id="s1")
             assert res1.get("status") == "ok"
-            res2 = pool.execute(code="result = 2", session_id="s2", mode="shared")
+            res2 = pool.execute(code="result = 2", session_id="s2")
             assert res2.get("status") == "ok"
 
             with pool._cond:
@@ -1599,7 +1575,7 @@ class TestFormulaHttpEndpoint:
         pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15)
         try:
             sid = "lost-session-test"
-            r1 = pool.execute(code="x = 100\nresult = x", session_id=sid, mode="shared", req_id="r1")
+            r1 = pool.execute(code="x = 100\nresult = x", session_id=sid, req_id="r1")
             assert r1.get("status") == "ok"
             assert r1.get("session_reset") is not True
 
@@ -1608,7 +1584,7 @@ class TestFormulaHttpEndpoint:
             os.kill(owner.process.pid, signal.SIGKILL)
             owner.process.wait(timeout=2)
 
-            r2 = pool.execute(code="result = 200", session_id=sid, mode="shared", req_id="r2")
+            r2 = pool.execute(code="result = 200", session_id=sid, req_id="r2")
             assert r2.get("status") == "ok"
             assert r2.get("session_reset") is True
             if "result_json" in r2:
@@ -1616,7 +1592,7 @@ class TestFormulaHttpEndpoint:
                 assert payload.get("session_reset") is True
 
             # Third call on same session does not report session_reset again (it was consumed)
-            r3 = pool.execute(code="result = 300", session_id=sid, mode="shared", req_id="r3")
+            r3 = pool.execute(code="result = 300", session_id=sid, req_id="r3")
             assert r3.get("status") == "ok"
             assert r3.get("session_reset") is not True
         finally:
@@ -1627,7 +1603,7 @@ class TestFormulaHttpEndpoint:
         pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15)
         try:
             sid = "unrun-lost"
-            created = pool.execute(code="x = 1\nresult = x", session_id=sid, mode="shared", req_id="warm")
+            created = pool.execute(code="x = 1\nresult = x", session_id=sid, req_id="warm")
             assert created.get("status") == "ok"
             worker = pool.live_session_worker(sid)
             assert worker is not None
@@ -1640,7 +1616,6 @@ class TestFormulaHttpEndpoint:
                     code="result = 1",
                     data={"blob": "x" * 200},
                     session_id=sid,
-                    mode="shared",
                     req_id="too-big",
                 )
             finally:
@@ -1648,7 +1623,7 @@ class TestFormulaHttpEndpoint:
             assert rejected.get("code") == "PAYLOAD_TOO_LARGE"
             with pool._cond:
                 assert sid in pool._sessions
-            nxt = pool.execute(code="result = 2", session_id=sid, mode="shared", req_id="after")
+            nxt = pool.execute(code="result = 2", session_id=sid, req_id="after")
             assert nxt.get("status") == "ok"
             assert nxt.get("session_reset") is True
         finally:
@@ -1659,7 +1634,7 @@ class TestFormulaHttpEndpoint:
         pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15)
         try:
             sid = "lost-lease-miss"
-            created = pool.execute(code="x = 42\nresult = x", session_id=sid, mode="shared")
+            created = pool.execute(code="x = 42\nresult = x", session_id=sid)
             assert created.get("status") == "ok"
             assert created.get("result") == 42
 
@@ -1669,16 +1644,16 @@ class TestFormulaHttpEndpoint:
             assert not worker.is_alive()
 
             with patch.object(pool, "lease_specific", return_value=None):
-                res = pool.execute(code="result = 1", session_id=sid, mode="shared")
+                res = pool.execute(code="result = 1", session_id=sid)
                 assert res.get("code") == "WORKER_POOL_BUSY"
 
             # The session binding is preserved across the lease miss, so the next sticky call reports session_reset
-            again = pool.execute(code="result = 1", session_id=sid, mode="shared")
+            again = pool.execute(code="result = 1", session_id=sid)
             assert again.get("status") == "ok"
             assert again.get("session_reset") is True
 
             # Third call on same session does not report session_reset again
-            third = pool.execute(code="result = 1", session_id=sid, mode="shared")
+            third = pool.execute(code="result = 1", session_id=sid)
             assert third.get("status") == "ok"
             assert third.get("session_reset") is not True
         finally:
@@ -1694,7 +1669,7 @@ class TestFormulaHttpEndpoint:
 
             def run_worker(idx: int, code: str) -> None:
                 barrier.wait()
-                res = pool.execute(code=code, session_id=sid, mode="shared", req_id=f"req-{idx}")
+                res = pool.execute(code=code, session_id=sid, req_id=f"req-{idx}")
                 results[idx] = res
 
             t1 = threading.Thread(target=run_worker, args=(0, "result = 42"))
@@ -1721,9 +1696,9 @@ class TestFormulaHttpEndpoint:
                 assert len(worker_ids) == 1
 
             # Shared state is maintained on this worker
-            r3 = pool.execute(code="x = 100\nresult = x", session_id=sid, mode="shared")
+            r3 = pool.execute(code="x = 100\nresult = x", session_id=sid)
             assert r3.get("status") == "ok"
-            r4 = pool.execute(code="result = x + 1", session_id=sid, mode="shared")
+            r4 = pool.execute(code="result = x + 1", session_id=sid)
             assert r4.get("status") == "ok"
             assert r4.get("result") == 101
         finally:
@@ -1754,7 +1729,7 @@ class TestFormulaHttpEndpoint:
 
             def run_worker(idx: int, code: str) -> None:
                 barrier.wait()
-                res = pool.execute(code=code, session_id=sid, mode="shared", req_id=f"gate-{idx}")
+                res = pool.execute(code=code, session_id=sid, req_id=f"gate-{idx}")
                 results[idx] = res
 
             t1 = threading.Thread(target=run_worker, args=(0, "result = 1"))
@@ -1772,10 +1747,10 @@ class TestFormulaHttpEndpoint:
                 worker_ids = [w.worker_id for w in pool.workers if sid in pool._worker_sessions_for(w)]
                 assert len(worker_ids) == 1
 
-            r3 = pool.execute(code="x = 100\nresult = x", session_id=sid, mode="shared")
+            r3 = pool.execute(code="x = 100\nresult = x", session_id=sid)
             assert r3.get("status") == "ok"
             assert r3.get("result") == 100
-            r4 = pool.execute(code="result = x + 1", session_id=sid, mode="shared")
+            r4 = pool.execute(code="result = x + 1", session_id=sid)
             assert r4.get("status") == "ok"
             assert r4.get("result") == 101
         finally:
@@ -1786,7 +1761,7 @@ class TestFormulaHttpEndpoint:
         pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15)
         try:
             sid = "explicit-reset-session"
-            r1 = pool.execute(code="x = 99\nresult = x", session_id=sid, mode="shared")
+            r1 = pool.execute(code="x = 99\nresult = x", session_id=sid)
             assert r1.get("status") == "ok"
 
             reset_res = pool.reset_session(sid)
@@ -1795,7 +1770,7 @@ class TestFormulaHttpEndpoint:
             with pool._cond:
                 assert sid not in pool._sessions
 
-            r2 = pool.execute(code="result = 100", session_id=sid, mode="shared")
+            r2 = pool.execute(code="result = 100", session_id=sid)
             assert r2.get("status") == "ok"
             assert r2.get("session_reset") is not True
         finally:
@@ -1809,7 +1784,7 @@ class TestFormulaHttpEndpoint:
             assert not pool._session_locks
 
             # Shared execute prunes lock upon completion
-            res = pool.execute(code="x = 10\nresult = x", session_id=sid, mode="shared")
+            res = pool.execute(code="x = 10\nresult = x", session_id=sid)
             assert res.get("status") == "ok"
             assert res.get("result") == 10
             assert not pool._session_locks
@@ -1951,7 +1926,7 @@ class TestFormulaHttpEndpoint:
                 assert "live-old" in pool._sessions
 
             # Next call on the fresh stale row still reports session_reset
-            res = pool.execute(code="result = 42", session_id="stale-fresh", mode="shared")
+            res = pool.execute(code="result = 42", session_id="stale-fresh")
             assert res.get("status") == "ok"
             assert res.get("session_reset") is True
         finally:
@@ -1962,7 +1937,7 @@ class TestFormulaHttpEndpoint:
         pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15, idle_worker_ttl_sec=0.2)
         try:
             sid = "idle-evict-reaper-test"
-            r1 = pool.execute(code="x = 1\nresult = x", session_id=sid, mode="shared")
+            r1 = pool.execute(code="x = 1\nresult = x", session_id=sid)
             assert r1.get("status") == "ok"
             assert r1.get("result") == 1
             worker = pool.live_session_worker(sid)
@@ -1986,7 +1961,6 @@ class TestFormulaHttpEndpoint:
             r2 = pool.execute(
                 code="try:\n    result = x\nexcept NameError:\n    result = 'gone'",
                 session_id=sid,
-                mode="shared",
             )
             assert r2.get("status") == "ok"
             assert r2.get("result") == "gone"
@@ -1999,7 +1973,7 @@ class TestFormulaHttpEndpoint:
         pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15, idle_worker_ttl_sec=0.2)
         try:
             sid = "stale-ttl-expiry-test"
-            r1 = pool.execute(code="x = 1\nresult = x", session_id=sid, mode="shared")
+            r1 = pool.execute(code="x = 1\nresult = x", session_id=sid)
             assert r1.get("status") == "ok"
             worker = pool.live_session_worker(sid)
             assert worker is not None
@@ -2028,7 +2002,7 @@ class TestFormulaHttpEndpoint:
         try:
             sid = "new-phantom-test"
             with patch.object(pool, "lease_specific", return_value=None):
-                res = pool.execute(code="result = 1", session_id=sid, mode="shared")
+                res = pool.execute(code="result = 1", session_id=sid)
                 assert res.get("status") == "error"
                 assert res.get("code") == "WORKER_POOL_BUSY"
 
@@ -2057,7 +2031,7 @@ class TestFormulaHttpEndpoint:
 
             sid = "post-lease-timeout-new"
             with patch.object(Deadline, "usable", fake_usable):
-                res = pool.execute(code="result = 2", session_id=sid, mode="shared")
+                res = pool.execute(code="result = 2", session_id=sid)
                 assert res.get("status") == "error"
                 assert res.get("code") == "QUEUE_TIMEOUT"
 
@@ -2073,7 +2047,7 @@ class TestFormulaHttpEndpoint:
         pool = FormulaProcessPool(num_workers=1, idle_worker_ttl_sec=0)
         try:
             sid = "post-lease-timeout-existing"
-            res1 = pool.execute(code="x = 42\nresult = x", session_id=sid, mode="shared")
+            res1 = pool.execute(code="x = 42\nresult = x", session_id=sid)
             assert res1.get("status") == "ok"
             assert res1.get("result") == 42
 
@@ -2085,14 +2059,14 @@ class TestFormulaHttpEndpoint:
                 return None
 
             with patch.object(Deadline, "usable", fake_usable):
-                res2 = pool.execute(code="x = x + 1\nresult = x", session_id=sid, mode="shared")
+                res2 = pool.execute(code="x = x + 1\nresult = x", session_id=sid)
                 assert res2.get("status") == "error"
                 assert res2.get("code") == "QUEUE_TIMEOUT"
 
             with pool._cond:
                 assert sid in pool._sessions
 
-            res3 = pool.execute(code="result = x", session_id=sid, mode="shared")
+            res3 = pool.execute(code="result = x", session_id=sid)
             assert res3.get("status") == "ok"
             assert res3.get("result") == 42
             assert res3.get("session_reset") is not True
@@ -2192,7 +2166,6 @@ class TestFormulaHttpEndpoint:
             res = pool.execute(
                 code="result = 2",
                 session_id="budget-sid",
-                mode="shared",
                 deadline=Deadline.from_absolute(30.0, time.monotonic() + 0.05),
             )
             assert res.get("code") == "QUEUE_TIMEOUT"
@@ -2482,7 +2455,7 @@ def test_recycle_vs_new_shared_session_order_a() -> None:
     assert target_worker is other
     assert "s-new" not in pool._sessions
     # The other worker gets the row only after a cell that actually ran.
-    pool._finalize_session(other, "s-new", "shared", result={"status": "ok"})
+    pool._finalize_session(other, "s-new", result={"status": "ok"})
     assert pool._sessions["s-new"].worker is other
     assert dying not in [s.worker for s in pool._sessions.values()]
 
@@ -2503,14 +2476,14 @@ def test_recycle_vs_new_shared_session_order_b() -> None:
     pool = FormulaProcessPool(num_workers=1, max_tasks=1, idle_worker_ttl_sec=0)
     try:
         worker = pool.workers[0]
-        res1 = pool.execute(code="result = 1", mode="isolated")
+        res1 = pool.execute(code="result = 1")
         assert res1.get("status") == "ok"
         assert res1.get("result") == 1
         assert worker.tasks_executed >= 1
         # Worker was recycled and killed upon release
         assert not worker.is_alive()
 
-        res2 = pool.execute(code="result = 42", session_id="s-new", mode="shared")
+        res2 = pool.execute(code="result = 42", session_id="s-new")
         assert res2.get("status") == "ok"
         assert res2.get("result") == 42
         assert worker.is_alive()
@@ -2528,7 +2501,7 @@ def test_session_created_before_should_recycle_prevents_mark() -> None:
     """A session created before should_recycle_worker prevents the mark."""
     pool = FormulaProcessPool(num_workers=1, max_tasks=1, idle_worker_ttl_sec=0)
     try:
-        res = pool.execute(code="result = 1", session_id="s-existing", mode="shared")
+        res = pool.execute(code="result = 1", session_id="s-existing")
         assert res.get("status") == "ok"
         worker = pool.workers[0]
         assert worker.tasks_executed >= 1
@@ -2578,14 +2551,14 @@ def test_new_session_spawn_failure_does_not_set_session_lost() -> None:
 
         worker.execute = mock_execute  # type: ignore[method-assign]
         sid = "new-sid-spawn-fail"
-        res1 = pool.execute(code="result = 1", session_id=sid, mode="shared")
+        res1 = pool.execute(code="result = 1", session_id=sid)
         assert res1.get("status") == "error"
         assert res1.get("code") == "WORKER_SPAWN_FAILED"
 
         with pool._cond:
             assert sid not in pool._sessions
 
-        res2 = pool.execute(code="result = 1", session_id=sid, mode="shared")
+        res2 = pool.execute(code="result = 1", session_id=sid)
         assert res2.get("status") == "ok"
         assert res2.get("result") == 1
         assert res2.get("session_reset") is not True
@@ -2613,7 +2586,7 @@ def test_cold_start_kill_after_cell_marks_session_lost() -> None:
 
         worker.execute = mock_execute  # type: ignore[method-assign]
         sid = "cold-kill-after-cell"
-        res1 = pool.execute(code="x = 5\nresult = x", session_id=sid, mode="shared")
+        res1 = pool.execute(code="x = 5\nresult = x", session_id=sid)
         assert res1.get("status") == "ok"
         assert res1.get("result") == 5
 
@@ -2621,12 +2594,12 @@ def test_cold_start_kill_after_cell_marks_session_lost() -> None:
             assert sid in pool._sessions
             assert pool.live_session_worker(sid) is None
 
-        res2 = pool.execute(code="result = 10", session_id=sid, mode="shared", decode_result=False)
+        res2 = pool.execute(code="result = 10", session_id=sid, decode_result=False)
         assert res2.get("status") == "ok"
         assert res2.get("namespace_created") is True
         assert res2.get("session_reset") is True
 
-        res3 = pool.execute(code="result = 20", session_id=sid, mode="shared", decode_result=False)
+        res3 = pool.execute(code="result = 20", session_id=sid, decode_result=False)
         assert res3.get("status") == "ok"
         assert res3.get("namespace_created") is False
         assert res3.get("session_reset") is not True
@@ -2654,7 +2627,7 @@ def test_execute_fake_worker_namespace_created_session_reset() -> None:
     try:
         sid = "fake-worker-session"
         # 1. No pre-existing row: does not set session_reset, inserts row
-        res1 = pool.execute(code="result = 1", session_id=sid, mode="shared")
+        res1 = pool.execute(code="result = 1", session_id=sid)
         assert res1.get("status") == "ok"
         assert res1.get("result") == 1
         assert res1.get("session_reset") is not True
@@ -2663,14 +2636,14 @@ def test_execute_fake_worker_namespace_created_session_reset() -> None:
 
         # 2. Pre-existing row: fake returns namespace_created=True -> sets session_reset
         created_bit = True
-        res2 = pool.execute(code="result = 1", session_id=sid, mode="shared")
+        res2 = pool.execute(code="result = 1", session_id=sid)
         assert res2.get("status") == "ok"
         assert res2.get("result") == 1
         assert res2.get("session_reset") is True
 
         # 3. Third call: fake returns namespace_created=False -> does not set flag
         created_bit = False
-        res3 = pool.execute(code="result = 1", session_id=sid, mode="shared")
+        res3 = pool.execute(code="result = 1", session_id=sid)
         assert res3.get("status") == "ok"
         assert res3.get("result") == 1
         assert res3.get("session_reset") is not True

@@ -50,37 +50,20 @@ def _deal_sandbox_code_ok_pytest(code: object) -> bool:
 
 _deal_sandbox_code_ok = _deal_sandbox_code_ok_pytest
 
-
-def _deal_sandbox_policy_ok(authorized_imports: object, blocked_imports: object = None) -> bool:
-    if not _deal_sandbox_imports_ok(authorized_imports):
-        return False
-    if blocked_imports is None:
-        return True
-    if not isinstance(blocked_imports, (list, tuple, set, frozenset)):
-        return False
-    return all(
-        isinstance(x, str)
-        and "\0" not in x
-        and "\n" not in x
-        and str_bounded(x, DEAL_MAX_TOKEN)
-        for x in blocked_imports
-    )
-
 _DEFAULT_MAX_ENTRIES = 256
 _MAX_CACHED_SOURCE_CHARS = 65536
 
 
-@deal.pre(lambda module, authorized_imports, blocked_imports=None: _deal_sandbox_policy_ok(authorized_imports, blocked_imports))
+@deal.pre(lambda module, authorized_imports: _deal_sandbox_imports_ok(authorized_imports))
 @deal.post(lambda result: result is None or isinstance(result, str))
 def validate_sandbox_ast(
     module: ast.Module,
     authorized_imports: Sequence[str],
-    blocked_imports: Sequence[str] | None = None,
 ) -> str | None:
     """Return an error message if *module* violates sandbox policy, else ``None``."""
     # AST walk on a symbolic module hangs deep check.
     # crosshair: off
-    effective_blocked = tuple(blocked_imports) if blocked_imports is not None else tuple(active_blocked_imports())
+    effective_blocked = tuple(active_blocked_imports())
 
     for node in ast.walk(module):
         if isinstance(node, (ast.stmt, ast.expr)):
@@ -195,7 +178,7 @@ def _build_entry(
         return HotEntry(module=None, error="Code parsing failed: expression is too deeply nested")
 
 
-@deal.pre(lambda code, authorized_imports: _deal_sandbox_policy_ok(authorized_imports) and _deal_sandbox_code_ok(code))
+@deal.pre(lambda code, authorized_imports: _deal_sandbox_imports_ok(authorized_imports) and _deal_sandbox_code_ok(code))
 def get_hot_entry(
     code: str,
     authorized_imports: Sequence[str],

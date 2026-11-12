@@ -18,8 +18,8 @@ from compute_service.json_egress import to_dumb_json_value
 import pytest
 
 
-def _execute_code(code: str, *, data: Any = None, mode: str = "isolated") -> dict[str, Any]:
-    req: dict[str, Any] = {"code": code, "mode": mode}
+def _execute_code(code: str, *, data: Any = None) -> dict[str, Any]:
+    req: dict[str, Any] = {"code": code}
     if data is not None:
         req["data_json"] = json.dumps(data, allow_nan=False).encode("utf-8")
     env = _handle_request(req)
@@ -121,7 +121,7 @@ class TestOnlinePyJsonContract:
             "mode": "isolated",
         }
         json.dumps(body, allow_nan=False)
-        out = _execute_code(body["code"], data=body["data"], mode=body["mode"])
+        out = _execute_code(body["code"], data=body["data"])
         assert out["status"] == "ok"
         assert out["result"] == 6.0
 

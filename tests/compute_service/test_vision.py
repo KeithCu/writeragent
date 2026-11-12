@@ -21,7 +21,7 @@ from compute_service.config import ComputeSettings, MAX_BODY_BYTES, read_allowli
 from compute_service.server import WSGIDualStackServer, create_wsgi_app
 from plugin.framework.child_runtime import Deadline
 from compute_service.vision import VisionProcessPool, _handle_request, get_vision_pool, shutdown_vision_pool
-from compute_service.json_forward import COMPUTE_MAX_PAYLOAD_BYTES
+from compute_service.config import COMPUTE_MAX_PAYLOAD_BYTES
 from tests.compute_service.multipart_encode import encode_multipart_vision
 
 
@@ -452,7 +452,7 @@ class TestVisionHttpEndpoint:
             ocr_workers=1,
         )
         app = create_wsgi_app(settings)
-        server = WSGIDualStackServer("127.0.0.1", port, max_threads=4)
+        server = WSGIDualStackServer("127.0.0.1", port, listener_threads=8)
         server.set_app(app)
 
         thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -513,7 +513,7 @@ class TestVisionHttpEndpoint:
             ocr_allow_paths=(str(tmp_path),),
         )
         app = create_wsgi_app(settings)
-        server = WSGIDualStackServer("127.0.0.1", port, max_threads=4)
+        server = WSGIDualStackServer("127.0.0.1", port, listener_threads=8)
         server.set_app(app)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
@@ -551,7 +551,7 @@ class TestVisionHttpEndpoint:
             ocr_workers=0,
         )
         app = create_wsgi_app(settings)
-        server = WSGIDualStackServer("127.0.0.1", port, max_threads=2)
+        server = WSGIDualStackServer("127.0.0.1", port, listener_threads=8)
         server.set_app(app)
 
         thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -581,7 +581,7 @@ def _delay_worker(tmp_path):
             [
                 "import os, sys, time",
                 f"sys.path.insert(0, {str(repo)!r})",
-                "from compute_service.worker_base import run_worker_stdio_loop",
+                "from compute_service.worker_stdio import run_worker_stdio_loop",
                 "def handle(req):",
                 "    time.sleep(float(req.get('delay') or 0))",
                 "    return {'status': 'ok', 'pid': os.getpid()}",
