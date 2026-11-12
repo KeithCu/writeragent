@@ -131,7 +131,7 @@ def _apply_image_export_options(content: str, *, include_images: bool) -> str:
 def _truncate_html(content: str, max_chars: int) -> str:
     """Cut *content* to *max_chars* without ending inside a tag or an entity.
 
-    The old slice ``content[:max_chars]`` handed the model an unclosed
+    A plain slice ``content[:max_chars]`` can hand the model an unclosed
     ``<a href="…`` or a trailing ``&nb``. The marker stays so
     get_document_content can set ``truncated``.
     """
@@ -465,7 +465,7 @@ def _copy_window_to_scratch(
         applied = False
         if not added_any:
             temp_cursor.gotoStart(False)
-            applied = range_copy.apply_temp_para_style(temp_doc, temp_cursor, style)
+            applied = range_copy.apply_temp_para_style(temp_doc, temp_cursor, style, model)
         else:
             temp_cursor.gotoEnd(False)
             temp_text.insertControlCharacter(temp_cursor, range_copy.PARAGRAPH_BREAK, False)
@@ -474,7 +474,7 @@ def _copy_window_to_scratch(
             # clobbers the previous paragraph instead of filling the new one.
             temp_cursor.gotoNextParagraph(False)
             temp_cursor.gotoEndOfParagraph(True)
-            applied = range_copy.apply_temp_para_style(temp_doc, temp_cursor, style)
+            applied = range_copy.apply_temp_para_style(temp_doc, temp_cursor, style, model)
 
         if not has_formula:
             temp_cursor.setString(para_text)
@@ -571,11 +571,12 @@ def _range_to_content_via_temp_doc(
         reraise_if_disposed(e)
         if isinstance(e, ToolExecutionError):
             raise
-        # Same silent "ok with empty content" as the full read (relato #63): say why instead.
+        # Same rule as the full read: a failed read raises with its reason instead of returning ok with empty content.
         raise ToolExecutionError("Could not read that part of the document (%s)." % _reason(e)) from e
     finally:
         if temp_doc is not None:
             best_effort(lambda: temp_doc.close(True), "_range_to_content_via_temp_doc: close temp doc failed")
+            range_copy.release_scratch_style_holds(temp_doc)
 
 
 
@@ -729,10 +730,9 @@ def document_to_content(
             except Exception as e:
                 # Disposal is not a double export failure.
                 reraise_if_disposed(e)
-                # When both exports fail, returning "" makes get_document_content
-                # answer status ok with empty content (relato #63: document_length
-                # 57003, content ""), so neither the agent nor the log reader can
-                # tell why. The failure surfaces as a tool error that names both
+                # If both exports fail, returning "" would make get_document_content
+                # answer status ok with empty content, and neither the agent nor the
+                # log reader could tell why. Raise a tool error that names both
                 # reasons (a full /tmp, a filter error, ...).
                 raise ToolExecutionError(
                     "Could not read the document: the XHTML export failed (%s) and the HTML export "
@@ -901,5 +901,6 @@ def xtext_to_content(
         return content
     finally:
         best_effort(lambda: temp_doc.close(True), "xtext_to_content: close temp doc failed")
+        range_copy.release_scratch_style_holds(temp_doc)
 
 

@@ -1078,8 +1078,8 @@ def _replace_range_with_paragraph_text(text_range: Any, text: str, *, collapse_b
     if not text:
         return
     if collapse_blank_paragraph_lines:
-        # Bugfix (QA B6): the model often returns "\\n\\n" between paragraphs; split("\\n")
-        # turned each blank line into an extra empty paragraph. Collapse newline runs first.
+        # The model often returns "\\n\\n" between paragraphs; split("\\n") would
+        # turn each blank line into an extra empty paragraph, so newline runs collapse first.
         parts = re.split(r"\n+", text.strip("\n"))
     else:
         parts = text.split("\n")
@@ -1147,7 +1147,7 @@ def range_has_tracked_insert_or_delete(text_range: Any) -> bool:
 
     A text cursor enumerates paragraphs; a paragraph enumerates portions. Portions
     are leaves — calling ``createEnumeration`` on them is not part of this walk.
-    ``hasMoreElements() is True`` so a MagicMock enum cannot spin. When the walk
+    ``iter_elements`` (``enum_has_more``) stops on a MagicMock enum. When the walk
     starts and then fails, the result is True: ``setString`` must not run on a
     range we could not prove is free of Insert/Delete redlines.
     """

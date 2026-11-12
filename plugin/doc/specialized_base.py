@@ -195,8 +195,8 @@ def _gather_domain_tools(ctx: ToolContext, domain: str) -> tuple[list[ToolBase],
         tools = peer_message.filter_peer_tools_for_specialized(tools, ctx.ctx, ctx.doc)
         if any(t.name in peer_message.PEER_TOOL_NAMES for t in tools):
             peer_catalog = peer_message.format_peer_catalog(peer_message.list_v1_peers(ctx.ctx, ctx.doc))
-        # #673 added list_v1_peers / getRuntimeUID to this hint. Specialized
-        # execute is async: gather the catalog here with get_tools, not on
+        # The hint reads list_v1_peers / getRuntimeUID (UNO calls). Specialized
+        # execute is async, so gather it here next to get_tools, not on
         # the tool-async worker.
         document_research_hint = get_document_research_workflow_hint(
             ctx.ctx, ctx.doc

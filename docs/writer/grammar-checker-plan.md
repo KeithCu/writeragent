@@ -224,7 +224,7 @@ Shared behavior for **LLM** and **langdetect** modes: in-memory language LRU (`g
     - **Complete**: `{doc_id}|{locale}|{hash(sent_text)}`. Ensures uniqueness across paragraphs and stability if the sentence is not being edited.
     - **Incomplete**: `{doc_id}|{locale}|INCOMPLETE_WRITER_AGENT_INTERNAL_STRING`. Ensures all partial drafts for the active typing spot supersede each other, preventing typing floods.
 - **Stale guard**: `GrammarWorkQueue` performs a **pre-execute stale check** against `_latest_seq` and skips any survivor older than the latest known sequence for that key. After each LLM response returns, **`cache_put_sentence` is skipped** if a newer enqueue superseded this item during the HTTP call (`inflight_superseded`).
-- **Queue diagnostics**: DEBUG `grammar_obs` events (`queue_enqueue`, `queue_drain_batch`, `batch_stats` with `sentences_queued` / `sentences_deduped` / `sentences_stale_skipped` / `sentences_llm_requested` / `llm_request_duration_ms`). Out-of-order `enqueue_seq` logs at ERROR.
+- **Queue diagnostics**: DEBUG `grammar_obs` events: `queue_enqueue` (`sentences_queued`), `queue_drain_batch`, and `batch_stats` with `sentences_stale_skipped` / `survivor_count` (queue) or `sentences_llm_requested` / `llm_request_duration_ms` (worker). Out-of-order `enqueue_seq` logs at ERROR.
 
 #### Sentence gating and pinned text
 

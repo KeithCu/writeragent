@@ -256,8 +256,8 @@ def commit_or_rollback(
             if undone:
                 rolled_back = True
                 if session is not None and changes_snapshot is not None:
-                    # Same rule as the old on_fail callback: discard review records only when
-                    # undo actually ran, so a partial edit still in the document keeps them.
+                    # Discard review records only when undo actually ran, so a partial
+                    # edit still in the document keeps them.
                     try:
                         session.discard_changes_since(changes_snapshot)
                     except Exception:

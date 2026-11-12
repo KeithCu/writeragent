@@ -195,8 +195,8 @@ def resolve_listing_directory(ctx: Any, active_model: Any) -> str | None:
 def _office_model_from_desktop_element(elem: Any) -> Any | None:
     """Document model for a desktop component, wrapped at this boundary.
 
-    Same policy as the old inline walks: if the element has a controller, use
-    ``controller.getModel()``; otherwise treat the element as the model.
+    If the element has a controller, use ``controller.getModel()``;
+    otherwise the element is the model.
     ``guard_uno`` here is the chokepoint (viral wrap from ``get_desktop()`` is
     not enough for MagicMock tests, and matches panel / open_document_for_read).
     """
@@ -207,10 +207,10 @@ def _office_model_from_desktop_element(elem: Any) -> Any | None:
         if hasattr(elem, "getController") and elem.getController():
             model = elem.getController().getModel()
     except Exception as exc:
-        # GHA 34593327841: leftover HTML-paste Writers (close skipped
-        # pasted=True) stay on the desktop. getController/getModel on those
-        # can raise, including PyUNO "Couldn't convert traceback … getTypes".
-        # An uncaught raise aborted list_nearby_files. Skip this component.
+        # Leftover hidden HTML-paste Writers can stay on the desktop, and
+        # getController/getModel on them can raise, including PyUNO
+        # "Couldn't convert traceback … getTypes". Skip the component so one
+        # broken entry does not abort list_nearby_files.
         # Do not log exc_info: formatting a UNO exception can raise the same
         # traceback-conversion RuntimeException.
         log.debug(
@@ -249,15 +249,15 @@ def _collect_open_file_urls(
                     continue
                 out[_normalize_path(path)] = str(url)
             except Exception as exc:
-                # GHA 34593327841: one leftover/broken component raised
-                # through getURL and aborted the whole nearby listing.
+                # One leftover or broken component can raise through getURL;
+                # skip it so the whole nearby listing does not abort.
                 log.debug(
                     "_collect_open_file_urls: skip component (%s)",
                     type(exc).__name__,
                 )
                 continue
     except Exception as exc:
-        # log.debug, not log.exception: formatting a UNO traceback can raise (GHA 34593327841).
+        # log.debug, not log.exception: formatting a UNO traceback can raise.
         log.debug("_collect_open_file_urls failed (%s)", type(exc).__name__)
     return out
 
@@ -545,20 +545,15 @@ _WINDOWS_HIDDEN_READONLY_TARGET = "_wa_doc_research"
 
 
 def _hidden_readonly_load_args() -> tuple[str, int]:
-    """Target + FrameSearchFlag for Hidden+ReadOnly sibling open.
+    """Target + FrameSearchFlag for a Hidden+ReadOnly sibling open.
 
-    GHA 34636251918 stored Budget via the pooled Calc (``store
-    budget via active`` OK; ``test_list_nearby_excludes_active``
-    OK). ``open_document_for_read`` then ``loadComponentFromURL``
-    of that file with ``_default`` flags=0 raises ``Could not
-    create system bitmap!`` The next sibling open hangs 30s at the
-    same call. Leftover Hidden ``_wa_calc_html`` paste Writers
-    (uids 26/27) poison ``_default`` / ``_blank`` — same family as
-    leftover Hidden factory (34597506651 / 34599838644) and leftover
-    notebook detect (34619751330). ``rich_html.py`` already avoids
-    those names. Use one CREATE|GLOBAL name. Hidden+ReadOnly and
-    the reuse / close-flag contract stay the same. POSIX keeps
-    ``_default``.
+    On Windows, ``_default`` and ``_blank`` can pick up a leftover hidden frame (for
+    example a ``_wa_calc_html`` paste Writer), and ``loadComponentFromURL`` then
+    raises "Could not create system bitmap!" or hangs about 30 s. Windows
+    therefore uses one named CREATE|GLOBAL target that nothing else uses
+    (``rich_html.py`` avoids the same names). Hidden+ReadOnly and the reuse /
+    close-flag contract are the same on every platform. POSIX keeps ``_default``
+    with flags 0.
     """
     if sys.platform == "win32":
         return _WINDOWS_HIDDEN_READONLY_TARGET, _HIDDEN_READONLY_SEARCH_FLAGS
@@ -646,7 +641,7 @@ def _is_same_document(model: Any, active_model: Any) -> bool:
     """Proxy-safe document identity for the is_active flag.
 
     ``model == active_model`` is ALWAYS False on guard-enabled builds: both sides are fresh
-    _UnoThreadGuardProxy instances (no __eq__), so the old identity compare reported
+    _UnoThreadGuardProxy instances (no __eq__), so an identity compare would report
     is_active=false even for the genuinely active document. Compare the stable runtime uid
     instead, falling back to the URL for models without one."""
     if model is None or active_model is None:

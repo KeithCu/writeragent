@@ -99,11 +99,21 @@ def _range_export(style: str, *, has_style: bool, set_style_raises: bool = False
 
 def test_range_export_keeps_text_when_paragraph_style_is_missing():
     """A style absent from the scratch doc must not turn the selection into \"\"."""
-    html, cursor = _range_export("Petition Heading", has_style=False)
+    with patch("plugin.writer.range_copy._clone_missing_paragraph_style", return_value=False):
+        html, cursor = _range_export("Petition Heading", has_style=False)
     assert "Hello" in html
     assert html != ""
     styled = [call for call in cursor.setPropertyValue.call_args_list if call.args and call.args[0] == "ParaStyleName"]
     assert styled == []
+    assert [call.args[0] for call in cursor.setString.call_args_list] == ["Hello", "Hello"]
+
+
+def test_range_export_sets_para_style_when_clone_succeeds():
+    with patch("plugin.writer.range_copy._clone_missing_paragraph_style", return_value=True):
+        html, cursor = _range_export("CustomStyle", has_style=False)
+    assert "Hello" in html
+    styled = [call.args for call in cursor.setPropertyValue.call_args_list if call.args and call.args[0] == "ParaStyleName"]
+    assert styled == [("ParaStyleName", "CustomStyle"), ("ParaStyleName", "CustomStyle")]
     assert [call.args[0] for call in cursor.setString.call_args_list] == ["Hello", "Hello"]
 
 

@@ -117,8 +117,8 @@ class SubEdit:
         new_text:   the replacement text (``""`` for a pure deletion).
 
     Applying every sub-edit's ``old[:old_start] / new_text / old[old_end:]`` in order,
-    left-to-right and non-overlapping, reconstructs ``new`` exactly. See
-    :func:`apply_sub_edits`.
+    left-to-right and non-overlapping, reconstructs ``new`` exactly
+    (``tests/writer/test_word_diff_split.py`` checks this).
     """
 
     old_start: int
@@ -249,7 +249,7 @@ def split_change(old: str, new: str, threshold: float = DEFAULT_THRESHOLD) -> Sp
     else:
         # difflib anchors on equal words. When a word repeats, it may match a different occurrence
         # than a human would, which can make a surgical redline WIDER than strictly minimal -- but never
-        # wrong: apply_sub_edits() always reconstructs *new* exactly (lossless not minimal).
+        # wrong: applying the sub-edits always reconstructs *new* exactly (lossless, not minimal).
         sm = difflib.SequenceMatcher(
             a=[t.text for t in old_words],
             b=[t.text for t in new_words],
