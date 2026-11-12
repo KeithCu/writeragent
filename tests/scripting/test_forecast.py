@@ -754,11 +754,9 @@ def test_default_params_match_venv_signatures():
     from plugin.scripting.helper_registry import specs
 
     for spec in specs("forecast"):
-        if spec.default_params is None:
-            continue
         fn = getattr(venv_forecast, spec.name)
         sig = inspect.signature(fn)
-        for param_name, expected_default in spec.default_params.items():
+        for param_name, expected_default in spec.defaults:
             assert param_name in sig.parameters, f"{param_name} not in {spec.name} signature"
             assert sig.parameters[param_name].default == expected_default, (
                 f"{spec.name}.{param_name} default {sig.parameters[param_name].default!r} != {expected_default!r}"

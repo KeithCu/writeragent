@@ -583,38 +583,19 @@ def bessely(x: Any, n: Any) -> float:
     return _bessel_call("yn", x, n, positive_x=True)
 
 
-def _scipy_parsed(parse: Any) -> tuple[Any, Any] | None:
-    """(scipy.stats, parse()) or None.
-
-    None means scipy is missing, or parse raised ValueError, TypeError, or
-    OverflowError. Callers return nan for None. Any other exception propagates.
-    Call only after an arity check. The stats method stays in the caller,
-    outside this try.
-    """
-    stats = scipy_stats()
-    if stats is None:
-        return None
-    try:
-        return stats, parse()
-    except (ValueError, TypeError, OverflowError):
-        return None
-
-
 def _beta_params(args: tuple[Any, ...]) -> tuple[Any, Any] | None:
     """(scipy.stats, (first, alpha, beta, A, B)) for BETADIST and BETAINV.
 
-    Arity is 3..5 and is checked before scipy is imported. A defaults to 0,
-    B to 1. Domain checks stay in the callers.
+    None when the arity is outside 3..5 or scipy is missing. Text raises ValueError (#VALUE!).
     """
     if len(args) < 3 or len(args) > 5:
         return None
-    return _scipy_parsed(lambda: (
-        float(args[0]),
-        float(args[1]),
-        float(args[2]),
-        float(args[3]) if len(args) > 3 else 0.0,
-        float(args[4]) if len(args) > 4 else 1.0,
-    ))
+    stats = scipy_stats()
+    if stats is None:
+        return None
+    return stats, (float(args[0]), float(args[1]), float(args[2]),
+                   float(args[3]) if len(args) > 3 else 0.0,
+                   float(args[4]) if len(args) > 4 else 1.0)
 
 
 def betadist(*args: Any) -> float:
@@ -647,15 +628,13 @@ def binomdist(*args: Any) -> float:
     # 0 <= k <= n, n >= 0, 0 <= p <= 1. scipy returns 0 for k > n; Calc wants #NUM!.
     if len(args) < 4:
         return float("nan")
-    got = _scipy_parsed(lambda: (
-        int(float(args[0])),
-        int(float(args[1])),
-        float(args[2]),
-        as_nonzero(args[3]),
-    ))
-    if got is None:
+    stats = scipy_stats()
+    if stats is None:
         return float("nan")
-    stats, (k, n, p, cum) = got
+    k = int(float(args[0]))
+    n = int(float(args[1]))
+    p = float(args[2])
+    cum = as_nonzero(args[3])
     if k < 0 or k > n or n < 0 or p < 0 or p > 1:
         return float("nan")
     if cum:
@@ -738,10 +717,10 @@ def chidist(x: Any, df: Any) -> float:
     # Excel path, same as binomdist. x == 0 stays 1. df is truncated.
     # df < 1 or df > 1e10 is #NUM! (Excel; LO enforces the cap on
     # ScChiSqDist_MS). int(df) rejected the string "3.5".
-    got = _scipy_parsed(lambda: (float(x), int(float(df))))
-    if got is None:
+    stats = scipy_stats()
+    if stats is None:
         return float("nan")
-    stats, (xv, dof) = got
+    xv, dof = float(x), int(float(df))
     if xv < 0.0 or dof < 1 or dof > 10**10:
         return float("nan")
     return float(stats.chi2.sf(xv, dof))
@@ -751,10 +730,10 @@ def chiinv(p: Any, df: Any) -> float:
     # ScChiInv: df < 1, p <= 0, or p > 1 is #NUM!. scipy isf(0, df) is inf.
     # p == 1 stays 0. df uses int(float()) so "3.5" truncates. df > 1e10
     # matches Excel CHIINV and the chidist cap above.
-    got = _scipy_parsed(lambda: (float(p), int(float(df))))
-    if got is None:
+    stats = scipy_stats()
+    if stats is None:
         return float("nan")
-    stats, (pv, dof) = got
+    pv, dof = float(p), int(float(df))
     if dof < 1 or dof > 10**10 or pv <= 0.0 or pv > 1.0:
         return float("nan")
     return float(stats.chi2.isf(pv, dof))
@@ -846,10 +825,10 @@ def complex(real_num: Any, imag_num: Any = 0.0, suffix: Any = "i") -> str:
 
 def confidence(alpha: Any, stddev: Any, size: Any) -> float:
     # alpha strictly inside (0, 1), stddev > 0, size >= 1. Otherwise #NUM!.
-    got = _scipy_parsed(lambda: (float(alpha), float(stddev), int(float(size))))
-    if got is None:
+    stats = scipy_stats()
+    if stats is None:
         return float("nan")
-    stats, (a, sd, n) = got
+    a, sd, n = float(alpha), float(stddev), int(float(size))
     if a <= 0.0 or a >= 1.0 or sd <= 0.0 or n < 1:
         return float("nan")
     return float(stats.norm.ppf(1 - a / 2.0) * sd / math.sqrt(n))
@@ -924,10 +903,10 @@ def critbinom(trials: Any, prob: Any, alpha: Any) -> float:
     # ScCritBinom (interpr3.cxx): n < 0, alpha outside [0, 1], or p outside
     # [0, 1] is #NUM!. alpha == 0 returns 0. scipy's ppf(0, n, p) is -1.
     # alpha == 1 returns n, or 0 when p == 0. int(trials) rejected "10.9".
-    got = _scipy_parsed(lambda: (int(float(trials)), float(prob), float(alpha)))
-    if got is None:
+    stats = scipy_stats()
+    if stats is None:
         return float("nan")
-    stats, (n, p, a) = got
+    n, p, a = int(float(trials)), float(prob), float(alpha)
     if n < 0 or a < 0.0 or a > 1.0 or p < 0.0 or p > 1.0:
         return float("nan")
     if a == 0.0:

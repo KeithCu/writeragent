@@ -35,6 +35,10 @@ MIN_MAX_CODE_CHARS = 64
 # HTTP body cap and the vision worker's file_path read cap. One value so a
 # path read cannot accept a file the HTTP layer would have rejected.
 MAX_BODY_BYTES = 32 * 1024 * 1024
+# StdIO pickle-frame cap for formula and vision children. The frame carries
+# a body of up to MAX_BODY_BYTES plus envelope overhead, so validate() keeps
+# max_body_bytes at least 1 KiB below this ceiling.
+COMPUTE_MAX_PAYLOAD_BYTES = 33 * 1024 * 1024
 VALID_LOG_LEVELS = frozenset({"DEBUG", "INFO", "WARNING", "WARN", "ERROR", "CRITICAL"})
 LOOPBACK_HOSTS = frozenset({"", "127.0.0.1", "::1", "localhost"})
 
@@ -206,7 +210,6 @@ class ComputeSettings:
     def validate(self) -> None:
         if not (1 <= self.port <= 65535):
             raise ConfigError(f"Invalid port: {self.port}")
-        from compute_service.json_forward import COMPUTE_MAX_PAYLOAD_BYTES
 
         if self.max_body_bytes < 1024 or self.max_body_bytes > COMPUTE_MAX_PAYLOAD_BYTES - 1024:
             raise ConfigError(f"max_body_bytes must be between 1024 and {COMPUTE_MAX_PAYLOAD_BYTES - 1024}")
@@ -244,35 +247,17 @@ class ComputeSettings:
 DEFAULT_SETTINGS = ComputeSettings()
 
 
-def clamp_timeout_sec(timeout: Any, *, is_ms: bool = False, default_timeout_sec: int = DEFAULT_SETTINGS.default_timeout_sec, max_timeout_sec: int | None = DEFAULT_SETTINGS.max_timeout_sec) -> int:
-    """Normalize and clamp a timeout in seconds or milliseconds to integer seconds.
+def clamp_timeout_ms(timeout_ms: int | float | None, *, default: int, maximum: int) -> int:
+    """Whole seconds for a request's ``timeout_ms``: at least 1, at most *maximum*.
 
-    Rejects booleans, non-numeric values, and non-finite floats (inf/nan), falling
-    back to default_timeout_sec. When is_ms is True, rounds up to the next second.
-    When max_timeout_sec is None, upper-bound clamping is skipped so caller bounds
-    (e.g. host-configured max_timeout_sec=1800) are honored.
+    ``None`` or a value <= 0 means *default*. The request parsers
+    (``json_forward._parse_meta_object``, ``json_peel``) already reject bools,
+    non-numbers and non-finite numbers, so only numbers and ``None`` arrive.
     """
-    if timeout is None or isinstance(timeout, bool):
-        return default_timeout_sec
-    if not isinstance(timeout, (int, float)):
-        return default_timeout_sec
-    if isinstance(timeout, float) and not math.isfinite(timeout):
-        return default_timeout_sec
-
-    if is_ms:
-        if timeout <= 0:
-            return default_timeout_sec
-        # Round up so 1500ms -> 2s, not 1s
-        sec = (int(timeout) + 999) // 1000
-    else:
-        # Non-finite floats already returned above. int() of a remaining
-        # int or float does not raise, so the OverflowError handler was dead.
-        sec = int(timeout)
-
-    clamped = max(1, sec)
-    if max_timeout_sec is not None:
-        clamped = min(max_timeout_sec, clamped)
-    return clamped
+    if timeout_ms is None or timeout_ms <= 0:
+        return default
+    # Whole milliseconds rounded up to seconds: 1500 ms is 2 s, 1000 ms is 1 s.
+    return min(maximum, max(1, (int(timeout_ms) + 999) // 1000))
 
 
 def _as_int(value: Any, *, field: str) -> int:

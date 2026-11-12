@@ -57,7 +57,7 @@ def _stdio_worker(
                 "import os, sys",
                 f"sys.path.insert(0, {root!r})",
                 preamble,
-                "from compute_service.worker_base import run_worker_stdio_loop",
+                "from compute_service.worker_stdio import run_worker_stdio_loop",
                 "def handle(req):",
                 indented,
                 "if __name__ == '__main__':",

@@ -8,7 +8,7 @@ Maintains a bounded pool of warm subprocesses. Provides:
 - 100% crash isolation (master HTTP server never crashes)
 - Hard SIGKILL termination for hangs/timeouts
 - Multi-core linear CPU scaling (bypasses single-interpreter GIL)
-- Sticky session affinity for stateful sessions (mode="shared")
+- Sticky session affinity for stateful sessions (calls that carry a session_id)
 - Clean workers preferred for isolated work; falls back to fewest-sessions if all idle workers hold sessions
 - A shared session dies with its child; a replaced or exited child drops that session
 - After max_tasks the slot is killed and left dead; the next lease respawns it
@@ -28,8 +28,8 @@ import time
 from typing import Any, Generator
 
 from compute_service import error_codes as ec
-from compute_service.config import ComputeSettings
-from compute_service.json_forward import COMPUTE_MAX_PAYLOAD_BYTES, ExecuteRequestError, derive_execute_mode, validate_session_id
+from compute_service.config import COMPUTE_MAX_PAYLOAD_BYTES, ComputeSettings
+from compute_service.json_forward import ExecuteRequestError, validate_session_id
 from compute_service.worker_base import BaseProcessPool, BaseProcessWorker, PoolSingleton, bind_pool_singleton, resolve_override
 from plugin.framework.child_runtime import Deadline
 from plugin.framework.child_runtime import error_dict
@@ -414,7 +414,6 @@ class FormulaProcessPool(BaseProcessPool):
         self,
         leased: BaseProcessWorker,
         session_id: str | None,
-        mode: str,
         *,
         result: dict[str, Any] | None = None,
     ) -> None:
@@ -423,8 +422,7 @@ class FormulaProcessPool(BaseProcessPool):
             with self._cond:
                 result_code = result.get("code") if isinstance(result, dict) else None
                 if (
-                    mode == "shared"
-                    and session_id
+                    session_id is not None
                     and result is not None
                     and result_code not in _UNRUN_RESULT_CODES
                 ):
@@ -457,7 +455,6 @@ class FormulaProcessPool(BaseProcessPool):
         session_id: str | None = None,
         timeout_sec: int | None = None,
         *,
-        mode: str = "isolated",
         init_script: str | None = None,
         req_id: str | None = None,
         data_json: bytes | None = None,
@@ -465,6 +462,9 @@ class FormulaProcessPool(BaseProcessPool):
         deadline: Deadline | None = None,
     ) -> dict[str, Any]:
         """Execute formula code on an appropriate worker subprocess.
+
+        A non-empty *session_id* selects the sticky shared kernel; without
+        one the call is isolated.
 
         *deadline* is the HTTP admission clock. Without one the clock is
         *timeout_sec* (or the default) from now. It is checked once before
@@ -480,9 +480,9 @@ class FormulaProcessPool(BaseProcessPool):
             return error_dict(ec.SERVICE_SHUTDOWN, "Formula compute pool is shutting down.", req_id=req_id)
 
         try:
-            if session_id:
-                session_id = validate_session_id(session_id)
-            mode = derive_execute_mode(session_id)
+            # A non-empty session id makes the call sticky (shared); anything else
+            # is one-shot isolated and carries no session id from here on.
+            session_id = validate_session_id(session_id) if session_id else None
         except ExecuteRequestError as exc:
             return error_dict(ec.INVALID_REQUEST, str(exc), req_id=req_id)
 
@@ -494,13 +494,13 @@ class FormulaProcessPool(BaseProcessPool):
             return error_dict(ec.QUEUE_TIMEOUT, "Request deadline expired before a worker lease.", req_id=req_id)
 
         try:
-            payload = self._build_execute_payload(code=code, data=data, data_json=data_json, session_id=session_id, mode=mode, init_script=init_script, req_id=req_id)
+            payload = self._build_execute_payload(code=code, data=data, data_json=data_json, session_id=session_id, init_script=init_script, req_id=req_id)
         except ExecuteRequestError as exc:
             return error_dict(ec.INVALID_REQUEST, str(exc), req_id=req_id)
 
         gate = (
             self._session_gate(session_id, max(clock.left(), 0.0))
-            if mode == "shared" and session_id
+            if session_id is not None
             else nullcontext(True)  # None would look like a gate miss
         )
         with gate as entered:
@@ -508,7 +508,7 @@ class FormulaProcessPool(BaseProcessPool):
                 return error_dict(ec.WORKER_POOL_BUSY, _SESSION_GATE_BUSY, req_id=req_id)
             leased: BaseProcessWorker | None = None
             admission: _SharedAdmission | None = None
-            if mode == "shared" and session_id:
+            if session_id is not None:
                 admission = self._admit_shared_session(session_id)
                 if admission.worker is None:
                     return error_dict(ec.SERVICE_SHUTDOWN, "Formula compute pool is shutting down.", req_id=req_id)
@@ -540,17 +540,17 @@ class FormulaProcessPool(BaseProcessPool):
                     clock=clock,
                     req_id=req_id,
                     decode_result=decode_result,
-                    expect_namespace=(mode == "shared" and admission is not None and admission.had_binding),
+                    expect_namespace=(admission is not None and admission.had_binding),
                 )
                 return result
             finally:
-                self._finalize_session(leased, session_id, mode, result=result)
+                self._finalize_session(leased, session_id, result=result)
 
     @staticmethod
-    def _build_execute_payload(*, code: str, data: Any = None, data_json: bytes | None = None, session_id: str | None = None, mode: str = "isolated", init_script: str | None = None, req_id: str | None = None) -> dict[str, Any]:
+    def _build_execute_payload(*, code: str, data: Any = None, data_json: bytes | None = None, session_id: str | None = None, init_script: str | None = None, req_id: str | None = None) -> dict[str, Any]:
         # pickle is not a second payload. timeout_sec is set later by
         # _run_execution from the remaining budget.
-        payload: dict[str, Any] = {"id": req_id, "code": code, "session_id": session_id, "mode": mode, "init_script": init_script}
+        payload: dict[str, Any] = {"id": req_id, "code": code, "session_id": session_id, "init_script": init_script}
         blob = data_json
         if blob is None and data is not None:
             # In-process callers only; HTTP supplies data_json, which is forwarded unvalidated.

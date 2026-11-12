@@ -123,6 +123,7 @@ class DomainWiring:
             latex = str(result.get("latex") or result.get("text") or helper or "")
             return preview_insert_ok_outcome(domain_label=self.display_label, helper=helper, preview_text=latex, t0=t0, stdout=stdout, result=result)
         if self.format_ok_kind == "units":
+            # Lazy (cycle): units.py imports get_domain_wiring from this module, so neither imports the other at its top.
             from plugin.scripting.units import units_display_text
 
             formatted = units_display_text(result) or helper
