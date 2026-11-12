@@ -2,65 +2,23 @@
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Shared host glue for trusted helper domains (headers, templates, RPS outcomes, data binding).
+"""Shared host glue for trusted helper domains (script facts, templates, RPS outcomes, data binding).
 
-Domain modules keep public parse/template wrappers; compute and egress stay domain-specific.
 No imports of domain modules here (avoids cycles).
 """
 
 from __future__ import annotations
 
 import ast
-import json
 import logging
 import re
 import time
-from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Callable
+from typing import Any, Callable
 
-from plugin.framework.deal_shim import DEAL_MAX_TOKEN, ascii_bounded, str_bounded, deal
-
-
-def _deal_user_code_ok_pytest(code: object, run_name: object = "") -> bool:
-    # User scripts are longer than DEAL_MAX_SOURCE. The cap raised
-    # PreContractError before ast.parse could return None. run_name is
-    # our helper token. CrossHair keeps the short source.
-    return isinstance(code, str) and ascii_bounded(run_name, DEAL_MAX_TOKEN)
-
-
-_deal_user_code_ok = _deal_user_code_ok_pytest
+from plugin.framework.deal_shim import deal
 from plugin.framework.i18n import _
 
 log = logging.getLogger("writeragent.scripting")
-
-
-if TYPE_CHECKING:
-    from collections.abc import Collection
-
-# --- Header meta ---
-
-
-@dataclass(frozen=True)
-class HelperScriptMeta:
-    """Machine-readable ``# writeragent:<tag> helper=… params=…`` header."""
-
-    helper: str
-    params: dict[str, Any]
-
-
-@deal.pre(lambda tag: str_bounded(tag, DEAL_MAX_TOKEN, min_len=1))
-@deal.post(lambda result: isinstance(result, str) and result.startswith("# writeragent:"))
-def header_prefix(tag: str) -> str:
-    """Return ``# writeragent:<tag>`` (no trailing space)."""
-    return f"# writeragent:{tag}"
-
-
-def _header_re(tag: str) -> re.Pattern[str]:
-    # Same wire shape as historical per-domain regexes.
-    return re.compile(
-        rf"^\s*#\s*writeragent:{re.escape(tag)}\s+helper=(\w+)\s+params=(\{{.*\}})\s*$",
-        re.MULTILINE,
-    )
 
 
 _UNRESOLVED: Any = object()
@@ -330,36 +288,6 @@ class ScriptFacts:
             if not is_calc(doc):
                 return False
         return self._needs_data_binding
-
-    @deal.post(lambda result: result is None or isinstance(result, HelperScriptMeta))
-    def header(
-        self,
-        tag: str,
-        *,
-        helper_names: Collection[str] | None = None,
-    ) -> HelperScriptMeta | None:
-        """Parse ``# writeragent:<tag> helper=NAME params={…}``."""
-        prefix = header_prefix(tag)
-        if prefix not in self.code:
-            return None
-        match = _header_re(tag).search(self.code)
-        if not match:
-            return None
-        helper = match.group(1)
-        if helper_names is not None and helper not in helper_names:
-            return None
-        raw = match.group(2)
-        try:
-            params = json.loads(raw)
-        except Exception:
-            params = {}
-        return HelperScriptMeta(helper=helper, params=params if isinstance(params, dict) else {})
-
-
-def script_header_needs_data_binding(code: str, *, doc: Any) -> bool:
-    """True when *code* uses a trusted helper that may bind Calc sheet data."""
-    return ScriptFacts.from_source(code).needs_data_binding(doc=doc)
-
 
 
 # --- Templates ---

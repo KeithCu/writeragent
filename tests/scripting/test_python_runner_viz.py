@@ -9,7 +9,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 from tests.scripting.python_runner_test_support import execute_and_insert_result
-from plugin.scripting.viz import get_viz_script_templates
+from plugin.scripting.domain_registry import get_domain_wiring
 
 
 _SAMPLE_IMAGE = {"__wa_payload__": "image", "format": "png", "data": b"abc"}
@@ -39,7 +39,7 @@ def test_execute_and_insert_viz_skips_fast_path(mock_venv, mock_run, mock_insert
                 "image": _SAMPLE_IMAGE,
             },
         }
-        code = get_viz_script_templates()["quick_plot"]
+        code = get_domain_wiring("viz").templates()["quick_plot"]
         outcome = execute_and_insert_result(ctx, doc, code, data_range="Sheet1.A1:B5")
 
     assert outcome["ok"] is True
