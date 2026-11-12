@@ -35,7 +35,7 @@ def test_domain_templates_cover_helpers(wiring_id, helper_names, public_only):
 
 
 def test_units_templates_cover_shipped_helpers():
-    shipped = {s.name for s in specs("units") if s.shipped_template}
+    shipped = {s.name for s in specs("units") if s.ship}
     templates = get_domain_wiring("units").templates()
     assert set(templates.keys()) == shipped
     for helper, code in templates.items():
@@ -43,7 +43,7 @@ def test_units_templates_cover_shipped_helpers():
 
 
 def test_text_templates_cover_shipped_helpers():
-    shipped = {s.name for s in specs("text") if s.shipped_template}
+    shipped = {s.name for s in specs("text") if s.ship}
     templates = get_domain_wiring("text").templates()
     assert set(templates.keys()) == shipped
     public = {h for h in TEXT_HELPERS if h not in ("diagnostics", "check")}

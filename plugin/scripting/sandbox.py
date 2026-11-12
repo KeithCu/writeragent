@@ -15,6 +15,7 @@ import os
 import sys
 from contextvars import ContextVar
 from typing import TYPE_CHECKING
+from urllib.parse import unquote, urlparse
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -26,6 +27,7 @@ from plugin.framework.deal_shim import (
     deal,
     ascii_bounded, str_bounded,
 )
+from plugin.framework.uno_bootstrap import set_alias_authorizer
 
 # CrossHair patches this module attribute to shrink basename preconditions.
 _DEAL_BASENAME_LEN = DEAL_MAX_PATH
@@ -34,6 +36,7 @@ _DEAL_BASENAME_LEN = DEAL_MAX_PATH
 
 # LibreHarper bundles this module for wrap_command_for_sandbox and does not
 # bundle smolagents. The fallback keeps `import plugin.scripting.sandbox` working.
+# tests/scripting/test_sandbox.py::test_dangerous_modules_fallback_matches_vendored loads this file without smolagents and checks the copy equals the vendored list, order included (the order is the prompt's order in import_policy).
 try:
     from plugin.contrib.smolagents.local_python_executor import DANGEROUS_MODULES as _DANGEROUS
     DANGEROUS_MODULES: tuple[str, ...] = tuple(_DANGEROUS)
@@ -463,7 +466,7 @@ def build_sandbox_policy(
     )
 
 
-_PROCESS_MODULES: tuple[str, ...] = ("subprocess", "multiprocessing", "_multiprocessing", "pty")
+PROCESS_MODULES: tuple[str, ...] = ("subprocess", "multiprocessing", "_multiprocessing", "pty")
 
 
 def policy_allowlist(policy: SandboxPolicy) -> list[str]:
@@ -474,7 +477,7 @@ def policy_allowlist(policy: SandboxPolicy) -> list[str]:
         result.extend(FILE_BLOCKED_MODULES)
     if policy.os:
         # When Allow OS access is on, policy_allowlist includes multiprocessing and pty alongside subprocess; they stay blocked when policy.os is False.
-        result.extend(_PROCESS_MODULES)
+        result.extend(PROCESS_MODULES)
     result.extend(policy.extra)
     return list(dict.fromkeys(result))
 
@@ -497,7 +500,7 @@ def policy_relaxed_roots(policy: SandboxPolicy) -> frozenset[str]:
         roots.update({"shutil", "pathlib", "io"})
     if policy.os:
         # relaxed_roots includes process modules when policy.os is set so the callable gate allows Process/Pool/pty, not only subprocess.
-        roots.update({"os", "posix", "nt", *_PROCESS_MODULES})
+        roots.update({"os", "posix", "nt", *PROCESS_MODULES})
     for name in policy.extra:
         root = name.split(".", 1)[0]
         roots.add(root)
@@ -580,12 +583,10 @@ def wrap_command_for_sandbox(
 # --- Interpreter resolution ---
 
 
-def _path_from_file_url(raw: str) -> str | None:
+def path_from_file_url(raw: str) -> str | None:
     """Convert a ``file://`` / ``file:/`` URL to a filesystem path (stdlib only)."""
     # crosshair: off
     # file: URLs are normalized case-insensitively with RFC 8089 localhost handling and correct UNC formatting so paths like FILE:///tmp/x and file://localhost/C:/x resolve safely.
-    from urllib.parse import unquote, urlparse
-
     text = raw.strip()
     if len(text) < 5 or text[:5].lower() != "file:":
         return None
@@ -621,7 +622,7 @@ def _normalize_venv_path_input(venv_dir: str) -> str:
         cleaned = s[1:-1].strip()
     else:
         cleaned = s
-    from_url = _path_from_file_url(cleaned)
+    from_url = path_from_file_url(cleaned)
     if from_url:
         cleaned = from_url
     return os.path.expanduser(os.path.expandvars(cleaned))
@@ -826,7 +827,5 @@ def resolve_venv_python(venv_dir: str) -> str | None:
 
 def install_alias_authorizer() -> None:
     """Register sandbox import checks for ``writeragent`` AliasImporter (explicit entry points only)."""
-    from plugin.framework.uno_bootstrap import set_alias_authorizer
-
     set_alias_authorizer(import_authorized, alias_has_authorized_child)
 
