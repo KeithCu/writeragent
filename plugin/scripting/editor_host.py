@@ -37,12 +37,17 @@ import uuid
 from collections import deque
 from dataclasses import dataclass, field
 from typing import IO, Any, Callable, cast
-from plugin.framework.thread_guard import background, main_thread_only
+
+from plugin.chatbot.dialogs import msgbox_with_report
+from plugin.framework.appearance import get_monaco_theme_info
+from plugin.framework.config import get_config
 from plugin.framework.event_bus import get_event_bus
 from plugin.framework.i18n import _
 from plugin.framework.queue_executor import MainThread, main
+from plugin.framework.thread_guard import background, main_thread_only
+from plugin.framework.uno_context import get_desktop, product_display_name, wait_while_pumping
 from plugin.framework.worker_pool import BackgroundHandle, run_in_background
-from plugin.scripting.config_limits import VENV_IPC_WRITE_TIMEOUT_SEC
+from plugin.scripting.config_limits import VENV_IPC_WRITE_TIMEOUT_SEC, python_exec_timeout
 from plugin.scripting.editor_errors import (
     exception_traceback,
     failure_detail,
@@ -57,7 +62,12 @@ from plugin.scripting.editor_ipc import (
     target_from_load,
     target_identity_key,
 )
-from plugin.scripting.document_scripts import SCRIPT_PICKER_MESSAGE_TYPES, handle_editor_script_message
+from plugin.scripting.editor_ui_strings import enrich_monaco_load_message
+from plugin.scripting.document_scripts import (
+    SCRIPT_PICKER_MESSAGE_TYPES,
+    document_scripts_identity,
+    handle_editor_script_message,
+)
 from plugin.framework.ipc import (
     DEFAULT_MAX_PAYLOAD_BYTES,
     read_pickle_frame,
@@ -106,8 +116,6 @@ EDITOR_BACKENDS = ("monaco", "codemirror")
 
 def selected_editor_backend() -> str:
     """Return the configured web editor (scripting.python_editor): "monaco" or "codemirror"."""
-    from plugin.framework.config import get_config
-
     value = str(get_config("scripting.python_editor") or "").strip().lower()
     return value if value in EDITOR_BACKENDS else "monaco"
 
@@ -131,8 +139,6 @@ def build_editor_child_env() -> dict[str, str]:
 
 def resolve_editor_python() -> tuple[str | None, str]:
     """Return (venv python executable, error message). Monaco requires a user venv."""
-    from plugin.framework.config import get_config
-
     venv_dir = str(get_config("scripting.python_venv_path") or "").strip()
     if not venv_dir:
         return (
@@ -182,8 +188,8 @@ def _cached_probe_locked(exe: str) -> tuple[bool, str] | None:
     return None
 
 
-def reset_webview_probe_state() -> None:
-    """Reset webview probe caches and worker state (testing only)."""
+def reset_webview_probe_state_for_tests() -> None:
+    """Clear the webview probe caches and worker flags. Tests only; there is no production caller. The probe state is five module globals shared with the `webview-probe` worker under `_PROBE_LOCK`, not fields of an object a test could build fresh, so tests call this between cases."""
     global _probe_generation, _probe_wanted, _probe_running
     with _PROBE_LOCK:
         _PROBE_CACHE.clear()
@@ -657,8 +663,6 @@ class PersistentEditor:
 
     def wait_for_ready(self, ctx: Any, timeout_sec: float = 30.0) -> bool:
         """Wait for ``ready`` while pumping LibreOffice UI events."""
-        from plugin.framework.uno_context import wait_while_pumping
-
         deadline = time.monotonic() + timeout_sec
         proc = self._proc
         while True:
@@ -737,8 +741,6 @@ class PersistentEditor:
 
     def _marshal_timeout(self) -> float:
         """UI wait for a save/close. Matches python_exec_timeout plus slack so long script budgets are not cut off at a fixed 60s."""
-        from plugin.scripting.config_limits import python_exec_timeout
-
         return float(python_exec_timeout()) + 5.0
 
     def _run_on_main(self, fn: Callable[[], None], label: str) -> Exception | None:
@@ -760,8 +762,6 @@ class PersistentEditor:
             log.warning("Editor %s could not send timeout error frame" if timed_out else "Editor %s could not send marshal-failure error frame", who, exc_info=True)
 
     def set_run_script_document(self, doc: Any | None) -> None:
-        from plugin.scripting.document_scripts import document_scripts_identity
-
         self.run_script_doc = doc
         self.run_script_doc_url = document_scripts_identity(doc) if doc is not None else None
 
@@ -1020,8 +1020,6 @@ get_event_bus().subscribe("config:changed", _on_config_changed)
 
 def resolve_probeable_editor_python() -> str | None:
     """Return configured venv Python executable if Monaco is enabled and configured, else None."""
-    from plugin.framework.config import get_config
-
     if get_config("scripting.force_internal_script_editor"):
         log.debug("monaco editor bypassed by scripting.force_internal_script_editor")
         return None
@@ -1067,9 +1065,7 @@ def monaco_session_needs_flush() -> bool:
     focused = editor.focused()
     if focused is None:
         return False
-    # ``is True`` so a MagicMock stand-in for the editor does not look dirty.
-    return focused.dirty is True
-
+    return focused.dirty
 
 
 def focused_monaco_buffer_label() -> str:
@@ -1094,7 +1090,7 @@ def focused_monaco_buffer_label() -> str:
 
 def _dirty_blocks_replace(state: EditorSessionState) -> bool:
     """True when *state* is a live unsaved buffer the user has not discarded."""
-    if state.dirty is not True:
+    if not state.dirty:
         return False
     if state.extra.get(_REPLACE_CONFIRMED) is True:
         return False
@@ -1107,8 +1103,6 @@ class DirtyBufferError(RuntimeError):
 
 def ask_save_discard_cancel(ctx: Any, *, title: str, message: str, log_label: str) -> str:
     """Ask Save / Don't save / Cancel. Returns ``save``, ``discard``, or ``cancel``."""
-    from plugin.framework.uno_context import get_desktop
-
     try:
         desktop = get_desktop(ctx)
         frame = desktop.getCurrentFrame() if desktop is not None else None
@@ -1133,8 +1127,6 @@ def ask_save_discard_cancel(ctx: Any, *, title: str, message: str, log_label: st
 @main_thread_only
 def confirm_unsaved_monaco_edit(ctx: Any, label: str) -> str:
     """Ask Save / Don't save / Cancel. Returns ``save``, ``discard``, or ``cancel``."""
-    from plugin.framework.uno_context import product_display_name
-
     title = product_display_name(ctx)
     where = label.strip() if label and label.strip() else _("this editor")
     message = _(
@@ -1258,8 +1250,6 @@ def queue_save_then_load(
     on_closed: Callable[[], None],
 ) -> bool:
     """Ask Monaco to save the current buffer, then load *load_message*."""
-    from plugin.scripting.editor_ui_strings import enrich_monaco_load_message
-
     focused = _PERSISTENT_EDITOR.focused()
     if focused is None:
         return False
@@ -1291,10 +1281,6 @@ def launch_monaco_editor(
     user kept the current buffer, or a save-then-load was queued. Returns False
     only when the child failed to start or the load could not be sent.
     """
-    from plugin.chatbot.dialogs import msgbox_with_report
-    from plugin.framework.uno_context import product_display_name
-    from plugin.scripting.editor_ui_strings import enrich_monaco_load_message
-
     title = product_display_name(ctx)
 
     def _launch_fail(msg_text: str, report_title: str) -> bool:
@@ -1314,8 +1300,6 @@ def launch_monaco_editor(
     # We always recompute on send so that switching cells or reopening picks
     # up a theme change. See plugin/framework/appearance.py.
     if "theme" not in ipc_message:
-        from plugin.framework.appearance import get_monaco_theme_info
-
         # Prefer any doc we had for the run_script case or if caller left it in msg.
         # Leave run_script_doc on the message until after the unsaved-changes
         # question. Cancel must not retarget the script picker document.

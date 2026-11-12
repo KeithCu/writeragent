@@ -22,7 +22,11 @@ from plugin.chatbot.dialogs import (
 )
 from plugin.framework.i18n import _
 from plugin.framework.uno_listeners import BaseActionListener
-from plugin.scripting.editor_ui_strings import _attach_unavailable_label
+from plugin.scripting.document_scripts import (
+    is_document_readonly_for_scripts,
+    new_script_name_error,
+)
+from plugin.scripting.editor_ui_strings import attach_unavailable_label
 
 log = logging.getLogger(__name__)
 
@@ -42,11 +46,6 @@ def show_new_script_dialog(
         log.warning("show_new_script_dialog: no ctx")
         return None
     try:
-        from plugin.scripting.document_scripts import (
-            is_document_readonly_for_scripts,
-            new_script_name_error,
-        )
-
         can_attach = doc is not None and not is_document_readonly_for_scripts(doc)
         dialog_title = title or _("New Python Script")
 
@@ -75,7 +74,7 @@ def show_new_script_dialog(
             if chk is not None:
                 initial_attach = default_attach and can_attach
                 if not can_attach:
-                    reason = _attach_unavailable_label(no_document=doc is None)
+                    reason = attach_unavailable_label(no_document=doc is None)
                     set_control_text(chk, reason)
                     chk.getModel().HelpText = reason
                 set_checkbox_state(chk, 1 if initial_attach else 0)

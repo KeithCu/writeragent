@@ -22,22 +22,40 @@ from dataclasses import dataclass
 import html as html_mod
 import logging
 import time
-from typing import TYPE_CHECKING, Any, Callable
+from typing import Any, Callable
 
 from plugin.framework.uno_context import get_ctx, get_desktop, get_runtime_uid
 from plugin.framework.config import get_config
 from plugin.framework.errors import reraise_if_disposed
 from plugin.framework.i18n import _
-from plugin.chatbot.dialogs import msgbox
-from plugin.scripting.editor_errors import editor_error_markers, exception_traceback
+from plugin.chatbot.dialogs import msgbox, msgbox_with_report
+from plugin.scripting.editor_errors import (
+    editor_error_markers,
+    exception_traceback,
+    failure_message,
+)
 from plugin.scripting.editor_host import DeferredEditorResult, launch_monaco_editor, monaco_editor_available
 from plugin.scripting.venv_worker import run_code_in_user_venv
 from plugin.framework.worker_pool import run_in_background
+from plugin.framework.queue_executor import main
 from plugin.scripting.python_runner_ui import show_python_input_dialog
-from plugin.writer.html_import import insert_content_at_position
+from plugin.writer.html_import import insert_content_at_position, run_writer_mutation_with_optional_review
 from plugin.framework.doc_type import is_calc, is_writer, is_draw
 from plugin.calc.address_utils import index_to_column
+from plugin.calc.bridge import calc_selection_to_a1
+from plugin.calc.calc_addin_data import _resolve_python_data
+from plugin.calc.python.formula_edit import parse_data_binding_text
+from plugin.calc.python.workbook_lifecycle import ensure_python_session_cleared_on_unload
+from plugin.calc.rich_html import insert_cell_html_rich
+from plugin.scripting.domain_registry import DomainWiring, get_post_venv_domains
 from plugin.scripting.payload_codec import is_dataframe_payload
+from plugin.scripting.session_manager import (
+    pin_script_document,
+    release_script_document,
+    rps_session_id,
+)
+from plugin.scripting.text_analytics import resolve_text_analytics_document_inputs
+from plugin.scripting.viz import try_insert_plot_result
 from plugin.scripting.document_scripts import (
     build_xdl_script_picker_state,
     document_scripts_identity,
@@ -54,9 +72,6 @@ from plugin.scripting.helper_domain import (
     rps_insert_failed_outcome,
     rps_ok_outcome,
 )
-
-if TYPE_CHECKING:
-    from plugin.scripting.domain_registry import DomainWiring
 
 log = logging.getLogger("writeragent.scripting")
 
@@ -272,8 +287,6 @@ def insert_result_into_calc(doc: Any, uno_ctx: Any, result: Any) -> None:
     anchor_addr = f"{index_to_column(start_col)}{start_row + 1}"
     formatted = format_result_for_writer(result)
     if formatted:
-        from plugin.calc.rich_html import insert_cell_html_rich
-
         insert_cell_html_rich(doc, uno_ctx, anchor_addr, formatted)
 
 
@@ -282,6 +295,7 @@ def _prepare_vision(ctx: Any, doc: Any, facts: ScriptFacts, t0: float) -> Prepar
     if "run_vision" not in facts.code or not facts.calls("run_vision"):
         return None
 
+    # Weight: plugin.vision brings the vision client, trusted RPC and graphic export; only a run_vision script needs them.
     from plugin.vision.vision_common import merge_vision_params
     from plugin.vision.vision_runner import supports_vision_manual
 
@@ -312,10 +326,6 @@ def _prepare_rps_execution(
     record is the input for :func:`_run_prepared_rps` and :func:`_finish_rps_execution`.
     The native dialog runs only :func:`_run_prepared_rps` off the UNO thread.
     """
-    from plugin.calc.bridge import calc_selection_to_a1
-    from plugin.calc.python.formula_edit import parse_data_binding_text
-    from plugin.calc.calc_addin_data import _resolve_python_data
-
     t0 = time.perf_counter()
 
     facts = ScriptFacts.from_source(code)
@@ -349,8 +359,6 @@ def _prepare_rps_execution(
         facts.calls("run_text_analytics")
         or facts.imports_module("writeragent.scripting.text_analytics")
     ):
-        from plugin.scripting.text_analytics import resolve_text_analytics_document_inputs
-
         call_spec = facts.first_run_spec("run_text_analytics") or {}
         helper = str(call_spec.get("helper") or "full")
         text, document_context = resolve_text_analytics_document_inputs(doc, helper)
@@ -358,9 +366,6 @@ def _prepare_rps_execution(
         assert isinstance(text, (str, list)), type(text)
         assert isinstance(document_context, dict)
         bindings = {"text": text, "document_context": document_context}
-
-    from plugin.scripting.session_manager import rps_session_id
-    from plugin.calc.python.workbook_lifecycle import ensure_python_session_cleared_on_unload
 
     try:
         rps_sid = rps_session_id(doc)
@@ -384,6 +389,7 @@ def _prepare_rps_execution(
 def _run_prepared_rps(prepared: PreparedRun) -> dict[str, Any]:
     """Blocking venv IPC. Callers must not touch the document model here."""
     if isinstance(prepared, PreparedVision):
+        # Weight: only vision runs load plugin.vision (see _prepare_vision).
         from plugin.vision.vision_runner import run_and_insert_vision_for_selection
 
         # run_and_insert_vision_for_selection safely marshals document operations to the main thread
@@ -409,7 +415,7 @@ def _run_prepared_rps(prepared: PreparedRun) -> dict[str, Any]:
 
 def _finish_vision_execution(prepared: PreparedVision, response: dict[str, Any]) -> dict[str, Any]:
     """Main-thread result insert for vision helpers."""
-    from plugin.framework.doc_type import is_draw
+    # Weight: only vision runs load plugin.vision (see _prepare_vision).
     from plugin.vision.vision_egress import insert_vision_result
 
     t0 = prepared.t0
@@ -485,9 +491,6 @@ def try_rps_post_venv(
 
 def _finish_script_execution(prepared: PreparedScript, response: dict[str, Any]) -> dict[str, Any]:
     """Main-thread result insert for general Python scripts."""
-    from plugin.scripting.domain_registry import get_post_venv_domains
-    from plugin.scripting.viz import try_insert_plot_result
-
     ctx = prepared.ctx
     doc = prepared.doc
     code = prepared.code
@@ -529,8 +532,6 @@ def _finish_script_execution(prepared: PreparedScript, response: dict[str, Any])
             elif is_writer(doc):
                 formatted = format_result_for_writer(result_data)
                 if formatted:
-                    from plugin.writer.html_import import run_writer_mutation_with_optional_review
-
                     run_writer_mutation_with_optional_review(doc, ctx, lambda: insert_content_at_position(doc, ctx, formatted, "selection"))
             elif is_draw(doc):
                 msgbox(ctx, _("Info"), _("Result insertion into Draw/Impress is not yet supported. PRs welcome!"))
@@ -579,11 +580,7 @@ def start_native_script_run(
     thread. After the worker is scheduled, ``on_complete`` is called exactly
     once on the main thread.
     """
-    from plugin.framework.queue_executor import main
-
     def _native_script_run_worker() -> None:
-        from plugin.scripting.session_manager import pin_script_document, release_script_document
-
         pin_token = pin_script_document(doc)
         try:
             try:
@@ -638,8 +635,6 @@ def _run_python_monaco(ctx: Any, doc: Any, *, initial_code: str, selected_script
     save_ok_text = _("Script saved.")
     initial_binding = ""
     if is_calc(doc):
-        from plugin.calc.bridge import calc_selection_to_a1
-
         initial_binding = calc_selection_to_a1(doc) or ""
     show_binding = ScriptFacts.from_source(initial_code).needs_data_binding(doc=doc)
 
@@ -711,9 +706,6 @@ def _run_python_monaco(ctx: Any, doc: Any, *, initial_code: str, selected_script
 
 
 def _report_run_python_open_failed(ctx: Any, reason: str, *, detail: str | None = None, exc: BaseException | None = None) -> None:
-    from plugin.chatbot.dialogs import msgbox_with_report
-    from plugin.scripting.editor_errors import failure_message
-
     message = failure_message(reason, detail=detail, exc=exc)
     msgbox_with_report(ctx, _("Error"), message, reportable=True, report_title="Run Python Script failed to open", report_extra=message if exc is None else exception_traceback(exc))
 

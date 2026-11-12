@@ -45,7 +45,7 @@ def test_editor_save_timeout_clears_the_token_and_reports():
         sent.append(message)
 
     pe.send = _send  # type: ignore[method-assign]
-    with patch("plugin.scripting.config_limits.python_exec_timeout", return_value=30):
+    with patch("plugin.scripting.editor_host.python_exec_timeout", return_value=30):
         pe._dispatch_incoming({"type": "save", "code": "x = 1", "session_id": "s1"})
     assert pe._save_token is None
     assert state.pending_load is None
@@ -68,7 +68,7 @@ def test_editor_script_picker_uses_marshal_timeout():
         sent.append(message)
 
     pe.send = _send  # type: ignore[method-assign]
-    with patch("plugin.scripting.config_limits.python_exec_timeout", return_value=30):
+    with patch("plugin.scripting.editor_host.python_exec_timeout", return_value=30):
         pe._dispatch_incoming({"type": "request_scripts"})
     assert pe.executor.call.call_args.kwargs["timeout"] == 35.0
     assert pe.executor.call.call_args.kwargs["bound_scope"] is None
@@ -418,7 +418,7 @@ def test_monaco_editor_available_false_without_venv():
 def test_probe_webview_import_timeout_returns_diagnostic():
     """A probe timeout must return the traceback Monaco shows, not raise under deal."""
     exe = "/tmp/writeragent-probe-timeout-python"
-    launch_mod.reset_webview_probe_state()
+    launch_mod.reset_webview_probe_state_for_tests()
     timeout = subprocess.TimeoutExpired(cmd=[exe, "-c", "import webview"], timeout=30)
     try:
         with patch("plugin.framework.managed_subprocess.subprocess.run", side_effect=timeout) as run:
@@ -432,12 +432,12 @@ def test_probe_webview_import_timeout_returns_diagnostic():
         assert exe in launch_mod._PROBE_FAILURE_CACHE
         assert run.call_count == 1
     finally:
-        launch_mod.reset_webview_probe_state()
+        launch_mod.reset_webview_probe_state_for_tests()
 
 
 def test_probe_webview_import_oserror_returns_diagnostic():
     exe = "/tmp/writeragent-probe-oserror-python"
-    launch_mod.reset_webview_probe_state()
+    launch_mod.reset_webview_probe_state_for_tests()
     try:
         with patch("plugin.framework.managed_subprocess.subprocess.run", side_effect=OSError("boom")):
             ok, detail = launch_mod.probe_webview_import(exe, apply_generation=0)
@@ -447,13 +447,13 @@ def test_probe_webview_import_oserror_returns_diagnostic():
         assert exe not in launch_mod._PROBE_CACHE
         assert exe in launch_mod._PROBE_FAILURE_CACHE
     finally:
-        launch_mod.reset_webview_probe_state()
+        launch_mod.reset_webview_probe_state_for_tests()
 
 
 def test_probe_webview_import_failure_expires_after_ttl():
     """A cached failure must be re-probed once the short TTL has passed."""
     exe = "/tmp/writeragent-probe-ttl-python"
-    launch_mod.reset_webview_probe_state()
+    launch_mod.reset_webview_probe_state_for_tests()
     calls = {"n": 0}
 
     def boom(*_args, **_kwargs):
@@ -475,12 +475,12 @@ def test_probe_webview_import_failure_expires_after_ttl():
                 launch_mod.probe_webview_import(exe, apply_generation=0)
             assert calls["n"] == 2
     finally:
-        launch_mod.reset_webview_probe_state()
+        launch_mod.reset_webview_probe_state_for_tests()
 
 
 def test_probe_webview_import_nonzero_exit_is_cached_failure():
     exe = "/tmp/writeragent-probe-exit-python"
-    launch_mod.reset_webview_probe_state()
+    launch_mod.reset_webview_probe_state_for_tests()
     completed = subprocess.CompletedProcess(args=[exe], returncode=1, stdout="", stderr="no webview")
     try:
         with patch("plugin.framework.managed_subprocess.subprocess.run", return_value=completed) as run:
@@ -492,7 +492,7 @@ def test_probe_webview_import_nonzero_exit_is_cached_failure():
         assert exe not in launch_mod._PROBE_CACHE
         assert run.call_count == 1
     finally:
-        launch_mod.reset_webview_probe_state()
+        launch_mod.reset_webview_probe_state_for_tests()
 
 
 def test_monaco_editor_available_false_when_webview_missing():
@@ -1140,7 +1140,7 @@ def test_target_switch_with_active_session_calls_on_closed():
 
 
 def test_resolve_editor_python_missing_venv_mentions_settings():
-    with patch("plugin.framework.config.get_config", return_value=""):
+    with patch("plugin.scripting.editor_host.get_config", return_value=""):
         exe, err = launch_mod.resolve_editor_python()
     assert exe is None
     assert "Settings → Python" in err
@@ -1152,8 +1152,8 @@ def test_launch_monaco_spawn_oserror_uses_product_display_name():
     with patch.object(launch_mod, "_PERSISTENT_EDITOR") as mock_persistent:
         mock_persistent.is_running = False
         with patch.object(launch_mod, "spawn_editor_process", side_effect=OSError("boom")):
-            with patch("plugin.chatbot.dialogs.msgbox_with_report") as box:
-                with patch("plugin.framework.uno_context.product_display_name", return_value="LibrePy"):
+            with patch("plugin.scripting.editor_host.msgbox_with_report") as box:
+                with patch("plugin.scripting.editor_host.product_display_name", return_value="LibrePy"):
                     ok = launch_mod.launch_monaco_editor(
                         ctx,
                         exe="/venv/bin/python",
@@ -1703,7 +1703,7 @@ def test_handle_disconnect_keeps_replacement_launch_document():
 
 def test_venv_path_change_clears_webview_probe_failure_cache():
     exe = "/tmp/writeragent-probe-config-python"
-    launch_mod.reset_webview_probe_state()
+    launch_mod.reset_webview_probe_state_for_tests()
     launch_mod._PROBE_CACHE[exe] = (True, "ok")
     launch_mod._PROBE_FAILURE_CACHE[exe] = (10**12, (False, "no"))
     try:
@@ -1713,7 +1713,7 @@ def test_venv_path_change_clears_webview_probe_failure_cache():
         assert exe not in launch_mod._PROBE_CACHE
         assert exe not in launch_mod._PROBE_FAILURE_CACHE
     finally:
-        launch_mod.reset_webview_probe_state()
+        launch_mod.reset_webview_probe_state_for_tests()
 
 
 def test_send_warns_for_a_type_the_child_does_not_queue(caplog):
@@ -2088,7 +2088,7 @@ def test_launch_enriches_once_when_the_load_is_sent():
     try:
         with patch.object(type(pe), "is_running", new=property(lambda self: True)):
             pe._proc = mock_proc
-            with patch("plugin.scripting.editor_ui_strings.enrich_monaco_load_message", wraps=real_enrich) as mock_enrich:
+            with patch("plugin.scripting.editor_host.enrich_monaco_load_message", wraps=real_enrich) as mock_enrich:
                 ok = launch_mod.launch_monaco_editor(
                     ctx,
                     exe="/venv/bin/python",
@@ -2129,7 +2129,7 @@ def test_launch_enriches_once_when_save_is_queued():
     pe.send = _send  # type: ignore[method-assign]
     try:
         mock_doc = object()
-        with patch("plugin.scripting.editor_ui_strings.enrich_monaco_load_message", wraps=real_enrich) as mock_enrich:
+        with patch("plugin.scripting.editor_host.enrich_monaco_load_message", wraps=real_enrich) as mock_enrich:
             with patch.object(launch_mod, "confirm_unsaved_monaco_edit", return_value="save"):
                 ok = launch_mod.launch_monaco_editor(
                     MagicMock(),
@@ -2297,15 +2297,15 @@ def test_error_frame():
 
 
 def test_selected_editor_backend_default_codemirror_garbage():
-    with patch("plugin.framework.config.get_config", return_value=""):
+    with patch("plugin.scripting.editor_host.get_config", return_value=""):
         assert launch_mod.selected_editor_backend() == "monaco"
-    with patch("plugin.framework.config.get_config", return_value="monaco"):
+    with patch("plugin.scripting.editor_host.get_config", return_value="monaco"):
         assert launch_mod.selected_editor_backend() == "monaco"
-    with patch("plugin.framework.config.get_config", return_value="codemirror"):
+    with patch("plugin.scripting.editor_host.get_config", return_value="codemirror"):
         assert launch_mod.selected_editor_backend() == "codemirror"
-    with patch("plugin.framework.config.get_config", return_value="  CodeMirror  "):
+    with patch("plugin.scripting.editor_host.get_config", return_value="  CodeMirror  "):
         assert launch_mod.selected_editor_backend() == "codemirror"
-    with patch("plugin.framework.config.get_config", return_value="sublime"):
+    with patch("plugin.scripting.editor_host.get_config", return_value="sublime"):
         assert launch_mod.selected_editor_backend() == "monaco"
 
 
@@ -2342,7 +2342,7 @@ def test_probe_codemirror_does_not_require_rocher_monaco_does():
                 assert "import webview" in probe_py
                 assert "import rocher" not in probe_py
 
-            launch_mod.reset_webview_probe_state()
+            launch_mod.reset_webview_probe_state_for_tests()
             executed_commands.clear()
 
             with patch.object(launch_mod, "selected_editor_backend", return_value="monaco"):
@@ -2353,12 +2353,12 @@ def test_probe_codemirror_does_not_require_rocher_monaco_does():
                 assert "import webview" in probe_py
                 assert "import rocher" in probe_py
     finally:
-        launch_mod.reset_webview_probe_state()
+        launch_mod.reset_webview_probe_state_for_tests()
 
 
 def test_probe_webview_missing_returns_false_for_both_backends():
     exe = "/tmp/writeragent-probe-webview-missing"
-    launch_mod.reset_webview_probe_state()
+    launch_mod.reset_webview_probe_state_for_tests()
 
     def mock_fail(cmd, **kwargs):
         mock_proc = MagicMock()
@@ -2374,19 +2374,19 @@ def test_probe_webview_missing_returns_false_for_both_backends():
                 assert ok is False
                 assert "webview" in detail
 
-            launch_mod.reset_webview_probe_state()
+            launch_mod.reset_webview_probe_state_for_tests()
 
             with patch.object(launch_mod, "selected_editor_backend", return_value="monaco"):
                 ok, detail = launch_mod.probe_webview_import(exe, apply_generation=0)
                 assert ok is False
                 assert "webview" in detail
     finally:
-        launch_mod.reset_webview_probe_state()
+        launch_mod.reset_webview_probe_state_for_tests()
 
 
 def test_config_change_python_editor_terminates_editor_and_clears_probe_caches():
     exe = "/tmp/writeragent-probe-python-editor"
-    launch_mod.reset_webview_probe_state()
+    launch_mod.reset_webview_probe_state_for_tests()
     launch_mod._PROBE_CACHE[exe] = (True, "ok")
     launch_mod._PROBE_FAILURE_CACHE[exe] = (999999.0, (False, "err"))
     try:
@@ -2406,12 +2406,12 @@ def test_config_change_python_editor_terminates_editor_and_clears_probe_caches()
                 assert exe not in launch_mod._PROBE_CACHE
                 assert exe not in launch_mod._PROBE_FAILURE_CACHE
     finally:
-        launch_mod.reset_webview_probe_state()
+        launch_mod.reset_webview_probe_state_for_tests()
 
 
 def test_config_change_unrelated_key_keeps_editor_and_probe_cache():
     exe = "/tmp/writeragent-probe-unrelated-key"
-    launch_mod.reset_webview_probe_state()
+    launch_mod.reset_webview_probe_state_for_tests()
     launch_mod._PROBE_CACHE[exe] = (True, "ok")
     try:
         with patch.object(launch_mod, "terminate_persistent_editor") as mock_term:
@@ -2419,12 +2419,12 @@ def test_config_change_unrelated_key_keeps_editor_and_probe_cache():
             mock_term.assert_not_called()
             assert launch_mod._PROBE_CACHE[exe] == (True, "ok")
     finally:
-        launch_mod.reset_webview_probe_state()
+        launch_mod.reset_webview_probe_state_for_tests()
 
 
 def test_monaco_editor_available_pending_does_not_run_subprocess():
     exe = "/venv/bin/python"
-    launch_mod.reset_webview_probe_state()
+    launch_mod.reset_webview_probe_state_for_tests()
     try:
         with patch.object(launch_mod, "run_in_background"):
             launch_mod._ensure_webview_probe(exe)
@@ -2439,13 +2439,13 @@ def test_monaco_editor_available_pending_does_not_run_subprocess():
         assert returned_exe == exe
         assert ok is False
     finally:
-        launch_mod.reset_webview_probe_state()
+        launch_mod.reset_webview_probe_state_for_tests()
 
 
 def test_venv_path_change_schedules_one_webview_probe():
     exe = "/venv/bin/python"
     try:
-        launch_mod.reset_webview_probe_state()
+        launch_mod.reset_webview_probe_state_for_tests()
         with (
             patch.object(launch_mod, "resolve_editor_python", return_value=(exe, "")),
             patch.object(launch_mod, "run_in_background") as mock_bg,
@@ -2461,7 +2461,7 @@ def test_venv_path_change_schedules_one_webview_probe():
             launch_mod._on_config_changed(key="scripting.python_venv_path")
             assert mock_bg.call_count == 1
 
-        launch_mod.reset_webview_probe_state()
+        launch_mod.reset_webview_probe_state_for_tests()
         with (
             patch.object(launch_mod, "resolve_editor_python", return_value=(exe, "")),
             patch.object(launch_mod, "run_in_background") as mock_bg,
@@ -2472,7 +2472,7 @@ def test_venv_path_change_schedules_one_webview_probe():
             assert mock_bg.call_args[0][0] == launch_mod._webview_probe_worker
             assert mock_bg.call_args[1].get("name") == "webview-probe"
 
-        launch_mod.reset_webview_probe_state()
+        launch_mod.reset_webview_probe_state_for_tests()
         with (
             patch.object(launch_mod, "resolve_editor_python", return_value=(exe, "")),
             patch.object(launch_mod, "run_in_background") as mock_bg,
@@ -2483,17 +2483,17 @@ def test_venv_path_change_schedules_one_webview_probe():
             assert mock_bg.call_args[0][0] == launch_mod._webview_probe_worker
             assert mock_bg.call_args[1].get("name") == "webview-probe"
     finally:
-        launch_mod.reset_webview_probe_state()
+        launch_mod.reset_webview_probe_state_for_tests()
 
 
 def test_venv_path_change_with_force_internal_does_not_probe():
     """When force_internal_script_editor is True, venv change invalidates cache but skips probe."""
     exe = "/venv/bin/python"
     try:
-        launch_mod.reset_webview_probe_state()
+        launch_mod.reset_webview_probe_state_for_tests()
         launch_mod._PROBE_CACHE[exe] = (True, "ok")
         with (
-            patch("plugin.framework.config.get_config", return_value=True),
+            patch("plugin.scripting.editor_host.get_config", return_value=True),
             patch.object(launch_mod, "resolve_editor_python", return_value=(exe, "")),
             patch.object(launch_mod, "run_in_background") as mock_bg,
             patch.object(launch_mod, "terminate_persistent_editor"),
@@ -2502,12 +2502,12 @@ def test_venv_path_change_with_force_internal_does_not_probe():
             mock_bg.assert_not_called()
             assert exe not in launch_mod._PROBE_CACHE
     finally:
-        launch_mod.reset_webview_probe_state()
+        launch_mod.reset_webview_probe_state_for_tests()
 
 
 def test_monaco_editor_available_cache_miss_arms_once():
     exe = "/venv/bin/python"
-    launch_mod.reset_webview_probe_state()
+    launch_mod.reset_webview_probe_state_for_tests()
     try:
         with (
             patch.object(launch_mod, "resolve_editor_python", return_value=(exe, "")),
@@ -2526,12 +2526,12 @@ def test_monaco_editor_available_cache_miss_arms_once():
             assert mock_bg.call_args[1].get("name") == "webview-probe"
             mock_run.assert_not_called()
     finally:
-        launch_mod.reset_webview_probe_state()
+        launch_mod.reset_webview_probe_state_for_tests()
 
 
 def test_probe_webview_import_stale_generation_does_not_store():
     exe = "/venv/bin/python"
-    launch_mod.reset_webview_probe_state()
+    launch_mod.reset_webview_probe_state_for_tests()
     try:
         launch_mod._probe_generation = 5
         mock_res = MagicMock(returncode=0, stdout="ok", stderr="")
@@ -2545,12 +2545,12 @@ def test_probe_webview_import_stale_generation_does_not_store():
             assert ok is True
             assert launch_mod._PROBE_CACHE.get(exe) == (True, "ok")
     finally:
-        launch_mod.reset_webview_probe_state()
+        launch_mod.reset_webview_probe_state_for_tests()
 
 
 def test_webview_probe_worker_picks_up_new_exe_on_config_change():
     """When config changes while a probe runs, stale result is dropped and new exe is probed."""
-    launch_mod.reset_webview_probe_state()
+    launch_mod.reset_webview_probe_state_for_tests()
     with patch.object(launch_mod, "run_in_background"):
         launch_mod._ensure_webview_probe("/old/python")
 
@@ -2574,16 +2574,16 @@ def test_webview_probe_worker_picks_up_new_exe_on_config_change():
         assert launch_mod._probe_running is False
         assert launch_mod._probe_wanted is None
     finally:
-        launch_mod.reset_webview_probe_state()
+        launch_mod.reset_webview_probe_state_for_tests()
 
 
 def test_arm_webview_probe_at_startup_arms_once():
     """Startup arming schedules probe when venv is valid and force_internal is False."""
-    launch_mod.reset_webview_probe_state()
+    launch_mod.reset_webview_probe_state_for_tests()
     exe = "/configured/python"
     try:
         with (
-            patch("plugin.framework.config.get_config", return_value=False),
+            patch("plugin.scripting.editor_host.get_config", return_value=False),
             patch.object(launch_mod, "resolve_editor_python", return_value=(exe, "")),
             patch.object(launch_mod, "run_in_background") as mock_bg,
         ):
@@ -2592,25 +2592,25 @@ def test_arm_webview_probe_at_startup_arms_once():
             assert mock_bg.call_args[0][0] == launch_mod._webview_probe_worker
             assert mock_bg.call_args[1].get("name") == "webview-probe"
 
-        launch_mod.reset_webview_probe_state()
+        launch_mod.reset_webview_probe_state_for_tests()
         with (
-            patch("plugin.framework.config.get_config", return_value=True),
+            patch("plugin.scripting.editor_host.get_config", return_value=True),
             patch.object(launch_mod, "resolve_editor_python", return_value=(exe, "")),
             patch.object(launch_mod, "run_in_background") as mock_bg,
         ):
             launch_mod.arm_webview_probe_at_startup()
             mock_bg.assert_not_called()
 
-        launch_mod.reset_webview_probe_state()
+        launch_mod.reset_webview_probe_state_for_tests()
         with (
-            patch("plugin.framework.config.get_config", return_value=False),
+            patch("plugin.scripting.editor_host.get_config", return_value=False),
             patch.object(launch_mod, "resolve_editor_python", return_value=(None, "no venv")),
             patch.object(launch_mod, "run_in_background") as mock_bg,
         ):
             launch_mod.arm_webview_probe_at_startup()
             mock_bg.assert_not_called()
     finally:
-        launch_mod.reset_webview_probe_state()
+        launch_mod.reset_webview_probe_state_for_tests()
 
 
 def test_incoming_handlers_cover_child_to_parent_types():

@@ -320,7 +320,7 @@ def test_prepare_rps_execution_vision_runs_before_calc_data():
     with (
         patch("plugin.scripting.python_runner.is_calc", return_value=True),
         patch("plugin.vision.vision_runner.supports_vision_manual", return_value=True),
-        patch("plugin.calc.calc_addin_data._resolve_python_data", side_effect=RuntimeError("selection is not a range")) as mock_calc_data,
+        patch("plugin.scripting.python_runner._resolve_python_data", side_effect=RuntimeError("selection is not a range")) as mock_calc_data,
         patch("plugin.vision.vision_runner.run_and_insert_vision_for_selection", return_value={"status": "ok", "individual_results": []}),
     ):
         from plugin.scripting.python_runner import _prepare_rps_execution
@@ -393,7 +393,7 @@ def test_rps_finish_vision_skips_insert_on_draw():
             "individual_results": [{"status": "ok", "helper": "extract_structure", "html": "<p>x</p>"}],
         }
     }
-    with patch("plugin.framework.doc_type.is_draw", return_value=True), patch(
+    with patch("plugin.scripting.python_runner.is_draw", return_value=True), patch(
         "plugin.vision.vision_egress.insert_vision_result"
     ) as mock_insert:
         out = _finish_vision_execution(prepared, response)

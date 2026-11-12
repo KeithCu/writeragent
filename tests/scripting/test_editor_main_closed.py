@@ -14,7 +14,7 @@ from plugin.scripting.venv import editor_main as em
 
 
 def _reset_closed_state() -> None:
-    em.session.reset()
+    em.session = em.EditorSession()
     while True:
         try:
             em._ui_queue.get_nowait()
@@ -121,7 +121,7 @@ def test_closed_stamp_ignores_a_load_that_arrives_during_the_write(monkeypatch):
     t.start()
 
     assert ev1.wait(timeout=5.0)
-    em._note_load({"type": "load", "session_id": "new", "mode": "calc_cell", "target": {"cell_address": "B2"}})
+    em.session.load({"type": "load", "session_id": "new", "mode": "calc_cell", "target": {"cell_address": "B2"}})
     ev2.set()
     t.join(timeout=5.0)
 

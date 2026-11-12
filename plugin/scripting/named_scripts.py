@@ -26,6 +26,7 @@ from typing import Any, Callable
 
 log = logging.getLogger(__name__)
 
+from plugin.scripting import writeragent_namespace
 from plugin.scripting.domain_registry import SCRIPT_ORIGIN_DOCUMENT, SCRIPT_ORIGIN_USER
 from plugin.scripting.host_tool_call import call_host_tool
 
@@ -262,6 +263,9 @@ def extract_library_source(code: str) -> str:
         raise ValueError("Named script is too deeply nested to load as a library") from exc
 
 
+# Caches stamped on the shared executor have two lifetimes:
+# _named_script_checked and _named_script_listing reset on every run in bind_named_scripts_executor;
+# _named_script_cache, _named_script_user_lib, and _named_script_doc_lib persist across runs.
 def _executor_slot(executor: Any, attr: str, factory: Callable[[], Any]) -> Any:
     value = getattr(executor, attr, None)
     if value is None:
@@ -271,6 +275,7 @@ def _executor_slot(executor: Any, attr: str, factory: Callable[[], Any]) -> Any:
 
 
 def _eval_library(executor: Any, source: str, ident: str) -> SimpleNamespace:
+    # Weight: the vendored executor loads ~70 modules; the host imports this module through document_scripts at start-up.
     from plugin.contrib.smolagents.local_python_executor import evaluate_python_code
 
     extracted = extract_library_source(source)
@@ -425,8 +430,6 @@ def attach_named_script_libraries(executor: Any) -> None:
     ``writeragent_namespace``. Attach there first so Run Python Script still
     sees ``wa.scripts`` / ``wa.doc``.
     """
-    from plugin.scripting import writeragent_namespace
-
     mods: list[Any] = [writeragent_namespace]
     try:
         from plugin.scripting import writeragent_api
@@ -474,6 +477,7 @@ def reset_named_scripts_executor(token: Any) -> None:
 
 
 def host_list_named_python_scripts(*, user_scripts: dict[str, str], document_scripts: dict[str, str]) -> dict[str, list[str]]:
+    # Cycle: document_scripts imports this module at its top, and the venv child imports this module but must not load document_scripts (udprops).
     from plugin.scripting.document_scripts import picker_document_scripts
 
     return {
@@ -493,6 +497,7 @@ def host_get_named_python_script(
     if origin not in (SCRIPT_ORIGIN_USER, SCRIPT_ORIGIN_DOCUMENT):
         raise RuntimeError(f"Unknown named-script origin {origin!r}")
     if origin == SCRIPT_ORIGIN_DOCUMENT:
+        # Cycle: document_scripts imports this module at its top, and the venv child imports this module but must not load document_scripts (udprops).
         from plugin.scripting.document_scripts import is_calc_init_script_name
 
         # INIT is the workbook init script, not a wa.doc library.
