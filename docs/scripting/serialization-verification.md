@@ -27,29 +27,28 @@ This is the reference implementation for Tier-0 (pure Python) contract + CrossHa
 3. `is_numeric_grid`
 4. `wire_cell_count` (`# crosshair: off` — envelope proxy limits)
 5. `grid_from_nested_list`
-6. `_cell_for_json`
-7. `_uniform_column_kind` / `envelope_column_kinds` (as decorated in module)
+6. `_uniform_column_kind` / `envelope_column_kinds` (as decorated in module)
 
 **Envelope detectors (public + private)**
 
-8. `is_split_grid` / `_is_split_grid_envelope`
-9. `is_multi_data` / `_is_multi_data_envelope`
-10. `is_image_payload` / `_is_image_payload_envelope`
-11. `is_dataframe_payload` / `_is_dataframe_envelope`
-12. `is_calc_range_payload` / `_is_calc_range_envelope` (canonical in the codec; `calc_range.py` re-exports)
-13. `_is_any_payload_envelope`
+7. `is_split_grid` / `_is_split_grid_envelope`
+8. `is_multi_data` / `_is_multi_data_envelope`
+9. `is_image_payload` / `_is_image_payload_envelope`
+10. `is_dataframe_payload` / `_is_dataframe_envelope`
+11. `is_calc_range_payload` / `_is_calc_range_envelope` (canonical in the codec; `calc_range.py` re-exports)
+12. `_is_any_payload_envelope`
 
 **Pack / unpack**
 
-14. `_flatten_grid_to_components`
-15. `host_pack_split_grid`
-16. `host_pack_data`
-17. `host_unpack_split_grid`
-18. `host_unpack_data`
-19. `child_unpack_split_grid`
-20. `_child_unpack_single_data` / `child_unpack_data`
-21. `child_pack_split_grid`
-22. `child_pack_result`
+13. `_flatten_grid_to_components`
+14. `host_pack_split_grid`
+15. `host_pack_data`
+16. `host_unpack_split_grid`
+17. `host_unpack_data`
+18. `child_unpack_split_grid`
+19. `_child_unpack_single_data` / `child_unpack_data`
+20. `child_pack_split_grid`
+21. `child_pack_result`
 
 Several pack/unpack entry points keep `# crosshair: off` (engine limits on buffers/ndarrays/JSON). Prefer FQN CrossHair on detectors and policy helpers; full-module `make crosshair-check` remains a long dive.
 
@@ -123,7 +122,7 @@ Shared predicates keep `@deal` lambdas short and CrossHair-friendly:
 - `host_unpack_data` keeps unrecognized dataframe keys (shallow copy, then replaces `data`). Rebuilding only `__wa_payload__` / `columns` / `data` used to drop them. `calc_range` uses the same shallow copy; rebuilding only `__wa_payload__` / `shape` / `data` / `address` used to drop other fields
 - A pure-float child ndarray, and a mixed-kind numeric grid with no strings, is the read-only `np.frombuffer` view. Uniform int and bool columns are writable because `astype` and `==` allocate. Do not `.copy()` the float path
 - A rectangular tuple-of-tuples egresses as a list-of-lists. `host_unpack_data` restores a tuple only when that container is still a tuple on the wire
-- DataFrame and Series object/extension bodies under `BINARY_MIN_CELLS` go through `to_wire` (depth 64) before `child_pack_result`, same as the container arm. `_cell_for_json` still only rewrites `None`
+- DataFrame and Series object/extension bodies under `BINARY_MIN_CELLS` go through `to_wire` (depth 64) before `child_pack_result`, same as the container arm.
 - A bare object ndarray does too: `to_wire` coerces `tolist()` before pack. Under the threshold, `np.int64` / `datetime` / `Decimal` / `Fraction` cells are converted to leaves before the pickle boundary; at or above it, split_grid already succeeded
 - timedelta64 arrays and `np.timedelta64` scalars become fractional days before pack. `to_wire` (depth 64) coerces them before pack. Rank 3+ converts one plane at a time. Direct `child_pack_result` on a timedelta64 ndarray still raises
 - A rectangular list whose cells are lists or tuples is packed element-wise. The outer shape used to qualify as one split_grid and stringify each inner row (`"[0]"`) once the cell count reached `BINARY_MIN_CELLS`

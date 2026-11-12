@@ -222,10 +222,12 @@ class Recording:
         raise RuntimeError(f"Unexpected recording subprocess status: {status!r}")
 
     def _reap(self, timeout_sec: float) -> None:
-        """Wait, then escalate to the process group. The drain is stderr_tail, joined only after this sequence, because joining it earlier filled stderr and stalled the child.
+        """Wait for the child, then escalate: terminate, kill the process tree.
 
-        ``terminate`` alone left a PortAudio thread holding the mic, and dropping
-        the drain at the same time filled the stderr pipe and stalled the child.
+        ``terminate`` alone can leave a PortAudio thread holding the microphone,
+        so the tree kill follows. The stderr drain (``managed.stderr_tail``) keeps
+        reading through the waits and is joined only after them; stopping it
+        earlier lets the stderr pipe fill and stall the child.
         """
         proc = self.popen
         for wait_sec, escalate in ((timeout_sec, proc.terminate), (1.0, lambda: kill_process_tree(proc)), (2.0, None)):

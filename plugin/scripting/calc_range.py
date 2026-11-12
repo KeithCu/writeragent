@@ -179,11 +179,11 @@ class CalcRange:
 
     def __init__(self, values: Any, *, address: str | None = None) -> None:
         # crosshair: off
-        # ensure_rectangular_2d treats a non-list/tuple as a scalar, so an
-        # ndarray or DataFrame became a 1x1 range. _materialize_inner_grid
+        # ensure_rectangular_2d treats a non-list/tuple as a scalar and would
+        # make an ndarray or DataFrame a 1x1 range, so _materialize_inner_grid
         # unpacks those, and nested structures, into a rectangular 2D list.
-        # Calc numbers are doubles; whole numbers arrive as ints so scalar-only
-        # APIs like sp.prime(data) work (lost in ff217d9d4).
+        # Calc numbers are doubles; whole numbers become ints so scalar-only
+        # APIs such as sp.prime(data) accept them.
         self._values = _whole_floats_to_int(_materialize_inner_grid(values))
         _assert_rectangular(self._values)
         self._address = address
@@ -263,8 +263,8 @@ class CalcRange:
             dt = np.float64 if dtype is None else dtype
             return np.array([], dtype=dt, **kwargs).reshape(0, 0)
 
-        # Named dtypes are built from raw cells (None intact) so bool columns do not treat NaN as True and object columns keep None.
-        # Only the
+        # Named dtypes are built from raw cells (None intact), so bool columns
+        # do not read NaN as True and object columns keep None. Only the
         # default all-numeric path maps blanks to NaN.
         if dtype is not None:
             return np.array(self._values, dtype=dtype, **kwargs)
@@ -315,7 +315,7 @@ class CalcRange:
             sheet_hint=self._address,
         ).df
 
-    # --- Issue #412: Arithmetic, comparison, and scalar protocols ---
+    # --- Arithmetic, comparison, and scalar protocols ---
 
     __hash__: None = None  # type: ignore[assignment]  # pyright: ignore[reportAssignmentType, reportGeneralTypeIssues, reportIncompatibleMethodOverride]  # CalcRange is mutable / unhashable like ndarray
 

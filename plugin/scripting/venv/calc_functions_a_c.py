@@ -499,10 +499,9 @@ def avedev(*args: Any) -> float:
 
 
 def averagea(*args: Any) -> float:
-    # Blank, None, and whitespace stay in the denominator as 0, same as text.
-    # Calc AVERAGEA(10,"",20) is 10. Skipping those values made this 15 and
-    # failed the spreadsheet-import translate test. _collect_a_values treats
-    # blank and text as 0, while None is skipped inside that helper.
+    # Blank strings and whitespace stay in the denominator as 0, same as text:
+    # Calc AVERAGEA(10,"",20) is 10, not 15. _collect_a_values counts blank
+    # and text as 0 and skips None (an empty cell).
     vals = _collect_a_values(*args)
     if not vals.size:
         return float("nan")
@@ -727,8 +726,8 @@ def bitxor(n1: Any, n2: Any) -> float:
 
 
 def char(n: Any) -> str:
-    # Bad input must not return "" (and inf escaped as OverflowError). chr() also.
-    # accepts code points above 255; Excel/Calc CHAR returns #VALUE! for those.
+    # Non-numeric input and inf are #VALUE!, not "". chr() also accepts code
+    # points above 255; Excel/Calc CHAR returns #VALUE! for those.
     try:
         code = int(float(n))
     except (ValueError, TypeError, OverflowError):
@@ -1010,8 +1009,8 @@ def csc(x: Any) -> float:
 
 
 def csch(x: Any) -> float:
-    # 1/sinh(x) goes to 0 as |x| grows. OverflowError is that limit, not #NUM!.
-    # OverflowError is the finite limit 0. ZeroDivisionError (#DIV/0!) and type errors (#VALUE!) are left to the worker.
+    # 1/sinh(x) goes to 0 as |x| grows, so an OverflowError from sinh is that limit (0),
+    # not #NUM!. ZeroDivisionError (#DIV/0!) and type errors (#VALUE!) are left to the worker.
     xv = float(x)
     if not math.isfinite(xv):
         return float("nan")

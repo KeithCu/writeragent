@@ -525,10 +525,10 @@ def start_native_script_run(
 ) -> None:
     """Run a script without blocking the UNO event thread.
 
-    The Run button must not call ``execute_and_insert_result`` on the dialog
-    dispatch thread. Subprocess spawn and the venv wait froze the native XDL
-    dialog until the script finished. Monaco Run did the same inside the
-    editor save handler. The native listener and Monaco Run both call this.
+    The native Run button and Monaco Run both call this. The venv wait
+    (``_run_prepared_rps``: worker spawn and the IPC round trip) must not run
+    on the dialog dispatch thread or inside the editor save handler, or the
+    native XDL dialog and LibreOffice freeze until the script finishes.
     ``data_range`` is the Monaco data-binding text; the native dialog leaves
     it empty and uses the current selection. Document prep and result insert
     stay on the main thread (``main.call``). Only the venv IPC
@@ -624,12 +624,11 @@ def _run_python_monaco(ctx: Any, doc: Any, *, initial_code: str, selected_script
                 return {"type": "error", "message": err}
         if action == "save":
             return {"type": "saved", "ok": True, "status_ok_text": save_ok_text}
-        # Run must not call execute_and_insert_result on the UI thread inside
-        # the editor save handler. The pipe reader marshals on_save onto the
-        # UI thread and blocks until it returns, so the venv wait froze
-        # LibreOffice. The library write above stays on the UI thread. The
-        # venv wait uses the same prepare/finish split as the native Run
-        # button. The Monaco frame is delivered when that run finishes.
+        # The pipe reader marshals on_save onto the UI thread and blocks until
+        # it returns, so waiting on the venv here would freeze LibreOffice.
+        # The library write above stays on the UI thread; the run goes through
+        # start_native_script_run (the native Run button's prepare/finish split),
+        # and the Monaco frame is delivered when that run finishes.
         _monaco_run_in_flight.add(run_key)
 
         def _start(deliver: Callable[[dict[str, Any]], None]) -> None:

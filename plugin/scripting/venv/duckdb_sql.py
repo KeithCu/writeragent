@@ -191,8 +191,10 @@ def persistable_duckdb_session_id(session_id: str | None) -> str | None:
 
 
 def _sandbox_context() -> tuple[str | None, str | None, bool]:
-    # ImportError: no sandbox (LibrePy omits this stack, or a cycle). Same defaults as the three wrappers.
-    # Do not cache the failure. A later call must be able to import.
+    # Imported per call: venv_sandbox loads the smolagents executor, which a
+    # trusted sql action does not need. Outside run_sandboxed_code the three
+    # venv_sandbox getters return None, None, False; the ImportError arm returns
+    # the same and is not cached, so a later call can still import.
     try:
         from plugin.scripting.venv.venv_sandbox import (
             current_sandbox_scoped_dir,
@@ -208,7 +210,8 @@ def resolve_duckdb_session_id(session_id: str | None = None) -> str | None:
     """Explicit id, else the current shared-kernel sandbox session (if persistable).
 
     Host callers (trusted SQL, tests) may name a workbook. A sandboxed cell
-    A sandboxed cell must not open another workbook's catalog when an explicit session id is passed.
+    that passes an explicit session id must not open another workbook's
+    catalog.
     """
     live_sid, _scoped, cell_active = _sandbox_context()
     current = persistable_duckdb_session_id(live_sid)
@@ -408,10 +411,11 @@ def _register_relation(con: Any, name: str, rel: Any) -> None:
 # Match only at a statement boundary ((?:^|;)\s*). A bare identifier
 # anywhere would flag 'SELECT load, copy FROM t'. SET, PRAGMA, CALL,
 # CREATE SECRET, and DETACH are statements too.
-# FORCE INSTALL does not start with INSTALL, so the old alternative missed it
-# and DuckDB installed httpfs. UPDATE EXTENSIONS fetches extension updates; a
-# table UPDATE does not say EXTENSIONS. RESET clears settings on a connection
-# that is not lock_configuration'd; SET was already denied.
+# FORCE INSTALL does not start with INSTALL and needs its own alternative,
+# or a cell could install httpfs. UPDATE EXTENSIONS fetches extension
+# updates; a table UPDATE does not say EXTENSIONS. RESET would undo
+# settings on a connection that is not lock_configuration'd, the same
+# hole as SET.
 _BLOCKED_STMT_RE = re.compile(
     r"""(?isx)
     (?:^|;)\s*(?:\(\s*)*
@@ -463,9 +467,10 @@ _TOKEN_RE = re.compile(
 )
 
 
-# Methods a script may call on session_duckdb() besides execute/sql/close.
-# __getattr__ must not forward every connection method, and ``_con`` was public,.
-# so read_csv / ``con._con.execute`` skipped the read-only firewall.
+# __getattr__ forwards only these. Forwarding every connection method, or
+# a public raw-connection attribute (the class keeps it name-mangled as
+# ``__con``), would let read_csv or ``con._con.execute`` skip the
+# read-only firewall.
 _GUARDED_FORWARDED = frozenset({"register", "unregister", "df"})
 
 
@@ -872,8 +877,9 @@ def _execute(
         if resolved_flat and base:
             stem_aliases = _register_flat_files(con, resolved_flat, scoped_dir=base)
 
-        # os.chdir raced other cells; FROM 'name.csv' reads the table created
-        # under that name, including with external access off.
+        # The worker never chdirs (another cell on this process would see the
+        # new cwd). FROM 'name.csv' reads the table registered under that
+        # name, so it works with external access off.
         df = con.execute(sql).df()
     except SqlError:
         raise
@@ -981,8 +987,9 @@ def query_folder_sql(
 
     - preloaded: dict table_name -> 2D grid data (from host LO reads for ranges/office files).
     - files: list or dict of basenames. Each basename is copied into an
-      in-memory table. A distinct stem becomes a view unless decision 3 skips
-      it. The worker does not chdir.
+      in-memory table, and its stem (``sales`` for ``sales.csv``) becomes a
+      view of it unless that name is already taken (logged and skipped, see
+      _register_flat_files). The worker does not chdir.
     - flat_files: dict name -> full validated path for direct DuckDB reads.
     - session_id: shared-kernel workbook id. When persistable (or the current
       ``=PY()`` sandbox session is), reuse one connection and keep tables

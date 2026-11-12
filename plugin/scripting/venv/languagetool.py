@@ -15,8 +15,8 @@ from plugin.framework.grammar_rule_ids import (
 )
 
 # Global cache of initialized LanguageTool clients to avoid JVM startup/restart overhead.
-# Check-then-set must be locked: two threads both missing the key must not each.
-# construct LanguageTool(), and the loser leaked an orphaned JVM.
+# Check-then-set must be locked: two threads that both miss the key would
+# each construct LanguageTool(), and the loser's JVM would be orphaned.
 _LT_CACHE: Dict[str, Any] = {}
 _LT_CACHE_LOCK = threading.Lock()
 
@@ -24,8 +24,8 @@ _LT_CACHE_LOCK = threading.Lock()
 def _match_wrong_text(m: Any) -> str:
     """Text the match covered.
 
-    ``matched_text`` of ``""`` is a real value. The old ``or`` slice treated
-    it as missing and underlined a lenient context span. On
+    ``matched_text`` of ``""`` is a real value. An ``or`` fallback to a
+    context slice would treat it as missing and underline the wrong span. On
     ``language_tool_python.Match`` this property always returns ``str``.
     """
     matched = getattr(m, "matched_text", "")
@@ -84,7 +84,7 @@ def run_languagetool_check(text: str, bcp47: str) -> dict[str, Any]:
             for m in matches
         ]
     except Exception as e:
-        # A cached client whose JVM exited must not be reused for every later.
+        # A cached client whose JVM exited must not be reused for every later
         # sentence; forget it so the next check starts a fresh one.
         # Identity check: another thread may already have stored a replacement.
         with _LT_CACHE_LOCK:

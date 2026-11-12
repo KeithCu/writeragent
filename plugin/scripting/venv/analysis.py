@@ -584,11 +584,11 @@ def clean_and_prepare(
 
     for col in df.columns:
         series = df[col]
-        # Prefix check missed Float64 and UInt64 (capital F/U), so a DataFrame
-        # passed straight through resolve_df (grids usually infer plain float64)
-        # was mode-filled and labeled categorical; _is_numeric_dtype matches
-        # those extension dtypes, and complex stays categorical so median cannot
-        # drop the imaginary part.
+        # pd.api.types.is_numeric_dtype also matches the nullable extension dtypes
+        # (Float64, UInt64) a DataFrame passed straight through resolve_df can
+        # carry; a dtype-name prefix check would mode-fill those and label them
+        # categorical. Bool and complex stay categorical so median cannot drop
+        # the imaginary part.
         is_num = bool(pd.api.types.is_numeric_dtype(series.dtype) and not pd.api.types.is_bool_dtype(series.dtype)) and not pd.api.types.is_complex_dtype(series.dtype)
         if is_num:
             if fill_numeric == "median":

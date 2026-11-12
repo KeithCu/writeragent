@@ -312,6 +312,8 @@ def current_sandbox_scoped_dir() -> str | None:
     A cell assignment to ``scoped_dir`` must not retarget the DuckDB jail.
     """
     return _CURRENT_SANDBOX_SCOPED_DIR.get()
+
+
 # Distinct from the session id: isolated executes set the id to None, and host
 # callers never enter run_sandboxed_code. DuckDB uses this to refuse a cell
 # that names another workbook's catalog.
@@ -640,9 +642,8 @@ def serialize_result(
     """Convert numpy/pandas and containers to JSON-safe values (split_grid for large numeric/mixed arrays).
 
     DataFrames (and named Series) are returned as a dataframe envelope with 'columns' and 'data'
-    (the latter is a split_grid envelope when large enough, or nested lists). This replaces the
-    previous to_dict(orient="records") path which produced expensive list-of-dicts and bypassed
-    the binary grid fast path.
+    (a split_grid envelope when large enough, else nested lists), so a large frame takes the
+    binary grid fast path instead of a list of row dicts.
     """
     try:
         return to_wire(obj, target="pickle", force=force)
@@ -682,10 +683,9 @@ def _capture_open_figures_payload(*, fmt: str = "svg") -> tuple[dict[str, Any] |
             payload = _figure_to_image_payload(figs[0], fmt=fmt)
         return payload, note
     finally:
-        # Close even when rendering raises or figure(num) fails. A figure(num)
-        # close("all") runs in finally so a render failure still drops open figures; otherwise the next cell returns a stale pyplot figure.
-        # A close failure must
-        # not replace the payload or the original render error (same swallow as
+        # Close even when rendering raises or figure(num) fails; a figure left
+        # open would be what the next cell returns. A close failure must not
+        # replace the payload or the original render error (same swallow as
         # _close_open_figures).
         try:
             plt_mod.close("all")
@@ -774,10 +774,11 @@ def _seed_executor_from_init(
         bindings = {key: _copy_isolated_seed_value(value) for key, value in bindings.items()}
     if bindings:
         executor.send_variables(bindings)
+    # custom_tools go to executor.custom_tools only, not into executor state,
+    # so an init lambda in custom_tools does not become the next cell's printed result.
     custom_tools = _snapshot_init_custom_tools(init_session_id)
     if custom_tools:
         executor.custom_tools.update(custom_tools)
-        # custom_tools are not written back into executor state so init lambdas in custom_tools do not become the next cell's printed result.
 
 
 def _resolve_init_digest(init_script: str | None, init_script_hash: str | None) -> str:
@@ -848,7 +849,9 @@ def _ensure_init_executed(
     init_executor, _ = SESSIONS.get_or_create(
         init_session_id, timeout_sec, policy=policy
     )
-    # Init shares the request deadline with the cell so init plus execution cannot exceed the host read budget and kill the worker for other workbooks.
+    # Init shares the request deadline with the cell. A full budget for each
+    # could outlast the host's single read, and the host would then kill this
+    # worker and every other workbook's session on it.
     left = _executor_alarm_seconds(deadline)
     if left is None:
         return _budget_timeout_error(timeout_sec)
@@ -1115,8 +1118,9 @@ def _run_on_executor(
         except Exception:
             if not result_optional:
                 raise
-            # The init result is discarded. The executor had already stored the
-            # Dropping an unpickleable init result must not abort the init session or the first cell loses helpers the init script already bound.
+            # The init result is discarded; the executor has already stored the
+            # script's names. Failing here would make _ensure_init_executed abort the
+            # init session, and the first cell would lose helpers the script bound.
             log.debug(
                 "dropping unpickleable init result %s.%s",
                 type(result).__module__,
@@ -1159,7 +1163,8 @@ def _run_on_executor(
         )
     except Exception as e:
         # A pickle-boundary failure is raised after the executor returns, so
-        # prints are already in _print_outputs and were dropped.
+        # the cell's prints are already in _print_outputs; pass them as
+        # stdout or they are lost.
         return _fail_cell(
             executor,
             prior_result,

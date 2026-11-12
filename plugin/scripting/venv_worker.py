@@ -194,8 +194,9 @@ def _maybe_dispatch_intermediate_response(
         cancel=cancel,
     ):
         return True
-    # Only the ppt-master worker may emit llm_request. Every other caller
-    # llm_request is limited to the ppt_master worker so script and =PY() callers cannot reach host LLM credentials.
+    # Only the ppt-master worker gets llm_request and worker_event dispatched.
+    # Every other caller (scripts, =PY()) returns False here, so those scripts
+    # cannot reach the host's LLM credentials.
     if caller != "ppt_master_venv":
         return False
     try:
@@ -219,9 +220,9 @@ _HARNESS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "venv",
 
 _SCOPE_UNIT_PREFIX = "writeragent-worker-"
 # Probe results keyed by (systemd-run path, XDG_RUNTIME_DIR) of the spawn env:
-# the systemd-run path when a scope works there, else "". A single global result
-# let a manager whose env lacks XDG_RUNTIME_DIR (tests pass env={}) reuse a
-# probe from a full env, so systemd-run ran without a user bus and exited.
+# the systemd-run path when a scope works there, else "". With one global result,
+# a manager whose env lacks XDG_RUNTIME_DIR (tests pass env={}) would reuse a
+# probe from a full env and run systemd-run without a user bus, which exits.
 _systemd_run_for_worker: dict[tuple[str, str], str] = {}
 # Set once a scoped spawn raised OSError; every later spawn runs plainly.
 _systemd_scope_disabled = False
@@ -340,8 +341,8 @@ class _ExecRequest:
         if self.data is not None:
             request["data"] = self.data
         # allow_heartbeat belongs on every long job, not only the code branch.
-        # run_trusted_action (embeddings, folder index) never received it, so
-        # the child sent no heartbeat and the host killed a long job.
+        # Without it a run_trusted_action job (embeddings, folder index) sends no
+        # heartbeat and the host kills it at the read timeout.
         if self.allow_heartbeat:
             request["allow_heartbeat"] = True
         if self.action:
@@ -696,8 +697,8 @@ class PythonWorkerManager:
         try:
             while True:
                 if req.allow_heartbeat:
-                    # Already unpickled. A second unpack of a multi-megabyte
-                    # result frame was pure CPU on this path.
+                    # Already unpickled, so this branch skips parse_worker_stdout_frame:
+                    # a second unpack of a multi-megabyte result frame is pure CPU.
                     response = self._read_response_with_heartbeats(
                         stdout,
                         host_read_timeout_sec,
@@ -726,8 +727,9 @@ class PythonWorkerManager:
                         return Terminal(response)
                     continue
 
-                # A tool_call (or ppt llm_request / worker_event) can mutate the
-                # Set may_have_run before dispatch so a tool that mutates then raises is not replayed when exec_started never arrives.
+                # A tool_call (or ppt llm_request / worker_event) can change the document
+                # before exec_started arrives. Mark the turn as may_have_run before dispatch,
+                # so a tool that mutates and then raises is not replayed.
                 if response.get("type") in ("tool_call", "llm_request", "worker_event"):
                     state.dispatched_intermediate = True
                 with self.serving_callback():
@@ -780,9 +782,9 @@ class PythonWorkerManager:
                 self._write_frame_with_timeout(stdin, wire, timeout_sec=write_timeout_sec, label="request")
             except IpcFrameError as e:
                 # An oversize request fails in pack_pickle_frame before any byte
-                # reaches the pipe. That must not hit the retry handler,
-                # which killed the warm worker twice and wiped every shared
-                # session.
+                # reaches the pipe. Return here: the retry handler below would kill
+                # the warm worker (once per attempt) and wipe every shared session
+                # for a request the worker never saw.
                 log.warning("Python worker request not sent: %s", e)
                 return self._err("WORKER_IPC_ERROR", f"Failed to serialize request: {e}")
         except subprocess.TimeoutExpired as e:
@@ -846,8 +848,9 @@ class PythonWorkerManager:
         if isinstance(outcome, Terminal):
             response = outcome.response
             # Empty-id error before exec: the harness rejected the pickle and is
-            # back at read(). Return its message and keep the worker. Treating this
-            # Pre-exec empty-id errors keep the worker alive; after exec_started or a tool frame, id mismatch still triggers restart.
+            # back at read(). Return its message and keep the worker. After
+            # exec_started or a tool frame the same reply fails the id check below,
+            # which restarts the worker.
             if (
                 response.get("id") == ""
                 and response.get("status") == "error"
@@ -859,8 +862,10 @@ class PythonWorkerManager:
                 return self._err("WORKER_IPC_ERROR", text)
             req_id = wire.get("id")
             if response.get("id") != req_id:
-                # exchange_tool_call already checks ids. A mismatched terminal
-                # Terminal frames must match the request id so one cell cannot consume another cell's result.
+                # A terminal frame must carry this request's id, or one cell would
+                # consume another cell's result. A mismatch means the pipe is out of
+                # step: kill the worker and do not replay. (Tool frames are checked by
+                # exchange_tool_call in the child.)
                 log.warning(
                     "Python worker response id %r does not match request %r",
                     response.get("id"),
@@ -871,8 +876,10 @@ class PythonWorkerManager:
                     f"Python worker response id mismatch.{_SHARED_WORKER_RESTART_HINT}",
                 )
             try:
-                # host_unpack_data runs after the script has finished. A bad
-                # host_unpack failures return without replay so a tool that already mutated the document cannot run twice; broad exception types cover bad shapes and non-finite ints.
+                # host_unpack_data runs after the script has finished, so a rejected
+                # result fails without replay: replaying would run a tool that already
+                # changed the document a second time. _HOST_UNPACK_ERRORS is broad because
+                # bad shapes and non-finite ints raise different types.
                 return self._normalize_response(response)
             except _HOST_UNPACK_ERRORS as e:
                 log.warning("Python worker result rejected (not replaying): %s", e)
@@ -1113,8 +1120,8 @@ class PythonWorkerManager:
         start = time.monotonic()
         ceiling = start + cap
         # First-byte wait is timeout_sec, not max(timeout, grace). Grace is only
-        # silence allowed after a heartbeat; using the max made a short timeout
-        # wait for grace instead. After a heartbeat:
+        # the silence allowed after a heartbeat; taking the max would make a short
+        # timeout wait for the full grace. After a heartbeat:
         # deadline = min(now + grace, ceiling).
         grace = float(grace_sec)
         window = float(timeout_sec)
@@ -1158,8 +1165,8 @@ class PythonWorkerManager:
             if frame_type == FRAME_RESULT or frame_type is None:
                 return data
             # Unknown frames must not extend the deadline (protocol drift should
-            # time out, not look like a stall). Log the first unknown type once —
-            # Log unknown frame types once so tight timeout tests are not slowed by repeated warnings.
+            # time out, not look like a stall). Log only the first unknown type, so
+            # a child repeating it does not slow tight timeout tests with warnings.
             if not logged_unknown:
                 log.warning("venv worker ignoring unknown frame type: %r", frame_type)
                 logged_unknown = True
