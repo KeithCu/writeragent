@@ -36,6 +36,7 @@ from plugin.framework.errors import make_tool_error, reraise_if_disposed, uno_re
 from plugin.framework.tool import ToolBase, ToolBaseDummy
 from plugin.framework.uno_context import get_ctx, get_service_manager, uno_same
 from plugin.framework.worker_pool import run_in_background
+from plugin.writer import html_import
 from plugin.writer.review_scan import document_has_tracked_deletions
 
 if TYPE_CHECKING:
@@ -153,6 +154,19 @@ def validate_regex_pattern(pattern: str) -> str | None:
     return None
 
 
+def shape_sweep_skip_reason(pattern: str, use_regex: bool) -> str | None:
+    """The warning to report when the shape and comment sweeps cannot run *pattern*, else None.
+
+    The body search hands a regex to LibreOffice's ICU engine, but the floating-shape and
+    comment sweeps run Python re. A pattern that compiles in ICU but not in Python (for
+    example \\p{Lu}) is skipped there, and the caller reports this sentence instead of
+    silently returning no shape or comment hits.
+    """
+    if use_regex and validate_regex_pattern(pattern) is not None:
+        return "shape/comment text not searched: pattern uses ICU-only syntax"
+    return None
+
+
 ICU_REGEX_REJECTED = (
     "LibreOffice's ICU regex engine rejects it. Patterns use ICU syntax, which differs "
     "from Python re: named groups are (?<name>...) not (?P<name>...), backreferences by "
@@ -214,9 +228,7 @@ def prepare_old_content(raw: Any) -> str:
     text = str(raw).strip()
     if not text:
         return ""
-    from plugin.writer.html_import import plain_text_if_markup
-
-    plain = plain_text_if_markup(text)
+    plain = html_import.plain_text_if_markup(text)
     return normalize_search_string_for_find(plain)
 
 
@@ -894,9 +906,6 @@ class LocationLabeler:
     def describe(self, found: Any) -> str:
         return describe_match_location(found, self.doc, label_cache=self._cache)
 
-    def __call__(self, found: Any) -> str:
-        return self.describe(found)
-
 
 def enclosing_paragraph_text(found: Any) -> str:
     def paragraph() -> str:
@@ -1089,8 +1098,6 @@ def iter_shape_hits(doc: Any, pattern: str, use_regex: bool, case_sensitive: boo
 
 
 def iter_comment_hits(doc: Any, pattern: str, use_regex: bool, case_sensitive: bool) -> Iterator[tuple[str, str, str]]:
-    from plugin.doc.text_helpers import iter_elements
-
     fields = uno_read(lambda: doc.getTextFields().createEnumeration(), FAILED)
     if fields is FAILED:
         return
@@ -1398,12 +1405,11 @@ class SearchInDocument(ToolBase):
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         raw_max = kwargs.get("max_results", DEFAULT_SEARCH_RESULTS)
-        if type(raw_max) is not int or raw_max < 1:
+        if raw_max < 1:
             return self._tool_error("max_results must be a positive integer.", code="INVALID_PARAM")
         max_results = raw_max
 
         pattern = kwargs["pattern"]
-        assert isinstance(pattern, str)
         if not pattern:
             return self._tool_error("pattern is required.", code="INVALID_PARAM")
 
@@ -1475,10 +1481,8 @@ class SearchInDocument(ToolBase):
                 warning = "Text-model search ended early after a findNext failure; count may be incomplete."
                 break
 
-        shape_comment_warning: str | None = None
-        if use_regex and validate_regex_pattern(pattern) is not None:
-            shape_comment_warning = "shape/comment text not searched: pattern uses ICU-only syntax"
-        else:
+        shape_comment_warning = shape_sweep_skip_reason(pattern, use_regex)
+        if shape_comment_warning is None:
             for extra in (
                 iter_shape_hits(doc, pattern, use_regex, case_sensitive),
                 iter_comment_hits(doc, pattern, use_regex, case_sensitive),

@@ -20,7 +20,7 @@ class _DisposedException(Exception):
     pass
 
 
-from plugin.framework.tool import ToolContext
+from plugin.framework.tool import ToolContext, prepare_tool_call
 from plugin.writer.get_image import GetImage, _is_draw_family, _render_page_png
 
 
@@ -331,13 +331,30 @@ def test_draw_page_filter_disposal_propagates():
         _render_page_png(FakeExportCtx(filt), FakeDrawDoc(page_count=2), 0)
 
 
-@pytest.mark.parametrize("bad_page", ["2", True, 2.0])
-def test_execute_rejects_non_integer_or_bool_page(bad_page):
-    with patch("plugin.writer.get_image._render_page_png") as render_mock:
-        res = GetImage().execute(_tctx(FakeDrawDoc()), page=bad_page)
-    assert res["status"] == "error"
-    assert "non-negative integer" in res["message"]
-    render_mock.assert_not_called()
+@pytest.mark.parametrize(
+    "args, message",
+    [
+        ({"page": "2"}, "Invalid type for page: expected integer, got str"),
+        ({"page": True}, "Invalid type for page: expected integer, got bool"),
+        ({"image": 123}, "Invalid type for image: expected string, got int"),
+        ({"selection": "false"}, "Invalid type for selection: expected boolean, got str"),
+        ({"image": "Logo", "sheet_index": "1"}, "Invalid type for sheet_index: expected integer, got str"),
+    ],
+)
+def test_wrong_argument_types_are_rejected_before_execute(args, message):
+    # The registry and the smolagents adapter both run prepare_tool_call before execute,
+    # so a wrong type never reaches GetImage.execute; the model gets the validator's sentence.
+    prep = prepare_tool_call(GetImage(), _tctx(FakeDrawDoc()), "get_image", args)
+    assert prep.error is not None
+    assert prep.error["code"] == "VALIDATION_ERROR"
+    assert prep.error["message"] == message
+
+
+def test_whole_float_page_is_coerced_to_int_before_execute():
+    prep = prepare_tool_call(GetImage(), _tctx(FakeDrawDoc()), "get_image", {"page": 2.0})
+    assert prep.error is None
+    assert prep.kwargs == {"page": 2}
+    assert type(prep.kwargs["page"]) is int
 
 
 def test_execute_rejects_multiple_exclusive_modes():
@@ -354,17 +371,11 @@ def test_execute_rejects_multiple_exclusive_modes():
     assert "Pass only one" in res3["message"]
 
 
-@pytest.mark.parametrize("bad_image", ["", 123])
-def test_execute_rejects_empty_or_non_string_image(bad_image):
+@pytest.mark.parametrize("bad_image", ["", "   "])
+def test_execute_rejects_empty_image(bad_image):
     res = GetImage().execute(_tctx(FakeDrawDoc()), image=bad_image)
     assert res["status"] == "error"
     assert "non-empty string" in res["message"]
-
-
-def test_execute_rejects_non_boolean_selection():
-    res = GetImage().execute(_tctx(FakeDrawDoc()), selection="false")
-    assert res["status"] == "error"
-    assert "true or false" in res["message"]
 
 
 def test_execute_rejects_selection_false():

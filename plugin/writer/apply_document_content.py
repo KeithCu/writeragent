@@ -954,11 +954,10 @@ class ApplyDocumentContent(ToolBase):
                 row_override = override if idx == edit_idx else None
                 row.update(self._outline_match_fields(found, _plain, row_override))
             replaceable.append(row)
-        shape_comment_warning: str | None = None
-        if regex and search_mod.validate_regex_pattern(pattern) is not None:
+        shape_comment_warning = search_mod.shape_sweep_skip_reason(pattern, regex)
+        if shape_comment_warning is not None:
             shape_hits = []
             comment_hits = []
-            shape_comment_warning = "shape/comment text not searched: pattern uses ICU-only syntax"
         else:
             shape_hits = search_mod.sweep_draw_shape_preview_matches(ctx.doc, pattern, regex, cs, limit=search_mod.MAX_SEARCH_HITS)
             comment_hits = search_mod.sweep_comment_preview_matches(ctx.doc, pattern, regex, cs, limit=search_mod.MAX_SEARCH_HITS)

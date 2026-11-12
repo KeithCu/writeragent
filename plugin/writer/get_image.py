@@ -210,22 +210,21 @@ class GetImage(ToolBase):
     ]
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        # page, image, and selection are exclusive; bad types are errors, not a silent mode pick.
+        # page, image, and selection are exclusive; prepare_tool_call has already
+        # rejected wrong types, so this body checks only ranges and combinations.
         doc = ctx.doc
         selection = kwargs.get("selection")
-        if selection is not None and not isinstance(selection, bool):
-            return self._tool_error("selection must be true or false.")
 
         name = kwargs.get("image")
         page = kwargs.get("page")
         sheet_index = kwargs.get("sheet_index")
         if sheet_index is not None:
-            if isinstance(sheet_index, bool) or not isinstance(sheet_index, int) or sheet_index < 0:
+            if sheet_index < 0:
                 return self._tool_error("sheet_index must be a non-negative integer (0-based).")
             if name is None:
                 return self._tool_error("sheet_index applies only with image=<name>.")
         if page is not None:
-            if isinstance(page, bool) or not isinstance(page, int) or page < 0:
+            if page < 0:
                 return self._tool_error("page must be a non-negative integer (0-based).")
             if name is not None or selection is True or sheet_index is not None:
                 return self._tool_error("Pass only one of page, image, or selection.")
@@ -239,18 +238,16 @@ class GetImage(ToolBase):
             return _ok_image(f"page {page}", raw)
 
         if name is not None:
-            if not isinstance(name, str) or not name.strip():
+            if not name.strip():
                 return self._tool_error("image must be a non-empty string (the graphic's name).")
             if selection is True:
                 return self._tool_error("Pass only one of page, image, or selection.")
-            from plugin.doc.visual_helpers import AmbiguousGraphicNameError, get_graphic_object_by_name
-
             lookup_kwargs: dict[str, Any] = {}
             if sheet_index is not None:
                 lookup_kwargs["sheet_index"] = sheet_index
             try:
-                obj = get_graphic_object_by_name(doc, name, **lookup_kwargs)
-            except AmbiguousGraphicNameError as exc:
+                obj = visual_helpers.get_graphic_object_by_name(doc, name, **lookup_kwargs)
+            except visual_helpers.AmbiguousGraphicNameError as exc:
                 return self._tool_error(
                     str(exc),
                     code="AMBIGUOUS_NAME",

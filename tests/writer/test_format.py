@@ -1443,7 +1443,7 @@ def test_paint_direct_formatting_still_paints_char_when_para_copy_raises():
             raise RuntimeError("refused Para*")
 
     with patch.object(rc, "_copy_properties", side_effect=copy_side_effect) as copy:
-        rc._paint_direct_formatting(para, [(portion, "bold")], temp_text, 0, 4)
+        rc.paint_direct_formatting(para, [(portion, "bold")], temp_text, 0, 4)
 
     names_seen = [c.args[2] for c in copy.call_args_list]
     assert rc._COPIED_PARA_PROPERTIES in names_seen

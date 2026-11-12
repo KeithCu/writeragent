@@ -9,7 +9,7 @@
 # Pure pytest unit tests (no LibreOffice) for the XHTML style post-process pipeline.
 # Fixtures mirror the real "XHTML Writer File" output captured from LibreOffice.
 from plugin.writer.xhtml_style_postprocess import (
-    _parse_fodt_autostyles,
+    parse_fodt_autostyles,
     compact_lo_style_name,
     decode_lo_css_class_suffix,
     parse_style_block,
@@ -176,7 +176,7 @@ _FODT_OVERRIDES = """<office:document>
 
 def test_extract_autostyle_overrides_reads_only_the_direct_values():
     """A flat-ODF automatic style lists exactly what was set on top of its parent."""
-    out = _parse_fodt_autostyles(_FODT_OVERRIDES)[1]
+    out = parse_fodt_autostyles(_FODT_OVERRIDES)[1]
     assert out["P2"] == "margin-left:3.25cm; text-indent:0cm; text-align:left"  # ODF 'start' -> CSS
     assert out["P1"] == "font-family:Times New Roman; font-size:12pt"
     assert "Standard" not in out  # named styles are not overrides
@@ -185,7 +185,7 @@ def test_extract_autostyle_overrides_reads_only_the_direct_values():
 def test_whole_paragraph_override_is_reported_from_the_fodt_map():
     """The paragraph geometry AND its hand-set font reach the agent via data-lo-para --
     without it an indented block quote is indistinguishable from body text."""
-    out = xhtml_to_semantic_html(REFERENCE_XHTML, None, _parse_fodt_autostyles(_FODT_OVERRIDES)[1])
+    out = xhtml_to_semantic_html(REFERENCE_XHTML, None, parse_fodt_autostyles(_FODT_OVERRIDES)[1])
     line = next(ln for ln in out.splitlines() if "centered red whole paragraph" in ln)
     assert 'data-lo-para="margin-left:3.25cm; text-indent:0cm; text-align:left"' in line, line
     body = next(ln for ln in out.splitlines() if "normal " in ln and "BOLD" in ln)
@@ -211,7 +211,7 @@ _FODT_CENTER_RED = """<office:document>
 def test_fodt_fo_color_appears_in_data_lo_para():
     """fo:color was missing from the override map, so paragraph-level red never appeared in
     data-lo-para (char spans could still show colour). Map it so Issue-1 center+red is honest."""
-    overrides = _parse_fodt_autostyles(_FODT_CENTER_RED)[1]
+    overrides = parse_fodt_autostyles(_FODT_CENTER_RED)[1]
     assert overrides["P2"] == "text-align:center; color:#ff0000"
     out = xhtml_to_semantic_html(REFERENCE_XHTML, None, overrides)
     line = next(ln for ln in out.splitlines() if "centered red whole paragraph" in ln)
@@ -230,7 +230,7 @@ def test_quoted_font_name_emits_well_formed_data_lo_para():
     quoted attribute closes early and the tag is not well-formed."""
     from html.parser import HTMLParser
 
-    overrides = _parse_fodt_autostyles(_FODT_QUOTED_FONT)[1]
+    overrides = parse_fodt_autostyles(_FODT_QUOTED_FONT)[1]
     assert overrides["P1"] == 'font-family:Times "Special"'
     out = xhtml_to_semantic_html(REFERENCE_XHTML, None, overrides)
     line = next(ln for ln in out.splitlines() if "normal " in ln and "BOLD" in ln)
@@ -309,7 +309,7 @@ _FODT = (
 
 
 def test_extract_autostyle_parents_from_fodt():
-    assert _parse_fodt_autostyles(_FODT)[0] == {"P1": "Caption", "P2": "Text_20_body"}
+    assert parse_fodt_autostyles(_FODT)[0] == {"P1": "Caption", "P2": "Text_20_body"}
 
 
 # XHTML where P1 (a Caption-derived autostyle, as produced after a StarWriter import) carries
@@ -348,17 +348,17 @@ def test_xhtml_hot_sinks_off_cover_all() -> None:
     fqns = cover_fqns_for_module(Path("plugin/writer/xhtml_style_postprocess.py"))
     assert not any(f.endswith(".decode_lo_css_class_suffix") for f in fqns), 'decode_lo_css_class_suffix'
     assert not any(f.endswith(".compact_lo_style_name") for f in fqns), 'compact_lo_style_name'
-    assert not any(f.endswith("._parse_fodt_autostyles") for f in fqns), '_parse_fodt_autostyles'
+    assert not any(f.endswith(".parse_fodt_autostyles") for f in fqns), 'parse_fodt_autostyles'
     assert not any(f.endswith("._fodt_override_css") for f in fqns), '_fodt_override_css'
     assert not any(f.endswith(".parse_style_block") for f in fqns), 'parse_style_block'
     assert not any(f.endswith("._drop_trailing_empty_paragraphs") for f in fqns), '_drop_trailing_empty_paragraphs'
-    assert not any(f.endswith("._inject_attr") for f in fqns), '_inject_attr'
+    assert not any(f.endswith(".inject_attr") for f in fqns), 'inject_attr'
     assert not any(f.endswith("._attr_value") for f in fqns), '_attr_value'
-    assert not any(f.endswith("._HtmlPassthroughParser.__init__") for f in fqns), '_HtmlPassthroughParser.__init__'
-    assert not any(f.endswith("._HtmlPassthroughParser.handle_data") for f in fqns), '_HtmlPassthroughParser.handle_data'
-    assert not any(f.endswith("._HtmlPassthroughParser.handle_entityref") for f in fqns), '_HtmlPassthroughParser.handle_entityref'
-    assert not any(f.endswith("._HtmlPassthroughParser.handle_charref") for f in fqns), '_HtmlPassthroughParser.handle_charref'
-    assert not any(f.endswith("._HtmlPassthroughParser.handle_comment") for f in fqns), '_HtmlPassthroughParser.handle_comment'
+    assert not any(f.endswith(".HtmlPassthroughParser.__init__") for f in fqns), 'HtmlPassthroughParser.__init__'
+    assert not any(f.endswith(".HtmlPassthroughParser.handle_data") for f in fqns), 'HtmlPassthroughParser.handle_data'
+    assert not any(f.endswith(".HtmlPassthroughParser.handle_entityref") for f in fqns), 'HtmlPassthroughParser.handle_entityref'
+    assert not any(f.endswith(".HtmlPassthroughParser.handle_charref") for f in fqns), 'HtmlPassthroughParser.handle_charref'
+    assert not any(f.endswith(".HtmlPassthroughParser.handle_comment") for f in fqns), 'HtmlPassthroughParser.handle_comment'
     assert not any(f.endswith("._SemanticTransformer.__init__") for f in fqns), '_SemanticTransformer.__init__'
     assert not any(f.endswith("._SemanticTransformer._paragraph_token") for f in fqns), '_SemanticTransformer._paragraph_token'
     assert not any(f.endswith("._SemanticTransformer._rewrite_block") for f in fqns), '_SemanticTransformer._rewrite_block'

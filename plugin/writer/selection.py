@@ -76,8 +76,6 @@ class SetSelection(ToolBase):
         if not has_search:
             if char_start is None or char_end is None:
                 return self._tool_error("char_start and char_end must both be provided.", code="INVALID_PARAM")
-            if type(char_start) is not int or type(char_end) is not int:
-                return self._tool_error("char_start and char_end must be integers.", code="INVALID_PARAM")
             if char_start < 0 or char_end < 0:
                 return self._tool_error("char_start and char_end must be non-negative.", code="INVALID_PARAM")
             if char_start > char_end:

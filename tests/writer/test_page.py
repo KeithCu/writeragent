@@ -1250,7 +1250,7 @@ def test_copy_page_regions_does_not_export_html():
     doc = MagicMock()
     doc.getDrawPage.return_value.getCount.return_value = 0
 
-    with patch("plugin.writer.range_copy._copy_flow_into_xtext", return_value=1) as mock_flow, \
+    with patch("plugin.writer.page.copy_flow_into_xtext", return_value=1) as mock_flow, \
          patch("plugin.writer.html_export.xtext_to_content") as mock_xtext_to_content, \
          patch("plugin.writer.html_import.replace_xtext_with_html") as mock_replace_html:
         _copy_page_regions(doc, source, clone)
@@ -1982,7 +1982,7 @@ def test_copy_page_style_unreadable_region_copies_as_empty_and_disposal_raises()
     doc.createInstance.return_value = clone
 
     with patch("plugin.writer.styles._copy_direct_style_properties", return_value=([], [])), \
-         patch("plugin.writer.range_copy._copy_flow_into_xtext") as mock_flow:
+         patch("plugin.writer.range_copy.copy_flow_into_xtext") as mock_flow:
         doc.getDrawPage.side_effect = RuntimeError("bridge hiccup")
         res = copy_page_style(doc, "Src", "Dst")
         assert res["shapes_copied"] == 0

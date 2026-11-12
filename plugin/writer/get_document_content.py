@@ -28,6 +28,7 @@ if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
 
 from plugin.framework.errors import reraise_if_disposed
+from plugin.writer import html_export, tracking
 from plugin.writer.review_scan import scan_redlines
 from plugin.writer.specialized_base import enum_param
 
@@ -64,8 +65,6 @@ def _summarize_redlines(
     Format/Table redlines count toward total but produce no entry. ``truncated`` is the cap
     only: a redline with no text (for example an inserted image) is not truncation.
     """
-    from plugin.writer.tracking import _redline_text
-
     limit = _MAX_TRACKED_CHANGES
     changes: list[dict[str, str]] = []
     found = 0
@@ -80,7 +79,7 @@ def _summarize_redlines(
         if len(changes) >= limit:
             truncated = True
             return True
-        text = _redline_text(redline)
+        text = tracking.redline_text(redline)
         if text:
             changes.append(
                 {"type": "insertion" if rtype == "Insert" else "deletion", "text": text}
@@ -125,32 +124,26 @@ class GetDocumentContent(ToolBase):
     tier: str = "core"
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        from .html_export import document_to_content
         t0 = time.perf_counter()
         scope = kwargs.get("scope") or "full"
         max_chars = kwargs.get("max_chars")
         log.debug("get_document_content: start scope=%r max_chars=%r", scope, max_chars)
 
-        if scope not in ("full", "selection", "range"):
-            return self._tool_error("scope must be 'full', 'selection', or 'range'.")
-        if max_chars is not None and (
-            not isinstance(max_chars, int) or isinstance(max_chars, bool) or max_chars < 1
-        ):
+        if max_chars is not None and max_chars < 1:
             return self._tool_error("max_chars must be a positive integer.")
         range_start: int | None = None
         range_end: int | None = None
         if scope == "range":
-            try:
-                range_start = int(kwargs["start"])
-                range_end = int(kwargs["end"])
-            except (KeyError, TypeError, ValueError):
+            range_start = kwargs.get("start")
+            range_end = kwargs.get("end")
+            if range_start is None or range_end is None:
                 return self._tool_error("scope 'range' requires integer start and end.")
             if range_start < 0 or range_end <= range_start:
                 return self._tool_error("scope 'range' requires 0 <= start < end.")
 
         include_images = bool(kwargs.get("include_images", False))
         walk_warnings: list[str] = []
-        content = document_to_content(
+        content = html_export.document_to_content(
             ctx.doc,
             ctx.ctx,
             max_chars=max_chars,

@@ -35,7 +35,7 @@ from plugin.framework.errors import (
 from plugin.framework.uno_context import uno_same
 from .edit_review import flag_style_unreviewed
 from .html_export import PAGE_NUMBER_NUMBERING_TYPE_NAMES
-from .range_copy import _ANCHORED_GRAPHIC_PROPS
+from .range_copy import ANCHORED_GRAPHIC_PROPS, copy_flow_into_xtext
 from .search import (
     CASE_SENSITIVE_DESCRIPTION,
     occurrence_range_or_error,
@@ -409,7 +409,7 @@ def _copy_region_graphics(doc: Any, src_text: Any, dest_text: Any) -> tuple[int,
             if not clone:
                 skipped.append(label)
                 continue
-            for prop in _ANCHORED_GRAPHIC_PROPS:
+            for prop in ANCHORED_GRAPHIC_PROPS:
                 best_effort(
                     lambda: clone.setPropertyValue(prop, shape.getPropertyValue(prop)),
                     "page style clone: graphic %s has no %s" % (label, prop),
@@ -467,12 +467,10 @@ def _copy_page_regions(
             raise RuntimeError("Page style clone: no %s text on the new style." % region)
         # An unreadable source region is copied as empty; the clone still succeeds.
         if uno_read(lambda: _region_holds_content(doc, src_text, include_images=False), False):
-            # Region text is copied in-document via _copy_flow_into_xtext instead of
+            # Region text is copied in-document via copy_flow_into_xtext instead of
             # select/clipboard/XHTML export, which can corrupt soffice when headers
             # hold titled draw frames processed through libxslt.
-            from .range_copy import _copy_flow_into_xtext
-
-            fields_copied = _copy_flow_into_xtext(doc, src_text, dest_text)
+            fields_copied = copy_flow_into_xtext(doc, src_text, dest_text)
             plain = uno_read(dest_text.getString, None) or ""
             if (
                 not str(plain).strip()

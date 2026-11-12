@@ -501,7 +501,7 @@ def test_get_document_content_surfaces_tracked_changes():
     ctx.doc = doc
     ctx.ctx = MagicMock()
     ctx.services.get.return_value = MagicMock()
-    with patch("plugin.writer.tracking._redline_text", side_effect=["novo", "velho"]), \
+    with patch("plugin.writer.tracking.redline_text", side_effect=["novo", "velho"]), \
          patch("plugin.writer.html_export.document_to_content", return_value="body"):
         res = GetDocumentContent().execute(ctx)
     assert res["status"] == "ok"
@@ -1460,7 +1460,7 @@ def test_redline_cap_reports_truncation(monkeypatch):
     doc.getRedlines.return_value = redlines
 
     monkeypatch.setattr(gdc, "_MAX_TRACKED_CHANGES", 1)
-    with patch("plugin.writer.tracking._redline_text", side_effect=["one", "two"]):
+    with patch("plugin.writer.tracking.redline_text", side_effect=["one", "two"]):
         changes, found, total, reliable, truncated = _summarize_redlines(doc)
     assert len(changes) == 1
     assert found == 2
@@ -1473,7 +1473,7 @@ def test_redline_cap_reports_truncation(monkeypatch):
     ctx = MagicMock()
     ctx.doc = doc
     ctx.services.document.get_document_length.return_value = 10
-    with patch("plugin.writer.tracking._redline_text", side_effect=["one", "two"]), \
+    with patch("plugin.writer.tracking.redline_text", side_effect=["one", "two"]), \
          patch("plugin.writer.html_export.document_to_content", return_value="<p>body</p>"):
         res = GetDocumentContent().execute(ctx)
     assert res.get("tracked_changes_truncated") is True
@@ -1499,7 +1499,7 @@ def test_inserted_image_redline_without_text_is_not_truncated():
     ctx = MagicMock()
     ctx.doc = doc
     ctx.services.document.get_document_length.return_value = 10
-    with patch("plugin.writer.tracking._redline_text", side_effect=["", ""]), \
+    with patch("plugin.writer.tracking.redline_text", side_effect=["", ""]), \
          patch("plugin.writer.html_export.document_to_content", return_value="<p>body</p>"):
         res = GetDocumentContent().execute(ctx)
     assert "tracked_changes_truncated" not in res
@@ -1523,15 +1523,50 @@ def test_range_rejects_invalid_bounds_and_max_chars():
             assert mock_dtc.call_count == 0
 
 
-def test_range_result_uses_validated_ints():
+def test_range_result_reports_the_offsets_it_read():
     from plugin.writer.get_document_content import GetDocumentContent
 
     ctx = MagicMock()
     ctx.services.document.get_document_length.return_value = 100
-    with patch("plugin.writer.html_export.document_to_content", return_value="<p>slice</p>"):
-        res = GetDocumentContent().execute(ctx, scope="range", start="2", end="4")
+    with patch("plugin.writer.html_export.document_to_content", return_value="<p>slice</p>") as mock_dtc:
+        res = GetDocumentContent().execute(ctx, scope="range", start=2, end=4)
     assert res["status"] == "ok"
     assert res["start"] == 2 and res["end"] == 4
+    assert mock_dtc.call_args.kwargs["range_start"] == 2
+    assert mock_dtc.call_args.kwargs["range_end"] == 4
+
+
+def test_range_scope_without_both_offsets_is_an_error():
+    from plugin.writer.get_document_content import GetDocumentContent
+
+    ctx = MagicMock()
+    with patch("plugin.writer.html_export.document_to_content") as mock_dtc:
+        for kwargs in ({"scope": "range"}, {"scope": "range", "start": 2}, {"scope": "range", "end": 4}):
+            res = GetDocumentContent().execute(ctx, **kwargs)
+            assert res["status"] == "error"
+            assert res["message"] == "scope 'range' requires integer start and end."
+    mock_dtc.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "args, message",
+    [
+        ({"scope": "whole"}, "Invalid value for scope: 'whole'. Valid options: full, selection, range"),
+        ({"max_chars": True}, "Invalid type for max_chars: expected integer, got bool"),
+        ({"scope": "range", "start": "2", "end": 4}, "Invalid type for start: expected integer, got str"),
+    ],
+)
+def test_get_document_content_wrong_arguments_are_rejected_before_execute(args, message):
+    from types import SimpleNamespace
+
+    from plugin.framework.tool import prepare_tool_call
+    from plugin.writer.get_document_content import GetDocumentContent
+
+    ctx = SimpleNamespace(doc_type="writer", caller="test")
+    prep = prepare_tool_call(GetDocumentContent(), ctx, "get_document_content", args)
+    assert prep.error is not None
+    assert prep.error["code"] == "VALIDATION_ERROR"
+    assert prep.error["message"] == message
 
 
 def test_selection_with_no_content_warns():
