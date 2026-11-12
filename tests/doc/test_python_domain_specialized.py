@@ -122,9 +122,9 @@ def test_python_hint_and_examples_require_delegate_before_finish():
     from plugin.chatbot.smol_examples import PYTHON_SPECIALIZED_EXAMPLES, get_examples_block
     from plugin.framework.prompts import (
         DRAW_CORE_DIRECTIVES,
-        WRITER_CORE_DIRECTIVES,
         python_specialized_sub_agent_hint,
     )
+    from plugin.writer.specialized_base import DelegateToSpecializedWriter
 
     for label in ("Writer", "Calc", "Draw"):
         hint = python_specialized_sub_agent_hint(label)
@@ -165,9 +165,9 @@ def test_python_hint_and_examples_require_delegate_before_finish():
     assert "wa.shape.upsert" in ring
     assert "for-loop" in ring
     assert "via the shapes domain" in ring
-    assert 'rather than domain="shapes"' in WRITER_CORE_DIRECTIVES
+    assert 'rather than domain="shapes"' in DelegateToSpecializedWriter.description
     assert 'rather than domain="shapes"' in DRAW_CORE_DIRECTIVES
-    assert "draw a rectangle" in WRITER_CORE_DIRECTIVES
+    assert "draw a rectangle" in DelegateToSpecializedWriter.description
 
 
 def test_domain_loop_hints_include_footnotes_and_charts_lines():

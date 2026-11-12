@@ -18,6 +18,7 @@ from plugin.chatbot.agent_manual import (
     list_topics,
     manual_index,
     normalize_topic,
+    writer_topic_list_text,
 )
 from plugin.doc.document_research_tools import GetGuidance
 
@@ -125,7 +126,9 @@ def test_shared_pieces_are_identical_in_both_channels():
 
     writer_texts = {topic.id: topic.text for topic in _WRITER_TOPICS}
     # Topic -> the exact constants piece (identity, not a copy that could be edited apart).
-    assert writer_texts["editing-html"] is c.WRITER_APPLY_DOCUMENT_HTML_RULES
+    assert writer_texts["editing-html"] == c.WRITER_APPLY_DOCUMENT_HTML_RULES + c.HTML_MATH_AND_LINK_EXAMPLES
+    assert "Good math" in get_section("editing-html", "writer")
+    assert "|outline" in full_manual("writer")
     assert writer_texts["review-modes"] is c.WRITER_REVIEW_MODES_RULES
     assert writer_texts["search"] is c.WRITER_SEARCH_RULES
     assert writer_texts["navigation"] is c.WRITER_NAVIGATION_RULES
@@ -163,7 +166,8 @@ def test_sidebar_hybrid_prompt_composition():
         assert template.count(piece) == 1
     for piece in (c.WRITER_SEARCH_RULES, c.WRITER_NAVIGATION_RULES, c.WRITER_IMAGES_RULES):
         assert piece not in template          # on-demand, not ambient
-    assert "get_guidance" in template         # the tools section tells the model how to pull
+    assert writer_topic_list_text() in GetGuidance.description
+    assert c.HTML_MATH_AND_LINK_EXAMPLES not in template
     assert GetGuidance.tier == "core"         # visible to the sidebar's default tool list
 
 
