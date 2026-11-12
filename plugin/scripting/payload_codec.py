@@ -263,10 +263,9 @@ _CYTHON_ACCEL_MODULES = (
 def load_cython_accelerator() -> None:
     """Attempt to load the Cython accelerator and verify it via a runtime canary test.
 
-    Host-only.
-    Desktop host pack also calls it from ``host_pack_data``. Compute workers unpack
-    via ``frombuffer`` / pack ndarrays via ``tobytes`` and must not call this
-    (importing unpack helpers is not a load).
+    Host-only: ``host_pack_data`` and ``host_cython_status_line(reload=True)`` call it.
+    Compute workers unpack via ``frombuffer`` / pack ndarrays via ``tobytes`` and must
+    not call this (importing unpack helpers is not a load).
 
     ``=PY()`` can reach ``host_pack_data`` off the main thread (yellow bridge).
     Two first loads both bind the same canary-verified functions; the GIL makes

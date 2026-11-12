@@ -586,9 +586,9 @@ def format_run_output_text(result: dict[str, Any], execution_count: int | None =
         def is_only_images(obj: Any) -> bool:
             if is_image_payload(obj):
                 return True
-            if isinstance(obj, list) and obj and all(is_only_images(x) for x in obj):
-                return True
-            if isinstance(obj, dict) and is_multi_data(obj):
+            if isinstance(obj, list):
+                return bool(obj) and all(is_only_images(x) for x in obj)
+            if is_multi_data(obj):
                 items = obj["items"]
                 if items and all(is_only_images(x) for x in items):
                     return True

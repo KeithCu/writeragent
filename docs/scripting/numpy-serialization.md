@@ -306,7 +306,7 @@ Blank vs NaN policy (locked): [../calc/py-data-shapes.md — Empty cells vs NaN]
 
 Asymmetric simulation: **host** = stdlib pack/serialize; **child** = deserialize + materialize. Timings are median values; the automatic `split_grid` envelope is triggered when **at least 100 cells** (smaller grids fall back to standard Pickle lists). The bench compares four transport + envelope strategies:
 1. `json_list` (standard nested lists over JSON wire, materializing using `np.array(list)`).
-2. **`json+sg`** (split_grid envelope with Base64 `b64` buffer inside a JSON line, materializing using `np.frombuffer`).
+2. **`json+sg`** (split_grid envelope with Base64 `b64` buffer inside a JSON line, materializing using `np.frombuffer`; bench-only legacy coder in `payload_codec_test_support.py`; production `is_split_grid` rejects it).
 3. `pickle5` (Pickle protocol 5 of nested lists, which still requires expensive `np.array(list)` conversions in the child).
 4. **`pickle5+sg`** (**Winner**: split_grid envelope with raw `buffer` bytes inside Pickle5, materializing at C-speed via `np.frombuffer`).
 

@@ -261,4 +261,3 @@ def test_frame_and_series_fallback_grids():
     s_unnamed = pd.Series([1.5, 2.5])
     wire_unnamed = to_wire(s_unnamed, target="pickle")
     assert wire_unnamed == [1.5, 2.5]
-

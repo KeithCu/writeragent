@@ -1196,6 +1196,7 @@ def test_split_grid_pickle_and_json_round_trip():
     np = pytest.importorskip('numpy')
     grid = [[float(r * 10 + c) for c in range(4)] for r in range(4)]
     wire_json = legacy_b64_host_pack_split_grid(grid)
+    # Legacy b64 envelopes are rejected by production is_split_grid (decision 7).
     assert not is_split_grid(wire_json)
     assert 'b64' in wire_json
     assert 'buffer' not in wire_json
@@ -1218,6 +1219,7 @@ def test_split_grid_pickle_and_json_round_trip():
     assert unpacked_child_pickle.shape == (4, 4)
     np.testing.assert_allclose(unpacked_child_pickle, np.array(grid))
     child_wire_json = legacy_b64_child_pack_split_grid(np.array(grid))
+    # Legacy b64 envelopes are rejected by production is_split_grid (decision 7).
     assert not is_split_grid(child_wire_json)
     assert 'b64' in child_wire_json
     assert 'buffer' not in child_wire_json

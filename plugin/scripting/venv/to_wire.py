@@ -256,7 +256,7 @@ def to_wire(
     def _walk(val: Any, depth: int, is_packing_root: bool) -> Any:
         """Walk a value and convert to wire-safe format.
 
-        When True, a list or tuple at this node (holding no dict) is handed to
+        *is_packing_root*: when True, a list or tuple at this node (holding no dict) is handed to
         `child_pack_result` as one grid, which becomes split_grid when large
         enough. It is True for the result itself, each dict value, each set
         element, and a grid rebuilt from a CalcRange, DataFrame, Series or
@@ -453,7 +453,5 @@ def to_wire(
         else:
             grid = [_temporal_cell_to_stdlib(v, pd_mod) for v in val.tolist()]
         return _walk(grid, depth + 1, is_packing_root=True)
-
-    return _walk(obj, 0, is_packing_root=True)
 
     return _walk(obj, 0, is_packing_root=True)
