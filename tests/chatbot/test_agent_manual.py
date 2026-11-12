@@ -126,6 +126,7 @@ def test_shared_pieces_are_identical_in_both_channels():
 
     writer_texts = {topic.id: topic.text for topic in _WRITER_TOPICS}
     # Topic -> the exact constants piece (identity, not a copy that could be edited apart).
+    # editing-html = ambient block + pull-only examples; equality, since concatenation makes a new string.
     assert writer_texts["editing-html"] == c.WRITER_APPLY_DOCUMENT_HTML_RULES + c.HTML_MATH_AND_LINK_EXAMPLES
     assert "Good math" in get_section("editing-html", "writer")
     assert "|outline" in full_manual("writer")
