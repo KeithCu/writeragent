@@ -333,16 +333,19 @@ class TestSendDispose:
         assert listener.is_busy() is False
 
     def test_in_chat_mode_true_with_no_selector(self) -> None:
-        from plugin.chatbot.chat_sidebar_mode import CHAT_MODE_LIBRARIAN, _modes_for
+        from plugin.chatbot.chat_sidebar_mode import (
+            CHAT_MODE_LIBRARIAN,
+            set_selector_mode_with_flags,
+        )
 
         listener = _make_send_listener()
         listener.chat_mode_selector = None
         assert listener.in_chat_mode() is True
 
-        modes = _modes_for(listener.sidebar_mode_flags)
-        lib_idx = modes.index(CHAT_MODE_LIBRARIAN)
         selector = MagicMock()
-        selector.getSelectedItemPos.return_value = lib_idx
+        set_selector_mode_with_flags(selector, CHAT_MODE_LIBRARIAN, listener.sidebar_mode_flags)
+        pos = selector.selectItemPos.call_args[0][0]
+        selector.getSelectedItemPos.return_value = pos
         listener.chat_mode_selector = selector
         assert listener.in_chat_mode() is False
 
