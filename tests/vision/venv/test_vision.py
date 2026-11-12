@@ -401,14 +401,14 @@ def test_paddle_fallback_failure_preserves_docling_error(mock_convert):
 def test_run_vision_unknown_engine_returns_invalid_params():
     result = run_vision({"helper": "extract_text", "params": {"engine": "padle"}}, b"png-bytes", {})
     assert result["status"] == "error"
-    assert result["code"] == "INVALID_PARAMS"
+    assert result["code"] == "INVALID_PARAM"
     assert "Unknown vision engine" in result["message"]
 
 
 def test_run_vision_rejects_non_dict_params():
     result = run_vision({"helper": "extract_text", "params": ["lang", "en"]}, b"png-bytes", {})
     assert result["status"] == "error"
-    assert result["code"] == "INVALID_PARAMS"
+    assert result["code"] == "INVALID_PARAM"
     assert "params" in result["message"]
 
 
