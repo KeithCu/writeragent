@@ -125,7 +125,7 @@ def test_raw_lang_to_bcp47_table() -> None:
 
 
 def test_harper_locale_normalization_contract() -> None:
-    from plugin.writer.locale.harper_proofreader import normalize_harper_locale_to_bcp47
+    from plugin.writer.locale.harper import normalize_harper_locale_to_bcp47
 
     assert normalize_harper_locale_to_bcp47(SimpleNamespace(Language="en-NZ", Country="", Variant="")) == "en-US"
     assert normalize_harper_locale_to_bcp47(SimpleNamespace(Language="en", Country="NZ", Variant="")) == "en-US"

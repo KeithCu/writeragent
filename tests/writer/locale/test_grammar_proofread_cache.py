@@ -258,19 +258,18 @@ def test_cache_persistence_fallback() -> None:
     from unittest.mock import MagicMock
     from plugin.writer.locale.grammar_persistence import DocumentPersistence
     
-    ctx = MagicMock()
     mock_p = MagicMock(spec=DocumentPersistence)
     errors = [{"wrong": "test", "correct": "TEST", "n_error_start": 0, "n_error_length": 4}]
     mock_p.get.return_value = errors
     
     with patch("plugin.writer.locale.grammar_proofread_cache.get_persistence", return_value=mock_p):
         # 1. Get from persistence (memory miss)
-        got = gc.cache_get_sentence("en-US", "Persistence test.", ctx=ctx, doc_id="doc1")
+        got = gc.cache_get_sentence("en-US", "Persistence test.", doc_id="doc1")
         assert got == errors
         mock_p.get.assert_called_once()
         
         # 2. Subsequent call should hit memory (mock_p.get NOT called again)
-        got2 = gc.cache_get_sentence("en-US", "Persistence test.", ctx=ctx, doc_id="doc1")
+        got2 = gc.cache_get_sentence("en-US", "Persistence test.", doc_id="doc1")
         assert got2 == errors
         assert mock_p.get.call_count == 1
 
@@ -280,15 +279,14 @@ def test_document_mode_populates_memory_cache() -> None:
     from unittest.mock import MagicMock
     from plugin.writer.locale.grammar_persistence import DocumentPersistence
 
-    ctx = MagicMock()
     mock_p = MagicMock(spec=DocumentPersistence)
     mock_p.get.return_value = [{"n_error_start": 0, "n_error_length": 1, "rule_identifier": "t"}]
 
     with patch("plugin.writer.locale.grammar_proofread_cache.get_persistence", return_value=mock_p) as mock_gp:
-        got = gc.cache_get_sentence("en-US", "Hello.", ctx=ctx, doc_id="uid-1")
+        got = gc.cache_get_sentence("en-US", "Hello.", doc_id="uid-1")
         assert got is not None
         assert len(gc.grammar_registry.sentence_cache) == 1
-        mock_gp.assert_called_once_with(ctx, "uid-1")
+        mock_gp.assert_called_once_with("uid-1")
 
 
 def test_l1_miss_across_checker_identity() -> None:
@@ -309,9 +307,8 @@ def test_cross_document_l1_cache_hit() -> None:
     mock_p_a = MagicMock()
     mock_p_b = MagicMock()
     mock_p_b.get.return_value = None
-    ctx = MagicMock()
 
-    def _get_persistence(_ctx: object, doc_id: str, **kwargs: object) -> MagicMock | None:
+    def _get_persistence(doc_id: str, **kwargs: object) -> MagicMock | None:
         if doc_id == "doc-a":
             return mock_p_a
         if doc_id == "doc-b":
@@ -319,9 +316,9 @@ def test_cross_document_l1_cache_hit() -> None:
         return None
 
     with patch("plugin.writer.locale.grammar_proofread_cache.get_persistence", side_effect=_get_persistence):
-        gc.cache_put_sentence("en-US", "Same sentence here.", errors, ctx=ctx, doc_id="doc-a")
+        gc.cache_put_sentence("en-US", "Same sentence here.", errors, doc_id="doc-a")
         mock_p_a.put.assert_called_once()
-        got = gc.cache_get_sentence("en-US", "Same sentence here.", ctx=ctx, doc_id="doc-b")
+        got = gc.cache_get_sentence("en-US", "Same sentence here.", doc_id="doc-b")
         assert got is not None
         assert len(got) == 1
         mock_p_b.get.assert_not_called()
@@ -332,7 +329,6 @@ def test_l1_hit_records_session_accessed_for_doc() -> None:
     from unittest.mock import MagicMock
     from plugin.writer.locale.grammar_persistence import DocumentPersistence
 
-    ctx = MagicMock()
     model = MagicMock()
     with patch("plugin.doc.udprops.get_document_property", return_value=None):
         dp = DocumentPersistence("doc-track", model=model)
@@ -341,7 +337,7 @@ def test_l1_hit_records_session_accessed_for_doc() -> None:
         gc.cache_put_sentence("en-US", "Track me.", [])
         assert len(dp._session_accessed) == 0
 
-        got = gc.cache_get_sentence("en-US", "Track me.", ctx=ctx, doc_id="doc-track")
+        got = gc.cache_get_sentence("en-US", "Track me.", doc_id="doc-track")
         assert got == []
         fp = sentence_identity_fp("Track me.")
         assert ("en-US", fp) in dp._session_accessed
@@ -408,21 +404,20 @@ def test_l2_same_sentence_is_locale_specific() -> None:
     """L1 miss must not serve another CharLocale's L2 errors or good row."""
     from plugin.writer.locale.grammar_persistence import DocumentPersistence
 
-    ctx = MagicMock()
     model = MagicMock()
     with patch("plugin.doc.udprops.get_document_property", return_value=None):
         dp = DocumentPersistence("doc-locales", model=model)
     en_errors = [{"n_error_start": 0, "n_error_length": 5, "rule_identifier": "en-rule"}]
     fr_errors = [{"n_error_start": 1, "n_error_length": 2, "rule_identifier": "fr-rule"}]
     with patch("plugin.writer.locale.grammar_proofread_cache.get_persistence", return_value=dp):
-        gc.cache_put_sentence("en-US", "Bonjour.", en_errors, ctx=ctx, doc_id="doc-locales")
-        gc.cache_put_sentence("fr-FR", "Bonjour.", fr_errors, ctx=ctx, doc_id="doc-locales")
-        gc.cache_put_sentence("en-US", "Clean sentence.", [], ctx=ctx, doc_id="doc-locales")
+        gc.cache_put_sentence("en-US", "Bonjour.", en_errors, doc_id="doc-locales")
+        gc.cache_put_sentence("fr-FR", "Bonjour.", fr_errors, doc_id="doc-locales")
+        gc.cache_put_sentence("en-US", "Clean sentence.", [], doc_id="doc-locales")
         gc.dump_l1_sentence_cache()
-        got_en = gc.cache_get_sentence("en-US", "Bonjour.", ctx=ctx, doc_id="doc-locales")
-        got_fr = gc.cache_get_sentence("fr-FR", "Bonjour.", ctx=ctx, doc_id="doc-locales")
-        got_clean_fr = gc.cache_get_sentence("fr-FR", "Clean sentence.", ctx=ctx, doc_id="doc-locales")
-        got_clean_en = gc.cache_get_sentence("en-US", "Clean sentence.", ctx=ctx, doc_id="doc-locales")
+        got_en = gc.cache_get_sentence("en-US", "Bonjour.", doc_id="doc-locales")
+        got_fr = gc.cache_get_sentence("fr-FR", "Bonjour.", doc_id="doc-locales")
+        got_clean_fr = gc.cache_get_sentence("fr-FR", "Clean sentence.", doc_id="doc-locales")
+        got_clean_en = gc.cache_get_sentence("en-US", "Clean sentence.", doc_id="doc-locales")
     assert got_en is not None and got_en[0]["rule_identifier"] == "en-rule"
     assert got_fr is not None and got_fr[0]["rule_identifier"] == "fr-rule"
     assert got_clean_fr is None
@@ -450,7 +445,7 @@ def test_store_sentence_result_normalizes_caches_and_filters() -> None:
     assert len(active) == 1
     assert active[0]["rule_identifier"] == "harper||Grammar"
     # Cached payload contains all normalized errors
-    cached = gc.cache_get_sentence("en-US", "they is here.", ctx=ctx, doc_id="d1", checker_identity="harper")
+    cached = gc.cache_get_sentence("en-US", "they is here.", doc_id="d1", checker_identity="harper")
     assert cached is not None
     assert len(cached) == 2
 

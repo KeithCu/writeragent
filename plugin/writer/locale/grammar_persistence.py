@@ -8,7 +8,7 @@ Per-document persistence stores sentence results in user-defined document proper
 and keeps a process-local map keyed by LibreOffice ``aDocumentIdentifier`` (often a
 small integer per open doc, not ``RuntimeUID``). The first ``doProofreading`` resolves
 the Writer model from the desktop (current text component, or the open Writer this
-call is for) and passes it to ``get_persistence(ctx, doc_id, model=...)``. The model
+call is for) and passes it to ``get_persistence(doc_id, model=...)``. The model
 is not read back from this map. A later call does not replace a bound model or reload
 udprops over live edits. ``OnUnload`` / dispose removes map entries so instances can
 be garbage-collected.
@@ -687,9 +687,9 @@ class DocumentPersistence:
         self._persist_to_udprops()
 
 
-def get_persistence(ctx: Any, doc_id: str | None = None, *, model: Any = None) -> DocumentPersistence | None:
-    """Return per-document persistence for grammar sentence cache."""
-    if ctx is None or not doc_id:
+def get_persistence(doc_id: str | None, *, model: Any = None) -> DocumentPersistence | None:
+    """Return per-document persistence for grammar sentence cache; an empty doc_id means memory tier only."""
+    if not doc_id:
         return None
     with grammar_registry.lock:
         existing = grammar_registry.doc_persistence_instances.get(doc_id)
