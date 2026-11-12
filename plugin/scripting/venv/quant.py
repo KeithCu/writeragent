@@ -15,14 +15,14 @@ from plugin.scripting.helper_registry import helper
 from plugin.scripting.venv.coerce import (
     date_column,
     flat_label,
-    is_missing_value as _is_missing_value,
+    is_missing_value,
     parse_date_column,
-    resolve_df as _resolve_df,
+    resolve_df,
 )
 from plugin.scripting.venv.results import error_result
 from plugin.scripting.venv.trusted_dispatch import (
-    missing_package_error as _missing_package_error,
-    ok_result as _ok_result,
+    missing_package_error,
+    ok_result,
     run_domain,
 )
 
@@ -55,7 +55,7 @@ def _flatten_tickers(raw_tickers: Any) -> list[str]:
         else:
             cells = (row,)
         for cell in cells:
-            if _is_missing_value(cell):
+            if is_missing_value(cell):
                 continue
             clean.extend(part.strip() for part in str(cell).split(",") if part.strip())
     return clean
@@ -109,7 +109,7 @@ def fetch_historical_data(params: dict[str, Any]) -> dict[str, Any]:
     try:
         import yfinance as yf  # type: ignore
     except ImportError:
-        return _missing_package_error("fetch_historical_data", "yfinance")
+        return missing_package_error("fetch_historical_data", "yfinance")
 
     tickers = _flatten_tickers(params.get("tickers", []))
     if not tickers:
@@ -152,7 +152,7 @@ def fetch_historical_data(params: dict[str, Any]) -> dict[str, Any]:
         columns = [flat_label(col) for col in data.columns]
         records = data.values.tolist()
 
-        return _ok_result(
+        return ok_result(
             "fetch_historical_data",
             table={
                 "columns": columns,
@@ -176,7 +176,7 @@ def technical_analysis(
         # Importing pandas_ta registers DataFrame.ta. The module object is unused.
         importlib.import_module("pandas_ta")
     except ImportError:
-        return _missing_package_error("technical_analysis", "pandas-ta")
+        return missing_package_error("technical_analysis", "pandas-ta")
 
     raw_indicators = params.get("indicators", _INDICATOR_NAMES)
     # A string is one indicator name, not a sequence of characters. An unknown
@@ -205,7 +205,7 @@ def technical_analysis(
 
     # Coerce inside the try so a bad grid is a result error, not a worker crash.
     try:
-        res = _resolve_df(data, headers=headers, header_row=header_row)
+        res = resolve_df(data, headers=headers, header_row=header_row)
         df = res.df
 
         # headers=False leaves integer column labels. str() before lower().
@@ -227,7 +227,7 @@ def technical_analysis(
 
         _stringify_datetimes(df)
 
-        return _ok_result(
+        return ok_result(
             "technical_analysis",
             table={
                 "columns": list(df.columns),
@@ -251,11 +251,11 @@ def portfolio_tearsheet(
         import pandas as pd
         import quantstats as qs  # type: ignore
     except ImportError:
-        return _missing_package_error("portfolio_tearsheet", "quantstats")
+        return missing_package_error("portfolio_tearsheet", "quantstats")
 
     # Coerce inside the try so a bad grid is a result error, not a worker crash.
     try:
-        res = _resolve_df(data, headers=headers, header_row=header_row)
+        res = resolve_df(data, headers=headers, header_row=header_row)
         df = res.df
 
         if df.empty:
@@ -315,7 +315,7 @@ def portfolio_tearsheet(
         else:
             metrics_dict = metrics.to_dict()
 
-        return _ok_result(
+        return ok_result(
             "portfolio_tearsheet",
             metrics=metrics_dict,
             **({"warning": " ".join(warnings)} if warnings else {}),
@@ -338,11 +338,11 @@ def efficient_frontier(
         from pypfopt.expected_returns import mean_historical_return  # type: ignore
         from pypfopt.risk_models import CovarianceShrinkage  # type: ignore
     except ImportError:
-        return _missing_package_error("efficient_frontier", "PyPortfolioOpt")
+        return missing_package_error("efficient_frontier", "PyPortfolioOpt")
 
     # Coerce inside the try so a bad grid is a result error, not a worker crash.
     try:
-        res = _resolve_df(data, headers=headers, header_row=header_row)
+        res = resolve_df(data, headers=headers, header_row=header_row)
         df = res.df
 
         # Case-insensitive date column, shared with portfolio_tearsheet
@@ -407,7 +407,7 @@ def efficient_frontier(
         ef.max_sharpe(risk_free_rate=rfr)
         cleaned_weights = ef.clean_weights()
 
-        return _ok_result(
+        return ok_result(
             "efficient_frontier",
             weights=cleaned_weights,
             **({"warning": " ".join(notes)} if notes else {}),
