@@ -154,7 +154,7 @@ def _assign_graphic_source(graphic: Any, file_url: str, ctx: Any | None = None) 
 
 
 def _create_embedded_graphic(model: Any, inside: str, file_url: str, ctx: Any | None = None) -> Any:
-    if inside in ("writer", "web"):
+    if visual_helpers.is_writer_like(inside):
         graphic = model.createInstance(visual_helpers.WRITER_GRAPHIC_SERVICE)
     else:
         graphic = model.createInstance(visual_helpers.DRAW_GRAPHIC_SERVICE)
@@ -184,7 +184,7 @@ def _dispatch_insert_image(
 
     inside = visual_helpers.get_visual_doc_type(model)
     with WriterCompoundUndo(model, "WriterAgent: Insert image"):
-        if inside in ("writer", "web"):
+        if visual_helpers.is_writer_like(inside):
             if add_frame:
                 _insert_frame(ctx, model, img_path, width_units, height_units, title, description)
                 return None

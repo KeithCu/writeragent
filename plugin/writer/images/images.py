@@ -19,25 +19,25 @@
 The seven image tools stay separate; an action-union schema is not the plan.
 """
 
+import base64
+from dataclasses import dataclass
 import hashlib
 import logging
 import os
-import socket
-import ssl
 import tempfile
 import time
 import typing
 from typing import Any
 import urllib.parse
-import urllib.request
 
 from plugin.framework.errors import (
+    NetworkError,
     ToolExecutionError,
     best_effort,
+    name_miss_details,
     reraise_if_disposed,
     resolve_exception_message,
 )
-from plugin.framework.errors import name_miss_details
 from plugin.framework.queue_executor import main
 from plugin.framework.send_cancellation import SendCancellation, is_cancelled
 from ..specialized_base import ToolWriterImageBase, enum_param
@@ -46,18 +46,16 @@ from ..specialized_base import ToolWriterImageBase, enum_param
 # Independent of the HTTP read budget so a short network timeout doesn't drop an insert.
 _DOCUMENT_MARSHAL_TIMEOUT_SEC = 120.0
 from .image_utils import (
-    IMAGE_CONTENT_TYPE_DENYLIST,
     IMAGE_DOWNLOAD_MAX_BYTES,
     ImageService,
     _unlink_temp_paths,
-    validated_image_suffix,
+    fetch_image_url,
 )
 from . import image_mark, image_tools
 from plugin.framework.config import get_config
 from plugin.framework.config_schema import DEFAULT_IMAGE_BASE_SIZE
 from plugin.framework.client.base_provider_shim import canonical_aspect_ratio, closest_aspect_label
 from plugin.framework.client.model_fetcher import get_image_model
-from plugin.framework.constants import USER_AGENT
 from plugin.framework.model_lru import update_lru_history
 from plugin.doc.document_research import list_nearby_files
 from plugin.doc import visual_helpers
@@ -74,18 +72,12 @@ from .image_tools import (
 
 log = logging.getLogger("writeragent.writer")
 
-_IMAGE_DOWNLOAD_CHUNK = 64 * 1024
-
 
 def _orient_number(raw: Any) -> int | None:
     # 0 is HoriOrientation.NONE. Do not treat 0 as missing.
     if isinstance(raw, bool) or not isinstance(raw, (int, float)):
         return None
     return int(raw)
-
-
-def _is_writer_doc(doc_type: str) -> bool:
-    return doc_type in ("writer", "web")
 
 
 def _fill_missing_dimension(
@@ -198,6 +190,66 @@ def resolve_edit_generation_size(base_size: int, src_width: int, src_height: int
     return width, height, canonical_aspect_ratio(width, height) or label
 
 
+@dataclass(frozen=True)
+class _EditSource:
+    """The selected graphic that image_generate edits (img2img)."""
+
+    obj: Any  # the selected graphic object; replaced in place after generation
+    png: bytes  # exported PNG bytes
+    width_px: int  # native pixels (or derived from the frame / default base size)
+    height_px: int
+    frame_w: int  # on-page frame size in 1/100 mm
+    frame_h: int
+
+
+def _read_edit_source(ctx: Any) -> _EditSource | None:
+    # Export failures propagate. execute_safe logs once and maps them
+    # to TOOL_EXECUTION_ERROR, or DOCUMENT_DISPOSED. An empty export
+    # is "no selection", not a failed read.
+    obj = visual_helpers.selected_graphic_object(ctx.doc)
+    if obj is None:
+        return None
+    try:
+        png_bytes = export_graphic_object_to_bytes(ctx.ctx, obj)
+    except Exception as exc:
+        reraise_if_disposed(exc)
+        raise
+    if not png_bytes:
+        return None
+
+    # Native pixel size for generation resolution
+    graphic = visual_helpers.graphic_from_object(obj)
+    nw, nh = None, None
+    if graphic is not None:
+        try:
+            px = visual_helpers.safe_get_property(graphic, "SizePixel")
+            if px is not None and getattr(px, "Width", 0) > 0 and getattr(px, "Height", 0) > 0:
+                nw, nh = int(px.Width), int(px.Height)
+        except Exception as ex:
+            reraise_if_disposed(ex)
+            log.debug("Failed to read SizePixel: %s", ex)
+
+    # Frame size in 1/100 mm for on-page display
+    frame_w, frame_h = None, None
+    try:
+        size = obj.getSize()
+        if size is not None and getattr(size, "Width", 0) > 0 and getattr(size, "Height", 0) > 0:
+            frame_w, frame_h = int(size.Width), int(size.Height)
+    except Exception as ex:
+        reraise_if_disposed(ex)
+        log.debug("Failed to read frame size: %s", ex)
+
+    if nw is None or nh is None:
+        if frame_w is not None and frame_h is not None:
+            nw, nh = visual_helpers.units_to_px(frame_w, frame_h)
+        else:
+            nw, nh = DEFAULT_IMAGE_BASE_SIZE, DEFAULT_IMAGE_BASE_SIZE
+    if frame_w is None or frame_h is None:
+        frame_w, frame_h = visual_helpers.px_to_display_units(nw, nh)
+
+    return _EditSource(obj, png_bytes, nw, nh, frame_w, frame_h)
+
+
 class ImageGenerate(ToolWriterImageBase):
     """Generate a new image from a prompt, or edit an existing image (Img2Img)."""
 
@@ -261,90 +313,35 @@ class ImageGenerate(ToolWriterImageBase):
             )
 
         # Peek selection when the caller asked to edit, or omitted source_image
-        # (omitted + selected graphic → img2img; omitted + no selection → create).
-        def _read_selection_for_edit() -> tuple[str, tuple[Any, str, int, int, int, int] | None]:
-            # Export failures propagate. execute_safe logs once and maps them
-            # to TOOL_EXECUTION_ERROR, or DOCUMENT_DISPOSED. An empty export
-            # is "no selection", not a failed read.
-            obj = visual_helpers.selected_graphic_object(ctx.doc)
-            if obj is None:
-                return ("no_selection", None)
-            try:
-                png_bytes = export_graphic_object_to_bytes(ctx.ctx, obj)
-            except Exception as exc:
-                reraise_if_disposed(exc)
-                raise
-            if not png_bytes:
-                return ("no_selection", None)
-            if len(png_bytes) > IMAGE_DOWNLOAD_MAX_BYTES:
-                return ("too_large", None)
-            import base64
-
-            b64 = base64.b64encode(png_bytes).decode("ascii")
-
-            # Native pixel size for generation resolution
-            graphic = visual_helpers.graphic_from_object(obj)
-            nw, nh = None, None
-            if graphic is not None:
-                try:
-                    px = visual_helpers.safe_get_property(graphic, "SizePixel")
-                    if px is not None and getattr(px, "Width", 0) > 0 and getattr(px, "Height", 0) > 0:
-                        nw, nh = int(px.Width), int(px.Height)
-                except Exception as ex:
-                    reraise_if_disposed(ex)
-                    log.debug("Failed to read SizePixel: %s", ex)
-
-            # Frame size in 1/100 mm for on-page display
-            frame_w, frame_h = None, None
-            try:
-                size = obj.getSize()
-                if size is not None and getattr(size, "Width", 0) > 0 and getattr(size, "Height", 0) > 0:
-                    frame_w, frame_h = int(size.Width), int(size.Height)
-            except Exception as ex:
-                reraise_if_disposed(ex)
-                log.debug("Failed to read frame size: %s", ex)
-
-            if nw is None or nh is None:
-                if frame_w is not None and frame_h is not None:
-                    nw, nh = visual_helpers.units_to_px(frame_w, frame_h)
-                else:
-                    nw, nh = DEFAULT_IMAGE_BASE_SIZE, DEFAULT_IMAGE_BASE_SIZE
-            if frame_w is None or frame_h is None:
-                frame_w, frame_h = visual_helpers.px_to_display_units(nw, nh)
-
-            return ("ok", (obj, b64, nw, nh, frame_w, frame_h))
-
-        tag, payload = main.run(_read_selection_for_edit, timeout=mt_timeout)
-        if tag == "too_large":
+        # (omitted + selected graphic -> img2img; omitted + no selection -> create).
+        source: _EditSource | None = main.run(_read_edit_source, ctx, timeout=mt_timeout)
+        if source is not None and len(source.png) > IMAGE_DOWNLOAD_MAX_BYTES:
             return self._tool_error(
                 "Selected image is larger than %d MB; crop it or choose a smaller image to edit."
                 % (IMAGE_DOWNLOAD_MAX_BYTES // (1024 * 1024)),
                 code="INVALID_PARAM",
                 parameter="source_image",
             )
-        if source_image is not None and tag != "ok":
+        if source_image is not None and source is None:
             return self._tool_error("No image selected. Please select an image in the document first.", code="NO_SELECTION", action="edit_image")
-        is_edit = tag == "ok"
+
         base_size = args.get("base_size", get_config("image_base_size"))
         gen_kwargs: dict[str, Any] = {}
         image_model = args.get("image_model")
         if image_model:
             gen_kwargs["image_model"] = image_model
 
-        if is_edit:
-            picked = typing.cast("tuple[Any, str, int, int, int, int]", payload)
-            target_obj, source_b64, edit_width, edit_height = (picked[0], str(picked[1]), int(picked[2]), int(picked[3]))
-            display_width, display_height = int(picked[4]), int(picked[5])
-            gen_kwargs["source_image"] = source_b64
+        if source is not None:
+            gen_kwargs["source_image"] = base64.b64encode(source.png).decode("ascii")
             # Omitted size is the Settings base-size grid. The file's pixels
             # and the on-page frame only supply the aspect. An explicit side
             # still scales from the selection, and the retry drops a tier the
             # model rejects.
             if args.get("width") is None and args.get("height") is None:
-                width, height, wire_ratio = resolve_edit_generation_size(base_size, edit_width, edit_height)
+                width, height, wire_ratio = resolve_edit_generation_size(base_size, source.width_px, source.height_px)
             else:
                 width, height, wire_ratio = _explicit_generation_size(
-                    args.get("width"), args.get("height"), edit_width, edit_height
+                    args.get("width"), args.get("height"), source.width_px, source.height_px
                 )
         else:
             aspect = args.get("aspect_ratio") or get_config("image_default_aspect")
@@ -380,16 +377,16 @@ class ImageGenerate(ToolWriterImageBase):
         def _insert_or_replace() -> str:
             # Bytes are already in hand. Stop may abort the network wait above;
             # it does not skip this document insert.
-            if is_edit:
+            if source is not None:
                 replaced = False
                 try:
                     replaced = replace_graphic_source(
                         ctx.ctx,
                         ctx.doc,
-                        target_obj,  # pyright: ignore[reportPossiblyUnboundVariable]
+                        source.obj,
                         img_path,
-                        display_width,  # pyright: ignore[reportPossiblyUnboundVariable]
-                        display_height,  # pyright: ignore[reportPossiblyUnboundVariable]
+                        source.frame_w,
+                        source.frame_h,
                         title=prompt,
                         description="Edited by endpoint",
                     )
@@ -410,7 +407,7 @@ class ImageGenerate(ToolWriterImageBase):
                         description="Edited by endpoint",
                         add_to_gallery=add_to_gallery,
                         add_frame=add_frame,
-                        size_units=(display_width, display_height),  # pyright: ignore[reportPossiblyUnboundVariable]
+                        size_units=(source.frame_w, source.frame_h),
                     )
                 return "Image edited and inserted from endpoint."
             insert_image(ctx.ctx, ctx.doc, img_path, width, height, title=prompt, description="Generated by endpoint", add_to_gallery=add_to_gallery, add_frame=add_frame)
@@ -432,23 +429,18 @@ class ImageGenerate(ToolWriterImageBase):
         return {"status": "ok", "message": msg}
 
 
-class _DownloadStopped(Exception):
-    pass
-
-
 def _download_for_tool(
     tool: Any,
     url: str,
     *,
-    verify_ssl: bool = True,
     force: bool = False,
     cancel: SendCancellation | None = None,
 ) -> str | dict[str, Any]:
     try:
-        return _download_image_to_cache(url, verify_ssl=verify_ssl, force=force, cancel=cancel)
-    except _DownloadStopped:
-        return tool._tool_error("Image download stopped by user.", code="USER_STOPPED", url=url)
+        return _download_image_to_cache(url, force=force, cancel=cancel)
     except Exception as exc:
+        if (isinstance(exc, NetworkError) and exc.code == "STOPPED") or is_cancelled(cancel):
+            return tool._tool_error("Image download stopped by user.", code="USER_STOPPED", url=url)
         log.exception("image download failed")
         return tool._tool_error("Could not download image: %s" % exc, code="DOWNLOAD_FAILED", url=url)
 
@@ -549,7 +541,7 @@ class ImageList(ToolWriterImageBase):
         doc_type = visual_helpers.get_visual_doc_type(doc)
         is_calc = doc_type == "calc"
         is_draw = doc_type in ("draw", "impress")
-        is_writer = _is_writer_doc(doc_type)
+        is_writer = visual_helpers.is_writer_like(doc_type)
         if is_writer and not hasattr(doc, "getGraphicObjects"):
             return self._tool_error("Document does not support graphic objects.")
         graphics_names = visual_helpers.list_graphic_objects(doc, doc_type=doc_type)
@@ -668,6 +660,15 @@ class ImageList(ToolWriterImageBase):
 # ------------------------------------------------------------------
 
 
+def _image_not_found(tool: Any, image_name: str) -> dict[str, Any]:
+    return tool._tool_error(
+        "Image '%s' not found or document does not support graphic objects." % image_name,
+        code="IMAGE_NOT_FOUND",
+        image_name=image_name,
+        **name_miss_details(image_name, [], "image_list"),
+    )
+
+
 def _resolve_graphic(tool: Any, ctx: Any, image_name: str, sheet_index: int | None = None) -> tuple[Any, dict[str, Any] | None]:
     try:
         graphic = visual_helpers.get_graphic_object_by_name(ctx.doc, image_name, sheet_index=sheet_index)
@@ -675,12 +676,7 @@ def _resolve_graphic(tool: Any, ctx: Any, image_name: str, sheet_index: int | No
         sheets = getattr(exc, "sheet_indices", None)
         return None, tool._tool_error(str(exc), code="AMBIGUOUS_NAME", image_name=image_name, sheet_indices=sheets, sheets=sheets)
     if not graphic:
-        return None, tool._tool_error(
-            "Image '%s' not found or document does not support graphic objects." % image_name,
-            code="IMAGE_NOT_FOUND",
-            image_name=image_name,
-            **name_miss_details(image_name, [], "image_list"),
-        )
+        return None, _image_not_found(tool, image_name)
     return graphic, None
 
 
@@ -760,7 +756,7 @@ class ImageGetInfo(ToolWriterImageBase):
 
         # Paragraph index via anchor
         paragraph_index = -1
-        is_writer = _is_writer_doc(visual_helpers.get_visual_doc_type(ctx.doc))
+        is_writer = visual_helpers.is_writer_like(visual_helpers.get_visual_doc_type(ctx.doc))
         if is_writer:
             try:
                 anchor = graphic.getAnchor()
@@ -1174,7 +1170,6 @@ class ImageDownload(ToolWriterImageBase):
 
     name: str | None = "image_download"
     description: str = "Download an image from URL to local cache. Returns local path for image_insert/image_replace."
-    scripting_only_parameters: frozenset[str] = frozenset({"verify_ssl"})
     parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
@@ -1184,22 +1179,16 @@ class ImageDownload(ToolWriterImageBase):
         "required": ["url"],
     }
 
-
     def is_async(self) -> bool:
         """HTTP runs on the tool worker. This tool does not touch the document."""
         return True
 
     def execute(self, ctx: typing.Any, **kwargs: typing.Any) -> dict[str, Any]:
         url = kwargs["url"]
-
-        verify_ssl = kwargs.get("verify_ssl", True)
-        # A missing or null flag must not turn verification off.
-        if verify_ssl is None:
-            verify_ssl = True
         force = kwargs.get("force", False)
         cancel = ctx.send_cancellation
 
-        dl_result = _download_for_tool(self, url, verify_ssl=verify_ssl, force=force, cancel=cancel)
+        dl_result = _download_for_tool(self, url, force=force, cancel=cancel)
         if isinstance(dl_result, dict):
             return dl_result
         return {"status": "ok", "local_path": dl_result, "url": url}
@@ -1329,7 +1318,7 @@ class ImageInsert(ToolWriterImageBase):
                     width_mm = height_mm = side
 
             if target in ("header", "footer", "header_first", "footer_first"):
-                if not _is_writer_doc(doc_type):
+                if not visual_helpers.is_writer_like(doc_type):
                     return self._tool_error(
                         "target='%s' is only supported for Writer documents." % target,
                         code="UNSUPPORTED_DOC_TYPE",
@@ -1349,8 +1338,7 @@ class ImageInsert(ToolWriterImageBase):
                 graphic = placed["graphic"]
                 if graphic is None:
                     return self._tool_error("Failed to insert image.", code="INSERT_FAILED", path=image_path)
-                get_name = getattr(graphic, "getName", None)
-                image_name = get_name() if callable(get_name) else ""
+                image_name = graphic.getName()
                 return {
                     "status": "ok",
                     "image_name": image_name,
@@ -1361,7 +1349,7 @@ class ImageInsert(ToolWriterImageBase):
                     "auto_height": placed["auto_height"],
                 }
 
-            if (locator is not None or paragraph_index is not None) and not _is_writer_doc(doc_type):
+            if (locator is not None or paragraph_index is not None) and not visual_helpers.is_writer_like(doc_type):
                 return self._tool_error(
                     "locator and paragraph parameters are only supported for Writer documents.",
                     code="UNSUPPORTED_DOC_TYPE",
@@ -1396,7 +1384,7 @@ class ImageInsert(ToolWriterImageBase):
             if graphic is None:
                 return self._tool_error("Failed to insert image.", code="INSERT_FAILED", path=image_path)
 
-            image_name = graphic.getName() if hasattr(graphic, "getName") else ""
+            image_name = graphic.getName()
             return {"status": "ok", "image_name": image_name, "width_mm": width_mm, "height_mm": height_mm}
 
         return main.run(_place, timeout=_DOCUMENT_MARSHAL_TIMEOUT_SEC, bound_scope=None)
@@ -1435,10 +1423,10 @@ class ImageDelete(ToolWriterImageBase):
             return err
 
         doc_type = visual_helpers.get_visual_doc_type(ctx.doc)
-        if not _is_writer_doc(doc_type):
+        if not visual_helpers.is_writer_like(doc_type):
             try:
                 if not visual_helpers.remove_graphic_from_draw_pages(ctx.doc, graphic):
-                    return self._tool_error("Image '%s' not found or document does not support graphic objects." % image_name, code="IMAGE_NOT_FOUND", image_name=image_name)
+                    return _image_not_found(self, image_name)
             except ValueError as exc:
                 return self._tool_error(str(exc), code="AMBIGUOUS_NAME", image_name=image_name)
         else:
@@ -1597,48 +1585,18 @@ def _prune_image_cache(cache_dir: str, keep_path: str) -> None:
                 pass
 
 
-def _response_socket(response: Any) -> Any | None:
-    """The socket under a urllib response: ``.sock``, ``fp.raw._sock`` (HTTP/HTTPS), or ``fp._sock``."""
-    sock = getattr(response, "sock", None)
-    if sock is None:
-        fp = getattr(response, "fp", None)
-        if fp is not None:
-            raw_io = getattr(fp, "raw", None)
-            sock = getattr(raw_io, "_sock", None) if raw_io is not None else getattr(fp, "_sock", None)
-    return sock if sock is not None and hasattr(sock, "settimeout") else None
-
-
-def _set_read_timeout(response: Any, seconds: float) -> bool:
-    """Shorten the per-read socket timeout so Stop is checked between chunks.
-
-    Returns False (and warns) when no socket is reachable or settimeout fails:
-    reads then block up to request_timeout each, so Stop is slow but still bounded.
-    """
-    sock = _response_socket(response)
-    if sock is None:
-        log.warning("image download: no socket on response; Stop may wait up to request_timeout")
-        return False
-    try:
-        sock.settimeout(seconds)
-    except (OSError, ValueError):
-        log.warning("image download: could not set socket timeout; Stop may wait up to request_timeout", exc_info=True)
-        return False
-    return True
-
-
 def _download_image_to_cache(
     url: str,
-    verify_ssl: bool = True,
     force: bool = False,
     cancel: SendCancellation | None = None,
 ) -> str:
     """Download an image URL to the local cache directory.
 
     Returns the local file path. Uses a URL-based hash for caching.
-
-    TLS certificates are verified unless the caller passes ``verify_ssl=False``.
-    Image replace and image insert use this default, so an https URL is not
-    fetched with hostname checks disabled.
+    TLS verification, retries, Stop and the byte cap are handled by the
+    shared HTTP transport. The download is written to a temporary partial file
+    and atomically renamed into place so a crash or abort never leaves a
+    truncated file that looks like a cache hit.
     """
     parsed = urllib.parse.urlparse(url)
     if parsed.scheme.lower() not in ("http", "https"):
@@ -1669,81 +1627,22 @@ def _download_image_to_cache(
 
     log.info("image_download: downloading %s (hash %s)", url, url_hash)
 
-    # ImageReplace, ImageInsert, and ImageDownload verify https
-    # certificates. verify_ssl=False downloads with CERT_NONE.
-    # Verification stays on unless the caller opts out.
-    if verify_ssl:
-        context = None
-    else:
-        context = ssl.create_default_context()
-        context.check_hostname = False
-        context.verify_mode = ssl.CERT_NONE
+    body, suffix = fetch_image_url(url, cancel=cancel)
+    local_path = os.path.join(cache_dir, url_hash + suffix)
 
-    request = urllib.request.Request(url)
-    request.add_header("User-Agent", USER_AGENT)
-
-    # Runs off the UI thread but stays bounded: socket by request_timeout, body by the
-    # byte cap, and local_path is replaced only after the full body is on a temp file
-    # (a truncated file would look like a cache hit).
-    timeout = get_config("request_timeout")
     fd, partial_path = tempfile.mkstemp(dir=cache_dir, prefix="img-", suffix=".partial")
+    replaced = False
     try:
         with os.fdopen(fd, "wb") as fh:
-            fd = -1
-            with urllib.request.urlopen(request, context=context, timeout=timeout) as response:
-                content_type = (response.headers.get("Content-Type") or "").split(";")[0].strip().lower()
-                if content_type in IMAGE_CONTENT_TYPE_DENYLIST:
-                    raise ValueError("Invalid Content-Type '%s' for image download" % content_type)
-
-                declared = response.headers.get("Content-Length")
-                if declared is not None:
-                    try:
-                        if int(declared) > IMAGE_DOWNLOAD_MAX_BYTES:
-                            raise RuntimeError("image download exceeded %s bytes" % IMAGE_DOWNLOAD_MAX_BYTES)
-                    except ValueError:
-                        pass
-
-                # Socket timeout is ~1s for responsive Stop during read chunks.
-                # Connect/DNS and silent stall before the first byte can take full request_timeout.
-                _set_read_timeout(response, 1.0)
-
-                total = 0
-                initial_bytes = b""
-                deadline = time.monotonic() + timeout
-                while True:
-                    if is_cancelled(cancel):
-                        raise _DownloadStopped()
-                    try:
-                        chunk = response.read(_IMAGE_DOWNLOAD_CHUNK)
-                    except (TimeoutError, socket.timeout):
-                        if time.monotonic() > deadline and not is_cancelled(cancel):
-                            raise TimeoutError("image download timed out")
-                        continue
-
-                    if not chunk:
-                        break
-                    if len(initial_bytes) < 1024:
-                        initial_bytes += chunk[: 1024 - len(initial_bytes)]
-                    total += len(chunk)
-                    if total > IMAGE_DOWNLOAD_MAX_BYTES:
-                        raise RuntimeError("image download exceeded %s bytes" % IMAGE_DOWNLOAD_MAX_BYTES)
-                    fh.write(chunk)
-            if total == 0:
-                raise RuntimeError("empty image download")
-            sniffed_ext = validated_image_suffix(initial_bytes)
-
-        local_path = os.path.join(cache_dir, url_hash + sniffed_ext)
+            fh.write(body)
         os.replace(partial_path, local_path)
-        partial_path = ""
-
-        _prune_image_cache(cache_dir, local_path)
+        replaced = True
     finally:
-        if fd >= 0:
-            os.close(fd)
-        if partial_path != "":
+        if not replaced:
             try:
                 os.unlink(partial_path)
             except OSError:
                 pass
 
+    _prune_image_cache(cache_dir, local_path)
     return local_path
