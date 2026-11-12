@@ -61,3 +61,66 @@ def test_apply_temp_para_style_returns_bool_status() -> None:
     # Exception during setPropertyValue returns False
     temp_cursor.setPropertyValue.side_effect = RuntimeError("fail")
     assert rc.apply_temp_para_style(temp_doc, temp_cursor, "Header") is False
+
+
+def test_every_para_writer_property_is_copied_by_range_reads(monkeypatch) -> None:
+    """Every UNO property written from data-lo-para must be in _COPIED_PARA_PROPERTIES.
+
+    Range and header reads copy paragraphs into a scratch document first, so any
+    property missing from this list is dropped on range and header content reads.
+    """
+    import sys
+    from plugin.writer import html_import_styles
+
+    class _FakeStruct:
+        Mode = 0
+        Height = 0
+
+    monkeypatch.setitem(sys.modules["uno"].__dict__, "createUnoStruct", lambda _name: _FakeStruct())
+    writers = html_import_styles._para_writers()
+    assert writers
+
+    samples = {
+        "text-align": "center",
+        "line-height": "150%",
+        "background-color": "#ff0000",
+    }
+    written_props: set[str] = set()
+    for name, converter in writers.items():
+        sample = samples.get(name, "1cm")
+        result = converter(sample)
+        assert result is not None, f"converter failed for {name}"
+        written_props.add(result[0])
+
+    assert written_props.issubset(set(rc._COPIED_PARA_PROPERTIES))
+
+
+def test_begin_next_paragraph_steps_into_the_new_paragraph_and_survives_a_refused_break() -> None:
+    dest_text = MagicMock()
+    cursor = MagicMock()
+    rc._begin_next_paragraph(dest_text, cursor)
+    dest_text.insertControlCharacter.assert_called_once_with(cursor, rc._PARAGRAPH_BREAK, False)
+    cursor.gotoNextParagraph.assert_called_once_with(False)
+
+    dest_text.reset_mock()
+    cursor.reset_mock()
+    dest_text.insertControlCharacter.side_effect = RuntimeError("break refused")
+    rc._begin_next_paragraph(dest_text, cursor)
+    cursor.gotoNextParagraph.assert_not_called()
+
+
+def test_copy_xtext_by_portions_moves_view_cursor_once_per_table() -> None:
+    src_text = MagicMock()
+    table = MagicMock()
+    table.supportsService.side_effect = lambda s: s == "com.sun.star.text.TextTable"
+    src_text.createEnumeration.return_value = _Enum([table])
+
+    dest_doc = MagicMock()
+    dest_doc.getText.return_value = MagicMock()
+
+    with patch.object(rc, "_writer_table_copy_layout", return_value=(1, 1, [])), \
+            patch.object(rc, "_goto_doc_end") as goto_doc_end:
+        rc._copy_xtext_by_portions(src_text, dest_doc)
+
+    assert goto_doc_end.call_count == 1
+

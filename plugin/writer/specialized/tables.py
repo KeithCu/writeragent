@@ -102,8 +102,11 @@ def _writer_named_cells(table: Any) -> list[str]:
     ``getColumns()`` is the first row's box count (``SwXTableColumns::getCount``;
     the ``IsTableComplex`` guard above that return is commented out). After
     merging A1:D1 on a 5×4 table it reports 1, so ``range(cols)`` skipped D2.
+    SwXTextTable::getCellNames (sw/source/core/unocore/unotbl.cxx) returns an
+    empty list itself for a table without a format and does not throw. Any other
+    failure is raised so a delete guard does not treat it as "no nested tables".
     """
-    return list(uno_read(lambda: table.getCellNames(), []) or ())
+    return list(table.getCellNames() or ())
 
 
 def _unknown_cell_message(cell_raw: str, table_name: str, names: list[str]) -> str:

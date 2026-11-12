@@ -123,7 +123,11 @@ class ProximityService(ServiceBase):
     # ==================================================================
 
     def navigate_heading(self, doc: Any, locator: str, direction: str) -> dict[str, Any]:
-        """Navigate from locator to a related heading."""
+        """Navigate from locator to a related heading.
+
+        Failures raise ToolExecutionError, and the result always carries heading,
+        from and direction.
+        """
         if direction not in ("next", "previous", "parent", "first_child", "next_sibling", "previous_sibling"):
             raise ToolExecutionError("Unknown direction: %s. Use: next, previous, parent, first_child, next_sibling, previous_sibling" % direction)
 
@@ -137,7 +141,7 @@ class ProximityService(ServiceBase):
         flat, bookmark_map = self._heading_flat_and_bookmarks(doc, para_ranges)
 
         if not flat:
-            return {"error": "Document has no headings"}
+            raise ToolExecutionError("Document has no headings")
 
         ctx_idx, was_heading = _find_heading_context(flat, para_index)
 
@@ -148,9 +152,6 @@ class ProximityService(ServiceBase):
             from_info["context_level"] = ctx_node["level"]
             from_info["context_bookmark"] = bookmark_map.get(ctx_node["para_index"])
 
-        def fail(msg: str) -> dict[str, Any]:
-            return {"error": msg, "from": from_info}
-
         if ctx_idx is None:
             if direction != "next":
                 noun = {
@@ -160,12 +161,12 @@ class ProximityService(ServiceBase):
                     "next_sibling": "sibling headings",
                     "previous_sibling": "sibling headings",
                 }
-                return fail("No %s — position is before any heading" % noun[direction])
+                raise ToolExecutionError("No %s — position is before any heading" % noun[direction])
             target_entry = flat[0]
 
         elif direction == "next":
             if ctx_idx + 1 >= len(flat):
-                return fail("No next heading — already at last heading")
+                raise ToolExecutionError("No next heading — already at last heading")
             target_entry = flat[ctx_idx + 1]
 
         elif direction == "previous":
@@ -174,27 +175,27 @@ class ProximityService(ServiceBase):
             elif ctx_idx > 0:
                 target_entry = flat[ctx_idx - 1]
             else:
-                return fail("No previous heading — already at first heading")
+                raise ToolExecutionError("No previous heading — already at first heading")
 
         elif direction == "parent":
             target_entry = flat[ctx_idx]["parent"]
             if target_entry is None:
-                return fail("No parent heading — already at top level")
+                raise ToolExecutionError("No parent heading — already at top level")
 
         elif direction == "first_child":
             if not flat[ctx_idx]["node"].get("children"):
-                return fail("No child headings under this heading")
+                raise ToolExecutionError("No child headings under this heading")
             target_entry = flat[ctx_idx + 1]
 
         elif direction == "next_sibling":
             target_entry = _find_sibling(flat, ctx_idx, offset=1)
             if target_entry is None:
-                return fail("No next sibling heading")
+                raise ToolExecutionError("No next sibling heading")
 
         else:  # direction == "previous_sibling"
             target_entry = _find_sibling(flat, ctx_idx, offset=-1)
             if target_entry is None:
-                return fail("No previous sibling heading")
+                raise ToolExecutionError("No previous sibling heading")
 
         # heading_ref already defaults missing body_paragraphs to 0 (was body_default=True).
         return {
