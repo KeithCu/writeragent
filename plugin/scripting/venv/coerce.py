@@ -614,7 +614,12 @@ def coerce_bool(value: Any, *, name: str = "value", default: bool = False) -> bo
 
 
 def coerce_str_list(value: Any, name: str = "value") -> list[str] | None:
-    """Coerce *value* to a list of column names or raise HelperError (INVALID_PARAM)."""
+    """Coerce *value* to a list of column names or raise HelperError (INVALID_PARAM).
+
+    Callers pass column-list parameters through this so a bare string such as
+    ``"Sales"`` becomes ``["Sales"]`` instead of being iterated
+    character-by-character (``S,a,l,e,s``) by pandas indexing or ``groupby``.
+    """
     if value is None:
         return None
     if isinstance(value, str):
