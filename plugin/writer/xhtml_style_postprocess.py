@@ -105,7 +105,7 @@ def xhtml_has_paragraph_autostyle(xhtml: str) -> bool:
 # in warnings. A unit test fails when a name added here is in neither. Table cells, position before/after,
 # and partial or recorded replacements do not apply data-lo-para.
 # Range, selection and header reads copy paragraphs into a scratch document first, so
-# range_copy._COPIED_PARA_PROPERTIES must hold every UNO property a writer sets; test_range_copy pins that.
+# range_copy._COPIED_PARA_PROPERTIES must hold every UNO property a writer sets; test_every_para_writer_property_is_copied_by_range_reads pins that.
 # Not emitted as style="": the import reads style="" as a character override.
 # ODF attribute -> CSS name, in emit order.
 _FODT_OVERRIDE_ATTRS = (

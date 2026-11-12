@@ -119,7 +119,6 @@ def _line_height_fields(val: str) -> dict[str, Any] | None:
 # a bold run). An agent copying a paragraph back would silently flatten its spans.
 # test_every_read_para_name_has_a_writer_or_is_listed_read_only keeps this set and the
 # writers table covering every name the read side emits.
-# range_copy._COPIED_PARA_PROPERTIES must hold every UNO property a writer sets (pinned by test_range_copy).
 _READ_ONLY_PARA_NAMES = frozenset({"font-family", "font-size", "font-weight", "font-style", "color"})
 
 
@@ -132,6 +131,9 @@ def _para_writers() -> dict[str, Callable[[str], tuple[str, Any] | None]]:
     test_librepy_shipped_function_level_imports_are_safe checks that the import stays
     guarded. The one caller, apply_block_lo_styles, already returns before parsing in
     that build, so the empty table only keeps the import graph safe.
+
+    range_copy._COPIED_PARA_PROPERTIES must hold every UNO property a writer sets here
+    (pinned by test_every_para_writer_property_is_copied_by_range_reads).
     """
     try:
         from .styles import _dict_to_uno_struct, _para_adjust_to_uno, _style_color_to_uno

@@ -323,6 +323,10 @@ def _trim_to_source(text: Any, element: Any, para_text: str, source: Any) -> tup
     return trim_start, trim_end
 
 
+# (element, visible para text) -> (trim_start, trim_end) in visible coordinates
+# (_visible_portions, tracked deletions removed), or None to skip the element.
+# The pair is always returned, even when nothing is cut, because _paint_direct_formatting
+# and _hyperlink_urls index portions with it.
 _Window = Callable[[Any, str], "tuple[int, int] | None"]
 
 
@@ -344,7 +348,9 @@ def _offset_window(text: Any, start: int, end: int) -> tuple[Callable[[Any], boo
 
     One cursor walks forward so each paragraph costs only its gap from the
     previous element. A failed gap measurement raises rather than shifting the
-    window across subsequent paragraphs.
+    window across subsequent paragraphs. Returns the window in the paragraph's
+    own coordinates with tracked deletions removed, keeping (0, len) when uncut
+    so portion indexing matches.
     """
     walker = text.createTextCursor()
     walker.gotoStart(False)
@@ -484,8 +490,9 @@ def _export_semantic(doc: Any, *, read_ruby: bool) -> tuple[str, bool | None]:
 
     The sidecar is a second full export. It runs when there are autostyles to
     name, or when the caller needs the ruby flag (the full read skips a portion
-    walk with it). The function raises on export failure, and each caller owns
-    its fallback.
+    walk with it). has_ruby is None when the sidecar did not run, and finish()
+    then walks portions itself. The function raises on export failure, and each
+    caller owns its fallback.
     """
     xhtml = _export_xhtml(doc)
     if read_ruby or xhtml_post.xhtml_has_paragraph_autostyle(xhtml):

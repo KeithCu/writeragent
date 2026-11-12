@@ -107,18 +107,18 @@ def _copy_math_or_text(
 # empty marks). Painting them from the Text run copies None. Recreating live
 # ruby on the temp doc would still glue in XHTML (no text:ruby rule). Range
 # export instead rewrites HTML from source spans (inject_ruby_into_html).
-# Every UNO property that html_import_styles._para_writers() sets must be listed
-# in _COPIED_PARA_PROPERTIES so range, selection, and header reads (as well as
-# page-style clone) carry it into the destination. test_every_para_writer_property_is_copied_by_range_reads
-# pins this coverage. ParaLineSpacing holds a LineSpacing struct; pyuno compares
-# structs by value, so an inherited line spacing equal to the style's value is
-# still skipped by _copy_properties.
 _COPIED_CHAR_PROPERTIES = (
     "CharStyleName", "CharFontName", "CharHeight", "CharWeight", "CharPosture",
     "CharUnderline", "CharStrikeout", "CharColor", "CharBackColor", "CharCaseMap",
     "CharEscapement", "CharEscapementHeight",
     "HyperLinkURL", "HyperLinkName", "HyperLinkTarget",
 )
+# Every UNO property that html_import_styles._para_writers() sets must be listed
+# in _COPIED_PARA_PROPERTIES so range, selection, and header reads (as well as
+# page-style clone) carry it into the destination. test_every_para_writer_property_is_copied_by_range_reads
+# pins this coverage. ParaLineSpacing holds a LineSpacing struct; pyuno compares
+# structs by value, so an inherited line spacing equal to the style's value is
+# still skipped by _copy_properties.
 _COPIED_PARA_PROPERTIES = (
     "ParaLeftMargin", "ParaRightMargin", "ParaTopMargin", "ParaBottomMargin",
     "ParaFirstLineIndent", "ParaAdjust", "ParaBackColor", "ParaLineSpacing",

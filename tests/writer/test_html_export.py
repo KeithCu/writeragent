@@ -3,7 +3,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from plugin.framework.errors import ToolExecutionError
+from plugin.framework.errors import DocumentDisposedError, ToolExecutionError
 from plugin.writer.html_export import (
     _inject_page_number_attributes,
     _range_to_content_via_temp_doc,
@@ -627,14 +627,21 @@ def test_offset_window_slices_by_running_offset():
         assert past_end(e1) is False
 
 
-def test_selection_compare_failure_is_not_a_silent_skip():
+@pytest.mark.parametrize(
+    "exc, expected, match",
+    [
+        (RuntimeError("IllegalArgumentException"), ToolExecutionError, "Could not read that part"),
+        (_DisposedException("disposed"), DocumentDisposedError, None),
+    ],
+)
+def test_selection_compare_failure_is_not_a_silent_skip(exc, expected, match):
     temp_doc = MagicMock()
     temp_text = MagicMock()
     temp_doc.getText.return_value = temp_text
     temp_text.createTextCursor.return_value = MagicMock()
     text = MagicMock()
     text.createEnumeration.return_value = _Enum([_para("Standard")])
-    text.compareRegionStarts.side_effect = RuntimeError("IllegalArgumentException")
+    text.compareRegionStarts.side_effect = exc
     source = MagicMock()
     source.getText.return_value = text
 
@@ -649,38 +656,7 @@ def test_selection_compare_failure_is_not_a_silent_skip():
         patch("plugin.writer.range_copy._paint_direct_formatting"),
         patch("plugin.writer.html_export._hyperlink_urls", return_value=[]),
         patch("plugin.writer.html_ruby._ruby_spans_in_window", return_value=[]),
-        pytest.raises(ToolExecutionError, match="Could not read that part"),
-    ):
-        _range_to_content_via_temp_doc(
-            MagicMock(), MagicMock(), 0, 0, None, source_range=source,
-        )
-
-
-def test_selection_compare_disposal_is_reported():
-    from plugin.framework.errors import DocumentDisposedError
-
-    temp_doc = MagicMock()
-    temp_text = MagicMock()
-    temp_doc.getText.return_value = temp_text
-    temp_text.createTextCursor.return_value = MagicMock()
-    text = MagicMock()
-    text.createEnumeration.return_value = _Enum([_para("Standard")])
-    text.compareRegionStarts.side_effect = _DisposedException("disposed")
-    source = MagicMock()
-    source.getText.return_value = text
-
-    def _portions(element, truncated_out=None):
-        yield (_Portion(), "Hello")
-
-    with (
-        patch("plugin.writer.html_export.new_blank_writer", return_value=temp_doc),
-        patch("plugin.writer.html_export._visible_portions", side_effect=_portions),
-        patch("plugin.writer.html_export._trim_to_source", side_effect=lambda text, element, para_text, source: (0, len(para_text))),
-        patch("plugin.writer.html_export.starts_at_or_after", return_value=False),
-        patch("plugin.writer.range_copy._paint_direct_formatting"),
-        patch("plugin.writer.html_export._hyperlink_urls", return_value=[]),
-        patch("plugin.writer.html_ruby._ruby_spans_in_window", return_value=[]),
-        pytest.raises(DocumentDisposedError),
+        pytest.raises(expected, match=match),
     ):
         _range_to_content_via_temp_doc(
             MagicMock(), MagicMock(), 0, 0, None, source_range=source,
