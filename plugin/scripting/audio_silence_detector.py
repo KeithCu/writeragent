@@ -90,6 +90,7 @@ def pcm_energy_int16(pcm: bytes) -> tuple[float, float]:
 
 def load_silence_detector_config() -> SilenceDetectorConfig:
     """Build detector settings from writeragent.json. 0 = manual Stop Rec only."""
+    # Lazy (boundary): the recorder child imports this module (venv/audio_recorder.py) and must not load the host's plugin.framework.config; only the host calls this function.
     from plugin.framework.config import get_config
 
     try:

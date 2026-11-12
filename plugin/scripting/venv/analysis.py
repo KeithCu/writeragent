@@ -158,7 +158,11 @@ def _formatted_cells(formatted: Any) -> list[str]:
     return [str(formatted)]
 
 
-def _format_cells_result(name: str, formatted: Any) -> dict[str, Any]:  # pyright: ignore[reportUnusedFunction]
+def format_cells_result(name: str, formatted: Any) -> dict[str, Any]:
+    """Wrap `format_currency` / `format_percent` output as a one-column `formatted` table result.
+
+    `trusted_dispatch.run_domain`'s format arm calls it.
+    """
     cells = _formatted_cells(formatted)
     return _ok_result(
         name,

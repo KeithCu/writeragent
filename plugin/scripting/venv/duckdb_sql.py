@@ -31,6 +31,7 @@ from plugin.scripting.session_key import (
     SessionKey,
 )
 from plugin.scripting.venv.coerce import (
+    resolve_df,
     table_from_df as _table_from_df,
 )
 from plugin.scripting.venv.results import error_result
@@ -191,18 +192,12 @@ def persistable_duckdb_session_id(session_id: str | None) -> str | None:
 
 
 def _sandbox_context() -> tuple[str | None, str | None, bool]:
-    # Imported per call: venv_sandbox loads the smolagents executor, which a
-    # trusted sql action does not need. Outside run_sandboxed_code the three
-    # venv_sandbox getters return None, None, False; the ImportError arm returns
-    # the same and is not cached, so a later call can still import.
-    try:
-        from plugin.scripting.venv.venv_sandbox import (
-            current_sandbox_scoped_dir,
-            current_sandbox_session_id,
-            sandbox_execute_active,
-        )
-    except ImportError:
-        return None, None, False
+    # Lazy (boundary): the LibreOffice process imports this module for its constants (plugin/calc/duckdb_tools.py), and venv_sandbox would load the smolagents executor and patch its thread pool there. Outside run_sandboxed_code the three getters return None, None, False.
+    from plugin.scripting.venv.venv_sandbox import (
+        current_sandbox_scoped_dir,
+        current_sandbox_session_id,
+        sandbox_execute_active,
+    )
     return current_sandbox_session_id(), current_sandbox_scoped_dir(), sandbox_execute_active()
 
 
@@ -241,7 +236,7 @@ def _connection_alive(con: Any) -> bool:
 
 
 def reset_session_duckdb(session_id: str | None = None) -> None:
-    """Close cached connection(s). ``None`` drops every session (tests / worker wipe).
+    """Close cached connection(s). ``None`` closes every session's connection (the ``fresh_sandbox_sessions`` fixture in tests/conftest.py uses it; scripts can call it through the facade).
 
     Reset Python Session calls this for the workbook id so registered tables
     do not survive the namespace wipe.
@@ -693,7 +688,6 @@ def _validate_files(scoped_dir: str, files: list[str] | None) -> list[str]:
 def _register_preloaded(con: Any, preloaded: dict[str, Any] | None) -> None:
     if not preloaded:
         return
-    from plugin.scripting.venv.coerce import resolve_df
 
     registered_stems: set[str] = set()
     for orig_name, data in preloaded.items():
