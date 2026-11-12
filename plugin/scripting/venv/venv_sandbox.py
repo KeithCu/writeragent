@@ -29,7 +29,8 @@ import threading
 import time
 import types
 from collections.abc import Callable
-from contextvars import ContextVar
+from concurrent.futures import Future, ThreadPoolExecutor
+from contextvars import ContextVar, copy_context
 from typing import Any
 
 log = logging.getLogger(__name__)
@@ -47,6 +48,7 @@ from plugin.contrib.smolagents.local_python_executor import (
     get_file_os_proxy,
     print_outputs_from_state,
 )
+from plugin.contrib.smolagents import local_python_executor as lpe
 from plugin.scripting.session_key import (
     SessionKey,
     SessionKind,
@@ -55,8 +57,16 @@ from plugin.scripting.payload_codec import (
     ForceBinary,
     describe_wire_value,
     find_image_payloads,
+    is_calc_range_payload,
+    is_multi_data,
     is_split_grid,
     pack_multi_data_envelope,
+)
+from plugin.scripting.calc_range import materialize_inputs
+from plugin.scripting.excel_xl import make_xl
+from plugin.scripting.named_scripts import (
+    bind_named_scripts_executor,
+    reset_named_scripts_executor,
 )
 from plugin.scripting.venv.to_wire import figure_to_image_payload, to_wire
 from plugin.scripting.venv import optional_import
@@ -312,14 +322,9 @@ def _install_timeout_context_pool() -> None:
     pure-Python AST execution on timeout, but a blocked C call in the thread
     still runs until it returns; host IPC kill remains the stop for a call that never returns.
     """
-    import contextvars
-    from concurrent.futures import Future, ThreadPoolExecutor
-
-    from plugin.contrib.smolagents import local_python_executor as lpe
-
     class _ContextThreadPoolExecutor(ThreadPoolExecutor):
         def submit(self, fn: Callable[..., Any], /, *args: Any, **kwargs: Any) -> Future[Any]:
-            ctx = contextvars.copy_context()
+            ctx = copy_context()
             return super().submit(ctx.run, fn, *args, **kwargs)
 
     # The vendored name is the stdlib class. This subclass is what timeout()
@@ -353,7 +358,7 @@ def _inject_session_duckdb(
     executor: LocalPythonExecutor,
     host_scoped_dir: str | None,
 ) -> None:
-    """Bind ``session_duckdb`` / ``run_sql`` / ``invalidate_session_tables`` when DuckDB helpers ship."""
+    """Bind ``session_duckdb`` / ``run_sql`` / ``invalidate_session_tables`` when DuckDB helpers ship (LibrePy and the compute bundle ship this file without `venv/duckdb_sql.py`, hence the `ImportError` arm)."""
     try:
         from plugin.scripting.venv.duckdb_sql import (
             invalidate_session_tables,
@@ -813,8 +818,6 @@ def _ensure_init_executed(
 
 def _inject_excel_xl(executor: LocalPythonExecutor, ranges: tuple[Any, ...] | None = None) -> None:
     """Inject binding-only Excel ``xl()`` closed over *ranges* (may be empty)."""
-    from plugin.scripting.excel_xl import make_xl
-
     executor.send_variables({"xl": make_xl(ranges)})
 
 
@@ -830,8 +833,6 @@ def _inject_data(executor: LocalPythonExecutor, data: Any | None) -> tuple[Any, 
     if data is None:
         executor.send_variables({"data": None, "ranges": []})
         return ()
-    from plugin.scripting.calc_range import materialize_inputs
-    from plugin.scripting.payload_codec import describe_wire_value, is_calc_range_payload, is_multi_data, is_split_grid
 
     if is_split_grid(data) or is_calc_range_payload(data) or is_multi_data(data):
         log.debug("venv_sandbox injecting data %s", describe_wire_value(data))
@@ -1036,11 +1037,6 @@ def _run_on_executor(
     prior_result = executor.state.get("result", _RESULT_MISSING)
     token = None
     try:
-        from plugin.scripting.named_scripts import (
-            bind_named_scripts_executor,
-            reset_named_scripts_executor,
-        )
-
         token = bind_named_scripts_executor(executor)
         try:
             code_output = executor(code)

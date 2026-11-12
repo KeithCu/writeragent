@@ -197,7 +197,12 @@ def test_system_exit_during_request_writes_terminal_frame(monkeypatch) -> None:
     monkeypatch.setattr(worker_harness, "_handle_request", boom)
     monkeypatch.setattr(worker_harness.sys, "stdin", type("Stdin", (), {"buffer": stdin})())
 
-    worker_harness.main()
+    try:
+        worker_harness.main()
+    finally:
+        from plugin.scripting.host_tool_call import set_process_role
+
+        set_process_role(None)
 
     stdout.seek(0)
     ready = read_pickle_frame(stdout, require_dict=True)
