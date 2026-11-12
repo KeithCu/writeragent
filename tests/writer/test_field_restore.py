@@ -464,6 +464,133 @@ def test_restore_fields_by_cursor_two_tokens_one_portion_reverse_order():
     assert inserted == ["date", "page-number"]
 
 
+def test_restore_fields_by_cursor_skips_unreadable_reads():
+    from plugin.writer.field_restore import _restore_fields_by_cursor
+
+    nonce = "test1234"
+    tok_date = f"[[WA-FIELD:{nonce}:date]]"
+    tok_page = f"[[WA-FIELD:{nonce}:page-number]]"
+    full_text = f"{tok_date} {tok_page}"
+
+    class _Portion:
+        def __init__(self, text, raise_kind=False, raise_string=False):
+            self._text = text
+            self._raise_kind = raise_kind
+            self._raise_string = raise_string
+
+        def getPropertyValue(self, name):
+            if self._raise_kind:
+                raise RuntimeError("kind failed")
+            assert name == "TextPortionType"
+            return "Text"
+
+        def getString(self):
+            if self._raise_string:
+                raise RuntimeError("getString failed")
+            return self._text
+
+        def getStart(self):
+            return self
+
+    class _Enum:
+        def __init__(self, items):
+            self._items = list(items)
+
+        def hasMoreElements(self):
+            return bool(self._items)
+
+        def nextElement(self):
+            return self._items.pop(0)
+
+    class _Para1:
+        def createEnumeration(self):
+            raise RuntimeError("para enum failed")
+
+    class _Para2:
+        def createEnumeration(self):
+            return _Enum([
+                _Portion("bad", raise_kind=True),
+                _Portion(tok_date),
+            ])
+
+    class _Para3:
+        def createEnumeration(self):
+            return _Enum([_Portion("bad", raise_string=True)])
+
+    class _Para4:
+        def createEnumeration(self):
+            return _Enum([_Portion(tok_page)])
+
+    class _Text:
+        def getString(self):
+            return full_text
+
+        def createEnumeration(self):
+            return _Enum([_Para1(), _Para2(), _Para3(), _Para4()])
+
+        def createTextCursorByRange(self, start):
+            c = MagicMock()
+            c.getString.return_value = getattr(start, "_text", "")
+            return c
+
+    text = _Text()
+    model = MagicMock()
+    inserted = []
+
+    def fake_insert(unused_model, cur, title, props=None):
+        inserted.append(title)
+        return True
+
+    with patch("plugin.writer.field_restore._insert_restored_field", side_effect=fake_insert):
+        restored = _restore_fields_by_cursor(model, text, nonce=nonce)
+
+    assert restored == 1
+    assert inserted == ["page-number"]
+
+
+def test_restore_fields_by_cursor_portion_disposal_raises():
+    from plugin.framework.errors import DocumentDisposedError
+    from plugin.writer.field_restore import _restore_fields_by_cursor
+
+    nonce = "test1234"
+    tok = f"[[WA-FIELD:{nonce}:page-number]]"
+    disposed_exc_type = type("DisposedException", (Exception,), {})
+
+    class _Portion:
+        def getPropertyValue(self, name):
+            raise disposed_exc_type("gone")
+
+        def getString(self):
+            return tok
+
+    class _Enum:
+        def __init__(self, items):
+            self._items = list(items)
+
+        def hasMoreElements(self):
+            return bool(self._items)
+
+        def nextElement(self):
+            return self._items.pop(0)
+
+    class _Para:
+        def createEnumeration(self):
+            return _Enum([_Portion()])
+
+    class _Text:
+        def getString(self):
+            return tok
+
+        def createEnumeration(self):
+            return _Enum([_Para()])
+
+    text = _Text()
+    model = MagicMock()
+
+    with pytest.raises(DocumentDisposedError):
+        _restore_fields_by_cursor(model, text, nonce=nonce)
+
+
 def test_restore_field_placeholders_falls_through_to_find_first_if_token_remains():
     nonce = "test1234"
     needle = f"[[WA-FIELD:{nonce}:page-number]]"

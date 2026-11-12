@@ -19,7 +19,6 @@
 from __future__ import annotations
 
 import functools
-import html as html_mod
 import logging
 import re
 from dataclasses import dataclass, replace
@@ -143,11 +142,6 @@ def _grow_over_edge_space(found: Any, separator: int) -> Any:
             break
         grown.goRight(1, True)
     return grown
-
-
-# Named (``&amp;``), decimal (``&#36;``) and hex (``&#x24;``) character references.
-# Guards the plain-text unescape so a bare "&" is never touched.
-_ENTITY_RE = re.compile(r"&(?:#[0-9]+|#[xX][0-9a-fA-F]+|[A-Za-z][A-Za-z0-9]{1,31});")
 
 
 def _table_deletion_result(names: list[str], tracked: bool) -> dict[str, Any]:
@@ -588,7 +582,7 @@ class ApplyDocumentContent(ToolBase):
         text = "" if content is None else str(content)
         if format_support.content_has_markup(text):
             return format_support.plain_text_if_markup(text)
-        return text.replace("\\n", "\n").replace("\\t", "\t")
+        return html_import_styles.expand_escapes(text)
 
     def _read_outline_snapshot(self, found: Any, log_message: str) -> OutlineSnapshot:
         try:
@@ -1256,7 +1250,7 @@ class ApplyDocumentContent(ToolBase):
         use_preserve = (not format_support.content_needs_html_import(content)) and anchor is None
 
         if not format_support.content_needs_html_import(content):
-            content = content.replace("\\n", "\n").replace("\\t", "\t")
+            content = html_import_styles.expand_escapes(content)
             if anchor is not None and not format_support.html_fragment_contains_mixed_math(content):
                 if "\n" in content:
                     lines = [line for line in content.split("\n") if line.strip()]
@@ -1265,12 +1259,11 @@ class ApplyDocumentContent(ToolBase):
                 # HTML entry points decode complete references once, and the StarWriter
                 # filter decodes what remains in markup. This format-preserving path must
                 # do the same, or content lands verbatim. content_has_markup() sees no tag
-                # in "R&#36;5.000,00", so an escaped dollar sign takes the plain path. Decode
-                # ONLY complete references (_ENTITY_RE, ";" required); unescaping the whole
-                # string also expands semicolon-less names ("&sect 2o" -> "§ 2o"). A bare "&"
-                # in "Banco & Cia" is never touched.
-                if _ENTITY_RE.search(content):
-                    content = _ENTITY_RE.sub(lambda m: html_mod.unescape(m.group(0)), content)
+                # in "R&#36;5.000,00", so an escaped dollar sign takes the plain path.
+                # Decode ONLY complete references (decode_complete_character_references;
+                # ";" required); unescaping the whole string also expands semicolon-less
+                # names ("&sect 2o" -> "§ 2o"). A bare "&" in "Banco & Cia" is never touched.
+                content = html_import_styles.decode_complete_character_references(content)
 
         # Opt-in review mode: when doc.agent_edit_review_mode is record/wait, EditReviewSession records
         # the agent's edits as native tracked changes (redlines) the user can accept/reject --

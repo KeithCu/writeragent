@@ -457,25 +457,32 @@ class _BlockSummarizer(_BlockLoStyleExtractor):
         self._append_text(data)
 
 
+# HTML block-level elements that define paragraphs. <br> is separate: it breaks a line but
+# does not make the content block-level for routing.
 _BLOCK_TAGS = (
     "p|div|h[1-6]|ul|ol|li|dl|dt|dd|caption"
     "|table|thead|tbody|tfoot|tr|td|th"
     "|blockquote|pre|hr|section|article|aside|header|footer|nav|main"
     "|figure|figcaption|address|details|summary|form|fieldset|legend|hgroup"
 )
-_BLOCK_MARKUP_RE = re.compile(r"<(?:%s)\b" % _BLOCK_TAGS, re.IGNORECASE)
-_LINEBREAK_MARKUP_RE = re.compile(r"</?(?:%s|br)\b" % _BLOCK_TAGS, re.IGNORECASE)
+BLOCK_MARKUP_RE = re.compile(r"<(?:%s)\b" % _BLOCK_TAGS, re.IGNORECASE)
+# Same tags plus closing forms and <br>: anything here already defines its own paragraphs.
+LINEBREAK_MARKUP_RE = re.compile(r"</?(?:%s|br)\b" % _BLOCK_TAGS, re.IGNORECASE)
 _COMPLETE_ENTITY_RE = re.compile(r"&(?:#[0-9]+|#[xX][0-9a-fA-F]+|[A-Za-z][A-Za-z0-9]{1,31});")
 
 
-def _decode_complete_character_references(text: str) -> str:
+def decode_complete_character_references(text: str) -> str:
     """Decode only HTML character references ending with a semicolon, ignoring incomplete references like '&sect 2o'."""
     if "&" not in text or not _COMPLETE_ENTITY_RE.search(text):
         return text
     return _COMPLETE_ENTITY_RE.sub(lambda m: html_mod.unescape(m.group(0)), text)
 
 
-def _expand_escapes(text: str) -> str:
+def expand_escapes(text: str) -> str:
+    """Turn the two-character sequences \\n and \\t that models often send literally into a real newline and tab.
+
+    Every write entry point runs this once, before measuring ruby offsets or importing.
+    """
     return text.replace("\\n", "\n").replace("\\t", "\t")
 
 
@@ -499,8 +506,8 @@ def _prepare_import_html(content: str) -> str:
     from . import html_export, html_ruby
     from .math.html_math_segment import html_fragment_contains_mixed_math
 
-    content = _decode_complete_character_references(content)
-    content = _expand_escapes(content)
+    content = decode_complete_character_references(content)
+    content = expand_escapes(content)
     if not html_fragment_contains_mixed_math(content):
         content, _unused_ruby = html_ruby.extract_and_strip_ruby(content)
     content = escape_prose_angle_brackets(normalize(content))
@@ -514,7 +521,7 @@ def _summarize_blocks(content: str) -> _BlockSummarizer | None:
     if not isinstance(content, str) or not content:
         return None
     prepared = _prepare_import_html(content)
-    if not _LINEBREAK_MARKUP_RE.search(prepared):
+    if not LINEBREAK_MARKUP_RE.search(prepared):
         return None
     parser = _BlockSummarizer()
     parser.feed(prepared)
