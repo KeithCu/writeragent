@@ -103,8 +103,8 @@ def test_search_in_document_regex(ctx, doc):
 
 @native_test
 @with_native_doc("writer")
-def test_find_chained_range_bounds(ctx, doc):
-    from plugin.writer.search import find_chained_range
+def test_find_first_range_chains_across_paragraphs(ctx, doc):
+    from plugin.writer.search import find_first_range
     text = doc.getText()
     cursor = text.createTextCursor()
 
@@ -118,11 +118,9 @@ def test_find_chained_range_bounds(ctx, doc):
     cursor.gotoEnd(False)
 
     search_string = "Line 1 match\nLine 2 match"
-    rng = find_chained_range(doc, search_string)
+    rng = find_first_range(doc, search_string)
 
     assert rng is not None
-    if isinstance(rng, list):
-        rng = rng[0]
     # getString() joins paragraphs with the platform newline: "\r\n" on Windows.
     matched_text = rng.getString().replace("\r\n", "\n")
 
