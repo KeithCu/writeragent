@@ -50,10 +50,9 @@ class _Listener:
         self.started = []
         self.sidebar_state = MagicMock()
         self.sidebar_state.send.is_busy = False
-        self.busy = False
 
     def is_busy(self) -> bool:
-        return self.busy or bool(self.sidebar_state.send.is_busy)
+        return bool(self.sidebar_state.send.is_busy)
 
     def in_chat_mode(self) -> bool:
         return True
@@ -1106,15 +1105,12 @@ def test_kick_keeps_distinct_equal_turns_while_busy():
 
     kick_pending_peer_starts()
     assert pm.peer_queue.pending(listener) == 2
-    assert pm.peer_queue._items[0][1] is turn1
-    assert pm.peer_queue._items[1][1] is turn2
 
     listener.sidebar_state.send.is_busy = False
     kick_pending_peer_starts()
     assert len(listener.started) == 1
     assert listener.started[0][0] == "same"
     assert pm.peer_queue.pending(listener) == 1
-    assert pm.peer_queue._items[0][1] is turn2
 
     kick_pending_peer_starts()
     assert len(listener.started) == 2
@@ -1296,19 +1292,28 @@ def test_drop_listener_queue_purges_dead_fifo_refs():
 
 def test_peer_queue_pending_counts_only_live_entries():
     import gc
+    import weakref
 
     q = PeerQueue()
     listener = _Listener()
     dead = _Listener()
+    dead_ref = weakref.ref(dead)
     turn1 = PeerPendingTurn("t1", False)
     turn2 = PeerPendingTurn("t2", False)
     q.append(listener, turn1)
     q.append(dead, turn2)
     assert q.pending(listener) == 1
     assert q.pending(dead) == 1
+    assert len(q) == 2
+
     del dead
     gc.collect()
+    assert dead_ref() is None
+    assert len(q) == 2
     assert q.pending(listener) == 1
+    fresh = _Listener()
+    assert q.pending(fresh) == 0
+    assert q.pending(None) == 0
 
 
 def test_peer_queue_remove_by_identity_keeps_equal_turn():

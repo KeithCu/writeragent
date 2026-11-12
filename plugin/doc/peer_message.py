@@ -122,6 +122,8 @@ class PeerQueue:
 
     def pending(self, listener: object) -> int:
         """Count live pending turns for this listener (used for cap check and test assertions)."""
+        if listener is None:
+            return 0
         return sum(1 for item in self._items if item[0]() is listener)
 
     def append(self, listener: PeerListener, turn: PeerPendingTurn) -> None:
@@ -396,10 +398,10 @@ def kick_pending_peer_starts() -> None:
             continue
         # The turn is already popped from peer_queue so a nested kick after
         # this send's drain does not start it twice. send_state refuses
-        # EXTRACTED_SEND while the hands-free mic records, so the turn is lost
-        # and an already-appended user message sits unanswered.
-        # start_extracted_peer_send has no side effects when it returns False,
-        # so put the turn back like the busy case above.
+        # EXTRACTED_SEND while the hands-free mic records and start returns
+        # False. Ignoring that would lose the turn and leave an already-appended
+        # user message unanswered. start_extracted_peer_send has no side effects
+        # on False, so put the turn back like the busy case above.
         try:
             res = listener.start_extracted_peer_send(
                 turn.wrapped_text, already_appended=turn.already_appended
