@@ -1145,7 +1145,7 @@ def test_clear_direct_paragraph_properties_uses_multi_variant():
     from plugin.writer import styles as st
 
     cursor = _MultiStatesCursor()
-    cleared = st._reset_properties_to_default(cursor, st.CLEARABLE_PARA_PROPERTIES)
+    cleared = st.reset_properties_to_default(cursor, st.CLEARABLE_PARA_PROPERTIES)
 
     assert cursor.cleared == st.CLEARABLE_PARA_PROPERTIES
     assert cleared == list(st.CLEARABLE_PARA_PROPERTIES)
@@ -1155,7 +1155,7 @@ def test_clear_direct_paragraph_properties_falls_back_one_at_a_time():
     from plugin.writer import styles as st
 
     cursor = _SingleStateCursor(unsupported={"ParaSplit"})
-    cleared = st._reset_properties_to_default(cursor, st.CLEARABLE_PARA_PROPERTIES)
+    cleared = st.reset_properties_to_default(cursor, st.CLEARABLE_PARA_PROPERTIES)
 
     assert "ParaLeftMargin" in cleared and "ParaFirstLineIndent" in cleared
     assert "ParaSplit" not in cleared  # reported honestly as not cleared
@@ -1278,7 +1278,7 @@ def test_reset_properties_to_default_is_a_noop_on_empty_names():
     from plugin.writer import styles as st
 
     cursor = _MultiStatesCursor()
-    assert st._reset_properties_to_default(cursor, ()) == []
+    assert st.reset_properties_to_default(cursor, ()) == []
     assert cursor.cleared is None  # never call UNO with an empty set
 
 
@@ -1287,7 +1287,7 @@ def test_reset_properties_to_default_takes_the_caller_s_names():
     from plugin.writer import styles as st
 
     cursor = _MultiStatesCursor()
-    st._reset_properties_to_default(cursor, st.STYLE_GOVERNED_CHAR_PROPERTIES)
+    st.reset_properties_to_default(cursor, st.STYLE_GOVERNED_CHAR_PROPERTIES)
 
     assert cursor.cleared == st.STYLE_GOVERNED_CHAR_PROPERTIES
 

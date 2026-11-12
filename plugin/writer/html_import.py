@@ -675,9 +675,10 @@ def _drop_absorb_paragraph_props(cursor: Any) -> None:
     from `data-lo-para` is applied later. `CLEARABLE_PARA_PROPERTIES` remains the
     clear-direct subset for Ctrl+M / `clear_direct`.
     """
-    from .styles import CLEARABLE_PARA_PROPERTIES, _reset_properties_to_default
+    # Imported at call time: styles.py is WriterAgent-only (not in scripts/librepy_bundle_paths.py) and imports this module back through edit_review.
+    from .styles import CLEARABLE_PARA_PROPERTIES, reset_properties_to_default
 
-    _reset_properties_to_default(
+    reset_properties_to_default(
         cursor,
         CLEARABLE_PARA_PROPERTIES
         + (
