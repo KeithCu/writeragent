@@ -34,7 +34,7 @@ _LO_CMD = (
 
 def test_scripts_cover_expanded_pack() -> None:
     ids = {ex["task_id"] for ex in ALL_EXAMPLES}
-    assert len(ids) == 20
+    assert len(ids) == 22
     assert {
         "style_consistency",
         "smart_summarization",
@@ -45,6 +45,8 @@ def test_scripts_cover_expanded_pack() -> None:
         "org_chart_gen",
         "solar_sld_gen",
         "python_shapes_flag",
+        "toc_list_entries",
+        "toc_renumber_insert",
     } <= ids
     assert "py_unique_beside" not in ids
     assert "py_inplace_reframe" not in ids
@@ -52,16 +54,22 @@ def test_scripts_cover_expanded_pack() -> None:
         ex["task_id"] for ex in ALL_EXAMPLES if ex.get("backend", "string") != "lo"
     }
     assert string_ids <= set(SCRIPTS)
-    # Flag is live-model LO only. org_chart/solar_sld have scripted LO replays.
+    # Flag is live-model LO only. org_chart/solar_sld/TOC have scripted LO replays.
     assert "python_shapes_flag" not in SCRIPTS
     assert "org_chart_gen" in SCRIPTS
     assert "solar_sld_gen" in SCRIPTS
+    assert "toc_list_entries" in SCRIPTS
+    assert "toc_renumber_insert" in SCRIPTS
     flag = next(ex for ex in ALL_EXAMPLES if ex["task_id"] == "python_shapes_flag")
     assert flag.get("backend") == "lo"
     org = next(ex for ex in ALL_EXAMPLES if ex["task_id"] == "org_chart_gen")
     assert org.get("backend") == "lo"
     sld = next(ex for ex in ALL_EXAMPLES if ex["task_id"] == "solar_sld_gen")
     assert sld.get("backend") == "lo"
+    toc_list = next(ex for ex in ALL_EXAMPLES if ex["task_id"] == "toc_list_entries")
+    assert toc_list.get("backend") == "lo"
+    toc_renumber = next(ex for ex in ALL_EXAMPLES if ex["task_id"] == "toc_renumber_insert")
+    assert toc_renumber.get("backend") == "lo"
 
 
 def test_scripted_string_pack_all_pass() -> None:

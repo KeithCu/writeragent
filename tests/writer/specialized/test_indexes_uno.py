@@ -859,7 +859,7 @@ def test_list_toc_entries_reads_linked_rows_without_export_uno(ctx, doc):
 
     with patch("plugin.writer.html_export._export_xhtml", side_effect=_refuse_export), \
          patch("plugin.writer.html_export.document_to_content", side_effect=_refuse_export):
-        listed = IndexesListTocEntries().execute(tctx)
+        listed = IndexesListTocEntries().execute(tctx, include_links=True)
 
     assert listed.get("status") == "ok", listed
     assert doc.getText().getString() == before
@@ -925,7 +925,7 @@ def test_insert_toc_entry_links_a_text_table_uno(ctx, doc):
     assert inserted.get("page_from_sibling") is False, inserted
     assert doc.getTextTables().hasByName("Taula69")
 
-    listed = IndexesListTocEntries().execute(tctx)
+    listed = IndexesListTocEntries().execute(tctx, include_links=True)
     assert listed.get("status") == "ok", listed
     annex = next(row for row in listed["entries"] if "Annex cover" in row["text"])
     assert annex["hyperlink_url"] == table_url, annex
@@ -976,3 +976,75 @@ def test_list_toc_entries_with_a_paragraph_before_the_toc_uno(ctx, doc):
     assert listed["count"] == 2, listed
     texts = [row["text"] for row in listed["entries"]]
     assert "Alpha title" in texts[0] and "Beta title" in texts[1], texts
+
+
+@native_test
+@with_native_doc("writer")
+def test_list_toc_entries_links_on_request_uno(ctx, doc):
+    """Default TOC listing omits hyperlink_url; include_links=True returns it."""
+    text = doc.getText()
+    text.setString("")
+    _add_heading(text, "Alpha title", True)
+    _add_heading(text, "Beta title", False)
+    tctx = _tool_ctx(ctx, doc)
+    created = IndexesCreate().execute(tctx, kind="toc", title="Contents", target="beginning")
+    assert created.get("status") == "ok", created
+
+    listed_default = IndexesListTocEntries().execute(tctx)
+    assert listed_default.get("status") == "ok", listed_default
+    assert listed_default.get("count") == 2
+    assert "hyperlink_url" not in listed_default["entries"][0]
+    assert "hyperlink_url" not in listed_default["entries"][1]
+
+    listed_links = IndexesListTocEntries().execute(tctx, include_links=True)
+    assert listed_links.get("status") == "ok", listed_links
+    assert listed_links.get("count") == 2
+    assert str(listed_links["entries"][0].get("hyperlink_url", "")).startswith("#")
+    assert str(listed_links["entries"][1].get("hyperlink_url", "")).startswith("#")
+
+
+@native_test
+@with_native_doc("writer")
+def test_toc_fixture_export_and_read_rows_uno(ctx, doc):
+    """build_toc_fixture exports to ODT with 40 outline links and 40 heading bookmarks."""
+    import os
+    import re
+    import tempfile
+    import zipfile
+    import uno
+    from com.sun.star.beans import PropertyValue
+    from scripts.prompt_optimization.toc_eval import read_toc_rows_from_odt
+    from scripts.prompt_optimization.toc_fixture import FIXTURE_ROWS, build_toc_fixture
+
+    tctx = _tool_ctx(ctx, doc)
+
+    def _execute(name, args):
+        if name == "indexes_create":
+            return IndexesCreate().execute(tctx, **args)
+        raise ValueError(name)
+
+    build_toc_fixture(doc, _execute)
+
+    fd, path = tempfile.mkstemp(suffix=".odt")
+    os.close(fd)
+    try:
+        pv = PropertyValue()
+        pv.Name = "FilterName"
+        pv.Value = "writer8"
+        doc.storeToURL(uno.systemPathToFileUrl(path), (pv,))
+
+        with zipfile.ZipFile(path) as zf:
+            xml = zf.read("content.xml").decode("utf-8")
+        bookmark_count = len(re.findall(r'<text:bookmark-start\b[^>]*\btext:name="(__RefHeading__[^"]*)"', xml))
+        assert bookmark_count == 40, f"Expected 40 heading bookmarks, got {bookmark_count}"
+
+        rows = read_toc_rows_from_odt(path)
+        assert len(rows) == 40, f"Expected 40 TOC rows, got {len(rows)}"
+        for actual, expected in zip(rows, FIXTURE_ROWS):
+            assert actual[0] == expected.title, f"Title mismatch: {actual[0]} != {expected.title}"
+            assert actual[1] == expected.url, f"URL mismatch: {actual[1]} != {expected.url}"
+    finally:
+        try:
+            os.unlink(path)
+        except OSError:
+            pass

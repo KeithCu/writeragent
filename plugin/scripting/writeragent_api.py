@@ -1462,20 +1462,21 @@ class _IndexProxy:
         return call_host_tool("indexes_insert_toc_entry", content=content, page=page, hyperlink_url=hyperlink_url, position=position, old_content=old_content, level=level, index=index, occurrence=occurrence, dry_run=dry_run, case_sensitive=case_sensitive)
 
     def list(self) -> dict[str, Any]:
-        """List document indexes (TOC, alphabetical, user, bibliography tables). type matches indexes_create kind (bibliography via getServiceName). For in-flow cites use indexes_list_cites, not this tool. For TOC row text, outline level, and the internal hyperlink use indexes_list_toc_entries."""
+        """List document indexes (TOC, alphabetical, user, bibliography tables). type matches indexes_create kind (bibliography via getServiceName). For in-flow cites use indexes_list_cites, not this tool. For TOC row text and outline level use indexes_list_toc_entries."""
         return call_host_tool("indexes_list")
 
     def list_cites(self) -> dict[str, Any]:
         """List native bibliography cite fields (TextField.Bibliography). Returns identifier, key Fields (Author, Title, Year, Pages, type), and location. Does not list the bibliography table — use indexes_list for that."""
         return call_host_tool("indexes_list_cites")
 
-    def list_toc_entries(self, *, index: int | None = None) -> dict[str, Any]:
-        """List table-of-contents rows by reading the index paragraphs. Each row is the visible text, the outline level (Contents 1-10), and the internal hyperlink (HyperLinkURL, including #…|outline). Does not export the document and does not call index update(). Use this to inspect or validate TOC entries. indexes_list returns only the index name and type. Do not use get_document_content for a linked TOC: that export runs the XHTML Writer filter, entry text often comes back empty, and a long outline can hang.
+    def list_toc_entries(self, *, index: int | None = None, include_links: bool = False) -> dict[str, Any]:
+        """List table-of-contents rows by reading the index paragraphs. Each row is the visible text and the outline level (Contents 1-10). Pass include_links=true to include the internal HyperLinkURL (including #…|outline); renames keep links without hyperlink_url. Does not export the document and does not call index update(). Use this to inspect or validate TOC entries. indexes_list returns only the index name and type. Do not use get_document_content for a linked TOC: that export runs the XHTML Writer filter, entry text often comes back empty, and a long outline can hang.
 
         Args:
             index (optional): Document index position from indexes_list. Omit when the document has exactly one TOC.
+            include_links (optional): Include internal hyperlink URLs on each row. Defaults to false; outline links are preserved automatically during renames.
         """
-        return call_host_tool("indexes_list_toc_entries", index=index)
+        return call_host_tool("indexes_list_toc_entries", index=index, include_links=include_links)
 
     def refresh_toc_entry(self, old_content: str, content: str, *, hyperlink_url: str | None = None, index: int | None = None, occurrence: int | None = None, dry_run: bool | None = None, case_sensitive: bool | None = None) -> dict[str, Any]:
         """Replace one substring inside a single table-of-contents entry and, when that text sits in one outline hyperlink (#…|outline), update that URL. Does not call index update(), so other entries, tabs, page numbers, and direct formatting stay. Page numbers are left as they are. indexes_update_all is the full rebuild and drops customized TOC formatting. Pass hyperlink_url to set the outline target, including when content equals old_content. Bookmark targets are not rewritten. To add or remove one row, use indexes_insert_toc_entry or indexes_delete_toc_entry.

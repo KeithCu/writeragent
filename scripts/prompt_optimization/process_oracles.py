@@ -47,7 +47,7 @@ def py_dest_conflicts_data(dest: str, formula: str) -> bool:
 _BULK_CELL_FLOOR = 100
 
 
-def _as_dict(raw: Any) -> dict[str, Any]:
+def as_dict(raw: Any) -> dict[str, Any]:
     if isinstance(raw, dict):
         return raw
     if isinstance(raw, str):
@@ -81,7 +81,7 @@ def _is_bulk_read(rng: str, data_range: str = DEFAULT_DATA_RANGE) -> bool:
 
 def _trace_has_domain_python(trace: list[dict[str, Any]]) -> bool:
     for item in trace:
-        args = _as_dict(item.get("arguments"))
+        args = as_dict(item.get("arguments"))
         if str(args.get("domain") or "").strip().lower() == "python":
             return True
         blob = json.dumps(item.get("arguments") or {}, ensure_ascii=False)
@@ -96,7 +96,7 @@ def _py_writes(trace: list[dict[str, Any]]) -> list[tuple[str, str]]:
     for item in trace:
         if item.get("name") not in ("write_formula_range", "write_cell_range"):
             continue
-        args = _as_dict(item.get("arguments"))
+        args = as_dict(item.get("arguments"))
         values = args.get("values")
         formula = values if isinstance(values, str) else ""
         for rng in _range_list(args):
@@ -144,7 +144,7 @@ def check_process(
         for item in items:
             if item.get("name") != "read_cell_range":
                 continue
-            args = _as_dict(item.get("arguments"))
+            args = as_dict(item.get("arguments"))
             for rng in _range_list(args):
                 if _is_bulk_read(rng, data_range):
                     fails.append(f"bulk read_cell_range of {rng}")
