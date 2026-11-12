@@ -24,6 +24,7 @@ from plugin.doc.text_helpers import (
 from plugin.framework.errors import ToolExecutionError, reraise_if_disposed
 from plugin.scripting._lazy_venv import install_lazy_exports
 from plugin.scripting.domain_registry import get_domain_wiring
+from plugin.scripting.helper_registry import is_text_diagnostics, names
 
 _TEXT_VENV_EXPORTS = frozenset({"analyze_text", "check_diagnostics", "run_text_analytics"})
 
@@ -206,13 +207,12 @@ def is_text_analytics_result(value: Any) -> bool:
     # raw dict as generic Writer text and reported success.
     status = value.get("status")
     helper = value.get("helper")
-    from plugin.scripting.helper_registry import names
 
     if status == "error":
         return str(value.get("code") or "") in ("TEXT_ANALYTICS_ERROR", "UNKNOWN_HELPER") or (
             isinstance(helper, str) and helper in names("text")
         )
-    if isinstance(helper, str) and helper in ("diagnostics", "check"):
+    if is_text_diagnostics(helper):
         return status == "ok"
     if status != "ok":
         return False

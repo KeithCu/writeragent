@@ -113,7 +113,7 @@ def fetch_historical_data(params: dict[str, Any]) -> dict[str, Any]:
 
     tickers = _flatten_tickers(params.get("tickers", []))
     if not tickers:
-        return error_result("INVALID_PARAMS", "tickers parameter is required.", helper="fetch_historical_data")
+        return error_result("INVALID_PARAM", "tickers parameter is required.", helper="fetch_historical_data")
 
     start_date = params.get("start_date")
     end_date = params.get("end_date")
@@ -190,7 +190,7 @@ def technical_analysis(
         indicators = list(raw_indicators)
     else:
         return error_result(
-            "INVALID_PARAMS",
+            "INVALID_PARAM",
             f"indicators must be a name or a list. Supported: {', '.join(_INDICATOR_NAMES)}.",
             helper="technical_analysis",
         )
@@ -198,7 +198,7 @@ def technical_analysis(
     unknown = [str(ind) for ind in indicators if str(ind).strip().lower() not in _INDICATOR_NAMES]
     if unknown:
         return error_result(
-            "INVALID_PARAMS",
+            "INVALID_PARAM",
             f"Unknown indicator(s): {', '.join(unknown)}. Supported: {', '.join(_INDICATOR_NAMES)}.",
             helper="technical_analysis",
         )
@@ -267,13 +267,13 @@ def portfolio_tearsheet(
 
         col_param = params.get("column")
         if col_param is not None and str(col_param).strip() != "":
-            # An unknown column is INVALID_PARAMS. Averaging every column would
+            # An unknown column is INVALID_PARAM. Averaging every column would
             # hide the typo. A string "0" is the integer label 0 when the
             # frame was built with integer columns.
             if col_param not in numeric_df.columns:
                 matches = [col for col in numeric_df.columns if str(col) == str(col_param)]
                 if len(matches) != 1:
-                    return error_result("INVALID_PARAMS", f"Specified column {col_param!r} not found in numeric columns.", helper="portfolio_tearsheet")
+                    return error_result("INVALID_PARAM", f"Specified column {col_param!r} not found in numeric columns.", helper="portfolio_tearsheet")
                 col_param = matches[0]
             returns = numeric_df[col_param]
         else:
@@ -376,7 +376,7 @@ def efficient_frontier(
                 raise ValueError
         except (TypeError, ValueError):
             return error_result(
-                "INVALID_PARAMS",
+                "INVALID_PARAM",
                 "risk_free_rate must be a finite number.",
                 helper="efficient_frontier",
             )
@@ -394,7 +394,7 @@ def efficient_frontier(
                 bounds = (lo, hi)
             except (TypeError, ValueError):
                 return error_result(
-                    "INVALID_PARAMS",
+                    "INVALID_PARAM",
                     "weight_bounds must be a pair of finite numbers.",
                     helper="efficient_frontier",
                 )

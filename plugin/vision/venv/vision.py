@@ -84,7 +84,7 @@ def _dispatch_helper(helper: str, image: Any, params: dict[str, Any]) -> dict[st
     try:
         engine = resolve_engine(params)
     except ValueError as exc:
-        return error_result("INVALID_PARAMS", str(exc), helper=helper)
+        return error_result("INVALID_PARAM", str(exc), helper=helper)
 
     if engine == "paddle":
         return _run_backend("paddle", helper, image, params)
@@ -130,7 +130,7 @@ def run_vision(
 
     raw_params = spec_dict.get("params")
     if raw_params is not None and not isinstance(raw_params, dict):
-        return error_result("INVALID_PARAMS", "spec.params must be a dict", helper=helper)
+        return error_result("INVALID_PARAM", "spec.params must be a dict", helper=helper)
     params: dict[str, Any] = raw_params if isinstance(raw_params, dict) else {}
 
     if isinstance(image, (bytes, bytearray)) and len(image) > VISION_IMAGE_MAX_BYTES:

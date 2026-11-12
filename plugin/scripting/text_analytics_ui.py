@@ -30,6 +30,7 @@ from plugin.framework.queue_executor import main
 from plugin.framework.uno_context import get_active_document, get_runtime_uid
 from plugin.framework.worker_pool import run_in_background
 from plugin.scripting.client import run_text_analytics
+from plugin.scripting.helper_registry import is_text_diagnostics
 from plugin.scripting.python_runner_ui import (
     ModelessWindowClosingListener,
     close_modeless_dialog,
@@ -149,7 +150,7 @@ class TextAnalyticsDialog:
                 ctrl.addActionListener(_TextAnalyticsAction(handler))
 
     def _on_compute(self, helper: str) -> None:
-        scope = "whole" if helper == "diagnostics" else self._scope_from_dialog()
+        scope = "whole" if is_text_diagnostics(helper) else self._scope_from_dialog()
         if scope is None:
             return
         self._compute(helper, scope)
@@ -215,7 +216,7 @@ class TextAnalyticsDialog:
         ctx = self._ctx
         doc = get_active_document(ctx)
 
-        is_diag = helper in ("diagnostics", "check")
+        is_diag = is_text_diagnostics(helper)
         if is_diag:
             text: str | list[str] | None = None
             doc_lang = get_doc_language(doc) if doc else None
@@ -296,7 +297,7 @@ class TextAnalyticsDialog:
 
         if error is not None:
             self._clear_result()
-            if helper in ("diagnostics", "check"):
+            if is_text_diagnostics(helper):
                 text = _("Error from the Text Analytics worker:\n{err}").format(err=str(error))
             else:
                 # every non-diagnostics exception, including Python worker failed: timed out after …, used this package paragraph. The paragraph stays for messages that are failed imports. Other failures show only Error: plus the exception text.
@@ -405,7 +406,7 @@ def format_text_analytics_result_for_display(helper: str, result: dict[str, Any]
     raw_data = result.get("result")
     data = raw_data if isinstance(raw_data, dict) else {}
 
-    if helper in ("diagnostics", "check"):
+    if is_text_diagnostics(helper):
         if result.get("status") == "error" and data.get("status") != "error":
             return _text_analytics_error_line(result)
 
