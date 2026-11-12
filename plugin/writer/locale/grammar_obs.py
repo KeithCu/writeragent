@@ -11,7 +11,13 @@ import threading
 from typing import Any, cast
 
 from plugin.framework.event_bus import get_event_bus
-from plugin.framework.uno_context import desktop_create_is_unsafe
+from plugin.framework.queue_executor import main, pump_main_thread_work_queue
+from plugin.framework.uno_context import (
+    desktop_create_is_unsafe,
+    get_ctx,
+    is_libreharper,
+    process_events_to_idle,
+)
 
 log = logging.getLogger("writeragent.grammar")
 
@@ -76,7 +82,7 @@ def _frame_from_bound_grammar_docs() -> Any | None:
     with grammar_registry.lock:
         persistences = list(grammar_registry.doc_persistence_instances.values())
     for persistence in persistences:
-        frame = _frame_from_controller(persistence._model)
+        frame = _frame_from_controller(persistence.model)
         if frame is not None:
             return frame
     return None
@@ -318,8 +324,6 @@ class StatusBarGrammarStatus(GrammarStatus):
                 return
             if desktop_create_is_unsafe():
                 return
-            from plugin.framework.queue_executor import main, pump_main_thread_work_queue
-            from plugin.framework.uno_context import get_ctx, process_events_to_idle
 
             try:
                 main.post(self._paint, phase, result, routine)
@@ -356,8 +360,6 @@ class StatusBarGrammarStatus(GrammarStatus):
                     self._indicator.end()
                     self._indicator = None
                 return
-
-            from plugin.framework.uno_context import get_ctx
 
             frame = resolve_status_bar_frame(get_ctx())
             if frame is None:
@@ -463,8 +465,6 @@ def get_grammar_status() -> GrammarStatus:
     """Return the active GrammarStatus sink (chosen once per product)."""
     global _STATUS_SINK
     if _STATUS_SINK is None:
-        from plugin.framework.uno_context import is_libreharper
-
         _STATUS_SINK = StatusBarGrammarStatus() if is_libreharper() else WriterAgentGrammarStatus()
     return _STATUS_SINK
 

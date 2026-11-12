@@ -25,6 +25,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
 from plugin.framework.managed_subprocess import ManagedSubprocess
+from plugin.framework import config
 from plugin.framework.errors import best_effort
 from plugin.framework.quit_hooks import register_quit_hook
 from plugin.scripting.sandbox import wrap_command_for_sandbox
@@ -32,6 +33,7 @@ from plugin.scripting.sandbox import wrap_command_for_sandbox
 from plugin.contrib.lsp import json_rpc_framing
 from plugin.contrib.lsp.position_codec import ClientPosition, PositionCodec
 from plugin.writer.locale import grammar_settings
+from plugin.writer.locale.grammar_obs import get_grammar_status, grammar_obs
 from plugin.writer.locale.harper_binary import emit_progress, get_harper_binary
 from plugin.framework.grammar_rule_ids import HARPER_RULE_PREFIX, make_rule_identifier, normalize_detected_bcp47
 
@@ -235,8 +237,6 @@ class HarperRuntime:
             return built
 
     def ensure_body(self, user_config_dir: str, bcp47: str = "en-US") -> None:
-        from plugin.writer.locale.grammar_obs import get_grammar_status
-
         try:
             def _on_progress(payload: dict[str, str]) -> None:
                 message = str(payload.get("message") or "").strip()
@@ -791,8 +791,6 @@ def maybe_start_harper_async(
     (parent of writeragent.json). Empty path is a no-op. WriterAgent starts from OnStartApp;
     LibreHarper from HarperProofreader after init_config (no Jobs.xcu). Returns True if submitted.
     """
-    from plugin.framework.config import user_config_dir as get_ucd
-
     if grammar_settings.provider() != "harper":
         return False
 
@@ -800,10 +798,8 @@ def maybe_start_harper_async(
     if not ucd:
         try:
             if ctx is not None:
-                from plugin.framework.config import init_config
-
-                init_config(ctx)
-            ucd = get_ucd() or ""
+                config.init_config(ctx)
+            ucd = config.user_config_dir() or ""
         except Exception:
             ucd = ""
 
@@ -828,8 +824,6 @@ def harper_try_lint(text: str, user_config_dir: str, bcp47: str = "en-US", *, ct
     not VCL: the helper posts PE2I to the main thread instead of pumping on
     this stack (in-loop PE2I there was a thread-violation dialog).
     """
-    from plugin.writer.locale.grammar_obs import grammar_obs
-
     if not user_config_dir:
         log.error("[harper] lint skipped: empty user config dir")
         return None

@@ -983,7 +983,7 @@ def test_ensure_missing_binary_still_fails_and_cools_down(ensure_jobs: list[str]
     mock_status = MagicMock()
     with (
         patch("plugin.writer.locale.harper.get_harper_binary", side_effect=OSError("harper-ls missing")),
-        patch("plugin.writer.locale.grammar_obs.get_grammar_status", return_value=mock_status),
+        patch("plugin.writer.locale.harper.get_grammar_status", return_value=mock_status),
     ):
         harper_module.runtime.ensure_body("/tmp/cfg", "en-US")
     assert harper_module.runtime.state is HarperRuntimeState.FAILED
@@ -1245,7 +1245,7 @@ def test_ensure_ready_empty_listeners_recovers_on_first_attach() -> None:
             patch("plugin.writer.locale.harper.get_harper_binary", return_value="/bin/harper-ls"),
             patch.object(harper_module.runtime, "install_client", return_value=mock_client),
             patch("plugin.framework.queue_executor.main.post", side_effect=lambda fn, *a, **k: fn(*a, **k)),
-            patch("plugin.writer.locale.grammar_obs.get_grammar_status"),
+            patch("plugin.writer.locale.harper.get_grammar_status"),
         ):
             harper_module.runtime.ensure_body("/tmp", "en-US")
             assert pr._pending_proofread_again is True

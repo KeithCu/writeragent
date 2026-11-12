@@ -10,7 +10,7 @@ import json
 import os
 import urllib.request
 
-from plugin.framework.grammar_rule_ids import _ISO_TO_SNOWBALL, STOPWORDS_ISO_KEY
+from plugin.framework.grammar_rule_ids import ISO_TO_SNOWBALL, STOPWORDS_ISO_KEY
 
 # Not in stopwords-iso.
 MANUAL: dict[str, list[str]] = {
@@ -44,7 +44,7 @@ def main() -> None:
     with urllib.request.urlopen(STOPWORDS_ISO_URL, timeout=30) as r:
         all_sw = json.load(r)
 
-    langs = sorted(set(_ISO_TO_SNOWBALL.values()))
+    langs = sorted(set(ISO_TO_SNOWBALL.values()))
     data: dict[str, list[str]] = {}
     for lang in langs:
         if lang in MANUAL:
