@@ -22,6 +22,7 @@ import pytest
 from hypothesis import given, settings, example, assume, HealthCheck
 
 from plugin.scripting.payload_codec import (
+    child_unpack_split_grid,
     fast_flatten_grid_1d,
     fast_flatten_grid_2d,
     host_pack_data,
@@ -51,7 +52,6 @@ from tests.scripting.serialization_ab_support import (
     assert_codec_split_vs_nosplit_parity,
     assert_identity_after_echo,
     assert_venv_always_never_parity,
-    codec_child_materialization,
     expect_child_list_not_ndarray,
     flatten_semantic_cells,
     grid_cell_count,
@@ -109,7 +109,7 @@ def test_child_materialization_type(case: AbGridCase) -> None:
     """Under force=always: numeric-only → ndarray; any string → nested list."""
     pytest.importorskip("numpy")
     grid = prepare_grid(case)
-    child = codec_child_materialization(grid, force="always")
+    child = child_unpack_split_grid(host_pack_data(grid, force="always"))
     if expect_child_list_not_ndarray(grid if isinstance(grid, list) else [grid]):
         assert isinstance(child, list)
         assert not isinstance(child, np.ndarray)
