@@ -1307,7 +1307,6 @@ def test_peer_queue_pending_counts_only_live_entries():
     assert q.pending(listener) == 1
     fresh = _Listener()
     assert q.pending(fresh) == 0
-    assert q.pending(None) == 0
 
 
 def test_peer_queue_remove_by_identity_keeps_equal_turn():

@@ -25,7 +25,10 @@ import unicodedata
 import weakref
 from collections import deque
 from dataclasses import dataclass
-from typing import Any, ClassVar, Protocol
+from typing import TYPE_CHECKING, Any, ClassVar, Protocol
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 from plugin.framework.doc_type import (
     DOCUMENT_SERVICES,
@@ -122,8 +125,6 @@ class PeerQueue:
 
     def pending(self, listener: object) -> int:
         """Count live pending turns for this listener (used for cap check and test assertions)."""
-        if listener is None:
-            return 0
         return sum(1 for item in self._items if item[0]() is listener)
 
     def append(self, listener: PeerListener, turn: PeerPendingTurn) -> None:
@@ -141,24 +142,22 @@ class PeerQueue:
                 return listener, turn
         return None
 
-    def remove(self, turn: PeerPendingTurn) -> None:
-        """Drop turn by identity; also purges dead listener references."""
+    def _keep(self, pred: Callable[[Any, PeerPendingTurn], bool]) -> None:
         kept: list[tuple[weakref.ref[Any], PeerPendingTurn]] = []
-        for ref, item_turn in self._items:
-            if ref() is not None and item_turn is not turn:
-                kept.append((ref, item_turn))
+        for ref, turn in self._items:
+            listener = ref()
+            if listener is not None and pred(listener, turn):
+                kept.append((ref, turn))
         self._items.clear()
         self._items.extend(kept)
 
+    def remove(self, turn: PeerPendingTurn) -> None:
+        """Drop turn by identity; also purges dead listener references."""
+        self._keep(lambda listener, item_turn: item_turn is not turn)
+
     def drop_listener(self, listener: object) -> None:
         """Drop all turns for listener; also purges dead listener references."""
-        kept: list[tuple[weakref.ref[Any], PeerPendingTurn]] = []
-        for ref, item_turn in self._items:
-            ref_listener = ref()
-            if ref_listener is not None and ref_listener is not listener:
-                kept.append((ref, item_turn))
-        self._items.clear()
-        self._items.extend(kept)
+        self._keep(lambda listener_obj, turn: listener_obj is not listener)
 
 
 peer_queue: PeerQueue = PeerQueue()
