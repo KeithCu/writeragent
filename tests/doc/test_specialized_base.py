@@ -306,6 +306,7 @@ def test_delegate_finished_payload_does_not_duplicate_answer(
     assert result["status"] == "ok"
     assert result["finished"] is True
     assert result["answer"] == answer
+    assert result["domains"] == ["structural"]
     assert "result" not in result
     assert json.dumps(result).count("ENTRY-") == 1
 
@@ -553,3 +554,40 @@ def test_draw_gateway_enum_narrowed_by_uno_services_not_doc_type_label() -> None
     # Unknown services leave the schema alone; the shared instance enum is never mutated.
     assert narrow_delegate_domain_enums([oa], [gateway], None) == [oa]
     assert impress_only <= set(gateway.parameters["properties"]["domain"]["enum"])
+
+
+def test_delegate_footnotes_hint_reaches_inner_instructions(
+    writer_gateway: DelegateToSpecializedWriter,
+) -> None:
+    from unittest.mock import patch
+    from plugin.framework.tool import ToolRegistry
+    from plugin.writer.specialized.footnotes import FootnotesList
+    from plugin.writer.specialized_base import SpecializedWorkflowFinished
+
+    class _DummyFootnotesList(FootnotesList):
+        def execute(self, ctx, **kwargs):
+            return {"status": "ok", "footnotes": [], "endnotes": []}
+
+    reg = ToolRegistry(services={})
+    reg.register(_DummyFootnotesList())
+    reg.register(SpecializedWorkflowFinished())
+    reg.register(writer_gateway)
+
+    ctx = MagicMock(spec=ToolContext)
+    ctx.ctx = MagicMock()
+    ctx.doc = MagicMock()
+    ctx.doc.supportsService.return_value = True
+    ctx.services = {"tools": reg}
+    ctx.stop_checker = lambda: False
+
+    mock_run_inner = MagicMock(return_value={"status": "ok", "finished": True, "answer": "done"})
+
+    with patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *a, **kw: fn(*a, **kw)):
+        with patch("plugin.doc.specialized_base.run_inner_tool_agent", mock_run_inner):
+            writer_gateway.execute(ctx, domain="footnotes", task="List footnotes")
+
+    assert mock_run_inner.called
+    instructions = mock_run_inner.call_args.kwargs["instructions"]
+    assert "insert_after" in instructions
+    assert "cannot move the view cursor" in instructions
+
