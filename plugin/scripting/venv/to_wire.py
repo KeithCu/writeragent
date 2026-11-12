@@ -12,16 +12,20 @@ import base64
 import datetime
 import decimal
 import fractions
+import io
 import math
 import sys
 from typing import Any, Literal
 
 from plugin.framework.ipc import HOST_PICKLE_LEAF_TYPES
+from plugin.scripting.calc_range import CalcRange
 from plugin.scripting.payload_codec import (
     ForceBinary,
-    PAYLOAD_DATAFRAME,
-    _is_numeric_wire_kind,
     child_pack_result,
+    is_calc_range_payload,
+    is_numeric_wire_kind,
+    pack_dataframe_envelope,
+    pack_image_envelope,
     wire_str_key,
 )
 from plugin.scripting.venv import optional_import
@@ -180,17 +184,16 @@ def _temporal_ndarray_to_python(arr: Any, pd_mod: Any) -> Any:
     return [flat[i * ncols : (i + 1) * ncols] for i in range(nrows)]
 
 
-def _figure_to_image_payload(fig: Any, *, fmt: str = "svg") -> dict[str, Any]:
+def figure_to_image_payload(fig: Any, *, fmt: str = "svg") -> dict[str, Any]:
     """Render a matplotlib Figure to an image payload envelope.
 
     *fmt* ``"svg"`` (default) produces resolution-independent vector graphics that
     render crisply at any zoom in LibreOffice Calc/Writer.  ``"png"`` produces a
     150 DPI raster, preferred when the consumer cannot handle SVG (e.g. chat HTML).
     """
-    import io
-
     buf = io.BytesIO()
     if fmt == "svg":
+        # Lazy (optional dependency): a Figure here means matplotlib is already loaded.
         import matplotlib
 
         # matplotlib's SVG writer stamps the render date and salts element ids at random,
@@ -201,16 +204,14 @@ def _figure_to_image_payload(fig: Any, *, fmt: str = "svg") -> dict[str, Any]:
             fig.savefig(buf, format="svg", bbox_inches="tight", metadata={"Date": None})
     else:
         fig.savefig(buf, format="png", bbox_inches="tight", dpi=150)
-    buf.seek(0)
-    return {"__wa_payload__": "image", "format": fmt, "data": buf.read()}
+    return pack_image_envelope(buf.getvalue(), fmt)
 
 
 def _pil_image_to_payload(img: Any) -> dict[str, Any]:
     """Convert a PIL Image to an image payload dict."""
-    import io
     buf = io.BytesIO()
     img.save(buf, format="PNG")
-    return {"__wa_payload__": "image", "format": "png", "data": buf.getvalue()}
+    return pack_image_envelope(buf.getvalue(), "png")
 
 
 def _tree_contains_dict(tree: Any) -> bool:
@@ -243,12 +244,26 @@ def to_wire(
 
     One recursion, depth-capped at 64, with cycle detection.
     """
-    from plugin.scripting.calc_range import CalcRange, is_calc_range_payload
-
     effective_force: ForceBinary = "never" if target == "json" else force
     seen: set[int] = set()
 
+    # Resolved once per call; every node of the walk reads these four.
+    mpl_fig = sys.modules.get("matplotlib.figure")
+    pil_mod = optional_import.optional_module("PIL.Image")
+    np_mod = optional_import.optional_module("numpy")
+    pd_mod = optional_import.optional_module("pandas")
+
     def _walk(val: Any, depth: int, is_packing_root: bool) -> Any:
+        """Walk a value and convert to wire-safe format.
+
+        *is_packing_root*: when True, a list or tuple at this node (holding no dict) is handed to
+        `child_pack_result` as one grid, which becomes split_grid when large
+        enough. It is True for the result itself, each dict value, each set
+        element, and a grid rebuilt from a CalcRange, DataFrame, Series or
+        temporal array. It is False for the items of a list or tuple (rows and
+        cells of the grid the outer list packs) and for a list `child_pack_result`
+        already returned.
+        """
         if depth > _MAX_DEPTH:
             raise ValueError("Result is too deeply nested to cross the LibreOffice pickle boundary")
 
@@ -262,15 +277,13 @@ def to_wire(
             return val
 
         # 2. Matplotlib Figure
-        mpl_fig = sys.modules.get("matplotlib.figure")
         if mpl_fig is not None and isinstance(val, mpl_fig.Figure):
-            payload = _figure_to_image_payload(val)
+            payload = figure_to_image_payload(val)
             if target == "json":
                 payload["data"] = base64.b64encode(payload["data"]).decode("ascii")
             return payload
 
         # 3. PIL Image
-        pil_mod = optional_import.optional_module("PIL.Image")
         if pil_mod is not None and isinstance(val, pil_mod.Image):
             payload = _pil_image_to_payload(val)
             if target == "json":
@@ -278,9 +291,6 @@ def to_wire(
             return payload
 
         # 4. ndarray
-        np_mod = optional_import.optional_module("numpy")
-        pd_mod = optional_import.optional_module("pandas")
-
         if np_mod is not None and isinstance(val, np_mod.ndarray):
             kind = _dtype_kind(val)
             if kind in ("M", "m"):
@@ -293,7 +303,7 @@ def to_wire(
                         packed = _json_clean_packed(packed)
                     return packed
                 return _walk(packed, depth, is_packing_root=False)
-            if kind is not None and _is_numeric_wire_kind(kind):
+            if kind is not None and is_numeric_wire_kind(kind):
                 packed = child_pack_result(val, force=effective_force)
                 if target == "json":
                     packed = _json_clean_packed(packed)
@@ -314,70 +324,15 @@ def to_wire(
 
         # 6. DataFrame
         if pd_mod is not None and isinstance(val, pd_mod.DataFrame):
-            df: Any = val
-            columns = dedupe_column_names([flat_label(c) for c in df.columns])
-
-            def _dataframe_cell(cell_val: Any) -> Any:
-                return _temporal_cell_to_stdlib(cell_val, pd_mod)
-
-            if len(df) == 0 or len(df.columns) == 0:
-                data_part: Any = []
-            else:
-                try:
-                    arr = df.to_numpy(copy=False)
-                    kind = _dtype_kind(arr)
-                    if kind is not None and _is_numeric_wire_kind(kind):
-                        data_part = child_pack_result(arr, force=effective_force)
-                        if target == "json":
-                            data_part = _json_clean_packed(data_part)
-                    else:
-                        grid = [
-                            [_dataframe_cell(cell) for cell in row]
-                            for row in df.itertuples(index=False, name=None)
-                        ]
-                        data_part = _walk(grid, depth + 1, is_packing_root=True)
-                except Exception:
-                    grid = [
-                        [_dataframe_cell(cell) for cell in row]
-                        for row in df.itertuples(index=False, name=None)
-                    ]
-                    data_part = _walk(grid, depth + 1, is_packing_root=True)
-            return {
-                "__wa_payload__": PAYLOAD_DATAFRAME,
-                "columns": columns,
-                "data": data_part,
-            }
+            columns = dedupe_column_names([flat_label(c) for c in val.columns])
+            data_part = [] if len(val) == 0 or len(val.columns) == 0 else _frame_body(val, depth)
+            return pack_dataframe_envelope(columns, data_part)
 
         # 7. Series
         if pd_mod is not None and isinstance(val, pd_mod.Series):
-            s: Any = val
-            name = getattr(s, "name", None)
-            if len(s) == 0:
-                s_packed: Any = []
-            else:
-                def _series_cell(cell_val: Any) -> Any:
-                    return _temporal_cell_to_stdlib(cell_val, pd_mod)
-
-                try:
-                    arr = s.to_numpy(copy=False)
-                    kind = _dtype_kind(arr)
-                    if kind is not None and _is_numeric_wire_kind(kind):
-                        s_packed = child_pack_result(arr, force=effective_force)
-                        if target == "json":
-                            s_packed = _json_clean_packed(s_packed)
-                    else:
-                        grid = [_series_cell(v) for v in s.tolist()]
-                        s_packed = _walk(grid, depth + 1, is_packing_root=True)
-                except Exception:
-                    grid = [_series_cell(v) for v in s.tolist()]
-                    s_packed = _walk(grid, depth + 1, is_packing_root=True)
-            if name is not None:
-                return {
-                    "__wa_payload__": PAYLOAD_DATAFRAME,
-                    "columns": [flat_label(name)],
-                    "data": s_packed,
-                }
-            return s_packed
+            s_packed = [] if len(val) == 0 else _frame_body(val, depth)
+            name = getattr(val, "name", None)
+            return pack_dataframe_envelope([flat_label(name)], s_packed) if name is not None else s_packed
 
         # 8. Containers
         if isinstance(val, (dict, list, tuple, set, frozenset)):
@@ -459,22 +414,13 @@ def to_wire(
         if converted_scalar is not val:
             return _walk(converted_scalar, depth, is_packing_root)
 
-        if np_mod is not None and isinstance(val, np_mod.generic):
-            if type(val).__name__ == "clongdouble":
-                raise ValueError(
-                    "numpy.clongdouble cannot cross the LibreOffice pickle boundary: "
-                    ".item() returns another clongdouble, not a builtin complex"
-                )
+        if np_mod is not None and isinstance(val, np_mod.generic) and type(val).__name__ != "clongdouble":
             try:
                 plain = val.item()
             except Exception:
                 plain = val
             if plain is not val and not isinstance(plain, np_mod.generic):
                 return _walk(plain, depth, is_packing_root)
-            raise ValueError(
-                f"Result type {type(val).__module__}.{type(val).__name__} "
-                "cannot cross the LibreOffice pickle boundary"
-            )
 
         if type(val).__name__ == "clongdouble":
             raise ValueError(
@@ -485,5 +431,27 @@ def to_wire(
             f"Result type {type(val).__module__}.{type(val).__name__} "
             "cannot cross the LibreOffice pickle boundary"
         )
+
+    def _frame_body(val: Any, depth: int) -> Any:
+        """Data of a non-empty DataFrame or Series: packed array when numeric, else an object grid."""
+        assert pd_mod is not None
+        try:
+            arr = val.to_numpy(copy=False)
+            kind = _dtype_kind(arr)
+            if kind is not None and is_numeric_wire_kind(kind):
+                packed = child_pack_result(arr, force=effective_force)
+                if target == "json":
+                    packed = _json_clean_packed(packed)
+                return packed
+        except Exception:
+            pass  # an extension dtype whose to_numpy or pack fails takes the object grid below
+        if isinstance(val, pd_mod.DataFrame):
+            grid: list[Any] = [
+                [_temporal_cell_to_stdlib(c, pd_mod) for c in row]
+                for row in val.itertuples(index=False, name=None)
+            ]
+        else:
+            grid = [_temporal_cell_to_stdlib(v, pd_mod) for v in val.tolist()]
+        return _walk(grid, depth + 1, is_packing_root=True)
 
     return _walk(obj, 0, is_packing_root=True)

@@ -49,7 +49,7 @@ from plugin.framework.ipc import (
     write_packed_frame_with_timeout,
 )
 from plugin.scripting.session_key import SessionKey
-from plugin.scripting.payload_codec import _HOST_UNPACK_ERRORS, host_unpack_data
+from plugin.scripting.payload_codec import HOST_UNPACK_ERRORS, host_unpack_data
 from plugin.framework.subprocess_env import scrub_subprocess_env
 from plugin.scripting.sandbox import (
     detect_sandbox,
@@ -857,10 +857,10 @@ class PythonWorkerManager:
         try:
             # host_unpack_data runs after the script has finished, so a rejected
             # result fails without replay: replaying would run a tool that already
-            # changed the document a second time. _HOST_UNPACK_ERRORS is broad because
+            # changed the document a second time. HOST_UNPACK_ERRORS is broad because
             # bad shapes and non-finite ints raise different types.
             return self._normalize_response(response)
-        except _HOST_UNPACK_ERRORS as e:
+        except HOST_UNPACK_ERRORS as e:
             log.warning("Python worker result rejected (not replaying): %s", e)
             return self._fail_ipc_no_replay(e)
 
@@ -962,7 +962,7 @@ class PythonWorkerManager:
         if response.get("status") == "ok":
             result = response.get("result")
             if result is not None:
-                result = host_unpack_data(result, as_nested_list=True)
+                result = host_unpack_data(result)
             return {
                 "status": "ok",
                 "result": result,
