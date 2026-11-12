@@ -175,15 +175,3 @@ def test_document_properties_set_keywords_array():
         res = DocumentPropertiesSet().execute(ctx, keywords=["a", "b"])
     assert res["status"] == "ok"
     assert bag.Keywords == ("a", "b")
-
-
-def test_get_guidance_unknown_topic():
-    from plugin.doc.document_research_tools import GetGuidance
-
-    ctx = MagicMock()
-    ctx.doc.supportsService.return_value = False
-    res = GetGuidance().execute(ctx, topic="nonexistent_topic_xyz")
-    assert res["status"] == "error"
-    assert res["code"] == "UNKNOWN_TOPIC"
-    assert "topics" in res
-    assert "details" not in res

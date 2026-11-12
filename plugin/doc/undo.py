@@ -35,13 +35,13 @@ def commit_or_rollback_mutation(
     mutate: Any,
     undo_unavailable_msg: str,
     rollback_msg: str,
+    *,
+    code: str = "TOOL_EXECUTION_ERROR",
     **extra_error: Any,
 ) -> dict[str, Any] | None:
     """Execute mutate inside an undo transaction, reporting tool errors on failure."""
     from plugin.framework.errors import is_disposal
 
-    # code travels in extra_error from callers such as textframes; it is the payload code, not a top-level extra.
-    code = extra_error.pop("code", None)
     try:
         outcome = commit_or_rollback(doc, undo_title, mutate)
     except UndoUnavailable:
@@ -56,14 +56,14 @@ def commit_or_rollback_mutation(
             raise
         return tool._tool_error(
             f"{rollback_msg} ({e}).",
-            code=code or "TOOL_EXECUTION_ERROR",
+            code=code,
             top_level=extra_error,
         )
     if outcome.mutate_error is not None:
         mut_exc = outcome.mutate_error
         return tool._tool_error(
             f"{rollback_msg} ({mut_exc}).",
-            code=code or "TOOL_EXECUTION_ERROR",
+            code=code,
             top_level=extra_error,
         )
     return outcome.error
