@@ -335,7 +335,7 @@ def _writer_tree_service() -> Any:
 
     global _FALLBACK_WRITER_TREE
 
-    services = app._services
+    services = app.services_or_none()
     if services is not None:
         getter = getattr(services, "get", None)
         if callable(getter):
