@@ -3,7 +3,7 @@ import queue
 import pytest
 import sys
 from typing import Any
-from plugin.framework.errors import WriterAgentException, format_error_for_display, format_error_payload
+from plugin.framework.errors import WriterAgentException, format_error_for_display, format_error_payload, make_tool_error
 from plugin.framework.json_utils import safe_json_loads
 from plugin.framework.tool import ToolBase
 from plugin.framework.stream_batch import StreamQueueKind
@@ -55,6 +55,23 @@ class TestErrorHandling:
         assert (result['code']) == ('CUSTOM_CODE')
         assert (result['message']) == ('Tool failed')
         assert (result['details']) == ({'key': 'val'})
+
+    def test_make_tool_error_top_level_fields(self):
+        res = make_tool_error("m", code="C", top_level={"a": 1}, b=2)
+        assert res["status"] == "error"
+        assert res["code"] == "C"
+        assert res["message"] == "m"
+        assert res["a"] == 1
+        assert res["details"] == {"b": 2}
+        assert make_tool_error("m", code="C", top_level=None) == {"status": "error", "code": "C", "message": "m"}
+        assert make_tool_error("m", code="C", top_level={}) == {"status": "error", "code": "C", "message": "m"}
+
+    def test_make_tool_error_top_level_reserved_key_rejected(self):
+        with pytest.raises(ValueError, match="top_level cannot override"):
+            make_tool_error("m", top_level={"code": "X"})
+
+    def test_tool_base_error_top_level_forwarded(self):
+        assert DummyTool()._tool_error("m", top_level={"flag": True})["flag"] is True
 
     def test_format_error_for_display(self):
         exc = WriterAgentException('User error', code='ERR')

@@ -195,24 +195,24 @@ class FieldsDelete(ToolWriterFieldBase):
         if snapshot is not None:
             current_snapshot = hasher.hexdigest()
             if current_snapshot != snapshot:
-                return {
-                    "status": "error",
-                    "code": "FIELD_LIST_STALE",
-                    "message": "Document fields have changed since fields_list. Call fields_list again.",
-                    "deleted_count": 0,
-                }
+                return self._tool_error(
+                    "Document fields have changed since fields_list. Call fields_list again.",
+                    code="FIELD_LIST_STALE",
+                    top_level={"deleted_count": 0},
+                )
 
         missing_ids = [fid for fid in cleaned_ids if fid not in found]
 
         if not found:
-            return {
-                "status": "error",
-                "code": "FIELD_NOT_FOUND",
-                "message": f"No matching text fields found to delete (missing IDs: {missing_ids}). Use comment_delete to delete comments.",
-                "deleted_count": 0,
-                "requested_count": requested_count,
-                "missing_ids": missing_ids,
-            }
+            return self._tool_error(
+                f"No matching text fields found to delete (missing IDs: {missing_ids}). Use comment_delete to delete comments.",
+                code="FIELD_NOT_FOUND",
+                top_level={
+                    "deleted_count": 0,
+                    "requested_count": requested_count,
+                    "missing_ids": missing_ids,
+                },
+            )
 
         anchors = []
         deleted: list[dict[str, Any]] = []
@@ -462,7 +462,7 @@ class DocumentPropertiesSet(ToolBase):
         if keywords is not None and not isinstance(keywords, list):
             return self._tool_error(
                 "keywords must be an array of strings.",
-                code="INVALID_PARAMETER",
+                code="INVALID_PARAM",
                 parameter="keywords",
             )
         if keywords is not None:
@@ -470,7 +470,7 @@ class DocumentPropertiesSet(ToolBase):
                 if not isinstance(item, str):
                     return self._tool_error(
                         "keywords must be an array of strings.",
-                        code="INVALID_PARAMETER",
+                        code="INVALID_PARAM",
                         parameter="keywords",
                     )
 
@@ -479,20 +479,20 @@ class DocumentPropertiesSet(ToolBase):
             if not isinstance(user_defined, dict):
                 return self._tool_error(
                     "user_defined must be an object of string values.",
-                    code="INVALID_PARAMETER",
+                    code="INVALID_PARAM",
                     parameter="user_defined",
                 )
             for key, val in user_defined.items():
                 if not isinstance(key, str) or not isinstance(val, str):
                     return self._tool_error(
                         "user_defined keys and values must be strings.",
-                        code="INVALID_PARAMETER",
+                        code="INVALID_PARAM",
                         parameter="user_defined",
                     )
                 if _is_product_udprop(key):
                     return self._tool_error(
                         "Cannot set internal property %r." % key,
-                        code="INVALID_PARAMETER",
+                        code="INVALID_PARAM",
                         parameter="user_defined",
                     )
                 ud_writes[key] = val
@@ -502,26 +502,26 @@ class DocumentPropertiesSet(ToolBase):
             if not isinstance(remove_user_defined, list):
                 return self._tool_error(
                     "remove_user_defined must be an array of property names.",
-                    code="INVALID_PARAMETER",
+                    code="INVALID_PARAM",
                     parameter="remove_user_defined",
                 )
             for key in remove_user_defined:
                 if not isinstance(key, str):
                     return self._tool_error(
                         "remove_user_defined entries must be strings.",
-                        code="INVALID_PARAMETER",
+                        code="INVALID_PARAM",
                         parameter="remove_user_defined",
                     )
                 if key in ud_writes:
                     return self._tool_error(
                         "Cannot set and remove the same user-defined property %r." % key,
-                        code="INVALID_PARAMETER",
+                        code="INVALID_PARAM",
                         parameter="user_defined",
                     )
                 if _is_product_udprop(key):
                     return self._tool_error(
                         "Cannot remove internal property %r." % key,
-                        code="INVALID_PARAMETER",
+                        code="INVALID_PARAM",
                         parameter="remove_user_defined",
                     )
                 ud_removes.append(key)

@@ -1404,13 +1404,11 @@ class ApplyStyle(FrameworkToolBase):
 
             s = prepare_old_content(old_content)
             if not s:
-                return {
-                    "status": "error",
-                    "code": "INVALID_PARAM",
-                    "message": "target='search' requires old_content.",
-                    "applied": False,
-                    "matched": False,
-                }
+                return self._tool_error(
+                    "target='search' requires old_content.",
+                    code="INVALID_PARAM",
+                    top_level={"applied": False, "matched": False},
+                )
             cs = resolve_case_sensitive(case_sensitive)
             if all_matches or occ_raw is not None:
                 ranges = find_all_ranges(ctx.doc, s, case_sensitive=cs) if s else []
@@ -1623,17 +1621,20 @@ class StyleUpdate(ToolWriterStyleBase):
 
         after = snap(applied.get("ParentStyle"))
 
-        result = {"status": "ok", "style_name": style_name, "family": family}
+        fields: dict[str, Any] = {"style_name": style_name, "family": family}
         if snapshot_keys:
-            result["before"] = before
-            result["after"] = after
+            fields["before"] = before
+            fields["after"] = after
         if applied:
-            result["updated_properties"] = applied
+            fields["updated_properties"] = applied
         if failed:
-            result["failed_properties"] = failed
-            if not applied:
-                result["status"] = "error"
-                result["message"] = "Failed to apply any updates."
+            fields["failed_properties"] = failed
+
+        if failed and not applied:
+            result = self._tool_error("Failed to apply any updates.", top_level=fields)
+        else:
+            result = {"status": "ok", **fields}
+
         if "CharFontName" in applied:
             warning = _font_not_installed_warning(ctx, applied["CharFontName"])
             if warning:
@@ -1726,12 +1727,10 @@ class StyleCreate(ToolWriterStyleBase):
 
         applied, failed = _apply_style_updates(new_style, updates)
         if failed:
-            return {
-                "status": "error",
-                "code": "TOOL_EXECUTION_ERROR",
-                "message": "Style was not created. Failed properties: %s" % (failed,),
-                "failed_properties": failed,
-            }
+            return self._tool_error(
+                "Style was not created. Failed properties: %s" % (failed,),
+                top_level={"failed_properties": failed},
+            )
 
         # Only insert if all requested properties were applied without failure.
         style_family.insertByName(style_name, new_style)

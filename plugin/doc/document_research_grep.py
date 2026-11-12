@@ -29,7 +29,7 @@ from plugin.doc.document_research import (
 from plugin.calc.spreadsheet_search import search_spreadsheet_cells
 from plugin.doc.paragraph_search import compile_search_pattern, search_paragraph_texts
 from plugin.doc.text_helpers import get_string_without_tracked_deletions
-from plugin.framework.errors import uno_read, user_stopped_payload
+from plugin.framework.errors import make_tool_error, uno_read, user_stopped_payload
 from plugin.framework.send_cancellation import SendCancelled, SendCancellation, is_cancelled
 from plugin.writer.search import SEARCH_CASE_SENSITIVE_DEFAULT
 
@@ -386,13 +386,13 @@ def grep_nearby_files(
     """Search nearby LibreOffice files for *pattern*; return aggregated hits with snippets."""
     pattern = str(pattern).strip()
     if not pattern:
-        return {"status": "error", "message": "pattern is required"}
+        return make_tool_error("pattern is required", code="INVALID_PARAM")
 
     try:
         compile_search_pattern(pattern, regex=regex, case_sensitive=case_sensitive)
     except ValueError as exc:
         # Invalid regex fails once before opening files—the pattern does not depend on each document.
-        return {"status": "error", "message": str(exc)}
+        return make_tool_error(str(exc), code="INVALID_PARAM")
 
     subset_norm = str(file_subset).strip() if file_subset else None
 
@@ -409,7 +409,7 @@ def grep_nearby_files(
         return user_stopped_payload()
 
     if list_err:
-        return {"status": "error", "message": list_err}
+        return make_tool_error(list_err)
 
     hits: list[dict[str, Any]] = []
     errors: list[dict[str, str]] = []

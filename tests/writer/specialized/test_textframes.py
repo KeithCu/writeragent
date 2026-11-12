@@ -290,9 +290,9 @@ def test_frame_insert_invalid_width_and_anchor():
     ctx = MagicMock(doc=MagicMock())
     tool = FrameInsert()
     bad_w = tool.execute(ctx, width_mm=0)
-    assert bad_w["code"] == "INVALID_PARAMETER"
+    assert bad_w["code"] == "INVALID_PARAM"
     bad_a = tool.execute(ctx, anchor_type=5)
-    assert bad_a["code"] == "INVALID_PARAMETER"
+    assert bad_a["code"] == "INVALID_PARAM"
 
 
 def test_frame_delete_remove_text_content():

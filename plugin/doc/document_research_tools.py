@@ -153,10 +153,9 @@ class GetGuidance(ToolBase):
             }
         section = get_section(raw, doc_type)
         if section is None:
-            return {
-                "status": "error",
-                "code": "UNKNOWN_TOPIC",
-                "message": "Unknown guidance topic '%s' for this document type. Available topics: %s." % (raw, ", ".join(list_topics(doc_type))),
-                "topics": list_topics(doc_type),
-            }
+            return self._tool_error(
+                "Unknown guidance topic '%s' for this document type. Available topics: %s." % (raw, ", ".join(list_topics(doc_type))),
+                code="UNKNOWN_TOPIC",
+                top_level={"topics": list_topics(doc_type)},
+            )
         return {"status": "ok", "doc_type": doc_type, "topic": normalize_topic(raw, doc_type), "guidance": section}

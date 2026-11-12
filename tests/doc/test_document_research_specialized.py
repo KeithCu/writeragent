@@ -1178,3 +1178,11 @@ def test_delegate_read_document_missing_file_error_has_flat_details(mock_resolve
     assert result["details"]["path_or_name"] == "x"
     assert "details" not in result["details"]
 
+
+def test_run_inner_read_agent_unknown_doc_type_is_coded_error():
+    res = run_inner_read_agent(MagicMock(), MagicMock(), "nope", "task")
+    assert isinstance(res, dict)
+    assert res["status"] == "error"
+    assert res["code"] == "TOOL_EXECUTION_ERROR"
+    assert "No read tools configured" in res["message"]
+

@@ -182,7 +182,7 @@ class EmbeddedInsert(ToolWriterEmbeddedBase):
         if object_type != "spreadsheet":
             return self._tool_error(
                 "object_type must be 'spreadsheet'.",
-                code="INVALID_PARAMETER",
+                code="INVALID_PARAM",
                 parameter="object_type",
             )
 
@@ -190,19 +190,19 @@ class EmbeddedInsert(ToolWriterEmbeddedBase):
         if data is None:
             data = []
         elif isinstance(data, bool) or not isinstance(data, list):
-            return self._tool_error("data must be an array of rows.", code="INVALID_PARAMETER", parameter="data")
+            return self._tool_error("data must be an array of rows.", code="INVALID_PARAM", parameter="data")
         for row_idx, row in enumerate(data):
             if isinstance(row, bool) or not isinstance(row, list):
                 return self._tool_error(
                     f"data row {row_idx} must be an array.",
-                    code="INVALID_PARAMETER",
+                    code="INVALID_PARAM",
                     parameter="data",
                 )
             for col_idx, cell in enumerate(row):
                 if isinstance(cell, bool):
                     return self._tool_error(
                         f"data[{row_idx}][{col_idx}] cannot be a boolean.",
-                        code="INVALID_PARAMETER",
+                        code="INVALID_PARAM",
                         parameter="data",
                     )
 
@@ -211,16 +211,16 @@ class EmbeddedInsert(ToolWriterEmbeddedBase):
         if (width is None) ^ (height is None):
             return self._tool_error(
                 "width and height must both be set or both omitted.",
-                code="INVALID_PARAMETER",
+                code="INVALID_PARAM",
             )
         if width is not None and (not isinstance(width, int) or isinstance(width, bool) or width <= 0):
-            return self._tool_error("width must be a positive integer.", code="INVALID_PARAMETER", parameter="width")
+            return self._tool_error("width must be a positive integer.", code="INVALID_PARAM", parameter="width")
         if height is not None and (not isinstance(height, int) or isinstance(height, bool) or height <= 0):
-            return self._tool_error("height must be a positive integer.", code="INVALID_PARAMETER", parameter="height")
+            return self._tool_error("height must be a positive integer.", code="INVALID_PARAM", parameter="height")
 
         embed_name = kwargs.get("name")
         if embed_name is not None and embed_name == "":
-            return self._tool_error("name cannot be empty.", code="INVALID_PARAMETER", parameter="name")
+            return self._tool_error("name cannot be empty.", code="INVALID_PARAM", parameter="name")
 
         target = kwargs.get("target", "selection")
         old_content = kwargs.get("old_content")
@@ -237,7 +237,7 @@ class EmbeddedInsert(ToolWriterEmbeddedBase):
         try:
             clsid = _spreadsheet_clsid(ctx.ctx)
         except ValueError as ve:
-            return self._tool_error(str(ve), code="INVALID_PARAMETER")
+            return self._tool_error(str(ve), code="INVALID_PARAM")
 
         doc = ctx.doc
         replace_match = target == "search" and bool(old_content)
@@ -250,15 +250,14 @@ class EmbeddedInsert(ToolWriterEmbeddedBase):
             container = doc.getEmbeddedObjects()
             before_names = set(container.getElementNames())
             if embed_name and container.hasByName(embed_name):
-                return {
-                    "status": "error",
-                    "code": "INVALID_PARAMETER",
-                    "message": f"Embedded object {embed_name!r} already exists.",
-                }
+                return self._tool_error(
+                    f"Embedded object {embed_name!r} already exists.",
+                    code="INVALID_PARAM",
+                )
 
             emb = doc.createInstance("com.sun.star.text.TextEmbeddedObject")
             if not emb:
-                return {"status": "error", "message": "Failed to create TextEmbeddedObject."}
+                return self._tool_error("Failed to create TextEmbeddedObject.")
 
             emb.CLSID = clsid
             emb.AnchorType = _ANCHOR_AS_CHARACTER
@@ -270,10 +269,7 @@ class EmbeddedInsert(ToolWriterEmbeddedBase):
             after_names = set(container.getElementNames())
             new_names = after_names - before_names
             if len(new_names) != 1:
-                return {
-                    "status": "error",
-                    "message": "Spreadsheet OLE was not installed in the document.",
-                }
+                return self._tool_error("Spreadsheet OLE was not installed in the document.")
 
             container_name = next(iter(new_names))
 
@@ -282,13 +278,10 @@ class EmbeddedInsert(ToolWriterEmbeddedBase):
             except Exception as exc:
                 if is_disposal(exc):
                     raise
-                return {
-                    "status": "error",
-                    "message": f"Could not open embedded spreadsheet ({exc}).",
-                }
+                return self._tool_error(f"Could not open embedded spreadsheet ({exc}).")
 
             if inner is None or not inner.supportsService(_SPREADSHEET_DOC_SERVICE):
-                return {"status": "error", "message": "Embedded object is not a Calc spreadsheet."}
+                return self._tool_error("Embedded object is not a Calc spreadsheet.")
 
             sheet = inner.getSheets().getByIndex(0)
             rows = len(data)
@@ -314,7 +307,7 @@ class EmbeddedInsert(ToolWriterEmbeddedBase):
                     try:
                         _write_cell(sheet.getCellByPosition(c_idx, r_idx), cell_val)
                     except ValueError as ve:
-                        return {"status": "error", "message": str(ve)}
+                        return self._tool_error(str(ve))
 
             result_holder.append(
                 {

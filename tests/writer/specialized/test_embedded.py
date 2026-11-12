@@ -220,6 +220,7 @@ def test_embedded_insert_name_unchanged_skips_get_embedded_object():
         res = EmbeddedInsert().execute(ctx, object_type="spreadsheet", target="end")
 
     assert res["status"] == "error"
+    assert res["code"] == "TOOL_EXECUTION_ERROR"
     assert "not installed" in res["message"]
     emb.getEmbeddedObject.assert_not_called()
 
@@ -253,6 +254,7 @@ def test_embedded_insert_duplicate_name_before_create():
         )
 
     assert res["status"] == "error"
+    assert res["code"] == "INVALID_PARAM"
     doc.createInstance.assert_not_called()
 
 
@@ -283,4 +285,5 @@ def test_embedded_insert_get_embedded_object_failure():
         res = EmbeddedInsert().execute(ctx, object_type="spreadsheet", target="end")
 
     assert res["status"] == "error"
+    assert res["code"] == "TOOL_EXECUTION_ERROR"
     assert "broken ole" in res["message"]

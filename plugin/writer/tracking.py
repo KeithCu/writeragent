@@ -439,13 +439,11 @@ class ManageTrackedChanges(WriterAgentSpecialTracking, ToolCalcSpecialTracking):
         msg = "All tracked changes accepted." if is_accept else "All tracked changes rejected."
         if not has_redlines:
             if res is None:
-                err = self._tool_error(
+                return self._tool_error(
                     "Accepting or rejecting all tracked changes is not supported on this document.",
                     code="UNSUPPORTED",
+                    top_level={"tracked_changes_bulk_unsupported": True},
                 )
-                # make_tool_error stores kwargs under details; set the flat key directly for callers.
-                err["tracked_changes_bulk_unsupported"] = True
-                return err
             return {"status": "ok", "message": msg}
 
         # Bulk resolve success is judged by redline getCount() before and after dispatch

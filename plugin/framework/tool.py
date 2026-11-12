@@ -41,6 +41,7 @@ from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any, Callable, ClassVar, NamedTuple, cast
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
     from plugin.framework.send_cancellation import SendCancellation
 
 from plugin.framework.errors import (
@@ -246,15 +247,24 @@ class _ToolErrorMixin:
         code: str = "TOOL_EXECUTION_ERROR",
         *,
         suggested_call: SuggestedCall | None = None,
+        top_level: Mapping[str, Any] | None = None,
         **details: Any,
     ) -> dict[str, Any]:
         """Standardized JSON payload for tool errors.
 
         Delegates to the central make_tool_error factory so every tool error
-        produces identical structure. An optional suggested_call stays at top
-        level alongside code and message; other kwargs go under details.
+        produces identical structure. Extra keyword arguments nest under
+        details. Optional top_level fields sit beside code and message for
+        clients that branch on one key; use it instead of writing into the
+        returned dict.
         """
-        return make_tool_error(message, code=code, suggested_call=suggested_call, **details)
+        return make_tool_error(
+            message,
+            code=code,
+            suggested_call=suggested_call,
+            top_level=top_level,
+            **details,
+        )
 
 
 class ToolBase(_ToolErrorMixin, ABC):

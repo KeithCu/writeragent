@@ -36,10 +36,9 @@ def commit_or_rollback_mutation(
     """Run mutate inside an undo transaction and turn a failure into a tool error.
 
     ``code`` is the error code used when mutate fails or the wrapper itself fails.
-    ``extra_error`` keys (for example ``deleted=0``) go both under ``details`` and
-    at the top level of that error. Undo-manager problems use UNDO_UNAVAILABLE, and
-    any ``UndoOutcome.error`` (including UNDO_CONTEXT_LEAK and ROLLBACK_FAILED)
-    is returned unchanged.
+    ``extra_error`` keys (for example ``deleted=0``) sit at the top level of that error.
+    Undo-manager problems use UNDO_UNAVAILABLE, and any ``UndoOutcome.error``
+    (including UNDO_CONTEXT_LEAK and ROLLBACK_FAILED) is returned unchanged.
     """
     try:
         outcome = commit_or_rollback(doc, undo_title, mutate)
@@ -56,10 +55,11 @@ def commit_or_rollback_mutation(
         if outcome.mutate_error is None:
             return outcome.error
         cause = outcome.mutate_error
-    err = tool._tool_error(f"{rollback_msg} ({cause}).", code=code, **extra_error)
-    # _tool_error nests the extra fields under details; callers also read them top-level.
-    err.update(extra_error)
-    return err
+    return tool._tool_error(
+        f"{rollback_msg} ({cause}).",
+        code=code,
+        top_level=extra_error,
+    )
 
 
 def _undo_steps(kwargs: dict[str, Any]) -> int:

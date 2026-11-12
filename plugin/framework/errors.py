@@ -26,7 +26,10 @@ import contextlib
 import difflib
 import errno
 import logging
-from typing import Any, Callable, NoReturn, NotRequired, TypeVar, TypedDict, overload
+from typing import TYPE_CHECKING, Any, Callable, NoReturn, NotRequired, TypeVar, TypedDict, overload
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
 
 from plugin.framework.i18n import _
 from plugin.framework.json_utils import safe_python_literal_eval  # noqa: F401  # pyright: ignore[reportUnusedImport]
@@ -440,28 +443,41 @@ def format_error_for_display(e: Any) -> str:
     return _("Error: {0}").format(message)
 
 
+_RESERVED_TOOL_ERROR_KEYS: frozenset[str] = frozenset(
+    {"status", "code", "message", "details", "suggested_call"}
+)
+
+
 @deal.post(lambda result: isinstance(result, dict) and result.get("status") == "error" and "code" in result and "message" in result)
 def make_tool_error(
     message: Any,
     code: str = "TOOL_EXECUTION_ERROR",
     *,
     suggested_call: SuggestedCall | None = None,
+    top_level: Mapping[str, Any] | None = None,
     **details: Any,
 ) -> dict[str, Any]:
     """Central factory for all standardized tool error payloads.
 
     A long UNO or provider string is a runtime message. Construction goes
     through ``WriterAgentException``, which does not apply the gettext msgid
-    length contract to that text. Extra keyword arguments are stored under
-    details, while an optional suggested_call stays at the top level alongside
-    code and message so the model can send it as its next tool call unchanged.
+    length contract to that text. Extra keyword arguments nest under details.
+    Optional top_level fields sit beside code and message for clients that
+    branch on one key; use it instead of writing into the returned dict.
     """
     if not isinstance(code, str) or not code:
         code = "TOOL_EXECUTION_ERROR"
-    return format_error_payload(
+    if top_level is not None:
+        forbidden = set(top_level).intersection(_RESERVED_TOOL_ERROR_KEYS)
+        if forbidden:
+            raise ValueError(f"top_level cannot override reserved error keys: {sorted(forbidden)}")
+    payload = format_error_payload(
         ToolExecutionError(message, code=code, details=details),
         suggested_call=suggested_call,
     )
+    if top_level:
+        payload.update(top_level)
+    return payload
 
 
 def user_stopped_payload(message: str = "Document read stopped by user.") -> dict[str, Any]:

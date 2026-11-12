@@ -1519,6 +1519,7 @@ def test_set_page_style_stops_and_reports_updated():
 
     res = PageSetStyleProperties().execute(ctx, width_mm=10, height_mm=20)
     assert res["status"] == "error"
+    assert res["code"] == "TOOL_EXECUTION_ERROR"
     assert res["updated"] == ["width"]
     assert "height" in res["failed"]
 
