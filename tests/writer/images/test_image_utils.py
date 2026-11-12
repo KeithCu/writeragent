@@ -518,8 +518,8 @@ class TestImageService:
             "is_openrouter": False,
         }
         with (
-            patch("plugin.framework.config.get_api_config", return_value=api.copy()),
-            patch("plugin.framework.client.model_fetcher.get_image_model", return_value="image-model-fallback"),
+            patch("plugin.writer.images.image_utils.get_api_config", return_value=api.copy()),
+            patch("plugin.writer.images.image_utils.get_image_model", return_value="image-model-fallback"),
             patch.object(EndpointImageProvider, "generate", autospec=True, return_value=([], "")) as mock_gen,
         ):
             service = ImageService(mock_ctx)
@@ -529,7 +529,7 @@ class TestImageService:
             assert provider.model == "image-model-fallback"
 
     def test_default_model_comes_from_provider_defaults(self):
-        with patch("plugin.framework.client.model_fetcher.get_image_model", return_value="provider-default-image"):
+        with patch("plugin.writer.images.image_utils.get_image_model", return_value="provider-default-image"):
             provider = EndpointImageProvider({"endpoint": "https://api.example/v1", "api_key": "k"}, MagicMock())
         assert provider.model == "provider-default-image"
 
@@ -599,7 +599,7 @@ class TestImageService:
             return [base64.b64encode(b"fake").decode()]
 
         with (
-            patch("plugin.framework.client.model_fetcher.is_image_only_model", return_value=True),
+            patch("plugin.writer.images.image_utils.is_image_only_model", return_value=True),
             patch.object(provider.client, "image_completion", side_effect=fake_image_completion)
         ):
             provider.generate("a dog", width=1024, height=1024, image_model="black-forest-labs/flux.2-klein-4b")
@@ -629,7 +629,7 @@ class TestImageService:
             return {"content": "", "images": []}
 
         with (
-            patch("plugin.framework.client.model_fetcher.is_image_only_model", return_value=False),
+            patch("plugin.writer.images.image_utils.is_image_only_model", return_value=False),
             patch.object(provider.client, "make_chat_request", side_effect=fake_make_chat_request),
             patch.object(provider.client, "request_with_tools", side_effect=fake_request_with_tools),
         ):
@@ -668,7 +668,7 @@ class TestImageService:
 
         tiny_png_b64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
         with (
-            patch("plugin.framework.client.model_fetcher.is_image_only_model", return_value=False),
+            patch("plugin.writer.images.image_utils.is_image_only_model", return_value=False),
             patch.object(provider.client, "make_chat_request", side_effect=fake_make_chat_request),
             patch.object(provider.client, "request_with_tools", side_effect=fake_request_with_tools),
         ):

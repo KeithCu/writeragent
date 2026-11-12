@@ -152,7 +152,7 @@ class TestShouldLinkImagePath:
             assert not (image_tools._should_link_image_path(f.name))
 
     def test_cache_path_is_embedded(self):
-        cache_dir = image_tools._image_cache_dir()
+        cache_dir = image_tools.image_cache_dir()
         os.makedirs(cache_dir, exist_ok=True)
         path = os.path.join(cache_dir, "cached.png")
         with open(path, "wb") as f:
@@ -498,7 +498,7 @@ class TestWriterImageCursorConversion:
         model.createInstance.side_effect = [frame_with_title, frame_without_title]
 
         with (
-            patch.object(image_tools, "_cursor_for_writer_view", return_value=(doc_text, MagicMock())),
+            patch.object(image_tools, "cursor_for_writer_view", return_value=(doc_text, MagicMock())),
             patch.object(image_tools, "_insert_writer_graphic"),
         ):
             image_tools._insert_frame(ctx, model, "/tmp/img.png", width=2000, height=1000, title="hello", description="")
@@ -523,7 +523,7 @@ class TestWriterImageCursorConversion:
         ctx = MagicMock()
 
         with (
-            patch.object(image_tools, "_cursor_for_writer_view", return_value=(host, MagicMock())),
+            patch.object(image_tools, "cursor_for_writer_view", return_value=(host, MagicMock())),
             patch.object(image_tools, "_insert_writer_graphic", side_effect=RuntimeError("insert failure")),
         ):
             with pytest.raises(RuntimeError, match="insert failure"):
@@ -542,7 +542,7 @@ class TestWriterImageCursorConversion:
         ctx = MagicMock()
 
         with (
-            patch.object(image_tools, "_cursor_for_writer_view", return_value=(host, MagicMock())),
+            patch.object(image_tools, "cursor_for_writer_view", return_value=(host, MagicMock())),
             pytest.raises(RuntimeError, match="no selection"),
         ):
             image_tools._insert_frame(ctx, model, "/tmp/img.png", width=10, height=20, title="", description="")
@@ -682,7 +682,7 @@ class TestWriterImageCursorConversion:
             patch.object(image_tools.visual_helpers, "get_visual_doc_type", return_value="draw"),
             patch.object(image_tools, "_insert_image_to_drawpage", return_value=sentinel) as insert_dp,
             patch.object(image_tools.visual_helpers, "selected_graphic_object") as sel_obj,
-            patch("plugin.doc.compound_undo.WriterCompoundUndo"),
+            patch("plugin.writer.images.image_tools.WriterCompoundUndo"),
         ):
             res = image_tools.insert_image_at_locator(ctx, model, "/tmp/img.png", width_mm=40, height_mm=30)
 
@@ -759,7 +759,7 @@ class TestReplaceGraphicSource:
             patch.object(image_tools.visual_helpers, "get_visual_doc_type", return_value="writer"),
             patch.object(image_tools, "_should_link_image_path", return_value=False),
             patch.object(image_tools.uno, "systemPathToFileUrl", return_value="file:////tmp/new.png"),
-            patch("plugin.doc.compound_undo.WriterCompoundUndo"),
+            patch("plugin.writer.images.image_tools.WriterCompoundUndo"),
         ):
             ok = image_tools.replace_graphic_source(ctx, model, graphic, "/tmp/new.png", title="Edited")
 
@@ -779,7 +779,7 @@ class TestReplaceGraphicSource:
             patch.object(image_tools.visual_helpers, "get_visual_doc_type", return_value="writer"),
             patch.object(image_tools, "_should_link_image_path", return_value=False),
             patch.object(image_tools.uno, "systemPathToFileUrl", return_value="file:////tmp/new.png"),
-            patch("plugin.doc.compound_undo.WriterCompoundUndo"),
+            patch("plugin.writer.images.image_tools.WriterCompoundUndo"),
         ):
             ok = image_tools.replace_graphic_source(ctx, model, graphic, "/tmp/new.png")
 
@@ -802,7 +802,7 @@ class TestReplaceGraphicSource:
             patch.object(image_tools.visual_helpers, "get_visual_doc_type", return_value="writer"),
             patch.object(image_tools, "_should_link_image_path", return_value=False),
             patch.object(image_tools.uno, "systemPathToFileUrl", return_value="file:////tmp/new.png"),
-            patch("plugin.doc.compound_undo.WriterCompoundUndo"),
+            patch("plugin.writer.images.image_tools.WriterCompoundUndo"),
         ):
             ok = image_tools.replace_graphic_source(ctx, model, graphic, "/tmp/new.png")
 
@@ -827,7 +827,7 @@ class TestReplaceGraphicSource:
             patch.object(image_tools.visual_helpers, "get_visual_doc_type", return_value="writer"),
             patch.object(image_tools, "_should_link_image_path", return_value=False),
             patch.object(image_tools.uno, "systemPathToFileUrl", return_value="file:////tmp/new.png"),
-            patch("plugin.doc.compound_undo.WriterCompoundUndo"),
+            patch("plugin.writer.images.image_tools.WriterCompoundUndo"),
         ):
             ok = image_tools.replace_graphic_source(ctx, model, graphic, "/tmp/new.png")
 
@@ -869,7 +869,7 @@ class TestImageCompoundUndo:
                 "add_image_to_gallery",
                 side_effect=lambda *a, **k: events.append("gallery"),
             ),
-            patch("plugin.doc.compound_undo.WriterCompoundUndo", FakeUndo),
+            patch("plugin.writer.images.image_tools.WriterCompoundUndo", FakeUndo),
         ):
             image_tools.insert_image(
                 ctx, model, "/tmp/x.png", 64, 64, add_to_gallery=True, add_frame=False,
@@ -908,7 +908,7 @@ class TestImageCompoundUndo:
             patch.object(image_tools.visual_helpers, "get_visual_doc_type", return_value="writer"),
             patch.object(image_tools, "_should_link_image_path", return_value=False),
             patch.object(image_tools.visual_helpers, "safe_set_property", return_value=True),
-            patch("plugin.doc.compound_undo.WriterCompoundUndo", FakeUndo),
+            patch("plugin.writer.images.image_tools.WriterCompoundUndo", FakeUndo),
         ):
             ok = image_tools.replace_graphic_source(ctx, model, graphic, "/tmp/cache/x.png")
 
@@ -934,7 +934,7 @@ class TestDisplaySizeCap:
         with (
             patch.object(image_tools.visual_helpers, "get_visual_doc_type", return_value="writer"),
             patch.object(image_tools, "_insert_writer_graphic", side_effect=_capture),
-            patch("plugin.doc.compound_undo.WriterCompoundUndo"),
+            patch("plugin.writer.images.image_tools.WriterCompoundUndo"),
         ):
             image_tools.insert_image(
                 ctx, model, "/tmp/x.png", 1024, 1024, add_to_gallery=False, add_frame=False,

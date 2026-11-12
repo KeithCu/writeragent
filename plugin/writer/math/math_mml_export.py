@@ -30,8 +30,8 @@ from plugin.framework.uno_context import (
 from plugin.framework.url_utils import path_to_file_url
 from plugin.writer.math.math_mml_convert import (
     MATH_CLSID,
-    _MATH_ROOT_RE,
-    _exception_message,
+    MATH_ROOT_RE,
+    exception_message,
     math_root,
 )
 
@@ -41,7 +41,7 @@ log = logging.getLogger("writeragent.writer")
 MATHML_EXPORT_FILTER = "MathML XML (Math)"
 _MATH_FACTORY_URL = "private:factory/smath"
 
-_OBJECT_REPLACEMENT = "\ufffc"
+OBJECT_REPLACEMENT = "\ufffc"
 _MATH_CLSID_NORM = MATH_CLSID.lower()
 
 # XHTML export of a Math frame keeps only draw:name as id (filter/source/xslt/odf2xhtml).
@@ -78,6 +78,8 @@ def convert_mathml_to_latex(mathml_fragment: str) -> MathExportResult:
     root = math_root(mathml_fragment)
     if not root:
         return MathExportResult(False, None, "not_math_root")
+    # mathml-to-latex is a vendor package copied into plugin/lib at build time; a missing
+    # copy is reported as mathml_to_latex_import instead of failing this module's import.
     try:
         from mathml_to_latex import MathMLToLaTeX
     except ImportError as exc:
@@ -86,7 +88,7 @@ def convert_mathml_to_latex(mathml_fragment: str) -> MathExportResult:
         latex = MathMLToLaTeX.convert(root)
     except Exception as exc:
         log.debug("mathml-to-latex convert failed: %s", exc, exc_info=True)
-        return MathExportResult(False, None, _exception_message(exc))
+        return MathExportResult(False, None, exception_message(exc))
     if not isinstance(latex, str) or not latex.strip():
         return MathExportResult(False, None, "mathml_to_latex_empty_output")
     return MathExportResult(True, latex.strip(), None)
@@ -157,7 +159,7 @@ class MathExportBatch:
             return convert_mathml_to_latex(mml)
         except Exception as exc:
             log.debug("math batch convert failed: %s", exc)
-            return MathExportResult(False, None, _exception_message(exc))
+            return MathExportResult(False, None, exception_message(exc))
 
     def close(self) -> None:
         doc = self._doc
@@ -227,7 +229,7 @@ def inject_math_tex_into_html(model: Any, ctx: Any, html: str) -> str:
     """
     if not html:
         return html
-    math_matches = list(_MATH_ROOT_RE.finditer(html))
+    math_matches = list(MATH_ROOT_RE.finditer(html))
     if not math_matches:
         return html
 
@@ -477,7 +479,7 @@ def _math_hits_in_paragraph(para: Any) -> list[WriterMathHit]:
                 embeds.append(emb)
             continue
         chunk = uno_read(lambda: portion.getString() or "", "")
-        if chunk.strip() and chunk != _OBJECT_REPLACEMENT:
+        if chunk.strip() and chunk != OBJECT_REPLACEMENT:
             non_ws_text = True
 
     display_block = bool(embeds) and not non_ws_text

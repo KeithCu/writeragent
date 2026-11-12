@@ -34,7 +34,7 @@ from plugin.doc.text_helpers import (
 from plugin.framework.errors import ToolExecutionError, reraise_if_disposed, uno_read
 from plugin.framework.scratch_writer import new_blank_writer
 from plugin.writer.math.math_mml_export import (
-    _OBJECT_REPLACEMENT,
+    OBJECT_REPLACEMENT,
     inject_exported_math_tex,
     portion_math_embed,
     substitute_math_placeholders,
@@ -381,7 +381,7 @@ def _copy_formula_runs(
     """Copy formula and text runs into *temp_text*, recording placeholders."""
     # Standalone formula: paragraph has no other visible text.
     display_block = not any(
-        chunk.strip() and chunk != _OBJECT_REPLACEMENT and not portion_math_embed(p)
+        chunk.strip() and chunk != OBJECT_REPLACEMENT and not portion_math_embed(p)
         for p, chunk in portions
     )
     cur_offset = 0

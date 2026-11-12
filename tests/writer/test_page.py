@@ -545,11 +545,11 @@ def test_get_header_footer_surfaces_walk_cap_warning(monkeypatch):
 def test_first_page_region_targets_its_own_text_object():
     """A 'different first page' letterhead lives in HeaderTextFirst; the shared HeaderText never
     reaches it."""
-    from plugin.writer.page import _REGION_PROPS
+    from plugin.writer.page import REGION_PROPS
 
-    assert _REGION_PROPS["header_first"] == ("HeaderIsOn", "HeaderTextFirst")
-    assert _REGION_PROPS["footer_first"] == ("FooterIsOn", "FooterTextFirst")
-    assert _REGION_PROPS["header_left"] == ("HeaderIsOn", "HeaderTextLeft")
+    assert REGION_PROPS["header_first"] == ("HeaderIsOn", "HeaderTextFirst")
+    assert REGION_PROPS["footer_first"] == ("FooterIsOn", "FooterTextFirst")
+    assert REGION_PROPS["header_left"] == ("HeaderIsOn", "HeaderTextLeft")
 
 
 def test_first_page_region_uses_the_header_height_properties():

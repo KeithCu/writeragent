@@ -28,8 +28,9 @@ from typing import Any
 
 from plugin.framework.client.base_provider_shim import canonical_aspect_ratio, canonical_resolution
 from plugin.framework.client.llm_client import LlmClient
+from plugin.framework.client.model_fetcher import get_image_model, is_image_only_model
 from plugin.framework.client.requests import sync_request
-from plugin.framework.config import get_config
+from plugin.framework.config import get_api_config, get_config
 from plugin.framework.config_schema import DEFAULT_IMAGE_BASE_SIZE
 from plugin.framework.errors import NetworkError, ToolExecutionError, resolve_exception_message
 from plugin.framework.send_cancellation import SendCancellation, is_cancelled
@@ -117,7 +118,8 @@ def _write_temp_image(data: bytes) -> str:
     return write_temp_image(data, suffix=validated_image_suffix(data))
 
 
-def _unlink_temp_paths(paths: list[str]) -> None:
+def unlink_temp_paths(paths: list[str]) -> None:
+    """Delete wa-img-* files directly in the temp dir; leave any other path alone."""
     temp_dir = os.path.realpath(tempfile.gettempdir())
     for p in paths:
         try:
@@ -131,7 +133,7 @@ def _unlink_temp_paths(paths: list[str]) -> None:
 def _abandon_image_paths(
     paths: list[str], cancel: SendCancellation | None, exc: Exception, log_message: str
 ) -> tuple[list[str], str]:
-    _unlink_temp_paths(paths)
+    unlink_temp_paths(paths)
     if (isinstance(exc, NetworkError) and getattr(exc, "code", None) == "STOPPED") or is_cancelled(cancel):
         log.debug("Image generation cancelled by Stop: %s", exc)
         raise ToolExecutionError("Image generation stopped by user.", code="USER_STOPPED") from exc
@@ -155,8 +157,6 @@ class EndpointImageProvider:
     model: str
 
     def __init__(self, api_config: Any, ctx: Any) -> None:
-        from plugin.framework.client.model_fetcher import get_image_model
-
         self.client = LlmClient(api_config, ctx)
         self.model = str(api_config.get("model") or get_image_model() or "").strip()
 
@@ -243,8 +243,6 @@ class EndpointImageProvider:
             if not is_openrouter:
                 completion_log = "Image generation failed"
             else:
-                from plugin.framework.client.model_fetcher import is_image_only_model
-
                 if is_image_only_model(self.client._endpoint(), model):
                     completion_log = "OpenRouter dedicated image generation failed"
             if completion_log:
@@ -350,9 +348,6 @@ class ImageService:
     def generate_image(
         self, prompt: str, status_callback: Any = None, cancel: SendCancellation | None = None, **kwargs: Any
     ) -> tuple[list[str], str]:
-        from plugin.framework.config import get_api_config
-        from plugin.framework.client.model_fetcher import get_image_model
-
         api_config = get_api_config().copy()
         api_config["model"] = get_image_model()
         provider = EndpointImageProvider(api_config, self.ctx)
