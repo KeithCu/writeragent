@@ -178,6 +178,10 @@ class _CountingReader:
             self.failures += 1
             return _READ_FAILED
 
+    def fail(self) -> None:
+        """Record one failure (e.g. for cached negative reads that count per portion)."""
+        self.failures += 1
+
 
 def _writable_char_names(portion: Any) -> list[str] | object:
     """Return writable Char* property names, or _READ_FAILED when property info cannot be read."""
@@ -244,7 +248,7 @@ def _capture_direct_char_overrides(
 
             char_names = style_cache[_CHAR_PROPS_KEY]
             if char_names is _READ_FAILED:
-                read.failures += 1
+                read.fail()
                 continue
             if not char_names:
                 continue
@@ -1380,8 +1384,8 @@ class ApplyStyle(FrameworkToolBase):
     ) -> tuple[list[ParagraphStyleApplyReport | None], dict[str, Any] | None]:
         # A single range is already an atomic undo action; the compound undo bracket
         # exists so multiple ranges undo together as one step.
-        # execute_safe reports a failed apply. This catch hid a closed document
-        # as "Could not apply style".
+        # No try/except here: execute_safe reports a failed apply, and catching it
+        # would turn a closed document into a generic 'Could not apply style'.
         if len(cursors) == 1:
             return [self._apply_one(ctx, family, uno_value, cursors[0], clear_direct)], None
 

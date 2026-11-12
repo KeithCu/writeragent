@@ -1793,8 +1793,6 @@ def test_capture_direct_char_overrides_counts_one_failure_and_continues():
     portion = MagicMock()
     portion.getPropertyValue.side_effect = lambda name: "Text" if name == "TextPortionType" else (150 if name == "CharWeight" else None)
     portion.getPropertySetInfo.return_value = info
-    pc = MagicMock()
-    portion.getText.return_value.createTextCursorByRange.return_value = pc
 
     para2 = MagicMock()
     para2.supportsService.side_effect = lambda s: s == "com.sun.star.text.Paragraph"
@@ -1809,9 +1807,10 @@ def test_capture_direct_char_overrides_counts_one_failure_and_continues():
     doc_enum.hasMoreElements.side_effect = [True, True, False]
     doc_enum.nextElement.side_effect = [para1, para2]
     cursor.createEnumeration.return_value = doc_enum
-    cursor.getText.return_value.createTextCursorByRange.return_value = cursor
 
-    rep = fmt.apply_paragraph_style_preserving_direct_char(doc, cursor, "Heading 1", clear_direct="none")
-    assert rep.get("capture_incomplete") is True
-    assert rep.get("preserved_char_overrides", {}).get("CharWeight") == 150
+    overrides, failures, notes = fmt._capture_direct_char_overrides(doc, cursor, {})
+    assert len(overrides) == 1
+    assert failures == 1
+    assert notes == []
+    assert overrides[0][1] == {"CharWeight": 150}
 
