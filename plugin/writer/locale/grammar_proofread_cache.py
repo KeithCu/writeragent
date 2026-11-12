@@ -153,7 +153,6 @@ def _align_persistence_identity(p: Any, ident: str) -> None:
 def cache_get_sentence(
     locale_key: str,
     sentence: str,
-    ctx: Any | None = None,
     doc_id: str | None = None,
     checker_identity: str | None = None,
 ) -> list[dict[str, Any]] | None:
@@ -169,7 +168,7 @@ def cache_get_sentence(
             grammar_registry.sentence_cache.move_to_end(key)
             result = copy.deepcopy(hit.errors)
 
-    p = get_persistence(ctx, doc_id) if ctx and doc_id else None
+    p = get_persistence(doc_id)
     if p:
         _align_persistence_identity(p, ident)
 
@@ -193,7 +192,6 @@ def cache_put_sentence(
     locale_key: str,
     sentence: str,
     errors: list[dict[str, Any]],
-    ctx: Any | None = None,
     doc_id: str | None = None,
     checker_identity: str | None = None,
 ) -> None:
@@ -204,8 +202,8 @@ def cache_put_sentence(
         locale_key, sentence, errors, ident
     )
 
-    if ctx and doc_id:
-        p = get_persistence(ctx, doc_id)
+    if doc_id:
+        p = get_persistence(doc_id)
         if p:
             _align_persistence_identity(p, ident)
             p.put(entry.fingerprint, locale_key, entry.errors)
@@ -256,13 +254,13 @@ def store_sentence_result(
 
     norm_errors = normalize_errors_for_text(text, raw_errors, ctx, locale)
     if ignore_set is None:
-        ignore_set = IgnoreSet.for_document(ctx, doc_id)
+        ignore_set = IgnoreSet.for_document(doc_id)
 
     payload = [asdict(e) for e in norm_errors]
-    cache_put_sentence(locale, text, payload, ctx=ctx, doc_id=doc_id, checker_identity=checker_identity)
+    cache_put_sentence(locale, text, payload, doc_id=doc_id, checker_identity=checker_identity)
     if alt_locale and not grammar_bcp47_tags_match(alt_locale, locale):
         log.debug("[grammar] Double caching for %s (detected %s)", alt_locale, locale)
-        cache_put_sentence(alt_locale, text, payload, ctx=ctx, doc_id=doc_id, checker_identity=checker_identity)
+        cache_put_sentence(alt_locale, text, payload, doc_id=doc_id, checker_identity=checker_identity)
 
     active_payload = [d for d in payload if ignore_set.allows(str(d.get("rule_identifier", "")))]
     return active_payload

@@ -33,7 +33,7 @@ from plugin.contrib.lsp import json_rpc_framing
 from plugin.contrib.lsp.position_codec import ClientPosition, PositionCodec
 from plugin.writer.locale import grammar_settings
 from plugin.writer.locale.harper_binary import emit_progress, get_harper_binary
-from plugin.framework.grammar_rule_ids import HARPER_RULE_PREFIX, make_rule_identifier
+from plugin.framework.grammar_rule_ids import HARPER_RULE_PREFIX, make_rule_identifier, normalize_detected_bcp47
 
 log = logging.getLogger("writeragent.grammar")
 
@@ -80,6 +80,22 @@ HARPER_DIALECTS: dict[str, str] = {
 }
 
 HARPER_LOCALE_TAGS: tuple[str, ...] = tuple(HARPER_DIALECTS)
+
+
+def normalize_harper_locale_to_bcp47(a_locale: Any) -> str | None:
+    """Preserve the regional English dialects understood by Harper."""
+    if a_locale is None:
+        return None
+    language = str(getattr(a_locale, "Language", "") or "").strip()
+    country = str(getattr(a_locale, "Country", "") or "").strip()
+    tag = language
+    # Explicit Country wins over a plain Language; a Language that already
+    # carries a region ("en-GB", "en_GB") keeps it; normalize splits and
+    # upper-cases either form.
+    if country and language and "-" not in language and "_" not in language:
+        tag = f"{language}-{country}"
+    normalized = normalize_detected_bcp47(tag)
+    return normalized if normalized in HARPER_LOCALE_TAGS else None
 
 
 def _harper_lsp_settings(bcp47: str, user_config_dir: str) -> dict[str, Any]:
