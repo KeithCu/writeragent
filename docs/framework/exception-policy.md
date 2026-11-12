@@ -69,7 +69,7 @@ Code constants remain string literals across call sites. Codes are JSON wire val
 | `ANCHOR_END_NOT_FOUND` | error | `_anchor_miss` with `miss_kind="end"` (`apply_document_content.py`) | None |
 | `ANCHOR_TEXT_DIFFERENT` | error | `_anchor_miss` with `miss_kind="different_text"` (`apply_document_content.py`) | None |
 | `SHAPE_TEXT_NEEDS_DELEGATION` | error | `shape_only_search_response` in `search.py` (builder and `_anchor_miss`) | None (delegation tool requires free-text task and active inner-agent endpoint). |
-| `STYLE_NOT_FOUND` | error | `_missing_style_error` in `styles.py` | `apply_style` with the corrected `style` when `similar` has exactly one entry; omitted when `old_content` is over 100 characters (no truncated needle). |
+| `STYLE_NOT_FOUND` | error | `_missing_style_error` in `styles.py` | `apply_style` with the corrected `style` when `similar` has exactly one entry; omitted when `old_content` is over 100 characters (no truncated needle). `_missing_style_error` attaches the replay itself when the caller passes `replay`. |
 | `OCCURRENCE_OUT_OF_RANGE` | error | `apply_document_content.py`, `styles.py`, `selection.py`, `search.py` (`occurrence_range_or_error`), `comments.py`, `footnotes.py`, `page.py` | None |
 | `TABLE_IN_ANCHOR_RANGE` | error | `apply_document_content.py` | None |
 | `TABLE_BLOCK_IN_CELL` | error | Block HTML inserted in table cell (`html_import.py`) | None |
