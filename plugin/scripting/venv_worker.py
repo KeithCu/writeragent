@@ -110,7 +110,7 @@ def parse_worker_stdout_frame(payload: bytes) -> dict[str, Any]:
     return data
 
 
-ReadFailureKind = Literal["cancel", "read_timeout", "bad_frame", "after_start", "closed"]
+ReadFailureKind = Literal["cancel", "read_timeout", "ipc"]
 
 
 @dataclass(frozen=True)
@@ -296,10 +296,10 @@ def _classify_read_failure(exc: BaseException, state: _TurnState) -> NotStarted 
     if isinstance(exc, (subprocess.TimeoutExpired, IpcPartialFrameTimeout)):
         return FailedAfterStart(exc, "read_timeout")
     if isinstance(exc, ValueError):
-        return FailedAfterStart(exc, "bad_frame")
+        return FailedAfterStart(exc, "ipc")
     if isinstance(exc, (OSError, RuntimeError)):
         if state.may_have_run:
-            return FailedAfterStart(exc, "after_start")
+            return FailedAfterStart(exc, "ipc")
         return NotStarted(exc)
     raise exc
 
@@ -442,10 +442,10 @@ class PythonWorkerManager:
 
         _refuse_lease reads the flag without the pipe lock. A waiter that sees
         it refuses with busy, because the callback may need the waiting thread
-        (see _reentry_error). This is the only writer of True. A raise still
-        clears the flag; this method does not swallow it. One enter at a time:
-        the holder refuses reentry before another dispatch, and a nested enter
-        would clear the flag early.
+        (see _reentry_error). This is the only writer after __init__; nothing else
+        clears the flag. A raise still clears the flag; this method does not
+        swallow it. One enter at a time: the holder refuses reentry before another
+        dispatch, and a nested enter would clear the flag early.
         """
         self._serving_tool_call = True
         try:
@@ -495,17 +495,14 @@ class PythonWorkerManager:
                         yield self._lease_error_to_worker(leased)
                         return
                     lease_acquired = True
-                    try:
-                        if is_cancelled(cancel):
-                            yield _worker_error("CANCELLED", "Python worker stopped by user")
-                            return
-                        warm_err = self._ensure_warmed_unlocked(leased)
-                        if warm_err is not None:
-                            yield warm_err
-                            return
-                        yield leased
-                    finally:
-                        self._serving_tool_call = False
+                    if is_cancelled(cancel):
+                        yield _worker_error("CANCELLED", "Python worker stopped by user")
+                        return
+                    warm_err = self._ensure_warmed_unlocked(leased)
+                    if warm_err is not None:
+                        yield warm_err
+                        return
+                    yield leased
                 return
             except OSError as exc:
                 if lease_acquired:
@@ -645,6 +642,16 @@ class PythonWorkerManager:
         self._clear_host_state_after_worker_death()
         return self._err(code, message, **(details or {}))
 
+    def _retry_after_kill(self, code: str, exc: BaseException) -> RetryWithNewLease:
+        """Kill the desynced worker and ask _run_in_session for one more attempt on a new lease.
+
+        Only for failures before the child can have started this request id, so the
+        resend on the fresh child runs the script once.
+        """
+        self._terminate_worker()
+        self._clear_host_state_after_worker_death()
+        return RetryWithNewLease(self._err(code, _worker_error_message(exc), attempt=2))
+
     def _fail_ipc_no_replay(self, exc: BaseException) -> dict[str, Any]:
         """Terminal IPC failure after the request may have run. Same text at each site."""
         return self._fail_no_replay("WORKER_IPC_ERROR", f"Python worker failed: {exc}{_SHARED_WORKER_RESTART_HINT}")
@@ -679,7 +686,8 @@ class PythonWorkerManager:
                 )
             except subprocess.TimeoutExpired as exc:
                 # The worker requested host work before this write. Retrying the
-                # whole turn could duplicate UNO mutations already performed.
+                # whole turn could duplicate UNO mutations already performed, so
+                # the read loop's no-replay outcome kills the worker.
                 raise RuntimeError(
                     f"host RPC response timed out after {write_timeout_sec:g} seconds"
                 ) from exc
@@ -691,7 +699,7 @@ class PythonWorkerManager:
                 # Work may already have run. Resending this id would
                 # run it again. A close before exec_started is a
                 # failed start and falls through to the retry.
-                return FailedAfterStart(RuntimeError(message), "closed")
+                return FailedAfterStart(RuntimeError(message), "ipc")
             return NotStarted(RuntimeError(message))
 
         try:
@@ -787,20 +795,12 @@ class PythonWorkerManager:
                 # for a request the worker never saw.
                 log.warning("Python worker request not sent: %s", e)
                 return self._err("WORKER_IPC_ERROR", f"Failed to serialize request: {e}")
-        except subprocess.TimeoutExpired as e:
+        except (subprocess.TimeoutExpired, ValueError, RuntimeError, OSError) as e:
+            # The child has not started this id: the write failed or the pipe broke. A timeout can
+            # leave a partial frame in the pipe, so the child is killed and the same id goes once to a fresh child.
             log.warning("Python worker failed on initial write: %s", e)
-            self._terminate_worker()
-            self._clear_host_state_after_worker_death()
-            return RetryWithNewLease(
-                self._err("VENV_TIMEOUT", _worker_error_message(e), attempt=2)
-            )
-        except (ValueError, RuntimeError, OSError) as e:
-            log.warning("Python worker failed on initial write: %s", e)
-            self._terminate_worker()
-            self._clear_host_state_after_worker_death()
-            return RetryWithNewLease(
-                self._err("WORKER_IPC_ERROR", _worker_error_message(e), attempt=2)
-            )
+            code = "VENV_TIMEOUT" if isinstance(e, subprocess.TimeoutExpired) else "WORKER_IPC_ERROR"
+            return self._retry_after_kill(code, e)
 
         state = _TurnState()
         outcome = self._read_until_terminal(
@@ -816,12 +816,9 @@ class PythonWorkerManager:
         )
 
         if isinstance(outcome, NotStarted):
+            # Nothing ran (no exec_started, no tool frame), so a resend runs the script once.
             log.warning("Python worker failed before start: %s", outcome.error)
-            self._terminate_worker()
-            self._clear_host_state_after_worker_death()
-            return RetryWithNewLease(
-                self._err("WORKER_IPC_ERROR", _worker_error_message(outcome.error), attempt=2)
-            )
+            return self._retry_after_kill("WORKER_IPC_ERROR", outcome.error)
 
         if isinstance(outcome, FailedAfterStart):
             if outcome.kind == "cancel":
@@ -834,58 +831,50 @@ class PythonWorkerManager:
                     _worker_error_message(outcome.error) + _SHARED_WORKER_RESTART_HINT,
                     details={"timeout_sec": timeout_sec},
                 )
-            if outcome.kind == "bad_frame":
-                log.warning("Python worker frame rejected (not replaying): %s", outcome.error)
-                return self._fail_ipc_no_replay(outcome.error)
-            if outcome.kind == "after_start":
-                log.warning("Python worker failed after execution started (not replaying): %s", outcome.error)
-                return self._fail_ipc_no_replay(outcome.error)
-            if outcome.kind == "closed":
-                log.warning("Python worker failed without replay: %s", outcome.error)
-                return self._fail_ipc_no_replay(outcome.error)
-            raise AssertionError(f"unexpected FailedAfterStart kind: {outcome.kind!r}")
+            # kind "ipc": a rejected frame, a pipe error after the script may have run, or stdout
+            # closed after start. Resending this id could run the script, or a tool it called, twice.
+            log.warning("Python worker IPC failed (not replaying): %s", outcome.error)
+            return self._fail_ipc_no_replay(outcome.error)
 
-        if isinstance(outcome, Terminal):
-            response = outcome.response
-            # Empty-id error before exec: the harness rejected the pickle and is
-            # back at read(). Return its message and keep the worker. After
-            # exec_started or a tool frame the same reply fails the id check below,
-            # which restarts the worker.
-            if (
-                response.get("id") == ""
-                and response.get("status") == "error"
-                and not state.may_have_run
-            ):
-                message = response.get("message")
-                text = message if isinstance(message, str) and message else "Invalid pickle request"
-                log.warning("Python worker rejected the request frame (worker kept): %s", text)
-                return self._err("WORKER_IPC_ERROR", text)
-            req_id = wire.get("id")
-            if response.get("id") != req_id:
-                # A terminal frame must carry this request's id, or one cell would
-                # consume another cell's result. A mismatch means the pipe is out of
-                # step: kill the worker and do not replay. (Tool frames are checked by
-                # exchange_tool_call in the child.)
-                log.warning(
-                    "Python worker response id %r does not match request %r",
-                    response.get("id"),
-                    req_id,
-                )
-                return self._fail_no_replay(
-                    "WORKER_IPC_ERROR",
-                    f"Python worker response id mismatch.{_SHARED_WORKER_RESTART_HINT}",
-                )
-            try:
-                # host_unpack_data runs after the script has finished, so a rejected
-                # result fails without replay: replaying would run a tool that already
-                # changed the document a second time. _HOST_UNPACK_ERRORS is broad because
-                # bad shapes and non-finite ints raise different types.
-                return self._normalize_response(response)
-            except _HOST_UNPACK_ERRORS as e:
-                log.warning("Python worker result rejected (not replaying): %s", e)
-                return self._fail_ipc_no_replay(e)
-
-        raise TypeError(f"Unexpected reader outcome: {outcome!r}")
+        # Only Terminal is left: the two failure outcomes returned above.
+        response = outcome.response
+        # Empty-id error before exec: the harness rejected the pickle and is
+        # back at read(). Return its message and keep the worker. After
+        # exec_started or a tool frame the same reply fails the id check below,
+        # which restarts the worker.
+        if (
+            response.get("id") == ""
+            and response.get("status") == "error"
+            and not state.may_have_run
+        ):
+            message = response.get("message")
+            text = message if isinstance(message, str) and message else "Invalid pickle request"
+            log.warning("Python worker rejected the request frame (worker kept): %s", text)
+            return self._err("WORKER_IPC_ERROR", text)
+        req_id = wire.get("id")
+        if response.get("id") != req_id:
+            # A terminal frame must carry this request's id, or one cell would
+            # consume another cell's result. A mismatch means the pipe is out of
+            # step: kill the worker and do not replay. (Tool frames are checked by
+            # exchange_tool_call in the child.)
+            log.warning(
+                "Python worker response id %r does not match request %r",
+                response.get("id"),
+                req_id,
+            )
+            return self._fail_no_replay(
+                "WORKER_IPC_ERROR",
+                f"Python worker response id mismatch.{_SHARED_WORKER_RESTART_HINT}",
+            )
+        try:
+            # host_unpack_data runs after the script has finished, so a rejected
+            # result fails without replay: replaying would run a tool that already
+            # changed the document a second time. _HOST_UNPACK_ERRORS is broad because
+            # bad shapes and non-finite ints raise different types.
+            return self._normalize_response(response)
+        except _HOST_UNPACK_ERRORS as e:
+            log.warning("Python worker result rejected (not replaying): %s", e)
+            return self._fail_ipc_no_replay(e)
 
     def execute(
         self,
@@ -1016,9 +1005,12 @@ class PythonWorkerManager:
         timeout_sec: float,
         label: str,
     ) -> None:
-        """Write a packed frame; on timeout kill the child (a partial frame may be in the pipe).
+        """Write a packed frame within *timeout_sec*.
 
-        A dead child raises ``BrokenPipeError`` from ``is_alive``; the caller handles it.
+        `TimeoutExpired` can leave a partial frame in the pipe; the caller kills
+        the child (`_retry_after_kill` for the request frame, `_fail_no_replay`
+        through the read loop for a host RPC response). A dead child raises
+        `BrokenPipeError` from `is_alive`.
         """
         try:
             write_packed_frame_with_timeout(
@@ -1029,8 +1021,6 @@ class PythonWorkerManager:
             )
         except subprocess.TimeoutExpired as exc:
             log.warning("%s write timed out after %ss; terminating Python worker", label, timeout_sec)
-            self._terminate_worker()
-            self._clear_host_state_after_worker_death()
             raise subprocess.TimeoutExpired(cmd=self.exe, timeout=timeout_sec) from exc
 
     def _normalize_response(self, response: dict[str, Any]) -> dict[str, Any]:

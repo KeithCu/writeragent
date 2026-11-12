@@ -681,7 +681,7 @@ def run_python_dialog(uno_ctx: Any = None) -> None:
     if uno_ctx is None:
         uno_ctx = get_ctx()
 
-    exe, monaco_expected = monaco_editor_available(uno_ctx)
+    exe, monaco_expected = monaco_editor_available()
 
     try:
         desktop = get_desktop(uno_ctx)

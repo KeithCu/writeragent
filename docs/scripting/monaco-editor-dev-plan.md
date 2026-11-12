@@ -36,7 +36,7 @@ Menu: `org.extension.writeragent:scripting.edit_python_cell` in [`extension/Addo
 
 ## 2. IPC protocol (pipe)
 
-Same framing as [`worker_harness.py`](../../plugin/scripting/venv/worker_harness.py) (`struct.pack("!I", …)` + **pickle protocol 5**). Helpers live in [`editor_ipc.py`](../../plugin/scripting/editor_ipc.py) (`stamp_session`, `target_from_load`, `PARENT_TO_CHILD_TYPES`, `read_message` / `write_message`). Host dispatch is [`editor_host.py`](../../plugin/scripting/editor_host.py); the child echoes in [`editor_main.py`](../../plugin/scripting/venv/editor_main.py) and [`editor_shell.js`](../../plugin/contrib/scripting/assets/editor/editor_shell.js).
+Same framing as [`worker_harness.py`](../../plugin/scripting/venv/worker_harness.py) (`struct.pack("!I", …)` + **pickle protocol 5**). Helpers live in [`editor_ipc.py`](../../plugin/scripting/editor_ipc.py) (`stamp_session`, `target_from_load`, `PARENT_TO_CHILD_TYPES`, `CHILD_TO_PARENT_TYPES`, `read_message` / `write_message`). Host dispatch is `PersistentEditor._incoming_handlers` in [`editor_host.py`](../../plugin/scripting/editor_host.py); the child echoes in [`editor_main.py`](../../plugin/scripting/venv/editor_main.py) and [`editor_shell.js`](../../plugin/contrib/scripting/assets/editor/editor_shell.js).
 
 ### Message types
 
@@ -48,7 +48,8 @@ Same framing as [`worker_harness.py`](../../plugin/scripting/venv/worker_harness
 | `saved` / `error` | LO → child | Apply result in UI; `saved` may include `status_ok_text` (e.g. **Saved without =PY().**). Same envelope as the `save` they answer. |
 | `request_save` | LO → child | Ask the focused buffer to click Save before a different load (any dirty mode). Addressed to that `session_id`. |
 | `dirty` | child → LO | Unsaved-edit flag for that session. |
-| `closed` / `cancel` | either | Tear down **that** `session_id`. Window hide vs process exit is still the persistent-child lifecycle. |
+| `ask_unsaved` | child → LO | Picker asks Save / Don't save / Cancel for the named script; the host answers `unsaved_choice`. |
+| `closed` | child → LO | Tear down **that** `session_id`. (The child's reader also stops on a parent `closed`; the host does not send one.) |
 | `scripts_list` / `request_scripts` / `save_script` / … | either | Run Python Script picker; stamp the envelope like any other session message. |
 
 ### Session envelope

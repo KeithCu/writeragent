@@ -20,7 +20,23 @@ from plugin.framework.ipc import DEFAULT_MAX_PAYLOAD_BYTES, FRAME_HEARTBEAT, FRA
 import plugin.scripting.venv_worker as venv_worker_module
 from plugin.framework.subprocess_env import scrub_subprocess_env
 from plugin.scripting.session_key import SessionKey
-from plugin.scripting.venv_worker import FailedAfterStart, PythonWorkerManager, RetryWithNewLease, Terminal, _worker_error, _worker_error_message, _ExecRequest, parse_worker_stdout_frame, reset_python_session, run_code_in_user_venv, shutdown_venv_workers_for_tests, warm_venv_worker
+from plugin.scripting.venv_worker import (
+    FailedAfterStart,
+    NotStarted,
+    PythonWorkerManager,
+    RetryWithNewLease,
+    Terminal,
+    _ExecRequest,
+    _TurnState,
+    _classify_read_failure,
+    _worker_error,
+    _worker_error_message,
+    parse_worker_stdout_frame,
+    reset_python_session,
+    run_code_in_user_venv,
+    shutdown_venv_workers_for_tests,
+    warm_venv_worker,
+)
 from plugin.framework.child_runtime import Deadline
 from plugin.framework.warm_child import supervisor
 from plugin.scripting.venv.venv_sandbox import run_sandboxed_code, serialize_result
@@ -517,6 +533,8 @@ def test_blocked_stdin_write_times_out_and_releases_lock(tmp_path, monkeypatch):
             started = time.monotonic()
             with pytest.raises(subprocess.TimeoutExpired):
                 mgr._write_packed_frame_with_timeout(leased.stdin, b'x' * (8 * 1024 * 1024), timeout_sec=0.2, label='test request')
+            # Callers own the kill.
+            mgr._terminate_worker()
             assert time.monotonic() - started < 5
         for t in threading.enumerate():
             if t.name == 'ipc-stdin-write':
@@ -547,20 +565,28 @@ def test_large_stdin_write_completes_intact():
     mgr._write_packed_frame_with_timeout(stream, payload, timeout_sec=2, label='test request')
     assert stream.getvalue() == payload
 
-def test_initial_write_timeout_retries_once():
+def test_initial_write_timeout_retries_once(monkeypatch):
     mgr = PythonWorkerManager(sys.executable, {})
     proc = MagicMock()
     proc.poll.return_value = None
     proc.stdin = io.BytesIO()
     proc.stdout = io.BytesIO()
     _install_mock_proc(mgr, proc)
-    mgr._write_frame_with_timeout = MagicMock(side_effect=subprocess.TimeoutExpired(cmd=sys.executable, timeout=1))
+    monkeypatch.setattr(
+        "plugin.scripting.venv_worker.write_packed_frame_with_timeout",
+        MagicMock(side_effect=subprocess.TimeoutExpired(cmd=sys.executable, timeout=1)),
+    )
+    mgr._write_frame_with_timeout = MagicMock(wraps=mgr._write_frame_with_timeout)
     mgr._terminate_worker = MagicMock()
+    clears: list[int] = []
+    monkeypatch.setattr("plugin.calc.python.function.clear_python_addin_cache", lambda: clears.append(1))
     result = _run_ipc_with_mock(mgr, _ExecRequest('result = 1', timeout_sec=1), proc)
     assert result['status'] == 'error'
-    assert 'timed out after 1 seconds' in result['message']
+    assert result['code'] == 'VENV_TIMEOUT'
+    assert 'timed out after 1.0 seconds' in result['message']
     assert mgr._write_frame_with_timeout.call_count == 2
     assert mgr._terminate_worker.call_count == 2
+    assert len(clears) == 2
     first = mgr._write_frame_with_timeout.call_args_list[0].args[1]
     second = mgr._write_frame_with_timeout.call_args_list[1].args[1]
     assert first['id'] == second['id']
@@ -573,10 +599,15 @@ def test_ppt_master_write_timeout_does_not_replay(monkeypatch):
     proc.stdout = io.BytesIO()
     _install_mock_proc(mgr, proc)
     mgr._write_frame_with_timeout = MagicMock()
-    mgr._write_packed_frame_with_timeout = MagicMock(side_effect=subprocess.TimeoutExpired(cmd=sys.executable, timeout=1))
+    monkeypatch.setattr(
+        "plugin.scripting.venv_worker.write_packed_frame_with_timeout",
+        MagicMock(side_effect=subprocess.TimeoutExpired(cmd=sys.executable, timeout=1)),
+    )
     response_payload = pickle.dumps({'status': 'host_request'}, protocol=5)
     mgr._read_response_bytes = MagicMock(return_value=response_payload)
     mgr._terminate_worker = MagicMock()
+    clears: list[int] = []
+    monkeypatch.setattr("plugin.calc.python.function.clear_python_addin_cache", lambda: clears.append(1))
     dispatch_calls = []
 
     def dispatch(response, *, stdin_write, on_worker_event=None, cancel=None):
@@ -592,6 +623,7 @@ def test_ppt_master_write_timeout_does_not_replay(monkeypatch):
     assert mgr._write_frame_with_timeout.call_count == 1
     assert mgr._read_response_bytes.call_count == 1
     assert mgr._terminate_worker.call_count == 1
+    assert len(clears) == 1
 
 def test_tool_call_then_broken_stdout_does_not_replay(monkeypatch):
     """A tool_call that already ran must not be followed by a second copy of the script."""
@@ -1806,46 +1838,49 @@ def test_execute_main_thread_refuses_when_holder_in_tool_rpc(monkeypatch: pytest
     mgr = PythonWorkerManager(sys.executable, {})
     _install_mock_proc(mgr, MagicMock(poll=MagicMock(return_value=None), stdin=io.BytesIO(), stdout=io.BytesIO()))
     thread, release = _hold_pipe_in_thread(mgr)
-    mgr._serving_tool_call = True
     try:
-        started = time.monotonic()
-        result = mgr.execute('result = 1', timeout_sec=1)
-        assert time.monotonic() - started < 1.0
-        assert result['code'] == 'WORKER_REENTRY'
-        assert 'busy' in result['message']
+        with mgr.serving_callback():
+            started = time.monotonic()
+            result = mgr.execute('result = 1', timeout_sec=1)
+            assert time.monotonic() - started < 1.0
+            assert result['code'] == 'WORKER_REENTRY'
+            assert 'busy' in result['message']
     finally:
-        mgr._serving_tool_call = False
         release.set()
         thread.join(timeout=2)
 
 def test_execute_refuses_other_thread_during_tool_rpc():
     mgr = PythonWorkerManager(sys.executable, {})
     _install_mock_proc(mgr, MagicMock(poll=MagicMock(return_value=None), stdin=io.BytesIO(), stdout=io.BytesIO()))
-    mgr._serving_tool_call = True
     assert mgr._warm is not None
     mgr._warm._fake_io_owner = threading.get_ident() + 1
-    result = mgr.execute('result = 1', timeout_sec=1)
-    assert result['code'] == 'WORKER_REENTRY'
-    assert 'busy' in result['message']
+    with mgr.serving_callback():
+        result = mgr.execute('result = 1', timeout_sec=1)
+        assert result['code'] == 'WORKER_REENTRY'
+        assert 'busy' in result['message']
 
 def test_execute_leaves_when_holder_enters_tool_rpc(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr('plugin.framework.queue_executor.main.is_current', lambda: False)
     mgr = PythonWorkerManager(sys.executable, {})
     _install_mock_proc(mgr, MagicMock(poll=MagicMock(return_value=None), stdin=io.BytesIO(), stdout=io.BytesIO()))
     thread, release = _hold_pipe_in_thread(mgr)
+    rpc_done = threading.Event()
 
     def set_tool_rpc() -> None:
         time.sleep(0.1)
-        mgr._serving_tool_call = True
+        with mgr.serving_callback():
+            rpc_done.wait(timeout=5)
 
-    threading.Thread(target=set_tool_rpc, daemon=True).start()
+    rpc_thread = threading.Thread(target=set_tool_rpc, daemon=True)
+    rpc_thread.start()
     try:
         result = mgr.execute('result = 1', timeout_sec=1)
         assert result['code'] == 'WORKER_REENTRY'
         assert 'busy' in result['message']
     finally:
-        mgr._serving_tool_call = False
+        rpc_done.set()
         release.set()
+        rpc_thread.join(timeout=2)
         thread.join(timeout=2)
 
 def test_execute_lock_budget_is_worker_reentry(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -3033,6 +3068,32 @@ def test_idle_worker_death_clears_matrix_sessions_and_runs_on_death_once(monkeyp
     finally:
         mgr._retired = True
         shutdown_venv_workers_for_tests()
+
+
+@pytest.mark.parametrize(
+    ("exc", "state", "expected_type", "expected_kind"),
+    [
+        (subprocess.TimeoutExpired("x", 1), _TurnState(), FailedAfterStart, "read_timeout"),
+        (IpcPartialFrameTimeout("x"), _TurnState(), FailedAfterStart, "read_timeout"),
+        (ValueError("bad frame"), _TurnState(), FailedAfterStart, "ipc"),
+        (RuntimeError("pipe error"), _TurnState(execution_started=True), FailedAfterStart, "ipc"),
+        (OSError("pipe error"), _TurnState(dispatched_intermediate=True), FailedAfterStart, "ipc"),
+        (RuntimeError("worker died"), _TurnState(), NotStarted, None),
+    ],
+)
+def test_classify_read_failure_kinds(
+    exc: BaseException,
+    state: _TurnState,
+    expected_type: type,
+    expected_kind: str | None,
+) -> None:
+    outcome = _classify_read_failure(exc, state)
+    assert isinstance(outcome, expected_type)
+    assert outcome.error is exc
+    if expected_kind is not None:
+        assert isinstance(outcome, FailedAfterStart)
+        assert outcome.kind == expected_kind
+
 
 @pytest.mark.slow
 @pytest.mark.skipif(sys.platform != 'linux', reason='orphan PDEATHSIG check is Linux-only')

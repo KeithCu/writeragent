@@ -23,7 +23,9 @@ import pytest
 from plugin.framework.managed_subprocess import _instances, _unregister_instance
 from plugin.framework.send_cancellation import SendCancelled
 from plugin.scripting import editor_host as launch_mod
+from plugin.scripting.document_scripts import SCRIPT_PICKER_MESSAGE_TYPES
 from plugin.scripting.editor_host import PersistentEditor, _ASSETS_DIR
+from plugin.scripting.editor_ipc import CHILD_TO_PARENT_TYPES
 from plugin.scripting.sandbox import wrap_command_for_sandbox
 
 
@@ -423,9 +425,8 @@ def test_launch_monaco_editor_spawns_when_not_running():
 
 
 def test_monaco_editor_available_false_without_venv():
-    ctx = MagicMock()
     with patch.object(launch_mod, "resolve_editor_python", return_value=(None, "missing venv")):
-        exe, ok = launch_mod.monaco_editor_available(ctx)
+        exe, ok = launch_mod.monaco_editor_available()
     assert exe is None
     assert ok is False
 
@@ -511,13 +512,12 @@ def test_probe_webview_import_nonzero_exit_is_cached_failure():
 
 
 def test_monaco_editor_available_false_when_webview_missing():
-    ctx = MagicMock()
     exe = "/venv/bin/python"
     try:
         launch_mod._PROBE_FAILURE_CACHE[exe] = (time.monotonic() + 30.0, (False, "no webview"))
         with patch.object(launch_mod, "resolve_editor_python", return_value=(exe, "")):
             with patch.object(launch_mod.ManagedSubprocess, "run") as mock_run:
-                returned_exe, ok = launch_mod.monaco_editor_available(ctx)
+                returned_exe, ok = launch_mod.monaco_editor_available()
                 mock_run.assert_not_called()
         assert returned_exe == exe
         assert ok is False
@@ -574,9 +574,9 @@ def test_stderr_drain_preserves_tail_for_failure_dialogs():
 def test_append_stderr_line_ring_buffer():
     editor = PersistentEditor()
     editor._stderr_tail_max_chars = 12
-    editor._append_stderr_line("aaaa")
-    editor._append_stderr_line("bbbb")
-    editor._append_stderr_line("cccc")
+    editor._append_stderr_line("aaaa", editor._stderr_generation)
+    editor._append_stderr_line("bbbb", editor._stderr_generation)
+    editor._append_stderr_line("cccc", editor._stderr_generation)
     tail = editor.read_stderr_tail()
     assert "aaaa" not in tail
     assert "bbbb" in tail
@@ -588,7 +588,7 @@ def test_append_stderr_line_char_count_matches_budget():
     editor = PersistentEditor()
     editor._stderr_tail_max_chars = 50
     for i in range(40):
-        editor._append_stderr_line(f"line-{i:02d}-xxxx")
+        editor._append_stderr_line(f"line-{i:02d}-xxxx", editor._stderr_generation)
     assert editor._stderr_tail
     assert editor._stderr_tail_chars == sum(len(s) + 1 for s in editor._stderr_tail)
     assert editor._stderr_tail_chars <= editor._stderr_tail_max_chars
@@ -596,7 +596,7 @@ def test_append_stderr_line_char_count_matches_budget():
 
 def test_start_clears_stderr_char_count():
     editor = PersistentEditor()
-    editor._append_stderr_line("hello")
+    editor._append_stderr_line("hello", editor._stderr_generation)
     assert editor._stderr_tail_chars == len("hello") + 1
     proc = _FakeProc(stderr=None)
     with patch("plugin.scripting.editor_host.run_in_background", return_value=MagicMock()):
@@ -1129,7 +1129,7 @@ def test_target_switch_with_active_session_calls_on_closed():
 
 def test_resolve_editor_python_missing_venv_mentions_settings():
     with patch("plugin.framework.config.get_config", return_value=""):
-        exe, err = launch_mod.resolve_editor_python(MagicMock())
+        exe, err = launch_mod.resolve_editor_python()
     assert exe is None
     assert "Settings → Python" in err
     assert "WriterAgent Settings" not in err
@@ -1329,7 +1329,7 @@ def test_spawn_editor_process_uses_managed_subprocess(monkeypatch: pytest.Monkey
     instances_before = set(_instances)
 
     try:
-        proc = launch_mod.spawn_editor_process("/venv/bin/python", assets_dir="/tmp/assets")
+        proc = launch_mod.spawn_editor_process("/venv/bin/python")
         assert proc is mock_popen
 
         assert len(ctor_calls) == 1
@@ -1349,7 +1349,7 @@ def test_spawn_editor_process_uses_managed_subprocess(monkeypatch: pytest.Monkey
         for key in ("env", "cwd", "scrub_env", "optimize_pipes", "thread_guard", "stderr_tail_chars", "stderr_name"):
             assert key not in kwargs
 
-        assert env_calls == [{"assets_dir": "/tmp/assets"}]
+        assert env_calls == [{}]
         assert kwargs["base_env"] is env_returns[0]
 
         assert len(popen_calls) == 1
@@ -1365,7 +1365,7 @@ def test_spawn_editor_process_uses_managed_subprocess(monkeypatch: pytest.Monkey
         base_env = kwargs["base_env"]
         assert popen_kwargs["env"] == base_env
         assert popen_kwargs["env"] is not base_env
-        assert popen_kwargs["env"]["WRITERAGENT_EDITOR_ASSETS"] == "/tmp/assets"
+        assert popen_kwargs["env"]["WRITERAGENT_EDITOR_ASSETS"] == launch_mod._ASSETS_DIR
         assert popen_kwargs["env"]["LD_LIBRARY_PATH"] == "/opt/lo/lib"
         assert "OPENAI_API_KEY" not in popen_kwargs["env"]
         assert "PYTHONHOME" not in popen_kwargs["env"]
@@ -1381,14 +1381,6 @@ def test_spawn_editor_process_uses_managed_subprocess(monkeypatch: pytest.Monkey
             ["/venv/bin/python", launch_mod._EDITOR_MAIN], env=popen_kwargs["env"], cwd=None
         )
 
-        assert _instances == instances_before
-        drain_mock.assert_not_called()
-
-        proc2 = launch_mod.spawn_editor_process("/venv/bin/python")
-        assert proc2 is mock_popen
-        assert len(popen_calls) == 2
-        _popen_args2, popen_kwargs2 = popen_calls[1]
-        assert popen_kwargs2["env"]["WRITERAGENT_EDITOR_ASSETS"] == launch_mod._ASSETS_DIR
         assert _instances == instances_before
         drain_mock.assert_not_called()
     finally:
@@ -1905,7 +1897,7 @@ def test_wait_for_ready_under_drain_owner_returns_false_near_deadline() -> None:
 
 def test_start_drops_stderr_from_previous_generation():
     editor = PersistentEditor()
-    editor._append_stderr_line("stale")
+    editor._append_stderr_line("stale", 0)
     proc = _FakeProc(stderr=None)
     with patch("plugin.scripting.editor_host.run_in_background", return_value=MagicMock()):
         editor.start(proc)  # type: ignore[arg-type]
@@ -2411,7 +2403,6 @@ def test_config_change_unrelated_key_keeps_editor_and_probe_cache():
 
 
 def test_monaco_editor_available_pending_does_not_run_subprocess():
-    ctx = MagicMock()
     exe = "/venv/bin/python"
     launch_mod.reset_webview_probe_state()
     try:
@@ -2423,7 +2414,7 @@ def test_monaco_editor_available_pending_does_not_run_subprocess():
                 "run",
                 side_effect=AssertionError("ManagedSubprocess.run must not be called"),
             ) as mock_run:
-                returned_exe, ok = launch_mod.monaco_editor_available(ctx)
+                returned_exe, ok = launch_mod.monaco_editor_available()
                 mock_run.assert_not_called()
         assert returned_exe == exe
         assert ok is False
@@ -2495,7 +2486,6 @@ def test_venv_path_change_with_force_internal_does_not_probe():
 
 
 def test_monaco_editor_available_cache_miss_arms_once():
-    ctx = MagicMock()
     exe = "/venv/bin/python"
     launch_mod.reset_webview_probe_state()
     try:
@@ -2508,7 +2498,7 @@ def test_monaco_editor_available_cache_miss_arms_once():
                 side_effect=AssertionError("ManagedSubprocess.run must not be called on caller"),
             ) as mock_run,
         ):
-            returned_exe, ok = launch_mod.monaco_editor_available(ctx)
+            returned_exe, ok = launch_mod.monaco_editor_available()
             assert returned_exe == exe
             assert ok is False
             assert mock_bg.call_count == 1
@@ -2570,7 +2560,6 @@ def test_webview_probe_worker_picks_up_new_exe_on_config_change():
 def test_arm_webview_probe_at_startup_arms_once():
     """Startup arming schedules probe when venv is valid and force_internal is False."""
     launch_mod.reset_webview_probe_state()
-    ctx = MagicMock()
     exe = "/configured/python"
     try:
         with (
@@ -2578,7 +2567,7 @@ def test_arm_webview_probe_at_startup_arms_once():
             patch.object(launch_mod, "resolve_editor_python", return_value=(exe, "")),
             patch.object(launch_mod, "run_in_background") as mock_bg,
         ):
-            launch_mod.arm_webview_probe_at_startup(ctx)
+            launch_mod.arm_webview_probe_at_startup()
             assert mock_bg.call_count == 1
             assert mock_bg.call_args[0][0] == launch_mod._webview_probe_worker
             assert mock_bg.call_args[1].get("name") == "webview-probe"
@@ -2589,7 +2578,7 @@ def test_arm_webview_probe_at_startup_arms_once():
             patch.object(launch_mod, "resolve_editor_python", return_value=(exe, "")),
             patch.object(launch_mod, "run_in_background") as mock_bg,
         ):
-            launch_mod.arm_webview_probe_at_startup(ctx)
+            launch_mod.arm_webview_probe_at_startup()
             mock_bg.assert_not_called()
 
         launch_mod.reset_webview_probe_state()
@@ -2598,7 +2587,35 @@ def test_arm_webview_probe_at_startup_arms_once():
             patch.object(launch_mod, "resolve_editor_python", return_value=(None, "no venv")),
             patch.object(launch_mod, "run_in_background") as mock_bg,
         ):
-            launch_mod.arm_webview_probe_at_startup(ctx)
+            launch_mod.arm_webview_probe_at_startup()
             mock_bg.assert_not_called()
     finally:
         launch_mod.reset_webview_probe_state()
+
+
+def test_incoming_handlers_cover_child_to_parent_types():
+    # Every type the editor child sends to LibreOffice must map to a handler
+    # in PersistentEditor._incoming_handlers, and picker messages must stay a subset.
+    handlers = PersistentEditor()._incoming_handlers()
+    assert set(handlers) == CHILD_TO_PARENT_TYPES
+    assert SCRIPT_PICKER_MESSAGE_TYPES <= CHILD_TO_PARENT_TYPES
+
+
+def test_dispatch_cancel_is_unknown_and_keeps_session():
+    # The child sends "closed" upon cancellation, never a literal "cancel" message.
+    # An unhandled "cancel" message must be ignored rather than tearing down a live session.
+    pe = PersistentEditor()
+    pe.ctx = MagicMock()
+    pe.executor = MagicMock()
+    pe.executor.call.side_effect = lambda fn, **kwargs: fn()
+    on_closed_mock = MagicMock()
+    state = launch_mod.EditorSessionState(
+        session_id="s1",
+        mode="calc_cell",
+        target={"cell": "A1"},
+        on_closed=on_closed_mock,
+    )
+    pe.register_session(state)
+    pe._dispatch_incoming({"type": "cancel", "session_id": "s1"})
+    on_closed_mock.assert_not_called()
+    assert "s1" in pe.sessions
