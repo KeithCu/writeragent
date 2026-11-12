@@ -128,9 +128,14 @@ def test_run_venv_python_script_schema_has_no_timeout_sec():
 )
 def test_settings_field_specs_include_python_exec_timeout(value):
     from plugin.chatbot.settings_dialog import get_settings_field_specs
+    from plugin.framework.queue_executor import main
 
-    names = {f["name"] for f in get_settings_field_specs(None)}
-    assert value in names
+    saved = main._async_callback_service
+    try:
+        names = {f["name"] for f in get_settings_field_specs(MagicMock())}
+        assert value in names
+    finally:
+        main._async_callback_service = saved
 
 
 def test_get_config_python_max_data_cells_uses_schema_default():

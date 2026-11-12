@@ -34,7 +34,7 @@ from typing import Any
 
 log = logging.getLogger(__name__)
 
-# ``LocalPythonExecutor.timeout()`` needs ``int | None`` (at least 1, or None when spent).
+# ``LocalPythonExecutor.timeout()`` needs an int ≥ 1.
 # ``child_runtime.Deadline.run_for()`` returns a float; ceil with a one-second floor matches alarm semantics.
 _EXECUTOR_ALARM_MIN_SEC = 1.0
 
@@ -768,6 +768,7 @@ def reset_sandbox_session(session_id: str) -> dict[str, Any]:
 
 
 def _arm_alarm(executor: LocalPythonExecutor, deadline: float, timeout_sec: int) -> dict[str, Any] | None:
+    """Sole writer of executor.timeout_seconds before each init and cell run; returns the budget-spent error when the deadline has passed."""
     left = deadline - time.monotonic()
     if left <= 0:
         return error_result(

@@ -1540,5 +1540,5 @@ def test_run_sandboxed_code_arms_the_cell_from_the_request_budget(fresh_sandbox_
     assert res["result"] == 123
     exe = fresh_sandbox_sessions.executor(sid)
     assert exe is not None
-    assert exe.timeout_seconds <= 3
+    assert exe.timeout_seconds <= 2
 

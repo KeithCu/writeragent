@@ -27,7 +27,8 @@ from plugin.scripting.sandbox import (  # noqa: E402
     resolve_libreoffice_python,
     resolve_venv_python,
 )
-from plugin.scripting.venv_worker import PythonWorkerManager, shutdown_venv_workers_for_tests  # noqa: E402
+from plugin.scripting.session_key import SessionKey  # noqa: E402
+from plugin.scripting.venv_worker import ExecRequest, PythonWorkerManager, shutdown_venv_workers_for_tests  # noqa: E402
 
 TEXT_NS = "{urn:oasis:names:tc:opendocument:xmlns:text:1.0}"
 DEFAULT_ODT = project_root / "scripts" / "longdocsample.odt"
@@ -191,25 +192,36 @@ def bench_model(
     timeout_sec: int,
 ) -> dict:
     session_id = f"{SESSION_PREFIX}:{model_name.replace('/', '_')}"
+    session = SessionKey.from_host(session_id)
     print(f"Model {model_name!r}: encoding corpus (first run may download weights)...", flush=True)
     encode = _require_ok(
         mgr.execute(
-            encode_corpus_code(model_name),
-            data=texts,
-            timeout_sec=timeout_sec,
-            session_id=session_id,
+            ExecRequest(
+                code=encode_corpus_code(model_name),
+                data=texts,
+                timeout_sec=timeout_sec,
+                session=session,
+            ),
         ),
         "encode",
     )
     # Set model_name in worker namespace for search bench
-    mgr.execute(f"model_name = {model_name!r}", timeout_sec=timeout_sec, session_id=session_id)
+    mgr.execute(
+        ExecRequest(
+            code=f"model_name = {model_name!r}",
+            timeout_sec=timeout_sec,
+            session=session,
+        )
+    )
 
     print(f"Model {model_name!r}: search bench ({search_iters} iterations)...", flush=True)
     search = _require_ok(
         mgr.execute(
-            search_corpus_code(query, k, search_iters),
-            timeout_sec=timeout_sec,
-            session_id=session_id,
+            ExecRequest(
+                code=search_corpus_code(query, k, search_iters),
+                timeout_sec=timeout_sec,
+                session=session,
+            ),
         ),
         "search",
     )
