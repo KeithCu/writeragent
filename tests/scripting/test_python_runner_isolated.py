@@ -75,6 +75,7 @@ def test_prepare_rps_session_failure_logs_prepare_not_execute(caplog):
 def test_execute_and_insert_result_releases_pin_when_venv_raises():
     from unittest.mock import MagicMock, patch
     from tests.scripting.python_runner_test_support import execute_and_insert_result
+    from plugin.scripting.python_runner import PreparedScript
 
     ctx = MagicMock()
     doc = MagicMock()
@@ -82,7 +83,19 @@ def test_execute_and_insert_result_releases_pin_when_venv_raises():
     with (
         patch("plugin.scripting.session_manager.pin_script_document", return_value="doc:tok"),
         patch("plugin.scripting.session_manager.release_script_document") as mock_release,
-        patch("plugin.scripting.python_runner._prepare_rps_execution", return_value={"early_outcome": None, "t0": 0.0}),
+        patch(
+            "plugin.scripting.python_runner._prepare_rps_execution",
+            return_value=PreparedScript(
+                ctx=ctx,
+                doc=MagicMock(),
+                code="bad()",
+                t0=0.0,
+                bindings=None,
+                py_data=None,
+                session_id="rps:t",
+                script_session_id=None,
+            ),
+        ),
         patch("plugin.scripting.python_runner._run_prepared_rps", side_effect=RuntimeError("boom")),
     ):
         outcome = execute_and_insert_result(ctx, doc, "x = 1")
