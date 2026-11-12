@@ -180,22 +180,24 @@ Service JSON `"error"` is parsed into `rError` and logged (`complete_json: detai
 
 Logs: coolwsd → `/tmp/coolwsd.log` (`Python compute: …`); Core AddIn → `export SAL_LOG=+INFO.scaddins.pythoncompute` or `+WARN.scaddins.pythoncompute` before starting coolwsd.
 
-##### Planned: visible short Python errors (not implemented yet)
+##### Planned: Python error detail in a look-aside (not implemented yet)
 
-Authors need to **see** the Python failure cause without inventing a new Core error channel. Pure FormulaError-only cannot carry `SyntaxError: …` into the sheet or Online help (`GetLongErrorString` is fixed per code).
+Authors need to **see** the Python failure cause. The cell must stay a true formula error so `ISERROR` / `IFERROR` keep working (Michael Meeks, 2026-11-09). `FormulaError` has no message field, so the text goes **beside** the cell, not in it: a per-document look-aside keyed by formula cell that the UI asks for the selected cell. The formula language does not change, and no function is added to read the detail.
 
-**Agreed direction (implement later in Core AddIn `jsonResultToAny` / bridge):**
+An earlier draft put a short string in the cell (`ISERROR` false). That is rejected.
 
-| Cause | Cell | `ISERROR` | Notes |
+**Direction:**
+
+| Cause | Cell | `ISERROR` | Detail in the look-aside |
 |-------|------|-----------|--------|
-| No emitter, pending timeout, superseded | `#N/A` | yes | keep |
-| coolwsd infra: timeout / network / empty URL / allowlist | `#N/A` | yes | classify known `replyError` prefixes (today many of these still collapse to `#VALUE!`) |
-| `"Python compute is disabled"` | `#DISABLED` | no | keep |
-| Service `status=error` with a message (Python exception text, etc.) | **short string** | no | reuse `#DISABLED`-style escape hatch; first line / truncate ~200–256 chars; **no full traceback in the cell** |
-| Bad JSON / missing `result` / empty error | `#VALUE!` | yes | no useful message |
+| No emitter, pending timeout, superseded | `#N/A` | yes | none |
+| coolwsd infra: timeout / network / empty URL / allowlist | `#N/A` | yes | the wsd reason; classify known `replyError` prefixes (today many of these still collapse to `#VALUE!`) |
+| `"Python compute is disabled"` | `#DISABLED` | no | none. Kept as a string on purpose: it should not happen on a configured system, and it says the system is off, which the author cannot fix in Python |
+| Service `status=error` with a message (Python exception text, etc.) | `#VALUE!` | yes | the message; later the trimmed traceback and stdout |
+| Bad JSON / missing `result` / empty error | `#VALUE!` | yes | none (no useful message) |
 | Empty `code` | `Err:502` | yes | already `IllegalArgumentException` |
 
-Full detail (including truncated-away remainder) stays in `SAL_WARN`. Do **not** add new `FormulaError` enum values or custom Online `errorDescription` protocol for v1 of this fix. Track as [F6](#f6--visible-short-python-errors).
+Where the text travels and where it is read is in [F6](#f6--python-error-detail-look-aside). Do **not** add new `FormulaError` enum values.
 
 #### Matrix / list results / auto-spill (not yet)
 
@@ -263,7 +265,7 @@ collabora-online (kit/wsd)/
 2. Classic `RemoteComputeBackend` against the service (fast Python-only iteration).
 3. C++ hooks: kit stub + coolwsd broker → wire works (`pythoncompute:` / `pythoncomputeresult:`; debug `pythonexecute`). **Landed in tree** — remaining submit gaps in [Still open before Gerrit](#still-open-before-gerrit).
 4. Core `=PY()` AddIn + `#BUSY!` volatile + list→`ScMatrix` (single-cell = top-left only). **Landed in tree** (scaddins `pythoncompute` + kit emitter). Rebuild LibreOffice (`libpythoncomputelo.so`) + Online coolkit to pick up.
-5. Future work below — NumPy smoke, plots / remaining container hardening / shared kernel, **visible short Python errors (F6)**, **auto-spill (F7)**. UnitWSD CI is done; caps / isolation / series still outrank F3–F5 for Collabora review.
+5. Future work below — NumPy smoke, plots / remaining container hardening / shared kernel, **Python error detail look-aside (F6)**, **auto-spill (F7)**. UnitWSD CI is done; caps / isolation / series still outrank F3–F5 for Collabora review.
 
 Until Collabora ships images with Step C linked **and** the remaining open items below are acceptable for an experimental merge, **Classic** remains the product where full desktop NumPy `=PY()` works end-to-end without a Core rebuild.
 
@@ -282,7 +284,7 @@ AddIn `timeout_ms` emission is **deferred** (wsd defaults 60s; service clamps; p
 | F3 | `images[]` sheet insert | **implemented on `feature/python-compute-plot-images`**, not yet on Gerrit | Core AddIn + `sc` draw layer; design in the [plot plan](../calc/collabora-engine-plot-plan.md) |
 | F4 | Compute container hardening | done except ops (cgroup, private network) | `compute_service/Dockerfile` + run scripts |
 | F5 | Shared workbook kernel | service side done; coolwsd caller not shipped | AddIn + kit + service |
-| F6 | Visible short Python errors | design agreed, not coded | Core `jsonResultToAny` / bridge |
+| F6 | Python error detail (look-aside; cell stays `#VALUE!`) | design revised 2026-11-09, not coded | Core AddIn + `sc` per-cell store + two read points |
 | F7 | Single-cell auto-spill | **implemented on `feature/python-compute-engine-spill`**, not yet on Gerrit | Core `sc`; design in the [spill plan](../calc/collabora-engine-spill-plan.md) |
 
 ---
@@ -407,25 +409,42 @@ Lesson recorded in the [house rules](collabora-engine-house-rules.md): this feat
 
 ---
 
-### F6 — Visible short Python errors
+### F6 — Python error detail (look-aside)
 
-**Goal:** When `=PY()` fails with a Python/service message, the **cell shows a short readable string** (exception message), not opaque `#VALUE!`. Infra failures stay true formula errors.
+**Revised 2026-11-09.** The earlier F6 put a short string in the cell with `ISERROR` false. Michael Meeks asked for the opposite: the cell is a real error (`ISERROR` true) and the diagnostics live in a look-aside buffer that can be asked for a specific cell, without changing the formula language.
 
-**Why FormulaError alone is not enough:** Calc packs errors as `FormulaError` in a NaN (`CreateDoubleError`). Display is fixed short/long strings (`GetErrorString` / `GetLongErrorString`). Online’s `CellFormulaError` help button only re-shows those fixed strings. Free-form Python text **cannot** ride on a formula-error cell. Exception text is already parsed into `rError` and logged, then discarded for the cell today.
+**Goal:** When `=PY()` fails with a Python/service message, the cell stays `#VALUE!` and the author can read the message for that cell in the UI.
 
-**Reuse existing conventions (no new Core UX):**
+**Why the text cannot ride in the cell:** Calc packs errors as `FormulaError` in a NaN (`CreateDoubleError`). Display is fixed short/long strings (`GetErrorString` / `GetLongErrorString`). A string in the cell is readable but is not an error, so `ISERROR` / `IFERROR` break. Exception text is already parsed into `rError` and logged, then discarded today.
 
-1. **Infra** (timeout, network, no emitter, allowlist, empty URL) → `FormulaError::NotAvailable` → `#N/A` (`ISERROR` true). Classify known coolwsd `replyError` prefixes in `jsonResultToAny` (several of these still become `#VALUE!` today).
-2. **Disabled** → keep `#DISABLED` string.
-3. **Service `status=error` with message** → finish volatile with **short `OUString`** (first line / truncate ~200–256 chars; no full traceback). Same escape hatch as `#DISABLED` / `#BUSY!`. **`ISERROR` is false** for these cells — acceptable tradeoff so authors can see the cause.
-4. **Parse / missing result / empty error** → keep `#VALUE!` (`NoValue`).
-5. Log full detail at `SAL_WARN` (`complete_json: detail=[…]`).
+**Where the information goes** (same route as plots, [F3](#f3--online-images--plot-insert)):
 
-**Files:** `engine/scaddins/source/pythoncompute/anyjson.cxx` (`jsonResultToAny`), `bridge.cxx` (log level), README + CppUnit in `engine/scaddins/qa/pythoncompute.cxx`.
+1. **AddIn.** `bridge.cxx` already holds the text (`sErr`) when a request completes. Hand it to the volatile with the result, as plots are, and expose it on a side interface beside `XPythonComputePlotResult`. The AddIn still does not know the cell.
+2. **Interpreter.** `ScInterpreter::ScExternal` (`sc/source/core/tool/interpr4.cxx`) already queries the volatile for plots. It reads the detail at the same place. This is the point that knows the cell.
+3. **Store.** When the formula cell finishes its interpret, `ScDocument` keeps the detail per formula cell, the same shape as `maPythonPlots`. A later success, a cell that stops being a `=PY()`, or a deleted cell erases the entry. A copied cell copies it. It is runtime-only and is not saved; a recalc on load fills it again.
+4. **Read points (both exist, both know the cell):**
+   - `sc/source/ui/app/inputhdl.cxx` sends `CellFormulaError` with `errorDescription` for the selected cell. Online draws it in `FormulaErrorHelpSection.ts`. Use the store's text when the cell has an entry, else `GetLongErrorString` as today.
+   - The status bar text for the cursor cell is requested in `sc/source/ui/view/cellsh.cxx` (`SID_TABLE_CELL`) and built from `GetLongErrorString` in `tabvwsha.cxx`. Same lookup at the call site, so Classic shows it too.
 
-**Out of scope for F6:** new `FormulaError` enum values, custom Online `errorDescription` protocol, full stack traces in cells.
+   No new protocol message and no browser change for this step.
+5. **Later.** When the service sends a trimmed `traceback` and `stdout`, they go in the same entry, and the diagnostics sidebar lists the store by cell address. That listing is the only new protocol surface, and it is a separate patch.
 
-**Done when:** `=PY("result = 1/0")` (or service SyntaxError) shows a short message in the cell; timeout still `#N/A`; disabled still `#DISABLED`; CppUnit covers the matrix above.
+**Other rows of the matrix:**
+
+1. **Infra** (timeout, network, no emitter, allowlist, empty URL) → `FormulaError::NotAvailable` → `#N/A`. Classify known coolwsd `replyError` prefixes in `jsonResultToAny` (several of these still become `#VALUE!` today).
+2. **Disabled** → keep the `#DISABLED` string. Special case: the system is off; it is not a Python error.
+3. **Parse / missing result / empty error** → keep `#VALUE!`, no entry.
+4. Keep the log line (`complete: detail=[…]`).
+
+**No new cap:** the message is already bounded by `max_payload_bytes` on the response. The UI shortens what it draws; the store keeps what arrived.
+
+**Files:** `engine/scaddins/source/pythoncompute/` (`bridge.cxx`, `volatile.*`, IDL for the side interface), `engine/sc/` (`interpr4.cxx`, `formulacell.cxx`, `document.hxx` + store, `inputhdl.cxx`, `tabvwsha.cxx`), CppUnit in `engine/scaddins/qa/pythoncompute.cxx`, ucalc.
+
+**Out of scope for F6:** new `FormulaError` enum values, any text in the cell, a formula function that returns the detail, the sidebar.
+
+**Depends on:** the plot branch (it adds the interpreter hook and the per-cell store pattern).
+
+**Done when:** `=PY("result = 1/0")` shows `#VALUE!`; `ISERROR` of that cell is true; selecting it shows `ZeroDivisionError: division by zero` in Online's error help and in the status bar; fixing the code clears the entry; timeout is `#N/A`; disabled is still `#DISABLED`; CppUnit and ucalc cover the matrix above.
 
 ---
 
@@ -443,7 +462,7 @@ Lesson recorded in the [house rules](collabora-engine-house-rules.md): this feat
 | Browser Monaco / cell editor | Separate Online UI project; LibrePy pywebview is Classic-only |
 | C++ `split_grid` / Pickle5 | Violates the dumb-JSON tip on purpose |
 | Kit-side NumPy / warm venv | Jail-incompatible by design |
-| Visible short Python errors in cell | **Deferred — design agreed, not coded.** See [cell markers](#cell-markers--diagnosis-busy-disabled-value) + [F6](#f6--visible-short-python-errors). Today: detail log-only; cell `#VALUE!` / `#N/A` / `#DISABLED` |
+| Python error detail for a cell | **Deferred — look-aside design, not coded.** Text in the cell is rejected (`ISERROR` must stay true). See [cell markers](#cell-markers--diagnosis-busy-disabled-value) + [F6](#f6--python-error-detail-look-aside). Today: detail log-only; cell `#VALUE!` / `#N/A` / `#DISABLED` |
 | Single-cell auto-spill | On the spill branch, not on Gerrit. See [F7](#f7--single-cell-auto-spill). On 8123 itself: top-left only |
 | Per-document cache keying | Process-wide weak-ref identity map (soft cap 256, never evicts live entries); cleared on kit teardown — no per-`ScDocument` map (AddIn has no doc pointer; Core shares one volatile across docs) |
 
@@ -463,7 +482,7 @@ Architecture (out-of-kit compute, thin C++ tip, default-off flag, host allowlist
 | G6c | LRU breaks AddIn.idl identity; sticky errors | Done — weak-ref identity map never evicts live entries; sticky retry = change params (documented) |
 | G8 | UnitWSD / formula-level CI | UnitWSD done; full formula-level Online CI remains optional follow-up |
 | G9 | Series / hygiene | Hygiene done; series preparation remains intentionally pending |
-| G10 | Opaque `#VALUE!` hides Python message | Open / deferred — design agreed in [F6](#f6--visible-short-python-errors); not coded |
+| G10 | Python message not readable anywhere but the log | Open / deferred — `#VALUE!` itself is right; the look-aside in [F6](#f6--python-error-detail-look-aside) is not coded |
 | G11 | No single-cell auto-spill | Implemented on the spill branch ([F7](#f7--single-cell-auto-spill)); 8123 itself is top-left only |
 
 Remaining nits from the same reviews: the display name `PY` vs Excel semantics needs an IDL / release-note sentence; AddIn help strings are en-US only (no `.hrc`); `SAL_DLLPUBLIC_EXPORT` on `anyjson` test helpers should become C-ABI-only exports eventually.
@@ -576,7 +595,7 @@ From the patch-set history (`jsplan-backup-r9`…`r13` → `gerrit/python-comput
 | # | Phase | Scope |
 |---|---|---|
 | 0 | **MVP** | Merge experimental `=PY()` (default off); publish the first compute image. |
-| 1 | **Calc parity** | Visible short Python errors ([F6](#f6--visible-short-python-errors)); auto-spill ([F7](#f7--single-cell-auto-spill)); plot insert ([F3](#f3--online-images--plot-insert)); optional shared kernel ([F5](#f5--shared-workbook-kernel-modeshared--session_id), wsd-owned `session_id`). |
+| 1 | **Calc parity** | Python error detail look-aside ([F6](#f6--python-error-detail-look-aside)); auto-spill ([F7](#f7--single-cell-auto-spill)); plot insert ([F3](#f3--online-images--plot-insert)); optional shared kernel ([F5](#f5--shared-workbook-kernel-modeshared--session_id), wsd-owned `session_id`). |
 | 2 | **Authoring UX** | Browser Monaco / Run Script / diagnostics. Not pywebview in the jail. |
 | 3 | **Excel files** | Use the LibrePy OOXML rewriter; Online calls convert on open/save (or a thin filter hook). |
 | 4 | **OCR** | Expose LibrePy-style local OCR, plus a config settings UI. |
@@ -589,7 +608,7 @@ From the patch-set history (`jsplan-backup-r9`…`r13` → `gerrit/python-comput
 | **0a** | Publish the compute image with a pinned NumPy; short admin doc on enabling it; CI smoke test running `=PY("1+1")` against the image. | An admin can turn it on from the doc alone, and CI proves the image answers. |
 | **0b** | Multipart POST: a JSON `meta` part plus binary parts for arrays and images, instead of one JSON blob ([HTTP ingress](#http-ingress-peel-vs-multipart)). | Keith's planned follow-up patch. Early, because spill and plots want binary parts. |
 | **0c** | Gather real latency and payload-size numbers from early users. | Before touching any limit (see [G4](#g4--resource-caps--done): no new knobs without data). |
-| **1a** | Short Python error in the cell; full traceback in a tooltip or comment. | Smallest step, most visible. |
+| **1a** | Python error detail in a per-cell look-aside; the cell stays `#VALUE!` (`ISERROR` true). Online's error help and the status bar show the message for the selected cell ([F6](#f6--python-error-detail-look-aside)). | Most visible gap. After plot insert, because it reuses that interpreter hook. |
 | **1b** | Auto-spill array results into neighbouring cells; `#SPILL!`-style error when the spill would overwrite cells. | On the spill branch ([F7](#f7--single-cell-auto-spill)). |
 | **1c** | Plot insert: an image result becomes an anchored image, not only the "Image generated" marker. | On the plot-images branch ([F3](#f3--online-images--plot-insert)); images stay on the JSON response, multipart only changes the request. |
 | **1d** | Shared kernel per document, wsd-owned `session_id`. | Last: it brings back state and lifetime risk (see [Bug classes fixed](#bug-classes-fixed-and-how-we-prevent-them)). |

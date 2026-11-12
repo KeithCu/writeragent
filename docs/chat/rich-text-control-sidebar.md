@@ -213,7 +213,7 @@ Why not repaint per batch: a wipe-and-refill about 3 times a second built 3 hidd
 | Function | Role |
 |----------|------|
 | `focus_preserved(ctx, restore)` | Context manager in `vcl_pumping` (re-exported by `uno_context`). Restores the control passed in (that panel's Ask field). No process-wide pin. |
-| `process_events_to_idle(ctx, rounds=1)` | Drain UI events between append / caret-reveal steps |
+| `process_events_to_idle(ctx, rounds=1)` | Drain UI events between append / caret-reveal steps (suppressed under a drain owner or inside an outer pump; the stream relies on the slice returning to VCL for the repaint) |
 | `FrameSession.restore_focus` | After stream SelectAll, `setFocus` on this frame's Ask field only while the user still wants it |
 | `FrameSession.note_user_left_query` | Stop restoring this frame (Stop/Clear/other sidebar pointer, page click on this frame's controller) |
 | `FrameSession.install` | Query focusGained, leave-query controls, and a click handler on `frame.getController()`. Dispose of one frame does not remove another's listeners |
@@ -234,7 +234,7 @@ Why not repaint per batch: a wipe-and-refill about 3 times a second built 3 hidd
 
 The stream appends the new suffix of an open row without stripping the row again. History reload is `paint_message_items`. `append_formatted_rows` is the turn-end tail. During direct copy from the hidden document, `element_skipped` marks a partially written element, whereas a not-yet-written element is inserted as its own visible text.
 
-Shared HTML import and theme: [`format.py`](../../plugin/writer/format.py) (`insert_html_fragment_at_cursor`), [`rich_text.py`](../../plugin/chatbot/rich_text.py) (`_append_rich_text_with_span`, `get_theme_colors`, `contains_html_tag`, sidebar list CSS via `_SIDEBAR_LIST_CSS`).
+Shared HTML import and theme: [`html_import.py`](../../plugin/writer/html_import.py) (`insert_html_fragment_at_cursor`), [`rich_text.py`](../../plugin/chatbot/rich_text.py) (`_append_rich_text_with_span`, `get_theme_colors`, `contains_html_tag`, sidebar list CSS via `_SIDEBAR_LIST_CSS`).
 
 ### Scroll behavior (follow the caret)
 

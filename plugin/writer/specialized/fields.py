@@ -13,13 +13,22 @@ import hashlib
 from typing import Any
 
 from plugin.doc.text_helpers import iter_elements
+from plugin.doc.udprops import (
+    get_document_property,
+    list_user_defined_document_properties,
+    read_builtin_document_properties,
+    remove_document_property,
+    set_document_property,
+    write_builtin_document_properties,
+)
 from plugin.doc.undo import commit_or_rollback_mutation
 from plugin.framework.errors import is_disposal, reraise_if_disposed
 from plugin.framework.tool import ToolBase
 
 from ..edit_review import next_agent_edit_undo_title
+from ..search import LocationLabeler
 from ..specialized_base import ToolWriterFieldBase, target_params
-from ..target_resolver import resolve_target_cursor
+from ..target_resolver import insert_at_target
 
 
 KNOWN_PROPERTIES = (
@@ -62,10 +71,6 @@ def _specific_field_service(field: Any) -> str:
 
 
 def _iter_body_field_identity(doc: Any, hasher: Any) -> Any:
-    # Deferred: plugin.writer.search pulls the UNO document helpers in, and this module is
-    # imported wherever the field tools are registered.
-    from ..search import LocationLabeler
-
     fields = doc.getTextFields()
     enum = fields.createEnumeration()
     labeler = LocationLabeler(doc)
@@ -195,24 +200,24 @@ class FieldsDelete(ToolWriterFieldBase):
         if snapshot is not None:
             current_snapshot = hasher.hexdigest()
             if current_snapshot != snapshot:
-                return {
-                    "status": "error",
-                    "code": "FIELD_LIST_STALE",
-                    "message": "Document fields have changed since fields_list. Call fields_list again.",
-                    "deleted_count": 0,
-                }
+                return self._tool_error(
+                    "Document fields have changed since fields_list. Call fields_list again.",
+                    code="FIELD_LIST_STALE",
+                    top_level={"deleted_count": 0},
+                )
 
         missing_ids = [fid for fid in cleaned_ids if fid not in found]
 
         if not found:
-            return {
-                "status": "error",
-                "code": "FIELD_NOT_FOUND",
-                "message": f"No matching text fields found to delete (missing IDs: {missing_ids}). Use comment_delete to delete comments.",
-                "deleted_count": 0,
-                "requested_count": requested_count,
-                "missing_ids": missing_ids,
-            }
+            return self._tool_error(
+                f"No matching text fields found to delete (missing IDs: {missing_ids}). Use comment_delete to delete comments.",
+                code="FIELD_NOT_FOUND",
+                top_level={
+                    "deleted_count": 0,
+                    "requested_count": requested_count,
+                    "missing_ids": missing_ids,
+                },
+            )
 
         anchors = []
         deleted: list[dict[str, Any]] = []
@@ -282,22 +287,13 @@ class FieldsInsert(ToolWriterFieldBase):
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         field_type = kwargs["field"]
         doc = ctx.doc
-        if not hasattr(doc, "createInstance"):
-            return self._tool_error("Document does not support creating instances.")
-
-        target = kwargs.get("target", "selection")
-        old_content = kwargs.get("old_content")
-
-        try:
-            cursor = resolve_target_cursor(ctx, target, old_content, case_sensitive=kwargs.get("case_sensitive"))
-        except ValueError as ve:
-            return self._tool_error(str(ve))
 
         properties = dict(kwargs.get("properties") or {})
         if field_type == "PageNumber":
             # Bare UNO PageNumber is NumberingType=0/SubType=PREV: blank on page 1.
             properties.setdefault("NumberingType", 4)
             if "SubType" not in properties:
+                # Lazy: uno is looked up when this runs; unit tests swap sys.modules["uno"] for mocks, and a module-level binding would keep a stale one.
                 import uno
                 properties["SubType"] = uno.Enum("com.sun.star.text.PageNumberType", "CURRENT")
 
@@ -317,34 +313,16 @@ class FieldsInsert(ToolWriterFieldBase):
                     raise
                 return self._tool_error(f"Failed to set property '{key}' to '{value}': {e}")
 
-        # Insert at resolved cursor
-        if target == "search" and old_content:
-            undo_title = next_agent_edit_undo_title()
-
-            def mutate() -> dict[str, Any] | None:
-                cursor.setString("")
-                text = cursor.getText()
-                text.insertTextContent(cursor, field, False)
-                return None
-
-            err = commit_or_rollback_mutation(
-                self,
-                doc,
-                undo_title,
-                mutate,
-                undo_unavailable_msg="Cannot replace the matched text atomically (no usable undo context).",
-                rollback_msg="Failed to insert field; the change was rolled back",
-            )
-            if err is not None:
-                return err
-        else:
-            try:
-                text = cursor.getText()
-                text.insertTextContent(cursor, field, False)
-            except Exception as e:
-                if is_disposal(e):
-                    raise
-                return self._tool_error(f"Failed to insert field: {e}")
+        # Resolve target and insert as one undo step (insert_at_target).
+        err = insert_at_target(
+            self,
+            ctx,
+            kwargs,
+            lambda cursor: cursor.getText().insertTextContent(cursor, field, False),
+            what="the field",
+        )
+        if err is not None:
+            return err
 
         return {"status": "ok", "message": f"Successfully inserted {field_type} field.", "applied_properties": properties}
 
@@ -371,36 +349,21 @@ class DocumentPropertiesGet(ToolBase):
     parameters: dict[str, Any] | None = {"type": "object", "properties": {}, "required": []}
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
-        from plugin.doc.udprops import (
-            get_document_property,
-            list_user_defined_document_properties,
-            read_builtin_document_properties,
-        )
-        from plugin.framework.queue_executor import main
-        from plugin.framework.send_cancellation import SendCancelled
-        from plugin.framework.errors import user_stopped_payload
-
-        def _run() -> dict[str, Any]:
-            builtins = read_builtin_document_properties(ctx.doc)
-            user_defined: dict[str, str] = {}
-            internal_omitted: list[str] = []
-            for prop_name in list_user_defined_document_properties(ctx.doc):
-                if _is_product_udprop(prop_name):
-                    internal_omitted.append(prop_name)
-                    continue
-                val = get_document_property(ctx.doc, prop_name, default="")
-                user_defined[prop_name] = str(val) if val is not None else ""
-            return {
-                "status": "ok",
-                **builtins,
-                "user_defined": user_defined,
-                "internal_omitted": sorted(internal_omitted),
-            }
-
-        try:
-            return main.run(_run)
-        except SendCancelled:
-            return user_stopped_payload()
+        builtins = read_builtin_document_properties(ctx.doc)
+        user_defined: dict[str, str] = {}
+        internal_omitted: list[str] = []
+        for prop_name in list_user_defined_document_properties(ctx.doc):
+            if _is_product_udprop(prop_name):
+                internal_omitted.append(prop_name)
+                continue
+            val = get_document_property(ctx.doc, prop_name, default="")
+            user_defined[prop_name] = str(val) if val is not None else ""
+        return {
+            "status": "ok",
+            **builtins,
+            "user_defined": user_defined,
+            "internal_omitted": sorted(internal_omitted),
+        }
 
 
 class DocumentPropertiesSet(ToolBase):
@@ -442,15 +405,6 @@ class DocumentPropertiesSet(ToolBase):
     }
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
-        from plugin.doc.udprops import (
-            remove_document_property,
-            set_document_property,
-            write_builtin_document_properties,
-        )
-        from plugin.framework.queue_executor import main
-        from plugin.framework.send_cancellation import SendCancelled
-        from plugin.framework.errors import user_stopped_payload
-
         title = kwargs.get("title")
         subject = kwargs.get("subject")
         author = kwargs.get("author")
@@ -459,69 +413,50 @@ class DocumentPropertiesSet(ToolBase):
         user_defined = kwargs.get("user_defined")
         remove_user_defined = kwargs.get("remove_user_defined")
 
-        if keywords is not None and not isinstance(keywords, list):
+        # The validator checks top-level JSON types, but not items inside arrays and objects.
+        if keywords is not None and any(not isinstance(item, str) for item in keywords):
             return self._tool_error(
                 "keywords must be an array of strings.",
-                code="INVALID_PARAMETER",
+                code="INVALID_PARAM",
                 parameter="keywords",
             )
-        if keywords is not None:
-            for item in keywords:
-                if not isinstance(item, str):
-                    return self._tool_error(
-                        "keywords must be an array of strings.",
-                        code="INVALID_PARAMETER",
-                        parameter="keywords",
-                    )
 
         ud_writes: dict[str, str] = {}
         if user_defined is not None:
-            if not isinstance(user_defined, dict):
-                return self._tool_error(
-                    "user_defined must be an object of string values.",
-                    code="INVALID_PARAMETER",
-                    parameter="user_defined",
-                )
             for key, val in user_defined.items():
                 if not isinstance(key, str) or not isinstance(val, str):
                     return self._tool_error(
                         "user_defined keys and values must be strings.",
-                        code="INVALID_PARAMETER",
+                        code="INVALID_PARAM",
                         parameter="user_defined",
                     )
                 if _is_product_udprop(key):
                     return self._tool_error(
                         "Cannot set internal property %r." % key,
-                        code="INVALID_PARAMETER",
+                        code="INVALID_PARAM",
                         parameter="user_defined",
                     )
                 ud_writes[key] = val
 
         ud_removes: list[str] = []
         if remove_user_defined is not None:
-            if not isinstance(remove_user_defined, list):
-                return self._tool_error(
-                    "remove_user_defined must be an array of property names.",
-                    code="INVALID_PARAMETER",
-                    parameter="remove_user_defined",
-                )
             for key in remove_user_defined:
                 if not isinstance(key, str):
                     return self._tool_error(
                         "remove_user_defined entries must be strings.",
-                        code="INVALID_PARAMETER",
+                        code="INVALID_PARAM",
                         parameter="remove_user_defined",
                     )
                 if key in ud_writes:
                     return self._tool_error(
                         "Cannot set and remove the same user-defined property %r." % key,
-                        code="INVALID_PARAMETER",
+                        code="INVALID_PARAM",
                         parameter="user_defined",
                     )
                 if _is_product_udprop(key):
                     return self._tool_error(
                         "Cannot remove internal property %r." % key,
-                        code="INVALID_PARAMETER",
+                        code="INVALID_PARAM",
                         parameter="remove_user_defined",
                     )
                 ud_removes.append(key)
@@ -541,32 +476,26 @@ class DocumentPropertiesSet(ToolBase):
         if not builtin_fields and not ud_writes and not ud_removes:
             return self._tool_error("No properties to set.", code="NO_CHANGES")
 
-        def _run() -> dict[str, Any]:
-            updated: list[str] = list(write_builtin_document_properties(ctx.doc, **builtin_fields))
-            removed: list[str] = []
-            for key, val in ud_writes.items():
-                if not set_document_property(ctx.doc, key, val):
-                    return self._tool_error(
-                        "Could not write user-defined property %r." % key,
-                        code="SET_PROPERTY_FAILED",
-                        updated=updated,
-                        removed=removed,
-                    )
-                updated.append("user_defined:%s" % key)
-            for key in ud_removes:
-                if remove_document_property(ctx.doc, key):
-                    removed.append(key)
-                else:
-                    return self._tool_error(
-                        "Could not remove user-defined property %r." % key,
-                        code="REMOVE_PROPERTY_FAILED",
-                        updated=updated,
-                        removed=removed,
-                    )
-            return {"status": "ok", "updated": updated, "removed": removed}
-
-        try:
-            return main.run(_run)
-        except SendCancelled:
-            return user_stopped_payload()
+        updated: list[str] = list(write_builtin_document_properties(ctx.doc, **builtin_fields))
+        removed: list[str] = []
+        for key, val in ud_writes.items():
+            if not set_document_property(ctx.doc, key, val):
+                return self._tool_error(
+                    "Could not write user-defined property %r." % key,
+                    code="SET_PROPERTY_FAILED",
+                    updated=updated,
+                    removed=removed,
+                )
+            updated.append("user_defined:%s" % key)
+        for key in ud_removes:
+            if remove_document_property(ctx.doc, key):
+                removed.append(key)
+            else:
+                return self._tool_error(
+                    "Could not remove user-defined property %r." % key,
+                    code="REMOVE_PROPERTY_FAILED",
+                    updated=updated,
+                    removed=removed,
+                )
+        return {"status": "ok", "updated": updated, "removed": removed}
 

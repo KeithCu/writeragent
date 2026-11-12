@@ -20,11 +20,11 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
 from plugin.framework.deal_shim import deal
-from plugin.framework.grammar_rule_ids import _ISO_TO_SNOWBALL
+from plugin.framework.grammar_rule_ids import ISO_TO_SNOWBALL
 
 log = logging.getLogger(__name__)
 
-_SNOWBALL_LANGS = frozenset(_ISO_TO_SNOWBALL.values())
+_SNOWBALL_LANGS = frozenset(ISO_TO_SNOWBALL.values())
 _STEMMER_CACHE: dict[str, Any] = {}
 # Pure-Python snowballstemmer.stemWord mutates cursor state on the instance.
 _STEMMER_LOCK = threading.Lock()
@@ -77,7 +77,7 @@ def stem_word(snowball_lang: str, token: str) -> str:
 @deal.post(lambda result: isinstance(result, str) and result in _SNOWBALL_LANGS)
 def snowball_lang_from_locale_tag(tag: str) -> str:
     iso = str(tag or "").replace("-", "_").split("_")[0].lower()
-    return _ISO_TO_SNOWBALL.get(iso) or "english"
+    return ISO_TO_SNOWBALL.get(iso) or "english"
 
 
 def _read_doc_char_locale(doc: Any) -> tuple[str, str] | None:
@@ -95,7 +95,7 @@ def _read_doc_char_locale(doc: Any) -> tuple[str, str] | None:
         return None
     country = str(getattr(char_locale, "Country", "") or "").strip()
     lo_tag = f"{lang}_{country}" if country else lang
-    snowball = _ISO_TO_SNOWBALL.get(lang)
+    snowball = ISO_TO_SNOWBALL.get(lang)
     return (lo_tag, snowball) if snowball else None
 
 

@@ -33,7 +33,7 @@ def test_find_ranges_regex_case_all_matches_walks_next():
 
 # ---- 3) invalid regex is an error, not a clean miss ---------------------------
 
-def _search_zero_hits(pattern, use_regex):
+def _search_zero_hits(pattern, use_regex, icu_ok: bool = True, ctx=None):
     """Run SearchInDocument against a doc that finds nothing."""
     from plugin.writer.search import SearchInDocument
 
@@ -42,13 +42,17 @@ def _search_zero_hits(pattern, use_regex):
     doc.findFirst.return_value = None
     doc.getDrawPage.return_value = []
     doc.getTextFields.return_value.createEnumeration.return_value.hasMoreElements.return_value = False
-    ctx = MagicMock()
+    if ctx is None:
+        ctx = MagicMock()
     ctx.doc = doc
+    ctx.ctx.ServiceManager.createInstanceWithContext.return_value.searchForward.return_value.subRegExpressions = (
+        1 if icu_ok else 0
+    )
     return SearchInDocument().execute(ctx, pattern=pattern, regex=use_regex)
 
 
 def test_invalid_regex_zero_hits_is_error():
-    res = _search_zero_hits("([a-", True)
+    res = _search_zero_hits("([a-", True, icu_ok=False)
     assert res["status"] == "error" and res["code"] == "INVALID_REGEX"
     assert "regex=false" in res["message"]
 
@@ -59,8 +63,56 @@ def test_valid_regex_zero_hits_stays_ok():
 
 
 def test_literal_zero_hits_stays_ok():
-    res = _search_zero_hits("([a-", False)  # literal search for weird chars is legitimate
+    ctx = MagicMock()
+    res = _search_zero_hits("([a-", False, ctx=ctx)  # literal search for weird chars is legitimate
     assert res["status"] == "ok" and res["count"] == 0
+    ctx.ctx.ServiceManager.createInstanceWithContext.assert_not_called()
+
+
+def test_validate_icu_regex_wraps_pattern_and_reads_result():
+    import uno
+    from plugin.writer.search import ICU_REGEX_REJECTED, validate_icu_regex
+
+    ctx = MagicMock()
+    ts = ctx.ServiceManager.createInstanceWithContext.return_value
+    ts.searchForward.return_value.subRegExpressions = 1
+    with patch.object(uno, "getConstantByName") as mock_get_const:
+        assert validate_icu_regex(ctx, r"\p{Lu}+") is None
+        ts.searchForward.assert_called_with("a", 0, 1)
+        opts = ts.setOptions2.call_args[0][0]
+        assert opts.searchString == r".|(?:\p{Lu}+)"
+        assert opts.AlgorithmType2 == mock_get_const.return_value
+        mock_get_const.assert_called_with("com.sun.star.util.SearchAlgorithms2.REGEXP")
+
+    ts.searchForward.return_value.subRegExpressions = 0
+    assert validate_icu_regex(ctx, "([a-") == ICU_REGEX_REJECTED
+
+
+def test_search_in_document_icu_only_regex_warns_on_shape_skip():
+    from plugin.writer.search import SearchInDocument
+
+    doc = MagicMock()
+    doc.createSearchDescriptor.return_value = MagicMock()
+    doc.findFirst.return_value = None
+    doc.getDrawPage.return_value = []
+    doc.getTextFields.return_value.createEnumeration.return_value.hasMoreElements.return_value = False
+    ctx = MagicMock()
+    ctx.doc = doc
+    ctx.ctx.ServiceManager.createInstanceWithContext.return_value.searchForward.return_value.subRegExpressions = 1
+
+    res = SearchInDocument().execute(ctx, pattern=r"\p{Lu}\w+", regex=True)
+    assert res["status"] == "ok"
+    assert res.get("warning") == "shape/comment text not searched: pattern uses ICU-only syntax"
+
+
+def test_shape_sweep_skip_reason():
+    from plugin.writer.search import shape_sweep_skip_reason
+
+    assert shape_sweep_skip_reason(r"\p{Lu}", True) == (
+        "shape/comment text not searched: pattern uses ICU-only syntax"
+    )
+    assert shape_sweep_skip_reason(r"\p{Lu}", False) is None
+    assert shape_sweep_skip_reason("a.c", True) is None
 
 
 def test_search_return_offsets_rejects_regex():
@@ -81,14 +133,14 @@ def test_find_ranges_regex_case_caps_at_max_search_replacements():
     assert len(out) == MAX_SEARCH_REPLACEMENTS
 
 
-def test_find_lo_regex_ranges_caps_at_max_search_replacements():
-    from plugin.writer.search import find_lo_regex_ranges, MAX_SEARCH_REPLACEMENTS
+def test_find_all_ranges_caps_at_max_search_replacements():
+    from plugin.writer.search import find_all_ranges, MAX_SEARCH_REPLACEMENTS
 
     doc = MagicMock()
     doc.createSearchDescriptor.return_value = MagicMock()
     doc.findFirst.return_value = MagicMock()
     doc.findNext.side_effect = lambda found, sd: MagicMock()
-    out = find_lo_regex_ranges(doc, "x", all_matches=True)
+    out = find_all_ranges(doc, "x")
     assert len(out) == MAX_SEARCH_REPLACEMENTS
 
 
@@ -96,9 +148,14 @@ def test_not_found_hints_at_pending_tracked_deletions():
     """#43: visible text across a struck word is never found; say why instead of just 'shorter'."""
     from plugin.writer.search import build_search_not_found_response
 
-    msg = build_search_not_found_response(tracked_deletions=True)["message"]
+    doc = MagicMock()
+    doc.getDrawPage.return_value = None
+    with patch("plugin.writer.search.document_has_tracked_deletions", return_value=True):
+        msg = build_search_not_found_response(doc, "needle")["message"]
     assert "pending tracked deletions" in msg
-    assert "pending tracked" not in build_search_not_found_response()["message"]
+    doc2 = MagicMock()
+    doc2.getDrawPage.return_value = None
+    assert "pending tracked" not in build_search_not_found_response(doc2, "needle")["message"]
 
 
 def test_search_in_document_zero_width_sets_truncated():
@@ -143,7 +200,7 @@ def test_search_in_document_getstring_failure_is_truncated(caplog):
     assert "search_in_document: getString failed" in caplog.text
 
 
-@pytest.mark.parametrize("bad_val", [0, -1, True, False, None, "20", 1.5])
+@pytest.mark.parametrize("bad_val", [0, -1])
 def test_search_in_document_max_results_rejects_non_positive(bad_val):
     from plugin.writer.search import SearchInDocument
 
@@ -153,6 +210,32 @@ def test_search_in_document_max_results_rejects_non_positive(bad_val):
     assert res["status"] == "error"
     assert res["code"] == "INVALID_PARAM"
     doc.createSearchDescriptor.assert_not_called()
+
+
+@pytest.mark.parametrize("bad_val", [True, False, "20", 1.5])
+def test_search_in_document_max_results_wrong_type_is_rejected_before_execute(bad_val):
+    from types import SimpleNamespace
+
+    from plugin.framework.tool import prepare_tool_call
+    from plugin.writer.search import SearchInDocument
+
+    ctx = SimpleNamespace(doc_type="writer", caller="test")
+    prep = prepare_tool_call(SearchInDocument(), ctx, "search_in_document", {"pattern": "test", "max_results": bad_val})
+    assert prep.error is not None
+    assert prep.error["code"] == "VALIDATION_ERROR"
+    assert prep.error["message"].startswith("Invalid type for max_results: expected integer")
+
+
+def test_search_in_document_null_max_results_uses_the_default():
+    from types import SimpleNamespace
+
+    from plugin.framework.tool import prepare_tool_call
+    from plugin.writer.search import SearchInDocument
+
+    ctx = SimpleNamespace(doc_type="writer", caller="test")
+    prep = prepare_tool_call(SearchInDocument(), ctx, "search_in_document", {"pattern": "test", "max_results": None})
+    assert prep.error is None
+    assert prep.kwargs == {"pattern": "test"}
 
 
 def test_search_in_document_default_max_results_is_20():
@@ -220,6 +303,85 @@ def test_shape_text_hits_regex_drops_empty_groups_only():
     from plugin.writer.search import shape_text_hits
 
     assert shape_text_hits("ab", r"a*", True, True) == ["a"]
+
+
+def test_shape_text_spans_and_hits_regex():
+    from plugin.writer.search import (
+        iter_shape_text_spans,
+        shape_text_hits,
+        shape_text_span,
+    )
+
+    assert list(iter_shape_text_spans("say hello!", "hel+o", case_sensitive=False, use_regex=True)) == [(4, 9)]
+    assert shape_text_span("say hello!", "hel+o", case_sensitive=False, use_regex=True) == (4, 9)
+    assert shape_text_hits("say hello!", "hel+o", True, False) == ["hello"]
+
+    assert list(iter_shape_text_spans("say hello!", "h.+o", case_sensitive=False, use_regex=True)) == [(4, 9)]
+    assert shape_text_span("say hello!", "h.+o", case_sensitive=False, use_regex=True) == (4, 9)
+    assert shape_text_hits("say hello!", "h.+o", True, False) == ["hello"]
+
+    assert shape_text_span("say hello!", "Hel+o", case_sensitive=True, use_regex=True) is None
+    assert shape_text_hits("say hello!", "Hel+o", True, True) == []
+    assert shape_text_span("say hello!", "Hel+o", case_sensitive=False, use_regex=True) == (4, 9)
+    assert shape_text_hits("say hello!", "Hel+o", True, False) == ["hello"]
+
+    assert list(iter_shape_text_spans("ab", r"a*", case_sensitive=True, use_regex=True)) == [(0, 1)]
+    assert shape_text_span("ab", r"a*", case_sensitive=True, use_regex=True) == (0, 1)
+
+    assert list(iter_shape_text_spans("ab", r"b*", case_sensitive=True, use_regex=True)) == [(1, 2)]
+    assert shape_text_span("ab", r"b*", case_sensitive=True, use_regex=True) == (1, 2)
+    assert shape_text_hits("ab", r"b*", True, True) == ["b"]
+
+    assert list(iter_shape_text_spans("hello", r"x*", case_sensitive=True, use_regex=True)) == []
+    assert shape_text_span("hello", r"x*", case_sensitive=True, use_regex=True) is None
+    assert shape_text_hits("hello", r"x*", True, True) == []
+
+    assert list(iter_shape_text_spans("hello", r"^", case_sensitive=True, use_regex=True)) == []
+    assert shape_text_span("hello", r"^", case_sensitive=True, use_regex=True) is None
+    assert shape_text_hits("hello", r"^", True, True) == []
+
+    assert shape_text_hits("İstanbul", "i", True, False) == ["İ"]
+    assert shape_text_span("İstanbul", "i", case_sensitive=False, use_regex=True) == (0, 1)
+
+    assert shape_text_hits("He said \u201cHi,\u201d", '"Hi,"', True, False) == []
+    assert shape_text_span("He said \u201cHi,\u201d", '"Hi,"', case_sensitive=False, use_regex=True) is None
+
+
+def test_shape_text_hits_folds_quotes_and_returns_document_text():
+    from plugin.writer.search import (
+        _DOUBLE_QUOTE_CODEPOINTS,
+        _SINGLE_QUOTE_CODEPOINTS,
+        shape_text_hits,
+        shape_text_span,
+    )
+
+    assert shape_text_hits("He said \u201cHi,\u201d", '"hi,"', False, False) == ["\u201cHi,\u201d"]
+    assert shape_text_hits("He said \u201cHi,\u201d", '"Hi,"', False, True) == ["\u201cHi,\u201d"]
+    assert shape_text_hits('He said "Hi,"', "\u201chi,\u201d", False, False) == ['"Hi,"']
+    assert shape_text_hits("He said \u201cHi,\u201d", '"Hi,"', True, True) == []
+    assert shape_text_hits("end\u2014ash", "end-ash", False, False) == []
+    assert shape_text_hits("end\u2014ash", "end-ash", False, True) == []
+    assert shape_text_hits("İ“x”", '"X"', False, False) == ["“x”"]
+
+    assert shape_text_span("He said \u201cHi,\u201d", '"hi,"', False) == (8, 13)
+    assert shape_text_span("He said \u201cHi,\u201d", '"Hi,"', True) == (8, 13)
+    assert shape_text_span("He said \u201cHi,\u201d", '"hi,"', True) is None
+    assert shape_text_span("İ“x”", '"X"', False) == (1, 4)
+
+    for cp in _SINGLE_QUOTE_CODEPOINTS:
+        ch = chr(cp)
+        assert shape_text_hits(f"a{ch}b", "a'b", False, True) == [f"a{ch}b"]
+        assert shape_text_hits(f"a{ch}b", "a'b", False, False) == [f"a{ch}b"]
+
+    for cp in _DOUBLE_QUOTE_CODEPOINTS:
+        ch = chr(cp)
+        assert shape_text_hits(f'a{ch}b', 'a"b', False, True) == [f'a{ch}b']
+        assert shape_text_hits(f'a{ch}b', 'a"b', False, False) == [f'a{ch}b']
+
+    for cp in (0x2032, 0x02BC, 0x00AB):
+        ch = chr(cp)
+        assert shape_text_hits(f"a{ch}b", "a'b", False, False) == []
+        assert shape_text_hits(f'a{ch}b', 'a"b', False, False) == []
 
 
 def test_find_text_ranges_limit_zero_and_bad_types_return_empty():
@@ -343,6 +505,7 @@ def test_advanced_search_missing_query():
     for bad_q in ({}, {"query": None}, {"query": "  "}, {"query": 1}):
         res = tool.execute(ctx, **bad_q)
         assert res["status"] == "error"
+        assert res["code"] == "INVALID_PARAM"
         assert "query is required" in res["message"]
         idx_svc.search_boolean.assert_not_called()
 
@@ -350,6 +513,77 @@ def test_advanced_search_missing_query():
     res_ok = tool.execute(ctx, query="climate")
     assert res_ok["status"] == "ok"
     idx_svc.search_boolean.assert_called_once()
+
+
+def test_advanced_search_invalid_syntax_returns_invalid_param():
+    from plugin.writer.search import AdvancedSearch
+
+    idx_svc = MagicMock()
+    idx_svc.search_boolean.side_effect = ValueError("Boolean query syntax error near: AND")
+    ctx = MagicMock()
+    ctx.services.writer_index = idx_svc
+
+    tool = AdvancedSearch()
+    res = tool.execute(ctx, query="AND")
+    assert res["status"] == "error"
+    assert res["code"] == "INVALID_PARAM"
+    assert "Boolean query syntax error" in res["message"]
+
+
+def test_search_in_document_missing_pattern_returns_invalid_param():
+    from plugin.writer.search import SearchInDocument
+
+    ctx = MagicMock()
+    tool = SearchInDocument()
+    res = tool.execute(ctx, pattern="")
+    assert res["status"] == "error"
+    assert res["code"] == "INVALID_PARAM"
+    assert "pattern is required" in res["message"]
+
+
+def test_build_search_not_found_response_codes():
+    from plugin.writer.search import build_search_not_found_response
+
+    doc = MagicMock()
+    doc.getDrawPage.return_value = None
+
+    # Standard miss
+    res_standard = build_search_not_found_response(doc, "needle")
+    assert res_standard["status"] == "error"
+    assert res_standard["code"] == "OLD_CONTENT_NOT_FOUND"
+    assert res_standard["replaced_count"] == 0
+
+    # Custom subject miss
+    res_subject = build_search_not_found_response(doc, "needle", subject="search_text")
+    assert res_subject["message"].startswith("search_text not found")
+
+    # Shape miss
+    with patch("plugin.writer.search.drawing_shape_containing", return_value="Box1"):
+        res_shape = build_search_not_found_response(doc, "needle")
+        assert res_shape["status"] == "error"
+        assert res_shape["code"] == "SHAPE_TEXT_NEEDS_DELEGATION"
+        assert res_shape["replaced_count"] == 0
+        assert "Box1" in res_shape["message"]
+        assert "old_content" in res_shape["message"]
+
+        # Review mode shape miss
+        res_review = build_search_not_found_response(doc, "needle", review=True)
+        assert "In review mode" in res_review["message"]
+
+    # Oversized refusal (opt-in via refuse_oversized=True)
+    doc_oversized = MagicMock()
+    doc_oversized.getDrawPage.return_value = None
+    doc_oversized.getText.return_value.getString.return_value = "short"
+    with patch("plugin.writer.search.old_content_covers_most", return_value=True):
+        res_oversized = build_search_not_found_response(doc_oversized, "longneedle", refuse_oversized=True)
+        res_non_oversized = build_search_not_found_response(doc_oversized, "longneedle")
+        res_non_old_content = build_search_not_found_response(doc_oversized, "longneedle", subject="search_text")
+    assert res_oversized["status"] == "error"
+    assert res_oversized["code"] == "OLD_CONTENT_TOO_LARGE"
+    assert res_oversized["oversized"] is True
+    assert res_oversized["replaced_count"] == 0
+    assert res_non_oversized["code"] == "OLD_CONTENT_NOT_FOUND"
+    assert res_non_old_content["code"] == "OLD_CONTENT_NOT_FOUND"
 
 
 def test_search_hit_cap_includes_shapes():
@@ -429,8 +663,8 @@ def test_shape_text_hits_regex_timeout():
         monkeypatch.undo()
 
 
-def test_find_chained_range_same_text_combine_failure_propagates():
-    from plugin.writer.search import find_chained_range
+def test_find_first_range_chain_combine_failure_propagates():
+    from plugin.writer.search import find_first_range
 
     doc = MagicMock()
     found = MagicMock()
@@ -450,14 +684,14 @@ def test_find_chained_range_same_text_combine_failure_propagates():
 
     text.createTextCursorByRange.side_effect = _make
     doc.findFirst.return_value = found
-    with patch("plugin.writer.search.find_lo_regex_ranges", return_value=None), \
+    with patch("plugin.writer.search._iter_lo_matches", return_value=iter(())), \
          patch("plugin.writer.search.get_string_without_tracked_deletions", side_effect=["Hello", "World"]):
         with pytest.raises(RuntimeError, match="combine failed"):
-            find_chained_range(doc, "Hello\nWorld", all_matches=False)
+            find_first_range(doc, "Hello\nWorld")
 
 
-def test_find_chained_range_cross_text_is_skipped():
-    from plugin.writer.search import find_chained_range
+def test_find_first_range_chain_cross_text_is_skipped():
+    from plugin.writer.search import find_first_range
 
     doc = MagicMock()
     found = MagicMock()
@@ -480,10 +714,47 @@ def test_find_chained_range_cross_text_is_skipped():
         return cursor
 
     text.createTextCursorByRange.side_effect = _make
-    with patch("plugin.writer.search.find_lo_regex_ranges", return_value=None), \
+    with patch("plugin.writer.search._iter_lo_matches", return_value=iter(())), \
          patch("plugin.writer.search.get_string_without_tracked_deletions", side_effect=["Hello", "World"]):
-        assert find_chained_range(doc, "Hello\nWorld", all_matches=False) is None
+        assert find_first_range(doc, "Hello\nWorld") is None
     assert n["i"] == 7
+
+
+def test_occurrence_range_or_error_payloads():
+    from plugin.writer.search import occurrence_range_or_error
+
+    doc = MagicMock()
+    doc.getDrawPage.return_value = None
+
+    # Bad occurrence
+    rng, err = occurrence_range_or_error(doc, "text", "bad", case_sensitive=False, subject="test_param")
+    assert rng is None
+    assert err is not None
+    assert err["code"] == "INVALID_PARAM"
+
+    # Out of range (IndexError)
+    with patch("plugin.writer.search.find_occurrence_range", side_effect=IndexError("occurrence 2 out of range")):
+        rng, err = occurrence_range_or_error(doc, "text", 2, case_sensitive=False, subject="test_param")
+        assert rng is None
+        assert err is not None
+        assert err["code"] == "OCCURRENCE_OUT_OF_RANGE"
+        assert "occurrence 2 out of range" in err["message"]
+
+    # Not found (None)
+    with patch("plugin.writer.search.find_occurrence_range", return_value=None):
+        rng, err = occurrence_range_or_error(doc, "text", 0, case_sensitive=True, subject="test_param")
+        assert rng is None
+        assert err is not None
+        assert err["code"] == "OLD_CONTENT_NOT_FOUND"
+        assert err["message"].startswith("test_param not found in document")
+
+    # Hit
+    mock_found = MagicMock()
+    with patch("plugin.writer.search.find_occurrence_range", return_value=mock_found) as mock_find:
+        rng, err = occurrence_range_or_error(doc, "text", "1", case_sensitive=True, subject="test_param")
+        assert rng is mock_found
+        assert err is None
+        mock_find.assert_called_once_with(doc, "text", occurrence=1, case_sensitive=True)
 
 
 def test_uno_read_probes_raise_on_disposal_and_default_otherwise():
@@ -1237,7 +1508,7 @@ def test_search_selection_apply_shared_case_default_on_sample_text():
 
     sel_exact_miss = SetSelection().execute(ctx, search_text="APPLE", case_sensitive=True)
     assert sel_exact_miss["status"] == "error"
-    assert "No match" in sel_exact_miss["message"]
+    assert "search_text not found in document" in sel_exact_miss["message"]
     assert sel_exact_miss["matched_case_sensitive"] is True
 
     # 3. apply_document_content (dry_run preview)
@@ -1289,7 +1560,7 @@ def test_search_selection_apply_shared_case_default_on_sample_text():
     with patch("plugin.writer.apply_document_content.get_agent_edit_review_mode", return_value="off"), \
          patch("plugin.writer.edit_review.get_agent_edit_review_mode", return_value="off"), \
          patch("plugin.writer.apply_document_content.edit_review_wait_seconds", return_value=0), \
-         patch("plugin.writer.html_import.replace_preserving_format", side_effect=fake_replace_preserving), \
+         patch("plugin.writer.edit_review.replace_preserving_format", side_effect=fake_replace_preserving), \
          patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=MagicMock()):
         res_replace = ApplyDocumentContent().execute(
             ctx_replace, content=["cherry"], target="search", old_content="apple", all_matches=True,
@@ -1299,6 +1570,101 @@ def test_search_selection_apply_shared_case_default_on_sample_text():
         assert res_replace["matched_case_sensitive"] is False
         assert set(replaced_items) == {"Apple", "apple"}
         assert doc_replace.text == "cherry pie and cherry tart"
+
+
+# ---- replace_text_in_shape ---------------------------------------------------
+
+from plugin.framework.errors import DocumentDisposedError
+from plugin.writer.search import replace_text_in_shape
+
+
+class DisposedException(Exception):
+    pass
+
+
+def test_replace_text_in_shape_reraises_disposal():
+    shape = MagicMock()
+    shape.getText.side_effect = DisposedException("closed")
+    with pytest.raises(DocumentDisposedError):
+        replace_text_in_shape(shape, "a", "b")
+
+
+def test_replace_text_in_shape_returns_false_on_ordinary_error():
+    shape = MagicMock()
+    shape.getText.side_effect = RuntimeError("boom")
+    assert replace_text_in_shape(shape, "a", "b") is False
+
+
+def test_replace_text_in_shape_folds_quotes():
+    xtext = MagicMock()
+    xtext.getString.return_value = "He said \u201cHi,\u201d"
+    cursor = MagicMock()
+    xtext.createTextCursorByRange.return_value = cursor
+    shape = MagicMock()
+    shape.getText.return_value = xtext
+
+    assert replace_text_in_shape(shape, '"Hi,"', "Bye") is True
+    cursor.goRight.assert_any_call(8, False)
+    cursor.goRight.assert_any_call(5, True)
+    cursor.setString.assert_called_once_with("Bye")
+
+
+def test_replace_text_in_shape_case_sensitivity():
+    xtext = MagicMock()
+    xtext.getString.return_value = "Hello World"
+    cursor = MagicMock()
+    xtext.createTextCursorByRange.return_value = cursor
+    shape = MagicMock()
+    shape.getText.return_value = xtext
+
+    assert replace_text_in_shape(shape, "world", "Universe", case_sensitive=False) is True
+    cursor.goRight.assert_any_call(6, False)
+    cursor.goRight.assert_any_call(5, True)
+    cursor.setString.assert_called_once_with("Universe")
+
+    assert replace_text_in_shape(shape, "world", "Universe", case_sensitive=True) is False
+
+
+def test_replace_text_in_shape_regex():
+    xtext = MagicMock()
+    xtext.getString.return_value = "say hello!"
+    cursor = MagicMock()
+    xtext.createTextCursorByRange.return_value = cursor
+    shape = MagicMock()
+    shape.getText.return_value = xtext
+
+    assert replace_text_in_shape(shape, "h.+o", "goodbye", use_regex=True) is True
+    cursor.goRight.assert_any_call(4, False)
+    cursor.goRight.assert_any_call(5, True)
+    cursor.setString.assert_called_once_with("goodbye")
+
+
+def test_replace_text_in_shape_regex_empty_match_returns_false():
+    xtext = MagicMock()
+    xtext.getString.return_value = "hello"
+    cursor = MagicMock()
+    xtext.createTextCursorByRange.return_value = cursor
+    shape = MagicMock()
+    shape.getText.return_value = xtext
+
+    for pat in ("x*", "^"):
+        assert replace_text_in_shape(shape, pat, "bar", use_regex=True) is False
+    cursor.setString.assert_not_called()
+    cursor.goRight.assert_not_called()
+
+
+def test_replace_text_in_shape_regex_skips_leading_empty():
+    xtext = MagicMock()
+    xtext.getString.return_value = "ab"
+    cursor = MagicMock()
+    xtext.createTextCursorByRange.return_value = cursor
+    shape = MagicMock()
+    shape.getText.return_value = xtext
+
+    assert replace_text_in_shape(shape, "b*", "B", use_regex=True) is True
+    cursor.goRight.assert_any_call(1, False)
+    cursor.goRight.assert_any_call(1, True)
+    cursor.setString.assert_called_once_with("B")
 
 
 class _Pos:
@@ -1351,7 +1717,7 @@ def test_edit_search_skips_hits_in_tracked_deletions():
             patch.object(search, "inside_tracked_deletion", side_effect=lambda f, s: f is deleted_hit):
         assert search.find_ranges_regex_case(doc, "Para", False, False, all_matches=False) is live_hit
         doc.findNext.side_effect = [live_hit, None]
-        assert search.find_lo_regex_ranges(doc, "Para", all_matches=True) == [live_hit]
+        assert search.find_ranges_regex_case(doc, "Para", False, False, all_matches=True) == [live_hit]
 
 
 def test_tracked_deletion_spans_skips_unreadable_redlines():

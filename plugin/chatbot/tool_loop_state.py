@@ -202,6 +202,7 @@ class AddMessageEffect:
 
 @dataclasses.dataclass(frozen=True)
 class UpdateActivityStateEffect:
+    phase: str
     round_num: Optional[int] = None
     tool_name: Optional[str] = None
 
@@ -454,7 +455,13 @@ def next_state(state: ToolLoopState, event: ToolLoopEvent) -> FsmTransition[Tool
                         func_args=func_args,
                     )
                 )
-                effects.append(UpdateActivityStateEffect(round_num=state.round_num, tool_name=func_name))
+                effects.append(
+                    UpdateActivityStateEffect(
+                        phase="tool_execute",
+                        round_num=state.round_num,
+                        tool_name=func_name,
+                    )
+                )
 
                 effects.append(
                     LogAgentEffect(
@@ -480,6 +487,16 @@ def next_state(state: ToolLoopState, event: ToolLoopEvent) -> FsmTransition[Tool
                 return FsmTransition(dataclasses.replace(state, pending_tools=state.pending_tools[1:]), effects)
 
         case EventKind.TOOL_RESULT:
+            # The tool has returned; what follows is the drain writing the result into the
+            # sidebar, so a Hung line from here on must name that, not the tool.
+            effects.append(
+                UpdateActivityStateEffect(
+                    phase="tool_result",
+                    round_num=state.round_num,
+                    tool_name=None,
+                )
+            )
+
             # Unpack tool result fields explicitly without assuming non-None values.
             result = _field(event_data, "result", str, "")
             func_name = _non_blank_name(event_data.get("func_name"))

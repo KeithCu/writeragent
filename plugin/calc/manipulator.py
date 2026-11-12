@@ -473,7 +473,7 @@ class CellManipulator:
             has_header: Whether the first row is a header.
 
         Returns:
-            Description string.
+            Description string reporting whether any row moved.
         """
         cell_range = self.bridge.resolve_range_or_address(range_str)
         addr = _uno_range_address(cell_range)
@@ -484,22 +484,43 @@ class CellManipulator:
         if type(ascending) is not bool or type(has_header) is not bool:
             raise CalcError("ascending and has_header must be booleans")
 
-        sort_desc = list(cell_range.createSortDescriptor())
+        import uno
+
+        height = int(addr.EndRow) - int(addr.StartRow) + 1
+        first_data_row = 1 if has_header else 0
+
+        def key_column() -> tuple[Any, ...]:
+            # Only the key column, data rows only. With fewer than two data rows
+            # nothing can move, and getCellRangeByPosition raises when top > bottom.
+            if height - first_data_row < 2:
+                return ()
+            return tuple(cell_range.getCellRangeByPosition(sort_column, first_data_row, sort_column, height - 1).getDataArray())
 
         sort_field = TableSortField()
         sort_field.Field = sort_column
         sort_field.IsAscending = ascending
         sort_field.IsCaseSensitive = False
 
+        # Calc reads SortFields only as a typed []TableSortField sequence. PyUNO
+        # turns a bare tuple into a []any, and Calc's extraction (cppu
+        # _assignData, assign.hxx; ScSortDescriptor::FillSortParam, datauno.cxx)
+        # rejects that without raising, so the sort would run with no key and
+        # leave every row where it was while still returning success.
+        # uno.Any is a pyuno helper; stubs/mypy do not export it as a module attribute.
+        uno_any = getattr(uno, "Any")
+        sort_desc = list(cell_range.createSortDescriptor())
         for p in sort_desc:
             if p.Name == "SortFields":
-                p.Value = (sort_field,)
+                p.Value = uno_any("[]com.sun.star.table.TableSortField", (sort_field,))
             elif p.Name == "ContainsHeader":
                 p.Value = has_header
 
+        before = key_column()
         cell_range.sort(tuple(sort_desc))
-
         direction = "ascending" if ascending else "descending"
+        if key_column() == before:
+            log.info("Range %s: key column %d unchanged by the sort; no rows moved.", range_str.upper(), sort_column)
+            return f"Range {range_str}: key column {sort_column} unchanged by the sort; no rows moved."
         log.info("Range %s sorted %s by column %d.", range_str.upper(), direction, sort_column)
         return f"Range {range_str} sorted {direction} by column {sort_column}."
 

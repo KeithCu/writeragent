@@ -12,8 +12,6 @@ restore or clean them up afterwards.
 An empty src written with single quotes or spaces is refused the same way, never passed through.
 """
 
-# pyright: reportUnusedFunction=false
-
 from __future__ import annotations
 
 import contextlib
@@ -238,7 +236,7 @@ def _restore_image_placeholders(model: Any, kept: list[_KeptImage]) -> None:
 
 
 @contextlib.contextmanager
-def _keep_placeholder_images(model: Any, content: str) -> Generator[str, None, None]:
+def keep_placeholder_images(model: Any, content: str) -> Generator[str, None, None]:
     """Yield *content* with data-less images swapped for markers; put the pictures back after."""
     swapped, kept = _swap_image_placeholders(model, content)
     yield swapped

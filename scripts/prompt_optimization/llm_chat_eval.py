@@ -19,6 +19,7 @@ from typing import Any, Literal
 from plugin.framework.json_utils import safe_json_loads
 from plugin.framework.config import normalize_endpoint_url
 from plugin.framework.client.llm_client import LlmClient
+from plugin.framework.prompts import build_specialized_sub_agent_instructions
 
 # PyUNO: `com.sun.star` imports inside plugin.writer require uno first.
 # String/scripted eval must still run before `make ensure-uno` if uno is absent.
@@ -86,6 +87,9 @@ def _build_api_config(
     max_tool_rounds: int,
     request_timeout: int = 120,
 ) -> dict[str, Any]:
+    from eval_auth import route_eval_llm
+
+    endpoint, api_key, model = route_eval_llm(endpoint, api_key, model)
     ep = normalize_endpoint_url(endpoint)
     return {
         "endpoint": ep,
@@ -314,6 +318,7 @@ def _run_specialized_inner(
     if student == "scripted":
         inner_client = client
         messages: list[dict[str, Any]] = []
+        send_model = model
     else:
         cfg = _build_api_config(
             endpoint=endpoint,
@@ -322,20 +327,23 @@ def _run_specialized_inner(
             max_tool_rounds=INNER_MAX_ROUNDS,
         )
         inner_client = LlmClient(cfg, _EvalMockContext())
+        send_model = str(cfg["model"])
         messages = [
             {
                 "role": "system",
-                "content": (
-                    f"You are a specialized {kind} task executor for domain '{domain}'. "
-                    "Use the provided tools to complete the task. "
-                    + (
-                        " Place shapes with one run_venv_python_script "
-                        "(import writeragent as wa; wa.shape.upsert) at page scale. "
-                        "shape_upsert is not in this tool list."
-                        if python_tool_domain
-                        else ""
-                    )
-                    + f" Call {SPECIALIZED_FINISH} when done."
+                "content": build_specialized_sub_agent_instructions(
+                    kind,
+                    domain,
+                    extra=(
+                        (
+                            " Place shapes with one run_venv_python_script "
+                            "(import writeragent as wa; wa.shape.upsert) at page scale. "
+                            "shape_upsert is not in this tool list."
+                            if python_tool_domain
+                            else ""
+                        )
+                        + f" Call {SPECIALIZED_FINISH} when done."
+                    ),
                 ),
             },
             {"role": "user", "content": task},
@@ -349,7 +357,7 @@ def _run_specialized_inner(
             max_tokens=max_tokens,
             tools=tools,
             stream=False,
-            model=model,
+            model=send_model,
         )
         _merge_usage(usage_acc, resp.get("usage"))
         content = (resp.get("content") or "") or ""
@@ -557,6 +565,7 @@ def _run_llm_chat_eval_impl(
     schema_patches: dict[str, dict[str, Any]] | None = None,
     tools_spec: str | None = None,
     schema_density: str = "full",
+    fixture: str = "",
 ) -> tuple[str, dict[str, int], str | None, list[dict[str, Any]]]:
     """
     Run one eval example: multi-round tool loop.
@@ -619,6 +628,7 @@ def _run_llm_chat_eval_impl(
         from scripted_student import ScriptedStudent
 
         client: Any = ScriptedStudent(task_id)
+        send_model = model
     else:
         cfg = _build_api_config(
             endpoint=endpoint,
@@ -627,11 +637,12 @@ def _run_llm_chat_eval_impl(
             max_tool_rounds=max_tool_rounds,
         )
         client = LlmClient(cfg, _EvalMockContext())
+        send_model = str(cfg["model"])
 
     if backend == "lo":
         import tools_lo as tl
 
-        tl.prepare_example(kind, document_content)
+        tl.prepare_example(kind, document_content, fixture=fixture)
 
     rounds = max(1, int(max_tool_rounds))
     last_had_tools = False
@@ -642,7 +653,7 @@ def _run_llm_chat_eval_impl(
                 max_tokens=max_tokens,
                 tools=tools,
                 stream=False,
-                model=model,
+                model=send_model,
             )
             _merge_usage(usage_acc, resp.get("usage"))
 

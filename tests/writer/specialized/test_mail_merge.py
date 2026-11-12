@@ -288,7 +288,7 @@ def test_insert_field_search_rolls_back_failed_insert(monkeypatch):
     cursor_mock.getText.return_value = text_mock
     text_mock.insertTextContent.side_effect = RuntimeError("insert failed")
 
-    monkeypatch.setattr("plugin.writer.specialized.mail_merge.resolve_target_cursor", lambda ctx, t, o, **k: cursor_mock)
+    monkeypatch.setattr("plugin.writer.target_resolver.resolve_target_cursor", lambda ctx, t, o, **k: cursor_mock)
 
     tool = InsertField()
     res = tool.execute(ctx, column_name="FirstName", target="search", old_content="TARGET")
@@ -314,7 +314,7 @@ def test_insert_field_search_locked_undo_does_not_delete(monkeypatch):
     mgr.isLocked.return_value = True
     doc.getUndoManager.return_value = mgr
 
-    monkeypatch.setattr("plugin.writer.specialized.mail_merge.resolve_target_cursor", lambda ctx, t, o, **k: cursor_mock)
+    monkeypatch.setattr("plugin.writer.target_resolver.resolve_target_cursor", lambda ctx, t, o, **k: cursor_mock)
 
     tool = InsertField()
     res = tool.execute(ctx, column_name="FirstName", target="search", old_content="TARGET")

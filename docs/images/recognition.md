@@ -6,7 +6,7 @@ WriterAgent documents (Writer, Calc, Draw/Impress) embed raster images: scans, s
 
 **Priority:** Ship **direct user access** first (Settings + **Run Python Script → Vision Helpers**). Wire the same helpers to the chat agent (`analyze_image`) only after the manual path works.
 
-**Phase 1 scope (Writer):** insert OCR **`html`** at the text cursor via [`insert_content_at_position`](../../plugin/writer/format.py) (StarWriter HTML filter). **Phase 1b (Calc):** same HTML via [`insert_cell_html_rich`](../../plugin/calc/rich_html.py) into the cell below the graphic anchor ([`plugin/calc/vision_egress.py`](../../plugin/calc/vision_egress.py)). Draw/Impress → **Phase 1b.2**.
+**Phase 1 scope (Writer):** insert OCR **`html`** at the text cursor via [`insert_content_at_position`](../../plugin/writer/html_import.py) (StarWriter HTML filter). **Phase 1b (Calc):** same HTML via [`insert_cell_html_rich`](../../plugin/calc/rich_html.py) into the cell below the graphic anchor ([`plugin/calc/vision_egress.py`](../../plugin/calc/vision_egress.py)). Draw/Impress → **Phase 1b.2**.
 
 **Related:** [Scientific Python / venv bridge](../enabling_numpy_in_libreoffice.md) · [NumPy domain helpers](../scripting/numpy-domains.md) · [Analysis helpers UX (template)](../calc/analysis-tools.md) · [Analysis sub-agent (dev-plan style)](../calc/analysis-sub-agent.md) · [Image generation (remote)](generation.md) · [LO-DOM for vector Draw content](../writer/lo-dom-semantic-tree.md) · [Embeddings index (text, not vision)](../embeddings.md)
 
@@ -644,7 +644,7 @@ def is_vision_result(value: Any) -> bool:
 4. **`convert_latex_delimiters_to_mathml`** — leftover `$$…$$` / `\[…\]` / `\(...\)` (and conservative `$…$`) → `<math display="block|inline">` via vendored `latex2mathml`, so Writer’s mixed HTML+math insert creates native editable Math objects. Currency like `$ 35,934` is left alone. Conversion is skipped if `latex2mathml` is missing. When it is not already importable, the loader looks in `<extension root>/vendor` and `<extension root>/plugin/lib`. That root is three directories above `plugin/vision/venv/` (`venv → vision → plugin → root`), the same depth `ensure_plugin_on_path` uses for a file directly under `plugin/<pkg>/`.
 5. **`promote_table_header_rows`** — first row that already has `<th>` is wrapped in `<thead>` (remaining rows `<tbody>`). Layout tables with `border:none` (two-column bbox HTML) are skipped. Section rows such as `ASSETS:` stay in the body.
 6. **`augment_lo_table_styles`** — `border="1"` plus `border-collapse` / `1px solid #ccc` on data tables and cells; `<th>` gets `background-color: #f0f0f0; font-weight: bold`. StarWriter often drops stylesheet table rules; the HTML attribute plus inline CSS keep gridlines.
-7. Host [`insert_vision_result`](../../plugin/vision/vision_egress.py) → [`prepare_vision_writer_insert`](../../plugin/vision/vision_egress.py) (paragraph after graphic + collapse UI caret) → [`insert_html_at_cursor`](../../plugin/writer/format.py) (StarWriter filter; full documents are stripped to body markup before wrap).
+7. Host [`insert_vision_result`](../../plugin/vision/vision_egress.py) → [`prepare_vision_writer_insert`](../../plugin/vision/vision_egress.py) (paragraph after graphic + collapse UI caret) → [`insert_html_at_cursor`](../../plugin/writer/html_import.py) (StarWriter filter; full documents are stripped to body markup before wrap).
 
 **What you should see:** section headings **bold and larger** than body paragraphs; **visible table gridlines** and distinct header rows (`<thead>` / shaded `<th>`, which LibreOffice can repeat on each page); LaTeX formulas as **editable LibreOffice Math** objects when Docling emitted TeX or MathML. **Not expected:** flyer colors, multi-column layout, or panel backgrounds (Docling does not export that visual design). For a **future dev plan** to improve visual fidelity, see [§21 Visual/layout HTML fidelity (deferred dev plan)](#21-visuallayout-html-fidelity-deferred-dev-plan).
 
@@ -958,7 +958,7 @@ Copy when handing work to an coding agent:
 |-------|--------|
 | **Docling `export_to_html`** | Semantic tree → HTML with a generic Docling stylesheet. Section labels become `<h2>`; body lines become plain `<p>`. **No** panel backgrounds, **no** column grid, **no** per-line colors from the raster. |
 | **css-inline + augment** ([`vision_html_export.py`](../../plugin/vision/venv/vision_html_export.py)) | Fixes LO’s dropped `<style>` blocks; adds bold/size on headings, Arial on bare `<p>`, table gridlines/`<thead>`, and TeX→MathML. Still **monochrome flow** in one column. |
-| **HTML (StarWriter) import** ([`format.py`](../../plugin/writer/format.py)) | Inline `style=` on tags survives for **font-weight**, **font-size**, **color**, and **background-color** on simple blocks — but **not** reliable CSS grid/flex, and nested `<div>` layout often collapses to stacked paragraphs. |
+| **HTML (StarWriter) import** ([`html_import.py`](../../plugin/writer/html_import.py)) | Inline `style=` on tags survives for **font-weight**, **font-size**, **color**, and **background-color** on simple blocks — but **not** reliable CSS grid/flex, and nested `<div>` layout often collapses to stacked paragraphs. |
 | **Akihabara fixture** | Docling yields **9× `<h2>`, 7× `<p>`, 0 tables** — layout information exists in **block bboxes** in the Docling model, not in exported HTML. |
 
 So “look better” requires **generating HTML Docling does not export**, or **post-processing the Docling document model + source PNG** before insert.
@@ -1105,7 +1105,7 @@ Only if inline HTML + tables still collapse in Writer:
 
 | Option | Pros | Cons |
 |--------|------|------|
-| **`data-lo-style` + post-apply** ([`format.py`](../../plugin/writer/format.py) `_apply_block_lo_styles`) | Native Heading 1/2 styles | Today `insert_content_at_position` uses `apply_styles=False` beside selection to avoid corrupting neighbor paragraphs — needs **vision-only** insert helper |
+| **`data-lo-style` + post-apply** ([`html_import_styles.py`](../../plugin/writer/html_import_styles.py) `apply_block_lo_styles`) | Native Heading 1/2 styles | Today `insert_content_at_position` uses `apply_styles=False` beside selection to avoid corrupting neighbor paragraphs — needs **vision-only** insert helper |
 | **XHTML import path** | Preserves class/style model on read path | Write path untested for vision; spike 0b |
 | **Writer text frames** ([`plugin/writer/shapes.py`](../../plugin/writer/shapes.py) patterns) | True positioned columns | Heavy UNO; Calc egress differs; Draw/Impress separate |
 | **Insert as ODT fragment** | Full layout control | Largest scope; new filter/temp-doc dance |

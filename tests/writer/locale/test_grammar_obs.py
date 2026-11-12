@@ -130,8 +130,8 @@ def test_status_bar_grammar_status_done_routes_to_status_bar() -> None:
     sink._indicator = mock_indicator
     mock_frame = MagicMock()
     with (
-        patch("plugin.framework.uno_context.is_libreharper", return_value=True),
-        patch("plugin.framework.uno_context.get_ctx", return_value=MagicMock()),
+        patch("plugin.writer.locale.grammar_obs.is_libreharper", return_value=True),
+        patch("plugin.writer.locale.grammar_obs.get_ctx", return_value=MagicMock()),
         patch.object(go, "resolve_status_bar_frame", return_value=mock_frame),
         patch("plugin.framework.queue_executor.main.post", side_effect=lambda fn, *args: fn(*args) if callable(fn) else None),
     ):
@@ -147,8 +147,8 @@ def test_status_bar_grammar_status_always_posts_to_main_thread() -> None:
     mock_frame = MagicMock()
     mock_frame.createStatusIndicator.return_value = mock_indicator
     with (
-        patch("plugin.framework.uno_context.is_libreharper", return_value=True),
-        patch("plugin.framework.uno_context.get_ctx", return_value=MagicMock()),
+        patch("plugin.writer.locale.grammar_obs.is_libreharper", return_value=True),
+        patch("plugin.writer.locale.grammar_obs.get_ctx", return_value=MagicMock()),
         patch.object(go, "resolve_status_bar_frame", return_value=mock_frame),
         patch("plugin.framework.queue_executor.main.post", side_effect=lambda fn, *args: fn(*args) if callable(fn) else None) as mock_post,
     ):
@@ -166,7 +166,7 @@ def test_status_bar_grammar_status_skips_routine_libreharper_paints() -> None:
     sink = go.StatusBarGrammarStatus()
     for result in ("steady-state", "another-routine", "enqueue-marker"):
         with (
-            patch("plugin.framework.uno_context.is_libreharper", return_value=True),
+            patch("plugin.writer.locale.grammar_obs.is_libreharper", return_value=True),
             patch.object(sink, "_paint") as mock_paint,
             patch("plugin.framework.queue_executor.main.post") as mock_post,
         ):
@@ -175,7 +175,7 @@ def test_status_bar_grammar_status_skips_routine_libreharper_paints() -> None:
         mock_post.assert_not_called()
 
     with (
-        patch("plugin.framework.uno_context.is_libreharper", return_value=True),
+        patch("plugin.writer.locale.grammar_obs.is_libreharper", return_value=True),
         patch.object(sink, "_paint") as mock_paint,
         patch("plugin.framework.queue_executor.main.post") as mock_post,
     ):
@@ -190,7 +190,7 @@ def test_status_bar_grammar_status_posts_routine_done_when_indicator_active() ->
     sink._indicator = mock_indicator
     mock_frame = MagicMock()
     with (
-        patch("plugin.framework.uno_context.get_ctx", return_value=MagicMock()),
+        patch("plugin.writer.locale.grammar_obs.get_ctx", return_value=MagicMock()),
         patch.object(go, "resolve_status_bar_frame", return_value=mock_frame),
         patch("plugin.framework.queue_executor.main.post", side_effect=lambda fn, *args: fn(*args) if callable(fn) else None) as mock_post,
     ):
@@ -203,7 +203,7 @@ def test_status_bar_grammar_status_posts_routine_done_when_indicator_active() ->
 def test_status_bar_routine_flag_ignores_result_text() -> None:
     sink = go.StatusBarGrammarStatus()
     with (
-        patch("plugin.framework.uno_context.is_libreharper", return_value=True),
+        patch("plugin.writer.locale.grammar_obs.is_libreharper", return_value=True),
         patch("plugin.framework.queue_executor.main.post") as mock_post,
     ):
         sink.done("Hello world.", result="0 issues")
@@ -252,8 +252,8 @@ def test_status_bar_grammar_status_paints_progress_and_failure() -> None:
         mock_frame = MagicMock()
         mock_frame.createStatusIndicator.return_value = mock_indicator
         with (
-            patch("plugin.framework.uno_context.is_libreharper", return_value=True),
-            patch("plugin.framework.uno_context.get_ctx", return_value=MagicMock()),
+            patch("plugin.writer.locale.grammar_obs.is_libreharper", return_value=True),
+            patch("plugin.writer.locale.grammar_obs.get_ctx", return_value=MagicMock()),
             patch.object(go, "resolve_status_bar_frame", return_value=mock_frame),
             patch("plugin.framework.queue_executor.main.post", side_effect=lambda fn, *args: fn(*args) if callable(fn) else None) as mock_post,
         ):
@@ -307,7 +307,7 @@ def test_status_bar_grammar_status_skips_post_on_no_vcl_helper() -> None:
     sink = go.StatusBarGrammarStatus()
     go.set_grammar_status(sink)
     with (
-        patch("plugin.framework.uno_context.is_libreharper", return_value=True),
+        patch("plugin.writer.locale.grammar_obs.is_libreharper", return_value=True),
         patch.object(go, "desktop_create_is_unsafe", return_value=True),
         patch("plugin.framework.queue_executor.main.post") as mock_post,
     ):
@@ -347,7 +347,7 @@ def test_frame_from_bound_grammar_docs_reads_registry_model() -> None:
     mock_model = MagicMock()
     mock_model.getCurrentController().getFrame.return_value = mock_frame
     mock_persistence = MagicMock()
-    mock_persistence._model = mock_model
+    mock_persistence.model = mock_model
     mock_registry = MagicMock()
     mock_registry.doc_persistence_instances = {"d1": mock_persistence}
     mock_registry.lock = MagicMock()
@@ -393,7 +393,7 @@ def test_status_bar_paint_skips_paint_when_frame_missing() -> None:
     sink = go.StatusBarGrammarStatus()
     go.set_grammar_status(sink)
     with (
-        patch("plugin.framework.uno_context.get_ctx", return_value=MagicMock()),
+        patch("plugin.writer.locale.grammar_obs.get_ctx", return_value=MagicMock()),
         patch.object(go, "resolve_status_bar_frame", return_value=None),
         patch("plugin.framework.uno_context.get_desktop") as mock_desktop,
         patch("plugin.framework.uno_context.get_active_document") as mock_doc,
@@ -412,7 +412,7 @@ def test_status_bar_paint_ends_indicator_on_routine_done() -> None:
     mock_frame.createStatusIndicator.return_value = mock_indicator
 
     with (
-        patch("plugin.framework.uno_context.get_ctx", return_value=MagicMock()),
+        patch("plugin.writer.locale.grammar_obs.get_ctx", return_value=MagicMock()),
         patch.object(go, "resolve_status_bar_frame", return_value=mock_frame),
     ):
         sink._paint("start", "Downloading harper-ls v2.7.0…")
@@ -442,7 +442,7 @@ def test_status_bar_paint_shows_failure_without_indicator() -> None:
     mock_frame.createStatusIndicator.return_value = mock_indicator
 
     with (
-        patch("plugin.framework.uno_context.get_ctx", return_value=MagicMock()),
+        patch("plugin.writer.locale.grammar_obs.get_ctx", return_value=MagicMock()),
         patch.object(go, "resolve_status_bar_frame", return_value=mock_frame),
     ):
         sink._paint("failed", "timed out")
@@ -459,7 +459,7 @@ def test_status_bar_paint_failure_with_empty_result_has_text() -> None:
     mock_frame.createStatusIndicator.return_value = mock_indicator
 
     with (
-        patch("plugin.framework.uno_context.get_ctx", return_value=MagicMock()),
+        patch("plugin.writer.locale.grammar_obs.get_ctx", return_value=MagicMock()),
         patch.object(go, "resolve_status_bar_frame", return_value=mock_frame),
     ):
         sink._paint("failed", "")
@@ -476,7 +476,7 @@ def test_status_bar_paint_failure_updates_active_indicator_without_ending() -> N
     mock_frame = MagicMock()
 
     with (
-        patch("plugin.framework.uno_context.get_ctx", return_value=MagicMock()),
+        patch("plugin.writer.locale.grammar_obs.get_ctx", return_value=MagicMock()),
         patch.object(go, "resolve_status_bar_frame", return_value=mock_frame),
     ):
         sink._paint("failed", "timed out")
@@ -493,7 +493,7 @@ def test_status_bar_paint_lifecycle() -> None:
     mock_frame.createStatusIndicator.return_value = mock_indicator
 
     with (
-        patch("plugin.framework.uno_context.get_ctx", return_value=MagicMock()),
+        patch("plugin.writer.locale.grammar_obs.get_ctx", return_value=MagicMock()),
         patch.object(go, "resolve_status_bar_frame", return_value=mock_frame),
     ):
         # 1. Start phase (progress, not the per-keystroke "queued" string)
@@ -524,7 +524,7 @@ def test_status_bar_paint_drops_dead_indicator() -> None:
     sink._indicator = dead
     go.set_grammar_status(sink)
     with (
-        patch("plugin.framework.uno_context.get_ctx", return_value=MagicMock()),
+        patch("plugin.writer.locale.grammar_obs.get_ctx", return_value=MagicMock()),
         patch.object(go, "resolve_status_bar_frame", return_value=frame),
     ):
         sink._paint("request", "Starting harper-ls…")
@@ -537,7 +537,7 @@ def test_status_bar_paint_drops_dead_indicator() -> None:
 def test_routine_libreharper_status_does_not_call_slice_preview_debug() -> None:
     sink = go.StatusBarGrammarStatus()
     with (
-        patch("plugin.framework.uno_context.is_libreharper", return_value=True),
+        patch("plugin.writer.locale.grammar_obs.is_libreharper", return_value=True),
         patch("plugin.writer.locale.grammar_obs.slice_preview_debug") as mock_preview,
     ):
         sink.request("Some text.", result="harper check", routine=True)
@@ -547,7 +547,7 @@ def test_routine_libreharper_status_does_not_call_slice_preview_debug() -> None:
 def test_status_bar_grammar_status_posts_paint_and_repaint() -> None:
     sink = go.StatusBarGrammarStatus()
     with (
-        patch("plugin.framework.uno_context.is_libreharper", return_value=True),
+        patch("plugin.writer.locale.grammar_obs.is_libreharper", return_value=True),
         patch("plugin.framework.queue_executor.main.post") as mock_post,
         patch("plugin.framework.queue_executor.main.call") as mock_execute,
     ):
@@ -561,7 +561,7 @@ def test_status_bar_grammar_status_skips_post_when_routine_or_unsafe() -> None:
     sink = go.StatusBarGrammarStatus()
     # Routine status with no indicator active
     with (
-        patch("plugin.framework.uno_context.is_libreharper", return_value=True),
+        patch("plugin.writer.locale.grammar_obs.is_libreharper", return_value=True),
         patch("plugin.framework.queue_executor.main.post") as mock_post,
     ):
         sink.request("Some text.", result="harper check", routine=True)
@@ -569,7 +569,7 @@ def test_status_bar_grammar_status_skips_post_when_routine_or_unsafe() -> None:
 
     # Unsafe desktop create
     with (
-        patch("plugin.framework.uno_context.is_libreharper", return_value=True),
+        patch("plugin.writer.locale.grammar_obs.is_libreharper", return_value=True),
         patch.object(go, "desktop_create_is_unsafe", return_value=True),
         patch("plugin.framework.queue_executor.main.post") as mock_post,
     ):
@@ -578,7 +578,7 @@ def test_status_bar_grammar_status_skips_post_when_routine_or_unsafe() -> None:
 
 
 def test_writer_agent_grammar_status_is_composite_when_not_libreharper() -> None:
-    with patch("plugin.framework.uno_context.is_libreharper", return_value=False):
+    with patch("plugin.writer.locale.grammar_obs.is_libreharper", return_value=False):
         sink = go.get_grammar_status()
     assert isinstance(sink, go.WriterAgentGrammarStatus)
 
@@ -591,7 +591,7 @@ def test_writer_agent_failed_paints_status_bar_with_subscriber() -> None:
     sink._status_bar._indicator = mock_indicator
     with (
         patch("plugin.writer.locale.grammar_obs.get_event_bus", return_value=mock_bus),
-        patch("plugin.framework.uno_context.get_ctx", return_value=MagicMock()),
+        patch("plugin.writer.locale.grammar_obs.get_ctx", return_value=MagicMock()),
         patch.object(go, "resolve_status_bar_frame", return_value=MagicMock()),
         patch("plugin.framework.queue_executor.main.post", side_effect=lambda fn, *args: fn(*args) if callable(fn) else None),
     ):
@@ -618,7 +618,7 @@ def test_writer_agent_request_paints_status_bar_without_subscriber() -> None:
     sink = go.WriterAgentGrammarStatus()
     with (
         patch("plugin.writer.locale.grammar_obs.get_event_bus", return_value=mock_bus),
-        patch("plugin.framework.uno_context.get_ctx", return_value=MagicMock()),
+        patch("plugin.writer.locale.grammar_obs.get_ctx", return_value=MagicMock()),
         patch.object(go, "resolve_status_bar_frame", return_value=MagicMock()),
         patch("plugin.framework.queue_executor.main.post", side_effect=lambda fn, *args: fn(*args) if callable(fn) else None),
     ):
@@ -644,8 +644,8 @@ def test_libreharper_status_bar_keeps_libreharper_prefix() -> None:
     mock_indicator = MagicMock()
     sink._indicator = mock_indicator
     with (
-        patch("plugin.framework.uno_context.is_libreharper", return_value=True),
-        patch("plugin.framework.uno_context.get_ctx", return_value=MagicMock()),
+        patch("plugin.writer.locale.grammar_obs.is_libreharper", return_value=True),
+        patch("plugin.writer.locale.grammar_obs.get_ctx", return_value=MagicMock()),
         patch.object(go, "resolve_status_bar_frame", return_value=MagicMock()),
         patch("plugin.framework.queue_executor.main.post", side_effect=lambda fn, *args: fn(*args) if callable(fn) else None),
     ):
@@ -656,7 +656,7 @@ def test_libreharper_status_bar_keeps_libreharper_prefix() -> None:
 def test_status_bar_grammar_status_swallows_post_errors() -> None:
     sink = go.StatusBarGrammarStatus()
     with (
-        patch("plugin.framework.uno_context.is_libreharper", return_value=True),
+        patch("plugin.writer.locale.grammar_obs.is_libreharper", return_value=True),
         patch("plugin.framework.queue_executor.main.post", side_effect=RuntimeError("no AsyncCallback")),
     ):
         sink.request("Some text.", result="Downloading harper-ls v2.7.0…")  # must not raise

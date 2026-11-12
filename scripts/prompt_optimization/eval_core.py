@@ -240,7 +240,7 @@ def score_with_judge_llm(
             max_tokens=2048,
             tools=None,
             stream=False,
-            model=judge_model,
+            model=str(cfg["model"]),
             prepend_dev_build_system_prefix=False,
         )
         content = (resp.get("content") or "") if isinstance(resp, dict) else ""
@@ -700,6 +700,7 @@ def run_eval_on_examples_llm(
                 task_id=task_id,
                 tools_spec=tools_spec,
                 schema_density=schema_density,
+                fixture=getattr(ex, "fixture", ""),
             )
             if gerr and not quiet:
                 print(f"  Gold generation error: {gerr}")
@@ -729,6 +730,7 @@ def run_eval_on_examples_llm(
                 task_id=task_id,
                 tools_spec=tools_spec,
                 schema_density=schema_density,
+                fixture=getattr(ex, "fixture", ""),
             )
             if error and not quiet:
                 print(f"  API/run error: {error}", flush=True)
@@ -770,6 +772,14 @@ def run_eval_on_examples_llm(
                 oracle_failures = scored.failures
                 soft_notes = scored.soft
                 final = scored.summary
+            elif task_id in ("toc_list_entries", "toc_renumber_insert"):
+                from toc_eval import score_toc_example
+
+                scored = score_toc_example(task_id, trace, backend=task_backend)
+                oracle_failures = scored.failures
+                correctness = scored.partial_score
+                final = scored.summary
+                soft_notes = scored.soft
             from process_oracles import agent_score_from_failures, check_process
 
             process_failures = check_process(task_id, trace)

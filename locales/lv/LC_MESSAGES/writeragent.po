@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-03 13:09-0500\n"
+"POT-Creation-Date: 2026-11-11 14:14-0500\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Latvian <LL@li.org>\n"
@@ -108,6 +108,45 @@ msgstr "Izpildīt koda šūnu"
 #: plugin/notebook/layout.py
 msgid "Code"
 msgstr "Kods"
+
+#: plugin/draw/editselection.py
+msgid "Select a text shape. Tables are not rewritten."
+msgstr "Atlasiet teksta formu. Tabulas netiek pārrakstītas."
+
+#: plugin/draw/editselection.py
+msgid "Select a text shape."
+msgstr "Atlasiet teksta formu."
+
+#: plugin/draw/editselection.py
+msgid "WriterAgent: Edit Selection (Draw)"
+msgstr "WriterAgent: Rediģēt atlasi (Draw)"
+
+#: plugin/draw/editselection.py
+msgid "WriterAgent: Extend Selection (Draw)"
+msgstr "WriterAgent: Paplašināt atlasi (Draw)"
+
+#: plugin/draw/editselection.py plugin/calc/editselection.py
+#, python-brace-format
+msgid "Only the first {0} non-empty cells are edited."
+msgstr "Tiek rediģētas tikai pirmās {0} ne-tukšās šūnas."
+
+#: plugin/draw/editselection.py
+msgid "Could not register undo for this edit. The change was not applied."
+msgstr ""
+"Neizdevās reģistrēt atsaukšanu šai rediģēšanai. Izmaiņas netika lietotas."
+
+#: plugin/draw/editselection.py plugin/calc/editselection.py
+#: plugin/writer/editselection.py
+msgid ""
+"The rewrite ran out of tokens before producing text. Try again or shorten "
+"the selection."
+msgstr ""
+"Pārrakstīšanas procesam beidzās marķieri, pirms tika izveidots teksts. "
+"Mēģiniet vēlreiz vai saīsiniet atlasi."
+
+#: plugin/draw/editselection.py plugin/calc/editselection.py
+msgid "The model returned no text. Try again."
+msgstr "Modelis neatgrieza tekstu. Mēģiniet vēlreiz."
 
 #: plugin/embeddings/search_ui.py
 msgid "just now"
@@ -316,7 +355,7 @@ msgstr "Formulas izplūdes konflikts: mērķa apgabalā ir neiztukšotas šūnas
 msgid "The AI provider reported an error. Try again."
 msgstr "AI pakalpojumu sniedzējs ziņoja par kļūdu. Mēģiniet vēlreiz."
 
-#: plugin/framework/errors.py plugin/calc/python/function.py
+#: plugin/framework/errors.py plugin/calc/python/addin_values.py
 #: plugin/chatbot/quick_setup.py plugin/scripting/session_manager.py
 #, python-brace-format
 msgid "Error: {0}"
@@ -629,6 +668,11 @@ msgid "Configure a Python venv path in Settings → Python."
 msgstr "Konfigurējiet Python venv ceļu sadaļā Iestatījumi → Python."
 
 #: plugin/calc/python/init_script_editor.py
+msgid "The Python editor check is still running. Open this again in a moment."
+msgstr ""
+"Python redaktora pārbaude joprojām darbojas. Atveriet to vēlreiz pēc brīža."
+
+#: plugin/calc/python/init_script_editor.py
 msgid "Cannot import webview (pywebview) in the configured venv."
 msgstr "Nevar importēt webview (pywebview) konfigurētajā venv."
 
@@ -748,16 +792,24 @@ msgid "Could not open the built-in Python cell editor."
 msgstr "Nevarēja atvērt iebūvēto Python šūnu redaktoru."
 
 #: plugin/calc/python/function.py
+msgid "Image inserted"
+msgstr "Attēls ievietots"
+
+#: plugin/calc/python/function.py
+msgid "Images inserted"
+msgstr "Ievietotie attēli"
+
+#: plugin/calc/python/addin_values.py
 #, python-brace-format
 msgid "Error: Main-thread execution timed out ({0})"
 msgstr "Kļūda: galvenā pavediena izpildes noildze ({0})"
 
-#: plugin/calc/python/function.py plugin/scripting/python_runner_ui.py
+#: plugin/calc/python/addin_values.py plugin/scripting/python_runner_ui.py
 #: plugin/scripting/python_runner.py
 msgid "Unknown error"
 msgstr "Nezināma kļūda"
 
-#: plugin/calc/python/function.py
+#: plugin/calc/python/addin_values.py
 msgid ""
 "Error: Python venv not found. Open Settings → Python, set the venv path, "
 "then Test."
@@ -765,21 +817,13 @@ msgstr ""
 "Kļūda: Python venv nav atrasts. Atveriet Iestatījumi → Python, iestatiet "
 "venv ceļu un pēc tam veiciet testu."
 
-#: plugin/calc/python/function.py
+#: plugin/calc/python/addin_values.py
 msgid ""
 "Error: Python timed out. Open Settings → Python to raise the timeout, or "
 "Test the venv."
 msgstr ""
 "Kļūda: Python darbības laiks ir beidzies. Atveriet Iestatījumi → Python, lai"
 " palielinātu taimautu, vai pārbaudiet venv."
-
-#: plugin/calc/python/function.py
-msgid "Image inserted"
-msgstr "Attēls ievietots"
-
-#: plugin/calc/python/function.py
-msgid "Images inserted"
-msgstr "Ievietotie attēli"
 
 #: plugin/calc/python/geometric_recalc.py
 #, python-format
@@ -822,9 +866,8 @@ msgid "Select one or more non-empty cells."
 msgstr "Atlasiet vienu vai vairākas ne-tukšas šūnas."
 
 #: plugin/calc/editselection.py
-#, python-brace-format
-msgid "Only the first {0} non-empty cells are edited."
-msgstr "Tiek rediģētas tikai pirmās {0} ne-tukšās šūnas."
+msgid "Formula cells are skipped."
+msgstr "Formulu šūnas tiek izlaistas."
 
 #: plugin/calc/vision_egress.py plugin/vision/vision_runner.py
 #: plugin/vision/vision_egress.py
@@ -1800,16 +1843,65 @@ msgid "Perfect! I'm switching you to the main assistant now."
 msgstr "Lieliski! Tagad pārslēdzu jūs uz galveno asistentu."
 
 #: plugin/chatbot/slash_commands.py
+msgid "[focus]"
+msgstr "[fokuss]"
+
+#: plugin/chatbot/slash_commands.py
+msgid "[target]"
+msgstr "mērķis"
+
+#: plugin/chatbot/slash_commands.py
+msgid "[what]"
+msgstr "kas"
+
+#: plugin/chatbot/slash_commands.py
+msgid "<description>"
+msgstr "apraksts"
+
+#: plugin/chatbot/slash_commands.py
+msgid "<language>"
+msgstr "valoda"
+
+#: plugin/chatbot/slash_commands.py
+msgid "<fact>"
+msgstr "fakts"
+
+#: plugin/chatbot/slash_commands.py
+msgid "Failed to save memory."
+msgstr "Neizdevās saglabāt atmiņā."
+
+#: plugin/chatbot/slash_commands.py
+#, python-brace-format
+msgid "Saved to memory: {0}"
+msgstr "Saglabāts atmiņā: {0}"
+
+#: plugin/chatbot/slash_commands.py
+msgid "help"
+msgstr "palīdzība"
+
+#: plugin/chatbot/slash_commands.py
 msgid "Print the command list"
 msgstr "Drukāt komandu sarakstu"
+
+#: plugin/chatbot/slash_commands.py
+msgid "clear"
+msgstr "notīrīt"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Start a new chat"
 msgstr "Sākt jaunu tērzēšanu"
 
 #: plugin/chatbot/slash_commands.py
+msgid "stop"
+msgstr "apturēt"
+
+#: plugin/chatbot/slash_commands.py
 msgid "Cancel the in-flight send"
 msgstr "Atcelt notiekošo sūtīšanu"
+
+#: plugin/chatbot/slash_commands.py
+msgid "summarize"
+msgstr "kopsavilkums"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Summarize the selection or document in the sidebar"
@@ -1819,6 +1911,10 @@ msgstr "Apkopot atlasi vai dokumentu sānjoslā"
 msgid ""
 "Summarize the selected text, or the whole document if nothing is selected."
 msgstr "Apkopot atlasīto tekstu vai visu dokumentu, ja nekas nav atlasīts."
+
+#: plugin/chatbot/slash_commands.py
+msgid "proofread"
+msgstr "koriģēt"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Fix spelling, grammar, and punctuation without restyling"
@@ -1833,6 +1929,10 @@ msgstr ""
 "vai nozīmi."
 
 #: plugin/chatbot/slash_commands.py
+msgid "shorten"
+msgstr "saīsināt"
+
+#: plugin/chatbot/slash_commands.py
 msgid "Shorten the selection"
 msgstr "Saīsināt atlasi"
 
@@ -1841,12 +1941,20 @@ msgid "Make the text shorter while preserving the meaning."
 msgstr "Padarīt tekstu īsāku, saglabājot tā nozīmi."
 
 #: plugin/chatbot/slash_commands.py
+msgid "expand"
+msgstr "izvērst"
+
+#: plugin/chatbot/slash_commands.py
 msgid "Expand the selection with more detail"
 msgstr "Paplašināt atlasi ar papildu informāciju"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Expand the text with more detail and clarity."
 msgstr "Paplašināt tekstu ar papildu informāciju un skaidrību."
+
+#: plugin/chatbot/slash_commands.py
+msgid "tone"
+msgstr "tonis"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Rewrite the selection to match a described tone"
@@ -1858,6 +1966,10 @@ msgid "Rewrite the text to match this tone or style: {arg}"
 msgstr "Pārrakstīt tekstu, lai tas atbilstu šim tonim vai stilam: {arg}"
 
 #: plugin/chatbot/slash_commands.py
+msgid "translate"
+msgstr "tulkot"
+
+#: plugin/chatbot/slash_commands.py
 msgid "Translate the selection (sidebar when nothing is selected in Writer)"
 msgstr "Tulkot atlasi (sānjosla, kad programmā Writer nekas nav atlasīts)"
 
@@ -1865,6 +1977,10 @@ msgstr "Tulkot atlasi (sānjosla, kad programmā Writer nekas nav atlasīts)"
 #, python-brace-format
 msgid "Translate the text into {arg}. Keep formatting and structure."
 msgstr "Tulkot tekstu valodā {arg}. Saglabāt formatējumu un struktūru."
+
+#: plugin/chatbot/slash_commands.py
+msgid "explain"
+msgstr "izskaidrot"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Explain the selection or active Calc formula"
@@ -1875,16 +1991,32 @@ msgid "Explain the following in plain language."
 msgstr "Izskaidrot sekojošo vienkāršā valodā."
 
 #: plugin/chatbot/slash_commands.py
+msgid "remember"
+msgstr "atcerēties"
+
+#: plugin/chatbot/slash_commands.py
 msgid "Save a fact to persistent memory"
 msgstr "Saglabāt faktu pastāvīgajā atmiņā"
+
+#: plugin/chatbot/slash_commands.py
+msgid "compact"
+msgstr "kompakts"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Compact older chat history now"
 msgstr "Saspiest vecāko tērzēšanas vēsturi tagad"
 
 #: plugin/chatbot/slash_commands.py
+msgid "undo"
+msgstr "atsaukt"
+
+#: plugin/chatbot/slash_commands.py
 msgid "Undo the last agent edit as one step"
 msgstr "Atsaukt pēdējo aģenta labojumu kā vienu darbību"
+
+#: plugin/chatbot/slash_commands.py
+msgid "formula"
+msgstr "formula"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Write a Calc formula from a plain-English description"
@@ -1917,6 +2049,20 @@ msgstr "Lietojums: {0}"
 
 #: plugin/chatbot/slash_commands.py
 #, python-brace-format
+msgid "Additional instruction: {0}"
+msgstr "Papildu norādījums: {0}"
+
+#: plugin/chatbot/slash_commands.py
+#, python-brace-format
+msgid ""
+"Selected text:\n"
+"{0}"
+msgstr ""
+"Atlasētais teksts:\n"
+"{0}"
+
+#: plugin/chatbot/slash_commands.py
+#, python-brace-format
 msgid "Cell {0} formula: {1}"
 msgstr "Šūnas {0} formula: {1}"
 
@@ -1926,13 +2072,8 @@ msgid "Cell {0} value: {1}"
 msgstr "Šūnas {0} vērtība: {1}"
 
 #: plugin/chatbot/slash_commands.py
-msgid "Failed to save memory."
-msgstr "Neizdevās saglabāt atmiņā."
-
-#: plugin/chatbot/slash_commands.py
-#, python-brace-format
-msgid "Saved to memory: {0}"
-msgstr "Saglabāts atmiņā: {0}"
+msgid "WriterAgent"
+msgstr "WriterAgent"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Conversation compacted."
@@ -1955,10 +2096,15 @@ msgid "Compaction failed."
 msgstr "Saspiešana neizdevās."
 
 #: plugin/chatbot/slash_commands.py
-msgid "WriterAgent"
-msgstr "WriterAgent"
+msgid "Wait for the current reply to finish before /compact."
+msgstr ""
+"Pirms /compact izmantošanas uzgaidiet, līdz pašreizējā atbilde ir pabeigta."
 
-#: plugin/chatbot/slash_commands.py
+#: plugin/chatbot/slash_commands.py plugin/chatbot/send_handlers.py
+msgid "Thinking..."
+msgstr "Notiek domāšana..."
+
+#: plugin/chatbot/slash_commands.py plugin/chatbot/compaction.py
 msgid "Configure an API key to compact."
 msgstr "Konfigurējiet API atslēgu, lai veiktu saspiešanu."
 
@@ -1970,19 +2116,9 @@ msgstr "Tērzēšanas saspiešana iestatījumos ir atspējota."
 msgid "Compaction cancelled."
 msgstr "Saspiešana atcelta."
 
-#: plugin/chatbot/slash_commands.py plugin/chatbot/panel.py
-#: plugin/chatbot/sidebar_test_hooks.py plugin/chatbot/send_handlers.py
-msgid "Thinking..."
-msgstr "Notiek domāšana..."
-
 #: plugin/chatbot/panel.py
 msgid "[No compatible LibreOffice document found.]"
 msgstr "[Nav atrasts saderīgs LibreOffice dokuments.]"
-
-#: plugin/chatbot/panel.py plugin/chatbot/sidebar_test_hooks.py
-msgid "Wait for the current reply to finish before /compact."
-msgstr ""
-"Pirms /compact izmantošanas uzgaidiet, līdz pašreizējā atbilde ir pabeigta."
 
 #: plugin/chatbot/panel.py
 msgid "Only in Calc"
@@ -2163,6 +2299,15 @@ msgstr ""
 "instalāciju).]"
 
 #: plugin/chatbot/send_handlers.py
+msgid ""
+"MCP server is off: LibreOffice edits from this agent require the MCP server."
+" Enable it in Settings → MCP → Enable MCP Server."
+msgstr ""
+"MCP serveris ir izslēgts: LibreOffice rediģēšanai no šī aģenta ir "
+"nepieciešams MCP serveris. Iespējojiet to sadaļā Iestatījumi → MCP → "
+"Iespējot MCP serveri."
+
+#: plugin/chatbot/send_handlers.py
 #, python-brace-format
 msgid "[{0} error: {1}]"
 msgstr "[{0} kļūda: {1}]"
@@ -2242,6 +2387,10 @@ msgstr ""
 "Ir pieejama jaunāka %(name)s (%(version)s) versija. Izmantojiet Rīki → "
 "Paplašinājumu pārvaldnieks, lai pārbaudītu atjauninājumus un instalētu "
 "jaunāko paplašinājumu."
+
+#: plugin/chatbot/chat_session.py
+msgid "Chat history could not be opened. This conversation will not be saved."
+msgstr "Tērzēšanas vēsturi nevarēja atvērt. Šī saruna netiks saglabāta."
 
 #: plugin/chatbot/dialog_views.py
 #, python-brace-format
@@ -3281,8 +3430,9 @@ msgid "Viz '{helper}' completed. {msg}"
 msgstr "Viz '{helper}' pabeigts. {msg}"
 
 #: plugin/scripting/python_runner.py
-msgid "Vision helpers require a Writer or Calc document."
-msgstr "Redzes palīgiem nepieciešams Writer vai Calc dokuments."
+msgid "Vision helpers require a Writer, Calc, Draw, or Impress document."
+msgstr ""
+"Vīzijas palīgiem ir nepieciešams Writer, Calc, Draw vai Impress dokuments."
 
 #: plugin/scripting/python_runner.py
 msgid "Vision helper failed."
@@ -3296,6 +3446,24 @@ msgid ""
 msgstr ""
 "Vīzija '{helper}' pabeigta. Ievietots formatēts HTML {count} attēliem. "
 "(aizņēma {time})"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid ""
+"Vision '{helper}' completed for {count} images. Text returned only (not "
+"inserted). (took {time})"
+msgstr ""
+"Vīzija '{helper}' pabeigta {count} attēliem. Atgriezts tikai teksts (nav "
+"ievietots). (aizņēma {time})"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid ""
+"Vision '{helper}' completed. Text returned only (not inserted). (took "
+"{time})"
+msgstr ""
+"Vīzija '{helper}' pabeigta. Atgriezts tikai teksts (nav ievietots). (aizņēma"
+" {time})"
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format
@@ -3442,8 +3610,16 @@ msgid "OCR complete (text returned only; not inserted)."
 msgstr "OCR pabeigts (atgriezts tikai teksts; nav ievietots)."
 
 #: plugin/vision/vision_tools.py
-msgid "Vision OCR requires a Writer or Calc document."
-msgstr "Vision OCR ir nepieciešams Writer vai Calc dokuments."
+msgid "Vision OCR requires a Writer, Calc, Draw, or Impress document."
+msgstr "Vīzijas OCR ir nepieciešams Writer, Calc, Draw vai Impress dokuments."
+
+#: plugin/vision/vision_tools.py
+msgid ""
+"Draw and Impress return vision text only; omit insert_into_document or set "
+"it to false."
+msgstr ""
+"Draw un Impress atgriež tikai vīzijas tekstu; izlaidiet insert_into_document"
+" vai iestatiet to uz false."
 
 #: plugin/vision/vision_egress.py
 msgid "Writer document has no controller."
@@ -4102,6 +4278,9 @@ msgstr "Grok Build"
 msgid "OpenCode"
 msgstr "OpenCode"
 
+msgid "Antigravity"
+msgstr "Antigravitācija"
+
 msgid "Prompt for Agent Permissions"
 msgstr "Pieprasīt aģenta atļaujas"
 
@@ -4111,6 +4290,18 @@ msgid ""
 msgstr ""
 "Pieprasīt apstiprinājumu pirms atļaut aģentam izmantot rīkus (lasīt failus, "
 "izpildīt komandas utt.)"
+
+msgid "Antigravity model"
+msgstr "Antigravitācijas modelis"
+
+msgid ""
+"agy modelId from session/new models.availableModels, for example "
+"gemini-4-argon-medium. Empty keeps agy's current model. configOptions family"
+" ids such as gemini-4-argon are not modelIds."
+msgstr ""
+"agy modelId no session/new models.availableModels, piemēram, gemini-4-argon-"
+"medium. Tukša vērtība saglabā agy pašreizējo modeli. configOptions saimes "
+"ID, piemēram, gemini-4-argon, nav modelIds."
 
 msgid "STT Provider"
 msgstr "STT nodrošinātājs"
@@ -4296,27 +4487,6 @@ msgstr "Sānjosla"
 
 msgid "Max Tool Rounds"
 msgstr "Maksimālais rīku ciklu skaits"
-
-msgid "Document Context Strategy"
-msgstr "Dokumenta konteksta stratēģija"
-
-msgid "How much document content to include in LLM context"
-msgstr "Cik daudz dokumenta satura iekļaut LLM kontekstā"
-
-msgid "Auto (by document size)"
-msgstr "Automātiski (pēc dokumenta izmēra)"
-
-msgid "Full document text"
-msgstr "Pilns dokumenta teksts"
-
-msgid "Pages around cursor"
-msgstr "Lapas ap kursoru"
-
-msgid "Outline + excerpt"
-msgstr "Struktūra + fragments"
-
-msgid "Stats + outline only"
-msgstr "Tikai statistika + struktūra"
 
 msgid "Web Research Cache"
 msgstr "Tīmekļa izpētes kešatmiņa"

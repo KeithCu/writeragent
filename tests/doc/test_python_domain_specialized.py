@@ -19,7 +19,8 @@ from plugin.doc.python_domain_specialized import (
     validate_requested_domains,
 )
 from plugin.doc.specialized_base import DelegateToSpecializedBase
-from plugin.framework.tool import ToolBase, ToolContext, ToolRegistry
+from plugin.framework.prompts import DELEGATE_ANCHOR_RULE
+from plugin.framework.tool import ToolBase, ToolContext, ToolRegistry, prepare_tool_call
 from plugin.writer.specialized.footnotes import FootnotesInsert
 from plugin.writer.specialized_base import (
     DelegateToSpecializedWriter,
@@ -278,8 +279,12 @@ def test_delegate_tool_domains_rejects_non_string_or_missing_task():
     tool = DelegateToolDomains()
     ctx = _ctx(registry, "writer", "com.sun.star.text.TextDocument")
 
-    for bad in (None, 123, ["do it"]):
-        assert tool.execute(ctx, domains=["footnotes"], task=bad)["code"] == "TASK_REQUIRED"
+    for bad in (123, ["do it"]):
+        prepared = prepare_tool_call(tool, ctx, tool.name, {"domains": ["footnotes"], "task": bad})
+        assert prepared.error is not None and prepared.error["code"] == "VALIDATION_ERROR"
+        assert "task" in prepared.error["message"]
+    missing = prepare_tool_call(tool, ctx, tool.name, {"domains": ["footnotes"]})
+    assert missing.error is not None and "Missing required parameter: task" in missing.error["message"]
     assert tool.execute(ctx, domains=["footnotes"])["code"] == "TASK_REQUIRED"
     assert tool.execute(ctx, task="x")["code"] == "DOMAINS_REQUIRED"
 
@@ -390,6 +395,7 @@ def test_run_inner_domain_tool_agent_unions_full_schemas(mock_executor_cls, mock
     assert "undo" in allowed
     assert "run_venv_python_script" not in allowed
     instructions = mock_build.call_args.kwargs["instructions"]
+    assert DELEGATE_ANCHOR_RULE in instructions
     assert "footnotes" in instructions
     assert "shapes" in instructions
     assert "wa.shape.upsert" in instructions
@@ -411,7 +417,7 @@ def test_run_inner_domain_tool_agent_unions_full_schemas(mock_executor_cls, mock
 
 @patch("plugin.chatbot.smol_agent.build_toolcalling_agent")
 @patch("plugin.chatbot.smol_agent.SmolAgentExecutor")
-@patch("plugin.doc.specialized_shapes_context.format_shapes_canvas_context")
+@patch("plugin.doc.python_domain_specialized.format_shapes_canvas_context")
 def test_shapes_domain_includes_canvas_context_from_main_thread(mock_canvas, mock_executor_cls, mock_build):
     """Inner shapes instructions get the same canvas line as the shapes specialized loop."""
     mock_canvas.return_value = " Document canvas (Writer): paper 210.0 x 297.0 mm"
@@ -547,6 +553,74 @@ def test_run_inner_domain_tool_agent_inner_tool_error_is_error():
     assert result["error"] == result["message"]
     assert result["answer"] == "Tried the note"
     assert result["domains"] == ["footnotes"]
+
+
+def test_run_inner_domain_tool_agent_finish_only_stays_ok():
+    from plugin.doc.specialized_catalog import NO_EDIT_TOOL_NOTE
+    from plugin.doc.document_research_tools import ListNearbyFiles
+
+    # finish-only on an editing domain -> status "ok", finished true, answer kept, note == NO_EDIT_TOOL_NOTE
+    registry = ToolRegistry(services={})
+    registry.register(FootnotesInsert())
+    registry.register(SpecializedWorkflowFinished())
+    parent = _ctx(registry, "writer", "com.sun.star.text.TextDocument")
+
+    def fake_run_inner(inner_ctx, tools, **kwargs):
+        by_name = {tool.name: tool for tool in tools}
+        return by_name["specialized_workflow_finished"](answer="No footnote added")
+
+    with patch("plugin.doc.python_domain_specialized.run_inner_tool_agent", side_effect=fake_run_inner):
+        result = run_inner_domain_tool_agent(parent, ["footnotes"], "Add a note")
+
+    assert result["status"] == "ok"
+    assert result["finished"] is True
+    assert result["domains"] == ["footnotes"]
+    assert result["answer"] == "No footnote added"
+    assert result.get("note") == NO_EDIT_TOOL_NOTE
+
+    # finish-only on a read-only domain (document_research) -> status "ok", no note
+    registry_ro = ToolRegistry(services={})
+    registry_ro.register(ListNearbyFiles())
+    registry_ro.register(SpecializedWorkflowFinished())
+    parent_ro = _ctx(registry_ro, "writer", "com.sun.star.text.TextDocument")
+
+    def fake_run_inner_ro(inner_ctx, tools, **kwargs):
+        by_name = {tool.name: tool for tool in tools}
+        return by_name["specialized_workflow_finished"](answer="Research completed")
+
+    with patch("plugin.doc.python_domain_specialized.run_inner_tool_agent", side_effect=fake_run_inner_ro):
+        result_ro = run_inner_domain_tool_agent(parent_ro, ["document_research"], "Search files")
+
+    assert result_ro["status"] == "ok"
+    assert result_ro["finished"] is True
+    assert result_ro["domains"] == ["document_research"]
+    assert result_ro["answer"] == "Research completed"
+    assert "note" not in result_ro
+
+
+def test_run_inner_domain_tool_agent_read_only_domain_skips_note():
+    from plugin.doc.document_research_tools import ListNearbyFiles
+
+    registry = ToolRegistry(services={})
+    registry.register(ListNearbyFiles())
+    registry.register(SpecializedWorkflowFinished())
+    parent = _ctx(registry, "writer", "com.sun.star.text.TextDocument")
+
+    def fake_run_inner(inner_ctx, tools, **kwargs):
+        by_name = {tool.name: tool for tool in tools}
+        by_name["list_nearby_files"]()
+        return by_name["specialized_workflow_finished"](answer="Found files")
+
+    with (
+        patch.object(ListNearbyFiles, "execute", return_value={"status": "ok", "files": []}),
+        patch("plugin.doc.python_domain_specialized.run_inner_tool_agent", side_effect=fake_run_inner),
+    ):
+        result = run_inner_domain_tool_agent(parent, ["document_research"], "Find files")
+
+    assert result["status"] == "ok"
+    assert result["finished"] is True
+    assert result["domains"] == ["document_research"]
+    assert "note" not in result
 
 
 @patch("plugin.chatbot.smol_agent.build_toolcalling_agent")

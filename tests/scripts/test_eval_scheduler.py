@@ -37,10 +37,12 @@ def test_declared_backend_defaults_string_and_flag_is_lo() -> None:
     assert kinds["python_shapes_flag"] == "lo"
     assert kinds["org_chart_gen"] == "lo"
     assert kinds["solar_sld_gen"] == "lo"
+    assert kinds["toc_list_entries"] == "lo"
+    assert kinds["toc_renumber_insert"] == "lo"
     assert kinds["table_from_mess"] == "string"
     assert kinds["py_refuse_overlap"] == "string"
-    assert sum(1 for kind in kinds.values() if kind == "lo") == 3
-    assert len(ALL_EXAMPLES) == 20
+    assert sum(1 for kind in kinds.values() if kind == "lo") == 5
+    assert len(ALL_EXAMPLES) == 22
     flag = next(ex for ex in ALL_EXAMPLES if ex["task_id"] == "python_shapes_flag")
     assert flag["user_question"] == PYTHON_SHAPES_FLAG_ASK
     assert flag["document_content"] == ""
@@ -68,6 +70,8 @@ def test_select_pack_string_skips_flag_unless_explicit() -> None:
     assert "python_shapes_flag" in skipped.notes[0]
     assert "org_chart_gen" in skipped.notes[0]
     assert "solar_sld_gen" in skipped.notes[0]
+    assert "toc_list_entries" in skipped.notes[0]
+    assert "toc_renumber_insert" in skipped.notes[0]
     # An explicit -e that includes the flag is an error, not a silent drop.
     mixed = select_pack(examples, cli_backend="string", explicit=True, student="llm")
     assert mixed.error
@@ -82,14 +86,16 @@ def test_select_pack_scripted_skips_flag_on_auto() -> None:
     examples = to_eval_examples(ALL_EXAMPLES)
     selected = select_pack(examples, cli_backend="auto", explicit=False, student="scripted")
     assert selected.error is None
-    # 20 pack − flag (no script). org_chart_gen + solar_sld_gen have scripted LO replays and stay.
-    assert len(selected.examples) == 19
+    # 22 pack − flag (no script). org_chart_gen, solar_sld_gen, and both TOC rows have scripted LO replays and stay.
+    assert len(selected.examples) == 21
     assert "no scripted replay" in selected.notes[0]
     assert "python_shapes_flag" in selected.notes[0]
     ids = {ex.task_id for ex in selected.examples}
     assert "python_shapes_flag" not in ids
     assert "org_chart_gen" in ids
     assert "solar_sld_gen" in ids
+    assert "toc_list_entries" in ids
+    assert "toc_renumber_insert" in ids
     only_flag = [ex for ex in examples if ex.task_id == "python_shapes_flag"]
     refused = select_pack(only_flag, cli_backend="auto", explicit=True, student="scripted")
     assert refused.error
@@ -103,6 +109,8 @@ def test_select_pack_lo_keeps_flag_and_drops_py_rows() -> None:
     assert "python_shapes_flag" in ids
     assert "org_chart_gen" in ids
     assert "solar_sld_gen" in ids
+    assert "toc_list_entries" in ids
+    assert "toc_renumber_insert" in ids
     assert "py_refuse_overlap" not in ids
     assert "py_no_bulk_read" not in ids
     # Explicit -e of a =PY row still runs it (the old non-explicit filter).

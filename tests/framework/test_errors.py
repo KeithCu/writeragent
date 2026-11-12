@@ -3,7 +3,7 @@ import queue
 import pytest
 import sys
 from typing import Any
-from plugin.framework.errors import WriterAgentException, format_error_for_display, format_error_payload
+from plugin.framework.errors import WriterAgentException, format_error_for_display, format_error_payload, make_tool_error
 from plugin.framework.json_utils import safe_json_loads
 from plugin.framework.tool import ToolBase
 from plugin.framework.stream_batch import StreamQueueKind
@@ -55,6 +55,23 @@ class TestErrorHandling:
         assert (result['code']) == ('CUSTOM_CODE')
         assert (result['message']) == ('Tool failed')
         assert (result['details']) == ({'key': 'val'})
+
+    def test_make_tool_error_top_level_fields(self):
+        res = make_tool_error("m", code="C", top_level={"a": 1}, b=2)
+        assert res["status"] == "error"
+        assert res["code"] == "C"
+        assert res["message"] == "m"
+        assert res["a"] == 1
+        assert res["details"] == {"b": 2}
+        assert make_tool_error("m", code="C", top_level=None) == {"status": "error", "code": "C", "message": "m"}
+        assert make_tool_error("m", code="C", top_level={}) == {"status": "error", "code": "C", "message": "m"}
+
+    def test_make_tool_error_top_level_reserved_key_rejected(self):
+        with pytest.raises(ValueError, match="top_level cannot override"):
+            make_tool_error("m", top_level={"code": "X"})
+
+    def test_tool_base_error_top_level_forwarded(self):
+        assert DummyTool()._tool_error("m", top_level={"flag": True})["flag"] is True
 
     def test_format_error_for_display(self):
         exc = WriterAgentException('User error', code='ERR')
@@ -1073,6 +1090,208 @@ def test_writer_agent_exception_code_is_keyword_only():
     exc = WriterAgentException("msg", code="CODE")
     assert exc.code == "CODE"
     assert exc.message == "msg"
+
+
+from tests.framework.suggested_call_access import (
+    assert_valid_suggested_call,
+    validate_suggested_call,
+)
+
+
+def test_suggest_call_shape():
+    from plugin.framework.errors import Diagnostic, suggest_call
+
+    suggestion = suggest_call("apply_style", target="search", style="Heading 2")
+    assert suggestion == {
+        "tool": "apply_style",
+        "arguments": {"target": "search", "style": "Heading 2"},
+    }
+
+    no_args = suggest_call("get_document_content")
+    assert no_args == {"tool": "get_document_content", "arguments": {}}
+
+    # Verify Diagnostic TypedDict structure with optional flat context fields
+    diag: Diagnostic = {
+        "code": "STYLE_IGNORED_PARTIAL_MATCH",
+        "message": "Partial match",
+        "suggested_call": suggestion,
+        "matches_skipped": 1,
+        "matches_total": 2,
+    }
+    assert diag["code"] == "STYLE_IGNORED_PARTIAL_MATCH"
+    assert diag["suggested_call"] == suggestion
+    assert diag["matches_skipped"] == 1
+    assert diag["matches_total"] == 2
+
+
+def test_format_error_payload_suggested_call():
+    from plugin.framework.errors import WriterAgentException, format_error_payload, suggest_call
+
+    call = suggest_call("apply_style", style="Heading 1")
+
+    # With WriterAgentException and details
+    exc = WriterAgentException("Style application failed", code="STYLE_FAILED", details={"pos": 10})
+    payload = format_error_payload(exc, suggested_call=call)
+    assert payload["status"] == "error"
+    assert payload["code"] == "STYLE_FAILED"
+    assert payload["message"] == "Style application failed"
+    assert payload["suggested_call"] == call
+    assert payload["details"] == {"pos": 10}
+
+    # Without suggested_call, key is omitted
+    payload_plain = format_error_payload(exc)
+    assert "suggested_call" not in payload_plain
+
+    # With generic unexpected exception
+    raw_exc = RuntimeError("Unexpected disk error")
+    payload_generic = format_error_payload(raw_exc, suggested_call=call)
+    assert payload_generic["status"] == "error"
+    assert payload_generic["code"] == "INTERNAL_ERROR"
+    assert payload_generic["message"] == "Unexpected disk error"
+    assert payload_generic["suggested_call"] == call
+    assert payload_generic["details"] == {"type": "RuntimeError"}
+
+
+def test_make_tool_error_suggested_call():
+    from plugin.framework.errors import make_tool_error, suggest_call
+
+    call = suggest_call("apply_style", target="search", old_content="Intro", style="Heading 1")
+
+    # With suggested_call and extra kwargs (kwargs must go under details)
+    res = make_tool_error(
+        "Style missing",
+        code="STYLE_NOT_FOUND",
+        suggested_call=call,
+        context_flag=True,
+    )
+    assert res["status"] == "error"
+    assert res["code"] == "STYLE_NOT_FOUND"
+    assert res["message"] == "Style missing"
+    assert res["suggested_call"] == call
+    assert res["details"] == {"context_flag": True}
+
+    # With suggested_call and no extra kwargs (details must be omitted)
+    res_no_details = make_tool_error(
+        "Failed edit",
+        code="EDIT_FAILED",
+        suggested_call=call,
+    )
+    assert res_no_details["status"] == "error"
+    assert res_no_details["code"] == "EDIT_FAILED"
+    assert res_no_details["suggested_call"] == call
+    assert "details" not in res_no_details
+
+    # Without suggested_call
+    res_plain = make_tool_error("Failed edit", code="EDIT_FAILED")
+    assert "suggested_call" not in res_plain
+
+
+def test_tool_base_error_formatting_with_suggested_call():
+    from plugin.framework.errors import suggest_call
+
+    tool = DummyTool()
+    call = suggest_call("apply_style", style="Heading 1")
+    result = tool._tool_error(
+        "Style lookup failed",
+        code="STYLE_NOT_FOUND",
+        suggested_call=call,
+        candidate_count=0,
+    )
+    assert result["status"] == "error"
+    assert result["code"] == "STYLE_NOT_FOUND"
+    assert result["message"] == "Style lookup failed"
+    assert result["suggested_call"] == call
+    assert result["details"] == {"candidate_count": 0}
+
+
+def test_validate_suggested_call_against_apply_style():
+    from plugin.framework.errors import suggest_call
+
+    # Valid apply_style suggestion
+    valid_call = suggest_call(
+        "apply_style",
+        target="search",
+        old_content="Quarterly results",
+        style="Heading 2",
+        case_sensitive=True,
+    )
+    assert_valid_suggested_call(valid_call)
+
+    # Missing required parameter ('style')
+    missing_style = suggest_call(
+        "apply_style",
+        target="search",
+        old_content="Quarterly results",
+    )
+    ok, err = validate_suggested_call(missing_style)
+    assert not ok
+    assert err is not None and "Missing required parameter: style" in err
+
+    # Unknown parameter (e.g. MCP's document_url or internal flag)
+    unknown_param = suggest_call(
+        "apply_style",
+        style="Heading 2",
+        document_url="vnd.sun.star.tdoc:/1",
+    )
+    ok, err = validate_suggested_call(unknown_param)
+    assert not ok
+    assert err is not None and "Unknown parameter: document_url" in err
+
+    # Invalid parameter type (style must be string, not integer)
+    bad_type = suggest_call(
+        "apply_style",
+        style=42,
+    )
+    ok, err = validate_suggested_call(bad_type)
+    assert not ok
+    assert err is not None and "Invalid type for style" in err
+
+    # Invalid enum value (target must be in INSERT_TARGETS)
+    bad_enum = suggest_call(
+        "apply_style",
+        style="Heading 2",
+        target="unsupported_target",
+    )
+    ok, err = validate_suggested_call(bad_enum)
+    assert not ok
+    assert err is not None and "Invalid value for target" in err
+
+
+def test_validate_suggested_call_structural_failures():
+    from plugin.framework.errors import suggest_call
+
+    # Non-dict payload
+    ok, err = validate_suggested_call(["not", "a", "dict"])
+    assert not ok
+    assert err is not None and "must be a dict" in err
+
+    # Missing or empty tool name
+    ok, err = validate_suggested_call({"arguments": {}})
+    assert not ok
+    assert err is not None and "tool" in err
+
+    ok, err = validate_suggested_call({"tool": "", "arguments": {}})
+    assert not ok
+    assert err is not None and "tool" in err
+
+    # Missing or non-dict arguments
+    ok, err = validate_suggested_call({"tool": "apply_style"})
+    assert not ok
+    assert err is not None and "arguments" in err
+
+    ok, err = validate_suggested_call({"tool": "apply_style", "arguments": "invalid"})
+    assert not ok
+    assert err is not None and "arguments" in err
+
+    # Nonexistent tool
+    ok, err = validate_suggested_call(suggest_call("unregistered_tool_name", arg=1))
+    assert not ok
+    assert err is not None and "not found" in err
+
+    # Assert helper raises on validation failure
+    with pytest.raises(AssertionError) as exc_info:
+        assert_valid_suggested_call(suggest_call("apply_style", target="search"))
+    assert "suggested_call failed schema validation" in str(exc_info.value)
 
 
 

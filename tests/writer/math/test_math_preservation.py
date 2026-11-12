@@ -15,8 +15,9 @@ sys.modules['com.sun.star.text'] = MagicMock()
 
 from plugin.writer.html_import import (
     _insert_mixed_html_and_math_at_cursor,
-    _insert_mixed_or_plain_html
+    _insert_mixed_or_plain_html,
 )
+from plugin.writer.html_import_styles import WriteReport
 from plugin.writer.apply_document_content import ApplyDocumentContent
 
 class TestWriterMathPreservation:
@@ -29,7 +30,7 @@ class TestWriterMathPreservation:
         # r"\nabla" has 1 backslash, r"\n" has 1 backslash.
         test_content = r"<p>Equation: \[\nabla \cdot \mathbf{E}\]</p> and a newline: \nHello."
         
-        with patch('plugin.writer.html_import._insert_starwriter_html_at_cursor') as mock_insert_html:
+        with patch('plugin.writer.html_import.insert_html_fragment_at_cursor') as mock_insert_html:
             with patch('plugin.writer.html_import.convert_latex_to_starmath') as mock_convert_tex:
                 mock_convert_tex.return_value = MagicMock(ok=True, starmath="mocked")
                 
@@ -37,7 +38,7 @@ class TestWriterMathPreservation:
                 
                 # Check that HTML segment 2 (with the newline) was expanded
                 calls = mock_insert_html.call_args_list
-                last_html_chunk = calls[-1][0][2]
+                last_html_chunk = calls[-1][0][1]
                 assert ("\nHello.") in (last_html_chunk)
                 assert ("\\nHello.") not in (last_html_chunk)
                 
@@ -62,14 +63,14 @@ class TestWriterMathPreservation:
             "enriquecimento sem causa, al\u00e9m de R$ 500,00 de custas.</p>"
         )
 
-        with patch('plugin.writer.html_import._insert_starwriter_html_at_cursor') as mock_insert_html:
+        with patch('plugin.writer.html_import.insert_html_fragment_at_cursor') as mock_insert_html:
             with patch('plugin.writer.html_import.convert_latex_to_starmath') as mock_convert_tex:
                 with patch('plugin.writer.html_import.insert_writer_math_formula') as mock_formula:
                     _insert_mixed_or_plain_html(model, ctx, cursor, content)
 
         mock_convert_tex.assert_not_called()
         mock_formula.assert_not_called()
-        inserted = "".join(c[0][2] for c in mock_insert_html.call_args_list)
+        inserted = "".join(c[0][1] for c in mock_insert_html.call_args_list)
         assert ("R$ 12.798,82") in (inserted)
         assert ("R$ 500,00") in (inserted)
         assert ("evitando-se, assim") in (inserted)
@@ -83,10 +84,10 @@ class TestWriterMathPreservation:
         
         test_content = "Line 1\\nLine 2"
         
-        with patch('plugin.writer.html_import._insert_starwriter_html_at_cursor') as mock_insert_html:
+        with patch('plugin.writer.html_import.insert_html_fragment_at_cursor') as mock_insert_html:
             _insert_mixed_or_plain_html(model, ctx, cursor, test_content)
             
-            inserted_html = mock_insert_html.call_args[0][2]
+            inserted_html = mock_insert_html.call_args[0][1]
             assert ("Line 1") in (inserted_html)
             assert ("Line 2") in (inserted_html)
             assert ("Line 1\\n") not in (inserted_html)
@@ -105,7 +106,7 @@ class TestWriterMathPreservation:
         content = "Line 1\\nLine 2"
         
         with patch('plugin.writer.html_import.replace_full_document') as mock_replace:
-            mock_replace.return_value = []
+            mock_replace.return_value = WriteReport()
             tool.execute(ctx, content=content, target="full_document")
             
             passed_content = mock_replace.call_args[0][2]

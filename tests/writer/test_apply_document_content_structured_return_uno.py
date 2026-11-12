@@ -15,6 +15,7 @@ import uno  # noqa: F401
 
 from plugin.testing_runner import native_test
 from plugin.writer.apply_document_content import ApplyDocumentContent
+from plugin.writer.math.math_mml_convert import MATH_CLSID
 from plugin.tests.testing_utils import (
     TestingFactory,
     skip_windows_leftover_hidden_load,
@@ -194,4 +195,106 @@ def test_all_matches_caps_at_max_search_replacements_uno(ctx, doc):
         assert res.get("replaced_count") == test_cap, res
         assert "safety limit" in res.get("message", ""), res
         assert "not fully updated" in res.get("message", ""), res
+
+
+@native_test
+@with_native_doc("writer")
+def test_search_replace_icu_only_regex_edits_body_uno(ctx, doc):
+    _set_body(doc, "alpha Foo beta")
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    res = ApplyDocumentContent().execute(
+        tool_ctx,
+        target="search",
+        old_content=r"\p{Lu}\w+",
+        content="BAR",
+        regex=True,
+        case_sensitive=True,
+    )
+    assert res.get("status") == "ok", res
+    assert res.get("replaced_count") == 1, res
+    assert doc.getText().getString() == "alpha BAR beta"
+
+
+@native_test
+@with_native_doc("writer")
+def test_search_replace_python_only_regex_is_invalid_regex_uno(ctx, doc):
+    _set_body(doc, "alpha Foo beta")
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    res = ApplyDocumentContent().execute(
+        tool_ctx, target="search", old_content=r"(?P<w>Foo)", content="BAR", regex=True
+    )
+    assert res.get("status") == "error", res
+    assert res.get("code") == "INVALID_REGEX", res
+    assert doc.getText().getString() == "alpha Foo beta"
+
+
+@native_test
+@with_native_doc("writer")
+def test_dry_run_icu_only_regex_counts_uno(ctx, doc):
+    _set_body(doc, "alpha Foo beta")
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    res = ApplyDocumentContent().execute(
+        tool_ctx,
+        target="search",
+        old_content=r"\p{Lu}\w+",
+        dry_run=True,
+        regex=True,
+        case_sensitive=True,
+    )
+    assert res.get("status") == "ok", res
+    assert res.get("count") == 1, res
+
+
+@native_test
+@with_native_doc("writer")
+def test_end_display_tex_creates_math_object_uno(ctx, doc):
+    skip_windows_leftover_hidden_load("math formula Hidden _blank .mml")
+    _set_body(doc, "Intro.")
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    content = r"<p>Q:</p>$$x = \frac{-b \pm \sqrt{b^2 - 4ac}}{2a}$$"
+    res = ApplyDocumentContent().execute(tool_ctx, target="end", content=content)
+    assert res.get("status") == "ok", res
+    expected_snippet = r"x = \frac{-b \pm \sqrt{b^2 - 4ac}}{2a}"
+    assert res.get("math_objects") == [
+        {"kind": "tex", "display_block": True, "snippet": expected_snippet, "ok": True}
+    ], res
+    eo = doc.getEmbeddedObjects()
+    names = eo.getElementNames()
+    math_objs = [
+        eo.getByName(n)
+        for n in names
+        if str(getattr(eo.getByName(n), "CLSID", "")).lower() == MATH_CLSID.lower()
+    ]
+    assert len(math_objs) == 1, names
+    formula = str(math_objs[0].getEmbeddedObject().Formula)
+    assert "frac" in formula and "sqrt" in formula, formula
+    assert "[Math import failed]" not in doc.getText().getString()
+    assert "warnings" not in res
+
+
+@native_test
+@with_native_doc("writer")
+def test_end_invalid_tex_reports_math_import_failed_warning_uno(ctx, doc):
+    skip_windows_leftover_hidden_load("math formula Hidden _blank .mml")
+    _set_body(doc, "Intro.")
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    content = r"<p>Bad:</p>$$\sqrt{$$"
+    res = ApplyDocumentContent().execute(tool_ctx, target="end", content=content)
+    assert res.get("status") == "ok", res
+    warnings = res.get("warnings", [])
+    assert len(warnings) == 1, res
+    assert warnings[0].get("code") == "MATH_IMPORT_FAILED", res
+    math_objs_res = res.get("math_objects", [])
+    assert len(math_objs_res) == 1, res
+    assert math_objs_res[0].get("ok") is False, res
+    assert math_objs_res[0].get("error") == "NoAvailableTokensError", res
+    eo = doc.getEmbeddedObjects()
+    names = eo.getElementNames()
+    math_objs = [
+        eo.getByName(n)
+        for n in names
+        if str(getattr(eo.getByName(n), "CLSID", "")).lower() == MATH_CLSID.lower()
+    ]
+    assert len(math_objs) == 0, names
+    assert doc.getText().getString().strip().endswith(r"[Math import failed] \sqrt{")
 

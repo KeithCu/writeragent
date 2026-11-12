@@ -10,7 +10,7 @@ import ast
 import os
 from types import SimpleNamespace
 
-from plugin.writer.locale.harper_proofreader import normalize_harper_locale_to_bcp47
+from plugin.writer.locale.harper import normalize_harper_locale_to_bcp47
 
 
 def _repo_root() -> str:
@@ -77,7 +77,7 @@ def test_harper_proofreader_identity_and_locale_check() -> None:
         # patch a unit test downloads/starts harper-ls and Windows xdist hangs.
         with (
             patch("plugin.chatbot.extension_update_check.schedule_extension_update_check_once"),
-            patch("plugin.writer.locale.harper.maybe_start_harper_async"),
+            patch("plugin.writer.locale.harper_proofreader.maybe_start_harper_async"),
         ):
             proofreader = HarperProofreader(ctx)
         from plugin.writer.locale.grammar_settings import GrammarProfile
@@ -112,9 +112,9 @@ def test_harper_proofreader_initialization_starts_harper_warmup() -> None:
     try:
         ctx = MagicMock()
         with (
-            patch("plugin.framework.config.init_config"),
-            patch("plugin.framework.config.user_config_dir", return_value="/tmp/lo-user"),
-            patch("plugin.writer.locale.harper.maybe_start_harper_async") as mock_start,
+            patch("plugin.writer.locale.harper_proofreader.init_config"),
+            patch("plugin.writer.locale.harper_proofreader.user_config_dir", return_value="/tmp/lo-user"),
+            patch("plugin.writer.locale.harper_proofreader.maybe_start_harper_async") as mock_start,
         ):
             HarperProofreader(ctx)
             mock_start.assert_called_once_with(ctx, user_config_dir="/tmp/lo-user")
@@ -133,7 +133,7 @@ def test_harper_proofreader_skips_register_side_effects_on_no_vcl() -> None:
         with (
             patch("plugin.framework.uno_context.desktop_create_is_unsafe", return_value=True),
             patch("plugin.chatbot.extension_update_check.schedule_extension_update_check_once") as mock_update,
-            patch("plugin.writer.locale.harper.maybe_start_harper_async") as mock_start,
+            patch("plugin.writer.locale.harper_proofreader.maybe_start_harper_async") as mock_start,
         ):
             HarperProofreader(ctx)
         mock_update.assert_not_called()
@@ -151,9 +151,9 @@ def test_harper_proofreader_skips_warmup_without_config_dir() -> None:
     try:
         ctx = MagicMock()
         with (
-            patch("plugin.framework.config.init_config"),
-            patch("plugin.framework.config.user_config_dir", return_value=""),
-            patch("plugin.writer.locale.harper.maybe_start_harper_async") as mock_start,
+            patch("plugin.writer.locale.harper_proofreader.init_config"),
+            patch("plugin.writer.locale.harper_proofreader.user_config_dir", return_value=""),
+            patch("plugin.writer.locale.harper_proofreader.maybe_start_harper_async") as mock_start,
         ):
             HarperProofreader(ctx)
             mock_start.assert_not_called()
@@ -199,7 +199,7 @@ def test_locale_construction_failure_registers_degraded_and_retries() -> None:
         with (
             patch("plugin.chatbot.extension_update_check.schedule_extension_update_check_once"),
             patch("plugin.writer.locale.harper_proofreader.uno_locales_for_tags", side_effect=flaky),
-            patch("plugin.writer.locale.harper.maybe_start_harper_async"),
+            patch("plugin.writer.locale.harper_proofreader.maybe_start_harper_async"),
             patch("plugin.writer.locale.harper_proofreader.log") as mock_log,
         ):
             proofreader = HarperProofreader(MagicMock())
@@ -231,7 +231,7 @@ def test_locale_retry_failure_is_logged_once() -> None:
         with (
             patch("plugin.chatbot.extension_update_check.schedule_extension_update_check_once"),
             patch("plugin.writer.locale.harper_proofreader.uno_locales_for_tags", side_effect=boom),
-            patch("plugin.writer.locale.harper.maybe_start_harper_async"),
+            patch("plugin.writer.locale.harper_proofreader.maybe_start_harper_async"),
             patch("plugin.writer.locale.harper_proofreader.log") as mock_log,
         ):
             proofreader = HarperProofreader(MagicMock())

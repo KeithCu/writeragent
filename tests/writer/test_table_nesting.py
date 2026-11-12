@@ -8,7 +8,7 @@ from typing import Any
 
 import pytest
 
-from plugin.framework.errors import ToolExecutionError
+from plugin.framework.errors import ToolExecutionError, is_disposal
 from plugin.writer.table_nesting import (
     cell_hosted_table_names,
     cell_plain_siblings,
@@ -189,3 +189,22 @@ def test_guard_message_does_not_name_a_tool_that_may_not_call_it() -> None:
     assert "Child" in msg
     assert "table_set_cell" in msg
     assert "apply_document_content" not in msg
+
+
+def test_cell_walk_disposal_mid_enumeration_propagates() -> None:
+    disposed_exc_type = type("DisposedException", (Exception,), {})
+
+    class _MidWalkDisposedEnum(_Enum):
+        def nextElement(self) -> Any:
+            if self._index == 1:
+                raise disposed_exc_type("gone")
+            return super().nextElement()
+
+    class _DisposingCell(_Cell):
+        def createEnumeration(self) -> _Enum:
+            return _MidWalkDisposedEnum(self._elements)
+
+    cell = _DisposingCell([_Paragraph("a"), _Table("T")])
+    with pytest.raises(Exception) as exc_info:
+        cell_hosted_table_names(cell)
+    assert is_disposal(exc_info.value)

@@ -1297,15 +1297,14 @@ class _ImagesProxy:
         """
         return call_host_tool("image_delete", name=name, sheet_index=sheet_index)
 
-    def download(self, url: str, *, force: bool | None = None, verify_ssl: str | None = None) -> dict[str, Any]:
+    def download(self, url: str, *, force: bool | None = None) -> dict[str, Any]:
         """Download an image from URL to local cache. Returns local path for image_insert/image_replace.
 
         Args:
             url (required): URL of the image to download.
             force (optional): Force re-download even if cached (default: false).
-            verify_ssl (optional): Scripting-only parameter.
         """
-        return call_host_tool("image_download", url=url, force=force, verify_ssl=verify_ssl)
+        return call_host_tool("image_download", url=url, force=force)
 
     def generate(self, prompt: str, *, source_image: str | None = None, aspect_ratio: str = 'square', base_size: int = 1024, width: int | None = None, height: int | None = None, image_model: str | None = None) -> dict[str, Any]:
         """Generate an image from a text prompt using the Settings endpoint and insert it. To edit an existing image, pass source_image='selection' (or omit it while a graphic is selected).
@@ -1399,7 +1398,7 @@ class _IndexProxy:
     """Proxy for index tools."""
 
     def add_mark(self, text: str, *, kind: str | None = None, primary_key: str | None = None, secondary_key: str | None = None, identifier: str | None = None, author: str | None = None, title: str | None = None, year: Any | None = None, pages: str | None = None, bibliographic_type: Any | None = None, fields: dict[str, Any] | None = None, target: str | None = None, old_content: str | None = None, case_sensitive: bool | None = None) -> dict[str, Any]:
-        """Insert an index mark or a bibliography cite at target. kind=alphabetical|user creates DocumentIndexMark / UserIndexMark (primary_key/secondary_key). kind=bibliography creates TextField.Bibliography — not an index mark; set Identifier/Author/Title/Year/Pages (text defaults to Identifier). primary_key is ignored for cites. After cite changes call indexes_update_all so the bibliography table refreshes. Do not use fields_insert for product cites.
+        """Insert an index mark or a bibliography cite at target. With target='search' the mark or cite is placed at the start of the match and the matched text is kept, not replaced. kind=alphabetical|user creates DocumentIndexMark / UserIndexMark (primary_key/secondary_key). kind=bibliography creates TextField.Bibliography — not an index mark; set Identifier/Author/Title/Year/Pages (text defaults to Identifier). primary_key is ignored for cites. After cite changes call indexes_update_all so the bibliography table refreshes. Do not use fields_insert for product cites.
 
         Args:
             text (required): Index mark entry, or Identifier fallback for kind=bibliography.
@@ -1414,7 +1413,7 @@ class _IndexProxy:
             bibliographic_type (optional): BibliographyDataType name or int (book, article, …). Ignored unless kind=bibliography.
             fields (optional): Extra/override Fields names (Identifier, Author, ISBN, …). Ignored unless kind=bibliography.
             target (optional): Where to insert the mark or cite. One of: beginning, end, selection, full_document, search.
-            old_content (optional): Text to find and replace if target = 'search'.
+            old_content (optional): Text to find if target = 'search'; the mark or cite goes at the start of the match and the text is kept.
             case_sensitive (optional): For target='search': Case-sensitive match (default: false). The result includes matched_case_sensitive for the mode that ran.
         """
         return call_host_tool("indexes_add_mark", text=text, kind=kind, primary_key=primary_key, secondary_key=secondary_key, identifier=identifier, author=author, title=title, year=year, pages=pages, bibliographic_type=bibliographic_type, fields=fields, target=target, old_content=old_content, case_sensitive=case_sensitive)
@@ -1462,20 +1461,21 @@ class _IndexProxy:
         return call_host_tool("indexes_insert_toc_entry", content=content, page=page, hyperlink_url=hyperlink_url, position=position, old_content=old_content, level=level, index=index, occurrence=occurrence, dry_run=dry_run, case_sensitive=case_sensitive)
 
     def list(self) -> dict[str, Any]:
-        """List document indexes (TOC, alphabetical, user, bibliography tables). type matches indexes_create kind (bibliography via getServiceName). For in-flow cites use indexes_list_cites, not this tool. For TOC row text, outline level, and the internal hyperlink use indexes_list_toc_entries."""
+        """List document indexes (TOC, alphabetical, user, bibliography tables). type matches indexes_create kind (bibliography via getServiceName). For in-flow cites use indexes_list_cites, not this tool. For TOC row text and outline level use indexes_list_toc_entries."""
         return call_host_tool("indexes_list")
 
     def list_cites(self) -> dict[str, Any]:
         """List native bibliography cite fields (TextField.Bibliography). Returns identifier, key Fields (Author, Title, Year, Pages, type), and location. Does not list the bibliography table — use indexes_list for that."""
         return call_host_tool("indexes_list_cites")
 
-    def list_toc_entries(self, *, index: int | None = None) -> dict[str, Any]:
-        """List table-of-contents rows by reading the index paragraphs. Each row is the visible text, the outline level (Contents 1-10), and the internal hyperlink (HyperLinkURL, including #…|outline). Does not export the document and does not call index update(). Use this to inspect or validate TOC entries. indexes_list returns only the index name and type. Do not use get_document_content for a linked TOC: that export runs the XHTML Writer filter, entry text often comes back empty, and a long outline can hang.
+    def list_toc_entries(self, *, index: int | None = None, include_links: bool = False) -> dict[str, Any]:
+        """List table-of-contents rows by reading the index paragraphs. Each row is the visible text and the outline level (Contents 1-10). Pass include_links=true to include the internal HyperLinkURL (including #…|outline); renames keep links without hyperlink_url. Does not export the document and does not call index update(). Use this to inspect or validate TOC entries. indexes_list returns only the index name and type. Do not use get_document_content for a linked TOC: that export runs the XHTML Writer filter, entry text often comes back empty, and a long outline can hang.
 
         Args:
             index (optional): Document index position from indexes_list. Omit when the document has exactly one TOC.
+            include_links (optional): Include internal hyperlink URLs on each row. Defaults to false; outline links are preserved automatically during renames.
         """
-        return call_host_tool("indexes_list_toc_entries", index=index)
+        return call_host_tool("indexes_list_toc_entries", index=index, include_links=include_links)
 
     def refresh_toc_entry(self, old_content: str, content: str, *, hyperlink_url: str | None = None, index: int | None = None, occurrence: int | None = None, dry_run: bool | None = None, case_sensitive: bool | None = None) -> dict[str, Any]:
         """Replace one substring inside a single table-of-contents entry and, when that text sits in one outline hyperlink (#…|outline), update that URL. Does not call index update(), so other entries, tabs, page numbers, and direct formatting stay. Page numbers are left as they are. indexes_update_all is the full rebuild and drops customized TOC formatting. Pass hyperlink_url to set the outline target, including when content equals old_content. Bookmark targets are not rewritten. To add or remove one row, use indexes_insert_toc_entry or indexes_delete_toc_entry.
@@ -1644,7 +1644,7 @@ class _PageProxy:
         return call_host_tool("page_set_columns", style=style, column_count=column_count, spacing_mm=spacing_mm)
 
     def set_header_footer_text(self, region: str, content: str, *, style: str | None = None, auto_height: bool | None = None) -> dict[str, Any]:
-        """Replace this page-style header or footer with HTML so logos, tables, and page-number fields survive — the same StarWriter import as apply_document_content, pointed at the region's XText. Call page_get_header_footer_text first and edit that HTML. Enables the region if it is off. Pass auto_height=true so a taller letterhead grows instead of overlapping the body. Plain text is wrapped as a paragraph and still goes through import. A _first or _left region that only mirrors the shared header or footer is skipped; edit header/footer or turn sharing off. To change one substring and leave fields and floating graphics alone, use page_replace_header_footer_text.
+        """Replace this page-style header or footer with HTML so logos, tables, and page-number fields survive — the same StarWriter import as apply_document_content, pointed at the region's XText. Call page_get_header_footer_text first and edit that HTML. Enables the region if it is off. Pass auto_height=true so a taller letterhead grows instead of overlapping the body. data-lo-style and data-lo-para from the read are applied as in a full_document write; properties that were not applied come back in warnings. Plain text is wrapped as a paragraph and still goes through import. A _first or _left region that only mirrors the shared header or footer is skipped; edit header/footer or turn sharing off. To change one substring and leave fields and floating graphics alone, use page_replace_header_footer_text.
 
         Args:
             region (required): Which region to set. 'header'/'footer' are the shared ones; '_first' targets a 'different first page' letterhead and '_left' the left-hand pages. One of: header, footer, header_first, footer_first, header_left, footer_left.
@@ -1873,7 +1873,7 @@ class _RangeProxy:
         return call_host_tool("named_range_list", scope=scope)
 
     def sort(self, range_name: list[str], has_header: bool, *, sort_column: int | None = None, ascending: bool | None = None) -> dict[str, Any]:
-        """Stable one-column sort of the specified range(s) by values in one column. Multi-key sorts are multiple calls (two stable one-column passes). Do call range_sort to reorder rows (not rewrite the block with write_formula_range) because hand-written order often leaves labels mid-table. Pick sort_column for the metric to order by (0-based within the range); set ascending=false when largest values should come first. Do pass has_header=true when row 1 is labels because otherwise labels sort as values. Supports lists for non-contiguous areas.
+        """Stable one-column sort of the specified range(s) by values in one column. Multi-key sorts are multiple calls (two stable one-column passes). Do call range_sort to reorder rows (not rewrite the block with write_formula_range) because hand-written order often leaves labels mid-table. Pick sort_column for the metric to order by (0-based within the range); set ascending=false when largest values should come first. Do pass has_header=true when row 1 is labels because otherwise labels sort as values. Supports lists for non-contiguous areas. The result says 'no rows moved' when the key column was already in that order.
 
         Args:
             range_name (required): Range(s) to sort (e.g. ["A1:D10"] or ["A1:B10", "D1:E10"]).
@@ -1894,7 +1894,7 @@ class _SearchProxy:
 
         Args:
             pattern (required): Search string or regex pattern.
-            regex (optional): Use regular expression (default: false).
+            regex (optional): Use regular expression (ICU syntax, default: false).
             case_sensitive (optional): Case-sensitive match (default: false). The result includes matched_case_sensitive for the mode that ran.
             max_results (optional): Maximum results to return (default: 50). Must be a positive integer.
             sheet (optional): Sheet to search (active sheet if omitted).
@@ -1908,7 +1908,7 @@ class _SearchProxy:
         Args:
             search (required): Text or regex pattern to find.
             replace (required): Replacement text.
-            regex (optional): Use regular expression (default: false).
+            regex (optional): Use regular expression (ICU syntax, default: false).
             case_sensitive (optional): Case-sensitive match (default: false). The result includes matched_case_sensitive for the mode that ran.
             sheet (optional): Sheet to operate on (active sheet if omitted).
             all_sheets (optional): Replace across all sheets (default: false).
@@ -2563,26 +2563,26 @@ class _WriterProxy:
         return call_host_tool("add_comment", content=content, search=search, case_sensitive=case_sensitive, occurrence=occurrence, author=author, parent_name=parent_name)
 
     def apply_document_content(self, content: list[str] | str, *, target: str | None = None, old_content: str | None = None, start_anchor: str | None = None, end_anchor: str | None = None, all_matches: bool | None = None, occurrence: int | None = None, position: str | None = None, dry_run: bool | None = None, regex: bool | None = None, case_sensitive: bool | None = None, hyperlink_url: str | None = None) -> dict[str, Any]:
-        """Insert or replace content. IMPORTANT: Required after web_research or document_research delegates return. To replace the ENTIRE document use target='full_document' with content only — do NOT pass the whole document as old_content. Use target='beginning', 'end', or 'selection' to insert. Use target='search' with old_content or both start_anchor and end_anchor for find-and-replace of a specific substring or range. An empty replacement that removes the last text in a table deletes that table. Clearing one cell while another cell still has text leaves the table in place. Search occurrence is 0-based over body, table, and frame matches; omit it for first-match; do not combine with all_matches=true. dry_run returns replaceable (each row's occurrence is that index) and not_replaceable (shapes and comments, no occurrence). An outline hyperlink (#…|outline) covering a replaced match is updated when the matched text occurs once in the target outside that suffix; pass hyperlink_url to set a different target on that one link, including when content equals old_content and only the URL is stale. Bookmark links are not rewritten.
+        """Insert or replace content. IMPORTANT: Required after web_research or document_research delegates return. To replace the ENTIRE document use target='full_document' with content only — do NOT pass the whole document as old_content. Use target='beginning', 'end', or 'selection' to insert. Use target='search' with old_content or both start_anchor and end_anchor for find-and-replace of a specific substring or range. An empty replacement that removes the last text in a table deletes that table. Clearing one cell while another cell still has text leaves the table in place.
 
         Args:
             content (required): List of HTML fragments or plain-text fragments (one per block), or one string. A string is one block; execute still joins a list with newlines. Shape and math per the APPLY_DOCUMENT_CONTENT AND HTML rules — the editing-html guidance covers them if they are not already in your context. No Markdown. An empty string at beginning, end, or selection inserts nothing and returns an error. An empty search replacement deletes the match.
             target (optional): Where to apply the content. One of: beginning, end, selection, full_document, search.
             old_content (optional): Substring to find when target='search'. Not for whole-document replace — use target='full_document' instead.
-            start_anchor (optional): Literal substring marking the start of a range to replace; requires end_anchor, where the end is the first match that begins at or after the start match in the same text and the middle is not copied. Plain anchor text is imported as new paragraphs and does not keep the span's character or paragraph formatting; anchor replacements skip outline URL fixup.
+            start_anchor (optional): Literal substring marking the start of a range to replace; requires end_anchor, where the end is the first match that begins at or after the start match in the same text and the middle is not copied. Multi-line plain text becomes new paragraphs; single-line plain text replaces the span inline and keeps the host paragraph and its style; anchor replacements skip outline URL fixup.
             end_anchor (optional): Literal substring marking the end of a range to replace; requires start_anchor, matching the first occurrence that begins at or after the start match in the same text and the middle is not copied.
             all_matches (optional): Replace all occurrences (true) or first only. Default false. Only for target='search' with position='replace' and old_content (cannot be combined with start_anchor and end_anchor).
             occurrence (optional): For target='search': 0-based index into replaceable Writer text matches (body/table/frame) or the start_anchor match (not dry_run shape/comment rows). Omit for the existing first-match behavior. Cannot be combined with all_matches=true.
             position (optional): For target='search': 'replace' (default) replaces the match; 'before'/'after' INSERT the content next to the match and leave the matched text untouched (result reports inserted=true instead of replaced_count). Inline content (plain text, <b>, <i>, ...) goes at the exact match edge; block content (<p>, headings, lists, tables) goes before/after the whole paragraph that holds the match (result reports snapped_to_paragraph=true when that moved it). One of: replace, before, after.
             dry_run (optional): For target='search' with old_content: do NOT edit. Return replaceable matches (each tagged with occurrence) plus shape/comment previews, so you can check before committing. Does not apply to start_anchor and end_anchor.
-            regex (optional): For target='search': treat old_content as a regular expression (default false = literal). Regex mode is single-paragraph (no cross-paragraph chaining). Does not apply to start_anchor and end_anchor.
+            regex (optional): For target='search': treat old_content as a regular expression (default false = literal). Regex mode is single-paragraph (no cross-paragraph chaining). Does not apply to start_anchor and end_anchor. Patterns use ICU regex syntax (LibreOffice's engine): (?<name>...) for named groups, not (?P<name>...); \\p{Lu} classes are allowed. Floating drawing shapes are matched with Python re instead, so ICU-only syntax does not match inside shapes.
             case_sensitive (optional): For target='search': Case-sensitive match (default: false). The result includes matched_case_sensitive for the mode that ran.
             hyperlink_url (optional): For target='search' with position='replace', when the match overlaps exactly one outline hyperlink (#…|outline): set this exact URL instead of substituting the matched text. content may equal old_content when the visible title is already correct and only the URL is stale. Omit it to update that target when the matched text occurs once outside the |outline suffix. Rejected with all_matches=true, with position='before'/'after', and when the match is not exactly one outline link. Bookmark targets are never rewritten.
         """
         return call_host_tool("apply_document_content", content=content, target=target, old_content=old_content, start_anchor=start_anchor, end_anchor=end_anchor, all_matches=all_matches, occurrence=occurrence, position=position, dry_run=dry_run, regex=regex, case_sensitive=case_sensitive, hyperlink_url=hyperlink_url)
 
     def apply_style(self, style: str, *, family: str | None = None, target: str | None = None, old_content: str | None = None, case_sensitive: bool | None = None, all_matches: bool | None = None, occurrence: int | None = None, clear_direct: str = 'style_props') -> dict[str, Any]:
-        """Apply a style to a target. Use family='ParagraphStyles' for paragraph styles (e.g. Heading 1) or family='CharacterStyles' for character styles (e.g. Source Text). Use 'No Character Style' with family='CharacterStyles' to remove a character style. Use target='selection' (default), 'beginning', 'end', 'full_document', or 'search' with old_content. Paragraph styles default to clear_direct='style_props': the style's font name and size show (house font wins) and paragraph indents/alignment follow the style; bold, italic and colour stay. Pass clear_direct='none' only to keep a hand-set font. Re-applying a style does not keep a quote indent — LibreOffice drops direct Para*.
+        """Apply a style to a target. Use family='ParagraphStyles' for paragraph styles (e.g. Heading 1) or family='CharacterStyles' for character styles (e.g. Source Text). Use 'No Character Style' with family='CharacterStyles' to remove a character style. Use target='selection' (default), 'beginning', 'end', 'full_document', or 'search' with old_content. Re-applying a style does not keep a quote indent — LibreOffice drops direct Para*.
 
         Args:
             style (required): Style name (e.g. Heading 1, Source Text).
@@ -2628,11 +2628,11 @@ class _WriterProxy:
         return call_host_tool("get_page_objects", page=page, locator=locator, paragraph=paragraph)
 
     def search_in_document(self, pattern: str, *, regex: bool | None = None, case_sensitive: bool | None = None, max_results: int | None = None, return_offsets: bool | None = None) -> dict[str, Any]:
-        """Search for text ANYWHERE in the document using LibreOffice native search — body paragraphs and headings, table cells, text boxes / frames, floating drawing shapes, page headers/footers, AND comments (annotations) are all covered. Each match reports WHERE it was found (location, e.g. "body", "table 'Table1' cell B2", "text box 'Frame1'", "shape 'Shape 1'", "header (page style 'Standard')", "comment by 'Ana'") plus the surrounding paragraph (or shape/comment text) for context. When pointing the user to a match, quote the first few words of its text and its location rather than any internal index. With regex=true, body/table/frame hits use LibreOffice/ICU regex; shape and comment sweeps use Python re (same INVALID_REGEX check). return_offsets is body-only literal search. A zero-width match stops the text-model walk, sets truncated, and does not count the empty hit.
+        """Search for text ANYWHERE in the document using LibreOffice native search — body paragraphs and headings, table cells, text boxes / frames, floating drawing shapes, page headers/footers, AND comments (annotations) are all covered. Each match reports WHERE it was found (location, e.g. "body", "table 'Table1' cell B2", "text box 'Frame1'", "shape 'Shape 1'", "header (page style 'Standard')", "comment by 'Ana'") plus the surrounding paragraph (or shape/comment text) for context. When pointing the user to a match, quote the first few words of its text and its location rather than any internal index. With regex=true, body/table/frame hits use LibreOffice/ICU regex; patterns use ICU syntax (validated by LibreOffice before searching; e.g. (?<name>...) not (?P<name>...)); shape and comment sweeps use Python re, so ICU-only syntax such as \\p{Lu} finds nothing there. return_offsets is body-only literal search. A zero-width match stops the text-model walk, sets truncated, and does not count the empty hit.
 
         Args:
             pattern (required): Search string or regex pattern.
-            regex (optional): Use regular expression (default: false).
+            regex (optional): Use regular expression (ICU syntax, default: false).
             case_sensitive (optional): Case-sensitive match (default: false). The result includes matched_case_sensitive for the mode that ran.
             max_results (optional): Maximum results to return (default: 20). Must be a positive integer.
             return_offsets (optional): If true, returns {start, end, text} character offsets for body text only (no regex, no shapes/comments). Default: false.

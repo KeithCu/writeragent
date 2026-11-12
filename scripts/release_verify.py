@@ -47,10 +47,13 @@ DESELECTED_K = (
     "test_sync_tool_marshaled_from_background",
     "test_call_timeout",
     "test_execute_python_addin_from_background_thread",
+    # OnLoadFinished inlines Collabora rewrite on untagged Dummy only in dev (UNTAGGED_DUMMY_IS_CURRENT).
+    "test_onload_collabora_rewrite_inlines_on_untagged_dummy",
     # --strip drops log.debug calls, so this caplog check sees nothing.
     "test_best_effort_logs_and_swallows_everything",
     # Same: its DEBUG half expects a stripped log.debug payload.
     "test_styling_logging_counts_not_payloads",
+    "test_slash_compact_lane_status_callback_logs",
     # --strip drops grammar_obs calls, so this grammar_obs assert has nothing to see.
     "test_locale_mismatch_proceeds_and_double_caches",
     # The bundle has no source extension/Addons.xcu (build_oxt strips Debug from its copy).

@@ -30,13 +30,16 @@ if TYPE_CHECKING:
 
 
 def _nav_result(tool: ToolWriterStructuralBase, call: Callable[[], dict[str, Any]]) -> dict[str, Any]:
-    """Map one navigation service call to the tool envelope (error dict and exception both become tool errors)."""
+    """Map one navigation service call to the tool envelope.
+
+    The service raises on failure; this maps ValueError / ToolExecutionError to
+    a tool error without the traceback execute_safe would log for a routine
+    "no next heading".
+    """
     try:
         result = call()
     except (ValueError, ToolExecutionError) as e:
         return tool._tool_error(str(e))
-    if "error" in result:
-        return tool._tool_error(result["error"])
     return {"status": "ok", **result}
 
 

@@ -117,13 +117,13 @@ made in `record_preserve_replace` in
   before the import is deleted untracked (`RecordChanges` temporarily off) so the paragraph break
   is not a tracked delete, keeping separate paragraphs intact without word concatenation.
 
-Optional environment overrides (no Settings UI):
+Optional internal configuration keys (set in `writeragent.json`, no Settings UI; read on every replace, out-of-range values are repaired to the default on load):
 
-| Variable | Default | Meaning |
-|----------|---------|---------|
-| `WRITERAGENT_AGENT_EDIT_DIFF_THRESHOLD` | `0.6` | Max changed-word fraction (0–1) before falling back to whole-block replace |
-| `WRITERAGENT_AGENT_EDIT_MAX_SURGICAL_RUNS` | `40` | Cap on sub-edits per replace |
-| `WRITERAGENT_AGENT_EDIT_SPLIT_AUTHOR_COLORS` | on | Set `0`/`false`/`off` to disable split insert/delete authors on whole-block edits |
+| Key | Default | Meaning |
+|-----|---------|---------|
+| `doc.agent_edit_diff_threshold` | `0.6` | Max changed-word fraction (0–1) before falling back to whole-block replace |
+| `doc.agent_edit_max_surgical_runs` | `40` | Cap on sub-edits per replace |
+| `doc.agent_edit_split_author_colors` | `true` | Set `false` to disable split insert/delete authors on whole-block edits |
 
 ## Outcomes
 
@@ -287,7 +287,7 @@ with that (as in **Current scope** above).
 
 `WriterStreamedRewriteSession` / `WriterStreamedAppendSession` ([`edit_review.py`](../../plugin/writer/edit_review.py))
 collapse to one redline but do not use `deletion_author()` on the delete half of a rewrite. Match
-the `format.py` split-author pattern so by-author coloring distinguishes insertions and deletions.
+the `html_import.py` split-author pattern (`_deletion_author`) so by-author coloring distinguishes insertions and deletions.
 
 ### Inline review polish
 

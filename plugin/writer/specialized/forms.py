@@ -22,18 +22,23 @@ They do not fill PDF/AcroForm widgets. Draw "paper forms" (empty TextShapes next
 to labels) use get_draw_tree + shape_fill_fields / shape_upsert instead.
 """
 
+from datetime import datetime
 import logging
 import re
 from typing import Any
 from com.sun.star.awt import Point, Size
 from com.sun.star.text.TextContentAnchorType import AS_CHARACTER
 
+from ..html_import import insert_html_fragment_at_cursor
 from ..specialized_base import ToolWriterFormBase, enum_param, index_error
-from plugin.framework.doc_type import is_calc, is_draw
-from plugin.doc.text_helpers import clone_text_range
+from plugin.doc.compound_undo import UndoUnavailable, commit_or_rollback
+from plugin.doc.text_helpers import clone_text_range, selected_text_range
+from plugin.doc.undo import commit_or_rollback_mutation
 from plugin.doc.visual_helpers import get_active_draw_page
 from plugin.draw.tree import CONTROL_TYPE_MAP, coerce_control_state, control_snapshot, readable_control_type
-from plugin.framework.errors import format_error_payload, ToolExecutionError, is_disposal, reraise_if_disposed
+from plugin.framework.config import get_api_config
+from plugin.framework.doc_type import is_calc, is_draw
+from plugin.framework.errors import format_error_payload, make_tool_error, ToolExecutionError, is_disposal, reraise_if_disposed
 from plugin.framework.queue_executor import main
 from plugin.framework.uno_context import uno_same
 
@@ -46,7 +51,7 @@ _FORM_DOC_SERVICES = list(ALL_DOCUMENT_SERVICES)
 
 
 def _no_form_draw_page_payload() -> dict[str, Any]:
-    return format_error_payload(ToolExecutionError("No draw page available for form operations."))
+    return make_tool_error("No draw page available for form operations.")
 
 
 def _resolve_form_page(doc: Any, page: Any = None) -> Any:
@@ -55,6 +60,7 @@ def _resolve_form_page(doc: Any, page: Any = None) -> Any:
     Writer/Calc ignore *page* (Writer has one canvas; Calc uses the active sheet).
     """
     if page is not None and is_draw(doc):
+        # Lazy: cross-app; the Draw bridge and shape helpers load only when the target is a Draw/Impress document.
         from plugin.draw.bridge import DrawBridge
 
         try:
@@ -88,15 +94,15 @@ def _find_control_shape(dp: Any, index: int | None = None, name: Any = None) -> 
         assert isinstance(index, int)
         err = index_error(index, dp.getCount(), "draw-page shape")
         if err:
-            return None, None, format_error_payload(ToolExecutionError(err))
+            return None, None, make_tool_error(err)
         shape = dp.getByIndex(index)
         if shape.getShapeType() != "com.sun.star.drawing.ControlShape":
-            return None, None, format_error_payload(ToolExecutionError(f"Shape at index {index} is not a form control"))
+            return None, None, make_tool_error(f"Shape at index {index} is not a form control")
         return index, shape, None
 
     wanted = (name or "").strip()
     if not wanted:
-        return None, None, format_error_payload(ToolExecutionError("Pass name or index to address the form control."))
+        return None, None, make_tool_error("Pass name or index to address the form control.")
 
     hits = []
     for i in range(dp.getCount()):
@@ -111,12 +117,12 @@ def _find_control_shape(dp: Any, index: int | None = None, name: Any = None) -> 
     if len(hits) == 1:
         return hits[0][0], hits[0][1], None
     if not hits:
-        return None, None, format_error_payload(ToolExecutionError(f"No form control named '{wanted}'."))
+        return None, None, make_tool_error(f"No form control named '{wanted}'.")
     hit_details = []
     for idx, shape in hits:
         m_label = getattr(shape.Control, "Label", "") or ""
         hit_details.append(f"index {idx} (label '{m_label}')")
-    return None, None, format_error_payload(ToolExecutionError(f"Several form controls match '{wanted}': {', '.join(hit_details)}; pass index as well."))
+    return None, None, make_tool_error(f"Several form controls match '{wanted}': {', '.join(hit_details)}; pass index as well.")
 
 
 def _resolve_form_page_and_control(
@@ -145,8 +151,6 @@ def _coerce_items(raw: Any) -> list[str] | None:
 
 
 def _parse_date_default_value(raw: str) -> tuple[int, int, int] | None:
-    from datetime import datetime
-
     s = raw.strip()
     for fmt in ("%d.%m.%Y", "%Y-%m-%d"):
         try:
@@ -162,7 +166,7 @@ def _items_or_error(kwargs: dict[str, Any]) -> tuple[list[str] | None, dict[str,
         coerced_items = _coerce_items(kwargs["items"])
         if coerced_items is None:
             msg = "Parameter 'items' must be a list of strings or comma-separated string."
-            return None, format_error_payload(ToolExecutionError(msg))
+            return None, make_tool_error(msg)
         return coerced_items, None
     return None, None
 
@@ -228,8 +232,6 @@ def _commit_form_batch(
     mutate: Any,
     undo_message: str,
 ) -> dict[str, Any] | None:
-    from plugin.doc.compound_undo import UndoUnavailable, commit_or_rollback
-
     try:
         outcome = commit_or_rollback(doc, title, mutate)
         outcome.raise_mutate_error()
@@ -361,7 +363,7 @@ class FormCreateControl(ToolWriterFormBase):
     }
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
-        return main.run(_create_control, ctx, **kwargs)
+        return _create_control(ctx, **kwargs)
 
 
 def _create_control(ctx: Any, *, page_cursors: Any = None, **kwargs: Any) -> dict[str, Any]:
@@ -372,13 +374,13 @@ def _create_control(ctx: Any, *, page_cursors: Any = None, **kwargs: Any) -> dic
 
     if control_type not in CONTROL_TYPE_MAP:
         legal = ", ".join(CONTROL_TYPE_MAP.keys())
-        return format_error_payload(ToolExecutionError(f"Unknown control type '{control_type}'. Allowed types: {legal}"))
+        return make_tool_error(f"Unknown control type '{control_type}'. Allowed types: {legal}")
 
     date_val = None
     if control_type == "date" and kwargs.get("default_value"):
         date_val = _parse_date_default_value(kwargs["default_value"])
         if date_val is None:
-            return format_error_payload(ToolExecutionError(f"Invalid date format for default_value '{kwargs['default_value']}'; expected DD.MM.YYYY or YYYY-MM-DD."))
+            return make_tool_error(f"Invalid date format for default_value '{kwargs['default_value']}'; expected DD.MM.YYYY or YYYY-MM-DD.")
 
     coerced_items, items_err = _items_or_error(kwargs)
     if items_err:
@@ -393,14 +395,14 @@ def _create_control(ctx: Any, *, page_cursors: Any = None, **kwargs: Any) -> dic
     if page_cursors is not None and dp is not None:
         cursor = page_cursors.for_page(dp)
         if name in cursor.control_names:
-            return format_error_payload(ToolExecutionError(f"A form control named '{name}' already exists on this page."))
+            return make_tool_error(f"A form control named '{name}' already exists on this page.")
     elif dp is not None:
         for i in range(dp.getCount()):
             shape_i = dp.getByIndex(i)
             try:
                 if shape_i.getShapeType() == "com.sun.star.drawing.ControlShape":
                     if _preferred_control_name(shape_i) == name:
-                        return format_error_payload(ToolExecutionError(f"A form control named '{name}' already exists on this page."))
+                        return make_tool_error(f"A form control named '{name}' already exists on this page.")
             except Exception as exc:
                 log.debug("Failed to inspect shape for name collision: %s", exc)
 
@@ -410,7 +412,7 @@ def _create_control(ctx: Any, *, page_cursors: Any = None, **kwargs: Any) -> dic
         # Create control model
         model = doc.createInstance(full_comp_name)
         if not model:
-            return format_error_payload(ToolExecutionError(f"Failed to create form component {full_comp_name}"))
+            return make_tool_error(f"Failed to create form component {full_comp_name}")
 
         if hasattr(model, "Label"):
             model.Label = label
@@ -426,6 +428,7 @@ def _create_control(ctx: Any, *, page_cursors: Any = None, **kwargs: Any) -> dic
         if control_type == "date" and date_val is not None:
             year, month, day = date_val
             try:
+                # Lazy: uno is looked up when this runs; unit tests swap sys.modules["uno"] for mocks, and a module-level binding would keep a stale one.
                 import uno
                 d_struct = uno.createUnoStruct("com.sun.star.util.Date")
                 setattr(d_struct, "Year", year)
@@ -477,7 +480,6 @@ def _create_control(ctx: Any, *, page_cursors: Any = None, **kwargs: Any) -> dic
         else:
             # Anchor 'As Character' so it flows with text
             shape.setPropertyValue("AnchorType", AS_CHARACTER)
-            from plugin.doc.text_helpers import selected_text_range
 
             anchor = selected_text_range(doc.getCurrentController())
             if anchor is None:
@@ -497,7 +499,7 @@ def _create_control(ctx: Any, *, page_cursors: Any = None, **kwargs: Any) -> dic
         if is_disposal(e):
             raise
         log.exception("Error creating form control")
-        return format_error_payload(ToolExecutionError(f"Error creating form control: {str(e)}"))
+        return make_tool_error(f"Error creating form control: {str(e)}")
 
 
 class FormCreate(ToolWriterFormBase):
@@ -585,7 +587,7 @@ class FormGenerate(ToolWriterFormBase):
         return True
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
-        from plugin.framework.config import get_api_config
+        # Lazy: LlmClient brings in the HTTP client stack (plugin.framework.client loads it on attribute access); only FormGenerate needs it.
         from plugin.framework.client.llm_client import LlmClient
 
         description = kwargs["description"]
@@ -613,7 +615,7 @@ Output ONLY the HTML content. No explanations. No Markdown like # Header.
 
         try:
             if main.is_current():
-                return format_error_payload(ToolExecutionError("FormGenerate LLM call must not run on the UI thread"))
+                return self._tool_error("FormGenerate LLM call must not run on the UI thread")
 
             # Get the full document from LLM
             content = client.chat_completion_sync(
@@ -632,7 +634,7 @@ Output ONLY the HTML content. No explanations. No Markdown like # Header.
             if getattr(e, "code", None) == "USER_STOPPED":
                 return format_error_payload(e)
             log.exception("Error in form_generate")
-            return format_error_payload(ToolExecutionError(f"Form generation failed: {str(e)}"))
+            return self._tool_error(f"Form generation failed: {str(e)}")
 
     def _process_form_content(self, ctx: Any, content: str) -> dict[str, Any]:
         doc = ctx.doc
@@ -651,7 +653,7 @@ Output ONLY the HTML content. No explanations. No Markdown like # Header.
                     if params:
                         fname = params.get("name")
                         if fname and fname in batch_names:
-                            err = format_error_payload(ToolExecutionError(f"Duplicate control name '{fname}' in batch."))
+                            err = self._tool_error(f"Duplicate control name '{fname}' in batch.")
                             field_results.append(err)
                             field_names.append(str(fname))
                             continue
@@ -662,7 +664,7 @@ Output ONLY the HTML content. No explanations. No Markdown like # Header.
                         field_names.append(str(params.get("name") or ""))
                     else:
                         snippet = part if len(part) <= 80 else part[:77] + "..."
-                        field_results.append(format_error_payload(ToolExecutionError(f"Could not parse form field tag: {snippet}")))
+                        field_results.append(self._tool_error(f"Could not parse form field tag: {snippet}"))
                         field_names.append("")
                 else:
                     if part:
@@ -692,6 +694,7 @@ Output ONLY the HTML content. No explanations. No Markdown like # Header.
             if is_calc(doc):
                 _append_text_to_calc_active_area(doc, plain + " ")
                 return
+            # Lazy: cross-app; the Draw bridge and shape helpers load only when the target is a Draw/Impress document.
             from plugin.draw.bridge import DrawBridge
             from plugin.draw.shapes import DrawShapes
 
@@ -705,8 +708,6 @@ Output ONLY the HTML content. No explanations. No Markdown like # Header.
             )
             shape.setString(plain)
             return
-
-        from ..html_import import insert_html_fragment_at_cursor
 
         vc = doc.getCurrentController().getViewCursor()
         cursor_range = clone_text_range(vc)
@@ -741,9 +742,6 @@ class FormListControls(ToolWriterFormBase):
     parameters: dict[str, Any] | None = _PAGE_ONLY_PARAMETERS
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
-        return main.run(self._execute_main, ctx, **kwargs)
-
-    def _execute_main(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         doc = ctx.doc
         dp = _resolve_form_page(doc, kwargs.get("page"))
         if dp is None:
@@ -818,9 +816,6 @@ class FormEditControl(ToolWriterFormBase):
     }
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
-        return main.run(self._execute_main, ctx, **kwargs)
-
-    def _execute_main(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         _unused_dp, idx, shape, err = _resolve_form_page_and_control(ctx.doc, kwargs)
         if err:
             return err
@@ -842,10 +837,10 @@ class FormEditControl(ToolWriterFormBase):
 
         if "state" in kwargs:
             if not hasattr(model, "State"):
-                return format_error_payload(ToolExecutionError("This control has no State (not a checkbox/radio)."))
+                return self._tool_error("This control has no State (not a checkbox/radio).")
             coerced_state = coerce_control_state(kwargs["state"])
             if coerced_state is None:
-                return format_error_payload(ToolExecutionError(f"Could not interpret {kwargs['state']!r} as a checkbox/radio State."))
+                return self._tool_error(f"Could not interpret {kwargs['state']!r} as a checkbox/radio State.")
         else:
             coerced_state = None
 
@@ -882,8 +877,6 @@ class FormEditControl(ToolWriterFormBase):
             if any(k in kwargs for k in ["width", "height"]):
                 sz = shape.getSize()
                 shape.setSize(Size(kwargs.get("width", sz.Width), kwargs.get("height", sz.Height)))
-
-        from plugin.doc.undo import commit_or_rollback_mutation
 
         batch_err = commit_or_rollback_mutation(
             self,
@@ -931,17 +924,12 @@ class FormDeleteControl(ToolWriterFormBase):
     }
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
-        return main.run(self._execute_main, ctx, **kwargs)
-
-    def _execute_main(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         dp, idx, shape, err = _resolve_form_page_and_control(ctx.doc, kwargs)
         if err:
             return err
 
         def mutate() -> None:
             dp.remove(shape)
-
-        from plugin.doc.undo import commit_or_rollback_mutation
 
         batch_err = commit_or_rollback_mutation(
             self,

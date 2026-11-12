@@ -86,10 +86,10 @@ def build_eval_argv(
 
 
 def main() -> int:
-    # Resolve credentials before spawning child (clear errors at repo root).
+    # Resolve credentials before spawning child; the child validates keys after judge resolution.
     if str(PO_DIR) not in sys.path:
         sys.path.insert(0, str(PO_DIR))
-    from eval_auth import require_api_key, resolve_api_base, resolve_api_key
+    from eval_auth import resolve_api_base, resolve_api_key
 
     parser = argparse.ArgumentParser(description="WriterAgent benchmark CLI")
     parser.add_argument("--model", "-m", help="Single model to benchmark")
@@ -122,7 +122,6 @@ def main() -> int:
 
     api_base = resolve_api_base(cli_base=args.endpoint)
     api_key = resolve_api_key(cli_key=args.api_key)
-    require_api_key(api_key, api_base)
 
     if args.task or args.document:
         print("Custom --task/--document: not implemented yet.", file=sys.stderr)

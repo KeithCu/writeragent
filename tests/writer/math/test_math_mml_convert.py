@@ -11,6 +11,7 @@ from plugin.writer.math.math_mml_convert import (
     convert_latex_to_starmath,
     insert_writer_math_formula,
 )
+from tests.uno_fakes import PyUnoSimulatedException
 
 
 class _QuietExc(Exception):
@@ -21,15 +22,16 @@ class _QuietExc(Exception):
 def test_exception_message_non_empty_for_empty_str_uno_style() -> None:
     from plugin.writer.math import math_mml_convert as mmc
 
-    assert mmc._exception_message(_QuietExc()) == "_QuietExc"
-    assert "ValueError" in mmc._exception_message(ValueError("bad"))
+    assert mmc.exception_message(_QuietExc()) == "_QuietExc"
+    assert mmc.exception_message(ValueError("bad")) == "ValueError: bad"
+    assert mmc.exception_message(ValueError()) == "ValueError"
 
     class _Uno(Exception):
         def __init__(self) -> None:
             super().__init__("")
             self.Message = "filter failed"
 
-    assert mmc._exception_message(_Uno()) == "_Uno: filter failed"
+    assert mmc.exception_message(_Uno()) == "_Uno: filter failed"
 
 
 def test_math_root_extraction() -> None:
@@ -54,7 +56,9 @@ def test_convert_mathml_to_starmath_closes_doc_on_property_error() -> None:
     from plugin.writer.math.math_mml_convert import convert_mathml_to_starmath
 
     mock_doc = MagicMock()
-    mock_doc.getPropertyValue.side_effect = RuntimeError("failed to read Formula")
+    mock_doc.getPropertyValue.side_effect = PyUnoSimulatedException(
+        "UnknownPropertyException: Formula"
+    )
     mock_desktop = MagicMock()
     mock_desktop.loadComponentFromURL.return_value = mock_doc
 
@@ -62,7 +66,9 @@ def test_convert_mathml_to_starmath_closes_doc_on_property_error() -> None:
         res = convert_mathml_to_starmath(object(), "<math><mi>x</mi></math>")
 
     assert res.ok is False
-    assert "failed to read Formula" in (res.error_message or "")
+    error_message = res.error_message or ""
+    assert "Formula" in error_message
+    assert "traceback" not in error_message
     mock_doc.close.assert_called_once_with(True)
 
 

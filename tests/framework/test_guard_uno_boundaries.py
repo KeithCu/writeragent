@@ -21,9 +21,9 @@ class TestGuardUnoBoundaries:
         with (
             patch("plugin.doc.document_research.os.path.isfile", return_value=True),
             patch("plugin.doc.document_research.resolve_document_by_url", return_value=(None, None)),
-            patch("plugin.framework.uno_context.get_desktop") as mock_desktop,
+            patch("plugin.doc.document_research.get_desktop") as mock_desktop,
             patch("plugin.doc.document_research.get_document_type", return_value=DocumentType.CALC),
-            patch("plugin.framework.thread_guard.guard_uno", side_effect=lambda o: o) as mock_guard,
+            patch("plugin.doc.document_research.guard_uno", side_effect=lambda o: o) as mock_guard,
         ):
             mock_desktop.return_value.loadComponentFromURL.return_value = opened_model
             from plugin.doc.document_research import open_document_for_read
@@ -138,7 +138,7 @@ class TestGuardUnoBoundaries:
         guarded_ctx.ServiceManager = sm
         sm.createInstanceWithContext.return_value = gp
         with (
-            patch("plugin.framework.uno_context.get_ctx", return_value=guarded_ctx) as mock_get_ctx,
+            patch("plugin.writer.images.image_tools.get_ctx", return_value=guarded_ctx) as mock_get_ctx,
             patch(
                 "plugin.writer.images.image_tools.uno.getComponentContext",
                 side_effect=AssertionError("uno.getComponentContext must not be used; call get_ctx()"),
@@ -203,7 +203,7 @@ class TestGuardUnoBoundaries:
         ctrl.getModel.return_value = model
         elem = MagicMock()
         elem.getController.return_value = ctrl
-        with patch("plugin.framework.thread_guard.guard_uno", side_effect=lambda o: o) as mock_guard:
+        with patch("plugin.doc.document_research.guard_uno", side_effect=lambda o: o) as mock_guard:
             from plugin.doc.document_research import _office_model_from_desktop_element
 
             out = _office_model_from_desktop_element(elem)
@@ -213,7 +213,7 @@ class TestGuardUnoBoundaries:
     def test_office_model_from_desktop_element_wraps_element_without_controller(self) -> None:
         elem = MagicMock(name="elem_is_model")
         elem.getController.return_value = None
-        with patch("plugin.framework.thread_guard.guard_uno", side_effect=lambda o: o) as mock_guard:
+        with patch("plugin.doc.document_research.guard_uno", side_effect=lambda o: o) as mock_guard:
             from plugin.doc.document_research import _office_model_from_desktop_element
 
             out = _office_model_from_desktop_element(elem)
@@ -226,7 +226,7 @@ class TestGuardUnoBoundaries:
         elem.getController.side_effect = RuntimeError(
             "Couldn't convert <traceback object> to a UNO type"
         )
-        with patch("plugin.framework.thread_guard.guard_uno") as mock_guard:
+        with patch("plugin.doc.document_research.guard_uno") as mock_guard:
             from plugin.doc.document_research import _office_model_from_desktop_element
 
             out = _office_model_from_desktop_element(elem)

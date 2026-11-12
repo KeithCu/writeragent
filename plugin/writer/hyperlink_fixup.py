@@ -41,13 +41,18 @@ own portions, so a whole-portion URL write leaves them alone. A preserve-
 format replace keeps the old URL on the whole line; the pending pass already
 rewrites it. Skip the title-only paint when the replacement already has the
 new URL. When a paint is still needed (HTML dropped the URL), snapshot
-``CharColor`` / ``CharUnderline`` after the text replace and put them on the
-same cursor immediately after the assignment.
+direct ``CharColor`` / ``CharUnderline`` overrides and link character styles
+after the text replace and put them on the same cursor immediately after the
+assignment.
 
 A page-number replace does not change the URL. ``setString`` of those digits
 still splits the run onto Internet-link chrome, and ``CharColor`` on that
-subrange repaints the whole link. The look captured before the replace is
-written after assigning the same URL on the whole paragraph.
+subrange repaints the whole link. To prevent painting that subrange from
+turning inherited style colors into direct attributes, the direct values
+and link styles captured before the replace are written on the whole
+paragraph after assigning the same URL. Failures raise
+ToolExecutionError(code="HYPERLINK_UPDATE_FAILED") and the caller rolls the text
+change back.
 """
 
 from __future__ import annotations
@@ -57,7 +62,7 @@ import logging
 from typing import Any, Iterator
 
 from plugin.doc.text_helpers import go_right, iter_elements
-from plugin.framework.errors import uno_read
+from plugin.framework.errors import ToolExecutionError, uno_read, uno_write
 
 log = logging.getLogger("writeragent.writer.hyperlink")
 
@@ -65,9 +70,11 @@ _OUTLINE_SUFFIX = "|outline"
 _URL = "HyperLinkURL"
 _NAME = "HyperLinkName"
 _TARGET = "HyperLinkTarget"
+LINK_STYLE_PROPS: tuple[str, str] = ("UnvisitedCharStyleName", "VisitedCharStyleName")
 # Link chrome only. HyperLinkURL assignment overwrites these; the HTML range
 # copy also treats them as the run's look. Other Char* (weight, font) stay
-# with the text replace / HTML import and must not be re-painted here.
+# with the text replace / HTML import and must not be re-painted here. Only
+# direct values of these properties, alongside link character styles, are copied.
 _CHAR_LOOK = ("CharColor", "CharUnderline")
 
 
@@ -104,8 +111,9 @@ class OutlineSnapshot:
     # it on the new characters; this URL is put back unchanged so the
     # bookmark is not unlinked.
     preserve_url: str = ""
-    # CharColor / CharUnderline of the matched run, copied before the
-    # text replace. A later snapshot already includes Internet-link chrome.
+    # Direct CharColor / CharUnderline overrides plus link character styles
+    # of the matched run, copied before the text replace. A later snapshot
+    # already includes Internet-link chrome. Inherited values are not copied.
     look: dict[str, Any] = field(default_factory=dict)
 
 
@@ -264,7 +272,7 @@ def capture_outline_hyperlinks(text_range: Any) -> OutlineSnapshot:
         if not _ranges_overlap(text, portion, text_range):
             continue
         if not look:
-            look = _read_char_look(portion)
+            look = read_link_look(portion)
         url = _prop(portion, _URL)
         if not url:
             continue
@@ -312,9 +320,10 @@ def _set_prop(cursor: Any, name: str, value: str) -> None:
     except Exception as exc:
         # A protected index refuses the property write. The caller rolls the text
         # change back with this error instead of leaving a stale outline target.
-        raise RuntimeError(
+        raise ToolExecutionError(
             "Could not update the outline hyperlink (the index may be protected "
-            "against manual changes): %s" % exc
+            "against manual changes): %s" % exc,
+            code="HYPERLINK_UPDATE_FAILED",
         ) from exc
 
 
@@ -342,18 +351,16 @@ def _select_replacement(text: Any, anchor: Any, snapshot: OutlineSnapshot, new_p
     return cursor
 
 
-def _write_char_look(cursor: Any, props: dict[str, Any]) -> None:
-    """Put CharColor / CharUnderline on *cursor* (the same range that just got a URL).
+def write_link_look(cursor: Any, props: dict[str, Any]) -> None:
+    """Set *props* on *cursor* after its HyperLinkURL write. Uses uno_write: disposal
+    re-raises, any other failure is logged at debug and skipped.
 
     A later cursor over the same characters does not stick after a splitting
     HyperLinkURL write. The setup path (URL, then look on that cursor) does.
     """
     for name, value in props.items():
-        try:
-            cursor.setPropertyValue(name, value)
-        except Exception:
-            log.debug("outline hyperlink: could not restore %s", name, exc_info=True)
-            continue
+        if not uno_write(lambda: cursor.setPropertyValue(name, value)):
+            log.debug("write_link_look: could not set %s", name)
 
 
 def _write_plan_on_cursor(cursor: Any, plan: dict[str, Any],
@@ -363,22 +370,35 @@ def _write_plan_on_cursor(cursor: Any, plan: dict[str, Any],
         if val is not None:
             _set_prop(cursor, prop, val)
     if look:
-        _write_char_look(cursor, look)
+        write_link_look(cursor, look)
 
 
-def _read_char_look(obj: Any) -> dict[str, Any]:
-    """Direct colour / underline on *obj*, or empty when the property is missing."""
+def read_link_look(obj: Any, char_props: tuple[str, ...] = _CHAR_LOOK) -> dict[str, Any]:
+    """Direct Char* on *obj* (getPropertyState is DIRECT_VALUE) plus the link's
+    character style names when *obj* is a hyperlink. Inherited values are not copied.
+
+    While portion-level getPropertyState is generally unreliable for paragraph-level
+    attributes (which report DEFAULT_VALUE), hint-level overrides on hyperlinks do
+    reliably report DIRECT_VALUE and take precedence over the link character style.
+    Paragraph-level direct formatting reaches newly inserted rows via the paragraph-break
+    split rather than property cloning.
+    """
     props: dict[str, Any] = {}
-    for name in _CHAR_LOOK:
-        # Marker portions (bookmarks, redlines) may lack Char* properties.
+    for name in char_props:
+        state = uno_read(lambda: obj.getPropertyState(name), None)
+        if getattr(state, "value", None) == "DIRECT_VALUE":
+            value = uno_read(lambda: obj.getPropertyValue(name), None)
+            if value is not None:
+                props[name] = value
+    for name in LINK_STYLE_PROPS:
         value = uno_read(lambda: obj.getPropertyValue(name), None)
-        if value is not None:
+        if isinstance(value, str) and value:
             props[name] = value
     return props
 
 
 def _snapshot_char_look(text: Any, anchor: Any) -> list[tuple[int, int, dict[str, Any]]]:
-    """CharColor / CharUnderline of each non-empty portion, from the paragraph start.
+    """Direct Char* and link styles of each non-empty portion, from the paragraph start.
 
     Taken after the text replace and before HyperLinkURL is written. Offsets stay
     valid through the URL write because that write does not change the characters.
@@ -389,7 +409,7 @@ def _snapshot_char_look(text: Any, anchor: Any) -> list[tuple[int, int, dict[str
     for portion in _iter_portions(text, start):
         chunk = str(portion.getString() or "")
         if chunk:
-            props = _read_char_look(portion)
+            props = read_link_look(portion)
             if props:
                 runs.append((offset, offset + len(chunk), props))
         offset += len(chunk)
@@ -428,8 +448,10 @@ def _paint(text: Any, anchor: Any, snapshot: OutlineSnapshot, new_plain: str,
     selected = None if cursor is None else uno_read(lambda: str(cursor.getString() or ""), None)
     if cursor is None or selected != new_plain:
         if required:
-            raise RuntimeError(
-                "Could not select the replaced text to update its outline hyperlink.")
+            raise ToolExecutionError(
+                "Could not select the replaced text to update its outline hyperlink.",
+                code="HYPERLINK_UPDATE_FAILED",
+            )
         log.debug("outline hyperlink: could not reselect the replaced text to restore its URL")
         return False
     planned = plan.get("new_url")
@@ -449,7 +471,10 @@ def restore_outline_hyperlinks(anchor: Any, snapshot: OutlineSnapshot,
     """
     if anchor is None:
         if snapshot.links or override:
-            raise RuntimeError("Could not locate the replaced text to update its outline hyperlink.")
+            raise ToolExecutionError(
+                "Could not locate the replaced text to update its outline hyperlink.",
+                code="HYPERLINK_UPDATE_FAILED",
+            )
         return []
 
     new_plain = measured_replacement(anchor, snapshot)
@@ -464,8 +489,9 @@ def restore_outline_hyperlinks(anchor: Any, snapshot: OutlineSnapshot,
     try:
         text = anchor.getText()
     except Exception as exc:
-        raise RuntimeError(
-            "Could not locate the replaced text to update its outline hyperlink: %s" % exc
+        raise ToolExecutionError(
+            "Could not locate the replaced text to update its outline hyperlink: %s" % exc,
+            code="HYPERLINK_UPDATE_FAILED",
         ) from exc
     # Writing HyperLinkURL on a *subrange* of an already-linked TOC
     # line (the title only) splits that portion and LibreOffice paints
@@ -477,8 +503,16 @@ def restore_outline_hyperlinks(anchor: Any, snapshot: OutlineSnapshot,
     # (HTML dropped the URL), put the snapshotted look on the same
     # cursor immediately after the assignment.
     look_runs = _snapshot_char_look(text, anchor)
-    title_look = _look_covering(
-        look_runs, len(snapshot.prefix), len(snapshot.prefix) + len(new_plain))
+    title_look = dict(
+        _look_covering(
+            look_runs, len(snapshot.prefix), len(snapshot.prefix) + len(new_plain)
+        )
+    )
+    # An HTML replace drops the link on the new characters so post-replace portions
+    # lack link styles; take them from the pre-replace snapshot.
+    for key in LINK_STYLE_PROPS:
+        if key in snapshot.look:
+            title_look.setdefault(key, snapshot.look[key])
 
     if not writable:
         # Put the same target back on the replaced characters only when they
@@ -503,7 +537,7 @@ def restore_outline_hyperlinks(anchor: Any, snapshot: OutlineSnapshot,
                 if para == snapshot.prefix + new_plain + snapshot.suffix:
                     cursor = _paragraph_cursor(text, anchor.getStart())
                     _set_prop(cursor, _URL, put_back)
-                    _write_char_look(cursor, snapshot.look)
+                    write_link_look(cursor, snapshot.look)
                     restored = True
             if not restored:
                 _paint(text, anchor, snapshot, new_plain, {
@@ -526,10 +560,11 @@ def restore_outline_hyperlinks(anchor: Any, snapshot: OutlineSnapshot,
         try:
             if _same_point(text, portion.getStart(), portion.getEnd()):
                 continue
-            pending.append((portion.getStart(), portion.getEnd(), plan, _read_char_look(portion)))
+            pending.append((portion.getStart(), portion.getEnd(), plan, read_link_look(portion)))
         except Exception as exc:
-            raise RuntimeError(
-                "Could not locate an outline hyperlink run to update: %s" % exc
+            raise ToolExecutionError(
+                "Could not locate an outline hyperlink run to update: %s" % exc,
+                code="HYPERLINK_UPDATE_FAILED",
             ) from exc
     for start, end, plan, portion_look in pending:
         cursor = text.createTextCursorByRange(start)

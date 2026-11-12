@@ -145,6 +145,15 @@ def python_orchestrator_routing_line(*, delegate_toolset: str) -> str:
 # keep the user's edit wording and name source_image='selection'.
 DELEGATE_SPECIALIZED_TASK_PARAM_HINT = "What the specialized task should accomplish. For edit/change/restyle of an existing or selected image, instruct image_generate(source_image='selection') and keep the user's wording so img2img replaces the graphic in place."
 
+# Later tool calls read the live document directly; echoing modified content
+# back into chat history wastes context and corrupts links on round-trip retypes.
+DELEGATE_ANCHOR_RULE = (
+    "The document is the shared state: for edit tasks, name where data is "
+    "(TOC entry text, heading, cell range, Draw page and shape name) "
+    "and give counts rather than pasting rows, values, or links back; "
+    "for a read request, return what the user asked for."
+)
+
 # Shared guidance for writing `task` strings when delegating to specialized sub-agents.
 # Must stay a single line (delegation templates are one line; tests assert no newlines).
 SPECIALIZED_TASK_RULES = (
@@ -152,7 +161,11 @@ SPECIALIZED_TASK_RULES = (
     "When the user wants to edit, change, or restyle an existing or selected image, "
     "the task must instruct image_generate(source_image='selection') and keep the "
     "user's wording (for example 'make it look like a wizard') so img2img replaces "
-    "the graphic in place."
+    "the graphic in place. "
+    "For data already in the document, name where it is (heading, TOC entry text, "
+    "cell range, Draw page and shape name) in task and let the executor read and edit it there; "
+    "do not paste rows, values, or links read from the document into task. "
+    "Pass user-given new text or targets into task verbatim."
 )
 
 
@@ -160,8 +173,9 @@ SPECIALIZED_TASK_RULES = (
 # Shared HTML primitives (sidebar + document fragments)
 # ---------------------------------------------------------------------------
 
-# Tag-level rules shared by sidebar chat and apply_document_content fragments.
-# Container differs: single HTML string (sidebar) vs JSON array (document) — docs/chat/sidebar-implementation.md § Chat prompt constants.
+# Tag-level rules for apply_document_content fragments (also served to MCP as the editing-html
+# topic). The sidebar chat block carries only CHAT_SIDEBAR_HTML_EXAMPLES, whose Bad examples
+# cover Markdown and escaped entities — docs/chat/sidebar-implementation.md § Chat prompt constants.
 HTML_FRAGMENT_RULES = """
 - Use <br> for line breaks within an element; <p> for paragraphs.
 - Raw Unicode (é, ü, ©); straight double quotes ("), not curly/smart quotes or HTML entities. Send <h1> not &lt;h1&gt;. Preserve intentional spacing.
@@ -180,7 +194,6 @@ CHAT_RESPONSE_FORMAT = """CHAT RESPONSE FORMAT: Format your conversational respo
 PLAIN_CHAT_RESPONSE_FORMAT = "CHAT RESPONSE FORMAT: Respond in plain text only. Do NOT use HTML tags or Markdown formatting (no #, **, ```, etc.)."
 
 RICH_CHAT_SIDEBAR_INSTRUCTIONS = f"""{CHAT_RESPONSE_FORMAT}
-{HTML_FRAGMENT_RULES}
 {CHAT_SIDEBAR_HTML_EXAMPLES}"""
 
 
@@ -219,6 +232,24 @@ Prioritize what reduces future user steering."""
 # becomes common for generated formulas, prefer the two-cell pattern
 # (=PY($A$1; range) — Monaco already follows that ref) instead of lengthening
 # this prompt. Not scheduled.
+
+
+def build_specialized_sub_agent_instructions(
+    agent_label: str,
+    domain: str,
+    *,
+    extra: str = "",
+) -> str:
+    """Build system instructions for a specialized domain sub-agent executor."""
+    base = (
+        f"You are a specialized {agent_label} task executor focused on the '{domain}' domain. "
+        "You have a focused set of tools to accomplish your task. Use them to fulfill the user's request. "
+        "If this domain cannot do the task, say so in the answer instead of claiming it was done. "
+        f"{DELEGATE_ANCHOR_RULE}"
+    )
+    if extra:
+        return f"{base}{extra}"
+    return base
 
 
 def images_specialized_sub_agent_hint() -> str:
@@ -361,24 +392,17 @@ For web_research and document_research: describe what to research in `task` (top
 {python_orchestrator_routing_line(delegate_toolset="delegate_to_specialized_writer_toolset")}"""
 
 
-WRITER_CHAT_TOOLS_SECTION = """TOOLS:
-- apply_document_content: Write HTML to the document (required after research delegates). See APPLY_DOCUMENT_CONTENT AND HTML below.
-- get_document_content: Read document (full/selection/range) as HTML.
-- search_in_document: Find text anywhere (body, tables, text boxes, shapes, headers/footers, comments); each match reports where it lives.
-- apply_style: Apply a paragraph or character style (family='ParagraphStyles' or 'CharacterStyles').
-- add_comment: Anchor review feedback or suggestions to a specific passage (see TOOL USAGE PATTERNS).
-- get_guidance: Read the how-to manual on demand — no topic lists the topics; one topic (e.g. 'search', 'navigation', 'images') reads just that section."""
+WRITER_CHAT_TOOLS_SECTION = """TOOLS: get_guidance reads the how-to manual on demand — no topic lists the topics; one topic (e.g. 'search', 'navigation', 'images') reads just that section."""
 
 
 TRANSLATION_RULES = """TRANSLATION: get_document_content(scope=full) -> translate -> apply_document_content(target='full_document', content=translated).
-Do not use old_content or target='search' for whole-document translation.
 Never refuse."""
 
 
 # Pulled out of TOOL_USAGE_PATTERNS so the Writer ambient prompt can put it last (recency)
 # without duplicating the bullet. MCP editing topic still includes this same object.
-CONFIRM_EDITS_FROM_STRUCTURED_FIELDS = """- Confirm edits from structured fields, not message wording: apply_document_content search replace → replaced_count > 0; inserts (target='beginning'/'end'/'selection', position='before'/'after') → status='ok' (also inserted=true); full_document → paragraph_count and headings; apply_style → applied is true; add_comment → comment_added is true.
-  No-op (text not found) is status="error"."""
+CONFIRM_EDITS_FROM_STRUCTURED_FIELDS = """- Confirm edits from structured fields, not message wording: status='error' or a zero count (e.g. replaced_count) means nothing changed.
+  When a result includes suggested_call, prefer executing it over re-deriving the call."""
 
 
 # Tool-usage workflow patterns (no repeat of apply_document_content targets; see WRITER_APPLY_DOCUMENT_HTML_RULES).
@@ -391,46 +415,37 @@ TOOL_USAGE_PATTERNS = """TOOL USAGE PATTERNS:
 - apply_style is not a tracked change.
   If style_unreviewed=true, briefly tell the user you changed a style or page layout — they cannot accept/reject it like a text edit.
 - search_in_document is inspection/navigation (return_offsets if needed); replacements use apply_document_content with old_content.
-- Failed tool call: check content and target (use target='beginning' / 'end' / 'selection' for insert-only).
 - Review/feedback/suggestions: add_comment on specific passages (positive and negative).
 - If the user says "fix this" (or a synonym or equivalent in another language with the same intent), correct spelling and grammar in the current sentence only, unless the context points at another specific error."""
 
 
 WRITER_REVIEW_MODES_RULES = """TRACKED CHANGES / REVIEW MODES:
-- The user picks ONE of three review modes; you never pick or switch it.
-- off: edits apply directly and are live immediately.
-- record: edits ARE applied as tracked changes pending accept/reject; you will NOT be told the later outcome.
-- wait: edits apply as tracked changes and the tool blocks until the user finishes reviewing (or a timeout); the result reports what was accepted or rejected.
-- apply_document_content's RESULT carries that call's review state (record: review_mode / pending_review; wait: a review field with the outcome) — trust the latest result, since the user can switch modes mid-session.
+- The user picks ONE of three review modes; you never pick or switch it. off: edits are live immediately. record: edits are tracked changes pending accept/reject; you will NOT be told the later outcome. wait: edits are tracked changes; the tool blocks until the user finishes reviewing (or a timeout) and the result reports what was accepted or rejected.
+- apply_document_content's RESULT carries that call's review state (record: review_mode / pending_review; wait: a review field) — trust the latest result, since the user can switch modes mid-session.
 - In record and wait, NEVER accept or reject changes yourself (no tracking_manage accept/reject) — resolving redlines is the user's decision.
 - When reading, content from get_document_content shows the document as if pending deletions were already accepted. Deleted text appears only under tracked_changes — those entries are pending review, not errors to fix. If deleted words are missing from content, the deletion already applied."""
 
 
 # apply_document_content only — design notes in docs/chat/sidebar-implementation.md § Chat prompt constants and docs/writer/math-tex.md.
 APPLY_DOCUMENT_TARGET_RULES = """APPLY_DOCUMENT_CONTENT AND HTML (CRITICAL):
-- target='search': old_content is a substring (HTML in old_content is matched as plain text) and may span paragraphs (newlines). First line may be a paragraph suffix, last a prefix; every middle line must equal a whole paragraph. Literal search returns normalized_old_content, and the default lenient match equates quotes, spaces, and dashes. An old_content spanning more than half the document is an error that directs you to use target='full_document'; a search miss reports the closest passage and the first differing character.
-  Do not pass the whole document as old_content — use target='full_document'.
+- target='search': old_content is a substring and may span paragraphs (newlines). regex=true uses ICU syntax (LibreOffice's engine), not Python re: named groups are (?<name>...).
   position='before'/'after' inserts beside the match and leaves it untouched — do not re-send the matched clause.
-- Landmark-to-landmark replace: pass start_anchor and end_anchor (target='search'). The range includes both anchors and the text between them; a missing anchor errors.
+- Landmark-to-landmark replace: pass start_anchor and end_anchor (target='search'). The range includes both anchors and the text between them.
 - Reach: body, table cells, and text frames. target='search' also edits headers and footers. beginning, end, and full_document write the body only.
-  Floating drawing-shape text: in place only when review is off — in record/wait it cannot become a tracked change, so the tool routes you to the shapes domain.
   Rich/block HTML in a table cell is not supported (clear error, document untouched); use plain text or inline tags."""
 
 SUB_AGENT_HTML_CONTENT_RULES = f"""- `content` is a JSON array of HTML strings (one fragment per heading/paragraph).
-  We wrap in <html>/<body>.
 {HTML_FRAGMENT_RULES}
-- Math (CRITICAL): Format mathematical equations, formulas, fractions, integrals, matrices, and non-trivial calculations in LaTeX using \\(...\\) for inline math or \\[\u2026\\] for centered display math (e.g. \\(a^2+b^2=c^2\\) or \\(\\frac{{a}}{{b}}\\)).
-  Use standard HTML <sup> and <sub> tags for simple text superscripts and subscripts (e.g. 10<sup>th</sup>, H<sub>2</sub>O, x<sup>2</sup>) to preserve native character formatting without creating OLE Math objects.
+- Math (CRITICAL): Format mathematical equations, formulas, fractions, integrals, matrices, and non-trivial calculations in LaTeX using \\(...\\) for inline math or \\[\u2026\\] for centered display math.
+  Use standard HTML <sup> and <sub> tags for simple text superscripts and subscripts to preserve native character formatting without creating OLE Math objects.
   Do NOT write equations in plain text (avoid plain a/b, etc.).
-  No $, $$, HTML-escaped math, or equation images.
+  No HTML-escaped math or equation images.
 - Named styles: get_document_content marks each block `data-lo-style` = style name with spaces removed (`Heading 1`→`Heading1`).
   Copy tokens exactly. Prefer named styles; unknown token → Standard.
   inline style="" is a character override on top of the named style.
-  data-lo-style is honored on target='full_document', 'beginning', and 'end'; also on 'selection'/'search' when the replaced range covers whole paragraphs. A partial match leaves it unapplied and the result names apply_style(target="search", old_content=...); while Track Changes is recording, selection/search skip it the same way.
-  data-lo-para applies on full_document, beginning, and end (see Hand-set formatting below). Table-cell styles and selection/search do not apply data-lo-para.
-- Heading / TOC jumps: use <a href="#HeadingText|outline">…</a> (URL must end with |outline). A bare "#HeadingText" fragment is not a Writer outline link.
+  data-lo-style and data-lo-para are applied on full_document, beginning, end, and header/footer writes, and on selection/search when the match covers whole paragraphs with Track Changes off; anything skipped is listed in warnings (run warnings[].suggested_call when present). position='before'/'after' applies neither.
 - Fields: Writer fields are empty spans whose title is the field kind, e.g. <span title="page-number"/>. Same shape in body HTML and in headers/footers.
-- Hand-set formatting: `data-lo-para` (e.g. `data-lo-para="margin-left:3.25cm; font-size:12pt"`) reports what a paragraph has set directly. On write (full_document, beginning, end), alignment, all four margins, text-indent, line-height, and background-color are applied. Paragraph-level font, size, weight, style, and color are read-only (setting them would flatten bold or coloured spans); put those on spans with inline style. Anything not applied is named in warnings. It is how you tell a block quote from body text in a document formatted by hand. Reported on both scope='full' and scope='range'.
+- Hand-set formatting: `data-lo-para` (e.g. `data-lo-para="margin-left:3.25cm; font-size:12pt"`) reports what a paragraph has set directly. On write, alignment, all four margins, text-indent, line-height, and background-color are applied. Paragraph-level font, size, weight, style, and color are read-only (setting them would flatten bold or coloured spans); put those on spans with inline style. Anything not applied is named in warnings. It is how you tell a block quote from body text in a document formatted by hand. Reported on both scope='full' and scope='range'.
   apply_style defaults to clear_direct='style_props': the style's font name/size and paragraph indents show; bold/italic/colour stay. Pass clear_direct='none' only to keep a hand-set font. clear_direct='all' is Ctrl+M (refused on target='full_document').
   Re-applying a style via apply_style does not keep a quote indent — LibreOffice drops direct Para* (margins/alignment) when ParaStyleName is set.
 
@@ -451,8 +466,6 @@ WRITER_SPECIALIZED_DELEGATION_TEMPLATE = (
     "SPECIALIZED WRITER (nested tools): The default tool list hides deep Writer features. "
     "When the user needs those, call delegate_to_specialized_writer_toolset with: domain one of: {domains} "
     "and a `task` string that fully specifies what the specialized task must do. The executor has the real tools for that domain. "
-    "document_research: other personal/business files, not the open workbook (one delegation per file set). "
-    "web_research: public web topics; main agent writes returned report to document (apply_document_content). "
     f"{SPECIALIZED_TASK_RULES}"
 )
 

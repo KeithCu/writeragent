@@ -147,7 +147,7 @@ def test_apply_document_content_edited_context_on_success():
     is truthy, so `if not enum.hasMoreElements()` never stopped (PR #823 merge CI
     leftover). `enum_has_more` requires UNO True. Review mode is patched: this
     file does not init config, and get_agent_edit_review_mode reads it first."""
-    from plugin.writer import html_import as format_support
+    from plugin.writer import html_import
     from plugin.writer.apply_document_content import ApplyDocumentContent
 
     found = MagicMock()
@@ -159,7 +159,7 @@ def test_apply_document_content_edited_context_on_success():
     with patch("plugin.writer.search.find_first_range", return_value=found), \
          patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=anchor), \
          patch("plugin.writer.apply_document_content.attach_edited_context", side_effect=lambda r, a: {**r, "edited_context": "echo"}), \
-         patch.object(format_support, "content_has_markup", return_value=False), \
+         patch.object(html_import, "content_has_markup", return_value=False), \
          patch("plugin.writer.apply_document_content.record_preserve_replace"), \
          patch("plugin.writer.apply_document_content.get_agent_edit_review_mode", return_value="off"), \
          patch("plugin.writer.apply_document_content.review_recording_enabled", return_value=False):

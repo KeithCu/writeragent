@@ -558,7 +558,7 @@ def test_insert_toc_entry_param_errors_and_dry_run():
 
     with patch("plugin.writer.specialized.indexes._paragraphs_in_anchor", return_value=[sibling]):
         leveled = tool.execute(
-            ctx, content="Gamma title", page=4, level=2, dry_run=True,
+            ctx, content="Gamma title", page="4", level=2, dry_run=True,
             hyperlink_url="#1.Gamma title|outline")
         table_link = tool.execute(
             ctx, content="Annex cover", page="9", dry_run=True,
@@ -725,7 +725,7 @@ def test_list_toc_entries_reads_rows_not_the_full_export():
     with patch("plugin.writer.html_export._export_xhtml", side_effect=AssertionError("xhtml export")) as export_xhtml, \
          patch("plugin.writer.html_export.document_to_content", side_effect=AssertionError("full export")) as export_doc, \
          patch("plugin.writer.get_document_content.GetDocumentContent.execute", side_effect=AssertionError("get_document_content")) as export_tool:
-        listed = tool.execute(ctx)
+        listed = tool.execute(ctx, include_links=True)
 
     assert listed["status"] == "ok", listed
     assert listed["index"] == 0
@@ -755,6 +755,34 @@ def test_list_toc_entries_reads_rows_not_the_full_export():
     assert both["text"] == "Linked both\t2"
     assert both["hyperlink_url"] == "#1.Linked both|outline"
     assert "https://example.invalid/toc" not in both["hyperlink_url"]
+
+
+def test_list_toc_entries_default_omits_links():
+    tool = IndexesListTocEntries()
+    ctx, _doc, idx, _mgr = _one_toc_context()
+    rows = [
+        _IndexPara("Alpha\t1", "Contents 1", ["#1.Alpha|outline"], True),
+        _IndexPara("Beta\t2", "Contents 2", ["#2.Beta|outline"], True),
+    ]
+    _attach_index_rows(ctx, idx, rows)
+
+    with patch(
+        "plugin.writer.specialized.indexes._paragraph_hyperlink",
+        side_effect=AssertionError("should not inspect hyperlink"),
+    ):
+        res = tool.execute(ctx)
+    assert res["status"] == "ok"
+    assert res["entries"] == [
+        {"text": "Alpha\t1", "level": 1},
+        {"text": "Beta\t2", "level": 2},
+    ]
+
+    res_with_links = tool.execute(ctx, include_links=True)
+    assert res_with_links["status"] == "ok"
+    assert res_with_links["entries"] == [
+        {"text": "Alpha\t1", "level": 1, "hyperlink_url": "#1.Alpha|outline"},
+        {"text": "Beta\t2", "level": 2, "hyperlink_url": "#2.Beta|outline"},
+    ]
 
 
 def test_list_toc_entries_rejects_a_missing_or_non_toc_index():
@@ -854,6 +882,23 @@ def test_insert_toc_entry_collapses_newlines():
         assert res["status"] == "ok"
         assert res.get("text_after") == "new line\t1 2"
         assert res.get("hyperlink_url") == "#target|outline"
+
+
+def test_insert_toc_entry_accepts_dollar_math_title():
+    """TOC entry tools accept plain text containing single-dollar math ($n$)."""
+    tool = IndexesInsertTocEntry()
+    ctx = MagicMock()
+    doc = ctx.doc
+    doc.getDocumentIndexes.return_value.getCount.return_value = 1
+    idx = MagicMock()
+    idx.getServiceName.return_value = "com.sun.star.text.ContentIndex"
+    doc.getDocumentIndexes.return_value.getByIndex.return_value = idx
+
+    sibling = MagicMock()
+    sibling.getString.return_value = "Title\t3"
+    with patch("plugin.writer.specialized.indexes._paragraphs_in_anchor", return_value=[sibling]):
+        res = tool.execute(ctx, content="The $n$-body problem", dry_run=True)
+        assert res["status"] == "ok"
 
 
 def test_insert_toc_entry_position_is_schema_enum():
@@ -1033,13 +1078,15 @@ def test_toc_entry_tools_reject_non_integer_occurrence_index_and_level():
     assert res["status"] == "error"
     assert res["code"] == "INVALID_PARAM"
 
-    res = ins_tool.execute(ctx, content="Beta", level="1")
-    assert res["status"] == "error"
-    assert res["code"] == "INVALID_PARAM"
+    from plugin.framework.tool import prepare_tool_call
 
-    res = ins_tool.execute(ctx, content="Beta", level=True)
-    assert res["status"] == "error"
-    assert res["code"] == "INVALID_PARAM"
+    prep_str = prepare_tool_call(ins_tool, ctx, "indexes_insert_toc_entry", {"content": "Beta", "level": "1"})
+    assert prep_str.error is not None
+    assert prep_str.error["code"] == "VALIDATION_ERROR"
+
+    prep_bool = prepare_tool_call(ins_tool, ctx, "indexes_insert_toc_entry", {"content": "Beta", "level": True})
+    assert prep_bool.error is not None
+    assert prep_bool.error["code"] == "VALIDATION_ERROR"
 
 
 def test_paragraphs_in_anchor_stops_at_the_anchor_end():
@@ -1185,7 +1232,7 @@ def _search_create_undo(locked=False, insert_error=None, undo_error=None):
 
 def test_indexes_create_search_rolls_back_failed_insert():
     tool, ctx, cursor, mgr = _search_create_undo(insert_error=RuntimeError("insert failed"))
-    with patch("plugin.writer.specialized.indexes.resolve_target_cursor", return_value=cursor):
+    with patch("plugin.writer.target_resolver.resolve_target_cursor", return_value=cursor):
         res = tool.execute(ctx, kind="toc", target="search", old_content="placeholder")
     assert res["status"] == "error"
     assert res["code"] == "TOOL_EXECUTION_ERROR"
@@ -1197,7 +1244,7 @@ def test_indexes_create_search_rolls_back_failed_insert():
 
 def test_indexes_create_search_locked_undo_does_not_delete():
     tool, ctx, cursor, mgr = _search_create_undo(locked=True)
-    with patch("plugin.writer.specialized.indexes.resolve_target_cursor", return_value=cursor):
+    with patch("plugin.writer.target_resolver.resolve_target_cursor", return_value=cursor):
         res = tool.execute(ctx, kind="toc", target="search", old_content="placeholder")
     assert res["status"] == "error"
     assert res["code"] == "UNDO_UNAVAILABLE"
@@ -1210,7 +1257,7 @@ def test_indexes_create_search_rollback_failure_keeps_the_cause():
         insert_error=RuntimeError("insert failed"),
         undo_error=RuntimeError("undo broke"),
     )
-    with patch("plugin.writer.specialized.indexes.resolve_target_cursor", return_value=cursor):
+    with patch("plugin.writer.target_resolver.resolve_target_cursor", return_value=cursor):
         res = tool.execute(ctx, kind="toc", target="search", old_content="placeholder")
     assert res["status"] == "error"
     assert res["code"] == "ROLLBACK_FAILED"
@@ -1349,7 +1396,7 @@ def test_toc_match_case_sensitive():
         calls.append((s, case_sensitive))
         return [r_exact] if case_sensitive else [r_insensitive]
 
-    with patch("plugin.writer.search.find_all_ranges", side_effect=fake_find_all), \
+    with patch("plugin.writer.specialized.indexes.find_all_ranges", side_effect=fake_find_all), \
          patch("plugin.writer.specialized.indexes._contained", return_value=True), \
          patch("plugin.writer.specialized.indexes._para_style_name", return_value="Contents 1"):
         # Omitted / None
@@ -1361,5 +1408,81 @@ def test_toc_match_case_sensitive():
         hit_exact, _ = toc_match(doc, anchor, "board", 0, case_sensitive=True)
         assert calls[-1] == ("board", True)
         assert hit_exact is r_exact
+
+
+def test_char_props_clones_direct_formatting_and_link_styles():
+    """_char_props copies direct character attributes and link styles, omitting inherited ones."""
+    from types import SimpleNamespace
+    from plugin.writer.specialized.indexes import _char_props
+
+    class _Portion:
+        def __init__(self, text, portion_type="Text", direct_props=None, link_style=""):
+            self.text = text
+            self.portion_type = portion_type
+            self.direct_props = direct_props or {}
+            self.link_style = link_style
+
+        def getString(self):
+            return self.text
+
+        def getPropertyValue(self, name):
+            if name == "TextPortionType":
+                return self.portion_type
+            if name in ("UnvisitedCharStyleName", "VisitedCharStyleName"):
+                return self.link_style or None
+            if name in self.direct_props:
+                return self.direct_props[name]
+            return None
+
+        def getPropertyState(self, name):
+            if name in self.direct_props:
+                return SimpleNamespace(value="DIRECT_VALUE")
+            return SimpleNamespace(value="DEFAULT_VALUE")
+
+    class _Para:
+        def __init__(self, portions):
+            self.portions = portions
+
+        def createEnumeration(self):
+            class _E:
+                def __init__(self, items):
+                    self.items = list(items)
+                    self.idx = 0
+
+                def hasMoreElements(self):
+                    return self.idx < len(self.items)
+
+                def nextElement(self):
+                    val = self.items[self.idx]
+                    self.idx += 1
+                    return val
+
+            return _E(self.portions)
+
+    p_redline = _Portion("marker", portion_type="Redline")
+    p_text = _Portion(
+        "Heading title",
+        portion_type="Text",
+        direct_props={"CharColor": 0x0000FF},
+        link_style="Index Link",
+    )
+    para = _Para([p_redline, p_text])
+
+    # With link: copies direct CharColor and link styles
+    props_with_link = _char_props(para, with_link=True)
+    assert props_with_link.get("CharColor") == 0x0000FF
+    assert props_with_link.get("UnvisitedCharStyleName") == "Index Link"
+    assert props_with_link.get("VisitedCharStyleName") == "Index Link"
+    assert "CharWeight" not in props_with_link
+
+    # Without link: drops link styles, keeps direct CharColor
+    props_no_link = _char_props(para, with_link=False)
+    assert props_no_link.get("CharColor") == 0x0000FF
+    assert "UnvisitedCharStyleName" not in props_no_link
+    assert "VisitedCharStyleName" not in props_no_link
+
+    # Non-text only paragraph yields empty dict
+    assert _char_props(_Para([p_redline]), with_link=True) == {}
+
 
 

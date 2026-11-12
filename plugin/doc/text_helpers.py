@@ -12,8 +12,8 @@ paths, selection range calculation, and Writer text-slice reads. Those must not
 load ``document_helpers`` → chat context / ``DocumentService``.
 
 Offsets: visible-text offsets (``get_string_without_tracked_deletions``,
-``get_document_length``, ``_read_writer_text_slice`` results) and cursor-step
-offsets (``_writer_char_count``, ``get_text_cursor_at_range*``,
+``get_document_length``, ``read_writer_text_slice`` results) and cursor-step
+offsets (``writer_char_count``, ``get_text_cursor_at_range*``,
 ``get_selection_range``) are different spaces; convert with a slice read.
 """
 
@@ -31,6 +31,7 @@ from plugin.framework import doc_type as _doc_type
 from plugin.framework.errors import (
     DocumentDisposedError,
     UnoObjectError,
+    best_effort,
     reraise_if_disposed,
     uno_call,
     uno_read,
@@ -42,6 +43,7 @@ from plugin.framework import url_utils as _url_utils
 log = logging.getLogger(__name__)
 
 _PARAGRAPH_SERVICE = "com.sun.star.text.Paragraph"
+_DRAW_SHAPE_SERVICE = "com.sun.star.drawing.Shape"
 # uno_read default where None is a real UNO result.
 FAILED: Any = object()
 
@@ -130,7 +132,7 @@ def go_right(cursor: Any, n: int, expand: bool) -> bool:
     return True
 
 
-def _writer_char_count(model: Any) -> int:
+def writer_char_count(model: Any) -> int:
     """Length of the Writer body in cursor steps: the space every offset here uses
     (``get_text_cursor_at_range``, ``get_selection_range``, the chat excerpt reads).
 
@@ -168,11 +170,14 @@ def _writer_char_count(model: Any) -> int:
                 step //= 2
         return count
     except UnoObjectError:
-        log.exception("_writer_char_count failed")
+        log.exception("writer_char_count failed")
         return 0
 
 
-def _position_text_is_body(model: Any, position: Any, step_label: str) -> bool:
+def position_text_is_body(model: Any, position: Any, step_label: str) -> bool:
+    """True when *position* lies in the document body XText; False for a table cell,
+    frame, header or footer. A position object with no ``getText`` counts as body.
+    *step_label* names the getText step in the UnoObjectError that uno_call raises."""
     get_pos_text = getattr(position, "getText", None)
     if not callable(get_pos_text):
         return True
@@ -183,7 +188,7 @@ def _position_text_is_body(model: Any, position: Any, step_label: str) -> bool:
 
 def _char_offset_of_position(model: Any, target_start: Any, doc_len: int) -> int:
     """Cursor-step offset of a body text position from the document start, or -1 when the position is outside the body or cannot be measured."""
-    if not _position_text_is_body(model, target_start, "Get position text"):
+    if not position_text_is_body(model, target_start, "Get position text"):
         # Selection is in a table cell, frame, or header. compareRegionStarts
         # Nested vs body compare failures return -1, not 0 (document start).
         return -1
@@ -250,10 +255,8 @@ def selected_text_range(controller: Any) -> Any:
             continue
         if rng is None:
             continue
-        if hasattr(rng, "supportsService"):
-            svc_val = uno_read(lambda: rng.supportsService("com.sun.star.drawing.Shape"), FAILED)
-            if svc_val is True or (type(svc_val) is int and svc_val == 1):
-                continue
+        if _is_draw_shape_text(rng):
+            continue
 
         if first_text_range is None:
             first_text_range = rng
@@ -300,7 +303,7 @@ def starts_at_or_after(text: Any, left: Any, right: Any) -> bool:
     return cmp_val != 1
 
 
-def _get_writer_selection_positions(model: Any) -> tuple[Any, Any, Any] | None:
+def get_writer_selection_positions(model: Any) -> tuple[Any, Any, Any] | None:
     """Return (text, sel_start_pos, sel_end_pos) or None when selection unavailable."""
     try:
         if model is None:
@@ -327,12 +330,12 @@ def get_selection_range(model: Any, doc_len: int | None = None) -> tuple[int, in
     try:
         if model is None:
             raise UnoObjectError("Document Model is null", code="UNO_NULL_OBJECT")
-        sel_positions = _get_writer_selection_positions(model)
+        sel_positions = get_writer_selection_positions(model)
         if sel_positions is None:
             return (0, 0)
         _text, sel_start_pos, sel_end_pos = sel_positions
         if doc_len is None:
-            doc_len = _writer_char_count(model)
+            doc_len = writer_char_count(model)
         start_offset = _char_offset_of_position(model, sel_start_pos, doc_len)
         equal = sel_start_pos == sel_end_pos or uno_same(sel_start_pos, sel_end_pos)
         if not equal and hasattr(_text, "compareRegionStarts"):
@@ -399,6 +402,24 @@ def apply_chapter_number(node: Any, para: Any) -> None:
         node["chapter_number"] = label
 
 
+def clear_direct_numbering(cursor: Any) -> None:
+    """Drop direct paragraph numbering so the cursor reverts to the style's list rules.
+
+    In LibreOffice Writer, ``setPropertyToDefault("NumberingStyleName")`` and
+    ``setPropertyToDefault("NumberingRules")`` leave direct numbering untouched
+    (see ``test_full_document_drops_old_first_paragraph_direct_margins_uno``).
+    Setting ``NumberingRules=None`` invokes Writer's ``DelNumRules`` path, which
+    clears direct numbering without leaving a hard empty ``NumberingStyleName=""``
+    override that would mask an underlying paragraph style's list formatting.
+    This also drops leftover numbering after ``insertDocumentFromURL`` in notebook
+    HTML imports before following blocks.
+    """
+    best_effort(
+        lambda: cursor.setPropertyValue("NumberingRules", None),
+        "clear direct NumberingRules failed",
+    )
+
+
 def iter_heading_nodes(node: Mapping[str, Any]) -> Iterator[Mapping[str, Any]]:
     """Yield heading children in document order (not the synthetic root)."""
     for child in node.get("children", []):
@@ -424,6 +445,12 @@ def find_heading_by_chapter_number(tree: Mapping[str, Any], label: str) -> Mappi
 def _portion_type(portion: Any) -> str | None:
     # PyUNO attribute access is the same property call; a second read cannot succeed.
     return uno_read(lambda: portion.getPropertyValue("TextPortionType"), None, object_type="TextPortion")
+
+
+def _is_draw_shape_text(text_range: Any) -> bool:
+    """True when text_range is a draw shape (or its XText) in Writer, Calc, Draw or Impress."""
+    svc_val = uno_read(lambda: text_range.supportsService(_DRAW_SHAPE_SERVICE), FAILED, object_type="TextRange")
+    return svc_val is True or (type(svc_val) is int and svc_val == 1)
 
 
 def _range_is_paragraph(text_range: Any) -> bool:
@@ -515,7 +542,7 @@ def _typed_portions(
         yield portion, portion_type
 
 
-def _visible_portions(
+def visible_portions(
     para: Any,
     *,
     abort_on_portion_error: bool = False,
@@ -528,7 +555,7 @@ def _visible_portions(
     Shared by ``get_string_without_tracked_deletions`` and range_copy paint so
     an offset taken from the helper string indexes these chunks without drift.
 
-    Paint (``range_copy._paint_direct_formatting``) passes
+    Paint (``range_copy.paint_direct_formatting``) passes
     ``abort_on_portion_error=True``: a failed ``nextElement`` / portion type
     would desync character offsets, so the walk stops. The helper continues
     past a bad portion so later runs can still contribute text.
@@ -551,13 +578,13 @@ def _visible_portions(
 
 
 def _paragraph_visible_text(para: Any, deletion_state: list[bool] | None = None) -> str:
-    """Visible text of one paragraph via ``_visible_portions``.
+    """Visible text of one paragraph via ``visible_portions``.
 
     Falls back to ``getString()`` only when the portion enum cannot be opened
     (same as the old helper). An empty walk after a successful enum is kept
     empty so tracked-only paragraphs do not re-include deleted text.
     """
-    chunks = list(_visible_portions(para, deletion_state=deletion_state))
+    chunks = list(visible_portions(para, deletion_state=deletion_state))
     if chunks:
         return "".join(chunk for _unused, chunk in chunks)
     try:
@@ -590,10 +617,11 @@ def get_string_without_tracked_deletions(
 ) -> str:
     """Return *text_range* text while skipping tracked deletions when possible.
 
-    A paragraph (``com.sun.star.text.Paragraph``, or first child has
-    ``TextPortionType``) concatenates visible portions without a mid-``\\n``.
-    A document or multi-paragraph range still joins paragraphs with ``\\n``
-    and includes table-cell text, including nested tables.
+    A draw shape returns ``getString()`` directly. A paragraph
+    (``com.sun.star.text.Paragraph``, or first child has ``TextPortionType``)
+    concatenates visible portions without a mid-``\\n``. A document or
+    multi-paragraph range still joins paragraphs with ``\\n`` and includes
+    table-cell text, including nested tables.
     *starts_in_deletion*: the range starts inside a tracked deletion (a caller
     walking paragraphs in order knows; see ``skip_tracked_deletions``).
     *deletion_state*: carried one-item ``[in_deletion]`` state across walks.
@@ -601,6 +629,18 @@ def get_string_without_tracked_deletions(
     if deletion_state is None:
         deletion_state = [starts_in_deletion]
     try:
+        # Draw-shape text is editeng, which never reports a Redline portion
+        # (editeng/source/uno/unotext.cxx, WID_PORTIONTYPE case), and getString()
+        # joins paragraphs with \n like the walk. Every content/portion enumeration
+        # proxy registers in the shape's shared mvTextRanges and unregisters from
+        # its destructor without the SolarMutex
+        # (svx/source/unodraw/unoshtxt.cxx:SvxTextEditSourceImpl::removeRange),
+        # so a remote (URP) client that discards those proxies while the next call
+        # adds one corrupts the heap and aborts soffice. Writer shapes with an
+        # attached text box (TextBox property true) also take this path and return
+        # getString(), reading the frame text without filtering redlines.
+        if _is_draw_shape_text(text_range):
+            return text_range.getString()
         if _range_is_paragraph(text_range):
             return _paragraph_visible_text(text_range, deletion_state)
         para_enum = text_range.createEnumeration()
@@ -662,7 +702,7 @@ def build_heading_tree(model: Any, elements: list[Any] | None = None) -> Heading
             else:
                 text = uno_call(model.getText, "Get document text")
                 enum = uno_call(text.createEnumeration, "Create enumeration")
-                while uno_call(enum.hasMoreElements, "Check more elements"):
+                while uno_call(lambda: enum_has_more(enum), "Check more elements"):
                     yield uno_call(enum.nextElement, "Get next element")
 
         for para_index, element in enumerate(_iter_elements()):
@@ -742,7 +782,7 @@ def get_selection_text(model: Any) -> str | None:
     return None
 
 
-def _read_writer_text_slice(model: Any, start_offset: int, length: int) -> str:  # pyright: ignore[reportUnusedFunction]
+def read_writer_text_slice(model: Any, start_offset: int, length: int) -> str:
     """Read up to *length* characters from *start_offset* without loading the full document.
 
     Used by ``document_helpers.get_document_context_for_chat`` (Writer excerpts).
@@ -853,7 +893,7 @@ def get_text_cursor_at_range_reached(model: Any, start_offset: int, end_offset: 
         if model is None:
             raise UnoObjectError("Document Model is null", code="UNO_NULL_OBJECT")
         # Offsets are not clamped here. Writer callers use visible-text offsets
-        # (get_document_length) or cursor-step offsets (_writer_char_count);
+        # (get_document_length) or cursor-step offsets (writer_char_count);
         # either way goRight stops at the end of the text on its own.
         start_offset = max(0, start_offset)
         end_offset = max(0, end_offset)

@@ -562,12 +562,42 @@ def summary_pair(summary: str, *, omit_ack: bool = False) -> list[dict[str, Any]
     return pair
 
 
+def tool_rows_after(messages: list[Any], start: int) -> tuple[list[dict[str, Any]], int]:
+    """Tool rows that answer the assistant message just before *start*, and the index after the block.
+
+    Walks forward from *start* over role=tool rows and the _open_transcript
+    rows the sidebar folds between them (tool-line text, not history), and
+    stops at the first other row. One row per tool_call_id, first wins; a
+    second row for the same id is dropped. Without this, two rows for one
+    id reach the provider and Anthropic rejects the request with 400
+    "each tool_use must have a single result".
+    """
+    tools: list[dict[str, Any]] = []
+    seen: set[Any] = set()
+    j = start
+    n = len(messages)
+    while j < n and isinstance(messages[j], dict):
+        row = messages[j]
+        if row.get("_open_transcript"):
+            j += 1
+            continue
+        if row.get("role") != "tool":
+            break
+        tid = row.get("tool_call_id")
+        if tid not in seen:
+            seen.add(tid)
+            tools.append(row)
+        j += 1
+    return tools, j
+
+
 def sanitize_tool_pairs(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Drop orphan role=tool; strip dangling tool_calls (keep assistant text if any).
 
     Also drops tool_calls with a missing/blank ``id`` or empty/missing
     ``function.name`` (and their matching tool results), so stream-split
-    phantoms cannot poison the next API round.
+    phantoms cannot poison the next API round. One result per tool id is
+    kept within an assistant block.
 
     Same job as Hermes ``_sanitize_tool_pairs``
     (``context_compressor.py:3846-3884``); not a port of that method.
@@ -586,17 +616,7 @@ def sanitize_tool_pairs(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
             i += 1
             continue
         if msg.get("role") == "assistant" and (msg.get("tool_calls") or []):
-            j = i + 1
-            tools = []
-            while j < n:
-                if messages[j].get("_open_transcript"):
-                    j += 1
-                    continue
-                if messages[j].get("role") == "tool":
-                    tools.append(messages[j])
-                    j += 1
-                else:
-                    break
+            tools, j = tool_rows_after(messages, i + 1)
             have = {t.get("tool_call_id") for t in tools}
             kept_calls = [
                 tc

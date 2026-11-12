@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-03 13:09-0500\n"
+"POT-Creation-Date: 2026-11-11 14:14-0500\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Norwegian Bokmål <LL@li.org>\n"
@@ -107,6 +107,46 @@ msgstr "Kjør kodecelle"
 #: plugin/notebook/layout.py
 msgid "Code"
 msgstr "Kode"
+
+#: plugin/draw/editselection.py
+msgid "Select a text shape. Tables are not rewritten."
+msgstr "Velg en tekstfigur. Tabeller blir ikke skrevet om."
+
+#: plugin/draw/editselection.py
+msgid "Select a text shape."
+msgstr "Velg en tekstfigur."
+
+#: plugin/draw/editselection.py
+msgid "WriterAgent: Edit Selection (Draw)"
+msgstr "WriterAgent: Rediger utvalg (Draw)"
+
+#: plugin/draw/editselection.py
+msgid "WriterAgent: Extend Selection (Draw)"
+msgstr "WriterAgent: Utvid utvalg (Draw)"
+
+#: plugin/draw/editselection.py plugin/calc/editselection.py
+#, python-brace-format
+msgid "Only the first {0} non-empty cells are edited."
+msgstr "Bare de første {0} cellene som ikke er tomme, blir redigert."
+
+#: plugin/draw/editselection.py
+msgid "Could not register undo for this edit. The change was not applied."
+msgstr ""
+"Kunne ikke registrere angre-handling for denne redigeringen. Endringen ble "
+"ikke utført."
+
+#: plugin/draw/editselection.py plugin/calc/editselection.py
+#: plugin/writer/editselection.py
+msgid ""
+"The rewrite ran out of tokens before producing text. Try again or shorten "
+"the selection."
+msgstr ""
+"Omskrivingen gikk tom for tegn før tekst ble produsert. Prøv igjen eller "
+"forkort utvalget."
+
+#: plugin/draw/editselection.py plugin/calc/editselection.py
+msgid "The model returned no text. Try again."
+msgstr "Modellen returnerte ingen tekst. Prøv igjen."
 
 #: plugin/embeddings/search_ui.py
 msgid "just now"
@@ -317,7 +357,7 @@ msgstr ""
 msgid "The AI provider reported an error. Try again."
 msgstr "AI-leverandøren rapporterte en feil. Prøv igjen."
 
-#: plugin/framework/errors.py plugin/calc/python/function.py
+#: plugin/framework/errors.py plugin/calc/python/addin_values.py
 #: plugin/chatbot/quick_setup.py plugin/scripting/session_manager.py
 #, python-brace-format
 msgid "Error: {0}"
@@ -625,6 +665,12 @@ msgid "Configure a Python venv path in Settings → Python."
 msgstr "Konfigurer en Python venv-bane i Innstillinger → Python."
 
 #: plugin/calc/python/init_script_editor.py
+msgid "The Python editor check is still running. Open this again in a moment."
+msgstr ""
+"Python-redigeringskontrollen kjører fremdeles. Åpne dette på nytt om et "
+"øyeblikk."
+
+#: plugin/calc/python/init_script_editor.py
 msgid "Cannot import webview (pywebview) in the configured venv."
 msgstr "Kan ikke importere webview (pywebview) i den konfigurerte venv-en."
 
@@ -742,16 +788,24 @@ msgid "Could not open the built-in Python cell editor."
 msgstr "Kunne ikke åpne den innebygde Python-celleteditoren."
 
 #: plugin/calc/python/function.py
+msgid "Image inserted"
+msgstr "Bilde satt inn"
+
+#: plugin/calc/python/function.py
+msgid "Images inserted"
+msgstr "Bilder satt inn"
+
+#: plugin/calc/python/addin_values.py
 #, python-brace-format
 msgid "Error: Main-thread execution timed out ({0})"
 msgstr "Feil: Tidsavbrudd for utførelse i hovedtråd ({0})"
 
-#: plugin/calc/python/function.py plugin/scripting/python_runner_ui.py
+#: plugin/calc/python/addin_values.py plugin/scripting/python_runner_ui.py
 #: plugin/scripting/python_runner.py
 msgid "Unknown error"
 msgstr "Ukjent feil"
 
-#: plugin/calc/python/function.py
+#: plugin/calc/python/addin_values.py
 msgid ""
 "Error: Python venv not found. Open Settings → Python, set the venv path, "
 "then Test."
@@ -759,21 +813,13 @@ msgstr ""
 "Feil: Python venv ble ikke funnet. Åpne Innstillinger → Python, angi venv-"
 "stien, og test deretter."
 
-#: plugin/calc/python/function.py
+#: plugin/calc/python/addin_values.py
 msgid ""
 "Error: Python timed out. Open Settings → Python to raise the timeout, or "
 "Test the venv."
 msgstr ""
 "Feil: Python-tidsavbrudd. Åpne Innstillinger → Python for å øke "
 "tidsavbruddet, eller test venv-en."
-
-#: plugin/calc/python/function.py
-msgid "Image inserted"
-msgstr "Bilde satt inn"
-
-#: plugin/calc/python/function.py
-msgid "Images inserted"
-msgstr "Bilder satt inn"
 
 #: plugin/calc/python/geometric_recalc.py
 #, python-format
@@ -816,9 +862,8 @@ msgid "Select one or more non-empty cells."
 msgstr "Velg én eller flere celler som ikke er tomme."
 
 #: plugin/calc/editselection.py
-#, python-brace-format
-msgid "Only the first {0} non-empty cells are edited."
-msgstr "Bare de første {0} cellene som ikke er tomme, blir redigert."
+msgid "Formula cells are skipped."
+msgstr "Formelceller blir hoppet over."
 
 #: plugin/calc/vision_egress.py plugin/vision/vision_runner.py
 #: plugin/vision/vision_egress.py
@@ -1797,16 +1842,65 @@ msgid "Perfect! I'm switching you to the main assistant now."
 msgstr "Perfekt! Jeg bytter deg over til hovedassistenten nå."
 
 #: plugin/chatbot/slash_commands.py
+msgid "[focus]"
+msgstr "[fokus]"
+
+#: plugin/chatbot/slash_commands.py
+msgid "[target]"
+msgstr "mål"
+
+#: plugin/chatbot/slash_commands.py
+msgid "[what]"
+msgstr "hva"
+
+#: plugin/chatbot/slash_commands.py
+msgid "<description>"
+msgstr "<beskrivelse>"
+
+#: plugin/chatbot/slash_commands.py
+msgid "<language>"
+msgstr "<språk>"
+
+#: plugin/chatbot/slash_commands.py
+msgid "<fact>"
+msgstr "<fakta>"
+
+#: plugin/chatbot/slash_commands.py
+msgid "Failed to save memory."
+msgstr "Kunne ikke lagre i minnet."
+
+#: plugin/chatbot/slash_commands.py
+#, python-brace-format
+msgid "Saved to memory: {0}"
+msgstr "Lagret i minnet: {0}"
+
+#: plugin/chatbot/slash_commands.py
+msgid "help"
+msgstr "hjelp"
+
+#: plugin/chatbot/slash_commands.py
 msgid "Print the command list"
 msgstr "Skriv ut kommandolisten"
+
+#: plugin/chatbot/slash_commands.py
+msgid "clear"
+msgstr "tøm"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Start a new chat"
 msgstr "Start en ny samtale"
 
 #: plugin/chatbot/slash_commands.py
+msgid "stop"
+msgstr "stopp"
+
+#: plugin/chatbot/slash_commands.py
 msgid "Cancel the in-flight send"
 msgstr "Avbryt sendingen som pågår"
+
+#: plugin/chatbot/slash_commands.py
+msgid "summarize"
+msgstr "oppsummer"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Summarize the selection or document in the sidebar"
@@ -1817,6 +1911,10 @@ msgid ""
 "Summarize the selected text, or the whole document if nothing is selected."
 msgstr ""
 "Oppsummer den valgte teksten, eller hele dokumentet hvis ingenting er valgt."
+
+#: plugin/chatbot/slash_commands.py
+msgid "proofread"
+msgstr "korrekturles"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Fix spelling, grammar, and punctuation without restyling"
@@ -1831,6 +1929,10 @@ msgstr ""
 "mening."
 
 #: plugin/chatbot/slash_commands.py
+msgid "shorten"
+msgstr "forkort"
+
+#: plugin/chatbot/slash_commands.py
 msgid "Shorten the selection"
 msgstr "Gjør utvalget kortere"
 
@@ -1839,12 +1941,20 @@ msgid "Make the text shorter while preserving the meaning."
 msgstr "Gjør teksten kortere samtidig som meningen bevares."
 
 #: plugin/chatbot/slash_commands.py
+msgid "expand"
+msgstr "utvid"
+
+#: plugin/chatbot/slash_commands.py
 msgid "Expand the selection with more detail"
 msgstr "Utvid utvalget med flere detaljer"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Expand the text with more detail and clarity."
 msgstr "Utvid teksten med flere detaljer og tydelighet."
+
+#: plugin/chatbot/slash_commands.py
+msgid "tone"
+msgstr "tone"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Rewrite the selection to match a described tone"
@@ -1856,6 +1966,10 @@ msgid "Rewrite the text to match this tone or style: {arg}"
 msgstr "Skriv om teksten for å matche denne tonen eller stilen: {arg}"
 
 #: plugin/chatbot/slash_commands.py
+msgid "translate"
+msgstr "oversett"
+
+#: plugin/chatbot/slash_commands.py
 msgid "Translate the selection (sidebar when nothing is selected in Writer)"
 msgstr "Oversett utvalget (sidepanel når ingenting er valgt i Writer)"
 
@@ -1863,6 +1977,10 @@ msgstr "Oversett utvalget (sidepanel når ingenting er valgt i Writer)"
 #, python-brace-format
 msgid "Translate the text into {arg}. Keep formatting and structure."
 msgstr "Oversett teksten til {arg}. Behold formatering og struktur."
+
+#: plugin/chatbot/slash_commands.py
+msgid "explain"
+msgstr "forklar"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Explain the selection or active Calc formula"
@@ -1873,16 +1991,32 @@ msgid "Explain the following in plain language."
 msgstr "Forklar det følgende på enkelt språk."
 
 #: plugin/chatbot/slash_commands.py
+msgid "remember"
+msgstr "husk"
+
+#: plugin/chatbot/slash_commands.py
 msgid "Save a fact to persistent memory"
 msgstr "Lagre et faktum i vedvarende minne"
+
+#: plugin/chatbot/slash_commands.py
+msgid "compact"
+msgstr "kompakt"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Compact older chat history now"
 msgstr "Komprimer eldre chathistorikk nå"
 
 #: plugin/chatbot/slash_commands.py
+msgid "undo"
+msgstr "angre"
+
+#: plugin/chatbot/slash_commands.py
 msgid "Undo the last agent edit as one step"
 msgstr "Angre den siste agentredigeringen som ett trinn"
+
+#: plugin/chatbot/slash_commands.py
+msgid "formula"
+msgstr "formel"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Write a Calc formula from a plain-English description"
@@ -1915,6 +2049,20 @@ msgstr "Bruk: {0}"
 
 #: plugin/chatbot/slash_commands.py
 #, python-brace-format
+msgid "Additional instruction: {0}"
+msgstr "Tilleggsinstruksjon: {0}"
+
+#: plugin/chatbot/slash_commands.py
+#, python-brace-format
+msgid ""
+"Selected text:\n"
+"{0}"
+msgstr ""
+"Valgt tekst:\n"
+"{0}"
+
+#: plugin/chatbot/slash_commands.py
+#, python-brace-format
 msgid "Cell {0} formula: {1}"
 msgstr "Celle {0}-formel: {1}"
 
@@ -1924,13 +2072,8 @@ msgid "Cell {0} value: {1}"
 msgstr "Celleverdi {0}: {1}"
 
 #: plugin/chatbot/slash_commands.py
-msgid "Failed to save memory."
-msgstr "Kunne ikke lagre i minnet."
-
-#: plugin/chatbot/slash_commands.py
-#, python-brace-format
-msgid "Saved to memory: {0}"
-msgstr "Lagret i minnet: {0}"
+msgid "WriterAgent"
+msgstr "WriterAgent"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Conversation compacted."
@@ -1953,10 +2096,14 @@ msgid "Compaction failed."
 msgstr "Komprimering mislyktes."
 
 #: plugin/chatbot/slash_commands.py
-msgid "WriterAgent"
-msgstr "WriterAgent"
+msgid "Wait for the current reply to finish before /compact."
+msgstr "Vent til gjeldende svar er ferdig før /compact."
 
-#: plugin/chatbot/slash_commands.py
+#: plugin/chatbot/slash_commands.py plugin/chatbot/send_handlers.py
+msgid "Thinking..."
+msgstr "Tenker..."
+
+#: plugin/chatbot/slash_commands.py plugin/chatbot/compaction.py
 msgid "Configure an API key to compact."
 msgstr "Konfigurer en API-nøkkel for å komprimere."
 
@@ -1968,18 +2115,9 @@ msgstr "Chat-komprimering er deaktivert i innstillingene."
 msgid "Compaction cancelled."
 msgstr "Komprimering avbrutt."
 
-#: plugin/chatbot/slash_commands.py plugin/chatbot/panel.py
-#: plugin/chatbot/sidebar_test_hooks.py plugin/chatbot/send_handlers.py
-msgid "Thinking..."
-msgstr "Tenker..."
-
 #: plugin/chatbot/panel.py
 msgid "[No compatible LibreOffice document found.]"
 msgstr "[Ingen kompatibelt LibreOffice-dokument funnet.]"
-
-#: plugin/chatbot/panel.py plugin/chatbot/sidebar_test_hooks.py
-msgid "Wait for the current reply to finish before /compact."
-msgstr "Vent til gjeldende svar er ferdig før /compact."
 
 #: plugin/chatbot/panel.py
 msgid "Only in Calc"
@@ -2159,6 +2297,14 @@ msgstr ""
 "installasjon).]"
 
 #: plugin/chatbot/send_handlers.py
+msgid ""
+"MCP server is off: LibreOffice edits from this agent require the MCP server."
+" Enable it in Settings → MCP → Enable MCP Server."
+msgstr ""
+"MCP-tjeneren er av: LibreOffice-redigering fra denne agenten krever MCP-"
+"tjeneren. Aktiver den i Innstillinger → MCP → Aktiver MCP-tjener."
+
+#: plugin/chatbot/send_handlers.py
 #, python-brace-format
 msgid "[{0} error: {1}]"
 msgstr "[{0} feil: {1}]"
@@ -2236,6 +2382,10 @@ msgstr ""
 "En nyere %(name)s (%(version)s) er tilgjengelig. Bruk Verktøy → "
 "Utvidelsesbehandling for å se etter oppdateringer og installere den nyeste "
 "utvidelsen."
+
+#: plugin/chatbot/chat_session.py
+msgid "Chat history could not be opened. This conversation will not be saved."
+msgstr "Chat-historikken kunne ikke åpnes. Denne samtalen blir ikke lagret."
 
 #: plugin/chatbot/dialog_views.py
 #, python-brace-format
@@ -3266,8 +3416,9 @@ msgid "Viz '{helper}' completed. {msg}"
 msgstr "Viz «{helper}» fullført. {msg}"
 
 #: plugin/scripting/python_runner.py
-msgid "Vision helpers require a Writer or Calc document."
-msgstr "Synshjelpere krever et Writer- eller Calc-dokument."
+msgid "Vision helpers require a Writer, Calc, Draw, or Impress document."
+msgstr ""
+"Synshjelpemidler krever et Writer-, Calc-, Draw- eller Impress-dokument."
 
 #: plugin/scripting/python_runner.py
 msgid "Vision helper failed."
@@ -3281,6 +3432,23 @@ msgid ""
 msgstr ""
 "Vision «{helper}» fullført. Satte inn formatert HTML for {count} bilder. "
 "(tok {time})"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid ""
+"Vision '{helper}' completed for {count} images. Text returned only (not "
+"inserted). (took {time})"
+msgstr ""
+"Syn '{helper}' fullført for {count} bilder. Kun tekst returnert (ikke satt "
+"inn). (tok {time})"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid ""
+"Vision '{helper}' completed. Text returned only (not inserted). (took "
+"{time})"
+msgstr ""
+"Syn '{helper}' fullført. Kun tekst returnert (ikke satt inn). (tok {time})"
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format
@@ -3426,8 +3594,16 @@ msgid "OCR complete (text returned only; not inserted)."
 msgstr "OCR fullført (kun tekst returnert; ikke satt inn)."
 
 #: plugin/vision/vision_tools.py
-msgid "Vision OCR requires a Writer or Calc document."
-msgstr "Vision OCR krever et Writer- eller Calc-dokument."
+msgid "Vision OCR requires a Writer, Calc, Draw, or Impress document."
+msgstr "Syns-OCR krever et Writer-, Calc-, Draw- eller Impress-dokument."
+
+#: plugin/vision/vision_tools.py
+msgid ""
+"Draw and Impress return vision text only; omit insert_into_document or set "
+"it to false."
+msgstr ""
+"Draw og Impress returnerer kun synstekst; utelat insert_into_document eller "
+"sett den til false."
 
 #: plugin/vision/vision_egress.py
 msgid "Writer document has no controller."
@@ -4082,6 +4258,9 @@ msgstr "Grok Build"
 msgid "OpenCode"
 msgstr "OpenCode"
 
+msgid "Antigravity"
+msgstr "Antigravitasjon"
+
 msgid "Prompt for Agent Permissions"
 msgstr "Be om agenttillatelser"
 
@@ -4091,6 +4270,18 @@ msgid ""
 msgstr ""
 "Be om bekreftelse før agenten får bruke verktøy (lese filer, utføre "
 "kommandoer, osv.)"
+
+msgid "Antigravity model"
+msgstr "Antigravitasjonsmodell"
+
+msgid ""
+"agy modelId from session/new models.availableModels, for example "
+"gemini-4-argon-medium. Empty keeps agy's current model. configOptions family"
+" ids such as gemini-4-argon are not modelIds."
+msgstr ""
+"agy modelId fra session/new models.availableModels, for eksempel "
+"gemini-4-argon-medium. Tom verdi beholder agys nåværende modell. "
+"configOptions-familie-ID-er som gemini-4-argon er ikke modelIds."
 
 msgid "STT Provider"
 msgstr "STT-leverandør"
@@ -4275,27 +4466,6 @@ msgstr "Sidepanel"
 
 msgid "Max Tool Rounds"
 msgstr "Maks. antall verktøyrunder"
-
-msgid "Document Context Strategy"
-msgstr "Strategi for dokumentkontekst"
-
-msgid "How much document content to include in LLM context"
-msgstr "Hvor mye av dokumentinnholdet som skal inkluderes i LLM-konteksten"
-
-msgid "Auto (by document size)"
-msgstr "Auto (etter dokumentstørrelse)"
-
-msgid "Full document text"
-msgstr "Fullstendig dokumenttekst"
-
-msgid "Pages around cursor"
-msgstr "Sider rundt markøren"
-
-msgid "Outline + excerpt"
-msgstr "Disposisjon + utdrag"
-
-msgid "Stats + outline only"
-msgstr "Kun statistikk + disposisjon"
 
 msgid "Web Research Cache"
 msgstr "Web-undersøkelsesbuffer"

@@ -287,6 +287,46 @@ MODELS: list[ModelConfig] = [
         output_cost_per_million=0.7,
         notes="Liquid LFM 2.5 24B (2B active).",
     ),
+    ModelConfig(
+        openrouter_id="anthropic/claude-haiku-5.5",
+        display_name="Anthropic: Claude Haiku 5.5",
+        context_window_tokens=1_000_000,
+        input_cost_per_million=0.10,
+        output_cost_per_million=0.50,
+        notes="Claude Haiku 5.5. Eval routes to native Anthropic (claude-haiku-5-5) when EVAL_ANTHROPIC_API_KEY is set. Prices from OpenRouter 2026-11-11.",
+    ),
+    ModelConfig(
+        openrouter_id="anthropic/claude-sonnet-5.5",
+        display_name="Anthropic: Claude Sonnet 5.5",
+        context_window_tokens=1_000_000,
+        input_cost_per_million=2.00,
+        output_cost_per_million=10.00,
+        notes="Claude Sonnet 5.5. Eval routes to native Anthropic (claude-sonnet-5-5) when EVAL_ANTHROPIC_API_KEY is set. Prices from OpenRouter 2026-11-11.",
+    ),
+    ModelConfig(
+        openrouter_id="anthropic/claude-opus-5.5",
+        display_name="Anthropic: Claude Opus 5.5",
+        context_window_tokens=1_000_000,
+        input_cost_per_million=4.00,
+        output_cost_per_million=20.00,
+        notes="Claude Opus 5.5. Eval routes to native Anthropic (claude-opus-5-5) when EVAL_ANTHROPIC_API_KEY is set. Prices from OpenRouter 2026-11-11.",
+    ),
+    ModelConfig(
+        openrouter_id="meta/muse-ember",
+        display_name="Meta: Muse Ember",
+        context_window_tokens=1_048_576,
+        input_cost_per_million=0.10,
+        output_cost_per_million=0.50,
+        notes="Meta Muse Ember. Prices from OpenRouter 2026-11-11.",
+    ),
+    ModelConfig(
+        openrouter_id="liquid/lfm-3-1.7b",
+        display_name="Liquid: LFM 3 1.7B",
+        context_window_tokens=262_144,
+        input_cost_per_million=0.08,
+        output_cost_per_million=0.20,
+        notes="Liquid LFM 3 1.7B. Prices from OpenRouter 2026-11-11.",
+    ),
 ]
 
 # Smoke / optimize / run_eval.py student. :nitro is OpenRouter routing

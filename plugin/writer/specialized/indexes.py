@@ -21,7 +21,8 @@ call ``update()`` or export the document. ``indexes_update_all`` still rebuilds
 a TOC and drops customized formatting. Outline ``HyperLinkURL`` on refresh goes through
 ``hyperlink_fixup``, which skips a title-only URL rewrite when the whole-span
 write already set it. Insert sets ``#…|outline`` or ``#Name|table`` on the new
-row only. A table URL is the text table's name, not the visible title, so
+row only, cloning the sibling's link character styles and only its direct character formatting.
+A table URL is the text table's name, not the visible title, so
 refresh does not rewrite it.
 """
 
@@ -29,18 +30,35 @@ import logging
 from typing import Any, Callable, cast
 
 from plugin.doc.text_helpers import iter_elements
+from plugin.doc.undo import commit_or_rollback_mutation
 from plugin.framework.errors import reraise_if_disposed, uno_read
 from plugin.framework.uno_context import create_property_value
 
-from plugin.writer.html_import import content_has_markup
+from plugin.writer.edit_review import collapsed_anchor, next_agent_edit_undo_title
+from plugin.writer.html_import import content_has_markup, replace_preserving_format
+from plugin.writer.hyperlink_fixup import (
+    LINK_STYLE_PROPS,
+    capture_outline_hyperlinks,
+    plan_outline_updates,
+    public_hyperlink_reports,
+    read_link_look,
+    restore_outline_hyperlinks,
+    write_link_look,
+)
 from plugin.writer.specialized_base import (
     ToolWriterIndexBase,
     enum_param,
     index_error,
     target_params,
 )
-from ..search import CASE_SENSITIVE_DESCRIPTION, parse_non_negative_int
-from ..target_resolver import resolve_target_cursor
+from ..search import (
+    CASE_SENSITIVE_DESCRIPTION,
+    LocationLabeler,
+    find_all_ranges,
+    parse_non_negative_int,
+    resolve_case_sensitive,
+)
+from ..target_resolver import insert_at_target
 
 log = logging.getLogger("writeragent.writer.specialized.indexes")
 
@@ -251,6 +269,7 @@ def set_bibliography_field_values(field: Any, pairs: dict[str, Any]) -> None:
     must go through ``uno.invoke`` (same pattern as CustomShapeGeometry).
     Set this on the descriptor *before* insert so attach() applies aPropSeq.
     """
+    # Lazy: uno is looked up when this runs; unit tests swap sys.modules["uno"] for mocks, and a module-level binding would keep a stale one.
     import uno
 
     uno_any = getattr(uno, "Any")
@@ -366,10 +385,8 @@ def toc_match(
     case_sensitive: bool | None = None,
 ) -> tuple[Any | None, str | None]:
     """The *occurrence* search hit that lies inside the TOC anchor."""
-    from .. import search as search_mod
-
-    cs = search_mod.resolve_case_sensitive(case_sensitive)
-    ranges = search_mod.find_all_ranges(doc, old_content, case_sensitive=cs) or []
+    cs = resolve_case_sensitive(case_sensitive)
+    ranges = find_all_ranges(doc, old_content, case_sensitive=cs) or []
     text = anchor.getText()
     inside = [
         found for found in ranges
@@ -431,12 +448,8 @@ def _commit_toc_mutation(
         preview["dry_run"] = True
         return preview
 
-    from ..edit_review import next_agent_edit_undo_title
-
-    # Attribute fallback is for a live index without getPropertyValue.
-    # A disposed index must not be edited.
-    read = uno_read(lambda: bool(idx.getPropertyValue("IsProtected")), None)
-    was_protected = bool(getattr(idx, "IsProtected", False)) if read is None else read
+    # A failed read raises before anything is edited and execute_safe reports it.
+    was_protected = bool(idx.getPropertyValue("IsProtected"))
 
     def _wrapped_mutate() -> dict[str, Any] | None:
         if was_protected:
@@ -459,8 +472,6 @@ def _commit_toc_mutation(
         if restore_err is not None:
             return restore_err
         return res
-
-    from plugin.doc.undo import commit_or_rollback_mutation
 
     undo_title = next_agent_edit_undo_title()
     error = commit_or_rollback_mutation(
@@ -584,12 +595,15 @@ def _paragraph_hyperlink(para: Any) -> str:
     return url if isinstance(url, str) else ""
 
 
-def toc_entry_rows(anchor: Any) -> list[dict[str, Any]]:
-    """Visible text, outline level, and hyperlink for each TOC row.
+def toc_entry_rows(anchor: Any, *, include_links: bool = False) -> list[dict[str, Any]]:
+    """Visible text and outline level (plus hyperlink when requested) for each TOC row.
 
     Walks paragraphs inside the index anchor, the same read insert and delete
     already use. Does not call ``ContentIndex.update()`` and does not export
     the document. The ``Contents Heading`` title is not a row.
+
+    Links are omitted by default so models do not echo or corrupt them; the
+    host rewrites outline URLs on rename and preserves existing hyperlinks.
     """
     rows: list[dict[str, Any]] = []
     for para in _paragraphs_in_anchor(anchor):
@@ -599,11 +613,13 @@ def toc_entry_rows(anchor: Any) -> list[dict[str, Any]]:
         text = _entry_text(para)
         if not text.strip():
             continue
-        rows.append({
+        row: dict[str, Any] = {
             "text": text,
             "level": _outline_level(style),
-            "hyperlink_url": _paragraph_hyperlink(para),
-        })
+        }
+        if include_links:
+            row["hyperlink_url"] = _paragraph_hyperlink(para)
+        rows.append(row)
     return rows
 
 
@@ -639,13 +655,17 @@ _CLONED_CHAR_PROPS = (
 )
 
 
-def _char_props(para: Any) -> dict[str, Any]:
-    """Character properties of the sibling row's first text portion.
+def _char_props(para: Any, with_link: bool) -> dict[str, Any]:
+    """Direct character properties and link character styles of the sibling row's first text portion.
 
-    Written back on the same cursor that sets ``HyperLinkURL``. Assigning the
-    URL paints Internet-link defaults (navy + single underline); the sibling's
-    colour and underline have to go on that cursor or the new row will not
-    match a customized TOC.
+    Copies only direct formatting overrides from the sibling portion; inherited style
+    values are not copied as direct attributes. When *with_link* is true, the sibling's
+    link character styles (UnvisitedCharStyleName / VisitedCharStyleName) are copied so
+    the new link inherits appearance identically without painting default Internet Link styles.
+    When *with_link* is false, link style properties are dropped so an unlinked row does not
+    create an empty hyperlink. When an inserted row specifies a different outline level,
+    setting that level's Contents N paragraph style resets paragraph-level direct formatting
+    so the new row takes that level's style look.
     """
     props: dict[str, Any] = {}
     portions: Any = uno_read(lambda: para.createEnumeration(), None)
@@ -654,12 +674,10 @@ def _char_props(para: Any) -> dict[str, Any]:
         chunk = uno_read(lambda: (portion.getString() or "") if portion.getPropertyValue("TextPortionType") == "Text" else "", "")
         if not isinstance(chunk, str) or not chunk:
             continue
-        for name in _CLONED_CHAR_PROPS:
-            # Unknown on this portion type; disposal is not an unknown property.
-            value = uno_read(lambda: portion.getPropertyValue(name), None)
-            if value is None:
-                continue
-            props[name] = value
+        props = read_link_look(portion, _CLONED_CHAR_PROPS)
+        if not with_link:
+            for key in LINK_STYLE_PROPS:
+                props.pop(key, None)
         break
     return props
 
@@ -675,6 +693,7 @@ def _snapshot_tab_stops(para: Any) -> tuple[Any, ...]:
     tabs: list[Any] = uno_read(lambda: list(para.getPropertyValue("ParaTabStops") or ()), [])
     if not tabs:
         return ()
+    # Lazy: uno is looked up when this runs; unit tests swap sys.modules["uno"] for mocks, and a module-level binding would keep a stale one.
     import uno
 
     built = []
@@ -689,6 +708,7 @@ def _snapshot_tab_stops(para: Any) -> tuple[Any, ...]:
 
 
 def _apply_tab_stops(cursor: Any, stops: tuple[Any, ...]) -> None:
+    # Lazy: uno is looked up when this runs; unit tests swap sys.modules["uno"] for mocks, and a module-level binding would keep a stale one.
     import uno
 
     uno_rt = cast("Any", uno)
@@ -747,9 +767,7 @@ def _insert_toc_paragraph(
     para = _select_paragraph(para)
     if url:
         para.setPropertyValue("HyperLinkURL", url)
-    for name, value in char_props.items():
-        # A property this paragraph rejects is skipped; disposal rolls the insert back.
-        uno_read(lambda: para.setPropertyValue(name, value), None)
+    write_link_look(para, char_props)
     lived = para.getString() or ""
     return lived if isinstance(lived, str) else new_text
 
@@ -855,12 +873,6 @@ class IndexesRefreshTocEntry(ToolWriterIndexBase):
         return None
 
     def _preview(self, found: Any, content: str, override: Any) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
-        from ..hyperlink_fixup import (
-            capture_outline_hyperlinks,
-            plan_outline_updates,
-            public_hyperlink_reports,
-        )
-
         # capture_outline_hyperlinks returns a snapshot and does not raise.
         snapshot = capture_outline_hyperlinks(found)
         err = self._override_error(override, snapshot)
@@ -887,13 +899,6 @@ class IndexesRefreshTocEntry(ToolWriterIndexBase):
         preview: Any,
         dry_run: bool,
     ) -> dict[str, Any]:
-        from ..edit_review import collapsed_anchor
-        from ..html_import import replace_preserving_format
-        from ..hyperlink_fixup import (
-            capture_outline_hyperlinks,
-            restore_outline_hyperlinks,
-        )
-
         def mutate() -> dict[str, Any] | None:
             # capture_outline_hyperlinks returns a snapshot and does not raise.
             snapshot = capture_outline_hyperlinks(found)
@@ -991,14 +996,10 @@ class IndexesDeleteTocEntry(ToolWriterIndexBase):
         )
 
 
-def _page_text(raw: Any) -> tuple[str | None, str | None]:
+def _page_text(raw: str | None) -> tuple[str | None, str | None]:
     if raw is None:
         return None, None
-    if isinstance(raw, bool) or isinstance(raw, float):
-        return None, "page must be plain text (or an integer)."
-    if isinstance(raw, int):
-        return str(raw), None
-    if not isinstance(raw, str) or not raw.strip():
+    if not raw.strip():
         return None, "page must be plain text."
     page = _one_line(raw.strip(), " ")
     if content_has_markup(page):
@@ -1093,7 +1094,7 @@ class IndexesInsertTocEntry(ToolWriterIndexBase):
                     "occurrence is only used when position is before or after.",
                     code="INVALID_PARAM")
         else:
-            if not isinstance(old_content, str) or not old_content.strip():
+            if not (old_content or "").strip():
                 return self._tool_error(
                     "old_content is required when position is before or after.",
                     code="INVALID_PARAM")
@@ -1104,7 +1105,7 @@ class IndexesInsertTocEntry(ToolWriterIndexBase):
         if occurrence_error:
             return self._tool_error(occurrence_error, code="INVALID_PARAM")
         level = kwargs.get("level")
-        if level is not None and (type(level) is not int or not 1 <= level <= 10):
+        if level is not None and not 1 <= level <= 10:
             return self._tool_error("level must be an integer from 1 to 10.", code="INVALID_PARAM")
         idx, anchor, _pos, err = _resolve_toc_target(self, doc, kwargs.get("index"))
         if err is not None:
@@ -1142,7 +1143,7 @@ class IndexesInsertTocEntry(ToolWriterIndexBase):
         # Snapshot before the edit. The sibling paragraph object is not stable
         # once a row is inserted beside it.
         tab_stops = _snapshot_tab_stops(ref) if copy_tabs else None
-        char_props = _char_props(ref) if ref_is_contents else {}
+        char_props = _char_props(ref, bool(url)) if ref_is_contents else {}
         preview: dict[str, Any] = {
             "text": sibling_text[:160],
             "text_after": line[:160],
@@ -1193,7 +1194,7 @@ class IndexesList(ToolWriterIndexBase):
         "List document indexes (TOC, alphabetical, user, bibliography tables). "
         "type matches indexes_create kind (bibliography via getServiceName). "
         "For in-flow cites use indexes_list_cites, not this tool. "
-        "For TOC row text, outline level, and the internal hyperlink use indexes_list_toc_entries."
+        "For TOC row text and outline level use indexes_list_toc_entries."
     )
     parameters: dict[str, Any] | None = _EMPTY_PARAMETERS
     is_mutation: bool | None = False
@@ -1220,8 +1221,9 @@ class IndexesListTocEntries(ToolWriterIndexBase):
     name: str | None = "indexes_list_toc_entries"
     description: str = (
         "List table-of-contents rows by reading the index paragraphs. "
-        "Each row is the visible text, the outline level (Contents 1-10), "
-        "and the internal hyperlink (HyperLinkURL, including #…|outline). "
+        "Each row is the visible text and the outline level (Contents 1-10). "
+        "Pass include_links=true to include the internal HyperLinkURL (including #…|outline); "
+        "renames keep links without hyperlink_url. "
         "Does not export the document and does not call index update(). "
         "Use this to inspect or validate TOC entries. "
         "indexes_list returns only the index name and type. "
@@ -1232,6 +1234,7 @@ class IndexesListTocEntries(ToolWriterIndexBase):
         "type": "object",
         "properties": {
             "index": {"type": "integer", "minimum": 0, "description": "Document index position from indexes_list. Omit when the document has exactly one TOC."},
+            "include_links": {"type": "boolean", "description": "Include internal hyperlink URLs on each row. Defaults to false; outline links are preserved automatically during renames.", "default": False},
         },
         "required": [],
     }
@@ -1245,15 +1248,16 @@ class IndexesListTocEntries(ToolWriterIndexBase):
         # UI stays on "Running delegate (indexes)". The one-row update,
         # insert, and delete tools already read these paragraphs and do
         # not hang. This listing uses that same read: text, level, and
-        # hyperlink, without a full-document export and without
+        # optional hyperlink, without a full-document export and without
         # ContentIndex.update() (update rebuilds every row and drops
         # customized formatting).
         doc = ctx.doc
         index = kwargs.get("index")
+        include_links = bool(kwargs.get("include_links"))
         _unused_idx, anchor, position, err = _resolve_toc_target(self, doc, index)
         if err is not None:
             return err
-        entries = toc_entry_rows(anchor)
+        entries = toc_entry_rows(anchor, include_links=include_links)
         return {
             "status": "ok",
             "index": position,
@@ -1274,8 +1278,6 @@ class IndexesListCites(ToolWriterIndexBase):
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         doc = ctx.doc
-
-        from ..search import LocationLabeler
 
         fields = doc.getTextFields()
         enum = fields.createEnumeration()
@@ -1335,8 +1337,6 @@ class IndexesCreate(ToolWriterIndexBase):
         index_kind = kwargs["kind"]
         title = kwargs.get("title")
         create_from_outline = kwargs.get("create_from_outline", True)
-        target = kwargs.get("target", "selection")
-        old_content = kwargs.get("old_content")
 
         # schema enum rejects an unknown kind before execute.
         service_name = _INDEX_KIND_TO_SERVICE[index_kind]
@@ -1348,39 +1348,13 @@ class IndexesCreate(ToolWriterIndexBase):
         if index_kind == "toc":
             index.CreateFromOutline = create_from_outline
 
-        try:
-            cursor = resolve_target_cursor(
-                ctx, target, old_content, case_sensitive=kwargs.get("case_sensitive")
-            )
-        except ValueError as ve:
-            return self._tool_error(str(ve))
-
-        replace_match = target == "search" and bool(old_content)
-
-        def mutate() -> dict[str, Any] | None:
-            if replace_match:
-                cursor.setString("")
-            text = cursor.getText()
-            text.insertTextContent(cursor, index, False)
+        def mutate(cursor: Any) -> None:
+            cursor.getText().insertTextContent(cursor, index, False)
             index.update()
-            return None
 
-        if replace_match:
-            from ..edit_review import next_agent_edit_undo_title
-            from plugin.doc.undo import commit_or_rollback_mutation
-
-            error = commit_or_rollback_mutation(
-                self,
-                doc,
-                next_agent_edit_undo_title(),
-                mutate,
-                "Cannot replace the matched text atomically (no usable undo context).",
-                "Failed to create index; the change was rolled back",
-            )
-            if error is not None:
-                return error
-        else:
-            mutate()
+        error = insert_at_target(self, ctx, kwargs, mutate, what="the index")
+        if error is not None:
+            return error
 
         return {"status": "ok", "message": f"Created '{index_kind}' index successfully", "title": title}
 
@@ -1389,6 +1363,7 @@ class IndexesAddMark(ToolWriterIndexBase):
     name: str | None = "indexes_add_mark"
     description: str = (
         "Insert an index mark or a bibliography cite at target. "
+        "With target='search' the mark or cite is placed at the start of the match and the matched text is kept, not replaced. "
         "kind=alphabetical|user creates DocumentIndexMark / UserIndexMark (primary_key/secondary_key). "
         "kind=bibliography creates TextField.Bibliography — not an index mark; "
         "set Identifier/Author/Title/Year/Pages (text defaults to Identifier). "
@@ -1417,7 +1392,12 @@ class IndexesAddMark(ToolWriterIndexBase):
                 "type": "object",
                 "description": "Extra/override Fields names (Identifier, Author, ISBN, …). Ignored unless kind=bibliography.",
             },
-            **target_params("the mark or cite"),
+            **target_params(
+                "the mark or cite",
+                old_content_description=(
+                    "Text to find if target = 'search'; the mark or cite goes at the start of the match and the text is kept."
+                ),
+            ),
         },
         "required": ["text"],
     }
@@ -1429,19 +1409,10 @@ class IndexesAddMark(ToolWriterIndexBase):
         index_kind = kwargs.get("kind", "alphabetical")
         primary_key = kwargs.get("primary_key")
         secondary_key = kwargs.get("secondary_key")
-        target = kwargs.get("target", "selection")
-        old_content = kwargs.get("old_content")
-
-        try:
-            cursor = resolve_target_cursor(
-                ctx, target, old_content, case_sensitive=kwargs.get("case_sensitive")
-            )
-        except ValueError as ve:
-            return self._tool_error(str(ve))
 
         # schema enum.
         if index_kind == "bibliography":
-            return self._insert_bibliography_cite(doc, cursor, kwargs)
+            return self._insert_bibliography_cite(ctx, kwargs)
 
         service_name = "com.sun.star.text.DocumentIndexMark"
         if index_kind == "user":
@@ -1457,12 +1428,20 @@ class IndexesAddMark(ToolWriterIndexBase):
             mark.setPropertyValue("PrimaryKey", primary_key or "")
             mark.setPropertyValue("SecondaryKey", secondary_key or "")
 
-        text = cursor.getText()
-        text.insertTextContent(cursor, mark, False)
+        err = insert_at_target(
+            self,
+            ctx,
+            kwargs,
+            lambda cursor: cursor.getText().insertTextContent(cursor, mark, False),
+            what="the index mark",
+            replace_match=False,
+        )
+        if err is not None:
+            return err
 
         return {"status": "ok", "message": f"Added '{index_kind}' index mark for '{mark_text}'"}
 
-    def _insert_bibliography_cite(self, doc: Any, cursor: Any, kwargs: Any) -> dict[str, Any]:
+    def _insert_bibliography_cite(self, ctx: Any, kwargs: Any) -> dict[str, Any]:
         pairs = collect_bibliography_field_pairs(kwargs)
         identifier = str(pairs.get("Identifier") or "")
         if not identifier:
@@ -1470,14 +1449,23 @@ class IndexesAddMark(ToolWriterIndexBase):
                 "Bibliography cite needs identifier or text (used as Identifier)."
             )
 
+        doc = ctx.doc
         field = doc.createInstance(_BIB_CITE_SERVICE)
         if not field:
             return self._tool_error("Failed to create textfield.Bibliography")
         # Fields must be set on the descriptor before insert. A plain tuple is
         # dropped; set_bibliography_field_values uses a typed Any via uno.invoke.
         set_bibliography_field_values(field, pairs)
-        text = cursor.getText()
-        text.insertTextContent(cursor, field, False)
+        err = insert_at_target(
+            self,
+            ctx,
+            kwargs,
+            lambda cursor: cursor.getText().insertTextContent(cursor, field, False),
+            what="the bibliography cite",
+            replace_match=False,
+        )
+        if err is not None:
+            return err
         return {
             "status": "ok",
             "message": "Added bibliography cite '%s'" % identifier,

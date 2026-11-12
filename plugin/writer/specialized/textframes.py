@@ -23,12 +23,15 @@ nelson-mcp/plugin/writer/tools/frames.py
 import math
 from typing import Any
 
+from com.sun.star.awt import Size
+from com.sun.star.text.TextContentAnchorType import AS_CHARACTER, AT_CHARACTER, AT_FRAME, AT_PAGE, AT_PARAGRAPH
+
 from plugin.doc.text_helpers import get_string_without_tracked_deletions
 from plugin.doc.undo import commit_or_rollback_mutation
 from plugin.doc.visual_helpers import anchor_type_index, mm_to_unit
 from plugin.framework.uno_context import uno_same
 from ..specialized_base import ToolWriterTextFramesBase, target_params
-from ..target_resolver import resolve_target_cursor
+from ..target_resolver import insert_at_target
 
 _FRAME_INFO_MAX_CHARS = 4000
 
@@ -62,38 +65,25 @@ def _frame_or_error(tool: Any, ctx: Any, name: str | None) -> Any:
     )
 
 
+# Types are checked by prepare_tool_call (plugin/framework/tool.py); only ranges are checked here.
 def _validate_frame_mm(tool: Any, param_name: str, val: Any) -> dict[str, Any] | None:
-    try:
-        fval = float(val)
-        if type(val) is bool or not (math.isfinite(fval) and fval > 0):
-            raise ValueError
-    except (TypeError, ValueError):
-        return tool._tool_error(
-            f"{param_name} must be a positive finite number.",
-            code="INVALID_PARAMETER",
-            parameter=param_name,
-        )
-    return None
+    if math.isfinite(val) and val > 0:
+        return None
+    return tool._tool_error(
+        f"{param_name} must be a positive finite number.",
+        code="INVALID_PARAM",
+        parameter=param_name,
+    )
 
 
 def _validate_frame_anchor_type(tool: Any, val: Any) -> dict[str, Any] | None:
-    if type(val) is not int or not (0 <= val <= 4):
-        return tool._tool_error(
-            "anchor_type must be an integer between 0 and 4.",
-            code="INVALID_PARAMETER",
-            parameter="anchor_type",
-        )
-    return None
-
-
-def _validate_frame_orientation(tool: Any, param_name: str, val: Any) -> dict[str, Any] | None:
-    if type(val) is not int:
-        return tool._tool_error(
-            f"{param_name} must be an integer.",
-            code="INVALID_PARAMETER",
-            parameter=param_name,
-        )
-    return None
+    if 0 <= val <= 4:
+        return None
+    return tool._tool_error(
+        "anchor_type must be an integer between 0 and 4.",
+        code="INVALID_PARAM",
+        parameter="anchor_type",
+    )
 
 
 def _validate_frame_measurement(tool: Any, param_name: str, val: Any) -> dict[str, Any] | None:
@@ -101,14 +91,10 @@ def _validate_frame_measurement(tool: Any, param_name: str, val: Any) -> dict[st
         return None
     if param_name in ("width_mm", "height_mm"):
         return _validate_frame_mm(tool, param_name, val)
-    if param_name == "anchor_type":
-        return _validate_frame_anchor_type(tool, val)
-    return _validate_frame_orientation(tool, param_name, val)
+    return _validate_frame_anchor_type(tool, val)
 
 
 def text_content_anchor(index: int) -> Any:
-    from com.sun.star.text.TextContentAnchorType import AT_PARAGRAPH, AS_CHARACTER, AT_PAGE, AT_FRAME, AT_CHARACTER
-
     return (AT_PARAGRAPH, AS_CHARACTER, AT_PAGE, AT_FRAME, AT_CHARACTER)[index]
 
 
@@ -236,8 +222,6 @@ class FrameSetProperties(ToolWriterTextFramesBase):
             ("width_mm", width_mm),
             ("height_mm", height_mm),
             ("anchor_type", anchor_type),
-            ("hori_orient", hori_orient),
-            ("vert_orient", vert_orient),
         ):
             if val is None:
                 continue
@@ -247,8 +231,6 @@ class FrameSetProperties(ToolWriterTextFramesBase):
 
         pending: dict[str, tuple[str, Any]] = {}
         if width_mm is not None or height_mm is not None:
-            from com.sun.star.awt import Size
-
             current = frame.getPropertyValue("Size")
             new_size = Size()
             new_size.Width = mm_to_unit(width_mm) if width_mm is not None else current.Width
@@ -307,8 +289,6 @@ class FrameInsert(ToolWriterTextFramesBase):
     is_mutation: bool | None = True
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
-        target = kwargs.get("target", "selection")
-        old_content = kwargs.get("old_content")
         frame_name = kwargs.get("name")
         text = kwargs.get("text") or ""
         width_mm = kwargs.get("width_mm")
@@ -328,15 +308,9 @@ class FrameInsert(ToolWriterTextFramesBase):
             if text_frames.hasByName(frame_name):
                 return self._tool_error(
                     "Text frame %r already exists." % frame_name,
-                    code="INVALID_PARAMETER",
+                    code="INVALID_PARAM",
                     parameter="name",
                 )
-        try:
-            cursor = resolve_target_cursor(ctx, target, old_content, case_sensitive=kwargs.get("case_sensitive"))
-        except ValueError as ve:
-            return self._tool_error(str(ve))
-
-        from com.sun.star.awt import Size
 
         frame = doc.createInstance("com.sun.star.text.TextFrame")
         size = Size()
@@ -345,11 +319,7 @@ class FrameInsert(ToolWriterTextFramesBase):
         frame.setPropertyValue("Size", size)
         frame.setPropertyValue("AnchorType", text_content_anchor(anchor_type))
 
-        replace_match = target == "search" and bool(old_content)
-
-        def mutate() -> dict[str, Any] | None:
-            if replace_match:
-                cursor.setString("")
+        def mutate(cursor: Any) -> dict[str, Any] | None:
             host = cursor.getText()
             host.insertTextContent(cursor, frame, False)
             if frame_name:
@@ -362,13 +332,13 @@ class FrameInsert(ToolWriterTextFramesBase):
                 frame_text.insertString(frame_cursor, text, False)
             return None
 
-        err = commit_or_rollback_mutation(
+        err = insert_at_target(
             self,
-            doc,
-            "WriterAgent: Insert text frame",
+            ctx,
+            kwargs,
             mutate,
-            "Undo is unavailable; the text frame was not inserted.",
-            "Failed to insert text frame; the change was rolled back",
+            what="the text frame",
+            undo_title="WriterAgent: Insert text frame",
             code="INSERT_FRAME_FAILED",
         )
         if err is not None:

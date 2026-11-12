@@ -15,6 +15,7 @@ from unittest.mock import MagicMock
 import pytest
 
 import plugin.writer.html_import as format_mod
+import plugin.writer.html_import_styles as html_import_styles
 import plugin.writer.search as search_mod
 from plugin.writer.apply_document_content import (
     ApplyDocumentContent,
@@ -70,9 +71,13 @@ def _ctx():
     um = MagicMock()
     um.isLocked.return_value = False
     doc.getUndoManager.return_value = um
+    doc.getBookmarks.return_value.hasByName.return_value = False
+    doc.getText.return_value.createEnumeration.return_value.hasMoreElements.return_value = False
     return types.SimpleNamespace(
-        doc=doc, ctx=object(),
+        doc=doc, ctx=MagicMock(),
         services=types.SimpleNamespace(get=lambda key, default=None: None),
+        status_callback=None,
+        send_cancellation=None,
     )
 
 
@@ -82,7 +87,7 @@ def _no_libreoffice(monkeypatch):
     monkeypatch.setattr(format_mod, "content_has_markup", lambda *a, **k: False)
     monkeypatch.setattr(search_mod, "normalize_search_string_for_find", lambda s: s)
     monkeypatch.setattr(format_mod, "replace_preserving_format", lambda *a, **k: None)
-    monkeypatch.setattr(format_mod, "replace_single_range_with_content", lambda *a, **k: None)
+    monkeypatch.setattr(format_mod, "replace_single_range_with_content", lambda *a, **k: html_import_styles.WriteReport())
     monkeypatch.setattr(search_mod, "drawing_shape_object_containing", lambda *a, **k: None)
 
 
@@ -101,6 +106,7 @@ def test_search_no_match_returns_error_zero(monkeypatch):
     monkeypatch.setattr(search_mod, "find_first_range", lambda doc, s: None)
     res = ApplyDocumentContent().execute(_ctx(), target="search", old_content="zzz", content="BAR")
     assert res["status"] == "error", res
+    assert res["code"] == "OLD_CONTENT_NOT_FOUND", res
     assert res["replaced_count"] == 0, res
     assert res["normalized_old_content"] == "zzz", res
 
@@ -127,6 +133,7 @@ def test_search_all_matches_no_match_errors(monkeypatch):
     res = ApplyDocumentContent().execute(
         _ctx(), target="search", old_content="zzz", content="BAR", all_matches=True)
     assert res["status"] == "error", res
+    assert res["code"] == "OLD_CONTENT_NOT_FOUND", res
     assert res["replaced_count"] == 0, res
     assert res["normalized_old_content"] == "zzz", res
     assert res["message"].startswith("Replaced 0 occurrence"), res
@@ -158,6 +165,7 @@ def test_search_oversized_old_content_refused_on_miss(monkeypatch):
         _ctx(), target="search", old_content="huge content", content="BAR"
     )
     assert res["status"] == "error", res
+    assert res["code"] == "OLD_CONTENT_TOO_LARGE", res
     assert res["replaced_count"] == 0, res
     assert res["normalized_old_content"] == "huge content"
     assert "target='full_document'" in res["message"]
@@ -219,6 +227,7 @@ def test_search_empty_after_normalization_reports_normalized_key():
         _ctx(), target="search", old_content="   ", content="BAR"
     )
     assert res["status"] == "error", res
+    assert res["code"] == "INVALID_PARAM", res
     assert res["normalized_old_content"] == ""
     assert "empty after normalization" in res["message"]
 
@@ -253,37 +262,76 @@ def test_dry_run_reports_normalized_old_content_and_miss_fields(monkeypatch):
 
 def test_mapped_data_lo_para_full_document_has_no_warnings():
     """Clean write with no unapplied properties produces no warnings."""
-    from plugin.writer.apply_document_content import _attach_para_warnings
-
-    res = _attach_para_warnings(
+    res = html_import_styles.attach_write_report(
         {"status": "ok", "message": "Replaced entire document."},
-        [],
+        html_import_styles.WriteReport(),
     )
     assert "warnings" not in res
 
 
 def test_unmapped_data_lo_para_full_document_warns_for_unmapped_property():
     """Unmapped properties report one warning per dropped property name."""
-    from plugin.writer.apply_document_content import _attach_para_warnings
-
-    res = _attach_para_warnings(
+    res = html_import_styles.attach_write_report(
         {"status": "ok", "message": "Replaced entire document."},
-        ["font-size"],
+        html_import_styles.WriteReport(unapplied_para=["font-size"]),
     )
-    assert res.get("warnings") == ["data-lo-para property 'font-size' was not applied"]
+    assert res.get("warnings") == [
+        {"code": "PARA_PROPERTY_UNSUPPORTED", "message": "data-lo-para property 'font-size' was not applied"}
+    ]
+
+
+def test_unmapped_data_lo_para_partial_match_warns_with_reason():
+    """Partial match skip specifies that range does not cover a whole paragraph."""
+    res = html_import_styles.attach_write_report(
+        {"status": "ok", "message": "Replaced content."},
+        html_import_styles.WriteReport(
+            unapplied_para=["margin-left"], style_skips=["STYLE_IGNORED_PARTIAL_MATCH"]
+        ),
+    )
+    assert res.get("warnings") == [
+        {
+            "code": "PARA_IGNORED_PARTIAL_MATCH",
+            "message": "data-lo-para property 'margin-left' was not applied because the replaced range does not cover a whole paragraph",
+        }
+    ]
+
+
+def test_unmapped_data_lo_para_recording_warns_with_reason():
+    """Recording skip specifies that tracked changes are recording."""
+    res = html_import_styles.attach_write_report(
+        {"status": "ok", "message": "Replaced content."},
+        html_import_styles.WriteReport(
+            unapplied_para=["margin-left"], style_skips=["STYLE_IGNORED_RECORDING"]
+        ),
+    )
+    assert res.get("warnings") == [
+        {
+            "code": "PARA_IGNORED_RECORDING",
+            "message": "data-lo-para property 'margin-left' was not applied because tracked changes are recording",
+        }
+    ]
 
 
 def test_failed_write_is_not_annotated():
     """Nothing was written, so there is nothing to say about what was not applied."""
-    from plugin.writer.apply_document_content import _attach_para_warnings
-
     original = {"status": "error", "message": "old_content not found."}
-    assert _attach_para_warnings(original, ["margin-left"]) == original
+    assert (
+        html_import_styles.attach_write_report(
+            original, html_import_styles.WriteReport(unapplied_para=["margin-left"])
+        )
+        == original
+    )
 
 
 def test_search_target_warns_for_mapped_property(monkeypatch):
-    """Search replacement does not apply data-lo-para; every property warns."""
+    """Search replacement reports unapplied property failures returned by import."""
+    monkeypatch.setattr(format_mod, "content_has_markup", lambda *a, **k: True)
     monkeypatch.setattr(search_mod, "find_first_range", lambda doc, s: MockRange())
+    monkeypatch.setattr(
+        format_mod,
+        "replace_single_range_with_content",
+        lambda *a, **k: html_import_styles.WriteReport(unapplied_para=["text-align"]),
+    )
     res = ApplyDocumentContent().execute(
         _ctx(),
         target="search",
@@ -291,7 +339,106 @@ def test_search_target_warns_for_mapped_property(monkeypatch):
         content='<p data-lo-para="text-align:center">x</p>',
     )
     assert res.get("status") == "ok", res
-    assert res.get("warnings") == ["data-lo-para property 'text-align' was not applied"]
+    assert res.get("warnings") == [
+        {"code": "PARA_PROPERTY_UNSUPPORTED", "message": "data-lo-para property 'text-align' was not applied"}
+    ]
+
+
+def test_search_target_warns_with_partial_match_code(monkeypatch):
+    """Search replacement reports PARA_IGNORED_PARTIAL_MATCH on partial match skip."""
+    monkeypatch.setattr(format_mod, "content_has_markup", lambda *a, **k: True)
+    monkeypatch.setattr(search_mod, "find_first_range", lambda doc, s: MockRange())
+    monkeypatch.setattr(
+        format_mod,
+        "replace_single_range_with_content",
+        lambda *a, **k: html_import_styles.WriteReport(
+            unapplied_para=["margin-left"], style_skips=["STYLE_IGNORED_PARTIAL_MATCH"]
+        ),
+    )
+    res = ApplyDocumentContent().execute(
+        _ctx(),
+        target="search",
+        old_content="foo",
+        content='<p data-lo-para="margin-left:2cm">x</p>',
+    )
+    assert res.get("status") == "ok", res
+    assert res.get("warnings") == [
+        {
+            "code": "PARA_IGNORED_PARTIAL_MATCH",
+            "message": "data-lo-para property 'margin-left' was not applied because the replaced range does not cover a whole paragraph",
+        }
+    ]
+
+
+def test_search_target_warns_with_recording_code(monkeypatch):
+    """Search replacement reports PARA_IGNORED_RECORDING on recording skip."""
+    monkeypatch.setattr(format_mod, "content_has_markup", lambda *a, **k: True)
+    monkeypatch.setattr(search_mod, "find_first_range", lambda doc, s: MockRange())
+    monkeypatch.setattr(
+        format_mod,
+        "replace_single_range_with_content",
+        lambda *a, **k: html_import_styles.WriteReport(
+            unapplied_para=["margin-left"], style_skips=["STYLE_IGNORED_RECORDING"]
+        ),
+    )
+    res = ApplyDocumentContent().execute(
+        _ctx(),
+        target="search",
+        old_content="foo",
+        content='<p data-lo-para="margin-left:2cm">x</p>',
+    )
+    assert res.get("status") == "ok", res
+    assert res.get("warnings") == [
+        {
+            "code": "PARA_IGNORED_RECORDING",
+            "message": "data-lo-para property 'margin-left' was not applied because tracked changes are recording",
+        }
+    ]
+
+
+def test_search_target_reports_no_warning_when_import_applied_everything(monkeypatch):
+    """When import applies all properties, no warnings are attached."""
+    monkeypatch.setattr(format_mod, "content_has_markup", lambda *a, **k: True)
+    monkeypatch.setattr(search_mod, "find_first_range", lambda doc, s: MockRange())
+    monkeypatch.setattr(
+        format_mod, "replace_single_range_with_content", lambda *a, **k: html_import_styles.WriteReport()
+    )
+    res = ApplyDocumentContent().execute(
+        _ctx(),
+        target="search",
+        old_content="foo",
+        content='<p data-lo-para="text-align:center">x</p>',
+    )
+    assert res.get("status") == "ok", res
+    assert "warnings" not in res
+
+
+def test_search_all_matches_unions_failures_with_dedupe(monkeypatch):
+    """all_matches aggregates and deduplicates failures across all replacements."""
+    monkeypatch.setattr(format_mod, "content_has_markup", lambda *a, **k: True)
+    r1, r2 = MockRange("foo1"), MockRange("foo2")
+    monkeypatch.setattr(search_mod, "find_all_ranges", lambda doc, s: [r1, r2])
+    calls: list[int] = []
+
+    def fake_replace(*a, **k):
+        calls.append(len(calls))
+        if len(calls) == 1:
+            return html_import_styles.WriteReport(unapplied_para=["text-align"])
+        return html_import_styles.WriteReport(unapplied_para=["text-align", "font-size"])
+
+    monkeypatch.setattr(format_mod, "replace_single_range_with_content", fake_replace)
+    res = ApplyDocumentContent().execute(
+        _ctx(),
+        target="search",
+        old_content="foo",
+        content='<p data-lo-para="text-align:center; font-size:12pt">x</p>',
+        all_matches=True,
+    )
+    assert res.get("status") == "ok", res
+    assert res.get("warnings") == [
+        {"code": "PARA_PROPERTY_UNSUPPORTED", "message": "data-lo-para property 'text-align' was not applied"},
+        {"code": "PARA_PROPERTY_UNSUPPORTED", "message": "data-lo-para property 'font-size' was not applied"},
+    ]
 
 
 def test_content_without_the_attribute_is_untouched(monkeypatch):
@@ -305,6 +452,51 @@ def test_content_without_the_attribute_is_untouched(monkeypatch):
     )
     assert res.get("status") == "ok", res
     assert "warnings" not in res
+
+
+def test_search_target_warns_for_unresolved_heading_link(monkeypatch):
+    """Unmatched bare fragment link emits LINK_TARGET_NOT_FOUND warning."""
+    monkeypatch.setattr(search_mod, "find_first_range", lambda doc, s: MockRange())
+    res = ApplyDocumentContent().execute(
+        _ctx(),
+        target="search",
+        old_content="foo",
+        content='<p><a href="#Nowhere">x</a></p>',
+    )
+    assert res.get("status") == "ok", res
+    assert res.get("warnings") == [
+        {
+            "code": "LINK_TARGET_NOT_FOUND",
+            "link_target": "#Nowhere",
+            "message": (
+                'Link target "#Nowhere" matches no heading or bookmark and will not jump anywhere. '
+                'Use the exact heading text, href="#Heading text|outline", or give the target element '
+                'an id and link to that.'
+            ),
+        }
+    ]
+
+
+def test_search_target_resolves_heading_link_to_outline(monkeypatch):
+    """Bare fragment link matching a written heading is rewritten to |outline without warnings."""
+    monkeypatch.setattr(format_mod, "content_has_markup", _real_content_has_markup)
+    monkeypatch.setattr(search_mod, "find_first_range", lambda doc, s: MockRange())
+    passed_down: list[str] = []
+
+    def mock_replace(doc, found, content, *args, **kwargs):
+        passed_down.append(content)
+        return html_import_styles.WriteReport()
+
+    monkeypatch.setattr(format_mod, "replace_single_range_with_content", mock_replace)
+    res = ApplyDocumentContent().execute(
+        _ctx(),
+        target="search",
+        old_content="foo",
+        content='<h1>T</h1><p><a href="#T">link</a></p>',
+    )
+    assert res.get("status") == "ok", res
+    assert "warnings" not in res
+    assert any("#T|outline" in c for c in passed_down)
 
 def test_search_occurrence_selects_requested_match(monkeypatch):
     first = MockRange()
@@ -346,6 +538,7 @@ def test_search_occurrence_rejects_all_matches():
     )
 
     assert res["status"] == "error", res
+    assert res["code"] == "INVALID_PARAM", res
     assert "cannot be combined with all_matches=true" in res["message"]
 
 
@@ -744,6 +937,7 @@ def test_search_target_requires_old_content_or_anchors():
     tool = ApplyDocumentContent()
     res = tool.execute(_ctx(), target="search", content="new")
     assert res["status"] == "error"
+    assert res["code"] == "INVALID_PARAM"
     assert res["message"] == "target='search' requires old_content or start_anchor and end_anchor."
 
 
@@ -751,10 +945,12 @@ def test_anchor_both_required():
     tool = ApplyDocumentContent()
     res1 = tool.execute(_ctx(), start_anchor="foo", content="new")
     assert res1["status"] == "error"
+    assert res1["code"] == "INVALID_PARAM"
     assert "start_anchor and end_anchor are both required" in res1["message"]
 
     res2 = tool.execute(_ctx(), end_anchor="bar", content="new")
     assert res2["status"] == "error"
+    assert res2["code"] == "INVALID_PARAM"
     assert "start_anchor and end_anchor are both required" in res2["message"]
 
 
@@ -762,10 +958,12 @@ def test_anchor_non_strings():
     tool = ApplyDocumentContent()
     res1 = tool.execute(_ctx(), start_anchor=123, end_anchor="bar", content="new")
     assert res1["status"] == "error"
+    assert res1["code"] == "INVALID_PARAM"
     assert "start_anchor and end_anchor must both be strings" in res1["message"]
 
     res2 = tool.execute(_ctx(), start_anchor="foo", end_anchor=456, content="new")
     assert res2["status"] == "error"
+    assert res2["code"] == "INVALID_PARAM"
     assert "start_anchor and end_anchor must both be strings" in res2["message"]
 
 
@@ -774,10 +972,12 @@ def test_anchor_empty_after_normalization(monkeypatch):
     tool = ApplyDocumentContent()
     res1 = tool.execute(_ctx(), start_anchor="   ", end_anchor="bar", content="new")
     assert res1["status"] == "error"
+    assert res1["code"] == "INVALID_PARAM"
     assert res1["message"] == "start_anchor is empty after normalization."
 
     res2 = tool.execute(_ctx(), start_anchor="foo", end_anchor="   ", content="new")
     assert res2["status"] == "error"
+    assert res2["code"] == "INVALID_PARAM"
     assert res2["message"] == "end_anchor is empty after normalization."
 
 
@@ -785,6 +985,7 @@ def test_anchor_conflict_with_old_content():
     tool = ApplyDocumentContent()
     res = tool.execute(_ctx(), old_content="x", start_anchor="foo", end_anchor="bar", content="new")
     assert res["status"] == "error"
+    assert res["code"] == "INVALID_PARAM"
     assert res["message"] == "Pass old_content or start_anchor and end_anchor, not both."
 
 
@@ -792,6 +993,7 @@ def test_anchor_non_search_target():
     tool = ApplyDocumentContent()
     res = tool.execute(_ctx(), target="full_document", start_anchor="foo", end_anchor="bar", content="new")
     assert res["status"] == "error"
+    assert res["code"] == "INVALID_PARAM"
     assert res["message"] == "start_anchor and end_anchor require target='search'."
 
 
@@ -799,24 +1001,29 @@ def test_anchor_rejects_regex_and_all_matches_and_position_and_dry_run():
     tool = ApplyDocumentContent()
     res_regex = tool.execute(_ctx(), start_anchor="foo", end_anchor="bar", content="new", regex=True)
     assert res_regex["status"] == "error"
+    assert res_regex["code"] == "INVALID_PARAM"
     assert res_regex["message"] == "regex does not apply to start_anchor and end_anchor."
 
     res_all = tool.execute(_ctx(), start_anchor="foo", end_anchor="bar", content="new", all_matches=True)
     assert res_all["status"] == "error"
+    assert res_all["code"] == "INVALID_PARAM"
     assert res_all["message"] == "all_matches cannot be combined with start_anchor and end_anchor."
 
     res_pos = tool.execute(_ctx(), start_anchor="foo", end_anchor="bar", content="new", position="before")
     assert res_pos["status"] == "error"
+    assert res_pos["code"] == "INVALID_PARAM"
     assert res_pos["message"] == "position='before'/'after' does not apply to an anchor range."
 
     res_dry = tool.execute(_ctx(), start_anchor="foo", end_anchor="bar", content="new", dry_run=True)
     assert res_dry["status"] == "error"
+    assert res_dry["code"] == "INVALID_PARAM"
     assert res_dry["message"] == "dry_run does not apply to start_anchor and end_anchor."
 
     res_url = tool.execute(
         _ctx(), start_anchor="foo", end_anchor="bar", content="new", hyperlink_url="http://example.com"
     )
     assert res_url["status"] == "error"
+    assert res_url["code"] == "INVALID_PARAM"
     assert res_url["message"] == "hyperlink_url does not apply to start_anchor and end_anchor."
 
 
@@ -843,6 +1050,7 @@ def test_anchor_miss_start(monkeypatch):
     tool = ApplyDocumentContent()
     res = tool.execute(_ctx(), start_anchor="foo", end_anchor="bar", content="new")
     assert res["status"] == "error"
+    assert res["code"] == "ANCHOR_START_NOT_FOUND"
     assert res["replaced_count"] == 0
     assert "start_anchor not found in document." in res["message"]
 
@@ -852,6 +1060,7 @@ def test_anchor_miss_end(monkeypatch):
     tool = ApplyDocumentContent()
     res = tool.execute(_ctx(), start_anchor="foo", end_anchor="bar", content="new")
     assert res["status"] == "error"
+    assert res["code"] == "ANCHOR_END_NOT_FOUND"
     assert res["replaced_count"] == 0
     assert "end_anchor not found after start_anchor." in res["message"]
 
@@ -861,6 +1070,7 @@ def test_anchor_miss_different_text(monkeypatch):
     tool = ApplyDocumentContent()
     res = tool.execute(_ctx(), start_anchor="foo", end_anchor="bar", content="new")
     assert res["status"] == "error"
+    assert res["code"] == "ANCHOR_TEXT_DIFFERENT"
     assert res["replaced_count"] == 0
     assert "end_anchor after start_anchor is not in the same text, so it cannot be one range." in res["message"]
 
@@ -884,6 +1094,7 @@ def test_anchor_shape_miss_does_not_replace_text_in_shape(monkeypatch):
     tool = ApplyDocumentContent()
     res = tool.execute(_ctx(), start_anchor="foo", end_anchor="bar", content="new")
     assert res["status"] == "error"
+    assert res["code"] == "SHAPE_TEXT_NEEDS_DELEGATION"
     assert res["replaced_count"] == 0
     assert "start_anchor is only inside a drawing shape / floating text box ('MyBox')" in res["message"]
     assert not replace_shape_called
@@ -923,11 +1134,12 @@ def test_anchor_plain_text_wraps_in_p_and_skips_hyperlinks(monkeypatch):
 
     monkeypatch.setattr(search_mod, "find_anchor_span", lambda doc, s, e, **k: (MockRange(), None))
     recorded_content = []
-    monkeypatch.setattr(
-        format_mod,
-        "replace_single_range_with_content",
-        lambda doc, found, content, ctx: recorded_content.append(content),
-    )
+
+    def fake_replace(doc, found, content, ctx, **k):
+        recorded_content.append(content)
+        return html_import_styles.WriteReport()
+
+    monkeypatch.setattr(format_mod, "replace_single_range_with_content", fake_replace)
     with patch("plugin.writer.apply_document_content.capture_outline_hyperlinks") as mock_capture:
         res = ApplyDocumentContent().execute(
             _ctx(),
@@ -944,11 +1156,12 @@ def test_anchor_plain_text_wraps_in_p_and_skips_hyperlinks(monkeypatch):
 def test_anchor_plain_text_single_line_unwrapped(monkeypatch):
     monkeypatch.setattr(search_mod, "find_anchor_span", lambda doc, s, e, **k: (MockRange(), None))
     recorded_content = []
-    monkeypatch.setattr(
-        format_mod,
-        "replace_single_range_with_content",
-        lambda doc, found, content, ctx: recorded_content.append(content),
-    )
+
+    def fake_replace(doc, found, content, ctx, **k):
+        recorded_content.append(content)
+        return html_import_styles.WriteReport()
+
+    monkeypatch.setattr(format_mod, "replace_single_range_with_content", fake_replace)
     res = ApplyDocumentContent().execute(
         _ctx(),
         start_anchor="start",
@@ -963,11 +1176,12 @@ def test_anchor_markup_not_wrapped_again(monkeypatch):
     monkeypatch.setattr(format_mod, "content_has_markup", _real_content_has_markup)
     monkeypatch.setattr(search_mod, "find_anchor_span", lambda doc, s, e, **k: (MockRange(), None))
     recorded_content = []
-    monkeypatch.setattr(
-        format_mod,
-        "replace_single_range_with_content",
-        lambda doc, found, content, ctx: recorded_content.append(content),
-    )
+
+    def fake_replace(doc, found, content, ctx, **k):
+        recorded_content.append(content)
+        return html_import_styles.WriteReport()
+
+    monkeypatch.setattr(format_mod, "replace_single_range_with_content", fake_replace)
     res = ApplyDocumentContent().execute(
         _ctx(),
         start_anchor="start",
@@ -983,7 +1197,7 @@ def test_full_document_structured_return_paragraphs_and_headings():
 
     content = ["<h1>Title</h1>", '<p data-lo-style="Heading2">Section</p>', "<p>Body</p>"]
     with patch("plugin.writer.html_import.replace_full_document") as mock_replace:
-        mock_replace.return_value = []
+        mock_replace.return_value = html_import_styles.WriteReport()
         res = ApplyDocumentContent().execute(_ctx(), content=content, target="full_document")
     assert res["status"] == "ok"
     assert res["message"] == "Replaced entire document."
@@ -1000,7 +1214,7 @@ def test_full_document_non_heading_style_dropped_from_headings():
 
     content = '<h1 data-lo-style="Quotations">Title</h1>'
     with patch("plugin.writer.html_import.replace_full_document") as mock_replace:
-        mock_replace.return_value = []
+        mock_replace.return_value = html_import_styles.WriteReport()
         res = ApplyDocumentContent().execute(_ctx(), content=content, target="full_document")
     assert res["status"] == "ok"
     assert res["paragraph_count"] == 1
@@ -1012,7 +1226,7 @@ def test_full_document_empty_content_returns_zero_paragraphs():
     from unittest.mock import patch
 
     with patch("plugin.writer.html_import.replace_full_document") as mock_replace:
-        mock_replace.return_value = []
+        mock_replace.return_value = html_import_styles.WriteReport()
         res = ApplyDocumentContent().execute(_ctx(), content="", target="full_document")
     assert res["status"] == "ok"
     assert res["paragraph_count"] == 0
@@ -1024,9 +1238,324 @@ def test_full_document_data_lo_para_warnings():
 
     content = '<p data-lo-para="line-height:150%">Hello</p>'
     with patch("plugin.writer.html_import.replace_full_document") as mock_replace:
-        mock_replace.return_value = ["line-height"]
+        mock_replace.return_value = html_import_styles.WriteReport(unapplied_para=["line-height"])
         res = ApplyDocumentContent().execute(_ctx(), content=content, target="full_document")
     assert res["status"] == "ok"
     assert res["paragraph_count"] == 1
     assert res["headings"] == []
-    assert res["warnings"] == ["data-lo-para property 'line-height' was not applied"]
+    assert res["warnings"] == [
+        {"code": "PARA_PROPERTY_UNSUPPORTED", "message": "data-lo-para property 'line-height' was not applied"}
+    ]
+
+
+def test_full_document_reports_math_objects(monkeypatch):
+    entries = [
+        {"kind": "tex", "display_block": False, "snippet": "a", "ok": True},
+        {"kind": "tex", "display_block": True, "snippet": "b", "ok": True},
+    ]
+
+    def fake_replace_full_document(doc, ctx, content):
+        return html_import_styles.WriteReport(math=list(entries))
+
+    monkeypatch.setattr(format_mod, "replace_full_document", fake_replace_full_document)
+    content = r"<p>\(a\)</p><p>$$b$$</p>"
+    res = ApplyDocumentContent().execute(_ctx(), content=content, target="full_document")
+
+    assert res["status"] == "ok"
+    assert res["paragraph_count"] == 2
+    assert res["headings"] == []
+    assert res["math_objects"] == entries
+
+
+def test_full_document_failed_math_attempt_reports_math_import_failed_warning(monkeypatch):
+    entries = [
+        {"kind": "tex", "display_block": False, "snippet": "a", "ok": True},
+        {"kind": "tex", "display_block": True, "snippet": "b", "ok": False, "error": "invalid"},
+    ]
+
+    def fake_replace_full_document(doc, ctx, content):
+        return html_import_styles.WriteReport(math=list(entries))
+
+    monkeypatch.setattr(format_mod, "replace_full_document", fake_replace_full_document)
+    content = r"<p>\(a\)</p><p>$$b$$</p>"
+    res = ApplyDocumentContent().execute(_ctx(), content=content, target="full_document")
+
+    assert res["status"] == "ok"
+    assert res["paragraph_count"] == 2
+    assert res["headings"] == []
+    assert res["math_objects"] == entries
+    assert len(res["warnings"]) == 1
+    diag = res["warnings"][0]
+    assert diag["code"] == "MATH_IMPORT_FAILED"
+    assert "b" in diag["message"]
+    assert "invalid" in diag["message"]
+
+
+def test_wait_mode_waits_for_review_when_math_import_fails(monkeypatch):
+    """Wait mode must still block for user review even when a formula conversion fails,
+    because the edit itself landed in the document as a tracked change.
+    """
+    entries = [
+        {"kind": "tex", "display_block": True, "snippet": r"\sqrt{", "ok": False, "error": "NoAvailableTokensError"},
+    ]
+
+    def fake_replace_full_document(doc, ctx, content):
+        return html_import_styles.WriteReport(math=list(entries))
+
+    monkeypatch.setattr(format_mod, "replace_full_document", fake_replace_full_document)
+
+    import plugin.writer.apply_document_content as apply_mod
+    monkeypatch.setattr(apply_mod, "get_agent_edit_review_mode", lambda: "wait")
+    monkeypatch.setattr(apply_mod, "_run_on_main_thread", lambda fn: fn())
+    monkeypatch.setattr(apply_mod.main, "is_current", lambda: False)
+
+    mock_session = MagicMock()
+    mock_session.changes = [object()]
+    mock_session.record_mutation.side_effect = lambda fn, **k: fn()
+    mock_session.wait_for_review.return_value = {"complete": True, "accepted": 1, "rejected": 0}
+    monkeypatch.setattr(apply_mod, "EditReviewSession", lambda doc, ctx, enabled=True: mock_session)
+
+    res = ApplyDocumentContent().execute(_ctx(), content=r"<p>$$\sqrt{$$</p>", target="full_document")
+
+    assert res["status"] == "ok"
+    assert res["review"] == {"complete": True, "accepted": 1, "rejected": 0}
+    assert res["math_objects"] == entries
+    assert len(res["warnings"]) == 1
+    assert res["warnings"][0]["code"] == "MATH_IMPORT_FAILED"
+    mock_session.wait_for_review.assert_called_once()
+
+
+def test_full_document_plain_html_omits_math_objects(monkeypatch):
+    def fake_replace_full_document(doc, ctx, content):
+        return html_import_styles.WriteReport()
+
+    monkeypatch.setattr(format_mod, "replace_full_document", fake_replace_full_document)
+    res = ApplyDocumentContent().execute(_ctx(), content="<p>Hello</p>", target="full_document")
+    assert res["status"] == "ok"
+    assert "math_objects" not in res
+
+
+def test_target_end_and_search_report_math_objects(monkeypatch):
+    monkeypatch.setattr(format_mod, "content_has_markup", _real_content_has_markup)
+
+    end_entry = {"kind": "tex", "display_block": False, "snippet": "end_formula", "ok": True}
+
+    def fake_insert_at_pos(doc, ctx, content, position):
+        return html_import_styles.WriteReport(math=[end_entry])
+
+    monkeypatch.setattr(format_mod, "insert_content_at_position", fake_insert_at_pos)
+    res = ApplyDocumentContent().execute(_ctx(), content=r"<p>\(end_formula\)</p>", target="end")
+
+    assert res["status"] == "ok"
+    assert res["math_objects"] == [end_entry]
+
+    search_entry = {"kind": "tex", "display_block": False, "snippet": "search_formula", "ok": True}
+
+    def fake_replace_single(doc, text_range, content, ctx):
+        return html_import_styles.WriteReport(math=[search_entry])
+
+    monkeypatch.setattr(format_mod, "replace_single_range_with_content", fake_replace_single)
+    monkeypatch.setattr(search_mod, "find_first_range", lambda doc, s: MockRange())
+
+    res_search = ApplyDocumentContent().execute(
+        _ctx(), target="search", old_content="foo", content=r"<p>\(search_formula\)</p>"
+    )
+
+    assert res_search["status"] == "ok"
+    assert res_search["math_objects"] == [search_entry]
+
+    # all_matches with two ranges yields two entries in loop order
+    r1 = MockRange("match1")
+    r2 = MockRange("match2")
+    monkeypatch.setattr(search_mod, "find_all_ranges", lambda doc, s: [r1, r2])
+
+    res_all = ApplyDocumentContent().execute(
+        _ctx(), target="search", old_content="foo", content=r"<p>\(batch_formula\)</p>", all_matches=True
+    )
+
+    assert res_all["status"] == "ok"
+    assert res_all["replaced_count"] == 2
+    assert res_all["math_objects"] == [search_entry, search_entry]
+
+
+def test_error_or_rollback_omits_math_objects(monkeypatch):
+    """When an edit fails or rolls back, attempted math objects must not be published."""
+    entry = {"kind": "tex", "display_block": False, "snippet": "x^2", "ok": True}
+
+    def fake_replace_full_document(doc, ctx, content):
+        return html_import_styles.WriteReport(math=[entry])
+
+    monkeypatch.setattr(format_mod, "replace_full_document", fake_replace_full_document)
+    monkeypatch.setattr(
+        ApplyDocumentContent,
+        "_table_insert_error",
+        lambda self, doc, has_table, before: {"status": "error", "message": "table insertion failed"},
+    )
+    res = ApplyDocumentContent().execute(_ctx(), content=r"<p>\(x^2\)</p>", target="full_document")
+
+    assert res["status"] == "error"
+    assert "math_objects" not in res
+
+
+def test_position_before_after_with_math_segments_returns_invalid_param(monkeypatch):
+    monkeypatch.setattr(search_mod, "find_first_range", lambda doc, s: MockRange())
+    monkeypatch.setattr(format_mod, "html_fragment_contains_mixed_math", lambda s: True)
+    res = ApplyDocumentContent().execute(
+        _ctx(), target="search", old_content="foo", content="<p>some math</p>", position="before"
+    )
+    assert res["status"] == "error"
+    assert res["code"] == "INVALID_PARAM"
+    assert "math segments" in res["message"]
+
+
+def test_position_before_after_in_table_cell_returns_invalid_param(monkeypatch):
+    cursor = MagicMock()
+    cursor.getPropertyValue.return_value = MagicMock()  # TextTable is not None
+    text_obj = MagicMock()
+    text_obj.createTextCursorByRange.return_value = cursor
+    found = MagicMock()
+    found.getText.return_value = text_obj
+    found.getStart.return_value = MagicMock()
+
+    monkeypatch.setattr(search_mod, "find_first_range", lambda doc, s: found)
+    monkeypatch.setattr(format_mod, "html_fragment_contains_mixed_math", lambda s: False)
+    res = ApplyDocumentContent().execute(
+        _ctx(), target="search", old_content="foo", content="bar", position="after"
+    )
+    assert res["status"] == "error"
+    assert res["code"] == "INVALID_PARAM"
+    assert "inside a table cell" in res["message"]
+
+
+def test_replace_single_table_block_in_cell_returns_coded_error(monkeypatch):
+    from plugin.framework.errors import ToolExecutionError
+
+    def _fail_block(*args, **kwargs):
+        raise ToolExecutionError("block html in cell", code="TABLE_BLOCK_IN_CELL")
+
+    monkeypatch.setattr(format_mod, "content_has_markup", lambda s: True)
+    monkeypatch.setattr(search_mod, "find_first_range", lambda doc, s: MockRange())
+    monkeypatch.setattr(format_mod, "replace_single_range_with_content", _fail_block)
+
+    res = ApplyDocumentContent().execute(
+        _ctx(), target="search", old_content="foo", content="<p>block</p>"
+    )
+    assert res["status"] == "error"
+    assert res["code"] == "TABLE_BLOCK_IN_CELL"
+
+
+def test_replace_all_rollback_failed_code(monkeypatch):
+    from plugin.doc.compound_undo import UndoOutcome
+
+    r1 = MockRange("match1")
+    monkeypatch.setattr(search_mod, "find_all_ranges", lambda doc, s: [r1])
+    monkeypatch.setattr(
+        "plugin.writer.apply_document_content.commit_or_rollback",
+        lambda doc, title, mutate, session=None: UndoOutcome(
+            error={"code": "ROLLBACK_FAILED", "message": "undo broke"}
+        ),
+    )
+
+    res = ApplyDocumentContent().execute(
+        _ctx(), target="search", old_content="foo", content="bar", all_matches=True
+    )
+    assert res["status"] == "error"
+    assert res["code"] == "ROLLBACK_FAILED"
+    assert "could not be rolled back" in res["message"]
+
+
+def test_replace_all_mutate_error_rollback_status(monkeypatch):
+    """When batch mutation raises, outcome.nothing_landed distinguishes ROLLBACK_FAILED from clean abort."""
+    from plugin.doc.compound_undo import UndoOutcome
+
+    r1 = MockRange("match1")
+    monkeypatch.setattr(search_mod, "find_all_ranges", lambda doc, s: [r1])
+
+    # Case 1: nothing_landed is False -> rollback could not be completed, so partial changes may remain.
+    monkeypatch.setattr(
+        "plugin.writer.apply_document_content.commit_or_rollback",
+        lambda doc, title, mutate, session=None: UndoOutcome(
+            mutate_error=RuntimeError("boom"), nothing_landed=False
+        ),
+    )
+    res_failed = ApplyDocumentContent().execute(
+        _ctx(), target="search", old_content="foo", content="bar", all_matches=True
+    )
+    assert res_failed["status"] == "error"
+    assert res_failed["code"] == "ROLLBACK_FAILED"
+    assert "could not be rolled back" in res_failed["message"]
+    assert res_failed["replaced_count"] == 0
+    assert res_failed["partial_failure"] is True
+
+    # Case 2: nothing_landed is True -> document rolled back cleanly.
+    monkeypatch.setattr(
+        "plugin.writer.apply_document_content.commit_or_rollback",
+        lambda doc, title, mutate, session=None: UndoOutcome(
+            mutate_error=RuntimeError("boom"), nothing_landed=True
+        ),
+    )
+    res_clean = ApplyDocumentContent().execute(
+        _ctx(), target="search", old_content="foo", content="bar", all_matches=True
+    )
+    assert res_clean["status"] == "error"
+    assert res_clean["code"] == "TOOL_EXECUTION_ERROR"
+    assert "document rolled back" in res_clean["message"]
+    assert res_clean["replaced_count"] == 0
+    assert res_clean["partial_failure"] is True
+
+
+def test_shape_search_miss_review_mode_returns_shape_text_needs_delegation(monkeypatch):
+    monkeypatch.setattr(search_mod, "find_first_range", lambda doc, s: None)
+    monkeypatch.setattr("plugin.writer.apply_document_content.review_recording_enabled", lambda: True)
+    mock_shape = MagicMock()
+    monkeypatch.setattr(search_mod, "drawing_shape_object_containing", lambda doc, text, **k: mock_shape)
+    monkeypatch.setattr(search_mod, "drawing_shape_containing", lambda *a, **k: "Banner")
+    monkeypatch.setattr(search_mod, "shape_display_name", lambda shape: "Banner")
+
+    res = ApplyDocumentContent().execute(
+        _ctx(), target="search", old_content="foo", content="bar", track_reviewable=True
+    )
+    assert res["status"] == "error"
+    assert res["code"] == "SHAPE_TEXT_NEEDS_DELEGATION"
+    assert "shapes toolset" in res["message"]
+    assert "In review mode" in res["message"]
+
+
+def test_parameter_validations_return_invalid_param():
+    tool = ApplyDocumentContent()
+    ctx = _ctx()
+
+    # Empty content on insert target
+    res = tool.execute(ctx, target="beginning", content="")
+    assert res["status"] == "error"
+    assert res["code"] == "INVALID_PARAM"
+
+    # position='before' with target != 'search'
+    res = tool.execute(ctx, target="end", content="bar", position="before")
+    assert res["status"] == "error"
+    assert res["code"] == "INVALID_PARAM"
+
+    # position='before' with all_matches=True
+    res = tool.execute(ctx, target="search", old_content="foo", content="bar", position="before", all_matches=True)
+    assert res["status"] == "error"
+    assert res["code"] == "INVALID_PARAM"
+
+    # non-string list items
+    res = tool.execute(ctx, target="beginning", content=[123])
+    assert res["status"] == "error"
+    assert res["code"] == "INVALID_PARAM"
+
+    # non-string content
+    res = tool.execute(ctx, target="beginning", content=123)
+    assert res["status"] == "error"
+    assert res["code"] == "INVALID_PARAM"
+
+
+def test_description_leaves_hyperlink_and_dry_run_detail_to_params():
+    """Tool description keeps table deletion behavior while delegating parameter-specific mechanics to the schema."""
+    assert ApplyDocumentContent.description is not None
+    assert ApplyDocumentContent.parameters is not None
+    assert "|outline" not in ApplyDocumentContent.description
+    assert "deletes that table" in ApplyDocumentContent.description
+    assert "|outline" in ApplyDocumentContent.parameters["properties"]["hyperlink_url"]["description"]
+

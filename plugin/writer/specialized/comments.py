@@ -20,14 +20,25 @@ import logging
 from typing import Any, cast
 
 from plugin.framework.constants import WORKFLOW_TASK_PREFIXES, now_aware
-from plugin.framework.errors import reraise_if_disposed, uno_read
+from plugin.framework.errors import make_tool_error, reraise_if_disposed, uno_read
 import uno
 
+from plugin.doc.paragraph_search import paragraph_entries
 from plugin.doc.text_helpers import iter_elements
 from plugin.doc.undo import commit_or_rollback_mutation
 from plugin.framework.tool import ToolBase
 from plugin.framework.errors import name_miss_details
-from ..search import CASE_SENSITIVE_DESCRIPTION, resolve_case_sensitive
+from plugin.framework.uno_context import uno_same
+from ..edit_review import next_agent_edit_undo_title
+from ..search import (
+    CASE_SENSITIVE_DESCRIPTION,
+    LocationLabeler,
+    describe_match_location,
+    enclosing_paragraph_text,
+    occurrence_range_or_error,
+    parse_non_negative_int,
+    resolve_case_sensitive,
+)
 from ..specialized_base import ToolWriterCommentBase, enum_param
 
 log = logging.getLogger("writeragent.writer.comments")
@@ -49,9 +60,6 @@ def _prop(field: Any, name: str, default: Any = "") -> Any:
 
 
 def _annotation_reader(ctx: Any) -> Any:
-    from plugin.doc.paragraph_search import paragraph_entries
-    from plugin.writer.search import LocationLabeler
-
     doc = ctx.doc
     doc_svc = ctx.services.document
     para_ranges = doc_svc.get_paragraph_ranges(doc)
@@ -72,14 +80,11 @@ class _ReplyNotRegistered(Exception):
 
 
 def _comment_not_found(message: str, *, details: dict[str, Any] | None = None, **extra: Any) -> dict[str, Any]:
-    payload: dict[str, Any] = {"status": "error", "code": "COMMENT_NOT_FOUND", "message": message, **extra}
-    if details:
-        payload["details"] = details
-    return payload
+    return make_tool_error(message, code="COMMENT_NOT_FOUND", top_level=extra, **(details or {}))
 
 
 def _reply_error(message: str, parent_name: str, **extra: Any) -> dict[str, Any]:
-    return {"status": "error", "message": message, "parent_name": parent_name, **extra}
+    return make_tool_error(message, top_level={"parent_name": parent_name, **extra})
 
 
 class CommentList(ToolWriterCommentBase):
@@ -110,22 +115,13 @@ class CommentList(ToolWriterCommentBase):
     }
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
-        from ..search import parse_non_negative_int
-
         author_filter = kwargs.get("author_filter")
-        start_raw = kwargs.get("start_index", 0)
+        # prepare_tool_call has already checked that start_index is an integer; negatives clamp to 0.
+        start_index = max(0, kwargs.get("start_index") or 0)
         max_raw = kwargs.get("max_comments", 100)
-        try:
-            start_index = max(0, int(start_raw if start_raw is not None else 0))
-        except (TypeError, ValueError):
-            return self._tool_error(
-                "start_index must be a non-negative integer.",
-                code="INVALID_PARAMETER",
-                parameter="start_index",
-            )
         max_val, max_err = parse_non_negative_int(max_raw, name="max_comments", coerce=True)
         if max_err:
-            return self._tool_error(max_err, code="INVALID_PARAMETER", parameter="max_comments")
+            return self._tool_error(max_err, code="INVALID_PARAM", parameter="max_comments")
         max_comments = max(1, max_val if max_val is not None else 100)
         doc = ctx.doc
         # One field scan first: a comment-free document should not pay for the paragraph map.
@@ -188,15 +184,10 @@ class AddComment(ToolBase):
         # (same shape as CommentResolve) without setting Resolved. Do not walk to the
         # thread root — nesting under a reply matches LO's Reply button (#636).
         if parent_name:
-            parent = _find_annotation_by_name(ctx.doc, parent_name)
-            if parent is None:
-                # Top-level comment_added (not _tool_error details) matches the
-                # search-miss payload so clients can branch on one field.
-                return _comment_not_found(
-                    "Comment '%s' not found. Call comment_list to see the current names." % parent_name,
-                    comment_added=False,
-                    details=_comment_miss_details(ctx.doc, parent_name),
-                )
+            # comment_added is top-level, via top_level, so clients branch on one field.
+            parent = _annotation_or_error(ctx.doc, parent_name, comment_added=False)
+            if isinstance(parent, dict):
+                return parent
             try:
                 reply_name = _insert_annotation_reply(ctx.doc, parent, parent_name, content, author)
             except _ReplyNotRegistered as exc:
@@ -213,38 +204,19 @@ class AddComment(ToolBase):
         search_text = kwargs.get("search")
         if not search_text:
             return self._tool_error("Provide search.")
-        from ..search import find_occurrence_range, parse_non_negative_int
-
-        # coerce=True lets occurrence accept string numbers and floats from the model;
-        # without it, values like "2" or 1.0 are rejected as non-integers.
-        occ_val, occ_err = parse_non_negative_int(kwargs.get("occurrence", 0), coerce=True)
-        if occ_err:
-            return self._tool_error(occ_err)
-        occurrence = 0 if occ_val is None else occ_val
 
         doc = ctx.doc
         case_sensitive = resolve_case_sensitive(kwargs.get("case_sensitive"))
 
-        try:
-            found = find_occurrence_range(
-                doc,
-                search_text,
-                occurrence=occurrence,
-                case_sensitive=case_sensitive,
-            )
-        except IndexError:
-            found = None
-
         # status="error" (not "not_found"): an anchor miss is a failure, so the chat FSM and
         # MCP host don't treat a no-op as success. anchor_text is returned on success only.
+        found, err = occurrence_range_or_error(
+            doc, search_text, kwargs.get("occurrence", 0), case_sensitive=case_sensitive, subject="search"
+        )
         if found is None:
-            where = (" at occurrence %d" % occurrence) if occurrence else ""
-            return {
-                "status": "error",
-                "message": "Text '%s' not found%s." % (search_text, where),
-                "matched": False,
-                "comment_added": False,
-            }
+            res = err or self._tool_error("Anchor not found")
+            res.update({"matched": False, "comment_added": False})
+            return res
 
         annotation = doc.createInstance("com.sun.star.text.textfield.Annotation")
         annotation.setPropertyValue("Author", author)
@@ -265,13 +237,14 @@ class AddComment(ToolBase):
         match_text.insertTextContent(cursor, annotation, True)
         names_after = _annotation_field_names(doc)
         if len(names_after) <= len(names_before):
-            return {
-                "status": "error",
-                "message": "Comment insert did not register an annotation.",
-                "matched": True,
-                "comment_added": False,
-                "anchor_text": anchor_text or search_text,
-            }
+            return self._tool_error(
+                "Comment insert did not register an annotation.",
+                top_level={
+                    "matched": True,
+                    "comment_added": False,
+                    "anchor_text": anchor_text or search_text,
+                },
+            )
 
         prior = set(n for n in names_before if n)
         new_name = next((n for n in names_after if n and n not in prior), "")
@@ -351,8 +324,6 @@ class CommentDelete(ToolWriterCommentBase):
                 deleted=0,
             )
 
-        from ..edit_review import next_agent_edit_undo_title
-
         undo_title = next_agent_edit_undo_title()
 
         def mutate() -> dict[str, Any] | None:
@@ -398,14 +369,10 @@ class CommentResolve(ToolWriterCommentBase):
         author = kwargs.get("author", "AI")
 
         doc = ctx.doc
-        target = _find_annotation_by_name(doc, comment_name)
-        if target is None:
-            return _comment_not_found(
-                "Comment '%s' not found. Call comment_list to see the current names." % comment_name,
-                details=_comment_miss_details(doc, comment_name),
-            )
+        target = _annotation_or_error(doc, comment_name)
+        if isinstance(target, dict):
+            return target
 
-        from ..edit_review import next_agent_edit_undo_title
         undo_title = next_agent_edit_undo_title()
         reply_name = None
 
@@ -459,14 +426,9 @@ class CommentEdit(ToolWriterCommentBase):
             return self._tool_error("Provide content.")
 
         doc = ctx.doc
-        target = _find_annotation_by_name(doc, comment_name)
-        if target is None:
-            return _comment_not_found(
-                "Comment '%s' not found. Call comment_list to see the current names." % comment_name,
-                details=_comment_miss_details(doc, comment_name),
-            )
-
-        from ..edit_review import next_agent_edit_undo_title
+        target = _annotation_or_error(doc, comment_name)
+        if isinstance(target, dict):
+            return target
 
         undo_title = next_agent_edit_undo_title()
 
@@ -634,12 +596,19 @@ class CommentCheckStop(ToolWriterCommentBase):
 # ------------------------------------------------------------------
 
 
-def _find_annotation_by_name(doc: Any, comment_name: str) -> Any | None:
-    """Return the Annotation field whose Name matches *comment_name*, or None."""
+def _annotation_or_error(doc: Any, comment_name: str, **top_level: Any) -> Any:
+    """The Annotation field whose Name is comment_name, or the COMMENT_NOT_FOUND error dict
+    ("Comment '%s' not found. Call comment_list to see the current names.") with
+    details.hint / details.similar from _comment_miss_details. top_level fields
+    (comment_added=False on the reply path) sit beside code and message."""
     for field in _iter_annotations(doc):
         if field.getPropertyValue("Name") == comment_name:
             return field
-    return None
+    return _comment_not_found(
+        "Comment '%s' not found. Call comment_list to see the current names." % comment_name,
+        details=_comment_miss_details(doc, comment_name),
+        **top_level,
+    )
 
 
 def _annotation_name(field: Any) -> str:
@@ -731,9 +700,6 @@ def _read_annotation(
     labeler: Any = None,
 ) -> dict[str, Any]:
     """Extract annotation properties into a plain dict."""
-    from plugin.framework.uno_context import uno_same
-    from plugin.writer.search import LocationLabeler, describe_match_location
-
     entry: dict[str, Any] = {}
     props_read = 0
     last_exc: Exception | None = None
@@ -797,8 +763,6 @@ def _read_annotation(
             except Exception:
                 preview = ""
             if not preview:
-                from plugin.writer.search import enclosing_paragraph_text
-
                 ptxt = (enclosing_paragraph_text(anchor) or "").strip()
                 if ptxt:
                     preview = ptxt[:120]

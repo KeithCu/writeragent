@@ -196,13 +196,13 @@ class TestSubagentCollector:
         registry.get_tools.side_effect = mock_get_tools
         ctx = ToolContext(doc=MagicMock(), ctx=MagicMock(), doc_type="writer", services={"tools": registry})
 
-        with patch("plugin.framework.constants.folder_search_enabled", return_value=False):
+        with patch("plugin.doc.document_research.folder_search_enabled", return_value=False):
             tools_disabled = collect_sub_agent_tools(ctx, "writing_plan")
             names_disabled = {t.name for t in tools_disabled}
             assert "grep_nearby_files" in names_disabled
             assert "search_nearby_files" not in names_disabled
 
-        with patch("plugin.framework.constants.folder_search_enabled", return_value=True):
+        with patch("plugin.doc.document_research.folder_search_enabled", return_value=True):
             tools_enabled = collect_sub_agent_tools(ctx, "writing_plan")
             names_enabled = {t.name for t in tools_enabled}
             assert "search_nearby_files" in names_enabled

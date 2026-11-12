@@ -27,10 +27,9 @@ from typing import Any
 from urllib.parse import unquote, urlparse
 
 from ..specialized_base import ToolWriterMailMergeBase, enum_param, target_params
-from ..target_resolver import resolve_target_cursor
+from ..target_resolver import insert_at_target
 from plugin.doc.text_helpers import iter_elements
-from plugin.doc.undo import commit_or_rollback_mutation
-from plugin.framework.errors import is_disposal, reraise_if_disposed
+from plugin.framework.errors import reraise_if_disposed
 from plugin.framework.uno_context import get_service_manager, resolve_uno_context
 from plugin.framework.url_utils import normalize_file_url, path_to_file_url
 
@@ -326,20 +325,11 @@ class InsertField(ToolWriterMailMergeBase):
         data_source_name = kwargs.get("data_source_name", "")
         table_name = kwargs.get("table_name", "")
         command_type_str = kwargs.get("command_type", "table")
-        target = kwargs.get("target", "selection")
-        old_content = kwargs.get("old_content")
 
         if not column_name:
             return self._tool_error("column_name is required.")
 
-        doc = getattr(ctx, "doc", None)
-        if not doc or not hasattr(doc, "createInstance"):
-            return self._tool_error("Document does not support creating UNO instances.")
-
-        try:
-            cursor = resolve_target_cursor(ctx, target, old_content, case_sensitive=kwargs.get("case_sensitive"))
-        except ValueError as ve:
-            return self._tool_error(str(ve))
+        doc = ctx.doc
 
         cmd_type_val = _COMMAND_TYPES[command_type_str]
 
@@ -370,33 +360,15 @@ class InsertField(ToolWriterMailMergeBase):
             return self._tool_error("Failed to create database textfield service.")
         field.attachTextFieldMaster(master)
 
-        if target == "search" and old_content:
-            from ..edit_review import next_agent_edit_undo_title
-
-            undo_title = next_agent_edit_undo_title()
-
-            def mutate() -> None:
-                cursor.setString("")
-                cursor.getText().insertTextContent(cursor, field, False)
-
-            # Delete + insert as one undo step, so a failed insert does not lose the matched text.
-            err = commit_or_rollback_mutation(
-                self,
-                doc,
-                undo_title,
-                mutate,
-                undo_unavailable_msg="Cannot replace the matched text atomically (no usable undo context).",
-                rollback_msg="Failed to insert the merge field; the change was rolled back",
-            )
-            if err is not None:
-                return err
-        else:
-            try:
-                cursor.getText().insertTextContent(cursor, field, False)
-            except Exception as exc:
-                if is_disposal(exc):
-                    raise
-                return self._tool_error(f"Failed to insert merge field: {exc}")
+        err = insert_at_target(
+            self,
+            ctx,
+            kwargs,
+            lambda cursor: cursor.getText().insertTextContent(cursor, field, False),
+            what="the merge field",
+        )
+        if err is not None:
+            return err
 
         return {
             "status": "ok",
@@ -421,9 +393,7 @@ class ListFields(ToolWriterMailMergeBase):
     parameters: dict[str, Any] | None = {"type": "object", "properties": {}, "required": []}
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
-        doc = getattr(ctx, "doc", None)
-        if not doc:
-            return self._tool_error("Document does not support text fields.")
+        doc = ctx.doc
 
         fields_container = doc.getTextFields()
         enum = fields_container.createEnumeration()
@@ -570,7 +540,7 @@ class RunMerge(ToolWriterMailMergeBase):
         if not data_source_name or not table_name:
             return self._tool_error("data_source_name and table_name are required.")
 
-        doc = getattr(ctx, "doc", None)
+        doc = ctx.doc
 
         # Resolve document URL
         doc_url = ""
@@ -582,7 +552,7 @@ class RunMerge(ToolWriterMailMergeBase):
                     f"Template not found: {doc_url_arg}", code="FILE_NOT_FOUND", path=template_path
                 )
             doc_url = _to_file_url(template_path)
-        elif doc:
+        else:
             try:
                 modified = doc.isModified()
                 url = doc.getURL()

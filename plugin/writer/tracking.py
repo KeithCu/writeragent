@@ -28,8 +28,10 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from plugin.calc.base import ToolCalcSpecialTracking
-from plugin.doc.text_helpers import iter_elements
+from plugin.doc.text_helpers import iter_elements_limited
 from plugin.framework.uno_context import uno_same
+from plugin.writer.edit_review import get_agent_edit_review_mode
+from plugin.writer.inline_review import agent_self_resolution_block_reason, execute_dispatch
 from plugin.writer.review_scan import is_agent_token, redline_identity_key, redline_is_agent_change
 from plugin.writer.search import LocationLabeler
 from .specialized_base import WriterAgentSpecialTracking, enum_param
@@ -45,12 +47,7 @@ _TRACK_CHANGES_UNO_SERVICES = ["com.sun.star.text.TextDocument", "com.sun.star.s
 def _enumerate_redlines(redlines: Any) -> tuple[list[Any], int]:
     # Cap at getCount() and return (objs, total) so callers can detect truncation.
     total = int(redlines.getCount())
-    enum = redlines.createEnumeration()
-    objs: list[Any] = []
-    for elem in iter_elements(enum):
-        if len(objs) >= total:
-            break
-        objs.append(elem)
+    objs = list(iter_elements_limited(redlines.createEnumeration(), total))
     return objs, total
 
 
@@ -131,13 +128,6 @@ def _resolve_outcome(index: int, before_keys: list[tuple[Any, ...]], after_keys:
     return "wrong"
 
 
-def _dispatch(ctx: ToolContext, cmd: str) -> Any:
-    smgr = ctx.ctx.ServiceManager
-    dispatcher = smgr.createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx.ctx)
-    frame = ctx.doc.getCurrentController().getFrame()
-    return dispatcher.executeDispatch(frame, cmd, "", 0, ())
-
-
 def _set_recording(doc: Any, record: bool) -> dict[str, Any]:
     done = "Started" if record else "Stopped"
     doc.setPropertyValue("RecordChanges", record)
@@ -147,7 +137,7 @@ def _set_recording(doc: Any, record: bool) -> dict[str, Any]:
 _REDLINE_FIELD_UNREADABLE = "tracking_list: redline field unreadable"
 
 
-def _redline_text(redline: Any, start: Any = None) -> str:
+def redline_text(redline: Any, start: Any = None) -> str:
     # Text: for an insertion the live span RedlineStart..RedlineEnd holds it; for a
     # deletion that span is collapsed, so fall back to RedlineText (the removed text).
     if start is None:
@@ -203,7 +193,7 @@ def _describe_redline(redline: Any, index: int, doc: Any, labeler: LocationLabel
             entry["location"] = (labeler or LocationLabeler(doc)).describe(start)
         except Exception:
             log.debug(_REDLINE_FIELD_UNREADABLE, exc_info=True)
-    txt = _redline_text(redline, start=start)
+    txt = redline_text(redline, start=start)
     if txt:
         entry["text"] = txt
     return entry
@@ -239,8 +229,6 @@ def _agent_review_mode() -> Any | None:
     """Best-effort agent review mode, so 'recording: false' is never read as 'my edits are
     not being tracked' while record/wait mode is active."""
     try:
-        from plugin.writer.edit_review import get_agent_edit_review_mode
-
         return get_agent_edit_review_mode()
     except Exception:
         log.exception("tracking_list: could not read agent review mode")
@@ -339,7 +327,6 @@ class TrackChangesShow(WriterAgentSpecialTracking, ToolCalcSpecialTracking):  # 
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         show_b: bool = kwargs["show"]
-        assert isinstance(show_b, bool)
         # Writer vs Calc is decided by getRedlines on the document, not view settings, because
         # Calc controllers may still expose getViewSettings.
         if hasattr(ctx.doc, "getRedlines"):
@@ -405,7 +392,6 @@ class ManageTrackedChanges(WriterAgentSpecialTracking, ToolCalcSpecialTracking):
         if action in ("accept_all", "reject_all"):
             return self._execute_all(ctx, is_accept=(action == "accept_all"))
         index = kwargs.get("index")
-        assert index is None or (isinstance(index, int) and not isinstance(index, bool))
         if index is None or index < 0:
             return self._tool_error("Valid integer index is required for action='%s'." % action)
         return self._execute_single(ctx, index, is_accept=(action == "accept"))
@@ -424,7 +410,6 @@ class ManageTrackedChanges(WriterAgentSpecialTracking, ToolCalcSpecialTracking):
     def _execute_all(self, ctx: ToolContext, is_accept: bool) -> dict[str, Any]:
         # Guard: never let the agent bulk-resolve its OWN (wa-review) edits -- those are the human's
         # to review. Allowed when no agent changes are pending (see agent_self_resolution_block_reason).
-        from plugin.writer.inline_review import agent_self_resolution_block_reason
         blocked = agent_self_resolution_block_reason(ctx.doc)
         if blocked:
             return self._tool_error(blocked)
@@ -434,18 +419,16 @@ class ManageTrackedChanges(WriterAgentSpecialTracking, ToolCalcSpecialTracking):
             before = int(ctx.doc.getRedlines().getCount())
 
         cmd = ".uno:AcceptAllTrackedChanges" if is_accept else ".uno:RejectAllTrackedChanges"
-        res = _dispatch(ctx, cmd)
+        res = execute_dispatch(ctx.ctx, ctx.doc.getCurrentController(), cmd)
 
         msg = "All tracked changes accepted." if is_accept else "All tracked changes rejected."
         if not has_redlines:
             if res is None:
-                err = self._tool_error(
+                return self._tool_error(
                     "Accepting or rejecting all tracked changes is not supported on this document.",
                     code="UNSUPPORTED",
+                    top_level={"tracked_changes_bulk_unsupported": True},
                 )
-                # make_tool_error stores kwargs under details; set the flat key directly for callers.
-                err["tracked_changes_bulk_unsupported"] = True
-                return err
             return {"status": "ok", "message": msg}
 
         # Bulk resolve success is judged by redline getCount() before and after dispatch
@@ -534,7 +517,7 @@ class ManageTrackedChanges(WriterAgentSpecialTracking, ToolCalcSpecialTracking):
 
         try:
             cmd = ".uno:AcceptTrackedChange" if is_accept else ".uno:RejectTrackedChange"
-            _dispatch(ctx, cmd)
+            execute_dispatch(ctx.ctx, controller, cmd)
 
             objs2, total2 = _enumerate_redlines(redlines)
             after_keys = _identity_keys(objs2) if len(objs2) == total2 else None

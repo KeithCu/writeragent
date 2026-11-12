@@ -393,7 +393,7 @@ Each such item:
 1. Crosses the queue boundary.
 2. Wakes the main-thread drain loop (`run_stream_drain_loop` in `async_stream.py`).
 3. Triggers `apply_chunk_fn` (ultimately `append_text_chunk` or `_append_rich_text_with_span`).
-4. May cause `toolkit.processEventsToIdle()` and RichTextControl caret reveal (`reveal_rich_control_caret`) on the formatted sidebar path.
+4. May cause RichTextControl caret reveal (`reveal_rich_control_caret`) on the formatted sidebar path.
 
 The net visual effect for the user was **micro-stutter** during long assistant answers: the sidebar would repaint/relayout far more often than necessary.
 

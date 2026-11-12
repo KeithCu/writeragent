@@ -23,10 +23,11 @@ import logging
 import uuid
 from typing import Any, ClassVar, Generator
 
-from plugin.doc.document_helpers import is_cacheable_doc_key
-from plugin.doc.paragraph_search import get_paragraph_ranges, paragraph_index_for_anchor
+from plugin.doc.document_helpers import compute_doc_key, is_cacheable_doc_key
+from plugin.doc.paragraph_search import get_paragraph_ranges, paragraph_entries, paragraph_index_for_anchor
 from plugin.framework.errors import best_effort, name_miss_details, reraise_if_disposed
 from plugin.framework.service import ServiceBase
+from plugin.framework.uno_context import uno_same
 from plugin.framework.uno_listeners import BaseDocumentEventListener
 from ..specialized_base import ToolWriterBookmarkBase
 
@@ -124,8 +125,6 @@ class BookmarkService(ServiceBase):
     def _doc_key(self, doc: Any) -> str:
         if self._doc_svc is not None:
             return self._doc_svc.doc_key(doc)
-        from plugin.doc.document_helpers import compute_doc_key
-
         return compute_doc_key(doc)
 
     def _ignore_cache(self) -> Any:
@@ -181,8 +180,6 @@ class BookmarkService(ServiceBase):
                 return result, []
             if para_ranges is None:
                 para_ranges = get_paragraph_ranges(doc)
-            from plugin.doc.paragraph_search import paragraph_entries
-
             entries = paragraph_entries(para_ranges)
             text_obj = doc.getText()
             for name in mcp_names:
@@ -358,7 +355,6 @@ class BookmarkService(ServiceBase):
         key = self._doc_key(doc)
         if key in _PENDING_STRIPS:
             return key
-        from plugin.framework.uno_context import uno_same
 
         for stored_key, rec in _PENDING_STRIPS.items():
             if rec.doc is not None and uno_same(doc, rec.doc):
@@ -516,25 +512,29 @@ class BookmarkCleanup(ToolWriterBookmarkBase):
 _RESERVED_MCP_NAME_ERROR = "Bookmark names starting with '_mcp_' are reserved for internal heading locators. Use bookmark_cleanup to manage them."
 
 
-def _resolve_bookmark_target(
-    tool: Any, ctx: Any, kwargs: dict[str, Any], *, must_exist: bool
-) -> tuple[Any, str, dict[str, Any] | None]:
-    name = kwargs.get("name", "")
+def _bookmark_target(tool: Any, doc: Any, name: str, *, must_exist: bool, reserved_ok: bool = False) -> Any:
+    """Check one bookmark name and return the document's bookmark collection, or a tool error dict.
+
+    must_exist=True: the name must be present; a miss carries details.hint / details.similar
+    (name_miss_details with bookmark_list). must_exist=False: the name must be free.
+    Names starting with _mcp_ are internal heading locators and are refused unless reserved_ok
+    (bookmark_get only reads them). An empty name is "Bookmark name is required.".
+    """
     if not name:
-        return None, "", tool._tool_error("Bookmark name is required.")
-    if name.startswith("_mcp_"):
-        return None, "", tool._tool_error(_RESERVED_MCP_NAME_ERROR)
-    bookmarks = ctx.doc.getBookmarks()
+        return tool._tool_error("Bookmark name is required.")
+    if name.startswith("_mcp_") and not reserved_ok:
+        return tool._tool_error(_RESERVED_MCP_NAME_ERROR)
+    bookmarks = doc.getBookmarks()
     has_bm = bookmarks.hasByName(name)
     if must_exist and not has_bm:
         names = [str(n) for n in bookmarks.getElementNames()]
-        return None, "", tool._tool_error(
+        return tool._tool_error(
             f"Bookmark '{name}' not found.",
             **name_miss_details(name, names, "bookmark_list"),
         )
     if not must_exist and has_bm:
-        return None, "", tool._tool_error(f"A bookmark named '{name}' already exists.")
-    return bookmarks, name, None
+        return tool._tool_error(f"A bookmark named '{name}' already exists.")
+    return bookmarks
 
 
 class BookmarkCreate(ToolWriterBookmarkBase):
@@ -544,8 +544,9 @@ class BookmarkCreate(ToolWriterBookmarkBase):
     is_mutation: bool | None = True
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
-        _unused_bm, name, err = _resolve_bookmark_target(self, ctx, kwargs, must_exist=False)
-        if err is not None:
+        name = kwargs.get("name", "")
+        err = _bookmark_target(self, ctx.doc, name, must_exist=False)
+        if isinstance(err, dict):
             return err
 
         doc = ctx.doc
@@ -579,9 +580,10 @@ class BookmarkDelete(ToolWriterBookmarkBase):
     is_mutation: bool | None = True
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
-        bookmarks, name, err = _resolve_bookmark_target(self, ctx, kwargs, must_exist=True)
-        if err is not None:
-            return err
+        name = kwargs.get("name", "")
+        bookmarks = _bookmark_target(self, ctx.doc, name, must_exist=True)
+        if isinstance(bookmarks, dict):
+            return bookmarks
 
         doc = ctx.doc
 
@@ -606,20 +608,19 @@ class BookmarkRename(ToolWriterBookmarkBase):
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         doc = ctx.doc
-        old_name = kwargs["old_name"]
-        new_name = kwargs["new_name"]
+        old_name = kwargs.get("old_name", "")
+        new_name = kwargs.get("new_name", "")
 
         if not old_name or not new_name:
             return self._tool_error("Both old_name and new_name are required.")
-        if old_name.startswith("_mcp_") or new_name.startswith("_mcp_"):
-            return self._tool_error(_RESERVED_MCP_NAME_ERROR)
 
-        bookmarks = doc.getBookmarks()
-        if not bookmarks.hasByName(old_name):
-            return self._tool_error(f"Bookmark '{old_name}' not found.")
+        bookmarks = _bookmark_target(self, doc, old_name, must_exist=True)
+        if isinstance(bookmarks, dict):
+            return bookmarks
 
-        if bookmarks.hasByName(new_name):
-            return self._tool_error(f"A bookmark named '{new_name}' already exists.")
+        taken = _bookmark_target(self, doc, new_name, must_exist=False)
+        if isinstance(taken, dict):
+            return taken
 
         bm = bookmarks.getByName(old_name)
         bm.setName(new_name)
@@ -635,17 +636,10 @@ class BookmarkGet(ToolWriterBookmarkBase):
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         doc = ctx.doc
-        name = kwargs["name"]
-        if not name:
-            return self._tool_error("Bookmark name is required.")
-
-        bookmarks = doc.getBookmarks()
-        if not bookmarks.hasByName(name):
-            names = [str(n) for n in bookmarks.getElementNames()]
-            return self._tool_error(
-                f"Bookmark '{name}' not found.",
-                **name_miss_details(name, names, "bookmark_list"),
-            )
+        name = kwargs.get("name", "")
+        bookmarks = _bookmark_target(self, doc, name, must_exist=True, reserved_ok=True)
+        if isinstance(bookmarks, dict):
+            return bookmarks
 
         bm = bookmarks.getByName(name)
         try:

@@ -12,15 +12,16 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, NamedTuple
+from typing import TYPE_CHECKING, Any, NamedTuple
 
-from plugin.doc.undo import commit_or_rollback_mutation
 from plugin.framework.errors import is_disposal, reraise_if_disposed, uno_read
 from plugin.framework.tool import ToolBaseDummy
 from plugin.framework.uno_context import create_property_value
-from ..edit_review import next_agent_edit_undo_title
 from ..specialized_base import ToolWriterEmbeddedBase, enum_param, target_params
-from ..target_resolver import resolve_target_cursor
+from ..target_resolver import insert_at_target
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
 
 log = logging.getLogger("writeragent.embedded")
 
@@ -143,8 +144,111 @@ def _embed_size_for_used_range(rows: int, cols: int) -> _EmbedSize100thMm:
     return _EmbedSize100thMm(width, height)
 
 
-def _embed_size_from_args(width: int, height: int) -> _EmbedSize100thMm:
-    return _EmbedSize100thMm(width, height)
+class _EmbedRequest(NamedTuple):
+    """embedded_insert arguments after validation: rows to write, their extent, frame size, optional name."""
+
+    data: list[list[Any]]
+    rows: int
+    cols: int
+    size: _EmbedSize100thMm | None
+    name: str | None
+
+
+def _validate_embed_args(tool: Any, kwargs: Mapping[str, Any]) -> _EmbedRequest | dict[str, Any]:
+    data = kwargs.get("data") or []
+    for row_idx, row in enumerate(data):
+        if not isinstance(row, list):
+            return tool._tool_error(
+                f"data row {row_idx} must be an array.",
+                code="INVALID_PARAM",
+                parameter="data",
+            )
+        for col_idx, cell in enumerate(row):
+            if isinstance(cell, bool):
+                return tool._tool_error(
+                    f"data[{row_idx}][{col_idx}] cannot be a boolean.",
+                    code="INVALID_PARAM",
+                    parameter="data",
+                )
+
+    width = kwargs.get("width")
+    height = kwargs.get("height")
+    if (width is None) ^ (height is None):
+        return tool._tool_error(
+            "width and height must both be set or both omitted.",
+            code="INVALID_PARAM",
+        )
+    if width is not None and width <= 0:
+        return tool._tool_error("width must be a positive integer.", code="INVALID_PARAM", parameter="width")
+    if height is not None and height <= 0:
+        return tool._tool_error("height must be a positive integer.", code="INVALID_PARAM", parameter="height")
+
+    embed_name = kwargs.get("name")
+    if embed_name is not None and embed_name == "":
+        return tool._tool_error("name cannot be empty.", code="INVALID_PARAM", parameter="name")
+
+    rows = len(data)
+    cols = max((len(row) for row in data), default=0)
+
+    size = None
+    if width is not None and height is not None:
+        size = _EmbedSize100thMm(width, height)
+    elif rows > 0 and cols > 0:
+        size = _embed_size_for_used_range(rows, cols)
+
+    return _EmbedRequest(data=data, rows=rows, cols=cols, size=size, name=embed_name)
+
+
+def _insert_spreadsheet(tool: Any, doc: Any, cursor: Any, clsid: str, req: _EmbedRequest) -> str | dict[str, Any]:
+    """Insert and fill the OLE at cursor (inside insert_at_target's undo step); container name or error dict."""
+    text = cursor.getText()
+    container = doc.getEmbeddedObjects()
+    before_names = set(container.getElementNames())
+
+    emb = doc.createInstance(_TEXT_EMBEDDED_OBJECT)
+    if not emb:
+        return tool._tool_error("Failed to create TextEmbeddedObject.")
+
+    emb.CLSID = clsid
+    emb.AnchorType = _ANCHOR_AS_CHARACTER
+    if req.name:
+        emb.Name = req.name
+
+    text.insertTextContent(cursor, emb, False)
+
+    after_names = set(container.getElementNames())
+    new_names = after_names - before_names
+    if len(new_names) != 1:
+        return tool._tool_error("Spreadsheet OLE was not installed in the document.")
+
+    container_name = next(iter(new_names))
+
+    try:
+        inner = emb.getEmbeddedObject()
+    except Exception as exc:
+        if is_disposal(exc):
+            raise
+        return tool._tool_error(f"Could not open embedded spreadsheet ({exc}).")
+
+    if inner is None or not inner.supportsService(_SPREADSHEET_DOC_SERVICE):
+        return tool._tool_error("Embedded object is not a Calc spreadsheet.")
+
+    sheet = inner.getSheets().getByIndex(0)
+
+    if req.size is not None:
+        # Direct host size: XEmbeddedObject setVisualAreaSize/getVisualAreaSize
+        # blocked for 30s+ on headless CI after Calc OLE insert.
+        emb.Width = req.size.width
+        emb.Height = req.size.height
+
+    for r_idx, row in enumerate(req.data):
+        for c_idx, cell_val in enumerate(row):
+            try:
+                _write_cell(sheet.getCellByPosition(c_idx, r_idx), cell_val)
+            except ValueError as ve:
+                return tool._tool_error(str(ve))
+
+    return container_name
 
 
 class EmbeddedInsert(ToolWriterEmbeddedBase):
@@ -178,58 +282,12 @@ class EmbeddedInsert(ToolWriterEmbeddedBase):
     is_mutation: bool | None = True
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
-        object_type = kwargs.get("object_type")
-        if object_type != "spreadsheet":
-            return self._tool_error(
-                "object_type must be 'spreadsheet'.",
-                code="INVALID_PARAMETER",
-                parameter="object_type",
-            )
+        req = _validate_embed_args(self, kwargs)
+        if isinstance(req, dict):
+            return req
 
-        data = kwargs.get("data")
-        if data is None:
-            data = []
-        elif isinstance(data, bool) or not isinstance(data, list):
-            return self._tool_error("data must be an array of rows.", code="INVALID_PARAMETER", parameter="data")
-        for row_idx, row in enumerate(data):
-            if isinstance(row, bool) or not isinstance(row, list):
-                return self._tool_error(
-                    f"data row {row_idx} must be an array.",
-                    code="INVALID_PARAMETER",
-                    parameter="data",
-                )
-            for col_idx, cell in enumerate(row):
-                if isinstance(cell, bool):
-                    return self._tool_error(
-                        f"data[{row_idx}][{col_idx}] cannot be a boolean.",
-                        code="INVALID_PARAMETER",
-                        parameter="data",
-                    )
-
-        width = kwargs.get("width")
-        height = kwargs.get("height")
-        if (width is None) ^ (height is None):
-            return self._tool_error(
-                "width and height must both be set or both omitted.",
-                code="INVALID_PARAMETER",
-            )
-        if width is not None and (not isinstance(width, int) or isinstance(width, bool) or width <= 0):
-            return self._tool_error("width must be a positive integer.", code="INVALID_PARAMETER", parameter="width")
-        if height is not None and (not isinstance(height, int) or isinstance(height, bool) or height <= 0):
-            return self._tool_error("height must be a positive integer.", code="INVALID_PARAMETER", parameter="height")
-
-        embed_name = kwargs.get("name")
-        if embed_name is not None and embed_name == "":
-            return self._tool_error("name cannot be empty.", code="INVALID_PARAMETER", parameter="name")
-
-        target = kwargs.get("target", "selection")
-        old_content = kwargs.get("old_content")
-
-        try:
-            cursor = resolve_target_cursor(ctx, target, old_content, case_sensitive=kwargs.get("case_sensitive"))
-        except ValueError as ve:
-            return self._tool_error(str(ve))
-
+        # Deselect before insert_at_target resolves the target: target="selection" must see
+        # the cursor after the OLE anchor that deselect leaves, not the pre-deselect view cursor.
         deselect_err = _deselect_inplace_embed(ctx.doc, self)
         if deselect_err is not None:
             return deselect_err
@@ -237,110 +295,37 @@ class EmbeddedInsert(ToolWriterEmbeddedBase):
         try:
             clsid = _spreadsheet_clsid(ctx.ctx)
         except ValueError as ve:
-            return self._tool_error(str(ve), code="INVALID_PARAMETER")
+            return self._tool_error(str(ve), code="INVALID_PARAM")
 
-        doc = ctx.doc
-        replace_match = target == "search" and bool(old_content)
-        result_holder: list[dict[str, Any]] = []
+        # Refuse a taken name before resolving the target or opening the undo step;
+        # hasByName is a read and needs no undo tracking.
+        if req.name and ctx.doc.getEmbeddedObjects().hasByName(req.name):
+            return self._tool_error(f"Embedded object {req.name!r} already exists.", code="INVALID_PARAM")
 
-        def mutate() -> dict[str, Any] | None:
-            if replace_match:
-                cursor.setString("")
-            text = cursor.getText()
-            container = doc.getEmbeddedObjects()
-            before_names = set(container.getElementNames())
-            if embed_name and container.hasByName(embed_name):
-                return {
-                    "status": "error",
-                    "code": "INVALID_PARAMETER",
-                    "message": f"Embedded object {embed_name!r} already exists.",
-                }
+        container_name = ""
 
-            emb = doc.createInstance("com.sun.star.text.TextEmbeddedObject")
-            if not emb:
-                return {"status": "error", "message": "Failed to create TextEmbeddedObject."}
-
-            emb.CLSID = clsid
-            emb.AnchorType = _ANCHOR_AS_CHARACTER
-            if embed_name:
-                emb.Name = embed_name
-
-            text.insertTextContent(cursor, emb, False)
-
-            after_names = set(container.getElementNames())
-            new_names = after_names - before_names
-            if len(new_names) != 1:
-                return {
-                    "status": "error",
-                    "message": "Spreadsheet OLE was not installed in the document.",
-                }
-
-            container_name = next(iter(new_names))
-
-            try:
-                inner = emb.getEmbeddedObject()
-            except Exception as exc:
-                if is_disposal(exc):
-                    raise
-                return {
-                    "status": "error",
-                    "message": f"Could not open embedded spreadsheet ({exc}).",
-                }
-
-            if inner is None or not inner.supportsService(_SPREADSHEET_DOC_SERVICE):
-                return {"status": "error", "message": "Embedded object is not a Calc spreadsheet."}
-
-            sheet = inner.getSheets().getByIndex(0)
-            rows = len(data)
-            cols = max((len(row) for row in data), default=0)
-
-            size = None
-            if width is not None and height is not None:
-                size = _embed_size_from_args(width, height)
-            elif rows > 0 and cols > 0:
-                size = _embed_size_for_used_range(rows, cols)
-
-            read_w = read_h = None
-            if size is not None:
-                # Direct host size: XEmbeddedObject setVisualAreaSize/getVisualAreaSize
-                # blocked for 30s+ on headless CI after Calc OLE insert.
-                emb.Width = size.width
-                emb.Height = size.height
-                read_w = size.width
-                read_h = size.height
-
-            for r_idx, row in enumerate(data):
-                for c_idx, cell_val in enumerate(row):
-                    try:
-                        _write_cell(sheet.getCellByPosition(c_idx, r_idx), cell_val)
-                    except ValueError as ve:
-                        return {"status": "error", "message": str(ve)}
-
-            result_holder.append(
-                {
-                    "status": "ok",
-                    "name": container_name,
-                    "object_type": "spreadsheet",
-                    "rows": rows,
-                    "cols": cols,
-                    "width": read_w,
-                    "height": read_h,
-                    "message": f"Inserted spreadsheet OLE {container_name!r}.",
-                }
-            )
+        def mutate(cursor: Any) -> dict[str, Any] | None:
+            nonlocal container_name
+            res = _insert_spreadsheet(self, ctx.doc, cursor, clsid, req)
+            if isinstance(res, dict):
+                return res
+            container_name = res
             return None
 
-        error = commit_or_rollback_mutation(
-            self,
-            doc,
-            next_agent_edit_undo_title(),
-            mutate,
-            "Cannot insert the spreadsheet OLE atomically (no usable undo context).",
-            "Failed to insert spreadsheet OLE; the change was rolled back",
-        )
+        error = insert_at_target(self, ctx, kwargs, mutate, what="the spreadsheet OLE")
         if error is not None:
             return error
-        return result_holder[0]
+
+        return {
+            "status": "ok",
+            "name": container_name,
+            "object_type": "spreadsheet",
+            "rows": req.rows,
+            "cols": req.cols,
+            "width": req.size.width if req.size else None,
+            "height": req.size.height if req.size else None,
+            "message": f"Inserted spreadsheet OLE {container_name!r}.",
+        }
 
 
 class EmbeddedEdit(ToolWriterEmbeddedBase, ToolBaseDummy):  # type: ignore[misc]  # pyright: ignore[reportIncompatibleVariableOverride]

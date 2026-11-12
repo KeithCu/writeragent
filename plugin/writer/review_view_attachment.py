@@ -14,9 +14,11 @@ from typing import Any
 import uno
 from plugin.doc.document_helpers import UNKNOWN_DOC_KEY, compute_doc_key
 from plugin.framework.errors import is_disposal
-from plugin.framework.uno_context import get_runtime_uid, uno_same
+from plugin.framework.queue_executor import main
+from plugin.framework.uno_context import get_desktop, get_runtime_uid, uno_same
 from plugin.framework.uno_listeners import BaseModifyListener, controller_alive, install_view_doc_listener
 from plugin.writer import change_context_menu, review_click_popup
+from plugin.writer.review_scan import agent_change_presence
 
 log = logging.getLogger(__name__)
 
@@ -39,6 +41,12 @@ def attachment_key(model: Any) -> str:
 
 
 def is_writer(model: Any) -> bool:
+    """Writer check for the registry.
+
+    Unlike ``plugin.framework.doc_type.is_writer``, it re-raises the raw UNO
+    disposal exception (like ``register_controller``'s arm) and does not assert
+    the main thread.
+    """
     try:
         return bool(model is not None and model.supportsService("com.sun.star.text.TextDocument"))
     except Exception as exc:
@@ -102,6 +110,7 @@ class ReviewModifyListener(BaseModifyListener):
 
 def _dock_top(lm: Any) -> bool:
     try:
+        # com.sun.star names resolve through PyUNO's import hook (pyuno/source/module/uno.py _uno_import); importing here keeps a missing type inside this try.
         from com.sun.star.awt import Point
 
         area = uno.Enum("com.sun.star.ui.DockingArea", "DOCKINGAREA_TOP")
@@ -125,8 +134,6 @@ def refresh_review_toolbar(model: Any) -> None:
     if model is None:
         return
     try:
-        from plugin.writer.review_scan import agent_change_presence
-
         lm = layout_manager(model)
         if lm is None:
             return
@@ -154,7 +161,6 @@ def schedule_toolbar_refresh(model: Any, key: str) -> None:
         if key in _pending_refresh:
             return
         _pending_refresh.add(key)
-    from plugin.framework.queue_executor import main
 
     try:
         main.post(_run_deferred_refresh, model, key)
@@ -267,9 +273,9 @@ def register_controller(controller: Any) -> None:
         with _lock:
             if any(uno_same(controller, ctrl) for ctrl, _i, _h in attachment.controllers):
                 return
-        interceptor = change_context_menu._make_interceptor(model)
+        interceptor = change_context_menu.make_interceptor(model)
         # detach_click_handler breaks the import cycle: disposing must not import this registry.
-        click_handler = review_click_popup._make_handler(model, detach_click_handler)
+        click_handler = review_click_popup.ClickReviewHandler(model, detach_click_handler)
         controller.registerContextMenuInterceptor(interceptor)
         if hasattr(controller, "addMouseClickHandler"):
             controller.addMouseClickHandler(click_handler)
@@ -279,8 +285,6 @@ def register_controller(controller: Any) -> None:
         refresh_review_toolbar(model)
         log.debug("review_view_attachment: registered on Writer controller")
     except Exception as exc:
-        from plugin.framework.errors import is_disposal
-
         if is_disposal(exc):
             raise
         log.warning("review_view_attachment: register failed", exc_info=True)
@@ -299,8 +303,7 @@ def unregister_controllers_for_model(model: Any) -> None:
         removed: list[tuple[Any, Any, Any]] = []
         for triple in attachment.controllers:
             interceptor = triple[1]
-            interceptor_model = getattr(interceptor, "_model", None)
-            if uno_same(interceptor_model, model):
+            if uno_same(interceptor.model, model):
                 removed.append(triple)
             else:
                 keep.append(triple)
@@ -327,14 +330,6 @@ def cleanup_disposed_controllers() -> None:
             attachment.controllers[:] = alive
 
 
-def attachments() -> dict[str, ReviewViewAttachment]:
-    """Shallow copy of the registry taken under _lock. Tests only.
-
-    Keys are a snapshot; values are the live objects."""
-    with _lock:
-        return dict(_attachments)
-
-
 def detach_click_handler(handler: Any) -> Any | None:
     """Remove *handler* from whichever attachment holds it; return its controller or None."""
     with _lock:
@@ -352,10 +347,6 @@ def mark_toolbar_docked(model: Any) -> None:
         attachment.toolbar_docked = True
 
 
-def _on_view_event(controller: Any) -> None:
-    register_controller(controller)
-
-
 def _on_document_unload(model: Any) -> None:
     if not is_writer(model):
         return
@@ -364,8 +355,6 @@ def _on_document_unload(model: Any) -> None:
 
 
 def _sweep_open_frames(ctx: Any) -> None:
-    from plugin.framework.uno_context import get_desktop
-
     desktop = get_desktop(ctx)
     if desktop is None:
         return
@@ -403,21 +392,10 @@ def install(ctx: Any) -> None:
             return
     listener = install_view_doc_listener(
         ctx,
-        _on_view_event,
+        register_controller,
         "review_view_attachment",
         on_unload=_on_document_unload,
     )
     if listener is not None:
         with _lock:
             _doc_listener = listener
-
-
-def reset_all() -> None:
-    """Clear all attachments (unit tests)."""
-    global _doc_listener
-    with _lock:
-        for key in list(_attachments):
-            _drop_attachment(key, remove_modify_listener=False)
-        _doc_listener = None
-    with _pending_lock:
-        _pending_refresh.clear()

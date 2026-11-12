@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Any, Callable
 
 if TYPE_CHECKING:
     from plugin.framework.module_base import ModuleBase
+    from plugin.framework.service import ServiceRegistry
     from plugin.framework.tool import ToolRegistry
 
 from plugin.bootstrap import bootstrap_extension
@@ -89,6 +90,16 @@ def get_services() -> Any:
             "Service registry is unavailable because bootstrap did not finish.",
             code="BOOTSTRAP_FAILED",
         )
+    return _services
+
+
+def services_or_none() -> ServiceRegistry | None:
+    """Return the service registry if bootstrap has already built it, else None.
+
+    Unlike get_services(), this never starts bootstrap. Use it from code that has
+    its own answer for "not bootstrapped yet" (pytest, or a module that loads
+    before the writer module), so a lookup does not start the whole extension.
+    """
     return _services
 
 

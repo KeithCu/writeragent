@@ -58,10 +58,5 @@ def get_live_panel(uid: str) -> Any | None:
 
 
 def iter_live_panel_uids() -> list[str]:
-    """Snapshot of uids that still have a live panel (tests / catalog)."""
+    """Snapshot of uids that still have a live panel (debug sidebar hooks)."""
     return [uid for uid, refs in list(_PANELS.items()) if any(r() is not None for r in refs)]
-
-
-def reset_live_panels() -> None:
-    """Test hook: clear the weak map."""
-    _PANELS.clear()

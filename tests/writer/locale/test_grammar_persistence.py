@@ -35,15 +35,29 @@ class TestGrammarPersistence:
     def test_get_persistence_document_mode_per_doc_id(self) -> None:
         from plugin.writer.locale import grammar_persistence as gp
 
-        ctx = MagicMock()
         gp.grammar_registry.doc_persistence_instances.clear()
         try:
-            pa = gp.get_persistence(ctx, "runtime-a")
-            pb = gp.get_persistence(ctx, "runtime-b")
-            pa2 = gp.get_persistence(ctx, "runtime-a")
+            pa = gp.get_persistence("runtime-a")
+            pb = gp.get_persistence("runtime-b")
+            pa2 = gp.get_persistence("runtime-a")
             assert (pa) is not None
             assert (pa) is (pa2)
             assert (pa) is not (pb)
+        finally:
+            gp.grammar_registry.clear_all()
+
+    def test_get_persistence_doc_id_alone_decides(self) -> None:
+        """doc_id alone decides whether a per-document cache exists, with no UNO context required."""
+        from plugin.writer.locale import grammar_persistence as gp
+
+        gp.grammar_registry.doc_persistence_instances.clear()
+        try:
+            assert gp.get_persistence("") is None
+            assert gp.get_persistence(None) is None
+            p1 = gp.get_persistence("doc-no-ctx")
+            assert isinstance(p1, gp.DocumentPersistence)
+            p2 = gp.get_persistence("doc-no-ctx")
+            assert p2 is p1
         finally:
             gp.grammar_registry.clear_all()
 
@@ -51,15 +65,14 @@ class TestGrammarPersistence:
         """First get_persistence(..., model=) binds; later calls return the same instance."""
         from plugin.writer.locale import grammar_persistence as gp
 
-        ctx = MagicMock()
         model = MagicMock()
         gp.grammar_registry.doc_persistence_instances.clear()
         try:
-            pa = gp.get_persistence(ctx, "2", model=model)
-            pb = gp.get_persistence(ctx, "2")
+            pa = gp.get_persistence("2", model=model)
+            pb = gp.get_persistence("2")
             assert (pa) is not None
             assert (pa) is (pb)
-            assert (pa._model) is (model)
+            assert (pa.model) is (model)
         finally:
             gp.grammar_registry.clear_all()
 
@@ -80,7 +93,7 @@ class TestGrammarPersistence:
                 hit = dp.get("fp_cached", "")
             assert (hit) is not None
             assert (len(hit)) == (1)
-            assert (dp._model) is (model)
+            assert (dp.model) is (model)
         finally:
             gp.grammar_registry.clear_all()
 
@@ -88,7 +101,6 @@ class TestGrammarPersistence:
         """Cache embedded in the ODT must load once get_persistence(..., model=) binds the doc."""
         from plugin.writer.locale import grammar_persistence as gp
 
-        ctx = MagicMock()
         model = MagicMock()
         cached = _v3_payload(
             bad={"fp_cached": [{"s": 0, "l": 3, "g": ["fix"], "c": "c", "f": "f", "r": "wa_g_rule||test"}]},
@@ -99,14 +111,14 @@ class TestGrammarPersistence:
                  patch("plugin.doc.udprops.get_document_property", return_value=json.dumps(cached)):
                 dp = gp.DocumentPersistence("2")
                 gp.grammar_registry.doc_persistence_instances["2"] = dp
-                assert (dp._model) is None
-                gp.get_persistence(ctx, "2", model=model)
+                assert (dp.model) is None
+                gp.get_persistence("2", model=model)
                 hit = dp.get("fp_cached", "")
 
             assert (hit) is not None
             assert (len(hit)) == (1)
             assert (hit[0]["n_error_start"]) == (0)
-            assert (dp._model) is (model)
+            assert (dp.model) is (model)
         finally:
             gp.grammar_registry.clear_all()
 
@@ -614,19 +626,18 @@ class TestGrammarPersistence:
         """A later model= must not swap the Writer or read udprops over live edits."""
         from plugin.writer.locale import grammar_persistence as gp
 
-        ctx = MagicMock()
         first = MagicMock()
         second = MagicMock()
         gp.grammar_registry.clear_all()
         try:
             with patch("plugin.doc.udprops.get_document_property", return_value=None) as mock_get:
-                dp = gp.get_persistence(ctx, "2", model=first)
+                dp = gp.get_persistence("2", model=first)
                 assert dp is not None
-                assert dp._model is first
+                assert dp.model is first
                 loads = mock_get.call_count
-                again = gp.get_persistence(ctx, "2", model=second)
+                again = gp.get_persistence("2", model=second)
                 assert again is dp
-                assert dp._model is first
+                assert dp.model is first
                 assert mock_get.call_count == loads
         finally:
             gp.grammar_registry.clear_all()
@@ -663,7 +674,6 @@ class TestGrammarPersistence:
         """Two threads calling get_persistence concurrently produce one instance and listener."""
         from plugin.writer.locale import grammar_persistence as gp
 
-        ctx = MagicMock()
         model = MagicMock()
         listeners: list[object] = []
         model.addDocumentEventListener.side_effect = listeners.append
@@ -684,7 +694,7 @@ class TestGrammarPersistence:
 
             def _thread_worker(with_model: bool) -> None:
                 m = model if with_model else None
-                dp = gp.get_persistence(ctx, "doc-race", model=m)
+                dp = gp.get_persistence("doc-race", model=m)
                 results.append(dp)
 
             with patch("plugin.writer.locale.grammar_persistence._HAVE_UNO_DOC_EVENTS", True), \
@@ -707,12 +717,11 @@ class TestGrammarPersistence:
         """An orphan persistence instance calling _teardown does not remove the winning instance."""
         from plugin.writer.locale import grammar_persistence as gp
 
-        ctx = MagicMock()
         model = MagicMock()
         gp.grammar_registry.clear_all()
         try:
             with patch("plugin.writer.locale.grammar_persistence._HAVE_UNO_DOC_EVENTS", True):
-                winner = gp.get_persistence(ctx, "doc-orphan", model=model)
+                winner = gp.get_persistence("doc-orphan", model=model)
                 assert winner is not None
                 assert gp.grammar_registry.doc_persistence_instances.get("doc-orphan") is winner
 

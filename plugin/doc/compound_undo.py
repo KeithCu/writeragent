@@ -26,6 +26,28 @@ def _is_undo_locked(um: Any) -> bool:
     return fn() is True
 
 
+def undo_titles(doc: Any) -> tuple[str, ...] | None:
+    """Return the undo-stack titles of ``doc`` as a tuple, newest first.
+
+    ``()`` means the stack is empty. ``None`` means the titles could not be read: the
+    document has no undo manager, ``getUndoManager()`` returned None, or the read raised.
+    Callers that compare two snapshots must treat ``None`` as unknown and refuse, never
+    as an empty stack. A disposed document is re-raised as ``DocumentDisposedError`` so a
+    closed document is not mistaken for an unreadable stack.
+    """
+    if not hasattr(doc, "getUndoManager"):
+        return None
+    try:
+        um = doc.getUndoManager()
+        if um is None:
+            return None
+        return tuple(um.getAllUndoActionTitles() or ())
+    except Exception as exc:
+        reraise_if_disposed(exc)
+        log.exception("undo_titles: could not read undo titles")
+        return None
+
+
 class WriterCompoundUndo:
     """Wrap ``XUndoManager.enterUndoContext`` / ``leaveUndoContext`` for one Ctrl+Z step.
 
@@ -70,11 +92,7 @@ class WriterCompoundUndo:
                 if _warn:
                     log.warning("WriterCompoundUndo: undo manager is locked, undo grouping skipped (title=%r)", title)
                 return
-            try:
-                self._titles_before = tuple(um.getAllUndoActionTitles() or ())
-            except Exception as titles_e:
-                reraise_if_disposed(titles_e)
-                self._titles_before = None
+            self._titles_before = undo_titles(doc)
             try:
                 is_in_ctx = um.isInContext()
                 undo_enabled = um.isUndoEnabled()
@@ -129,6 +147,7 @@ class WriterCompoundUndo:
         if not self.entered or self._open or self._titles_before is None or self._undo_manager is None:
             return False
         try:
+            # Direct read kept so read failures land in self.rollback_error for ROLLBACK_FAILED rather than returning None.
             raw = self._undo_manager.getAllUndoActionTitles()
             after = tuple(raw or ())
             if after != self._titles_before and after and after[0] == self._title:
@@ -154,7 +173,18 @@ class UndoOutcome:
     ``nothing_landed`` compares the session change count to the pre-mutate snapshot (or is
     True when undo ran). Callers should read it only on failure paths (``error`` or
     ``mutate_error`` set); on success it can be True even when no rollback was needed.
-    ``ROLLBACK_FAILED`` in ``error`` means undo itself failed after a failed mutate.
+    ``error`` is None when the edit succeeded (or when mutate raised and was rolled
+    back; then ``mutate_error`` holds the exception). Otherwise it is one of three dicts:
+
+    * the dict ``mutate`` returned. Rollback was tried only if the undo context closed.
+    * ``code == "UNDO_CONTEXT_LEAK"``: mutate succeeded but ``leaveUndoContext`` failed.
+      The edit is in the document, nothing was rolled back, and the undo group is still
+      open. A caller that checks only ``ROLLBACK_FAILED`` is therefore reporting "the edit
+      landed; the undo group is still open". ``page.py`` and ``styles.py`` turn it into
+      an error that says the text was written.
+    * ``code == "ROLLBACK_FAILED"``: mutate failed and the undo that should have
+      reverted it raised. The message carries the original cause; ``mutate_error`` is
+      None even if mutate raised.
     Document disposal still raises from :func:`commit_or_rollback`; it is never stored
     on ``mutate_error``.
     """

@@ -16,6 +16,7 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """Image insertion and gallery management tools for LibreOffice."""
 
+import base64
 import hashlib
 import logging
 import os
@@ -28,19 +29,18 @@ from com.sun.star.awt import Size
 from com.sun.star.beans import PropertyValue
 from com.sun.star.text.TextContentAnchorType import AS_CHARACTER, AT_FRAME
 from plugin.doc import visual_helpers
+from plugin.doc.compound_undo import WriterCompoundUndo
 from plugin.doc.text_helpers import clone_text_range
 from plugin.framework.errors import best_effort, reraise_if_disposed
-
-# WriterCompoundUndo is intentionally imported function-locally in _dispatch_insert_image,
-# insert_image_into_header_footer, and replace_graphic_source so importing image_tools
-# does not immediately load the undo helper, and edit_review stays out of LibrePy.
+from plugin.framework.uno_context import get_ctx
 
 log = logging.getLogger(__name__)
 
 GALLERY_NAME = "writeragent_images"
 
 
-def _image_cache_dir() -> str:  # pyright: ignore[reportUnusedFunction]
+def image_cache_dir() -> str:
+    """Cache for downloaded images; under the temp dir, so should_link treats it as embed-only."""
     return os.path.join(tempfile.gettempdir(), "writeragent_images")
 
 
@@ -154,7 +154,7 @@ def _assign_graphic_source(graphic: Any, file_url: str, ctx: Any | None = None) 
 
 
 def _create_embedded_graphic(model: Any, inside: str, file_url: str, ctx: Any | None = None) -> Any:
-    if inside in ("writer", "web"):
+    if visual_helpers.is_writer_like(inside):
         graphic = model.createInstance(visual_helpers.WRITER_GRAPHIC_SERVICE)
     else:
         graphic = model.createInstance(visual_helpers.DRAW_GRAPHIC_SERVICE)
@@ -180,11 +180,9 @@ def _dispatch_insert_image(
     x_mm: int | float | None = None,
     y_mm: int | float | None = None,
 ) -> Any:
-    from plugin.doc.compound_undo import WriterCompoundUndo
-
     inside = visual_helpers.get_visual_doc_type(model)
     with WriterCompoundUndo(model, "WriterAgent: Insert image"):
-        if inside in ("writer", "web"):
+        if visual_helpers.is_writer_like(inside):
             if add_frame:
                 _insert_frame(ctx, model, img_path, width_units, height_units, title, description)
                 return None
@@ -322,26 +320,28 @@ def insert_image_into_header_footer(
     floating ``AT_CHARACTER`` image does not grow the region, so a logo
     taller than the fixed header height overlaps the body text.
 
-    ``region`` is a ``_REGION_PROPS`` key (``header``, ``footer``,
+    ``region`` is a ``REGION_PROPS`` key (``header``, ``footer``,
     ``header_first``, ``footer_first``, and the left variants). A
     different-first-page letterhead logo belongs in ``header_first`` /
     ``footer_first`` after ``FirstIsShared=False`` — those are separate
     ``XText`` objects; writing the shared ``header`` never reaches them.
     """
-    from plugin.doc.compound_undo import WriterCompoundUndo
+    # page.py is not in the LibrePy bundle (scripts/librepy_bundle_paths.py)
+    # but this module is; a top-level import would break LibrePy. Only the
+    # header/footer insert needs it.
     from plugin.writer.page import (
-        _REGION_PROPS,
+        REGION_PROPS,
         resolve_page_style,
         set_header_footer_auto_height,
     )
 
-    if region not in _REGION_PROPS:
-        raise ValueError("region must be one of: %s" % ", ".join(_REGION_PROPS))
+    if region not in REGION_PROPS:
+        raise ValueError("region must be one of: %s" % ", ".join(REGION_PROPS))
 
     # Enable region + auto-height + embed are separate UNO steps; group them.
     with WriterCompoundUndo(model, "WriterAgent: Insert image in header/footer"):
         style = resolve_page_style(model, style_name)
-        is_on_prop, text_prop = _REGION_PROPS[region]
+        is_on_prop, text_prop = REGION_PROPS[region]
         if not style.getPropertyValue(is_on_prop):
             style.setPropertyValue(is_on_prop, True)
         if auto_height:
@@ -380,14 +380,13 @@ def _page_style_name(style: Any, requested: str) -> str:
     return name if isinstance(name, str) and name else requested
 
 
-def _cursor_for_writer_view(vc: Any) -> tuple[Any, Any]:
+def cursor_for_writer_view(vc: Any) -> tuple[Any, Any]:
     """Collapsed model cursor at the view cursor, on the host XText.
 
     Why getStart() first: ``clone_text_range(ViewCursor)`` calls
     ``host.createTextCursorByRange(vc)`` with the full SwXTextViewCursor.
     That raises a bare ``RuntimeException`` (empty message) on a plain
-    Writer body — PR #796 / image insert. The pre-#796 path
-    ``createTextCursorByRange(vc.getStart())`` works.
+    Writer body; ``createTextCursorByRange(vc.getStart())`` works.
 
     Why host XText, not ``model.getText()``: a table-cell or frame range
     cannot be cloned through the body ("End of content node doesn't have
@@ -398,7 +397,7 @@ def _cursor_for_writer_view(vc: Any) -> tuple[Any, Any]:
     try:
         return host, host.createTextCursorByRange(vc.getStart())
     except Exception as e:
-        log.debug("_cursor_for_writer_view nested clone: %s", e)
+        log.debug("cursor_for_writer_view nested clone: %s", e)
         return host, clone_text_range(vc)
 
 
@@ -433,7 +432,7 @@ def _insert_embedded_at_writer_cursor(
     view_cursor = model.CurrentController.ViewCursor
 
     def insert_at_view(vc: Any) -> None:
-        host, tc = _cursor_for_writer_view(vc)
+        host, tc = cursor_for_writer_view(vc)
         host.insertTextContent(tc, image, False)
 
     try:
@@ -526,7 +525,7 @@ def _insert_frame(ctx: Any, model: Any, img_path: str, width: int, height: int, 
     text_frame.setSize(frame_size)
     text_frame.setPropertyValue("AnchorType", AT_FRAME)
 
-    host, text_cursor = _cursor_for_writer_view(view_cursor)
+    host, text_cursor = cursor_for_writer_view(view_cursor)
     host.insertTextContent(text_cursor, text_frame, False)
 
     frame_text = text_frame.getText()
@@ -619,8 +618,6 @@ def replace_graphic_source(
     Passing None or "" for title leaves the current title unchanged. Same for
     description.
     """
-    from plugin.doc.compound_undo import WriterCompoundUndo
-
     with WriterCompoundUndo(model, "WriterAgent: Replace image"):
         file_url = _file_url_for_path(img_path)
         if not _assign_graphic_source(graphic, file_url, ctx=ctx):
@@ -645,18 +642,18 @@ def replace_graphic_source(
         return True
 
 
-# export_graphic_object_to_bytes raises RuntimeError when context or ServiceManager
-# is missing instead of relying on getattr defaults or assert (stripped under -O).
+# export_graphic_object_to_bytes raises RuntimeError when the context, ServiceManager
+# or GraphicProvider is missing. The checks are explicit raises, not assert, because
+# python -O strips asserts and the failure would surface later as an unclear AttributeError.
 def export_graphic_object_to_bytes(ctx: Any, obj: Any) -> bytes | None:
     """Export a graphic-bearing UNO object (GraphicObject or GraphicObjectShape) to PNG bytes."""
     graphic = visual_helpers.graphic_from_object(obj)
     if graphic is None:
         return None
     if ctx is None:
-        # New infection start if we call uno.getComponentContext() here.
-        # get_ctx() wraps the component context (Layer A) and is main-thread-only.
-        from plugin.framework.uno_context import get_ctx
-
+        # Do not call uno.getComponentContext() here: it can return a different context
+        # from the extension's own. get_ctx() returns the extension's component context
+        # and is main-thread-only.
         ctx = get_ctx()
     if ctx is None:
         raise RuntimeError("export_graphic_to_bytes: no component context")
@@ -690,8 +687,6 @@ def get_selected_image_base64(model: Any, ctx: Any = None) -> str | None:
     ctx: optional component context (e.g. from chat panel or MainJob). If None, uses get_ctx().
     Use the panel/MainJob ctx for Calc so context-dependent logic works correctly.
     """
-    import base64
-
     # Use visual_helpers.selected_graphic_object which handles pyuno TextGraphicObject
     # correctly via supportsService / GraphicURL checks.
     obj = visual_helpers.selected_graphic_object(model)

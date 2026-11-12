@@ -5,6 +5,12 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+# Module import, not a name import: tests patch plugin.doc.peer_message.list_v1_peers
+# at the owner, and that one patch must also cover this prompt builder.
+from plugin.doc import peer_message
+from plugin.framework.doc_type import is_calc, is_draw
+from plugin.framework.queue_executor import main
+
 PEER_OUTER_IDLE_AFTER_SEND = "Stop tool use and Ready. Why: the peer reply arrives as a later user turn; more document_research, python, or query tools in this turn race the peer."
 
 # Outer main chat only — no send_peer_work / send_peer_result on this loop.
@@ -143,8 +149,6 @@ PEER_INNER_CHOICE_RULES = (
 
 def _agent_for_model(model: Any) -> str:
     # Unknown and None stay Writer, same as the previous else branches.
-    from plugin.framework.doc_type import is_calc, is_draw
-
     if is_calc(model):
         return "Calc"
     if is_draw(model):
@@ -161,8 +165,6 @@ def format_peer_outer_delegate_hint(model: Any) -> str:
 def _peer_block_on_main_thread(build: Any, fail_log: str) -> str:
     """Run a peer-catalog prompt builder on the UI thread. Empty string on failure."""
     try:
-        from plugin.framework.queue_executor import main
-
         return main.run(build)
     except Exception:
         logging.getLogger(__name__).exception(fail_log)
@@ -180,9 +182,7 @@ def get_peer_messaging_prompt_block(model: Any, ctx: Any) -> str:
         return ""
 
     def _build() -> str:
-        from plugin.doc.peer_message import list_v1_peers
-
-        peers = list_v1_peers(ctx, model)
+        peers = peer_message.list_v1_peers(ctx, model)
         if not peers:
             return ""
         return format_peer_outer_delegate_hint(model)
@@ -200,12 +200,10 @@ def get_peer_inner_choice_block(uno_ctx: Any, doc: Any) -> str:
         return ""
 
     def _build() -> str:
-        from plugin.doc.peer_message import format_peer_catalog, list_v1_peers
-
-        peers = list_v1_peers(uno_ctx, doc)
+        peers = peer_message.list_v1_peers(uno_ctx, doc)
         if not peers:
             return ""
-        return PEER_INNER_CHOICE_RULES + "\n" + format_peer_catalog(peers)
+        return PEER_INNER_CHOICE_RULES + "\n" + peer_message.format_peer_catalog(peers)
 
     return _peer_block_on_main_thread(_build, "peer inner choice prompt block failed")
 

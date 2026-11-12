@@ -84,18 +84,18 @@ class FakeSelection:
 
 class FakeController:
     def __init__(self, *, selection: object | None = None, active_sheet: object | None = None, current_page: object | None = None):
-        self.Selection = selection
-        self.ActiveSheet = active_sheet
-        self.CurrentPage = current_page
+        self.selection = selection
+        self.active_sheet = active_sheet
+        self.current_page = current_page
 
     def getSelection(self):
-        return self.Selection
+        return self.selection
 
     def getActiveSheet(self):
-        return self.ActiveSheet
+        return self.active_sheet
 
     def getCurrentPage(self):
-        return self.CurrentPage
+        return self.current_page
 
 
 class FakeGraphicCollection:
@@ -110,11 +110,16 @@ class FakeGraphicCollection:
 
 
 class FakeWriterDoc:
-    CurrentController = None
-
-    def __init__(self, graphics: dict[str, object], *, draw_page: FakeDrawPage | None = None):
+    def __init__(
+        self,
+        graphics: dict[str, object],
+        *,
+        draw_page: FakeDrawPage | None = None,
+        controller: FakeController | None = None,
+    ):
         self._graphics = graphics
         self._draw_page = draw_page
+        self.controller = controller
 
     def supportsService(self, service: str) -> bool:
         return service == WRITER_DOCUMENT_SERVICE
@@ -127,14 +132,20 @@ class FakeWriterDoc:
             raise AttributeError("no draw page")
         return self._draw_page
 
+    def getCurrentController(self):
+        return self.controller
+
 
 class FakeSheet:
-    def __init__(self, draw_page: FakeDrawPage, name: str | None = None):
-        self.DrawPage = draw_page
-        self.Name = name
+    def __init__(self, draw_page: FakeDrawPage, name: str = "Sheet"):
+        self._draw_page = draw_page
+        self._name = name
 
     def getDrawPage(self):
-        return self.DrawPage
+        return self._draw_page
+
+    def getName(self) -> str:
+        return self._name
 
 
 class FakeSheets:
@@ -150,7 +161,10 @@ class FakeSheets:
 
 class FakeCalcDoc:
     def __init__(self, draw_page: FakeDrawPage):
-        self.CurrentController = FakeController(active_sheet=FakeSheet(draw_page))
+        self.controller = FakeController(active_sheet=FakeSheet(draw_page))
+
+    def getCurrentController(self):
+        return self.controller
 
     def supportsService(self, service: str) -> bool:
         return service == CALC_DOCUMENT_SERVICE
@@ -158,7 +172,10 @@ class FakeCalcDoc:
 
 class FakeDrawDoc:
     def __init__(self, draw_page: FakeDrawPage):
-        self.CurrentController = FakeController(current_page=draw_page)
+        self.controller = FakeController(current_page=draw_page)
+
+    def getCurrentController(self):
+        return self.controller
 
     def supportsService(self, service: str) -> bool:
         return service == DRAW_DOCUMENT_SERVICE
@@ -172,8 +189,14 @@ class FakeImpressDoc:
 
 
 class FakeWebDoc(FakeWriterDoc):
-    def __init__(self, graphics: dict[str, object] | None = None, *, draw_page: FakeDrawPage | None = None):
-        super().__init__(graphics or {}, draw_page=draw_page)
+    def __init__(
+        self,
+        graphics: dict[str, object] | None = None,
+        *,
+        draw_page: FakeDrawPage | None = None,
+        controller: FakeController | None = None,
+    ):
+        super().__init__(graphics or {}, draw_page=draw_page, controller=controller)
 
     def supportsService(self, service: str) -> bool:
         return service in (WEB_DOCUMENT_SERVICE, WRITER_DOCUMENT_SERVICE)
@@ -192,7 +215,7 @@ def test_safe_uno_property_helpers_use_property_set_info():
 def test_selected_graphic_object_handles_selection_containers():
     graphic = FakeGraphicShape("Image 1")
     controller = FakeController(selection=FakeSelection([graphic]))
-    model = type("FakeModel", (), {"CurrentController": controller})()
+    model = SimpleNamespace(getCurrentController=lambda: controller)
 
     assert visual_helpers.selected_graphic_object(model) is graphic
 
@@ -200,7 +223,7 @@ def test_selected_graphic_object_handles_selection_containers():
 def test_selected_graphic_object_rejects_multi_selection():
     graphic = FakeGraphicShape("Image 1")
     controller = FakeController(selection=FakeSelection([graphic, graphic]))
-    model = type("FakeModel", (), {"CurrentController": controller})()
+    model = SimpleNamespace(getCurrentController=lambda: controller)
 
     assert visual_helpers.selected_graphic_object(model) is None
 
@@ -251,7 +274,7 @@ def test_graphic_objects_in_selection_multi_graphics():
     g2 = FakeAnchoredGraphic("Image2", text, 30)
     controller = FakeController(selection=FakeSelection([g2, g1]))
     doc = FakeWriterDoc({"Image1": g1, "Image2": g2})
-    doc.CurrentController = controller
+    doc.controller = controller
 
     pairs = visual_helpers.graphic_objects_in_selection(doc)
     assert [n for n, _ in pairs] == ["Image1", "Image2"]
@@ -265,7 +288,7 @@ def test_graphic_objects_in_selection_text_range_contains_images():
     sel = FakeTextRange(text, 0, 50)
     controller = FakeController(selection=sel)
     doc = FakeWriterDoc({"Image1": g1, "Image2": g2, "Outside": outside})
-    doc.CurrentController = controller
+    doc.controller = controller
 
     pairs = visual_helpers.graphic_objects_in_selection(doc)
     assert [n for n, _ in pairs] == ["Image1", "Image2"]
@@ -275,7 +298,7 @@ def test_graphic_objects_in_selection_single_graphic():
     graphic = FakeGraphicShape("Only")
     controller = FakeController(selection=FakeSelection([graphic]))
     doc = FakeWriterDoc({"Only": graphic})
-    doc.CurrentController = controller
+    doc.controller = controller
 
     pairs = visual_helpers.graphic_objects_in_selection(doc)
     assert pairs == [("Only", graphic)]
@@ -284,7 +307,7 @@ def test_graphic_objects_in_selection_single_graphic():
 def test_graphic_objects_in_selection_empty():
     controller = FakeController(selection=None)
     doc = FakeWriterDoc({})
-    doc.CurrentController = controller
+    doc.controller = controller
     assert visual_helpers.graphic_objects_in_selection(doc) == []
 
 
@@ -292,11 +315,11 @@ def test_graphic_objects_in_selection_calc_single_only():
     g1 = FakeGraphicShape("A")
     g2 = FakeGraphicShape("B")
     doc = FakeCalcDoc(FakeDrawPage([g1, g2]))
-    doc.CurrentController.Selection = FakeSelection([g1, g2])
+    doc.controller.selection = FakeSelection([g1, g2])
     # Multi-select rejected for Calc — selected_graphic_object returns None.
     assert visual_helpers.graphic_objects_in_selection(doc) == []
 
-    doc.CurrentController.Selection = FakeSelection([g1])
+    doc.controller.selection = FakeSelection([g1])
     assert visual_helpers.graphic_objects_in_selection(doc) == [("A", g1)]
 
 
@@ -304,7 +327,7 @@ def test_graphic_objects_in_selection_web_doc():
     graphic = FakeGraphicShape("WebImage")
     controller = FakeController(selection=FakeSelection([graphic]))
     doc = FakeWebDoc({"WebImage": graphic})
-    doc.CurrentController = controller
+    doc.controller = controller
 
     assert visual_helpers.get_visual_doc_type(doc) == "web"
     pairs = visual_helpers.graphic_objects_in_selection(doc)
@@ -324,6 +347,12 @@ def test_active_draw_page_resolves_writer_get_draw_page():
     doc = FakeWriterDoc({}, draw_page=page)
     assert visual_helpers.get_active_draw_page(doc) is page
     assert visual_helpers.get_active_draw_page(FakeWriterDoc({})) is None
+
+
+def test_get_active_draw_page_writer_with_controller_uses_document_page():
+    page = FakeDrawPage([])
+    doc = FakeWriterDoc({}, draw_page=page, controller=FakeController())
+    assert visual_helpers.get_active_draw_page(doc) is page
 
 
 def test_list_graphic_objects_reads_writer_graphic_collection():
@@ -373,7 +402,7 @@ def test_calc_multi_sheet_images():
     sheet1 = FakeSheet(sheet1_dp, name="Sheet2")
 
     doc = FakeCalcDoc(FakeDrawPage([]))
-    active_sheet_before = doc.CurrentController.getActiveSheet()
+    active_sheet_before = doc.controller.getActiveSheet()
     doc.getSheets = lambda: FakeSheets([sheet0, sheet1])  # type: ignore[attr-defined]
 
     # Two sheets, graphic only on sheet 1, list returns it, active sheet unchanged
@@ -383,7 +412,7 @@ def test_calc_multi_sheet_images():
     assert items[0][1] is graphic1
     assert getattr(items[0], "sheet_index", None) == 1
     assert getattr(items[0], "sheet_name", None) == "Sheet2"
-    assert doc.CurrentController.getActiveSheet() is active_sheet_before
+    assert doc.controller.getActiveSheet() is active_sheet_before
 
     # Graphic by name returns it when unique
     assert visual_helpers.get_graphic_object_by_name(doc, "Logo") is graphic1
@@ -609,6 +638,8 @@ def test_remove_graphic_ambiguous_name_deletes_nothing():
     with pytest.raises(ValueError, match="Several shapes named 'Pic'"):
         visual_helpers.remove_graphic_from_draw_pages(doc, target)
     assert page.removed == []
+
+
 def test_get_active_draw_page_reraises_disposed() -> None:
     import pytest
 
@@ -618,10 +649,6 @@ def test_get_active_draw_page_reraises_disposed() -> None:
         pass
 
     class DisposedDoc:
-        @property
-        def CurrentController(self):
-            raise DisposedException("closed")
-
         def getCurrentController(self):
             raise DisposedException("closed")
 
@@ -870,6 +897,16 @@ def test_graphic_objects_in_selection_reraise_disposed():
 
     with pytest.raises(DocumentDisposedError):
         visual_helpers.graphic_objects_in_selection(DisposedWriterDoc({}))
+
+
+def test_is_writer_like():
+    assert visual_helpers.is_writer_like("writer") is True
+    assert visual_helpers.is_writer_like("web") is True
+    assert visual_helpers.is_writer_like("calc") is False
+    assert visual_helpers.is_writer_like("draw") is False
+    assert visual_helpers.is_writer_like("impress") is False
+    assert visual_helpers.is_writer_like("unknown") is False
+
 
 
 

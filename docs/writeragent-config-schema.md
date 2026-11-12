@@ -132,6 +132,9 @@ Top-level keys from the config dataclass (Settings dialog, chat, images).
 | `grammar_proofreader_detect_language` | `string` | `"off"` |  | Verify each complete sentence's language against the document locale. AI uses your grammar/chat API; Local uses langdetect in your Python venv (Settings → Python; no API call). Mismatches update CharLocale and re-check grammar. Options: off (Off), llm (AI (LLM)), langdetect (Local (langdetect)) |
 | `agent_edit_review_mode` | `string` | `"off"` |  | Off = direct edits. Record = tracked changes you accept/reject yourself. Wait = apply_document_content blocks (on chat/MCP worker thread) until you review. Options: off (Off), record (Record (track changes)), wait (Wait for review) |
 | `edit_review_timeout` | `int` | `900` | ≥ `0` | Internal. Only used when mode is Wait. Max time apply_document_content blocks before returning with pending changes. |
+| `agent_edit_diff_threshold` | `float` | `0.6` | `0.0`–`1.0` | Internal. Max changed-word fraction (0-1) before a Record/Wait replace falls back to one whole-block tracked change instead of word-level changes. |
+| `agent_edit_max_surgical_runs` | `int` | `40` | ≥ `1` | Internal. Cap on word-level sub-edits per replace; more becomes one whole-block change. |
+| `agent_edit_split_author_colors` | `boolean` | `true` |  | Internal. Author whole-block deletions as 'WriterAgent (deletions)' so they show in a second colour. |
 
 ## Vector Search (`embeddings`)
 

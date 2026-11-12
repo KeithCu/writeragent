@@ -14,7 +14,7 @@ from plugin.doc.text_helpers import FAILED, iter_elements, skip_tracked_deletion
 from plugin.framework.errors import best_effort, uno_read
 from plugin.framework.uno_context import uno_same
 from plugin.writer.math.math_mml_export import (
-    _OBJECT_REPLACEMENT,
+    OBJECT_REPLACEMENT,
     portion_math_embed,
     read_starmath,
 )
@@ -23,10 +23,10 @@ log = logging.getLogger("writeragent.writer")
 
 
 # com.sun.star.text.ControlCharacter.PARAGRAPH_BREAK
-_PARAGRAPH_BREAK = 0
+PARAGRAPH_BREAK = 0
 
 
-def _record_math_placeholder(records: list[tuple[str, str, bool]], emb: Any, *, display_block: bool) -> str:
+def record_math_placeholder(records: list[tuple[str, str, bool]], emb: Any, *, display_block: bool) -> str:
     ph = chr(0xE000 + len(records))
     records.append((ph, read_starmath(emb), display_block))
     return ph
@@ -39,7 +39,7 @@ def _fallback_insert_para_text(dest_text: Any, cursor: Any, el: Any) -> None:
         log.debug("paragraph text fallback failed: %s", exc)
 
 
-def _iter_portions(portions: Any) -> Iterator[tuple[Any, str]]:
+def iter_portions(portions: Any) -> Iterator[tuple[Any, str]]:
     for portion in iter_elements(portions):
         try:
             kind = portion.getPropertyValue("TextPortionType")
@@ -56,21 +56,21 @@ def _portion_field(portion: Any) -> Any:
         return None
 
 
-def _copy_text_run(portion: Any, dest_text: Any, cursor: Any, chunk: str) -> None:
+def copy_text_run(portion: Any, dest_text: Any, cursor: Any, chunk: str, style: Any = None) -> None:
     start = cursor.getStart()
     dest_text.insertString(cursor, chunk, False)
     run = dest_text.createTextCursorByRange(start)
     run.gotoRange(cursor.getEnd(), True)
-    _copy_properties(portion, run, _COPIED_CHAR_PROPERTIES)
+    _copy_properties(portion, run, _COPIED_CHAR_PROPERTIES, style)
     cursor.gotoRange(run.getEnd(), False)
 
 
-def _copy_para_properties_to_end(dest_text: Any, cursor: Any, el: Any) -> None:
+def _copy_para_properties_to_end(dest_text: Any, cursor: Any, el: Any, style: Any = None) -> None:
     para_cursor = dest_text.createTextCursor()
     para_cursor.gotoEnd(False)
     para_cursor.gotoStartOfParagraph(False)
     para_cursor.gotoEndOfParagraph(True)
-    _copy_properties(el, para_cursor, _COPIED_PARA_PROPERTIES)
+    _copy_properties(el, para_cursor, _COPIED_PARA_PROPERTIES, style)
     cursor.gotoRange(para_cursor.getEnd(), False)
 
 
@@ -85,8 +85,8 @@ def _copy_math_or_text(
         emb = portion_math_embed(portion)
         if emb is not None:
             raw = parent_el.getString() if hasattr(parent_el, "getString") else ""
-            stripped = raw.replace(_OBJECT_REPLACEMENT, "").strip()
-            ph = _record_math_placeholder(math_records, emb, display_block=stripped == "")
+            stripped = raw.replace(OBJECT_REPLACEMENT, "").strip()
+            ph = record_math_placeholder(math_records, emb, display_block=stripped == "")
             dest_text.insertString(dest_cursor, ph, False)
             return
     chunk = uno_read(lambda: portion.getString(), "")
@@ -113,9 +113,15 @@ _COPIED_CHAR_PROPERTIES = (
     "CharEscapement", "CharEscapementHeight",
     "HyperLinkURL", "HyperLinkName", "HyperLinkTarget",
 )
+# Every UNO property that html_import_styles._para_writers() sets must be listed
+# in _COPIED_PARA_PROPERTIES so range, selection, and header reads (as well as
+# page-style clone) carry it into the destination. test_every_para_writer_property_is_copied_by_range_reads
+# pins this coverage. ParaLineSpacing holds a LineSpacing struct; pyuno compares
+# structs by value, so an inherited line spacing equal to the style's value is
+# still skipped by _copy_properties.
 _COPIED_PARA_PROPERTIES = (
     "ParaLeftMargin", "ParaRightMargin", "ParaTopMargin", "ParaBottomMargin",
-    "ParaFirstLineIndent", "ParaAdjust", "ParaBackColor",
+    "ParaFirstLineIndent", "ParaAdjust", "ParaBackColor", "ParaLineSpacing",
 )
 
 
@@ -160,7 +166,7 @@ def source_style(model: Any, style_name: str, cache: dict[str, Any]) -> Any:
     return style
 
 
-def apply_temp_para_style(temp_doc: Any, temp_cursor: Any, style: str) -> None:
+def apply_temp_para_style(temp_doc: Any, temp_cursor: Any, style: str) -> bool:
     """Apply *style* on the scratch paragraph when that style exists there.
 
     Selection and range export copy each paragraph into a blank
@@ -169,9 +175,10 @@ def apply_temp_para_style(temp_doc: Any, temp_cursor: Any, style: str) -> None:
     raises and the broad handler returns ``""``, discarding the whole
     selection. Skip the missing style (the scratch default stays) and
     keep copying. One style miss must not discard the range.
+    Returns True if the style was applied to the scratch paragraph, False otherwise.
     """
     if not style:
-        return
+        return False
     try:
         families = temp_doc.getStyleFamilies()
         para_styles = families.getByName("ParagraphStyles")
@@ -180,17 +187,19 @@ def apply_temp_para_style(temp_doc: Any, temp_cursor: Any, style: str) -> None:
                 "range export: paragraph style %r is not in the scratch document; keeping the default",
                 style,
             )
-            return
+            return False
         temp_cursor.setPropertyValue("ParaStyleName", style)
+        return True
     except Exception:
         log.debug(
             "range export: skipped paragraph style %r on the scratch document",
             style,
             exc_info=True,
         )
+        return False
 
 
-def _paint_direct_formatting(  # pyright: ignore[reportUnusedFunction]
+def paint_direct_formatting(
     para: Any,
     portions: list[tuple[Any, str]],
     temp_text: Any,
@@ -212,7 +221,7 @@ def _paint_direct_formatting(  # pyright: ignore[reportUnusedFunction]
         para_cursor.gotoStartOfParagraph(False)
         return para_cursor, para_cursor.getStart()
 
-    got = best_effort(paragraph_start, "_paint_direct_formatting: paragraph start skipped")
+    got = best_effort(paragraph_start, "paint_direct_formatting: paragraph start skipped")
     if got is None:
         return
     para_cursor, para_start = got
@@ -223,7 +232,7 @@ def _paint_direct_formatting(  # pyright: ignore[reportUnusedFunction]
 
     # Para* refusal is logged and the Char* loop still runs so direct character formatting
     # is not dropped for the entire copied range.
-    best_effort(paint_paragraph, "_paint_direct_formatting: paragraph properties skipped")
+    best_effort(paint_paragraph, "paint_direct_formatting: paragraph properties skipped")
 
     offset = 0  # position within the visible (tracked-deletions removed) paragraph text
     for portion, chunk in portions:
@@ -238,34 +247,34 @@ def _paint_direct_formatting(  # pyright: ignore[reportUnusedFunction]
             run.goRight(hi - lo, True)
             _copy_properties(portion, run, _COPIED_CHAR_PROPERTIES, style)
         except Exception:
-            log.debug("_paint_direct_formatting: portion skipped", exc_info=True)
+            log.debug("paint_direct_formatting: portion skipped", exc_info=True)
             continue
 
 
 
-def _supports_service(obj: Any, name: str) -> bool:
+def supports_service(obj: Any, name: str) -> bool:
     return uno_read(lambda: bool(obj.supportsService(name)), False)
 
 
-def _iter_xtext_paragraphs(text_obj: Any) -> Iterator[Any]:
+def iter_xtext_paragraphs(text_obj: Any) -> Iterator[Any]:
     """Yield paragraphs under *text_obj*, descending into table cells."""
     enum = uno_read(lambda: text_obj.createEnumeration(), FAILED)
     if enum is FAILED:
         return
     for el in iter_elements(enum):
-        if _supports_service(el, "com.sun.star.text.TextTable"):
+        if supports_service(el, "com.sun.star.text.TextTable"):
             try:
                 names = el.getCellNames() or ()
             except Exception as exc:
-                log.debug("_iter_xtext_paragraphs: getCellNames failed: %s", exc)
+                log.debug("iter_xtext_paragraphs: getCellNames failed: %s", exc)
                 continue
             for name in names:
                 try:
                     cell = el.getCellByName(name)
                 except Exception as exc:
-                    log.debug("_iter_xtext_paragraphs: getCellByName failed: %s", exc)
+                    log.debug("iter_xtext_paragraphs: getCellByName failed: %s", exc)
                     continue
-                yield from _iter_xtext_paragraphs(cell)
+                yield from iter_xtext_paragraphs(cell)
             continue
         if hasattr(el, "createEnumeration"):
             yield el
@@ -308,10 +317,11 @@ def _copy_visible_portions(
     cursor: Any,
     parent_el: Any,
     math_records: list[tuple[str, str, bool]] | None,
-    deletion_state: list[bool],
+    deletion_state: list[bool] | None = None,
+    style: Any = None,
 ) -> None:
     # Text a pending tracked change deleted is not copied, same as the other reads.
-    for portion, kind in skip_tracked_deletions(_iter_portions(portions), deletion_state):
+    for portion, kind in skip_tracked_deletions(iter_portions(portions), deletion_state):
         if kind == "TextField":
             field = _portion_field(portion)
             if field is None:
@@ -321,7 +331,7 @@ def _copy_visible_portions(
             chunk = uno_read(lambda: portion.getString(), "")
             if not chunk:
                 continue
-            _copy_text_run(portion, dest_text, cursor, chunk)
+            copy_text_run(portion, dest_text, cursor, chunk, style)
         else:
             _copy_math_or_text(portion, parent_el, dest_text, cursor, math_records)
 
@@ -345,19 +355,13 @@ def _copy_cell_xtext(
     first_para = True
     deletion_state = [False]
     for para in iter_elements(para_enum):
-        if _supports_service(para, "com.sun.star.text.TextTable"):
+        if supports_service(para, "com.sun.star.text.TextTable"):
             # Recreate the nested table inside dest_cell (same walk as body _copy_table).
-            _copy_table(para, dest_doc, dest_cell, math_records=math_records)
-            dest_cursor = dest_cell.createTextCursor()
-            dest_cursor.gotoEnd(False)
+            dest_cursor = _append_table(para, dest_doc, dest_cell, math_records)
             first_para = False
             continue
         if not first_para:
-            try:
-                dest_cell.insertControlCharacter(dest_cursor, _PARAGRAPH_BREAK, False)
-                dest_cursor.gotoNextParagraph(False)
-            except Exception as exc:
-                log.debug("_copy_cell_xtext: paragraph break failed: %s", exc)
+            _begin_next_paragraph(dest_cell, dest_cursor)
         first_para = False
         try:
             portions = para.createEnumeration()
@@ -486,16 +490,56 @@ def _copy_table(
     _goto_doc_end(dest_doc)
 
 
+def _begin_next_paragraph(dest_text: Any, cursor: Any) -> None:
+    """Step into the next paragraph when appending flow to *dest_text*.
+
+    The cursor sits at the end of *dest_text*. insertControlCharacter leaves
+    the cursor in front of the break, so without gotoNextParagraph the next run
+    lands in the previous paragraph. A refused break is logged and the copy goes
+    on: the text joins the previous paragraph rather than the whole copy failing.
+    """
+    try:
+        dest_text.insertControlCharacter(cursor, PARAGRAPH_BREAK, False)
+        cursor.gotoNextParagraph(False)
+    except Exception as exc:
+        log.debug("range copy: paragraph break failed: %s", exc)
+
+
+def _append_table(
+    src_table: Any,
+    dest_doc: Any,
+    dest_text: Any,
+    math_records: list[tuple[str, str, bool]] | None = None,
+) -> Any:
+    """Copy *src_table* into *dest_text* and return a cursor at the new end.
+
+    The old cursor sits before the table once inserted, so appending subsequent
+    flow content needs a fresh cursor moved to the end of *dest_text*.
+    """
+    _copy_table(src_table, dest_doc, dest_text, math_records=math_records)
+    cursor = dest_text.createTextCursor()
+    cursor.gotoEnd(False)
+    return cursor
+
+
 def _copy_xtext_by_portions(
     src_text: Any,
     dest_doc: Any,
     math_records: list[tuple[str, str, bool]] | None = None,
+    src_doc: Any = None,
 ) -> None:
     """Copy paragraphs/fields without the view transferable.
 
     Needed when ``select()`` on ``HeaderText`` pastes nothing because the
     view is on the first page (``FirstIsShared=False``).
+
+    With *src_doc*, each copy gets its source paragraph style, and only values that
+    differ from that style are copied. Without the style, the export would report
+    ``Standard`` for a ``Header`` paragraph, and every inherited margin and font would
+    come back as a hand-set ``data-lo-para`` override (same rule as range export, see
+    ``_copy_properties``).
     """
+    style_cache: dict[str, Any] = {}
     dest_text = dest_doc.getText()
     dest_text.setString("")
     dest_cursor = dest_text.createTextCursor()
@@ -508,30 +552,30 @@ def _copy_xtext_by_portions(
     first_para = True
     deletion_state = [False]
     for el in iter_elements(enum):
-        if _supports_service(el, "com.sun.star.text.TextTable"):
-            _copy_table(el, dest_doc, math_records=math_records)
-            _goto_doc_end(dest_doc)
-            dest_cursor = dest_text.createTextCursor()
-            dest_cursor.gotoEnd(False)
+        if supports_service(el, "com.sun.star.text.TextTable"):
+            dest_cursor = _append_table(el, dest_doc, dest_text, math_records)
             first_para = False
             continue
         if not first_para:
-            try:
-                dest_text.insertControlCharacter(dest_cursor, _PARAGRAPH_BREAK, False)
-                dest_cursor.gotoNextParagraph(False)
-            except Exception as exc:
-                log.debug("_copy_xtext_by_portions: paragraph break failed: %s", exc)
+            _begin_next_paragraph(dest_text, dest_cursor)
         first_para = False
         try:
             portions = el.createEnumeration()
         except Exception:
             _fallback_insert_para_text(dest_text, dest_cursor, el)
             continue
-        _copy_visible_portions(portions, dest_doc, dest_text, dest_cursor, el, math_records, deletion_state)
-        _copy_para_properties_to_end(dest_text, dest_cursor, el)
+        style = None
+        if src_doc is not None:
+            style_name = uno_read(lambda: el.getPropertyValue("ParaStyleName"), "")
+            if apply_temp_para_style(dest_doc, dest_cursor, style_name):
+                style = source_style(src_doc, style_name, style_cache)
+        _copy_visible_portions(
+            portions, dest_doc, dest_text, dest_cursor, el, math_records, deletion_state=deletion_state, style=style
+        )
+        _copy_para_properties_to_end(dest_text, dest_cursor, el, style)
 
 
-def _copy_flow_into_xtext(doc: Any, src_text: Any, dest_text: Any) -> int:  # pyright: ignore[reportUnusedFunction]
+def copy_flow_into_xtext(doc: Any, src_text: Any, dest_text: Any) -> int:
     """Copy paragraphs, tables, fields, and direct char/para props inside *doc*.
 
     Used by page-style clone. Does not select the source, does not use the
@@ -555,26 +599,17 @@ def _copy_flow_into_xtext(doc: Any, src_text: Any, dest_text: Any) -> int:  # py
         try:
             dest_text.insertString(cursor, src_text.getString(), False)
         except Exception as exc:
-            log.debug("_copy_flow_into_xtext: plain-text fallback failed: %s", exc)
+            log.debug("copy_flow_into_xtext: plain-text fallback failed: %s", exc)
         return 0
 
     first_para = True
     for el in iter_elements(enum):
-        if _supports_service(el, "com.sun.star.text.TextTable"):
-            _copy_table(el, doc, dest_text)
-            cursor = dest_text.createTextCursor()
-            cursor.gotoEnd(False)
+        if supports_service(el, "com.sun.star.text.TextTable"):
+            cursor = _append_table(el, doc, dest_text, None)
             first_para = False
             continue
         if not first_para:
-            try:
-                dest_text.insertControlCharacter(cursor, _PARAGRAPH_BREAK, False)
-            except Exception as exc:
-                log.debug("_copy_flow_into_xtext: paragraph break failed: %s", exc)
-            try:
-                cursor.gotoNextParagraph(False)
-            except Exception as exc:
-                log.debug("_copy_flow_into_xtext: gotoNextParagraph failed: %s", exc)
+            _begin_next_paragraph(dest_text, cursor)
         first_para = False
         try:
             portions = el.createEnumeration()
@@ -582,7 +617,7 @@ def _copy_flow_into_xtext(doc: Any, src_text: Any, dest_text: Any) -> int:  # py
             _fallback_insert_para_text(dest_text, cursor, el)
             _copy_para_properties_to_end(dest_text, cursor, el)
             continue
-        for portion, kind in _iter_portions(portions):
+        for portion, kind in iter_portions(portions):
             if kind == "TextField":
                 field = _portion_field(portion)
                 if field is None:
@@ -594,7 +629,7 @@ def _copy_flow_into_xtext(doc: Any, src_text: Any, dest_text: Any) -> int:  # py
                 chunk = uno_read(lambda: portion.getString(), "")
                 if not chunk:
                     continue
-                _copy_text_run(portion, dest_text, cursor, chunk)
+                copy_text_run(portion, dest_text, cursor, chunk)
             else:
                 continue
         _copy_para_properties_to_end(dest_text, cursor, el)
@@ -605,7 +640,7 @@ def _copy_flow_into_xtext(doc: Any, src_text: Any, dest_text: Any) -> int:  # py
 # TextGraphicObject property list (shared with page._copy_region_graphics).
 # The temp Writer does not offer every orient property; the per-property except
 # is that miss, not a missing Graphic.
-_ANCHORED_GRAPHIC_PROPS = (
+ANCHORED_GRAPHIC_PROPS = (
     "AnchorType", "Graphic", "Width", "Height",
     "HoriOrient", "HoriOrientPosition", "HoriOrientRelation",
     "VertOrient", "VertOrientPosition", "VertOrientRelation",
@@ -613,7 +648,7 @@ _ANCHORED_GRAPHIC_PROPS = (
 )
 
 
-def _prefix_char_count(text_obj: Any, cursor: Any) -> int:
+def prefix_char_count(text_obj: Any, cursor: Any) -> int:
     """``getString()`` length from the start of *text_obj* to *cursor*.
 
     Captured before import so we can apply ruby only to the inserted suffix.
@@ -629,7 +664,7 @@ def _copy_anchored_graphics(src_doc: Any, src_text: Any, dest_doc: Any) -> None:
     """Clone TextGraphicObjects anchored in *src_text* onto *dest_doc*.
 
     The portion walk does not carry Graphic. controller.select + transferable
-    into the scratch Writer is the pattern _copy_flow_into_xtext removed
+    into the scratch Writer is the pattern copy_flow_into_xtext removed
     (heap corruption / SIGSEGV on the following XHTML export). Shapes are
     found the way page._scan_region_content finds them: draw page, uno_same
     on the anchor's XText.
@@ -660,7 +695,7 @@ def _copy_anchored_graphics(src_doc: Any, src_text: Any, dest_doc: Any) -> None:
             continue
         def copy_one() -> None:
             clone = dest_doc.createInstance("com.sun.star.text.TextGraphicObject")
-            for prop in _ANCHORED_GRAPHIC_PROPS:
+            for prop in ANCHORED_GRAPHIC_PROPS:
                 try:
                     clone.setPropertyValue(prop, shape.getPropertyValue(prop))
                 except Exception:
@@ -669,7 +704,7 @@ def _copy_anchored_graphics(src_doc: Any, src_text: Any, dest_doc: Any) -> None:
             cursor.gotoStart(False)
             # A bad anchor still inserts the logo at the start. Dropping
             # it here would hide the letterhead.
-            offset = uno_read(lambda: _prefix_char_count(src_text, anchor), 0)
+            offset = uno_read(lambda: prefix_char_count(src_text, anchor), 0)
             if offset:
                 cursor.goRight(offset, False)
             dest_text.insertTextContent(cursor, clone, False)
@@ -677,7 +712,7 @@ def _copy_anchored_graphics(src_doc: Any, src_text: Any, dest_doc: Any) -> None:
         best_effort(copy_one, "_copy_anchored_graphics: skipped a graphic")
 
 
-def _copy_xtext_into_doc(  # pyright: ignore[reportUnusedFunction]
+def copy_xtext_into_doc(
     src_doc: Any,
     src_text: Any,
     dest_doc: Any,
@@ -687,9 +722,9 @@ def _copy_xtext_into_doc(  # pyright: ignore[reportUnusedFunction]
 
     Portion copy moves header/footer/body text into the scratch Writer without
     selecting the user's document or running hidden XHTML export (see
-    _copy_flow_into_xtext). Anchored graphics are cloned after the text walk
+    copy_flow_into_xtext). Anchored graphics are cloned after the text walk
     because an early graphic insert would be dropped by subsequent setString steps.
     """
-    _copy_xtext_by_portions(src_text, dest_doc, math_records=math_records)
+    _copy_xtext_by_portions(src_text, dest_doc, math_records=math_records, src_doc=src_doc)
     _copy_anchored_graphics(src_doc, src_text, dest_doc)
 

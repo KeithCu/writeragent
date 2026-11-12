@@ -941,3 +941,23 @@ def test_column_spacing_zero_uno(ctx, doc):
     assert cols[0]["right_margin_mm"] == 0.0
     assert cols[1]["left_margin_mm"] == 0.0
 
+
+@native_test
+@with_native_doc("writer")
+def test_page_insert_break_anchor_matches_nbsp_and_curly_quotes(ctx, doc):
+    from plugin.writer.page import PageInsertBreak
+    from com.sun.star.style.BreakType import PAGE_BEFORE
+
+    text = doc.getText()
+    cursor = text.createTextCursor()
+    cursor.gotoEnd(False)
+    text.insertString(cursor, "Annex\u00a0\u201cstart\u201d", False)
+
+    tool = PageInsertBreak()
+    res = tool.execute(_tool_ctx(doc, ctx), before_text='Annex "start"')
+    assert res["status"] == "ok", res
+
+    para = _para_with_text(doc, "start")
+    assert para is not None
+    assert para.getPropertyValue("BreakType") == PAGE_BEFORE
+

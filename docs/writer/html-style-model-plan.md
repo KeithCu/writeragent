@@ -1,6 +1,6 @@
 # PM & Development Plan: Semantic Style Models in HTML
 
-**Status:** v1 **implemented** (read/write `data-lo-style` in [`format.py`](../../plugin/writer/format.py) + [`xhtml_style_postprocess.py`](../../plugin/writer/xhtml_style_postprocess.py)). Post-v1 performance path documented below.
+**Status:** v1 **implemented** (read in [`html_export.py`](../../plugin/writer/html_export.py) / write in [`html_import_styles.py`](../../plugin/writer/html_import_styles.py) + [`xhtml_style_postprocess.py`](../../plugin/writer/xhtml_style_postprocess.py)). Post-v1 performance path documented below.
 
 ## Problem Statement
 
@@ -53,12 +53,12 @@ Two phases solve different problems. **v1** fixes read→write→read idempotenc
 | Layer | Choice |
 |-------|--------|
 | **Read body + char overrides** | `XHTML Writer File` export → [`xhtml_to_semantic_html()`](../../plugin/writer/xhtml_style_postprocess.py) in [`xhtml_style_postprocess.py`](../../plugin/writer/xhtml_style_postprocess.py) |
-| **Read autostyle names when XHTML omits them** | Second export: **OpenDocument Text Flat XML** (`.fodt`); [`_parse_fodt_autostyles()`](../../plugin/writer/xhtml_style_postprocess.py) builds a **`Pn → parent-style-name`** map; joined to XHTML by matching the `paragraph-Pn` class suffix (order-independent — no block-index alignment) |
+| **Read autostyle names when XHTML omits them** | Second export: **OpenDocument Text Flat XML** (`.fodt`); [`parse_fodt_autostyles()`](../../plugin/writer/xhtml_style_postprocess.py) builds a **`Pn → parent-style-name`** map; joined to XHTML by matching the `paragraph-Pn` class suffix (order-independent — no block-index alignment) |
 | **Write** | Keep `HTML (StarWriter)` import + strip `data-lo-style` + UNO `apply_paragraph_style_preserving_direct_char` (`full_document`, `beginning`/`end` after absorb prep, and whole-paragraph `selection`/`search` replacements; partial or recording matches skip apply) |
 
 **Why flat ODF:** Probe B showed UNO still has `ParaStyleName = Caption` after write, but XHTML re-export emits autostyle `paragraph-P1` with no `.paragraph-Caption` rule — string-only XHTML post-process cannot recover the token. Flat ODF keeps `style:parent-style-name` on automatic styles; the autostyle name `Pn` is identical in both exports. Probe C ruled out symmetric **XHTML Writer File** import on write (0 body paragraphs inserted on test LO build).
 
-**Entry points (v1):** [`document_to_content()`](../../plugin/writer/html_export.py) calls `_export_xhtml` + `_autostyle_parents`, then `xhtml_to_semantic_html(xhtml, parents)`. Write path in [`html_import.py`](../../plugin/writer/html_import.py): `_extract_block_lo_styles` → StarWriter import → `_apply_block_lo_styles`. Search text is this pure function, and the write path is still StarWriter. Callers import from `plugin.writer.html_export`.
+**Entry points (v1):** [`document_to_content()`](../../plugin/writer/html_export.py) calls `_export_xhtml` + `_autostyle_maps`, then `xhtml_to_semantic_html(xhtml, parents)`. Write path in [`html_import.py`](../../plugin/writer/html_import.py): `extract_block_lo_styles` → StarWriter import → `apply_block_lo_styles`. Search text is this pure function, and the write path is still StarWriter. Callers import from `plugin.writer.html_export`.
 
 **v1 cost:** Two full `storeToURL` exports on every `get_document_content(scope=full)` (XHTML + FODT). Acceptable for correctness; **not** the long-doc architecture.
 
@@ -76,7 +76,7 @@ LibreOffice has **no filter** for “styles only.” Any `storeToURL` path (XHTM
 **Recommended shape:**
 
 1. **Cached UNO paragraph style index** — one `text.createEnumeration()` pass per document revision: top-level block index → compact token via `ParaStyleName` + `compact_lo_style_name()`. Cache invalidated on `document:cache_invalidated` (same pattern as [`TreeService`](../../plugin/writer/tree.py)). Cost: O(paragraphs) RPC, **no filter pipeline**.
-2. **Scoped HTML export** — agent uses `get_document_content(scope=range)` (existing [`_range_to_content_via_temp_doc`](../../plugin/writer/format.py) already copies `ParaStyleName` into temp docs). Merge styles from the index for that para range only.
+2. **Scoped HTML export** — agent uses `get_document_content(scope=range)` (existing [`_range_to_content_via_temp_doc`](../../plugin/writer/html_export.py) already copies `ParaStyleName` into temp docs). Merge styles from the index for that para range only.
 3. **Navigation first** — `get_document_tree`, `search_in_document`, `nav_heading_children` before full reads ([`lo-dom-semantic-tree.md`](lo-dom-semantic-tree.md), [`../chat/multi-document-dev-plan.md`](../chat/multi-document-dev-plan.md)).
 
 **Why UNO index is better than FODT sidecar for scale:** Probe B proved UNO `ParaStyleName` stays correct when XHTML export lies. The sidecar fixes the same gap via export strings (v1 purity bet); UNO is lighter and more authoritative for **paragraph names only**.
@@ -154,13 +154,13 @@ See **Phase 0: Filter probe** at the bottom of this doc for the active probe wor
 
 ## Phase 1: Update the Read Path (`get_document_content`)
 
-*Target files:* [`plugin/writer/format.py`](../../plugin/writer/format.py) (imported elsewhere as `format_support`), new [`plugin/writer/xhtml_style_postprocess.py`](../../plugin/writer/xhtml_style_postprocess.py) (pure string/CSS — no UNO).
+*Target files:* [`plugin/writer/html_export.py`](../../plugin/writer/html_export.py), new [`plugin/writer/xhtml_style_postprocess.py`](../../plugin/writer/xhtml_style_postprocess.py) (pure string/CSS — no UNO).
 
 **Pipeline (order matters):**
 
 1. **Export (read path only):** Switch `document_to_content()` / `_range_to_content_via_temp_doc()` from `HTML (StarWriter)` to `XHTML Writer File`. Keep `HTML (StarWriter)` for **import** until Phase 2 applies styles via UNO after insert.
 
-1b. **Embedded images (optional):** XHTML export inlines graphics as `data:image/...;base64,...`. `get_document_content` accepts **`include_images`** (default `false`); when false, [`strip_embedded_image_data()`](../../plugin/writer/format.py) removes base64 payloads after post-processing. External `<img src="...">` URLs are unchanged. Either way, [`shorten_outline_anchor_ids()`](../../plugin/writer/html_export.py) renames LibreOffice's heading outline anchors (`<a id="a__…">`) longer than 200 characters to `a__<crc32>`, together with any `href="#…"` that points to them. The export names those anchors after the heading text, and a picture anchored in the heading put its whole base64 into the id (40-65 KB per heading).
+1b. **Embedded images (optional):** XHTML export inlines graphics as `data:image/...;base64,...`. `get_document_content` accepts **`include_images`** (default `false`); when false, [`strip_embedded_image_data()`](../../plugin/writer/html_export.py) removes base64 payloads after post-processing. External `<img src="...">` URLs are unchanged. Either way, [`shorten_outline_anchor_ids()`](../../plugin/writer/html_export.py) renames LibreOffice's heading outline anchors (`<a id="a__…">`) longer than 200 characters to `a__<crc32>`, together with any `href="#…"` that points to them. The export names those anchors after the heading text, and a picture anchored in the heading put its whole base64 into the id (40-65 KB per heading).
 
 2. **Parse `<style>` block:** Build `class → declaration` map for `.text-*` and `.paragraph-*`. Normalize whitespace for fingerprint comparison.
 
@@ -189,7 +189,7 @@ See **Phase 0: Filter probe** at the bottom of this doc for the active probe wor
    | `Caption` | `Caption` | `Caption` |
    | `P1` | — | See [Autostyle decision table](#autostyle-decision-table-locked-from-probe) |
 
-5. **Transform paragraph tags:** For each paragraph block (`<p>`, `<h1>`–`<h6>`, `<li>`, `<blockquote>`, `<pre>`) with `class="paragraph-…"`: emit `data-lo-style="…"`, strip `paragraph-*` from `class`, drop empty `class`. NOTE: `<div>` is treated as a **transparent container** (not a styleable block) on both read and write — on write a plain `<div>` is not its own paragraph, so counting it as a style slot desyncs the positional apply. Exception: LibreOffice exports a paragraph that holds a frame (an image) as `<div class="paragraph-X">`; that div IS one paragraph, so the read path gives it `data-lo-style` and the write path counts a `<div data-lo-style>` as a slot. The image itself comes back without data (`<div|span ... id="Name"><img src=""/></...>`); the write path swaps that wrapper (and the following `clear:both` div) for a marker, puts a copy of the named picture there after the import when the edit removed the original, and refuses content with an image it cannot keep (`_keep_placeholder_images` in `image_placeholders.py`).
+5. **Transform paragraph tags:** For each paragraph block (`<p>`, `<h1>`–`<h6>`, `<li>`, `<blockquote>`, `<pre>`) with `class="paragraph-…"`: emit `data-lo-style="…"`, strip `paragraph-*` from `class`, drop empty `class`. NOTE: `<div>` is treated as a **transparent container** (not a styleable block) on both read and write — on write a plain `<div>` is not its own paragraph, so counting it as a style slot desyncs the positional apply. Exception: LibreOffice exports a paragraph that holds a frame (an image) as `<div class="paragraph-X">`; that div IS one paragraph, so the read path gives it `data-lo-style` and the write path counts a `<div data-lo-style>` as a slot. The image itself comes back without data (`<div|span ... id="Name"><img src=""/></...>`); the write path swaps that wrapper (and the following `clear:both` div) for a marker, puts a copy of the named picture there after the import when the edit removed the original, and refuses content with an image it cannot keep (`keep_placeholder_images` in `image_placeholders.py`).
 
 6. **Strip boilerplate:** Existing `strip_html_boilerplate()` returns `<body>` inner HTML only.
 
@@ -199,8 +199,8 @@ See **Phase 0: Filter probe** at the bottom of this doc for the active probe wor
 
 After probe C failed, v1 adds a second export on every read (full document and range-via-temp-doc):
 
-1. **Second export:** Same document via filter `OpenDocument Text Flat XML` ([`_autostyle_parents()`](../../plugin/writer/format.py)).
-2. **Parse map:** [`_parse_fodt_autostyles()`](../../plugin/writer/xhtml_style_postprocess.py) scans `style:style` elements with `style:family="paragraph"`; for automatic names matching `P\d+`, record `Pn → style:parent-style-name` (ODF-encoded parent names decoded at use).
+1. **Second export:** Same document via filter `OpenDocument Text Flat XML` ([`_autostyle_maps()`](../../plugin/writer/html_export.py)).
+2. **Parse map:** [`parse_fodt_autostyles()`](../../plugin/writer/xhtml_style_postprocess.py) scans `style:style` elements with `style:family="paragraph"`; for automatic names matching `P\d+`, record `Pn → style:parent-style-name` (ODF-encoded parent names decoded at use).
 3. **Join to XHTML:** In `_paragraph_token()`, when the block class is `paragraph-Pn`, look up `Pn` in the map and emit `compact_lo_style_name(decode(parent))`. **No block-index walk** — the join is by autostyle name only, so tables and nested structure cannot desync it.
 4. **Fallback:** If FODT export fails, map is `{}` and CSS fingerprint matching applies (same as pre-1b). If still ambiguous, omit `data-lo-style`.
 
@@ -210,7 +210,7 @@ FODT fixes probe B (write→read style **name** recovery). It does **not** repla
 
 ## Phase 2: Update the Write Path (`apply_document_content`)
 
-*Target file:* [`plugin/writer/format.py`](../../plugin/writer/format.py)
+*Target file:* [`plugin/writer/html_import.py`](../../plugin/writer/html_import.py) + [`plugin/writer/html_import_styles.py`](../../plugin/writer/html_import_styles.py)
 
 StarWriter HTML import does not understand `data-lo-style`. Write path:
 
@@ -226,7 +226,7 @@ StarWriter HTML import does not understand `data-lo-style`. Write path:
 
 6. **Fallback:** Unknown style name → `Standard` (or skip apply and log).
 
-**Review mode (`full_document`):** the deleted text stays in place, and an import at its start takes the first old paragraph's character formatting as direct formatting (an 18pt bold opening heading spread over the whole document). `replace_full_document` therefore opens an empty paragraph before the deleted text, imports there, and drops that paragraph if it is left over empty.
+**Review mode (`full_document`):** the deleted text stays in place, and an import at its start takes the first old paragraph's character formatting as direct formatting (an 18pt bold opening heading spread over the whole document). `replace_full_document` therefore opens an empty paragraph before the deleted text, imports there, and drops that paragraph if it is left over empty. The fresh paragraph inherits direct `Para*` from the split, so the reset runs on that absorb paragraph only; the deleted paragraph is not cleared. Without Track Changes, the same reset runs on the one paragraph `setString("")` leaves.
 
 **Hook points:** Named-style application runs on `replace_full_document` and on `insert_content_at_position` for `beginning` / `end` (after absorb prep so neighbor text is not restyled — see UNO-verified notes in `html_import._ensure_empty_absorb_for_styled_insert`), as well as whole-paragraph `selection` and `search` (`replace_single_range_with_content`) replacements when Track Changes is not recording. A failed paragraph break at `end` raises; the import does not continue into the neighbor paragraph. Partial matches (not starting and ending on paragraph boundaries) or replaces while Track Changes is recording skip style application and warn with `apply_style(target='search', old_content=...)`.
 
@@ -237,7 +237,7 @@ StarWriter HTML import does not understand `data-lo-style`. Write path:
 An autostyle's XHTML rule is flattened — base style and override merged, with no rule emitted for
 the base at all — so the XHTML alone cannot say which values were hand-set. The flat-ODF sidecar
 already exported for the `Pn -> parent` map holds the automatic style's **own** properties, which
-are exactly the direct overrides. `_parse_fodt_autostyles()` reads them from that
+are exactly the direct overrides. `parse_fodt_autostyles()` reads them from that
 same export (no extra `storeToURL`) and `_rewrite_block` emits them as `data-lo-para`, e.g.
 `<p data-lo-style="Standard" data-lo-para="margin-left:3.25cm; font-size:12pt">`.
 
@@ -247,17 +247,17 @@ whole-paragraph override, which is what makes an applied style look like it did 
 Run colour also appears on spans as inline `style`. Nothing is reported when the sidecar is
 unavailable, rather than guessing from the flattened CSS.
 
-The range read reports it too. `_range_to_content_via_temp_doc` used to copy plain text plus the
-paragraph style name, so every override — `data-lo-para` and character runs alike — was already
-gone before the export. It now carries the source paragraph's direct `Para*` and paints each text
-portion's direct `Char*` onto the copy, skipping anything the paragraph style already provides so
-an inherited value is not reported as hand-set. A range slice that crosses a bold run therefore
-reads back with the bold in place.
+The range read reports it too. `_range_to_content_via_temp_doc` carries the source paragraph's
+direct `Para*` names in `range_copy._COPIED_PARA_PROPERTIES` (margins, indent, alignment,
+line height, background) and paints each text portion's direct `Char*` onto the copy, skipping
+anything the paragraph style already provides so an inherited value is not reported as hand-set.
+The property list covers every property written from `data-lo-para`, and a unit test pins this.
+A range slice that crosses a bold run therefore reads back with the bold in place.
 
-On **write**, `data-lo-para` is applied after the named style: `text-align`, all four margins, `text-indent`, `line-height`, and `background-color` round-trip on `full_document`, `beginning`, and `end`. Paragraph-level `font-family`, `font-size`, `font-weight`, `font-style`, and `color` are read-only and arrive in `warnings`: Writer sets them over the whole paragraph and flattens bold or coloured spans (`_READ_ONLY_PARA_NAMES` in `html_import_styles.py`). A unit test pins every read name to a writer or to that read-only set. `selection`/`search` and table cells do not apply the attribute.
+On **write**, `data-lo-para` is applied after the named style: `text-align`, all four margins, `text-indent`, `line-height`, and `background-color` round-trip on `full_document`, `beginning`, `end`, and header/footer writes (`page_set_header_footer_text`, which also applies `data-lo-style`), as well as whole-paragraph `selection` and `search` replacements when Track Changes is off. Paragraph-level `font-family`, `font-size`, `font-weight`, `font-style`, and `color` are read-only and arrive in `warnings`: Writer sets them over the whole paragraph and flattens bold or coloured spans (`_READ_ONLY_PARA_NAMES` in `html_import_styles.py`). A unit test pins every read name to a writer or to that read-only set. Table cells, position before/after, and partial or recorded replacements do not apply the attribute.
 To make a style win over hand-set values, `apply_style` takes `clear_direct`
 (`none` | `style_props` | `all`). **Default is `style_props`**: house font name + size win
-(via `STYLE_GOVERNED_CHAR_PROPERTIES` + `_reset_properties_to_default`), bold/italic/colour stay,
+(via `STYLE_GOVERNED_CHAR_PROPERTIES` + `reset_properties_to_default`), bold/italic/colour stay,
 and `CLEARABLE_PARA_PROPERTIES` (indents/alignment) are cleared so the style shows. `none` is an
 explicit opt-in that keeps a hand-set font (historical “masking Times” behaviour). `all` is
 Ctrl+M-ish and is refused on `target='full_document'` (that would flatten emphasis across the
@@ -271,7 +271,7 @@ These are intentional trade-offs in v1. Tests document the behavior ([`test_xhtm
 
 | Limitation | v1 behavior | Workaround for agents/users | Post-v1 direction |
 |------------|-------------|----------------------------|-------------------|
-| **Whole-paragraph direct overrides** (margins, indent, alignment, line-height, paragraph-level font, para colour) | **Read** reports them in `data-lo-para` from the FODT automatic style, including `color:` when `fo:color` is set (see [Direct formatting on read](#direct-formatting-on-read)). On **write**, `text-align`, all four margins, `text-indent`, `line-height`, and `background-color` round-trip on `full_document`, `beginning`, and `end`. Paragraph-level `font-family`, `font-size`, `font-weight`, `font-style`, and `color` are read-only and arrive in `warnings`: Writer sets them over the whole paragraph and flattens bold or coloured spans (`_READ_ONLY_PARA_NAMES` in `html_import_styles.py`). `selection`/`search` and table cells do not apply `data-lo-para`. Run colour also appears on spans. | DO: read `data-lo-para` to tell an indented or coloured quote from body text. `apply_style` defaults to `clear_direct='style_props'` so house font/size and style indents show (bold/italic stay). Pass `clear_direct='none'` only to keep a hand-set font. Re-applying a style does **not** keep a quote indent — LO drops direct `Para*` | Headers/footers, then `selection`/`search`, then table cells |
+| **Whole-paragraph direct overrides** (margins, indent, alignment, line-height, paragraph-level font, para colour) | **Read** reports them in `data-lo-para` from the FODT automatic style, including `color:` when `fo:color` is set (see [Direct formatting on read](#direct-formatting-on-read)). On **write**, `text-align`, all four margins, `text-indent`, `line-height`, and `background-color` round-trip on `full_document`, `beginning`, `end`, and header/footer writes (`page_set_header_footer_text`, which also applies `data-lo-style`), as well as whole-paragraph `selection` and `search` replacements when Track Changes is off. Paragraph-level `font-family`, `font-size`, `font-weight`, `font-style`, and `color` are read-only and arrive in `warnings`: Writer sets them over the whole paragraph and flattens bold or coloured spans (`_READ_ONLY_PARA_NAMES` in `html_import_styles.py`). Table cells, position before/after, and partial or recorded replacements do not apply `data-lo-para`. Run colour also appears on spans. | DO: read `data-lo-para` to tell an indented or coloured quote from body text. `apply_style` defaults to `clear_direct='style_props'` so house font/size and style indents show (bold/italic stay). Pass `clear_direct='none'` only to keep a hand-set font. Re-applying a style does **not** keep a quote indent — LO drops direct `Para*` | table cells, then position before/after |
 | **Table cell paragraph styles** | `paragraph-*` stripped inside `<table>`; no `data-lo-style` on cell blocks | `apply_style` on cell text; don't rely on agent HTML for table styling | Table-aware style index or cell-level tokens |
 | **Partial edits** (`beginning` / `end`) | Content inserted; `data-lo-style` **applied** after absorb prep (beginning: LO inserts before current para; end: `PARAGRAPH_BREAK` into empty trailing when absorb para has text) | Prefer `beginning`/`end` for styled append/prepend; `apply_style` to restyle existing text | — |
 | **Partial edits** (`search` / `selection`) | Content inserted; `data-lo-style` applied only when range covers whole paragraphs and Track Changes is off; partial or recording matches skip style and warn | `apply_style` to restyle partial matches or after accepting tracked changes | — |
@@ -296,7 +296,7 @@ These are intentional trade-offs in v1. Tests document the behavior ([`test_xhtm
 
 ## Phase 4: Long-term — UNO style index (post-v1)
 
-*Target files:* new helper (e.g. `plugin/writer/paragraph_style_index.py`), [`plugin/writer/format.py`](../../plugin/writer/format.py), optional [`plugin/writer/tree.py`](../../plugin/writer/tree.py).
+*Target files:* new helper (e.g. `plugin/writer/paragraph_style_index.py`), [`plugin/writer/html_export.py`](../../plugin/writer/html_export.py), optional [`plugin/writer/tree.py`](../../plugin/writer/tree.py).
 
 1. **Build index:** Single enumeration of top-level text content; record `ParaStyleName` per block index; compact tokens; cache per doc key until invalidation.
 2. **Merge on read:** `xhtml_to_semantic_html` (or caller) fills `data-lo-style` from index when XHTML omits; use index alone for range reads instead of second full FODT export.
@@ -351,7 +351,7 @@ v1 checklist (done):
 
 ## Phase 0: Filter probe (before idempotency fix)
 
-Historical decision gate (pre-v1). Shipped pipeline: [`xhtml_to_semantic_html()`](../../plugin/writer/xhtml_style_postprocess.py), [`_parse_fodt_autostyles()`](../../plugin/writer/xhtml_style_postprocess.py), [`compact_lo_style_name()`](../../plugin/writer/xhtml_style_postprocess.py).
+Historical decision gate (pre-v1). Shipped pipeline: [`xhtml_to_semantic_html()`](../../plugin/writer/xhtml_style_postprocess.py), [`parse_fodt_autostyles()`](../../plugin/writer/xhtml_style_postprocess.py), [`compact_lo_style_name()`](../../plugin/writer/xhtml_style_postprocess.py).
 
 **Tests:**
 

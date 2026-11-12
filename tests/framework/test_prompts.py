@@ -65,14 +65,14 @@ def test_get_chat_response_format_instructions_plain_when_rich_disabled():
 
 
 def test_get_chat_response_format_instructions_html_when_rich_enabled():
-    from plugin.framework.prompts import get_chat_response_format_instructions
+    from plugin.framework.prompts import HTML_FRAGMENT_RULES, get_chat_response_format_instructions
 
     with patch("plugin.framework.config.get_config", return_value=True):
         fmt = get_chat_response_format_instructions()
     assert fmt == RICH_CHAT_SIDEBAR_INSTRUCTIONS
     assert CHAT_RESPONSE_FORMAT in fmt
     assert "&lt;p&gt;Paragraph&lt;/p&gt;" in fmt
-    assert "line breaks within an element" in fmt
+    assert HTML_FRAGMENT_RULES not in fmt
 
 
 def test_get_chat_system_prompt_plain_text_when_rich_disabled():
@@ -98,6 +98,33 @@ def test_get_chat_system_prompt_allows_html_when_rich_text_control_sidebar():
         assert "plain text only" not in prompt
 
 
+def test_html_fragment_rules_appear_once_in_writer_prompt():
+    from plugin.chatbot.sub_agent_tools import get_sub_agent_instructions
+
+    model = MagicMock()
+    model.supportsService.return_value = False
+
+    with patch("plugin.framework.config.get_config") as mock_bool:
+        mock_bool.side_effect = lambda key: key == "chatbot.rich_text_control_sidebar"
+        prompt = get_chat_system_prompt_for_document(model, ctx=MagicMock())
+
+    assert prompt.count("Use <br> for line breaks within an element") == 1
+    assert get_sub_agent_instructions("BASE", tool_names=["apply_document_content"]).count("Use <br> for line breaks within an element") == 1
+
+
+def test_prompt_rules_enforced_by_tools_are_gone():
+    from plugin.framework.prompts import (
+        TOOL_USAGE_PATTERNS,
+        TRANSLATION_RULES,
+        WRITER_CHAT_TOOLS_SECTION,
+    )
+
+    assert "Failed tool call" not in TOOL_USAGE_PATTERNS
+    assert "whole-document translation" not in TRANSLATION_RULES
+    assert "get_guidance" in WRITER_CHAT_TOOLS_SECTION
+    assert "search_in_document:" not in WRITER_CHAT_TOOLS_SECTION
+
+
 def test_writer_chat_prompt_opens_with_persona_and_color_guidance():
     model = MagicMock()
     model.supportsService.return_value = False
@@ -120,8 +147,6 @@ def test_writer_chat_prompt_section_order_matches_assembly():
     prompt = get_chat_system_prompt_for_document(model)
     chat_fmt = prompt.index("CHAT RESPONSE FORMAT")
     tools = prompt.index(WRITER_CHAT_TOOLS_SECTION)
-    # Use the full apply-HTML block — "APPLY_DOCUMENT_CONTENT AND HTML" also appears
-    # as a forward reference inside WRITER_CHAT_TOOLS_SECTION.
     html_rules = prompt.index(WRITER_APPLY_DOCUMENT_HTML_RULES)
     sidebar = prompt.index(SIDEBAR_VS_DOCUMENT)
     confirm = prompt.index(CONFIRM_EDITS_FROM_STRUCTURED_FIELDS)
@@ -155,6 +180,22 @@ def test_writer_chat_template_ends_with_apply_html_then_confirm():
     assert RESEARCH_COMPLETION_INSTRUCTION_WRITER not in template
 
 
+def test_confirm_edits_from_structured_fields_prefers_suggested_call():
+    """Structured fields instruction prefers executing suggested_call over re-deriving the call."""
+    from plugin.framework.prompts import (
+        CONFIRM_EDITS_FROM_STRUCTURED_FIELDS,
+        SUB_AGENT_HTML_CONTENT_RULES,
+    )
+
+    assert (
+        "When a result includes suggested_call, prefer executing it over re-deriving the call."
+        in CONFIRM_EDITS_FROM_STRUCTURED_FIELDS
+    )
+    assert "comment_added" not in CONFIRM_EDITS_FROM_STRUCTURED_FIELDS
+    assert "zero count" in CONFIRM_EDITS_FROM_STRUCTURED_FIELDS
+    assert "warnings[].suggested_call" in SUB_AGENT_HTML_CONTENT_RULES
+
+
 def test_memory_guidance_rules_and_phrasing():
     from plugin.framework.prompts import MEMORY_GUIDANCE
 
@@ -182,7 +223,6 @@ def test_writer_chat_prompt_research_delegate_to_document():
 
     block = get_specialized_delegation_tool_hint("Writer")
     assert "web_research:" in block
-    assert "apply_document_content" in block
     for domain in WRITER_SIDEBAR_ONLY_DOMAINS:
         assert f"{domain}:" not in block
 
@@ -206,10 +246,12 @@ def test_writer_apply_document_math_latex_rules_document_only():
     assert r"\[" in WRITER_APPLY_DOCUMENT_HTML_RULES
     assert "Math (display):" not in WRITER_APPLY_DOCUMENT_HTML_RULES
     assert "Math (CRITICAL)" not in HTML_FRAGMENT_RULES
-    assert "HTML in old_content is matched as plain text" in WRITER_APPLY_DOCUMENT_HTML_RULES
+    assert "old_content is a substring and may span paragraphs" in WRITER_APPLY_DOCUMENT_HTML_RULES
     assert "target='search' also edits headers and footers" in WRITER_APPLY_DOCUMENT_HTML_RULES
-    assert "honored on target='full_document', 'beginning', and 'end'; also on 'selection'/'search'" in WRITER_APPLY_DOCUMENT_HTML_RULES
-    assert "middle line must equal a whole paragraph" in WRITER_APPLY_DOCUMENT_HTML_RULES
+    assert "data-lo-style and data-lo-para are applied on full_document, beginning, end, and header/footer writes" in WRITER_APPLY_DOCUMENT_HTML_RULES
+    assert "Track Changes off" in WRITER_APPLY_DOCUMENT_HTML_RULES
+    assert "position='before'/'after' applies neither" in WRITER_APPLY_DOCUMENT_HTML_RULES
+    assert "middle line must equal a whole paragraph" not in WRITER_APPLY_DOCUMENT_HTML_RULES
     assert "Landmark-to-landmark replace: pass start_anchor and end_anchor" in WRITER_APPLY_DOCUMENT_HTML_RULES
     assert "interior line" not in WRITER_APPLY_DOCUMENT_HTML_RULES
     assert "|outline" in WRITER_APPLY_DOCUMENT_HTML_RULES
@@ -365,15 +407,59 @@ def test_writer_chat_prompt_delegation_routing_local_vs_web():
     assert "Insert a Calc spreadsheet OLE in the active Writer document only" in prompt
 
 
+def test_writer_chat_prompt_domain_descriptions_do_not_address_main_chat_as_executor():
+    from plugin.doc.specialized_catalog import catalog_entries_from_base
+
+    model = MagicMock()
+    model.supportsService.return_value = False
+    prompt = get_chat_system_prompt_for_document(model)
+    assert "indexes_create kind=toc" in prompt
+    for label in ("Writer", "Calc", "Draw"):
+        for entry in catalog_entries_from_base(agent_label=label):
+            assert "yourself" not in entry["description"], entry["domain"]
+
+
+def test_delegate_anchor_rule_is_one_fixed_line():
+    from plugin.framework.prompts import DELEGATE_ANCHOR_RULE
+
+    assert "\n" not in DELEGATE_ANCHOR_RULE
+    assert "TOC entry text" in DELEGATE_ANCHOR_RULE
+    assert "cell range" in DELEGATE_ANCHOR_RULE
+    assert "Draw page and shape name" in DELEGATE_ANCHOR_RULE
+    assert "read request" in DELEGATE_ANCHOR_RULE
+
+
+def test_build_specialized_sub_agent_instructions():
+    from plugin.framework.prompts import (
+        DELEGATE_ANCHOR_RULE,
+        build_specialized_sub_agent_instructions,
+    )
+
+    instr = build_specialized_sub_agent_instructions("Writer", "indexes")
+    assert "Writer" in instr
+    assert "'indexes'" in instr
+    assert "If this domain cannot do the task, say so in the answer instead of claiming it was done." in instr
+    assert DELEGATE_ANCHOR_RULE in instr
+
+    instr_extra = build_specialized_sub_agent_instructions("Calc", "python", extra=" extra hint")
+    assert instr_extra.endswith(" extra hint")
+    assert DELEGATE_ANCHOR_RULE in instr_extra
+
+
 def test_specialized_delegation_block_is_single_line():
     from plugin.framework.prompts import SPECIALIZED_TASK_RULES, get_specialized_delegation_tool_hint
 
-    block = get_specialized_delegation_tool_hint("Writer")
-    assert "SPECIALIZED WRITER" in block
-    assert SPECIALIZED_TASK_RULES in block
-    assert "source_image='selection'" in block
-    assert "Enumerate what must be true" not in block
-    assert "\n" not in block
+    for kind in ("Writer", "Calc", "Draw"):
+        block = get_specialized_delegation_tool_hint(kind)
+        assert SPECIALIZED_TASK_RULES in block
+        assert "\n" not in block
+    assert "source_image='selection'" in SPECIALIZED_TASK_RULES
+    assert "TOC entry text" in SPECIALIZED_TASK_RULES
+    assert "cell range" in SPECIALIZED_TASK_RULES
+    assert "Draw page and shape name" in SPECIALIZED_TASK_RULES
+    assert "read from the document" in SPECIALIZED_TASK_RULES
+    assert "user-given" in SPECIALIZED_TASK_RULES
+    assert "Enumerate what must be true" not in SPECIALIZED_TASK_RULES
 
 
 def test_calc_core_directives_local_before_web():
@@ -637,10 +723,12 @@ def test_document_research_multi_file_delegation_in_prompts():
         assert "once with" in directives or "once with their" in directives
 
 
-def test_document_research_prompt_is_other_docs_not_open_workbook():
-    # Tiny wording only: "same folder" taught models to scan leftover siblings.
-    assert "not the open workbook" in WRITER_SPECIALIZED_DELEGATION_TEMPLATE
+def test_document_research_routing_said_once():
+    from plugin.framework.prompts import get_specialized_delegation_tool_hint
+
+    assert "not the open workbook" not in WRITER_SPECIALIZED_DELEGATION_TEMPLATE
     assert "same folder" not in WRITER_SPECIALIZED_DELEGATION_TEMPLATE
+    assert "not in the current document" in get_specialized_delegation_tool_hint("Writer")
 
 
 def test_sheets_create_completion_instruction_is_create_not_populate():

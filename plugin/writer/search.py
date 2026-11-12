@@ -21,7 +21,7 @@ from __future__ import annotations
 import logging
 import re as re_mod
 from itertools import islice
-from typing import TYPE_CHECKING, Any, Iterable, Iterator, Literal
+from typing import TYPE_CHECKING, Any, Iterable, Iterator, Literal, cast
 
 from plugin.doc.text_helpers import (
     FAILED,
@@ -32,10 +32,11 @@ from plugin.doc.text_helpers import (
     starts_at_or_after,
     with_view_cursor_left_body_locked,
 )
-from plugin.framework.errors import reraise_if_disposed, uno_read
+from plugin.framework.errors import make_tool_error, reraise_if_disposed, uno_read
 from plugin.framework.tool import ToolBase, ToolBaseDummy
-from plugin.framework.uno_context import uno_same
+from plugin.framework.uno_context import get_ctx, get_service_manager, uno_same
 from plugin.framework.worker_pool import run_in_background
+from plugin.writer import html_import
 from plugin.writer.review_scan import document_has_tracked_deletions, scan_redlines
 
 if TYPE_CHECKING:
@@ -104,12 +105,20 @@ _SINGLE_QUOTE_RE = re_mod.compile("[" + "'\u2018\u2019\u201a\u201b" + "]")
 _DOUBLE_QUOTE_RE = re_mod.compile("[" + '"\u201c\u201d\u201e\u201f' + "]")
 _DASH_RE = re_mod.compile("[" + "-\u2010\u2011\u2012\u2013\u2014\u2015\u2212" + "]")
 
+_QUOTE_FOLD_MAP = {
+    **{cp: "'" for cp in _SINGLE_QUOTE_CODEPOINTS if cp != 0x0027},
+    **{cp: '"' for cp in _DOUBLE_QUOTE_CODEPOINTS if cp != 0x0022},
+}
+
 _FOLD_NORMALIZE_MAP = {
     **SPACE_NORMALIZE_MAP,
-    **{cp: "'" for cp in (0x2018, 0x2019, 0x201A, 0x201B)},
-    **{cp: '"' for cp in (0x201C, 0x201D, 0x201E, 0x201F)},
+    **_QUOTE_FOLD_MAP,
     **{cp: "-" for cp in (0x2010, 0x2011, 0x2012, 0x2013, 0x2014, 0x2015, 0x2212)},
 }
+
+# Literal shape and comment search folds typographic quotes; dashes and spaces
+# stay literal here.
+_SHAPE_QUOTE_FOLD = str.maketrans(_QUOTE_FOLD_MAP)
 
 MIN_OVERSIZED_CHARS = 100
 OVERSIZED_OLD_CONTENT_MESSAGE = (
@@ -132,12 +141,66 @@ def find_next_after_match(doc: Any, found: Any, sd: Any) -> Any:
 
 
 def validate_regex_pattern(pattern: str) -> str | None:
-    """Return an error message when *pattern* is not valid Python regex, else None."""
+    """Return an error message when *pattern* is not valid Python regex, else None.
+
+    Used by paths that run Python re directly (Draw shape text, Writer floating shape
+    and comment sweeps). Writer body search uses LibreOffice's ICU engine and validates
+    via validate_icu_regex instead.
+    """
     try:
         re_mod.compile(pattern)
     except re_mod.error as rex:
         return str(rex)
     return None
+
+
+def shape_sweep_skip_reason(pattern: str, use_regex: bool) -> str | None:
+    """The warning to report when the shape and comment sweeps cannot run *pattern*, else None.
+
+    The body search hands a regex to LibreOffice's ICU engine, but the floating-shape and
+    comment sweeps run Python re. A pattern that compiles in ICU but not in Python (for
+    example \\p{Lu}) is skipped there, and the caller reports this sentence instead of
+    silently returning no shape or comment hits.
+    """
+    if use_regex and validate_regex_pattern(pattern) is not None:
+        return "shape/comment text not searched: pattern uses ICU-only syntax"
+    return None
+
+
+ICU_REGEX_REJECTED = (
+    "LibreOffice's ICU regex engine rejects it. Patterns use ICU syntax, which differs "
+    "from Python re: named groups are (?<name>...) not (?P<name>...), backreferences by "
+    "name are \\k<name>, and \\p{Lu} style classes are allowed"
+)
+
+
+def validate_icu_regex(ctx: Any, pattern: str) -> str | None:
+    """Return an error message when LibreOffice's ICU engine cannot compile *pattern*, else None.
+
+    LibreOffice reports a bad regex as "no match" (i18npool TextSearch::RESrchPrepare resets the
+    matcher; RESrchFrwrd then returns no result), so a document search cannot tell a typo from
+    zero hits. Compile ".|(?:pattern)" with the TextSearch2 service and search the one-character
+    text "a": the "." branch always matches, so a hit means the whole pattern, including the
+    user's part, compiled. Patterns with unclosed \\Q literal quotes or unbalanced parentheses
+    matching the wrapper may produce false negatives or false positives. Main thread only, like
+    every other UNO call in this module.
+    """
+    import uno
+
+    smgr = get_service_manager(ctx)
+    if smgr is None:
+        ctx = get_ctx()
+        smgr = get_service_manager(ctx)
+    if smgr is None:
+        return None
+    ts = smgr.createInstanceWithContext("com.sun.star.util.TextSearch2", ctx)
+    opts = cast("Any", uno.createUnoStruct("com.sun.star.util.SearchOptions2"))
+    opts.AlgorithmType2 = uno.getConstantByName("com.sun.star.util.SearchAlgorithms2.REGEXP")
+    opts.searchString = ".|(?:%s)" % pattern
+    opts.Locale = uno.createUnoStruct("com.sun.star.lang.Locale")
+    ts.setOptions2(opts)
+    res = ts.searchForward("a", 0, 1)
+    return None if int(res.subRegExpressions) > 0 else ICU_REGEX_REJECTED
 
 
 def invalid_regex_tool_message(rex_msg: str) -> str:
@@ -165,9 +228,7 @@ def prepare_old_content(raw: Any) -> str:
     text = str(raw).strip()
     if not text:
         return ""
-    from plugin.writer.html_import import plain_text_if_markup
-
-    plain = plain_text_if_markup(text)
+    plain = html_import.plain_text_if_markup(text)
     return normalize_search_string_for_find(plain)
 
 
@@ -200,63 +261,84 @@ def parse_non_negative_int(
     return raw, None
 
 
-def shape_only_search_message(subject: str, shape_name: str, *, review: bool = False) -> str:
-    """Format the message when content is only found inside a drawing shape."""
+def shape_only_search_response(subject: str, shape_name: str, *, review: bool = False) -> dict[str, Any]:
+    """SHAPE_TEXT_NEEDS_DELEGATION payload: status, code, message, replaced_count 0."""
     note = "In review mode it cannot be edited as a tracked change; " if review else ""
     verb = "edit" if review else "Edit"
-    return (
+    message = (
         f"{subject} is only inside a drawing shape / floating text box ('{shape_name}'). "
         f"{note}{verb} it via the shapes toolset (delegate_to_specialized_writer_toolset domain='shapes')."
     )
+    return {
+        "status": "error",
+        "code": "SHAPE_TEXT_NEEDS_DELEGATION",
+        "message": message,
+        "replaced_count": 0,
+    }
 
 
 def build_search_not_found_response(
-    doc: Any = None,
-    needle: str = "",
+    doc: Any,
+    needle: str,
     *,
-    all_matches: bool = False,
-    shape_name: str | None = None,
-    lenient: bool = True,
+    case_sensitive: bool = SEARCH_CASE_SENSITIVE_DEFAULT,
     use_regex: bool = False,
-    tracked_deletions: bool = False,
-    closest: dict[str, Any] | None = None,
+    all_matches: bool = False,
+    lenient: bool = True,
+    subject: str = "old_content",
+    refuse_oversized: bool = False,
+    review: bool = False,
 ) -> dict[str, Any]:
-    """Standardized search not-found response dictionary."""
-    if shape_name:
+    """Standardized search not-found response dictionary.
+
+    The builder sweeps floating shapes so any search tool whose needle is confined
+    to a shape directs the caller to the shapes toolset. The subject parameter names
+    the tool parameter visible to the model (such as 'old_content' or 'search_text').
+    The document model doc and a non-empty search needle are required.
+    When refuse_oversized is True (used by old_content replace tools), a needle covering
+    more than 50% of the document body without a close mismatch returns OLD_CONTENT_TOO_LARGE.
+    """
+    if not needle:
         return {
             "status": "error",
-            "message": shape_only_search_message("old_content", shape_name),
+            "code": "OLD_CONTENT_NOT_FOUND",
+            "message": f"{subject} not found in document. Try a shorter, unique substring.",
             "replaced_count": 0,
         }
+
+    shape_name = drawing_shape_containing(doc, needle, use_regex=use_regex, case_sensitive=case_sensitive)
+    if shape_name:
+        return shape_only_search_response(subject, shape_name, review=review)
 
     # Near-miss mismatch detection: check if there is a close match in the document.
     # We compute closest first so that a typo in a needle covering >50% of the body
     # still receives the helpful near-miss hint rather than an oversized refusal.
-    if closest is None and doc is not None and needle and not use_regex:
-        closest = search_closest_mismatch(doc, needle, lenient=lenient)
+    closest = search_closest_mismatch(doc, needle, lenient=lenient) if not use_regex else None
 
-    if closest is None and doc is not None and needle and not use_regex and old_content_covers_most(doc, len(needle)):
+    # The oversized refusal tells the model to use target='full_document', which
+    # only the old_content edit tools have; callers opt in via refuse_oversized=True.
+    if refuse_oversized and closest is None and not use_regex and old_content_covers_most(doc, len(needle)):
         return {
             "status": "error",
+            "code": "OLD_CONTENT_TOO_LARGE",
             "message": OVERSIZED_OLD_CONTENT_MESSAGE,
             "replaced_count": 0,
             "oversized": True,
         }
 
-    from plugin.writer.review_scan import document_has_tracked_deletions
-
-    has_tracked = tracked_deletions or (doc is not None and document_has_tracked_deletions(doc))
+    has_tracked = document_has_tracked_deletions(doc)
     hint = _TRACKED_DELETION_HINT if has_tracked else ""
     if all_matches:
         base_msg = "Replaced 0 occurrence(s). No matches found. Try a shorter substring." + hint
     else:
-        base_msg = "old_content not found in document. Try a shorter, unique substring." + hint
+        base_msg = f"{subject} not found in document. Try a shorter, unique substring." + hint
 
     if closest:
         base_msg = f"{base_msg} {closest['message']}"
 
     resp: dict[str, Any] = {
         "status": "error",
+        "code": "OLD_CONTENT_NOT_FOUND",
         "message": base_msg,
         "replaced_count": 0,
     }
@@ -264,27 +346,6 @@ def build_search_not_found_response(
         resp["closest_match"] = closest["closest_match"]
         resp["diff_at"] = closest["diff_at"]
     return resp
-
-
-def search_miss_message(
-    doc: Any,
-    needle: str,
-    *,
-    shape_name: str | None = None,
-    lenient: bool = True,
-    all_matches: bool = False,
-    use_regex: bool = False,
-) -> str:
-    """Format the error message for a failed search (for target_resolver and diagnostics)."""
-    resp = build_search_not_found_response(
-        doc,
-        needle,
-        shape_name=shape_name,
-        lenient=lenient,
-        all_matches=all_matches,
-        use_regex=use_regex,
-    )
-    return str(resp.get("message", ""))
 
 
 AnchorMissKind = Literal["start", "end", "different_text"]
@@ -490,21 +551,6 @@ def _iter_lo_matches(
     yield from _iter_descriptor_hits(doc, sd, after=after)
 
 
-def find_lo_regex_ranges(
-    doc: Any,
-    candidate: str,
-    all_matches: bool = False,
-    *,
-    case_sensitive: bool = SEARCH_CASE_SENSITIVE_DEFAULT,
-) -> Any:
-    """LO regex findFirst/findNext for one candidate string."""
-    limit = MAX_SEARCH_REPLACEMENTS if all_matches else 1
-    ranges = list(islice(_iter_lo_matches(doc, candidate, case_sensitive), limit))
-    if ranges:
-        return ranges if all_matches else ranges[0]
-    return [] if all_matches else None
-
-
 def _chain_hit_range(found: Any, parts: list[str], anchor_idx: int) -> Any | None:
     text = found.getText()
 
@@ -592,7 +638,7 @@ def _chain_hit_range(found: Any, parts: list[str], anchor_idx: int) -> Any | Non
         result_range.gotoRange(end_range, True)
         return result_range
 
-    log.debug("find_chained_range: chain crosses XText; no single range")
+    log.debug("_chain_hit_range: chain crosses XText; no single range")
     return None
 
 
@@ -619,74 +665,6 @@ def _anchor_index(parts: list[str]) -> int:
     return -1
 
 
-def find_chained_range(
-    doc: Any,
-    search_string: str,
-    all_matches: bool = False,
-    *,
-    case_sensitive: bool = SEARCH_CASE_SENSITIVE_DEFAULT,
-) -> Any:
-    """Find search_string via LO regex (literal + newline-collapsed retry) then paragraph chaining.
-
-    doc.findFirst covers body, table cells, and text frames. Chaining handles real paragraph
-    breaks that LO regex cannot cross.
-
-    Not for whole-document replace: use apply_document_content(target='full_document') instead
-    of passing the entire body as old_content.
-    """
-    miss: list[Any] | None = [] if all_matches else None
-    if not search_string:
-        return miss
-
-    for candidate in _search_try_strings(search_string):
-        result = find_lo_regex_ranges(
-            doc, candidate, all_matches=all_matches, case_sensitive=case_sensitive
-        )
-        if all_matches:
-            if result:
-                return result
-        elif result is not None:
-            return result
-
-    parts = search_string.split('\n')
-    if len(parts) <= 1:
-        return miss
-
-    anchor_idx = _anchor_index(parts)
-    if anchor_idx == -1:
-        return miss
-
-    matched_ranges = []
-    for match in _iter_chain_matches(doc, parts, anchor_idx, case_sensitive):
-        if not all_matches:
-            return match
-        matched_ranges.append(match)
-        if len(matched_ranges) >= MAX_SEARCH_REPLACEMENTS:
-            return matched_ranges
-
-    return matched_ranges or miss
-
-
-def find_first_range(
-    doc: Any,
-    search_string: str,
-    *,
-    case_sensitive: bool = SEARCH_CASE_SENSITIVE_DEFAULT,
-) -> Any:
-    """First match: LO native search with chaining fallback."""
-    return find_chained_range(doc, search_string, all_matches=False, case_sensitive=case_sensitive)
-
-
-def find_all_ranges(
-    doc: Any,
-    search_string: str,
-    *,
-    case_sensitive: bool = SEARCH_CASE_SENSITIVE_DEFAULT,
-) -> list[Any]:
-    """All occurrences as TextRanges in document order (NBSP-aware native search with chaining)."""
-    return find_chained_range(doc, search_string, all_matches=True, case_sensitive=case_sensitive)
-
-
 def iter_literal_ranges(
     doc: Any,
     search_string: str,
@@ -700,6 +678,9 @@ def iter_literal_ranges(
     matches, those hits are emitted and search stops. When all_candidates is True (e.g. for
     anchor end searches), yields hits across all candidates followed by chain matches so
     downstream filtering can find matches in the target text container or boundary.
+
+    Not for whole-document replace: use apply_document_content(target='full_document') instead
+    of passing the entire body as old_content.
     """
     if not search_string:
         return
@@ -723,6 +704,26 @@ def iter_literal_ranges(
             yield from _iter_chain_matches(
                 doc, parts, anchor_idx, case_sensitive, after=after
             )
+
+
+def find_first_range(
+    doc: Any,
+    search_string: str,
+    *,
+    case_sensitive: bool = SEARCH_CASE_SENSITIVE_DEFAULT,
+) -> Any:
+    """First match in document order; native search with newline chaining."""
+    return next(iter_literal_ranges(doc, search_string, case_sensitive=case_sensitive), None)
+
+
+def find_all_ranges(
+    doc: Any,
+    search_string: str,
+    *,
+    case_sensitive: bool = SEARCH_CASE_SENSITIVE_DEFAULT,
+) -> list[Any]:
+    """All occurrences, capped at MAX_SEARCH_REPLACEMENTS."""
+    return list(islice(iter_literal_ranges(doc, search_string, case_sensitive=case_sensitive), MAX_SEARCH_REPLACEMENTS))
 
 
 def find_occurrence_range(
@@ -757,6 +758,34 @@ def find_occurrence_range(
         return None
 
     return _nth(iter_literal_ranges(doc, search_string, case_sensitive=case_sensitive))
+
+
+def occurrence_range_or_error(
+    doc: Any,
+    text: str,
+    raw_occurrence: Any,
+    *,
+    case_sensitive: bool,
+    subject: str,
+) -> tuple[Any | None, dict[str, Any] | None]:
+    """Resolve the occurrence-th body match of *text* for a tool.
+
+    Returns (range, None) on a hit, else (None, payload): INVALID_PARAM for a bad
+    occurrence, OCCURRENCE_OUT_OF_RANGE when there are fewer matches, or the
+    search-miss payload from build_search_not_found_response (subject names the
+    tool parameter in the sentence). Callers add their own top-level fields.
+    """
+    occurrence, occ_err = parse_non_negative_int(raw_occurrence, coerce=True)
+    if occ_err:
+        return None, make_tool_error(occ_err, code="INVALID_PARAM")
+    occurrence = 0 if occurrence is None else occurrence
+    try:
+        found = find_occurrence_range(doc, text, occurrence=occurrence, case_sensitive=case_sensitive)
+    except IndexError as exc:
+        return None, make_tool_error(str(exc), code="OCCURRENCE_OUT_OF_RANGE")
+    if found is None:
+        return None, build_search_not_found_response(doc, text, case_sensitive=case_sensitive, subject=subject)
+    return found, None
 
 
 def _is_same_text(candidate: Any, boundary_end: Any) -> bool:
@@ -940,9 +969,6 @@ class LocationLabeler:
     def describe(self, found: Any) -> str:
         return describe_match_location(found, self.doc, label_cache=self._cache)
 
-    def __call__(self, found: Any) -> str:
-        return self.describe(found)
-
 
 def enclosing_paragraph_text(found: Any) -> str:
     def paragraph() -> str:
@@ -997,7 +1023,7 @@ def _lower_with_origins(text: str) -> tuple[str, list[int]]:
     return "".join(lowered_chars), origins
 
 
-def _regex_find_hits(pattern: str, text: str, flags: int) -> list[str]:
+def _regex_find_hits(pattern: str, text: str, flags: int) -> list[tuple[int, int]]:
     """Python re on shape/comment text, off the LibreOffice main thread.
 
     Catastrophic backtracking cannot be killed. A dedicated daemon is required:
@@ -1015,7 +1041,7 @@ def _regex_find_hits(pattern: str, text: str, flags: int) -> list[str]:
 
     def _run() -> None:
         try:
-            box["hits"] = [m.group(0) for m in re_mod.finditer(pattern, text, flags) if m.group(0)]
+            box["hits"] = [(m.start(), m.end()) for m in re_mod.finditer(pattern, text, flags) if m.group(0)]
         except Exception as exc:
             box["err"] = exc
 
@@ -1033,32 +1059,114 @@ def _regex_find_hits(pattern: str, text: str, flags: int) -> list[str]:
     return hits if isinstance(hits, list) else []
 
 
-def shape_text_hits(shape_text: str, pattern: str, use_regex: bool, case_sensitive: bool) -> list[str]:
+def iter_shape_text_spans(
+    shape_text: str,
+    pattern: str,
+    case_sensitive: bool = SEARCH_CASE_SENSITIVE_DEFAULT,
+    *,
+    use_regex: bool = False,
+) -> Iterator[tuple[int, int]]:
+    """Yield [start, end) character offset spans of pattern in shape_text.
+
+    Literal search folds typographic quotes via _SHAPE_QUOTE_FOLD.
+    Offsets index the original shape_text string.
+    """
     if not shape_text or not pattern:
-        return []
+        return
     if use_regex:
         flags = 0 if case_sensitive else re_mod.IGNORECASE
-        return _regex_find_hits(pattern, shape_text, flags)
+        yield from _regex_find_hits(pattern, shape_text, flags)
+        return
     if case_sensitive:
-        hay = shape_text
-        needle = pattern
+        hay = shape_text.translate(_SHAPE_QUOTE_FOLD)
+        needle = pattern.translate(_SHAPE_QUOTE_FOLD)
 
-        def slice_hit(idx: int) -> str:
-            return shape_text[idx:idx + len(pattern)]
+        def span_for_idx(idx: int) -> tuple[int, int]:
+            return idx, idx + len(pattern)
     else:
         hay, origins = _lower_with_origins(shape_text)
-        needle = pattern.lower()
+        hay = hay.translate(_SHAPE_QUOTE_FOLD)
+        needle = pattern.lower().translate(_SHAPE_QUOTE_FOLD)
 
-        def slice_hit(idx: int) -> str:
-            return shape_text[origins[idx]:origins[idx + len(needle) - 1] + 1]
+        def span_for_idx(idx: int) -> tuple[int, int]:
+            return origins[idx], origins[idx + len(needle) - 1] + 1
 
-    hits = []
     step = len(needle) or 1
     idx = hay.find(needle)
     while idx != -1:
-        hits.append(slice_hit(idx))
+        yield span_for_idx(idx)
         idx = hay.find(needle, idx + step)
-    return hits
+
+
+def shape_text_span(
+    shape_text: str,
+    pattern: str,
+    case_sensitive: bool = SEARCH_CASE_SENSITIVE_DEFAULT,
+    *,
+    use_regex: bool = False,
+) -> tuple[int, int] | None:
+    """Return the [start, end) character offset span of pattern in shape_text, or None.
+
+    Literal search folds typographic quotes via _SHAPE_QUOTE_FOLD.
+    Offsets index the original shape_text string.
+    """
+    return next(
+        iter_shape_text_spans(
+            shape_text, pattern, case_sensitive=case_sensitive, use_regex=use_regex
+        ),
+        None,
+    )
+
+
+def replace_text_in_shape(
+    shape: Any,
+    old: str,
+    new: str,
+    *,
+    case_sensitive: bool = SEARCH_CASE_SENSITIVE_DEFAULT,
+    use_regex: bool = False,
+) -> bool:
+    """Replace the first occurrence of *old* with *new* inside a drawing shape's own text,
+    preserving the formatting of the surrounding text via a text cursor. Returns True on success.
+
+    Uses character-offset navigation (goRight) which aligns with getString() for single-paragraph
+    shape text (the common case for callouts / text boxes). Returns False on an ordinary UNO failure;
+    a disposed document propagates."""
+    try:
+        xtext = shape.getText()
+        s = xtext.getString()
+    except Exception as exc:
+        reraise_if_disposed(exc, object_type="Text")
+        return False
+    span = shape_text_span(s, old, case_sensitive=case_sensitive, use_regex=use_regex)
+    if span is None:
+        return False
+    start, end = span
+    # goRight counts UTF-16 code units, while str offsets count code points. Convert so astral
+    # characters (emoji, rare CJK) in the shape text don't misalign the selection / corrupt text.
+    left_units = len(s[:start].encode("utf-16-le")) // 2
+    old_units = len(s[start:end].encode("utf-16-le")) // 2
+    if old_units <= 0:
+        return False
+    try:
+        cursor = xtext.createTextCursorByRange(xtext.getStart())
+        if left_units:
+            cursor.goRight(left_units, False)
+        cursor.goRight(old_units, True)
+        cursor.setString(new)
+        return True
+    except Exception as exc:
+        reraise_if_disposed(exc, object_type="Text")
+        return False
+
+
+def shape_text_hits(shape_text: str, pattern: str, use_regex: bool, case_sensitive: bool) -> list[str]:
+    return [
+        shape_text[start:end]
+        for start, end in iter_shape_text_spans(
+            shape_text, pattern, case_sensitive=case_sensitive, use_regex=use_regex
+        )
+    ]
 
 
 def iter_floating_shape_texts(doc: Any) -> Iterator[tuple[Any, str]]:
@@ -1095,8 +1203,6 @@ def iter_shape_hits(doc: Any, pattern: str, use_regex: bool, case_sensitive: boo
 
 
 def iter_comment_hits(doc: Any, pattern: str, use_regex: bool, case_sensitive: bool) -> Iterator[tuple[str, str, str]]:
-    from plugin.doc.text_helpers import iter_elements
-
     fields = uno_read(lambda: doc.getTextFields().createEnumeration(), FAILED)
     if fields is FAILED:
         return
@@ -1123,10 +1229,7 @@ def _search_descriptor(doc: Any, pattern: str, use_regex: bool, case_sensitive: 
 
 
 def find_ranges_regex_case(doc: Any, pattern: str, use_regex: bool, case_sensitive: bool, all_matches: bool) -> Any:
-    if use_regex:
-        err = validate_regex_pattern(pattern)
-        if err:
-            raise ValueError(invalid_regex_tool_message(err))
+    # Callers validate the pattern with validate_icu_regex before searching.
     sd = _search_descriptor(doc, pattern, use_regex, case_sensitive)
     if not all_matches:
         return next(_iter_descriptor_hits(doc, sd), None)
@@ -1381,15 +1484,16 @@ class SearchInDocument(ToolBase):
         "\"header (page style 'Standard')\", \"comment by 'Ana'\") plus the surrounding paragraph (or "
         "shape/comment text) for context. When pointing the user to a match, quote the first few words "
         "of its text and its location rather than any internal index. "
-        "With regex=true, body/table/frame hits use LibreOffice/ICU regex; shape and comment sweeps "
-        "use Python re (same INVALID_REGEX check). return_offsets is body-only literal search. "
+        "With regex=true, body/table/frame hits use LibreOffice/ICU regex; patterns use ICU syntax "
+        "(validated by LibreOffice before searching; e.g. (?<name>...) not (?P<name>...)); shape and "
+        "comment sweeps use Python re, so ICU-only syntax such as \\p{Lu} finds nothing there. return_offsets is body-only literal search. "
         "A zero-width match stops the text-model walk, sets truncated, and does not count the empty hit."
     )
     parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
             "pattern": {"type": "string", "description": "Search string or regex pattern."},
-            "regex": {"type": "boolean", "description": "Use regular expression (default: false)."},
+            "regex": {"type": "boolean", "description": "Use regular expression (ICU syntax, default: false)."},
             "case_sensitive": {"type": "boolean", "description": CASE_SENSITIVE_DESCRIPTION},
             "max_results": {
                 "type": "integer",
@@ -1406,14 +1510,13 @@ class SearchInDocument(ToolBase):
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         raw_max = kwargs.get("max_results", DEFAULT_SEARCH_RESULTS)
-        if type(raw_max) is not int or raw_max < 1:
+        if raw_max < 1:
             return self._tool_error("max_results must be a positive integer.", code="INVALID_PARAM")
         max_results = raw_max
 
         pattern = kwargs["pattern"]
-        assert isinstance(pattern, str)
         if not pattern:
-            return self._tool_error("pattern is required.")
+            return self._tool_error("pattern is required.", code="INVALID_PARAM")
 
         use_regex = kwargs.get("regex", False)
         case_sensitive = resolve_case_sensitive(kwargs.get("case_sensitive"))
@@ -1429,7 +1532,7 @@ class SearchInDocument(ToolBase):
             return {"status": "ok", "ranges": ranges, "matched_case_sensitive": case_sensitive}
 
         if use_regex:
-            rex_err = validate_regex_pattern(pattern)
+            rex_err = validate_icu_regex(ctx.ctx, pattern)
             if rex_err:
                 return self._tool_error(invalid_regex_tool_message(rex_err), code="INVALID_REGEX", count=0)
 
@@ -1442,9 +1545,11 @@ class SearchInDocument(ToolBase):
         except Exception as exc:
             reraise_if_disposed(exc)
             log.exception("search_in_document: createSearchDescriptor / findFirst failed")
-            err = self._tool_error("search failed: %s" % exc, code="SEARCH_FAILED")
-            err["matched_case_sensitive"] = case_sensitive
-            return err
+            return self._tool_error(
+                "search failed: %s" % exc,
+                code="SEARCH_FAILED",
+                top_level={"matched_case_sensitive": case_sensitive},
+            )
 
         matches: list[dict[str, str]] = []
 
@@ -1483,18 +1588,20 @@ class SearchInDocument(ToolBase):
                 warning = "Text-model search ended early after a findNext failure; count may be incomplete."
                 break
 
-        for extra in (
-            iter_shape_hits(doc, pattern, use_regex, case_sensitive),
-            iter_comment_hits(doc, pattern, use_regex, case_sensitive),
-        ):
-            for hit, location, context in extra:
+        shape_comment_warning = shape_sweep_skip_reason(pattern, use_regex)
+        if shape_comment_warning is None:
+            for extra in (
+                iter_shape_hits(doc, pattern, use_regex, case_sensitive),
+                iter_comment_hits(doc, pattern, use_regex, case_sensitive),
+            ):
+                for hit, location, context in extra:
+                    if total_count >= MAX_SEARCH_HITS:
+                        break
+                    total_count += 1
+                    if len(matches) < max_results:
+                        add(hit, location, context)
                 if total_count >= MAX_SEARCH_HITS:
                     break
-                total_count += 1
-                if len(matches) < max_results:
-                    add(hit, location, context)
-            if total_count >= MAX_SEARCH_HITS:
-                break
 
         if warning is None and total_count >= MAX_SEARCH_HITS:
             warning = "Search stopped after %d matches; count may be incomplete." % MAX_SEARCH_HITS
@@ -1512,6 +1619,8 @@ class SearchInDocument(ToolBase):
         if warning is not None:
             result["truncated"] = True
             result["warning"] = warning
+        elif shape_comment_warning is not None:
+            result["warning"] = shape_comment_warning
 
         returned = len(matches)
         if returned < total_count and warning is None:
@@ -1540,7 +1649,7 @@ class AdvancedSearch(ToolBaseDummy):
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         query = kwargs.get("query")
         if not isinstance(query, str) or not query.strip():
-            return self._tool_error("query is required.")
+            return self._tool_error("query is required.", code="INVALID_PARAM")
 
         idx_svc = ctx.services.writer_index
         around_page = kwargs.get("around_page")
@@ -1553,7 +1662,7 @@ class AdvancedSearch(ToolBaseDummy):
         try:
             result = idx_svc.search_boolean(ctx.doc, query, max_results=kwargs.get("max_results", 20), context_paragraphs=kwargs.get("context_paragraphs", 1))
         except ValueError as e:
-            return self._tool_error(str(e))
+            return self._tool_error(str(e), code="INVALID_PARAM")
 
         if include_pages and result.get("matches"):
             page_map = _build_page_map(ctx.doc)

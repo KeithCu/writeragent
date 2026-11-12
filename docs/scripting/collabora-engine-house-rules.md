@@ -88,7 +88,7 @@ The plan is the spec that implementation and review are measured against. It mus
 7. **Landing bar.** Section 7's default unless the plan says otherwise.
 8. **Acceptance.** What the supervisor's build and narrow tests verify, and what only a local binary verifies.
 
-The planner reads this document, the brief, the feature's design doc, and the code. The planner does not read NumPy documentation, history sections, or prior review logs.
+The planner reads this document, the brief, the feature's design doc, and the code. The planner does not read history sections or prior review logs.
 
 ### 5.1 Lifecycle matrix template
 
@@ -130,11 +130,11 @@ Rules for the reviewer:
 
 - Read the settled decisions and the matrix before the diff. Do not reopen an `accept` or `out of scope` cell without new evidence, and say what the evidence is (`file:line`, a trace, a failing test).
 - Round 1 reviews the whole diff against the matrix. Every later round reviews the delta since the last reviewed commit plus closure of the prior findings. Do not re-read the squash for new nits.
-- At most three change proposals per reviewer per round, ranked. Everything else goes in an appendix without severity.
+- List every finding with an explicit severity tag (`**BLOCKER**`, `**HIGH**`, `**MEDIUM**`, `**LOW**`, or `**NIT**`). Keep a complete, severity-tagged inventory of all nits and minor findings (no cap). Nits are listed separately from the DO / DO NOT / PARK triage; they do not block landing.
 - A fix sketch names the smallest change and the existing helper. A test proposal is test code using existing helpers and names the binary. "Add a test for X" without code is a nit.
 - A bug that predates the patch is labelled `pre-existing` and proposed as a separate commit. It is not a finding against the patch.
 - Do not build in a checkout other reviewers are reading. Hand the test code to the fixer, who runs it first (section 6).
-- Output in two parts: findings with severity and `file:line`; then triage with root causes marked `change` or `accept`, and DO, DO NOT, PARK lists. End with `Blocking findings: N`.
+- Output in this order: findings with severity and `file:line` (including every nit); root causes marked `change` or `accept`; DO, DO NOT, PARK lists; then a separate complete nit inventory. End with `Blocking findings: N`.
 
 ## 8. Round budget
 

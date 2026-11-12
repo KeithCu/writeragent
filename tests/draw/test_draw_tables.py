@@ -117,7 +117,7 @@ def test_get_draw_cell_parse_a1():
 def test_table_get_cells_draw_honors_cell():
     ctx = MagicMock()
     entry = {"name": "Fees", "page": 0, "index": 1, "rows": 2, "cols": 3, "model": object()}
-    with patch("plugin.writer.specialized.tables._is_draw_doc", return_value=True):
+    with patch("plugin.writer.specialized.tables.is_draw", return_value=True):
         with patch("plugin.draw.tables.resolve_draw_table", return_value=entry):
             with patch("plugin.draw.tables.get_draw_cell", return_value="hello") as get_one:
                 out = TableGetCells().execute(ctx, name="Fees", cell="B2")
@@ -242,7 +242,7 @@ def test_insert_table_bad_page_stays_invalid_index():
 
 def test_table_insert_tool_dispatches_draw():
     ctx = MagicMock()
-    with patch("plugin.writer.specialized.tables._is_draw_doc", return_value=True):
+    with patch("plugin.writer.specialized.tables.is_draw", return_value=True):
         with patch("plugin.draw.tables.insert_draw_table", return_value={"status": "ok", "rows": 2}) as ins:
             out = TableInsert().execute(ctx, rows=2, columns=2)
     assert out["status"] == "ok"
@@ -251,7 +251,7 @@ def test_table_insert_tool_dispatches_draw():
 
 def test_table_insert_draw_rejects_parent_cell():
     ctx = MagicMock()
-    with patch("plugin.writer.specialized.tables._is_draw_doc", return_value=True):
+    with patch("plugin.writer.specialized.tables.is_draw", return_value=True):
         out = TableInsert().execute(ctx, rows=2, columns=2, parent="Outer", cell="A1")
     assert out["status"] == "error" and "Writer-only" in out["message"]
 
@@ -273,7 +273,7 @@ def test_delete_draw_table_removes_shape():
 
 def test_table_delete_tool_dispatches_draw():
     ctx = MagicMock()
-    with patch("plugin.writer.specialized.tables._is_draw_doc", return_value=True):
+    with patch("plugin.writer.specialized.tables.is_draw", return_value=True):
         with patch(
             "plugin.draw.tables.delete_draw_table",
             return_value={"status": "ok", "table_name": "Fees"},
@@ -321,7 +321,7 @@ def test_table_get_cells_draw_failed_cell_is_error():
         "cols": 1,
     }
     ctx = MagicMock()
-    with patch("plugin.writer.specialized.tables._is_draw_doc", return_value=True):
+    with patch("plugin.writer.specialized.tables.is_draw", return_value=True):
         with patch("plugin.draw.tables.resolve_draw_table", return_value=entry):
             out = TableGetCells().execute(ctx, name="MyTable")
     assert out["status"] == "error"

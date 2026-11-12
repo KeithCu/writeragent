@@ -16,12 +16,13 @@
 # v1 limitations (see docs/writer/html-style-model-plan.md#v1-limitations-shipped):
 #   - Whole-paragraph Para* overrides in data-lo-para: on write, the geometry properties
 #     (alignment, margins, indent, line-height) and background-color round-trip on
-#     full_document, beginning, and end; paragraph-level font properties and color are
+#     full_document, beginning, and end, as well as whole-paragraph selection and search
+#     replacements with Track Changes off; paragraph-level font properties and color are
 #     read-only and arrive in warnings (html_import_styles._READ_ONLY_PARA_NAMES says why).
-#     selection/search and table cells do not apply data-lo-para. Read reports
-#     geometry, paragraph font, and fo:color in data-lo-para from the flat-ODF sidecar (see
-#     _parse_fodt_autostyles): the XHTML CSS is flattened and cannot tell an override from
-#     an inherited value.
+#     Table cells, position before/after, and partial or recorded replacements do not apply
+#     data-lo-para. Read reports geometry, paragraph font, and fo:color in data-lo-para from the
+#     flat-ODF sidecar (see parse_fodt_autostyles): the XHTML CSS is flattened and cannot tell
+#     an override from an inherited value.
 #   - Inside <table>: paragraph-* classes stripped; no data-lo-style (cell styles out of scope).
 #   - Colliding compact tokens (two UNO names -> same token): token omitted on read.
 #
@@ -99,9 +100,12 @@ def xhtml_has_paragraph_autostyle(xhtml: str) -> bool:
 # red in data-lo-para (char spans could still carry colour).
 #
 # On write, html_import_styles._para_writers() maps each name here onto a paragraph property after
-# the style is set (full_document, beginning, and end targets), except the font names and color in
-# html_import_styles._READ_ONLY_PARA_NAMES, which arrive in warnings. A unit test fails when a name
-# added here is in neither. selection/search targets and table cells do not apply data-lo-para.
+# the style is set (full_document, beginning, and end targets, and whole-paragraph selection/search
+# writes), except the font names and color in html_import_styles._READ_ONLY_PARA_NAMES, which arrive
+# in warnings. A unit test fails when a name added here is in neither. Table cells, position before/after,
+# and partial or recorded replacements do not apply data-lo-para.
+# Range, selection and header reads copy paragraphs into a scratch document first, so
+# range_copy._COPIED_PARA_PROPERTIES must hold every UNO property a writer sets; test_every_para_writer_property_is_copied_by_range_reads pins that.
 # Not emitted as style="": the import reads style="" as a character override.
 # ODF attribute -> CSS name, in emit order.
 _FODT_OVERRIDE_ATTRS = (
@@ -122,7 +126,7 @@ _FODT_OVERRIDE_ATTRS = (
 )
 
 # ODF writes alignment relative to writing direction; the agent reads CSS.
-_ODF_TEXT_ALIGN = {"start": "left", "end": "right"}
+ODF_TEXT_ALIGN = {"start": "left", "end": "right"}
 
 _FODT_PARA_STYLE_RE = re.compile(
     r'<style:style\b([^>]*?)style:family="paragraph"([^>]*?)(?:/>|>(.*?)</style:style>)',
@@ -144,13 +148,13 @@ def _fodt_override_css(style_block: str) -> str:
         if not value:
             continue
         if css_name == "text-align":
-            value = _ODF_TEXT_ALIGN.get(value, value)
+            value = ODF_TEXT_ALIGN.get(value, value)
         parts.append("%s:%s" % (css_name, value))
         seen.add(css_name)
     return "; ".join(parts)
 
 
-def _parse_fodt_autostyles(fodt: str) -> tuple[dict[str, str], dict[str, str]]:  # pyright: ignore[reportUnusedFunction]
+def parse_fodt_autostyles(fodt: str) -> tuple[dict[str, str], dict[str, str]]:
     # crosshair: off
     # FODT autostyle extraction over unbounded XML.
     parents: dict[str, str] = {}
@@ -201,7 +205,7 @@ def _drop_trailing_empty_paragraphs(html: str) -> str:
         html = new
 
 
-def _inject_attr(start_tag: str, attr: str) -> str:
+def inject_attr(start_tag: str, attr: str) -> str:
     """Insert *attr* (e.g. ``' data-lo-style="X"'``) just before the closing ``>`` of a tag."""
     # crosshair: off
     if start_tag.endswith("/>"):
@@ -219,7 +223,7 @@ def _attr_value(attrs: list[tuple[str, str | None]], key: str) -> str:
     return ""
 
 
-class _HtmlPassthroughParser(HTMLParser):
+class HtmlPassthroughParser(HTMLParser):
     _table_depth: int
     _out: list[str]
 
@@ -247,7 +251,7 @@ class _HtmlPassthroughParser(HTMLParser):
 
 
 @final
-class _SemanticTransformer(_HtmlPassthroughParser):
+class _SemanticTransformer(HtmlPassthroughParser):
     """Rewrite LO XHTML body into the agent-facing semantic HTML.
 
     Top-level paragraph blocks get ``data-lo-style="<compact token>"`` (named styles only;
@@ -303,8 +307,9 @@ class _SemanticTransformer(_HtmlPassthroughParser):
 
         Whole-paragraph direct overrides: on write, alignment, horizontal margins, and
         background color from data-lo-para apply after the named style on full_document,
-        beginning, and end; other properties arrive in warnings. selection/search and
-        table cells do not apply data-lo-para.
+        beginning, and end, as well as whole-paragraph selection and search writes; other
+        properties arrive in warnings. Table cells, position before/after, and partial or
+        recorded replacements do not apply data-lo-para.
         """
         # crosshair: off
         if _AUTOSTYLE_RE.match(suffix):
@@ -342,11 +347,11 @@ class _SemanticTransformer(_HtmlPassthroughParser):
         # Strip every paragraph-* class (top-level or cell) so it never leaks to the agent.
         raw = _strip_class_names(raw)
         if token:
-            raw = _inject_attr(raw, ' data-lo-style="%s"' % _html.escape(token, quote=True))
+            raw = inject_attr(raw, ' data-lo-style="%s"' % _html.escape(token, quote=True))
         if para_css:
             # ODF values are unescaped before this (a font name can contain "). Without
             # quote=True the injected attribute closes early and the tag is not well-formed.
-            raw = _inject_attr(raw, ' data-lo-para="%s"' % _html.escape(para_css, quote=True))
+            raw = inject_attr(raw, ' data-lo-para="%s"' % _html.escape(para_css, quote=True))
         return raw
 
     def _rewrite_span(self, raw: str, attrs: list[tuple[str, str | None]]) -> str:
@@ -365,7 +370,7 @@ class _SemanticTransformer(_HtmlPassthroughParser):
             ins += ' style="%s"' % "; ".join(css_parts)
         if remaining:
             ins += ' class="%s"' % " ".join(remaining)
-        return _inject_attr(raw, ins) if ins else raw
+        return inject_attr(raw, ins) if ins else raw
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         # crosshair: off
@@ -416,7 +421,7 @@ def xhtml_to_semantic_html(full_xhtml: str, autostyle_parents: dict[str, str] | 
     emit ``data-lo-style`` compact tokens for named paragraph styles, drop trailing ghost
     paragraphs. Pure string work — fully unit-testable without LibreOffice.
 
-    *autostyle_parents* — ``{Pn: parent_style_name}`` from ``_parse_fodt_autostyles``
+    *autostyle_parents* — ``{Pn: parent_style_name}`` from ``parse_fodt_autostyles``
     on a paired flat-ODF export. Joined by autostyle name (``paragraph-Pn`` suffix), not block
     index. Recovers the base style **name** after StarWriter write→read when CSS fingerprint
     fails; does not recover whole-paragraph Para* overrides (v1 limitation — see plan doc).

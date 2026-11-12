@@ -266,6 +266,8 @@ def test_get_guidance_alias():
 def test_get_guidance_unknown_topic_errors_with_list():
     res = GetGuidance().execute(FakeCtx(WRITER_DOC), topic="zzz")
     assert res["status"] == "error" and res["code"] == "UNKNOWN_TOPIC"
+    assert "topics" in res
+    assert "details" not in res
     assert "editing" in res["topics"]
 
 

@@ -3,6 +3,7 @@
 from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import native_writer_tool_context, with_native_doc
 from plugin.writer.specialized.indexes import (
+    _CLONED_CHAR_PROPS,
     IndexesAddMark,
     IndexesCreate,
     IndexesDeleteTocEntry,
@@ -699,6 +700,112 @@ def test_insert_toc_entry_adds_one_row_uno(ctx, doc):
 
 @native_test
 @with_native_doc("writer")
+def test_insert_toc_entry_keeps_inherited_look_uno(ctx, doc):
+    """Inserted TOC rows inherit the sibling's link character styles without writing direct formatting."""
+    text = doc.getText()
+    text.setString("")
+    _add_heading(text, "Alpha title", True)
+    _add_heading(text, "Beta title", False)
+    tctx = _tool_ctx(ctx, doc)
+    created = IndexesCreate().execute(tctx, kind="toc", title="Contents", target="beginning")
+    assert created.get("status") == "ok", created
+    toc = doc.getDocumentIndexes().getByIndex(0)
+    entries = _tab_paragraphs(doc)
+    assert len(entries) >= 2, _entry_strings(doc)
+    protected = bool(toc.getPropertyValue("IsProtected"))
+    if protected:
+        toc.IsProtected = False
+    alpha = next(para for para in entries if "Alpha title" in (para.getString() or ""))
+    beta = next(para for para in entries if "Beta title" in (para.getString() or ""))
+
+    # Phase 1: read link_style from alpha's first non-empty portion, assert non-empty.
+    alpha_portions = alpha.createEnumeration()
+    first_portion = None
+    while alpha_portions.hasMoreElements():
+        p = alpha_portions.nextElement()
+        if str(p.getString() or ""):
+            first_portion = p
+            break
+    assert first_portion is not None
+    link_style = str(first_portion.getPropertyValue("UnvisitedCharStyleName") or "")
+    assert link_style, "expected non-empty link character style on TOC entry"
+
+    fam = doc.getStyleFamilies().getByName("CharacterStyles")
+    style = fam.getByName(link_style)
+    style.setPropertyValue("CharColor", 0x0000FF)
+
+    # Setup proof: sibling portion reads 0x0000FF inherited through style (DEFAULT_VALUE).
+    assert first_portion.getPropertyValue("CharColor") == 0x0000FF
+    assert first_portion.getPropertyState("CharColor").value == "DEFAULT_VALUE"
+
+    if protected:
+        toc.IsProtected = True
+
+    gamma_url = "#1.Gamma title|outline"
+    inserted = IndexesInsertTocEntry().execute(
+        tctx,
+        content="Gamma title",
+        page="4",
+        position="after",
+        old_content="Alpha title",
+        hyperlink_url=gamma_url,
+    )
+    assert inserted.get("status") == "ok", inserted
+    gamma = next(para for para in _tab_paragraphs(doc) if "Gamma title" in (para.getString() or ""))
+    gamma_portions = gamma.createEnumeration()
+    checked_gamma = 0
+    while gamma_portions.hasMoreElements():
+        p = gamma_portions.nextElement()
+        if not str(p.getString() or ""):
+            continue
+        for name in _CLONED_CHAR_PROPS:
+            st = p.getPropertyState(name)
+            assert getattr(st, "value", None) == "DEFAULT_VALUE", (name, getattr(st, "value", None))
+        assert p.getPropertyValue("UnvisitedCharStyleName") == link_style
+        assert p.getPropertyValue("VisitedCharStyleName") == link_style
+        assert p.getPropertyValue("CharColor") == 0x0000FF
+        assert p.getPropertyValue("HyperLinkURL") == gamma_url
+        checked_gamma += 1
+    assert checked_gamma > 0
+
+    # Phase 2: direct preserved
+    if protected:
+        toc.IsProtected = False
+    _paint_entry(text, beta, "#1.Beta title|outline", color=0x00FF00)
+    beta_cur = text.createTextCursorByRange(beta.getStart())
+    beta_cur.gotoRange(beta.getEnd(), True)
+    beta_cur.setPropertyValue("CharUnderline", 0)
+    if protected:
+        toc.IsProtected = True
+
+    delta_url = "#1.Delta title|outline"
+    ins_delta = IndexesInsertTocEntry().execute(
+        tctx,
+        content="Delta title",
+        page="2",
+        position="before",
+        old_content="Beta title",
+        hyperlink_url=delta_url,
+    )
+    assert ins_delta.get("status") == "ok", ins_delta
+    delta = next(para for para in _tab_paragraphs(doc) if "Delta title" in (para.getString() or ""))
+    delta_portions = delta.createEnumeration()
+    checked_delta = 0
+    while delta_portions.hasMoreElements():
+        p = delta_portions.nextElement()
+        if not str(p.getString() or ""):
+            continue
+        assert p.getPropertyValue("CharColor") == 0x00FF00
+        assert p.getPropertyValue("CharUnderline") == 0
+        st = p.getPropertyState("CharColor")
+        assert getattr(st, "value", None) == "DIRECT_VALUE", getattr(st, "value", None)
+        checked_delta += 1
+    assert checked_delta > 0
+    assert bool(toc.getPropertyValue("IsProtected")) is protected
+
+
+@native_test
+@with_native_doc("writer")
 def test_toc_entry_insert_delete_without_a_toc_uno(ctx, doc):
     """No content index: insert and delete report that, and do not create one."""
     text = doc.getText()
@@ -752,7 +859,7 @@ def test_list_toc_entries_reads_linked_rows_without_export_uno(ctx, doc):
 
     with patch("plugin.writer.html_export._export_xhtml", side_effect=_refuse_export), \
          patch("plugin.writer.html_export.document_to_content", side_effect=_refuse_export):
-        listed = IndexesListTocEntries().execute(tctx)
+        listed = IndexesListTocEntries().execute(tctx, include_links=True)
 
     assert listed.get("status") == "ok", listed
     assert doc.getText().getString() == before
@@ -818,7 +925,7 @@ def test_insert_toc_entry_links_a_text_table_uno(ctx, doc):
     assert inserted.get("page_from_sibling") is False, inserted
     assert doc.getTextTables().hasByName("Taula69")
 
-    listed = IndexesListTocEntries().execute(tctx)
+    listed = IndexesListTocEntries().execute(tctx, include_links=True)
     assert listed.get("status") == "ok", listed
     annex = next(row for row in listed["entries"] if "Annex cover" in row["text"])
     assert annex["hyperlink_url"] == table_url, annex
@@ -869,3 +976,123 @@ def test_list_toc_entries_with_a_paragraph_before_the_toc_uno(ctx, doc):
     assert listed["count"] == 2, listed
     texts = [row["text"] for row in listed["entries"]]
     assert "Alpha title" in texts[0] and "Beta title" in texts[1], texts
+
+
+@native_test
+@with_native_doc("writer")
+def test_list_toc_entries_links_on_request_uno(ctx, doc):
+    """Default TOC listing omits hyperlink_url; include_links=True returns it."""
+    text = doc.getText()
+    text.setString("")
+    _add_heading(text, "Alpha title", True)
+    _add_heading(text, "Beta title", False)
+    tctx = _tool_ctx(ctx, doc)
+    created = IndexesCreate().execute(tctx, kind="toc", title="Contents", target="beginning")
+    assert created.get("status") == "ok", created
+
+    listed_default = IndexesListTocEntries().execute(tctx)
+    assert listed_default.get("status") == "ok", listed_default
+    assert listed_default.get("count") == 2
+    assert "hyperlink_url" not in listed_default["entries"][0]
+    assert "hyperlink_url" not in listed_default["entries"][1]
+
+    listed_links = IndexesListTocEntries().execute(tctx, include_links=True)
+    assert listed_links.get("status") == "ok", listed_links
+    assert listed_links.get("count") == 2
+    assert str(listed_links["entries"][0].get("hyperlink_url", "")).startswith("#")
+    assert str(listed_links["entries"][1].get("hyperlink_url", "")).startswith("#")
+
+
+@native_test
+@with_native_doc("writer")
+def test_toc_fixture_export_and_read_rows_uno(ctx, doc):
+    """build_toc_fixture exports to ODT with 40 outline links and 40 heading bookmarks."""
+    import os
+    import re
+    import tempfile
+    import zipfile
+    import uno
+    from com.sun.star.beans import PropertyValue
+    from scripts.prompt_optimization.toc_eval import read_toc_rows_from_odt
+    from scripts.prompt_optimization.toc_fixture import FIXTURE_ROWS, build_toc_fixture
+
+    tctx = _tool_ctx(ctx, doc)
+
+    def _execute(name, args):
+        if name == "indexes_create":
+            return IndexesCreate().execute(tctx, **args)
+        raise ValueError(name)
+
+    build_toc_fixture(doc, _execute)
+
+    fd, path = tempfile.mkstemp(suffix=".odt")
+    os.close(fd)
+    try:
+        pv = PropertyValue()
+        pv.Name = "FilterName"
+        pv.Value = "writer8"
+        doc.storeToURL(uno.systemPathToFileUrl(path), (pv,))
+
+        with zipfile.ZipFile(path) as zf:
+            xml = zf.read("content.xml").decode("utf-8")
+        bookmark_count = len(re.findall(r'<text:bookmark-start\b[^>]*\btext:name="(__RefHeading__[^"]*)"', xml))
+        assert bookmark_count == 40, f"Expected 40 heading bookmarks, got {bookmark_count}"
+
+        rows = read_toc_rows_from_odt(path)
+        assert len(rows) == 40, f"Expected 40 TOC rows, got {len(rows)}"
+        for actual, expected in zip(rows, FIXTURE_ROWS):
+            assert actual[0] == expected.title, f"Title mismatch: {actual[0]} != {expected.title}"
+            assert actual[1] == expected.url, f"URL mismatch: {actual[1]} != {expected.url}"
+    finally:
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
+
+
+@native_test
+@with_native_doc("writer")
+def test_indexes_add_mark_search_keeps_the_matched_text(ctx, doc):
+    """indexes_add_mark on target='search' places mark at start and keeps matched text."""
+    from plugin.framework.uno_context import enum_has_more
+
+    doc.getText().setString("alpha TARGET omega")
+    tctx = _tool_ctx(ctx, doc)
+    res = IndexesAddMark().execute(
+        tctx,
+        text="mark",
+        kind="alphabetical",
+        target="search",
+        old_content="TARGET",
+    )
+    assert res.get("status") == "ok", res
+    assert doc.getText().getString() == "alpha TARGET omega"
+
+    para_enum = doc.getText().createEnumeration()
+    assert enum_has_more(para_enum)
+    para = para_enum.nextElement()
+    portion_enum = para.createEnumeration()
+    portions = []
+    while enum_has_more(portion_enum):
+        p = portion_enum.nextElement()
+        portions.append((p.TextPortionType, p.getString()))
+
+    mark_idx = next(i for i, (ptype, _) in enumerate(portions) if ptype == "DocumentIndexMark")
+    assert mark_idx + 1 < len(portions)
+    assert portions[mark_idx + 1][0] == "Text"
+    assert portions[mark_idx + 1][1] == "TARGET omega"
+
+
+@native_test
+@with_native_doc("writer")
+def test_indexes_create_end_is_one_undo_step(ctx, doc):
+    """indexes_create at target='end' groups insertion into one undo step."""
+    tctx = _tool_ctx(ctx, doc)
+    um = doc.getUndoManager()
+    um.clear()
+    res = IndexesCreate().execute(tctx, kind="toc", target="end")
+    assert res.get("status") == "ok", res
+    assert len(um.getAllUndoActionTitles()) == 1
+    assert doc.getDocumentIndexes().getCount() == 1
+    um.undo()
+    assert doc.getDocumentIndexes().getCount() == 0

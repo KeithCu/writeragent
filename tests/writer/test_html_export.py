@@ -3,13 +3,14 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from plugin.framework.errors import DocumentDisposedError, ToolExecutionError
 from plugin.writer.html_export import (
     _inject_page_number_attributes,
     _range_to_content_via_temp_doc,
     xtext_to_content,
 )
 from plugin.writer.html_ruby import (
-    _RubySpan,
+    RubySpan,
     extract_and_strip_ruby,
     inject_ruby_into_html,
 )
@@ -79,9 +80,9 @@ def _range_export(style: str, *, has_style: bool, set_style_raises: bool = False
         patch("plugin.writer.html_export._element_overlaps", return_value=True),
         patch("plugin.writer.html_export._trim_to_source", side_effect=lambda text, element, para_text, source: (0, len(para_text))),
         patch("plugin.writer.html_export.starts_at_or_after", return_value=False),
-        patch("plugin.writer.range_copy._paint_direct_formatting"),
+        patch("plugin.writer.range_copy.paint_direct_formatting"),
         patch("plugin.writer.html_export._hyperlink_urls", return_value=[]),
-        patch("plugin.writer.html_ruby._ruby_spans_in_window", return_value=[]),
+        patch("plugin.writer.html_ruby.ruby_spans_in_window", return_value=[]),
         patch("plugin.writer.html_export._export_xhtml", return_value="<p>Hello</p><p>Hello</p>"),
         patch("plugin.writer.html_export._autostyle_maps", return_value=({}, {}, False)),
         patch("plugin.writer.html_export.inject_exported_math_tex", side_effect=lambda model, ctx, content: content),
@@ -149,7 +150,7 @@ def test_html_export_uno_skips_windows_leftover_hidden_temp_doc() -> None:
 def test_inject_ruby_rewrites_glued_xhtml():
     """Full XHTML filter concatenates base+reading; rewrite must unglue them."""
     html = '<p data-lo-style="Standard">漢字かんじです</p>'
-    out = inject_ruby_into_html(html, [_RubySpan("漢字", "かんじ")])
+    out = inject_ruby_into_html(html, [RubySpan("漢字", "かんじ")])
     assert "漢字かんじです" not in out
     assert "<ruby>漢字<rt>かんじ</rt></ruby>です" in out
 
@@ -157,7 +158,7 @@ def test_inject_ruby_rewrites_glued_xhtml():
 def test_inject_ruby_wraps_base_when_reading_was_dropped():
     """Range/portion-copy drops RubyText; wrap the surviving base."""
     html = '<p data-lo-style="Standard">漢字です</p>'
-    out = inject_ruby_into_html(html, [_RubySpan("漢字", "かんじ")])
+    out = inject_ruby_into_html(html, [RubySpan("漢字", "かんじ")])
     assert "<ruby>漢字<rt>かんじ</rt></ruby>です" in out
     assert "漢字かんじです" not in out
 
@@ -165,51 +166,51 @@ def test_inject_ruby_wraps_base_when_reading_was_dropped():
 def test_inject_ruby_wraps_styled_base_when_reading_was_dropped():
     """Contiguous base inside a span stays inside that span (same as glued-in-span)."""
     html = '<p><span style="font-weight:bold">漢字</span>です</p>'
-    out = inject_ruby_into_html(html, [_RubySpan("漢字", "かんじ")])
+    out = inject_ruby_into_html(html, [RubySpan("漢字", "かんじ")])
     assert '<span style="font-weight:bold"><ruby>漢字<rt>かんじ</rt></ruby></span>です' in out
 
 
 def test_inject_ruby_keeps_inner_tags_on_base():
     html = '<p><span style="font-weight:bold">漢字</span>かんじです</p>'
-    out = inject_ruby_into_html(html, [_RubySpan("漢字", "かんじ")])
+    out = inject_ruby_into_html(html, [RubySpan("漢字", "かんじ")])
     assert '<span style="font-weight:bold"><ruby>漢字<rt>かんじ</rt></ruby></span>です' in out
     assert "漢字かんじ" not in out.replace("<rt>かんじ</rt>", "")
 
 
 def test_inject_ruby_inside_one_span_is_contiguous():
     html = '<p><span style="font-weight:bold">漢字かんじです</span></p>'
-    out = inject_ruby_into_html(html, [_RubySpan("漢字", "かんじ")])
+    out = inject_ruby_into_html(html, [RubySpan("漢字", "かんじ")])
     assert '<span style="font-weight:bold"><ruby>漢字<rt>かんじ</rt></ruby>です</span>' in out
 
 
 def test_inject_ruby_is_idempotent():
     html = "<p><ruby>漢字<rt>かんじ</rt></ruby>です</p>"
-    out = inject_ruby_into_html(html, [_RubySpan("漢字", "かんじ")])
+    out = inject_ruby_into_html(html, [RubySpan("漢字", "かんじ")])
     assert out.count("<ruby>") == 1
     assert out == html
 
 
 def test_inject_ruby_sequential_spans():
     html = "<p>東京とうきょうと京都きょうと</p>"
-    out = inject_ruby_into_html(html, [_RubySpan("東京", "とうきょう"), _RubySpan("京都", "きょうと")])
+    out = inject_ruby_into_html(html, [RubySpan("東京", "とうきょう"), RubySpan("京都", "きょうと")])
     assert "<ruby>東京<rt>とうきょう</rt></ruby>と<ruby>京都<rt>きょうと</rt></ruby>" in out
 
 
 def test_inject_ruby_empty_is_noop():
     assert inject_ruby_into_html("<p>漢字です</p>", []) == "<p>漢字です</p>"
-    assert inject_ruby_into_html("", [_RubySpan("漢字", "かんじ")]) == ""
-    assert inject_ruby_into_html("<p>x</p>", [_RubySpan("漢字", "")]) == "<p>x</p>"
+    assert inject_ruby_into_html("", [RubySpan("漢字", "かんじ")]) == ""
+    assert inject_ruby_into_html("<p>x</p>", [RubySpan("漢字", "")]) == "<p>x</p>"
 
 
 def test_inject_ruby_keeps_under_position():
-    under_html = inject_ruby_into_html("<p>東京とうきょう</p>", [_RubySpan("東京", "とうきょう", is_above=False)])
+    under_html = inject_ruby_into_html("<p>東京とうきょう</p>", [RubySpan("東京", "とうきょう", is_above=False)])
     assert '<ruby style="ruby-position: under">東京<rt>とうきょう</rt></ruby>' in under_html
-    over_html = inject_ruby_into_html("<p>東京とうきょう</p>", [_RubySpan("東京", "とうきょう", is_above=True)])
+    over_html = inject_ruby_into_html("<p>東京とうきょう</p>", [RubySpan("東京", "とうきょう", is_above=True)])
     assert "<ruby>東京<rt>とうきょう</rt></ruby>" in over_html
 
 
 def test_ruby_position_round_trips():
-    under_html = inject_ruby_into_html("<p>東京とうきょう</p>", [_RubySpan("東京", "とうきょう", is_above=False)])
+    under_html = inject_ruby_into_html("<p>東京とうきょう</p>", [RubySpan("東京", "とうきょう", is_above=False)])
     _clean, spans = extract_and_strip_ruby(under_html)
     assert len(spans) == 1
     assert spans[0].is_above is False
@@ -218,7 +219,7 @@ def test_ruby_position_round_trips():
 
 def test_inject_ruby_wraps_every_copy_when_reading_is_absent():
     html = "<p>漢字と漢字と漢字</p>"
-    spans = [_RubySpan("漢字", "かんじ"), _RubySpan("漢字", "かんじ"), _RubySpan("漢字", "かんじ")]
+    spans = [RubySpan("漢字", "かんじ"), RubySpan("漢字", "かんじ"), RubySpan("漢字", "かんじ")]
     out = inject_ruby_into_html(html, spans)
     assert out.count("<ruby>") == 3
     assert out == "<p><ruby>漢字<rt>かんじ</rt></ruby>と<ruby>漢字<rt>かんじ</rt></ruby>と<ruby>漢字<rt>かんじ</rt></ruby></p>"
@@ -226,13 +227,13 @@ def test_inject_ruby_wraps_every_copy_when_reading_is_absent():
 
 def test_inject_ruby_crosses_br_to_the_reading():
     html = "<p>漢字<br>かんじです</p>"
-    out = inject_ruby_into_html(html, [_RubySpan("漢字", "かんじ")])
+    out = inject_ruby_into_html(html, [RubySpan("漢字", "かんじ")])
     assert out == "<p><ruby>漢字<rt>かんじ</rt></ruby><br>です</p>"
 
 
 def test_inject_ruby_prefers_glued_copy_over_an_earlier_plain_base():
     html = "<p>漢字と漢字かんじ</p>"
-    out = inject_ruby_into_html(html, [_RubySpan("漢字", "かんじ")])
+    out = inject_ruby_into_html(html, [RubySpan("漢字", "かんじ")])
     assert out == "<p>漢字と<ruby>漢字<rt>かんじ</rt></ruby></p>"
 
 
@@ -269,7 +270,7 @@ def test_empty_xhtml_export_of_a_document_with_text_falls_back():
 
     with patch.object(html_export, "_export_xhtml", return_value=""), \
          patch.object(html_export, "_autostyle_maps", return_value=({}, {}, None)), \
-         patch("plugin.doc.temp_files.with_temp_buffer") as buf, \
+         patch("plugin.writer.html_export.with_temp_buffer") as buf, \
          patch("builtins.open") as opener:
         buf.return_value.__enter__.return_value = ("/tmp/x.html", "file:///tmp/x.html")
         opener.return_value.__enter__.return_value.read.return_value = "<p>Texto do documento</p>"
@@ -283,10 +284,10 @@ def test_full_export_fallback_reports_missing_style_tokens():
     warnings: list[str] = []
     with (
         patch.object(html_export, "_export_xhtml", side_effect=PermissionError("Permission denied")),
-        patch("plugin.doc.temp_files.with_temp_buffer") as buf,
+        patch("plugin.writer.html_export.with_temp_buffer") as buf,
         patch("builtins.open") as opener,
         patch("plugin.writer.html_export.inject_exported_math_tex", side_effect=lambda model, ctx, content: content),
-        patch("plugin.writer.html_ruby._inject_ruby_from_model", side_effect=lambda model, content, spans: content),
+        patch("plugin.writer.html_ruby.inject_ruby_from_model", side_effect=lambda model, content, spans: content),
     ):
         buf.return_value.__enter__.return_value = ("/tmp/x.html", "file:///tmp/x.html")
         opener.return_value.__enter__.return_value.read.return_value = "<p>Texto do documento</p>"
@@ -306,7 +307,7 @@ def test_full_export_happy_path_produces_no_fallback_warning():
         patch.object(html_export, "_autostyle_maps", return_value=({}, {}, False)),
         patch("plugin.writer.xhtml_style_postprocess.xhtml_to_semantic_html", side_effect=lambda xhtml, parents, overrides: xhtml),
         patch("plugin.writer.html_export.inject_exported_math_tex", side_effect=lambda model, ctx, content: content),
-        patch("plugin.writer.html_ruby._inject_ruby_from_model", side_effect=lambda model, content, spans: content),
+        patch("plugin.writer.html_ruby.inject_ruby_from_model", side_effect=lambda model, content, spans: content),
     ):
         out = html_export.document_to_content(_content_doc(), None, walk_warnings=warnings)
     assert "<p>x</p>" in out
@@ -387,7 +388,7 @@ def test_copy_flow_into_xtext_one_paragraph_text_then_field():
     from plugin.writer.range_copy import (
         _COPIED_CHAR_PROPERTIES,
         _COPIED_PARA_PROPERTIES,
-        _copy_flow_into_xtext,
+        copy_flow_into_xtext,
     )
 
     doc = MagicMock()
@@ -415,7 +416,7 @@ def test_copy_flow_into_xtext_one_paragraph_text_then_field():
     with patch("plugin.writer.range_copy._copy_field_into", return_value=True) as mock_field_into, \
          patch("plugin.writer.range_copy._copy_properties") as mock_props, \
          patch("plugin.writer.html_export.new_blank_writer") as mock_blank:
-        res = _copy_flow_into_xtext(doc, src_text, dest_text)
+        res = copy_flow_into_xtext(doc, src_text, dest_text)
 
     assert res == 1
     cursor.setString.assert_called_with("")
@@ -430,7 +431,7 @@ def test_copy_flow_into_xtext_one_paragraph_text_then_field():
 
 
 def test_copy_flow_into_xtext_breaks_only_between_paragraphs():
-    from plugin.writer.range_copy import _PARAGRAPH_BREAK, _copy_flow_into_xtext
+    from plugin.writer.range_copy import PARAGRAPH_BREAK, copy_flow_into_xtext
 
     doc = MagicMock()
     src_text = MagicMock()
@@ -456,9 +457,9 @@ def test_copy_flow_into_xtext_breaks_only_between_paragraphs():
     dest_text.createTextCursor.return_value = cursor
 
     with patch("plugin.writer.range_copy._copy_properties"):
-        _copy_flow_into_xtext(doc, src_text, dest_text)
+        copy_flow_into_xtext(doc, src_text, dest_text)
 
-    dest_text.insertControlCharacter.assert_called_once_with(cursor, _PARAGRAPH_BREAK, False)
+    dest_text.insertControlCharacter.assert_called_once_with(cursor, PARAGRAPH_BREAK, False)
 
     insert_calls = [c.args[1] for c in dest_text.insertString.call_args_list]
     assert insert_calls == ["A", "B"]
@@ -486,7 +487,7 @@ def test_xtext_to_content_propagates_export_error_and_closes():
     temp.getText.return_value = MagicMock()
     with (
         patch.object(html_export, "new_blank_writer", return_value=temp),
-        patch.object(html_export.range_copy, "_copy_xtext_into_doc"),
+        patch.object(html_export.range_copy, "copy_xtext_into_doc"),
         patch.object(
             html_export,
             "document_to_content",
@@ -600,9 +601,9 @@ def test_range_xhtml_disposal_does_not_fall_back():
         patch("plugin.writer.html_export._element_overlaps", return_value=True),
         patch("plugin.writer.html_export._trim_to_source", side_effect=lambda text, element, para_text, source: (0, len(para_text))),
         patch("plugin.writer.html_export.starts_at_or_after", return_value=False),
-        patch("plugin.writer.range_copy._paint_direct_formatting"),
+        patch("plugin.writer.range_copy.paint_direct_formatting"),
         patch("plugin.writer.html_export._hyperlink_urls", return_value=[]),
-        patch("plugin.writer.html_ruby._ruby_spans_in_window", return_value=[]),
+        patch("plugin.writer.html_ruby.ruby_spans_in_window", return_value=[]),
         patch("plugin.writer.html_export._export_xhtml", side_effect=_DisposedException("disposed")),
         pytest.raises(DocumentDisposedError),
     ):
@@ -610,6 +611,56 @@ def test_range_xhtml_disposal_does_not_fall_back():
             MagicMock(), MagicMock(), 0, 0, None, source_range=source,
         )
     temp_doc.storeToURL.assert_not_called()
+
+
+def test_offset_window_slices_by_running_offset():
+    from plugin.writer.html_export import _offset_window
+
+    side_effects = ["", "Hello\n", "World\n"]
+    text = MagicMock()
+    with patch("plugin.writer.html_export.get_string_without_tracked_deletions", side_effect=side_effects):
+        past_end, window = _offset_window(text, 2, 8)
+        e1, e2, e3 = MagicMock(), MagicMock(), MagicMock()
+        assert window(e1, "Hello") == (2, 5)
+        assert window(e2, "World") == (0, 2)
+        assert window(e3, "Next") is None
+        assert past_end(e1) is False
+
+
+@pytest.mark.parametrize(
+    "exc, expected, match",
+    [
+        (RuntimeError("IllegalArgumentException"), ToolExecutionError, "Could not read that part"),
+        (_DisposedException("disposed"), DocumentDisposedError, None),
+    ],
+)
+def test_selection_compare_failure_is_not_a_silent_skip(exc, expected, match):
+    temp_doc = MagicMock()
+    temp_text = MagicMock()
+    temp_doc.getText.return_value = temp_text
+    temp_text.createTextCursor.return_value = MagicMock()
+    text = MagicMock()
+    text.createEnumeration.return_value = _Enum([_para("Standard")])
+    text.compareRegionStarts.side_effect = exc
+    source = MagicMock()
+    source.getText.return_value = text
+
+    def _portions(element, truncated_out=None, deletion_state=None):
+        yield (_Portion(), "Hello")
+
+    with (
+        patch("plugin.writer.html_export.new_blank_writer", return_value=temp_doc),
+        patch("plugin.writer.html_export._visible_portions", side_effect=_portions),
+        patch("plugin.writer.html_export._trim_to_source", side_effect=lambda text, element, para_text, source: (0, len(para_text))),
+        patch("plugin.writer.html_export.starts_at_or_after", return_value=False),
+        patch("plugin.writer.range_copy.paint_direct_formatting"),
+        patch("plugin.writer.html_export._hyperlink_urls", return_value=[]),
+        patch("plugin.writer.html_ruby.ruby_spans_in_window", return_value=[]),
+        pytest.raises(expected, match=match),
+    ):
+        _range_to_content_via_temp_doc(
+            MagicMock(), MagicMock(), 0, 0, None, source_range=source,
+        )
 
 
 def test_trim_to_source_does_not_swallow_get_start():
@@ -648,9 +699,9 @@ def test_range_export_does_not_read_para_style_on_a_table():
         patch("plugin.writer.html_export._element_overlaps", return_value=True),
         patch("plugin.writer.html_export._trim_to_source", side_effect=lambda text, element, para_text, source: (0, len(para_text))),
         patch("plugin.writer.html_export.starts_at_or_after", return_value=False),
-        patch("plugin.writer.range_copy._paint_direct_formatting"),
+        patch("plugin.writer.range_copy.paint_direct_formatting"),
         patch("plugin.writer.html_export._hyperlink_urls", return_value=[]),
-        patch("plugin.writer.html_ruby._ruby_spans_in_window", return_value=[]),
+        patch("plugin.writer.html_ruby.ruby_spans_in_window", return_value=[]),
         patch("plugin.writer.html_export._export_xhtml", return_value="<p>Hello</p>"),
         patch("plugin.writer.html_export._autostyle_maps", return_value=({}, {}, False)),
         patch("plugin.writer.html_export.inject_exported_math_tex", side_effect=lambda model, ctx, content: content),
@@ -687,7 +738,7 @@ def test_document_to_content_max_chars_does_not_split_a_tag():
         patch.object(html_export, "_export_xhtml", return_value=long_html),
         patch.object(html_export, "_autostyle_maps", return_value=({}, {}, False)),
         patch.object(html_export, "inject_exported_math_tex", side_effect=lambda model, ctx, content: content),
-        patch.object(html_ruby, "_inject_ruby_from_model", side_effect=lambda model, content, fodt_has_ruby=None: content),
+        patch.object(html_ruby, "inject_ruby_from_model", side_effect=lambda model, content, fodt_has_ruby=None: content),
         patch(
             "plugin.writer.html_export.xhtml_post.xhtml_to_semantic_html",
             side_effect=lambda xhtml, parents, overrides: xhtml,
@@ -767,7 +818,7 @@ def test_xtext_injects_nonzero_page_offset():
     fields = [{"SubType": 2, "Offset": 1, "NumberingType": 4}]
     with (
         patch.object(html_export, "new_blank_writer", return_value=temp),
-        patch.object(html_export.range_copy, "_copy_xtext_into_doc"),
+        patch.object(html_export.range_copy, "copy_xtext_into_doc"),
         patch.object(html_export, "extract_page_number_fields", return_value=fields),
         patch.object(html_export, "document_to_content", return_value=html),
     ):
@@ -836,7 +887,7 @@ def test_page_number_converters():
 
 
 def test_copy_xtext_into_doc_does_not_select_and_clones_graphic():
-    from plugin.writer.range_copy import _copy_xtext_into_doc
+    from plugin.writer.range_copy import copy_xtext_into_doc
 
     src_text = MagicMock()
     src_text.createEnumeration.return_value = _Enum([])
@@ -868,7 +919,7 @@ def test_copy_xtext_into_doc_does_not_select_and_clones_graphic():
     src_text.createTextCursor.return_value = measure
     src_text.getString.return_value = ""
 
-    _copy_xtext_into_doc(src_doc, src_text, dest_doc)
+    copy_xtext_into_doc(src_doc, src_text, dest_doc)
 
     src_doc.getCurrentController().select.assert_not_called()
     dest_doc.createInstance.assert_called_with("com.sun.star.text.TextGraphicObject")
@@ -881,7 +932,7 @@ def test_copy_xtext_into_doc_does_not_select_and_clones_graphic():
 def test_uno_read_probes_raise_on_disposal_and_default_otherwise():
     from plugin.framework.errors import DocumentDisposedError
     from plugin.writer.html_export import _raise_if_empty_export
-    from plugin.writer.range_copy import _supports_service, _writer_table_copy_layout
+    from plugin.writer.range_copy import supports_service, _writer_table_copy_layout
 
     class DisposedException(Exception):
         pass
@@ -892,11 +943,11 @@ def test_uno_read_probes_raise_on_disposal_and_default_otherwise():
     closed = MagicMock()
     closed.supportsService.side_effect = DisposedException("closed")
     with pytest.raises(DocumentDisposedError):
-        _supports_service(closed, "com.sun.star.text.TextTable")
+        supports_service(closed, "com.sun.star.text.TextTable")
 
     odd = MagicMock()
     odd.supportsService.side_effect = RuntimeException("uno")
-    assert _supports_service(odd, "com.sun.star.text.TextTable") is False
+    assert supports_service(odd, "com.sun.star.text.TextTable") is False
 
     # A failed text read still counts as "has text" and the export error is raised.
     model = MagicMock()
@@ -928,12 +979,12 @@ def test_substitute_math_placeholders_entities_and_fallback():
     def fake_convert(self: object, starmath: str | None = None) -> exp.MathExportResult:
         expr = self if starmath is None else starmath
         if expr == "a + b":
-            return exp.MathExportResult(True, "a + b", None, None)
+            return exp.MathExportResult(True, "a + b", None)
         if expr == "x":
-            return exp.MathExportResult(True, "x", None, None)
-        return exp.MathExportResult(False, None, None, "error")
+            return exp.MathExportResult(True, "x", None)
+        return exp.MathExportResult(False, None, "error")
 
-    with patch.object(exp._MathExportBatch, "convert_starmath_to_latex", side_effect=fake_convert):
+    with patch.object(exp.MathExportBatch, "convert_starmath_to_latex", side_effect=fake_convert):
         out = exp.substitute_math_placeholders(html, records, object())
 
     assert "$a + b$" in out
@@ -968,9 +1019,9 @@ def test_range_export_skips_flat_odf_when_no_autostyle():
         patch("plugin.writer.html_export._element_overlaps", return_value=True),
         patch("plugin.writer.html_export._trim_to_source", side_effect=lambda text, element, para_text, source: (0, len(para_text))),
         patch("plugin.writer.html_export.starts_at_or_after", return_value=False),
-        patch("plugin.writer.range_copy._paint_direct_formatting"),
+        patch("plugin.writer.range_copy.paint_direct_formatting"),
         patch("plugin.writer.html_export._hyperlink_urls", return_value=[]),
-        patch("plugin.writer.html_ruby._ruby_spans_in_window", return_value=[]),
+        patch("plugin.writer.html_ruby.ruby_spans_in_window", return_value=[]),
         patch("plugin.writer.html_export._export_xhtml", return_value=xhtml_named),
         patch("plugin.writer.html_export._autostyle_maps", return_value=({"P1": "Standard"}, {"P1": "margin:0"}, False)) as autostyle_mock,
         patch("plugin.writer.html_export.inject_exported_math_tex", side_effect=lambda model, ctx, content: content),
@@ -992,9 +1043,9 @@ def test_range_export_skips_flat_odf_when_no_autostyle():
         patch("plugin.writer.html_export._element_overlaps", return_value=True),
         patch("plugin.writer.html_export._trim_to_source", side_effect=lambda text, element, para_text, source: (0, len(para_text))),
         patch("plugin.writer.html_export.starts_at_or_after", return_value=False),
-        patch("plugin.writer.range_copy._paint_direct_formatting"),
+        patch("plugin.writer.range_copy.paint_direct_formatting"),
         patch("plugin.writer.html_export._hyperlink_urls", return_value=[]),
-        patch("plugin.writer.html_ruby._ruby_spans_in_window", return_value=[]),
+        patch("plugin.writer.html_ruby.ruby_spans_in_window", return_value=[]),
         patch("plugin.writer.html_export._export_xhtml", return_value=xhtml_auto),
         patch("plugin.writer.html_export._autostyle_maps", return_value=(expected_parents, expected_overrides, False)) as autostyle_mock,
         patch("plugin.writer.html_export.inject_exported_math_tex", side_effect=lambda model, ctx, content: content),
@@ -1052,7 +1103,7 @@ def test_full_read_falls_back_to_model_when_accepted_copy_fails():
             patch.object(hx, "_export_xhtml", return_value="<p>live text</p>"), \
             patch.object(hx, "_autostyle_maps", return_value=({}, {}, False)), \
             patch.object(hx, "inject_exported_math_tex", side_effect=lambda _m, _c, text: text), \
-            patch.object(hx.html_ruby, "_inject_ruby_from_model", side_effect=lambda _m, text, _rf: text):
+            patch.object(hx.html_ruby, "inject_ruby_from_model", side_effect=lambda _m, text, _rf: text):
         res = hx.document_to_content(model, ctx, scope="full", walk_warnings=warnings)
         assert "<p>live text</p>" in res
         assert "tracked deletions could not be hidden; content includes pending deleted text" in warnings

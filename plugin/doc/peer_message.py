@@ -9,6 +9,7 @@ Queues a user-equivalent turn on another already-open Writer/Calc/Draw/Impress
 sidebar and returns immediately. Experiment: advertised on the
 document_research specialized loop only (not outer chat, not MCP).
 Kind is which tool was called (work vs result). See ``docs/chat/peer-messaging.md``.
+Pending turns live in ``peer_queue`` (one ``PeerQueue``); a target must implement ``PeerListener``.
 
 This module must not import ``plugin.chatbot.panel`` or
 ``plugin.chatbot.panel_factory`` (cycle: CommonModule → tool → panel →
@@ -24,8 +25,10 @@ import unicodedata
 import weakref
 from collections import deque
 from dataclasses import dataclass
-from typing import Any, ClassVar
-from weakref import WeakKeyDictionary
+from typing import TYPE_CHECKING, Any, ClassVar, Protocol
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 from plugin.framework.doc_type import (
     DOCUMENT_SERVICES,
@@ -33,8 +36,17 @@ from plugin.framework.doc_type import (
     doc_type_label_for_enum,
     get_document_type,
 )
+# Module import, not a name import: tests patch plugin.doc.document_research.get_open_documents
+# at the owner, and that one patch must also cover list_v1_peers here (same reason as
+# specialized_base.py's module imports).
+from plugin.doc import document_research
+from plugin.doc.live_panels import get_live_panel
+from plugin.doc.text_helpers import get_document_path
 from plugin.framework.async_drain_guard import add_drain_idle_callback, get_drain_owner
+from plugin.framework.queue_executor import Policy, main
+from plugin.framework.thread_guard import assert_main_thread
 from plugin.framework.tool import ToolBase, ToolContext
+from plugin.framework.uno_context import get_runtime_uid, resolve_document_by_url, uno_same
 
 log = logging.getLogger("writeragent.doc.peer_message")
 
@@ -89,18 +101,75 @@ PEER_ACCEPTED_FINISH_HINT = (
 class PeerPendingTurn:
     """One queued extracted send on a listener.
 
-    Turns compare by identity (eq=False). The same object is stored on both
-    the listener deque and _global_fifo; q.remove must drop that exact object.
-    Value equality would remove a different equal turn during the busy
-    re-queue path, mutating already_appended after enqueue.
+    Turns compare by identity (eq=False). The queue removes turns by identity
+    so value equality does not inadvertently drop a different equal turn during
+    the busy re-queue path, mutating already_appended after enqueue.
     """
 
     wrapped_text: str
     already_appended: bool
 
 
-_listener_queues: WeakKeyDictionary[Any, deque[PeerPendingTurn]] = WeakKeyDictionary()
-_global_fifo: deque[tuple[weakref.ref[Any], PeerPendingTurn]] = deque()
+class PeerListener(Protocol):
+    """What a sidebar panel provides so this module can queue and start a peer turn on it.
+
+    SendButtonListener (plugin/chatbot/panel.py) implements this; the unit and
+    UNO fakes implement the same four methods. Listeners must be weak-referenceable.
+    """
+
+    def is_busy(self) -> bool: ...
+    def in_chat_mode(self) -> bool: ...
+    def inject_user_turn(self, text: str) -> bool: ...
+    def start_extracted_peer_send(self, query_text: str, *, already_appended: bool) -> bool: ...
+
+
+class PeerQueue:
+    """Pending peer turns for every sidebar, oldest first, in one deque of (weakref, turn)."""
+
+    def __init__(self) -> None:
+        self._items: deque[tuple[weakref.ref[Any], PeerPendingTurn]] = deque()
+
+    def __len__(self) -> int:
+        return len(self._items)
+
+    def pending(self, listener: object) -> int:
+        """Count live pending turns for this listener (used for cap check and test assertions)."""
+        return sum(1 for item in self._items if item[0]() is listener)
+
+    def append(self, listener: PeerListener, turn: PeerPendingTurn) -> None:
+        self._items.append((weakref.ref(listener), turn))
+
+    def push_front(self, listener: PeerListener, turn: PeerPendingTurn) -> None:
+        self._items.appendleft((weakref.ref(listener), turn))
+
+    def pop_oldest(self) -> tuple[PeerListener, PeerPendingTurn] | None:
+        """Pop the oldest entry whose listener is still alive; discards dead references."""
+        while self._items:
+            ref, turn = self._items.popleft()
+            listener = ref()
+            if listener is not None:
+                return listener, turn
+        return None
+
+    def _keep(self, pred: Callable[[Any, PeerPendingTurn], bool]) -> None:
+        kept: list[tuple[weakref.ref[Any], PeerPendingTurn]] = []
+        for ref, turn in self._items:
+            listener = ref()
+            if listener is not None and pred(listener, turn):
+                kept.append((ref, turn))
+        self._items.clear()
+        self._items.extend(kept)
+
+    def remove(self, turn: PeerPendingTurn) -> None:
+        """Drop turn by identity; also purges dead listener references."""
+        self._keep(lambda listener, item_turn: item_turn is not turn)
+
+    def drop_listener(self, listener: object) -> None:
+        """Drop all turns for listener; also purges dead listener references."""
+        self._keep(lambda listener_obj, turn: listener_obj is not listener)
+
+
+peer_queue: PeerQueue = PeerQueue()
 
 
 def v1_peer_type_label(model: Any) -> str | None:
@@ -111,8 +180,6 @@ def v1_peer_type_label(model: Any) -> str | None:
 
 def identity_from_doc(doc: Any) -> dict[str, str]:
     """Sender fields from ``ToolContext.doc`` (not authored in ``message``)."""
-    from plugin.framework.uno_context import get_runtime_uid
-
     if doc is None:
         return {"name": "Untitled", "uid": "", "url": ""}
     # Do not catch. get_runtime_uid and get_document_path are @main_thread_only;
@@ -122,8 +189,6 @@ def identity_from_doc(doc: Any) -> dict[str, str]:
     url = str(doc.getURL() or "")
     name = ""
     if url:
-        from plugin.doc.text_helpers import get_document_path
-
         path = get_document_path(doc) or ""
         name = os.path.basename(path) if path else ""
     if not name:
@@ -194,8 +259,6 @@ def format_peer_catalog(peers: list[dict[str, str]]) -> str:
 
 
 def _resolve_open_model(uno_ctx: Any, key: str) -> Any | None:
-    from plugin.framework.uno_context import resolve_document_by_url
-
     try:
         model, _unused_type = resolve_document_by_url(uno_ctx, key)
     except Exception:
@@ -209,17 +272,13 @@ def list_v1_peers(uno_ctx: Any, self_doc: Any) -> list[dict[str, str]]:
     Desktop catalog + RuntimeUID. Callers marshal to the main thread
     (specialized scaffolding / ``get_peer_inner_choice_block``) or this asserts.
     """
-    from plugin.doc.document_research import get_open_documents
-    from plugin.framework.thread_guard import assert_main_thread
-    from plugin.framework.uno_context import get_runtime_uid, uno_same
-
     assert_main_thread("peer_message.list_v1_peers")
     self_uid = ""
     if self_doc is not None:
         self_uid = get_runtime_uid(self_doc) or ""
     peers: list[dict[str, str]] = []
     try:
-        catalog = get_open_documents(uno_ctx, self_doc)
+        catalog = document_research.get_open_documents(uno_ctx, self_doc)
     except Exception:
         log.debug("list_v1_peers: get_open_documents failed", exc_info=True)
         return []
@@ -258,8 +317,6 @@ def resolve_peer_target(
 
     Returns ``(model, error_code, error_message)``. Success: ``(model, None, "")``.
     """
-    from plugin.framework.uno_context import get_runtime_uid, uno_same
-
     target = (document_url or "").strip()
     if not target:
         return None, "VALIDATION_ERROR", "document_url is required."
@@ -299,152 +356,64 @@ def resolve_peer_target(
     return model, None, ""
 
 
-def listener_is_busy(listener: Any) -> bool:
-    """Busy if the send FSM, active stream queue, or cancellation scope is live."""
-    if listener is None:
-        return True
-    state = getattr(listener, "sidebar_state", None)
-    send = getattr(state, "send", None) if state is not None else None
-    if send is not None and bool(getattr(send, "is_busy", False)):
-        return True
-    turn = getattr(listener, "_turn", None)
-    if turn is not None and getattr(turn, "queue", None) is not None and getattr(turn, "alive", False):
-        return True
-    if getattr(listener, "_send_cancellation", None) is not None:
-        return True
-    return False
-
-
-def listener_queue_len(listener: Any) -> int:
-    q = _listener_queues.get(listener)
-    return len(q) if q is not None else 0
-
-
-def enqueue_peer_turn(listener: Any, turn: PeerPendingTurn) -> str | None:
+def enqueue_peer_turn(listener: PeerListener, turn: PeerPendingTurn) -> str | None:
     """Queue *turn*. Returns ``PEER_QUEUE_FULL`` or None."""
-    from plugin.framework.thread_guard import assert_main_thread
-
     assert_main_thread("peer_message.enqueue_peer_turn")
-    q = _listener_queues.get(listener)
-    if q is None:
-        q = deque()
-        _listener_queues[listener] = q
-    if len(q) >= PEER_QUEUE_CAP:
+    if peer_queue.pending(listener) >= PEER_QUEUE_CAP:
         return "PEER_QUEUE_FULL"
-    q.append(turn)
-    _global_fifo.append((weakref.ref(listener), turn))
+    peer_queue.append(listener, turn)
     return None
 
 
-def _rebuild_global_fifo(
-    *,
-    drop_listener: Any = None,
-    drop_turn: PeerPendingTurn | None = None,
-) -> None:
-    # Drop dead weakrefs from _global_fifo in the same pass as drop_listener_queue rebuilds.
-    kept: list[tuple[weakref.ref[Any], PeerPendingTurn]] = []
-    for ref, turn in _global_fifo:
-        listener = ref()
-        if listener is None:
-            continue
-        if drop_listener is not None and listener is drop_listener:
-            continue
-        if drop_turn is not None and turn is drop_turn:
-            continue
-        kept.append((ref, turn))
-    _global_fifo.clear()
-    _global_fifo.extend(kept)
-
-
-def drop_listener_queue(listener: Any) -> None:
+def drop_listener_queue(listener: PeerListener | None) -> None:
     """Stop / dispose: drop that listener's pending injects only."""
     if listener is None:
         return
-    from plugin.framework.thread_guard import assert_main_thread
-
     assert_main_thread("peer_message.drop_listener_queue")
-    q = _listener_queues.pop(listener, None)
-    if q is not None:
-        q.clear()
-    _rebuild_global_fifo(drop_listener=listener)
-
-
-def reset_peer_queues() -> None:
-    """Test hook: clear all pending turns."""
-    _listener_queues.clear()
-    _global_fifo.clear()
-
-
-def _discard_queued_turn(listener: Any, turn: PeerPendingTurn) -> None:
-    q = _listener_queues.get(listener)
-    if q is not None:
-        try:
-            q.remove(turn)
-        except ValueError:
-            pass
-        if not q:
-            _listener_queues.pop(listener, None)
-    _rebuild_global_fifo(drop_turn=turn)
+    peer_queue.drop_listener(listener)
 
 
 def kick_pending_peer_starts() -> None:
     """Start at most one queued extracted send when the process drain is idle."""
-    from plugin.framework.thread_guard import assert_main_thread
-
     assert_main_thread("peer_message.kick_pending_peer_starts")
     if get_drain_owner() is not None:
         return
-    skipped: list[tuple[weakref.ref[Any], PeerPendingTurn]] = []
+    skipped: list[tuple[PeerListener, PeerPendingTurn]] = []
     started = False
-    while _global_fifo and not started:
-        ref, turn = _global_fifo.popleft()
-        listener = ref()
-        if listener is None:
+    while not started:
+        item = peer_queue.pop_oldest()
+        if item is None:
+            break
+        listener, turn = item
+        if listener.is_busy() or get_drain_owner() is not None:
+            skipped.append(item)
             continue
-        q = _listener_queues.get(listener)
-        if q is None:
-            continue
-        if listener_is_busy(listener) or get_drain_owner() is not None:
-            skipped.append((ref, turn))
-            continue
+        # The turn is already popped from peer_queue so a nested kick after
+        # this send's drain does not start it twice. send_state refuses
+        # EXTRACTED_SEND while the hands-free mic records and start returns
+        # False. Ignoring that would lose the turn and leave an already-appended
+        # user message unanswered. start_extracted_peer_send has no side effects
+        # on False, so put the turn back like the busy case above.
         try:
-            q.remove(turn)
-        except ValueError:
-            continue
-        start_fn = getattr(listener, "start_extracted_peer_send", None)
-        if not callable(start_fn):
-            # Missing start_extracted_peer_send: drop the turn (re-queue would pin this listener forever).
-            log.error(
-                "kick_pending_peer_starts: listener %s has no start_extracted_peer_send; dropping queued turn",
-                type(listener).__name__,
+            res = listener.start_extracted_peer_send(
+                turn.wrapped_text, already_appended=turn.already_appended
             )
-            continue
-        # The turn is already removed from q, and a False return is
-        # ignored. send_state refuses EXTRACTED_SEND while the
-        # hands-free mic records, so the turn is lost and an
-        # already-appended user message sits unanswered. start_fn has
-        # no side effects when it returns False, so put the turn back
-        # like the busy case above.
-        try:
-            res = start_fn(turn.wrapped_text, already_appended=turn.already_appended)
         except Exception:
             log.exception("kick_pending_peer_starts: start_extracted_peer_send raised")
             # If the send took the turn (listener busy or live drain owner),
             # the in-flight send owns the envelope: do not re-queue, as a second
             # start after the drain would deliver it twice.
-            if listener_is_busy(listener) or get_drain_owner() is not None:
+            if listener.is_busy() or get_drain_owner() is not None:
                 started = True
                 continue
-            q.appendleft(turn)
-            skipped.append((ref, turn))
+            skipped.append(item)
             continue
         if res is False:
-            q.appendleft(turn)
-            skipped.append((ref, turn))
+            skipped.append(item)
             continue
         started = True
-    for item in reversed(skipped):
-        _global_fifo.appendleft(item)
+    for listener, turn in reversed(skipped):
+        peer_queue.push_front(listener, turn)
 
 
 def _on_drain_idle() -> None:
@@ -459,11 +428,9 @@ def _on_drain_idle() -> None:
     """
     if get_drain_owner() is not None:
         return
-    if not _global_fifo:
+    if not peer_queue:
         return
     try:
-        from plugin.framework.queue_executor import Policy, main
-
         if main.policy is not Policy.test_inline:
             main.post(kick_pending_peer_starts)
     except Exception:
@@ -473,7 +440,7 @@ def _on_drain_idle() -> None:
 add_drain_idle_callback(_on_drain_idle)
 
 
-def schedule_peer_turn(listener: Any, turn: PeerPendingTurn) -> str | None:
+def schedule_peer_turn(listener: PeerListener, turn: PeerPendingTurn) -> str | None:
     """Enqueue, inject on idle listener, and kick if drain owner is unset.
 
     enqueue_peer_turn enforces the queue cap before any transcript write.
@@ -483,13 +450,13 @@ def schedule_peer_turn(listener: Any, turn: PeerPendingTurn) -> str | None:
     err = enqueue_peer_turn(listener, turn)
     if err:
         return err
-    if not listener_is_busy(listener):
+    if not listener.is_busy():
         try:
-            turn.already_appended = _inject_on_listener(listener, turn.wrapped_text)
+            turn.already_appended = listener.inject_user_turn(turn.wrapped_text)
         except Exception:
-            _discard_queued_turn(listener, turn)
+            peer_queue.remove(turn)
             raise
-    if get_drain_owner() is None and not listener_is_busy(listener):
+    if get_drain_owner() is None and not listener.is_busy():
         kick_pending_peer_starts()
     return None
 
@@ -531,7 +498,7 @@ def _document_research_domain(active_domain: str | None) -> bool:
     return base == PEER_SPECIALIZED_DOMAIN
 
 
-def peer_send_caller_allowed(ctx: Any) -> bool:
+def peer_send_caller_allowed(ctx: ToolContext) -> bool:
     """True for sidebar chat and document_research specialized; MCP stays out.
 
     Specialized smol loops reuse the parent ``ToolContext`` (``caller="chat"``)
@@ -539,12 +506,12 @@ def peer_send_caller_allowed(ctx: Any) -> bool:
     enough today, but the domain clause keeps execute working if a specialized
     caller is not tagged ``chat``.
     """
-    caller = str(getattr(ctx, "caller", "") or "")
+    caller = ctx.caller or ""
     if caller in _PEER_SEND_BLOCKED_CALLERS:
         return False
     if caller == "chat":
         return True
-    return _document_research_domain(getattr(ctx, "active_domain", None))
+    return _document_research_domain(ctx.active_domain)
 
 
 def _list_v1_peers_or_empty(uno_ctx: Any, doc: Any, where: str) -> list[dict[str, str]]:
@@ -609,49 +576,13 @@ def filter_peer_message_schemas(
     return out
 
 
-def _peer_not_chat_mode(listener: Any) -> bool:
-    """True when the target sidebar is not in Chat mode (do not flip librarian/image)."""
+def _peer_in_chat_mode(listener: PeerListener) -> bool:
+    """True when the target sidebar is in Chat mode (not Librarian, Image, or a sub-agent)."""
     try:
-        from plugin.chatbot.chat_sidebar_mode import (
-            CHAT_MODE_CHAT,
-            SidebarModeFlags,
-            mode_from_selector_with_flags,
-        )
-
-        flags = getattr(listener, "sidebar_mode_flags", None)
-        if not isinstance(flags, SidebarModeFlags):
-            flags = SidebarModeFlags()
-        selector = getattr(listener, "chat_mode_selector", None)
-        if selector is None:
-            return False
-        mode = mode_from_selector_with_flags(selector, flags)
-        return mode != CHAT_MODE_CHAT
+        return listener.in_chat_mode()
     except Exception:
         log.debug("peer mode probe failed; treating as chat", exc_info=True)
-        return False
-
-
-def _inject_on_listener(listener: Any, wrapped: str) -> bool:
-    """Inject user message into listener session. Returns True if written to session.
-
-    render_session_messages paints the updated session list when both exist.
-    _append_response is also called because hosts without a message list (such
-    as unit _Listener) concatenate there; on a live panel with a message list,
-    _append_response returns early at the has_list gate and does not duplicate
-    the message. The returned bool reflects only whether add_user_message succeeded.
-    """
-    written = False
-    session = getattr(listener, "session", None)
-    if session is not None and hasattr(session, "add_user_message"):
-        session.add_user_message(wrapped)
-        written = True
-    render = getattr(listener, "render_session_messages", None)
-    if callable(render) and session is not None:
-        render(session)
-    append = getattr(listener, "_append_response", None)
-    if callable(append):
-        append(wrapped, role="user")
-    return written
+        return True
 
 
 _PEER_PARAMETERS = {
@@ -720,9 +651,6 @@ class _SendPeerBase(ToolBase):
         if err_code or model is None:
             return self._tool_error(err_msg, code=err_code or "PEER_NOT_FOUND")
 
-        from plugin.doc.live_panels import get_live_panel
-        from plugin.framework.uno_context import get_runtime_uid
-
         uid = get_runtime_uid(model) or ""
         if not uid:
             return self._tool_error(
@@ -730,14 +658,14 @@ class _SendPeerBase(ToolBase):
                 code="PEER_NOT_FOUND",
             )
         panel = get_live_panel(uid)
-        listener = getattr(panel, "send_listener", None) if panel is not None else None
+        listener: PeerListener | None = panel.send_listener if panel is not None else None
         if listener is None:
             return self._tool_error(
                 "Open the peer sidebar once so a live chat panel exists. "
                 "Peer messaging cannot start a second agent loop.",
                 code="PEER_SIDEBAR_NOT_OPEN",
             )
-        if _peer_not_chat_mode(listener):
+        if not _peer_in_chat_mode(listener):
             return self._tool_error(
                 "The peer sidebar must be in Chat mode (not Librarian, Image, or a sub-agent).",
                 code="PEER_NOT_CHAT_MODE",

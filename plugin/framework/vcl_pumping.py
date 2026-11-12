@@ -31,6 +31,14 @@ log = logging.getLogger("writeragent.vcl_pumping")
 _secondary_idle_lock = threading.Lock()
 _secondary_idle_in_flight = False
 
+# Track active calls to processEventsToIdle on the stack. A pump started by
+# WriterAgent runs until the VCL scheduler is idle, so a second pump started from
+# a callback inside it cannot add anything and only deepens the stack while holding
+# SolarMutex. Calls with force=False skip pumping when depth is positive.
+# The lock is defensive; only the VCL thread pumps.
+_vcl_pump_lock = threading.Lock()
+_vcl_pump_depth: int = 0
+
 
 @contextmanager
 def focus_preserved(ctx: Any, restore: Any = None, *, restore_focus: Callable[[], None] | None = None) -> Generator[None, None, None]:
@@ -74,13 +82,26 @@ def focus_preserved(ctx: Any, restore: Any = None, *, restore_focus: Callable[[]
 
 def pump_vcl_events(toolkit: Any) -> bool:
     """Call toolkit.processEventsToIdle(); only used from approved pump entry points."""
+    global _vcl_pump_depth
     if toolkit is not None and hasattr(toolkit, "processEventsToIdle"):
         try:
-            toolkit.processEventsToIdle()
-            return True
+            with _vcl_pump_lock:
+                _vcl_pump_depth += 1
+            try:
+                toolkit.processEventsToIdle()
+                return True
+            finally:
+                with _vcl_pump_lock:
+                    _vcl_pump_depth -= 1
         except Exception:
             log.debug("processEventsToIdle failed", exc_info=True)
     return False
+
+
+def vcl_pump_active() -> bool:
+    """Return whether a VCL event pump is currently running on the stack."""
+    with _vcl_pump_lock:
+        return _vcl_pump_depth > 0
 
 
 @main_thread_only
@@ -88,10 +109,10 @@ def process_events_to_idle(ctx: Any, rounds: int = 1, force: bool = False) -> bo
     """Drain the UI event queue *rounds* times via the approved VCL pump chokepoint.
 
     When a chat/MCP :func:`~plugin.framework.async_drain_guard.drain_owner_scope` is
-    active, skips VCL pumping so secondary progress helpers (grep, Harper status,
-    notebook import) cannot nest ``processEventsToIdle`` inside the drain loop.
-    Pass force=True (e.g. for RichTextControl caret reveal) to pump VCL even when
-    under a drain owner.
+    active, or another WriterAgent pump is already on the stack, skips VCL pumping
+    so secondary progress helpers and callbacks cannot nest ``processEventsToIdle``.
+    Pass force=True to pump VCL regardless (reserved for native test hooks such as
+    ``sidebar_test_hooks.pump_until``).
     Returns True if at least one VCL pump ran. Blocking secondary waits should
     use :func:`wait_while_pumping` rather than a local PE2I loop.
     """
@@ -109,6 +130,9 @@ def process_events_to_idle(ctx: Any, rounds: int = 1, force: bool = False) -> bo
         owner = get_drain_owner()
         if owner is not None:
             note_suppressed_vcl_pump(owner)
+            return False
+        if vcl_pump_active():
+            note_suppressed_vcl_pump(None)
             return False
 
     try:

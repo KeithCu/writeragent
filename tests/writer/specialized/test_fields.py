@@ -236,6 +236,7 @@ def test_fields_delete_validation_and_missing_ids(mock_ctx):
     assert res["deleted_count"] == 0
     assert res["requested_count"] == 2
     assert res["missing_ids"] == [1, 99]
+    assert "details" not in res
     assert "comment_delete" in res["message"]
 
 
@@ -317,7 +318,7 @@ def test_fields_insert_search_rolls_back_failed_insert(mock_ctx, monkeypatch):
     mock_cursor.getText.return_value = mock_text
     mock_text.insertTextContent.side_effect = RuntimeError("insert failed")
 
-    monkeypatch.setattr("plugin.writer.specialized.fields.resolve_target_cursor", lambda ctx, t, o, **k: mock_cursor)
+    monkeypatch.setattr("plugin.writer.target_resolver.resolve_target_cursor", lambda ctx, t, o, **k: mock_cursor)
     mock_field = MagicMock()
     doc.createInstance.return_value = mock_field
 
@@ -336,7 +337,7 @@ def test_fields_insert_search_locked_undo_does_not_delete(mock_ctx, monkeypatch)
     doc.getUndoManager.return_value = mgr
 
     mock_cursor = MagicMock()
-    monkeypatch.setattr("plugin.writer.specialized.fields.resolve_target_cursor", lambda ctx, t, o, **k: mock_cursor)
+    monkeypatch.setattr("plugin.writer.target_resolver.resolve_target_cursor", lambda ctx, t, o, **k: mock_cursor)
     mock_field = MagicMock()
     doc.createInstance.return_value = mock_field
 
@@ -585,7 +586,8 @@ def test_fields_delete_rollback_when_setString_raises(mock_ctx):
     mgr = mock_ctx.doc.getUndoManager()
     del_res = FieldsDelete().execute(mock_ctx, ids=[1, 2, 3])
     assert del_res["status"] == "error"
-    assert del_res.get("details", {}).get("deleted_count") == 0
+    assert del_res["deleted_count"] == 0
+    assert "details" not in del_res
     assert "anchor clear failed" in del_res["message"]
     mgr.undo.assert_called_once()
 

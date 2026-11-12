@@ -9,21 +9,27 @@ Collects data-lo-style attributes per top-level block, strips them before StarWr
 import, and resolves/applies paragraph styles via UNO after import.
 """
 
-# pyright: reportUnusedFunction=false
-
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 import html as html_mod
 import logging
 import re
-from typing import TYPE_CHECKING, Any, ClassVar, final
+from urllib.parse import unquote
+from typing import TYPE_CHECKING, Any, ClassVar, Literal, final
 
-from plugin.framework.errors import reraise_if_disposed, uno_read
+from plugin.doc.text_helpers import normalize_linebreaks
+from plugin.doc.visual_helpers import UNITS_PER_INCH, mm_to_unit
+from plugin.framework.errors import Diagnostic, reraise_if_disposed, uno_read
+from plugin.framework.html_stripper import escape_prose_angle_brackets
+from plugin.framework.uno_context import enum_has_more
 
-from . import xhtml_style_postprocess as xhtml_post
+from . import html_export, html_ruby, xhtml_style_postprocess as xhtml_post
+from .math.html_math_segment import html_fragment_contains_mixed_math
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable
+    from plugin.framework.errors import SuggestedCall
 
 log = logging.getLogger("writeragent.writer")
 
@@ -60,7 +66,6 @@ def _parse_length_to_unit(val: str) -> int | None:
         num = float(num_str)
     except ValueError:
         return None
-    from plugin.doc.visual_helpers import UNITS_PER_INCH, mm_to_unit
 
     if unit == "cm":
         return mm_to_unit(num * 10)
@@ -127,17 +132,20 @@ def _para_writers() -> dict[str, Callable[[str], tuple[str, Any] | None]]:
     reported as not applied. Returns an empty table when styles.py is missing: LibrePy
     ships this module without it (scripts/librepy_bundle_paths.py), and
     test_librepy_shipped_function_level_imports_are_safe checks that the import stays
-    guarded. The one caller, _apply_block_lo_styles, already returns before parsing in
+    guarded. The one caller, apply_block_lo_styles, already returns before parsing in
     that build, so the empty table only keeps the import graph safe.
+
+    range_copy._COPIED_PARA_PROPERTIES must hold every UNO property a writer sets here
+    (pinned by test_every_para_writer_property_is_copied_by_range_reads).
     """
     try:
-        from .styles import _dict_to_uno_struct, _para_adjust_to_uno, _style_color_to_uno
+        from .styles import dict_to_uno_struct, para_adjust_to_uno, style_color_to_uno
     except ImportError:
         return {}
 
     def text_align(val: str) -> tuple[str, Any] | None:
         try:
-            return ("ParaAdjust", _para_adjust_to_uno(xhtml_post._ODF_TEXT_ALIGN.get(val, val)))
+            return ("ParaAdjust", para_adjust_to_uno(xhtml_post.ODF_TEXT_ALIGN.get(val, val)))
         except ValueError:
             return None
 
@@ -145,10 +153,10 @@ def _para_writers() -> dict[str, Callable[[str], tuple[str, Any] | None]]:
         fields = _line_height_fields(val)
         if fields is None:
             return None
-        return ("ParaLineSpacing", _dict_to_uno_struct("ParaLineSpacing", "com.sun.star.style.LineSpacing", fields))
+        return ("ParaLineSpacing", dict_to_uno_struct("ParaLineSpacing", "com.sun.star.style.LineSpacing", fields))
 
     def background(val: str) -> tuple[str, Any] | None:
-        col = _style_color_to_uno(val)
+        col = style_color_to_uno(val)
         # _apply_para_props turns ParaBackColor into the FillColor/FillStyle pair.
         return None if col is None else ("ParaBackColor", col)
 
@@ -188,7 +196,7 @@ def parse_data_lo_para(css: str) -> tuple[dict[str, tuple[str, Any]], list[str]]
         try:
             result = writer(val.strip()) if writer is not None else None
         except ValueError:
-            # _dict_to_uno_struct raises ValueError when a struct field rejects the value.
+            # dict_to_uno_struct raises ValueError when a struct field rejects the value.
             result = None
         if result is None:
             dropped.append(prop)
@@ -208,7 +216,7 @@ class _OpenBlock:
         self.slot_index: int | None = slot_index
 
 
-class _BlockLoStyleExtractor(xhtml_post._HtmlPassthroughParser):
+class _BlockLoStyleExtractor(xhtml_post.HtmlPassthroughParser):
     """Collect data-lo-style and data-lo-para per TOP-LEVEL block (document order) and strip
     the attributes from the HTML, so the StarWriter import sees clean markup and we apply the
     formatting ourselves afterwards. Content inside <table> is left to the import (avoids order desync)."""
@@ -400,11 +408,13 @@ class _BlockSummarizer(_BlockLoStyleExtractor):
         if slot.level is not None:
             raw = "".join(slot.text_parts)
             text = " ".join(raw.split())
+            full_text = text
             if len(text) > 120:
                 text = text[:120] + "…"
             self.headings.append({
                 "level": slot.level,
                 "text": text,
+                "_full_text": full_text,
                 "_slot": slot,
             })
 
@@ -448,29 +458,36 @@ class _BlockSummarizer(_BlockLoStyleExtractor):
         self._append_text(data)
 
 
+# HTML block-level elements that define paragraphs. <br> is separate: it breaks a line but
+# does not make the content block-level for routing.
 _BLOCK_TAGS = (
     "p|div|h[1-6]|ul|ol|li|dl|dt|dd|caption"
     "|table|thead|tbody|tfoot|tr|td|th"
     "|blockquote|pre|hr|section|article|aside|header|footer|nav|main"
     "|figure|figcaption|address|details|summary|form|fieldset|legend|hgroup"
 )
-_BLOCK_MARKUP_RE = re.compile(r"<(?:%s)\b" % _BLOCK_TAGS, re.IGNORECASE)
-_LINEBREAK_MARKUP_RE = re.compile(r"</?(?:%s|br)\b" % _BLOCK_TAGS, re.IGNORECASE)
+BLOCK_MARKUP_RE = re.compile(r"<(?:%s)\b" % _BLOCK_TAGS, re.IGNORECASE)
+# Same tags plus closing forms and <br>: anything here already defines its own paragraphs.
+LINEBREAK_MARKUP_RE = re.compile(r"</?(?:%s|br)\b" % _BLOCK_TAGS, re.IGNORECASE)
 _COMPLETE_ENTITY_RE = re.compile(r"&(?:#[0-9]+|#[xX][0-9a-fA-F]+|[A-Za-z][A-Za-z0-9]{1,31});")
 
 
-def _decode_complete_character_references(text: str) -> str:
+def decode_complete_character_references(text: str) -> str:
     """Decode only HTML character references ending with a semicolon, ignoring incomplete references like '&sect 2o'."""
     if "&" not in text or not _COMPLETE_ENTITY_RE.search(text):
         return text
     return _COMPLETE_ENTITY_RE.sub(lambda m: html_mod.unescape(m.group(0)), text)
 
 
-def _expand_escapes(text: str) -> str:
+def expand_escapes(text: str) -> str:
+    """Turn the two-character sequences \\n and \\t that models often send literally into a real newline and tab.
+
+    Every write entry point runs this once, before measuring ruby offsets or importing.
+    """
     return text.replace("\\n", "\n").replace("\\t", "\t")
 
 
-def _plain_paragraphs(content: str) -> list[str]:
+def plain_paragraphs(content: str) -> list[str]:
     """Split plain-text content into paragraphs, collapsing 3+ newlines and dropping empty pieces."""
     collapsed = re.sub(r"\n{3,}", "\n\n", content)
     return [p for p in collapsed.split("\n\n") if p.strip()]
@@ -485,19 +502,36 @@ def _prepare_import_html(content: str) -> str:
     """
     if not isinstance(content, str) or not content:
         return ""
-    from plugin.doc.text_helpers import normalize_linebreaks as normalize
-    from plugin.framework.html_stripper import escape_prose_angle_brackets
-    from . import html_export, html_ruby
-    from .math.html_math_segment import html_fragment_contains_mixed_math
 
-    content = _decode_complete_character_references(content)
-    content = _expand_escapes(content)
+    content = decode_complete_character_references(content)
+    content = expand_escapes(content)
     if not html_fragment_contains_mixed_math(content):
         content, _unused_ruby = html_ruby.extract_and_strip_ruby(content)
-    content = escape_prose_angle_brackets(normalize(content))
+    content = escape_prose_angle_brackets(normalize_linebreaks(content))
     if re.search(r"<!DOCTYPE\s+html|<html[\s>]", content, re.IGNORECASE):
         content = html_export.strip_html_boilerplate(content)
     return content
+
+
+def _summarize_blocks(content: str) -> _BlockSummarizer | None:
+    """Parse prepared HTML with _BlockSummarizer if markup with linebreaks is present."""
+    if not isinstance(content, str) or not content:
+        return None
+    prepared = _prepare_import_html(content)
+    if not LINEBREAK_MARKUP_RE.search(prepared):
+        return None
+    parser = _BlockSummarizer()
+    parser.feed(prepared)
+    parser.close()
+    return parser
+
+
+def written_heading_texts(content: str) -> list[str]:
+    """Whitespace-collapsed, untruncated heading texts in written HTML (h1-h6 or data-lo-style HeadingN)."""
+    parser = _summarize_blocks(content)
+    if parser is None:
+        return []
+    return [str(h["_full_text"]) for h in parser.headings]
 
 
 def summarize_written_blocks(
@@ -511,14 +545,11 @@ def summarize_written_blocks(
     if not isinstance(content, str) or not content:
         return {"paragraph_count": 0, "headings": []}
 
-    prepared = _prepare_import_html(content)
-    if not _LINEBREAK_MARKUP_RE.search(prepared):
-        paras = _plain_paragraphs(prepared)
+    parser = _summarize_blocks(content)
+    if parser is None:
+        prepared = _prepare_import_html(content)
+        paras = plain_paragraphs(prepared)
         return {"paragraph_count": len(paras), "headings": []}
-
-    parser = _BlockSummarizer()
-    parser.feed(prepared)
-    parser.close()
 
     drop_set = frozenset(drop_heading_styles)
     headings = [
@@ -529,7 +560,7 @@ def summarize_written_blocks(
     return {"paragraph_count": len(parser.slots), "headings": headings}
 
 
-def _extract_block_lo_styles(
+def extract_block_lo_styles(
     html: str,
 ) -> tuple[str, list[str | None], list[str | None], list[str]]:
     """Return ``(clean_html, styles, para_css, skipped_para)`` per top-level block.
@@ -544,7 +575,7 @@ def _extract_block_lo_styles(
     return "".join(ex._out), ex.styles, ex.paras, ex.skipped_para
 
 
-def _resolve_paragraph_style_token(
+def resolve_paragraph_style_token(
     fam: Any,
     token: str,
     element_names: list[str] | tuple[str, ...],
@@ -583,11 +614,273 @@ def _resolve_paragraph_style_token(
 
 
 def unapplied_para_names_for_content(content: str) -> list[str]:
-    """Collect all data-lo-para property names declared in *content* (none applied)."""
+    """Collect all data-lo-para property names declared in *content* (none applied).
+
+    Used for targets that never apply paragraph formatting (position before/after).
+    """
     if "data-lo-para" not in content:
         return []
-    _clean, _styles, paras, skipped = _extract_block_lo_styles(content)
+    _clean, _styles, paras, skipped = extract_block_lo_styles(content)
     return declared_para_names(paras, skipped)
+
+
+MATH_IMPORT_FAILED = "MATH_IMPORT_FAILED"
+LINK_TARGET_NOT_FOUND = "LINK_TARGET_NOT_FOUND"
+
+StyleSkipCode = Literal["STYLE_IGNORED_PARTIAL_MATCH", "STYLE_IGNORED_RECORDING"]
+
+
+@dataclass
+class WriteReport:
+    """What one HTML write could not apply, reported on the tool result as ``warnings``.
+
+    Every write function in ``html_import`` returns one. ``unapplied_para`` holds the
+    data-lo-para property names that were not applied. ``style_skips`` holds one code per
+    write whose data-lo-style (and data-lo-para) was skipped because the replaced range was
+    not whole paragraphs or tracked changes were recording. ``style_tokens`` is the distinct
+    non-empty data-lo-style tokens in the content, in first-seen order; a skip with no token
+    still explains the data-lo-para skip but names no style. ``math`` is one entry per
+    formula conversion attempt. all_matches merges one report per match with ``extend``.
+    """
+
+    unapplied_para: list[str] = field(default_factory=list)
+    style_skips: list[StyleSkipCode] = field(default_factory=list)
+    style_tokens: list[str] = field(default_factory=list)
+    math: list[dict[str, Any]] = field(default_factory=list)
+
+    def extend(self, other: WriteReport) -> None:
+        self.unapplied_para.extend(other.unapplied_para)
+        self.style_skips.extend(other.style_skips)
+        self.style_tokens = list(dict.fromkeys(self.style_tokens + other.style_tokens))
+        self.math.extend(other.math)
+
+
+def append_warnings(
+    result: dict[str, Any], diags: list[Diagnostic]
+) -> dict[str, Any]:
+    """Append diagnostics to result["warnings"] on a successful result (creates the list)."""
+    if not diags or result.get("status") != "ok":
+        return result
+    existing = result.get("warnings")
+    if isinstance(existing, list):
+        existing.extend(diags)
+    else:
+        result["warnings"] = list(diags)
+    return result
+
+
+def attach_write_report(
+    result: dict[str, Any],
+    report: WriteReport,
+    *,
+    total_matches: int = 1,
+    suggest_style_fix: Callable[[str, int], SuggestedCall | None] | None = None,
+) -> dict[str, Any]:
+    """Turn one WriteReport into warnings (and math_objects) on a successful edit result.
+
+    Every write tool that takes formatted HTML reports through here, so the model sees one
+    message shape. Order: STYLE_IGNORED_* (also appended to message), PARA_* (deduped names,
+    reason from the first style skip), then math_objects + MATH_IMPORT_FAILED.
+    suggest_style_fix(token, total_matches) is called only for a partial-match skip with
+    exactly one style token.
+
+    math_objects is only published when the edit succeeded (``status == "ok"``) and attempted
+    at least one formula conversion. Empty attempts or error results are returned unchanged
+    because a failed or rolled-back edit left none of these objects in the document. ``ok``
+    means a Math object was inserted into the document, not accepted in review; the review
+    outcome is reported separately under ``review``. If any formula conversion failed, a
+    ``MATH_IMPORT_FAILED`` diagnostic is added to ``warnings`` while preserving the overall
+    ``ok`` status, so review workflows and surrounding edit metadata (counts, edited context)
+    remain intact.
+    """
+    if result.get("status") != "ok":
+        return result
+
+    diags: list[Diagnostic] = []
+
+    if report.style_skips and report.style_tokens:
+        style_tokens = report.style_tokens
+        token = style_tokens[0] if len(style_tokens) == 1 else None
+        subject = f"data-lo-style='{token}'" if token else "data-lo-style"
+
+        partial_count = report.style_skips.count("STYLE_IGNORED_PARTIAL_MATCH")
+        recording_count = report.style_skips.count("STYLE_IGNORED_RECORDING")
+
+        style_diags: list[Diagnostic] = []
+        if partial_count > 0:
+            scope_clause = (
+                f" to {partial_count} of {total_matches} matches because they do not cover whole paragraphs"
+                if total_matches > 1
+                else " because the replaced range does not cover a whole paragraph"
+            )
+            msg = (
+                f"{subject} was not applied{scope_clause}; "
+                "applying it would restyle neighboring text in the host paragraph. "
+                "apply_style restyles the whole paragraph containing the match. "
+                "Restyle with apply_style(target='search', old_content=...)."
+            )
+            partial_diag: Diagnostic = {
+                "code": "STYLE_IGNORED_PARTIAL_MATCH",
+                "message": msg,
+                "matches_skipped": partial_count,
+                "matches_total": total_matches,
+            }
+            if token is not None and suggest_style_fix is not None:
+                suggested = suggest_style_fix(token, total_matches)
+                if suggested is not None:
+                    partial_diag["suggested_call"] = suggested
+            style_diags.append(partial_diag)
+
+        if recording_count > 0:
+            rec_scope = f" to {recording_count} of {total_matches} matches" if total_matches > 1 else ""
+            rec_msg = (
+                f"{subject} was not applied{rec_scope} while tracked changes are recording, "
+                "because a paragraph style on this replace would turn the deletion into a format change. "
+                "Restyle with apply_style(target='search', old_content=...) after the change is accepted."
+            )
+            rec_diag: Diagnostic = {
+                "code": "STYLE_IGNORED_RECORDING",
+                "message": rec_msg,
+                "matches_skipped": recording_count,
+                "matches_total": total_matches,
+            }
+            style_diags.append(rec_diag)
+
+        if style_diags:
+            diags.extend(style_diags)
+            note_text = " ".join(d["message"] for d in style_diags)
+            existing_message = result.get("message") or ""
+            if existing_message:
+                result["message"] = f"{existing_message} {note_text}"
+            else:
+                result["message"] = note_text
+
+    if report.unapplied_para:
+        deduped = list(dict.fromkeys(report.unapplied_para))
+        skip_reason = report.style_skips[0] if report.style_skips else None
+        if skip_reason == "STYLE_IGNORED_PARTIAL_MATCH":
+            para_code = "PARA_IGNORED_PARTIAL_MATCH"
+            para_suffix = " because the replaced range does not cover a whole paragraph"
+        elif skip_reason == "STYLE_IGNORED_RECORDING":
+            para_code = "PARA_IGNORED_RECORDING"
+            para_suffix = " because tracked changes are recording"
+        else:
+            para_code = "PARA_PROPERTY_UNSUPPORTED"
+            para_suffix = ""
+
+        for name in deduped:
+            diags.append({
+                "code": para_code,
+                "message": f"data-lo-para property '{name}' was not applied{para_suffix}",
+            })
+
+    if report.math:
+        # Math objects are published only on successful edits (status == "ok"); a failed
+        # or rolled-back edit left none of these objects in the document. MATH_IMPORT_FAILED
+        # remains a warning so review workflows and surrounding edit metadata stay intact.
+        result["math_objects"] = list(report.math)
+        failed = [m for m in report.math if not m.get("ok")]
+        if failed:
+            listing = "; ".join(
+                f"{m.get('snippet', '')}: {m.get('error') or 'conversion failed'}"
+                for m in failed
+            )
+            diags.append({
+                "code": MATH_IMPORT_FAILED,
+                "message": (
+                    f"The content was written, but {len(failed)} of {len(report.math)} "
+                    f"formula(s) could not be converted to a Math object and stand in the "
+                    f"document as literal '[Math import failed] <formula>' text: {listing}. "
+                    f"Correct the formula and replace that literal text with target='search'."
+                ),
+            })
+
+    return append_warnings(result, diags)
+
+_HREF_FRAGMENT_RE = re.compile(r'(<a\b[^>]*?\bhref=)(["\'])#([^"\']*)\2', re.IGNORECASE)
+_ID_NAME_RE = re.compile(r'(?<![-\w])(?:id|name)=(["\'])(.*?)\1', re.IGNORECASE)
+
+
+def has_bare_fragment_links(content: str) -> bool:
+    """Return True if content contains an anchor tag with a bare fragment href."""
+    if not content or "#" not in content or "href" not in content.lower():
+        return False
+    for m in _HREF_FRAGMENT_RE.finditer(content):
+        frag = m.group(3)
+        if frag and "|" not in frag:
+            return True
+    return False
+
+
+def resolve_heading_links(
+    content: str,
+    document_headings: Iterable[str],
+    *,
+    is_bookmark: Callable[[str], bool],
+) -> tuple[str, list[Diagnostic]]:
+    """Rewrite bare href="#Heading" anchors to href="#Heading|outline" when the fragment exactly
+    matches a heading; return the rewritten HTML and one LINK_TARGET_NOT_FOUND warning per distinct
+    fragment that matches no heading, no id/name in *content*, and no existing bookmark.
+    """
+    if not has_bare_fragment_links(content):
+        return content, []
+
+    # Targets matching an element id or anchor name within written HTML are preserved so
+    # bookmark-based jumps succeed natively (sw/source/filter/html/htmlgrin.cxx:1370 InsertBookmark).
+    id_names: set[str] = {
+        " ".join(unquote(html_mod.unescape(m.group(2))).split())
+        for m in _ID_NAME_RE.finditer(content)
+    }
+
+    # Collect normalized heading texts from written content and document headings.
+    heading_set: set[str] = {
+        " ".join(h.split())
+        for h in written_heading_texts(content)
+    }
+    heading_set.update(
+        " ".join(h.split())
+        for h in document_headings
+    )
+    heading_set.discard("")
+
+    diagnostics: list[Diagnostic] = []
+    seen_missing: set[str] = set()
+
+    # Writer resolves hyperlinks in SwView::JumpToSwMark (sw/source/uibase/uiview/view2.cxx).
+    # Without a '|suffix', it only checks bookmarks and anchor names; bare '#Heading' links fail
+    # to navigate. Adding '|outline' directs navigation to SwDoc::GotoOutline
+    # (sw/source/core/doc/docnum.cxx), matching headings by outline text.
+    def _replace_link(m: re.Match[str]) -> str:
+        prefix = m.group(1)
+        quote = m.group(2)
+        frag = m.group(3)
+
+        if not frag or "|" in frag:
+            return m.group(0)
+
+        name = " ".join(unquote(html_mod.unescape(frag)).split())
+        if not name or name in id_names or is_bookmark(name):
+            return m.group(0)
+
+        if name in heading_set:
+            escaped = html_mod.escape(name, quote=True)
+            return f"{prefix}{quote}#{escaped}|outline{quote}"
+
+        if name not in seen_missing:
+            seen_missing.add(name)
+            diagnostics.append({
+                "code": LINK_TARGET_NOT_FOUND,
+                "link_target": f"#{name}",
+                "message": (
+                    f'Link target "#{name}" matches no heading or bookmark and will not jump anywhere. '
+                    'Use the exact heading text, href="#Heading text|outline", or give the target element '
+                    'an id and link to that.'
+                ),
+            })
+        return m.group(0)
+
+    rewritten = _HREF_FRAGMENT_RE.sub(_replace_link, content)
+    return rewritten, diagnostics
 
 
 def declared_para_names(*css_lists: Iterable[str | None]) -> list[str]:
@@ -646,7 +939,7 @@ def _apply_para_props(para_obj: Any, mapped: dict[str, tuple[str, Any]]) -> list
     return failed
 
 
-def _apply_block_lo_styles(
+def apply_block_lo_styles(
     model: Any,
     text_obj: Any,
     start: Any,
@@ -699,7 +992,7 @@ def _apply_block_lo_styles(
         reached_count = idx + 1
 
         if style:
-            resolved = _resolve_paragraph_style_token(fam, style, element_names=element_names)
+            resolved = resolve_paragraph_style_token(fam, style, element_names=element_names)
             # The import already set the style; re-applying only re-reads every portion.
             current = uno_read(lambda: walk_cur.getPropertyValue("ParaStyleName"), None)
             if current != resolved:
@@ -723,7 +1016,7 @@ def _apply_block_lo_styles(
                     para_cur = text_obj.createTextCursorByRange(walk_cur.getStart())
                     para_cur.gotoEndOfParagraph(True)
                     enum = para_cur.createEnumeration()
-                    para_obj = enum.nextElement() if enum.hasMoreElements() else None
+                    para_obj = enum.nextElement() if enum_has_more(enum) else None
                 except Exception as exc:
                     reraise_if_disposed(exc)
                     log.debug("data-lo-para: could not resolve the paragraph", exc_info=True)

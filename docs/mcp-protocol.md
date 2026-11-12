@@ -471,7 +471,7 @@ Orientation for AI assistants: [`AGENTS.md`](../AGENTS.md). Deep threading notes
 
 ## Historical archive (pre-`plugin/` layout)
 
-> **Archive mixed with later notes.** Subsections that still say `core/*.py` or REST `GET /tools` / `POST /tools/{name}` are design history — **not** the live map. Prefer [Current HTTP MCP (2026)](#current-http-mcp-2026) and [Current Status](#current-status--what-was-implemented) when anything conflicts. Rough path map: `core/mcp_server.py` → `plugin/mcp/`; main-thread helpers → `plugin/framework/queue_executor.py`; `core/async_stream.py` → `plugin/framework/async_stream.py`; prompt constants → `plugin/framework/prompts.py`; `core/config.py` → `plugin/framework/config.py`; `core/format_support.py` → `plugin/writer/format.py`.
+> **Archive mixed with later notes.** Subsections that still say `core/*.py` or REST `GET /tools` / `POST /tools/{name}` are design history — **not** the live map. Prefer [Current HTTP MCP (2026)](#current-http-mcp-2026) and [Current Status](#current-status--what-was-implemented) when anything conflicts. Rough path map: `core/mcp_server.py` → `plugin/mcp/`; main-thread helpers → `plugin/framework/queue_executor.py`; `core/async_stream.py` → `plugin/framework/async_stream.py`; prompt constants → `plugin/framework/prompts.py`; `core/config.py` → `plugin/framework/config.py`; `core/format_support.py` → `plugin/writer/html_import.py` / `html_export.py`.
 
 ### What Had Already Been Done (Writer Tools, Pre-MCP)
 
@@ -898,7 +898,7 @@ WriterAgent already handles settings.
 The standalone extension has no `AGENT.md` (the file doesn't exist — `GET /` returns empty
 instructions). So this comparison is entirely about tool `description` strings in
 `mcp_server.py` vs WriterAgent's descriptions (archive paths `core/writer_ops.py`,
-`core/format_support.py`, `core/constants.py` → live `plugin/writer/`, `plugin/writer/format.py`,
+`core/format_support.py`, `core/constants.py` → live `plugin/writer/`, `plugin/writer/html_import.py`, `plugin/writer/html_export.py`,
 `plugin/framework/prompts.py`).
 
 ---
@@ -965,9 +965,9 @@ to enable track changes, False to disable."}` — functional but doesn't say whe
 
 Parameters: `pattern` (required), `regex` (default **false**), `case_sensitive` (default **false**; shared constant `SEARCH_CASE_SENSITIVE_DEFAULT` in [`search.py`](../plugin/writer/search.py)),
 `max_results` (default 20), `return_offsets` (default **false** — body literal offsets only; no regex,
-no shapes/comments). Invalid regex with zero hits returns `code: INVALID_REGEX`. Search tools across domains share this default (omitted or JSON `null` means case-insensitive), and every tool result that executes a search reports the mode that ran in `matched_case_sensitive`.
+no shapes/comments). An invalid regex returns `code: INVALID_REGEX`: the pattern is validated by LibreOffice's ICU engine via `TextSearch2` before searching (LibreOffice itself reports a bad pattern as zero hits); floating shapes and comments use Python `re` with no separate check (ICU-only syntax matches nothing there). Search tools across domains share this default (omitted or JSON `null` means case-insensitive), and every tool result that executes a search reports the mode that ran in `matched_case_sensitive`.
 
-`max_results` must be a positive integer. Body, table, and text frame searches use LibreOffice/ICU regex, while floating shapes and comments use Python `re` after a Python `re.compile` validation check; `SEARCH_FAILED` includes the underlying exception text. A zero-width match stops the text-model walk, preserves `status: "ok"`, and sets `truncated: true` with a warning. A global cap of 10000 matches covers body text plus shapes and comments. `return_offsets=true` drops non-body `XText` hits (such as headers, footers, tables, and frames) while counting tracked deletions in the offset space. A failure while computing `return_offsets` (closed document or UNO error) is not `status: ok` with an empty `ranges` list; it is `DOCUMENT_DISPOSED` or `TOOL_EXECUTION_ERROR`.
+`max_results` must be a positive integer. Body, table, and text frame searches use LibreOffice/ICU regex, while floating shapes and comments use Python `re`; `SEARCH_FAILED` includes the underlying exception text. A zero-width match stops the text-model walk, preserves `status: "ok"`, and sets `truncated: true` with a warning. A global cap of 10000 matches covers body text plus shapes and comments. `return_offsets=true` drops non-body `XText` hits (such as headers, footers, tables, and frames) while counting tracked deletions in the offset space. A failure while computing `return_offsets` (closed document or UNO error) is not `status: ok` with an empty `ranges` list; it is `DOCUMENT_DISPOSED` or `TOOL_EXECUTION_ERROR`. With `regex=false`, the floating-shape and comment sweep folds typographic quotes (`‘’‚‛` to `'`, `“”„‟` to `"`) and returns the original characters; dashes and spaces are not folded there, and `regex=true` does not rewrite the pattern.
 
 `apply_document_content` `dry_run=true` previews edit-reachable matches in `replaceable` plus shape/comment
 previews in `not_replaceable` (see `edit_reach_note` in the result). Replaceable body/table/frame rows include

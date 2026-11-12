@@ -39,11 +39,14 @@ def enum_param(values: list[str], description: str, **extra: Any) -> dict[str, A
     return {"type": "string", "enum": list(values), "description": description, **extra}
 
 
-def target_params(what: str, **extra: Any) -> dict[str, Any]:
-    """The target + old_content property pair used by insert-at-target tools (resolve_target_cursor)."""
+def target_params(what: str, *, old_content_description: str | None = None, **extra: Any) -> dict[str, Any]:
+    """The target + old_content + case_sensitive triple consumed by insert_at_target (target_resolver)."""
     return {
         "target": enum_param(INSERT_TARGETS, f"Where to insert {what}.", **extra),
-        "old_content": {"type": "string", "description": "Text to find and replace if target = 'search'."},
+        "old_content": {
+            "type": "string",
+            "description": old_content_description or "Text to find and replace if target = 'search'.",
+        },
         "case_sensitive": {"type": "boolean", "description": f"For target='search': {CASE_SENSITIVE_DESCRIPTION}"},
     }
 
@@ -175,8 +178,12 @@ class ToolWriterIndexBase(ToolWriterSpecialBase):
     specialized_domain: ClassVar[str | None] = "indexes"
     specialized_domain_description: ClassVar[str | None] = (
         "Manage Table of Contents, alphabetical indexes, and native bibliography cites plus the reference table. "
-        "Read TOC rows with indexes_list_toc_entries (visible text, outline level, internal hyperlink); "
+        "Delegate every TOC job here as one task, including creating a new TOC (indexes_create kind=toc) "
+        "and editing rows; the indexes executor reads and edits rows in the document, so the main chat "
+        "must not rebuild a TOC with document-content edits or pass rows read from the document back in. "
+        "Read TOC rows with indexes_list_toc_entries (entry text and level; links only on request); "
         "that reads the index and does not export the document or call update(). "
+        "For a read-only request, report entry text and level. "
         "Customized TOC rows: indexes_insert_toc_entry, indexes_delete_toc_entry, and indexes_refresh_toc_entry "
         "edit one entry and do not call update(). indexes_update_all rebuilds the TOC and drops custom formatting."
     )

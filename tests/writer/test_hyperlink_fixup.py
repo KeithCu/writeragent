@@ -12,10 +12,12 @@ run capture_outline_hyperlinks / restore_outline_hyperlinks. Substitution
 rules are tested on the pure planner as well.
 """
 
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
 
+from plugin.framework.errors import ToolExecutionError
 from plugin.doc.text_helpers import iter_elements
 from plugin.writer.hyperlink_fixup import (
     OutlineLink,
@@ -95,7 +97,7 @@ class _Pos:
 
 class _Slice:
     def __init__(self, text, url="", name="", target="", color=None, underline=None,
-                 text_type="Text", raise_props=False):
+                 text_type="Text", raise_props=False, direct=True, link_style=""):
         self.text = text
         self.url = url
         self.name = name
@@ -104,6 +106,8 @@ class _Slice:
         self.underline = underline
         self.text_type = text_type
         self.raise_props = raise_props
+        self.direct = direct
+        self.link_style = link_style
 
 
 class _Enum:
@@ -127,6 +131,7 @@ class _Doc:
         self.slices = slices
         # LibreOffice reapplies Internet-link defaults when HyperLinkURL is set.
         self.stomp_look_on_url = stomp_look_on_url
+        self.writes = []
 
     def text(self):
         return "".join(sl.text for sl in self.slices)
@@ -238,12 +243,15 @@ class _Cursor:
                     return sl.color
                 if name == "CharUnderline":
                     return sl.underline
+                if name in ("UnvisitedCharStyleName", "VisitedCharStyleName"):
+                    return sl.link_style or None
         raise AttributeError(name)
 
     def createEnumeration(self):
         return _Enum([_Paragraph(self.doc)])
 
     def setPropertyValue(self, name, value):
+        self.doc.writes.append((name, value))
         for sl in self.doc.slices:
             start, end = self.doc.slice_bounds(sl)
             if start < self.end and end > self.start:
@@ -252,6 +260,7 @@ class _Cursor:
                     if self.doc.stomp_look_on_url:
                         sl.color = 128
                         sl.underline = 1
+                        sl.link_style = "Internet Link"
                 elif name == "HyperLinkName":
                     sl.name = value
                 elif name == "HyperLinkTarget":
@@ -260,6 +269,8 @@ class _Cursor:
                     sl.color = value
                 elif name == "CharUnderline":
                     sl.underline = value
+                elif name in ("UnvisitedCharStyleName", "VisitedCharStyleName"):
+                    sl.link_style = value
 
 
 class _Paragraph:
@@ -292,6 +303,20 @@ class _Portion:
         _start, end = self.doc.slice_bounds(self.sl)
         return _Pos(end)
 
+    def getPropertyState(self, name):
+        if self.sl.raise_props:
+            raise AttributeError(name)
+        val = None
+        if name == "CharColor":
+            val = self.sl.color
+        elif name == "CharUnderline":
+            val = self.sl.underline
+        elif hasattr(self.sl, name):
+            val = getattr(self.sl, name)
+        if self.sl.direct and val is not None:
+            return SimpleNamespace(value="DIRECT_VALUE")
+        return SimpleNamespace(value="DEFAULT_VALUE")
+
     def getPropertyValue(self, name):
         if name == "TextPortionType":
             return self.sl.text_type
@@ -307,6 +332,8 @@ class _Portion:
             return self.sl.color
         if name == "CharUnderline":
             return self.sl.underline
+        if name in ("UnvisitedCharStyleName", "VisitedCharStyleName"):
+            return self.sl.link_style or None
         raise AttributeError(name)
 
 
@@ -556,11 +583,19 @@ def test_paint_refuses_a_selection_that_does_not_match_the_replacement():
     doc = _Doc([title])
     snapshot = OutlineSnapshot([OutlineLink(_OUTLINE, "", "")], "X", "", "Old title", True)
     plan = {"new_url": "#1.New title|outline", "new_name": None, "new_target": None}
-    with pytest.raises(RuntimeError, match="Could not select the replaced text"):
+    with pytest.raises(ToolExecutionError, match="Could not select the replaced text") as exc_info:
         _paint(doc, _Pos(0), snapshot, "New title", plan, required=True)
+    assert exc_info.value.code == "HYPERLINK_UPDATE_FAILED"
     assert title.url == _OUTLINE
     assert _paint(doc, _Pos(0), snapshot, "New title", plan, required=False) is False
     assert title.url == _OUTLINE
+
+
+def test_restore_without_anchor_raises_hyperlink_update_failed():
+    snapshot = OutlineSnapshot([OutlineLink(_OUTLINE, "", "")], "X", "", "Old title", True)
+    with pytest.raises(ToolExecutionError, match="Could not locate the replaced text") as exc_info:
+        restore_outline_hyperlinks(None, snapshot, "x", None)
+    assert exc_info.value.code == "HYPERLINK_UPDATE_FAILED"
 
 
 def test_iter_portions_skips_redline_markers():
@@ -578,3 +613,19 @@ def test_restore_ignores_a_marker_without_link_properties():
     assert title.url == "#1.New title|outline"
     assert reports[0]["hyperlink_updated"] is True
     assert reports[0]["hyperlink_url_after"] == "#1.New title|outline"
+
+
+def test_restore_keeps_inherited_look_without_direct_color():
+    """Inherited styles on sibling links are preserved via link style names without adding direct CharColor."""
+    prefix = _Slice("2.3.4. ", _OUTLINE, color=0, underline=0, direct=False, link_style="Index Link")
+    title = _Slice("Old title", _OUTLINE, color=0, underline=0, direct=False, link_style="Index Link")
+    suffix = _Slice("\t42", _OUTLINE, color=0, underline=0, direct=False, link_style="Index Link")
+    doc = _Doc([prefix, title, suffix], stomp_look_on_url=True)
+    snapshot = capture_outline_hyperlinks(_match(doc, 7, 16))
+    _replace_equal(title, "New title")
+    restore_outline_hyperlinks(_match(doc, 7, 7), snapshot, "New title", None)
+    for sl in (prefix, title, suffix):
+        assert sl.url == "#1.New title|outline"
+        assert sl.link_style == "Index Link"
+    assert ("UnvisitedCharStyleName", "Index Link") in doc.writes
+    assert not any(name == "CharColor" for name, _ in doc.writes)

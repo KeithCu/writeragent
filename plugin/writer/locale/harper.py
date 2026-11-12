@@ -25,14 +25,17 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
 from plugin.framework.managed_subprocess import ManagedSubprocess
+from plugin.framework import config
 from plugin.framework.errors import best_effort
+from plugin.framework.quit_hooks import register_quit_hook
 from plugin.scripting.sandbox import wrap_command_for_sandbox
 
 from plugin.contrib.lsp import json_rpc_framing
 from plugin.contrib.lsp.position_codec import ClientPosition, PositionCodec
 from plugin.writer.locale import grammar_settings
+from plugin.writer.locale.grammar_obs import get_grammar_status, grammar_obs
 from plugin.writer.locale.harper_binary import emit_progress, get_harper_binary
-from plugin.framework.grammar_rule_ids import HARPER_RULE_PREFIX, make_rule_identifier
+from plugin.framework.grammar_rule_ids import HARPER_RULE_PREFIX, make_rule_identifier, normalize_detected_bcp47
 
 log = logging.getLogger("writeragent.grammar")
 
@@ -42,6 +45,7 @@ _LINT_BUDGET_SEC = 15.0
 _DIALOG_LINT_BUDGET_SEC: float = 2.0
 _INIT_BUDGET_SEC = 5.0
 _UI_STATE_LOCK_WAIT_SEC: float = 0.05
+_SHUTDOWN_LOCK_WAIT_SEC: float = 1.0
 # Cancel is polled on this cadence so linguistic wait timeouts release
 # runtime.lock instead of blocking the next Harper caller for 15 seconds.
 _HARPER_CANCEL_POLL_SEC = 0.25
@@ -78,6 +82,22 @@ HARPER_DIALECTS: dict[str, str] = {
 }
 
 HARPER_LOCALE_TAGS: tuple[str, ...] = tuple(HARPER_DIALECTS)
+
+
+def normalize_harper_locale_to_bcp47(a_locale: Any) -> str | None:
+    """Preserve the regional English dialects understood by Harper."""
+    if a_locale is None:
+        return None
+    language = str(getattr(a_locale, "Language", "") or "").strip()
+    country = str(getattr(a_locale, "Country", "") or "").strip()
+    tag = language
+    # Explicit Country wins over a plain Language; a Language that already
+    # carries a region ("en-GB", "en_GB") keeps it; normalize splits and
+    # upper-cases either form.
+    if country and language and "-" not in language and "_" not in language:
+        tag = f"{language}-{country}"
+    normalized = normalize_detected_bcp47(tag)
+    return normalized if normalized in HARPER_LOCALE_TAGS else None
 
 
 def _harper_lsp_settings(bcp47: str, user_config_dir: str) -> dict[str, Any]:
@@ -127,12 +147,29 @@ class HarperRuntime:
         self.linting_client = None
 
     def shutdown(self) -> None:
-        """Close every cached harper-ls client. Safe from tests and extension teardown."""
-        with self.lock:
+        """Close every cached harper-ls client.
+
+        Runs as a quit hook on the UI thread (Desktop::terminate has already
+        closed every frame, so no new doProofreading can start a lint) and from
+        the pytest teardown fixture. A ``harper_try_lint`` already in flight
+        can re-ensure after this hook, and that child ends on stdin EOF as
+        before. A lint worker may hold ``lock`` across ``client.lint`` and can
+        be blocked in pipe I/O, so this acquire is timed. On timeout the holder
+        is ``lint_now`` with ``linting_client`` set: closing that client
+        aborts its pipe I/O, ``lint`` raises and ``lint_now`` releases the lock
+        on its own. Nothing is written to ``clients`` or ``state`` on that path;
+        the holder keeps what it set.
+        """
+        if not self.lock.acquire(timeout=_SHUTDOWN_LOCK_WAIT_SEC):
+            self.abort_lint()
+            return
+        try:
             clients = list(self.clients.values())
             self.clients.clear()
             self.state = HarperRuntimeState.IDLE
             self.failed_at = 0.0
+        finally:
+            self.lock.release()
         for client in clients:
             client.close()
 
@@ -200,8 +237,6 @@ class HarperRuntime:
             return built
 
     def ensure_body(self, user_config_dir: str, bcp47: str = "en-US") -> None:
-        from plugin.writer.locale.grammar_obs import get_grammar_status
-
         try:
             def _on_progress(payload: dict[str, str]) -> None:
                 message = str(payload.get("message") or "").strip()
@@ -281,7 +316,6 @@ class HarperRuntime:
         text: str,
         bcp47: str,
         *,
-        heartbeat_fn: Callable[[dict[str, str]], None] | None = None,
         deadline: float | None = None,
         cancel_event: threading.Event | None = None,
     ) -> dict[str, Any]:
@@ -293,7 +327,6 @@ class HarperRuntime:
             results = client.lint(
                 lint_text,
                 bcp47=bcp47,
-                heartbeat_fn=heartbeat_fn,
                 deadline=deadline,
                 cancel_event=cancel_event,
             )
@@ -308,11 +341,10 @@ class HarperRuntime:
             elapsed_ms = int((time.monotonic() - started) * 1000)
             if elapsed_ms > 500:
                 log.warning(
-                    "[harper] slow result elapsed_ms=%s text_len=%s errors=%s cache=%s",
+                    "[harper] slow result elapsed_ms=%s text_len=%s errors=%s",
                     elapsed_ms,
                     len(text),
                     error_count,
-                    "miss",
                 )
 
     def lint_now(
@@ -623,12 +655,10 @@ class HarperLSClient:
         text: str,
         bcp47: str = "en-US",
         *,
-        heartbeat_fn: Callable[[dict[str, str]], None] | None = None,
         deadline: float | None = None,
         cancel_event: threading.Event | None = None,
     ) -> list[Any]:
         # One lint at a time: venv worker IPC is serialized; grammar uses a single drain thread for Harper.
-        self._heartbeat_fn = heartbeat_fn
         if deadline is None:
             deadline = time.monotonic() + _LINT_BUDGET_SEC
         previous_cancel = self._lint_cancel
@@ -638,8 +668,6 @@ class HarperLSClient:
                 raise TimeoutError("Harper LSP operation cancelled")
             if not self.is_alive():
                 self._initialize()
-
-            emit_progress(self._heartbeat_fn, "Linting…")
 
             self._apply_bcp47(bcp47)
             self._doc_version += 1
@@ -671,8 +699,7 @@ class HarperLSClient:
         """
         proc = self.proc
         self.proc = None
-        # __new__ without __init__ (unit tests) may omit stdout_thread; real clients set it in __init__.
-        thread = getattr(self, "stdout_thread", None)
+        thread = self.stdout_thread
         self.stdout_thread = None
         self._doc_opened = False
         if proc is None:
@@ -717,8 +744,11 @@ def lsp_range_to_offset(text: str, line: int, character: int) -> int:
 
 
 def shutdown_harper_runtime() -> None:
-    """Close every cached harper-ls client. Safe from tests and extension teardown."""
+    """Quit hook and pytest teardown: close every cached harper-ls client."""
     runtime.shutdown()
+
+
+register_quit_hook(shutdown_harper_runtime)
 
 
 def _broadcast_proofread_again() -> None:
@@ -761,8 +791,6 @@ def maybe_start_harper_async(
     (parent of writeragent.json). Empty path is a no-op. WriterAgent starts from OnStartApp;
     LibreHarper from HarperProofreader after init_config (no Jobs.xcu). Returns True if submitted.
     """
-    from plugin.framework.config import user_config_dir as get_ucd
-
     if grammar_settings.provider() != "harper":
         return False
 
@@ -770,10 +798,8 @@ def maybe_start_harper_async(
     if not ucd:
         try:
             if ctx is not None:
-                from plugin.framework.config import init_config
-
-                init_config(ctx)
-            ucd = get_ucd() or ""
+                config.init_config(ctx)
+            ucd = config.user_config_dir() or ""
         except Exception:
             ucd = ""
 
@@ -786,7 +812,7 @@ def maybe_start_harper_async(
     return harper_ensure_ready_async(ucd, bcp47=bcp47)
 
 
-def harper_try_lint(text: str, user_config_dir: str, bcp47: str = "en-US", *, ctx: Any = None) -> dict[str, Any] | None:
+def harper_try_lint(text: str, user_config_dir: str, bcp47: str = "en-US", *, ctx: Any) -> dict[str, Any] | None:
     """Lint now if harper-ls is already in-process; else kick one ensure and return None.
 
     Never downloads or ``Popen``s on the caller thread (UNO ``doProofreading``).
@@ -796,62 +822,56 @@ def harper_try_lint(text: str, user_config_dir: str, bcp47: str = "en-US", *, ct
     dedicated worker and the caller uses ``wait_while_pumping`` so typing stays
     alive. Writer runs ``doProofreading`` on a linguistic worker (``Dummy-*``),
     not VCL: the helper posts PE2I to the main thread instead of pumping on
-    this stack (in-loop PE2I there was a thread-violation dialog). Missing ``ctx`` falls
-    back to a blocking wait (no pump).
+    this stack (in-loop PE2I there was a thread-violation dialog).
     """
-    from plugin.writer.locale.grammar_obs import grammar_obs
-
     if not user_config_dir:
         log.error("[harper] lint skipped: empty user config dir")
         return None
 
     try:
-        if ctx is None:
-            res, none_reason = runtime.lint_now(text, bcp47=bcp47)
-        else:
-            box: dict[str, Any] = {}
-            done = threading.Event()
-            cancel_event = threading.Event()
-            from plugin.framework.queue_executor import main
+        box: dict[str, Any] = {}
+        done = threading.Event()
+        cancel_event = threading.Event()
+        from plugin.framework.queue_executor import main
 
-            # VCL proofreading has no Stop, so the dialog budget is 2 s; Dummy-* stays 15 s.
-            budget = _DIALOG_LINT_BUDGET_SEC if main.is_current() else _LINT_BUDGET_SEC
-            # One clock for the waiter and the worker. A late worker must not start
-            # a fresh budget after the caller has already timed out.
-            deadline = time.monotonic() + budget
+        # VCL proofreading has no Stop, so the dialog budget is 2 s; Dummy-* stays 15 s.
+        budget = _DIALOG_LINT_BUDGET_SEC if main.is_current() else _LINT_BUDGET_SEC
+        # One clock for the waiter and the worker. A late worker must not start
+        # a fresh budget after the caller has already timed out.
+        deadline = time.monotonic() + budget
 
-            def _worker() -> None:
-                try:
-                    box["result"], box["none_reason"] = runtime.lint_now(
-                        text,
-                        bcp47=bcp47,
-                        deadline=deadline,
-                        cancel_event=cancel_event,
-                    )
-                except Exception as exc:
-                    box["exc"] = exc
-                finally:
-                    done.set()
+        def _worker() -> None:
+            try:
+                box["result"], box["none_reason"] = runtime.lint_now(
+                    text,
+                    bcp47=bcp47,
+                    deadline=deadline,
+                    cancel_event=cancel_event,
+                )
+            except Exception as exc:
+                box["exc"] = exc
+            finally:
+                done.set()
 
-            from plugin.framework.worker_pool import run_in_background
+        from plugin.framework.worker_pool import run_in_background
 
-            handle = run_in_background(_worker, name="harper-lint-wait", dedicated=True)
-            from plugin.framework.uno_context import wait_while_pumping
+        handle = run_in_background(_worker, name="harper-lint-wait", dedicated=True)
+        from plugin.framework.uno_context import wait_while_pumping
 
-            wait_while_pumping(done, ctx, timeout=_deadline_remaining(deadline))
+        wait_while_pumping(done, ctx, timeout=_deadline_remaining(deadline))
+        if not done.is_set():
+            # Cancel unblocks the worker's queue poll so join finishes within
+            # _HARPER_CANCEL_JOIN_SEC instead of holding runtime.lock for ~30s.
+            cancel_event.set()
+            handle.join(timeout=_HARPER_CANCEL_JOIN_SEC)
             if not done.is_set():
-                # Cancel unblocks the worker's queue poll so join finishes within
-                # _HARPER_CANCEL_JOIN_SEC instead of holding runtime.lock for ~30s.
-                cancel_event.set()
-                handle.join(timeout=_HARPER_CANCEL_JOIN_SEC)
-                if not done.is_set():
-                    runtime.abort_lint()
-            if "exc" in box:
-                raise box["exc"]
-            if not done.is_set():
-                raise TimeoutError("Harper LSP operation timed out")
-            res = box.get("result")
-            none_reason = box.get("none_reason")
+                runtime.abort_lint()
+        if "exc" in box:
+            raise box["exc"]
+        if not done.is_set():
+            raise TimeoutError("Harper LSP operation timed out")
+        res = box.get("result")
+        none_reason = box.get("none_reason")
     except HarperLockTimeoutError:
         grammar_obs("harper_try_lint_none", reason="lock_timeout", ensure_submitted=False)
         return None

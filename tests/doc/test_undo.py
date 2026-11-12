@@ -4,6 +4,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Undo and redo tool exposure. No LibreOffice."""
 from unittest.mock import MagicMock
+from plugin.framework.errors import make_tool_error
 
 
 # ---- 7) undo/redo exposed --------------------------------------------------------
@@ -284,7 +285,7 @@ def test_commit_or_rollback_mutation_passes_extra_error_once():
     from plugin.doc.undo import commit_or_rollback_mutation
 
     tool = MagicMock()
-    tool._tool_error.side_effect = lambda msg, **kw: {"status": "error", "message": msg, **kw}
+    tool._tool_error.side_effect = make_tool_error
     doc = MagicMock()
     mgr = MagicMock()
     mgr.isLocked.return_value = False
@@ -300,6 +301,7 @@ def test_commit_or_rollback_mutation_passes_extra_error_once():
     assert res is not None
     assert res["status"] == "error"
     assert res["extra_key"] == "extra_val"
+    assert "details" not in res
     tool._tool_error.assert_called_once()
 
 
@@ -322,7 +324,7 @@ def test_commit_or_rollback_mutation_undo_unavailable():
     from plugin.doc.undo import commit_or_rollback_mutation
 
     tool = MagicMock()
-    tool._tool_error.side_effect = lambda msg, **kw: {"status": "error", "message": msg, **kw}
+    tool._tool_error.side_effect = make_tool_error
     doc = MagicMock()
     mgr = MagicMock()
     mgr.isLocked.return_value = True
@@ -340,7 +342,7 @@ def test_commit_or_rollback_mutation_exception_reports_error():
     from plugin.doc.undo import commit_or_rollback_mutation
 
     tool = MagicMock()
-    tool._tool_error.side_effect = lambda msg, **kw: {"status": "error", "message": msg, **kw}
+    tool._tool_error.side_effect = make_tool_error
     doc = MagicMock()
     mgr = MagicMock()
     mgr.isLocked.return_value = False
@@ -364,7 +366,7 @@ def test_commit_or_rollback_mutation_surfaces_wrapper_errors():
     from plugin.doc.undo import commit_or_rollback_mutation
 
     tool = MagicMock()
-    tool._tool_error.side_effect = lambda msg, **kw: {"status": "error", "message": msg, **kw}
+    tool._tool_error.side_effect = make_tool_error
     doc = MagicMock()
     with patch("plugin.doc.undo.commit_or_rollback", side_effect=RuntimeError("wrapper")):
         res = commit_or_rollback_mutation(
@@ -381,26 +383,60 @@ def test_commit_or_rollback_mutation_surfaces_wrapper_errors():
     assert res.get("code") == "WRAPPER"
 
 
-def test_undo_tolerates_null_and_non_numeric_steps():
+def test_commit_or_rollback_mutation_extra_code_sets_payload_code():
+    from plugin.doc.undo import commit_or_rollback_mutation
+
+    tool = MagicMock()
+    tool._tool_error.side_effect = make_tool_error
+    doc = MagicMock()
+    mgr = MagicMock()
+    mgr.isLocked.return_value = False
+    mgr.getAllUndoActionTitles.side_effect = [(), ("Title",)]
+    doc.getUndoManager.return_value = mgr
+
+    def mutate():
+        raise RuntimeError("boom")
+
+    res = commit_or_rollback_mutation(
+        tool,
+        doc,
+        "Title",
+        mutate,
+        "Undo unavail",
+        "Rollback failed",
+        code="INSERT_FRAME_FAILED",
+        frame="F",
+    )
+    assert res is not None
+    assert res["code"] == "INSERT_FRAME_FAILED"
+    assert res["frame"] == "F"
+    assert "details" not in res
+
+
+def test_undo_null_steps_is_one_and_non_integer_steps_is_rejected_by_registry():
+    from plugin.framework.tool import ToolContext, ToolRegistry
     from plugin.doc.undo import Undo
 
+    doc = MagicMock()
     um = MagicMock()
     um.isUndoPossible.return_value = True
     um.isRedoPossible.return_value = True
-    ctx = MagicMock()
-    ctx.doc.getUndoManager.return_value = um
+    doc.getUndoManager.return_value = um
 
-    res = Undo().execute(ctx, steps=None)
+    reg = ToolRegistry(services={})
+    reg.register(Undo())
+    ctx = ToolContext(doc, MagicMock(), "writer", reg)
+
+    res = reg.execute("undo", ctx, steps=None)
     assert res["status"] == "ok"
     assert res["undone"] == 1
 
     um.reset_mock()
-    um.isUndoPossible.return_value = True
-    um.isRedoPossible.return_value = True
-
-    res2 = Undo().execute(ctx, steps="abc")
-    assert res2["status"] == "ok"
-    assert res2["undone"] == 1
+    err = reg.execute("undo", ctx, steps="abc")
+    assert err["status"] == "error"
+    assert err["code"] == "VALIDATION_ERROR"
+    assert err["message"] == "Invalid type for steps: expected integer, got str"
+    um.undo.assert_not_called()
 
 
 def test_undo_tool_propagates_disposal():
@@ -532,3 +568,68 @@ def test_nothing_landed_follows_undo_or_unchanged_session():
     outcome3 = commit_or_rollback(doc, "Title", mutate_ok, session=session)
     assert outcome3.rolled_back is False
     assert outcome3.nothing_landed is True
+
+
+def test_commit_or_rollback_mutation_code_is_top_level_and_extras_are_mirrored():
+    from plugin.doc.undo import Undo, commit_or_rollback_mutation
+
+    tool = Undo()
+
+    def _failing_doc():
+        doc = MagicMock()
+        mgr = MagicMock()
+        mgr.isLocked.return_value = False
+        mgr.getAllUndoActionTitles.side_effect = [(), ("T",)]
+        doc.getUndoManager.return_value = mgr
+        return doc
+
+    def _boom():
+        raise RuntimeError("boom")
+
+    res = commit_or_rollback_mutation(
+        tool,
+        _failing_doc(),
+        "T",
+        _boom,
+        "unavailable",
+        "rollback",
+        code="INSERT_FRAME_FAILED",
+    )
+    assert res is not None
+    assert res["code"] == "INSERT_FRAME_FAILED"
+    assert "details" not in res
+
+    res = commit_or_rollback_mutation(
+        tool,
+        _failing_doc(),
+        "T",
+        _boom,
+        "unavailable",
+        "rollback",
+        deleted=0,
+    )
+    assert res is not None
+    assert res["code"] == "TOOL_EXECUTION_ERROR"
+    assert "details" not in res
+    assert res["deleted"] == 0
+
+    res = commit_or_rollback_mutation(
+        tool,
+        _failing_doc(),
+        "T",
+        _boom,
+        "unavailable",
+        "rollback",
+    )
+    assert res is not None
+    assert res["code"] == "TOOL_EXECUTION_ERROR"
+    assert "details" not in res
+
+
+def test_undo_without_undo_manager_reports_error():
+    from types import SimpleNamespace
+    from plugin.doc.undo import Undo
+
+    res = Undo().execute(SimpleNamespace(doc=object()))
+    assert res["status"] == "error"
+    assert res["message"] == "Document does not support undo."

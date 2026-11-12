@@ -7,7 +7,6 @@
 from io import BytesIO
 from pathlib import Path
 from unittest.mock import MagicMock, patch
-import inspect
 import json
 import logging
 import os
@@ -44,12 +43,6 @@ def _reset_harper_client_cache() -> None:
     shutdown_harper_runtime()
     yield
     shutdown_harper_runtime()
-
-
-def test_harper_client_parameterizes_stdout_queue() -> None:
-    """Bare queue.Queue leftovers trip reportMissingTypeArgument."""
-    src = inspect.getsource(HarperLSClient.__init__)
-    assert "stdout_queue: queue.Queue[dict[str, Any] | None]" in src
 
 
 def test_lsp_range_to_offset_single_line() -> None:
@@ -327,6 +320,45 @@ def _bare_harper_client() -> HarperLSClient:
     client.stdout_thread = None
     client.binary_path = "/bin/harper-ls"
     return client
+
+
+def _ready_runtime(client: HarperLSClient | MagicMock, binary: str = "/bin/harper-ls") -> None:
+    """READY through ensure_body: *client* is what HarperLSClient() would build."""
+    with (
+        patch.object(harper_module, "get_harper_binary", return_value=binary),
+        patch.object(harper_module, "HarperLSClient", return_value=client),
+        patch.object(harper_module, "_schedule_proofread_again"),
+    ):
+        harper_module.runtime.ensure_body("/tmp")
+    assert harper_module.runtime.is_ready()
+
+
+def _failed_runtime(monkeypatch: pytest.MonkeyPatch, *, cooled_down: bool) -> None:
+    with patch.object(harper_module, "get_harper_binary", side_effect=OSError("harper-ls missing")):
+        harper_module.runtime.ensure_body("/tmp")
+    if cooled_down:
+        monkeypatch.setattr(harper_module, "_HARPER_FAIL_COOLDOWN_SEC", 0.0)
+
+
+def _resolving_runtime() -> None:
+    with patch("plugin.framework.worker_pool.run_in_background"):
+        assert harper_module.runtime.ensure_async("/tmp")
+
+
+@pytest.fixture
+def ensure_jobs(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """Run the harper-lint-wait job inline; record other submissions (the ensure job) without running them."""
+    names: list[str] = []
+
+    def fake_bg(func: Any, *args: Any, name: str | None = None, **kwargs: Any) -> MagicMock:
+        if name == "harper-lint-wait":
+            func(*args)
+        else:
+            names.append(name or "")
+        return MagicMock()
+
+    monkeypatch.setattr("plugin.framework.worker_pool.run_in_background", fake_bg)
+    return names
 
 
 def test_collect_diagnostics_empty_publish_is_clean() -> None:
@@ -848,17 +880,15 @@ def test_normalize_spaces_1to1() -> None:
 
 
 
-@patch("plugin.framework.worker_pool.run_in_background")
-def test_harper_try_lint_idle_kicks_one_ensure(mock_bg: MagicMock) -> None:
-    assert harper_try_lint("Hello.", "/tmp") is None
-    assert mock_bg.call_count == 1
+def test_harper_try_lint_idle_kicks_one_ensure(ensure_jobs: list[str]) -> None:
+    assert harper_try_lint("Hello.", "/tmp", ctx=object()) is None
+    assert ensure_jobs == ["harper-ensure-ready"]
     assert harper_module.runtime.state is HarperRuntimeState.RESOLVING
-    assert harper_try_lint("Hello again.", "/tmp") is None
-    assert mock_bg.call_count == 1
+    assert harper_try_lint("Hello again.", "/tmp", ctx=object()) is None
+    assert ensure_jobs == ["harper-ensure-ready"]
 
 
-@patch("plugin.framework.worker_pool.run_in_background")
-def test_harper_try_lint_ready_returns_errors(mock_bg: MagicMock) -> None:
+def test_harper_try_lint_ready_returns_errors(ensure_jobs: list[str]) -> None:
     mock_client = MagicMock()
     mock_client.is_alive.return_value = True
     mock_client.lint.return_value = [
@@ -871,79 +901,61 @@ def test_harper_try_lint_ready_returns_errors(mock_bg: MagicMock) -> None:
             "suggestions": ["This"],
         }
     ]
-    with harper_module.runtime.lock:
-        harper_module.runtime.clients["/bin/harper-ls"] = mock_client
-        harper_module.runtime.state = HarperRuntimeState.READY
+    _ready_runtime(mock_client)
 
-    res = harper_try_lint("this is text", "/tmp")
+    res = harper_try_lint("this is text", "/tmp", ctx=object())
     assert res is not None
     assert res["errors"][0]["wrong"] == "this"
     assert res["errors"][0]["correct"] == "This"
-    mock_bg.assert_not_called()
+    assert ensure_jobs == []
 
 
-@patch("plugin.framework.worker_pool.run_in_background")
-def test_harper_try_lint_dead_process_kicks_ensure(mock_bg: MagicMock, caplog: pytest.LogCaptureFixture) -> None:
+def test_harper_try_lint_dead_process_kicks_ensure(ensure_jobs: list[str], caplog: pytest.LogCaptureFixture) -> None:
     mock_client = MagicMock()
+    mock_client.is_alive.return_value = True
+    _ready_runtime(mock_client)
     mock_client.is_alive.return_value = False
-    with harper_module.runtime.lock:
-        harper_module.runtime.clients["/bin/harper-ls"] = mock_client
-        harper_module.runtime.state = HarperRuntimeState.READY
 
     caplog.set_level(logging.ERROR, logger="writeragent.grammar")
-    assert harper_try_lint("Hello.", "/tmp") is None
-    assert mock_bg.call_count == 1
+    assert harper_try_lint("Hello.", "/tmp", ctx=object()) is None
+    assert ensure_jobs == ["harper-ensure-ready"]
     assert harper_module.runtime.state is HarperRuntimeState.RESOLVING
     assert any("harper-ls process is dead" in r.message for r in caplog.records)
 
 
-@patch("plugin.framework.worker_pool.run_in_background")
-def test_harper_try_lint_failed_cooldown_skips_retry(mock_bg: MagicMock) -> None:
-    import time
-
-    with harper_module.runtime.lock:
-        harper_module.runtime.state = HarperRuntimeState.FAILED
-        harper_module.runtime.failed_at = time.monotonic()
-    assert harper_try_lint("Hello.", "/tmp") is None
-    mock_bg.assert_not_called()
+def test_harper_try_lint_failed_cooldown_skips_retry(ensure_jobs: list[str], monkeypatch: pytest.MonkeyPatch) -> None:
+    _failed_runtime(monkeypatch, cooled_down=False)
+    assert harper_try_lint("Hello.", "/tmp", ctx=object()) is None
+    assert ensure_jobs == []
 
 
-@patch("plugin.framework.worker_pool.run_in_background")
-def test_harper_try_lint_failed_after_cooldown_retries(mock_bg: MagicMock) -> None:
-    import time
-
-    with harper_module.runtime.lock:
-        harper_module.runtime.state = HarperRuntimeState.FAILED
-        harper_module.runtime.failed_at = time.monotonic() - harper_module._HARPER_FAIL_COOLDOWN_SEC - 1
-    assert harper_try_lint("Hello.", "/tmp") is None
-    assert mock_bg.call_count == 1
+def test_harper_try_lint_failed_after_cooldown_retries(ensure_jobs: list[str], monkeypatch: pytest.MonkeyPatch) -> None:
+    _failed_runtime(monkeypatch, cooled_down=True)
+    assert harper_try_lint("Hello.", "/tmp", ctx=object()) is None
+    assert ensure_jobs == ["harper-ensure-ready"]
     assert harper_module.runtime.state is HarperRuntimeState.RESOLVING
 
 
-@patch("plugin.framework.worker_pool.run_in_background")
-def test_harper_try_lint_eof_returns_none(mock_bg: MagicMock) -> None:
+def test_harper_try_lint_eof_returns_none(ensure_jobs: list[str]) -> None:
     """EOF during lint is not a clean sentence, so the caller must not cache it."""
     client = _bare_harper_client()
     client.stdout_queue.put(None)
-    with harper_module.runtime.lock:
-        harper_module.runtime.clients[client.binary_path] = client
-        harper_module.runtime.state = HarperRuntimeState.READY
+    _ready_runtime(client)
     with patch.object(client, "_write", lambda _payload: None):
-        assert harper_try_lint("Hello.", "/tmp") is None
-    assert mock_bg.call_count == 1
+        assert harper_try_lint("Hello.", "/tmp", ctx=object()) is None
+    assert ensure_jobs == ["harper-ensure-ready"]
     assert harper_module.runtime.state is HarperRuntimeState.RESOLVING
 
 
-def test_ensure_replaces_dead_cached_client() -> None:
+def test_ensure_replaces_dead_cached_client(monkeypatch: pytest.MonkeyPatch) -> None:
     """The ensure after cooldown must not raise on the same dead client."""
     dead = MagicMock()
-    dead.is_alive.return_value = False
+    dead.is_alive.return_value = True
     dead.binary_path = "/bin/harper-ls"
     dead.user_config_dir = "/tmp/cfg"
-    with harper_module.runtime.lock:
-        harper_module.runtime.clients["/bin/harper-ls"] = dead
-        harper_module.runtime.state = HarperRuntimeState.FAILED
-        harper_module.runtime.failed_at = time.monotonic() - harper_module._HARPER_FAIL_COOLDOWN_SEC - 1
+    _ready_runtime(dead)
+    dead.is_alive.return_value = False
+    _failed_runtime(monkeypatch, cooled_down=True)
     fresh = MagicMock()
     fresh.is_alive.return_value = True
     held: list[bool] = []
@@ -967,30 +979,29 @@ def test_ensure_replaces_dead_cached_client() -> None:
     assert not harper_module.runtime.lock.locked()
 
 
-def test_ensure_missing_binary_still_fails_and_cools_down() -> None:
+def test_ensure_missing_binary_still_fails_and_cools_down(ensure_jobs: list[str]) -> None:
     mock_status = MagicMock()
     with (
         patch("plugin.writer.locale.harper.get_harper_binary", side_effect=OSError("harper-ls missing")),
-        patch("plugin.writer.locale.grammar_obs.get_grammar_status", return_value=mock_status),
+        patch("plugin.writer.locale.harper.get_grammar_status", return_value=mock_status),
     ):
         harper_module.runtime.ensure_body("/tmp/cfg", "en-US")
     assert harper_module.runtime.state is HarperRuntimeState.FAILED
     assert harper_module.runtime.clients == {}
     mock_status.failed.assert_called_once()
     assert mock_status.failed.call_args[0][0] == "Harper"
-    with patch("plugin.framework.worker_pool.run_in_background") as mock_bg:
-        assert harper_try_lint("Hello.", "/tmp/cfg") is None
-        mock_bg.assert_not_called()
+    assert harper_try_lint("Hello.", "/tmp/cfg", ctx=object()) is None
+    assert ensure_jobs == []
 
 
 def test_ensure_failed_restart_drops_dead_client() -> None:
     """A restart that cannot start must not leave the dead client cached."""
     dead = MagicMock()
-    dead.is_alive.return_value = False
+    dead.is_alive.return_value = True
     dead.binary_path = "/bin/harper-ls"
     dead.user_config_dir = "/tmp/cfg"
-    with harper_module.runtime.lock:
-        harper_module.runtime.clients["/bin/harper-ls"] = dead
+    _ready_runtime(dead)
+    dead.is_alive.return_value = False
 
     with (
         patch("plugin.writer.locale.harper.get_harper_binary", return_value="/bin/harper-ls"),
@@ -1053,8 +1064,7 @@ def test_maybe_start_harper_async_writeragent_off_skips(mock_bg: MagicMock, prov
 
 @patch("plugin.framework.worker_pool.run_in_background")
 def test_maybe_start_harper_async_idempotent_when_resolving(mock_bg: MagicMock) -> None:
-    with harper_module.runtime.lock:
-        harper_module.runtime.state = HarperRuntimeState.RESOLVING
+    _resolving_runtime()
     with patch("plugin.framework.uno_context.is_libreharper", return_value=True):
         submitted = maybe_start_harper_async(user_config_dir="/tmp")
         assert submitted is False
@@ -1094,21 +1104,19 @@ def test_harper_ensure_ready_body_schedules_proofread_again() -> None:
 
 def test_harper_runtime_is_ready_requires_alive_client() -> None:
     assert harper_module.runtime.is_ready() is False
-    with harper_module.runtime.lock:
-        harper_module.runtime.state = HarperRuntimeState.READY
-    assert harper_module.runtime.is_ready() is False
     mock_client = MagicMock()
     mock_client.is_alive.return_value = True
-    with harper_module.runtime.lock:
-        harper_module.runtime.clients["/bin/harper-ls"] = mock_client
+    _ready_runtime(mock_client)
     assert harper_module.runtime.is_ready() is True
     mock_client.is_alive.return_value = False
     assert harper_module.runtime.is_ready() is False
 
 
 def test_harper_runtime_mark_idle_clears_ready_state() -> None:
-    with harper_module.runtime.lock:
-        harper_module.runtime.state = HarperRuntimeState.READY
+    mock_client = MagicMock()
+    mock_client.is_alive.return_value = True
+    _ready_runtime(mock_client)
+    assert harper_module.runtime.is_ready() is True
     harper_module.runtime.mark_idle()
     assert harper_module.runtime.state is HarperRuntimeState.IDLE
 
@@ -1118,9 +1126,7 @@ def test_harper_try_lint_waits_for_lint_lock_and_pumps() -> None:
     mock_client = MagicMock()
     mock_client.is_alive.return_value = True
     mock_client.lint.return_value = []
-    with harper_module.runtime.lock:
-        harper_module.runtime.clients["/bin/harper-ls"] = mock_client
-        harper_module.runtime.state = HarperRuntimeState.READY
+    _ready_runtime(mock_client)
 
     harper_module.runtime.lock.acquire()
     released = threading.Event()
@@ -1154,15 +1160,12 @@ def test_harper_try_lint_waits_for_lint_lock_and_pumps() -> None:
                 pass
 
 
-def test_harper_lock_wait_times_out_without_holding_lock() -> None:
+def test_harper_lock_wait_times_out_without_holding_lock(ensure_jobs: list[str]) -> None:
     harper_module.runtime.lock.acquire()
     try:
-        with (
-            patch("plugin.writer.locale.harper._LINT_BUDGET_SEC", 0.05),
-            patch("plugin.framework.worker_pool.run_in_background") as mock_bg,
-        ):
-            assert harper_try_lint("Hello.", "/tmp", ctx=None) is None
-            mock_bg.assert_not_called()
+        with patch("plugin.writer.locale.harper._LINT_BUDGET_SEC", 0.05):
+            assert harper_try_lint("Hello.", "/tmp", ctx=object()) is None
+            assert ensure_jobs == []
     finally:
         harper_module.runtime.lock.release()
     assert not harper_module.runtime.lock.locked()
@@ -1173,9 +1176,7 @@ def test_harper_lock_wait_times_out_without_holding_lock() -> None:
 def test_main_thread_state_lock_does_not_wait_out_a_held_runtime_lock() -> None:
     mock_client = MagicMock()
     mock_client.is_alive.return_value = True
-    with harper_module.runtime.lock:
-        harper_module.runtime.clients["/bin/harper-ls"] = mock_client
-        harper_module.runtime.state = HarperRuntimeState.READY
+    _ready_runtime(mock_client)
 
     held = threading.Event()
     release = threading.Event()
@@ -1244,7 +1245,7 @@ def test_ensure_ready_empty_listeners_recovers_on_first_attach() -> None:
             patch("plugin.writer.locale.harper.get_harper_binary", return_value="/bin/harper-ls"),
             patch.object(harper_module.runtime, "install_client", return_value=mock_client),
             patch("plugin.framework.queue_executor.main.post", side_effect=lambda fn, *a, **k: fn(*a, **k)),
-            patch("plugin.writer.locale.grammar_obs.get_grammar_status"),
+            patch("plugin.writer.locale.harper.get_grammar_status"),
         ):
             harper_module.runtime.ensure_body("/tmp", "en-US")
             assert pr._pending_proofread_again is True
@@ -1255,37 +1256,31 @@ def test_ensure_ready_empty_listeners_recovers_on_first_attach() -> None:
     finally:
         grammar_registry.live_proofreaders.discard(pr)
 
-@patch("plugin.framework.worker_pool.run_in_background")
-def test_harper_try_lint_empty_config_dir_does_not_ensure(mock_bg: MagicMock, caplog: pytest.LogCaptureFixture) -> None:
+def test_harper_try_lint_empty_config_dir_does_not_ensure(ensure_jobs: list[str], caplog: pytest.LogCaptureFixture) -> None:
     caplog.set_level(logging.ERROR, logger="writeragent.grammar")
-    assert harper_try_lint("Hello.", "") is None
-    mock_bg.assert_not_called()
+    assert harper_try_lint("Hello.", "", ctx=object()) is None
+    assert ensure_jobs == []
     assert harper_module.runtime.state is HarperRuntimeState.IDLE
     assert any("empty user config dir" in r.message for r in caplog.records)
 
 
-@patch("plugin.framework.worker_pool.run_in_background")
-def test_harper_try_lint_logs_error_on_lint_exception(mock_bg: MagicMock, caplog: pytest.LogCaptureFixture) -> None:
+def test_harper_try_lint_logs_error_on_lint_exception(ensure_jobs: list[str], caplog: pytest.LogCaptureFixture) -> None:
     mock_client = MagicMock()
     mock_client.is_alive.return_value = True
     mock_client.lint.side_effect = RuntimeError("broken pipe")
-    with harper_module.runtime.lock:
-        harper_module.runtime.clients["/bin/harper-ls"] = mock_client
-        harper_module.runtime.state = HarperRuntimeState.READY
+    _ready_runtime(mock_client)
 
     caplog.set_level(logging.ERROR, logger="writeragent.grammar")
-    assert harper_try_lint("He go to the store.", "/tmp") is None
+    assert harper_try_lint("He go to the store.", "/tmp", ctx=object()) is None
     assert any("lint failed on ready client" in r.message for r in caplog.records)
-    assert mock_bg.call_count == 1
+    assert ensure_jobs == ["harper-ensure-ready"]
 
 
 def _ready_harper_client(lint_side_effect: object) -> MagicMock:
     mock_client = MagicMock()
     mock_client.is_alive.return_value = True
     mock_client.lint.side_effect = lint_side_effect
-    with harper_module.runtime.lock:
-        harper_module.runtime.clients["/bin/harper-ls"] = mock_client
-        harper_module.runtime.state = HarperRuntimeState.READY
+    _ready_runtime(mock_client)
     return mock_client
 
 
@@ -1448,9 +1443,8 @@ def test_harper_close_does_not_block_on_stuck_stdin() -> None:
 
 def test_shutdown_harper_runtime_closes_cached_clients() -> None:
     mock_client = MagicMock()
-    with harper_module.runtime.lock:
-        harper_module.runtime.clients["/bin/harper-ls"] = mock_client
-        harper_module.runtime.state = HarperRuntimeState.READY
+    mock_client.is_alive.return_value = True
+    _ready_runtime(mock_client)
     shutdown_harper_runtime()
     mock_client.close.assert_called_once()
     assert harper_module.runtime.clients == {}
@@ -1482,7 +1476,6 @@ def test_warn_if_harper_result_slow_warns_above_threshold(caplog: pytest.LogCapt
     assert "elapsed_ms=501" in records[0].message
     assert "text_len=12" in records[0].message
     assert "errors=0" in records[0].message
-    assert "cache=miss" in records[0].message
 
 
 def test_lint_with_client_warns_when_lint_exceeds_threshold(caplog: pytest.LogCaptureFixture) -> None:
@@ -1500,7 +1493,6 @@ def test_lint_with_client_warns_when_lint_exceeds_threshold(caplog: pytest.LogCa
     assert "elapsed_ms=750" in records[0].message
     assert "text_len=12" in records[0].message
     assert "errors=0" in records[0].message
-    assert "cache=miss" in records[0].message
 
 
 def test_lint_with_client_silent_when_lint_is_fast(caplog: pytest.LogCaptureFixture) -> None:
@@ -1661,11 +1653,10 @@ def test_off_caller_timeout_cancels_worker_and_releases_lock() -> None:
         text: str,
         bcp47: str = "en-US",
         *,
-        heartbeat_fn: object = None,
         deadline: float | None = None,
         cancel_event: threading.Event | None = None,
     ) -> list[object]:
-        del text, bcp47, heartbeat_fn, deadline
+        del text, bcp47, deadline
         started.set()
         limit = time.monotonic() + 5.0
         while cancel_event is None or not cancel_event.is_set():
@@ -1681,9 +1672,7 @@ def test_off_caller_timeout_cancels_worker_and_releases_lock() -> None:
         assert started.wait(2.0)
         return False
 
-    with harper_module.runtime.lock:
-        harper_module.runtime.clients["/bin/harper-ls"] = client
-        harper_module.runtime.state = HarperRuntimeState.READY
+    _ready_runtime(client)
 
     t0 = time.monotonic()
     with patch("plugin.framework.uno_context.wait_while_pumping", fake_wait):
@@ -1756,25 +1745,31 @@ def test_abort_lint_closes_client_without_taking_lock() -> None:
     """abort_lint closes linting_client without acquiring runtime.lock."""
     runtime = harper_module.runtime
     client = MagicMock()
-    runtime.linting_client = client
-    runtime.lock.acquire()
-    finished = threading.Event()
+    client.is_alive.return_value = True
+    started = threading.Event()
+    unblock = threading.Event()
 
-    def call_abort() -> None:
-        runtime.abort_lint()
-        finished.set()
+    def blocking_lint(*_args: Any, **_kwargs: Any) -> list[Any]:
+        started.set()
+        unblock.wait(5.0)
+        return []
 
-    thread = threading.Thread(target=call_abort)
-    thread.start()
+    client.lint.side_effect = blocking_lint
+    _ready_runtime(client)
+
+    worker = threading.Thread(target=runtime.lint_now, args=("Hi.",), name="test-abort-lint-worker")
+    worker.start()
     try:
-        assert finished.wait(0.5)
+        assert started.wait(timeout=2.0)
+        assert runtime.linting_client is client
+        assert runtime.lock.locked()
+        runtime.abort_lint()
         client.close.assert_called_once()
     finally:
-        runtime.lock.release()
-        thread.join()
-        runtime.linting_client = None
+        unblock.set()
+        worker.join(timeout=2.0)
 
-    runtime.linting_client = None
+    assert runtime.linting_client is None
     runtime.abort_lint()
 
 
@@ -1795,9 +1790,7 @@ def test_run_lint_off_caller_thread_closes_client_on_cancel_timeout() -> None:
         del done, ctx, timeout
         return False
 
-    with harper_module.runtime.lock:
-        harper_module.runtime.clients["/bin/harper-ls"] = client
-        harper_module.runtime.state = HarperRuntimeState.READY
+    _ready_runtime(client)
 
     with (
         patch("plugin.framework.uno_context.wait_while_pumping", fake_wait),
@@ -1843,10 +1836,9 @@ def test_lint_with_client_maps_diagnostics_against_normalized_text() -> None:
     assert out["errors"][0]["n_error_length"] == 3
 
 
-def test_ensure_failure_while_resolving_sets_failed_and_cooldown_allows_restart() -> None:
+def test_ensure_failure_while_resolving_sets_failed_and_cooldown_allows_restart(monkeypatch: pytest.MonkeyPatch) -> None:
     """An ensure failure while RESOLVING ends in FAILED with failed_at set, allowing restart after cooldown."""
-    with harper_module.runtime.lock:
-        harper_module.runtime.state = HarperRuntimeState.RESOLVING
+    _resolving_runtime()
     assert harper_module.runtime.state is HarperRuntimeState.RESOLVING
 
     with patch("plugin.writer.locale.harper.get_harper_binary", side_effect=RuntimeError("binary not found")):
@@ -1861,8 +1853,7 @@ def test_ensure_failure_while_resolving_sets_failed_and_cooldown_allows_restart(
         mock_bg.assert_not_called()
 
     # After cooldown expires, ensure can start
-    with harper_module.runtime.lock:
-        harper_module.runtime.failed_at -= (harper_module._HARPER_FAIL_COOLDOWN_SEC + 1.0)
+    monkeypatch.setattr(harper_module, "_HARPER_FAIL_COOLDOWN_SEC", 0.0)
     with patch("plugin.framework.worker_pool.run_in_background") as mock_bg:
         assert harper_module.harper_ensure_ready_async("/tmp") is True
         mock_bg.assert_called_once()
@@ -2013,22 +2004,11 @@ def test_harper_reinitialize_uses_a_new_managed_subprocess() -> None:
         assert len(managed_instances) == 2
         assert len(popen_calls) == 2
         assert managed_instances[0] is not managed_instances[1]
+        assert type(client.stdout_thread) is threading.Thread
     finally:
         client.close()
         if client.stdout_thread is not None and client.stdout_thread.is_alive():
             client.stdout_thread.join(timeout=1.0)
-
-
-def test_harper_stdout_reader_stays_a_raw_thread() -> None:
-    init_src = inspect.getsource(HarperLSClient._initialize)
-    assert "threading.Thread(" in init_src
-    assert "run_in_background" not in init_src
-
-    close_src = inspect.getsource(HarperLSClient.close)
-    end_doc = close_src.find('"""', close_src.find('"""') + 3)
-    code_only = close_src[end_doc + 3 :] if end_doc != -1 else close_src
-    assert "kill_tree" not in code_only
-    assert "ManagedSubprocess" not in code_only
 
 
 def test_harper_close_order_when_terminate_succeeds(caplog: pytest.LogCaptureFixture) -> None:
@@ -2134,16 +2114,73 @@ def test_harper_close_swallows_pipe_close_errors() -> None:
     mock_proc.terminate.assert_called_once()
 
 
-def test_lint_clears_previous_heartbeat_when_none() -> None:
+def test_lint_keeps_constructor_heartbeat() -> None:
     client = _bare_harper_client()
-    client._heartbeat_fn = lambda _p: None
+    calls: list[dict[str, str]] = []
+    recorder = calls.append
+    client._heartbeat_fn = recorder
     with (
         patch.object(client, "_sync_document"),
         patch.object(client, "_collect_diagnostics", return_value=[]),
         patch.object(client, "_suggestions_for_diagnostic"),
     ):
-        client.lint("Hi.", bcp47="en-US", heartbeat_fn=None)
-    assert client._heartbeat_fn is None
+        client.lint("Hi.", bcp47="en-US")
+    assert calls == []
+    assert client._heartbeat_fn is recorder
+
+
+def test_lint_restart_keeps_constructor_heartbeat() -> None:
+    client = _bare_harper_client()
+    heartbeat = MagicMock()
+    client._heartbeat_fn = heartbeat
+    mock_init = MagicMock()
+    with (
+        patch.object(client, "is_alive", return_value=False),
+        patch.object(client, "_initialize", mock_init),
+        patch.object(client, "_sync_document"),
+        patch.object(client, "_collect_diagnostics", return_value=[]),
+        patch.object(client, "_suggestions_for_diagnostic"),
+    ):
+        client.lint("Hi.", bcp47="en-US")
+    mock_init.assert_called_once()
+    assert client._heartbeat_fn is heartbeat
+
+
+def test_shutdown_harper_runtime_is_a_quit_hook() -> None:
+    from plugin.framework import quit_hooks
+
+    assert shutdown_harper_runtime in quit_hooks._hooks
+
+
+def test_shutdown_with_held_lock_aborts_in_flight_lint(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = MagicMock()
+    client.is_alive.return_value = True
+    started = threading.Event()
+    release = threading.Event()
+
+    def blocked_lint(*_args: Any, **_kwargs: Any) -> list[Any]:
+        started.set()
+        release.wait(5.0)
+        return []
+
+    client.lint.side_effect = blocked_lint
+    _ready_runtime(client)
+
+    worker = threading.Thread(target=harper_module.runtime.lint_now, args=("Hi.",), name="test-shutdown-lint-worker")
+    worker.start()
+    try:
+        assert started.wait(timeout=2.0)
+        monkeypatch.setattr(harper_module, "_SHUTDOWN_LOCK_WAIT_SEC", 0.05)
+        shutdown_harper_runtime()
+        client.close.assert_called_once()
+        assert harper_module.runtime.clients.get("/bin/harper-ls") is client
+        assert harper_module.runtime.state is HarperRuntimeState.READY
+    finally:
+        release.set()
+        worker.join(timeout=2.0)
+
+    assert not harper_module.runtime.lock.locked()
+    assert harper_module.runtime.linting_client is None
 
 
 def test_read_and_handle_answers_multiple_server_requests() -> None:

@@ -32,12 +32,27 @@ import json
 import logging
 from typing import Any, ClassVar
 
-from plugin.chatbot.smol_agent import SmolToolAdapter, run_inner_tool_agent
+from plugin.chatbot.smol_agent import InnerCallRecorder, run_inner_tool_agent
+from plugin.doc.document_research import filter_document_research_discovery_tools
+from plugin.doc.peer_message import filter_peer_tools_for_specialized
+from plugin.doc.specialized_catalog import (
+    InnerToolCall,
+    get_specialized_domain_catalog,
+    loop_hint,
+    normalize_inner_result,
+)
+from plugin.doc.specialized_shapes_context import format_shapes_canvas_context
 from plugin.framework.doc_type import agent_label_for_context
-from plugin.doc.specialized_catalog import DOMAIN_LOOP_HINTS, normalize_inner_result
-from plugin.framework.errors import user_stopped_payload
+from plugin.framework.errors import make_tool_error, user_stopped_payload
+from plugin.framework.prompts import DELEGATE_ANCHOR_RULE
 from plugin.framework.queue_executor import main
+from plugin.framework.send_cancellation import SendCancelled, is_cancelled
 from plugin.framework.tool import ToolBase, ToolContext
+from plugin.scripting.host_rpc import (
+    domain_proxy_tool_names,
+    format_script_api_catalog,
+    inner_script_tool_domain,
+)
 
 log = logging.getLogger(__name__)
 
@@ -58,8 +73,6 @@ def allowed_specialized_domains(agent_label: str, uno_ctx: Any = None) -> frozen
     ``python`` is omitted: the outer agent already has that toolset, and nesting
     it would expose ``delegate_tool_domains`` again.
     """
-    from plugin.doc.specialized_catalog import get_specialized_domain_catalog
-
     catalog = get_specialized_domain_catalog(agent_label=agent_label, ctx=uno_ctx)
     return frozenset(entry["domain"] for entry in catalog if entry["domain"] != _PYTHON_DOMAIN)
 
@@ -117,9 +130,6 @@ def validate_requested_domains(names: list[str], agent_label: str, uno_ctx: Any 
 
 def _filter_document_research_tools(tools: list[ToolBase], parent_ctx: ToolContext) -> list[ToolBase]:
     """Same discovery/peer filters as the document_research specialized loop."""
-    from plugin.doc.document_research import filter_document_research_discovery_tools
-    from plugin.doc.peer_message import filter_peer_tools_for_specialized
-
     filtered = filter_document_research_discovery_tools(tools)
     return filter_peer_tools_for_specialized(filtered, parent_ctx.ctx, parent_ctx.doc)
 
@@ -133,8 +143,6 @@ def script_only_llm_tool_names(domain: str) -> frozenset[str]:
     """
     if domain not in _SCRIPT_PLACEMENT_DOMAINS:
         return frozenset()
-    from plugin.scripting.host_rpc import domain_proxy_tool_names
-
     names = domain_proxy_tool_names(domain)
     if not names:
         return frozenset()
@@ -150,7 +158,7 @@ def gather_domain_tools(parent_ctx: ToolContext, domains: list[str]) -> list[Too
     lookup does not return it; it is fetched by name. Shapes mutators are
     omitted (see ``script_only_llm_tool_names``).
     """
-    registry = parent_ctx.services.get("tools") if getattr(parent_ctx, "services", None) is not None else None
+    registry = parent_ctx.services.get("tools") if parent_ctx.services is not None else None
     if registry is None:
         return []
 
@@ -166,7 +174,7 @@ def gather_domain_tools(parent_ctx: ToolContext, domains: list[str]) -> list[Too
                 active_domain=domain,
                 exclude_tiers=(),
                 ctx=parent_ctx.ctx,
-                uno_services_supported=getattr(parent_ctx, "uno_services_supported", None),
+                uno_services_supported=parent_ctx.uno_services_supported,
             )
             if domain == "document_research":
                 try:
@@ -222,8 +230,6 @@ def _inner_context(parent_ctx: ToolContext, domains: list[str]) -> ToolContext:
     ``active_domain`` stays ``None`` and ``read_only_target`` stays ``False`` so
     the inner loop does not inherit the outer python domain or a read-only parent.
     """
-    from plugin.scripting.host_rpc import inner_script_tool_domain
-
     return parent_ctx.derive(
         set_active_domain_callback=None,
         active_domain=None,
@@ -236,21 +242,16 @@ def _domain_loop_hints(parent_ctx: ToolContext, domains: list[str], agent_label:
     """Small suffixes the single-domain specialized loop adds, when those domains are requested.
 
     Shapes canvas is a UNO read, so it is fetched on the main thread. Footnotes
-    and charts lines match ``DelegateToSpecializedBase.execute`` (static text).
+    and charts lines come from loop_hint, the same sentences the gateway adds.
     """
     parts: list[str] = []
-    if "footnotes" in domains and agent_label in DOMAIN_LOOP_HINTS["footnotes"]:
-        parts.append(" " + DOMAIN_LOOP_HINTS["footnotes"][agent_label])
-    if "charts" in domains:
-        if agent_label == "Calc":
-            parts.append(" " + DOMAIN_LOOP_HINTS["charts"]["Calc"])
-        elif agent_label in ("Writer", "Draw"):
-            parts.append(" " + DOMAIN_LOOP_HINTS["charts"]["Writer"])
+    for domain in domains:
+        hint = loop_hint(domain, agent_label)
+        if hint:
+            parts.append(" " + hint)
     if "shapes" in domains:
-        from plugin.doc.specialized_shapes_context import format_shapes_canvas_context
-
         def _get_canvas() -> str:
-            return format_shapes_canvas_context(getattr(parent_ctx, "doc", None))
+            return format_shapes_canvas_context(parent_ctx.doc)
 
         canvas = main.run(_get_canvas)
         if canvas:
@@ -258,24 +259,8 @@ def _domain_loop_hints(parent_ctx: ToolContext, domains: list[str], agent_label:
     return "".join(parts)
 
 
-class _InnerToolErrorCapture(SmolToolAdapter):
-    _errors: list[dict[str, Any]]
-
-    def __init__(self, tool: ToolBase, tctx: ToolContext, errors: list[dict[str, Any]]) -> None:
-        super().__init__(tool, tctx, safe=True, inputs_style="specialized")
-        self._errors = errors
-
-    def forward(self, *args: Any, **kwargs: Any) -> Any:
-        result = super().forward(*args, **kwargs)
-        if isinstance(result, dict) and result.get("status") == "error":
-            self._errors.append(result)
-        return result
-
-
 def run_inner_domain_tool_agent(parent_ctx: ToolContext, domains: list[str], task: str) -> dict[str, Any]:
     """Run a focused smol agent with the union of *domains*' production tools."""
-    from plugin.framework.errors import make_tool_error
-
     label = agent_label_for_context(parent_ctx)
     ordered = gather_domain_tools(parent_ctx, domains)
     domain_tools = [tool for tool in ordered if tool.name != _FINISH_TOOL]
@@ -286,10 +271,10 @@ def run_inner_domain_tool_agent(parent_ctx: ToolContext, domains: list[str], tas
         )
 
     inner_ctx = _inner_context(parent_ctx, domains)
-    inner_tool_errors: list[dict[str, Any]] = []
+    inner_calls: list[InnerToolCall] = []
     # inputs_style="specialized" keeps enum / items / descriptions, same as other
     # specialized loops — not the slim librarian input shape.
-    smol_tools = [_InnerToolErrorCapture(tool, inner_ctx, inner_tool_errors) for tool in ordered]
+    smol_tools = [InnerCallRecorder(tool, inner_ctx, inner_calls) for tool in ordered]
     domain_list = ", ".join(domains)
     hints = _domain_loop_hints(parent_ctx, domains, label)
     # Shapes mutators are not on this tool list. One script loops the API.
@@ -309,12 +294,11 @@ def run_inner_domain_tool_agent(parent_ctx: ToolContext, domains: list[str], tas
         f"You are an inner {label} agent with tools for these specialized domains: {domain_list}. "
         "Use those tools to accomplish the task. Do not invent tools outside this list."
         f"{script_hint}"
+        f" {DELEGATE_ANCHOR_RULE}"
         " Call specialized_workflow_finished with a compact summary when done."
         f"{hints}"
     )
     # Full Args from writeragent_api, not a summary. Sandbox blocks reflection.
-    from plugin.scripting.host_rpc import format_script_api_catalog
-
     catalog = format_script_api_catalog(domains)
     if catalog:
         instructions = f"{instructions}\n\n{catalog}"
@@ -344,7 +328,7 @@ def run_inner_domain_tool_agent(parent_ctx: ToolContext, domains: list[str], tas
         error_prefix="Domain tool agent failed",
         tool_call_handler=tool_call_handler,
     )
-    return normalize_inner_result(final_ans, domains, inner_tool_errors)
+    return normalize_inner_result(final_ans, domains, inner_calls)
 
 
 class DelegateToolDomains(ToolBase):
@@ -396,18 +380,15 @@ class DelegateToolDomains(ToolBase):
         return True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        from plugin.framework.send_cancellation import SendCancelled, is_cancelled
-
         names, names_err = normalize_domain_list(kwargs.get("domains"))
         if names_err or not names:
             return self._tool_error(names_err or _DOMAINS_ERROR, code="DOMAINS_REQUIRED")
-        raw_task = kwargs.get("task")
-        task = raw_task.strip() if isinstance(raw_task, str) else None
+        task = kwargs.get("task", "").strip()
         if not task:
             return self._tool_error("task is required.", code="TASK_REQUIRED")
 
         label = agent_label_for_context(ctx)
-        message, code = validate_requested_domains(names, label, getattr(ctx, "ctx", None))
+        message, code = validate_requested_domains(names, label, ctx.ctx)
         if message:
             return self._tool_error(message, code=code or "UNKNOWN_SPECIALIZED_DOMAIN")
 

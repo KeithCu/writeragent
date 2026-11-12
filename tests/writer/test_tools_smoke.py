@@ -18,8 +18,12 @@ class TestWriterToolsSmoke:
         # After earlier tests load real pyuno, bootstrap's get_desktop() can segfault off-LO.
         self._desktop_patch = patch("plugin.framework.uno_context.get_desktop", return_value=None)
         self._desktop_patch.start()
+        # The review registry's frame sweep binds get_desktop at import, so it is patched there too.
+        self._rva_desktop_patch = patch("plugin.writer.review_view_attachment.get_desktop", return_value=None)
+        self._rva_desktop_patch.start()
 
     def teardown_method(self):
+        self._rva_desktop_patch.stop()
         self._desktop_patch.stop()
 
     def test_registration(self):

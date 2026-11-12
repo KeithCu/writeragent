@@ -297,15 +297,24 @@ def test_write_then_read_recovers_token_via_fodt_uno(ctx, doc):
     assert "paragraph-" not in content, content
 
 
-def _para_pairs(doc):
-    text = doc.getText()
-    out = []
-    e = text.createEnumeration()
+def _paragraphs(doc):
+    e = doc.getText().createEnumeration()
     while e.hasMoreElements():
         el = e.nextElement()
-        if hasattr(el, "supportsService") and el.supportsService("com.sun.star.text.Paragraph"):
-            out.append((el.getPropertyValue("ParaStyleName"), el.getString()))
-    return out
+        if el.supportsService("com.sun.star.text.Paragraph"):
+            yield el
+
+
+def _para_pairs(doc):
+    return [(p.getPropertyValue("ParaStyleName"), p.getString()) for p in _paragraphs(doc)]
+
+
+def _para_by_text(doc, needle):
+    """Return the com.sun.star.text.Paragraph whose text contains *needle* (first match)."""
+    for p in _paragraphs(doc):
+        if needle in p.getString():
+            return p
+    raise AssertionError("no paragraph containing %r" % needle)
 
 
 def _accept_all(doc, ctx):
@@ -398,7 +407,10 @@ def test_write_search_does_not_restyle_surrounding_text_uno(ctx, doc):
         _tool_ctx(doc, ctx), target="search", old_content="MARKER",
         content=['<p data-lo-style="Caption">CAPX</p>', '<p data-lo-style="Heading2">HEADX</p>'])
     assert res.get("status") == "ok", res
-    assert "warning" in res and "apply_style(target='search', old_content=...)" in res["warning"]
+    assert "warning" not in res
+    assert "warnings" in res
+    assert res["warnings"][0]["code"] == "STYLE_IGNORED_PARTIAL_MATCH"
+    assert "apply_style(target='search', old_content=...)" in res["warnings"][0]["message"]
     assert "apply_style(target='search', old_content=...)" in res["message"]
     pairs = _para_pairs(doc)
     # Nothing got restyled to Caption/Heading 2 (styles are not applied on partial search).
@@ -441,6 +453,52 @@ def test_write_search_whole_paragraph_applies_heading2_uno(ctx, doc):
 
 @native_test
 @with_native_doc("writer")
+def test_write_search_whole_paragraph_applies_data_lo_para_uno(ctx, doc):
+    """Whole-paragraph search replace applies data-lo-para properties to the inserted paragraph."""
+    text = doc.getText()
+    text.setString("")
+    cur = text.createTextCursor()
+    cur.gotoStart(False)
+    cur.setPropertyValue("ParaStyleName", "Standard")
+    text.insertString(cur, "Keep before", False)
+    text.insertControlCharacter(cur, 0, False)
+    cur.setPropertyValue("ParaStyleName", "Standard")
+    text.insertString(cur, "Replace me", False)
+    text.insertControlCharacter(cur, 0, False)
+    cur.setPropertyValue("ParaStyleName", "Standard")
+    text.insertString(cur, "Keep after", False)
+
+    content = '<p data-lo-para="margin-left:2cm; text-align:center; background-color:#ffe4c4; font-size:12pt">New para</p>'
+    res = ApplyDocumentContent().execute(
+        _tool_ctx(doc, ctx), target="search", old_content="Replace me", content=content
+    )
+    assert res.get("status") == "ok", res
+    assert res.get("warnings") == [
+        {"code": "PARA_PROPERTY_UNSUPPORTED", "message": "data-lo-para property 'font-size' was not applied"}
+    ]
+
+    assert [t for _, t in _para_pairs(doc)] == ["Keep before", "New para", "", "Keep after"]
+
+    p1 = _para_by_text(doc, "Keep before")
+    p2 = _para_by_text(doc, "New para")
+    p3 = _para_by_text(doc, "Keep after")
+
+    # LibreOffice 26.2+ default is START (5), not LEFT (0) (sw/source/core/bastyp/init.cxx);
+    # checking property state proves no direct override was applied to neighbor paragraphs.
+    for neighbour in (p1, p3):
+        assert neighbour.getPropertyValue("ParaLeftMargin") == 0
+        assert neighbour.getPropertyState("ParaAdjust").value == "DEFAULT_VALUE"
+        assert neighbour.getPropertyValue("FillStyle").value == "NONE"
+
+    assert p2.getPropertyValue("ParaLeftMargin") == 2000
+    assert p2.getPropertyValue("ParaAdjust") == 3
+    assert p2.getPropertyState("ParaAdjust").value == "DIRECT_VALUE"
+    assert p2.getPropertyValue("FillStyle").value == "SOLID"
+    assert p2.getPropertyValue("FillColor") == 0xFFE4C4
+
+
+@native_test
+@with_native_doc("writer")
 def test_write_selection_whole_paragraph_applies_heading2_uno(ctx, doc):
     """Whole-paragraph selection replace: Heading 2 applies; neighbor paragraphs stay Standard."""
     text = doc.getText()
@@ -479,6 +537,58 @@ def test_write_selection_whole_paragraph_applies_heading2_uno(ctx, doc):
 
 @native_test
 @with_native_doc("writer")
+def test_write_selection_whole_paragraph_applies_data_lo_para_uno(ctx, doc):
+    """Whole-paragraph selection replace applies data-lo-para properties to the inserted paragraph."""
+    text = doc.getText()
+    text.setString("")
+    cur = text.createTextCursor()
+    cur.gotoStart(False)
+    cur.setPropertyValue("ParaStyleName", "Standard")
+    text.insertString(cur, "Keep before", False)
+    text.insertControlCharacter(cur, 0, False)
+    cur.setPropertyValue("ParaStyleName", "Standard")
+    text.insertString(cur, "Replace me", False)
+    text.insertControlCharacter(cur, 0, False)
+    cur.setPropertyValue("ParaStyleName", "Standard")
+    text.insertString(cur, "Keep after", False)
+
+    cur.gotoStart(False)
+    cur.gotoNextParagraph(False)
+    cur.gotoStartOfParagraph(False)
+    cur.gotoEndOfParagraph(True)
+    doc.getCurrentController().select(cur)
+
+    content = '<p data-lo-para="margin-left:2cm; text-align:center; background-color:#ffe4c4; font-size:12pt">New para</p>'
+    res = ApplyDocumentContent().execute(
+        _tool_ctx(doc, ctx), target="selection", content=content
+    )
+    assert res.get("status") == "ok", res
+    assert res.get("warnings") == [
+        {"code": "PARA_PROPERTY_UNSUPPORTED", "message": "data-lo-para property 'font-size' was not applied"}
+    ]
+
+    assert [t for _, t in _para_pairs(doc)] == ["Keep before", "New para", "", "Keep after"]
+
+    p1 = _para_by_text(doc, "Keep before")
+    p2 = _para_by_text(doc, "New para")
+    p3 = _para_by_text(doc, "Keep after")
+
+    # LibreOffice 26.2+ default is START (5), not LEFT (0) (sw/source/core/bastyp/init.cxx);
+    # checking property state proves no direct override was applied to neighbor paragraphs.
+    for neighbour in (p1, p3):
+        assert neighbour.getPropertyValue("ParaLeftMargin") == 0
+        assert neighbour.getPropertyState("ParaAdjust").value == "DEFAULT_VALUE"
+        assert neighbour.getPropertyValue("FillStyle").value == "NONE"
+
+    assert p2.getPropertyValue("ParaLeftMargin") == 2000
+    assert p2.getPropertyValue("ParaAdjust") == 3
+    assert p2.getPropertyState("ParaAdjust").value == "DIRECT_VALUE"
+    assert p2.getPropertyValue("FillStyle").value == "SOLID"
+    assert p2.getPropertyValue("FillColor") == 0xFFE4C4
+
+
+@native_test
+@with_native_doc("writer")
 def test_write_selection_partial_paragraph_warns_and_skips_style_uno(ctx, doc):
     """Partial selection replace: style skipped and warning returned; neighbor stays Standard."""
     text = doc.getText()
@@ -497,12 +607,53 @@ def test_write_selection_partial_paragraph_warns_and_skips_style_uno(ctx, doc):
         _tool_ctx(doc, ctx), target="selection",
         content='<p data-lo-style="Heading2">New heading</p>')
     assert res.get("status") == "ok", res
-    assert "warning" in res
-    assert "apply_style(target='search', old_content=...)" in res["warning"]
+    assert "warning" not in res
+    assert "warnings" in res
+    assert res["warnings"][0]["code"] == "STYLE_IGNORED_PARTIAL_MATCH"
+    assert "apply_style(target='search', old_content=...)" in res["warnings"][0]["message"]
     assert "apply_style(target='search', old_content=...)" in res["message"]
     pairs = _para_pairs(doc)
     assert all(s != "Heading 2" for s, _ in pairs), pairs
     assert any("tail" in t for _, t in pairs), pairs
+
+
+@native_test
+@with_native_doc("writer")
+def test_write_search_partial_match_skips_data_lo_para_uno(ctx, doc):
+    """Partial search match skips data-lo-para, warns all names, and leaves margin 0."""
+    text = doc.getText()
+    text.setString("")
+    cur = text.createTextCursor()
+    cur.gotoStart(False)
+    cur.setPropertyValue("ParaStyleName", "Standard")
+    text.insertString(cur, "Replace me tail", False)
+
+    content = '<p data-lo-para="margin-left:2cm; text-align:center; background-color:#ffe4c4">New para</p>'
+    res = ApplyDocumentContent().execute(
+        _tool_ctx(doc, ctx), target="search", old_content="Replace me", content=content
+    )
+    assert res.get("status") == "ok", res
+    assert "warnings" in res
+    codes = [w["code"] for w in res["warnings"]]
+    assert "STYLE_IGNORED_PARTIAL_MATCH" not in codes
+    assert res["warnings"] == [
+        {
+            "code": "PARA_IGNORED_PARTIAL_MATCH",
+            "message": "data-lo-para property 'margin-left' was not applied because the replaced range does not cover a whole paragraph",
+        },
+        {
+            "code": "PARA_IGNORED_PARTIAL_MATCH",
+            "message": "data-lo-para property 'text-align' was not applied because the replaced range does not cover a whole paragraph",
+        },
+        {
+            "code": "PARA_IGNORED_PARTIAL_MATCH",
+            "message": "data-lo-para property 'background-color' was not applied because the replaced range does not cover a whole paragraph",
+        },
+    ]
+
+    enum = doc.getText().createEnumeration()
+    p = enum.nextElement()
+    assert p.getPropertyValue("ParaLeftMargin") == 0
 
 
 @native_test
@@ -527,15 +678,36 @@ def test_write_search_whole_paragraph_recording_warns_uno(ctx, doc):
     cur.setPropertyValue("ParaStyleName", "Standard")
     text.insertString(cur, "Keep after", False)
 
+    content = (
+        '<p data-lo-style="Heading2" '
+        'data-lo-para="margin-left:2cm; text-align:center; background-color:#ffe4c4">New heading</p>'
+    )
     doc.setPropertyValue("RecordChanges", True)
     try:
         res = ApplyDocumentContent().execute(
             _tool_ctx(doc, ctx), target="search", old_content="Replace me",
-            content='<p data-lo-style="Heading2">New heading</p>')
+            content=content)
         assert res.get("status") == "ok", res
-        assert "warning" in res
-        assert "tracked changes are recording" in res["warning"]
+        assert "warning" not in res
+        assert "warnings" in res
+        assert res["warnings"][0]["code"] == "STYLE_IGNORED_RECORDING"
+        assert "tracked changes are recording" in res["warnings"][0]["message"]
         assert "tracked changes are recording" in res["message"]
+        para_warns = [w for w in res["warnings"] if w["code"] == "PARA_IGNORED_RECORDING"]
+        assert para_warns == [
+            {
+                "code": "PARA_IGNORED_RECORDING",
+                "message": "data-lo-para property 'margin-left' was not applied because tracked changes are recording",
+            },
+            {
+                "code": "PARA_IGNORED_RECORDING",
+                "message": "data-lo-para property 'text-align' was not applied because tracked changes are recording",
+            },
+            {
+                "code": "PARA_IGNORED_RECORDING",
+                "message": "data-lo-para property 'background-color' was not applied because tracked changes are recording",
+            },
+        ]
     finally:
         doc.setPropertyValue("RecordChanges", False)
 
@@ -550,6 +722,12 @@ def test_write_search_whole_paragraph_recording_warns_uno(ctx, doc):
     assert after is not None and after[0] == "Standard", pairs
     assert "Replace me" not in text.getString(), text.getString()
     assert "New heading" in text.getString(), text.getString()
+    enum = doc.getText().createEnumeration()
+    while enum.hasMoreElements():
+        p = enum.nextElement()
+        if hasattr(p, "supportsService") and p.supportsService("com.sun.star.text.Paragraph"):
+            if "New heading" in p.getString():
+                assert p.getPropertyValue("ParaLeftMargin") == 0
 
 
 @native_test
@@ -577,8 +755,10 @@ def test_write_search_all_matches_mixed_whole_and_partial_uno(ctx, doc):
         content='<p data-lo-style="Heading2">Replacement</p>')
     assert res.get("status") == "ok", res
     assert res.get("replaced_count") == 2, res
-    assert "warning" in res
-    assert "1 of 2 matches" in res["warning"]
+    assert "warning" not in res
+    assert "warnings" in res
+    assert res["warnings"][0]["code"] == "STYLE_IGNORED_PARTIAL_MATCH"
+    assert "1 of 2 matches" in res["warnings"][0]["message"]
     assert "1 of 2 matches" in res["message"]
 
     pairs = _para_pairs(doc)
@@ -595,3 +775,59 @@ def test_write_search_all_matches_mixed_whole_and_partial_uno(ctx, doc):
     # Exactly one paragraph got Heading 2 (the whole-paragraph match, not the partial one)
     assert sum(1 for s, _ in pairs if s == "Heading 2") == 1, pairs
     assert any("tail" in t for _, t in pairs), pairs
+
+
+@native_test
+@with_native_doc("writer")
+def test_partial_match_suggested_call_replay_uno(ctx, doc):
+    """Replaying suggested_call from partial match restyles the host paragraph while neighbors keep styles."""
+    from plugin.writer.styles import ApplyStyle
+
+    text = doc.getText()
+    text.setString("")
+    cur = text.createTextCursor()
+    cur.gotoStart(False)
+    cur.setPropertyValue("ParaStyleName", "Standard")
+    text.insertString(cur, "Keep before", False)
+    text.insertControlCharacter(cur, 0, False)
+    cur.setPropertyValue("ParaStyleName", "Standard")
+    text.insertString(cur, "Prefix TARGET Suffix", False)
+    text.insertControlCharacter(cur, 0, False)
+    cur.setPropertyValue("ParaStyleName", "Standard")
+    text.insertString(cur, "Keep after", False)
+
+    res = ApplyDocumentContent().execute(
+        _tool_ctx(doc, ctx),
+        target="search",
+        old_content="TARGET",
+        content='<p data-lo-style="Heading2">Replacement</p>',
+    )
+    assert res.get("status") == "ok", res
+    assert "warnings" in res
+    assert "warning" not in res
+    diag = res["warnings"][0]
+    assert diag["code"] == "STYLE_IGNORED_PARTIAL_MATCH"
+    assert diag["matches_skipped"] == 1
+    assert diag["matches_total"] == 1
+    assert "suggested_call" in diag
+    suggested = diag["suggested_call"]
+    assert suggested["tool"] == "apply_style"
+    assert suggested["arguments"]["target"] == "search"
+    assert suggested["arguments"]["old_content"] == "Replacement"
+    assert suggested["arguments"]["style"] == "Heading 2"
+    assert suggested["arguments"]["case_sensitive"] is True
+    from tests.framework.suggested_call_access import assert_valid_suggested_call
+    assert_valid_suggested_call(suggested)
+
+    # Replay the suggested call against LibreOffice
+    style_res = ApplyStyle().execute(_tool_ctx(doc, ctx), **suggested["arguments"])
+    assert style_res.get("status") == "ok", style_res
+
+    # Host paragraph is restyled to Heading 2, while neighbouring paragraphs remain Standard
+    pairs = _para_pairs(doc)
+    before = next(((s, t) for s, t in pairs if "Keep before" in t), None)
+    host = next(((s, t) for s, t in pairs if "Replacement" in t), None)
+    after = next(((s, t) for s, t in pairs if "Keep after" in t), None)
+    assert before is not None and before[0] == "Standard", pairs
+    assert host is not None and host[0] == "Heading 2", pairs
+    assert after is not None and after[0] == "Standard", pairs

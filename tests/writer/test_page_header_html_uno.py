@@ -57,10 +57,10 @@ def _set(doc, ctx, region, content, **kwargs):
 
 
 def _region_text(doc, region):
-    from plugin.writer.page import _REGION_PROPS
+    from plugin.writer.page import REGION_PROPS
 
     style, _name = _style(doc)
-    _is_on, text_prop = _REGION_PROPS[region]
+    _is_on, text_prop = REGION_PROPS[region]
     return style.getPropertyValue(text_prop)
 
 
@@ -422,7 +422,7 @@ def test_undo_rollback_restores_header_fields_and_logo(ctx, doc):
     cur.gotoStart(False)
     cur.gotoEnd(True)
     cur.setString("")
-    insert_html_fragment_at_cursor(cur, "<p>replaced</p>", wrap=False, model=None)
+    insert_html_fragment_at_cursor(cur, "<p>replaced</p>", wrap=False)
     mgr.leaveUndoContext()
 
     titles = mgr.getAllUndoActionTitles()
@@ -467,7 +467,7 @@ def test_page_set_header_undo_rollback_on_field_restore_failure(ctx, doc):
     assert scan_before["fields"] and scan_before["images"]
 
     with patch(
-        "plugin.writer.field_restore._restore_field_placeholders",
+        "plugin.writer.field_restore.restore_field_placeholders",
         side_effect=RuntimeError("injected field restore failure"),
     ):
         res = _set(doc, ctx, "header", '<p>Page <span title="page-number"/></p>')
@@ -496,3 +496,84 @@ def test_header_trailing_paragraph_cleanup_single_undo_step_uno(ctx, doc):
     assert header.getString().strip() == "OLD"
 
 
+
+
+def _first_paragraph(text_obj):
+    return text_obj.createEnumeration().nextElement()
+
+
+@native_test
+@with_native_doc("writer")
+def test_header_data_lo_style_and_para_round_trip_uno(ctx, doc):
+    """data-lo-style / data-lo-para apply on a header write and come back from the read.
+
+    Writer stores lengths in twips, so 1cm (1000 in 1/100 mm) can read back as 999 or 1001.
+    """
+    html = '<p data-lo-style="Header" data-lo-para="margin-left:1cm; text-align:center">Letterhead</p>'
+    res = _set(doc, ctx, "header", html)
+    assert res["status"] == "ok", res
+    assert "warnings" not in res, res
+
+    para = _first_paragraph(_region_text(doc, "header"))
+    assert para.getPropertyValue("ParaStyleName") == "Header"
+    assert abs(para.getPropertyValue("ParaLeftMargin") - 1000) <= 1
+    assert para.getPropertyValue("ParaAdjust") == 3  # CENTER
+
+    read = _get(doc, ctx, "header")["content"]
+    assert 'data-lo-style="Header"' in read, read
+    assert "text-align:center" in read and "margin-left:" in read, read
+    # Values the paragraph inherits from its style are not reported as overrides.
+    assert "margin-right" not in read and "margin-top" not in read, read
+
+    res2 = _set(doc, ctx, "header", read)
+    assert res2["status"] == "ok", res2
+    # Only read-only names may warn: on some machines the import sets a direct font that
+    # the read then reports (fonts are not written back, see _READ_ONLY_PARA_NAMES).
+    from plugin.writer.html_import_styles import _READ_ONLY_PARA_NAMES
+
+    warned = {(w["message"] if isinstance(w, dict) else w).split("'")[1] for w in res2.get("warnings", [])}
+    assert warned <= _READ_ONLY_PARA_NAMES, (res2, read)
+    para = _first_paragraph(_region_text(doc, "header"))
+    assert para.getString() == "Letterhead"
+    assert para.getPropertyValue("ParaStyleName") == "Header"
+    assert abs(para.getPropertyValue("ParaLeftMargin") - 1000) <= 1
+
+
+@native_test
+@with_native_doc("writer")
+def test_header_unapplied_data_lo_para_is_reported_uno(ctx, doc):
+    """A paragraph-level font cannot be applied (it would flatten spans), so it warns."""
+    res = _set(doc, ctx, "footer", '<p data-lo-para="font-weight:bold">Footer</p>')
+    assert res["status"] == "ok", res
+    assert res.get("warnings") == [
+        {"code": "PARA_PROPERTY_UNSUPPORTED", "message": "data-lo-para property 'font-weight' was not applied"}
+    ], res
+    assert _region_text(doc, "footer").getString().strip() == "Footer"
+
+
+@native_test
+@with_native_doc("writer")
+def test_header_custom_style_read_reports_margin_uno(ctx, doc):
+    """A custom paragraph style absent from a scratch doc reports its margin on read.
+
+    A blank scratch Writer document does not have user-defined styles. Comparing against the
+    source custom style when the scratch paragraph falls back to Standard would skip the
+    custom style's margin as inherited, so the read must copy direct properties when the
+    scratch document lacks the style.
+    """
+    para_styles = doc.getStyleFamilies().getByName("ParagraphStyles")
+    custom = doc.createInstance("com.sun.star.style.ParagraphStyle")
+    para_styles.insertByName("CustomLetterhead", custom)
+    custom.setPropertyValue("ParaLeftMargin", 2000)
+    custom.setPropertyValue("ParaAdjust", 3)
+
+    style, _name = _style(doc)
+    style.setPropertyValue("HeaderIsOn", True)
+    header = style.getPropertyValue("HeaderText")
+    header.setString("Letterhead Header")
+    para = _first_paragraph(header)
+    para.setPropertyValue("ParaStyleName", "CustomLetterhead")
+
+    read = _get(doc, ctx, "header")["content"]
+    assert "margin-left:" in read, read
+    assert "Letterhead Header" in read, read

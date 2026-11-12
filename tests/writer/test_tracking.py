@@ -1,7 +1,10 @@
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch, call
 
+import pytest
 
 from plugin.calc.base import ToolCalcSpecialBase
+from plugin.framework.tool import prepare_tool_call
 from plugin.writer.tracking import (
     TrackChangesStart,
     TrackChangesStop,
@@ -9,9 +12,6 @@ from plugin.writer.tracking import (
     TrackChangesShow,
     ManageTrackedChanges,
 )
-import pytest
-
-from tests.harness.strip_bundle import requires_asserts
 
 def _create_mock_ctx():
     ctx = MagicMock()
@@ -37,7 +37,7 @@ def _create_mock_ctx():
     dispatcher = MagicMock()
     smgr = MagicMock()
     smgr.createInstanceWithContext.return_value = dispatcher
-    ctx.ctx.ServiceManager = smgr
+    ctx.ctx.getServiceManager.return_value = smgr
     
     frame = MagicMock()
     controller = MagicMock()
@@ -199,12 +199,18 @@ def test_track_changes_show_missing_required():
         tool.execute(ctx)
 
 
-@requires_asserts
-def test_track_changes_show_type_assertion():
-    ctx, _, _, _ = _create_mock_ctx()
-    tool = TrackChangesShow()
-    with pytest.raises(AssertionError):
-        tool.execute(ctx, show="not-a-bool")  # type: ignore[arg-type]
+@pytest.mark.parametrize("show", ["not-a-bool", 1, None])
+def test_track_changes_show_wrong_type_rejected_by_schema(show):
+    """The schema validator (prepare_tool_call) owns argument type checks, so execute has no manual guard."""
+    prepared = prepare_tool_call(
+        TrackChangesShow(),
+        SimpleNamespace(doc_type="writer", caller=None),
+        "tracking_show",
+        {"show": show},
+    )
+    assert prepared.error is not None
+    assert prepared.error["code"] == "VALIDATION_ERROR"
+    assert "expected boolean" in prepared.error["message"]
 
 
 def test_track_changes_show_readback_mismatch():
@@ -454,22 +460,18 @@ def test_manage_tracked_changes_invalid_action():
     dispatcher.executeDispatch.assert_not_called()
 
 
-@requires_asserts
-def test_manage_tracked_changes_index_string_assertion():
-    ctx, dispatcher, _frame, _ = _create_mock_ctx()
-    tool = ManageTrackedChanges()
-    with pytest.raises(AssertionError):
-        tool.execute(ctx, action="accept", index="two")  # type: ignore[arg-type]
-    dispatcher.executeDispatch.assert_not_called()
-
-
-@requires_asserts
-def test_manage_tracked_changes_index_bool_assertion():
-    ctx, dispatcher, _frame, _ = _create_mock_ctx()
-    tool = ManageTrackedChanges()
-    with pytest.raises(AssertionError):
-        tool.execute(ctx, action="accept", index=True)  # type: ignore[arg-type]
-    dispatcher.executeDispatch.assert_not_called()
+@pytest.mark.parametrize("index", ["two", True, 2.5])
+def test_manage_tracked_changes_index_wrong_type_rejected_by_schema(index):
+    """The schema validator (prepare_tool_call) owns argument type checks, so execute has no manual guard."""
+    prepared = prepare_tool_call(
+        ManageTrackedChanges(),
+        SimpleNamespace(doc_type="writer", caller=None),
+        "tracking_manage",
+        {"action": "accept", "index": index},
+    )
+    assert prepared.error is not None
+    assert prepared.error["code"] == "VALIDATION_ERROR"
+    assert "expected integer" in prepared.error["message"]
 
 # --- Agent-self-resolution guard (B3): the agent must never accept/reject its OWN edits --------
 
@@ -721,7 +723,7 @@ def test_manage_tracked_changes_bulk_unsupported_when_dispatch_returns_none(acti
     dispatcher.executeDispatch.return_value = None
     smgr = MagicMock()
     smgr.createInstanceWithContext.return_value = dispatcher
-    ctx.ctx.ServiceManager = smgr
+    ctx.ctx.getServiceManager.return_value = smgr
     controller = MagicMock()
     frame = MagicMock()
     controller.getFrame.return_value = frame
@@ -732,6 +734,7 @@ def test_manage_tracked_changes_bulk_unsupported_when_dispatch_returns_none(acti
     assert res["status"] == "error"
     assert res["code"] == "UNSUPPORTED"
     assert res["tracked_changes_bulk_unsupported"] is True
+    assert "details" not in res
     assert res["message"] == "Accepting or rejecting all tracked changes is not supported on this document."
 
 

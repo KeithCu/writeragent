@@ -16,9 +16,6 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """Writer shape drawing tools, bridging Draw's implementations."""
 
-from typing import Any
-
-from plugin.framework.errors import reraise_if_disposed
 from ..specialized_base import ToolWriterShapeBase
 from plugin.draw.shapes import UpsertShape as DrawUpsertShape
 from plugin.draw.shapes import DeleteShape as DrawDeleteShape
@@ -62,39 +59,5 @@ class DistributeShapes(DrawDistributeShapes, ToolWriterShapeBase):
 
 class CreateDiagram(DrawCreateDiagram, ToolWriterShapeBase):
     name: str | None = "shape_diagram"
-
-
-def replace_text_in_shape(shape: Any, old: str, new: str) -> bool:
-    """Replace the first occurrence of *old* with *new* inside a drawing shape's own text,
-    preserving the formatting of the surrounding text via a text cursor. Returns True on success.
-
-    Uses character-offset navigation (goRight) which aligns with getString() for single-paragraph
-    shape text (the common case for callouts / text boxes). Returns False on an ordinary UNO failure;
-    a disposed document propagates."""
-    try:
-        xtext = shape.getText()
-        s = xtext.getString()
-    except Exception as exc:
-        reraise_if_disposed(exc, object_type="Text")
-        return False
-    idx = s.find(old)
-    if idx < 0:
-        return False
-    # goRight counts UTF-16 code units, while str offsets count code points. Convert so astral
-    # characters (emoji, rare CJK) in the shape text don't misalign the selection / corrupt text.
-    left_units = len(s[:idx].encode("utf-16-le")) // 2
-    old_units = len(old.encode("utf-16-le")) // 2
-    if old_units <= 0:
-        return False
-    try:
-        cursor = xtext.createTextCursorByRange(xtext.getStart())
-        if left_units:
-            cursor.goRight(left_units, False)
-        cursor.goRight(old_units, True)
-        cursor.setString(new)
-        return True
-    except Exception as exc:
-        reraise_if_disposed(exc, object_type="Text")
-        return False
 
 

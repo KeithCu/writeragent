@@ -3,8 +3,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from plugin.doc.text_helpers import (
-    _visible_portions,
-    _writer_char_count,
+    visible_portions,
+    writer_char_count,
     apply_chapter_number,
     chapter_number_from_para,
     clone_text_range,
@@ -232,7 +232,7 @@ def test_get_string_without_tracked_deletions_paragraph_no_mid_newline():
     got = get_string_without_tracked_deletions(para)
     assert got == "Paragraph with normal and bold text"
     assert "\n" not in got
-    assert got == "".join(chunk for _unused, chunk in _visible_portions(para))
+    assert got == "".join(chunk for _unused, chunk in visible_portions(para))
 
 
 def test_get_string_without_tracked_deletions_paragraph_service():
@@ -241,6 +241,33 @@ def test_get_string_without_tracked_deletions_paragraph_service():
         fallback_text="Hello bold",
     )
     assert get_string_without_tracked_deletions(para) == "Hello bold"
+
+
+class _Shape:
+    def __init__(self, text: str = "alpha\nbeta"):
+        self._text = text
+
+    def supportsService(self, name: str) -> bool:
+        return name == "com.sun.star.drawing.Shape"
+
+    def getString(self) -> str:
+        return self._text
+
+    def createEnumeration(self):
+        raise AssertionError("must not enumerate")
+
+
+class _ShapeIntService(_Shape):
+    def supportsService(self, name: str) -> int:
+        return 1 if name == "com.sun.star.drawing.Shape" else 0
+
+
+def test_get_string_without_tracked_deletions_draw_shape_uses_getstring():
+    shape = _Shape("alpha\nbeta")
+    assert get_string_without_tracked_deletions(shape) == "alpha\nbeta"
+
+    shape_int = _ShapeIntService("gamma")
+    assert get_string_without_tracked_deletions(shape_int) == "gamma"
 
 
 def test_visible_portions_helper_continues_paint_aborts():
@@ -266,18 +293,18 @@ def test_visible_portions_helper_continues_paint_aborts():
             return _BoomEnum(["boom", _Portion("later")])
 
     para = _BoomPara()
-    assert list(_visible_portions(para, abort_on_portion_error=True)) == []
-    assert "".join(chunk for _unused, chunk in _visible_portions(para)) == "later"
+    assert list(visible_portions(para, abort_on_portion_error=True)) == []
+    assert "".join(chunk for _unused, chunk in visible_portions(para)) == "later"
 
 
 def test_visible_portions_truncated_out_when_cap_hit():
     para = _Paragraph([_Portion("a"), _Portion("b"), _Portion("c")])
     hit = []
-    chunks = [chunk for _unused, chunk in _visible_portions(para, limit=2, truncated_out=hit)]
+    chunks = [chunk for _unused, chunk in visible_portions(para, limit=2, truncated_out=hit)]
     assert chunks == ["a", "b"]
     assert hit == [2]
     exhausted = []
-    assert [c for _u, c in _visible_portions(para, limit=3, truncated_out=exhausted)] == ["a", "b", "c"]
+    assert [c for _u, c in visible_portions(para, limit=3, truncated_out=exhausted)] == ["a", "b", "c"]
     assert exhausted == []
 
 
@@ -372,10 +399,10 @@ def test_writer_char_count_walks_the_real_length_not_character_count(n):
     chat excerpt lost the end of the document."""
     from types import SimpleNamespace
 
-    from plugin.doc.text_helpers import _writer_char_count
+    from plugin.doc.text_helpers import writer_char_count
 
     text = _WalkText(n)
-    assert _writer_char_count(SimpleNamespace(getText=lambda: text, CharacterCount=1)) == n
+    assert writer_char_count(SimpleNamespace(getText=lambda: text, CharacterCount=1)) == n
 
 
 def test_get_document_length_is_the_visible_writer_text():
@@ -491,7 +518,7 @@ def test_writer_char_count_disposed():
     model.getText.side_effect = DocumentDisposedError("stale")
 
     with pytest.raises(DocumentDisposedError):
-        _writer_char_count(model)
+        writer_char_count(model)
 
 
 def test_selected_text_range_none_controller():
@@ -795,6 +822,14 @@ def test_starts_at_or_after():
     # Exception during compare -> False
     text.compareRegionStarts.side_effect = RuntimeError("UNO error")
     assert starts_at_or_after(text, left, right) is False
+
+
+def test_clear_direct_numbering_sets_numbering_rules_none() -> None:
+    from plugin.doc.text_helpers import clear_direct_numbering
+
+    cursor = MagicMock()
+    clear_direct_numbering(cursor)
+    cursor.setPropertyValue.assert_called_once_with("NumberingRules", None)
 
 
 def _del_mark(is_start):

@@ -68,6 +68,7 @@ def test_scan_page_includes_paragraph_anchored_shape_on_page(monkeypatch):
         raise RuntimeError(f"no {name}")
 
     shape = MagicMock()
+    shape.supportsService.side_effect = lambda s: s == "com.sun.star.drawing.Shape"
     shape.getPropertyValue.side_effect = _shape_props
     shape.getShapeType.return_value = "com.sun.star.drawing.RectangleShape"
     shape.Name = "Box"
@@ -88,6 +89,8 @@ def test_scan_page_includes_paragraph_anchored_shape_on_page(monkeypatch):
     result = tool._scan_page(doc, vc, 2)
     assert len(result["shapes"]) == 1
     assert result["shapes"][0]["name"] == "Box"
+    assert result["shapes"][0]["text"] == "label"
+    shape.createEnumeration.assert_not_called()
     vc.gotoRange.assert_called_once()
 
 

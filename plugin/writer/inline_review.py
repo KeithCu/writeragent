@@ -30,6 +30,8 @@ from enum import Enum, auto
 import logging
 from typing import Any, Generator, NamedTuple
 
+from plugin.chatbot.dialogs import msgbox
+from plugin.doc.compound_undo import WriterCompoundUndo
 from plugin.framework.errors import is_disposal
 from plugin.framework.i18n import _
 from plugin.framework.uno_context import uno_same
@@ -147,24 +149,11 @@ def scan_redline_view(model: Any) -> RedlineView:
         start = rl.getPropertyValue("RedlineStart")
         end = rl.getPropertyValue("RedlineEnd")
 
-        if token is not None:
-            identity = None
-        else:
-            rid = rl.getPropertyValue("RedlineIdentifier")
-
-            def prop(name: str) -> Any:
-                try:
-                    return rl.getPropertyValue(name)
-                except Exception:
-                    return None
-
-            identity = (
-                rid,
-                prop("RedlineType"),
-                prop("RedlineAuthor"),
-                _review_scan.redline_date_key(prop("RedlineDateTime")),
-                comment_raw,
-            )
+        identity = (
+            None
+            if token is not None
+            else _review_scan.redline_identity_key(rl, comment=comment_raw)
+        )
 
         rows.append(
             RedlineRow(
@@ -228,7 +217,6 @@ def show_review_message(ctx: Any, message: str) -> None:
     """Surface a review outcome to the user so a click that resolves nothing isn't silent."""
     if not message:
         return
-    from plugin.chatbot.dialogs import msgbox
 
     msgbox(ctx, _("Review agent changes"), message)
 
@@ -597,17 +585,23 @@ def _tracked_change_command(accept: bool) -> str:
     return ".uno:AcceptTrackedChange" if accept else ".uno:RejectTrackedChange"
 
 
-def _execute_dispatch(ctx: Any, controller: Any, command: str) -> None:
+def execute_dispatch(ctx: Any, controller: Any, command: str) -> Any:
+    """Run one ``.uno:`` command on the controller's frame through DispatchHelper and return its result.
+
+    Returns an empty Any (None) when no dispatcher handled it
+    (``framework/source/services/dispatchhelper.cxx DispatchHelper::executeDispatch``).
+    ``tracking_manage`` reads that on Calc.
+    """
     smgr = ctx.getServiceManager()
     dispatcher = smgr.createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx)
-    dispatcher.executeDispatch(controller.getFrame(), command, "", 0, ())
+    return dispatcher.executeDispatch(controller.getFrame(), command, "", 0, ())
 
 
 def _dispatch_and_scan(
     ctx: Any, controller: Any, model: Any, command: str, token: str
 ) -> tuple[RedlineView, bool]:
     try:
-        _execute_dispatch(ctx, controller, command)
+        execute_dispatch(ctx, controller, command)
     except Exception:
         log.exception("inline_review: dispatch failed for %s", token)
         return scan_redline_view(model), True
@@ -752,8 +746,6 @@ def resolve_agent_change(
 @contextlib.contextmanager
 def _grouped_resolve_undo(model: Any) -> Generator[None, None, None]:
     """Group dispatches into one undo step; keeps landed edits on failure."""
-    from plugin.doc.compound_undo import WriterCompoundUndo
-
     with WriterCompoundUndo(model, _("Resolve agent changes")):
         yield
 
@@ -838,7 +830,7 @@ def _resolve_overlapping_agent_changes(
                 try:
                     dispatched = True
                     command = _tracked_change_command(accept)
-                    _execute_dispatch(ctx, controller, command)
+                    execute_dispatch(ctx, controller, command)
                 except Exception:
                     break
                 now = scan_redline_view(model)
@@ -885,7 +877,7 @@ def _resolve_all_agent_changes(model: Any, ctx: Any, accept: bool) -> ResolveAll
         try:
             controller = model.getCurrentController()
             command = ".uno:AcceptAllTrackedChanges" if accept else ".uno:RejectAllTrackedChanges"
-            _execute_dispatch(ctx, controller, command)
+            execute_dispatch(ctx, controller, command)
         except Exception:
             log.exception("inline_review: resolve-all global dispatch failed")
             return ResolveAllResult(status=ResolveStatus.PARTIAL, resolved=0, total=total)
