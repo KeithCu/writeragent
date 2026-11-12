@@ -185,20 +185,21 @@ def _wire_replace(um, replace_script):
 
 
 def _run(found, old, new, max_runs=10_000, threshold=_THRESHOLD, doc=None, replace_side_effect=None,
-         session=None, split_author=True):
+         session=None, split_author=True, replace_fn=None):
     session = session if session is not None else FakeSession()
     if doc is None:
         doc = FakeDoc(FakeUndoManager())  # a real (unlocked) faithful undo manager by default
     um = getattr(doc, "_um", None)
-    # The tuning knobs are plain module constants now (env-overridable, not config keys); pin them so
-    # each test is deterministic. _SPLIT_AUTHOR_COLORS default True == today's two-step behaviour; set
-    # False to exercise the one-color path.
+    # The tuning knobs are internal config keys; pin them so each test is deterministic.
+    # split_author default True == today's two-step behaviour; set False to exercise the one-color path.
+    wire = replace_fn if replace_fn is not None else _wire_replace(um, replace_side_effect)
     with patch("plugin.writer.edit_review._block_safe_for_surgical", return_value=True), \
-         patch("plugin.writer.edit_review._WORD_DIFF_THRESHOLD", threshold), \
-         patch("plugin.writer.edit_review._MAX_SURGICAL_RUNS", max_runs), \
-         patch("plugin.writer.edit_review._SPLIT_AUTHOR_COLORS", split_author), \
+         patch("plugin.framework.config.get_config",
+               side_effect={"doc.agent_edit_diff_threshold": threshold,
+                            "doc.agent_edit_max_surgical_runs": max_runs,
+                            "doc.agent_edit_split_author_colors": split_author}.__getitem__), \
          patch("plugin.writer.html_import.replace_preserving_format",
-               side_effect=_wire_replace(um, replace_side_effect)) as mock_replace:
+               side_effect=wire) as mock_replace:
         record_preserve_replace(session, doc, found, new, MagicMock(), split=True)
     return session, mock_replace
 
@@ -375,6 +376,49 @@ def test_failed_undo_keeps_partial_records_rather_than_orphaning():
     assert um.undos == 1                 # undo was attempted
     assert session.discarded_to is None  # but records were NOT trimmed (undo failed)
     assert len(session.changes) == 1     # the partial record survives for review/cleanup
+
+
+@pytest.mark.parametrize("mode", ["surgical", "whole_block"])
+def test_rollback_failed_reraises_original_exception_type(mode):
+    class InsertFailed(Exception):
+        pass
+
+    class ExplodingUndoManager(FakeUndoManager):
+        def undo(self):
+            self.undos += 1
+            raise RuntimeError("undo unavailable")
+
+    um = ExplodingUndoManager()
+    session = FakeSession()
+    old = "the quick brown fox jumps over the lazy dog"
+    new = "the fast brown fox jumps over the sleepy dog"
+
+    if mode == "surgical":
+        with pytest.raises(InsertFailed):
+            _run(
+                FakeFound(old),
+                old,
+                new,
+                doc=FakeDoc(um),
+                session=session,
+                replace_side_effect=[None, InsertFailed("x")],
+            )
+    else:
+        def replace_that_mutates_and_explodes(*args, **kwargs):
+            um.record_action()
+            raise InsertFailed("x")
+
+        with pytest.raises(InsertFailed):
+            _run(
+                FakeFound(old),
+                old,
+                new,
+                threshold=0.0,
+                doc=FakeDoc(um),
+                session=session,
+                split_author=True,
+                replace_fn=replace_that_mutates_and_explodes,
+            )
 
 
 def test_first_subedit_failure_skips_undo_when_context_empty():

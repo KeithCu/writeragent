@@ -124,3 +124,29 @@ config:
     internal: true
     label: Edit review max wait (seconds)
     helper: "Only used when mode is Wait. Max time apply_document_content blocks before returning with pending changes."
+
+  agent_edit_diff_threshold:
+    type: float
+    default: 0.6
+    min: 0.0
+    max: 1.0
+    widget: number
+    internal: true
+    label: Agent edit diff threshold
+    helper: "Max changed-word fraction (0-1) before a Record/Wait replace falls back to one whole-block tracked change instead of word-level changes."
+
+  agent_edit_max_surgical_runs:
+    type: int
+    default: 40
+    min: 1
+    widget: number
+    internal: true
+    label: Agent edit max surgical runs
+    helper: "Cap on word-level sub-edits per replace; more becomes one whole-block change."
+
+  agent_edit_split_author_colors:
+    type: boolean
+    default: true
+    internal: true
+    label: Agent edit split author colors
+    helper: "Author whole-block deletions as 'WriterAgent (deletions)' so they show in a second colour."

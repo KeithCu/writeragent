@@ -37,7 +37,7 @@ def _create_mock_ctx():
     dispatcher = MagicMock()
     smgr = MagicMock()
     smgr.createInstanceWithContext.return_value = dispatcher
-    ctx.ctx.ServiceManager = smgr
+    ctx.ctx.getServiceManager.return_value = smgr
     
     frame = MagicMock()
     controller = MagicMock()
@@ -721,7 +721,7 @@ def test_manage_tracked_changes_bulk_unsupported_when_dispatch_returns_none(acti
     dispatcher.executeDispatch.return_value = None
     smgr = MagicMock()
     smgr.createInstanceWithContext.return_value = dispatcher
-    ctx.ctx.ServiceManager = smgr
+    ctx.ctx.getServiceManager.return_value = smgr
     controller = MagicMock()
     frame = MagicMock()
     controller.getFrame.return_value = frame

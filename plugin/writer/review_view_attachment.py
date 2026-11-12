@@ -39,6 +39,12 @@ def attachment_key(model: Any) -> str:
 
 
 def is_writer(model: Any) -> bool:
+    """Writer check for the registry.
+
+    Unlike ``plugin.framework.doc_type.is_writer``, it re-raises the raw UNO
+    disposal exception (like ``register_controller``'s arm) and does not assert
+    the main thread.
+    """
     try:
         return bool(model is not None and model.supportsService("com.sun.star.text.TextDocument"))
     except Exception as exc:
@@ -327,14 +333,6 @@ def cleanup_disposed_controllers() -> None:
             attachment.controllers[:] = alive
 
 
-def attachments() -> dict[str, ReviewViewAttachment]:
-    """Shallow copy of the registry taken under _lock. Tests only.
-
-    Keys are a snapshot; values are the live objects."""
-    with _lock:
-        return dict(_attachments)
-
-
 def detach_click_handler(handler: Any) -> Any | None:
     """Remove *handler* from whichever attachment holds it; return its controller or None."""
     with _lock:
@@ -410,14 +408,3 @@ def install(ctx: Any) -> None:
     if listener is not None:
         with _lock:
             _doc_listener = listener
-
-
-def reset_all() -> None:
-    """Clear all attachments (unit tests)."""
-    global _doc_listener
-    with _lock:
-        for key in list(_attachments):
-            _drop_attachment(key, remove_modify_listener=False)
-        _doc_listener = None
-    with _pending_lock:
-        _pending_refresh.clear()
