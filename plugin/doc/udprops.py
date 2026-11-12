@@ -25,6 +25,7 @@ from plugin.framework.errors import (
 
 log = logging.getLogger(__name__)
 
+
 def _user_defined_property_exists(props: Any, name: str) -> bool:
     """True iff ``name`` is on the PropertyBag (``XPropertySet``, not ``XNameAccess``)."""
     try:

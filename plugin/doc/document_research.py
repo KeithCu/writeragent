@@ -439,6 +439,7 @@ def scan_nearby_files(
 ) -> dict[str, Any]:
     """List nearby files; raises SendCancelled when the user stops.
 
+    Tool entry points call ``list_nearby_files``; helpers that already handle Stop call this.
     *file_kind* ``documents`` (default): LibreOffice office formats only.
     *file_kind* ``images``: image files only (listable; not readable via delegate_read_document).
     *state* skips the main-thread read when the caller already has it
