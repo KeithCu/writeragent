@@ -18,17 +18,20 @@ import re
 import tempfile
 from dataclasses import dataclass
 from html import escape as _html_escape
-from typing import Any, Iterator
+from typing import Any, Iterator, Literal
 
 from plugin.doc.text_helpers import iter_elements
-from plugin.framework.errors import reraise_if_disposed, uno_read
-from plugin.framework.uno_context import get_desktop, uno_same
+from plugin.framework.errors import best_effort, reraise_if_disposed, uno_read
+from plugin.framework.uno_context import (
+    create_property_value,
+    get_desktop,
+    uno_same,
+)
 from plugin.framework.url_utils import path_to_file_url
 from plugin.writer.math.math_mml_convert import (
     MATH_CLSID,
     _MATH_ROOT_RE,
     _exception_message,
-    _math_inner,
     math_root,
 )
 
@@ -56,7 +59,6 @@ def _xhtml_id(name: str) -> str:
 class MathExportResult:
     ok: bool
     latex: str | None
-    mathml: str | None
     error_message: str | None
 
 
@@ -72,80 +74,106 @@ class WriterMathHit:
 def convert_mathml_to_latex(mathml_fragment: str) -> MathExportResult:
     """Presentation MathML string → LaTeX via vendored ``mathml-to-latex``. No UNO."""
     if not mathml_fragment:
-        return MathExportResult(False, None, None, "empty_mathml")
+        return MathExportResult(False, None, "empty_mathml")
     root = math_root(mathml_fragment)
     if not root:
-        return MathExportResult(False, None, None, "not_math_root")
+        return MathExportResult(False, None, "not_math_root")
     try:
         from mathml_to_latex import MathMLToLaTeX
     except ImportError as exc:
-        return MathExportResult(False, None, None, f"mathml_to_latex_import:{exc}")
+        return MathExportResult(False, None, f"mathml_to_latex_import:{exc}")
     try:
         latex = MathMLToLaTeX.convert(root)
     except Exception as exc:
         log.debug("mathml-to-latex convert failed: %s", exc, exc_info=True)
-        return MathExportResult(False, None, None, _exception_message(exc))
+        return MathExportResult(False, None, _exception_message(exc))
     if not isinstance(latex, str) or not latex.strip():
-        return MathExportResult(False, None, None, "mathml_to_latex_empty_output")
-    return MathExportResult(True, latex.strip(), None, None)
+        return MathExportResult(False, None, "mathml_to_latex_empty_output")
+    return MathExportResult(True, latex.strip(), None)
 
 
-def _export_doc_to_mathml(doc: Any, starmath: str, path: str) -> str | None:
-    from plugin.framework.uno_context import create_property_value
+class MathExportBatch:
+    """Reuses one hidden Math document across formulas in a single export run."""
 
-    stripped = starmath.strip()
-    try:
-        doc.setPropertyValue("Formula", stripped)
-    except Exception:
-        doc.Formula = stripped
+    def __init__(self, ctx: Any) -> None:
+        self.ctx: Any = ctx
+        self._doc: Any = None
+        self._temp_path: str | None = None
+        self._cache: dict[str, MathExportResult] = {}
 
-    props = (
-        create_property_value("FilterName", MATHML_EXPORT_FILTER),
-        create_property_value("Overwrite", True),
-    )
-    doc.storeToURL(path_to_file_url(path), props)
-    with open(path, "r", encoding="utf-8", errors="replace") as f:
-        raw = f.read()
-    return math_root(raw)
+    def __enter__(self) -> MathExportBatch:
+        return self
 
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: Any,
+    ) -> Literal[False]:
+        self.close()
+        return False
 
-def convert_starmath_to_mathml(ctx: Any, starmath: str) -> MathExportResult:
-    """StarMath command string → MathML via a hidden LibreOffice Math document."""
-    if not starmath or not starmath.strip():
-        return MathExportResult(False, None, None, "empty_starmath")
+    def _ensure_doc(self) -> Any:
+        if self._doc is None:
+            desktop = get_desktop(self.ctx)
+            if desktop is None:
+                return None
+            hidden = (create_property_value("Hidden", True),)
+            self._doc = desktop.loadComponentFromURL(_MATH_FACTORY_URL, "_blank", 0, hidden)
+            if self._doc is not None:
+                fd, path = tempfile.mkstemp(suffix=".mml", prefix="writeragent-math-export-", text=False)
+                os.close(fd)
+                self._temp_path = path
+        return self._doc
 
-    from plugin.doc.temp_files import with_temp_buffer
-    from plugin.framework.uno_context import create_property_value
+    def convert_starmath_to_latex(self, starmath: str) -> MathExportResult:
+        key = (starmath or "").strip()
+        cached = self._cache.get(key)
+        if cached is None:
+            cached = self._convert_uncached(key)
+            self._cache[key] = cached
+        return cached
 
-    desktop = get_desktop(ctx)
-    hidden = (create_property_value("Hidden", True),)
-    doc = desktop.loadComponentFromURL(_MATH_FACTORY_URL, "_blank", 0, hidden)
-    if doc is None:
-        return MathExportResult(False, None, None, "smath_factory_returned_none")
+    def _convert_uncached(self, starmath: str) -> MathExportResult:
+        if not starmath or not starmath.strip():
+            return MathExportResult(False, None, "empty_starmath")
+        doc = self._ensure_doc()
+        if doc is None or not self._temp_path:
+            return MathExportResult(False, None, "smath_factory_returned_none")
+        try:
+            # Formula is a plain property on the Math model (starmath/source/unomodel.cxx
+            # SmModel::_setPropertyValues HANDLE_FORMULA).
+            doc.setPropertyValue("Formula", starmath.strip())
+            props = (
+                create_property_value("FilterName", MATHML_EXPORT_FILTER),
+                create_property_value("Overwrite", True),
+            )
+            doc.storeToURL(path_to_file_url(self._temp_path), props)
+            with open(self._temp_path, "r", encoding="utf-8", errors="replace") as f:
+                raw = f.read()
+            mml = math_root(raw)
+            if not mml:
+                return MathExportResult(False, None, "empty_mathml_export")
+            return convert_mathml_to_latex(mml)
+        except Exception as exc:
+            log.debug("math batch convert failed: %s", exc)
+            return MathExportResult(False, None, _exception_message(exc))
 
-    try:
-        with with_temp_buffer(ext=".mml") as (path, _url):
-            try:
-                mathml = _export_doc_to_mathml(doc, starmath, path)
-                if not mathml:
-                    return MathExportResult(False, None, None, "empty_mathml_export")
-                return MathExportResult(True, None, mathml, None)
-            finally:
-                try:
-                    doc.close(True)
-                except Exception as exc:
-                    log.debug("math export doc close: %s", exc)
-    except Exception as exc:
-        log.debug("convert_starmath_to_mathml failed: %s", exc, exc_info=True)
-        return MathExportResult(False, None, None, _exception_message(exc))
+    def close(self) -> None:
+        doc = self._doc
+        path = self._temp_path
+        self._doc = None
+        self._temp_path = None
+        if doc is not None:
+            best_effort(lambda: doc.close(True), "math export: hidden Math document close failed")
+        if path:
+            best_effort(lambda: os.unlink(path), "math export: temp .mml unlink failed")
 
 
 def convert_starmath_to_latex(ctx: Any, starmath: str) -> MathExportResult:
     """StarMath → MathML (LO) → LaTeX (``mathml-to-latex``)."""
-    mml = convert_starmath_to_mathml(ctx, starmath)
-    if mml.ok and mml.mathml:
-        return convert_mathml_to_latex(mml.mathml)
-    return MathExportResult(False, None, None, mml.error_message)
+    with MathExportBatch(ctx) as b:
+        return b.convert_starmath_to_latex(starmath)
 
 
 def wrap_latex_delimiters(latex: str, *, display_block: bool) -> str:
@@ -223,27 +251,28 @@ def inject_math_tex_into_html(model: Any, ctx: Any, html: str) -> str:
     parts: list[str] = []
     pos = 0
     failures = 0
-    for index, match in enumerate(math_matches):
-        while next_wrapper < len(wrappers) and wrappers[next_wrapper].start() < match.start():
-            next_wrapper += 1
-        wrapper = wrappers[next_wrapper - 1] if next_wrapper else None
-        hit: WriterMathHit | None = None
-        # The gap check keeps an earlier formula's wrapper from claiming this <math>.
-        if wrapper is not None and "<" not in html[wrapper.end() : match.start()]:
-            hit = by_id.pop(_xhtml_id(wrapper.group(1)), None)
-        if hit is None and order_pairing:
-            hit = hits[index]
-        display_block = bool(hit and hit.display_block)
-        res = convert_mathml_to_latex(match.group(0))
-        if not res.ok and hit is not None and hit.starmath:
-            res = convert_starmath_to_latex(ctx, hit.starmath)
-        if not res.ok:
-            failures += 1
-        parts.append(html[pos : match.start()])
-        parts.append(
-            _formula_replacement(res, hit.starmath if hit else "", display_block=display_block)
-        )
-        pos = match.end()
+    with MathExportBatch(ctx) as batch:
+        for index, match in enumerate(math_matches):
+            while next_wrapper < len(wrappers) and wrappers[next_wrapper].start() < match.start():
+                next_wrapper += 1
+            wrapper = wrappers[next_wrapper - 1] if next_wrapper else None
+            hit: WriterMathHit | None = None
+            # The gap check keeps an earlier formula's wrapper from claiming this <math>.
+            if wrapper is not None and "<" not in html[wrapper.end() : match.start()]:
+                hit = by_id.pop(_xhtml_id(wrapper.group(1)), None)
+            if hit is None and order_pairing:
+                hit = hits[index]
+            display_block = bool(hit and hit.display_block)
+            res = convert_mathml_to_latex(match.group(0))
+            if not res.ok and hit is not None and hit.starmath:
+                res = batch.convert_starmath_to_latex(hit.starmath)
+            if not res.ok:
+                failures += 1
+            parts.append(html[pos : match.start()])
+            parts.append(
+                _formula_replacement(res, hit.starmath if hit else "", display_block=display_block)
+            )
+            pos = match.end()
     parts.append(html[pos:])
     if failures:
         log.warning(
@@ -261,22 +290,14 @@ def substitute_math_placeholders(
     if not math_records or not content:
         return content
 
-    batch = _MathExportBatch(ctx) if ctx else None
-    try:
+    with MathExportBatch(ctx) as batch:
         for placeholder, starmath, display_block in math_records:
-            res = (
-                batch.convert_starmath_to_latex(starmath)
-                if (batch and starmath)
-                else MathExportResult(False, None, None, None)
-            )
+            res = batch.convert_starmath_to_latex(starmath)
             wrapped = _formula_replacement(res, starmath, display_block=display_block)
 
             code = ord(placeholder)
             for target in (placeholder, f"&#x{code:x};", f"&#x{code:X};", f"&#{code};"):
                 content = content.replace(target, wrapped)
-    finally:
-        if batch is not None:
-            batch.close()
     return content
 
 
@@ -296,18 +317,14 @@ def inject_exported_math_tex(model: Any, ctx: Any, content: str) -> str:
 
 
 def _iter_named_embeds(doc: Any) -> Iterator[tuple[str, Any]]:
-    try:
-        container = doc.getEmbeddedObjects()
-        names = list(container.getElementNames())
-    except Exception:
+    container = uno_read(lambda: doc.getEmbeddedObjects(), None)
+    if container is None:
         return
+    names: list[Any] = uno_read(lambda: list(container.getElementNames()), [])
     for name in names:
-        try:
-            obj = container.getByName(name)
-        except Exception:
-            log.debug("iter_named_embeds: getByName(%r) failed", name, exc_info=True)
-            continue
-        yield name, obj
+        obj = uno_read(lambda: container.getByName(name), None)
+        if obj is not None:
+            yield str(name), obj
 
 
 def selected_math_embeds(doc: Any) -> list[Any]:
@@ -321,26 +338,17 @@ def selected_math_embeds(doc: Any) -> list[Any]:
             return
         found.append(obj)
 
-    try:
-        sel = doc.getCurrentSelection()
-    except Exception:
-        return []
+    sel = uno_read(lambda: doc.getCurrentSelection(), None)
     if sel is None:
         return []
 
     _add(sel)
     embed_objects = [obj for _name, obj in _iter_named_embeds(doc) if _is_math_embed(obj)]
 
-    try:
-        count_val = sel.getCount()
-        n = count_val if isinstance(count_val, int) else int(str(count_val))
-    except Exception:
-        n = 0
-    for i in range(n):
-        try:
-            el = sel.getByIndex(i)
-        except Exception:
-            log.debug("selected_math_embeds: getByIndex(%s) failed", i, exc_info=True)
+    # A single selected OLE frame or table cursor has no getCount (unotxvw.cxx SwXTextView::getSelection).
+    for i in range(uno_read(lambda: sel.getCount(), 0)):
+        el = uno_read(lambda: sel.getByIndex(i), None)
+        if el is None:
             continue
         _add(el)
         if hasattr(el, "getStart"):
@@ -353,12 +361,8 @@ def selected_math_embeds(doc: Any) -> list[Any]:
 
 
 def math_embed_name(embed: Any) -> str | None:
-    try:
-        name = embed.getName() if hasattr(embed, "getName") else getattr(embed, "Name", None)
-    except Exception:
-        name = getattr(embed, "Name", None)
-    text = str(name or "").strip()
-    return text or None
+    # SwXFrame::getName (sw/source/core/unocore/unoframe.cxx) is present on every TextEmbeddedObject.
+    return uno_read(lambda: str(embed.getName() or "").strip(), "") or None
 
 
 def resolve_math_embed_name(doc: Any, embed: Any) -> str | None:
@@ -375,69 +379,61 @@ def resolve_math_embed_name(doc: Any, embed: Any) -> str | None:
 def lookup_math_embed(doc: Any, name: str) -> Any | None:
     if not name:
         return None
-    try:
+
+    def _find() -> Any | None:
         container = doc.getEmbeddedObjects()
         if not container.hasByName(name):
             return None
-        obj = container.getByName(name)
-    except Exception:
-        return None
+        return container.getByName(name)
+
+    obj = uno_read(_find, None)
     return obj if _is_math_embed(obj) else None
 
 
 def _math_embeds_in_text_range(range_obj: Any, embed_objects: list[Any]) -> list[Any]:
     """Math embeds whose anchors fall inside *range_obj*."""
-    try:
-        text = range_obj.getText()
-        sel_start = range_obj.getStart()
-        sel_end = range_obj.getEnd()
-    except Exception:
+    bounds = uno_read(
+        lambda: (range_obj.getText(), range_obj.getStart(), range_obj.getEnd()),
+        None,
+    )
+    if bounds is None or any(x is None for x in bounds):
         return []
-    if text is None or sel_start is None or sel_end is None:
-        return []
+    text, sel_start, sel_end = bounds
+
     found: list[Any] = []
     for obj in embed_objects:
-        try:
-            anchor = obj.getAnchor()
-            anchor_start = anchor.getStart() if hasattr(anchor, "getStart") else anchor
-            if text.compareRegionStarts(sel_start, anchor_start) < 0:
-                continue
-            if text.compareRegionStarts(anchor_start, sel_end) < 0:
-                continue
-        except Exception:
-            log.debug("math embed anchor is not comparable to the selection", exc_info=True)
-            continue
-        found.append(obj)
+        # compareRegionStarts throws IllegalArgumentException when a range lies
+        # in another XText (sw/source/core/unocore/unotext.cxx:955), so an anchor
+        # belonging to a different text container is safely treated as not inside.
+        def _inside() -> bool:
+            a = obj.getAnchor().getStart()
+            return text.compareRegionStarts(sel_start, a) >= 0 and text.compareRegionStarts(a, sel_end) >= 0
+
+        if uno_read(_inside, False):
+            found.append(obj)
     return found
 
 
 def _is_math_embed(obj: Any) -> bool:
-    try:
-        clsid = str(getattr(obj, "CLSID", "") or "")
-    except Exception:
-        return False
-    return clsid.lower() == _MATH_CLSID_NORM
+    # A non-frame object raises AttributeError; uno_read treats it as not an embed.
+    return uno_read(lambda: str(obj.CLSID or ""), "").lower() == _MATH_CLSID_NORM
 
 
 def portion_math_embed(portion: Any) -> Any | None:
-    """Return the Math TextEmbeddedObject from a text portion, or None."""
-    # A false _is_math_embed result is the CLSID check. Repeating it cannot succeed.
-    for key in ("TextEmbeddedObject", "EmbeddedObject", "TextContent"):
-        try:
-            obj = portion.getPropertyValue(key)
-        except Exception:
-            obj = getattr(portion, key, None)
-        if obj is not None and _is_math_embed(obj):
-            return obj
-    # Writer exposes an as-character object only through the Frame portion's
-    # content enumeration. Text portions enumerate objects anchored nearby too,
-    # so only a Frame portion counts (else the text before a formula is lost).
-    try:
-        if str(portion.getPropertyValue("TextPortionType") or "") != "Frame":
-            return None
-        enum = portion.createContentEnumeration("com.sun.star.text.TextContent")
-    except Exception:
+    """Return the Math TextEmbeddedObject from a text portion, or None.
+
+    Text portions have no property naming the embedded object (sw/source/core/unocore/unomap1.cxx).
+    Writer exposes an as-character object only through the Frame portion's content enumeration
+    (sw/source/core/unocore/unoport.cxx SwXTextPortion::createContentEnumeration). Text portions
+    enumerate objects anchored nearby too, so only a Frame portion counts (otherwise the text
+    before a formula is lost).
+    """
+    if uno_read(lambda: str(portion.getPropertyValue("TextPortionType") or ""), "") != "Frame":
         return None
+    enum = uno_read(
+        lambda: portion.createContentEnumeration("com.sun.star.text.TextContent"),
+        None,
+    )
     for obj in iter_elements(enum):
         if obj is not None and _is_math_embed(obj):
             return obj
@@ -445,110 +441,34 @@ def portion_math_embed(portion: Any) -> Any | None:
 
 
 def read_starmath(embed: Any) -> str:
-    """Read the StarMath formula string from a Math embedded object."""
-    try:
-        inner = _math_inner(embed)
-        formula = inner.Formula if inner is not None else ""
-        return str(formula or "").strip()
-    except Exception:
-        try:
-            return str(embed.Formula or "").strip()
-        except Exception:
-            return ""
+    """Read the StarMath formula string from a Math embedded object.
+
+    Formula lives on the Math model, not the Writer frame. getEmbeddedObject()
+    returns null for an unloadable OLE (sw/source/core/unocore/unoframe.cxx
+    SwXTextEmbeddedObject::getEmbeddedObject).
+    """
+    return uno_read(lambda: str(embed.getEmbeddedObject().Formula or "").strip(), "")
 
 
 def _iter_body_paragraphs(text_obj: Any) -> Iterator[Any]:
     """Yield paragraphs in document order, descending into table cells."""
-    try:
-        enum = text_obj.createEnumeration()
-    except Exception:
-        return
+    enum = uno_read(lambda: text_obj.createEnumeration(), None)
     for el in iter_elements(enum):
         if uno_read(lambda: bool(el.supportsService("com.sun.star.text.TextTable")), False):
-            try:
-                names = el.getCellNames() or ()
-            except Exception:
-                log.debug("math export: table getCellNames failed", exc_info=True)
-                continue
-            for name in names:
-                try:
-                    cell = el.getCellByName(name)
-                except Exception:
-                    log.debug("math export: getCellByName(%r) failed", name, exc_info=True)
-                    continue
-                yield from _iter_body_paragraphs(cell)
+            cell_names: tuple[Any, ...] = uno_read(lambda: tuple(el.getCellNames() or ()), ())
+            for name in cell_names:
+                cell = uno_read(lambda: el.getCellByName(name), None)
+                if cell is not None:
+                    yield from _iter_body_paragraphs(cell)
             continue
         if hasattr(el, "createEnumeration"):
             yield el
 
 
-class _MathExportBatch:
-    """Reuses one hidden Math document across formulas in a single export run."""
-
-    def __init__(self, ctx: Any) -> None:
-        self.ctx: Any = ctx
-        self._doc: Any = None
-        self._temp_path: str | None = None
-        self._cache: dict[str, MathExportResult] = {}
-
-    def _ensure_doc(self) -> Any:
-        if self._doc is None:
-            from plugin.framework.uno_context import create_property_value
-
-            desktop = get_desktop(self.ctx)
-            hidden = (create_property_value("Hidden", True),)
-            self._doc = desktop.loadComponentFromURL(_MATH_FACTORY_URL, "_blank", 0, hidden)
-            if self._doc is not None:
-                fd, path = tempfile.mkstemp(suffix=".mml", prefix="writeragent-math-export-", text=False)
-                os.close(fd)
-                self._temp_path = path
-        return self._doc
-
-    def convert_starmath_to_latex(self, starmath: str) -> MathExportResult:
-        key = (starmath or "").strip()
-        cached = self._cache.get(key)
-        if cached is None:
-            cached = self._convert_uncached(starmath)
-            self._cache[key] = cached
-        return cached
-
-    def _convert_uncached(self, starmath: str) -> MathExportResult:
-        if not starmath or not starmath.strip():
-            return MathExportResult(False, None, None, "empty_starmath")
-        doc = self._ensure_doc()
-        if doc is None or not self._temp_path:
-            return MathExportResult(False, None, None, "smath_factory_returned_none")
-        try:
-            mml = _export_doc_to_mathml(doc, starmath, self._temp_path)
-            if not mml:
-                return MathExportResult(False, None, None, "empty_mathml_export")
-            return convert_mathml_to_latex(mml)
-        except Exception as exc:
-            log.debug("math batch convert failed: %s", exc)
-            return MathExportResult(False, None, None, _exception_message(exc))
-
-    def close(self) -> None:
-        if self._doc is not None:
-            try:
-                self._doc.close(True)
-            except Exception as exc:
-                log.debug("math batch doc close: %s", exc)
-            self._doc = None
-        if self._temp_path:
-            try:
-                os.unlink(self._temp_path)
-            except OSError:
-                pass
-            self._temp_path = None
-
-
 def _math_hits_in_paragraph(para: Any) -> list[WriterMathHit]:
     embeds: list[Any] = []
     non_ws_text = False
-    try:
-        portion_enum = para.createEnumeration()
-    except Exception:
-        return []
+    portion_enum = uno_read(lambda: para.createEnumeration(), None)
     for portion in iter_elements(portion_enum):
         emb = portion_math_embed(portion)
         if emb is not None:
@@ -556,10 +476,7 @@ def _math_hits_in_paragraph(para: Any) -> list[WriterMathHit]:
             if not any(uno_same(emb, seen) for seen in embeds):
                 embeds.append(emb)
             continue
-        try:
-            chunk = portion.getString() or ""
-        except Exception:
-            chunk = ""
+        chunk = uno_read(lambda: portion.getString() or "", "")
         if chunk.strip() and chunk != _OBJECT_REPLACEMENT:
             non_ws_text = True
 

@@ -15,7 +15,10 @@ from __future__ import annotations
 from functools import cmp_to_key
 import logging
 import re
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 from com.sun.star.awt import Point
 
@@ -359,17 +362,20 @@ def is_graphic_object(obj: Any) -> bool:
     return safe_get_property(obj, "GraphicURL") is not None
 
 
+# Every UNO read below uses the method spelling rather than property aliases.
+# PyUNO serves getX() and the pseudo-property X from one Invocation
+# (pyuno.cxx:PyUNO_getattr, introspection.cxx get-method rule), so a second
+# spelling never succeeds where the first failed.
 def _controller_selection(model: Any) -> Any | None:
-    # Callers catch Exception. uno_read covers getCurrentController and getSelection.
-    controller = uno_read(lambda: model.getCurrentController(), FAILED)
-    if controller is FAILED:
-        controller = getattr(model, "CurrentController", None)
+    """Current selection through the model's controller, or None.
+
+    A closed document re-raises DocumentDisposedError (uno_read); any other read
+    failure reads as no selection.
+    """
+    controller = uno_read(lambda: model.getCurrentController(), None)
     if controller is None:
         return None
-    selection = uno_read(lambda: controller.getSelection(), None)
-    if selection is None:
-        selection = getattr(controller, "Selection", None)
-    return selection if selection else None
+    return uno_read(lambda: controller.getSelection(), None) or None
 
 
 def _graphic_object_name(obj: Any) -> str:
@@ -508,46 +514,29 @@ def get_active_draw_page(doc: Any, doc_type: str | None = None) -> Any | None:
     """Return the active draw page for Writer, Calc, Draw, or Impress.
 
     Calc uses the active sheet draw page; Draw/Impress use the current slide;
-    Writer falls back to ``doc.getDrawPage()`` (document canvas for forms/shapes).
+    Writer uses ``doc.getDrawPage()`` (document canvas for forms/shapes), with or without a controller.
     """
     inside = doc_type or get_visual_doc_type(doc)
+    if inside in ("writer", "web"):
+        # Writer has one document draw page (forms, shapes); no controller needed.
+        return uno_read(lambda: doc.getDrawPage(), None)
     # A closed document raises DocumentDisposedError (uno_read) so execute_safe reports
     # DOCUMENT_DISPOSED; any other failure stays on the missing-page path.
-    controller = uno_read(lambda: doc.CurrentController, FAILED)
-    if controller is FAILED:
-        controller = uno_read(lambda: doc.getCurrentController(), None)
-
-    def _writer_draw_page() -> Any | None:
-        return uno_read(lambda: doc.getDrawPage(), None)
-
+    controller = uno_read(lambda: doc.getCurrentController(), None)
     if controller is None:
-        # Writer forms/shapes only need getDrawPage(); no controller required.
-        if inside in ("writer", "web"):
-            return _writer_draw_page()
         return None
-
     if inside == "calc":
-        sheet = uno_read(lambda: controller.ActiveSheet, None)
-        if sheet is None:
-            sheet = uno_read(lambda: controller.getActiveSheet(), None)
-        if sheet is None:
-            return None
-        page = uno_read(lambda: sheet.getDrawPage(), FAILED)
-        return uno_read(lambda: sheet.DrawPage, None) if page is FAILED else page
-
-    page = uno_read(lambda: controller.CurrentPage, None)
-    if page is not None:
-        return page
+        return uno_read(lambda: controller.getActiveSheet().getDrawPage(), None)
     page = uno_read(lambda: controller.getCurrentPage(), FAILED)
     if page is not FAILED:
         return page
 
-    def first_page() -> Any:
+    # getCurrentPage() failed without disposal: take the first page of the deck.
+    def first_page() -> Any | None:
         pages = doc.getDrawPages()
-        return pages.getByIndex(0) if pages.getCount() > 0 else FAILED
+        return pages.getByIndex(0) if pages.getCount() > 0 else None
 
-    page = uno_read(first_page, FAILED)
-    return _writer_draw_page() if page is FAILED else page
+    return uno_read(first_page, None)
 
 
 # Calc: page_index selects sheet.getDrawPage(); getDrawPages() is Draw/Impress-only.
@@ -590,9 +579,16 @@ class AmbiguousGraphicNameError(ValueError):
         self.sheet_indices: list[int] = sheet_indices or []
 
 
-def _sheet_draw_page(sheet: Any) -> Any:
-    dp = getattr(sheet, "getDrawPage", None)
-    return dp() if callable(dp) else getattr(sheet, "DrawPage", None)
+def _graphics_on_page(page: Any) -> Iterator[tuple[str, Any]]:
+    """Yield ``(name, shape)`` for every graphic shape on one draw page, in page order.
+
+    Non-graphic shapes are skipped. Errors propagate so the caller's disposal arm
+    decides; a closed document must not read as "no graphics".
+    """
+    for i in range(page.getCount()):
+        shape = page.getByIndex(i)
+        if is_graphic_object(shape):
+            yield shape.getName(), shape
 
 
 def list_graphic_objects(doc: Any, doc_type: str | None = None) -> list[tuple[str, Any]]:
@@ -603,26 +599,14 @@ def list_graphic_objects(doc: Any, doc_type: str | None = None) -> list[tuple[st
     if inside == "calc":
         try:
             sheets: Any = doc.getSheets()
-            count = sheets.getCount()
-            for sheet_idx in range(count):
+            for sheet_idx in range(sheets.getCount()):
                 sheet = sheets.getByIndex(sheet_idx)
-                draw_page: Any = _sheet_draw_page(sheet)
-                if draw_page is None:
-                    continue
-                sheet_name = getattr(sheet, "Name", None)
-                if sheet_name is None and hasattr(sheet, "getName"):
-                    try:
-                        sheet_name = sheet.getName()
-                    except Exception as exc:
-                        log.debug("list_graphic_objects sheet %s name failed (%s)", sheet_idx, type(exc).__name__)
-                for i in range(draw_page.getCount()):
-                    shape = draw_page.getByIndex(i)
-                    if is_graphic_object(shape):
-                        name = shape.getName() if hasattr(shape, "getName") else ""
-                        item = GraphicEntry((name, shape))
-                        item.sheet_index = sheet_idx
-                        item.sheet_name = str(sheet_name) if sheet_name is not None else None
-                        graphics.append(item)
+                sheet_name = sheet.getName()
+                for name, shape in _graphics_on_page(sheet.getDrawPage()):
+                    item = GraphicEntry((name, shape))
+                    item.sheet_index = sheet_idx
+                    item.sheet_name = sheet_name
+                    graphics.append(item)
             return graphics
         except Exception as ex:
             if is_disposal(ex):
@@ -633,10 +617,7 @@ def list_graphic_objects(doc: Any, doc_type: str | None = None) -> list[tuple[st
         if draw_page is None:
             return graphics
         try:
-            for i in range(draw_page.getCount()):
-                shape = draw_page.getByIndex(i)
-                if is_graphic_object(shape):
-                    graphics.append((shape.getName() if hasattr(shape, "getName") else "", shape))
+            graphics.extend(_graphics_on_page(draw_page))
         except Exception as ex:
             if is_disposal(ex):
                 raise
@@ -659,10 +640,7 @@ def list_graphic_objects(doc: Any, doc_type: str | None = None) -> list[tuple[st
                 page_list = [draw_page]
         try:
             for draw_page in page_list:
-                for i in range(draw_page.getCount()):
-                    shape = draw_page.getByIndex(i)
-                    if is_graphic_object(shape):
-                        graphics.append((shape.getName(), shape))
+                graphics.extend(_graphics_on_page(draw_page))
         except Exception as ex:
             if is_disposal(ex):
                 raise
@@ -684,7 +662,7 @@ def remove_graphic_from_draw_pages(doc: Any, graphic: Any) -> bool:
     """Remove a GraphicObjectShape from Calc/Draw/Impress pages. Returns True if removed."""
     if graphic is None or doc is None:
         return False
-    target_name = uno_read(lambda: str(graphic.getName() or "") if hasattr(graphic, "getName") else "", "")
+    target_name = uno_read(lambda: str(graphic.getName() or ""), "")
 
     inside = get_visual_doc_type(doc)
     pages_list: list[Any] = []
@@ -692,10 +670,7 @@ def remove_graphic_from_draw_pages(doc: Any, graphic: Any) -> bool:
         try:
             sheets: Any = doc.getSheets()
             for i in range(sheets.getCount()):
-                sheet = sheets.getByIndex(i)
-                p: Any = _sheet_draw_page(sheet)
-                if p is not None:
-                    pages_list.append(p)
+                pages_list.append(sheets.getByIndex(i).getDrawPage())
         except Exception as exc:
             if is_disposal(exc):
                 raise
@@ -721,11 +696,15 @@ def remove_graphic_from_draw_pages(doc: Any, graphic: Any) -> bool:
         for page in pages_list:
             for j in range(page.getCount()):
                 shape = page.getByIndex(j)
-                if shape is graphic or shape == graphic:
+                # Identity match first: == on PyUNO wrappers is UNO identity (pyuno.cxx
+                # PyUNO_cmp), so a shape read fresh from the page matches the graphic
+                # resolved earlier by name; the dev thread-guard proxy's __eq__ unwraps its
+                # right operand so proxied pairs match too.
+                if shape == graphic:
                     page.remove(graphic)
                     return True
-                # Identity match first; else collect same-name hits and delete only when unique on the page.
-                if target_name and uno_read(lambda: hasattr(shape, "getName") and str(shape.getName() or "") == target_name, False):
+                # Without an identity match, collect same-name hits and delete only when unique on the page.
+                if target_name and uno_read(lambda: str(shape.getName() or "") == target_name, False):
                     name_hits.append((page, shape))
     except Exception as ex:
         # Re-raise disposal; other errors return False (IMAGE_NOT_FOUND on live docs).
