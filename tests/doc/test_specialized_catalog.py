@@ -252,4 +252,3 @@ def test_start_inner_payload_plain_text() -> None:
     res3 = start_inner_payload("hi", domains, text_message="done")
     assert res3 == {"status": "ok", "result": "hi", "message": "done", "domains": ["footnotes"]}
 
-

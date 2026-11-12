@@ -62,6 +62,7 @@ def loop_hint(domain: str, agent_label: str | None) -> str:
     """
     return _LOOP_HINTS.get(domain, {}).get(agent_label, "")
 
+
 def catalog_entries_from_base(*, agent_label: str | None = None, ctx: Any = None, for_discovery: bool = False) -> list[dict[str, str]]:
     """Build ``[{domain, description}, …]`` for one specialized base class (delegate/MCP catalog).
 

@@ -56,7 +56,7 @@ from plugin.framework.queue_executor import main
 log = logging.getLogger("writeragent.specialized")
 
 
-def _outer_turn_is_peer_work(ctx: Any) -> bool:
+def _outer_turn_is_peer_work(ctx: ToolContext) -> bool:
     """True when this sidebar's current outer turn is a [Peer work from:…] envelope.
 
     Nested specializes (ranges/sheets/…) otherwise look "done" to the outer and it
@@ -115,11 +115,18 @@ def _main_thread_or_warn(fn: Any, what: str) -> Any:
 
 @dataclass
 class _DelegationCapture:
-    """State gathered during the inner agent's execution loop."""
+    """State gathered during the inner agent's execution loop.
+
+    Inner tool results that carry a web-research-style instruction (such as sheet_create)
+    are captured so specialized finish can forward them to the outer agent. When an accepted
+    inner peer send runs, the outer agent must go Ready rather than continuing with tools.
+    """
 
     calls: list[InnerToolCall] = field(default_factory=list)
+    # Forwarded to the outer agent as an instruction payload (e.g. sheet_create).
     captured_tool_results: list[dict[str, Any]] = field(default_factory=list)
     create_sheet_ran: bool = False
+    # Outer agent must transition to Ready instead of continuing with tools after peer delivery.
     peer_send_invoked: bool = False
     peer_result_send_invoked: bool = False
 
@@ -380,7 +387,7 @@ class DelegateToSpecializedBase(ToolBase):
             smol_tools = [_CaptureInstructionAdapter(t, ctx, cap, domain) for t in domain_tools]
             if peer_catalog:
                 for adapter in smol_tools:
-                    if getattr(adapter, "name", None) in PEER_TOOL_NAMES:
+                    if adapter.name in PEER_TOOL_NAMES:
                         adapter.description = (str(adapter.description or "") + " " + peer_catalog).strip()
 
             instructions = build_specialized_sub_agent_instructions(

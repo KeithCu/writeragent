@@ -1650,4 +1650,3 @@ def test_inner_call_recorder_logs_name_result_mutating() -> None:
     assert calls[0].result == {"status": "ok", "echo": "abc"}
     assert calls[0].mutating is True
 
-
