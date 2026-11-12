@@ -377,7 +377,7 @@ Concrete touch points so this is implementable without rediscovering the review.
 | Work | Where | Notes |
 | ---- | ----- | ----- |
 | Tool class | `plugin/doc/peer_message.py` (illustrative) | `ToolBase`, `tier="chat"`, `uno_services` Writer+Calc+Draw+Impress. Add module to the `discovery_modules` tuple in [`common_module.py`](../../plugin/doc/common_module.py). |
-| Live map | `plugin/doc/live_panels.py` (illustrative) | `WeakValueDictionary` uid → panel handle. Register in `panel_factory._wire_buttons`; lookup from the tool. |
+| Live map | `plugin/doc/live_panels.py` (illustrative) | `dict` uid → list of weakrefs to panel handles (two windows on one document both register). Register in `panel_factory._wire_buttons`; lookup from the tool. |
 | Schema hide + catalog | [`plugin/framework/tool.py`](../../plugin/framework/tool.py) `get_schemas` | Experiment: hide on outer always. Show on `document_research` only if a v1 peer exists; catalog goes in that description. |
 | MCP hide | [`plugin/mcp/mcp_protocol.py`](../../plugin/mcp/mcp_protocol.py) | Add `"chat"` to both MCP exclude frozensets. |
 | Extracted send | `SendButtonListener` / `ToolCallingMixin` | New method: set peer busy FSM + **new** `SendCancellation` + `agent_session`; `refresh_document_context`; `add_user_message` **once** (or skip append if already injected); `_append_response` user line; force chat-with-tools; **do not** read/clear Ask, `setFocus`, or route librarian/image (error if peer mode is not chat). |

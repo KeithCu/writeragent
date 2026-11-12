@@ -74,7 +74,7 @@ def test_filter_document_research_discovery_tools_respects_config():
     r.register(SpecializedWorkflowFinished())
     tools = r.get_tools(doc=MagicMock(), active_domain="document_research", exclude_tiers=())
 
-    with patch("plugin.framework.constants.folder_search_enabled", return_value=False):
+    with patch("plugin.doc.document_research.folder_search_enabled", return_value=False):
         filtered = filter_document_research_discovery_tools(tools)
     names = {t.name for t in filtered}
     assert "list_nearby_files" in names
@@ -84,7 +84,7 @@ def test_filter_document_research_discovery_tools_respects_config():
     assert "search_embeddings" not in names
     assert "search_nearby_files" not in names
 
-    with patch("plugin.framework.constants.folder_search_enabled", return_value=True):
+    with patch("plugin.doc.document_research.folder_search_enabled", return_value=True):
         filtered = filter_document_research_discovery_tools(tools)
     names = {t.name for t in filtered}
     assert "search_nearby_files" in names
@@ -838,7 +838,7 @@ def test_get_open_documents():
     mock_desktop.getComponents.return_value.createEnumeration.return_value.hasMoreElements.side_effect = [True, False]
     mock_desktop.getComponents.return_value.createEnumeration.return_value.nextElement.return_value = mock_comp
 
-    with patch("plugin.framework.uno_context.get_desktop", return_value=mock_desktop), \
+    with patch("plugin.doc.document_research.get_desktop", return_value=mock_desktop), \
          patch("plugin.doc.document_research.get_document_type", return_value=DocumentType.CALC), \
          patch("plugin.doc.document_research.system_path_from_url", return_value="/tmp/Budget.ods"):
         docs = get_open_documents(mock_ctx)

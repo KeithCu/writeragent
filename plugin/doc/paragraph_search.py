@@ -13,6 +13,7 @@ import logging
 import re as re_mod
 from typing import Any
 
+from plugin.doc.text_helpers import iter_elements
 from plugin.framework.errors import reraise_if_disposed, uno_read
 from plugin.framework.send_cancellation import SendCancellation, is_cancelled
 
@@ -101,8 +102,6 @@ def get_paragraph_ranges(model: Any) -> list[Any]:
     """
     text = model.getText()
     enum = text.createEnumeration()
-    from plugin.doc.text_helpers import iter_elements
-
     return list(iter_elements(enum))
 
 

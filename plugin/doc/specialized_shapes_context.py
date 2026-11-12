@@ -13,6 +13,7 @@ from typing import Any
 
 from plugin.framework.errors import uno_read
 from plugin.framework.thread_guard import assert_main_thread
+from plugin.framework.uno_context import uno_same
 
 
 def _writer_page_style_name_at_cursor(doc: Any) -> str | None:
@@ -83,6 +84,7 @@ def _format_writer_canvas(doc: Any) -> str:
 
 def _format_draw_canvas(doc: Any, *, product_label: str) -> str:
     def _body() -> str:
+        # Lazy: cross-app — the Draw/Calc bridge is only loaded when that app's document is the target.
         from plugin.draw.bridge import DrawBridge
 
         bridge = DrawBridge(doc)
@@ -104,6 +106,7 @@ def _format_draw_canvas(doc: Any, *, product_label: str) -> str:
 def _format_calc_canvas(doc: Any) -> str:
     """Active sheet draw page size (floating objects / charts on sheet)."""
     def _body() -> str:
+        # Lazy: cross-app — the Draw/Calc bridge is only loaded when that app's document is the target.
         from plugin.calc.bridge import CalcBridge
 
         bridge = CalcBridge(doc)
@@ -116,8 +119,6 @@ def _format_calc_canvas(doc: Any) -> str:
         sheets = doc.getSheets()
         n_sheets = int(sheets.getCount())
         sheet_idx = 0
-        from plugin.framework.uno_context import uno_same
-
         for i in range(n_sheets):
             if uno_same(sheets.getByIndex(i), sheet):
                 sheet_idx = i

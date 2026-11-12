@@ -371,7 +371,7 @@ def is_graphic_object(obj: Any) -> bool:
 # PyUNO serves getX() and the pseudo-property X from one Invocation
 # (pyuno.cxx:PyUNO_getattr, introspection.cxx get-method rule), so a second
 # spelling never succeeds where the first failed.
-def _controller_selection(model: Any) -> Any | None:
+def controller_selection(model: Any) -> Any | None:
     """Current selection through the model's controller, or None.
 
     A closed document re-raises DocumentDisposedError (uno_read); any other read
@@ -389,7 +389,7 @@ def _graphic_object_name(obj: Any) -> str:
 
 def selected_graphic_object(model: Any) -> Any | None:
     try:
-        selection = _controller_selection(model)
+        selection = controller_selection(model)
         if not selection:
             return None
         if hasattr(selection, "getCount"):
@@ -467,7 +467,7 @@ def graphic_objects_in_selection(doc: Any) -> list[tuple[str, Any]]:
     documents return at most the single selected graphic (Calc multi stays out of scope).
     """
     try:
-        selection = _controller_selection(doc)
+        selection = controller_selection(doc)
         if not selection:
             return []
 

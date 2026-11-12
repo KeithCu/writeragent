@@ -20,7 +20,7 @@ from plugin.doc.python_domain_specialized import (
 )
 from plugin.doc.specialized_base import DelegateToSpecializedBase
 from plugin.framework.prompts import DELEGATE_ANCHOR_RULE
-from plugin.framework.tool import ToolBase, ToolContext, ToolRegistry
+from plugin.framework.tool import ToolBase, ToolContext, ToolRegistry, prepare_tool_call
 from plugin.writer.specialized.footnotes import FootnotesInsert
 from plugin.writer.specialized_base import (
     DelegateToSpecializedWriter,
@@ -279,8 +279,12 @@ def test_delegate_tool_domains_rejects_non_string_or_missing_task():
     tool = DelegateToolDomains()
     ctx = _ctx(registry, "writer", "com.sun.star.text.TextDocument")
 
-    for bad in (None, 123, ["do it"]):
-        assert tool.execute(ctx, domains=["footnotes"], task=bad)["code"] == "TASK_REQUIRED"
+    for bad in (123, ["do it"]):
+        prepared = prepare_tool_call(tool, ctx, tool.name, {"domains": ["footnotes"], "task": bad})
+        assert prepared.error is not None and prepared.error["code"] == "VALIDATION_ERROR"
+        assert "task" in prepared.error["message"]
+    missing = prepare_tool_call(tool, ctx, tool.name, {"domains": ["footnotes"]})
+    assert missing.error is not None and "Missing required parameter: task" in missing.error["message"]
     assert tool.execute(ctx, domains=["footnotes"])["code"] == "TASK_REQUIRED"
     assert tool.execute(ctx, task="x")["code"] == "DOMAINS_REQUIRED"
 
@@ -413,7 +417,7 @@ def test_run_inner_domain_tool_agent_unions_full_schemas(mock_executor_cls, mock
 
 @patch("plugin.chatbot.smol_agent.build_toolcalling_agent")
 @patch("plugin.chatbot.smol_agent.SmolAgentExecutor")
-@patch("plugin.doc.specialized_shapes_context.format_shapes_canvas_context")
+@patch("plugin.doc.python_domain_specialized.format_shapes_canvas_context")
 def test_shapes_domain_includes_canvas_context_from_main_thread(mock_canvas, mock_executor_cls, mock_build):
     """Inner shapes instructions get the same canvas line as the shapes specialized loop."""
     mock_canvas.return_value = " Document canvas (Writer): paper 210.0 x 297.0 mm"
