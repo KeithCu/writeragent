@@ -355,7 +355,7 @@ removes a table by name (nested or top-level); hosted children go with it. Do no
 - **Gateway:** `delegate_to_specialized_writer_toolset` (`tier = "core"`, `is_async()`); sub-agent or in-place domain switch per `specialized.py`.
 - **Prompt:** `WRITER_SPECIALIZED_DELEGATION_TEMPLATE` in `prompts.py` teaches when to delegate.
 - **Execution:** `ToolRegistry.execute` unchanged — tier affects listing, not dispatch.
-- **Lookups:** Single-object lookup helpers return either the found object or an error dict tested via `isinstance` (e.g. `ToolBase.get_item`, `_bookmark_target`, `_annotation_or_error`); multi-value helpers return a tuple whose last item is the error dict or `None`. Neither kind raises, returns an error string, or returns `None` and leaves the caller to build the error. Tables remain the sole exception, raising `ValueError` within mutation callbacks.
+- **Lookups:** Single-object lookup helpers return either the found object or an error dict tested via `isinstance` (e.g. `ToolBase.get_item`, `_bookmark_target`, `_annotation_or_error`); multi-value helpers return a tuple whose last item is the error dict or `None`. Neither kind returns an error string, returns `None` leaving the caller to build the error, or raises (raising would log an ERROR traceback in `execute_safe` and become `TOOL_REGISTRY_ERROR` in the eval harness). The exceptions are tables raising `ValueError` inside mutation callbacks, `toc_match` returning `(hit, err_str)` as a search primitive, and `_resolve_form_page` raising `ToolExecutionError` that callers propagate.
 - **Thread:** Sync specialized tools already run on the main thread via the registry or adapter `main.call`; do not wrap bodies in `main.run`; only `is_async` tools hop.
 
 
