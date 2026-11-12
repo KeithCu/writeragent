@@ -1617,3 +1617,36 @@ class TestSmolToolMarshaling:
             )
             assert res == {"status": "incomplete", "result": "Reached max steps"}
 
+
+def test_inner_call_recorder_logs_name_result_mutating() -> None:
+    from typing import Any
+    from plugin.chatbot.smol_agent import InnerCallRecorder
+    from plugin.doc.specialized_catalog import InnerToolCall
+    from plugin.framework.tool import ToolBase, ToolContext
+
+    class _TinyMutatingTool(ToolBase):
+        name = "tiny_mutating_tool"
+        description = "Mutating test tool."
+        parameters = {"type": "object", "properties": {"val": {"type": "string"}}}
+        is_mutation = True
+
+        def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
+            return {"status": "ok", "echo": kwargs.get("val")}
+
+    ctx = MagicMock(spec=ToolContext)
+    ctx.doc_type = "writer"
+    ctx.read_only_target = False
+    calls: list[InnerToolCall] = []
+    tool = _TinyMutatingTool()
+    assert tool.detects_mutation() is True
+
+    recorder = InnerCallRecorder(tool, ctx, calls)
+    with patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *a, **kw: fn(*a, **kw)):
+        res = recorder.forward(val="abc")
+
+    assert res == {"status": "ok", "echo": "abc"}
+    assert len(calls) == 1
+    assert calls[0].name == "tiny_mutating_tool"
+    assert calls[0].result == {"status": "ok", "echo": "abc"}
+    assert calls[0].mutating is True
+

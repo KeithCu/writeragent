@@ -19,8 +19,8 @@
 from __future__ import annotations
 
 import copy
+from dataclasses import dataclass, field
 import logging
-from types import SimpleNamespace
 from typing import Any, cast, Type, ClassVar
 
 from plugin.framework.errors import is_disposal
@@ -39,15 +39,16 @@ from plugin.doc.peer_prompt import (
     looks_like_peer_work_envelope,
 )
 from plugin.doc.specialized_catalog import (
-    DOMAIN_LOOP_HINTS,
     InnerToolCall,
     READ_ONLY_DOMAINS,
     apply_inner_outcome,
     catalog_entries_from_base,
     expects_edits,
+    loop_hint,
+    start_inner_payload,
 )
 from plugin.framework.i18n import _
-from plugin.chatbot.smol_agent import SmolToolAdapter, run_inner_tool_agent
+from plugin.chatbot.smol_agent import InnerCallRecorder, run_inner_tool_agent
 from plugin.doc.peer_message import PEER_RESULT_TOOL_NAME, PEER_TOOL_NAMES
 from plugin.doc.specialized_shapes_context import format_shapes_canvas_context
 from plugin.framework.queue_executor import main
@@ -55,7 +56,7 @@ from plugin.framework.queue_executor import main
 log = logging.getLogger("writeragent.specialized")
 
 
-def _outer_turn_is_peer_work(ctx: Any) -> bool:
+def _outer_turn_is_peer_work(ctx: ToolContext) -> bool:
     """True when this sidebar's current outer turn is a [Peer work from:…] envelope.
 
     Nested specializes (ranges/sheets/…) otherwise look "done" to the outer and it
@@ -67,7 +68,7 @@ def _outer_turn_is_peer_work(ctx: Any) -> bool:
         from plugin.doc.live_panels import get_live_panel
         from plugin.framework.uno_context import get_runtime_uid
 
-        doc = getattr(ctx, "doc", None)
+        doc = ctx.doc
         if doc is None:
             return False
         uid = get_runtime_uid(doc) or ""
@@ -110,6 +111,155 @@ def _main_thread_or_warn(fn: Any, what: str) -> Any:
             raise
         log.warning("Failed to get %s for sub-agent: %s", what, e)
         return ""
+
+
+@dataclass
+class _DelegationCapture:
+    """State gathered during the inner agent's execution loop.
+
+    Inner tool results that carry a web-research-style instruction (such as sheet_create)
+    are captured so specialized finish can forward them to the outer agent. When an accepted
+    inner peer send runs, the outer agent must go Ready rather than continuing with tools.
+    """
+
+    calls: list[InnerToolCall] = field(default_factory=list)
+    # Forwarded to the outer agent as an instruction payload (e.g. sheet_create).
+    captured_tool_results: list[dict[str, Any]] = field(default_factory=list)
+    create_sheet_ran: bool = False
+    # Outer agent must transition to Ready instead of continuing with tools after peer delivery.
+    peer_send_invoked: bool = False
+    peer_result_send_invoked: bool = False
+
+
+class _CaptureInstructionAdapter(InnerCallRecorder):
+    """Adapter logging calls and capturing peer send and instruction results."""
+
+    _capture: _DelegationCapture
+    _domain: str
+
+    def __init__(
+        self,
+        tool: ToolBase,
+        ctx: ToolContext,
+        capture: _DelegationCapture,
+        domain: str,
+    ) -> None:
+        super().__init__(tool, ctx, capture.calls)
+        self._capture = capture
+        self._domain = domain
+
+    def forward(self, *args: Any, **kwargs: Any) -> Any:
+        result = super().forward(*args, **kwargs)
+        if not isinstance(result, dict):
+            return result
+        if result.get("instruction"):
+            self._capture.captured_tool_results.append(result)
+        # Accepted delivery only. PEER_NOT_FOUND, PEER_SIDEBAR_NOT_OPEN,
+        # PEER_QUEUE_FULL, and PEER_NOT_CHAT_MODE leave both flags false.
+        if (
+            self._domain == "document_research"
+            and self.name in PEER_TOOL_NAMES
+            and result.get("status") == "ok"
+            and result.get("accepted") is True
+        ):
+            self._capture.peer_send_invoked = True
+            if self.name == PEER_RESULT_TOOL_NAME:
+                self._capture.peer_result_send_invoked = True
+        return result
+
+
+def _gather_domain_tools(ctx: ToolContext, domain: str) -> tuple[list[ToolBase], str, str]:
+    """Gather tools for the requested domain (same rules as main chat ``active_domain``).
+
+    Must use ``ToolRegistry.get_tools(..., active_domain=...)`` so cross-app tools
+    (e.g. ``RunVenvPythonScript`` with ``specialized_cross_cutting``) are included;
+    ``isinstance(..., _special_base_class)`` alone misses Calc-registered tools on Writer delegate.
+    """
+    registry = ctx.services.get("tools")
+    tools = registry.get_tools(
+        doc=ctx.doc,
+        active_domain=domain,
+        exclude_tiers=(),
+        ctx=ctx.ctx,
+    )
+    peer_catalog = ""
+    document_research_hint = ""
+    if domain == "document_research":
+        from plugin.doc.document_research import filter_document_research_discovery_tools
+        from plugin.doc.peer_message import (
+            filter_peer_tools_for_specialized,
+            format_peer_catalog,
+            list_v1_peers,
+        )
+
+        tools = filter_document_research_discovery_tools(tools)
+        tools = filter_peer_tools_for_specialized(tools, ctx.ctx, ctx.doc)
+        if any(t.name in PEER_TOOL_NAMES for t in tools):
+            peer_catalog = format_peer_catalog(list_v1_peers(ctx.ctx, ctx.doc))
+        # #673 added list_v1_peers / getRuntimeUID to this hint. Specialized
+        # execute is async: gather the catalog here with get_tools, not on
+        # the tool-async worker.
+        document_research_hint = get_document_research_workflow_hint(
+            ctx.ctx, ctx.doc
+        )
+    return tools, peer_catalog, document_research_hint
+
+
+def _sub_agent_hints(ctx: ToolContext, domain: str, agent_label: str, document_research_hint: str) -> str:
+    """Build supplemental prompt hints for the sub-agent based on domain and context."""
+    hints: list[str] = []
+    hint = loop_hint(domain, agent_label)
+    if hint:
+        hints.append(" " + hint)
+
+    # Page size stays on the shapes loop (and the inner domain agent when
+    # shapes is requested). The outer python agent passes layout in task.
+    if domain == "shapes":
+        hints.append(
+            _main_thread_or_warn(
+                lambda: format_shapes_canvas_context(ctx.doc),
+                "shapes canvas",
+            )
+        )
+
+    # Identity only: truthiness on a guard-proxied doc trips UNO bool on the MCP/long-running
+    # worker. The spreadsheet read stays inside the lambda, on the main thread.
+    if agent_label == "Calc" and ctx.doc is not None:
+        from plugin.calc.analyzer import get_calc_context_for_chat
+
+        hints.append(
+            _main_thread_or_warn(
+                lambda: "\n\n[SPREADSHEET CONTEXT]\n" + get_calc_context_for_chat(ctx.doc, ctx=ctx.ctx),
+                "Calc context",
+            )
+        )
+
+    hints.append(document_research_hint)
+    if domain == "document_research":
+        from plugin.doc.document_research import get_open_documents
+
+        open_docs = _main_thread_or_warn(
+            lambda: get_open_documents(ctx.ctx, ctx.doc),
+            "open documents",
+        )
+        if open_docs:
+            hints.append(
+                "\n\n[OPEN DOCUMENTS CONTEXT]\n"
+                "Note: These are the currently open files in LibreOffice. "
+                "Some of these files may be completely unrelated to the task at hand:\n"
+                + "\n".join(
+                    f"- {d['path'] or d['url'] or 'Untitled'} [{d['doc_type']}]"
+                    f"{' (Active)' if d['is_active'] else ''}"
+                    for d in open_docs
+                )
+            )
+
+    if domain == "images":
+        hints.append(images_specialized_sub_agent_hint())
+    if domain == "python":
+        hints.append(python_specialized_sub_agent_hint(agent_label))
+
+    return "".join(hints)
 
 
 class DelegateToSpecializedBase(ToolBase):
@@ -219,44 +369,9 @@ class DelegateToSpecializedBase(ToolBase):
         if ctx.status_callback:
             ctx.status_callback(f"Delegating to specialized agent ({domain})...")
 
-        # Gather tools for the requested domain (same rules as main chat ``active_domain``).
-        # Must use ``ToolRegistry.get_tools(..., active_domain=...)`` so cross-app tools
-        # (e.g. ``RunVenvPythonScript`` with ``specialized_cross_cutting``) are included;
-        # ``isinstance(..., _special_base_class)`` alone misses Calc-registered tools on Writer delegate.
-        registry = ctx.services.get("tools")
-
-        def _fetch_domain_tools() -> tuple[list[ToolBase], str, str]:
-            tools = registry.get_tools(
-                doc=getattr(ctx, "doc", None),
-                active_domain=domain,
-                exclude_tiers=(),
-                ctx=ctx.ctx,
-            )
-            peer_catalog = ""
-            document_research_hint = ""
-            if domain == "document_research":
-                from plugin.doc.document_research import filter_document_research_discovery_tools
-                from plugin.doc.peer_message import (
-                    filter_peer_tools_for_specialized,
-                    format_peer_catalog,
-                    list_v1_peers,
-                )
-
-                tools = filter_document_research_discovery_tools(tools)
-                tools = filter_peer_tools_for_specialized(tools, ctx.ctx, ctx.doc)
-                if any(getattr(t, "name", None) in PEER_TOOL_NAMES for t in tools):
-                    peer_catalog = format_peer_catalog(list_v1_peers(ctx.ctx, ctx.doc))
-                # #673 added list_v1_peers / getRuntimeUID to this hint. Specialized
-                # execute is async: gather the catalog here with get_tools, not on
-                # the tool-async worker.
-                document_research_hint = get_document_research_workflow_hint(
-                    ctx.ctx, getattr(ctx, "doc", None)
-                )
-            return tools, peer_catalog, document_research_hint
-
         # get_tools(doc=...) calls doc.supportsService — must not run on the sub-agent worker.
         domain_tools, peer_catalog, document_research_hint = main.call(
-            _fetch_domain_tools
+            lambda: _gather_domain_tools(ctx, domain)
         )
 
         if not domain_tools:
@@ -264,105 +379,21 @@ class DelegateToSpecializedBase(ToolBase):
 
         # Specialized execute must see document_research so peer send tools'
         # caller guard allows this loop (not only ctx.caller == "chat").
-        prev_active_domain = getattr(ctx, "active_domain", None)
+        prev_active_domain = ctx.active_domain
         ctx.active_domain = domain
-        # When an accepted inner peer send ran, the outer must Ready (not keep tooling).
-        # Inner tool results that already carry web-research-style `instruction`
-        # (sheet_create, etc.) so specialized finish can forward them to the outer.
-        cap = SimpleNamespace(
-            peer_send_invoked=False,
-            peer_result_send_invoked=False,
-            captured_tool_results=[],
-            create_sheet_ran=False,
-            calls=[],
-        )
-
-        class _CaptureInstructionAdapter(SmolToolAdapter):
-            def forward(self, *args: Any, **kwargs: Any) -> Any:
-                result = super().forward(*args, **kwargs)
-                cap.calls.append(InnerToolCall(self.name, result, self.mutating))
-                if not isinstance(result, dict):
-                    return result
-                if result.get("instruction"):
-                    cap.captured_tool_results.append(result)
-                # Accepted delivery only. PEER_NOT_FOUND, PEER_SIDEBAR_NOT_OPEN,
-                # PEER_QUEUE_FULL, and PEER_NOT_CHAT_MODE leave both flags false.
-                if (
-                    domain == "document_research"
-                    and self.name in PEER_TOOL_NAMES
-                    and result.get("status") == "ok"
-                    and result.get("accepted") is True
-                ):
-                    cap.peer_send_invoked = True
-                    if self.name == PEER_RESULT_TOOL_NAME:
-                        cap.peer_result_send_invoked = True
-                return result
+        cap = _DelegationCapture()
 
         try:
-            smol_tools = [_CaptureInstructionAdapter(t, ctx, safe=True, inputs_style="specialized") for t in domain_tools]
+            smol_tools = [_CaptureInstructionAdapter(t, ctx, cap, domain) for t in domain_tools]
             if peer_catalog:
                 for adapter in smol_tools:
-                    if getattr(adapter, "name", None) in PEER_TOOL_NAMES:
+                    if adapter.name in PEER_TOOL_NAMES:
                         adapter.description = (str(adapter.description or "") + " " + peer_catalog).strip()
 
-            hints: list[str] = []
-            if domain == "footnotes":
-                hints.append(" " + (DOMAIN_LOOP_HINTS["footnotes"].get(self._agent_label) or DOMAIN_LOOP_HINTS["footnotes"]["Writer"]))
-            # Page size stays on the shapes loop (and the inner domain agent when
-            # shapes is requested). The outer python agent passes layout in task.
-            if domain == "shapes":
-                hints.append(
-                    _main_thread_or_warn(
-                        lambda: format_shapes_canvas_context(getattr(ctx, "doc", None)),
-                        "shapes canvas",
-                    )
-                )
-
-            if domain == "charts":
-                hints.append(
-                    " "
-                    + (
-                        DOMAIN_LOOP_HINTS["charts"]["Calc"]
-                        if self._agent_label == "Calc"
-                        else DOMAIN_LOOP_HINTS["charts"]["Writer"]
-                    )
-                )
-
-            # Identity only: truthiness on a guard-proxied doc trips UNO bool on the MCP/long-running
-            # worker. The spreadsheet read stays inside the lambda, on the main thread.
-            if self._agent_label == "Calc" and getattr(ctx, "doc", None) is not None:
-                from plugin.calc.analyzer import get_calc_context_for_chat
-
-                hints.append(_main_thread_or_warn(lambda: "\n\n[SPREADSHEET CONTEXT]\n" + get_calc_context_for_chat(ctx.doc, ctx=ctx.ctx), "Calc context"))
-
-            hints.append(document_research_hint)
-            if domain == "document_research":
-                from plugin.doc.document_research import get_open_documents
-
-                open_docs = _main_thread_or_warn(
-                    lambda: get_open_documents(ctx.ctx, ctx.doc),
-                    "open documents",
-                )
-                if open_docs:
-                    hints.append(
-                        "\n\n[OPEN DOCUMENTS CONTEXT]\n"
-                        "Note: These are the currently open files in LibreOffice. "
-                        "Some of these files may be completely unrelated to the task at hand:\n"
-                        + "\n".join(
-                            f"- {d['path'] or d['url'] or 'Untitled'} [{d['doc_type']}]"
-                            f"{' (Active)' if d['is_active'] else ''}"
-                            for d in open_docs
-                        )
-                    )
-
-            if domain == "images":
-                hints.append(images_specialized_sub_agent_hint())
-            if domain == "python":
-                hints.append(python_specialized_sub_agent_hint(self._agent_label))
             instructions = build_specialized_sub_agent_instructions(
                 self._agent_label,
                 domain,
-                extra="".join(hints),
+                extra=_sub_agent_hints(ctx, domain, self._agent_label, document_research_hint),
             )
 
             examples_key = f"{self._agent_label.lower()}:{domain}"
@@ -397,15 +428,36 @@ class DelegateToSpecializedBase(ToolBase):
         finally:
             ctx.active_domain = prev_active_domain
 
-        # Discussion #2029: a user-stop or crash dict that is already status: "error"
-        # is left unchanged.
-        if isinstance(final_ans, dict) and final_ans.get("status") == "error":
-            return final_ans
+        payload = start_inner_payload(
+            final_ans,
+            [domain],
+            text_message=_("Specialized task ({domain}) completed.").format(domain=domain),
+        )
+        # Discussion #2029: a user-stop or crash dict that is already status: "error" is left unchanged.
+        if payload.get("status") == "error":
+            return payload
+        payload = self._annotate_payload(payload, ctx, domain, cap)
+        return apply_inner_outcome(
+            payload,
+            final_ans,
+            cap.calls,
+            expect_edits=expects_edits(domain),
+        )
 
-        if isinstance(final_ans, dict) and "status" in final_ans:
-            payload = dict(final_ans)
-        else:
-            payload = {"status": "ok", "message": _("Specialized task ({domain}) completed.").format(domain=domain), "result": str(final_ans)}
+    def _annotate_payload(
+        self,
+        payload: dict[str, Any],
+        ctx: ToolContext,
+        domain: str,
+        cap: _DelegationCapture,
+    ) -> dict[str, Any]:
+        """Attach completion instructions and peer communication annotations to the payload.
+
+        The annotation helpers return early unless the payload status is ok. Running
+        them on the initial ok shell before apply_inner_outcome ensures their notes
+        and instructions are preserved even if the outcome subsequently marks the run
+        as incomplete or a tool error.
+        """
         # Outer never sees sheet_create's inner-only ok string; forward the same
         # `instruction` field web research uses when empty tabs were created.
         if domain == "sheets" or cap.create_sheet_ran or cap.captured_tool_results:
@@ -426,12 +478,7 @@ class DelegateToSpecializedBase(ToolBase):
             # Idle-after-send for ask / accepted delivery sends.
             payload = annotate_outer_peer_wait(payload, peer_send_invoked=cap.peer_send_invoked)
 
-        return apply_inner_outcome(
-            payload,
-            final_ans,
-            cap.calls,
-            expect_edits=expects_edits(domain),
-        )
+        return payload
 
 
 def narrow_delegate_domain_enums(schemas: list[dict[str, Any]], tools: list[Any], uno_services: frozenset[str] | None) -> list[dict[str, Any]]:

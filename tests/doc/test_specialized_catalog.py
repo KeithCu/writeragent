@@ -7,7 +7,9 @@ from plugin.doc.specialized_catalog import (
     NO_EDIT_TOOL_NOTE,
     InnerToolCall,
     apply_inner_outcome,
+    loop_hint,
     partition_tool_errors,
+    start_inner_payload,
 )
 
 
@@ -192,4 +194,61 @@ def test_apply_inner_outcome_none_final_ans_clears_result() -> None:
     assert result["code"] == "SPECIALIZED_WORKFLOW_INCOMPLETE"
     assert result["message"] == ""
     assert "result" not in result
+
+
+def test_loop_hint_charts_per_app() -> None:
+    calc = loop_hint("charts", "Calc")
+    assert "data_range='A1:B10'" in calc
+
+    writer = loop_hint("charts", "Writer")
+    draw = loop_hint("charts", "Draw")
+    assert writer == draw
+    assert "headers" in writer
+    assert "rows" in writer
+
+    none_hint = loop_hint("charts", None)
+    assert "data_range" in none_hint
+    assert "headers" in none_hint
+
+
+def test_loop_hint_footnotes_direct_vs_loop() -> None:
+    writer = loop_hint("footnotes", "Writer")
+    calc = loop_hint("footnotes", "Calc")
+    draw = loop_hint("footnotes", "Draw")
+    assert writer == calc == draw
+    assert writer.endswith("cannot move the view cursor.")
+
+    none_hint = loop_hint("footnotes", None)
+    assert "insert_after" in none_hint
+    assert "view cursor" not in none_hint
+
+    assert loop_hint("styles", "Writer") == ""
+    assert loop_hint("charts", "Impress") == ""
+
+
+def test_start_inner_payload_error_is_same_object() -> None:
+    err = {"status": "error", "message": "user stopped"}
+    result = start_inner_payload(err, ["footnotes"])
+    assert result is err
+    assert "domains" not in result
+
+
+def test_start_inner_payload_status_dict_is_copied_with_domains() -> None:
+    original = {"status": "ok", "value": 42}
+    result = start_inner_payload(original, ["a", "b"], text_message="ignored")
+    assert result is not original
+    assert original == {"status": "ok", "value": 42}
+    assert result == {"status": "ok", "value": 42, "domains": ["a", "b"]}
+
+
+def test_start_inner_payload_plain_text() -> None:
+    domains = ["footnotes"]
+    res1 = start_inner_payload("hi", domains)
+    assert res1 == {"status": "ok", "result": "hi", "domains": ["footnotes"]}
+
+    res2 = start_inner_payload(None, domains)
+    assert res2 == {"status": "ok", "result": "", "domains": ["footnotes"]}
+
+    res3 = start_inner_payload("hi", domains, text_message="done")
+    assert res3 == {"status": "ok", "result": "hi", "message": "done", "domains": ["footnotes"]}
 

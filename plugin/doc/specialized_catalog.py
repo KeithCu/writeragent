@@ -13,40 +13,55 @@ from plugin.framework.prompts import (
     WRITER_SPECIALIZED_DELEGATION_TEMPLATE,
 )
 
-DOMAIN_LOOP_HINTS: dict[str, dict[str | None, str]] = {
+_FOOTNOTES_DIRECT_HINT = (
+    "For footnotes_insert: if the task quotes or names the document anchor "
+    "(e.g. a sentence), pass that exact string as insert_after so the "
+    "note is placed after that text."
+)
+_FOOTNOTES_LOOP_HINT = (
+    "For footnotes_insert: if the task quotes or names the document anchor (e.g. a sentence), "
+    "pass that exact string as insert_after so the note is placed after that text; "
+    "the task executor cannot move the view cursor."
+)
+_CHARTS_CALC_HINT = (
+    "When creating a chart in Calc, you MUST specify the data range explicitly (e.g. data_range='A1:B10')."
+)
+_CHARTS_HEADERS_ROWS_HINT = (
+    "When creating or editing a chart in Writer or Draw/Impress, you MUST specify both the `headers` and `rows` parameters."
+)
+_CHARTS_NEUTRAL_HINT = (
+    "For charts: in Calc you MUST pass an explicit data range (e.g. "
+    "data_range='A1:B10'); in Writer or Draw/Impress you MUST pass both the "
+    "`headers` and `rows` parameters."
+)
+
+_LOOP_HINTS: dict[str, dict[str | None, str]] = {
     "footnotes": {
-        None: (
-            "For footnotes_insert: if the task quotes or names the document anchor "
-            "(e.g. a sentence), pass that exact string as insert_after so the "
-            "note is placed after that text."
-        ),
-        "Writer": (
-            "For footnotes_insert: if the task quotes or names the document anchor (e.g. a sentence), "
-            "pass that exact string as insert_after so the note is placed after that text; "
-            "the task executor cannot move the view cursor."
-        ),
-        "Calc": (
-            "For footnotes_insert: if the task quotes or names the document anchor (e.g. a sentence), "
-            "pass that exact string as insert_after so the note is placed after that text; "
-            "the task executor cannot move the view cursor."
-        ),
-        "Draw": (
-            "For footnotes_insert: if the task quotes or names the document anchor (e.g. a sentence), "
-            "pass that exact string as insert_after so the note is placed after that text; "
-            "the task executor cannot move the view cursor."
-        ),
+        None: _FOOTNOTES_DIRECT_HINT,
+        "Writer": _FOOTNOTES_LOOP_HINT,
+        "Calc": _FOOTNOTES_LOOP_HINT,
+        "Draw": _FOOTNOTES_LOOP_HINT,
     },
     "charts": {
-        "Calc": "When creating a chart in Calc, you MUST specify the data range explicitly (e.g. data_range='A1:B10').",
-        "Writer": "When creating or editing a chart in Writer or Draw/Impress, you MUST specify both the `headers` and `rows` parameters.",
-        "Draw": "When creating or editing a chart in Writer or Draw/Impress, you MUST specify both the `headers` and `rows` parameters.",
-        None: (
-            "For charts: in Calc you MUST pass an explicit data range (e.g. "
-            "data_range='A1:B10'); in Writer or Draw/Impress you MUST pass both the "
-            "`headers` and `rows` parameters."
-        ),
+        "Calc": _CHARTS_CALC_HINT,
+        "Writer": _CHARTS_HEADERS_ROWS_HINT,
+        "Draw": _CHARTS_HEADERS_ROWS_HINT,
+        None: _CHARTS_NEUTRAL_HINT,
     },
 }
+
+
+def loop_hint(domain: str, agent_label: str | None) -> str:
+    """Prompt sentence a specialized loop adds for *domain*, or "" when there is none.
+
+    agent_label is "Writer" / "Calc" / "Draw" for a running sub-agent loop, or None for
+    MCP find_tools direct guidance with no app known (the host model runs the tools
+    itself, so footnotes has no "task executor" clause and charts names both apps).
+    Charts differ per app (Calc passes data_range; Writer and Draw pass headers/rows).
+    Footnotes is one sentence for every app. Unknown domain or label -> "".
+    """
+    return _LOOP_HINTS.get(domain, {}).get(agent_label, "")
+
 
 def catalog_entries_from_base(*, agent_label: str | None = None, ctx: Any = None, for_discovery: bool = False) -> list[dict[str, str]]:
     """Build ``[{domain, description}, …]`` for one specialized base class (delegate/MCP catalog).
@@ -248,12 +263,19 @@ def apply_inner_outcome(
     return payload
 
 
-def normalize_inner_result(
+def start_inner_payload(
     final_ans: Any,
-    domains: list[str],
-    calls: Sequence[InnerToolCall],
+    domains: Sequence[str],
+    *,
+    text_message: str | None = None,
 ) -> dict[str, Any]:
-    """Map inner domain agent results to the standard specialized tool response payload."""
+    """Shape the inner loop's final answer into the payload apply_inner_outcome then grades.
+
+    An error dict (user stop, crash) is returned as the same object so the caller can
+    pass it through unchanged. A dict with a status is copied. Anything else is the
+    loop's plain text: {"status": "ok", "result": text} (None -> ""), plus
+    "message": text_message when given. Every non-error payload gets "domains".
+    """
     if isinstance(final_ans, dict) and final_ans.get("status") == "error":
         return final_ans
     payload: dict[str, Any]
@@ -261,7 +283,21 @@ def normalize_inner_result(
         payload = dict(final_ans)
     else:
         payload = {"status": "ok", "result": "" if final_ans is None else str(final_ans)}
+        if text_message is not None:
+            payload["message"] = text_message
     payload["domains"] = list(domains)
+    return payload
+
+
+def normalize_inner_result(
+    final_ans: Any,
+    domains: list[str],
+    calls: Sequence[InnerToolCall],
+) -> dict[str, Any]:
+    """Map inner domain agent results to the standard specialized tool response payload."""
+    payload = start_inner_payload(final_ans, domains)
+    if payload.get("status") == "error":
+        return payload
     return apply_inner_outcome(
         payload,
         final_ans,
