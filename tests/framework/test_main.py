@@ -1023,11 +1023,11 @@ def test_bootstrap_finish_arms_webview_probe():
     """_writeragent_bootstrap_finish arms exactly one webview probe on background pool."""
     from plugin.scripting import editor_host
 
-    editor_host.reset_webview_probe_state()
+    editor_host.reset_webview_probe_state_for_tests()
     ctx = MagicMock()
     try:
         with (
-            patch("plugin.framework.config.get_config", return_value=False),
+            patch("plugin.scripting.editor_host.get_config", return_value=False),
             patch("plugin.scripting.editor_host.resolve_editor_python", return_value=("/fake/python", "")),
             patch("plugin.scripting.editor_host.run_in_background") as mock_bg,
         ):
@@ -1036,7 +1036,7 @@ def test_bootstrap_finish_arms_webview_probe():
             assert len(probe_calls) == 1
             assert probe_calls[0][0][0] == editor_host._webview_probe_worker
     finally:
-        editor_host.reset_webview_probe_state()
+        editor_host.reset_webview_probe_state_for_tests()
 
 
 def test_bootstrap_finish_skips_webview_probe_under_eval_harness(monkeypatch):
@@ -1044,19 +1044,19 @@ def test_bootstrap_finish_skips_webview_probe_under_eval_harness(monkeypatch):
     from plugin.framework.queue_executor import MainThread, Policy
     from plugin.scripting import editor_host
 
-    editor_host.reset_webview_probe_state()
+    editor_host.reset_webview_probe_state_for_tests()
     ctx = MagicMock()
     monkeypatch.setattr(MainThread, "_policy", Policy.eval_harness)
     try:
         with (
-            patch("plugin.framework.config.get_config", return_value=False),
+            patch("plugin.scripting.editor_host.get_config", return_value=False),
             patch("plugin.scripting.editor_host.resolve_editor_python", return_value=("/fake/python", "")),
             patch("plugin.scripting.editor_host.run_in_background") as mock_bg,
         ):
             main._writeragent_bootstrap_finish(ctx)
             mock_bg.assert_not_called()
     finally:
-        editor_host.reset_webview_probe_state()
+        editor_host.reset_webview_probe_state_for_tests()
 
 
 def test_command_from_dispatch_url_and_dispatch(monkeypatch):

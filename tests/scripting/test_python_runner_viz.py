@@ -50,7 +50,7 @@ def test_execute_and_insert_viz_skips_fast_path(mock_venv, mock_run, mock_insert
     mock_insert.assert_called_once()
 
 
-@patch("plugin.scripting.viz.try_insert_plot_result")
+@patch("plugin.scripting.python_runner.try_insert_plot_result")
 @patch("plugin.scripting.python_runner.run_code_in_user_venv")
 def test_execute_and_insert_detects_raw_image_from_venv(mock_venv, mock_try_insert):
     ctx = MagicMock()

@@ -65,7 +65,7 @@ def test_report_script_dialog_error_disposed_document():
     assert "no longer open" in mock_box.call_args.args[2]
 
 
-def test_report_script_dialog_error_runtime_exception_live_doc_vs_none_doc():
+def test_report_script_dialog_error_bare_runtime_exception_shows_its_text():
     ctx = MagicMock()
     dlg = MagicMock()
     lbl = MagicMock()
@@ -76,20 +76,9 @@ def test_report_script_dialog_error_runtime_exception_live_doc_vs_none_doc():
 
     MockRuntimeException.__name__ = "RuntimeException"
 
-    class LiveDoc:
-        def getImplementationName(self):
-            return "SwXTextDocument"
-
-    # Live doc shows the exception text
     with patch.object(ui, "set_control_text") as mock_set_text:
-        ui._report_script_dialog_error(ctx, dlg, MockRuntimeException("live error"), "Save", doc=LiveDoc())
+        ui._report_script_dialog_error(ctx, dlg, MockRuntimeException("live error"), "Save")
     mock_set_text.assert_called_once_with(lbl, "live error")
-
-    # doc=None is "no longer open"
-    with patch.object(ui, "set_control_text") as mock_set_text:
-        ui._report_script_dialog_error(ctx, dlg, MockRuntimeException("missing doc"), "Save", doc=None)
-    # A bare RuntimeException is not disposal even with no document.
-    mock_set_text.assert_called_once_with(lbl, "missing doc")
 
 
 def test_native_dialog_window_closing_does_not_dispose():
@@ -351,7 +340,7 @@ def test_start_native_script_run_releases_pin_when_finish_is_not_run():
     with (
         _deliver_posted_native_run(),
         patch.object(pr, "run_in_background", side_effect=_inline),
-        patch("plugin.scripting.session_manager.pin_script_document", return_value="doc:leak"),
+        patch("plugin.scripting.python_runner.pin_script_document", return_value="doc:leak"),
         patch(
             "plugin.framework.queue_executor.main.call",
             side_effect=[
@@ -360,7 +349,7 @@ def test_start_native_script_run_releases_pin_when_finish_is_not_run():
             ],
         ),
         patch("plugin.scripting.python_runner._run_prepared_rps", return_value={"status": "ok", "result": 1}),
-        patch("plugin.scripting.session_manager.release_script_document") as mock_release,
+        patch("plugin.scripting.python_runner.release_script_document") as mock_release,
     ):
         pr.start_native_script_run(ctx, doc, "result = 1", on_complete=seen.append)
 
@@ -421,9 +410,9 @@ def test_start_native_script_run_prepare_timeout_releases_pin():
     with (
         _deliver_posted_native_run(),
         patch.object(pr, "run_in_background", side_effect=_inline),
-        patch("plugin.scripting.session_manager.pin_script_document", return_value="doc:tok"),
+        patch("plugin.scripting.python_runner.pin_script_document", return_value="doc:tok"),
         patch("plugin.framework.queue_executor.main.call", side_effect=TimeoutError("prepare")),
-        patch("plugin.scripting.session_manager.release_script_document") as mock_release,
+        patch("plugin.scripting.python_runner.release_script_document") as mock_release,
     ):
         pr.start_native_script_run(ctx, doc, "result = 1", on_complete=seen.append)
 

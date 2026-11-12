@@ -320,12 +320,12 @@ def test_run_python_dialog_no_msgbox_when_monaco_not_expected_and_native_opens()
     mock_report.assert_not_called()
 
 
-def test_run_python_monaco_writer_skips_calc_selection_import():
+def test_run_python_monaco_writer_skips_calc_selection():
     ctx = MagicMock()
     doc = MagicMock()
 
     with patch.object(pr, "is_calc", return_value=False):
-        with patch("plugin.calc.bridge.calc_selection_to_a1") as mock_sel:
+        with patch.object(pr, "calc_selection_to_a1") as mock_sel:
             with patch.object(pr, "launch_monaco_editor", return_value=True):
                 ok = pr._run_python_monaco(
                     ctx,
@@ -1169,13 +1169,13 @@ def test_picker_selected_name_listbox_uses_item_pos():
 def test_monaco_editor_available_respects_force_internal():
     from plugin.scripting.editor_host import _PROBE_CACHE, monaco_editor_available
 
-    with patch("plugin.framework.config.get_config", return_value=True) as mock_get:
+    with patch("plugin.scripting.editor_host.get_config", return_value=True) as mock_get:
         exe, ok = monaco_editor_available()
         assert exe is None
         assert ok is False
         mock_get.assert_called_with("scripting.force_internal_script_editor")
 
-    with patch("plugin.framework.config.get_config", return_value=False):
+    with patch("plugin.scripting.editor_host.get_config", return_value=False):
         with patch("plugin.scripting.editor_host.resolve_editor_python", return_value=("/fake/python", None)):
             _PROBE_CACHE["/fake/python"] = (True, "")
             try:

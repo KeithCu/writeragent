@@ -41,7 +41,7 @@ class TestGuardUnoBoundaries:
         with (
             patch("plugin.scripting.document_scripts.get_desktop") as mock_desktop,
             patch("plugin.scripting.document_scripts.is_calc", return_value=True),
-            patch("plugin.framework.thread_guard.guard_uno", side_effect=lambda o: o) as mock_guard,
+            patch("plugin.scripting.document_scripts.guard_uno", side_effect=lambda o: o) as mock_guard,
         ):
             mock_desktop.return_value.getCurrentComponent.return_value = calc_doc
             from plugin.scripting.document_scripts import get_calc_document_from_ctx

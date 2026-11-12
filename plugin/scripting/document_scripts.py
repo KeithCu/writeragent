@@ -26,6 +26,7 @@ import logging
 from typing import Any, Callable
 
 from plugin.framework.doc_type import is_calc, is_draw, is_writer
+from plugin.framework.thread_guard import guard_uno
 from plugin.doc.udprops import get_document_property, set_document_property
 from plugin.framework import config
 from plugin.framework.errors import DocumentDisposedError, is_disposal
@@ -264,8 +265,6 @@ def _enumerate_calc_documents(desktop: Any) -> list[Any]:
 
 
 def get_calc_document_from_ctx(ctx: Any) -> Any | None:
-    from plugin.framework.thread_guard import guard_uno
-
     try:
         desktop = get_desktop(ctx)
         doc = desktop.getCurrentComponent()
