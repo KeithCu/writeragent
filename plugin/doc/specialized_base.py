@@ -37,7 +37,13 @@ from plugin.doc.peer_prompt import (
     annotate_outer_peer_wait,
     looks_like_peer_work_envelope,
 )
-from plugin.doc.specialized_catalog import DOMAIN_LOOP_HINTS, InnerToolCall, READ_ONLY_DOMAINS, apply_inner_outcome, catalog_entries_from_base
+from plugin.doc.specialized_catalog import (
+    DOMAIN_LOOP_HINTS,
+    READ_ONLY_DOMAINS,
+    apply_inner_outcome,
+    catalog_entries_from_base,
+    make_inner_tool_call,
+)
 from plugin.framework.i18n import _
 from plugin.chatbot.smol_agent import SmolToolAdapter, run_inner_tool_agent
 from plugin.doc.peer_message import PEER_RESULT_TOOL_NAME, PEER_TOOL_NAMES
@@ -160,12 +166,10 @@ class DelegateToSpecializedBase(ToolBase):
     # Domains whose work is read-only -> a long-running delegation to them must NOT
     # take the per-document mutation lock (it would needlessly serialize research on
     # the same doc). The gateway itself is is_mutation=True for the mutating domains.
-    _READ_ONLY_DOMAINS: ClassVar[frozenset[str]] = READ_ONLY_DOMAINS
-
     def requires_document_lock(self, arguments: Any = None) -> bool:
         domain = field_from_tool_arguments(arguments, "domain")
-        # requires_document_lock runs before schema validation—non-string domain must not hit _READ_ONLY_DOMAINS membership.
-        if isinstance(domain, str) and domain in self._READ_ONLY_DOMAINS:
+        # requires_document_lock runs before schema validation—non-string domain must not hit READ_ONLY_DOMAINS membership.
+        if isinstance(domain, str) and domain in READ_ONLY_DOMAINS:
             return False
         return super().requires_document_lock(arguments)
 
@@ -274,7 +278,7 @@ class DelegateToSpecializedBase(ToolBase):
         class _CaptureInstructionAdapter(SmolToolAdapter):
             def forward(self, *args: Any, **kwargs: Any) -> Any:
                 result = super().forward(*args, **kwargs)
-                cap.calls.append(InnerToolCall(self.name, result, self._inner_tool.detects_mutation()))
+                cap.calls.append(make_inner_tool_call(self, result, args=args, kwargs=kwargs))
                 if not isinstance(result, dict):
                     return result
                 if result.get("instruction"):
@@ -425,7 +429,7 @@ class DelegateToSpecializedBase(ToolBase):
             payload,
             final_ans,
             cap.calls,
-            expect_edits=domain not in self._READ_ONLY_DOMAINS,
+            expect_edits=domain not in READ_ONLY_DOMAINS,
         )
 
 

@@ -57,7 +57,7 @@ def test_requires_document_lock_string_domains(writer_gateway: DelegateToSpecial
     assert writer_gateway.requires_document_lock({"domain": "document_research"}) is False
     assert writer_gateway.requires_document_lock({"domain": "web_research"}) is False
 
-    # Vision requires lock even though listed in _READ_ONLY_DOMAINS
+    # Vision requires lock even though listed in READ_ONLY_DOMAINS
     assert writer_gateway.requires_document_lock({"domain": "vision"}) is True
 
     # Mutating domains require lock

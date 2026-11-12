@@ -45,6 +45,45 @@ def test_partition_tool_errors_same_tool_later_ok_is_recovered() -> None:
     assert recovered3 == []
 
 
+def test_partition_tool_errors_different_arguments_not_recovered() -> None:
+    err_para3 = {"status": "error", "message": "Failed to edit paragraph 3"}
+    ok_para7 = {"status": "ok", "message": "Edited paragraph 7"}
+
+    # Different arguments: error on index 3 is not recovered by ok on index 7
+    calls = [
+        InnerToolCall("paragraph_edit", err_para3, mutating=True, arguments={"index": 3}),
+        InnerToolCall("paragraph_edit", ok_para7, mutating=True, arguments={"index": 7}),
+    ]
+    unrecovered, recovered = partition_tool_errors(calls)
+    assert unrecovered == [err_para3]
+    assert recovered == []
+
+    # Matching arguments: error on index 3 is recovered by later ok on index 3
+    ok_para3 = {"status": "ok", "message": "Edited paragraph 3"}
+    calls_matched = [
+        InnerToolCall("paragraph_edit", err_para3, mutating=True, arguments={"index": 3}),
+        InnerToolCall("paragraph_edit", ok_para3, mutating=True, arguments={"index": 3}),
+    ]
+    unrecovered_matched, recovered_matched = partition_tool_errors(calls_matched)
+    assert unrecovered_matched == []
+    assert recovered_matched == [err_para3]
+
+
+def test_make_inner_tool_call_extracts_arguments() -> None:
+    from unittest.mock import MagicMock
+    from plugin.doc.specialized_catalog import make_inner_tool_call
+
+    adapter = MagicMock()
+    adapter.name = "paragraph_edit"
+    adapter.inputs = {"index": {}, "text": {}}
+    adapter._inner_tool.detects_mutation.return_value = True
+
+    call = make_inner_tool_call(adapter, {"status": "ok"}, kwargs={"index": 5, "text": "hello"})
+    assert call.name == "paragraph_edit"
+    assert call.mutating is True
+    assert call.arguments == {"index": 5, "text": "hello"}
+
+
 def test_apply_inner_outcome_finish_only_stays_ok() -> None:
     answer = "No tools needed, task finished directly."
     final_ans = {"status": "ok", "finished": True, "answer": answer}

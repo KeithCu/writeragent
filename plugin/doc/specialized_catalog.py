@@ -14,6 +14,8 @@ from plugin.framework.prompts import (
     WRITER_SPECIALIZED_DELEGATION_TEMPLATE,
 )
 
+log = logging.getLogger(__name__)
+
 DOMAIN_LOOP_HINTS: dict[str, dict[str | None, str]] = {
     "footnotes": {
         None: (
@@ -152,9 +154,33 @@ class InnerToolCall(NamedTuple):
     name: str
     result: Any
     mutating: bool
+    arguments: dict[str, Any] | None = None
 
 
-log = logging.getLogger(__name__)
+def make_inner_tool_call(
+    adapter: Any,
+    result: Any,
+    args: tuple[Any, ...] = (),
+    kwargs: dict[str, Any] | None = None,
+) -> InnerToolCall:
+    """Build an InnerToolCall from a tool adapter invocation."""
+    kw = dict(kwargs or {})
+    if len(args) == 1 and isinstance(args[0], dict):
+        kw = {**args[0], **kw}
+    elif args:
+        input_keys = list(adapter.inputs.keys())
+        for i, val in enumerate(args):
+            if i < len(input_keys):
+                kw[input_keys[i]] = val
+            else:
+                kw[f"_arg_{i}"] = val
+    return InnerToolCall(
+        name=adapter.name,
+        result=result,
+        mutating=adapter._inner_tool.detects_mutation(),
+        arguments=kw,
+    )
+
 
 FINISH_TOOL_NAME = "specialized_workflow_finished"
 NO_EDIT_TOOL_NOTE = "No document-editing tool ran during this delegation; the document is unchanged by it."
@@ -166,16 +192,18 @@ def partition_tool_errors(
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """Partition tool error dicts into unrecovered and recovered groups.
 
-    An error call is considered recovered when a later call to the same tool name returned a
-    non-error dict.
+    An error call is considered recovered when a later call to the same tool name with the same
+    arguments returned a non-error dict.
     """
     unrecovered: list[dict[str, Any]] = []
     recovered: list[dict[str, Any]] = []
     for idx, call in enumerate(calls):
         if not (isinstance(call.result, dict) and call.result.get("status") == "error"):
             continue
+        call_args = call.arguments or {}
         is_recovered = any(
             later.name == call.name
+            and (later.arguments or {}) == call_args
             and isinstance(later.result, dict)
             and later.result.get("status") != "error"
             for later in calls[idx + 1 :]
@@ -213,15 +241,6 @@ def apply_inner_outcome(
     finish_seen = any(c.name == FINISH_TOOL_NAME for c in calls)
     finished = finish_seen or (isinstance(final_ans, dict) and final_ans.get("finished") is True)
 
-    if finish_seen and all(c.name == FINISH_TOOL_NAME for c in calls):
-        # Record finish-only runs to measure how often sub-agents complete without invoking domain tools.
-        domains = payload.get("domains") or payload.get("domain")
-        log.info(
-            "Specialized sub-agent finished without domain tool calls (domains=%s, expect_edits=%s)",
-            domains,
-            expect_edits,
-        )
-
     if not finished:
         # A plain-text return without finish is not a silent ok; move it from result to message
         # so the main agent sees it once.
@@ -238,6 +257,7 @@ def apply_inner_outcome(
             str(err.get("message") or err.get("error") or err) for err in recovered
         ]
 
+    # Synthetic runs with unobserved calls (empty call log) omit the note; real runs always observe at least finish.
     if expect_edits and calls and not any(c.mutating for c in calls):
         payload["note"] = NO_EDIT_TOOL_NOTE
 
@@ -258,10 +278,11 @@ def normalize_inner_result(
     else:
         payload = {"status": "ok", "result": "" if final_ans is None else str(final_ans)}
     payload["domains"] = list(domains)
+    expect_edits = bool(domains) and not (set(domains) <= READ_ONLY_DOMAINS)
     return apply_inner_outcome(
         payload,
         final_ans,
         calls,
-        expect_edits=not set(domains) <= READ_ONLY_DOMAINS,
+        expect_edits=expect_edits,
     )
 

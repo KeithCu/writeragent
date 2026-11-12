@@ -34,7 +34,12 @@ from typing import Any, ClassVar
 
 from plugin.chatbot.smol_agent import SmolToolAdapter, run_inner_tool_agent
 from plugin.framework.doc_type import agent_label_for_context
-from plugin.doc.specialized_catalog import DOMAIN_LOOP_HINTS, InnerToolCall, normalize_inner_result
+from plugin.doc.specialized_catalog import (
+    DOMAIN_LOOP_HINTS,
+    InnerToolCall,
+    make_inner_tool_call,
+    normalize_inner_result,
+)
 from plugin.framework.errors import user_stopped_payload
 from plugin.framework.queue_executor import main
 from plugin.framework.tool import ToolBase, ToolContext
@@ -267,7 +272,7 @@ class _InnerCallRecorder(SmolToolAdapter):
 
     def forward(self, *args: Any, **kwargs: Any) -> Any:
         result = super().forward(*args, **kwargs)
-        self._calls.append(InnerToolCall(self.name, result, self._inner_tool.detects_mutation()))
+        self._calls.append(make_inner_tool_call(self, result, args=args, kwargs=kwargs))
         return result
 
 
