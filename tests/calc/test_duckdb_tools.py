@@ -918,7 +918,7 @@ def test_ods_source_skips_cache(mock_open, mock_read, _mock_close, mock_export, 
     assert not (tmp_path / ODS_CACHE_DIRNAME).exists()
 
 
-@patch("plugin.framework.config.get_config", return_value=False)
+@patch("plugin.calc.duckdb_tools.get_config", return_value=False)
 @patch("plugin.calc.duckdb_tools._source_is_open_workbook", return_value=False)
 @patch("plugin.calc.duckdb_tools._export_model_to_cached_ods")
 @patch("plugin.calc.duckdb_tools.close_document_research_document")
@@ -1127,7 +1127,7 @@ def test_controller_disposal_is_not_a_missing_name():
     mock_run.assert_not_called()
 
 
-@patch("plugin.framework.uno_context.resolve_document_by_url")
+@patch("plugin.calc.duckdb_tools.resolve_document_by_url")
 def test_open_workbook_probe_reraises_disposal(mock_resolve):
     mock_resolve.side_effect = _DisposedException("gone")
     try:

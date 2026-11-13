@@ -17,6 +17,8 @@ import re
 import struct
 from typing import Any, NoReturn
 
+from plugin.calc.calc_utils import get_cell_geometry
+from plugin.calc.python.formula_locator_cache import locate_formula_cell_in_doc
 from plugin.framework.errors import best_effort
 from plugin.framework.queue_executor import main
 from plugin.scripting.payload_codec import write_image_payload_to_temp
@@ -375,8 +377,6 @@ def _located_image_cell(doc: Any, code: str | None) -> tuple[Any, Any, tuple[int
     if not code or doc is None:
         return None
     try:
-        from plugin.calc.python.formula_locator_cache import locate_formula_cell_in_doc
-
         return locate_formula_cell_in_doc(doc, code)
     except Exception:
         return None
@@ -562,7 +562,6 @@ def _position_new_plot(
 ) -> None:
     """Anchor, size, position, and set initial visibility on a new plot shape."""
     from com.sun.star.awt import Point
-    from plugin.calc.calc_utils import get_cell_geometry
 
     cell_pos, cell_size = get_cell_geometry(sheet, target_cell)
     try:

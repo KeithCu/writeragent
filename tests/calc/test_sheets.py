@@ -275,7 +275,7 @@ def test_rename_sheet_set_name_noop_errors_and_does_not_migrate():
     ctx = SimpleNamespace(doc=doc)
 
     with patch("plugin.calc.sheets.CalcBridge") as bridge_cls, patch(
-        "plugin.calc.python.sheet_modify.migrate_sheet_rename"
+        "plugin.calc.sheets.migrate_sheet_rename"
     ) as migrate_mock:
         bridge_cls.return_value.get_sheet.return_value = sheet
         res = _tool("sheet_rename").execute_safe(ctx, old_name="Sheet1", new_name="Sheet Renamed")
@@ -302,7 +302,7 @@ def test_rename_sheet_case_only_rename_allowed():
     ctx = SimpleNamespace(doc=doc)
 
     with patch("plugin.calc.sheets.CalcBridge") as bridge_cls, patch(
-        "plugin.calc.python.sheet_modify.migrate_sheet_rename"
+        "plugin.calc.sheets.migrate_sheet_rename"
     ) as migrate_mock:
         bridge_cls.return_value.get_sheet.return_value = sheet
         res = _tool("sheet_rename").execute_safe(ctx, old_name="Sheet1", new_name="sheet1")

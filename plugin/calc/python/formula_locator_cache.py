@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from typing import Any, Generator, Iterator
 
 from plugin.calc.python.formula_edit import PyFormula
+from plugin.calc.address_utils import parse_address, split_sheet_prefix
 from plugin.framework.errors import uno_read
 
 CELL_FLAG_FORMULA = 16  # com.sun.star.sheet.CellFlags.FORMULA
@@ -59,8 +60,6 @@ def _code_strings_match(extracted: str | None, code_str: str) -> bool:
 
 def _resolve_ref_cell(sheet: Any, doc: Any | None, code_ref: str) -> Any | None:
     try:
-        from plugin.calc.address_utils import parse_address, split_sheet_prefix
-
         sheet_prefix, bare = split_sheet_prefix(code_ref.strip())
         bare = bare.replace("$", "").strip()
         if not bare:

@@ -1081,7 +1081,7 @@ def test_make_number_formatter_unwraps_guarded_doc():
 
     manip = CellManipulator(MagicMock())
     with patch("plugin.calc.manipulator.get_ctx", return_value=proxied_ctx):
-        with patch("plugin.framework.thread_guard.unwrap_uno", side_effect=fake_unwrap):
+        with patch("plugin.calc.manipulator.unwrap_uno", side_effect=fake_unwrap):
             out = manip._make_number_formatter(proxied_doc)
 
     assert out is formatter

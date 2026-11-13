@@ -27,6 +27,7 @@ from plugin.calc.python.cell_discovery import (
 )
 from plugin.calc.python.formula_edit import PyFormula
 from plugin.calc.address_utils import local_a1, parse_local
+from plugin.calc.python.sheet_modify import ensure_sheet_modify_listener, reset_sheet_modify_runtime_for_tests
 from plugin.calc.python.undo import undo_lock
 from plugin.calc.python.geometric_recalc_core import (
     CONFIG_KEY,
@@ -39,7 +40,10 @@ from plugin.calc.python.geometric_recalc_core import (
     compute_eval_index,
     compute_sheet_repair,
 )
+from plugin.doc.udprops import get_document_property, set_document_property
+from plugin.framework.config import get_config
 from plugin.framework.errors import best_effort, is_disposal, uno_read
+from plugin.framework.event_bus import get_event_bus
 from plugin.framework.i18n import _
 from plugin.framework.queue_executor import main
 from plugin.framework.uno_context import get_ctx
@@ -91,15 +95,11 @@ def is_geometric_repairing() -> bool:
 def reset_geometric_runtime_for_tests() -> None:
     """Drop in-memory maps. Tests only."""
     _RUNTIME.reset()
-    from plugin.calc.python.sheet_modify import reset_sheet_modify_runtime_for_tests
-
     best_effort(reset_sheet_modify_runtime_for_tests, "reset_sheet_modify_runtime_for_tests")
 
 
 def geometric_flag_enabled() -> bool:
     """Settings flag. Default false; missing schema is off, not an exception."""
-    from plugin.framework.config import get_config
-
     return bool(get_config(CONFIG_KEY))
 
 
@@ -132,8 +132,6 @@ def load_geometric_registry_for_doc(doc: Any) -> str:
     """Load UDProp into the in-memory map. Returns the live workbook_key."""
     workbook_key = calc_workbook_base_session_id(doc)
     try:
-        from plugin.doc.udprops import get_document_property
-
         raw = get_document_property(doc, GEOMETRIC_REGISTRY_PROP, None)
         if not isinstance(raw, str) or not raw.strip():
             return workbook_key
@@ -161,8 +159,6 @@ def load_geometric_registry_for_doc(doc: Any) -> str:
 def save_geometric_registry_for_doc(doc: Any, workbook_key: str) -> None:
     """Persist this workbook's attach records. Sibling of save_spill_registry_for_doc."""
     try:
-        from plugin.doc.udprops import get_document_property, set_document_property
-
         sheets: dict[str, dict[str, str]] = {}
         with _RUNTIME.lock:
             for (wk, sheet, addr), rec in _RUNTIME.records.items():
@@ -209,6 +205,7 @@ def notify_geometric_cap_hit(ctx: Any, sheet_name: str, *, workbook_key: str = "
         # must still be able to show the first box.
         return False
 
+    # Lazy: function.py imports this module at its top, and the first =PY() must not load the chat dialog stack.
     from plugin.chatbot.dialogs import msgbox
 
     msgbox(ctx, _(FEATURE_TITLE), message, box_type=3)
@@ -442,8 +439,6 @@ def reconcile(
     _RUNTIME.repairing = True
     repaired_sheets: dict[str, list[GeometricCell]] = {}
     try:
-        from plugin.calc.python.sheet_modify import ensure_sheet_modify_listener
-
         with undo_lock(doc):
             sheet_list = _iter_sheets(doc) if sheet is None else [sheet]
             for sheet in sheet_list:
@@ -525,6 +520,4 @@ def install_geometric_recalc() -> None:
         if _RUNTIME.last_flag is not None:
             return
         _RUNTIME.last_flag = geometric_flag_enabled()
-    from plugin.framework.event_bus import get_event_bus
-
     get_event_bus().subscribe("config:changed", _on_geometric_config_changed)

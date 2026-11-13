@@ -521,7 +521,7 @@ def test_open_unquoted_ref_loads_followed_cell_text():
         ed, "monaco_editor_available", return_value=("/venv/bin/python", True)
     ), patch.object(
         ed, "launch_monaco_editor", side_effect=fake_launch
-    ), patch("plugin.calc.python.editor_context_menu.install_calc_cell_context_menu"):
+    ), patch("plugin.calc.python.editor.install_calc_cell_context_menu"):
         ed.open_python_cell_editor(ctx)
 
     load_msg = captured["load_message"]
@@ -557,7 +557,7 @@ def test_open_quoted_a1_does_not_follow_code_cell():
         ed, "monaco_editor_available", return_value=("/venv/bin/python", True)
     ), patch.object(
         ed, "launch_monaco_editor", side_effect=fake_launch
-    ), patch("plugin.calc.python.editor_context_menu.install_calc_cell_context_menu"):
+    ), patch("plugin.calc.python.editor.install_calc_cell_context_menu"):
         ed.open_python_cell_editor(ctx)
 
     resolve.assert_not_called()
@@ -597,7 +597,7 @@ def _open_with_formula(formula, *, resolve_cell=None, initial_code=None):
         ed, "launch_monaco_editor", side_effect=fake_launch
     ), patch.object(
         ed, "msgbox"
-    ) as boxed, patch("plugin.calc.python.editor_context_menu.install_calc_cell_context_menu"):
+    ) as boxed, patch("plugin.calc.python.editor.install_calc_cell_context_menu"):
         ed.open_python_cell_editor(ctx)
     captured["resolve"] = resolve
     captured["msgbox"] = boxed
@@ -671,7 +671,7 @@ def test_open_missing_code_cell_shows_error():
         ed, "launch_monaco_editor"
     ) as launch, patch.object(
         ed, "msgbox"
-    ) as boxed, patch("plugin.calc.python.editor_context_menu.install_calc_cell_context_menu"):
+    ) as boxed, patch("plugin.calc.python.editor.install_calc_cell_context_menu"):
         ed.open_python_cell_editor(ctx)
     launch.assert_not_called()
     boxed.assert_called_once()

@@ -19,7 +19,7 @@ def test_open_python_cell_editor_native_when_force_internal():
     with patch.object(pe, "_get_active_calc_cell", return_value=(doc, cell)):
         with patch.object(pe, "_load_cell_editor_code", return_value=("print(1)", None, None)):
             with patch.object(pe, "monaco_editor_available", return_value=(None, False)):
-                with patch("plugin.calc.python.editor_context_menu.install_calc_cell_context_menu"):
+                with patch("plugin.calc.python.editor.install_calc_cell_context_menu"):
                     with patch.object(pe, "launch_monaco_editor") as mock_launch:
                         with patch.object(pe, "msgbox") as mock_msgbox:
                             with patch(
@@ -44,7 +44,7 @@ def test_open_python_cell_editor_native_when_webview_missing():
             with patch.object(
                 pe, "monaco_editor_available", return_value=("/venv/bin/python", False)
             ):
-                with patch("plugin.calc.python.editor_context_menu.install_calc_cell_context_menu"):
+                with patch("plugin.calc.python.editor.install_calc_cell_context_menu"):
                     with patch.object(pe, "launch_monaco_editor") as mock_launch:
                         with patch(
                             "plugin.calc.python.cell_editor_ui.show_native_python_cell_editor",
@@ -64,7 +64,7 @@ def test_open_python_cell_editor_native_failure_msgbox():
     with patch.object(pe, "_get_active_calc_cell", return_value=(doc, cell)):
         with patch.object(pe, "_load_cell_editor_code", return_value=("x", None, None)):
             with patch.object(pe, "monaco_editor_available", return_value=(None, False)):
-                with patch("plugin.calc.python.editor_context_menu.install_calc_cell_context_menu"):
+                with patch("plugin.calc.python.editor.install_calc_cell_context_menu"):
                     with patch.object(pe, "msgbox") as mock_msgbox:
                         with patch(
                             "plugin.calc.python.cell_editor_ui.show_native_python_cell_editor",
@@ -84,7 +84,7 @@ def test_open_python_cell_editor_launches_when_monaco_available():
     with patch.object(pe, "_get_active_calc_cell", return_value=(doc, cell)):
         with patch.object(pe, "_load_cell_editor_code", return_value=("print(1)", None, None)):
             with patch.object(pe, "monaco_editor_available", return_value=("/venv/bin/python", True)):
-                with patch("plugin.calc.python.editor_context_menu.install_calc_cell_context_menu"):
+                with patch("plugin.calc.python.editor.install_calc_cell_context_menu"):
                     with patch.object(pe, "launch_monaco_editor", return_value=True) as mock_launch:
                         pe.open_python_cell_editor(ctx)
 

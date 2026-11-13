@@ -135,7 +135,7 @@ def test_explain_error_dep_chain_failure_is_swallowed():
     inspector.read_cell.return_value = {"address": "A1", "value": "0", "type": "number"}
 
     detector = ErrorDetector(bridge, inspector)
-    with patch("plugin.calc.formula_dep_chain.fetch_formula_dep_chain", side_effect=RuntimeError("no dep chain")):
+    with patch("plugin.calc.error_detector.fetch_formula_dep_chain", side_effect=RuntimeError("no dep chain")):
         res = detector.explain_error("B1")
         assert "dependency_chain" not in res
         assert res["error"]["code"] == "#DIV/0!"
@@ -193,7 +193,7 @@ def test_explain_error_reads_the_named_sheet():
     bridge.get_active_sheet.return_value = active_sheet
 
     detector = ErrorDetector(bridge, inspector)
-    with patch("plugin.calc.formula_dep_chain.fetch_formula_dep_chain", return_value=None):
+    with patch("plugin.calc.error_detector.fetch_formula_dep_chain", return_value=None):
         res = detector.explain_error("Sheet2.A1")
 
     assert res["address"] == "Sheet2.A1"

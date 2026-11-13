@@ -60,6 +60,7 @@ from plugin.calc.datetime_wire import (
 )
 from plugin.framework.errors import CalcError, WriterAgentException, best_effort, is_disposal, uno_read
 from plugin.framework.json_utils import safe_json_loads
+from plugin.framework.thread_guard import unwrap_uno
 from plugin.framework.uno_context import get_ctx
 
 
@@ -585,8 +586,6 @@ class CellManipulator:
         not auto-unwrapped — hand it the raw UNO supplier or attach fails with
         an often-empty UNO message and ISO writes never run.
         """
-        from plugin.framework.thread_guard import unwrap_uno
-
         uno_ctx = unwrap_uno(get_ctx())
         smgr = uno_ctx.getServiceManager()
         formatter = smgr.createInstanceWithContext("com.sun.star.util.NumberFormatter", uno_ctx)

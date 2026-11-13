@@ -34,6 +34,7 @@ from plugin.chatbot.selection import (
     prompt_for_edit_instructions,
     stream_completion_tasks,
 )
+from plugin.doc.agent_undo import record_agent_turn_after, record_agent_turn_before
 from plugin.doc.compound_undo import WriterCompoundUndo
 from plugin.framework.config import get_config
 from plugin.framework.errors import format_error_message
@@ -162,8 +163,6 @@ def do_calc_extend_edit(
     client = create_validated_client(ctx, title)
     if client is None:
         return
-
-    from plugin.doc.agent_undo import record_agent_turn_after, record_agent_turn_before
 
     record_agent_turn_before(model)
 
