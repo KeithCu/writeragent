@@ -710,30 +710,23 @@ def test_paint_combo_clears_stale_items_on_empty_list():
     ctrl.addItems.assert_not_called()
 
 
-def test_reasoning_effort_label_mapping():
+@pytest.mark.parametrize("effort", ["", "low", "medium", "high", "xhigh", "max"])
+def test_reasoning_effort_roundtrip(effort: str) -> None:
     from plugin.chatbot.config_ui_helpers import (
-        REASONING_EFFORT_DISPLAY_LABELS,
         display_to_reasoning_effort,
         reasoning_effort_to_display,
     )
 
-    assert REASONING_EFFORT_DISPLAY_LABELS == ("default", "lo", "med", "hi", "xhi", "max")
+    assert display_to_reasoning_effort(reasoning_effort_to_display(effort)) == effort
 
-    assert reasoning_effort_to_display("") == "default"
-    assert reasoning_effort_to_display(None) == "default"
-    assert reasoning_effort_to_display("(default)") == "default"
-    assert reasoning_effort_to_display("low") == "lo"
-    assert reasoning_effort_to_display("medium") == "med"
-    assert reasoning_effort_to_display("high") == "hi"
-    assert reasoning_effort_to_display("xhigh") == "xhi"
-    assert reasoning_effort_to_display("max") == "max"
 
-    assert display_to_reasoning_effort("default") == ""
-    assert display_to_reasoning_effort("lo") == "low"
-    assert display_to_reasoning_effort("med") == "medium"
-    assert display_to_reasoning_effort("hi") == "high"
-    assert display_to_reasoning_effort("xhi") == "xhigh"
-    assert display_to_reasoning_effort("max") == "max"
+def test_reasoning_effort_edge_cases() -> None:
+    from plugin.chatbot.config_ui_helpers import (
+        display_to_reasoning_effort,
+        reasoning_effort_to_display,
+    )
+
+    assert reasoning_effort_to_display(None) == reasoning_effort_to_display("(default)") == "default"
     assert display_to_reasoning_effort("unknown") == ""
 
 

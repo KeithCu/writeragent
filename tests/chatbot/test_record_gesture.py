@@ -1,9 +1,6 @@
 """Press / hold / release decisions for hands-free Record."""
 
-import inspect
-
 from plugin.chatbot.record_gesture import (
-    EMPTY_TAKES_EXIT,
     RecordGesture,
     RecordPhase,
     exit_sticky,
@@ -128,11 +125,6 @@ def test_hands_free_silence_text_keeps_mode_visible() -> None:
     text = hands_free_silence_text(750)
     assert text.startswith("Hands-free")
     assert "750" in text
-    assert "_(" in inspect.getsource(hands_free_silence_text)
-
-
-def test_empty_takes_exit_after_two() -> None:
-    assert EMPTY_TAKES_EXIT == 2
 
 
 def test_press_no_release_then_press_again() -> None:

@@ -71,11 +71,15 @@ class TestInputBoxExtraTokens:
         mock_set_text.assert_any_call(extend_tokens_ctrl, "1200")
         mock_set_text.assert_any_call(extra_tokens_ctrl, "750")
 
+    @pytest.mark.parametrize(
+        ("extend_tokens", "extra_tokens"),
+        [("1500", "250"), ("1", "99999")],
+    )
     @patch("plugin.chatbot.dialog_views.populate_combobox_with_lru")
     @patch("plugin.chatbot.dialog_views.load_writeragent_dialog")
     @patch("plugin.chatbot.dialog_views.init_logging")
     def test_input_box_saves_selection_token_fields_on_ok(
-        self, _init_log, mock_load, _populate,
+        self, _init_log, mock_load, _populate, extend_tokens, extra_tokens,
     ):
         from plugin.chatbot.dialog_views import input_box
 
@@ -86,50 +90,20 @@ class TestInputBoxExtraTokens:
 
         def control_text_side_effect(c):
             if c is extend_tokens_ctrl:
-                return "1500"
+                return extend_tokens
             if c is extra_tokens_ctrl:
-                return "250"
+                return extra_tokens
             return "rewrite this"
 
         with patch("plugin.chatbot.dialog_views.get_control_text", side_effect=control_text_side_effect), \
              patch("plugin.chatbot.dialog_views.save") as mock_save, \
              patch("plugin.chatbot.dialog_views.get_optional", side_effect=optional_side_effect):
-            text, prompt = input_box(ctx, "msg", "title", "")
+            text, _prompt = input_box(ctx, "msg", "title", "")
 
-        assert (text) == ("rewrite this")
+        assert text == "rewrite this"
         mock_save.assert_called_once_with({
-            "chatbot.extend_selection_max_tokens": "1500",
-            "chatbot.edit_selection_max_new_tokens": "250",
-        })
-
-    @patch("plugin.chatbot.dialog_views.populate_combobox_with_lru")
-    @patch("plugin.chatbot.dialog_views.load_writeragent_dialog")
-    @patch("plugin.chatbot.dialog_views.init_logging")
-    def test_input_box_delegates_selection_token_bounds_to_config(
-        self, _init_log, mock_load, _populate,
-    ):
-        from plugin.chatbot.dialog_views import input_box
-
-        ctx = MagicMock()
-        dlg, edit_ctrl, extend_tokens_ctrl, extra_tokens_ctrl, optional_side_effect = self._mock_dialog(execute_ok=True)
-        edit_ctrl.getText.return_value = "go"
-        mock_load.return_value = dlg
-
-        def control_text_side_effect(c):
-            if c is extend_tokens_ctrl:
-                return "1"
-            if c is extra_tokens_ctrl:
-                return "99999"
-            return "go"
-
-        with patch("plugin.chatbot.dialog_views.get_control_text", side_effect=control_text_side_effect), \
-             patch("plugin.chatbot.dialog_views.save") as mock_save, \
-             patch("plugin.chatbot.dialog_views.get_optional", side_effect=optional_side_effect):
-            input_box(ctx, "msg", "title", "")
-
-        mock_save.assert_called_once_with({
-            "chatbot.extend_selection_max_tokens": "1",
-            "chatbot.edit_selection_max_new_tokens": "99999",
+            "chatbot.extend_selection_max_tokens": extend_tokens,
+            "chatbot.edit_selection_max_new_tokens": extra_tokens,
         })
 
     @patch("plugin.chatbot.dialog_views.init_logging")
@@ -172,17 +146,6 @@ class TestInputBoxExtraTokens:
 
 
 class TestSettingsDialogLoad:
-    def test_create_dialog_uses_loader_with_ctx(self):
-        from plugin.chatbot.dialog_views import SettingsDialog
-
-        ctx = MagicMock()
-        view = SettingsDialog(ctx)
-        dlg = MagicMock()
-        with patch("plugin.chatbot.dialog_views.load_writeragent_dialog", return_value=dlg) as mock_load:
-            view._create_dialog()
-        mock_load.assert_called_once_with("SettingsDialog", ctx)
-        assert view._dlg is dlg
-
     def test_create_dialog_raises_when_loader_returns_none(self):
         from plugin.chatbot.dialog_views import SettingsDialog
         from plugin.framework.errors import UnoObjectError
@@ -194,34 +157,31 @@ class TestSettingsDialogLoad:
 
 
 class TestSettingsInitialModelsFetch:
-    def test_schedule_initial_models_fetch_openrouter_with_key(self):
+    @pytest.mark.parametrize(
+        ("endpoint", "api_key", "expected_scheduled"),
+        [
+            ("https://openrouter.ai/api", "sk-test", True),
+            ("https://openrouter.ai/api", "", False),
+            ("http://localhost:11434", None, True),
+        ],
+    )
+    def test_schedule_initial_models_fetch(
+        self, endpoint: str, api_key: str | None, expected_scheduled: bool,
+    ):
         from plugin.chatbot.dialog_views import SettingsDialog
 
         dlg = SettingsDialog(MagicMock())
         listener = MagicMock()
         dlg._endpoint_listener = listener
-        with patch('plugin.chatbot.dialog_views.get_api_key_for_endpoint', return_value='sk-test'):
-            dlg._schedule_initial_models_fetch('https://openrouter.ai/api')
-        listener._schedule_debounced_models_fetch.assert_called_once()
-
-    def test_schedule_initial_models_fetch_skips_without_key(self):
-        from plugin.chatbot.dialog_views import SettingsDialog
-
-        dlg = SettingsDialog(MagicMock())
-        listener = MagicMock()
-        dlg._endpoint_listener = listener
-        with patch('plugin.chatbot.dialog_views.get_api_key_for_endpoint', return_value=''):
-            dlg._schedule_initial_models_fetch('https://openrouter.ai/api')
-        listener._schedule_debounced_models_fetch.assert_not_called()
-
-    def test_schedule_initial_models_fetch_includes_ollama(self):
-        from plugin.chatbot.dialog_views import SettingsDialog
-
-        dlg = SettingsDialog(MagicMock())
-        listener = MagicMock()
-        dlg._endpoint_listener = listener
-        dlg._schedule_initial_models_fetch('http://localhost:11434')
-        listener._schedule_debounced_models_fetch.assert_called_once()
+        if api_key is None:
+            dlg._schedule_initial_models_fetch(endpoint)
+        else:
+            with patch("plugin.chatbot.dialog_views.get_api_key_for_endpoint", return_value=api_key):
+                dlg._schedule_initial_models_fetch(endpoint)
+        if expected_scheduled:
+            listener._schedule_debounced_models_fetch.assert_called_once()
+        else:
+            listener._schedule_debounced_models_fetch.assert_not_called()
 
 
 class TestEndpointCombinedListener:

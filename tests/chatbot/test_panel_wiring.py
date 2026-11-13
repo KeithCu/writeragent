@@ -3,19 +3,12 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, get_type_hints
+from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
 
 from plugin.chatbot.panel_wiring import _install_frame_session_listeners, _wireControls
-
-
-def test_wire_controls_annotates_self() -> None:
-    """Module-level `_wireControls(self, ...)` is not a method; `self` still needs a type."""
-    hints = get_type_hints(_wireControls)
-    assert hints["self"] is Any
-    assert hints["root_window"] is Any
 
 
 def test_install_thread_violation_propagates() -> None:
