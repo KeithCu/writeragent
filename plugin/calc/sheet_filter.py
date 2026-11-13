@@ -53,24 +53,6 @@ _HAS_HEADER_PARAM_SCHEMA: dict[str, Any] = {
 }
 
 
-def _connection_name(cv: Any) -> str:
-    """Pure helper to decode FilterConnection to 'AND' or 'OR'."""
-    if cv is None:
-        return "AND"
-    val = getattr(cv, "value", None)
-    if val in ("OR", "AND"):
-        return str(val)
-    s = str(cv)
-    if s.endswith(".OR"):
-        return "OR"
-    if s.endswith(".AND"):
-        return "AND"
-    try:
-        return "OR" if int(cv) == 1 else "AND"
-    except (ValueError, TypeError):
-        return "AND"
-
-
 def _field_to_dict(ff: Any, idx: int) -> dict[str, Any]:
     out: dict[str, Any] = {"index": idx}
     op = uno_read(lambda: int(ff.Operator), None)
@@ -82,8 +64,10 @@ def _field_to_dict(ff: Any, idx: int) -> dict[str, Any]:
     if field is not None:
         out["field"] = field
 
-    cv = uno_read(lambda: ff.Connection, None)
-    out["connection"] = _connection_name(cv)
+    # LibreOffice fills Connection with a FilterConnection enum (convertQueryEntryToUno,
+    # sc/source/ui/unoobj/datauno.cxx); PyUNO hands back a uno.Enum whose value is
+    # "AND" or "OR". The first criterion's connection carries no meaning.
+    out["connection"] = uno_read(lambda: ff.Connection.value, "AND")
 
     is_num = uno_read(lambda: bool(ff.IsNumeric), None)
     if is_num is not None:

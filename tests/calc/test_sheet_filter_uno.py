@@ -79,8 +79,7 @@ def test_calc_sheet_filter_apply_get_clear(ctx, doc):
     crit_or = res_get_or.get("criteria", [])
     assert len(crit_or) == 2, crit_or
     assert crit_or[1].get("operator") == "GREATER", crit_or[1]
-    # Do not assert crit_or[1]["connection"] == "OR": LibreOffice may report AND on
-    # getFilterFields2 readback even when the active filter is OR (validated above).
+    assert crit_or[1].get("connection") == "OR", crit_or[1]
 
     res_apply_and = _execute_calc_tool(doc, ctx, "sheet_filter_apply", {
         "range": ["G40:I43"],
