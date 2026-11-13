@@ -118,11 +118,11 @@ decision rule above matters most.
 
 - `coerce_index`: `if isinstance(value, bool): return int(value)` before
   `if isinstance(value, int)`. `bool` is an `int`.
-- `_coerce_spill_value`: separate date, datetime, and time branches each built
+- `coerce_spill_value`: separate date, datetime, and time branches each built
   their own return dict. They now parse into one value and recurse into the
   general function.
 - `flatten_result_values`: a hand-written flatten loop replaced by a call to the
-  existing `_result_as_spill_grid`.
+  existing `result_as_spill_grid`.
 - `if after: return s[idx:]; return s[:idx]` → `return s[idx:] if after else s[:idx]`.
 
 ### 4. Hand-rolled mechanisms the standard library already provides

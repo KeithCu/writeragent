@@ -61,12 +61,12 @@ def reset_sheet_modify_runtime_for_tests() -> None:
     _DISPATCH_DEPTH = 0
 
 
-def _owning_calc_doc(sheet: Any) -> Any | None:
+def owning_calc_doc(sheet: Any) -> Any | None:
     """Spreadsheet that contains *sheet*, walked from the modify event source.
 
     ``desktop.getCurrentComponent()`` is whichever window is focused. A change
     in a background workbook must not reconcile that other file. MagicMock
-    fabricates ``getParent``; ignore it so tests that stub only ``_get_calc_doc``
+    fabricates ``getParent``; ignore it so tests that stub only ``get_calc_doc``
     keep their fallback.
     """
     current = sheet
@@ -255,15 +255,15 @@ def dispatch_sheet_modified(
     if sheet is None:
         return
     # Prefer the sheet's owner, then the document stored when the listener was
-    # attached. Not _get_calc_doc: that is the focused window, and a modify in a
+    # attached. Not get_calc_doc: that is the focused window, and a modify in a
     # background workbook would be scheduled against the wrong document.
-    owner = _owning_calc_doc(sheet)
+    owner = owning_calc_doc(sheet)
     if owner is None:
         owner = doc
     if owner is None:
-        from plugin.calc.python.function import _get_calc_doc
+        from plugin.calc.python.function import get_calc_doc
 
-        owner = _get_calc_doc(ctx)
+        owner = get_calc_doc(ctx)
     live = _sheet_name_of(sheet)
     effective_name = sheet_name
     if live and sheet_name and live != sheet_name:

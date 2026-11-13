@@ -425,7 +425,7 @@ class McpModule(ModuleBase):
         return msg
 
     def _action_server_status(self) -> None:
-        from plugin.chatbot.dialogs import CopyListener, _DismissDialogListener, load_writeragent_dialog, msgbox
+        from plugin.chatbot.dialogs import CopyListener, DismissDialogListener, load_writeragent_dialog, msgbox
         from plugin.framework.uno_context import get_ctx
         from plugin.framework.i18n import _
 
@@ -501,7 +501,7 @@ class McpModule(ModuleBase):
 
             ok_btn = dlg.getControl("OKBtn")
             if ok_btn is not None:
-                ok_btn.addActionListener(_DismissDialogListener(dlg))
+                ok_btn.addActionListener(DismissDialogListener(dlg))
 
             dlg.execute()
             dlg.dispose()

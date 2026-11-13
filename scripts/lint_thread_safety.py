@@ -53,7 +53,7 @@ RED_UNO_FACTORY_GETTERS = {
     "get_active_document",
     "get_toolkit",
     "get_package_info",
-    "_get_calc_doc",
+    "get_calc_doc",
     "get_calc_document_from_ctx",
     "get_active_document_for_scripts",
 }
@@ -66,7 +66,7 @@ RED_UNO_SINKS = {
     "get_active_document",
     "get_toolkit",
     "get_package_info",
-    "_get_calc_doc",
+    "get_calc_doc",
     "get_calc_document_from_ctx",
     "get_active_document_for_scripts",
     "resolve_document_by_url",

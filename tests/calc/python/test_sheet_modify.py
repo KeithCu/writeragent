@@ -89,7 +89,7 @@ def test_modify_uses_owning_document_not_active(monkeypatch):
     sheet.getParent = lambda: owner
     monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: True)
     monkeypatch.setattr("plugin.calc.python.geometric_recalc.is_geometric_repairing", lambda: False)
-    monkeypatch.setattr("plugin.calc.python.function._get_calc_doc", lambda _ctx: other)
+    monkeypatch.setattr("plugin.calc.python.function.get_calc_doc", lambda _ctx: other)
     captured: dict[str, object] = {}
 
     def _capture(ctx, doc, sheet, **kwargs):
@@ -109,7 +109,7 @@ def test_modify_uses_stored_document_when_source_has_no_parent(monkeypatch):
     sheet = owner.getSheets().getByName("Sheet1")
     monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: True)
     monkeypatch.setattr("plugin.calc.python.geometric_recalc.is_geometric_repairing", lambda: False)
-    monkeypatch.setattr("plugin.calc.python.function._get_calc_doc", lambda _ctx: other)
+    monkeypatch.setattr("plugin.calc.python.function.get_calc_doc", lambda _ctx: other)
     captured: dict[str, object] = {}
 
     def _capture(ctx, doc, sheet, **kwargs):

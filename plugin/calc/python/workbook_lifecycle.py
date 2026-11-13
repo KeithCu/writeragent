@@ -24,7 +24,7 @@ from typing import Any
 
 from plugin.calc.python.workbook_state import WorkbookState
 from plugin.framework.errors import best_effort
-from plugin.framework.uno_listeners import _HAVE_UNO as _HAVE_UNO_DOC_EVENTS
+from plugin.framework.uno_listeners import HAVE_UNO
 from plugin.framework.uno_listeners import BaseDocumentEventListener
 from plugin.scripting.session_manager import calc_workbook_base_session_id
 from plugin.scripting.venv_worker import reset_python_session
@@ -231,7 +231,7 @@ def _register(doc: Any, key: str, factory: Any, on_existing: Any) -> None:
 
 def ensure_calc_workbook_unload_resets_python(ctx: Any, doc: Any, *, state: WorkbookState) -> None:
     """Register a one-time listener so closing *doc* clears worker init/cell sessions."""
-    if not _HAVE_UNO_DOC_EVENTS or doc is None:
+    if not HAVE_UNO or doc is None:
         return
     session_id = calc_workbook_base_session_id(doc)
     _register(
@@ -248,7 +248,7 @@ def ensure_python_session_cleared_on_unload(ctx: Any, doc: Any, session_id: str 
     Calc ``calc:…`` reuses the =PY() listener (formula cache, spill, init).
     Writer/Draw ``rps:…`` and ``notebook:…`` share one listener per document.
     """
-    if not session_id or doc is None or not _HAVE_UNO_DOC_EVENTS:
+    if not session_id or doc is None or not HAVE_UNO:
         return
     from plugin.scripting.session_key import SessionKey, SessionKind
 

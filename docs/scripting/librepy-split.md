@@ -184,7 +184,7 @@ Call chain:
 
 `PythonFunction.python()` → `execute_python_addin` → `calc_addin_data` / `payload_codec` → `run_code_in_user_venv` → `PythonWorkerManager` → `venv/worker_harness` → `venv/venv_sandbox` → `LocalPythonExecutor`
 
-Error display: `addin_values.py` uses `framework.errors.format_error_payload` plus a local `_format_error_for_display` so `=PY()` does **not** import `plugin.framework.client` (package init is now lazy HTTP/errors only, but the add-in still stays off that package).
+Error display: `addin_values.py` uses `framework.errors.format_error_payload` plus a local `format_addin_error_for_display` so `=PY()` does **not** import `plugin.framework.client` (package init is now lazy HTTP/errors only, but the add-in still stays off that package).
 
 Config: `get_config_str("scripting.python_venv_path")`, session mode, timeout, auto-spill.
 
