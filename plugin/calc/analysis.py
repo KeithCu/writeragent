@@ -301,6 +301,7 @@ def run_calc_data_tool(
         task_hint=str(kwargs["task_hint"]) if kwargs.get("task_hint") else None,
         output_range=str(kwargs["output_range"]).strip() if kwargs.get("output_range") else None,
     )
+    # Range-only domains keep raw values out of the model context; see docs/calc/analysis-sub-agent.md "Data Handoff".
     if args.data is not None and ctx.active_domain in ("analysis", wiring_id):
         raise ToolExecutionError(
             f"The {ctx.active_domain} domain takes data_range (an A1 address string) only. "
@@ -349,11 +350,10 @@ def write_anchor_result(
     """
     if not output_range or result.get("status") != "ok":
         return result
-    anchor = output_range
     from plugin.framework.queue_executor import main
 
     def _write() -> None:
-        sheet, col, row = parse_output_anchor(anchor)
+        sheet, col, row = parse_output_anchor(output_range)
         insert_fn(ctx.doc, ctx.ctx, result, sheet_name=sheet, start_col=col, start_row=row)
 
     try:

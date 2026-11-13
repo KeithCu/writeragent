@@ -45,7 +45,7 @@ class PlotDataTool(ToolBaseDummy):
         from plugin.scripting.payload_codec import extract_image_payload, write_image_payload_to_temp
 
         # run_domain rejects a blank or unknown helper and missing data with VIZ_ERROR.
-        result = run_calc_data_tool(ctx, "viz", kwargs)[1]
+        _args, result = run_calc_data_tool(ctx, "viz", kwargs)
 
         if result.get("status") != "ok":
             return result

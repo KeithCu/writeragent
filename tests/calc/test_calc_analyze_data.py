@@ -20,6 +20,9 @@ from plugin.calc.analysis import (
     resolve_cell_address,
     write_anchor_result,
 )
+from plugin.calc.forecast import ForecastDataTool
+from plugin.calc.optimize import OptimizeDataTool
+from plugin.calc.viz import PlotDataTool
 from plugin.framework.errors import DocumentDisposedError, ToolExecutionError
 
 
@@ -389,19 +392,16 @@ def test_analyze_data_forces_data_range_in_analysis_domain(calc_ctx):
 
 
 @pytest.mark.parametrize(
-    ("tool_cls_path", "helper_name"),
+    ("tool_cls", "helper_name"),
     [
-        ("plugin.calc.analysis.AnalyzeDataTool", "describe_data"),
-        ("plugin.calc.forecast.ForecastDataTool", "forecast_time_series"),
-        ("plugin.calc.optimize.OptimizeDataTool", "linear_programming"),
-        ("plugin.calc.viz.PlotDataTool", "quick_plot"),
+        pytest.param(AnalyzeDataTool, "describe_data", id="analyze_data"),
+        pytest.param(ForecastDataTool, "forecast_time_series", id="forecast_data"),
+        pytest.param(OptimizeDataTool, "linear_programming", id="optimize_data"),
+        pytest.param(PlotDataTool, "quick_plot", id="plot_data"),
     ],
 )
-def test_data_tools_let_disposal_through(calc_ctx, tool_cls_path, helper_name):
-    import importlib
-
-    module_path, cls_name = tool_cls_path.rsplit(".", 1)
-    tool = getattr(importlib.import_module(module_path), cls_name)()
+def test_data_tools_let_disposal_through(calc_ctx, tool_cls, helper_name):
+    tool = tool_cls()
     calc_ctx.active_domain = None
     boom = _disposed()
     with (
@@ -412,21 +412,18 @@ def test_data_tools_let_disposal_through(calc_ctx, tool_cls_path, helper_name):
 
 
 @pytest.mark.parametrize(
-    ("tool_cls_path", "helper_name", "active_domain"),
+    ("tool_cls", "helper_name", "active_domain"),
     [
-        ("plugin.calc.analysis.AnalyzeDataTool", "describe_data", "analysis"),
-        ("plugin.calc.forecast.ForecastDataTool", "forecast_time_series", "forecast"),
-        ("plugin.calc.forecast.ForecastDataTool", "forecast_time_series", "analysis"),
-        ("plugin.calc.optimize.OptimizeDataTool", "linear_programming", "optimize"),
-        ("plugin.calc.viz.PlotDataTool", "quick_plot", "analysis"),
-        ("plugin.calc.viz.PlotDataTool", "quick_plot", "viz"),
+        pytest.param(AnalyzeDataTool, "describe_data", "analysis", id="analyze_in_analysis"),
+        pytest.param(ForecastDataTool, "forecast_time_series", "forecast", id="forecast_in_forecast"),
+        pytest.param(ForecastDataTool, "forecast_time_series", "analysis", id="forecast_in_analysis"),
+        pytest.param(OptimizeDataTool, "linear_programming", "optimize", id="optimize_in_optimize"),
+        pytest.param(PlotDataTool, "quick_plot", "analysis", id="plot_in_analysis"),
+        pytest.param(PlotDataTool, "quick_plot", "viz", id="plot_in_viz"),
     ],
 )
-def test_raw_data_refused_in_range_only_domains(calc_ctx, tool_cls_path, helper_name, active_domain):
-    import importlib
-
-    module_path, cls_name = tool_cls_path.rsplit(".", 1)
-    tool = getattr(importlib.import_module(module_path), cls_name)()
+def test_raw_data_refused_in_range_only_domains(calc_ctx, tool_cls, helper_name, active_domain):
+    tool = tool_cls()
     calc_ctx.active_domain = active_domain
     with (
         patch("plugin.calc.analysis.run_domain") as mock_run,
