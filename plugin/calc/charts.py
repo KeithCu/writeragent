@@ -27,7 +27,7 @@ import copy
 import logging
 import math
 import time
-from typing import TYPE_CHECKING, Any, Callable, Iterator, Literal, NamedTuple, cast
+from typing import TYPE_CHECKING, Any, Callable, Iterator, Literal, NamedTuple, NoReturn, cast
 
 from plugin.doc.visual_helpers import parse_color_to_uno_int as _parse_color
 
@@ -38,7 +38,7 @@ from plugin.calc.address_utils import format_range_address, parse_address, split
 from plugin.calc.base import ToolCalcChartBase
 from plugin.calc.bridge import CalcBridge
 from plugin.framework.constants import ALL_DOCUMENT_SERVICES
-from plugin.framework.errors import DocumentDisposedError, document_is_disposed, is_disposal, name_miss_details
+from plugin.framework.errors import DocumentDisposedError, ToolExecutionError, document_is_disposed, is_disposal, name_miss_details
 from plugin.framework.uno_context import enum_has_more, get_ctx, get_desktop, process_events_to_idle, uno_same
 import uno
 
@@ -50,11 +50,6 @@ class ChartRef(NamedTuple):
     parent: Any
     kind: Literal["calc_sheet", "writer_embed", "draw_page"]
     page_index: int | None = None
-
-
-class ChartLookup(NamedTuple):
-    ref: ChartRef | None = None
-    error: str | None = None
 
 
 def _supports_service(obj: Any, service_name: str) -> bool:
@@ -494,12 +489,6 @@ def _named_chart_miss_message(chart_name: str, req_err: str | None, kwargs: dict
     return f"Chart '{chart_name}' not found."
 
 
-def _mark_chart_created(out: dict[str, Any]) -> dict[str, Any]:
-    if out.get("status") == "ok":
-        out["created"] = True
-    return out
-
-
 def _chart_step(warnings: list[str], label: str, fn: Callable[[], None]) -> None:
     """Run a styling step, recording non-fatal failures as warnings while re-raising disposal."""
     try:
@@ -750,14 +739,13 @@ def _format_chart_exception_msg(e: Exception) -> str:
     return f"{type(e).__name__}"
 
 
-def _chart_op_error(tool: Any, exc: Exception, *, prefix: str, log_msg: str | None = None, code: str = "TOOL_EXECUTION_ERROR") -> dict[str, Any]:
-    # Closed-document disposal must stay DOCUMENT_DISPOSED, not a chart error code.
-    if is_disposal(exc):
+def _raise_chart_op_error(exc: Exception, *, prefix: str, code: str = "TOOL_EXECUTION_ERROR") -> NoReturn:
+    # Closed-document disposal must stay DOCUMENT_DISPOSED in execute_safe; a refusal raised
+    # inside the wrapped operation keeps its own message and code instead of gaining the prefix;
+    # other errors (LibreOffice or a bad range/sheet, UnoObjectError included) get the chart code.
+    if is_disposal(exc) or isinstance(exc, ToolExecutionError):
         raise exc
-    if log_msg is not None:
-        log.exception(log_msg)
-    text = f"{prefix}: {_format_chart_exception_msg(exc)}"
-    return tool._tool_error(text, code=code)
+    raise ToolExecutionError(f"{prefix}: {_format_chart_exception_msg(exc)}", code=code) from exc
 
 
 def _with_warnings(out: dict[str, Any], warnings: list[str]) -> dict[str, Any]:
@@ -775,13 +763,6 @@ def _chart_list_failure(doc: Any, exc: Exception, errors: list[dict[str, Any]], 
     if is_disposal(exc):
         raise exc
     errors.append({**where, "message": _format_chart_exception_msg(exc)})
-
-
-def _chart_container_failure(tool: Any, doc: Any, exc: Exception) -> dict[str, Any]:
-    # Real disposal propagates even when the document probe still answers.
-    if is_disposal(exc):
-        raise exc
-    return tool._tool_error("Could not list charts: %s" % _format_chart_exception_msg(exc))
 
 
 def _get_all_calc_chart_names(doc: Any) -> set[str]:
@@ -949,23 +930,23 @@ class SheetCharts:
     def __init__(self, doc: Any) -> None:
         self.doc: Any = doc
 
-    def find(self, name: str, *, sheet: str | None = None, page: int | None = None) -> ChartLookup:
+    def find(self, name: str, *, sheet: str | None = None, page: int | None = None) -> ChartRef | None:
         chart_obj, found_sheet = _find_calc_chart_and_sheet(self.doc, name, sheet)
         if chart_obj is not None:
-            return ChartLookup(ref=ChartRef(chart_obj, found_sheet, "calc_sheet", None))
-        return ChartLookup()
+            return ChartRef(chart_obj, found_sheet, "calc_sheet", None)
+        return None
 
     def names(self, *, skip: Any = None) -> set[str]:
         return _get_all_calc_chart_names(self.doc)
 
-    def collect(self, tool: Any) -> dict[str, Any]:
+    def collect(self) -> dict[str, Any]:
         result = []
         errors: list[dict[str, Any]] = []
         try:
             sheets = self.doc.getSheets()
             sheets_count = sheets.getCount()
         except Exception as exc:
-            return _chart_container_failure(tool, self.doc, exc)
+            _raise_chart_op_error(exc, prefix="Could not list charts")
         for i in range(sheets_count):
             sheet_name = None
             try:
@@ -988,7 +969,7 @@ class SheetCharts:
             out["errors"] = errors
         return out
 
-    def create(self, tool: Any, ctx: ToolContext, rect: Any, service: str, **kwargs: Any) -> dict[str, Any]:
+    def create(self, ctx: ToolContext, rect: Any, service: str, **kwargs: Any) -> dict[str, Any]:
         bridge = CalcBridge(ctx.doc)
         data_range = cast("str", kwargs.get("data_range"))
         # Missing data_range is rejected by ChartUpsert.validate for calc create.
@@ -1000,7 +981,7 @@ class SheetCharts:
             # Re-raise document disposal or active-sheet failure; other errors become a missing sheet.
             if is_disposal(exc) or not target_sheet_name:
                 raise
-            return tool._tool_error(f"Sheet '{target_sheet_name}' not found in document.")
+            raise ToolExecutionError(f"Sheet '{target_sheet_name}' not found in document.") from exc
 
         cell_range = bridge.resolve_range_or_address(data_range, target_sheet_name)
         addr = cell_range.getRangeAddress()
@@ -1010,7 +991,7 @@ class SheetCharts:
             pos_prefix, bare_pos = split_sheet_prefix(pos_str)
             target_name = target_sheet_name or sheet.getName()
             if pos_prefix is not None and pos_prefix != target_name:
-                return tool._tool_error(f"Position names sheet '{pos_prefix}' but placement sheet is '{target_name}'.")
+                raise ToolExecutionError(f"Position names sheet '{pos_prefix}' but placement sheet is '{target_name}'.")
             try:
                 parse_address(bare_pos)
                 cell_obj = sheet.getCellRangeByName(bare_pos)
@@ -1022,13 +1003,13 @@ class SheetCharts:
             except Exception as exc:
                 if is_disposal(exc):
                     raise
-                return tool._tool_error(f"Invalid position '{pos_str}': {_format_chart_exception_msg(exc)}")
+                raise ToolExecutionError(f"Invalid position '{pos_str}': {_format_chart_exception_msg(exc)}") from exc
 
         existing_names = self.names()
         requested = _chart_name_from_kwargs(kwargs)
         if requested:
             if requested in existing_names:
-                return tool._tool_error(f"Chart name '{requested}' is already used.")
+                raise ToolExecutionError(f"Chart name '{requested}' is already used.")
             name = requested
         else:
             name = _unique_chart_name(existing_names)
@@ -1041,8 +1022,7 @@ class SheetCharts:
             chart_obj = charts.getByName(name)
             chart_doc = _chart_document_from_host(chart_obj)
             if not chart_doc:
-                _drop_failed_chart_insert(lambda: charts.removeByName(name), name)
-                return tool._tool_error("Cannot access chart content.")
+                raise ToolExecutionError("Cannot access chart content.")
             chart_doc.setDiagram(chart_doc.createInstance(service))
             warnings = _apply_chart_styling(chart_doc, **kwargs)
         except Exception:
@@ -1065,13 +1045,13 @@ class WriterEmbeds:
     def __init__(self, doc: Any) -> None:
         self.doc: Any = doc
 
-    def find(self, name: str, *, sheet: str | None = None, page: int | None = None) -> ChartLookup:
+    def find(self, name: str, *, sheet: str | None = None, page: int | None = None) -> ChartRef | None:
         try:
             objects = self.doc.getEmbeddedObjects()
             if objects.hasByName(name):
                 obj = objects.getByName(name)
                 if _is_chart_host(obj, is_embed=True):
-                    return ChartLookup(ref=ChartRef(obj, objects, "writer_embed", None))
+                    return ChartRef(obj, objects, "writer_embed", None)
         except Exception as exc:
             if is_disposal(exc):
                 raise
@@ -1079,8 +1059,8 @@ class WriterEmbeds:
         for shape, parent, shape_type in _iter_page_shapes(page_obj, self.doc):
             ref = _named_ole_chart_ref(shape, parent, shape_type, name)
             if ref is not None:
-                return ChartLookup(ref=ref)
-        return ChartLookup()
+                return ref
+        return None
 
     def names(self, *, skip: Any = None) -> set[str]:
         existing_names: set[str] = set()
@@ -1094,7 +1074,7 @@ class WriterEmbeds:
         _collect_page_shape_names(page, self.doc, existing_names, skip=skip)
         return existing_names
 
-    def collect(self, tool: Any) -> dict[str, Any]:
+    def collect(self) -> dict[str, Any]:
         result = []
         errors: list[dict[str, Any]] = []
         embed_names = ()
@@ -1141,7 +1121,7 @@ class WriterEmbeds:
             out["errors"] = errors
         return out
 
-    def create(self, tool: Any, ctx: ToolContext, rect: Any, service: str, **kwargs: Any) -> dict[str, Any]:
+    def create(self, ctx: ToolContext, rect: Any, service: str, **kwargs: Any) -> dict[str, Any]:
         """Insert a chart as inline ``TextEmbeddedObject`` (Writer body text).
         Using a bounded wait and event pumping to ensure the embedded model is initialized.
         """
@@ -1175,7 +1155,7 @@ class WriterEmbeds:
         requested = _chart_name_from_kwargs(kwargs)
         if requested:
             if requested in existing_names:
-                return tool._tool_error(f"Chart name '{requested}' is already used.")
+                raise ToolExecutionError(f"Chart name '{requested}' is already used.")
             name = requested
         else:
             name = _unique_chart_name(existing_names)
@@ -1183,7 +1163,7 @@ class WriterEmbeds:
         # We use plain createInstance for Writer; createInstanceWithArguments can be flaky for OLE
         chart_obj = doc.createInstance("com.sun.star.text.TextEmbeddedObject")
         if not chart_obj:
-            return tool._tool_error("Failed to create TextEmbeddedObject instance.")
+            raise ToolExecutionError("Failed to create TextEmbeddedObject instance.")
 
         # CRITICAL: Match proven working pattern from plugin/writer/math/math_mml_convert.py
         chart_obj.CLSID = CHART_CLSID_DRAW_OLE.upper()
@@ -1272,7 +1252,7 @@ class WriterEmbeds:
         # 6. Configure Diagram
         if not chart_doc:
             _drop_failed_chart_insert(lambda: _remove_writer_chart(doc, chart_obj, actual_name), actual_name)
-            return tool._tool_error("Cannot access chart content.")
+            raise ToolExecutionError("Cannot access chart content.")
 
         warnings: list[str] = []
         try:
@@ -1322,11 +1302,11 @@ class DrawPage:
     def __init__(self, doc: Any) -> None:
         self.doc: Any = doc
 
-    def find(self, name: str, *, sheet: str | None = None, page: int | None = None) -> ChartLookup:
+    def find(self, name: str, *, sheet: str | None = None, page: int | None = None) -> ChartRef | None:
         draw_pages = self.doc.getDrawPages()
         count = draw_pages.getCount()
         if page is not None and (page < 0 or page >= count):
-            return ChartLookup(error=f"Page index {page} is out of range (document has {count} pages).")
+            raise ToolExecutionError(f"Page index {page} is out of range (document has {count} pages).", code="CHART_AMBIGUOUS")
         # A requested page returns the first hit. An omitted page collects every page.
         matches: list[ChartRef] = []
         indices = (page,) if page is not None else range(count)
@@ -1336,14 +1316,14 @@ class DrawPage:
                 ref = _named_ole_chart_ref(shape, parent, shape_type, name, i)
                 if ref is not None:
                     if page is not None:
-                        return ChartLookup(ref=ref)
+                        return ref
                     matches.append(ref)
         if len(matches) == 1:
-            return ChartLookup(ref=matches[0])
+            return matches[0]
         if len(matches) > 1:
             indexes_str = ", ".join(str(m.page_index) for m in matches if m.page_index is not None)
-            return ChartLookup(error=f"Chart '{name}' found on multiple pages ({indexes_str}). Please specify 'page'.")
-        return ChartLookup()
+            raise ToolExecutionError(f"Chart '{name}' found on multiple pages ({indexes_str}). Please specify 'page'.", code="CHART_AMBIGUOUS")
+        return None
 
     def names(self, *, skip: Any = None) -> set[str]:
         existing_names: set[str] = set()
@@ -1354,14 +1334,14 @@ class DrawPage:
                 _collect_page_shape_names(pg, self.doc, existing_names, skip=skip)
         return existing_names
 
-    def collect(self, tool: Any) -> dict[str, Any]:
+    def collect(self) -> dict[str, Any]:
         result = []
         errors: list[dict[str, Any]] = []
         try:
             pages = self.doc.getDrawPages()
             pages_count = pages.getCount()
         except Exception as exc:
-            return _chart_container_failure(tool, self.doc, exc)
+            _raise_chart_op_error(exc, prefix="Could not list charts")
         for i in range(pages_count):
             try:
                 page = pages.getByIndex(i)
@@ -1393,18 +1373,18 @@ class DrawPage:
             out["errors"] = errors
         return out
 
-    def create(self, tool: Any, ctx: ToolContext, rect: Any, service: str, **kwargs: Any) -> dict[str, Any]:
+    def create(self, ctx: ToolContext, rect: Any, service: str, **kwargs: Any) -> dict[str, Any]:
         doc = ctx.doc
         draw_pages = doc.getDrawPages()
         if draw_pages is None:
-            return tool._tool_error("No draw page or slide to insert chart.")
+            raise ToolExecutionError("No draw page or slide to insert chart.")
         count = draw_pages.getCount()
         page_arg = kwargs.get("page")
         page = None
         page_index: int = 0
         if isinstance(page_arg, int) and not isinstance(page_arg, bool):
             if page_arg < 0 or page_arg >= count:
-                return tool._tool_error(f"Page index {page_arg} is out of range (document has {count} pages).")
+                raise ToolExecutionError(f"Page index {page_arg} is out of range (document has {count} pages).")
             page = draw_pages.getByIndex(page_arg)
             page_index = page_arg
         else:
@@ -1417,7 +1397,7 @@ class DrawPage:
             if page is None and count > 0:
                 page = draw_pages.getByIndex(0)
             if page is None:
-                return tool._tool_error("No draw page or slide to insert chart.")
+                raise ToolExecutionError("No draw page or slide to insert chart.")
             for i in range(count):
                 candidate = draw_pages.getByIndex(i)
                 if page is candidate or uno_same(page, candidate):
@@ -1441,8 +1421,7 @@ class DrawPage:
             requested = _chart_name_from_kwargs(kwargs)
             if requested:
                 if requested in existing_names:
-                    _drop_failed_chart_insert(lambda: page.remove(shape), requested)
-                    return tool._tool_error(f"Chart name '{requested}' is already used.")
+                    raise ToolExecutionError(f"Chart name '{requested}' is already used.")
                 name = requested
             else:
                 name = _unique_chart_name(existing_names)
@@ -1450,8 +1429,7 @@ class DrawPage:
 
             chart_doc = _chart_document_from_host(shape)
             if not chart_doc:
-                _drop_failed_chart_insert(lambda: page.remove(shape), name or "draw-chart")
-                return tool._tool_error("Cannot access chart content.")
+                raise ToolExecutionError("Cannot access chart content.")
             chart_doc.setDiagram(chart_doc.createInstance(service))
             _apply_chart_data_arrays(chart_doc, kwargs.get("headers"), kwargs.get("rows"))
             warnings = _apply_chart_styling(chart_doc, **kwargs)
@@ -1476,10 +1454,10 @@ def _lookup_chart(
     *,
     sheet: str | None = None,
     page: int | None = None,
-) -> ChartLookup:
+) -> ChartRef | None:
     """Resolve a chart by name across Calc, Writer, or Draw/Impress with direct parent."""
     host = chart_host(doc)
-    return ChartLookup() if host is None else host.find(name, sheet=sheet, page=page)
+    return None if host is None else host.find(name, sheet=sheet, page=page)
 
 
 def _chart_list_names(host: Any | None) -> list[str]:
@@ -1496,29 +1474,26 @@ def _chart_list_names(host: Any | None) -> list[str]:
 
 
 def _require_chart(
-    tool: Any,
     doc: Any,
     kwargs: dict[str, Any],
-) -> tuple[str, ChartRef, SheetCharts | WriterEmbeds | DrawPage] | dict[str, Any]:
+) -> tuple[str, ChartRef, SheetCharts | WriterEmbeds | DrawPage]:
     chart_name = kwargs["name"]
     host = chart_host(doc)
     if host is None:
-        return tool._tool_error(
+        raise ToolExecutionError(
             f"Chart '{chart_name}' not found.",
-            **name_miss_details(chart_name, [], "chart_list"),
+            details=name_miss_details(chart_name, [], "chart_list"),
         )
-    lookup = host.find(chart_name, sheet=kwargs.get("sheet"), page=kwargs.get("page"))
-    if lookup.error:
-        return tool._tool_error(lookup.error, code="CHART_AMBIGUOUS")
-    if not lookup.ref:
-        return tool._tool_error(
+    ref = host.find(chart_name, sheet=kwargs.get("sheet"), page=kwargs.get("page"))
+    if ref is None:
+        raise ToolExecutionError(
             f"Chart '{chart_name}' not found.",
-            **name_miss_details(chart_name, _chart_list_names(host), "chart_list"),
+            details=name_miss_details(chart_name, _chart_list_names(host), "chart_list"),
         )
-    return chart_name, lookup.ref, host
+    return chart_name, ref, host
 
 
-def list_charts(tool: Any, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
+def list_charts(ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
     """List charts across the active document."""
     doc = ctx.doc
     # A closed document raises DocumentDisposedError here instead of listing as an empty success.
@@ -1527,16 +1502,13 @@ def list_charts(tool: Any, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
     host = chart_host(doc)
     if host is None:
         return {"status": "ok", "charts": [], "count": 0}
-    return host.collect(tool)
+    return host.collect()
 
 
-def get_chart_info(tool: Any, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
+def get_chart_info(ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
     """Retrieve detailed chart metadata."""
     doc = ctx.doc
-    target = _require_chart(tool, doc, kwargs)
-    if isinstance(target, dict):
-        return target
-    chart_name, ref, _host = target
+    chart_name, ref, _host = _require_chart(doc, kwargs)
 
     chart_obj = ref.host
 
@@ -1586,7 +1558,6 @@ def get_chart_info(tool: Any, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]
 
 
 def _edit_chart(
-    tool: Any,
     ctx: ToolContext,
     doc: Any,
     is_calc: bool,
@@ -1598,7 +1569,7 @@ def _edit_chart(
 
     chart_doc = _chart_document_from_host(chart_obj)
     if not chart_doc:
-        return tool._tool_error("Cannot access chart content.")
+        raise ToolExecutionError("Cannot access chart content.")
 
     warnings: list[str] = []
     if kwargs.get("position"):
@@ -1608,24 +1579,24 @@ def _edit_chart(
         data_range = kwargs.get("data_range")
         if data_range is not None:
             if not hasattr(chart_obj, "setRanges"):
-                return tool._tool_error("Chart object does not support setRanges.")
+                raise ToolExecutionError("Chart object does not support setRanges.")
             try:
                 bridge = CalcBridge(doc)
                 cell_range = bridge.resolve_range_or_address(data_range, str(ref.parent.getName()) if ref.parent is not None else None)
                 addr = cell_range.getRangeAddress()
                 chart_obj.setRanges((addr,))
             except Exception as e:
-                return _chart_op_error(tool, e, prefix="Failed to set data_range", log_msg="Setting chart data range failed", code="CHART_EDIT_ERROR")
+                _raise_chart_op_error(e, prefix="Failed to set data_range", code="CHART_EDIT_ERROR")
 
         if "has_header" in kwargs:
             if not (hasattr(chart_obj, "setHasColumnHeaders") and hasattr(chart_obj, "setHasRowHeaders")):
-                return tool._tool_error("Chart object does not support header flags.")
+                raise ToolExecutionError("Chart object does not support header flags.")
             try:
                 has_hdr = bool(kwargs["has_header"])
                 chart_obj.setHasColumnHeaders(has_hdr)
                 chart_obj.setHasRowHeaders(has_hdr)
             except Exception as e:
-                return _chart_op_error(tool, e, prefix="Failed to set has_header", log_msg="Setting chart headers failed", code="CHART_EDIT_ERROR")
+                _raise_chart_op_error(e, prefix="Failed to set has_header", code="CHART_EDIT_ERROR")
 
     try:
         _apply_chart_data_arrays(chart_doc, kwargs.get("headers"), kwargs.get("rows"))
@@ -1638,14 +1609,13 @@ def _edit_chart(
         styling_warnings = _apply_chart_styling(chart_doc, **kwargs)
         warnings.extend(styling_warnings)
     except Exception as e:
-        return _chart_op_error(tool, e, prefix="Failed to edit chart", log_msg="Chart edit failed", code="CHART_EDIT_ERROR")
+        _raise_chart_op_error(e, prefix="Failed to edit chart", code="CHART_EDIT_ERROR")
 
     out: dict[str, Any] = {"status": "ok", "name": chart_name, "message": "Chart updated."}
     return _with_warnings(out, warnings)
 
 
 def _create_chart(
-    tool: Any,
     ctx: ToolContext,
     host: SheetCharts | WriterEmbeds | DrawPage,
     **kwargs: Any,
@@ -1656,13 +1626,15 @@ def _create_chart(
     rect = uno.createUnoStruct("com.sun.star.awt.Rectangle", X=1000, Y=1000, Width=12000, Height=8000)
 
     try:
-        return host.create(tool, ctx, rect, chart_service, **kwargs)
+        out = host.create(ctx, rect, chart_service, **kwargs)
     except Exception as e:
-        # Disposal re-raises via _chart_op_error so execute_safe reports DOCUMENT_DISPOSED.
-        return _chart_op_error(tool, e, prefix="Failed to create chart", log_msg="Chart creation failed", code="CHART_CREATE_ERROR")
+        # Disposal and refusals raised inside create pass through unchanged; other failures become CHART_CREATE_ERROR.
+        _raise_chart_op_error(e, prefix="Failed to create chart", code="CHART_CREATE_ERROR")
+    out["created"] = True
+    return out
 
 
-def upsert_chart(tool: Any, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
+def upsert_chart(ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
     """Create or edit a chart."""
     doc = ctx.doc
     host = chart_host(doc)
@@ -1672,45 +1644,40 @@ def upsert_chart(tool: Any, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
     # doc_type and taken the headers/rows path (see _validate_chart_upsert).
     if is_calc:
         if "headers" in kwargs or "rows" in kwargs:
-            return tool._tool_error("Data arrays ('headers', 'rows') are not supported in Calc. Please use 'data_range' instead.")
+            raise ToolExecutionError("Data arrays ('headers', 'rows') are not supported in Calc. Please use 'data_range' instead.")
     else:
         if "data_range" in kwargs:
-            return tool._tool_error("Parameter 'data_range' is only supported in Calc. For Writer/Draw, please use 'headers' and 'rows' to pass chart data.")
+            raise ToolExecutionError("Parameter 'data_range' is only supported in Calc. For Writer/Draw, please use 'headers' and 'rows' to pass chart data.")
 
     chart_name = _chart_name_from_kwargs(kwargs)
 
     if chart_name:
-        lookup = _lookup_chart(doc, chart_name, sheet=kwargs.get("sheet"), page=kwargs.get("page"))
-        if lookup.error:
-            return tool._tool_error(lookup.error, code="CHART_AMBIGUOUS")
-        if lookup.ref:
-            return _edit_chart(tool, ctx, doc, is_calc, lookup.ref, chart_name, **kwargs)
+        ref = _lookup_chart(doc, chart_name, sheet=kwargs.get("sheet"), page=kwargs.get("page"))
+        if ref is not None:
+            return _edit_chart(ctx, doc, is_calc, ref, chart_name, **kwargs)
 
         req_err = _create_requirements_error(kwargs, is_calc=is_calc)
         if req_err:
-            return tool._tool_error(
+            raise ToolExecutionError(
                 _named_chart_miss_message(chart_name, req_err, kwargs, is_calc=is_calc),
-                **name_miss_details(chart_name, _chart_list_names(host), "chart_list"),
+                details=name_miss_details(chart_name, _chart_list_names(host), "chart_list"),
             )
         if host is None:
-            return tool._tool_error("Unsupported document type for chart creation.")
-        return _mark_chart_created(_create_chart(tool, ctx, host, **kwargs))
+            raise ToolExecutionError("Unsupported document type for chart creation.")
+        return _create_chart(ctx, host, **kwargs)
 
     if host is None:
-        return tool._tool_error("Unsupported document type for chart creation.")
+        raise ToolExecutionError("Unsupported document type for chart creation.")
     req_err = _create_requirements_error(kwargs, is_calc=is_calc)
     if req_err:
-        return tool._tool_error(req_err)
-    return _mark_chart_created(_create_chart(tool, ctx, host, **kwargs))
+        raise ToolExecutionError(req_err)
+    return _create_chart(ctx, host, **kwargs)
 
 
-def delete_chart(tool: Any, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
+def delete_chart(ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
     """Delete a chart."""
     doc = ctx.doc
-    target = _require_chart(tool, doc, kwargs)
-    if isinstance(target, dict):
-        return target
-    chart_name, ref, host = target
+    chart_name, ref, host = _require_chart(doc, kwargs)
 
     try:
         host.remove(ref, chart_name)
@@ -1719,7 +1686,7 @@ def delete_chart(tool: Any, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
             return {"status": "ok", "deleted": chart_name, "sheet": ref.parent.getName()}
         return {"status": "ok", "deleted": chart_name}
     except Exception as exc:
-        return _chart_op_error(tool, exc, prefix="Failed to delete chart")
+        _raise_chart_op_error(exc, prefix="Failed to delete chart")
 
 
 class _ChartTool(ToolCalcChartBase):
@@ -1759,7 +1726,7 @@ class ChartList(_ChartTool):
     is_mutation: bool | None = False
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        return list_charts(self, ctx, **kwargs)
+        return list_charts(ctx, **kwargs)
 
 
 class ChartGetInfo(_NamedChartTool):
@@ -1777,7 +1744,7 @@ class ChartGetInfo(_NamedChartTool):
     is_mutation: bool | None = False
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        return get_chart_info(self, ctx, **kwargs)
+        return get_chart_info(ctx, **kwargs)
 
 
 class ChartDelete(_NamedChartTool):
@@ -1795,7 +1762,7 @@ class ChartDelete(_NamedChartTool):
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        return delete_chart(self, ctx, **kwargs)
+        return delete_chart(ctx, **kwargs)
 
 
 _CHART_UPSERT_DESCRIPTION = (
@@ -1827,4 +1794,4 @@ class ChartUpsert(_ChartTool):
         return _validate_chart_upsert(kwargs, doc_type)
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        return upsert_chart(self, ctx, **kwargs)
+        return upsert_chart(ctx, **kwargs)
