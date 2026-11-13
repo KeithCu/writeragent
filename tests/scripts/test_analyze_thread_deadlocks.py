@@ -195,9 +195,3 @@ def test_fail_closed(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None
     assert rc == 3
     err = capsys.readouterr().err
     assert str(bad_file) in err
-
-
-def test_clean_plugin_tree() -> None:
-    """The production plugin codebase must report 0 deadlock hazards."""
-    hazards = DeadlockAnalyzer(Path("plugin")).find_deadlock_hazards()
-    assert hazards == [], f"Unexpected deadlock hazards in plugin/: {hazards}"

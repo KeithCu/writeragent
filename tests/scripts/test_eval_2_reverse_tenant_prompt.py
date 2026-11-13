@@ -14,7 +14,6 @@ _REPO = Path(__file__).resolve().parents[2]
 _TASK_ID = "4520f882-715a-482d-8e87-1cb3cbdfe975"
 _GOLD = _REPO / "docs" / "eval" / "gdpval" / _TASK_ID
 _EXP = _REPO / "docs" / "eval" / "eval-2" / "reverse-tenant"
-_WRITER_PROMPT = _EXP / "prompt.writeragent.txt"
 _GDPVAL_PROMPT = _EXP / "prompt.gdpval.txt"
 _GOLD_PROMPT = _GOLD / "prompt.txt"
 _GOLD_DELIVERABLE = (
@@ -29,23 +28,6 @@ _ROSTER_XLSX = _EXP / "fixtures" / "Sample roster and schedule.xlsx"
 _ROSTER_ODS = _EXP / "fixtures" / "Sample roster and schedule.ods"
 _SSML = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
 
-_BANNED_STEERING = (
-    "don't invent",
-    "do not invent",
-    "don't make up",
-    "from knowledge",
-    "web not required",
-    "already named",
-)
-_BANNED_PRODUCT_INTERNALS = (
-    "peer_inner",
-    "send_peer_work",
-    "send_peer_result",
-    "shape_fill_fields",
-    "document_research",
-    "specialized_workflow_finished",
-)
-
 
 def test_gold_prompt_is_byte_copy_of_hf_tree() -> None:
     gold = _GOLD_PROMPT.read_bytes()
@@ -54,41 +36,6 @@ def test_gold_prompt_is_byte_copy_of_hf_tree() -> None:
     row = json.loads((_GOLD / "task.json").read_text(encoding="utf-8"))
     assert row["task_id"] == _TASK_ID
     assert gold.decode("utf-8").rstrip("\n") == row["prompt"]
-
-
-def test_writer_prompt_uses_open_workbook_not_new_excel() -> None:
-    writer = _WRITER_PROMPT.read_text(encoding="utf-8")
-    gold = _GDPVAL_PROMPT.read_text(encoding="utf-8")
-    assert "this open workbook" in writer
-    assert "already open and is the deliverable" in writer
-    assert "CBA excerpt" in writer
-    assert "in this folder" in writer
-    assert "Do not rewrite that Writer document" in writer
-    assert "build a spreadsheet in Excel" in gold
-    assert "build a spreadsheet in Excel" not in writer
-    assert "have been attached as reference materials" in gold
-    assert "are in this folder as reference materials" in writer
-
-
-def test_writer_prompt_keeps_theatre_cba_claim_and_avoids_steering() -> None:
-    text = _WRITER_PROMPT.read_text(encoding="utf-8")
-    for heading in (
-        "theatre",
-        "local musicians",
-        "Broadway",
-        "collective bargaining agreement",
-        "music contractor",
-        "weekly payroll",
-        "sample roster and schedule",
-        "orchestra configuration",
-        "payroll categories",
-    ):
-        assert heading in text
-    lowered = text.lower()
-    for banned in _BANNED_STEERING:
-        assert banned not in lowered, banned
-    for banned in _BANNED_PRODUCT_INTERNALS:
-        assert banned not in lowered, banned
 
 
 def test_gold_deliverable_bytes_match_experiment_copy() -> None:

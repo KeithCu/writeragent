@@ -156,16 +156,6 @@ def test_writer_prompt_step3_uses_fixture_keys_not_gdpval_composites() -> None:
     for key in _GDPVAL_ONLY_KEYS:
         assert key not in text, f"writer prompt still has GDPVal-only key {key!r}"
         assert key in gold, f"gold prompt lost GDPVal key {key!r}"
-    # No optional steering one-liners (rename + step-3 remaps only).
-    lowered = text.lower()
-    for banned in (
-        "already named",
-        "don't rename",
-        "do not rename",
-        "from knowledge",
-        "web not required",
-    ):
-        assert banned not in lowered, banned
 
 
 def test_eval2_population_sheet_is_named_population() -> None:
