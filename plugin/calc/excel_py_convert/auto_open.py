@@ -281,6 +281,11 @@ def install_excel_py_auto_convert(ctx: Any) -> None:
                 if doc is None:
                     return
                 if name == "OnLoadFinished":
+                    # Runs inline because LibreOffice sends OnLoadFinished from inside
+                    # SfxBaseModel::load, which holds SolarMutex (sfx2/source/doc/sfxbasemodel.cxx
+                    # load, SfxModelGuard in sfx2/source/inc/docundomanager.hxx). Posting with
+                    # main.run from a release-build URP thread would wait 30 s for a main thread
+                    # that cannot take SolarMutex, and then skip the conversion.
                     maybe_convert_excel_py_document(doc)
                     from plugin.framework.queue_executor import main
 

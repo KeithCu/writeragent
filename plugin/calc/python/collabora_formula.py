@@ -143,7 +143,8 @@ def maybe_rewrite_collabora_py_formulas(doc: Any) -> int:
     was_modified: bool | None = None
     try:
         was_modified = bool(doc.isModified())
-    except Exception:
+    except Exception as exc:
+        reraise_if_disposed(exc)
         log.debug("collabora PY rewrite: isModified failed", exc_info=True)
     changed = 0
     # Scan failures propagate; auto_open already logs them.
@@ -157,7 +158,8 @@ def maybe_rewrite_collabora_py_formulas(doc: Any) -> int:
     finally:
         try:
             doc.unlockControllers()
-        except Exception:
+        except Exception as exc:
+            reraise_if_disposed(exc)
             log.debug("collabora PY rewrite: unlockControllers failed", exc_info=True)
         if changed:
             log.info("collabora PY rewrite: updated %s formula cell(s) to writeragent PY", changed)

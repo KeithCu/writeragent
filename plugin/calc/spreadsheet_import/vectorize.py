@@ -9,11 +9,13 @@ from __future__ import annotations
 import re
 from typing import TYPE_CHECKING
 
-from plugin.calc.address_utils import column_to_index, parse_address
+from plugin.calc.address_utils import column_to_index, parse_address, split_sheet_prefix
 
 if TYPE_CHECKING:
     from plugin.calc.spreadsheet_import.models import SheetModel
 
+# Not address_utils.A1_CELL_RE: to_r1c1 needs the two `$` markers as groups to tell absolute from relative parts.
+# It also rewrites sheet and named-range names that look like cells; those rows then differ and stay in the per-cell pass.
 _A1_REF_RE = re.compile(r"(?<![A-Z0-9_])(\$?)([A-Z]+)(\$?)([0-9]+)(?!\()", re.IGNORECASE)
 
 
@@ -33,16 +35,7 @@ def to_r1c1(formula: str, cell_addr: str) -> str:
 
 def translation_has_cross_sheet_ranges(ranges: list[str]) -> bool:
     """True when any range refers to another sheet (not a same-sheet A1 range)."""
-    for range_addr in ranges:
-        addr = str(range_addr).strip()
-        if "!" in addr:
-            return True
-        if "." not in addr:
-            continue
-        sheet, _unused, rest = addr.partition(".")
-        if sheet and rest and not re.match(r"^\$?[A-Z]+\$?\d", sheet, re.IGNORECASE):
-            return True
-    return False
+    return any(split_sheet_prefix(range_addr)[0] is not None for range_addr in ranges)
 
 
 def detect_vectorized_columns(model: SheetModel) -> dict[str, list[str]]:

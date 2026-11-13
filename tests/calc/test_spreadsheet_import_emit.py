@@ -46,7 +46,7 @@ def test_emit_cross_sheet_range_quotes():
 
 
 def test_emit_round_trip_semantics():
-    translation = translate_formula("=AVERAGE(B2:B3)")
+    translation = translate_formula("=AVERAGE(B2:B3)", "A1")
     assert translation.ok
     emitted = emit_py_formula(translation.code, translation.data_ranges or [])
     parsed = PyFormula.parse(emitted)
@@ -95,7 +95,7 @@ def test_emit_deep_formula_does_not_abort_sheet():
         "B1": CellRecord(address="B1", type="constant", value=3, formula=None, number_format=None),
     }
     model = SheetModel(sheet_name="Sheet1", used_range="A1:B1", cells=cells)
-    output, report = build_converted_output_model(model)
+    output, report = build_converted_output_model(model, vectorize=False)
 
     assert output.cells["A1"].formula == deep
     assert output.cells["B1"].value == 3
@@ -115,7 +115,7 @@ def test_emit_one_bad_cell_does_not_abort_sheet(monkeypatch):
         "C1": CellRecord(address="C1", type="constant", value=7, formula=None, number_format=None),
     }
     model = SheetModel(sheet_name="Sheet1", used_range="A1:C1", cells=cells)
-    output, report = build_converted_output_model(model)
+    output, report = build_converted_output_model(model, vectorize=False)
 
     assert output.cells["C1"].value == 7
     assert output.cells["A1"].formula == "=ABS(1)*2"
@@ -132,7 +132,7 @@ def test_emit_function_free_formula_passes_through_without_reason():
         "D1": CellRecord(address="D1", type="formula", value=0, formula="=1+#N/A+ABS(1)", number_format=None),
     }
     model = SheetModel(sheet_name="Sheet1", used_range="A1:D1", cells=cells)
-    output, report = build_converted_output_model(model)
+    output, report = build_converted_output_model(model, vectorize=False)
 
     assert output.cells["B1"].formula == "=A1*2"
     assert output.cells["C1"].formula == "=1+#N/A"
@@ -146,7 +146,7 @@ def test_emit_long_function_free_chain_is_not_reported():
         "A1": CellRecord(address="A1", type="formula", value=601, formula=chain, number_format=None),
     }
     model = SheetModel(sheet_name="Sheet1", used_range="A1", cells=cells)
-    output, report = build_converted_output_model(model)
+    output, report = build_converted_output_model(model, vectorize=False)
 
     assert output.cells["A1"].formula == chain
     assert report.pass_through == ["A1"]

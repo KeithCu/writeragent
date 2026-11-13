@@ -11,27 +11,27 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
 from plugin.contrib.calc_formula_parser import FunctionNode, OperandNode, OperatorNode, RangeNode, parse_formula
-from plugin.calc.spreadsheet_import.models import TranslationResult
+from plugin.calc.spreadsheet_import.models import ReportCode, TranslationResult
 from plugin.calc.spreadsheet_import.preprocess import normalize_lo_formula_for_parse
 from plugin.calc.address_utils import canonical, canonical_key, parse_address, parse_range_string, split_sheet_prefix
 
 
 class TranslationError(ValueError):
-    """Formula translation failure. ``reason`` is the import-report code (all seven are listed on ``TodoCell``).
+    """Formula translation failure. ``reason`` is a ``models.ReportCode``.
 
     Translation raises ``UNSUPPORTED_FUNCTION`` for unsupported functions and
     references, ``UNSUPPORTED_ARITY`` for a wrong argument count, and
     ``PARSE_ERROR`` for formulas the parser or codegen cannot read.
     """
 
-    def __init__(self, reason: str, message: str) -> None:
+    def __init__(self, reason: ReportCode, message: str) -> None:
         super().__init__(message)
-        self.reason: str = reason
+        self.reason: ReportCode = reason
 
 
 class _CodegenState:
-    def __init__(self, cell_addr: str | None = None) -> None:
-        self.cell_addr: str | None = cell_addr
+    def __init__(self, cell_addr: str) -> None:
+        self.cell_addr: str = cell_addr
         # Map canonical_key -> index in data array.
         # LibreOffice sheet names are case-insensitive: dedupe data_ranges with
         # canonical_key() while keeping the first-seen canonical() address for emission.
@@ -140,9 +140,7 @@ def _emit_dim_count(axis: int, node: FunctionNode, state: _CodegenState) -> str:
 
 def _emit_row_col(axis: int, node: FunctionNode, state: _CodegenState) -> str:
     if not node.args:
-        if not state.cell_addr:
-            # Without a cell address, ROW() and COLUMN() cannot name a row or a column, so they fail as unsupported rather than emit a guessed 1.
-            raise TranslationError("UNSUPPORTED_FUNCTION", "ROW/COLUMN without reference requires cell_addr")
+        # An address parse_address cannot read fails as unsupported rather than emit a guessed row/column.
         try:
             col_idx, row_idx = parse_address(state.cell_addr.replace("$", ""))
             return f"np.float64({row_idx + 1})" if axis == 0 else f"np.float64({col_idx + 1})"
@@ -617,7 +615,7 @@ FUNCTION_EMITTERS: dict[str, Callable[[list[str]], str]] = {
 }
 
 
-def translate_formula(formula: str, cell_addr: str | None = None, *, functions_only: bool = False) -> TranslationResult:
+def translate_formula(formula: str, cell_addr: str, *, functions_only: bool = False) -> TranslationResult:
     """Parse and codegen one Calc formula to ``result = …`` Python.
 
     With ``functions_only=True`` a formula that calls no function returns

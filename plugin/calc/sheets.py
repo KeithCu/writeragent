@@ -107,6 +107,8 @@ class SwitchSheet(ToolCalcSheetBase):
 
         doc = ctx.doc
         sheet = CalcBridge(doc).get_sheet(sheet_name)
+        if not is_agent_visible_sheet(sheet_name):
+            return self._tool_error(f"Cannot switch to internal sheet '{sheet_name}'.")
         controller = doc.getCurrentController()
         controller.setActiveSheet(sheet)
         log.info("Switched to sheet: %s", sheet_name)
@@ -168,6 +170,8 @@ class RenameSheet(ToolCalcSheetBase):
 
         doc = ctx.doc
         sheet = CalcBridge(doc).get_sheet(old_name)
+        if not is_agent_visible_sheet(old_name):
+            return self._tool_error(f"Cannot rename internal sheet '{old_name}'.")
         err = _sheet_name_error(doc, new_name, exclude=old_name)
         if err:
             return self._tool_error(err)
