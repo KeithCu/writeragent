@@ -317,7 +317,6 @@ POSIX still `close_doc`. Breadcrumbs:
 `html_paste_writer: leftovers open=N uids=…`,
 `html_paste_writer: keeper reactivated`,
 `create_native_doc: windows factory leftover_open=N url=… target=… flags=…`,
-`native_doc: leftover notebook host reuse`,
 `windows leftover skip: leftover simpress leftovers=`,
 `windows leftover skip: latex dialog Hidden _blank .mml leftovers=`,
 `windows leftover skip: math formula Hidden _blank .mml leftovers=`,
@@ -339,7 +338,6 @@ POSIX still `close_doc`. Breadcrumbs:
 `document_research_uno: open_document_for_read start/done`,
 `document_research_uno: store/list_nearby start/done`,
 `close_doc: start/done uid= leftovers=` (Windows Writer),
-`native_doc: leftover writer reuse`,
 `close_doc: skip writer close leftovers open=N uid=…`,
 `get_draw_tree: body start/execute done/body done`,
 `close_doc: skip math ole close (windows) uid= leftovers= keeper= pids=`,
@@ -514,7 +512,7 @@ Leftover `simpress` `target=_wa_simpress flags=63` then hung 30s in
 is **not** unique `_wa_factory_N` stacking. High leftover Writer
 count wedges a new app factory. Windows now (1) reuses leftover
 `_wa_notebook_host` so leftover_open does not climb
-(`native_doc: leftover notebook host reuse`) and (2) skips leftover
+(`native_doc: leftover notebook host reuse`, log line removed 2026-11, TSLOP-WIN) and (2) skips leftover
 Draw/Impress factory when leftover_open>2
 (`windows leftover skip: leftover simpress leftovers=N`). Leftover
 Writer / leftover Calc still load. Do not close leftover paste /
@@ -992,3 +990,15 @@ turn a green Ubuntu `test-uno` into make Error 134 (GHA 35527291175).
 `test_exit_after_summary_*` in `tests/framework/test_testing_runner.py`.
 
 A `*_uno.py` module that raises on import or exec (such as `ImportError`, `SyntaxError`, or any other `Exception`) is recorded as one suite with `failed: 1`, and `main()` returns 1. `SKIP_NATIVE_RUN_ALL` is still not a failure. Unit test: `test_uno_module_import_error_fails_the_run`.
+
+## 2026-11 Windows skip experiment (TSLOP-WIN)
+
+Stage 1 removed `_windows_should_reuse_writer` (redundant with default
+pooling). Baseline (§3.1) and rounds not yet dispatched. The 17
+hidden-load classes and the pooled skip remain until a Windows UNO run
+proves each clean.
+
+Later (not this PR): rename `set_windows_notebook_host` and
+`_windows_notebook_host` since the separate-pool flag applies on every
+platform rather than only Windows (alongside inlining
+`native_writer_tool_context` if its `skip_reason` parameter is removed).

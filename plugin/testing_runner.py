@@ -1248,10 +1248,7 @@ def run_module_suite(
     _progress_verbose(
         "SUITE pids %s python_pid=%s soffice.bin=%s" % (name, os.getpid(), _soffice_pids())
     )
-    # Give test_notebook_runner_uno and test_writer_importer_uno their own
-    # pooled Writer on every platform: _reset_writer_doc does not clear
-    # WriterAgentNotebookJson or form-run listeners, so later suites would
-    # otherwise see a notebook document (session_manager.has_notebook_registry).
+    # Separate notebook pool on all platforms; see set_windows_notebook_host.
     from tests.testing_utils import set_windows_notebook_host
 
     set_windows_notebook_host(

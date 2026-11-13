@@ -648,21 +648,19 @@ def note_windows_hidden_open_bitmap(err: str | None) -> None:
     )
 
 
-# Separate pooled Writer for test_notebook_runner_uno and
-# test_writer_importer_uno on every platform. Without it, the shared
-# Writer pool keeps WriterAgentNotebookJson and a form-run listener
-# because _reset_writer_doc does not clear them, so later suites would
-# see a notebook document (session_manager.has_notebook_registry).
-# Only the win32 factory target _wa_notebook_host is Windows-specific.
+# Win32 factory target for the separate notebook pool.
 _WINDOWS_NOTEBOOK_HOST_TARGET = "_wa_notebook_host"
 
 
 def set_windows_notebook_host(on: bool) -> None:
-    """Use a separate pooled Writer for notebook suites on every platform.
+    """Use a separate pooled Writer for test_notebook_runner_uno and
+    test_writer_importer_uno on every platform.
 
-    Keeps WriterAgentNotebookJson and form-run listeners off the shared
-    Writer pool (only the win32 factory target _wa_notebook_host is
-    Windows-specific).
+    Without it, the shared Writer pool keeps WriterAgentNotebookJson and a
+    form-run listener because _reset_writer_doc does not clear them, so
+    later suites would see a notebook document
+    (session_manager.has_notebook_registry). Only the win32 factory target
+    _wa_notebook_host is Windows-specific.
     """
     _STATE.notebook_host = bool(on)
 
@@ -1708,10 +1706,7 @@ class TestingFactory:
         pooled = False
         writer_reused = False
         if use_pool:
-            # Keep notebook suites on a separate pooled Writer on every platform:
-            # _reset_writer_doc does not clear WriterAgentNotebookJson or
-            # form-run listeners, so sharing the main pool would expose
-            # session_manager.has_notebook_registry to later Writer suites.
+            # Separate notebook pool on all platforms; see set_windows_notebook_host.
             pool_kind = "notebook_host" if (
                 doc_type == "writer" and _windows_notebook_host()
             ) else doc_type
