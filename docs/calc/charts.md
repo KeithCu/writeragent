@@ -47,7 +47,7 @@ In Draw and Impress documents, create takes the lowest `Chart_N` free on any Dra
 
 ## Errors
 
-Chart actions (`list_charts`, `get_chart_info`, `upsert_chart`, `delete_chart`) and host adapters (`SheetCharts`, `WriterEmbeds`, `DrawPage`) raise `ToolExecutionError` on refusal or failure, and `ToolBase.execute_safe` formats the exception into the error payload. A LibreOffice or range failure inside create, edit, or delete becomes `CHART_CREATE_ERROR`, `CHART_EDIT_ERROR`, or `TOOL_EXECUTION_ERROR` with the operation prefix; a refusal (`ToolExecutionError`) raised inside create passes through with its own message and code unchanged. A Draw/Impress lookup with multiple matches or an out-of-range `page` raises `CHART_AMBIGUOUS`.
+Chart actions (`list_charts`, `get_chart_info`, `upsert_chart`, `delete_chart`) and host adapters (`SheetCharts`, `WriterEmbeds`, `DrawPage`) raise `ToolExecutionError` on refusal or failure, and `ToolBase.execute_safe` formats the exception into the error payload. A bad `sheet`, `data_range`, `position`, taken name, out-of-range `page`, or missing create field is `INVALID_PARAM`. A LibreOffice failure after the inputs resolved becomes `CHART_CREATE_ERROR`, `CHART_EDIT_ERROR`, or `TOOL_EXECUTION_ERROR` with the operation prefix; a refusal (`ToolExecutionError`) raised inside create passes through with its own message and code unchanged. A Draw/Impress lookup with a name found on more than one page raises `CHART_AMBIGUOUS`.
 
 ## Python Matplotlib Visualizations
 

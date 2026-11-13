@@ -108,7 +108,7 @@ def _set_field_orientations(
 ) -> None:
     names = row_fields + column_fields + data_fields + page_fields
     if len(names) != len(set(names)):
-        raise ToolExecutionError("Duplicate field name in row/column/data/page lists.")
+        raise ToolExecutionError("Duplicate field name in row/column/data/page lists.", code="INVALID_PARAM")
 
     layout: dict[str, Any] = {}
     for n in row_fields:
@@ -128,16 +128,21 @@ def _set_field_orientations(
     missing = [n for n in layout if n not in by_name]
     if missing:
         avail = sorted(by_name.keys())
-        raise ToolExecutionError("Unknown pivot field name(s): " + ", ".join(missing) + ". Available column headers: " + ", ".join(avail))
+        raise ToolExecutionError(
+            "Unknown pivot field name(s): " + ", ".join(missing) + ". Available column headers: " + ", ".join(avail),
+            code="INVALID_PARAM",
+        )
 
     fn_by_field: dict[str, Any] = {}
     for fld_name, func_name in (data_functions or {}).items():
         if fld_name not in data_fields:
-            raise ToolExecutionError(f"Field '{fld_name}' in data_functions must be in data_fields.")
+            raise ToolExecutionError(f"Field '{fld_name}' in data_functions must be in data_fields.", code="INVALID_PARAM")
         key = str(func_name).strip().upper()
         if key not in _DATA_FUNCTIONS:
             allowed = ", ".join(sorted(_DATA_FUNCTIONS.keys()))
-            raise ToolExecutionError(f"Unknown data function '{func_name}'. Allowed functions: {allowed}")
+            raise ToolExecutionError(
+                f"Unknown data function '{func_name}'. Allowed functions: {allowed}", code="INVALID_PARAM"
+            )
         fn_by_field[fld_name] = _DATA_FUNCTIONS[key]
 
     for nm, (_idx, fld) in by_name.items():
@@ -152,7 +157,7 @@ def _set_field_orientations(
         filter_fields = []
         for pf_name, pf_val in page_filters.items():
             if pf_name not in page_fields:
-                raise ToolExecutionError(f"Field '{pf_name}' in page_filters must be in page_fields.")
+                raise ToolExecutionError(f"Field '{pf_name}' in page_filters must be in page_fields.", code="INVALID_PARAM")
             f_idx, _fld = by_name[pf_name]
             tff = uno.createUnoStruct("com.sun.star.sheet.TableFilterField")
             setattr(tff, "Field", f_idx)
@@ -217,7 +222,8 @@ def _resolve_qualified_ref(
     prefix = split_sheet_prefix(ref)[0]
     if prefix is not None and sheet_arg and prefix != sheet_arg:
         raise ToolExecutionError(
-            f"{ref_label} names sheet '{prefix}' but {sheet_label} says '{sheet_arg}' — pass one or the other."
+            f"{ref_label} names sheet '{prefix}' but {sheet_label} says '{sheet_arg}' — pass one or the other.",
+            code="INVALID_PARAM",
         )
     resolved = ref if prefix is not None or not sheet_arg else qualify_a1(str(sheet_arg), ref)
     try:
@@ -225,7 +231,7 @@ def _resolve_qualified_ref(
     except Exception as exc:
         if isinstance(exc, WriterAgentException) or is_disposal(exc):
             raise
-        raise ToolExecutionError(f"Cannot resolve {ref_label} '{ref}': {exc}") from exc
+        raise ToolExecutionError(f"Cannot resolve {ref_label} '{ref}': {exc}", code="INVALID_PARAM") from exc
 
 
 class CreatePivotTable(ToolCalcPivotBase):
@@ -258,16 +264,16 @@ class CreatePivotTable(ToolCalcPivotBase):
 
         pivot_name = kwargs["name"].strip()
         if not pivot_name:
-            return self._tool_error("name is required.")
+            return self._tool_error("name is required.", code="INVALID_PARAM")
 
         data_fields = kwargs["data_fields"]
         if not data_fields:
-            return self._tool_error("data_fields must be a non-empty array of header names.")
+            return self._tool_error("data_fields must be a non-empty array of header names.", code="INVALID_PARAM")
 
         range_str = kwargs.get("source_range", "").strip()
         dest_cell = kwargs.get("destination_cell", "").strip()
         if not range_str or not dest_cell:
-            return self._tool_error("source_range and destination_cell are required.")
+            return self._tool_error("source_range and destination_cell are required.", code="INVALID_PARAM")
 
         src_sheet_name = kwargs.get("source_sheet")
         dest_sheet_name = kwargs.get("destination_sheet")
@@ -279,12 +285,12 @@ class CreatePivotTable(ToolCalcPivotBase):
         num_rows = src_addr.EndRow - src_addr.StartRow + 1
         num_cols = src_addr.EndColumn - src_addr.StartColumn + 1
         if num_rows < 2:
-            return self._tool_error("Source range must have at least 2 rows (header row and data rows).")
+            return self._tool_error("Source range must have at least 2 rows (header row and data rows).", code="INVALID_PARAM")
 
         # Header validation: every header cell non-empty
         for c in range(num_cols):
             if not src_obj.getCellByPosition(c, 0).getString().strip():
-                return self._tool_error(f"Header cell in column {c + 1} of source range is empty.")
+                return self._tool_error(f"Header cell in column {c + 1} of source range is empty.", code="INVALID_PARAM")
 
         # Resolve destination cell
         dest_obj = _resolve_qualified_ref(bridge, dest_cell, dest_sheet_name, "destination_cell", "destination_sheet")
@@ -312,23 +318,20 @@ class CreatePivotTable(ToolCalcPivotBase):
         sheets = doc.getSheets()
         for sname in sheets.getElementNames():
             if _get_dp_tables(sheets.getByName(sname)).hasByName(pivot_name):
-                return self._tool_error(f"Pivot table '{pivot_name}' already exists on sheet '{sname}'.")
+                return self._tool_error(f"Pivot table '{pivot_name}' already exists on sheet '{sname}'.", code="INVALID_PARAM")
 
         dp_tables = _get_dp_tables(dest_sheet)
         desc = dp_tables.createDataPilotDescriptor()
         desc.setSourceRange(src_addr)
-        try:
-            _set_field_orientations(
-                desc,
-                row_fields,
-                column_fields,
-                data_fields,
-                page_fields,
-                data_functions=data_functions,
-                page_filters=page_filters,
-            )
-        except ToolExecutionError as exc:
-            return self._tool_error(str(exc))
+        _set_field_orientations(
+            desc,
+            row_fields,
+            column_fields,
+            data_fields,
+            page_fields,
+            data_functions=data_functions,
+            page_filters=page_filters,
+        )
 
         before_names = set(dp_tables.getElementNames())
         dp_tables.insertNewByName(pivot_name, dest_addr, desc)
@@ -380,7 +383,7 @@ class RefreshPivotTable(ToolCalcPivotBase):
         doc = ctx.doc
         name = kwargs["name"].strip()
         if not name:
-            return self._tool_error("name is required.")
+            return self._tool_error("name is required.", code="INVALID_PARAM")
 
         tbl_any, _sheet = _find_pivot(doc, name, sheet_name=kwargs.get("sheet"))
 
@@ -411,7 +414,7 @@ class DeletePivotTable(ToolCalcPivotBase):
         doc = ctx.doc
         name = kwargs["name"].strip()
         if not name:
-            return self._tool_error("name is required.")
+            return self._tool_error("name is required.", code="INVALID_PARAM")
 
         _tbl, sheet = _find_pivot(doc, name, sheet_name=kwargs.get("sheet"))
         dp_tables = _get_dp_tables(sheet)

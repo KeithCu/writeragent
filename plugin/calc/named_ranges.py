@@ -31,9 +31,7 @@ from plugin.calc.address_utils import (
 from plugin.calc.base import ToolCalcRangeBase
 from plugin.calc.bridge import CalcBridge, NamedRangeHit, is_agent_visible_sheet
 from plugin.calc.calc_utils import range_args
-from plugin.framework.errors import ToolExecutionError, UnoObjectError, WriterAgentException, name_miss_details, uno_read
-
-from com.sun.star.lang import IllegalArgumentException
+from plugin.framework.errors import ToolExecutionError, name_miss_details, uno_read
 
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
@@ -323,34 +321,27 @@ class NamedRangeAdd(ToolCalcRangeBase):
         base_cell = kwargs.get("base_cell")
         flags_arg = kwargs.get("flags")
 
+        invalid = _defined_name_error(name)
+        if invalid:
+            return self._tool_error(invalid, code="INVALID_NAME")
         try:
-            invalid = _defined_name_error(name)
-            if invalid:
-                return self._tool_error(invalid, code="INVALID_NAME")
-            try:
-                type_mask = _parse_flags(flags_arg)
-            except ValueError as e:
-                return self._tool_error(str(e), code="INVALID_FLAGS")
+            type_mask = _parse_flags(flags_arg)
+        except ValueError as e:
+            return self._tool_error(str(e), code="INVALID_FLAGS")
 
-            doc = ctx.doc
-            container, effective_scope, sheet_obj = _resolve_container(doc, scope)
-            if container.hasByName(name):
-                return self._tool_error(f"A named range with the name '{name}' already exists in scope '{effective_scope}'.", code="NAMED_RANGE_EXISTS")
+        doc = ctx.doc
+        container, effective_scope, sheet_obj = _resolve_container(doc, scope)
+        if container.hasByName(name):
+            return self._tool_error(f"A named range with the name '{name}' already exists in scope '{effective_scope}'.", code="NAMED_RANGE_EXISTS")
 
-            try:
-                pos = _parse_base_address(doc, base_cell, sheet_obj)
-            except ValueError as ve:
-                return self._tool_error(f"Invalid base_cell address '{base_cell}': {ve}", code="INVALID_BASE_CELL")
+        try:
+            pos = _parse_base_address(doc, base_cell, sheet_obj)
+        except ValueError as ve:
+            return self._tool_error(f"Invalid base_cell address '{base_cell}': {ve}", code="INVALID_BASE_CELL")
 
-            container.addNewByName(name, content, pos, type_mask)
-            log.info("Named range added: [%s] %s -> %s (flags=%d)", effective_scope, name, content, type_mask)
-            return {"status": "ok", "message": f"Named range '{name}' added successfully in scope '{effective_scope}' pointing to '{content}'."}
-        except WriterAgentException:
-            # Before IllegalArgumentException: the unit-test stub makes it Exception, which would swallow the resolver's coded errors.
-            raise
-        except IllegalArgumentException as e:
-            log.exception("Add named range failed for %s", name)
-            return self._tool_error(f"Failed to add named range: {str(e)}", code="NAMED_RANGE_ERROR")
+        container.addNewByName(name, content, pos, type_mask)
+        log.info("Named range added: [%s] %s -> %s (flags=%d)", effective_scope, name, content, type_mask)
+        return {"status": "ok", "message": f"Named range '{name}' added successfully in scope '{effective_scope}' pointing to '{content}'."}
 
 
 class NamedRangeEdit(ToolCalcRangeBase):
@@ -380,76 +371,69 @@ class NamedRangeEdit(ToolCalcRangeBase):
         base_cell = kwargs.get("base_cell")
         flags_arg = kwargs.get("flags")
 
+        doc = ctx.doc
+        container, effective_scope, sheet_obj, nr = _resolve_named_range_target(doc, name, scope)
+
+        old_name = nr.getName()
+        new_clean = new_name.strip() if new_name is not None else ""
+        if new_clean == old_name:
+            new_clean = ""
+        if new_clean:
+            # setName does not run IsNameValid, so reject A1, Sales.2026,
+            # 1abc, and names with spaces using the same messages as
+            # addNewByName. Do not touch the range until the new name and
+            # base cell are valid. Rename first and roll it back if a
+            # later setter fails. Setting content, type, and reference
+            # before setName leaves a partial edit when the rename fails.
+            invalid = _defined_name_error(new_clean)
+            if invalid:
+                return self._tool_error(invalid, code="INVALID_NAME")
+            if container.hasByName(new_clean):
+                return self._tool_error(f"Cannot rename to '{new_clean}': a named range with that name already exists in scope '{effective_scope}'.", code="NAMED_RANGE_EXISTS")
+
         try:
-            doc = ctx.doc
-            container, effective_scope, sheet_obj, nr = _resolve_named_range_target(doc, name, scope)
+            type_mask = _parse_flags(flags_arg) if flags_arg is not None else None
+        except ValueError as e:
+            return self._tool_error(str(e), code="INVALID_FLAGS")
 
-            old_name = nr.getName()
-            new_clean = new_name.strip() if new_name is not None else ""
-            if new_clean == old_name:
-                new_clean = ""
-            if new_clean:
-                # setName does not run IsNameValid, so reject A1, Sales.2026,
-                # 1abc, and names with spaces using the same messages as
-                # addNewByName. Do not touch the range until the new name and
-                # base cell are valid. Rename first and roll it back if a
-                # later setter fails. Setting content, type, and reference
-                # before setName leaves a partial edit when the rename fails.
-                invalid = _defined_name_error(new_clean)
-                if invalid:
-                    return self._tool_error(invalid, code="INVALID_NAME")
-                if container.hasByName(new_clean):
-                    return self._tool_error(f"Cannot rename to '{new_clean}': a named range with that name already exists in scope '{effective_scope}'.", code="NAMED_RANGE_EXISTS")
-
+        pos = None
+        if base_cell is not None:
             try:
-                type_mask = _parse_flags(flags_arg) if flags_arg is not None else None
-            except ValueError as e:
-                return self._tool_error(str(e), code="INVALID_FLAGS")
+                pos = _parse_base_address(doc, base_cell, sheet_obj)
+            except ValueError as ve:
+                return self._tool_error(f"Invalid base_cell address '{base_cell}': {ve}", code="INVALID_BASE_CELL")
 
-            pos = None
-            if base_cell is not None:
+        pending: list[tuple[str, Any, Any, Any]] = []
+        if content is not None:
+            pending.append(("content", nr.setContent, nr.getContent(), content))
+        if type_mask is not None:
+            pending.append(("type", nr.setType, nr.getType(), type_mask))
+        if pos is not None:
+            pending.append(("position", nr.setReferencePosition, nr.getReferencePosition(), pos))
+
+        if new_clean:
+            nr.setName(new_clean)
+
+        done: list[tuple[str, Any, Any]] = []
+        try:
+            for field, setter, old, new in pending:
+                setter(new.strip() if field == "content" else new)
+                done.append((field, setter, old))
+        except Exception:
+            for field, setter, old in reversed(done):
                 try:
-                    pos = _parse_base_address(doc, base_cell, sheet_obj)
-                except ValueError as ve:
-                    return self._tool_error(f"Invalid base_cell address '{base_cell}': {ve}", code="INVALID_BASE_CELL")
-
-            pending: list[tuple[str, Any, Any, Any]] = []
-            if content is not None:
-                pending.append(("content", nr.setContent, nr.getContent(), content))
-            if type_mask is not None:
-                pending.append(("type", nr.setType, nr.getType(), type_mask))
-            if pos is not None:
-                pending.append(("position", nr.setReferencePosition, nr.getReferencePosition(), pos))
-
+                    setter(old)
+                except Exception:
+                    log.exception("Rollback of named range %s field %s failed", old_name, field)
             if new_clean:
-                nr.setName(new_clean)
-
-            done: list[tuple[str, Any, Any]] = []
-            try:
-                for field, setter, old, new in pending:
-                    setter(new.strip() if field == "content" else new)
-                    done.append((field, setter, old))
-            except Exception:
-                for field, setter, old in reversed(done):
-                    try:
-                        setter(old)
-                    except Exception:
-                        log.exception("Rollback of named range %s field %s failed", old_name, field)
-                if new_clean:
-                    try:
-                        nr.setName(old_name)
-                    except Exception:
-                        log.exception("Rollback of named range rename %s -> %s failed", old_name, new_clean)
-                raise
-
-            log.info("Named range edited: [%s] %s (new_name=%s)", effective_scope, name, new_name)
-            return {"status": "ok", "message": f"Named range '{new_clean or old_name}' updated successfully in scope '{effective_scope}'."}
-        except WriterAgentException:
-            # Before IllegalArgumentException: the unit-test stub makes it Exception, which would swallow the resolver's coded errors.
+                try:
+                    nr.setName(old_name)
+                except Exception:
+                    log.exception("Rollback of named range rename %s -> %s failed", old_name, new_clean)
             raise
-        except IllegalArgumentException as e:
-            log.exception("Edit named range failed for %s", name)
-            return self._tool_error(f"Failed to edit named range: {str(e)}", code="NAMED_RANGE_ERROR")
+
+        log.info("Named range edited: [%s] %s (new_name=%s)", effective_scope, name, new_name)
+        return {"status": "ok", "message": f"Named range '{new_clean or old_name}' updated successfully in scope '{effective_scope}'."}
 
 
 class NamedRangeDelete(ToolCalcRangeBase):
@@ -464,19 +448,12 @@ class NamedRangeDelete(ToolCalcRangeBase):
         name = kwargs["name"].strip()
         scope = kwargs.get("scope")
 
-        try:
-            doc = ctx.doc
-            container, effective_scope, _sheet, nr = _resolve_named_range_target(doc, name, scope)
+        doc = ctx.doc
+        container, effective_scope, _sheet, nr = _resolve_named_range_target(doc, name, scope)
 
-            container.removeByName(nr.getName())
-            log.info("Named range deleted: [%s] %s", effective_scope, name)
-            return {"status": "ok", "message": f"Named range '{name}' deleted successfully from scope '{effective_scope}'."}
-        except WriterAgentException:
-            # Before IllegalArgumentException: the unit-test stub makes it Exception, which would swallow the resolver's coded errors.
-            raise
-        except IllegalArgumentException as e:
-            log.exception("Delete named range failed for %s", name)
-            return self._tool_error(f"Failed to delete named range: {str(e)}", code="NAMED_RANGE_ERROR")
+        container.removeByName(nr.getName())
+        log.info("Named range deleted: [%s] %s", effective_scope, name)
+        return {"status": "ok", "message": f"Named range '{name}' deleted successfully from scope '{effective_scope}'."}
 
 
 class NamedRangeCreateFromTitles(ToolCalcRangeBase):
@@ -497,10 +474,7 @@ class NamedRangeCreateFromTitles(ToolCalcRangeBase):
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         bridge = CalcBridge(ctx.doc)
-        try:
-            range_str = range_args(kwargs.get("range"), exactly_one=True)[0]
-        except UnoObjectError as exc:
-            return self._tool_error(str(exc), code="INVALID_ARGUMENT")
+        range_str = range_args(kwargs.get("range"), exactly_one=True)[0]
         border = kwargs.get("border", "top")
         scope = kwargs.get("scope")
 
@@ -509,15 +483,11 @@ class NamedRangeCreateFromTitles(ToolCalcRangeBase):
         # prepare_tool_call checks the schema enum, which admits only these four lower-case values.
         border_map: dict[str, Any] = {"top": TOP, "bottom": BOTTOM, "left": LEFT, "right": RIGHT}
 
-        try:
-            cell_range = bridge.resolve_range_or_address(range_str)
-            range_addr = cell_range.getRangeAddress()
+        cell_range = bridge.resolve_range_or_address(range_str)
+        range_addr = cell_range.getRangeAddress()
 
-            container, effective_scope, _unused_sheet = _resolve_container(ctx.doc, scope)
-            container.addNewFromTitles(range_addr, border_map[border])
+        container, effective_scope, _unused_sheet = _resolve_container(ctx.doc, scope)
+        container.addNewFromTitles(range_addr, border_map[border])
 
-            log.info("Named ranges created from titles: [%s] range=%s border=%s", effective_scope, range_str, border)
-            return {"status": "ok", "message": f"Named ranges created from titles along border '{border}' for range '{range_str}' in scope '{effective_scope}'."}
-        except IllegalArgumentException as e:
-            log.exception("Create named ranges from titles failed for %s", range_str)
-            return self._tool_error(f"Failed to create named ranges from titles: {str(e)}", code="NAMED_RANGE_ERROR")
+        log.info("Named ranges created from titles: [%s] range=%s border=%s", effective_scope, range_str, border)
+        return {"status": "ok", "message": f"Named ranges created from titles along border '{border}' for range '{range_str}' in scope '{effective_scope}'."}

@@ -931,6 +931,20 @@ def chart_host(doc: Any) -> SheetCharts | WriterEmbeds | DrawPage | None:
     return None
 
 
+def _resolve_chart_data_range(bridge: CalcBridge, data_range: str, sheet_name: str | None) -> Any:
+    """Resolve *data_range* on *sheet_name* to a UNO CellRangeAddress, tagging bad input as INVALID_PARAM."""
+    try:
+        cell_range = bridge.resolve_range_or_address(data_range, sheet_name)
+    except Exception as exc:
+        if is_disposal(exc) or isinstance(exc, WriterAgentException):
+            raise
+        raise ToolExecutionError(
+            f"Invalid data_range '{data_range}': {_format_chart_exception_msg(exc)}",
+            code="INVALID_PARAM",
+        ) from exc
+    return cell_range.getRangeAddress()
+
+
 class SheetCharts:
     """Chart host adapter for Calc spreadsheet documents."""
 
@@ -984,15 +998,17 @@ class SheetCharts:
         target_sheet_name = kwargs.get("sheet")
         sheet = bridge.sheet_or_active(target_sheet_name)
 
-        cell_range = bridge.resolve_range_or_address(data_range, target_sheet_name)
-        addr = cell_range.getRangeAddress()
+        addr = _resolve_chart_data_range(bridge, data_range, target_sheet_name)
 
         pos_str = kwargs.get("position")
         if pos_str:
             pos_prefix, bare_pos = split_sheet_prefix(pos_str)
             target_name = target_sheet_name or sheet.getName()
             if pos_prefix is not None and pos_prefix != target_name:
-                raise ToolExecutionError(f"Position names sheet '{pos_prefix}' but placement sheet is '{target_name}'.")
+                raise ToolExecutionError(
+                    f"Position names sheet '{pos_prefix}' but placement sheet is '{target_name}'.",
+                    code="INVALID_PARAM",
+                )
             try:
                 parse_address(bare_pos)
                 cell_obj = sheet.getCellRangeByName(bare_pos)
@@ -1004,13 +1020,16 @@ class SheetCharts:
             except Exception as exc:
                 if is_disposal(exc):
                     raise
-                raise ToolExecutionError(f"Invalid position '{pos_str}': {_format_chart_exception_msg(exc)}") from exc
+                raise ToolExecutionError(
+                    f"Invalid position '{pos_str}': {_format_chart_exception_msg(exc)}",
+                    code="INVALID_PARAM",
+                ) from exc
 
         existing_names = self.names()
         requested = _chart_name_from_kwargs(kwargs)
         if requested:
             if requested in existing_names:
-                raise ToolExecutionError(f"Chart name '{requested}' is already used.")
+                raise ToolExecutionError(f"Chart name '{requested}' is already used.", code="INVALID_PARAM")
             name = requested
         else:
             name = _unique_chart_name(existing_names)
@@ -1156,7 +1175,7 @@ class WriterEmbeds:
         requested = _chart_name_from_kwargs(kwargs)
         if requested:
             if requested in existing_names:
-                raise ToolExecutionError(f"Chart name '{requested}' is already used.")
+                raise ToolExecutionError(f"Chart name '{requested}' is already used.", code="INVALID_PARAM")
             name = requested
         else:
             name = _unique_chart_name(existing_names)
@@ -1307,7 +1326,7 @@ class DrawPage:
         draw_pages = self.doc.getDrawPages()
         count = draw_pages.getCount()
         if page is not None and (page < 0 or page >= count):
-            raise ToolExecutionError(f"Page index {page} is out of range (document has {count} pages).", code="CHART_AMBIGUOUS")
+            raise ToolExecutionError(f"Page index {page} is out of range (document has {count} pages).", code="INVALID_PARAM")
         # A requested page returns the first hit. An omitted page collects every page.
         matches: list[ChartRef] = []
         indices = (page,) if page is not None else range(count)
@@ -1385,7 +1404,10 @@ class DrawPage:
         page_index: int = 0
         if isinstance(page_arg, int) and not isinstance(page_arg, bool):
             if page_arg < 0 or page_arg >= count:
-                raise ToolExecutionError(f"Page index {page_arg} is out of range (document has {count} pages).")
+                raise ToolExecutionError(
+                    f"Page index {page_arg} is out of range (document has {count} pages).",
+                    code="INVALID_PARAM",
+                )
             page = draw_pages.getByIndex(page_arg)
             page_index = page_arg
         else:
@@ -1422,7 +1444,7 @@ class DrawPage:
             requested = _chart_name_from_kwargs(kwargs)
             if requested:
                 if requested in existing_names:
-                    raise ToolExecutionError(f"Chart name '{requested}' is already used.")
+                    raise ToolExecutionError(f"Chart name '{requested}' is already used.", code="INVALID_PARAM")
                 name = requested
             else:
                 name = _unique_chart_name(existing_names)
@@ -1581,10 +1603,13 @@ def _edit_chart(
         if data_range is not None:
             if not hasattr(chart_obj, "setRanges"):
                 raise ToolExecutionError("Chart object does not support setRanges.")
+            bridge = CalcBridge(doc)
+            addr = _resolve_chart_data_range(
+                bridge,
+                data_range,
+                str(ref.parent.getName()) if ref.parent is not None else None,
+            )
             try:
-                bridge = CalcBridge(doc)
-                cell_range = bridge.resolve_range_or_address(data_range, str(ref.parent.getName()) if ref.parent is not None else None)
-                addr = cell_range.getRangeAddress()
                 chart_obj.setRanges((addr,))
             except Exception as e:
                 _raise_chart_op_error(e, prefix="Failed to set data_range", code="CHART_EDIT_ERROR")
@@ -1645,10 +1670,16 @@ def upsert_chart(ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
     # doc_type and taken the headers/rows path (see _validate_chart_upsert).
     if is_calc:
         if "headers" in kwargs or "rows" in kwargs:
-            raise ToolExecutionError("Data arrays ('headers', 'rows') are not supported in Calc. Please use 'data_range' instead.")
+            raise ToolExecutionError(
+                "Data arrays ('headers', 'rows') are not supported in Calc. Please use 'data_range' instead.",
+                code="INVALID_PARAM",
+            )
     else:
         if "data_range" in kwargs:
-            raise ToolExecutionError("Parameter 'data_range' is only supported in Calc. For Writer/Draw, please use 'headers' and 'rows' to pass chart data.")
+            raise ToolExecutionError(
+                "Parameter 'data_range' is only supported in Calc. For Writer/Draw, please use 'headers' and 'rows' to pass chart data.",
+                code="INVALID_PARAM",
+            )
 
     chart_name = _chart_name_from_kwargs(kwargs)
 
@@ -1671,7 +1702,7 @@ def upsert_chart(ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         raise ToolExecutionError("Unsupported document type for chart creation.")
     req_err = _create_requirements_error(kwargs, is_calc=is_calc)
     if req_err:
-        raise ToolExecutionError(req_err)
+        raise ToolExecutionError(req_err, code="INVALID_PARAM")
     return _create_chart(ctx, host, **kwargs)
 
 

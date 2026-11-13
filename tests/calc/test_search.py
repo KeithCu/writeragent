@@ -115,3 +115,12 @@ def test_replace_in_spreadsheet_invalid_regex():
     res = tool.execute_safe(ctx, search="([a-", replace="x", regex=True)
     assert res["status"] == "error"
     assert res["code"] == "INVALID_REGEX"
+
+
+def test_search_cells_empty_pattern_is_invalid_param():
+    tool = _tool("search_cells")
+    ctx = types.SimpleNamespace(doc=MagicMock(), ctx=MagicMock(), send_cancellation=None)
+    res = tool.execute_safe(ctx, pattern="")
+    assert res["status"] == "error"
+    assert res["code"] == "INVALID_PARAM"
+    ctx.doc.getSheets.assert_not_called()

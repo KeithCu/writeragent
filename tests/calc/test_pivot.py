@@ -216,6 +216,7 @@ def test_pivot_table_create_unknown_function_error():
         )
 
     assert res["status"] == "error"
+    assert res["code"] == "INVALID_PARAM"
     assert "Unknown data function 'NONEXISTENT'" in res["message"]
 
 
@@ -265,6 +266,7 @@ def test_pivot_table_create_header_and_row_validation():
         )
 
     assert res["status"] == "error"
+    assert res["code"] == "INVALID_PARAM"
     assert "Header cell in column 2 of source range is empty" in res["message"]
 
 
@@ -370,6 +372,7 @@ def test_pivot_table_create_page_filter_not_in_page_fields():
         )
 
     assert res["status"] == "error"
+    assert res["code"] == "INVALID_PARAM"
     assert "Field 'Region' in page_filters must be in page_fields." in res["message"]
 
 
@@ -479,7 +482,7 @@ def test_pivot_create_unresolvable_ref_names_argument():
         )
 
     assert res["status"] == "error"
-    assert res["code"] == "TOOL_EXECUTION_ERROR"
+    assert res["code"] == "INVALID_PARAM"
     assert res["message"] == "Cannot resolve source_range 'NotAName': bad ref"
 
 
@@ -599,5 +602,39 @@ def test_pivot_create_rejects_name_used_on_internal_sheet():
         )
 
     assert res["status"] == "error"
+    assert res["code"] == "INVALID_PARAM"
     assert res["message"] == "Pivot table 'MyPivot' already exists on sheet '_wa'."
     dp_tables_visible.insertNewByName.assert_not_called()
+
+
+def test_pivot_table_create_duplicate_field_is_invalid_param():
+    src_range = MagicMock()
+    src_range.getRangeAddress.return_value = SimpleNamespace(Sheet=0, StartColumn=0, StartRow=0, EndColumn=1, EndRow=3)
+    cells = [_make_mock_cell("Region"), _make_mock_cell("Sales")]
+    src_range.getCellByPosition.side_effect = lambda col, row: cells[col]
+
+    dest_cell = MagicMock()
+    dest_cell.getRangeAddress.return_value = SimpleNamespace(Sheet=0, StartColumn=5, StartRow=0, EndColumn=5, EndRow=0)
+
+    dp_tables = MagicMock()
+    dp_tables.hasByName.return_value = False
+    sheet = _sheet("Sheet1", dp=dp_tables)
+    doc = _doc(sheet)
+
+    with patch("plugin.calc.pivot.CalcBridge") as bridge_cls:
+        bridge = bridge_cls.return_value
+        bridge.resolve_range_or_address.side_effect = lambda ref: src_range if "A1:B4" in ref else dest_cell
+        res = _run(
+            doc,
+            "pivot_table_create",
+            name="MyPivot",
+            source_range="A1:B4",
+            destination_cell="F1",
+            row_fields=["Sales"],
+            data_fields=["Sales"],
+        )
+
+    assert res["status"] == "error"
+    assert res["code"] == "INVALID_PARAM"
+    assert "Duplicate field name" in res["message"]
+    dp_tables.insertNewByName.assert_not_called()

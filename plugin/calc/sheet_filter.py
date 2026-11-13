@@ -35,7 +35,7 @@ from plugin.calc.sheet_filter_criteria import (
     FILTER_OPERATOR2_LABELS,
     parse_sheet_filter_criterion,
 )
-from plugin.framework.errors import UnoObjectError, uno_read
+from plugin.framework.errors import ToolExecutionError, UnoObjectError, uno_read
 
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
@@ -83,8 +83,9 @@ def _build_filter_fields2(uno_obj: Any, criteria: list[dict[str, Any]], range_wi
     for i, c_raw in enumerate(criteria):
         c = parse_sheet_filter_criterion(c_raw, i == 0)
         if c.field >= range_width:
-            raise UnoObjectError(
-                f"Filter criterion field index {c.field} is out of bounds (range has {range_width} columns)."
+            raise ToolExecutionError(
+                f"Filter criterion field index {c.field} is out of bounds (range has {range_width} columns).",
+                code="INVALID_PARAM",
             )
         st = uno_obj.createUnoStruct("com.sun.star.sheet.TableFilterField2")
         st.Field = c.field
@@ -182,7 +183,7 @@ class ApplySheetFilter(ToolCalcSheetBase):
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         criteria = kwargs.get("criteria")
         if not isinstance(criteria, list) or not criteria:
-            raise UnoObjectError("criteria must be a non-empty list of filter conditions.")
+            raise ToolExecutionError("criteria must be a non-empty list of filter conditions.", code="INVALID_PARAM")
 
         range_name = _run_filter(ctx, kwargs, criteria=criteria)
         count = len(criteria)

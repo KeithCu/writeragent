@@ -306,6 +306,7 @@ def test_evaluate_formula(ctx, doc):
     # Error formula evaluation (e.g. division by zero)
     res_err = eval_tool.execute(tctx, formula="=1/0")
     assert res_err.get("status") == "error", f"Expected error status, got {res_err}"
+    assert res_err.get("code") == "CALC_ERROR", f"Expected CALC_ERROR, got {res_err}"
     assert "error_code" in res_err, f"Expected error_code in response: {res_err}"
     assert "#DIV/0!" in res_err.get("message", ""), f"Expected division by zero message, got {res_err.get('message')}"
 

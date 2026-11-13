@@ -12,7 +12,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import uno
-from com.sun.star.lang import IllegalArgumentException
+from com.sun.star.uno import RuntimeException
 
 from plugin.app import get_tools
 from plugin.calc.conditional import _entry_to_dict
@@ -70,7 +70,7 @@ def test_conditional_formatting_add_validation_errors():
     cell_styles.hasByName.return_value = True
     res_multi = tool.execute_safe(ctx, range=["A1:A10", "B1:B10"], operator="GREATER", formula1="10", style="Result")
     assert res_multi["status"] == "error"
-    assert res_multi["code"] == "UNO_OBJECT_ERROR"
+    assert res_multi["code"] == "INVALID_PARAM"
     assert res_multi["message"] == "Pass exactly one range."
 
 
@@ -92,12 +92,14 @@ def test_conditional_formatting_remove_error_handling():
         # 1. Remove by index when no formats exist
         res_no_formats = tool.execute_safe(ctx, range=["A1:A10"], rule_index=0)
         assert res_no_formats["status"] == "error"
+        assert res_no_formats["code"] == "INVALID_PARAM"
         assert "No conditional formats" in res_no_formats["message"]
 
         # 2. Out of range index
         formats.getCount.return_value = 2
         res_out_of_range = tool.execute_safe(ctx, range=["A1:A10"], rule_index=5)
         assert res_out_of_range["status"] == "error"
+        assert res_out_of_range["code"] == "INVALID_PARAM"
         assert "Rule index 5 not found" in res_out_of_range["message"]
 
 
@@ -112,7 +114,7 @@ def test_conditional_formatting_remove_refuses_two_ranges():
     with patch("plugin.calc.conditional.CalcBridge", return_value=bridge):
         res = _tool("conditional_formatting_remove").execute_safe(ctx, range=["A1:A10", "B1:B10"])
     assert res["status"] == "error"
-    assert res["code"] == "UNO_OBJECT_ERROR"
+    assert res["code"] == "INVALID_PARAM"
     assert res["message"] == "Pass exactly one range."
     formats.removeByIndex.assert_not_called()
     formats.clear.assert_not_called()
@@ -124,15 +126,15 @@ def test_conditional_formatting_list_error_handling():
     ctx.doc = doc
 
     bridge = MagicMock()
-    bridge.resolve_range_or_address.side_effect = IllegalArgumentException("Failed to resolve range")
+    bridge.resolve_range_or_address.side_effect = RuntimeException("Failed to resolve range")
 
     tool = _tool("conditional_formatting_list")
 
     with patch("plugin.calc.conditional.CalcBridge", return_value=bridge):
         res = tool.execute_safe(ctx, range=["A1:A10"])
         assert res["status"] == "error"
-        assert res["code"] == "CONDITIONAL_FORMAT_ERROR"
-        assert "Failed to list conditional formats" in res["message"]
+        assert res["code"] == "TOOL_EXECUTION_ERROR"
+        assert "Failed to resolve range" in res["message"]
         bridge.get_active_sheet.assert_not_called()
 
 
@@ -276,14 +278,14 @@ def test_conditional_formatting_list_used_area_and_range_handling():
         bridge.resolve_range_or_address.reset_mock()
         res_multi = tool.execute_safe(ctx, range=["A1:D10", "E1:H10"])
         assert res_multi["status"] == "error"
-        assert res_multi["code"] == "UNO_OBJECT_ERROR"
+        assert res_multi["code"] == "INVALID_PARAM"
         assert res_multi["message"] == "Pass exactly one range."
         bridge.resolve_range_or_address.assert_not_called()
 
         # Blank item -> error
         res_blank = tool.execute_safe(ctx, range=["  "])
         assert res_blank["status"] == "error"
-        assert res_blank["code"] == "UNO_OBJECT_ERROR"
+        assert res_blank["code"] == "INVALID_PARAM"
         assert res_blank["message"] == "Pass exactly one range."
 
         # Omitted or empty list -> scans used area and returns resolved address

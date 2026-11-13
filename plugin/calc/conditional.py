@@ -29,7 +29,6 @@ from plugin.calc.base import ToolCalcConditionalBase
 from plugin.calc.bridge import CalcBridge
 from plugin.calc.calc_utils import query_interface, range_args
 
-from com.sun.star.lang import IllegalArgumentException
 from com.sun.star.table import CellAddress
 
 if TYPE_CHECKING:
@@ -106,26 +105,22 @@ class ListConditionalFormats(ToolCalcConditionalBase):
         # Omitted or empty: list the used area. Given: it must name exactly one block.
         range_str = range_args(raw_range, exactly_one=True)[0] if raw_range else None
 
-        try:
-            if range_str is not None:
-                cell_range = bridge.resolve_range_or_address(range_str)
-                resolved_range_name = range_str
-            else:
-                sheet = bridge.get_active_sheet()
-                cursor = sheet.createCursor()
-                cursor.gotoStartOfUsedArea(False)
-                cursor.gotoEndOfUsedArea(True)
-                cell_range = cursor
-                addr = cell_range.getRangeAddress()
-                resolved_range_name = format_range(addr.StartColumn, addr.StartRow, addr.EndColumn, addr.EndRow)
+        if range_str is not None:
+            cell_range = bridge.resolve_range_or_address(range_str)
+            resolved_range_name = range_str
+        else:
+            sheet = bridge.get_active_sheet()
+            cursor = sheet.createCursor()
+            cursor.gotoStartOfUsedArea(False)
+            cursor.gotoEndOfUsedArea(True)
+            cell_range = cursor
+            addr = cell_range.getRangeAddress()
+            resolved_range_name = format_range(addr.StartColumn, addr.StartRow, addr.EndColumn, addr.EndRow)
 
-            formats = cell_range.getPropertyValue("ConditionalFormat")
-            rules = [_entry_to_dict(formats.getByIndex(i), i) for i in range(formats.getCount())] if formats is not None else []
+        formats = cell_range.getPropertyValue("ConditionalFormat")
+        rules = [_entry_to_dict(formats.getByIndex(i), i) for i in range(formats.getCount())] if formats is not None else []
 
-            return {"status": "ok", "range": resolved_range_name, "rules": rules, "count": len(rules)}
-        except IllegalArgumentException as e:
-            log.exception("List conditional formats failed")
-            return self._tool_error(f"Failed to list conditional formats: {str(e)}", code="CONDITIONAL_FORMAT_ERROR")
+        return {"status": "ok", "range": resolved_range_name, "rules": rules, "count": len(rules)}
 
 
 class AddConditionalFormat(ToolCalcConditionalBase):
@@ -163,52 +158,48 @@ class AddConditionalFormat(ToolCalcConditionalBase):
         formula1 = kwargs.get("formula1") or ""
         formula2 = kwargs.get("formula2") or ""
 
-        try:
-            # The schema enum only admits _OPS[1:]'s upper-case names; the index is the ConditionOperator2 code.
-            idx = _OPS.index(operator)
+        # The schema enum only admits _OPS[1:]'s upper-case names; the index is the ConditionOperator2 code.
+        idx = _OPS.index(operator)
 
-            if operator in ("BETWEEN", "NOT_BETWEEN") and not formula2.strip():
-                return self._tool_error("formula2 is required for BETWEEN and NOT_BETWEEN.", code="MISSING_FORMULA")
-            if operator not in ("DUPLICATE", "NOT_DUPLICATE") and not formula1.strip():
-                return self._tool_error("formula1 is required for this operator.", code="MISSING_FORMULA")
+        if operator in ("BETWEEN", "NOT_BETWEEN") and not formula2.strip():
+            return self._tool_error("formula2 is required for BETWEEN and NOT_BETWEEN.", code="MISSING_FORMULA")
+        if operator not in ("DUPLICATE", "NOT_DUPLICATE") and not formula1.strip():
+            return self._tool_error("formula1 is required for this operator.", code="MISSING_FORMULA")
 
-            cell_styles = ctx.doc.getStyleFamilies().getByName("CellStyles")
-            if not cell_styles.hasByName(style_name):
-                return self._tool_error(
-                    f"Unknown cell style '{style_name}'.",
-                    code="INVALID_STYLE",
-                    **name_miss_details(
-                        style_name,
-                        list(cell_styles.getElementNames()),
-                        "style_list with family='CellStyles'",
-                    ),
-                )
+        cell_styles = ctx.doc.getStyleFamilies().getByName("CellStyles")
+        if not cell_styles.hasByName(style_name):
+            return self._tool_error(
+                f"Unknown cell style '{style_name}'.",
+                code="INVALID_STYLE",
+                **name_miss_details(
+                    style_name,
+                    list(cell_styles.getElementNames()),
+                    "style_list with family='CellStyles'",
+                ),
+            )
 
-            cell_range = bridge.resolve_range_or_address(range_str)
-            ra = cell_range.getRangeAddress()
-            addr = CellAddress()
-            addr.Sheet = ra.Sheet
-            addr.Column = ra.StartColumn
-            addr.Row = ra.StartRow
+        cell_range = bridge.resolve_range_or_address(range_str)
+        ra = cell_range.getRangeAddress()
+        addr = CellAddress()
+        addr.Sheet = ra.Sheet
+        addr.Column = ra.StartColumn
+        addr.Row = ra.StartRow
 
-            props = [
-                create_property_value("Operator", idx),
-                create_property_value("Formula1", formula1),
-                create_property_value("SourcePosition", addr),
-            ]
-            if formula2:
-                props.append(create_property_value("Formula2", formula2))
-            props.append(create_property_value("StyleName", style_name))
+        props = [
+            create_property_value("Operator", idx),
+            create_property_value("Formula1", formula1),
+            create_property_value("SourcePosition", addr),
+        ]
+        if formula2:
+            props.append(create_property_value("Formula2", formula2))
+        props.append(create_property_value("StyleName", style_name))
 
-            formats = _ensure_table_conditional_format(ctx, cell_range)
-            formats.addNew(tuple(props))
-            cell_range.setPropertyValue("ConditionalFormat", formats)
+        formats = _ensure_table_conditional_format(ctx, cell_range)
+        formats.addNew(tuple(props))
+        cell_range.setPropertyValue("ConditionalFormat", formats)
 
-            log.info("Conditional format added to %s.", range_str.upper())
-            return {"status": "ok", "range": range_str, "rule_count": formats.getCount()}
-        except IllegalArgumentException as e:
-            log.exception("Add conditional format failed")
-            return self._tool_error(f"Failed to add conditional format: {str(e)}", code="CONDITIONAL_FORMAT_ERROR")
+        log.info("Conditional format added to %s.", range_str.upper())
+        return {"status": "ok", "range": range_str, "rule_count": formats.getCount()}
 
 
 class RemoveConditionalFormats(ToolCalcConditionalBase):
@@ -228,23 +219,18 @@ class RemoveConditionalFormats(ToolCalcConditionalBase):
         range_str = range_args(kwargs.get("range"), exactly_one=True)[0]
         index = kwargs.get("rule_index")
 
-        try:
-            cell_range = bridge.resolve_range_or_address(range_str)
-            formats = cell_range.getPropertyValue("ConditionalFormat")
+        cell_range = bridge.resolve_range_or_address(range_str)
+        formats = cell_range.getPropertyValue("ConditionalFormat")
 
-            if index is not None:
-                if formats is None or formats.getCount() == 0:
-                    return self._tool_error(f"No conditional formats on {range_str}.")
-                if 0 <= index < formats.getCount():
-                    formats.removeByIndex(index)
-                    cell_range.setPropertyValue("ConditionalFormat", formats)
-                    return {"status": "ok", "range": range_str, "removed_index": index}
-                return self._tool_error(f"Rule index {index} not found on {range_str}.")
-            if formats is not None:
-                formats.clear()
+        if index is not None:
+            if formats is None or formats.getCount() == 0:
+                return self._tool_error(f"No conditional formats on {range_str}.", code="INVALID_PARAM")
+            if 0 <= index < formats.getCount():
+                formats.removeByIndex(index)
                 cell_range.setPropertyValue("ConditionalFormat", formats)
-            return {"status": "ok", "range": range_str, "cleared": True}
-
-        except IllegalArgumentException as e:
-            log.exception("Remove conditional formats failed")
-            return self._tool_error(f"Failed to remove conditional formats: {str(e)}", code="CONDITIONAL_FORMAT_ERROR")
+                return {"status": "ok", "range": range_str, "removed_index": index}
+            return self._tool_error(f"Rule index {index} not found on {range_str}.", code="INVALID_PARAM")
+        if formats is not None:
+            formats.clear()
+            cell_range.setPropertyValue("ConditionalFormat", formats)
+        return {"status": "ok", "range": range_str, "cleared": True}

@@ -323,3 +323,21 @@ def test_cell_comment_list_sorted_by_row_col():
     cells = [c["cell"] for c in res["comments"]]
     # A1 (0, 0), C1 (2, 0), B2 (1, 1)
     assert cells == ["A1", "C1", "B2"]
+
+
+def test_cell_comment_add_bad_address_is_invalid_param():
+    from unittest.mock import patch
+
+    from plugin.app import get_tools
+
+    ctx = SimpleNamespace(doc=MagicMock())
+    bridge = MagicMock()
+    bridge.resolve_cell.side_effect = ValueError("Invalid cell address")
+    with (
+        patch("plugin.calc.comments.CalcBridge", return_value=bridge),
+        patch("plugin.calc.comments._annotation_text") as mock_ann,
+    ):
+        res = get_tools().get("cell_comment_add").execute_safe(ctx, cell="not an address", text="hi")
+    assert res["status"] == "error"
+    assert res["code"] == "INVALID_PARAM"
+    mock_ann.assert_not_called()

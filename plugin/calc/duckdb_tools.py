@@ -97,7 +97,7 @@ class QueryFolderSqlTool(ToolCalcPythonSqlBase):
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         sql = kwargs["sql"].strip()
         if not sql:
-            return self._tool_error("sql is required")
+            return self._tool_error("sql is required", code="INVALID_PARAM")
         # files is {SQL table name: basename or basename#Sheet}; nested values are not schema-checked, hence str().
         file_pairs = [(str(k), str(v)) for k, v in (kwargs.get("files") or {}).items() if str(v).strip()]
         data_range = str(kwargs.get("data_range") or "").strip() or None
@@ -105,7 +105,7 @@ class QueryFolderSqlTool(ToolCalcPythonSqlBase):
         tables = dict(kwargs.get("tables") or {})
         if data_range:
             if "data" in tables:
-                return self._tool_error("data_range and tables['data'] both define table 'data'; pass only one", code="DUCKDB_SQL_ERROR")
+                return self._tool_error("data_range and tables['data'] both define table 'data'; pass only one", code="INVALID_PARAM")
             tables["data"] = {"range": data_range, "headers": headers}
         task_hint = str(kwargs.get("task_hint") or "") or None
 
@@ -155,7 +155,7 @@ def _load_sql_inputs(ctx: ToolContext, tables: dict[str, Any], file_pairs: list[
         except ToolExecutionError as exc:
             raise ToolExecutionError(
                 f"Failed to read table '{tbl_name}': {exc}",
-                code=getattr(exc, "code", "DUCKDB_SQL_ERROR"),
+                code=exc.code,
             ) from exc
 
     # Separate direct DuckDB-readable files from office files that need LO import.
@@ -171,7 +171,7 @@ def _load_sql_inputs(ctx: ToolContext, tables: dict[str, Any], file_pairs: list[
         # A blank files key falls back to the basename as the table name.
         table_name = name_hint or bn
         if table_name in preloaded or table_name in flat_files:
-            raise ToolExecutionError(f"Duplicate SQL table name {table_name!r} for {spec!r}; give each tables/files source a distinct name", code="DUCKDB_SQL_ERROR")
+            raise ToolExecutionError(f"Duplicate SQL table name {table_name!r} for {spec!r}; give each tables/files source a distinct name", code="INVALID_PARAM")
         full_path = os.path.join(scoped, bn)
         if not os.path.isfile(full_path):
             # A missing folder file fails here; passing the basename on would make DuckDB fail later with a generic IO or missing-FROM error.
@@ -193,7 +193,10 @@ def _load_sql_inputs(ctx: ToolContext, tables: dict[str, Any], file_pairs: list[
         if g:
             size_err = check_python_data_size(g, max_cells=max_cells)
             if size_err:
-                raise ToolExecutionError(f"Preloaded table {name} too large for DuckDB SQL: {size_err}")
+                raise ToolExecutionError(
+                    f"Preloaded table {name} too large for DuckDB SQL: {size_err}",
+                    code="DUCKDB_SQL_ERROR",
+                )
 
     return _SqlInputs(scoped, preloaded or None, flat_files or None)
 
@@ -218,7 +221,7 @@ def parse_table_source_spec(spec: Any, *, default_headers: bool = True) -> dict[
     if isinstance(spec, str):
         spec = {"range": spec}
     if not isinstance(spec, dict):
-        raise ToolExecutionError(f"Table spec must be a string range or an object with sheet, named_range, or range; got {type(spec).__name__}", code="DUCKDB_SQL_ERROR")
+        raise ToolExecutionError(f"Table spec must be a string range or an object with sheet, named_range, or range; got {type(spec).__name__}", code="INVALID_PARAM")
 
     headers = bool(spec.get("headers", default_headers))
     file_spec = str(spec.get("file") or "").strip() or None
@@ -233,16 +236,16 @@ def parse_table_source_spec(spec: Any, *, default_headers: bool = True) -> dict[
         hash_sheet = sheet_part.strip() or None
         if hash_sheet:
             if sheet and sheet != hash_sheet:
-                raise ToolExecutionError(f"Table spec file {file_spec!r}# sheet {hash_sheet!r} disagrees with sheet {sheet!r}", code="DUCKDB_SQL_ERROR")
+                raise ToolExecutionError(f"Table spec file {file_spec!r}# sheet {hash_sheet!r} disagrees with sheet {sheet!r}", code="INVALID_PARAM")
             sheet = hash_sheet
     elif file_spec:
         file_spec = os.path.basename(file_spec)
 
     present: list[str] = [k for k, v in (("sheet", sheet), ("named_range", named_range), ("range", range_a1)) if v]
     if len(present) > 1:
-        raise ToolExecutionError(f"Table spec must use exactly one of sheet, named_range, or range (got {', '.join(present)})", code="DUCKDB_SQL_ERROR")
+        raise ToolExecutionError(f"Table spec must use exactly one of sheet, named_range, or range (got {', '.join(present)})", code="INVALID_PARAM")
     if not present and not file_spec:
-        raise ToolExecutionError("Table spec needs sheet (used range), named_range, or range (absolute A1)", code="DUCKDB_SQL_ERROR")
+        raise ToolExecutionError("Table spec needs sheet (used range), named_range, or range (absolute A1)", code="INVALID_PARAM")
     kind = present[0] if present else "sheet"
 
     return {"kind": kind, "sheet": sheet, "named_range": named_range, "range": range_a1, "file": file_spec, "headers": headers}
@@ -351,10 +354,10 @@ def read_table_source_grid(ctx: Any, active_doc: Any, scoped_dir: str | None, pa
         return grid
 
     if not scoped_dir:
-        raise ToolExecutionError(f"Sibling spreadsheet {file_bn!r} needs the document's folder; save the document first", code="DUCKDB_SQL_ERROR")
+        raise ToolExecutionError(f"Sibling spreadsheet {file_bn!r} needs the document's folder; save the document first", code="MISSING_SCOPED_DIR")
     full_path = os.path.join(scoped_dir, str(file_bn))
     if not os.path.isfile(full_path):
-        raise ToolExecutionError(f"Sibling spreadsheet {file_bn!r} not found under the document folder", code="DUCKDB_SQL_ERROR")
+        raise ToolExecutionError(f"Sibling spreadsheet {file_bn!r} not found under the document folder", code="MISSING_FILE")
     return _read_sibling_office_file_as_grid(ctx, full_path, parsed)
 
 
