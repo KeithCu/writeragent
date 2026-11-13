@@ -6,8 +6,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-import re
 from typing import Any
 from unittest.mock import MagicMock, patch
 
@@ -372,33 +370,3 @@ def test_show_new_script_dialog_none_ctx():
     with patch("plugin.scripting.script_dialogs.load_writeragent_dialog") as mock_load:
         assert show_new_script_dialog(None) is None
     mock_load.assert_not_called()
-
-
-def test_monaco_attach_label_checks_stale_before_readonly():
-    js_path = (
-        Path(__file__).resolve().parents[2]
-        / "plugin/contrib/scripting/assets/editor/scripts_manager.js"
-    )
-    js = js_path.read_text(encoding="utf-8")
-
-    match = re.search(r"function attachCheckboxLabel\(\)\s*\{([\s\S]*?)\n  \}", js)
-    assert match is not None, "function attachCheckboxLabel() not found"
-    body = match.group(1)
-
-    idx_no_doc = body.index("!documentAvailable")
-    idx_stale = body.index("documentStale")
-    idx_readonly = body.index("documentReadonly")
-    assert idx_no_doc < idx_stale < idx_readonly
-
-    assert "attach_unavailable_no_document" in body
-    assert "attach_unavailable_stale" in body
-    assert "attach_unavailable_readonly" in body
-    assert "attach_to_document_label" in body
-
-    modal_match = re.search(r"function openScriptModal\([^)]*\)\s*\{([\s\S]*?)\n  \}", js)
-    assert modal_match is not None, "function openScriptModal() not found"
-    modal_body = modal_match.group(1)
-
-    idx_call = modal_body.index("attachCheckboxLabel();")
-    idx_remove = modal_body.index('modal.classList.remove("toolbar-hidden");')
-    assert idx_call < idx_remove

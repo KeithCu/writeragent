@@ -42,6 +42,32 @@ def test_units_templates_cover_shipped_helpers():
         assert f"from writeragent.scripting.units import {helper}" in code
 
 
+@pytest.mark.parametrize(
+    ("wiring_id", "spec_domain", "module_path"),
+    [
+        ("math", "symbolic", "writeragent.scripting.symbolic"),
+        ("viz", "viz", "writeragent.scripting.viz"),
+    ],
+)
+def test_shipped_helper_templates_import_from_domain(wiring_id, spec_domain, module_path):
+    shipped = {s.name for s in specs(spec_domain) if s.ship}
+    templates = get_domain_wiring(wiring_id).templates()
+    assert set(templates.keys()) == shipped
+    for helper, code in templates.items():
+        assert f"from {module_path} import {helper}" in code
+        assert "# writeragent:" not in code.splitlines()[0]
+
+
+@pytest.mark.parametrize(
+    "domain",
+    ["analysis", "forecast", "optimize", "quant", "viz", "symbolic", "units", "text"],
+)
+def test_all_registered_helpers_have_descriptions(domain):
+    domain_specs = specs(domain)
+    assert domain_specs
+    assert all(s.description for s in domain_specs), f"{domain} has helper without description"
+
+
 def test_text_templates_cover_shipped_helpers():
     shipped = {s.name for s in specs("text") if s.ship}
     templates = get_domain_wiring("text").templates()

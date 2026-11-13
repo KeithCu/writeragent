@@ -15,7 +15,6 @@ from unittest.mock import MagicMock, patch
 import pandas as pd
 import pytest
 
-from plugin.scripting.domain_registry import get_domain_wiring
 from plugin.scripting.viz import run_viz
 
 
@@ -198,21 +197,6 @@ def test_insert_image_payload_calc_surfaces_egress_failure():
         from plugin.scripting.viz import insert_image_payload_for_doc
 
         insert_image_payload_for_doc(ctx, doc, payload, title="Plot")
-
-
-# --- Viz Run Python Script templates (from test_viz_templates.py) ---
-
-def test_get_viz_script_templates_include_run_call():
-    templates = get_domain_wiring("viz").templates()
-    assert "quick_plot" in templates
-    assert "from writeragent.scripting.viz import quick_plot" in templates["quick_plot"]
-    assert "# writeragent:viz" not in templates["quick_plot"]
-
-
-def test_viz_template_body_includes_helper_params():
-    code = get_domain_wiring("viz").templates()["correlation_heatmap"]
-    assert "correlation_heatmap(data, method='pearson')" in code
-    assert "from writeragent.scripting.viz import correlation_heatmap" in code
 
 
 def test_run_trusted_viz_reads_on_main_and_runs_client_off_main():

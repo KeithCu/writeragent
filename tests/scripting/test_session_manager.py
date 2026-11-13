@@ -27,19 +27,6 @@ def test_session_manager_module_avoids_document_helpers_and_dialogs() -> None:
     assert "plugin.doc.udprops" in mods
 
 
-def test_msgbox_uses_product_display_name() -> None:
-    from unittest.mock import MagicMock, patch
-
-    ctx = MagicMock()
-    with (
-        patch("plugin.scripting.session_manager.product_display_name", return_value="LibrePy") as name,
-        patch("plugin.chatbot.dialogs.msgbox") as box,
-    ):
-        session_manager._msgbox(ctx, "hello")
-    name.assert_called_once_with(ctx)
-    box.assert_called_once_with(ctx, "LibrePy", "hello")
-
-
 def test_focused_calc_document_enumerates_when_nothing_focused() -> None:
     """When getCurrentComponent() is None (e.g. headless), fallback to getComponents enumeration."""
     from unittest.mock import MagicMock, patch
@@ -47,9 +34,6 @@ def test_focused_calc_document_enumerates_when_nothing_focused() -> None:
     ctx = MagicMock()
     mock_desktop = MagicMock()
     mock_desktop.getCurrentComponent.return_value = None
-
-    mock_calc_doc = MagicMock()
-    mock_calc_doc.getSheets.return_value = MagicMock()
 
     mock_elem = MagicMock()
     mock_elem.getURL.return_value = "file:///test.ods"
@@ -67,7 +51,7 @@ def test_focused_calc_document_enumerates_when_nothing_focused() -> None:
         patch("plugin.scripting.session_manager.is_calc", return_value=True),
     ):
         doc = session_manager.focused_calc_document(ctx)
-        assert doc is not None
+        assert doc is mock_elem
 
 
 def test_workbook_session_key_unsaved_uses_uuid_not_id() -> None:

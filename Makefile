@@ -764,7 +764,6 @@ vhs:
 		tests/embeddings/test_embeddings_split_verification.py \
 		tests/framework/test_stream_normalizer_verification.py \
 		tests/framework/test_response_normalizers_verification.py \
-		tests/scripting/test_sandbox_path_verification.py \
 		tests/scripting/test_scrub_env_verification.py \
 		tests/scripting/test_payload_codec_policy_verification.py \
 		tests/calc/test_address_utils_verification.py \

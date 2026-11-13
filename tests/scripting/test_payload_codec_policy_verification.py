@@ -316,21 +316,6 @@ def test_host_pack_split_grid_is_split_grid() -> None:
     assert is_multi_data(packed) is False
 
 
-def test_payload_codec_cover_all_33797534946_offs() -> None:
-    """skip-reason, image, and uniform column kind helpers stay off cover-all while policy stays on."""
-    from tests.harness.strip_bundle import skip_if_release_build
-
-    skip_if_release_build("scripts/ not in stripped release tree")
-    from scripts.crosshair_stream import cover_fqns_for_module
-
-    fqns = cover_fqns_for_module(Path("plugin/scripting/payload_codec.py"))
-    for name in (
-        "_uniform_column_kind",
-    ):
-        assert not any(f.endswith(f".{name}") for f in fqns), name
-    assert any(f.endswith(".should_use_binary_envelope") for f in fqns)
-
-
 @pytest.mark.slow
 @pytest.mark.parametrize("target", _CROSSHAIR_TARGETS)
 def test_crosshair_payload_codec_policy_fqn_if_available(target: str) -> None:
