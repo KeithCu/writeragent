@@ -89,9 +89,9 @@ def _should_retry(res: Any) -> bool:
 
 
 class _CalcPythonUnloadListener(BaseDocumentEventListener):
-    _key: str
+    _key: str  # this listener's _LISTENERS key (rekey_listener moves it)
     _workbook_session_id: str
-    _state: WorkbookState | None
+    _state: WorkbookState | None  # None for Writer/Draw rps:/notebook: listeners
     _teardown_done: bool
     _extra_session_ids: set[str]
 
@@ -356,27 +356,26 @@ class _GlobalDocumentEventListener(BaseDocumentEventListener):
                 log.warning("geometric recalc on open failed", exc_info=True)
         if doc is None:
             return
-        if name == "OnLoadFinished":
+        if name == "OnLoadFinished" or name in _SAVE_DONE_EVENTS:
             # Lazy: auto_open loads the whole excel_py_convert package and imports
             # is_calc_document from this module; Run Python Script imports this module in Writer.
-            from plugin.calc.excel_py_convert.auto_open import maybe_convert_excel_py_document
+            from plugin.calc.excel_py_convert.auto_open import (
+                maybe_convert_excel_py_document,
+                maybe_export_excel_py_on_save,
+            )
 
-            maybe_convert_excel_py_document(doc)
-            try:
-                # URP OnLoadFinished can run on Dummy with SolarMutex held: main.run inlines when is_current().
-                # Pass the callable first—do not pass ctx as the first positional (main treats it as fn).
-                main.run(maybe_rewrite_collabora_py_formulas, doc)
-            except Exception:
-                # FIXME: failures are logged and the open continues. This also hides a
-                # mis-wired main.run (TypeError); narrow it once a raise here is shown not
-                # to abort OnLoadFinished for other listeners.
-                log.warning("collabora PY rewrite on open failed", exc_info=True)
-            return
-        if name in _SAVE_DONE_EVENTS:
-            # Lazy: auto_open loads the whole excel_py_convert package and imports
-            # is_calc_document from this module; Run Python Script imports this module in Writer.
-            from plugin.calc.excel_py_convert.auto_open import maybe_export_excel_py_on_save
-
+            if name == "OnLoadFinished":
+                maybe_convert_excel_py_document(doc)
+                try:
+                    # URP OnLoadFinished can run on Dummy with SolarMutex held: main.run inlines when is_current().
+                    # Pass the callable first—do not pass ctx as the first positional (main treats it as fn).
+                    main.run(maybe_rewrite_collabora_py_formulas, doc)
+                except Exception:
+                    # FIXME: failures are logged and the open continues. This also hides a
+                    # mis-wired main.run (TypeError); narrow it once a raise here is shown not
+                    # to abort OnLoadFinished for other listeners.
+                    log.warning("collabora PY rewrite on open failed", exc_info=True)
+                return
             maybe_export_excel_py_on_save(self._ctx, doc)
 
 

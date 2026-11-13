@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import threading
 from unittest.mock import patch
 
 from plugin.calc.python.workbook_state import Debounce
@@ -47,13 +48,14 @@ def test_second_spill_timer_cancels_the_first() -> None:
 
 
 def test_debounce_posts_due_callback_to_main() -> None:
-    """_on_timer dispatches due callbacks via main.post and prunes the key."""
+    """Timer expiration dispatches due callbacks via main.post and prunes the key."""
     debounce = Debounce()
     fn = lambda: None  # noqa: E731
+    post_seen = threading.Event()
     try:
-        with patch("plugin.framework.queue_executor.main.post") as mock_post:
+        with patch("plugin.framework.queue_executor.main.post", side_effect=lambda _f: post_seen.set()) as mock_post:
             debounce.schedule("k", 0.0, fn)
-            debounce._on_timer()
+            assert post_seen.wait(2.0)
             mock_post.assert_called_once_with(fn)
             assert "k" not in debounce.pending_for_tests()
     finally:

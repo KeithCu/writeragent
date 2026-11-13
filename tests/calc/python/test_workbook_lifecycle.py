@@ -415,32 +415,30 @@ def test_non_calc_unload_listener_has_no_workbook_state(monkeypatch: pytest.Monk
     mock_reset.assert_called_once()
 
 
-def _installed(ctx: Any) -> Any:
+def _mock_broadcaster(ctx: Any | None = None) -> tuple[Any, Any]:
+    ctx_obj = ctx if ctx is not None else MagicMock()
     smgr = MagicMock()
     broadcaster = MagicMock()
-    ctx.getServiceManager.return_value = smgr
+    ctx_obj.getServiceManager.return_value = smgr
     smgr.createInstanceWithContext.return_value = broadcaster
+    return ctx_obj, broadcaster
+
+
+def _installed(ctx: Any) -> Any:
+    _ctx, broadcaster = _mock_broadcaster(ctx)
     install_global_document_event_listener(ctx)
     return broadcaster.addDocumentEventListener.call_args[0][0]
 
 
 def test_install_global_document_event_listener_once():
-    ctx = MagicMock()
-    smgr = MagicMock()
-    broadcaster = MagicMock()
-    ctx.getServiceManager.return_value = smgr
-    smgr.createInstanceWithContext.return_value = broadcaster
+    ctx, broadcaster = _mock_broadcaster()
     install_global_document_event_listener(ctx)
     install_global_document_event_listener(ctx)
     assert broadcaster.addDocumentEventListener.call_count == 1
 
 
 def test_install_global_listener_reentrant_call_attaches_once():
-    ctx = MagicMock()
-    smgr = MagicMock()
-    broadcaster = MagicMock()
-    ctx.getServiceManager.return_value = smgr
-    smgr.createInstanceWithContext.return_value = broadcaster
+    ctx, broadcaster = _mock_broadcaster()
 
     def _reenter(_listener: Any) -> None:
         install_global_document_event_listener(ctx)
@@ -451,11 +449,7 @@ def test_install_global_listener_reentrant_call_attaches_once():
 
 
 def test_install_global_listener_failure_frees_slot():
-    ctx = MagicMock()
-    smgr = MagicMock()
-    broadcaster = MagicMock()
-    ctx.getServiceManager.return_value = smgr
-    smgr.createInstanceWithContext.return_value = broadcaster
+    ctx, broadcaster = _mock_broadcaster()
     broadcaster.addDocumentEventListener.side_effect = [RuntimeError("disposed"), None]
 
     with patch.object(lifecycle.log, "warning") as warn:
