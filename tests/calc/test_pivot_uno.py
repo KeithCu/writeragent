@@ -181,45 +181,53 @@ def test_pivot_create_on_apostrophe_sheet_uno(ctx, doc):
 def test_pivot_create_is_one_undo_step_uno(ctx, doc):
     from plugin.doc.compound_undo import undo_titles
 
-    sheet = doc.getSheets().getByIndex(0)
-    sn = sheet.getName()
-    res_write = _execute_calc_tool(
-        doc,
-        ctx,
-        "write_formula_range",
-        {
-            "range": "A1:B4",
-            "values": [["Month", "Sales"], ["Jan", "100"], ["Feb", "150"], ["Mar", "200"]],
-        },
-    )
-    assert res_write.get("status") == "ok"
+    sheets = doc.getSheets()
+    sn = "PivotUndo"
+    if sheets.hasByName(sn):
+        sheets.removeByName(sn)
+    sheets.insertNewByName(sn, sheets.getCount())
+    sheet = sheets.getByName(sn)
+    try:
+        res_write = _execute_calc_tool(
+            doc,
+            ctx,
+            "write_formula_range",
+            {
+                "range": f"{sn}.A1:B4",
+                "values": [["Month", "Sales"], ["Jan", "100"], ["Feb", "150"], ["Mar", "200"]],
+            },
+        )
+        assert res_write.get("status") == "ok"
 
-    before = undo_titles(doc)
-    assert before is not None
+        before = undo_titles(doc)
+        assert before is not None
 
-    res = _execute_calc_tool(
-        doc,
-        ctx,
-        "pivot_table_create",
-        {
-            "name": "WA_PivotUndo",
-            "source_range": "A1:B4",
-            "source_sheet": sn,
-            "destination_sheet": sn,
-            "destination_cell": "E1",
-            "row_fields": ["Month"],
-            "data_fields": ["Sales"],
-        },
-    )
-    assert res.get("status") == "ok"
+        res = _execute_calc_tool(
+            doc,
+            ctx,
+            "pivot_table_create",
+            {
+                "name": "WA_PivotUndo",
+                "source_range": "A1:B4",
+                "source_sheet": sn,
+                "destination_sheet": sn,
+                "destination_cell": "E1",
+                "row_fields": ["Month"],
+                "data_fields": ["Sales"],
+            },
+        )
+        assert res.get("status") == "ok"
 
-    after = undo_titles(doc)
-    assert after is not None
-    delta = after[: len(after) - len(before)]
-    assert delta == ("WriterAgent: Create pivot table",)
+        after = undo_titles(doc)
+        assert after is not None
+        delta = after[: len(after) - len(before)]
+        assert delta == ("WriterAgent: Create pivot table",)
 
-    doc.getUndoManager().undo()
-    res_list = _execute_calc_tool(doc, ctx, "pivot_table_list", {"sheet": sn})
-    names = [p["name"] for p in res_list.get("pivot_tables", [])]
-    assert "WA_PivotUndo" not in names
-    assert sheet.getCellByPosition(4, 0).getString() == ""
+        doc.getUndoManager().undo()
+        res_list = _execute_calc_tool(doc, ctx, "pivot_table_list", {"sheet": sn})
+        names = [p["name"] for p in res_list.get("pivot_tables", [])]
+        assert "WA_PivotUndo" not in names
+        assert sheet.getCellByPosition(4, 0).getString() == ""
+    finally:
+        if sheets.hasByName(sn):
+            sheets.removeByName(sn)
