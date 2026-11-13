@@ -1326,7 +1326,7 @@ class DrawPage:
         draw_pages = self.doc.getDrawPages()
         count = draw_pages.getCount()
         if page is not None and (page < 0 or page >= count):
-            raise ToolExecutionError(f"Page index {page} is out of range (document has {count} pages).", code="CHART_AMBIGUOUS")
+            raise ToolExecutionError(f"Page index {page} is out of range (document has {count} pages).", code="INVALID_PARAM")
         # A requested page returns the first hit. An omitted page collects every page.
         matches: list[ChartRef] = []
         indices = (page,) if page is not None else range(count)

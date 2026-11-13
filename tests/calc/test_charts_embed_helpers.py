@@ -1141,7 +1141,7 @@ def test_multipage_draw_charts():
         # page=5 on a 2-page deck returns out-of-range error and removes nothing
         del_oor = ChartDelete().execute_safe(ctx, name="Chart_0", page=5)
         assert del_oor["status"] == "error"
-        assert del_oor["code"] == "CHART_AMBIGUOUS"
+        assert del_oor["code"] == "INVALID_PARAM"
         assert "out of range" in del_oor["message"].lower()
         page0.remove.assert_not_called()
         page1.remove.assert_not_called()

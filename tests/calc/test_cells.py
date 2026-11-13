@@ -2483,13 +2483,17 @@ def test_cells_registry_refuses_bad_args_as_invalid_param():
     from plugin.app import get_tools
 
     ctx = SimpleNamespace(doc=MagicMock())
-    res_write = get_tools().get("write_formula_range").execute_safe(ctx, range=["A1"])
+    with (
+        patch("plugin.calc.cells.CellManipulator") as mock_manip,
+        patch("plugin.calc.cells.CellInspector") as mock_insp,
+    ):
+        res_write = get_tools().get("write_formula_range").execute_safe(ctx, range=["A1"])
+        res_read = get_tools().get("read_cell_range").execute_safe(ctx, range=["A1"], format="grid")
     assert res_write["status"] == "error"
     assert res_write["code"] == "INVALID_PARAM"
-    ctx.doc.getSheets.assert_not_called()
+    mock_manip.return_value.plan_write.assert_not_called()
 
-    res_read = get_tools().get("read_cell_range").execute_safe(ctx, range=["A1"], format="grid")
     assert res_read["status"] == "error"
     assert res_read["code"] == "INVALID_PARAM"
-    ctx.doc.getSheets.assert_not_called()
+    mock_insp.return_value.read_range.assert_not_called()
 

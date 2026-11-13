@@ -61,7 +61,7 @@ def test_resolve_filter_operator_code_invalid() -> None:
         resolve_filter_operator_code("UNKNOWN_OPERATOR_123")
 
 
-def test_filter_string_longer_than_token_is_uno_error() -> None:
+def test_filter_string_longer_than_token_is_invalid_param() -> None:
     """An over-long operator is ToolExecutionError (INVALID_PARAM), not PreContractError."""
     too_long = "A" * (DEAL_MAX_TOKEN + 1)
     with pytest.raises(ToolExecutionError):
@@ -79,7 +79,7 @@ def test_parse_sheet_filter_criterion_basic() -> None:
     assert str_val == "test"
 
 
-def test_parse_sheet_filter_criterion_bad_field_raises_uno() -> None:
+def test_parse_sheet_filter_criterion_bad_field_is_invalid_param() -> None:
     with pytest.raises(ToolExecutionError, match="Invalid filter 'field'"):
         parse_sheet_filter_criterion({"field": "", "operator": "EQUAL", "value": "x"}, is_first=True)
     with pytest.raises(ToolExecutionError, match="Invalid filter 'field'"):

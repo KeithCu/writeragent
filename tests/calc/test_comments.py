@@ -333,8 +333,11 @@ def test_cell_comment_add_bad_address_is_invalid_param():
     ctx = SimpleNamespace(doc=MagicMock())
     bridge = MagicMock()
     bridge.resolve_cell.side_effect = ValueError("Invalid cell address")
-    with patch("plugin.calc.comments.CalcBridge", return_value=bridge):
+    with (
+        patch("plugin.calc.comments.CalcBridge", return_value=bridge),
+        patch("plugin.calc.comments._annotation_text") as mock_ann,
+    ):
         res = get_tools().get("cell_comment_add").execute_safe(ctx, cell="not an address", text="hi")
     assert res["status"] == "error"
     assert res["code"] == "INVALID_PARAM"
-    ctx.doc.getSheets.assert_not_called()
+    mock_ann.assert_not_called()

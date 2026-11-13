@@ -16,7 +16,7 @@ from plugin.calc.sheet_filter_criteria import (
 from plugin.framework.errors import ToolExecutionError
 
 
-def test_odd_operator_is_uno_error_not_precontract() -> None:
+def test_odd_operator_is_invalid_param_not_precontract() -> None:
     raw = {"field": 0, "operator": "égal" * 40, "connection": "AND", "extra": 1}
     with pytest.raises(ToolExecutionError) as exc:
         parse_sheet_filter_criterion(raw, False)
