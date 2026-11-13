@@ -896,13 +896,17 @@ class CalcWorld:
             return {"status": "error", "message": "range is required"}
         range_strs = [str(r) for r in ranges]
         self.reads.append(range_strs)
-        payloads = [
-            grid_to_rows(self._inspector_grid(rng), range_name=rng)
-            for rng in range_strs
-        ]
-        if len(payloads) == 1:
-            return {"status": "ok", "range": range_strs[0], "result": payloads}
-        return {"status": "ok", "result": payloads}
+        return {
+            "status": "ok",
+            "result": [
+                {
+                    "status": "ok",
+                    "range": rng,
+                    "result": [grid_to_rows(self._inspector_grid(rng), range_name=rng)],
+                }
+                for rng in range_strs
+            ],
+        }
 
     def range_sort(self, **kwargs: Any) -> dict[str, Any]:
         """One-column sort (production sort_column is a 0-based int). Stable."""

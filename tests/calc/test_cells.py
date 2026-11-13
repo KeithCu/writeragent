@@ -19,7 +19,19 @@ import pytest
 
 from tests.harness.strip_bundle import requires_asserts
 
+from plugin.app import get_tools
+from plugin.framework.tool import prepare_tool_call
 from plugin.tests.testing_utils import TestingFactory
+
+
+def _tool(name: str) -> Any:
+    return get_tools().get(name)
+
+
+def _only_entry(res: dict[str, Any]) -> dict[str, Any]:
+    assert res["status"] == "ok"
+    (entry,) = res["result"]
+    return entry
 
 
 def _a1_bridge(named: dict[str, str] | None = None) -> MagicMock:
@@ -589,8 +601,6 @@ def _inspector_sample_grid(values_row: list[Any], *, row: int = 1, start_col: in
 
 
 def test_read_cell_range_tool_opts_into_format_info():
-    from plugin.calc.cells import ReadCellRange
-
     ctx = SimpleNamespace(doc=MagicMock())
     grid = [[{"address": "A1", "value": 1.0, "formula": None, "type": "value"}]]
     with (
@@ -601,11 +611,11 @@ def test_read_cell_range_tool_opts_into_format_info():
             start_col=0, end_col=0, start_row=0, end_row=0
         )
         inspector_cls.return_value.read_range.return_value = grid
-        result = ReadCellRange().execute(ctx, range=["A1"])
+        result = _tool("read_cell_range").execute_safe(ctx, range=["A1"])
 
-    assert result["status"] == "ok"
-    assert not result.get("truncated")
-    payload = result["result"][0]
+    entry = _only_entry(result)
+    assert not entry.get("truncated")
+    payload = entry["result"][0]
     assert payload["origin"] == "A1"
     assert payload["range"] == "A1"
     assert payload["rows"] == [[1.0]]
@@ -637,8 +647,6 @@ def test_grid_to_rows_synthetic():
 
 
 def test_read_cell_range_format_cells_returns_grid():
-    from plugin.calc.cells import ReadCellRange
-
     ctx = SimpleNamespace(doc=MagicMock())
     grid = [[{"address": "A1", "value": 1.0, "type": "value"}]]
     with (
@@ -649,30 +657,51 @@ def test_read_cell_range_format_cells_returns_grid():
             start_col=0, end_col=0, start_row=0, end_row=0
         )
         inspector_cls.return_value.read_range.return_value = grid
-        result = ReadCellRange().execute(ctx, range=["A1"], format="cells")
+        result = _tool("read_cell_range").execute_safe(ctx, range=["A1"], format="cells")
 
-    assert result["result"][0] is grid
+    assert _only_entry(result)["result"][0] is grid
 
 
-def test_read_cell_range_unknown_format_errors_without_read():
-    from plugin.calc.cells import ReadCellRange
-
+def test_read_cell_range_every_range_is_one_entry():
     ctx = SimpleNamespace(doc=MagicMock())
+    grid_a = [[{"address": "A1", "value": 1.0, "formula": None, "type": "value"}]]
+    grid_b = [[{"address": "B2", "value": 2.0, "formula": None, "type": "value"}]]
     with (
         patch("plugin.calc.cells.CalcBridge") as bridge_cls,
         patch("plugin.calc.cells.CellInspector") as inspector_cls,
     ):
-        result = ReadCellRange().execute(ctx, range=["A1"], format="csv")
+        bridge_cls.return_value.resolve_range_or_address.return_value = _range_addr(
+            start_col=0, end_col=0, start_row=0, end_row=0
+        )
+        inspector_cls.return_value.read_range.return_value = grid_a
+        one = _tool("read_cell_range").execute_safe(ctx, range=["A1"])
+        assert one == {
+            "status": "ok",
+            "result": [
+                {
+                    "status": "ok",
+                    "range": "A1",
+                    "result": [{"origin": "A1", "range": "A1", "rows": [[1.0]]}],
+                }
+            ],
+        }
 
-    assert result["status"] == "error"
-    assert "format" in result["message"]
-    bridge_cls.assert_not_called()
-    inspector_cls.assert_not_called()
+        inspector_cls.return_value.read_range.side_effect = [grid_a, grid_b]
+        two = _tool("read_cell_range").execute_safe(ctx, range=["A1", "B2"])
+        assert two["status"] == "ok"
+        assert [e["range"] for e in two["result"]] == ["A1", "B2"]
+        assert two["result"][0]["result"][0]["rows"] == [[1.0]]
+        assert two["result"][1]["result"][0]["rows"] == [[2.0]]
+
+        inspector_cls.return_value.read_range.side_effect = None
+        inspector_cls.return_value.read_range.return_value = grid_a
+        cells_res = _tool("read_cell_range").execute_safe(ctx, range=["A1"], format="cells")
+        assert _only_entry(cells_res)["result"][0] is grid_a
 
 
 def test_read_cell_range_tool_truncates_large_range():
     """A1:H500 must not dump thousands of cell dicts into chat (issue 405)."""
-    from plugin.calc.cells import ReadCellRange, _READ_CELL_RANGE_TRUNCATED_MSG
+    from plugin.calc.cells import _READ_CELL_RANGE_TRUNCATED_MSG
 
     ctx = SimpleNamespace(doc=MagicMock())
     sample = _inspector_sample_grid(["OrderID"] * 8)
@@ -685,28 +714,28 @@ def test_read_cell_range_tool_truncates_large_range():
             start_col=0, end_col=7, start_row=0, end_row=499
         )
         inspector_cls.return_value.read_range.return_value = sample
-        result = ReadCellRange().execute(ctx, range=["A1:H500"])
+        result = _tool("read_cell_range").execute_safe(ctx, range=["A1:H500"])
 
-    assert result["status"] == "ok"
-    assert result["truncated"] is True
-    assert result["cell_count"] == 4000
-    assert result["row_count"] == 500
-    assert result["column_count"] == 8
-    assert result["preview_range"] == "A1:H10"
-    assert result["message"] == _READ_CELL_RANGE_TRUNCATED_MSG.format(
+    entry = _only_entry(result)
+    assert entry["truncated"] is True
+    assert entry["cell_count"] == 4000
+    assert entry["row_count"] == 500
+    assert entry["column_count"] == 8
+    assert entry["preview_range"] == "A1:H10"
+    assert entry["message"] == _READ_CELL_RANGE_TRUNCATED_MSG.format(
         rows=500, columns=8, cells=4000
     )
-    assert "overload" in result["message"]
-    assert "500 rows" in result["message"]
-    assert "8 columns" in result["message"]
-    assert "4000 cells" in result["message"]
-    assert "peek only" in result["message"]
-    assert "pass this A1 address to =PY instead of re-reading" not in result["message"]
-    assert "write_formula_range" in result["message"]
-    assert "fill-down" in result["message"]
-    assert "A1:H10" in result["hint"]
-    assert "write_formula_range" in result["hint"]
-    assert "next_range" not in result
+    assert "overload" in entry["message"]
+    assert "500 rows" in entry["message"]
+    assert "8 columns" in entry["message"]
+    assert "4000 cells" in entry["message"]
+    assert "peek only" in entry["message"]
+    assert "pass this A1 address to =PY instead of re-reading" not in entry["message"]
+    assert "write_formula_range" in entry["message"]
+    assert "fill-down" in entry["message"]
+    assert "A1:H10" in entry["hint"]
+    assert "write_formula_range" in entry["hint"]
+    assert "next_range" not in entry
     inspector_cls.return_value.read_range.assert_called_once_with("A1:H10", include_format_info=True)
 
 
@@ -717,7 +746,6 @@ def test_read_cell_range_min_over_cap_steers_fill_down_not_hard_py():
     steers row-wise work to ordinary fill-down, not a hard =PY funnel.
     """
     from plugin.calc.cells import (
-        ReadCellRange,
         _READ_CELL_RANGE_MAX_CELLS,
         _READ_CELL_RANGE_TRUNCATED_MSG,
     )
@@ -743,32 +771,32 @@ def test_read_cell_range_min_over_cap_steers_fill_down_not_hard_py():
             start_col=0, end_col=cols - 1, start_row=0, end_row=rows - 1
         )
         inspector_cls.return_value.read_range.return_value = sample
-        result = ReadCellRange().execute(ctx, range=[range_name])
+        result = _tool("read_cell_range").execute_safe(ctx, range=[range_name])
 
-    assert result["status"] == "ok"
-    assert result["truncated"] is True
-    assert result["cell_count"] == 81
-    assert result["row_count"] == 9
-    assert result["column_count"] == 9
-    assert result["range"] == range_name
-    assert result["message"] == _READ_CELL_RANGE_TRUNCATED_MSG.format(
+    entry = _only_entry(result)
+    assert entry["truncated"] is True
+    assert entry["cell_count"] == 81
+    assert entry["row_count"] == 9
+    assert entry["column_count"] == 9
+    assert entry["range"] == range_name
+    assert entry["message"] == _READ_CELL_RANGE_TRUNCATED_MSG.format(
         rows=9, columns=9, cells=81
     )
-    assert "9 rows" in result["message"]
-    assert "9 columns" in result["message"]
-    assert "81 cells" in result["message"]
-    assert "peek only" in result["message"]
-    assert "pass this A1 address to =PY instead of re-reading" not in result["message"]
-    assert "write_formula_range" in result["message"]
-    assert "fill-down" in result["message"]
-    assert result["message"].index("write_formula_range") < result["message"].index("=PY")
+    assert "9 rows" in entry["message"]
+    assert "9 columns" in entry["message"]
+    assert "81 cells" in entry["message"]
+    assert "peek only" in entry["message"]
+    assert "pass this A1 address to =PY instead of re-reading" not in entry["message"]
+    assert "write_formula_range" in entry["message"]
+    assert "fill-down" in entry["message"]
+    assert entry["message"].index("write_formula_range") < entry["message"].index("=PY")
     # Preview clips rows to 10 and columns to 8; 9 data rows stay 9 but columns become 8 (A1:H9).
-    assert result["preview_range"] == "A1:H9"
+    assert entry["preview_range"] == "A1:H9"
     inspector_cls.return_value.read_range.assert_called_once_with("A1:H9", include_format_info=True)
 
 
 def test_read_cell_range_tool_keeps_small_range_full():
-    from plugin.calc.cells import ReadCellRange, _READ_CELL_RANGE_MAX_CELLS
+    from plugin.calc.cells import _READ_CELL_RANGE_MAX_CELLS
 
     ctx = SimpleNamespace(doc=MagicMock())
     with (
@@ -780,11 +808,10 @@ def test_read_cell_range_tool_keeps_small_range_full():
             start_col=0, end_col=7, start_row=0, end_row=9
         )
         inspector_cls.return_value.read_range.return_value = _inspector_sample_grid([1])
-        result = ReadCellRange().execute(ctx, range=["A1:H10"])
+        result = _tool("read_cell_range").execute_safe(ctx, range=["A1:H10"])
 
     assert _READ_CELL_RANGE_MAX_CELLS == 80
-    assert result["status"] == "ok"
-    assert not result.get("truncated")
+    assert not _only_entry(result).get("truncated")
     inspector_cls.return_value.read_range.assert_called_once_with("A1:H10", include_format_info=True)
 
 
@@ -863,7 +890,6 @@ def test_column_distinct_peek_lists_low_cardinality_and_skips_phone_book():
 
 
 def test_read_cell_range_truncated_attaches_column_distincts():
-    from plugin.calc.cells import ReadCellRange
 
     ctx = SimpleNamespace(doc=MagicMock())
     sample = _inspector_sample_grid(["Country", "Country"])
@@ -882,10 +908,11 @@ def test_read_cell_range_truncated_attaches_column_distincts():
         # 2×100 is over the 80-cell cap.
         bridge_cls.return_value.resolve_range_or_address.return_value = mock_range
         inspector_cls.return_value.read_range.return_value = sample
-        result = ReadCellRange().execute(ctx, range=["A1:B100"])
+        result = _tool("read_cell_range").execute_safe(ctx, range=["A1:B100"])
 
-    assert result["truncated"] is True
-    assert result["column_distincts"] == [
+    entry = _only_entry(result)
+    assert entry["truncated"] is True
+    assert entry["column_distincts"] == [
         {"column": "Country", "unique_count": 2, "values": ["US", "UK"]},
         {"column": "Code", "unique_count": 2, "values": ["1", "44"]},
     ]
@@ -900,37 +927,11 @@ def test_read_cell_range_description_not_hard_py_first():
     assert desc.index("write_formula_range") < desc.index("=PY")
 
 
-def test_set_style_rejects_mistyped_bold():
-    """Sloppy LLM bool strings must error, not silently no-op as success."""
-    from plugin.calc.cells import SetCellStyle
-
-    ctx = SimpleNamespace(doc=MagicMock())
-    with patch("plugin.calc.cells.CellManipulator") as manip_cls:
-        result = SetCellStyle().execute(ctx, range=["A1"], bold="notabool")
-
-    assert result["status"] == "error"
-    assert "bold" in result["message"]
-    manip_cls.return_value.set_cell_style.assert_not_called()
-
-
-def test_set_style_rejects_mistyped_font_size():
-    from plugin.calc.cells import SetCellStyle
-
-    ctx = SimpleNamespace(doc=MagicMock())
-    with patch("plugin.calc.cells.CellManipulator") as manip_cls:
-        result = SetCellStyle().execute(ctx, range=["A1"], font_size="12")
-
-    assert result["status"] == "error"
-    assert "font_size" in result["message"]
-    manip_cls.return_value.set_cell_style.assert_not_called()
-
-
 def test_set_style_accepts_typed_bold_and_font_size():
-    from plugin.calc.cells import SetCellStyle
 
     ctx = SimpleNamespace(doc=MagicMock())
     with patch("plugin.calc.cells.CellManipulator") as manip_cls:
-        result = SetCellStyle().execute(ctx, range=["A1"], bold=True, font_size=12)
+        result = _tool("set_style").execute_safe(ctx, range=["A1"], bold=True, font_size=12)
 
     assert result["status"] == "ok"
     manip_cls.return_value.set_cell_style.assert_called_once()
@@ -977,7 +978,7 @@ def test_write_formula_range_s30_format_pass_warning():
     manip = CellManipulator(bridge)
     with patch.object(manip, "_make_number_formatter", return_value=formatter):
         with patch.object(manip, "_apply_temporal_format_runs", side_effect=RuntimeError("format boom")):
-            msg = manip.write_formula_range("A1", "2026-08-08")
+            msg = manip.write_formula_range("A1", "2026-08-08")["message"]
 
     assert "Range A1 filled with 1 value (1 date)" in msg
     assert "could not apply date/time formats to 1 cells in A1" in msg
@@ -1029,7 +1030,7 @@ def test_write_formula_range_s30_warning_counts_apply_only():
     manip = CellManipulator(bridge)
     with patch.object(manip, "_make_number_formatter", return_value=formatter):
         with patch.object(manip, "_apply_temporal_format_runs", side_effect=RuntimeError("format boom")):
-            msg = manip.write_formula_range("A1:B1", '["2026-08-08", "2026-08-09"]')
+            msg = manip.write_formula_range("A1:B1", '["2026-08-08", "2026-08-09"]')["message"]
 
     assert "2 dates" in msg
     assert "could not apply date/time formats to 1 cells in A1:B1" in msg
@@ -1109,7 +1110,6 @@ def test_write_formula_range_empty_uno_error_uses_type_name():
 
 def test_write_cell_range_tool_error_return():
     """WriteCellRange.execute returns _tool_error when manipulator fails."""
-    from plugin.calc.cells import WriteCellRange
 
     class _BlankUno(Exception):
         def __str__(self):
@@ -1122,7 +1122,7 @@ def test_write_cell_range_tool_error_return():
     bridge = MagicMock()
     bridge.resolve_range_or_address.side_effect = _BlankUno()
 
-    tool = WriteCellRange()
+    tool = _tool("write_formula_range")
     with patch("plugin.calc.cells.CalcBridge", return_value=bridge):
         res = tool.execute(ctx, range=["A1"], values="123")
     assert res["status"] == "error"
@@ -1131,9 +1131,6 @@ def test_write_cell_range_tool_error_return():
 
 def test_json_array_value_count_and_a1_shape():
     from plugin.calc.address_utils import range_shape
-    from plugin.calc.cells import (
-        _normalize_source_arg,
-    )
     from plugin.calc.manipulator import _parse_formula_or_values_string
 
     assert len(_parse_formula_or_values_string('["a", "b", "c", "d"]')) == 4
@@ -1144,15 +1141,30 @@ def test_json_array_value_count_and_a1_shape():
     assert range_shape("Sheet1.C2:C9") == (8, 8, 1)
     assert range_shape("A1:B1") == (2, 1, 2)
     assert range_shape("SalesData") is None
-    assert _normalize_source_arg(None) == (None, None)
-    assert _normalize_source_arg("  Sheet1.A1:C3  ") == ("Sheet1.A1:C3", None)
-    assert _normalize_source_arg("   ") == (None, None)
-    src, err = _normalize_source_arg(["A1:C3"])
-    assert src is None and err is not None
+
+
+def test_write_formula_range_source_is_stripped_and_blank_falls_to_values():
+    ctx = SimpleNamespace(doc=MagicMock())
+    with (
+        patch("plugin.calc.cells.CalcBridge"),
+        patch("plugin.calc.cells.CellManipulator") as manip_cls,
+        patch("plugin.calc.cells.WriterCompoundUndo"),
+    ):
+        manip = manip_cls.return_value
+        manip.copy_formula_range.return_value = {"message": "copied", "rows_copied": 3, "cols_copied": 3}
+        res_copy = _tool("write_formula_range").execute_safe(ctx, range=["D1:F3"], source="  Sheet1.A1:C3  ")
+        assert res_copy["status"] == "ok"
+        manip.copy_formula_range.assert_called_once_with("Sheet1.A1:C3", "D1:F3")
+
+        manip.reset_mock()
+        manip.commit_write.return_value = {"message": "wrote"}
+        res_val = _tool("write_formula_range").execute_safe(ctx, range=["A1"], source="   ", values="1")
+        assert res_val["status"] == "ok"
+        manip.copy_formula_range.assert_not_called()
+        manip.plan_write.assert_called_once()
 
 
 def test_write_formula_range_rejects_semicolon_json_mismatch():
-    from plugin.calc.cells import WriteCellRange
     from plugin.calc.manipulator import CellManipulator
 
     ctx = SimpleNamespace(doc=MagicMock())
@@ -1160,7 +1172,7 @@ def test_write_formula_range_rejects_semicolon_json_mismatch():
         patch("plugin.calc.cells.CalcBridge", return_value=_a1_bridge()),
         patch.object(CellManipulator, "commit_write") as commit,
     ):
-        result = WriteCellRange().execute(
+        result = _tool("write_formula_range").execute_safe(
             ctx, range=["A1:A3"], values='["a"; "b"]'
         )
 
@@ -1173,7 +1185,6 @@ def test_write_formula_range_rejects_semicolon_json_mismatch():
 
 def test_write_formula_range_rejects_json_length_mismatch():
     """4 values into an 8-cell column must fail loud — no silent zip/pad."""
-    from plugin.calc.cells import WriteCellRange
     from plugin.calc.manipulator import CellManipulator
 
     ctx = SimpleNamespace(doc=MagicMock())
@@ -1181,7 +1192,7 @@ def test_write_formula_range_rejects_json_length_mismatch():
         patch("plugin.calc.cells.CalcBridge", return_value=_a1_bridge()),
         patch.object(CellManipulator, "commit_write") as commit,
     ):
-        result = WriteCellRange().execute(
+        result = _tool("write_formula_range").execute_safe(
             ctx, range=["C2:C9"], values='["a", "b", "c", "d"]'
         )
 
@@ -1193,7 +1204,6 @@ def test_write_formula_range_rejects_json_length_mismatch():
 
 
 def test_write_formula_range_rejects_list_length_mismatch():
-    from plugin.calc.cells import WriteCellRange
     from plugin.calc.manipulator import CellManipulator
 
     ctx = SimpleNamespace(doc=MagicMock())
@@ -1201,7 +1211,7 @@ def test_write_formula_range_rejects_list_length_mismatch():
         patch("plugin.calc.cells.CalcBridge", return_value=_a1_bridge()),
         patch.object(CellManipulator, "commit_write") as commit,
     ):
-        result = WriteCellRange().execute(
+        result = _tool("write_formula_range").execute_safe(
             ctx, range=["A1:B4"], values=["a", "b", "c", "d"]
         )
 
@@ -1212,7 +1222,6 @@ def test_write_formula_range_rejects_list_length_mismatch():
 
 
 def test_write_formula_range_accepts_matching_json_and_scalar_fill():
-    from plugin.calc.cells import WriteCellRange
 
     ctx = SimpleNamespace(doc=MagicMock())
     with (
@@ -1220,10 +1229,10 @@ def test_write_formula_range_accepts_matching_json_and_scalar_fill():
         patch("plugin.calc.cells.CellManipulator") as manip_cls,
         patch("plugin.calc.cells.WriterCompoundUndo"),
     ):
-        manip_cls.return_value.commit_write.return_value = "wrote"
-        matched = WriteCellRange().execute(ctx, range=["A1:A2"], values='["x", "y"]')
-        filled = WriteCellRange().execute(ctx, range=["A1:A8"], values="=B2+1")
-        cleared = WriteCellRange().execute(ctx, range=["A1:A8"], values="")
+        manip_cls.return_value.commit_write.return_value = {"message": "wrote"}
+        matched = _tool("write_formula_range").execute_safe(ctx, range=["A1:A2"], values='["x", "y"]')
+        filled = _tool("write_formula_range").execute_safe(ctx, range=["A1:A8"], values="=B2+1")
+        cleared = _tool("write_formula_range").execute_safe(ctx, range=["A1:A8"], values="")
 
     assert matched["status"] == "ok"
     assert filled["status"] == "ok"
@@ -1233,14 +1242,13 @@ def test_write_formula_range_accepts_matching_json_and_scalar_fill():
 
 def test_write_formula_range_source_and_values_errors():
     """source + values is forbidden — no silent write or copy."""
-    from plugin.calc.cells import WriteCellRange
 
     ctx = SimpleNamespace(doc=MagicMock())
     with (
         patch("plugin.calc.cells.CalcBridge"),
         patch("plugin.calc.cells.CellManipulator") as manip_cls,
     ):
-        result = WriteCellRange().execute(
+        result = _tool("write_formula_range").execute_safe(
             ctx, range=["Sample.A1"], source="Sheet1.A1:C3", values="=A1"
         )
 
@@ -1251,14 +1259,13 @@ def test_write_formula_range_source_and_values_errors():
 
 
 def test_write_formula_range_source_and_empty_values_errors():
-    from plugin.calc.cells import WriteCellRange
 
     ctx = SimpleNamespace(doc=MagicMock())
     with (
         patch("plugin.calc.cells.CalcBridge"),
         patch("plugin.calc.cells.CellManipulator") as manip_cls,
     ):
-        result = WriteCellRange().execute(
+        result = _tool("write_formula_range").execute_safe(
             ctx, range=["Sample.A1"], source="Sheet1.A1:C3", values=""
         )
 
@@ -1268,7 +1275,6 @@ def test_write_formula_range_source_and_empty_values_errors():
 
 
 def test_write_formula_range_source_only_copies_block_size():
-    from plugin.calc.cells import WriteCellRange
 
     ctx = SimpleNamespace(doc=MagicMock())
     with (
@@ -1281,10 +1287,10 @@ def test_write_formula_range_source_only_copies_block_size():
             "rows_copied": 3,
             "cols_copied": 3,
         }
-        result = WriteCellRange().execute(
+        result = _tool("write_formula_range").execute_safe(
             ctx, range=["Sample.A1"], source="Sheet1.A1:C3"
         )
-        result2 = WriteCellRange().execute(
+        result2 = _tool("write_formula_range").execute_safe(
             ctx, range=["Sample.A1"], source="Sheet1.A1:C3", values=None
         )
 
@@ -1301,14 +1307,13 @@ def test_write_formula_range_source_only_copies_block_size():
 
 
 def test_write_formula_range_missing_values_without_source_errors():
-    from plugin.calc.cells import WriteCellRange
 
     ctx = SimpleNamespace(doc=MagicMock())
     with (
         patch("plugin.calc.cells.CalcBridge"),
         patch("plugin.calc.cells.CellManipulator") as manip_cls,
     ):
-        result = WriteCellRange().execute(ctx, range=["A1"])
+        result = _tool("write_formula_range").execute_safe(ctx, range=["A1"])
 
     assert result["status"] == "error"
     assert "values is required" in result["message"]
@@ -1350,7 +1355,6 @@ def test_write_formula_range_values_teaches_fill_down_not_json_pin():
 
 
 def test_write_formula_range_passes_native_2d_grid_to_manipulator():
-    from plugin.calc.cells import WriteCellRange
 
     grid = [["a", 1], ["b", None]]
     ctx = SimpleNamespace(doc=MagicMock())
@@ -1359,8 +1363,8 @@ def test_write_formula_range_passes_native_2d_grid_to_manipulator():
         patch("plugin.calc.cells.CellManipulator") as manip_cls,
         patch("plugin.calc.cells.WriterCompoundUndo"),
     ):
-        manip_cls.return_value.commit_write.return_value = "wrote"
-        result = WriteCellRange().execute(ctx, range=["A1:B2"], values=grid)
+        manip_cls.return_value.commit_write.return_value = {"message": "wrote"}
+        result = _tool("write_formula_range").execute_safe(ctx, range=["A1:B2"], values=grid)
 
     assert result["status"] == "ok"
     manip_cls.return_value.plan_write.assert_called_once()
@@ -1368,7 +1372,6 @@ def test_write_formula_range_passes_native_2d_grid_to_manipulator():
 
 
 def test_write_formula_range_passes_bool_cells_in_grid():
-    from plugin.calc.cells import WriteCellRange
 
     grid = [[True, False]]
     ctx = SimpleNamespace(doc=MagicMock())
@@ -1377,15 +1380,14 @@ def test_write_formula_range_passes_bool_cells_in_grid():
         patch("plugin.calc.cells.CellManipulator") as manip_cls,
         patch("plugin.calc.cells.WriterCompoundUndo"),
     ):
-        manip_cls.return_value.commit_write.return_value = "wrote"
-        result = WriteCellRange().execute(ctx, range=["A1:B1"], values=grid)
+        manip_cls.return_value.commit_write.return_value = {"message": "wrote"}
+        result = _tool("write_formula_range").execute_safe(ctx, range=["A1:B1"], values=grid)
 
     assert result["status"] == "ok"
     assert manip_cls.return_value.plan_write.call_args[0][1] == grid
 
 
 def test_write_formula_range_rejects_2d_grid_shape_mismatch():
-    from plugin.calc.cells import WriteCellRange
     from plugin.calc.manipulator import CellManipulator
 
     ctx = SimpleNamespace(doc=MagicMock())
@@ -1393,7 +1395,7 @@ def test_write_formula_range_rejects_2d_grid_shape_mismatch():
         patch("plugin.calc.cells.CalcBridge", return_value=_a1_bridge()),
         patch.object(CellManipulator, "commit_write") as commit,
     ):
-        result = WriteCellRange().execute(
+        result = _tool("write_formula_range").execute_safe(
             ctx, range=["A1:C2"], values=[["a", "b"], ["c", "d"]]
         )
 
@@ -1404,7 +1406,6 @@ def test_write_formula_range_rejects_2d_grid_shape_mismatch():
 
 
 def test_write_formula_range_rejects_ragged_rows_before_manipulator():
-    from plugin.calc.cells import WriteCellRange
     from plugin.calc.manipulator import CellManipulator
 
     ctx = SimpleNamespace(doc=MagicMock())
@@ -1412,7 +1413,7 @@ def test_write_formula_range_rejects_ragged_rows_before_manipulator():
         patch("plugin.calc.cells.CalcBridge", return_value=_a1_bridge()),
         patch.object(CellManipulator, "commit_write") as commit,
     ):
-        result = WriteCellRange().execute(
+        result = _tool("write_formula_range").execute_safe(
             ctx, range=["A1:B2"], values=[["a"], ["b", "c"]]
         )
 
@@ -1421,7 +1422,6 @@ def test_write_formula_range_rejects_ragged_rows_before_manipulator():
 
 
 def test_write_formula_range_rejects_dict_cell_before_manipulator():
-    from plugin.calc.cells import WriteCellRange
     from plugin.calc.manipulator import CellManipulator
 
     ctx = SimpleNamespace(doc=MagicMock())
@@ -1429,7 +1429,7 @@ def test_write_formula_range_rejects_dict_cell_before_manipulator():
         patch("plugin.calc.cells.CalcBridge", return_value=_a1_bridge()),
         patch.object(CellManipulator, "commit_write") as commit,
     ):
-        result = WriteCellRange().execute(ctx, range=["A1"], values=[{"x": 1}])
+        result = _tool("write_formula_range").execute_safe(ctx, range=["A1"], values=[{"x": 1}])
 
     assert result["status"] == "error"
     assert "boolean, or null" in result["message"]
@@ -1437,7 +1437,6 @@ def test_write_formula_range_rejects_dict_cell_before_manipulator():
 
 
 def test_write_formula_range_rejects_mixed_grid_rows_before_manipulator():
-    from plugin.calc.cells import WriteCellRange
     from plugin.calc.manipulator import CellManipulator
 
     ctx = SimpleNamespace(doc=MagicMock())
@@ -1445,7 +1444,7 @@ def test_write_formula_range_rejects_mixed_grid_rows_before_manipulator():
         patch("plugin.calc.cells.CalcBridge", return_value=_a1_bridge()),
         patch.object(CellManipulator, "commit_write") as commit,
     ):
-        result = WriteCellRange().execute(ctx, range=["A1"], values=[["a"], "b"])
+        result = _tool("write_formula_range").execute_safe(ctx, range=["A1"], values=[["a"], "b"])
 
     assert result["status"] == "error"
     assert "boolean, or null" in result["message"]
@@ -1487,7 +1486,6 @@ def test_preview_if_large_escapes_doubled_apostrophes():
 
 
 def test_read_cell_range_oversized_unqualified_named_range_clips_on_resolved_sheet():
-    from plugin.calc.cells import ReadCellRange
 
     ctx = SimpleNamespace(doc=MagicMock())
     cell_range = _range_addr(start_col=0, end_col=1, start_row=0, end_row=99)
@@ -1504,7 +1502,7 @@ def test_read_cell_range_oversized_unqualified_named_range_clips_on_resolved_she
         bridge.resolve_range_or_address.return_value = cell_range
         inspector_cls.return_value.read_range.return_value = _inspector_sample_grid([1])
 
-        ReadCellRange().execute(ctx, range=["Sales"])
+        _tool("read_cell_range").execute_safe(ctx, range=["Sales"])
 
         calls = bridge.resolve_range_or_address.call_args_list
         assert len(calls) == 2
@@ -1513,7 +1511,6 @@ def test_read_cell_range_oversized_unqualified_named_range_clips_on_resolved_she
 
 
 def test_read_cell_range_oversized_unqualified_named_range_clips_on_identifier_sheet():
-    from plugin.calc.cells import ReadCellRange
 
     ctx = SimpleNamespace(doc=MagicMock())
     cell_range = _range_addr(start_col=0, end_col=1, start_row=0, end_row=99)
@@ -1530,7 +1527,7 @@ def test_read_cell_range_oversized_unqualified_named_range_clips_on_identifier_s
         bridge.resolve_range_or_address.return_value = cell_range
         inspector_cls.return_value.read_range.return_value = _inspector_sample_grid([1])
 
-        ReadCellRange().execute(ctx, range=["Sales"])
+        _tool("read_cell_range").execute_safe(ctx, range=["Sales"])
 
         calls = bridge.resolve_range_or_address.call_args_list
         assert len(calls) == 2
@@ -1617,7 +1614,6 @@ def test_try_column_distinct_peek_sets_scanned_rows_over_cap():
 
 
 def test_read_cell_range_partial_failure():
-    from plugin.calc.cells import ReadCellRange
 
     ctx = SimpleNamespace(doc=MagicMock())
     with (
@@ -1630,7 +1626,7 @@ def test_read_cell_range_partial_failure():
         inspector = inspector_cls.return_value
         inspector.read_range.side_effect = [grid1, RuntimeError("bad range")]
 
-        res = ReadCellRange().execute(ctx, range=["A1", "B2"])
+        res = _tool("read_cell_range").execute_safe(ctx, range=["A1", "B2"])
         assert res["status"] == "error"
         assert "Failed to read 1 of 2 ranges" in res["message"]
         assert "B2" in res["message"]
@@ -1642,26 +1638,13 @@ def test_read_cell_range_partial_failure():
         assert "bad range" in res["result"][1]["message"]
 
         inspector.read_range.side_effect = RuntimeError("single fail")
-        res_single = ReadCellRange().execute(ctx, range=["C3"])
+        res_single = _tool("read_cell_range").execute_safe(ctx, range=["C3"])
         assert res_single["status"] == "error"
         assert res_single["range"] == "C3"
         assert "single fail" in res_single["message"]
 
 
-def test_write_cell_range_rejects_top_level_bool():
-    from plugin.calc.cells import WriteCellRange
-
-    ctx = SimpleNamespace(doc=MagicMock())
-    with patch("plugin.calc.cells.CellManipulator") as manipulator_cls:
-        res = WriteCellRange().execute(ctx, range=["A1"], values=True)
-        assert res["status"] == "error"
-        assert "boolean" in res["message"]
-        manipulator_cls.return_value.commit_write.assert_not_called()
-
-
 def test_write_cell_range_multi_range_preserves_array_payload():
-    from plugin.calc.cells import WriteCellRange
-
     ctx = SimpleNamespace(doc=MagicMock())
     dict_res = {
         "message": "Array formula entered on A1:A2 (2 x 1).",
@@ -1673,9 +1656,9 @@ def test_write_cell_range_multi_range_preserves_array_payload():
     }
     with patch("plugin.calc.cells.CellManipulator") as manipulator_cls:
         manipulator = manipulator_cls.return_value
-        manipulator.commit_write.side_effect = [dict_res, "wrote"]
+        manipulator.commit_write.side_effect = [dict_res, {"message": "wrote"}]
 
-        res = WriteCellRange().execute(ctx, range=["A1:A2", "B1:B2"], values="=SEQUENCE(2)")
+        res = _tool("write_formula_range").execute_safe(ctx, range=["A1:A2", "B1:B2"], values="=SEQUENCE(2)")
         assert res["status"] == "ok"
         assert res["message"] == "Wrote to 2 ranges"
         assert len(res["ranges"]) == 2
@@ -1687,7 +1670,6 @@ def test_write_cell_range_multi_range_preserves_array_payload():
 
 def test_write_cell_range_multi_range_rolls_back_on_error():
     from plugin.framework.errors import CalcError
-    from plugin.calc.cells import WriteCellRange
 
     titles_stack = []
     undo_mgr = MagicMock()
@@ -1719,9 +1701,9 @@ def test_write_cell_range_multi_range_rolls_back_on_error():
         patch("plugin.calc.cells.CellManipulator") as manipulator_cls,
     ):
         manipulator = manipulator_cls.return_value
-        manipulator.commit_write.side_effect = ["wrote", CalcError("occupied")]
+        manipulator.commit_write.side_effect = [{"message": "wrote"}, CalcError("occupied")]
 
-        res = WriteCellRange().execute(ctx, range=["A1", "B1"], values="1")
+        res = _tool("write_formula_range").execute_safe(ctx, range=["A1", "B1"], values="1")
         assert res["status"] == "error"
         assert res["code"] == "CALC_ERROR"
         assert "Nothing was kept." in res["message"]
@@ -1731,7 +1713,6 @@ def test_write_cell_range_multi_range_rolls_back_on_error():
 
 def test_set_cell_style_multi_range_rolls_back_on_error():
     from plugin.framework.errors import CalcError
-    from plugin.calc.cells import SetCellStyle
 
     titles_stack = []
     undo_mgr = MagicMock()
@@ -1765,7 +1746,7 @@ def test_set_cell_style_multi_range_rolls_back_on_error():
         manipulator = manipulator_cls.return_value
         manipulator.set_cell_style.side_effect = [None, CalcError("style failed")]
 
-        res = SetCellStyle().execute(ctx, range=["A1", "B1"], bold=True)
+        res = _tool("set_style").execute_safe(ctx, range=["A1", "B1"], bold=True)
         assert res["status"] == "error"
         assert res["code"] == "CALC_ERROR"
         assert "Nothing was kept." in res["message"]
@@ -1774,7 +1755,6 @@ def test_set_cell_style_multi_range_rolls_back_on_error():
 
 
 def test_set_cell_style_disposal_propagates():
-    from plugin.calc.cells import SetCellStyle
 
     class DisposedException(Exception):
         pass
@@ -1806,7 +1786,7 @@ def test_set_cell_style_disposal_propagates():
         manipulator = manipulator_cls.return_value
         manipulator.set_cell_style.side_effect = DisposedException("gone")
 
-        tool = SetCellStyle()
+        tool = _tool("set_style")
         with pytest.raises(DisposedException):
             tool.execute(ctx, range=["A1"], bold=True)
         undo_mgr.undo.assert_not_called()
@@ -1817,7 +1797,6 @@ def test_set_cell_style_disposal_propagates():
 
 
 def test_set_cell_style_runtime_exception_still_rolls_back():
-    from plugin.calc.cells import SetCellStyle
 
     class RuntimeException(Exception):
         pass
@@ -1849,7 +1828,7 @@ def test_set_cell_style_runtime_exception_still_rolls_back():
         manipulator = manipulator_cls.return_value
         manipulator.set_cell_style.side_effect = [None, RuntimeException("style failed")]
 
-        res = SetCellStyle().execute(ctx, range=["A1", "B1"], bold=True)
+        res = _tool("set_style").execute_safe(ctx, range=["A1", "B1"], bold=True)
         assert res["status"] == "error"
         assert "Nothing was kept." in res["message"]
         undo_mgr.undo.assert_called_once()
@@ -1857,7 +1836,6 @@ def test_set_cell_style_runtime_exception_still_rolls_back():
 
 
 def test_write_formula_range_disposal_propagates():
-    from plugin.calc.cells import WriteCellRange
 
     class DisposedException(Exception):
         pass
@@ -1889,7 +1867,7 @@ def test_write_formula_range_disposal_propagates():
         manipulator = manipulator_cls.return_value
         manipulator.commit_write.side_effect = DisposedException("gone")
 
-        tool = WriteCellRange()
+        tool = _tool("write_formula_range")
         with pytest.raises(DisposedException):
             tool.execute(ctx, range=["A1"], values="1")
         undo_mgr.undo.assert_not_called()
@@ -1901,7 +1879,6 @@ def test_write_formula_range_disposal_propagates():
 
 
 def test_empty_new_group_does_not_undo_older_action():
-    from plugin.calc.cells import WriteCellRange
     from plugin.framework.errors import CalcError
 
     titles_stack = ["WriterAgent: Write formulas"]
@@ -1930,13 +1907,12 @@ def test_empty_new_group_does_not_undo_older_action():
         manipulator = manipulator_cls.return_value
         manipulator.commit_write.side_effect = CalcError("fail")
 
-        res = WriteCellRange().execute(ctx, range=["A1"], values="1")
+        res = _tool("write_formula_range").execute_safe(ctx, range=["A1"], values="1")
         assert res["status"] == "error"
         undo_mgr.undo.assert_not_called()
 
 
 def test_read_cell_range_sizing_failure_fails_closed():
-    from plugin.calc.cells import ReadCellRange
 
     ctx = SimpleNamespace(doc=MagicMock())
     cell_range = MagicMock()
@@ -1947,7 +1923,7 @@ def test_read_cell_range_sizing_failure_fails_closed():
         patch("plugin.calc.cells.CellInspector") as inspector_cls,
     ):
         bridge_cls.return_value.resolve_range_or_address.return_value = cell_range
-        res = ReadCellRange().execute(ctx, range=["A1:H10"])
+        res = _tool("read_cell_range").execute_safe(ctx, range=["A1:H10"])
 
     assert res["status"] == "error"
     assert "Could not size range" in res["message"]
@@ -1955,7 +1931,6 @@ def test_read_cell_range_sizing_failure_fails_closed():
 
 
 def test_two_range_array_write_measures_once():
-    from plugin.calc.cells import WriteCellRange
 
     ctx = SimpleNamespace(doc=MagicMock())
     with (
@@ -1966,7 +1941,7 @@ def test_two_range_array_write_measures_once():
         manipulator.plan_write.side_effect = [SimpleNamespace(array_size=(2, 2)), SimpleNamespace(array_size=(2, 2))]
         manipulator.commit_write.return_value = {"message": "ok"}
 
-        res = WriteCellRange().execute(ctx, range=["A1:B2", "C1:D2"], values="=SEQUENCE(2, 2)")
+        res = _tool("write_formula_range").execute_safe(ctx, range=["A1:B2", "C1:D2"], values="=SEQUENCE(2, 2)")
         assert res["status"] == "ok"
         assert manipulator.plan_write.call_count == 2
         calls = manipulator.plan_write.call_args_list
@@ -1975,7 +1950,6 @@ def test_two_range_array_write_measures_once():
 
 
 def test_write_formula_range_refuses_named_range_mismatch_before_any_write():
-    from plugin.calc.cells import WriteCellRange
     from plugin.calc.manipulator import CellManipulator
 
     ctx = SimpleNamespace(doc=MagicMock())
@@ -1984,7 +1958,7 @@ def test_write_formula_range_refuses_named_range_mismatch_before_any_write():
         patch("plugin.calc.cells.WriterCompoundUndo") as undo_cls,
         patch.object(CellManipulator, "commit_write") as commit,
     ):
-        res = WriteCellRange().execute(ctx, range=["A1:A2", "Totals"], values=["x", "y"])
+        res = _tool("write_formula_range").execute_safe(ctx, range=["A1:A2", "Totals"], values=["x", "y"])
 
     assert res["status"] == "error"
     assert "Array has 2 values but range Totals has 3 cells (3×1)" in res["message"]
@@ -1994,7 +1968,6 @@ def test_write_formula_range_refuses_named_range_mismatch_before_any_write():
 
 
 def test_write_formula_range_clear_refuses_unknown_range_before_any_write():
-    from plugin.calc.cells import WriteCellRange
     from plugin.calc.manipulator import CellManipulator
 
     ctx = SimpleNamespace(doc=MagicMock())
@@ -2003,7 +1976,7 @@ def test_write_formula_range_clear_refuses_unknown_range_before_any_write():
         patch("plugin.calc.cells.WriterCompoundUndo") as undo_cls,
         patch.object(CellManipulator, "commit_write") as commit,
     ):
-        res = WriteCellRange().execute(ctx, range=["A1:A2", "Nope"], values="")
+        res = _tool("write_formula_range").execute_safe(ctx, range=["A1:A2", "Nope"], values="")
 
     assert res["status"] == "error"
     assert "NOPE" in res["message"]
@@ -2013,16 +1986,15 @@ def test_write_formula_range_clear_refuses_unknown_range_before_any_write():
 
 
 def test_write_formula_range_comma_prose_to_one_cell_ranges_is_text():
-    from plugin.calc.cells import WriteCellRange
     from plugin.calc.manipulator import CellManipulator
 
     ctx = SimpleNamespace(doc=MagicMock())
     with (
         patch("plugin.calc.cells.CalcBridge", return_value=_a1_bridge()),
         patch("plugin.calc.cells.WriterCompoundUndo"),
-        patch.object(CellManipulator, "commit_write", return_value="ok") as commit,
+        patch.object(CellManipulator, "commit_write", return_value={"message": "ok"}) as commit,
     ):
-        res = WriteCellRange().execute(ctx, range=["A1", "C1"], values="Hello, world")
+        res = _tool("write_formula_range").execute_safe(ctx, range=["A1", "C1"], values="Hello, world")
 
     assert res["status"] == "ok"
     assert commit.call_count == 2
@@ -2031,9 +2003,9 @@ def test_write_formula_range_comma_prose_to_one_cell_ranges_is_text():
     with (
         patch("plugin.calc.cells.CalcBridge", return_value=_a1_bridge({"Note": "B2"})),
         patch("plugin.calc.cells.WriterCompoundUndo"),
-        patch.object(CellManipulator, "commit_write", return_value="ok") as commit_named,
+        patch.object(CellManipulator, "commit_write", return_value={"message": "ok"}) as commit_named,
     ):
-        res_named = WriteCellRange().execute(ctx, range=["Note"], values="Hello, world")
+        res_named = _tool("write_formula_range").execute_safe(ctx, range=["Note"], values="Hello, world")
 
     assert res_named["status"] == "ok"
     commit_named.assert_called_once()
@@ -2050,7 +2022,6 @@ def test_delete_structure_schema_start_type_is_integer():
 
 
 def test_delete_structure_disposal_propagates():
-    from plugin.calc.cells import DeleteStructure
 
     class DisposedException(Exception):
         pass
@@ -2058,7 +2029,7 @@ def test_delete_structure_disposal_propagates():
     ctx = SimpleNamespace(doc=MagicMock())
     with patch("plugin.calc.cells.CellManipulator") as manipulator_cls:
         manipulator_cls.return_value.delete_structure.side_effect = DisposedException("gone")
-        tool = DeleteStructure()
+        tool = _tool("delete_structure")
         with pytest.raises(DisposedException):
             tool.execute(ctx, structure_type="rows", start=2, count=1)
 
@@ -2068,15 +2039,13 @@ def test_delete_structure_disposal_propagates():
 
 
 def test_delete_structure_runtime_exception_stays_tool_error():
-    from plugin.calc.cells import DeleteStructure
-
     class RuntimeException(Exception):
         pass
 
     ctx = SimpleNamespace(doc=MagicMock())
     with patch("plugin.calc.cells.CellManipulator") as manipulator_cls:
         manipulator_cls.return_value.delete_structure.side_effect = RuntimeException("bad row")
-        tool = DeleteStructure()
+        tool = _tool("delete_structure")
         res = tool.execute(ctx, structure_type="rows", start=2, count=1)
         assert res["status"] == "error"
         assert "bad row" in res["message"]
@@ -2084,24 +2053,16 @@ def test_delete_structure_runtime_exception_stays_tool_error():
 
 
 def test_set_cell_style_validation():
-    from plugin.calc.cells import SetCellStyle
-
     ctx = SimpleNamespace(doc=MagicMock())
     with patch("plugin.calc.cells.CellManipulator") as manipulator_cls:
         manipulator = manipulator_cls.return_value
 
-        res = SetCellStyle().execute(ctx, range=["A1"])
+        res = _tool("set_style").execute_safe(ctx, range=["A1"])
         assert res["status"] == "error"
         assert "No style properties" in res["message"]
         manipulator.set_cell_style.assert_not_called()
 
-        res_color = SetCellStyle().execute(ctx, range=["A1"], bg_color=255)
-        assert res_color["status"] == "error"
-        assert "bg_color" in res_color["message"]
-        assert "int" in res_color["message"]
-        manipulator.set_cell_style.assert_not_called()
-
-        res_empty = SetCellStyle().execute(ctx, range=["A1"], bg_color="", bold=True)
+        res_empty = _tool("set_style").execute_safe(ctx, range=["A1"], bg_color="", bold=True)
         assert res_empty["status"] == "ok"
         manipulator.set_cell_style.assert_called_once()
         assert manipulator.set_cell_style.call_args.kwargs["bg_color"] is None
@@ -2109,147 +2070,105 @@ def test_set_cell_style_validation():
 
 
 def test_merge_cells_validation():
-    from plugin.calc.cells import MergeCells
-
     ctx = SimpleNamespace(doc=MagicMock())
     with patch("plugin.calc.cells.CellManipulator") as manipulator_cls:
         manipulator = manipulator_cls.return_value
 
-        res = MergeCells().execute(ctx, range=["A1:B1"], center="invalid")
-        assert res["status"] == "error"
-        assert "center" in res["message"]
-        manipulator.merge_cells.assert_not_called()
-
-        res_ok = MergeCells().execute(ctx, range=["A1:B1"])
+        res_ok = _tool("merge_cells").execute_safe(ctx, range=["A1:B1"])
         assert res_ok["status"] == "ok"
         manipulator.merge_cells.assert_called_once_with("A1:B1", center=True, unmerge=False)
 
 
 def test_merge_cells_unmerge_passes_flag():
-    from plugin.calc.cells import MergeCells
 
     ctx = SimpleNamespace(doc=MagicMock())
     with patch("plugin.calc.cells.CellManipulator") as manipulator_cls:
         manipulator = manipulator_cls.return_value
-        res = MergeCells().execute(ctx, range=["A1:B1"], unmerge=True)
+        res = _tool("merge_cells").execute_safe(ctx, range=["A1:B1"], unmerge=True)
         assert res["status"] == "ok"
         manipulator.merge_cells.assert_called_once_with("A1:B1", center=True, unmerge=True)
 
 
 def test_sort_range_validation():
-    from plugin.calc.cells import SortRange
-
     ctx = SimpleNamespace(doc=MagicMock())
     with patch("plugin.calc.cells.CellManipulator") as manipulator_cls:
         manipulator = manipulator_cls.return_value
 
-        res_asc = SortRange().execute(ctx, range=["A1:B2"], has_header=True, ascending="invalid")
-        assert res_asc["status"] == "error"
-        assert "ascending" in res_asc["message"]
-        manipulator.range_sort.assert_not_called()
-
-        res_sc_bool = SortRange().execute(ctx, range=["A1:B2"], has_header=True, sort_column=True)
-        assert res_sc_bool["status"] == "error"
-        assert "sort_column" in res_sc_bool["message"]
-        manipulator.range_sort.assert_not_called()
-
-        res_sc_neg = SortRange().execute(ctx, range=["A1:B2"], has_header=True, sort_column=-1)
+        res_sc_neg = _tool("range_sort").execute_safe(ctx, range=["A1:B2"], has_header=True, sort_column=-1)
         assert res_sc_neg["status"] == "error"
         assert "sort_column" in res_sc_neg["message"]
         manipulator.range_sort.assert_not_called()
 
         manipulator.range_sort.return_value = "Sorted"
-        res_ok = SortRange().execute(ctx, range=["A1:B2"], has_header=True)
+        res_ok = _tool("range_sort").execute_safe(ctx, range=["A1:B2"], has_header=True)
         assert res_ok["status"] == "ok"
         manipulator.range_sort.assert_called_once_with("A1:B2", sort_column=0, ascending=True, has_header=True)
 
         manipulator.range_sort.reset_mock()
         manipulator.range_sort.side_effect = ["A done.", "B done."]
-        res_multi = SortRange().execute(ctx, range=["A1:B2", "D1:E2"], has_header=True)
+        res_multi = _tool("range_sort").execute_safe(ctx, range=["A1:B2", "D1:E2"], has_header=True)
         assert res_multi["status"] == "ok"
         assert res_multi["message"] == "A done. B done."
 
 
-def test_string_booleans_accepted():
-    from plugin.calc.cells import MergeCells, SortRange
-
-    ctx = SimpleNamespace(doc=MagicMock())
-    with patch("plugin.calc.cells.CellManipulator") as manipulator_cls:
-        manipulator = manipulator_cls.return_value
-        res_merge = MergeCells().execute(ctx, range=["A1:B1"], center="true")
-        assert res_merge["status"] == "ok"
-        manipulator.merge_cells.assert_called_once_with("A1:B1", center=True, unmerge=False)
-
-        manipulator.reset_mock()
-        manipulator.range_sort.return_value = "Sorted"
-        res_sort = SortRange().execute(ctx, range=["A1:B2"], has_header=True, ascending="false")
-        assert res_sort["status"] == "ok"
-        manipulator.range_sort.assert_called_once_with("A1:B2", sort_column=0, ascending=False, has_header=True)
-
-
 def test_delete_structure_validation():
-    from plugin.calc.cells import DeleteStructure
-
     ctx = SimpleNamespace(doc=MagicMock())
     with patch("plugin.calc.cells.CellManipulator") as manipulator_cls:
         manipulator = manipulator_cls.return_value
         manipulator.delete_structure.return_value = "Deleted"
 
         for bad_row in ("²", "5x", 0, -1):
-            res = DeleteStructure().execute(ctx, structure_type="rows", start=bad_row)
+            res = _tool("delete_structure").execute_safe(ctx, structure_type="rows", start=bad_row)
             assert res["status"] == "error", f"Expected error for rows start={bad_row!r}"
             assert "start for rows" in res["message"]
             manipulator.delete_structure.assert_not_called()
 
         for good_row in ("5", 5):
-            res = DeleteStructure().execute(ctx, structure_type="rows", start=good_row)
+            res = _tool("delete_structure").execute_safe(ctx, structure_type="rows", start=good_row)
             assert res["status"] == "ok"
-            manipulator.delete_structure.assert_called_with("rows", 5, count=1)
+            manipulator.delete_structure.assert_called_with("rows", 5, count=1, sheet=None)
         manipulator.delete_structure.reset_mock()
 
         for bad_col in ("3", 3):
-            res = DeleteStructure().execute(ctx, structure_type="columns", start=bad_col)
+            res = _tool("delete_structure").execute_safe(ctx, structure_type="columns", start=bad_col)
             assert res["status"] == "error", f"Expected error for columns start={bad_col!r}"
             assert "start for columns" in res["message"]
             manipulator.delete_structure.assert_not_called()
 
-        res_c = DeleteStructure().execute(ctx, structure_type="columns", start="c")
+        res_c = _tool("delete_structure").execute_safe(ctx, structure_type="columns", start="c")
         assert res_c["status"] == "ok"
-        manipulator.delete_structure.assert_called_with("columns", "C", count=1)
+        manipulator.delete_structure.assert_called_with("columns", "C", count=1, sheet=None)
         manipulator.delete_structure.reset_mock()
 
-        for bad_count in (0, -1, True, "2"):
-            res = DeleteStructure().execute(ctx, structure_type="rows", start=5, count=bad_count)
+        for bad_count in (0, -1):
+            res = _tool("delete_structure").execute_safe(ctx, structure_type="rows", start=5, count=bad_count)
             assert res["status"] == "error", f"Expected error for count={bad_count!r}"
             assert "count" in res["message"]
             manipulator.delete_structure.assert_not_called()
 
 
 def test_insert_structure_validation_matches_delete():
-    from plugin.calc.cells import InsertStructure
-
     ctx = SimpleNamespace(doc=MagicMock())
     with patch("plugin.calc.cells.CellManipulator") as manipulator_cls:
         manipulator = manipulator_cls.return_value
         manipulator.insert_structure.return_value = "Inserted"
 
         for bad_row in ("²", "5x", 0, -1):
-            res = InsertStructure().execute(ctx, structure_type="rows", start=bad_row)
+            res = _tool("insert_structure").execute_safe(ctx, structure_type="rows", start=bad_row)
             assert res["status"] == "error"
             manipulator.insert_structure.assert_not_called()
 
-        InsertStructure().execute(ctx, structure_type="rows", start=5)
-        manipulator.insert_structure.assert_called_with("rows", 5, count=1)
+        _tool("insert_structure").execute_safe(ctx, structure_type="rows", start=5)
+        manipulator.insert_structure.assert_called_with("rows", 5, count=1, sheet=None)
         manipulator.insert_structure.reset_mock()
 
-        for bad_count in (0, -1, True, "2"):
-            res = InsertStructure().execute(ctx, structure_type="rows", start=5, count=bad_count)
+        for bad_count in (0, -1):
+            res = _tool("insert_structure").execute_safe(ctx, structure_type="rows", start=5, count=bad_count)
             assert res["status"] == "error"
             manipulator.insert_structure.assert_not_called()
 
 
 def test_delete_structure_sheet_prefix_passes_sheet():
-    from plugin.calc.cells import DeleteStructure
 
     ctx = SimpleNamespace(doc=MagicMock())
     sheet = MagicMock()
@@ -2260,24 +2179,22 @@ def test_delete_structure_sheet_prefix_passes_sheet():
         bridge_cls.return_value.get_sheet.return_value = sheet
         manipulator = manipulator_cls.return_value
         manipulator.delete_structure.return_value = "ok"
-        DeleteStructure().execute(ctx, structure_type="rows", start="Sheet2.5")
+        _tool("delete_structure").execute_safe(ctx, structure_type="rows", start="Sheet2.5")
         manipulator.delete_structure.assert_called_once_with("rows", 5, count=1, sheet=sheet)
 
 
 def test_delete_structure_rejects_internal_sheet_prefix():
-    from plugin.calc.cells import DeleteStructure
 
     ctx = SimpleNamespace(doc=MagicMock())
     with patch("plugin.calc.cells.CellManipulator") as manipulator_cls:
         manipulator = manipulator_cls.return_value
-        res = DeleteStructure().execute(ctx, structure_type="rows", start="_hidden.5")
+        res = _tool("delete_structure").execute_safe(ctx, structure_type="rows", start="_hidden.5")
         assert res["status"] == "error"
         assert "internal" in res["message"]
         manipulator.delete_structure.assert_not_called()
 
 
-def test_delete_structure_missing_sheet_raises():
-    from plugin.calc.cells import DeleteStructure
+def test_delete_structure_missing_sheet_is_uno_object_error():
     from plugin.framework.errors import UnoObjectError
 
     ctx = SimpleNamespace(doc=MagicMock())
@@ -2289,17 +2206,18 @@ def test_delete_structure_missing_sheet_raises():
             "No sheet named 'Missing'.",
             details={"available": ["Sheet1"]},
         )
-        with pytest.raises(UnoObjectError):
-            DeleteStructure().execute(ctx, structure_type="rows", start="Missing.5")
+        res = _tool("delete_structure").execute_safe(ctx, structure_type="rows", start="Missing.5")
+    assert res["status"] == "error"
+    assert res["code"] == "UNO_OBJECT_ERROR"
+    assert res["details"]["available"] == ["Sheet1"]
 
 
 def test_delete_structure_rejects_cell_address_as_row_start():
-    from plugin.calc.cells import DeleteStructure
 
     ctx = SimpleNamespace(doc=MagicMock())
     with patch("plugin.calc.cells.CellManipulator") as manipulator_cls:
         manipulator = manipulator_cls.return_value
-        res = DeleteStructure().execute(ctx, structure_type="rows", start="A1")
+        res = _tool("delete_structure").execute_safe(ctx, structure_type="rows", start="A1")
         assert res["status"] == "error"
         manipulator.delete_structure.assert_not_called()
 
@@ -2339,55 +2257,41 @@ def test_insert_cell_html_non_string_assertion():
         InsertCellHtml().execute(ctx, cell="A1", html=123)
 
 
-def test_schema_required_params_direct_call_assertions():
-    from plugin.calc.cells import (
-        DeleteStructure,
-        MergeCells,
-        ReadCellRange,
-        SetCellStyle,
-        SortRange,
-        WriteCellRange,
-    )
-
-    ctx = SimpleNamespace(doc=MagicMock())
-
-    # Range missing raises KeyError on direct execute
-    with pytest.raises(KeyError):
-        ReadCellRange().execute(ctx)
-    with pytest.raises(KeyError):
-        WriteCellRange().execute(ctx)
-    with pytest.raises(KeyError):
-        SetCellStyle().execute(ctx)
-    with pytest.raises(KeyError):
-        MergeCells().execute(ctx)
-    with pytest.raises(KeyError):
-        SortRange().execute(ctx, has_header=True)
-
-    # SortRange has_header missing
-    with pytest.raises(KeyError):
-        SortRange().execute(ctx, range=["A1:B2"])
-
-    # DeleteStructure structure_type missing
-    with pytest.raises(KeyError):
-        DeleteStructure().execute(ctx, start=1)
-
-
-@requires_asserts
-def test_sort_range_has_header_type_assertion():
-    from plugin.calc.cells import SortRange
-
-    ctx = SimpleNamespace(doc=MagicMock())
-    with pytest.raises(AssertionError):
-        SortRange().execute(ctx, range=["A1:B2"], has_header="true")
-
-
-@requires_asserts
-def test_delete_structure_type_assertion():
-    from plugin.calc.cells import DeleteStructure
-
-    ctx = SimpleNamespace(doc=MagicMock())
-    with pytest.raises(AssertionError):
-        DeleteStructure().execute(ctx, structure_type="invalid", start=1)
+@pytest.mark.parametrize(
+    ("name", "kwargs"),
+    [
+        ("merge_cells", {"range": ["A1:B1"], "center": "invalid"}),
+        ("merge_cells", {"range": ["A1:B1"], "center": "true"}),
+        ("range_sort", {"range": ["A1:B2"], "has_header": True, "ascending": "invalid"}),
+        ("range_sort", {"range": ["A1:B2"], "has_header": True, "ascending": "false"}),
+        ("range_sort", {"range": ["A1:B2"], "has_header": True, "sort_column": True}),
+        ("range_sort", {"range": ["A1:B2"], "has_header": "true"}),
+        ("range_sort", {"range": ["A1:B2"]}),
+        ("delete_structure", {"structure_type": "rows", "start": 5, "count": True}),
+        ("delete_structure", {"structure_type": "rows", "start": 5, "count": "2"}),
+        ("delete_structure", {"structure_type": "invalid", "start": 1}),
+        ("delete_structure", {"start": 1}),
+        ("insert_structure", {"structure_type": "rows", "start": 5, "count": True}),
+        ("insert_structure", {"structure_type": "rows", "start": 5, "count": "2"}),
+        ("insert_structure", {"structure_type": "invalid", "start": 1}),
+        ("insert_structure", {"start": 1}),
+        ("read_cell_range", {"range": ["A1"], "format": "csv"}),
+        ("read_cell_range", {"range": ["A1"], "format": "grid"}),
+        ("read_cell_range", {}),
+        ("write_formula_range", {"range": ["A1"], "values": True}),
+        ("write_formula_range", {"range": ["A1"], "values": "1", "array": "false"}),
+        ("write_formula_range", {"range": ["A1"], "source": 5}),
+        ("write_formula_range", {"values": "1"}),
+        ("set_style", {"range": ["A1"], "bold": "notabool"}),
+        ("set_style", {"range": ["A1"], "font_size": "12"}),
+        ("set_style", {"range": ["A1"], "bg_color": 255}),
+        ("set_style", {"bold": True}),
+    ],
+)
+def test_cells_schema_refuses_mistyped_args(name: str, kwargs: dict[str, Any]):
+    prepared = prepare_tool_call(_tool(name), SimpleNamespace(doc_type="calc"), name, kwargs)
+    assert prepared.error is not None
+    assert prepared.error["code"] == "VALIDATION_ERROR"
 
 
 def _missing_sheet_doc() -> MagicMock:
@@ -2403,12 +2307,10 @@ def _missing_sheet_doc() -> MagicMock:
 
 
 def test_write_formula_range_missing_sheet_is_uno_object_error():
-    from plugin.calc.cells import WriteCellRange
-
     doc = _missing_sheet_doc()
     ctx = SimpleNamespace(doc=doc)
     with patch("plugin.calc.cells.WriterCompoundUndo") as undo_cls:
-        res = WriteCellRange().execute_safe(ctx, range="Nope.A1", values="1")
+        res = _tool("write_formula_range").execute_safe(ctx, range="Nope.A1", values="1")
 
     assert res["status"] == "error"
     assert res["code"] == "UNO_OBJECT_ERROR"
@@ -2418,7 +2320,6 @@ def test_write_formula_range_missing_sheet_is_uno_object_error():
 
 
 def test_mutate_ranges_keeps_exception_code_after_rollback():
-    from plugin.calc.cells import WriteCellRange
     from plugin.framework.errors import UnoObjectError
 
     titles_stack = []
@@ -2452,11 +2353,11 @@ def test_mutate_ranges_keeps_exception_code_after_rollback():
     ):
         manipulator = manipulator_cls.return_value
         manipulator.commit_write.side_effect = [
-            "wrote",
+            {"message": "wrote"},
             UnoObjectError("No sheet named 'B'. Available: Sheet1", details={"hint": "h"}),
         ]
 
-        res = WriteCellRange().execute_safe(ctx, range=["A1", "B1"], values="1")
+        res = _tool("write_formula_range").execute_safe(ctx, range=["A1", "B1"], values="1")
 
     assert res["status"] == "error"
     assert res["code"] == "UNO_OBJECT_ERROR"
@@ -2466,11 +2367,9 @@ def test_mutate_ranges_keeps_exception_code_after_rollback():
 
 
 def test_read_cell_range_missing_sheet_is_uno_object_error():
-    from plugin.calc.cells import ReadCellRange
-
     doc = _missing_sheet_doc()
     ctx = SimpleNamespace(doc=doc)
-    res = ReadCellRange().execute_safe(ctx, range="Nope.A1")
+    res = _tool("read_cell_range").execute_safe(ctx, range="Nope.A1")
 
     assert res["status"] == "error"
     assert res["code"] == "UNO_OBJECT_ERROR"
@@ -2480,20 +2379,10 @@ def test_read_cell_range_missing_sheet_is_uno_object_error():
 
 
 def test_cells_registry_refuses_bad_args_as_invalid_param():
-    from plugin.app import get_tools
-
     ctx = SimpleNamespace(doc=MagicMock())
-    with (
-        patch("plugin.calc.cells.CellManipulator") as mock_manip,
-        patch("plugin.calc.cells.CellInspector") as mock_insp,
-    ):
-        res_write = get_tools().get("write_formula_range").execute_safe(ctx, range=["A1"])
-        res_read = get_tools().get("read_cell_range").execute_safe(ctx, range=["A1"], format="grid")
+    with patch("plugin.calc.cells.CellManipulator") as mock_manip:
+        res_write = _tool("write_formula_range").execute_safe(ctx, range=["A1"])
     assert res_write["status"] == "error"
     assert res_write["code"] == "INVALID_PARAM"
     mock_manip.return_value.plan_write.assert_not_called()
-
-    assert res_read["status"] == "error"
-    assert res_read["code"] == "INVALID_PARAM"
-    mock_insp.return_value.read_range.assert_not_called()
 

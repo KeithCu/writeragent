@@ -10,6 +10,8 @@ This document covers PyUNO cell values, read-path format enrichment, MCP clock c
 
 ### LLM wire schema
 
+Each requested range has its own entry in `result`, with the range's payload at `result[i].result[0]`.
+
 For LLM tools (`read_cell_range` with format enrichment; the same strings are the write target), the default **`format=rows`** payload looks like:
 
 ```json
@@ -895,7 +897,7 @@ def test_write_and_read_date_time_cells():
     assert res.get("status") == "ok"
 
     read_res = _execute_calc_tool("read_cell_range", {"range": ["A26:B26"]})
-    row = read_res["result"][0][0]
+    row = read_res["result"][0]["result"][0][0]
 
     assert row[0]["value"] == "2026-08-08"
     assert row[0]["type"] == "date"

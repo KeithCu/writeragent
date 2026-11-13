@@ -25,7 +25,7 @@ CellInspector, and CellManipulator per call using ``ctx.doc``.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any, Callable, ClassVar
 from plugin.framework.errors import ToolExecutionError, WriterAgentException, format_error_payload, is_disposal, uno_call
 from plugin.framework.tool import ToolBase
 
@@ -65,33 +65,6 @@ _DISTINCT_PEEK_HIGH_CARDINALITY = 40
 log = logging.getLogger(__name__)
 
 
-def _opt_bool(kwargs: dict[str, Any], key: str, *, default: bool | None = None) -> tuple[bool | None, str | None]:
-    raw = kwargs.get(key)
-    if raw is None:
-        return default, None
-    if isinstance(raw, bool):
-        return raw, None
-    if isinstance(raw, str):
-        cleaned = raw.strip().lower()
-        if cleaned in ("true", "false"):
-            return cleaned == "true", None
-    return None, f"{key} must be a boolean (true or false), got {type(raw).__name__}"
-
-
-def _strict_int(kwargs: dict[str, Any], key: str, minimum: int | None = None, *, default: int | None = None) -> tuple[int | None, str | None]:
-    raw = kwargs.get(key)
-    if raw is None:
-        return default, None
-    if type(raw) is not int:
-        msg = f"{key} must be an integer"
-        if minimum is not None:
-            msg += f" >= {minimum}"
-        return None, f"{msg}, got {type(raw).__name__}"
-    if minimum is not None and raw < minimum:
-        return None, f"{key} must be an integer >= {minimum}, got {raw}"
-    return raw, None
-
-
 def _parse_structure_start(
     structure_type: str, start_raw: Any
 ) -> tuple[int | str | None, str | None, str | None]:
@@ -124,66 +97,10 @@ def _parse_structure_start(
     return None, sheet_prefix, 'start for columns must be a column letter (for example "C")'
 
 
-def _execute_structure_tool(
-    tool: ToolBase,
-    ctx: ToolContext,
-    *,
-    structure_type: str,
-    start_raw: Any,
-    count: int,
-    insert: bool,
-) -> dict[str, Any]:
-    start, sheet_prefix, start_err = _parse_structure_start(structure_type, start_raw)
-    if start_err:
-        return tool._tool_error(start_err, code="INVALID_PARAM")
-
-    if sheet_prefix is not None and not is_agent_visible_sheet(sheet_prefix):
-        return tool._tool_error(f"Cannot modify internal sheet '{sheet_prefix}'.", code="INVALID_PARAM")
-
-    bridge = CalcBridge(ctx.doc)
-    manipulator = CellManipulator(bridge)
-    mutator = manipulator.insert_structure if insert else manipulator.delete_structure
-    mutator_kwargs: dict[str, Any] = {"count": count}
-    if sheet_prefix is not None:
-        mutator_kwargs["sheet"] = bridge.get_sheet(sheet_prefix)
-    try:
-        assert start is not None
-        result = mutator(structure_type, start, **mutator_kwargs)
-        return {"status": "ok", "message": result}
-    except Exception as e:
-        # Disposal and UnoObjectError must re-raise so execute_safe keeps the right code.
-        if is_disposal(e) or isinstance(e, WriterAgentException):
-            raise
-        return tool._tool_error(str(e))
-
-
-def _structure_tool_execute(tool: ToolBase, ctx: ToolContext, kwargs: dict[str, Any], *, insert: bool) -> dict[str, Any]:
-    structure_type: str = kwargs["structure_type"]
-    assert structure_type in ("rows", "columns")
-
-    count, err = _strict_int(kwargs, "count", 1, default=1)
-    if err:
-        return tool._tool_error(err, code="INVALID_PARAM")
-    assert count is not None
-
-    return _execute_structure_tool(
-        tool,
-        ctx,
-        structure_type=structure_type,
-        start_raw=kwargs["start"],
-        count=count,
-        insert=insert,
-    )
-
-
 def _opt_color(kwargs: dict[str, Any], key: str) -> tuple[int | None, str | None]:
     raw = kwargs.get(key)
-    if raw is None:
+    if raw is None or raw.strip() == "":
         return None, None
-    if isinstance(raw, str) and raw.strip() == "":
-        return None, None
-    if not isinstance(raw, str):
-        return None, f"{key} must be a string, got {type(raw).__name__}"
     parsed = parse_color_to_uno_int(raw)
     if parsed is None:
         return None, f"Invalid {key}: '{raw}'"
@@ -425,16 +342,6 @@ def _try_column_distinct_peek(bridge: Any, range_name: str, preview: dict[str, A
         return None
 
 
-def _normalize_source_arg(raw: Any) -> tuple[str | None, str | None]:
-    """Parse optional ``source`` (A1 / Sheet.A1). Returns ``(source, error)``."""
-    if raw is None:
-        return None, None
-    if not isinstance(raw, str):
-        return None, "source must be a string A1 or Sheet.A1 address (dot sheet prefix, never Excel !)."
-    stripped = raw.strip()
-    return (stripped or None), None
-
-
 class ReadCellRange(ToolBase):
     """Read values from one or more cell ranges."""
 
@@ -448,7 +355,7 @@ class ReadCellRange(ToolBase):
         "`PTnHnMnS` durations, formula errors as display strings) plus sparse `formulas` and "
         "`types` maps only where needed. Use `format=cells` for one object per cell "
         "(address, value, formula, type, format_category, format_code). "
-        "Supports lists for non-contiguous areas."
+        "Supports lists for non-contiguous areas. `result` has one entry per requested range, in order, even for one range: `{status, range, result: [payload]}`, where payload is the `rows` object or the `cells` grid; an oversized range's entry adds `truncated`, `message`, `hint`, `preview_range`, `row_count`, `column_count`, `cell_count` and optional `column_distincts`."
     )
     parameters: dict[str, Any] | None = {
         "type": "object",
@@ -479,11 +386,7 @@ class ReadCellRange(ToolBase):
     is_mutation: bool | None = False
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        wire_format = kwargs.get("format", "rows")
-        if wire_format is None:
-            wire_format = "rows"
-        if not isinstance(wire_format, str) or wire_format not in ("rows", "cells"):
-            return self._tool_error('format must be "rows" or "cells"', code="INVALID_PARAM")
+        wire_format: str = kwargs.get("format", "rows")
 
         bridge = CalcBridge(ctx.doc)
         inspector = CellInspector(bridge)
@@ -491,19 +394,17 @@ class ReadCellRange(ToolBase):
 
         if len(rn) == 0:
             return self._tool_error("range is required", code="INVALID_PARAM")
-        if len(rn) == 1:
-            return self._read_one(bridge, inspector, rn[0], wire_format)
         results = [self._read_one(bridge, inspector, r, wire_format) for r in rn]
         failed = [item["range"] for item in results if item.get("status") != "ok"]
         if failed:
+            # One range answers with that range's own code, message and details, so a missing sheet still reaches the agent as UNO_OBJECT_ERROR with the sheet names.
+            if len(rn) == 1:
+                return results[0]
             return {
                 "status": "error",
                 "message": f"Failed to read {len(failed)} of {len(rn)} ranges: {failed!r}",
                 "result": results,
             }
-        # Nothing truncated: return a plain list with one grid per range; otherwise the per-range dicts below.
-        if all(item.get("status") == "ok" and not item.get("truncated") for item in results):
-            return {"status": "ok", "result": [item["result"][0] for item in results]}
         return {"status": "ok", "result": results}
 
     def _wire_result(
@@ -636,9 +537,7 @@ class WriteCellRange(ToolBase):
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         manipulator, rn = _manipulator_context(ctx, kwargs["range"])
-        source, source_err = _normalize_source_arg(kwargs.get("source"))
-        if source_err:
-            return self._tool_error(source_err, code="INVALID_PARAM")
+        source = (kwargs.get("source") or "").strip() or None
 
         if len(rn) == 0:
             return self._tool_error("range is required", code="INVALID_PARAM")
@@ -678,15 +577,8 @@ class WriteCellRange(ToolBase):
         # source-only calls pass validate). Missing must not fall through as clear.
         if fov is None:
             return self._tool_error("values is required when source is omitted", code="INVALID_PARAM")
-        if isinstance(fov, bool):
-            return self._tool_error("values must be a string, number, or array, not a boolean", code="INVALID_PARAM")
-        # Bare number → string for fill; native list passes through unchanged.
-        if isinstance(fov, (int, float)):
-            fov = str(fov)
 
-        array_flag, err = _opt_bool(kwargs, "array")
-        if err:
-            return self._tool_error(err, code="INVALID_PARAM")
+        array_flag: bool | None = kwargs.get("array")
 
         # The first array formula's measured size is reused for the other ranges: the same
         # formula gives the same result size, and each measure is a UNO probe.
@@ -706,11 +598,8 @@ class WriteCellRange(ToolBase):
 
         def _format_write(results: list[Any]) -> dict[str, Any]:
             message = f"Wrote to {len(rn)} ranges"
-            if any(isinstance(res, dict) for res in results):
-                ranges_payload = [
-                    {"range": r, **(res if isinstance(res, dict) else {"message": res})}
-                    for r, res in zip(rn, results)
-                ]
+            if any("array_range" in res for res in results):
+                ranges_payload = [{"range": r, **res} for r, res in zip(rn, results)]
                 return {"status": "ok", "message": message, "ranges": ranges_payload}
             return {"status": "ok", "message": message}
 
@@ -806,23 +695,17 @@ class SetCellStyle(ToolBase):
                 return self._tool_error(err, code="INVALID_PARAM")
             style_kwargs[key] = color_val
 
-        for key in ("bold", "italic", "wrap_text"):
-            bool_val, err = _opt_bool(kwargs, key)
-            if err:
-                return self._tool_error(err, code="INVALID_PARAM")
-            style_kwargs[key] = bool_val
+        for key in ("bold", "italic", "wrap_text", "h_align", "v_align"):
+            style_kwargs[key] = kwargs.get(key)
 
-        # bool is a subclass of int; reject it so true/false cannot become 1.0/0.0.
-        raw_size = kwargs.get("font_size")
-        if isinstance(raw_size, bool) or (raw_size is not None and not isinstance(raw_size, (int, float))):
-            return self._tool_error(f"font_size must be a number, got {type(raw_size).__name__}", code="INVALID_PARAM")
-        style_kwargs["font_size"] = None if raw_size is None else float(raw_size)
+        font_size = kwargs.get("font_size")
+        style_kwargs["font_size"] = None if font_size is None else float(font_size)
 
-        for key in ("h_align", "v_align", "number_format"):
-            raw = kwargs.get(key)
-            if raw is not None and not isinstance(raw, str):
-                return self._tool_error(f"{key} must be a string, got {type(raw).__name__}", code="INVALID_PARAM")
-            style_kwargs[key] = raw if isinstance(raw, str) and raw.strip() else None
+        # number_format is scripting-only and has no schema entry, so the validator never type-checks it.
+        raw_fmt = kwargs.get("number_format")
+        if raw_fmt is not None and not isinstance(raw_fmt, str):
+            return self._tool_error(f"number_format must be a string, got {type(raw_fmt).__name__}", code="INVALID_PARAM")
+        style_kwargs["number_format"] = raw_fmt.strip() or None if isinstance(raw_fmt, str) else None
 
         if len(rn) == 0:
             return self._tool_error("range is required", code="INVALID_PARAM")
@@ -864,14 +747,8 @@ class MergeCells(ToolBase):
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         manipulator, rn = _manipulator_context(ctx, kwargs["range"])
-        center, err = _opt_bool(kwargs, "center", default=True)
-        if err:
-            return self._tool_error(err, code="INVALID_PARAM")
-        assert center is not None
-        unmerge, err = _opt_bool(kwargs, "unmerge", default=False)
-        if err:
-            return self._tool_error(err, code="INVALID_PARAM")
-        assert unmerge is not None
+        center: bool = kwargs.get("center", True)
+        unmerge: bool = kwargs.get("unmerge", False)
 
         def _apply_merge(r: Any) -> str:
             manipulator.merge_cells(r, center=center, unmerge=unmerge)
@@ -924,15 +801,11 @@ class SortRange(ToolCalcRangeBase):
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         manipulator, rn = _manipulator_context(ctx, kwargs["range"])
 
-        sort_column, err = _strict_int(kwargs, "sort_column", 0, default=0)
-        if err:
-            return self._tool_error(err, code="INVALID_PARAM")
-        assert sort_column is not None
+        sort_column: int = kwargs.get("sort_column", 0)
+        if sort_column < 0:
+            return self._tool_error(f"sort_column must be an integer >= 0, got {sort_column}", code="INVALID_PARAM")
 
-        ascending, err = _opt_bool(kwargs, "ascending", default=True)
-        if err:
-            return self._tool_error(err, code="INVALID_PARAM")
-        assert ascending is not None
+        ascending: bool = kwargs.get("ascending", True)
 
         has_header: bool = kwargs["has_header"]
         assert isinstance(has_header, bool)
@@ -947,9 +820,49 @@ class SortRange(ToolCalcRangeBase):
         )
 
 
-class DeleteStructure(ToolBase):
+class _StructureTool(ToolBase):
+    """Base for row/column insert and delete tools.
+
+    Both tools share argument parsing and the error rule; ``insert`` picks the manipulator verb.
+    """
+
+    insert: ClassVar[bool]
+    uno_services: list[str] | None = ["com.sun.star.sheet.SpreadsheetDocument"]
+    is_mutation: bool | None = True
+
+    def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
+        structure_type: str = kwargs["structure_type"]
+        assert structure_type in ("rows", "columns")
+        # The schema makes count an integer; it does not read a minimum, so 0 and negatives stop here.
+        count: int = kwargs.get("count", 1)
+        if count < 1:
+            return self._tool_error(f"count must be an integer >= 1, got {count}", code="INVALID_PARAM")
+
+        start, sheet_prefix, start_err = _parse_structure_start(structure_type, kwargs["start"])
+        if start_err:
+            return self._tool_error(start_err, code="INVALID_PARAM")
+
+        if sheet_prefix is not None and not is_agent_visible_sheet(sheet_prefix):
+            return self._tool_error(f"Cannot modify internal sheet '{sheet_prefix}'.", code="INVALID_PARAM")
+
+        bridge = CalcBridge(ctx.doc)
+        manipulator = CellManipulator(bridge)
+        sheet = bridge.get_sheet(sheet_prefix) if sheet_prefix is not None else None
+        mutate = manipulator.insert_structure if self.insert else manipulator.delete_structure
+        try:
+            assert start is not None
+            return {"status": "ok", "message": mutate(structure_type, start, count=count, sheet=sheet)}
+        except Exception as e:
+            # Disposal and UnoObjectError must re-raise so execute_safe keeps the right code.
+            if is_disposal(e) or isinstance(e, WriterAgentException):
+                raise
+            return self._tool_error(str(e))
+
+
+class DeleteStructure(_StructureTool):
     """Delete rows or columns."""
 
+    insert: ClassVar[bool] = False
     name: str | None = "delete_structure"
     description: str = "Deletes rows or columns. Use for structural changes; prefer ranges for data operations."
     parameters: dict[str, Any] | None = {
@@ -961,16 +874,12 @@ class DeleteStructure(ToolBase):
         },
         "required": ["structure_type", "start"],
     }
-    uno_services: list[str] | None = ["com.sun.star.sheet.SpreadsheetDocument"]
-    is_mutation: bool | None = True
-
-    def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        return _structure_tool_execute(self, ctx, kwargs, insert=False)
 
 
-class InsertStructure(ToolBase):
+class InsertStructure(_StructureTool):
     """Insert rows or columns."""
 
+    insert: ClassVar[bool] = True
     name: str | None = "insert_structure"
     description: str = "Inserts empty rows or columns. Use for structural changes; prefer ranges for data operations."
     parameters: dict[str, Any] | None = {
@@ -982,8 +891,3 @@ class InsertStructure(ToolBase):
         },
         "required": ["structure_type", "start"],
     }
-    uno_services: list[str] | None = ["com.sun.star.sheet.SpreadsheetDocument"]
-    is_mutation: bool | None = True
-
-    def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        return _structure_tool_execute(self, ctx, kwargs, insert=True)
