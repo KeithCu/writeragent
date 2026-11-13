@@ -868,3 +868,34 @@ def test_set_style_on_single_cell_named_range(ctx, doc):
         if named_ranges.hasByName("StyleCell"):
             named_ranges.removeByName("StyleCell")
 
+
+@native_test
+@with_native_doc("calc")
+def test_write_named_range_mismatch_leaves_nothing_to_redo(ctx, doc):
+    from com.sun.star.table import CellAddress
+
+    named_ranges = doc.NamedRanges
+    if named_ranges.hasByName("Totals"):
+        named_ranges.removeByName("Totals")
+    named_ranges.addNewByName("Totals", "$Sheet1.$B$1:$B$3", CellAddress(Sheet=0, Column=1, Row=0), 0)
+    try:
+        res = _execute_calc_tool(doc, ctx, "write_formula_range", {"range": ["A1:A2", "Totals"], "values": ["x", "y"]})
+        assert res.get("status") == "error", f"expected error, got: {res}"
+        sheet = doc.getSheets().getByIndex(0)
+        assert sheet.getCellByPosition(0, 0).getString() == ""
+        assert sheet.getCellByPosition(0, 1).getString() == ""
+        assert not doc.getUndoManager().isRedoPossible()
+    finally:
+        if named_ranges.hasByName("Totals"):
+            named_ranges.removeByName("Totals")
+
+
+@native_test
+@with_native_doc("calc")
+def test_write_comma_prose_into_two_single_cells(ctx, doc):
+    res = _execute_calc_tool(doc, ctx, "write_formula_range", {"range": ["F1", "H1"], "values": "Hello, world"})
+    assert res.get("status") == "ok", f"write_formula_range failed: {res}"
+    sheet = doc.getSheets().getByIndex(0)
+    assert sheet.getCellByPosition(5, 0).getString() == "Hello, world"
+    assert sheet.getCellByPosition(7, 0).getString() == "Hello, world"
+
