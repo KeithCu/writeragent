@@ -12,7 +12,6 @@ from typing import TYPE_CHECKING, Any
 from plugin.calc.base import ToolCalcCommentBase
 from plugin.calc.address_utils import format_address
 from plugin.calc.bridge import CalcBridge
-from plugin.framework.errors import is_disposal
 
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
@@ -115,9 +114,9 @@ class AddCellComment(ToolCalcCommentBase):
 
         try:
             sheet, col, row = CalcBridge(ctx.doc).resolve_cell(cell_ref, kwargs.get("sheet"))
-        except Exception as e:
-            if is_disposal(e):
-                raise
+        except ValueError as e:
+            # parse_address and a prefix/sheet disagreement raise ValueError; the
+            # bridge's UnoObjectError (missing sheet, multi-cell name) reaches execute_safe.
             return self._tool_error(str(e))
 
         cell_ann, existing_text = _annotation_text(sheet, col, row)
@@ -144,9 +143,9 @@ class DeleteCellComment(ToolCalcCommentBase):
 
         try:
             sheet, col, row = CalcBridge(ctx.doc).resolve_cell(cell_ref, kwargs.get("sheet"))
-        except Exception as e:
-            if is_disposal(e):
-                raise
+        except ValueError as e:
+            # parse_address and a prefix/sheet disagreement raise ValueError; the
+            # bridge's UnoObjectError (missing sheet, multi-cell name) reaches execute_safe.
             return self._tool_error(str(e))
 
         annotations = sheet.getAnnotations()

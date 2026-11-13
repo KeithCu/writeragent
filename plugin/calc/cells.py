@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import logging
 from typing import TYPE_CHECKING, Any, Callable
-from plugin.framework.errors import ToolExecutionError, WriterAgentException, is_disposal, uno_call
+from plugin.framework.errors import ToolExecutionError, WriterAgentException, format_error_payload, is_disposal, uno_call
 from plugin.framework.tool import ToolBase
 
 if TYPE_CHECKING:
@@ -238,6 +238,20 @@ def _undo_titled_group(doc: Any, title: str, prev_count: int = 0) -> bool:
     return False
 
 
+def _mutation_error(tool: ToolBase, exc: Exception, message: str) -> dict[str, Any]:
+    """Build a tool error dict that preserves WriterAgentException code and details.
+
+    A WriterAgentException's code and details (for example the sheet list of a
+    missing sheet) must reach the agent instead of being flattened to a generic
+    tool error. Plain exceptions keep the tool's default error code. Note that
+    ``exc.details`` is unpacked into ``_tool_error`` kwargs, so keys named
+    ``suggested_call`` or ``top_level`` would be routed to those parameters.
+    """
+    if isinstance(exc, WriterAgentException):
+        return tool._tool_error(message, code=exc.code, **exc.details)
+    return tool._tool_error(message)
+
+
 def _mutate_ranges(
     tool: ToolBase,
     doc: Any,
@@ -287,12 +301,12 @@ def _mutate_ranges(
         entered = group is not None and group.entered
         undone = _undo_titled_group(doc, undo_title, prev_count) if entered else False
         if undone:
-            return tool._tool_error(f"Failed on range {target!r}: {exc}. Nothing was kept.")
+            return _mutation_error(tool, exc, f"Failed on range {target!r}: {exc}. Nothing was kept.")
         if len(results) > 0:
             if not entered:
-                return tool._tool_error(f"Failed on range {target!r}: {exc}. {len(results)} range(s) were already changed individually.")
-            return tool._tool_error(f"Failed on range {target!r}: {exc}. {len(results)} range(s) were already changed; one Ctrl+Z undoes them.")
-        return tool._tool_error(str(exc))
+                return _mutation_error(tool, exc, f"Failed on range {target!r}: {exc}. {len(results)} range(s) were already changed individually.")
+            return _mutation_error(tool, exc, f"Failed on range {target!r}: {exc}. {len(results)} range(s) were already changed; one Ctrl+Z undoes them.")
+        return _mutation_error(tool, exc, str(exc))
 
 
 def _preview_if_large(bridge: Any, range_name: str) -> dict[str, Any] | None:
@@ -325,7 +339,7 @@ def _preview_if_large(bridge: Any, range_name: str) -> dict[str, Any] | None:
             "start_row": sr,
         }
     except Exception as e:
-        if is_disposal(e):
+        if is_disposal(e) or isinstance(e, WriterAgentException):
             raise
         raise ToolExecutionError(f"Could not size range {range_name}: {e}")
 
@@ -534,6 +548,9 @@ class ReadCellRange(ToolBase):
         except Exception as exc:
             if is_disposal(exc):
                 raise
+            if isinstance(exc, WriterAgentException):
+                # Keep the per-range key alongside the bridge's error code and details.
+                return {**format_error_payload(exc), "range": range_name}
             log.exception("Failed to read range %s", range_name)
             return {"status": "error", "range": range_name, "message": str(exc) or type(exc).__name__}
 

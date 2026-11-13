@@ -19,7 +19,7 @@ from plugin.calc.duckdb_tools import (
     read_model_table_grid,
 )
 from plugin.calc.ods_cache import ODS_CACHE_DIRNAME, cache_entry, lookup_cached_ods
-from plugin.framework.errors import ToolExecutionError
+from plugin.framework.errors import ToolExecutionError, UnoObjectError
 from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import TestingFactory, with_native_doc
 from plugin.framework.uno_context import create_property_value
@@ -116,10 +116,12 @@ def test_sibling_bad_sheet_hint_errors(ctx, doc):
 
         try:
             _read_sibling_office_file_as_grid(ctx, ods_path, parse_table_source_spec({"file": "budget.ods#MissingSheet"}))
-        except ToolExecutionError as exc:
+        except UnoObjectError as exc:
             msg = str(exc)
             assert "budget.ods" in msg
             assert "MissingSheet" in msg
+            assert "Actuals" in msg
+            assert "sheet_list" in exc.details["hint"]
         else:
             raise AssertionError("missing #SheetName hint must fail loud")
     finally:

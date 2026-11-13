@@ -14,6 +14,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from plugin.framework.errors import name_miss_details
+
 from plugin.calc.charts import (
     ChartRef,
     DrawPage,
@@ -535,14 +537,19 @@ def test_calc_chart_create_disposal_is_not_chart_create_error():
         assert res["code"] == "DOCUMENT_DISPOSED"
 
 
-def test_calc_chart_create_missing_sheet_stays_not_found():
-    tool, ctx, charts, chart_doc, bridge = _calc_chart_create_parts()
-    bridge.sheet_or_active.side_effect = RuntimeException("missing")
+def test_calc_chart_create_missing_sheet_is_uno_object_error():
+    tool, ctx, charts, _chart_doc, bridge = _calc_chart_create_parts()
+    bridge.sheet_or_active.side_effect = UnoObjectError(
+        "No sheet named 'Missing'. Available: Sheet1",
+        details=name_miss_details("Missing", ["Sheet1"], "sheet_list"),
+    )
     with patch("plugin.calc.charts.CalcBridge", return_value=bridge):
         res = tool.execute_safe(ctx, chart_type="bar", data_range="A1:B6", sheet="Missing")
-        assert res["status"] == "error"
-        assert res["code"] == "TOOL_EXECUTION_ERROR"
-        assert "not found" in res["message"]
+    assert res["status"] == "error"
+    assert res["code"] == "UNO_OBJECT_ERROR"
+    assert "Available: Sheet1" in res["message"]
+    assert "sheet_list" in res["details"]["hint"]
+    charts.addNewByName.assert_not_called()
 
 
 def test_calc_diagram_disposal_propagates_after_removing_chart():
@@ -984,6 +991,42 @@ def test_calc_edit_range_error_does_not_call_set_diagram():
     chart_doc.setDiagram.assert_not_called()
 
 
+def test_calc_edit_missing_sheet_in_data_range_is_uno_object_error():
+    doc = MagicMock()
+    doc.supportsService.side_effect = lambda s: s == "com.sun.star.sheet.SpreadsheetDocument"
+    sheet = MagicMock()
+    sheet.getName.return_value = "Sheet1"
+
+    chart_obj = MagicMock()
+    chart_doc = MagicMock()
+
+    bridge = MagicMock()
+    bridge.resolve_range_or_address.side_effect = UnoObjectError(
+        "No sheet named 'Missing'. Available: Sheet1",
+        details=name_miss_details("Missing", ["Sheet1"], "sheet_list"),
+    )
+
+    ctx: Any = SimpleNamespace(doc=doc)
+
+    with (
+        patch("plugin.calc.charts._lookup_chart", return_value=ChartRef(chart_obj, sheet, "calc_sheet")),
+        patch("plugin.calc.charts._chart_document_from_host", return_value=chart_doc),
+        patch("plugin.calc.charts.CalcBridge", return_value=bridge),
+    ):
+        res = ChartUpsert().execute_safe(
+            ctx,
+            name="Chart_0",
+            chart_type="pie",
+            data_range="Missing.A1:B5",
+        )
+
+    assert res["status"] == "error"
+    assert res["code"] == "UNO_OBJECT_ERROR"
+    assert "Available: Sheet1" in res["message"]
+    assert "sheet_list" in res["details"]["hint"]
+    chart_doc.setDiagram.assert_not_called()
+
+
 def test_calc_create_bad_position_does_not_call_add_new_by_name():
     _tool, ctx, charts, _chart_doc, bridge = _calc_chart_create_parts()
     rect = MagicMock(Width=12000, Height=8000, X=1000, Y=1000)
@@ -1190,14 +1233,29 @@ def test_chart_upsert_requested_name_already_used():
     charts.addNewByName.assert_not_called()
 
 
+def test_calc_create_missing_sheet_in_data_range_is_uno_object_error():
+    _tool, ctx, charts, _chart_doc, bridge = _calc_chart_create_parts()
+    bridge.resolve_range_or_address.side_effect = UnoObjectError(
+        "No sheet named 'Missing'. Available: Sheet1",
+        details=name_miss_details("Missing", ["Sheet1"], "sheet_list"),
+    )
+    with patch("plugin.calc.charts.CalcBridge", return_value=bridge):
+        res = ChartUpsert().execute_safe(ctx, chart_type="bar", data_range="Missing.A1:B6")
+    assert res["status"] == "error"
+    assert res["code"] == "UNO_OBJECT_ERROR"
+    assert res["message"].startswith("No sheet named 'Missing'")
+    assert "sheet_list" in res["details"]["hint"]
+    charts.addNewByName.assert_not_called()
+
+
 def test_calc_create_bad_range_stays_chart_create_error():
     _tool, ctx, charts, _chart_doc, bridge = _calc_chart_create_parts()
-    bridge.resolve_range_or_address.side_effect = UnoObjectError("bad range")
+    bridge.resolve_range_or_address.side_effect = ValueError("bad range")
     with patch("plugin.calc.charts.CalcBridge", return_value=bridge):
         res = ChartUpsert().execute_safe(ctx, chart_type="bar", data_range="A1:ZZ")
     assert res["status"] == "error"
     assert res["code"] == "CHART_CREATE_ERROR"
-    assert res["message"].startswith("Failed to create chart: UnoObjectError: bad range")
+    assert res["message"].startswith("Failed to create chart: ValueError: bad range")
     charts.addNewByName.assert_not_called()
 
 

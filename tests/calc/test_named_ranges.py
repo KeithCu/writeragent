@@ -23,6 +23,7 @@ import pytest
 from com.sun.star.lang import IllegalArgumentException
 
 from plugin.app import get_tools
+from plugin.framework.errors import UnoObjectError
 from plugin.calc.named_ranges import (
     _defined_name_error,
     _extract_range_info,
@@ -54,6 +55,7 @@ def _doc_with_sheet_names(*names: str) -> MagicMock:
     sheets.getByIndex.side_effect = lambda idx: sheet_objs[idx]
     sheets.hasByName.side_effect = lambda n: n in by_name
     sheets.getByName.side_effect = lambda n: by_name[n]
+    sheets.getElementNames.return_value = names
     doc = MagicMock()
     doc.getSheets.return_value = sheets
     return doc
@@ -85,9 +87,9 @@ def test_named_range_unknown_sheet_prefix_errors(monkeypatch):
 
     doc = _doc_with_sheet_names("Sheet1", "Data")
 
-    with pytest.raises(ValueError, match="No sheet named 'Nope'"):
+    with pytest.raises(UnoObjectError, match="No sheet named 'Nope'. Available: Sheet1, Data"):
         _parse_base_address(doc, "Nope.B2")
-    with pytest.raises(ValueError, match="No sheet named 'Missing Sheet'"):
+    with pytest.raises(UnoObjectError, match="No sheet named 'Missing Sheet'. Available: Sheet1, Data"):
         _parse_base_address(doc, "'Missing Sheet'!A1")
 
     pos = _parse_base_address(doc, "Data.B2")
@@ -164,7 +166,7 @@ def test_resolve_container_global_and_sheet():
     assert sheet == sheet_obj
 
     # Non-existent sheet
-    with pytest.raises(Exception):
+    with pytest.raises(UnoObjectError, match="No sheet named 'NonExistentSheet'"):
         _resolve_container(doc, "NonExistentSheet")
 
 
@@ -634,3 +636,21 @@ def test_edit_rejects_unknown_flags_before_mutation():
     assert res["code"] == "INVALID_FLAGS"
     nr.setName.assert_not_called()
     nr.setContent.assert_not_called()
+
+
+def test_named_range_tools_missing_sheet_is_uno_object_error():
+    ctx = _workbook("Sheet1", [_sheet("Sheet1", {})], {})
+    ctx.doc.getSheets.return_value.getElementNames.return_value = ("Sheet1",)
+
+    res_info = _tool("named_range_get_info").execute_safe(ctx, name="X", scope="Nope")
+    assert res_info["status"] == "error"
+    assert res_info["code"] == "UNO_OBJECT_ERROR"
+    assert "Available: Sheet1" in res_info["message"]
+    assert "sheet_list" in res_info["details"]["hint"]
+
+    res_add = _tool("named_range_add").execute_safe(ctx, name="X", content="A1", base_cell="Nope.B2")
+    assert res_add["status"] == "error"
+    assert res_add["code"] == "UNO_OBJECT_ERROR"
+    assert "Available: Sheet1" in res_add["message"]
+    assert "sheet_list" in res_add["details"]["hint"]
+    ctx.doc.NamedRanges.addNewByName.assert_not_called()

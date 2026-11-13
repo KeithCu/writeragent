@@ -9,7 +9,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from plugin.framework.errors import CalcError
+from plugin.framework.errors import CalcError, UnoObjectError
 from plugin.calc.manipulator import CellManipulator, _coerce_array_flag
 
 
@@ -562,3 +562,20 @@ def test_set_cell_style_v_align_writes_vert_justify_ints(v_align: str, expected:
     cell.reset_mock()
     manipulator.set_cell_style("A1", v_align="middle")
     assert not any(call.args[0] == "VertJustify" for call in cell.setPropertyValue.call_args_list)
+
+
+def test_plan_write_lets_bridge_error_through():
+    bridge = MagicMock()
+    bridge.resolve_range_or_address.side_effect = UnoObjectError(
+        "No sheet named 'Nope'. Available: Sheet1",
+        details={"hint": "h"},
+    )
+    manipulator = CellManipulator(bridge)
+
+    with pytest.raises(UnoObjectError) as exc_plan:
+        manipulator.plan_write("Nope.A1", "1")
+    assert exc_plan.value.details == {"hint": "h"}
+
+    with pytest.raises(UnoObjectError) as exc_copy:
+        manipulator.copy_formula_range("Nope.A1", "A1")
+    assert exc_copy.value.details == {"hint": "h"}
