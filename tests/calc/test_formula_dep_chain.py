@@ -21,8 +21,10 @@ from plugin.tests.testing_utils import CalcDocStub, CalcSheetStub
 def test_fetch_formula_dep_chain_uses_command_values_when_available():
     doc = CalcDocStub(command_values='{"commandValues": {"root": {"address": "B2"}}}')
 
-    with patch("plugin.calc.navigation.navigate_to_cell"):
+    with patch("plugin.calc.navigation.navigate_to_cell") as nav:
         chain = fetch_formula_dep_chain(doc, MagicMock(), "B2")
+
+    nav.assert_called_once_with(doc, "B2")
 
     assert chain is not None
     assert chain.get("source") == "uno_formula_dep_chain"

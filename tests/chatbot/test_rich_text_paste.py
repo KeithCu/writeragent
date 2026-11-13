@@ -575,7 +575,7 @@ class TestHistoryMessageBatching:
              patch("plugin.chatbot.rich_text_paste.get_control_text_length", return_value=5), \
              patch("plugin.chatbot.rich_text_paste.ChatTheme.resolve", return_value=theme), \
              patch("plugin.chatbot.rich_text_paste._insert_string_at_rich_cursor", side_effect=_capture), \
-             patch("plugin.calc.navigation.drop_cell_link_spans_from") as mock_drop:
+             patch("plugin.calc.navigation.cell_link_registry.drop_from") as mock_drop:
             append_formatted_rows(ctx, control, items)
 
         mock_drop.assert_called_once_with(control, 5)

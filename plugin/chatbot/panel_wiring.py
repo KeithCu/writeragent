@@ -134,7 +134,7 @@ def setup_rich_control_ready(
         try:
             from plugin.calc.navigation import attach_calc_cell_link_listener
 
-            attach_calc_cell_link_listener(panel.ctx, ctrl, _calc_doc_from_panel)
+            attach_calc_cell_link_listener(ctrl, _calc_doc_from_panel)
         except Exception as e:
             log.debug("calc cell link listener failed: %s", e)
 

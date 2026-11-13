@@ -142,7 +142,8 @@ def test_run_suite_imports_eval_runner_at_runtime(monkeypatch: pytest.MonkeyPatc
     ):
         job = listener.run_suite()
         assert job is not None
-        job.join(timeout=2)
+        job.join(timeout=30)
+        assert not job.is_alive()
     fake_mod.run_benchmark_suite.assert_called_once()
     sys.modules.pop("tests.eval_runner", None)
 
@@ -221,7 +222,8 @@ def test_run_returns_without_waiting_on_fake_http(monkeypatch: pytest.MonkeyPatc
             assert controls["status"].text == "Running..."
             release.set()
             assert job is not None
-            job.join(timeout=2)
+            job.join(timeout=30)
+            assert not job.is_alive()
             assert controls["status"].text == "Running..."
             _drain_posted_main_thread()
     finally:
@@ -254,7 +256,8 @@ def test_raised_suite_sets_finished_status(monkeypatch: pytest.MonkeyPatch) -> N
         ):
             job = listener.run_suite()
             assert job is not None
-            job.join(timeout=2)
+            job.join(timeout=30)
+            assert not job.is_alive()
             # Same contract as a clean summary: the worker posts _show_failure
             # and leaves the line on Running... until the main thread paints it.
             assert controls["status"].text == "Running..."
@@ -383,7 +386,7 @@ def _drain_posted_main_thread() -> None:
     """Run callbacks the eval worker posted for the main thread."""
     from plugin.framework.queue_executor import main
 
-    for _unused in range(8):
+    for _unused in range(1000):
         if main._work_queue.empty():
             return
         main.process_queue()

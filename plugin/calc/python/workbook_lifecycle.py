@@ -53,6 +53,7 @@ __all__ = [
     "install_global_document_event_listener",
     "is_calc_document",
     "rekey_listener",
+    "reset_listeners_for_tests",
 ]
 
 # Re-entrant: ensure_* holds this lock while calling note_*, and note_* /
@@ -357,8 +358,8 @@ class _GlobalDocumentEventListener(BaseDocumentEventListener):
         if doc is None:
             return
         if name == "OnLoadFinished" or name in _SAVE_DONE_EVENTS:
-            # Lazy: auto_open loads the whole excel_py_convert package and imports
-            # is_calc_document from this module; Run Python Script imports this module in Writer.
+            # Lazy: auto_open imports is_calc_document from this module, and Run Python Script
+            # imports this module in Writer.
             from plugin.calc.excel_py_convert.auto_open import (
                 maybe_convert_excel_py_document,
                 maybe_export_excel_py_on_save,
@@ -407,3 +408,11 @@ def install_global_document_event_listener(ctx: Any) -> None:
         with _LOCK:
             _global_listener = None
         log.warning("python_workbook_lifecycle: global document event listener install failed", exc_info=True)
+
+
+def reset_listeners_for_tests() -> None:
+    """Clear tracked unload listeners and the global event listener (tests only)."""
+    global _global_listener
+    with _LOCK:
+        _LISTENERS.clear()
+        _global_listener = None

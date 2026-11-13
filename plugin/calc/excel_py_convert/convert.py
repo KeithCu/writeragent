@@ -21,20 +21,21 @@ Per-cell rewrite rules are in ``to_dag.py`` and ``to_excel.py``.
 
 from __future__ import annotations
 
-from dataclasses import asdict
 import json
 import logging
 from pathlib import Path
 from typing import Any
 
-from plugin.calc.excel_py_convert.models import ConversionReport
+from plugin.calc.excel_py_convert.models import ConversionReport, DagCellMeta, DagFormulaItem
 from plugin.calc.excel_py_convert.parse_dag_formulas import iter_dag_py_formulas_xlsx
 from plugin.calc.excel_py_convert.parse_excel_ooxml import load_excel_model
+from plugin.calc.excel_py_convert.script_bank import add_safety_warnings
 from plugin.calc.excel_py_convert.to_dag import convert_model_to_dag
 from plugin.calc.excel_py_convert.to_excel import (
     convert_dag_cells_to_excel,
     convert_dag_report_to_excel,
 )
+from plugin.framework.json_utils import safe_json_loads
 
 log = logging.getLogger(__name__)
 
@@ -43,9 +44,14 @@ EXCEL_PY_DAG_META_PROP = "ExcelPyDagMeta"
 
 
 def convert_to_dag(path: str | Path, *, best_effort: bool = False) -> ConversionReport:
-    """Excel XLSX or JSON fixture → DAG-style conversion report."""
+    """Excel XLSX or JSON fixture → DAG-style conversion report.
+
+    The sandbox advisories are added to each converted cell's issues; ``ok`` ignores them.
+    """
     model = load_excel_model(path)
-    return convert_model_to_dag(model, best_effort=best_effort)
+    report = convert_model_to_dag(model, best_effort=best_effort)
+    add_safety_warnings(report)
+    return report
 
 
 def convert_to_excel(path: str | Path) -> ConversionReport:
@@ -62,7 +68,7 @@ def convert_to_excel(path: str | Path) -> ConversionReport:
         data = json.loads(path.read_text(encoding="utf-8"))
         if isinstance(data, dict) and data.get("direction") == "dag":
             return convert_dag_report_to_excel(ConversionReport.from_dict(data))
-        return convert_dag_cells_to_excel(_triples_from_json(data), report_meta=data if isinstance(data, dict) else None)
+        return convert_dag_cells_to_excel(_items_from_json(data), report_meta=data if isinstance(data, dict) else None)
     items = iter_dag_py_formulas_xlsx(path)
     report = convert_dag_cells_to_excel(items)
     report.source_path = str(path)
@@ -74,27 +80,16 @@ def cell_meta_key(sheet: str, cell: str) -> str:
 
 
 def dag_report_to_meta_payload(report: ConversionReport) -> dict[str, Any]:
-    """Compact per-cell meta for udprop (auto-save / CLI reverse).
+    """Compact per-cell meta for udprop (auto-save / CLI reverse), read by ``DagCellMeta``.
 
     Includes ``excel_deps`` for Table/ANCHORARRAY export fidelity — see models module doc.
     """
-    out: dict[str, Any] = {}
-    for c in report.cells:
-        if not c.converted:
-            continue
-        out[cell_meta_key(c.sheet, c.cell)] = {
-            "return_type": int(c.return_type or 0),
-            "data_args": list(c.data_args),
-            "excel_deps": list(c.excel_deps),
-            "ordering_args": list(c.ordering_args),
-            "array_ref": c.array_ref,
-            "bindings": [asdict(b) for b in c.bindings],
-        }
-    return out
+    return {cell_meta_key(c.sheet, c.cell): c.dag_meta() for c in report.cells if c.converted}
 
 
 def store_dag_meta_on_doc(doc: Any, report: ConversionReport) -> None:
     """Persist DAG conversion meta on *doc* for later native Excel export on save."""
+    # udprops imports uno; the command-line converter loads this module without LibreOffice.
     from plugin.doc.udprops import set_document_property
 
     payload = dag_report_to_meta_payload(report)
@@ -103,8 +98,8 @@ def store_dag_meta_on_doc(doc: Any, report: ConversionReport) -> None:
 
 def load_dag_meta_from_doc(doc: Any) -> dict[str, Any]:
     """Load ``ExcelPyDagMeta`` JSON map, or ``{}``."""
+    # udprops imports uno; the command-line converter loads this module without LibreOffice.
     from plugin.doc.udprops import get_document_property
-    from plugin.framework.json_utils import safe_json_loads
 
     raw = get_document_property(doc, EXCEL_PY_DAG_META_PROP)
     if not raw:
@@ -113,17 +108,17 @@ def load_dag_meta_from_doc(doc: Any) -> dict[str, Any]:
     return data if isinstance(data, dict) else {}
 
 
-def _triples_from_json(data: Any) -> list[tuple[str, str, str, dict[str, Any]]]:
+def _items_from_json(data: Any) -> list[DagFormulaItem]:
     if isinstance(data, dict) and "cells" in data:
-        out: list[tuple[str, str, str, dict[str, Any]]] = []
+        out: list[DagFormulaItem] = []
         for c in data["cells"]:
             formula = c.get("dag_formula") or c.get("formula")
             if not formula:
                 continue
-            out.append((str(c.get("sheet", "Sheet1")), str(c.get("cell", "A1")), str(formula), dict(c)))
+            out.append(DagFormulaItem(str(c.get("sheet", "Sheet1")), str(c.get("cell", "A1")), str(formula), DagCellMeta.from_dict(c)))
         return out
     if isinstance(data, list):
-        return [(str(x["sheet"]), str(x["cell"]), str(x["formula"]), dict(x)) for x in data]
+        return [DagFormulaItem(str(x["sheet"]), str(x["cell"]), str(x["formula"]), DagCellMeta.from_dict(x)) for x in data]
     raise ValueError("JSON must be a dag report or list of {sheet, cell, formula}")
 
 

@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable
 
 from plugin.calc.address_utils import MAX_COL, MAX_ROW, format_address, parse_address, qualify_a1, split_sheet_prefix
-from plugin.calc.calc_utils import query_interface as _query_interface, resolve_sheet_and_cell
+from plugin.calc.calc_utils import query_interface, resolve_sheet_and_cell
 from plugin.framework.errors import best_effort
 from plugin.framework.uno_listeners import BaseMouseListener
 
@@ -28,7 +28,11 @@ _CELL_LINK_LISTENERS: dict[int, Any] = {}
 
 @dataclass
 class CellLinkSpanRegistry:
-    """Maps sidebar RichTextControl character offsets to Calc cell addresses."""
+    """Maps sidebar RichTextControl character offsets to Calc cell addresses.
+
+    Sidebar callers use ``cell_link_registry.add``, ``clear``, and
+    ``drop_from`` directly.
+    """
 
     _spans: dict[int, list[tuple[int, int, str]]] = field(default_factory=dict)
 
@@ -98,19 +102,7 @@ def normalize_cell_address(raw: str) -> str | None:
     return f"{sheet}.{addr}"
 
 
-def register_cell_link_span(control: Any, start: int, end: int, address: str) -> None:
-    cell_link_registry.add(control, start, end, address)
-
-
-def clear_cell_link_spans(control: Any) -> None:
-    cell_link_registry.clear(control)
-
-
-def drop_cell_link_spans_from(control: Any, start_len: int) -> None:
-    cell_link_registry.drop_from(control, start_len)
-
-
-def navigate_to_cell(doc: Any, _ctx: Any, address: str) -> bool:
+def navigate_to_cell(doc: Any, address: str) -> bool:
     """Select *address* in the Calc document (PyUNO select, not sidebar dispatch)."""
     resolved = resolve_sheet_and_cell(doc, normalize_cell_address(address) or "")
     if not resolved:
@@ -168,7 +160,7 @@ def _accessible_text(control: Any) -> Any | None:
         ctx = control.getAccessibleContext()
         if ctx is None:
             return None
-        ax = _query_interface(ctx, _XACCESSIBLE_TEXT)
+        ax = query_interface(ctx, _XACCESSIBLE_TEXT)
         if ax:
             return ax
         for i in range(ctx.getAccessibleChildCount()):
@@ -177,7 +169,7 @@ def _accessible_text(control: Any) -> Any | None:
                 continue
             child_ctx = child.getAccessibleContext() if hasattr(child, "getAccessibleContext") else child
             if child_ctx is not None:
-                ax = _query_interface(child_ctx, _XACCESSIBLE_TEXT)
+                ax = query_interface(child_ctx, _XACCESSIBLE_TEXT)
                 if ax:
                     return ax
         return None
@@ -207,9 +199,9 @@ def _click_text_index(control: Any, x: int, y: int) -> int | None:
     return _char_index_at_point(control, x, y)
 
 
-def attach_calc_cell_link_listener(ctx: Any, control: Any, get_calc_doc: Callable[[], Any | None]) -> None:
+def attach_calc_cell_link_listener(control: Any, get_calc_doc: Callable[[], Any | None]) -> None:
     """Attach a mouse listener on *control* for ``cell://`` navigation."""
-    if control is None or ctx is None:
+    if control is None:
         return
     ctrl_id = id(control)
     if ctrl_id in _CELL_LINK_LISTENERS:
@@ -235,7 +227,7 @@ def attach_calc_cell_link_listener(ctx: Any, control: Any, get_calc_doc: Callabl
                 if doc is None:
                     log.debug("cell link click: no Calc document for %r", addr)
                     return
-                if navigate_to_cell(doc, ctx, addr):
+                if navigate_to_cell(doc, addr):
                     log.debug("cell link navigated to %r", addr)
             except Exception:
                 log.exception("cell link click handler failed")
