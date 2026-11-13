@@ -2210,14 +2210,17 @@ class FakeUndoManager:
         limit: int | None = None,
         locked: bool = False,
         undo_error: BaseException | None = None,
+        drop_empty: bool = False,
     ) -> None:
         self.titles: list[str] = list(titles or [])
         self.limit = limit
         self.locked = locked
         self.undo_error = undo_error
+        self.drop_empty = drop_empty
         self.entered: list[str] = []
         self.undone: int = 0
         self._ctx_stack: list[str] = []
+        self._ctx_recorded: bool = False
 
     def isLocked(self) -> bool:
         return self.locked
@@ -2231,9 +2234,16 @@ class FakeUndoManager:
     def getAllUndoActionTitles(self) -> tuple[str, ...]:
         return tuple(self.titles)
 
+    def record(self) -> None:
+        """Mark that an undoable change occurred inside the active context."""
+        if self._ctx_stack:
+            self._ctx_recorded = True
+
     def enterUndoContext(self, title: str) -> None:
         if self.locked:
             return
+        if not self._ctx_stack:
+            self._ctx_recorded = False
         self.entered.append(title)
         self._ctx_stack.append(title)
 
@@ -2242,6 +2252,10 @@ class FakeUndoManager:
             return
         title = self._ctx_stack.pop()
         if not self._ctx_stack:
+            recorded = self._ctx_recorded
+            self._ctx_recorded = False
+            if self.drop_empty and not recorded:
+                return
             self.titles.insert(0, title)
             if self.limit is not None and len(self.titles) > self.limit:
                 del self.titles[self.limit :]

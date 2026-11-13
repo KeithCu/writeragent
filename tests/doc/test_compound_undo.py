@@ -311,12 +311,13 @@ def _doc_with_undo(undo_mgr):
 
 
 def test_undo_step_or_rollback_undoes_own_group_on_error():
-    fake = FakeUndoManager(titles=["Earlier"])
+    fake = FakeUndoManager(titles=["Earlier"], drop_empty=True)
     doc = _doc_with_undo(fake)
     step = UndoStepOrRollback(doc, "WriterAgent: test")
 
     with pytest.raises(RuntimeError, match="boom"):
         with step:
+            fake.record()
             raise RuntimeError("boom")
 
     assert step.rolled_back is True
@@ -325,16 +326,30 @@ def test_undo_step_or_rollback_undoes_own_group_on_error():
 
 
 def test_undo_step_or_rollback_keeps_group_on_success():
-    fake = FakeUndoManager(titles=["Earlier"])
+    fake = FakeUndoManager(titles=["Earlier"], drop_empty=True)
     doc = _doc_with_undo(fake)
     step = UndoStepOrRollback(doc, "WriterAgent: test")
 
     with step:
-        pass
+        fake.record()
 
     assert step.rolled_back is False
     assert fake.undone == 0
     assert fake.titles == ["WriterAgent: test", "Earlier"]
+
+
+def test_undo_step_or_rollback_empty_group_keeps_older_same_title():
+    fake = FakeUndoManager(titles=["WriterAgent: test"], drop_empty=True)
+    doc = _doc_with_undo(fake)
+    step = UndoStepOrRollback(doc, "WriterAgent: test")
+
+    with pytest.raises(RuntimeError, match="boom"):
+        with step:
+            raise RuntimeError("boom")
+
+    assert step.rolled_back is False
+    assert fake.undone == 0
+    assert fake.titles == ["WriterAgent: test"]
 
 
 def test_undo_step_or_rollback_leaves_foreign_top_entry():
@@ -357,12 +372,13 @@ def test_undo_step_or_rollback_leaves_foreign_top_entry():
 
 
 def test_undo_step_or_rollback_rolls_back_at_full_stack():
-    fake = FakeUndoManager(titles=["c", "b", "a"], limit=3)
+    fake = FakeUndoManager(titles=["c", "b", "a"], limit=3, drop_empty=True)
     doc = _doc_with_undo(fake)
     step = UndoStepOrRollback(doc, "WriterAgent: test")
 
     with pytest.raises(RuntimeError, match="boom"):
         with step:
+            fake.record()
             raise RuntimeError("boom")
 
     assert step.rolled_back is True

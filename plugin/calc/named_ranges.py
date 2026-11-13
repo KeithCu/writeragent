@@ -383,8 +383,10 @@ class NamedRangeEdit(ToolCalcRangeBase):
         if new_clean:
             # setName does not run IsNameValid, so reject A1, Sales.2026,
             # 1abc, and names with spaces before opening the undo bracket.
-            # Rename runs first inside UndoStepOrRollback so a later setter
-            # raising undoes the whole edit in one step.
+            # Rename first so that, when no undo group could be opened (undo
+            # manager locked or missing), a failed rename has not yet changed
+            # content, type, or position; when a group is open, UndoStepOrRollback
+            # undoes everything on failure.
             invalid = _defined_name_error(new_clean)
             if invalid:
                 return self._tool_error(invalid, code="INVALID_NAME")

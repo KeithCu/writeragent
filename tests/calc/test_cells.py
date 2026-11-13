@@ -1685,10 +1685,6 @@ def test_write_cell_range_multi_range_rolls_back_on_error():
     from plugin.framework.errors import CalcError
     from plugin.calc.cells import WriteCellRange
 
-    titles_stack = []
-    undo_mgr = MagicMock()
-    undo_mgr.getAllUndoActionTitles.side_effect = lambda: list(titles_stack)
-
     fake_undo = FakeUndoManager()
     doc = MagicMock()
     doc.getUndoManager.return_value = fake_undo
@@ -2343,6 +2339,25 @@ def test_mutate_ranges_rolls_back_at_full_undo_stack():
     assert res["status"] == "error"
     assert "Nothing was kept." in res["message"]
     assert fake_undo.undone == 1
+
+
+def test_mutate_ranges_empty_group_keeps_older_same_title():
+    from plugin.calc.cells import WriteCellRange
+    from plugin.framework.errors import CalcError
+
+    fake_undo = FakeUndoManager(titles=["WriterAgent: Write formulas"], drop_empty=True)
+    doc = MagicMock()
+    doc.getUndoManager.return_value = fake_undo
+    ctx = SimpleNamespace(doc=doc)
+
+    with patch("plugin.calc.cells.CellManipulator") as manipulator_cls:
+        manipulator_cls.return_value.commit_write.side_effect = CalcError("fail")
+        res = WriteCellRange().execute(ctx, range=["A1"], values="1")
+
+    assert res["status"] == "error"
+    assert "Nothing was kept." not in res["message"]
+    assert fake_undo.undone == 0
+    assert fake_undo.titles == ["WriterAgent: Write formulas"]
 
 
 def test_read_cell_range_missing_sheet_is_uno_object_error():
