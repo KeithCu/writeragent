@@ -26,30 +26,39 @@ class TestSearchDialog:
         # Setup mock components for UNO
         mock_ctx = MagicMock()
         mock_smgr = mock_ctx.getServiceManager.return_value
-        
+
         mock_dlg_model = MagicMock()
+        mock_dlg = MagicMock()
         mock_smgr.createInstanceWithContext.side_effect = lambda svc, ctx: {
             "com.sun.star.awt.UnoControlDialogModel": mock_dlg_model,
-            "com.sun.star.awt.UnoControlDialog": MagicMock(),
-            "com.sun.star.awt.Toolkit": MagicMock()
+            "com.sun.star.awt.UnoControlDialog": mock_dlg,
+            "com.sun.star.awt.Toolkit": MagicMock(),
         }.get(svc, MagicMock())
 
         # Open and show
         dialog = SearchDialog(mock_ctx)
-        
-        assert mock_smgr.createInstanceWithContext.called
-        
-        # Verify close disposes
+
+        dlg = dialog._dlg
+        assert dlg is not None
+        mock_msgbox.assert_not_called()
+        dlg.setVisible.assert_any_call(True)
+
+        # Verify close disposes once and is idempotent
         dialog.close()
         assert dialog._closed
+        assert dialog._dlg is None
+        dlg.dispose.assert_called_once_with()
 
-    @patch("plugin.embeddings.search_ui.warm_venv_worker")
-    def test_show_search_dialog_safely(self, mock_warm):
+        dialog.close()
+        dlg.dispose.assert_called_once_with()
+
+    @pytest.mark.parametrize("side_effect", [None, RuntimeError("boom")])
+    def test_show_search_dialog_opens_dialog_and_swallows_errors(self, side_effect):
         mock_ctx = MagicMock()
-        mock_smgr = mock_ctx.getServiceManager.return_value
-        mock_smgr.createInstanceWithContext.return_value = MagicMock()
+        with patch.object(SearchDialog, "show", side_effect=side_effect) as mock_show:
+            show_search_dialog(mock_ctx)
 
-        show_search_dialog(mock_ctx)
+        mock_show.assert_called_once_with(mock_ctx)
 
     @patch("plugin.embeddings.embedding_client.get_embedding_model", return_value="fake-model")
     @patch("plugin.embeddings.search_ui.run_in_background", side_effect=lambda fn, *args, **kwargs: fn(*args))
@@ -94,21 +103,21 @@ class TestSearchDialog:
         assert mock_maintain.called
 
         # Test heartbeat callback exception handling
-        if hb_capture:
-            hb = hb_capture[0]
-            # Emit extract phase
-            hb({"file": "test.txt", "phase": "extract", "paragraphs": 5, "chunks": 10})
+        assert hb_capture
+        hb = hb_capture[0]
+        # Emit extract phase
+        hb({"file": "test.txt", "phase": "extract", "paragraphs": 5, "chunks": 10})
 
-            # Make the results control throw when accessed
-            mock_results_ctrl = MagicMock()
-            mock_dlg.getControl.side_effect = lambda name: mock_results_ctrl if name == "ResultsEdit" else MagicMock()
-            mock_results_ctrl.getModel.side_effect = Exception("UI Disposed")
+        # Make the results control throw when accessed
+        mock_results_ctrl = MagicMock()
+        mock_dlg.getControl.side_effect = lambda name: mock_results_ctrl if name == "ResultsEdit" else MagicMock()
+        mock_results_ctrl.getModel.side_effect = Exception("UI Disposed")
 
-            # Emit index phase which should trigger UI update that throws
-            try:
-                hb({"file": "test.txt", "phase": "index", "paragraphs": 5, "chunks": 10})
-            except Exception as e:
-                pytest.fail(f"Heartbeat callback raised exception: {e}")
+        # Emit index phase which should trigger UI update that throws
+        try:
+            hb({"file": "test.txt", "phase": "index", "paragraphs": 5, "chunks": 10})
+        except Exception as e:
+            pytest.fail(f"Heartbeat callback raised exception: {e}")
         assert mock_maintain.call_args.kwargs["search_mode"] == "llama_index"
 
     @patch("plugin.embeddings.embedding_client.get_embedding_model", return_value="fake-model")
