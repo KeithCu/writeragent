@@ -113,8 +113,8 @@ def test_create_calc_chart_has_header_false():
     cell_range.getRangeAddress.return_value = addr
 
     bridge = MagicMock()
-    bridge.get_active_sheet.return_value = sheet
-    bridge.get_cell_range.return_value = cell_range
+    bridge.sheet_or_active.return_value = sheet
+    bridge.resolve_range_or_address.return_value = cell_range
 
     tool = ChartUpsert()
     rect = MagicMock()
@@ -201,8 +201,8 @@ def _calc_chart_create_parts():
     cell_range = MagicMock()
     cell_range.getRangeAddress.return_value = MagicMock(StartColumn=0, StartRow=0, EndColumn=1, EndRow=5)
     bridge = MagicMock()
-    bridge.get_active_sheet.return_value = sheet
-    bridge.get_cell_range.return_value = cell_range
+    bridge.sheet_or_active.return_value = sheet
+    bridge.resolve_range_or_address.return_value = cell_range
     chart_doc = MagicMock()
     chart_doc.HasLegend = True
     return ChartUpsert(), ctx, charts, chart_doc, bridge
@@ -525,7 +525,7 @@ class RuntimeException(Exception):
 
 def test_calc_chart_create_disposal_is_not_chart_create_error():
     tool, ctx, charts, chart_doc, bridge = _calc_chart_create_parts()
-    bridge.get_sheet.side_effect = DisposedException("gone")
+    bridge.sheet_or_active.side_effect = DisposedException("gone")
     with patch("plugin.calc.charts.CalcBridge", return_value=bridge):
         with pytest.raises(DisposedException):
             tool.execute(ctx, chart_type="bar", data_range="A1:B6", sheet="Missing")
@@ -538,7 +538,7 @@ def test_calc_chart_create_disposal_is_not_chart_create_error():
 
 def test_calc_chart_create_missing_sheet_stays_not_found():
     tool, ctx, charts, chart_doc, bridge = _calc_chart_create_parts()
-    bridge.get_sheet.side_effect = RuntimeException("missing")
+    bridge.sheet_or_active.side_effect = RuntimeException("missing")
     with patch("plugin.calc.charts.CalcBridge", return_value=bridge):
         res = tool.execute(ctx, chart_type="bar", data_range="A1:B6", sheet="Missing")
         assert res["status"] == "error"
@@ -930,7 +930,7 @@ def test_calc_edit_updates_data_range_and_headers():
     cell_range.getRangeAddress.return_value = addr
 
     bridge = MagicMock()
-    bridge.get_cell_range.return_value = cell_range
+    bridge.resolve_range_or_address.return_value = cell_range
 
     ctx: Any = SimpleNamespace(doc=doc)
 
@@ -963,7 +963,7 @@ def test_calc_edit_range_error_does_not_call_set_diagram():
     chart_doc = MagicMock()
 
     bridge = MagicMock()
-    bridge.get_cell_range.side_effect = ValueError("invalid range")
+    bridge.resolve_range_or_address.side_effect = ValueError("invalid range")
 
     ctx: Any = SimpleNamespace(doc=doc)
 
@@ -1004,7 +1004,7 @@ def test_calc_create_bad_position_does_not_call_add_new_by_name():
 
 def test_calc_create_valid_position_sets_rect_and_creates():
     tool, ctx, charts, chart_doc, bridge = _calc_chart_create_parts()
-    sheet = bridge.get_active_sheet()
+    sheet = bridge.sheet_or_active()
     cell_obj = SimpleNamespace(
         Position=SimpleNamespace(X=2500, Y=3500),
         Size=SimpleNamespace(Width=5000, Height=2000),

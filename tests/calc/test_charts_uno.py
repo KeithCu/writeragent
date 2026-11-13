@@ -231,3 +231,47 @@ def test_charts_schema_filtering():
     assert "data_range" not in draw_params["properties"]
     assert "headers" in draw_params["properties"]
     assert "rows" in draw_params["properties"]
+
+
+@native_test
+@with_native_doc("calc")
+def test_chart_from_named_data_range(ctx, doc):
+    from com.sun.star.table import CellAddress
+
+    active_sheet = doc.getCurrentController().getActiveSheet()
+    data = [
+        "Month", "Sales",
+        "Jan", "100",
+        "Feb", "150",
+        "Mar", "200",
+        "Apr", "250",
+        "May", "300",
+    ]
+    res_write = _execute_calc_tool(doc, ctx, "write_formula_range", {"range": "A1:B6", "values": data})
+    assert res_write.get("status") == "ok", f"write_formula_range failed: {res_write}"
+
+    named_ranges = doc.NamedRanges
+    if named_ranges.hasByName("ChartData"):
+        named_ranges.removeByName("ChartData")
+    named_ranges.addNewByName("ChartData", "$Sheet1.$A$1:$B$6", CellAddress(Sheet=0, Column=0, Row=0), 0)
+    chart_name = None
+    try:
+        res_create = _execute_calc_tool(doc, ctx, "chart_upsert", {"data_range": "ChartData", "chart_type": "bar"})
+        assert res_create.get("status") == "ok", f"chart_upsert create failed: {res_create}"
+
+        res_list = _execute_calc_tool(doc, ctx, "chart_list", {})
+        charts = res_list.get("charts", [])
+        assert len(charts) == 1
+        chart_name = charts[0]["name"]
+
+        chart_obj = active_sheet.getCharts().getByName(chart_name)
+        addr = chart_obj.getRanges()[0]
+        assert (addr.StartColumn, addr.StartRow, addr.EndColumn, addr.EndRow) == (0, 0, 1, 5)
+
+        res_edit = _execute_calc_tool(doc, ctx, "chart_upsert", {"name": chart_name, "data_range": "ChartData"})
+        assert res_edit.get("status") == "ok", f"chart_upsert edit failed: {res_edit}"
+    finally:
+        if chart_name is not None:
+            _execute_calc_tool(doc, ctx, "chart_delete", {"name": chart_name})
+        if named_ranges.hasByName("ChartData"):
+            named_ranges.removeByName("ChartData")

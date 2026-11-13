@@ -36,7 +36,8 @@ from typing import TYPE_CHECKING, Any
 
 from plugin.calc.address_utils import parse_address, split_sheet_prefix
 from plugin.calc.array_formula import returns_array
-from plugin.calc.calc_utils import cell_value_and_type, resolve_sheet
+from plugin.calc.bridge import CalcBridge
+from plugin.calc.calc_utils import cell_value_and_type
 from plugin.calc.error_detector import ERROR_TYPES
 from plugin.framework.errors import ToolExecutionError, is_disposal, uno_read
 from plugin.framework.tool import ToolBase
@@ -217,7 +218,7 @@ class EvaluateFormula(ToolCalcErrorBase):
         sheets = doc.getSheets()
 
         # Resolve the active sheet to copy from
-        active_sheet = resolve_sheet(doc)
+        active_sheet = CalcBridge(doc).get_active_sheet()
         active_name = active_sheet.getName()
 
         # Ensure name uniqueness

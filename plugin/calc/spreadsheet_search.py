@@ -12,8 +12,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from plugin.calc.address_utils import format_address
-from plugin.calc.bridge import filter_agent_sheet_names
-from plugin.calc.calc_utils import resolve_sheet
+from plugin.calc.bridge import CalcBridge, filter_agent_sheet_names
 from plugin.framework.send_cancellation import SendCancellation, is_cancelled
 
 if TYPE_CHECKING:
@@ -31,7 +30,7 @@ def iter_target_sheets(doc: Any, *, all_sheets: bool, sheet_name: str | None = N
         for n in filter_agent_sheet_names(sheets_obj.getElementNames()):
             yield sheets_obj.getByName(n), n
     else:
-        sheet = resolve_sheet(doc, sheet_name)
+        sheet = CalcBridge(doc).sheet_or_active(sheet_name)
         yield sheet, sheet.getName()
 
 

@@ -354,7 +354,7 @@ class CellManipulator:
         """Apply style to a cell or range.
 
         Args:
-            address_or_range: Cell address or range (e.g. "A1" or "A1:D10").
+            address_or_range: Cell address, range, or named range (e.g. "A1", "A1:D10", or "Totals").
             bold: Bold flag.
             italic: Italic flag.
             bg_color: Background colour (RGB int).
@@ -366,8 +366,7 @@ class CellManipulator:
             border_color: Border colour (RGB int).
             number_format: Number format string (e.g. "#,##0.00").
         """
-        is_range = ":" in address_or_range
-        target = self.bridge.resolve_range_or_address(address_or_range) if is_range else self.bridge.get_cell_by_address(address_or_range)
+        target = self.bridge.resolve_range_or_address(address_or_range)
         if bold is not None:
             target.setPropertyValue("CharWeight", FontWeight.BOLD if bold else FontWeight.NORMAL)
         if italic is not None:
@@ -392,7 +391,7 @@ class CellManipulator:
             self._apply_borders(target, border_color)
         if number_format:
             self._set_number_format(target, number_format)
-        log.info("%s %s style updated.", "Range" if is_range else "Cell", address_or_range.upper())
+        log.info("%s style updated.", address_or_range.upper())
 
     @staticmethod
     def _resolve_document_locale(doc: Any) -> Any:
