@@ -439,20 +439,15 @@ def test_py_addin_worker_exception_formula_error(ctx, doc):
 @with_native_doc("calc")
 def test_py_addin_child_timeout_shows_guidance_text(ctx, doc):
     """Child in-process timeout (code EXECUTION_TIMEOUT) displays timeout guidance text in the cell."""
-    from plugin.framework.config import get_config, save
-
     sheet = doc.getSheets().getByIndex(0)
     clear_python_addin_cache()
-    prev_timeout = get_config("scripting.python_exec_timeout")
-    save({"scripting.python_exec_timeout": 1})
     try:
         cell = sheet.getCellByPosition(0, 0)
-        cell.setFormula('=PY("import time; time.sleep(3); result = 1")')
+        cell.setFormula('=PY("import time; time.sleep(12); result = 1")')
         doc.calculateAll()
-        assert cell.getError() == 0
-        assert cell.getString().startswith("Error: Python timed out")
+        assert cell.getError() == 0, cell.getError()
+        assert cell.getString().startswith("Error: Python timed out"), repr(cell.getString())
     finally:
-        save({"scripting.python_exec_timeout": prev_timeout})
         st = WorkbookState.known(doc)
         if st is not None:
             WorkbookState.forget_key(st.key)
