@@ -3,7 +3,39 @@
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Calc add-in value conversion, error mapping, and result coercion helpers."""
+"""Calc add-in value conversion, error mapping, and result coercion helpers.
+
+Cell outcomes for ``=PY()`` fall into four kinds:
+
+- **Payload NaN** (quiet NaN carrying a Calc ``FormulaError`` in its low 32 bits):
+  ``py_addin_cell_value`` (error tokens and helper error dicts) and
+  ``addin_result_for_worker_status`` (failed worker runs other than setup/stop codes).
+  LibreOffice's ``GetDoubleErrorValue`` (``include/formula/errorcodes.hxx``) reads
+  ``nan_parts.fraction_lo`` and ``ScInterpreter::PushDouble``
+  (``sc/source/core/tool/interpr4.cxx``) turns it into a Calc error so ``ISERROR`` is true.
+- **Spill neighbour error or void**: ``coerce_spill_value`` records error metadata
+  and ``spill.perform_deferred_spill`` writes ``setDataArray`` of ``None`` (UNO void,
+  which ``lcl_PutDataArray`` in ``sc/source/ui/unoobj/cellsuno.cxx`` turns into
+  ``FormulaError::NotAvailable`` / ``#N/A``) or ``=#ERRn!`` formulas.
+- **``"#SPILL!"`` text**: ``spill.prepare_auto_spill``, returned by
+  ``function.finalize_python_return`` (``ISERROR`` is false).
+- **``"Error: …"`` text**: setup and stop worker codes in
+  ``addin_result_for_worker_status``, host exceptions in
+  ``format_addin_error_for_display``, index/size errors in ``function.py``,
+  and missing-caller in ``addin_impl.py``.
+
+Worker failure codes in ``addin_result_for_worker_status`` map as follows:
+
+- ``VENV_NOT_FOUND`` → venv guidance text (``Settings → Python``).
+- ``VENV_TIMEOUT``, ``EXECUTION_TIMEOUT`` → timeout guidance text (``Settings → Python``).
+- ``USER_STOPPED`` → ``"Error:"`` plus the message via ``_error_cell_text``.
+- Any other code (including a missing code) → payload NaN selected by
+  ``worker_exception_error_code``.
+
+``LO_ERROR_TOKENS`` in ``plugin/scripting/venv/coerce.py`` mirrors
+``_CALC_ERROR_TOKEN_CODES``; ``tests/calc/python/test_addin_values.py`` pins that both
+agree.
+"""
 
 from __future__ import annotations
 
@@ -50,6 +82,11 @@ _WORKER_EXC_CODES: dict[str, int] = {
 }
 
 _DUE_TO_EXC_RE = re.compile(r" due to: ([A-Za-z_][A-Za-z0-9_]*): ")
+
+# Worker result codes whose run never reached a verdict on the user's code. The cell
+# shows guidance text for these so the user opens Settings → Python. Every other code
+# is a formula error (payload NaN) so ISERROR sees it.
+_TIMEOUT_CODES: frozenset[str] = frozenset({"VENV_TIMEOUT", "EXECUTION_TIMEOUT"})
 
 
 def calc_formula_error_double(code: int) -> float:
@@ -133,20 +170,6 @@ def helper_error_log_message(err: dict[str, Any]) -> str:
     return f"{code}: {message}"
 
 
-def _worker_failure_stays_text(res: dict[str, Any]) -> bool:
-    if res.get("code") == "USER_STOPPED":
-        return True
-    message = str(res.get("message") or res.get("error") or "")
-    msg_lower = message.lower()
-    if "no python executable found under configured venv" in msg_lower or "venv not found" in msg_lower:
-        return True
-    if _DUE_TO_EXC_RE.search(message):
-        return False
-    if "timed out" in msg_lower or "timeout" in msg_lower:
-        return True
-    return False
-
-
 def _map_addin_error_tokens(val: Any) -> Any:
     if isinstance(val, str):
         code = calc_error_code_for_token(val)
@@ -193,11 +216,17 @@ def flat_result_equal(left: tuple[Any, ...], right: tuple[Any, ...]) -> bool:
 def addin_result_for_worker_status(res: dict[str, Any]) -> float | str:
     """Return add-in cell result for non-ok worker status (payload NaN error or text message).
 
-    Worker failures return a quiet-NaN with FormulaError payload, not English text, so ISERROR and TreatDoubleError behave correctly.
+    Setup and stop codes stay text so the user sees actionable guidance; every other
+    failure returns a quiet-NaN with FormulaError payload so ISERROR behaves correctly.
     """
+    code = res.get("code")
     message = str(res.get("message") or res.get("error") or "")
-    if _worker_failure_stays_text(res):
-        return _format_python_addin_worker_error(message)
+    if code == "VENV_NOT_FOUND":
+        return _("Error: Python venv not found. Open Settings → Python, set the venv path, then Test.")
+    if code in _TIMEOUT_CODES:
+        return _("Error: Python timed out. Open Settings → Python to raise the timeout, or Test the venv.")
+    if code == "USER_STOPPED":
+        return _error_cell_text(message)
     log.error("=PY() worker failure: %s", message)
     return calc_formula_error_double(worker_exception_error_code(message))
 
@@ -462,20 +491,12 @@ def format_addin_error_for_display(exc: BaseException) -> str:
     # A TimeoutError here is the host's main-thread marshal or sync timeout, not the user's code or an HTTP request, so it gets its own message.
     if isinstance(exc, TimeoutError):
         return _("Error: Main-thread execution timed out ({0})").format(str(exc))
-    msg = format_error_message(exc)
-    if msg.startswith("Error:") or msg.startswith("#"):
-        return msg
-    return _format_python_addin_worker_error(msg)
+    return _error_cell_text(format_error_message(exc))
 
 
-def _format_python_addin_worker_error(message: str) -> str:
-    """Map common worker failures to short Settings → Python / Test guidance."""
+def _error_cell_text(message: str) -> str:
+    """Ensure an error cell message starts with ``Error:`` or ``#``."""
     text = (message or "").strip() or _("Unknown error")
-    lower = text.lower()
-    if "no python executable found under configured venv" in lower or "venv not found" in lower:
-        return _("Error: Python venv not found. Open Settings → Python, set the venv path, then Test.")
-    if "timed out" in lower or "timeout" in lower:
-        return _("Error: Python timed out. Open Settings → Python to raise the timeout, or Test the venv.")
     if text.startswith("Error:") or text.startswith("#"):
         return text
     return _("Error: {0}").format(text)

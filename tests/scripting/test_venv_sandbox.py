@@ -1521,6 +1521,7 @@ def test_arm_alarm_is_the_alarm_writer() -> None:
     res = _arm_alarm(exe, time_mod.monotonic() - 1, 7)
     assert res == {
         "status": "error",
+        "code": "VENV_TIMEOUT",
         "message": "Code execution exceeded the maximum execution time of 7 seconds",
     }
     assert exe.timeout_seconds == 1
@@ -1541,4 +1542,16 @@ def test_run_sandboxed_code_arms_the_cell_from_the_request_budget(fresh_sandbox_
     exe = fresh_sandbox_sessions.executor(sid)
     assert exe is not None
     assert exe.timeout_seconds <= 2
+
+
+def test_run_sandboxed_code_timeout_carries_venv_timeout_code(fresh_sandbox_sessions) -> None:
+    sid = "calc:timeout-code-test"
+    res = run_sandboxed_code("import time\ntime.sleep(5)\nresult = 1", session_id=sid, timeout_sec=1)
+    assert res["status"] == "error"
+    assert res.get("code") == "VENV_TIMEOUT"
+    assert "exceeded the maximum execution time" in res.get("message", "")
+
+    follow = run_sandboxed_code("result = 7", session_id=sid, timeout_sec=5)
+    assert follow["status"] == "ok"
+    assert follow["result"] == 7
 

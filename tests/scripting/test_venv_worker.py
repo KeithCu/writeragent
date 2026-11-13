@@ -1623,7 +1623,7 @@ def test_venv_worker_error_codes_and_context():
         assert 'traceback' in res
         res_to = mgr.execute(ExecRequest(code='import time\ntime.sleep(5)', timeout_sec=1))
         assert res_to['status'] == 'error'
-        assert res_to.get('code') in ('VENV_TIMEOUT', 'VENV_EXEC_ERROR')
+        assert res_to.get('code') == 'VENV_TIMEOUT'
     finally:
         mgr._terminate_worker()
 
