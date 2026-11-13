@@ -531,14 +531,14 @@ def test_geometric_cap_hit_sheet_stays_unchained(ctx, doc):
     """Cap-hit: skip the whole sheet, do not chain the first 100, one msgbox."""
     from unittest.mock import patch
 
-    from plugin.calc.python.cell_discovery import _MAX_PYTHON_CELLS_FOUND
+    from plugin.calc.python.cell_discovery import MAX_PYTHON_CELLS_FOUND
     from plugin.calc.python.geometric_recalc import reset_geometric_runtime_for_tests
 
     reset_geometric_runtime_for_tests()
     previous = _enable_geometric_flag(ctx)
     try:
         sheet = doc.getSheets().getByIndex(0)
-        for i in range(_MAX_PYTHON_CELLS_FOUND + 1):
+        for i in range(MAX_PYTHON_CELLS_FOUND + 1):
             sheet.getCellByPosition(0, i).setFormula(f'=PY("x{i}")')
         with patch("plugin.chatbot.dialogs.msgbox") as mock_box:
             _flush(ctx, doc, sheet)
@@ -546,7 +546,7 @@ def test_geometric_cap_hit_sheet_stays_unchained(ctx, doc):
         # First successor stays unchained (whole sheet skipped).
         a2 = str(sheet.getCellByPosition(0, 1).getFormula() or "")
         assert _pred(a2) is None, a2
-        a101 = str(sheet.getCellByPosition(0, _MAX_PYTHON_CELLS_FOUND).getFormula() or "")
+        a101 = str(sheet.getCellByPosition(0, MAX_PYTHON_CELLS_FOUND).getFormula() or "")
         assert _pred(a101) is None, a101
     finally:
         _restore_geometric_flag(ctx, previous)
@@ -893,18 +893,18 @@ def test_geometric_repair_setformula_does_not_reenter(ctx, doc):
 def test_geometric_isolated_flag_on_noop_and_strip(ctx, doc):
     """§9.3 / §10: Isolated + flag on — no Shared globals; strip with the caller doc.
 
-    UI load/repair keys the map with ``geometric_workbook_key`` (``calc:`` +
+    UI load/repair keys the map with ``calc_workbook_base_session_id`` (``calc:`` +
     ``mint_document_key``, never empty); eval strips with the same key
     read from the caller document.
     """
+    from plugin.calc.python.function import build_cell_context
     from plugin.calc.python.geometric_recalc import (
         _RUNTIME,
-        geometric_workbook_key,
         maybe_geometric_on_document_open,
         maybe_strip_geometric_eval_args,
         reset_geometric_runtime_for_tests,
     )
-    from plugin.scripting.session_manager import workbook_session_id
+    from plugin.scripting.session_manager import calc_workbook_base_session_id, workbook_session_id
     from plugin.testing_runner import _progress_verbose as _progress
 
     reset_geometric_runtime_for_tests()
@@ -915,7 +915,7 @@ def test_geometric_isolated_flag_on_noop_and_strip(ctx, doc):
         _settle_soffice_config()
         # Isolated + no init: do not set an init script.
         maybe_geometric_on_document_open(ctx, doc)
-        sid = geometric_workbook_key(doc)
+        sid = calc_workbook_base_session_id(doc)
         _progress("geometric isolated sid=%r" % (sid,))
         assert sid.startswith("calc:"), sid
         assert sid != "calc:"
@@ -949,7 +949,9 @@ def test_geometric_isolated_flag_on_noop_and_strip(ctx, doc):
         ), safe
         col = ((10.0,), (20.0,), (30.0,))
         pred = ((0.0,),)
-        assert maybe_strip_geometric_eval_args(mean_code, [col, pred], doc=doc) == [col]
+        cell = build_cell_context(ctx, doc, mean_code, on_main=True)
+        assert cell.workbook_key == sid
+        assert maybe_strip_geometric_eval_args(mean_code, [col, pred], cell) == [col]
 
         # Isolated is a no-op for Python globals (Shared names do not appear).
         # Do not wait for 41 — that is the Shared leftover. One or two

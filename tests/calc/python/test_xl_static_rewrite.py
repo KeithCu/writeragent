@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 import pytest
 
-from plugin.calc.python.editor import _apply_cell_save, _maybe_apply_xl_static_rewrite
+from plugin.calc.python.editor import apply_cell_save, _maybe_apply_xl_static_rewrite
 from plugin.calc.python.formula_edit import PyFormula
 from plugin.calc.python.xl_static_rewrite import apply_xl_static_rewrite
 from plugin.tests.testing_utils import CalcCellStub, CalcDocStub
@@ -270,7 +270,7 @@ def test_apply_cell_save_lifts_xl_when_flag_on():
     doc = CalcDocStub()
     cell = CalcCellStub()
     with patch("plugin.calc.python.editor.get_config", return_value=True):
-        result = _apply_cell_save(
+        result = apply_cell_save(
             doc,
             cell,
             parsed_parts=None,
@@ -291,7 +291,7 @@ def test_apply_cell_save_merges_with_parsed_data_suffix():
     parts = PyFormula.parse('=PY("x"; A1:A5)')
     assert parts is not None
     with patch("plugin.calc.python.editor.get_config", return_value=True):
-        result = _apply_cell_save(
+        result = apply_cell_save(
             doc,
             cell,
             parsed_parts=parts,

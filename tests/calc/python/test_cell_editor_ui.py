@@ -161,7 +161,7 @@ def test_native_save_formula_mode():
     dlg.controls["DataEdit"].setText("C1:C2")
     dlg.controls["CodeEdit"].setText("result = 3")
     with patch(
-        "plugin.calc.python.editor._apply_cell_save",
+        "plugin.calc.python.editor.apply_cell_save",
         return_value={"type": "saved", "ok": True, "save_as_plain": False},
     ) as mock_save:
         inst._save()
@@ -176,7 +176,7 @@ def test_native_save_formula_mode():
 def test_native_save_plain_mode():
     dlg, inst = _open_native(initial_code="print(1)", parsed_parts=None)
     with patch(
-        "plugin.calc.python.editor._apply_cell_save",
+        "plugin.calc.python.editor.apply_cell_save",
         return_value={
             "type": "saved",
             "ok": True,
@@ -193,7 +193,7 @@ def test_native_save_plain_mode():
 def test_native_save_error_status():
     dlg, inst = _open_native(initial_code="x", parsed_parts=None)
     with patch(
-        "plugin.calc.python.editor._apply_cell_save",
+        "plugin.calc.python.editor.apply_cell_save",
         return_value={"type": "error", "message": "could not rewrite"},
     ):
         inst._save()
@@ -424,7 +424,7 @@ def test_native_follow_ref_keeps_data_enabled_and_saves_code_cell():
     assert dlg.controls["CellAddr"].getText() == "A1"
     dlg.controls["CodeEdit"].setText("result = 99")
     with patch(
-        "plugin.calc.python.editor._apply_cell_save",
+        "plugin.calc.python.editor.apply_cell_save",
         return_value={
             "type": "saved",
             "ok": True,
@@ -474,7 +474,7 @@ def test_monaco_follow_ref_load_shows_code_cell_and_keeps_data():
     assert load_msg["code"] == "result = 42"
     assert load_msg["cell_address"] == "A1"
     assert load_msg["data_binding"] == "C1:C10"
-    with patch.object(ed, "_apply_cell_save", return_value={"type": "saved", "ok": True}) as mock_save:
+    with patch.object(ed, "apply_cell_save", return_value={"type": "saved", "ok": True}) as mock_save:
         captured["on_save"]("result = 99", True, "C1:C10")
     kwargs = mock_save.call_args.kwargs
     assert kwargs["save_as_plain"] is True
@@ -701,7 +701,7 @@ def test_native_follow_two_data_ranges_shown_and_saved():
     dlg.controls["DataEdit"].setText("D1:D5, E1:E5")
     dlg.controls["CodeEdit"].setText("result = 1")
     with patch(
-        "plugin.calc.python.editor._apply_cell_save",
+        "plugin.calc.python.editor.apply_cell_save",
         return_value={"type": "saved", "ok": True, "save_as_plain": True},
     ) as mock_save:
         inst._save()
@@ -731,7 +731,7 @@ def test_native_follow_python_alias_and_clear_data():
     dlg.controls["DataEdit"].setText("")
     dlg.controls["CodeEdit"].setText("result = 2")
     with patch(
-        "plugin.calc.python.editor._apply_cell_save",
+        "plugin.calc.python.editor.apply_cell_save",
         return_value={"type": "saved", "ok": True, "save_as_plain": True},
     ) as mock_save:
         inst._save()
@@ -766,7 +766,7 @@ def test_native_external_dispose_clears_active():
 def test_native_save_exception_shows_reason_and_stays_dirty():
     dlg, inst = _open_native(initial_code="x", parsed_parts=None)
     inst._dirty = True
-    with patch("plugin.calc.python.editor._apply_cell_save", side_effect=RuntimeError("boom")):
+    with patch("plugin.calc.python.editor.apply_cell_save", side_effect=RuntimeError("boom")):
         inst._save()
     assert inst._dirty is True
     assert "Could not save the cell." in dlg.controls["StatusEdit"].getText()
