@@ -353,7 +353,9 @@ def read_table_source_grid(ctx: Any, active_doc: Any, scoped_dir: str | None, pa
             raise ToolExecutionError(f"Table identity {parsed.get('kind')} resolved to an empty range; nothing to register for SQL", code="DUCKDB_SQL_ERROR")
         return grid
 
-    full_path = os.path.join(scoped_dir, str(file_bn)) if scoped_dir else str(file_bn)
+    if not scoped_dir:
+        raise ToolExecutionError(f"Sibling spreadsheet {file_bn!r} needs the document's folder; save the document first", code="DUCKDB_SQL_ERROR")
+    full_path = os.path.join(scoped_dir, str(file_bn))
     if not os.path.isfile(full_path):
         raise ToolExecutionError(f"Sibling spreadsheet {file_bn!r} not found under the document folder", code="DUCKDB_SQL_ERROR")
     return _read_sibling_office_file_as_grid(ctx, full_path, parsed)

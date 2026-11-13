@@ -492,3 +492,30 @@ def test_sheet_hide_last_visible_errors():
         res = SheetHide().execute(ctx, sheet="Only", visible=False)
     assert res["status"] == "error"
     assert "only visible" in res["message"]
+
+
+def test_switch_sheet_refuses_internal_sheet():
+    from plugin.calc.sheets import SwitchSheet
+
+    doc, sheets = _doc_with_named_sheets("_hidden")
+    ctx = SimpleNamespace(doc=doc)
+    with patch("plugin.calc.sheets.CalcBridge") as bridge_cls:
+        bridge_cls.return_value.get_sheet.return_value = sheets.getByName("_hidden")
+        res = SwitchSheet().execute(ctx, sheet="_hidden")
+    assert res["status"] == "error"
+    assert "Cannot switch to internal sheet" in res["message"]
+    doc.getCurrentController().setActiveSheet.assert_not_called()
+
+
+def test_rename_sheet_refuses_internal_old_name():
+    from plugin.calc.sheets import RenameSheet
+
+    doc, sheets = _doc_with_named_sheets("_hidden")
+    hidden_sheet = sheets.getByName("_hidden")
+    ctx = SimpleNamespace(doc=doc)
+    with patch("plugin.calc.sheets.CalcBridge") as bridge_cls:
+        bridge_cls.return_value.get_sheet.return_value = hidden_sheet
+        res = RenameSheet().execute(ctx, old_name="_hidden", new_name="Visible")
+    assert res["status"] == "error"
+    assert "Cannot rename internal sheet" in res["message"]
+    hidden_sheet.setName.assert_not_called()
