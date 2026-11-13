@@ -300,10 +300,10 @@ class TestFormulaPoolSupervisor:
 
     def test_spawn_timeout_logs_stderr_snippet(self, tmp_path, caplog, monkeypatch) -> None:
         """Handshake TimeoutExpired must log child stderr (H2), not a bare one-liner."""
-        from plugin.framework import warm_child as wc
+        from plugin.framework import process_worker as pw
         from compute_service.worker_base import BaseProcessWorker
 
-        monkeypatch.setattr(wc, "SPAWN_READY_TIMEOUT_SEC", 0.5)
+        monkeypatch.setattr(pw, "SPAWN_READY_TIMEOUT_SEC", 0.5)
         script = tmp_path / "hang_worker.py"
         script.write_text("\n".join(["import sys, time", "sys.stderr.write('hang-before-ready\\n')", "sys.stderr.flush()", "time.sleep(30)"]), encoding="utf-8")
         with caplog.at_level(logging.ERROR, logger="compute_service.worker"):
