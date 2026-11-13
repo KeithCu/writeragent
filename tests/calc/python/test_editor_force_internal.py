@@ -35,14 +35,17 @@ def _open_editor(*, monaco, native=(True, None), code=("print(1)", None, None)):
     return SimpleNamespace(native=native_mock, launch=launch, msgbox=msgbox)
 
 
-@pytest.mark.parametrize("monaco", [(None, False), ("/venv/bin/python", False)])
+@pytest.mark.parametrize(
+    "monaco",
+    [(None, False), ("/venv/bin/python", False)],
+    ids=["no_exe", "no_webview"],
+)
 def test_open_python_cell_editor_falls_back_to_native(monaco):
     res = _open_editor(monaco=monaco)
     res.native.assert_called_once()
     res.launch.assert_not_called()
-    if monaco == (None, False):
-        assert res.native.call_args.kwargs["initial_code"] == "print(1)"
-        res.msgbox.assert_not_called()
+    assert res.native.call_args.kwargs["initial_code"] == "print(1)"
+    res.msgbox.assert_not_called()
 
 
 def test_open_python_cell_editor_native_failure_msgbox():

@@ -1249,20 +1249,36 @@ def test_to_calc_compatible_duck_typed_numeric() -> None:
 
 
 def test_calc_python_function_zero_event_pumping_invariant() -> None:
-    """Static invariant: function.py must not import event loop pumping or UI draining functions."""
+    """Static invariant: function.py must not import event loop pumping or UI draining functions.
+
+    Pumping during recalc re-enters the formula engine (#VALUE!); see plugin/calc/AGENTS.md.
+    """
     import ast
 
-    pump_names = {"processEventsToIdle", "process_events_to_idle", "run_async_worker_with_drain"}
+    banned_modules = {"async_stream", "vcl_pumping"}
+    pump_names = {
+        "processEventsToIdle",
+        "process_events_to_idle",
+        "run_async_worker_with_drain",
+        "pump_vcl_events",
+        "wait_while_pumping",
+        "pump_secondary_idle_tick",
+    }
     tree = ast.parse(Path(_function.__file__).read_text(encoding="utf-8"))
     flagged: list[str] = []
     for node in ast.walk(tree):
-        if isinstance(node, ast.ImportFrom) and node.module and node.module.endswith("async_stream"):
-            flagged.append(node.module)
+        if isinstance(node, ast.ImportFrom) and node.module:
+            if any(node.module.endswith(mod) for mod in banned_modules):
+                flagged.append(node.module)
+            for alias in node.names:
+                full = f"{node.module}.{alias.name}"
+                if any(full.endswith(mod) for mod in banned_modules):
+                    flagged.append(full)
         elif isinstance(node, ast.Import):
             for alias in node.names:
-                if alias.name.endswith("async_stream"):
+                if any(alias.name.endswith(mod) for mod in banned_modules):
                     flagged.append(alias.name)
-        elif isinstance(node, ast.alias) and node.name in pump_names:
+        if isinstance(node, ast.alias) and node.name in pump_names:
             flagged.append(node.name)
         elif isinstance(node, ast.Name) and node.id in pump_names:
             flagged.append(node.id)

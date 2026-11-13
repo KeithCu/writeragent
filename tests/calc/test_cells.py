@@ -1827,7 +1827,8 @@ def test_write_formula_range_comma_prose_to_one_cell_ranges_is_text():
     assert commit_named.call_args.args[0].values == ["Hello, world"]
 
 
-def test_delete_structure_schema_start_type_is_integer():
+def test_delete_structure_schema_start_accepts_integer_or_string():
+    """start accepts both 1-based row/column numbers and A1/column-letter strings (#2059)."""
     from plugin.calc.cells import DeleteStructure
 
     assert DeleteStructure.parameters is not None

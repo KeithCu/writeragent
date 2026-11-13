@@ -2,7 +2,10 @@ from unittest.mock import MagicMock
 from plugin.draw.bridge import DrawBridge
 
 def test_get_active_page_index_follows_calc_active_sheet():
-    """Verify that UpsertShape targets the active sheet and not sheet 0."""
+    """On a Calc doc, DrawBridge resolves the active page from controller.ActiveSheet.getDrawPage(), not sheet 0.
+
+    This is the only unit guard for plugin/draw/bridge.py:82-94; draw tests patch get_active_page out.
+    """
     # Setup mock doc
     doc = MagicMock()
     doc.supportsService.return_value = True
