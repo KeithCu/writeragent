@@ -1035,23 +1035,6 @@ def test_windows_hidden_open_bitmap_err_and_skip(monkeypatch):
         tu._set_windows_hidden_open_bitmap(saved)
 
 
-def test_windows_should_reuse_writer_even_without_leftovers(monkeypatch):
-    """GHA 34652644656: leftover_open=0 second Hidden _blank swriter hung."""
-    import plugin.tests.testing_utils as tu
-
-    monkeypatch.setattr(tu.sys, "platform", "win32")
-    tu.set_windows_notebook_host(False)
-    assert tu._windows_should_reuse_writer(object()) is True
-    tu.set_windows_notebook_host(True)
-    try:
-        assert tu._windows_should_reuse_writer(object()) is True
-    finally:
-        tu.set_windows_notebook_host(False)
-    monkeypatch.setattr(tu.sys, "platform", "linux")
-    assert tu._windows_should_reuse_writer(object()) is False
-    assert tu._windows_should_reuse_writer(None) is False
-
-
 def test_draw_doc_has_math_ole_reads_clsid():
     from unittest.mock import MagicMock
 
@@ -1193,7 +1176,6 @@ def test_windows_notebook_host_uses_dedicated_factory_target(monkeypatch):
         target, flags = tu._windows_factory_load_args("private:factory/swriter", 5)
         assert target == "_wa_notebook_host"
         assert flags == (8 | 55)
-        assert tu._windows_should_reuse_writer(object()) is True
     finally:
         tu.set_windows_notebook_host(False)
         tu._set_windows_leftover_open(saved)
@@ -1309,36 +1291,43 @@ def test_native_doc_windows_marks_pooled_writer_reuse_at_leftover_open_zero(
         tu._NATIVE_DOC_POOL.clear()
 
 
-def test_native_doc_windows_reuses_notebook_host(monkeypatch, capsys):
-    monkeypatch.setenv("WRITERAGENT_CI_DEBUG", "1")
-    """GHA 34661915875: leftover notebook host reuse keeps leftover_open low."""
+@pytest.mark.parametrize("platform", ["win32", "linux"])
+def test_native_doc_notebook_host_pool_is_separate(monkeypatch, platform):
+    """Notebook suites get their own pooled Writer on every platform."""
     from unittest.mock import MagicMock
 
     from plugin.tests.testing_utils import TestingFactory
     import plugin.tests.testing_utils as tu
 
-    writer = MagicMock(name="notebook_host")
+    doc_a = MagicMock(name="writer_a")
+    doc_b = MagicMock(name="writer_b")
+    docs = iter([("A", doc_a), ("B", doc_b)])
     created = []
-    monkeypatch.setattr(tu.sys, "platform", "win32")
+
+    def _create(*_args, **_kwargs):
+        label, doc = next(docs)
+        created.append(label)
+        return doc
+
+    monkeypatch.setattr(tu.sys, "platform", platform)
     monkeypatch.setattr(tu, "reset_native_doc", lambda *a, **k: None)
     monkeypatch.setattr(tu, "_writer_pool_is_clean", lambda _doc: True)
-    monkeypatch.setattr(
-        TestingFactory,
-        "create_native_doc",
-        lambda *a, **k: created.append("create") or writer,
-    )
+    monkeypatch.setattr(TestingFactory, "create_native_doc", _create)
     tu._NATIVE_DOC_POOL.clear()
-    tu.set_windows_notebook_host(True)
+    tu.set_windows_notebook_host(False)
     ctx = object()
     try:
         with TestingFactory.native_doc(ctx, "writer") as first:
-            assert first is writer
-        with TestingFactory.native_doc(ctx, "writer") as second:
-            assert second is writer
-        assert created == ["create"]
-        err = capsys.readouterr().err
-        assert "leftover notebook host reuse" in err
-        assert "leftover writer reuse" not in err
+            assert first is doc_a
+        tu.set_windows_notebook_host(True)
+        with TestingFactory.native_doc(ctx, "writer") as nb_first:
+            assert nb_first is doc_b
+        with TestingFactory.native_doc(ctx, "writer") as nb_second:
+            assert nb_second is doc_b
+        tu.set_windows_notebook_host(False)
+        with TestingFactory.native_doc(ctx, "writer") as back_to_shared:
+            assert back_to_shared is doc_a
+        assert created == ["A", "B"]
     finally:
         tu.set_windows_notebook_host(False)
         tu._NATIVE_DOC_POOL.clear()
@@ -1588,7 +1577,6 @@ def test_native_doc_writer_teardown_still_uses_close_doc(monkeypatch):
     monkeypatch.setattr(
         tu, "_log_office_health_after_close", lambda *_a, **_k: events.append("health")
     )
-    monkeypatch.setattr(tu, "_windows_should_reuse_writer", lambda _ctx: False)
     with TestingFactory.native_doc(object(), "writer", reuse=False) as got:
         assert got is doc
     assert events == ["close_doc", "health"]

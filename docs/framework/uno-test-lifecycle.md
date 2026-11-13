@@ -15,7 +15,7 @@ Windows CI harness cleanup notes (if present under `docs/archive/`).
 | Path | Reuse? | Open | Close |
 |------|--------|------|-------|
 | Calc `@with_native_doc` | Yes (wipe-and-reuse pool) | Factory only on first use / dead pool | Close only if reset fails |
-| Writer `@with_native_doc` | Yes (wipe-and-reuse pool by default across all platforms; pass `reuse=False` for fresh doc; leftover notebook host uses `_wa_notebook_host`) | Factory on first use / dead pool | Close only if reset fails or `reuse=False` (Windows also skips Writer close while leftovers remain) |
+| Writer `@with_native_doc` | Yes (wipe-and-reuse pool by default across all platforms; pass `reuse=False` for fresh doc; notebook suites `test_notebook_runner_uno` and `test_writer_importer_uno` use a separate `notebook_host` pool on all platforms because `_reset_writer_doc` does not clear `WriterAgentNotebookJson` or form-run listeners, with win32 factory target `_wa_notebook_host`) | Factory on first use / dead pool | Close only if reset fails or `reuse=False` (Windows also skips Writer close while leftovers remain) |
 | Draw / Impress | **Never** | Factory each test (`private:factory/sdraw`); Windows **skips** leftover Draw/Impress when leftover_open>2 | Windows leftover_open>0: skip close (`native_doc: teardown skip impress/draw close leftover_open=N`; suite-end recycle). Else `close_draw_family_doc` + `settle_after_draw_family_close` (Windows bare `close(True)`). Math OLE Draw still uses `close_doc` so that skip stays |
 
 `create_native_doc` is a thin `loadComponentFromURL`. Draw tests do **not**
@@ -448,6 +448,9 @@ returned; the next Hidden `_blank`
 `_blank` swriter is unsafe even without paste leftovers.
 `_windows_should_reuse_writer` now reuses the first Windows Writer
 without requiring leftover_open>0 (notebook host still isolated).
+(`_windows_should_reuse_writer` was later removed as redundant with
+default Writer pooling; the separate `notebook_host` pool stays on all
+platforms.)
 
 GHA 34655847157 (master `f88b8749`): leftover_open=0, paste suites
 deferred, slash OK, `test_list_nearby_excludes_active` OK. Hidden

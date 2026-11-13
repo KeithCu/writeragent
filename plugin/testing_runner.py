@@ -1248,8 +1248,10 @@ def run_module_suite(
     _progress_verbose(
         "SUITE pids %s python_pid=%s soffice.bin=%s" % (name, os.getpid(), _soffice_pids())
     )
-    # GHA 34643210006: leftover HTML-paste Writers forced leftover Writer
-    # reuse into notebook_runner. Isolate those suites on _wa_notebook_host.
+    # Give test_notebook_runner_uno and test_writer_importer_uno their own
+    # pooled Writer on every platform: _reset_writer_doc does not clear
+    # WriterAgentNotebookJson or form-run listeners, so later suites would
+    # otherwise see a notebook document (session_manager.has_notebook_registry).
     from tests.testing_utils import set_windows_notebook_host
 
     set_windows_notebook_host(

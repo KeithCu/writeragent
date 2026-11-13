@@ -311,36 +311,6 @@ def _windows_writer_pool_reused() -> bool:
     return bool(_STATE.writer_pool_reused)
 
 
-def _windows_should_reuse_writer(ctx) -> bool:
-    """True when a later Windows Writer factory would hang.
-
-    GHA 34601787293 / 34602219973: unique ``_wa_factory_N`` loaded three
-    leftover Calc factories and the first leftover swriter (uid=34).
-    ``close_doc`` of that Writer returned; the next unique swriter hung
-    30s. Reuse the first leftover Writer instead of close + factory.
-
-    GHA 34652644656 (paste suites deferred): leftover_open=0,
-    ``document_research_uno`` 3/3 and slash OK, then first text_helpers
-    Hidden ``_blank`` + ``close_doc`` uid=29 returned; the next Hidden
-    ``_blank`` hung 30s. Consecutive Hidden ``_blank`` swriter is unsafe
-    even without paste leftovers (34597506651 with leftovers). Reuse
-    the first Windows Writer.
-
-    GHA 34661915875 (master ``aa6bf058``, tip of #737): leftover
-    ``_wa_simpress`` at leftover_open=15 hung 30s. Notebook / importer
-    suites isolated on ``_wa_notebook_host`` *and* disabled leftover
-    Writer reuse, so each leftover factory stacked a Writer
-    (leftover_open 1→15) because close is skipped. Reuse the leftover
-    ``_wa_notebook_host`` pool — still not leftover HTML-paste
-    ``_wa_factory`` (GHA 34643210006). Wipe leftover notebook host
-    between leftover notebook tests; leftover form listeners stay
-    per-document.
-    """
-    if ctx is None or sys.platform != "win32":
-        return False
-    return True
-
-
 def _windows_should_reuse_calc(ctx) -> bool:
     """True when a leftover scalc factory would hang.
 
@@ -678,14 +648,22 @@ def note_windows_hidden_open_bitmap(err: str | None) -> None:
     )
 
 
-# Notebook-runner host while leftover HTML-paste Writers stay open.
-# Not leftover ``_wa_factory`` (reuses paste leftovers) and not
-# import-filter ``_wa_notebook`` (GHA 34643210006 leftover listeners).
+# Separate pooled Writer for test_notebook_runner_uno and
+# test_writer_importer_uno on every platform. Without it, the shared
+# Writer pool keeps WriterAgentNotebookJson and a form-run listener
+# because _reset_writer_doc does not clear them, so later suites would
+# see a notebook document (session_manager.has_notebook_registry).
+# Only the win32 factory target _wa_notebook_host is Windows-specific.
 _WINDOWS_NOTEBOOK_HOST_TARGET = "_wa_notebook_host"
 
 
 def set_windows_notebook_host(on: bool) -> None:
-    """Leftover factory uses ``_wa_notebook_host`` (not leftover ``_wa_factory``)."""
+    """Use a separate pooled Writer for notebook suites on every platform.
+
+    Keeps WriterAgentNotebookJson and form-run listeners off the shared
+    Writer pool (only the win32 factory target _wa_notebook_host is
+    Windows-specific).
+    """
     _STATE.notebook_host = bool(on)
 
 
@@ -1718,14 +1696,6 @@ class TestingFactory:
         """Yield a native LO document. Writer and Calc default to wipe-and-reuse pool (pass reuse=False for fresh doc)."""
         if reuse is None:
             reuse = _default_native_doc_reuse(doc_type)
-            if doc_type == "writer" and _windows_should_reuse_writer(ctx):
-                from plugin.testing_runner import _progress_verbose as _progress
-
-                reuse = True
-                if _windows_notebook_host():
-                    _progress("native_doc: leftover notebook host reuse")
-                else:
-                    _progress("native_doc: leftover writer reuse")
         # reuse=False still calls create_native_doc. Leftover _wa_scalc
         # hung 30s (34643210006). Wipe-and-reuse the pooled Calc instead.
         if doc_type == "calc" and not reuse and _windows_should_reuse_calc(ctx):
@@ -1738,9 +1708,10 @@ class TestingFactory:
         pooled = False
         writer_reused = False
         if use_pool:
-            # Leftover notebook host must not reuse leftover _wa_factory
-            # (GHA 34643210006 leftover HTML-paste leftover). Same leftover
-            # Writer type, separate leftover pool.
+            # Keep notebook suites on a separate pooled Writer on every platform:
+            # _reset_writer_doc does not clear WriterAgentNotebookJson or
+            # form-run listeners, so sharing the main pool would expose
+            # session_manager.has_notebook_registry to later Writer suites.
             pool_kind = "notebook_host" if (
                 doc_type == "writer" and _windows_notebook_host()
             ) else doc_type
