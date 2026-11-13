@@ -5,7 +5,7 @@ options:
   crash_on_yield: false
 deadlock_detection: false
 ---
-# Nested-text mapping: one XText per container. Stories: tests/mcp/nested_text_model.py.
+# Nested-text mapping: one XText per container.
 
 action Init:
     body_text = ""

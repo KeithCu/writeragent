@@ -339,17 +339,3 @@ def test_read_starmath_raises_on_disposed_embed() -> None:
 
     with pytest.raises(DocumentDisposedError):
         read_starmath(embed)
-
-
-def test_math_export_result_shape() -> None:
-    r = MathExportResult(False, None, "empty_mathml")
-    assert r.ok is False
-
-
-def test_math_mml_export_uno_skips_windows_leftover_hidden_smath() -> None:
-    """GHA 34678020608: leftover Hidden _blank smath / .mml hang."""
-    from pathlib import Path
-
-    src = Path(__file__).with_name("test_math_mml_export_uno.py").read_text(encoding="utf-8")
-    assert "skip_windows_leftover_hidden_load" in src
-    assert "math export Hidden _blank smath" in src

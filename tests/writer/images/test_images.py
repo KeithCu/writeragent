@@ -65,19 +65,33 @@ def _image_tool_config_all_false(_key: str) -> bool:
     return False
 
 
-def test_resolve_orient_named_positions():
-    # Friendly names resolve to a (mocked) UNO constant, never an error.
-    for name in ("left", "center", "right", "LEFT", "Right"):
-        const, err = _resolve_orient(name, "hori")
-        assert err is None and const is not None
-    for name in ("top", "center", "bottom"):
-        const, err = _resolve_orient(name, "vert")
-        assert err is None and const is not None
+_ORIENT_CONSTANTS = {
+    "com.sun.star.text.HoriOrientation.LEFT": 3,
+    "com.sun.star.text.HoriOrientation.CENTER": 2,
+    "com.sun.star.text.HoriOrientation.RIGHT": 1,
+    "com.sun.star.text.VertOrientation.TOP": 1,
+    "com.sun.star.text.VertOrientation.CENTER": 2,
+    "com.sun.star.text.VertOrientation.BOTTOM": 3,
+}
 
 
-def test_resolve_orient_centre_british_spelling():
-    const, err = _resolve_orient("centre", "hori")
-    assert err is None and const is not None
+@pytest.mark.parametrize(
+    ("name", "axis", "expected"),
+    [
+        ("left", "hori", 3),
+        ("LEFT", "hori", 3),
+        ("center", "hori", 2),
+        ("centre", "hori", 2),
+        ("right", "hori", 1),
+        ("Right", "hori", 1),
+        ("top", "vert", 1),
+        ("center", "vert", 2),
+        ("bottom", "vert", 3),
+    ],
+)
+def test_resolve_orient_named_positions(name: str, axis: str, expected: int) -> None:
+    with patch("uno.getConstantByName", side_effect=_ORIENT_CONSTANTS.__getitem__):
+        assert _resolve_orient(name, axis) == (expected, None)
 
 
 def test_resolve_orient_int_passthrough():

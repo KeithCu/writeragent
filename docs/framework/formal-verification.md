@@ -472,7 +472,7 @@ Maintain a `verification_status.json` file tracking which components have been v
 
 ## Phase 7: Expand Verification to Tier 0 Modules
 
-**Status (partial):** large catalog below is in place; remaining gaps and promotions are tracked under **Phase 9** and [`verification_status.json`](../verification_status.json) (not every listed row is `verified`).
+**Status (partial):** large catalog below is in place; remaining gaps and promotions are tracked under **Phase 9** and [`verification_status.json`](../verification_status.json) (not every listed row is `verified`). Isinstance-only Hypothesis checks were removed; the remaining `*_verification.py` tests keep a real oracle.
 
 1. **`plugin/framework/url_utils.py`** — `deal` + Hypothesis + CrossHair ([`tests/framework/test_url_utils_verification.py`](../../tests/framework/test_url_utils_verification.py))
 2. **`plugin/calc/address_utils.py`** — inverse column/address contracts + Hypothesis ([`tests/calc/test_address_utils_verification.py`](../../tests/calc/test_address_utils_verification.py))
@@ -484,14 +484,14 @@ Maintain a `verification_status.json` file tracking which components have been v
 8. **`plugin/framework/json_utils.py`** — `safe_json_loads` FQN ([`tests/framework/test_json_utils_verification.py`](../../tests/framework/test_json_utils_verification.py))
 9. **`plugin/framework/errors.py`** — `format_error_payload` and `format_error_message` ([`tests/framework/test_error_payload_verification.py`](../../tests/framework/test_error_payload_verification.py))
 10. **`plugin/scripting/sandbox.py`** — `scrub_subprocess_env` ([`tests/scripting/test_scrub_env_verification.py`](../../tests/scripting/test_scrub_env_verification.py))
-11. **`plugin/framework/i18n.py`** — `_` translation and `get_active_locale` ([`tests/framework/test_i18n_and_memory_verification.py`](../../tests/framework/test_i18n_and_memory_verification.py))
-12. **`plugin/chatbot/memory.py`** — `upsert_memory_arguments_dict`, `format_upsert_memory_chat_line` ([`tests/framework/test_i18n_and_memory_verification.py`](../../tests/framework/test_i18n_and_memory_verification.py))
+11. **`plugin/framework/i18n.py`** — `_` translation ([`tests/framework/test_i18n.py`](../../tests/framework/test_i18n.py))
+12. **`plugin/chatbot/memory.py`** — `upsert_memory_arguments_dict`, `format_upsert_memory_chat_line` ([`tests/chatbot/test_memory.py`](../../tests/chatbot/test_memory.py))
 13. **`plugin/framework/openrouter_model_id.py`** — `_split_suffix`, `resolve_openrouter_catalog_id`, `openrouter_model_ids_equivalent` ([`tests/framework/test_framework_modules_verification.py`](../../tests/framework/test_framework_modules_verification.py))
-14. **`plugin/framework/ast_stmt_edit.py`** — `is_name_call_expr`, `remove_statements` ([`tests/framework/test_framework_modules_verification.py`](../../tests/framework/test_framework_modules_verification.py))
-15. **`plugin/framework/default_models.py`** — `resolve_model_id`, `get_provider_defaults` ([`tests/framework/test_framework_modules_verification.py`](../../tests/framework/test_framework_modules_verification.py))
+14. **`plugin/framework/ast_stmt_edit.py`** — `is_name_call_expr`, `remove_statements` ([`tests/framework/test_ast_stmt_edit.py`](../../tests/framework/test_ast_stmt_edit.py))
+15. **`plugin/framework/default_models.py`** — `resolve_model_id`, `get_provider_defaults` ([`tests/framework/test_default_models.py`](../../tests/framework/test_default_models.py))
 16. **`plugin/framework/constants.py`** — `now_aware` ([`tests/framework/test_framework_modules_verification.py`](../../tests/framework/test_framework_modules_verification.py))
-17. **`plugin/framework/appearance.py`** — `_luminance`, `get_monaco_theme_info` ([`tests/framework/test_framework_phase3_verification.py`](../../tests/framework/test_framework_phase3_verification.py))
-18. **`plugin/framework/event_bus.py`** — `EventBus.emit` exception isolation ([`tests/framework/test_framework_phase3_verification.py`](../../tests/framework/test_framework_phase3_verification.py))
+17. **`plugin/framework/appearance.py`** — `_luminance`, `get_monaco_theme_info` ([`tests/framework/test_appearance.py`](../../tests/framework/test_appearance.py))
+18. **`plugin/framework/event_bus.py`** — `EventBus.emit` exception isolation ([`tests/framework/test_event_bus.py`](../../tests/framework/test_event_bus.py))
 20. **`plugin/chatbot/chat_sidebar_mode.py`** — `sidebar_mode_flags_for_doc_type`, `get_mode_labels`, `mode_from_label` ([`tests/chatbot/test_chatbot_pure_verification.py`](../../tests/chatbot/test_chatbot_pure_verification.py))
 21. **`plugin/chatbot/skills.py`** — `HUMANIZER_GUIDANCE` constant & skill store ([`tests/chatbot/test_skills.py`](../../tests/chatbot/test_skills.py))
 22. **`plugin/chatbot/research_cache_fluff.py`** — `translated_research_cache_fluff` ([`tests/chatbot/test_web_research_cache.py`](../../tests/chatbot/test_web_research_cache.py))
@@ -509,7 +509,7 @@ Maintain a `verification_status.json` file tracking which components have been v
 34. **`plugin/calc/calc_utils.py`** — `resolve_sheet_and_cell` ([`tests/calc/test_calc_dep_and_filter_verification.py`](../../tests/calc/test_calc_dep_and_filter_verification.py))
 35. **`plugin/calc/sheet_filter_criteria.py`** — `filter_connection_code`, `resolve_filter_operator_code`, `parse_sheet_filter_criterion` ([`tests/calc/test_calc_dep_and_filter_verification.py`](../../tests/calc/test_calc_dep_and_filter_verification.py))
 36. **`plugin/calc/excel_py_convert/resolve_refs.py`** — `resolve_dep` ([`tests/calc/test_calc_dep_and_filter_verification.py`](../../tests/calc/test_calc_dep_and_filter_verification.py))
-37. **`plugin/mcp/wire_types.py`** — `parse_jsonrpc_request`, `is_jsonrpc_notification`, `initialize_result`, `call_tool_result_image` ([`tests/mcp/test_mcp_wire_verification.py`](../../tests/mcp/test_mcp_wire_verification.py))
+37. **`plugin/mcp/wire_types.py`** — `parse_jsonrpc_request`, `is_jsonrpc_notification`, `initialize_result`, `call_tool_result_image` ([`tests/mcp/test_wire_types.py`](../../tests/mcp/test_wire_types.py))
 38. **`plugin/writer/word_diff_split.py`** — `tokenize`, `split_change` ([`tests/writer/test_writer_diff_and_html_verification.py`](../../tests/writer/test_writer_diff_and_html_verification.py))
 39. **`plugin/writer/xhtml_style_postprocess.py`** — `decode_lo_css_class_suffix`, `compact_lo_style_name`, `parse_fodt_autostyles`, `parse_style_block` ([`tests/writer/test_writer_diff_and_html_verification.py`](../../tests/writer/test_writer_diff_and_html_verification.py))
 40. **`plugin/calc/calc_addin_data.py`** — `_unwrap_cell`, `finalize_python_data`, `calc_addin_data_to_python` ([`tests/calc/test_calc_dep_and_filter_verification.py`](../../tests/calc/test_calc_dep_and_filter_verification.py))

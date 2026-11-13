@@ -14,13 +14,13 @@ if _anchor_key not in sys.modules:
     setattr(anchor_mod, "AT_FRAME", 3)
     sys.modules[_anchor_key] = anchor_mod
 
-# systemPathToFileUrl is used by image_tools; patch per-test where needed.
-_uno = sys.modules.get("uno")
-if isinstance(_uno, MagicMock):
-    _uno.systemPathToFileUrl.side_effect = lambda p: f"file:///{p}"
-
 from plugin.writer.images import image_tools  # noqa: E402
 from plugin.doc import visual_helpers  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def _system_path_to_file_url(monkeypatch):
+    monkeypatch.setattr(image_tools.uno, "systemPathToFileUrl", lambda p: f"file:///{p}")
 
 
 class TestInsertImageIntoHeaderFooter:

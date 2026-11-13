@@ -100,6 +100,7 @@ class TestMemory:
         assert ("nickname") in (line)
         assert ("Bob") in (line)
         assert (line.startswith("[Memory update:"))
+        assert line.endswith("\n")
 
     def test_format_upsert_memory_chat_line_truncates_long_value(self):
         long_val = "x" * (UPSERT_MEMORY_CHAT_VALUE_MAX + 50)

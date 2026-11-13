@@ -266,13 +266,6 @@ class TestDefaultExtraArgs:
             backend = ClaudeBackend()
         assert (backend._extra_args) == ([])
 
-    def test_default_extra_args_are_immutable_tuples(self):
-        assert isinstance(HermesBackend.default_extra_args, tuple)
-        assert isinstance(OpenCodeBackend.default_extra_args, tuple)
-        assert isinstance(AntigravityBackend.default_extra_args, tuple)
-        assert isinstance(GrokBackend.default_extra_args, tuple)
-        assert isinstance(ACPBackend.default_extra_args, tuple)
-
 
 class TestBinaryDiscovery:
     """Config path and PATH / home-dir fallback still resolve the binary."""

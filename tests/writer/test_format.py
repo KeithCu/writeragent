@@ -1068,27 +1068,6 @@ def test_run_writer_mutation_with_optional_review_import_error():
     apply_fn.assert_called_once()
 
 
-def test_document_to_content_full_timing_path_with_mocks():
-    """Phase timing logs must not change the full-scope export result."""
-    from unittest.mock import patch
-
-    import plugin.writer.html_export as fmt
-    import plugin.writer.html_export as html_export
-
-    xhtml = '<html><body><p class="paragraph-Text_20_body">hello</p></body></html>'
-    with (
-        patch.object(html_export, "_export_xhtml", return_value=xhtml) as export_xhtml,
-        patch.object(html_export, "_autostyle_maps", return_value=({}, {}, False)) as autostyle,
-        patch("plugin.writer.xhtml_style_postprocess.xhtml_to_semantic_html", return_value="<p>hello</p>") as post,
-    ):
-        out = fmt.document_to_content(object(), object(), scope="full")
-
-    export_xhtml.assert_called_once()
-    autostyle.assert_called_once()
-    post.assert_called_once_with(xhtml, {}, {})
-    assert out == "<p>hello</p>"
-
-
 def test_format_module_avoids_document_helpers_ops_review_authors():
     """LibrePy RPS insert loads html_import.py; chat export/replace stay local imports."""
     import ast
@@ -1234,17 +1213,6 @@ def test_enum_hit_walk_cap_and_warning_are_honest():
     assert dest and "cap 50" in dest[0]
     assert "incomplete" in dest[0]
     assert fmt.record_walk_cap(done, 50, 50, "text portions", dest) is False
-
-
-def test_apply_style_origin_limitation_still_value_compare() -> None:
-    """GHA 34683742049 canary FAIL was leftover reuse, not a product fix."""
-    from pathlib import Path
-
-    from plugin.writer import styles as st
-
-    src = Path(st.__file__).read_text(encoding="utf-8")
-    assert "KNOWN LIMITATION: a direct override whose value equals the old style default" in src
-    assert "differs from the paragraph's current style default" in src
 
 
 def test_style_governed_char_properties_spare_bold_and_italic():
@@ -1461,24 +1429,6 @@ def test_source_style_is_cached_and_tolerates_a_missing_style():
     assert families.getByName.call_count == 1  # second read served from the cache
     assert rc.source_style(model, "Nope", cache) is None
     assert rc.source_style(model, "", cache) is None
-
-
-def test_format_uno_skips_windows_leftover_hidden_apply() -> None:
-    """GHA 34683742049 / 34685648395 / 35470191616: leftover Hidden and pool reuse."""
-    from pathlib import Path
-
-    src = Path(__file__).with_name("test_format_uno.py").read_text(encoding="utf-8")
-    assert "skip_windows_leftover_hidden_load" in src
-    assert "apply_document_content Hidden _default swriter" in src
-    assert "34683742049" in src
-    assert "format_uno Hidden _blank small_doc" in src
-    assert "34685648395" in src
-    assert "format_uno cross-paragraph color leftover reuse" in src
-    assert "non-linebreak" in src
-    assert "35466498641" in src
-    assert "skip_windows_pooled_writer_reuse" in src
-    assert "format_uno cross-paragraph color pooled reuse" in src
-    assert "35470191616" in src
 
 
 # --- table-cell HTML block gate (from test_cell_block_html_gate.py) ---

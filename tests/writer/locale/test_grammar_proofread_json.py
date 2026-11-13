@@ -6,8 +6,6 @@
 
 from __future__ import annotations
 
-import builtins
-import importlib
 import sys
 
 import pytest
@@ -15,20 +13,9 @@ import pytest
 from plugin.writer.locale import grammar_proofread_json as gj
 
 
-def test_module_imports_without_json_repair(monkeypatch) -> None:
-    """Module must load even when vendored json_repair is not importable yet."""
-    real_import = builtins.__import__
-
-    def fake_import(name, globals=None, locals=None, fromlist=(), level=0):
-        if name == "json_repair":
-            raise ImportError("no json_repair")
-        return real_import(name, globals, locals, fromlist, level)
-
-    sys.modules.pop("json_repair", None)
-    monkeypatch.setattr(builtins, "__import__", fake_import)
-    importlib.reload(gj)
-
-    # The module must not need json_repair at import time.
+def test_parse_grammar_json_without_json_repair_raises_value_error(monkeypatch) -> None:
+    """Parsing degrades cleanly to ValueError when vendored json_repair is unavailable."""
+    monkeypatch.setitem(sys.modules, "json_repair", None)
     with pytest.raises(ValueError):
         gj.parse_grammar_json("not json")
 

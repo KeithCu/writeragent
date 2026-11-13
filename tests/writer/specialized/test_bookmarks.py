@@ -1,21 +1,5 @@
 import pytest
-import sys
-import types
 from unittest.mock import MagicMock
-
-# Ensure UNO is mocked if running outside LibreOffice
-try:
-    import uno  # noqa: F401
-except ImportError:
-    sys.modules["uno"] = MagicMock()
-    sys.modules["unohelper"] = MagicMock()
-    com_mock = MagicMock()
-    sys.modules["com"] = com_mock
-    # Create module type for com.sun.star.text
-    css_text = types.ModuleType("com.sun.star.text")
-    sys.modules["com.sun.star.text"] = css_text
-    # We don't strictly need class stubs here if we just mock the module objects,
-    # but let's make sure it doesn't fail on imports.
 
 from plugin.tests.testing_utils import TestingFactory
 from plugin.writer.specialized.bookmarks import (

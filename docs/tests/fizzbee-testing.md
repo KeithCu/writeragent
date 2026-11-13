@@ -65,8 +65,8 @@ Specs use real FizzBee syntax (`action Init` for state, `atomic action`, `oneof`
 - Nested containers: body string, each table's representative cell string, footnotes, frames.
 - Cursor: `(kind, id, start, end)` on one container.
 - Actions include `CreateTable`, `SetCell`, `MoveCursorToCell`, `ApplySelection` (writes the **cursor** container, not the body), `GetSelection`.
-- Invariants: `Inv_BookmarksBounded`, `Inv_TablesValidDimensions`, `Inv_PendingChangesOnlyWhenRecorded`, `Inv_CursorSameContainer`. Selection-vs-body mapping is checked in the Python nested-text oracle (FizzBee `last_op` cannot shrink that story).
-- Alphabet is bounded for model checking. Shrinkable stories live in [`tests/mcp/nested_text_model.py`](../../tests/mcp/nested_text_model.py) (e.g. create 3×2 table, put `"MinerU"` in A2, select the cell, delete 2 characters, get content, search-replace). If a tool uses body text while the cursor is in a cell, the Python model fails in milliseconds with a shrinkable seed — the same class of bug as `apply_document_content` building a cursor on `model.getText()` instead of `target_range.getText()`.
+- Invariants: `Inv_BookmarksBounded`, `Inv_TablesValidDimensions`, `Inv_PendingChangesOnlyWhenRecorded`, `Inv_CursorSameContainer`. Selection-vs-body mapping is pinned by [`tests/writer/test_apply_document_content_table_cell_uno.py`](../../tests/writer/test_apply_document_content_table_cell_uno.py) (FizzBee `last_op` cannot shrink a multi-step story).
+- Alphabet is bounded for model checking. The live UNO test covers the MinerU-style cell-vs-body bug class (e.g. create 3×2 table, put text in a cell, select/edit the cell, verify the body stays untouched) — the same class of bug as `apply_document_content` building a cursor on `model.getText()` instead of `target_range.getText()`.
 
 ### C. Calc Tools Model (`tests/mcp/fizzbee/calc_tools_model.fizz`)
 - Spreadsheet grid cells, formula ranges, sheet management, named ranges, and filters.
