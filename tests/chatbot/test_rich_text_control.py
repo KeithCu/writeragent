@@ -943,14 +943,14 @@ class TestRichControlListenerInit:
         mock_post.assert_called_once()
 
     def test_disposing_clears_cell_link_spans(self):
-        from plugin.calc.navigation import cell_link_registry, register_cell_link_span
+        from plugin.calc.navigation import cell_link_registry
         from plugin.chatbot.rich_text_control import RichTextControlListener
 
         root = MagicMock()
         ctrl = MagicMock()
         listener = RichTextControlListener(MagicMock(), root, MagicMock(), MagicMock())
         listener.rich_control = ctrl
-        register_cell_link_span(ctrl, 0, 5, "A1")
+        cell_link_registry.add(ctrl, 0, 5, "A1")
         assert cell_link_registry.lookup(ctrl, 2) == "A1"
 
         listener.disposing(MagicMock())
@@ -995,7 +995,7 @@ def test_widget_replace_control():
     widget._formatted_len = 5
 
     new_ctrl = MagicMock()
-    with patch("plugin.calc.navigation.clear_cell_link_spans") as mock_clear:
+    with patch("plugin.calc.navigation.cell_link_registry.clear") as mock_clear:
         widget.replace_control(new_ctrl)
         mock_clear.assert_called_once_with(old_ctrl)
 
@@ -1005,7 +1005,7 @@ def test_widget_replace_control():
     assert widget._formatted_len is None
 
     # Second replace with same object does not clear again
-    with patch("plugin.calc.navigation.clear_cell_link_spans") as mock_clear2:
+    with patch("plugin.calc.navigation.cell_link_registry.clear") as mock_clear2:
         widget.replace_control(new_ctrl)
         mock_clear2.assert_not_called()
 

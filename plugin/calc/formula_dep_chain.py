@@ -110,7 +110,7 @@ def fetch_formula_dep_chain(doc: Any, ctx: Any, address: str) -> dict[str, Any] 
         # chain does not need the view, so collection continues.
         from plugin.calc.navigation import navigate_to_cell
 
-        best_effort(lambda: navigate_to_cell(doc, ctx, address), f"navigate_to_cell failed for {address!r}; continuing dep chain")
+        best_effort(lambda: navigate_to_cell(doc, address), f"navigate_to_cell failed for {address!r}; continuing dep chain")
 
     chain: dict[str, Any] | None = None
     raw = best_effort(lambda: doc.getCommandValues(_FORMULA_DEP_CHAIN_CMD), f"getCommandValues({_FORMULA_DEP_CHAIN_CMD}) failed")
