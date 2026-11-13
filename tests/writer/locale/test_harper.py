@@ -1163,7 +1163,8 @@ def test_harper_try_lint_waits_for_lint_lock_and_pumps() -> None:
 def test_harper_lock_wait_times_out_without_holding_lock(ensure_jobs: list[str]) -> None:
     harper_module.runtime.lock.acquire()
     try:
-        with patch("plugin.writer.locale.harper._LINT_BUDGET_SEC", 0.05):
+        with patch("plugin.writer.locale.harper._LINT_BUDGET_SEC", 0.05), \
+             patch("plugin.writer.locale.harper._DIALOG_LINT_BUDGET_SEC", 0.05):
             assert harper_try_lint("Hello.", "/tmp", ctx=object()) is None
             assert ensure_jobs == []
     finally:
@@ -1705,7 +1706,9 @@ def test_harper_try_lint_main_thread_budget_cancels() -> None:
         raise TimeoutError("Harper LSP operation cancelled")
 
     t0 = time.monotonic()
+    # The main thread uses _DIALOG_LINT_BUDGET_SEC, not the 15 s _LINT_BUDGET_SEC.
     with patch("plugin.framework.queue_executor.main.is_current", return_value=True), \
+         patch("plugin.writer.locale.harper._DIALOG_LINT_BUDGET_SEC", 0.2), \
          patch.object(harper_module.runtime, "lint_now", side_effect=fake_lint_now), \
          patch("plugin.writer.locale.harper.harper_ensure_ready_async"):
         res = harper_try_lint("Hi.", "/tmp", ctx=object())
@@ -1714,7 +1717,7 @@ def test_harper_try_lint_main_thread_budget_cancels() -> None:
     assert elapsed < 2.5
     assert cancel_seen.is_set()
     assert len(recorded_deadline) == 1
-    assert 1.5 < recorded_deadline[0] - t0 < 2.5
+    assert 0.1 < recorded_deadline[0] - t0 < 1.0
     assert res is None
 
 

@@ -683,7 +683,7 @@ class TestGrammarPersistence:
 
         def _slow_load(self_dp: Any) -> None:
             try:
-                barrier.wait(timeout=2.0)
+                barrier.wait(timeout=0.2)
             except threading.BrokenBarrierError:
                 pass
             orig_load(self_dp)  # pyright: ignore[reportCallIssue,reportArgumentType]

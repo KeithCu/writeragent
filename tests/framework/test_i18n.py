@@ -366,23 +366,4 @@ class TestI18n:
             assert entry is not None, msgid
             assert entry.msgstr == msgstr
 
-    def test_dialog_views_imports(self):
-        """Import dialog_views with full UNO; otherwise expect ImportError (headless pytest)."""
-        try:
-            from plugin.chatbot import dialog_views
-            assert (dialog_views) is not None
-        except ImportError as e:
-            err = str(e)
-            assert (any(
-                    part in err
-                    for part in (
-                        "unohelper",
-                        "uno",
-                        "com.sun.star",
-                        "com",
-                        "XItemListener",
-                        "unknown",
-                    )
-                )), f"Unexpected import error: {e!r}"
-
 

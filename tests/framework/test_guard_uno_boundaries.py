@@ -75,13 +75,14 @@ class TestGuardUnoBoundaries:
 
         with (
             patch("plugin.mcp.mcp_protocol._real_active_document", return_value=None),
-            patch("plugin.framework.uno_context.get_ctx", return_value=guarded_ctx) as mock_get_ctx,
+            patch("plugin.framework.uno_context.get_ctx", return_value=guarded_ctx),
             patch("plugin.mcp.mcp_protocol._resolve_mcp_doc_key", return_value="key"),
             patch("plugin.mcp.document_mutation_gate.document_mutation_gate"),
         ):
             handler._run_tool("noop", {}, document_url=None, cancel=SendCancellation())
 
-        mock_get_ctx.assert_called()
+        tool_context = services.tools.execute.call_args[0][1]
+        assert tool_context.ctx is guarded_ctx
 
     def test_export_graphic_to_bytes_uses_get_ctx_when_ctx_none(self) -> None:
         guarded_ctx = MagicMock(name="guarded_ctx")
