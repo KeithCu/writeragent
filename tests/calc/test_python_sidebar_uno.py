@@ -25,7 +25,7 @@ def test_list_and_navigate_python_cell(ctx, doc):
     found = list_python_cells_in_doc(doc)
     assert any(c.address.endswith("B3") and "result = 42" in c.code for c in found), found
 
-    assert navigate_to_cell(doc, ctx, "Data.B3") is True
+    assert navigate_to_cell(doc, "Data.B3") is True
     sel = doc.getCurrentController().getSelection()
     addr = sel.getRangeAddress()
     assert addr.StartColumn == 1

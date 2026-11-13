@@ -95,7 +95,7 @@ def test_navigate_to_cell(ctx, doc):
 
     active_sheet = doc.getCurrentController().getActiveSheet()
     active_sheet.getCellByPosition(4, 4).setString("target")
-    ok = navigate_to_cell(doc, ctx, "E5")
+    ok = navigate_to_cell(doc, "E5")
     assert ok, "navigate_to_cell returned False"
     sel = doc.getCurrentController().getSelection()
     addr = sel.getCellAddress()

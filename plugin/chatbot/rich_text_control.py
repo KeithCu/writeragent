@@ -24,6 +24,7 @@ from typing import Any, cast
 from plugin.framework.errors import best_effort
 from plugin.framework.uno_listeners import BaseWindowListener
 from plugin.doc.text_helpers import go_right
+from plugin.calc.navigation import cell_link_registry  # rich_text already loads navigation at import.
 from plugin.chatbot.dialogs import set_prop
 from plugin.chatbot.rich_text import (
     CHAT_FONT_HEIGHT,
@@ -123,9 +124,7 @@ class RichTextChatWidget:
         if new is self.control:
             return
         if self.control is not None:
-            from plugin.calc.navigation import clear_cell_link_spans
-
-            clear_cell_link_spans(self.control)
+            cell_link_registry.clear(self.control)
         self.control = new
         self._forget_formatted_state()
 
@@ -799,9 +798,7 @@ class RichTextControlListener(BaseWindowListener):
         log_rich_control_context("disposing", initialized=self.initialized, had_control=bool(self.rich_control))
         self._disposed = True
         if self.rich_control is not None:
-            from plugin.calc.navigation import clear_cell_link_spans
-
-            clear_cell_link_spans(self.rich_control)
+            cell_link_registry.clear(self.rich_control)
         self.rich_control = None
         # CPython can reuse id() after GC; leaving the parent id in this set
         # makes a later panel skip rich-control init and show the plain field.
@@ -1144,9 +1141,7 @@ def clear_control(control: Any) -> None:
     if not control:
         return
     try:
-        from plugin.calc.navigation import clear_cell_link_spans
-
-        clear_cell_link_spans(control)
+        cell_link_registry.clear(control)
         if hasattr(control, "setText"):
             control.setText("")
         model = control.getModel()
@@ -1199,9 +1194,7 @@ def rollback_rich_insert(control: Any, before: int | None) -> None:
             cursor.setString("")
     except Exception:
         log.exception("rollback_rich_insert failed")
-    from plugin.calc.navigation import drop_cell_link_spans_from
-
-    drop_cell_link_spans_from(control, before)
+    cell_link_registry.drop_from(control, before)
 
 
 def reveal_rich_control_caret(control: Any, ctx: Any = None, reason: str = "unspecified", *, restore: Any = None) -> None:

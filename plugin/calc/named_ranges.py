@@ -509,27 +509,23 @@ class NamedRangeCreateFromTitles(ToolCalcRangeBase):
             range_str = range_args(kwargs.get("range"), exactly_one=True)[0]
         except UnoObjectError as exc:
             return self._tool_error(str(exc), code="INVALID_ARGUMENT")
-        border_present = kwargs.get("border", "top")
-        border_str = "top" if border_present is None or not str(border_present).strip() else border_present
-        border_clean = str(border_str).strip().upper()
+        border = kwargs.get("border", "top")
         scope = kwargs.get("scope")
 
         from com.sun.star.sheet.Border import BOTTOM, LEFT, RIGHT, TOP
 
-        border_map: dict[str, Any] = {"TOP": TOP, "BOTTOM": BOTTOM, "LEFT": LEFT, "RIGHT": RIGHT}
-
-        if border_clean not in border_map:
-            return self._tool_error(f"Invalid border '{border_str}'. Supported borders: 'top', 'bottom', 'left', 'right'.", code="INVALID_BORDER")
+        # prepare_tool_call checks the schema enum, which admits only these four lower-case values.
+        border_map: dict[str, Any] = {"top": TOP, "bottom": BOTTOM, "left": LEFT, "right": RIGHT}
 
         try:
             cell_range = bridge.resolve_range_or_address(range_str)
             range_addr = cell_range.getRangeAddress()
 
             container, effective_scope, _unused_sheet = _resolve_container(ctx.doc, scope)
-            container.addNewFromTitles(range_addr, border_map[border_clean])
+            container.addNewFromTitles(range_addr, border_map[border])
 
-            log.info("Named ranges created from titles: [%s] range=%s border=%s", effective_scope, range_str, border_clean)
-            return {"status": "ok", "message": f"Named ranges created from titles along border '{border_str}' for range '{range_str}' in scope '{effective_scope}'."}
+            log.info("Named ranges created from titles: [%s] range=%s border=%s", effective_scope, range_str, border)
+            return {"status": "ok", "message": f"Named ranges created from titles along border '{border}' for range '{range_str}' in scope '{effective_scope}'."}
         except IllegalArgumentException as e:
             log.exception("Create named ranges from titles failed for %s", range_str)
             return self._tool_error(f"Failed to create named ranges from titles: {str(e)}", code="NAMED_RANGE_ERROR")

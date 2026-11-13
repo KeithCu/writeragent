@@ -559,7 +559,7 @@ class PythonSidebarController:
         doc = self._calc_document()
         if doc is None:
             return
-        navigate_to_cell(doc, self.ctx, cell.address)
+        navigate_to_cell(doc, cell.address)
         cell_key = _code_key(cell.code)
         shown = next((entry for entry in self._diags if _code_key(entry.code) == cell_key and (entry.address == cell.address or (entry.sheet and entry.sheet == cell.sheet))), None)
         if shown is None:
@@ -579,7 +579,7 @@ class PythonSidebarController:
             return
         doc = self._calc_document()
         if doc is not None:
-            navigate_to_cell(doc, self.ctx, entry.address)
+            navigate_to_cell(doc, entry.address)
 
     def _run_action(self, command: str) -> None:
         handler = get_action_handler(command)
