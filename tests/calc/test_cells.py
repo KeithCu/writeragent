@@ -2478,4 +2478,3 @@ def test_read_cell_range_missing_sheet_is_uno_object_error():
     assert "Available: Sheet1, Data" in res["message"]
     assert "sheet_list" in res["details"]["hint"]
 
-

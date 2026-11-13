@@ -15,7 +15,7 @@ from plugin.calc.address_utils import format_range_address, qualify_a1, split_sh
 from plugin.calc.base import ToolCalcPythonSqlBase
 from plugin.calc.calc_addin_data import check_python_data_size
 from plugin.doc.document_research import get_document_directory, resolve_listing_directory, open_document_for_read, close_document_research_document
-from plugin.framework.errors import CalcError, ToolExecutionError, UnoObjectError, WriterAgentException, format_error_payload, is_disposal, uno_read
+from plugin.framework.errors import CalcError, ToolExecutionError, UnoObjectError, format_error_payload, is_disposal, uno_read
 from plugin.framework.queue_executor import main
 from plugin.scripting.config_limits import configured_python_max_data_cells
 from plugin.scripting.venv.duckdb_sql import (
@@ -177,7 +177,7 @@ def _load_sql_inputs(ctx: ToolContext, tables: dict[str, Any], file_pairs: list[
             # A missing folder file fails here; passing the basename on would make DuckDB fail later with a generic IO or missing-FROM error.
             raise ToolExecutionError(f"Folder file {bn!r} was not found under the document folder", code="MISSING_FILE")
         if ext in EXCEL_EXTENSIONS + (".ods",):
-            # Office files that exist preload into a table or raise: _read_sibling_office_file_as_grid returns a grid or raises ToolExecutionError.
+            # Office files that exist preload into a table or raise: _read_sibling_office_file_as_grid returns a grid, raises ToolExecutionError, or the bridge's UnoObjectError for a missing sheet.
             office_grid = _read_sibling_office_file_as_grid(ctx.ctx, full_path, file_spec)
             preloaded[table_name] = {"grid": office_grid, "headers": headers}
             continue
@@ -478,8 +478,8 @@ def _read_sibling_office_file_as_grid(ctx: Any, full_path: str, parsed: dict[str
         try:
             grid = read_model_table_grid(model, parsed)
         except UnoObjectError as exc:
-            # The bridge's missing-sheet answer keeps its code and similar-name details;
-            # only the file name is added.
+            # A bridge UnoObjectError (e.g. a missing sheet with its similar names)
+            # keeps its code and details; only the file name is added.
             raise UnoObjectError(
                 f"Sibling spreadsheet {os.path.basename(full_path)!r}: {exc.message}",
                 details=exc.details,
@@ -494,7 +494,7 @@ def _read_sibling_office_file_as_grid(ctx: Any, full_path: str, parsed: dict[str
         _maybe_write_ods_cache(model, full_path, opened_flag=opened_flag, entry=entry)
 
         return grid
-    except WriterAgentException:
+    except (ToolExecutionError, UnoObjectError):
         raise
     except Exception as exc:
         if is_disposal(exc):

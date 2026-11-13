@@ -23,7 +23,7 @@ from plugin.calc.duckdb_tools import (
     resolve_table_source_a1,
 )
 from plugin.calc.ods_cache import ODS_CACHE_DIRNAME, cache_entry, write_sidecar_meta, source_stat
-from plugin.framework.errors import DocumentDisposedError, ToolExecutionError, UnoObjectError
+from plugin.framework.errors import CalcError, DocumentDisposedError, ToolExecutionError, UnoObjectError
 from plugin.framework.tool import prepare_tool_call
 import pytest
 
@@ -442,6 +442,23 @@ def test_resolve_table_source_a1_missing_sheet_is_uno_object_error():
         resolve_table_source_a1(_fake_model(), parse_table_source_spec({"sheet": "Nope"}))
     assert exc_info.value.code == "UNO_OBJECT_ERROR"
     assert "Actuals, Summary" in str(exc_info.value)
+
+
+@patch("plugin.calc.duckdb_tools.close_document_research_document")
+@patch(
+    "plugin.calc.duckdb_tools.read_model_table_grid",
+    side_effect=CalcError("Data range has 500000 cells; maximum is 250000."),
+)
+@patch("plugin.calc.duckdb_tools.open_document_for_read")
+def test_read_sibling_over_cap_calc_error_keeps_duckdb_sql_error(mock_open, _mock_read, _mock_close, tmp_path):
+    xlsx, _ods = _write_office_fixtures(tmp_path)
+    mock_open.return_value = (_fake_model(), "calc", None, True)
+
+    with pytest.raises(ToolExecutionError) as exc_info:
+        _read_sibling_office_file_as_grid(object(), str(xlsx), parse_table_source_spec({"file": f"{xlsx.name}#Actuals"}))
+    assert exc_info.value.code == "DUCKDB_SQL_ERROR"
+    assert "budget.xlsx" in str(exc_info.value)
+    assert "500000" in str(exc_info.value)
 
 
 @patch("plugin.calc.duckdb_tools.close_document_research_document")

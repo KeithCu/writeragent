@@ -346,6 +346,7 @@ class NamedRangeAdd(ToolCalcRangeBase):
             log.info("Named range added: [%s] %s -> %s (flags=%d)", effective_scope, name, content, type_mask)
             return {"status": "ok", "message": f"Named range '{name}' added successfully in scope '{effective_scope}' pointing to '{content}'."}
         except WriterAgentException:
+            # Before IllegalArgumentException: the unit-test stub makes it Exception, which would swallow the resolver's coded errors.
             raise
         except IllegalArgumentException as e:
             log.exception("Add named range failed for %s", name)
@@ -444,6 +445,7 @@ class NamedRangeEdit(ToolCalcRangeBase):
             log.info("Named range edited: [%s] %s (new_name=%s)", effective_scope, name, new_name)
             return {"status": "ok", "message": f"Named range '{new_clean or old_name}' updated successfully in scope '{effective_scope}'."}
         except WriterAgentException:
+            # Before IllegalArgumentException: the unit-test stub makes it Exception, which would swallow the resolver's coded errors.
             raise
         except IllegalArgumentException as e:
             log.exception("Edit named range failed for %s", name)
@@ -470,6 +472,7 @@ class NamedRangeDelete(ToolCalcRangeBase):
             log.info("Named range deleted: [%s] %s", effective_scope, name)
             return {"status": "ok", "message": f"Named range '{name}' deleted successfully from scope '{effective_scope}'."}
         except WriterAgentException:
+            # Before IllegalArgumentException: the unit-test stub makes it Exception, which would swallow the resolver's coded errors.
             raise
         except IllegalArgumentException as e:
             log.exception("Delete named range failed for %s", name)
