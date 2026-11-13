@@ -55,3 +55,38 @@ def test_calc_comments_update_keeps_one_note(ctx, doc):
     matching = [c for c in res_list.get("comments", []) if c.get("cell") == "B5"]
     assert len(matching) == 1
     assert matching[0]["text"] == "Updated note"
+
+
+@native_test
+@with_native_doc("calc")
+def test_calc_comment_on_named_range_cell(ctx, doc):
+    from com.sun.star.table import CellAddress
+
+    named_ranges = doc.NamedRanges
+    for name in ("NoteCell", "NoteMulti"):
+        if named_ranges.hasByName(name):
+            named_ranges.removeByName(name)
+    named_ranges.addNewByName("NoteCell", "$Sheet1.$B$7", CellAddress(Sheet=0, Column=1, Row=6), 0)
+    named_ranges.addNewByName("NoteMulti", "$Sheet1.$A$1:$A$3", CellAddress(Sheet=0, Column=0, Row=0), 0)
+    try:
+        res_add = _execute_calc_tool(doc, ctx, "cell_comment_add", {"cell": "NoteCell", "text": "Named cell note"})
+        assert res_add.get("status") == "ok", f"cell_comment_add failed: {res_add}"
+
+        res_list = _execute_calc_tool(doc, ctx, "cell_comment_list", {})
+        assert res_list.get("status") == "ok"
+        matching = [c for c in res_list.get("comments", []) if c.get("cell") == "B7"]
+        assert len(matching) == 1 and matching[0]["text"] == "Named cell note"
+
+        res_del = _execute_calc_tool(doc, ctx, "cell_comment_delete", {"cell": "NoteCell"})
+        assert res_del.get("status") == "ok", f"cell_comment_delete failed: {res_del}"
+
+        res_after = _execute_calc_tool(doc, ctx, "cell_comment_list", {})
+        assert not [c for c in res_after.get("comments", []) if c.get("cell") == "B7"]
+
+        res_multi = _execute_calc_tool(doc, ctx, "cell_comment_add", {"cell": "NoteMulti", "text": "Should fail"})
+        assert res_multi.get("status") == "error"
+        assert "needs one cell" in res_multi.get("message", "")
+    finally:
+        for name in ("NoteCell", "NoteMulti"):
+            if named_ranges.hasByName(name):
+                named_ranges.removeByName(name)

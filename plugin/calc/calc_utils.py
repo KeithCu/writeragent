@@ -50,18 +50,6 @@ def range_args(raw: Any, *, exactly_one: bool = False) -> list[Any]:
     return list(raw)
 
 
-def resolve_sheet(doc: Any, sheet_name: str | None = None) -> Any:
-    """Return the target sheet (by name or active)."""
-    if sheet_name:
-        return CalcBridge(doc).get_sheet(sheet_name)
-    controller = doc.getCurrentController()
-    if hasattr(controller, "getActiveSheet"):
-        active = controller.getActiveSheet()
-        if active is not None:
-            return cast("Any", active)
-    return cast("Any", doc.getSheets().getByIndex(0))
-
-
 def query_interface(obj: Any, typename: str) -> Any:
     """PyUNO requires ``uno.getTypeByName`` for ``queryInterface``; imported IDL classes fail."""
     if obj is None or not hasattr(obj, "queryInterface"):
@@ -70,7 +58,11 @@ def query_interface(obj: Any, typename: str) -> Any:
 
 
 def resolve_sheet_and_cell(doc: Any, address: str) -> tuple[Any, int, int] | None:
-    """Resolve *address* (e.g. 'A1' or 'Sheet1.B2') to ``(sheet, col, row)`` for an open Calc document."""
+    """Resolve *address* (e.g. 'A1' or 'Sheet1.B2') to ``(sheet, col, row)`` for an open Calc document.
+
+    This is the "or None" variant of ``CalcBridge.resolve_cell`` for program-built
+    A1 addresses (cell links, dependency chain, goal seek) and does not take a named range.
+    """
     text = (address or "").strip()
     if not text or doc is None:
         return None
@@ -80,7 +72,7 @@ def resolve_sheet_and_cell(doc: Any, address: str) -> tuple[Any, int, int] | Non
     except ValueError:
         return None
 
-    sheet = uno_read(lambda: resolve_sheet(doc, sheet_name), None)
+    sheet = uno_read(lambda: CalcBridge(doc).sheet_or_active(sheet_name), None)
     if sheet is None:
         return None
     return sheet, col, row
