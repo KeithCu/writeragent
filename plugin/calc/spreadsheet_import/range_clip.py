@@ -10,7 +10,7 @@ references do not materialize full spreadsheet dimensions.
 
 from __future__ import annotations
 
-from plugin.calc.address_utils import index_to_column, split_axis, split_sheet_prefix
+from plugin.calc.address_utils import index_to_column, qualify_a1, split_axis, split_sheet_prefix
 
 
 def clip_workbook_data_ranges(ranges: list[str], *, sheet_bounds: dict[str, tuple[int, int]] | None, current_sheet: str | None = None) -> list[str]:
@@ -33,14 +33,7 @@ def _clip_one_range(range_ref: str, sheet_bounds: dict[str, tuple[int, int]], *,
 
     end_col, end_row = sheet_bounds[resolved_sheet]
 
-    if sheet:
-        was_quoted = text.startswith(("'", "$'"))
-        quoted_name = "'" + sheet.replace("'", "''") + "'" if was_quoted or not sheet.isidentifier() else sheet
-        sep = "." if text[:text.rfind(address)].rstrip().endswith(".") else "!"
-        prefix = f"{quoted_name}{sep}"
-    else:
-        prefix = ""
-
-    if kind == "col":
-        return f"{prefix}{start}1:{end}{end_row + 1}"
-    return f"{prefix}A{start}:{index_to_column(end_col)}{end}"
+    clipped = f"{start}1:{end}{end_row + 1}" if kind == "col" else f"A{start}:{index_to_column(end_col)}{end}"
+    # PyFormula.compose re-quotes the sheet by its own rule when it writes the =PY() data argument,
+    # so this only has to hand it a reference split_sheet_prefix can read back.
+    return qualify_a1(sheet, clipped) if sheet else clipped

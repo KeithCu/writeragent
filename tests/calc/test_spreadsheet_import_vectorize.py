@@ -10,6 +10,7 @@ from plugin.calc.spreadsheet_import.models import CellRecord, SheetModel
 from plugin.calc.spreadsheet_import.vectorize import (
     detect_vectorized_columns,
     to_r1c1,
+    translation_has_cross_sheet_ranges,
     vectorize_range,
 )
 
@@ -43,4 +44,11 @@ def test_detect_vectorized_columns():
 def test_vectorize_range():
     assert vectorize_range("A2", 2) == "A2:A4"
     assert vectorize_range("A1:A10", 2) == "A1:A12"
+
+
+def test_translation_has_cross_sheet_ranges():
+    assert not translation_has_cross_sheet_ranges(["A1", "$B$2:C9", "F:F"])
+    for ref in ["Sheet2.A1", "$Sheet2.$A$1", "'My Sheet'.A1:B3", "Sheet2!A1", "'2024'.F1"]:
+        assert translation_has_cross_sheet_ranges([ref]), ref
+
 

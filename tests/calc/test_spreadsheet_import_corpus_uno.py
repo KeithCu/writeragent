@@ -34,7 +34,7 @@ def test_corpus_income_statement_verify(ctx):
         return
 
     try:
-        from plugin.calc.spreadsheet_import.import_dialog import run_sheet_conversion
+        from plugin.calc.spreadsheet_import.pipeline import run_sheet_conversion
 
         sheets = doc.getSheets()
         if not sheets.hasByName("Income Statement"):

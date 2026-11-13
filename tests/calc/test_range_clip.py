@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+from plugin.calc.spreadsheet_import.emit import emit_py_formula
 from plugin.calc.spreadsheet_import.range_clip import clip_workbook_data_ranges
 
 
@@ -23,7 +24,7 @@ def test_clip_workbook_data_ranges_quoted_and_bare_sheets():
         "Actual.F1:F55",
         "'Dashboard Finished'.C1:C55",
         "'O''Brien'.F1:F55",
-        "Actual!F1:F55",
+        "Actual.F1:F55",
         "Actual.F1:F55",
     ]
 
@@ -38,8 +39,8 @@ def test_clip_workbook_data_ranges_special_names():
     clipped = clip_workbook_data_ranges(ranges, sheet_bounds=bounds)
     assert clipped == [
         "'$Prices'.F1:F55",
-        "'2024'.F1:F55",
-        "'Q1-Sales'.F1:F55",
+        "2024.F1:F55",
+        "Q1-Sales.F1:F55",
     ]
 
 
@@ -75,3 +76,25 @@ def test_clip_multi_column_and_row_ranges():
     assert clip_workbook_data_ranges(["Actual.A:C"], sheet_bounds=bounds) == ["Actual.A1:C55"]
     assert clip_workbook_data_ranges(["Actual.1:3"], sheet_bounds=bounds) == ["Actual.A1:F3"]
     assert clip_workbook_data_ranges(["'Q1.2024'.A:C"], sheet_bounds=bounds) == ["'Q1.2024'.A1:C55"]
+
+
+def test_clipped_range_in_emitted_formula():
+    bounds = {
+        "ACTUAL": (5, 54),
+        "DASHBOARD FINISHED": (5, 54),
+        "O'BRIEN": (5, 54),
+        "2024": (5, 54),
+        "Q1.2024": (5, 54),
+    }
+    cases = [
+        ("Actual.F:F", '=PY("x";Actual.F1:F55)'),
+        ("Actual!F:F", '=PY("x";Actual.F1:F55)'),
+        ("'Actual'.F:F", '=PY("x";Actual.F1:F55)'),
+        ("$Actual.$F:$F", '=PY("x";Actual.F1:F55)'),
+        ("'Dashboard Finished'.C:C", '=PY("x";\'Dashboard Finished\'.C1:C55)'),
+        ("'O''Brien'.F:F", '=PY("x";\'O\'\'Brien\'.F1:F55)'),
+        ("2024.F:F", '=PY("x";\'2024\'.F1:F55)'),
+        ("'Q1.2024'.1:3", '=PY("x";\'Q1.2024\'.A1:F3)'),
+    ]
+    for raw_range, expected in cases:
+        assert emit_py_formula("x", [raw_range], sheet_bounds=bounds, current_sheet="Actual") == expected

@@ -16,11 +16,11 @@ from plugin.calc.spreadsheet_import.models import (
     ConversionReport,
     OutputCell,
     OutputSheetModel,
+    ReportCode,
     SheetModel,
     TodoCell,
-    formula_output_cell,
-    output_cell_from_record,
 )
+from plugin.calc.spreadsheet_import.preserve import formula_output_cell, output_cell_from_record
 from plugin.calc.spreadsheet_import.range_clip import clip_workbook_data_ranges
 from plugin.calc.spreadsheet_import.translate import translate_formula
 from plugin.calc.spreadsheet_import.vectorize import (
@@ -73,7 +73,7 @@ def _vector_group_formulas(model: SheetModel, group: list[str], sheet_bounds: di
     }
 
 
-def build_converted_output_model(model: SheetModel, *, vectorize: bool = False, sheet_bounds: dict[str, tuple[int, int]] | None = None) -> tuple[OutputSheetModel, ConversionReport]:
+def build_converted_output_model(model: SheetModel, *, vectorize: bool, sheet_bounds: dict[str, tuple[int, int]] | None = None) -> tuple[OutputSheetModel, ConversionReport]:
     """Translate formula cells to ``=PY()``; preserve constants and normalized PY."""
     report = ConversionReport()
     circular = {addr for group in model.circular_groups for addr in group}
@@ -91,7 +91,7 @@ def build_converted_output_model(model: SheetModel, *, vectorize: bool = False, 
             cells[addr] = formula_output_cell(addr, formula)
         report.converted.extend(group_formulas)
 
-    def _pass_through(addr: str, record: CellRecord, reason: str | None) -> None:
+    def _pass_through(addr: str, record: CellRecord, reason: ReportCode | None) -> None:
         report.pass_through.append(addr)
         if reason is not None:
             report.skipped.append(TodoCell(address=addr, reason=reason))
