@@ -166,9 +166,8 @@ def test_insert_pads_ragged_grid_and_uses_data_mode(mock_bridge, mock_manipulato
     manipulator = MagicMock()
     mock_manipulator_cls.return_value = manipulator
     doc = MagicMock()
-    ctx = MagicMock()
     grid = [["title"], [], ["a", "b"]]
-    rows = insert_tabular_result_into_calc(doc, ctx, grid, start_col=0, start_row=0)
+    rows = insert_tabular_result_into_calc(doc, grid, start_col=0, start_row=0)
     assert rows == 3
     manipulator.write_formula_range.assert_called_once()
     call_args = manipulator.write_formula_range.call_args
@@ -182,9 +181,8 @@ def test_insert_quotes_sheet_name(mock_bridge, mock_manipulator_cls):
     manipulator = MagicMock()
     mock_manipulator_cls.return_value = manipulator
     doc = MagicMock()
-    ctx = MagicMock()
     grid = [["a"]]
-    insert_tabular_result_into_calc(doc, ctx, grid, sheet_name="O'Brien", start_col=0, start_row=0)
+    insert_tabular_result_into_calc(doc, grid, sheet_name="O'Brien", start_col=0, start_row=0)
     manipulator.write_formula_range.assert_called_once()
     addr = manipulator.write_formula_range.call_args.args[0]
     assert addr == "'O''Brien'.A1"
@@ -196,7 +194,6 @@ def test_insert_tabular_result_refuses_when_target_occupied(mock_bridge, mock_ma
     manipulator = MagicMock()
     mock_manipulator_cls.return_value = manipulator
     doc = MagicMock()
-    ctx = MagicMock()
     sheet = MagicMock()
     mock_bridge.return_value.sheet_or_active.return_value = sheet
 
@@ -215,7 +212,7 @@ def test_insert_tabular_result_refuses_when_target_occupied(mock_bridge, mock_ma
 
     grid = [["differentiate"], ["Result", "2*x"]]
     with pytest.raises(CalcError, match=r"The result needs A1:B2, but 1 cell\(s\) there are not empty \(first: A1\)\. Nothing was written; clear them or start elsewhere\."):
-        insert_tabular_result_into_calc(doc, ctx, grid, start_col=0, start_row=0)
+        insert_tabular_result_into_calc(doc, grid, start_col=0, start_row=0)
 
     # Invariant: non-empty target must not be overwritten
     manipulator.write_formula_range.assert_not_called()
@@ -227,7 +224,6 @@ def test_insert_tabular_result_succeeds_when_target_empty(mock_bridge, mock_mani
     manipulator = MagicMock()
     mock_manipulator_cls.return_value = manipulator
     doc = MagicMock()
-    ctx = MagicMock()
     sheet = MagicMock()
     mock_bridge.return_value.sheet_or_active.return_value = sheet
 
@@ -240,7 +236,7 @@ def test_insert_tabular_result_succeeds_when_target_empty(mock_bridge, mock_mani
     sheet.getCellByPosition.side_effect = get_cell
 
     grid = [["differentiate"], ["Result", "2*x"]]
-    rows = insert_tabular_result_into_calc(doc, ctx, grid, start_col=0, start_row=0)
+    rows = insert_tabular_result_into_calc(doc, grid, start_col=0, start_row=0)
     assert rows == 2
     manipulator.write_formula_range.assert_called_once()
 

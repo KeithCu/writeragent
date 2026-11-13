@@ -124,17 +124,13 @@ def format_tabular_helper_for_calc(result: dict[str, Any], *, domain_label: str,
 
 def insert_tabular_result_into_calc(
     doc: Any,
-    _uno_ctx: Any,
     grid: list[list[Any]],
     *,
     sheet_name: str | None = None,
     start_col: int | None = None,
     start_row: int | None = None,
 ) -> int:
-    """Write *grid* starting at *start_col*/*start_row* (or selection). Returns row count.
-
-    The _uno_ctx parameter exists so Run Python Script can call (doc, ctx, result).
-    """
+    """Write *grid* starting at *start_col*/*start_row* (or selection). Returns row count."""
     if start_col is None or start_row is None:
         controller = doc.getCurrentController()
         selection = controller.getSelection()

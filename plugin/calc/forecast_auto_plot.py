@@ -44,7 +44,7 @@ def merge_forecast_plot_data(history_data: Any, forecast_result: dict[str, Any],
     grid = history_data
     if is_calc_range_payload(history_data):
         # Materialize the envelope to its rectangular values first.
-        # _resolve_python_data returns a calc_range dict, and
+        # resolve_python_data returns a calc_range dict, and
         # grid_to_dataframe wraps an unrecognized dict as a 1×1 cell,
         # so the Date and Value columns disappear and auto-plot drops
         # the history.
@@ -100,12 +100,12 @@ def run_auto_plot_after_forecast(uno_ctx: Any, doc: Any, *, forecast_helper: str
         if _forecast_table(forecast_result) is None:
             return {"status": "error", "message": f"No plot mapping for forecast helper {forecast_helper!r}"}
 
-        from plugin.calc.calc_addin_data import _resolve_python_data
+        from plugin.calc.calc_addin_data import resolve_python_data
         from plugin.framework.queue_executor import main
 
         # Sheet read is UNO. Viz IPC (run_domain) stays on the caller.
         def _fetch() -> tuple[Any, Any]:
-            return _resolve_python_data(doc, data_range=data_range, data=None)
+            return resolve_python_data(doc, data_range=data_range, data=None)
 
         py_data, err = main.run(_fetch)
         if err:

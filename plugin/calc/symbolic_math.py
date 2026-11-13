@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from plugin.calc.base import ToolCalcPythonBase
-from plugin.framework.errors import CalcError, ToolExecutionError
+from plugin.framework.errors import CalcError
 from plugin.framework.queue_executor import main
 from plugin.scripting.helper_domain import run_domain
 from plugin.scripting.helper_registry import names
@@ -20,7 +20,9 @@ if TYPE_CHECKING:
 
 _SYMBOLIC_HELPERS = ", ".join(sorted(names("symbolic")))
 
-# Mirrors the venv helper signatures (plugin/scripting/venv/symbolic.py).
+# Mirrors the venv helper signatures (plugin/scripting/venv/symbolic.py);
+# `expression` for latex_to_math_object is the alias trusted_dispatch.run_domain maps onto `latex`.
+# tests/scripting/test_symbolic_tool.py checks this table against those signatures.
 # The venv still owns required-key and default checks.
 _HELPER_PARAM_KEYS: dict[str, frozenset[str]] = {
     "solve_equation": frozenset({"equation", "variable"}),
@@ -62,15 +64,8 @@ class SymbolicMathTool(ToolCalcPythonBase):
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         helper = kwargs["helper"].strip()
-        if not helper:
-            return self._tool_error("helper is required")
-        if helper not in names("symbolic"):
-            return self._tool_error(f"Unknown helper {helper!r}")
-
         params = kwargs.get("params")
-        if params is not None and not isinstance(params, dict):
-            return self._tool_error("params must be an object.", code="INVALID_PARAM")
-
+        # run_domain rejects a blank or unknown helper with SYMBOLIC_ERROR; only known helpers have a key set here.
         accepted = _HELPER_PARAM_KEYS.get(helper)
         if params and accepted is not None:
             unknown = sorted(set(params) - accepted)
@@ -83,14 +78,9 @@ class SymbolicMathTool(ToolCalcPythonBase):
         task_hint = str(kwargs["task_hint"]) if kwargs.get("task_hint") else None
         display_block = bool(kwargs.get("display_block", False))
 
-        try:
-            # Pass ToolContext (not ctx.ctx) so run_trusted_worker_action reads
-            # send_cancellation on the tool context; the UNO context has neither.
-            result = run_domain("math", ctx, ctx.doc, helper=helper, params=params, task_hint=task_hint, doc_type=ctx.doc_type)
-        except ToolExecutionError as exc:
-            return self._tool_error(str(exc), code=getattr(exc, "code", "SYMBOLIC_ERROR"))
-        except Exception as exc:
-            return self._tool_error(f"Failed to run symbolic helper: {exc}")
+        # Pass ToolContext (not ctx.ctx) so run_trusted_worker_action reads
+        # send_cancellation on the tool context; the UNO context has neither.
+        result = run_domain("math", ctx, ctx.doc, helper=helper, params=params, task_hint=task_hint, doc_type=ctx.doc_type)
 
         if result.get("status") != "ok":
             return result

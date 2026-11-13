@@ -17,6 +17,9 @@ def format_analysis_for_calc(result: dict[str, Any]) -> list[list[Any]]:
 
 
 def insert_analysis_result_into_calc(doc: Any, uno_ctx: Any, result: dict[str, Any], *, sheet_name: str | None = None, start_col: int | None = None, start_row: int | None = None) -> int:
-    """Write formatted analysis output starting at *start_col*/*start_row* (or selection). Returns row count."""
+    """Write formatted analysis output starting at *start_col*/*start_row* (or selection). Returns row count.
+
+    *uno_ctx* is unused; it stays because DomainWiring.insert passes (doc, ctx, result) positionally to post_venv_calc_only inserters.
+    """
     grid = format_analysis_for_calc(result)
-    return insert_tabular_result_into_calc(doc, uno_ctx, grid, sheet_name=sheet_name, start_col=start_col, start_row=start_row)
+    return insert_tabular_result_into_calc(doc, grid, sheet_name=sheet_name, start_col=start_col, start_row=start_row)

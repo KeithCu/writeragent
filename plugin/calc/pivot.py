@@ -19,7 +19,7 @@ names are unique in the document, and refresh materializes the output.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any, Iterable
+from typing import TYPE_CHECKING, Any
 
 try:
     from com.sun.star.sheet.GeneralFunction import (
@@ -64,9 +64,9 @@ except (ImportError, ModuleNotFoundError):
 
 from plugin.calc.address_utils import format_range_address, split_sheet_prefix
 from plugin.calc.base import ToolCalcPivotBase
-from plugin.calc.bridge import CalcBridge
+from plugin.calc.bridge import CalcBridge, filter_agent_sheet_names
 from plugin.calc.calc_utils import query_interface as _query_interface
-from plugin.framework.errors import ToolExecutionError, is_disposal, name_miss_details
+from plugin.framework.errors import ToolExecutionError, WriterAgentException, is_disposal, name_miss_details
 
 log = logging.getLogger(__name__)
 
@@ -168,60 +168,64 @@ def _set_field_orientations(
             filter_desc.setFilterFields(tuple(filter_fields))
 
 
-def _find_pivot(doc: Any, name: str, sheet_name: str | None = None) -> tuple[Any, Any] | str:
-    """Find a pivot table by name on a specific sheet or across all sheets.
+def _pivot_sheets(doc: Any, sheet_name: str | None = None) -> list[Any]:
+    """Sheets a pivot lookup or list scans: the named sheet, else every agent-visible sheet.
 
-    Returns (table, sheet) on success, or an error message string on failure.
+    A named sheet comes from CalcBridge.get_sheet, so a missing name raises its
+    UnoObjectError (UNO_OBJECT_ERROR, with the available sheet names), which the
+    tools let reach execute_safe. With no name, internal sheets whose name starts
+    with "_" are skipped, the same rule sheet_list follows, so a lookup never
+    finds or suggests a pivot the agent cannot see in pivot_table_list.
     """
-    sheets: Iterable[Any]
     if sheet_name:
-        try:
-            sheets = [CalcBridge(doc).get_sheet(sheet_name)]
-        except Exception as exc:
-            return str(exc)
-    else:
-        doc_sheets = doc.getSheets()
-        sheets = (doc_sheets.getByName(n) for n in doc_sheets.getElementNames())
+        return [CalcBridge(doc).get_sheet(sheet_name)]
+    sheets = doc.getSheets()
+    return [sheets.getByName(n) for n in filter_agent_sheet_names(sheets.getElementNames())]
 
-    for sheet in sheets:
+
+def _find_pivot(doc: Any, name: str, sheet_name: str | None = None) -> tuple[Any, Any]:
+    """Return ``(table, sheet)`` for the pivot called *name*.
+
+    Raises:
+        ToolExecutionError: code PIVOT_TABLE_NOT_FOUND, with ``hint`` and ``similar``
+            drawn from the pivots on agent-visible sheets.
+        UnoObjectError: *sheet_name* is not a sheet (CalcBridge.get_sheet).
+    """
+    for sheet in _pivot_sheets(doc, sheet_name):
         dp_tables = _get_dp_tables(sheet)
         if dp_tables.hasByName(name):
             return dp_tables.getByName(name), sheet
-
-    if sheet_name:
-        return f"Pivot table '{name}' not found on sheet '{sheet_name}'."
-    return f"Pivot table '{name}' not found."
-
-
-def _pivot_table_names(doc: Any) -> list[str]:
-    names: list[str] = []
-    sheets = doc.getSheets()
-    for sheet_name in sheets.getElementNames():
-        sheet = sheets.getByName(sheet_name)
-        dp_tables = _get_dp_tables(sheet)
-        names.extend(str(n) for n in dp_tables.getElementNames())
-    return names
-
-
-def _pivot_not_found_error(tool: Any, doc: Any, name: str, message: str) -> dict[str, Any]:
-    if message.startswith("No sheet named"):
-        return tool._tool_error(message)
-    return tool._tool_error(message, **name_miss_details(name, _pivot_table_names(doc), "pivot_table_list"))
+    where = f" on sheet '{sheet_name}'" if sheet_name else ""
+    known = [str(n) for visible in _pivot_sheets(doc) for n in _get_dp_tables(visible).getElementNames()]
+    raise ToolExecutionError(
+        f"Pivot table '{name}' not found{where}.",
+        code="PIVOT_TABLE_NOT_FOUND",
+        details=name_miss_details(name, known, "pivot_table_list"),
+    )
 
 
 def _resolve_qualified_ref(
     bridge: CalcBridge, ref: str, sheet_arg: Any, ref_label: str, sheet_label: str,
-) -> tuple[Any, str | None]:
+) -> Any:
+    """Resolve *ref*, qualified by *sheet_arg* when *ref* has no sheet prefix.
+
+    The bridge's own errors (a missing sheet is UNO_OBJECT_ERROR with the sheet
+    names) and a disposed document reach execute_safe unchanged. Any other failure
+    (an unknown name raises a RuntimeException with an empty message, a malformed
+    range a ValueError) is reported with the argument it came from.
+    """
     prefix = split_sheet_prefix(ref)[0]
     if prefix is not None and sheet_arg and prefix != sheet_arg:
-        return None, (
+        raise ToolExecutionError(
             f"{ref_label} names sheet '{prefix}' but {sheet_label} says '{sheet_arg}' — pass one or the other."
         )
     resolved = ref if prefix is not None or not sheet_arg else f"'{sheet_arg}'.{ref}"
     try:
-        return bridge.resolve_range_or_address(resolved), None
+        return bridge.resolve_range_or_address(resolved)
     except Exception as exc:
-        return None, f"Cannot resolve {ref_label} '{ref}': {exc}"
+        if isinstance(exc, WriterAgentException) or is_disposal(exc):
+            raise
+        raise ToolExecutionError(f"Cannot resolve {ref_label} '{ref}': {exc}") from exc
 
 
 class CreatePivotTable(ToolCalcPivotBase):
@@ -269,12 +273,8 @@ class CreatePivotTable(ToolCalcPivotBase):
         dest_sheet_name = kwargs.get("destination_sheet")
 
         # Resolve source range
-        src_obj, src_err = _resolve_qualified_ref(bridge, range_str, src_sheet_name, "source_range", "source_sheet")
-        if src_err is not None:
-            return self._tool_error(src_err)
+        src_obj = _resolve_qualified_ref(bridge, range_str, src_sheet_name, "source_range", "source_sheet")
 
-        if not hasattr(src_obj, "getRangeAddress"):
-            return self._tool_error("source_range must be a multi-cell range.")
         src_addr = src_obj.getRangeAddress()
         num_rows = src_addr.EndRow - src_addr.StartRow + 1
         num_cols = src_addr.EndColumn - src_addr.StartColumn + 1
@@ -283,27 +283,18 @@ class CreatePivotTable(ToolCalcPivotBase):
 
         # Header validation: every header cell non-empty
         for c in range(num_cols):
-            try:
-                cell = src_obj.getCellByPosition(c, 0)
-                txt = cell.getString().strip() if hasattr(cell, "getString") else str(getattr(cell, "String", "")).strip()
-            except Exception:
-                txt = ""
-            if not txt:
+            if not src_obj.getCellByPosition(c, 0).getString().strip():
                 return self._tool_error(f"Header cell in column {c + 1} of source range is empty.")
 
         # Resolve destination cell
-        dest_obj, dest_err = _resolve_qualified_ref(bridge, dest_cell, dest_sheet_name, "destination_cell", "destination_sheet")
-        if dest_err is not None:
-            return self._tool_error(dest_err)
+        dest_obj = _resolve_qualified_ref(bridge, dest_cell, dest_sheet_name, "destination_cell", "destination_sheet")
 
         from com.sun.star.table import CellAddress
-        if hasattr(dest_obj, "getCellAddress"):
-            dest_addr = dest_obj.getCellAddress()
-        elif hasattr(dest_obj, "getRangeAddress"):
-            ra = dest_obj.getRangeAddress()
-            dest_addr = CellAddress(Sheet=ra.Sheet, Column=ra.StartColumn, Row=ra.StartRow)
-        else:
-            return self._tool_error("destination_cell must resolve to a valid cell address.")
+        # A cell and a range both expose getRangeAddress (ScCellObj derives from
+        # ScCellRangeObj, sc/inc/cellsuno.hxx); a range destination anchors the pivot
+        # at its top-left cell.
+        ra = dest_obj.getRangeAddress()
+        dest_addr = CellAddress(Sheet=ra.Sheet, Column=ra.StartColumn, Row=ra.StartRow)
 
         dest_sheet = doc.getSheets().getByIndex(dest_addr.Sheet)
 
@@ -313,13 +304,15 @@ class CreatePivotTable(ToolCalcPivotBase):
         data_functions = kwargs.get("data_functions")
         page_filters = kwargs.get("page_filters")
 
-        # LO auto-renames on a different sheet instead of failing (#i94570), so reject
-        # before insert or a stray table is left behind under a generated name.
-        existing_lookup = _find_pivot(doc, pivot_name)
-        if isinstance(existing_lookup, tuple):
-            _, existing_sheet = existing_lookup
-            where = existing_sheet.getName() if existing_sheet is not None else "another sheet"
-            return self._tool_error(f"Pivot table '{pivot_name}' already exists on sheet '{where}'.")
+        # Pivot names are unique across the workbook: LibreOffice renames a duplicate
+        # made on another sheet instead of refusing it (ScDBDocFunc::CreatePivotTable,
+        # sc/source/ui/docshell/dbdocfun.cxx, the #i94570 check). Scan every sheet,
+        # internal ones included, before insert so no stray table is left behind
+        # under a generated name.
+        sheets = doc.getSheets()
+        for sname in sheets.getElementNames():
+            if _get_dp_tables(sheets.getByName(sname)).hasByName(pivot_name):
+                return self._tool_error(f"Pivot table '{pivot_name}' already exists on sheet '{sname}'.")
 
         dp_tables = _get_dp_tables(dest_sheet)
         desc = dp_tables.createDataPilotDescriptor()
@@ -388,12 +381,8 @@ class RefreshPivotTable(ToolCalcPivotBase):
         name = kwargs["name"].strip()
         if not name:
             return self._tool_error("name is required.")
-        sheet_name = kwargs.get("sheet")
 
-        found = _find_pivot(doc, name, sheet_name=sheet_name)
-        if isinstance(found, str):
-            return _pivot_not_found_error(self, doc, name, found)
-        tbl_any, _sheet = found
+        tbl_any, _sheet = _find_pivot(doc, name, sheet_name=kwargs.get("sheet"))
 
         dpt = _query_interface(tbl_any, "com.sun.star.sheet.XDataPilotTable")
         if dpt is None:
@@ -423,12 +412,8 @@ class DeletePivotTable(ToolCalcPivotBase):
         name = kwargs["name"].strip()
         if not name:
             return self._tool_error("name is required.")
-        sheet_name = kwargs.get("sheet")
 
-        found = _find_pivot(doc, name, sheet_name=sheet_name)
-        if isinstance(found, str):
-            return _pivot_not_found_error(self, doc, name, found)
-        _tbl, sheet = found
+        _tbl, sheet = _find_pivot(doc, name, sheet_name=kwargs.get("sheet"))
         dp_tables = _get_dp_tables(sheet)
         dp_tables.removeByName(name)
         return {"status": "ok", "message": f"Deleted pivot table '{name}' from sheet '{sheet.getName()}'."}
@@ -444,17 +429,9 @@ class ListPivotTables(ToolCalcPivotBase):
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         doc = ctx.doc
-        only_sheet = kwargs.get("sheet")
-
-        sh = doc.getSheets()
         out: list[dict[str, Any]] = []
 
-        if only_sheet:
-            sheets_to_scan = [CalcBridge(doc).get_sheet(only_sheet)]
-        else:
-            sheets_to_scan = [sh.getByName(sname) for sname in sh.getElementNames() if not sname.startswith("_")]
-
-        for sheet in sheets_to_scan:
+        for sheet in _pivot_sheets(doc, kwargs.get("sheet")):
             dp_tables = _get_dp_tables(sheet)
             for pname in dp_tables.getElementNames():
                 entry: dict[str, Any] = {"name": pname, "sheet": sheet.getName()}

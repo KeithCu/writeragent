@@ -59,6 +59,7 @@ Aligned with [../enabling_numpy_in_libreoffice.md](../enabling_numpy_in_libreoff
 - DuckDB — `plugin/scripting/venv/duckdb_sql.py`, picker origin `sql`, `domain=sql`
 - Spreadsheet import — `plugin/calc/spreadsheet_import/` (proposed), `calc.convert_spreadsheet_to_python`
 - Calc-parity `xl` helpers — **not in LibrePy today**; see [Calc-parity `xl` helpers (deferred)](#calc-parity-xl-helpers-deferred-from-librepy) below.
+- Unbundled prototype / CLI helpers — `plugin/calc/viz_auto_plot.py`, `plugin/calc/forecast_auto_plot.py` (only importers are unbundled prototype tools), `plugin/calc/error_detector.py` (only importers are unbundled `errors.py`, `formulas.py`, `spreadsheet_import/`), and `plugin/calc/excel_py_convert/cli.py` + `__main__.py` (CLI converter is WriterAgent-only).
 
 #### Calc-parity `xl` helpers (deferred from LibrePy) {#calc-parity-xl-helpers-deferred-from-librepy}
 
@@ -234,7 +235,7 @@ A core OXT must **not** register `prompt_addin.py` / `prompt_function.py`. See [
 | [`plugin/calc/python/addin_values.py`](../../plugin/calc/python/addin_values.py) | Value coercion, type conversion |
 | [`plugin/calc/python/undo.py`](../../plugin/calc/python/undo.py) | Undo lock management |
 | [`plugin/calc/addin_common.py`](../../plugin/calc/addin_common.py) | Shared add-in helpers |
-| [`plugin/calc/calc_addin_data.py`](../../plugin/calc/calc_addin_data.py) | Range → `data`, size limits, wire packing; `_resolve_python_data` for Run Python Script / trusted helpers |
+| [`plugin/calc/calc_addin_data.py`](../../plugin/calc/calc_addin_data.py) | Range → `data`, size limits, wire packing; `resolve_python_data` for Run Python Script / trusted helpers |
 | [`plugin/calc/__init__.py`](../../plugin/calc/__init__.py) | Package (`CalcModule`) |
 | [`plugin/calc/prompt_addin.py`](../../plugin/calc/prompt_addin.py) | **WriterAgent only** — do not register in core |
 | [`plugin/calc/prompt_function.py`](../../plugin/calc/prompt_function.py) | **WriterAgent only** |
@@ -841,13 +842,13 @@ Allowlist: [`scripts/librepy_bundle_paths.py`](../../scripts/librepy_bundle_path
 
 **Venv compute:** `venv/analysis.py`, `venv/viz.py`, `venv/symbolic.py`, `venv/units.py`, `venv/forecast.py`, `venv/optimize.py`, `venv/quant.py`, `venv/text_analytics.py`
 
-**Calc runners/egress:** `calc/analysis_egress.py`, `calc/viz_auto_plot.py`, `calc/forecast_auto_plot.py`, `calc/quant_egress.py`, `calc/python/image_egress.py`, `calc/inspector.py`
+**Calc runners/egress:** `calc/analysis_egress.py`, `calc/quant_egress.py`, `calc/python/image_egress.py`, `calc/inspector.py`
 
 **Writer images:** [`image_tools.py`](../../plugin/writer/images/image_tools.py) + [`__init__.py`](../../plugin/writer/images/__init__.py) (graphic insert). Do **not** ship [`image_utils.py`](../../plugin/writer/images/image_utils.py) or [`images.py`](../../plugin/writer/images/images.py) (LLM image gen). [`analyzer.py`](../../plugin/calc/analyzer.py) stays in the bundle (later use).
 
 ### Layer 4 adds (~8 paths)
 
-`editor_host.py`, `editor_ipc.py`, `calc/python/editor.py`, `calc/python/formula_edit.py`, `calc/python/editor_context_menu.py`, `calc/python/workbook_lifecycle.py` (workbook `OnUnload` resets worker sessions), `venv/editor_main.py`, `calc/excel_py_convert/` (Excel Python-in-Excel → DAG `=PY` auto-convert on open)
+`editor_host.py`, `editor_ipc.py`, `calc/python/editor.py`, `calc/python/formula_edit.py`, `calc/python/editor_context_menu.py`, `calc/python/workbook_lifecycle.py` (workbook `OnUnload` resets worker sessions), `venv/editor_main.py`, `calc/excel_py_convert/` (Excel Python-in-Excel → DAG `=PY` auto-convert on open; the CLI is WriterAgent-only)
 
 Dev reference only (not OXT): `contrib/scripting/assets/editor/*`
 
@@ -1006,8 +1007,6 @@ Requires [Layer 1](#layer-1--trusted-rpc) + [`domain_registry.py`](../../plugin/
 | File | Role |
 |------|------|
 | [`calc/analysis_egress.py`](../../plugin/calc/analysis_egress.py) | Analysis results → sheet |
-| [`calc/viz_auto_plot.py`](../../plugin/calc/viz_auto_plot.py) | Auto-chart after viz |
-| [`calc/forecast_auto_plot.py`](../../plugin/calc/forecast_auto_plot.py) | Auto-chart after forecast |
 | [`calc/quant_egress.py`](../../plugin/calc/quant_egress.py) | Quant results → sheet |
 | [`calc/python/image_egress.py`](../../plugin/calc/python/image_egress.py) | Matplotlib figure → sheet image |
 | [`calc/inspector.py`](../../plugin/calc/inspector.py) | `read_range` for data-bound helpers |
@@ -1072,7 +1071,7 @@ flowchart LR
 | [`plugin/librepy/python_sidebar.py`](../../plugin/librepy/python_sidebar.py) | Sidebar controller (cells, diagnostics, actions; vertical stretch from XDL snapshot heights) |
 | [`plugin/librepy/sidebar_menus.py`](../../plugin/librepy/sidebar_menus.py) | Header toolbar + hamburger (LibrePy-registered actions only; no Search/embeddings/MCP) |
 | [`plugin/calc/navigation.py`](../../plugin/calc/navigation.py) | Click-to-navigate from sidebar |
-| [`plugin/calc/excel_py_convert/`](../../plugin/calc/excel_py_convert/) | Excel Python-in-Excel → DAG `=PY` (auto on open + CLI) |
+| [`plugin/calc/excel_py_convert/`](../../plugin/calc/excel_py_convert/) | Excel Python-in-Excel → DAG `=PY` (auto on open; the CLI is WriterAgent-only) |
 | [`plugin/scripting/venv/editor_main.py`](../../plugin/scripting/venv/editor_main.py) | Child process entry (runs in user venv) |
 | [`extension-core/registry/.../Sidebar.xcu`](../extension-core/registry/org/openoffice/Office/UI/Sidebar.xcu) | LibrePyDeck + PythonPanel (Calc + Writer); deck icon `assets/python_32.png` (PSF two-snakes) |
 | [`extension-core/registry/.../Factories.xcu`](../extension-core/registry/org/openoffice/Office/UI/Factories.xcu) | PythonPanelFactory registration |
