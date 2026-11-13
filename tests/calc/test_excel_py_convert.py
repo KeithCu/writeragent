@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import ast
 import io
+import re
 import threading
 import zipfile
 from pathlib import Path
@@ -29,6 +30,8 @@ from plugin.calc.excel_py_convert.ooxml_util import (
 )
 from plugin.calc.excel_py_convert.parse_excel_ooxml import (
     a1_span_bounds,
+    expand_shared,
+    iter_formula_cells,
     load_excel_model,
     parse_xlws_py_formula,
     shift_xlws_py_dep,
@@ -3696,5 +3699,151 @@ def test_shared_strings_helper(tmp_path: Path):
 
     with zipfile.ZipFile(empty_zip, "r") as zf:
         assert shared_strings(zf) == []
+
+
+def test_iter_formula_cells_yields_only_cells_with_r_and_f():
+    ws_root = ET.fromstring(
+        '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+        "<sheetData>"
+        '<row r="1">'
+        '<c r="A1"><f> X </f></c>'
+        "<c><f>Y</f></c>"
+        '<c r="B1"><v>1</v></c>'
+        "</row>"
+        "</sheetData>"
+        "</worksheet>"
+    )
+    items = list(iter_formula_cells(ws_root))
+    assert len(items) == 1
+    a1, f_el, body = items[0]
+    assert a1 == "A1"
+    assert local_name(f_el.tag) == "f"
+    assert body == "X"
+
+
+def test_expand_shared_shifts_xlws_py_and_defers_other_masters():
+    assert expand_shared(("_xlfn._xlws.PY(0,1,A1)", "B1"), "B3") == "_xlfn._xlws.PY(0,1,A3)"
+    assert expand_shared(("_xlfn._xlws.PY(0,1,A1)", "B2"), "B1") is None
+    assert expand_shared(("A1+1", "B1"), "C3") is None
+
+    calls: list[tuple[str, int, int]] = []
+
+    def _record(body: str, rows: int, cols: int) -> str:
+        calls.append((body, rows, cols))
+        return "B3+1"
+
+    assert expand_shared(("A1+1", "B1"), "C3", shift_other=_record) == "B3+1"
+    assert calls == [("A1+1", 2, 1)]
+
+
+def test_write_excel_python_xlsx_unshare_ref_error_raises_unwrapped(tmp_path: Path):
+    src = tmp_path / "src_ref.xlsx"
+    out = tmp_path / "out_ref.xlsx"
+    sheet_xml = (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+        "<sheetData>"
+        '<row r="1">'
+        '<c r="A1"><f t="shared" si="0"/></c>'
+        '<c r="B1"><f t="shared" ref="A1:B1" si="0">A1+1</f></c>'
+        "</row>"
+        "</sheetData>"
+        "</worksheet>"
+    )
+    wb_xml = (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
+        'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+        '<sheets><sheet name="Sheet1" sheetId="1" r:id="rId1"/></sheets>'
+        "</workbook>"
+    )
+    rels_xml = (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+        '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>'
+        "</Relationships>"
+    )
+    src.write_bytes(_minimal_xlsx_bytes(sheet_xml=sheet_xml, workbook_xml=wb_xml, rels_xml=rels_xml))
+
+    cell = ConvertedCell(
+        sheet="Sheet1",
+        cell="B1",
+        direction="excel",
+        original_code="x = 1",
+        converted_code="x = 1",
+        data_args=[],
+        converted=True,
+        script_index=0,
+    )
+    report = ConversionReport(direction="excel", cells=[cell])
+    with pytest.raises(
+        ValueError,
+        match=r"^Cannot unshare formula for Sheet1!A1 in si=0: out-of-bounds shift produced #REF!$",
+    ):
+        write_excel_python_xlsx(src, report, out)
+
+
+@pytest.mark.parametrize(
+    ("sheet_xml", "cell_addr", "expected_msg"),
+    [
+        (
+            '<row r="1">'
+            '<c r="A1"><f t="shared" si="0"/></c>'
+            '<c r="B1"><f t="shared" ref="A1:B1" si="0">A1+1</f></c>'
+            "</row>",
+            "B1",
+            "write_dag_formulas_xlsx failed:\n"
+            "Sheet1: Cannot unshare formula for Sheet1!A1 in si=0: out-of-bounds shift produced #REF!",
+        ),
+        (
+            '<row r="1"><c r="B1"><f t="shared" si="0"/></c></row>'
+            '<row r="2"><c r="B2"><f t="shared" ref="B1:B2" si="0">_xlfn._xlws.PY(0,1,A1)</f></c></row>',
+            "B2",
+            "write_dag_formulas_xlsx failed:\n"
+            "Sheet1: Cannot unshare formula for Sheet1!B1 in si=0: shifter refused '_xlfn._xlws.PY(0,1,A1)'",
+        ),
+    ],
+)
+def test_write_dag_formulas_unshare_errors_are_collected(
+    tmp_path: Path,
+    sheet_xml: str,
+    cell_addr: str,
+    expected_msg: str,
+):
+    src = tmp_path / "src_dag_err.xlsx"
+    out = tmp_path / "out_dag_err.xlsx"
+    full_sheet_xml = (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+        f"<sheetData>{sheet_xml}</sheetData>"
+        "</worksheet>"
+    )
+    wb_xml = (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
+        'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+        '<sheets><sheet name="Sheet1" sheetId="1" r:id="rId1"/></sheets>'
+        "</workbook>"
+    )
+    rels_xml = (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+        '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>'
+        "</Relationships>"
+    )
+    src.write_bytes(_minimal_xlsx_bytes(sheet_xml=full_sheet_xml, workbook_xml=wb_xml, rels_xml=rels_xml))
+
+    cell = ConvertedCell(
+        sheet="Sheet1",
+        cell=cell_addr,
+        direction="dag",
+        original_code="x = 1",
+        converted_code="x = 1",
+        data_args=[],
+        converted=True,
+    )
+    report = ConversionReport(direction="dag", cells=[cell])
+    with pytest.raises(ValueError, match=re.escape(expected_msg)):
+        write_dag_formulas_xlsx(src, report, out)
 
 
