@@ -11,6 +11,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from plugin.calc.forecast import ForecastDataTool
+from plugin.framework.errors import ToolExecutionError
 from plugin.scripting.helper_registry import names
 
 
@@ -35,20 +36,22 @@ def test_forecast_data_lists_helpers():
 
 def test_forecast_data_requires_helper(calc_ctx):
     tool = ForecastDataTool()
-    result = tool.execute(calc_ctx, data=[["Date"], [1]])
-    assert result["status"] == "error"
-    assert "helper" in result["message"].lower()
+    with pytest.raises(ToolExecutionError) as exc_info:
+        tool.execute(calc_ctx, data=[["Date"], [1]])
+    assert exc_info.value.code == "FORECAST_ERROR"
+    assert "helper" in str(exc_info.value).lower()
 
 
 def test_forecast_data_requires_data_source(calc_ctx):
     tool = ForecastDataTool()
-    result = tool.execute(calc_ctx, helper="forecast_time_series")
-    assert result["status"] == "error"
-    assert "data_range" in result["message"].lower() or "data" in result["message"].lower()
+    with pytest.raises(ToolExecutionError) as exc_info:
+        tool.execute(calc_ctx, helper="forecast_time_series")
+    assert exc_info.value.code == "FORECAST_ERROR"
+    assert "data_range" in str(exc_info.value).lower() or "data" in str(exc_info.value).lower()
 
 
 @patch("plugin.framework.queue_executor.main.call")
-@patch("plugin.scripting.helper_domain.run_domain")
+@patch("plugin.calc.analysis.run_domain")
 def test_forecast_data_happy_path(mock_run_trusted, mock_main_thread, calc_ctx):
     mock_run_trusted.return_value = {"status": "ok", "helper": "forecast_time_series", "metrics": {"periods": 6}}
     mock_main_thread.side_effect = lambda fn, *args, **kwargs: fn(*args, **kwargs)
@@ -71,7 +74,7 @@ def test_forecast_data_happy_path(mock_run_trusted, mock_main_thread, calc_ctx):
 
 @patch("plugin.scripting.forecast.insert_forecast_result_into_calc")
 @patch("plugin.framework.queue_executor.main.call")
-@patch("plugin.scripting.helper_domain.run_domain")
+@patch("plugin.calc.analysis.run_domain")
 def test_forecast_data_keeps_ipc_off_main_thread(mock_run_trusted, mock_main_thread, mock_insert, calc_ctx):
     inside = {"flag": False}
 
@@ -112,7 +115,7 @@ def test_forecast_data_keeps_ipc_off_main_thread(mock_run_trusted, mock_main_thr
 
 @patch("plugin.scripting.forecast.insert_forecast_result_into_calc")
 @patch("plugin.framework.queue_executor.main.call")
-@patch("plugin.scripting.helper_domain.run_domain")
+@patch("plugin.calc.analysis.run_domain")
 def test_forecast_data_output_range_keeps_sheet_prefix(mock_run_trusted, mock_main_thread, mock_insert, calc_ctx):
     mock_run_trusted.return_value = {"status": "ok", "helper": "forecast_time_series"}
     mock_main_thread.side_effect = lambda fn, *args, **kwargs: fn(*args, **kwargs)
@@ -219,19 +222,20 @@ def test_run_trusted_forecast_resolves_on_main_and_runs_client_off_main(mock_on_
 def test_forecast_data_rejects_raw_data_in_analysis_domain(calc_ctx):
     calc_ctx.active_domain = "analysis"
     tool = ForecastDataTool()
-    result = tool.execute(
-        calc_ctx,
-        helper="forecast_time_series",
-        data=[["Date", "Value"], ["2024-01-01", 1]],
-    )
-    assert result["status"] == "error"
-    assert "data_range" in result["message"].lower()
+    with pytest.raises(ToolExecutionError) as exc_info:
+        tool.execute(
+            calc_ctx,
+            helper="forecast_time_series",
+            data=[["Date", "Value"], ["2024-01-01", 1]],
+        )
+    assert exc_info.value.code == "INVALID_PARAM"
+    assert "data_range" in str(exc_info.value).lower()
 
 
 @patch("plugin.calc.forecast_auto_plot.run_auto_plot_after_forecast", return_value=None)
 @patch("plugin.scripting.forecast.insert_forecast_result_into_calc", side_effect=RuntimeError("disk full"))
 @patch("plugin.framework.queue_executor.main.call")
-@patch("plugin.scripting.helper_domain.run_domain")
+@patch("plugin.calc.analysis.run_domain")
 def test_forecast_sheet_write_failure_keeps_the_result(
     mock_run_trusted, mock_main_thread, mock_insert, mock_auto_plot, calc_ctx
 ):

@@ -123,12 +123,11 @@ The Solver is used for more complex optimization problems involving multiple var
 
 ## 4. Implementation Details
 
-- **`analyze_data`**: Host reads range via `CellInspector` → `plugin.scripting.client.run_analysis` → warm venv worker executing `plugin.scripting.analysis.run_analysis`.
-- **Goal Seek**: Uses the `com.sun.star.sheet.XGoalSeek` interface on the Spreadsheet Document model.
+- **`analyze_data` / `forecast_data` / `optimize_data` / `plot_data`**: Host reads range via `CellInspector` → `plugin.scripting.helper_domain.run_domain` → warm venv worker. In the `analysis` domain or the tool's own domain, passing raw `data` is refused with `INVALID_PARAM`.
+- **Goal Seek**: Uses the `com.sun.star.sheet.XGoalSeek` interface on the Spreadsheet Document model. An unresolvable cell address raises `INVALID_PARAM`.
 - **Solver**:
-    - **Engine Enumeration**: Discovers registered solver implementations via `XContentEnumerationAccess`.
-    - **Prioritization**: In headless environments, prioritizes non-Java engines (CoinMP, Lpsolve) over Java NLPSolver engines that require a UI frame.
-    - **Auto-Discovery**: If no `engine` is specified, iterates until a compatible engine is found.
+    - **Engine selection (`pick_solver`)**: Tries the caller-named `engine` (unless generic), then native linear engines (`SolverLinear`, `CoinMPSolver`, `LpsolveSolver`) by name, then `ServiceManager.createContentEnumeration("com.sun.star.sheet.Solver")` (skipping Java NLP factory names so no JVM starts), and finally the generic `com.sun.star.sheet.Solver` service. Java NLP engines (DEPS, SCO) are used only when explicitly named.
+    - **Address validation**: An unresolvable objective, variable, or constraint cell address raises `INVALID_PARAM`.
 
 ## 5. Environment Notes
 
