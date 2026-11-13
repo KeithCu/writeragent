@@ -280,7 +280,7 @@ LLM/MCP sheet reads are a **different, always-on** path: `read_cell_range` enric
 | `timedelta` / `pd.Timedelta` | Fractional days (`1.5` = 36 hours) with `[HH]:MM:SS` duration formatting during spill |
 | `pd.NaT` / `pd.NA` | Empty cell (`""`), same as `None` |
 
-**Deferred spill formatting:** When `=PY()` returns a DataFrame or grid with temporal values that spills via `perform_deferred_spill`, the spilled cells are written as numeric day-serial floats and formatted with date/time `NumberFormat` keys across coalesced rectangular blocks, enabling native Calc sorting, filtering, and date math.
+**Deferred spill formatting:** When `=PY()` returns a DataFrame or grid with temporal values that spills via `perform_deferred_spill`, the spilled cells are written as numeric day-serial floats and formatted with the locale's standard date, time, datetime, or `[HH]:MM:SS` duration `NumberFormat` keys from `standard_temporal_format_keys` across coalesced rectangular blocks, enabling native Calc sorting, filtering, and date math. A destination cell that already has a compatible date/time format is kept (`should_preserve_temporal_format`), and unlike the chat write path no template is inherited from the cells above.
 
 **Do not implement** a `split_grid` datetime mask, Calc-serial conversion on the float64 buffer, or Unix-epoch day counts as the `=PY()` date representation. The numeric fast path stays `i`/`u`/`f`/`b` only. Rationale: [Dates on the wire](../scripting/numpy-serialization.md#dates-on-the-wire).
 

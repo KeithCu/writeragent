@@ -2167,9 +2167,10 @@ def test_overflow_int_becomes_decimal_text() -> None:
     huge_str = str(huge)
     assert _addin_values.to_calc_compatible(huge) == huge_str
 
-    val, meta = _addin_values.coerce_spill_value(huge)
-    assert val == huge_str
-    assert meta == {"is_temporal": False, "is_empty": False}
+    rec = _addin_values.coerce_spill_value(huge)
+    assert rec.calc_value == huge_str
+    assert rec.kind == "s"
+    assert rec.temporal_category is None
 
     nan_val = _addin_values.to_calc_compatible(float("nan"))
     assert math.isnan(nan_val)

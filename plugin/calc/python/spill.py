@@ -14,7 +14,7 @@ import logging
 import math
 from typing import Any
 
-from plugin.calc.calc_utils import EMPTY
+from plugin.calc.calc_utils import EMPTY, resolve_document_locale, standard_temporal_format_keys
 from plugin.calc.datetime_wire import (
     coalesce_temporal_apply_rects,
     format_category_from_type,
@@ -22,6 +22,7 @@ from plugin.calc.datetime_wire import (
 )
 from plugin.calc.python.addin_values import (
     ERR_NA,
+    SpillValue,
     coerce_spill_value,
     spill_value_from_json,
 )
@@ -244,6 +245,72 @@ def save_spill_registry_for_doc(doc: Any, state: WorkbookState) -> None:
         log.exception("Failed to save spill registry to document property")
 
 
+def _classify_spill_grid(grid: list[list[Any]], num_cols: int, null_dt: datetime.date) -> list[list[SpillValue]]:
+    return [
+        [coerce_spill_value(row[c] if c < len(row) else None, null_dt) for c in range(num_cols)]
+        for row in grid
+    ]
+
+
+def _write_spill_values(sheet: Any, formula_row: int, formula_col: int, values: list[list[SpillValue]]) -> None:
+    num_rows = len(values)
+    num_cols = len(values[0])
+    if num_cols > 1:
+        first_row_range = sheet.getCellRangeByPosition(formula_col + 1, formula_row, formula_col + num_cols - 1, formula_row)
+        first_row_range.setDataArray((tuple(v.calc_value for v in values[0][1:]),))
+
+    if num_rows > 1:
+        remaining_range = sheet.getCellRangeByPosition(formula_col, formula_row + 1, formula_col + num_cols - 1, formula_row + num_rows - 1)
+        remaining_range.setDataArray(tuple(tuple(v.calc_value for v in row) for row in values[1:]))
+
+    for r_offset, row in enumerate(values):
+        for c_offset, v in enumerate(row):
+            if (r_offset, c_offset) != (0, 0) and v.kind == "err" and v.error_code is not None and v.error_code != ERR_NA:
+                sheet.getCellByPosition(formula_col + c_offset, formula_row + r_offset).setFormula(f"=#ERR{v.error_code}!")
+
+
+def _apply_spill_temporal_formats(
+    doc: Any, sheet: Any, formula_row: int, formula_col: int, values: list[list[SpillValue]]
+) -> None:
+    if not any(v.temporal_category is not None for row in values for v in row):
+        return
+    try:
+        formats = doc.getNumberFormats()
+        locale = resolve_document_locale(doc)
+        standard_keys = standard_temporal_format_keys(formats, locale)
+
+        category_cache: dict[int, str | None] = {}
+        decisions: list[list[Any]] = []
+
+        for r_idx, row in enumerate(values):
+            row_dec: list[Any] = []
+            for c_idx, v in enumerate(row):
+                if v.temporal_category is not None:
+                    cell = sheet.getCellByPosition(formula_col + c_idx, formula_row + r_idx)
+                    k = int(cell.getPropertyValue("NumberFormat"))
+                    if k not in category_cache:
+                        props = formats.getByKey(k)
+                        category_cache[k] = format_category_from_type(props.getPropertyValue("Type"))
+                    dest_cat = category_cache[k]
+                    if should_preserve_temporal_format(v.temporal_category, float(v.calc_value), dest_cat):
+                        row_dec.append(("preserve", None))
+                    else:
+                        apply_k = standard_keys.get(v.temporal_category, standard_keys["date"])
+                        row_dec.append(("apply", int(apply_k)))
+                elif v.kind == "e":
+                    row_dec.append("empty")
+                else:
+                    row_dec.append(None)
+            decisions.append(row_dec)
+
+        rects = coalesce_temporal_apply_rects(decisions)
+        for r0, r1, c0, c1, k in rects:
+            trange = sheet.getCellRangeByPosition(formula_col + c0, formula_row + r0, formula_col + c1, formula_row + r1)
+            trange.setPropertyValue("NumberFormat", int(k))
+    except Exception:
+        log.exception("Error applying temporal number formats during deferred spill")
+
+
 def perform_deferred_spill(
     sheet_name: str,
     formula_row: int,
@@ -256,6 +323,10 @@ def perform_deferred_spill(
     key: str,
 ) -> None:
     """Clear old spilled cells and write new values deferred (collision check is done synchronously).
+
+    After clearing old cells, this classifies the grid into ``SpillValue`` records,
+    writes neighbour values/errors and updates the spill registry, then applies
+    standard temporal number formats across coalesced blocks.
 
     The caller passes the sheet it located, the code it located it by, and ``WorkbookState.key``.
     The state key, the sheet looked up by name and the origin formula are checked again here
@@ -332,108 +403,17 @@ def perform_deferred_spill(
                 nd = settings.getPropertyValue("NullDate")
                 null_dt = datetime.date(nd.Year, nd.Month, nd.Day)
 
-                coerced_grid: list[list[Any]] = []
-                cell_metas: list[list[dict[str, Any]]] = []
-                has_any_temporal = False
-                new_cells: list[SpillCell] = []
-                error_writes: list[tuple[int, int, int]] = []
-
-                for r_offset, row in enumerate(grid):
-                    coerced_row: list[Any] = []
-                    meta_row: list[dict[str, Any]] = []
-                    for c_offset in range(num_cols):
-                        val = row[c_offset] if c_offset < len(row) else None
-                        calc_val, meta = coerce_spill_value(val, null_dt)
-                        if meta.get("is_temporal"):
-                            has_any_temporal = True
-                        coerced_row.append(calc_val)
-                        meta_row.append(meta)
-                        if (r_offset, c_offset) == (0, 0):
-                            continue
-                        stored_val: float | str | int | None = None
-                        if meta.get("is_calc_error"):
-                            kind = "err"
-                            stored_val = int(meta["error_code"])
-                            if meta.get("error_code") != ERR_NA:
-                                error_writes.append((formula_col + c_offset, formula_row + r_offset, int(meta["error_code"])))
-                        elif meta.get("is_empty"):
-                            kind = "e"
-                        elif isinstance(calc_val, float):
-                            kind = "n"
-                            stored_val = calc_val
-                        elif isinstance(calc_val, str):
-                            kind = "s"
-                            stored_val = calc_val
-                        else:
-                            kind = "e"
-                        new_cells.append(SpillCell(row=formula_row + r_offset, col=formula_col + c_offset, kind=kind, value=stored_val))
-                    coerced_grid.append(coerced_row)
-                    cell_metas.append(meta_row)
-
-                if num_cols > 1:
-                    first_row_range = sheet.getCellRangeByPosition(formula_col + 1, formula_row, formula_col + num_cols - 1, formula_row)
-                    first_row_range.setDataArray((tuple(coerced_grid[0][1:]),))
-
-                if num_rows > 1:
-                    remaining_range = sheet.getCellRangeByPosition(formula_col, formula_row + 1, formula_col + num_cols - 1, formula_row + num_rows - 1)
-                    remaining_range.setDataArray(tuple(tuple(row) for row in coerced_grid[1:]))
-
-                for err_col, err_row, err_code in error_writes:
-                    sheet.getCellByPosition(err_col, err_row).setFormula(f"=#ERR{err_code}!")
+                values = _classify_spill_grid(grid, num_cols, null_dt)
+                new_cells = [
+                    SpillCell(row=formula_row + r, col=formula_col + c, kind=v.kind, value=v.registry_value)
+                    for r, row in enumerate(values)
+                    for c, v in enumerate(row)
+                    if (r, c) != (0, 0)
+                ]
+                _write_spill_values(sheet, formula_row, formula_col, values)
                 state.spills[reg_key] = SpillRecord(code=code, cells=new_cells)
                 save_spill_registry_for_doc(doc, state)
-
-                if has_any_temporal:
-                    try:
-                        formats = doc.getNumberFormats()
-                        locale = doc.getPropertyValue("CharLocale")
-                        if not getattr(locale, "Language", None):
-                            import uno
-
-                            locale = uno.createUnoStruct("com.sun.star.lang.Locale", Language="en", Country="US", Variant="")
-
-                        standard_keys: dict[str, int] = {}
-                        standard_keys["date"] = int(formats.getStandardFormat(2, locale))
-                        standard_keys["time"] = int(formats.getStandardFormat(4, locale))
-                        standard_keys["datetime"] = int(formats.getStandardFormat(6, locale))
-                        dur_key = formats.getFormatIndex(43, locale)
-                        standard_keys["duration"] = int(dur_key) if dur_key != -1 else 43
-
-                        category_cache: dict[int, str | None] = {}
-                        decisions: list[list[Any]] = []
-
-                        for r_idx in range(num_rows):
-                            row_dec: list[Any] = []
-                            for c_idx in range(num_cols):
-                                meta = cell_metas[r_idx][c_idx]
-                                if meta.get("is_temporal"):
-                                    in_cat = meta["input_category"]
-                                    serial_val = meta["serial"]
-                                    target_c = formula_col + c_idx
-                                    target_r = formula_row + r_idx
-                                    cell = sheet.getCellByPosition(target_c, target_r)
-                                    k = int(cell.getPropertyValue("NumberFormat"))
-                                    if k not in category_cache:
-                                        props = formats.getByKey(k)
-                                        category_cache[k] = format_category_from_type(props.getPropertyValue("Type"))
-                                    dest_cat = category_cache[k]
-                                    if should_preserve_temporal_format(in_cat, float(serial_val), dest_cat):
-                                        row_dec.append(("preserve", None))
-                                    else:
-                                        apply_k = standard_keys.get(in_cat, standard_keys["date"])
-                                        row_dec.append(("apply", int(apply_k)))
-                                elif meta.get("is_empty"):
-                                    row_dec.append("empty")
-                                else:
-                                    row_dec.append(None)
-                            decisions.append(row_dec)
-
-                        rects = coalesce_temporal_apply_rects(decisions)
-                        for r0, r1, c0, c1, k in rects:
-                            trange = sheet.getCellRangeByPosition(formula_col + c0, formula_row + r0, formula_col + c1, formula_row + r1)
-                            trange.setPropertyValue("NumberFormat", int(k))
-                    except Exception:
-                        log.exception("Error applying temporal number formats during deferred spill")
+                _apply_spill_temporal_formats(doc, sheet, formula_row, formula_col, values)
 
     except Exception:
         log.exception("Error in perform_deferred_spill")

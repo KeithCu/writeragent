@@ -417,6 +417,7 @@ class CalcCellStub:
         self._value = 0.0
         self._formula = ""
         self._kind = _CELL_EMPTY  # empty | value | text | formula
+        self._props: dict[str, Any] = {"NumberFormat": 0}
 
     def getString(self):
         return self._string
@@ -474,11 +475,11 @@ class CalcCellStub:
     def getRangeAddress(self):
         return _RangeAddress(self._col, self._row, self._col, self._row)
 
-    def getPropertyValue(self, _name):
-        return None
+    def getPropertyValue(self, name):
+        return self._props.get(name)
 
-    def setPropertyValue(self, _name, _val):
-        pass
+    def setPropertyValue(self, name, val):
+        self._props[name] = val
 
     def getSpreadsheet(self):
         return self._sheet
@@ -548,6 +549,11 @@ class CalcRangeStub:
                         cell.setFormula(text)
                     else:
                         cell.setString(text)
+
+    def setPropertyValue(self, name, val):
+        for r in range(self._start_row, self._end_row + 1):
+            for c in range(self._start_col, self._end_col + 1):
+                self._sheet.getCellByPosition(c, r).setPropertyValue(name, val)
 
     def getFormulas(self):
         rows = []
