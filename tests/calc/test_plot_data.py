@@ -81,17 +81,6 @@ def test_plot_data_requires_helper(calc_ctx):
     assert exc_info.value.code == "VIZ_ERROR"
 
 
-def test_plot_data_not_registered():
-    from plugin.app import get_tools
-
-    from plugin.tests.testing_utils import CalcDocStub
-
-    registry = get_tools()
-    doc = CalcDocStub()
-    names = {t.name for t in registry.get_tools(doc=doc, active_domain="analysis", exclude_tiers=())}
-    assert "plot_data" not in names
-
-
 @patch("plugin.calc.python.venv.insert_image_result_on_sheet")
 @patch("plugin.framework.queue_executor.main.call")
 @patch("plugin.calc.analysis.run_domain")

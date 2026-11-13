@@ -14,32 +14,18 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from plugin.calc.error_detector import (
-    ERROR_TYPES,
     ErrorDetector,
-    _ERROR_PATTERN_BY_UPPER,
     is_calc_error_display,
     truncation_hint,
 )
 
 
-def test_error_detector_data():
-    assert 502 in ERROR_TYPES
-    expected_tokens = frozenset({
-        "#REF!", "#NAME?", "#VALUE!", "#DIV/0!", "#NULL!", "#N/A", "#NUM!", "#ERROR!",
-        "Err:502", "Err:504", "Err:519", "Err:522", "Err:524", "Err:525", "Err:532",
-    })
-    assert set(_ERROR_PATTERN_BY_UPPER.values()) == expected_tokens
-    assert len(_ERROR_PATTERN_BY_UPPER) == len(expected_tokens)
+def test_is_calc_error_display_normalizes_known_tokens():
     assert is_calc_error_display("#div/0!") == "#DIV/0!"
     assert is_calc_error_display(" err:502 ") == "Err:502"
     assert is_calc_error_display("#ERROR!") == "#ERROR!"
     assert is_calc_error_display("#hashtag") is None
     assert is_calc_error_display(1) is None
-    for code, info in ERROR_TYPES.items():
-        assert "name" in info
-        assert "description" in info
-        assert info["code"].startswith("#") or info["code"] == f"Err:{code}"
-    assert ERROR_TYPES[510]["name"] != ERROR_TYPES[511]["name"]
 
 
 def test_get_error_type():

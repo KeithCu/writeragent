@@ -1,64 +1,19 @@
-from unittest.mock import MagicMock, patch
-import csv
+import pytest
 
-# Mock the parts of core that we don't want to load or that depend on UNO
-import sys
-from types import ModuleType
-
-# Mock core.calc_address_utils
-m = ModuleType("core.calc_address_utils")
-setattr(m, "parse_address", lambda x: (0, 0))
-sys.modules["core.calc_address_utils"] = m
+from plugin.calc.manipulator import _parse_formula_or_values_string
 
 
-
-from plugin.calc.manipulator import CellManipulator
-
-class TestCSVImportLogic:
-    def setup_method(self):
-        self.bridge = MagicMock()
-        self.manipulator = CellManipulator(self.bridge)
-        self.sheet = MagicMock()
-        self.bridge.get_active_sheet.return_value = self.sheet
-        from types import SimpleNamespace
-        self.range_mock = MagicMock()
-        self.range_mock.getRangeAddress.return_value = SimpleNamespace(
-            StartColumn=0, StartRow=0, EndColumn=0, EndRow=0
-        )
-        self.bridge.resolve_range_or_address.return_value = self.range_mock
-
-    def test_detect_comma(self):
-        csv_data = "Name,Age,Country\nJohn,28,USA"
-        with patch('csv.reader', side_effect=csv.reader) as mock_reader:
-            self.manipulator.write_formula_range("A1", csv_data)
-            # Check if csv.reader was called with delimiter=','
-            args, kwargs = mock_reader.call_args
-            assert (kwargs['delimiter']) == (',')
-
-    def test_detect_semicolon(self):
-        csv_data = "Name;Age;Country\nJohn;28;USA"
-        with patch('csv.reader', side_effect=csv.reader) as mock_reader:
-            self.manipulator.write_formula_range("A1", csv_data)
-            # Check if csv.reader was called with delimiter=';'
-            args, kwargs = mock_reader.call_args
-            assert (kwargs['delimiter']) == (';')
-
-    def test_mixed_prefers_comma(self):
-        # If both are present, we currently default to comma or whatever the logic does.
-        # My logic says: if ";" in first_line and "," not in first_line -> ";"
-        # So mixed should be ","
-        csv_data = "Name,Age;Country\nJohn,28;USA"
-        with patch('csv.reader', side_effect=csv.reader) as mock_reader:
-            self.manipulator.write_formula_range("A1", csv_data)
-            args, kwargs = mock_reader.call_args
-            assert (kwargs['delimiter']) == (',')
-
-    def test_no_delimiter_defaults_to_comma(self):
-        csv_data = "NameAgeCountry\nJohn28USA"
-        with patch('csv.reader', side_effect=csv.reader) as mock_reader:
-            self.manipulator.write_formula_range("A1", csv_data)
-            args, kwargs = mock_reader.call_args
-            assert (kwargs['delimiter']) == (',')
+@pytest.mark.parametrize(
+    ("text", "grid"),
+    [
+        ("Name,Age,Country\nJohn,28,USA", [["Name", "Age", "Country"], ["John", "28", "USA"]]),
+        ("Name;Age;Country\nJohn;28;USA", [["Name", "Age", "Country"], ["John", "28", "USA"]]),
+        ("Name,Age;Country\nJohn,28;USA", [["Name", "Age;Country"], ["John", "28;USA"]]),  # comma wins when both appear
+        ("NameAgeCountry\nJohn28USA", [["NameAgeCountry"], ["John28USA"]]),  # no delimiter -> one column
+    ],
+)
+def test_csv_text_delimiter_choice_gives_grid(text, grid):
+    assert _parse_formula_or_values_string(text) == grid
 
 class TestFormulaParsingLogic:
     def test_parse_json_array(self):

@@ -43,11 +43,12 @@ def test_detect_errors_single_range():
             "errors": [{"address": "Sheet1.A1"}],
         }
 
-        res = tool.execute(ctx, range="A1:A2")
+        res = tool.execute(ctx, range=" A1:A2 ")
 
     assert res["status"] == "ok"
     instance.detect_and_explain.assert_called_once_with(range_str="A1:A2")
-    assert res["result"]["range"] == "A1:A2"
+    assert res["result"] is instance.detect_and_explain.return_value
+    assert "ranges" not in res["result"]
 
 
 def test_detect_errors_multi_range_aggregates():

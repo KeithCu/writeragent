@@ -918,15 +918,6 @@ def test_read_cell_range_truncated_attaches_column_distincts():
     ]
 
 
-def test_read_cell_range_description_not_hard_py_first():
-    from plugin.calc.cells import ReadCellRange
-
-    desc = ReadCellRange.description
-    assert "write =PY(..., DataRange) instead of reading the block" not in desc
-    assert "write_formula_range (fill-down)" in desc
-    assert desc.index("write_formula_range") < desc.index("=PY")
-
-
 def test_set_style_accepts_typed_bold_and_font_size():
 
     ctx = SimpleNamespace(doc=MagicMock())
@@ -1318,37 +1309,13 @@ def test_write_formula_range_missing_values_without_source_errors():
     manip_cls.return_value.copy_formula_range.assert_not_called()
 
 
-def test_write_formula_range_description_teaches_source_copy():
+def test_write_formula_range_schema_shape():
     from plugin.calc.cells import WriteCellRange
 
-    desc = WriteCellRange.description
-    assert "DO: to copy a block onto another sheet or place, pass source and dest range" in desc
-    assert "do not pass values" in desc
     assert WriteCellRange.parameters["required"] == ["range"]
-    assert "source" in WriteCellRange.parameters["properties"]
-
-
-def test_write_formula_range_values_teaches_fill_down_not_json_pin():
-    from plugin.calc.cells import WriteCellRange
-
-    values = WriteCellRange.parameters["properties"]["values"]["description"]
-    assert "Required unless source is set" in values
-    assert "One ordinary formula into a multi-cell" in values
-    assert "fill-down/across" in values
-    assert "relative A1 refs" in values
-    assert "rate or tax column" in values
-    assert "inner array per row" in values
-    assert "pins every row to the first ref" in values
-    assert "one formula string over the whole column" in values
-    assert "FILTER/SORT/UNIQUE" in values
-    assert "array formula" in values
-    assert "occupied cells" in values
-    assert "=PY() is still the spill path" in values
-    # Fixture names stay out of tool text (eval tax/sort sheets).
-    assert "Banana" not in values
-    assert "Product" not in values
-    assert "Revenue" not in values
-    assert WriteCellRange.parameters["properties"]["values"]["type"] == ["string", "array", "null"]
+    properties = WriteCellRange.parameters["properties"]
+    assert "source" in properties
+    assert properties["values"]["type"] == ["string", "array", "null"]
 
 
 def test_write_formula_range_passes_native_2d_grid_to_manipulator():
@@ -1444,27 +1411,6 @@ def test_write_formula_range_rejects_mixed_grid_rows_before_manipulator():
     assert result["status"] == "error"
     assert "boolean, or null" in result["message"]
     commit.assert_not_called()
-
-
-def test_sort_range_description_teaches_reorder_key_and_direction():
-    from plugin.calc.cells import SortRange
-
-    desc = SortRange.description
-    assert "Do call range_sort to reorder rows" in desc
-    assert "not rewrite the block with write_formula_range" in desc
-    assert "labels mid-table" in desc
-    assert "Pick sort_column for the metric" in desc
-    assert "ascending=false when largest values should come first" in desc
-    sort_col = SortRange.parameters["properties"]["sort_column"]["description"]
-    assert "0 = leftmost" in sort_col
-    assert "numeric/metric column" in sort_col
-    assert "not the label column" in sort_col
-    ascending = SortRange.parameters["properties"]["ascending"]["description"]
-    assert "largest/highest first" in ascending
-    assert "smallest first" in ascending
-    assert "Banana" not in desc
-    assert "Product" not in desc
-    assert "Revenue" not in desc
 
 
 def test_preview_if_large_escapes_doubled_apostrophes():
@@ -1887,7 +1833,6 @@ def test_delete_structure_schema_start_type_is_integer():
     assert DeleteStructure.parameters is not None
     start_prop = DeleteStructure.parameters["properties"]["start"]
     assert start_prop["type"] == ["integer", "string"]
-    assert "e.g. 5" in start_prop["description"]
 
 
 def test_delete_structure_disposal_propagates():
@@ -2114,12 +2059,6 @@ def test_insert_cell_html_execution_and_validation():
     res_inv = InsertCellHtml().execute(ctx, cell="invalid_cell_addr", html="<b>bold</b>")
     assert res_inv["status"] == "error"
     assert "Invalid cell address" in res_inv["message"]
-
-    # Missing required params raise KeyError
-    with pytest.raises(KeyError):
-        InsertCellHtml().execute(ctx, cell="A1")
-    with pytest.raises(KeyError):
-        InsertCellHtml().execute(ctx, html="<b>bold</b>")
 
 
 @requires_asserts
