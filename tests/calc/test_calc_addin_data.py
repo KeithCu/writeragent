@@ -12,7 +12,7 @@ import pytest
 
 from plugin.calc.calc_addin_data import (
     _normalize_data_range_addresses,
-    _resolve_python_data,
+    resolve_python_data,
     calc_addin_args_from_split,
     calc_addin_data_to_python,
     check_python_data_size,
@@ -283,7 +283,7 @@ def test_resolve_python_data_disposal_propagates():
     doc = MagicMock()
     with patch("plugin.calc.bridge.CalcBridge", side_effect=DisposedException("disposed")):
         with pytest.raises(DocumentDisposedError):
-            _resolve_python_data(doc, data_range="A1:B1")
+            resolve_python_data(doc, data_range="A1:B1")
 
 
 def test_resolve_python_data_returns_calc_error_message():
@@ -291,6 +291,6 @@ def test_resolve_python_data_returns_calc_error_message():
 
     doc = MagicMock()
     with patch("plugin.calc.inspector.CellInspector.read_range", side_effect=CalcError("Data range has 500000 cells; maximum is 250000.")):
-        data, err = _resolve_python_data(doc, data_range="A1:B500000")
+        data, err = resolve_python_data(doc, data_range="A1:B500000")
     assert data is None
     assert err == "Data range has 500000 cells; maximum is 250000."

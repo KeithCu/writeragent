@@ -916,7 +916,7 @@ def test_insert_analysis_result_into_calc() -> None:
     ctx = MagicMock()
     result = {"status": "ok", "result": "val"}
 
-    def _write(_doc, _uno_ctx, grid, **_kwargs):
+    def _write(_doc, grid, **_kwargs):
         return len(grid)
 
     with patch("plugin.calc.analysis_egress.insert_tabular_result_into_calc", side_effect=_write) as mock_insert:
@@ -924,8 +924,7 @@ def test_insert_analysis_result_into_calc() -> None:
 
     mock_insert.assert_called_once()
     assert mock_insert.call_args.args[0] is doc
-    assert mock_insert.call_args.args[1] is ctx
-    grid = mock_insert.call_args.args[2]
+    grid = mock_insert.call_args.args[1]
     assert grid
     assert res == len(grid)
 

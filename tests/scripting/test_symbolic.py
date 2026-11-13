@@ -92,7 +92,7 @@ def test_insert_symbolic_result_into_calc() -> None:
     ):
         res = insert_symbolic_result_into_doc(ctx, doc, result)
         assert res == 1
-        mock_insert.assert_called_once_with(doc, ctx, format_symbolic_for_calc(result))
+        mock_insert.assert_called_once_with(doc, format_symbolic_for_calc(result))
 
 
 @pytest.mark.parametrize(

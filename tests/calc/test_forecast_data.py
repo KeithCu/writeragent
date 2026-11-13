@@ -184,7 +184,7 @@ def test_insert_forecast_result_qualifies_sheet_on_the_anchor(mock_bridge, mock_
 
 
 @patch("plugin.scripting.client.run_forecast")
-@patch("plugin.calc.calc_addin_data._resolve_python_data", return_value=([["Date", "Value"], ["2024-01-01", 1.0]], None))
+@patch("plugin.calc.calc_addin_data.resolve_python_data", return_value=([["Date", "Value"], ["2024-01-01", 1.0]], None))
 @patch("plugin.framework.queue_executor.main.call")
 @patch("plugin.framework.queue_executor.main.is_current", return_value=False)
 def test_run_trusted_forecast_resolves_on_main_and_runs_client_off_main(mock_on_main, mock_main_thread, _mock_resolve, mock_client):

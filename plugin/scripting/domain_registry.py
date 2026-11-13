@@ -6,7 +6,7 @@
 
 Domain compute / egress stay in domain modules. Callables use lazy imports to avoid cycles.
 
-Calc-only inserters are ``(doc, ctx, result)`` (same as ``insert_tabular_result_into_calc``).
+Calc-only inserters are ``(doc, ctx, result)``; the sheet writers ignore ``ctx``, which stays only for this argument order.
 Writer/Draw inserters are ``(ctx, doc, result)``. ``DomainWiring.insert`` keeps that split.
 """
 

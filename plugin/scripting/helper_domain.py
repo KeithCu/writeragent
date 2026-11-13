@@ -606,7 +606,7 @@ def run_trusted_calc_data_helper(
     flags; analysis, forecast, optimize, and viz share this function.
     """
     import plugin.scripting.client as client  # host only: client loads trusted_rpc
-    from plugin.calc.calc_addin_data import _resolve_python_data  # host only: plugin.calc needs UNO
+    from plugin.calc.calc_addin_data import resolve_python_data  # host only: plugin.calc needs UNO
 
     wiring_id = row.id
     error_code = row.error_code or ""
@@ -631,7 +631,7 @@ def run_trusted_calc_data_helper(
         if row.require_calc_or_writer and not is_calc(doc) and not is_writer(doc):
             raise ToolExecutionError("Viz helpers require a Writer or Calc document.", code=error_code)
 
-        py_data, err = _resolve_python_data(doc, data_range=dr, data=data)
+        py_data, err = resolve_python_data(doc, data_range=dr, data=data)
         context: dict[str, Any] = {}
         try:
             from plugin.calc.bridge import CalcBridge  # host only: plugin.calc needs UNO
@@ -694,6 +694,7 @@ def insert_helper_result_into_calc(
     tabular writer qualifies the anchor so ``CalcBridge.resolve`` opens
     that sheet. A missing name stays on the active sheet (Run Python Script
     selection, or an unqualified ``output_range``).
+    *uno_ctx* is unused; it stays because DomainWiring.insert passes (doc, ctx, result) positionally to post_venv_calc_only inserters.
     """
     from plugin.calc.tabular_egress import (  # host only: plugin.calc needs UNO
         format_tabular_helper_for_calc,
@@ -708,7 +709,6 @@ def insert_helper_result_into_calc(
     )
     return insert_tabular_result_into_calc(
         doc,
-        uno_ctx,
         grid,
         sheet_name=sheet_name,
         start_col=start_col,

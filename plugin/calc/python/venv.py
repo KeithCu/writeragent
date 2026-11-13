@@ -14,6 +14,7 @@ import os
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from plugin.calc.base import ToolCalcPythonBase
+from plugin.calc.calc_addin_data import resolve_python_data
 from plugin.framework.constants import ALL_DOCUMENT_SERVICES
 from plugin.framework.queue_executor import main
 from plugin.scripting.import_policy import format_matplotlib_plot_hint
@@ -104,6 +105,74 @@ def _unlink_quiet(paths: list[str]) -> None:
             log.debug("run_venv_python_script: temp image cleanup failed for %s", path, exc_info=True)
 
 
+def _report_image_paths(out: dict[str, Any], paths: list[str]) -> None:
+    """Hand temp image files the user still needs back as image_paths / image_path (one path or the list)."""
+    if paths:
+        out["image_paths"] = paths
+        out["image_path"] = paths[0] if len(paths) == 1 else paths
+
+
+def insert_plots_and_report(ctx: ToolContext, images: list[dict[str, Any]], res: dict[str, Any]) -> dict[str, Any]:
+    """Build the tool result for a venv run whose result holds plots.
+
+    Every plot is written to a temp file. Outside Calc the paths are returned for
+    the user. In Calc each plot is inserted on ctx.doc on the main thread; a failed
+    slot does not stop later plots. Temp files of inserted plots are deleted, the
+    failed ones are returned, and the result is an error only when no plot was inserted.
+    """
+    img_paths: list[str] = []
+    try:
+        for img in images:
+            img_paths.append(write_image_payload_to_temp(img))
+    except Exception:
+        # Delete the temps written so far; the caller never sees these paths.
+        _unlink_quiet(img_paths)
+        raise
+    out: dict[str, Any] = {"status": "ok", "message": f"{len(images)} plot(s) generated"}
+    stdout_val = res.get("stdout")
+    if stdout_val:
+        out["stdout"] = stdout_val
+    stripped_result = strip_image_payloads(res.get("result"))
+    if stripped_result is not None:
+        out["result"] = stripped_result
+    if ctx.doc_type != "calc":
+        _report_image_paths(out, img_paths)
+        return out
+
+    from plugin.calc.python.image_egress import insert_image_result_on_sheet
+
+    inserted_paths: list[str] = []
+    failed_paths: list[str] = []
+    failures: list[Exception] = []
+    for i, (img, path) in enumerate(zip(images, img_paths, strict=True)):
+        try:
+            # Pass ctx.doc: without doc= egress uses getCurrentComponent (the front
+            # window). Report inserted only after the main-thread call returns; a
+            # silent return is not success.
+            main.call(insert_image_result_on_sheet, ctx.ctx, img, doc=ctx.doc, image_index=i, image_path=path, image_count=len(images))
+        except Exception as exc:
+            log.warning("run_venv_python_script: plot insert failed: %s", exc)
+            failures.append(exc)
+            failed_paths.append(path)
+            continue
+        inserted_paths.append(path)
+    _unlink_quiet(inserted_paths)
+    _report_image_paths(out, failed_paths)
+    if not failures:
+        out["message"] = f"{len(images)} plot(s) inserted on active sheet"
+        out["image_inserted"] = True
+    elif not inserted_paths:
+        out["status"] = "error"
+        out["image_inserted"] = False
+        out["plot_error"] = "; ".join(str(e) for e in failures)
+        out["message"] = f"Plot was not inserted: {failures[0]}"
+    else:
+        out["image_inserted"] = True
+        out["plot_error"] = "; ".join(str(e) for e in failures)
+        out["message"] = f"{len(inserted_paths)} of {len(images)} plot(s) inserted on active sheet"
+    return out
+
+
 class RunVenvPythonScript(ToolCalcPythonBase):
     """Registered once; visible in Writer/Calc/Draw specialized ``domain=python`` via ``specialized_cross_cutting``."""
 
@@ -128,10 +197,7 @@ class RunVenvPythonScript(ToolCalcPythonBase):
         if ctx.doc_type == "calc":
             data_range = kwargs.get("data_range")
             data = kwargs.get("data")
-            from plugin.calc import calc_addin_data
-
-            _resolve = calc_addin_data._resolve_python_data
-            py_data, err = main.run(_resolve, ctx.doc, data_range=data_range, data=data)
+            py_data, err = main.run(resolve_python_data, ctx.doc, data_range=data_range, data=data)
             if err:
                 return self._tool_error(err, code="DATA_RESOLUTION_ERROR")
 
@@ -156,79 +222,9 @@ class RunVenvPythonScript(ToolCalcPythonBase):
         finally:
             release_script_document(script_session_id)
 
-        result = res.get("result")
         if res.get("status") == "ok":
-            images = find_image_payloads(result)
+            images = find_image_payloads(res.get("result"))
             if images:
-                # Write image temps in a loop; unlink all paths written so far before re-raising on failure.
-                img_paths: list[str] = []
-                try:
-                    for img in images:
-                        img_paths.append(write_image_payload_to_temp(img))
-                except Exception:
-                    _unlink_quiet(img_paths)
-                    raise
-                out: dict[str, Any] = {"status": "ok", "message": f"{len(images)} plot(s) generated"}
-                stdout_val = res.get("stdout")
-                if stdout_val:
-                    out["stdout"] = stdout_val
-                stripped_result = strip_image_payloads(result)
-                if stripped_result is not None:
-                    out["result"] = stripped_result
-
-                shown = img_paths
-                inserted = 0
-                failure: Exception | None = None
-                failures: list[Exception] = []
-                if ctx.doc_type == "calc":
-                    from plugin.calc.python.image_egress import insert_image_result_on_sheet
-
-                    # Pass ctx.doc: without doc= egress uses getCurrentComponent (the front
-                    # window). Report inserted only after the main-thread call returns; a
-                    # silent return is not success.
-                    # Keep going past a failed slot so later plots still insert;
-                    # only the failed paths are handed back to the caller.
-                    inserted_paths: list[str] = []
-                    failed_paths: list[str] = []
-                    for i, (img, path) in enumerate(zip(images, img_paths, strict=True)):
-                        try:
-                            main.call(
-                                insert_image_result_on_sheet,
-                                ctx.ctx,
-                                img,
-                                doc=ctx.doc,
-                                image_index=i,
-                                image_path=path,
-                                image_count=len(images),
-                            )
-                        except Exception as exc:
-                            log.warning("run_venv_python_script: plot insert failed: %s", exc)
-                            failures.append(exc)
-                            failed_paths.append(path)
-                            continue
-                        inserted_paths.append(path)
-                    inserted = len(inserted_paths)
-                    # Unlink only paths for plots actually inserted; failed temps stay for the user.
-                    _unlink_quiet(inserted_paths)
-                    shown = failed_paths
-                    failure = failures[0] if failures else None
-
-                if shown:
-                    out["image_paths"] = shown
-                    out["image_path"] = shown[0] if len(shown) == 1 else shown
-                if ctx.doc_type == "calc":
-                    if failure is not None and inserted == 0:
-                        out["status"] = "error"
-                        out["image_inserted"] = False
-                        out["plot_error"] = "; ".join(str(e) for e in failures)
-                        out["message"] = f"Plot was not inserted: {failure}"
-                    elif failure is not None:
-                        out["image_inserted"] = True
-                        out["plot_error"] = "; ".join(str(e) for e in failures)
-                        out["message"] = f"{inserted} of {len(images)} plot(s) inserted on active sheet"
-                    else:
-                        out["message"] = f"{len(images)} plot(s) inserted on active sheet"
-                        out["image_inserted"] = True
-                return out
+                return insert_plots_and_report(ctx, images, res)
 
         return res
