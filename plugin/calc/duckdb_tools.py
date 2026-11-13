@@ -298,7 +298,7 @@ def resolve_table_source_a1(model: Any, parsed: dict[str, Any]) -> str:
     Sheet → current used range. named_range → current NamedRanges /
     DatabaseRanges bounds. range → the frozen A1 the caller stored.
     """
-    from plugin.calc.bridge import CalcBridge, find_named_range, used_range_address
+    from plugin.calc.bridge import CalcBridge, used_range_address
 
     kind = parsed.get("kind")
     if kind == "sheet":
@@ -319,7 +319,7 @@ def resolve_table_source_a1(model: Any, parsed: dict[str, Any]) -> str:
 
     if kind == "named_range":
         name = str(parsed.get("named_range") or "")
-        hit = find_named_range(model, name)
+        hit = CalcBridge(model).find_named_range(name)
         if hit is not None:
             return _named_object_to_qualified_a1(model, hit.named_range, label=f"Named range {name!r}")
         dbr = _lookup_database_range_object(model, name)
@@ -353,7 +353,9 @@ def read_table_source_grid(ctx: Any, active_doc: Any, scoped_dir: str | None, pa
             raise ToolExecutionError(f"Table identity {parsed.get('kind')} resolved to an empty range; nothing to register for SQL", code="DUCKDB_SQL_ERROR")
         return grid
 
-    full_path = os.path.join(scoped_dir, str(file_bn)) if scoped_dir else str(file_bn)
+    if not scoped_dir:
+        raise ToolExecutionError(f"Sibling spreadsheet {file_bn!r} needs the document's folder; save the document first", code="DUCKDB_SQL_ERROR")
+    full_path = os.path.join(scoped_dir, str(file_bn))
     if not os.path.isfile(full_path):
         raise ToolExecutionError(f"Sibling spreadsheet {file_bn!r} not found under the document folder", code="DUCKDB_SQL_ERROR")
     return _read_sibling_office_file_as_grid(ctx, full_path, parsed)

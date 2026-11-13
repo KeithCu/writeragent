@@ -2,18 +2,31 @@
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Data models for Calc spreadsheet → Python import (ingest + preserve phases)."""
+"""Records the import's stages pass along: ingest's ``CellRecord``/``SheetModel``, translate's ``TranslationResult``, emit's ``ConversionReport``/``TodoCell``, preserve's ``OutputCell``/``OutputSheetModel``, verify's ``VerifyMismatch``."""
 
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
 from typing import Any, Literal
 
-from plugin.calc.spreadsheet_import.extract import normalize_py_formula
-
 CellType = Literal["empty", "constant", "formula", "py_formula", "prompt", "array_formula", "error"]
 
 FORMULA_LIKE_TYPES: frozenset[CellType] = frozenset({"formula", "py_formula", "array_formula", "error"})
+
+# Report codes for unconverted formula cells:
+# - translate: UNSUPPORTED_FUNCTION (function or reference with no emitter),
+#   UNSUPPORTED_ARITY (wrong argument count), PARSE_ERROR (parser or codegen cannot read it)
+# - emit: PROMPT and ARRAY_FORMULA (cell kinds never converted), CIRCULAR_REF,
+#   EMIT_ERROR (unexpected exception for that one cell)
+ReportCode = Literal[
+    "UNSUPPORTED_FUNCTION",
+    "UNSUPPORTED_ARITY",
+    "PARSE_ERROR",
+    "PROMPT",
+    "ARRAY_FORMULA",
+    "CIRCULAR_REF",
+    "EMIT_ERROR",
+]
 
 
 @dataclass
@@ -48,19 +61,6 @@ class OutputCell:
     number_format: int | None
 
 
-def formula_output_cell(address: str, formula: str | None) -> OutputCell:
-    return OutputCell(address=address, value=None, formula=formula, number_format=None)
-
-
-def output_cell_from_record(cell: CellRecord) -> OutputCell:
-    if cell.type == "constant":
-        return OutputCell(address=cell.address, value=cell.value, formula=None, number_format=cell.number_format)
-    formula = cell.formula
-    if cell.type == "py_formula" and formula:
-        formula = normalize_py_formula(formula) or formula
-    return formula_output_cell(cell.address, formula)
-
-
 @dataclass
 class TranslationResult:
     """Outcome of translating one Calc formula to Python.
@@ -74,21 +74,16 @@ class TranslationResult:
     ok: bool
     code: str | None = None
     data_ranges: list[str] | None = None
-    reason: str | None = None
+    reason: ReportCode | None = None
     has_function: bool | None = None
 
 
 @dataclass
 class TodoCell:
-    """Formula cell left unconverted, with its report code.
-
-    ``reason`` is one of: ``UNSUPPORTED_FUNCTION``, ``UNSUPPORTED_ARITY``,
-    ``PARSE_ERROR`` (from ``translate``), and ``PROMPT``, ``ARRAY_FORMULA``,
-    ``CIRCULAR_REF``, ``EMIT_ERROR`` (from ``emit.build_converted_output_model``).
-    """
+    """Formula cell left unconverted, with its report code (see ``ReportCode``)."""
 
     address: str
-    reason: str
+    reason: ReportCode
 
 
 @dataclass

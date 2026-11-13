@@ -73,7 +73,7 @@ def verify_py_addin(ctx) -> bool:
 def convert_spreadsheet(ctx, file_path: Path) -> bool:
     print(f"\nProcessing: {file_path.name}")
     from plugin.framework.uno_context import get_desktop
-    from plugin.calc.spreadsheet_import.import_dialog import run_sheet_conversion
+    from plugin.calc.spreadsheet_import.pipeline import run_sheet_conversion
 
     desktop = get_desktop(ctx)
     file_url = uno.systemPathToFileUrl(str(file_path.resolve()))

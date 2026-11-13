@@ -128,3 +128,21 @@ def test_range_sort_reorders_visible_rows(ctx, doc):
     col_a_after = [row[0] for row in sheet.getCellRangeByName("A1:A6").getDataArray()]
     assert col_a_after == ["Region", "East", "West", "South", "Mid", "North"]
 
+
+@native_test
+@with_native_doc("calc")
+def test_set_style_v_align_and_merge_center_vertical_justify_uno(ctx, doc):
+    from com.sun.star.table.CellHoriJustify import CENTER
+
+    sheet = doc.getCurrentController().getActiveSheet()
+    for addr, v_align, expected in (("A1", "top", 1), ("A2", "center", 2), ("A3", "bottom", 3)):
+        res = _execute_calc_tool(doc, ctx, "set_style", {"range": [addr], "v_align": v_align})
+        assert res.get("status") == "ok", f"set_style failed for {v_align}: {res}"
+        row = int(addr[1:]) - 1
+        assert sheet.getCellByPosition(0, row).getPropertyValue("VertJustify") == expected
+
+    res_merge = _execute_calc_tool(doc, ctx, "merge_cells", {"range": ["C1:D2"]})
+    assert res_merge.get("status") == "ok", f"merge_cells failed: {res_merge}"
+    c1 = sheet.getCellByPosition(2, 0)
+    assert c1.getPropertyValue("VertJustify") == 2
+    assert c1.getPropertyValue("HoriJustify") == CENTER

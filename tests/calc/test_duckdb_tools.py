@@ -19,6 +19,7 @@ from plugin.calc.duckdb_tools import (
     _read_sibling_office_file_as_grid,
     _source_is_open_workbook,
     parse_table_source_spec,
+    read_table_source_grid,
     resolve_table_source_a1,
 )
 from plugin.calc.ods_cache import ODS_CACHE_DIRNAME, cache_entry, write_sidecar_meta, source_stat
@@ -1240,3 +1241,14 @@ def test_export_rejects_empty_output(tmp_path: Path, monkeypatch):
     assert not dest.exists()
     assert [p.name for p in tmp_path.iterdir() if p.name.endswith(".partial")] == []
 
+
+def test_read_table_source_grid_sibling_without_folder_refuses_cwd(tmp_path: Path, monkeypatch):
+    (tmp_path / "other.ods").write_bytes(b"ods")
+    monkeypatch.chdir(tmp_path)
+
+    def _must_not_read(*_args, **_kwargs):
+        pytest.fail("_read_sibling_office_file_as_grid should not be called without a document folder")
+
+    with patch("plugin.calc.duckdb_tools._read_sibling_office_file_as_grid", side_effect=_must_not_read):
+        with pytest.raises(ToolExecutionError, match="save"):
+            read_table_source_grid(None, None, None, {"file": "other.ods", "kind": "sheet"})

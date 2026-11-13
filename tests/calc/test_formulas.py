@@ -341,9 +341,11 @@ def test_evaluate_formula_set_formula_raising():
     assert "B2" in res["message"]
     assert "Unexpected syntax error" in res["message"]
 
+    from plugin.framework.errors import DocumentDisposedError
+
     disposed_doc = _EvalDoc()
     disposed_doc.temp_cell.raise_on_set_formula = DisposedException("Sheet disposed")
-    with pytest.raises(DisposedException):
+    with pytest.raises(DocumentDisposedError):
         EvaluateFormula().execute(_eval_ctx(disposed_doc), formula="=1+1")
 
 
@@ -381,3 +383,24 @@ def test_evaluate_formula_cleanup_failure_still_propagates_disposed_document(mon
     monkeypatch.setattr(doc.sheets, "getByName", _disposed_get_by_name)
     with pytest.raises(DisposedException):
         EvaluateFormula().execute(_eval_ctx(doc), formula="=1+1")
+
+
+def test_evaluate_formula_cleanup_disposal_is_document_disposed():
+    DisposedException = type("DisposedException", (Exception,), {})
+    doc = _EvalDoc(undo_possible=False, modified=False)
+    doc.sheets.raise_on_remove = DisposedException("gone")
+
+    res = EvaluateFormula().execute_safe(_eval_ctx(doc), formula="=1+1")
+    assert res["code"] == "DOCUMENT_DISPOSED"
+
+
+def test_evaluate_formula_cell_lookup_disposal_is_document_disposed(monkeypatch):
+    DisposedException = type("DisposedException", (Exception,), {})
+    doc = _EvalDoc(undo_possible=False, modified=False)
+
+    def _disposed_cell(_col: int, _row: int):
+        raise DisposedException("gone")
+
+    monkeypatch.setattr(doc.temp, "getCellByPosition", _disposed_cell)
+    res = EvaluateFormula().execute_safe(_eval_ctx(doc), formula="=1+1")
+    assert res["code"] == "DOCUMENT_DISPOSED"

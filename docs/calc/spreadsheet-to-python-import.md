@@ -216,18 +216,18 @@ flowchart LR
 | Module | Role |
 |--------|------|
 | `plugin/calc/spreadsheet_import/` | Package root (`__init__.py`: Calc spreadsheet → Python import pipeline) |
-| `extract.py` | Extract and normalize existing `=PY()` / `=PYTHON()` formulas |
 | `ingest.py` | Ingest Calc sheet snapshots into `SheetModel` |
-| `models.py` | Data models for Calc spreadsheet → Python import (ingest + preserve phases) |
+| `models.py` | Records every stage passes along |
 | `preprocess.py` | Normalize LibreOffice formula strings for Excel-oriented parsers |
-| `preserve.py` | Preserve constants and normalize existing PY cells onto an output sheet |
+| `preserve.py` | Preserve constants, normalize existing PY cells under the preserve rule, enrich number formats, and write output |
 | `range_clip.py` | Clip whole-column/row PY data refs to a workbook sheet's used area |
 | `graph.py` | Dependency graph and circular-reference groups |
 | `translate.py` | Translate P1 Calc formulas to `=PY()` Python source via vendored AST; `TranslationResult.has_function` tells emit which formulas stay native |
 | `vectorize.py` | Column vectorization logic for Calc Spreadsheet → Python Import |
 | `emit.py` | Emit `=PY()` formulas and build converted output models |
 | `verify.py` | Verify converted cells against ingest snapshot oracles |
-| `import_dialog.py` | Menu dialog, built in code (no `.xdl` file) |
+| `pipeline.py` | Run the sheet → `=PY()` import stages in order |
+| `import_dialog.py` | Options dialog (`SpreadsheetImportDialog.xdl`) |
 
 **Optional dependency (evaluate in Phase 3 spike):** vendored or dev-only [`formulas`](https://github.com/vinci1it2000/formulas) for ODS AST — only if a minimal in-tree parser is too costly. Default path: **small hand-rolled parser** for P1 grammar + `list_calc_functions` metadata.
 
@@ -1113,8 +1113,9 @@ Prototype long-tail only. Do not start this unless spreadsheet import is explici
 | Layer | Location | Content |
 |-------|----------|---------|
 | **Unit** | `tests/calc/test_spreadsheet_import_ingest.py` | Graph, classify |
-| **Unit** | `tests/calc/test_spreadsheet_import_extract.py` | PY normalize + serialization_cases golden |
-| **Unit** | `tests/calc/test_spreadsheet_import_preserve.py` | Output model preserve rules |
+| **Unit** | `tests/calc/test_spreadsheet_import_pipeline.py` | Pipeline stage orchestration, selection, unique sheet names |
+| **UNO** | `tests/calc/test_spreadsheet_import_pipeline_uno.py` | End-to-end sheet conversion in a live LibreOffice |
+| **Unit** | `tests/calc/test_spreadsheet_import_preserve.py` | Output model preserve rules and PY normalization |
 | **UNO** | `tests/calc/test_spreadsheet_import_preserve_uno.py` | `serialization_tests.xlsx` PY round-trip |
 | **Unit** | `tests/calc/test_spreadsheet_import_translate.py` | Per-function golden outputs |
 | **Unit** | `tests/calc/test_spreadsheet_import_emit.py` | `=PY()` string shape, semicolons |

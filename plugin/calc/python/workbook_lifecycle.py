@@ -365,6 +365,11 @@ class _GlobalDocumentEventListener(BaseDocumentEventListener):
             )
 
             if name == "OnLoadFinished":
+                # Runs inline because LibreOffice sends OnLoadFinished from inside
+                # SfxBaseModel::load, which holds SolarMutex (sfx2/source/doc/sfxbasemodel.cxx
+                # load, SfxModelGuard in sfx2/source/inc/docundomanager.hxx). Posting with
+                # main.run from a release-build URP thread would wait 30 s for a main thread
+                # that cannot take SolarMutex, and then skip the conversion.
                 maybe_convert_excel_py_document(doc)
                 try:
                     # URP OnLoadFinished can run on Dummy with SolarMutex held: main.run inlines when is_current().
