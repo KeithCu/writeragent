@@ -594,7 +594,8 @@ def _patch_cells(
         try:
             _unshare_groups_touching(root, sheet_title, sheet_write_set)
         except Exception as exc:
-            # The Excel writer raises here; CSTRUCT-BUGS removes this flag.
+            # Kept so the Excel writer's error message keeps its current unwrapped shape;
+            # collecting it like the DAG writer is a separate behaviour change (CSTRUCT-BUGS).
             if unshare_raises:
                 raise
             errors.append(f"{sheet_title}: {exc}")
@@ -727,8 +728,10 @@ def _write_package(
 ) -> None:
     """Rewrite *source_xlsx* to *out_path*, applying drops, replacements, lazy XML serialization, and appended parts."""
     def _transform(zin: zipfile.ZipFile, zout: zipfile.ZipFile) -> None:
-        # Track names actually written (rather than zin.namelist()) so any part in `parts`
-        # absent from the source or skipped is appended after the copied entries.
+        # Callers must never list a dropped name in `parts`. Because nothing in `parts`
+        # is dropped, tracking written names is equivalent to checking whether the source
+        # contained the part (e.g. the old `written_scripts` flag for xl/pythonScripts.xml),
+        # and any part in `parts` absent from the source is appended after the copied entries.
         written: set[str] = set()
         for info in zin.infolist():
             name = info.filename
@@ -754,7 +757,7 @@ def _write_package(
             written.add(name)
 
         for part_name, part_data in parts.items():
-            if part_name not in written:
+            if part_name not in written and not drop(part_name):
                 zout.writestr(part_name, part_data)
 
     rewrite_zip(source_xlsx, out_path, _transform)
