@@ -815,10 +815,12 @@ def _insert_image_result_on_sheet_impl(
                 _refresh_existing_plot(shape, target_cell, file_url, data_sha, aspect, rtl)
         finally:
             # Only a caller that passes image_count owns the slot family. =PY() and
-            # run_venv_python_script pass it and enumerate image_index from 0, so the
-            # sweep runs once on index 0. Stale slots >= image_count and duplicate shapes
-            # for one slot are swept even when slot 0 raises, so they do not linger.
-            # Omitting image_count (chat plot_data / viz) must not remove sibling WriterAgentPlot_N shapes.
+            # insert_plots_and_report (run_venv_python_script, plot_data) pass it and
+            # enumerate image_index from 0, so the sweep runs once on index 0. Stale slots
+            # >= image_count and duplicate shapes for one slot are swept even when slot 0
+            # raises, so they do not linger. Omitting image_count (the viz domain's
+            # insert_viz_result_into_doc: Run Python Script viz results and analyze/forecast
+            # auto-plot) must not remove sibling WriterAgentPlot_N shapes.
             if image_count is not None and image_index == 0 and target_cell is not None:
                 _drop_extra_plot_slots(draw_page, slots, image_count)
     except ImageEgressError:

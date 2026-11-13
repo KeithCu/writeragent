@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from plugin.calc.analysis import run_calc_data_tool, write_anchor_result
 from plugin.framework.tool import ToolBaseDummy
 from plugin.scripting.helper_registry import names, specs
 from plugin.scripting.optimize import insert_optimize_result_into_calc
@@ -50,7 +51,5 @@ class OptimizeDataTool(ToolBaseDummy):
         return True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        from plugin.calc.analysis import run_calc_data_tool, write_anchor_result
-
         args, result = run_calc_data_tool(ctx, "optimize", kwargs)
         return write_anchor_result(ctx, result, args.output_range, insert_optimize_result_into_calc)

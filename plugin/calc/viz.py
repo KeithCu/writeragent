@@ -8,10 +8,12 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from plugin.calc.analysis import run_calc_data_tool
+from plugin.calc.python.venv import insert_plots_and_report
+from plugin.framework.i18n import _
 from plugin.framework.tool import ToolBaseDummy
-from plugin.framework.queue_executor import main
 from plugin.scripting.helper_registry import names
-from plugin.scripting.viz import insert_viz_result_into_doc
+from plugin.scripting.payload_codec import find_image_payloads
 
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
@@ -41,37 +43,16 @@ class PlotDataTool(ToolBaseDummy):
         return True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        from plugin.calc.analysis import run_calc_data_tool
-        from plugin.scripting.payload_codec import extract_image_payload, write_image_payload_to_temp
-
         # run_domain rejects a blank or unknown helper and missing data with VIZ_ERROR.
         _args, result = run_calc_data_tool(ctx, "viz", kwargs)
-
         if result.get("status") != "ok":
             return result
 
-        out: dict[str, Any] = dict(result)
-        if ctx.doc_type == "calc":
+        images = find_image_payloads(result)
+        if not images:
+            return self._tool_error(_("Viz helper returned no image payload."), code="VIZ_ERROR")
 
-            def _insert() -> None:
-                insert_viz_result_into_doc(ctx.ctx, ctx.doc, result)
-
-            try:
-                main.call(_insert)
-            except Exception as exc:
-                # Keep an egress failure as an error. image_egress raises
-                # when the sheet or draw page is missing. Swallowing that
-                # still produced image_inserted and "Plot inserted".
-                out["status"] = "error"
-                out["image_inserted"] = False
-                out["plot_error"] = str(exc)
-                out["message"] = f"Plot was not inserted: {exc}"
-            else:
-                out["image_inserted"] = True
-                out["message"] = "Plot inserted on active sheet"
-        else:
-            payload = extract_image_payload(result)
-            if payload is not None:
-                out["image_path"] = write_image_payload_to_temp(payload)
-
-        return out
+        # Same result as run_venv_python_script: the viz result (image bytes stripped)
+        # under "result", plus image_inserted / plot_error / message on Calc and
+        # image_path(s) elsewhere.
+        return insert_plots_and_report(ctx, images, {"result": result})

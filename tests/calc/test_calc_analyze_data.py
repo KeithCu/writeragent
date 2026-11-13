@@ -46,7 +46,7 @@ def test_output_anchor_quoted_dotted_sheet_and_range():
     assert _output_anchor("A1") == (None, 0, 0)
 
 
-@patch("plugin.calc.analysis_egress.insert_analysis_result_into_calc")
+@patch("plugin.calc.analysis.insert_analysis_result_into_calc")
 @patch("plugin.framework.queue_executor.main.call")
 @patch("plugin.calc.analysis.run_domain")
 def test_analyze_data_output_range_quoted_sheet(mock_run_trusted, mock_main_thread, mock_insert, calc_ctx):
@@ -75,7 +75,7 @@ def _disposed():
     return DisposedException("Binary URP bridge disposed during call")
 
 
-@patch("plugin.calc.analysis_egress.insert_analysis_result_into_calc")
+@patch("plugin.calc.analysis.insert_analysis_result_into_calc")
 @patch("plugin.framework.queue_executor.main.call")
 @patch("plugin.calc.analysis.run_domain")
 def test_analyze_data_sheet_write_failure_keeps_the_result(
@@ -104,7 +104,7 @@ def test_analyze_data_sheet_write_failure_keeps_the_result(
     assert result["metrics"] == {"row_count": 1}
 
 
-@patch("plugin.calc.analysis_egress.insert_analysis_result_into_calc")
+@patch("plugin.calc.analysis.insert_analysis_result_into_calc")
 @patch("plugin.framework.queue_executor.main.call")
 @patch("plugin.calc.analysis.run_domain")
 def test_analyze_data_sheet_write_reraises_disposed(

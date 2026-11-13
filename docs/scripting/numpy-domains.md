@@ -219,6 +219,8 @@ Viz helpers close the matplotlib figure on every exit, including when savefig fa
 
 **Analysis sub-agent:** After `run_regression`, `cluster_numeric`, `monte_carlo`, or `correlation_matrix`, `analyze_data` can auto-call a matching viz helper when `auto_plot=true` or the task hint mentions charts (see [`viz_auto_plot.py`](../../plugin/calc/viz_auto_plot.py)).
 
+**Chat tool results:** `plot_data` returns what `run_venv_python_script` returns (`insert_plots_and_report` in `python/venv.py`): the viz result under `result` with image bytes shown as `"<image>"`; in Calc `image_inserted`, `plot_error` and `message`, with `status` error only when no plot landed and failed plots' temp files in `image_path(s)`; outside Calc `image_path(s)`. A viz result with no image is `VIZ_ERROR`. `analyze_data` / `forecast_data` auto-plot record on their own result instead (`plot`, `image_inserted`, `plot_error`): a failed plot never fails the analysis, and a closed document propagates. Forecast auto-plot failures are `VIZ_ERROR` dicts.
+
 **Packages:** `matplotlib` (required); `seaborn` (recommended). Settings → Python **Visualization Libraries** group lists both.
 
 **Fallback:** ASCII mini-charts or compact text tables when matplotlib is missing (`MISSING_PACKAGE`).

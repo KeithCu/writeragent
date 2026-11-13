@@ -51,8 +51,8 @@ def test_build_viz_request_regression():
     assert params["spec"]["chart_type"] == "scatter"
 
 
-@patch("plugin.scripting.viz.insert_viz_result_into_doc")
-@patch("plugin.calc.viz_auto_plot.run_auto_plot_after_analysis")
+@patch("plugin.calc.viz_auto_plot.insert_viz_result_into_doc")
+@patch("plugin.calc.analysis.run_auto_plot_after_analysis")
 @patch("plugin.framework.queue_executor.main.call")
 @patch("plugin.calc.analysis.run_domain")
 def test_analyze_data_auto_plot_inserts_chart(
@@ -87,8 +87,8 @@ def test_analyze_data_auto_plot_inserts_chart(
     mock_insert.assert_called_once()
 
 
-@patch("plugin.scripting.viz.insert_viz_result_into_doc")
-@patch("plugin.calc.viz_auto_plot.run_auto_plot_after_analysis")
+@patch("plugin.calc.viz_auto_plot.insert_viz_result_into_doc")
+@patch("plugin.calc.analysis.run_auto_plot_after_analysis")
 @patch("plugin.framework.queue_executor.main.call")
 @patch("plugin.calc.analysis.run_domain")
 def test_analyze_data_auto_plot_does_not_marshal_viz_read(
@@ -161,4 +161,4 @@ def test_apply_auto_plot_result_records_ordinary_insert_error():
     ):
         out = apply_auto_plot_result({"status": "ok"}, {"status": "ok"}, object(), object())
     assert out["plot_error"] == "no draw page"
-    assert "image_inserted" not in out
+    assert out["image_inserted"] is False

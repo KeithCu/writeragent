@@ -33,10 +33,13 @@ from plugin.framework.errors import (
     reraise_if_disposed,
     uno_read,
 )
+from plugin.framework.queue_executor import main
 from plugin.framework.tool import ToolBaseDummy
 from plugin.framework.uno_context import enum_has_more
 from plugin.calc.address_utils import parse_address, split_sheet_prefix
+from plugin.calc.analysis_egress import insert_analysis_result_into_calc
 from plugin.calc.calc_utils import resolve_sheet_and_cell
+from plugin.calc.viz_auto_plot import apply_auto_plot_result, run_auto_plot_after_analysis, should_auto_plot
 from plugin.scripting.helper_domain import run_domain
 from plugin.scripting.helper_registry import names
 
@@ -350,7 +353,6 @@ def write_anchor_result(
     """
     if not output_range or result.get("status") != "ok":
         return result
-    from plugin.framework.queue_executor import main
 
     def _write() -> None:
         sheet, col, row = parse_output_anchor(output_range)
@@ -397,14 +399,11 @@ class AnalyzeDataTool(ToolBaseDummy):
         return True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        from plugin.calc.analysis_egress import insert_analysis_result_into_calc
-
         args, result = run_calc_data_tool(ctx, "analysis", kwargs)
         result = write_anchor_result(ctx, result, args.output_range, insert_analysis_result_into_calc)
 
         if result.get("status") == "ok" and ctx.doc_type == "calc":
             auto_plot = bool(kwargs.get("auto_plot", False))
-            from plugin.calc.viz_auto_plot import apply_auto_plot_result, run_auto_plot_after_analysis, should_auto_plot
 
             plot_result = None
             if should_auto_plot(helper=args.helper, auto_plot=auto_plot, task_hint=args.task_hint):
