@@ -493,7 +493,6 @@ def _unlink_temp_image(path: str) -> None:
 
 
 def insert_image_result_on_sheet(
-    ctx: Any,
     payload: dict[str, Any],
     *,
     code: str | None = None,
@@ -794,8 +793,6 @@ def _insert_image_result_on_sheet_impl(
 
         if image_path:
             tmp_path = image_path
-        elif payload.get("image_path"):
-            tmp_path = str(payload["image_path"])
         else:
             created_path = write_image_payload_to_temp(payload)
             tmp_path = created_path

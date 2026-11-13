@@ -212,7 +212,7 @@ def test_py_scoped_dir_bindings_saved_showcase_workbook(ctx):
         try:
             from plugin.calc.python.function import build_cell_context
 
-            bindings = {"scoped_dir": build_cell_context(ctx, doc, "").scoped_dir}
+            bindings = {"scoped_dir": build_cell_context(ctx, doc, "", on_main=True).scoped_dir}
             folder = bindings.get("scoped_dir")
             assert folder, bindings
             assert os.path.samefile(folder, temp_dir), bindings
