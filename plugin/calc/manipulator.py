@@ -988,8 +988,10 @@ class CellManipulator:
         ranges can refuse before the first is touched.
         """
         with self._write_errors(range_str):
-            # Handle empty values as a clear_range operation
+            # Handle empty values as a clear_range operation; resolve first so an unknown
+            # range is refused during planning before any earlier range is cleared.
             if values is None or values == "" or values == [] or values == "[]" or values == "{}":
+                self.bridge.resolve_range_or_address(range_str)
                 return WritePlan("clear", range_str)
 
             cell_range = self.bridge.resolve_range_or_address(range_str)

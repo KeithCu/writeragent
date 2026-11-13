@@ -1954,6 +1954,25 @@ def test_write_formula_range_refuses_named_range_mismatch_before_any_write():
     undo_cls.assert_not_called()
 
 
+def test_write_formula_range_clear_refuses_unknown_range_before_any_write():
+    from plugin.calc.cells import WriteCellRange
+    from plugin.calc.manipulator import CellManipulator
+
+    ctx = SimpleNamespace(doc=MagicMock())
+    with (
+        patch("plugin.calc.cells.CalcBridge", return_value=_a1_bridge()),
+        patch("plugin.calc.cells.WriterCompoundUndo") as undo_cls,
+        patch.object(CellManipulator, "commit_write") as commit,
+    ):
+        res = WriteCellRange().execute(ctx, range=["A1:A2", "Nope"], values="")
+
+    assert res["status"] == "error"
+    assert "NOPE" in res["message"]
+    assert "Nothing was kept" not in res["message"]
+    commit.assert_not_called()
+    undo_cls.assert_not_called()
+
+
 def test_write_formula_range_comma_prose_to_one_cell_ranges_is_text():
     from plugin.calc.cells import WriteCellRange
     from plugin.calc.manipulator import CellManipulator
