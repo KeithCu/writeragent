@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from plugin.calc.python.function import clear_workbook_matrix_cache
 from plugin.chatbot.dialogs import msgbox, msgbox_with_report
 from plugin.framework.config import get_config
 from plugin.framework.errors import is_disposal
@@ -77,9 +78,8 @@ def open_init_script_editor(ctx: Any) -> None:
             if err is not None:
                 return {"type": "error", "message": err}
             initial = new_code
-            from plugin.calc.python.function import clear_python_addin_cache
-
-            clear_python_addin_cache()
+            # Only this workbook's init script changed; other workbooks keep their cached matrix results.
+            clear_workbook_matrix_cache(doc)
         return {"type": "saved", "ok": True, "status_ok_text": _("Initialization script saved.")}
 
     load_msg: dict[str, Any] = {

@@ -28,11 +28,13 @@ from contextlib import contextmanager
 import logging
 from typing import Any, Generator
 
+from plugin.calc.python.cell_discovery import sheet_name_of
 from plugin.calc.python.workbook_state import WorkbookState
-from plugin.framework.errors import best_effort, uno_read
+from plugin.framework.errors import uno_read
 from plugin.framework.queue_executor import main
 from plugin.framework.thread_guard import main_thread_only
 from plugin.framework.uno_listeners import BaseModifyListener
+from plugin.scripting.session_manager import calc_workbook_base_session_id
 
 log = logging.getLogger(__name__)
 
@@ -84,18 +86,11 @@ def owning_calc_doc(sheet: Any) -> Any | None:
     return None
 
 
-def _sheet_name_of(sheet: Any) -> str:
-    """Sheet name, or "" when the read fails. Never invent a default name."""
-    if sheet is None:
-        return ""
-    return str(best_effort(lambda: sheet.getName(), "sheet_modify: getName failed", "") or "")
-
-
 def schedule_sheet_modify_pass(ctx: Any, doc: Any, sheet: Any, *, sheet_name: str = "", delay_sec: float = _MODIFY_DELAY_SEC) -> None:
     """Debounce: schedule a 0.1s UI-thread pass via WorkbookState.debounce."""
     if sheet is None or doc is None:
         return
-    name = sheet_name or _sheet_name_of(sheet)
+    name = sheet_name or sheet_name_of(sheet)
     if not name:
         return
     state = WorkbookState.lookup(doc)
@@ -103,25 +98,21 @@ def schedule_sheet_modify_pass(ctx: Any, doc: Any, sheet: Any, *, sheet_name: st
         return
 
     debounce_key = f"sheet:{name}"
+    disp = state.listeners.get(name)
 
     def _pass() -> None:
-        sname = name
-        disp = state.listeners.get(name)
-        if disp is not None and hasattr(disp, "sheet_name"):
-            sname = disp.sheet_name
-        else:
-            for candidate in state.listeners.values():
-                if getattr(candidate, "doc", None) is doc and hasattr(candidate, "sheet_name"):
-                    sname = candidate.sheet_name
-                    break
-        run_sheet_modify_pass(ctx, doc, sheet, sheet_name=sname)
+        # migrate_sheet_rename moves this dispatcher to the new key and updates
+        # its sheet_name while the timer waits, so reading it here gives the live
+        # name. Using another dispatcher of the same document would clean up the
+        # wrong sheet's spill records.
+        run_sheet_modify_pass(ctx, doc, sheet, sheet_name=disp.sheet_name if disp is not None else name)
 
     state.debounce.schedule(debounce_key, delay_sec, _pass)
 
 
 def flush_sheet_modify_pass_for_tests(ctx: Any, doc: Any, sheet: Any, *, sheet_name: str = "") -> None:
     """Cancel debounce and run the pass on this thread. Tests only."""
-    name = sheet_name or _sheet_name_of(sheet)
+    name = sheet_name or sheet_name_of(sheet)
     state = WorkbookState.lookup(doc)
     if state is not None:
         state.debounce.cancel(f"sheet:{name}")
@@ -164,7 +155,7 @@ def migrate_sheet_rename(
     try:
         if old_sheet_name in state.listeners:
             disp = state.listeners.pop(old_sheet_name)
-            setattr(disp, "sheet_name", new_sheet_name)
+            disp.sheet_name = new_sheet_name
             state.listeners[new_sheet_name] = disp
     except Exception:
         log.exception("migrate_sheet_rename: failed to migrate listeners")
@@ -179,16 +170,15 @@ def migrate_sheet_rename(
             replace_records_for_sheet,
             save_geometric_registry_for_doc,
         )
-        from plugin.scripting.session_manager import calc_workbook_base_session_id
 
         if doc is not None:
-            gwk = calc_workbook_base_session_id(doc)
-            if gwk:
-                old_records = records_for_sheet(gwk, old_sheet_name)
+            workbook_key = calc_workbook_base_session_id(doc)
+            if workbook_key:
+                old_records = records_for_sheet(workbook_key, old_sheet_name)
                 if old_records:
-                    replace_records_for_sheet(gwk, new_sheet_name, old_records)
-                    replace_records_for_sheet(gwk, old_sheet_name, {})
-                save_geometric_registry_for_doc(doc, gwk)
+                    replace_records_for_sheet(workbook_key, new_sheet_name, old_records)
+                    replace_records_for_sheet(workbook_key, old_sheet_name, {})
+                save_geometric_registry_for_doc(doc, workbook_key)
     except Exception:
         log.exception("migrate_sheet_rename: failed to migrate geometric records")
 
@@ -216,7 +206,7 @@ def run_sheet_modify_pass(
         return
     if sheet is None:
         return
-    name = sheet_name or _sheet_name_of(sheet)
+    name = sheet_name or sheet_name_of(sheet)
     if not name:
         log.debug("run_sheet_modify_pass: unreadable sheet name; skipping")
         return
@@ -260,7 +250,7 @@ def dispatch_sheet_modified(
     owner = owning_calc_doc(sheet)
     if owner is None:
         owner = doc
-    live = _sheet_name_of(sheet)
+    live = sheet_name_of(sheet)
     effective_name = sheet_name
     if live and sheet_name and live != sheet_name:
         migrate_sheet_rename(owner, sheet_name, live)
@@ -272,7 +262,7 @@ def ensure_sheet_modify_listener(ctx: Any, doc: Any, sheet: Any) -> Any | None:
     """Register the one dispatcher on *sheet*. Idempotent; no second listener."""
     if doc is None or sheet is None:
         return None
-    name = _sheet_name_of(sheet)
+    name = sheet_name_of(sheet)
     if not name:
         return None
     state = WorkbookState.for_doc(doc)

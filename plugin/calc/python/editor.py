@@ -18,7 +18,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, TypeGuard
 
 from plugin.calc.address_utils import format_address, qualify_a1, split_sheet_prefix
 from plugin.calc.bridge import CalcBridge
@@ -31,8 +31,10 @@ from plugin.calc.python.formula_edit import (
     format_data_binding_text,
     parse_data_binding_text,
 )
+from plugin.calc.python.geometric_recalc import after_py_cell_save
 from plugin.calc.python.xl_static_rewrite import apply_xl_static_rewrite
 from plugin.chatbot.dialogs import msgbox, msgbox_with_report
+from plugin.doc.compound_undo import WriterCompoundUndo
 from plugin.framework.config import get_config
 from plugin.framework.errors import best_effort, uno_read
 from plugin.framework.i18n import _
@@ -84,6 +86,16 @@ def _same_calc_cell(left: Any, right: Any) -> bool:
     a = left.getCellAddress()
     b = right.getCellAddress()
     return int(a.Column) == int(b.Column) and int(a.Row) == int(b.Row) and int(a.Sheet) == int(b.Sheet)
+
+
+def is_follow(code_ref: str | None, code_cell: Any, cell: Any) -> TypeGuard[str]:
+    """True when saving into a separate referenced cell (``=PY($A$1)`` in B1).
+
+    A self-ref (``=PY(A1)`` in A1) is not a follow, because writing it as one
+    would overwrite the cell's own formula with the code text. The ``TypeGuard``
+    lets callers pass ``code_ref`` on as ``str``.
+    """
+    return bool(code_ref) and code_cell is not None and not _same_calc_cell(code_cell, cell)
 
 
 def _resolve_code_ref_cell(doc: Any, code_ref: str) -> Any | None:
@@ -169,7 +181,7 @@ def _get_active_calc_cell(ctx: Any) -> tuple[Any, Any] | None:
     return model, cell
 
 
-def _data_binding_display(parts: PyFormula | None) -> str:
+def data_binding_display(parts: PyFormula | None) -> str:
     return "" if parts is None else format_data_binding_display(parts.data_suffix)
 
 
@@ -237,14 +249,10 @@ def editor_load_save_as_plain(*, parsed_parts: PyFormula | None, initial_code: s
     return parsed_parts is None and bool(initial_code.strip())
 
 
-def _apply_cell_save(doc: Any, cell: Any, *, parsed_parts: PyFormula | None, new_code: str, save_as_plain: bool, data_binding_text: str | None = None, code_cell: Any | None = None, code_ref: str | None = None) -> dict[str, Any]:
+def apply_cell_save(doc: Any, cell: Any, *, parsed_parts: PyFormula | None, new_code: str, save_as_plain: bool, data_binding_text: str | None = None, code_cell: Any | None = None, code_ref: str | None = None) -> dict[str, Any]:
     # Follow saves touch code and formula cells plus geometric recalc; compound undo groups one undo step.
-    from plugin.doc.compound_undo import WriterCompoundUndo
-
     with WriterCompoundUndo(doc, _("WriterAgent: Save Python cell")):
-        # A self-ref (=PY(A1) in A1) is not a follow: writing it as one would
-        # overwrite the cell's own formula with the code text.
-        if code_cell is not None and code_ref and not _same_calc_cell(code_cell, cell):
+        if is_follow(code_ref, code_cell, cell):
             result = _apply_followed_ref_save(cell, code_cell=code_cell, code_ref=code_ref, new_code=new_code, data_binding_text=data_binding_text, parsed_parts=parsed_parts)
         elif save_as_plain:
             cell.setString(new_code)
@@ -253,20 +261,18 @@ def _apply_cell_save(doc: Any, cell: Any, *, parsed_parts: PyFormula | None, new
             result = _apply_formula_save(cell, parsed_parts=parsed_parts, new_code=new_code, data_binding_text=data_binding_text)
         if result.get("type") == "saved":
             # Plain-text downgrades must run after_py_cell_save to prune stale geometric registry rows.
-            from plugin.calc.python.geometric_recalc import after_py_cell_save
-
             after_py_cell_save(doc, cell)
             best_effort(doc.calculateAll, "calculateAll after editor save")
         return result
 
 
 def _launch_editor_with_code(ctx: Any, doc: Any, cell: Any, *, initial_code: str, parsed_parts: PyFormula | None, exe: str, code_cell: Any | None = None, code_ref: str | None = None) -> None:
-    follow = bool(code_ref and code_cell is not None and not _same_calc_cell(code_cell, cell))
-    data_binding = _data_binding_display(parsed_parts)
+    follow = is_follow(code_ref, code_cell, cell)
+    data_binding = data_binding_display(parsed_parts)
     display_cell = code_cell if follow else cell
 
     def on_save(code: str, save_as_plain: bool, data_binding: str | None = None, _action: str = "cell_save") -> dict[str, Any]:
-        return _apply_cell_save(
+        return apply_cell_save(
             doc,
             cell,
             parsed_parts=parsed_parts,
