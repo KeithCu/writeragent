@@ -223,7 +223,7 @@ flowchart LR
 | `preserve.py` | Preserve constants and normalize existing PY cells onto an output sheet |
 | `range_clip.py` | Clip whole-column/row PY data refs to a workbook sheet's used area |
 | `graph.py` | Dependency graph and circular-reference groups |
-| `translate.py` | Translate P1 Calc formulas to `=PY()` Python source via vendored AST |
+| `translate.py` | Translate P1 Calc formulas to `=PY()` Python source via vendored AST; `TranslationResult.has_function` tells emit which formulas stay native |
 | `vectorize.py` | Column vectorization logic for Calc Spreadsheet → Python Import |
 | `emit.py` | Emit `=PY()` formulas and build converted output models |
 | `verify.py` | Verify converted cells against ingest snapshot oracles |
@@ -321,7 +321,7 @@ Complex Calc functions that need shared semantics (SUMIF, XLOOKUP, FILTER, SUBTO
 
 - **Translator:** [`translate.py`](../../plugin/calc/spreadsheet_import/translate.py) maps Calc builtins to `calc.foo(...)` or inline `np`/`math` expressions.
 - **Runtime:** [`AUTO_IMPORTS`](../../plugin/framework/constants.py) + [`inject_auto_imports`](../../plugin/scripting/venv_sandbox.py) bind `calc` when the formula references it.
-- **Tests:** behavioral parity in [`test_calc_functions.py`](../../tests/scripting/test_calc_functions.py); emitter shape in [`test_spreadsheet_import_translate.py`](../../tests/calc/test_spreadsheet_import_translate.py).
+- **Tests:** behavioral parity in [`test_calc_functions.py`](../../tests/scripting/test_calc_functions.py); emitter shape in [`test_spreadsheet_import_translate.py`](../../tests/calc/test_spreadsheet_import_translate.py). `test_calc_helper_name_and_arity_contracts` calls every table row with 0–10 arguments and checks each `calc.NAME(` it writes against `HELPER_NAMES`, and the helper's signature when the call passes the arguments straight through.
 
 Workbooks converted before this change may still contain inline pasted helpers or old `xl.*` helper calls; re-import to shrink formulas / pick up `calc.*`.
 

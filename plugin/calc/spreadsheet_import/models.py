@@ -63,12 +63,19 @@ def output_cell_from_record(cell: CellRecord) -> OutputCell:
 
 @dataclass
 class TranslationResult:
-    """Outcome of translating one Calc formula to Python."""
+    """Outcome of translating one Calc formula to Python.
+
+    ``has_function`` is True when the parsed formula calls at least one function,
+    False when it is only references, literals and operators (``=A1*2``), and
+    None when it did not parse. The import keeps function-free formulas as
+    native Calc and does not list them in the report.
+    """
 
     ok: bool
     code: str | None = None
     data_ranges: list[str] | None = None
     reason: str | None = None
+    has_function: bool | None = None
 
 
 @dataclass

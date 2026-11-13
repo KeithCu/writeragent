@@ -12,6 +12,7 @@ from pathlib import Path
 from plugin.calc.spreadsheet_import.emit import build_converted_output_model
 from plugin.calc.spreadsheet_import.ingest import ingest_from_arrays
 from plugin.calc.spreadsheet_import.models import FORMULA_LIKE_TYPES
+from plugin.calc.spreadsheet_import.translate import translate_formula
 
 _FIXTURE = Path(__file__).resolve().parents[1] / "fixtures" / "spreadsheet_import_corpus" / "simple_budget_snapshot.json"
 
@@ -38,20 +39,7 @@ def test_budget_corpus_conversion_rate():
     ]
     formula_cells = [a for a in formula_cells if model.cells[a].type == "formula"]
 
-    from plugin.contrib.calc_formula_parser import parse_formula
-    from plugin.calc.spreadsheet_import.preprocess import normalize_lo_formula_for_parse
-    from plugin.calc.spreadsheet_import.emit import _has_function_node
-
-    function_formula_cells = []
-    for a in formula_cells:
-        cell = model.cells[a]
-        if cell.formula:
-            try:
-                ast = parse_formula(normalize_lo_formula_for_parse(cell.formula))
-                if _has_function_node(ast):
-                    function_formula_cells.append(a)
-            except Exception:
-                pass
+    function_formula_cells = [a for a in formula_cells if translate_formula(model.cells[a].formula or "", cell_addr=a).has_function is True]
 
     sum_cells = [
         a
