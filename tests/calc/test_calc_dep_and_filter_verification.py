@@ -13,7 +13,7 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from plugin.calc.formula_dep_chain import _resolve_sheet_and_cell
+from plugin.calc.calc_utils import resolve_sheet_and_cell
 from plugin.calc.sheet_filter_criteria import (
     filter_connection_code,
     resolve_filter_operator_code,
@@ -29,11 +29,11 @@ from plugin.framework.errors import UnoObjectError
 
 
 def test_resolve_sheet_and_cell_parse() -> None:
-    res = _resolve_sheet_and_cell(None, "Sheet1.B10")
+    res = resolve_sheet_and_cell(None, "Sheet1.B10")
     # doc is None, so function returns None after parsing cell part B10 (col 1, row 9)
     assert res is None
 
-    res2 = _resolve_sheet_and_cell(None, "INVALID_CELL_1234567")
+    res2 = resolve_sheet_and_cell(None, "INVALID_CELL_1234567")
     assert res2 is None
 
 
