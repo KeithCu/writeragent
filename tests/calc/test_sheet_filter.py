@@ -153,7 +153,7 @@ def test_get_sheet_filter_contains_header_disposal_propagates():
         return None
 
     with patch("plugin.calc.sheet_filter.CalcBridge") as bridge_cls, \
-         patch("plugin.calc.sheet_filter._query_interface", side_effect=fake_query_interface):
+         patch("plugin.calc.sheet_filter.query_interface", side_effect=fake_query_interface):
         bridge_cls.return_value.resolve_range_or_address.return_value = cell_range
         tool = GetSheetFilter()
         with pytest.raises(DocumentDisposedError):
@@ -182,7 +182,7 @@ def test_contains_header_fails_loudly_when_property_set_missing():
     xf.createFilterDescriptor.return_value = fd
 
     with patch("plugin.calc.sheet_filter.CalcBridge") as bridge_cls, \
-         patch("plugin.calc.sheet_filter._query_interface") as qi_mock:
+         patch("plugin.calc.sheet_filter.query_interface") as qi_mock:
         bridge_cls.return_value.resolve_range_or_address.return_value = cell_range
         def fake_qi(obj, iface):
             if iface == "com.sun.star.sheet.XSheetFilterable":
@@ -210,7 +210,7 @@ def test_field_greater_than_or_equal_range_width():
     xf.createFilterDescriptor.return_value = fd
 
     with patch("plugin.calc.sheet_filter.CalcBridge") as bridge_cls, \
-         patch("plugin.calc.sheet_filter._query_interface") as qi_mock:
+         patch("plugin.calc.sheet_filter.query_interface") as qi_mock:
         bridge_cls.return_value.resolve_range_or_address.return_value = cell_range
         def fake_qi(obj, iface):
             if iface == "com.sun.star.sheet.XSheetFilterable":
@@ -269,7 +269,7 @@ def test_apply_and_clear_sheet_filter_success():
     xf.createFilterDescriptor.return_value = fd
 
     with patch("plugin.calc.sheet_filter.CalcBridge") as bridge_cls, \
-         patch("plugin.calc.sheet_filter._query_interface") as qi_mock, \
+         patch("plugin.calc.sheet_filter.query_interface") as qi_mock, \
          patch("plugin.calc.sheet_filter.uno") as uno_mock:
         bridge_cls.return_value.resolve_range_or_address.return_value = cell_range
         uno_mock.createUnoStruct.side_effect = lambda name: SimpleNamespace()

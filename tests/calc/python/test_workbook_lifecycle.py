@@ -95,7 +95,7 @@ def test_on_disposing_runs_teardown():
 
 
 def test_non_calc_unload_resets_rps_and_notebook_sessions(monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setattr("plugin.calc.python.workbook_lifecycle._HAVE_UNO_DOC_EVENTS", True)
+    monkeypatch.setattr("plugin.calc.python.workbook_lifecycle.HAVE_UNO", True)
     ctx = MagicMock()
     doc = MagicMock()
     doc.getPropertyValue.return_value = "writer-uid"
@@ -146,7 +146,7 @@ def test_unload_clears_in_memory_geometric_state():
 def test_ensure_registers_listener_once():
     ctx = MagicMock()
     doc = CalcDocStub(props={"RuntimeUID": "uid-reg"})
-    with patch("plugin.calc.python.workbook_lifecycle._HAVE_UNO_DOC_EVENTS", True):
+    with patch("plugin.calc.python.workbook_lifecycle.HAVE_UNO", True):
         _ensure_calc_unload(ctx, doc)
         _ensure_calc_unload(ctx, doc)
     assert len(doc._document_event_listeners) == 1
@@ -156,7 +156,7 @@ def test_unload_clears_registration_so_reopen_can_reregister():
     """After OnUnload the same RuntimeUID can register again (close then reopen)."""
     ctx = MagicMock()
     doc = CalcDocStub(props={"RuntimeUID": "uid-reopen"})
-    with patch("plugin.calc.python.workbook_lifecycle._HAVE_UNO_DOC_EVENTS", True):
+    with patch("plugin.calc.python.workbook_lifecycle.HAVE_UNO", True):
         with patch("plugin.calc.python.workbook_lifecycle.reset_python_session") as mock_reset:
             mock_reset.return_value = {"status": "ok"}
             _ensure_calc_unload(ctx, doc)
@@ -174,7 +174,7 @@ def test_save_notes_new_session_id_reset_on_unload():
     """After Save the listener must reset both the uuid kernel and the file-URL kernel."""
     ctx = MagicMock()
     doc = CalcDocStub(props={"RuntimeUID": "uid-save"}, url="")
-    with patch("plugin.calc.python.workbook_lifecycle._HAVE_UNO_DOC_EVENTS", True):
+    with patch("plugin.calc.python.workbook_lifecycle.HAVE_UNO", True):
         with patch("plugin.calc.python.workbook_lifecycle.calc_workbook_base_session_id", side_effect=[
             "calc:uuid-1",
             "calc:uuid-1",
@@ -198,7 +198,7 @@ def test_for_doc_notes_session_id_on_second_call(monkeypatch: pytest.MonkeyPatch
     """Each UI-thread for_doc refreshes the unload listener (note_calc_identity on Save)."""
     doc = CalcDocStub(props={"RuntimeUID": "uid-save"}, url="")
     monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: True)
-    with patch("plugin.calc.python.workbook_lifecycle._HAVE_UNO_DOC_EVENTS", True):
+    with patch("plugin.calc.python.workbook_lifecycle.HAVE_UNO", True):
         with patch(
             "plugin.calc.python.workbook_lifecycle.calc_workbook_base_session_id",
             side_effect=["calc:uuid-1", "calc:file:///saved.ods", "calc:file:///saved.ods"],
@@ -383,7 +383,7 @@ def test_runtime_uid_upgrade_keeps_one_listener(monkeypatch: pytest.MonkeyPatch)
         "plugin.calc.python.workbook_lifecycle.calc_workbook_base_session_id",
         lambda _doc: "calc:unsaved:1",
     )
-    with patch("plugin.calc.python.workbook_lifecycle._HAVE_UNO_DOC_EVENTS", True):
+    with patch("plugin.calc.python.workbook_lifecycle.HAVE_UNO", True):
         _ensure_calc_unload(ctx, doc)
         doc.setPropertyValue("RuntimeUID", "uid-upgrade")
         _ensure_calc_unload(ctx, doc)

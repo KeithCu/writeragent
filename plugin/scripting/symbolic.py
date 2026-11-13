@@ -90,6 +90,6 @@ def insert_symbolic_result_into_doc(ctx: Any, doc: Any, result: dict[str, Any], 
     if is_calc(doc):
         from plugin.calc.tabular_egress import insert_tabular_result_into_calc  # host only: not in the compute bundle
 
-        return insert_tabular_result_into_calc(doc, ctx, format_symbolic_for_calc(result))
+        return insert_tabular_result_into_calc(doc, format_symbolic_for_calc(result))
     raise ToolExecutionError(_("Unsupported document type for symbolic insertion."), code="SYMBOLIC_ERROR")
 

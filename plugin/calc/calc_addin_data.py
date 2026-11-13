@@ -203,7 +203,7 @@ def _normalize_data_range_addresses(data_range: Any) -> list[str]:
     return out
 
 
-def _resolve_python_data(doc: Any, *, data_range: Any = None, data: Any = None) -> tuple[Any | None, str | None]:  # pyright: ignore[reportUnusedFunction]
+def resolve_python_data(doc: Any, *, data_range: Any = None, data: Any = None) -> tuple[Any | None, str | None]:
     """Return (py_data, error_message). Calc only; ``data_range`` wins over ``data`` when both set.
 
     ``data_range`` may be one A1 string, a comma/semicolon-separated string, or a list of addresses.

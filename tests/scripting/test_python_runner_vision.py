@@ -320,7 +320,7 @@ def test_prepare_rps_execution_vision_runs_before_calc_data():
     with (
         patch("plugin.scripting.python_runner.is_calc", return_value=True),
         patch("plugin.vision.vision_runner.supports_vision_manual", return_value=True),
-        patch("plugin.scripting.python_runner._resolve_python_data", side_effect=RuntimeError("selection is not a range")) as mock_calc_data,
+        patch("plugin.scripting.python_runner.resolve_python_data", side_effect=RuntimeError("selection is not a range")) as mock_calc_data,
         patch("plugin.vision.vision_runner.run_and_insert_vision_for_selection", return_value={"status": "ok", "individual_results": []}),
     ):
         from plugin.scripting.python_runner import _prepare_rps_execution

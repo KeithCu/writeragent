@@ -42,7 +42,7 @@ from plugin.writer.html_import import insert_content_at_position, run_writer_mut
 from plugin.framework.doc_type import is_calc, is_writer, is_draw
 from plugin.calc.address_utils import index_to_column
 from plugin.calc.bridge import calc_selection_to_a1
-from plugin.calc.calc_addin_data import _resolve_python_data
+from plugin.calc.calc_addin_data import resolve_python_data
 from plugin.calc.python.formula_edit import parse_data_binding_text
 from plugin.calc.python.workbook_lifecycle import ensure_python_session_cleared_on_unload
 from plugin.calc.rich_html import insert_cell_html_rich
@@ -320,7 +320,7 @@ def _prepare_rps_execution(
     facts = ScriptFacts.from_source(code)
 
     # Vision does not use py_data, so the vision branch runs before
-    # _resolve_python_data. Resolving Calc data first failed when a graphic
+    # resolve_python_data. Resolving Calc data first failed when a graphic
     # was selected and returned an early error for a vision helper.
     vis = _prepare_vision(ctx, doc, facts, t0)
     if vis is not None:
@@ -337,7 +337,7 @@ def _prepare_rps_execution(
             drs = [sel] if sel else None
         if drs:
             # Pass the full address list so multi Data: bindings become data / ranges.
-            py_data, err = _resolve_python_data(doc, data_range=drs, data=None)
+            py_data, err = resolve_python_data(doc, data_range=drs, data=None)
             if err:
                 return EarlyOutcome(outcome=rps_error_outcome(err, t0=None))
 

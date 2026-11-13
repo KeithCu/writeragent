@@ -12,7 +12,7 @@ from typing import Any
 from plugin.calc.bridge import CalcBridge
 from plugin.calc.spreadsheet_import.pipeline import run_sheet_conversion
 from plugin.chatbot.dialogs import (
-    _DismissDialogListener,
+    DismissDialogListener,
     get_checkbox_state,
     load_writeragent_dialog,
     msgbox,
@@ -82,7 +82,7 @@ def show_import_dialog(ctx: Any) -> None:
                     msgbox(ctx, "Error", f"Conversion failed: {e}")
                     dlg.endDialog(0)
 
-        run_dialog_with_listeners(dlg, _OkListener(), _DismissDialogListener(dlg, 0))
+        run_dialog_with_listeners(dlg, _OkListener(), DismissDialogListener(dlg, 0))
 
         if _outcome:
             title, text = result_message(_outcome)

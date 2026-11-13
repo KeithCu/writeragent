@@ -30,7 +30,7 @@ import uno
 
 from plugin.calc.base import ToolCalcSheetBase
 from plugin.calc.bridge import CalcBridge
-from plugin.calc.calc_utils import query_interface as _query_interface, range_args
+from plugin.calc.calc_utils import query_interface, range_args
 from plugin.calc.sheet_filter_criteria import (
     FILTER_OPERATOR2_LABELS,
     parse_sheet_filter_criterion,
@@ -104,16 +104,16 @@ def _filter_descriptor(
     has_header: bool | None,
     missing_msg: str,
 ) -> tuple[Any, Any, Any]:
-    xf = _query_interface(cell_range, "com.sun.star.sheet.XSheetFilterable")
+    xf = query_interface(cell_range, "com.sun.star.sheet.XSheetFilterable")
     if xf is None:
         raise UnoObjectError("This range does not support filtering (XSheetFilterable missing).")
     fd = xf.createFilterDescriptor(empty)
     if has_header is not None:
-        ps = _query_interface(fd, "com.sun.star.beans.XPropertySet")
+        ps = query_interface(fd, "com.sun.star.beans.XPropertySet")
         if ps is None:
             raise UnoObjectError("Cannot set ContainsHeader on this filter descriptor.")
         ps.setPropertyValue("ContainsHeader", has_header)
-    fd2 = _query_interface(fd, "com.sun.star.sheet.XSheetFilterDescriptor2")
+    fd2 = query_interface(fd, "com.sun.star.sheet.XSheetFilterDescriptor2")
     if fd2 is None:
         raise UnoObjectError(missing_msg)
     return xf, fd, fd2
@@ -233,7 +233,7 @@ class GetSheetFilter(ToolCalcSheetBase):
             _field_to_dict(fields_seq[i], i) for i in range(len(fields_seq))
         ]
 
-        ps = _query_interface(fd, "com.sun.star.beans.XPropertySet")
+        ps = query_interface(fd, "com.sun.star.beans.XPropertySet")
         ch = uno_read(lambda: bool(ps.getPropertyValue("ContainsHeader")), None) if ps is not None else None
 
         return {"status": "ok", "range": range_name, "has_header": ch, "criteria": crit, "count": len(crit)}

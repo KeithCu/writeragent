@@ -10,7 +10,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from plugin.calc.calc_addin_data import _resolve_python_data
+from plugin.calc.calc_addin_data import resolve_python_data
 from plugin.calc.python.venv import RunVenvPythonScript
 from plugin.tests.testing_utils import TestingFactory
 
@@ -23,7 +23,7 @@ def test_resolve_python_data_prefers_data_range():
     with patch("plugin.calc.bridge.CalcBridge"), patch("plugin.calc.inspector.CellInspector") as insp_cls:
         insp = insp_cls.return_value
         insp.read_range.return_value = [[{"value": 1}, {"value": 2}]]
-        py_data, err = _resolve_python_data(ctx, data_range="A1:B1", data=[[99]])
+        py_data, err = resolve_python_data(ctx, data_range="A1:B1", data=[[99]])
         assert err is None
         assert is_calc_range_payload(py_data)
         assert py_data["data"] == [[1, 2]]
@@ -35,7 +35,7 @@ def test_resolve_python_data_uses_data_param():
     from plugin.scripting.calc_range import is_calc_range_payload
 
     ctx = MagicMock()
-    py_data, err = _resolve_python_data(ctx, data_range=None, data=[[1, 2]])
+    py_data, err = resolve_python_data(ctx, data_range=None, data=[[1, 2]])
     assert err is None
     assert is_calc_range_payload(py_data)
     assert py_data["data"] == [[1, 2]]
@@ -75,7 +75,7 @@ def test_run_venv_python_resolves_calc_data_on_main_thread(mock_run, mock_main_t
 
     tool = RunVenvPythonScript()
     ctx = TestingFactory.create_context(doc_type="calc")
-    with patch("plugin.calc.calc_addin_data._resolve_python_data", return_value=([42], None)) as mock_resolve:
+    with patch("plugin.calc.python.venv.resolve_python_data", return_value=([42], None)) as mock_resolve:
         out = tool.execute(ctx, code="result = data[0]", data_range="A1")
 
     assert out["status"] == "ok"

@@ -225,7 +225,7 @@ Uses `opengrep scan --taint-intrafile` to track cross-function dataflow within f
 
 ### C2. Custom AST Linter ([`scripts/lint_thread_safety.py`](../../scripts/lint_thread_safety.py))
 Parses Python ASTs across add-in and scripting boundary modules to enforce:
-1. `unguarded-uno-access`: UNO source getters (`get_desktop`, `get_ctx`, `_get_calc_doc`) must be structurally protected by an `if main.is_current():` block or `@main_thread_only` decorator.
+1. `unguarded-uno-access`: UNO source getters (`get_desktop`, `get_ctx`, `get_calc_doc`) must be structurally protected by an `if main.is_current():` block or `@main_thread_only` decorator.
 2. `blocking-marshal-in-sync-dispatch`: Synchronous entry points (`SYNC_HOST_ENTRYPOINTS` in [`scripts/thread_safety_roots.py`](../../scripts/thread_safety_roots.py)) cannot contain calls to `main.call`.
 
 ### C3. Static Host-Dispatch Wait Analyzer ([`scripts/analyze_thread_deadlocks.py`](../../scripts/analyze_thread_deadlocks.py))
@@ -249,7 +249,7 @@ All UNO objects must be wrapped at birth using `guard_uno(obj)` or obtained via 
 | Desktop Enumeration | `plugin/doc/document_research.py` | `_office_model_from_desktop_element()` guards enumerated desktop models. |
 | Scripting Calc Resolver | `plugin/scripting/document_scripts.py` | `get_calc_document_from_ctx()` (UI commands only, never `=PY()`) wraps the active Calc model. A focused Writer, Draw, or Impress document returns `None` without enumerating (`is_draw` is Draw or Impress). Base, Math, and no current component still enumerate. The fallback returns the only open Calc model, or `None` when zero or several are open. |
 | Script session document | `plugin/scripting/session_manager.py` | `document_for_script_session()` returns `guard_uno(model)`. A `doc:` pin from chat `run_venv_python_script` returns `guard_uno` of that object and does not enumerate the desktop. |
-| Calc Add-in Doc Lookup | `plugin/calc/python/function.py` | `_get_calc_doc()` returns `None` off-main (#402), guards on-main. |
+| Calc Add-in Doc Lookup | `plugin/calc/python/function.py` | `get_calc_doc()` returns `None` off-main (#402), guards on-main. |
 | Calc Cell Editor Selection | `plugin/calc/python/editor.py` | `_get_active_calc_cell()` guards active cell interface. |
 | Graphic Export Bridge | `plugin/writer/images/image_tools.py` | `export_graphic_object_to_bytes()` resolves via `get_ctx()`. |
 | Locale Resolution | `plugin/framework/i18n.py` | `get_lo_locale()` uses `get_ctx()` on-main, falls back to `en_US` off-main. |
@@ -274,7 +274,7 @@ Null checks check for None. Live disposal is `DisposedException` / `is_disposal`
   3. LibreOffice's main thread was synchronously blocked waiting for the remote UNO RPC dispatch to finish, so it could not pump the `MainThread` work queue.
   4. Those lookups were `session_key()` and `get_python_init_kwargs()` at the time of #402; both are gone. Current capture is `build_cell_context`. `diagnostics_workbook_key()` called `get_desktop` without checking `main.is_current()`, tripping the Layer A guard.
   5. The runtime guard's `_notify_thread_violation()` attempted a blocking `main.call(_show_popup, timeout=5.0)`, freezing the thread.
-  6. When 30s elapsed, `_format_error_for_display()` mapped the timeout to a misleading `"Error: Python timed out. Open Settings → Python..."` message.
+  6. When 30s elapsed, `format_addin_error_for_display()` mapped the timeout to a misleading `"Error: Python timed out. Open Settings → Python..."` message.
 - **The Fix Applied**:
   - **Config-first mode check**: `workbook_session_id()` checks `python_session_mode()` before touching threads or marshalling.
   - **Off-main guard on all add-in UNO lookups**: Off-main `=PY()` captures session metadata in `build_cell_context` (empty session key and init kwargs without UNO); `diagnostics_workbook_key()` still checks `main.is_current()` and returns safe defaults off-main.

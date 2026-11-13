@@ -37,7 +37,7 @@ from plugin.framework.thread_guard import THREAD_VIOLATION_MARK
 log = logging.getLogger(__name__)
 
 # Safe imports for optional PyUNO environment (ensures unit test compatibility outside of LO)
-_HAVE_UNO = False
+HAVE_UNO = False
 
 if TYPE_CHECKING:
 
@@ -116,7 +116,7 @@ else:
         from com.sun.star.frame import XTerminateListener as _XTerminateListenerParent
 
         _BaseParent = unohelper.Base
-        _HAVE_UNO = True
+        HAVE_UNO = True
     except ImportError:
         _BaseParent = type("_DummyBase", (), {})
         _XEventListenerParent = type("_DummyEventListener", (), {})
