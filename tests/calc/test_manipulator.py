@@ -447,7 +447,7 @@ def test_sort_range_skips_key_read_for_single_data_row():
 
 
 def test_quiet_probe_cleanup():
-    from plugin.calc.manipulator import _quiet_probe_cleanup
+    from plugin.calc.manipulator import quiet_probe_cleanup
 
     DisposedException = type("DisposedException", (Exception,), {})
 
@@ -455,13 +455,13 @@ def test_quiet_probe_cleanup():
         raise DisposedException("disposed")
 
     with pytest.raises(DisposedException):
-        _quiet_probe_cleanup(raise_disposed, "test_disposed")
+        quiet_probe_cleanup(raise_disposed, "test_disposed")
 
     def raise_val_error():
         raise ValueError("swallowed")
 
     # Does not raise
-    _quiet_probe_cleanup(raise_val_error, "test_swallowed")
+    quiet_probe_cleanup(raise_val_error, "test_swallowed")
 
 
 def test_coerce_array_flag_string_regression():
@@ -476,14 +476,76 @@ def test_coerce_array_flag_string_regression():
     assert _coerce_array_flag(None) is None
 
 
-def test_prepare_array_formula_string_false_does_not_force_array():
+def test_plan_write_string_false_does_not_force_array():
     # Regression: array="false" must coerce to False, disabling forced array behavior
     bridge = MagicMock()
+    cell_range = MagicMock()
+    cell_range.getRangeAddress.return_value = SimpleNamespace(StartColumn=0, EndColumn=0, StartRow=0, EndRow=4, Sheet=0)
+    bridge.resolve_range_or_address.return_value = cell_range
     manipulator = CellManipulator(bridge)
-    res = manipulator.prepare_array_formula_if_needed("A1:A5", "=A1+1", array="false")
-    assert res is None
-    res_sort = manipulator.prepare_array_formula_if_needed("A1:A5", "=SORT(B1:B5)", array="false")
-    assert res_sort is None
+
+    plan = manipulator.plan_write("A1:A5", "=A1+1", array="false")
+    assert plan.kind == "cells"
+    assert plan.array_size is None
+
+    plan_sort = manipulator.plan_write("A1:A5", "=SORT(B1:B5)", array="false")
+    assert plan_sort.kind == "cells"
+    assert plan_sort.array_size is None
+
+
+def test_plan_write_shape_comes_from_the_resolved_named_box():
+    from plugin.framework.errors import CalcError
+
+    bridge = MagicMock()
+    cell_range = MagicMock()
+    cell_range.getRangeAddress.return_value = SimpleNamespace(StartColumn=1, EndColumn=1, StartRow=0, EndRow=2, Sheet=0)
+    bridge.resolve_range_or_address.return_value = cell_range
+    manipulator = CellManipulator(bridge)
+
+    with pytest.raises(CalcError, match="2 values but range Totals has 3 cells"):
+        manipulator.plan_write("Totals", ["x", "y"])
+
+
+def test_plan_write_single_cell_prose_is_one_value():
+    bridge = MagicMock()
+    one_cell = MagicMock()
+    one_cell.getRangeAddress.return_value = SimpleNamespace(StartColumn=0, EndColumn=0, StartRow=0, EndRow=0, Sheet=0)
+    bridge.resolve_range_or_address.return_value = one_cell
+    manipulator = CellManipulator(bridge)
+
+    plan_single = manipulator.plan_write("A1", "Hello, world")
+    assert plan_single.values == ["Hello, world"]
+
+    two_cells = MagicMock()
+    two_cells.getRangeAddress.return_value = SimpleNamespace(StartColumn=0, EndColumn=1, StartRow=0, EndRow=0, Sheet=0)
+    bridge.resolve_range_or_address.return_value = two_cells
+
+    plan_pair = manipulator.plan_write("A1:B1", "Hello, world")
+    assert plan_pair.values == ["Hello", "world"]
+
+
+def test_plan_write_expands_2d_from_one_cell():
+    bridge = MagicMock()
+    one_cell = MagicMock()
+    one_cell.getRangeAddress.return_value = SimpleNamespace(StartColumn=0, EndColumn=0, StartRow=0, EndRow=0, Sheet=0)
+    sheet = MagicMock()
+    one_cell.getSpreadsheet.return_value = sheet
+    bridge.resolve_range_or_address.return_value = one_cell
+    manipulator = CellManipulator(bridge)
+
+    plan = manipulator.plan_write("A1", [[1, 2], [3, 4]])
+    assert plan.range_str == "A1:B2"
+    assert plan.expanded is True
+    assert plan.values == [1, 2, 3, 4]
+    sheet.getCellByPosition.assert_not_called()
+
+
+def test_write_values_grid_cell_error_rejects_mixed_rows():
+    from plugin.calc.manipulator import _write_values_grid_cell_error
+
+    assert _write_values_grid_cell_error([["a"], "b"]) is not None
+    assert _write_values_grid_cell_error([{"x": 1}]) is not None
+    assert _write_values_grid_cell_error([["a", True]]) is None
 
 
 @pytest.mark.parametrize(("v_align", "expected"), [("top", 1), ("center", 2), ("bottom", 3)])

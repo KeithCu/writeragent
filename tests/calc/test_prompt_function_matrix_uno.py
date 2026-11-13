@@ -24,11 +24,11 @@ def test_finalize_python_return_helpers():
     ctx = _Ctx()
     assert _is_scalar_index_arg([2.0]) is True
     assert _is_scalar_index_arg([1, 2]) is False
-    assert finalize_python_return(build_cell_context(ctx, None, "c"), [10, 20, 30], index_arg=1.0) == 20.0
+    assert finalize_python_return(build_cell_context(ctx, None, "c", on_main=True), [10, 20, 30], index_arg=1.0) == 20.0
     # Dummy ctx has no unique formula origin (XAddIn cannot name the calling cell).
     # Sharing next_index across duplicate =PY() cells would steal scalars, so both
     # calls return the first element. Session increment is tested with a unique origin.
-    cell_x = build_cell_context(ctx, None, "x")
+    cell_x = build_cell_context(ctx, None, "x", on_main=True)
     assert finalize_python_return(cell_x, [1, 2, 3]) == 1.0
     assert finalize_python_return(cell_x, [1, 2, 3]) == 1.0
 

@@ -83,54 +83,6 @@ class TestGuardUnoBoundaries:
 
         mock_get_ctx.assert_called()
 
-    def test_get_calc_doc_wraps_current_component(self) -> None:
-        calc_doc = MagicMock(name="calc_doc")
-        calc_doc.getSheets = MagicMock()
-        desktop = MagicMock()
-        desktop.getCurrentComponent.return_value = calc_doc
-        with (
-            patch.object(main, "is_current", return_value=True),
-            patch("plugin.framework.uno_context.get_desktop", return_value=desktop),
-            patch("plugin.framework.thread_guard.guard_uno", side_effect=lambda o: o) as mock_guard,
-        ):
-            from plugin.calc.python.function import get_calc_doc
-
-            out = get_calc_doc(MagicMock())
-        assert (out) is (calc_doc)
-        mock_guard.assert_called_once_with(calc_doc)
-
-    def test_get_calc_doc_returns_none_off_main(self) -> None:
-        with (
-            patch.object(main, "is_current", return_value=False),
-            patch("plugin.framework.uno_context.get_desktop") as mock_desktop,
-            patch("plugin.framework.thread_guard.guard_uno") as mock_guard,
-        ):
-            from plugin.calc.python.function import get_calc_doc
-
-            out = get_calc_doc(MagicMock())
-        assert (out) is None
-        mock_desktop.assert_not_called()
-        mock_guard.assert_not_called()
-
-    def test_get_calc_doc_non_spreadsheet_returns_none(self) -> None:
-        class _NotCalc:
-            pass
-
-        desktop = MagicMock()
-        desktop.getCurrentComponent.return_value = _NotCalc()
-
-        with (
-            patch.object(main, "is_current", return_value=True),
-            patch("plugin.framework.uno_context.get_desktop", return_value=desktop),
-            patch("plugin.framework.thread_guard.guard_uno", side_effect=lambda o: o) as mock_guard,
-        ):
-            from plugin.calc.python.function import get_calc_doc
-
-            out = get_calc_doc(MagicMock())
-        assert out is None
-        desktop.getComponents.assert_not_called()
-        mock_guard.assert_not_called()
-
     def test_export_graphic_to_bytes_uses_get_ctx_when_ctx_none(self) -> None:
         guarded_ctx = MagicMock(name="guarded_ctx")
         sm = MagicMock()

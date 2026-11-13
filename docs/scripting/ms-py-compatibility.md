@@ -366,7 +366,7 @@ Unresolved deps, out-of-range `%Pn%` placeholders, missing formula dependencies,
 
 #### Auto round-trip on open / save (no menu)
 
-LibreOffice Calc (with the Python/`=PY` extension) registers a global document listener ([`auto_open.py`](../../plugin/calc/excel_py_convert/auto_open.py)):
+LibreOffice Calc (with the Python/`=PY` extension) registers a global document listener ([`workbook_lifecycle.py`](../../plugin/calc/python/workbook_lifecycle.py)), which calls [`auto_open.py`](../../plugin/calc/excel_py_convert/auto_open.py):
 
 **On open (`OnLoadFinished`):** when the local `.xlsx` still contains `xl/pythonScripts.xml` and/or `_xlws.PY` **on disk**, rewrite to DAG `=PY` in memory:
 

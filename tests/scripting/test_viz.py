@@ -178,7 +178,7 @@ def test_insert_image_payload_calc_passes_target_doc():
         from plugin.scripting.viz import insert_image_payload_for_doc
 
         insert_image_payload_for_doc(ctx, doc, payload, title="Plot")
-    insert.assert_called_once_with(ctx, payload, doc=doc)
+    insert.assert_called_once_with(payload, doc=doc)
 
 
 def test_insert_image_payload_calc_surfaces_egress_failure():

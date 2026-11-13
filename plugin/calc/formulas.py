@@ -46,7 +46,7 @@ if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
 
 from plugin.calc.base import ToolCalcErrorBase
-from plugin.calc.manipulator import _quiet_probe_cleanup
+from plugin.calc.manipulator import quiet_probe_cleanup
 
 log = logging.getLogger(__name__)
 
@@ -82,12 +82,12 @@ class _EvaluationUndoGuard:
 
     def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
         if self.hidden_context_entered and self.undo_mgr:
-            _quiet_probe_cleanup(self.undo_mgr.leaveUndoContext, "leaveUndoContext")
+            quiet_probe_cleanup(self.undo_mgr.leaveUndoContext, "leaveUndoContext")
         elif self.undo_mgr and not self.was_possible and self.sheet_removed:
-            _quiet_probe_cleanup(self.undo_mgr.clear, "clear")
+            quiet_probe_cleanup(self.undo_mgr.clear, "clear")
 
         if self.sheet_removed and not self.was_modified:
-            _quiet_probe_cleanup(lambda: self.doc.setModified(False), "setModified")
+            quiet_probe_cleanup(lambda: self.doc.setModified(False), "setModified")
 
 
 def _drop_eval_sheet(sheets: Any, name: str, undo_guard: _EvaluationUndoGuard) -> bool:
@@ -145,37 +145,14 @@ class ListCalcFunctions(ToolBase):
         return {"status": "ok", "functions": matched_functions}
 
 
-_EVAL_ERROR_LABELS = {
-    503: "#NUM! (Invalid numeric value, code 503)",
-    532: "#DIV/0! (Division by zero, code 532)",
-    508: "Pair missing bracket (code 508)",
-    509: "Operator missing (code 509)",
-    510: "Variable missing (code 510)",
-    511: "Parameter missing (code 511)",
-    524: "#REF! (Invalid reference, code 524)",
-    525: "#NAME? (Invalid name, code 525)",
-}
-
-
 def formula_evaluation_error_message(error_code: int) -> str:
     """Human-readable evaluate_formula message for a Calc error code."""
-    if error_code in _EVAL_ERROR_LABELS:
-        label = _EVAL_ERROR_LABELS[error_code]
-    elif error_code in ERROR_TYPES:
-        info = ERROR_TYPES[error_code]
-        symbol = info.get("code", "")
-        name = info.get("name", "")
-        if symbol.startswith("#") and symbol != "#NULL!":
-            if name and name != symbol:
-                label = f"{symbol} ({name}, code {error_code})"
-            else:
-                label = f"{symbol} (code {error_code})"
-        elif name:
-            label = f"{name} (code {error_code})"
-        else:
-            label = f"code {error_code}"
-    else:
-        label = f"code {error_code}"
+    info = ERROR_TYPES.get(error_code)
+    if info is None:
+        return f"Formula evaluation error: code {error_code}"
+    token, name = info["code"], info["name"]
+    # A # token is what the cell shows, so it leads; an Err:NNN token only repeats the code.
+    label = f"{token} ({name}, code {error_code})" if token.startswith("#") else f"{name} (code {error_code})"
     return f"Formula evaluation error: {label}"
 
 
