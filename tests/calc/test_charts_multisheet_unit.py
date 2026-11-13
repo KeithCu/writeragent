@@ -15,7 +15,6 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from plugin.calc.charts import (
-    ChartLookup,
     ChartRef,
     DrawPage,
     ChartDelete,
@@ -32,6 +31,7 @@ from plugin.calc.charts import (
     get_chart_info,
     upsert_chart,
 )
+from plugin.framework.errors import ToolExecutionError, UnoObjectError
 
 
 def test_format_chart_exception_msg():
@@ -116,7 +116,6 @@ def test_create_calc_chart_has_header_false():
     bridge.sheet_or_active.return_value = sheet
     bridge.resolve_range_or_address.return_value = cell_range
 
-    tool = ChartUpsert()
     rect = MagicMock()
     service = "com.sun.star.chart.BarDiagram"
 
@@ -124,7 +123,7 @@ def test_create_calc_chart_has_header_false():
         mock_bridge_cls.return_value = bridge
         from unittest.mock import patch
         with patch("plugin.calc.charts.CalcBridge", return_value=bridge), patch("plugin.calc.charts._chart_document_from_host", return_value=MagicMock()):
-            SheetCharts(ctx.doc).create(tool, ctx, rect, service, data_range="A1:B6", has_header=False)
+            SheetCharts(ctx.doc).create(ctx, rect, service, data_range="A1:B6", has_header=False)
 
     charts.addNewByName.assert_called_once()
     # Check that False was passed for HasCategories and HasSingleCellHeader
@@ -153,8 +152,8 @@ def test_chart_upsert_validate_error_handling():
     assert ok_bad is False
     assert "Unknown parameter" in (err_bad or "")
 
-    with patch("plugin.calc.charts._supports_service", return_value=True), patch("plugin.calc.charts._lookup_chart", return_value=ChartLookup()):
-        res_edit_nf = upsert_chart(ChartUpsert(), ctx, name="NonExistentChart")
+    with patch("plugin.calc.charts._supports_service", return_value=True), patch("plugin.calc.charts._lookup_chart", return_value=None):
+        res_edit_nf = ChartUpsert().execute_safe(ctx, name="NonExistentChart")
         assert res_edit_nf["status"] == "error"
         assert "not found" in res_edit_nf["message"]
 
@@ -302,7 +301,7 @@ def test_calc_diagram_failure_after_insert_removes_chart():
         patch("plugin.calc.charts._get_all_calc_chart_names", return_value=set()),
         patch("plugin.calc.charts.uno.createUnoStruct", side_effect=_empty_uno_struct),
     ):
-        result = tool.execute(ctx, chart_type="bar", data_range="A1:B6")
+        result = tool.execute_safe(ctx, chart_type="bar", data_range="A1:B6")
     assert result["status"] == "error"
     added = charts.addNewByName.call_args[0][0]
     charts.removeByName.assert_called_once_with(added)
@@ -323,7 +322,7 @@ def test_writer_diagram_failure_after_insert_removes_chart():
         patch("plugin.calc.charts._drop_failed_chart_insert") as drop_mock,
         patch("plugin.calc.charts._apply_chart_styling") as styling_mock,
     ):
-        res = upsert_chart(ChartUpsert(), ctx, chart_type="bar", headers=["Cat", "A"], rows=[["x", 1]])
+        res = ChartUpsert().execute_safe(ctx, chart_type="bar", headers=["Cat", "A"], rows=[["x", 1]])
 
     assert res["status"] == "error"
     assert res.get("code") == "CHART_CREATE_ERROR"
@@ -346,7 +345,7 @@ def test_writer_diagram_create_instance_none_removes_chart():
         patch("plugin.calc.charts._drop_failed_chart_insert") as drop_mock,
         patch("plugin.calc.charts._apply_chart_styling") as styling_mock,
     ):
-        res = upsert_chart(ChartUpsert(), ctx, chart_type="bar", headers=["Cat", "A"], rows=[["x", 1]])
+        res = ChartUpsert().execute_safe(ctx, chart_type="bar", headers=["Cat", "A"], rows=[["x", 1]])
 
     assert res["status"] == "error"
     assert res.get("code") == "CHART_CREATE_ERROR"
@@ -362,7 +361,7 @@ def test_missing_calc_chart_model_removes_insert():
         patch("plugin.calc.charts._get_all_calc_chart_names", return_value=set()),
         patch("plugin.calc.charts.uno.createUnoStruct", side_effect=_empty_uno_struct),
     ):
-        result = tool.execute(ctx, chart_type="line", data_range="A1:B6")
+        result = tool.execute_safe(ctx, chart_type="line", data_range="A1:B6")
     assert result["status"] == "error"
     assert "Cannot access chart content" in result["message"]
     added = charts.addNewByName.call_args[0][0]
@@ -375,12 +374,12 @@ def test_edit_legend_failure_does_not_remove_existing_chart():
     ctx = MagicMock()
     ctx.doc = MagicMock()
     with (
-        patch("plugin.calc.charts._lookup_chart", return_value=ChartLookup(ref=ChartRef(MagicMock(), MagicMock(), "calc_sheet"))),
+        patch("plugin.calc.charts._lookup_chart", return_value=ChartRef(MagicMock(), MagicMock(), "calc_sheet")),
         patch("plugin.calc.charts._chart_document_from_host", return_value=MagicMock()),
         patch("plugin.calc.charts._apply_chart_styling", side_effect=_UnoRuntimeException("legend")),
         patch("plugin.calc.charts._drop_failed_chart_insert", wraps=_drop_failed_chart_insert) as drop,
     ):
-        result = upsert_chart(ChartUpsert(), ctx, name="Chart_0", legend_position="bottom")
+        result = ChartUpsert().execute_safe(ctx, name="Chart_0", legend_position="bottom")
     assert result["status"] == "error"
     assert result.get("code") == "CHART_EDIT_ERROR"
     drop.assert_not_called()
@@ -406,7 +405,7 @@ def test_draw_legend_failure_removes_shape():
         patch("plugin.calc.charts._chart_document_from_host", return_value=chart_doc),
         patch("plugin.calc.charts._process_events", return_value=True),
     ):
-        res = DrawPage(ctx.doc).create(tool, ctx, rect, "com.sun.star.chart.BarDiagram", title="My Title", headers=["Cat", "A"], rows=[["x", 1]])
+        res = DrawPage(ctx.doc).create(ctx, rect, "com.sun.star.chart.BarDiagram", title="My Title", headers=["Cat", "A"], rows=[["x", 1]])
 
     assert res["status"] == "ok"
     assert res["page"] == 0
@@ -540,8 +539,9 @@ def test_calc_chart_create_missing_sheet_stays_not_found():
     tool, ctx, charts, chart_doc, bridge = _calc_chart_create_parts()
     bridge.sheet_or_active.side_effect = RuntimeException("missing")
     with patch("plugin.calc.charts.CalcBridge", return_value=bridge):
-        res = tool.execute(ctx, chart_type="bar", data_range="A1:B6", sheet="Missing")
+        res = tool.execute_safe(ctx, chart_type="bar", data_range="A1:B6", sheet="Missing")
         assert res["status"] == "error"
+        assert res["code"] == "TOOL_EXECUTION_ERROR"
         assert "not found" in res["message"]
 
 
@@ -572,14 +572,14 @@ def test_get_chart_info_ranges_disposal_propagates():
     ref = ChartRef(chart_obj, MagicMock(), "calc_sheet")
     with patch("plugin.calc.charts._require_chart", return_value=("Chart_1", ref, host)):
         with pytest.raises(DisposedException):
-            get_chart_info(ChartGetInfo(), ctx, name="Chart_1")
+            get_chart_info(ctx, name="Chart_1")
 
     chart_obj.getRanges.side_effect = RuntimeException("ranges gone")
     with (
         patch("plugin.calc.charts._require_chart", return_value=("Chart_1", ref, host)),
         patch("plugin.calc.charts._chart_document_from_host", return_value=None),
     ):
-        res = get_chart_info(ChartGetInfo(), ctx, name="Chart_1")
+        res = get_chart_info(ctx, name="Chart_1")
         assert res["status"] == "ok"
         assert res["data_ranges"] == []
 
@@ -590,18 +590,18 @@ def test_upsert_edit_disposal_is_not_chart_edit_error():
     chart_doc.setDiagram.side_effect = DisposedException("gone")
     ctx: Any = SimpleNamespace(doc=MagicMock())
     with (
-        patch("plugin.calc.charts._lookup_chart", return_value=ChartLookup(ref=ChartRef(chart_obj, MagicMock(), "calc_sheet"))),
+        patch("plugin.calc.charts._lookup_chart", return_value=ChartRef(chart_obj, MagicMock(), "calc_sheet")),
         patch("plugin.calc.charts._chart_document_from_host", return_value=chart_doc),
     ):
         with pytest.raises(DisposedException):
-            upsert_chart(ChartUpsert(), ctx, name="Chart_1", chart_type="bar")
+            upsert_chart(ctx, name="Chart_1", chart_type="bar")
 
     chart_doc.setDiagram.side_effect = RuntimeException("edit error")
     with (
-        patch("plugin.calc.charts._lookup_chart", return_value=ChartLookup(ref=ChartRef(chart_obj, MagicMock(), "calc_sheet"))),
+        patch("plugin.calc.charts._lookup_chart", return_value=ChartRef(chart_obj, MagicMock(), "calc_sheet")),
         patch("plugin.calc.charts._chart_document_from_host", return_value=chart_doc),
     ):
-        res = upsert_chart(ChartUpsert(), ctx, name="Chart_1", chart_type="bar")
+        res = ChartUpsert().execute_safe(ctx, name="Chart_1", chart_type="bar")
         assert res["status"] == "error"
         assert res.get("code") == "CHART_EDIT_ERROR"
 
@@ -616,7 +616,7 @@ def test_writer_chart_insert_failure_reports_chart_create_error():
     text.insertTextContent.side_effect = RuntimeError("insert rejected")
     ctx: Any = SimpleNamespace(doc=doc, ctx=MagicMock())
     with patch("plugin.calc.charts.uno.createUnoStruct", side_effect=_empty_uno_struct):
-        res = upsert_chart(ChartUpsert(), ctx, chart_type="bar", headers=["a", "b"], rows=[["x", 1]])
+        res = ChartUpsert().execute_safe(ctx, chart_type="bar", headers=["a", "b"], rows=[["x", 1]])
     assert res["status"] == "error"
     assert res.get("code") == "CHART_CREATE_ERROR"
     assert "insert rejected" in res["message"]
@@ -683,7 +683,7 @@ def test_create_data_apply_failure_removes_chart_and_errors():
         patch("plugin.calc.charts._await_writer_chart_document", return_value=chart_doc),
         patch("plugin.calc.charts._drop_failed_chart_insert") as drop_mock,
     ):
-        res = upsert_chart(ChartUpsert(), ctx, chart_type="bar", headers=["Cat", "A"], rows=[["x", 1]])
+        res = ChartUpsert().execute_safe(ctx, chart_type="bar", headers=["Cat", "A"], rows=[["x", 1]])
     assert res["status"] == "error"
     assert res.get("code") == "CHART_CREATE_ERROR"
     assert "setData failed" in res["message"]
@@ -711,7 +711,7 @@ def test_writer_create_two_paragraphs_skips_control_char():
         patch("plugin.calc.charts._apply_chart_styling", return_value=[]),
         patch("plugin.calc.charts._process_events"),
     ):
-        res = upsert_chart(ChartUpsert(), ctx, chart_type="bar", headers=["Cat", "A"], rows=[["x", 1]])
+        res = upsert_chart(ctx, chart_type="bar", headers=["Cat", "A"], rows=[["x", 1]])
 
     assert res["status"] == "ok"
     text.getString.assert_not_called()
@@ -740,7 +740,7 @@ def test_writer_create_non_empty_paragraph_skips_control_char():
         patch("plugin.calc.charts._apply_chart_styling", return_value=[]),
         patch("plugin.calc.charts._process_events"),
     ):
-        res = upsert_chart(ChartUpsert(), ctx, chart_type="bar", headers=["Cat", "A"], rows=[["x", 1]])
+        res = upsert_chart(ctx, chart_type="bar", headers=["Cat", "A"], rows=[["x", 1]])
 
     assert res["status"] == "ok"
     text.getString.assert_not_called()
@@ -769,7 +769,7 @@ def test_writer_create_single_empty_paragraph_inserts_break_and_content():
         patch("plugin.calc.charts._apply_chart_styling", return_value=[]),
         patch("plugin.calc.charts._process_events"),
     ):
-        res = upsert_chart(ChartUpsert(), ctx, chart_type="bar", headers=["Cat", "A"], rows=[["x", 1]])
+        res = upsert_chart(ctx, chart_type="bar", headers=["Cat", "A"], rows=[["x", 1]])
 
     assert res["status"] == "ok"
     text.getString.assert_not_called()
@@ -789,7 +789,7 @@ def test_writer_create_enumeration_disposed_propagates():
         patch("plugin.calc.charts.uno.createUnoStruct", side_effect=_empty_uno_struct),
         pytest.raises(DisposedException),
     ):
-        upsert_chart(ChartUpsert(), ctx, chart_type="bar", headers=["Cat", "A"], rows=[["x", 1]])
+        upsert_chart(ctx, chart_type="bar", headers=["Cat", "A"], rows=[["x", 1]])
 
     text.insertControlCharacter.assert_not_called()
     text.insertTextContent.assert_not_called()
@@ -813,11 +813,11 @@ def test_edit_data_apply_failure_returns_error_and_does_not_remove_chart():
     doc.supportsService.side_effect = lambda s: s == "com.sun.star.text.TextDocument"
     ctx: Any = SimpleNamespace(doc=doc)
     with (
-        patch("plugin.calc.charts._lookup_chart", return_value=ChartLookup(ref=ChartRef(chart_obj, MagicMock(), "writer_embed"))),
+        patch("plugin.calc.charts._lookup_chart", return_value=ChartRef(chart_obj, MagicMock(), "writer_embed")),
         patch("plugin.calc.charts._chart_document_from_host", return_value=chart_doc),
         patch("plugin.calc.charts._drop_failed_chart_insert") as drop_mock,
     ):
-        res = upsert_chart(ChartUpsert(), ctx, name="Chart_1", headers=["Cat", "A"], rows=[["x", 1]])
+        res = ChartUpsert().execute_safe(ctx, name="Chart_1", headers=["Cat", "A"], rows=[["x", 1]])
     assert res["status"] == "error"
     assert res.get("code") == "CHART_EDIT_ERROR"
     assert "setData failed" in res["message"]
@@ -935,12 +935,12 @@ def test_calc_edit_updates_data_range_and_headers():
     ctx: Any = SimpleNamespace(doc=doc)
 
     with (
-        patch("plugin.calc.charts._lookup_chart", return_value=ChartLookup(ref=ChartRef(chart_obj, sheet, "calc_sheet"))),
+        patch("plugin.calc.charts._lookup_chart", return_value=ChartRef(chart_obj, sheet, "calc_sheet")),
         patch("plugin.calc.charts._chart_document_from_host", return_value=chart_doc),
         patch("plugin.calc.charts.CalcBridge", return_value=bridge),
         patch("plugin.calc.charts._apply_chart_styling", return_value=[]),
     ):
-        res = upsert_chart(ChartUpsert(), 
+        res = upsert_chart(
             ctx,
             name="Chart_0",
             data_range="A1:C10",
@@ -968,11 +968,11 @@ def test_calc_edit_range_error_does_not_call_set_diagram():
     ctx: Any = SimpleNamespace(doc=doc)
 
     with (
-        patch("plugin.calc.charts._lookup_chart", return_value=ChartLookup(ref=ChartRef(chart_obj, sheet, "calc_sheet"))),
+        patch("plugin.calc.charts._lookup_chart", return_value=ChartRef(chart_obj, sheet, "calc_sheet")),
         patch("plugin.calc.charts._chart_document_from_host", return_value=chart_doc),
         patch("plugin.calc.charts.CalcBridge", return_value=bridge),
     ):
-        res = upsert_chart(ChartUpsert(), 
+        res = ChartUpsert().execute_safe(
             ctx,
             name="Chart_0",
             chart_type="pie",
@@ -985,25 +985,25 @@ def test_calc_edit_range_error_does_not_call_set_diagram():
 
 
 def test_calc_create_bad_position_does_not_call_add_new_by_name():
-    tool, ctx, charts, _chart_doc, bridge = _calc_chart_create_parts()
+    _tool, ctx, charts, _chart_doc, bridge = _calc_chart_create_parts()
     rect = MagicMock(Width=12000, Height=8000, X=1000, Y=1000)
 
     with patch("plugin.calc.charts.CalcBridge", return_value=bridge):
         # 1. Mismatched sheet prefix
-        res1 = SheetCharts(ctx.doc).create(tool, ctx, rect, "com.sun.star.chart.BarDiagram", data_range="A1:B2", position="OtherSheet.A1")
-        assert res1["status"] == "error"
-        assert "Position names sheet" in res1["message"]
+        with pytest.raises(ToolExecutionError) as ei1:
+            SheetCharts(ctx.doc).create(ctx, rect, "com.sun.star.chart.BarDiagram", data_range="A1:B2", position="OtherSheet.A1")
+        assert "Position names sheet" in ei1.value.message
         charts.addNewByName.assert_not_called()
 
         # 2. Invalid position address (range or unparseable)
-        res2 = SheetCharts(ctx.doc).create(tool, ctx, rect, "com.sun.star.chart.BarDiagram", data_range="A1:B2", position="A1:B2")
-        assert res2["status"] == "error"
-        assert "Invalid position" in res2["message"]
+        with pytest.raises(ToolExecutionError) as ei2:
+            SheetCharts(ctx.doc).create(ctx, rect, "com.sun.star.chart.BarDiagram", data_range="A1:B2", position="A1:B2")
+        assert "Invalid position" in ei2.value.message
         charts.addNewByName.assert_not_called()
 
 
 def test_calc_create_valid_position_sets_rect_and_creates():
-    tool, ctx, charts, chart_doc, bridge = _calc_chart_create_parts()
+    _tool, ctx, charts, chart_doc, bridge = _calc_chart_create_parts()
     sheet = bridge.sheet_or_active()
     cell_obj = SimpleNamespace(
         Position=SimpleNamespace(X=2500, Y=3500),
@@ -1018,7 +1018,7 @@ def test_calc_create_valid_position_sets_rect_and_creates():
         patch("plugin.calc.charts._chart_document_from_host", return_value=chart_doc),
         patch("plugin.calc.charts._apply_chart_styling", return_value=[]),
     ):
-        res = SheetCharts(ctx.doc).create(tool, ctx, rect, "com.sun.star.chart.BarDiagram", data_range="A1:B2", position="B5")
+        res = SheetCharts(ctx.doc).create(ctx, rect, "com.sun.star.chart.BarDiagram", data_range="A1:B2", position="B5")
 
     assert res["status"] == "ok"
     assert rect.X == 2500
@@ -1037,11 +1037,11 @@ def test_calc_edit_position_warns_and_does_not_move():
     ctx: Any = SimpleNamespace(doc=doc)
 
     with (
-        patch("plugin.calc.charts._lookup_chart", return_value=ChartLookup(ref=ChartRef(chart_obj, sheet, "calc_sheet"))),
+        patch("plugin.calc.charts._lookup_chart", return_value=ChartRef(chart_obj, sheet, "calc_sheet")),
         patch("plugin.calc.charts._chart_document_from_host", return_value=chart_doc),
         patch("plugin.calc.charts._apply_chart_styling", return_value=[]),
     ):
-        res = upsert_chart(ChartUpsert(), 
+        res = upsert_chart(
             ctx,
             name="Chart_0",
             position="D5",
@@ -1069,37 +1069,37 @@ def test_chart_upsert_name_hit_edits_without_create():
     ctx: Any = SimpleNamespace(doc=doc)
 
     with (
-        patch("plugin.calc.charts._lookup_chart", return_value=ChartLookup(ref=ChartRef(chart_obj, sheet, "calc_sheet"))),
+        patch("plugin.calc.charts._lookup_chart", return_value=ChartRef(chart_obj, sheet, "calc_sheet")),
         patch("plugin.calc.charts._chart_document_from_host", return_value=chart_doc),
         patch("plugin.calc.charts._apply_chart_styling", return_value=[]),
         patch("plugin.calc.charts.SheetCharts.create") as mock_create,
     ):
-        res = upsert_chart(ChartUpsert(), ctx, name="Chart_0", title="Updated")
+        res = upsert_chart(ctx, name="Chart_0", title="Updated")
     assert res["status"] == "ok"
     assert res["message"] == "Chart updated."
     mock_create.assert_not_called()
 
 
 def test_chart_upsert_name_miss_calc_create_uses_requested_name():
-    tool, ctx, charts, chart_doc, bridge = _calc_chart_create_parts()
+    _tool, ctx, charts, chart_doc, bridge = _calc_chart_create_parts()
     ctx.doc.supportsService.side_effect = lambda s: s == "com.sun.star.sheet.SpreadsheetDocument"
     with (
         patch("plugin.calc.charts.CalcBridge", return_value=bridge),
         patch("plugin.calc.charts._chart_document_from_host", return_value=chart_doc),
         patch("plugin.calc.charts._apply_chart_styling", return_value=[]),
-        patch("plugin.calc.charts._lookup_chart", return_value=ChartLookup()),
+        patch("plugin.calc.charts._lookup_chart", return_value=None),
         patch("plugin.calc.charts._get_all_calc_chart_names", return_value=set()),
     ):
-        res = upsert_chart(tool, ctx, name="Sales", chart_type="bar", data_range="A1:B6")
+        res = upsert_chart(ctx, name="Sales", chart_type="bar", data_range="A1:B6")
     assert res["status"] == "ok"
     assert charts.addNewByName.call_args[0][0] == "Sales"
 
 
 def test_chart_upsert_name_miss_without_create_fields_not_found():
     tool, ctx, charts, chart_doc, bridge = _calc_chart_create_parts()
-    with patch("plugin.calc.charts._lookup_chart", return_value=ChartLookup()):
-        res_nf = upsert_chart(tool, ctx, name="Sales")
-        res_no_range = upsert_chart(tool, ctx, name="Sales", chart_type="bar")
+    with patch("plugin.calc.charts._lookup_chart", return_value=None):
+        res_nf = tool.execute_safe(ctx, name="Sales")
+        res_no_range = tool.execute_safe(ctx, name="Sales", chart_type="bar")
     assert res_nf["status"] == "error"
     assert res_nf["message"] == "Chart 'Sales' not found."
     assert "chart_list" in res_nf["details"]["hint"]
@@ -1109,7 +1109,7 @@ def test_chart_upsert_name_miss_without_create_fields_not_found():
 
 
 def test_chart_upsert_create_sets_created_flag():
-    tool, ctx, charts, chart_doc, bridge = _calc_chart_create_parts()
+    _tool, ctx, charts, chart_doc, bridge = _calc_chart_create_parts()
     ctx.doc.supportsService.side_effect = lambda s: s == "com.sun.star.sheet.SpreadsheetDocument"
     with (
         patch("plugin.calc.charts.CalcBridge", return_value=bridge),
@@ -1117,7 +1117,7 @@ def test_chart_upsert_create_sets_created_flag():
         patch("plugin.calc.charts._apply_chart_styling", return_value=[]),
         patch("plugin.calc.charts._get_all_calc_chart_names", return_value=set()),
     ):
-        res = upsert_chart(tool, ctx, chart_type="bar", data_range="A1:B6")
+        res = upsert_chart(ctx, chart_type="bar", data_range="A1:B6")
     assert res["status"] == "ok"
     assert res.get("created") is True
 
@@ -1125,31 +1125,28 @@ def test_chart_upsert_create_sets_created_flag():
 def test_writer_create_requested_name_already_used():
     from plugin.calc.charts import WriterEmbeds
 
-    tool = ChartUpsert()
     ctx = MagicMock()
     ctx.doc = MagicMock()
     ctx.doc.supportsService.side_effect = lambda s: s == "com.sun.star.text.TextDocument"
     rect = MagicMock()
     host = WriterEmbeds(ctx.doc)
     with patch.object(WriterEmbeds, "names", return_value={"Sales"}):
-        res = host.create(
-            tool,
-            ctx,
-            rect,
-            "com.sun.star.chart.BarDiagram",
-            name="Sales",
-            chart_type="bar",
-            headers=["Cat", "A"],
-            rows=[["x", 1]],
-        )
-    assert res["status"] == "error"
-    assert res["message"] == "Chart name 'Sales' is already used."
+        with pytest.raises(ToolExecutionError) as ei:
+            host.create(
+                ctx,
+                rect,
+                "com.sun.star.chart.BarDiagram",
+                name="Sales",
+                chart_type="bar",
+                headers=["Cat", "A"],
+                rows=[["x", 1]],
+            )
+    assert ei.value.message == "Chart name 'Sales' is already used."
 
 
 def test_draw_create_requested_name_already_used():
     from plugin.calc.charts import DrawPage
 
-    tool = ChartUpsert()
     ctx = MagicMock()
     doc = MagicMock()
     ctx.doc = doc
@@ -1165,31 +1162,42 @@ def test_draw_create_requested_name_already_used():
         with patch("plugin.calc.charts._chart_document_from_host", return_value=MagicMock()):
             with patch("plugin.calc.charts._apply_chart_data_arrays"):
                 with patch("plugin.calc.charts._apply_chart_styling", return_value=[]):
-                    res = host.create(
-                        tool,
-                        ctx,
-                        rect,
-                        "com.sun.star.chart.BarDiagram",
-                        name="Sales",
-                        chart_type="bar",
-                        headers=["Cat", "A"],
-                        rows=[["x", 1]],
-                    )
-    page.remove.assert_called()
-    assert res["status"] == "error"
-    assert res["message"] == "Chart name 'Sales' is already used."
+                    with pytest.raises(ToolExecutionError) as ei:
+                        host.create(
+                            ctx,
+                            rect,
+                            "com.sun.star.chart.BarDiagram",
+                            name="Sales",
+                            chart_type="bar",
+                            headers=["Cat", "A"],
+                            rows=[["x", 1]],
+                        )
+    page.remove.assert_called_once()
+    assert ei.value.message == "Chart name 'Sales' is already used."
 
 
 def test_chart_upsert_requested_name_already_used():
-    tool, ctx, charts, chart_doc, bridge = _calc_chart_create_parts()
+    _tool, ctx, charts, chart_doc, bridge = _calc_chart_create_parts()
     with (
         patch("plugin.calc.charts.CalcBridge", return_value=bridge),
-        patch("plugin.calc.charts._lookup_chart", return_value=ChartLookup()),
+        patch("plugin.calc.charts._lookup_chart", return_value=None),
         patch("plugin.calc.charts._get_all_calc_chart_names", return_value={"Sales"}),
     ):
-        res = upsert_chart(tool, ctx, name="Sales", chart_type="bar", data_range="A1:B6")
+        res = ChartUpsert().execute_safe(ctx, name="Sales", chart_type="bar", data_range="A1:B6")
     assert res["status"] == "error"
+    assert res["code"] == "TOOL_EXECUTION_ERROR"
     assert res["message"] == "Chart name 'Sales' is already used."
+    charts.addNewByName.assert_not_called()
+
+
+def test_calc_create_bad_range_stays_chart_create_error():
+    _tool, ctx, charts, _chart_doc, bridge = _calc_chart_create_parts()
+    bridge.resolve_range_or_address.side_effect = UnoObjectError("bad range")
+    with patch("plugin.calc.charts.CalcBridge", return_value=bridge):
+        res = ChartUpsert().execute_safe(ctx, chart_type="bar", data_range="A1:ZZ")
+    assert res["status"] == "error"
+    assert res["code"] == "CHART_CREATE_ERROR"
+    assert res["message"].startswith("Failed to create chart: UnoObjectError: bad range")
     charts.addNewByName.assert_not_called()
 
 
@@ -1218,10 +1226,10 @@ def test_data_applied_before_series_colors():
     ctx: Any = SimpleNamespace(doc=doc)
 
     with (
-        patch("plugin.calc.charts._lookup_chart", return_value=ChartLookup(ref=ChartRef(chart_obj, MagicMock(), "writer_draw_page"))),
+        patch("plugin.calc.charts._lookup_chart", return_value=ChartRef(chart_obj, MagicMock(), "writer_draw_page")),
         patch("plugin.calc.charts._chart_document_from_host", return_value=chart_doc),
     ):
-        res = upsert_chart(ChartUpsert(), 
+        res = upsert_chart(
             ctx,
             name="Chart_0",
             headers=["Cat", "Val"],
@@ -1281,7 +1289,7 @@ def test_writer_create_reports_host_assigned_name():
         patch("plugin.calc.charts._apply_chart_styling", return_value=[]),
         patch("plugin.calc.charts._process_events"),
     ):
-        res = upsert_chart(ChartUpsert(), ctx, chart_type="bar", headers=["Cat", "A"], rows=[["x", 1]])
+        res = upsert_chart(ctx, chart_type="bar", headers=["Cat", "A"], rows=[["x", 1]])
     assert res["status"] == "ok"
     assert res["name"] == "Object 1"
     assert "'Object 1'" in res["message"]
@@ -1303,7 +1311,7 @@ def test_writer_create_rollback_targets_host_assigned_name():
         patch("plugin.calc.charts._apply_chart_styling", return_value=[]),
         patch("plugin.calc.charts._process_events"),
     ):
-        res = upsert_chart(ChartUpsert(), ctx, chart_type="bar", headers=["Cat", "A"], rows=[["x", 1]])
+        res = ChartUpsert().execute_safe(ctx, chart_type="bar", headers=["Cat", "A"], rows=[["x", 1]])
     assert res["status"] == "error"
     assert res.get("code") == "CHART_CREATE_ERROR"
     assert drop_mock.call_args[0][1] == "Object 1"
@@ -1346,7 +1354,7 @@ def test_calc_chart_create_cross_sheet_data_range_on_named_sheet():
         patch("plugin.calc.charts._apply_chart_styling", return_value=[]),
         patch("plugin.calc.charts._process_events"),
     ):
-        res = upsert_chart(ChartUpsert(), ctx, chart_type="bar", data_range="Data.A1:B6", sheet="Sheet1")
+        res = upsert_chart(ctx, chart_type="bar", data_range="Data.A1:B6", sheet="Sheet1")
 
     assert res["status"] == "ok"
     data_sheet.getCellRangeByPosition.assert_called_once_with(0, 0, 1, 5)
@@ -1359,10 +1367,10 @@ def test_calc_chart_edit_cross_sheet_data_range_from_host_sheet():
     doc, sheet1, data_sheet, _charts, chart_obj, chart_doc, addr = _two_sheet_calc_doc_for_cross_sheet_charts()
     ctx: Any = SimpleNamespace(doc=doc)
     with (
-        patch("plugin.calc.charts._lookup_chart", return_value=ChartLookup(ref=ChartRef(chart_obj, sheet1, "calc_sheet"))),
+        patch("plugin.calc.charts._lookup_chart", return_value=ChartRef(chart_obj, sheet1, "calc_sheet")),
         patch("plugin.calc.charts._chart_document_from_host", return_value=chart_doc),
     ):
-        res = upsert_chart(ChartUpsert(), ctx, name="Chart_0", data_range="Data.A1:B6")
+        res = upsert_chart(ctx, name="Chart_0", data_range="Data.A1:B6")
 
     assert res["status"] == "ok"
     data_sheet.getCellRangeByPosition.assert_called_once_with(0, 0, 1, 5)
