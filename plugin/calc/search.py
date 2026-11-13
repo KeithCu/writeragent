@@ -58,7 +58,8 @@ class SearchInSpreadsheet(ToolCalcSearchBase):
             return self._tool_error("pattern is required.")
 
         max_results = kwargs.get("max_results", 50)
-        if type(max_results) is not int or max_results < 1:
+        # Type is settled by the schema; minimum is advertised but not enforced, so the bound is checked here.
+        if max_results < 1:
             return self._tool_error("max_results must be a positive integer.", code="INVALID_PARAM")
 
         use_regex = kwargs.get("regex", False)

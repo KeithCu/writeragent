@@ -377,3 +377,20 @@ def test_iter_range_formula_texts_reads_get_formula_array():
     assert list(iter_range_formula_texts(_Sheet(), _Range())) == [(0, 0, "=A1+1"), (0, 1, "=A2+2")]
 
 
+def test_formula_origin_from_located():
+    from plugin.calc.python.formula_locator_cache import FormulaOrigin
+
+    sheet = CalcSheetStub("Viz")
+    cell = sheet.getCellByPosition(3, 2)
+    origin = FormulaOrigin.from_located((sheet, cell, (2, 3)))
+    assert origin.sheet is sheet
+    assert origin.cell is cell
+    assert origin.sheet_name == "Viz"
+    assert origin.row == 2
+    assert origin.col == 3
+
+    bad_sheet = SimpleNamespace(getName=lambda: 123)
+    origin_non_str = FormulaOrigin.from_located((bad_sheet, cell, (0, 0)))
+    assert origin_non_str.sheet_name == ""
+
+

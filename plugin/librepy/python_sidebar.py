@@ -12,7 +12,13 @@ from typing import Any, Callable
 
 from plugin.calc.navigation import navigate_to_cell
 from plugin.calc.python.cell_discovery import PythonCellInfo, list_python_cells_in_doc
-from plugin.calc.python.diagnostics import DiagnosticEntry, DiagnosticFilter, diagnostics_detail_text, get_diagnostics_store
+from plugin.calc.python.diagnostics import (
+    DiagnosticEntry,
+    DiagnosticFilter,
+    diagnostics_detail_text,
+    diagnostics_workbook_key,
+    get_diagnostics_store,
+)
 from plugin.chatbot.dialogs import get_optional as get_optional_control, set_control_text, set_control_visible, translate_dialog
 from plugin.framework.config import get_config
 from plugin.framework.i18n import _
@@ -23,7 +29,7 @@ from plugin.framework.uno_listeners import BaseActionListener, BaseActivationEve
 from plugin.framework.doc_type import is_calc
 from plugin.scripting.sandbox import resolve_venv_python
 from plugin.librepy.sidebar_menus import HEADER_BUTTON_IDS, invoke_action_handler, wire_sidebar_header_buttons
-from plugin.scripting.session_manager import existing_calc_session_id, python_session_mode
+from plugin.scripting.session_manager import python_session_mode
 
 log = logging.getLogger(__name__)
 
@@ -222,16 +228,6 @@ class _Activation(BaseActivationEventListener):
         self._handler()
 
 
-def workbook_key_for_doc(doc: Any) -> str:
-    if doc is None:
-        return "unknown"
-    try:
-        return existing_calc_session_id(doc) or "unknown"
-    except Exception:
-        log.debug("workbook key lookup failed", exc_info=True)
-        return "unknown"
-
-
 def format_runtime_status(ctx: Any) -> str:
     """Compact status text: session mode + venv path resolution (no package probe)."""
     mode = python_session_mode()
@@ -406,10 +402,11 @@ class PythonSidebarController:
 
     def _schedule_refresh(self, entry: DiagnosticEntry | None = None, *, full: bool = False) -> None:
         # Coalesce diagnostic refreshes onto the main thread; synchronous =PY() recalc must not full-scan inline.
+        # Off-main the key is "unknown", so the foreign-key early return is skipped and the main-thread refresh filters instead.
         if self._disposed:
             return
         if entry is not None and entry.workbook_key:
-            active_key = workbook_key_for_doc(self._calc_document())
+            active_key = diagnostics_workbook_key(self._calc_document())
             if active_key != "unknown" and entry.workbook_key != active_key:
                 return
         if full:
@@ -465,7 +462,7 @@ class PythonSidebarController:
         prev_idx = _selected_index(diag_ctrl)
         prev_entry = self._diags[prev_idx] if 0 <= prev_idx < len(self._diags) else None
 
-        key = workbook_key_for_doc(doc)
+        key = diagnostics_workbook_key(doc)
         filt = _filter_from_combo(self._ctrl("filter_combo"))
         self._diags = self._store.list_entries(key, filt=filt)
 
@@ -559,11 +556,11 @@ class PythonSidebarController:
         doc = self._calc_document()
         if doc is None:
             return
-        navigate_to_cell(doc, self.ctx, cell.address)
+        navigate_to_cell(doc, cell.address)
         cell_key = _code_key(cell.code)
         shown = next((entry for entry in self._diags if _code_key(entry.code) == cell_key and (entry.address == cell.address or (entry.sheet and entry.sheet == cell.sheet))), None)
         if shown is None:
-            shown = self._store.latest_for_code(workbook_key_for_doc(doc), cell.code)
+            shown = self._store.latest_for_code(diagnostics_workbook_key(doc), cell.code)
         if shown is not None:
             self._set_diag_detail(diagnostics_detail_text(shown))
 
@@ -579,7 +576,7 @@ class PythonSidebarController:
             return
         doc = self._calc_document()
         if doc is not None:
-            navigate_to_cell(doc, self.ctx, entry.address)
+            navigate_to_cell(doc, entry.address)
 
     def _run_action(self, command: str) -> None:
         handler = get_action_handler(command)
