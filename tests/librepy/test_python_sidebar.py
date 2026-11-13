@@ -18,7 +18,6 @@ from plugin.librepy.python_sidebar import (
     _PanelResizeListener,
     compute_python_sidebar_layout,
     format_runtime_status,
-    workbook_key_for_doc,
 )
 
 
@@ -81,41 +80,6 @@ def test_format_runtime_status_shared_with_venv():
     assert "Shared" in text
     assert "/tmp/myvenv" in text
 
-
-
-def test_workbook_key_for_doc_uses_session_id():
-    doc = MagicMock()
-    with patch(
-        "plugin.librepy.python_sidebar.existing_calc_session_id",
-        return_value="calc:file:///tmp/a.ods",
-    ):
-        assert workbook_key_for_doc(doc) == "calc:file:///tmp/a.ods"
-
-
-def test_workbook_key_for_doc_no_existing_id_returns_unknown_and_does_not_set_prop():
-    doc = MagicMock()
-    with (
-        patch("plugin.librepy.python_sidebar.existing_calc_session_id", return_value=None),
-        patch("plugin.scripting.session_manager.set_document_property") as mock_set_prop,
-    ):
-        assert workbook_key_for_doc(doc) == "unknown"
-        mock_set_prop.assert_not_called()
-
-
-def test_workbook_key_for_doc_does_not_create_session():
-    doc = MagicMock()
-    doc.getURL.return_value = ""
-    props = MagicMock()
-    props.getPropertyValue.side_effect = Exception("UnknownPropertyException")
-    props.getPropertySetInfo.return_value.hasPropertyByName.return_value = True
-    doc.getDocumentProperties.return_value.UserDefinedProperties = props
-    res = workbook_key_for_doc(doc)
-    assert res == "unknown"
-    props.addProperty.assert_not_called()
-
-
-def test_workbook_key_unknown_on_none():
-    assert workbook_key_for_doc(None) == "unknown"
 
 
 def test_python_sidebar_xdl_uses_menulist_not_listbox():
@@ -782,7 +746,7 @@ def test_diag_event_matching_key_does_not_scan_cells():
     posted = []
     with (
         patch("plugin.framework.queue_executor.main.post", side_effect=posted.append),
-        patch("plugin.librepy.python_sidebar.workbook_key_for_doc", return_value="calc:test"),
+        patch("plugin.librepy.python_sidebar.diagnostics_workbook_key", return_value="calc:test"),
         patch("plugin.librepy.python_sidebar.list_python_cells_in_doc") as mock_scan,
     ):
         ctrl._on_diag(entry)
@@ -826,7 +790,7 @@ def test_diag_event_foreign_key_drops_early():
     posted = []
     with (
         patch("plugin.framework.queue_executor.main.post", side_effect=posted.append),
-        patch("plugin.librepy.python_sidebar.workbook_key_for_doc", return_value="calc:current"),
+        patch("plugin.librepy.python_sidebar.diagnostics_workbook_key", return_value="calc:current"),
     ):
         ctrl._on_diag(entry)
         assert len(posted) == 0
@@ -850,7 +814,7 @@ def test_schedule_refresh_diag_then_full_coalesces_to_full():
     posted = []
     with (
         patch("plugin.framework.queue_executor.main.post", side_effect=posted.append),
-        patch("plugin.librepy.python_sidebar.workbook_key_for_doc", return_value="calc:test"),
+        patch("plugin.librepy.python_sidebar.diagnostics_workbook_key", return_value="calc:test"),
     ):
         ctrl._schedule_refresh(entry, full=False)
         assert ctrl._refresh_pending is True
@@ -1035,7 +999,7 @@ def test_diag_enrichment_with_duplicate_code_different_sheets():
     ctrl._last_diag_detail_text = None
 
     doc = MagicMock()
-    with patch("plugin.librepy.python_sidebar.workbook_key_for_doc", return_value="calc:test"):
+    with patch("plugin.librepy.python_sidebar.diagnostics_workbook_key", return_value="calc:test"):
         ctrl._refresh_diagnostics(doc)
 
     assert len(ctrl._diags) == 2
