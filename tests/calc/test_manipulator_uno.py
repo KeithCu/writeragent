@@ -146,3 +146,29 @@ def test_set_style_v_align_and_merge_center_vertical_justify_uno(ctx, doc):
     c1 = sheet.getCellByPosition(2, 0)
     assert c1.getPropertyValue("VertJustify") == 2
     assert c1.getPropertyValue("HoriJustify") == CENTER
+
+
+@native_test
+@with_native_doc("calc")
+def test_refuse_occupied_cells_uno(ctx, doc):
+    from plugin.calc.manipulator import refuse_occupied_cells
+    from plugin.framework.errors import CalcError
+
+    sheet = doc.getCurrentController().getActiveSheet()
+    sheet.getCellByPosition(0, 0).setValue(0)
+    sheet.getCellByPosition(1, 0).setFormula('=""')
+    sheet.getCellByPosition(2, 0).setString("text")
+
+    annotations = sheet.getAnnotations()
+    annotations.insertNew(sheet.getCellByPosition(3, 0).getCellAddress(), "note")
+    sheet.getCellByPosition(4, 0).setPropertyValue("CellBackColor", 0xFFFF00)
+
+    try:
+        refuse_occupied_cells(sheet, 0, 0, 4, 0)
+        raise AssertionError("occupied range should raise CalcError")
+    except CalcError as e:
+        msg = str(e)
+        assert "3 cell(s)" in msg, msg
+        assert "(first: A1)" in msg, msg
+
+    refuse_occupied_cells(sheet, 3, 0, 4, 0)

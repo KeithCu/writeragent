@@ -12,6 +12,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from plugin.calc.calc_utils import (
+    NumberFormatCategories,
     cell_value_and_type,
     classify_array_cell,
     elapsed_format_key,
@@ -262,5 +263,32 @@ def test_standard_temporal_format_keys():
         "datetime": 70,
         "duration": 64,
     }
+
+
+def test_number_format_categories_reads_each_key_once():
+    props = MagicMock()
+    props.getPropertyValue.side_effect = lambda name: 3 if name == "Type" else "YYYY-MM-DD"
+    formats = MagicMock()
+    formats.getByKey.return_value = props
+
+    categories = NumberFormatCategories(formats)
+    assert categories.lookup(40) == ("date", "YYYY-MM-DD")
+    assert categories.lookup(40) == ("date", "YYYY-MM-DD")
+    assert categories.category(40) == "date"
+    formats.getByKey.assert_called_once_with(40)
+
+
+def test_number_format_categories_does_not_remember_a_failed_read():
+    props = MagicMock()
+    props.getPropertyValue.side_effect = lambda name: 3 if name == "Type" else "YYYY-MM-DD"
+    formats = MagicMock()
+    formats.getByKey.side_effect = [RuntimeError("transient"), props]
+
+    categories = NumberFormatCategories(formats)
+    with pytest.raises(RuntimeError, match="transient"):
+        categories.lookup(40)
+
+    assert categories.category(40) == "date"
+    assert formats.getByKey.call_count == 2
 
 

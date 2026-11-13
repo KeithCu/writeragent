@@ -25,6 +25,7 @@ import uno
 
 from plugin.calc.address_utils import parse_address, split_sheet_prefix
 from plugin.calc.bridge import CalcBridge
+from plugin.calc.datetime_wire import format_category_from_type
 from plugin.framework.errors import ToolExecutionError, is_disposal, uno_read
 
 log = logging.getLogger(__name__)
@@ -218,3 +219,30 @@ def standard_temporal_format_keys(formats: Any, locale: Any) -> dict[str, int]:
         "datetime": int(formats.getStandardFormat(6, locale)),
         "duration": elapsed_format_key(formats, locale),
     }
+
+
+class NumberFormatCategories:
+    """The date/time category and FormatString of each number-format key, read once per key.
+
+    One read or write meets the same few NumberFormat keys on many cells; this
+    keeps one getByKey per key for the whole operation. A read that raises is
+    not remembered, so each caller's own guard decides what a failure means
+    (the write path treats it as "no category"; the spill writer and the
+    single-cell read let it propagate).
+    """
+
+    def __init__(self, formats: Any) -> None:
+        self._formats: Any = formats  # the document's XNumberFormats (doc.getNumberFormats())
+        self._seen: dict[int, tuple[str | None, str | None]] = {}
+
+    def lookup(self, key: int) -> tuple[str | None, str | None]:
+        """(format_category_from_type(Type), FormatString as str or None) for *key*."""
+        if key not in self._seen:
+            props = self._formats.getByKey(key)
+            code = props.getPropertyValue("FormatString")
+            self._seen[key] = (format_category_from_type(props.getPropertyValue("Type")), None if code is None else str(code))
+        return self._seen[key]
+
+    def category(self, key: int) -> str | None:
+        """Just the date / time / datetime category of *key*, or None."""
+        return self.lookup(key)[0]

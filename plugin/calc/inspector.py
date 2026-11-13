@@ -22,12 +22,11 @@ from typing import TYPE_CHECKING, Any, TypeAlias
 
 from plugin.calc.address_utils import format_address, index_to_column, split_sheet_prefix
 from plugin.calc.datetime_wire import (
-    format_category_from_type,
     iso8601_from_serial,
     iso_duration_from_serial,
     is_elapsed_format_string,
 )
-from plugin.calc.calc_utils import FORMULA, classify_array_cell
+from plugin.calc.calc_utils import FORMULA, NumberFormatCategories, classify_array_cell
 from plugin.framework.errors import CalcError, is_disposal
 from plugin.scripting.config_limits import configured_python_max_data_cells
 
@@ -78,7 +77,8 @@ class CellInspector:
 
     # ── Internal helpers ───────────────────────────────────────────────
 
-    def _format_meta(self, format_key: Any, formats: Any, cache: dict[int, tuple[str | None, str | None]]) -> tuple[str | None, str | None]:
+    @staticmethod
+    def _format_meta(format_key: Any, categories: NumberFormatCategories) -> tuple[str | None, str | None]:
         """Resolve one number-format key to (category, FormatString), caching across groups.
 
         Elapsed formats report Type TIME but use bracketed units (``[HH]``, …).
@@ -89,15 +89,11 @@ class CellInspector:
             key = int(format_key)
         except (TypeError, ValueError):
             return None, None
-        if key not in cache:
-            props = formats.getByKey(key)
-            format_code = props.getPropertyValue("FormatString")
-            category = format_category_from_type(props.getPropertyValue("Type"))
-            # DURATION bit never appears on elapsed formats; FormatString is the signal.
-            if category == "time" and is_elapsed_format_string(format_code):
-                category = "duration"
-            cache[key] = (category, str(format_code) if format_code is not None else None)
-        return cache[key]
+        category, format_code = categories.lookup(key)
+        # DURATION bit never appears on elapsed formats; FormatString is the signal.
+        if category == "time" and is_elapsed_format_string(format_code):
+            category = "duration"
+        return category, format_code
 
     @staticmethod
     def _temporal_fields(
@@ -130,7 +126,7 @@ class CellInspector:
             return
         doc = self.bridge.doc
         formats = doc.getNumberFormats()
-        category, format_code = self._format_meta(cell.getPropertyValue("NumberFormat"), formats, {})
+        category, format_code = self._format_meta(cell.getPropertyValue("NumberFormat"), NumberFormatCategories(formats))
         if category is None:
             return
         null_date = doc.getNumberFormatSettings().getPropertyValue("NullDate")
@@ -163,7 +159,7 @@ class CellInspector:
 
         doc = self.bridge.doc
         formats = doc.getNumberFormats()
-        cache: dict[int, tuple[str | None, str | None]] = {}
+        categories = NumberFormatCategories(formats)
         rows: TemporalRows = {}
 
         # Calc dates are numeric VALUE cells, so the normal content type loses their
@@ -176,7 +172,7 @@ class CellInspector:
                 if group.getCount() == 0:
                     continue
                 representative = group.getByIndex(0)
-                category, format_code = self._format_meta(representative.getPropertyValue("NumberFormat"), formats, cache)
+                category, format_code = self._format_meta(representative.getPropertyValue("NumberFormat"), categories)
                 if category is None:
                     continue
                 addresses = tuple(group.getRangeAddresses())

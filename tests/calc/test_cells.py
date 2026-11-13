@@ -824,7 +824,7 @@ def test_preview_if_large_keeps_sheet_prefix():
     )
     preview = _preview_if_large(bridge, "'Data Sheet'!A1:H500")
     assert preview is not None
-    assert preview["preview_range"] == "'Data Sheet'!A1:H10"
+    assert preview["preview_range"] == "'Data Sheet'.A1:H10"
 
 
 def test_preview_if_large_caps_columns_and_adds_sheet_name():
@@ -1481,8 +1481,8 @@ def test_preview_if_large_escapes_doubled_apostrophes():
     )
     preview = _preview_if_large(bridge, "'O''Brien'!A1:H500")
     assert preview is not None
-    assert preview["preview_range"] == "'O''Brien'!A1:H10"
-    assert preview["sheet_prefix"] == "'O''Brien'!"
+    assert preview["preview_range"] == "'O''Brien'.A1:H10"
+    assert preview["sheet_prefix"] == "'O''Brien'."
 
 
 def test_read_cell_range_oversized_unqualified_named_range_clips_on_resolved_sheet():
@@ -1535,38 +1535,30 @@ def test_read_cell_range_oversized_unqualified_named_range_clips_on_identifier_s
         assert calls[1].args[0] == "Other.A1:B100"
 
 
-def test_sheet_prefix_for_clip_quoting_differs_from_quote_sheet_name():
-    from plugin.calc.address_utils import quote_sheet_name
+def test_sheet_prefix_for_clip_quotes_like_quote_sheet_name():
+    from plugin.calc.address_utils import split_sheet_prefix
     from plugin.calc.cells import _sheet_prefix_for_clip
 
-    # 1. 2024.A1:H500 -> '2024'. vs 2024.
-    assert _sheet_prefix_for_clip("2024.A1:H500", None) == "'2024'."
-    assert quote_sheet_name("2024") + "." == "2024."
+    cases = [
+        ("2024.A1:H500", "2024.", "2024"),
+        ("Q1-Sales.A1:H500", "Q1-Sales.", "Q1-Sales"),
+        ("'Sheet1'.A1:H500", "Sheet1.", "Sheet1"),
+        ("A+B.A1", "A+B.", "A+B"),
+        ("'$Prices'.$A$1", "'$Prices'.", "$Prices"),
+        ("'Foo!Bar'.A1:H10", "'Foo!Bar'.", "Foo!Bar"),
+        ("'O''Brien'!A1:Z9", "'O''Brien'.", "O'Brien"),
+    ]
+    for range_name, expected_prefix, expected_sheet in cases:
+        prefix = _sheet_prefix_for_clip(range_name, None)
+        assert prefix == expected_prefix
+        assert split_sheet_prefix(prefix + "A1")[0] == expected_sheet
 
-    # 2. Q1-Sales.A1:H500 -> 'Q1-Sales'. vs Q1-Sales.
-    assert _sheet_prefix_for_clip("Q1-Sales.A1:H500", None) == "'Q1-Sales'."
-    assert quote_sheet_name("Q1-Sales") + "." == "Q1-Sales."
-
-    # 3. 'Sheet1'.A1:H500 -> 'Sheet1'. vs Sheet1.
-    assert _sheet_prefix_for_clip("'Sheet1'.A1:H500", None) == "'Sheet1'."
-    assert quote_sheet_name("Sheet1") + "." == "Sheet1."
-
-    # 4. A+B.A1 -> 'A+B'. vs A+B.
-    assert _sheet_prefix_for_clip("A+B.A1", None) == "'A+B'."
-    assert quote_sheet_name("A+B") + "." == "A+B."
-
-    # 5. '$Prices'.$A$1 -> '$Prices'. vs '$Prices'.
-    assert _sheet_prefix_for_clip("'$Prices'.$A$1", None) == "'$Prices'."
-    assert quote_sheet_name("$Prices") + "." == "'$Prices'."
-
-    # 6. 'Foo!Bar'.A1:H10 -> 'Foo!Bar'! vs 'Foo!Bar'. (bang anywhere in range_name causes '!')
-    assert _sheet_prefix_for_clip("'Foo!Bar'.A1:H10", None) == "'Foo!Bar'!"
-    assert quote_sheet_name("Foo!Bar") + "." == "'Foo!Bar'."
-
-    # Unqualified case: 'Sales' resolved to sheet 2024 uses quote_sheet_name fallback -> 2024.
+    # Unqualified case: 'Sales' resolved to sheet 2024 uses quote_sheet_name -> 2024.
     resolved = MagicMock()
     resolved.getSpreadsheet.return_value.getName.return_value = "2024"
-    assert _sheet_prefix_for_clip("Sales", resolved) == "2024."
+    prefix = _sheet_prefix_for_clip("Sales", resolved)
+    assert prefix == "2024."
+    assert split_sheet_prefix(prefix + "A1")[0] == "2024"
 
 
 def test_column_distinct_peek_counts_numeric_first_row_as_data():

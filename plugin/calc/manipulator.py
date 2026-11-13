@@ -45,12 +45,11 @@ else:
         pass
 
 
-from plugin.calc.address_utils import MAX_COL, MAX_ROW, column_to_index, format_range, index_to_column
+from plugin.calc.address_utils import MAX_COL, MAX_ROW, column_to_index, format_address, format_range
 from plugin.calc.array_formula import MAX_ARRAY_CELLS, plan_target, returns_array
-from plugin.calc.calc_utils import elapsed_format_key, resolve_document_locale
+from plugin.calc.calc_utils import NumberFormatCategories, elapsed_format_key, resolve_document_locale
 from plugin.calc.formula_fill import expand_single_formula
 from plugin.calc.datetime_wire import (
-    format_category_from_type,
     coalesce_temporal_apply_rects,
     duration_serial_from_iso,
     is_compatible_temporal_template,
@@ -81,7 +80,7 @@ class _CommitResult(NamedTuple):
     formula_warning: str
     data_array: list[list[Any]]
     dest_categories: dict[tuple[int, int], str | None]
-    category_cache: dict[int, str | None]
+    categories: NumberFormatCategories
     cols_needing: dict[int, str]
 
 
@@ -248,6 +247,33 @@ def _range_has_blank_cell(sheet: Any, start: tuple[int, int], end: tuple[int, in
     return False
 
 
+def refuse_occupied_cells(sheet: Any, left: int, top: int, right: int, bottom: int, *, skip: Sequence[tuple[int, int, int, int]] = ()) -> None:
+    """Raise CalcError when a cell in the inclusive box holds a value, text or formula.
+
+    The box is read once with getFormulaArray. Calc builds each entry with the
+    same input-string helper as XCell.getFormula (sc/source/ui/unoobj/cellsuno.cxx,
+    lcl_GetInputString, shared by ScCellRangeObj::getFormulaArray and
+    ScCellObj::GetInputString_Impl), so an entry is "" exactly when the cell is
+    empty; a cell with only a comment or a format counts as empty. Cells inside
+    a *skip* box (left, top, right, bottom) are not checked: the array formula
+    being replaced and the formula's own origin. Nothing has been written when
+    this raises, so the caller can refuse cleanly.
+    """
+    formulas = sheet.getCellRangeByPosition(left, top, right, bottom).getFormulaArray()
+    occupied = [
+        (left + c, top + r)
+        for r, row in enumerate(formulas)
+        for c, text in enumerate(row)
+        if text and not any(b[0] <= left + c <= b[2] and b[1] <= top + r <= b[3] for b in skip)
+    ]
+    if occupied:
+        first_c, first_r = occupied[0]
+        raise CalcError(
+            "The result needs %s, but %d cell(s) there are not empty (first: %s). Nothing was written; clear them or start elsewhere."
+            % (format_range(left, top, right, bottom, collapse_single=True), len(occupied), format_address(first_c, first_r))
+        )
+
+
 def _parse_formula_or_values_string(s: str, *, single_cell_range: bool = False) -> list[Any] | None:
     """Parse *formula_or_values* when it arrives as a JSON string or as a
     raw semicolon-separated string.
@@ -384,7 +410,7 @@ class CellManipulator:
                         contained.append(existing)
                         continue
 
-                    cell_name = f"{index_to_column(c)}{r + 1}"
+                    cell_name = format_address(c, r)
                     arr_name = format_range(existing.StartColumn, existing.StartRow, existing.EndColumn, existing.EndRow)
                     raise CalcError(f"{cell_name} is part of array {arr_name}; edit or clear the whole array.")
 
@@ -661,15 +687,20 @@ class CellManipulator:
         except ValueError:
             return _CellWrite(value, "", "text", None, None)
 
-    def _find_column_temporal_templates(self, sheet: Any, formats: Any, columns_needing_templates: dict[int, str], scan_start_row: int, category_cache: dict[int, str | None]) -> dict[int, int]:
+    def _find_column_temporal_templates(
+        self,
+        sheet: Any,
+        columns_needing_templates: dict[int, str],
+        scan_start_row: int,
+        categories: NumberFormatCategories,
+    ) -> dict[int, int]:
         """Find inherited NumberFormat keys by the upward scan that copies a column's existing number format.
 
         Args:
             sheet: The active sheet.
-            formats: doc.getNumberFormats().
             columns_needing_templates: {col_index: input_category} for columns needing template.
             scan_start_row: Row index to start scanning upward from (exclusive).
-            category_cache: Shared key -> category cache (mutated in place).
+            categories: Shared NumberFormatCategories reader for the document.
 
         Returns:
             {col_index: inherited_format_key} for columns where a template was found.
@@ -678,8 +709,7 @@ class CellManipulator:
         date does not inherit datetime; clock time skips elapsed FormatString templates.
         """
         column_templates: dict[int, int] = {}
-        # FormatString beside Type so the upward scan that copies a column's existing number format can skip elapsed [HH]:… templates.
-        format_code_cache: dict[int, object | None] = {}
+        no_format: tuple[str | None, str | None] = (None, None)
         for col, input_category in columns_needing_templates.items():
             start_r = scan_start_row - 1
             min_r = max(0, scan_start_row - 100)
@@ -688,21 +718,8 @@ class CellManipulator:
                 key = uno_read(lambda: int(sheet.getCellByPosition(col, r).getPropertyValue("NumberFormat")), 0)
                 if key == 0:
                     continue
-                if key not in category_cache or key not in format_code_cache:
-
-                    def read_format() -> bool:
-                        props = formats.getByKey(key)
-                        if key not in category_cache:
-                            category_cache[key] = format_category_from_type(props.getPropertyValue("Type"))
-                        if key not in format_code_cache:
-                            format_code_cache[key] = props.getPropertyValue("FormatString")
-                        return True
-
-                    if not uno_read(read_format, False):
-                        category_cache.setdefault(key, None)
-                        format_code_cache.setdefault(key, None)
-                cat = category_cache[key]
-                if is_compatible_temporal_template(input_category, cat, format_code_cache.get(key)):
+                cat, format_code = uno_read(lambda: categories.lookup(key), no_format)
+                if is_compatible_temporal_template(input_category, cat, format_code):
                     column_templates[col] = key
                     break
         return column_templates
@@ -807,7 +824,7 @@ class CellManipulator:
         literal_text_cells: list[tuple[int, int, str]] = []
         s29_snapshots: list[tuple[int, int, int]] = []  # col, row, key
         dest_categories: dict[tuple[int, int], str | None] = {}
-        category_cache: dict[int, str | None] = {}
+        categories = NumberFormatCategories(formats)
         cols_needing: dict[int, str] = {}
 
         num_cols = end[0] - start[0] + 1
@@ -835,9 +852,7 @@ class CellManipulator:
                     if cell_write.kind == "text":
                         s29_snapshots.append((col, row, key))
                     if cell_write.kind == "temporal":
-                        if key not in category_cache:
-                            category_cache[key] = uno_read(lambda: format_category_from_type(formats.getByKey(key).getPropertyValue("Type")), None)
-                        dest_cat = category_cache[key]
+                        dest_cat = uno_read(lambda: categories.category(key), None)
                         dest_categories[(col, row)] = dest_cat
                         if dest_cat is None and col not in cols_needing:
                             cols_needing[col] = cell_write.input_category or ""
@@ -876,12 +891,11 @@ class CellManipulator:
         for col, row, text_value in literal_text_cells:
             sheet.getCellByPosition(col, row).setString(text_value)
 
-        return _CommitResult(formula_warning, data_array, dest_categories, category_cache, cols_needing)
+        return _CommitResult(formula_warning, data_array, dest_categories, categories, cols_needing)
 
     def apply_temporal_formats(
         self,
         sheet: Any,
-        formats: Any,
         start: tuple[int, int],
         range_str: str,
         cell_metas: list[_CellWrite],
@@ -890,14 +904,14 @@ class CellManipulator:
         """Apply detected temporal formats with upward template inheritance and coalesced writes."""
         data_array = committed.data_array
         dest_categories = committed.dest_categories
-        category_cache = committed.category_cache
+        categories = committed.categories
         cols_needing = committed.cols_needing
         if not any(m.kind == "temporal" for m in cell_metas):
             return ""
 
         format_warning = ""
         num_cols = len(data_array[0]) if data_array else 0
-        column_templates = self._find_column_temporal_templates(sheet, formats, cols_needing, start[1], category_cache)
+        column_templates = self._find_column_temporal_templates(sheet, cols_needing, start[1], categories)
 
         # Build row decisions: None | "empty" | ("apply", key) | ("preserve", None)
         decisions: list[list[tuple[str, int | None] | str | None]] = []
@@ -1134,7 +1148,6 @@ class CellManipulator:
 
             format_warning = self.apply_temporal_formats(
                 sheet,
-                formats,
                 start,
                 range_str,
                 cell_metas,
@@ -1298,19 +1311,14 @@ class CellManipulator:
         if existing is not None and (existing.StartColumn, existing.StartRow) == (c1, r1):
             replaced_box = (int(existing.StartColumn), int(existing.StartRow), int(existing.EndColumn), int(existing.EndRow))
 
-        occupied: list[tuple[int, int]] = []
-        for row in range(target.top, target.bottom + 1):
-            for col in range(target.left, target.right + 1):
-                if (col, row) == (c1, r1):
-                    continue
-                if replaced_box is not None and replaced_box[0] <= col <= replaced_box[2] and replaced_box[1] <= row <= replaced_box[3]:
-                    continue
-                cell = sheet.getCellByPosition(col, row)
-                if cell.getFormula() or cell.getString():
-                    occupied.append((col, row))
-        if occupied:
-            block_c, block_r = occupied[0]
-            raise CalcError("The result needs %s, but %d cell(s) there are not empty (first: %s). Nothing was written; clear them or start elsewhere." % (block_name, len(occupied), "%s%d" % (index_to_column(block_c), block_r + 1)))
+        refuse_occupied_cells(
+            sheet,
+            target.left,
+            target.top,
+            target.right,
+            target.bottom,
+            skip=[(c1, r1, c1, r1)] + ([replaced_box] if replaced_box is not None else []),
+        )
 
         if measure_only:
             return {}

@@ -239,6 +239,7 @@ def test_canonical():
     assert canonical("$'My Sheet'.$A$1") == "'My Sheet'.A1"
     assert canonical("$Sheet1.$A$1") == "Sheet1.A1"
     assert canonical("Sheet1!$a$1") == "Sheet1!A1"
+    assert canonical("'Sheet1'.a1") == "'Sheet1'.A1"
     assert canonical("") == ""
 
 
@@ -261,6 +262,7 @@ def test_canonical_key():
     assert canonical_key("$'My Sheet'.$A$1") == "'my sheet'.A1"
     assert canonical_key("$Sheet1.$A$1") == "sheet1.A1"
     assert canonical_key("Sheet1!$a$1") == "sheet1!A1"
+    assert canonical_key("'SHEET1'!a1") == "'sheet1'!A1"
     assert canonical_key("") == ""
 
 

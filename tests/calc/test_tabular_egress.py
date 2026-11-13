@@ -198,22 +198,14 @@ def test_insert_tabular_result_refuses_when_target_occupied(mock_bridge, mock_ma
     mock_bridge.return_value.sheet_or_active.return_value = sheet
 
     # Cell at A1 is occupied with existing user data
-    def get_cell(c, r):
-        cell = MagicMock()
-        if (c, r) == (0, 0):
-            cell.getFormula.return_value = ""
-            cell.getString.return_value = "user data"
-        else:
-            cell.getFormula.return_value = ""
-            cell.getString.return_value = ""
-        return cell
-
-    sheet.getCellByPosition.side_effect = get_cell
+    sheet.getCellRangeByPosition.return_value.getFormulaArray.return_value = (("user data", ""), ("", ""))
 
     grid = [["differentiate"], ["Result", "2*x"]]
     with pytest.raises(CalcError, match=r"The result needs A1:B2, but 1 cell\(s\) there are not empty \(first: A1\)\. Nothing was written; clear them or start elsewhere\."):
         insert_tabular_result_into_calc(doc, grid, start_col=0, start_row=0)
 
+    sheet.getCellRangeByPosition.assert_called_once_with(0, 0, 1, 1)
+    sheet.getCellByPosition.assert_not_called()
     # Invariant: non-empty target must not be overwritten
     manipulator.write_formula_range.assert_not_called()
 
@@ -227,13 +219,7 @@ def test_insert_tabular_result_succeeds_when_target_empty(mock_bridge, mock_mani
     sheet = MagicMock()
     mock_bridge.return_value.sheet_or_active.return_value = sheet
 
-    def get_cell(c, r):
-        cell = MagicMock()
-        cell.getFormula.return_value = ""
-        cell.getString.return_value = ""
-        return cell
-
-    sheet.getCellByPosition.side_effect = get_cell
+    sheet.getCellRangeByPosition.return_value.getFormulaArray.return_value = (("", ""), ("", ""))
 
     grid = [["differentiate"], ["Result", "2*x"]]
     rows = insert_tabular_result_into_calc(doc, grid, start_col=0, start_row=0)

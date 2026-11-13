@@ -583,7 +583,7 @@ def _writer_selection_explain_block(model: Any) -> str | None:
 
 def _calc_active_cell_explain_line(model: Any) -> str:
     """One short line for Calc /explain: cell address and formula text."""
-    from plugin.calc.address_utils import index_to_column
+    from plugin.calc.address_utils import format_address
 
     view = model.CurrentController
     sheet = view.ActiveSheet
@@ -591,7 +591,7 @@ def _calc_active_cell_explain_line(model: Any) -> str:
     addr = selection.getCellAddress()
     cell = sheet.getCellByPosition(addr.Column, addr.Row)
     formula = str(cell.getFormula() or "")
-    address = "%s%d" % (index_to_column(addr.Column), addr.Row + 1)
+    address = format_address(addr.Column, addr.Row)
     if formula:
         return _("Cell {0} formula: {1}").format(address, formula)
     display = str(cell.getString() or cell.getValue())

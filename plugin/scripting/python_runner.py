@@ -40,7 +40,7 @@ from plugin.framework.queue_executor import main
 from plugin.scripting.python_runner_ui import show_python_input_dialog
 from plugin.writer.html_import import insert_content_at_position, run_writer_mutation_with_optional_review
 from plugin.framework.doc_type import is_calc, is_writer, is_draw
-from plugin.calc.address_utils import index_to_column
+from plugin.calc.address_utils import format_address
 from plugin.calc.bridge import calc_selection_to_a1
 from plugin.calc.calc_addin_data import resolve_python_data
 from plugin.calc.python.formula_edit import parse_data_binding_text
@@ -273,7 +273,7 @@ def insert_result_into_calc(doc: Any, uno_ctx: Any, result: Any) -> None:
         start_col = addr.StartColumn
         start_row = addr.StartRow
 
-    anchor_addr = f"{index_to_column(start_col)}{start_row + 1}"
+    anchor_addr = format_address(start_col, start_row)
     formatted = format_result_for_writer(result)
     if formatted:
         insert_cell_html_rich(doc, uno_ctx, anchor_addr, formatted)

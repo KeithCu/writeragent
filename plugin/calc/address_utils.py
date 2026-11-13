@@ -295,12 +295,12 @@ def _canonical(ref: str, *, casefold_sheet: bool = False) -> str:
     if sheet is None:
         return cell_part
     sep = "!" if "!" in s else "."
-    clean_s = s.lstrip("$")
     target_sheet = sheet.casefold() if casefold_sheet else sheet
-    if clean_s.startswith("'") or quote_sheet_name(target_sheet) != target_sheet:
-        sheet_part = "'" + target_sheet.replace("'", "''") + "'"
-    else:
-        sheet_part = target_sheet
+    sheet_part = quote_sheet_name(target_sheet)
+    # A name the input quoted keeps its quotes even when quote_sheet_name would leave it bare;
+    # such a name has no apostrophe, so wrapping it needs no doubling.
+    if s.lstrip("$").startswith("'") and not sheet_part.startswith("'"):
+        sheet_part = f"'{sheet_part}'"
     return f"{sheet_part}{sep}{cell_part}"
 
 

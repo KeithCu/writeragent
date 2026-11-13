@@ -108,29 +108,15 @@ def _opt_color(kwargs: dict[str, Any], key: str) -> tuple[int | None, str | None
 
 
 def _sheet_prefix_for_clip(range_name: str, resolved: Any) -> str:
-    """Prefix including the separator, or '' when the clip stays unqualified.
+    """A prefix already on range_name wins; an unqualified name (an A1 range or a named range) takes the sheet of the resolved range.
 
-    A prefix already on range_name wins. split_sheet_prefix turns 'O''Brien'
-    into O'Brien; quote and double again on the way out. Keep '!' when the
-    input used a bang, otherwise '.'. An unqualified name (a named range)
-    takes the sheet from resolved.getSpreadsheet().getName() and always
-    uses '.'.
+    quote_sheet_name quotes it like every other tool address, in Calc's dot form,
+    so split_sheet_prefix reads it back (apostrophes doubled).
     """
-    sheet, _unused_local = split_sheet_prefix(range_name)
-    if sheet:
-        sep = "!" if "!" in range_name else "."
-        if range_name.lstrip().startswith("'") or not sheet.isidentifier():
-            token = "'" + sheet.replace("'", "''") + "'"
-        else:
-            token = sheet
-        return f"{token}{sep}"
-
-    if hasattr(resolved, "getSpreadsheet"):
-        sp = resolved.getSpreadsheet()
-        name = sp.getName()
-        if isinstance(name, str) and name:
-            return quote_sheet_name(name) + "."
-    return ""
+    sheet = split_sheet_prefix(range_name)[0]
+    if not sheet and hasattr(resolved, "getSpreadsheet"):
+        sheet = resolved.getSpreadsheet().getName()
+    return quote_sheet_name(sheet) + "." if isinstance(sheet, str) and sheet else ""
 
 
 def _manipulator_context(ctx: ToolContext, range_arg: Any) -> tuple[CellManipulator, list[Any]]:
