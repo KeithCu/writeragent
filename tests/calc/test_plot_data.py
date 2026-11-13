@@ -11,6 +11,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from plugin.calc.viz import PlotDataTool
+from plugin.framework.errors import ToolExecutionError
 
 
 @pytest.fixture
@@ -23,7 +24,7 @@ def calc_ctx():
 
 
 @patch("plugin.framework.queue_executor.main.call")
-@patch("plugin.calc.viz.run_domain")
+@patch("plugin.calc.analysis.run_domain")
 def test_plot_data_happy_path(mock_run, mock_main_thread, calc_ctx):
     mock_run.return_value = {
         "status": "ok",
@@ -42,7 +43,7 @@ def test_plot_data_happy_path(mock_run, mock_main_thread, calc_ctx):
 
 
 @patch("plugin.framework.queue_executor.main.call")
-@patch("plugin.calc.viz.run_domain")
+@patch("plugin.calc.analysis.run_domain")
 def test_plot_data_insert_failure_is_not_success(mock_run, mock_main_thread, calc_ctx):
     mock_run.return_value = {
         "status": "ok",
@@ -67,8 +68,9 @@ def test_plot_data_insert_failure_is_not_success(mock_run, mock_main_thread, cal
 
 def test_plot_data_requires_helper(calc_ctx):
     tool = PlotDataTool()
-    result = tool.execute(calc_ctx, data_range="A1:B2")
-    assert result["status"] == "error"
+    with pytest.raises(ToolExecutionError, match="helper is required") as exc_info:
+        tool.execute(calc_ctx, data_range="A1:B2")
+    assert exc_info.value.code == "VIZ_ERROR"
 
 
 def test_plot_data_not_registered():

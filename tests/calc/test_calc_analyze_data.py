@@ -20,7 +20,7 @@ from plugin.calc.analysis import (
     resolve_cell_address,
     write_anchor_result,
 )
-from plugin.framework.errors import DocumentDisposedError, ToolExecutionError, UnoObjectError
+from plugin.framework.errors import DocumentDisposedError, ToolExecutionError
 
 
 @pytest.fixture
@@ -45,7 +45,7 @@ def test_output_anchor_quoted_dotted_sheet_and_range():
 
 @patch("plugin.calc.analysis_egress.insert_analysis_result_into_calc")
 @patch("plugin.framework.queue_executor.main.call")
-@patch("plugin.scripting.helper_domain.run_domain")
+@patch("plugin.calc.analysis.run_domain")
 def test_analyze_data_output_range_quoted_sheet(mock_run_trusted, mock_main_thread, mock_insert, calc_ctx):
     mock_run_trusted.return_value = {"status": "ok", "helper": "describe_data"}
     mock_main_thread.side_effect = lambda fn, *args, **kwargs: fn(*args, **kwargs)
@@ -74,7 +74,7 @@ def _disposed():
 
 @patch("plugin.calc.analysis_egress.insert_analysis_result_into_calc")
 @patch("plugin.framework.queue_executor.main.call")
-@patch("plugin.scripting.helper_domain.run_domain")
+@patch("plugin.calc.analysis.run_domain")
 def test_analyze_data_sheet_write_failure_keeps_the_result(
     mock_run_trusted,
     mock_main_thread,
@@ -103,7 +103,7 @@ def test_analyze_data_sheet_write_failure_keeps_the_result(
 
 @patch("plugin.calc.analysis_egress.insert_analysis_result_into_calc")
 @patch("plugin.framework.queue_executor.main.call")
-@patch("plugin.scripting.helper_domain.run_domain")
+@patch("plugin.calc.analysis.run_domain")
 def test_analyze_data_sheet_write_reraises_disposed(
     mock_run_trusted,
     mock_main_thread,
@@ -158,6 +158,15 @@ def test_write_anchor_result_reraises_disposed(calc_ctx):
         )
 
 
+def test_write_anchor_result_skips_without_anchor_or_on_error(calc_ctx):
+    with patch("plugin.framework.queue_executor.main.call") as mock_call:
+        ok_res = {"status": "ok", "helper": "describe_data"}
+        assert write_anchor_result(calc_ctx, ok_res, None, lambda *a, **k: None) is ok_res
+        err_res = {"status": "error", "message": "failed"}
+        assert write_anchor_result(calc_ctx, err_res, "Sheet1.D1", lambda *a, **k: None) is err_res
+        mock_call.assert_not_called()
+
+
 def test_goal_seek_reraises_disposed(calc_ctx):
     boom = _disposed()
     with (
@@ -167,10 +176,10 @@ def test_goal_seek_reraises_disposed(calc_ctx):
         GoalSeekTool().execute(calc_ctx, formula_cell="A1", variable_cell="B1", target_value=1)
 
 
-def test_goal_seek_wraps_other_errors(calc_ctx):
+def test_goal_seek_lets_unexpected_errors_through(calc_ctx):
     with (
         patch("plugin.calc.analysis.resolve_cell_address", side_effect=ValueError("seek failed")),
-        pytest.raises(ToolExecutionError, match="seek failed"),
+        pytest.raises(ValueError, match="seek failed"),
     ):
         GoalSeekTool().execute(calc_ctx, formula_cell="A1", variable_cell="B1", target_value=1)
 
@@ -218,26 +227,29 @@ class TestResolveCellAddress:
 
     def test_resolve_cell_address_invalid_raises(self):
         doc = MagicMock()
-        with pytest.raises(UnoObjectError, match="Cannot resolve cell address"):
+        with pytest.raises(ToolExecutionError, match="Cannot resolve cell address") as exc_info:
             resolve_cell_address(doc, "BadRef")
+        assert exc_info.value.code == "INVALID_PARAM"
 
 
 def test_analyze_data_requires_helper(calc_ctx):
     tool = AnalyzeDataTool()
-    result = tool.execute(calc_ctx, data=[["A"], [1]])
-    assert result["status"] == "error"
-    assert "helper" in result["message"].lower()
+    with pytest.raises(ToolExecutionError) as exc_info:
+        tool.execute(calc_ctx, data=[["A"], [1]])
+    assert exc_info.value.code == "ANALYSIS_ERROR"
+    assert "helper" in str(exc_info.value).lower()
 
 
 def test_analyze_data_requires_data_source(calc_ctx):
     tool = AnalyzeDataTool()
-    result = tool.execute(calc_ctx, helper="describe_data")
-    assert result["status"] == "error"
-    assert "data_range" in result["message"].lower() or "data" in result["message"].lower()
+    with pytest.raises(ToolExecutionError) as exc_info:
+        tool.execute(calc_ctx, helper="describe_data")
+    assert exc_info.value.code == "ANALYSIS_ERROR"
+    assert "data_range" in str(exc_info.value).lower() or "data" in str(exc_info.value).lower()
 
 
 @patch("plugin.framework.queue_executor.main.call")
-@patch("plugin.scripting.helper_domain.run_domain")
+@patch("plugin.calc.analysis.run_domain")
 def test_analyze_data_happy_path(mock_run_trusted, mock_main_thread, calc_ctx):
     mock_run_trusted.return_value = {"status": "ok", "helper": "describe_data", "metrics": {"row_count": 1}}
     mock_main_thread.side_effect = lambda fn, *args, **kwargs: fn(*args, **kwargs)
@@ -289,19 +301,17 @@ def test_analyze_data_resolves_data_on_main_thread_before_venv(mock_resolve, moc
 
 
 @patch("plugin.framework.queue_executor.main.call")
-@patch("plugin.scripting.helper_domain.run_domain")
+@patch("plugin.calc.analysis.run_domain")
 def test_analyze_data_worker_error(mock_run_trusted, mock_main_thread, calc_ctx):
-    from plugin.framework.errors import ToolExecutionError
-
     calc_ctx.active_domain = None
     mock_main_thread.side_effect = lambda fn, *args, **kwargs: fn(*args, **kwargs)
     mock_run_trusted.side_effect = ToolExecutionError("worker failed", code="ANALYSIS_ERROR")
 
     tool = AnalyzeDataTool()
-    result = tool.execute(calc_ctx, helper="describe_data", data=[["x"], [1]])
+    with pytest.raises(ToolExecutionError, match="worker failed") as exc_info:
+        tool.execute(calc_ctx, helper="describe_data", data=[["x"], [1]])
 
-    assert result["status"] == "error"
-    assert "worker failed" in result["message"]
+    assert exc_info.value.code == "ANALYSIS_ERROR"
 
 
 def test_analysis_domain_tools_not_registered():
@@ -364,13 +374,73 @@ def test_analyze_data_forces_data_range_in_analysis_domain(calc_ctx):
     assert "data_range" in adapter.inputs
 
     # Runtime guard: even if someone bypasses the schema and passes data, reject for analysis.
-    result = tool.execute(calc_ctx, helper="describe_data", data=[["Region"], ["North"]])
-    assert result["status"] == "error"
-    assert "data_range" in result.get("message", "").lower()
-    assert "address" in result.get("message", "").lower() or "out-of-band" in result.get("message", "").lower() or "host" in result.get("message", "").lower()
+    with pytest.raises(ToolExecutionError) as exc_info:
+        tool.execute(calc_ctx, helper="describe_data", data=[["Region"], ["North"]])
+    assert exc_info.value.code == "INVALID_PARAM"
+    assert "data_range" in str(exc_info.value).lower()
+    assert "out-of-band" in str(exc_info.value).lower()
 
     # data_range path remains valid even under analysis domain (the resolver will be mocked in other tests).
     # Here we just check it doesn't hit the "data not allowed" error before the data source check.
-    result2 = tool.execute(calc_ctx, helper="describe_data")  # no data_range and no data
-    assert result2["status"] == "error"
-    assert "data_range" in result2.get("message", "").lower() or "data" in result2.get("message", "").lower()
+    with pytest.raises(ToolExecutionError) as exc_info2:
+        tool.execute(calc_ctx, helper="describe_data")  # no data_range and no data
+    assert exc_info2.value.code == "ANALYSIS_ERROR"
+    assert "data_range" in str(exc_info2.value).lower() or "data" in str(exc_info2.value).lower()
+
+
+@pytest.mark.parametrize(
+    ("tool_cls_path", "helper_name"),
+    [
+        ("plugin.calc.analysis.AnalyzeDataTool", "describe_data"),
+        ("plugin.calc.forecast.ForecastDataTool", "forecast_time_series"),
+        ("plugin.calc.optimize.OptimizeDataTool", "linear_programming"),
+        ("plugin.calc.viz.PlotDataTool", "quick_plot"),
+    ],
+)
+def test_data_tools_let_disposal_through(calc_ctx, tool_cls_path, helper_name):
+    import importlib
+
+    module_path, cls_name = tool_cls_path.rsplit(".", 1)
+    tool = getattr(importlib.import_module(module_path), cls_name)()
+    calc_ctx.active_domain = None
+    boom = _disposed()
+    with (
+        patch("plugin.calc.analysis.run_domain", side_effect=boom),
+        pytest.raises(type(boom)),
+    ):
+        tool.execute(calc_ctx, helper=helper_name, data_range="Sheet1.A1:B2")
+
+
+@pytest.mark.parametrize(
+    ("tool_cls_path", "helper_name", "active_domain"),
+    [
+        ("plugin.calc.analysis.AnalyzeDataTool", "describe_data", "analysis"),
+        ("plugin.calc.forecast.ForecastDataTool", "forecast_time_series", "forecast"),
+        ("plugin.calc.forecast.ForecastDataTool", "forecast_time_series", "analysis"),
+        ("plugin.calc.optimize.OptimizeDataTool", "linear_programming", "optimize"),
+        ("plugin.calc.viz.PlotDataTool", "quick_plot", "analysis"),
+        ("plugin.calc.viz.PlotDataTool", "quick_plot", "viz"),
+    ],
+)
+def test_raw_data_refused_in_range_only_domains(calc_ctx, tool_cls_path, helper_name, active_domain):
+    import importlib
+
+    module_path, cls_name = tool_cls_path.rsplit(".", 1)
+    tool = getattr(importlib.import_module(module_path), cls_name)()
+    calc_ctx.active_domain = active_domain
+    with (
+        patch("plugin.calc.analysis.run_domain") as mock_run,
+        pytest.raises(ToolExecutionError) as exc_info,
+    ):
+        tool.execute(calc_ctx, helper=helper_name, data=[["x"], [1]])
+    assert exc_info.value.code == "INVALID_PARAM"
+    mock_run.assert_not_called()
+
+
+def test_raw_data_allowed_outside_owning_and_analysis_domains(calc_ctx):
+    calc_ctx.active_domain = "forecast"
+    tool = AnalyzeDataTool()
+    with patch("plugin.calc.analysis.run_domain", return_value={"status": "ok"}) as mock_run:
+        res = tool.execute(calc_ctx, helper="describe_data", data=[["x"], [1]])
+    assert res["status"] == "ok"
+    assert mock_run.call_args.kwargs["data"] == [["x"], [1]]

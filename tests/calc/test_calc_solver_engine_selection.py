@@ -8,13 +8,11 @@
 
 """Unit tests for calc_solver engine selection (no UNO document required)."""
 
+from __future__ import annotations
 
-from plugin.calc.analysis import (
-    _impl_name_is_java_nlp_headless_unsafe,
-    _should_reject_solver_for_headless,
-    _user_requested_java_nlp_engine,
-)
-import pytest
+from typing import Any
+
+from plugin.calc.analysis import pick_solver
 
 
 class _FakeSolver:
@@ -25,36 +23,116 @@ class _FakeSolver:
         return self._impl_name
 
 
-class TestCalcSolverEngineSelection:
-    @pytest.mark.parametrize(
-        "value",
-        [
-            pytest.param("com.sun.star.comp.Calc.NLPSolver.DEPSSolverImpl", id="test_deps_impl_name_is_unsafe_without_nlpsolver_substring"),
-            pytest.param("Some.NLPSolver.Foo", id="test_nlpsolver_in_name_is_unsafe"),
-        ],
-    )
-    def test_deps_impl_name_is_unsafe_without_nlpsolver_substring(self, value) -> None:
-        assert (_impl_name_is_java_nlp_headless_unsafe(
-                value
-            ))
+class _FakeEnum:
+    def __init__(self, items: list[Any]):
+        self._items = items
+        self._idx = 0
+
+    def hasMoreElements(self) -> bool:
+        return self._idx < len(self._items)
+
+    def nextElement(self) -> Any:
+        item = self._items[self._idx]
+        self._idx += 1
+        return item
 
 
-    def test_coinmp_not_unsafe(self) -> None:
-        assert not (_impl_name_is_java_nlp_headless_unsafe("com.sun.star.comp.Calc.CoinMPSolver"))
+class _FakeFactory:
+    def __init__(self, impl_name: str, result: Any):
+        self._impl_name = impl_name
+        self._result = result
+        self.called = False
 
-    def test_user_requested_java_nlp(self) -> None:
-        assert (_user_requested_java_nlp_engine("com.sun.star.comp.Calc.NLPSolver.X"))
-        assert not (_user_requested_java_nlp_engine("com.sun.star.sheet.SolverLinear"))
-        assert not (_user_requested_java_nlp_engine(None))
-        assert not (_user_requested_java_nlp_engine("com.sun.star.sheet.Solver"))
+    def getImplementationName(self) -> str:
+        return self._impl_name
 
-    def test_reject_deps_when_not_explicitly_requested(self) -> None:
-        s = _FakeSolver("com.sun.star.comp.Calc.NLPSolver.DEPSSolverImpl")
-        assert (_should_reject_solver_for_headless(None, s))
-        assert (_should_reject_solver_for_headless("com.sun.star.sheet.SolverLinear", s))
-
-    def test_allow_deps_when_user_requested_nlpsolver(self) -> None:
-        s = _FakeSolver("com.sun.star.comp.Calc.NLPSolver.DEPSSolverImpl")
-        assert not (_should_reject_solver_for_headless("com.sun.star.comp.Calc.NLPSolver.DEPS", s))
+    def createInstanceWithContext(self, _ctx: Any) -> Any:
+        self.called = True
+        if isinstance(self._result, Exception):
+            raise self._result
+        return self._result
 
 
+class _FakeSmgr:
+    def __init__(self, services: dict[str, Any], factories: list[Any] | None = None):
+        self._services = services
+        self._factories = factories or []
+
+    def createInstanceWithContext(self, svc: str, _ctx: Any) -> Any:
+        val = self._services.get(svc)
+        if isinstance(val, Exception):
+            raise val
+        return val
+
+    def createContentEnumeration(self, _svc: str) -> _FakeEnum:
+        return _FakeEnum(self._factories)
+
+
+class TestPickSolver:
+    def test_named_engine_wins(self) -> None:
+        custom = _FakeSolver("com.example.CustomSolver")
+        coinmp = _FakeSolver("com.sun.star.comp.Calc.CoinMPSolver")
+        smgr = _FakeSmgr(
+            {
+                "com.example.CustomSolver": custom,
+                "com.sun.star.comp.Calc.CoinMPSolver": coinmp,
+            }
+        )
+        picked = pick_solver(smgr, object(), "com.example.CustomSolver")
+        assert picked == (custom, "com.example.CustomSolver")
+
+    def test_missing_named_engine_falls_back_to_coinmp(self) -> None:
+        coinmp = _FakeSolver("com.sun.star.comp.Calc.CoinMPSolver")
+        smgr = _FakeSmgr(
+            {
+                "com.example.MissingSolver": None,
+                "com.sun.star.comp.Calc.CoinMPSolver": coinmp,
+            }
+        )
+        picked = pick_solver(smgr, object(), "com.example.MissingSolver")
+        assert picked == (coinmp, "com.sun.star.comp.Calc.CoinMPSolver")
+
+    def test_enumeration_skips_java_nlp_without_instantiating_and_picks_swarm(self) -> None:
+        deps = _FakeFactory("com.sun.star.comp.Calc.NLPSolver.DEPSSolverImpl", _FakeSolver("deps"))
+        sco = _FakeFactory("com.sun.star.comp.Calc.NLPSolver.SCOSolverImpl", _FakeSolver("sco"))
+        swarm_solver = _FakeSolver("com.sun.star.comp.Calc.SwarmSolver")
+        swarm = _FakeFactory("com.sun.star.comp.Calc.SwarmSolver", swarm_solver)
+
+        smgr = _FakeSmgr(
+            {
+                "com.sun.star.sheet.SolverLinear": None,
+                "com.sun.star.comp.Calc.CoinMPSolver": RuntimeError("no libsolverlo"),
+                "com.sun.star.comp.Calc.LpsolveSolver": None,
+            },
+            factories=[deps, sco, swarm],
+        )
+        picked = pick_solver(smgr, object(), "com.sun.star.sheet.Solver")
+        assert picked == (swarm_solver, "enumeration:com.sun.star.comp.Calc.SwarmSolver")
+        assert not deps.called
+        assert not sco.called
+        assert swarm.called
+
+    def test_generic_java_nlp_rejected_when_not_requested(self) -> None:
+        deps = _FakeSolver("com.sun.star.comp.Calc.NLPSolver.DEPSSolverImpl")
+        smgr = _FakeSmgr({"com.sun.star.sheet.Solver": deps})
+        assert pick_solver(smgr, object(), None) is None
+
+    def test_generic_java_nlp_allowed_when_explicitly_named(self) -> None:
+        deps = _FakeSolver("com.sun.star.comp.Calc.NLPSolver.DEPSSolverImpl")
+        smgr = _FakeSmgr(
+            {
+                "com.sun.star.comp.Calc.NLPSolver.DEPS": None,
+                "com.sun.star.sheet.Solver": deps,
+            }
+        )
+        picked = pick_solver(smgr, object(), "com.sun.star.comp.Calc.NLPSolver.DEPS")
+        assert picked == (deps, "com.sun.star.sheet.Solver")
+
+    def test_enumeration_skips_failing_factory(self) -> None:
+        broken = _FakeFactory("com.sun.star.comp.Calc.BrokenSolver", RuntimeError("cannot activate"))
+        swarm_solver = _FakeSolver("com.sun.star.comp.Calc.SwarmSolver")
+        swarm = _FakeFactory("com.sun.star.comp.Calc.SwarmSolver", swarm_solver)
+
+        smgr = _FakeSmgr({}, factories=[broken, swarm])
+        picked = pick_solver(smgr, object(), None)
+        assert picked == (swarm_solver, "enumeration:com.sun.star.comp.Calc.SwarmSolver")

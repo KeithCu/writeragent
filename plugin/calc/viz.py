@@ -9,9 +9,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from plugin.framework.tool import ToolBaseDummy
-from plugin.framework.errors import ToolExecutionError
 from plugin.framework.queue_executor import main
-from plugin.scripting.helper_domain import run_domain
 from plugin.scripting.helper_registry import names
 from plugin.scripting.viz import insert_viz_result_into_doc
 
@@ -43,26 +41,11 @@ class PlotDataTool(ToolBaseDummy):
         return True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        from plugin.calc.analysis import extract_calc_data_tool_args
-
-        helper, dr, data, params, headers, task_hint, _output_range = extract_calc_data_tool_args(kwargs)
-        if not helper:
-            return self._tool_error("helper is required")
-        if helper not in names("viz"):
-            return self._tool_error(f"Unknown helper {helper!r}")
-        if not dr and data is None:
-            return self._tool_error("Provide data_range")
-        if getattr(ctx, "active_domain", None) == "analysis" and data is not None:
-            return self._tool_error("analysis domain requires data_range (A1 address string) only for plot_data.")
-
+        from plugin.calc.analysis import run_calc_data_tool
         from plugin.scripting.payload_codec import extract_image_payload, write_image_payload_to_temp
 
-        try:
-            result = run_domain("viz", ctx.ctx, ctx.doc, helper=helper, params=params, data_range=dr, data=data, headers=headers, task_hint=task_hint)
-        except ToolExecutionError as exc:
-            return self._tool_error(str(exc), code=getattr(exc, "code", "VIZ_ERROR"))
-        except Exception as exc:
-            return self._tool_error(f"Failed to run plot: {exc}")
+        # run_domain rejects a blank or unknown helper and missing data with VIZ_ERROR.
+        result = run_calc_data_tool(ctx, "viz", kwargs)[1]
 
         if result.get("status") != "ok":
             return result

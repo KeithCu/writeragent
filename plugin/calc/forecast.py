@@ -8,7 +8,6 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from plugin.framework.tool import ToolBaseDummy
-from plugin.framework.errors import ToolExecutionError
 from plugin.scripting.helper_registry import names, specs
 
 if TYPE_CHECKING:
@@ -50,28 +49,11 @@ class ForecastDataTool(ToolBaseDummy):
         return True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        from plugin.calc.analysis import extract_calc_data_tool_args, write_anchor_result
+        from plugin.calc.analysis import run_calc_data_tool, write_anchor_result
         from plugin.scripting.forecast import insert_forecast_result_into_calc
-        from plugin.scripting.helper_domain import run_domain
 
-        helper, dr, data, params, headers, task_hint, output_range = extract_calc_data_tool_args(kwargs)
-
-        if getattr(ctx, "active_domain", None) in ("analysis", "forecast") and data is not None:
-            return self._tool_error("analysis/forecast domain requires data_range (A1 address string) only. Do not pass raw data values — the host must resolve the range out-of-band.")
-
-        # Call run_domain on this worker. It both reads the sheet
-        # and blocks in client_run_forecast, so main.call would
-        # put that IPC on the UI thread and freeze Calc. The helper marshals
-        # only the UNO read; the sheet write below stays on the main thread.
-        try:
-            result = run_domain("forecast", ctx.ctx, ctx.doc, helper=helper, params=params, data_range=dr, data=data, headers=headers, task_hint=task_hint)
-        except ToolExecutionError as exc:
-            return self._tool_error(str(exc), code=getattr(exc, "code", "FORECAST_ERROR"))
-        except Exception as exc:
-            return self._tool_error(f"Failed to run forecast: {exc}")
-
-        if output_range and result.get("status") == "ok":
-            result = write_anchor_result(ctx, result, output_range, insert_forecast_result_into_calc)
+        args, result = run_calc_data_tool(ctx, "forecast", kwargs)
+        result = write_anchor_result(ctx, result, args.output_range, insert_forecast_result_into_calc)
 
         if result.get("status") == "ok" and ctx.doc_type == "calc":
             auto_plot = bool(kwargs.get("auto_plot", False))
@@ -79,12 +61,20 @@ class ForecastDataTool(ToolBaseDummy):
             from plugin.calc.viz_auto_plot import apply_auto_plot_result, task_hint_implies_plot
 
             plot_result = None
-            if helper == "forecast_time_series" and (auto_plot or task_hint_implies_plot(task_hint)):
+            if args.helper == "forecast_time_series" and (auto_plot or task_hint_implies_plot(args.task_hint)):
                 # Call run_auto_plot_after_forecast on this worker. It
                 # marshals the sheet read itself. Wrapping it in
                 # main.call runs the matplotlib IPC on the UI
                 # thread. insert_viz_result_into_doc below stays on main.
-                plot_result = run_auto_plot_after_forecast(ctx.ctx, ctx.doc, forecast_helper=helper, forecast_result=result, forecast_params=params, data_range=dr, task_hint=task_hint)
+                plot_result = run_auto_plot_after_forecast(
+                    ctx.ctx,
+                    ctx.doc,
+                    forecast_helper=args.helper,
+                    forecast_result=result,
+                    forecast_params=args.params,
+                    data_range=args.data_range,
+                    task_hint=args.task_hint,
+                )
             result = apply_auto_plot_result(result, plot_result, ctx.ctx, ctx.doc)
 
         return result
