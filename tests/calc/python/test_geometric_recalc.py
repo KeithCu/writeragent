@@ -9,8 +9,9 @@ from __future__ import annotations
 from unittest.mock import patch
 
 from plugin.calc.calc_addin_data import split_python_addin_data_args
-from plugin.calc.python.cell_discovery import _MAX_PYTHON_CELLS_FOUND
+from plugin.calc.python.cell_discovery import MAX_PYTHON_CELLS_FOUND
 from plugin.calc.python.formula_edit import PyFormula
+from plugin.calc.python.function import CellContext
 from plugin.calc.address_utils import local_a1
 from plugin.calc.python.geometric_recalc import (
     CONFIG_KEY,
@@ -23,12 +24,12 @@ from plugin.calc.python.geometric_recalc import (
     compute_sheet_repair,
     _RUNTIME,
     ensure_geometric_strip_index_for_eval,
-    geometric_workbook_key,
     load_geometric_registry_for_doc,
     maybe_geometric_on_document_open,
     maybe_strip_geometric_eval_args,
     notify_geometric_cap_hit,
     reconcile,
+    reconcile_geometric_sheet,
     replace_geometric_strip_safe,
     reset_geometric_runtime_for_tests,
     save_geometric_registry_for_doc,
@@ -38,6 +39,7 @@ from plugin.calc.python.geometric_recalc_core import (
     rebuild_formula_with_data_args,
     same_cell_ref,
 )
+from plugin.scripting.session_manager import calc_workbook_base_session_id
 
 
 WB = "calc:file:///pipe.ods"
@@ -48,6 +50,22 @@ def _wb_doc(url: str = "file:///pipe.ods") -> object:
     from plugin.tests.testing_utils import CalcDocStub
 
     return CalcDocStub(url=url)
+
+
+def _eval_cell(doc: object, *, on_main: bool = True) -> CellContext:
+    """The CellContext fields the strip reads, as build_cell_context sets them for a =PY() call from *doc*."""
+    return CellContext(
+        ctx=None,
+        on_main=on_main,
+        doc=doc,
+        state=None,
+        session_id=None,
+        init_kwargs={},
+        scoped_dir=None,
+        origin=None,
+        is_matrix=False,
+        workbook_key=calc_workbook_base_session_id(doc) if on_main and doc is not None else "",
+    )
 
 
 def _cell(addr: str, formula: str, code: str | None = None) -> GeometricCell:
@@ -727,7 +745,7 @@ def test_fill_down_unanimous_ours_is_strip_safe():
     assert key in safe
     col, pred = _mean_range_and_pred()
     replace_geometric_strip_safe(WB, safe)
-    assert maybe_strip_geometric_eval_args(code, [col, pred], doc=_wb_doc()) == [col]
+    assert maybe_strip_geometric_eval_args(code, [col, pred], _eval_cell(_wb_doc())) == [col]
     reset_geometric_runtime_for_tests()
     first_key = _key(code, 1)
     assert first_key not in safe
@@ -748,7 +766,7 @@ def test_mixed_matrix_index_poisons_the_triple():
     assert mixed_key not in safe
     replace_geometric_strip_safe(WB, safe)
     args = ["b_data", "c_data"]
-    assert maybe_strip_geometric_eval_args(code, args, doc=_wb_doc()) == args
+    assert maybe_strip_geometric_eval_args(code, args, _eval_cell(_wb_doc())) == args
     reset_geometric_runtime_for_tests()
 
 
@@ -780,15 +798,15 @@ def test_two_workbooks_unambiguous_false_no_strip():
     replace_geometric_strip_safe(WB, safe)
     code = "np.mean(data)"
     args = ["range_data", "pred_data"]
-    assert maybe_strip_geometric_eval_args(code, args, doc=None) == args
+    assert maybe_strip_geometric_eval_args(code, args, _eval_cell(None)) == args
     with patch("plugin.framework.queue_executor.main.is_current", return_value=False):
-        assert maybe_strip_geometric_eval_args(code, args, doc=_wb_doc()) == args
+        assert maybe_strip_geometric_eval_args(code, args, _eval_cell(_wb_doc(), on_main=False)) == args
     reset_geometric_runtime_for_tests()
 
 
 def test_exact_100_without_truncated_is_chained():
     """Phase 3: an exact 100 that finished the scan is not a cap-hit."""
-    cells = [_cell(f"A{i + 1}", '=PY("x")') for i in range(_MAX_PYTHON_CELLS_FOUND)]
+    cells = [_cell(f"A{i + 1}", '=PY("x")') for i in range(MAX_PYTHON_CELLS_FOUND)]
     patches, _records = _repair(cells, sheet_name="Data")
     assert patches  # A2..A100 get a predecessor
 
@@ -842,7 +860,7 @@ def test_cap_hit_user_message_names_the_sheet(monkeypatch):
     assert notify_geometric_cap_hit("ctx", "Pivots", workbook_key="calc:wb") is True
     assert len(boxes) == 1
     assert "Pivots" in boxes[0][2]
-    assert str(_MAX_PYTHON_CELLS_FOUND) in boxes[0][2]
+    assert str(MAX_PYTHON_CELLS_FOUND) in boxes[0][2]
 
 
 def test_truncated_sheet_installs_empty_index_for_workbook(monkeypatch):
@@ -852,9 +870,9 @@ def test_truncated_sheet_installs_empty_index_for_workbook(monkeypatch):
 
     _reset_geo()
     doc = CalcDocStub(url="file:///truncated-wb.ods")
-    # Sheet1 has _MAX_PYTHON_CELLS_FOUND + 1 cells
+    # Sheet1 has MAX_PYTHON_CELLS_FOUND + 1 cells
     sheet1 = doc.getSheets().getByName("Sheet1")
-    for i in range(_MAX_PYTHON_CELLS_FOUND + 1):
+    for i in range(MAX_PYTHON_CELLS_FOUND + 1):
         c = sheet1.getCellByPosition(0, i)
         c.setFormula('=PY("np.mean(data)"; B1:B10; C1)')
 
@@ -878,7 +896,7 @@ def test_truncated_sheet_installs_empty_index_for_workbook(monkeypatch):
 
     assert _RUNTIME.strip_safe == frozenset()
     assert (
-        maybe_strip_geometric_eval_args("np.mean(data)", [col, pred], doc=doc)
+        maybe_strip_geometric_eval_args("np.mean(data)", [col, pred], _eval_cell(doc))
         == [col, pred]
     )
 
@@ -903,11 +921,11 @@ def test_isolated_workbook_key_never_empty():
         "plugin.scripting.session_manager.python_session_mode", return_value="isolated"
     ):
         assert sm.workbook_session_id(doc) is None
-        sid = geometric_workbook_key(doc)
+        sid = calc_workbook_base_session_id(doc)
     assert sid == "calc:file:///isolated.ods"
     assert sid.startswith("calc:")
     assert sid != "calc:"
-    assert geometric_workbook_key(doc) == sid
+    assert calc_workbook_base_session_id(doc) == sid
 
 
 def test_unsaved_workbook_key_is_never_empty():
@@ -919,8 +937,8 @@ def test_unsaved_workbook_key_is_never_empty():
         "plugin.scripting.session_manager.mint_document_key",
         return_value="unsaved-stable-id",
     ):
-        sid = geometric_workbook_key(doc)
-        assert geometric_workbook_key(doc) == sid
+        sid = calc_workbook_base_session_id(doc)
+        assert calc_workbook_base_session_id(doc) == sid
     assert sid == "calc:unsaved-stable-id"
     assert sid != "calc:"
 
@@ -1005,7 +1023,7 @@ def test_after_save_attaches_predecessor(monkeypatch):
     )
     monkeypatch.setattr("plugin.doc.udprops.get_document_property", lambda *_a, **_k: None)
     monkeypatch.setattr("plugin.doc.udprops.set_document_property", lambda *_a, **_k: None)
-    after_py_cell_save(doc, cell, ctx="ctx")
+    after_py_cell_save(doc, cell)
     assert cell.getFormula() == '=PY("second";A1)'
 
 
@@ -1021,7 +1039,7 @@ def test_flag_off_does_not_attach_on_save(monkeypatch):
     monkeypatch.setattr(
         "plugin.calc.python.geometric_recalc.geometric_flag_enabled", lambda: False
     )
-    after_py_cell_save(doc, cell, ctx="ctx")
+    after_py_cell_save(doc, cell)
     assert cell.getFormula() == '=PY("second")'
 
 
@@ -1068,7 +1086,7 @@ def test_cap_hit_sheet_skipped_on_reconcile(monkeypatch):
     _reset_geo()
     doc = CalcDocStub(url="file:///cap-geo.ods")
     sheet = doc.getSheets().getByName("Sheet1")
-    for i in range(_MAX_PYTHON_CELLS_FOUND + 1):
+    for i in range(MAX_PYTHON_CELLS_FOUND + 1):
         sheet.getCellByPosition(0, i).setFormula(f'=PY("x{i}")')
     monkeypatch.setattr(
         "plugin.calc.python.geometric_recalc.geometric_flag_enabled", lambda: True
@@ -1093,7 +1111,7 @@ def test_cap_hit_msgbox_persists_across_reconcile_without_shared_set(monkeypatch
     _reset_geo()
     sheet1 = CalcSheetStub("Sheet1")
     sheet2 = CalcSheetStub("Data")
-    for i in range(_MAX_PYTHON_CELLS_FOUND + 1):
+    for i in range(MAX_PYTHON_CELLS_FOUND + 1):
         sheet1.getCellByPosition(0, i).setFormula(f'=PY("x{i}")')
         sheet2.getCellByPosition(0, i).setFormula(f'=PY("y{i}")')
     doc = CalcDocStub(sheets=[sheet1, sheet2], url="file:///cap-persist.ods")
@@ -1147,7 +1165,7 @@ def test_strip_np_mean_data_stays_single_range():
     with (
         patch("plugin.calc.python.function.run_code_in_user_venv") as mock_run,
         # The caller doc is a stub; keep the strip-safe set this test installed.
-        patch("plugin.calc.python.geometric_recalc.ensure_geometric_strip_index_for_eval"),
+        patch("plugin.calc.python.function.ensure_geometric_strip_index_for_eval"),
     ):
         mock_run.return_value = {"status": "ok", "result": 2.0}
         out = execute_python_addin(object(), "np.mean(data)", (col, pred), doc=_wb_doc())
@@ -1170,7 +1188,7 @@ def test_strip_ranges_minus_one_is_user_range_not_pred():
     with (
         patch("plugin.calc.python.function.run_code_in_user_venv") as mock_run,
         # The caller doc is a stub; keep the strip-safe set this test installed.
-        patch("plugin.calc.python.geometric_recalc.ensure_geometric_strip_index_for_eval"),
+        patch("plugin.calc.python.function.ensure_geometric_strip_index_for_eval"),
     ):
         mock_run.return_value = {"status": "ok", "result": (3, 1)}
         execute_python_addin(object(), code, (col, pred), doc=_wb_doc())
@@ -1192,7 +1210,7 @@ def test_strip_runs_before_matrix_index_peel():
     with (
         patch("plugin.calc.python.function.run_code_in_user_venv") as mock_run,
         # The caller doc is a stub; keep the strip-safe set this test installed.
-        patch("plugin.calc.python.geometric_recalc.ensure_geometric_strip_index_for_eval"),
+        patch("plugin.calc.python.function.ensure_geometric_strip_index_for_eval"),
     ):
         mock_run.return_value = {"status": "ok", "result": [10, 20, 30]}
         out = execute_python_addin(object(), "np.mean(data)", (col, pred), doc=_wb_doc())
@@ -1210,16 +1228,16 @@ def test_fill_down_both_strip():
     code = "np.mean(data)"
     col, pred = _mean_range_and_pred()
     replace_geometric_strip_safe(WB, frozenset({_key(code, 2)}))
-    stripped = maybe_strip_geometric_eval_args(code, [col, pred], doc=_wb_doc())
+    stripped = maybe_strip_geometric_eval_args(code, [col, pred], _eval_cell(_wb_doc()))
     assert stripped == [col]
-    assert maybe_strip_geometric_eval_args(code, [col, ((1.0,),)], doc=_wb_doc()) == [col]
+    assert maybe_strip_geometric_eval_args(code, [col, ((1.0,),)], _eval_cell(_wb_doc())) == [col]
 
 
 def test_mixed_poison_neither_strips():
     _reset_geo()
     # Triple not in the map → no strip (mixed poisons the whole triple).
     col, pred = _mean_range_and_pred()
-    assert maybe_strip_geometric_eval_args("f", [col, pred], doc=_wb_doc()) == [col, pred]
+    assert maybe_strip_geometric_eval_args("f", [col, pred], _eval_cell(_wb_doc())) == [col, pred]
 
 
 def test_no_caller_doc_no_strip_at_eval():
@@ -1229,7 +1247,7 @@ def test_no_caller_doc_no_strip_at_eval():
         "calc:file:///a.ods",
         frozenset({_key("np.mean(data)", 2, "calc:file:///a.ods")}),
     )
-    assert maybe_strip_geometric_eval_args("np.mean(data)", [col, pred]) == [col, pred]
+    assert maybe_strip_geometric_eval_args("np.mean(data)", [col, pred], _eval_cell(None)) == [col, pred]
 
 
 def test_two_workbooks_ui_thread_doc_still_strips():
@@ -1239,12 +1257,12 @@ def test_two_workbooks_ui_thread_doc_still_strips():
     _reset_geo()
     replace_geometric_strip_safe("calc:file:///b.ods", frozenset({_key("np.mean(data)", 2, "calc:file:///b.ods")}))
     doc = CalcDocStub(url="file:///a.ods")
-    sid = geometric_workbook_key(doc)
+    sid = calc_workbook_base_session_id(doc)
     col, pred = _mean_range_and_pred()
     replace_geometric_strip_safe(sid, frozenset({_key("np.mean(data)", 2, sid)}))
     with patch("plugin.framework.queue_executor.main.is_current", return_value=True):
         assert maybe_strip_geometric_eval_args(
-            "np.mean(data)", [col, pred], doc=doc
+            "np.mean(data)", [col, pred], _eval_cell(doc)
         ) == [col]
 
 
@@ -1254,12 +1272,12 @@ def test_two_workbooks_off_main_doc_does_not_strip():
 
     _reset_geo()
     doc = CalcDocStub(url="file:///a.ods")
-    sid = geometric_workbook_key(doc)
+    sid = calc_workbook_base_session_id(doc)
     col, pred = _mean_range_and_pred()
     replace_geometric_strip_safe(sid, frozenset({_key("np.mean(data)", 2, sid)}))
     with patch("plugin.framework.queue_executor.main.is_current", return_value=False):
         assert maybe_strip_geometric_eval_args(
-            "np.mean(data)", [col, pred], doc=doc
+            "np.mean(data)", [col, pred], _eval_cell(doc, on_main=False)
         ) == [col, pred]
 
 
@@ -1271,11 +1289,11 @@ def test_isolated_caller_doc_strips():
     with patch(
         "plugin.scripting.session_manager.python_session_mode", return_value="isolated"
     ):
-        sid = geometric_workbook_key(doc)
+        sid = calc_workbook_base_session_id(doc)
     col, pred = _mean_range_and_pred()
     replace_geometric_strip_safe(sid, frozenset({_key("np.mean(data)", 2, sid)}))
     with patch("plugin.framework.queue_executor.main.is_current", return_value=True):
-        assert maybe_strip_geometric_eval_args("np.mean(data)", [col, pred], doc=doc) == [col]
+        assert maybe_strip_geometric_eval_args("np.mean(data)", [col, pred], _eval_cell(doc)) == [col]
 
 
 def test_ensure_strip_index_empty_registry_skips_discovery(monkeypatch):
@@ -1286,7 +1304,7 @@ def test_ensure_strip_index_empty_registry_skips_discovery(monkeypatch):
     doc = CalcDocStub(url="file:///empty-reg.ods")
     sheet = doc.getSheets().getByName("Sheet1")
     sheet.getCellByPosition(0, 0).setFormula('=PY("x = 1")')
-    wk = geometric_workbook_key(doc)
+    wk = calc_workbook_base_session_id(doc)
     replace_geometric_strip_safe(wk, frozenset({_key("seeded", 1, wk)}))
 
     monkeypatch.setattr(
@@ -1301,7 +1319,7 @@ def test_ensure_strip_index_empty_registry_skips_discovery(monkeypatch):
         patch("plugin.doc.udprops.get_document_property", lambda _doc, _name, default=None: None),
         patch("plugin.framework.queue_executor.main.is_current", return_value=True),
     ):
-        ensure_geometric_strip_index_for_eval(doc, ctx=None)
+        ensure_geometric_strip_index_for_eval(_eval_cell(doc))
 
     assert mock_discover.call_count == 0
     assert _RUNTIME.strip_safe == frozenset()
@@ -1333,8 +1351,8 @@ def test_ensure_strip_index_hydrates_from_udprop():
         ),
         patch("plugin.framework.queue_executor.main.is_current", return_value=True),
     ):
-        ensure_geometric_strip_index_for_eval(doc, ctx=None)
-        assert maybe_strip_geometric_eval_args("x", [((41.0,),)], doc=doc) == []
+        ensure_geometric_strip_index_for_eval(_eval_cell(doc))
+        assert maybe_strip_geometric_eval_args("x", [((41.0,),)], _eval_cell(doc)) == []
 
 
 def test_flag_off_rebuilds_nonempty_strip_index_and_keeps_user_data(monkeypatch):
@@ -1352,7 +1370,7 @@ def test_flag_off_rebuilds_nonempty_strip_index_and_keeps_user_data(monkeypatch)
     sheet = doc.getSheets().getByName("Sheet1")
     sheet.getCellByPosition(0, 1).setFormula('=PY("np.mean(data)"; B1:B10; A1)')
     sheet.getCellByPosition(0, 2).setFormula('=PY("np.mean(data)"; B1:B10; C5)')
-    wk = geometric_workbook_key(doc)
+    wk = calc_workbook_base_session_id(doc)
     payload = json.dumps(
         {
             "workbook_key": wk,
@@ -1373,9 +1391,9 @@ def test_flag_off_rebuilds_nonempty_strip_index_and_keeps_user_data(monkeypatch)
         ),
         patch("plugin.framework.queue_executor.main.is_current", return_value=True),
     ):
-        ensure_geometric_strip_index_for_eval(doc, ctx=None)
+        ensure_geometric_strip_index_for_eval(_eval_cell(doc))
         assert _key("np.mean(data)", 2, wk) not in _RUNTIME.strip_safe
-        assert maybe_strip_geometric_eval_args("np.mean(data)", [col, pred], doc=doc) == [
+        assert maybe_strip_geometric_eval_args("np.mean(data)", [col, pred], _eval_cell(doc)) == [
             col,
             pred,
         ]
@@ -1391,7 +1409,7 @@ def test_flag_off_nonempty_index_still_strips_unanimous_leftover(monkeypatch):
     doc = CalcDocStub(url="file:///flag-off-leftover.ods")
     sheet = doc.getSheets().getByName("Sheet1")
     sheet.getCellByPosition(0, 1).setFormula('=PY("np.mean(data)"; B1:B10; A1)')
-    wk = geometric_workbook_key(doc)
+    wk = calc_workbook_base_session_id(doc)
     payload = json.dumps(
         {
             "workbook_key": wk,
@@ -1415,10 +1433,10 @@ def test_flag_off_nonempty_index_still_strips_unanimous_leftover(monkeypatch):
         ),
         patch("plugin.framework.queue_executor.main.is_current", return_value=True),
     ):
-        ensure_geometric_strip_index_for_eval(doc, ctx=None)
+        ensure_geometric_strip_index_for_eval(_eval_cell(doc))
         assert EvalIndexKey(wk, "stale", 2) not in _RUNTIME.strip_safe
         assert _key("np.mean(data)", 2, wk) in _RUNTIME.strip_safe
-        assert maybe_strip_geometric_eval_args("np.mean(data)", [col, pred], doc=doc) == [col]
+        assert maybe_strip_geometric_eval_args("np.mean(data)", [col, pred], _eval_cell(doc)) == [col]
 
 
 def test_flag_on_keeps_nonempty_strip_index_until_reconcile(monkeypatch):
@@ -1427,7 +1445,7 @@ def test_flag_on_keeps_nonempty_strip_index_until_reconcile(monkeypatch):
 
     _reset_geo()
     doc = CalcDocStub(url="file:///flag-on-frozen.ods")
-    wk = geometric_workbook_key(doc)
+    wk = calc_workbook_base_session_id(doc)
     seeded = frozenset({_key("np.mean(data)", 2, wk)})
     replace_geometric_strip_safe(wk, seeded)
     monkeypatch.setattr(
@@ -1437,7 +1455,7 @@ def test_flag_on_keeps_nonempty_strip_index_until_reconcile(monkeypatch):
         patch("plugin.doc.udprops.get_document_property", lambda *_a, **_k: None),
         patch("plugin.framework.queue_executor.main.is_current", return_value=True),
     ):
-        ensure_geometric_strip_index_for_eval(doc, ctx=None)
+        ensure_geometric_strip_index_for_eval(_eval_cell(doc))
     assert _RUNTIME.strip_safe == seeded
 
 
@@ -1447,7 +1465,7 @@ def test_ensure_strip_index_off_main_is_noop():
     _reset_geo()
     doc = CalcDocStub(url="file:///hydrate-off.ods")
     with patch("plugin.framework.queue_executor.main.is_current", return_value=False):
-        ensure_geometric_strip_index_for_eval(doc, ctx=None)
+        ensure_geometric_strip_index_for_eval(_eval_cell(doc, on_main=False))
     assert _RUNTIME.strip_safe == frozenset()
 
 
@@ -1455,7 +1473,7 @@ def test_user_1x1_not_in_map_no_strip():
     _reset_geo()
     col, pred = _mean_range_and_pred()
     # User 1×1 last arg, no map record, no mixed chain → do not strip.
-    assert maybe_strip_geometric_eval_args("g", [col, pred], doc=_wb_doc()) == [col, pred]
+    assert maybe_strip_geometric_eval_args("g", [col, pred], _eval_cell(_wb_doc())) == [col, pred]
 
 
 def test_strip_helper_does_not_use_1x1_or_uniqueness():
@@ -1463,12 +1481,12 @@ def test_strip_helper_does_not_use_1x1_or_uniqueness():
     _reset_geo()
     col, pred = _mean_range_and_pred()
     # Unique code + 1×1 last arg is still no-strip without a map mark.
-    assert maybe_strip_geometric_eval_args("unique_snippet_xyz", [col, pred], doc=_wb_doc()) == [col, pred]
+    assert maybe_strip_geometric_eval_args("unique_snippet_xyz", [col, pred], _eval_cell(_wb_doc())) == [col, pred]
     # ≥1-hit would strip if any cell is ours; we require the triple in strip_safe.
     from plugin.calc.python.geometric_recalc import _RUNTIME
 
     _RUNTIME.records[(WB, "Sheet1", "A2")] = GeometricRecord(predecessor="A1")
-    assert maybe_strip_geometric_eval_args("f", [col, pred], doc=_wb_doc()) == [col, pred]
+    assert maybe_strip_geometric_eval_args("f", [col, pred], _eval_cell(_wb_doc())) == [col, pred]
 
 
 def test_mixed_same_code_n_args_overpoisons_other_range():
@@ -1496,8 +1514,8 @@ def test_mixed_same_code_n_args_overpoisons_other_range():
     safe = compute_eval_index(cells, records, WB)
     assert _key(code, 2) not in safe
     replace_geometric_strip_safe(WB, safe)
-    assert maybe_strip_geometric_eval_args(code, [range_a, pred], doc=_wb_doc()) == [range_a, pred]
-    assert maybe_strip_geometric_eval_args(code, [range_b, pred], doc=_wb_doc()) == [range_b, pred]
+    assert maybe_strip_geometric_eval_args(code, [range_a, pred], _eval_cell(_wb_doc())) == [range_a, pred]
+    assert maybe_strip_geometric_eval_args(code, [range_b, pred], _eval_cell(_wb_doc())) == [range_b, pred]
 
 
 def test_data_value_edit_still_strips():
@@ -1512,7 +1530,7 @@ def test_data_value_edit_still_strips():
     replace_geometric_strip_safe(WB, frozenset({_key(code, 2)}))
     edited_col = ((1.0,), (99.0,), (3.0,))
     pred = ((0.0,),)
-    assert maybe_strip_geometric_eval_args(code, [edited_col, pred], doc=_wb_doc()) == [edited_col]
+    assert maybe_strip_geometric_eval_args(code, [edited_col, pred], _eval_cell(_wb_doc())) == [edited_col]
 
 
 def test_flag_off_still_strips_leftover_attached_arg(monkeypatch):
@@ -1523,7 +1541,7 @@ def test_flag_off_still_strips_leftover_attached_arg(monkeypatch):
     )
     col, pred = _mean_range_and_pred()
     replace_geometric_strip_safe(WB, frozenset({_key("np.mean(data)", 2)}))
-    assert maybe_strip_geometric_eval_args("np.mean(data)", [col, pred], doc=_wb_doc()) == [col]
+    assert maybe_strip_geometric_eval_args("np.mean(data)", [col, pred], _eval_cell(_wb_doc())) == [col]
 
 
 def test_strip_safe_snapshot_is_rebound_not_mutated():
@@ -1689,7 +1707,6 @@ def test_data_edit_rebuilds_strip_safe_index(monkeypatch):
     """A data-edit that changes the PY list must rebuild unanimous-ours."""
     from plugin.calc.python.geometric_recalc import (
         _RUNTIME,
-        geometric_workbook_key,
     )
     from plugin.calc.python.sheet_modify import (
         flush_sheet_modify_pass_for_tests,
@@ -1709,7 +1726,7 @@ def test_data_edit_rebuilds_strip_safe_index(monkeypatch):
     monkeypatch.setattr("plugin.doc.udprops.get_document_property", lambda *_a, **_k: None)
     monkeypatch.setattr("plugin.doc.udprops.set_document_property", lambda *_a, **_k: None)
     flush_sheet_modify_pass_for_tests("ctx", doc, sheet)
-    wk = geometric_workbook_key(doc)
+    wk = calc_workbook_base_session_id(doc)
     assert _key("np.mean(data)", 2, wk) in _RUNTIME.strip_safe
 
     # User already passed the previous PY cell as real data — do not record.
@@ -1800,7 +1817,7 @@ def test_compute_eval_index_requires_last_arg_equals_predecessor_bug2():
     assert _key(code, 2) not in safe1
     replace_geometric_strip_safe(WB, safe1)
     col, user_val = _mean_range_and_pred()
-    assert maybe_strip_geometric_eval_args(code, [col, user_val], doc=_wb_doc()) == [col, user_val]
+    assert maybe_strip_geometric_eval_args(code, [col, user_val], _eval_cell(_wb_doc())) == [col, user_val]
 
     # Case 2: User formula has non-cell argument (e.g. range or string).
     cells_range = [GeometricCell("A2", f'=PY("{code}"; B1:B10)', code)]
@@ -1812,7 +1829,7 @@ def test_compute_eval_index_requires_last_arg_equals_predecessor_bug2():
     safe3 = compute_eval_index(cells_correct, records, WB)
     assert _key(code, 2) in safe3
     replace_geometric_strip_safe(WB, safe3)
-    assert maybe_strip_geometric_eval_args(code, [col, user_val], doc=_wb_doc()) == [col]
+    assert maybe_strip_geometric_eval_args(code, [col, user_val], _eval_cell(_wb_doc())) == [col]
 
     # Case 4: Workbook-wide sheet-scoped keys (Sheet1:A2).
     scoped_cells = [GeometricCell("Sheet1:A2", f'=PY("{code}"; B1:B10; A1)', code)]
@@ -1887,4 +1904,25 @@ def test_flag_on_without_calc_document_does_nothing(monkeypatch):
         _on_geometric_config_changed(ctx=ctx)
 
     mock_reconcile.assert_not_called()
+
+
+def test_unreadable_sheet_name_is_not_attached(monkeypatch):
+    from plugin.tests.testing_utils import CalcDocStub
+
+    _reset_geo()
+    doc = CalcDocStub(url="file:///nameless-geo.ods")
+    sheet = doc.getSheets().getByName("Sheet1")
+    sheet.getCellByPosition(0, 0).setFormula('=PY("first")')
+    sheet.getCellByPosition(0, 1).setFormula('=PY("second")')
+    sheet.setName("")
+    monkeypatch.setattr(
+        "plugin.calc.python.geometric_recalc.geometric_flag_enabled", lambda: True
+    )
+    monkeypatch.setattr("plugin.doc.udprops.get_document_property", lambda *_a, **_k: None)
+    monkeypatch.setattr("plugin.doc.udprops.set_document_property", lambda *_a, **_k: None)
+
+    reconcile_geometric_sheet("ctx", doc, sheet)
+
+    assert sheet.getCellByPosition(0, 1).getFormula() == '=PY("second")'
+    assert all(sname not in ("Sheet", "") for (_wk, sname, _addr) in _RUNTIME.records)
 

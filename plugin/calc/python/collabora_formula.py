@@ -40,12 +40,15 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from plugin.calc.python.formula_edit import _PY_CALLS
+from plugin.calc.python.formula_edit import match_py_alias
 from plugin.calc.python.formula_locator_cache import CELL_FLAG_FORMULA, iter_range_formula_texts
 from plugin.calc.python.undo import undo_lock
 from plugin.framework.errors import best_effort, reraise_if_disposed
 
 log = logging.getLogger(__name__)
+
+# Spellings match_py_alias reports for Collabora's two OriginalNames (GETPY / GETPYTHON).
+_COLLABORA_TARGETS = {"getpy": "PY", "getpython": "PYTHON"}
 
 
 def rewrite_collabora_addin_prefix(formula: str) -> str:
@@ -71,18 +74,14 @@ def rewrite_collabora_addin_prefix(formula: str) -> str:
     while i < n and formula[i].isspace():
         i += 1
     alias_start = i
-    for alias, spelling in _PY_CALLS:
-        if not spelling.startswith("get"):
-            continue
-        if formula[alias_start : alias_start + len(alias)].upper() == alias:
-            j = alias_start + len(alias)
-            while j < n and formula[j].isspace():
-                j += 1
-            if j < n and formula[j] == "(":
-                target = "PYTHON" if spelling == "getpython" else "PY"
-                return formula[:alias_start] + target + formula[j:]
-            return formula
-    return formula
+    matched = match_py_alias(formula[alias_start:], require_equals=False)
+    if matched is None:
+        return formula
+    target = _COLLABORA_TARGETS.get(matched[1])
+    if target is None:
+        return formula
+    # matched[0] is the index just after "(", relative to alias_start; the gap before "(" is dropped as before.
+    return formula[:alias_start] + target + formula[alias_start + matched[0] - 1 :]
 
 
 def _rewrite_sheet_formulas(sheet: Any) -> int:

@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import Any
 
 from plugin.calc.python.editor import (
-    _apply_cell_save,
+    apply_cell_save,
     _resolve_code_ref_cell,
     editor_load_save_as_plain,
 )
@@ -79,7 +79,7 @@ def test_apply_cell_save_with_data_binding():
     doc = CalcDocStub()
     cell = CalcCellStub()
 
-    result = _apply_cell_save(
+    result = apply_cell_save(
         doc,
         cell,
         parsed_parts=None,
@@ -124,7 +124,7 @@ def test_apply_cell_save_formula_mode():
     parts = PyFormula.parse('=PYTHON("old"; C1:C5)')
     assert parts is not None
 
-    result = _apply_cell_save(
+    result = apply_cell_save(
         doc,
         cell,
         parsed_parts=parts,
@@ -151,7 +151,7 @@ def test_apply_cell_save_plain_text_mode():
     assert parts is not None
     code = "np.mean(data)\n"
 
-    result = _apply_cell_save(
+    result = apply_cell_save(
         doc,
         cell,
         parsed_parts=parts,
@@ -182,7 +182,7 @@ def test_follow_code_ref_save_writes_a1_keeps_formula_ref():
     resolved = _resolve_code_ref_cell(doc, parts.code)
     assert resolved is code_cell
 
-    result = _apply_cell_save(
+    result = apply_cell_save(
         doc,
         formula_cell,
         parsed_parts=parts,
@@ -221,7 +221,7 @@ def test_self_ref_code_cell_does_not_take_follow_save_path():
     assert parts is not None
 
     for code_cell in (cell, sheet.getCellByPosition(0, 0)):
-        result = _apply_cell_save(
+        result = apply_cell_save(
             doc,
             cell,
             parsed_parts=parts,
@@ -250,7 +250,7 @@ def test_follow_plain_flag_still_sends_data_text():
     resolved = _resolve_code_ref_cell(doc, parts.code)
     assert resolved is code_cell
 
-    result = _apply_cell_save(
+    result = apply_cell_save(
         doc,
         formula_cell,
         parsed_parts=parts,
@@ -279,7 +279,7 @@ def test_follow_code_ref_save_can_change_data_binding():
     parts = PyFormula.parse(formula_cell.getFormula())
     assert parts is not None
 
-    result = _apply_cell_save(
+    result = apply_cell_save(
         doc,
         formula_cell,
         parsed_parts=parts,
@@ -310,7 +310,7 @@ def test_follow_code_ref_empty_data_keeps_formula_and_one_paren():
     assert parts is not None
     original = formula_cell.getFormula()
 
-    result = _apply_cell_save(
+    result = apply_cell_save(
         doc,
         formula_cell,
         parsed_parts=parts,
@@ -336,7 +336,7 @@ def _follow_save(formula, new_code, data_binding_text):
     assert parts is not None
     resolved = _resolve_code_ref_cell(doc, parts.code)
     assert resolved is not None
-    result = _apply_cell_save(
+    result = apply_cell_save(
         doc,
         formula_cell,
         parsed_parts=parts,
@@ -380,7 +380,7 @@ def test_follow_sheet_qualified_ref_resolves_other_sheet():
     resolved = _resolve_code_ref_cell(doc, parts.code)
     assert resolved is code_cell
 
-    result = _apply_cell_save(
+    result = apply_cell_save(
         doc,
         formula_cell,
         parsed_parts=parts,
@@ -411,7 +411,7 @@ def test_follow_quoted_sheet_name_resolves():
     resolved = _resolve_code_ref_cell(doc, parts.code)
     assert resolved is code_cell
 
-    result = _apply_cell_save(
+    result = apply_cell_save(
         doc,
         formula_cell,
         parsed_parts=parts,
@@ -442,7 +442,7 @@ def test_follow_apostrophe_sheet_name_resolves():
     resolved = _resolve_code_ref_cell(doc, parts.code)
     assert resolved is code_cell
 
-    result = _apply_cell_save(
+    result = apply_cell_save(
         doc,
         formula_cell,
         parsed_parts=parts,
@@ -707,7 +707,7 @@ def test_follow_save_uses_one_undo_context():
     um = UndoManagerStub()
     doc.getUndoManager = lambda: um
 
-    result = _apply_cell_save(
+    result = apply_cell_save(
         doc,
         formula_cell,
         parsed_parts=parts,
@@ -734,8 +734,8 @@ def test_plain_save_reconciles_geometric_registry():
 
     doc = CalcDocStub()
     cell = CalcCellStub()
-    with patch("plugin.calc.python.geometric_recalc.after_py_cell_save") as mock_after:
-        result = _apply_cell_save(
+    with patch("plugin.calc.python.editor.after_py_cell_save") as mock_after:
+        result = apply_cell_save(
             doc,
             cell,
             parsed_parts=None,
@@ -744,5 +744,16 @@ def test_plain_save_reconciles_geometric_registry():
         )
         assert result["ok"] is True
         mock_after.assert_called_once_with(doc, cell)
+
+
+def test_is_follow():
+    from plugin.calc.python.editor import is_follow
+
+    cell_a1 = CalcCellStub(col=0, row=0)
+    cell_b1 = CalcCellStub(col=1, row=0)
+    assert is_follow("$A$1", cell_a1, cell_b1) is True
+    assert is_follow("A1", cell_a1, cell_a1) is False
+    assert is_follow("$A$1", None, cell_b1) is False
+    assert is_follow("", cell_a1, cell_b1) is False
 
 

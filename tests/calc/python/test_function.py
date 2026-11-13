@@ -3073,3 +3073,25 @@ def test_split_trailing_index() -> None:
     assert idx_single is None
     assert len(args_single) == 1
     assert py_data_single == grid_wire
+
+
+def test_clear_workbook_matrix_cache_leaves_other_workbooks() -> None:
+    from plugin.calc.python.workbook_state import WorkbookState
+
+    doc_a = CalcDocStub(url="file:///wb-a.ods", props={"RuntimeUID": "uid-wb-a"})
+    doc_b = CalcDocStub(url="file:///wb-b.ods", props={"RuntimeUID": "uid-wb-b"})
+    doc_none = CalcDocStub(url="file:///wb-none.ods", props={"RuntimeUID": "uid-wb-none"})
+
+    state_a = WorkbookState.for_doc(doc_a)
+    state_b = WorkbookState.for_doc(doc_b)
+    assert state_a is not None and state_b is not None
+    state_a.matrix[("Sheet1", 0, 0, "c", "t")] = "sentinel_a"  # type: ignore[assignment]
+    state_b.matrix[("Sheet1", 0, 0, "c", "t")] = "sentinel_b"  # type: ignore[assignment]
+
+    _function.clear_workbook_matrix_cache(doc_a)
+    assert state_a.matrix == {}
+    assert state_b.matrix == {("Sheet1", 0, 0, "c", "t"): "sentinel_b"}
+
+    # A doc with no state is a no-op.
+    _function.clear_workbook_matrix_cache(doc_none)
+    assert state_b.matrix == {("Sheet1", 0, 0, "c", "t"): "sentinel_b"}

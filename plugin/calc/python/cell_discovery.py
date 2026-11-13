@@ -17,8 +17,9 @@ from typing import Any
 from plugin.calc.address_utils import format_address, qualify_a1
 from plugin.calc.python.formula_edit import PyFormula
 from plugin.calc.python.formula_locator_cache import CELL_FLAG_FORMULA, iter_range_formula_texts
+from plugin.framework.errors import best_effort
 
-_MAX_PYTHON_CELLS_FOUND = 100
+MAX_PYTHON_CELLS_FOUND = 100
 _MAX_CELLS_TO_SCAN = 50000
 
 
@@ -47,11 +48,31 @@ class PythonSheetDiscovery:
     truncated: bool
 
 
+def sheet_name_of(sheet: Any) -> str:
+    """Sheet name, or "" when the read fails or the sheet's document has closed.
+
+    Never invents a default name: ``ScTableSheetObj::getName`` returns ``""``
+    when ``GetDocShell()`` is null after ``SfxHintId::Dying``
+    (``sc/source/ui/unoobj/cellsuno.cxx``, ``ScCellRangesBase::Notify``).
+    Callers skip a nameless sheet, because filing its cells under an invented
+    ``"Sheet"`` would mix them with a real sheet of that name.
+    """
+    if sheet is None:
+        return ""
+    return str(best_effort(lambda: sheet.getName(), "sheet name read failed", "") or "")
+
+
+def _py_formula_or_none(formula: str) -> PyFormula | None:
+    # Every alias in formula_edit's table contains "PY", so the substring test
+    # skips the parser for the ordinary formulas a sheet is mostly made of.
+    if "PY" not in (formula or "").upper():
+        return None
+    return PyFormula.parse(formula)
+
+
 def is_py_formula_text(formula: str) -> bool:
     """True when *formula* is PY/PYTHON, including fully qualified add-in form."""
-    if "PY" not in (formula or "").upper():
-        return False
-    return PyFormula.parse(formula) is not None
+    return _py_formula_or_none(formula) is not None
 
 
 def discover_python_cells_on_sheet(sheet: Any) -> PythonSheetDiscovery:
@@ -61,7 +82,9 @@ def discover_python_cells_on_sheet(sheet: Any) -> PythonSheetDiscovery:
     the 50k scan cap) sets ``truncated=True``. An exact 100 that finishes the
     formula-cell walk is complete.
     """
-    name = str(sheet.getName() or "") or "Sheet"
+    name = sheet_name_of(sheet)
+    if not name:
+        return PythonSheetDiscovery([], False)
     found: list[PythonCellInfo] = []
     truncated = False
     formula_cells = sheet.queryContentCells(CELL_FLAG_FORMULA)
@@ -76,12 +99,10 @@ def discover_python_cells_on_sheet(sheet: Any) -> PythonSheetDiscovery:
         if scanned >= _MAX_CELLS_TO_SCAN:
             truncated = True
             break
-        if "PY" not in (formula or "").upper():
-            continue
-        parsed = PyFormula.parse(formula)
+        parsed = _py_formula_or_none(formula)
         if parsed is None:
             continue
-        if len(found) >= _MAX_PYTHON_CELLS_FOUND:
+        if len(found) >= MAX_PYTHON_CELLS_FOUND:
             # 101st PY cell: the returned list of 100 is incomplete.
             truncated = True
             break

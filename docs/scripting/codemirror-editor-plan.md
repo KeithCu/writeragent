@@ -13,7 +13,7 @@
   - Run Script: `plugin/scripting/python_runner.py` (Monaco), or the native `python_runner_ui.py` (`PythonScriptDialog.xdl`; `scripting.native_run_script_modeless`).
   - Init script: `plugin/calc/python/init_script_editor.py` `open_init_script_editor`.
   - LaTeX: `plugin/writer/math/latex_dialog.py`.
-- **Load and save.** `_load_cell_editor_code` / `_parse_cell_python_formula` strip `=PY("…")` to source, and follow `=PY($A$1;…)` refs through `_resolve_code_ref_cell`. Save goes through `_apply_cell_save`, which calls one of:
+- **Load and save.** `_load_cell_editor_code` / `_parse_cell_python_formula` strip `=PY("…")` to source, and follow `=PY($A$1;…)` refs through `_resolve_code_ref_cell`. Save goes through `apply_cell_save`, which calls one of:
   - `_apply_formula_save`: `setFormula` wraps `=PY("…")` and keeps the data args, via `formula_edit.py`.
   - `_apply_plain_text_save`: "Save without =PY()", which is `setString(code)`.
   - `_apply_followed_ref_save`: writes the referenced text cell.

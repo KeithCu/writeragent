@@ -23,6 +23,7 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from com.sun.star.awt import ActionEvent, ItemEvent, TextEvent
+    from plugin.calc.python.formula_edit import PyFormula
 
 from plugin.calc.python import editor
 from plugin.chatbot.dialogs import (
@@ -54,13 +55,13 @@ class NativePythonCellEditorDialog:
     _ctx: Any
     _doc: Any
     _cell: Any
-    _parsed_parts: Any
+    _parsed_parts: PyFormula | None
     _code_cell: Any
     _code_ref: str | None
     _dirty: bool
     _loading: bool
 
-    def __init__(self, ctx: Any, *, doc: Any, cell: Any, initial_code: str, parsed_parts: Any, code_cell: Any | None = None, code_ref: str | None = None) -> None:
+    def __init__(self, ctx: Any, *, doc: Any, cell: Any, initial_code: str, parsed_parts: PyFormula | None, code_cell: Any | None = None, code_ref: str | None = None) -> None:
         self._ctx = ctx
         self._set_target(doc=doc, cell=cell, parsed_parts=parsed_parts, code_cell=code_cell, code_ref=code_ref)
         self._dlg: Any | None = None
@@ -70,7 +71,7 @@ class NativePythonCellEditorDialog:
         self._open_failure_detail: str | None = None
         self._open(initial_code)
 
-    def _set_target(self, *, doc: Any, cell: Any, parsed_parts: Any, code_cell: Any | None, code_ref: str | None) -> None:
+    def _set_target(self, *, doc: Any, cell: Any, parsed_parts: PyFormula | None, code_cell: Any | None, code_ref: str | None) -> None:
         self._doc = doc
         self._cell = cell
         self._parsed_parts = parsed_parts
@@ -81,7 +82,7 @@ class NativePythonCellEditorDialog:
     def is_open(self) -> bool:
         return self._dlg is not None
 
-    def retarget(self, *, doc: Any, cell: Any, initial_code: str, parsed_parts: Any, code_cell: Any | None = None, code_ref: str | None = None) -> None:
+    def retarget(self, *, doc: Any, cell: Any, initial_code: str, parsed_parts: PyFormula | None, code_cell: Any | None = None, code_ref: str | None = None) -> None:
         self._set_target(doc=doc, cell=cell, parsed_parts=parsed_parts, code_cell=code_cell, code_ref=code_ref)
         self._apply_load(initial_code)
         self._dirty = False
@@ -123,16 +124,16 @@ class NativePythonCellEditorDialog:
         set_control_text(self._ctrl("CellAddr"), addr)
 
     def _following_ref(self) -> bool:
-        # UNO often hands back distinct proxies for the same cell; identity (`is`)
-        # would treat a self-ref as a follow. Address compare matches editor.py.
-        return bool(self._code_ref) and not editor._same_calc_cell(self._code_cell, self._cell)
+        # Address compare lives in editor.is_follow (UNO often hands back
+        # distinct proxies for the same cell, so identity checks fail).
+        return editor.is_follow(self._code_ref, self._code_cell, self._cell)
 
     def _apply_load(self, initial_code: str) -> None:
         self._loading = True
         self._set_cell_addr()
         code_ctrl = self._ctrl("CodeEdit")
         set_control_text(code_ctrl, initial_code or "")
-        set_control_text(self._ctrl("DataEdit"), editor._data_binding_display(self._parsed_parts))
+        set_control_text(self._ctrl("DataEdit"), editor.data_binding_display(self._parsed_parts))
         plain = editor.editor_load_save_as_plain(parsed_parts=self._parsed_parts, initial_code=initial_code or "", follow_code_ref=self._following_ref())
         set_checkbox_state(self._ctrl("ChkPlainText"), 1 if plain else 0)
         self._sync_data_enabled()
@@ -165,7 +166,7 @@ class NativePythonCellEditorDialog:
         try:
             self._set_status(_("Saving…"))
             save_as_plain = bool(get_checkbox_state(self._ctrl("ChkPlainText")))
-            outcome = editor._apply_cell_save(
+            outcome = editor.apply_cell_save(
                 self._doc,
                 self._cell,
                 parsed_parts=self._parsed_parts,
@@ -251,7 +252,7 @@ class NativePythonCellEditorDialog:
             dlg.getControl(name).addTextListener(dirty_listener)
 
 
-def show_native_python_cell_editor(ctx: Any, *, doc: Any, cell: Any, initial_code: str, parsed_parts: Any, code_cell: Any | None = None, code_ref: str | None = None) -> tuple[bool, str | None]:
+def show_native_python_cell_editor(ctx: Any, *, doc: Any, cell: Any, initial_code: str, parsed_parts: PyFormula | None, code_cell: Any | None = None, code_ref: str | None = None) -> tuple[bool, str | None]:
     """Open or retarget the native cell editor. Returns (opened, failure_detail)."""
     global _active
     if _active is not None and _active.is_open:

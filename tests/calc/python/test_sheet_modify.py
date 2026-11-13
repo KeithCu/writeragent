@@ -11,7 +11,6 @@ import pytest
 
 from plugin.calc.python.sheet_modify import (
     SheetModifyDispatcher,
-    _sheet_name_of,
     dispatch_sheet_modified,
     ensure_sheet_modify_listener,
     flush_sheet_modify_pass_for_tests,
@@ -31,7 +30,7 @@ from tests.calc.python.calc_workbook_test_access import (
     SPILL_REGISTRY,
     reset_calc_workbook_states,
 )
-from plugin.tests.testing_utils import CalcDocStub
+from plugin.tests.testing_utils import CalcDocStub, CalcSheetStub
 
 
 @pytest.fixture(autouse=True)
@@ -310,22 +309,6 @@ def test_unload_drops_pending_sheet_timer() -> None:
     assert "sheet:Sheet1" in state_keep.debounce.pending_for_tests()
 
 
-def test_sheet_name_read_failures_return_empty() -> None:
-    class FailingUNO:
-        def getName(self) -> str:
-            raise RuntimeError("DisposedException")
-
-    obj = FailingUNO()
-    assert _sheet_name_of(obj) == ""
-    assert _sheet_name_of(None) == ""
-
-    class EmptyName:
-        def getName(self) -> str:
-            return ""
-
-    assert _sheet_name_of(EmptyName()) == ""
-
-
 def test_posted_pass_with_unreadable_sheet_name_skips_cleanup(monkeypatch: pytest.MonkeyPatch) -> None:
     doc = CalcDocStub(url="file:///gone.ods", props={"RuntimeUID": "uid-gone"})
     sheet = doc.getSheets().getByName("Sheet1")
@@ -338,6 +321,39 @@ def test_posted_pass_with_unreadable_sheet_name_skips_cleanup(monkeypatch: pytes
 
     monkeypatch.setattr("plugin.calc.python.spill.cleanup_orphans", fail_cleanup)
     run_sheet_modify_pass("ctx", doc, sheet)
+
+
+def test_rename_of_one_sheet_keeps_other_sheets_spills(monkeypatch: pytest.MonkeyPatch) -> None:
+    import plugin.calc.python.sheet_modify as sm
+
+    sheet1 = CalcSheetStub("Sheet1")
+    sheet2 = CalcSheetStub("Sheet2")
+    doc = CalcDocStub(sheets=[sheet1, sheet2], props={"RuntimeUID": "uid-rename-keep"})
+    sheet1.getCellByPosition(0, 0).setFormula('=PY("x")')
+    state = WorkbookState.for_doc(doc)
+    assert state is not None
+    state.spills[("Sheet1", 0, 0)] = SpillRecord(code="x", cells=[SpillCell(1, 0, "n", 2.0)])
+
+    ensure_sheet_modify_listener("ctx", doc, sheet1)
+    ensure_sheet_modify_listener("ctx", doc, sheet2)
+    schedule_sheet_modify_pass("ctx", doc, sheet2)
+    migrate_sheet_rename(doc, "Sheet2", "Renamed")
+
+    seen: list[str] = []
+    real_run = sm.run_sheet_modify_pass
+
+    def _spy(ctx, d, s, *, sheet_name=""):
+        seen.append(sheet_name)
+        return real_run(ctx, d, s, sheet_name=sheet_name)
+
+    monkeypatch.setattr(sm, "run_sheet_modify_pass", _spy)
+    monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: True)
+    monkeypatch.setattr("plugin.calc.python.geometric_recalc.geometric_flag_enabled", lambda: False)
+    monkeypatch.setattr("plugin.calc.python.geometric_recalc.is_geometric_repairing", lambda: False)
+
+    state.debounce.flush_for_tests("sheet:Renamed")
+    assert seen == ["Renamed"]
+    assert ("Sheet1", 0, 0) in state.spills
 
 
 

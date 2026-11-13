@@ -45,6 +45,7 @@ from plugin.calc.python.addin_values import (
 )
 from plugin.calc.python.diagnostics import diagnostics_workbook_key, get_diagnostics_store
 from plugin.calc.python.formula_locator_cache import FormulaOrigin, locate_formula_cell_in_doc
+from plugin.calc.python.geometric_recalc import ensure_geometric_strip_index_for_eval, maybe_strip_geometric_eval_args
 from plugin.calc.python.image_egress import ImageEgressError, insert_image_result_on_sheet
 from plugin.calc.python.spill import (
     PreparedSpill,
@@ -260,6 +261,15 @@ def clear_python_addin_cache() -> None:
             state.matrix.clear()
 
 
+def clear_workbook_matrix_cache(doc: Any) -> None:
+    """Drop one workbook's cached =PY() list results (its init script changed). Other workbooks keep theirs."""
+    state = WorkbookState.known(doc)
+    if state is None:
+        return  # no state means nothing was cached for this workbook
+    with _MATRIX_SCALAR_SESSIONS_LOCK:
+        state.matrix.clear()
+
+
 def _record_py_diagnostic(
     code: str,
     res: dict[str, Any] | None,
@@ -381,10 +391,8 @@ def _execute_python_addin_impl(ctx: Any, code: str, data: Any = None, *, doc: An
 
     try:
         args = split_python_addin_data_args(data)
-        from plugin.calc.python.geometric_recalc import ensure_geometric_strip_index_for_eval, maybe_strip_geometric_eval_args
-
-        ensure_geometric_strip_index_for_eval(target_doc, ctx, cell_ctx=cell_ctx)
-        args = maybe_strip_geometric_eval_args(code, args, doc=target_doc, cell_ctx=cell_ctx)
+        ensure_geometric_strip_index_for_eval(cell_ctx)
+        args = maybe_strip_geometric_eval_args(code, args, cell_ctx)
         py_data = calc_addin_args_from_split(args)
         args, py_data, index_arg = _split_trailing_index(code, args, py_data)
         is_multi = len(args) > 1
