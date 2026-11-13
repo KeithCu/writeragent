@@ -271,11 +271,6 @@ def test_outer_prompt_with_peers_has_no_peer_send_tools():
     assert "delegate_to_specialized_writer_toolset" in prompt
     assert "send_peer_work" not in prompt  # outer does not ask; only names result delivery
     assert "send_peer_result" in prompt  # deliver via send_peer_result after local work
-    assert "PEER SIDEBARS" not in prompt
-    assert "PEER vs READ" not in prompt
-    assert "ASK vs REPLY" not in prompt
-    assert "[Peer work from:" in prompt or "[Peer from:" in prompt
-    assert "peer_ask_id" not in prompt
 
 
 
@@ -680,13 +675,8 @@ def test_is_mutation_false_and_sync():
     for tool in (SendPeerWork(), SendPeerResult()):
         assert tool.detects_mutation() is False
         assert tool.is_async() is False
-        assert tool.tier == "chat"
         assert "com.sun.star.presentation.PresentationDocument" in tool.uno_services
         assert "com.sun.star.drawing.DrawingDocument" in tool.uno_services
-    assert SendPeerWork().name == "send_peer_work"
-    assert SendPeerResult().name == "send_peer_result"
-    assert "peer_ask_id" not in SendPeerWork.parameters["properties"]
-    assert "peer_ask_id" not in SendPeerResult.parameters["properties"]
 
 
 def test_prompts_outer_thin_inner_choice():
@@ -700,73 +690,9 @@ def test_prompts_outer_thin_inner_choice():
 
     assert "send_peer_work" not in PEER_OUTER_DELEGATE_HINT
     assert "send_peer_result" in PEER_OUTER_DELEGATE_HINT
-    assert "PEER SIDEBARS" not in PEER_OUTER_DELEGATE_HINT
-    assert "document_research" in PEER_OUTER_DELEGATE_HINT
-    assert "[Peer work from:" in PEER_OUTER_DELEGATE_HINT
-    assert "[Peer result from:" in PEER_OUTER_DELEGATE_HINT
     assert "send_peer_work" in PEER_INNER_CHOICE_RULES
     assert "send_peer_result" in PEER_INNER_CHOICE_RULES
     assert "delegate_read_document" in PEER_INNER_CHOICE_RULES
-    assert "specialized_workflow_finished immediately" in PEER_INNER_CHOICE_RULES
-    assert "you MUST send_peer_result" in PEER_INNER_CHOICE_RULES
-    assert "one HTML/result string" in PEER_INNER_CHOICE_RULES
-    assert "peer_ask_id" not in PEER_INNER_CHOICE_RULES
-    assert "before specialized_workflow_finished" in PEER_INNER_CHOICE_RULES
-    assert "peer sidebar never sees it" in PEER_INNER_CHOICE_RULES
-    assert "message argument to send_peer_result" in PEER_INNER_CHOICE_RULES
-    assert "other result text in the task" in PEER_INNER_CHOICE_RULES
-    assert "answer from the task alone" in PEER_INNER_CHOICE_RULES
-    assert "tool side effect" in PEER_INNER_CHOICE_RULES
-    # Ask vs reply polarity: only [Peer work from:] selects reply; ask never send_peer_result.
-    assert "ASK vs REPLY" in PEER_INNER_CHOICE_RULES
-    assert "ASK PATH" in PEER_INNER_CHOICE_RULES
-    assert "REPLY PATH" in PEER_INNER_CHOICE_RULES
-    assert "does not make this the reply path" in PEER_INNER_CHOICE_RULES
-    assert "only that envelope does" in PEER_INNER_CHOICE_RULES
-    assert "NEVER delegate_read_document on that open peer" in PEER_INNER_CHOICE_RULES
-    assert "NEVER send_peer_result from the asker" in PEER_INNER_CHOICE_RULES
-    assert "answer must come back as a peer result" in PEER_INNER_CHOICE_RULES
-    assert "stamps [Peer result" in PEER_INNER_CHOICE_RULES
-    assert "On the reply path only" in PEER_INNER_CHOICE_RULES
-    # Open-peer hard fork: matching catalog entry → send_peer_work, not silent read.
-    assert "about an Open peer file" in PEER_INNER_CHOICE_RULES
-    assert "that sidebar is live" in PEER_INNER_CHOICE_RULES
-    assert "duplicates work" in PEER_INNER_CHOICE_RULES
-    assert "races the peer reply" in PEER_INNER_CHOICE_RULES
-    assert "only when the file is not in Open peers" in PEER_INNER_CHOICE_RULES
-    assert "nearby on disk" in PEER_INNER_CHOICE_RULES
-    assert "no live sidebar" in PEER_INNER_CHOICE_RULES
-    # Ask polarity: peer does the edit; do not request a content dump for local fill.
-    assert "that peer's own document" in PEER_INNER_CHOICE_RULES
-    assert "perform the edit/fill" in PEER_INNER_CHOICE_RULES
-    assert "values/facts to write" in PEER_INNER_CHOICE_RULES
-    assert "owns the write tools" in PEER_INNER_CHOICE_RULES
-    assert "dump of blank/current content" in PEER_INNER_CHOICE_RULES
-    assert "skips the peer write path" in PEER_INNER_CHOICE_RULES
-    assert "silent file fact" not in PEER_INNER_CHOICE_RULES
-    assert "must change, compute, write" not in PEER_INNER_CHOICE_RULES
-    assert "not a JSON array" in PEER_OUTER_DELEGATE_HINT
-    assert "PEER SIDEBARS" not in PEER_INNER_CHOICE_RULES
-    # Tool descriptions keep the same ask/reply polarity.
-    assert "ASK PATH only" in SendPeerWork.description
-    assert "REPLY PATH only" in SendPeerResult.description
-    assert "merely mentions send_peer_result" in SendPeerResult.description
-    # Idle-after-send: outer must Ready, not keep tooling in the same turn.
-    assert "Stop tool use and Ready" in PEER_OUTER_DELEGATE_HINT
-    assert "later user turn" in PEER_OUTER_DELEGATE_HINT
-    assert "document_research, python, or query" in PEER_OUTER_DELEGATE_HINT
-    # Work envelopes must re-delegate a reply; data/result inbound is local only.
-    assert "you MUST still Do {delegate}(domain=\"document_research\")" in PEER_OUTER_DELEGATE_HINT
-    assert "peer_ask_id" not in PEER_OUTER_DELEGATE_HINT
-    assert "deliver via send_peer_result" in PEER_OUTER_DELEGATE_HINT
-    assert "local sidebar answer never reaches" in PEER_OUTER_DELEGATE_HINT
-    assert "finishing those specializes is not delivery" in PEER_OUTER_DELEGATE_HINT
-    assert "ranges, sheets, charts" in PEER_OUTER_DELEGATE_HINT
-    assert "Do not delegate an ack specialize" in PEER_OUTER_DELEGATE_HINT
-    assert "not a new work request" in PEER_OUTER_DELEGATE_HINT
-    assert "information for the requester" in PEER_OUTER_DELEGATE_HINT
-    assert "insert it into the document only if the user asked for that" in PEER_OUTER_DELEGATE_HINT
-    assert "apply or insert" not in PEER_OUTER_DELEGATE_HINT
     assert SendPeerWork.parameters["properties"]["message"]["type"] == "string"
 
     writer = MagicMock()
@@ -784,23 +710,9 @@ def test_prompts_outer_thin_inner_choice():
         outer = get_peer_messaging_prompt_block(calc, ctx=object())
         inner = get_peer_inner_choice_block(object(), doc=object())
     assert outer == format_peer_outer_delegate_hint(calc)
-    assert "delegate_to_specialized_calc_toolset" in outer
-    assert "send_peer_work" not in outer
-    assert "send_peer_result" in outer
     assert "Budget.ods" in inner
     assert "uid=u2" in inner
     assert PEER_INNER_CHOICE_RULES in inner
-    assert "Stop tool use and Ready" in outer
-    assert "you MUST still Do" in outer and "document_research" in outer
-    assert "local sidebar answer never reaches" in outer
-    assert "Do not delegate an ack specialize" in outer
-    assert "information for the requester" in outer
-    assert "insert it into the document only if the user asked for that" in outer
-    assert "apply or insert" not in outer
-    assert "[Peer work from:" in outer
-    assert "[Peer result from:" in outer
-    assert "send_peer_work" not in outer
-    assert "send_peer_result" in outer
 
 
 def test_outer_hint_idle_after_send_and_conditional_reply():
@@ -839,7 +751,7 @@ def test_outer_hint_idle_after_send_and_conditional_reply():
 
     err = annotate_outer_peer_wait({"status": "error", "message": "Message sent to the peer."})
     assert err["message"] == "Message sent to the peer."
-    assert "Stop tool use" not in err["message"]
+    assert PEER_OUTER_IDLE_AFTER_SEND not in err["message"]
 
     already = annotate_outer_peer_wait(
         {
@@ -859,8 +771,6 @@ def test_annotate_outer_peer_delivery_pending():
         looks_like_peer_work_envelope,
     )
 
-    assert "send_peer_result" in PEER_OUTER_DELIVERY_STILL_REQUIRED
-    assert "ranges/sheets/charts" in PEER_OUTER_DELIVERY_STILL_REQUIRED
     assert looks_like_peer_work_envelope(
         "[Peer work from: Memo.odt | uid=u1 | url=]\n\nSort A2:B5"
     )

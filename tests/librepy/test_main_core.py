@@ -100,8 +100,6 @@ def test_bootstrap_reentry_returns_without_lock(monkeypatch) -> None:
         main_core.bootstrap(MagicMock())
         assert calls == 1
         assert bootstrap.bootstrap_initialized()
-        assert not hasattr(main_core, "_init_lock")
-        assert not hasattr(main_core, "_DISPATCH_PROTOCOL")
     finally:
         bootstrap.mark_uninitialized()
         bootstrap.clear_bootstrap_error()

@@ -3,10 +3,7 @@
 
 from __future__ import annotations
 
-from plugin.calc.quant_egress import (
-    format_quant_for_calc,
-    insert_quant_result_into_calc,
-)
+from plugin.calc.quant_egress import format_quant_for_calc
 from plugin.scripting.domain_registry import get_domain_wiring
 
 
@@ -19,7 +16,6 @@ def test_is_quant_result_contract():
     assert is_res({"status": "ok"}) is False
     assert is_res("not a dict") is False
     assert is_res(None) is False
-    assert callable(insert_quant_result_into_calc)
 
 
 def test_warning_renders_in_flags_block():

@@ -142,7 +142,10 @@ def test_logical_coercion_standard_scope():
 
 
 def test_logical_coercion_negative_controls():
-    """Ensure unrelated strings are not coerced even if they look similar."""
+    """Ensure unrelated strings are not coerced even if they look similar.
+
+    Exact case is intentional: only Calc's English logical strings coerce; lowercase stays text.
+    """
     assert calc_addin_data_to_python("true") == [["true"]]
     assert calc_addin_data_to_python("True()") == [["True()"]]
     assert calc_addin_data_to_python("VERDADERO") == [["VERDADERO"]]
