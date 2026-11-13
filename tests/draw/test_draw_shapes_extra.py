@@ -87,6 +87,13 @@ def test_create_diagram_reuses_upsert(tmp_path=None):
     assert out["layout"] == "horizontal_flow"
     assert out["id_to_index"] == {"a": 0, "b": 1}
     assert len(out["connections"]) == 1
+    assert mock_upsert.call_count == 2
+    first_kw = mock_upsert.call_args_list[0].kwargs
+    second_kw = mock_upsert.call_args_list[1].kwargs
+    assert first_kw["width"] > 100 and first_kw["height"] > 100
+    assert second_kw["width"] > 100 and second_kw["height"] > 100
+    assert first_kw["x"] < second_kw["x"]
+    assert first_kw["y"] == second_kw["y"]
 
 
 def test_create_diagram_unknown_connection():

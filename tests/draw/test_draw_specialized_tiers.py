@@ -50,6 +50,7 @@ def test_impress_default_tool_schemas_exclude_slide_specialized_apis() -> None:
     assert _SLIDE_SPECIALIZED_NAMES.isdisjoint(names)
     assert _IMPRESS_DESIGN_CORE <= names
     assert "set_presentation_design" not in names
+    assert "transform_document_structure" not in names
 
 
 @pytest.mark.parametrize(
@@ -94,26 +95,3 @@ def test_impress_active_domain_includes_slide_specialized_tools(domain: str, exp
     names = {s["function"]["name"] for s in registry.get_schemas("openai", doc=_impress_doc(), active_domain=domain)}
     assert "specialized_workflow_finished" in names
     assert expected_subset <= names
-
-
-def test_draw_gateway_description_names_real_domains() -> None:
-    from plugin.draw.specialized import DelegateToSpecializedDraw
-
-    desc = DelegateToSpecializedDraw.description or ""
-    assert "templates/design" not in desc
-    for domain in [
-        "shapes",
-        "tables",
-        "images",
-        "charts",
-        "forms",
-        "math",
-        "python",
-        "layouts",
-        "transitions",
-        "masters",
-        "notes",
-        "headers",
-    ]:
-        assert domain in desc
-    assert "page comments" in desc

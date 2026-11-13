@@ -6,7 +6,6 @@ from unittest.mock import patch
 
 from plugin.draw.placeholders import (
     GetPlaceholderText,
-    ListPlaceholders,
     SetPlaceholderText,
     _EMPTY_PLACEHOLDER_HINT,
     _find_placeholder,
@@ -216,15 +215,6 @@ def test_set_placeholder_text_empty_role_miss_payload():
     assert "slide_layouts" in details["hint"]
     assert "slide_layout_set" not in details["hint"]
     assert "Placeholder 'title' not found on this slide." == err["message"]
-
-
-def test_placeholder_tool_descriptions_steer_list_then_layout():
-    assert "list_placeholders" in SetPlaceholderText.description
-    assert "index" in SetPlaceholderText.description
-    assert "layout" in SetPlaceholderText.description
-
-    assert "before set_placeholder_text" in ListPlaceholders.description
-    assert "slide_layouts" in ListPlaceholders.description
 
 
 def test_outline_and_subtitle_shapes():

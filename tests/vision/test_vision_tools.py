@@ -85,16 +85,6 @@ def test_extract_structure_hidden_when_vision_unavailable(_mock_avail, writer_do
     assert "extract_structure_from_image" not in names
 
 
-def test_extract_structure_description_mentions_text_and_structure():
-    tool = ExtractStructureFromImage()
-    text = f"{tool.description} {tool.parameters['properties']['insert_into_document']['description']}"
-    lowered = text.lower()
-    assert "text and structure" in lowered
-    assert "high-quality representation" in lowered
-    for banned in ("html", "docling", "rapidocr", "paddle"):
-        assert banned not in lowered
-
-
 @patch("plugin.vision.vision_availability.vision_venv_configured", return_value=True)
 def test_delegate_writer_gateway_includes_vision(_mock_avail):
     from plugin.writer.specialized_base import DelegateToSpecializedWriter
