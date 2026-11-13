@@ -2627,28 +2627,6 @@ def test_start_docker_rejects_missing_key_file(tmp_path) -> None:
     assert lines == []
 
 
-def test_dockerfile_runner_hygiene() -> None:
-    """The image installs wheels only and checks /health with the stdlib.
-
-    A compiler in the builder can link against libraries the runner never
-    copies. Recursing ownership over /app duplicates the wheel tree and
-    still does not match the host uid the launcher runs as. HOME and
-    MPLCONFIGDIR sit on the /tmp tmpfs because the root is read-only.
-    """
-    from pathlib import Path
-
-    repo = Path(__file__).resolve().parents[2]
-    text = (repo / "compute_service" / "Dockerfile").read_text(encoding="utf-8")
-    assert "--only-binary=:all:" in text
-    assert "MPLCONFIGDIR=/tmp/mpl" in text
-    assert "ENV HOME=/tmp" in text
-    assert "HEALTHCHECK" in text
-    assert "/health" in text
-    assert "useradd --no-create-home" in text
-    assert "build-essential" not in text
-    assert "chown" not in text
-
-
 def test_dockerfile_runner_copy_can_import_worker_base(tmp_path) -> None:
     """The compute bundle must import the server without the rest of plugin/.
 

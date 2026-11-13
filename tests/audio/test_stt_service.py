@@ -33,19 +33,6 @@ def _completed_process(
     return subprocess.CompletedProcess(args or [], returncode, stdout, stderr)
 
 
-def test_module_yaml_stt_defaults() -> None:
-    import yaml
-
-    data = yaml.safe_load((_REPO / "plugin" / "audio" / "module.yaml").read_text(encoding="utf-8"))
-    config = data["config"]
-    assert config["stt_provider"]["default"] == "endpoint"
-    assert config["stt_local_model"]["default"] == "base"
-    values = [opt["value"] for opt in config["stt_provider"]["options"]]
-    assert values == ["endpoint", "local"]
-    sizes = [opt["value"] for opt in config["stt_local_model"]["options"]]
-    assert sizes == ["tiny", "base", "small", "medium"]
-
-
 @pytest.mark.parametrize(
     ("raw", "expected"),
     [

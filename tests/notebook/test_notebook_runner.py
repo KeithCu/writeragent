@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import inspect
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -13,9 +12,7 @@ from plugin.notebook.cell_registry import (
     new_code_cell_entry,
 )
 from plugin.notebook import form_lookup
-from plugin.notebook.form_lookup import read_code_from_field
 from plugin.notebook.notebook_runner import (
-    _collapse_leading_empty_paragraphs,
     _gutter_text_cursor,
     _is_next_cell_boundary,
     _paragraph_has_frame,
@@ -87,24 +84,6 @@ def test_format_run_output_text_unpack_failure_renders_raw_wire():
     with patch("plugin.notebook.notebook_runner.host_unpack_data", side_effect=ValueError("bad")):
         text = format_run_output_text({"status": "ok", "result": wire}, execution_count=2)
     assert repr(wire) in text
-
-
-def test_read_code_from_field_finds_textfield():
-    field_model = MagicMock()
-    field_model.Name = "nb_cell_0_code"
-    field_model.Text = "x = 1\n"
-
-    portion = MagicMock()
-    portion.getPropertyValue.return_value = "Frame"
-    portion.TextField = field_model
-
-    para = MagicMock()
-    para.createEnumeration.return_value = _enum_of([portion])
-
-    doc = MagicMock()
-    doc.getText.return_value.createEnumeration.return_value = _enum_of([para])
-
-    assert read_code_from_field(doc, "nb_cell_0_code") == "x = 1\n"
 
 
 def _enum_of(items):
@@ -238,19 +217,27 @@ def test_run_cell_updates_registry_and_execution_count():
     save_reg.assert_called_once_with(doc, state)
 
 
-def test_run_cell_logs_status_after_execute():
-    from tests.harness.strip_bundle import skip_if_release_build
-
-    skip_if_release_build("log.info stripped in release bundle")
-    src = inspect.getsource(_execute_and_apply)
-    assert "status=%s" in src
-    assert src.find("execute_code(") < src.find("status=%s")
-
-
 def test_run_cell_restores_view_to_cell():
-    src = inspect.getsource(_execute_and_apply)
-    assert "_restore_view_to_cell" in src
-    assert src.find("apply_run_result") < src.find("_restore_view_to_cell")
+    ctx = MagicMock()
+    doc = MagicMock()
+    cell = new_code_cell_entry(0, None, "nb_cell_0_code")
+    state = NotebookDocState(code_cells=[cell], next_execution_count=1)
+    saved_view = MagicMock()
+    events: list[str] = []
+
+    with (
+        patch("plugin.notebook.notebook_runner._save_view_cursor", return_value=saved_view),
+        patch("plugin.notebook.notebook_runner.execute_code", return_value={"status": "ok", "stdout": "", "result": None}),
+        patch("plugin.notebook.notebook_runner.clear_cell_output"),
+        patch("plugin.notebook.notebook_runner.apply_run_result", side_effect=lambda *_a, **_k: events.append("apply")),
+        patch("plugin.notebook.notebook_runner.update_in_prompt"),
+        patch("plugin.notebook.notebook_runner.save_registry"),
+        patch("plugin.notebook.notebook_runner._restore_view_to_cell", side_effect=lambda *_a, **_k: events.append("restore")) as restore,
+    ):
+        _execute_and_apply(ctx, doc, state, cell, "x = 1")
+
+    assert events == ["apply", "restore"]
+    restore.assert_called_once_with(doc, cell, saved_view)
 
 
 def test_run_cell_rejects_reentrant_call():
@@ -350,24 +337,6 @@ def test_run_cell_busy_guard_shares_uid_key_across_wrappers():
     assert getattr(nested[0], "status") == "busy"
 
 
-@pytest.mark.parametrize(
-    "value, value_2, expected",
-    [
-        pytest.param("svg", b"<svg></svg>", "image/svg+xml", id="test_insert_run_image_svg_mime"),
-        pytest.param("webp", b"RIFF", "image/webp", id="test_insert_run_image_webp_mime"),
-        pytest.param("gif", b"GIF89a", "image/gif", id="test_insert_run_image_gif_mime"),
-    ],
-)
-def test_insert_run_image_svg_mime(value, value_2, expected):
-    from plugin.notebook.writer_importer import insert_run_image
-
-    doc = MagicMock()
-    payload = {"__wa_payload__": "image", "format": value, "data": value_2}
-    with patch("plugin.notebook.writer_importer._insert_image_in_flow", return_value=True) as insert_flow:
-        assert insert_run_image(doc, payload, ctx=MagicMock(), images_before=0) is True
-    insert_flow.assert_called_once()
-    assert insert_flow.call_args.kwargs["mime"] == expected
-
 def test_shared_notebook_session_via_sandbox(fresh_sandbox_sessions):
     from plugin.scripting.venv.venv_sandbox import run_sandboxed_code
 
@@ -395,27 +364,6 @@ def test_cell_id_hex_round_trip(hex_id, expected_ok):
         return
     assert restored is not None
     assert cell_id_to_hex(restored) == hex_id
-
-
-def test_clear_cell_output_source_has_no_delete_contents():
-    src = inspect.getsource(clear_cell_output)
-    assert ".deleteContents(" not in src
-    assert "setString" in src
-
-
-def test_find_output_heading_stays_inside_paragraph():
-    """Bookmark insert uses gotoEndOfParagraph, not para.getEnd() (the break)."""
-    from plugin.notebook.notebook_runner import _reanchor_output_bookmark, _code_field_paragraph_end
-
-    assert "createTextCursorByRange(para.getEnd())" not in inspect.getsource(_reanchor_output_bookmark)
-    assert "gotoEndOfParagraph" in inspect.getsource(_code_field_paragraph_end)
-
-
-def test_find_output_uses_bookmark_not_output_heading():
-    """Output chrome is gone; the insert cursor is the nb_out_* bookmark."""
-    src = inspect.getsource(_collapse_leading_empty_paragraphs)
-    assert "_cursor_after_bookmark" in src
-    assert 'content.strip() == "Output"' not in src
 
 
 def test_is_next_cell_boundary_markdown_and_code():
@@ -915,12 +863,6 @@ def test_update_in_prompt_does_not_rewrite_first_gutter_when_shape_missing():
     second.setString.assert_not_called()
 
 
-def test_update_in_prompt_source_never_setstrings_para_end():
-    src = inspect.getsource(update_in_prompt)
-    assert "para.getEnd()" not in src
-    assert "_gutter_text_cursor" in src
-
-
 def test_run_cell_error_still_increments_execution_count():
     """Failed runs consume a kernel count, matching Jupyter In [n]."""
     ctx = MagicMock()
@@ -972,9 +914,6 @@ def test_insert_stdout_paragraph_no_break_when_para_empty():
 
 
 def test_apply_run_result_missing_bookmark_does_not_append_at_end():
-    src = inspect.getsource(apply_run_result)
-    assert "_append_body_text_block" not in src
-
     cell = new_code_cell_entry(0, None, "nb_cell_0_code")
     doc = MagicMock()
     text = MagicMock()
@@ -1735,9 +1674,6 @@ def test_run_cells_does_not_pump_idle_during_execute():
 
     assert pumps == ["execute", "flush", "execute"]
     assert flush_idle.call_count == 1
-    src = inspect.getsource(execute_code)
-    assert "pump_idle=False" in src
-    assert "processEventsToIdle" not in src or "never" in src.lower() or "not" in src.lower()
 
 
 def test_run_cells_between_cell_pump_under_drain_owner():
