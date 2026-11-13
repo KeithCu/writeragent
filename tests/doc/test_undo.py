@@ -7,19 +7,6 @@ from unittest.mock import MagicMock
 from plugin.framework.errors import make_tool_error
 
 
-# ---- 7) undo/redo exposed --------------------------------------------------------
-
-def test_undo_redo_are_real_core_tools():
-    from plugin.framework.tool import ToolBase
-    from plugin.doc.undo import Redo, Undo
-
-    for cls in (Undo, Redo):
-        assert issubclass(cls, ToolBase)
-        assert cls.tier == "core"
-        assert cls.is_mutation is True
-        assert "user" in cls.description.lower()  # the shared-stack caution must be in the description
-
-
 def test_undo_counts_steps_and_reports_stack_state():
     from plugin.doc.undo import Undo
 

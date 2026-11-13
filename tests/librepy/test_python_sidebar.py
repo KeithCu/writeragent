@@ -82,9 +82,7 @@ def test_format_runtime_status_shared_with_venv():
 
 
 
-def test_python_sidebar_xdl_uses_menulist_not_listbox():
-    """LibreOffice dialog.dtd has dlg:menulist only; dlg:listbox breaks createContainerWindow
-    and aborts soffice with 'pure virtual method called' when the Calc sidebar opens."""
+def _sidebar_xdl_path():
     from pathlib import Path
 
     root = Path(__file__).resolve().parents[2]
@@ -95,7 +93,13 @@ def test_python_sidebar_xdl_uses_menulist_not_listbox():
     )
     xdl = next((p for p in candidates if p.is_file()), None)
     assert xdl is not None, f"PythonSidebarDialog.xdl not found under {root} (tried {[str(p) for p in candidates]})"
-    text = xdl.read_text(encoding="utf-8")
+    return xdl
+
+
+def test_python_sidebar_xdl_uses_menulist_not_listbox():
+    """LibreOffice dialog.dtd has dlg:menulist only; dlg:listbox breaks createContainerWindow
+    and aborts soffice with 'pure virtual method called' when the Calc sidebar opens."""
+    text = _sidebar_xdl_path().read_text(encoding="utf-8")
     assert "dlg:listbox" not in text
     assert 'dlg:id="cells_list"' in text and "dlg:menulist" in text
     assert 'dlg:id="diag_list"' in text
@@ -954,10 +958,17 @@ def test_init_failure_in_wire_allows_safe_disposing():
     ctrl_partial.disposing()
 
 
-def test_control_ids_composition():
-    from plugin.librepy.python_sidebar import _CALC_ONLY_IDS
+def test_control_ids_match_xdl_controls():
+    import xml.etree.ElementTree as ET
 
-    expected = (
+    root = ET.fromstring(_sidebar_xdl_path().read_text(encoding="utf-8"))
+    id_attr = "{http://openoffice.org/2000/dialog}id"
+    all_ids = [elem.attrib[id_attr] for elem in root.iter() if id_attr in elem.attrib]
+    # First id in the XDL is the dialog window itself; controls follow.
+    xdl_control_ids = all_ids[1:]
+
+    assert sorted(_CONTROL_IDS) == sorted(xdl_control_ids)
+    assert set(_CONTROL_IDS) - set(_CALC_ONLY_IDS) == {
         "btn_hdr_settings",
         "btn_python",
         "btn_latex",
@@ -965,17 +976,10 @@ def test_control_ids_composition():
         "status_label",
         "status",
         "btn_refresh",
-    ) + _CALC_ONLY_IDS + (
         "btn_reset",
         "btn_settings",
-    )
-    assert _CONTROL_IDS == expected
-    for cid in _CALC_ONLY_IDS:
-        assert _CONTROL_IDS.count(cid) == 1
-    assert "btn_settings" in _CONTROL_IDS
-    assert "btn_settings" not in _CALC_ONLY_IDS
-    assert "btn_refresh" in _CONTROL_IDS
-    assert "btn_refresh" not in _CALC_ONLY_IDS
+    }
+    assert set(_xdl_snapshot()) == set(_CONTROL_IDS)
 
 
 def test_diag_enrichment_with_duplicate_code_different_sheets():

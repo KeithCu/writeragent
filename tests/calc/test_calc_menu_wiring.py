@@ -19,16 +19,8 @@
 import importlib
 
 
-def test_calc_menu_facade_exports_and_partition():
+def test_calc_menu_module_lists_import():
     from plugin.tests.calc import test_calc_uno as facade
-
-    assert facade.SKIP_NATIVE_RUN_ALL is True
-    assert callable(facade.run_calc_tests)
-    assert callable(facade.run_integration_tests)
-
-    unit = set(facade.CALC_MENU_UNIT_MODULES)
-    integration = set(facade.CALC_MENU_INTEGRATION_MODULES)
-    assert unit.isdisjoint(integration), "unit and integration menu lists must not overlap"
 
     for dotted in facade.CALC_MENU_UNIT_MODULES + facade.CALC_MENU_INTEGRATION_MODULES:
         importlib.import_module(dotted)

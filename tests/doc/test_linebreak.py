@@ -1,9 +1,4 @@
 """Headless unit tests for HTML linebreak helpers (not a native UNO suite)."""
-import sys
-import os
-
-# Add core to path
-sys.path.insert(0, os.getcwd())
 
 from plugin.writer.html_export import strip_html_boilerplate
 from plugin.writer.html_import import ensure_html_linebreaks
@@ -74,15 +69,3 @@ def test_block_only_html_not_wrapped_in_p_or_br():
         assert "<p>" not in res
         assert "<br>" not in res
         assert tag_sample in res
-
-
-if __name__ == "__main__":
-    try:
-        test_conversion()
-        print("Linebreak conversion tests passed!")
-        test_stripping()
-        print("Boilerplate stripping tests passed!")
-        print("\nAll HTML formatting unit tests passed!")
-    except AssertionError as e:
-        print(f"\nTEST FAILED: {e}")
-        sys.exit(1)
