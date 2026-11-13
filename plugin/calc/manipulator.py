@@ -197,7 +197,7 @@ def _uno_range_address(cell_or_range: Any) -> Any:
     return ra
 
 
-def _quiet_probe_cleanup(action: Callable[[], None], what: str) -> None:
+def quiet_probe_cleanup(action: Callable[[], None], what: str) -> None:
     """Best-effort probe teardown that still surfaces a disposed document."""
     # Re-raise disposal during array-formula probe cleanup; suppress other probe teardown errors.
     try:
@@ -772,12 +772,12 @@ class CellManipulator:
             return (rows, cols)
         finally:
             if hidden_context_entered and undo_mgr:
-                _quiet_probe_cleanup(undo_mgr.leaveUndoContext, "leaveUndoContext")
+                quiet_probe_cleanup(undo_mgr.leaveUndoContext, "leaveUndoContext")
             elif undo_mgr and not was_possible:
-                _quiet_probe_cleanup(undo_mgr.clear, "clear")
+                quiet_probe_cleanup(undo_mgr.clear, "clear")
 
             if not was_modified:
-                _quiet_probe_cleanup(lambda: doc.setModified(False), "setModified")
+                quiet_probe_cleanup(lambda: doc.setModified(False), "setModified")
 
     def plan_writes(
         self,

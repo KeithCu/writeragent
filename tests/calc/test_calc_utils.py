@@ -13,6 +13,7 @@ import pytest
 
 from plugin.calc.calc_utils import (
     cell_value_and_type,
+    classify_array_cell,
     get_cell_geometry,
     query_interface,
     resolve_sheet_and_cell,
@@ -195,5 +196,13 @@ class TestCellValueAndType:
         val, type_name = cell_value_and_type(cell)
         assert val == 99.0
         assert type_name == "value"
+
+
+def test_classify_array_cell():
+    assert classify_array_cell(None, "=1/0", True) == (None, "formula", "=1/0")
+    assert classify_array_cell("=abc", "=abc", False) == ("=abc", "text", None)
+    assert classify_array_cell(5.0, "{=A1:A2}", True) == (5.0, "formula", "{=A1:A2}")
+    assert classify_array_cell("", "", False) == (None, "empty", None)
+    assert classify_array_cell(0.0, "0", False) == (0.0, "value", None)
 
 

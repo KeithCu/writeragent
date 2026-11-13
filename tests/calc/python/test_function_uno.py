@@ -437,6 +437,24 @@ def test_py_addin_worker_exception_formula_error(ctx, doc):
 
 @native_test
 @with_native_doc("calc")
+def test_py_addin_child_timeout_shows_guidance_text(ctx, doc):
+    """Child in-process timeout (code EXECUTION_TIMEOUT) displays timeout guidance text in the cell."""
+    sheet = doc.getSheets().getByIndex(0)
+    clear_python_addin_cache()
+    try:
+        cell = sheet.getCellByPosition(0, 0)
+        cell.setFormula('=PY("import time; time.sleep(12); result = 1")')
+        doc.calculateAll()
+        assert cell.getError() == 0, cell.getError()
+        assert cell.getString().startswith("Error: Python timed out"), repr(cell.getString())
+    finally:
+        st = WorkbookState.known(doc)
+        if st is not None:
+            WorkbookState.forget_key(st.key)
+
+
+@native_test
+@with_native_doc("calc")
 def test_py_addin_div0_token_formula_error(ctx, doc):
     """Add-in bridge maps #DIV/0! token to 532 formula error."""
     import unittest.mock
