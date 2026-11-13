@@ -61,7 +61,7 @@ def test_calc_error_tokens_agree_with_child() -> None:
         (
             {
                 "status": "error",
-                "code": "VENV_TIMEOUT",
+                "code": "EXECUTION_TIMEOUT",
                 "message": "Code execution exceeded the maximum execution time of 30 seconds",
             },
             _TIMEOUT_GUIDANCE,
@@ -155,16 +155,26 @@ def test_addin_result_for_worker_status_by_code(
 
 
 @pytest.mark.parametrize(
-    ("raw", "expected"),
+    ("call", "expected"),
     [
-        ("", "Error: Unknown error"),
-        ("Error: x", "Error: x"),
-        ("#SPILL!", "#SPILL!"),
-        ("x", "Error: x"),
+        (lambda: addin_values.format_addin_error_for_display(RuntimeError("")), "Error: RuntimeError"),
+        (lambda: addin_values.format_addin_error_for_display(RuntimeError("x")), "Error: x"),
+        (
+            lambda: addin_values.addin_result_for_worker_status({"code": "USER_STOPPED", "message": "#SPILL!"}),
+            "#SPILL!",
+        ),
+        (
+            lambda: addin_values.addin_result_for_worker_status({"code": "USER_STOPPED", "message": ""}),
+            "Error: Unknown error",
+        ),
+        (
+            lambda: addin_values.addin_result_for_worker_status({"code": "USER_STOPPED", "message": "Error: x"}),
+            "Error: x",
+        ),
     ],
 )
-def test_error_cell_text_prefix_rules(raw: str, expected: str) -> None:
-    assert addin_values._error_cell_text(raw) == expected
+def test_error_cell_text_prefix_rules(call: Any, expected: str) -> None:
+    assert call() == expected
 
 
 def test_format_addin_error_for_display_keeps_host_wording() -> None:

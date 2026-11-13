@@ -83,9 +83,9 @@ _WORKER_EXC_CODES: dict[str, int] = {
 
 _DUE_TO_EXC_RE = re.compile(r" due to: ([A-Za-z_][A-Za-z0-9_]*): ")
 
-# Worker result codes whose run never reached a verdict on the user's code. The cell
-# shows guidance text for these so the user opens Settings → Python. Every other code
-# is a formula error (payload NaN) so ISERROR sees it.
+# Worker result codes whose run never reached a verdict on the user's code.
+# These and VENV_NOT_FOUND / USER_STOPPED stay text (table in the module
+# docstring); every other code is a payload NaN so ISERROR sees it.
 _TIMEOUT_CODES: frozenset[str] = frozenset({"VENV_TIMEOUT", "EXECUTION_TIMEOUT"})
 
 

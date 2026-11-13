@@ -135,7 +135,7 @@ formula_worker.py and vision.py (child), current:
       loop: read request, handler, write response
 ```
 
-Venv path is different: [`plugin/scripting/venv/worker_harness.py`](../../plugin/scripting/venv/worker_harness.py) also sends `{status: ready}` (`announce_ready`) before its first stdin read, and imports `venv_sandbox` lazily in the execute handler (asserted by `test_harness_library_import_does_not_claim_or_load_sandbox`). Warm timeout is `WARM_WORKER_TIMEOUT_SEC` (30s) plus grace — still fails in a full run when the child is stuck or stdout is not pickle. The child's execution timeout frame carries `code: "VENV_TIMEOUT"`, the same code as the host read timeout.
+Venv path is different: [`plugin/scripting/venv/worker_harness.py`](../../plugin/scripting/venv/worker_harness.py) also sends `{status: ready}` (`announce_ready`) before its first stdin read, and imports `venv_sandbox` lazily in the execute handler (asserted by `test_harness_library_import_does_not_claim_or_load_sandbox`). Warm timeout is `WARM_WORKER_TIMEOUT_SEC` (30s) plus grace — still fails in a full run when the child is stuck or stdout is not pickle. The child's execution timeout frame carries `code: "EXECUTION_TIMEOUT"`; the host read timeout, which kills the child, is `VENV_TIMEOUT`.
 
 Handshake read passes `max_payload_bytes`. On `TimeoutExpired`, `IpcPartialFrameTimeout`, or a frame whose `status` is not `"ready"`, the spawn logs a stderr snippet and `kill()`s. That path is fail-closed.
 

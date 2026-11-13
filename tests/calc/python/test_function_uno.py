@@ -438,7 +438,7 @@ def test_py_addin_worker_exception_formula_error(ctx, doc):
 @native_test
 @with_native_doc("calc")
 def test_py_addin_child_timeout_shows_guidance_text(ctx, doc):
-    """Child in-process timeout (code VENV_TIMEOUT) displays timeout guidance text in the cell."""
+    """Child in-process timeout (code EXECUTION_TIMEOUT) displays timeout guidance text in the cell."""
     import unittest.mock
 
     sheet = doc.getSheets().getByIndex(0)
@@ -447,7 +447,7 @@ def test_py_addin_child_timeout_shows_guidance_text(ctx, doc):
         with unittest.mock.patch("plugin.calc.python.function.run_code_in_user_venv") as mock_run:
             mock_run.return_value = {
                 "status": "error",
-                "code": "VENV_TIMEOUT",
+                "code": "EXECUTION_TIMEOUT",
                 "message": "Code execution exceeded the maximum execution time of 30 seconds",
                 "details": {},
             }

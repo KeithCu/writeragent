@@ -1333,7 +1333,7 @@ def test_execute_python_addin_maps_timeout_error(monkeypatch) -> None:
         "run_code_in_user_venv",
         lambda *_a, **_k: {
             "status": "error",
-            "code": "VENV_TIMEOUT",
+            "code": "EXECUTION_TIMEOUT",
             "message": "Code execution exceeded the maximum execution time of 10 seconds",
         },
     )

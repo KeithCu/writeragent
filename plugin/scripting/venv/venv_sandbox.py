@@ -775,7 +775,7 @@ def _arm_alarm(executor: LocalPythonExecutor, deadline: float, timeout_sec: int)
     left = deadline - time.monotonic()
     if left <= 0:
         return error_result(
-            "VENV_TIMEOUT",
+            "EXECUTION_TIMEOUT",
             f"Code execution exceeded the maximum execution time of {timeout_sec} seconds",
         )
     executor.timeout_seconds = math.ceil(max(left, _EXECUTOR_ALARM_MIN_SEC))
@@ -1087,15 +1087,16 @@ def _run_on_executor(
         # issuing wa.* calls after Stop.
         return _fail_cell(executor, prior_result, str(e) or "Stopped by user.", code="USER_STOPPED")
     except ExecutionTimeoutError as e:
-        # The host read timeout uses the same code (venv_worker._execute_ipc_unlocked),
-        # so Calc maps the child alarm and the host timeout to one display; the frame
-        # still returns without a traceback and the warm child stays alive.
+        # ExecutionTimeoutError is BaseException; this arm must stay above
+        # except BaseException. The child is still alive, so the code is
+        # EXECUTION_TIMEOUT (budget spent), not the host's VENV_TIMEOUT
+        # (child killed); Calc shows the same timeout guidance for both.
         finalize_thread_pool_timeout()
         return _fail_cell(
             executor,
             prior_result,
             str(e),
-            code="VENV_TIMEOUT",
+            code="EXECUTION_TIMEOUT",
             stdout=print_outputs_from_state(executor.state),
         )
     except InterpreterError as e:
