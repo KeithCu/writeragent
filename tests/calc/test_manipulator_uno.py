@@ -132,7 +132,7 @@ def test_range_sort_reorders_visible_rows(ctx, doc):
 @native_test
 @with_native_doc("calc")
 def test_set_style_v_align_and_merge_center_vertical_justify_uno(ctx, doc):
-    from com.sun.star.table import CellHoriJustify
+    from com.sun.star.table.CellHoriJustify import CENTER
 
     sheet = doc.getCurrentController().getActiveSheet()
     for addr, v_align, expected in (("A1", "top", 1), ("A2", "center", 2), ("A3", "bottom", 3)):
@@ -145,4 +145,4 @@ def test_set_style_v_align_and_merge_center_vertical_justify_uno(ctx, doc):
     assert res_merge.get("status") == "ok", f"merge_cells failed: {res_merge}"
     c1 = sheet.getCellByPosition(2, 0)
     assert c1.getPropertyValue("VertJustify") == 2
-    assert c1.getPropertyValue("HoriJustify") == CellHoriJustify.CENTER
+    assert c1.getPropertyValue("HoriJustify") == CENTER
