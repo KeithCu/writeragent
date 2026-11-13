@@ -32,14 +32,12 @@ if TYPE_CHECKING:
     from com.sun.star.awt import FontWeight
     from com.sun.star.awt.FontSlant import ITALIC, NONE
     from com.sun.star.table.CellHoriJustify import CENTER, LEFT, RIGHT, BLOCK, STANDARD
-    from com.sun.star.table.CellVertJustify import CENTER as V_CENTER, TOP, BOTTOM
     from com.sun.star.table import BorderLine, BorderLineStyle, TableSortField
 else:
     try:
         from com.sun.star.awt import FontWeight
         from com.sun.star.awt.FontSlant import ITALIC, NONE
         from com.sun.star.table.CellHoriJustify import CENTER, LEFT, RIGHT, BLOCK, STANDARD
-        from com.sun.star.table.CellVertJustify import CENTER as V_CENTER, TOP, BOTTOM
         from com.sun.star.table import BorderLine, BorderLineStyle, TableSortField
     except ImportError:
         pass
@@ -67,6 +65,12 @@ log = logging.getLogger("writeragent.calc")
 MAX_WRITE_CELLS = 250_000
 _ARRAY_PREVIEW_ROWS = 5
 _ARRAY_PREVIEW_COLS = 10
+
+# Calc declares VertJustify as a long (sc/source/ui/unoobj/cellsuno.cxx,
+# SC_UNONAME_CELLVJUS). SvxVerJustifyItem::PutValue
+# (editeng/source/items/justifyitem.cxx) reads only a CellVertJustify2 integer;
+# any CellVertJustify enum value fails that read and leaves the cell at STANDARD.
+_VERT_JUSTIFY: dict[str, int] = {"standard": 0, "top": 1, "center": 2, "bottom": 3}
 
 
 class _CommitResult(NamedTuple):
@@ -383,9 +387,9 @@ class CellManipulator:
             if h_align.lower() in align_map:
                 target.setPropertyValue("HoriJustify", align_map[h_align.lower()])
         if v_align is not None:
-            align_map = {"top": TOP, "center": CENTER, "bottom": BOTTOM, "standard": STANDARD}
-            if v_align.lower() in align_map:
-                target.setPropertyValue("VertJustify", align_map[v_align.lower()])
+            vert = _VERT_JUSTIFY.get(v_align.lower())
+            if vert is not None:
+                target.setPropertyValue("VertJustify", vert)
         if wrap_text is not None:
             target.setPropertyValue("IsTextWrapped", wrap_text)
         if border_color is not None:
@@ -453,7 +457,7 @@ class CellManipulator:
 
         if center:
             cell_range.setPropertyValue("HoriJustify", CENTER)
-            cell_range.setPropertyValue("VertJustify", V_CENTER)
+            cell_range.setPropertyValue("VertJustify", _VERT_JUSTIFY["center"])
 
     def range_sort(self, range_str: str, sort_column: int = 0, ascending: bool = True, has_header: bool = True) -> str:
         """Sort a range.

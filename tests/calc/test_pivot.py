@@ -481,3 +481,15 @@ def test_pivot_table_create_page_filter_not_in_page_fields():
 
     assert res["status"] == "error"
     assert "Field 'Region' in page_filters must be in page_fields." in res["message"]
+
+
+def test_resolve_qualified_ref_quotes_apostrophe_sheet():
+    from plugin.calc.pivot import _resolve_qualified_ref
+
+    bridge = MagicMock()
+    _resolve_qualified_ref(bridge, "A1:B3", "O'Brien", "source_range", "source_sheet")
+    bridge.resolve_range_or_address.assert_called_with("'O''Brien'.A1:B3")
+
+    bridge.reset_mock()
+    _resolve_qualified_ref(bridge, "A1:B3", "Q1-2026", "source_range", "source_sheet")
+    bridge.resolve_range_or_address.assert_called_with("Q1-2026.A1:B3")

@@ -62,7 +62,7 @@ try:
 except (ImportError, ModuleNotFoundError):
     EQUAL = "EQUAL"  # type: ignore
 
-from plugin.calc.address_utils import format_range_address, split_sheet_prefix
+from plugin.calc.address_utils import format_range_address, qualify_a1, split_sheet_prefix
 from plugin.calc.base import ToolCalcPivotBase
 from plugin.calc.bridge import CalcBridge
 from plugin.calc.calc_utils import query_interface as _query_interface
@@ -217,7 +217,7 @@ def _resolve_qualified_ref(
         return None, (
             f"{ref_label} names sheet '{prefix}' but {sheet_label} says '{sheet_arg}' — pass one or the other."
         )
-    resolved = ref if prefix is not None or not sheet_arg else f"'{sheet_arg}'.{ref}"
+    resolved = ref if prefix is not None or not sheet_arg else qualify_a1(str(sheet_arg), ref)
     try:
         return bridge.resolve_range_or_address(resolved), None
     except Exception as exc:

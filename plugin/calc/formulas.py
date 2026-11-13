@@ -38,7 +38,7 @@ from plugin.calc.address_utils import parse_address, split_sheet_prefix
 from plugin.calc.array_formula import returns_array
 from plugin.calc.calc_utils import cell_value_and_type, resolve_sheet
 from plugin.calc.error_detector import ERROR_TYPES
-from plugin.framework.errors import ToolExecutionError, is_disposal, uno_read
+from plugin.framework.errors import ToolExecutionError, is_disposal, reraise_if_disposed, uno_read
 from plugin.framework.tool import ToolBase
 
 if TYPE_CHECKING:
@@ -96,7 +96,8 @@ def _drop_eval_sheet(sheets: Any, name: str, undo_guard: _EvaluationUndoGuard) -
             sheets.removeByName(name)
         undo_guard.sheet_removed = True
         return True
-    except Exception:
+    except Exception as exc:
+        reraise_if_disposed(exc)
         log.exception("Failed to cleanup evaluation sheet")
         return False
 
@@ -239,7 +240,8 @@ class EvaluateFormula(ToolCalcErrorBase):
                 cleaned = _drop_eval_sheet(sheets, temp_sheet_name, undo_guard)
                 # A failed cleanup turns an ordinary evaluation error into a
                 # tool error. A disposed document (or a BaseException such as
-                # KeyboardInterrupt) still propagates.
+                # KeyboardInterrupt) still propagates; a disposal during cleanup
+                # raises DocumentDisposedError instead.
                 if not cleaned and isinstance(exc, Exception) and not is_disposal(exc):
                     return self._tool_error(cleanup_msg)
                 raise
@@ -260,13 +262,13 @@ class EvaluateFormula(ToolCalcErrorBase):
         try:
             cell = sheet.getCellByPosition(col, row)
         except Exception as e:
+            reraise_if_disposed(e)
             return self._tool_error(f"Invalid cell context address '{cell_address}': {str(e)}")
 
         try:
             cell.setFormula(formula_string)
         except Exception as e:
-            if is_disposal(e):
-                raise
+            reraise_if_disposed(e)
             return self._tool_error(f"Failed to set formula '{formula_string}' at cell '{cell_address}': {str(e)}")
 
         error_code = cell.Error

@@ -75,3 +75,31 @@ def test_calc_pivot_table(ctx, doc):
     assert sheet2_pivots == [], f"Expected no pivot on Sheet2 after rejected duplicate, got {sheet2_pivots}"
     assert "WA_PivotTest" not in [p.get("name") for p in sheet2_pivots]
 
+
+@native_test
+@with_native_doc("calc")
+def test_pivot_create_on_apostrophe_sheet_uno(ctx, doc):
+    sheets = doc.getSheets()
+    sheets.insertNewByName("O'Brien", sheets.getCount())
+
+    res_write = _execute_calc_tool(doc, ctx, "write_formula_range", {
+        "range": "'O''Brien'.A1:B3",
+        "values": [["Month", "Sales"], ["Jan", "100"], ["Feb", "150"]],
+    })
+    assert res_write.get("status") == "ok", f"write_formula_range failed: {res_write}"
+
+    res = _execute_calc_tool(doc, ctx, "pivot_table_create", {
+        "name": "ApostrophePivot",
+        "source_range": "A1:B3",
+        "source_sheet": "O'Brien",
+        "destination_sheet": "O'Brien",
+        "destination_cell": "D1",
+        "row_fields": ["Month"],
+        "data_fields": ["Sales"],
+    })
+    assert res.get("status") == "ok", f"pivot_table_create failed: {res}"
+
+    sheet = sheets.getByName("O'Brien")
+    rows = sheet.getCellRangeByName("D1:E6").getDataArray()
+    assert any(row[0] == "Jan" for row in rows), f"Expected 'Jan' row in {rows}"
+    assert any(250 in row or 250.0 in row for row in rows), f"Expected total 250 in {rows}"
