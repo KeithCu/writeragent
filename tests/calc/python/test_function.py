@@ -1286,6 +1286,7 @@ def test_execute_python_addin_maps_missing_venv_error(monkeypatch) -> None:
         "run_code_in_user_venv",
         lambda *_a, **_k: {
             "status": "error",
+            "code": "VENV_NOT_FOUND",
             "message": "No python executable found under configured venv: '/missing'",
         },
     )
@@ -1305,7 +1306,8 @@ def test_execute_python_addin_maps_timeout_error(monkeypatch) -> None:
         "run_code_in_user_venv",
         lambda *_a, **_k: {
             "status": "error",
-            "message": "Python worker failed: timed out after 10 seconds",
+            "code": "EXECUTION_TIMEOUT",
+            "message": "Code execution exceeded the maximum execution time of 10 seconds",
         },
     )
     monkeypatch.setattr(_function, "_record_py_diagnostic", lambda *_a, **_k: None)
@@ -2310,7 +2312,7 @@ def test_calc_formula_error_double_and_tokens() -> None:
     assert tup[2] == "ok"
 
 
-def test_worker_exception_error_code_and_stays_text() -> None:
+def test_worker_exception_error_code() -> None:
     cases = [
         ("Code execution failed at line '1/0' due to: ZeroDivisionError: division by zero", 532),
         ("Code execution failed at line 'x' due to: OverflowError: math range error", 503),
@@ -2327,12 +2329,6 @@ def test_worker_exception_error_code_and_stays_text() -> None:
     ]
     for msg, expected_code in cases:
         assert _addin_values.worker_exception_error_code(msg) == expected_code
-
-    # _worker_failure_stays_text
-    assert _addin_values._worker_failure_stays_text({"code": "USER_STOPPED", "message": "Stopped by user."}) is True
-    assert _addin_values._worker_failure_stays_text({"status": "error", "message": "No python executable found under configured venv: '/missing'"}) is True
-    assert _addin_values._worker_failure_stays_text({"status": "error", "message": "Python worker failed: timed out after 10 seconds"}) is True
-    assert _addin_values._worker_failure_stays_text({"status": "error", "message": "Code execution failed at line 'x' due to: ValueError: connection timeout"}) is False
 
 
 def test_execute_python_addin_worker_errors(monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture) -> None:
@@ -2376,7 +2372,11 @@ def test_execute_python_addin_worker_errors(monkeypatch: pytest.MonkeyPatch, cap
     monkeypatch.setattr(
         _function,
         "run_code_in_user_venv",
-        lambda *_a, **_k: {"status": "error", "message": "No python executable found under configured venv: '/missing'"},
+        lambda *_a, **_k: {
+            "status": "error",
+            "code": "VENV_NOT_FOUND",
+            "message": "No python executable found under configured venv: '/missing'",
+        },
     )
     out_venv = _function.execute_python_addin(ctx, "venv_code", doc=doc)
     assert isinstance(out_venv, str) and "Settings" in out_venv
@@ -2384,7 +2384,11 @@ def test_execute_python_addin_worker_errors(monkeypatch: pytest.MonkeyPatch, cap
     monkeypatch.setattr(
         _function,
         "run_code_in_user_venv",
-        lambda *_a, **_k: {"status": "error", "message": "Python worker failed: timed out after 10 seconds"},
+        lambda *_a, **_k: {
+            "status": "error",
+            "code": "VENV_TIMEOUT",
+            "message": "Python worker failed: timed out after 10 seconds",
+        },
     )
     out_to = _function.execute_python_addin(ctx, "to_code", doc=doc)
     assert isinstance(out_to, str) and "timed out" in out_to.lower()

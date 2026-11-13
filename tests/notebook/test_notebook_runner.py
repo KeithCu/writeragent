@@ -1632,6 +1632,23 @@ def test_run_cells_worker_timeout_aborts_the_batch_with_its_message():
     assert applied == ["ok", "error"]
 
 
+def test_run_cells_child_timeout_continues_batch():
+    def _exec(_ctx, _doc, code):
+        if code == "y = x + 1":
+            return {
+                "status": "error",
+                "code": "EXECUTION_TIMEOUT",
+                "message": "Code execution exceeded the maximum execution time of 1 seconds",
+            }
+        return {"status": "ok", "result": None, "stdout": ""}
+
+    result, applied, state = _run_cells_with(_exec)
+    assert result.status == "ok"
+    assert result.cells_run == 3
+    assert applied == ["ok", "error", "ok"]
+    assert state.next_execution_count == 4
+
+
 def test_run_cells_document_disposed_mid_batch_stops_quietly():
     class DisposedException(Exception):
         pass
