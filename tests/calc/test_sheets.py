@@ -463,7 +463,7 @@ def test_sheet_verbs_refuse_internal_sheet_with_one_sentence(tool_name, kwargs, 
         res = _tool(tool_name).execute_safe(ctx, **kwargs)
     assert res == {
         "status": "error",
-        "code": "TOOL_EXECUTION_ERROR",
+        "code": "INVALID_PARAM",
         "message": f"Cannot {verb} internal sheet '_hidden'.",
     }
     sheets.removeByName.assert_not_called()
@@ -519,3 +519,18 @@ def test_sheet_schema_rejects_wrong_types_before_execute(tool_name, kwargs):
     prep = prepare_tool_call(tool, SimpleNamespace(doc_type="calc"), tool_name, kwargs)
     assert prep.error is not None
     assert prep.error["code"] == "VALIDATION_ERROR"
+
+
+def test_sheets_registry_invalid_param_refusals():
+    doc, sheets = _doc_with_named_sheets("Sheet1", "_x")
+    ctx = SimpleNamespace(doc=doc)
+
+    res_create = _tool("sheet_create").execute_safe(ctx, sheet="NewSheet", position=99)
+    assert res_create["status"] == "error"
+    assert res_create["code"] == "INVALID_PARAM"
+    sheets.insertNewByName.assert_not_called()
+
+    res_delete = _tool("sheet_delete").execute_safe(ctx, sheet="_x")
+    assert res_delete["status"] == "error"
+    assert res_delete["code"] == "INVALID_PARAM"
+    sheets.removeByName.assert_not_called()

@@ -423,3 +423,23 @@ def test_evaluate_formula_cell_lookup_disposal_is_document_disposed(monkeypatch)
     monkeypatch.setattr(doc.temp, "getCellByPosition", _disposed_cell)
     res = EvaluateFormula().execute_safe(_eval_ctx(doc), formula="=1+1")
     assert res["code"] == "DOCUMENT_DISPOSED"
+
+
+def test_evaluate_formula_empty_formula_and_calc_error_codes():
+    from plugin.app import get_tools
+    from plugin.calc.formulas import formula_evaluation_error_message
+
+    doc = _EvalDoc()
+    tool = get_tools().get("evaluate_formula")
+
+    res_empty = tool.execute_safe(_eval_ctx(doc), formula="  ")
+    assert res_empty["status"] == "error"
+    assert res_empty["code"] == "INVALID_PARAM"
+    assert doc.temp_cell.formulas == []
+
+    doc.temp_cell.Error = 532
+    res_err = tool.execute_safe(_eval_ctx(doc), formula="=1/0")
+    assert res_err["status"] == "error"
+    assert res_err["code"] == "CALC_ERROR"
+    assert res_err["error_code"] == 532
+    assert res_err["message"] == formula_evaluation_error_message(532)

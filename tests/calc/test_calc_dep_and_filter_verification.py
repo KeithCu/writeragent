@@ -24,7 +24,7 @@ from plugin.calc.excel_py_convert.resolve_refs import (
     resolve_dep,
 )
 from plugin.framework.deal_shim import DEAL_MAX_TOKEN
-from plugin.framework.errors import UnoObjectError
+from plugin.framework.errors import ToolExecutionError
 
 
 
@@ -44,8 +44,9 @@ def test_filter_connection_code_valid(conn: str | None) -> None:
 
 
 def test_filter_connection_code_invalid() -> None:
-    with pytest.raises(UnoObjectError):
+    with pytest.raises(ToolExecutionError) as exc:
         filter_connection_code("INVALID_CONN")
+    assert exc.value.code == "INVALID_PARAM"
 
 
 @given(op=st.sampled_from(["EQUAL", "NOT_EQUAL", "GREATER", "LESS", "CONTAINS", "BEGINS_WITH"]))
@@ -56,16 +57,16 @@ def test_resolve_filter_operator_code_valid(op: str) -> None:
 
 
 def test_resolve_filter_operator_code_invalid() -> None:
-    with pytest.raises(UnoObjectError):
+    with pytest.raises(ToolExecutionError):
         resolve_filter_operator_code("UNKNOWN_OPERATOR_123")
 
 
 def test_filter_string_longer_than_token_is_uno_error() -> None:
-    """An over-long operator is UnoObjectError, not PreContractError."""
+    """An over-long operator is ToolExecutionError (INVALID_PARAM), not PreContractError."""
     too_long = "A" * (DEAL_MAX_TOKEN + 1)
-    with pytest.raises(UnoObjectError):
+    with pytest.raises(ToolExecutionError):
         resolve_filter_operator_code(too_long)
-    with pytest.raises(UnoObjectError):
+    with pytest.raises(ToolExecutionError):
         filter_connection_code(too_long)
 
 
@@ -79,9 +80,9 @@ def test_parse_sheet_filter_criterion_basic() -> None:
 
 
 def test_parse_sheet_filter_criterion_bad_field_raises_uno() -> None:
-    with pytest.raises(UnoObjectError, match="Invalid filter 'field'"):
+    with pytest.raises(ToolExecutionError, match="Invalid filter 'field'"):
         parse_sheet_filter_criterion({"field": "", "operator": "EQUAL", "value": "x"}, is_first=True)
-    with pytest.raises(UnoObjectError, match="Invalid filter 'field'"):
+    with pytest.raises(ToolExecutionError, match="Invalid filter 'field'"):
         parse_sheet_filter_criterion({"field": None, "operator": "EQUAL", "value": "x"}, is_first=True)
 
 

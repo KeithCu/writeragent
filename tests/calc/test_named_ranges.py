@@ -20,7 +20,7 @@ from types import ModuleType, SimpleNamespace
 from unittest.mock import MagicMock
 import pytest
 
-from com.sun.star.lang import IllegalArgumentException
+from com.sun.star.uno import RuntimeException
 
 from plugin.app import get_tools
 from plugin.framework.errors import UnoObjectError
@@ -346,7 +346,7 @@ def test_named_range_tools_error_handling():
     # 7. CreateFromTitles missing range
     res_titles = tool_titles.execute_safe(ctx, range=[])
     assert res_titles["status"] == "error"
-    assert res_titles["code"] == "INVALID_ARGUMENT"
+    assert res_titles["code"] == "INVALID_PARAM"
 
     # 8. Add invalid base_cell
     named_ranges.hasByName.side_effect = None
@@ -474,27 +474,27 @@ def test_edit_renames_before_other_fields_and_rolls_back():
 
     nr_fail = _nr("TaxRate", "$Sheet1.$A$1")
     ctx_fail = _workbook("Sheet1", [_sheet("Sheet1", {})], {"TaxRate": nr_fail})
-    nr_fail.setContent.side_effect = IllegalArgumentException("content rejected")
+    nr_fail.setContent.side_effect = RuntimeException("content rejected")
     res_fail = _tool("named_range_edit").execute_safe(ctx_fail, name="TaxRate", new_name="TaxRate2", content="$Sheet1.$B$1")
     assert res_fail["status"] == "error"
-    assert res_fail["code"] == "NAMED_RANGE_ERROR"
+    assert res_fail["code"] == "TOOL_EXECUTION_ERROR"
     assert [call.args[0] for call in nr_fail.setName.call_args_list] == ["TaxRate2", "TaxRate"]
 
 
 def test_edit_rolls_back_content_when_type_set_fails():
     nr = _nr("TaxRate", "$Sheet1.$A$1")
     ctx = _workbook("Sheet1", [_sheet("Sheet1", {})], {"TaxRate": nr})
-    nr.setType.side_effect = IllegalArgumentException("type rejected")
+    nr.setType.side_effect = RuntimeException("type rejected")
     res = _tool("named_range_edit").execute_safe(ctx, name="TaxRate", new_name="TaxRate2", content="$Sheet1.$B$1", flags=["print_area"])
     assert res["status"] == "error"
-    assert res["code"] == "NAMED_RANGE_ERROR"
+    assert res["code"] == "TOOL_EXECUTION_ERROR"
     assert [call.args[0] for call in nr.setName.call_args_list] == ["TaxRate2", "TaxRate"]
     assert [call.args[0] for call in nr.setContent.call_args_list] == ["$Sheet1.$B$1", "$Sheet1.$A$1"]
 
     # setReferencePosition failure rolls back content, type, and rename
     nr_pos = _nr("TaxRate", "$Sheet1.$A$1")
     ctx_pos = _workbook("Sheet1", [_sheet("Sheet1", {})], {"TaxRate": nr_pos})
-    nr_pos.setReferencePosition.side_effect = IllegalArgumentException("pos rejected")
+    nr_pos.setReferencePosition.side_effect = RuntimeException("pos rejected")
     res_pos = _tool("named_range_edit").execute_safe(
         ctx_pos,
         name="TaxRate",
@@ -504,7 +504,7 @@ def test_edit_rolls_back_content_when_type_set_fails():
         base_cell="A1",
     )
     assert res_pos["status"] == "error"
-    assert res_pos["code"] == "NAMED_RANGE_ERROR"
+    assert res_pos["code"] == "TOOL_EXECUTION_ERROR"
     assert [call.args[0] for call in nr_pos.setName.call_args_list] == ["TaxRate2", "TaxRate"]
     assert [call.args[0] for call in nr_pos.setContent.call_args_list] == ["$Sheet1.$B$1", "$Sheet1.$A$1"]
     assert [call.args[0] for call in nr_pos.setType.call_args_list] == [2, 0]
@@ -654,3 +654,11 @@ def test_named_range_tools_missing_sheet_is_uno_object_error():
     assert "Available: Sheet1" in res_add["message"]
     assert "sheet_list" in res_add["details"]["hint"]
     ctx.doc.NamedRanges.addNewByName.assert_not_called()
+
+
+def test_named_range_create_from_titles_two_ranges_is_invalid_param():
+    ctx = _workbook("Sheet1", [_sheet("Sheet1", {})], {})
+    res = _tool("named_range_create_from_titles").execute_safe(ctx, range=["A1:B2", "C1:D2"])
+    assert res["status"] == "error"
+    assert res["code"] == "INVALID_PARAM"
+    ctx.doc.NamedRanges.addNewFromTitles.assert_not_called()

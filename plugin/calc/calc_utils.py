@@ -25,7 +25,7 @@ import uno
 
 from plugin.calc.address_utils import parse_address, split_sheet_prefix
 from plugin.calc.bridge import CalcBridge
-from plugin.framework.errors import UnoObjectError, is_disposal, uno_read
+from plugin.framework.errors import ToolExecutionError, is_disposal, uno_read
 
 log = logging.getLogger(__name__)
 
@@ -44,7 +44,7 @@ def range_args(raw: Any, *, exactly_one: bool = False) -> list[Any]:
     """Normalize tool ``range`` kwargs to a list of range strings."""
     if exactly_one:
         if not isinstance(raw, list) or len(raw) != 1 or not isinstance(raw[0], str) or not raw[0].strip():
-            raise UnoObjectError("Pass exactly one range.")
+            raise ToolExecutionError("Pass exactly one range.", code="INVALID_PARAM")
         return [raw[0].strip()]
     if not raw:
         return []

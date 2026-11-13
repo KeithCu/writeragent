@@ -55,7 +55,7 @@ class SearchInSpreadsheet(ToolCalcSearchBase):
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         pattern = kwargs["pattern"]
         if not pattern:
-            return self._tool_error("pattern is required.")
+            return self._tool_error("pattern is required.", code="INVALID_PARAM")
 
         max_results = kwargs.get("max_results", 50)
         # Type is settled by the schema; minimum is advertised but not enforced, so the bound is checked here.
@@ -106,7 +106,7 @@ class ReplaceInSpreadsheet(ToolCalcSearchBase):
         search = kwargs["search"]
         replace = kwargs["replace"]
         if not search:
-            return self._tool_error("search is required.")
+            return self._tool_error("search is required.", code="INVALID_PARAM")
 
         use_regex = kwargs.get("regex", False)
         if use_regex:

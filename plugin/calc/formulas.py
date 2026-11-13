@@ -177,7 +177,7 @@ class EvaluateFormula(ToolCalcErrorBase):
         formula_string = kwargs["formula"].strip()
         cell_address = (kwargs.get("cell") or "A1").strip()
         if not formula_string:
-            return self._tool_error("formula is required")
+            return self._tool_error("formula is required", code="INVALID_PARAM")
         if not formula_string.startswith("="):
             formula_string = "=" + formula_string
 
@@ -187,7 +187,7 @@ class EvaluateFormula(ToolCalcErrorBase):
             _prefix, local = split_sheet_prefix(cell_address)
             col, row = parse_address(local.replace("$", ""))
         except ValueError as e:
-            return self._tool_error(f"Invalid cell context address '{cell_address}': {e}")
+            return self._tool_error(f"Invalid cell context address '{cell_address}': {e}", code="INVALID_PARAM")
 
         doc = ctx.doc
         if not doc:
@@ -241,7 +241,7 @@ class EvaluateFormula(ToolCalcErrorBase):
             cell = sheet.getCellByPosition(col, row)
         except Exception as e:
             reraise_if_disposed(e)
-            return self._tool_error(f"Invalid cell context address '{cell_address}': {str(e)}")
+            return self._tool_error(f"Invalid cell context address '{cell_address}': {str(e)}", code="INVALID_PARAM")
 
         try:
             cell.setFormula(formula_string)
@@ -251,7 +251,11 @@ class EvaluateFormula(ToolCalcErrorBase):
 
         error_code = cell.Error
         if error_code != 0:
-            return {"status": "error", "error_code": error_code, "message": formula_evaluation_error_message(error_code)}
+            return self._tool_error(
+                formula_evaluation_error_message(error_code),
+                code="CALC_ERROR",
+                top_level={"error_code": error_code},
+            )
 
         result, result_type_str = cell_value_and_type(
             cell, formula_error_as_string=False, empty_as_none=False

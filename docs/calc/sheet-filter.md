@@ -116,7 +116,7 @@ Implementation split: criteria parsing + operator labels in [`plugin/calc/sheet_
 | Area | Status |
 |------|--------|
 | `TableFilterField2.Field` | Mapped as JSON `field` (0-based within range). |
-| `FilterOperator2` | Mapped by name via [`sheet_filter_criteria.py`](../../plugin/calc/sheet_filter_criteria.py); unknown names raise `UnoObjectError` (`resolve_filter_operator_code`). |
+| `FilterOperator2` | Mapped by name via [`sheet_filter_criteria.py`](../../plugin/calc/sheet_filter_criteria.py); unknown names raise `ToolExecutionError` (`INVALID_PARAM`) (`resolve_filter_operator_code`). |
 | `FilterConnection` (AND/OR) | Mapped as JSON `connection` from the **second** criterion onward; first row always AND (ignored in JSON, matches LO convention). |
 | `IsNumeric` / `NumericValue` / `StringValue` | Via `is_numeric` + `value` heuristics and operator classes (e.g. TOP_*, EMPTY). |
 | `ContainsHeader` | `has_header` on apply/clear. |

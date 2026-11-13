@@ -15,7 +15,7 @@ Conditional formatting tools live in the **specialized** tier (`conditional_form
 
 Implementation: [`plugin/calc/conditional.py`](../../plugin/calc/conditional.py). Base class: `ToolCalcConditionalBase` in [`plugin/calc/base.py`](../../plugin/calc/base.py). The conditional sub-agent also receives core **`style_list`** (`family=CellStyles`) to discover valid cell style names.
 
-An unknown style returns `INVALID_STYLE` with `details.hint` (calls `style_list` with `family='CellStyles'`) and an optional `details.similar`. `range` must name one block (`"Pass exactly one range."`); for `conditional_formatting_list`, an omitted or empty `range` scans the used area.
+An unknown style returns `INVALID_STYLE` with `details.hint` (calls `style_list` with `family='CellStyles'`) and an optional `details.similar`. `range` must name one block (`INVALID_PARAM`, `"Pass exactly one range."`), and an out-of-range `rule_index` on remove also returns `INVALID_PARAM`; for `conditional_formatting_list`, an omitted or empty `range` scans the used area. There is no catch-all code for conditional formatting errors; unexpected UNO failures reach `execute_safe`.
 
 ---
 

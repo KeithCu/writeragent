@@ -987,7 +987,8 @@ def test_calc_edit_range_error_does_not_call_set_diagram():
         )
 
     assert res["status"] == "error"
-    assert res.get("code") == "CHART_EDIT_ERROR"
+    assert res.get("code") == "INVALID_PARAM"
+    chart_obj.setRanges.assert_not_called()
     chart_doc.setDiagram.assert_not_called()
 
 
@@ -1035,12 +1036,14 @@ def test_calc_create_bad_position_does_not_call_add_new_by_name():
         # 1. Mismatched sheet prefix
         with pytest.raises(ToolExecutionError) as ei1:
             SheetCharts(ctx.doc).create(ctx, rect, "com.sun.star.chart.BarDiagram", data_range="A1:B2", position="OtherSheet.A1")
+        assert ei1.value.code == "INVALID_PARAM"
         assert "Position names sheet" in ei1.value.message
         charts.addNewByName.assert_not_called()
 
         # 2. Invalid position address (range or unparseable)
         with pytest.raises(ToolExecutionError) as ei2:
             SheetCharts(ctx.doc).create(ctx, rect, "com.sun.star.chart.BarDiagram", data_range="A1:B2", position="A1:B2")
+        assert ei2.value.code == "INVALID_PARAM"
         assert "Invalid position" in ei2.value.message
         charts.addNewByName.assert_not_called()
 
@@ -1184,6 +1187,7 @@ def test_writer_create_requested_name_already_used():
                 headers=["Cat", "A"],
                 rows=[["x", 1]],
             )
+    assert ei.value.code == "INVALID_PARAM"
     assert ei.value.message == "Chart name 'Sales' is already used."
 
 
@@ -1216,6 +1220,7 @@ def test_draw_create_requested_name_already_used():
                             rows=[["x", 1]],
                         )
     page.remove.assert_called_once()
+    assert ei.value.code == "INVALID_PARAM"
     assert ei.value.message == "Chart name 'Sales' is already used."
 
 
@@ -1228,7 +1233,7 @@ def test_chart_upsert_requested_name_already_used():
     ):
         res = ChartUpsert().execute_safe(ctx, name="Sales", chart_type="bar", data_range="A1:B6")
     assert res["status"] == "error"
-    assert res["code"] == "TOOL_EXECUTION_ERROR"
+    assert res["code"] == "INVALID_PARAM"
     assert res["message"] == "Chart name 'Sales' is already used."
     charts.addNewByName.assert_not_called()
 
@@ -1248,14 +1253,14 @@ def test_calc_create_missing_sheet_in_data_range_is_uno_object_error():
     charts.addNewByName.assert_not_called()
 
 
-def test_calc_create_bad_range_stays_chart_create_error():
+def test_calc_create_bad_range_is_invalid_param():
     _tool, ctx, charts, _chart_doc, bridge = _calc_chart_create_parts()
     bridge.resolve_range_or_address.side_effect = ValueError("bad range")
     with patch("plugin.calc.charts.CalcBridge", return_value=bridge):
         res = ChartUpsert().execute_safe(ctx, chart_type="bar", data_range="A1:ZZ")
     assert res["status"] == "error"
-    assert res["code"] == "CHART_CREATE_ERROR"
-    assert res["message"].startswith("Failed to create chart: ValueError: bad range")
+    assert res["code"] == "INVALID_PARAM"
+    assert res["message"] == "Invalid data_range 'A1:ZZ': ValueError: bad range"
     charts.addNewByName.assert_not_called()
 
 

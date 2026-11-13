@@ -110,14 +110,14 @@ class AddCellComment(ToolCalcCommentBase):
         cell_ref = kwargs["cell"]
         text = kwargs["text"]
         if not cell_ref or not text:
-            return self._tool_error("cell and text are required.")
+            return self._tool_error("cell and text are required.", code="INVALID_PARAM")
 
         try:
             sheet, col, row = CalcBridge(ctx.doc).resolve_cell(cell_ref, kwargs.get("sheet"))
         except ValueError as e:
             # parse_address and a prefix/sheet disagreement raise ValueError; the
             # bridge's UnoObjectError (missing sheet, multi-cell name) reaches execute_safe.
-            return self._tool_error(str(e))
+            return self._tool_error(str(e), code="INVALID_PARAM")
 
         cell_ann, existing_text = _annotation_text(sheet, col, row)
         if existing_text:
@@ -139,14 +139,14 @@ class DeleteCellComment(ToolCalcCommentBase):
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         cell_ref = kwargs["cell"]
         if not cell_ref:
-            return self._tool_error("cell is required.")
+            return self._tool_error("cell is required.", code="INVALID_PARAM")
 
         try:
             sheet, col, row = CalcBridge(ctx.doc).resolve_cell(cell_ref, kwargs.get("sheet"))
         except ValueError as e:
             # parse_address and a prefix/sheet disagreement raise ValueError; the
             # bridge's UnoObjectError (missing sheet, multi-cell name) reaches execute_safe.
-            return self._tool_error(str(e))
+            return self._tool_error(str(e), code="INVALID_PARAM")
 
         annotations = sheet.getAnnotations()
         # Find and remove the annotation at this position

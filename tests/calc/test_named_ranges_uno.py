@@ -261,7 +261,7 @@ def test_create_from_titles_from_named_range(ctx, doc):
             {"range": ["A1:B5", "C1:D5"], "border": "top", "scope": "global"},
         )
         assert res_two.get("status") == "error"
-        assert res_two.get("code") == "INVALID_ARGUMENT"
+        assert res_two.get("code") == "INVALID_PARAM"
     finally:
         for name in ("Table", "ColAlpha", "ColBeta"):
             if named_ranges.hasByName(name):

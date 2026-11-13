@@ -47,12 +47,12 @@ class DetectErrors(ToolCalcErrorBase):
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         raw = kwargs.get("range")
         if raw is not None and not isinstance(raw, (str, list)):
-            return self._tool_error("range must be a string or a list of strings", code="INVALID_RANGE")
+            return self._tool_error("range must be a string or a list of strings", code="INVALID_PARAM")
         entries = [raw] if isinstance(raw, str) else list(raw or [])
         ranges: list[str] = []
         for idx, entry in enumerate(entries):
             if not isinstance(entry, str) or not entry.strip():
-                return self._tool_error(f"Invalid range entry {idx}: {entry!r}", code="INVALID_RANGE")
+                return self._tool_error(f"Invalid range entry {idx}: {entry!r}", code="INVALID_PARAM")
             ranges.append(entry.strip())
 
         bridge = CalcBridge(ctx.doc)

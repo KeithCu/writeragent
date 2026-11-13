@@ -1174,7 +1174,7 @@ def test_execute_rejects_table_and_file_with_same_name(
         files={"sales": "budget.xlsx#Actuals"},
     )
     assert res["status"] == "error"
-    assert res["code"] == "DUCKDB_SQL_ERROR"
+    assert res["code"] == "INVALID_PARAM"
     assert "sales" in res["message"]
     mock_run.assert_not_called()
 
@@ -1226,7 +1226,7 @@ def test_execute_rejects_data_range_with_tables_data():
         tables={"data": {"range": "Actuals.A1:B2"}},
     )
     assert res["status"] == "error"
-    assert res["code"] == "DUCKDB_SQL_ERROR"
+    assert res["code"] == "INVALID_PARAM"
     assert "data" in res["message"]
 
 
@@ -1294,5 +1294,27 @@ def test_read_table_source_grid_sibling_without_folder_refuses_cwd(tmp_path: Pat
         pytest.fail("_read_sibling_office_file_as_grid should not be called without a document folder")
 
     with patch("plugin.calc.duckdb_tools._read_sibling_office_file_as_grid", side_effect=_must_not_read):
-        with pytest.raises(ToolExecutionError, match="save"):
+        with pytest.raises(ToolExecutionError, match="save") as exc:
             read_table_source_grid(None, None, None, {"file": "other.ods", "kind": "sheet"})
+        assert exc.value.code == "MISSING_SCOPED_DIR"
+
+
+def test_query_folder_sql_empty_sql_is_invalid_param():
+    from unittest.mock import MagicMock
+
+    ctx = _mk_ctx()
+    ctx.doc = MagicMock()
+    res = _tool().execute_safe(ctx, sql="   ")
+    assert res["status"] == "error"
+    assert res["code"] == "INVALID_PARAM"
+    ctx.doc.getSheets.assert_not_called()
+
+
+def test_read_table_source_grid_missing_file_and_scoped_dir_codes(tmp_path: Path):
+    with pytest.raises(ToolExecutionError) as exc_missing_dir:
+        read_table_source_grid(None, None, None, {"file": "gone.xlsx"})
+    assert exc_missing_dir.value.code == "MISSING_SCOPED_DIR"
+
+    with pytest.raises(ToolExecutionError) as exc_missing_file:
+        read_table_source_grid(None, None, str(tmp_path), {"file": "gone.xlsx"})
+    assert exc_missing_file.value.code == "MISSING_FILE"

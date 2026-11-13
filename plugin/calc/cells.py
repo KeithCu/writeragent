@@ -135,10 +135,10 @@ def _execute_structure_tool(
 ) -> dict[str, Any]:
     start, sheet_prefix, start_err = _parse_structure_start(structure_type, start_raw)
     if start_err:
-        return tool._tool_error(start_err)
+        return tool._tool_error(start_err, code="INVALID_PARAM")
 
     if sheet_prefix is not None and not is_agent_visible_sheet(sheet_prefix):
-        return tool._tool_error(f"Cannot modify internal sheet '{sheet_prefix}'.")
+        return tool._tool_error(f"Cannot modify internal sheet '{sheet_prefix}'.", code="INVALID_PARAM")
 
     bridge = CalcBridge(ctx.doc)
     manipulator = CellManipulator(bridge)
@@ -163,7 +163,7 @@ def _structure_tool_execute(tool: ToolBase, ctx: ToolContext, kwargs: dict[str, 
 
     count, err = _strict_int(kwargs, "count", 1, default=1)
     if err:
-        return tool._tool_error(err)
+        return tool._tool_error(err, code="INVALID_PARAM")
     assert count is not None
 
     return _execute_structure_tool(
@@ -264,7 +264,7 @@ def _mutate_ranges(
 ) -> dict[str, Any]:
     """Run apply_one on each range inside one compound undo."""
     if len(ranges) == 0:
-        return tool._tool_error("range is required")
+        return tool._tool_error("range is required", code="INVALID_PARAM")
 
     target = ranges[0]
     results: list[Any] = []
@@ -483,14 +483,14 @@ class ReadCellRange(ToolBase):
         if wire_format is None:
             wire_format = "rows"
         if not isinstance(wire_format, str) or wire_format not in ("rows", "cells"):
-            return self._tool_error('format must be "rows" or "cells"')
+            return self._tool_error('format must be "rows" or "cells"', code="INVALID_PARAM")
 
         bridge = CalcBridge(ctx.doc)
         inspector = CellInspector(bridge)
         rn = range_args(kwargs["range"])
 
         if len(rn) == 0:
-            return self._tool_error("range is required")
+            return self._tool_error("range is required", code="INVALID_PARAM")
         if len(rn) == 1:
             return self._read_one(bridge, inspector, rn[0], wire_format)
         results = [self._read_one(bridge, inspector, r, wire_format) for r in rn]
@@ -638,16 +638,19 @@ class WriteCellRange(ToolBase):
         manipulator, rn = _manipulator_context(ctx, kwargs["range"])
         source, source_err = _normalize_source_arg(kwargs.get("source"))
         if source_err:
-            return self._tool_error(source_err)
+            return self._tool_error(source_err, code="INVALID_PARAM")
 
         if len(rn) == 0:
-            return self._tool_error("range is required")
+            return self._tool_error("range is required", code="INVALID_PARAM")
 
         # source XOR values: a paste-copy must not also write/clear a values payload.
         # Explicit values, including "", conflict; a missing key and None do not.
         if source:
             if kwargs.get("values") is not None:
-                return self._tool_error("Do not pass values when source is set. To copy a block, pass source and dest range only.")
+                return self._tool_error(
+                    "Do not pass values when source is set. To copy a block, pass source and dest range only.",
+                    code="INVALID_PARAM",
+                )
 
             def _format_copy(results: list[Any]) -> dict[str, Any]:
                 last = results[-1]
@@ -674,16 +677,16 @@ class WriteCellRange(ToolBase):
         # values is required when source is omitted (schema keeps it optional so
         # source-only calls pass validate). Missing must not fall through as clear.
         if fov is None:
-            return self._tool_error("values is required when source is omitted")
+            return self._tool_error("values is required when source is omitted", code="INVALID_PARAM")
         if isinstance(fov, bool):
-            return self._tool_error("values must be a string, number, or array, not a boolean")
+            return self._tool_error("values must be a string, number, or array, not a boolean", code="INVALID_PARAM")
         # Bare number → string for fill; native list passes through unchanged.
         if isinstance(fov, (int, float)):
             fov = str(fov)
 
         array_flag, err = _opt_bool(kwargs, "array")
         if err:
-            return self._tool_error(err)
+            return self._tool_error(err, code="INVALID_PARAM")
 
         # The first array formula's measured size is reused for the other ranges: the same
         # formula gives the same result size, and each measure is a UNO probe.
@@ -754,13 +757,13 @@ class InsertCellHtml(ToolBase):
         html = kwargs["html"]
         assert isinstance(html, str)
         if not addr:
-            return self._tool_error("cell is required")
+            return self._tool_error("cell is required", code="INVALID_PARAM")
         # Cell addresses use the bridge so sheet prefixes resolve (same as other cell tools).
         _prefix, local = split_sheet_prefix(addr)
         try:
             parse_address(local)
         except ValueError as e:
-            return self._tool_error(f"Invalid cell address: {e}")
+            return self._tool_error(f"Invalid cell address: {e}", code="INVALID_PARAM")
 
         insert_cell_html_rich(ctx.doc, ctx.ctx, addr, html)
         return {"status": "ok", "message": f"Inserted rich HTML into cell {addr.upper()}."}
@@ -800,33 +803,33 @@ class SetCellStyle(ToolBase):
         for key in ("bg_color", "font_color", "border_color"):
             color_val, err = _opt_color(kwargs, key)
             if err:
-                return self._tool_error(err)
+                return self._tool_error(err, code="INVALID_PARAM")
             style_kwargs[key] = color_val
 
         for key in ("bold", "italic", "wrap_text"):
             bool_val, err = _opt_bool(kwargs, key)
             if err:
-                return self._tool_error(err)
+                return self._tool_error(err, code="INVALID_PARAM")
             style_kwargs[key] = bool_val
 
         # bool is a subclass of int; reject it so true/false cannot become 1.0/0.0.
         raw_size = kwargs.get("font_size")
         if isinstance(raw_size, bool) or (raw_size is not None and not isinstance(raw_size, (int, float))):
-            return self._tool_error(f"font_size must be a number, got {type(raw_size).__name__}")
+            return self._tool_error(f"font_size must be a number, got {type(raw_size).__name__}", code="INVALID_PARAM")
         style_kwargs["font_size"] = None if raw_size is None else float(raw_size)
 
         for key in ("h_align", "v_align", "number_format"):
             raw = kwargs.get(key)
             if raw is not None and not isinstance(raw, str):
-                return self._tool_error(f"{key} must be a string, got {type(raw).__name__}")
+                return self._tool_error(f"{key} must be a string, got {type(raw).__name__}", code="INVALID_PARAM")
             style_kwargs[key] = raw if isinstance(raw, str) and raw.strip() else None
 
         if len(rn) == 0:
-            return self._tool_error("range is required")
+            return self._tool_error("range is required", code="INVALID_PARAM")
 
         # Reject style calls where every property is None—empty mutations create useless undo steps.
         if all(v is None for v in style_kwargs.values()):
-            return self._tool_error("No style properties were provided.")
+            return self._tool_error("No style properties were provided.", code="INVALID_PARAM")
 
         def _apply_style(r: Any) -> str:
             manipulator.set_cell_style(r, **style_kwargs)
@@ -863,11 +866,11 @@ class MergeCells(ToolBase):
         manipulator, rn = _manipulator_context(ctx, kwargs["range"])
         center, err = _opt_bool(kwargs, "center", default=True)
         if err:
-            return self._tool_error(err)
+            return self._tool_error(err, code="INVALID_PARAM")
         assert center is not None
         unmerge, err = _opt_bool(kwargs, "unmerge", default=False)
         if err:
-            return self._tool_error(err)
+            return self._tool_error(err, code="INVALID_PARAM")
         assert unmerge is not None
 
         def _apply_merge(r: Any) -> str:
@@ -923,12 +926,12 @@ class SortRange(ToolCalcRangeBase):
 
         sort_column, err = _strict_int(kwargs, "sort_column", 0, default=0)
         if err:
-            return self._tool_error(err)
+            return self._tool_error(err, code="INVALID_PARAM")
         assert sort_column is not None
 
         ascending, err = _opt_bool(kwargs, "ascending", default=True)
         if err:
-            return self._tool_error(err)
+            return self._tool_error(err, code="INVALID_PARAM")
         assert ascending is not None
 
         has_header: bool = kwargs["has_header"]

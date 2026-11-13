@@ -76,7 +76,7 @@ def _user_sheet(doc: Any, name: str, verb: str) -> Any:
     """
     sheet = CalcBridge(doc).get_sheet(name)
     if not is_agent_visible_sheet(name):
-        raise ToolExecutionError(f"Cannot {verb} internal sheet '{name}'.")
+        raise ToolExecutionError(f"Cannot {verb} internal sheet '{name}'.", code="INVALID_PARAM")
     return sheet
 
 
@@ -90,7 +90,7 @@ def _insert_position(sheets: Any, position: int | None) -> int:
     if position is None:
         return count
     if position < 0 or position > count:
-        raise ToolExecutionError(f"Position {position} is out of range (0..{count}).")
+        raise ToolExecutionError(f"Position {position} is out of range (0..{count}).", code="INVALID_PARAM")
     return position
 
 
@@ -160,7 +160,7 @@ class CreateSheet(ToolCalcSheetBase):
         doc = ctx.doc
         err = _sheet_name_error(doc, sheet_name)
         if err:
-            return self._tool_error(err)
+            return self._tool_error(err, code="INVALID_PARAM")
 
         sheets = doc.getSheets()
         position = _insert_position(sheets, position)
@@ -194,7 +194,7 @@ class RenameSheet(ToolCalcSheetBase):
         sheet = _user_sheet(doc, old_name, "rename")
         err = _sheet_name_error(doc, new_name, exclude=old_name)
         if err:
-            return self._tool_error(err)
+            return self._tool_error(err, code="INVALID_PARAM")
         sheet.setName(new_name)
         if sheet.getName() != new_name:
             return self._tool_error(f"LibreOffice did not rename '{old_name}' (invalid name or read-only document).")
@@ -221,7 +221,7 @@ class DeleteSheet(ToolCalcSheetBase):
         sheets = doc.getSheets()
         visible_names = filter_agent_sheet_names(sheets.getElementNames())
         if len(visible_names) <= 1:
-            return self._tool_error("Cannot delete the only sheet in the document.")
+            return self._tool_error("Cannot delete the only sheet in the document.", code="INVALID_PARAM")
         sheets.removeByName(sheet_name)
         log.info("Sheet deleted: %s", sheet_name)
         return {"status": "ok", "message": f"Sheet '{sheet_name}' deleted."}
@@ -295,7 +295,7 @@ class SheetCopy(ToolCalcSheetBase):
         _user_sheet(doc, source, "copy")
         err = _sheet_name_error(doc, new_name)
         if err:
-            return self._tool_error(err)
+            return self._tool_error(err, code="INVALID_PARAM")
 
         sheets = doc.getSheets()
         position = _insert_position(sheets, position)
@@ -331,7 +331,7 @@ class SheetMove(ToolCalcSheetBase):
         count = sheets.getCount()
         # prepare_tool_call has already checked that position is an integer; only the bound depends on the workbook.
         if position < 0 or position >= count:
-            return self._tool_error(f"Position {position} is out of range (0..{count - 1}).")
+            return self._tool_error(f"Position {position} is out of range (0..{count - 1}).", code="INVALID_PARAM")
 
         sheets.moveByName(sheet_name, position)
         log.info("Sheet '%s' moved to position %d.", sheet_name, position)
@@ -368,7 +368,7 @@ class SheetHide(ToolCalcSheetBase):
                 if sheets.getByName(name).getPropertyValue("IsVisible")
             )
             if sheet.getPropertyValue("IsVisible") and visible_count <= 1:
-                return self._tool_error("Cannot hide the only visible sheet in the document.")
+                return self._tool_error("Cannot hide the only visible sheet in the document.", code="INVALID_PARAM")
 
         sheet.setPropertyValue("IsVisible", visible)
         state = "visible" if visible else "hidden"
@@ -393,7 +393,7 @@ class GetSheetSummary(ToolBase):
         # Leading '_' tabs are LO internals (xlsx→ods ``__Anonymous_Sheet_DB__*``).
         # Omit from agent summaries; do not delete the sheet.
         if sheet_name and not is_agent_visible_sheet(sheet_name):
-            return self._tool_error(f"No user-visible sheet named '{sheet_name}'.")
+            return self._tool_error(f"No user-visible sheet named '{sheet_name}'.", code="INVALID_PARAM")
 
         result = analyzer.get_sheet_summary(sheet_name=sheet_name)
         if not is_agent_visible_sheet(result.get("sheet_name", "")):
