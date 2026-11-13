@@ -218,7 +218,7 @@ flowchart LR
 | `plugin/calc/spreadsheet_import/` | Package root |
 | `ingest.py` | Sheet → `SheetModel` (cells, types, formulas, precedents) |
 | `graph.py` | Topological order, cycle detection |
-| `translate.py` | Formula AST → Python source string |
+| `translate.py` | Formula AST → Python source string; `TranslationResult.has_function` tells emit which formulas stay native |
 | `emit.py` | `SheetModel` → `=PY()` formula strings + optional code cells |
 | `verify.py` | Oracle diff after conversion |
 | `import_dialog.py` | XDL dialog (Calc spreadsheet → Python) |
@@ -315,7 +315,7 @@ Complex Calc functions that need shared semantics (SUMIF, XLOOKUP, FILTER, SUBTO
 
 - **Translator:** [`translate.py`](../../plugin/calc/spreadsheet_import/translate.py) maps Calc builtins to `calc.foo(...)` or inline `np`/`math` expressions.
 - **Runtime:** [`AUTO_IMPORTS`](../../plugin/framework/constants.py) + [`inject_auto_imports`](../../plugin/scripting/venv_sandbox.py) bind `calc` when the formula references it.
-- **Tests:** behavioral parity in [`test_calc_functions.py`](../../tests/scripting/test_calc_functions.py); emitter shape in [`test_spreadsheet_import_translate.py`](../../tests/calc/test_spreadsheet_import_translate.py).
+- **Tests:** behavioral parity in [`test_calc_functions.py`](../../tests/scripting/test_calc_functions.py); emitter shape in [`test_spreadsheet_import_translate.py`](../../tests/calc/test_spreadsheet_import_translate.py). `test_calc_helper_name_and_arity_contracts` calls every table row with 0–10 arguments and checks each `calc.NAME(` it writes against `HELPER_NAMES`, and the helper's signature when the call passes the arguments straight through.
 
 Workbooks converted before this change may still contain inline pasted helpers or old `xl.*` helper calls; re-import to shrink formulas / pick up `calc.*`.
 
