@@ -2,7 +2,7 @@
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Tests for convert_spreadsheet_to_python tool."""
+"""UNO tests for the spreadsheet import pipeline."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from plugin.tests.testing_utils import with_native_doc
 
 
 def _run_conversion(doc, _ctx, **kwargs):
-    from plugin.calc.spreadsheet_import.import_dialog import run_sheet_conversion
+    from plugin.calc.spreadsheet_import.pipeline import run_sheet_conversion
 
     sheet = doc.getCurrentController().getActiveSheet()
     return run_sheet_conversion(doc, sheet, **kwargs)
