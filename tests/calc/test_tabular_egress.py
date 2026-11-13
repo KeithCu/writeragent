@@ -12,6 +12,7 @@ import pytest
 
 from plugin.calc.tabular_egress import format_tabular_helper_for_calc, insert_tabular_result_into_calc
 from plugin.framework.errors import CalcError
+from plugin.tests.testing_utils import FakeUndoManager
 
 
 def test_truncated_table_shows_total_on_the_sheet():
@@ -193,7 +194,9 @@ def test_insert_quotes_sheet_name(mock_bridge, mock_manipulator_cls):
 def test_insert_tabular_result_refuses_when_target_occupied(mock_bridge, mock_manipulator_cls):
     manipulator = MagicMock()
     mock_manipulator_cls.return_value = manipulator
+    fake_undo = FakeUndoManager()
     doc = MagicMock()
+    doc.getUndoManager.return_value = fake_undo
     sheet = MagicMock()
     mock_bridge.return_value.sheet_or_active.return_value = sheet
 
@@ -216,6 +219,7 @@ def test_insert_tabular_result_refuses_when_target_occupied(mock_bridge, mock_ma
 
     # Invariant: non-empty target must not be overwritten
     manipulator.write_formula_range.assert_not_called()
+    assert fake_undo.entered == []
 
 
 @patch("plugin.calc.tabular_egress.CellManipulator")
@@ -239,4 +243,28 @@ def test_insert_tabular_result_succeeds_when_target_empty(mock_bridge, mock_mani
     rows = insert_tabular_result_into_calc(doc, grid, start_col=0, start_row=0)
     assert rows == 2
     manipulator.write_formula_range.assert_called_once()
+
+
+@patch("plugin.calc.tabular_egress.CellManipulator")
+@patch("plugin.calc.tabular_egress.CalcBridge")
+def test_insert_failure_undoes_partial_grid(mock_bridge, mock_manipulator_cls):
+    manipulator = MagicMock()
+    manipulator.write_formula_range.side_effect = CalcError("write boom")
+    mock_manipulator_cls.return_value = manipulator
+    fake_undo = FakeUndoManager()
+    doc = MagicMock()
+    doc.getUndoManager.return_value = fake_undo
+    sheet = MagicMock()
+    mock_bridge.return_value.sheet_or_active.return_value = sheet
+
+    cell = MagicMock()
+    cell.getFormula.return_value = ""
+    cell.getString.return_value = ""
+    sheet.getCellByPosition.return_value = cell
+
+    with pytest.raises(CalcError, match="write boom"):
+        insert_tabular_result_into_calc(doc, [["a", "b"], [1, 2]], start_col=0, start_row=0)
+
+    assert fake_undo.entered == ["WriterAgent: Insert result"]
+    assert fake_undo.undone == 1
 

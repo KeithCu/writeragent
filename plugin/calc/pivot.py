@@ -66,7 +66,9 @@ from plugin.calc.address_utils import format_range_address, qualify_a1, split_sh
 from plugin.calc.base import ToolCalcPivotBase
 from plugin.calc.bridge import CalcBridge, filter_agent_sheet_names
 from plugin.calc.calc_utils import query_interface
-from plugin.framework.errors import ToolExecutionError, WriterAgentException, is_disposal, name_miss_details
+from plugin.doc.compound_undo import UndoStepOrRollback
+from plugin.framework.errors import ToolExecutionError, WriterAgentException, is_disposal, name_miss_details, reraise_if_disposed
+from plugin.framework.i18n import _
 
 log = logging.getLogger(__name__)
 
@@ -333,34 +335,22 @@ class CreatePivotTable(ToolCalcPivotBase):
             page_filters=page_filters,
         )
 
-        before_names = set(dp_tables.getElementNames())
-        dp_tables.insertNewByName(pivot_name, dest_addr, desc)
-        after_names = set(dp_tables.getElementNames())
-        new_names = after_names - before_names
+        # Raising inside the bracket undoes the insert so a failed rename check or
+        # refresh leaves no stray pivot table or extra undo entries.
+        with UndoStepOrRollback(doc, _("WriterAgent: Create pivot table")):
+            dp_tables.insertNewByName(pivot_name, dest_addr, desc)
+            if not dp_tables.hasByName(pivot_name):
+                raise ToolExecutionError(f"Pivot table '{pivot_name}' was not created; that name may already exist in the document.")
 
-        # Safety net if insert still does not yield the requested name.
-        if not dp_tables.hasByName(pivot_name):
-            for stray_name in new_names:
+            # Refresh so output is materialized (avoids #VALUE! in some layouts).
+            tbl_any = dp_tables.getByName(pivot_name)
+            dpt = query_interface(tbl_any, "com.sun.star.sheet.XDataPilotTable")
+            if dpt is not None:
                 try:
-                    dp_tables.removeByName(stray_name)
-                except Exception as rm_exc:
-                    log.debug("Failed to remove stray pivot table %s: %s", stray_name, rm_exc)
-            return self._tool_error(f"Pivot table '{pivot_name}' was not created; that name may already exist in the document.")
-
-        # Refresh so output is materialized (avoids #VALUE! in some layouts).
-        tbl_any = dp_tables.getByName(pivot_name)
-        dpt = query_interface(tbl_any, "com.sun.star.sheet.XDataPilotTable")
-        if dpt is not None:
-            try:
-                dpt.refresh()
-            except Exception as exc:
-                if is_disposal(exc):
-                    raise
-                try:
-                    dp_tables.removeByName(pivot_name)
-                except Exception as rm_exc:
-                    log.debug("Failed to remove pivot table %s after refresh failure: %s", pivot_name, rm_exc)
-                return self._tool_error(f"Failed to refresh new pivot table '{pivot_name}': {exc}")
+                    dpt.refresh()
+                except Exception as exc:
+                    reraise_if_disposed(exc)
+                    raise ToolExecutionError(f"Failed to refresh new pivot table '{pivot_name}': {exc}") from exc
 
         return {
             "status": "ok",

@@ -11,7 +11,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from plugin.framework.errors import ToolExecutionError
+from plugin.framework.errors import DocumentDisposedError, ToolExecutionError
+from plugin.tests.testing_utils import FakeUndoManager
 
 
 @pytest.fixture(autouse=True)
@@ -395,3 +396,57 @@ def test_insert_cell_html_rich_passes_sheet_prefix_to_bridge():
         mock_fmt.insert_html_fragment_at_cursor.return_value = None
         insert_cell_html_rich(calc_doc, MagicMock(), "Sheet2.A1", "<b>x</b>")
     mock_bridge.get_cell_by_address.assert_called_once_with("Sheet2.A1")
+
+
+def test_failed_paste_undoes_the_clear():
+    from plugin.calc.rich_html import insert_cell_html_rich
+
+    calc_doc, cell, desktop, _temp_doc, calc_ctrl, _writer_ctrl = _cell_and_docs()
+    fake_undo = FakeUndoManager()
+    calc_doc.getUndoManager.return_value = fake_undo
+    calc_ctrl.insertTransferable.side_effect = RuntimeError("paste boom")
+
+    with (
+        patch("plugin.calc.rich_html.get_desktop", return_value=desktop),
+        patch("plugin.calc.rich_html.CalcBridge") as mock_bridge_cls,
+        patch("plugin.calc.rich_html.html_import") as mock_fmt,
+        patch("plugin.calc.rich_html.clear_writer_body", return_value=True),
+    ):
+        mock_bridge_cls.return_value.get_cell_by_address.return_value = cell
+        mock_fmt.ensure_html_linebreaks.side_effect = lambda html: html
+        with pytest.raises(ToolExecutionError, match="insert transferable"):
+            insert_cell_html_rich(calc_doc, MagicMock(), "A1", "<b>x</b>")
+
+    assert fake_undo.entered == ["WriterAgent: Insert HTML"]
+    assert fake_undo.undone == 1
+
+
+def test_disposed_document_mid_insert_is_document_disposed():
+    from types import SimpleNamespace
+    from plugin.calc.cells import InsertCellHtml
+    from plugin.calc.rich_html import insert_cell_html_rich
+
+    class DisposedException(Exception):
+        pass
+
+    calc_doc, cell, desktop, _temp_doc, calc_ctrl, _writer_ctrl = _cell_and_docs()
+    fake_undo = FakeUndoManager()
+    calc_doc.getUndoManager.return_value = fake_undo
+    calc_ctrl.insertTransferable.side_effect = DisposedException("gone")
+
+    with (
+        patch("plugin.calc.rich_html.get_desktop", return_value=desktop),
+        patch("plugin.calc.rich_html.CalcBridge") as mock_bridge_cls,
+        patch("plugin.calc.rich_html.html_import") as mock_fmt,
+        patch("plugin.calc.rich_html.clear_writer_body", return_value=True),
+    ):
+        mock_bridge_cls.return_value.get_cell_by_address.return_value = cell
+        mock_fmt.ensure_html_linebreaks.side_effect = lambda html: html
+        with pytest.raises(DocumentDisposedError):
+            insert_cell_html_rich(calc_doc, MagicMock(), "A1", "<b>x</b>")
+        assert fake_undo.undone == 0
+
+        ctx = SimpleNamespace(doc=calc_doc, ctx=MagicMock())
+        res = InsertCellHtml().execute_safe(ctx, cell="A1", html="<b>x</b>")
+        assert res["status"] == "error"
+        assert res["code"] == "DOCUMENT_DISPOSED"
