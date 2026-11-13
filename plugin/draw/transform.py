@@ -25,7 +25,8 @@ class TransformDocumentStructure(ToolBase, ToolBaseDummy):  # type: ignore[misc]
     Exposing the tool also requires an allowlist of allowed .uno command names, as
     arbitrary UNO dispatch is unsafe (matching Collabora's GetKitUnoCommandList gate).
     Manual calls: ``TransformDocumentStructure().execute(ctx, transform=...)``.
-    Its unit and UNO tests were removed because the tool is dormant.
+    Its unit and UNO tests were removed because the tool is dormant (restore from
+    git history before f248e19cb when re-enabling).
     """
 
     name: str | None = "transform_document_structure"

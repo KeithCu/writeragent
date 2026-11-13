@@ -12,13 +12,15 @@ from unittest.mock import MagicMock, patch
 from plugin.ppt_master.tools import ExportPresentationProject
 
 
-def test_export_execute_applies_env_once_and_calls_export_project_to_doc(tmp_path: Path, monkeypatch) -> None:
+def test_export_execute_sets_data_root_env_and_exports(tmp_path: Path, monkeypatch) -> None:
     data_root = tmp_path / "ppt-master"
     data_root.mkdir()
     (data_root / "SKILL.md").write_text("# skill", encoding="utf-8")
     (data_root / "templates").mkdir()
     (data_root / "scripts").mkdir()
 
+    # Register a restore point so teardown removes PPT_MASTER_DATA_ROOT even if unset initially.
+    monkeypatch.setenv("PPT_MASTER_DATA_ROOT", "")
     monkeypatch.delenv("PPT_MASTER_DATA_ROOT", raising=False)
     import plugin.framework.config as config_mod
 

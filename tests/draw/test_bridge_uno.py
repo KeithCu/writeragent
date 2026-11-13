@@ -102,12 +102,9 @@ def test_add_slide_middle_index_matches_reported_active_page(ctx, doc):
 
 @native_test
 @with_native_doc("impress")
-def test_insert_slide_from_master_and_transform_use_real_index(ctx, doc):
+def test_insert_slide_from_master_uses_real_index(ctx, doc):
     """Insert after slide 0 on a two-slide deck must sit at index 1, not the end."""
     from plugin.draw.bridge import DrawBridge
-    from plugin.draw.transform_engine import SlideCommandEngine
-    from plugin.framework.tool import ToolContext
-    from plugin.app import get_services
 
     pages = doc.getDrawPages()
     _rename(pages.getByIndex(0), "A")
@@ -116,20 +113,6 @@ def test_insert_slide_from_master_and_transform_use_real_index(ctx, doc):
     assert idx == 1
     _rename(pages.getByIndex(1), "NEW")
     assert _names(pages) == ["A", "NEW"]
-
-    _exec(doc, ctx, "add_slide", {})
-    # Deck is [A, NEW, <appended>]. Jump back to A and insert via transform.
-    _rename(pages.getByIndex(2), "TAIL")
-    bridge.set_current_page_index(0)
-    tctx = ToolContext(doc, ctx, "impress", get_services(), "test", active_page_index=0)
-    engine = SlideCommandEngine(tctx)
-    result = engine.apply({"Transforms": {"SlideCommands": [{"InsertMasterSlide": 0}]}})
-    assert result.get("status") == "ok", result
-    assert result.get("current_slide") == 1, result
-    assert pages.getCount() == 4
-    assert _names(pages)[0] == "A"
-    assert _names(pages)[2] == "NEW"
-    assert _names(pages)[3] == "TAIL"
 
 
 @native_test
