@@ -41,8 +41,8 @@ if TYPE_CHECKING:
 _RE_XLWS_PY = re.compile(r"(?:_xlfn\.)?_xlws\.PY\s*\(\s*(\d+)\s*,\s*(\d+)(.*)\)$", re.IGNORECASE | re.DOTALL)
 
 
-def _col_row(a1: str) -> tuple[int, int]:
-    """1-based (row, col) coordinate for OOXML callers, or (0, 0) on error."""
+def row_col_1based(a1: str) -> tuple[int, int]:
+    """Row-first: (row, col), both 1-based, or (0, 0) when *a1* is not a cell."""
     try:
         col, row = parse_address(a1)
         return row + 1, col + 1
@@ -266,14 +266,14 @@ def expand_shared(
 ) -> str | None:
     """Formula for shared-group member *a1* from its master (body, master A1).
 
-    The offset is (rows, cols) from the master to *a1* (via _col_row). A _xlws.PY master
+    The offset is (rows, cols) from the master to *a1* (via row_col_1based). A _xlws.PY master
     goes through shift_xlws_py_formula, and None means a dependency cannot move. Any
     other master goes to shift_other(body, rows, cols), which each caller supplies with
     its own rule; with no shift_other the answer is None.
     """
     master_body, master_a1 = master
-    m_row, m_col = _col_row(master_a1)
-    c_row, c_col = _col_row(a1)
+    m_row, m_col = row_col_1based(master_a1)
+    c_row, c_col = row_col_1based(a1)
     rows = c_row - m_row
     cols = c_col - m_col
     if is_xlws_py(master_body):
@@ -336,7 +336,7 @@ def _parse_python_scripts(zf: zipfile.ZipFile, issues: list[str]) -> list[str]:
     return out
 
 
-def _qualify_sheet_ref(sheet_title: str, ref: str) -> str:
+def qualify_excel_ref(sheet_title: str, ref: str) -> str:
     """Return Sheet!A1:B2 with quoting when the sheet name needs it."""
     clean_ref = canonical(ref)
     if "!" in clean_ref:
@@ -356,7 +356,7 @@ def _parse_table_ref(zf: zipfile.ZipFile, table_part: str, sheet_title: str, iss
     ref = root.attrib.get("ref") or ""
     if not name or not ref:
         return None
-    return name, _qualify_sheet_ref(sheet_title, ref)
+    return name, qualify_excel_ref(sheet_title, ref)
 
 
 def _collect_array_refs(ws_root: ET.Element, sheet_title: str, anchors: dict[str, str]) -> None:
@@ -369,15 +369,15 @@ def _collect_array_refs(ws_root: ET.Element, sheet_title: str, anchors: dict[str
         if not arr:
             continue
         top_left = arr.split(":", 1)[0]
-        q_top = _qualify_sheet_ref(sheet_title, top_left)
-        q_arr = _qualify_sheet_ref(sheet_title, arr)
+        q_top = qualify_excel_ref(sheet_title, top_left)
+        q_arr = qualify_excel_ref(sheet_title, arr)
         anchors[q_top] = q_arr
         anchors.setdefault(top_left, arr)
         anchors.setdefault(cell_ref, arr)
-        anchors[_qualify_sheet_ref(sheet_title, cell_ref)] = q_arr
+        anchors[qualify_excel_ref(sheet_title, cell_ref)] = q_arr
 
 
-def _shared_formula_map(ws_root: ET.Element) -> dict[str, tuple[str, str]]:
+def shared_formula_map(ws_root: ET.Element) -> dict[str, tuple[str, str]]:
     """Resolve shared formula masters (si → (formula text, master A1))."""
     masters: dict[str, tuple[str, str]] = {}
     # Walk <c> directly rather than iter_formula_cells because this map records a
@@ -399,14 +399,14 @@ def _shared_formula_map(ws_root: ET.Element) -> dict[str, tuple[str, str]]:
 
 
 def _iter_py_cells(ws_root: ET.Element, sheet_title: str, issues: list[str]) -> list[ExcelPyCell]:
-    masters = _shared_formula_map(ws_root)
+    masters = shared_formula_map(ws_root)
     cells: list[ExcelPyCell] = []
     failed_si: set[str] = set()
     cell_si: dict[str, str] = {}
     for a1, f, body in iter_formula_cells(ws_root):
         t_attr = f.attrib.get("t") or ""
         si = f.attrib.get("si")
-        row, col = _col_row(a1)
+        row, col = row_col_1based(a1)
         if t_attr == "shared" and si is not None:
             cell_si[a1] = si
             master = masters.get(si)
@@ -476,6 +476,6 @@ def load_excel_model(path: str | Path) -> ExcelWorkbookModel:
             model.sheets = [SheetInfo(title=t, order=i, part_name="") for i, t in enumerate(titles)]
         for c in model.cells:
             if not c.row or not c.col:
-                c.row, c.col = _col_row(c.cell)
+                c.row, c.col = row_col_1based(c.cell)
         return model
     return parse_excel_xlsx(path)

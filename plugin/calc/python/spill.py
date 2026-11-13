@@ -36,7 +36,7 @@ log = logging.getLogger(__name__)
 # CellFlags bitmask: VALUE (1) | DATETIME (2) | STRING (4) | FORMULA (16) | HARDATTR (32) = 55.
 # Clears values, formulas, and direct hard cell formatting/number formats without removing
 # annotations, styles, or draw objects.
-_SPILL_CLEAR_FLAGS = 1 | 2 | 4 | 16 | 32
+SPILL_CLEAR_FLAGS = 1 | 2 | 4 | 16 | 32
 
 
 @dataclass(frozen=True)
@@ -163,7 +163,7 @@ def cleanup_orphans(
                                         spill_cell = sheet.getCellByPosition(c.col, c.row)
                                         if not _cell_is_formula(spill_cell):
                                             if _cell_matches_stored_value(sheet, c.row, c.col, c):
-                                                spill_cell.clearContents(_SPILL_CLEAR_FLAGS)
+                                                spill_cell.clearContents(SPILL_CLEAR_FLAGS)
                                     except Exception:
                                         log.debug("cleanup_orphans: failed to clear cell (%d, %d)", c.row, c.col, exc_info=True)
                     for old_k, new_k, new_rec in to_remap:
@@ -309,7 +309,7 @@ def perform_deferred_spill(
                         if (r, c) != (formula_row, formula_col):
                             try:
                                 cell = sheet.getCellByPosition(c, r)
-                                cell.clearContents(_SPILL_CLEAR_FLAGS)
+                                cell.clearContents(SPILL_CLEAR_FLAGS)
                             except Exception:
                                 log.debug("perform_deferred_spill: failed to clear cell (%d, %d)", r, c, exc_info=True)
 

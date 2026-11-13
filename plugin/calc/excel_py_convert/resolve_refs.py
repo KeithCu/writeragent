@@ -17,6 +17,7 @@ if TYPE_CHECKING:
     from plugin.calc.excel_py_convert.models import ExcelWorkbookModel
 
 from plugin.calc.address_utils import MAX_COL, MAX_ROW, column_to_index
+from plugin.calc.excel_py_convert.parse_excel_ooxml import qualify_excel_ref
 from plugin.framework.deal_shim import DEAL_MAX_SOURCE, str_bounded, deal
 
 _ANCHOR_RE = re.compile(r"^(?:_xlfn\.)?ANCHORARRAY\((.+)\)$", re.IGNORECASE)
@@ -67,11 +68,10 @@ def _lookup_anchor(model: ExcelWorkbookModel, anchor: str, sheet_hint: str = "")
 
     addr = cleaned.replace("$", "").strip()
     if sheet_hint:
-        quoted = "'" + sheet_hint.replace("'", "''") + "'"
-        for hint in (sheet_hint, quoted):
-            val = lookup(f"{hint}!{addr}")
-            if val is not None:
-                return val
+        # Anchor keys are built by qualify_excel_ref in parse_excel_ooxml, so the hint is spelled the same way.
+        val = lookup(qualify_excel_ref(sheet_hint, addr))
+        if val is not None:
+            return val
 
     if not sheet_hint or len(model.sheets) <= 1:
         return lookup(addr)

@@ -364,6 +364,8 @@ Unresolved deps, out-of-range `%Pn%` placeholders, missing formula dependencies,
 
 **Microsoft and dynamic `xl()`:** Excel does **not** productize `xl(variable)` / `xl(f"A{n}")` (community reports: KeyError / binding failures). The converter fails closed on those shapes as defense and because they are not DAG-safe—not because MS’s happy path is full runtime-dynamic addresses.
 
+Scripts that import a module the `=PY()` sandbox blocks, or call `xl()` with anything but a `"%Pn%"` binding string, still convert; the warning goes to that cell's `issues` in the conversion report and does not change `ok`.
+
 #### Auto round-trip on open / save (no menu)
 
 LibreOffice Calc (with the Python/`=PY` extension) registers a global document listener ([`workbook_lifecycle.py`](../../plugin/calc/python/workbook_lifecycle.py)), which calls [`auto_open.py`](../../plugin/calc/excel_py_convert/auto_open.py):
@@ -395,7 +397,7 @@ python -m plugin.calc.excel_py_convert --to excel converted.xlsx --write-xlsx ex
 python -m plugin.calc.excel_py_convert --to excel converted.xlsx --from-report dag.json --write-xlsx excel_native.xlsx
 ```
 
-Both `--write-xlsx` directions (`--to dag` and `--to excel`) are stdlib ZIP patches (no openpyxl), and parts the converter does not understand (drawings, charts, VBA, etc.) are copied. Native Excel export reconstructs `xl(%Pn%)`, header mode, and `return_type` from real data args. Prefer `--from-report dag.json` or in-memory `convert_dag_report_to_excel` so `return_type` survives; re-parsing a DAG `.xlsx` alone cannot recover it. Legacy `ordering_args` in old reports (from an earlier converter that injected prior-PY edges) are ignored on export.
+Both `--write-xlsx` directions (`--to dag` and `--to excel`) are stdlib ZIP patches (no openpyxl), and parts the converter does not understand (drawings, charts, VBA, etc.) are copied. Native Excel export reconstructs `xl(%Pn%)`, header mode, and `return_type` from real data args. Prefer `--from-report dag.json` or in-memory `convert_dag_report_to_excel` so `return_type` survives; re-parsing a DAG `.xlsx` alone cannot recover it. An `ordering_args` key in an old report or `ExcelPyDagMeta` (from an earlier converter that injected prior-PY edges) is not read.
 
 **Sample round-trip check:** [`scripts/roundtrip_excel_py_samples.py`](../../scripts/roundtrip_excel_py_samples.py) (`make excel-py-roundtrip`) runs Excel → DAG → Excel over [`PythonExcelSamples/`](../PythonExcelSamples/) and fails on script-text, `returnType`, or lost Table/`ANCHORARRAY` tokens. Sheet punctuation (`.` vs `!`) may warn.
 

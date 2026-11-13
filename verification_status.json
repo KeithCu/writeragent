@@ -438,7 +438,7 @@
         "functions_contracted": [
           "_placeholder_to_data_index",
           "_xl_binding_expr",
-          "_normalize_excel_placeholders"
+          "normalize_excel_placeholders"
         ],
         "ci_integration": true
       },

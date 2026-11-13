@@ -83,7 +83,7 @@ def test_bank_cell_lowercase_r_resolves(tmp_path: Path) -> None:
     path = _write_xlsx(tmp_path, {"Data": host_ws, "py_code_Data": bank_ws})
     items = iter_dag_py_formulas_xlsx(path)
     assert len(items) == 1
-    assert "print(1)" in items[0][2]
+    assert "print(1)" in items[0].formula
 
 
 def test_bank_sheet_title_case_mismatch_resolves(tmp_path: Path) -> None:
@@ -92,7 +92,7 @@ def test_bank_sheet_title_case_mismatch_resolves(tmp_path: Path) -> None:
     path = _write_xlsx(tmp_path, {"Data": host_ws, "py_code_Data": bank_ws})
     items = iter_dag_py_formulas_xlsx(path)
     assert len(items) == 1
-    assert "print(1)" in items[0][2]
+    assert "print(1)" in items[0].formula
 
 
 def test_quoted_bank_looking_code_is_not_resolved(tmp_path: Path) -> None:
@@ -101,8 +101,8 @@ def test_quoted_bank_looking_code_is_not_resolved(tmp_path: Path) -> None:
     path = _write_xlsx(tmp_path, {"Data": host_ws, "py_code_Data": bank_ws})
     items = iter_dag_py_formulas_xlsx(path)
     assert len(items) == 1
-    assert '"py_code_Data.A1"' in items[0][2]
-    assert "print(1)" not in items[0][2]
+    assert '"py_code_Data.A1"' in items[0].formula
+    assert "print(1)" not in items[0].formula
 
 
 def test_blank_bank_value_is_not_resolved(tmp_path: Path) -> None:
@@ -111,7 +111,7 @@ def test_blank_bank_value_is_not_resolved(tmp_path: Path) -> None:
     path = _write_xlsx(tmp_path, {"Data": host_ws, "py_code_Data": bank_ws})
     items = iter_dag_py_formulas_xlsx(path)
     assert len(items) == 1
-    assert "py_code_Data.A1" in items[0][2]
+    assert "py_code_Data.A1" in items[0].formula
 
 
 def test_resolve_code_bank_ref_uppercases_a1_lookup(tmp_path: Path) -> None:
@@ -121,7 +121,7 @@ def test_resolve_code_bank_ref_uppercases_a1_lookup(tmp_path: Path) -> None:
     path = _write_xlsx(tmp_path, {"Data": host_ws, "py_code_Data": bank_ws})
     items = iter_dag_py_formulas_xlsx(path)
     assert len(items) == 1
-    assert "print(1)" in items[0][2]
+    assert "print(1)" in items[0].formula
 
 
 def test_resolve_bank_cell_reference_uppercases_a1_lookup() -> None:

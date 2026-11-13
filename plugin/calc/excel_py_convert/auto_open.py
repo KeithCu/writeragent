@@ -23,7 +23,10 @@ from pathlib import Path
 from typing import Any
 
 from plugin.calc.python.workbook_lifecycle import is_calc_document
+from plugin.doc.text_helpers import get_document_path
 from plugin.framework.errors import best_effort
+from plugin.framework.i18n import _
+from plugin.framework.uno_context import product_display_name
 
 log = logging.getLogger(__name__)
 
@@ -38,8 +41,6 @@ _busy_paths: set[str] = set()
 def _calc_xlsx_path(doc: Any) -> Path | None:
     if not is_calc_document(doc):
         return None
-    from plugin.doc.text_helpers import get_document_path
-
     path_str = get_document_path(doc)
     if not path_str:
         return None
@@ -111,6 +112,7 @@ def maybe_convert_excel_py_document(doc: Any) -> bool:
         if not acquired:
             return False
         try:
+            # The converter loads only once the file on disk is an Excel-Python workbook.
             from plugin.calc.excel_py_convert.apply_calc import apply_dag_formulas_to_calc_doc
             from plugin.calc.excel_py_convert.convert import convert_to_dag, store_dag_meta_on_doc
 
@@ -142,9 +144,8 @@ def maybe_convert_excel_py_document(doc: Any) -> bool:
 
 
 def _show_save_failure(ctx: Any, path: Path, detail: str) -> None:
+    # Cross-app (chat UI), failure path only.
     from plugin.chatbot.dialogs import msgbox
-    from plugin.framework.i18n import _
-    from plugin.framework.uno_context import product_display_name
 
     msg = _(
         "Could not write Microsoft Excel Python package parts for:\n{0}\n\n"
@@ -163,6 +164,7 @@ def maybe_export_excel_py_on_save(ctx: Any, doc: Any) -> bool:
         if not acquired:
             return False
         try:
+            # The snapshot and writer load only when a Calc document is saved as .xlsx.
             from plugin.calc.excel_py_convert.uno_snapshot import convert_uno_doc_to_excel
             from plugin.calc.excel_py_convert.xlsx_write import write_excel_python_xlsx
 

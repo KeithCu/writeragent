@@ -28,7 +28,7 @@ from plugin.framework.ast_stmt_edit import line_starts_exact, node_span
 from plugin.framework.deal_shim import DEAL_MAX_SHAPE_DIM, DEAL_MAX_SOURCE, str_bounded, deal
 
 # Excel binding tokens are not A1 literals — leave them for the binding-only shim.
-_P_TOKEN_RE = re.compile(r"^%P(\d+)%$", re.IGNORECASE)
+P_TOKEN_RE = re.compile(r"^%P(\d+)%$", re.IGNORECASE)
 
 
 @dataclass(frozen=True)
@@ -172,7 +172,7 @@ def _find_static_xl_literals(code: str) -> tuple[list[_XlLiteralCall], list[str]
             issues.append("dynamic xl() reference (not a string literal)")
             continue
         ref = arg0.value.strip()
-        if _P_TOKEN_RE.match(ref):
+        if P_TOKEN_RE.match(ref):
             # Already an Excel binding token — leave for excel_xl shim; not sugar.
             continue
         key = _address_key(ref)
