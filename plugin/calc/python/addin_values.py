@@ -4,7 +4,6 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Calc add-in value conversion, error mapping, and result coercion helpers."""
-# pyright: reportUnusedFunction=false
 
 from __future__ import annotations
 
@@ -40,7 +39,7 @@ _CALC_ERROR_TOKEN_CODES: dict[str, int] = {
 }
 
 _ERR_VALUE = _CALC_ERROR_TOKEN_CODES["#VALUE!"]
-_ERR_NA = _CALC_ERROR_TOKEN_CODES["#N/A"]
+ERR_NA = _CALC_ERROR_TOKEN_CODES["#N/A"]
 
 _WORKER_EXC_CODES: dict[str, int] = {
     "ZeroDivisionError": _CALC_ERROR_TOKEN_CODES["#DIV/0!"],
@@ -82,7 +81,7 @@ def worker_exception_error_code(message: str) -> int:
 _HELPER_ERROR_DICT_KEYS = frozenset({"status", "code", "message", "helper", "details"})
 
 
-def _is_helper_error_dict(val: Any) -> bool:
+def is_helper_error_dict(val: Any) -> bool:
     """True only for the coerce.error_result dict (``plugin/scripting/venv/results.py`` ``error_result``).
 
     status, code, and message are always set. helper and details are set only
@@ -125,7 +124,7 @@ def _calc_code_for_helper_error(code: str) -> int:
     return _WORKER_EXC_CODES.get(code.strip(), _ERR_VALUE)
 
 
-def _helper_error_log_message(err: dict[str, Any]) -> str:
+def helper_error_log_message(err: dict[str, Any]) -> str:
     code = str(err["code"]).strip()
     message = str(err["message"])
     helper = err.get("helper")
@@ -167,14 +166,14 @@ def py_addin_cell_value(val: Any) -> float | str | tuple[Any, ...]:
     to_calc_compatible itself remains a type coercion so quant/tabular egress
     keeps dicts and token strings as text.
     """
-    if isinstance(val, dict) and _is_helper_error_dict(val):
+    if isinstance(val, dict) and is_helper_error_dict(val):
         # Helper error dicts must become calc_formula_error_double, not cell text, so ISERROR sees a real formula error.
-        log.error("=PY() worker failure: %s", _helper_error_log_message(val))
+        log.error("=PY() worker failure: %s", helper_error_log_message(val))
         return calc_formula_error_double(_calc_code_for_helper_error(val["code"]))
     return cast("float | str | tuple[Any, ...]", _map_addin_error_tokens(to_calc_compatible(val)))
 
 
-def _flat_result_equal(left: tuple[Any, ...], right: tuple[Any, ...]) -> bool:
+def flat_result_equal(left: tuple[Any, ...], right: tuple[Any, ...]) -> bool:
     """Compare flat worker result tuples across matrix session recalculations.
 
     Identical Calc error doubles (quiet NaNs) must compare equal: Python ``!=`` on NaN
@@ -191,7 +190,7 @@ def _flat_result_equal(left: tuple[Any, ...], right: tuple[Any, ...]) -> bool:
     return True
 
 
-def _addin_result_for_worker_status(res: dict[str, Any]) -> float | str:
+def addin_result_for_worker_status(res: dict[str, Any]) -> float | str:
     """Return add-in cell result for non-ok worker status (payload NaN error or text message).
 
     Worker failures return a quiet-NaN with FormulaError payload, not English text, so ISERROR and TreatDoubleError behave correctly.
@@ -326,7 +325,7 @@ def flatten_result_values(result: Any) -> list[Any]:
     """Row-major flattening for list / nested list worker results."""
     if not isinstance(result, (list, tuple)):
         return [result]
-    return [cell for row in _result_as_spill_grid(result) for cell in row]
+    return [cell for row in result_as_spill_grid(result) for cell in row]
 
 
 def is_scalar_index_arg(py_data: list[Any] | list[list[Any]] | None) -> bool:
@@ -335,11 +334,11 @@ def is_scalar_index_arg(py_data: list[Any] | list[list[Any]] | None) -> bool:
         return False
     if wire_cell_count(py_data) != 1:
         return False
-    val = _unwrap_single_cell(py_data)
+    val = unwrap_single_cell(py_data)
     return isinstance(val, (int, float)) and not isinstance(val, bool) and not math.isnan(val)
 
 
-def _unwrap_single_cell(py_data: Any) -> Any:
+def unwrap_single_cell(py_data: Any) -> Any:
     """Unwrap ``[[v]]`` / ``[v]`` / scalar to the inner value."""
     val = py_data
     while isinstance(val, list) and len(val) == 1:
@@ -347,7 +346,7 @@ def _unwrap_single_cell(py_data: Any) -> Any:
     return val
 
 
-def _result_as_spill_grid(result: list[Any] | tuple[Any, ...]) -> list[list[Any]]:
+def result_as_spill_grid(result: list[Any] | tuple[Any, ...]) -> list[list[Any]]:
     """Normalize a 1D list or 2D list-of-lists into a rectangular spill grid."""
     if not result:
         return []
@@ -356,7 +355,7 @@ def _result_as_spill_grid(result: list[Any] | tuple[Any, ...]) -> list[list[Any]
     return [[x] for x in result]
 
 
-def _coerce_spill_value(val: Any, null_dt: datetime.date = datetime.date(1899, 12, 30)) -> tuple[Any, dict[str, Any]]:
+def coerce_spill_value(val: Any, null_dt: datetime.date = datetime.date(1899, 12, 30)) -> tuple[Any, dict[str, Any]]:
     """Convert raw grid cell value to Calc-compatible primitive plus temporal metadata.
 
     Returns (calc_val, meta). meta always has ``is_temporal`` and ``is_empty``;
@@ -396,7 +395,7 @@ def _coerce_spill_value(val: Any, null_dt: datetime.date = datetime.date(1899, 1
             try:
                 item = to_pydt()
                 if isinstance(item, (datetime.datetime, datetime.date)):
-                    return _coerce_spill_value(item, null_dt)
+                    return coerce_spill_value(item, null_dt)
             except Exception:
                 log.debug("numpy datetime item() failed", exc_info=True)
         text = str(val)
@@ -409,7 +408,7 @@ def _coerce_spill_value(val: Any, null_dt: datetime.date = datetime.date(1899, 1
             try:
                 item = to_pytd()
                 if isinstance(item, datetime.timedelta):
-                    return _coerce_spill_value(item, null_dt)
+                    return coerce_spill_value(item, null_dt)
             except Exception:
                 log.debug("numpy timedelta item() failed", exc_info=True)
 
@@ -425,7 +424,7 @@ def _coerce_spill_value(val: Any, null_dt: datetime.date = datetime.date(1899, 1
             # #ERR32767! is not a published constant, so we cannot use setFormula for #N/A.
             # For other codes, "" serves as an empty placeholder in setDataArray and perform_deferred_spill
             # assigns the formula f"=#ERR{code}!".
-            if err == _ERR_NA:
+            if err == ERR_NA:
                 return None, {"is_temporal": False, "is_empty": False, "is_calc_error": True, "error_code": err}
             return "", {"is_temporal": False, "is_empty": False, "is_calc_error": True, "error_code": err}
         if match_iso_duration(stripped):
@@ -443,7 +442,7 @@ def _coerce_spill_value(val: Any, null_dt: datetime.date = datetime.date(1899, 1
                     parsed = datetime.datetime.fromisoformat(stripped.replace(" ", "T"))
                 else:
                     parsed = datetime.time.fromisoformat(stripped)
-                return _coerce_spill_value(parsed, null_dt)
+                return coerce_spill_value(parsed, null_dt)
             except ValueError:
                 pass
         return val, {"is_temporal": False, "is_empty": False}
@@ -451,14 +450,14 @@ def _coerce_spill_value(val: Any, null_dt: datetime.date = datetime.date(1899, 1
     return to_calc_compatible(val), {"is_temporal": False, "is_empty": False}
 
 
-def _spill_value_from_json(kind: str, value: Any) -> Any:
+def spill_value_from_json(kind: str, value: Any) -> Any:
     """Restore the "nan" / "inf" / "-inf" text written by save_spill_registry_for_doc (JSON has no non-finite floats)."""
     if kind != "n" or not isinstance(value, str):
         return value
     return {"nan": math.nan, "inf": math.inf, "-inf": -math.inf}.get(value.lower(), value)
 
 
-def _format_error_for_display(exc: BaseException) -> str:
+def format_addin_error_for_display(exc: BaseException) -> str:
     """Cell text for an exception raised while running =PY()."""
     # A TimeoutError here is the host's main-thread marshal or sync timeout, not the user's code or an HTTP request, so it gets its own message.
     if isinstance(exc, TimeoutError):

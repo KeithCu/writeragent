@@ -93,9 +93,9 @@ class TestGuardUnoBoundaries:
             patch("plugin.framework.uno_context.get_desktop", return_value=desktop),
             patch("plugin.framework.thread_guard.guard_uno", side_effect=lambda o: o) as mock_guard,
         ):
-            from plugin.calc.python.function import _get_calc_doc
+            from plugin.calc.python.function import get_calc_doc
 
-            out = _get_calc_doc(MagicMock())
+            out = get_calc_doc(MagicMock())
         assert (out) is (calc_doc)
         mock_guard.assert_called_once_with(calc_doc)
 
@@ -105,9 +105,9 @@ class TestGuardUnoBoundaries:
             patch("plugin.framework.uno_context.get_desktop") as mock_desktop,
             patch("plugin.framework.thread_guard.guard_uno") as mock_guard,
         ):
-            from plugin.calc.python.function import _get_calc_doc
+            from plugin.calc.python.function import get_calc_doc
 
-            out = _get_calc_doc(MagicMock())
+            out = get_calc_doc(MagicMock())
         assert (out) is None
         mock_desktop.assert_not_called()
         mock_guard.assert_not_called()
@@ -124,9 +124,9 @@ class TestGuardUnoBoundaries:
             patch("plugin.framework.uno_context.get_desktop", return_value=desktop),
             patch("plugin.framework.thread_guard.guard_uno", side_effect=lambda o: o) as mock_guard,
         ):
-            from plugin.calc.python.function import _get_calc_doc
+            from plugin.calc.python.function import get_calc_doc
 
-            out = _get_calc_doc(MagicMock())
+            out = get_calc_doc(MagicMock())
         assert out is None
         desktop.getComponents.assert_not_called()
         mock_guard.assert_not_called()

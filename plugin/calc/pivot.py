@@ -65,7 +65,7 @@ except (ImportError, ModuleNotFoundError):
 from plugin.calc.address_utils import format_range_address, split_sheet_prefix
 from plugin.calc.base import ToolCalcPivotBase
 from plugin.calc.bridge import CalcBridge
-from plugin.calc.calc_utils import query_interface as _query_interface
+from plugin.calc.calc_utils import query_interface
 from plugin.framework.errors import ToolExecutionError, is_disposal, name_miss_details
 
 log = logging.getLogger(__name__)
@@ -90,7 +90,7 @@ _DATA_FUNCTIONS: dict[str, Any] = {
 
 
 def _get_dp_tables(sheet: Any) -> Any:
-    sup = _query_interface(sheet, "com.sun.star.sheet.XDataPilotTablesSupplier")
+    sup = query_interface(sheet, "com.sun.star.sheet.XDataPilotTablesSupplier")
     if sup is None:
         raise ToolExecutionError("Sheet does not support DataPilot tables.")
     return sup.getDataPilotTables()
@@ -353,7 +353,7 @@ class CreatePivotTable(ToolCalcPivotBase):
 
         # Refresh so output is materialized (avoids #VALUE! in some layouts).
         tbl_any = dp_tables.getByName(pivot_name)
-        dpt = _query_interface(tbl_any, "com.sun.star.sheet.XDataPilotTable")
+        dpt = query_interface(tbl_any, "com.sun.star.sheet.XDataPilotTable")
         if dpt is not None:
             try:
                 dpt.refresh()
@@ -395,7 +395,7 @@ class RefreshPivotTable(ToolCalcPivotBase):
             return _pivot_not_found_error(self, doc, name, found)
         tbl_any, _sheet = found
 
-        dpt = _query_interface(tbl_any, "com.sun.star.sheet.XDataPilotTable")
+        dpt = query_interface(tbl_any, "com.sun.star.sheet.XDataPilotTable")
         if dpt is None:
             return self._tool_error(f"Cannot access DataPilot interface for '{name}'.")
 
@@ -459,7 +459,7 @@ class ListPivotTables(ToolCalcPivotBase):
             for pname in dp_tables.getElementNames():
                 entry: dict[str, Any] = {"name": pname, "sheet": sheet.getName()}
                 tbl_any = dp_tables.getByName(pname)
-                dpt = _query_interface(tbl_any, "com.sun.star.sheet.XDataPilotTable")
+                dpt = query_interface(tbl_any, "com.sun.star.sheet.XDataPilotTable")
                 if dpt is not None:
                     ora = dpt.getOutputRange()
                     entry["output_sheet_index"] = ora.Sheet

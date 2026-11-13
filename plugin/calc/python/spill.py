@@ -4,7 +4,6 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Calc spill array tracking, collision detection, and orphan cleanup."""
-# pyright: reportUnusedFunction=false
 
 from __future__ import annotations
 
@@ -22,9 +21,9 @@ from plugin.calc.datetime_wire import (
     should_preserve_temporal_format,
 )
 from plugin.calc.python.addin_values import (
-    _ERR_NA,
-    _coerce_spill_value,
-    _spill_value_from_json,
+    ERR_NA,
+    coerce_spill_value,
+    spill_value_from_json,
 )
 from plugin.calc.python.formula_locator_cache import is_matching_py_formula, locate_formula_cell_in_doc, search_sheet_for_formula
 from plugin.calc.python.undo import undo_lock
@@ -109,9 +108,9 @@ def cleanup_orphans(
         if sheet is None:
             return
 
-        from plugin.calc.python.sheet_modify import _owning_calc_doc, sheet_modify_scope
+        from plugin.calc.python.sheet_modify import owning_calc_doc, sheet_modify_scope
 
-        target_doc = doc or _owning_calc_doc(sheet)
+        target_doc = doc or owning_calc_doc(sheet)
         st = state or (WorkbookState.for_doc(target_doc) if target_doc is not None else None)
         if st is None:
             return
@@ -217,7 +216,7 @@ def load_spill_registry_for_doc(doc: Any, state: WorkbookState) -> None:
                                     r = int(c["r"] or 0)
                                     col = int(c["c"] or 0)
                                     kind = str(c["t"])
-                                    v = _spill_value_from_json(kind, c.get("v"))
+                                    v = spill_value_from_json(kind, c.get("v"))
                                     cells.append(SpillCell(row=r, col=col, kind=kind, value=v))
                             state.spills[(sheet_name, frow, fcol)] = SpillRecord(code=code, cells=cells)
             except Exception:
@@ -354,7 +353,7 @@ def perform_deferred_spill(
                     meta_row: list[dict[str, Any]] = []
                     for c_offset in range(num_cols):
                         val = row[c_offset] if c_offset < len(row) else None
-                        calc_val, meta = _coerce_spill_value(val, null_dt)
+                        calc_val, meta = coerce_spill_value(val, null_dt)
                         if meta.get("is_temporal"):
                             has_any_temporal = True
                         coerced_row.append(calc_val)
@@ -365,7 +364,7 @@ def perform_deferred_spill(
                         if meta.get("is_calc_error"):
                             kind = "err"
                             stored_val = int(meta["error_code"])
-                            if meta.get("error_code") != _ERR_NA:
+                            if meta.get("error_code") != ERR_NA:
                                 error_writes.append((formula_col + c_offset, formula_row + r_offset, int(meta["error_code"])))
                         elif meta.get("is_empty"):
                             kind = "e"
@@ -450,7 +449,7 @@ def perform_deferred_spill(
         log.exception("Error in perform_deferred_spill")
 
 
-def _cell_is_matrix(sheet: Any, cell: Any) -> bool:
+def cell_is_matrix(sheet: Any, cell: Any) -> bool:
     """True when the located formula cell is part of a multi-cell array formula block."""
 
     def _probe() -> bool:
@@ -465,7 +464,7 @@ def _cell_is_matrix(sheet: Any, cell: Any) -> bool:
     return bool(uno_read(_probe, False))
 
 
-def _selection_is_multi_cell(target_doc: Any) -> bool:
+def selection_is_multi_cell(target_doc: Any) -> bool:
     """True when the current UI selection spans more than one cell (matrix entry)."""
     ctrl = target_doc.getCurrentController() if target_doc is not None else None
     if ctrl is None:
@@ -478,7 +477,7 @@ def _selection_is_multi_cell(target_doc: Any) -> bool:
 
 
 class PreparedSpill:
-    """A located formula origin whose spill fits: _prepare_auto_spill returns it on the UI thread and _queue_deferred_spill_write writes the neighbors from it. key is the workbook's WorkbookState.key."""
+    """A located formula origin whose spill fits: prepare_auto_spill returns it on the UI thread and queue_deferred_spill_write writes the neighbors from it. key is the workbook's WorkbookState.key."""
 
     sheet_name: str
     formula_row: int
@@ -506,7 +505,7 @@ class PreparedSpill:
         return self.key
 
 
-def _prepare_auto_spill(ctx: Any, code: str, grid_to_spill: list[list[Any]], target_doc: Any) -> PreparedSpill | str | None:
+def prepare_auto_spill(ctx: Any, code: str, grid_to_spill: list[list[Any]], target_doc: Any) -> PreparedSpill | str | None:
     """Locate the unique formula origin and check spill collisions (UNO / UI thread).
 
     Returns ``"#SPILL!"`` on collision, ``PreparedSpill`` when the
@@ -521,7 +520,7 @@ def _prepare_auto_spill(ctx: Any, code: str, grid_to_spill: list[list[Any]], tar
         return None
     sheet = located[0]
     cell = located[1]
-    if _cell_is_matrix(sheet, cell):
+    if cell_is_matrix(sheet, cell):
         return None
     formula_coord = located[2]
     sheet_name = sheet.getName() if hasattr(sheet, "getName") else "Sheet1"
@@ -570,7 +569,7 @@ def _prepare_auto_spill(ctx: Any, code: str, grid_to_spill: list[list[Any]], tar
     return PreparedSpill(sheet_name, formula_row, formula_col, sheet=sheet, key=state.key)
 
 
-def _queue_deferred_spill_write(code: str, grid_to_spill: list[list[Any]], target_doc: Any, prepared: PreparedSpill) -> None:
+def queue_deferred_spill_write(code: str, grid_to_spill: list[list[Any]], target_doc: Any, prepared: PreparedSpill) -> None:
     """Post neighbor writes to the UI thread after the usual 0.1s settle."""
     state = WorkbookState.for_doc(target_doc)
     if state is None:
@@ -593,7 +592,7 @@ def _queue_deferred_spill_write(code: str, grid_to_spill: list[list[Any]], targe
     state.debounce.schedule(token, 0.1, _write)
 
 
-def _queue_off_main_auto_spill(ctx: Any, code: str, grid_to_spill: list[list[Any]], doc: Any) -> None:
+def queue_off_main_auto_spill(ctx: Any, code: str, grid_to_spill: list[list[Any]], doc: Any) -> None:
     """Locate and write the spill on the UI thread in the calling document.
 
     Off-main finalize must not touch UNO: *doc* (the add-in caller) is
@@ -604,7 +603,7 @@ def _queue_off_main_auto_spill(ctx: Any, code: str, grid_to_spill: list[list[Any
 
     def _on_main() -> None:
         try:
-            prepared = _prepare_auto_spill(ctx, code, grid_to_spill, doc)
+            prepared = prepare_auto_spill(ctx, code, grid_to_spill, doc)
         except Exception:
             log.exception("Error checking spill collision or locating formula cell")
             return

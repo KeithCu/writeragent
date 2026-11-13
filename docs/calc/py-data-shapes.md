@@ -240,7 +240,7 @@ What Python sees after UNO unwrap / pack ([`calc_addin_data.py`](../../plugin/ca
 | Logical typed in Calc | `1.0` / `0.0` |
 | Formula / plain / Python-style text logicals | `True` / `False` (after coercion) |
 
-**Egress:** Python `True` / `False` map to `1.0` / `0.0` (UNO double) in `to_calc_compatible` and `_coerce_spill_value`. Calc's Add-In bridge unpacks doubles and strings; returning doubles preserves truthiness across Calc formulas (e.g. `IF(...)`, filters, matrix operations).
+**Egress:** Python `True` / `False` map to `1.0` / `0.0` (UNO double) in `to_calc_compatible` and `coerce_spill_value`. Calc's Add-In bridge unpacks doubles and strings; returning doubles preserves truthiness across Calc formulas (e.g. `IF(...)`, filters, matrix operations).
 
 **Bool grids and the 100-cell threshold:** below `BINARY_MIN_CELLS`, child ingest uses `float64` because `bool` is numeric-coercible, so the script sees `1.0`/`0.0`. At or above the threshold, `split_grid` `column_kinds` restores a bool ndarray. Egress maps both to `1.0`/`0.0`. Do not force the small path onto a bool ndarray to "fix" the dtype change.
 

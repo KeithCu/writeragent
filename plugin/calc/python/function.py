@@ -12,8 +12,6 @@ shapes the result (scalar, a matrix cached in ``WorkerResultSession`` for the
 rest of the recalc, or a deferred spill). ``clear_python_addin_cache`` drops
 every workbook's matrix cache.
 """
-# pyright: reportUnusedFunction=false
-
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -32,13 +30,13 @@ from plugin.calc.calc_addin_data import (
     split_python_addin_data_args,
 )
 from plugin.calc.python.addin_values import (
-    _addin_result_for_worker_status,
-    _flat_result_equal,
-    _format_error_for_display,
-    _helper_error_log_message,
-    _is_helper_error_dict,
-    _result_as_spill_grid,
-    _unwrap_single_cell,
+    addin_result_for_worker_status,
+    flat_result_equal,
+    format_addin_error_for_display,
+    helper_error_log_message,
+    is_helper_error_dict,
+    result_as_spill_grid,
+    unwrap_single_cell,
     coerce_index,
     flatten_result_values,
     is_scalar_index_arg,
@@ -47,11 +45,11 @@ from plugin.calc.python.addin_values import (
 from plugin.calc.python.image_egress import ImageEgressError, insert_image_result_on_sheet
 from plugin.calc.python.spill import (
     PreparedSpill,
-    _cell_is_matrix,
-    _prepare_auto_spill,
-    _queue_deferred_spill_write,
-    _queue_off_main_auto_spill,
-    _selection_is_multi_cell,
+    cell_is_matrix,
+    prepare_auto_spill,
+    queue_deferred_spill_write,
+    queue_off_main_auto_spill,
+    selection_is_multi_cell,
 )
 from plugin.calc.python.workbook_state import WorkbookState
 from plugin.framework.errors import best_effort, uno_read
@@ -237,7 +235,7 @@ def build_cell_context(ctx: Any, doc: Any, code: str, *, on_main: bool | None = 
     )
 
 
-def _get_calc_doc(ctx: Any) -> Any | None:
+def get_calc_doc(ctx: Any) -> Any | None:
     from plugin.framework.thread_guard import guard_uno
 
     if not main.is_current():
@@ -288,7 +286,7 @@ def scalar_for_list_result(
     with _MATRIX_SCALAR_SESSIONS_LOCK:
         _expire_matrix_sessions(wb_state.matrix, now)
         state = wb_state.matrix.get(key)
-        if state is None or not _flat_result_equal(state.flat, flat):
+        if state is None or not flat_result_equal(state.flat, flat):
             state = WorkerResultSession(result, flat, timestamp=now)
             wb_state.matrix[key] = state
         state.timestamp = now
@@ -377,29 +375,29 @@ def finalize_python_return(
                         located = locate_formula_cell_in_doc(doc, code)
                         if located is not None:
                             sheet, formula_cell, _coord = located
-                            is_matrix = _cell_is_matrix(sheet, formula_cell)
+                            is_matrix = cell_is_matrix(sheet, formula_cell)
                         else:
-                            is_matrix = _selection_is_multi_cell(doc)
+                            is_matrix = selection_is_multi_cell(doc)
                 except Exception:
                     log.debug("matrix check failed", exc_info=True)
         else:
             is_matrix = True
 
         if not is_matrix:
-            grid_to_spill = _result_as_spill_grid(result)
+            grid_to_spill = result_as_spill_grid(result)
             if grid_to_spill and grid_to_spill[0]:
                 try:
                     if not on_main:
                         if doc is not None:
-                            _queue_off_main_auto_spill(ctx, code, grid_to_spill, doc)
+                            queue_off_main_auto_spill(ctx, code, grid_to_spill, doc)
                         return py_addin_cell_value(grid_to_spill[0][0])
 
                     if doc is not None:
-                        prepared = _prepare_auto_spill(ctx, code, grid_to_spill, doc)
+                        prepared = prepare_auto_spill(ctx, code, grid_to_spill, doc)
                         if prepared == "#SPILL!":
                             return "#SPILL!"
                         if isinstance(prepared, PreparedSpill):
-                            _queue_deferred_spill_write(code, grid_to_spill, doc, prepared)
+                            queue_deferred_spill_write(code, grid_to_spill, doc, prepared)
                             return py_addin_cell_value(grid_to_spill[0][0])
                 except Exception:
                     log.exception("Error checking spill collision or locating formula cell")
@@ -458,7 +456,7 @@ def _execute_python_addin_impl(ctx: Any, code: str, data: Any = None, *, doc: An
                     else:
                         py_data = None
             elif is_scalar_index_arg(py_data) and not is_split_grid(py_data):
-                index_arg = _unwrap_single_cell(py_data)
+                index_arg = unwrap_single_cell(py_data)
         max_cells = configured_python_max_data_cells()
         if py_data is not None:
             size_err = check_python_data_size(py_data, max_cells=max_cells, multi=is_multi)
@@ -510,8 +508,8 @@ def _execute_python_addin_impl(ctx: Any, code: str, data: Any = None, *, doc: An
             )
         if res.get("status") == "ok":
             result = res.get("result")
-            if isinstance(result, dict) and _is_helper_error_dict(result):
-                err_text = _helper_error_log_message(result)
+            if isinstance(result, dict) and is_helper_error_dict(result):
+                err_text = helper_error_log_message(result)
                 addin_val = py_addin_cell_value(result)
                 _record_py_diagnostic(ctx, code, res, status="error", message=err_text, doc=target_doc, workbook_key=cell_ctx.diag_workbook_key)
                 return addin_val
@@ -533,12 +531,12 @@ def _execute_python_addin_impl(ctx: Any, code: str, data: Any = None, *, doc: An
             return finalize_python_return(cell_ctx, result, index_arg=index_arg, worker_data=worker_data, data_token=data_token)
 
         raw_message = str(res.get("message") or res.get("error") or "")
-        addin_cell = _addin_result_for_worker_status(res)
+        addin_cell = addin_result_for_worker_status(res)
         message = addin_cell if isinstance(addin_cell, str) else raw_message
         _record_py_diagnostic(ctx, code, res, status="error", message=message, doc=target_doc, workbook_key=cell_ctx.diag_workbook_key)
         return addin_cell
     except Exception as e:
         log.exception("PYTHON unexpected error during execution")
-        err_msg = _format_error_for_display(e)
+        err_msg = format_addin_error_for_display(e)
         _record_py_diagnostic(ctx, code, None, status="error", message=err_msg, traceback=str(e), doc=target_doc, workbook_key=cell_ctx.diag_workbook_key)
         return err_msg

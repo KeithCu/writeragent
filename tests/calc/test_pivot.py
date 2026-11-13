@@ -37,7 +37,7 @@ def test_pivot_table_list_all_sheets():
     ctx.doc = doc
 
     with patch("plugin.calc.pivot._get_dp_tables", return_value=dp_tables), \
-         patch("plugin.calc.pivot._query_interface", return_value=dpt):
+         patch("plugin.calc.pivot.query_interface", return_value=dpt):
         tool = ListPivotTables()
         res = tool.execute(ctx)
 
@@ -160,7 +160,7 @@ def test_pivot_table_create_function_mapping_and_page_filters():
 
     with patch("plugin.calc.pivot.CalcBridge") as bridge_cls, \
          patch("plugin.calc.pivot._get_dp_tables", return_value=dp_tables), \
-         patch("plugin.calc.pivot._query_interface") as qi_mock:
+         patch("plugin.calc.pivot.query_interface") as qi_mock:
         bridge = bridge_cls.return_value
         bridge.resolve_range_or_address.side_effect = lambda ref: src_range if "A1:C6" in ref else dest_cell
         dpt = MagicMock()
@@ -351,7 +351,7 @@ def test_pivot_table_refresh_and_delete():
 
     # Refresh success
     with patch("plugin.calc.pivot._find_pivot", return_value=(table_mock, sheet_mock)), \
-         patch("plugin.calc.pivot._query_interface") as qi_mock:
+         patch("plugin.calc.pivot.query_interface") as qi_mock:
         dpt = MagicMock()
         qi_mock.return_value = dpt
 

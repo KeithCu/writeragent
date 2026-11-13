@@ -28,7 +28,7 @@ from plugin.framework.uno_context import create_property_value
 from plugin.calc.address_utils import format_range
 from plugin.calc.base import ToolCalcConditionalBase
 from plugin.calc.bridge import CalcBridge
-from plugin.calc.calc_utils import query_interface as _query_interface, range_args
+from plugin.calc.calc_utils import query_interface, range_args
 
 from com.sun.star.lang import IllegalArgumentException
 from com.sun.star.table import CellAddress
@@ -57,7 +57,7 @@ _OPS: list[str] = [
 def _entry_to_dict(entry: Any, idx: int) -> dict[str, Any]:
     """Convert a conditional entry to a readable dict."""
     result: dict[str, Any] = {"index": idx}
-    xc2 = _query_interface(entry, "com.sun.star.sheet.XSheetCondition2")
+    xc2 = query_interface(entry, "com.sun.star.sheet.XSheetCondition2")
     if xc2 is not None:
         op_code = int(xc2.getConditionOperator())
         op_name = _OPS[op_code] if 0 <= op_code < len(_OPS) else str(op_code)

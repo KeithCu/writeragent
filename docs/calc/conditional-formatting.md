@@ -112,7 +112,7 @@ File: [`plugin/calc/conditional.py`](../../plugin/calc/conditional.py).
 
 ## 6. Debugging tips
 
-- **PyUNO `queryInterface`:** Use **`uno.getTypeByName("com.sun.star....")`** — see `_query_interface` in [`conditional.py`](../../plugin/calc/conditional.py) and [`pivot.py`](../../plugin/calc/pivot.py).  
+- **PyUNO `queryInterface`:** Use **`uno.getTypeByName("com.sun.star....")`** — see `query_interface` in [`calc_utils.py`](../../plugin/calc/calc_utils.py).  
 - **First rule fails with no container:** Check **`_ensure_table_conditional_format`** and LO version; verify **`TableConditionalFormat`** service name.  
 - **Operator shows wrong in UI but list looks right:** Compare **`operator_code`** from **`conditional_formatting_list`** against `_OPS` in [`conditional.py`](../../plugin/calc/conditional.py) (unknown codes become `str(code)`).  
 - **Rules from UI missing in list:** User may have created **modern** CF — see §2.2; implement merged listing (§5.2).
