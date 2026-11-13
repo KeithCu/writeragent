@@ -75,6 +75,77 @@ def test_calc_pivot_table(ctx, doc):
     assert sheet2_pivots == [], f"Expected no pivot on Sheet2 after rejected duplicate, got {sheet2_pivots}"
     assert "WA_PivotTest" not in [p.get("name") for p in sheet2_pivots]
 
+    res_nosheet = _execute_calc_tool(doc, ctx, "pivot_table_refresh", {
+        "name": "WA_PivotTest",
+        "sheet": "NoSuchSheet",
+    })
+    assert res_nosheet.get("status") == "error"
+    assert res_nosheet.get("code") == "UNO_OBJECT_ERROR"
+    assert "Available:" in res_nosheet.get("message", "")
+    assert "hint" in res_nosheet.get("details", {})
+
+    res_miss = _execute_calc_tool(doc, ctx, "pivot_table_refresh", {
+        "name": "WA_PivotTestX",
+    })
+    assert res_miss.get("status") == "error"
+    assert res_miss.get("code") == "PIVOT_TABLE_NOT_FOUND"
+    assert "WA_PivotTest" in res_miss.get("details", {}).get("similar", [])
+
+    res_create_nosheet = _execute_calc_tool(doc, ctx, "pivot_table_create", {
+        "name": "WA_PivotMissingSrc",
+        "source_range": "A1:B6",
+        "source_sheet": "NoSuchSheet",
+        "destination_sheet": sn,
+        "destination_cell": "D15",
+        "data_fields": ["Sales"],
+    })
+    assert res_create_nosheet.get("status") == "error"
+    assert res_create_nosheet.get("code") == "UNO_OBJECT_ERROR"
+
+    if not doc.getSheets().hasByName("_wa_hidden"):
+        doc.getSheets().insertNewByName("_wa_hidden", 2)
+
+    res_hidden = _execute_calc_tool(doc, ctx, "pivot_table_create", {
+        "name": "WA_Hidden",
+        "source_range": "A1:B6",
+        "source_sheet": sn,
+        "destination_sheet": "_wa_hidden",
+        "destination_cell": "A1",
+        "data_fields": ["Sales"],
+    })
+    assert res_hidden.get("status") == "ok", f"create on _wa_hidden failed: {res_hidden}"
+
+    res_list_all = _execute_calc_tool(doc, ctx, "pivot_table_list", {})
+    assert res_list_all.get("status") == "ok"
+    all_names = [p.get("name") for p in res_list_all.get("pivot_tables", [])]
+    assert "WA_Hidden" not in all_names, f"Internal sheet pivot leaked into list: {all_names}"
+
+    res_bare_hidden = _execute_calc_tool(doc, ctx, "pivot_table_refresh", {"name": "WA_Hidden"})
+    assert res_bare_hidden.get("status") == "error"
+    assert res_bare_hidden.get("code") == "PIVOT_TABLE_NOT_FOUND"
+
+    res_explicit_hidden = _execute_calc_tool(doc, ctx, "pivot_table_refresh", {
+        "name": "WA_Hidden",
+        "sheet": "_wa_hidden",
+    })
+    assert res_explicit_hidden.get("status") == "ok", f"explicit hidden refresh failed: {res_explicit_hidden}"
+
+    res_range_dest = _execute_calc_tool(doc, ctx, "pivot_table_create", {
+        "name": "WA_PivotRangeDest",
+        "source_range": "A1:B6",
+        "source_sheet": sn,
+        "destination_sheet": sn,
+        "destination_cell": "H20:I21",
+        "row_fields": ["Month"],
+        "data_fields": ["Sales"],
+    })
+    assert res_range_dest.get("status") == "ok", f"create with range dest failed: {res_range_dest}"
+
+    res_list_sn = _execute_calc_tool(doc, ctx, "pivot_table_list", {"sheet": sn})
+    assert res_list_sn.get("status") == "ok"
+    by_name = {p["name"]: p for p in res_list_sn.get("pivot_tables", [])}
+    assert by_name["WA_PivotRangeDest"]["output_range"].startswith("H20:")
+
 
 @native_test
 @with_native_doc("calc")
