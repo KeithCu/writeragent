@@ -54,10 +54,8 @@ class FilterCriterion(NamedTuple):
     string_value: str
 
 
-# Dual-profile: Closed FilterOperator2 labels under CrossHair.
 def _deal_filter_op_name_ok_pytest(name: object) -> bool:
-    # An unknown or non-ASCII operator from the model must raise
-    # UnoObjectError, not PreContractError. The body does that.
+    # The contract checks only the type: an unknown or non-ASCII name must reach the body so the model gets UnoObjectError, not PreContractError.
     return isinstance(name, str)
 
 
@@ -106,6 +104,7 @@ def resolve_filter_operator_code(operator: str) -> int:
     return code
 
 
+# Accepts every input: parse_sheet_filter_criterion's body raises UnoObjectError for a bad criterion, which @deal.raises declares.
 def _deal_filter_criterion_ok(*args: Any, **kwargs: Any) -> bool:
     return True
 

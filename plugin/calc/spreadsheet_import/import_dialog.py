@@ -2,7 +2,7 @@
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Programmatic XDL-free Calc Spreadsheet to Python Import options dialog."""
+"""Options dialog for Calc's "Convert Sheet to Python", built in code (no .xdl file)."""
 
 from __future__ import annotations
 

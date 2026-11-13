@@ -15,10 +15,7 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
-"""Cell inspector — reads detailed information from LibreOffice Calc cells.
-
-Ported from core/calc_inspector.py for the plugin framework.
-"""
+"""Cell inspector — reads detailed information from LibreOffice Calc cells."""
 
 import logging
 from typing import Any, TypeAlias
@@ -253,8 +250,7 @@ class CellInspector:
             except Exception as e:
                 if is_disposal(e):
                     raise
-                # Some older/embedded Calc builds may not expose format-range queries.
-                # Preserve the old raw response instead of failing read_cell_range.
+                # Some Calc builds do not expose format-range queries; read_cell_range then returns the raw values without date/time enrichment.
                 log.exception("Date/time format enrichment failed for range %s; returning raw values", range_name)
 
         col_letters = [index_to_column(c) for c in range(addr.StartColumn, addr.EndColumn + 1)]

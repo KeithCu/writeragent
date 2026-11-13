@@ -1,5 +1,23 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Orchestrate Excel ↔ DAG-style ``=PY`` conversion. Details in ``to_dag.py``."""
+"""Excel Python-in-Excel ↔ DAG-style ``=PY`` conversion: offline stages and the udprop meta.
+
+No single caller runs every stage. The four pipelines:
+
+================  ==========================================  ==============================================
+                  from a file (CLI, ``cli.py``)               from the live document (``auto_open.py``)
+================  ==========================================  ==============================================
+Excel → ``=PY``   ``convert_path`` → ``convert_to_dag``       open: ``has_excel_python_xlsx`` →
+                  (``load_excel_model`` → ``convert_model_    ``convert_to_dag`` → ``apply_dag_formulas_to_
+                  to_dag``) → ``write_dag_formulas_xlsx``     calc_doc`` → ``store_dag_meta_on_doc``
+``=PY`` → Excel   ``convert_path`` → ``convert_to_excel``     save: ``convert_uno_doc_to_excel`` (reads
+                  (``iter_dag_py_formulas_xlsx`` →            ``ExcelPyDagMeta``) → ``write_excel_python_
+                  ``convert_dag_cells_to_excel``, or          xlsx`` → ``has_excel_python_xlsx`` check
+                  ``--from-report``) →
+                  ``write_excel_python_xlsx``
+================  ==========================================  ==============================================
+
+Per-cell rewrite rules are in ``to_dag.py`` and ``to_excel.py``.
+"""
 
 from __future__ import annotations
 

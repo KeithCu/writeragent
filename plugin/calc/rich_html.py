@@ -32,8 +32,8 @@ import plugin.writer.html_import as html_import
 log = logging.getLogger(__name__)
 
 # Not "_blank" or "_default": a shared target collides with testing_runner's
-# Windows Hidden-Writer keeper and hung CI. CREATE|GLOBAL = FrameSearchFlag
-# 8|55; flags 0 can search instead of creating.
+# hidden Writer keeper on Windows and the load can hang. CREATE|GLOBAL =
+# FrameSearchFlag 8|55; flags 0 can search instead of creating.
 _HTML_WRITER_TARGET = "_wa_calc_html"
 _HTML_WRITER_SEARCH_FLAGS = 8 | 55
 # Only this module loads _wa_calc_html. Do not enumerate the desktop:
@@ -167,8 +167,8 @@ def insert_cell_html_rich(doc: Any, uno_ctx: Any, cell_address: str, html: str) 
             raise ToolExecutionError("Calc controller does not support insertTransferable.")
         ins(transferable)
         # Drop SystemClipboard's owner before any close when it still holds
-        # this Writer's SwTransferable. Do not gc.collect(): a forced GC
-        # aborted in the SdrObject destructor after that release.
+        # this Writer's SwTransferable. Do not gc.collect() here: a forced
+        # collection after that release can abort LibreOffice in the SdrObject destructor.
         step = _step("release clipboard")
         pasted = True
     except ToolExecutionError:

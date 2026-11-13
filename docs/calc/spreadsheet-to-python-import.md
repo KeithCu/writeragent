@@ -211,17 +211,23 @@ flowchart LR
   Wire --> Todo
 ```
 
-### Proposed new modules (Phase 1+)
+### Modules
 
 | Module | Role |
 |--------|------|
-| `plugin/calc/spreadsheet_import/` | Package root |
-| `ingest.py` | Sheet → `SheetModel` (cells, types, formulas, precedents) |
-| `graph.py` | Topological order, cycle detection |
-| `translate.py` | Formula AST → Python source string |
-| `emit.py` | `SheetModel` → `=PY()` formula strings + optional code cells |
-| `verify.py` | Oracle diff after conversion |
-| `import_dialog.py` | XDL dialog (Calc spreadsheet → Python) |
+| `plugin/calc/spreadsheet_import/` | Package root (`__init__.py`: Calc spreadsheet → Python import pipeline) |
+| `extract.py` | Extract and normalize existing `=PY()` / `=PYTHON()` formulas |
+| `ingest.py` | Ingest Calc sheet snapshots into `SheetModel` |
+| `models.py` | Data models for Calc spreadsheet → Python import (ingest + preserve phases) |
+| `preprocess.py` | Normalize LibreOffice formula strings for Excel-oriented parsers |
+| `preserve.py` | Preserve constants and normalize existing PY cells onto an output sheet |
+| `range_clip.py` | Clip whole-column/row PY data refs to a workbook sheet's used area |
+| `graph.py` | Dependency graph and circular-reference groups |
+| `translate.py` | Translate P1 Calc formulas to `=PY()` Python source via vendored AST; `TranslationResult.has_function` tells emit which formulas stay native |
+| `vectorize.py` | Column vectorization logic for Calc Spreadsheet → Python Import |
+| `emit.py` | Emit `=PY()` formulas and build converted output models |
+| `verify.py` | Verify converted cells against ingest snapshot oracles |
+| `import_dialog.py` | Menu dialog, built in code (no `.xdl` file) |
 
 **Optional dependency (evaluate in Phase 3 spike):** vendored or dev-only [`formulas`](https://github.com/vinci1it2000/formulas) for ODS AST — only if a minimal in-tree parser is too costly. Default path: **small hand-rolled parser** for P1 grammar + `list_calc_functions` metadata.
 
@@ -315,7 +321,7 @@ Complex Calc functions that need shared semantics (SUMIF, XLOOKUP, FILTER, SUBTO
 
 - **Translator:** [`translate.py`](../../plugin/calc/spreadsheet_import/translate.py) maps Calc builtins to `calc.foo(...)` or inline `np`/`math` expressions.
 - **Runtime:** [`AUTO_IMPORTS`](../../plugin/framework/constants.py) + [`inject_auto_imports`](../../plugin/scripting/venv_sandbox.py) bind `calc` when the formula references it.
-- **Tests:** behavioral parity in [`test_calc_functions.py`](../../tests/scripting/test_calc_functions.py); emitter shape in [`test_spreadsheet_import_translate.py`](../../tests/calc/test_spreadsheet_import_translate.py).
+- **Tests:** behavioral parity in [`test_calc_functions.py`](../../tests/scripting/test_calc_functions.py); emitter shape in [`test_spreadsheet_import_translate.py`](../../tests/calc/test_spreadsheet_import_translate.py). `test_calc_helper_name_and_arity_contracts` calls every table row with 0–10 arguments and checks each `calc.NAME(` it writes against `HELPER_NAMES`, and the helper's signature when the call passes the arguments straight through.
 
 Workbooks converted before this change may still contain inline pasted helpers or old `xl.*` helper calls; re-import to shrink formulas / pick up `calc.*`.
 
@@ -411,7 +417,7 @@ flowchart TB
 |------|------------------------|
 | `read_cell_range` | Agent inspect before convert |
 | `write_formula_range` | Agent apply after user confirms |
-| `convert_spreadsheet_to_python` | **New** — full pipeline |
+| `convert_spreadsheet_to_python` | Menu action (Calc → Convert Sheet to Python…), not an agent tool |
 | `list_calc_functions` | Agent lookup unsupported function |
 | `error_detect` | Pre/post validation |
 | `delegate_to_specialized_calc_toolset` | N/A for v1 |
@@ -1114,7 +1120,7 @@ Prototype long-tail only. Do not start this unless spreadsheet import is explici
 | **Unit** | `tests/calc/test_spreadsheet_import_emit.py` | `=PY()` string shape, semicolons |
 | **Integration** | `tests/calc/test_spreadsheet_import_verify.py` | Mock inspector grids |
 | **Corpus** | `tests/calc/test_spreadsheet_import_corpus.py` | ≥90% rate gate (may `xfail` until Phase 4) |
-| **UNO** | `tests/calc/test_spreadsheet_import_uno.py` | Full pipeline on tiny ODS if `soffice` present |
+| **UNO** | `tests/calc/test_spreadsheet_import_corpus_uno.py` | Corpus pipeline in a live LibreOffice |
 
 Run with `make test`. New tests follow module naming in [AGENTS.md](../../AGENTS.md).
 

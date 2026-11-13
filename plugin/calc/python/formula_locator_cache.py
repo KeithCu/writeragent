@@ -2,7 +2,7 @@
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Formula cell location for Calc =PY() formulas with array-formula origin detection."""
+"""Formula cell location for Calc =PY() formulas with array-formula origin detection. Locations are memoized for one add-in execution (``bind_formula_locate_memo``)."""
 
 from __future__ import annotations
 

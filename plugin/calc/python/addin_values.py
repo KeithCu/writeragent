@@ -83,7 +83,7 @@ _HELPER_ERROR_DICT_KEYS = frozenset({"status", "code", "message", "helper", "det
 
 
 def _is_helper_error_dict(val: Any) -> bool:
-    """True only for the coerce.error_result dict (venv/coerce.py lines 902–914).
+    """True only for the coerce.error_result dict (``plugin/scripting/venv/results.py`` ``error_result``).
 
     status, code, and message are always set. helper and details are set only
     when those arguments are truthy. Success payloads and other error dicts
@@ -359,7 +359,9 @@ def _result_as_spill_grid(result: list[Any] | tuple[Any, ...]) -> list[list[Any]
 def _coerce_spill_value(val: Any, null_dt: datetime.date = datetime.date(1899, 12, 30)) -> tuple[Any, dict[str, Any]]:
     """Convert raw grid cell value to Calc-compatible primitive plus temporal metadata.
 
-    Returns (calc_val, meta) where meta has 'is_temporal', 'input_category', 'serial'.
+    Returns (calc_val, meta). meta always has ``is_temporal`` and ``is_empty``;
+    temporal values add ``input_category`` and ``serial``; Calc error values
+    add ``is_calc_error`` and ``error_code``.
     """
     if val is None or type(val).__name__ in ("NaTType", "NAType"):
         return "", {"is_temporal": False, "is_empty": True}
@@ -457,9 +459,8 @@ def _spill_value_from_json(kind: str, value: Any) -> Any:
 
 
 def _format_error_for_display(exc: BaseException) -> str:
-    """Cell-safe error text without importing ``plugin.framework.client.llm_client``."""
-    # Bugfix (#402): A TimeoutError during add-in execution is an internal host marshal or
-    # synchronization timeout, NOT a user venv execution timeout or HTTP request timeout.
+    """Cell text for an exception raised while running =PY()."""
+    # A TimeoutError here is the host's main-thread marshal or sync timeout, not the user's code or an HTTP request, so it gets its own message.
     if isinstance(exc, TimeoutError):
         return _("Error: Main-thread execution timed out ({0})").format(str(exc))
     msg = format_error_message(exc)

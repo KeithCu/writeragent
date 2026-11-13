@@ -7,7 +7,9 @@
 from __future__ import annotations
 
 import datetime as dt
+import inspect
 import math
+import re
 import numpy as np
 
 
@@ -16,7 +18,7 @@ import plugin.scripting.calc_functions as calc
 from plugin.calc.spreadsheet_import.emit import build_converted_output_model
 from plugin.calc.spreadsheet_import.models import CellRecord, SheetModel
 from plugin.calc.spreadsheet_import.preprocess import normalize_lo_formula_for_parse
-from plugin.calc.spreadsheet_import.translate import translate_formula
+from plugin.calc.spreadsheet_import.translate import FUNCTION_EMITTERS, TranslationError, translate_formula
 import pytest
 
 
@@ -1662,41 +1664,28 @@ def test_translate_quoted_sheet_names():
 
 
 def test_calc_helper_name_and_arity_contracts():
-    """Verify that every helper emitted by translate table is in HELPER_NAMES with valid arity."""
-    import inspect
+    """Verify that every calc.* helper emitted by the translate table is in HELPER_NAMES with valid arity."""
     import plugin.scripting.venv.calc_functions as vcf
-    from plugin.calc.spreadsheet_import.translate import _P1_FUNCTION_EMITTERS
 
-    checked = 0
-    for fn_name, emitter in _P1_FUNCTION_EMITTERS.items():
-        helper_name = getattr(emitter, "helper_name", None)
-        if helper_name is None:
-            continue
+    checked: set[str] = set()
+    for fn_name, emitter in FUNCTION_EMITTERS.items():
+        accepted = 0
+        for count in range(11):
+            args = [str(i + 1) for i in range(count)]
+            try:
+                code = emitter(args)
+            except TranslationError:
+                continue
+            accepted += 1
+            for helper in re.findall(r"\bcalc\.(\w+)\(", code):
+                assert helper in vcf.HELPER_NAMES, f"calc.{helper} (from {fn_name} with {count} args) not in HELPER_NAMES"
+                checked.add(helper)
+                if code == f"calc.{helper}({', '.join(args)})":
+                    inspect.signature(getattr(vcf, helper)).bind(*args)
+        assert accepted > 0, f"{fn_name} accepted no argument count in 0..10"
 
-        # 1. Assert helper name is registered in HELPER_NAMES
-        assert helper_name in vcf.HELPER_NAMES, f"{helper_name} (from {fn_name}) not in HELPER_NAMES"
-
-        # 2. Check min/max arity against inspect.signature where applicable
-        fn = getattr(vcf, helper_name)
-        sig = inspect.signature(fn)
-        params = list(sig.parameters.values())
-        has_varargs = any(p.kind == inspect.Parameter.VAR_POSITIONAL for p in params)
-        if has_varargs:
-            # Skip inspect-unfriendly (*args) signatures
-            continue
-
-        pos_params = [p for p in params if p.kind in (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD)]
-        req_params = [p for p in pos_params if p.default is inspect.Parameter.empty]
-        min_args = getattr(emitter, "min_args", None)
-        max_args = getattr(emitter, "max_args", None)
-
-        if min_args is not None:
-            assert min_args >= len(req_params), f"{fn_name} min_args {min_args} < req {len(req_params)}"
-        if max_args is not None:
-            assert max_args <= len(pos_params), f"{fn_name} max_args {max_args} > max_pos {len(pos_params)}"
-        checked += 1
-
-    assert checked > 150
+    assert {"py_str", "iferror", "ifna", "subtotal", "fmt", "poisson", "na", "aggregate"} <= checked
+    assert len(checked) > 250
 
 
 def test_translate_value_text_argument():
@@ -1774,6 +1763,38 @@ def test_translate_rounding_calc_parity():
     res = translate_formula("=ROUNDDOWN(1.23;1)")
     assert res.ok
     assert exec_result(res, []) == 1.2
+
+
+def test_translate_reports_has_function():
+    no_fn = translate_formula("=A1*2")
+    assert no_fn.ok and no_fn.has_function is False
+
+    err_no_fn = translate_formula("=1+#N/A")
+    assert not err_no_fn.ok and err_no_fn.has_function is False
+
+    with_fn = translate_formula("=ABS(A1)")
+    assert with_fn.ok and with_fn.has_function is True
+
+    unsupported = translate_formula("=SUM(A1:A3)")
+    assert not unsupported.ok
+    assert unsupported.reason == "UNSUPPORTED_FUNCTION"
+    assert unsupported.has_function is True
+
+    bad_syntax = translate_formula("=INVALID(++")
+    assert not bad_syntax.ok and bad_syntax.has_function is None
+
+
+def test_translate_functions_only_skips_function_free_codegen():
+    no_fn = translate_formula("=A1*2", functions_only=True)
+    assert no_fn.ok is False
+    assert no_fn.code is None
+    assert no_fn.reason is None
+    assert no_fn.has_function is False
+
+    with_fn = translate_formula("=ABS(A1)", functions_only=True)
+    assert with_fn.ok is True
+    assert with_fn.code == "np.abs(data)"
+    assert with_fn.has_function is True
 
 
 

@@ -18,8 +18,7 @@
 """In-process UNO bridge for Calc.
 
 Wraps a Calc document and provides convenience methods for accessing
-sheets, cells, and ranges. Ported from core/calc_bridge.py for the
-plugin framework.
+sheets, cells, and ranges.
 """
 
 from typing import Any, NamedTuple
@@ -41,7 +40,7 @@ def is_agent_visible_sheet(name: str) -> bool:
 
     Leading ``_`` covers ``__Anonymous_Sheet_DB__0`` (xlsx→ods database-range
     tab) and similar internals. The sheets stay in the document; agent-facing
-    lists omit them. Delete-at-trial-open is parked (eval-2 §2.7).
+    lists omit them. Delete-at-trial-open is parked (see ``docs/eval/eval-2/first-principles-analysis-v4.md`` §2.7).
     """
     return bool(name) and not str(name).startswith("_")
 

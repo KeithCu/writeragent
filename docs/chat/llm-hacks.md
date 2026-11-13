@@ -14,7 +14,7 @@ Instead of requiring a `delimiter` parameter, the tool `write_formula_range` now
 **Problem**: When using `write_formula_range`, the LLM often sends a raw string like `"Name;Age;Salary"` instead of a native row array `[["Name", "Age", "Salary"]]` or a JSON-encoded flat array. Without a workaround, this writes the entire string into a single cell.
 
 ### [Workaround] Raw String Splitting
-The internal `_parse_formula_or_values_string` helper in `core/calc_manipulator.py` detects raw semicolon-separated strings.
+The internal `_parse_formula_or_values_string` helper in `plugin/calc/manipulator.py` detects raw semicolon-separated strings.
 - **Formula-Safe Detection**: It skips strings starting with `=` (standard formulas) but splits other strings containing `;` using `csv.reader`.
 - **CSV Reader**: Using `csv.reader` (with `skipinitialspace=True`) ensures that if the LLM puts a semicolon inside a quoted string, it won't be split incorrectly.
 
@@ -24,7 +24,7 @@ The internal `_parse_formula_or_values_string` helper in `core/calc_manipulator.
 **Problem**: LLMs often use semicolons inside JSON arrays (e.g., `["A"; "B"]`). Standard `json.loads` fails here. A blind `replace(";", ",")` fix breaks real formulas that *need* semicolons (e.g., `=SUM(A1;B1)` becomes `=SUM(A1,B1)` which is an error in Calc).
 
 ### [Workaround] Regex-Bound Replacement
-In `core/calc_manipulator.py`, we use a regular expression to normalize JSON arrays before parsing.
+In `plugin/calc/manipulator.py`, we use a regular expression to normalize JSON arrays before parsing.
 - **Regex**: `re.sub(r';(?=(?:[^"]*"[^"]*")*[^"]*$)', ',', s_strip)`
 - **Behavior**: This only replaces semicolons that are **not** inside double quotes. This preserves semicolons inside formula strings while fixing the JSON structure.
 

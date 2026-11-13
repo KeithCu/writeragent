@@ -2,7 +2,17 @@
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Calc shape drawing tools, bridging Draw's implementations."""
+"""Calc shape tools: the Draw shape tools registered again for Calc.
+
+Each class is ``class X(DrawX, ToolCalcShapeBase): pass``. Draw's class
+comes first in the MRO, so name, schema, execute, domain and uno_services
+(every document type) are Draw's. The Calc base adds one thing:
+``ToolRegistry.register`` keeps the union of ``required_core_tools`` for
+tools that share a name, so registering these classes puts Calc's
+``get_sheet_summary`` and ``read_cell_range`` into the shape sub-agent's
+tool list. The "shapes" row of the Calc delegate catalog comes from
+``ToolCalcShapeBase`` in ``base.py``.
+"""
 
 from .base import ToolCalcShapeBase
 from plugin.draw.shapes import UpsertShape as DrawUpsertShape

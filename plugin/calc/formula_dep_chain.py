@@ -105,9 +105,9 @@ def fetch_formula_dep_chain(doc: Any, ctx: Any, address: str) -> dict[str, Any] 
     sheet, col, row = resolved
 
     if ctx is not None:
-        # Navigation selects the cell for the UNO command. A disposed
-        # document, headless run, or missing controller can throw here.
-        # navigate_to_cell can fail without a view; dep-chain collection must continue anyway.
+        # Navigation selects the cell for the UNO command. A disposed document, a
+        # headless run, or a missing controller can throw here; the dependency
+        # chain does not need the view, so collection continues.
         from plugin.calc.navigation import navigate_to_cell
 
         best_effort(lambda: navigate_to_cell(doc, ctx, address), f"navigate_to_cell failed for {address!r}; continuing dep chain")

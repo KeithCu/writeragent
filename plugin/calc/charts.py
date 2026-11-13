@@ -317,6 +317,9 @@ def _validate_chart_upsert(kwargs: dict[str, Any], doc_type: str | None = None) 
                 return False, err or "Invalid headers or rows"
         return True, None
 
+    # By design validate has only the caller's doc_type: anything but "calc"
+    # takes the headers/rows path. upsert_chart holds the document and makes
+    # the authoritative check (docs/calc/charts.md "Validation and doc_type").
     req_err = _create_requirements_error(kwargs, is_calc=(doc_type == "calc"))
     if req_err:
         return False, req_err
@@ -573,7 +576,7 @@ def _apply_chart_styling(chart_doc: Any, **kwargs: Any) -> list[str]:
     _set_axis_title(diagram, "X", kwargs.get("x_axis_title"), warnings)
     _set_axis_title(diagram, "Y", kwargs.get("y_axis_title"), warnings)
 
-    # 5. Legend
+    # 4. Legend
     # offapi ChartLegend.Alignment is ChartLegendPosition (NONE/LEFT/TOP/RIGHT/BOTTOM).
     # There is no ChartLegendAlignment type.
     has_legend = kwargs.get("has_legend")
@@ -603,7 +606,7 @@ def _apply_chart_styling(chart_doc: Any, **kwargs: Any) -> list[str]:
             warnings.append(msg)
             log.warning("%s", msg)
 
-    # 6. Background Color
+    # 5. Background Color
     bg_color = kwargs.get("bg_color")
     if bg_color:
         parsed_bg = _parse_color(bg_color)
@@ -618,7 +621,7 @@ def _apply_chart_styling(chart_doc: Any, **kwargs: Any) -> list[str]:
             warnings.append(f"Invalid bg_color: '{bg_color}'")
             log.warning("Invalid bg_color ignored: '%s'", bg_color)
 
-    # 7. Series Colors (one color per series/bar in the chart)
+    # 6. Series Colors (one color per series/bar in the chart)
     colors = kwargs.get("colors")
     if colors:
         parsed_colors = []
@@ -635,7 +638,7 @@ def _apply_chart_styling(chart_doc: Any, **kwargs: Any) -> list[str]:
                 diag = chart_doc.getFirstDiagram()
                 if diag:
                     coords = diag.getCoordinateSystems()
-                    # One index across chart types. Per-type enumerate repeated colors[0].
+                    # One color index runs across every chart type, so series in a second chart type continue the color list.
                     all_series = (
                         s
                         for coord in coords
@@ -679,8 +682,7 @@ def _apply_chart_data_arrays(chart_doc: Any, headers: Any, rows: Any) -> None:
         raise ValueError("No chart data object found on chart document.")
 
     row_desc = tuple(str(r[0]) for r in rows)
-    # headers[0] is the category column title; series names start at index 1
-    # 2. Process headers to extract series names (column descriptions)
+    # headers[0] is the category column title; series names (column descriptions) start at index 1
     col_desc = tuple(str(h) for h in headers[1:])
     final_values = tuple(tuple(float(v) for v in r[1:]) for r in rows)
 
@@ -706,9 +708,9 @@ def _drop_failed_chart_insert(remove: Callable[[], None], name: str) -> None:
 def _remove_writer_chart(doc: Any, chart_obj: Any, name: str) -> None:
     """Remove a Writer chart from the text that anchors it (body, frame, or cell).
 
-    doc.getText() only holds body anchors, so a chart in a frame or table cell
-    stayed in the document while delete reported success. The embedded objects
-    container is the fallback used by create rollback.
+    ``doc.getText()`` holds only body anchors, so removal goes through the
+    chart's own anchor text (body, frame, or table cell). The embedded-objects
+    container is the fallback that create rollback also uses.
     """
     try:
         chart_obj.getAnchor().getText().removeTextContent(chart_obj)
@@ -830,6 +832,9 @@ def _iter_page_shapes(
     """Yield (shape, parent, shape_type) for shapes in a draw page or group shape, descending into nested groups."""
     # Tip: a disposed shape on a live page is skipped so later shapes still list; on a closed
     # document re-raise, or list_charts would return status ok with a partial list.
+    # Only the two listings (collect) pass on_probe_error: a listing can report
+    # a shape whose type cannot be read in its errors list, while find and
+    # names want such a shape skipped.
     try:
         count = container.getCount()
     except Exception as exc:
@@ -918,10 +923,9 @@ def _chart_summary(chart_obj: Any, name: str, sheet_name: str | None = None) -> 
             entry["title"] = chart_doc.getTitle().String if chart_doc.HasMainTitle else ""
             entry["diagram_type"] = chart_doc.getDiagram().getDiagramType()
     except Exception as exc:
-        # Title and diagram type are optional. Swallowing DisposedException
-        # here still returned the chart and list_charts finished status ok
-        # after the document closed. Real disposal propagates; the caller
-        # re-raises only when the document itself is disposed.
+        # Title and diagram type are optional; other errors leave them out.
+        # Disposal propagates, and the caller re-raises only when the document
+        # itself is disposed, so a closed document never lists as status ok.
         if is_disposal(exc):
             raise
         log.debug("list_charts summary failed for %s: %s", name, exc)
@@ -1048,7 +1052,6 @@ class SheetCharts:
             # Insert already committed. Drop it so the error return is not an orphan chart.
             _drop_failed_chart_insert(lambda: charts.removeByName(name), name)
             raise
-        # _process_events() causes a hang in tests
         out = {"status": "ok", "message": f"Chart '{name}' created on sheet '{sheet.getName()}'.", "name": name, "sheet": sheet.getName()}
         return _with_warnings(out, warnings)
 
@@ -1160,7 +1163,7 @@ class WriterEmbeds:
             if cursor is None:
                 cursor = text.createTextCursorByRange(text.getEnd())
         except Exception as exc:
-            # Re-raise document disposal; other errors become a generic chart insert failure.
+            # Re-raise document disposal; any other failure falls back to a cursor at the end of the body text.
             if is_disposal(exc):
                 raise
             cursor = text.createTextCursor()
@@ -1269,7 +1272,7 @@ class WriterEmbeds:
             except Exception as e:
                 log.debug("Last ditch effort failed: %s", e)
 
-        # 5. Configure Diagram
+        # 6. Configure Diagram
         if not chart_doc:
             _drop_failed_chart_insert(lambda: _remove_writer_chart(doc, chart_obj, actual_name), actual_name)
             return tool._tool_error("Cannot access chart content.")
@@ -1436,7 +1439,7 @@ class DrawPage:
                 log.debug("Failed to set Draw shape size/pos: %s", e)
             shape.CLSID = CHART_CLSID_DRAW_OLE
 
-            # Tip: a per-page Chart_0 made the next edit/delete CHART_AMBIGUOUS.
+            # Names are unique across all pages: a per-page Chart_0 would make the next edit or delete CHART_AMBIGUOUS.
             existing_names = self.names(skip=shape)
             requested = _chart_name_from_kwargs(kwargs)
             if requested:
@@ -1521,9 +1524,7 @@ def _require_chart(
 def list_charts(tool: Any, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
     """List charts across the active document."""
     doc = ctx.doc
-    # _supports_service swallows DisposedException, so a closed document
-    # matched no branch and list_charts returned status ok with charts=[].
-    # Probe first and surface disposal instead of an empty success.
+    # A closed document raises DocumentDisposedError here instead of listing as an empty success.
     if document_is_disposed(doc):
         raise DocumentDisposedError("Document was closed or disposed by LibreOffice", object_type="document")
     host = chart_host(doc)
@@ -1671,7 +1672,8 @@ def upsert_chart(tool: Any, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
     host = chart_host(doc)
     is_calc = isinstance(host, SheetCharts)
 
-    # Doc-type parameter checks (in addition to validate)
+    # The host decides here, not doc_type: validate may have run with no
+    # doc_type and taken the headers/rows path (see _validate_chart_upsert).
     if is_calc:
         if "headers" in kwargs or "rows" in kwargs:
             return tool._tool_error("Data arrays ('headers', 'rows') are not supported in Calc. Please use 'data_range' instead.")
@@ -1750,7 +1752,7 @@ class _NamedChartTool(_ChartTool):
 
 class ChartList(_ChartTool):
     name: str | None = "chart_list"
-    description: str = "List charts in the current document (active sheet, document body, or all slides)."
+    description: str = "List every chart in the current document (all sheets, the Writer body and frames, or all slides/pages). sheet and page do not narrow the list."
     parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {

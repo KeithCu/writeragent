@@ -91,7 +91,7 @@ def execute_prompt_addin(ctx: Any, message: str, system_prompt: Any, model: Any,
                 if not str(message or "").strip():
                     return "Error: prompt is empty.", client
 
-                # An explicit empty system_prompt string means "no system message" (as before K032);
+                # An explicit empty system_prompt string means "no system message";
                 # None / numeric 0 (empty-cell value) fall back to the configured default.
                 if isinstance(system_prompt, str) and not system_prompt.strip():
                     resolved_system = ""

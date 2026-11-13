@@ -17,11 +17,11 @@ from plugin.calc.address_utils import canonical, canonical_key, parse_address, p
 
 
 class TranslationError(ValueError):
-    """Formula translation failure. ``reason`` is the import-report code.
+    """Formula translation failure. ``reason`` is the import-report code (all seven are listed on ``TodoCell``).
 
-    Reference failures use ``UNSUPPORTED_FUNCTION`` because that was the
-    ``UnsupportedRef`` class attribute. Arity failures use
-    ``UNSUPPORTED_ARITY``. Direct failures use ``PARSE_ERROR``.
+    Translation raises ``UNSUPPORTED_FUNCTION`` for unsupported functions and
+    references, ``UNSUPPORTED_ARITY`` for a wrong argument count, and
+    ``PARSE_ERROR`` for formulas the parser or codegen cannot read.
     """
 
     def __init__(self, reason: str, message: str) -> None:
@@ -141,9 +141,7 @@ def _emit_dim_count(axis: int, node: FunctionNode, state: _CodegenState) -> str:
 def _emit_row_col(axis: int, node: FunctionNode, state: _CodegenState) -> str:
     if not node.args:
         if not state.cell_addr:
-            # Without a cell address, ROW() and COLUMN() cannot name a row
-            # or a column, so fail as unsupported. Falling through to
-            # float(1) counted as a successful translation.
+            # Without a cell address, ROW() and COLUMN() cannot name a row or a column, so they fail as unsupported rather than emit a guessed 1.
             raise TranslationError("UNSUPPORTED_FUNCTION", "ROW/COLUMN without reference requires cell_addr")
         try:
             col_idx, row_idx = parse_address(state.cell_addr.replace("$", ""))
@@ -155,10 +153,7 @@ def _emit_row_col(axis: int, node: FunctionNode, state: _CodegenState) -> str:
     if not isinstance(arg, RangeNode):
         raise TranslationError("UNSUPPORTED_FUNCTION", "ROW/COLUMN argument must be a range")
 
-    # Strip the sheet prefix and $ so parse_range_string can read the
-    # coordinates. Anything else raises TranslationError. parse_range_string
-    # rejects a prefix and $, and the ValueError handler returned float(1),
-    # so =ROW($A$5) and =ROW(Sheet2.A1:A3) emitted (1)+0.0.
+    # _range_bounds strips the sheet prefix and $ so parse_range_string can read =ROW($A$5) or =ROW(Sheet2.A1:A3); anything else raises TranslationError rather than emit a guessed 1.
     try:
         (sc, sr), (ec, er) = _range_bounds(arg.address)
     except ValueError as exc:
@@ -200,7 +195,7 @@ def _emit_function(node: FunctionNode, state: _CodegenState) -> str:
     if spec is not None:
         return spec[0](spec[1], node, state)
     args = [_emit_expr(arg, state) for arg in (node.args or [])]
-    emitted = _P1_FUNCTION_EMITTERS.get(name)
+    emitted = FUNCTION_EMITTERS.get(name)
     if emitted is None:
         raise TranslationError("UNSUPPORTED_FUNCTION", f"unsupported function {name}")
     return emitted(args)
@@ -245,15 +240,14 @@ def _at_least_one(name: str, template: str) -> Callable[[list[str]], str]:
 
 
 def _calc(name: str, min_args: int = 1, max_args: int | None = None) -> Callable[[list[str]], str]:
-    emitter = _arity(name, min_args, max_args, lambda args: f"calc.{name}({', '.join(args)})")
-    setattr(emitter, "helper_name", name)
-    setattr(emitter, "min_args", min_args)
-    setattr(emitter, "max_args", max_args)
-    return emitter
+    return _arity(name, min_args, max_args, lambda args: f"calc.{name}({', '.join(args)})")
 
 
-# P1 function emitters: args are already Python sub-expressions using data[i].
-_P1_FUNCTION_EMITTERS: dict[str, Callable[[list[str]], str]] = {
+# Calc function name -> emitter. Each emitter takes the arguments already spelled as Python
+# (data, data[i], literals) and returns one expression; a wrong argument count raises
+# TranslationError("UNSUPPORTED_ARITY"). Every calc.NAME( an emitter writes must be in
+# HELPER_NAMES; test_calc_helper_name_and_arity_contracts probes each row to check that.
+FUNCTION_EMITTERS: dict[str, Callable[[list[str]], str]] = {
     "ACCRINT": _calc("accrint", 6, 8),
     "ACCRINTM": _calc("accrintm", 3, 5),
     "AMORDEGRC": _calc("amordegrc", 6, 7),
@@ -623,8 +617,16 @@ _P1_FUNCTION_EMITTERS: dict[str, Callable[[list[str]], str]] = {
 }
 
 
-def translate_formula(formula: str, cell_addr: str | None = None) -> TranslationResult:
-    """Parse and codegen one Calc formula to ``result = …`` Python."""
+def translate_formula(formula: str, cell_addr: str | None = None, *, functions_only: bool = False) -> TranslationResult:
+    """Parse and codegen one Calc formula to ``result = …`` Python.
+
+    With ``functions_only=True`` a formula that calls no function returns
+    ``ok=False``, ``reason=None``, ``has_function=False`` without generating code.
+    The import keeps such formulas native, and skipping codegen keeps a long
+    operator chain (``=A1+A2+…``) from running out of recursion and being reported
+    as a failure. The pre-pass walk and the codegen recurse the AST; a
+    ``RecursionError`` from a very deep formula escapes to the caller.
+    """
     if not formula or not str(formula).strip().startswith("="):
         return TranslationResult(ok=False, reason="PARSE_ERROR")
 
@@ -635,16 +637,23 @@ def translate_formula(formula: str, cell_addr: str | None = None) -> Translation
         return TranslationResult(ok=False, reason="PARSE_ERROR")
 
     state = _CodegenState(cell_addr)
+    has_function: bool | None = None
     try:
+        found_function = False
         for node in ast:
             if isinstance(node, RangeNode):
                 state.add_range(node.address)
+            elif isinstance(node, FunctionNode):
+                found_function = True
+        has_function = found_function
+        if functions_only and not found_function:
+            return TranslationResult(ok=False, has_function=False)
         body = _emit_expr(ast, state)
     except TranslationError as exc:
-        return TranslationResult(ok=False, reason=exc.reason)
+        return TranslationResult(ok=False, reason=exc.reason, has_function=has_function)
     except IndexError:
-        return TranslationResult(ok=False, reason="UNSUPPORTED_ARITY")
+        return TranslationResult(ok=False, reason="UNSUPPORTED_ARITY", has_function=has_function)
     except (ValueError, TypeError):
-        return TranslationResult(ok=False, reason="PARSE_ERROR")
+        return TranslationResult(ok=False, reason="PARSE_ERROR", has_function=has_function)
 
-    return TranslationResult(ok=True, code=body, data_ranges=state.data_ranges)
+    return TranslationResult(ok=True, code=body, data_ranges=state.data_ranges, has_function=has_function)
