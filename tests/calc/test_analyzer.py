@@ -1,11 +1,12 @@
 """Unit tests for SheetAnalyzer helpers, including Calc chat context."""
 
+from types import SimpleNamespace
 from unittest.mock import MagicMock, PropertyMock, patch
 
 import pytest
 
 from plugin.calc.analyzer import SheetAnalyzer, _header_text, get_calc_context_for_chat
-from plugin.framework.errors import DocumentDisposedError, ToolExecutionError
+from plugin.framework.errors import DocumentDisposedError
 
 
 def test_get_sheet_summary_used_range_letters():
@@ -36,11 +37,22 @@ def test_get_sheet_summary_reraises_disposed():
         SheetAnalyzer(bridge).get_sheet_summary()
 
 
-def test_get_sheet_summary_wraps_other_errors():
-    bridge = MagicMock()
-    bridge.sheet_or_active.side_effect = ValueError("bad sheet")
-    with pytest.raises(ToolExecutionError, match="bad sheet"):
-        SheetAnalyzer(bridge).get_sheet_summary()
+def test_get_sheet_summary_missing_sheet_is_uno_object_error():
+    from plugin.app import get_tools
+
+    doc = MagicMock()
+    sheets = doc.getSheets.return_value
+    sheets.hasByName.side_effect = lambda name: name in ("Sheet1", "Data")
+    sheets.getElementNames.return_value = ("Sheet1", "Data")
+
+    tool = get_tools().get("get_sheet_summary")
+    assert tool is not None
+    res = tool.execute_safe(SimpleNamespace(doc=doc), sheet="Nope")
+
+    assert res["status"] == "error"
+    assert res["code"] == "UNO_OBJECT_ERROR"
+    assert "Available: Sheet1, Data" in res["message"]
+    assert "sheet_list" in res["details"]["hint"]
 
 
 def test_get_calc_context_for_chat_requires_ctx():
