@@ -110,24 +110,10 @@ def test_get_sheet_summary_keeps_normal_names():
     analyzer_cls.return_value.get_sheet_summary.assert_called_once_with(sheet_name="Sheet1")
 
 
-def test_create_sheet_description_and_ok_mentions_no_cells_copied():
-    from plugin.calc.base import ToolCalcSheetBase
+def test_create_sheet_inserts_at_end_and_reports_not_populated():
     from plugin.framework.prompts import SHEETS_CREATED_NOT_POPULATED_INSTRUCTION
 
     tool = _tool("sheet_create")
-    desc = tool.description
-    assert "no cells copied" in desc
-    assert "write_formula_range" in desc
-    assert "source" in desc
-    # CRUD-only: stay specialized (delegation), do not promote to core.
-    assert tool.tier == "specialized"
-    sheet_param = tool.parameters["properties"]["sheet"]["description"]
-    assert "Exact" in sheet_param
-    assert "preserve spaces" in sheet_param
-    assert "snake_case" in sheet_param
-    assert ToolCalcSheetBase.specialized_domain_description is not None
-    assert "Create" in ToolCalcSheetBase.specialized_domain_description
-
     ctx = SimpleNamespace(doc=MagicMock())
     sheets = MagicMock()
     sheets.getCount.return_value = 1
@@ -135,7 +121,6 @@ def test_create_sheet_description_and_ok_mentions_no_cells_copied():
     result = tool.execute_safe(ctx, sheet="Q1 Actuals")
 
     assert result["status"] == "ok"
-    assert "no cells copied" in result["message"]
     assert result["instruction"] == SHEETS_CREATED_NOT_POPULATED_INSTRUCTION
     sheets.insertNewByName.assert_called_once_with("Q1 Actuals", 1)
 

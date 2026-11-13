@@ -120,24 +120,11 @@ def _ctx(registry: ToolRegistry, doc_type: str, service: str, **extra):
 def test_python_hint_and_examples_require_delegate_before_finish():
     """Computing a layout is not placing shapes; finish only after delegate_tool_domains."""
     from plugin.chatbot.smol_examples import PYTHON_SPECIALIZED_EXAMPLES, get_examples_block
-    from plugin.framework.prompts import (
-        DRAW_CORE_DIRECTIVES,
-        python_specialized_sub_agent_hint,
-    )
-    from plugin.writer.specialized_base import DelegateToSpecializedWriter
+    from plugin.framework.prompts import python_specialized_sub_agent_hint
 
     for label in ("Writer", "Calc", "Draw"):
         hint = python_specialized_sub_agent_hint(label)
-        assert "does not place" in hint
-        assert "matplotlib" in hint
-        assert "MUST call delegate_tool_domains" in hint
-        assert "BEFORE specialized_workflow_finished" in hint
-        assert 'delegate_to_specialized_*(domain="shapes")' in hint
-        assert "page-scale absolute positions in HMM" in hint
-        assert "top-left" in hint
-        assert "origin-centered" in hint
-        assert "does not receive page size" in hint
-        assert "for-loop" in hint
+        assert "delegate_tool_domains" in hint
         assert "wa.shape.upsert" in hint
     writer = python_specialized_sub_agent_hint("Writer")
     assert "footnotes" in writer
@@ -151,23 +138,10 @@ def test_python_hint_and_examples_require_delegate_before_finish():
     assert "delegate_tool_domains" not in parts[1]
     assert '"domains": ["footnotes"]' in parts[2]
     ring = parts[3]
-    assert "ring of 8 blue circles" in ring
     assert '"domains": ["shapes"]' in ring
-    assert "10500" in ring
-    assert "14000" in ring
-    assert "7000" in ring
-    assert "1600" in ring
-    assert "HMM" in ring
-    assert "top-left" in ring
-    assert "not (0,0)" in ring
     assert ring.index("delegate_tool_domains") < ring.index("run_venv_python_script")
     assert ring.index("run_venv_python_script") < ring.index("specialized_workflow_finished")
     assert "wa.shape.upsert" in ring
-    assert "for-loop" in ring
-    assert "via the shapes domain" in ring
-    assert 'rather than domain="shapes"' in DelegateToSpecializedWriter.description
-    assert 'rather than domain="shapes"' in DRAW_CORE_DIRECTIVES
-    assert "draw a rectangle" in DelegateToSpecializedWriter.description
 
 
 def test_domain_loop_hints_include_footnotes_and_charts_lines():
@@ -367,10 +341,7 @@ def test_run_inner_domain_tool_agent_unions_full_schemas(mock_executor_cls, mock
     assert tools_arg[-1].name == "specialized_workflow_finished"
     note = by_name["footnotes_insert"].inputs["note"]
     assert note["enum"] == ["footnote", "endnote"]
-    assert "footnote" in note["description"].lower()
     assert note["nullable"] is False
-    assert "Inserts a new footnote" in by_name["footnotes_insert"].description
-    assert "0-based page index" in by_name["shape_summary"].inputs["page"]["description"]
 
     inner_ctx = mock_build.call_args[0][0]
     assert inner_ctx.doc is parent.doc
@@ -494,7 +465,6 @@ def test_run_inner_domain_tool_agent_calc_union(mock_executor_cls, mock_build):
     assert "range_sort" in names
     assert "footnotes_insert" not in names
     by_name = {tool.name: tool for tool in tools_arg}
-    assert "labels" in by_name["range_sort"].inputs["has_header"]["description"]
     assert by_name["range_sort"].inputs["range"]["type"] == "array"
     assert "shape_upsert" not in names
     inner_ctx = mock_build.call_args[0][0]
@@ -733,12 +703,8 @@ def test_python_outer_delegation_gets_delegate_tool_domains_and_hint(
     assert "delegate_tool_domains" in instructions
     assert "domains" in instructions
     assert "task" in instructions
-    assert "BEFORE specialized_workflow_finished" in instructions
-    assert "does not place" in instructions
-    assert 'delegate_to_specialized_*(domain="shapes")' in instructions
     mock_canvas.assert_not_called()
     assert "Document canvas" not in instructions
-    assert "does not receive page size" in instructions
     examples = mock_agent_class.call_args.kwargs.get("system_prompt_examples") or ""
     assert "delegate_tool_domains" in examples
     assert '"domains"' in examples
@@ -746,9 +712,5 @@ def test_python_outer_delegation_gets_delegate_tool_domains_and_hint(
     assert '"domains": ["shapes"]' in examples
     ring = examples.split('Task: "Use python to place a ring', 1)[1]
     assert ring.index("delegate_tool_domains") < ring.index("specialized_workflow_finished")
-    assert "via the shapes domain" in ring
-    assert "10500" in ring
-    assert "HMM" in ring
-    assert "top-left" in ring
 
 

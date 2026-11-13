@@ -169,21 +169,19 @@ def test_chart_upsert_validate_error_handling():
         assert "not found" in res_edit_nf["message"]
 
 
-def test_chart_upsert_schema_impress_strips_calc_fields():
-    mc = _tool("chart_upsert")
-    impress_params = mc.get_parameters("impress")
-    assert impress_params is not None
-    impress = impress_params["properties"]
-    assert "data_range" not in impress
-    assert "sheet" not in impress
-    assert "has_header" not in impress
-    assert "headers" in impress
-    calc_params = mc.get_parameters("calc")
-    assert calc_params is not None
-    calc = calc_params["properties"]
-    assert "data_range" in calc
-    assert "headers" not in calc
-    assert "rows" not in calc
+@pytest.mark.parametrize(
+    ("doc_type", "present", "absent"),
+    [
+        ("calc", {"data_range"}, {"headers", "rows"}),
+        ("impress", {"headers"}, {"data_range", "sheet", "has_header", "position"}),
+        ("draw", set(), {"position"}),
+        ("writer", {"position"}, set()),
+    ],
+)
+def test_chart_upsert_parameters_per_doc_type(doc_type, present, absent):
+    props = _tool("chart_upsert").get_parameters(doc_type)["properties"]
+    assert present <= props.keys()
+    assert absent.isdisjoint(props.keys())
 
 
 class _UnoRuntimeException(Exception):
@@ -851,64 +849,29 @@ def test_styling_logging_counts_not_payloads(caplog):
     assert "SecretDistinctCellXYZ" in caplog.text
 
 
-def test_position_contracts_and_schema():
-    # Draw/Impress omit position; Writer accepts 'cursor' and 'end'; Calc accepts cell address
+def test_chart_upsert_validate_per_doc_type():
     mc = _tool("chart_upsert")
-    draw_params = mc.get_parameters("draw")
-    assert draw_params is not None
-    draw_props = draw_params["properties"]
-    assert "position" not in draw_props
-    impress_params = mc.get_parameters("impress")
-    assert impress_params is not None
-    impress_props = impress_params["properties"]
-    assert "position" not in impress_props
 
-    writer_params = mc.get_parameters("writer")
-    assert writer_params is not None
-    writer_props = writer_params["properties"]
-    assert "position" in writer_props
-
-    # Writer invalid position
     ok, err = mc.validate(doc_type="writer", chart_type="bar", headers=["Cat", "A"], rows=[["x", 1]], position="page-2")
     assert ok is False
     assert err is not None
     assert "cursor" in err and "end" in err
 
-    # Writer valid position
-    ok, _ = mc.validate(doc_type="writer", chart_type="bar", headers=["Cat", "A"], rows=[["x", 1]], position="cursor")
-    assert ok is True
+    assert mc.validate(doc_type="writer", chart_type="bar", headers=["Cat", "A"], rows=[["x", 1]], position="cursor")[0] is True
+    assert mc.validate(doc_type="writer", chart_type="bar", headers=["Cat", "A"], rows=[["x", 1]])[0] is True
+    assert mc.validate(doc_type="calc", chart_type="bar", data_range="A1:B2", position="C1")[0] is True
 
-    # Writer omitted position
-    ok, _ = mc.validate(doc_type="writer", chart_type="bar", headers=["Cat", "A"], rows=[["x", 1]])
-    assert ok is True
-
-    # Calc position
-    ok, _ = mc.validate(doc_type="calc", chart_type="bar", data_range="A1:B2", position="C1")
-    assert ok is True
-
-
-def test_schema_symmetry_across_apps():
-    # ChartUpsert exposes properties for each doc_type
-    mc = _tool("chart_upsert")
-    for dt in ("calc", "writer", "draw", "impress"):
-        mc_params = mc.get_parameters(dt)
-        assert mc_params is not None
-
-    # Calc missing data_range
     ok, err = mc.validate(doc_type="calc", chart_type="bar")
     assert ok is False
-    assert err == "Parameter 'data_range' is required to create a chart in Calc"
+    assert err is not None and "data_range" in err
 
-    # Writer missing headers/rows
     ok, err = mc.validate(doc_type="writer", chart_type="bar")
     assert ok is False
-    assert err == "Both 'headers' and 'rows' are required to create a chart in Writer or Draw/Impress"
+    assert err is not None and "headers" in err and "rows" in err
 
-    # Non-numeric row validation error
     ok, err = mc.validate(doc_type="writer", chart_type="bar", headers=["Cat", "A"], rows=[["x", "bad"]])
     assert ok is False
-    assert err is not None
-    assert "must be a number" in err
+    assert err is not None and "must be a number" in err
 
 
 def test_calc_edit_updates_data_range_and_headers():

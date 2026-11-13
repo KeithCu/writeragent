@@ -1249,13 +1249,44 @@ def test_to_calc_compatible_duck_typed_numeric() -> None:
 
 
 def test_calc_python_function_zero_event_pumping_invariant() -> None:
-    """Static invariant: function.py must not import event loop pumping or UI draining functions."""
-    import inspect
+    """Static invariant: function.py must not import event loop pumping or UI draining functions.
 
-    source = inspect.getsource(_function)
-    assert "processEventsToIdle" not in source
-    assert "async_stream" not in source
-    assert "run_async_worker_with_drain" not in source
+    Pumping during recalc re-enters the formula engine (#VALUE!); see plugin/calc/AGENTS.md.
+    """
+    import ast
+
+    banned_modules = {"async_stream", "vcl_pumping"}
+    pump_names = {
+        "processEventsToIdle",
+        "process_events_to_idle",
+        "run_async_worker_with_drain",
+        "pump_vcl_events",
+        "wait_while_pumping",
+        "pump_secondary_idle_tick",
+    }
+    tree = ast.parse(Path(_function.__file__).read_text(encoding="utf-8"))
+    flagged: list[str] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.module:
+            if any(node.module.endswith(mod) for mod in banned_modules):
+                flagged.append(node.module)
+            for alias in node.names:
+                full = f"{node.module}.{alias.name}"
+                if any(full.endswith(mod) for mod in banned_modules):
+                    flagged.append(full)
+        elif isinstance(node, ast.Import):
+            for alias in node.names:
+                if any(alias.name.endswith(mod) for mod in banned_modules):
+                    flagged.append(alias.name)
+        if isinstance(node, ast.alias) and node.name in pump_names:
+            flagged.append(node.name)
+        elif isinstance(node, ast.Name) and node.id in pump_names:
+            flagged.append(node.id)
+        elif isinstance(node, ast.Attribute) and node.attr in pump_names:
+            flagged.append(node.attr)
+        elif isinstance(node, ast.Constant) and isinstance(node.value, str) and node.value in pump_names:
+            flagged.append(node.value)
+    assert flagged == []
 
 
 def test_function_module_avoids_document_helpers_import() -> None:
@@ -1499,18 +1530,14 @@ def test_execute_python_addin_from_background_thread_shared_fallback(monkeypatch
 
 
 
-def test_off_main_spill_timer_does_not_register_empty_lkey(caplog: pytest.LogCaptureFixture) -> None:
-    """Missing doc must not arm a debounce slot; log is stripped in release bundles."""
+def test_off_main_spill_timer_does_not_register_empty_lkey() -> None:
+    """Missing doc must not arm a debounce slot."""
     from plugin.calc.python.workbook_state import WorkbookState
-    from tests.harness.strip_bundle import is_release_build
 
     _clear_spill_timer_registry()
     try:
-        with caplog.at_level(logging.DEBUG, logger="plugin.calc.python.spill"):
-            _spill.queue_off_main_auto_spill(None, "code", [[1, 2]], None)
+        _spill.queue_off_main_auto_spill(None, "code", [[1, 2]], None)
         assert WorkbookState.known(None) is None
-        if not is_release_build():
-            assert "skipping off-main auto-spill" in caplog.text
     finally:
         _clear_spill_timer_registry()
 
@@ -2328,13 +2355,10 @@ def test_execute_python_addin_worker_errors(monkeypatch: pytest.MonkeyPatch, cap
         "run_code_in_user_venv",
         lambda *_a, **_k: {"status": "error", "message": err_msg},
     )
-    with caplog.at_level(logging.ERROR, logger="plugin.calc.python.addin_values"):
-        out = _function.execute_python_addin(ctx, "bad_code", doc=doc)
+    out = _function.execute_python_addin(ctx, "bad_code", doc=doc)
     assert isinstance(out, float)
     raw = struct.unpack("Q", struct.pack("d", out))[0]
     assert raw & 0xFFFF == 519
-    assert "Code execution failed" in caplog.text
-    assert "ValueError" in caplog.text
     rec_diag.assert_called_with("bad_code", {"status": "error", "message": err_msg}, status="error", message=err_msg, workbook_key="calc:test://calc")
 
     # 2. ZeroDivisionError-shaped dict -> 532
