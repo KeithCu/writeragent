@@ -447,7 +447,7 @@ def test_sort_range_skips_key_read_for_single_data_row():
 
 
 def test_quiet_probe_cleanup():
-    from plugin.calc.manipulator import _quiet_probe_cleanup
+    from plugin.calc.manipulator import quiet_probe_cleanup
 
     DisposedException = type("DisposedException", (Exception,), {})
 
@@ -455,13 +455,13 @@ def test_quiet_probe_cleanup():
         raise DisposedException("disposed")
 
     with pytest.raises(DisposedException):
-        _quiet_probe_cleanup(raise_disposed, "test_disposed")
+        quiet_probe_cleanup(raise_disposed, "test_disposed")
 
     def raise_val_error():
         raise ValueError("swallowed")
 
     # Does not raise
-    _quiet_probe_cleanup(raise_val_error, "test_swallowed")
+    quiet_probe_cleanup(raise_val_error, "test_swallowed")
 
 
 def test_coerce_array_flag_string_regression():

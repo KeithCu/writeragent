@@ -154,3 +154,21 @@ def cell_value_and_type(cell: Any, *, empty_as_none: bool = True, formula_error_
             val = formula_cell_result(cell)
         return val, "formula"
     return cell.getString(), "unknown"
+
+
+def classify_array_cell(raw_value: Any, raw_formula: str, is_formula: bool) -> tuple[Any, str, str | None]:
+    """(value, type, formula) of one cell from its getDataArray / getFormulaArray entries.
+
+    is_formula must come from the cell type (getType, or a CellFlags.FORMULA query):
+    the formula text cannot tell a formula from a text cell typed as '=abc', and
+    array-formula cells read '{=...}'. A formula whose result is an error reads None,
+    because getDataArray gives void for it (rangeseq.cxx ScRangeToSequence::FillMixedArray);
+    error_detect reports its token.
+    """
+    if is_formula:
+        return raw_value, "formula", raw_formula
+    if isinstance(raw_value, float):
+        return raw_value, "value", None
+    if isinstance(raw_value, str) and raw_value:
+        return raw_value, "text", None
+    return None, "empty", None

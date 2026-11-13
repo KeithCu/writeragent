@@ -398,6 +398,14 @@ class _CellAddress:
         self.Sheet = sheet
 
 
+def _stub_data_entry(cell: Any) -> Any:
+    if cell.getType() == _CELL_VALUE:
+        return cell.getValue()
+    if cell.getType() == _CELL_FORMULA:
+        return cell.getFormula()
+    return cell.getString()
+
+
 class CalcCellStub:
     """Stateful stand-in for a Calc cell / single-cell range."""
 
@@ -447,6 +455,13 @@ class CalcCellStub:
     def getType(self):
         return self._kind
 
+    def getDataArray(self):
+        return ((_stub_data_entry(self),),)
+
+    def getFormulaArray(self):
+        entry = self._formula if self._kind == _CELL_FORMULA else self._string
+        return ((entry,),)
+
     def clearContents(self, _flags=0):
         self._string = ""
         self._value = 0.0
@@ -489,15 +504,10 @@ class CalcRangeStub:
     def getDataArray(self):
         rows = []
         for r in range(self._start_row, self._end_row + 1):
-            row_vals = []
-            for c in range(self._start_col, self._end_col + 1):
-                cell = self._sheet.getCellByPosition(c, r)
-                if cell.getType() == _CELL_VALUE:
-                    row_vals.append(cell.getValue())
-                elif cell.getType() == _CELL_FORMULA:
-                    row_vals.append(cell.getFormula())
-                else:
-                    row_vals.append(cell.getString())
+            row_vals = [
+                _stub_data_entry(self._sheet.getCellByPosition(c, r))
+                for c in range(self._start_col, self._end_col + 1)
+            ]
             rows.append(tuple(row_vals))
         return tuple(rows)
 
@@ -514,6 +524,15 @@ class CalcRangeStub:
                     row_vals.append(cell.getString())
             rows.append(tuple(row_vals))
         return tuple(rows)
+
+    def queryContentCells(self, flags):
+        addrs = []
+        if flags & 16:
+            for r in range(self._start_row, self._end_row + 1):
+                for c in range(self._start_col, self._end_col + 1):
+                    if self._sheet.getCellByPosition(c, r).getType() == _CELL_FORMULA:
+                        addrs.append(_RangeAddress(c, r, c, r))
+        return SimpleNamespace(getRangeAddresses=lambda: tuple(addrs))
 
     def setDataArray(self, data):
         for r_off, row in enumerate(data or ()):

@@ -82,4 +82,5 @@ def test_detect_errors_multi_range_aggregates():
     assert data["total_error_count"] == 5
     assert data["error_count"] == 2
     assert data["truncated"] is True
+    assert data["hint"].startswith("First 2 of 5.")
     assert data["errors"] == result1["errors"]
