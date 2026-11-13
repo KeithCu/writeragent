@@ -123,6 +123,36 @@ def _values_length_mismatch_message(range_name: str, n_vals: int, n_cells: int, 
     return f"Array has {n_vals} values but range {range_name} has {n_cells} cells ({rows}×{cols}). JSON array must match range size exactly, or pass a single string to fill the whole range.{hint}"
 
 
+def _write_summary(
+    range_str: str,
+    cell_metas: Sequence[_CellWrite],
+    suffix: str,
+    overwrite_warning: str | None,
+) -> str:
+    """The one-line summary the agent gets after a cell write: how many of each kind landed, plus any format or overwrite warning."""
+    counts = Counter(
+        (m.input_category or "temporal") if m.kind == "temporal"
+        else "text" if m.kind in ("text", "forced_text")
+        else m.kind
+        for m in cell_metas
+        if m.kind in ("temporal", "text", "forced_text", "number", "formula")
+    )
+
+    parts = []
+    for name in ("date", "time", "datetime", "duration", "number", "text", "formula"):
+        n = counts[name]
+        if n:
+            parts.append(f"{n} {name}" + ("s" if n != 1 and name != "text" else ""))
+    detail = f" ({', '.join(parts)})" if parts else ""
+    n_vals = len(cell_metas)
+    values_word = "value" if n_vals == 1 else "values"
+    msg = f"Range {range_str} filled with {n_vals} {values_word}{detail}{suffix}."
+
+    if overwrite_warning:
+        msg = f"{msg} ({overwrite_warning})"
+    return msg
+
+
 _WRITE_VALUES_CELL_ERR = (
     "Each cell in values must be string, number, boolean, or null; got {kind}."
 )
@@ -157,21 +187,10 @@ def _check_write_cap(n_cells: int) -> None:
 
 
 
-def _coerce_array_flag(array: Any) -> bool | None:
-    """Coerce optional array parameter (bool, 'true'/'false', or None) to bool | None."""
-    if isinstance(array, str):
-        return {"true": True, "false": False}.get(array.strip().lower())
-    if array is None:
-        return None
-    return bool(array)
-
-
-def _requests_array_formula(formula_or_values: Any, array: Any) -> TypeGuard[str]:
-    # Coerce array flag strings to bool | None—bool("false") is True and would force array mode.
-    forced_array = _coerce_array_flag(array)
-    if forced_array is True and isinstance(formula_or_values, str) and not formula_or_values.startswith("="):
+def _requests_array_formula(formula_or_values: Any, array: bool | None) -> TypeGuard[str]:
+    if array is True and isinstance(formula_or_values, str) and not formula_or_values.startswith("="):
         raise CalcError("array=true needs a formula starting with '='.")
-    return isinstance(formula_or_values, str) and returns_array(formula_or_values, forced=forced_array)
+    return isinstance(formula_or_values, str) and returns_array(formula_or_values, forced=array)
 
 
 # ── Helper ─────────────────────────────────────────────────────────────
@@ -514,11 +533,9 @@ class CellManipulator:
         cell_range = self.bridge.resolve_range_or_address(range_str)
         addr = _uno_range_address(cell_range)
         width = int(addr.EndColumn) - int(addr.StartColumn) + 1
-        # Validate sort_column against range width and require real bools for ascending/has_header.
-        if type(sort_column) is not int or sort_column < 0 or sort_column >= width:
+        # sort_column is checked against the range width here, because the tool cannot know the width.
+        if not 0 <= sort_column < width:
             raise CalcError(f"sort_column must be an integer from 0 to {width - 1} for this range ({width} columns).")
-        if type(ascending) is not bool or type(has_header) is not bool:
-            raise CalcError("ascending and has_header must be booleans")
 
         import uno
 
@@ -948,7 +965,7 @@ class CellManipulator:
         self,
         range_str: str,
         values: Any,
-        array: Any = None,
+        array: bool | None = None,
         *,
         literal_text: bool = False,
         data_text: bool = False,
@@ -1048,12 +1065,12 @@ class CellManipulator:
                 data_text=data_text,
             )
 
-    def commit_write(self, plan: WritePlan) -> str | dict[str, Any]:
+    def commit_write(self, plan: WritePlan) -> dict[str, Any]:
         """Execute a ``WritePlan`` produced by ``plan_write``."""
         with self._write_errors(plan.range_str):
             if plan.kind == "clear":
                 self.clear_range(plan.range_str)
-                return f"Range {plan.range_str} cleared."
+                return {"message": f"Range {plan.range_str} cleared."}
             if plan.kind == "array":
                 return self._write_array_formula(
                     plan.sheet,
@@ -1125,39 +1142,25 @@ class CellManipulator:
                 committed,
             )
 
-            counts = Counter(
-                (m.input_category or "temporal") if m.kind == "temporal"
-                else "text" if m.kind in ("text", "forced_text")
-                else m.kind
-                for m in cell_metas
-                if m.kind in ("temporal", "text", "forced_text", "number", "formula")
+            msg = _write_summary(
+                range_str,
+                cell_metas,
+                format_warning + committed.formula_warning,
+                expand_overwrite_warning,
             )
 
-            parts = []
-            for name in ("date", "time", "datetime", "duration", "number", "text", "formula"):
-                n = counts[name]
-                if n:
-                    parts.append(f"{n} {name}" + ("s" if n != 1 and name != "text" else ""))
-            detail = f" ({', '.join(parts)})" if parts else ""
-            n_vals = len(values)
-            values_word = "value" if n_vals == 1 else "values"
-            msg = f"Range {range_str} filled with {n_vals} {values_word}{detail}{format_warning}{committed.formula_warning}."
-
-            if expand_overwrite_warning:
-                msg = f"{msg} ({expand_overwrite_warning})"
-
             log.info("%s", msg)
-            return msg
+            return {"message": msg}
 
     def write_formula_range(
         self,
         range_str: str,
         formula_or_values: Any,
-        array: Any = None,
+        array: bool | None = None,
         *,
         literal_text: bool = False,
         data_text: bool = False,
-    ) -> str | dict[str, Any]:
+    ) -> dict[str, Any]:
         """Write formula(s) or value(s) to a cell range.
 
         ISO date/time strings matching the wire gate become Calc serials with
@@ -1181,8 +1184,7 @@ class CellManipulator:
                 ``setString``; everything else is classified as usual.
 
         Returns:
-            Summary string, or a dict with ``array_range`` / ``rows`` /
-            ``cols`` when an array formula was written.
+            A dict with ``message``; an array formula adds ``array_range`` / ``rows`` / ``cols`` / ``preview``.
         """
         return self.commit_write(
             self.plan_write(
@@ -1380,8 +1382,7 @@ class CellManipulator:
         insert: bool,
         sheet: Any | None = None,
     ) -> str:
-        if structure_type != "rows" and structure_type != "columns":
-            raise CalcError(f"Invalid structure_type: {structure_type}. Must be 'rows' or 'columns'.")
+        # The tool schema and the tool's assert restrict structure_type to "rows" or "columns".
         target = sheet if sheet is not None else self.bridge.get_active_sheet()
         assert target is not None
         if structure_type == "rows":
