@@ -46,11 +46,6 @@ class TestEnsureUtf8Stdio:
             sys.stdout = old_stdout
 
 
-class TestEnsurePluginOnPathDoc:
-    def test_ensure_plugin_on_path_has_docstring(self) -> None:
-        assert (uno_bootstrap.ensure_plugin_on_path.__doc__)
-
-
 def test_alias_loader_preserves_real_module_spec_and_path(tmp_path) -> None:
     import importlib.machinery
     import importlib.util

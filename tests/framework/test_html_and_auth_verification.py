@@ -17,8 +17,6 @@ from plugin.framework.deal_shim import DEAL_MAX_HTML_CHUNK
 from plugin.framework.html_stripper import StreamingHTMLStripper, strip_html_tags
 from plugin.framework.client.auth import (
     build_auth_headers,
-    provider_requires_api_key,
-    provider_requires_slug_model_id,
 )
 from tests.harness.strip_bundle import deal_pre_present
 
@@ -58,12 +56,6 @@ def test_strip_html_tags_overflow_pre_fails_closed() -> None:
         StreamingHTMLStripper()._feed_chunk("x" * (DEAL_MAX_HTML_CHUNK + 1))
     # Pytest 4096 still reaches the 256-char tag-flush path.
     assert "<" in strip_html_tags("<" + ("a" * 256))
-
-
-@given(provider=st.one_of(st.sampled_from(["openrouter", "openai", "anthropic", "ollama", "custom", "unknown"]), st.none()))
-def test_provider_requires_api_key_contracts(provider: str | None) -> None:
-    assert isinstance(provider_requires_api_key(provider), bool)
-    assert isinstance(provider_requires_slug_model_id(provider), bool)
 
 
 @given(

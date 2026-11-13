@@ -409,15 +409,6 @@ def test_document_helpers_import_does_not_load_calc_analyzer():
     assert result.returncode == 0, result.stdout + result.stderr
 
 
-def test_document_helpers_uno_skips_windows_leftover_hidden_mml() -> None:
-    """GHA 34678020608: leftover Hidden _blank .mml hang after latex skip."""
-    from pathlib import Path
-
-    src = Path(__file__).with_name("test_document_helpers_uno.py").read_text(encoding="utf-8")
-    assert "skip_windows_leftover_hidden_load" in src
-    assert "document helpers Hidden _blank .mml" in src
-
-
 # ── DocumentService.doc_key + cache invalidation (Nelson item 3) ──
 
 

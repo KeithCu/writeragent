@@ -6,6 +6,7 @@
 
 from unittest.mock import MagicMock
 
+import pytest
 
 from plugin.framework import appearance
 
@@ -63,3 +64,24 @@ def test_get_theme_colors_uses_shared_logic():
 def test_get_style_window_prefers_explicit():
     explicit = object()
     assert appearance.get_style_window(style_window=explicit) is explicit
+
+
+def test_luminance_weights_each_channel() -> None:
+    assert appearance._luminance(0xFF0000) == pytest.approx(0.2126 * 255)
+    assert appearance._luminance(0x00FF00) == pytest.approx(0.7152 * 255)
+    assert appearance._luminance(0x0000FF) == pytest.approx(0.0722 * 255)
+    assert appearance._luminance(0) == 0.0
+
+
+def test_luminance_pre_rejects_unbounded_and_bool() -> None:
+    import deal
+    from tests.harness.strip_bundle import deal_pre_present
+
+    if not deal_pre_present(appearance._luminance):
+        pytest.skip("@deal.pre stripped in release bundle")
+    with pytest.raises(deal.PreContractError):
+        appearance._luminance(0x1000000)
+    with pytest.raises(deal.PreContractError):
+        appearance._luminance(True)  # type: ignore[arg-type]
+    assert 0.0 <= appearance._luminance(0xFFFFFF) <= 255.0
+    assert appearance._luminance(0) == 0.0
