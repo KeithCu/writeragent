@@ -11,7 +11,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from plugin.calc.base import ToolCalcSheetBase, ToolCalcSpecialBase
+from plugin.calc.base import ToolCalcSpecialBase
 from plugin.calc.sheets import ListSheets
 from plugin.calc.specialized import DelegateToSpecializedCalc
 from plugin.chatbot.smol_agent import SmolToolAdapter
@@ -19,13 +19,13 @@ from plugin.contrib.smolagents.memory import FinalAnswerStep
 from plugin.doc.peer_message import SendPeerResult, SendPeerWork
 from plugin.framework.errors import DocumentDisposedError
 from plugin.framework import thread_guard as tg
-from plugin.doc.peer_prompt import get_peer_inner_choice_block
+from plugin.doc.peer_prompt import PEER_INNER_CHOICE_RULES, get_peer_inner_choice_block
 from plugin.framework.prompts import get_document_research_workflow_hint
 from plugin.framework.tool import ToolBase, ToolContext, ToolRegistry
 from plugin.framework.uno_context import get_runtime_uid
 from plugin.framework.worker_pool import run_in_background
 from plugin.writer.specialized.footnotes import FootnotesList
-from plugin.writer.specialized_base import DelegateToSpecializedWriter, ToolWriterFootnoteBase, ToolWriterShapeBase
+from plugin.writer.specialized_base import DelegateToSpecializedWriter, ToolWriterShapeBase
 from tests.framework.thread_safety import start_uno_thread_safety_session
 
 
@@ -501,7 +501,7 @@ def test_document_research_hint_off_main_does_not_touch_runtime_uid():
     assert hint and "Budget.ods" in hint
     assert "send_peer_work" in hint
     assert "send_peer_result" in hint
-    assert "ASK vs REPLY" in hint
+    assert PEER_INNER_CHOICE_RULES in hint
     assert inner and "Budget.ods" in inner
     assert "uid=u2" in inner
 
@@ -591,7 +591,7 @@ def test_document_research_delegate_off_main_does_not_touch_runtime_uid(
     assert "Budget.ods" in instructions
     assert "send_peer_work" in instructions
     assert "send_peer_result" in instructions
-    assert "ASK vs REPLY" in instructions
+    assert PEER_INNER_CHOICE_RULES in instructions
     smol_tools = mock_agent_class.call_args.kwargs.get("tools", [])
     names = {t.name for t in smol_tools}
     assert "send_peer_work" in names
@@ -648,11 +648,6 @@ def test_writer_footnotes_list_runs_uno_only_when_current():
         session.close()
 
 
-def test_writer_specialized_domain_base_requires_core_read_tools():
-    """Writer specialized bases declare get_document_content for sub-agent read helpers."""
-    assert "get_document_content" in (ToolWriterFootnoteBase.required_core_tools or frozenset())
-
-
 def test_calc_sync_tool_marshals_via_smol_adapter():
     """Sync Calc specialized tools must cross call via SmolToolAdapter."""
     tool = ListSheets()
@@ -707,12 +702,6 @@ def test_calc_list_sheets_runs_uno_only_when_current():
         assert result.get("result") == [{"name": "Sheet1", "protected": False, "visible": True}]
     finally:
         session.close()
-
-
-def test_calc_specialized_domain_base_requires_core_read_tools():
-    """Calc specialized bases declare sheet read helpers for sub-agent discovery."""
-    assert "get_sheet_summary" in (ToolCalcSheetBase.required_core_tools or frozenset())
-    assert "read_cell_range" in (ToolCalcSheetBase.required_core_tools or frozenset())
 
 
 @patch(

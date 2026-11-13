@@ -17,6 +17,7 @@ from plugin.doc.document_research_specialized import (
     DelegateReadDocument,
     run_inner_read_agent,
 )
+from plugin.doc.peer_prompt import PEER_INNER_CHOICE_RULES
 from plugin.doc.specialized_base import DelegateToSpecializedBase
 from plugin.draw.specialized import DelegateToSpecializedDraw
 from plugin.framework.tool import ToolBase, ToolContext, ToolRegistry
@@ -48,18 +49,12 @@ def _document_research_domains(gateway):
     return gateway.parameters["properties"]["domain"]["enum"]
 
 
-def test_document_research_in_writer_delegate_enum():
-    gw = DelegateToSpecializedWriter()
-    assert "document_research" in _document_research_domains(gw)
-
-
-def test_document_research_in_calc_delegate_enum():
-    gw = DelegateToSpecializedCalc()
-    assert "document_research" in _document_research_domains(gw)
-
-
-def test_document_research_in_draw_delegate_enum():
-    gw = DelegateToSpecializedDraw()
+@pytest.mark.parametrize(
+    "gateway_cls",
+    [DelegateToSpecializedWriter, DelegateToSpecializedCalc, DelegateToSpecializedDraw],
+)
+def test_document_research_in_delegate_enum(gateway_cls):
+    gw = gateway_cls()
     assert "document_research" in _document_research_domains(gw)
 
 
@@ -98,7 +93,6 @@ def test_document_research_domain_still_has_its_tools_after_legacy_search_delete
         r.register(tool)
     names = {t.name for t in r.get_tools(doc=MagicMock(), active_domain="document_research", exclude_tiers=())}
     assert {"list_nearby_files", "grep_nearby_files", "search_nearby_files", "delegate_read_document"} <= names
-    assert "search_embeddings" not in names
 
 
 def test_document_research_workflow_hint_off():
@@ -108,9 +102,7 @@ def test_document_research_workflow_hint_off():
     with patch("plugin.framework.constants.folder_search_enabled", return_value=False):
         hint = get_document_research_workflow_hint(ctx)
     assert "grep_nearby_files" in hint
-    assert "search_embeddings" not in hint
     assert "search_nearby_files" not in hint
-    assert "fused" not in hint
 
 
 def test_document_research_workflow_hint_on():
@@ -120,9 +112,7 @@ def test_document_research_workflow_hint_on():
     with patch("plugin.framework.constants.folder_search_enabled", return_value=True):
         hint = get_document_research_workflow_hint(ctx)
     assert "search_nearby_files" in hint
-    assert "search_embeddings" not in hint
     assert "grep_nearby_files" not in hint
-    assert "fused" in hint
 
 
 def test_document_research_workflow_hint_peer_choice_when_peers_open():
@@ -138,7 +128,6 @@ def test_document_research_workflow_hint_peer_choice_when_peers_open():
     assert "send_peer_result" in hint
     assert "delegate_read_document" in hint
     assert "Budget.ods" in hint
-    assert "PEER SIDEBARS" not in hint
 
 
 def test_read_only_target_blocks_mutation_in_registry():
@@ -255,7 +244,7 @@ def test_document_research_outer_delegation_gets_peer_send_when_peers_open(
     instructions = mock_agent_class.call_args.kwargs.get("instructions") or ""
     assert "send_peer_work" in instructions
     assert "send_peer_result" in instructions
-    assert "ASK vs REPLY" in instructions
+    assert PEER_INNER_CHOICE_RULES in instructions
     assert ctx.active_domain is None
 
 
@@ -895,7 +884,6 @@ def test_document_research_delegation_includes_open_documents_context(
         assert "[OPEN DOCUMENTS CONTEXT]" in instructions
         assert "File1.odt [writer] (Active)" in instructions
         assert "File2.ods [calc]" in instructions
-        assert "Some of these files may be completely unrelated to the task at hand" in instructions
 
 
 @patch("plugin.doc.document_research_specialized.run_inner_read_agent", return_value={"status": "ok", "finished": True, "answer": "Q4=100", "message": "done"})

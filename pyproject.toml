@@ -27,10 +27,9 @@ addopts = "-p no:platformdirs --ignore=build --ignore-glob=*_uno.py --ignore=tes
 # Pytest's default norecursedirs includes "venv", which also hid tests/embeddings/venv
 # and tests/vision/venv. Drop only that basename. Real virtualenvs stay skipped:
 # ".*" covers .venv, and pytest ignores any directory with pyvenv.cfg (or conda-meta).
-# importlib mode: three parent/venv pairs share a basename (test_embeddings_index,
-# test_embeddings_folder_maintain, test_embeddings_ingest_graph). Prepend import
-# mode raises "import file mismatch" when both are collected. importlib gives each
-# path its own module name so both trees run. Do not merge those files here.
+# importlib mode: one parent/venv pair shares a basename (test_embeddings_index).
+# Prepend import mode raises "import file mismatch" when both are collected.
+# importlib gives each path its own module name so both trees run.
 norecursedirs = [
     "*.egg",
     ".*",
