@@ -1723,6 +1723,7 @@ def test_write_cell_range_multi_range_rolls_back_on_error():
 
         res = WriteCellRange().execute(ctx, range=["A1", "B1"], values="1")
         assert res["status"] == "error"
+        assert res["code"] == "CALC_ERROR"
         assert "Nothing was kept." in res["message"]
         assert "B1" in res["message"]
         undo_mgr.undo.assert_called_once()
@@ -1766,6 +1767,7 @@ def test_set_cell_style_multi_range_rolls_back_on_error():
 
         res = SetCellStyle().execute(ctx, range=["A1", "B1"], bold=True)
         assert res["status"] == "error"
+        assert res["code"] == "CALC_ERROR"
         assert "Nothing was kept." in res["message"]
         assert "B1" in res["message"]
         undo_mgr.undo.assert_called_once()
@@ -2387,4 +2389,92 @@ def test_delete_structure_type_assertion():
     with pytest.raises(AssertionError):
         DeleteStructure().execute(ctx, structure_type="invalid", start=1)
 
+
+def _missing_sheet_doc() -> MagicMock:
+    doc = MagicMock()
+    sheets = doc.getSheets.return_value
+    sheets.hasByName.side_effect = lambda name: name in ("Sheet1", "Data")
+    sheets.getElementNames.return_value = ("Sheet1", "Data")
+    sheets.getCount.return_value = 0
+    doc.NamedRanges.hasByName.return_value = False
+    active = doc.getCurrentController.return_value.getActiveSheet.return_value
+    active.NamedRanges.hasByName.return_value = False
+    return doc
+
+
+def test_write_formula_range_missing_sheet_is_uno_object_error():
+    from plugin.calc.cells import WriteCellRange
+
+    doc = _missing_sheet_doc()
+    ctx = SimpleNamespace(doc=doc)
+    with patch("plugin.calc.cells.WriterCompoundUndo") as undo_cls:
+        res = WriteCellRange().execute_safe(ctx, range="Nope.A1", values="1")
+
+    assert res["status"] == "error"
+    assert res["code"] == "UNO_OBJECT_ERROR"
+    assert "Available: Sheet1, Data" in res["message"]
+    assert "sheet_list" in res["details"]["hint"]
+    undo_cls.assert_not_called()
+
+
+def test_mutate_ranges_keeps_exception_code_after_rollback():
+    from plugin.calc.cells import WriteCellRange
+    from plugin.framework.errors import UnoObjectError
+
+    titles_stack = []
+    undo_mgr = MagicMock()
+    undo_mgr.getAllUndoActionTitles.side_effect = lambda: list(titles_stack)
+
+    def fake_undo():
+        if titles_stack:
+            titles_stack.pop(0)
+
+    undo_mgr.undo.side_effect = fake_undo
+    doc = MagicMock()
+    doc.getUndoManager.return_value = undo_mgr
+    ctx = SimpleNamespace(doc=doc)
+
+    class FakeCompoundUndo:
+        def __init__(self, doc, title):
+            self.title = title
+            self.entered = True
+
+        def __enter__(self):
+            titles_stack.insert(0, self.title)
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+    with (
+        patch("plugin.calc.cells.WriterCompoundUndo", FakeCompoundUndo),
+        patch("plugin.calc.cells.CellManipulator") as manipulator_cls,
+    ):
+        manipulator = manipulator_cls.return_value
+        manipulator.commit_write.side_effect = [
+            "wrote",
+            UnoObjectError("No sheet named 'B'. Available: Sheet1", details={"hint": "h"}),
+        ]
+
+        res = WriteCellRange().execute_safe(ctx, range=["A1", "B1"], values="1")
+
+    assert res["status"] == "error"
+    assert res["code"] == "UNO_OBJECT_ERROR"
+    assert res["message"].endswith("Nothing was kept.")
+    assert res["details"]["hint"] == "h"
+    undo_mgr.undo.assert_called_once()
+
+
+def test_read_cell_range_missing_sheet_is_uno_object_error():
+    from plugin.calc.cells import ReadCellRange
+
+    doc = _missing_sheet_doc()
+    ctx = SimpleNamespace(doc=doc)
+    res = ReadCellRange().execute_safe(ctx, range="Nope.A1")
+
+    assert res["status"] == "error"
+    assert res["code"] == "UNO_OBJECT_ERROR"
+    assert res["range"] == "Nope.A1"
+    assert "Available: Sheet1, Data" in res["message"]
+    assert "sheet_list" in res["details"]["hint"]
 

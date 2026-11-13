@@ -224,7 +224,7 @@ def test_cell_comment_delete_found_and_not_found():
 
 
 def test_cell_comment_add_validation_and_resolution():
-    from plugin.calc.comments import AddCellComment
+    from plugin.calc.comments import AddCellComment, DeleteCellComment
 
     ctx = MagicMock()
     doc = MagicMock()
@@ -278,9 +278,17 @@ def test_cell_comment_add_validation_and_resolution():
     assert res_disagree["status"] == "error"
 
     # Missing sheet
-    res_missing = AddCellComment().execute(ctx, cell="NoSheet.A1", text="note")
+    res_missing = AddCellComment().execute_safe(ctx, cell="NoSheet.A1", text="note")
     assert res_missing["status"] == "error"
+    assert res_missing["code"] == "UNO_OBJECT_ERROR"
     assert "Sheet1, Data Sheet" in res_missing["message"]
+    assert "sheet_list" in res_missing["details"]["hint"]
+
+    res_del_missing = DeleteCellComment().execute_safe(ctx, cell="NoSheet.A1")
+    assert res_del_missing["status"] == "error"
+    assert res_del_missing["code"] == "UNO_OBJECT_ERROR"
+    assert "Sheet1, Data Sheet" in res_del_missing["message"]
+    assert "sheet_list" in res_del_missing["details"]["hint"]
 
 
 def test_cell_comment_list_sorted_by_row_col():
