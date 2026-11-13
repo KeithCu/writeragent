@@ -220,5 +220,3 @@ def test_cell_link_click_navigates_with_doc_and_address():
     finally:
         listener.disposing(MagicMock())
 
-
-

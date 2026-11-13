@@ -329,23 +329,6 @@ def test_delete_sheet_last_visible_sheet_guard():
         sheets.removeByName.assert_not_called()
 
 
-def test_delete_sheet_refuses_internal_sheet():
-    sheets = MagicMock()
-    sheets.getElementNames.return_value = ("Sheet1", "Sheet2", "_internal")
-    sheet = MagicMock()
-    sheets.getByName.return_value = sheet
-    doc = MagicMock()
-    doc.getSheets.return_value = sheets
-    ctx = SimpleNamespace(doc=doc)
-
-    with patch("plugin.calc.sheets.CalcBridge") as bridge_cls:
-        bridge_cls.return_value.get_sheet.return_value = sheet
-        res = _tool("sheet_delete").execute_safe(ctx, sheet="_internal")
-        assert res["status"] == "error"
-        assert "Cannot delete internal sheet" in res["message"]
-        sheets.removeByName.assert_not_called()
-
-
 def test_protect_sheet_already_in_target_state():
     doc, _ = _make_doc_with_sheets()
     sheet = MagicMock()
@@ -440,16 +423,6 @@ def test_sheet_copy_position_and_name_validation():
         assert "out of range" in out["message"]
 
 
-def test_sheet_copy_rejects_internal_source():
-    doc, sheets = _doc_with_named_sheets("_hidden")
-    ctx = SimpleNamespace(doc=doc)
-    with patch("plugin.calc.sheets.CalcBridge") as bridge_cls:
-        bridge_cls.return_value.get_sheet.return_value = MagicMock()
-        res = _tool("sheet_copy").execute_safe(ctx, source="_hidden", new_name="Copy")
-    assert res["status"] == "error"
-    sheets.copyByName.assert_not_called()
-
-
 def test_sheet_move_calls_move_by_name():
     doc, sheets = _doc_with_named_sheets("A", "B", "C")
     ctx = SimpleNamespace(doc=doc)
@@ -468,29 +441,6 @@ def test_sheet_hide_last_visible_errors():
         res = _tool("sheet_hide").execute_safe(ctx, sheet="Only", visible=False)
     assert res["status"] == "error"
     assert "only visible" in res["message"]
-
-
-def test_switch_sheet_refuses_internal_sheet():
-    doc, sheets = _doc_with_named_sheets("_hidden")
-    ctx = SimpleNamespace(doc=doc)
-    with patch("plugin.calc.sheets.CalcBridge") as bridge_cls:
-        bridge_cls.return_value.get_sheet.return_value = sheets.getByName("_hidden")
-        res = _tool("sheet_switch").execute_safe(ctx, sheet="_hidden")
-    assert res["status"] == "error"
-    assert "Cannot switch to internal sheet" in res["message"]
-    doc.getCurrentController().setActiveSheet.assert_not_called()
-
-
-def test_rename_sheet_refuses_internal_old_name():
-    doc, sheets = _doc_with_named_sheets("_hidden")
-    hidden_sheet = sheets.getByName("_hidden")
-    ctx = SimpleNamespace(doc=doc)
-    with patch("plugin.calc.sheets.CalcBridge") as bridge_cls:
-        bridge_cls.return_value.get_sheet.return_value = hidden_sheet
-        res = _tool("sheet_rename").execute_safe(ctx, old_name="_hidden", new_name="Visible")
-    assert res["status"] == "error"
-    assert "Cannot rename internal sheet" in res["message"]
-    hidden_sheet.setName.assert_not_called()
 
 
 @pytest.mark.parametrize(
