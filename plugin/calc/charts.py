@@ -38,7 +38,14 @@ from plugin.calc.address_utils import format_range_address, parse_address, split
 from plugin.calc.base import ToolCalcChartBase
 from plugin.calc.bridge import CalcBridge
 from plugin.framework.constants import ALL_DOCUMENT_SERVICES
-from plugin.framework.errors import DocumentDisposedError, ToolExecutionError, document_is_disposed, is_disposal, name_miss_details
+from plugin.framework.errors import (
+    DocumentDisposedError,
+    ToolExecutionError,
+    WriterAgentException,
+    document_is_disposed,
+    is_disposal,
+    name_miss_details,
+)
 from plugin.framework.uno_context import enum_has_more, get_ctx, get_desktop, process_events_to_idle, uno_same
 import uno
 
@@ -740,10 +747,10 @@ def _format_chart_exception_msg(e: Exception) -> str:
 
 
 def _raise_chart_op_error(exc: Exception, *, prefix: str, code: str = "TOOL_EXECUTION_ERROR") -> NoReturn:
-    # Closed-document disposal must stay DOCUMENT_DISPOSED in execute_safe; a refusal raised
-    # inside the wrapped operation keeps its own message and code instead of gaining the prefix;
-    # other errors (LibreOffice or a bad range/sheet, UnoObjectError included) get the chart code.
-    if is_disposal(exc) or isinstance(exc, ToolExecutionError):
+    # Closed-document disposal must stay DOCUMENT_DISPOSED in execute_safe; a refusal or
+    # bridge error such as a missing sheet (UnoObjectError) keeps its own code and details;
+    # other errors get the chart code.
+    if is_disposal(exc) or isinstance(exc, WriterAgentException):
         raise exc
     raise ToolExecutionError(f"{prefix}: {_format_chart_exception_msg(exc)}", code=code) from exc
 
@@ -975,13 +982,7 @@ class SheetCharts:
         # Missing data_range is rejected by ChartUpsert.validate for calc create.
 
         target_sheet_name = kwargs.get("sheet")
-        try:
-            sheet = bridge.sheet_or_active(target_sheet_name)
-        except Exception as exc:
-            # Re-raise document disposal or active-sheet failure; other errors become a missing sheet.
-            if is_disposal(exc) or not target_sheet_name:
-                raise
-            raise ToolExecutionError(f"Sheet '{target_sheet_name}' not found in document.") from exc
+        sheet = bridge.sheet_or_active(target_sheet_name)
 
         cell_range = bridge.resolve_range_or_address(data_range, target_sheet_name)
         addr = cell_range.getRangeAddress()

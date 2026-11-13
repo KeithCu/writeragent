@@ -57,7 +57,7 @@ from plugin.calc.datetime_wire import (
     match_iso_temporal,
     should_preserve_temporal_format,
 )
-from plugin.framework.errors import CalcError, best_effort, is_disposal, uno_read
+from plugin.framework.errors import CalcError, WriterAgentException, best_effort, is_disposal, uno_read
 from plugin.framework.json_utils import safe_json_loads
 from plugin.framework.uno_context import get_ctx
 
@@ -950,9 +950,10 @@ class CellManipulator:
         """Shared by plan_write and commit_write so a failure in either is explained the same way."""
         try:
             yield
-        except CalcError:
-            # Occupied-target / formula-error refusals are the caller's input,
-            # not a write-path fault.
+        except WriterAgentException:
+            # A refusal (CalcError) or a bridge error such as a missing sheet
+            # (UnoObjectError) keeps its own code and details; only unexpected
+            # LibreOffice errors get the array probe and the CalcError text.
             raise
         except Exception as e:
             if is_disposal(e):
@@ -1390,7 +1391,7 @@ class CellManipulator:
             log.info("%s", msg)
             return {"message": msg, "rows_copied": rows, "cols_copied": cols}
         except Exception as e:
-            if is_disposal(e):
+            if is_disposal(e) or isinstance(e, WriterAgentException):
                 raise
             msg = str(e) or getattr(e, "Message", None) or type(e).__name__
             log.exception("Range copy failed from %s onto %s", source_str, dest_str)

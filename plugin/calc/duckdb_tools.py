@@ -177,7 +177,7 @@ def _load_sql_inputs(ctx: ToolContext, tables: dict[str, Any], file_pairs: list[
             # A missing folder file fails here; passing the basename on would make DuckDB fail later with a generic IO or missing-FROM error.
             raise ToolExecutionError(f"Folder file {bn!r} was not found under the document folder", code="MISSING_FILE")
         if ext in EXCEL_EXTENSIONS + (".ods",):
-            # Office files that exist preload into a table or raise: _read_sibling_office_file_as_grid returns a grid or raises ToolExecutionError.
+            # Office files that exist preload into a table or raise: _read_sibling_office_file_as_grid returns a grid, raises ToolExecutionError, or the bridge's UnoObjectError for a missing sheet.
             office_grid = _read_sibling_office_file_as_grid(ctx.ctx, full_path, file_spec)
             preloaded[table_name] = {"grid": office_grid, "headers": headers}
             continue
@@ -305,10 +305,7 @@ def resolve_table_source_a1(model: Any, parsed: dict[str, Any]) -> str:
         bridge = CalcBridge(model)
         sheet_name = parsed.get("sheet")
         if sheet_name:
-            try:
-                target = bridge.get_sheet(str(sheet_name))
-            except UnoObjectError as exc:
-                raise ToolExecutionError(str(exc), code="DUCKDB_SQL_ERROR") from exc
+            target = bridge.get_sheet(str(sheet_name))
         else:
             sheets = model.getSheets()
             if sheets.getCount() < 1:
@@ -480,6 +477,13 @@ def _read_sibling_office_file_as_grid(ctx: Any, full_path: str, parsed: dict[str
 
         try:
             grid = read_model_table_grid(model, parsed)
+        except UnoObjectError as exc:
+            # A bridge UnoObjectError (e.g. a missing sheet with its similar names)
+            # keeps its code and details; only the file name is added.
+            raise UnoObjectError(
+                f"Sibling spreadsheet {os.path.basename(full_path)!r}: {exc.message}",
+                details=exc.details,
+            ) from exc
         except ToolExecutionError as exc:
             identity = parsed.get("sheet") or parsed.get("named_range")
             raise _sibling_office_error(full_path, str(exc), sheet=str(identity) if identity else None) from exc
@@ -490,7 +494,7 @@ def _read_sibling_office_file_as_grid(ctx: Any, full_path: str, parsed: dict[str
         _maybe_write_ods_cache(model, full_path, opened_flag=opened_flag, entry=entry)
 
         return grid
-    except ToolExecutionError:
+    except (ToolExecutionError, UnoObjectError):
         raise
     except Exception as exc:
         if is_disposal(exc):
