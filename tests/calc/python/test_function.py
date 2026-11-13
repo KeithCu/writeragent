@@ -760,7 +760,7 @@ def test_untitled_docs_do_not_share_spill_registry(monkeypatch: pytest.MonkeyPat
         reset_calc_workbook_states()
 
 
-def test_build_cell_context_off_main_skips_uno_for_sk_and_init_kwargs(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_build_cell_context_off_main_skips_uno_for_origin_and_init_kwargs(monkeypatch: pytest.MonkeyPatch) -> None:
     from plugin.framework.queue_executor import Policy, main
 
     main.install(Policy.test_inline)
@@ -3026,6 +3026,7 @@ def test_finalize_python_return_locates_once(monkeypatch: pytest.MonkeyPatch) ->
         return real_locate(d, c)
 
     monkeypatch.setattr(_function, "locate_formula_cell_in_doc", spy_locate)
+    monkeypatch.setattr(_spill, "locate_formula_cell_in_doc", spy_locate)
     cell = _function.build_cell_context(ctx, doc, "sp_once", on_main=True)
     out = _function.finalize_python_return(cell, [10, 20, 30])
 

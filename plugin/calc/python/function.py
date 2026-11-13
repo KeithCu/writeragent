@@ -147,8 +147,8 @@ class CellContext:
     scoped_dir: str | None
     origin: FormulaOrigin | None  # unique located =PY() cell; None off main, with no doc, or when 0 / 2+ cells match
     is_matrix: bool  # origin is part of a multi-cell array block; False whenever origin is None
-    workbook_key: str = ""
-    diag_workbook_key: str = "unknown"
+    workbook_key: str = ""  # calc_workbook_base_session_id(doc) on main, else ""
+    diag_workbook_key: str = "unknown"  # diagnostics_workbook_key(doc) on main (reads, never mints), else "unknown"
     code: str = ""
 
 
@@ -159,30 +159,29 @@ def _init_kwargs_for_doc(doc: Any) -> dict[str, Any]:
 
 
 def build_cell_context(ctx: Any, doc: Any, code: str, *, on_main: bool) -> CellContext:
-    if on_main:
+    if on_main and doc is not None:
         # Explicit on_main: use for_doc on UI thread; off-main callers use known() only (no UNO create).
-        state = WorkbookState.for_doc(doc) if doc is not None else None
-        session_id = (best_effort(lambda: workbook_session_id(doc), "workbook session id", None) or None) if doc is not None else None
-        located = best_effort(lambda: locate_formula_cell_in_doc(doc, code), "locate formula cell", None) if doc is not None else None
+        state = WorkbookState.for_doc(doc)
+        session_id = best_effort(lambda: workbook_session_id(doc), "workbook session id", None) or None
+        located = best_effort(lambda: locate_formula_cell_in_doc(doc, code), "locate formula cell", None)
         origin = FormulaOrigin.from_located(located) if located is not None else None
         # is_matrix is read by finalize_python_return; collapseToCurrentArray takes SolarMutex
         # (which the add-in upcall already holds) and reads ScDocument::GetMatrixFormulaRange
         # (sc/source/ui/unoobj/cursuno.cxx ScCellCursorObj::collapseToCurrentArray).
         is_matrix = cell_is_matrix(origin.sheet, origin.cell) if origin is not None else False
-        init_kwargs = _init_kwargs_for_doc(doc) if doc is not None else {}
+        init_kwargs = _init_kwargs_for_doc(doc)
         scoped_dir = None
-        if doc is not None:
-            try:
-                from plugin.doc.document_research import get_document_directory
+        try:
+            from plugin.doc.document_research import get_document_directory
 
-                folder = get_document_directory(doc)
-                scoped_dir = folder or None
-            except Exception:
-                log.debug("scoped_dir binding failed", exc_info=True)
+            folder = get_document_directory(doc)
+            scoped_dir = folder or None
+        except Exception:
+            log.debug("scoped_dir binding failed", exc_info=True)
         from plugin.scripting.session_manager import calc_workbook_base_session_id
 
-        workbook_key = calc_workbook_base_session_id(doc) if doc is not None else ""
-        diag_workbook_key = diagnostics_workbook_key(doc) if doc is not None else "unknown"
+        workbook_key = calc_workbook_base_session_id(doc)
+        diag_workbook_key = diagnostics_workbook_key(doc)
     else:
         state = WorkbookState.known(doc) if doc is not None else None
         session_id = None
@@ -208,13 +207,10 @@ def build_cell_context(ctx: Any, doc: Any, code: str, *, on_main: bool) -> CellC
     )
 
 
-def matrix_session_key(cell: CellContext, data_token: str | None) -> tuple[Any, ...]:
-    """Build the per-thread, per-cell matrix cache key; caller guarantees ``cell.origin`` is not None."""
-    origin = cell.origin
-    if origin is None:
-        raise ValueError("matrix_session_key requires a located origin")
+def matrix_session_key(origin: FormulaOrigin, code: str, data_token: str | None) -> tuple[Any, ...]:
+    """Build the per-thread, per-cell matrix cache key for a located origin."""
     # Nested tuple keeps k[1][3] == code and k[2] == data_token.
-    return (threading.get_ident(), (origin.sheet_name, origin.row, origin.col, cell.code), data_token)
+    return (threading.get_ident(), (origin.sheet_name, origin.row, origin.col, code), data_token)
 
 
 def _expire_matrix_sessions(matrix: dict[tuple[Any, ...], WorkerResultSession], now: float) -> None:
@@ -238,7 +234,7 @@ def scalar_for_list_result(
         return ""
     if cell.origin is None or cell.state is None:
         return flat[0]
-    key = matrix_session_key(cell, data_token)
+    key = matrix_session_key(cell.origin, cell.code, data_token)
     now = time.monotonic()
 
     wb_state = cell.state
@@ -403,13 +399,12 @@ def _execute_python_addin_impl(ctx: Any, code: str, data: Any = None, *, doc: An
         else:
             worker_data = None
 
-        unique_origin = cell_ctx.origin is not None
         now = time.monotonic()
         cached = None
         data_token: str | None = None
-        if unique_origin:
+        if cell_ctx.origin is not None:
             data_token = _worker_data_token(worker_data)
-            cache_key = matrix_session_key(cell_ctx, data_token)
+            cache_key = matrix_session_key(cell_ctx.origin, code, data_token)
             wb_state = cell_ctx.state
             if wb_state is not None:
                 with _MATRIX_SCALAR_SESSIONS_LOCK:

@@ -402,6 +402,7 @@ class PythonSidebarController:
 
     def _schedule_refresh(self, entry: DiagnosticEntry | None = None, *, full: bool = False) -> None:
         # Coalesce diagnostic refreshes onto the main thread; synchronous =PY() recalc must not full-scan inline.
+        # Off-main the key is "unknown", so the foreign-key early return is skipped and the main-thread refresh filters instead.
         if self._disposed:
             return
         if entry is not None and entry.workbook_key:
