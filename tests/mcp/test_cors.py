@@ -178,6 +178,9 @@ def test_is_safe_origin_private_when_enabled():
 def test_is_safe_origin_private_when_disabled():
     set_allow_private_origins(False)
     assert not is_safe_origin("https://localai.local")
+    # Phase 8 #2: arbitrary public web origins must not bypass CORS when private/extra are off.
+    assert not is_safe_origin("https://evil.com")
+    assert not is_safe_origin("https://evil.com/")
     assert is_safe_origin("http://localhost:3000")
 
 
