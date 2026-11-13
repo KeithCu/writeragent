@@ -58,7 +58,7 @@ def test_sheet_rename_migrates_modify_listener_and_spill(ctx, doc):
     sheet.setName(new_name)
 
     # 4. Trigger modify event on the renamed sheet
-    dispatch_sheet_modified(ctx, doc.getURL(), original_name, SimpleNamespace(Source=sheet), doc=doc)
+    dispatch_sheet_modified(ctx, original_name, SimpleNamespace(Source=sheet), doc)
 
     # Assert SHEET_MODIFY_LISTENERS has entry under new name and old name is gone
     entries_for_doc = [k for k in SHEET_MODIFY_LISTENERS if k[1] in (original_name, new_name)]
@@ -70,7 +70,7 @@ def test_sheet_rename_migrates_modify_listener_and_spill(ctx, doc):
     sheet.getCellByPosition(0, 0).setString("")
 
     # Flush modify pass to run spill orphan cleanup
-    flush_sheet_modify_pass_for_tests(ctx, doc, sheet, doc_url=doc.getURL(), sheet_name=new_name)
+    flush_sheet_modify_pass_for_tests(ctx, doc, sheet, sheet_name=new_name)
 
     # 6. Spilled neighbors should be cleared
     assert sheet.getCellByPosition(1, 0).getString() == "" or sheet.getCellByPosition(1, 0).getValue() == 0.0

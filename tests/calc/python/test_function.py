@@ -24,7 +24,9 @@ from plugin.calc.python.function import build_cell_context, finalize_python_retu
 
 
 def _cell(ctx: Any, code: str, doc: Any = None, *, on_main: bool | None = None):
-    return build_cell_context(ctx, doc, code, on_main=on_main)
+    from plugin.framework.queue_executor import main
+
+    return build_cell_context(ctx, doc, code, on_main=main.is_current() if on_main is None else on_main)
 
 
 from plugin.tests.testing_utils import CalcDocStub
@@ -52,7 +54,7 @@ def _fire_sheet_modify(ctx, doc, sheet, sheet_name="Sheet1"):
     got = sheet.getName() if callable(getattr(sheet, "getName", None)) else None
     if not isinstance(got, str):
         sheet.getName = lambda: sheet_name  # MagicMock.getName() would rename spills
-    SheetModifyDispatcher(ctx, doc, "", sheet_name, st.key).modified(SimpleNamespace(Source=sheet))
+    SheetModifyDispatcher(ctx, doc, sheet_name).modified(SimpleNamespace(Source=sheet))
     flush_sheet_modify_pass_for_tests(ctx, doc, sheet, sheet_name=sheet_name)
     return st
 
@@ -162,7 +164,6 @@ def test_insert_image_result_uses_merged_safe_geometry(monkeypatch: pytest.Monke
     sheet = doc.getSheets().getByName("Sheet1")
     cell = sheet.getCellByPosition(2, 3)
     cell.IsMerged = True
-    ctx = _ctx_with_doc(doc)
 
     pos = SimpleNamespace(X=111, Y=222)
     size = SimpleNamespace(Width=8000, Height=5000)
@@ -170,7 +171,7 @@ def test_insert_image_result_uses_merged_safe_geometry(monkeypatch: pytest.Monke
 
     monkeypatch.setattr(calc_utils, "get_cell_geometry", lambda _sheet, _cell: (pos, size))
 
-    _image_egress.insert_image_result_on_sheet(ctx, {"data": b"abc", "format": "png"}, doc=doc)
+    _image_egress.insert_image_result_on_sheet({"data": b"abc", "format": "png"}, doc=doc)
 
     shape.setPosition.assert_called_once_with(pos)
     shape.setSize.assert_any_call(size)
@@ -213,7 +214,6 @@ def test_insert_image_result_thin_merged_cell_preserves_default_size(monkeypatch
     sheet = doc.getSheets().getByName("Sheet1")
     cell = sheet.getCellByPosition(0, 0)
     cell.IsMerged = True
-    ctx = _ctx_with_doc(doc)
 
     pos = SimpleNamespace(X=0, Y=0)
     # Thin 1-row banner: wide (20000) but short (1270 HMM / ~12.7 mm)
@@ -222,7 +222,7 @@ def test_insert_image_result_thin_merged_cell_preserves_default_size(monkeypatch
 
     monkeypatch.setattr(calc_utils, "get_cell_geometry", lambda _sheet, _cell: (pos, size))
 
-    _image_egress.insert_image_result_on_sheet(ctx, {"data": b"abc", "format": "png"}, doc=doc)
+    _image_egress.insert_image_result_on_sheet({"data": b"abc", "format": "png"}, doc=doc)
 
     shape.setPosition.assert_called_once_with(pos)
     shape.setSize.assert_any_call(SimpleNamespace(Width=10000, Height=6000))
@@ -280,7 +280,6 @@ def test_insert_image_result_targets_formula_cell_sheet_when_another_sheet_activ
     viz_cell.setFormula(f'=ORG.EXTENSION.WRITERAGENT.PYTHONFUNCTION.PY("{code_str}")')
     viz_cell.IsMerged = True
 
-    ctx = _ctx_with_doc(doc)
 
     pos = SimpleNamespace(X=5000, Y=3000)
     size = SimpleNamespace(Width=9000, Height=6000)
@@ -288,7 +287,7 @@ def test_insert_image_result_targets_formula_cell_sheet_when_another_sheet_activ
 
     monkeypatch.setattr(calc_utils, "get_cell_geometry", lambda _sheet, _cell: (pos, size))
 
-    _image_egress.insert_image_result_on_sheet(ctx, {"data": b"abc", "format": "png"}, code=code_str, doc=doc)
+    _image_egress.insert_image_result_on_sheet({"data": b"abc", "format": "png"}, code=code_str, doc=doc)
 
     # Must be added to Viz_Gallery's DrawPage, NOT Overview's DrawPage
     sheet_viz.DrawPage.add.assert_called_once_with(shape)
@@ -352,7 +351,6 @@ def test_insert_image_result_unmerged_single_cell_default_size(monkeypatch: pyte
     sheet = doc.getSheets().getByName("Sheet1")
     cell = sheet.getCellByPosition(2, 3)
     cell.IsMerged = False
-    ctx = _ctx_with_doc(doc)
 
     pos = SimpleNamespace(X=111, Y=222)
     size = SimpleNamespace(Width=333, Height=444)
@@ -360,7 +358,7 @@ def test_insert_image_result_unmerged_single_cell_default_size(monkeypatch: pyte
 
     monkeypatch.setattr(calc_utils, "get_cell_geometry", lambda _sheet, _cell: (pos, size))
 
-    _image_egress.insert_image_result_on_sheet(ctx, {"data": b"abc", "format": "png"}, doc=doc)
+    _image_egress.insert_image_result_on_sheet({"data": b"abc", "format": "png"}, doc=doc)
 
     shape.setPosition.assert_called_once_with(pos)
     # For single unmerged cells, default size (10000, 6000) should be applied and not overwritten by cell size
@@ -610,7 +608,6 @@ def test_reloaded_nan_spill_cell_keeps_user_edit_on_cleanup(monkeypatch: pytest.
 
     sheet = CalcSheetStub("Sheet1")
     doc = CalcDocStub(sheets=[sheet], url="file:///nan_cleanup.ods")
-    monkeypatch.setattr(_function, "get_calc_doc", lambda _ctx: doc)
 
     reset_calc_workbook_states()
     from plugin.calc.python.workbook_state import WorkbookState
@@ -682,12 +679,12 @@ def test_untitled_docs_do_not_share_spill_registry(monkeypatch: pytest.MonkeyPat
         prepared2 = _spill.prepare_auto_spill(ctx2, "untitled_spill_b", [[3], [4]], doc2)
         assert isinstance(prepared1, PreparedSpill)
         assert isinstance(prepared2, PreparedSpill)
-        assert prepared1.doc_key == "uid-spill-1"
+        assert prepared1.key == "uid-spill-1"
         assert prepared1.sheet_name == "Sheet1"
         assert prepared1.formula_row == 1
         assert prepared1.formula_col == 1
 
-        assert prepared2.doc_key == "uid-spill-2"
+        assert prepared2.key == "uid-spill-2"
         assert prepared2.sheet_name == "Sheet1"
         assert prepared2.formula_row == 1
         assert prepared2.formula_col == 1
@@ -737,14 +734,14 @@ def test_untitled_docs_do_not_share_spill_registry(monkeypatch: pytest.MonkeyPat
 
         # A scheduled identity from book 1 must not write book 2.
         _spill.perform_deferred_spill(
-            "Sheet1", 1, 1, [[8], [9]], doc=doc2, code="untitled_spill_b", key="uid-spill-1"
+            "Sheet1", 1, 1, [[8], [9]], doc=doc2, sheet=sheet2, code="untitled_spill_b", key="uid-spill-1"
         )
         assert sheet2.getCellByPosition(1, 2).getValue() in (0, 0.0)
         assert ("", "Sheet1", 1, 1) not in SPILL_REGISTRY
 
-        # Empty key still spills this book under its lifecycle id.
+        # Matching lifecycle key spills this book.
         _spill.perform_deferred_spill(
-            "Sheet1", 1, 1, [[3], [4]], doc=doc2, code="untitled_spill_b"
+            "Sheet1", 1, 1, [[3], [4]], doc=doc2, sheet=sheet2, code="untitled_spill_b", key="uid-spill-2"
         )
         assert sheet2.getCellByPosition(1, 2).getValue() == 4.0
         assert ("", "Sheet1", 1, 1) not in SPILL_REGISTRY
@@ -844,7 +841,6 @@ def test_spilltest_a1_off_main_paints_full_grid(monkeypatch: pytest.MonkeyPatch)
         lambda: on_main["value"],
     )
     # The front window is never consulted; the caller doc is the only source.
-    monkeypatch.setattr(_function, "get_calc_doc", lambda _ctx: None)
     _install_immediate_spill_timer(monkeypatch, on_main_after_start=on_main)
 
     val = finalize_python_return(_cell(ctx, spilltest_code, doc), [[11, 22], [33, 44]])
@@ -942,7 +938,6 @@ def test_finalize_python_return_off_main_no_spill_without_doc(
     reset_calc_workbook_states()
 
     monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: False)
-    monkeypatch.setattr(_function, "get_calc_doc", lambda _ctx: doc)
     spill_started = {"n": 0}
 
     class _NoStartTimer:
@@ -971,8 +966,6 @@ def test_calc_spill_modify_listener_cleanup(monkeypatch: pytest.MonkeyPatch) -> 
     # Listener cleanup asserts clearContents call args; keep a MagicMock sheet for that.
     sheet = MagicMock()
     doc = CalcDocStub(url="file:///fake_cleanup.ods")
-
-    monkeypatch.setattr(_function, "get_calc_doc", lambda ctx: doc)
 
     saved = []
     monkeypatch.setattr(_spill, "save_spill_registry_for_doc", lambda d, st: saved.append(d))
@@ -1030,7 +1023,6 @@ def test_spill_orphan_cleanup_saves_sheet_owner_not_active_doc(monkeypatch: pyte
     origin.setFormula("")
     spilled.setValue(99)
 
-    monkeypatch.setattr(_function, "get_calc_doc", lambda _ctx: active)
     saved: list[Any] = []
     monkeypatch.setattr(_spill, "save_spill_registry_for_doc", lambda doc, st: saved.append(doc))
 
@@ -1043,7 +1035,7 @@ def test_spill_orphan_cleanup_saves_sheet_owner_not_active_doc(monkeypatch: pyte
     )
     try:
         ctx = MagicMock()
-        SheetModifyDispatcher(ctx, active, "", "Sheet1", st.key).modified(SimpleNamespace(Source=sheet))
+        SheetModifyDispatcher(ctx, active, "Sheet1").modified(SimpleNamespace(Source=sheet))
         flush_sheet_modify_pass_for_tests(ctx, owner, sheet, sheet_name="Sheet1")
         assert key not in SPILL_REGISTRY
         assert spilled.getValue() == 0
@@ -1057,7 +1049,6 @@ def test_calc_spill_modify_listener_clears_when_formula_only_contains_py(monkeyp
     monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: True)
     sheet = MagicMock()
     doc = CalcDocStub(url="file:///fake_pymt.ods")
-    monkeypatch.setattr(_function, "get_calc_doc", lambda ctx: doc)
     monkeypatch.setattr(_spill, "save_spill_registry_for_doc", lambda d, st: None)
 
     from plugin.calc.python.workbook_state import WorkbookState
@@ -1341,7 +1332,7 @@ def test_execute_python_addin_image_failure_still_processes_later_slots(monkeypa
 
     seen: list[int] = []
 
-    def fake_insert(_ctx, _img, *, image_index, **_kwargs):
+    def fake_insert(_img, *, image_index, **_kwargs):
         seen.append(image_index)
         if image_index == 0:
             raise _image_egress.ImageEgressError("could not anchor plot to the formula cell")
@@ -1355,12 +1346,14 @@ def test_execute_python_addin_image_failure_still_processes_later_slots(monkeypa
 
 
 def test_perform_deferred_spill_aborts_when_formula_replaced(monkeypatch: pytest.MonkeyPatch) -> None:
+    from plugin.calc.python.workbook_state import WorkbookState
+
     doc = CalcDocStub(url="file:///spill.ods")
     sheet = doc.getSheets().getByIndex(0)
     sheet.getCellByPosition(0, 0).setFormula("=SUM(A2)")
     monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: True)
     _spill.perform_deferred_spill(
-        "Sheet1", 0, 0, [["x", "y"]], doc=doc, code="result = 1"
+        "Sheet1", 0, 0, [["x", "y"]], doc=doc, sheet=sheet, code="result = 1", key=WorkbookState.for_doc(doc).key
     )
     assert sheet.getCellByPosition(1, 0).getString() in ("", None) or not sheet.getCellByPosition(1, 0).getFormula()
 
@@ -1663,7 +1656,7 @@ def test_prepare_auto_spill_with_16384_columns() -> None:
         prepared = _spill.prepare_auto_spill(ctx, "py_code", grid, doc)
         assert prepared != "#SPILL!"
         assert isinstance(prepared, _spill.PreparedSpill)
-        assert prepared.doc_key == "uid-wide"
+        assert prepared.key == "uid-wide"
         assert prepared.sheet_name == "Sheet1"
         assert prepared.formula_row == 0
         assert prepared.formula_col == 1020
@@ -1707,7 +1700,7 @@ def test_prepare_auto_spill_respects_reported_sheet_size() -> None:
             prepared = _spill.prepare_auto_spill(ctx, "py_code", grid, doc)
             assert prepared != "#SPILL!"
             assert isinstance(prepared, _spill.PreparedSpill)
-            assert prepared.doc_key == doc_id
+            assert prepared.key == doc_id
             assert prepared.sheet_name == "Sheet1"
             assert prepared.formula_row == 0
             assert prepared.formula_col == 16300
@@ -1778,7 +1771,7 @@ def test_build_cell_context_registers_unload_listener_on_for_doc(monkeypatch: py
     )
 
     ctx = MagicMock()
-    cell = build_cell_context(ctx, doc, "x")
+    cell = build_cell_context(ctx, doc, "x", on_main=True)
     assert cell.init_kwargs == {"dummy": True}
     assert len(calls) == 1
     assert calls[0][0] is doc
@@ -1796,7 +1789,7 @@ def test_build_cell_context_survives_listener_install_failure(monkeypatch: pytes
         "plugin.calc.python.workbook_lifecycle.ensure_calc_workbook_unload_resets_python",
         _boom,
     )
-    cell = build_cell_context(MagicMock(), doc, "x")
+    cell = build_cell_context(MagicMock(), doc, "x", on_main=True)
     assert cell.init_kwargs == {"dummy": True}
 
 
@@ -1933,6 +1926,8 @@ def test_perform_deferred_spill_fallback_to_passed_sheet_when_getbyname_raises(m
 
     grid = [[1, 2], [3, 4]]
 
+    from plugin.calc.python.workbook_state import WorkbookState
+
     _spill.perform_deferred_spill(
         "Sheet1",
         0,
@@ -1941,6 +1936,7 @@ def test_perform_deferred_spill_fallback_to_passed_sheet_when_getbyname_raises(m
         doc=doc,
         sheet=passed_sheet,
         code="result = [[1, 2], [3, 4]]",
+        key=WorkbookState.for_doc(doc).key,
     )
 
     assert passed_sheet.getCellByPosition(1, 0).getValue() == 2.0
@@ -1955,7 +1951,6 @@ def test_spill_remap_when_block_moves_with_formula(monkeypatch: pytest.MonkeyPat
     monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: True)
     sheet = CalcSheetStub("Sheet1")
     doc = CalcDocStub(sheets=[sheet], url="file:///remap.ods")
-    monkeypatch.setattr(_function, "get_calc_doc", lambda _ctx: doc)
 
     from plugin.calc.python.workbook_state import WorkbookState
 
@@ -2000,7 +1995,6 @@ def test_spill_clear_does_not_follow_cut_paste(monkeypatch: pytest.MonkeyPatch) 
     monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: True)
     sheet = CalcSheetStub("Sheet1")
     doc = CalcDocStub(sheets=[sheet], url="file:///cutpaste.ods")
-    monkeypatch.setattr(_function, "get_calc_doc", lambda _ctx: doc)
 
     from plugin.calc.python.workbook_state import WorkbookState
 
@@ -2036,7 +2030,6 @@ def test_spill_clear_skips_formula_cell_and_edited_value(monkeypatch: pytest.Mon
     monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: True)
     sheet = CalcSheetStub("Sheet1")
     doc = CalcDocStub(sheets=[sheet], url="file:///skip.ods")
-    monkeypatch.setattr(_function, "get_calc_doc", lambda _ctx: doc)
 
     from plugin.calc.python.workbook_state import WorkbookState
 
@@ -2083,7 +2076,6 @@ def test_spill_clear_skips_user_text_matching_numeric_spill(monkeypatch: pytest.
     monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: True)
     sheet = CalcSheetStub("Sheet1")
     doc = CalcDocStub(sheets=[sheet], url="file:///text_zero.ods")
-    monkeypatch.setattr(_function, "get_calc_doc", lambda _ctx: doc)
 
     from plugin.calc.python.workbook_state import WorkbookState
 
@@ -2366,7 +2358,7 @@ def test_execute_python_addin_worker_errors(monkeypatch: pytest.MonkeyPatch, cap
     assert raw & 0xFFFF == 519
     assert "Code execution failed" in caplog.text
     assert "ValueError" in caplog.text
-    rec_diag.assert_called_with(ctx, "bad_code", {"status": "error", "message": err_msg}, status="error", message=err_msg, doc=doc, workbook_key="calc:test://calc")
+    rec_diag.assert_called_with("bad_code", {"status": "error", "message": err_msg}, status="error", message=err_msg, workbook_key="calc:test://calc")
 
     # 2. ZeroDivisionError-shaped dict -> 532
     div_msg = "Code execution failed at line '1/0' due to: ZeroDivisionError: division by zero"
@@ -2608,12 +2600,10 @@ def test_execute_python_addin_helper_error_dict(monkeypatch: pytest.MonkeyPatch,
     assert "quick_stats: UNKNOWN_COLUMN: Unknown columns: Region" in caplog.text
     assert caplog.text.count("=PY() worker failure") == 1
     rec_diag.assert_called_once_with(
-        ctx,
         "helper_err",
         worker,
         status="error",
         message="quick_stats: UNKNOWN_COLUMN: Unknown columns: Region",
-        doc=doc,
         workbook_key="calc:test://calc",
     )
 
@@ -2651,7 +2641,7 @@ def test_execute_python_addin_helper_error_dict(monkeypatch: pytest.MonkeyPatch,
     assert isinstance(out_plain, str)
     assert "hello" in out_plain
     assert caplog.text == ""
-    rec_diag.assert_called_once_with(ctx, "plain_dict", {"status": "ok", "result": plain}, status="ok", doc=doc, workbook_key="calc:test://calc")
+    rec_diag.assert_called_once_with("plain_dict", {"status": "ok", "result": plain}, status="ok", workbook_key="calc:test://calc")
 
     # Worker USER_STOPPED is still the text path (status on the envelope, not a helper result).
     caplog.clear()
@@ -2880,21 +2870,13 @@ def test_scalar_for_list_result_uses_supplied_data_token(monkeypatch: pytest.Mon
         "plugin.calc.python.function._session_key_tuple",
         lambda *args, **kwargs: ("file:///doc.ods", "Sheet1", "sid", "code_token", "0,0"),
     )
-    token_calls = []
-
-    def mock_token(data):
-        token_calls.append(data)
-        return "computed"
-
-    monkeypatch.setattr("plugin.calc.python.function._worker_data_token", mock_token)
 
     from plugin.calc.python.workbook_state import WorkbookState
 
     st = WorkbookState.for_doc(doc)
     assert st is not None
-    res = _function.scalar_for_list_result(_cell(ctx, "code_token", doc), [10, 20], worker_data={"x": 1}, data_token="preset")
+    res = _function.scalar_for_list_result(_cell(ctx, "code_token", doc), [10, 20], data_token="preset")
     assert res == 10
-    assert len(token_calls) == 0
     with _function._MATRIX_SCALAR_SESSIONS_LOCK:
         matching_keys = [k for k in st.matrix if k[1][3] == "code_token"]
         assert len(matching_keys) == 1

@@ -66,19 +66,17 @@ def test_save_as_reuses_listener():
     second = ensure_sheet_modify_listener("ctx", doc, sheet)
     assert first is second
     assert len(sheet._modify_listeners) == 1
-    assert second.doc_key == "file:///saved.ods"
     assert SHEET_MODIFY_LISTENERS[("uid-saveas", "Sheet1")] is first
 
 
 def test_url_keyed_listener_is_ignored_after_identity_change():
     doc = CalcDocStub(url="file:///new.ods", props={"RuntimeUID": "uid-migrate"})
     sheet = doc.getSheets().getByName("Sheet1")
-    stale = SheetModifyDispatcher("ctx", doc, "file:///old.ods", "Sheet1", "file:///old.ods")
+    stale = SheetModifyDispatcher("ctx", doc, "Sheet1")
     sheet.addModifyListener(stale)
     SHEET_MODIFY_LISTENERS[("file:///old.ods", "Sheet1")] = stale
     got = ensure_sheet_modify_listener("ctx", doc, sheet)
     assert got is not stale
-    assert got.doc_identity == "uid-migrate"
     assert ("uid-migrate", "Sheet1") in SHEET_MODIFY_LISTENERS
 
 
@@ -89,27 +87,22 @@ def test_modify_uses_owning_document_not_active(monkeypatch):
     sheet.getParent = lambda: owner
     monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: True)
     monkeypatch.setattr("plugin.calc.python.geometric_recalc.is_geometric_repairing", lambda: False)
-    monkeypatch.setattr("plugin.calc.python.function.get_calc_doc", lambda _ctx: other)
     captured: dict[str, object] = {}
 
     def _capture(ctx, doc, sheet, **kwargs):
         captured["doc"] = doc
-        captured["doc_url"] = kwargs.get("doc_url")
 
     monkeypatch.setattr("plugin.calc.python.sheet_modify.schedule_sheet_modify_pass", _capture)
-    listener = ensure_sheet_modify_listener("ctx", owner, sheet)
+    listener = SheetModifyDispatcher("ctx", other, "Sheet1")
     listener.modified(SimpleNamespace(Source=sheet))
     assert captured["doc"] is owner
-    assert captured["doc_url"] == "file:///owner.ods"
 
 
 def test_modify_uses_stored_document_when_source_has_no_parent(monkeypatch):
     owner = CalcDocStub(url="file:///stored.ods", props={"RuntimeUID": "uid-stored"})
-    other = CalcDocStub(url="file:///active.ods", props={"RuntimeUID": "uid-active"})
     sheet = owner.getSheets().getByName("Sheet1")
     monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: True)
     monkeypatch.setattr("plugin.calc.python.geometric_recalc.is_geometric_repairing", lambda: False)
-    monkeypatch.setattr("plugin.calc.python.function.get_calc_doc", lambda _ctx: other)
     captured: dict[str, object] = {}
 
     def _capture(ctx, doc, sheet, **kwargs):
@@ -181,7 +174,7 @@ def test_rename_migrates_spill_registry_and_listener(monkeypatch):
     # Now clear formula cell and run modify pass
     cell_formula.setFormula("")
     cell_formula.setString("")
-    flush_sheet_modify_pass_for_tests("ctx", doc, sheet, doc_url="file:///rename.ods", sheet_name="SheetRenamed")
+    flush_sheet_modify_pass_for_tests("ctx", doc, sheet, sheet_name="SheetRenamed")
 
     assert ("uid-rename", "SheetRenamed", 0, 0) not in SPILL_REGISTRY
     assert cell_neighbor.getValue() == 0.0 or cell_neighbor.getString() == ""
@@ -205,8 +198,14 @@ def test_perform_deferred_spill_does_not_schedule_modify(monkeypatch):
     doc = CalcDocStub(url="file:///spill_dispatch.ods", props={"RuntimeUID": "uid-spill-dispatch"})
     sheet = doc.getSheets().getByName("Sheet1")
     sheet.getParent = lambda: doc
+    sheet.getCellByPosition(0, 0).setFormula('=PY("result = [1, 2]")')
+    WorkbookState.for_doc(doc).spills[("Sheet1", 0, 0)] = SpillRecord(
+        code="result = [1, 2]",
+        cells=[SpillCell(0, 2, "n", 9.0)],
+    )
 
     scheduled_calls = 0
+    hook_calls = 0
 
     def mock_schedule(*args, **kwargs):
         nonlocal scheduled_calls
@@ -215,14 +214,16 @@ def test_perform_deferred_spill_does_not_schedule_modify(monkeypatch):
     monkeypatch.setattr("plugin.calc.python.sheet_modify.schedule_sheet_modify_pass", mock_schedule)
     monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: True)
 
-    orig_clear = sheet.getCellByPosition(0, 0).clearContents
+    old_neighbor = sheet.getCellByPosition(2, 0)
+    orig_clear = old_neighbor.clearContents
 
     def clear_and_dispatch(flags):
-        dispatch_sheet_modified(SimpleNamespace(Source=sheet))
+        nonlocal hook_calls
+        hook_calls += 1
+        dispatch_sheet_modified("ctx", "Sheet1", SimpleNamespace(Source=sheet), doc)
         return orig_clear(flags)
 
-    cell = sheet.getCellByPosition(1, 0)
-    cell.clearContents = clear_and_dispatch
+    old_neighbor.clearContents = clear_and_dispatch
 
     perform_deferred_spill(
         "Sheet1",
@@ -231,10 +232,11 @@ def test_perform_deferred_spill_does_not_schedule_modify(monkeypatch):
         [[1, 2]],
         doc=doc,
         sheet=sheet,
-        code='=PY("result = [1, 2]")',
+        code="result = [1, 2]",
         key="uid-spill-dispatch",
     )
 
+    assert hook_calls == 1
     assert scheduled_calls == 0
 
 
@@ -274,8 +276,7 @@ def test_rekeyed_pending_timer_drops_on_fire(monkeypatch: pytest.MonkeyPatch) ->
 
     passed_kwargs: dict[str, object] = {}
 
-    def fake_run_sheet_modify_pass(ctx, d, s, *, doc_url="", sheet_name=""):
-        passed_kwargs["doc_url"] = doc_url
+    def fake_run_sheet_modify_pass(ctx, d, s, *, sheet_name=""):
         passed_kwargs["sheet_name"] = sheet_name
 
     monkeypatch.setattr(
@@ -309,11 +310,8 @@ def test_unload_drops_pending_sheet_timer() -> None:
     assert "sheet:Sheet1" in state_keep.debounce.pending_for_tests()
 
 
-def test_doc_url_and_sheet_name_read_failures_return_empty() -> None:
+def test_sheet_name_read_failures_return_empty() -> None:
     class FailingUNO:
-        def getURL(self) -> str:
-            raise RuntimeError("DisposedException")
-
         def getName(self) -> str:
             raise RuntimeError("DisposedException")
 

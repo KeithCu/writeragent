@@ -65,15 +65,16 @@ def owning_calc_doc(sheet: Any) -> Any | None:
     """Spreadsheet that contains *sheet*, walked from the modify event source.
 
     ``desktop.getCurrentComponent()`` is whichever window is focused. A change
-    in a background workbook must not reconcile that other file. MagicMock
-    fabricates ``getParent``; ignore it so tests that stub only ``get_calc_doc``
-    keep their fallback.
+    in a background workbook must not reconcile that other file.
     """
     current = sheet
     for _hop in range(4):
         if current is None:
             return None
         supports: Any = getattr(current, "supportsService", None)
+        # Real UNO returns a Python bool (pyuno_runtime.cxx, Runtime::any2PyObject,
+        # TypeClass_BOOLEAN); any other answer does not name an owner, and the
+        # dispatcher's stored document is used instead.
         if callable(supports) and uno_read(lambda: supports("com.sun.star.sheet.SpreadsheetDocument"), False) is True:
             return current
         parent = getattr(current, "getParent", None)
@@ -90,7 +91,7 @@ def _sheet_name_of(sheet: Any) -> str:
     return str(best_effort(lambda: sheet.getName(), "sheet_modify: getName failed", "") or "")
 
 
-def schedule_sheet_modify_pass(ctx: Any, doc: Any, sheet: Any, *, doc_url: str = "", sheet_name: str = "", delay_sec: float = _MODIFY_DELAY_SEC) -> None:
+def schedule_sheet_modify_pass(ctx: Any, doc: Any, sheet: Any, *, sheet_name: str = "", delay_sec: float = _MODIFY_DELAY_SEC) -> None:
     """Debounce: schedule a 0.1s UI-thread pass via WorkbookState.debounce."""
     if sheet is None or doc is None:
         return
@@ -113,18 +114,18 @@ def schedule_sheet_modify_pass(ctx: Any, doc: Any, sheet: Any, *, doc_url: str =
                 if getattr(candidate, "doc", None) is doc and hasattr(candidate, "sheet_name"):
                     sname = candidate.sheet_name
                     break
-        run_sheet_modify_pass(ctx, doc, sheet, doc_url=doc_url, sheet_name=sname)
+        run_sheet_modify_pass(ctx, doc, sheet, sheet_name=sname)
 
     state.debounce.schedule(debounce_key, delay_sec, _pass)
 
 
-def flush_sheet_modify_pass_for_tests(ctx: Any, doc: Any, sheet: Any, *, doc_url: str = "", sheet_name: str = "") -> None:
+def flush_sheet_modify_pass_for_tests(ctx: Any, doc: Any, sheet: Any, *, sheet_name: str = "") -> None:
     """Cancel debounce and run the pass on this thread. Tests only."""
     name = sheet_name or _sheet_name_of(sheet)
     state = WorkbookState.lookup(doc)
     if state is not None:
         state.debounce.cancel(f"sheet:{name}")
-    run_sheet_modify_pass(ctx, doc, sheet, doc_url=doc_url, sheet_name=name)
+    run_sheet_modify_pass(ctx, doc, sheet, sheet_name=name)
 
 
 def migrate_sheet_rename(
@@ -203,13 +204,13 @@ def run_sheet_modify_pass(
     doc: Any,
     sheet: Any,
     *,
-    doc_url: str = "",
     sheet_name: str = "",
 ) -> None:
     """UI-thread jobs after the shared debounce. Spill and geometric stay separate.
 
     Spill: ``cleanup_orphans`` on ``state.spills`` only.
     Geometric: own ``discover_python_cells_on_sheet`` via ``reconcile_geometric_sheet``.
+    ``schedule_sheet_modify_pass`` refuses a None *doc*, so *doc* is non-None here.
     """
     if _skip_sheet_modify():
         return
@@ -221,12 +222,13 @@ def run_sheet_modify_pass(
         return
     with sheet_modify_scope():
         # for_doc (not known) so RuntimeUID rekey runs; UI thread only (_skip_sheet_modify guards).
-        state = WorkbookState.for_doc(doc) if doc is not None else None
+        state = WorkbookState.for_doc(doc)
         # Job 1 — spill orphan cleanup. Walks state.spills only.
         try:
             from plugin.calc.python.spill import cleanup_orphans
 
-            cleanup_orphans(state, sheet, doc=doc, ctx=ctx, sheet_name=name)
+            if state is not None:
+                cleanup_orphans(state, sheet, doc=doc, sheet_name=name)
         except Exception:
             log.exception("Error in spill orphan cleanup (%s)", name)
 
@@ -234,7 +236,7 @@ def run_sheet_modify_pass(
         try:
             from plugin.calc.python.geometric_recalc import geometric_flag_enabled, reconcile_geometric_sheet
 
-            if geometric_flag_enabled() and doc is not None:
+            if geometric_flag_enabled():
                 reconcile_geometric_sheet(ctx, doc, sheet)
         except Exception:
             log.exception("Error in geometric sheet modify pass (%s)", name)
@@ -243,10 +245,9 @@ def run_sheet_modify_pass(
 @main_thread_only
 def dispatch_sheet_modified(
     ctx: Any,
-    doc_key: str,
     sheet_name: str,
     event: Any,
-    doc: Any = None,
+    doc: Any,
 ) -> None:
     """Shared ``modified`` entry. Debounces; does not walk ``state.spills``."""
     if _skip_sheet_modify():
@@ -254,23 +255,17 @@ def dispatch_sheet_modified(
     sheet = getattr(event, "Source", None)
     if sheet is None:
         return
-    # Prefer the sheet's owner, then the document stored when the listener was
-    # attached. Not get_calc_doc: that is the focused window, and a modify in a
-    # background workbook would be scheduled against the wrong document.
+    # Reconcile the sheet's owner (or the document stored on the dispatcher),
+    # not whichever component happens to be the focused window.
     owner = owning_calc_doc(sheet)
     if owner is None:
         owner = doc
-    if owner is None:
-        from plugin.calc.python.function import get_calc_doc
-
-        owner = get_calc_doc(ctx)
     live = _sheet_name_of(sheet)
     effective_name = sheet_name
     if live and sheet_name and live != sheet_name:
         migrate_sheet_rename(owner, sheet_name, live)
         effective_name = live
-    live_url = owner.getURL() if owner is not None and hasattr(owner, "getURL") else ""
-    schedule_sheet_modify_pass(ctx, owner, sheet, doc_url=live_url or doc_key, sheet_name=effective_name)
+    schedule_sheet_modify_pass(ctx, owner, sheet, sheet_name=effective_name)
 
 
 def ensure_sheet_modify_listener(ctx: Any, doc: Any, sheet: Any) -> Any | None:
@@ -284,15 +279,11 @@ def ensure_sheet_modify_listener(ctx: Any, doc: Any, sheet: Any) -> Any | None:
     if state is None:
         return None
 
-    url = doc.getURL() if hasattr(doc, "getURL") else ""
     existing = state.listeners.get(name)
     if existing is not None:
         existing.doc = doc
-        existing.doc_identity = state.key
-        if url:
-            existing.doc_key = url
         return existing
-    listener = SheetModifyDispatcher(ctx, doc, url or "", name, state.key)
+    listener = SheetModifyDispatcher(ctx, doc, name)
     try:
         sheet.addModifyListener(listener)
     except Exception:
@@ -307,21 +298,17 @@ class SheetModifyDispatcher(BaseModifyListener):
 
     ctx: Any
     doc: Any
-    doc_key: str
     sheet_name: str
-    doc_identity: str
 
-    def __init__(self, ctx: Any, doc: Any, doc_key: str, sheet_name: str, doc_identity: str) -> None:
+    def __init__(self, ctx: Any, doc: Any, sheet_name: str) -> None:
         super().__init__()
         self.ctx = ctx
         self.doc = doc
-        self.doc_key = doc_key
         self.sheet_name = sheet_name
-        self.doc_identity = doc_identity
 
     def modified(self, aEvent: Any) -> None:  # noqa: N802, N803 -- UNO signature
         try:
-            dispatch_sheet_modified(self.ctx, self.doc_key, self.sheet_name, aEvent, doc=self.doc)
+            dispatch_sheet_modified(self.ctx, self.sheet_name, aEvent, self.doc)
         except Exception:
             log.exception("Error in SheetModifyDispatcher.modified")
 

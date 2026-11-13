@@ -676,6 +676,7 @@ def test_geometric_chained_origin_still_auto_spills(ctx, doc):
             0,
             [[10, 20], [30, 40]],
             doc=doc,
+            sheet=sheet,
             code=spill_code,
             key=doc_url,
         )

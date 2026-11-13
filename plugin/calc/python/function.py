@@ -52,7 +52,7 @@ from plugin.calc.python.spill import (
     selection_is_multi_cell,
 )
 from plugin.calc.python.workbook_state import WorkbookState
-from plugin.framework.errors import best_effort, uno_read
+from plugin.framework.errors import best_effort
 from plugin.framework.i18n import _
 from plugin.framework.queue_executor import main
 from plugin.framework.thread_guard import background_if_dummy_thread, sync_host_dispatch
@@ -150,9 +150,7 @@ class CellContext:
     code: str = ""
 
 
-def _session_key_tuple(ctx: Any, code: str, doc: Any | None, *, on_main: bool) -> tuple[str, ...]:
-    if not on_main:
-        return ("", "", "", code, "")
+def _session_key_tuple(code: str, doc: Any | None) -> tuple[str, ...]:
     doc_url = ""
     sheet_name = ""
     sid = ""
@@ -183,13 +181,11 @@ def _init_kwargs_for_doc(doc: Any) -> dict[str, Any]:
     return best_effort(lambda: build_python_eval_init_kwargs(doc), "get_python_init_kwargs", {}) or {}
 
 
-def build_cell_context(ctx: Any, doc: Any, code: str, *, on_main: bool | None = None) -> CellContext:
-    if on_main is None:
-        on_main = main.is_current()
+def build_cell_context(ctx: Any, doc: Any, code: str, *, on_main: bool) -> CellContext:
     if on_main:
         # Explicit on_main: use for_doc on UI thread; off-main callers use known() only (no UNO create).
         state = WorkbookState.for_doc(doc) if doc is not None else None
-        sk = _session_key_tuple(ctx, code, doc, on_main=True)
+        sk = _session_key_tuple(code, doc)
         session_id = sk[2] or None
         origin = sk[4]
         init_kwargs = _init_kwargs_for_doc(doc) if doc is not None else {}
@@ -235,23 +231,6 @@ def build_cell_context(ctx: Any, doc: Any, code: str, *, on_main: bool | None = 
     )
 
 
-def get_calc_doc(ctx: Any) -> Any | None:
-    from plugin.framework.thread_guard import guard_uno
-
-    if not main.is_current():
-        return None
-    from plugin.framework.uno_context import get_desktop
-
-    def _probe() -> Any | None:
-        desktop = get_desktop(ctx)
-        doc = desktop.getCurrentComponent() if desktop is not None else None
-        if doc is not None and hasattr(doc, "getSheets"):
-            return guard_uno(doc)
-        return None
-
-    return uno_read(_probe, None)
-
-
 def _expire_matrix_sessions(matrix: dict[tuple[Any, ...], WorkerResultSession], now: float) -> None:
     stale = [
         k for k, session in matrix.items()
@@ -265,7 +244,6 @@ def scalar_for_list_result(
     cell: CellContext,
     result: Any,
     *,
-    worker_data: Any = None,
     data_token: str | None = None,
 ) -> float | str | bool:
     """Return one Calc scalar per invocation when the worker produced a list."""
@@ -275,8 +253,7 @@ def scalar_for_list_result(
     sk = cell.sk
     if not sk[4]:
         return flat[0]
-    token = data_token if data_token is not None else _worker_data_token(worker_data)
-    key = (threading.get_ident(), sk, token)
+    key = (threading.get_ident(), sk, data_token)
     now = time.monotonic()
 
     wb_state = cell.state
@@ -305,18 +282,16 @@ def clear_python_addin_cache() -> None:
 
 
 def _record_py_diagnostic(
-    ctx: Any,
     code: str,
     res: dict[str, Any] | None,
     *,
     status: str,
     message: str = "",
     traceback: str = "",
-    doc: Any | None = None,
-    workbook_key: str | None = None,
+    workbook_key: str,
 ) -> None:
     """Record stdout/errors for the LibrePy sidebar without extra UNO work."""
-    from plugin.calc.python.diagnostics import diagnostics_workbook_key, get_diagnostics_store
+    from plugin.calc.python.diagnostics import get_diagnostics_store
 
     stdout = ""
     tb = traceback
@@ -330,12 +305,9 @@ def _record_py_diagnostic(
             tb = str(raw_tb) if raw_tb else ""
     if status == "ok" and not (stdout or "").strip():
         return
-    wb_key = workbook_key if workbook_key is not None else (
-        getattr(ctx, "diag_workbook_key", None) or diagnostics_workbook_key(doc)
-    )
     best_effort(
         lambda: get_diagnostics_store().record(
-            workbook_key=wb_key,
+            workbook_key=workbook_key,
             code=code or "",
             status=status,
             message=msg,
@@ -351,7 +323,6 @@ def finalize_python_return(
     result: Any,
     *,
     index_arg: Any = None,
-    worker_data: Any = None,
     data_token: str | None = None,
 ) -> float | str | bool | tuple[Any, ...]:
     """Map worker result to a single value Calc's add-in bridge accepts."""
@@ -410,7 +381,7 @@ def finalize_python_return(
                 return f"Error: index {idx} out of range (result length {len(flat)})"
             return py_addin_cell_value(flat[idx])
 
-        return scalar_for_list_result(cell, result, worker_data=worker_data, data_token=data_token)
+        return scalar_for_list_result(cell, result, data_token=data_token)
 
     return py_addin_cell_value(result)
 
@@ -462,7 +433,7 @@ def _execute_python_addin_impl(ctx: Any, code: str, data: Any = None, *, doc: An
             size_err = check_python_data_size(py_data, max_cells=max_cells, multi=is_multi)
             if size_err:
                 ret = f"Error: {size_err}"
-                _record_py_diagnostic(ctx, code, None, status="error", message=ret, doc=target_doc, workbook_key=cell_ctx.diag_workbook_key)
+                _record_py_diagnostic(code, None, status="error", message=ret, workbook_key=cell_ctx.diag_workbook_key)
                 return ret
             worker_data = pack_calc_multi_data_for_wire(py_data) if is_multi else pack_calc_data_for_wire(py_data)
         else:
@@ -511,9 +482,9 @@ def _execute_python_addin_impl(ctx: Any, code: str, data: Any = None, *, doc: An
             if isinstance(result, dict) and is_helper_error_dict(result):
                 err_text = helper_error_log_message(result)
                 addin_val = py_addin_cell_value(result)
-                _record_py_diagnostic(ctx, code, res, status="error", message=err_text, doc=target_doc, workbook_key=cell_ctx.diag_workbook_key)
+                _record_py_diagnostic(code, res, status="error", message=err_text, workbook_key=cell_ctx.diag_workbook_key)
                 return addin_val
-            _record_py_diagnostic(ctx, code, res, status="ok", doc=target_doc, workbook_key=cell_ctx.diag_workbook_key)
+            _record_py_diagnostic(code, res, status="ok", workbook_key=cell_ctx.diag_workbook_key)
             images = find_image_payloads(result)
             if images:
                 # Every slot is processed even when one fails, so later plots still refresh
@@ -522,21 +493,21 @@ def _execute_python_addin_impl(ctx: Any, code: str, data: Any = None, *, doc: An
                 first_error: ImageEgressError | None = None
                 for i, img in enumerate(images):
                     try:
-                        insert_image_result_on_sheet(ctx, img, code=code, doc=target_doc, image_index=i, image_count=len(images), notify_cell=True)
+                        insert_image_result_on_sheet(img, code=code, doc=target_doc, image_index=i, image_count=len(images), notify_cell=True)
                     except ImageEgressError as err:
                         first_error = first_error or err
                 if first_error is not None:
                     raise first_error
                 return _("Image inserted") if len(images) == 1 else _("Images inserted")
-            return finalize_python_return(cell_ctx, result, index_arg=index_arg, worker_data=worker_data, data_token=data_token)
+            return finalize_python_return(cell_ctx, result, index_arg=index_arg, data_token=data_token)
 
         raw_message = str(res.get("message") or res.get("error") or "")
         addin_cell = addin_result_for_worker_status(res)
         message = addin_cell if isinstance(addin_cell, str) else raw_message
-        _record_py_diagnostic(ctx, code, res, status="error", message=message, doc=target_doc, workbook_key=cell_ctx.diag_workbook_key)
+        _record_py_diagnostic(code, res, status="error", message=message, workbook_key=cell_ctx.diag_workbook_key)
         return addin_cell
     except Exception as e:
         log.exception("PYTHON unexpected error during execution")
         err_msg = format_addin_error_for_display(e)
-        _record_py_diagnostic(ctx, code, None, status="error", message=err_msg, traceback=str(e), doc=target_doc, workbook_key=cell_ctx.diag_workbook_key)
+        _record_py_diagnostic(code, None, status="error", message=err_msg, traceback=str(e), workbook_key=cell_ctx.diag_workbook_key)
         return err_msg
