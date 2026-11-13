@@ -14,6 +14,8 @@ WORKDIR /app
 # docs/scripting/python-in-excel-packages.md.
 # wrapt is pinned because formulaic (statsmodels) requires wrapt>=1.17.0rc1
 # on Python 3.13+. That prerelease specifier lets pip pick wrapt dev builds.
+# Wheels-only (no build-essential): a compiler in the builder can link
+# against libraries the runner never copies.
 RUN pip install --no-cache-dir --only-binary=:all: --target=/app/pkgs \
     "numpy==2.4.6" "pandas==3.1.0" "scipy==1.17.1" "matplotlib==3.11.2" \
     "Pillow==13.0.0" "sympy==1.14.0" "pint==0.26.2" \
@@ -43,9 +45,12 @@ COPY --from=bundle /out/ /app/
 ENV PYTHONPATH=/app/pkgs:/app \
     PYTHON_COMPUTE_HOST=0.0.0.0 \
     PYTHON_COMPUTE_PORT=8000
+# HOME and MPLCONFIGDIR sit on the /tmp tmpfs because the root filesystem is read-only.
 ENV HOME=/tmp
 ENV MPLCONFIGDIR=/tmp/mpl
 ENV PYTHONDONTWRITEBYTECODE=1
+# Omit chown -R /app: recursing duplicates the wheel tree and still does not
+# match the host uid the launcher runs as.
 RUN useradd --no-create-home appuser \
     && chmod 755 /app/compute_service/docker-entrypoint.sh
 USER appuser

@@ -218,26 +218,29 @@ def test_run_cell_updates_registry_and_execution_count():
 
 
 def test_run_cell_restores_view_to_cell():
+    """Restore runs after output insertion, so the view lands on the run cell, not the document end where insertion left it."""
     ctx = MagicMock()
     doc = MagicMock()
+    vc = doc.getCurrentController.return_value.getViewCursor.return_value
+    anchor = MagicMock()
+    shape = MagicMock()
+    shape.getAnchor.return_value = anchor
     cell = new_code_cell_entry(0, None, "nb_cell_0_code")
     state = NotebookDocState(code_cells=[cell], next_execution_count=1)
-    saved_view = MagicMock()
-    events: list[str] = []
+    events: list[tuple[object, ...]] = []
+    vc.gotoRange.side_effect = lambda *args: events.append(("goto", args))
 
     with (
-        patch("plugin.notebook.notebook_runner._save_view_cursor", return_value=saved_view),
         patch("plugin.notebook.notebook_runner.execute_code", return_value={"status": "ok", "stdout": "", "result": None}),
         patch("plugin.notebook.notebook_runner.clear_cell_output"),
-        patch("plugin.notebook.notebook_runner.apply_run_result", side_effect=lambda *_a, **_k: events.append("apply")),
+        patch("plugin.notebook.notebook_runner.apply_run_result", side_effect=lambda *_a, **_k: events.append(("apply",))),
         patch("plugin.notebook.notebook_runner.update_in_prompt"),
         patch("plugin.notebook.notebook_runner.save_registry"),
-        patch("plugin.notebook.notebook_runner._restore_view_to_cell", side_effect=lambda *_a, **_k: events.append("restore")) as restore,
+        patch("plugin.notebook.form_lookup.find_control_shape_by_name", return_value=shape),
     ):
         _execute_and_apply(ctx, doc, state, cell, "x = 1")
 
-    assert events == ["apply", "restore"]
-    restore.assert_called_once_with(doc, cell, saved_view)
+    assert events == [("apply",), ("goto", (anchor, False))]
 
 
 def test_run_cell_rejects_reentrant_call():
