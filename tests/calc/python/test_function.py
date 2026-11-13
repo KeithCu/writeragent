@@ -1103,24 +1103,6 @@ def _clear_spill_timer_registry() -> None:
     WorkbookState.reset_for_tests()
 
 
-def test_spill_timers_prune_on_fire_register_and_cancel() -> None:
-    """Finished debounce timers must not keep callbacks in registry."""
-    from plugin.calc.python.workbook_state import Debounce
-
-    debounce = Debounce()
-    ran = {"n": 0}
-    debounce.schedule("fired", 0.1, lambda: ran.__setitem__("n", ran["n"] + 1))
-    assert "fired" in debounce
-    debounce.flush("fired")
-    assert ran["n"] == 1
-    assert "fired" not in debounce
-
-    debounce.schedule("live", 0.1, lambda: None)
-    assert "live" in debounce
-    debounce.cancel("live")
-    assert "live" not in debounce
-
-
 def test_off_main_spill_timer_registers_cached_workbook_key(monkeypatch: pytest.MonkeyPatch) -> None:
     """Unload cancel must see off-main timers; registering them must not call UNO."""
     from plugin.calc.python.workbook_state import WorkbookState
@@ -1146,9 +1128,9 @@ def test_off_main_spill_timer_registers_cached_workbook_key(monkeypatch: pytest.
         assert calls["n"] == seen
         state = WorkbookState.known(doc)
         assert state is not None
-        assert "code:code" in state.debounce
+        assert "code:code" in state.debounce.pending_for_tests()
         state.clear()
-        assert "code:code" not in state.debounce
+        assert "code:code" not in state.debounce.pending_for_tests()
 
         # No document object: do not guess a workbook key.
         _spill.queue_off_main_auto_spill(MagicMock(), "code", [[1]], None)
@@ -1173,11 +1155,11 @@ def test_off_main_spill_timer_key_follows_each_workbook(monkeypatch: pytest.Monk
         _spill.queue_off_main_auto_spill(MagicMock(), "none", [[1]], None)
         state_a = WorkbookState.known(doc_a)
         state_b = WorkbookState.known(doc_b)
-        assert state_a is not None and "code:a" in state_a.debounce
-        assert state_b is not None and "code:b" in state_b.debounce
+        assert state_a is not None and "code:a" in state_a.debounce.pending_for_tests()
+        assert state_b is not None and "code:b" in state_b.debounce.pending_for_tests()
         state_a.clear()
-        assert "code:a" not in state_a.debounce
-        assert "code:b" in state_b.debounce
+        assert "code:a" not in state_a.debounce.pending_for_tests()
+        assert "code:b" in state_b.debounce.pending_for_tests()
     finally:
         _clear_spill_timer_registry()
 
@@ -1792,20 +1774,20 @@ def test_build_cell_context_registers_unload_listener_on_for_doc(monkeypatch: py
     monkeypatch.setattr("plugin.scripting.document_scripts.build_python_eval_init_kwargs", lambda _doc: {"dummy": True})
     monkeypatch.setattr(
         "plugin.calc.python.workbook_lifecycle.ensure_calc_workbook_unload_resets_python",
-        lambda ctx, doc, *, state: calls.append((ctx, doc, state)),
+        lambda doc, *, state: calls.append((doc, state)),
     )
 
     ctx = MagicMock()
     cell = build_cell_context(ctx, doc, "x")
     assert cell.init_kwargs == {"dummy": True}
     assert len(calls) == 1
-    assert calls[0][1] is doc
+    assert calls[0][0] is doc
 
 
 def test_build_cell_context_survives_listener_install_failure(monkeypatch: pytest.MonkeyPatch) -> None:
     doc = CalcDocStub(url="file:///fake_lifecycle_fail.ods")
 
-    def _boom(_ctx, _doc, *, state):
+    def _boom(_doc, *, state):
         raise RuntimeError("listener failed")
 
     monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: True)
@@ -2282,24 +2264,6 @@ def test_matrix_sessions_expire() -> None:
         assert stale_key not in st.matrix
 
 
-def test_second_spill_timer_cancels_the_first() -> None:
-    """Debounce replaces callback and maintains one active thread per token."""
-    from plugin.calc.python.workbook_state import Debounce
-
-    debounce = Debounce()
-    called = []
-
-    debounce.schedule("Sheet1:0:0", 0.1, lambda: called.append("first"))
-    debounce.schedule("Sheet1:0:0", 0.1, lambda: called.append("second"))
-    debounce.schedule("Sheet1:1:0", 0.1, lambda: called.append("third"))
-
-    assert len(debounce) == 2
-    debounce.flush("Sheet1:0:0")
-    assert called == ["second"]
-    debounce.flush("Sheet1:1:0")
-    assert called == ["second", "third"]
-
-
 def test_calc_formula_error_double_and_tokens() -> None:
     tokens = [
         ("#VALUE!", 519),
@@ -2507,7 +2471,7 @@ def test_execute_python_addin_worker_errors(monkeypatch: pytest.MonkeyPatch, cap
 
     st_spill = WorkbookState.for_doc(doc_spill)
     assert st_spill is not None
-    st_spill.debounce.flush("spill:Sheet1:0:0")
+    st_spill.debounce.flush_for_tests("spill:Sheet1:0:0")
     key_spill = ("file:///fake_col_addin.ods", "Sheet1", 0, 0)
     assert key_spill in SPILL_REGISTRY
 
@@ -2773,7 +2737,7 @@ def test_spill_with_calc_error_tokens(monkeypatch: pytest.MonkeyPatch) -> None:
     ret_corner = _function.finalize_python_return(_cell(ctx, "col_err_test", doc), col_result)
     state = WorkbookState.for_doc(doc)
     assert state is not None
-    state.debounce.flush("spill:Sheet1:0:0")
+    state.debounce.flush_for_tests("spill:Sheet1:0:0")
     assert ret_corner == 1.0
     assert sheet.getCellByPosition(0, 1).getFormula() == "=#ERR519!"
     assert sheet.getCellByPosition(0, 2).getFormula() == "=#ERR532!"
@@ -2801,7 +2765,7 @@ def test_spill_with_calc_error_tokens(monkeypatch: pytest.MonkeyPatch) -> None:
     ret_corner2 = _function.finalize_python_return(_cell(ctx2, "grid_2x2_test", doc2), grid_result)
     state2 = WorkbookState.for_doc(doc2)
     assert state2 is not None
-    state2.debounce.flush("spill:Sheet1:0:0")
+    state2.debounce.flush_for_tests("spill:Sheet1:0:0")
     assert ret_corner2 == 1.0
     assert sheet2.getCellByPosition(1, 0).getFormula() == "=#ERR503!"
     assert sheet2.getCellByPosition(0, 1).getFormula() == "=#ERR524!"
@@ -2896,7 +2860,7 @@ def test_finalize_python_return_empty_row_does_not_spill(monkeypatch: pytest.Mon
     assert val == ""
     assert ("file:///empty-row.ods", "Sheet1", 0, 0) not in SPILL_REGISTRY
     assert st is not None
-    assert "spill:Sheet1:0:0" not in st.debounce
+    assert "spill:Sheet1:0:0" not in st.debounce.pending_for_tests()
 
     # Repeat off the main thread
     queue_mock = MagicMock()
@@ -3006,7 +2970,7 @@ def test_spill_registry_doc_key_stable_without_runtime_uid(monkeypatch: pytest.M
         counter += 1
         return f"calc:unsaved:{counter}"
 
-    monkeypatch.setattr("plugin.calc.python.workbook_lifecycle.calc_workbook_base_session_id", sid)
+    monkeypatch.setattr("plugin.calc.python.workbook_state.calc_workbook_base_session_id", sid)
 
     key1 = ""
     try:

@@ -26,7 +26,7 @@ def test_bootstrap_registers_settings_and_run_python(monkeypatch) -> None:
         lambda _ctx: None,
     )
     monkeypatch.setattr(
-        "plugin.calc.excel_py_convert.auto_open.install_excel_py_auto_convert",
+        "plugin.calc.python.workbook_lifecycle.install_global_document_event_listener",
         lambda _ctx: None,
     )
     try:
@@ -54,7 +54,7 @@ def test_bootstrap_defers_settings_import(monkeypatch) -> None:
         lambda _ctx: None,
     )
     monkeypatch.setattr(
-        "plugin.calc.excel_py_convert.auto_open.install_excel_py_auto_convert",
+        "plugin.calc.python.workbook_lifecycle.install_global_document_event_listener",
         lambda _ctx: None,
     )
     monkeypatch.setitem(sys.modules, "plugin.librepy.settings", None)
@@ -93,7 +93,7 @@ def test_bootstrap_reentry_returns_without_lock(monkeypatch) -> None:
         lambda _ctx: None,
     )
     monkeypatch.setattr(
-        "plugin.calc.excel_py_convert.auto_open.install_excel_py_auto_convert",
+        "plugin.calc.python.workbook_lifecycle.install_global_document_event_listener",
         lambda _ctx: None,
     )
     try:

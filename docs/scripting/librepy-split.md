@@ -684,7 +684,7 @@ Optional runtime guard: if core is missing, log a clear error and disable chat P
 2. Calls `init_logging` then `init_config(ctx)`
 3. Adds downloaded Cython pack binaries to `sys.path` ([`native_binaries.py`](../../plugin/scripting/native_binaries.py))
 4. Registers only core actions: `run_python_dialog`, `edit_python_cell`, `reset_python_session`, `insert_latex_dialog`, `vision.open_settings`, `textanalytics.open_dialog`, Settings → Python
-5. Installs the Calc cell context menu (CommandURL from `resolve_package_extension_id()` so LibrePy right-click is `org.extension.librepy:scripting.edit_python_cell`; `GlobalEventBroadcaster` so Calc windows opened after `OnStartApp` still get the interceptor) and Excel `=PY` auto-convert-on-open (best-effort)
+5. Installs the Calc cell context menu (CommandURL from `resolve_package_extension_id()` so LibrePy right-click is `org.extension.librepy:scripting.edit_python_cell`; `GlobalEventBroadcaster` so Calc windows opened after `OnStartApp` still get the interceptor) and the global document-event listener (geometric open, unload listener, Excel `=PY` convert/export, Collabora rewrite) (best-effort)
 6. Schedules the weekly update check
 
 Registered as `org.extension.librepy.Main` in [`extension-core/Jobs.xcu`](../extension-core/Jobs.xcu) and [`extension-core/META-INF/manifest.xml`](../extension-core/META-INF/manifest.xml). Do not re-add a filtered `main.py` for core.
@@ -848,7 +848,7 @@ Allowlist: [`scripts/librepy_bundle_paths.py`](../../scripts/librepy_bundle_path
 
 ### Layer 4 adds (~8 paths)
 
-`editor_host.py`, `editor_ipc.py`, `calc/python/editor.py`, `calc/python/formula_edit.py`, `calc/python/editor_context_menu.py`, `calc/python/workbook_lifecycle.py` (workbook `OnUnload` resets worker sessions), `venv/editor_main.py`, `calc/excel_py_convert/` (Excel Python-in-Excel → DAG `=PY` auto-convert on open; the CLI is WriterAgent-only)
+`editor_host.py`, `editor_ipc.py`, `calc/python/editor.py`, `calc/python/formula_edit.py`, `calc/python/editor_context_menu.py`, `calc/python/workbook_lifecycle.py` (workbook `OnUnload` resets worker sessions, and the global document-event listener), `venv/editor_main.py`, `calc/excel_py_convert/` (Excel Python-in-Excel → DAG `=PY` auto-convert on open; the CLI is WriterAgent-only)
 
 Dev reference only (not OXT): `contrib/scripting/assets/editor/*`
 
