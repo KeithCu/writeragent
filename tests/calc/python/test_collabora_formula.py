@@ -395,3 +395,14 @@ def test_maybe_rewrite_unlock_disposal_raises():
 
     with pytest.raises(DocumentDisposedError):
         maybe_rewrite_collabora_py_formulas(_DisposedUnlockDoc())
+
+
+def test_rewrite_edge_spellings_unchanged():
+    from plugin.calc.python.collabora_formula import rewrite_collabora_addin_prefix
+
+    g = "ORG.COLLABORAOFFICE.SHEET.ADDIN.PYTHONCOMPUTEFUNCTIONS.GETPY"
+    assert rewrite_collabora_addin_prefix("= " + g + '  ("x")') == '= PY("x")'
+    assert rewrite_collabora_addin_prefix("=" + g + "X(1)") == "=" + g + "X(1)"
+    assert rewrite_collabora_addin_prefix("=" + g + "THONX(1)") == "=" + g + "THONX(1)"
+    assert rewrite_collabora_addin_prefix(" { =  " + g.lower() + 'thon ("y"; A1)}') == ' { =  PYTHON("y"; A1)}'
+    assert rewrite_collabora_addin_prefix("=" + g) == "=" + g

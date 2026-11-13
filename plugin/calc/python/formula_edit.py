@@ -26,7 +26,7 @@ from plugin.framework.deal_shim import (
     inverse_ensure,
     str_bounded,
 )
-from plugin.calc.address_utils import is_cell_token, split_sheet_prefix
+from plugin.calc.address_utils import is_cell_token, parse_address, split_sheet_prefix
 
 # Sheet/A1 range tokens. Space and ``"`` are product (``My Sheet.A1``, quoted sheets).
 _RANGE_ADDR_CHARS = frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789.!:'$_ \"")
@@ -95,7 +95,8 @@ _MAX_PY_ALIAS_LEN = max(len(alias) for alias, _ in _PY_CALLS)
 _QUOTE_NORMALIZE = str.maketrans({"\u201c": '"', "\u201d": '"', "\u2018": "'", "\u2019": "'"})
 
 
-def _match_py_alias(raw: str, *, require_equals: bool) -> tuple[int, str] | None:
+def match_py_alias(raw: str, *, require_equals: bool) -> tuple[int, str] | None:
+    """The one alias recogniser, used by ``PyFormula`` and ``collabora_formula``."""
     # crosshair: off
     i = 0
     n = len(raw)
@@ -184,9 +185,9 @@ def normalize_formula_string(formula: str) -> str:
     raw = (formula or "").strip()
     if raw.startswith("{") and raw.endswith("}"):
         raw = raw[1:-1].strip()
-    if raw and not raw.startswith("=") and _match_py_alias(raw, require_equals=False) is not None:
+    if raw and not raw.startswith("=") and match_py_alias(raw, require_equals=False) is not None:
         raw = "=" + raw
-    matched = _match_py_alias(raw, require_equals=True)
+    matched = match_py_alias(raw, require_equals=True)
     if matched is None:
         return raw.translate(_QUOTE_NORMALIZE)
     start = matched[0]
@@ -378,7 +379,6 @@ def py_code_arg_is_cell_ref(code: str) -> bool:
     s = code.strip()
     if not s or ":" in s or "\n" in s:
         return False
-    from plugin.calc.address_utils import parse_address, split_sheet_prefix
 
     _sheet, rest = split_sheet_prefix(s)
     bare = rest.replace("$", "").strip()
@@ -411,7 +411,7 @@ class PyFormula:
     def open_end(raw: str, *, require_equals: bool) -> int | None:
         """Return index after the opening ``(`` of a PY/PYTHON call, or None."""
         # crosshair: off
-        matched = _match_py_alias(raw, require_equals=require_equals)
+        matched = match_py_alias(raw, require_equals=require_equals)
         return None if matched is None else matched[0]
 
     @staticmethod
@@ -420,7 +420,7 @@ class PyFormula:
     @inverse_ensure(lambda formula, result: _parts_result_ok(result))
     def parse(formula: str) -> PyFormula | None:
         raw = normalize_formula_string(formula)
-        matched = _match_py_alias(raw, require_equals=True)
+        matched = match_py_alias(raw, require_equals=True)
         if matched is None:
             return None
         inner_start, spelling = matched

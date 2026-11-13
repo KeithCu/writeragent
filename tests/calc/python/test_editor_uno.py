@@ -14,7 +14,7 @@ from plugin.tests.testing_utils import with_native_doc
 @with_native_doc("calc")
 def test_follow_ref_save_writes_code_cell_keeps_absolute_ref(ctx, doc):
     """Live Calc must keep $A$1 after follow-ref save (format_py_data_range strips $)."""
-    from plugin.calc.python.editor import _apply_cell_save, _resolve_code_ref_cell
+    from plugin.calc.python.editor import apply_cell_save, _resolve_code_ref_cell
     from plugin.calc.python.formula_edit import PyFormula, py_code_arg_is_cell_ref
 
     sheet = doc.getSheets().getByIndex(0)
@@ -35,7 +35,7 @@ def test_follow_ref_save_writes_code_cell_keeps_absolute_ref(ctx, doc):
     addr = resolved.getCellAddress()
     assert int(addr.Column) == 0 and int(addr.Row) == 0
 
-    result = _apply_cell_save(
+    result = apply_cell_save(
         doc,
         formula_cell,
         parsed_parts=parts,
@@ -77,7 +77,7 @@ def _py_cell_error_code(cell) -> int:
 @with_native_doc("calc")
 def test_follow_ref_save_empty_data_still_evaluates(ctx, doc):
     """Native follow save always sends Data: '' — rewriting =PY($A$1) must not 508."""
-    from plugin.calc.python.editor import _apply_cell_save
+    from plugin.calc.python.editor import apply_cell_save
     from plugin.calc.python.formula_edit import PyFormula, py_code_arg_is_cell_ref
 
     sheet = doc.getSheets().getByIndex(0)
@@ -93,7 +93,7 @@ def test_follow_ref_save_empty_data_still_evaluates(ctx, doc):
     assert parts is not None, before_formula
     assert py_code_arg_is_cell_ref(parts.code), parts.code
 
-    result = _apply_cell_save(
+    result = apply_cell_save(
         doc,
         formula_cell,
         parsed_parts=parts,
@@ -130,14 +130,14 @@ def _addr_tuple(cell):
 
 
 def _follow_save_live(doc, formula_cell, code_cell, new_code, data_binding_text):
-    from plugin.calc.python.editor import _apply_cell_save
+    from plugin.calc.python.editor import apply_cell_save
     from plugin.calc.python.formula_edit import PyFormula, py_code_arg_is_cell_ref
 
     stored = str(formula_cell.getFormula() or "")
     parts = PyFormula.parse(stored)
     assert parts is not None, stored
     assert py_code_arg_is_cell_ref(parts.code), parts.code
-    result = _apply_cell_save(
+    result = apply_cell_save(
         doc,
         formula_cell,
         parsed_parts=parts,

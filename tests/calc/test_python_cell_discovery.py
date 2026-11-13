@@ -7,7 +7,7 @@
 from __future__ import annotations
 
 from plugin.calc.python.cell_discovery import (
-    _MAX_PYTHON_CELLS_FOUND,
+    MAX_PYTHON_CELLS_FOUND,
     discover_python_cells_on_sheet,
     is_py_formula_text,
 )
@@ -84,20 +84,20 @@ def test_discover_python_cells_on_sheet_bulk_get_formulas():
 
 
 def test_discover_exact_100_is_not_truncated():
-    rows = tuple((f'=PY("x{i}")',) for i in range(_MAX_PYTHON_CELLS_FOUND))
+    rows = tuple((f'=PY("x{i}")',) for i in range(MAX_PYTHON_CELLS_FOUND))
     doc = CalcDocStub(data=rows)
     sheet = doc.getSheets().getByName("Sheet1")
     discovery = discover_python_cells_on_sheet(sheet)
-    assert len(discovery.cells) == _MAX_PYTHON_CELLS_FOUND
+    assert len(discovery.cells) == MAX_PYTHON_CELLS_FOUND
     assert discovery.truncated is False
 
 
 def test_discover_101st_sets_truncated():
-    rows = tuple((f'=PY("x{i}")',) for i in range(_MAX_PYTHON_CELLS_FOUND + 1))
+    rows = tuple((f'=PY("x{i}")',) for i in range(MAX_PYTHON_CELLS_FOUND + 1))
     doc = CalcDocStub(data=rows)
     sheet = doc.getSheets().getByName("Sheet1")
     discovery = discover_python_cells_on_sheet(sheet)
-    assert len(discovery.cells) == _MAX_PYTHON_CELLS_FOUND
+    assert len(discovery.cells) == MAX_PYTHON_CELLS_FOUND
     assert discovery.truncated is True
 
 
@@ -160,4 +160,32 @@ def test_scan_cap_sets_truncated(monkeypatch):
     discovery = cd.discover_python_cells_on_sheet(_Sheet())
     assert discovery.cells == []
     assert discovery.truncated is True
+
+
+def test_sheet_name_of_returns_empty_on_failure() -> None:
+    import plugin.calc.python.cell_discovery as cd
+
+    class FailingUNO:
+        def getName(self) -> str:
+            raise RuntimeError("DisposedException")
+
+    assert cd.sheet_name_of(FailingUNO()) == ""
+    assert cd.sheet_name_of(None) == ""
+
+    class EmptyName:
+        def getName(self) -> str:
+            return ""
+
+    assert cd.sheet_name_of(EmptyName()) == ""
+
+
+def test_discovery_of_nameless_sheet_finds_nothing() -> None:
+    import plugin.calc.python.cell_discovery as cd
+    from plugin.tests.testing_utils import CalcSheetStub
+
+    sheet = CalcSheetStub("")
+    sheet.getCellByPosition(0, 0).setFormula('=PY("1")')
+    discovery = cd.discover_python_cells_on_sheet(sheet)
+    assert discovery.cells == []
+    assert discovery.truncated is False
 
