@@ -16,60 +16,18 @@ from unittest.mock import MagicMock, patch
 import pytest
 from plugin.writer.locale.grammar_settings import GrammarProfile
 
-# --- UNO Mocks for non-native tests ---
-
-def _ensure_module(name: str) -> types.ModuleType:
-    mod = sys.modules.get(name)
-    if mod is None:
-        mod = types.ModuleType(name)
-        sys.modules[name] = mod
-    return mod
-
-lang = _ensure_module("com.sun.star.lang")
-ling = _ensure_module("com.sun.star.linguistic2")
-text_mod = _ensure_module("com.sun.star.text")
-setattr(lang, "Locale", type("Locale", (), {}))
-setattr(lang, "XServiceDisplayName", type("XServiceDisplayName", (), {}))
-setattr(lang, "XServiceInfo", type("XServiceInfo", (), {}))
-setattr(lang, "XServiceName", type("XServiceName", (), {}))
-setattr(lang, "XComponent", type("XComponent", (), {}))
-setattr(ling, "XProofreader", type("XProofreader", (), {}))
-setattr(ling, "XSupportedLocales", type("XSupportedLocales", (), {}))
-setattr(ling, "XLinguServiceEventBroadcaster", type("XLinguServiceEventBroadcaster", (), {}))
-setattr(text_mod, "TextMarkupType", type("TextMarkupType", (), {}))
-unohelper_mod = _ensure_module("unohelper")
-setattr(unohelper_mod, "Base", type("UnohelperBase", (object,), {}))
-setattr(
-    unohelper_mod,
-    "ImplementationHelper",
-    type(
-        "ImplementationHelper",
-        (),
-        {"addImplementation": lambda self, *_args, **_kwargs: None},
-    ),
-)
-
-# Mock uno module. Distinct structs per call so multi-error aErrors can be
-uno_mod = _ensure_module("uno")
-setattr(uno_mod, "createUnoStruct", MagicMock(side_effect=lambda *_args, **_kwargs: types.SimpleNamespace()))
-_orig_getConstantByName = getattr(uno_mod, "getConstantByName", None)
+uno_mod = sys.modules["uno"]
 
 
-def _safe_get_constant(name: str) -> Any:
-    # Delegate to the real uno implementation when present so other test suites
-    # sharing this worker process (e.g. Calc FormulaResult constants) are not clobbered.
-    if _orig_getConstantByName is not None and not isinstance(_orig_getConstantByName, MagicMock):
-        try:
-            return _orig_getConstantByName(name)
-        except Exception:
-            pass
-    if "PROOFREADING" in name:
-        return 4
-    return 1
+def _safe_get_constant(name: str) -> int:
+    return 4 if "PROOFREADING" in name else 1
 
 
-setattr(uno_mod, "getConstantByName", MagicMock(side_effect=_safe_get_constant))
-setattr(uno_mod, "getComponentContext", MagicMock())
+@pytest.fixture(autouse=True)
+def _stub_uno_calls(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(uno_mod, "createUnoStruct", MagicMock(side_effect=lambda *_a, **_k: types.SimpleNamespace()))
+    monkeypatch.setattr(uno_mod, "getConstantByName", MagicMock(side_effect=_safe_get_constant))
+    monkeypatch.setattr(uno_mod, "getComponentContext", MagicMock())
 
 
 def _proofreader_get_config_side_effect(

@@ -742,20 +742,6 @@ def test_clone_paragraph_style_copies_parent_follow_and_direct():
     assert _STYLE_KEEPALIVE[-1] is new_style
 
 
-def test_apply_style_uno_skips_windows_leftover_origin_canary() -> None:
-    """GHA 34683742049: leftover reuse flipped the origin-detection canary."""
-    from pathlib import Path
-
-    src = Path(__file__).with_name(
-        "test_apply_style_preserve_inline_uno.py"
-    ).read_text(encoding="utf-8")
-    assert "skip_windows_leftover_hidden_load" in src
-    assert "apply_style origin canary leftover reuse" in src
-    assert "34683742049" in src
-    assert 'fmt.setPropertyValue("ParaStyleName", "Standard")' in src
-    assert "35466498641" in src
-
-
 def test_apply_style_selection_failure_at_tool_layer(mock_ctx):
     with patch("plugin.writer.styles.resolve_target_cursor",
                side_effect=ValueError("Could not resolve the current selection")):

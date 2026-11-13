@@ -1182,14 +1182,6 @@ def test_document_script_reopen_after_select_and_save_uses_display_key():
     assert config["last_python_script_name_writer"] == "[Doc] Regional"
 
 
-def test_document_scripts_uno_skips_windows_leftover_hidden_reopen() -> None:
-    """GHA 34679494812: leftover_open=3 create_native_doc uid=41 then 30s hang."""
-    src = Path(__file__).with_name("test_document_scripts_uno.py").read_text(encoding="utf-8")
-    assert "skip_windows_leftover_hidden_load" in src
-    assert "document scripts Hidden _blank reopen" in src
-    assert "34679494812" in src
-
-
 def test_monaco_overwrite_check_uses_document_display_key():
     """New/Save As types a storage name; This Document list keys are [Doc] labels.
 

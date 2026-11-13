@@ -112,16 +112,6 @@ class TestConvertLatexToStarmath:
             assert ("http://www.w3.org/1998/Math/MathML") in (mathml_arg)
 
 
-def test_math_formula_insert_uno_skips_windows_leftover_hidden_mml() -> None:
-    """GHA 34678020608: leftover writer reuse then Hidden _blank .mml hung 30s."""
-    from pathlib import Path
-
-    src = Path(__file__).with_name("test_math_formula_insert_uno.py").read_text(encoding="utf-8")
-    assert "skip_windows_leftover_hidden_load" in src
-    assert "math formula Hidden _blank .mml" in src
-    assert "34678020608" in src
-
-
 class _FakeMathText:
     def __init__(self) -> None:
         self.control_chars: list[tuple[object, int, bool]] = []

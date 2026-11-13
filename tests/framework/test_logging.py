@@ -1252,7 +1252,8 @@ def test_rotate_if_large_second_thread_keeps_oversized_backup(tmp_path) -> None:
             if count <= 2:
                 if count == 2:
                     both_entered.set()
-                both_entered.wait(timeout=5.0)
+                # With the size recheck inside the lock only one thread gets here; this wait expires by design.
+                both_entered.wait(timeout=0.5)
             return size
 
         replace_count = 0

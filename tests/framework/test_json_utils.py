@@ -113,3 +113,21 @@ def test_safe_json_loads_repairs_latex_clash_before_subscript_or_digit() -> None
     assert safe_json_loads(r'{"x": "\\alpha_1"}') == {"x": "\\alpha_1"}
     # ``\alphax`` is not ``\alpha``. literal_eval keeps the bell from ``\a``.
     assert safe_json_loads(r'{"x": "\alphax"}') == {"x": "\alphax"}
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("True", True),
+        ("None", None),
+        ("'hi'", "hi"),
+        ("{'a': 0x10}", {"a": 16}),
+    ],
+)
+def test_python_literals_parse_in_the_literal_eval_stage(text: str, expected: object) -> None:
+    assert safe_json_loads(text, default="D") == expected
+
+
+def test_literal_eval_stage_rejects_non_json_types() -> None:
+    assert not isinstance(safe_json_loads("(1, 2)", default="d"), tuple)
+    assert safe_json_loads("b'hi'", default="d") == "d"

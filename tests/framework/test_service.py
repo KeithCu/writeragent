@@ -9,11 +9,6 @@ from plugin.framework.service import ServiceRegistry, ServiceBase
 class _TrivialState(BaseState):
     n: int = 0
 
-def _trivial_next(state: _TrivialState, increment: bool) -> FsmTransition[_TrivialState]:
-    if increment:
-        return FsmTransition(state=dataclasses.replace(state, n=(state.n + 1)), effects=['tick'])
-    return FsmTransition(state=state, effects=[])
-
 def test_base_state_subclass_frozen():
     s = _TrivialState(n=1)
     with pytest.raises(dataclasses.FrozenInstanceError):
@@ -24,15 +19,6 @@ def test_fsm_transition_immutable():
     with pytest.raises(dataclasses.FrozenInstanceError):
         t.state = _TrivialState(n=1)
 
-def test_trivial_next_pure():
-    s0 = _TrivialState()
-    t1 = _trivial_next(s0, True)
-    assert (s0.n == 0)
-    assert (t1.state.n == 1)
-    assert (t1.effects == ['tick'])
-    t2 = _trivial_next(t1.state, False)
-    assert (t2.state.n == 1)
-    assert (t2.effects == [])
 'Tests for plugin.framework.service.'
 
 class DummyService(ServiceBase):

@@ -5,13 +5,6 @@
 """Unit tests to verify math preservation during string expansion."""
 
 from unittest.mock import MagicMock, patch
-import sys
-
-# Mock UNO modules before any imports
-sys.modules['uno'] = MagicMock()
-sys.modules['com'] = MagicMock()
-sys.modules['com.sun.star'] = MagicMock()
-sys.modules['com.sun.star.text'] = MagicMock()
 
 from plugin.writer.html_import import (
     _insert_mixed_html_and_math_at_cursor,
