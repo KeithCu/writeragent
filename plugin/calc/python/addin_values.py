@@ -13,8 +13,8 @@ Cell outcomes for ``=PY()`` fall into four kinds:
   LibreOffice's ``GetDoubleErrorValue`` (``include/formula/errorcodes.hxx``) reads
   ``nan_parts.fraction_lo`` and ``ScInterpreter::PushDouble``
   (``sc/source/core/tool/interpr4.cxx``) turns it into a Calc error so ``ISERROR`` is true.
-- **Spill neighbour error or void**: ``coerce_spill_value`` records error metadata
-  and ``spill.perform_deferred_spill`` writes ``setDataArray`` of ``None`` (UNO void,
+- **Spill neighbour error or void**: ``coerce_spill_value`` returns a ``SpillValue``
+  with ``kind == "err"`` and ``spill.perform_deferred_spill`` writes ``setDataArray`` of ``None`` (UNO void,
   which ``lcl_PutDataArray`` in ``sc/source/ui/unoobj/cellsuno.cxx`` turns into
   ``FormulaError::NotAvailable`` / ``#N/A``) or ``=#ERRn!`` formulas.
 - **``"#SPILL!"`` text**: ``spill.prepare_auto_spill``, returned by
@@ -39,6 +39,7 @@ agree.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 import datetime
 import logging
 import math
@@ -248,6 +249,52 @@ def _calc_iso_datetime(dt: datetime.datetime) -> str:
     return dt.isoformat()
 
 
+def to_stdlib_temporal(val: Any) -> Any:
+    """Pandas / numpy temporal values as stdlib datetime, date, time, timedelta, None (missing)
+    or text (units finer than a microsecond); anything else is returned unchanged.
+
+    The formula cell shows temporals as ISO text because the add-in bridge returns one
+    scalar and a bare serial would display as a number; spill neighbours get day serials
+    plus a number format because they are ordinary cells.
+    """
+    # pd.NaT subclasses datetime but isoformat() raises; check before isinstance(..., datetime).
+    if type(val).__name__ in ("NaTType", "NAType"):
+        return None
+    if isinstance(val, (datetime.datetime, datetime.date, datetime.time, datetime.timedelta)):
+        return val
+    to_pydt = getattr(val, "to_pydatetime", None)
+    if callable(to_pydt):
+        try:
+            dt = to_pydt()
+            if isinstance(dt, (datetime.datetime, datetime.date)):
+                return dt
+        except (ValueError, TypeError):
+            pass
+    to_pytd = getattr(val, "to_pytimedelta", None)
+    if callable(to_pytd):
+        try:
+            td = to_pytd()
+            if isinstance(td, datetime.timedelta):
+                return td
+        except (ValueError, TypeError):
+            pass
+    kind = getattr(getattr(val, "dtype", None), "kind", None)
+    if kind in ("M", "m"):
+        item_fn = getattr(val, "item", None)
+        if callable(item_fn):
+            try:
+                item = item_fn()
+                if item is None:
+                    return None
+                if isinstance(item, (datetime.datetime, datetime.date, datetime.timedelta)):
+                    return item
+            except (ValueError, TypeError, OverflowError):
+                pass
+        text = str(val)
+        return None if text in ("NaT", "NaTType") else text
+    return val
+
+
 def to_calc_compatible(val: Any) -> float | str | tuple[Any, ...]:
     """Recursively convert Python values into LibreOffice Calc supported types.
 
@@ -259,11 +306,8 @@ def to_calc_compatible(val: Any) -> float | str | tuple[Any, ...]:
     Host LibreOffice Python has no pandas/numpy — temporal pandas types are duck-typed
     (Timestamp subclasses datetime; NaT is NaTType). Do not import pandas here.
     """
+    val = to_stdlib_temporal(val)
     if val is None:
-        return ""
-    # pd.NaT subclasses datetime but isoformat() raises; map missing to empty cell.
-    tname = type(val).__name__
-    if tname in ("NaTType", "NAType"):
         return ""
     # ScUnoAddInCall unpacks only double and string; map bool to 1.0/0.0 so logical formulas work.
     if isinstance(val, bool):
@@ -292,38 +336,6 @@ def to_calc_compatible(val: Any) -> float | str | tuple[Any, ...]:
     if isinstance(val, datetime.timedelta):
         # In Calc, time intervals are represented as fractional days (e.g. 1.0 = 24 hours)
         return val.total_seconds() / 86400.0
-    # np.datetime64 / timedelta64 (duck-typed; host may see these only if venv conversion was skipped)
-    kind = getattr(getattr(val, "dtype", None), "kind", None)
-    if kind == "M":
-        text = str(val)
-        return "" if text == "NaT" else text
-    if kind == "m":
-        to_pytd = getattr(val, "item", None)
-        if callable(to_pytd):
-            try:
-                item = to_pytd()
-                if isinstance(item, datetime.timedelta):
-                    return item.total_seconds() / 86400.0
-            except (ValueError, TypeError, OverflowError):
-                pass
-        text = str(val)
-        return "" if text in ("NaT", "NaTType") else text
-    to_pydt = getattr(val, "to_pydatetime", None)
-    if callable(to_pydt):
-        try:
-            dt = to_pydt()
-            if isinstance(dt, datetime.datetime):
-                return _calc_iso_datetime(dt)
-        except (ValueError, TypeError):
-            pass
-    to_pytd = getattr(val, "to_pytimedelta", None)
-    if callable(to_pytd):
-        try:
-            td = to_pytd()
-            if isinstance(td, datetime.timedelta):
-                return td.total_seconds() / 86400.0
-        except (ValueError, TypeError):
-            pass
     if hasattr(val, "__float__") and not isinstance(val, (bytes, list, tuple, dict, set)):
         try:
             f = float(val)  # type: ignore[arg-type]
@@ -384,67 +396,71 @@ def result_as_spill_grid(result: list[Any] | tuple[Any, ...]) -> list[list[Any]]
     return [[x] for x in result]
 
 
-def coerce_spill_value(val: Any, null_dt: datetime.date = datetime.date(1899, 12, 30)) -> tuple[Any, dict[str, Any]]:
-    """Convert raw grid cell value to Calc-compatible primitive plus temporal metadata.
+@dataclass(frozen=True, slots=True)
+class SpillValue:
+    """One =PY() spill neighbour, classified once.
 
-    Returns (calc_val, meta). meta always has ``is_temporal`` and ``is_empty``;
-    temporal values add ``input_category`` and ``serial``; Calc error values
-    add ``is_calc_error`` and ``error_code``.
+    calc_value is what setDataArray receives (float, str, or None for #N/A void).
+    kind is the registry kind SpillCell stores: "n" number, "s" text, "e" empty, "err" formula error.
+    temporal_category is "date" / "time" / "datetime" / "duration" when calc_value is a day
+    serial that should get a number format; None otherwise. error_code is the Calc
+    FormulaError when kind == "err".
     """
-    if val is None or type(val).__name__ in ("NaTType", "NAType"):
-        return "", {"is_temporal": False, "is_empty": True}
+
+    calc_value: Any
+    kind: str
+    temporal_category: str | None = None
+    error_code: int | None = None
+
+    @property
+    def registry_value(self) -> float | str | int | None:
+        """SpillCell.value: the number or text, the error code, or None for an empty cell."""
+        if self.kind == "err":
+            return self.error_code
+        if self.kind == "e":
+            return None
+        return self.calc_value
+
+
+_SPILL_EMPTY = SpillValue("", "e")
+
+
+def _spill_from_calc(calc_val: Any) -> SpillValue:
+    if isinstance(calc_val, float):
+        return SpillValue(calc_val, "n")
+    if isinstance(calc_val, str):
+        return SpillValue(calc_val, "s")
+    return SpillValue(calc_val, "e")
+
+
+def coerce_spill_value(val: Any, null_dt: datetime.date = datetime.date(1899, 12, 30)) -> SpillValue:
+    """Classify one raw grid cell value into a ``SpillValue`` record."""
+    val = to_stdlib_temporal(val)
+    if val is None:
+        return _SPILL_EMPTY
     if isinstance(val, int):
         # bool is an int. to_calc_compatible maps it to 1.0/0.0 and OverflowError to decimal text.
-        return to_calc_compatible(val), {"is_temporal": False, "is_empty": False}
+        return _spill_from_calc(to_calc_compatible(val))
     if isinstance(val, float):
-        return float(val), {"is_temporal": False, "is_empty": False}
+        return SpillValue(float(val), "n")
 
     if isinstance(val, datetime.datetime):
         dt = val.replace(tzinfo=None) if val.tzinfo is not None else val
-        serial = datetime_serial(dt, null_dt)
-        return serial, {"is_temporal": True, "input_category": "datetime", "serial": serial, "is_empty": False}
+        return SpillValue(datetime_serial(dt, null_dt), "n", "datetime")
 
     if isinstance(val, datetime.date):
-        serial = datetime_serial(val, null_dt)
-        return serial, {"is_temporal": True, "input_category": "date", "serial": serial, "is_empty": False}
+        return SpillValue(datetime_serial(val, null_dt), "n", "date")
 
     if isinstance(val, datetime.time):
-        serial = time_day_fraction(val)
-        return serial, {"is_temporal": True, "input_category": "time", "serial": serial, "is_empty": False}
+        return SpillValue(time_day_fraction(val), "n", "time")
 
     if isinstance(val, datetime.timedelta):
-        serial = val.total_seconds() / 86400.0
-        return serial, {"is_temporal": True, "input_category": "duration", "serial": serial, "is_empty": False}
-
-    # Duck-typed NumPy / Pandas types (np.datetime64, np.timedelta64)
-    kind = getattr(getattr(val, "dtype", None), "kind", None)
-    if kind == "M":
-        to_pydt = getattr(val, "item", None)
-        if callable(to_pydt):
-            try:
-                item = to_pydt()
-                if isinstance(item, (datetime.datetime, datetime.date)):
-                    return coerce_spill_value(item, null_dt)
-            except Exception:
-                log.debug("numpy datetime item() failed", exc_info=True)
-        text = str(val)
-        if text in ("NaT", "NaTType"):
-            return "", {"is_temporal": False, "is_empty": True}
-
-    if kind == "m":
-        to_pytd = getattr(val, "item", None)
-        if callable(to_pytd):
-            try:
-                item = to_pytd()
-                if isinstance(item, datetime.timedelta):
-                    return coerce_spill_value(item, null_dt)
-            except Exception:
-                log.debug("numpy timedelta item() failed", exc_info=True)
+        return SpillValue(val.total_seconds() / 86400.0, "n", "duration")
 
     if isinstance(val, str):
         stripped = val.strip()
         if not stripped:
-            return "", {"is_temporal": False, "is_empty": True}
+            return _SPILL_EMPTY
         err = _CALC_ERROR_TOKEN_CODES.get(stripped)
         if err is not None:
             # setDataArray of None maps in PyUNO to an empty Any (UNO void), which Calc's
@@ -454,12 +470,11 @@ def coerce_spill_value(val: Any, null_dt: datetime.date = datetime.date(1899, 12
             # For other codes, "" serves as an empty placeholder in setDataArray and perform_deferred_spill
             # assigns the formula f"=#ERR{code}!".
             if err == ERR_NA:
-                return None, {"is_temporal": False, "is_empty": False, "is_calc_error": True, "error_code": err}
-            return "", {"is_temporal": False, "is_empty": False, "is_calc_error": True, "error_code": err}
+                return SpillValue(None, "err", error_code=err)
+            return SpillValue("", "err", error_code=err)
         if match_iso_duration(stripped):
             try:
-                serial = duration_serial_from_iso(stripped)
-                return serial, {"is_temporal": True, "input_category": "duration", "serial": serial, "is_empty": False}
+                return SpillValue(duration_serial_from_iso(stripped), "n", "duration")
             except (ValueError, OverflowError):
                 pass
         cat = match_iso_temporal(stripped)
@@ -474,9 +489,9 @@ def coerce_spill_value(val: Any, null_dt: datetime.date = datetime.date(1899, 12
                 return coerce_spill_value(parsed, null_dt)
             except ValueError:
                 pass
-        return val, {"is_temporal": False, "is_empty": False}
+        return SpillValue(val, "s")
 
-    return to_calc_compatible(val), {"is_temporal": False, "is_empty": False}
+    return _spill_from_calc(to_calc_compatible(val))
 
 
 def spill_value_from_json(kind: str, value: Any) -> Any:

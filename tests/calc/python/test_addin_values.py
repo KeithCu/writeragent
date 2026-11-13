@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import datetime
 import logging
 import math
 import struct
@@ -183,3 +184,94 @@ def test_format_addin_error_for_display_keeps_host_wording() -> None:
     )
     assert out == "Error: marshal post timed out: AsyncCallback unavailable"
     assert "Settings" not in out
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected_calc", "expected_kind", "expected_cat", "expected_err", "expected_reg"),
+    [
+        (None, "", "e", None, None, None),
+        ("", "", "e", None, None, None),
+        ("  ", "", "e", None, None, None),
+        (True, 1.0, "n", None, None, 1.0),
+        (7, 7.0, "n", None, None, 7.0),
+        (10**400, str(10**400), "s", None, None, str(10**400)),
+        (123.45, 123.45, "n", None, None, 123.45),
+        ("Hello World", "Hello World", "s", None, None, "Hello World"),
+        ("#N/A", None, "err", None, 32767, 32767),
+        ("#VALUE!", "", "err", None, 519, 519),
+        (datetime.date(2026, 8, 8), 46242.0, "n", "date", None, 46242.0),
+        (datetime.datetime(2026, 8, 8, 12), 46242.5, "n", "datetime", None, 46242.5),
+        (
+            datetime.datetime(2026, 8, 8, 12, tzinfo=datetime.timezone.utc),
+            46242.5,
+            "n",
+            "datetime",
+            None,
+            46242.5,
+        ),
+        (datetime.time(12), 0.5, "n", "time", None, 0.5),
+        (datetime.timedelta(hours=30), 1.25, "n", "duration", None, 1.25),
+        ("2026-08-08", 46242.0, "n", "date", None, 46242.0),
+        ("2026-08-08T12:00:00", 46242.5, "n", "datetime", None, 46242.5),
+        ("2026-08-08 12:00:00", 46242.5, "n", "datetime", None, 46242.5),
+        ("12:30:00", 45000.0 / 86400.0, "n", "time", None, 45000.0 / 86400.0),
+        ("PT30H", 1.25, "n", "duration", None, 1.25),
+        ("2026-02-30", "2026-02-30", "s", None, None, "2026-02-30"),
+    ],
+)
+def test_coerce_spill_value_record(
+    raw: Any,
+    expected_calc: Any,
+    expected_kind: str,
+    expected_cat: str | None,
+    expected_err: int | None,
+    expected_reg: Any,
+) -> None:
+    rec = addin_values.coerce_spill_value(raw)
+    if isinstance(expected_calc, float):
+        assert rec.calc_value == pytest.approx(expected_calc, rel=1e-9, abs=1e-9)
+        assert rec.registry_value == pytest.approx(expected_reg, rel=1e-9, abs=1e-9)
+    else:
+        assert rec.calc_value == expected_calc
+        assert rec.registry_value == expected_reg
+    assert rec.kind == expected_kind
+    assert rec.temporal_category == expected_cat
+    assert rec.error_code == expected_err
+
+
+def test_to_stdlib_temporal_and_both_ladders() -> None:
+    np = pytest.importorskip("numpy")
+    pd = pytest.importorskip("pandas")
+
+    assert addin_values.to_stdlib_temporal(pd.NaT) is None
+    assert addin_values.to_stdlib_temporal(pd.NA) is None
+    assert addin_values.to_stdlib_temporal(np.datetime64("NaT")) is None
+    assert addin_values.to_stdlib_temporal(np.timedelta64("NaT")) is None
+
+    assert addin_values.to_stdlib_temporal(np.datetime64("2026-06-25")) == datetime.date(2026, 6, 25)
+    assert addin_values.to_stdlib_temporal(np.datetime64("2026-06-25T00:00:00.500", "ms")) == datetime.datetime(
+        2026, 6, 25, 0, 0, 0, 500000
+    )
+    ns_dt = np.datetime64("2026-06-25T00:00:00.500", "ns")
+    assert addin_values.to_stdlib_temporal(ns_dt) == str(ns_dt)
+    assert addin_values.to_stdlib_temporal(np.timedelta64(36, "h")) == datetime.timedelta(hours=36)
+    assert addin_values.to_stdlib_temporal(np.timedelta64(500, "ns")) == "500 nanoseconds"
+
+    ts = pd.Timestamp("2026-06-25 12:00:00")
+    assert addin_values.to_stdlib_temporal(ts) is ts
+    assert addin_values.to_stdlib_temporal(5) == 5
+
+    assert addin_values.to_calc_compatible(np.datetime64("2026-06-25")) == "2026-06-25"
+    assert addin_values.to_calc_compatible(np.timedelta64(36, "h")) == 1.5
+
+    date_rec = addin_values.coerce_spill_value(np.datetime64("2026-06-25"))
+    assert date_rec.kind == "n"
+    assert date_rec.temporal_category == "date"
+
+    nat_rec = addin_values.coerce_spill_value(pd.NaT)
+    assert nat_rec.kind == "e"
+    assert nat_rec.calc_value == ""
+
+    ns_rec = addin_values.coerce_spill_value(ns_dt)
+    assert ns_rec.kind == "s"
+    assert ns_rec.calc_value == str(ns_dt)

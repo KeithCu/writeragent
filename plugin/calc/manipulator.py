@@ -47,6 +47,7 @@ else:
 
 from plugin.calc.address_utils import MAX_COL, MAX_ROW, column_to_index, format_range, index_to_column
 from plugin.calc.array_formula import MAX_ARRAY_CELLS, plan_target, returns_array
+from plugin.calc.calc_utils import elapsed_format_key, resolve_document_locale
 from plugin.calc.formula_fill import expand_single_formula
 from plugin.calc.datetime_wire import (
     format_category_from_type,
@@ -453,26 +454,10 @@ class CellManipulator:
             self._set_number_format(target, number_format)
         log.info("%s style updated.", address_or_range.upper())
 
-    @staticmethod
-    def _resolve_document_locale(doc: Any) -> Any:
-        """Return document CharLocale, or en-US when Language is empty/unusable."""
-        import uno
-
-        try:
-            locale = doc.getPropertyValue("CharLocale")
-            language = getattr(locale, "Language", None) or ""
-            if language:
-                return locale
-        except Exception as e:
-            if is_disposal(e):
-                raise
-            log.debug("CharLocale unavailable; using en-US fallback", exc_info=True)
-        return uno.createUnoStruct("com.sun.star.lang.Locale", Language="en", Country="US", Variant="")
-
     def _set_number_format(self, target: Any, format_str: str) -> None:
         doc = self.bridge.doc
         formats = doc.getNumberFormats()
-        locale = self._resolve_document_locale(doc)
+        locale = resolve_document_locale(doc)
         format_id = formats.queryKey(format_str, locale, False)
         if format_id == -1:
             format_id = formats.addNew(format_str, locale)
@@ -590,19 +575,6 @@ class CellManipulator:
         formatter = smgr.createInstanceWithContext("com.sun.star.util.NumberFormatter", uno_ctx)
         formatter.attachNumberFormatsSupplier(unwrap_uno(doc))
         return formatter
-
-    def _resolve_elapsed_format_key(self, formats: Any, locale: Any) -> int:
-        """Built-in ``[HH]:MM:SS`` key (formatindex 43), with queryKey/addNew fallback."""
-        try:
-            return int(formats.getFormatIndex(43, locale))
-        except Exception as e:
-            if is_disposal(e):
-                raise
-            log.debug("getFormatIndex(43) failed; falling back to queryKey", exc_info=True)
-        key = formats.queryKey("[HH]:MM:SS", locale, False)
-        if key == -1:
-            key = formats.addNew("[HH]:MM:SS", locale)
-        return int(key)
 
     def _classify_write_cell(
         self,
@@ -1112,7 +1084,7 @@ class CellManipulator:
 
             doc = self.bridge.doc
             formats = doc.getNumberFormats()
-            locale = self._resolve_document_locale(doc)
+            locale = resolve_document_locale(doc)
             std_key = formats.getStandardIndex(locale)
             # OCR grids must not be scanned as dates or numbers. literal_text
             # commits with setString below.
@@ -1123,13 +1095,13 @@ class CellManipulator:
                 needs_formatter = any(match_iso_temporal(v) for v in cands)
                 needs_duration = any(match_iso_duration(v) for v in cands)
             formatter = self._make_number_formatter(doc) if needs_formatter else None
-            elapsed_format_key = self._resolve_elapsed_format_key(formats, locale) if needs_duration else None
+            elapsed_key = elapsed_format_key(formats, locale) if needs_duration else None
 
             cell_metas = self.plan_writes(
                 values,
                 formatter,
                 std_key,
-                elapsed_format_key=elapsed_format_key,
+                elapsed_format_key=elapsed_key,
                 literal_text=literal_text,
                 data_text=data_text,
             )
