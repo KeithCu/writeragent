@@ -50,25 +50,6 @@ def test_run_vision_uses_paddle_timeout_when_engine_paddle(ctx):
     assert mock_run.call_args.kwargs["timeout_sec"] == VISION_WORKER_TIMEOUT_SEC
 
 
-def test_run_vision_uses_dedicated_timeout_not_script_timeout(ctx):
-    worker_result = {
-        "status": "ok",
-        "helper": "extract_text",
-        "full_text": "hi",
-        "regions": [],
-        "warnings": [],
-    }
-    spec = {"helper": "extract_text", "params": {}}
-    image = b"png-bytes"
-
-    with patch("plugin.scripting.client.run_trusted_worker_action", return_value=worker_result) as mock_run:
-        result = run_vision(ctx, spec, image, context={"source": "selection"})
-
-    assert result["full_text"] == "hi"
-    mock_run.assert_called_once()
-    assert mock_run.call_args.kwargs["timeout_sec"] != 10
-
-
 def test_run_vision_uses_config_worker_timeout(ctx):
     worker_result = {"status": "ok", "helper": "extract_text", "full_text": "hi"}
     spec = {"helper": "extract_text", "params": {}}

@@ -24,30 +24,26 @@ def test_isolated_rps_pins_document():
 
 
 def test_reset_python_session_action_in_background():
-    from unittest.mock import patch
-    import plugin.framework.main_shared
+    from unittest.mock import MagicMock, patch
+    from plugin.menu_handlers import register_common_handlers
 
-    with patch("plugin.framework.worker_pool.run_in_background") as m_run, patch("plugin.framework.main_shared.register_action_handler") as m_reg:
-        import importlib
+    registered = {}
+    with (
+        patch("plugin.framework.uno_context.get_ctx", return_value=MagicMock()),
+        patch("plugin.framework.worker_pool.run_in_background") as m_run,
+        patch(
+            "plugin.menu_handlers.register_action_handler",
+            side_effect=lambda mod, act, fn: registered.__setitem__((mod, act), fn),
+        ),
+    ):
+        register_common_handlers()
+        reset_func = registered[("scripting", "reset_python_session")]
+        reset_func()
 
-        try:
-            importlib.reload(plugin.framework.main_shared)
-        except Exception:
-            pass
-
-        reset_func = None
-        for call in m_reg.mock_calls:
-            if call.args[0] == "scripting" and call.args[1] == "reset_python_session":
-                reset_func = call.args[2]
-                break
-
-        if reset_func:
-            reset_func()
-            # We used a lambda, we can't assert the function easily, we just check call
-            m_run.assert_called_once()
-            args, kwargs = m_run.call_args
-            assert kwargs["name"] == "reset-python-session"
-            assert callable(args[0])
+    m_run.assert_called_once()
+    args, kwargs = m_run.call_args
+    assert kwargs["name"] == "reset-python-session"
+    assert callable(args[0])
 
 
 def test_prepare_rps_session_failure_logs_prepare_not_execute(caplog):

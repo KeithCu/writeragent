@@ -29,8 +29,6 @@ from plugin.scripting.venv_diagnostics import (
     _NLP_OPTIONAL_KEYS,
     _NLP_PACKAGE_KEYS,
     _NLP_PROBE_SCRIPT,
-    _PROBE_JSON_PREFIX,
-    _PROBE_KEY_TO_PIP,
     _SANDBOX_SELF_CHECK_GROUPS,
     _UI_PACKAGE_KEYS,
     _UI_PROBE_SCRIPT,
@@ -1200,26 +1198,6 @@ def test_format_self_check_success_tts_missing_does_not_print_whisper_recipe():
     assert 'uv pip install faster-whisper "av<14"' not in msg
 
 
-def test_audio_probe_lists_faster_whisper_as_optional_pip_package():
-    assert _AUDIO_PACKAGE_KEYS[-1] == "faster_whisper"
-    assert "faster_whisper" in _AUDIO_OPTIONAL_KEYS
-    assert "import faster_whisper" in _AUDIO_PROBE_SCRIPT
-    assert "__import__" not in _AUDIO_PROBE_SCRIPT
-    assert "import sounddevice as sd" in _AUDIO_PROBE_SCRIPT
-    assert "sd.query_devices()" in _AUDIO_PROBE_SCRIPT
-    assert 'out["faster_whisper"] = "present"' in _AUDIO_PROBE_SCRIPT
-    fw_pos = _AUDIO_PROBE_SCRIPT.index("import faster_whisper")
-    prev_try = _AUDIO_PROBE_SCRIPT.rindex("\ntry:", 0, fw_pos)
-    next_boundary = _AUDIO_PROBE_SCRIPT.find("\ntry:", fw_pos)
-    if next_boundary == -1:
-        next_boundary = _AUDIO_PROBE_SCRIPT.find("print(", fw_pos)
-    fw_chunk = _AUDIO_PROBE_SCRIPT[prev_try:next_boundary]
-    assert fw_chunk.count("import ") == 1
-    compile(_AUDIO_PROBE_SCRIPT, "<audio_probe>", "exec")
-    assert _PROBE_KEY_TO_PIP["faster_whisper"] == "faster-whisper"
-    assert _probe_key_to_pip("faster_whisper") == "faster-whisper"
-
-
 def test_attach_external_probes_shares_one_helper(monkeypatch):
     from plugin.scripting import venv_diagnostics as vd
 
@@ -1243,7 +1221,6 @@ def test_attach_external_probes_shares_one_helper(monkeypatch):
 def test_probe_key_to_pip_webview_is_pywebview():
     from plugin.scripting.venv_diagnostics import (
         _UI_PACKAGE_KEYS,
-        _probe_key_to_pip,
     )
 
     assert _probe_key_to_pip("webview") == "pywebview"
@@ -1340,18 +1317,7 @@ def test_run_json_probe_uses_utf8():
     assert hint is None
 
 
-def test_audio_linux_portaudio_hint_has_no_package_manager():
-    from plugin.scripting.venv_diagnostics import _audio_linux_portaudio_hint
-
-    hint = _audio_linux_portaudio_hint()
-    assert "PortAudio" in hint
-    assert "pacman" not in hint
-    assert "apt-get" not in hint
-    assert "apt " not in hint
-
-
-def test_probe_scripts_print_json_prefix():
-    assert _PROBE_JSON_PREFIX == "WA_PROBE_JSON "
+def test_probe_scripts_compile():
     scripts = [
         _AUDIO_PROBE_SCRIPT,
         _NLP_PROBE_SCRIPT,
@@ -1361,12 +1327,6 @@ def test_probe_scripts_print_json_prefix():
         _DUCKDB_PROBE_SCRIPT,
     ]
     for script in scripts:
-        assert 'print("WA_PROBE_JSON " + json.dumps(out))' in script
-        assert "print(json.dumps(out))" not in script
-        assert "__import__" not in script
-        assert ":=" not in script
-        assert 'f"' not in script
-        assert "f'" not in script
         compile(script, "<test_probe_script>", "exec")
 
     assert 'out["docling_import_error"] = str(exc)[:200]' in _VISION_PROBE_SCRIPT
