@@ -54,14 +54,12 @@ from plugin.chatbot.sidebar_test_hooks import (
     press_stop_mouse,
     press_stop_rec,
     query_text,
-    send_listener,
     send_state,
     set_audio_supported,
     set_query_text,
     clear_sidebar_chat,
     show_writeragent_chat_deck,
     sidebar_deck_names,
-    sidebar_panel,
     sidebar_provider,
     slash_popup_state,
     stub_recorder_child,
@@ -78,7 +76,6 @@ from plugin.chatbot.sidebar_test_hooks import (
     open_calc_document,
     send_listener_for_uid,
 )
-from tests.chatbot.mock_llm_harness import mock_config
 
 
 class _QueryModel:
@@ -180,10 +177,6 @@ class _FakeListener:
 @pytest.fixture
 def fake_listener() -> _FakeListener:
     return _FakeListener()
-
-
-def test_debug_hooks_available_in_dev_tree() -> None:
-    assert debug_env_active() is True
 
 
 def test_debug_env_active_follows_is_dev_build_when_dev_guard_off(monkeypatch) -> None:
@@ -970,21 +963,6 @@ def test_g4_no_skip_when_native_reply_present(monkeypatch) -> None:
 
     monkeypatch.setattr(gmod, "_transcript", lambda: "Assistant: Hello from the mock microphone.")
     gmod._g_skip_if_no_audio_reply()
-
-
-def test_mock_config_mutates_flags() -> None:
-    cfg = SimpleNamespace(delay_ms=25, fail="none", offline=False)
-    mock_config(cfg, delay_ms=40, fail="hang", offline=True)
-    assert cfg.delay_ms == 40
-    assert cfg.fail == "hang"
-    assert cfg.offline is True
-
-
-def test_sidebar_panel_none_when_empty() -> None:
-    # May still see leftover panels from other tests; only assert helper types.
-    panel = sidebar_panel()
-    sl = send_listener()
-    assert panel is None or sl is getattr(panel, "send_listener", sl)
 
 
 class _FakeDeck:

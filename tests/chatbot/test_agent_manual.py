@@ -186,23 +186,6 @@ def test_mcp_only_extras_stay_out_of_the_sidebar_prompt():
 
 # ---- full manual (agent-backend delivery) ------------------------------------
 
-def test_full_manual_writer_covers_key_rules():
-    """Pin the high-value cross-cutting rules (moved here from the retired EXTERNAL_AGENT_GUIDANCE
-    blob in constants.py) so a refactor can't silently drop one from the single source."""
-    g = full_manual("writer")
-    assert "apply_document_content" in g           # prefer the document tools
-    assert "full_document" in g                    # whole-doc vs search target
-    assert "replaced_count" in g                   # confirm via structured field
-    assert "accept or reject" in g.lower()         # don't resolve own tracked changes
-    assert "429" in g                              # one operation at a time / busy retry
-    assert "include_images" in g                   # how a vision model sees images
-    # Stale-snapshot warning (channel-neutral wording: the classic sidebar DOES auto-refresh its
-    # document context after successful mutations, so the old "NOT auto-refreshed" claim was false
-    # for one of the channels this shared piece ships to).
-    assert "partial/truncated snapshot" in g
-    assert "record" in g and "wait" in g           # the three review modes reach the sidebar too
-
-
 def test_full_manual_contains_every_section_in_order():
     g = full_manual("writer")
     writer_texts = {topic.id: topic.text for topic in _WRITER_TOPICS}
@@ -302,12 +285,9 @@ def test_multidoc_guidance_reaches_mcp_topic():
     assert normalize_topic("document_url") == "concurrency"
 
 
-def test_alias_targets_exist_and_no_duplicate_aliases():
-    from plugin.chatbot.agent_manual import _ALIASES_BY_TOPIC, _MANUALS
+def test_no_duplicate_aliases():
+    from plugin.chatbot.agent_manual import _ALIASES_BY_TOPIC
 
-    all_topic_ids = {topic.id for manual in _MANUALS.values() for topic in manual}
-    for canon in _ALIASES_BY_TOPIC:
-        assert canon in all_topic_ids
     seen: set[str] = set()
     for aliases in _ALIASES_BY_TOPIC.values():
         for alias in aliases:

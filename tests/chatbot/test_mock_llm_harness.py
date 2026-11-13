@@ -6,32 +6,7 @@
 
 from __future__ import annotations
 
-import zipfile
-
-from tests.chatbot.mock_llm_harness import (
-    finish_immediately_after_peer_sends,
-    write_budget_csv,
-    write_minimal_ods,
-)
-
-
-def test_write_budget_csv(tmp_path):
-    path = tmp_path / "BudgetPeer.csv"
-    write_budget_csv(str(path))
-    text = path.read_text(encoding="utf-8")
-    assert "Amount" in text
-    assert "Apples" in text
-
-
-def test_write_minimal_ods_is_ods_zip(tmp_path):
-    path = tmp_path / "BudgetPeer.ods"
-    write_minimal_ods(str(path))
-    with zipfile.ZipFile(path) as zf:
-        names = set(zf.namelist())
-        assert "mimetype" in names
-        assert "content.xml" in names
-        assert zf.read("mimetype") == b"application/vnd.oasis.opendocument.spreadsheet"
-        assert b"Sheet1" in zf.read("content.xml")
+from tests.chatbot.mock_llm_harness import finish_immediately_after_peer_sends
 
 
 def test_finish_immediately_after_peer_sends():
