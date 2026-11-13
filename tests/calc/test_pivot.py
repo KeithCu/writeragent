@@ -13,6 +13,7 @@ import pytest
 from plugin.calc.pivot import AVERAGE, CreatePivotTable, DeletePivotTable, ListPivotTables, RefreshPivotTable
 from plugin.framework.errors import UnoObjectError, name_miss_details
 from plugin.framework.tool import ToolContext, ToolRegistry
+from plugin.tests.testing_utils import FakeUndoManager
 
 
 class DisposedException(Exception):
@@ -270,7 +271,7 @@ def test_pivot_table_create_header_and_row_validation():
     assert "Header cell in column 2 of source range is empty" in res["message"]
 
 
-def test_pivot_table_create_cleanup_on_rename_or_refresh_failure():
+def test_pivot_table_create_undoes_insert_on_rename_or_refresh_failure():
     src_range = MagicMock()
     src_range.getRangeAddress.return_value = SimpleNamespace(Sheet=0, StartColumn=0, StartRow=0, EndColumn=1, EndRow=3)
     cells = [_make_mock_cell("Region"), _make_mock_cell("Sales")]
@@ -280,8 +281,6 @@ def test_pivot_table_create_cleanup_on_rename_or_refresh_failure():
     dest_cell.getRangeAddress.return_value = SimpleNamespace(Sheet=0, StartColumn=5, StartRow=0, EndColumn=5, EndRow=0)
 
     dp_tables = MagicMock()
-    # Before insert: (), after insert: ("MyPivot_2",) -> collision auto-rename
-    dp_tables.getElementNames.side_effect = [(), ("MyPivot_2",)]
     dp_tables.hasByName.return_value = False
 
     desc = MagicMock()
@@ -296,6 +295,8 @@ def test_pivot_table_create_cleanup_on_rename_or_refresh_failure():
     dest_sheet = _sheet("Sheet1", dp=dp_tables)
     doc = _doc(dest_sheet)
     doc.getSheets().getElementNames.side_effect = lambda: ()
+    fake_undo = FakeUndoManager()
+    doc.getUndoManager.return_value = fake_undo
 
     with patch("plugin.calc.pivot.CalcBridge") as bridge_cls:
         bridge = bridge_cls.return_value
@@ -311,7 +312,42 @@ def test_pivot_table_create_cleanup_on_rename_or_refresh_failure():
         )
 
     assert res["status"] == "error"
-    dp_tables.removeByName.assert_called_once_with("MyPivot_2")
+    assert "was not created" in res["message"]
+    dp_tables.removeByName.assert_not_called()
+    assert fake_undo.undone == 1
+
+    # Refresh failure undoes the insert instead of calling removeByName
+    dpt = MagicMock()
+    dpt.refresh.side_effect = RuntimeError("refresh boom")
+    tbl = MagicMock()
+    tbl.queryInterface.return_value = dpt
+    dp_refresh = MagicMock()
+    dp_refresh.hasByName.return_value = True
+    dp_refresh.getByName.return_value = tbl
+    dp_refresh.createDataPilotDescriptor.return_value = desc
+    dest_sheet2 = _sheet("Sheet1", dp=dp_refresh)
+    doc2 = _doc(dest_sheet2)
+    doc2.getSheets().getElementNames.side_effect = lambda: ()
+    fake_undo2 = FakeUndoManager()
+    doc2.getUndoManager.return_value = fake_undo2
+
+    with patch("plugin.calc.pivot.CalcBridge") as bridge_cls:
+        bridge = bridge_cls.return_value
+        bridge.resolve_range_or_address.side_effect = lambda ref: src_range if "A1:B4" in ref else dest_cell
+
+        res2 = _run(
+            doc2,
+            "pivot_table_create",
+            name="MyPivot",
+            source_range="A1:B4",
+            destination_cell="F1",
+            data_fields=["Sales"],
+        )
+
+    assert res2["status"] == "error"
+    assert "Failed to refresh new pivot table" in res2["message"]
+    dp_refresh.removeByName.assert_not_called()
+    assert fake_undo2.undone == 1
 
 
 def test_pivot_table_refresh_and_delete():

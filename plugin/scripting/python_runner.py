@@ -252,9 +252,9 @@ def format_result_for_writer(result: Any) -> str:
 def insert_result_into_calc(doc: Any, uno_ctx: Any, result: Any) -> None:
     """Insert the result of a Python script into a Calc document.
 
-    Formats structured and tabular data via HTML and inserts via controller
-    transferable paste (insert_cell_html_rich). This registers a native C++
-    ScUndo action in LibreOffice Calc, allowing single-step Ctrl+Z undo.
+    Formats structured and tabular data via HTML and inserts via
+    ``insert_cell_html_rich``, whose ``UndoStepOrRollback`` bracket groups
+    the cell clear and transferable paste into a single Ctrl+Z step.
     """
     if result is None:
         return

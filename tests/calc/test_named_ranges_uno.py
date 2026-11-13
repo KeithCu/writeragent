@@ -266,3 +266,42 @@ def test_create_from_titles_from_named_range(ctx, doc):
         for name in ("Table", "ColAlpha", "ColBeta"):
             if named_ranges.hasByName(name):
                 named_ranges.removeByName(name)
+
+
+@native_test
+@with_native_doc("calc")
+def test_named_range_edit_is_one_undo_step_uno(ctx, doc):
+    from plugin.doc.compound_undo import undo_titles
+
+    named_ranges = doc.NamedRanges
+    for name in ("UndoOld", "UndoNew"):
+        if named_ranges.hasByName(name):
+            named_ranges.removeByName(name)
+
+    res_add = _execute_calc_tool(doc, ctx, "named_range_add", {"name": "UndoOld", "content": "$Sheet1.$A$1:$B$2"})
+    assert res_add.get("status") == "ok"
+    try:
+        before = undo_titles(doc)
+        assert before is not None
+
+        res = _execute_calc_tool(
+            doc,
+            ctx,
+            "named_range_edit",
+            {"name": "UndoOld", "new_name": "UndoNew", "content": "$Sheet1.$C$3:$D$4", "flags": ["print_area"]},
+        )
+        assert res.get("status") == "ok"
+
+        after = undo_titles(doc)
+        assert after is not None
+        delta = after[: len(after) - len(before)]
+        assert delta == ("WriterAgent: Edit named range",)
+
+        doc.getUndoManager().undo()
+        assert named_ranges.hasByName("UndoOld")
+        assert not named_ranges.hasByName("UndoNew")
+        assert named_ranges.getByName("UndoOld").getContent() == "$Sheet1.$A$1:$B$2"
+    finally:
+        for name in ("UndoOld", "UndoNew"):
+            if named_ranges.hasByName(name):
+                named_ranges.removeByName(name)

@@ -79,7 +79,7 @@ class CellInspector:
 
     @staticmethod
     def _format_meta(format_key: Any, categories: NumberFormatCategories) -> tuple[str | None, str | None]:
-        """Resolve one number-format key to (category, FormatString), caching across groups.
+        """Resolve one number-format key to (category, FormatString) through the caller's NumberFormatCategories; one instance per read shares the lookups across groups.
 
         Elapsed formats report Type TIME but use bracketed units (``[HH]``, …).
         Those enrich as ``duration`` (``PT30H``) so values >= 1.0 are not truncated.
