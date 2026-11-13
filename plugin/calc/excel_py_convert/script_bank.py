@@ -25,6 +25,7 @@ from typing import TYPE_CHECKING, Any, Callable, Sequence
 from plugin.calc.address_utils import canonical, is_cell_token
 from plugin.calc.excel_py_convert.ooxml_util import find_all, find_child
 from plugin.calc.python.formula_edit import PyFormula
+from plugin.calc.python.xl_static_rewrite import P_TOKEN_RE
 
 if TYPE_CHECKING:
     import zipfile
@@ -48,8 +49,6 @@ CODE_SHEET_NOTE = (
 )
 
 _SAFE_SHEET = re.compile(r"[^\w]+", re.UNICODE)
-# Binding-only sandbox xl accepts "%Pn%" strings (same as excel_xl.make_xl).
-_P_TOKEN_RE = re.compile(r"^%P(\d+)%$", re.IGNORECASE)
 
 
 def code_sheet_name_for(source_sheet: str) -> str:
@@ -180,6 +179,7 @@ def collect_safety_warnings(code: str) -> list[str]:
         warnings.append(f"source is not parseable: {exc}")
         return warnings
 
+    # Cross-app, and it loads the smolagents executor; only scripts being converted need it.
     from plugin.scripting.sandbox import build_sandbox_policy, import_authorized, policy_blocked_imports
 
     blocked = policy_blocked_imports(build_sandbox_policy())
@@ -196,20 +196,22 @@ def collect_safety_warnings(code: str) -> list[str]:
             if is_blocked(node.module):
                 warnings.append(f"import is blocked by the Python sandbox: {node.module}")
         elif isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "xl":
-            # xl("%Pn%") is the intentional sandbox bridge; warn on live reads/dynamic forms.
+            # xl("%Pn%") is the intentional sandbox bridge (pattern owned by xl_static_rewrite.P_TOKEN_RE); warn on live reads/dynamic forms.
             ref = node.args[0] if node.args else None
             if not (
                 isinstance(ref, ast.Constant)
                 and isinstance(ref.value, str)
-                and _P_TOKEN_RE.match(ref.value.strip())
+                and P_TOKEN_RE.match(ref.value.strip())
             ):
                 warnings.append('non-binding xl() call (sandbox xl only resolves "%Pn%" formula bindings; no live sheet reads)')
     return list(dict.fromkeys(warnings))
 
 
-def report_safety_warnings(report: ConversionReport) -> list[str]:
-    """Flatten per-cell safety warnings for logging (does not fail conversion)."""
-    out: list[str] = []
+def add_safety_warnings(report: ConversionReport) -> None:
+    """Append per-cell sandbox advisories to ``cell.issues`` in *report*.
+
+    Advisory only; shows in the JSON report and does not affect ``ConversionReport.ok``.
+    """
     by_code: dict[str, list[str]] = {}
     for cell in report.cells:
         if not cell.converted or not cell.converted_code:
@@ -219,9 +221,7 @@ def report_safety_warnings(report: ConversionReport) -> list[str]:
         if ws is None:
             ws = collect_safety_warnings(code)
             by_code[code] = ws
-        for w in ws:
-            out.append(f"{cell.sheet}!{cell.cell}: {w}")
-    return out
+        cell.issues.extend(ws)
 
 
 def bank_defined_name_for(code_sheet: str) -> str:
@@ -281,7 +281,7 @@ def is_py_code_bank_sheet(
     return False
 
 
-def _uno_sheet_is_bank(doc: Any, code_sheet: str, sheet: Any) -> bool:  # pyright: ignore[reportUnusedFunction]  # imported by apply_calc.py
+def uno_sheet_is_bank(doc: Any, code_sheet: str, sheet: Any) -> bool:
     expected_def = bank_defined_name_for(code_sheet)
     named_ranges = getattr(doc, "NamedRanges", None)
     if named_ranges is not None:

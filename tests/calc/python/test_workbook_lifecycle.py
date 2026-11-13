@@ -41,12 +41,10 @@ def _ensure_calc_unload(doc: Any) -> WorkbookState:
 @pytest.fixture(autouse=True)
 def _reset_lifecycle_registry():
     WorkbookState.reset_for_tests()
-    lifecycle._LISTENERS.clear()
-    lifecycle._global_listener = None
+    lifecycle.reset_listeners_for_tests()
     yield
     WorkbookState.reset_for_tests()
-    lifecycle._LISTENERS.clear()
-    lifecycle._global_listener = None
+    lifecycle.reset_listeners_for_tests()
 
 
 def test_for_doc_reuses_state_by_runtime_key_when_known_misses() -> None:

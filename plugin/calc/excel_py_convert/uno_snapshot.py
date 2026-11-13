@@ -6,7 +6,9 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
-from plugin.calc.address_utils import index_to_column
+from plugin.calc.address_utils import format_address
+from plugin.calc.excel_py_convert.convert import cell_meta_key, load_dag_meta_from_doc
+from plugin.calc.excel_py_convert.models import DagCellMeta, DagFormulaItem, find_sheet_ci
 from plugin.calc.excel_py_convert.script_bank import CODE_SHEET_PREFIX, resolve_bank_cell_reference
 from plugin.calc.excel_py_convert.to_excel import convert_dag_cells_to_excel
 from plugin.calc.python.formula_edit import CALC_PYTHON_FN, PyFormula, escape_code_for_formula
@@ -44,24 +46,23 @@ def convert_uno_doc_to_excel(doc: Any) -> ConversionReport:
 
     Resolves ``py_code_*`` bank cell strings in memory so long scripts export correctly.
     When ``ExcelPyDagMeta`` udprop is present (set on auto-open), uses stored
-    ``return_type`` / ``data_args`` (legacy ``ordering_args`` ignored on export).
+    ``return_type`` / ``data_args``.
     """
+    # UNO constant; resolves only once pyuno is loaded.
     from com.sun.star.sheet import CellFlags
 
-    from plugin.calc.excel_py_convert.convert import cell_meta_key, load_dag_meta_from_doc
-
     meta_map = load_dag_meta_from_doc(doc)
-    triples: list[tuple[str, str, str, dict[str, Any]]] = []
+    items: list[DagFormulaItem] = []
 
     named_sheets: list[tuple[str, Any]] = []
     doc_sheets = doc.getSheets()
     for i in range(doc_sheets.getCount()):
         sh = doc_sheets.getByIndex(i)
         named_sheets.append((str(sh.getName()), sh))
+    sheets_by_name = dict(named_sheets)
 
     def _uno_lookup(sheet_name: str, a1: str) -> str | None:
-        want = sheet_name.lower()
-        bank_sheet = next((sh for name, sh in named_sheets if name.lower() == want), None)
+        bank_sheet = find_sheet_ci(sheets_by_name, sheet_name)
         if bank_sheet is None:
             return None
         val = uno_read(lambda: str(bank_sheet.getCellRangeByName(a1).getString() or ""), "")
@@ -88,18 +89,18 @@ def convert_uno_doc_to_excel(doc: Any) -> ConversionReport:
             parsed = PyFormula.parse(str(formula))
             if parsed is None:
                 continue
-            a1 = f"{index_to_column(col)}{row + 1}"
+            a1 = format_address(col, row)
             resolved = resolve_bank_cell_reference(parsed.code, _uno_lookup)
             if resolved is not None and resolved.strip():
                 formula_out = f'={CALC_PYTHON_FN}("{escape_code_for_formula(resolved)}"{parsed.data_suffix}'
             else:
                 formula_out = str(formula)
             stored = meta_map.get(cell_meta_key(sheet_name, a1))
-            triples.append((sheet_name, a1, formula_out, dict(stored) if isinstance(stored, dict) else {}))
+            items.append(DagFormulaItem(sheet_name, a1, formula_out, DagCellMeta.from_dict(stored) if isinstance(stored, dict) else None))
         if scan_limit_reached:
             break
 
-    report = convert_dag_cells_to_excel(triples)
+    report = convert_dag_cells_to_excel(items)
     if scan_limit_reached:
         report.issues.append(f"scan limit reached ({FORMULA_SCAN_CAP} formula cells); export aborted")
     doc_url = uno_read(lambda: str(doc.getURL() or ""), "")

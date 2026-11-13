@@ -57,7 +57,7 @@ from plugin.calc.excel_py_convert.models import (
 )
 from plugin.calc.excel_py_convert.resolve_refs import ResolvedDep, resolve_dep
 from plugin.calc.excel_py_convert.script_bank import formula_for_converted_cell
-from plugin.calc.python.xl_static_rewrite import iter_xl_calls
+from plugin.calc.python.xl_static_rewrite import P_TOKEN_RE, iter_xl_calls
 from plugin.framework.ast_stmt_edit import ast_source_offset, line_starts_exact
 from plugin.framework.deal_shim import (
     DEAL_MAX_CMD_ARGS,
@@ -70,12 +70,11 @@ from plugin.framework.deal_shim import (
     str_bounded,
 )
 
-_P_TOKEN_RE = re.compile(r"^%P(\d+)%$", re.IGNORECASE)
 # Bare Excel placeholder in source (not anchored); same length as ``_Pn_`` sentinel.
 _P_BARE_RE = re.compile(r"%P(\d+)%", re.IGNORECASE)
 # Equal-length stand-in so ``ast.parse`` accepts Excel scripts: ``%P2%`` → ``_P2_``.
 _P_SENTINEL_RE = re.compile(r"^_P(\d+)_$", re.IGNORECASE)
-_OBJECT_SUPPRESS = "\n# excel_py: returnType=1 (Object) — cell value egress suppressed until object cards ship\nresult = None"
+OBJECT_SUPPRESS = "\n# excel_py: returnType=1 (Object) — cell value egress suppressed until object cards ship\nresult = None"
 
 
 @dataclass
@@ -180,7 +179,7 @@ def _skip_string(src: str, i: int) -> int:
 
 @deal.pre(lambda src, *_unused, **__: _deal_excel_src_ok(src))
 @inverse_ensure(lambda *args, result="", **kwargs: len(result) == len(args[0]))
-def _normalize_excel_placeholders(src: str) -> str:
+def normalize_excel_placeholders(src: str) -> str:
     # crosshair: off
     """Rewrite bare ``%Pn%`` to equal-length ``_Pn_`` so ``ast.parse`` accepts Excel scripts.
 
@@ -220,7 +219,7 @@ def _p_num_from_arg(arg0: ast.AST) -> int | None:
     if isinstance(arg0, ast.Name):
         text, pattern = arg0.id, _P_SENTINEL_RE
     elif isinstance(arg0, ast.Constant) and isinstance(arg0.value, str):
-        text, pattern = arg0.value, _P_TOKEN_RE
+        text, pattern = arg0.value, P_TOKEN_RE
     else:
         return None
     matched = pattern.match(text)
@@ -244,7 +243,7 @@ def _find_xl_calls(code: str) -> tuple[list[_XlCall], list[str]]:
     issues: list[str] = []
     src = code or ""
     # Excel ``%Pn%`` is not valid Python; equal-length ``_Pn_`` lets us parse with AST.
-    normalized = _normalize_excel_placeholders(src)
+    normalized = normalize_excel_placeholders(src)
     try:
         tree = ast.parse(normalized)
     except (SyntaxError, TypeError, MemoryError, RecursionError) as exc:
@@ -479,7 +478,7 @@ def convert_cell_to_dag(model: ExcelWorkbookModel, cell: ExcelPyCell, *, has_pri
         issues.append("shared-kernel workbook: enable shared session; converter does not add order edges")
 
     if cell.return_type == 1:
-        new_code = new_code + _OBJECT_SUPPRESS
+        new_code = new_code + OBJECT_SUPPRESS
         issues.append("returnType=1 (Object): suppressed cell value egress (shared object kept in script)")
 
     failed = fatal and not best_effort

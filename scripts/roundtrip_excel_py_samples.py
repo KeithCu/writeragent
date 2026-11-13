@@ -8,8 +8,7 @@ Usage::
         --samples PythonExcelSamples \\
         --out build/excel_py_roundtrip
 
-Exit 1 if normalized script text or return_type differs, or if ordering-only
-deps leak into the round-trip ``_xlws.PY`` formula. Table/ANCHORARRAY → A1
+Exit 1 if normalized script text or return_type differs. Table/ANCHORARRAY → A1
 snapshot dep diffs are warnings only.
 """
 
@@ -39,16 +38,12 @@ def _is_excel_structured_token(dep: str) -> bool:
     return "[#" in d or "ANCHORARRAY" in d.upper()
 
 
-def _deps_acceptable(orig_deps: list[str], back_deps: list[str], ordering: list[str]) -> tuple[bool, str]:
+def _deps_acceptable(orig_deps: list[str], back_deps: list[str]) -> tuple[bool, str]:
     """Return (ok, message).
 
     Table/ANCHORARRAY tokens must round-trip exactly (export fidelity via excel_deps).
-    Sheet punctuation (. vs !) may warn. Ordering leaks fail.
+    Sheet punctuation (. vs !) may warn.
     """
-    ord_set = {a.replace("$", "") for a in ordering}
-    leaked = [d for d in back_deps if d.replace("$", "") in ord_set]
-    if leaked:
-        return False, f"ordering deps leaked into export: {leaked}"
     if orig_deps == back_deps:
         return True, ""
     if len(orig_deps) == len(back_deps):
@@ -112,7 +107,6 @@ def roundtrip_one(src: Path, out_dir: Path) -> tuple[bool, list[str]]:
 
     orig_by = {(c.sheet, c.cell): c for c in orig.cells}
     back_by = {(c.sheet, c.cell): c for c in back.cells}
-    excel_by = {(c.sheet, c.cell): c for c in excel_report.cells}
 
     missing = set(orig_by) - set(back_by)
     if missing:
@@ -139,10 +133,8 @@ def roundtrip_one(src: Path, out_dir: Path) -> tuple[bool, list[str]]:
             ok = False
             if rt_fail <= 3:
                 lines.append(f"returnType {key[0]}!{key[1]}: {oc.return_type} → {bc.return_type}")
-        ec = excel_by.get(key)
-        ordering = list(ec.ordering_args) if ec else []
         # Prefer comparing against original deps with snapshot tolerance using back deps.
-        dep_ok, dep_msg = _deps_acceptable(oc.deps, bc.deps, ordering)
+        dep_ok, dep_msg = _deps_acceptable(oc.deps, bc.deps)
         if not dep_ok:
             dep_fail += 1
             ok = False

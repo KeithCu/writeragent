@@ -19,7 +19,7 @@ from plugin.calc.excel_py_convert.to_dag import (
     _deal_excel_src_ok,
     _find_xl_calls,
     _normalize_bindings,
-    _normalize_excel_placeholders,
+    normalize_excel_placeholders,
     _placeholder_to_data_index,
     _skip_string,
     _xl_binding_expr,
@@ -65,7 +65,7 @@ def test_xl_binding_expr_invariants(idx: int, header_mode: str) -> None:
 
 @given(st.text(alphabet=st.characters(blacklist_categories=("Cs",), max_codepoint=127), max_size=64))
 def test_normalize_excel_placeholders_length_invariant(src: str) -> None:
-    normalized = _normalize_excel_placeholders(src)
+    normalized = normalize_excel_placeholders(src)
     assert len(normalized) == len(src)
     # Check bare %P2% outside quotes gets replaced by _P2_
     if "%P2%" in src and '"' not in src and "'" not in src and "#" not in src:

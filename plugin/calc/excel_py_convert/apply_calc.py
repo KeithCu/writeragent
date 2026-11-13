@@ -6,38 +6,22 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
-from plugin.calc.excel_py_convert.parse_excel_ooxml import _col_row, a1_span_bounds
+from plugin.calc.excel_py_convert.models import find_sheet_ci
+from plugin.calc.excel_py_convert.parse_excel_ooxml import row_col_1based, a1_span_bounds
 from plugin.calc.excel_py_convert.script_bank import (
     CODE_SHEET_NOTE,
     CODE_SHEET_NOTE_CELL,
-    _uno_sheet_is_bank,
+    uno_sheet_is_bank,
     bank_defined_name_for,
     collect_script_bank,
-    formula_for_converted_cell,
-    report_safety_warnings,
 )
+from plugin.calc.python.spill import SPILL_CLEAR_FLAGS
 from plugin.framework.errors import best_effort
 
 if TYPE_CHECKING:
     from plugin.calc.excel_py_convert.models import ConversionReport
 
 log = logging.getLogger(__name__)
-
-# CellFlags: VALUE|DATETIME|STRING|FORMULA|HARDATTR. Same mask as
-# plugin/calc/python/spill.py._SPILL_CLEAR_FLAGS: keeps comments, styles,
-# and draw objects in the former spill area (511 would wipe them).
-_SPILL_CLEAR_FLAGS = 1 | 2 | 4 | 16 | 32
-
-
-def _resolve_sheet(doc: Any, sheet_name: str) -> Any | None:
-    sheets = doc.getSheets()
-    if sheets.hasByName(sheet_name):
-        return sheets.getByName(sheet_name)
-    for i in range(sheets.getCount()):
-        sh = sheets.getByIndex(i)
-        if str(sh.getName()).lower() == sheet_name.lower():
-            return sh
-    return None
 
 
 def apply_dag_formulas_to_calc_doc(doc: Any, report: ConversionReport) -> list[str]:
@@ -53,35 +37,35 @@ def apply_dag_formulas_to_calc_doc(doc: Any, report: ConversionReport) -> list[s
         bank, bank_warnings = collect_script_bank(report)
         for w in bank_warnings:
             log.warning("excel_py apply: %s", w)
-        for w in report_safety_warnings(report):
-            log.warning("excel_py apply: %s", w)
     except Exception as exc:
         return [f"script bank collect failed: {exc}"]
 
     sheets = doc.getSheets()
+    sheet_names = {str(n): str(n) for n in sheets.getElementNames()}
     for code_sheet in bank:
         if sheets.hasByName(code_sheet):
             existing_sh = sheets.getByName(code_sheet)
-            if not _uno_sheet_is_bank(doc, code_sheet, existing_sh):
+            if not uno_sheet_is_bank(doc, code_sheet, existing_sh):
                 errors.append(f"Bank sheet collision: existing sheet {code_sheet!r} is not a script bank sheet")
 
     planned_cells: list[tuple[Any, str, str, str]] = []
     for cell in report.cells:
         if not cell.converted or not cell.converted_code:
             continue
-        sheet = _resolve_sheet(doc, cell.sheet)
-        if sheet is None:
+        name = find_sheet_ci(sheet_names, cell.sheet)
+        if name is None:
             errors.append(f"unmapped sheet {cell.sheet!r} for cell {cell.cell}")
             continue
-        try:
-            formula = formula_for_converted_cell(cell, separator=";")
-        except Exception as exc:
-            errors.append(f"{cell.sheet}!{cell.cell}: {exc}")
+        sheet = sheets.getByName(name)
+        # to_dag stores the ;-separated =PY formula on every converted cell, so this writes exactly what the report says.
+        formula = cell.dag_formula
+        if not formula:
+            errors.append(f"{cell.sheet}!{cell.cell}: converted cell has no dag_formula")
             continue
         array_ref = cell.array_ref or ""
         if array_ref:
             bounds = a1_span_bounds(array_ref)
-            a_row, a_col = _col_row(cell.cell)
+            a_row, a_col = row_col_1based(cell.cell)
             if bounds is None or not (
                 bounds[0][0] <= a_col <= bounds[1][0]
                 and bounds[0][1] <= a_row <= bounds[1][1]
@@ -120,6 +104,7 @@ def apply_dag_formulas_to_calc_doc(doc: Any, report: ConversionReport) -> list[s
             if named_ranges is not None:
                 expected_def = bank_defined_name_for(code_sheet)
                 if not named_ranges.hasByName(expected_def):
+                    # pyuno; only the bank defined-name path needs a UNO struct.
                     import uno
 
                     addr = uno.createUnoStruct("com.sun.star.table.CellAddress")
@@ -149,7 +134,7 @@ def apply_dag_formulas_to_calc_doc(doc: Any, report: ConversionReport) -> list[s
             prev_formula = uno_cell.getFormula()
             journal.append(("setFormula", coord, lambda c=uno_cell, prev=prev_formula: c.setFormula(prev)))
             if array_ref:
-                sheet.getCellRangeByName(array_ref).clearContents(_SPILL_CLEAR_FLAGS)
+                sheet.getCellRangeByName(array_ref).clearContents(SPILL_CLEAR_FLAGS)
             uno_cell.setFormula(formula)
         except Exception as exc:
             errors.append(f"{sheet.getName()}!{coord}: {exc}")
