@@ -220,7 +220,7 @@ def test_auto_plot_reads_sheet_on_main_and_passes_doc():
     with (
         patch("plugin.framework.queue_executor.main.is_current", return_value=False),
         patch("plugin.framework.queue_executor.main.call", side_effect=exec_main),
-        patch("plugin.calc.calc_addin_data._resolve_python_data", return_value=(envelope, None)) as mock_resolve,
+        patch("plugin.calc.calc_addin_data.resolve_python_data", return_value=(envelope, None)) as mock_resolve,
         patch("plugin.scripting.helper_domain.run_domain", side_effect=viz) as mock_viz,
     ):
         result = run_auto_plot_after_forecast(
@@ -251,7 +251,7 @@ def test_auto_plot_viz_failure_is_non_fatal():
         ],
     }
     with (
-        patch("plugin.calc.calc_addin_data._resolve_python_data", return_value=(envelope, None)),
+        patch("plugin.calc.calc_addin_data.resolve_python_data", return_value=(envelope, None)),
         patch("plugin.scripting.helper_domain.run_domain", side_effect=RuntimeError("viz ipc down")),
     ):
         result = run_auto_plot_after_forecast(
@@ -270,7 +270,7 @@ def test_auto_plot_viz_failure_is_non_fatal():
 
 
 def test_auto_plot_sheet_read_failure_returns_reason():
-    with patch("plugin.calc.calc_addin_data._resolve_python_data", return_value=(None, "bad range")):
+    with patch("plugin.calc.calc_addin_data.resolve_python_data", return_value=(None, "bad range")):
         result = run_auto_plot_after_forecast(
             MagicMock(),
             MagicMock(),
@@ -287,7 +287,7 @@ def test_auto_plot_sheet_read_failure_returns_reason():
 
 
 def test_auto_plot_merge_failure_returns_reason():
-    with patch("plugin.calc.calc_addin_data._resolve_python_data", return_value=([["Nope", "Other"], [1, 2]], None)):
+    with patch("plugin.calc.calc_addin_data.resolve_python_data", return_value=([["Nope", "Other"], [1, 2]], None)):
         result = run_auto_plot_after_forecast(
             MagicMock(),
             MagicMock(),

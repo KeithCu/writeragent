@@ -211,6 +211,41 @@ def test_calc_image_insert_failure_is_not_success():
     assert "active sheet" not in out["message"]
 
 
+def test_all_plot_inserts_fail_reports_first_error_and_keeps_every_temp():
+    tool = RunVenvPythonScript()
+    ctx = MagicMock()
+    ctx.doc_type = "calc"
+    ctx.ctx = MagicMock()
+    ctx.doc = MagicMock(name="target_doc")
+    two_images = {
+        "__writeragent_type__": "image_list",
+        "items": [_IMAGE_PAYLOAD, _IMAGE_PAYLOAD],
+    }
+
+    with (
+        patch("plugin.calc.python.venv.run_code_in_user_venv", return_value={"status": "ok", "result": two_images}),
+        patch("plugin.calc.python.venv.write_image_payload_to_temp", side_effect=["/tmp/p0.svg", "/tmp/p1.svg"]),
+        patch(
+            "plugin.framework.queue_executor.main.call",
+            side_effect=lambda fn, *args, **kwargs: fn(*args, **kwargs),
+        ),
+        patch(
+            "plugin.calc.python.image_egress.insert_image_result_on_sheet",
+            side_effect=[ImageEgressError("e1"), ImageEgressError("e2")],
+        ),
+        patch("plugin.calc.python.venv.os.unlink") as mock_unlink,
+        patch("plugin.scripting.config_limits.configured_python_max_data_cells", return_value=10000),
+    ):
+        out = tool.execute(ctx, code="import matplotlib.pyplot as plt\nplt.plot([1])")
+
+    assert out["status"] == "error"
+    assert out["message"] == "Plot was not inserted: e1"
+    assert out["plot_error"] == "e1; e2"
+    assert out["image_paths"] == ["/tmp/p0.svg", "/tmp/p1.svg"]
+    assert out["image_path"] == out["image_paths"]
+    mock_unlink.assert_not_called()
+
+
 def test_writer_image_result_returns_path_only():
     tool = RunVenvPythonScript()
     ctx = MagicMock()

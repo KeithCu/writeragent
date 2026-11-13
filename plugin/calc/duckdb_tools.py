@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 import os
 import uuid
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, NamedTuple
 
 from plugin.calc.address_utils import format_range_address, qualify_a1, split_sheet_prefix
 from plugin.calc.base import ToolCalcPythonSqlBase
@@ -66,7 +66,7 @@ class QueryFolderSqlTool(ToolCalcPythonSqlBase):
                 "type": "object",
                 "additionalProperties": {"type": "string"},
                 "description": (
-                    'Folder files as name -> basename/spec. Flat: {"ledger": "ledger.parquet"}, {"events": "events.json"}. Sibling spreadsheet used-range: {"sales": "budget.xlsx#Sales"} (#SheetName is the sheet identity; the dict key is the SQL table). A list of basenames is still accepted.'
+                    'Folder files as name -> basename/spec. Flat: {"ledger": "ledger.parquet"}, {"events": "events.json"}. Sibling spreadsheet used-range: {"sales": "budget.xlsx#Sales"} (#SheetName is the sheet identity; the dict key is the SQL table).'
                 ),
             },
             "data_range": {"type": "string", "description": "Frozen A1 on the active sheet (e.g. 'Sheet1.A1:F500'). Becomes table 'data'. Prefer tables={data: {sheet}} or {named_range} for stable identity."},
@@ -95,120 +95,107 @@ class QueryFolderSqlTool(ToolCalcPythonSqlBase):
         return True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        sql = kwargs["sql"]
-        assert isinstance(sql, str)
-        sql = sql.strip()
+        sql = kwargs["sql"].strip()
         if not sql:
             return self._tool_error("sql is required")
-
-        files_raw = kwargs.get("files") or []
-        # files can be a list of basenames (legacy) or a dict of SQL name -> spec.
-        file_pairs: list[tuple[str | None, str]]
-        if isinstance(files_raw, (list, tuple)):
-            file_pairs = [(None, str(x)) for x in files_raw if str(x).strip()]
-        elif isinstance(files_raw, dict):
-            file_pairs = [(str(k), str(v)) for k, v in files_raw.items() if str(v).strip()]
-        else:
-            file_pairs = []
-
+        # files is {SQL table name: basename or basename#Sheet}; nested values are not schema-checked, hence str().
+        file_pairs = [(str(k), str(v)) for k, v in (kwargs.get("files") or {}).items() if str(v).strip()]
         data_range = str(kwargs.get("data_range") or "").strip() or None
         headers = bool(kwargs.get("headers", True))
-
-        tables_raw = kwargs.get("tables") or {}
-        tables = dict(tables_raw) if isinstance(tables_raw, dict) else {}
+        tables = dict(kwargs.get("tables") or {})
         if data_range:
             if "data" in tables:
                 return self._tool_error("data_range and tables['data'] both define table 'data'; pass only one", code="DUCKDB_SQL_ERROR")
             tables["data"] = {"range": data_range, "headers": headers}
-
         task_hint = str(kwargs.get("task_hint") or "") or None
 
         from plugin.scripting.client import run_folder_sql
 
-        def _load_sql_inputs() -> dict[str, Any]:
-            # UNO and folder preload only. run_folder_sql stays on the caller.
-            # Prefer listing dir (handles untitled -> Work) then fall back
-            scoped = resolve_listing_directory(ctx.ctx, ctx.doc) or get_document_directory(ctx.doc)
-
-            preloaded: dict[str, Any] = {}
-            flat_files: dict[str, str] = {}
-
-            # Catalog stores identity (sheet / named_range / frozen A1), not
-            # expanded used-range. Bounds are resolved at read time below.
-            for tbl_name, spec in tables.items():
-                if not tbl_name:
-                    continue
-                try:
-                    parsed = parse_table_source_spec(spec, default_headers=headers)
-                    grid = read_table_source_grid(ctx.ctx, ctx.doc, scoped, parsed)
-                    preloaded[str(tbl_name)] = {"grid": grid, "headers": bool(parsed["headers"])}
-                except CalcError as exc:
-                    raise ToolExecutionError(str(exc), code="DUCKDB_SQL_ERROR") from exc
-                except ToolExecutionError as exc:
-                    raise ToolExecutionError(
-                        f"Failed to read table '{tbl_name}': {exc}",
-                        code=getattr(exc, "code", "DUCKDB_SQL_ERROR"),
-                    ) from exc
-
-            # Separate direct DuckDB-readable files from office files that need LO import.
-            # Support "file.xlsx" or "file.xlsx#SheetName" syntax for sheets.
-            for name_hint, fspec in file_pairs:
-                spec = str(fspec).strip()
-                file_spec = parse_table_source_spec({"file": spec}, default_headers=headers)
-                bn = str(file_spec.get("file") or "")
-
-                ext = os.path.splitext(bn)[1].lower()
-                if not scoped:
-                    raise ToolExecutionError("A saved document folder is required to read sibling files", code="MISSING_SCOPED_DIR")
-                table_name = name_hint or bn
-                if table_name in preloaded or table_name in flat_files:
-                    raise ToolExecutionError(f"Duplicate SQL table name {table_name!r} for {spec!r}; give each tables/files source a distinct name", code="DUCKDB_SQL_ERROR")
-                full_path = os.path.join(scoped, bn)
-                if not os.path.isfile(full_path):
-                    # A missing folder file fails here; passing the basename on would make DuckDB fail later with a generic IO or missing-FROM error.
-                    raise ToolExecutionError(f"Folder file {bn!r} was not found under the document folder", code="MISSING_FILE")
-                if ext in EXCEL_EXTENSIONS + (".ods",):
-                    # Office files that exist preload into a table or raise: _read_sibling_office_file_as_grid returns a grid or raises ToolExecutionError.
-                    office_grid = _read_sibling_office_file_as_grid(ctx.ctx, full_path, file_spec)
-                    preloaded[table_name] = {"grid": office_grid, "headers": headers}
-                    continue
-                if ext in FLAT_FILE_EXTS:
-                    flat_files[table_name] = full_path
-                    continue
-                raise ToolExecutionError(unsupported_flat_type_message(bn, ext), code="UNSUPPORTED_FILE_TYPE")
-
-            # Enforce the same data size limit used for analysis / =PY()
-            max_cells = configured_python_max_data_cells()
-            for name, entry in preloaded.items():
-                g = entry["grid"]
-                if g:
-                    size_err = check_python_data_size(g, max_cells=max_cells)
-                    if size_err:
-                        raise ToolExecutionError(f"Preloaded table {name} too large for DuckDB SQL: {size_err}")
-
-            return {"scoped": scoped, "preloaded": preloaded or None, "flat_files": flat_files or None}
-
-        # Hop only the UNO preload when the caller is a worker; the IPC
-        # stays on this thread. One function that both reads the sheets and
-        # calls run_folder_sql pushes the SQL and the venv IPC onto the UI
-        # thread via main.call and freezes Calc. Callers that
-        # are already on main (tests, sync entry) run the preload inline so
-        # they do not deadlock the UI thread.
+        # Only the UNO preload hops to the UI thread; run_folder_sql's venv IPC
+        # stays on this thread so Calc does not freeze while DuckDB runs.
         try:
-            if main.is_current():
-                prepared = _load_sql_inputs()
-            else:
-                # main.call is typed Any; _load_sql_inputs returns this dict.
-                prepared = cast("dict[str, Any]", main.call(_load_sql_inputs))
+            inputs: _SqlInputs = main.run(_load_sql_inputs, ctx, tables, file_pairs, headers)
         except ToolExecutionError as exc:
             return format_error_payload(exc)
 
-        # Pass flat_files for named direct flat files (Phase C), preloaded for grids (ranges + office)
-        result = run_folder_sql(ctx.ctx, prepared.get("scoped"), sql, None, preloaded=prepared.get("preloaded"), flat_files=prepared.get("flat_files"))
+        result = run_folder_sql(ctx.ctx, inputs.scoped, sql, None, preloaded=inputs.preloaded, flat_files=inputs.flat_files)
         if task_hint:
             result = dict(result)
             result.setdefault("task_hint", task_hint)
         return result
+
+
+class _SqlInputs(NamedTuple):
+    """What the UI-thread preload hands back to the worker for run_folder_sql."""
+
+    scoped: str | None
+    preloaded: dict[str, Any] | None
+    flat_files: dict[str, str] | None
+
+
+def _load_sql_inputs(ctx: ToolContext, tables: dict[str, Any], file_pairs: list[tuple[str, str]], headers: bool) -> _SqlInputs:
+    """Read every table source and classify every folder file for one query. UNO calls only; the caller runs this on the UI thread."""
+    # Prefer listing dir (handles untitled -> Work) then fall back
+    scoped = resolve_listing_directory(ctx.ctx, ctx.doc) or get_document_directory(ctx.doc)
+
+    preloaded: dict[str, Any] = {}
+    flat_files: dict[str, str] = {}
+
+    # Catalog stores identity (sheet / named_range / frozen A1), not
+    # expanded used-range. Bounds are resolved at read time below.
+    for tbl_name, spec in tables.items():
+        if not tbl_name:
+            continue
+        try:
+            parsed = parse_table_source_spec(spec, default_headers=headers)
+            grid = read_table_source_grid(ctx.ctx, ctx.doc, scoped, parsed)
+            preloaded[str(tbl_name)] = {"grid": grid, "headers": bool(parsed["headers"])}
+        except CalcError as exc:
+            raise ToolExecutionError(str(exc), code="DUCKDB_SQL_ERROR") from exc
+        except ToolExecutionError as exc:
+            raise ToolExecutionError(
+                f"Failed to read table '{tbl_name}': {exc}",
+                code=getattr(exc, "code", "DUCKDB_SQL_ERROR"),
+            ) from exc
+
+    # Separate direct DuckDB-readable files from office files that need LO import.
+    # Support "file.xlsx" or "file.xlsx#SheetName" syntax for sheets.
+    for name_hint, fspec in file_pairs:
+        spec = str(fspec).strip()
+        file_spec = parse_table_source_spec({"file": spec}, default_headers=headers)
+        bn = str(file_spec.get("file") or "")
+
+        ext = os.path.splitext(bn)[1].lower()
+        if not scoped:
+            raise ToolExecutionError("A saved document folder is required to read sibling files", code="MISSING_SCOPED_DIR")
+        # A blank files key falls back to the basename as the table name.
+        table_name = name_hint or bn
+        if table_name in preloaded or table_name in flat_files:
+            raise ToolExecutionError(f"Duplicate SQL table name {table_name!r} for {spec!r}; give each tables/files source a distinct name", code="DUCKDB_SQL_ERROR")
+        full_path = os.path.join(scoped, bn)
+        if not os.path.isfile(full_path):
+            # A missing folder file fails here; passing the basename on would make DuckDB fail later with a generic IO or missing-FROM error.
+            raise ToolExecutionError(f"Folder file {bn!r} was not found under the document folder", code="MISSING_FILE")
+        if ext in EXCEL_EXTENSIONS + (".ods",):
+            # Office files that exist preload into a table or raise: _read_sibling_office_file_as_grid returns a grid or raises ToolExecutionError.
+            office_grid = _read_sibling_office_file_as_grid(ctx.ctx, full_path, file_spec)
+            preloaded[table_name] = {"grid": office_grid, "headers": headers}
+            continue
+        if ext in FLAT_FILE_EXTS:
+            flat_files[table_name] = full_path
+            continue
+        raise ToolExecutionError(unsupported_flat_type_message(bn, ext), code="UNSUPPORTED_FILE_TYPE")
+
+    # Enforce the same data size limit used for analysis / =PY()
+    max_cells = configured_python_max_data_cells()
+    for name, entry in preloaded.items():
+        g = entry["grid"]
+        if g:
+            size_err = check_python_data_size(g, max_cells=max_cells)
+            if size_err:
+                raise ToolExecutionError(f"Preloaded table {name} too large for DuckDB SQL: {size_err}")
+
+    return _SqlInputs(scoped, preloaded or None, flat_files or None)
 
 
 def _grid_has_usable_values(grid: list[list[Any]] | None) -> bool:

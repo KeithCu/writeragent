@@ -123,5 +123,5 @@ def insert_units_result_into_doc(
         from plugin.calc.tabular_egress import insert_tabular_result_into_calc  # host only: not in the compute bundle
 
         grid = format_units_for_calc(result, output_style=output_style)
-        return insert_tabular_result_into_calc(doc, ctx, grid)
+        return insert_tabular_result_into_calc(doc, grid)
     raise ToolExecutionError(_("Unsupported document type for units insertion."), code="UNITS_ERROR")

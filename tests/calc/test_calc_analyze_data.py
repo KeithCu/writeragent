@@ -264,7 +264,7 @@ def test_analyze_data_happy_path(mock_run_trusted, mock_main_thread, calc_ctx):
 @patch("plugin.framework.queue_executor.main.is_current", return_value=False)
 @patch("plugin.framework.queue_executor.main.call")
 @patch("plugin.scripting.client.run_analysis")
-@patch("plugin.calc.calc_addin_data._resolve_python_data")
+@patch("plugin.calc.calc_addin_data.resolve_python_data")
 def test_analyze_data_resolves_data_on_main_thread_before_venv(mock_resolve, mock_run_analysis, mock_main_thread, mock_on_main, calc_ctx):
     del mock_on_main
     call_order: list[str] = []
