@@ -21,7 +21,7 @@ from tests.harness.strip_bundle import requires_asserts
 
 from plugin.app import get_tools
 from plugin.framework.tool import prepare_tool_call
-from plugin.tests.testing_utils import TestingFactory
+from plugin.tests.testing_utils import FakeUndoManager, TestingFactory
 
 
 def _tool(name: str) -> Any:
@@ -1148,7 +1148,6 @@ def test_write_formula_range_source_is_stripped_and_blank_falls_to_values():
     with (
         patch("plugin.calc.cells.CalcBridge"),
         patch("plugin.calc.cells.CellManipulator") as manip_cls,
-        patch("plugin.calc.cells.WriterCompoundUndo"),
     ):
         manip = manip_cls.return_value
         manip.copy_formula_range.return_value = {"message": "copied", "rows_copied": 3, "cols_copied": 3}
@@ -1227,7 +1226,6 @@ def test_write_formula_range_accepts_matching_json_and_scalar_fill():
     with (
         patch("plugin.calc.cells.CalcBridge"),
         patch("plugin.calc.cells.CellManipulator") as manip_cls,
-        patch("plugin.calc.cells.WriterCompoundUndo"),
     ):
         manip_cls.return_value.commit_write.return_value = {"message": "wrote"}
         matched = _tool("write_formula_range").execute_safe(ctx, range=["A1:A2"], values='["x", "y"]')
@@ -1280,7 +1278,6 @@ def test_write_formula_range_source_only_copies_block_size():
     with (
         patch("plugin.calc.cells.CalcBridge"),
         patch("plugin.calc.cells.CellManipulator") as manip_cls,
-        patch("plugin.calc.cells.WriterCompoundUndo"),
     ):
         manip_cls.return_value.copy_formula_range.return_value = {
             "message": "Copied 3×3 from Sheet1.A1:C3 onto Sample.A1.",
@@ -1361,7 +1358,6 @@ def test_write_formula_range_passes_native_2d_grid_to_manipulator():
     with (
         patch("plugin.calc.cells.CalcBridge"),
         patch("plugin.calc.cells.CellManipulator") as manip_cls,
-        patch("plugin.calc.cells.WriterCompoundUndo"),
     ):
         manip_cls.return_value.commit_write.return_value = {"message": "wrote"}
         result = _tool("write_formula_range").execute_safe(ctx, range=["A1:B2"], values=grid)
@@ -1378,7 +1374,6 @@ def test_write_formula_range_passes_bool_cells_in_grid():
     with (
         patch("plugin.calc.cells.CalcBridge"),
         patch("plugin.calc.cells.CellManipulator") as manip_cls,
-        patch("plugin.calc.cells.WriterCompoundUndo"),
     ):
         manip_cls.return_value.commit_write.return_value = {"message": "wrote"}
         result = _tool("write_formula_range").execute_safe(ctx, range=["A1:B1"], values=grid)
@@ -1671,35 +1666,12 @@ def test_write_cell_range_multi_range_preserves_array_payload():
 def test_write_cell_range_multi_range_rolls_back_on_error():
     from plugin.framework.errors import CalcError
 
-    titles_stack = []
-    undo_mgr = MagicMock()
-    undo_mgr.getAllUndoActionTitles.side_effect = lambda: list(titles_stack)
-
-    def fake_undo():
-        if titles_stack:
-            titles_stack.pop(0)
-
-    undo_mgr.undo.side_effect = fake_undo
+    fake_undo = FakeUndoManager()
     doc = MagicMock()
-    doc.getUndoManager.return_value = undo_mgr
+    doc.getUndoManager.return_value = fake_undo
     ctx = SimpleNamespace(doc=doc)
 
-    class FakeCompoundUndo:
-        def __init__(self, doc, title):
-            self.title = title
-            self.entered = True
-
-        def __enter__(self):
-            titles_stack.insert(0, self.title)
-            return self
-
-        def __exit__(self, *args):
-            pass
-
-    with (
-        patch("plugin.calc.cells.WriterCompoundUndo", FakeCompoundUndo),
-        patch("plugin.calc.cells.CellManipulator") as manipulator_cls,
-    ):
+    with patch("plugin.calc.cells.CellManipulator") as manipulator_cls:
         manipulator = manipulator_cls.return_value
         manipulator.commit_write.side_effect = [{"message": "wrote"}, CalcError("occupied")]
 
@@ -1708,41 +1680,18 @@ def test_write_cell_range_multi_range_rolls_back_on_error():
         assert res["code"] == "CALC_ERROR"
         assert "Nothing was kept." in res["message"]
         assert "B1" in res["message"]
-        undo_mgr.undo.assert_called_once()
+        assert fake_undo.undone == 1
 
 
 def test_set_cell_style_multi_range_rolls_back_on_error():
     from plugin.framework.errors import CalcError
 
-    titles_stack = []
-    undo_mgr = MagicMock()
-    undo_mgr.getAllUndoActionTitles.side_effect = lambda: list(titles_stack)
-
-    def fake_undo():
-        if titles_stack:
-            titles_stack.pop(0)
-
-    undo_mgr.undo.side_effect = fake_undo
+    fake_undo = FakeUndoManager()
     doc = MagicMock()
-    doc.getUndoManager.return_value = undo_mgr
+    doc.getUndoManager.return_value = fake_undo
     ctx = SimpleNamespace(doc=doc)
 
-    class FakeCompoundUndo:
-        def __init__(self, doc, title):
-            self.title = title
-            self.entered = True
-
-        def __enter__(self):
-            titles_stack.insert(0, self.title)
-            return self
-
-        def __exit__(self, *args):
-            pass
-
-    with (
-        patch("plugin.calc.cells.WriterCompoundUndo", FakeCompoundUndo),
-        patch("plugin.calc.cells.CellManipulator") as manipulator_cls,
-    ):
+    with patch("plugin.calc.cells.CellManipulator") as manipulator_cls:
         manipulator = manipulator_cls.return_value
         manipulator.set_cell_style.side_effect = [None, CalcError("style failed")]
 
@@ -1751,7 +1700,7 @@ def test_set_cell_style_multi_range_rolls_back_on_error():
         assert res["code"] == "CALC_ERROR"
         assert "Nothing was kept." in res["message"]
         assert "B1" in res["message"]
-        undo_mgr.undo.assert_called_once()
+        assert fake_undo.undone == 1
 
 
 def test_set_cell_style_disposal_propagates():
@@ -1759,37 +1708,19 @@ def test_set_cell_style_disposal_propagates():
     class DisposedException(Exception):
         pass
 
-    titles_stack = []
-    undo_mgr = MagicMock()
-    undo_mgr.getAllUndoActionTitles.side_effect = lambda: list(titles_stack)
-    undo_mgr.undo.side_effect = lambda: titles_stack.pop(0) if titles_stack else None
+    fake_undo = FakeUndoManager()
     doc = MagicMock()
-    doc.getUndoManager.return_value = undo_mgr
+    doc.getUndoManager.return_value = fake_undo
     ctx = SimpleNamespace(doc=doc)
 
-    class FakeCompoundUndo:
-        def __init__(self, doc, title):
-            self.title = title
-            self.entered = True
-
-        def __enter__(self):
-            titles_stack.insert(0, self.title)
-            return self
-
-        def __exit__(self, *args):
-            pass
-
-    with (
-        patch("plugin.calc.cells.WriterCompoundUndo", FakeCompoundUndo),
-        patch("plugin.calc.cells.CellManipulator") as manipulator_cls,
-    ):
+    with patch("plugin.calc.cells.CellManipulator") as manipulator_cls:
         manipulator = manipulator_cls.return_value
         manipulator.set_cell_style.side_effect = DisposedException("gone")
 
         tool = _tool("set_style")
         with pytest.raises(DisposedException):
             tool.execute(ctx, range=["A1"], bold=True)
-        undo_mgr.undo.assert_not_called()
+        assert fake_undo.undone == 0
 
         res = tool.execute_safe(ctx, range=["A1"], bold=True)
         assert res["status"] == "error"
@@ -1801,37 +1732,19 @@ def test_set_cell_style_runtime_exception_still_rolls_back():
     class RuntimeException(Exception):
         pass
 
-    titles_stack = []
-    undo_mgr = MagicMock()
-    undo_mgr.getAllUndoActionTitles.side_effect = lambda: list(titles_stack)
-    undo_mgr.undo.side_effect = lambda: titles_stack.pop(0) if titles_stack else None
+    fake_undo = FakeUndoManager()
     doc = MagicMock()
-    doc.getUndoManager.return_value = undo_mgr
+    doc.getUndoManager.return_value = fake_undo
     ctx = SimpleNamespace(doc=doc)
 
-    class FakeCompoundUndo:
-        def __init__(self, doc, title):
-            self.title = title
-            self.entered = True
-
-        def __enter__(self):
-            titles_stack.insert(0, self.title)
-            return self
-
-        def __exit__(self, *args):
-            pass
-
-    with (
-        patch("plugin.calc.cells.WriterCompoundUndo", FakeCompoundUndo),
-        patch("plugin.calc.cells.CellManipulator") as manipulator_cls,
-    ):
+    with patch("plugin.calc.cells.CellManipulator") as manipulator_cls:
         manipulator = manipulator_cls.return_value
         manipulator.set_cell_style.side_effect = [None, RuntimeException("style failed")]
 
         res = _tool("set_style").execute_safe(ctx, range=["A1", "B1"], bold=True)
         assert res["status"] == "error"
         assert "Nothing was kept." in res["message"]
-        undo_mgr.undo.assert_called_once()
+        assert fake_undo.undone == 1
         assert res.get("code") == "TOOL_EXECUTION_ERROR"
 
 
@@ -1840,76 +1753,41 @@ def test_write_formula_range_disposal_propagates():
     class DisposedException(Exception):
         pass
 
-    titles_stack = []
-    undo_mgr = MagicMock()
-    undo_mgr.getAllUndoActionTitles.side_effect = lambda: list(titles_stack)
-    undo_mgr.undo.side_effect = lambda: titles_stack.pop(0) if titles_stack else None
+    fake_undo = FakeUndoManager()
     doc = MagicMock()
-    doc.getUndoManager.return_value = undo_mgr
+    doc.getUndoManager.return_value = fake_undo
     ctx = SimpleNamespace(doc=doc)
 
-    class FakeCompoundUndo:
-        def __init__(self, doc, title):
-            self.title = title
-            self.entered = True
-
-        def __enter__(self):
-            titles_stack.insert(0, self.title)
-            return self
-
-        def __exit__(self, *args):
-            pass
-
-    with (
-        patch("plugin.calc.cells.WriterCompoundUndo", FakeCompoundUndo),
-        patch("plugin.calc.cells.CellManipulator") as manipulator_cls,
-    ):
+    with patch("plugin.calc.cells.CellManipulator") as manipulator_cls:
         manipulator = manipulator_cls.return_value
         manipulator.commit_write.side_effect = DisposedException("gone")
 
         tool = _tool("write_formula_range")
         with pytest.raises(DisposedException):
             tool.execute(ctx, range=["A1"], values="1")
-        undo_mgr.undo.assert_not_called()
+        assert fake_undo.undone == 0
 
         manipulator.copy_formula_range.side_effect = DisposedException("gone")
         with pytest.raises(DisposedException):
             tool.execute(ctx, range=["B1"], source="A1")
-        undo_mgr.undo.assert_not_called()
+        assert fake_undo.undone == 0
 
 
 def test_empty_new_group_does_not_undo_older_action():
     from plugin.framework.errors import CalcError
 
-    titles_stack = ["WriterAgent: Write formulas"]
-    undo_mgr = MagicMock()
-    undo_mgr.getAllUndoActionTitles.side_effect = lambda: list(titles_stack)
-    undo_mgr.undo.side_effect = lambda: titles_stack.pop(0) if titles_stack else None
+    fake_undo = FakeUndoManager(titles=["WriterAgent: Write formulas"], locked=True)
     doc = MagicMock()
-    doc.getUndoManager.return_value = undo_mgr
+    doc.getUndoManager.return_value = fake_undo
     ctx = SimpleNamespace(doc=doc)
 
-    class FakeCompoundUndo:
-        def __init__(self, doc, title):
-            self.title = title
-            self.entered = False
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *args):
-            pass
-
-    with (
-        patch("plugin.calc.cells.WriterCompoundUndo", FakeCompoundUndo),
-        patch("plugin.calc.cells.CellManipulator") as manipulator_cls,
-    ):
+    with patch("plugin.calc.cells.CellManipulator") as manipulator_cls:
         manipulator = manipulator_cls.return_value
         manipulator.commit_write.side_effect = CalcError("fail")
 
         res = _tool("write_formula_range").execute_safe(ctx, range=["A1"], values="1")
         assert res["status"] == "error"
-        undo_mgr.undo.assert_not_called()
+        assert fake_undo.undone == 0
 
 
 def test_read_cell_range_sizing_failure_fails_closed():
@@ -1933,10 +1811,7 @@ def test_read_cell_range_sizing_failure_fails_closed():
 def test_two_range_array_write_measures_once():
 
     ctx = SimpleNamespace(doc=MagicMock())
-    with (
-        patch("plugin.calc.cells.CellManipulator") as manip_cls,
-        patch("plugin.calc.cells.WriterCompoundUndo"),
-    ):
+    with patch("plugin.calc.cells.CellManipulator") as manip_cls:
         manipulator = manip_cls.return_value
         manipulator.plan_write.side_effect = [SimpleNamespace(array_size=(2, 2)), SimpleNamespace(array_size=(2, 2))]
         manipulator.commit_write.return_value = {"message": "ok"}
@@ -1952,10 +1827,12 @@ def test_two_range_array_write_measures_once():
 def test_write_formula_range_refuses_named_range_mismatch_before_any_write():
     from plugin.calc.manipulator import CellManipulator
 
-    ctx = SimpleNamespace(doc=MagicMock())
+    fake_undo = FakeUndoManager()
+    doc = MagicMock()
+    doc.getUndoManager.return_value = fake_undo
+    ctx = SimpleNamespace(doc=doc)
     with (
         patch("plugin.calc.cells.CalcBridge", return_value=_a1_bridge({"Totals": "B1:B3"})),
-        patch("plugin.calc.cells.WriterCompoundUndo") as undo_cls,
         patch.object(CellManipulator, "commit_write") as commit,
     ):
         res = _tool("write_formula_range").execute_safe(ctx, range=["A1:A2", "Totals"], values=["x", "y"])
@@ -1964,16 +1841,18 @@ def test_write_formula_range_refuses_named_range_mismatch_before_any_write():
     assert "Array has 2 values but range Totals has 3 cells (3×1)" in res["message"]
     assert "Nothing was kept" not in res["message"]
     commit.assert_not_called()
-    undo_cls.assert_not_called()
+    assert fake_undo.entered == []
 
 
 def test_write_formula_range_clear_refuses_unknown_range_before_any_write():
     from plugin.calc.manipulator import CellManipulator
 
-    ctx = SimpleNamespace(doc=MagicMock())
+    fake_undo = FakeUndoManager()
+    doc = MagicMock()
+    doc.getUndoManager.return_value = fake_undo
+    ctx = SimpleNamespace(doc=doc)
     with (
         patch("plugin.calc.cells.CalcBridge", return_value=_a1_bridge()),
-        patch("plugin.calc.cells.WriterCompoundUndo") as undo_cls,
         patch.object(CellManipulator, "commit_write") as commit,
     ):
         res = _tool("write_formula_range").execute_safe(ctx, range=["A1:A2", "Nope"], values="")
@@ -1982,7 +1861,7 @@ def test_write_formula_range_clear_refuses_unknown_range_before_any_write():
     assert "NOPE" in res["message"]
     assert "Nothing was kept" not in res["message"]
     commit.assert_not_called()
-    undo_cls.assert_not_called()
+    assert fake_undo.entered == []
 
 
 def test_write_formula_range_comma_prose_to_one_cell_ranges_is_text():
@@ -1991,7 +1870,6 @@ def test_write_formula_range_comma_prose_to_one_cell_ranges_is_text():
     ctx = SimpleNamespace(doc=MagicMock())
     with (
         patch("plugin.calc.cells.CalcBridge", return_value=_a1_bridge()),
-        patch("plugin.calc.cells.WriterCompoundUndo"),
         patch.object(CellManipulator, "commit_write", return_value={"message": "ok"}) as commit,
     ):
         res = _tool("write_formula_range").execute_safe(ctx, range=["A1", "C1"], values="Hello, world")
@@ -2002,7 +1880,6 @@ def test_write_formula_range_comma_prose_to_one_cell_ranges_is_text():
 
     with (
         patch("plugin.calc.cells.CalcBridge", return_value=_a1_bridge({"Note": "B2"})),
-        patch("plugin.calc.cells.WriterCompoundUndo"),
         patch.object(CellManipulator, "commit_write", return_value={"message": "ok"}) as commit_named,
     ):
         res_named = _tool("write_formula_range").execute_safe(ctx, range=["Note"], values="Hello, world")
@@ -2313,49 +2190,27 @@ def _missing_sheet_doc() -> MagicMock:
 
 def test_write_formula_range_missing_sheet_is_uno_object_error():
     doc = _missing_sheet_doc()
+    fake_undo = FakeUndoManager()
+    doc.getUndoManager.return_value = fake_undo
     ctx = SimpleNamespace(doc=doc)
-    with patch("plugin.calc.cells.WriterCompoundUndo") as undo_cls:
-        res = _tool("write_formula_range").execute_safe(ctx, range="Nope.A1", values="1")
+    res = _tool("write_formula_range").execute_safe(ctx, range="Nope.A1", values="1")
 
     assert res["status"] == "error"
     assert res["code"] == "UNO_OBJECT_ERROR"
     assert "Available: Sheet1, Data" in res["message"]
     assert "sheet_list" in res["details"]["hint"]
-    undo_cls.assert_not_called()
+    assert fake_undo.entered == []
 
 
 def test_mutate_ranges_keeps_exception_code_after_rollback():
     from plugin.framework.errors import UnoObjectError
 
-    titles_stack = []
-    undo_mgr = MagicMock()
-    undo_mgr.getAllUndoActionTitles.side_effect = lambda: list(titles_stack)
-
-    def fake_undo():
-        if titles_stack:
-            titles_stack.pop(0)
-
-    undo_mgr.undo.side_effect = fake_undo
+    fake_undo = FakeUndoManager()
     doc = MagicMock()
-    doc.getUndoManager.return_value = undo_mgr
+    doc.getUndoManager.return_value = fake_undo
     ctx = SimpleNamespace(doc=doc)
 
-    class FakeCompoundUndo:
-        def __init__(self, doc, title):
-            self.title = title
-            self.entered = True
-
-        def __enter__(self):
-            titles_stack.insert(0, self.title)
-            return self
-
-        def __exit__(self, *args):
-            pass
-
-    with (
-        patch("plugin.calc.cells.WriterCompoundUndo", FakeCompoundUndo),
-        patch("plugin.calc.cells.CellManipulator") as manipulator_cls,
-    ):
+    with patch("plugin.calc.cells.CellManipulator") as manipulator_cls:
         manipulator = manipulator_cls.return_value
         manipulator.commit_write.side_effect = [
             {"message": "wrote"},
@@ -2368,7 +2223,46 @@ def test_mutate_ranges_keeps_exception_code_after_rollback():
     assert res["code"] == "UNO_OBJECT_ERROR"
     assert res["message"].endswith("Nothing was kept.")
     assert res["details"]["hint"] == "h"
-    undo_mgr.undo.assert_called_once()
+    assert fake_undo.undone == 1
+
+
+def test_mutate_ranges_rolls_back_at_full_undo_stack():
+    from plugin.calc.cells import WriteCellRange
+    from plugin.framework.errors import CalcError
+
+    fake_undo = FakeUndoManager(titles=["x"] * 3, limit=3)
+    doc = MagicMock()
+    doc.getUndoManager.return_value = fake_undo
+    ctx = SimpleNamespace(doc=doc)
+
+    with patch("plugin.calc.cells.CellManipulator") as manipulator_cls:
+        manipulator = manipulator_cls.return_value
+        manipulator.commit_write.side_effect = ["wrote", CalcError("occupied")]
+
+        res = WriteCellRange().execute(ctx, range=["A1", "B1"], values="1")
+
+    assert res["status"] == "error"
+    assert "Nothing was kept." in res["message"]
+    assert fake_undo.undone == 1
+
+
+def test_mutate_ranges_empty_group_keeps_older_same_title():
+    from plugin.calc.cells import WriteCellRange
+    from plugin.framework.errors import CalcError
+
+    fake_undo = FakeUndoManager(titles=["WriterAgent: Write formulas"], drop_empty=True)
+    doc = MagicMock()
+    doc.getUndoManager.return_value = fake_undo
+    ctx = SimpleNamespace(doc=doc)
+
+    with patch("plugin.calc.cells.CellManipulator") as manipulator_cls:
+        manipulator_cls.return_value.commit_write.side_effect = CalcError("fail")
+        res = WriteCellRange().execute(ctx, range=["A1"], values="1")
+
+    assert res["status"] == "error"
+    assert "Nothing was kept." not in res["message"]
+    assert fake_undo.undone == 0
+    assert fake_undo.titles == ["WriterAgent: Write formulas"]
 
 
 def test_read_cell_range_missing_sheet_is_uno_object_error():

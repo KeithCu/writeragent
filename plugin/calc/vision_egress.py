@@ -13,6 +13,7 @@ from plugin.calc.bridge import CalcBridge
 from plugin.calc.manipulator import CellManipulator
 from plugin.calc.rich_html import insert_cell_html_rich
 from plugin.calc.tabular_egress import append_blank, append_table_rows, append_truncation_note, pad_grid
+from plugin.doc.compound_undo import UndoStepOrRollback
 from plugin.doc.visual_helpers import get_graphic_object_by_name, selected_graphic_object
 from plugin.framework.errors import ToolExecutionError, reraise_if_disposed
 from plugin.framework.i18n import _
@@ -153,10 +154,12 @@ def insert_vision_structure_into_calc(doc: Any, result: dict[str, Any], *, image
     bridge = CalcBridge(doc)
     manipulator = CellManipulator(bridge)
     addr = qualify_a1(sheet_name, format_address(col, row))
-    # literal_text: setString, so "=..." is not a live formula and "000123" is not float()'d.
-    manipulator.write_formula_range(addr, grid, literal_text=True)
-    for r1, c1, r2, c2 in merges:
-        start = format_address(col + c1, row + r1)
-        end = format_address(col + c2, row + r2)
-        manipulator.merge_cells(qualify_a1(sheet_name, f"{start}:{end}"), center=False)
+    # Group the grid write and all span merges into one Ctrl+Z step; a failed merge undoes the write.
+    with UndoStepOrRollback(doc, _("WriterAgent: Insert extracted tables")):
+        # literal_text: setString, so "=..." is not a live formula and "000123" is not float()'d.
+        manipulator.write_formula_range(addr, grid, literal_text=True)
+        for r1, c1, r2, c2 in merges:
+            start = format_address(col + c1, row + r1)
+            end = format_address(col + c2, row + r2)
+            manipulator.merge_cells(qualify_a1(sheet_name, f"{start}:{end}"), center=False)
     return len(grid)

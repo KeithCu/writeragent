@@ -5,7 +5,8 @@
 """Compound undo context helper for grouping document mutations into a single undo step.
 
 LibrePy and WriterAgent both use this to wrap document modifications into one Ctrl+Z step
-without depending on ``edit_review.py``.
+without depending on ``edit_review.py``. ``UndoStepOrRollback`` adds automatic rollback-on-raise
+for multi-step Calc writes and egress helpers.
 """
 
 from __future__ import annotations
@@ -159,6 +160,35 @@ class WriterCompoundUndo:
             self.rollback_error = e
             log.exception("rollback_if_top failed (title=%r)", self._title)
             return False
+
+
+class UndoStepOrRollback(WriterCompoundUndo):
+    """One Ctrl+Z step for a ``with`` body that changes the document in several calls.
+
+    The body's edits land in one group titled *title*. If the body raises, the group is
+    closed and then undone, but only while it is still the newest undo entry
+    (``rollback_if_top``), so a user edit that landed on top is never undone in its place.
+    The exception is always re-raised, and a disposed document is not rolled back.
+    ``rolled_back`` says whether the undo ran. With a missing or locked undo manager the
+    body runs without a group (``entered`` is False) and nothing can be rolled back;
+    callers that must refuse in that state should use ``commit_or_rollback``. Implemented
+    as a class rather than ``@contextmanager`` because pyuno turns a re-raised exception
+    from a generator context manager into a RuntimeException.
+    """
+
+    rolled_back: bool
+
+    def __init__(self, doc: Any, title: str) -> None:
+        super().__init__(doc, title)
+        self.rolled_back = False
+
+    def __enter__(self) -> UndoStepOrRollback:
+        return self
+
+    def __exit__(self, exc_type: type[BaseException] | None, exc: BaseException | None, tb: Any) -> None:
+        self.close()
+        if isinstance(exc, Exception) and not is_disposal(exc):
+            self.rolled_back = self.rollback_if_top()
 
 
 class UndoUnavailable(RuntimeError):
