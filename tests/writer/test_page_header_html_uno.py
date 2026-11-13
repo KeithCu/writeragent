@@ -24,12 +24,7 @@ _PNG_BYTES = base64.b64decode(
 
 
 def _tool_ctx(doc, ctx):
-    # GHA 34689136372: leftover writer reuse then
-    # html_export._open_hidden_writer Hidden `_blank` hung 30s in
-    # test_plain_header_footer_html_roundtrip (_get → xtext_to_content).
-    return writer_services_tool_context(
-        doc, ctx, skip_reason="page_header Hidden _blank xtext_to_content"
-    )
+    return writer_services_tool_context(doc, ctx)
 
 
 def _style_name(doc):

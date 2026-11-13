@@ -71,11 +71,7 @@ _LIST_FIXTURE_HTML = [
 
 
 def _tool_ctx(doc, ctx):
-    # apply_document_content HTML import opens a Hidden StarWriter temp doc.
-    # Same leftover-Hidden skip as other apply_document_content UNO suites.
-    return native_writer_tool_context(
-        doc, ctx, skip_reason="apply_document_content Hidden _default swriter"
-    )
+    return native_writer_tool_context(doc, ctx)
 
 
 def _rule_prop(rules, level, name):

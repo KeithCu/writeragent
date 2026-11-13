@@ -16,7 +16,6 @@ from plugin.notebook.cell_registry import load_registry
 from plugin.testing_runner import _progress_verbose as _progress, native_test
 from plugin.tests.testing_utils import (
     TestingFactory,
-    skip_windows_leftover_hidden_load,
     windows_notebook_load_args,
 )
 
@@ -110,10 +109,6 @@ def test_import_filter_uno_detect_without_filtername(ctx):
         print("Note: writer_WriterAgent_Jupyter_Notebook filter not registered in throwaway profile; skipping detect test")
         return
 
-    # GHA 34646877587: first leftover Hidden _wa_notebook + close returned;
-    # the next Hidden _wa_notebook hung 30s. Unique _wa_notebook_2 is the
-    # leftover factory stacking family. Skip the detect reload.
-    skip_windows_leftover_hidden_load("import_filter detect second Hidden .ipynb")
     doc = _load_ipynb(ctx)
     try:
         assert doc is not None

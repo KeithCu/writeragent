@@ -318,18 +318,6 @@ POSIX still `close_doc`. Breadcrumbs:
 `html_paste_writer: keeper reactivated`,
 `create_native_doc: windows factory leftover_open=N url=… target=… flags=…`,
 `windows leftover skip: leftover simpress leftovers=`,
-`windows leftover skip: latex dialog Hidden _blank .mml leftovers=`,
-`windows leftover skip: math formula Hidden _blank .mml leftovers=`,
-`windows leftover skip: math export Hidden _blank smath leftovers=`,
-`windows leftover skip: document scripts Hidden _blank reopen leftovers=`,
-`windows leftover skip: apply_document_content Hidden _default swriter leftovers=`,
-`windows leftover skip: apply_style origin canary leftover reuse leftovers=`,
-`windows leftover skip: format_uno Hidden _blank small_doc leftovers=`,
-`windows leftover skip: format_uno cross-paragraph color leftover reuse leftovers=`,
-`windows pool skip: format_uno cross-paragraph color pooled reuse leftovers=`,
-`windows leftover skip: inline_review view cursor leftover reuse leftovers=`,
-`windows leftover skip: page_header Hidden _blank xtext_to_content leftovers=`,
-`windows leftover skip: ops_uno leftover text offsets leftovers=`,
 `windows hidden skip: create_native_doc Hidden _blank after system bitmap`,
 `windows awt skip: slash_popup createPeer/setVisible`,
 `slash_popup_uno: createPeer start/done setVisible start/done`,
@@ -994,11 +982,15 @@ A `*_uno.py` module that raises on import or exec (such as `ImportError`, `Synta
 ## 2026-11 Windows skip experiment (TSLOP-WIN)
 
 Stage 1 removed `_windows_should_reuse_writer` (redundant with default
-pooling). Baseline (§3.1) and rounds not yet dispatched. The 17
-hidden-load classes and the pooled skip remain until a Windows UNO run
-proves each clean.
+pooling). GHA run 43525041142 (`PR CI`, `os=windows-latest`) passed
+`UNO Tests (windows-latest)`. Stage 2 then removed
+`skip_windows_leftover_hidden_load`, `windows_leftover_hidden_load_unsafe`,
+`skip_windows_pooled_writer_reuse`, `windows_pooled_writer_reuse`,
+`writer_pool_reused`, the `skip_reason=` parameters on
+`native_writer_tool_context` / `writer_services_tool_context`, all 17
+hidden-load skip call sites, and their meta-tests.
 
 Later (not this PR): rename `set_windows_notebook_host` and
 `_windows_notebook_host` since the separate-pool flag applies on every
-platform rather than only Windows (alongside inlining
-`native_writer_tool_context` if its `skip_reason` parameter is removed).
+platform rather than only Windows, and inline `native_writer_tool_context`
+(now a one-line `TestingFactory.create_context` wrapper).

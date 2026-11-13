@@ -1463,24 +1463,6 @@ def test_source_style_is_cached_and_tolerates_a_missing_style():
     assert rc.source_style(model, "", cache) is None
 
 
-def test_format_uno_skips_windows_leftover_hidden_apply() -> None:
-    """GHA 34683742049 / 34685648395 / 35470191616: leftover Hidden and pool reuse."""
-    from pathlib import Path
-
-    src = Path(__file__).with_name("test_format_uno.py").read_text(encoding="utf-8")
-    assert "skip_windows_leftover_hidden_load" in src
-    assert "apply_document_content Hidden _default swriter" in src
-    assert "34683742049" in src
-    assert "format_uno Hidden _blank small_doc" in src
-    assert "34685648395" in src
-    assert "format_uno cross-paragraph color leftover reuse" in src
-    assert "non-linebreak" in src
-    assert "35466498641" in src
-    assert "skip_windows_pooled_writer_reuse" in src
-    assert "format_uno cross-paragraph color pooled reuse" in src
-    assert "35470191616" in src
-
-
 # --- table-cell HTML block gate (from test_cell_block_html_gate.py) ---
 # R3: pins the block-vs-inline classification that gates the clear "rich HTML in a table cell"
 # error in replace_single_range_with_content.

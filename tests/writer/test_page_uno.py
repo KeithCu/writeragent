@@ -51,12 +51,7 @@ def _header_logo_path() -> str:
 
 
 def _tool_ctx(doc, ctx):
-    # GHA 34689136372: leftover Hidden `_blank` in xtext_to_content
-    # hung page-header get. This file is the next PageGetHeaderFooterText
-    # victim.
-    return writer_services_tool_context(
-        doc, ctx, skip_reason="page_header Hidden _blank xtext_to_content"
-    )
+    return writer_services_tool_context(doc, ctx)
 
 
 def _style_name(doc):
