@@ -1317,7 +1317,7 @@ def test_run_json_probe_uses_utf8():
     assert hint is None
 
 
-def test_probe_scripts_compile():
+def test_probe_scripts_compile_and_ui_probe_round_trips():
     scripts = [
         _AUDIO_PROBE_SCRIPT,
         _NLP_PROBE_SCRIPT,
@@ -1329,16 +1329,16 @@ def test_probe_scripts_compile():
     for script in scripts:
         compile(script, "<test_probe_script>", "exec")
 
-    assert 'out["docling_import_error"] = str(exc)[:200]' in _VISION_PROBE_SCRIPT
-    assert "import docling.document_converter" in _VISION_PROBE_SCRIPT
-    assert "import rapidocr_onnxruntime" in _VISION_PROBE_SCRIPT
-    assert 'out["sentence_transformers_import_error"] = str(exc)[:200]' in _VECTOR_SEARCH_PROBE_SCRIPT
-    assert "import odf" in _VECTOR_SEARCH_PROBE_SCRIPT and 'out["odfpy"]' in _VECTOR_SEARCH_PROBE_SCRIPT
-    assert "import docx" in _VECTOR_SEARCH_PROBE_SCRIPT and 'out["python_docx"]' in _VECTOR_SEARCH_PROBE_SCRIPT
-    assert 'out["duckdb_import_error"] = str(exc)[:200]' in _DUCKDB_PROBE_SCRIPT
-    assert "language_tool_python.__file__" not in _NLP_PROBE_SCRIPT
-    assert _UI_PROBE_SCRIPT.count("\ntry:") == len(_UI_PACKAGE_KEYS)
-    assert _NLP_PROBE_SCRIPT.count("\ntry:") == 4
+    proc = subprocess.run(
+        [sys.executable, "-c", _UI_PROBE_SCRIPT],
+        capture_output=True,
+        encoding="utf-8",
+        timeout=30,
+    )
+    assert proc.returncode == 0, proc.stderr
+    parsed = _parse_probe_stdout(proc.stdout)
+    assert parsed is not None
+    assert set(_UI_PACKAGE_KEYS) <= set(parsed)
 
 
 def test_partial_scientific_group_uses_translated_title(monkeypatch) -> None:

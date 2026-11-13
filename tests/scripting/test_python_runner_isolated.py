@@ -27,10 +27,12 @@ def test_reset_python_session_action_in_background():
     from unittest.mock import MagicMock, patch
     from plugin.menu_handlers import register_common_handlers
 
+    ctx = MagicMock()
     registered = {}
     with (
-        patch("plugin.framework.uno_context.get_ctx", return_value=MagicMock()),
+        patch("plugin.framework.uno_context.get_ctx", return_value=ctx),
         patch("plugin.framework.worker_pool.run_in_background") as m_run,
+        patch("plugin.scripting.session_manager.reset_workbook_python_session") as m_reset,
         patch(
             "plugin.menu_handlers.register_action_handler",
             side_effect=lambda mod, act, fn: registered.__setitem__((mod, act), fn),
@@ -40,10 +42,12 @@ def test_reset_python_session_action_in_background():
         reset_func = registered[("scripting", "reset_python_session")]
         reset_func()
 
-    m_run.assert_called_once()
-    args, kwargs = m_run.call_args
-    assert kwargs["name"] == "reset-python-session"
-    assert callable(args[0])
+        m_run.assert_called_once()
+        args, kwargs = m_run.call_args
+        assert kwargs["name"] == "reset-python-session"
+        assert callable(args[0])
+        args[0]()
+        m_reset.assert_called_once_with(ctx)
 
 
 def test_prepare_rps_session_failure_logs_prepare_not_execute(caplog):

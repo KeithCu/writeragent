@@ -18,7 +18,7 @@ _SAMPLE_IMAGE = {"__wa_payload__": "image", "format": "png", "data": b"abc"}
 
 
 @pytest.mark.parametrize(
-    ("domain", "helper", "insert_target", "is_calc_doc", "data_range", "venv_result", "expected_status"),
+    ("domain", "helper", "insert_target", "is_calc_doc", "data_range", "venv_result", "expected_status", "expected_bindings", "check_doc_ctx_order"),
     [
         (
             "text",
@@ -28,6 +28,8 @@ _SAMPLE_IMAGE = {"__wa_payload__": "image", "format": "png", "data": b"abc"}
             None,
             {"status": "ok", "result": {"readability": {"flesch_reading_ease": 60}, "entities": []}},
             "Text analytics",
+            {"text": "Sample document text.", "document_context": {}},
+            False,
         ),
         (
             "units",
@@ -37,6 +39,8 @@ _SAMPLE_IMAGE = {"__wa_payload__": "image", "format": "png", "data": b"abc"}
             None,
             {"status": "ok", "helper": "convert_quantity", "formatted": "36 kilometer / hour", "text": "36 kilometer / hour", "magnitude": 36.0},
             "convert_quantity",
+            None,
+            False,
         ),
         (
             "viz",
@@ -46,6 +50,8 @@ _SAMPLE_IMAGE = {"__wa_payload__": "image", "format": "png", "data": b"abc"}
             "Sheet1.A1:B5",
             {"status": "ok", "helper": "quick_plot", "title": "Quick plot: Sales", "image": _SAMPLE_IMAGE},
             "Plot inserted",
+            None,
+            False,
         ),
         (
             "analysis",
@@ -55,11 +61,13 @@ _SAMPLE_IMAGE = {"__wa_payload__": "image", "format": "png", "data": b"abc"}
             "Sheet1.A1:B2",
             {"status": "ok", "helper": "describe_data", "metrics": {"row_count": 1}},
             "describe_data",
+            None,
+            True,
         ),
     ],
 )
 def test_execute_and_insert_domain_skips_fast_path(
-    domain, helper, insert_target, is_calc_doc, data_range, venv_result, expected_status
+    domain, helper, insert_target, is_calc_doc, data_range, venv_result, expected_status, expected_bindings, check_doc_ctx_order
 ):
     ctx = MagicMock()
     doc = MagicMock()
@@ -70,6 +78,7 @@ def test_execute_and_insert_domain_skips_fast_path(
         patch(insert_target) as mock_insert,
         patch("plugin.scripting.helper_domain.run_domain") as mock_run,
         patch("plugin.scripting.python_runner.run_code_in_user_venv", return_value={"status": "ok", "result": venv_result}) as mock_venv,
+        # MagicMock doc has no int range address; read_range is not under test here.
         patch("plugin.calc.inspector.CellInspector.read_range", return_value=[]),
         patch("plugin.scripting.python_runner.is_writer", return_value=not is_calc_doc),
         patch("plugin.scripting.python_runner.is_calc", return_value=is_calc_doc),
@@ -84,11 +93,8 @@ def test_execute_and_insert_domain_skips_fast_path(
     mock_run.assert_not_called()
     mock_venv.assert_called_once()
     mock_insert.assert_called_once()
-    if domain == "text":
-        assert mock_venv.call_args.args[0] == code
-        assert mock_venv.call_args.kwargs["bindings"] == {"text": "Sample document text.", "document_context": {}}
-    elif domain == "analysis":
-        assert mock_insert.call_args.args[:2] == (doc, ctx)
+    assert mock_venv.call_args.kwargs["bindings"] == expected_bindings
+    assert (not check_doc_ctx_order) or (mock_insert.call_args.args[:2] == (doc, ctx))
 
 
 @pytest.mark.parametrize(

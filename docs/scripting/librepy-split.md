@@ -765,8 +765,7 @@ Makefile
 | [`tests/scripting/test_worker_harness_trusted_action.py`](../../tests/scripting/test_worker_harness_trusted_action.py) | Trusted RPC dispatch |
 | [`tests/scripting/test_python_runner_config.py`](../../tests/scripting/test_python_runner_config.py) | `last_python_script_name_*` keys |
 | [`tests/scripting/test_python_runner_formatting.py`](../../tests/scripting/test_python_runner_formatting.py) | `format_result_for_writer` |
-| [`tests/scripting/test_python_runner_analysis.py`](../../tests/scripting/test_python_runner_analysis.py) | Analysis fast-path |
-| [`tests/scripting/test_python_runner_viz.py`](../../tests/scripting/test_python_runner_viz.py) | Viz fast-path |
+| [`tests/scripting/test_python_runner_domains.py`](../../tests/scripting/test_python_runner_domains.py) | Domain venv/egress routing |
 | [`tests/scripting/test_python_runner_vision.py`](../../tests/scripting/test_python_runner_vision.py) | Vision fast-path |
 | [`tests/scripting/test_python_runner_monaco.py`](../../tests/scripting/test_python_runner_monaco.py) | Monaco Run Python path |
 | [`tests/scripting/test_analysis.py`](../../tests/scripting/test_analysis.py) | Analysis templates / trusted stubs |

@@ -1179,8 +1179,11 @@ def test_document_script_reopen_after_select_and_save_uses_display_key():
     assert config["last_python_script_name_writer"] == "[Doc] Regional"
 
 
-def test_monaco_overwrite_check_uses_document_display_key():
-    """This Document list keys use [Doc] labels while My Scripts keeps raw names."""
+def test_scripts_list_keys_document_by_display_name_and_user_by_raw_name():
+    """Document entries must use [Doc] labels because the JS overwrite probe keys on them.
+
+    Probing the raw name once missed existing document scripts; the JS side itself has no test.
+    """
     props = _UserDefinedProperties()
     doc = _DocWithUserDefinedProperties(props)
     doc.getURL = MagicMock(return_value="file:///tmp/test.odt")
