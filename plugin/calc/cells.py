@@ -25,7 +25,6 @@ CellInspector, and CellManipulator per call using ``ctx.doc``.
 from __future__ import annotations
 
 import logging
-from itertools import chain
 from typing import TYPE_CHECKING, Any, Callable
 from plugin.framework.errors import ToolExecutionError, WriterAgentException, is_disposal, uno_call
 from plugin.framework.tool import ToolBase
@@ -33,42 +32,14 @@ from plugin.framework.tool import ToolBase
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
 
-from plugin.calc.address_utils import format_range, index_to_column, quote_sheet_name, range_shape, split_sheet_prefix
+from plugin.calc.address_utils import format_range, index_to_column, quote_sheet_name, split_sheet_prefix
 from plugin.calc.bridge import CalcBridge, is_agent_visible_sheet
 from plugin.calc.base import ToolCalcRangeBase
 from plugin.calc.calc_utils import range_args
 from plugin.calc.inspector import CellInspector, grid_to_rows
-from plugin.calc.manipulator import CellManipulator, _parse_formula_or_values_string, _values_length_mismatch_message
+from plugin.calc.manipulator import CellManipulator
 from plugin.doc.compound_undo import WriterCompoundUndo, undo_titles
 from plugin.doc.visual_helpers import parse_color_to_uno_int
-
-
-_WRITE_VALUES_CELL_ERR = (
-    "Each cell in values must be string, number, boolean, or null; got {kind}."
-)
-
-
-def _write_values_cell_ok(cell: Any) -> bool:
-    if cell is None:
-        return True
-    return isinstance(cell, (str, int, float, bool))
-
-
-def _write_values_grid_cell_error(parsed_vals: list[Any]) -> str | None:
-    """Reject nested structures before UNO."""
-    if not parsed_vals:
-        return None
-    if isinstance(parsed_vals[0], (list, tuple)):
-        for row in parsed_vals:
-            if not isinstance(row, (list, tuple)):
-                return _WRITE_VALUES_CELL_ERR.format(kind=type(row).__name__)
-        cells: Any = chain.from_iterable(parsed_vals)
-    else:
-        cells = parsed_vals
-    for cell in cells:
-        if not _write_values_cell_ok(cell):
-            return _WRITE_VALUES_CELL_ERR.format(kind=type(cell).__name__)
-    return None
 
 # Verbose per-cell dicts for a large range (A1:H500) exceed the chat context and the provider rejects the request (HTTP 400).
 # Inspector.read_range stays uncapped for UNO tests and internal callers.
@@ -275,6 +246,7 @@ def _mutate_ranges(
     apply_one: Callable[[Any], str | dict[str, Any]],
     done_message: str = "",
     format_result: Callable[[list[Any]], dict[str, Any]] | None = None,
+    plan_one: Callable[[Any], Any] | None = None,
 ) -> dict[str, Any]:
     """Run apply_one on each range inside one compound undo."""
     if len(ranges) == 0:
@@ -282,13 +254,24 @@ def _mutate_ranges(
 
     target = ranges[0]
     results: list[Any] = []
-    prev_count = _undo_action_count(doc)
-    group = WriterCompoundUndo(doc, undo_title)
+    group: WriterCompoundUndo | None = None
+    prev_count = 0
     try:
-        with group:
+        # Plan every range before the undo group exists (WriterCompoundUndo enters its context in
+        # __init__): a bad value shape, unknown range or occupied array target on any range is
+        # refused before the first range changes, so there is nothing to undo and no Redo entry.
+        steps: list[Any] = list(ranges)
+        if plan_one is not None:
+            steps = []
             for r in ranges:
                 target = r
-                res = apply_one(r)
+                steps.append(plan_one(r))
+        prev_count = _undo_action_count(doc)
+        group = WriterCompoundUndo(doc, undo_title)
+        with group:
+            for r, step in zip(ranges, steps):
+                target = r
+                res = apply_one(step)
                 results.append(res)
         if format_result is not None:
             return format_result(results)
@@ -301,7 +284,7 @@ def _mutate_ranges(
     except Exception as exc:
         if is_disposal(exc):
             raise
-        entered = group.entered
+        entered = group is not None and group.entered
         undone = _undo_titled_group(doc, undo_title, prev_count) if entered else False
         if undone:
             return tool._tool_error(f"Failed on range {target!r}: {exc}. Nothing was kept.")
@@ -681,46 +664,25 @@ class WriteCellRange(ToolBase):
         if isinstance(fov, (int, float)):
             fov = str(fov)
 
-        single_cell = len(rn) == 1 and range_shape(rn[0]) == (1, 1, 1)
-        parsed_vals = _parse_formula_or_values_string(fov, single_cell_range=single_cell) if isinstance(fov, str) else (fov if isinstance(fov, list) else None)
-        if parsed_vals is not None and len(parsed_vals) > 0:
-            if isinstance(parsed_vals[0], (list, tuple)):
-                r_cnt = len(parsed_vals)
-                c_cnt = len(parsed_vals[0]) if r_cnt > 0 else 0
-                for r in rn:
-                    shape = range_shape(r)
-                    if shape is None:
-                        continue
-                    n_cells, rows, cols = shape
-                    if n_cells > 1:
-                        if not all(isinstance(row, (list, tuple)) and len(row) == c_cnt for row in parsed_vals) or r_cnt != rows or c_cnt != cols:
-                            return self._tool_error(f"Array is {r_cnt}x{c_cnt} but range is {rows}x{cols}.")
-            else:
-                n_vals = len(parsed_vals)
-                for r in rn:
-                    shape = range_shape(r)
-                    if shape is None:
-                        continue
-                    n_cells, rows, cols = shape
-                    if n_vals != n_cells:
-                        return self._tool_error(_values_length_mismatch_message(r, n_vals, n_cells, rows, cols))
-
-        if parsed_vals is not None:
-            cell_err = _write_values_grid_cell_error(parsed_vals)
-            if cell_err:
-                return self._tool_error(cell_err)
-
         array_flag, err = _opt_bool(kwargs, "array")
         if err:
             return self._tool_error(err)
 
-        first_sz = manipulator.prepare_array_formula_if_needed(rn[0], fov, array=array_flag)
-        premeasured: list[tuple[int, int] | None] = [first_sz]
-        for r in rn[1:]:
-            sz = manipulator.prepare_array_formula_if_needed(r, fov, array=array_flag, premeasured_array_size=first_sz)
-            premeasured.append(sz)
+        # The first array formula's measured size is reused for the other ranges: the same
+        # formula gives the same result size, and each measure is a UNO probe.
+        measured: list[tuple[int, int]] = []
 
-        sizes = iter(premeasured)
+        def _plan(r: Any) -> Any:
+            plan = manipulator.plan_write(
+                r,
+                fov,
+                array=array_flag,
+                check_cell_types=True,
+                premeasured_array_size=measured[0] if measured else None,
+            )
+            if plan.array_size is not None and not measured:
+                measured.append(plan.array_size)
+            return plan
 
         def _format_write(results: list[Any]) -> dict[str, Any]:
             message = f"Wrote to {len(rn)} ranges"
@@ -737,10 +699,9 @@ class WriteCellRange(ToolBase):
             ctx.doc,
             rn,
             "WriterAgent: Write formulas",
-            lambda r: manipulator.write_formula_range(
-                r, fov, array=array_flag, premeasured_array_size=next(sizes)
-            ),
+            manipulator.commit_write,
             format_result=_format_write if len(rn) > 1 else None,
+            plan_one=_plan,
         )
 
 
