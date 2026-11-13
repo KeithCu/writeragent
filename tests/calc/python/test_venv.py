@@ -20,7 +20,7 @@ def test_resolve_python_data_prefers_data_range():
 
     ctx = MagicMock()
     ctx.doc = MagicMock()
-    with patch("plugin.calc.bridge.CalcBridge"), patch("plugin.calc.inspector.CellInspector") as insp_cls:
+    with patch("plugin.calc.calc_addin_data.CalcBridge"), patch("plugin.calc.calc_addin_data.CellInspector") as insp_cls:
         insp = insp_cls.return_value
         insp.read_range.return_value = [[{"value": 1}, {"value": 2}]]
         py_data, err = resolve_python_data(ctx, data_range="A1:B1", data=[[99]])
@@ -127,8 +127,8 @@ def test_execute_pins_ctx_doc_for_script_tools(mock_run):
     tool = RunVenvPythonScript()
     ctx = TestingFactory.create_context(doc_type="draw")
     with (
-        patch("plugin.scripting.session_manager.pin_script_document", return_value="doc:deck") as mock_pin,
-        patch("plugin.scripting.session_manager.release_script_document") as mock_release,
+        patch("plugin.calc.python.venv.pin_script_document", return_value="doc:deck") as mock_pin,
+        patch("plugin.calc.python.venv.release_script_document") as mock_release,
     ):
         out = tool.execute(ctx, code="import writeragent as wa")
     assert out["status"] == "ok"
@@ -144,8 +144,8 @@ def test_execute_releases_doc_pin_when_script_raises(mock_run):
     tool = RunVenvPythonScript()
     ctx = TestingFactory.create_context(doc_type="draw")
     with (
-        patch("plugin.scripting.session_manager.pin_script_document", return_value="doc:deck"),
-        patch("plugin.scripting.session_manager.release_script_document") as mock_release,
+        patch("plugin.calc.python.venv.pin_script_document", return_value="doc:deck"),
+        patch("plugin.calc.python.venv.release_script_document") as mock_release,
         pytest.raises(RuntimeError, match="worker down"),
     ):
         tool.execute(ctx, code="import writeragent as wa")

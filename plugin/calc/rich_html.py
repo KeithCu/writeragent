@@ -27,6 +27,7 @@ from plugin.framework.errors import ToolExecutionError, best_effort
 from plugin.framework.scratch_writer import clear_writer_body
 from plugin.framework.uno_context import create_property_value, get_desktop, get_service_manager
 from plugin.calc.bridge import CalcBridge
+from plugin.calc.calc_utils import query_interface
 import plugin.writer.html_import as html_import
 
 log = logging.getLogger(__name__)
@@ -54,8 +55,6 @@ def _controller_get_transferable(controller: Any) -> Any:
     t = getattr(controller, "getTransferable", None)
     if callable(t):
         return t()
-    from plugin.calc.calc_utils import query_interface
-
     # pyuno needs a UNO type here; the imported IDL class raises "Couldn't convert".
     xs = best_effort(
         lambda: query_interface(controller, "com.sun.star.datatransfer.XTransferableSupplier"),

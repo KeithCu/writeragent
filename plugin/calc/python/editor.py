@@ -22,6 +22,9 @@ from typing import Any, TypeGuard
 
 from plugin.calc.address_utils import format_address, qualify_a1, split_sheet_prefix
 from plugin.calc.bridge import CalcBridge
+from plugin.calc.calc_utils import EMPTY, FORMULA, TEXT, VALUE
+from plugin.calc.python.diagnostics import diagnostics_workbook_key, get_diagnostics_store
+from plugin.calc.python.editor_context_menu import install_calc_cell_context_menu
 from plugin.calc.python.formula_edit import (
     CALC_PYTHON_FN,
     PyFormula,
@@ -40,6 +43,7 @@ from plugin.framework.errors import best_effort, uno_read
 from plugin.framework.i18n import _
 from plugin.framework.thread_guard import guard_uno, main_thread_only
 from plugin.framework.uno_context import get_desktop, product_display_name
+from plugin.scripting.document_scripts import document_scripts_identity
 from plugin.scripting.editor_host import (
     ask_save_discard_cancel,
     launch_monaco_editor,
@@ -59,8 +63,6 @@ def _cell_formula_strings(cell: Any) -> list[str]:
     content: bool | None = None
     if hasattr(cell, "getType"):
         kind = cell.getType()
-        from plugin.calc.calc_utils import EMPTY, FORMULA, TEXT, VALUE
-
         # Live getType() is a uno.Enum; uno.Enum != int (calc_utils). int 3 is the
         # stub/fallback FORMULA. Both checks are required.
         if kind == FORMULA or kind == 3:
@@ -284,8 +286,6 @@ def _launch_editor_with_code(ctx: Any, doc: Any, cell: Any, *, initial_code: str
         )
 
     label = format_cell_a1(display_cell)
-    from plugin.scripting.document_scripts import document_scripts_identity
-
     doc_url = best_effort(lambda: document_scripts_identity(doc), "doc_url for session target", "")
     load_msg: dict[str, Any] = {
         "type": "load",
@@ -304,8 +304,6 @@ def _launch_editor_with_code(ctx: Any, doc: Any, cell: Any, *, initial_code: str
         "doc_url": doc_url,
         "resource": label,
     }
-    from plugin.calc.python.diagnostics import diagnostics_workbook_key, get_diagnostics_store
-
     entry = best_effort(lambda: get_diagnostics_store().latest_for_code(diagnostics_workbook_key(doc), initial_code), "diagnostics lookup for editor markers", None)
     if entry is not None and entry.is_error:
         found = editor_error_markers(entry.message, entry.traceback, initial_code)
@@ -319,8 +317,6 @@ def open_python_cell_editor(ctx: Any) -> None:
     """Launch Monaco or the native cell editor for the active Calc cell."""
     log.info("python_editor: open_python_cell_editor")
     try:
-        from plugin.calc.python.editor_context_menu import install_calc_cell_context_menu
-
         install_calc_cell_context_menu(ctx)
         _open_python_cell_editor_impl(ctx)
     except Exception as e:
@@ -355,6 +351,7 @@ def _open_python_cell_editor_impl(ctx: Any) -> None:
 
     exe, monaco_available = monaco_editor_available()
     if not monaco_available or exe is None:
+        # Lazy: cell_editor_ui imports this module at its top.
         from plugin.calc.python.cell_editor_ui import show_native_python_cell_editor
 
         log.info("python_editor: editor unavailable; opening native cell editor")

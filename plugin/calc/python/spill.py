@@ -26,14 +26,17 @@ from plugin.calc.python.addin_values import (
     coerce_spill_value,
     spill_value_from_json,
 )
+from plugin.calc.python.cell_discovery import is_py_formula_text
 from plugin.calc.python.formula_locator_cache import (
     FormulaOrigin,
     is_matching_py_formula,
     locate_formula_cell_in_doc,
     search_sheet_for_formula,
 )
+from plugin.calc.python.sheet_modify import ensure_sheet_modify_listener, migrate_sheet_rename, sheet_modify_scope
 from plugin.calc.python.undo import undo_lock
 from plugin.calc.python.workbook_state import WorkbookState
+from plugin.doc.udprops import get_document_property, set_document_property
 from plugin.framework.errors import uno_read
 from plugin.framework.queue_executor import main
 
@@ -111,9 +114,6 @@ def cleanup_orphans(
         if not main.is_current():
             return
 
-        from plugin.calc.python.sheet_modify import sheet_modify_scope
-        from plugin.calc.python.cell_discovery import is_py_formula_text
-
         with sheet_modify_scope():
             to_remove: list[tuple[str, int, int]] = []
             to_remap: list[tuple[tuple[str, int, int], tuple[str, int, int], SpillRecord]] = []
@@ -183,8 +183,6 @@ def cleanup_orphans(
 def load_spill_registry_for_doc(doc: Any, state: WorkbookState) -> None:
     """Load the document's spill registry from its UserDefinedProperties."""
     try:
-        from plugin.doc.udprops import get_document_property
-
         raw = get_document_property(doc, "WriterAgentSpillRegistry", None)
         if not isinstance(raw, str) or not raw.strip():
             return
@@ -221,8 +219,6 @@ def load_spill_registry_for_doc(doc: Any, state: WorkbookState) -> None:
 def save_spill_registry_for_doc(doc: Any, state: WorkbookState) -> None:
     """Save the document's spill registry to its UserDefinedProperties."""
     try:
-        from plugin.doc.udprops import set_document_property
-
         if not state.key:
             return
         doc_spills: dict[str, Any] = {}
@@ -361,8 +357,6 @@ def perform_deferred_spill(
                 return
             if live_sheet_name and live_sheet_name != sheet_name:
                 try:
-                    from plugin.calc.python.sheet_modify import migrate_sheet_rename
-
                     migrate_sheet_rename(doc, sheet_name, live_sheet_name)
                 except Exception:
                     log.debug("perform_deferred_spill: rename migration failed", exc_info=True)
@@ -377,8 +371,6 @@ def perform_deferred_spill(
                 return
 
             reg_key = (sheet_name, formula_row, formula_col)
-
-            from plugin.calc.python.sheet_modify import sheet_modify_scope
 
             with sheet_modify_scope():
                 previous_record = state.spills.get(reg_key)
@@ -477,8 +469,6 @@ def prepare_auto_spill(
         state.loaded = True
 
     try:
-        from plugin.calc.python.sheet_modify import ensure_sheet_modify_listener
-
         ensure_sheet_modify_listener(ctx, doc, sheet)
     except Exception:
         log.exception("Failed to register modify listener on sheet")

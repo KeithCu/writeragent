@@ -281,7 +281,7 @@ def test_resolve_python_data_disposal_propagates():
         pass
 
     doc = MagicMock()
-    with patch("plugin.calc.bridge.CalcBridge", side_effect=DisposedException("disposed")):
+    with patch("plugin.calc.calc_addin_data.CalcBridge", side_effect=DisposedException("disposed")):
         with pytest.raises(DocumentDisposedError):
             resolve_python_data(doc, data_range="A1:B1")
 

@@ -333,7 +333,7 @@ def test_install_attaches_global_document_event_listener():
     ctx.getServiceManager.return_value = smgr
     smgr.createInstanceWithContext.return_value = broadcaster
     mod._doc_listener = None
-    with patch("plugin.framework.uno_context.get_desktop", return_value=None):
+    with patch("plugin.calc.python.editor_context_menu.get_desktop", return_value=None):
         mod.install_calc_cell_context_menu(ctx)
         mod.install_calc_cell_context_menu(ctx)
     smgr.createInstanceWithContext.assert_called_with("com.sun.star.frame.GlobalEventBroadcaster", ctx)
@@ -357,7 +357,7 @@ def test_install_registers_all_frames():
     desktop.getFrames.return_value = frames
 
     ctx = MagicMock()
-    with patch("plugin.framework.uno_context.get_desktop", return_value=desktop):
+    with patch("plugin.calc.python.editor_context_menu.get_desktop", return_value=desktop):
         with patch.object(mod, "_install_doc_event_listener"):
             with patch.object(mod, "_register_controller") as mock_register_controller:
                 mod.install_calc_cell_context_menu(ctx)
@@ -374,7 +374,7 @@ def test_new_doc_listener_on_document_event():
     smgr.createInstanceWithContext.return_value = broadcaster
     mod._doc_listener = None
     with patch.object(mod, "_register_controller") as mock_reg:
-        with patch("plugin.framework.uno_context.get_desktop", return_value=None):
+        with patch("plugin.calc.python.editor_context_menu.get_desktop", return_value=None):
             mod.install_calc_cell_context_menu(ctx)
         listener = mod._doc_listener
         assert listener is not None

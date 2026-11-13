@@ -44,7 +44,7 @@ from plugin.calc.python.addin_values import (
     py_addin_cell_value,
 )
 from plugin.calc.python.diagnostics import diagnostics_workbook_key, get_diagnostics_store
-from plugin.calc.python.formula_locator_cache import FormulaOrigin, locate_formula_cell_in_doc
+from plugin.calc.python.formula_locator_cache import FormulaOrigin, bind_formula_locate_memo, locate_formula_cell_in_doc
 from plugin.calc.python.geometric_recalc import ensure_geometric_strip_index_for_eval, maybe_strip_geometric_eval_args
 from plugin.calc.python.image_egress import ImageEgressError, insert_image_result_on_sheet
 from plugin.calc.python.spill import (
@@ -55,14 +55,15 @@ from plugin.calc.python.spill import (
     queue_off_main_auto_spill,
 )
 from plugin.calc.python.workbook_state import WorkbookState
+from plugin.framework.config import get_config
 from plugin.framework.errors import best_effort
 from plugin.framework.i18n import _
 from plugin.framework.queue_executor import main
-from plugin.framework.thread_guard import background_if_dummy_thread, sync_host_dispatch
+from plugin.framework.thread_guard import background_if_dummy_thread, in_sync_host_dispatch, sync_host_dispatch
 from plugin.scripting.calc_range import result_to_calc_grid
 from plugin.scripting.config_limits import configured_python_max_data_cells
 from plugin.scripting.payload_codec import find_image_payloads, is_split_grid, wire_cell_count
-from plugin.scripting.session_manager import workbook_session_id
+from plugin.scripting.session_manager import calc_workbook_base_session_id, workbook_session_id
 from plugin.scripting.venv_worker import run_code_in_user_venv
 
 log = logging.getLogger(__name__)
@@ -154,6 +155,7 @@ class CellContext:
 
 
 def _init_kwargs_for_doc(doc: Any) -> dict[str, Any]:
+    # Lazy: document_scripts loads the scripting domain registry, which the first =PY() must not load (test_function_module_avoids_document_helpers_import).
     from plugin.scripting.document_scripts import build_python_eval_init_kwargs
 
     return best_effort(lambda: build_python_eval_init_kwargs(doc), "get_python_init_kwargs", {}) or {}
@@ -173,14 +175,13 @@ def build_cell_context(ctx: Any, doc: Any, code: str, *, on_main: bool) -> CellC
         init_kwargs = _init_kwargs_for_doc(doc)
         scoped_dir = None
         try:
+            # Lazy: plugin.doc.document_research is not in the LibrePy bundle; there the ImportError lands in the except below and the run has no scoped folder.
             from plugin.doc.document_research import get_document_directory
 
             folder = get_document_directory(doc)
             scoped_dir = folder or None
         except Exception:
             log.debug("scoped_dir binding failed", exc_info=True)
-        from plugin.scripting.session_manager import calc_workbook_base_session_id
-
         workbook_key = calc_workbook_base_session_id(doc)
         diag_workbook_key = diagnostics_workbook_key(doc)
     else:
@@ -316,8 +317,6 @@ def finalize_python_return(
     result = result_to_calc_grid(result)
 
     if isinstance(result, (list, tuple)) and index_arg is None and len(result) > 0:
-        from plugin.framework.config import get_config
-
         if get_config("scripting.python_auto_spill") and not cell.is_matrix:
             grid_to_spill = result_as_spill_grid(result)
             if grid_to_spill and grid_to_spill[0]:
@@ -354,8 +353,6 @@ def execute_python_addin(ctx: Any, code: str, data: Any = None, *, doc: Any | No
     """Run *code* in the user venv and return a Calc-compatible scalar (or error string)."""
     with background_if_dummy_thread("python_addin"):
         with sync_host_dispatch():
-            from plugin.calc.python.formula_locator_cache import bind_formula_locate_memo
-
             with bind_formula_locate_memo():
                 return _execute_python_addin_impl(ctx, code, data, doc=doc)
 
@@ -421,8 +418,6 @@ def _execute_python_addin_impl(ctx: Any, code: str, data: Any = None, *, doc: An
         if isinstance(cached, WorkerResultSession) and cached.next_index < len(cached.flat):
             res = {"status": "ok", "result": cached.raw}
         else:
-            from plugin.framework.thread_guard import in_sync_host_dispatch
-
             session_id = cell_ctx.session_id
             init_kwargs = cell_ctx.init_kwargs
 

@@ -140,6 +140,7 @@ def migrate_sheet_rename(
 
     # Rekey state.spills for this doc
     try:
+        # Lazy: spill imports this module at its top.
         from plugin.calc.python.spill import save_spill_registry_for_doc
 
         for (sname, r, c) in list(state.spills):
@@ -165,6 +166,7 @@ def migrate_sheet_rename(
 
     # Rekey geometric records and persist
     try:
+        # Lazy: geometric_recalc imports this module at its top.
         from plugin.calc.python.geometric_recalc import (
             records_for_sheet,
             replace_records_for_sheet,
@@ -184,6 +186,7 @@ def migrate_sheet_rename(
 
 
 def _skip_sheet_modify() -> bool:
+    # Lazy: geometric_recalc imports this module at its top.
     from plugin.calc.python.geometric_recalc import is_geometric_repairing
 
     return (not main.is_current()) or _DISPATCH_DEPTH > 0 or is_geometric_repairing()
@@ -215,6 +218,7 @@ def run_sheet_modify_pass(
         state = WorkbookState.for_doc(doc)
         # Job 1 — spill orphan cleanup. Walks state.spills only.
         try:
+            # Lazy: spill imports this module at its top.
             from plugin.calc.python.spill import cleanup_orphans
 
             if state is not None:
@@ -224,6 +228,7 @@ def run_sheet_modify_pass(
 
         # Job 2 — geometric list-diff. Own discovery; skip when flag is off.
         try:
+            # Lazy: geometric_recalc imports this module at its top.
             from plugin.calc.python.geometric_recalc import geometric_flag_enabled, reconcile_geometric_sheet
 
             if geometric_flag_enabled():

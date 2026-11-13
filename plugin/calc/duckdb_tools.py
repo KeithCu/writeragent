@@ -13,10 +13,14 @@ from typing import TYPE_CHECKING, Any, NamedTuple
 
 from plugin.calc.address_utils import format_range_address, qualify_a1, split_sheet_prefix
 from plugin.calc.base import ToolCalcPythonSqlBase
-from plugin.calc.calc_addin_data import check_python_data_size
+from plugin.calc.bridge import CalcBridge, used_range_address
+from plugin.calc.calc_addin_data import check_python_data_size, values_from_inspector_range
+from plugin.calc.inspector import CellInspector
 from plugin.doc.document_research import get_document_directory, resolve_listing_directory, open_document_for_read, close_document_research_document
+from plugin.framework.config import get_config
 from plugin.framework.errors import CalcError, ToolExecutionError, UnoObjectError, format_error_payload, is_disposal, uno_read
 from plugin.framework.queue_executor import main
+from plugin.framework.uno_context import create_property_value, resolve_document_by_url
 from plugin.scripting.config_limits import configured_python_max_data_cells
 from plugin.scripting.venv.duckdb_sql import (
     FLAT_FILE_EXTS,
@@ -109,6 +113,7 @@ class QueryFolderSqlTool(ToolCalcPythonSqlBase):
             tables["data"] = {"range": data_range, "headers": headers}
         task_hint = str(kwargs.get("task_hint") or "") or None
 
+        # Lazy: plugin.scripting.client loads trusted_rpc, the venv worker and the vision client (about 30 modules); only a folder SQL run needs them.
         from plugin.scripting.client import run_folder_sql
 
         # Only the UNO preload hops to the UI thread; run_folder_sql's venv IPC
@@ -301,8 +306,6 @@ def resolve_table_source_a1(model: Any, parsed: dict[str, Any]) -> str:
     Sheet → current used range. named_range → current NamedRanges /
     DatabaseRanges bounds. range → the frozen A1 the caller stored.
     """
-    from plugin.calc.bridge import CalcBridge, used_range_address
-
     kind = parsed.get("kind")
     if kind == "sheet":
         bridge = CalcBridge(model)
@@ -334,10 +337,6 @@ def resolve_table_source_a1(model: Any, parsed: dict[str, Any]) -> str:
 
 def read_model_table_grid(model: Any, parsed: dict[str, Any]) -> list[list[Any]]:
     """Read values for a parsed identity from an already-open Calc model."""
-    from plugin.calc.bridge import CalcBridge
-    from plugin.calc.calc_addin_data import values_from_inspector_range
-    from plugin.calc.inspector import CellInspector
-
     qualified = resolve_table_source_a1(model, parsed)
     inspector = CellInspector(CalcBridge(model))
     raw = inspector.read_range(qualified)
@@ -375,8 +374,6 @@ def _source_is_open_workbook(ctx: Any, full_path: str) -> bool:
     """
     import uno
 
-    from plugin.framework.uno_context import resolve_document_by_url
-
     url = uno.systemPathToFileUrl(os.path.normpath(os.path.abspath(full_path)))
     return uno_read(lambda: resolve_document_by_url(ctx, url)[0] is not None, False)
 
@@ -384,8 +381,6 @@ def _source_is_open_workbook(ctx: Any, full_path: str) -> bool:
 def _export_model_to_cached_ods(model: Any, dest: Path) -> None:
     """Save As ODS to *dest* (atomic replace via a ``.partial`` sibling)."""
     import uno
-
-    from plugin.framework.uno_context import create_property_value
 
     dest.parent.mkdir(parents=True, exist_ok=True)
     # Unique temp name per writer: two cache writes sharing one .partial name would unlink each other's in-progress export.
@@ -411,8 +406,6 @@ def _resolve_sibling_open_path(ctx: Any, full_path: str) -> tuple[str, bool, Ods
     Cache only ``.xlsx``/``.xls`` that are not already open. Native ``.ods``
     and the live workbook always open the source path.
     """
-    from plugin.framework.config import get_config
-
     if not is_cacheable_office_source(full_path) or not get_config("calc.ods_cache_enabled"):
         return full_path, False, None
     if _source_is_open_workbook(ctx, full_path):
