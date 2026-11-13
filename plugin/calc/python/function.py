@@ -3,7 +3,15 @@
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""=PY() / =PYTHON() add-in entry: execute_python_addin, finalize_python_return, WorkerResultSession."""
+"""=PY() / =PYTHON() add-in entry.
+
+``execute_python_addin`` runs one formula call: ``build_cell_context``
+resolves the caller's workbook state and worker session into a
+``CellContext``, the user venv runs the code, and ``finalize_python_return``
+shapes the result (scalar, a matrix cached in ``WorkerResultSession`` for the
+rest of the recalc, or a deferred spill). ``clear_python_addin_cache`` drops
+every workbook's matrix cache.
+"""
 # pyright: reportUnusedFunction=false
 
 from __future__ import annotations
@@ -128,6 +136,8 @@ def _worker_data_token(worker_data: Any) -> str:
 
 @dataclass(frozen=True, slots=True)
 class CellContext:
+    """Per-call facts about the calling workbook. On the UI thread they come from UNO; off-main only the passed-through doc and already-known state are used."""
+
     ctx: Any
     on_main: bool
     doc: Any

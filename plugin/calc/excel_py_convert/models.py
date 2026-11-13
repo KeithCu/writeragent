@@ -56,7 +56,7 @@ class ExcelWorkbookModel:
     scripts: list[str] = field(default_factory=list)
     cells: list[ExcelPyCell] = field(default_factory=list)
     sheets: list[SheetInfo] = field(default_factory=list)
-    # Qualified table refs: name → "'Sheet'.A1:B10" or "Sheet.A1:B10"
+    # Qualified table refs in Excel's bang form: name → "Sheet!A1:B10" or "'My Sheet'!A1:B10" (parse_excel_ooxml._qualify_sheet_ref). python/formula_edit._format_qualified_range turns them into Calc's dot form when the =PY formula is written.
     tables: dict[str, str] = field(default_factory=dict)
     # Anchor/spill snapshots: "Sheet!A6" or "A6" → A1 range
     anchor_snapshots: dict[str, str] = field(default_factory=dict)

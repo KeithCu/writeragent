@@ -478,6 +478,8 @@ def _selection_is_multi_cell(target_doc: Any) -> bool:
 
 
 class PreparedSpill:
+    """A located formula origin whose spill fits: _prepare_auto_spill returns it on the UI thread and _queue_deferred_spill_write writes the neighbors from it. key is the workbook's WorkbookState.key."""
+
     sheet_name: str
     formula_row: int
     formula_col: int
@@ -594,7 +596,7 @@ def _queue_deferred_spill_write(code: str, grid_to_spill: list[list[Any]], targe
 def _queue_off_main_auto_spill(ctx: Any, code: str, grid_to_spill: list[list[Any]], doc: Any) -> None:
     """Locate and write the spill on the UI thread in the calling document.
 
-    Yellow/off-main finalize must not touch UNO: *doc* (the add-in caller) is
+    Off-main finalize must not touch UNO: *doc* (the add-in caller) is
     only passed through to the UI-thread callback. Collision ``#SPILL!`` is too
     late to change the add-in return; the deferred path just skips the write.
     """

@@ -134,9 +134,7 @@ def _xl_binding_expr(index: int, header_mode: str) -> str:
 
 def _header_mode_from_keywords(node: ast.Call) -> tuple[HeaderMode, str | None]:
     """Extract HeaderMode from call keywords or return an error issue if invalid."""
-    # A non-constant headers argument (headers=flag, headers=1) and any
-    # extra keyword are fatal. Looking only for a constant headers= and
-    # returning "omit" strips the rest of the call.
+    # Only a constant headers=True/False is accepted. A non-constant headers (headers=flag, headers=1) or any other keyword is fatal: the rewrite would drop it from the call.
     header_mode: HeaderMode = "omit"
     for kw in node.keywords:
         if kw.arg is None:
@@ -318,9 +316,7 @@ def analyze_xl_calls(code: str, *, num_deps: int) -> _XlAnalysis:
             fatal = True
             continue
         idx = _placeholder_to_data_index(call.p_num)
-        # idx >= num_deps is fatal even when num_deps is 0. Guarding that
-        # test with ``if num_deps`` skipped the empty-deps case, and
-        # convert_cell_to_dag never marked a missing formula dep fatal.
+        # idx >= num_deps is fatal even when num_deps is 0, so a missing formula dep is always fatal.
         if idx >= num_deps:
             issues.append(f"%P{call.p_num}% has no matching formula dep (need {idx + 1} deps, have {num_deps})")
             fatal = True
@@ -462,16 +458,15 @@ def convert_cell_to_dag(model: ExcelWorkbookModel, cell: ExcelPyCell, *, has_pri
 
     fatal = analysis.fatal or bool(bind_issues)
 
-    # Second rewrite step with dedup index map when all deps resolved and no fatal issues.
-    # Merge every analysis issue. When deps are unresolved, dropping
-    # analyze_xl_calls issues hides syntax errors and bad placeholders.
-    # In best_effort mode say that placeholder remapping was skipped. The
-    # old warning claimed shifted data indices were refused in both modes.
+    # Keep every analysis issue: dropping analyze_xl_calls issues when deps are
+    # unresolved would hide syntax errors and bad placeholders. Best-effort
+    # mode says it skipped placeholder remapping; strict mode says it refused.
     if bind_issues:
         if best_effort:
             issues.append("unresolved or dropped dependency; skipped placeholder remapping in best-effort mode")
         else:
             issues.append("unresolved or dropped dependency; refusing to emit shifted data indices")
+    # Second rewrite step with dedup index map when all deps resolved and no fatal issues.
     if fatal:
         new_code = original
     else:

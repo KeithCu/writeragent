@@ -183,10 +183,9 @@ class RunVenvPythonScript(ToolCalcPythonBase):
                 if ctx.doc_type == "calc":
                     from plugin.calc.python.image_egress import insert_image_result_on_sheet
 
-                    # Pass ctx.doc, and report inserted only after the
-                    # main-thread call returns. Omitting doc= makes egress
-                    # use getCurrentComponent (the front window), and a
-                    # silent return was treated as success.
+                    # Pass ctx.doc: without doc= egress uses getCurrentComponent (the front
+                    # window). Report inserted only after the main-thread call returns; a
+                    # silent return is not success.
                     # Keep going past a failed slot so later plots still insert;
                     # only the failed paths are handed back to the caller.
                     inserted_paths: list[str] = []

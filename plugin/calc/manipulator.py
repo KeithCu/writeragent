@@ -229,23 +229,15 @@ def _parse_formula_or_values_string(s: str, *, single_cell_range: bool = False) 
                 reader = csv.reader(io.StringIO(s), delimiter=delimiter, skipinitialspace=True)
                 rows = list(reader)
                 if len(rows) == 1:
-                    # Case 2a: single logical CSV row (possibly multiple fields).
+                    # csv.reader splits on the data delimiter, so a one-cell write such as
+                    # "Hello, world" would become two fields, and write_formula_range would
+                    # fail ("Array has N values but range has 1 cells") or mis-split it.
                     #
-                    # Bug we fix: csv.reader splits on the data delimiter, so a
-                    # one-cell write like "Hello, world" becomes two fields and
-                    # write_formula_range then errors ("Array has N values but range
-                    # has 1 cells") or would mis-split if we padded silently.
-                    #
-                    # When *single_cell_range* is True, a single line with multiple
-                    # fields is ambiguous (real CSV row vs sentence with commas /
-                    # semicolons). We treat it as literal text for that one cell.
-                    #
-                    # Tradeoff: you cannot use a raw comma-separated *row* string
-                    # to mean "many columns" into a single cell—use a contiguous
-                    # range (e.g. A1:B1) or a JSON array for exact per-cell values.
-                    #
-                    # Multiline CSV is unchanged: len(rows) > 1 still returns a 2D
-                    # list below and write_formula_range expands the anchor cell.
+                    # When *single_cell_range* is True, a single line with several fields is
+                    # ambiguous (a real CSV row, or a sentence with commas or semicolons), so it
+                    # is literal text for that one cell. To write many columns, use a range
+                    # (A1:B1) or a JSON array. Multiline CSV still returns a 2-D list below,
+                    # and write_formula_range expands the anchor cell.
                     if single_cell_range and len(rows[0]) > 1:
                         return None
                     return [val.strip() for val in rows[0]]
@@ -452,7 +444,7 @@ class CellManipulator:
             unmerge: When true, split the range instead of merging (center is skipped).
         """
         cell_range = self.bridge.resolve_range_or_address(range_str)
-        # merge(True) was hard-coded; unmerge=False splits a merged range.
+        # merge(False) splits the range, so unmerge=True passes False.
         cell_range.merge(not unmerge)
         if unmerge:
             log.info("Range %s unmerged.", range_str.upper())
@@ -964,10 +956,10 @@ class CellManipulator:
                 if parsed is not None:
                     formula_or_values = parsed
 
-            # LibreOffice does not spill. setFormula on =SORT(FILTER(...))
-            # Top-level dynamic arrays need setArrayFormula, not a single setFormula cell.
-            # Detect top-level array functions and enter setArrayFormula
-            # instead of fill-down. =SUM(FILTER()) stays scalar.
+            # LibreOffice does not spill: setFormula on =SORT(FILTER(...)) shows only
+            # the first value. A top-level dynamic-array function is entered with
+            # setArrayFormula over its result size instead of being filled down;
+            # =SUM(FILTER()) stays a scalar formula.
             if not literal_text and not data_text and _requests_array_formula(formula_or_values, array):
                 sheet = self.bridge.doc.getSheets().getByIndex(addr.Sheet)
                 return self._write_array_formula(sheet, formula_or_values, start, end, premeasured_array_size=premeasured_array_size)
@@ -1009,10 +1001,9 @@ class CellManipulator:
                     raise CalcError(_values_length_mismatch_message(range_str, len(formula_or_values), total_cells, num_rows, num_cols))
                 values = formula_or_values
             else:
-                # Used to pin ``[formula] * n`` so J2:J5 + ``=H2`` wrote
-                # identical ``=H2`` in every cell (AFC fill-down miss).
-                # Formulas now adjust relative A1 refs across 1-D and 2-D;
-                # =PY respects direction-aware span policy.
+                # One formula written to a multi-cell range is filled like Calc's
+                # fill-down: relative A1 refs shift per cell (expand_single_formula), and
+                # =PY formulas follow the direction-aware span policy in formula_fill.
                 if not literal_text and not data_text and isinstance(formula_or_values, str) and formula_or_values.startswith("=") and total_cells > 1:
                     values = expand_single_formula(formula_or_values, num_rows, num_cols)
                 else:

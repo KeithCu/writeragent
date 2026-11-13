@@ -35,7 +35,8 @@ MIN_CHART_PLACEHOLDER_WIDTH = 4000
 MIN_CHART_PLACEHOLDER_HEIGHT = 3000
 
 # Only shapes we created for a plot are replaced on the next insert. A user
-# image is also a GraphicObjectShape; matching the anchor alone overwrote it.
+# image is also a GraphicObjectShape, so matching on the anchor alone would
+# overwrite it; the ``WriterAgentPlot`` name prefix is checked too.
 _DRAW_GRAPHIC_SERVICE = "com.sun.star.drawing.GraphicObjectShape"
 _PLOT_SHAPE_NAME_PREFIX = "WriterAgentPlot"
 _IMAGE_ANNOTATION_PREFIX = "WriterAgent image: "
@@ -751,9 +752,9 @@ def _insert_image_result_on_sheet_impl(
     # Fall back to the active sheet and selection, and keep a minimum size
     # when the anchor is a merged range.
     #
-    # Raise ImageEgressError when the document, sheet, or draw page is
-    # missing, or when UNO throws. Logging and returning made =PY(), the
-    # venv, and plot_data report the picture as inserted.
+    # Raise ImageEgressError when the document, sheet, or draw page is missing,
+    # or when UNO throws: a silent return would let =PY(), the venv and
+    # plot_data report the picture as inserted.
     created_path: str | None = None
     try:
         # Callers pass the document (=PY() passes its caller argument). Do not

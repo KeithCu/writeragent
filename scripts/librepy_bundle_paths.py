@@ -42,7 +42,7 @@ LIBREPY_PLUGIN_DIRS: dict[str, tuple[str, ...]] = {
     "plugin/contrib/scripting/assets/editor/": (),
     "plugin/contrib/nbformat/": (),
     "plugin/notebook/": (),
-    # Excel Python-in-Excel → DAG =PY auto-convert on open (stdlib OOXML + optional openpyxl write).
+    # Excel Python-in-Excel → DAG =PY auto-convert on open and export on save (stdlib OOXML only).
     "plugin/calc/excel_py_convert/": (),
 }
 

@@ -1308,7 +1308,7 @@ def test_ensure_strip_index_empty_registry_skips_discovery(monkeypatch):
 
 
 def test_ensure_strip_index_hydrates_from_udprop():
-    """UI-thread eval rebuilds ``_STRIP_SAFE`` from UDProp (late attach / URP)."""
+    """UI-thread eval rebuilds the strip-safe index (``GeometricRuntime.strip_safe``) from UDProp (late attach / URP)."""
     import json
 
     from plugin.tests.testing_utils import CalcDocStub

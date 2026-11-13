@@ -70,7 +70,7 @@ def _write_values_grid_cell_error(parsed_vals: list[Any]) -> str | None:
             return _WRITE_VALUES_CELL_ERR.format(kind=type(cell).__name__)
     return None
 
-# Verbose per-cell dicts blow chat/tool context (issue 405: A1:H500 → HTTP 400).
+# Verbose per-cell dicts for a large range (A1:H500) exceed the chat context and the provider rejects the request (HTTP 400).
 # Inspector.read_range stays uncapped for UNO tests and internal callers.
 _READ_CELL_RANGE_MAX_CELLS = 80
 _READ_CELL_RANGE_PREVIEW_ROWS = 10
@@ -228,7 +228,6 @@ def _sheet_prefix_for_clip(range_name: str, resolved: Any) -> str:
     takes the sheet from resolved.getSpreadsheet().getName() and always
     uses '.'.
     """
-    # _sheet_prefix_for_clip keeps sheet prefix and quote escaping when clipping oversized reads.
     sheet, _unused_local = split_sheet_prefix(range_name)
     if sheet:
         sep = "!" if "!" in range_name else "."
@@ -505,7 +504,7 @@ class ReadCellRange(ToolBase):
                 "message": f"Failed to read {len(failed)} of {len(rn)} ranges: {failed!r}",
                 "result": results,
             }
-        # Preserve the old list-of-grids shape when nothing was truncated.
+        # Nothing truncated: return a plain list with one grid per range; otherwise the per-range dicts below.
         if all(item.get("status") == "ok" and not item.get("truncated") for item in results):
             return {"status": "ok", "result": [item["result"][0] for item in results]}
         return {"status": "ok", "result": results}
@@ -594,10 +593,10 @@ class WriteCellRange(ToolBase):
                 "items": {"type": "string"},
                 "description": ('Target range(s) (e.g. ["A1:A10"], ["Sheet1.B2:D2"]). Use a dot for other sheets (Sheet1.B2), never Excel Sheet1!B2. Sheet prefixes target that sheet without switching the active sheet. With source, this is the paste top-left (source extent is copied).'),
             },
-            # Pin vs fill-down fork lives on values (not CALC_CORE FORMULAS
-            # and not the main tool description). #657 replaced the old
-            # pin-workaround with fill-down teaching; a JSON array of copied
-            # =B2*… still pins every row to the first ref.
+            # The fill-down rule lives on the values description (not CALC_CORE
+            # FORMULAS and not the main tool description): one formula string fills
+            # the range with shifted refs, while a JSON array of copied =B2*… writes
+            # each string as given, so every row keeps the first ref.
             # string|array|null on chat + MCP: _normalize_schema_for_strict_providers
             # keeps real unions (same pattern as apply_document_content content).
             "values": {

@@ -17,11 +17,11 @@ from plugin.calc.address_utils import canonical, canonical_key, parse_address, p
 
 
 class TranslationError(ValueError):
-    """Formula translation failure. ``reason`` is the import-report code.
+    """Formula translation failure. ``reason`` is the import-report code (all seven are listed on ``TodoCell``).
 
-    Reference failures use ``UNSUPPORTED_FUNCTION`` because that was the
-    ``UnsupportedRef`` class attribute. Arity failures use
-    ``UNSUPPORTED_ARITY``. Direct failures use ``PARSE_ERROR``.
+    Translation raises ``UNSUPPORTED_FUNCTION`` for unsupported functions and
+    references, ``UNSUPPORTED_ARITY`` for a wrong argument count, and
+    ``PARSE_ERROR`` for formulas the parser or codegen cannot read.
     """
 
     def __init__(self, reason: str, message: str) -> None:
@@ -141,9 +141,7 @@ def _emit_dim_count(axis: int, node: FunctionNode, state: _CodegenState) -> str:
 def _emit_row_col(axis: int, node: FunctionNode, state: _CodegenState) -> str:
     if not node.args:
         if not state.cell_addr:
-            # Without a cell address, ROW() and COLUMN() cannot name a row
-            # or a column, so fail as unsupported. Falling through to
-            # float(1) counted as a successful translation.
+            # Without a cell address, ROW() and COLUMN() cannot name a row or a column, so they fail as unsupported rather than emit a guessed 1.
             raise TranslationError("UNSUPPORTED_FUNCTION", "ROW/COLUMN without reference requires cell_addr")
         try:
             col_idx, row_idx = parse_address(state.cell_addr.replace("$", ""))
@@ -155,10 +153,7 @@ def _emit_row_col(axis: int, node: FunctionNode, state: _CodegenState) -> str:
     if not isinstance(arg, RangeNode):
         raise TranslationError("UNSUPPORTED_FUNCTION", "ROW/COLUMN argument must be a range")
 
-    # Strip the sheet prefix and $ so parse_range_string can read the
-    # coordinates. Anything else raises TranslationError. parse_range_string
-    # rejects a prefix and $, and the ValueError handler returned float(1),
-    # so =ROW($A$5) and =ROW(Sheet2.A1:A3) emitted (1)+0.0.
+    # _range_bounds strips the sheet prefix and $ so parse_range_string can read =ROW($A$5) or =ROW(Sheet2.A1:A3); anything else raises TranslationError rather than emit a guessed 1.
     try:
         (sc, sr), (ec, er) = _range_bounds(arg.address)
     except ValueError as exc:

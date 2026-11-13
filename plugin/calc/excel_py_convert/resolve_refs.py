@@ -122,8 +122,7 @@ def resolve_dep(dep: str, model: ExcelWorkbookModel, *, sheet_hint: str = "") ->
         anchor = m_anchor.group(1).strip()
         return _anchor_snapshot(raw, anchor, model, sheet_hint, label=f"ANCHORARRAY({anchor})")
 
-    # $# / $$# match _SPILL_RE, but the old shape gate treated a
-    # $-only prefix as unrecognized. Keep that note.
+    # $# and $$# match _SPILL_RE; a $-only prefix (no anchor after the $) is not a spill ref.
     m_spill = _SPILL_RE.match(raw)
     if m_spill and len(raw.replace("$", "")) >= 2:
         anchor = m_spill.group(1)

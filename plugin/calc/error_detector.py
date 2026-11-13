@@ -15,10 +15,7 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
-"""Error detector — finds and explains formula errors in Calc cells.
-
-Ported from core/calc_error_detector.py for the plugin framework.
-"""
+"""Error detector — finds and explains formula errors in Calc cells."""
 
 from __future__ import annotations
 

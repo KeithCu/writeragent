@@ -47,8 +47,9 @@ _LISTENERS: dict[str, "_CalcPythonUnloadListener"] = {}
 def rekey_listener(old: str, new: str) -> None:
     """Move the unload listener when a document's key is upgraded.
 
-    Caller holds ``_LOCK``. Without the move the old key kept a listener, the
-    new key installed a second one, and unload forgot only the new alias.
+    Takes this module's ``_LOCK``. The listener moves from the old key to the
+    new one, so unload finds it under the upgraded key and the new key does
+    not install a second one.
     """
     with _LOCK:
         listener = _LISTENERS.pop(old, None)
@@ -105,7 +106,7 @@ class _CalcPythonUnloadListener(BaseDocumentEventListener):
         becomes ``calc:{file URL}``. Keeping only the first id resets the
         uuid session on close and leaves the file-URL kernel warm.
 
-        The session id and URL sets are also read from ``_teardown``, which
+        The session id and the extra-session-id set are also read from ``_teardown``, which
         can run on the main thread while this runs off-main. Both sides take
         ``_LOCK`` so a Save cannot mutate the set while unload iterates it.
         """
@@ -135,7 +136,7 @@ class _CalcPythonUnloadListener(BaseDocumentEventListener):
         """Retry resetting a worker session that timed out or returned WORKER_REENTRY."""
         # Every caller waits for the pipe lock; this retry runs only after
         # a lease timeout, refusal, or IPC timeout.
-        # do_retry sleeps up to 5s, so run it on a dedicated background
+        # This loop sleeps up to 5 s (ten 0.5 s waits), so run it on a dedicated background
         # worker. On the shared pool that sleep starves other tasks.
         res: Any = None
         for _attempt in range(10):
@@ -183,8 +184,7 @@ class _CalcPythonUnloadListener(BaseDocumentEventListener):
     def _release_calc_state(self, session_ids: tuple[str, ...], *args: Any) -> None:
         """Drop in-memory Calc state and worker kernels. Caller does not hold ``_LOCK``."""
         if self._calc_cleanup:
-            # state.clear() drops this workbook's matrix; global clear_python_addin_cache
-            # wiped every open workbook's =PY() matrix cache on one unload.
+            # state.clear() drops only this workbook's matrix cache; other open workbooks keep theirs.
             best_effort(self._state.clear, "python_workbook_lifecycle: spill state clear")
 
             from plugin.calc.python.geometric_recalc import clear_in_memory_geometric_state
@@ -197,10 +197,10 @@ class _CalcPythonUnloadListener(BaseDocumentEventListener):
         self._reset_sessions(session_ids)
 
     def _teardown(self) -> None:
-        # Take the lock. _teardown_done, the session id, and the extra
-        # URL and session sets are written by note_calc_identity off the
-        # main thread. tuple(set) can raise, and a Save during unload
-        # can leave the new kernel out of the reset list.
+        # Take the lock: _teardown_done, the session id and the extra-session-id
+        # set are written by note_calc_identity off the main thread, so copying
+        # the set while it changes would raise, and a Save during unload must
+        # not leave the new kernel out of the reset list.
         with _LOCK:
             if self._teardown_done:
                 return

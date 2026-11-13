@@ -17,8 +17,7 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """Cell address processing helper functions.
 
-Pure utility functions with no UNO dependency. Ported from
-core/calc_address_utils.py for the plugin framework.
+Pure utility functions with no UNO dependency.
 """
 
 from __future__ import annotations

@@ -277,9 +277,9 @@ class _WorksheetCellIndex:
         if row_el is None:
             row_el = ET.Element(_xml_tag(self.sheet_data, SSML_NS, "row"), attrib={"r": str(target_row)})
 
-            # Ascending inserts rescanned every sibling, so a new bank column was quadratic
-            # (about 2s for 5000 rows); append is valid only when the parent has no extLst
-            # or other non-cell/non-row children.
+            # Append when the new row sorts after every existing row and the parent
+            # holds only rows (no extLst or other children); otherwise insert at the
+            # sorted position. Appending keeps a new bank column linear in the row count.
             if not self.has_non_row and target_row > self.max_row:
                 self.sheet_data.append(row_el)
                 self.max_row = target_row
@@ -316,9 +316,9 @@ class _WorksheetCellIndex:
         max_col = self.max_col_by_row.get(row_el, 0)
         has_non_c = self.has_non_c_by_row.get(row_el, False)
 
-        # Ascending inserts rescanned every sibling, so a new bank column was quadratic
-        # (about 2s for 5000 rows); append is valid only when the parent has no extLst
-        # or other non-cell/non-row children.
+        # Append when the new cell sorts after every existing cell and the parent
+        # holds only cells (no extLst or other children); otherwise insert at the
+        # sorted position. Appending keeps a new bank column linear in the row count.
         if not has_non_c and target_col > max_col:
             row_el.append(cell)
             self.max_col_by_row[row_el] = target_col
@@ -500,6 +500,9 @@ _PY_NS = "http://schemas.microsoft.com/office/spreadsheetml/2022/pythonscript"
 
 def python_scripts_xml(scripts: Sequence[str]) -> bytes:
     """Serialize ordered script bank to ``xl/pythonScripts.xml`` bytes (UTF-8)."""
+    # Built by hand: ElementTree does not escape \r in text, and an XML parser
+    # normalizes a raw \r to \n; &#13; keeps CRLF in the script
+    # (test_python_scripts_xml_cr_roundtrip_and_invalid_xml_char).
     chunks = ['<?xml version="1.0" encoding="UTF-8"?>\n', f'<pythonScripts xmlns="{_PY_NS}">\n']
     for body in scripts:
         raw = body or ""

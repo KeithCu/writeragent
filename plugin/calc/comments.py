@@ -22,12 +22,12 @@ if TYPE_CHECKING:
 def _annotation_date(dt: Any) -> str:
     """Return a cell-comment date as text.
 
-    A string is the date LibreOffice already formatted.
-    ``XSheetAnnotation.getDate()`` returns that string
-    (``offapi/com/sun/star/sheet/XSheetAnnotation.idl``). Reading ``.Year``
-    on it raised, and both format attempts failed closed to empty text. A
-    struct is still formatted when an older bridge or a test double
-    provides one.
+    A string is the date LibreOffice already formatted:
+    ``XSheetAnnotation.getDate()`` returns ``string``
+    (``offapi/com/sun/star/sheet/XSheetAnnotation.idl``;
+    ``ScAnnotationObj::getDate`` in ``sc/source/ui/unoobj/notesuno.cxx``), and
+    reading ``.Year`` on it would raise. A struct with Year/Month/Day (a test
+    double) is still formatted.
     """
     if isinstance(dt, str):
         return dt

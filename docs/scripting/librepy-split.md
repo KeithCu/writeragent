@@ -235,7 +235,7 @@ A core OXT must **not** register `prompt_addin.py` / `prompt_function.py`. See [
 | [`plugin/calc/python/undo.py`](../../plugin/calc/python/undo.py) | Undo lock management |
 | [`plugin/calc/addin_common.py`](../../plugin/calc/addin_common.py) | Shared add-in helpers |
 | [`plugin/calc/calc_addin_data.py`](../../plugin/calc/calc_addin_data.py) | Range → `data`, size limits, wire packing; `_resolve_python_data` for Run Python Script / trusted helpers |
-| [`plugin/calc/__init__.py`](../../plugin/calc/__init__.py) | Package (`CalcError`) |
+| [`plugin/calc/__init__.py`](../../plugin/calc/__init__.py) | Package (`CalcModule`) |
 | [`plugin/calc/prompt_addin.py`](../../plugin/calc/prompt_addin.py) | **WriterAgent only** — do not register in core |
 | [`plugin/calc/prompt_function.py`](../../plugin/calc/prompt_function.py) | **WriterAgent only** |
 
@@ -362,7 +362,7 @@ Config keys: `last_python_script_name_writer`, `last_python_script_name_calc`, `
 | [`plugin/framework/worker_pool.py`](../../plugin/framework/worker_pool.py) | Via `dialogs.py` |
 | [`plugin/framework/appearance.py`](../../plugin/framework/appearance.py) | LO light/dark → Monaco theme |
 | [`plugin/doc/__init__.py`](../../plugin/doc/__init__.py) | Package marker. WriterAgent `CommonModule` (embeddings / document-research tool discovery) lives in unbundled [`common_module.py`](../../plugin/doc/common_module.py); LibrePy import of the package is inert. |
-| [`plugin/doc/doc_type.py`](../../plugin/doc/doc_type.py) | `is_writer` / `is_calc` / `is_draw` / `DocumentType` (no analyzer) |
+| [`plugin/framework/doc_type.py`](../../plugin/framework/doc_type.py) | `is_writer` / `is_calc` / `is_draw` / `DocumentType` (no analyzer) |
 | [`plugin/doc/udprops.py`](../../plugin/doc/udprops.py) | Document user-defined properties (session id, spill registry) |
 | [`plugin/doc/text_helpers.py`](../../plugin/doc/text_helpers.py) | Linebreaks, tracked-deletion reads, heading tree, document path |
 | [`plugin/doc/visual_helpers.py`](../../plugin/doc/visual_helpers.py) | Graphic export for Vision egress |
@@ -376,7 +376,7 @@ Config keys: `last_python_script_name_writer`, `last_python_script_name_calc`, `
 | [`plugin/calc/rich_html.py`](../../plugin/calc/rich_html.py) | Rich HTML cell insert (Vision Calc egress) |
 | [`plugin/main_core.py`](../../plugin/main_core.py) | LibrePy bootstrap — **not** [`plugin/main.py`](../../plugin/main.py) |
 
-**Refactor note:** [`plugin/doc/doc_type.py`](../../plugin/doc/doc_type.py) holds `is_writer` / `is_calc` / `DocumentType` so Layer 0 (`=PY()`) and menu guards do not import `document_helpers`. Document properties use [`udprops.py`](../../plugin/doc/udprops.py). Writer text/path helpers used by RPS and text analytics live in [`text_helpers.py`](../../plugin/doc/text_helpers.py). `document_helpers.py` is WriterAgent-only (chat context / `DocumentService`) and must not import Calc at module load.
+**Refactor note:** [`plugin/framework/doc_type.py`](../../plugin/framework/doc_type.py) holds `is_writer` / `is_calc` / `DocumentType` so Layer 0 (`=PY()`) and menu guards do not import `document_helpers`. Document properties use [`udprops.py`](../../plugin/doc/udprops.py). Writer text/path helpers used by RPS and text analytics live in [`text_helpers.py`](../../plugin/doc/text_helpers.py). `document_helpers.py` is WriterAgent-only (chat context / `DocumentService`) and must not import Calc at module load.
 
 Optional gettext: filtered catalogs via `make compile-translations-core` (part of `make build-core`) — [`scripts/build_librepy_locales.py`](../../scripts/build_librepy_locales.py) extracts strings from the LibrePy file closure only and bundles slim `.mo` files from `build/generated/locales/`, not the full WriterAgent `locales/` tree.
 
@@ -841,7 +841,7 @@ Allowlist: [`scripts/librepy_bundle_paths.py`](../../scripts/librepy_bundle_path
 
 **Venv compute:** `venv/analysis.py`, `venv/viz.py`, `venv/symbolic.py`, `venv/units.py`, `venv/forecast.py`, `venv/optimize.py`, `venv/quant.py`, `venv/text_analytics.py`
 
-**Calc runners/egress:** `calc/analysis_runner.py`, `calc/analysis_egress.py`, `calc/viz_auto_plot.py`, `calc/forecast_auto_plot.py`, `calc/quant_egress.py`, `calc/python/image_egress.py`, `calc/inspector.py`
+**Calc runners/egress:** `calc/analysis_egress.py`, `calc/viz_auto_plot.py`, `calc/forecast_auto_plot.py`, `calc/quant_egress.py`, `calc/python/image_egress.py`, `calc/inspector.py`
 
 **Writer images:** [`image_tools.py`](../../plugin/writer/images/image_tools.py) + [`__init__.py`](../../plugin/writer/images/__init__.py) (graphic insert). Do **not** ship [`image_utils.py`](../../plugin/writer/images/image_utils.py) or [`images.py`](../../plugin/writer/images/images.py) (LLM image gen). [`analyzer.py`](../../plugin/calc/analyzer.py) stays in the bundle (later use).
 
@@ -1005,7 +1005,6 @@ Requires [Layer 1](#layer-1--trusted-rpc) + [`domain_registry.py`](../../plugin/
 
 | File | Role |
 |------|------|
-| [`calc/analysis_runner.py`](../../plugin/calc/analysis_runner.py) | Trusted analysis invoke |
 | [`calc/analysis_egress.py`](../../plugin/calc/analysis_egress.py) | Analysis results → sheet |
 | [`calc/viz_auto_plot.py`](../../plugin/calc/viz_auto_plot.py) | Auto-chart after viz |
 | [`calc/forecast_auto_plot.py`](../../plugin/calc/forecast_auto_plot.py) | Auto-chart after forecast |

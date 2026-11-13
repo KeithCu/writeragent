@@ -38,8 +38,7 @@ class PythonCellInfo:
 class PythonSheetDiscovery:
     """Row-major PY cells on one sheet, plus whether the scan stopped early.
 
-    Phase 1 treated ``len(cells) >= 100`` as cap-hit and over-skipped an exact
-    100. ``truncated`` is True only when the 100-cell find cap or the 50k
+    ``truncated`` is True only when the 100-cell find cap or the 50k
     scan cap stopped discovery before the sheet was fully scanned — a
     completed scan of exactly 100 is ``truncated=False``.
     """
@@ -86,8 +85,7 @@ def discover_python_cells_on_sheet(sheet: Any) -> PythonSheetDiscovery:
             # 101st PY cell: the returned list of 100 is incomplete.
             truncated = True
             break
-        # Unquoted sheet names (e.g. Data.2024 or names with spaces) broke downstream
-        # address parsing and navigation; qualify_a1 quotes the sheet prefix when needed.
+        # qualify_a1 quotes the sheet prefix when the name needs it (Data.2024, names with spaces) so downstream address parsing and navigation read the right sheet.
         found.append(PythonCellInfo(sheet=name, row=row, column=col, address=qualify_a1(name, format_address(col, row)), code=parsed.code, formula=formula))
 
     found.sort(key=lambda c: (c.row, c.column))
