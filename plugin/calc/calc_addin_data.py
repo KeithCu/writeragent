@@ -21,7 +21,11 @@ from __future__ import annotations
 
 from typing import Any
 
+from plugin.calc.bridge import CalcBridge
+from plugin.calc.inspector import CellInspector
+from plugin.calc.python.formula_edit import parse_data_binding_text
 from plugin.scripting.calc_range import ensure_rectangular_2d, pack_calc_range_envelope
+from plugin.scripting.config_limits import configured_python_max_data_cells
 from plugin.scripting.payload_codec import ForceBinary, host_pack_data, pack_multi_data_envelope, wire_cell_count
 
 
@@ -191,8 +195,6 @@ def _normalize_data_range_addresses(data_range: Any) -> list[str]:
     """
     if data_range is None:
         return []
-    from plugin.calc.python.formula_edit import parse_data_binding_text
-
     items = data_range if isinstance(data_range, (list, tuple)) else [str(data_range)]
     out: list[str] = []
     for item in items:
@@ -209,10 +211,6 @@ def resolve_python_data(doc: Any, *, data_range: Any = None, data: Any = None) -
     ``data_range`` may be one A1 string, a comma/semicolon-separated string, or a list of addresses.
     Multiple ranges pack as ``multi_data`` of ``calc_range`` (same as ``=PY()`` varargs).
     """
-    from plugin.calc.bridge import CalcBridge
-    from plugin.calc.inspector import CellInspector
-    from plugin.scripting.config_limits import configured_python_max_data_cells
-
     addresses = _normalize_data_range_addresses(data_range)
     max_cells = configured_python_max_data_cells()
 

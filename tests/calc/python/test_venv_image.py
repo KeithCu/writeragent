@@ -111,8 +111,8 @@ def test_calc_image_result_inserts_on_sheet():
             "plugin.framework.queue_executor.main.call",
             side_effect=lambda fn, *args, **kwargs: fn(*args, **kwargs),
         ) as main_thread,
-        patch("plugin.calc.python.image_egress.insert_image_result_on_sheet") as insert,
-        patch("plugin.scripting.config_limits.configured_python_max_data_cells", return_value=10000),
+        patch("plugin.calc.python.venv.insert_image_result_on_sheet") as insert,
+        patch("plugin.calc.calc_addin_data.configured_python_max_data_cells", return_value=10000),
         patch("os.unlink") as mock_unlink,
     ):
         out = tool.execute(ctx, code="import matplotlib.pyplot as plt\nplt.plot([1])")
@@ -143,8 +143,8 @@ def test_stdout_and_result_survives_image_result():
             "plugin.framework.queue_executor.main.call",
             side_effect=lambda fn, *args, **kwargs: fn(*args, **kwargs),
         ),
-        patch("plugin.calc.python.image_egress.insert_image_result_on_sheet"),
-        patch("plugin.scripting.config_limits.configured_python_max_data_cells", return_value=10000),
+        patch("plugin.calc.python.venv.insert_image_result_on_sheet"),
+        patch("plugin.calc.calc_addin_data.configured_python_max_data_cells", return_value=10000),
         patch("os.unlink"),
     ):
         out = tool.execute(ctx, code="print('printed output'); plt.plot([1]); result = 42")
@@ -197,10 +197,10 @@ def test_calc_image_insert_failure_is_not_success():
             side_effect=lambda fn, *args, **kwargs: fn(*args, **kwargs),
         ),
         patch(
-            "plugin.calc.python.image_egress.insert_image_result_on_sheet",
+            "plugin.calc.python.venv.insert_image_result_on_sheet",
             side_effect=ImageEgressError("target sheet has no DrawPage; image was not inserted"),
         ),
-        patch("plugin.scripting.config_limits.configured_python_max_data_cells", return_value=10000),
+        patch("plugin.calc.calc_addin_data.configured_python_max_data_cells", return_value=10000),
     ):
         out = tool.execute(ctx, code="import matplotlib.pyplot as plt\nplt.plot([1])")
 
@@ -229,11 +229,11 @@ def test_all_plot_inserts_fail_reports_first_error_and_keeps_every_temp():
             side_effect=lambda fn, *args, **kwargs: fn(*args, **kwargs),
         ),
         patch(
-            "plugin.calc.python.image_egress.insert_image_result_on_sheet",
+            "plugin.calc.python.venv.insert_image_result_on_sheet",
             side_effect=[ImageEgressError("e1"), ImageEgressError("e2")],
         ),
         patch("plugin.calc.python.venv.os.unlink") as mock_unlink,
-        patch("plugin.scripting.config_limits.configured_python_max_data_cells", return_value=10000),
+        patch("plugin.calc.calc_addin_data.configured_python_max_data_cells", return_value=10000),
     ):
         out = tool.execute(ctx, code="import matplotlib.pyplot as plt\nplt.plot([1])")
 
@@ -254,8 +254,8 @@ def test_writer_image_result_returns_path_only():
     with (
         patch("plugin.calc.python.venv.run_code_in_user_venv", return_value={"status": "ok", "result": _IMAGE_PAYLOAD}),
         patch("plugin.calc.python.venv.write_image_payload_to_temp", return_value="/tmp/plot.svg"),
-        patch("plugin.calc.python.image_egress.insert_image_result_on_sheet"),
-        patch("plugin.scripting.config_limits.configured_python_max_data_cells", return_value=10000),
+        patch("plugin.calc.python.venv.insert_image_result_on_sheet"),
+        patch("plugin.calc.calc_addin_data.configured_python_max_data_cells", return_value=10000),
     ):
         out = tool.execute(ctx, code="import matplotlib.pyplot as plt\nplt.plot([1])")
 
@@ -321,12 +321,12 @@ def test_insert_image_result_on_sheet_uses_passed_doc_not_front_window():
     with (
         patch("plugin.scripting.document_scripts.get_calc_document_from_ctx", return_value=front),
         patch(
-            "plugin.calc.python.formula_locator_cache.locate_formula_cell_in_doc",
+            "plugin.calc.python.image_egress.locate_formula_cell_in_doc",
             return_value=(sheet, cell, (0, 0)),
         ) as locate,
         patch("plugin.calc.python.image_egress.write_image_payload_to_temp", return_value="/tmp/chart.svg"),
         patch("uno.systemPathToFileUrl", return_value="file:///tmp/chart.svg"),
-        patch("plugin.calc.calc_utils.get_cell_geometry", return_value=(MagicMock(), MagicMock(Width=5000, Height=4000))),
+        patch("plugin.calc.python.image_egress.get_cell_geometry", return_value=(MagicMock(), MagicMock(Width=5000, Height=4000))),
     ):
         target.createInstance.return_value = MagicMock()
         insert_image_result_on_sheet(_IMAGE_PAYLOAD, code="plt.show()", doc=target)
@@ -347,7 +347,7 @@ def test_insert_image_result_on_sheet_aborts_when_formula_location_fails_for_cod
     code = "import matplotlib.pyplot as plt; plt.plot([1, 2, 3])"
 
     with (
-        patch("plugin.calc.python.formula_locator_cache.locate_formula_cell_in_doc", return_value=None),
+        patch("plugin.calc.python.image_egress.locate_formula_cell_in_doc", return_value=None),
         patch("plugin.calc.python.image_egress.write_image_payload_to_temp") as mock_write,
         pytest.raises(ImageEgressError, match="could not locate formula cell"),
     ):
@@ -482,12 +482,12 @@ def _insert_at_cell(cell: CalcCellStub, page: _DrawPage, *, doc: MagicMock | Non
     with (
         patch("plugin.scripting.document_scripts.get_calc_document_from_ctx", return_value=MagicMock(name="front")),
         patch(
-            "plugin.calc.python.formula_locator_cache.locate_formula_cell_in_doc",
+            "plugin.calc.python.image_egress.locate_formula_cell_in_doc",
             return_value=(sheet, cell, (cell._row, cell._col)),
         ),
         patch("plugin.calc.python.image_egress.write_image_payload_to_temp", return_value="/tmp/chart.svg"),
         patch("uno.systemPathToFileUrl", return_value="file:///tmp/chart.svg"),
-        patch("plugin.calc.calc_utils.get_cell_geometry", return_value=(MagicMock(), MagicMock(Width=5000, Height=4000))),
+        patch("plugin.calc.python.image_egress.get_cell_geometry", return_value=(MagicMock(), MagicMock(Width=5000, Height=4000))),
     ):
         target.createInstance.return_value = MagicMock()
         insert_image_result_on_sheet(_IMAGE_PAYLOAD, code="plt.show()", doc=target, image_index=image_index)
@@ -550,12 +550,12 @@ def test_two_plots_in_single_call_create_distinct_shapes():
     with (
         patch("plugin.scripting.document_scripts.get_calc_document_from_ctx", return_value=MagicMock(name="front")),
         patch(
-            "plugin.calc.python.formula_locator_cache.locate_formula_cell_in_doc",
+            "plugin.calc.python.image_egress.locate_formula_cell_in_doc",
             return_value=(sheet, cell, (cell._row, cell._col)),
         ),
         patch("plugin.calc.python.image_egress.write_image_payload_to_temp", side_effect=["/tmp/chart0.svg", "/tmp/chart1.svg"]),
         patch("uno.systemPathToFileUrl", side_effect=["file:///tmp/chart0.svg", "file:///tmp/chart1.svg"]),
-        patch("plugin.calc.calc_utils.get_cell_geometry", return_value=(MagicMock(X=1000, Y=2000), MagicMock(Width=5000, Height=4000))),
+        patch("plugin.calc.python.image_egress.get_cell_geometry", return_value=(MagicMock(X=1000, Y=2000), MagicMock(Width=5000, Height=4000))),
     ):
         insert_image_result_on_sheet(_IMAGE_PAYLOAD, code="plt.show()", doc=target, image_index=0)
         insert_image_result_on_sheet(_IMAGE_PAYLOAD, code="plt.show()", doc=target, image_index=1)
@@ -601,12 +601,12 @@ def test_image_count_removes_higher_slot():
     with (
         patch("plugin.scripting.document_scripts.get_calc_document_from_ctx", return_value=MagicMock(name="front")),
         patch(
-            "plugin.calc.python.formula_locator_cache.locate_formula_cell_in_doc",
+            "plugin.calc.python.image_egress.locate_formula_cell_in_doc",
             return_value=(sheet, cell, (cell._row, cell._col)),
         ),
         patch("plugin.calc.python.image_egress.write_image_payload_to_temp", return_value="/tmp/chart.svg"),
         patch("uno.systemPathToFileUrl", return_value="file:///tmp/chart.svg"),
-        patch("plugin.calc.calc_utils.get_cell_geometry", return_value=(MagicMock(), MagicMock(Width=5000, Height=4000))),
+        patch("plugin.calc.python.image_egress.get_cell_geometry", return_value=(MagicMock(), MagicMock(Width=5000, Height=4000))),
     ):
         target.createInstance.return_value = MagicMock()
         insert_image_result_on_sheet(_IMAGE_PAYLOAD, code="plt.show()", doc=target, image_index=0, image_count=1)
@@ -638,7 +638,7 @@ def test_failed_insert_sweeps_extra_slots_while_preserving_slot0():
     with (
         patch("plugin.scripting.document_scripts.get_calc_document_from_ctx", return_value=MagicMock(name="front")),
         patch(
-            "plugin.calc.python.formula_locator_cache.locate_formula_cell_in_doc",
+            "plugin.calc.python.image_egress.locate_formula_cell_in_doc",
             return_value=(sheet, cell, (cell._row, cell._col)),
         ),
         patch("plugin.calc.python.image_egress.write_image_payload_to_temp", return_value="/tmp/chart.svg"),
@@ -725,12 +725,12 @@ def test_svg_aspect_not_stretched():
     with (
         patch("plugin.scripting.document_scripts.get_calc_document_from_ctx", return_value=MagicMock(name="front")),
         patch(
-            "plugin.calc.python.formula_locator_cache.locate_formula_cell_in_doc",
+            "plugin.calc.python.image_egress.locate_formula_cell_in_doc",
             return_value=(sheet, cell, (cell._row, cell._col)),
         ),
         patch("plugin.calc.python.image_egress.write_image_payload_to_temp", return_value="/tmp/chart.svg"),
         patch("uno.systemPathToFileUrl", return_value="file:///tmp/chart.svg"),
-        patch("plugin.calc.calc_utils.get_cell_geometry", return_value=(MagicMock(), MagicMock(Width=5000, Height=4000))),
+        patch("plugin.calc.python.image_egress.get_cell_geometry", return_value=(MagicMock(), MagicMock(Width=5000, Height=4000))),
     ):
         insert_image_result_on_sheet(svg_payload, code="plt.show()", doc=target, image_index=0)
 
@@ -760,12 +760,12 @@ def test_png_aspect():
     with (
         patch("plugin.scripting.document_scripts.get_calc_document_from_ctx", return_value=MagicMock(name="front")),
         patch(
-            "plugin.calc.python.formula_locator_cache.locate_formula_cell_in_doc",
+            "plugin.calc.python.image_egress.locate_formula_cell_in_doc",
             return_value=(sheet, cell, (cell._row, cell._col)),
         ),
         patch("plugin.calc.python.image_egress.write_image_payload_to_temp", return_value="/tmp/chart.png"),
         patch("uno.systemPathToFileUrl", return_value="file:///tmp/chart.png"),
-        patch("plugin.calc.calc_utils.get_cell_geometry", return_value=(MagicMock(), MagicMock(Width=5000, Height=4000))),
+        patch("plugin.calc.python.image_egress.get_cell_geometry", return_value=(MagicMock(), MagicMock(Width=5000, Height=4000))),
     ):
         insert_image_result_on_sheet(png_payload, code="plt.show()", doc=target, image_index=0)
 
@@ -816,7 +816,7 @@ def test_anchor_failure_removes_new_shape_and_raises():
         patch("plugin.calc.python.image_egress.write_image_payload_to_temp", return_value="/tmp/plot.svg"),
         patch("uno.systemPathToFileUrl", return_value="file:///tmp/plot.svg"),
         patch("plugin.calc.python.image_egress._unlink_temp_image"),
-        patch("plugin.calc.calc_utils.get_cell_geometry", return_value=(MagicMock(), MagicMock(Width=5000, Height=4000))),
+        patch("plugin.calc.python.image_egress.get_cell_geometry", return_value=(MagicMock(), MagicMock(Width=5000, Height=4000))),
         pytest.raises(ImageEgressError, match="could not anchor plot to the formula cell"),
     ):
         insert_image_result_on_sheet(_IMAGE_PAYLOAD, doc=doc)
@@ -846,7 +846,7 @@ def test_off_main_failure_annotates_and_does_not_raise():
         patch("plugin.framework.queue_executor.main.is_current", return_value=False),
         patch("plugin.framework.queue_executor.main.post", side_effect=lambda fn: posted_calls.append(fn)),
         patch(
-            "plugin.calc.python.formula_locator_cache.locate_formula_cell_in_doc",
+            "plugin.calc.python.image_egress.locate_formula_cell_in_doc",
             return_value=(sheet, cell, (0, 0)),
         ),
         patch(
@@ -882,7 +882,7 @@ def test_reused_shape_not_removed_on_failure():
     with (
         patch("plugin.scripting.document_scripts.get_calc_document_from_ctx", return_value=MagicMock(name="front")),
         patch(
-            "plugin.calc.python.formula_locator_cache.locate_formula_cell_in_doc",
+            "plugin.calc.python.image_egress.locate_formula_cell_in_doc",
             return_value=(sheet, cell, (cell._row, cell._col)),
         ),
         patch("plugin.calc.python.image_egress.write_image_payload_to_temp", return_value="/tmp/chart.svg"),
@@ -915,7 +915,7 @@ def test_off_main_failure_does_not_replace_user_annotation():
         patch("plugin.framework.queue_executor.main.is_current", return_value=False),
         patch("plugin.framework.queue_executor.main.post", side_effect=lambda fn: posted_calls.append(fn)),
         patch(
-            "plugin.calc.python.formula_locator_cache.locate_formula_cell_in_doc",
+            "plugin.calc.python.image_egress.locate_formula_cell_in_doc",
             return_value=(sheet, cell, (0, 0)),
         ),
         patch(
@@ -959,7 +959,7 @@ def test_off_main_failure_updates_existing_writeragent_annotation():
         patch("plugin.framework.queue_executor.main.is_current", return_value=False),
         patch("plugin.framework.queue_executor.main.post", side_effect=lambda fn: posted_calls.append(fn)),
         patch(
-            "plugin.calc.python.formula_locator_cache.locate_formula_cell_in_doc",
+            "plugin.calc.python.image_egress.locate_formula_cell_in_doc",
             return_value=(sheet, cell, (0, 0)),
         ),
         patch(
@@ -997,7 +997,7 @@ def test_off_main_annotation_requires_cell_address():
         patch("plugin.framework.queue_executor.main.is_current", return_value=False),
         patch("plugin.framework.queue_executor.main.post", side_effect=lambda fn: posted_calls.append(fn)),
         patch(
-            "plugin.calc.python.formula_locator_cache.locate_formula_cell_in_doc",
+            "plugin.calc.python.image_egress.locate_formula_cell_in_doc",
             return_value=(sheet, cell, (0, 0)),
         ),
         patch(
@@ -1030,7 +1030,7 @@ def test_off_main_success_clears_only_writeragent_annotation():
         patch("plugin.framework.queue_executor.main.is_current", return_value=False),
         patch("plugin.framework.queue_executor.main.post", side_effect=lambda fn: posted_calls.append(fn)),
         patch(
-            "plugin.calc.python.formula_locator_cache.locate_formula_cell_in_doc",
+            "plugin.calc.python.image_egress.locate_formula_cell_in_doc",
             return_value=(sheet, cell, (5, 2)),
         ),
         patch("plugin.calc.python.image_egress._insert_image_result_on_sheet_impl"),
@@ -1069,7 +1069,7 @@ def test_main_thread_failure_raises_without_annotation():
 
     with (
         patch(
-            "plugin.calc.python.formula_locator_cache.locate_formula_cell_in_doc",
+            "plugin.calc.python.image_egress.locate_formula_cell_in_doc",
             return_value=(sheet, cell, (0, 0)),
         ),
         patch(
@@ -1121,12 +1121,12 @@ def test_image_count_keeps_non_decimal_names():
     with (
         patch("plugin.scripting.document_scripts.get_calc_document_from_ctx", return_value=MagicMock(name="front")),
         patch(
-            "plugin.calc.python.formula_locator_cache.locate_formula_cell_in_doc",
+            "plugin.calc.python.image_egress.locate_formula_cell_in_doc",
             return_value=(sheet, cell, (cell._row, cell._col)),
         ),
         patch("plugin.calc.python.image_egress.write_image_payload_to_temp", return_value="/tmp/chart.svg"),
         patch("uno.systemPathToFileUrl", return_value="file:///tmp/chart.svg"),
-        patch("plugin.calc.calc_utils.get_cell_geometry", return_value=(MagicMock(), MagicMock(Width=5000, Height=4000))),
+        patch("plugin.calc.python.image_egress.get_cell_geometry", return_value=(MagicMock(), MagicMock(Width=5000, Height=4000))),
     ):
         target.createInstance.return_value = MagicMock()
         insert_image_result_on_sheet(_IMAGE_PAYLOAD, code="plt.show()", doc=target, image_index=0, image_count=1)
@@ -1159,8 +1159,8 @@ def test_temp_images_unlinked_when_a_later_write_fails():
             "plugin.framework.queue_executor.main.call",
             side_effect=lambda fn, *args, **kwargs: fn(*args, **kwargs),
         ),
-        patch("plugin.calc.python.image_egress.insert_image_result_on_sheet") as mock_insert,
-        patch("plugin.scripting.config_limits.configured_python_max_data_cells", return_value=10000),
+        patch("plugin.calc.python.venv.insert_image_result_on_sheet") as mock_insert,
+        patch("plugin.calc.calc_addin_data.configured_python_max_data_cells", return_value=10000),
         patch("os.unlink") as mock_unlink,
         pytest.raises(OSError, match="second write failed"),
     ):
@@ -1189,10 +1189,10 @@ def test_partial_insert_failure_unlinks_only_embedded_temps():
             side_effect=lambda fn, *args, **kwargs: fn(*args, **kwargs),
         ),
         patch(
-            "plugin.calc.python.image_egress.insert_image_result_on_sheet",
+            "plugin.calc.python.venv.insert_image_result_on_sheet",
             side_effect=[None, ImageEgressError("second insert failed")],
         ),
-        patch("plugin.scripting.config_limits.configured_python_max_data_cells", return_value=10000),
+        patch("plugin.calc.calc_addin_data.configured_python_max_data_cells", return_value=10000),
         patch("os.unlink") as mock_unlink,
     ):
         out = tool.execute(ctx, code="plt.plot([1]); plt.plot([2])")
@@ -1232,10 +1232,10 @@ def test_middle_insert_failure_continues_later_plots():
             side_effect=lambda fn, *args, **kwargs: fn(*args, **kwargs),
         ),
         patch(
-            "plugin.calc.python.image_egress.insert_image_result_on_sheet",
+            "plugin.calc.python.venv.insert_image_result_on_sheet",
             side_effect=[None, ImageEgressError("middle insert failed"), None],
         ) as mock_insert,
-        patch("plugin.scripting.config_limits.configured_python_max_data_cells", return_value=10000),
+        patch("plugin.calc.calc_addin_data.configured_python_max_data_cells", return_value=10000),
         patch("os.unlink") as mock_unlink,
     ):
         out = tool.execute(ctx, code="plt.plot([1]); plt.plot([2]); plt.plot([3])")
@@ -1277,12 +1277,12 @@ def test_mixed_aspect_slots_chain_edges():
     with (
         patch("plugin.scripting.document_scripts.get_calc_document_from_ctx", return_value=MagicMock(name="front")),
         patch(
-            "plugin.calc.python.formula_locator_cache.locate_formula_cell_in_doc",
+            "plugin.calc.python.image_egress.locate_formula_cell_in_doc",
             return_value=(sheet, cell, (cell._row, cell._col)),
         ),
         patch("plugin.calc.python.image_egress.write_image_payload_to_temp", side_effect=["/tmp/p0.png", "/tmp/p1.png"]),
         patch("uno.systemPathToFileUrl", side_effect=["file:///tmp/p0.png", "file:///tmp/p1.png"]),
-        patch("plugin.calc.calc_utils.get_cell_geometry", return_value=(cell_pos, cell_size)),
+        patch("plugin.calc.python.image_egress.get_cell_geometry", return_value=(cell_pos, cell_size)),
     ):
         insert_image_result_on_sheet(payload0, code="plt.show()", doc=doc, image_index=0)
         insert_image_result_on_sheet(payload1, code="plt.show()", doc=doc, image_index=1)
@@ -1322,12 +1322,12 @@ def test_large_merge_slot0_fills_and_slot1_chains_at_aspect():
     with (
         patch("plugin.scripting.document_scripts.get_calc_document_from_ctx", return_value=MagicMock(name="front")),
         patch(
-            "plugin.calc.python.formula_locator_cache.locate_formula_cell_in_doc",
+            "plugin.calc.python.image_egress.locate_formula_cell_in_doc",
             return_value=(sheet, cell, (cell._row, cell._col)),
         ),
         patch("plugin.calc.python.image_egress.write_image_payload_to_temp", side_effect=["/tmp/m0.png", "/tmp/m1.png"]),
         patch("uno.systemPathToFileUrl", side_effect=["file:///tmp/m0.png", "file:///tmp/m1.png"]),
-        patch("plugin.calc.calc_utils.get_cell_geometry", return_value=(cell_pos, cell_size)),
+        patch("plugin.calc.python.image_egress.get_cell_geometry", return_value=(cell_pos, cell_size)),
     ):
         insert_image_result_on_sheet(payload0, code="plt.show()", doc=doc, image_index=0)
         insert_image_result_on_sheet(payload1, code="plt.show()", doc=doc, image_index=1)
@@ -1367,12 +1367,12 @@ def test_rtl_sheet_slots_layout_right_to_left():
     with (
         patch("plugin.scripting.document_scripts.get_calc_document_from_ctx", return_value=MagicMock(name="front")),
         patch(
-            "plugin.calc.python.formula_locator_cache.locate_formula_cell_in_doc",
+            "plugin.calc.python.image_egress.locate_formula_cell_in_doc",
             return_value=(sheet, cell, (cell._row, cell._col)),
         ),
         patch("plugin.calc.python.image_egress.write_image_payload_to_temp", side_effect=["/tmp/r0.png", "/tmp/r1.png"]),
         patch("uno.systemPathToFileUrl", side_effect=["file:///tmp/r0.png", "file:///tmp/r1.png"]),
-        patch("plugin.calc.calc_utils.get_cell_geometry", return_value=(cell_pos, cell_size)),
+        patch("plugin.calc.python.image_egress.get_cell_geometry", return_value=(cell_pos, cell_size)),
     ):
         insert_image_result_on_sheet(payload0, code="plt.show()", doc=doc, image_index=0)
         insert_image_result_on_sheet(payload1, code="plt.show()", doc=doc, image_index=1)
@@ -1400,12 +1400,12 @@ def test_existing_slot_matching_byte_tag_skips_graphic_and_layout():
     with (
         patch("plugin.scripting.document_scripts.get_calc_document_from_ctx", return_value=MagicMock(name="front")),
         patch(
-            "plugin.calc.python.formula_locator_cache.locate_formula_cell_in_doc",
+            "plugin.calc.python.image_egress.locate_formula_cell_in_doc",
             return_value=(sheet, cell, (cell._row, cell._col)),
         ),
         patch("plugin.calc.python.image_egress.write_image_payload_to_temp", return_value="/tmp/match.png"),
         patch("uno.systemPathToFileUrl", return_value="file:///tmp/match.png"),
-        patch("plugin.calc.calc_utils.get_cell_geometry", return_value=(Point(1000, 2000), Size(3000, 1000))),
+        patch("plugin.calc.python.image_egress.get_cell_geometry", return_value=(Point(1000, 2000), Size(3000, 1000))),
     ):
         insert_image_result_on_sheet(payload, code="plt.show()", doc=doc, image_index=0)
 
@@ -1431,12 +1431,12 @@ def test_existing_non_fill_slot_same_aspect_keeps_rectangle():
     with (
         patch("plugin.scripting.document_scripts.get_calc_document_from_ctx", return_value=MagicMock(name="front")),
         patch(
-            "plugin.calc.python.formula_locator_cache.locate_formula_cell_in_doc",
+            "plugin.calc.python.image_egress.locate_formula_cell_in_doc",
             return_value=(sheet, cell, (cell._row, cell._col)),
         ),
         patch("plugin.calc.python.image_egress.write_image_payload_to_temp", return_value="/tmp/same_aspect.png"),
         patch("uno.systemPathToFileUrl", return_value="file:///tmp/same_aspect.png"),
-        patch("plugin.calc.calc_utils.get_cell_geometry", return_value=(Point(1000, 2000), Size(3000, 1000))),
+        patch("plugin.calc.python.image_egress.get_cell_geometry", return_value=(Point(1000, 2000), Size(3000, 1000))),
     ):
         insert_image_result_on_sheet(payload, code="plt.show()", doc=doc, image_index=0)
 
@@ -1467,12 +1467,12 @@ def test_existing_non_fill_slot_aspect_ratio_change_and_threshold():
     with (
         patch("plugin.scripting.document_scripts.get_calc_document_from_ctx", return_value=MagicMock(name="front")),
         patch(
-            "plugin.calc.python.formula_locator_cache.locate_formula_cell_in_doc",
+            "plugin.calc.python.image_egress.locate_formula_cell_in_doc",
             return_value=(sheet, cell, (cell._row, cell._col)),
         ),
         patch("plugin.calc.python.image_egress.write_image_payload_to_temp", return_value="/tmp/change_aspect.png"),
         patch("uno.systemPathToFileUrl", return_value="file:///tmp/change_aspect.png"),
-        patch("plugin.calc.calc_utils.get_cell_geometry", return_value=(Point(1000, 2000), Size(3000, 1000))),
+        patch("plugin.calc.python.image_egress.get_cell_geometry", return_value=(Point(1000, 2000), Size(3000, 1000))),
     ):
         insert_image_result_on_sheet(payload, code="plt.show()", doc=doc, image_index=0)
 
@@ -1487,12 +1487,12 @@ def test_existing_non_fill_slot_aspect_ratio_change_and_threshold():
     with (
         patch("plugin.scripting.document_scripts.get_calc_document_from_ctx", return_value=MagicMock(name="front")),
         patch(
-            "plugin.calc.python.formula_locator_cache.locate_formula_cell_in_doc",
+            "plugin.calc.python.image_egress.locate_formula_cell_in_doc",
             return_value=(sheet, cell, (cell._row, cell._col)),
         ),
         patch("plugin.calc.python.image_egress.write_image_payload_to_temp", return_value="/tmp/change_aspect2.png"),
         patch("uno.systemPathToFileUrl", return_value="file:///tmp/change_aspect2.png"),
-        patch("plugin.calc.calc_utils.get_cell_geometry", return_value=(Point(1000, 2000), Size(3000, 1000))),
+        patch("plugin.calc.python.image_egress.get_cell_geometry", return_value=(Point(1000, 2000), Size(3000, 1000))),
     ):
         insert_image_result_on_sheet(payload, code="plt.show()", doc=doc, image_index=0)
 
@@ -1506,12 +1506,12 @@ def test_existing_non_fill_slot_aspect_ratio_change_and_threshold():
     with (
         patch("plugin.scripting.document_scripts.get_calc_document_from_ctx", return_value=MagicMock(name="front")),
         patch(
-            "plugin.calc.python.formula_locator_cache.locate_formula_cell_in_doc",
+            "plugin.calc.python.image_egress.locate_formula_cell_in_doc",
             return_value=(sheet, cell, (cell._row, cell._col)),
         ),
         patch("plugin.calc.python.image_egress.write_image_payload_to_temp", return_value="/tmp/change_aspect3.png"),
         patch("uno.systemPathToFileUrl", return_value="file:///tmp/change_aspect3.png"),
-        patch("plugin.calc.calc_utils.get_cell_geometry", return_value=(Point(1000, 2000), Size(3000, 1000))),
+        patch("plugin.calc.python.image_egress.get_cell_geometry", return_value=(Point(1000, 2000), Size(3000, 1000))),
     ):
         insert_image_result_on_sheet(payload, code="plt.show()", doc=doc, image_index=0)
 
@@ -1540,12 +1540,12 @@ def test_new_shape_graphic_url_failure_leaves_draft_placeholder():
     with (
         patch("plugin.scripting.document_scripts.get_calc_document_from_ctx", return_value=MagicMock(name="front")),
         patch(
-            "plugin.calc.python.formula_locator_cache.locate_formula_cell_in_doc",
+            "plugin.calc.python.image_egress.locate_formula_cell_in_doc",
             return_value=(sheet, cell, (cell._row, cell._col)),
         ),
         patch("plugin.calc.python.image_egress.write_image_payload_to_temp", return_value="/tmp/fail.png"),
         patch("uno.systemPathToFileUrl", return_value="file:///tmp/fail.png"),
-        patch("plugin.calc.calc_utils.get_cell_geometry", return_value=(Point(0, 0), Size(3000, 1000))),
+        patch("plugin.calc.python.image_egress.get_cell_geometry", return_value=(Point(0, 0), Size(3000, 1000))),
     ):
         # A 1:2 image would be 5000 x 10000; the empty placeholder uses the default size.
         insert_image_result_on_sheet(_make_png_payload(50, 100), code="plt.show()", doc=doc, image_index=0)
@@ -1573,12 +1573,12 @@ def test_new_shape_hides_when_formula_row_or_col_hidden():
     with (
         patch("plugin.scripting.document_scripts.get_calc_document_from_ctx", return_value=MagicMock(name="front")),
         patch(
-            "plugin.calc.python.formula_locator_cache.locate_formula_cell_in_doc",
+            "plugin.calc.python.image_egress.locate_formula_cell_in_doc",
             return_value=(sheet_row, cell, (0, 0)),
         ),
         patch("plugin.calc.python.image_egress.write_image_payload_to_temp", return_value="/tmp/vis1.svg"),
         patch("uno.systemPathToFileUrl", return_value="file:///tmp/vis1.svg"),
-        patch("plugin.calc.calc_utils.get_cell_geometry", return_value=(Point(0, 0), Size(3000, 1000))),
+        patch("plugin.calc.python.image_egress.get_cell_geometry", return_value=(Point(0, 0), Size(3000, 1000))),
     ):
         insert_image_result_on_sheet(_IMAGE_PAYLOAD, code="plt.show()", doc=doc_row, image_index=0)
 
@@ -1596,12 +1596,12 @@ def test_new_shape_hides_when_formula_row_or_col_hidden():
     with (
         patch("plugin.scripting.document_scripts.get_calc_document_from_ctx", return_value=MagicMock(name="front")),
         patch(
-            "plugin.calc.python.formula_locator_cache.locate_formula_cell_in_doc",
+            "plugin.calc.python.image_egress.locate_formula_cell_in_doc",
             return_value=(sheet_col, cell, (0, 0)),
         ),
         patch("plugin.calc.python.image_egress.write_image_payload_to_temp", return_value="/tmp/vis2.svg"),
         patch("uno.systemPathToFileUrl", return_value="file:///tmp/vis2.svg"),
-        patch("plugin.calc.calc_utils.get_cell_geometry", return_value=(Point(0, 0), Size(3000, 1000))),
+        patch("plugin.calc.python.image_egress.get_cell_geometry", return_value=(Point(0, 0), Size(3000, 1000))),
     ):
         insert_image_result_on_sheet(_IMAGE_PAYLOAD, code="plt.show()", doc=doc_col, image_index=0)
 
@@ -1618,12 +1618,12 @@ def test_new_shape_hides_when_formula_row_or_col_hidden():
     with (
         patch("plugin.scripting.document_scripts.get_calc_document_from_ctx", return_value=MagicMock(name="front")),
         patch(
-            "plugin.calc.python.formula_locator_cache.locate_formula_cell_in_doc",
+            "plugin.calc.python.image_egress.locate_formula_cell_in_doc",
             return_value=(sheet_vis, cell, (0, 0)),
         ),
         patch("plugin.calc.python.image_egress.write_image_payload_to_temp", return_value="/tmp/vis3.svg"),
         patch("uno.systemPathToFileUrl", return_value="file:///tmp/vis3.svg"),
-        patch("plugin.calc.calc_utils.get_cell_geometry", return_value=(Point(0, 0), Size(3000, 1000))),
+        patch("plugin.calc.python.image_egress.get_cell_geometry", return_value=(Point(0, 0), Size(3000, 1000))),
     ):
         insert_image_result_on_sheet(_IMAGE_PAYLOAD, code="plt.show()", doc=doc_vis, image_index=0)
 
@@ -1643,12 +1643,12 @@ def test_reused_shape_preserves_visibility_across_recalc():
     with (
         patch("plugin.scripting.document_scripts.get_calc_document_from_ctx", return_value=MagicMock(name="front")),
         patch(
-            "plugin.calc.python.formula_locator_cache.locate_formula_cell_in_doc",
+            "plugin.calc.python.image_egress.locate_formula_cell_in_doc",
             return_value=(sheet, cell, (0, 0)),
         ),
         patch("plugin.calc.python.image_egress.write_image_payload_to_temp", return_value="/tmp/vis4.svg"),
         patch("uno.systemPathToFileUrl", return_value="file:///tmp/vis4.svg"),
-        patch("plugin.calc.calc_utils.get_cell_geometry", return_value=(Point(0, 0), Size(3000, 1000))),
+        patch("plugin.calc.python.image_egress.get_cell_geometry", return_value=(Point(0, 0), Size(3000, 1000))),
     ):
         insert_image_result_on_sheet(_IMAGE_PAYLOAD, code="plt.show()", doc=doc, image_index=0)
 
@@ -1702,7 +1702,7 @@ def test_reanchored_slot_is_reused_via_owner_tag():
     with (
         patch("plugin.scripting.document_scripts.get_calc_document_from_ctx", return_value=MagicMock(name="front")),
         patch(
-            "plugin.calc.python.formula_locator_cache.locate_formula_cell_in_doc",
+            "plugin.calc.python.image_egress.locate_formula_cell_in_doc",
             return_value=(sheet, formula_cell, (3, 2)),
         ),
         patch("plugin.calc.python.image_egress.write_image_payload_to_temp", return_value="/tmp/reanchored.svg"),
@@ -1731,12 +1731,12 @@ def test_reanchored_slot_is_swept_via_owner_tag():
     with (
         patch("plugin.scripting.document_scripts.get_calc_document_from_ctx", return_value=MagicMock(name="front")),
         patch(
-            "plugin.calc.python.formula_locator_cache.locate_formula_cell_in_doc",
+            "plugin.calc.python.image_egress.locate_formula_cell_in_doc",
             return_value=(sheet, formula_cell, (3, 2)),
         ),
         patch("plugin.calc.python.image_egress.write_image_payload_to_temp", return_value="/tmp/sweep.svg"),
         patch("uno.systemPathToFileUrl", return_value="file:///tmp/sweep.svg"),
-        patch("plugin.calc.calc_utils.get_cell_geometry", return_value=(Point(0, 0), Size(3000, 1000))),
+        patch("plugin.calc.python.image_egress.get_cell_geometry", return_value=(Point(0, 0), Size(3000, 1000))),
     ):
         insert_image_result_on_sheet(_IMAGE_PAYLOAD, code="plt.show()", doc=doc, image_index=0, image_count=1)
 
@@ -1761,12 +1761,12 @@ def test_other_formulas_plot_anchored_at_formula_cell_not_matched():
     with (
         patch("plugin.scripting.document_scripts.get_calc_document_from_ctx", return_value=MagicMock(name="front")),
         patch(
-            "plugin.calc.python.formula_locator_cache.locate_formula_cell_in_doc",
+            "plugin.calc.python.image_egress.locate_formula_cell_in_doc",
             return_value=(sheet, formula_cell, (3, 2)),
         ),
         patch("plugin.calc.python.image_egress.write_image_payload_to_temp", return_value="/tmp/new.svg"),
         patch("uno.systemPathToFileUrl", return_value="file:///tmp/new.svg"),
-        patch("plugin.calc.calc_utils.get_cell_geometry", return_value=(Point(0, 0), Size(3000, 1000))),
+        patch("plugin.calc.python.image_egress.get_cell_geometry", return_value=(Point(0, 0), Size(3000, 1000))),
     ):
         insert_image_result_on_sheet(_IMAGE_PAYLOAD, code="plt.show()", doc=doc, image_index=0)
 
@@ -1791,7 +1791,7 @@ def test_untagged_anchored_plot_is_reused_and_tagged():
     with (
         patch("plugin.scripting.document_scripts.get_calc_document_from_ctx", return_value=MagicMock(name="front")),
         patch(
-            "plugin.calc.python.formula_locator_cache.locate_formula_cell_in_doc",
+            "plugin.calc.python.image_egress.locate_formula_cell_in_doc",
             return_value=(sheet, formula_cell, (2, 1)),
         ),
         patch("plugin.calc.python.image_egress.write_image_payload_to_temp", return_value="/tmp/match.png"),
@@ -1840,12 +1840,12 @@ def test_new_shape_anchor_failure_chains_graphic_exception():
     with (
         patch("plugin.scripting.document_scripts.get_calc_document_from_ctx", return_value=MagicMock(name="front")),
         patch(
-            "plugin.calc.python.formula_locator_cache.locate_formula_cell_in_doc",
+            "plugin.calc.python.image_egress.locate_formula_cell_in_doc",
             return_value=(sheet, cell, (0, 0)),
         ),
         patch("plugin.calc.python.image_egress.write_image_payload_to_temp", return_value="/tmp/test.png"),
         patch("uno.systemPathToFileUrl", return_value="file:///tmp/test.png"),
-        patch("plugin.calc.calc_utils.get_cell_geometry", side_effect=RuntimeError("geom boom")),
+        patch("plugin.calc.python.image_egress.get_cell_geometry", side_effect=RuntimeError("geom boom")),
     ):
         with pytest.raises(ImageEgressError, match="could not anchor plot to the formula cell") as exc_info:
             insert_image_result_on_sheet(_IMAGE_PAYLOAD, code="plt.show()", doc=doc, image_index=0)
@@ -1866,13 +1866,13 @@ def test_slot0_failure_still_sweeps_extra_slots():
     with (
         patch("plugin.scripting.document_scripts.get_calc_document_from_ctx", return_value=MagicMock(name="front")),
         patch(
-            "plugin.calc.python.formula_locator_cache.locate_formula_cell_in_doc",
+            "plugin.calc.python.image_egress.locate_formula_cell_in_doc",
             return_value=(sheet, cell, (0, 0)),
         ),
         patch("plugin.calc.python.image_egress.write_image_payload_to_temp", return_value="/tmp/test.png"),
         patch("uno.systemPathToFileUrl", return_value="file:///tmp/test.png"),
         # Slot 0 fails while it is being anchored.
-        patch("plugin.calc.calc_utils.get_cell_geometry", side_effect=RuntimeError("geom boom")),
+        patch("plugin.calc.python.image_egress.get_cell_geometry", side_effect=RuntimeError("geom boom")),
     ):
         with pytest.raises(ImageEgressError):
             insert_image_result_on_sheet(
@@ -1907,7 +1907,7 @@ def test_reused_shape_skips_tag_write_when_tag_unchanged():
     with (
         patch("plugin.scripting.document_scripts.get_calc_document_from_ctx", return_value=MagicMock(name="front")),
         patch(
-            "plugin.calc.python.formula_locator_cache.locate_formula_cell_in_doc",
+            "plugin.calc.python.image_egress.locate_formula_cell_in_doc",
             return_value=(sheet, formula_cell, (2, 1)),
         ),
         patch("plugin.calc.python.image_egress.write_image_payload_to_temp", return_value="/tmp/match.png"),
@@ -1952,12 +1952,12 @@ def test_three_reanchored_slots_chain_reuse_and_sweep():
         with (
             patch("plugin.scripting.document_scripts.get_calc_document_from_ctx", return_value=MagicMock(name="front")),
             patch(
-                "plugin.calc.python.formula_locator_cache.locate_formula_cell_in_doc",
+                "plugin.calc.python.image_egress.locate_formula_cell_in_doc",
                 return_value=(sheet, cell, (cell._row, cell._col)),
             ),
             patch("plugin.calc.python.image_egress.write_image_payload_to_temp", return_value="/tmp/re.png"),
             patch("uno.systemPathToFileUrl", return_value="file:///tmp/re.png"),
-            patch("plugin.calc.calc_utils.get_cell_geometry", return_value=(Point(3000, 2000), Size(3000, 1000))),
+            patch("plugin.calc.python.image_egress.get_cell_geometry", return_value=(Point(3000, 2000), Size(3000, 1000))),
         ):
             for i in range(count):
                 insert_image_result_on_sheet(
@@ -2001,7 +2001,7 @@ def test_existing_slot_user_stretch_kept_when_aspect_unchanged():
     with (
         patch("plugin.scripting.document_scripts.get_calc_document_from_ctx", return_value=MagicMock(name="front")),
         patch(
-            "plugin.calc.python.formula_locator_cache.locate_formula_cell_in_doc",
+            "plugin.calc.python.image_egress.locate_formula_cell_in_doc",
             return_value=(_SheetStub(page), cell, (cell._row, cell._col)),
         ),
         patch("plugin.calc.python.image_egress.write_image_payload_to_temp", return_value="/tmp/stretch.png"),
@@ -2029,7 +2029,7 @@ def test_rtl_existing_slot_aspect_change_keeps_top_right():
     with (
         patch("plugin.scripting.document_scripts.get_calc_document_from_ctx", return_value=MagicMock(name="front")),
         patch(
-            "plugin.calc.python.formula_locator_cache.locate_formula_cell_in_doc",
+            "plugin.calc.python.image_egress.locate_formula_cell_in_doc",
             return_value=(_SheetStub(page, table_layout=1), cell, (cell._row, cell._col)),
         ),
         patch("plugin.calc.python.image_egress.write_image_payload_to_temp", return_value="/tmp/rtl.png"),
@@ -2055,7 +2055,7 @@ def test_duplicate_shape_for_taken_slot_is_swept():
     with (
         patch("plugin.scripting.document_scripts.get_calc_document_from_ctx", return_value=MagicMock(name="front")),
         patch(
-            "plugin.calc.python.formula_locator_cache.locate_formula_cell_in_doc",
+            "plugin.calc.python.image_egress.locate_formula_cell_in_doc",
             return_value=(_SheetStub(page), cell, (cell._row, cell._col)),
         ),
         patch("plugin.calc.python.image_egress.write_image_payload_to_temp", return_value="/tmp/dup.svg"),

@@ -16,6 +16,7 @@ import unohelper
 from plugin.framework.errors import is_disposal, uno_read
 from plugin.framework.i18n import _
 from plugin.framework.thread_guard import main_thread_only
+from plugin.framework.uno_context import get_desktop, resolve_package_extension_id, uno_same
 from plugin.framework.uno_listeners import controller_alive, install_view_doc_listener
 
 log = logging.getLogger(__name__)
@@ -40,8 +41,6 @@ _doc_listener: Any = None
 
 def _edit_python_cell_url() -> str:
     """CommandURL for this OXT. LibrePy bootstrap is OnStartApp, so resolve at intercept time."""
-    from plugin.framework.uno_context import resolve_package_extension_id
-
     return f"{resolve_package_extension_id()}:scripting.edit_python_cell"
 
 
@@ -118,8 +117,6 @@ def _register_controller(controller: Any) -> None:
     if not _is_calc_controller(controller):
         return
     try:
-        from plugin.framework.uno_context import uno_same
-
         interception = controller.queryInterface(uno.getTypeByName("com.sun.star.ui.XContextMenuInterception"))
         if interception is None:
             return
@@ -155,8 +152,6 @@ def _install_doc_event_listener(ctx: Any) -> None:
 def install_calc_cell_context_menu(ctx: Any) -> None:
     """Register the cell context menu interceptor on open Calc frames and future views."""
     try:
-        from plugin.framework.uno_context import get_desktop
-
         desktop = get_desktop(ctx)
         if desktop is not None:
             frames = desktop.getFrames()

@@ -887,8 +887,8 @@ def test_truncated_sheet_installs_empty_index_for_workbook(monkeypatch):
     )
     col, pred = _mean_range_and_pred()
     with (
-        patch("plugin.doc.udprops.get_document_property", return_value=None),
-        patch("plugin.doc.udprops.set_document_property"),
+        patch("plugin.calc.python.geometric_recalc.get_document_property", return_value=None),
+        patch("plugin.calc.python.geometric_recalc.set_document_property"),
         patch("plugin.chatbot.dialogs.msgbox"),
         patch("plugin.framework.queue_executor.main.is_current", return_value=True),
     ):
@@ -963,8 +963,8 @@ def test_load_and_save_geometric_registry(monkeypatch):
         if name == GEOMETRIC_REGISTRY_PROP:
             saved_payload = value
 
-    monkeypatch.setattr("plugin.doc.udprops.get_document_property", mock_get_prop)
-    monkeypatch.setattr("plugin.doc.udprops.set_document_property", mock_set_prop)
+    monkeypatch.setattr("plugin.calc.python.geometric_recalc.get_document_property", mock_get_prop)
+    monkeypatch.setattr("plugin.calc.python.geometric_recalc.set_document_property", mock_set_prop)
 
     doc = CalcDocStub(url="file:///geo.ods")
     key = load_geometric_registry_for_doc(doc)
@@ -1001,8 +1001,8 @@ def test_flag_on_attaches_all_sheets(monkeypatch):
     monkeypatch.setattr(
         "plugin.calc.python.geometric_recalc.geometric_flag_enabled", lambda: True
     )
-    monkeypatch.setattr("plugin.doc.udprops.get_document_property", lambda *_a, **_k: None)
-    monkeypatch.setattr("plugin.doc.udprops.set_document_property", lambda *_a, **_k: None)
+    monkeypatch.setattr("plugin.calc.python.geometric_recalc.get_document_property", lambda *_a, **_k: None)
+    monkeypatch.setattr("plugin.calc.python.geometric_recalc.set_document_property", lambda *_a, **_k: None)
     reconcile("ctx", doc)
     assert sheet1.getCellByPosition(0, 1).getFormula() == '=PY("b";A1)'
     assert sheet2.getCellByPosition(0, 1).getFormula() == '=PY("d";A1)'
@@ -1021,8 +1021,8 @@ def test_after_save_attaches_predecessor(monkeypatch):
     monkeypatch.setattr(
         "plugin.calc.python.geometric_recalc.geometric_flag_enabled", lambda: True
     )
-    monkeypatch.setattr("plugin.doc.udprops.get_document_property", lambda *_a, **_k: None)
-    monkeypatch.setattr("plugin.doc.udprops.set_document_property", lambda *_a, **_k: None)
+    monkeypatch.setattr("plugin.calc.python.geometric_recalc.get_document_property", lambda *_a, **_k: None)
+    monkeypatch.setattr("plugin.calc.python.geometric_recalc.set_document_property", lambda *_a, **_k: None)
     after_py_cell_save(doc, cell)
     assert cell.getFormula() == '=PY("second";A1)'
 
@@ -1054,8 +1054,8 @@ def test_document_open_flag_on_reconciles(monkeypatch):
     monkeypatch.setattr(
         "plugin.calc.python.geometric_recalc.geometric_flag_enabled", lambda: True
     )
-    monkeypatch.setattr("plugin.doc.udprops.get_document_property", lambda *_a, **_k: None)
-    monkeypatch.setattr("plugin.doc.udprops.set_document_property", lambda *_a, **_k: None)
+    monkeypatch.setattr("plugin.calc.python.geometric_recalc.get_document_property", lambda *_a, **_k: None)
+    monkeypatch.setattr("plugin.calc.python.geometric_recalc.set_document_property", lambda *_a, **_k: None)
     maybe_geometric_on_document_open("ctx", doc)
     assert sheet.getCellByPosition(0, 1).getFormula() == '=PY("b";A1)'
 
@@ -1070,8 +1070,8 @@ def test_reentrancy_skips_nested_repair(monkeypatch):
     sheet.getCellByPosition(0, 0).setFormula('=PY("a")')
     sheet.getCellByPosition(0, 1).setFormula('=PY("b")')
     monkeypatch.setattr(geo, "geometric_flag_enabled", lambda: True)
-    monkeypatch.setattr("plugin.doc.udprops.get_document_property", lambda *_a, **_k: None)
-    monkeypatch.setattr("plugin.doc.udprops.set_document_property", lambda *_a, **_k: None)
+    monkeypatch.setattr("plugin.calc.python.geometric_recalc.get_document_property", lambda *_a, **_k: None)
+    monkeypatch.setattr("plugin.calc.python.geometric_recalc.set_document_property", lambda *_a, **_k: None)
     geo._RUNTIME.repairing = True
     try:
         geo.reconcile("ctx", doc)
@@ -1091,8 +1091,8 @@ def test_cap_hit_sheet_skipped_on_reconcile(monkeypatch):
     monkeypatch.setattr(
         "plugin.calc.python.geometric_recalc.geometric_flag_enabled", lambda: True
     )
-    monkeypatch.setattr("plugin.doc.udprops.get_document_property", lambda *_a, **_k: None)
-    monkeypatch.setattr("plugin.doc.udprops.set_document_property", lambda *_a, **_k: None)
+    monkeypatch.setattr("plugin.calc.python.geometric_recalc.get_document_property", lambda *_a, **_k: None)
+    monkeypatch.setattr("plugin.calc.python.geometric_recalc.set_document_property", lambda *_a, **_k: None)
     with (
         patch("plugin.framework.queue_executor.main.is_current", return_value=True),
         patch("plugin.chatbot.dialogs.msgbox") as mock_box,
@@ -1118,8 +1118,8 @@ def test_cap_hit_msgbox_persists_across_reconcile_without_shared_set(monkeypatch
     monkeypatch.setattr(
         "plugin.calc.python.geometric_recalc.geometric_flag_enabled", lambda: True
     )
-    monkeypatch.setattr("plugin.doc.udprops.get_document_property", lambda *_a, **_k: None)
-    monkeypatch.setattr("plugin.doc.udprops.set_document_property", lambda *_a, **_k: None)
+    monkeypatch.setattr("plugin.calc.python.geometric_recalc.get_document_property", lambda *_a, **_k: None)
+    monkeypatch.setattr("plugin.calc.python.geometric_recalc.set_document_property", lambda *_a, **_k: None)
     with (
         patch("plugin.framework.queue_executor.main.is_current", return_value=True),
         patch("plugin.chatbot.dialogs.msgbox") as mock_box,
@@ -1316,7 +1316,7 @@ def test_ensure_strip_index_empty_registry_skips_discovery(monkeypatch):
         mock_discover,
     )
     with (
-        patch("plugin.doc.udprops.get_document_property", lambda _doc, _name, default=None: None),
+        patch("plugin.calc.python.geometric_recalc.get_document_property", lambda _doc, _name, default=None: None),
         patch("plugin.framework.queue_executor.main.is_current", return_value=True),
     ):
         ensure_geometric_strip_index_for_eval(_eval_cell(doc))
@@ -1344,7 +1344,7 @@ def test_ensure_strip_index_hydrates_from_udprop():
     )
     with (
         patch(
-            "plugin.doc.udprops.get_document_property",
+            "plugin.calc.python.geometric_recalc.get_document_property",
             lambda _doc, name, default=None: (
                 payload if name == GEOMETRIC_REGISTRY_PROP else default
             ),
@@ -1384,7 +1384,7 @@ def test_flag_off_rebuilds_nonempty_strip_index_and_keeps_user_data(monkeypatch)
     )
     with (
         patch(
-            "plugin.doc.udprops.get_document_property",
+            "plugin.calc.python.geometric_recalc.get_document_property",
             lambda _doc, name, default=None: (
                 payload if name == GEOMETRIC_REGISTRY_PROP else default
             ),
@@ -1426,7 +1426,7 @@ def test_flag_off_nonempty_index_still_strips_unanimous_leftover(monkeypatch):
     )
     with (
         patch(
-            "plugin.doc.udprops.get_document_property",
+            "plugin.calc.python.geometric_recalc.get_document_property",
             lambda _doc, name, default=None: (
                 payload if name == GEOMETRIC_REGISTRY_PROP else default
             ),
@@ -1452,7 +1452,7 @@ def test_flag_on_keeps_nonempty_strip_index_until_reconcile(monkeypatch):
         "plugin.calc.python.geometric_recalc.geometric_flag_enabled", lambda: True
     )
     with (
-        patch("plugin.doc.udprops.get_document_property", lambda *_a, **_k: None),
+        patch("plugin.calc.python.geometric_recalc.get_document_property", lambda *_a, **_k: None),
         patch("plugin.framework.queue_executor.main.is_current", return_value=True),
     ):
         ensure_geometric_strip_index_for_eval(_eval_cell(doc))
@@ -1580,8 +1580,8 @@ def test_dispatcher_debounce_coalesces_two_modifies(monkeypatch):
     monkeypatch.setattr(
         "plugin.calc.python.geometric_recalc.geometric_flag_enabled", lambda: True
     )
-    monkeypatch.setattr("plugin.doc.udprops.get_document_property", lambda *_a, **_k: None)
-    monkeypatch.setattr("plugin.doc.udprops.set_document_property", lambda *_a, **_k: None)
+    monkeypatch.setattr("plugin.calc.python.geometric_recalc.get_document_property", lambda *_a, **_k: None)
+    monkeypatch.setattr("plugin.calc.python.geometric_recalc.set_document_property", lambda *_a, **_k: None)
 
     event = SimpleNamespace(Source=sheet)
     dispatch_sheet_modified("ctx", "Sheet1", event, doc)
@@ -1630,8 +1630,8 @@ def test_dispatcher_insert_retargets_successor(monkeypatch):
     monkeypatch.setattr(
         "plugin.calc.python.geometric_recalc.geometric_flag_enabled", lambda: True
     )
-    monkeypatch.setattr("plugin.doc.udprops.get_document_property", lambda *_a, **_k: None)
-    monkeypatch.setattr("plugin.doc.udprops.set_document_property", lambda *_a, **_k: None)
+    monkeypatch.setattr("plugin.calc.python.geometric_recalc.get_document_property", lambda *_a, **_k: None)
+    monkeypatch.setattr("plugin.calc.python.geometric_recalc.set_document_property", lambda *_a, **_k: None)
     flush_sheet_modify_pass_for_tests("ctx", doc, sheet)
     third = sheet.getCellByPosition(0, 2).getFormula()
     args = formula_data_args(third)
@@ -1665,8 +1665,8 @@ def test_dispatcher_delete_first_removes_field(monkeypatch):
     monkeypatch.setattr(
         "plugin.calc.python.geometric_recalc.geometric_flag_enabled", lambda: True
     )
-    monkeypatch.setattr("plugin.doc.udprops.get_document_property", lambda *_a, **_k: None)
-    monkeypatch.setattr("plugin.doc.udprops.set_document_property", lambda *_a, **_k: None)
+    monkeypatch.setattr("plugin.calc.python.geometric_recalc.get_document_property", lambda *_a, **_k: None)
+    monkeypatch.setattr("plugin.calc.python.geometric_recalc.set_document_property", lambda *_a, **_k: None)
     flush_sheet_modify_pass_for_tests("ctx", doc, sheet)
     assert formula_data_args(sheet.getCellByPosition(0, 1).getFormula())
 
@@ -1723,8 +1723,8 @@ def test_data_edit_rebuilds_strip_safe_index(monkeypatch):
     monkeypatch.setattr(
         "plugin.calc.python.geometric_recalc.geometric_flag_enabled", lambda: True
     )
-    monkeypatch.setattr("plugin.doc.udprops.get_document_property", lambda *_a, **_k: None)
-    monkeypatch.setattr("plugin.doc.udprops.set_document_property", lambda *_a, **_k: None)
+    monkeypatch.setattr("plugin.calc.python.geometric_recalc.get_document_property", lambda *_a, **_k: None)
+    monkeypatch.setattr("plugin.calc.python.geometric_recalc.set_document_property", lambda *_a, **_k: None)
     flush_sheet_modify_pass_for_tests("ctx", doc, sheet)
     wk = calc_workbook_base_session_id(doc)
     assert _key("np.mean(data)", 2, wk) in _RUNTIME.strip_safe
@@ -1857,11 +1857,11 @@ def test_save_geometric_registry_skips_when_unchanged(monkeypatch):
     set_calls = []
 
     monkeypatch.setattr(
-        "plugin.doc.udprops.get_document_property",
+        "plugin.calc.python.geometric_recalc.get_document_property",
         lambda _doc, prop, default=None: expected_payload if prop == GEOMETRIC_REGISTRY_PROP else default,
     )
     monkeypatch.setattr(
-        "plugin.doc.udprops.set_document_property",
+        "plugin.calc.python.geometric_recalc.set_document_property",
         lambda _doc, prop, val: set_calls.append((prop, val)),
     )
 
@@ -1918,8 +1918,8 @@ def test_unreadable_sheet_name_is_not_attached(monkeypatch):
     monkeypatch.setattr(
         "plugin.calc.python.geometric_recalc.geometric_flag_enabled", lambda: True
     )
-    monkeypatch.setattr("plugin.doc.udprops.get_document_property", lambda *_a, **_k: None)
-    monkeypatch.setattr("plugin.doc.udprops.set_document_property", lambda *_a, **_k: None)
+    monkeypatch.setattr("plugin.calc.python.geometric_recalc.get_document_property", lambda *_a, **_k: None)
+    monkeypatch.setattr("plugin.calc.python.geometric_recalc.set_document_property", lambda *_a, **_k: None)
 
     reconcile_geometric_sheet("ctx", doc, sheet)
 

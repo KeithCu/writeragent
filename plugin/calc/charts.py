@@ -46,6 +46,7 @@ from plugin.framework.errors import (
     is_disposal,
     name_miss_details,
 )
+from plugin.framework.queue_executor import Policy, main
 from plugin.framework.uno_context import enum_has_more, get_ctx, get_desktop, process_events_to_idle, uno_same
 import uno
 
@@ -365,8 +366,6 @@ def _process_events(ctx: Any = None, *, deadline: float | None = None) -> bool:
     """
     if deadline is not None and time.monotonic() >= deadline:
         return False
-    from plugin.framework.queue_executor import Policy, main
-
     if main._policy == Policy.test_inline:
         return False
     try:

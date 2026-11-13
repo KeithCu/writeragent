@@ -32,7 +32,7 @@ from plugin.framework.tool import ToolBase
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
 
-from plugin.calc.address_utils import format_range, index_to_column, quote_sheet_name, split_sheet_prefix
+from plugin.calc.address_utils import format_range, index_to_column, parse_address, quote_sheet_name, split_sheet_prefix
 from plugin.calc.bridge import CalcBridge, is_agent_visible_sheet
 from plugin.calc.base import ToolCalcRangeBase
 from plugin.calc.calc_utils import range_args
@@ -750,7 +750,7 @@ class InsertCellHtml(ToolBase):
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        from plugin.calc.address_utils import parse_address
+        # Lazy: rich_html imports plugin.writer.html_import, which loads the Writer import and chat stack (about 180 modules); only this tool needs it.
         from plugin.calc.rich_html import insert_cell_html_rich
 
         addr = kwargs["cell"].strip()

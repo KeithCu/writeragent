@@ -24,6 +24,7 @@ from typing import Any
 
 from plugin.calc.address_utils import A1_CELL_RE, format_address, parse_address, parse_range_string, qualify_a1
 from plugin.calc.bridge import used_range_address
+from plugin.calc.formula_dep_chain import fetch_formula_dep_chain
 from plugin.framework.errors import reraise_if_disposed, uno_read
 from plugin.framework.uno_context import enum_has_more
 
@@ -231,8 +232,6 @@ class ErrorDetector:
 
         dependency_chain = None
         try:
-            from plugin.calc.formula_dep_chain import fetch_formula_dep_chain
-
             dependency_chain = fetch_formula_dep_chain(self.bridge.doc, self.ctx, address)
         except Exception as e:
             log.debug("FormulaDepChain unavailable for %s: %s", address, e)

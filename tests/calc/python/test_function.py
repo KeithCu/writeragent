@@ -167,9 +167,7 @@ def test_insert_image_result_uses_merged_safe_geometry(monkeypatch: pytest.Monke
 
     pos = SimpleNamespace(X=111, Y=222)
     size = SimpleNamespace(Width=8000, Height=5000)
-    import plugin.calc.calc_utils as calc_utils
-
-    monkeypatch.setattr(calc_utils, "get_cell_geometry", lambda _sheet, _cell: (pos, size))
+    monkeypatch.setattr(_image_egress, "get_cell_geometry", lambda _sheet, _cell: (pos, size))
 
     _image_egress.insert_image_result_on_sheet({"data": b"abc", "format": "png"}, doc=doc)
 
@@ -218,9 +216,7 @@ def test_insert_image_result_thin_merged_cell_preserves_default_size(monkeypatch
     pos = SimpleNamespace(X=0, Y=0)
     # Thin 1-row banner: wide (20000) but short (1270 HMM / ~12.7 mm)
     size = SimpleNamespace(Width=20000, Height=1270)
-    import plugin.calc.calc_utils as calc_utils
-
-    monkeypatch.setattr(calc_utils, "get_cell_geometry", lambda _sheet, _cell: (pos, size))
+    monkeypatch.setattr(_image_egress, "get_cell_geometry", lambda _sheet, _cell: (pos, size))
 
     _image_egress.insert_image_result_on_sheet({"data": b"abc", "format": "png"}, doc=doc)
 
@@ -283,9 +279,7 @@ def test_insert_image_result_targets_formula_cell_sheet_when_another_sheet_activ
 
     pos = SimpleNamespace(X=5000, Y=3000)
     size = SimpleNamespace(Width=9000, Height=6000)
-    import plugin.calc.calc_utils as calc_utils
-
-    monkeypatch.setattr(calc_utils, "get_cell_geometry", lambda _sheet, _cell: (pos, size))
+    monkeypatch.setattr(_image_egress, "get_cell_geometry", lambda _sheet, _cell: (pos, size))
 
     _image_egress.insert_image_result_on_sheet({"data": b"abc", "format": "png"}, code=code_str, doc=doc)
 
@@ -354,9 +348,7 @@ def test_insert_image_result_unmerged_single_cell_default_size(monkeypatch: pyte
 
     pos = SimpleNamespace(X=111, Y=222)
     size = SimpleNamespace(Width=333, Height=444)
-    import plugin.calc.calc_utils as calc_utils
-
-    monkeypatch.setattr(calc_utils, "get_cell_geometry", lambda _sheet, _cell: (pos, size))
+    monkeypatch.setattr(_image_egress, "get_cell_geometry", lambda _sheet, _cell: (pos, size))
 
     _image_egress.insert_image_result_on_sheet({"data": b"abc", "format": "png"}, doc=doc)
 
@@ -485,8 +477,8 @@ def test_load_and_save_spill_registry(monkeypatch: pytest.MonkeyPatch) -> None:
         if name == "WriterAgentSpillRegistry":
             saved_payload = value
 
-    monkeypatch.setattr("plugin.doc.udprops.get_document_property", mock_get_prop)
-    monkeypatch.setattr("plugin.doc.udprops.set_document_property", mock_set_prop)
+    monkeypatch.setattr("plugin.calc.python.spill.get_document_property", mock_get_prop)
+    monkeypatch.setattr("plugin.calc.python.spill.set_document_property", mock_set_prop)
 
     doc = CalcDocStub(url="file:///fake_doc.ods")
 
@@ -543,8 +535,8 @@ def test_nonfinite_spill_values_round_trip_through_document_property(monkeypatch
     def mock_set_prop(model: Any, name: str, value: Any) -> None:
         stored[name] = value
 
-    monkeypatch.setattr("plugin.doc.udprops.get_document_property", mock_get_prop)
-    monkeypatch.setattr("plugin.doc.udprops.set_document_property", mock_set_prop)
+    monkeypatch.setattr("plugin.calc.python.spill.get_document_property", mock_get_prop)
+    monkeypatch.setattr("plugin.calc.python.spill.set_document_property", mock_set_prop)
 
     doc = CalcDocStub(url="file:///nonfinite.ods")
     reset_calc_workbook_states()
@@ -603,8 +595,8 @@ def test_reloaded_nan_spill_cell_keeps_user_edit_on_cleanup(monkeypatch: pytest.
     def mock_set_prop(model: Any, name: str, value: Any) -> None:
         stored[name] = value
 
-    monkeypatch.setattr("plugin.doc.udprops.get_document_property", mock_get_prop)
-    monkeypatch.setattr("plugin.doc.udprops.set_document_property", mock_set_prop)
+    monkeypatch.setattr("plugin.calc.python.spill.get_document_property", mock_get_prop)
+    monkeypatch.setattr("plugin.calc.python.spill.set_document_property", mock_set_prop)
 
     sheet = CalcSheetStub("Sheet1")
     doc = CalcDocStub(sheets=[sheet], url="file:///nan_cleanup.ods")
@@ -656,8 +648,8 @@ def test_untitled_docs_do_not_share_spill_registry(monkeypatch: pytest.MonkeyPat
         if name == "WriterAgentSpillRegistry":
             stored[id(model)] = value
 
-    monkeypatch.setattr("plugin.doc.udprops.get_document_property", mock_get_prop)
-    monkeypatch.setattr("plugin.doc.udprops.set_document_property", mock_set_prop)
+    monkeypatch.setattr("plugin.calc.python.spill.get_document_property", mock_get_prop)
+    monkeypatch.setattr("plugin.calc.python.spill.set_document_property", mock_set_prop)
 
     doc1 = CalcDocStub(url="", props={"RuntimeUID": "uid-spill-1"}, selection="B2")
     doc2 = CalcDocStub(url="", props={"RuntimeUID": "uid-spill-2"}, selection="B2")
@@ -1176,7 +1168,7 @@ def test_build_cell_context_off_main_skips_locate_on_cached_doc(monkeypatch: pyt
 def test_finalize_python_return_off_main_skips_session_key_on_cached_doc(monkeypatch: pytest.MonkeyPatch) -> None:
     """Spill-disabled list results must not locate the cached model off-main."""
     monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: False)
-    monkeypatch.setattr("plugin.framework.config.get_config", lambda _key: False)
+    monkeypatch.setattr("plugin.calc.python.function.get_config", lambda _key: False)
     doc = MagicMock()
     doc.getURL.side_effect = AssertionError("getURL off main")
     val = finalize_python_return(_cell(MagicMock(), "c", doc, on_main=False), [10, 20, 30])
@@ -1386,7 +1378,7 @@ def test_finalize_python_return_located_array_does_not_break_scalar_session(monk
     sheet = doc.getSheets().getByName("Sheet1")
     formula_cell = sheet.getCellByPosition(0, 0)
     _function.clear_python_addin_cache()
-    monkeypatch.setattr("plugin.framework.config.get_config", lambda _k: True)
+    monkeypatch.setattr("plugin.calc.python.function.get_config", lambda _k: True)
     with patch(
         "plugin.calc.python.function.locate_formula_cell_in_doc",
         return_value=(sheet, formula_cell, (0, 0)),
@@ -2805,7 +2797,7 @@ def test_load_spill_registry_skips_malformed_entry(monkeypatch: pytest.MonkeyPat
         "Sheet1:4,4": {"code": "later", "cells": [{"r": 5, "c": 4, "t": "n", "v": 1.0}]},
     })
     monkeypatch.setattr(
-        "plugin.doc.udprops.get_document_property",
+        "plugin.calc.python.spill.get_document_property",
         lambda model, name, default=None: payload if name == "WriterAgentSpillRegistry" else default,
     )
     doc = CalcDocStub(url="file:///fake_malformed.ods")
@@ -2877,6 +2869,10 @@ def test_execute_python_addin_hashes_worker_data_once(monkeypatch: pytest.Monkey
 
     monkeypatch.setattr(
         "plugin.framework.config.get_config",
+        lambda key, default=False: False if key == "scripting.python_auto_spill" else default,
+    )
+    monkeypatch.setattr(
+        "plugin.calc.python.function.get_config",
         lambda key, default=False: False if key == "scripting.python_auto_spill" else default,
     )
     monkeypatch.setattr(
@@ -2965,6 +2961,10 @@ def test_execute_python_addin_flag_passes_through_without_gate(monkeypatch: pyte
     monkeypatch.setattr("plugin.calc.python.function.run_code_in_user_venv", fake_run)
     monkeypatch.setattr(
         "plugin.framework.config.get_config",
+        lambda key, default=False: True if key == "scripting.python_allow_network" else default,
+    )
+    monkeypatch.setattr(
+        "plugin.calc.python.function.get_config",
         lambda key, default=False: True if key == "scripting.python_allow_network" else default,
     )
 

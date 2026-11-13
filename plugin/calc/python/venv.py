@@ -15,10 +15,12 @@ from typing import TYPE_CHECKING, Any, ClassVar
 
 from plugin.calc.base import ToolCalcPythonBase
 from plugin.calc.calc_addin_data import resolve_python_data
+from plugin.calc.python.image_egress import insert_image_result_on_sheet
 from plugin.framework.constants import ALL_DOCUMENT_SERVICES
 from plugin.framework.queue_executor import main
-from plugin.scripting.import_policy import format_matplotlib_plot_hint
+from plugin.scripting.import_policy import format_matplotlib_plot_hint, python_venv_auto_imports_note
 from plugin.scripting.payload_codec import find_image_payloads, strip_image_payloads, write_image_payload_to_temp
+from plugin.scripting.session_manager import pin_script_document, release_script_document
 from plugin.scripting.venv_worker import run_code_in_user_venv
 
 if TYPE_CHECKING:
@@ -53,9 +55,7 @@ _IMPORT_NOTE_MARKER = _RESULT_NOTE + " "
 
 def _with_import_note(text: str) -> str:
     """Insert the sandbox import policy when the tool schema is built."""
-    from plugin.scripting import import_policy
-
-    note = import_policy.python_venv_auto_imports_note()
+    note = python_venv_auto_imports_note()
     if _IMPORT_NOTE_MARKER in text:
         return text.replace(_IMPORT_NOTE_MARKER, _IMPORT_NOTE_MARKER + note, 1)
     return text
@@ -139,8 +139,6 @@ def insert_plots_and_report(ctx: ToolContext, images: list[dict[str, Any]], res:
         _report_image_paths(out, img_paths)
         return out
 
-    from plugin.calc.python.image_egress import insert_image_result_on_sheet
-
     inserted_paths: list[str] = []
     failed_paths: list[str] = []
     failures: list[Exception] = []
@@ -206,8 +204,6 @@ class RunVenvPythonScript(ToolCalcPythonBase):
         # pin is not the worker session id, so Isolated mode still gets a
         # fresh namespace. With no session id, host tool RPC uses
         # get_active_document and wa.draw / wa.shape bind to the front window.
-        from plugin.scripting.session_manager import pin_script_document, release_script_document
-
         script_session_id = pin_script_document(ctx.doc)
         scope = ctx.send_cancellation
 

@@ -44,6 +44,7 @@ from plugin.calc.python.formula_edit import match_py_alias
 from plugin.calc.python.formula_locator_cache import CELL_FLAG_FORMULA, iter_range_formula_texts
 from plugin.calc.python.undo import undo_lock
 from plugin.framework.errors import best_effort, reraise_if_disposed
+from plugin.framework.thread_guard import guard_uno
 
 log = logging.getLogger(__name__)
 
@@ -132,8 +133,6 @@ def maybe_rewrite_collabora_py_formulas(doc: Any) -> int:
         return 0
     if not doc.supportsService("com.sun.star.sheet.SpreadsheetDocument"):
         return 0
-
-    from plugin.framework.thread_guard import guard_uno
 
     doc = guard_uno(doc)
     # setFormula flips the dirty flag itself. Restore the value from before

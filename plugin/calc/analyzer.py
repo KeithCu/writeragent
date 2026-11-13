@@ -38,6 +38,7 @@ from plugin.calc.bridge import (
     is_agent_visible_sheet,
     used_range_address,
 )
+from plugin.calc.inspector import CellInspector
 
 log = logging.getLogger(__name__)
 
@@ -214,8 +215,6 @@ def get_calc_context_for_chat(
 
                         # Check for selected values if small
                         if (addr.EndRow - addr.StartRow + 1) * (addr.EndColumn - addr.StartColumn + 1) < 100:
-                            from plugin.calc.inspector import CellInspector
-
                             inspector = CellInspector(vs.bridge)
                             # LLM-facing context: enrich dates the same way read_cell_range does.
                             cells = inspector.read_range(sel_range, include_format_info=True)

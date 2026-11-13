@@ -36,6 +36,7 @@ if TYPE_CHECKING:
 from plugin.calc.base import ToolCalcSheetBase
 from plugin.calc.bridge import CalcBridge, filter_agent_sheet_names, is_agent_visible_sheet
 from plugin.calc.analyzer import SheetAnalyzer
+from plugin.calc.python.sheet_modify import migrate_sheet_rename
 
 log = logging.getLogger(__name__)
 
@@ -198,8 +199,6 @@ class RenameSheet(ToolCalcSheetBase):
         sheet.setName(new_name)
         if sheet.getName() != new_name:
             return self._tool_error(f"LibreOffice did not rename '{old_name}' (invalid name or read-only document).")
-        from plugin.calc.python.sheet_modify import migrate_sheet_rename
-
         migrate_sheet_rename(doc, old_name, new_name)
         log.info("Sheet renamed from '%s' to '%s'.", old_name, new_name)
         return {"status": "ok", "message": f"Sheet renamed to '{new_name}'."}

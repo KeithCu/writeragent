@@ -247,7 +247,7 @@ def test_get_calc_context_for_chat_long_selection_truncation():
     with (
         patch("plugin.calc.analyzer.CalcBridge", return_value=bridge),
         patch("plugin.calc.analyzer.SheetAnalyzer", return_value=analyzer),
-        patch("plugin.calc.inspector.CellInspector", return_value=inspector),
+        patch("plugin.calc.analyzer.CellInspector", return_value=inspector),
     ):
         out = get_calc_context_for_chat(model, max_context=150, ctx=object())
     assert out.endswith("\n\n[... document truncated ...]")
@@ -329,7 +329,7 @@ def test_get_calc_context_for_chat_selection_failure_preserves_summary(scenario)
     with (
         patch("plugin.calc.analyzer.CalcBridge", return_value=bridge),
         patch("plugin.calc.analyzer.SheetAnalyzer", return_value=analyzer),
-        patch("plugin.calc.inspector.CellInspector", return_value=inspector),
+        patch("plugin.calc.analyzer.CellInspector", return_value=inspector),
     ):
         text = get_calc_context_for_chat(model, ctx=object())
 
@@ -368,7 +368,7 @@ def test_get_calc_context_for_chat_disposed_from_read_range():
     with (
         patch("plugin.calc.analyzer.CalcBridge", return_value=bridge),
         patch("plugin.calc.analyzer.SheetAnalyzer", return_value=analyzer),
-        patch("plugin.calc.inspector.CellInspector", return_value=inspector),
+        patch("plugin.calc.analyzer.CellInspector", return_value=inspector),
     ):
         with pytest.raises(DocumentDisposedError):
             get_calc_context_for_chat(model, ctx=object())
