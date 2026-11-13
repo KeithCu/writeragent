@@ -9,6 +9,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from plugin.calc.spreadsheet_import.emit import build_converted_output_model
 from plugin.calc.spreadsheet_import.ingest import ingest_from_arrays
 from plugin.calc.spreadsheet_import.models import FORMULA_LIKE_TYPES
@@ -28,9 +30,10 @@ def _load_fixture():
     )
 
 
-def test_budget_corpus_conversion_rate():
+@pytest.mark.parametrize("vectorize", [False, True])
+def test_budget_corpus_conversion_rate(vectorize):
     model = _load_fixture()
-    output, report = build_converted_output_model(model)
+    output, report = build_converted_output_model(model, vectorize=vectorize)
 
     formula_cells = [
         addr
@@ -56,11 +59,12 @@ def test_budget_corpus_conversion_rate():
     assert len(report.converted) == len(translatable), report.skipped
 
 
-def test_budget_expected_conversions():
+@pytest.mark.parametrize("vectorize", [False, True])
+def test_budget_expected_conversions(vectorize):
     payload = json.loads(_FIXTURE.read_text(encoding="utf-8"))
     expected = payload["expected_conversions"]
     model = _load_fixture()
-    output, _report = build_converted_output_model(model)
+    output, _report = build_converted_output_model(model, vectorize=vectorize)
     for addr, want in expected.items():
         got = output.cells[addr].formula
         assert got == want, f"{addr}: {got!r} != {want!r}"

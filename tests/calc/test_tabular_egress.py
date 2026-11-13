@@ -195,7 +195,7 @@ def test_insert_tabular_result_refuses_when_target_occupied(mock_bridge, mock_ma
     mock_manipulator_cls.return_value = manipulator
     doc = MagicMock()
     sheet = MagicMock()
-    mock_bridge.return_value.get_active_sheet.return_value = sheet
+    mock_bridge.return_value.sheet_or_active.return_value = sheet
 
     # Cell at A1 is occupied with existing user data
     def get_cell(c, r):
@@ -225,7 +225,7 @@ def test_insert_tabular_result_succeeds_when_target_empty(mock_bridge, mock_mani
     mock_manipulator_cls.return_value = manipulator
     doc = MagicMock()
     sheet = MagicMock()
-    mock_bridge.return_value.get_active_sheet.return_value = sheet
+    mock_bridge.return_value.sheet_or_active.return_value = sheet
 
     def get_cell(c, r):
         cell = MagicMock()

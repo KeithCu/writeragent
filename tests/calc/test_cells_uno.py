@@ -848,3 +848,23 @@ def test_delete_structure_on_prefixed_sheet(ctx, doc):
     sheet2.getCellByPosition(0, 4).setString("row5")
     _execute_calc_tool(doc, ctx, "delete_structure", {"structure_type": "rows", "start": "Sheet2.5"})
 
+
+@native_test
+@with_native_doc("calc")
+def test_set_style_on_single_cell_named_range(ctx, doc):
+    from com.sun.star.awt import FontWeight
+    from com.sun.star.table import CellAddress
+
+    named_ranges = doc.NamedRanges
+    if named_ranges.hasByName("StyleCell"):
+        named_ranges.removeByName("StyleCell")
+    named_ranges.addNewByName("StyleCell", "$Sheet1.$C$3", CellAddress(Sheet=0, Column=2, Row=2), 0)
+    try:
+        res = _execute_calc_tool(doc, ctx, "set_style", {"range": ["StyleCell"], "bold": True})
+        assert res.get("status") == "ok", f"set_style failed: {res}"
+        c3 = doc.getSheets().getByIndex(0).getCellByPosition(2, 2)
+        assert c3.getPropertyValue("CharWeight") == FontWeight.BOLD
+    finally:
+        if named_ranges.hasByName("StyleCell"):
+            named_ranges.removeByName("StyleCell")
+

@@ -485,3 +485,18 @@ def test_prepare_array_formula_string_false_does_not_force_array():
     res_sort = manipulator.prepare_array_formula_if_needed("A1:A5", "=SORT(B1:B5)", array="false")
     assert res_sort is None
 
+
+@pytest.mark.parametrize(("v_align", "expected"), [("top", 1), ("center", 2), ("bottom", 3)])
+def test_set_cell_style_v_align_writes_vert_justify_ints(v_align: str, expected: int):
+    bridge = MagicMock()
+    cell = MagicMock()
+    bridge.get_cell_by_address.return_value = cell
+    manipulator = CellManipulator(bridge)
+
+    manipulator.set_cell_style("A1", v_align=v_align)
+
+    cell.setPropertyValue.assert_any_call("VertJustify", expected)
+
+    cell.reset_mock()
+    manipulator.set_cell_style("A1", v_align="middle")
+    assert not any(call.args[0] == "VertJustify" for call in cell.setPropertyValue.call_args_list)

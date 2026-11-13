@@ -433,7 +433,7 @@ _LEGEND_POSITION_MEMBER = {
 CHART_PROPERTIES: dict[str, Any] = {
     "sheet": {"type": "string", "description": "Sheet name where the chart should be placed (Calc only, defaults to active sheet)."},
     "page": {"type": "integer", "description": "Zero-based page/slide index (Draw/Impress only; omitted page means the current page, otherwise page 0)."},
-    "data_range": {"type": "string", "description": "Cell range for chart data (Calc only, required for create, e.g. 'A1:B10')."},
+    "data_range": {"type": "string", "description": "Cell range or named range for chart data (Calc only, required for create, e.g. 'A1:B10' or 'SalesData')."},
     "has_header": {"type": "boolean", "description": "Whether the first row/column of data_range contains header and category labels (Calc only, defaults to true)."},
     "headers": {"type": "array", "items": {"type": ["string", "number"]}, "description": "Category/series column headers (Writer/Draw only, required for create, e.g. ['Month', 'Sales', 'Expenses'])."},
     "rows": {
@@ -994,18 +994,15 @@ class SheetCharts:
         # Missing data_range is rejected by ChartUpsert.validate for calc create.
 
         target_sheet_name = kwargs.get("sheet")
-        if target_sheet_name:
-            try:
-                sheet = bridge.get_sheet(target_sheet_name)
-            except Exception as exc:
-                # Re-raise document disposal; other errors become a missing sheet.
-                if is_disposal(exc):
-                    raise
-                return tool._tool_error(f"Sheet '{target_sheet_name}' not found in document.")
-        else:
-            sheet = bridge.get_active_sheet()
+        try:
+            sheet = bridge.sheet_or_active(target_sheet_name)
+        except Exception as exc:
+            # Re-raise document disposal or active-sheet failure; other errors become a missing sheet.
+            if is_disposal(exc) or not target_sheet_name:
+                raise
+            return tool._tool_error(f"Sheet '{target_sheet_name}' not found in document.")
 
-        cell_range = bridge.get_cell_range(sheet, data_range)
+        cell_range = bridge.resolve_range_or_address(data_range, target_sheet_name)
         addr = cell_range.getRangeAddress()
 
         pos_str = kwargs.get("position")
@@ -1614,8 +1611,7 @@ def _edit_chart(
                 return tool._tool_error("Chart object does not support setRanges.")
             try:
                 bridge = CalcBridge(doc)
-                target_sheet = ref.parent if ref.parent is not None else bridge.get_active_sheet()
-                cell_range = bridge.get_cell_range(target_sheet, data_range)
+                cell_range = bridge.resolve_range_or_address(data_range, str(ref.parent.getName()) if ref.parent is not None else None)
                 addr = cell_range.getRangeAddress()
                 chart_obj.setRanges((addr,))
             except Exception as e:
