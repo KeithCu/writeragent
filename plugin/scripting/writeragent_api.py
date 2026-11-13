@@ -604,7 +604,7 @@ class _CellCommentProxy:
         """Add a comment (annotation) to a specific cell in a Calc sheet.
 
         Args:
-            cell (required): Cell address (e.g. 'B3' or 'Sheet1.B3').
+            cell (required): Cell address (e.g. 'B3' or 'Sheet1.B3') or a named range that refers to one cell.
             text (required): Comment text.
             sheet (optional): Sheet name (active sheet if omitted).
         """
@@ -614,7 +614,7 @@ class _CellCommentProxy:
         """Delete the comment (annotation) from a specific cell.
 
         Args:
-            cell (required): Cell address (e.g. 'B3' or 'Sheet1.B3').
+            cell (required): Cell address (e.g. 'B3' or 'Sheet1.B3') or a named range that refers to one cell.
             sheet (optional): Sheet name (active sheet if omitted).
         """
         return call_host_tool("cell_comment_delete", cell=cell, sheet=sheet)
@@ -669,7 +669,7 @@ class _ChartProxy:
             name (optional): Chart name for edit, or for create when the chart does not yet exist.
             sheet (optional): Sheet name where the chart should be placed (Calc only, defaults to active sheet).
             page (optional): Zero-based page/slide index (Draw/Impress only; omitted page means the current page, otherwise page 0).
-            data_range (optional): Cell range for chart data (Calc only, required for create, e.g. 'A1:B10').
+            data_range (optional): Cell range or named range for chart data (Calc only, required for create, e.g. 'A1:B10' or 'SalesData').
             has_header (optional): Whether the first row/column of data_range contains header and category labels (Calc only, defaults to true).
             headers (optional): Category/series column headers (Writer/Draw only, required for create, e.g. ['Month', 'Sales', 'Expenses']).
             rows (optional): 2D array of category labels and values (Writer/Draw only, required for create, e.g. [['Jan', 100, 80], ['Feb', 150, 110]]).
@@ -1827,7 +1827,7 @@ class _RangeProxy:
         """Automatically creates multiple named ranges based on the content of title cells (headers) in a table range. Border specifies where headers are located ('top', 'bottom', 'left', 'right').
 
         Args:
-            range_name (required): The table cell range containing both headers and data (e.g. ["A1:D20"] or ["Sheet1.A1:D20"]).
+            range_name (required): The table cell range or named range containing both headers and data (e.g. ["A1:D20"], ["Sheet1.A1:D20"], or ["Table"]).
             border (optional): Which edge contains the title labels: 'top' (default), 'bottom', 'left', or 'right'. One of: top, bottom, left, right.
             scope (optional): Container scope for creating the names: 'global' (default) or specific sheet name.
         """

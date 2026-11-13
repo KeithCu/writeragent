@@ -10,9 +10,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from plugin.calc.base import ToolCalcCommentBase
-from plugin.calc.address_utils import format_address, parse_address
+from plugin.calc.address_utils import format_address
 from plugin.calc.bridge import CalcBridge
-from plugin.calc.calc_utils import resolve_sheet
 from plugin.framework.errors import is_disposal
 
 if TYPE_CHECKING:
@@ -70,7 +69,7 @@ class ListCellComments(ToolCalcCommentBase):
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         doc = ctx.doc
-        sheet = resolve_sheet(doc, kwargs.get("sheet"))
+        sheet = CalcBridge(doc).sheet_or_active(kwargs.get("sheet"))
         annotations = sheet.getAnnotations()
         positioned = [(ann.getPosition(), ann) for ann in (annotations.getByIndex(i) for i in range(annotations.getCount()))]
         positioned.sort(key=lambda item: (item[0].Row, item[0].Column))
@@ -103,7 +102,7 @@ class AddCellComment(ToolCalcCommentBase):
     description: str = "Add a comment (annotation) to a specific cell in a Calc sheet."
     parameters: dict[str, Any] | None = {
         "type": "object",
-        "properties": {"cell": {"type": "string", "description": "Cell address (e.g. 'B3' or 'Sheet1.B3')."}, "text": {"type": "string", "description": "Comment text."}, "sheet": {"type": "string", "description": "Sheet name (active sheet if omitted)."}},
+        "properties": {"cell": {"type": "string", "description": "Cell address (e.g. 'B3' or 'Sheet1.B3') or a named range that refers to one cell."}, "text": {"type": "string", "description": "Comment text."}, "sheet": {"type": "string", "description": "Sheet name (active sheet if omitted)."}},
         "required": ["cell", "text"],
     }
     is_mutation: bool | None = True
@@ -115,8 +114,7 @@ class AddCellComment(ToolCalcCommentBase):
             return self._tool_error("cell and text are required.")
 
         try:
-            sheet, address = CalcBridge(ctx.doc).resolve(cell_ref, kwargs.get("sheet"))
-            col, row = parse_address(address)
+            sheet, col, row = CalcBridge(ctx.doc).resolve_cell(cell_ref, kwargs.get("sheet"))
         except Exception as e:
             if is_disposal(e):
                 raise
@@ -136,7 +134,7 @@ class DeleteCellComment(ToolCalcCommentBase):
 
     name: str | None = "cell_comment_delete"
     description: str = "Delete the comment (annotation) from a specific cell."
-    parameters: dict[str, Any] | None = {"type": "object", "properties": {"cell": {"type": "string", "description": "Cell address (e.g. 'B3' or 'Sheet1.B3')."}, "sheet": {"type": "string", "description": "Sheet name (active sheet if omitted)."}}, "required": ["cell"]}
+    parameters: dict[str, Any] | None = {"type": "object", "properties": {"cell": {"type": "string", "description": "Cell address (e.g. 'B3' or 'Sheet1.B3') or a named range that refers to one cell."}, "sheet": {"type": "string", "description": "Sheet name (active sheet if omitted)."}}, "required": ["cell"]}
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
@@ -145,8 +143,7 @@ class DeleteCellComment(ToolCalcCommentBase):
             return self._tool_error("cell is required.")
 
         try:
-            sheet, address = CalcBridge(ctx.doc).resolve(cell_ref, kwargs.get("sheet"))
-            col, row = parse_address(address)
+            sheet, col, row = CalcBridge(ctx.doc).resolve_cell(cell_ref, kwargs.get("sheet"))
         except Exception as e:
             if is_disposal(e):
                 raise

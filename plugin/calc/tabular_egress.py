@@ -153,7 +153,7 @@ def insert_tabular_result_into_calc(
     if grid and grid[0]:
         rows, cols = len(grid), len(grid[0])
         # Refuse to overwrite user data, same as _write_array_formula in manipulator.py.
-        sheet = bridge.get_sheet(sheet_name) if sheet_name else bridge.get_active_sheet()
+        sheet = bridge.sheet_or_active(sheet_name)
         occupied: list[tuple[int, int]] = []
         for r in range(start_row, start_row + rows):
             for c in range(start_col, start_col + cols):

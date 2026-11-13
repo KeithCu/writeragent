@@ -228,3 +228,41 @@ def test_transparent_named_range_read_write(ctx, doc):
     # Clean up
     if named_ranges.hasByName("TransparentRange"):
         named_ranges.removeByName("TransparentRange")
+
+
+@native_test
+@with_native_doc("calc")
+def test_create_from_titles_from_named_range(ctx, doc):
+    from com.sun.star.table import CellAddress
+
+    sheet = doc.getSheets().getByIndex(0)
+    sheet.getCellByPosition(0, 0).setString("ColAlpha")
+    sheet.getCellByPosition(1, 0).setString("ColBeta")
+    for row in range(1, 5):
+        sheet.getCellByPosition(0, row).setValue(row * 10)
+        sheet.getCellByPosition(1, row).setValue(row * 20)
+
+    named_ranges = doc.NamedRanges
+    for name in ("Table", "ColAlpha", "ColBeta"):
+        if named_ranges.hasByName(name):
+            named_ranges.removeByName(name)
+    named_ranges.addNewByName("Table", "$Sheet1.$A$1:$B$5", CellAddress(Sheet=0, Column=0, Row=0), 0)
+    try:
+        res = _execute_calc_tool(
+            doc, ctx, "named_range_create_from_titles",
+            {"range": ["Table"], "border": "top", "scope": "global"},
+        )
+        assert res.get("status") == "ok", f"named_range_create_from_titles failed: {res}"
+        assert named_ranges.hasByName("ColAlpha"), "ColAlpha named range was not created"
+        assert named_ranges.hasByName("ColBeta"), "ColBeta named range was not created"
+
+        res_two = _execute_calc_tool(
+            doc, ctx, "named_range_create_from_titles",
+            {"range": ["A1:B5", "C1:D5"], "border": "top", "scope": "global"},
+        )
+        assert res_two.get("status") == "error"
+        assert res_two.get("code") == "INVALID_ARGUMENT"
+    finally:
+        for name in ("Table", "ColAlpha", "ColBeta"):
+            if named_ranges.hasByName(name):
+                named_ranges.removeByName(name)

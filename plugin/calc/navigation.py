@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable
 
 from plugin.calc.address_utils import MAX_COL, MAX_ROW, format_address, parse_address, qualify_a1, split_sheet_prefix
-from plugin.calc.calc_utils import query_interface as _query_interface, resolve_sheet_and_cell as _canonical_resolve_sheet_and_cell
+from plugin.calc.calc_utils import query_interface as _query_interface, resolve_sheet_and_cell
 from plugin.framework.errors import best_effort
 from plugin.framework.uno_listeners import BaseMouseListener
 
@@ -112,7 +112,7 @@ def drop_cell_link_spans_from(control: Any, start_len: int) -> None:
 
 def navigate_to_cell(doc: Any, _ctx: Any, address: str) -> bool:
     """Select *address* in the Calc document (PyUNO select, not sidebar dispatch)."""
-    resolved = _canonical_resolve_sheet_and_cell(doc, normalize_cell_address(address) or "")
+    resolved = resolve_sheet_and_cell(doc, normalize_cell_address(address) or "")
     if not resolved:
         log.debug("navigate_to_cell: could not resolve %r", address)
         return False

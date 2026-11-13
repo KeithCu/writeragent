@@ -15,10 +15,10 @@ from plugin.calc.calc_utils import (
     cell_value_and_type,
     get_cell_geometry,
     query_interface,
-    resolve_sheet,
     resolve_sheet_and_cell,
 )
-from plugin.framework.errors import DocumentDisposedError, UnoObjectError
+from plugin.framework.errors import DocumentDisposedError
+from plugin.tests.testing_utils import CalcDocStub
 
 
 class TestGetCellGeometry:
@@ -64,7 +64,7 @@ class TestGetCellGeometry:
 
 
 class TestSheetAndCellResolution:
-    """Tests for resolve_sheet, query_interface, and resolve_sheet_and_cell."""
+    """Tests for query_interface and resolve_sheet_and_cell."""
 
     def test_query_interface_none_object(self):
         assert query_interface(None, "com.sun.star.sheet.XSheetCondition") is None
@@ -73,28 +73,19 @@ class TestSheetAndCellResolution:
         obj = object()
         assert query_interface(obj, "com.sun.star.sheet.XSheetCondition") is None
 
-    def test_resolve_sheet_by_name_success(self):
-        mock_sheet = MagicMock()
-        mock_sheets = MagicMock()
-        mock_sheets.hasByName.return_value = True
-        mock_sheets.getByName.return_value = mock_sheet
+    def test_resolve_sheet_and_cell_with_sheet_prefix(self):
+        doc = CalcDocStub()
+        sheet = doc.getSheets().getByName("Sheet1")
+        # No active controller path for prefixed addresses — still resolves via getSheets.
+        doc.CurrentController = None
+        doc._controller = None
 
-        doc = MagicMock()
-        doc.getSheets.return_value = mock_sheets
-
-        assert resolve_sheet(doc, "Sheet2") is mock_sheet
-        mock_sheets.getByName.assert_called_once_with("Sheet2")
-
-    def test_resolve_sheet_by_name_not_found(self):
-        mock_sheets = MagicMock()
-        mock_sheets.hasByName.return_value = False
-        mock_sheets.getElementNames.return_value = ("Sheet1", "Sheet2")
-
-        doc = MagicMock()
-        doc.getSheets.return_value = mock_sheets
-
-        with pytest.raises(UnoObjectError, match="No sheet named 'NonExistent'"):
-            resolve_sheet(doc, "NonExistent")
+        resolved = resolve_sheet_and_cell(doc, "Sheet1.B2")
+        assert resolved is not None
+        got_sheet, col, row = resolved
+        assert got_sheet is sheet
+        assert col == 1
+        assert row == 1
 
     def test_resolve_sheet_and_cell_valid(self):
         mock_sheet = MagicMock()
