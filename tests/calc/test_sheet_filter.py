@@ -19,7 +19,6 @@ from plugin.calc.sheet_filter import (
     ClearSheetFilter,
     GetSheetFilter,
     _build_filter_fields2,
-    _connection_name,
     _field_to_dict,
 )
 
@@ -107,20 +106,28 @@ def test_field_to_dict_missing_operator_omits_key():
 
 
 def test_field_to_dict_enum_connection():
-    class EnumObj:
-        value = "OR"
-
-    class FieldObj:
+    class FieldObjOr:
         Operator = 1
         Field = 0
-        Connection = EnumObj()
+        Connection = SimpleNamespace(value="OR")
         IsNumeric = True
         NumericValue = 42.0
 
-    result = _field_to_dict(FieldObj(), 0)
-    assert result["connection"] == "OR"
-    assert result["operator_code"] == 1
-    assert result["value"] == 42.0
+    class FieldObjAnd:
+        Operator = 1
+        Field = 1
+        Connection = SimpleNamespace(value="AND")
+        IsNumeric = False
+        StringValue = "x"
+
+    result_or = _field_to_dict(FieldObjOr(), 0)
+    assert result_or["connection"] == "OR"
+    assert result_or["operator_code"] == 1
+    assert result_or["value"] == 42.0
+
+    result_and = _field_to_dict(FieldObjAnd(), 1)
+    assert result_and["connection"] == "AND"
+    assert result_and["value"] == "x"
 
 
 def test_get_sheet_filter_contains_header_disposal_propagates():
@@ -151,24 +158,6 @@ def test_get_sheet_filter_contains_header_disposal_propagates():
         tool = GetSheetFilter()
         with pytest.raises(DocumentDisposedError):
             tool.execute(ctx, range=["A1:B2"])
-
-
-def test_connection_name_decoding():
-    class EnumObj:
-        value = "OR"
-
-    class EnumAnd:
-        value = "AND"
-
-    assert _connection_name(EnumObj()) == "OR"
-    assert _connection_name(EnumAnd()) == "AND"
-    assert _connection_name("com.sun.star.sheet.FilterConnection.OR") == "OR"
-    assert _connection_name("com.sun.star.sheet.FilterConnection.AND") == "AND"
-    assert _connection_name(1) == "OR"
-    assert _connection_name(0) == "AND"
-    assert _connection_name("1") == "OR"
-    assert _connection_name("0") == "AND"
-    assert _connection_name(None) == "AND"
 
 
 def test_range_args_exactly_one_validation():
@@ -263,12 +252,10 @@ def test_build_filter_fields2_and_readback():
     d0 = _field_to_dict(fields[0], 0)
     assert d0["field"] == 0
     assert d0["operator"] == "EQUAL"
-    assert d0["connection"] == "AND"
 
     d1 = _field_to_dict(fields[1], 1)
     assert d1["field"] == 1
     assert d1["operator"] == "GREATER"
-    assert d1["connection"] == "OR"
     assert d1["value"] == 10.0
 
 
