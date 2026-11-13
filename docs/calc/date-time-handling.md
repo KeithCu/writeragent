@@ -429,7 +429,7 @@ Adopt the matrix and integer-second midnight predicate above. Existing playgroun
 
 #### M2 decision — Locale for `getStandardIndex` / `detectNumberFormat`
 
-**Status: Settled and shipped.** Locale comes from `_resolve_document_locale` (document `CharLocale` + en-US fallback) once per `write_formula_range` / `set_style` number-format path.
+**Status: Settled and shipped.** Locale comes from `resolve_document_locale` in `plugin/calc/calc_utils.py` (document `CharLocale` + en-US fallback), shared by `write_formula_range`, `set_style`, and the `=PY()` deferred spill, which also takes its elapsed-time key from `elapsed_format_key` there.
 
 ##### What problem M2 solves
 

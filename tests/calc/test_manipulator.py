@@ -354,7 +354,7 @@ def test_oversized_write_raises_limit():
     bridge.doc.getSheets.return_value.getByIndex.return_value = mock_sheet
 
     with patch("plugin.calc.manipulator._uno_range_address", return_value=exact_addr):
-        with patch.object(manipulator, "_resolve_document_locale", return_value=MagicMock()):
+        with patch("plugin.calc.manipulator.resolve_document_locale", return_value=MagicMock()):
             res = manipulator.write_formula_range("A1:range", ["1"] * MAX_WRITE_CELLS)
             assert "filled with" in res
 

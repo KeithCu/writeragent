@@ -14,9 +14,12 @@ import pytest
 from plugin.calc.calc_utils import (
     cell_value_and_type,
     classify_array_cell,
+    elapsed_format_key,
     get_cell_geometry,
     query_interface,
+    resolve_document_locale,
     resolve_sheet_and_cell,
+    standard_temporal_format_keys,
 )
 from plugin.framework.errors import DocumentDisposedError
 from plugin.tests.testing_utils import CalcDocStub
@@ -204,5 +207,60 @@ def test_classify_array_cell():
     assert classify_array_cell(5.0, "{=A1:A2}", True) == (5.0, "formula", "{=A1:A2}")
     assert classify_array_cell("", "", False) == (None, "empty", None)
     assert classify_array_cell(0.0, "0", False) == (0.0, "value", None)
+
+
+def test_resolve_document_locale(monkeypatch):
+    monkeypatch.setattr(
+        "plugin.calc.calc_utils.uno.createUnoStruct",
+        lambda _name, **kw: SimpleNamespace(**kw),
+    )
+    de_locale = SimpleNamespace(Language="de", Country="DE", Variant="")
+    doc = MagicMock()
+    doc.getPropertyValue.return_value = de_locale
+    assert resolve_document_locale(doc) is de_locale
+
+    doc.getPropertyValue.return_value = SimpleNamespace(Language="", Country="", Variant="")
+    fallback = resolve_document_locale(doc)
+    assert fallback.Language == "en"
+    assert fallback.Country == "US"
+
+    doc.getPropertyValue.side_effect = KeyError("CharLocale")
+    fallback_err = resolve_document_locale(doc)
+    assert fallback_err.Language == "en"
+    assert fallback_err.Country == "US"
+
+    class DisposedException(Exception):
+        pass
+
+    doc.getPropertyValue.side_effect = DisposedException("disposed")
+    with pytest.raises(DisposedException):
+        resolve_document_locale(doc)
+
+
+def test_elapsed_format_key_falls_back_to_query_key():
+    locale = SimpleNamespace(Language="en", Country="US", Variant="")
+    formats = MagicMock()
+    formats.getFormatIndex.return_value = 64
+    assert elapsed_format_key(formats, locale) == 64
+
+    formats.getFormatIndex.side_effect = RuntimeError("no index")
+    formats.queryKey.return_value = -1
+    formats.addNew.return_value = 123
+    assert elapsed_format_key(formats, locale) == 123
+    formats.queryKey.assert_called_once_with("[HH]:MM:SS", locale, False)
+    formats.addNew.assert_called_once_with("[HH]:MM:SS", locale)
+
+
+def test_standard_temporal_format_keys():
+    locale = SimpleNamespace(Language="en", Country="US", Variant="")
+    formats = MagicMock()
+    formats.getStandardFormat.side_effect = lambda fmt_type, _loc: {2: 37, 4: 63, 6: 70}[fmt_type]
+    formats.getFormatIndex.return_value = 64
+    assert standard_temporal_format_keys(formats, locale) == {
+        "date": 37,
+        "time": 63,
+        "datetime": 70,
+        "duration": 64,
+    }
 
 

@@ -543,3 +543,56 @@ def test_py_spill_neighbors_formula_error(ctx, doc):
         st = WorkbookState.known(doc)
         if st is not None:
             WorkbookState.forget_key(st.key)
+
+
+@native_test
+@with_native_doc("calc")
+def test_py_spill_neighbors_temporal_formats(ctx, doc):
+    """Spill neighbors: temporal values get numeric serials and standard date/time/duration formats."""
+    sheet = doc.getSheets().getByIndex(0)
+    sheet_name = str(sheet.getName() or "Sheet1")
+    clear_python_addin_cache()
+    code = "result = [['2026-08-08', 'PT30H'], ['2026-08-08T12:00:00', '12:30:00']]"
+    try:
+        cell_a1 = sheet.getCellByPosition(0, 0)
+        cell_a1.setFormula(f'=PY("{code}")')
+        grid = [["2026-08-08", "PT30H"], ["2026-08-08T12:00:00", "12:30:00"]]
+        perform_deferred_spill(
+            sheet_name,
+            0,
+            0,
+            grid,
+            doc=doc,
+            sheet=sheet,
+            code=code,
+            key=WorkbookState.for_doc(doc).key,
+        )
+        doc.calculateAll()
+
+        formats = doc.getNumberFormats()
+        formatter = ctx.getServiceManager().createInstanceWithContext("com.sun.star.util.NumberFormatter", ctx)
+        formatter.attachNumberFormatsSupplier(doc)
+
+        # B1: duration PT30H -> 1.25 with [HH]:MM:SS formatting
+        cell_b1 = sheet.getCellByPosition(1, 0)
+        assert abs(cell_b1.getValue() - 1.25) < 1e-9
+        assert cell_b1.getString() == "30:00:00"
+
+        # A2: datetime 2026-08-08T12:00:00 -> 46242.5, Type == 6 (DATETIME)
+        cell_a2 = sheet.getCellByPosition(0, 1)
+        assert abs(cell_a2.getValue() - 46242.5) < 1e-9
+        nf_a2 = int(cell_a2.getPropertyValue("NumberFormat"))
+        assert formats.getByKey(nf_a2).Type == 6
+        assert cell_a2.getString() == formatter.convertNumberToString(nf_a2, 46242.5)
+
+        # B2: time 12:30:00 -> 45000/86400, Type == 4 (TIME)
+        cell_b2 = sheet.getCellByPosition(1, 1)
+        expected_time = 45000.0 / 86400.0
+        assert abs(cell_b2.getValue() - expected_time) < 1e-9
+        nf_b2 = int(cell_b2.getPropertyValue("NumberFormat"))
+        assert formats.getByKey(nf_b2).Type == 4
+        assert cell_b2.getString() == formatter.convertNumberToString(nf_b2, expected_time)
+    finally:
+        st = WorkbookState.known(doc)
+        if st is not None:
+            WorkbookState.forget_key(st.key)

@@ -19,12 +19,15 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any, cast
 import uno
 
 from plugin.calc.address_utils import parse_address, split_sheet_prefix
 from plugin.calc.bridge import CalcBridge
-from plugin.framework.errors import UnoObjectError, uno_read
+from plugin.framework.errors import UnoObjectError, is_disposal, uno_read
+
+log = logging.getLogger(__name__)
 
 # Import CellContentType members from com.sun.star.table.CellContentType, not com.sun.star.table:
 # live PyUNO exposes enums as submodules; int fallbacks must still compare equal to uno.Enum from getType().
@@ -172,3 +175,46 @@ def classify_array_cell(raw_value: Any, raw_formula: str, is_formula: bool) -> t
     if isinstance(raw_value, str) and raw_value:
         return raw_value, "text", None
     return None, "empty", None
+
+
+def resolve_document_locale(doc: Any) -> Any:
+    """Return document CharLocale, or en-US when Language is empty or unreadable."""
+    try:
+        locale = doc.getPropertyValue("CharLocale")
+        language = getattr(locale, "Language", None) or ""
+        if language:
+            return locale
+    except Exception as e:
+        if is_disposal(e):
+            raise
+        log.debug("CharLocale unavailable; using en-US fallback", exc_info=True)
+    return uno.createUnoStruct("com.sun.star.lang.Locale", Language="en", Country="US", Variant="")
+
+
+def elapsed_format_key(formats: Any, locale: Any) -> int:
+    """Built-in ``[HH]:MM:SS`` key (formatindex 43), with queryKey/addNew fallback."""
+    try:
+        return int(formats.getFormatIndex(43, locale))
+    except Exception as e:
+        if is_disposal(e):
+            raise
+        log.debug("getFormatIndex(43) failed; falling back to queryKey", exc_info=True)
+    key = formats.queryKey("[HH]:MM:SS", locale, False)
+    if key == -1:
+        key = formats.addNew("[HH]:MM:SS", locale)
+    return int(key)
+
+
+def standard_temporal_format_keys(formats: Any, locale: Any) -> dict[str, int]:
+    """Standard date, time, datetime, and duration number-format keys for ``locale``.
+
+    These are the keys a ``=PY()`` spill neighbour gets when its destination has no
+    date/time format; the chat write path does not use them because it detects a key
+    per value and inherits column templates.
+    """
+    return {
+        "date": int(formats.getStandardFormat(2, locale)),
+        "time": int(formats.getStandardFormat(4, locale)),
+        "datetime": int(formats.getStandardFormat(6, locale)),
+        "duration": elapsed_format_key(formats, locale),
+    }
