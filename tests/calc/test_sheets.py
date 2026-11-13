@@ -368,7 +368,7 @@ def test_protect_sheet_already_in_target_state():
     ctx = SimpleNamespace(doc=doc)
 
     with patch("plugin.calc.sheets.CalcBridge") as bridge_cls:
-        bridge_cls.return_value.get_sheet.return_value = sheet
+        bridge_cls.return_value.sheet_or_active.return_value = sheet
         res = ProtectSheet().execute(ctx, sheet="Sheet1", protect=True)
         assert res["status"] == "ok"
         assert "already protected" in res["message"]
@@ -390,7 +390,7 @@ def test_protect_sheet_password_protected_unprotect():
     ctx = SimpleNamespace(doc=doc)
 
     with patch("plugin.calc.sheets.CalcBridge") as bridge_cls:
-        bridge_cls.return_value.get_sheet.return_value = sheet
+        bridge_cls.return_value.sheet_or_active.return_value = sheet
         res = ProtectSheet().execute(ctx, sheet="Sheet1", protect=False)
         assert res["status"] == "error"
         assert "is password-protected" in res["message"]
@@ -405,7 +405,7 @@ def test_protect_sheet_state_not_changed_error():
     ctx = SimpleNamespace(doc=doc)
 
     with patch("plugin.calc.sheets.CalcBridge") as bridge_cls:
-        bridge_cls.return_value.get_sheet.return_value = sheet
+        bridge_cls.return_value.sheet_or_active.return_value = sheet
         res = ProtectSheet().execute(ctx, sheet="Sheet1", protect=True)
         assert res["status"] == "error"
         assert "Failed to set sheet" in res["message"]

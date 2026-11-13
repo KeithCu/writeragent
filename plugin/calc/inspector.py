@@ -18,7 +18,7 @@
 """Cell inspector — reads detailed information from LibreOffice Calc cells."""
 
 import logging
-from typing import Any, TypeAlias
+from typing import TYPE_CHECKING, Any, TypeAlias
 
 from plugin.calc.address_utils import format_address, index_to_column, split_sheet_prefix
 from plugin.calc.datetime_wire import (
@@ -31,6 +31,9 @@ from plugin.calc.calc_utils import cell_value_and_type
 from plugin.framework.errors import CalcError, is_disposal
 from plugin.scripting.config_limits import configured_python_max_data_cells
 
+if TYPE_CHECKING:
+    from plugin.calc.bridge import CalcBridge
+
 log = logging.getLogger(__name__)
 
 _CELL_FLAG_DATETIME = 2
@@ -41,9 +44,9 @@ TemporalRows: TypeAlias = dict[int, list[FormatSpan]]
 class CellInspector:
     """Examines cell contents and properties."""
 
-    bridge: Any
+    bridge: "CalcBridge"
 
-    def __init__(self, bridge: Any) -> None:
+    def __init__(self, bridge: "CalcBridge") -> None:
         """
         Args:
             bridge: CalcBridge instance.

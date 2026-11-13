@@ -13,25 +13,9 @@ from plugin.calc.formula_dep_chain import (
     _MAX_PRECEDENT_CELLS,
     _cell_snapshot,
     _precedents_via_formula_query,
-    _resolve_sheet_and_cell,
     fetch_formula_dep_chain,
 )
 from plugin.tests.testing_utils import CalcDocStub, CalcSheetStub
-
-
-def test_resolve_sheet_and_cell_with_sheet_prefix():
-    doc = CalcDocStub()
-    sheet = doc.getSheets().getByName("Sheet1")
-    # No active controller path for prefixed addresses — still resolves via getSheets.
-    doc.CurrentController = None
-    doc._controller = None
-
-    resolved = _resolve_sheet_and_cell(doc, "Sheet1.B2")
-    assert resolved is not None
-    got_sheet, col, row = resolved
-    assert got_sheet is sheet
-    assert col == 1
-    assert row == 1
 
 
 def test_fetch_formula_dep_chain_uses_command_values_when_available():
