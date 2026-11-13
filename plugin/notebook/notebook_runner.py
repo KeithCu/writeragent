@@ -144,7 +144,7 @@ def execute_code(ctx: Any, doc: Any, code: str) -> dict[str, Any]:
         return {"status": "error", "message": "Could not resolve notebook Python session."}
     from plugin.calc.python.workbook_lifecycle import ensure_python_session_cleared_on_unload
 
-    ensure_python_session_cleared_on_unload(ctx, doc, session_id)
+    ensure_python_session_cleared_on_unload(doc, session_id)
 
     script_session_id = pin_script_document(doc)
 

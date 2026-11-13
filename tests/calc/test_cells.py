@@ -21,6 +21,29 @@ from tests.harness.strip_bundle import requires_asserts
 
 from plugin.tests.testing_utils import TestingFactory
 
+
+def _a1_bridge(named: dict[str, str] | None = None) -> MagicMock:
+    """Mock CalcBridge whose resolve_range_or_address returns a range with an A1 address."""
+    from plugin.calc.address_utils import parse_range_string, split_sheet_prefix
+
+    bridge = MagicMock()
+
+    def _resolve(ref: str) -> MagicMock:
+        target = (named or {}).get(ref, ref)
+        _sheet, addr = split_sheet_prefix(target)
+        parsed = parse_range_string(addr)
+        if parsed is None:
+            raise ValueError(f"Unknown range: {ref}")
+        (c0, r0), (c1, r1) = parsed
+        rng = MagicMock()
+        rng.getRangeAddress.return_value = SimpleNamespace(
+            Sheet=0, StartColumn=c0, StartRow=r0, EndColumn=c1, EndRow=r1
+        )
+        return rng
+
+    bridge.resolve_range_or_address.side_effect = _resolve
+    return bridge
+
 # Smallest AFC-style repro for the chat cap: 9×9 = 81 cells (cap is 80).
 # Full Population (1517×8) is not required; this ODS is a few KB of dummy numbers.
 _MIN_RANGE_TOO_LARGE_ODS = (
@@ -1130,11 +1153,12 @@ def test_json_array_value_count_and_a1_shape():
 
 def test_write_formula_range_rejects_semicolon_json_mismatch():
     from plugin.calc.cells import WriteCellRange
+    from plugin.calc.manipulator import CellManipulator
 
     ctx = SimpleNamespace(doc=MagicMock())
     with (
-        patch("plugin.calc.cells.CalcBridge"),
-        patch("plugin.calc.cells.CellManipulator") as manip_cls,
+        patch("plugin.calc.cells.CalcBridge", return_value=_a1_bridge()),
+        patch.object(CellManipulator, "commit_write") as commit,
     ):
         result = WriteCellRange().execute(
             ctx, range=["A1:A3"], values='["a"; "b"]'
@@ -1144,17 +1168,18 @@ def test_write_formula_range_rejects_semicolon_json_mismatch():
     assert "2 values" in result["message"]
     assert "3 cells" in result["message"]
     assert "one value per row" in result["message"]
-    manip_cls.return_value.write_formula_range.assert_not_called()
+    commit.assert_not_called()
 
 
 def test_write_formula_range_rejects_json_length_mismatch():
     """4 values into an 8-cell column must fail loud — no silent zip/pad."""
     from plugin.calc.cells import WriteCellRange
+    from plugin.calc.manipulator import CellManipulator
 
     ctx = SimpleNamespace(doc=MagicMock())
     with (
-        patch("plugin.calc.cells.CalcBridge"),
-        patch("plugin.calc.cells.CellManipulator") as manip_cls,
+        patch("plugin.calc.cells.CalcBridge", return_value=_a1_bridge()),
+        patch.object(CellManipulator, "commit_write") as commit,
     ):
         result = WriteCellRange().execute(
             ctx, range=["C2:C9"], values='["a", "b", "c", "d"]'
@@ -1164,16 +1189,17 @@ def test_write_formula_range_rejects_json_length_mismatch():
     assert "4 values" in result["message"]
     assert "8 cells" in result["message"]
     assert "one value per row" in result["message"]
-    manip_cls.return_value.write_formula_range.assert_not_called()
+    commit.assert_not_called()
 
 
 def test_write_formula_range_rejects_list_length_mismatch():
     from plugin.calc.cells import WriteCellRange
+    from plugin.calc.manipulator import CellManipulator
 
     ctx = SimpleNamespace(doc=MagicMock())
     with (
-        patch("plugin.calc.cells.CalcBridge"),
-        patch("plugin.calc.cells.CellManipulator") as manip_cls,
+        patch("plugin.calc.cells.CalcBridge", return_value=_a1_bridge()),
+        patch.object(CellManipulator, "commit_write") as commit,
     ):
         result = WriteCellRange().execute(
             ctx, range=["A1:B4"], values=["a", "b", "c", "d"]
@@ -1182,7 +1208,7 @@ def test_write_formula_range_rejects_list_length_mismatch():
     assert result["status"] == "error"
     assert "4 values" in result["message"]
     assert "8 cells" in result["message"]
-    manip_cls.return_value.write_formula_range.assert_not_called()
+    commit.assert_not_called()
 
 
 def test_write_formula_range_accepts_matching_json_and_scalar_fill():
@@ -1194,7 +1220,7 @@ def test_write_formula_range_accepts_matching_json_and_scalar_fill():
         patch("plugin.calc.cells.CellManipulator") as manip_cls,
         patch("plugin.calc.cells.WriterCompoundUndo"),
     ):
-        manip_cls.return_value.write_formula_range.return_value = "wrote"
+        manip_cls.return_value.commit_write.return_value = "wrote"
         matched = WriteCellRange().execute(ctx, range=["A1:A2"], values='["x", "y"]')
         filled = WriteCellRange().execute(ctx, range=["A1:A8"], values="=B2+1")
         cleared = WriteCellRange().execute(ctx, range=["A1:A8"], values="")
@@ -1202,7 +1228,7 @@ def test_write_formula_range_accepts_matching_json_and_scalar_fill():
     assert matched["status"] == "ok"
     assert filled["status"] == "ok"
     assert cleared["status"] == "ok"
-    assert manip_cls.return_value.write_formula_range.call_count == 3
+    assert manip_cls.return_value.commit_write.call_count == 3
 
 
 def test_write_formula_range_source_and_values_errors():
@@ -1220,7 +1246,7 @@ def test_write_formula_range_source_and_values_errors():
 
     assert result["status"] == "error"
     assert "do not pass values" in result["message"].lower()
-    manip_cls.return_value.write_formula_range.assert_not_called()
+    manip_cls.return_value.commit_write.assert_not_called()
     manip_cls.return_value.copy_formula_range.assert_not_called()
 
 
@@ -1267,7 +1293,7 @@ def test_write_formula_range_source_only_copies_block_size():
     assert result["cols_copied"] == 3
     assert "3×3" in result["message"]
     assert result2["status"] == "ok"
-    manip_cls.return_value.write_formula_range.assert_not_called()
+    manip_cls.return_value.commit_write.assert_not_called()
     assert manip_cls.return_value.copy_formula_range.call_count == 2
     manip_cls.return_value.copy_formula_range.assert_called_with(
         "Sheet1.A1:C3", "Sample.A1"
@@ -1286,7 +1312,7 @@ def test_write_formula_range_missing_values_without_source_errors():
 
     assert result["status"] == "error"
     assert "values is required" in result["message"]
-    manip_cls.return_value.write_formula_range.assert_not_called()
+    manip_cls.return_value.commit_write.assert_not_called()
     manip_cls.return_value.copy_formula_range.assert_not_called()
 
 
@@ -1333,12 +1359,12 @@ def test_write_formula_range_passes_native_2d_grid_to_manipulator():
         patch("plugin.calc.cells.CellManipulator") as manip_cls,
         patch("plugin.calc.cells.WriterCompoundUndo"),
     ):
-        manip_cls.return_value.write_formula_range.return_value = "wrote"
+        manip_cls.return_value.commit_write.return_value = "wrote"
         result = WriteCellRange().execute(ctx, range=["A1:B2"], values=grid)
 
     assert result["status"] == "ok"
-    manip_cls.return_value.write_formula_range.assert_called_once()
-    assert manip_cls.return_value.write_formula_range.call_args[0][1] == grid
+    manip_cls.return_value.plan_write.assert_called_once()
+    assert manip_cls.return_value.plan_write.call_args[0][1] == grid
 
 
 def test_write_formula_range_passes_bool_cells_in_grid():
@@ -1351,20 +1377,21 @@ def test_write_formula_range_passes_bool_cells_in_grid():
         patch("plugin.calc.cells.CellManipulator") as manip_cls,
         patch("plugin.calc.cells.WriterCompoundUndo"),
     ):
-        manip_cls.return_value.write_formula_range.return_value = "wrote"
+        manip_cls.return_value.commit_write.return_value = "wrote"
         result = WriteCellRange().execute(ctx, range=["A1:B1"], values=grid)
 
     assert result["status"] == "ok"
-    assert manip_cls.return_value.write_formula_range.call_args[0][1] == grid
+    assert manip_cls.return_value.plan_write.call_args[0][1] == grid
 
 
 def test_write_formula_range_rejects_2d_grid_shape_mismatch():
     from plugin.calc.cells import WriteCellRange
+    from plugin.calc.manipulator import CellManipulator
 
     ctx = SimpleNamespace(doc=MagicMock())
     with (
-        patch("plugin.calc.cells.CalcBridge"),
-        patch("plugin.calc.cells.CellManipulator") as manip_cls,
+        patch("plugin.calc.cells.CalcBridge", return_value=_a1_bridge()),
+        patch.object(CellManipulator, "commit_write") as commit,
     ):
         result = WriteCellRange().execute(
             ctx, range=["A1:C2"], values=[["a", "b"], ["c", "d"]]
@@ -1373,61 +1400,56 @@ def test_write_formula_range_rejects_2d_grid_shape_mismatch():
     assert result["status"] == "error"
     assert "2x2" in result["message"]
     assert "2x3" in result["message"]
-    manip_cls.return_value.write_formula_range.assert_not_called()
+    commit.assert_not_called()
 
 
 def test_write_formula_range_rejects_ragged_rows_before_manipulator():
     from plugin.calc.cells import WriteCellRange
+    from plugin.calc.manipulator import CellManipulator
 
     ctx = SimpleNamespace(doc=MagicMock())
     with (
-        patch("plugin.calc.cells.CalcBridge"),
-        patch("plugin.calc.cells.CellManipulator") as manip_cls,
+        patch("plugin.calc.cells.CalcBridge", return_value=_a1_bridge()),
+        patch.object(CellManipulator, "commit_write") as commit,
     ):
         result = WriteCellRange().execute(
             ctx, range=["A1:B2"], values=[["a"], ["b", "c"]]
         )
 
     assert result["status"] == "error"
-    manip_cls.return_value.write_formula_range.assert_not_called()
+    commit.assert_not_called()
 
 
 def test_write_formula_range_rejects_dict_cell_before_manipulator():
     from plugin.calc.cells import WriteCellRange
+    from plugin.calc.manipulator import CellManipulator
 
     ctx = SimpleNamespace(doc=MagicMock())
     with (
-        patch("plugin.calc.cells.CalcBridge"),
-        patch("plugin.calc.cells.CellManipulator") as manip_cls,
+        patch("plugin.calc.cells.CalcBridge", return_value=_a1_bridge()),
+        patch.object(CellManipulator, "commit_write") as commit,
     ):
         result = WriteCellRange().execute(ctx, range=["A1"], values=[{"x": 1}])
 
     assert result["status"] == "error"
     assert "boolean, or null" in result["message"]
-    manip_cls.return_value.write_formula_range.assert_not_called()
+    commit.assert_not_called()
 
 
 def test_write_formula_range_rejects_mixed_grid_rows_before_manipulator():
     from plugin.calc.cells import WriteCellRange
+    from plugin.calc.manipulator import CellManipulator
 
     ctx = SimpleNamespace(doc=MagicMock())
     with (
-        patch("plugin.calc.cells.CalcBridge"),
-        patch("plugin.calc.cells.CellManipulator") as manip_cls,
+        patch("plugin.calc.cells.CalcBridge", return_value=_a1_bridge()),
+        patch.object(CellManipulator, "commit_write") as commit,
     ):
         result = WriteCellRange().execute(ctx, range=["A1"], values=[["a"], "b"])
 
     assert result["status"] == "error"
     assert "boolean, or null" in result["message"]
-    manip_cls.return_value.write_formula_range.assert_not_called()
-
-
-def test_write_values_grid_cell_error_rejects_mixed_rows():
-    from plugin.calc.cells import _write_values_grid_cell_error
-
-    assert _write_values_grid_cell_error([["a"], "b"]) is not None
-    assert _write_values_grid_cell_error([{"x": 1}]) is not None
-    assert _write_values_grid_cell_error([["a", True]]) is None
+    commit.assert_not_called()
 
 
 def test_sort_range_description_teaches_reorder_key_and_direction():
@@ -1634,7 +1656,7 @@ def test_write_cell_range_rejects_top_level_bool():
         res = WriteCellRange().execute(ctx, range=["A1"], values=True)
         assert res["status"] == "error"
         assert "boolean" in res["message"]
-        manipulator_cls.return_value.write_formula_range.assert_not_called()
+        manipulator_cls.return_value.commit_write.assert_not_called()
 
 
 def test_write_cell_range_multi_range_preserves_array_payload():
@@ -1651,8 +1673,7 @@ def test_write_cell_range_multi_range_preserves_array_payload():
     }
     with patch("plugin.calc.cells.CellManipulator") as manipulator_cls:
         manipulator = manipulator_cls.return_value
-        manipulator.prepare_array_formula_if_needed.return_value = None
-        manipulator.write_formula_range.side_effect = [dict_res, "wrote"]
+        manipulator.commit_write.side_effect = [dict_res, "wrote"]
 
         res = WriteCellRange().execute(ctx, range=["A1:A2", "B1:B2"], values="=SEQUENCE(2)")
         assert res["status"] == "ok"
@@ -1698,8 +1719,7 @@ def test_write_cell_range_multi_range_rolls_back_on_error():
         patch("plugin.calc.cells.CellManipulator") as manipulator_cls,
     ):
         manipulator = manipulator_cls.return_value
-        manipulator.prepare_array_formula_if_needed.return_value = None
-        manipulator.write_formula_range.side_effect = ["wrote", CalcError("occupied")]
+        manipulator.commit_write.side_effect = ["wrote", CalcError("occupied")]
 
         res = WriteCellRange().execute(ctx, range=["A1", "B1"], values="1")
         assert res["status"] == "error"
@@ -1865,7 +1885,7 @@ def test_write_formula_range_disposal_propagates():
         patch("plugin.calc.cells.CellManipulator") as manipulator_cls,
     ):
         manipulator = manipulator_cls.return_value
-        manipulator.write_formula_range.side_effect = DisposedException("gone")
+        manipulator.commit_write.side_effect = DisposedException("gone")
 
         tool = WriteCellRange()
         with pytest.raises(DisposedException):
@@ -1906,8 +1926,7 @@ def test_empty_new_group_does_not_undo_older_action():
         patch("plugin.calc.cells.CellManipulator") as manipulator_cls,
     ):
         manipulator = manipulator_cls.return_value
-        manipulator.prepare_array_formula_if_needed.return_value = None
-        manipulator.write_formula_range.side_effect = CalcError("fail")
+        manipulator.commit_write.side_effect = CalcError("fail")
 
         res = WriteCellRange().execute(ctx, range=["A1"], values="1")
         assert res["status"] == "error"
@@ -1942,15 +1961,81 @@ def test_two_range_array_write_measures_once():
         patch("plugin.calc.cells.WriterCompoundUndo"),
     ):
         manipulator = manip_cls.return_value
-        manipulator.prepare_array_formula_if_needed.side_effect = [(2, 2), (2, 2)]
-        manipulator.write_formula_range.return_value = {"message": "ok"}
+        manipulator.plan_write.side_effect = [SimpleNamespace(array_size=(2, 2)), SimpleNamespace(array_size=(2, 2))]
+        manipulator.commit_write.return_value = {"message": "ok"}
 
         res = WriteCellRange().execute(ctx, range=["A1:B2", "C1:D2"], values="=SEQUENCE(2, 2)")
         assert res["status"] == "ok"
-        assert manipulator.prepare_array_formula_if_needed.call_count == 2
-        calls = manipulator.prepare_array_formula_if_needed.call_args_list
+        assert manipulator.plan_write.call_count == 2
+        calls = manipulator.plan_write.call_args_list
         assert calls[0].kwargs.get("premeasured_array_size") is None
         assert calls[1].kwargs.get("premeasured_array_size") == (2, 2)
+
+
+def test_write_formula_range_refuses_named_range_mismatch_before_any_write():
+    from plugin.calc.cells import WriteCellRange
+    from plugin.calc.manipulator import CellManipulator
+
+    ctx = SimpleNamespace(doc=MagicMock())
+    with (
+        patch("plugin.calc.cells.CalcBridge", return_value=_a1_bridge({"Totals": "B1:B3"})),
+        patch("plugin.calc.cells.WriterCompoundUndo") as undo_cls,
+        patch.object(CellManipulator, "commit_write") as commit,
+    ):
+        res = WriteCellRange().execute(ctx, range=["A1:A2", "Totals"], values=["x", "y"])
+
+    assert res["status"] == "error"
+    assert "Array has 2 values but range Totals has 3 cells (3×1)" in res["message"]
+    assert "Nothing was kept" not in res["message"]
+    commit.assert_not_called()
+    undo_cls.assert_not_called()
+
+
+def test_write_formula_range_clear_refuses_unknown_range_before_any_write():
+    from plugin.calc.cells import WriteCellRange
+    from plugin.calc.manipulator import CellManipulator
+
+    ctx = SimpleNamespace(doc=MagicMock())
+    with (
+        patch("plugin.calc.cells.CalcBridge", return_value=_a1_bridge()),
+        patch("plugin.calc.cells.WriterCompoundUndo") as undo_cls,
+        patch.object(CellManipulator, "commit_write") as commit,
+    ):
+        res = WriteCellRange().execute(ctx, range=["A1:A2", "Nope"], values="")
+
+    assert res["status"] == "error"
+    assert "NOPE" in res["message"]
+    assert "Nothing was kept" not in res["message"]
+    commit.assert_not_called()
+    undo_cls.assert_not_called()
+
+
+def test_write_formula_range_comma_prose_to_one_cell_ranges_is_text():
+    from plugin.calc.cells import WriteCellRange
+    from plugin.calc.manipulator import CellManipulator
+
+    ctx = SimpleNamespace(doc=MagicMock())
+    with (
+        patch("plugin.calc.cells.CalcBridge", return_value=_a1_bridge()),
+        patch("plugin.calc.cells.WriterCompoundUndo"),
+        patch.object(CellManipulator, "commit_write", return_value="ok") as commit,
+    ):
+        res = WriteCellRange().execute(ctx, range=["A1", "C1"], values="Hello, world")
+
+    assert res["status"] == "ok"
+    assert commit.call_count == 2
+    assert [c.args[0].values for c in commit.call_args_list] == [["Hello, world"], ["Hello, world"]]
+
+    with (
+        patch("plugin.calc.cells.CalcBridge", return_value=_a1_bridge({"Note": "B2"})),
+        patch("plugin.calc.cells.WriterCompoundUndo"),
+        patch.object(CellManipulator, "commit_write", return_value="ok") as commit_named,
+    ):
+        res_named = WriteCellRange().execute(ctx, range=["Note"], values="Hello, world")
+
+    assert res_named["status"] == "ok"
+    commit_named.assert_called_once()
+    assert commit_named.call_args.args[0].values == ["Hello, world"]
 
 
 def test_delete_structure_schema_start_type_is_integer():

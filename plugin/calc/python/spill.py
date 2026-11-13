@@ -94,38 +94,25 @@ def _cell_is_formula(cell: Any) -> bool:
 
 
 def cleanup_orphans(
-    state: WorkbookState | None,
+    state: WorkbookState,
     sheet: Any,
     *,
-    doc: Any | None = None,
-    ctx: Any | None = None,
-    sheet_name: str = "",
+    doc: Any,
+    sheet_name: str,
 ) -> None:
     """Orphaned-spill cleanup: remap moved formula cells or clear deleted spill cells."""
     try:
         if not main.is_current():
             return
-        if sheet is None:
-            return
 
-        from plugin.calc.python.sheet_modify import owning_calc_doc, sheet_modify_scope
-
-        target_doc = doc or owning_calc_doc(sheet)
-        st = state or (WorkbookState.for_doc(target_doc) if target_doc is not None else None)
-        if st is None:
-            return
-
-        effective_sheet_name = sheet_name or (sheet.getName() if hasattr(sheet, "getName") else "")
-        if not effective_sheet_name:
-            return
-
+        from plugin.calc.python.sheet_modify import sheet_modify_scope
         from plugin.calc.python.cell_discovery import is_py_formula_text
 
         with sheet_modify_scope():
             to_remove: list[tuple[str, int, int]] = []
             to_remap: list[tuple[tuple[str, int, int], tuple[str, int, int], SpillRecord]] = []
-            for (s_name, frow, fcol), record in list(st.spills.items()):
-                if s_name == effective_sheet_name:
+            for (s_name, frow, fcol), record in list(state.spills.items()):
+                if s_name == sheet_name:
                     try:
                         cell = sheet.getCellByPosition(fcol, frow)
                         formula = cell.getFormula()
@@ -140,7 +127,7 @@ def cleanup_orphans(
 
                         remapped = False
                         if record.code:
-                            loc = search_sheet_for_formula(sheet, record.code, doc=target_doc)
+                            loc = search_sheet_for_formula(sheet, record.code, doc=doc)
                             if loc is not None:
                                 _loc_cell, new_row, new_col = loc
                                 d_row = new_row - frow
@@ -155,19 +142,19 @@ def cleanup_orphans(
                                             SpillCell(c.row + d_row, c.col + d_col, c.kind, c.value)
                                             for c in record.cells
                                         ]
-                                        new_key = (effective_sheet_name, new_row, new_col)
-                                        to_remap.append(((effective_sheet_name, frow, fcol), new_key, SpillRecord(code=record.code, cells=new_cells)))
+                                        new_key = (sheet_name, new_row, new_col)
+                                        to_remap.append(((sheet_name, frow, fcol), new_key, SpillRecord(code=record.code, cells=new_cells)))
                                         remapped = True
 
                         if not remapped:
-                            to_remove.append((effective_sheet_name, frow, fcol))
+                            to_remove.append((sheet_name, frow, fcol))
                     except Exception:
-                        log.debug("Failed to inspect formula cell %r", (effective_sheet_name, frow, fcol), exc_info=True)
+                        log.debug("Failed to inspect formula cell %r", (sheet_name, frow, fcol), exc_info=True)
 
             if to_remove or to_remap:
-                with undo_lock(target_doc):
+                with undo_lock(doc):
                     for key in to_remove:
-                        removed_rec = st.spills.pop(key, None)
+                        removed_rec = state.spills.pop(key, None)
                         if removed_rec is not None:
                             frow, fcol = key[1], key[2]
                             for c in removed_rec.cells:
@@ -180,10 +167,9 @@ def cleanup_orphans(
                                     except Exception:
                                         log.debug("cleanup_orphans: failed to clear cell (%d, %d)", c.row, c.col, exc_info=True)
                     for old_k, new_k, new_rec in to_remap:
-                        st.spills.pop(old_k, None)
-                        st.spills[new_k] = new_rec
-                    if target_doc is not None:
-                        save_spill_registry_for_doc(target_doc, st)
+                        state.spills.pop(old_k, None)
+                        state.spills[new_k] = new_rec
+                    save_spill_registry_for_doc(doc, state)
     except Exception:
         log.exception("Error in cleanup_orphans")
 
@@ -259,14 +245,17 @@ def perform_deferred_spill(
     formula_col: int,
     grid: list[list[Any]],
     *,
-    doc: Any | None = None,
-    sheet: Any = None,
-    code: str = "",
-    key: str = "",
+    doc: Any,
+    sheet: Any,
+    code: str,
+    key: str,
 ) -> None:
-    """Clear old spilled cells and write new values deferred (collision check is done synchronously)."""
+    """Clear old spilled cells and write new values deferred (collision check is done synchronously).
+
+    The caller passes the sheet it located, the code it located it by, and ``WorkbookState.key``.
+    """
     try:
-        if not main.is_current() or doc is None:
+        if not main.is_current():
             return
 
         state = WorkbookState.for_doc(doc)
@@ -274,11 +263,7 @@ def perform_deferred_spill(
             return
 
         with undo_lock(doc):
-            scheduled = key
-            if scheduled:
-                if not state.scheduled_key_matches(scheduled):
-                    return
-            elif not state.key:
+            if not state.scheduled_key_matches(key):
                 return
 
             resolved_sheet = sheet
@@ -288,8 +273,6 @@ def perform_deferred_spill(
                     resolved_sheet = named
             except Exception:  # noqa: S110
                 pass
-            if resolved_sheet is None:
-                return
             sheet = resolved_sheet
             live_sheet_name = ""
             try:
@@ -306,14 +289,13 @@ def perform_deferred_spill(
                     log.debug("perform_deferred_spill: rename migration failed", exc_info=True)
                 sheet_name = live_sheet_name
 
-            if code:
-                try:
-                    origin_cell = sheet.getCellByPosition(formula_col, formula_row)
-                    if not is_matching_py_formula(origin_cell.getFormula(), code):
-                        return
-                except Exception:
-                    log.debug("perform_deferred_spill: origin formula check failed", exc_info=True)
+            try:
+                origin_cell = sheet.getCellByPosition(formula_col, formula_row)
+                if not is_matching_py_formula(origin_cell.getFormula(), code):
                     return
+            except Exception:
+                log.debug("perform_deferred_spill: origin formula check failed", exc_info=True)
+                return
 
             reg_key = (sheet_name, formula_row, formula_col)
 
@@ -476,6 +458,7 @@ def selection_is_multi_cell(target_doc: Any) -> bool:
     return (addr.EndColumn - addr.StartColumn > 0) or (addr.EndRow - addr.StartRow > 0)
 
 
+@dataclass(frozen=True, slots=True)
 class PreparedSpill:
     """A located formula origin whose spill fits: prepare_auto_spill returns it on the UI thread and queue_deferred_spill_write writes the neighbors from it. key is the workbook's WorkbookState.key."""
 
@@ -484,25 +467,6 @@ class PreparedSpill:
     formula_col: int
     sheet: Any
     key: str
-
-    def __init__(
-        self,
-        sheet_name: str,
-        formula_row: int,
-        formula_col: int,
-        *,
-        sheet: Any = None,
-        key: str = "",
-    ) -> None:
-        self.sheet_name = sheet_name
-        self.formula_row = formula_row
-        self.formula_col = formula_col
-        self.sheet = sheet
-        self.key = key
-
-    @property
-    def doc_key(self) -> str:
-        return self.key
 
 
 def prepare_auto_spill(ctx: Any, code: str, grid_to_spill: list[list[Any]], target_doc: Any) -> PreparedSpill | str | None:

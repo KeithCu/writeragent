@@ -72,7 +72,7 @@ def insert_image_payload_for_doc(
         # Pass the same document =PY() already read. Omitting doc= wrote the
         # chart to desktop.getCurrentComponent(), so image egress fell back to
         # the front window (MCP document_url, or a second open workbook).
-        insert_image_result_on_sheet(ctx, payload, doc=doc)
+        insert_image_result_on_sheet(payload, doc=doc)
         return
     writer = is_writer(doc)
     if not writer and not is_draw(doc):

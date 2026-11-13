@@ -15,6 +15,7 @@ from plugin.framework.queue_executor import main
 from plugin.framework.stream_batch import DeadlineThread
 from plugin.framework.thread_guard import main_thread_only, unwrap_uno
 from plugin.framework.uno_context import get_runtime_uid
+from plugin.scripting.session_manager import calc_workbook_base_session_id
 
 if TYPE_CHECKING:
     from plugin.calc.python.function import WorkerResultSession
@@ -41,8 +42,7 @@ def _doc_objects(doc: Any) -> list[Any]:
 class Debounce:
     """Per-workbook debounce: one DeadlineThread, many keyed callbacks."""
 
-    def __init__(self, post: Callable[[Callable[[], None]], None] | None = None) -> None:
-        self._post: Callable[[Callable[[], None]], None] = post if post is not None else main.post
+    def __init__(self) -> None:
         self._lock: threading.Lock = threading.Lock()
         self._entries: dict[str, tuple[Callable[[], None], float]] = {}
         self._timer: DeadlineThread | None = None
@@ -72,7 +72,7 @@ class Debounce:
                     del self._entries[k]
             self._arm_timer_locked()
         for fn in due:
-            self._post(fn)
+            main.post(fn)
 
     def schedule(self, key: str, delay: float, fn: Callable[[], None]) -> None:
         """Store *fn* and arm for *delay* seconds from now (reschedules *key*)."""
@@ -92,7 +92,8 @@ class Debounce:
                 self._timer.stop()
                 self._timer = None
 
-    def flush(self, key: str) -> None:
+    def flush_for_tests(self, key: str) -> None:
+        """Tests only: run *key*'s callback now on the calling thread instead of waiting for the timer."""
         with self._lock:
             ent = self._entries.pop(key, None)
             self._arm_timer_locked()
@@ -108,17 +109,10 @@ class Debounce:
             self._entries[new_key] = ent
             self._arm_timer_locked()
 
-    def __contains__(self, key: str) -> bool:
+    def pending_for_tests(self) -> frozenset[str]:
+        """Tests only: keys still waiting for their timer."""
         with self._lock:
-            return key in self._entries
-
-    def __len__(self) -> int:
-        with self._lock:
-            return len(self._entries)
-
-    def keys(self) -> list[str]:
-        with self._lock:
-            return list(self._entries.keys())
+            return frozenset(self._entries)
 
 
 @dataclass
@@ -238,10 +232,9 @@ class WorkbookState:
     def _install_unload_listener(cls, doc: Any, state: WorkbookState) -> None:
         # Lazy import: workbook_lifecycle imports WorkbookState at module level.
         from plugin.calc.python.workbook_lifecycle import ensure_calc_workbook_unload_resets_python
-        from plugin.framework.uno_context import get_ctx
 
         best_effort(
-            lambda: ensure_calc_workbook_unload_resets_python(get_ctx(), doc, state=state),
+            lambda: ensure_calc_workbook_unload_resets_python(doc, state=state),
             "python workbook unload listener install",
         )
 
@@ -275,6 +268,7 @@ class WorkbookState:
                 old_key = state.key
                 state.prior_keys.add(old_key)
                 state.key = uid
+                # Lazy: workbook_lifecycle imports WorkbookState from this module at its top.
                 from plugin.calc.python.workbook_lifecycle import rekey_listener
 
                 rekey_listener(old_key, uid)
@@ -287,9 +281,7 @@ class WorkbookState:
             key = uid
         else:
             # Without RuntimeUID, mint the session id once per document object (not each call).
-            import plugin.calc.python.workbook_lifecycle as _wb_lc
-
-            key = _wb_lc.calc_workbook_base_session_id(doc)
+            key = calc_workbook_base_session_id(doc)
 
         existing = cls.by_key(key)
         if existing is not None:

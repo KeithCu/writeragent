@@ -1559,7 +1559,6 @@ def test_dispatcher_debounce_coalesces_two_modifies(monkeypatch):
     reset_sheet_modify_runtime_for_tests()
     doc = CalcDocStub(url="file:///debounce-geo.ods")
     sheet = doc.getSheets().getByName("Sheet1")
-    monkeypatch.setattr("plugin.calc.python.function.get_calc_doc", lambda _ctx: doc)
     monkeypatch.setattr(
         "plugin.calc.python.geometric_recalc.geometric_flag_enabled", lambda: True
     )
@@ -1567,12 +1566,12 @@ def test_dispatcher_debounce_coalesces_two_modifies(monkeypatch):
     monkeypatch.setattr("plugin.doc.udprops.set_document_property", lambda *_a, **_k: None)
 
     event = SimpleNamespace(Source=sheet)
-    dispatch_sheet_modified("ctx", "file:///debounce-geo.ods", "Sheet1", event)
-    dispatch_sheet_modified("ctx", "file:///debounce-geo.ods", "Sheet1", event)
+    dispatch_sheet_modified("ctx", "Sheet1", event, doc)
+    dispatch_sheet_modified("ctx", "Sheet1", event, doc)
     state = WorkbookState.for_doc(doc)
     assert state is not None
-    assert "sheet:Sheet1" in state.debounce
-    assert len(state.debounce) == 1
+    assert "sheet:Sheet1" in state.debounce.pending_for_tests()
+    assert len(state.debounce.pending_for_tests()) == 1
 
 
 def test_dispatcher_flag_off_does_not_rewrite(monkeypatch):
@@ -1591,7 +1590,6 @@ def test_dispatcher_flag_off_does_not_rewrite(monkeypatch):
     monkeypatch.setattr(
         "plugin.calc.python.geometric_recalc.geometric_flag_enabled", lambda: False
     )
-    monkeypatch.setattr("plugin.calc.python.function.get_calc_doc", lambda _ctx: doc)
     flush_sheet_modify_pass_for_tests("ctx", doc, sheet)
     assert sheet.getCellByPosition(0, 1).getFormula() == '=PY("second")'
 
@@ -1616,7 +1614,6 @@ def test_dispatcher_insert_retargets_successor(monkeypatch):
     )
     monkeypatch.setattr("plugin.doc.udprops.get_document_property", lambda *_a, **_k: None)
     monkeypatch.setattr("plugin.doc.udprops.set_document_property", lambda *_a, **_k: None)
-    monkeypatch.setattr("plugin.calc.python.function.get_calc_doc", lambda _ctx: doc)
     flush_sheet_modify_pass_for_tests("ctx", doc, sheet)
     third = sheet.getCellByPosition(0, 2).getFormula()
     args = formula_data_args(third)
@@ -1652,7 +1649,6 @@ def test_dispatcher_delete_first_removes_field(monkeypatch):
     )
     monkeypatch.setattr("plugin.doc.udprops.get_document_property", lambda *_a, **_k: None)
     monkeypatch.setattr("plugin.doc.udprops.set_document_property", lambda *_a, **_k: None)
-    monkeypatch.setattr("plugin.calc.python.function.get_calc_doc", lambda _ctx: doc)
     flush_sheet_modify_pass_for_tests("ctx", doc, sheet)
     assert formula_data_args(sheet.getCellByPosition(0, 1).getFormula())
 
@@ -1677,15 +1673,14 @@ def test_dispatcher_reentrancy_skips_nested_schedule(monkeypatch):
     reset_sheet_modify_runtime_for_tests()
     doc = CalcDocStub(url="file:///reenter-mod.ods")
     sheet = doc.getSheets().getByName("Sheet1")
-    monkeypatch.setattr("plugin.calc.python.function.get_calc_doc", lambda _ctx: doc)
     geo._RUNTIME.repairing = True
     try:
         dispatch_sheet_modified(
-            "ctx", "file:///reenter-mod.ods", "Sheet1", SimpleNamespace(Source=sheet)
+            "ctx", "Sheet1", SimpleNamespace(Source=sheet), doc
         )
         state = WorkbookState.for_doc(doc)
         assert state is not None
-        assert "sheet:Sheet1" not in state.debounce
+        assert "sheet:Sheet1" not in state.debounce.pending_for_tests()
     finally:
         geo._RUNTIME.repairing = False
 
@@ -1713,7 +1708,6 @@ def test_data_edit_rebuilds_strip_safe_index(monkeypatch):
     )
     monkeypatch.setattr("plugin.doc.udprops.get_document_property", lambda *_a, **_k: None)
     monkeypatch.setattr("plugin.doc.udprops.set_document_property", lambda *_a, **_k: None)
-    monkeypatch.setattr("plugin.calc.python.function.get_calc_doc", lambda _ctx: doc)
     flush_sheet_modify_pass_for_tests("ctx", doc, sheet)
     wk = geometric_workbook_key(doc)
     assert _key("np.mean(data)", 2, wk) in _RUNTIME.strip_safe

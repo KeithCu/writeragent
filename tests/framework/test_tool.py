@@ -871,7 +871,7 @@ class TestChartToolsSpecializedTier:
             res = tool.execute(ctx)
         assert res["status"] == "ok"
         assert res["count"] == 0
-        mock_list.assert_called_once_with(tool, ctx)
+        mock_list.assert_called_once_with(ctx)
 
 
 class TestLibrarianToolVisibility:

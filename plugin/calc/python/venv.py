@@ -149,7 +149,7 @@ def insert_plots_and_report(ctx: ToolContext, images: list[dict[str, Any]], res:
             # Pass ctx.doc: without doc= egress uses getCurrentComponent (the front
             # window). Report inserted only after the main-thread call returns; a
             # silent return is not success.
-            main.call(insert_image_result_on_sheet, ctx.ctx, img, doc=ctx.doc, image_index=i, image_path=path, image_count=len(images))
+            main.call(insert_image_result_on_sheet, img, doc=ctx.doc, image_index=i, image_path=path, image_count=len(images))
         except Exception as exc:
             log.warning("run_venv_python_script: plot insert failed: %s", exc)
             failures.append(exc)

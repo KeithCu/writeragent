@@ -18,7 +18,7 @@ WriterAgent / LibrePy is running in production as a desktop extension for LibreO
    images = find_image_payloads(result)
    if images:
        for i, img in enumerate(images):
-           insert_image_result_on_sheet(ctx, img, code=code, doc=target_doc, image_index=i, image_count=len(images), notify_cell=True)
+           insert_image_result_on_sheet(img, code=code, doc=target_doc, image_index=i, image_count=len(images), notify_cell=True)
        return _("Image inserted") if len(images) == 1 else _("Images inserted")
    ```
    When a smaller plot count is returned on recalc, higher plot slots on the cell are removed.
