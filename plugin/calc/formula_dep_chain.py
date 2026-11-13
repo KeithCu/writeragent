@@ -11,7 +11,7 @@ from itertools import islice
 from typing import Any
 
 from plugin.calc.address_utils import format_address, qualify_a1, split_sheet_prefix
-from plugin.calc.calc_utils import cell_value_and_type, query_interface, resolve_sheet_and_cell as _resolve_sheet_and_cell
+from plugin.calc.calc_utils import cell_value_and_type, query_interface, resolve_sheet_and_cell
 from plugin.framework.errors import best_effort
 from plugin.framework.json_utils import safe_json_loads
 
@@ -99,7 +99,7 @@ def _precedents_via_formula_query(sheet: Any, col: int, row: int, doc: Any) -> d
 
 def fetch_formula_dep_chain(doc: Any, ctx: Any, address: str) -> dict[str, Any] | None:
     """Return dependency JSON for *address* using LO command values or ``XFormulaQuery``."""
-    resolved = _resolve_sheet_and_cell(doc, address)
+    resolved = resolve_sheet_and_cell(doc, address)
     if resolved is None:
         return None
     sheet, col, row = resolved

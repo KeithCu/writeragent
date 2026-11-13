@@ -29,7 +29,8 @@ from plugin.calc.address_utils import (
     split_sheet_prefix,
 )
 from plugin.calc.base import ToolCalcRangeBase
-from plugin.calc.bridge import CalcBridge, NamedRangeHit, find_named_range, is_agent_visible_sheet
+from plugin.calc.bridge import CalcBridge, NamedRangeHit, is_agent_visible_sheet
+from plugin.calc.calc_utils import range_args
 from plugin.framework.errors import UnoObjectError, name_miss_details, uno_read
 
 from com.sun.star.lang import IllegalArgumentException
@@ -169,7 +170,7 @@ def _resolve_named_range_target(
             )
         return NamedRangeHit(container, effective_scope, sheet_obj, container.getByName(name))
 
-    found = find_named_range(doc, name)
+    found = CalcBridge(doc).find_named_range(name)
     if found is None:
         listed: list[str] = []
         try:
@@ -494,7 +495,7 @@ class NamedRangeCreateFromTitles(ToolCalcRangeBase):
     parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
-            "range": {"type": "array", "items": {"type": "string"}, "description": 'The table cell range containing both headers and data (e.g. ["A1:D20"] or ["Sheet1.A1:D20"]).'},
+            "range": {"type": "array", "items": {"type": "string"}, "description": 'The table cell range or named range containing both headers and data (e.g. ["A1:D20"], ["Sheet1.A1:D20"], or ["Table"]).'},
             "border": {"type": "string", "description": "Which edge contains the title labels: 'top' (default), 'bottom', 'left', or 'right'.", "enum": ["top", "bottom", "left", "right"]},
             "scope": {"type": "string", "description": "Container scope for creating the names: 'global' (default) or specific sheet name."},
         },
@@ -504,10 +505,10 @@ class NamedRangeCreateFromTitles(ToolCalcRangeBase):
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         bridge = CalcBridge(ctx.doc)
-        range_arr = kwargs["range"]
-        if not range_arr:
-            return self._tool_error("range is required", code="INVALID_ARGUMENT")
-        range_str = range_arr[0].strip()
+        try:
+            range_str = range_args(kwargs.get("range"), exactly_one=True)[0]
+        except UnoObjectError as exc:
+            return self._tool_error(str(exc), code="INVALID_ARGUMENT")
         border_present = kwargs.get("border", "top")
         border_str = "top" if border_present is None or not str(border_present).strip() else border_present
         border_clean = str(border_str).strip().upper()
@@ -521,11 +522,10 @@ class NamedRangeCreateFromTitles(ToolCalcRangeBase):
             return self._tool_error(f"Invalid border '{border_str}'. Supported borders: 'top', 'bottom', 'left', 'right'.", code="INVALID_BORDER")
 
         try:
-            sheet, address = bridge.resolve(range_str)
-            cell_range = bridge.get_cell_range(sheet, address)
+            cell_range = bridge.resolve_range_or_address(range_str)
             range_addr = cell_range.getRangeAddress()
 
-            container, effective_scope, _ = _resolve_container(ctx.doc, scope)
+            container, effective_scope, _unused_sheet = _resolve_container(ctx.doc, scope)
             container.addNewFromTitles(range_addr, border_map[border_clean])
 
             log.info("Named ranges created from titles: [%s] range=%s border=%s", effective_scope, range_str, border_clean)

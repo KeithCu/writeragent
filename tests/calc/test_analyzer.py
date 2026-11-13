@@ -10,7 +10,7 @@ from plugin.framework.errors import DocumentDisposedError, ToolExecutionError
 
 def test_get_sheet_summary_used_range_letters():
     bridge = MagicMock()
-    sheet = bridge.get_active_sheet.return_value
+    sheet = bridge.sheet_or_active.return_value
     sheet.getName.return_value = "Sheet1"
     addr = MagicMock(StartColumn=0, StartRow=0, EndColumn=1, EndRow=2)
     sheet.createCursor.return_value.getRangeAddress.return_value = addr
@@ -31,14 +31,14 @@ def test_get_sheet_summary_reraises_disposed():
         pass
 
     bridge = MagicMock()
-    bridge.get_active_sheet.side_effect = DisposedException("Binary URP bridge disposed during call")
+    bridge.sheet_or_active.side_effect = DisposedException("Binary URP bridge disposed during call")
     with pytest.raises(DisposedException, match="URP"):
         SheetAnalyzer(bridge).get_sheet_summary()
 
 
 def test_get_sheet_summary_wraps_other_errors():
     bridge = MagicMock()
-    bridge.get_active_sheet.side_effect = ValueError("bad sheet")
+    bridge.sheet_or_active.side_effect = ValueError("bad sheet")
     with pytest.raises(ToolExecutionError, match="bad sheet"):
         SheetAnalyzer(bridge).get_sheet_summary()
 
@@ -136,7 +136,7 @@ def test_header_text_normalization():
 
 def test_get_sheet_summary_header_normalization():
     bridge = MagicMock()
-    sheet = bridge.get_active_sheet.return_value
+    sheet = bridge.sheet_or_active.return_value
     sheet.getName.return_value = "Sheet1"
     addr = MagicMock(StartColumn=0, StartRow=0, EndColumn=4, EndRow=1)
     sheet.createCursor.return_value.getRangeAddress.return_value = addr
@@ -163,7 +163,7 @@ def test_get_sheet_summary_header_normalization():
 
 def test_get_sheet_summary_header_uses_display_string_for_formatted_dates():
     bridge = MagicMock()
-    sheet = bridge.get_active_sheet.return_value
+    sheet = bridge.sheet_or_active.return_value
     sheet.getName.return_value = "Sheet1"
     addr = MagicMock(StartColumn=0, StartRow=0, EndColumn=2, EndRow=1)
     sheet.createCursor.return_value.getRangeAddress.return_value = addr
@@ -433,7 +433,7 @@ def test_get_sheet_summary_disposed_on_optional_metric_raises(failing_attr):
         pass
 
     bridge = MagicMock()
-    sheet = bridge.get_active_sheet.return_value
+    sheet = bridge.sheet_or_active.return_value
     sheet.getName.return_value = "Sheet1"
     addr = MagicMock(StartColumn=0, StartRow=0, EndColumn=1, EndRow=2)
     sheet.createCursor.return_value.getRangeAddress.return_value = addr
@@ -462,7 +462,7 @@ def test_get_sheet_summary_disposed_on_optional_metric_raises(failing_attr):
 @pytest.mark.parametrize("failing_attr", ["getCharts", "getAnnotations", "getPropertyValue", "DrawPage"])
 def test_get_sheet_summary_value_error_on_optional_metric_uses_defaults(failing_attr):
     bridge = MagicMock()
-    sheet = bridge.get_active_sheet.return_value
+    sheet = bridge.sheet_or_active.return_value
     sheet.getName.return_value = "Sheet1"
     addr = MagicMock(StartColumn=0, StartRow=0, EndColumn=1, EndRow=2)
     sheet.createCursor.return_value.getRangeAddress.return_value = addr
@@ -498,7 +498,7 @@ def test_get_sheet_summary_value_error_on_optional_metric_uses_defaults(failing_
 
 def test_get_sheet_summary_include_extras_false_skips_optional_metrics():
     bridge = MagicMock()
-    sheet = bridge.get_active_sheet.return_value
+    sheet = bridge.sheet_or_active.return_value
     sheet.getName.return_value = "Sheet1"
     addr = MagicMock(StartColumn=0, StartRow=0, EndColumn=1, EndRow=2)
     sheet.createCursor.return_value.getRangeAddress.return_value = addr
