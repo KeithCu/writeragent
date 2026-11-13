@@ -682,6 +682,8 @@ class TestGrammarPersistence:
         orig_load = gp.DocumentPersistence._load_from_udprops
 
         def _slow_load(self_dp: Any) -> None:
+            # Only one thread loads; the other blocks on _load_done, so this barrier never fills;
+            # the timeout is the hold that keeps the race window open.
             try:
                 barrier.wait(timeout=0.2)
             except threading.BrokenBarrierError:

@@ -1163,6 +1163,7 @@ def test_harper_try_lint_waits_for_lint_lock_and_pumps() -> None:
 def test_harper_lock_wait_times_out_without_holding_lock(ensure_jobs: list[str]) -> None:
     harper_module.runtime.lock.acquire()
     try:
+        # Pytest counts as the main thread, so _DIALOG_LINT_BUDGET_SEC applies.
         with patch("plugin.writer.locale.harper._LINT_BUDGET_SEC", 0.05), \
              patch("plugin.writer.locale.harper._DIALOG_LINT_BUDGET_SEC", 0.05):
             assert harper_try_lint("Hello.", "/tmp", ctx=object()) is None

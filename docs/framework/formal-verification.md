@@ -484,7 +484,7 @@ Maintain a `verification_status.json` file tracking which components have been v
 8. **`plugin/framework/json_utils.py`** — `safe_json_loads` FQN ([`tests/framework/test_json_utils_verification.py`](../../tests/framework/test_json_utils_verification.py))
 9. **`plugin/framework/errors.py`** — `format_error_payload` and `format_error_message` ([`tests/framework/test_error_payload_verification.py`](../../tests/framework/test_error_payload_verification.py))
 10. **`plugin/scripting/sandbox.py`** — `scrub_subprocess_env`, `wrap_command_for_sandbox`, `is_safe_workspace_path` ([`tests/scripting/test_sandbox_path_verification.py`](../../tests/scripting/test_sandbox_path_verification.py))
-11. **`plugin/framework/i18n.py`** — `_` translation and `get_active_locale` ([`tests/framework/test_i18n.py`](../../tests/framework/test_i18n.py))
+11. **`plugin/framework/i18n.py`** — `_` translation ([`tests/framework/test_i18n.py`](../../tests/framework/test_i18n.py))
 12. **`plugin/chatbot/memory.py`** — `upsert_memory_arguments_dict`, `format_upsert_memory_chat_line` ([`tests/chatbot/test_memory.py`](../../tests/chatbot/test_memory.py))
 13. **`plugin/framework/openrouter_model_id.py`** — `_split_suffix`, `resolve_openrouter_catalog_id`, `openrouter_model_ids_equivalent` ([`tests/framework/test_framework_modules_verification.py`](../../tests/framework/test_framework_modules_verification.py))
 14. **`plugin/framework/ast_stmt_edit.py`** — `is_name_call_expr`, `remove_statements` ([`tests/framework/test_ast_stmt_edit.py`](../../tests/framework/test_ast_stmt_edit.py))
