@@ -36,40 +36,64 @@ except ImportError:
 
 log = logging.getLogger(__name__)
 
-# Cap per call, matching the other large-result caps.
+# Cap per range (one detect_and_explain call), matching the other large-result caps.
 _MAX_EXPLAINED_ERRORS = 50
 
-# LibreOffice Calc error types and descriptions
-ERROR_TYPES = {
-    501: {"code": "#NULL!", "name": "Invalid character", "description": "An invalid character was found in the formula."},
-    502: {"code": "#NULL!", "name": "Invalid argument", "description": "The function argument is invalid."},
-    503: {"code": "#NUM!", "name": "#NUM!", "description": "A calculation resulted in a number overflow or invalid float."},
-    504: {"code": "#NAME?", "name": "Error in parameter list", "description": "An unrecognised function or area name was used. Make sure the function name is spelled correctly."},
-    507: {"code": "#NULL!", "name": "Missing parenthesis", "description": "There is an unclosed parenthesis in the formula."},
-    508: {"code": "#NULL!", "name": "Error: Pair missing", "description": "An extra or missing parenthesis was found in the formula."},
-    509: {"code": "#NULL!", "name": "Missing operator", "description": "A required operator is missing in the formula."},
-    510: {"code": "#NULL!", "name": "Missing variable", "description": "A required variable is missing in the formula."},
-    511: {"code": "#NULL!", "name": "Missing variable", "description": "A required variable is missing in the formula."},
-    512: {"code": "#NULL!", "name": "Formula overflow", "description": "Formula or internal token count exceeds the maximum limit."},
-    513: {"code": "#NULL!", "name": "String overflow", "description": "A string identifier or token in the formula exceeds size limit."},
-    514: {"code": "#NULL!", "name": "Internal overflow", "description": "An internal interpreter overflow occurred."},
-    516: {"code": "#NULL!", "name": "Internal syntax error", "description": "A syntax error was detected in the calculation engine."},
-    517: {"code": "#NULL!", "name": "Internal syntax error", "description": "A syntax error was detected in the calculation engine."},
-    518: {"code": "#NULL!", "name": "Internal syntax error", "description": "A syntax error was detected in the calculation engine."},
-    519: {"code": "#VALUE!", "name": "#VALUE!", "description": "A value in the formula is not of the expected type. Text may have been used instead of a number or vice versa."},
-    520: {"code": "#NULL!", "name": "Internal syntax error", "description": "A syntax error was detected in the calculation engine."},
-    521: {"code": "#NULL!", "name": "Internal error", "description": "An internal calculation error occurred."},
-    522: {"code": "#REF!", "name": "Circular reference", "description": "The formula refers to itself directly or indirectly."},
-    523: {"code": "#NUM!", "name": "The calculation process does not converge", "description": "The calculation process does not converge."},
-    524: {"code": "#REF!", "name": "#REF!", "description": "A cell reference in the formula is invalid. It may be a deleted cell or sheet reference."},
-    525: {"code": "#NAME?", "name": "#NAME?", "description": "An invalid name or undefined identifier was used."},
-    526: {"code": "#NULL!", "name": "Internal syntax error", "description": "A syntax error was detected in the calculation engine."},
-    527: {"code": "#NULL!", "name": "Internal overflow", "description": "An internal interpreter overflow occurred."},
-    532: {"code": "#DIV/0!", "name": "#DIV/0!", "description": "An attempt was made to divide a number by zero. Check the value of the divisor cell."},
-    533: {"code": "#NULL!", "name": "Nested arrays are not supported", "description": "The intersection of two ranges is empty or nested arrays are unsupported."},
-    538: {"code": "#VALUE!", "name": "Error: Array or matrix size", "description": "Array or matrix dimensions do not match."},
-    539: {"code": "#VALUE!", "name": "Unsupported inline array content", "description": "Unsupported inline array content in formula."},
-    32767: {"code": "#N/A", "name": "#N/A", "description": "The value is not available. A lookup or reference did not find a match."},
+# LibreOffice Calc error types and descriptions.
+# `code` is what the cell shows, matching ScGlobal::GetErrorString (sc/source/core/data/global.cxx):
+# `Err:NNN` unless Calc has a `#` form; numeric codes come from include/formula/errorcodes.hxx.
+ERROR_TYPES: dict[int, dict[str, str]] = {
+    501: {"code": "Err:501", "name": "Invalid character", "description": "An invalid character was found in the formula."},
+    502: {"code": "Err:502", "name": "Invalid argument", "description": "The function argument is invalid."},
+    503: {"code": "#NUM!", "name": "Invalid numeric value", "description": "A calculation resulted in a number overflow or invalid float."},
+    504: {"code": "Err:504", "name": "Error in parameter list", "description": "A function parameter is not valid, for example text where a number is expected, or a range where a single cell is expected."},
+    507: {"code": "Err:507", "name": "Missing parenthesis", "description": "There is an unclosed parenthesis in the formula."},
+    508: {"code": "Err:508", "name": "Pair missing bracket", "description": "An extra or missing parenthesis was found in the formula."},
+    509: {"code": "Err:509", "name": "Operator missing", "description": "A required operator is missing in the formula."},
+    510: {"code": "Err:510", "name": "Variable missing", "description": "A required variable is missing in the formula."},
+    511: {"code": "Err:511", "name": "Parameter missing", "description": "A function was given fewer parameters than it needs, for example AND() with no arguments."},
+    512: {"code": "Err:512", "name": "Formula overflow", "description": "Formula or internal token count exceeds the maximum limit."},
+    513: {"code": "Err:513", "name": "String overflow", "description": "A string identifier or token in the formula exceeds size limit."},
+    514: {"code": "Err:514", "name": "Internal overflow", "description": "An internal interpreter overflow occurred."},
+    516: {"code": "Err:516", "name": "Internal syntax error", "description": "A syntax error was detected in the calculation engine."},
+    517: {"code": "Err:517", "name": "Internal syntax error", "description": "A syntax error was detected in the calculation engine."},
+    518: {"code": "Err:518", "name": "Internal syntax error", "description": "A syntax error was detected in the calculation engine."},
+    519: {"code": "#VALUE!", "name": "Wrong data type", "description": "A value in the formula is not of the expected type. Text may have been used instead of a number or vice versa."},
+    520: {"code": "Err:520", "name": "Internal syntax error", "description": "A syntax error was detected in the calculation engine."},
+    521: {"code": "#NULL!", "name": "Empty intersection", "description": "The ranges joined by the intersection operator (!) do not overlap."},
+    522: {
+        "code": "Err:522",
+        "name": "Circular reference",
+        "description": "The formula refers to itself directly or indirectly.",
+        "suggestion": "Circular reference: the formula refers to itself directly or indirectly. Break the circular chain or enable iterative calculation.",
+    },
+    523: {"code": "Err:523", "name": "The calculation process does not converge", "description": "The calculation process does not converge."},
+    524: {
+        "code": "#REF!",
+        "name": "Invalid reference",
+        "description": "A cell reference in the formula is invalid. It may be a deleted cell or sheet reference.",
+        "suggestion": "#REF! error: Invalid cell reference. The reference may be broken due to a deleted cell, row, or column. Check the formula and update the references.",
+    },
+    525: {
+        "code": "#NAME?",
+        "name": "Invalid name",
+        "description": "An invalid name or undefined identifier was used.",
+        "suggestion": "Unrecognised name error. Make sure the function name in the formula is spelled correctly and that any defined names exist.",
+    },
+    526: {"code": "Err:526", "name": "Internal syntax error", "description": "A syntax error was detected in the calculation engine."},
+    527: {"code": "Err:527", "name": "Internal overflow", "description": "An internal interpreter overflow occurred."},
+    530: {"code": "#ADDIN?", "name": "Add-in not found", "description": "The formula calls an add-in function that is not installed."},
+    531: {"code": "#MACRO?", "name": "Macro not found", "description": "The formula calls a macro function that was not found."},
+    532: {"code": "#DIV/0!", "name": "Division by zero", "description": "An attempt was made to divide a number by zero. Check the value of the divisor cell."},
+    533: {"code": "Err:533", "name": "Nested arrays are not supported", "description": "Nested arrays are not supported."},
+    538: {"code": "Err:538", "name": "Array or matrix size", "description": "Array or matrix dimensions do not match."},
+    539: {"code": "Err:539", "name": "Unsupported inline array content", "description": "Unsupported inline array content in formula."},
+    32767: {
+        "code": "#N/A",
+        "name": "Value not available",
+        "description": "The value is not available. A lookup or reference did not find a match.",
+        "suggestion": "#N/A: a lookup or reference did not find a match. Check the search value or add a default with IFERROR.",
+    },
 }
 
 # One case-insensitive map: keys are uppercased tokens; values keep canonical spelling (#ERROR!, Err:502, …).
@@ -78,12 +102,10 @@ _ERROR_PATTERN_BY_UPPER = {token.upper(): token for token in (
     "Err:502", "Err:504", "Err:519", "Err:522", "Err:524", "Err:525", "Err:532",
 )}
 
-_STATIC_ERROR_SUGGESTIONS: dict[Any, str] = {
-    524: "#REF! error: Invalid cell reference. The reference may be broken due to a deleted cell, row, or column. Check the formula and update the references.",
-    522: "Circular reference: the formula refers to itself directly or indirectly. Break the circular chain or enable iterative calculation.",
-    525: "Unrecognised name error. Make sure the function name in the formula is spelled correctly and that any defined names exist.",
-    32767: "#N/A: a lookup or reference did not find a match. Check the search value or add a default with IFERROR.",
-}
+
+def truncation_hint(shown: int, total: int) -> str:
+    """Hint text when ``error_detect`` caps explained errors."""
+    return "First %d of %d. Pass a range that starts after the last address in errors." % (shown, total)
 
 
 def is_calc_error_display(value: object) -> str | None:
@@ -125,7 +147,9 @@ class ErrorDetector:
         if error_code == 0:
             return {}
         if error_code in ERROR_TYPES:
-            return {**ERROR_TYPES[error_code], "error_code": error_code}
+            row = ERROR_TYPES[error_code]
+            # Static suggestion goes in explain_error's top-level `suggestion`, not in the error dict.
+            return {"code": row["code"], "name": row["name"], "description": row["description"], "error_code": error_code}
         return {"error_code": error_code, "code": f"Err:{error_code}", "name": "Unknown error", "description": f"Unknown error code: {error_code}"}
 
     def detect_errors(self, range_str: str | None = None) -> list[dict[str, Any]]:
@@ -246,16 +270,7 @@ class ErrorDetector:
             "total_error_count": len(errors),
             "error_count": len(detailed),
             "truncated": truncated,
-            **(
-                {
-                    "hint": (
-                        "First %d of %d. Pass a range that starts after the last address in errors."
-                        % (_MAX_EXPLAINED_ERRORS, len(errors))
-                    )
-                }
-                if truncated
-                else {}
-            ),
+            **({"hint": truncation_hint(len(detailed), len(errors))} if truncated else {}),
             "errors": detailed,
         }
 
@@ -263,12 +278,14 @@ class ErrorDetector:
     def _generate_suggestion(error_info: dict[str, Any], precedents: list[dict[str, Any]]) -> str:
         """Generate a fix suggestion based on error type and precedent cells."""
         error_code = error_info.get("error_code")
-        static = _STATIC_ERROR_SUGGESTIONS.get(error_code)
+        static = ERROR_TYPES.get(error_code, {}).get("suggestion") if isinstance(error_code, int) else None
         if static is not None:
             return static
 
         if error_code == 532:
-            zero_cells = [p["address"] for p in precedents if p.get("value") == 0 or p.get("value") is None]
+            # Under the read contract, an error-formula precedent has value None with type "formula";
+            # only a zero value or an empty cell is a zero divisor.
+            zero_cells = [p["address"] for p in precedents if p.get("value") == 0 or p.get("type") == "empty"]
             if zero_cells:
                 return f"Division by zero error. The following cells are zero or empty: {', '.join(zero_cells)}. Try adding a zero check with the IF function: =IF(divisor<>0; dividend/divisor; 0)"
             return "Division by zero error. Make sure the divisor value is not zero or add a check with the IF function."

@@ -650,3 +650,27 @@ def test_calc_preset_stop_empty_notifies_sidebar():
     assert sidebar_lines
     assert "no text" in sidebar_lines[0].lower()
     assert sheet.getCellByPosition(0, 0).getString() == "hello wrld"
+
+
+def test_calc_slash_selection_outside_used_area_notifies_sidebar():
+    from plugin.calc.editselection import do_calc_extend_edit
+
+    model, sheet = _model_for_data((("x",),))
+    model.CurrentController.Selection = sheet.getCellRangeByPosition(5, 5, 5, 5)
+    sidebar_lines: list[str] = []
+
+    with patch("plugin.calc.editselection.get_config", side_effect=_config), \
+         patch("plugin.calc.editselection.msgbox") as msgbox, \
+         patch("plugin.calc.editselection.stream_completion_tasks") as run:
+        do_calc_extend_edit(
+            MagicMock(),
+            model,
+            is_edit=True,
+            preset_instruction="proofread",
+            sidebar_notify=sidebar_lines.append,
+            allow_whole_document=False,
+        )
+
+    assert sidebar_lines == ["Select one or more non-empty cells."]
+    msgbox.assert_not_called()
+    run.assert_not_called()

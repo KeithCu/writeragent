@@ -18,6 +18,7 @@ from plugin.calc.error_detector import (
     ErrorDetector,
     _ERROR_PATTERN_BY_UPPER,
     is_calc_error_display,
+    truncation_hint,
 )
 
 
@@ -37,6 +38,8 @@ def test_error_detector_data():
     for code, info in ERROR_TYPES.items():
         assert "name" in info
         assert "description" in info
+        assert info["code"].startswith("#") or info["code"] == f"Err:{code}"
+    assert ERROR_TYPES[510]["name"] != ERROR_TYPES[511]["name"]
 
 
 def test_get_error_type():
@@ -47,6 +50,7 @@ def test_get_error_type():
     cell.getError.return_value = 502
     res = ErrorDetector.get_error_type(cell)
     assert res["name"] == "Invalid argument"
+    assert res["code"] == "Err:502"
 
     cell.getError.return_value = 8888
     res = ErrorDetector.get_error_type(cell)
@@ -60,18 +64,35 @@ def test_get_error_type():
     cell.getError.return_value = 522
     res = ErrorDetector.get_error_type(cell)
     assert res["error_code"] == 522
+    assert res["code"] == "Err:522"
+    assert "suggestion" not in res
+
+    cell.getError.return_value = 530
+    res = ErrorDetector.get_error_type(cell)
+    assert res["code"] == "#ADDIN?"
 
 
 def test_generate_suggestion():
-    assert "circular" in ErrorDetector._generate_suggestion({"error_code": 522, "code": "#REF!", "description": ""}, []).lower()
-    assert "spelled" not in ErrorDetector._generate_suggestion({"error_code": 504, "code": "#NAME?", "description": "The function argument is invalid."}, [])
+    assert "circular" in ErrorDetector._generate_suggestion({"error_code": 522, "code": "Err:522", "description": ""}, []).lower()
+    assert "spelled" not in ErrorDetector._generate_suggestion({"error_code": 504, "code": "Err:504", "description": "The function argument is invalid."}, [])
     assert "#REF!" in ErrorDetector._generate_suggestion({"error_code": 524, "code": "#REF!", "description": ""}, [])
 
     sugg_532 = ErrorDetector._generate_suggestion({"error_code": 532, "code": "#DIV/0!", "description": ""}, [{"address": "B1", "value": 0}])
     assert "B1" in sugg_532
 
+    sugg_532_err_prec = ErrorDetector._generate_suggestion(
+        {"error_code": 532, "code": "#DIV/0!", "description": ""},
+        [{"address": "B2", "value": None, "type": "formula"}, {"address": "B3", "value": None, "type": "empty"}],
+    )
+    assert "B2" not in sugg_532_err_prec
+    assert "B3" in sugg_532_err_prec
+
     sugg_519 = ErrorDetector._generate_suggestion({"error_code": 519, "code": "#VALUE!", "description": ""}, [{"address": "C1", "type": "text"}])
     assert "C1" in sugg_519
+
+
+def test_truncation_hint():
+    assert truncation_hint(2, 5).startswith("First 2 of 5.")
 
 
 def test_explain_error_precedent_probe_fallback():

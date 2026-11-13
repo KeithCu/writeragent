@@ -86,6 +86,8 @@ def test_inspector_single_cell_range_fallback():
     mock_cell.getType.return_value = 1  # VALUE
     mock_cell.getValue.return_value = 42.0
     mock_cell.getFormula.return_value = "=42"
+    mock_cell.getDataArray.return_value = ((42.0,),)
+    mock_cell.getFormulaArray.return_value = (("42",),)
 
     mock_range.getCellByPosition.return_value = mock_cell
     bridge.resolve_range_or_address.return_value = mock_range
@@ -109,6 +111,8 @@ def test_inspector_formula_string_zero_stays_string():
     mock_cell.getString.return_value = "0"
     mock_cell.getValue.return_value = 0.0
     mock_cell.getFormula.return_value = '="0"'
+    mock_cell.getDataArray.return_value = (("0",),)
+    mock_cell.getFormulaArray.return_value = (('="0"',),)
 
     bridge.resolve_range_or_address.return_value = mock_cell
 
@@ -186,7 +190,17 @@ def test_inspector_read_range_refuses_over_cap_before_get_data_array():
     cell_range.getFormulaArray.assert_not_called()
 
 
-def _make_range_bridge(*, data_array, formula_array, date_addresses=(), format_groups=None, null_date=None, format_type=2, format_key=10):
+def _make_range_bridge(
+    *,
+    data_array,
+    formula_array,
+    date_addresses=(),
+    formula_addresses=(),
+    format_groups=None,
+    null_date=None,
+    format_type=2,
+    format_key=10,
+):
     """Build a mocked bridge/range for include_format_info reads."""
     rows = len(data_array)
     cols = len(data_array[0]) if rows else 0
@@ -195,7 +209,18 @@ def _make_range_bridge(*, data_array, formula_array, date_addresses=(), format_g
     cell_range.getRangeAddress.return_value = addr
     cell_range.getDataArray.return_value = data_array
     cell_range.getFormulaArray.return_value = formula_array
-    cell_range.queryContentCells.return_value.getRangeAddresses.return_value = tuple(date_addresses)
+
+    def _query_content(flags):
+        result = MagicMock()
+        if flags == 2:
+            result.getRangeAddresses.return_value = tuple(date_addresses)
+        elif flags == 16:
+            result.getRangeAddresses.return_value = tuple(formula_addresses)
+        else:
+            result.getRangeAddresses.return_value = ()
+        return result
+
+    cell_range.queryContentCells.side_effect = _query_content
 
     if format_groups is None:
         format_groups = MagicMock()
@@ -325,6 +350,7 @@ def test_inspector_format_info_uses_format_groups_for_formula_only_ranges():
         data_array=((46237.0, 1.0),),
         formula_array=(("=TODAY()", "1"),),
         date_addresses=(),
+        formula_addresses=(formula_addr,),
         format_groups=format_groups,
     )
     result = CellInspector(bridge).read_range("A1:B1", include_format_info=True)
@@ -332,7 +358,7 @@ def test_inspector_format_info_uses_format_groups_for_formula_only_ranges():
     assert result[0][0]["value"] == "2026-08-03"
     assert result[0][0]["type"] == "date"
     assert result[0][0]["format_category"] == "date"
-    cell_range.queryContentCells.assert_called_once()
+    assert [c.args for c in cell_range.queryContentCells.call_args_list] == [(16,), (2,)]
     cell_range.getUniqueCellFormatRanges.assert_called_once()
     formats.getByKey.assert_called_once_with(11)
 
@@ -357,7 +383,15 @@ def test_inspector_format_info_survives_queryContentCells_failure():
         date_addresses=(),
         format_groups=format_groups,
     )
-    cell_range.queryContentCells.side_effect = RuntimeError("UNO bridge glitch")
+
+    def _fail_datetime_only(flags):
+        if flags == 2:
+            raise RuntimeError("UNO bridge glitch")
+        result = MagicMock()
+        result.getRangeAddresses.return_value = (formula_addr,)
+        return result
+
+    cell_range.queryContentCells.side_effect = _fail_datetime_only
 
     result = CellInspector(bridge).read_range("A1:B1", include_format_info=True)
 
@@ -396,6 +430,8 @@ def test_inspector_read_cell_format_enrichment_and_negative_duration():
     cell.getType.return_value = 1  # VALUE
     cell.getValue.return_value = 46237.0
     cell.getFormula.return_value = ""
+    cell.getDataArray.return_value = ((46237.0,),)
+    cell.getFormulaArray.return_value = (("",),)
     cell.getPropertyValue.side_effect = lambda name: 10 if name == "NumberFormat" else None
     cell.getRangeAddress.return_value = SimpleNamespace(StartColumn=0, EndColumn=0, StartRow=0, EndRow=0)
 
@@ -412,6 +448,7 @@ def test_inspector_read_cell_format_enrichment_and_negative_duration():
     props43.getPropertyValue.side_effect = lambda name: 4 if name == "Type" else "[HH]:MM:SS"
     formats.getByKey.return_value = props43
     cell.getValue.return_value = -0.5
+    cell.getDataArray.return_value = ((-0.5,),)
     cell.getPropertyValue.side_effect = lambda name: 43 if name == "NumberFormat" else None
 
     res_neg = CellInspector(bridge).read_cell("A1", include_format_info=True)
