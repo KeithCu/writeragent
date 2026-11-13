@@ -9,6 +9,8 @@
 import json
 
 import pytest
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
 from plugin.mcp import wire_types
 
@@ -67,6 +69,15 @@ def test_parse_jsonrpc_request_preserves_extra_params():
     parsed = wire_types.parse_jsonrpc_request(msg)
     assert isinstance(parsed, wire_types.ParsedJsonRpcRequest)
     assert parsed.params["extra"] is True
+
+
+@given(req_id=st.one_of(st.integers(), st.text(min_size=1, max_size=10)))
+@settings(max_examples=50)
+def test_parse_jsonrpc_request_with_ids(req_id: int | str) -> None:
+    msg = {"jsonrpc": "2.0", "id": req_id, "method": "ping"}
+    parsed = wire_types.parse_jsonrpc_request(msg)
+    assert isinstance(parsed, wire_types.ParsedJsonRpcRequest)
+    assert parsed.req_id == req_id
 
 
 @pytest.mark.parametrize(

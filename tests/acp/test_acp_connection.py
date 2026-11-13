@@ -532,6 +532,15 @@ class _Stdin:
 class TestStdinWriteCapturesProc:
     """stop() may clear _proc between the two loads in `self._proc and self._proc.stdin`."""
 
+    @staticmethod
+    def _resolve_pending(conn: ACPConnection, req_id: int, response: dict) -> None:
+        with conn._lock:
+            entry = conn._pending.get(req_id)
+            if entry is not None and entry.response is None:
+                entry.response = response
+                entry.event.set()
+                conn._notify_idle()
+
     def test_send_request_writes_captured_proc(self):
         conn = ACPConnection(cmd_line=["agent"])
         stdin = _Stdin()
@@ -551,15 +560,7 @@ class TestStdinWriteCapturesProc:
         """JSON-RPC ``error: null`` is success. The result is returned."""
         conn = ACPConnection(cmd_line=["agent"])
         proc = _live_proc()
-
-        def flush() -> None:
-            with conn._lock:
-                entry = conn._pending.get(1)
-                if entry is not None and entry.response is None:
-                    entry.response = {"result": {"protocolVersion": 1}, "error": None}
-                    entry.event.set()
-
-        proc.stdin.flush.side_effect = flush
+        proc.stdin.flush.side_effect = lambda: self._resolve_pending(conn, 1, {"result": {"protocolVersion": 1}, "error": None})
         conn._proc = proc
         conn._running = True
         assert (conn.send_request("initialize", {}, timeout=2)) == ({"protocolVersion": 1})
@@ -567,15 +568,7 @@ class TestStdinWriteCapturesProc:
     def test_error_object_still_raises(self):
         conn = ACPConnection(cmd_line=["agent"])
         proc = _live_proc()
-
-        def flush() -> None:
-            with conn._lock:
-                entry = conn._pending.get(1)
-                if entry is not None and entry.response is None:
-                    entry.response = {"error": {"message": "nope"}}
-                    entry.event.set()
-
-        proc.stdin.flush.side_effect = flush
+        proc.stdin.flush.side_effect = lambda: self._resolve_pending(conn, 1, {"error": {"message": "nope"}})
         conn._proc = proc
         conn._running = True
         with pytest.raises(ToolExecutionError, match="nope"):
@@ -584,15 +577,7 @@ class TestStdinWriteCapturesProc:
     def test_error_object_includes_rpc_code_when_int(self):
         conn = ACPConnection(cmd_line=["agent"])
         proc = _live_proc()
-
-        def flush() -> None:
-            with conn._lock:
-                entry = conn._pending.get(1)
-                if entry is not None and entry.response is None:
-                    entry.response = {"error": {"code": -32602, "message": "Unknown model ID: x"}}
-                    entry.event.set()
-
-        proc.stdin.flush.side_effect = flush
+        proc.stdin.flush.side_effect = lambda: self._resolve_pending(conn, 1, {"error": {"code": -32602, "message": "Unknown model ID: x"}})
         conn._proc = proc
         conn._running = True
         with pytest.raises(ToolExecutionError, match="Unknown model ID") as exc_info:
@@ -602,15 +587,7 @@ class TestStdinWriteCapturesProc:
     def test_error_object_without_code_has_no_rpc_code(self):
         conn = ACPConnection(cmd_line=["agent"])
         proc = _live_proc()
-
-        def flush() -> None:
-            with conn._lock:
-                entry = conn._pending.get(1)
-                if entry is not None and entry.response is None:
-                    entry.response = {"error": {"message": "nope"}}
-                    entry.event.set()
-
-        proc.stdin.flush.side_effect = flush
+        proc.stdin.flush.side_effect = lambda: self._resolve_pending(conn, 1, {"error": {"message": "nope"}})
         conn._proc = proc
         conn._running = True
         with pytest.raises(ToolExecutionError, match="nope") as exc_info:
@@ -1345,6 +1322,7 @@ def test_send_request_and_notification_falsy_params():
             for _req_id, pending in conn._pending.items():
                 pending.response = {"result": "ok"}
                 pending.event.set()
+            conn._notify_idle()
 
     t = threading.Thread(target=answer, args=(2,))
     t.start()
