@@ -9,7 +9,6 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from plugin.framework.tool import ToolBaseDummy
-from plugin.scripting.helper_domain import run_domain
 from plugin.scripting.helper_registry import names, specs
 from plugin.scripting.optimize import insert_optimize_result_into_calc
 
@@ -51,20 +50,7 @@ class OptimizeDataTool(ToolBaseDummy):
         return True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        from plugin.calc.analysis import extract_calc_data_tool_args, write_anchor_result
+        from plugin.calc.analysis import run_calc_data_tool, write_anchor_result
 
-        helper, dr, data, params, headers, task_hint, output_range = extract_calc_data_tool_args(kwargs)
-
-        if getattr(ctx, "active_domain", None) in ("analysis", "optimize") and data is not None:
-            return self._tool_error("analysis/optimize domain requires data_range (A1 address string) only. Do not pass raw data values — the host must resolve the range out-of-band.")
-
-        # Call run_domain on this worker. It both reads the sheet
-        # and blocks in the optimize client, so main.call would
-        # put that IPC on the UI thread and freeze Calc. The helper marshals
-        # only the UNO read; the sheet write below stays on the main thread.
-        result = run_domain("optimize", ctx.ctx, ctx.doc, helper=helper, params=params, data_range=dr, data=data, headers=headers, task_hint=task_hint)
-
-        if output_range and result.get("status") == "ok":
-            result = write_anchor_result(ctx, result, output_range, insert_optimize_result_into_calc)
-
-        return result
+        args, result = run_calc_data_tool(ctx, "optimize", kwargs)
+        return write_anchor_result(ctx, result, args.output_range, insert_optimize_result_into_calc)

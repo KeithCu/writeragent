@@ -293,7 +293,7 @@ Viz helpers close the matplotlib figure on every exit, including when savefig fa
 | Anomaly helper | `anomaly_detection_time_series` in existing `forecast.py` / `venv/forecast.py` | Same module + RPC; reuses `_prepare_time_series` |
 | Anomaly method | STL / seasonal-decompose residuals + robust z-score | Cross-sectional `detect_outliers` is wrong for seasonality; decompose already shipped |
 | Viz bands | Extend `time_series_plot` in [`venv/viz.py`](../../plugin/scripting/venv/viz.py) | Doc already says “shared with Forecast”; avoid a third plot helper unless extension is too messy |
-| Auto-plot | New [`plugin/calc/forecast_auto_plot.py`](../../plugin/calc/forecast_auto_plot.py) + hook in `ForecastDataTool` | Copy [`viz_auto_plot.py`](../../plugin/calc/viz_auto_plot.py) + [`AnalyzeDataTool`](../../plugin/calc/analysis.py) lines 476–512 |
+| Auto-plot | New [`plugin/calc/forecast_auto_plot.py`](../../plugin/calc/forecast_auto_plot.py) + hook in `ForecastDataTool` | Copy [`viz_auto_plot.py`](../../plugin/calc/viz_auto_plot.py) + [`AnalyzeDataTool`](../../plugin/calc/analysis.py) (the auto-plot block after `write_anchor_result`) |
 | Prophet | Optional `model="prophet"` on `forecast_time_series` only | Heavy dep; separate Settings group; `MISSING_PACKAGE` when absent |
 | LLM tool | Still `forecast_data` only; add `auto_plot` param | Same as `analyze_data`; no new chat tool |
 | Writer | Still Calc-only RPS | Phase 0 scope unchanged |
@@ -399,7 +399,7 @@ Optional second table `all_scores` (truncated) for debugging — keep behind `pa
    - predicate is `helper == "forecast_time_series" and (auto_plot or task_hint_implies_plot(task_hint))`
    - `run_auto_plot_after_forecast` merges history with the forecast table and calls `time_series_plot`, taking `value_col` / `lower` / `upper` from the merged header.
    - Reuse `task_hint_implies_plot` from [`viz_auto_plot.py`](../../plugin/calc/viz_auto_plot.py) (import, do not duplicate regex).
-2. In [`ForecastDataTool.execute`](../../plugin/calc/forecast.py): after successful run + optional `output_range` write, mirror [`AnalyzeDataTool`](../../plugin/calc/analysis.py) lines 476–512 (`run_auto_plot_after_forecast`, `insert_viz_result_into_doc`).
+2. In [`ForecastDataTool.execute`](../../plugin/calc/forecast.py): after successful run + optional `output_range` write, mirror [`AnalyzeDataTool`](../../plugin/calc/analysis.py) (the auto-plot block after `write_anchor_result`; `run_auto_plot_after_forecast`, `insert_viz_result_into_doc`).
 3. Add `auto_plot: bool` to `forecast_data` parameters (default `false` to match conservative Phase 0; or `true` to match `analyze_data` — **pick `false`** unless product wants parity).
 
 **Tests:**
