@@ -17,6 +17,9 @@ import sys
 import zipfile
 from pathlib import Path
 
+from plugin.calc.excel_py_convert.convert import convert_path
+from plugin.calc.excel_py_convert.xlsx_write import write_dag_formulas_xlsx, write_excel_python_xlsx
+
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
@@ -27,9 +30,6 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--write-xlsx", type=Path, help="Write workbook: DAG =PY (--to dag) or native Excel PY package (--to excel)")
     parser.add_argument("--best-effort", action="store_true", help="Emit partial conversions even when some cells fail (default: fail-closed)")
     args = parser.parse_args(argv)
-
-    from plugin.calc.excel_py_convert.convert import convert_path
-    from plugin.calc.excel_py_convert.xlsx_write import write_dag_formulas_xlsx, write_excel_python_xlsx
 
     if args.from_report and args.direction != "excel":
         print("--from-report only valid with --to excel", file=sys.stderr)

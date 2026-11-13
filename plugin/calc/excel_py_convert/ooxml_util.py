@@ -216,8 +216,9 @@ def workbook_sheets(zf: zipfile.ZipFile) -> list[SheetInfo]:
         title = sh.attrib.get("name") or f"Sheet{order + 1}"
         rid = sh.attrib.get(f"{{{OFFICE_DOC_REL_NS}}}id") or ""
         if not rid:
+            # Strict OOXML uses http://purl.oclc.org/ooxml/officeDocument/relationships instead of OFFICE_DOC_REL_NS.
             for k, v in sh.attrib.items():
-                if k.endswith("}id") or k in ("r:id", "id"):
+                if k.endswith("}id"):
                     rid = v
                     break
         part = rels.get(rid, "")
