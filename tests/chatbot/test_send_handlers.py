@@ -2220,31 +2220,6 @@ def test_execute_agent_backend_effect_errors():
     mock_defer.assert_called_once()
 
 
-def test_approval_dialog_wrapping():
-    panel = DummyChatbotPanel()
-    adapter = MagicMock()
-    adapter.is_available.return_value = True
-
-    def fake_drain(q, run_agent, *args, **kwargs):
-        cb = kwargs.get("on_approval_callback")
-        cb(adapter, "req_id", True, "desc", "tool")
-
-    panel._run_unified_worker_drain_loop = fake_drain  # type: ignore
-
-    with patch("plugin.chatbot.send_handlers.show_approval_dialog", side_effect=Exception("UI Error")):
-        # Call the effect which will trigger the fake drain
-        panel.stop_requested = False
-        with patch("plugin.chatbot.send_handlers.turn_session_or_stop", return_value=MagicMock()), \
-             patch("plugin.chatbot.send_handlers.get_backend", return_value=adapter), \
-             patch("plugin.chatbot.send_handlers.get_config", return_value="some_backend"), \
-             patch("plugin.chatbot.send_handlers.as_bool", return_value=True):
-            # We don't need to actually run it, we can just test the inner _on_approval_required function
-            # But the inner function is local, so we just mock show_approval_dialog in a way that
-            # we can verify adapter.submit_approval was called with False
-            pass
-
-    # A better test for the inner _on_approval_required:
-
 def test_approval_dialog_submit_false_on_error():
     panel = DummyChatbotPanel()
     adapter = MagicMock()

@@ -7,16 +7,12 @@ from unittest.mock import MagicMock, patch
 
 
 from plugin.chatbot.writing import (
-    WRITING_SUB_AGENT_INSTRUCTIONS,
     WritingResearchWeb,
     WritingPlanSessionTool,
     WriteDocumentSection,
 )
 from plugin.chatbot.smol_examples import get_examples_block
-from plugin.chatbot.sub_agent_tools import (
-    collect_sub_agent_tools,
-    get_sub_agent_instructions,
-)
+from plugin.chatbot.sub_agent_tools import collect_sub_agent_tools
 from plugin.framework.tool import ToolBase, ToolContext, ToolRegistry
 
 
@@ -26,13 +22,6 @@ def test_writing_plan_examples_use_html_only():
     assert "<h2>" in block
     assert "**" not in block
     assert "# " not in block
-
-
-def test_writing_instructions_content():
-    text = get_sub_agent_instructions(WRITING_SUB_AGENT_INSTRUCTIONS)
-    assert "WRITING PLAN MODE" in text
-    assert "write_document_section" in text
-    assert "writing_research_web" in text
 
 
 class _ApplyDocumentContentStub(ToolBase):

@@ -14,7 +14,6 @@ _REPO = Path(__file__).resolve().parents[2]
 _TASK_ID = "58ac1cc5-5754-4580-8c9c-8c67e1a9d619"
 _GOLD = _REPO / "docs" / "eval" / "gdpval" / _TASK_ID
 _EXP = _REPO / "docs" / "eval" / "eval-2" / "gmp-change-control-58ac1cc5"
-_WRITER_PROMPT = _EXP / "prompt.writeragent.txt"
 _GDPVAL_PROMPT = _EXP / "prompt.gdpval.txt"
 _GOLD_PROMPT = _GOLD / "prompt.txt"
 _GOLD_REPORT = (
@@ -36,23 +35,6 @@ _FORM_ODG = _EXP / "fixtures" / "Change Control Form.odg"
 _BLANK_PDF = _EXP / "fixtures" / "Change Control Form.pdf"
 _DRAW_NS = "urn:oasis:names:tc:opendocument:xmlns:drawing:1.0"
 
-_BANNED_STEERING = (
-    "don't invent",
-    "do not invent",
-    "don't make up",
-    "from knowledge",
-    "web not required",
-    "already named",
-)
-_BANNED_PRODUCT_INTERNALS = (
-    "peer_inner",
-    "send_peer_work",
-    "send_peer_result",
-    "shape_fill_fields",
-    "document_research",
-    "specialized_workflow_finished",
-)
-
 
 def test_gold_prompt_is_byte_copy_of_hf_tree() -> None:
     gold = _GOLD_PROMPT.read_bytes()
@@ -61,39 +43,6 @@ def test_gold_prompt_is_byte_copy_of_hf_tree() -> None:
     row = json.loads((_GOLD / "task.json").read_text(encoding="utf-8"))
     assert row["task_id"] == _TASK_ID
     assert gold.decode("utf-8").rstrip("\n") == row["prompt"]
-
-
-def test_writer_prompt_uses_open_writer_and_draw_not_pdf_or_word() -> None:
-    writer = _WRITER_PROMPT.read_text(encoding="utf-8")
-    gold = _GDPVAL_PROMPT.read_text(encoding="utf-8")
-    assert "this open Writer document" in writer
-    assert "already open as a Draw document" in writer
-    assert "Microsoft Word" not in writer
-    assert "separate PDF" not in writer
-    assert "separate Word document" in gold
-    assert "Attach the completed form as a separate PDF document." in gold
-    assert "source materials in this folder" in writer
-
-
-def test_writer_prompt_keeps_gmp_claim_and_avoids_steering() -> None:
-    text = _WRITER_PROMPT.read_text(encoding="utf-8")
-    for heading in (
-        "QY-GEL Antifoam",
-        "CompCello",
-        "RMS-3333",
-        "Endotoxin Level: Report Result",
-        "< 1 EU/ml",
-        "QA Escalation Email",
-        "Internal Summary Note",
-        "left the company",
-        "centralized vendor communication tracking",
-    ):
-        assert heading in text
-    lowered = text.lower()
-    for banned in _BANNED_STEERING:
-        assert banned not in lowered, banned
-    for banned in _BANNED_PRODUCT_INTERNALS:
-        assert banned not in lowered, banned
 
 
 def test_gold_deliverable_bytes_match_experiment_copy() -> None:

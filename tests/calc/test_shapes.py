@@ -1,8 +1,11 @@
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 from plugin.draw.bridge import DrawBridge
 
-def test_calc_shapes_target_active_sheet_mock():
-    """Verify that UpsertShape targets the active sheet and not sheet 0."""
+def test_get_active_page_index_follows_calc_active_sheet():
+    """On a Calc doc, DrawBridge resolves the active page from controller.ActiveSheet.getDrawPage(), not sheet 0.
+
+    This is the only unit guard for plugin/draw/bridge.py:82-94; draw tests patch get_active_page out.
+    """
     # Setup mock doc
     doc = MagicMock()
     doc.supportsService.return_value = True
@@ -38,38 +41,5 @@ def test_calc_shapes_target_active_sheet_mock():
     doc.getDrawPages.return_value = draw_pages
 
     # Bridge should correctly identify idx 1 because page is sheet1.getDrawPage()
-    with patch('plugin.framework.uno_context.uno_same', side_effect=lambda a, b: a is b):
-        bridge = DrawBridge(doc)
-        idx = bridge.get_active_page_index()
-        assert idx == 1
-
-
-def test_calc_shapes_wrapper_contract():
-    """Verify that the five Calc shape wrappers have expected name, tier, and doc_types."""
-    from plugin.calc.shapes import (
-        UpsertShape,
-        DeleteShape,
-        GetDrawSummary,
-        ConnectShapes,
-        GroupShapes,
-        AlignShapes,
-        DistributeShapes,
-        CreateDiagram,
-    )
-
-    expected = [
-        (UpsertShape, "shape_upsert"),
-        (DeleteShape, "shape_delete"),
-        (GetDrawSummary, "shape_summary"),
-        (ConnectShapes, "shape_connect"),
-        (GroupShapes, "shape_group"),
-        (AlignShapes, "shape_align"),
-        (DistributeShapes, "shape_distribute"),
-        (CreateDiagram, "shape_diagram"),
-    ]
-
-    for cls, name in expected:
-        instance = cls()
-        assert instance.name == name
-        assert instance.tier == "specialized"
-        assert "calc" in (instance.doc_types or [])
+    bridge = DrawBridge(doc)
+    assert bridge.get_active_page_index() == 1

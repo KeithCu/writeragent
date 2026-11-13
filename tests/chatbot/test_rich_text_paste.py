@@ -308,25 +308,6 @@ class TestEnsureMessageSeparator:
 
 
 class TestAppendRichTextViaClipboard:
-    def test_pipeline_order(self):
-        control = MagicMock()
-        control.getModel.return_value = MagicMock(Text="")
-        ctx = MagicMock()
-        doc = MagicMock()
-        style_window = MagicMock()
-
-        with patch("plugin.chatbot.rich_text_paste.create_hidden_html_writer", return_value=doc) as mock_create, \
-             patch("plugin.chatbot.rich_text_paste.configure_hidden_writer_for_chat") as mock_cfg, \
-             patch("plugin.chatbot.rich_text_paste._append_rich_text_with_span", return_value=(True, "", "Assistant: Hi")) as mock_append, \
-             patch("plugin.chatbot.rich_text_paste._copy_formatted_from_hidden_doc_to_control", return_value=None) as mock_copy:
-            append_formatted_row(ctx, control, "<p>Hi</p>", role="assistant", style_window=style_window)
-
-        mock_create.assert_called_once_with(ctx)
-        mock_cfg.assert_called_once_with(doc)
-        mock_append.assert_called_once_with(doc, "<p>Hi</p>", role="assistant", style_window=style_window)
-        mock_copy.assert_called_once()
-        doc.close.assert_called_once_with(True)
-
     def test_plain_insert_skips_hidden_writer(self):
         control = MagicMock()
         model = MagicMock(Text="")

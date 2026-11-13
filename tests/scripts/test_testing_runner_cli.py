@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import os
 import sys
+import types
 from pathlib import Path
 
 import pytest
@@ -883,8 +884,28 @@ def test_headless_connect_delays_windows_longer(monkeypatch) -> None:
     assert sum(win) >= 40.0
 
 
-def test_connect_uno_accept_logs_stderr_tail_on_miss(monkeypatch) -> None:
-    """Connect-fail path surfaces soffice stderr_tail when CI debug is on."""
+@pytest.fixture
+def fake_uno_connection(monkeypatch: pytest.MonkeyPatch) -> types.ModuleType:
+    """Stub ``com.sun.star.connection`` so ``_connect_uno_accept`` can import ``NoConnectException``.
+
+    ``setitem`` restores the real (usually absent) modules after the test.
+    """
+    conn = types.ModuleType("com.sun.star.connection")
+    conn.NoConnectException = type("NoConnectException", (Exception,), {})
+    for name, mod in (
+        ("com", types.ModuleType("com")),
+        ("com.sun", types.ModuleType("com.sun")),
+        ("com.sun.star", types.ModuleType("com.sun.star")),
+        ("com.sun.star.connection", conn),
+    ):
+        monkeypatch.setitem(sys.modules, name, mod)
+    return conn
+
+
+def test_connect_uno_accept_logs_stderr_tail_on_miss(
+    monkeypatch, fake_uno_connection: types.ModuleType
+) -> None:
+    """Windows UNO bootstrap pipe miss (#709): stderr tail is logged on a failed connect."""
     monkeypatch.setenv("WRITERAGENT_CI_DEBUG", "1")
     import plugin.testing_runner as tr
 
@@ -892,30 +913,17 @@ def test_connect_uno_accept_logs_stderr_tail_on_miss(monkeypatch) -> None:
         def poll(self):
             return None
 
-    class _NoConnect(Exception):
-        pass
-
-    # Mimic com.sun.star.connection.NoConnectException name used in except.
-    import types
-    import sys
-
-    fake_mod = types.ModuleType("com.sun.star.connection")
-    fake_mod.NoConnectException = type("NoConnectException", (Exception,), {})
-    # Build nested com.sun.star.connection
-    com = types.ModuleType("com")
-    sun = types.ModuleType("com.sun")
-    star = types.ModuleType("com.sun.star")
-    conn = fake_mod
-    sys.modules["com"] = com
-    sys.modules["com.sun"] = sun
-    sys.modules["com.sun.star"] = star
-    sys.modules["com.sun.star.connection"] = conn
-
     logs: list[str] = []
     monkeypatch.setattr(tr, "_progress", lambda msg: logs.append(msg))
-    monkeypatch.setattr(tr, "_uno_resolver_for_local_ctx", lambda: types.SimpleNamespace(
-        resolve=lambda url: (_ for _ in ()).throw(conn.NoConnectException("pipe miss"))
-    ))
+    monkeypatch.setattr(
+        tr,
+        "_uno_resolver_for_local_ctx",
+        lambda: types.SimpleNamespace(
+            resolve=lambda url: (_unused for _unused in ()).throw(
+                fake_uno_connection.NoConnectException("pipe miss")
+            )
+        ),
+    )
     monkeypatch.setattr(tr, "_soffice_pids", lambda: "1,2")
     monkeypatch.setattr(tr.current_office(), "office_stderr_tail", lambda: ["prefix warn", "still starting"])
     monkeypatch.setattr(tr.time, "sleep", lambda _d: None)

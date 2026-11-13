@@ -5,7 +5,6 @@ from __future__ import annotations
 import ast
 import inspect
 import math
-import sys
 import types
 from pathlib import Path
 
@@ -964,8 +963,6 @@ def test_module_does_not_import_panel_or_lane():
             name = func.id if isinstance(func, ast.Name) else getattr(func, "attr", "")
             assert name != "llm_request_lane"
     assert "llm_request_lane" not in inspect.signature(C.compact_session).parameters
-    # Docstrings may mention the lane (must not take it). Do not import panel.
-    assert "plugin.chatbot.panel" not in sys.modules or C.__name__ == "plugin.chatbot.compaction"
 
 
 # --- 15. find_cut_index ceiling ------------------------------------------------

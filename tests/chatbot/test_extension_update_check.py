@@ -100,29 +100,21 @@ def test_parse_update_xml_wrong_identifier_still_parses():
     assert ver == "9.9.9"
 
 
-def test_identifier_mismatch_means_ignore_for_update_signal():
-    """Caller must reject when ident != expected profile extension id."""
-    ident, ver = parse_update_xml(WRONG_ID_XML)
-    assert ident != EXTENSION_ID_WRITERAGENT
-    # would not treat as update even though remote > local
-    assert version_tuple(ver or "") > version_tuple("0.0.1")
+def test_identifier_mismatch_does_not_notify():
+    main.install(Policy.test_inline)
+    ctx = MagicMock()
+    with patch("plugin.framework.client.requests.sync_request", return_value=WRONG_ID_XML), \
+         patch("plugin.chatbot.dialogs.msgbox") as mock_msgbox, \
+         patch("plugin.framework.config.get_config", return_value=0.0), \
+         patch("plugin.framework.config.save"), \
+         patch("plugin.version.EXTENSION_VERSION", "0.0.1"):
+        run_extension_update_check(ctx, EXTENSION_ID_WRITERAGENT)
+        mock_msgbox.assert_not_called()
 
 
-def test_update_check_profiles_cover_three_products():
-    assert set(UPDATE_CHECK_PROFILES) == {
-        EXTENSION_ID_WRITERAGENT,
-        EXTENSION_ID_LIBREPY,
-        EXTENSION_ID_LIBREHARPER,
-    }
-    wa = UPDATE_CHECK_PROFILES.get(EXTENSION_ID_WRITERAGENT)
-    lp = UPDATE_CHECK_PROFILES.get(EXTENSION_ID_LIBREPY)
-    lh = UPDATE_CHECK_PROFILES.get(EXTENSION_ID_LIBREHARPER)
-    assert wa is not None and wa.config_key_epoch == "extension_update_check_epoch"
-    assert lp is not None and lp.config_key_epoch == "librepy_update_check_epoch"
-    assert lh is not None and lh.config_key_epoch == "libreharper_update_check_epoch"
-    # Dual-install: WriterAgent and LibreHarper must not share a cadence key.
-    assert wa.config_key_epoch != lh.config_key_epoch
-    assert UPDATE_CHECK_PROFILES.get("other.extension") is None
+def test_update_check_profiles_do_not_share_cadence_key():
+    keys = [p.config_key_epoch for p in UPDATE_CHECK_PROFILES.values()]
+    assert len(keys) == len(set(keys))
 
 
 def test_schedule_once_allows_two_products_same_process():

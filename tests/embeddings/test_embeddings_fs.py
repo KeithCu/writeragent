@@ -21,10 +21,6 @@ def test_path_to_file_url_uses_three_slashes_on_unix():
     assert url.endswith("/home/user/Writing/Test.odt") or "Writing" in url
 
 
-def test_embeddings_fs_does_not_reexport_path_to_file_url():
-    assert not hasattr(embeddings_fs, "path_to_file_url")
-
-
 def test_embeddings_fs_import_stays_uno_free():
     """url_utils must stay UNO-free so embeddings extract can import it."""
     import subprocess

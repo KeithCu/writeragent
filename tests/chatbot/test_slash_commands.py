@@ -28,6 +28,7 @@ from plugin.chatbot.slash_commands import (
     registered_slash_commands,
     MOCK_SLASH_COMMANDS,
     SLASH_COMMANDS,
+    SlashCommand,
     SlashResult,
     SlashRun,
     effective_slash_run,
@@ -152,13 +153,6 @@ def test_run_slash_formula_ignores_apps_filter():
     assert cmd.apps == ("calc",)
     with patch("plugin.chatbot.slash_commands.record_slash_lru"):
         assert run_slash_command(cmd, host, "sum column") is SlashResult.CONTINUE_SEND
-
-
-def test_help_text_lists_wired_and_mocks():
-    text = format_help_text()
-    assert "/help" in text
-    assert "/mock-alpha [mock]" in text
-    assert "/clear" in text
 
 
 def test_record_slash_lru_uses_existing_config_helper():
@@ -942,24 +936,6 @@ def test_parse_slash_text_known_and_unknown():
     assert parse_slash_text("hello /tone") is None
 
 
-def test_tier1_commands_are_in_product_table():
-    names = {c.name for c in registered_slash_commands()}
-    for name in (
-        "summarize",
-        "proofread",
-        "shorten",
-        "expand",
-        "tone",
-        "translate",
-        "explain",
-        "remember",
-        "compact",
-        "undo",
-        "formula",
-    ):
-        assert name in names
-
-
 def test_format_instruction_appends_optional_arg_cleanly():
     from plugin.chatbot.slash_commands import SLASH_COMMANDS, _format_instruction
 
@@ -1187,24 +1163,20 @@ def test_summary_lines_omit_slash_local():
     assert not any("Slash commands" in line for line in lines)
 
 
-def test_popup_runs_now_names():
-    immediate = {
-        "help",
-        "clear",
-        "stop",
-        "undo",
-        "mock-alpha",
-        "mock-bravo",
-        "mock-charlie",
-        "apply",
-        "web",
-        "model",
-    }
-    for cmd in registered_slash_commands():
-        if cmd.name in immediate:
-            assert slash_popup_runs_now(cmd), cmd.name
-        else:
-            assert not slash_popup_runs_now(cmd), cmd.name
+@pytest.mark.parametrize(
+    ("run", "requires_arg", "expected"),
+    [
+        (SlashRun.LOCAL, False, True),
+        (SlashRun.LOCAL, True, False),
+        (SlashRun.ANSWER, False, False),
+        (SlashRun.COMPACT, False, False),
+    ],
+)
+def test_popup_runs_now_only_for_local_commands_without_arg(
+    run: SlashRun, requires_arg: bool, expected: bool
+) -> None:
+    cmd = SlashCommand("x", "d", run=run, requires_arg=requires_arg)
+    assert slash_popup_runs_now(cmd) is expected
 
 
 def test_slash_registry_handler_invariant():

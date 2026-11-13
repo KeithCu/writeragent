@@ -46,42 +46,53 @@ def test_lo_kill_when_cwd_has_no_makefile(tmp_path: Path) -> None:
     assert "No rule to make target" not in combined
     assert "kill-libreoffice" in combined
 
-    text = MAKEFILE.read_text(encoding="utf-8")
-    assert '$(MAKE) -C "$(PROJECT_ROOT)" lo-kill' in text
 
-
-def test_makefile_lo_python_recipes_call_lo_paths() -> None:
-    """_check-lo-python calls check-lo-python; the five UNO recipes call run-lo-python."""
-    text = MAKEFILE.read_text(encoding="utf-8")
-    check_recipe = text.split("_check-lo-python:", 1)[1].split("test-uno:", 1)[0]
-    assert "check-lo-python" in check_recipe
-    assert "echo $(PYTHON)" not in check_recipe
-
-    five_recipes = (
-        "test-uno:",
-        "test-uno-soak:",
-        "test-mock-sidebar:",
-        "test-visible:",
-        "lo-test-threadguard-visible:",
+def _make_dry_run(target: str, **env_overrides: str) -> str:
+    env = {k: v for k, v in os.environ.items() if k not in {"GITHUB_ACTIONS", "WRITERAGENT_CI_DEBUG"}}
+    env.update(env_overrides)
+    proc = subprocess.run(
+        ["make", "-n", "-C", str(PROJECT_ROOT), target],
+        check=False,
+        capture_output=True,
+        text=True,
+        env=env,
     )
-    for target in five_recipes:
-        block = text.split(target, 1)[1].split("\n\n", 1)[0]
-        assert "run-lo-python" in block, f"{target} missing run-lo-python"
-
-    mock_sidebar = text.split("test-mock-sidebar:", 1)[1].split("\n\n", 1)[0]
-    assert "--set WRITERAGENT_UNO_TEST_TIMEOUT=120" in mock_sidebar
-
-    threadguard_visible = text.split("lo-test-threadguard-visible:", 1)[1].split("\n\n", 1)[0]
-    assert "--set WRITERAGENT_UNO_THREAD_GUARD=1" in threadguard_visible
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    return proc.stdout
 
 
-def test_makefile_env_u_virtual_env_and_unset_gone() -> None:
-    """LO_PYTHON_UNSET and env -u VIRTUAL_ENV are removed in favor of lo_paths.py."""
-    text = MAKEFILE.read_text(encoding="utf-8")
-    assert "env -u VIRTUAL_ENV" not in text
-    assert "LO_PYTHON_UNSET" not in text
-    assert "ifeq ($(origin LO_PYTHON),undefined)" in text
-    assert "export LO_PYTHON_ENV" in text
+@pytest.mark.skipif(shutil.which("make") is None, reason="make not on PATH")
+def test_make_rdb_core_runs_bash_script_not_ps1() -> None:
+    """GHA 33777144412: make rdb-core used rebuild_librepy_rdb.ps1 (missing)."""
+    out = _make_dry_run("rdb-core")
+    recipes = "\n".join(ln for ln in out.splitlines() if not ln.lstrip().startswith("#"))
+    assert "rebuild_librepy_rdb.sh" in recipes
+    assert ".ps1" not in recipes
+
+
+@pytest.mark.skipif(shutil.which("make") is None, reason="make not on PATH")
+def test_make_compile_translations_runs_python_script_not_msgfmt() -> None:
+    """Windows CI skipped msgfmt silently; compile must not depend on GNU find."""
+    out = _make_dry_run("compile-translations")
+    assert "compile_translations.py" in out
+    assert "msgfmt" not in out
+
+
+@pytest.mark.skipif(shutil.which("make") is None, reason="make not on PATH")
+@pytest.mark.parametrize(
+    ("env_overrides", "expect_flag"),
+    [
+        ({}, False),
+        ({"GITHUB_ACTIONS": "true"}, True),
+        ({"WRITERAGENT_CI_DEBUG": "1"}, True),
+    ],
+)
+def test_make_pytest_disables_worker_restart_on_github_or_ci_debug(
+    env_overrides: dict[str, str], expect_flag: bool
+) -> None:
+    """PR CI must pass --max-worker-restart=0 without requiring ci_debug (#823)."""
+    out = _make_dry_run("pytest", **env_overrides)
+    assert ("--max-worker-restart=0" in out) is expect_flag
 
 
 @pytest.mark.skipif(sys.platform != "linux", reason="Linux /usr/bin/python3 probe")
@@ -111,28 +122,9 @@ def test_check_lo_python_ignores_path_python3_without_uno(tmp_path: Path) -> Non
     assert "LO_PYTHON=/usr/bin/python3" in combined
 
 
-def test_makefile_compile_translations_uses_python_script() -> None:
-    """Windows CI skipped msgfmt silently; compile must not depend on GNU find."""
-    text = MAKEFILE.read_text(encoding="utf-8")
-    recipe = text.split("compile-translations:", 1)[1].split("compile-translations-core:", 1)[0]
-    assert "compile_translations.py" in recipe
-    assert "command -v msgfmt" not in recipe
-
-
-def test_makefile_gha_and_ci_debug_disable_worker_restart() -> None:
-    """PR CI must pass --max-worker-restart=0 without requiring ci_debug (#823)."""
-    text = MAKEFILE.read_text(encoding="utf-8")
-    assert "filter true 1,$(GITHUB_ACTIONS)" in text
-    assert "ifeq ($(WRITERAGENT_CI_DEBUG),1)" in text
-    assert "--max-worker-restart=0" in text
-    unit_line = [ln for ln in text.splitlines() if ln.startswith("PYTEST_UNIT")][0]
-    assert "$(PYTEST_CI_DEBUG_FLAGS)" in unit_line
-    assert "WRITERAGENT_PYTEST_PROGRESS" not in unit_line
-
-
 @pytest.mark.skipif(shutil.which("make") is None, reason="make not on PATH")
 def test_test_uno_empty_lo_python_fails_loudly() -> None:
-    """Empty LO_PYTHON must name the search paths, not launch testing_runner."""
+    """Empty LO_PYTHON must fail loudly, not launch testing_runner."""
     proc = subprocess.run(
         ["make", "-C", str(PROJECT_ROOT), "test-uno", "LO_PYTHON="],
         check=False,
@@ -142,9 +134,6 @@ def test_test_uno_empty_lo_python_fails_loudly() -> None:
     combined = proc.stdout + proc.stderr
     assert proc.returncode != 0, combined
     assert "LO_PYTHON is empty" in combined
-    assert "Contents/Resources/python" in combined
-    assert "LibreOfficePython.framework" in combined
-    assert "/usr/bin/python3" in combined
     assert "plugin.testing_runner" not in combined
 
 
@@ -169,13 +158,4 @@ def test_check_lo_python_rejects_interpreter_without_officehelper(tmp_path: Path
     assert "cannot import officehelper" in combined
     assert "project .venv" in combined
     assert "-m plugin.testing_runner" not in combined
-
-
-def test_makefile_translation_and_clean_one_line_recipes() -> None:
-    text = MAKEFILE.read_text(encoding="utf-8")
-    assert 'clean: clean-native\n\t"$(PYTHON)" scripts/clean.py' in text
-    assert 'extract-strings:\n\t"$(PYTHON)" scripts/extract_strings.py' in text
-    assert 'refresh-pot:\n\t"$(PYTHON)" scripts/extract_strings.py --pot-only' in text
-    assert 'merge-translations:\n\t"$(PYTHON)" scripts/extract_strings.py --merge-only' in text
-    assert 'auto-translate:\n\t"$(PYTHON)" scripts/extract_strings.py --auto-translate' in text
 

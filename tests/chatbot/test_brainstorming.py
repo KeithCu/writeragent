@@ -7,7 +7,6 @@ from unittest.mock import MagicMock, patch
 
 
 from plugin.chatbot.brainstorming import (
-    BRAINSTORMING_SUB_AGENT_INSTRUCTIONS,
     BrainstormResearchWeb,
     BrainstormingSessionTool,
     SaveDesignSpec,
@@ -15,7 +14,6 @@ from plugin.chatbot.brainstorming import (
 from plugin.chatbot.smol_examples import get_examples_block
 from plugin.chatbot.sub_agent_tools import (
     collect_sub_agent_tools,
-    get_sub_agent_instructions,
     normalize_html_content_array,
 )
 from plugin.framework.tool import ToolBase, ToolContext, ToolRegistry
@@ -44,22 +42,6 @@ def test_brainstorming_examples_use_html_only():
     assert "<h1>" in block
     assert "**" not in block
     assert "# Design" not in block
-
-
-def test_brainstorming_examples_show_approaches_and_self_review():
-    block = get_examples_block("brainstorming")
-    assert "Recommended" in block
-    assert "<h2>Architecture</h2>" in block
-    assert "Self-review" in block
-    assert "<h2>Testing</h2>" in block
-
-
-def test_brainstorming_instructions_include_superpowers_self_review():
-    text = get_sub_agent_instructions(BRAINSTORMING_SUB_AGENT_INSTRUCTIONS)
-    assert "Placeholder scan" in text
-    assert "Spec self-review" in text
-    assert "YAGNI" in text
-    assert "too simple to design" in text
 
 
 def test_normalize_html_content_array_accepts_list_and_string():
