@@ -8,8 +8,7 @@ Usage::
         --samples PythonExcelSamples \\
         --out build/excel_py_roundtrip
 
-Exit 1 if normalized script text or return_type differs, or if ordering-only
-deps leak into the round-trip ``_xlws.PY`` formula. Table/ANCHORARRAY → A1
+Exit 1 if normalized script text or return_type differs. Table/ANCHORARRAY → A1
 snapshot dep diffs are warnings only.
 """
 

@@ -136,6 +136,8 @@ def maybe_convert_excel_py_document(doc: Any) -> bool:
                 log.warning("excel_py auto-open: failed to store ExcelPyDagMeta for %s", path, exc_info=True)
             # setFormula dirties the doc; a pristine open must not prompt "Save changes?".
             best_effort(lambda: doc.setModified(modified_before), "excel_py auto-open: restore modified flag")
+            if any(c.issues for c in report.cells):
+                log.info("excel_py auto-open: %s", _issue_summary(report))
             log.info("excel_py auto-open: applied DAG =PY in place for %s (py_code_* sheets)", path)
             return True
         except Exception:

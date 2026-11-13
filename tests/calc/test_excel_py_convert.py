@@ -3874,6 +3874,3 @@ def test_find_sheet_ci_exact_first_then_casefold():
     assert find_sheet_ci(by_title, "data") == 2
     assert find_sheet_ci({"Data": 1}, "DATA") == 1
     assert find_sheet_ci({"Data": 1}, "Missing") is None
-
-
-

@@ -196,8 +196,7 @@ def rewrite_dag_code_to_excel(
 ) -> tuple[str, list[str], list[str], bool]:
     """Rewrite DAG code to Excel package ``xl(%Pn%)`` / ``xl(%Pn%, headers=…)``.
 
-    Returns ``(excel_code, deps, issues, fatal)``. Only *data* args are returned as deps
-    (ordering-only args must already be filtered by the caller).
+    Returns ``(excel_code, deps, issues, fatal)``. ``data_args`` are the formula's data ranges.
     """
     issues: list[str] = []
     deps = list(data_args)

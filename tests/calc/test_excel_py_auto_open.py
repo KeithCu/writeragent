@@ -874,3 +874,23 @@ def test_apply_dag_formulas_missing_dag_formula_fails_preflight():
     errors = apply_dag_formulas_to_calc_doc(doc, ConversionReport(direction="dag", cells=[cell]))
     assert any("has no dag_formula" in e for e in errors)
     assert sheet.getCellRangeByName("C1").getFormula() == "=ORIGINAL"
+
+
+def test_maybe_convert_excel_py_document_logs_sandbox_advisory(tmp_path: Path, caplog: pytest.LogCaptureFixture):
+    import logging
+
+    xlsx = tmp_path / "advisory.xlsx"
+    _minimal_xlsx(xlsx, with_scripts=False, with_xlws=True)
+    with zipfile.ZipFile(xlsx, "a") as zf:
+        zf.writestr(
+            "xl/pythonScripts.xml",
+            '<?xml version="1.0"?><pythonScripts><pythonScript><code>import requests\nx = 1</code></pythonScript></pythonScripts>',
+        )
+    doc = CalcDocStub()
+    with (
+        patch("plugin.calc.excel_py_convert.auto_open.get_document_path", return_value=str(xlsx)),
+        caplog.at_level(logging.INFO, logger="plugin.calc.excel_py_convert.auto_open"),
+    ):
+        assert maybe_convert_excel_py_document(doc) is True
+
+    assert "import is blocked by the Python sandbox: requests" in caplog.text
