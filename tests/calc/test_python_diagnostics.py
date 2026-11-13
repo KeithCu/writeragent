@@ -132,3 +132,21 @@ def test_diagnostics_workbook_key_uses_caller_doc_only():
         # No caller doc: no front-window guess.
         assert diagnostics_workbook_key(doc=None) == "unknown"
     front_window.assert_not_called()
+
+
+def test_diagnostics_workbook_key_does_not_mint_session_prop():
+    from unittest.mock import MagicMock, patch
+    from plugin.calc.python.diagnostics import diagnostics_workbook_key
+
+    doc = MagicMock()
+    doc.getURL.return_value = ""
+    props = MagicMock()
+    props.getPropertyValue.side_effect = Exception("UnknownPropertyException")
+    props.getPropertySetInfo.return_value.hasPropertyByName.return_value = True
+    doc.getDocumentProperties.return_value.UserDefinedProperties = props
+
+    with patch("plugin.framework.queue_executor.main.is_current", return_value=True):
+        res = diagnostics_workbook_key(doc)
+
+    assert res == "unknown"
+    props.addProperty.assert_not_called()

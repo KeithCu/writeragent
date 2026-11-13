@@ -25,7 +25,12 @@ from plugin.calc.python.addin_values import (
     coerce_spill_value,
     spill_value_from_json,
 )
-from plugin.calc.python.formula_locator_cache import is_matching_py_formula, locate_formula_cell_in_doc, search_sheet_for_formula
+from plugin.calc.python.formula_locator_cache import (
+    FormulaOrigin,
+    is_matching_py_formula,
+    locate_formula_cell_in_doc,
+    search_sheet_for_formula,
+)
 from plugin.calc.python.undo import undo_lock
 from plugin.calc.python.workbook_state import WorkbookState
 from plugin.framework.errors import uno_read
@@ -253,6 +258,9 @@ def perform_deferred_spill(
     """Clear old spilled cells and write new values deferred (collision check is done synchronously).
 
     The caller passes the sheet it located, the code it located it by, and ``WorkbookState.key``.
+    The state key, the sheet looked up by name and the origin formula are checked again here
+    on purpose: 0.1 s has passed since ``prepare_auto_spill``, and the sheet may have been
+    renamed or the formula edited in between.
     """
     try:
         if not main.is_current():
@@ -446,59 +454,52 @@ def cell_is_matrix(sheet: Any, cell: Any) -> bool:
     return bool(uno_read(_probe, False))
 
 
-def selection_is_multi_cell(target_doc: Any) -> bool:
-    """True when the current UI selection spans more than one cell (matrix entry)."""
-    ctrl = target_doc.getCurrentController() if target_doc is not None else None
-    if ctrl is None:
-        return False
-    selection = ctrl.getSelection()
-    if selection is None or not hasattr(selection, "getRangeAddress"):
-        return False
-    addr = selection.getRangeAddress()
-    return (addr.EndColumn - addr.StartColumn > 0) or (addr.EndRow - addr.StartRow > 0)
-
-
 @dataclass(frozen=True, slots=True)
 class PreparedSpill:
-    """A located formula origin whose spill fits: prepare_auto_spill returns it on the UI thread and queue_deferred_spill_write writes the neighbors from it. key is the workbook's WorkbookState.key."""
+    """A located formula origin whose spill fits: prepare_auto_spill returns it on the UI thread and queue_deferred_spill_write writes the neighbors from it.
+
+    ``key`` is the workbook's ``WorkbookState.key``; ``code`` is what the origin was located by and what ``perform_deferred_spill`` re-matches.
+    """
 
     sheet_name: str
     formula_row: int
     formula_col: int
     sheet: Any
     key: str
+    code: str
 
 
-def prepare_auto_spill(ctx: Any, code: str, grid_to_spill: list[list[Any]], target_doc: Any) -> PreparedSpill | str | None:
-    """Locate the unique formula origin and check spill collisions (UNO / UI thread).
+def prepare_auto_spill(
+    ctx: Any,
+    doc: Any,
+    state: WorkbookState,
+    origin: FormulaOrigin,
+    code: str,
+    grid_to_spill: list[list[Any]],
+) -> PreparedSpill | str | None:
+    """Check spill collisions for an already-located formula origin (UNO / UI thread).
 
-    Returns ``"#SPILL!"`` on collision, ``PreparedSpill`` when the
-    neighbor write should proceed, or ``None`` when the origin is not unique.
-    The identity is state.key. An empty identity returns None.
+    Called with the origin already located and known not to be an array block
+    (``CellContext.is_matrix`` on the main path, ``cell_is_matrix`` in the off-main
+    callback). Returns ``"#SPILL!"`` on collision, ``PreparedSpill`` when the neighbor
+    write should proceed, or ``None`` when ``state.key`` is empty.
     """
-    located = locate_formula_cell_in_doc(target_doc, code)
-    if located is None:
+    if not state.key:
         return None
-    state = WorkbookState.for_doc(target_doc)
-    if state is None or not state.key:
-        return None
-    sheet = located[0]
-    cell = located[1]
-    if cell_is_matrix(sheet, cell):
-        return None
-    formula_coord = located[2]
-    sheet_name = sheet.getName() if hasattr(sheet, "getName") else "Sheet1"
-    log.debug("Spill: located formula cell at %r on sheet %r for code %r", formula_coord, sheet_name, code)
-    formula_row, formula_col = formula_coord
+    sheet = origin.sheet
+    formula_row = origin.row
+    formula_col = origin.col
+    sheet_name = origin.sheet_name
+    log.debug("Spill: checking formula cell at %r on sheet %r for code %r", (formula_row, formula_col), sheet_name, code)
 
     if not state.loaded:
-        load_spill_registry_for_doc(target_doc, state)
+        load_spill_registry_for_doc(doc, state)
         state.loaded = True
 
     try:
         from plugin.calc.python.sheet_modify import ensure_sheet_modify_listener
 
-        ensure_sheet_modify_listener(ctx, target_doc, sheet)
+        ensure_sheet_modify_listener(ctx, doc, sheet)
     except Exception:
         log.exception("Failed to register modify listener on sheet")
 
@@ -530,15 +531,11 @@ def prepare_auto_spill(ctx: Any, code: str, grid_to_spill: list[list[Any]], targ
             if cell_type != EMPTY:
                 log.debug("Spill: collision: cell at %r (type=%s, val=%r, formula=%r) is not empty", (target_r, target_c), cell_type, cell.getValue() or cell.getString(), cell.getFormula())
                 return "#SPILL!"
-    return PreparedSpill(sheet_name, formula_row, formula_col, sheet=sheet, key=state.key)
+    return PreparedSpill(sheet_name, formula_row, formula_col, sheet=sheet, key=state.key, code=code)
 
 
-def queue_deferred_spill_write(code: str, grid_to_spill: list[list[Any]], target_doc: Any, prepared: PreparedSpill) -> None:
+def queue_deferred_spill_write(state: WorkbookState, doc: Any, prepared: PreparedSpill, grid_to_spill: list[list[Any]]) -> None:
     """Post neighbor writes to the UI thread after the usual 0.1s settle."""
-    state = WorkbookState.for_doc(target_doc)
-    if state is None:
-        log.warning("Spill: no workbook state for doc; skipping deferred spill write")
-        return
     token = f"spill:{prepared.sheet_name}:{prepared.formula_row}:{prepared.formula_col}"
 
     def _write() -> None:
@@ -547,9 +544,9 @@ def queue_deferred_spill_write(code: str, grid_to_spill: list[list[Any]], target
             prepared.formula_row,
             prepared.formula_col,
             grid_to_spill,
-            doc=target_doc,
+            doc=doc,
             sheet=prepared.sheet,
-            code=code,
+            code=prepared.code,
             key=prepared.key,
         )
 
@@ -565,9 +562,16 @@ def queue_off_main_auto_spill(ctx: Any, code: str, grid_to_spill: list[list[Any]
     """
     log.debug("Spill: scheduling off-main deferred locate code=%r", code)
 
-    def _on_main() -> None:
+    def _on_main(state: WorkbookState) -> None:
         try:
-            prepared = prepare_auto_spill(ctx, code, grid_to_spill, doc)
+            # Locate on the UI thread because the off-main add-in call must not touch UNO on the document.
+            located = locate_formula_cell_in_doc(doc, code)
+            if located is None:
+                return
+            origin = FormulaOrigin.from_located(located)
+            if cell_is_matrix(origin.sheet, origin.cell):
+                return
+            prepared = prepare_auto_spill(ctx, doc, state, origin, code, grid_to_spill)
         except Exception:
             log.exception("Error checking spill collision or locating formula cell")
             return
@@ -581,7 +585,7 @@ def queue_off_main_auto_spill(ctx: Any, code: str, grid_to_spill: list[list[Any]
             grid_to_spill,
             doc=doc,
             sheet=prepared.sheet,
-            code=code,
+            code=prepared.code,
             key=prepared.key,
         )
 
@@ -591,6 +595,6 @@ def queue_off_main_auto_spill(ctx: Any, code: str, grid_to_spill: list[list[Any]
         if state is None or not state.key:
             log.debug("Spill: no workbook state on UI thread; skipping off-main auto-spill")
             return
-        state.debounce.schedule(f"code:{code}", 0.1, _on_main)
+        state.debounce.schedule(f"code:{code}", 0.1, lambda: _on_main(state))
 
     main.post(_arm_on_ui)
