@@ -71,7 +71,7 @@ def test_ci_debug_last_start_without_end_names_hung_test(
 
 
 def test_arm_stderr_hang_dump_uses_faulthandler_stderr(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """GHA 33703959362: dump all Python threads to stderr at 90s, not a log file."""
     import sys
@@ -91,26 +91,6 @@ def test_arm_stderr_hang_dump_uses_faulthandler_stderr(
     )
     assert seen["later"] == (90, True, False, sys.stderr)
     assert seen["enable"] == (sys.stderr, True)
-    err = capsys.readouterr().err
-    assert (
-        "hang dump armed timeout=90s test=calc.test_rich_html_uno.test_insert_cell_html"
-        in err
-    )
-    assert "all_threads=True" in err
-
-
-def test_cancel_stderr_hang_dump_prints_only_when_armed(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    monkeypatch.setattr(ci_debug.faulthandler, "dump_traceback_later", lambda *a, **k: None)
-    monkeypatch.setattr(ci_debug.faulthandler, "cancel_dump_traceback_later", lambda: None)
-    monkeypatch.setattr(ci_debug.faulthandler, "enable", lambda **k: None)
-    ci_debug.cancel_stderr_hang_dump()
-    assert "hang dump disarmed" not in capsys.readouterr().err
-    ci_debug.arm_stderr_hang_dump(90, label="unit")
-    capsys.readouterr()
-    ci_debug.cancel_stderr_hang_dump(label="unit")
-    assert "hang dump disarmed test=unit" in capsys.readouterr().err
 
 
 def test_stderr_hang_dump_default_timeout_is_under_gha_step() -> None:

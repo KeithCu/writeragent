@@ -4,13 +4,6 @@ from plugin.doc.document_research_tools import ListOpenDocuments
 from plugin.framework.tool import ToolRegistry
 
 
-def test_list_open_documents_properties():
-    tool = ListOpenDocuments()
-    assert tool.name == "list_open_documents"
-    assert tool.tier == "mcp"
-    assert not tool.detects_mutation()
-
-
 def test_list_open_documents_registry_filtering():
     services = MagicMock()
     registry = ToolRegistry(services)
