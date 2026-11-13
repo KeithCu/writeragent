@@ -1515,7 +1515,7 @@ def test_translate_function_arity_errors():
 
 
 def test_translate_row_column():
-    # Bug 3: ROW/COLUMN strips $ and sheet prefix; invalid or missing cell_addr raises unsupported
+    # Bug 3: ROW/COLUMN strips $ and sheet prefix; an unparseable cell_addr raises unsupported
     # Absolute reference with $
     res = translate_formula("=ROW($A$5)", "A1")
     assert res.ok

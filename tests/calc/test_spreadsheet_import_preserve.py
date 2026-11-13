@@ -299,13 +299,13 @@ def test_normalize_preserves_code_and_data_args(value):
 
 
 @pytest.mark.parametrize("formula", ["=PY(broken", "=SUM(A1)"])
-def test_extract_keeps_formula_that_does_not_parse_as_py(formula):
+def test_preserve_keeps_formula_that_does_not_parse_as_py(formula):
     rec = CellRecord("A1", "py_formula", 0.0, formula, None)
     out = output_cell_from_record(rec)
     assert out.formula == formula
 
 
-def test_extract_py_cells_from_model():
+def test_preserve_normalizes_py_cell_from_record():
     rec = CellRecord("B1", "py_formula", 2.0, '=PYTHON("np.sum(data)",A1)', None)
     out = output_cell_from_record(rec)
     assert out.formula is not None

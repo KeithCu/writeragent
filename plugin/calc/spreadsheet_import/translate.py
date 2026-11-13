@@ -140,6 +140,7 @@ def _emit_dim_count(axis: int, node: FunctionNode, state: _CodegenState) -> str:
 
 def _emit_row_col(axis: int, node: FunctionNode, state: _CodegenState) -> str:
     if not node.args:
+        # An address parse_address cannot read fails as unsupported rather than emit a guessed row/column.
         try:
             col_idx, row_idx = parse_address(state.cell_addr.replace("$", ""))
             return f"np.float64({row_idx + 1})" if axis == 0 else f"np.float64({col_idx + 1})"

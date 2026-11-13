@@ -51,4 +51,3 @@ def test_translation_has_cross_sheet_ranges():
     for ref in ["Sheet2.A1", "$Sheet2.$A$1", "'My Sheet'.A1:B3", "Sheet2!A1", "'2024'.F1"]:
         assert translation_has_cross_sheet_ranges([ref]), ref
 
-

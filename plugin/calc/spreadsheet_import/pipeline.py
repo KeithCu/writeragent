@@ -72,7 +72,7 @@ def run_sheet_conversion(
     if scope == "selection":
         range_addr = selection_range_address(doc.getCurrentController().getSelection())
 
-    # 1. Ingest Sheet
+    # Ingest Sheet
     model = ingest_sheet(source_sheet, range_addr=range_addr)
     if preserve_formats:
         enrich_number_formats(source_sheet, model)
@@ -88,10 +88,10 @@ def run_sheet_conversion(
 
     best_effort(_collect_bounds, "collect workbook sheet bounds")
 
-    # 2. Translate and Build Converted Output Model
+    # Translate and Build Converted Output Model
     output, report = build_converted_output_model(model, vectorize=vectorize, sheet_bounds=sheet_bounds)
 
-    # 3. Resolve Target Sheet
+    # Resolve Target Sheet
     if output_mode == "new_sheet":
         sheets = doc.getSheets()
         target_name = _unique_sheet_name(sheets, "PythonImport")
@@ -103,10 +103,10 @@ def run_sheet_conversion(
         cell_range = target_sheet.getCellRangeByPosition(sc, sr, ec, er)
         cell_range.clearContents(_CLEAR_CONTENTS_FLAGS)
 
-    # 4. Apply Output
+    # Apply Output
     apply_output_to_sheet(target_sheet, output)
 
-    # 5. Verify Recalc
+    # Verify Recalc
     failed_verifications = []
     if verify:
         doc.calculateAll()
