@@ -2068,6 +2068,11 @@ def test_set_cell_style_validation():
         assert manipulator.set_cell_style.call_args.kwargs["bg_color"] is None
         assert manipulator.set_cell_style.call_args.kwargs["bold"] is True
 
+        manipulator.reset_mock()
+        res_fmt = _tool("set_style").execute_safe(ctx, range=["A1"], number_format="#,##0.00 ")
+        assert res_fmt["status"] == "ok"
+        assert manipulator.set_cell_style.call_args.kwargs["number_format"] == "#,##0.00 "
+
 
 def test_merge_cells_validation():
     ctx = SimpleNamespace(doc=MagicMock())

@@ -705,7 +705,7 @@ class SetCellStyle(ToolBase):
         raw_fmt = kwargs.get("number_format")
         if raw_fmt is not None and not isinstance(raw_fmt, str):
             return self._tool_error(f"number_format must be a string, got {type(raw_fmt).__name__}", code="INVALID_PARAM")
-        style_kwargs["number_format"] = raw_fmt.strip() or None if isinstance(raw_fmt, str) else None
+        style_kwargs["number_format"] = raw_fmt if raw_fmt and raw_fmt.strip() else None
 
         if len(rn) == 0:
             return self._tool_error("range is required", code="INVALID_PARAM")
@@ -802,6 +802,7 @@ class SortRange(ToolCalcRangeBase):
         manipulator, rn = _manipulator_context(ctx, kwargs["range"])
 
         sort_column: int = kwargs.get("sort_column", 0)
+        # The schema makes sort_column an integer but does not read minimum; refuse negatives here as INVALID_PARAM before any undo group. The width bound lives in range_sort.
         if sort_column < 0:
             return self._tool_error(f"sort_column must be an integer >= 0, got {sort_column}", code="INVALID_PARAM")
 
