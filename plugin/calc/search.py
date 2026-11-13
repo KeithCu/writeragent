@@ -15,6 +15,7 @@ from plugin.calc.spreadsheet_search import (
     iter_target_sheets,
     search_spreadsheet_cells,
 )
+from plugin.framework.errors import ToolExecutionError
 from plugin.writer.search import (
     CASE_SENSITIVE_DESCRIPTION,
     invalid_regex_tool_message,
@@ -26,11 +27,10 @@ if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
 
 
-def _validate_regex(tool: ToolCalcSearchBase, ctx: ToolContext, pattern: str) -> dict[str, Any] | None:
+def _validate_regex(ctx: ToolContext, pattern: str) -> None:
     err = validate_icu_regex(ctx.ctx, pattern)
     if err:
-        return tool._tool_error(invalid_regex_tool_message(err), code="INVALID_REGEX")
-    return None
+        raise ToolExecutionError(invalid_regex_tool_message(err), code="INVALID_REGEX")
 
 
 class SearchInSpreadsheet(ToolCalcSearchBase):
@@ -63,9 +63,7 @@ class SearchInSpreadsheet(ToolCalcSearchBase):
 
         use_regex = kwargs.get("regex", False)
         if use_regex:
-            err = _validate_regex(self, ctx, pattern)
-            if err:
-                return err
+            _validate_regex(ctx, pattern)
 
         case_sensitive = resolve_case_sensitive(kwargs.get("case_sensitive"))
         scope = ctx.send_cancellation
@@ -111,9 +109,7 @@ class ReplaceInSpreadsheet(ToolCalcSearchBase):
 
         use_regex = kwargs.get("regex", False)
         if use_regex:
-            err = _validate_regex(self, ctx, search)
-            if err:
-                return err
+            _validate_regex(ctx, search)
 
         case_sensitive = resolve_case_sensitive(kwargs.get("case_sensitive"))
         total = 0

@@ -85,7 +85,7 @@ def test_search_in_spreadsheet_invalid_regex():
     tool = SearchInSpreadsheet()
     ctx = types.SimpleNamespace(doc=MagicMock(), ctx=MagicMock(), send_cancellation=None)
     ctx.ctx.ServiceManager.createInstanceWithContext.return_value.searchForward.return_value.subRegExpressions = 0
-    res = tool.execute(ctx, pattern="([a-", regex=True)
+    res = tool.execute_safe(ctx, pattern="([a-", regex=True)
     assert res["status"] == "error"
     assert res["code"] == "INVALID_REGEX"
 
@@ -94,6 +94,6 @@ def test_replace_in_spreadsheet_invalid_regex():
     tool = ReplaceInSpreadsheet()
     ctx = types.SimpleNamespace(doc=MagicMock(), ctx=MagicMock())
     ctx.ctx.ServiceManager.createInstanceWithContext.return_value.searchForward.return_value.subRegExpressions = 0
-    res = tool.execute(ctx, search="([a-", replace="x", regex=True)
+    res = tool.execute_safe(ctx, search="([a-", replace="x", regex=True)
     assert res["status"] == "error"
     assert res["code"] == "INVALID_REGEX"

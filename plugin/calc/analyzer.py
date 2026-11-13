@@ -26,7 +26,6 @@ from typing import Any, Sequence
 from plugin.framework.constants import CHAT_DOCUMENT_CONTEXT_MAX_CHARS, truncate_chat_context
 from plugin.framework.errors import (
     DocumentDisposedError,
-    ToolExecutionError,
     UnoObjectError,
     is_disposal,
     uno_read,
@@ -120,56 +119,47 @@ class SheetAnalyzer:
             headers, and optionally chart_count, charts, annotation_count,
             has_merges, shape_count.
         """
-        try:
-            sheet = self.bridge.sheet_or_active(sheet_name)
+        sheet = self.bridge.sheet_or_active(sheet_name)
 
-            range_addr = used_range_address(sheet)
-            start_col = range_addr.StartColumn
-            start_row = range_addr.StartRow
-            end_col = range_addr.EndColumn
-            end_row = range_addr.EndRow
+        range_addr = used_range_address(sheet)
+        start_col = range_addr.StartColumn
+        start_row = range_addr.StartRow
+        end_col = range_addr.EndColumn
+        end_row = range_addr.EndRow
 
-            row_count = end_row - start_row + 1
-            col_count = end_col - start_col + 1
+        row_count = end_row - start_row + 1
+        col_count = end_col - start_col + 1
 
-            used_range = format_range(start_col, start_row, end_col, end_row, collapse_single=False)
+        used_range = format_range(start_col, start_row, end_col, end_row, collapse_single=False)
 
-            header_range = sheet.getCellRangeByPosition(start_col, start_row, end_col, start_row)
-            header_data = header_range.getDataArray()
+        header_range = sheet.getCellRangeByPosition(start_col, start_row, end_col, start_row)
+        header_data = header_range.getDataArray()
 
-            headers: list[str | None] = []
-            for offset, val in enumerate(header_data[0] if header_data else ()):
-                if val is not None and not isinstance(val, str):
-                    # getDataArray gives raw serials; getString is the displayed text (e.g. dates).
-                    val = header_range.getCellByPosition(offset, 0).getString()
-                headers.append(_header_text(val))
+        headers: list[str | None] = []
+        for offset, val in enumerate(header_data[0] if header_data else ()):
+            if val is not None and not isinstance(val, str):
+                # getDataArray gives raw serials; getString is the displayed text (e.g. dates).
+                val = header_range.getCellByPosition(offset, 0).getString()
+            headers.append(_header_text(val))
 
-            result: dict[str, Any] = {
-                "sheet_name": sheet.getName(),
-                "used_range": used_range,
-                "row_count": row_count,
-                "col_count": col_count,
-                "headers": headers,
-            }
+        result: dict[str, Any] = {
+            "sheet_name": sheet.getName(),
+            "used_range": used_range,
+            "row_count": row_count,
+            "col_count": col_count,
+            "headers": headers,
+        }
 
-            if include_extras:
-                charts = uno_read(sheet.getCharts, None)
-                result["chart_count"] = 0 if charts is None else uno_read(charts.getCount, 0)
-                names = () if charts is None else uno_read(charts.getElementNames, ())
-                result["charts"] = list(names or [])
-                result["annotation_count"] = uno_read(lambda: sheet.getAnnotations().getCount(), 0)
-                result["has_merges"] = uno_read(lambda: sheet.getPropertyValue("HasMergedCells"), None)
-                result["shape_count"] = uno_read(lambda: sheet.DrawPage.getCount(), 0)
+        if include_extras:
+            charts = uno_read(sheet.getCharts, None)
+            result["chart_count"] = 0 if charts is None else uno_read(charts.getCount, 0)
+            names = () if charts is None else uno_read(charts.getElementNames, ())
+            result["charts"] = list(names or [])
+            result["annotation_count"] = uno_read(lambda: sheet.getAnnotations().getCount(), 0)
+            result["has_merges"] = uno_read(lambda: sheet.getPropertyValue("HasMergedCells"), None)
+            result["shape_count"] = uno_read(lambda: sheet.DrawPage.getCount(), 0)
 
-            return result
-        except Exception as e:
-            # Re-raise disposal. Wrapping DisposedException as
-            # ToolExecutionError hides it from get_calc_context_for_chat and
-            # from get_sheet_summary (execute_safe then reports
-            # TOOL_EXECUTION_ERROR).
-            if is_disposal(e):
-                raise
-            raise ToolExecutionError(str(e)) from e
+        return result
 
 
 def _internal_tab_header(active_name: str, sheet_name: str) -> str:

@@ -15,7 +15,7 @@ from plugin.calc.address_utils import format_range_address, qualify_a1, split_sh
 from plugin.calc.base import ToolCalcPythonSqlBase
 from plugin.calc.calc_addin_data import check_python_data_size
 from plugin.doc.document_research import get_document_directory, resolve_listing_directory, open_document_for_read, close_document_research_document
-from plugin.framework.errors import CalcError, ToolExecutionError, UnoObjectError, format_error_payload, is_disposal, uno_read
+from plugin.framework.errors import CalcError, ToolExecutionError, UnoObjectError, WriterAgentException, format_error_payload, is_disposal, uno_read
 from plugin.framework.queue_executor import main
 from plugin.scripting.config_limits import configured_python_max_data_cells
 from plugin.scripting.venv.duckdb_sql import (
@@ -305,10 +305,7 @@ def resolve_table_source_a1(model: Any, parsed: dict[str, Any]) -> str:
         bridge = CalcBridge(model)
         sheet_name = parsed.get("sheet")
         if sheet_name:
-            try:
-                target = bridge.get_sheet(str(sheet_name))
-            except UnoObjectError as exc:
-                raise ToolExecutionError(str(exc), code="DUCKDB_SQL_ERROR") from exc
+            target = bridge.get_sheet(str(sheet_name))
         else:
             sheets = model.getSheets()
             if sheets.getCount() < 1:
@@ -480,6 +477,13 @@ def _read_sibling_office_file_as_grid(ctx: Any, full_path: str, parsed: dict[str
 
         try:
             grid = read_model_table_grid(model, parsed)
+        except UnoObjectError as exc:
+            # The bridge's missing-sheet answer keeps its code and similar-name details;
+            # only the file name is added.
+            raise UnoObjectError(
+                f"Sibling spreadsheet {os.path.basename(full_path)!r}: {exc.message}",
+                details=exc.details,
+            ) from exc
         except ToolExecutionError as exc:
             identity = parsed.get("sheet") or parsed.get("named_range")
             raise _sibling_office_error(full_path, str(exc), sheet=str(identity) if identity else None) from exc
@@ -490,7 +494,7 @@ def _read_sibling_office_file_as_grid(ctx: Any, full_path: str, parsed: dict[str
         _maybe_write_ods_cache(model, full_path, opened_flag=opened_flag, entry=entry)
 
         return grid
-    except ToolExecutionError:
+    except WriterAgentException:
         raise
     except Exception as exc:
         if is_disposal(exc):

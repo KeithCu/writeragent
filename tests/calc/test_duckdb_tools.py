@@ -23,7 +23,7 @@ from plugin.calc.duckdb_tools import (
     resolve_table_source_a1,
 )
 from plugin.calc.ods_cache import ODS_CACHE_DIRNAME, cache_entry, write_sidecar_meta, source_stat
-from plugin.framework.errors import DocumentDisposedError, ToolExecutionError
+from plugin.framework.errors import DocumentDisposedError, ToolExecutionError, UnoObjectError
 from plugin.framework.tool import prepare_tool_call
 import pytest
 
@@ -427,13 +427,21 @@ def test_read_sibling_missing_sheet_hint_errors(mock_open, mock_read, _mock_clos
 
     try:
         _read_sibling_office_file_as_grid(object(), str(xlsx), parse_table_source_spec({"file": f"{xlsx.name}#Nope"}))
-    except ToolExecutionError as exc:
+    except UnoObjectError as exc:
         assert "budget.xlsx" in str(exc)
         assert "Nope" in str(exc)
         assert "Actuals" in str(exc)
+        assert "sheet_list" in exc.details["hint"]
     else:
-        raise AssertionError("expected ToolExecutionError for missing sheet hint")
+        raise AssertionError("expected UnoObjectError for missing sheet hint")
     mock_read.assert_not_called()
+
+
+def test_resolve_table_source_a1_missing_sheet_is_uno_object_error():
+    with pytest.raises(UnoObjectError) as exc_info:
+        resolve_table_source_a1(_fake_model(), parse_table_source_spec({"sheet": "Nope"}))
+    assert exc_info.value.code == "UNO_OBJECT_ERROR"
+    assert "Actuals, Summary" in str(exc_info.value)
 
 
 @patch("plugin.calc.duckdb_tools.close_document_research_document")
@@ -1151,6 +1159,25 @@ def test_execute_rejects_table_and_file_with_same_name(
     assert res["status"] == "error"
     assert res["code"] == "DUCKDB_SQL_ERROR"
     assert "sales" in res["message"]
+    mock_run.assert_not_called()
+
+
+@patch("plugin.scripting.client.run_folder_sql")
+@patch("plugin.calc.duckdb_tools.resolve_listing_directory", return_value="/tmp/project")
+@patch(
+    "plugin.calc.duckdb_tools.read_table_source_grid",
+    side_effect=UnoObjectError("No sheet named 'Nope'. Available: Actuals", details={"hint": "h"}),
+)
+def test_execute_missing_sheet_returns_uno_object_error(_mock_read, _mock_resolve, mock_run):
+    ctx = _mk_ctx()
+    res = _tool().execute_safe(
+        ctx,
+        sql="SELECT * FROM t",
+        tables={"t": {"sheet": "Nope"}},
+    )
+    assert res["status"] == "error"
+    assert res["code"] == "UNO_OBJECT_ERROR"
+    assert res["details"]["hint"] == "h"
     mock_run.assert_not_called()
 
 
