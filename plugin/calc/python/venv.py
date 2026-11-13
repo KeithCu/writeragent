@@ -102,7 +102,7 @@ def _unlink_quiet(paths: list[str]) -> None:
         try:
             os.unlink(path)
         except OSError:
-            log.debug("run_venv_python_script: temp image cleanup failed for %s", path, exc_info=True)
+            log.debug("insert_plots_and_report: temp image cleanup failed for %s", path, exc_info=True)
 
 
 def _report_image_paths(out: dict[str, Any], paths: list[str]) -> None:
@@ -149,7 +149,7 @@ def insert_plots_and_report(ctx: ToolContext, images: list[dict[str, Any]], res:
             # silent return is not success.
             main.call(insert_image_result_on_sheet, img, doc=ctx.doc, image_index=i, image_path=path, image_count=len(images))
         except Exception as exc:
-            log.warning("run_venv_python_script: plot insert failed: %s", exc)
+            log.warning("insert_plots_and_report: plot insert failed: %s", exc)
             failures.append(exc)
             failed_paths.append(path)
             continue

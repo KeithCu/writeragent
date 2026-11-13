@@ -10,6 +10,9 @@ import re
 from typing import Any
 
 from plugin.framework.errors import reraise_if_disposed
+from plugin.framework.queue_executor import main
+from plugin.scripting.helper_domain import run_domain
+from plugin.scripting.viz import insert_viz_result_into_doc
 
 AUTO_PLOT_ANALYSIS_HELPERS = frozenset({"run_regression", "cluster_numeric", "monte_carlo", "correlation_matrix"})
 
@@ -30,21 +33,24 @@ def apply_auto_plot_result(
     uno_ctx: Any,
     doc: Any,
 ) -> dict[str, Any]:
-    """Attach plot result, run main-thread image insert, and record image_inserted or plot_error."""
+    """Attach plot result, run main-thread image insert, and record image_inserted, and plot_error on failure."""
     if plot_result is None:
         return result
-    from plugin.framework.queue_executor import main
-    from plugin.scripting.viz import insert_viz_result_into_doc
 
     out = dict(result)
     out["plot"] = plot_result
     if plot_result.get("status") == "ok":
+        # The plot rides on another tool's result: a failed insert must leave the
+        # analysis status ok, and a closed document must propagate.
+        # insert_plots_and_report (python/venv.py) does neither, so this keeps
+        # its own short tail with the same keys (image_inserted, plot_error).
         try:
             main.call(lambda: insert_viz_result_into_doc(uno_ctx, doc, plot_result))
             out["image_inserted"] = True
         except Exception as exc:
             # Propagate document disposal; ordinary insertion errors are recorded on the result.
             reraise_if_disposed(exc, object_type="calc")
+            out["image_inserted"] = False
             out["plot_error"] = str(exc)
     else:
         out["plot_error"] = plot_result.get("message")
@@ -87,6 +93,4 @@ def run_auto_plot_after_analysis(uno_ctx: Any, doc: Any, *, analysis_helper: str
     if request is None:
         return None
     viz_helper, viz_params = request
-    from plugin.scripting.helper_domain import run_domain
-
     return run_domain("viz", uno_ctx, doc, helper=viz_helper, params=viz_params, data_range=data_range, task_hint=task_hint)

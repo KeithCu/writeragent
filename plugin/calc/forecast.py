@@ -7,7 +7,11 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from plugin.calc.analysis import run_calc_data_tool, write_anchor_result
+from plugin.calc.forecast_auto_plot import run_auto_plot_after_forecast
+from plugin.calc.viz_auto_plot import apply_auto_plot_result, task_hint_implies_plot
 from plugin.framework.tool import ToolBaseDummy
+from plugin.scripting.forecast import insert_forecast_result_into_calc
 from plugin.scripting.helper_registry import names, specs
 
 if TYPE_CHECKING:
@@ -49,16 +53,11 @@ class ForecastDataTool(ToolBaseDummy):
         return True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        from plugin.calc.analysis import run_calc_data_tool, write_anchor_result
-        from plugin.scripting.forecast import insert_forecast_result_into_calc
-
         args, result = run_calc_data_tool(ctx, "forecast", kwargs)
         result = write_anchor_result(ctx, result, args.output_range, insert_forecast_result_into_calc)
 
         if result.get("status") == "ok" and ctx.doc_type == "calc":
             auto_plot = bool(kwargs.get("auto_plot", False))
-            from plugin.calc.forecast_auto_plot import run_auto_plot_after_forecast
-            from plugin.calc.viz_auto_plot import apply_auto_plot_result, task_hint_implies_plot
 
             plot_result = None
             if args.helper == "forecast_time_series" and (auto_plot or task_hint_implies_plot(args.task_hint)):
