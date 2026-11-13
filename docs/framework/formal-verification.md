@@ -506,7 +506,7 @@ Maintain a `verification_status.json` file tracking which components have been v
 31. **`plugin/scripting/trusted_rpc.py`** — `parse_worker_dict_result` ([`tests/scripting/test_trusted_rpc.py`](../../tests/scripting/test_trusted_rpc.py))
 32. **`plugin/scripting/editor_errors.py`** — `failure_detail`, `failure_message` ([`tests/scripting/test_scripting_high_value_verification.py`](../../tests/scripting/test_scripting_high_value_verification.py))
 33. **`plugin/scripting/excel_xl.py`** — `make_xl` ([`tests/scripting/test_scripting_high_value_verification.py`](../../tests/scripting/test_scripting_high_value_verification.py))
-34. **`plugin/calc/formula_dep_chain.py`** — `_resolve_sheet_and_cell` ([`tests/calc/test_calc_dep_and_filter_verification.py`](../../tests/calc/test_calc_dep_and_filter_verification.py))
+34. **`plugin/calc/calc_utils.py`** — `resolve_sheet_and_cell` ([`tests/calc/test_calc_dep_and_filter_verification.py`](../../tests/calc/test_calc_dep_and_filter_verification.py))
 35. **`plugin/calc/sheet_filter_criteria.py`** — `filter_connection_code`, `resolve_filter_operator_code`, `parse_sheet_filter_criterion` ([`tests/calc/test_calc_dep_and_filter_verification.py`](../../tests/calc/test_calc_dep_and_filter_verification.py))
 36. **`plugin/calc/excel_py_convert/resolve_refs.py`** — `resolve_dep` ([`tests/calc/test_calc_dep_and_filter_verification.py`](../../tests/calc/test_calc_dep_and_filter_verification.py))
 37. **`plugin/mcp/wire_types.py`** — `parse_jsonrpc_request`, `is_jsonrpc_notification`, `initialize_result`, `call_tool_result_image` ([`tests/mcp/test_mcp_wire_verification.py`](../../tests/mcp/test_mcp_wire_verification.py))

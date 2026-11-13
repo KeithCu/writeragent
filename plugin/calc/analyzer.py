@@ -98,9 +98,9 @@ def _resolve_visible_sheet(model: Any) -> _VisibleSheet:
 class SheetAnalyzer:
     """Analyses the structure and data of a worksheet."""
 
-    bridge: Any
+    bridge: CalcBridge
 
-    def __init__(self, bridge: Any) -> None:
+    def __init__(self, bridge: CalcBridge) -> None:
         """
         Args:
             bridge: CalcBridge instance.
@@ -121,10 +121,7 @@ class SheetAnalyzer:
             has_merges, shape_count.
         """
         try:
-            if sheet_name:
-                sheet = self.bridge.get_sheet(sheet_name)
-            else:
-                sheet = self.bridge.get_active_sheet()
+            sheet = self.bridge.sheet_or_active(sheet_name)
 
             range_addr = used_range_address(sheet)
             start_col = range_addr.StartColumn

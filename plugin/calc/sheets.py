@@ -223,10 +223,7 @@ class ProtectSheet(ToolCalcSheetBase):
 
         doc = ctx.doc
         bridge = CalcBridge(doc)
-        if sheet_name:
-            sheet = bridge.get_sheet(sheet_name)
-        else:
-            sheet = bridge.get_active_sheet()
+        sheet = bridge.sheet_or_active(sheet_name)
 
         actual_name = sheet.getName()
         is_currently_protected = sheet.isProtected()

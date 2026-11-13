@@ -298,7 +298,7 @@ def resolve_table_source_a1(model: Any, parsed: dict[str, Any]) -> str:
     Sheet → current used range. named_range → current NamedRanges /
     DatabaseRanges bounds. range → the frozen A1 the caller stored.
     """
-    from plugin.calc.bridge import CalcBridge, find_named_range, used_range_address
+    from plugin.calc.bridge import CalcBridge, used_range_address
 
     kind = parsed.get("kind")
     if kind == "sheet":
@@ -319,7 +319,7 @@ def resolve_table_source_a1(model: Any, parsed: dict[str, Any]) -> str:
 
     if kind == "named_range":
         name = str(parsed.get("named_range") or "")
-        hit = find_named_range(model, name)
+        hit = CalcBridge(model).find_named_range(name)
         if hit is not None:
             return _named_object_to_qualified_a1(model, hit.named_range, label=f"Named range {name!r}")
         dbr = _lookup_database_range_object(model, name)
