@@ -552,7 +552,7 @@ def test_write_values_grid_cell_error_rejects_mixed_rows():
 def test_set_cell_style_v_align_writes_vert_justify_ints(v_align: str, expected: int):
     bridge = MagicMock()
     cell = MagicMock()
-    bridge.get_cell_by_address.return_value = cell
+    bridge.resolve_range_or_address.return_value = cell
     manipulator = CellManipulator(bridge)
 
     manipulator.set_cell_style("A1", v_align=v_align)
