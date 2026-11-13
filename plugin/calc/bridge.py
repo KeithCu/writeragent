@@ -243,8 +243,9 @@ class CalcBridge:
 
         An unqualified name defined both on the active sheet and in the
         workbook resolves to the sheet-local range, matching Calc.
-        *sheet_name* is the sheet for a bare A1 reference; a prefix wins and a
-        disagreement raises ValueError (as ``resolve``); a named range ignores it.
+        *sheet_name* is the default sheet for an unprefixed A1 reference (e.g. a
+        chart's placement sheet, which is not where its data must live); a sheet
+        prefix on the reference wins without error, and a named range ignores it.
         """
         range_or_address = range_or_address.strip()
         hit = self.find_named_range(range_or_address)
@@ -253,7 +254,8 @@ class CalcBridge:
             if cells is not None:
                 return cells
 
-        sheet, address = self.resolve(range_or_address, sheet_name)
+        prefix, _unused_bare = split_sheet_prefix(range_or_address)
+        sheet, address = self.resolve(range_or_address, None if prefix else sheet_name)
 
         if ":" in address:
             return self.get_cell_range(sheet, address)

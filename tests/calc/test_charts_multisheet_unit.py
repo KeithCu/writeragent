@@ -1309,4 +1309,64 @@ def test_writer_create_rollback_targets_host_assigned_name():
     assert drop_mock.call_args[0][1] == "Object 1"
 
 
+def _two_sheet_calc_doc_for_cross_sheet_charts():
+    sheet1 = MagicMock()
+    sheet1.getName.return_value = "Sheet1"
+    charts = MagicMock()
+    charts.getElementNames.return_value = []
+    chart_obj = MagicMock()
+    chart_doc = MagicMock()
+    chart_obj.getEmbeddedObject.return_value = chart_doc
+    charts.getByName.return_value = chart_obj
+    sheet1.getCharts.return_value = charts
+
+    data_sheet = MagicMock()
+    data_sheet.getName.return_value = "Data"
+    data_range_obj = MagicMock()
+    addr = MagicMock(Sheet=1, StartColumn=0, StartRow=0, EndColumn=1, EndRow=5)
+    data_range_obj.getRangeAddress.return_value = addr
+    data_sheet.getCellRangeByPosition.return_value = data_range_obj
+
+    sheets = MagicMock()
+    sheets.hasByName.side_effect = lambda n: n in ("Sheet1", "Data")
+    sheets.getByName.side_effect = lambda n: sheet1 if n == "Sheet1" else data_sheet
+
+    doc = MagicMock()
+    doc.supportsService.side_effect = lambda s: s == "com.sun.star.sheet.SpreadsheetDocument"
+    doc.getSheets.return_value = sheets
+    doc.getCurrentController.return_value.getActiveSheet.return_value = sheet1
+    return doc, sheet1, data_sheet, charts, chart_obj, chart_doc, addr
+
+
+def test_calc_chart_create_cross_sheet_data_range_on_named_sheet():
+    doc, _sheet1, data_sheet, charts, _chart_obj, chart_doc, addr = _two_sheet_calc_doc_for_cross_sheet_charts()
+    ctx: Any = SimpleNamespace(doc=doc)
+    with (
+        patch("plugin.calc.charts.uno.createUnoStruct", side_effect=_empty_uno_struct),
+        patch("plugin.calc.charts._apply_chart_styling", return_value=[]),
+        patch("plugin.calc.charts._process_events"),
+    ):
+        res = upsert_chart(ChartUpsert(), ctx, chart_type="bar", data_range="Data.A1:B6", sheet="Sheet1")
+
+    assert res["status"] == "ok"
+    data_sheet.getCellRangeByPosition.assert_called_once_with(0, 0, 1, 5)
+    charts.addNewByName.assert_called_once()
+    assert charts.addNewByName.call_args[0][2] == (addr,)
+    assert chart_doc is not None
+
+
+def test_calc_chart_edit_cross_sheet_data_range_from_host_sheet():
+    doc, sheet1, data_sheet, _charts, chart_obj, chart_doc, addr = _two_sheet_calc_doc_for_cross_sheet_charts()
+    ctx: Any = SimpleNamespace(doc=doc)
+    with (
+        patch("plugin.calc.charts._lookup_chart", return_value=ChartLookup(ref=ChartRef(chart_obj, sheet1, "calc_sheet"))),
+        patch("plugin.calc.charts._chart_document_from_host", return_value=chart_doc),
+    ):
+        res = upsert_chart(ChartUpsert(), ctx, name="Chart_0", data_range="Data.A1:B6")
+
+    assert res["status"] == "ok"
+    data_sheet.getCellRangeByPosition.assert_called_once_with(0, 0, 1, 5)
+    chart_obj.setRanges.assert_called_once_with((addr,))
+
+
 

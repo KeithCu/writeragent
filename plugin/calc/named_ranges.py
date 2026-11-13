@@ -505,12 +505,10 @@ class NamedRangeCreateFromTitles(ToolCalcRangeBase):
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         bridge = CalcBridge(ctx.doc)
-        ranges = range_args(kwargs.get("range"))
-        if not ranges:
-            return self._tool_error("range is required", code="INVALID_ARGUMENT")
-        if len(ranges) > 1:
-            return self._tool_error("Pass exactly one range.", code="INVALID_ARGUMENT")
-        range_str = ranges[0].strip()
+        try:
+            range_str = range_args(kwargs.get("range"), exactly_one=True)[0]
+        except UnoObjectError as exc:
+            return self._tool_error(str(exc), code="INVALID_ARGUMENT")
         border_present = kwargs.get("border", "top")
         border_str = "top" if border_present is None or not str(border_present).strip() else border_present
         border_clean = str(border_str).strip().upper()

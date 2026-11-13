@@ -515,4 +515,21 @@ def test_resolve_range_or_address_named_range_ignores_sheet_name():
     assert CalcBridge(doc).resolve_range_or_address("Totals", sheet_name="Data") is cells
 
 
+def test_resolve_range_or_address_prefixed_range_wins_over_sheet_name():
+    active = _sheet("Sheet1")
+    data = _sheet("Data")
+    sentinel = object()
+    data.getCellRangeByPosition.return_value = sentinel
+
+    doc = MagicMock()
+    doc.getCurrentController.return_value.getActiveSheet.return_value = active
+    sheets = MagicMock()
+    sheets.hasByName.side_effect = lambda n: n == "Data"
+    sheets.getByName.side_effect = lambda n: data
+    doc.getSheets.return_value = sheets
+
+    assert CalcBridge(doc).resolve_range_or_address("Data.A1:B2", sheet_name="Sheet1") is sentinel
+    data.getCellRangeByPosition.assert_called_once_with(0, 0, 1, 1)
+
+
 

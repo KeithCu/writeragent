@@ -270,6 +270,13 @@ def test_chart_from_named_data_range(ctx, doc):
 
         res_edit = _execute_calc_tool(doc, ctx, "chart_upsert", {"name": chart_name, "data_range": "ChartData"})
         assert res_edit.get("status") == "ok", f"chart_upsert edit failed: {res_edit}"
+
+        named_ranges.removeByName("ChartData")
+        named_ranges.addNewByName("ChartData", "$Sheet1.$A$1:$B$4", CellAddress(Sheet=0, Column=0, Row=0), 0)
+        res_edit2 = _execute_calc_tool(doc, ctx, "chart_upsert", {"name": chart_name, "data_range": "ChartData"})
+        assert res_edit2.get("status") == "ok", f"chart_upsert edit2 failed: {res_edit2}"
+        addr2 = chart_obj.getRanges()[0]
+        assert (addr2.StartColumn, addr2.StartRow, addr2.EndColumn, addr2.EndRow) == (0, 0, 1, 3)
     finally:
         if chart_name is not None:
             _execute_calc_tool(doc, ctx, "chart_delete", {"name": chart_name})
