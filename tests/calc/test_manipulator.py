@@ -10,7 +10,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from plugin.framework.errors import CalcError, UnoObjectError
-from plugin.calc.manipulator import CellManipulator, _coerce_array_flag
+from plugin.calc.manipulator import CellManipulator, WritePlan
 
 
 def _used(start_row: int, end_row: int, end_col: int) -> SimpleNamespace:
@@ -356,7 +356,7 @@ def test_oversized_write_raises_limit():
     with patch("plugin.calc.manipulator._uno_range_address", return_value=exact_addr):
         with patch("plugin.calc.manipulator.resolve_document_locale", return_value=MagicMock()):
             res = manipulator.write_formula_range("A1:range", ["1"] * MAX_WRITE_CELLS)
-            assert "filled with" in res
+            assert "filled with" in res["message"]
 
 
 def test_array_preview_capped():
@@ -464,33 +464,47 @@ def test_quiet_probe_cleanup():
     quiet_probe_cleanup(raise_val_error, "test_swallowed")
 
 
-def test_coerce_array_flag_string_regression():
-    # Item 3: String like "false" must not count as True.
-    assert _coerce_array_flag("false") is False
-    assert _coerce_array_flag("False") is False
-    assert _coerce_array_flag(" FALSE ") is False
-    assert _coerce_array_flag("true") is True
-    assert _coerce_array_flag("True") is True
-    assert _coerce_array_flag(False) is False
-    assert _coerce_array_flag(True) is True
-    assert _coerce_array_flag(None) is None
-
-
-def test_plan_write_string_false_does_not_force_array():
-    # Regression: array="false" must coerce to False, disabling forced array behavior
+def test_plan_write_array_false_does_not_force_array():
     bridge = MagicMock()
     cell_range = MagicMock()
     cell_range.getRangeAddress.return_value = SimpleNamespace(StartColumn=0, EndColumn=0, StartRow=0, EndRow=4, Sheet=0)
     bridge.resolve_range_or_address.return_value = cell_range
     manipulator = CellManipulator(bridge)
 
-    plan = manipulator.plan_write("A1:A5", "=A1+1", array="false")
+    plan = manipulator.plan_write("A1:A5", "=A1+1", array=False)
     assert plan.kind == "cells"
     assert plan.array_size is None
 
-    plan_sort = manipulator.plan_write("A1:A5", "=SORT(B1:B5)", array="false")
+    plan_sort = manipulator.plan_write("A1:A5", "=SORT(B1:B5)", array=False)
     assert plan_sort.kind == "cells"
     assert plan_sort.array_size is None
+
+
+def test_commit_write_always_returns_a_message_record():
+    from plugin.calc.manipulator import MAX_WRITE_CELLS
+
+    bridge = MagicMock()
+    manipulator = CellManipulator(bridge)
+
+    with patch.object(manipulator, "clear_range") as mock_clear:
+        clear_res = manipulator.commit_write(WritePlan("clear", "A1:B2"))
+    mock_clear.assert_called_once_with("A1:B2")
+    assert clear_res == {"message": "Range A1:B2 cleared."}
+
+    exact_addr = SimpleNamespace(StartColumn=0, EndColumn=MAX_WRITE_CELLS - 1, StartRow=0, EndRow=0, Sheet=0)
+    mock_range = MagicMock()
+    mock_sheet = MagicMock()
+    mock_range.getSpreadsheet.return_value = mock_sheet
+    mock_range.getDataArray.return_value = ()
+    bridge.resolve_range_or_address.return_value = mock_range
+    bridge.doc.getNumberFormats.return_value = MagicMock()
+    bridge.doc.getSheets.return_value.getByIndex.return_value = mock_sheet
+
+    with patch("plugin.calc.manipulator._uno_range_address", return_value=exact_addr):
+        with patch("plugin.calc.manipulator.resolve_document_locale", return_value=MagicMock()):
+            res = manipulator.write_formula_range("A1:range", ["1"] * MAX_WRITE_CELLS)
+    assert set(res) == {"message"}
+    assert "filled with" in res["message"]
 
 
 def test_plan_write_shape_comes_from_the_resolved_named_box():

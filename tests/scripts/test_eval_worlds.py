@@ -160,9 +160,9 @@ def test_read_cell_range_matches_grid_to_rows() -> None:
     res = calc.read_cell_range(range=["A1:B2"])
     expected = grid_to_rows(calc._inspector_grid("A1:B2"), range_name="A1:B2")
     assert res["status"] == "ok"
-    assert res["range"] == "A1:B2"
-    assert res["result"][0] == expected
-    assert res["result"][0]["formulas"] == {"B2": "=A2+1"}
+    assert "range" not in res
+    assert res["result"][0] == {"status": "ok", "range": "A1:B2", "result": [expected]}
+    assert res["result"][0]["result"][0]["formulas"] == {"B2": "=A2+1"}
 
 
 def test_read_cell_range_multi_range_envelope() -> None:
@@ -171,5 +171,6 @@ def test_read_cell_range_multi_range_envelope() -> None:
     assert res["status"] == "ok"
     assert "range" not in res
     assert len(res["result"]) == 2
+    assert res["result"][0]["status"] == "ok"
     assert res["result"][0]["range"] == "A1"
     assert res["result"][1]["range"] == "B1"

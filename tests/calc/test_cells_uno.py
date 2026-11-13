@@ -12,6 +12,10 @@ from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import execute_calc_tool as _execute_calc_tool, with_native_doc
 
 
+def _range_payload(res):
+    return res["result"][0]["result"][0]
+
+
 @native_test
 @with_native_doc("calc")
 def test_set_cell_style_bold_and_background(ctx, doc):
@@ -72,7 +76,7 @@ def test_read_cell_range(ctx, doc):
     result_data = res.get("result", [])
     assert len(result_data) == 1, "Expected list of 1 result for 1 range"
 
-    payload = result_data[0]
+    payload = result_data[0]["result"][0]
     assert payload["origin"] == "A1"
     assert payload["range"] == "A1:C3"
     assert len(payload["rows"]) == 3
@@ -122,7 +126,7 @@ def test_read_cell_range_date_time_enrichment(ctx, doc):
 
     res = _execute_calc_tool(doc, ctx, "read_cell_range", {"range": ["A21:E21"]})
     assert res.get("status") == "ok", f"read_cell_range failed: {res}"
-    payload = res["result"][0]
+    payload = _range_payload(res)
     row = payload["rows"][0]
 
     assert row[0] == "2026-08-06"
@@ -144,7 +148,7 @@ def test_read_cell_range_date_time_enrichment(ctx, doc):
     cells_res = _execute_calc_tool(
         doc, ctx, "read_cell_range", {"range": ["A21:E21"], "format": "cells"}
     )
-    cells_row = cells_res["result"][0][0]
+    cells_row = _range_payload(cells_res)[0]
     assert cells_row[0]["format_category"] == "date"
     assert cells_row[0]["format_code"] == "YYYY-MM-DD"
 
@@ -314,7 +318,7 @@ def test_read_after_write_stability(ctx, doc):
     # 2. Read back
     res_read = _execute_calc_tool(doc, ctx, "read_cell_range", {"format": "cells", "range": "Z1:Z2"})
     assert res_read.get("status") == "ok", f"read_cell_range failed: {res_read}"
-    grid = res_read.get("result", [])[0]
+    grid = _range_payload(res_read)
     assert grid[0][0]["value"] == "Apple", f"Expected Apple, got {grid[0][0]['value']}"
     assert grid[1][0]["value"] == "Banana", f"Expected Banana, got {grid[1][0]['value']}"
 
@@ -323,7 +327,7 @@ def test_read_after_write_stability(ctx, doc):
     assert res_merge.get("status") == "ok", f"merge_cells failed: {res_merge}"
     res_read_merged = _execute_calc_tool(doc, ctx, "read_cell_range", {"format": "cells", "range": "Z1:Z2"})
     assert res_read_merged.get("status") == "ok", f"read_cell_range after merge failed: {res_read_merged}"
-    grid_merged = res_read_merged.get("result", [])[0]
+    grid_merged = _range_payload(res_read_merged)
     # In LibreOffice, the top-left cell of a merged range keeps the value
     assert grid_merged[0][0]["value"] == "Apple", f"Expected Apple in merged range, got {grid_merged[0][0]['value']}"
 
@@ -348,7 +352,7 @@ def test_elapsed_time_over_24h_reads_as_duration(ctx, doc):
 
     res = _execute_calc_tool(doc, ctx, "read_cell_range", {"format": "cells", "range": ["A31"]})
     assert res.get("status") == "ok", res
-    info = res["result"][0][0][0]
+    info = _range_payload(res)[0][0]
     assert info["value"] == "PT30H", f"expected duration wire, got {info}"
     assert info["type"] == "duration"
     assert info["format_category"] == "duration"
@@ -368,7 +372,7 @@ def test_write_and_read_date_time_cells(ctx, doc):
 
     read_res = _execute_calc_tool(doc, ctx, "read_cell_range", {"format": "cells", "range": ["A26:B26"]})
     assert read_res.get("status") == "ok", read_res
-    row = read_res["result"][0][0]
+    row = _range_payload(read_res)[0]
 
     assert row[0]["value"] == "2026-08-08"
     assert row[0]["type"] == "date"
@@ -393,7 +397,7 @@ def test_write_iso_mixed_with_formula_same_as_constants(ctx, doc):
     assert "1 date" in msg and "1 time" in msg and "1 formula" in msg, msg
 
     read_res = _execute_calc_tool(doc, ctx, "read_cell_range", {"format": "cells", "range": ["A32:C32"]})
-    row = read_res["result"][0][0]
+    row = _range_payload(read_res)[0]
     assert row[0]["value"] == "2026-08-08" and row[0]["type"] == "date"
     assert row[1]["value"] == "08:00:00" and row[1]["type"] == "time"
     assert row[2]["formula"] == "=A32+1"
@@ -421,7 +425,7 @@ def test_write_preserves_compatible_date_format(ctx, doc):
     assert int(cell.getPropertyValue("NumberFormat")) == prior_key
 
     read_res = _execute_calc_tool(doc, ctx, "read_cell_range", {"format": "cells", "range": ["A34"]})
-    info = read_res["result"][0][0][0]
+    info = _range_payload(read_res)[0][0]
     assert info["type"] == "date"
     assert info["value"] == "2026-08-08"
 
@@ -457,7 +461,7 @@ def test_write_iso_into_text_format_applies_temporal(ctx, doc):
     )
     assert res.get("status") == "ok", res
     read_res = _execute_calc_tool(doc, ctx, "read_cell_range", {"format": "cells", "range": ["C34"]})
-    info = read_res["result"][0][0][0]
+    info = _range_payload(read_res)[0][0]
     assert info["value"] == "2026-08-08"
     assert info["type"] == "date"
 
@@ -481,7 +485,7 @@ def test_write_iso_date_time_with_guarded_doc(ctx, doc):
     assert res.get("status") == "ok", res
 
     read_res = _execute_calc_tool(guarded, ctx, "read_cell_range", {"format": "cells", "range": ["A36:B36"]})
-    row = read_res["result"][0][0]
+    row = _range_payload(read_res)[0]
     assert row[0]["value"] == "2026-08-08" and row[0]["type"] == "date", row[0]
     assert row[1]["value"] == "08:00:00" and row[1]["type"] == "time", row[1]
 
@@ -559,7 +563,7 @@ def test_write_midnight_datetime_preserves_date_format(ctx, doc):
     assert int(cell.getPropertyValue("NumberFormat")) == prior_key
 
     read_res = _execute_calc_tool(doc, ctx, "read_cell_range", {"format": "cells", "range": ["A35"]})
-    info = read_res["result"][0][0][0]
+    info = _range_payload(read_res)[0][0]
     assert info["type"] == "date"
     assert info["value"] == "2026-08-08"
 
@@ -584,7 +588,7 @@ def test_write_non_midnight_datetime_applies_into_date_format(ctx, doc):
     assert int(cell.getPropertyValue("NumberFormat")) != prior_key
 
     read_res = _execute_calc_tool(doc, ctx, "read_cell_range", {"format": "cells", "range": ["B35"]})
-    info = read_res["result"][0][0][0]
+    info = _range_payload(read_res)[0][0]
     assert info["type"] == "datetime"
     assert info["value"] == "2026-08-08T08:00:00"
 
@@ -669,7 +673,7 @@ def test_write_read_iso_round_trip_with_non_default_null_date(ctx, doc):
         assert abs(serial - 44780.0) < 1e-6, f"expected 1904-epoch serial, got {serial}"
 
         read_res = _execute_calc_tool(doc, ctx, "read_cell_range", {"format": "cells", "range": ["A38"]})
-        info = read_res["result"][0][0][0]
+        info = _range_payload(read_res)[0][0]
         assert info["value"] == "2026-08-08"
         assert info["type"] == "date"
         assert info["format_category"] == "date"
@@ -691,7 +695,7 @@ def test_write_iso_date_column_formats_all_cells(ctx, doc):
 
     read_res = _execute_calc_tool(doc, ctx, "read_cell_range", {"format": "cells", "range": ["A40:A42"]})
     assert read_res.get("status") == "ok", read_res
-    col = [row[0] for row in read_res["result"][0]]
+    col = [row[0] for row in _range_payload(read_res)]
     assert [c["value"] for c in col] == ["2026-08-08", "2026-08-09", "2026-08-10"]
     assert all(c["type"] == "date" and c["format_category"] == "date" for c in col)
 
@@ -718,7 +722,7 @@ def test_write_and_read_duration_pt30h(ctx, doc):
     assert is_elapsed_format_string(props.getPropertyValue("FormatString"))
 
     read_res = _execute_calc_tool(doc, ctx, "read_cell_range", {"format": "cells", "range": ["A43"]})
-    info = read_res["result"][0][0][0]
+    info = _range_payload(read_res)[0][0]
     assert info["value"] == "PT30H"
     assert info["type"] == "duration"
     assert info["format_category"] == "duration"
@@ -761,7 +765,7 @@ def test_write_and_read_duration_pt1h30m(ctx, doc):
     assert abs(cell.getValue() - (1.5 / 24.0)) < 1e-9
 
     read_res = _execute_calc_tool(doc, ctx, "read_cell_range", {"format": "cells", "range": ["C43"]})
-    info = read_res["result"][0][0][0]
+    info = _range_payload(read_res)[0][0]
     assert info["value"] == "PT1H30M"
     assert info["type"] == "duration"
     assert info["format_category"] == "duration"
