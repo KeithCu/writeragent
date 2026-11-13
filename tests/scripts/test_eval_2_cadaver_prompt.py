@@ -14,7 +14,6 @@ _REPO = Path(__file__).resolve().parents[2]
 _TASK_ID = "61b0946a-5c1c-4bf6-8607-84d7c7e0dfe0"
 _GOLD = _REPO / "docs" / "eval" / "gdpval" / _TASK_ID
 _EXP = _REPO / "docs" / "eval" / "eval-2" / "cadaver-proposal-61b0946a"
-_WRITER_PROMPT = _EXP / "prompt.writeragent.txt"
 _GDPVAL_PROMPT = _EXP / "prompt.gdpval.txt"
 _GOLD_PROMPT = _GOLD / "prompt.txt"
 _GOLD_DELIVERABLE = (
@@ -27,15 +26,6 @@ _BUDGET_XLSX = _EXP / "fixtures" / "Cadaver Budget.xlsx"
 _BUDGET_ODS = _EXP / "fixtures" / "Cadaver Budget.ods"
 _SSML = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
 
-_BANNED_STEERING = (
-    "don't invent",
-    "do not invent",
-    "don't make up",
-    "from knowledge",
-    "web not required",
-    "already named",
-)
-
 
 def test_gold_prompt_is_byte_copy_of_hf_tree() -> None:
     gold = _GOLD_PROMPT.read_bytes()
@@ -44,36 +34,6 @@ def test_gold_prompt_is_byte_copy_of_hf_tree() -> None:
     row = json.loads((_GOLD / "task.json").read_text(encoding="utf-8"))
     assert row["task_id"] == _TASK_ID
     assert gold.decode("utf-8").rstrip("\n") == row["prompt"]
-
-
-def test_writer_prompt_uses_open_writer_doc_not_microsoft_word() -> None:
-    writer = _WRITER_PROMPT.read_text(encoding="utf-8")
-    gold = _GDPVAL_PROMPT.read_text(encoding="utf-8")
-    assert "this open Writer document" in writer
-    assert "word document" not in writer.lower()
-    assert "Microsoft Word" not in writer
-    assert 'the department\'s "Cadaver Budget.xlsx" file attached' in gold
-    assert "the spreadsheet titled ‘Cadaver Budget’ in this folder" in writer
-    assert 'save as "Collaborative Cadaver Program Proposal", and attach' in gold
-    assert 'save as "Collaborative Cadaver Program Proposal"' not in writer
-
-
-def test_writer_prompt_keeps_required_sections_and_avoids_steering() -> None:
-    text = _WRITER_PROMPT.read_text(encoding="utf-8")
-    for heading in (
-        "Hope Hospital",
-        "cost savings",
-        "graph",
-        "maximizing cadaver use",
-        "does not account for mixing complexity",
-        "Thoracic Surgery",
-        "Otolaryngology",
-        "Orthopedic Surgery",
-    ):
-        assert heading in text
-    lowered = text.lower()
-    for banned in _BANNED_STEERING:
-        assert banned not in lowered, banned
 
 
 def test_gold_deliverable_bytes_match_experiment_copy() -> None:

@@ -304,6 +304,10 @@ is derived from the recorded USD.
    .venv/bin/python scripts/plot_eval2_leaderboard.py --print-matrix
    ```
 
+   `tests/scripts/test_plot_eval2_leaderboard.py` checks the JSON against
+   the schema and the loader, but pins no individual cell, so a new row
+   needs only the JSON, the regenerated charts and the pasted matrix.
+
 5. Paste the printed matrix into the snapshot table above if the
    cells changed. `--print-matrix` also prints the HAPPY cost table
    and the hard → partial → cost ranking. Update `updated` in the

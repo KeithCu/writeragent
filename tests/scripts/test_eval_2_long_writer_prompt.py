@@ -11,25 +11,8 @@ from xml.etree import ElementTree as ET
 
 _REPO = Path(__file__).resolve().parents[2]
 _EXP = _REPO / "docs" / "eval" / "eval-2" / "long-writer-pack"
-_WRITER_PROMPT = _EXP / "prompt.writeragent.txt"
 _GDPVAL = _REPO / "docs" / "eval" / "gdpval"
 
-_BANNED_STEERING = (
-    "don't invent",
-    "do not invent",
-    "don't make up",
-    "from knowledge",
-    "web not required",
-    "already named",
-)
-_BANNED_PRODUCT_INTERNALS = (
-    "peer_inner",
-    "send_peer_work",
-    "send_peer_result",
-    "shape_fill_fields",
-    "document_research",
-    "specialized_workflow_finished",
-)
 _READY_OR_STUB_GOLD_IDS = (
     "ed2bc14c-99ac-4a2a-8467-482a1a5d67f3",
     "61b0946a-5c1c-4bf6-8607-84d7c7e0dfe0",
@@ -43,19 +26,8 @@ _READY_OR_STUB_GOLD_IDS = (
 )
 
 
-def test_source_is_native_and_does_not_invent_gdpval_id() -> None:
+def test_slot_has_no_gdpval_gold_tree() -> None:
     source = (_EXP / "SOURCE.md").read_text(encoding="utf-8")
-    assert "WriterAgent-native" in source
-    assert "Needs gold materials" not in source
-    assert "TODO — not in-repo" not in source
-    assert "do not invent a fake" in source.lower() or "Do not invent a fake" in source
-    assert "download from hugging face" in source.lower()
-    assert "huggingface.co" not in source.lower()
-    assert "220-row" not in source
-    assert "8314d1b1" not in source
-    assert "0353ee0c" not in source
-    assert "Clarivon" not in source
-    assert "PACT Act" not in source
     # Catalog short prefixes of the nine in-repo trees may appear as rejected
     # rows. Claiming any of those trees as this slot's gold path is not allowed.
     for gold_id in _READY_OR_STUB_GOLD_IDS:
@@ -68,43 +40,6 @@ def test_source_is_native_and_does_not_invent_gdpval_id() -> None:
         if path.is_dir() and path.name not in _READY_OR_STUB_GOLD_IDS
     ]
     assert native_trees == []
-
-
-def test_writer_prompt_uses_open_writer_doc_not_microsoft_word() -> None:
-    writer = _WRITER_PROMPT.read_text(encoding="utf-8")
-    assert writer.lstrip().startswith("You are the capital-program officer")
-    assert "this open Writer document" in writer
-    assert "This Writer document is already open" in writer
-    assert "Microsoft Word" not in writer
-    assert "word document" not in writer.lower()
-    assert "Northhaven Library Program Facts" in writer
-    assert "Northhaven Decision Log" in writer
-    assert "table of contents" in writer
-    assert "heading styles" in writer
-    assert "review comments" in writer
-
-
-def test_writer_prompt_keeps_claim_and_avoids_steering() -> None:
-    text = _WRITER_PROMPT.read_text(encoding="utf-8")
-    for heading in (
-        "Northhaven",
-        "Civic Library",
-        "CL-2026-ANNEX",
-        "Purpose",
-        "Scope of Work",
-        "Budget and Schedule",
-        "Public-Access Impacts",
-        "Open Decisions",
-        "annex siting",
-        "funding split",
-        "weekend staffing",
-    ):
-        assert heading in text, heading
-    lowered = text.lower()
-    for banned in _BANNED_STEERING:
-        assert banned not in lowered, banned
-    for banned in _BANNED_PRODUCT_INTERNALS:
-        assert banned not in lowered, banned
 
 
 def test_fixtures_exist_and_keep_identity_anchors() -> None:

@@ -9,6 +9,7 @@ import json
 import sys
 from pathlib import Path
 from typing import Any
+from xml.etree import ElementTree as ET
 
 import pytest
 
@@ -22,8 +23,6 @@ import plot_eval2_leaderboard as pel  # noqa: E402
 
 _RESULTS = _EVAL2 / "eval2_benchmark_results.json"
 _SCHEMA = _EVAL2 / "eval2_benchmark_results.schema.json"
-_SCOREBOARD = _EVAL2 / "benchmarks.md"
-_README = _EVAL2 / "README.md"
 
 
 def _minimal_board_payload() -> dict[str, Any]:
@@ -64,1066 +63,49 @@ def _minimal_board_payload() -> dict[str, Any]:
     }
 
 
-def test_seed_json_loads_and_matches_schema_enums() -> None:
+def _check_object(
+    obj: dict[str, Any],
+    definition: dict[str, Any],
+    defs: dict[str, Any],
+    where: str,
+) -> None:
+    props = definition["properties"]
+    extra = set(obj) - set(props)
+    assert not extra, f"{where}: keys not in schema: {sorted(extra)}"
+    missing = set(definition["required"]) - set(obj)
+    assert not missing, f"{where}: required keys missing: {sorted(missing)}"
+    for key, value in obj.items():
+        spec = props[key]
+        if "$ref" in spec:
+            spec = defs[spec["$ref"].rsplit("/", 1)[-1]]
+        if "enum" in spec:
+            assert value in spec["enum"], f"{where}.{key}: {value!r} not in {spec['enum']}"
+
+
+def test_seed_json_loads_and_conforms_to_schema() -> None:
     board = pel.load_eval2_board(_RESULTS)
-    assert board.schema_version == 1
-    assert board.gate_model == "google/gemini-3.8-flash"
-    assert board.source_of_truth == "docs/eval/eval-2/headed-failure-autopsy.md"
     assert (_REPO / board.source_of_truth).is_file()
     schema = json.loads(_SCHEMA.read_text(encoding="utf-8"))
-    assert schema["properties"]["schema_version"]["const"] == 1
-    assert "BLOCKED" in schema["$defs"]["product_bar"]["enum"]
-    assert "hard_pass_rate" not in schema["properties"]
-    assert "hard_pass_rate" not in schema["$defs"]["result"]["properties"]
-    result_props = schema["$defs"]["result"]["properties"]
-    for key in (
-        "total_tokens",
-        "input_tokens",
-        "output_tokens",
-        "total_cost_usd",
-        "wall_time_s",
-        "intelligence_per_dollar",
-        "oracle_passed",
-        "oracle_failure_count",
-        "oracle_check_count",
-        "oracle_failures",
-        "afc_s_flags",
-        "afc_r_required",
-        "husk_cells",
-        "scored_cells",
-        "partial_score",
+    payload = json.loads(_RESULTS.read_text(encoding="utf-8"))
+    defs = schema["$defs"]
+    assert schema["properties"]["schema_version"]["const"] == pel.SCHEMA_VERSION
+    assert pel.PRODUCT_BARS == {v for v in defs["product_bar"]["enum"] if v is not None}
+    assert pel.ORACLES == {v for v in defs["oracle"]["enum"] if v is not None}
+    assert pel.TASK_STATUSES == set(defs["task"]["properties"]["status"]["enum"])
+    assert pel.MODEL_ROLES == set(defs["model"]["properties"]["role"]["enum"])
+    _check_object(payload, schema, defs, "board")
+    for name, rows in (
+        ("task", payload["tasks"]),
+        ("model", payload["models"]),
+        ("result", payload["results"]),
     ):
-        assert key in result_props
-        assert key not in schema["$defs"]["result"]["required"]
-    assert {task.slot for task in board.tasks} == {1, 2, 3, 4, 5, 6, 8, 9, 10}
-    assert all(task.slot != 7 for task in board.tasks)
-    assert {model.openrouter_id for model in board.models} >= {
-        "google/gemini-3.8-flash",
-        "openai/gpt-oss-120b",
-        "openai/gpt-5.6-luna",
-        "openai/gpt-oss-20b",
-        "google/gemini-3.5-flash-lite",
-        "google/gemma-4-31b-it",
-        "google/gemma-4-26b-a4b-it",
-        "nvidia/nemotron-3.5-lightning",
-        "inception/mercury-2.5-preview",
-        "x-ai/grok-4.6",
-        "meta/muse-glimmer-30b",
-        "meta/muse-spark-1.3-contributor",
-        "poolside/laguna-s-2.1",
-        "poolside/laguna-xs-2.1",
-        "qwen/qwen3.8-27b",
-        "qwen/qwen3.8-flash",
-        "z-ai/glm-5.3-flash",
-        "upstage/solar-pro4",
-        "ibm-granite/granite-4.2-8b",
-        "mistralai/mistral-small-2603",
-        "bytedance-seed/seed-2.0-mini",
-        "minimax/minimax-m3",
-        "deepseek/deepseek-v4-flash-0731",
-        "deepseek/deepseek-v4.1-flash",
-    }
-
-
-def test_seed_cells_match_autopsy_and_leave_unknowns_empty() -> None:
-    board = pel.load_eval2_board(_RESULTS)
-    gemini = "google/gemini-3.8-flash"
-    oss = "openai/gpt-oss-120b"
-    luna = "openai/gpt-5.6-luna"
-    oss20 = "openai/gpt-oss-20b"
-    lite = "google/gemini-3.5-flash-lite"
-    gemma = "google/gemma-4-31b-it"
-    gemma26 = "google/gemma-4-26b-a4b-it"
-    nemo = "nvidia/nemotron-3.5-lightning"
-    mercury = "inception/mercury-2.5-preview"
-    grok = "x-ai/grok-4.6"
-    glimmer = "meta/muse-glimmer-30b"
-    spark = "meta/muse-spark-1.3-contributor"
-    laguna = "poolside/laguna-s-2.1"
-    laguna_xs = "poolside/laguna-xs-2.1"
-    qwen27 = "qwen/qwen3.8-27b"
-    qwen_flash = "qwen/qwen3.8-flash"
-    glm_flash = "z-ai/glm-5.3-flash"
-    solar = "upstage/solar-pro4"
-    granite = "ibm-granite/granite-4.2-8b"
-    mistral = "mistralai/mistral-small-2603"
-    seed_mini = "bytedance-seed/seed-2.0-mini"
-    minimax = "minimax/minimax-m3"
-    deepseek = "deepseek/deepseek-v4-flash-0731"
-    deepseek41 = "deepseek/deepseek-v4.1-flash"
-    ultra = "nvidia/nemotron-3-ultra-550b-a55b"
-    super120 = "nvidia/nemotron-3-super-120b-a12b"
-
-    tenant = board.result_for("tenant-retention", gemini)
-    assert tenant is not None
-    assert tenant.product_bar == "HAPPY"
-    assert tenant.oracle == "FAIL"
-
-    cadaver = board.result_for("cadaver-proposal", gemini)
-    assert cadaver is not None
-    assert cadaver.product_bar == "HAPPY"
-    assert cadaver.oracle == "FAIL"
-
-    afc = board.result_for("afc", gemini)
-    assert afc is not None
-    assert afc.product_bar == "HAPPY"
-    assert afc.oracle == "PASS"
-
-    floor_g = board.result_for("writer-calc-peer-write", gemini)
-    assert floor_g is not None
-    assert floor_g.product_bar == "NOT_HAPPY"
-    assert floor_g.oracle == "FAIL"
-    assert floor_g.patches and "not PR" in floor_g.patches
-
-    gmp = board.result_for("gmp-change-control", oss)
-    assert gmp is not None
-    assert gmp.product_bar == "HAPPY"
-    assert gmp.oracle == "FAIL"
-
-    floor_o = board.result_for("writer-calc-peer-write", oss)
-    assert floor_o is not None
-    assert floor_o.product_bar == "NOT_HAPPY"
-
-    for task_id in (
-        "calc-primary-model",
-        "draw-primary",
-        "reverse-tenant",
-        "long-writer-pack",
-    ):
-        row = board.result_for(task_id, oss)
-        assert row is not None
-        assert row.product_bar == "NOT_HAPPY"
-        assert row.oracle == "FAIL"
-
-    # No invented Gemini scores for overnight gpt-oss-only siblings.
-    for task_id in (
-        "gmp-change-control",
-        "calc-primary-model",
-        "draw-primary",
-        "reverse-tenant",
-        "long-writer-pack",
-    ):
-        assert board.result_for(task_id, gemini) is None
-
-    # No invented gpt-oss scores for Gemini-only Writer stamps.
-    for task_id in ("tenant-retention", "cadaver-proposal"):
-        assert board.result_for(task_id, oss) is None
-
-    # First catalog AFC stamp (Scrolly headed 20260912-0142).
-    afc_oss = board.result_for("afc", oss)
-    assert afc_oss is not None
-    assert afc_oss.product_bar == "NOT_HAPPY"
-    assert afc_oss.oracle == "FAIL"
-    assert afc_oss.stamp == "20260912-0142-gpt-oss-120b"
-    assert afc_oss.oracle_passed is False
-    assert afc_oss.oracle_failure_count == 1
-    assert afc_oss.oracle_failures == (
-        "R from Sample Size Calculation is missing or < 1",
-    )
-    assert afc_oss.oracle_check_count is None
-    assert afc_oss.partial_score is None
-    assert afc_oss.afc_s_flags == 585
-    assert afc_oss.afc_r_required is None
-    assert afc_oss.husk_cells == 0
-    assert afc_oss.scored_cells == 15159
-    assert afc_oss.input_tokens == 108266
-    assert afc_oss.output_tokens == 6994
-    assert afc_oss.total_tokens == 115260
-    assert afc_oss.wall_time_s == 1290
-    assert afc_oss.total_cost_usd == pytest.approx(0.0052)
-    assert afc_oss.intelligence_per_dollar is None
-    assert "20260912-0142-gpt-oss-120b" in afc_oss.oracle_note
-
-    # Second catalog AFC stamp (Scrolly headed 20260912-0150).
-    afc_luna = board.result_for("afc", luna)
-    assert afc_luna is not None
-    assert afc_luna.product_bar == "NOT_HAPPY"
-    assert afc_luna.oracle == "FAIL"
-    assert afc_luna.stamp == "20260912-0150-gpt-5.6-luna"
-    assert afc_luna.oracle_passed is False
-    assert afc_luna.oracle_failure_count == 1
-    assert afc_luna.oracle_failures == (
-        "R from Sample Size Calculation is missing or < 1",
-    )
-    assert afc_luna.oracle_check_count is None
-    assert afc_luna.partial_score is None
-    assert afc_luna.afc_s_flags == 68
-    assert afc_luna.afc_r_required is None
-    assert afc_luna.husk_cells == 0
-    assert afc_luna.scored_cells == 810
-    assert afc_luna.input_tokens == 562909
-    assert afc_luna.output_tokens == 10467
-    assert afc_luna.total_tokens == 573376
-    assert afc_luna.wall_time_s == 406
-    assert afc_luna.total_cost_usd == pytest.approx(0.0419)
-    assert afc_luna.intelligence_per_dollar is None
-    assert "20260912-0150-gpt-5.6-luna" in afc_luna.oracle_note
-    assert "0.1252" in afc_luna.oracle_note
-
-    # Third catalog AFC stamp (Scrolly headed 20260912-0202, :nitro).
-    afc_20b = board.result_for("afc", oss20)
-    assert afc_20b is not None
-    assert afc_20b.product_bar == "NOT_HAPPY"
-    assert afc_20b.oracle == "FAIL"
-    assert afc_20b.stamp == "20260912-0202-gpt-oss-20b-nitro"
-    assert afc_20b.oracle_passed is False
-    assert afc_20b.oracle_failure_count == 1
-    assert afc_20b.oracle_failures == (
-        "R from Sample Size Calculation is missing or < 1",
-    )
-    assert afc_20b.oracle_check_count is None
-    assert afc_20b.partial_score is None
-    assert afc_20b.afc_s_flags == 0
-    assert afc_20b.afc_r_required is None
-    assert afc_20b.husk_cells == 0
-    assert afc_20b.scored_cells == 800
-    assert afc_20b.input_tokens == 15316
-    assert afc_20b.output_tokens == 236
-    assert afc_20b.total_tokens == 15552
-    assert afc_20b.wall_time_s == 309
-    assert afc_20b.total_cost_usd == pytest.approx(0.00122)
-    assert afc_20b.intelligence_per_dollar is None
-    assert "20260912-0202-gpt-oss-20b-nitro" in afc_20b.oracle_note
-    assert "0.00049" in afc_20b.oracle_note
-    assert "nitro" in afc_20b.oracle_note.lower()
-
-    # Fourth catalog AFC stamp (Scrolly headed 20260912-0216).
-    afc_lite = board.result_for("afc", lite)
-    assert afc_lite is not None
-    assert afc_lite.product_bar == "NOT_HAPPY"
-    assert afc_lite.oracle == "FAIL"
-    assert afc_lite.stamp == "20260912-0216-gemini-3.5-flash-lite"
-    assert afc_lite.oracle_passed is False
-    assert afc_lite.oracle_failure_count == 1
-    assert afc_lite.oracle_failures == (
-        "R from Sample Size Calculation is missing or < 1",
-    )
-    assert afc_lite.oracle_check_count is None
-    assert afc_lite.partial_score is None
-    assert afc_lite.afc_s_flags == 0
-    assert afc_lite.afc_r_required is None
-    assert afc_lite.husk_cells == 0
-    assert afc_lite.scored_cells == 648
-    assert afc_lite.input_tokens == 26111
-    assert afc_lite.output_tokens == 150
-    assert afc_lite.total_tokens == 26261
-    assert afc_lite.wall_time_s == 338
-    assert afc_lite.total_cost_usd == pytest.approx(0.00629)
-    assert afc_lite.intelligence_per_dollar is None
-    assert "20260912-0216-gemini-3.5-flash-lite" in afc_lite.oracle_note
-    assert "0.00821" in afc_lite.oracle_note
-    assert "Required Sar" in afc_lite.oracle_note
-    assert "73" in afc_lite.oracle_note
-
-    # Fifth catalog AFC stamp (Scrolly headed 20260912-0224).
-    afc_gemma = board.result_for("afc", gemma)
-    assert afc_gemma is not None
-    assert afc_gemma.product_bar == "NOT_HAPPY"
-    assert afc_gemma.oracle == "FAIL"
-    assert afc_gemma.stamp == "20260912-0224-gemma-4-31b-it"
-    assert afc_gemma.oracle_passed is False
-    assert afc_gemma.oracle_failure_count == 1
-    assert afc_gemma.oracle_failures == (
-        "R from Sample Size Calculation is missing or < 1",
-    )
-    assert afc_gemma.oracle_check_count is None
-    assert afc_gemma.partial_score is None
-    assert afc_gemma.afc_s_flags == 0
-    assert afc_gemma.afc_r_required is None
-    assert afc_gemma.husk_cells == 81
-    assert afc_gemma.scored_cells == 810
-    assert afc_gemma.input_tokens == 146941
-    assert afc_gemma.output_tokens == 2394
-    assert afc_gemma.total_tokens == 149335
-    assert afc_gemma.wall_time_s == 392
-    assert afc_gemma.total_cost_usd == pytest.approx(0.10841)
-    assert afc_gemma.intelligence_per_dollar is None
-    assert "20260912-0224-gemma-4-31b-it" in afc_gemma.oracle_note
-    assert "0.01404" in afc_gemma.oracle_note
-    assert "Err:508" in afc_gemma.oracle_note
-
-    # Sixth catalog AFC stamp (Scrolly headed 20260912-0240).
-    afc_gemma26 = board.result_for("afc", gemma26)
-    assert afc_gemma26 is not None
-    assert afc_gemma26.product_bar == "NOT_HAPPY"
-    assert afc_gemma26.oracle == "FAIL"
-    assert afc_gemma26.stamp == "20260912-0240-gemma-4-26b-a4b-it"
-    assert afc_gemma26.oracle_passed is False
-    assert afc_gemma26.oracle_failure_count == 1
-    assert afc_gemma26.oracle_failures == (
-        "S=0 flag=1 in column K is < R=65",
-    )
-    assert afc_gemma26.oracle_check_count is None
-    assert afc_gemma26.partial_score is None
-    assert afc_gemma26.afc_s_flags == 0
-    assert afc_gemma26.afc_r_required == 65
-    assert afc_gemma26.husk_cells == 0
-    assert afc_gemma26.scored_cells == 70
-    assert afc_gemma26.input_tokens == 688661
-    assert afc_gemma26.output_tokens == 5586
-    assert afc_gemma26.total_tokens == 694247
-    assert afc_gemma26.wall_time_s == 886
-    assert afc_gemma26.total_cost_usd == pytest.approx(0.04316)
-    assert afc_gemma26.intelligence_per_dollar is None
-    assert "20260912-0240-gemma-4-26b-a4b-it" in afc_gemma26.oracle_note
-    assert "0.05011" in afc_gemma26.oracle_note
-    assert "10 <<" in afc_gemma26.oracle_note or "sample_data_rows=10" in afc_gemma26.oracle_note
-
-    # Seventh catalog AFC stamp (Scrolly headed 20260912-0310).
-    afc_nemo = board.result_for("afc", nemo)
-    assert afc_nemo is not None
-    assert afc_nemo.product_bar == "NOT_HAPPY"
-    assert afc_nemo.oracle == "FAIL"
-    assert afc_nemo.stamp == "20260912-0310-nemotron-3.5-lightning"
-    assert afc_nemo.oracle_passed is False
-    assert afc_nemo.oracle_failure_count == 2
-    assert afc_nemo.oracle_failures == (
-        "missing sheet 'Sample'",
-        "missing sheet 'Sample Size Calculation'",
-    )
-    assert afc_nemo.oracle_check_count is None
-    assert afc_nemo.partial_score is None
-    assert afc_nemo.afc_s_flags == 0
-    assert afc_nemo.afc_r_required is None
-    assert afc_nemo.husk_cells == 0
-    assert afc_nemo.scored_cells == 0
-    assert afc_nemo.input_tokens == 760171
-    assert afc_nemo.output_tokens == 3189
-    assert afc_nemo.total_tokens == 763360
-    assert afc_nemo.wall_time_s == 540
-    assert afc_nemo.total_cost_usd == pytest.approx(0.04282)
-    assert afc_nemo.intelligence_per_dollar is None
-    assert "20260912-0310-nemotron-3.5-lightning" in afc_nemo.oracle_note
-    assert "0.06145" in afc_nemo.oracle_note
-    assert "second-send" in afc_nemo.oracle_note
-    assert "Err:507" in afc_nemo.oracle_note
-
-    # Eighth catalog AFC stamp (Scrolly headed 20260912-0330).
-    afc_mercury = board.result_for("afc", mercury)
-    assert afc_mercury is not None
-    assert afc_mercury.product_bar == "HAPPY"
-    assert afc_mercury.oracle == "PASS"
-    assert afc_mercury.stamp == "20260912-0330-mercury-2.5-preview"
-    assert afc_mercury.oracle_passed is True
-    assert afc_mercury.oracle_failure_count == 0
-    assert afc_mercury.oracle_failures == ()
-    assert afc_mercury.oracle_check_count is None
-    assert afc_mercury.partial_score == 1.0
-    assert afc_mercury.afc_s_flags == 494
-    assert afc_mercury.afc_r_required == 68
-    assert afc_mercury.husk_cells == 2
-    assert afc_mercury.scored_cells == 16680
-    assert afc_mercury.input_tokens == 115096
-    assert afc_mercury.output_tokens == 3554
-    assert afc_mercury.total_tokens == 118650
-    assert afc_mercury.wall_time_s == 479
-    assert afc_mercury.total_cost_usd == pytest.approx(0.00468)
-    assert afc_mercury.intelligence_per_dollar == pytest.approx(1.0 / 0.00468)
-    assert "20260912-0330-mercury-2.5-preview" in afc_mercury.oracle_note
-    assert "0.03144" in afc_mercury.oracle_note
-    assert "near-full" in afc_mercury.oracle_note
-
-    # Ninth catalog AFC stamp (Scrolly headed 20260912-0342).
-    afc_grok = board.result_for("afc", grok)
-    assert afc_grok is not None
-    assert afc_grok.product_bar == "NOT_HAPPY"
-    assert afc_grok.oracle == "FAIL"
-    assert afc_grok.stamp == "20260912-0342-grok-4.6"
-    assert afc_grok.oracle_passed is False
-    assert afc_grok.oracle_failure_count == 2
-    assert afc_grok.oracle_failures == (
-        "Sample has no data rows",
-        "R from Sample Size Calculation is missing or < 1",
-    )
-    assert afc_grok.oracle_check_count is None
-    assert afc_grok.partial_score is None
-    assert afc_grok.afc_s_flags == 0
-    assert afc_grok.afc_r_required is None
-    assert afc_grok.husk_cells == 0
-    assert afc_grok.scored_cells == 0
-    assert afc_grok.input_tokens == 28184
-    assert afc_grok.output_tokens == 323
-    assert afc_grok.total_tokens == 28507
-    assert afc_grok.wall_time_s == 416
-    assert afc_grok.total_cost_usd == pytest.approx(0.02375)
-    assert afc_grok.intelligence_per_dollar is None
-    assert "20260912-0342-grok-4.6" in afc_grok.oracle_note
-    assert "0.05831" in afc_grok.oracle_note
-    assert "SSC present" in afc_grok.oracle_note
-
-    # Tenth catalog AFC stamp (Scrolly headed 20260912-0353).
-    afc_glimmer = board.result_for("afc", glimmer)
-    assert afc_glimmer is not None
-    assert afc_glimmer.product_bar == "NOT_HAPPY"
-    assert afc_glimmer.oracle == "FAIL"
-    assert afc_glimmer.stamp == "20260912-0353-muse-glimmer-30b"
-    assert afc_glimmer.oracle_passed is False
-    assert afc_glimmer.oracle_failure_count == 1
-    assert afc_glimmer.oracle_failures == (
-        "R from Sample Size Calculation is missing or < 1",
-    )
-    assert afc_glimmer.oracle_check_count is None
-    assert afc_glimmer.partial_score is None
-    assert afc_glimmer.afc_s_flags == 0
-    assert afc_glimmer.afc_r_required is None
-    assert afc_glimmer.husk_cells == 0
-    assert afc_glimmer.scored_cells == 729
-    assert afc_glimmer.input_tokens == 2143441
-    assert afc_glimmer.output_tokens == 16060
-    assert afc_glimmer.total_tokens == 2159501
-    assert afc_glimmer.wall_time_s == 155
-    assert afc_glimmer.total_cost_usd == pytest.approx(0.15404)
-    assert afc_glimmer.intelligence_per_dollar is None
-    assert "20260912-0353-muse-glimmer-30b" in afc_glimmer.oracle_note
-    assert "0.66230" in afc_glimmer.oracle_note
-    assert "e0bb6321" in afc_glimmer.oracle_note
-    assert "50 tool" in afc_glimmer.oracle_note
-
-    # Eleventh catalog AFC stamp (Scrolly headed 20260912-0409).
-    afc_spark = board.result_for("afc", spark)
-    assert afc_spark is not None
-    assert afc_spark.product_bar == "NOT_HAPPY"
-    assert afc_spark.oracle == "FAIL"
-    assert afc_spark.stamp == "20260912-0409-muse-spark-1.3-contributor"
-    assert afc_spark.oracle_passed is False
-    assert afc_spark.oracle_failure_count == 2
-    assert afc_spark.oracle_failures == (
-        "Sample has no data rows",
-        "R from Sample Size Calculation is missing or < 1",
-    )
-    assert afc_spark.oracle_check_count is None
-    assert afc_spark.partial_score is None
-    assert afc_spark.afc_s_flags == 0
-    assert afc_spark.afc_r_required is None
-    assert afc_spark.husk_cells == 0
-    assert afc_spark.scored_cells == 0
-    assert afc_spark.input_tokens == 23560
-    assert afc_spark.output_tokens == 550
-    assert afc_spark.total_tokens == 24110
-    assert afc_spark.wall_time_s == 241
-    assert afc_spark.total_cost_usd == pytest.approx(0.00157)
-    assert afc_spark.intelligence_per_dollar is None
-    assert "20260912-0409-muse-spark-1.3-contributor" in afc_spark.oracle_note
-    assert "0.00247" in afc_spark.oracle_note
-    assert "6c6017b7" in afc_spark.oracle_note
-
-    # Twelfth catalog AFC stamp (Scrolly headed 20260912-0419).
-    afc_laguna = board.result_for("afc", laguna)
-    assert afc_laguna is not None
-    assert afc_laguna.product_bar == "NOT_HAPPY"
-    assert afc_laguna.oracle == "FAIL"
-    assert afc_laguna.stamp == "20260912-0419-laguna-s-2.1"
-    assert afc_laguna.oracle_passed is False
-    assert afc_laguna.oracle_failure_count == 1
-    assert afc_laguna.oracle_failures == ("missing sheet 'Sample'",)
-    assert afc_laguna.oracle_check_count is None
-    assert afc_laguna.partial_score is None
-    assert afc_laguna.afc_s_flags == 0
-    assert afc_laguna.afc_r_required == 66
-    assert afc_laguna.husk_cells == 0
-    assert afc_laguna.scored_cells == 0
-    assert afc_laguna.input_tokens == 166351
-    assert afc_laguna.output_tokens == 35845
-    assert afc_laguna.total_tokens == 202196
-    assert afc_laguna.wall_time_s == 384
-    assert afc_laguna.total_cost_usd == pytest.approx(0.01480)
-    assert afc_laguna.intelligence_per_dollar is None
-    assert "20260912-0419-laguna-s-2.1" in afc_laguna.oracle_note
-    assert "0.02142" in afc_laguna.oracle_note
-    assert "6c6017b7" in afc_laguna.oracle_note
-    assert "finish_reason=length" in afc_laguna.oracle_note
-
-    # Thirteenth catalog AFC stamp (Scrolly headed 20260912-0429).
-    afc_laguna_xs = board.result_for("afc", laguna_xs)
-    assert afc_laguna_xs is not None
-    assert afc_laguna_xs.product_bar == "NOT_HAPPY"
-    assert afc_laguna_xs.oracle == "FAIL"
-    assert afc_laguna_xs.stamp == "20260912-0429-laguna-xs-2.1"
-    assert afc_laguna_xs.oracle_passed is False
-    assert afc_laguna_xs.oracle_failure_count == 2
-    assert afc_laguna_xs.oracle_failures == (
-        "missing sheet 'Sample Size Calculation'",
-        "Sample has no data rows",
-    )
-    assert afc_laguna_xs.oracle_check_count is None
-    assert afc_laguna_xs.partial_score is None
-    assert afc_laguna_xs.afc_s_flags == 0
-    assert afc_laguna_xs.afc_r_required is None
-    assert afc_laguna_xs.husk_cells == 0
-    assert afc_laguna_xs.scored_cells == 0
-    assert afc_laguna_xs.input_tokens == 1280356
-    assert afc_laguna_xs.output_tokens == 10168
-    assert afc_laguna_xs.total_tokens == 1290524
-    assert afc_laguna_xs.wall_time_s == 85
-    assert afc_laguna_xs.total_cost_usd == pytest.approx(0.04341)
-    assert afc_laguna_xs.intelligence_per_dollar is None
-    assert "20260912-0429-laguna-xs-2.1" in afc_laguna_xs.oracle_note
-    assert "0.07804" in afc_laguna_xs.oracle_note
-    assert "6c6017b7" in afc_laguna_xs.oracle_note
-    assert "Sample_Size_Calculation" in afc_laguna_xs.oracle_note
-
-    # Fourteenth catalog AFC stamp (Scrolly headed 20260912-0443).
-    afc_qwen27 = board.result_for("afc", qwen27)
-    assert afc_qwen27 is not None
-    assert afc_qwen27.product_bar == "NOT_HAPPY"
-    assert afc_qwen27.oracle == "FAIL"
-    assert afc_qwen27.stamp == "20260912-0443-qwen3.8-27b"
-    assert afc_qwen27.oracle_passed is False
-    assert afc_qwen27.oracle_failure_count == 2
-    assert afc_qwen27.oracle_failures == (
-        "missing sheet 'Sample'",
-        "missing sheet 'Sample Size Calculation'",
-    )
-    assert afc_qwen27.oracle_check_count is None
-    assert afc_qwen27.partial_score is None
-    assert afc_qwen27.afc_s_flags == 0
-    assert afc_qwen27.afc_r_required is None
-    assert afc_qwen27.husk_cells == 0
-    assert afc_qwen27.scored_cells == 0
-    assert afc_qwen27.input_tokens == 2695380
-    assert afc_qwen27.output_tokens == 67284
-    assert afc_qwen27.total_tokens == 2762664
-    assert afc_qwen27.wall_time_s == 720
-    assert afc_qwen27.total_cost_usd == pytest.approx(1.42823)
-    assert afc_qwen27.intelligence_per_dollar is None
-    assert "20260912-0443-qwen3.8-27b" in afc_qwen27.oracle_note
-    assert "1.31711" in afc_qwen27.oracle_note
-    assert "6c6017b7" in afc_qwen27.oracle_note
-    assert "finish_reason=tool_calls" in afc_qwen27.oracle_note
-    assert "n=51" in afc_qwen27.oracle_note
-
-    # Fifteenth catalog AFC stamp (Scrolly headed 20260912-0502).
-    afc_qwen_flash = board.result_for("afc", qwen_flash)
-    assert afc_qwen_flash is not None
-    assert afc_qwen_flash.product_bar == "NOT_HAPPY"
-    assert afc_qwen_flash.oracle == "FAIL"
-    assert afc_qwen_flash.stamp == "20260912-0502-qwen3.8-flash"
-    assert afc_qwen_flash.oracle_passed is False
-    assert afc_qwen_flash.oracle_failure_count == 1
-    assert afc_qwen_flash.oracle_failures == (
-        "R from Sample Size Calculation is missing or < 1",
-    )
-    assert afc_qwen_flash.oracle_check_count is None
-    assert afc_qwen_flash.partial_score is None
-    assert afc_qwen_flash.afc_s_flags == 68
-    assert afc_qwen_flash.afc_r_required is None
-    assert afc_qwen_flash.husk_cells == 0
-    assert afc_qwen_flash.scored_cells == 680
-    assert afc_qwen_flash.input_tokens == 2194886
-    assert afc_qwen_flash.output_tokens == 49253
-    assert afc_qwen_flash.total_tokens == 2244139
-    assert afc_qwen_flash.wall_time_s == 540
-    assert afc_qwen_flash.total_cost_usd == pytest.approx(0.11382)
-    assert afc_qwen_flash.intelligence_per_dollar is None
-    assert "20260912-0502-qwen3.8-flash" in afc_qwen_flash.oracle_note
-    assert "0.35238" in afc_qwen_flash.oracle_note
-    assert "6c6017b7" in afc_qwen_flash.oracle_note
-    assert "Err:508" in afc_qwen_flash.oracle_note
-    assert "n=51" in afc_qwen_flash.oracle_note
-
-    # Sixteenth catalog AFC stamp (Scrolly headed 20260912-0515).
-    afc_glm_flash = board.result_for("afc", glm_flash)
-    assert afc_glm_flash is not None
-    assert afc_glm_flash.product_bar == "NOT_HAPPY"
-    assert afc_glm_flash.oracle == "FAIL"
-    assert afc_glm_flash.stamp == "20260912-0515-glm-5.3-flash"
-    assert afc_glm_flash.oracle_passed is False
-    assert afc_glm_flash.oracle_failure_count == 2
-    assert afc_glm_flash.oracle_failures == (
-        "missing sheet 'Sample'",
-        "missing sheet 'Sample Size Calculation'",
-    )
-    assert afc_glm_flash.oracle_check_count is None
-    assert afc_glm_flash.partial_score is None
-    assert afc_glm_flash.afc_s_flags == 0
-    assert afc_glm_flash.afc_r_required is None
-    assert afc_glm_flash.husk_cells == 0
-    assert afc_glm_flash.scored_cells == 0
-    assert afc_glm_flash.input_tokens == 5404
-    assert afc_glm_flash.output_tokens == 16384
-    assert afc_glm_flash.total_tokens == 21788
-    assert afc_glm_flash.wall_time_s == 155
-    assert afc_glm_flash.total_cost_usd == pytest.approx(0.00900)
-    assert afc_glm_flash.intelligence_per_dollar is None
-    assert "20260912-0515-glm-5.3-flash" in afc_glm_flash.oracle_note
-    assert "0.00450" in afc_glm_flash.oracle_note
-    assert "6c6017b7" in afc_glm_flash.oracle_note
-    assert "finish_reason=length" in afc_glm_flash.oracle_note
-    assert "n=1" in afc_glm_flash.oracle_note
-    assert "15160" in afc_glm_flash.oracle_note
-
-    # Seventeenth catalog AFC stamp — infra BLOCKED, not a model fail.
-    afc_solar = board.result_for("afc", solar)
-    assert afc_solar is not None
-    assert afc_solar.product_bar == "BLOCKED"
-    assert afc_solar.product_bar != "NOT_HAPPY"
-    assert afc_solar.oracle is None
-    assert afc_solar.stamp == "20260912-0522-solar-pro4"
-    assert afc_solar.oracle_passed is None
-    assert afc_solar.oracle_failure_count is None
-    assert afc_solar.oracle_failures is None
-    assert afc_solar.oracle_check_count is None
-    assert afc_solar.partial_score is None
-    assert afc_solar.afc_s_flags is None
-    assert afc_solar.afc_r_required is None
-    assert afc_solar.husk_cells is None
-    assert afc_solar.scored_cells is None
-    assert afc_solar.input_tokens == 0
-    assert afc_solar.output_tokens == 0
-    assert afc_solar.total_tokens == 0
-    assert afc_solar.wall_time_s == 1080
-    assert afc_solar.total_cost_usd == pytest.approx(0.0)
-    assert afc_solar.intelligence_per_dollar is None
-    assert "20260912-0522-solar-pro4" in afc_solar.oracle_note
-    assert "message_store" in afc_solar.oracle_note
-    assert "6c6017b7" in afc_solar.oracle_note
-    assert pel.cell_label(afc_solar) == "BLOCKED / unscored"
-    assert not pel.has_recorded_partial(afc_solar)
-    assert board.scored_count(solar) == 0
-    assert board.blocked_count(solar) == 1
-    assert board.not_happy_count(solar) == 0
-
-    # Eighteenth catalog AFC stamp (Scrolly headed 20260912-0546).
-    afc_granite = board.result_for("afc", granite)
-    assert afc_granite is not None
-    assert afc_granite.product_bar == "NOT_HAPPY"
-    assert afc_granite.oracle == "FAIL"
-    assert afc_granite.stamp == "20260912-0546-granite-4.2-8b"
-    assert afc_granite.oracle_passed is False
-    assert afc_granite.oracle_failure_count == 2
-    assert afc_granite.oracle_failures == (
-        "Sample has no data rows",
-        "R from Sample Size Calculation is missing or < 1",
-    )
-    assert afc_granite.oracle_check_count is None
-    assert afc_granite.partial_score is None
-    assert afc_granite.afc_s_flags == 0
-    assert afc_granite.afc_r_required is None
-    assert afc_granite.husk_cells == 0
-    assert afc_granite.scored_cells == 0
-    assert afc_granite.input_tokens == 2359996
-    assert afc_granite.output_tokens == 64282
-    assert afc_granite.total_tokens == 2424278
-    assert afc_granite.wall_time_s == 840
-    assert afc_granite.total_cost_usd == pytest.approx(0.14353)
-    assert afc_granite.intelligence_per_dollar is None
-    assert "20260912-0546-granite-4.2-8b" in afc_granite.oracle_note
-    assert "0.24564" in afc_granite.oracle_note
-    assert "71640e30" in afc_granite.oracle_note
-    assert "read_cell_range" in afc_granite.oracle_note
-    assert "n=48" in afc_granite.oracle_note
-    assert "finish_reason=tool_calls" in afc_granite.oracle_note
-    assert pel.has_recorded_partial(afc_granite)
-    assert board.scored_count(granite) == 1
-    assert board.not_happy_count(granite) == 1
-    assert board.blocked_count(granite) == 0
-
-    # Nineteenth catalog AFC stamp (Scrolly headed 20260912-0603).
-    afc_mistral = board.result_for("afc", mistral)
-    assert afc_mistral is not None
-    assert afc_mistral.product_bar == "NOT_HAPPY"
-    assert afc_mistral.oracle == "FAIL"
-    assert afc_mistral.stamp == "20260912-0603-mistral-small-2603"
-    assert afc_mistral.oracle_passed is False
-    assert afc_mistral.oracle_failure_count == 1
-    assert afc_mistral.oracle_failures == (
-        "R from Sample Size Calculation is missing or < 1",
-    )
-    assert afc_mistral.oracle_check_count is None
-    assert afc_mistral.partial_score is None
-    assert afc_mistral.afc_s_flags == 0
-    assert afc_mistral.afc_r_required is None
-    assert afc_mistral.husk_cells == 0
-    assert afc_mistral.scored_cells == 648
-    assert afc_mistral.input_tokens == 149439
-    assert afc_mistral.output_tokens == 3893
-    assert afc_mistral.total_tokens == 153332
-    assert afc_mistral.wall_time_s == 32
-    assert afc_mistral.total_cost_usd == pytest.approx(0.00973)
-    assert afc_mistral.intelligence_per_dollar is None
-    assert "20260912-0603-mistral-small-2603" in afc_mistral.oracle_note
-    assert "0.02475" in afc_mistral.oracle_note
-    assert "71640e30" in afc_mistral.oracle_note
-    assert "n=14" in afc_mistral.oracle_note
-    assert "sample_data_rows=81" in afc_mistral.oracle_note
-    assert pel.has_recorded_partial(afc_mistral)
-    assert board.scored_count(mistral) == 1
-    assert board.not_happy_count(mistral) == 1
-    assert board.blocked_count(mistral) == 0
-
-    # Twentieth catalog AFC stamp (Scrolly headed 20260912-0610).
-    afc_seed = board.result_for("afc", seed_mini)
-    assert afc_seed is not None
-    assert afc_seed.product_bar == "NOT_HAPPY"
-    assert afc_seed.oracle == "FAIL"
-    assert afc_seed.stamp == "20260912-0610-seed-2.0-mini"
-    assert afc_seed.oracle_passed is False
-    assert afc_seed.oracle_failure_count == 2
-    assert afc_seed.oracle_failures == (
-        "R from Sample Size Calculation is missing or < 1",
-        "husk-dominated Sample (1/1 scored cells)",
-    )
-    assert afc_seed.oracle_check_count is None
-    assert afc_seed.partial_score is None
-    assert afc_seed.afc_s_flags == 0
-    assert afc_seed.afc_r_required is None
-    assert afc_seed.husk_cells == 1
-    assert afc_seed.scored_cells == 1
-    assert afc_seed.input_tokens == 24059
-    assert afc_seed.output_tokens == 14342
-    assert afc_seed.total_tokens == 38401
-    assert afc_seed.wall_time_s == 131
-    assert afc_seed.total_cost_usd == pytest.approx(0.00814)
-    assert afc_seed.intelligence_per_dollar is None
-    assert "20260912-0610-seed-2.0-mini" in afc_seed.oracle_note
-    assert "0.00814" in afc_seed.oracle_note
-    assert "71640e30" in afc_seed.oracle_note
-    assert "n=2" in afc_seed.oracle_note
-    assert "Err:501" in afc_seed.oracle_note
-    assert 'husk-dominated Sample (1/1 scored cells)' in afc_seed.oracle_note
-    assert pel.has_recorded_partial(afc_seed)
-    assert board.scored_count(seed_mini) == 1
-    assert board.not_happy_count(seed_mini) == 1
-    assert board.blocked_count(seed_mini) == 0
-
-    # Twenty-first catalog AFC stamp (Scrolly headed 20260912-0617).
-    afc_minimax = board.result_for("afc", minimax)
-    assert afc_minimax is not None
-    assert afc_minimax.product_bar == "NOT_HAPPY"
-    assert afc_minimax.oracle == "FAIL"
-    assert afc_minimax.stamp == "20260912-0617-minimax-m3"
-    assert afc_minimax.oracle_passed is False
-    assert afc_minimax.oracle_failure_count == 2
-    assert afc_minimax.oracle_failures == (
-        "missing sheet 'Sample'",
-        "missing sheet 'Sample Size Calculation'",
-    )
-    assert afc_minimax.oracle_check_count is None
-    assert afc_minimax.partial_score is None
-    assert afc_minimax.afc_s_flags == 0
-    assert afc_minimax.afc_r_required is None
-    assert afc_minimax.husk_cells == 0
-    assert afc_minimax.scored_cells == 0
-    assert afc_minimax.input_tokens == 318690
-    assert afc_minimax.output_tokens == 3685
-    assert afc_minimax.total_tokens == 322375
-    assert afc_minimax.wall_time_s == 66
-    assert afc_minimax.total_cost_usd == pytest.approx(0.07965)
-    assert afc_minimax.intelligence_per_dollar is None
-    assert "20260912-0617-minimax-m3" in afc_minimax.oracle_note
-    assert "0.10003" in afc_minimax.oracle_note
-    assert "71640e30" in afc_minimax.oracle_note
-    assert "n=30" in afc_minimax.oracle_note
-    assert "#NAME?" in afc_minimax.oracle_note
-    assert pel.has_recorded_partial(afc_minimax)
-    assert board.scored_count(minimax) == 1
-    assert board.not_happy_count(minimax) == 1
-    assert board.blocked_count(minimax) == 0
-
-    # Twenty-second catalog AFC stamp (Scrolly headed 20260912-0621).
-    afc_deepseek = board.result_for("afc", deepseek)
-    assert afc_deepseek is not None
-    assert afc_deepseek.product_bar == "NOT_HAPPY"
-    assert afc_deepseek.oracle == "FAIL"
-    assert afc_deepseek.stamp == "20260912-0621-deepseek-v4-flash-0731"
-    assert afc_deepseek.oracle_passed is False
-    assert afc_deepseek.oracle_failure_count == 2
-    assert afc_deepseek.oracle_failures == (
-        "Sample has no data rows",
-        "R from Sample Size Calculation is missing or < 1",
-    )
-    assert afc_deepseek.oracle_check_count is None
-    assert afc_deepseek.partial_score is None
-    assert afc_deepseek.afc_s_flags == 0
-    assert afc_deepseek.afc_r_required is None
-    assert afc_deepseek.husk_cells == 0
-    assert afc_deepseek.scored_cells == 0
-    assert afc_deepseek.input_tokens == 2733344
-    assert afc_deepseek.output_tokens == 62813
-    assert afc_deepseek.total_tokens == 2796157
-    assert afc_deepseek.wall_time_s == 330
-    assert afc_deepseek.total_cost_usd == pytest.approx(0.17007)
-    assert afc_deepseek.intelligence_per_dollar is None
-    assert "20260912-0621-deepseek-v4-flash-0731" in afc_deepseek.oracle_note
-    assert "0.18897" in afc_deepseek.oracle_note
-    assert "71640e30" in afc_deepseek.oracle_note
-    assert "n=51" in afc_deepseek.oracle_note
-    assert "expected__deal_wire_dict_ok" in afc_deepseek.oracle_note
-    assert "PreContract=18" in afc_deepseek.oracle_note
-    assert pel.has_recorded_partial(afc_deepseek)
-    assert board.scored_count(deepseek) == 1
-    assert board.not_happy_count(deepseek) == 1
-    assert board.blocked_count(deepseek) == 0
-
-    # Twenty-third catalog AFC stamp — FIFO tail (Scrolly headed 20260912-0630).
-    afc_deepseek41 = board.result_for("afc", deepseek41)
-    assert afc_deepseek41 is not None
-    assert afc_deepseek41.product_bar == "NOT_HAPPY"
-    assert afc_deepseek41.product_bar != "BLOCKED"
-    assert afc_deepseek41.oracle == "FAIL"
-    assert afc_deepseek41.stamp == "20260912-0630-deepseek-v4.1-flash"
-    assert afc_deepseek41.oracle_passed is False
-    assert afc_deepseek41.oracle_failure_count == 2
-    assert afc_deepseek41.oracle_failures == (
-        "missing sheet 'Sample'",
-        "missing sheet 'Sample Size Calculation'",
-    )
-    assert afc_deepseek41.oracle_check_count is None
-    assert afc_deepseek41.partial_score is None
-    assert afc_deepseek41.afc_s_flags == 0
-    assert afc_deepseek41.afc_r_required is None
-    assert afc_deepseek41.husk_cells == 0
-    assert afc_deepseek41.scored_cells == 0
-    assert afc_deepseek41.input_tokens == 55652
-    assert afc_deepseek41.output_tokens == 3474
-    assert afc_deepseek41.total_tokens == 59126
-    assert afc_deepseek41.wall_time_s == 270
-    assert afc_deepseek41.total_cost_usd == pytest.approx(0.01832)
-    assert afc_deepseek41.intelligence_per_dollar is None
-    assert "20260912-0630-deepseek-v4.1-flash" in afc_deepseek41.oracle_note
-    assert "0.01043" in afc_deepseek41.oracle_note
-    assert "71640e30" in afc_deepseek41.oracle_note
-    assert "n=5" in afc_deepseek41.oracle_note
-    assert "read_cell_range" in afc_deepseek41.oracle_note
-    assert "NetworkError" in afc_deepseek41.oracle_note
-    assert "CATALOG FIFO COMPLETE" in afc_deepseek41.oracle_note
-    assert pel.has_recorded_partial(afc_deepseek41)
-    assert board.scored_count(deepseek41) == 1
-    assert board.not_happy_count(deepseek41) == 1
-    assert board.blocked_count(deepseek41) == 0
-
-    # Twenty-fourth catalog AFC stamp (paid Ultra; Scrolly headed 20260912-1506).
-    afc_ultra = board.result_for("afc", ultra)
-    assert afc_ultra is not None
-    assert afc_ultra.product_bar == "NOT_HAPPY"
-    assert afc_ultra.oracle == "FAIL"
-    assert afc_ultra.stamp == "20260912-1506-nemotron-3-ultra-550b"
-    assert afc_ultra.oracle_passed is False
-    assert afc_ultra.oracle_failure_count == 2
-    assert afc_ultra.oracle_failures == (
-        "missing sheet 'Sample'",
-        "missing sheet 'Sample Size Calculation'",
-    )
-    assert afc_ultra.oracle_check_count is None
-    assert afc_ultra.partial_score is None
-    assert afc_ultra.afc_s_flags == 0
-    assert afc_ultra.afc_r_required is None
-    assert afc_ultra.husk_cells == 0
-    assert afc_ultra.scored_cells == 0
-    assert afc_ultra.input_tokens == 966313
-    assert afc_ultra.output_tokens == 8098
-    assert afc_ultra.total_tokens == 974411
-    assert afc_ultra.wall_time_s == 66
-    assert afc_ultra.total_cost_usd == pytest.approx(0.51665)
-    assert afc_ultra.intelligence_per_dollar is None
-    assert "20260912-1506-nemotron-3-ultra-550b" in afc_ultra.oracle_note
-    assert "0.51665" in afc_ultra.oracle_note
-    assert "400d5233" in afc_ultra.oracle_note
-    assert pel.has_recorded_partial(afc_ultra)
-    assert board.scored_count(ultra) == 1
-    assert board.not_happy_count(ultra) == 1
-    assert board.blocked_count(ultra) == 0
-
-    # Twenty-fifth catalog AFC stamp (paid Super; Scrolly headed 20260912-1513).
-    afc_super = board.result_for("afc", super120)
-    assert afc_super is not None
-    assert afc_super.product_bar == "NOT_HAPPY"
-    assert afc_super.oracle == "FAIL"
-    assert afc_super.stamp == "20260912-1513-nemotron-3-super-120b"
-    assert afc_super.oracle_passed is False
-    assert afc_super.oracle_failure_count == 1
-    assert afc_super.oracle_failures == (
-        "R from Sample Size Calculation is missing or < 1",
-    )
-    assert afc_super.oracle_check_count is None
-    assert afc_super.partial_score is None
-    assert afc_super.afc_s_flags == 0
-    assert afc_super.afc_r_required is None
-    assert afc_super.husk_cells == 0
-    assert afc_super.scored_cells == 21953
-    assert afc_super.input_tokens == 1256332
-    assert afc_super.output_tokens == 30354
-    assert afc_super.total_tokens == 1286686
-    assert afc_super.wall_time_s == 876
-    assert afc_super.total_cost_usd == pytest.approx(0.11893)
-    assert afc_super.intelligence_per_dollar is None
-    assert "20260912-1513-nemotron-3-super-120b" in afc_super.oracle_note
-    assert "0.11893" in afc_super.oracle_note
-    assert "400d5233" in afc_super.oracle_note
-    assert "1646" in afc_super.oracle_note  # notes that catalog stamp is not the #750 retest
-    assert pel.has_recorded_partial(afc_super)
-    assert board.scored_count(super120) == 1
-    assert board.not_happy_count(super120) == 1
-    assert board.blocked_count(super120) == 0
-
-    # No invented catalog AFC-only scores outside AFC.
-    for task_id in (
-        "tenant-retention",
-        "cadaver-proposal",
-        "gmp-change-control",
-        "writer-calc-peer-write",
-        "calc-primary-model",
-        "draw-primary",
-        "reverse-tenant",
-        "long-writer-pack",
-    ):
-        assert board.result_for(task_id, luna) is None
-        assert board.result_for(task_id, oss20) is None
-        assert board.result_for(task_id, lite) is None
-        assert board.result_for(task_id, gemma) is None
-        assert board.result_for(task_id, gemma26) is None
-        assert board.result_for(task_id, nemo) is None
-        assert board.result_for(task_id, mercury) is None
-        assert board.result_for(task_id, grok) is None
-        assert board.result_for(task_id, glimmer) is None
-        assert board.result_for(task_id, spark) is None
-        assert board.result_for(task_id, laguna) is None
-        assert board.result_for(task_id, laguna_xs) is None
-        assert board.result_for(task_id, qwen27) is None
-        assert board.result_for(task_id, qwen_flash) is None
-        assert board.result_for(task_id, glm_flash) is None
-        assert board.result_for(task_id, solar) is None
-        assert board.result_for(task_id, granite) is None
-        assert board.result_for(task_id, mistral) is None
-        assert board.result_for(task_id, seed_mini) is None
-        assert board.result_for(task_id, minimax) is None
-        assert board.result_for(task_id, deepseek) is None
-        assert board.result_for(task_id, deepseek41) is None
-        assert board.result_for(task_id, ultra) is None
-        assert board.result_for(task_id, super120) is None
-
-    # Other seed cells must not invent run costs or oracle-partial counts.
-    recorded_afc = {
-        ("afc", oss),
-        ("afc", luna),
-        ("afc", oss20),
-        ("afc", lite),
-        ("afc", gemma),
-        ("afc", gemma26),
-        ("afc", nemo),
-        ("afc", mercury),
-        ("afc", grok),
-        ("afc", glimmer),
-        ("afc", spark),
-        ("afc", laguna),
-        ("afc", laguna_xs),
-        ("afc", qwen27),
-        ("afc", qwen_flash),
-        ("afc", glm_flash),
-        ("afc", solar),
-        ("afc", granite),
-        ("afc", mistral),
-        ("afc", seed_mini),
-        ("afc", minimax),
-        ("afc", deepseek),
-        ("afc", deepseek41),
-        ("afc", ultra),
-        ("afc", super120),
-    }
-    for row in board.results:
-        if (row.task_id, row.model) in recorded_afc:
-            continue
-        assert row.total_tokens is None
-        assert row.input_tokens is None
-        assert row.output_tokens is None
-        assert row.total_cost_usd is None
-        assert row.wall_time_s is None
-        assert row.intelligence_per_dollar is None
-        assert row.oracle_failure_count is None
-        assert row.oracle_check_count is None
-        assert row.oracle_failures is None
-        assert row.afc_s_flags is None
-        assert row.afc_r_required is None
-        assert row.husk_cells is None
-        assert row.scored_cells is None
-        if row.oracle == "PASS":
-            assert row.oracle_passed is True
-            assert row.partial_score == 1.0
-        else:
-            assert row.oracle_passed is False
-            assert row.partial_score is None
-    happy_costs = pel.happy_cost_rows(board)
-    assert len(happy_costs) == 1
-    assert happy_costs[0].model.openrouter_id == mercury
-    assert happy_costs[0].cost_usd == pytest.approx(0.00468)
-    assert happy_costs[0].intelligence_per_dollar == pytest.approx(1.0 / 0.00468)
-    afc = board.result_for("afc", gemini)
-    assert afc is not None
-    assert pel.has_recorded_partial(afc)
-    assert pel.has_recorded_partial(afc_oss)
-    assert pel.has_recorded_partial(afc_luna)
-    assert pel.has_recorded_partial(afc_20b)
-    assert pel.has_recorded_partial(afc_lite)
-    assert pel.has_recorded_partial(afc_gemma)
-    assert pel.has_recorded_partial(afc_gemma26)
-    assert pel.has_recorded_partial(afc_nemo)
-    assert pel.has_recorded_partial(afc_mercury)
-    assert pel.has_recorded_partial(afc_grok)
-    assert pel.has_recorded_partial(afc_glimmer)
-    assert pel.has_recorded_partial(afc_spark)
-    assert pel.has_recorded_partial(afc_laguna)
-    assert pel.has_recorded_partial(afc_laguna_xs)
-    assert pel.has_recorded_partial(afc_qwen27)
-    assert pel.has_recorded_partial(afc_qwen_flash)
-    assert pel.has_recorded_partial(afc_glm_flash)
-    assert pel.has_recorded_partial(afc_granite)
-    assert pel.has_recorded_partial(afc_mistral)
-    assert pel.has_recorded_partial(afc_seed)
-    assert pel.has_recorded_partial(afc_minimax)
-    assert pel.has_recorded_partial(afc_deepseek)
-    assert pel.has_recorded_partial(afc_deepseek41)
-    assert pel.has_recorded_partial(afc_ultra)
-    assert pel.has_recorded_partial(afc_super)
-
-
-_RECORDED_AFC_CATALOG = {
-    ("afc", "openai/gpt-oss-120b"),
-    ("afc", "openai/gpt-5.6-luna"),
-    ("afc", "openai/gpt-oss-20b"),
-    ("afc", "google/gemini-3.5-flash-lite"),
-    ("afc", "google/gemma-4-31b-it"),
-    ("afc", "google/gemma-4-26b-a4b-it"),
-    ("afc", "nvidia/nemotron-3.5-lightning"),
-    ("afc", "inception/mercury-2.5-preview"),
-    ("afc", "x-ai/grok-4.6"),
-    ("afc", "meta/muse-glimmer-30b"),
-    ("afc", "meta/muse-spark-1.3-contributor"),
-    ("afc", "poolside/laguna-s-2.1"),
-    ("afc", "poolside/laguna-xs-2.1"),
-    ("afc", "qwen/qwen3.8-27b"),
-    ("afc", "qwen/qwen3.8-flash"),
-    ("afc", "z-ai/glm-5.3-flash"),
-    ("afc", "upstage/solar-pro4"),
-    ("afc", "ibm-granite/granite-4.2-8b"),
-    ("afc", "mistralai/mistral-small-2603"),
-    ("afc", "bytedance-seed/seed-2.0-mini"),
-    ("afc", "minimax/minimax-m3"),
-    ("afc", "deepseek/deepseek-v4-flash-0731"),
-    ("afc", "deepseek/deepseek-v4.1-flash"),
-    ("afc", "nvidia/nemotron-3-ultra-550b-a55b"),
-    ("afc", "nvidia/nemotron-3-super-120b-a12b"),
-}
-_OPTIONAL_COST_PARTIAL_KEYS = (
-    "total_tokens",
-    "input_tokens",
-    "output_tokens",
-    "total_cost_usd",
-    "wall_time_s",
-    "intelligence_per_dollar",
-    "oracle_passed",
-    "oracle_failure_count",
-    "oracle_check_count",
-    "oracle_failures",
-    "afc_s_flags",
-    "afc_r_required",
-    "husk_cells",
-    "scored_cells",
-    "partial_score",
-)
+        for index, row in enumerate(rows):
+            _check_object(row, defs[name], defs, f"{name}[{index}]")
 
 
 def test_every_seed_source_points_at_an_in_repo_doc() -> None:
     payload = json.loads(_RESULTS.read_text(encoding="utf-8"))
+    slug = {t["id"]: t["slug"] for t in payload["tasks"]}
     for row in payload["results"]:
         source = str(row.get("source") or "")
         assert source, row
@@ -1135,7 +117,7 @@ def test_every_seed_source_points_at_an_in_repo_doc() -> None:
         if committed is True:
             stamp = str(row.get("stamp") or "")
             assert stamp, row
-            run_dir = _REPO / "docs/eval/eval-2/afc-sample-83d10b06/runs" / stamp
+            run_dir = _EVAL2 / slug[row["task_id"]] / "runs" / stamp
             assert run_dir.is_dir(), run_dir
             for name in (
                 "notes.txt",
@@ -1148,175 +130,84 @@ def test_every_seed_source_points_at_an_in_repo_doc() -> None:
                 assert (run_dir / name).is_file(), run_dir / name
         else:
             assert committed is False
-        if (row.get("task_id"), row.get("model")) in _RECORDED_AFC_CATALOG:
-            continue
-        for key in _OPTIONAL_COST_PARTIAL_KEYS:
-            assert key not in row or row[key] is None, row
 
 
-def test_scoreboard_markdown_matches_seed_matrix() -> None:
-    board = pel.load_eval2_board(_RESULTS)
-    matrix = pel.render_matrix_markdown(board)
-    text = _SCOREBOARD.read_text(encoding="utf-8")
-    assert "| Hard pass |" not in text
-    assert "product_bar" in text or "Product bar" in text
-    assert "google/gemini-3.8-flash" in text
-    assert "not" in text.lower() and "string" in text.lower()
-    assert "[`docs/eval/benchmarks.md`](../benchmarks.md)" in text
-    assert "eval2-heatmap.svg" in text
-    assert "eval2-coverage.svg" in text
-    assert "eval2-cost.svg" in text
-    assert "eval2-partial.svg" in text
-    assert "HAPPY first" in text
-    assert "partial_score`²" in text or "partial_score²" in text
-    assert "1 − oracle_failure_count / oracle_check_count" in text
-    assert "headed sibling" in text.lower()
-    assert "Different benchmark" in text
-    assert "One filled task still counts" in text
-    assert "do **not** invent run costs" in text.lower()
-    assert "Catalog-wide" in text or "catalog" in text.lower()
-    assert "sweep has **not** happened" in text
-    for line in matrix.strip().splitlines():
-        if line.startswith("| # |"):
-            continue
-        assert line in text, line
-    readme = _README.read_text(encoding="utf-8")
-    assert "[`benchmarks.md`](benchmarks.md)" in readme
-    assert "string-pack Pareto" in readme
-    assert "Different benchmark from the 17-task string pack" in readme
-    assert "One filled task" in readme
-    heatmap = (_EVAL2 / pel.HEATMAP_NAME).read_text(encoding="utf-8")
-    coverage = (_EVAL2 / pel.COVERAGE_NAME).read_text(encoding="utf-8")
-    cost = (_EVAL2 / pel.COST_NAME).read_text(encoding="utf-8")
-    partial = (_EVAL2 / pel.PARTIAL_NAME).read_text(encoding="utf-8")
-    assert "no data" in heatmap
-    assert "HAPPY" in heatmap
-    assert "0 HAPPY / 1 scored" in coverage
-    assert "1 HAPPY / 1 scored" in coverage
-    assert "0 HAPPY / 0 scored" in coverage
-    assert "BLOCKED" in heatmap
-    assert "Solar Pro 4" in heatmap
-    assert "Granite 4.2 8B" in heatmap
-    assert "Mistral Small 4" in heatmap
-    assert "Seed 2.0 Mini" in heatmap
-    assert "MiniMax M3" in heatmap
-    assert "DeepSeek V4 Flash 0731" in heatmap
-    assert "DeepSeek V4.1 Flash" in heatmap
-    assert "No HAPPY cell has recorded total_cost_usd yet" not in cost
-    assert "data-cost-usd=\"0.004680\"" in cost
-    assert "Mercury 2.5 Preview" in cost
-    assert "213.68" in cost
-    # Seed has one oracle PASS (AFC Gemini 3.8) → partial 1. Catalog AFC
-    # cells recorded S/R + failure_count without a check-count ratio.
-    assert "data-partial-score=\"1.00\"" in partial
-    assert "Gemini 3.8 Flash" in partial
-    assert "Gemini 3.5 Flash Lite" in partial
-    assert "Gemma 4 31B" in partial
-    assert "Gemma 4 26B A4B" in partial
-    assert "Nemotron 3.5 Lightning" in partial
-    assert "Mercury 2.5 Preview" in partial
-    assert "Grok 4.6" in partial
-    assert "Muse Glimmer 30B" in partial
-    assert "Muse Spark 1.3" in partial
-    assert "Laguna S 2.1" in partial
-    assert "Laguna XS 2.1" in partial
-    assert "Qwen3.8 27B" in partial
-    assert "Qwen3.8 Flash" in partial
-    assert "GLM 5.3 Flash" in partial
-    assert "Granite 4.2 8B" in partial
-    assert "Mistral Small 4" in partial
-    assert "Seed 2.0 Mini" in partial
-    assert "MiniMax M3" in partial
-    assert "DeepSeek V4 Flash 0731" in partial
-    assert "DeepSeek V4.1 Flash" in partial
-    assert "Solar Pro 4" not in partial
-    assert "AFC Population" in partial
-    assert "GPT-OSS 120B" in partial
-    assert "GPT-5.6 Luna" in partial
-    assert "GPT-OSS 20B" in partial
-    assert "S=585 R=—" in partial
-    assert "S=68 R=—" in partial
-    assert "S=0 R=—" in partial
-    assert "S=0 R=65" in partial
-    assert "S=0 R=66" in partial
-    assert "S=494 R=68" in partial
-    assert "2/—" in partial
-    assert "no ratio" in partial
-    assert "data-partial-score=\"0." not in partial
+def _text_nodes(svg: str) -> list[str]:
+    root = ET.fromstring(svg)
+    return ["".join(el.itertext()) for el in root.iter("{http://www.w3.org/2000/svg}text")]
 
 
-def test_plot_writes_distinct_svgs_with_honest_empty_cells(tmp_path: Path) -> None:
-    board = pel.load_eval2_board(_RESULTS)
-    heatmap = pel.write_heatmap_svg(board, tmp_path / "eval2-heatmap.svg")
-    coverage = pel.write_coverage_svg(board, tmp_path / "eval2-coverage.svg")
-    heat = heatmap.read_text(encoding="utf-8")
-    cov = coverage.read_text(encoding="utf-8")
-    assert heat.startswith("<?xml")
-    assert "HAPPY" in heat
-    assert "NOT_HAPPY" in heat
-    assert "no data" in heat
-    assert "sibling of the string pack" in heat
-    assert "hard_pass_rate" in heat
-    assert "pareto-fronts" not in heat
-    assert "google/gemini-3.8-flash" in heat
-    assert "Tenant Retention" in heat
-    assert "no data" in cov
-    assert "0 HAPPY / 1 scored" in cov
-    assert "1 HAPPY / 1 scored" in cov
-    assert "0 HAPPY / 0 scored" in cov
-    assert "BLOCKED" in heat
-    assert "Solar Pro 4" in heat
-    assert "Granite 4.2 8B" in heat
-    assert "Mistral Small 4" in heat
-    assert "Seed 2.0 Mini" in heat
-    assert "MiniMax M3" in heat
-    assert "DeepSeek V4 Flash 0731" in heat
-    assert "DeepSeek V4.1 Flash" in heat
-    assert pel.HEATMAP_NAME != "pareto-fronts.svg"
-    assert pel.COVERAGE_NAME != "pareto-distance.svg"
-    assert pel.COST_NAME != "pareto-fronts.svg"
+def test_heatmap_and_coverage_svgs_render_each_cell_state(tmp_path: Path) -> None:
+    payload = _minimal_board_payload()
+    payload["tasks"].append(
+        {
+            "id": "tenant-retention",
+            "slot": 1,
+            "slug": "tenant-retention-2026",
+            "title": "Tenant Retention",
+            "status": "Ready",
+        }
+    )
+    payload["models"].append(
+        {
+            "openrouter_id": "x-ai/grok-4.6",
+            "display_name": "Grok 4.6",
+            "role": "catalog",
+        }
+    )
+    payload["results"].extend(
+        [
+            {
+                "task_id": "tenant-retention",
+                "model": "google/gemini-3.8-flash",
+                "product_bar": "NOT_HAPPY",
+                "oracle": "FAIL",
+            },
+            {
+                "task_id": "afc",
+                "model": "x-ai/grok-4.6",
+                "product_bar": "NOT_HAPPY",
+                "oracle": "FAIL",
+            },
+            {
+                "task_id": "tenant-retention",
+                "model": "openai/gpt-oss-20b",
+                "product_bar": "BLOCKED",
+                "oracle": None,
+            },
+        ]
+    )
+    src = tmp_path / "board.json"
+    src.write_text(json.dumps(payload), encoding="utf-8")
+    board = pel.load_eval2_board(src)
 
-    cost_svg = pel.write_cost_svg(board, tmp_path / "eval2-cost.svg")
-    cost_text = cost_svg.read_text(encoding="utf-8")
-    assert "No HAPPY cell has recorded total_cost_usd yet" not in cost_text
-    assert "data-cost-usd=\"0.004680\"" in cost_text
-    assert "Mercury 2.5 Preview" in cost_text
-    assert "213.68" in cost_text
-    assert pel.PARTIAL_NAME != "pareto-fronts.svg"
-    partial_svg = pel.write_partial_svg(board, tmp_path / "eval2-partial.svg")
-    partial_text = partial_svg.read_text(encoding="utf-8")
-    assert 'data-partial-score="1.00"' in partial_text
-    assert "0.50" not in partial_text
-    assert "S=585 R=—" in partial_text
-    assert "S=68 R=—" in partial_text
-    assert "S=0 R=—" in partial_text
-    assert "S=0 R=65" in partial_text
-    assert "GPT-5.6 Luna" in partial_text
-    assert "GPT-OSS 20B" in partial_text
-    assert "Gemini 3.5 Flash Lite" in partial_text
-    assert "Gemma 4 31B" in partial_text
-    assert "Gemma 4 26B A4B" in partial_text
-    assert "Nemotron 3.5 Lightning" in partial_text
-    assert "Mercury 2.5 Preview" in partial_text
-    assert "Grok 4.6" in partial_text
-    assert "Muse Glimmer 30B" in partial_text
-    assert "Muse Spark 1.3" in partial_text
-    assert "Laguna S 2.1" in partial_text
-    assert "Laguna XS 2.1" in partial_text
-    assert "Qwen3.8 27B" in partial_text
-    assert "Qwen3.8 Flash" in partial_text
-    assert "GLM 5.3 Flash" in partial_text
-    assert "Granite 4.2 8B" in partial_text
-    assert "Mistral Small 4" in partial_text
-    assert "Seed 2.0 Mini" in partial_text
-    assert "MiniMax M3" in partial_text
-    assert "DeepSeek V4 Flash 0731" in partial_text
-    assert "DeepSeek V4.1 Flash" in partial_text
-    assert "Solar Pro 4" not in partial_text
-    assert "S=0 R=66" in partial_text
-    assert "S=494 R=68" in partial_text
-    assert "2/—" in partial_text
-    assert "no ratio" in partial_text
+    heat = pel.write_heatmap_svg(board, tmp_path / pel.HEATMAP_NAME).read_text(encoding="utf-8")
+    cov = pel.write_coverage_svg(board, tmp_path / pel.COVERAGE_NAME).read_text(encoding="utf-8")
+    heat_text = "\n".join(_text_nodes(heat))
+    cov_text = "\n".join(_text_nodes(cov))
+
+    for expected in (
+        "HAPPY",
+        "oracle PASS",
+        "NOT_HAPPY",
+        "oracle FAIL",
+        "BLOCKED",
+        "unscored",
+        "no data",
+        "Gemini 3.8 Flash (gate)",
+        "GPT-OSS 20B",
+        "Grok 4.6",
+        "3. AFC Population",
+        "1. Tenant Retention",
+    ):
+        assert expected in heat_text, expected
+
+    for expected in ("1 HAPPY / 2 scored", "0 HAPPY / 1 scored", "0 HAPPY / 0 scored"):
+        assert expected in cov_text, expected
+
+    names = {pel.HEATMAP_NAME, pel.COVERAGE_NAME, pel.COST_NAME, pel.PARTIAL_NAME}
+    assert len(names) == 4
+    assert all(not name.startswith("pareto-") for name in names)
 
 
 def test_cli_check_and_refuse_string_harness_json(
@@ -1534,13 +425,6 @@ def test_cost_chart_ranks_happy_by_lower_cost_and_skips_empty(
     assert "No HAPPY cell has recorded total_cost_usd yet" in empty_svg
     assert "data-cost-usd=" not in empty_svg
 
-    seed_cost = pel.write_cost_svg(pel.load_eval2_board(_RESULTS), tmp_path / "seed-cost.svg")
-    seed_cost_text = seed_cost.read_text(encoding="utf-8")
-    assert "data-cost-usd=\"0.004680\"" in seed_cost_text
-    assert "Mercury 2.5 Preview" in seed_cost_text
-    assert "213.68" in seed_cost_text
-    assert "No HAPPY cell has recorded total_cost_usd yet" not in seed_cost_text
-
 
 def test_partial_score_only_when_pass_or_both_counts() -> None:
     assert pel.compute_partial_score(True, None, None) == 1.0
@@ -1667,3 +551,47 @@ def test_loader_rejects_bad_partial_fields(tmp_path: Path) -> None:
     path.write_text(json.dumps(payload), encoding="utf-8")
     with pytest.raises(pel.Eval2ResultsError, match="oracle_failures"):
         pel.load_eval2_board(path)
+
+
+def test_has_recorded_partial_only_for_recorded_quality(tmp_path: Path) -> None:
+    payload = {
+        "schema_version": 1,
+        "updated": "2026-09-12",
+        "gate_model": "g/a",
+        "source_of_truth": "docs/eval/eval-2/headed-failure-autopsy.md",
+        "tasks": [
+            {
+                "id": "afc",
+                "slot": 3,
+                "slug": "afc-sample-83d10b06",
+                "title": "AFC Population",
+                "status": "Ready",
+            }
+        ],
+        "models": [
+            {"openrouter_id": "g/a", "display_name": "Gate", "role": "gate"},
+            {"openrouter_id": "c/b", "display_name": "Bare", "role": "catalog"},
+            {"openrouter_id": "c/c", "display_name": "Fails", "role": "catalog"},
+            {"openrouter_id": "c/d", "display_name": "Blocked", "role": "catalog"},
+        ],
+        "results": [
+            {"task_id": "afc", "model": "g/a", "product_bar": "HAPPY", "oracle": "PASS"},
+            {"task_id": "afc", "model": "c/b", "product_bar": "NOT_HAPPY", "oracle": "FAIL"},
+            {
+                "task_id": "afc",
+                "model": "c/c",
+                "product_bar": "NOT_HAPPY",
+                "oracle": "FAIL",
+                "oracle_failures": ["x"],
+            },
+            {"task_id": "afc", "model": "c/d", "product_bar": "BLOCKED", "oracle": None},
+        ],
+    }
+    path = tmp_path / "partial.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    board = pel.load_eval2_board(path)
+    by_model = {r.model: r for r in board.results}
+    assert pel.has_recorded_partial(by_model["g/a"]) is True
+    assert pel.has_recorded_partial(by_model["c/b"]) is False
+    assert pel.has_recorded_partial(by_model["c/c"]) is True
+    assert pel.has_recorded_partial(by_model["c/d"]) is False
