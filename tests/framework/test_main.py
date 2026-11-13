@@ -1123,13 +1123,15 @@ def test_register_core_handlers_continues_after_optional_import_failure(
     monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
     orig_handlers = dict(_ACTION_HANDLERS)
-    had_module = "plugin.calc.excel_py_convert.auto_open" in sys.modules
-    prev_module = sys.modules.get("plugin.calc.excel_py_convert.auto_open")
+
+    def _raise(_ctx: Any) -> None:
+        raise RuntimeError("listener install failed")
 
     recorded: list[str] = []
     try:
-        sys.modules["plugin.calc.excel_py_convert.auto_open"] = types.ModuleType(
-            "plugin.calc.excel_py_convert.auto_open"
+        monkeypatch.setattr(
+            "plugin.calc.python.workbook_lifecycle.install_global_document_event_listener",
+            _raise,
         )
         monkeypatch.setattr(
             "plugin.calc.python.editor_context_menu.install_calc_cell_context_menu",
@@ -1158,7 +1160,7 @@ def test_register_core_handlers_continues_after_optional_import_failure(
 
         # Release strip removes log.debug; continue asserting handlers still registered.
         if not is_release_build():
-            assert "Excel PY auto-convert on open install failed" in caplog.text
+            assert "Document event listener install failed" in caplog.text
         assert recorded == ["geo", "review"]
         assert get_action_handler("embeddings.search_dialog") is not None
         assert get_action_handler("writer.accept_change") is not None
@@ -1170,10 +1172,6 @@ def test_register_core_handlers_continues_after_optional_import_failure(
     finally:
         _ACTION_HANDLERS.clear()
         _ACTION_HANDLERS.update(orig_handlers)
-        if had_module:
-            sys.modules["plugin.calc.excel_py_convert.auto_open"] = prev_module
-        else:
-            sys.modules.pop("plugin.calc.excel_py_convert.auto_open", None)
 
 
 def test_bootstrap_state_enum(monkeypatch):

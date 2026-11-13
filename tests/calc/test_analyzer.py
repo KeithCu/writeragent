@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, PropertyMock, patch
 
 import pytest
 
-from plugin.calc.analyzer import SheetAnalyzer, _header_text, get_calc_context_for_chat, get_full_calc_text
+from plugin.calc.analyzer import SheetAnalyzer, _header_text, get_calc_context_for_chat
 from plugin.framework.errors import DocumentDisposedError, ToolExecutionError
 
 
@@ -48,20 +48,6 @@ def test_get_calc_context_for_chat_requires_ctx():
         get_calc_context_for_chat(object())
 
 
-def test_get_full_calc_text_uses_sheet_summary():
-    summary = {"sheet_name": "Sheet1", "used_range": "A1:C3", "headers": ["Name", None, "Amt"]}
-    analyzer = MagicMock()
-    analyzer.get_sheet_summary.return_value = summary
-    with (
-        patch("plugin.calc.analyzer.CalcBridge", return_value=MagicMock()),
-        patch("plugin.calc.analyzer.SheetAnalyzer", return_value=analyzer),
-    ):
-        text = get_full_calc_text(MagicMock(), max_chars=100)
-    assert "Sheet: Sheet1" in text
-    assert "Used Range: A1:C3" in text
-    assert "Columns: Name, Amt" in text
-
-
 def test_get_calc_context_for_chat_omits_leading_underscore_sheets():
     summary = {
         "sheet_name": "Sheet1",
@@ -91,30 +77,6 @@ def test_get_calc_context_for_chat_omits_leading_underscore_sheets():
     assert "_foo" not in text
     assert "__Anonymous_Sheet_DB__0" not in text
     assert "Active Sheet: Sheet1" in text
-
-
-def test_get_full_calc_text_names_internal_active_tab():
-    visible = {"sheet_name": "Sales", "used_range": "A1:C3", "headers": ["A", "B", "C"]}
-    analyzer = MagicMock()
-    analyzer.get_sheet_summary.return_value = visible
-    model = MagicMock()
-    model.getSheets.return_value.getElementNames.return_value = (
-        "__Anonymous_Sheet_DB__0",
-        "Sales",
-    )
-    bridge = MagicMock()
-    bridge.get_active_sheet.return_value.getName.return_value = "__Anonymous_Sheet_DB__0"
-    with (
-        patch("plugin.calc.analyzer.CalcBridge", return_value=bridge),
-        patch("plugin.calc.analyzer.SheetAnalyzer", return_value=analyzer),
-    ):
-        text = get_full_calc_text(model, max_chars=500)
-    assert "Sheet: Sales" in text
-    assert "Active Tab: __Anonymous_Sheet_DB__0 (internal; not summarized)" in text
-    assert "Inspected Sheet: Sales" in text
-    assert 'Pass sheet="Sales"' in text
-    assert "Active Sheet: Sales" not in text
-    analyzer.get_sheet_summary.assert_called_once_with(sheet_name="Sales", include_extras=False)
 
 
 def test_get_calc_context_for_chat_disposed():
@@ -243,23 +205,6 @@ def test_get_calc_context_for_chat_truncation():
 
         out_bool = get_calc_context_for_chat(model, max_context=True, ctx=object())
         assert out_bool == "\n\n[... document truncated ...]"
-
-
-def test_get_full_calc_text_truncation():
-    summary = {"sheet_name": "Sheet1", "used_range": "A1:C3", "headers": ["Name", None, "Amt"]}
-    analyzer = MagicMock()
-    analyzer.get_sheet_summary.return_value = summary
-    bridge = MagicMock()
-    bridge.get_active_sheet.return_value.getName.return_value = "Sheet1"
-    model = MagicMock()
-    model.getSheets.return_value.getElementNames.return_value = ("Sheet1",)
-    with (
-        patch("plugin.calc.analyzer.CalcBridge", return_value=bridge),
-        patch("plugin.calc.analyzer.SheetAnalyzer", return_value=analyzer),
-    ):
-        out = get_full_calc_text(model, max_chars=20)
-    assert out.endswith("\n\n[... document truncated ...]")
-    assert len(out) == 20 + len("\n\n[... document truncated ...]")
 
 
 def test_get_calc_context_for_chat_long_selection_truncation():

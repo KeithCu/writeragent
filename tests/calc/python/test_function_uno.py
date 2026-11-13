@@ -124,7 +124,7 @@ def _wait_spill_settled(doc, timeout: float = 10.0) -> None:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         pump_main_thread_work_queue(max_items=20)
-        if st is None or len(st.debounce) == 0:
+        if st is None or len(st.debounce.pending_for_tests()) == 0:
             break
         time.sleep(0.05)
     # A timer that just fired may still have its write queued for the UI thread.

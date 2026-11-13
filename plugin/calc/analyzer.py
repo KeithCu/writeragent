@@ -253,26 +253,3 @@ def get_calc_context_for_chat(
         log.exception("get_calc_context_for_chat error: %s", exc)
         return "[Unable to read Calc spreadsheet context. The document may be locked or initializing.]"
 
-
-@main_thread_only
-def get_full_calc_text(model: Any, max_chars: int = CHAT_DOCUMENT_CONTEXT_MAX_CHARS) -> str:
-    """Short active-sheet summary for ``get_full_document_text`` (not the chat excerpt).
-
-    Kept next to ``get_calc_context_for_chat`` so ``document_helpers`` can lazy-import
-    this module instead of constructing ``SheetAnalyzer`` itself. ``max_chars`` is
-    this prefix cap.
-    """
-    if model is None:
-        raise UnoObjectError("Document Model is null", code="UNO_NULL_OBJECT")
-    vs = _resolve_visible_sheet(model)
-    summary = vs.summary
-    if summary is None:
-        return truncate_chat_context("No user-visible sheets.\n", max_chars)
-    if vs.active_is_visible:
-        text = f"Sheet: {summary['sheet_name']}\n"
-    else:
-        text = _internal_tab_header(vs.active_name, summary["sheet_name"])
-    text += f"Used Range: {summary['used_range']}\n"
-    text += f"Columns: {_format_columns(summary['headers'])}\n"
-    return truncate_chat_context(text, max_chars)
-

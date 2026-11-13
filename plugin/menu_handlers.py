@@ -26,11 +26,11 @@ def register_common_handlers() -> None:
         log.debug("Calc cell context menu install failed", exc_info=True)
 
     try:
-        from plugin.calc.excel_py_convert.auto_open import install_excel_py_auto_convert
+        from plugin.calc.python.workbook_lifecycle import install_global_document_event_listener
 
-        install_excel_py_auto_convert(get_ctx())
+        install_global_document_event_listener(get_ctx())
     except Exception:
-        log.debug("Excel PY auto-convert on open install failed", exc_info=True)
+        log.debug("Document event listener install failed", exc_info=True)
 
     try:
         from plugin.calc.python.geometric_recalc import install_geometric_recalc

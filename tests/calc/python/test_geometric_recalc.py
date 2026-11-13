@@ -1571,8 +1571,8 @@ def test_dispatcher_debounce_coalesces_two_modifies(monkeypatch):
     dispatch_sheet_modified("ctx", "file:///debounce-geo.ods", "Sheet1", event)
     state = WorkbookState.for_doc(doc)
     assert state is not None
-    assert "sheet:Sheet1" in state.debounce
-    assert len(state.debounce) == 1
+    assert "sheet:Sheet1" in state.debounce.pending_for_tests()
+    assert len(state.debounce.pending_for_tests()) == 1
 
 
 def test_dispatcher_flag_off_does_not_rewrite(monkeypatch):
@@ -1685,7 +1685,7 @@ def test_dispatcher_reentrancy_skips_nested_schedule(monkeypatch):
         )
         state = WorkbookState.for_doc(doc)
         assert state is not None
-        assert "sheet:Sheet1" not in state.debounce
+        assert "sheet:Sheet1" not in state.debounce.pending_for_tests()
     finally:
         geo._RUNTIME.repairing = False
 

@@ -132,8 +132,8 @@ def test_debounce_keys_differ_for_unsaved_workbooks():
     schedule_sheet_modify_pass("ctx", doc_b, sheet_b)
     state_a = WorkbookState.for_doc(doc_a)
     state_b = WorkbookState.for_doc(doc_b)
-    assert state_a is not None and "sheet:Sheet1" in state_a.debounce
-    assert state_b is not None and "sheet:Sheet1" in state_b.debounce
+    assert state_a is not None and "sheet:Sheet1" in state_a.debounce.pending_for_tests()
+    assert state_b is not None and "sheet:Sheet1" in state_b.debounce.pending_for_tests()
     assert state_a is not state_b
 
 
@@ -248,11 +248,11 @@ def test_schedule_timer_callback_clears_pending_timer() -> None:
     schedule_sheet_modify_pass("ctx", doc, sheet)
     state = WorkbookState.for_doc(doc)
     assert state is not None
-    assert "sheet:Sheet1" in state.debounce
+    assert "sheet:Sheet1" in state.debounce.pending_for_tests()
 
     # Fire / flush
-    state.debounce.flush("sheet:Sheet1")
-    assert "sheet:Sheet1" not in state.debounce
+    state.debounce.flush_for_tests("sheet:Sheet1")
+    assert "sheet:Sheet1" not in state.debounce.pending_for_tests()
 
 
 def test_rekeyed_pending_timer_drops_on_fire(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -266,11 +266,11 @@ def test_rekeyed_pending_timer_drops_on_fire(monkeypatch: pytest.MonkeyPatch) ->
     schedule_sheet_modify_pass("ctx", doc, sheet)
     state = WorkbookState.for_doc(doc)
     assert state is not None
-    assert "sheet:Sheet1" in state.debounce
+    assert "sheet:Sheet1" in state.debounce.pending_for_tests()
 
     migrate_sheet_rename(doc, "Sheet1", "SheetNew")
-    assert "sheet:Sheet1" not in state.debounce
-    assert "sheet:SheetNew" in state.debounce
+    assert "sheet:Sheet1" not in state.debounce.pending_for_tests()
+    assert "sheet:SheetNew" in state.debounce.pending_for_tests()
 
     passed_kwargs: dict[str, object] = {}
 
@@ -282,8 +282,8 @@ def test_rekeyed_pending_timer_drops_on_fire(monkeypatch: pytest.MonkeyPatch) ->
         "plugin.calc.python.sheet_modify.run_sheet_modify_pass",
         fake_run_sheet_modify_pass,
     )
-    state.debounce.flush("sheet:SheetNew")
-    assert "sheet:SheetNew" not in state.debounce
+    state.debounce.flush_for_tests("sheet:SheetNew")
+    assert "sheet:SheetNew" not in state.debounce.pending_for_tests()
     assert passed_kwargs.get("sheet_name") == "SheetNew"
 
 
@@ -300,13 +300,13 @@ def test_unload_drops_pending_sheet_timer() -> None:
 
     state_unload = WorkbookState.for_doc(doc_unload)
     state_keep = WorkbookState.for_doc(doc_keep)
-    assert state_unload is not None and "sheet:Sheet1" in state_unload.debounce
-    assert state_keep is not None and "sheet:Sheet1" in state_keep.debounce
+    assert state_unload is not None and "sheet:Sheet1" in state_unload.debounce.pending_for_tests()
+    assert state_keep is not None and "sheet:Sheet1" in state_keep.debounce.pending_for_tests()
 
     WorkbookState.forget_key("uid-unload")
 
-    assert "sheet:Sheet1" not in state_unload.debounce
-    assert "sheet:Sheet1" in state_keep.debounce
+    assert "sheet:Sheet1" not in state_unload.debounce.pending_for_tests()
+    assert "sheet:Sheet1" in state_keep.debounce.pending_for_tests()
 
 
 def test_doc_url_and_sheet_name_read_failures_return_empty() -> None:

@@ -8,6 +8,7 @@ default tool lists).
 
 - `=PROMPT()`: `prompt_addin.py`, `prompt_function.py`
 - `=PYTHON()` / LibrePy: `python/addin.py`, `python/addin_librepy.py`, `python/function.py`, `python/spill.py`, `python/addin_values.py`, `python/undo.py`
+- Document open / save / close events: `python/workbook_lifecycle.py` (the one `GlobalEventBroadcaster` listener and each workbook's unload listener)
 - Do **not** drop `analyzer.py` from the LibrePy bundle (reserved).
 
 Topic docs: [docs/calc/prompt-function.md](../../docs/calc/prompt-function.md),

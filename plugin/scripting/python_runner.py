@@ -358,7 +358,7 @@ def _prepare_rps_execution(
 
     try:
         rps_sid = rps_session_id(doc)
-        ensure_python_session_cleared_on_unload(ctx, doc, rps_sid)
+        ensure_python_session_cleared_on_unload(doc, rps_sid)
     except Exception as e:
         log.exception("prepare Run Python Script failed")
         return EarlyOutcome(outcome=rps_error_outcome(str(e), t0=t0, traceback=exception_traceback(e)))
