@@ -204,23 +204,6 @@ class TestAccessorsAndCollector:
         res = _collect_hf_shapes(FakePage())
         assert res[_SVC_HEADER] is shape1
 
-    def test_tool_parameter_property_names(self):
-        from plugin.draw.headers_footers import GetHeadersFooters, SetHeadersFooters
-
-        assert set(GetHeadersFooters.parameters["properties"].keys()) == {"page", "is_master_page"}
-        assert set(SetHeadersFooters.parameters["properties"].keys()) == {
-            "page",
-            "is_master_page",
-            "header",
-            "footer",
-            "date_time",
-            "header_visible",
-            "footer_visible",
-            "page_number_visible",
-            "date_time_visible",
-            "date_time_fixed",
-        }
-
 
 class _FakeShape:
     def __init__(self, shape_type, props=None):

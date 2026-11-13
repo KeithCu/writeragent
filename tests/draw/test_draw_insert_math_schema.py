@@ -2,51 +2,26 @@
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""math_insert JSON schema matches smolagents WrappedSmolTool validation."""
+"""JSON schema validation tests for InsertMathDraw."""
 
 from __future__ import annotations
 
+import jsonschema
 import pytest
 
-from plugin.contrib.smolagents.tools import Tool, validate_tool_arguments
 from plugin.draw.math_insert import InsertMathDraw
 
 
-def _smol_inputs_from_tool_parameters(writer_tool: object) -> dict:
-    """Mirror plugin.doc.specialized_base.WrappedSmolTool.__init__."""
-    inputs: dict = {}
-    params = getattr(writer_tool, "parameters", {}) or {}
-    props = params.get("properties", {})
-    for param_name, spec in props.items():
-        inputs[param_name] = {**spec}
-        inputs[param_name]["type"] = spec.get("type", "any")
-        inputs[param_name]["description"] = spec.get("description", "")
-    return inputs
+def test_insert_math_schema_is_valid_json_schema() -> None:
+    schema = InsertMathDraw().parameters
+    assert isinstance(schema, dict)
+    jsonschema.Draft7Validator.check_schema(schema)
 
 
-class _InsertMathSmolStubTool(Tool):
-    """Minimal smolagents Tool for validate_tool_arguments only."""
-
-    skip_forward_signature_validation = True
-
-    def __init__(self, inputs: dict[str, dict]) -> None:
-        self.name = "math_insert"
-        self.description = "stub for schema validation"
-        self.inputs = inputs
-        self.output_type = "object"
-        super().__init__()
-
-    def forward(self, **kwargs):  # noqa: ARG002
-        return {}
-
-
-def _stub() -> _InsertMathSmolStubTool:
-    return _InsertMathSmolStubTool(_smol_inputs_from_tool_parameters(InsertMathDraw()))
-
-
-def test_insert_math_smolagents_validate_latex_payload() -> None:
-    validate_tool_arguments(
-        _stub(),
+def test_insert_math_schema_accepts_latex_payload() -> None:
+    schema = InsertMathDraw().parameters
+    assert schema is not None
+    jsonschema.validate(
         {
             "formula_type": "latex",
             "formula": "E = mc^2",
@@ -54,13 +29,15 @@ def test_insert_math_smolagents_validate_latex_payload() -> None:
             "x": 2000,
             "y": 2000,
         },
+        schema,
     )
 
 
-def test_insert_math_smolagents_validate_mathml_payload() -> None:
-    mml = "<math xmlns=\"http://www.w3.org/1998/Math/MathML\"><mi>x</mi></math>"
-    validate_tool_arguments(
-        _stub(),
+def test_insert_math_schema_accepts_mathml_payload() -> None:
+    schema = InsertMathDraw().parameters
+    assert schema is not None
+    mml = '<math xmlns="http://www.w3.org/1998/Math/MathML"><mi>x</mi></math>'
+    jsonschema.validate(
         {
             "formula_type": "mathml",
             "formula": mml,
@@ -68,17 +45,20 @@ def test_insert_math_smolagents_validate_mathml_payload() -> None:
             "x": 100,
             "y": 100,
         },
+        schema,
     )
 
 
-def test_insert_math_smolagents_missing_page_index_raises() -> None:
-    with pytest.raises(ValueError, match="page"):
-        validate_tool_arguments(
-            _stub(),
+def test_insert_math_schema_rejects_missing_page() -> None:
+    schema = InsertMathDraw().parameters
+    assert schema is not None
+    with pytest.raises(jsonschema.ValidationError, match="page"):
+        jsonschema.validate(
             {
                 "formula_type": "latex",
                 "formula": "a",
                 "x": 0,
                 "y": 0,
             },
+            schema,
         )
