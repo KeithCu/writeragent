@@ -439,24 +439,20 @@ def test_py_addin_worker_exception_formula_error(ctx, doc):
 @with_native_doc("calc")
 def test_py_addin_child_timeout_shows_guidance_text(ctx, doc):
     """Child in-process timeout (code EXECUTION_TIMEOUT) displays timeout guidance text in the cell."""
-    import unittest.mock
+    from plugin.framework.config import get_config, save
 
     sheet = doc.getSheets().getByIndex(0)
     clear_python_addin_cache()
+    prev_timeout = get_config("scripting.python_exec_timeout")
+    save({"scripting.python_exec_timeout": 1})
     try:
-        with unittest.mock.patch("plugin.calc.python.function.run_code_in_user_venv") as mock_run:
-            mock_run.return_value = {
-                "status": "error",
-                "code": "EXECUTION_TIMEOUT",
-                "message": "Code execution exceeded the maximum execution time of 30 seconds",
-                "details": {},
-            }
-            cell = sheet.getCellByPosition(0, 0)
-            cell.setFormula('=PY("slow")')
-            doc.calculateAll()
-            assert cell.getError() == 0
-            assert cell.getString().startswith("Error: Python timed out")
+        cell = sheet.getCellByPosition(0, 0)
+        cell.setFormula('=PY("import time; time.sleep(3); result = 1")')
+        doc.calculateAll()
+        assert cell.getError() == 0
+        assert cell.getString().startswith("Error: Python timed out")
     finally:
+        save({"scripting.python_exec_timeout": prev_timeout})
         st = WorkbookState.known(doc)
         if st is not None:
             WorkbookState.forget_key(st.key)
