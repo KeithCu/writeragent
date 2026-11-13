@@ -14,10 +14,9 @@ import logging
 import math
 from typing import Any
 
-from plugin.calc.calc_utils import EMPTY, resolve_document_locale, standard_temporal_format_keys
+from plugin.calc.calc_utils import EMPTY, NumberFormatCategories, resolve_document_locale, standard_temporal_format_keys
 from plugin.calc.datetime_wire import (
     coalesce_temporal_apply_rects,
-    format_category_from_type,
     should_preserve_temporal_format,
 )
 from plugin.calc.python.addin_values import (
@@ -275,7 +274,7 @@ def _apply_spill_temporal_formats(
         locale = resolve_document_locale(doc)
         standard_keys = standard_temporal_format_keys(formats, locale)
 
-        category_cache: dict[int, str | None] = {}
+        categories = NumberFormatCategories(formats)
         decisions: list[list[Any]] = []
 
         for r_idx, row in enumerate(values):
@@ -283,11 +282,7 @@ def _apply_spill_temporal_formats(
             for c_idx, v in enumerate(row):
                 if v.temporal_category is not None:
                     cell = sheet.getCellByPosition(formula_col + c_idx, formula_row + r_idx)
-                    k = int(cell.getPropertyValue("NumberFormat"))
-                    if k not in category_cache:
-                        props = formats.getByKey(k)
-                        category_cache[k] = format_category_from_type(props.getPropertyValue("Type"))
-                    dest_cat = category_cache[k]
+                    dest_cat = categories.category(int(cell.getPropertyValue("NumberFormat")))
                     if should_preserve_temporal_format(v.temporal_category, float(v.calc_value), dest_cat):
                         row_dec.append(("preserve", None))
                     else:

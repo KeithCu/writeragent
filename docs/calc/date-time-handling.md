@@ -291,7 +291,7 @@ The algorithm looks at three pieces of information only — no display-string co
    
    Take this from the **gate**, never from the format key Calc detected. Detection may return an `en-US` AM/PM time key even when the input was a datetime; that must not reclassify the write.
 
-2. **Destination category** — what kind of format the cell **already** has, before we change anything. Read the cell’s current `NumberFormat` key, look up its `Type` bitmask, and map with [`format_category_from_type`](../../plugin/calc/datetime_wire.py):
+2. **Destination category** — what kind of format the cell **already** has, before we change anything. Read the cell’s current `NumberFormat` key, look up its `Type` bitmask, and map with [`format_category_from_type`](../../plugin/calc/datetime_wire.py) (the destination key → category and `FormatString` lookup is cached per operation by `NumberFormatCategories` in [`calc_utils.py`](../../plugin/calc/calc_utils.py), shared by the inspector, the chat write path, and the `=PY()` spill):
    - DATE → `"date"`
    - TIME → `"time"` (this includes both clock times and elapsed `[HH]:MM` styles — Calc does not report `DURATION` on those formats; see §1.1 / §8.3)
    - DATE\|TIME → `"datetime"`

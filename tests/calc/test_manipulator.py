@@ -123,21 +123,18 @@ def test_write_array_formula_refusal_leaves_prior_array():
     writes: list[tuple[tuple[int, int, int, int], str]] = []
 
     class _Cell:
-        def __init__(self, formula: str = "", text: str = "") -> None:
+        def __init__(self, formula: str = "") -> None:
             self._formula = formula
-            self._text = text
 
         def getFormula(self) -> str:
             return self._formula
 
-        def getString(self) -> str:
-            return self._text
-
-    cells = {
-        (0, 0): _Cell("=OLD"),
-        (1, 0): _Cell("=OLD"),
-        (2, 0): _Cell("", "keep"),
+    formulas = {
+        (0, 0): "=OLD",
+        (1, 0): "=OLD",
+        (2, 0): "keep",
     }
+    cells = {pos: _Cell(text) for pos, text in formulas.items()}
 
     class _Cursor:
         def collapseToCurrentArray(self) -> None:
@@ -161,6 +158,12 @@ def test_write_array_formula_refusal_leaves_prior_array():
                     if box == (0, 0, 1, 0):
                         return state["array"]
                     return ""
+
+                def getFormulaArray(self) -> tuple[tuple[str, ...], ...]:
+                    return tuple(
+                        tuple(formulas.get((col, row), "") for col in range(c1, c2 + 1))
+                        for row in range(r1, r2 + 1)
+                    )
 
                 def setArrayFormula(self, formula: str) -> None:
                     writes.append((box, formula))
@@ -593,3 +596,26 @@ def test_plan_write_lets_bridge_error_through():
     with pytest.raises(UnoObjectError) as exc_copy:
         manipulator.copy_formula_range("Nope.A1", "A1")
     assert exc_copy.value.details == {"hint": "h"}
+
+
+def test_refuse_occupied_cells_reads_once_and_skips_boxes():
+    from plugin.calc.manipulator import refuse_occupied_cells
+
+    sheet = MagicMock()
+    sheet.getCellRangeByPosition.return_value.getFormulaArray.return_value = (
+        ("a", "b", ""),
+        ("", "", "c"),
+    )
+
+    with pytest.raises(CalcError, match=r"needs A1:C2, but 1 cell\(s\).*\(first: C2\)"):
+        refuse_occupied_cells(sheet, 0, 0, 2, 1, skip=[(0, 0, 1, 0)])
+
+    sheet.getCellRangeByPosition.assert_called_once_with(0, 0, 2, 1)
+    sheet.getCellByPosition.assert_not_called()
+
+    empty_sheet = MagicMock()
+    empty_sheet.getCellRangeByPosition.return_value.getFormulaArray.return_value = (
+        ("", ""),
+        ("", ""),
+    )
+    refuse_occupied_cells(empty_sheet, 0, 0, 1, 1)
