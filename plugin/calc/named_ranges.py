@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Callable
 
 from plugin.calc.address_utils import (
     format_address,
@@ -31,7 +31,9 @@ from plugin.calc.address_utils import (
 from plugin.calc.base import ToolCalcRangeBase
 from plugin.calc.bridge import CalcBridge, NamedRangeHit, is_agent_visible_sheet
 from plugin.calc.calc_utils import range_args
+from plugin.doc.compound_undo import UndoStepOrRollback
 from plugin.framework.errors import ToolExecutionError, name_miss_details, uno_read
+from plugin.framework.i18n import _
 
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
@@ -380,11 +382,9 @@ class NamedRangeEdit(ToolCalcRangeBase):
             new_clean = ""
         if new_clean:
             # setName does not run IsNameValid, so reject A1, Sales.2026,
-            # 1abc, and names with spaces using the same messages as
-            # addNewByName. Do not touch the range until the new name and
-            # base cell are valid. Rename first and roll it back if a
-            # later setter fails. Setting content, type, and reference
-            # before setName leaves a partial edit when the rename fails.
+            # 1abc, and names with spaces before opening the undo bracket.
+            # Rename runs first inside UndoStepOrRollback so a later setter
+            # raising undoes the whole edit in one step.
             invalid = _defined_name_error(new_clean)
             if invalid:
                 return self._tool_error(invalid, code="INVALID_NAME")
@@ -403,34 +403,19 @@ class NamedRangeEdit(ToolCalcRangeBase):
             except ValueError as ve:
                 return self._tool_error(f"Invalid base_cell address '{base_cell}': {ve}", code="INVALID_BASE_CELL")
 
-        pending: list[tuple[str, Any, Any, Any]] = []
+        pending: list[tuple[Callable[[Any], Any], Any]] = []
         if content is not None:
-            pending.append(("content", nr.setContent, nr.getContent(), content))
+            pending.append((nr.setContent, content.strip()))
         if type_mask is not None:
-            pending.append(("type", nr.setType, nr.getType(), type_mask))
+            pending.append((nr.setType, type_mask))
         if pos is not None:
-            pending.append(("position", nr.setReferencePosition, nr.getReferencePosition(), pos))
+            pending.append((nr.setReferencePosition, pos))
 
-        if new_clean:
-            nr.setName(new_clean)
-
-        done: list[tuple[str, Any, Any]] = []
-        try:
-            for field, setter, old, new in pending:
-                setter(new.strip() if field == "content" else new)
-                done.append((field, setter, old))
-        except Exception:
-            for field, setter, old in reversed(done):
-                try:
-                    setter(old)
-                except Exception:
-                    log.exception("Rollback of named range %s field %s failed", old_name, field)
+        with UndoStepOrRollback(doc, _("WriterAgent: Edit named range")):
             if new_clean:
-                try:
-                    nr.setName(old_name)
-                except Exception:
-                    log.exception("Rollback of named range rename %s -> %s failed", old_name, new_clean)
-            raise
+                nr.setName(new_clean)
+            for setter, new in pending:
+                setter(new)
 
         log.info("Named range edited: [%s] %s (new_name=%s)", effective_scope, name, new_name)
         return {"status": "ok", "message": f"Named range '{new_clean or old_name}' updated successfully in scope '{effective_scope}'."}

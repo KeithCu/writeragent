@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import logging
 from typing import TYPE_CHECKING, Any, Callable
-from plugin.framework.errors import ToolExecutionError, WriterAgentException, format_error_payload, is_disposal, uno_call
+from plugin.framework.errors import ToolExecutionError, WriterAgentException, format_error_payload, is_disposal
 from plugin.framework.tool import ToolBase
 
 if TYPE_CHECKING:
@@ -38,7 +38,7 @@ from plugin.calc.base import ToolCalcRangeBase
 from plugin.calc.calc_utils import range_args
 from plugin.calc.inspector import CellInspector, grid_to_rows
 from plugin.calc.manipulator import CellManipulator
-from plugin.doc.compound_undo import WriterCompoundUndo, undo_titles
+from plugin.doc.compound_undo import UndoStepOrRollback
 from plugin.doc.visual_helpers import parse_color_to_uno_int
 
 # Verbose per-cell dicts for a large range (A1:H500) exceed the chat context and the provider rejects the request (HTTP 400).
@@ -220,24 +220,6 @@ def _manipulator_context(ctx: ToolContext, range_arg: Any) -> tuple[CellManipula
     return CellManipulator(CalcBridge(ctx.doc)), range_args(range_arg)
 
 
-def _undo_action_count(doc: Any) -> int:
-    """Return the number of entries currently on the undo stack, or 0 if unreadable."""
-    return len(undo_titles(doc) or ())
-
-
-def _undo_titled_group(doc: Any, title: str, prev_count: int = 0) -> bool:
-    """Undo the group we just closed, only when its title is the newest one and count grew.
-
-    Verifies that the undo stack grew and the top action title matches our group title.
-    This prevents undoing unrelated user edits if another action occurred in the meantime.
-    """
-    titles = undo_titles(doc)
-    if titles and len(titles) > prev_count and titles[0] == title:
-        uno_call(lambda: doc.getUndoManager().undo(), "undo titled group")
-        return True
-    return False
-
-
 def _mutation_error(tool: ToolBase, exc: Exception, message: str) -> dict[str, Any]:
     """Build a tool error dict that preserves WriterAgentException code and details.
 
@@ -268,10 +250,9 @@ def _mutate_ranges(
 
     target = ranges[0]
     results: list[Any] = []
-    group: WriterCompoundUndo | None = None
-    prev_count = 0
+    group: UndoStepOrRollback | None = None
     try:
-        # Plan every range before the undo group exists (WriterCompoundUndo enters its context in
+        # Plan every range before the undo group exists (UndoStepOrRollback enters its context in
         # __init__): a bad value shape, unknown range or occupied array target on any range is
         # refused before the first range changes, so there is nothing to undo and no Redo entry.
         steps: list[Any] = list(ranges)
@@ -280,8 +261,7 @@ def _mutate_ranges(
             for r in ranges:
                 target = r
                 steps.append(plan_one(r))
-        prev_count = _undo_action_count(doc)
-        group = WriterCompoundUndo(doc, undo_title)
+        group = UndoStepOrRollback(doc, undo_title)
         with group:
             for r, step in zip(ranges, steps):
                 target = r
@@ -298,10 +278,9 @@ def _mutate_ranges(
     except Exception as exc:
         if is_disposal(exc):
             raise
-        entered = group is not None and group.entered
-        undone = _undo_titled_group(doc, undo_title, prev_count) if entered else False
-        if undone:
+        if group is not None and group.rolled_back:
             return _mutation_error(tool, exc, f"Failed on range {target!r}: {exc}. Nothing was kept.")
+        entered = group is not None and group.entered
         if len(results) > 0:
             if not entered:
                 return _mutation_error(tool, exc, f"Failed on range {target!r}: {exc}. {len(results)} range(s) were already changed individually.")

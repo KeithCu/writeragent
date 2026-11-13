@@ -12,7 +12,9 @@ from plugin.calc.address_utils import format_address, format_range, qualify_a1
 from plugin.calc.bridge import CalcBridge
 from plugin.calc.manipulator import CellManipulator
 from plugin.calc.python.addin_values import to_calc_compatible
+from plugin.doc.compound_undo import UndoStepOrRollback
 from plugin.framework.errors import CalcError
+from plugin.framework.i18n import _
 
 
 def pad_grid(grid: list[list[Any]]) -> list[list[Any]]:
@@ -170,5 +172,7 @@ def insert_tabular_result_into_calc(
                 % (block_name, len(occupied), format_address(block_c, block_r))
             )
 
-    manipulator.write_formula_range(addr, grid, data_text=True)
+    # Group the entire grid into one Ctrl+Z step so a failed write removes any partial cells.
+    with UndoStepOrRollback(doc, _("WriterAgent: Insert result")):
+        manipulator.write_formula_range(addr, grid, data_text=True)
     return len(grid)

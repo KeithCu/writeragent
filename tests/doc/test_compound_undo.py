@@ -3,8 +3,9 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from plugin.doc.compound_undo import WriterCompoundUndo, _is_undo_locked, undo_titles
+from plugin.doc.compound_undo import UndoStepOrRollback, WriterCompoundUndo, _is_undo_locked, undo_titles
 from plugin.framework.errors import DocumentDisposedError
+from plugin.tests.testing_utils import FakeUndoManager
 
 
 class _MockUndoManager:
@@ -301,3 +302,98 @@ def test_writer_compound_undo_unreadable_titles_refuses_rollback():
     assert cu.close() is True
     assert cu.rollback_if_top() is False
     mgr.undo.assert_not_called()
+
+
+def _doc_with_undo(undo_mgr):
+    doc = MagicMock()
+    doc.getUndoManager.return_value = undo_mgr
+    return doc
+
+
+def test_undo_step_or_rollback_undoes_own_group_on_error():
+    fake = FakeUndoManager(titles=["Earlier"])
+    doc = _doc_with_undo(fake)
+    step = UndoStepOrRollback(doc, "WriterAgent: test")
+
+    with pytest.raises(RuntimeError, match="boom"):
+        with step:
+            raise RuntimeError("boom")
+
+    assert step.rolled_back is True
+    assert fake.undone == 1
+    assert fake.titles == ["Earlier"]
+
+
+def test_undo_step_or_rollback_keeps_group_on_success():
+    fake = FakeUndoManager(titles=["Earlier"])
+    doc = _doc_with_undo(fake)
+    step = UndoStepOrRollback(doc, "WriterAgent: test")
+
+    with step:
+        pass
+
+    assert step.rolled_back is False
+    assert fake.undone == 0
+    assert fake.titles == ["WriterAgent: test", "Earlier"]
+
+
+def test_undo_step_or_rollback_leaves_foreign_top_entry():
+    class _ForeignLeaveFake(FakeUndoManager):
+        def leaveUndoContext(self) -> None:
+            super().leaveUndoContext()
+            self.titles.insert(0, "User edit")
+
+    fake = _ForeignLeaveFake()
+    doc = _doc_with_undo(fake)
+    step = UndoStepOrRollback(doc, "WriterAgent: test")
+
+    with pytest.raises(RuntimeError, match="boom"):
+        with step:
+            raise RuntimeError("boom")
+
+    assert step.rolled_back is False
+    assert fake.undone == 0
+    assert fake.titles[0] == "User edit"
+
+
+def test_undo_step_or_rollback_rolls_back_at_full_stack():
+    fake = FakeUndoManager(titles=["c", "b", "a"], limit=3)
+    doc = _doc_with_undo(fake)
+    step = UndoStepOrRollback(doc, "WriterAgent: test")
+
+    with pytest.raises(RuntimeError, match="boom"):
+        with step:
+            raise RuntimeError("boom")
+
+    assert step.rolled_back is True
+    assert fake.undone == 1
+    assert fake.titles == ["c", "b"]
+
+
+def test_undo_step_or_rollback_skips_rollback_on_disposal():
+    fake = FakeUndoManager()
+    doc = _doc_with_undo(fake)
+    step = UndoStepOrRollback(doc, "WriterAgent: test")
+
+    with pytest.raises(_DisposedException):
+        with step:
+            raise _DisposedException("gone")
+
+    assert step.rolled_back is False
+    assert fake.undone == 0
+
+
+def test_undo_step_or_rollback_locked_runs_body_without_group():
+    fake = FakeUndoManager(locked=True)
+    doc = _doc_with_undo(fake)
+    ran = []
+    step = UndoStepOrRollback(doc, "WriterAgent: test")
+
+    with step:
+        ran.append("ok")
+
+    assert ran == ["ok"]
+    assert step.entered is False
+    assert step.rolled_back is False
+    assert fake.entered == []
+    assert fake.undone == 0

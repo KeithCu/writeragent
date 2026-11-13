@@ -17,6 +17,7 @@ from plugin.calc.vision_egress import (
     insert_vision_structure_into_calc,
 )
 from plugin.framework.errors import DocumentDisposedError, ToolExecutionError
+from plugin.tests.testing_utils import FakeUndoManager
 
 
 def test_calc_output_anchor_from_graphic_no_selection():
@@ -404,3 +405,32 @@ def test_error_result_has_no_table_and_raises_vision_error(mock_anchor, mock_bri
         insert_vision_structure_into_calc(doc, result)
     assert exc_info.value.code == "VISION_ERROR"
     manipulator.write_formula_range.assert_not_called()
+
+
+@patch("plugin.calc.vision_egress.CellManipulator")
+@patch("plugin.calc.vision_egress.CalcBridge")
+@patch("plugin.calc.vision_egress.calc_output_anchor_from_graphic", return_value=("Sheet1", 0, 0))
+def test_insert_vision_structure_merge_failure_undoes_write(mock_anchor, mock_bridge, mock_manipulator_cls):
+    manipulator = MagicMock()
+    manipulator.merge_cells.side_effect = RuntimeError("merge boom")
+    mock_manipulator_cls.return_value = manipulator
+    fake_undo = FakeUndoManager()
+    doc = MagicMock()
+    doc.getUndoManager.return_value = fake_undo
+
+    result = {
+        "helper": "extract_structure",
+        "tables": [
+            {
+                "name": "t",
+                "columns": ["A", "B"],
+                "rows": [["1", "2"]],
+                "spans": [{"row": 0, "col": 0, "rowspan": 1, "colspan": 2}],
+            }
+        ],
+    }
+    with pytest.raises(RuntimeError, match="merge boom"):
+        insert_vision_structure_into_calc(doc, result)
+
+    assert fake_undo.entered == ["WriterAgent: Insert extracted tables"]
+    assert fake_undo.undone == 1

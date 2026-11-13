@@ -2193,3 +2193,62 @@ def agent_changes(model: Any) -> list[dict[str, Any]]:
 
     _review_scan.scan_redlines(model, on_item)
     return list(grouped.values())
+
+
+class FakeUndoManager:
+    """In-memory XUndoManager fake for unit tests.
+
+    ``titles`` stores undo titles newest-first, matching LibreOffice's
+    ``getAllUndoActionTitles()``. Optional ``limit`` drops the oldest
+    entry (tail) when a closed group is pushed onto a full stack.
+    """
+
+    def __init__(
+        self,
+        *,
+        titles: list[str] | None = None,
+        limit: int | None = None,
+        locked: bool = False,
+        undo_error: BaseException | None = None,
+    ) -> None:
+        self.titles: list[str] = list(titles or [])
+        self.limit = limit
+        self.locked = locked
+        self.undo_error = undo_error
+        self.entered: list[str] = []
+        self.undone: int = 0
+        self._ctx_stack: list[str] = []
+
+    def isLocked(self) -> bool:
+        return self.locked
+
+    def isInContext(self) -> bool:
+        return bool(self._ctx_stack)
+
+    def isUndoEnabled(self) -> bool:
+        return not self.locked
+
+    def getAllUndoActionTitles(self) -> tuple[str, ...]:
+        return tuple(self.titles)
+
+    def enterUndoContext(self, title: str) -> None:
+        if self.locked:
+            return
+        self.entered.append(title)
+        self._ctx_stack.append(title)
+
+    def leaveUndoContext(self) -> None:
+        if self.locked or not self._ctx_stack:
+            return
+        title = self._ctx_stack.pop()
+        if not self._ctx_stack:
+            self.titles.insert(0, title)
+            if self.limit is not None and len(self.titles) > self.limit:
+                del self.titles[self.limit :]
+
+    def undo(self) -> None:
+        if self.undo_error is not None:
+            raise self.undo_error
+        if self.titles:
+            self.titles.pop(0)
+            self.undone += 1
