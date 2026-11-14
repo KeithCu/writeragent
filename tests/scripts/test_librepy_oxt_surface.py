@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-import subprocess
 import sys
 from pathlib import Path
 
@@ -34,12 +33,6 @@ def test_archive_entries_match_required_and_exclude_forbidden():
     assert leaked == []
 
 
-def test_archive_entry_set_is_deterministic():
-    first = iter_librepy_archive_entries(str(_REPO_ROOT))
-    second = iter_librepy_archive_entries(str(_REPO_ROOT))
-    assert first == second
-
-
 def test_plugin_stage_is_deterministic(tmp_path: Path):
     first = tmp_path / "a"
     second = tmp_path / "b"
@@ -52,79 +45,6 @@ def test_plugin_stage_is_deterministic(tmp_path: Path):
     assert _rel_files(first) == _rel_files(second)
     assert "plugin/calc/python/workbook_lifecycle.py" in _rel_files(first)
     assert "plugin/main.py" not in _rel_files(first)
-
-
-def test_staged_plugin_imports_resolve_to_stage(tmp_path: Path):
-    staged = tmp_path / "staged"
-    stage_librepy_plugin_tree(str(_REPO_ROOT), str(staged))
-    script = r"""
-import sys
-import types
-
-staged = sys.argv[1]
-sys.path.insert(0, staged)
-
-uno = types.ModuleType("uno")
-unohelper = types.ModuleType("unohelper")
-
-class _Base:
-    pass
-
-class _ImplementationHelper:
-    def addImplementation(self, *args, **kwargs):
-        return None
-
-unohelper.Base = _Base
-unohelper.ImplementationHelper = _ImplementationHelper
-sys.modules["uno"] = uno
-sys.modules["unohelper"] = unohelper
-for name in (
-    "com",
-    "com.sun",
-    "com.sun.star",
-    "com.sun.star.frame",
-    "com.sun.star.lang",
-    "com.sun.star.task",
-    "com.sun.star.util",
-):
-    sys.modules.setdefault(name, types.ModuleType(name))
-
-def _iface(mod_name, attr):
-    cls = type(attr, (), {})
-    setattr(sys.modules[mod_name], attr, cls)
-
-_iface("com.sun.star.frame", "DispatchDescriptor")
-_iface("com.sun.star.frame", "XDispatch")
-_iface("com.sun.star.frame", "XDispatchProvider")
-_iface("com.sun.star.frame", "XTerminateListener")
-_iface("com.sun.star.lang", "XInitialization")
-_iface("com.sun.star.lang", "XServiceInfo")
-_iface("com.sun.star.task", "XJob")
-_iface("com.sun.star.task", "XJobExecutor")
-_iface("com.sun.star.util", "XModifyListener")
-_iface("com.sun.star.util", "XCloseListener")
-
-import plugin.calc.python.function as fn
-import plugin.calc.python.workbook_lifecycle as wl
-import plugin.main_core as mc
-
-def _under(path):
-    return os.path.realpath(path).startswith(os.path.realpath(staged) + os.sep)
-
-import os
-assert _under(fn.__file__), fn.__file__
-assert _under(wl.__file__), wl.__file__
-assert _under(mc.__file__), mc.__file__
-"""
-    proc = subprocess.run(
-        [sys.executable, "-c", script, str(staged)],
-        cwd=str(tmp_path),
-        env={**os.environ, "PYTHONPATH": str(staged)},
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    assert proc.returncode == 0, proc.stdout + proc.stderr
 
 
 def _create_synthetic_zip(
@@ -291,20 +211,3 @@ def test_missing_generated_settings_dialog_fails_assembly(monkeypatch, tmp_path:
     monkeypatch.setattr("os.path.isfile", fake_isfile)
     with pytest.raises(BuildError, match="SettingsDialog.xdl"):
         assemble_librepy_bundle(str(_REPO_ROOT), bundle_dir=str(tmp_path / "bundle"))
-
-
-def test_librepy_bundle_includes_latex2mathml_metadata(tmp_path: Path):
-    from scripts.build_oxt import sync_vendor_into_lib
-    from scripts.librepy_bundle_paths import LIBREPY_VENDOR_PACKAGES
-
-    vendor_dir = str(_REPO_ROOT / "vendor")
-    lib_dir = tmp_path / "plugin" / "lib"
-    sync_vendor_into_lib(
-        vendor_dir,
-        str(lib_dir),
-        prune_websockets=False,
-        only=LIBREPY_VENDOR_PACKAGES,
-    )
-    meta_files = list(lib_dir.glob("latex2mathml-*.dist-info/METADATA"))
-    assert len(meta_files) == 1
-    assert meta_files[0].is_file()

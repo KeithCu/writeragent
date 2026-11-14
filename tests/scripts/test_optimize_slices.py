@@ -32,34 +32,36 @@ def test_unknown_slice_raises() -> None:
 
 
 @pytest.mark.parametrize(
-    "value, value_2, value_3, value_4, value_5",
+    ("slice_name", "expected_fragment", "task_id"),
     [
-        pytest.param("calc_core", "SORT:", "tax_column", "calc_core", "tax_column", id="test_calc_core_injection_replaces_fragment_on_calc_tasks"),
-        pytest.param("apply_html", "APPLY_DOCUMENT_CONTENT AND HTML", "table_from_mess", "apply_html", "table_from_mess", id="test_apply_html_injection_replaces_fragment_on_writer_tasks"),
+        pytest.param("calc_core", "SORT:", "tax_column", id="calc_core_on_calc"),
+        pytest.param("apply_html", "APPLY_DOCUMENT_CONTENT AND HTML", "table_from_mess", id="apply_html_on_writer"),
     ],
 )
-def test_calc_core_injection_replaces_fragment_on_calc_tasks(value, value_2, value_3, value_4, value_5) -> None:
-    baseline = get_slice_baseline(value)
-    assert value_2 in baseline
-    prompt, patches = apply_named_slice(value_3, value_4, "SLICE_MARKER_XYZ")
+def test_slice_injection_replaces_fragment(
+    slice_name: str, expected_fragment: str, task_id: str
+) -> None:
+    baseline = get_slice_baseline(slice_name)
+    assert expected_fragment in baseline
+    prompt, patches = apply_named_slice(task_id, slice_name, "SLICE_MARKER_XYZ")
     assert patches is None
     assert "SLICE_MARKER_XYZ" in prompt
     assert baseline not in prompt
-    assert get_eval_system_prompt(value_5) != prompt
+    assert get_eval_system_prompt(task_id) != prompt
 
 
 @pytest.mark.parametrize(
-    "value, value_2, value_3",
+    ("task_id", "slice_name"),
     [
-        pytest.param("table_from_mess", "calc_core", "table_from_mess", id="test_calc_core_injection_is_noop_on_writer_tasks"),
-        pytest.param("tax_column", "apply_html", "tax_column", id="test_apply_html_injection_is_noop_on_calc_tasks"),
+        pytest.param("table_from_mess", "calc_core", id="calc_core_on_writer"),
+        pytest.param("tax_column", "apply_html", id="apply_html_on_calc"),
     ],
 )
-def test_calc_core_injection_is_noop_on_writer_tasks(value, value_2, value_3) -> None:
-    prompt, patches = apply_named_slice(value, value_2, "SLICE_MARKER_XYZ")
+def test_slice_injection_is_noop_on_other_task_kind(task_id: str, slice_name: str) -> None:
+    prompt, patches = apply_named_slice(task_id, slice_name, "SLICE_MARKER_XYZ")
     assert patches is None
     assert "SLICE_MARKER_XYZ" not in prompt
-    assert prompt == get_eval_system_prompt(value_3)
+    assert prompt == get_eval_system_prompt(task_id)
 
 def test_sort_range_slice_patches_specialized_schema() -> None:
     marker = "SORT_SLICE_MARKER"
