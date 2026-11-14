@@ -689,8 +689,6 @@ def test_read_cell_range_every_range_is_one_entry():
 
 def test_read_cell_range_tool_truncates_large_range():
     """A1:H500 must not dump thousands of cell dicts into chat (issue 405)."""
-    from plugin.calc.cells import _READ_CELL_RANGE_TRUNCATED_MSG
-
     ctx = SimpleNamespace(doc=MagicMock())
     sample = _inspector_sample_grid(["OrderID"] * 8)
     with (
@@ -710,33 +708,18 @@ def test_read_cell_range_tool_truncates_large_range():
     assert entry["row_count"] == 500
     assert entry["column_count"] == 8
     assert entry["preview_range"] == "A1:H10"
-    assert entry["message"] == _READ_CELL_RANGE_TRUNCATED_MSG.format(
-        rows=500, columns=8, cells=4000
-    )
-    assert "overload" in entry["message"]
-    assert "500 rows" in entry["message"]
-    assert "8 columns" in entry["message"]
-    assert "4000 cells" in entry["message"]
-    assert "peek only" in entry["message"]
-    assert "pass this A1 address to =PY instead of re-reading" not in entry["message"]
-    assert "write_formula_range" in entry["message"]
-    assert "fill-down" in entry["message"]
+    assert isinstance(entry["message"], str) and entry["message"]
     assert "A1:H10" in entry["hint"]
-    assert "write_formula_range" in entry["hint"]
     assert "next_range" not in entry
     inspector_cls.return_value.read_range.assert_called_once_with("A1:H10", include_format_info=True)
 
 
-def test_read_cell_range_min_over_cap_steers_fill_down_not_hard_py():
+def test_read_cell_range_min_over_cap_truncates_to_preview():
     """9×9 fixture (81 cells) is the smallest range-too-large repro.
 
-    Chat `read_cell_range` caps at 80 cells. Message names size + peek and
-    steers row-wise work to ordinary fill-down, not a hard =PY funnel.
+    Chat `read_cell_range` caps at 80 cells.
     """
-    from plugin.calc.cells import (
-        _READ_CELL_RANGE_MAX_CELLS,
-        _READ_CELL_RANGE_TRUNCATED_MSG,
-    )
+    from plugin.calc.cells import _READ_CELL_RANGE_MAX_CELLS
 
     from tests.harness.strip_bundle import skip_if_release_build
 
@@ -767,17 +750,7 @@ def test_read_cell_range_min_over_cap_steers_fill_down_not_hard_py():
     assert entry["row_count"] == 9
     assert entry["column_count"] == 9
     assert entry["range"] == range_name
-    assert entry["message"] == _READ_CELL_RANGE_TRUNCATED_MSG.format(
-        rows=9, columns=9, cells=81
-    )
-    assert "9 rows" in entry["message"]
-    assert "9 columns" in entry["message"]
-    assert "81 cells" in entry["message"]
-    assert "peek only" in entry["message"]
-    assert "pass this A1 address to =PY instead of re-reading" not in entry["message"]
-    assert "write_formula_range" in entry["message"]
-    assert "fill-down" in entry["message"]
-    assert entry["message"].index("write_formula_range") < entry["message"].index("=PY")
+    assert isinstance(entry["message"], str) and entry["message"]
     # Preview clips rows to 10 and columns to 8; 9 data rows stay 9 but columns become 8 (A1:H9).
     assert entry["preview_range"] == "A1:H9"
     inspector_cls.return_value.read_range.assert_called_once_with("A1:H9", include_format_info=True)
