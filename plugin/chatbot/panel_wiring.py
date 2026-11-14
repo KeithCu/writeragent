@@ -140,9 +140,17 @@ def setup_rich_control_ready(
 
     _attach_calc_cell_link(rich_control)
 
+    def _attach_collapse(ctrl: Any) -> None:
+        from plugin.chatbot.rich_text_control import attach_select_all_collapse
+
+        attach_select_all_collapse(ctrl, widget.ctx)
+
+    best_effort(lambda: _attach_collapse(rich_control), "rich select-all collapse listener")
+
     def _on_control_replaced(new_ctrl: Any) -> None:
         widget.replace_control(new_ctrl)
         _attach_calc_cell_link(new_ctrl)
+        best_effort(lambda: _attach_collapse(new_ctrl), "rich select-all collapse listener")
 
     if panel._rich_control_listener:
         panel._rich_control_listener.on_replaced = _on_control_replaced

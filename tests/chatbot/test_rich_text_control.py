@@ -253,10 +253,13 @@ class TestAppendTextChunk:
         parent = MagicMock()
         restore = MagicMock()
         parent.attach_mock(restore, "restore")
-        with patch("plugin.chatbot.rich_text_control._dispatch_rich_uno") as mock_uno:
+        with patch("plugin.chatbot.rich_text_control._dispatch_rich_uno", return_value=True) as mock_uno:
             parent.attach_mock(mock_uno, "uno")
             _scroll_rich_to_tail(control, restore_focus=restore)
         mock_uno.assert_called_once_with(control, ".uno:SelectAll")
+        from plugin.chatbot import rich_text_control as rtc
+
+        rtc._SELECT_ALL_ACTIVE.discard(id(control))
         # Restore focus before and after SelectAll so the selection flash stays hidden.
         assert [c[0] for c in parent.mock_calls] == ["restore", "uno", "restore"]
 
@@ -859,3 +862,80 @@ def test_debug_env_active_follows_is_dev_build_when_dev_guard_off(monkeypatch) -
     monkeypatch.setenv("WRITERAGENT_TESTING", "1")
     assert debug_env_active() is True
 
+
+
+class TestSelectAllCollapse:
+    """Leftover stick-to-bottom All() must not paint when the transcript gets focus."""
+
+    def _listener(self):
+        from plugin.chatbot import rich_text_control as rtc
+
+        control = MagicMock()
+        ctx = MagicMock()
+        callback = ctx.getServiceManager.return_value.createInstanceWithContext.return_value
+        listener = rtc.SelectAllCollapseListener(control, ctx)
+        listener.callback = object()
+        rtc._COLLAPSE_LISTENERS[id(control)] = listener
+        return rtc, control, listener, callback
+
+    def _cleanup(self, rtc, control):
+        rtc._COLLAPSE_LISTENERS.pop(id(control), None)
+        rtc._SELECT_ALL_ACTIVE.discard(id(control))
+
+    def test_focus_after_select_all_posts_collapse(self):
+        rtc, control, listener, callback = self._listener()
+        try:
+            with patch("plugin.chatbot.rich_text_control._dispatch_rich_uno", return_value=True):
+                rtc._scroll_rich_to_tail(control)
+            assert id(control) in rtc._SELECT_ALL_ACTIVE
+            listener.focus_gained()
+            callback.addCallback.assert_called_once_with(listener.callback, None)
+            with patch("plugin.chatbot.rich_text_control.post_collapse_key", return_value=True) as post:
+                listener.notify()
+            post.assert_called_once_with(control, listener.ctx)
+            assert id(control) not in rtc._SELECT_ALL_ACTIVE
+        finally:
+            self._cleanup(rtc, control)
+
+    def test_click_keeps_its_caret(self):
+        rtc, control, listener, _callback = self._listener()
+        try:
+            rtc._SELECT_ALL_ACTIVE.add(id(control))
+            listener.focus_gained()
+            listener.mouse_pressed()
+            with patch("plugin.chatbot.rich_text_control.post_collapse_key") as post:
+                listener.notify()
+            post.assert_not_called()
+        finally:
+            self._cleanup(rtc, control)
+
+    def test_focus_lost_before_callback_does_not_post(self):
+        # The posted key goes to the focus window; never send it to the Ask field.
+        rtc, control, listener, _callback = self._listener()
+        try:
+            rtc._SELECT_ALL_ACTIVE.add(id(control))
+            listener.focus_gained()
+            listener.focus_lost()
+            with patch("plugin.chatbot.rich_text_control.post_collapse_key") as post:
+                listener.notify()
+            post.assert_not_called()
+        finally:
+            self._cleanup(rtc, control)
+
+    def test_focus_without_select_all_keeps_user_selection(self):
+        rtc, control, listener, callback = self._listener()
+        try:
+            listener.focus_gained()
+            callback.addCallback.assert_not_called()
+        finally:
+            self._cleanup(rtc, control)
+
+    def test_scroll_while_transcript_focused_collapses_now(self):
+        rtc, control, listener, callback = self._listener()
+        try:
+            listener.has_focus = True
+            with patch("plugin.chatbot.rich_text_control._dispatch_rich_uno", return_value=True):
+                rtc._scroll_rich_to_tail(control)
+            callback.addCallback.assert_called_once_with(listener.callback, None)
+        finally:
+            self._cleanup(rtc, control)

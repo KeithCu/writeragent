@@ -401,6 +401,7 @@ Live loop on stock LibreOffice (no C++ peer patch). One experiment at a time; re
 | 18 | Restore query (Hidden mode) before and after SelectAll. Drop reveal_caret after copy/history (GetFocus forces Std and paints All()). | Agent stream: no flash. User message still flashes. |
 | 19 | User trailing-break used reveal_caret after SelectAll (GetFocus + Std + All()). Same Hidden scroll as stream; no reveal. | Pass. Keith click-test: You: insert no longer flashes; stream still Hidden; stick-to-bottom held. |
 | 20 | After resize `setPosSize`, Hidden SelectAll instead of reveal_caret. Stock layoutWindow jumps VisArea to origin; C++ patch not required for stick-to-bottom. | Nonempty skip removed (was skip_nonempty). Drag restick is Hidden SelectAll with re-entrancy guard, no idle. Click-test: drag width with transcript at bottom; no hang; stay on newest text. |
+| 21 | Leftover All() painted as a whole-transcript highlight whenever the viewport got focus (window pop-up/activation, create-time `reveal_caret` in `_on_rich_control_ready`, Tab). `SelectAllCollapseListener`: on focusGained after a stick-to-bottom SelectAll, an AsyncCallback posts Ctrl+End (`XToolkitRobot.keyPress`) to the focused viewport; EditView collapses to a caret at the end, so the view does not move. A click's mousePressed (same VCL event as its focusGained) cancels it; focusLost cancels it (the key goes to the focus window, never post it to Ask). A SelectAll while the transcript is focused collapses at once. | Pass (2026-11-14, gen backend). Focus on transcript: caret at end, no highlight (master: whole transcript highlighted). Create, stream, click-during-stream, click/drag select: no highlight, stick-to-bottom held, click caret and drag selection kept. Model insert/delete, temp paragraph break, and `.uno:End` dispatch do not collapse the selection. |
 
 ### Sidebar column / H-scroll (2026-08-27)
 
@@ -425,4 +426,3 @@ Create-time (Keith 2026-08-27): `[FIRST LAYOUT] root_w=320 max_child_right=1087 
 - Preserve real `NumberingRules` on paste and drop manual list-prefix reconstruction?
 - Spellcheck/grammar on the transcript?
 - Out-of-process webview still worth it long-term?
-- Create-time whole-control flash (greeting/history SelectAll while viewport is still Std). Pri 7; send/stream paths are Hidden.
