@@ -403,9 +403,23 @@ def test_generated_xlsx_results_have_spill_gutter(tmp_path: Path) -> None:
     assert len(gaps) == 3
     for coord, empty in gaps:
         assert empty >= SQL_RESULTS_SPILL_GUTTER_ROWS, (coord, empty)
+    # Header + every distinct (Region, Category) pair must fit inside the spill gutter.
+    sales_rows = get_sales_dataset()
+    region_col = sales_rows[0].index("Region")
+    category_col = sales_rows[0].index("Category")
+    distinct_pairs = {(r[region_col], r[category_col]) for r in sales_rows[1:]}
+    assert len(distinct_pairs) + 1 <= SQL_RESULTS_SPILL_GUTTER_ROWS
     _assert_xlsx_results_unmerged_with_clearance(ws)
     assert SALES_NAMED_RANGE in wb.defined_names
     assert MARKETING_NAMED_RANGE in wb.defined_names
+    assert re.fullmatch(
+        r"Sales_Analytics!\$[A-Z]+\$\d+:\$[A-Z]+\$\d+",
+        wb.defined_names[SALES_NAMED_RANGE].attr_text,
+    )
+    assert re.fullmatch(
+        r"Statistics_ML!\$[A-Z]+\$\d+:\$[A-Z]+\$\d+",
+        wb.defined_names[MARKETING_NAMED_RANGE].attr_text,
+    )
     assert wb.defined_names[SALES_NAMED_RANGE].attr_text == _xlsx_named_range_address(
         "Sales_Analytics", SALES_RANGE_XLSX
     )

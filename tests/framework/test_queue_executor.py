@@ -1869,12 +1869,10 @@ def test_on_python_main_thread_is_designated_or_python_main() -> None:
 
 
 def test_eval_harness_disables_async_callback(monkeypatch: pytest.MonkeyPatch) -> None:
-    from plugin.framework.queue_executor import MainThread, install_from_environ
-
-    monkeypatch.setattr(MainThread, "_policy", MainThread._policy)
+    monkeypatch.setattr(mt.MainThread, "_policy", mt.MainThread._policy)
     monkeypatch.setenv("WRITERAGENT_EVAL_HARNESS", "1")
-    install_from_environ()
-    ex = MainThread()
+    mt.install_from_environ()
+    ex = mt.MainThread()
     ex.set_context(MagicMock(name="ctx"))
     assert ex._get_async_callback() is None
     assert ex._initialized is True

@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Demo report generator: numbers match the showcase workbook; grammar traps stay put."""
+"""Demo report generator: numbers match the showcase workbook."""
 
 import importlib.util
 import sys

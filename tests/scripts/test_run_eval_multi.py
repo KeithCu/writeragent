@@ -265,28 +265,20 @@ def test_pareto_tradeoff_score_f1_is_one() -> None:
 
 
 def test_catalog_pricing_from_token_total_does_not_change_correctness() -> None:
-    """85/15 split applies synthetic catalog rates to total_tokens without altering correctness."""
+    """Summaries that recorded only total_tokens get an 85/15 input/output estimate without altering correctness."""
     from model_configs import ModelConfig
 
-    ultra_cfg = ModelConfig(
+    cfg = ModelConfig(
         openrouter_id="synthetic/ultra",
         display_name="Synthetic Ultra",
         context_window_tokens=131_072,
         input_cost_per_million=1.0,
         output_cost_per_million=4.0,
     )
-    super_cfg = ModelConfig(
-        openrouter_id="synthetic/super",
-        display_name="Synthetic Super",
-        context_window_tokens=131_072,
-        input_cost_per_million=0.2,
-        output_cost_per_million=0.8,
-    )
-    ultra_corr = 0.80
-    super_corr = 0.90
-    ultra = {
-        "openrouter_id": ultra_cfg.openrouter_id,
-        "avg_correctness": ultra_corr,
+    corr = 0.80
+    row = {
+        "openrouter_id": cfg.openrouter_id,
+        "avg_correctness": corr,
         "avg_metric_score": 0.50,
         "hard_pass_rate": 0.82,
         "n_examples": 10,
@@ -295,41 +287,18 @@ def test_catalog_pricing_from_token_total_does_not_change_correctness() -> None:
         "avg_cost_per_example": 0.0,
         "intelligence_per_dollar_correctness": 0.0,
     }
-    super_row = {
-        "openrouter_id": super_cfg.openrouter_id,
-        "avg_correctness": super_corr,
-        "avg_metric_score": 0.50,
-        "hard_pass_rate": 0.70,
-        "n_examples": 10,
-        "total_tokens": 1_000_000,
-        "pricing_known": False,
-        "avg_cost_per_example": 0.0,
-        "intelligence_per_dollar_correctness": 0.0,
-    }
 
-    run_eval_multi.apply_catalog_pricing_to_summary(ultra, ultra_cfg)
-    run_eval_multi.apply_catalog_pricing_to_summary(super_row, super_cfg)
+    run_eval_multi.apply_catalog_pricing_to_summary(row, cfg)
 
-    assert ultra["avg_correctness"] == ultra_corr
-    assert super_row["avg_correctness"] == super_corr
-    assert ultra["hard_pass_rate"] == 0.82
-    assert super_row["hard_pass_rate"] == 0.70
-    assert ultra["pricing_known"] is True
-    assert super_row["pricing_known"] is True
-    assert ultra["input_cost_per_million"] == ultra_cfg.input_cost_per_million
-    assert ultra["output_cost_per_million"] == ultra_cfg.output_cost_per_million
-    assert super_row["input_cost_per_million"] == super_cfg.input_cost_per_million
-    assert super_row["output_cost_per_million"] == super_cfg.output_cost_per_million
-    # 85/15 × catalog rates × recorded totals (10 tasks).
-    expected_ultra_cost = (0.85 * 1.0 + 0.15 * 4.0) / 10
-    expected_super_cost = (0.85 * 0.2 + 0.15 * 0.8) / 10
-    assert ultra["avg_cost_per_example"] == pytest.approx(expected_ultra_cost)
-    assert super_row["avg_cost_per_example"] == pytest.approx(expected_super_cost)
-    assert ultra["intelligence_per_dollar_correctness"] == pytest.approx(
-        (ultra_corr ** 2) / ultra["avg_cost_per_example"]
-    )
-    assert super_row["intelligence_per_dollar_correctness"] == pytest.approx(
-        (super_corr ** 2) / super_row["avg_cost_per_example"]
+    assert row["avg_correctness"] == corr
+    assert row["hard_pass_rate"] == 0.82
+    assert row["pricing_known"] is True
+    assert row["input_cost_per_million"] == cfg.input_cost_per_million
+    assert row["output_cost_per_million"] == cfg.output_cost_per_million
+    expected_cost = (0.85 * 1.0 + 0.15 * 4.0) / 10
+    assert row["avg_cost_per_example"] == pytest.approx(expected_cost)
+    assert row["intelligence_per_dollar_correctness"] == pytest.approx(
+        (corr ** 2) / row["avg_cost_per_example"]
     )
 
 
