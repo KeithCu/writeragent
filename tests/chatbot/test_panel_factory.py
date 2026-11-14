@@ -555,9 +555,17 @@ def test_refresh_mode_selector_disposed_still_updates_backend_indicator():
     el._update_backend_indicator.assert_called_once_with(root)
 
 
-def test_refresh_controls_syncs_chk_voice_from_tts_enabled():
-    """Settings → Speech TTS toggle must refresh the sidebar Voice checkbox."""
-    from unittest.mock import MagicMock, patch
+@pytest.mark.parametrize(
+    ("initial_state", "model_side_effect", "expected_calls"),
+    [
+        pytest.param(0, None, [(1,)], id="syncs-stale-off-to-on"),
+        pytest.param(1, None, [], id="skips-when-already-matched"),
+        pytest.param(0, RuntimeError("model read fail"), [(1,)], id="continues-after-model-read-failure"),
+    ],
+)
+def test_refresh_controls_chk_voice_sync(initial_state, model_side_effect, expected_calls):
+    """_refresh_controls_from_config syncs chk_voice from audio.tts_enabled even if model read fails."""
+    from unittest.mock import MagicMock, call, patch
 
     el = _thin_panel_element()
     el.ctx = MagicMock()
@@ -567,21 +575,17 @@ def test_refresh_controls_syncs_chk_voice_from_tts_enabled():
     el._update_backend_indicator = MagicMock()
 
     chk = MagicMock()
-    chk.getState.return_value = 0  # sidebar stale (off)
+    chk.getState.return_value = initial_state
     chk.setState = MagicMock()
 
     def get_optional(_root, name):
-        if name == "chk_voice":
-            return chk
-        return None
+        return chk if name == "chk_voice" else None
 
     with patch("plugin.chatbot.config_ui_helpers.populate_combobox_with_lru"), patch(
         "plugin.chatbot.config_ui_helpers.populate_image_model_selector"
-    ), patch("plugin.chatbot.panel_factory.get_text_model", return_value="m"), patch(
+    ), patch("plugin.chatbot.panel_factory.get_text_model", return_value="m", side_effect=model_side_effect), patch(
         "plugin.chatbot.panel_factory.get_config", return_value=""
-    ), patch(
-        "plugin.chatbot.panel_factory.get_current_endpoint", return_value=""
-    ), patch(
+    ), patch("plugin.chatbot.panel_factory.get_current_endpoint", return_value=""), patch(
         "plugin.chatbot.panel_factory.get_optional_control",
         side_effect=get_optional,
     ), patch(
@@ -590,45 +594,9 @@ def test_refresh_controls_syncs_chk_voice_from_tts_enabled():
     ):
         el._refresh_controls_from_config()
 
-    chk.setState.assert_called_once_with(1)
+    assert not el._in_refresh_controls
+    assert chk.setState.call_args_list == [call(*args) for args in expected_calls]
     el._update_backend_indicator.assert_called_once_with(root)
-
-
-def test_refresh_controls_skips_chk_voice_setstate_when_already_matched():
-    from unittest.mock import MagicMock, patch
-
-    el = _thin_panel_element()
-    el.ctx = MagicMock()
-    el._in_refresh_controls = False
-    root = MagicMock()
-    el.m_panelRootWindow = root
-    el._update_backend_indicator = MagicMock()
-
-    chk = MagicMock()
-    chk.getState.return_value = 1
-    chk.setState = MagicMock()
-
-    def get_optional(_root, name):
-        if name == "chk_voice":
-            return chk
-        return None
-
-    with patch("plugin.chatbot.config_ui_helpers.populate_combobox_with_lru"), patch(
-        "plugin.chatbot.config_ui_helpers.populate_image_model_selector"
-    ), patch("plugin.chatbot.panel_factory.get_text_model", return_value="m"), patch(
-        "plugin.chatbot.panel_factory.get_config", return_value=""
-    ), patch(
-        "plugin.chatbot.panel_factory.get_current_endpoint", return_value=""
-    ), patch(
-        "plugin.chatbot.panel_factory.get_optional_control",
-        side_effect=get_optional,
-    ), patch(
-        "plugin.framework.config.get_config",
-        side_effect=lambda key: True if key == "audio.tts_enabled" else False,
-    ):
-        el._refresh_controls_from_config()
-
-    chk.setState.assert_not_called()
 
 
 def test_header_third_button_is_writer_latex_calc_python_else_hidden():
@@ -736,9 +704,8 @@ def test_render_session_history_logs_greeting_argument() -> None:
     assert factory_log.exception.call_args.args[1:] == ("Hello there",)
 
 
-def test_wire_buttons_missing_mode_flags_still_attaches_send_and_stop() -> None:
-    """None mode_flags must not AttributeError inside the Send/Stop try."""
-    from unittest.mock import MagicMock, patch
+def _wire_buttons_setup(**extra_controls):
+    from unittest.mock import MagicMock
 
     el = _thin_panel_element()
     el.ctx = MagicMock()
@@ -749,7 +716,6 @@ def test_wire_buttons_missing_mode_flags_still_attaches_send_and_stop() -> None:
     el._apply_sidebar_mode = MagicMock()
     send = MagicMock()
     stop = MagicMock()
-    selector = MagicMock()
     controls = {
         "send": send,
         "stop": stop,
@@ -758,7 +724,7 @@ def test_wire_buttons_missing_mode_flags_still_attaches_send_and_stop() -> None:
         "image_model_selector": None,
         "model_selector": None,
         "status": None,
-        "chat_mode_selector": selector,
+        "chat_mode_selector": None,
         "aspect_ratio_selector": None,
         "base_size_input": None,
         "clear": None,
@@ -768,24 +734,48 @@ def test_wire_buttons_missing_mode_flags_still_attaches_send_and_stop() -> None:
         "btn_latex": None,
         "btn_search": None,
         "btn_hamburger": None,
+        **extra_controls,
     }
+    return el, controls, send, stop
+
+
+import contextlib
+
+
+@contextlib.contextmanager
+def _wire_buttons_patches(send_listener=None, *, send_patch=None, doc_type_patch=None):
+    from unittest.mock import MagicMock, patch
+
+    with contextlib.ExitStack() as stack:
+        stack.enter_context(patch("plugin.chatbot.chat_sidebar_mode.greeting_for_sidebar_mode", return_value=""))
+        stack.enter_context(patch("plugin.chatbot.panel_factory.header_third_button_kind", return_value=""))
+        stack.enter_context(patch("plugin.framework.uno_context.get_extension_url", return_value=""))
+        stack.enter_context(patch("plugin.framework.menu_icon_dpi.menu_icon_asset_rel", return_value="assets/gear_16.png"))
+        ctor = stack.enter_context(
+            send_patch if send_patch is not None else patch("plugin.chatbot.panel.SendButtonListener", return_value=send_listener)
+        )
+        mock_reg_debug = stack.enter_context(patch("plugin.chatbot.panel_factory.register_debug_live_panel"))
+        mock_reg_live = stack.enter_context(patch("plugin.doc.live_panels.register_live_panel"))
+        stack.enter_context(
+            doc_type_patch if doc_type_patch is not None else patch("plugin.framework.doc_type.get_document_type", return_value=MagicMock())
+        )
+        stack.enter_context(patch("plugin.framework.doc_type.doc_type_label_for_enum", return_value="writer"))
+        stack.enter_context(patch("plugin.framework.doc_type.doc_type_title_for_label", return_value="Writer"))
+        stack.enter_context(patch("plugin.framework.doc_type.get_document_uno_services", return_value=frozenset()))
+        stack.enter_context(patch("plugin.chatbot.panel_factory.start_watchdog_thread"))
+        stack.enter_context(patch("plugin.chatbot.panel.StopButtonListener", return_value=MagicMock()))
+        mock_release = stack.enter_context(patch("plugin.chatbot.panel_factory.release_live_sidebar"))
+        yield ctor, mock_release, mock_reg_debug, mock_reg_live
+
+
+def test_wire_buttons_missing_mode_flags_still_attaches_send_and_stop() -> None:
+    """None mode_flags must not AttributeError inside the Send/Stop try."""
+    from unittest.mock import MagicMock
+
+    el, controls, send, stop = _wire_buttons_setup(chat_mode_selector=MagicMock())
     sentinel = MagicMock(name="send_listener")
 
-    with (
-        patch("plugin.chatbot.chat_sidebar_mode.greeting_for_sidebar_mode", return_value=""),
-        patch("plugin.chatbot.panel_factory.header_third_button_kind", return_value=""),
-        patch("plugin.framework.uno_context.get_extension_url", return_value=""),
-        patch("plugin.framework.menu_icon_dpi.menu_icon_asset_rel", return_value="assets/gear_16.png"),
-        patch("plugin.chatbot.panel.SendButtonListener", return_value=sentinel),
-        patch("plugin.chatbot.panel_factory.register_debug_live_panel"),
-        patch("plugin.doc.live_panels.register_live_panel"),
-        patch("plugin.framework.doc_type.get_document_type", return_value=MagicMock()),
-        patch("plugin.framework.doc_type.doc_type_label_for_enum", return_value="writer"),
-        patch("plugin.framework.doc_type.doc_type_title_for_label", return_value="Writer"),
-        patch("plugin.framework.doc_type.get_document_uno_services", return_value=frozenset()),
-        patch("plugin.chatbot.panel_factory.start_watchdog_thread"),
-        patch("plugin.chatbot.panel.StopButtonListener", return_value=MagicMock()),
-    ):
+    with _wire_buttons_patches(send_listener=sentinel):
         el._wire_buttons(controls, MagicMock(), "chat", None)
 
     send.addActionListener.assert_called_once_with(sentinel)
@@ -959,39 +949,10 @@ def test_wire_buttons_doc_type_probe_failure_stores_unknown() -> None:
     from types import SimpleNamespace
     from unittest.mock import MagicMock, patch
 
-
-    el = _thin_panel_element()
-    el.ctx = MagicMock()
-    el.xFrame = MagicMock()
-    el.session = MagicMock()
-    el.frame_session = None
-    el._live_panel_uid = "uid"
-    el._apply_sidebar_mode = MagicMock()
+    el, controls, send, stop = _wire_buttons_setup()
     el._doc_type_label = "unknown"
     el._doc_type_title = "Unknown"
     el._doc_uno_services = frozenset()
-
-    send = MagicMock()
-    stop = MagicMock()
-    controls = {
-        "send": send,
-        "stop": stop,
-        "query": MagicMock(),
-        "response": MagicMock(),
-        "image_model_selector": None,
-        "model_selector": None,
-        "status": None,
-        "chat_mode_selector": None,
-        "aspect_ratio_selector": None,
-        "base_size_input": None,
-        "clear": None,
-        "chk_voice": None,
-        "btn_settings": None,
-        "btn_python": None,
-        "btn_latex": None,
-        "btn_search": None,
-        "btn_hamburger": None,
-    }
     sentinel = SimpleNamespace(
         cached_doc_type=None,
         initial_doc_type=None,
@@ -1000,17 +961,9 @@ def test_wire_buttons_doc_type_probe_failure_stores_unknown() -> None:
         _set_button_states=MagicMock(),
     )
 
-    with (
-        patch("plugin.chatbot.chat_sidebar_mode.greeting_for_sidebar_mode", return_value=""),
-        patch("plugin.chatbot.panel_factory.header_third_button_kind", return_value=""),
-        patch("plugin.framework.uno_context.get_extension_url", return_value=""),
-        patch("plugin.framework.menu_icon_dpi.menu_icon_asset_rel", return_value="assets/gear_16.png"),
-        patch("plugin.chatbot.panel.SendButtonListener", return_value=sentinel),
-        patch("plugin.chatbot.panel_factory.register_debug_live_panel"),
-        patch("plugin.doc.live_panels.register_live_panel"),
-        patch("plugin.framework.doc_type.get_document_type", side_effect=RuntimeError("probe failed")),
-        patch("plugin.chatbot.panel_factory.start_watchdog_thread"),
-        patch("plugin.chatbot.panel.StopButtonListener", return_value=MagicMock()),
+    with _wire_buttons_patches(
+        send_listener=sentinel,
+        doc_type_patch=patch("plugin.framework.doc_type.get_document_type", side_effect=RuntimeError("probe failed")),
     ):
         mode_flags = el._sidebar_mode_flags()
         el._wire_buttons(controls, MagicMock(), "chat", mode_flags)
@@ -1020,48 +973,6 @@ def test_wire_buttons_doc_type_probe_failure_stores_unknown() -> None:
     assert sentinel.cached_doc_type == "unknown"
     assert sentinel.initial_doc_type == "Unknown"
     assert sentinel.cached_uno_services == frozenset()
-
-
-def test_refresh_controls_continues_after_model_read_failure():
-    """Failure to read text model must not skip remaining control refreshes."""
-    from unittest.mock import MagicMock, patch
-
-    el = _thin_panel_element()
-    el.ctx = MagicMock()
-    el._in_refresh_controls = False
-    root = MagicMock()
-    el.m_panelRootWindow = root
-    el._update_backend_indicator = MagicMock()
-
-    chk = MagicMock()
-    chk.getState.return_value = 0
-    chk.setState = MagicMock()
-
-    def get_optional(_root, name):
-        if name == "chk_voice":
-            return chk
-        return None
-
-    with patch("plugin.chatbot.config_ui_helpers.populate_combobox_with_lru"), patch(
-        "plugin.chatbot.config_ui_helpers.populate_image_model_selector"
-    ), patch(
-        "plugin.chatbot.panel_factory.get_text_model", side_effect=RuntimeError("model read fail")
-    ), patch(
-        "plugin.chatbot.panel_factory.get_config", return_value=""
-    ), patch(
-        "plugin.chatbot.panel_factory.get_current_endpoint", return_value=""
-    ), patch(
-        "plugin.chatbot.panel_factory.get_optional_control",
-        side_effect=get_optional,
-    ), patch(
-        "plugin.framework.config.get_config",
-        side_effect=lambda key: True if key == "audio.tts_enabled" else False,
-    ):
-        el._refresh_controls_from_config()
-
-    assert not el._in_refresh_controls
-    chk.setState.assert_called_once_with(1)
-    el._update_backend_indicator.assert_called_once_with(root)
 
 
 def test_setup_sessions_session_id_write_failure_keeps_old_id(tmp_path):
@@ -1207,55 +1118,11 @@ def test_wire_buttons_send_constructor_failure_clears_stale_listener():
     from unittest.mock import MagicMock, patch
     from plugin.chatbot.chat_sidebar_mode import SidebarModeFlags
 
-    el = _thin_panel_element()
-    el.ctx = MagicMock()
-    el.xFrame = MagicMock()
-    el.session = MagicMock()
-    el.frame_session = None
-    el._live_panel_uid = "uid"
-    el._apply_sidebar_mode = MagicMock()
-
-    stale_listener = MagicMock(name="stale_send_listener")
-    el.send_listener = stale_listener
-
-    send = MagicMock()
-    stop = MagicMock()
-    controls = {
-        "send": send,
-        "stop": stop,
-        "query": MagicMock(),
-        "response": MagicMock(),
-        "image_model_selector": None,
-        "model_selector": None,
-        "status": None,
-        "chat_mode_selector": None,
-        "aspect_ratio_selector": None,
-        "base_size_input": None,
-        "clear": None,
-        "chk_voice": None,
-        "btn_settings": None,
-        "btn_python": None,
-        "btn_latex": None,
-        "btn_search": None,
-        "btn_hamburger": None,
-    }
-
-    import pytest
+    el, controls, send, _stop = _wire_buttons_setup()
+    el.send_listener = MagicMock(name="stale_send_listener")
 
     with (
-        patch("plugin.chatbot.chat_sidebar_mode.greeting_for_sidebar_mode", return_value=""),
-        patch("plugin.chatbot.panel_factory.header_third_button_kind", return_value=""),
-        patch("plugin.framework.uno_context.get_extension_url", return_value=""),
-        patch("plugin.framework.menu_icon_dpi.menu_icon_asset_rel", return_value="assets/gear_16.png"),
-        patch("plugin.chatbot.panel.SendButtonListener", side_effect=RuntimeError("constructor fail")),
-        patch("plugin.chatbot.panel_factory.register_debug_live_panel"),
-        patch("plugin.doc.live_panels.register_live_panel"),
-        patch("plugin.framework.doc_type.get_document_type", return_value=MagicMock()),
-        patch("plugin.framework.doc_type.doc_type_label_for_enum", return_value="writer"),
-        patch("plugin.framework.doc_type.doc_type_title_for_label", return_value="Writer"),
-        patch("plugin.framework.doc_type.get_document_uno_services", return_value=frozenset()),
-        patch("plugin.chatbot.panel_factory.start_watchdog_thread"),
-        patch("plugin.chatbot.panel.StopButtonListener", return_value=MagicMock()),
+        _wire_buttons_patches(send_patch=patch("plugin.chatbot.panel.SendButtonListener", side_effect=RuntimeError("constructor fail"))),
         pytest.raises(RuntimeError, match="constructor fail"),
     ):
         el._wire_buttons(controls, MagicMock(), "chat", SidebarModeFlags())
@@ -1394,54 +1261,16 @@ def test_debug_live_panels_registry_and_iter() -> None:
 
 
 def test_wire_buttons_send_add_action_listener_failure_disposes_and_reraises() -> None:
-    import pytest
-    from unittest.mock import MagicMock, patch
+    from unittest.mock import MagicMock
     from plugin.chatbot.chat_sidebar_mode import SidebarModeFlags
 
-    el = _thin_panel_element()
-    el.ctx = MagicMock()
-    el.xFrame = MagicMock()
-    el.session = MagicMock()
-    el.frame_session = None
-    el._live_panel_uid = "uid"
-    el._apply_sidebar_mode = MagicMock()
-
-    send = MagicMock()
+    el, controls, send, stop = _wire_buttons_setup()
     send.addActionListener.side_effect = RuntimeError("send attach failed")
-    stop = MagicMock()
-    controls = {
-        "send": send,
-        "stop": stop,
-        "query": MagicMock(),
-        "response": MagicMock(),
-        "image_model_selector": None,
-        "model_selector": None,
-        "status": None,
-        "chat_mode_selector": None,
-        "aspect_ratio_selector": None,
-        "base_size_input": None,
-        "clear": None,
-        "chk_voice": None,
-        "btn_settings": None,
-        "btn_python": None,
-        "btn_latex": None,
-        "btn_search": None,
-        "btn_hamburger": None,
-    }
     sentinel = MagicMock(name="send_listener")
 
-    with (
-        patch("plugin.chatbot.chat_sidebar_mode.greeting_for_sidebar_mode", return_value=""),
-        patch("plugin.chatbot.panel_factory.header_third_button_kind", return_value=""),
-        patch("plugin.framework.uno_context.get_extension_url", return_value=""),
-        patch("plugin.framework.menu_icon_dpi.menu_icon_asset_rel", return_value="assets/gear_16.png"),
-        patch("plugin.chatbot.panel.SendButtonListener", return_value=sentinel),
-        patch("plugin.chatbot.panel_factory.release_live_sidebar") as mock_release,
-        patch("plugin.chatbot.panel_factory.register_debug_live_panel"),
-        patch("plugin.doc.live_panels.register_live_panel") as mock_reg_live,
-        pytest.raises(RuntimeError, match="send attach failed"),
-    ):
-        el._wire_buttons(controls, MagicMock(), "chat", SidebarModeFlags())
+    with _wire_buttons_patches(send_listener=sentinel) as (_ctor, mock_release, _mock_reg_debug, mock_reg_live):
+        with pytest.raises(RuntimeError, match="send attach failed"):
+            el._wire_buttons(controls, MagicMock(), "chat", SidebarModeFlags())
 
     sentinel.disposing.assert_called_once_with(None)
     mock_release.assert_called_once_with(el)
@@ -1450,16 +1279,7 @@ def test_wire_buttons_send_add_action_listener_failure_disposes_and_reraises() -
 
     # A subsequent wire_buttons succeeds and attaches Stop
     send.addActionListener.side_effect = None
-    with (
-        patch("plugin.chatbot.chat_sidebar_mode.greeting_for_sidebar_mode", return_value=""),
-        patch("plugin.chatbot.panel_factory.header_third_button_kind", return_value=""),
-        patch("plugin.framework.uno_context.get_extension_url", return_value=""),
-        patch("plugin.framework.menu_icon_dpi.menu_icon_asset_rel", return_value="assets/gear_16.png"),
-        patch("plugin.chatbot.panel.SendButtonListener", return_value=sentinel),
-        patch("plugin.chatbot.panel_factory.register_debug_live_panel"),
-        patch("plugin.doc.live_panels.register_live_panel"),
-        patch("plugin.chatbot.panel.StopButtonListener", return_value=MagicMock()),
-    ):
+    with _wire_buttons_patches(send_listener=sentinel):
         ret = el._wire_buttons(controls, MagicMock(), "chat", SidebarModeFlags())
 
     assert ret is sentinel
@@ -1467,55 +1287,16 @@ def test_wire_buttons_send_add_action_listener_failure_disposes_and_reraises() -
 
 
 def test_wire_buttons_stop_failure_aborts_registration() -> None:
-    import pytest
-    from unittest.mock import MagicMock, patch
+    from unittest.mock import MagicMock
     from plugin.chatbot.chat_sidebar_mode import SidebarModeFlags
 
-    el = _thin_panel_element()
-    el.ctx = MagicMock()
-    el.xFrame = MagicMock()
-    el.session = MagicMock()
-    el.frame_session = None
-    el._live_panel_uid = "uid"
-    el._apply_sidebar_mode = MagicMock()
-
-    send = MagicMock()
-    stop = MagicMock()
+    el, controls, _send, stop = _wire_buttons_setup()
     stop.addActionListener.side_effect = RuntimeError("stop attach failed")
-    controls = {
-        "send": send,
-        "stop": stop,
-        "query": MagicMock(),
-        "response": MagicMock(),
-        "image_model_selector": None,
-        "model_selector": None,
-        "status": None,
-        "chat_mode_selector": None,
-        "aspect_ratio_selector": None,
-        "base_size_input": None,
-        "clear": None,
-        "chk_voice": None,
-        "btn_settings": None,
-        "btn_python": None,
-        "btn_latex": None,
-        "btn_search": None,
-        "btn_hamburger": None,
-    }
     sentinel = MagicMock(name="send_listener")
 
-    with (
-        patch("plugin.chatbot.chat_sidebar_mode.greeting_for_sidebar_mode", return_value=""),
-        patch("plugin.chatbot.panel_factory.header_third_button_kind", return_value=""),
-        patch("plugin.framework.uno_context.get_extension_url", return_value=""),
-        patch("plugin.framework.menu_icon_dpi.menu_icon_asset_rel", return_value="assets/gear_16.png"),
-        patch("plugin.chatbot.panel.SendButtonListener", return_value=sentinel) as ctor,
-        patch("plugin.chatbot.panel.StopButtonListener", return_value=MagicMock()),
-        patch("plugin.chatbot.panel_factory.release_live_sidebar") as mock_release,
-        patch("plugin.chatbot.panel_factory.register_debug_live_panel") as mock_reg_debug,
-        patch("plugin.doc.live_panels.register_live_panel") as mock_reg_live,
-        pytest.raises(RuntimeError, match="stop attach failed"),
-    ):
-        el._wire_buttons(controls, MagicMock(), "chat", SidebarModeFlags())
+    with _wire_buttons_patches(send_listener=sentinel) as (ctor, mock_release, mock_reg_debug, mock_reg_live):
+        with pytest.raises(RuntimeError, match="stop attach failed"):
+            el._wire_buttons(controls, MagicMock(), "chat", SidebarModeFlags())
 
     assert "sidebar_include_brainstorming" not in ctor.call_args.kwargs
     sentinel.disposing.assert_called_once_with(None)
