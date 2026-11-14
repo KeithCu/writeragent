@@ -282,11 +282,15 @@ class TestAppendTextChunk:
         from plugin.chatbot.rich_text_control import _scroll_rich_to_tail
 
         control = MagicMock()
+        parent = MagicMock()
         restore = MagicMock()
+        parent.attach_mock(restore, "restore")
         with patch("plugin.chatbot.rich_text_control._dispatch_rich_uno") as mock_uno:
+            parent.attach_mock(mock_uno, "uno")
             _scroll_rich_to_tail(control, restore_focus=restore)
         mock_uno.assert_called_once_with(control, ".uno:SelectAll")
-        restore.assert_called()
+        # Restore focus before and after SelectAll so the selection flash stays hidden.
+        assert [c[0] for c in parent.mock_calls] == ["restore", "uno", "restore"]
 
     def test_scroll_rich_to_tail_is_not_reentrant(self):
         from plugin.chatbot import rich_text_control as rtc
