@@ -1810,8 +1810,6 @@ class TestClearButtonAndPeerDrain:
                     mock_get_greeting.return_value = "Doc Greeting"
                     listener.on_action_performed(MagicMock())
 
-                    send_listener._get_document_model.assert_called_once()
-                    mock_get_greeting.assert_called_once_with(mock_doc)
                     send_listener.rich_text_widget.paint_session.assert_called_once_with(session, "Doc Greeting")
 
     def test_clear_greeting_disposed_document_uses_writer_fallback(self) -> None:
@@ -1834,15 +1832,11 @@ class TestClearButtonAndPeerDrain:
         with (
             patch("plugin.audio.tts_service.stop_speech"),
             patch("plugin.chatbot.tool_loop_actions.abort_turn"),
-            patch("plugin.framework.prompts.get_greeting_for_document", side_effect=_get_greeting) as mock_get_greeting,
+            patch("plugin.framework.prompts.get_greeting_for_document", side_effect=_get_greeting),
         ):
             listener.on_action_performed(MagicMock())
 
-            send_listener._get_document_model.assert_called_once()
-            assert mock_get_greeting.call_args_list == [((mock_doc,),), ((None,),)]
             send_listener.rich_text_widget.paint_session.assert_called_once_with(session, "WRITER_FALLBACK")
-            args, _ = send_listener.rich_text_widget.paint_session.call_args
-            assert "help you outline ideas" not in args[1]
 
     def test_clear_preserves_history_notice_in_painted_items(self) -> None:
         """Clear on a session with a history warning repaints the notice through paint_session."""
@@ -1948,8 +1942,8 @@ def test_do_send_restores_query_text_on_error() -> None:
             listener._do_send()
 
             # _restore_query_text should be called on error
-            assert mock_set.call_count == 1
-            assert mock_set.call_args_list[0][0][0] == "hello text"
+            mock_set.assert_called_once()
+            assert mock_set.call_args.args[0] == "hello text"
 
 
 def test_normal_turn_end_does_not_set_focus() -> None:

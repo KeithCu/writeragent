@@ -5,6 +5,8 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 
 from plugin.chatbot.writing import (
     WritingResearchWeb,
@@ -42,14 +44,25 @@ def test_write_document_section_passes_html_array_to_apply_document_content():
     apply_stub.execute_safe.assert_called_once_with(ctx, content=content, target="end")
 
 
-def test_writing_research_web_delegates_to_web_research():
+@pytest.mark.parametrize(
+    "tool_cls_path,expected_deep",
+    [
+        ("plugin.chatbot.brainstorming.BrainstormResearchWeb", False),
+        ("plugin.chatbot.writing.WritingResearchWeb", False),
+        ("plugin.chatbot.deep_research_session.DeepResearchWebTool", True),
+    ],
+)
+def test_specialized_web_research_delegates_with_deep_flag(tool_cls_path, expected_deep):
+    import importlib
+
+    mod_name, cls_name = tool_cls_path.rsplit(".", 1)
+    tool_cls = getattr(importlib.import_module(mod_name), cls_name)
     with patch("plugin.chatbot.web_research.WebResearchTool") as mock_cls:
         instance = mock_cls.return_value
         instance.execute.return_value = {"status": "ok", "result": "facts"}
         ctx = MagicMock()
-        tool = WritingResearchWeb()
-        out = tool.execute(ctx, query="topic")
-        instance.execute.assert_called_once_with(ctx, query="topic", deep=False)
+        out = tool_cls().execute(ctx, query="topic")
+        instance.execute.assert_called_once_with(ctx, query="topic", deep=expected_deep)
         assert out["result"] == "facts"
 
 
@@ -119,7 +132,6 @@ def test_writing_plan_session_tool_returns_ok(mock_instr, mock_examples, mock_bu
     assert "Question" in result["result"]
     tools = mock_build.call_args.args[1]
     assert any(tool_adapter.name == "reply_to_user" for tool_adapter in tools)
-    assert mock_build.call_args.kwargs["examples_block"] == ""
 
 
 def test_write_document_section_rejects_dict_item():

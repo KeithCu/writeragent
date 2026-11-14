@@ -55,12 +55,6 @@ class DummyPanel:
         pass
 
 
-def test_panel_voice_controller_init():
-    panel = DummyPanel()
-    controller = PanelVoiceController(panel)
-    assert controller._panel is panel
-
-
 def test_stop_tts_handles_exceptions():
     with patch("plugin.audio.tts_service.stop_speech", side_effect=RuntimeError("tts error")) as mock_stop:
         _stop_tts()

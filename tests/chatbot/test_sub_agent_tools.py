@@ -12,16 +12,11 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from plugin.chatbot.brainstorming import BrainstormingSessionTool
-from plugin.chatbot.deep_research_session import DeepResearchSessionTool
-from plugin.chatbot.librarian import LibrarianOnboardingTool
-from plugin.chatbot.ppt_master import PptMasterSessionTool
 from plugin.chatbot.sub_agent_tools import (
     SubAgentSessionToolBase,
     collect_sub_agent_tools,
     get_sub_agent_instructions,
 )
-from plugin.chatbot.writing import WritingPlanSessionTool
 from plugin.framework.errors import (
     DocumentDisposedError,
     WriterAgentException,
@@ -236,25 +231,6 @@ class TestSubagentCollector:
         names = {t.name for t in tools}
         assert "deep_research_web" in names
         assert "list_nearby_files" not in names
-
-
-class TestSessionToolMetadata:
-    @pytest.mark.parametrize(
-        "tool_cls",
-        [
-            BrainstormingSessionTool,
-            WritingPlanSessionTool,
-            DeepResearchSessionTool,
-            PptMasterSessionTool,
-            LibrarianOnboardingTool,
-        ],
-    )
-    def test_session_tool_execute(self, tool_cls):
-        tool = tool_cls()
-        ctx = MagicMock()
-        tool.runner = MagicMock(return_value={"status": "ok"})
-        res = tool.execute(ctx, query="test query")
-        assert res == {"status": "ok"}
 
 
 class TestPromptToolMatching:

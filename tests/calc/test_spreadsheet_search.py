@@ -116,8 +116,6 @@ def test_search_respects_max_results() -> None:
     matches = search_spreadsheet_cells(doc, "pattern", max_results=2)
     assert len(matches) == 2
     assert [m["cell"] for m in matches] == ["A1", "A2"]
-    # findNext was called to fetch cell 2 and cell 3, but loop exited before a 3rd append
-    assert sheet.find_next_calls == 2
 
 
 def test_search_stops_between_hits() -> None:

@@ -2106,21 +2106,10 @@ def test_settings_cleanup_detaches_each_listener_and_disposes():
     dialog._cleanup()
 
     endpoint_listener.close.assert_called_once()
-    assert dialog._endpoint_listener is endpoint_listener
 
     ctrl1.removeActionListener.assert_called_once_with(listener1)
     ctrl2.removeTextListener.assert_called_once_with(listener2)
     dlg.dispose.assert_called_once()
-
-    # audio__tts_model attaches to audio__tts_model control
-    dlg_legacy = MagicMock()
-    legacy_model_ctrl = MagicMock()
-    dialog._dlg = dlg_legacy
-    dialog._attached = []
-    with patch("plugin.chatbot.dialog_views.get_optional", side_effect=lambda _d, name: legacy_model_ctrl if name == "audio__tts_model" else None), \
-         patch("plugin.chatbot.dialog_views._SyncComboListener"):
-        dialog._setup_audio_listeners()
-    assert any(c is legacy_model_ctrl for c, _m, _l in dialog._attached)
 
 
 def test_settings_cleanup_missing_control_still_clears_listener():

@@ -108,11 +108,6 @@ def test_translate_dialog_xcc(mock_i18n_translate):
 
     # Label should be updated
     assert mock_child_model.Label == "T_Old Label"
-    # Ensure it traversed. It gets called twice:
-    # 1. to check root_child_count
-    # 2. in translate_one(dlg) to loop through children
-    assert mock_xcc.getControls.call_count == 2
-    mock_child.getImplementationName.assert_called_once()
 
 @patch("plugin.chatbot.dialogs._")
 

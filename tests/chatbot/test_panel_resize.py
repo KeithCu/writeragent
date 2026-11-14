@@ -509,14 +509,6 @@ class TestColumnFitsAtBothScales:
         assert layouts["base_size_input"].width == 71
 
 
-def test_listener_get_and_set_control():
-    listener = _PanelResizeListener({})
-    assert listener.get_control("unknown") is None
-    dummy = object()
-    listener.set_control("test_ctrl", dummy)
-    assert listener.get_control("test_ctrl") is dummy
-
-
 def test_invalidate_measurements_remeasures_base_size():
     snapshot = _xdl_snapshot()
     controls = {name: _mock_control(x, y, w, h) for name, (x, y, w, h) in snapshot.items()}

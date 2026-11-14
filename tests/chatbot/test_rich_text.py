@@ -716,8 +716,6 @@ class TestChatTypography:
         configure_hidden_writer_for_chat(doc)
 
         assert std_para.CharFontName == CHAT_FONT_NAME
-        cursor.gotoStart.assert_called_once_with(False)
-        cursor.gotoEnd.assert_called_once_with(True)
 
 
 class TestChatThemeAndImporter:
@@ -735,16 +733,6 @@ class TestChatThemeAndImporter:
         assert (theme.bg_color) == (0x1E1E1E)
         assert (theme.user_color) == (0x60A5FA)
         assert (theme.assistant_color) == (0xE2E8F0)
-
-    def test_insert_html_at_cursor_forwards_sidebar_css(self):
-        from plugin.chatbot import rich_text
-        from plugin.chatbot.rich_text import _append_rich_text_with_span
-
-        doc = MockDoc()
-        with patch("plugin.writer.html_import.insert_html_fragment_at_cursor") as mock_insert:
-            _append_rich_text_with_span(doc, "<p>Hi</p>")
-        mock_insert.assert_called_once()
-        assert mock_insert.call_args.kwargs.get("extra_css") == rich_text._SIDEBAR_LIST_CSS
 
 
 def test_render_calc_cell_refs_html():

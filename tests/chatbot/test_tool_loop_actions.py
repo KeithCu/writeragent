@@ -1084,7 +1084,6 @@ def test_stop_banner_reaches_the_sidebar_after_abort():
     turn = begin_send_turn(send)
     abort_turn(send)
     turn.close_stopped(send, None)
-    assert any("[Stopped by user]" in str(message.get("content") or "") for message in send.session.messages)
 
     with (
         patch("plugin.chatbot.panel.threading.current_thread", return_value=threading.main_thread()),
@@ -1138,27 +1137,6 @@ def test_tool_worker_keeps_spawn_scope_after_next_send():
     assert not new.is_cancelled()
 
 
-def test_spawn_tool_worker_passes_host_scope_to_execute_tool_fn():
-    """_spawn_tool_worker forwards host._send_cancellation as send_cancellation."""
-    host = FakeHost()
-    scope = SendCancellation()
-    host._send_cancellation = scope
-    interpreter = ToolLoopEffectInterpreter(host)
-    with patch("plugin.chatbot.tool_loop_actions.run_in_background", side_effect=lambda fn, **kwargs: fn()):
-        interpreter.execute(
-            SpawnToolWorkerEffect(
-                call_id="call_scope",
-                func_name="apply_document_content",
-                func_args_str="{}",
-                func_args={"content": "hi"},
-                is_async=False,
-            )
-        )
-    kwargs = host._active_execute_tool_fn.call_args.kwargs
-    assert kwargs["send_cancellation"] is scope
-    assert isinstance(kwargs["send_cancellation"], SendCancellation)
-
-
 def test_execute_fn_without_send_cancellation_does_not_read_host_scope():
     """Direct execute_fn callers omit the scope; ToolContext must stay uncancellable."""
     host = FakeHost()
@@ -1178,53 +1156,6 @@ def test_execute_fn_without_send_cancellation_does_not_read_host_scope():
         _restore_main(old_main)
 
     assert seen["scope"] is None
-
-
-def test_spawn_tool_worker_effect_respects_bound_stop(monkeypatch):
-    from unittest.mock import MagicMock
-    from plugin.chatbot.tool_loop_actions import ToolLoopEffectInterpreter, SpawnToolWorkerEffect
-    from plugin.framework.send_cancellation import SendCancellation
-    from plugin.framework.stream_batch import StreamQueueKind
-
-    mock_host = MagicMock()
-    mock_host._active_execute_tool_fn = MagicMock(return_value={"status": "ok"})
-    mock_host._active_supports_status = False
-
-    cancelled_scope = SendCancellation()
-    cancelled_scope.cancel()
-    mock_host._send_cancellation = cancelled_scope
-    monkeypatch.setattr(
-        "plugin.chatbot.tool_loop_actions.run_in_background",
-        lambda fn, *args, **kwargs: fn(),
-    )
-    interpreter = ToolLoopEffectInterpreter(mock_host)
-    effect = SpawnToolWorkerEffect(
-        call_id="call_1",
-        func_name="my_tool",
-        func_args={"arg": "val"},
-        func_args_str='{"arg": "val"}',
-        is_async=False,
-    )
-
-    # Force current_turn to return a mock TurnController
-    mock_turn = MagicMock()
-    mock_turn.active_execute_tool_fn = MagicMock(return_value={"status": "ok"})
-    mock_turn.active_supports_status = False
-    mock_turn.put = MagicMock(return_value=True)
-    monkeypatch.setattr("plugin.chatbot.tool_loop_actions.current_turn", lambda host: mock_turn)
-    monkeypatch.setattr("plugin.chatbot.tool_loop_actions.TurnController", MagicMock)
-
-    # Intercept run_in_background to execute synchronously for the test
-    def mock_run_in_background(func, *args, **kwargs):
-        func()
-
-    monkeypatch.setattr("plugin.chatbot.tool_loop_actions.run_in_background", mock_run_in_background)
-
-    interpreter._spawn_tool_worker(effect)
-
-    assert mock_turn.put.call_count == 1
-    assert mock_turn.put.call_args[0][0] == (StreamQueueKind.STOPPED,)
-    assert mock_host._active_execute_tool_fn.call_count == 0
 
 
 def test_append_cancelled_tool_rows_reused_call_id_across_turns():

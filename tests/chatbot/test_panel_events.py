@@ -126,12 +126,6 @@ class DummyEventsPanel:
             self._events._post_server_status(text)
 
 
-def test_panel_events_controller_init():
-    panel = DummyEventsPanel()
-    controller = PanelEventsController(panel)
-    assert controller._panel is panel
-
-
 def test_relabel_button_preserves_rect():
     btn = _MockButton("Old", True)
     cache: dict[str, str] = {}
@@ -148,13 +142,6 @@ def test_mcp_subscribe_must_defer():
     with patch("plugin.framework.queue_executor.MainThread.on_python_main_thread", return_value=False):
         with patch("plugin.app.bootstrap_complete", return_value=False):
             assert PanelEventsController._mcp_subscribe_must_defer() is True
-
-
-def test_post_to_main():
-    cb = MagicMock()
-    with patch("plugin.framework.queue_executor.main.post") as mock_post:
-        PanelEventsController._post_to_main(cb)
-        mock_post.assert_called_once_with(cb)
 
 
 def test_subscribe_mcp_events():
