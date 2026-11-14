@@ -157,7 +157,7 @@ endif
         dev-deploy dev-deploy-remove \
         lo-start lo-start-full lo-kill lo-restart \
         clean-cache nuke-cache nuke-cache-force unbundle \
-        log log-tail lo-log test test-bot test-full pytest test-uno test-uno-soak test-mock-sidebar demo-video test-run test-durations slowtests vhs test-visible lo-test-threadguard lo-test-threadguard-visible typecheck typecheck-full _typecheck-full-run check-ext check-setup deploy ensure-uno _check-lo-python \
+        log log-tail lo-log test test-bot test-full pytest test-uno test-uno-full test-uno-soak test-mock-sidebar demo-video test-run test-durations slowtests vhs test-visible lo-test-threadguard lo-test-threadguard-visible typecheck typecheck-full _typecheck-full-run check-ext check-setup deploy ensure-uno _check-lo-python \
         verify crosshair-check crosshair-cover crosshair-check-all crosshair-check-all-deep \
         crosshair-cover-all crosshair-cover-all-deep \
         lo-start-log opengrep-lint opengrep-lint-incr opengrep-lint-advisory opengrep-rules-sync opengrep-rules-audit uno-thread-lint uno-thread-lint-advisory opengrep-install \
@@ -232,8 +232,9 @@ help:
 	@echo "  make pytest                 Unit pytest only (xdist -n auto; PYTEST_WORKERS=0 for serial)"
 	@echo "  WRITERAGENT_CI_DEBUG=1      Opt-in hang diagnostics (nodeid trail, faulthandler, --max-worker-restart=0)"
 	@echo "  make mock-llm               Fake OpenAI chat server on :18766 (sidebar soak: scroll, tools, Stop, errors)"
-	@echo "  make test-uno               UNO tests only via testing_runner (serial live soffice)"
-	@echo "  make test-uno FILTER=…      Same; FILTER=path or test_* name (native runner)"
+	@echo "  make test-uno               Incremental UNO tests via testing_runner (changed *_uno / module-matched; full on config/helper)"
+	@echo "  make test-uno FILTER=…      Same; explicit FILTER=path or test_* name skips incremental selection"
+	@echo "  make test-uno-full          Full UNO suite via testing_runner (serial live soffice)"
 	@echo "  make test-uno-soak          Repeat Draw UNO (or FILTER=/PAIR=) in one soffice; REPEAT=20"
 	@echo "  make test-mock-sidebar      Packet F+B+C+D+E+G+O+P+K+T+R mock-LLM sidebar (visible soffice, your user profile)"
 	@echo "  make test-mock-sidebar FILTER=E   Packet letter (B/C/D/E/F/G/O/P/K/T/R), case id (e12 / g17 / p1 / k1 / t1), or test_* name"
@@ -246,7 +247,7 @@ help:
 	@echo "  make run_eval               Run benchmark CLI (pass EVAL_ARGS=...)"
 	@echo "  make run_eval-smoke         Quick smoke: one model, one example (gpt-oss-120b:nitro; needs a key)"
 	@echo "  make run_eval-lo-scripted   Headless LO + scripted student (no API key)"
-	@echo "  make test-run               make pytest with 6 xdist workers, then serial UNO (no typecheck/bandit)"
+	@echo "  make test-run               make pytest with 6 xdist workers, then full serial UNO (no typecheck/bandit)"
 	@echo "  make test-durations         Same filters as make pytest with --durations=40 (profile hotspots)"
 	@echo "  make slowtests              Slow serialization once each: A/B fixtures, contracts/CrossHair, Hypothesis (vhs)"
 	@echo "  make vhs                    Hypothesis serialization fuzz with verbose output (Hypothesis step of slowtests)"
@@ -726,11 +727,26 @@ FILTER ?=
 _check-lo-python:
 	@"$(PYTHON)" "$(SCRIPTS)/lo_paths.py" check-lo-python --python "$(LO_PYTHON)"
 
-test-uno: _check-lo-python
+test-uno-full: _check-lo-python
 	@$(MAKE) -C "$(PROJECT_ROOT)" lo-kill
 	# Release runs this from a /tmp tree with no .venv. The spill UNO test
 	# needs the checkout interpreter (matplotlib); VIRTUAL_ENV is stripped below.
 	"$(PYTHON)" "$(SCRIPTS)/lo_paths.py" run-lo-python --python "$(LO_PYTHON)" -- -u -m plugin.testing_runner $(FILTER); EXIT_CODE=$$?; $(MAKE) -C "$(PROJECT_ROOT)" lo-kill; exit $$EXIT_CODE
+
+test-uno: _check-lo-python
+ifneq ($(strip $(FILTER)),)
+	@$(MAKE) test-uno-full FILTER="$(FILTER)"
+else
+	@uno_filter=$$("$(PYTHON)" $(SCRIPTS)/test_incremental.py --uno --print-filter); \
+	rc=$$?; \
+	if [ $$rc -eq 10 ]; then \
+		$(MAKE) test-uno-full; \
+	elif [ $$rc -ne 0 ]; then \
+		exit $$rc; \
+	elif [ -n "$$uno_filter" ]; then \
+		$(MAKE) test-uno-full FILTER="$$uno_filter"; \
+	fi
+endif
 
 # Same office process, N times: stress Draw factory-open / close (URP DisposedException flakes).
 # FILTER defaults to the Draw native suite. PAIR=tree-math | dup-move expands --pair.
@@ -762,7 +778,7 @@ demo-video: _check-lo-python
 # do not starve handshake timeouts on an 8-core box (PYTEST_WORKERS=auto).
 test-run:
 	@$(MAKE) pytest PYTEST_WORKERS=6
-	@$(MAKE) test-uno
+	@$(MAKE) test-uno-full
 
 test-durations:
 	$(PYTEST_UNIT) --durations=40
@@ -798,7 +814,7 @@ test-visible: _check-lo-python
 	"$(PYTHON)" "$(SCRIPTS)/lo_paths.py" run-lo-python --python "$(LO_PYTHON)" -- -u -m plugin.testing_runner --visible test_charts_uno test_enhanced_charts_uno test_document_research_grep_uno test_rich_html_uno; EXIT_CODE=$$?; $(MAKE) -C "$(PROJECT_ROOT)" lo-kill; exit $$EXIT_CODE
 
 lo-test-threadguard:
-	WRITERAGENT_UNO_THREAD_GUARD=1 $(MAKE) test-uno
+	WRITERAGENT_UNO_THREAD_GUARD=1 $(MAKE) test-uno-full
 
 lo-test-threadguard-visible: _check-lo-python
 	"$(PYTHON)" "$(SCRIPTS)/lo_paths.py" run-lo-python --python "$(LO_PYTHON)" --set WRITERAGENT_UNO_THREAD_GUARD=1 -- -u -m plugin.testing_runner --visible test_charts_uno test_enhanced_charts_uno test_document_research_grep_uno test_rich_html_uno; EXIT_CODE=$$?; $(MAKE) -C "$(PROJECT_ROOT)" lo-kill; exit $$EXIT_CODE
@@ -860,15 +876,7 @@ test:
 	@echo "=== make test: incremental pytest + incremental LibreOffice ==="
 	@$(MAKE) test-bot PYTEST_WORKERS=6
 ifneq ($(SKIP_UNO),1)
-	@uno_filter=$$("$(PYTHON)" $(SCRIPTS)/test_incremental.py --uno --print-filter); \
-	rc=$$?; \
-	if [ $$rc -eq 10 ]; then \
-		$(MAKE) test-uno; \
-	elif [ $$rc -ne 0 ]; then \
-		exit $$rc; \
-	elif [ -n "$$uno_filter" ]; then \
-		$(MAKE) test-uno FILTER="$$uno_filter"; \
-	fi
+	@$(MAKE) test-uno
 endif
 
 # SKIP_UNO=1: typecheck + pytest + excel-py-roundtrip only (PR CI unit job).
@@ -878,7 +886,7 @@ test-full:
 	@echo "=== make test-full: pytest + LibreOffice ==="
 	@$(MAKE) pytest PYTEST_WORKERS=6
 ifneq ($(SKIP_UNO),1)
-	@$(MAKE) test-uno
+	@$(MAKE) test-uno-full
 endif
 	@$(MAKE) excel-py-roundtrip
 
