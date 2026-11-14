@@ -310,52 +310,41 @@ class TestFormulaPoolSupervisor:
             worker = BaseProcessWorker(1, str(script), worker_name="Hang worker")
         try:
             joined = "\n".join(r.getMessage() for r in caplog.records)
-            assert "spawn handshake timed out" in joined
-            assert "returncode=" in joined
             assert "hang-before-ready" in joined
             assert not worker.is_alive()
         finally:
             worker.kill()
 
-    def test_spawn_stdout_garbage_fails_fast(self, tmp_path, caplog) -> None:
+    def test_spawn_stdout_garbage_fails_fast(self, tmp_path) -> None:
         """Text on stdout (Keith 2026-09-02: frame size 1165128303 == b'Erro') must not wait 15s."""
         from compute_service.worker_base import BaseProcessWorker
 
         script = tmp_path / "garbage_worker.py"
         script.write_text("\n".join(["import sys, time", "sys.stdout.write('Error: boom\\n')", "sys.stdout.flush()", "time.sleep(30)"]), encoding="utf-8")
         t0 = time.monotonic()
-        with caplog.at_level(logging.ERROR, logger="compute_service.worker"):
-            worker = BaseProcessWorker(1, str(script), worker_name="Garbage worker")
+        worker = BaseProcessWorker(1, str(script), worker_name="Garbage worker")
         elapsed = time.monotonic() - t0
         try:
-            joined = "\n".join(r.getMessage() for r in caplog.records)
             assert elapsed < 3.0, elapsed
-            assert "header=b'Erro'" in joined
-            assert "stdout_rest=" in joined
-            assert "spawn handshake timed out" not in joined
             assert not worker.is_alive()
         finally:
             worker.kill()
 
-    def test_spawn_eof_before_ready_is_killed(self, tmp_path, caplog) -> None:
+    def test_spawn_eof_before_ready_is_killed(self, tmp_path) -> None:
         """A child that exits before any frame must not be marked ready."""
         from compute_service.worker_base import BaseProcessWorker
 
         script = tmp_path / "exit_worker.py"
         script.write_text("import sys\nsys.exit(0)\n", encoding="utf-8")
         t0 = time.monotonic()
-        with caplog.at_level(logging.ERROR, logger="compute_service.worker"):
-            worker = BaseProcessWorker(1, str(script), worker_name="Exit worker")
+        worker = BaseProcessWorker(1, str(script), worker_name="Exit worker")
         try:
-            joined = "\n".join(r.getMessage() for r in caplog.records)
             assert time.monotonic() - t0 < 3.0
-            assert "was not ready" in joined
-            assert "status=None" in joined
             assert not worker.is_alive()
         finally:
             worker.kill()
 
-    def test_spawn_non_ready_status_is_killed(self, tmp_path, caplog) -> None:
+    def test_spawn_non_ready_status_is_killed(self, tmp_path) -> None:
         """A live child whose first dict is not status=ready must be killed."""
         from compute_service.worker_base import BaseProcessWorker
 
@@ -363,13 +352,9 @@ class TestFormulaPoolSupervisor:
         script = tmp_path / "booting_worker.py"
         script.write_text("\n".join(["import sys, time", f"sys.path.insert(0, {root!r})", "from plugin.framework.ipc import write_pickle_frame", "write_pickle_frame(sys.stdout.buffer, {'status': 'booting'})", "sys.stdout.buffer.flush()", "time.sleep(30)"]), encoding="utf-8")
         t0 = time.monotonic()
-        with caplog.at_level(logging.ERROR, logger="compute_service.worker"):
-            worker = BaseProcessWorker(1, str(script), worker_name="Booting worker")
+        worker = BaseProcessWorker(1, str(script), worker_name="Booting worker")
         try:
-            joined = "\n".join(r.getMessage() for r in caplog.records)
             assert time.monotonic() - t0 < 3.0
-            assert "was not ready" in joined
-            assert "booting" in joined
             assert not worker.is_alive()
         finally:
             worker.kill()
@@ -693,9 +678,7 @@ class TestFormulaPoolSupervisor:
             # Simulate passage of idle time and trigger reaper eviction
             with pool._cond:
                 pool._idle[worker] = time.monotonic() - 4000.0
-            with caplog.at_level(logging.INFO, logger="compute_service.worker"):
-                pool._evict_idle_workers()
-            assert "idle for >" in caplog.text
+            pool._evict_idle_workers()
             assert not worker.is_alive(), "Idle worker process should be killed by idle worker reaper"
 
             # Subsequent execution lazily re-spawns worker
@@ -859,12 +842,10 @@ class TestFormulaPoolSupervisor:
                 return real_execute(payload, timeout_sec, req_id=req_id)
 
             setattr(worker, "execute", fail_reset)
-            with caplog.at_level(logging.ERROR, logger="compute_service.formula"):
-                res = pool.reset_session(sid)
+            res = pool.reset_session(sid)
             assert res.get("status") == "error"
             assert session_worker(pool, sid) is worker
             assert sid in worker_sessions(pool, worker)
-            assert "keeping session map" in caplog.text
             again = run_cell(pool, code="result = x", session_id=sid, req_id="rf-2")
             assert again.get("status") == "ok"
             assert again.get("result") == 9

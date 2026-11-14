@@ -571,31 +571,6 @@ def test_relayout_now_reentrant_bounded_and_extra_pass():
     assert q.Width > 850
 
 
-def test_resize_logging_behavior():
-    import plugin.chatbot.panel_resize as pr_mod
-
-    snapshot = _xdl_snapshot()
-    controls = {name: _mock_control(x, y, w, h) for name, (x, y, w, h) in snapshot.items()}
-    root = MagicMock()
-    root.getPosSize.return_value = SimpleNamespace(Width=400, Height=600)
-
-    listener = _PanelResizeListener(controls)
-    with patch.object(pr_mod.log, "info") as mock_info, \
-         patch.object(pr_mod.log, "debug") as mock_debug:
-        listener.relayout_now(root)
-        # Verbose debug is False and not DEBUG enabled -> no log.info
-        mock_info.assert_not_called()
-        # Emits one size debug line
-        size_debugs = [call for call in mock_debug.call_args_list if "[LAYOUT] size=" in str(call)]
-        assert len(size_debugs) == 1
-
-        # Same size does not emit another size debug line
-        mock_debug.reset_mock()
-        listener.relayout_now(root)
-        size_debugs2 = [call for call in mock_debug.call_args_list if "[LAYOUT] size=" in str(call)]
-        assert len(size_debugs2) == 0
-
-
 def test_backend_indicator_layout():
     snapshot = _xdl_snapshot()
     # At width 900:

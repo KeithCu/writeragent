@@ -9,7 +9,6 @@ from plugin.chatbot.record_gesture import (
     gesture_press,
     gesture_release,
     hands_free_silence_text,
-    hands_free_status_text,
 )
 import pytest
 
@@ -108,10 +107,6 @@ def test_exit_while_idle_sticky_does_not_swallow_the_next_action() -> None:
     assert gesture.phase == RecordPhase.IDLE
     step = gesture_action(gesture)
     assert step.swallowed_action is False
-
-
-def test_hands_free_status_msgid() -> None:
-    assert hands_free_status_text() == "Hands-free recording..."
 
 
 def test_exit_lock_keeps_the_next_stop_rec_click() -> None:

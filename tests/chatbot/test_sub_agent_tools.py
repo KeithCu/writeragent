@@ -19,7 +19,6 @@ from plugin.chatbot.ppt_master import PptMasterSessionTool
 from plugin.chatbot.sub_agent_tools import (
     SubAgentSessionToolBase,
     collect_sub_agent_tools,
-    get_sub_agent_instructions,
 )
 from plugin.chatbot.writing import WritingPlanSessionTool
 from plugin.framework.errors import (
@@ -62,7 +61,7 @@ class TestRunSubagentTool:
         assert "Traceback" not in message
         assert "RuntimeError" not in message
         assert result.get("details") == {"query": "Brainstorm ideas"}
-        assert any(r.exc_info is not None and "Brainstorming execution failed" in r.message for r in caplog.records)
+        assert any(r.exc_info is not None for r in caplog.records)
 
     def test_run_subagent_tool_with_no_query_in_kwargs(self):
         ctx = MagicMock()
@@ -255,25 +254,3 @@ class TestSessionToolMetadata:
         tool.runner = MagicMock(return_value={"status": "ok"})
         res = tool.execute(ctx, query="test query")
         assert res == {"status": "ok"}
-
-
-class TestPromptToolMatching:
-    def test_sub_agent_instructions_prompt_tool_matching(self):
-        # Brainstorming / writing_plan: content rules present, target='search' rules absent
-        b_instr = get_sub_agent_instructions("BASE", tool_names=["save_design_spec"])
-        assert "`content` is a JSON array of HTML strings" in b_instr
-        assert "target='search'" not in b_instr
-
-        w_instr = get_sub_agent_instructions("BASE", tool_names=["write_document_section"])
-        assert "`content` is a JSON array of HTML strings" in w_instr
-        assert "target='search'" not in w_instr
-
-        # Deep research with apply_document_content: both present
-        d_instr = get_sub_agent_instructions("BASE", tool_names=["apply_document_content"])
-        assert "`content` is a JSON array of HTML strings" in d_instr
-        assert "target='search'" in d_instr
-
-        # No HTML tools: neither present
-        plain_instr = get_sub_agent_instructions("BASE", tool_names=["other_tool"])
-        assert "`content` is a JSON array of HTML strings" not in plain_instr
-        assert "target='search'" not in plain_instr

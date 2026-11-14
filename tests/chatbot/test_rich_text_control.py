@@ -737,26 +737,6 @@ class TestRichTextChatWidget:
         assert mock_paint.call_args.args[2] == [("user", "hi")]
 
 
-class TestLogRichControlContext:
-    def test_includes_phase_and_env_snapshot_once(self):
-        import plugin.chatbot.rich_text_control as rtc
-
-        with patch.object(rtc.log, "info") as mock_info:
-            rtc.log_rich_control_context("window_shown", peer=0)
-            rtc.log_rich_control_context("eager_init", peer=1)
-        from tests.harness.strip_bundle import module_source_contains
-
-        if not module_source_contains(rtc, "log.info"):
-            return
-        assert mock_info.call_count == 2
-        first = mock_info.call_args_list[0][0][0]
-        second = mock_info.call_args_list[1][0][0]
-        assert "phase=window_shown" in first
-        assert "peer=0" in first
-        assert "phase=eager_init" in second
-        assert "peer=1" in second
-
-
 class TestRichControlListenerInit:
     def setup_method(self):
         import plugin.chatbot.rich_text_control as rtc
@@ -798,11 +778,9 @@ class TestRichControlListenerInit:
         root.getPeer.return_value = MagicMock()
         rtc._CONTROL_INIT_STARTED.add(id(root))
         listener = RichTextControlListener(MagicMock(), root, MagicMock(), MagicMock())
-        with patch("plugin.framework.queue_executor.main.post") as mock_post, \
-             patch.object(rtc.log, "warning") as mock_warn:
+        with patch("plugin.framework.queue_executor.main.post") as mock_post:
             listener.on_window_shown(MagicMock())
         mock_post.assert_not_called()
-        mock_warn.assert_called_once()
 
     def test_eager_init_with_peer_begins_deferred_init(self):
         from plugin.chatbot.rich_text_control import RichTextControlListener

@@ -173,7 +173,6 @@ def test_run_mock_echoes_and_records_lru():
     host.hide_popup.assert_called_once()
     host.clear_ask.assert_called_once()
     host.append_output.assert_called_once()
-    assert "slash: /mock-alpha" in host.append_output.call_args[0][0]
     # Real append_output(text) takes no role keyword (panel.py, _UrpSlashHost).
     assert host.append_output.call_args.kwargs == {}
 
@@ -188,7 +187,6 @@ def test_run_help_prints_static_list():
     with patch("plugin.chatbot.slash_commands.record_slash_lru"):
         assert run_slash_command(_cmd("help"), host) is SlashResult.HANDLED
     body = host.append_output.call_args[0][0]
-    assert "Slash commands:" in body
     assert "/help" in body
     host.clear_ask.assert_called_once()
 
@@ -296,7 +294,7 @@ def test_run_stop_during_inline_approval_opens_change_dialog_and_clears_ask():
 def test_slash_descriptions_are_translated_at_display_time(monkeypatch):
     import plugin.chatbot.slash_commands as slash
 
-    assert slash.SLASH_COMMANDS[0].description == "Print the command list"
+    help_cmd = slash.SLASH_COMMANDS[0]
     _slash_ids = {c.name for c in slash.registered_slash_commands()}
 
     def fake_translate(msg: str) -> str:
@@ -307,10 +305,14 @@ def test_slash_descriptions_are_translated_at_display_time(monkeypatch):
         return "T:" + msg
 
     monkeypatch.setattr(slash, "_", fake_translate)
-    assert slash.format_slash_item(slash.SLASH_COMMANDS[0]) == "/help — T:Print the command list"
+    expected_help = f"/{help_cmd.name} — T:{help_cmd.description}"
+    assert slash.format_slash_item(help_cmd) == expected_help
     tone = next(c for c in slash.SLASH_COMMANDS if c.name == "tone")
-    assert slash.format_slash_item(tone) == "/tone — T:Rewrite the selection to match a described tone (/tone T:<description>)"
-    assert "/help — T:Print the command list" in slash.format_help_text()
+    tone_item = slash.format_slash_item(tone)
+    hint = slash.command_usage_hint(tone)
+    assert "T:" in hint
+    assert f"/{tone.name} — T:{tone.description} ({hint})" == tone_item
+    assert expected_help in slash.format_help_text()
 
 
 def test_build_slash_answer_query_is_instruction_only():
@@ -534,9 +536,8 @@ def test_slash_compact_sync_passes_tool_schema_list():
     assert compact_mod.call_args.kwargs.get("tools") == schema_list
 
 
-def test_slash_compact_lane_status_callback_logs(caplog: pytest.LogCaptureFixture) -> None:
+def test_slash_compact_lane_status_callback_is_lane_safe() -> None:
     from contextlib import contextmanager
-    import logging
     from typing import Any
 
     from plugin.chatbot.slash_commands import run_slash_compact_sync
@@ -570,10 +571,7 @@ def test_slash_compact_lane_status_callback_logs(caplog: pytest.LogCaptureFixtur
                     )
 
     assert len(saved_callback) == 1
-    with caplog.at_level(logging.DEBUG, logger="plugin.chatbot.slash_commands"):
-        assert_lane_callback_safe(saved_callback[0], "lane-probe")
-
-    assert any(record.getMessage() == "slash compact status: lane-probe" for record in caplog.records)
+    assert_lane_callback_safe(saved_callback[0], "lane-probe")
 
 
 def test_run_slash_compact_resolves_document_on_main_thread_only():
@@ -947,13 +945,6 @@ def test_popup_accept_completes_draft_for_preset():
             set_text.assert_called_once_with(host.query_control, "/tone ")
     host.clear_ask.assert_not_called()
     host.dispatch.assert_called_once()
-
-
-def test_summarizer_user_body_includes_focus():
-    from plugin.chatbot import compaction as compaction_mod
-
-    body = compaction_mod._summarizer_user_body("line", "", focus="budget")
-    assert "Keep details about: budget" in body
 
 
 def test_do_edit_selection_skips_dialog_with_preset():

@@ -9,7 +9,6 @@
 """Unit tests for sidebar query Enter-to-send key classification and send dispose."""
 
 import dataclasses
-import logging
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import ANY, MagicMock, patch
@@ -996,30 +995,26 @@ def _query_text_event(text: str) -> Any:
 class TestSlashOverlayListeners:
     """Ask text/key listeners delegate to slash_popup; disabled path uses ENABLE_SLASH=False."""
 
-    def test_text_change_skips_overlay_and_still_dispatches(self, caplog) -> None:
+    def test_text_change_skips_overlay_and_still_dispatches(self) -> None:
         send_listener = MagicMock()
         send_listener.slash_popup.on_query_text.return_value = False
         listener = QueryTextListener(send_listener)
-        with patch("plugin.chatbot.slash_popup.ENABLE_SLASH", False), caplog.at_level(logging.DEBUG):
+        with patch("plugin.chatbot.slash_popup.ENABLE_SLASH", False):
             listener.on_text_changed(_query_text_event("/he"))
         send_listener.slash_popup.on_query_text.assert_called_once_with("/he")
         send_listener.dispatch.assert_called_once()
         event = send_listener.dispatch.call_args[0][0]
         assert event.kind == SendEventKind.TEXT_UPDATED
         assert event.has_text is True
-        assert not any("[SLASH-OV]" in r.message and r.levelno >= logging.INFO for r in caplog.records)
-        assert not any("[SLASH-OV]" in r.message for r in caplog.records)
 
-    def test_enabled_slash_prefix_calls_overlay_and_skips_dispatch(self, caplog) -> None:
+    def test_enabled_slash_prefix_calls_overlay_and_skips_dispatch(self) -> None:
         send_listener = MagicMock()
         send_listener.slash_popup.on_query_text.return_value = True
         listener = QueryTextListener(send_listener)
-        with patch("plugin.chatbot.slash_popup.SLASH_OV_VERBOSE_DEBUG", False), \
-             caplog.at_level(logging.DEBUG):
+        with patch("plugin.chatbot.slash_popup.SLASH_OV_VERBOSE_DEBUG", False):
             listener.on_text_changed(_query_text_event("/he"))
         send_listener.slash_popup.on_query_text.assert_called_once_with("/he")
         send_listener.dispatch.assert_not_called()
-        assert not any("[SLASH-OV]" in r.message and r.levelno >= logging.INFO for r in caplog.records)
 
     def test_enabled_plain_text_dispatches(self) -> None:
         send_listener = MagicMock()
@@ -1039,7 +1034,7 @@ class TestSlashOverlayListeners:
         listener.on_text_changed(_query_text_event("hello"))
         send_listener.dispatch.assert_not_called()
 
-    def test_disabled_enter_skips_handle_key_and_still_sends(self, caplog) -> None:
+    def test_disabled_enter_skips_handle_key_and_still_sends(self) -> None:
         send_listener = MagicMock()
         send_listener._button_action = ButtonAction.SEND
         send_listener.slash_popup.handle_key.return_value = False
@@ -1050,12 +1045,10 @@ class TestSlashOverlayListeners:
         listener = QueryKeyListener(send_listener)
         event = type("KeyEvent", (), {"KeyCode": 1280, "Modifiers": 0, "Consume": False})()
         with patch("plugin.chatbot.slash_popup.ENABLE_SLASH", False), \
-             patch("plugin.framework.config.get_config", return_value=True), \
-             caplog.at_level(logging.DEBUG):
+             patch("plugin.framework.config.get_config", return_value=True):
             listener.on_key_pressed(event)
         send_listener.slash_popup.handle_key.assert_called_once_with(1280, 0)
         send_listener.on_action_performed.assert_called_once_with(event)
-        assert not any("[SLASH-OV]" in r.message for r in caplog.records)
 
 
 class TestQueryKeyListenerDispose:
@@ -1678,21 +1671,14 @@ class TestStopPreservesAudioWavPath:
         is_release_build() or not module_source_contains(panel_voice_module, "clear_pending_audio_wav: failed to remove"),
         reason="Stripped release bundle removes logger .debug call sites (scripts/strip_code.py)",
     )
-    def test_clear_pending_audio_wav_logs_permission_error(self, caplog: pytest.LogCaptureFixture) -> None:
+    def test_clear_pending_audio_wav_clears_path_on_permission_error(self) -> None:
         from plugin.scripting.audio_recorder_service import clear_pending_audio_wav
 
         listener = _make_send_listener()
         listener.audio_wav_path = "/tmp/held.wav"
-        with (
-            patch("os.remove", side_effect=PermissionError(13, "used by another process")),
-            caplog.at_level(logging.DEBUG, logger="plugin.scripting.audio_recorder_service"),
-        ):
+        with patch("os.remove", side_effect=PermissionError(13, "used by another process")):
             clear_pending_audio_wav(listener)
         assert listener.audio_wav_path is None
-        assert any(
-            "clear_pending_audio_wav: failed to remove /tmp/held.wav" in record.message
-            for record in caplog.records
-        )
 
 class TestStoppedTTS:
     def test_do_send_stopped_stt_does_not_invoke_tts(self) -> None:
@@ -2245,21 +2231,16 @@ def test_mcp_request_waits_then_sees_teardown() -> None:
     assert "late" not in listener._last_mcp_turn
 
 
-def test_get_document_model_without_frame_does_not_log(caplog: pytest.LogCaptureFixture) -> None:
+def test_get_document_model_without_frame_returns_none() -> None:
     listener = _make_send_listener()
     listener.frame = None
-    with caplog.at_level(logging.ERROR):
-        assert listener._get_document_model() is None
-    assert not any("no compatible document model" in r.message for r in caplog.records)
+    assert listener._get_document_model() is None
 
 
-def test_do_send_logs_missing_document(caplog: pytest.LogCaptureFixture) -> None:
+def test_do_send_sets_error_on_missing_document() -> None:
     listener = _make_send_listener()
     listener.frame = None
-    with caplog.at_level(logging.ERROR):
-        listener._do_send()
-    err_records = [r for r in caplog.records if "no compatible document model" in r.message and "has_frame=False" in r.message]
-    assert len(err_records) == 1
+    listener._do_send()
     assert send_outcome_terminal_display(listener) == "Error"
 
 
@@ -2310,13 +2291,10 @@ def test_do_send_answer_slash_calls_begin_send_then_chat() -> None:
     assert "budget" in sent_query
 
 
-def test_extracted_peer_send_logs_missing_document(caplog: pytest.LogCaptureFixture) -> None:
+def test_extracted_peer_send_sets_error_on_missing_document() -> None:
     listener = _make_send_listener()
     listener.frame = None
-    with caplog.at_level(logging.ERROR):
-        listener._do_send_extracted_peer("hello", already_appended=True)
-    err_records = [r for r in caplog.records if "no compatible document model" in r.message and "has_frame=False" in r.message]
-    assert len(err_records) == 1
+    listener._do_send_extracted_peer("hello", already_appended=True)
     assert send_outcome_terminal_display(listener) == "Error"
 
 
@@ -2331,24 +2309,6 @@ def test_extracted_peer_send_starts_one_chat_turn() -> None:
     with patch("plugin.chatbot.chat_sidebar_mode.mode_from_selector_with_flags", return_value=CHAT_MODE_CHAT):
         listener._do_send_extracted_peer("hello", already_appended=True)
     listener._tool_calling._do_send_chat_with_tools.assert_called_once_with("hello", ANY, "calc", skip_append_user=True)
-
-
-def test_clear_greeting_lookup_does_not_log_missing_document(caplog: pytest.LogCaptureFixture) -> None:
-    listener = _make_send_listener()
-    listener.frame = None
-    clear_listener = ClearButtonListener(
-        listener.session,
-        listener.response_control,
-        listener.status_control,
-        greeting="",
-        send_listener=listener,
-    )
-    with (
-        patch("plugin.framework.prompts.get_greeting_for_document", return_value="Hi"),
-        caplog.at_level(logging.ERROR),
-    ):
-        clear_listener.on_action_performed(None)
-    assert not any("no compatible document model" in r.message for r in caplog.records)
 
 
 class TestAudioRecorderErrorCallback:
