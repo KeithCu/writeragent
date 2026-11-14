@@ -132,8 +132,14 @@ def test_shared_pieces_are_identical_in_both_channels():
     assert writer_texts["search"] is c.WRITER_SEARCH_RULES
     assert writer_texts["navigation"] is c.WRITER_NAVIGATION_RULES
     assert writer_texts["images"] is c.WRITER_IMAGES_RULES
+    # The editing topic bundles the workflow pieces verbatim (the HTML contract is its own
+    # subdivision, editing-html). The pointer to the subdivision is appended ONLY when the topic
+    # is served alone (get_section) — in full_manual the editing-html section follows inline, so
+    # a "go read that topic" sentence would dangle there.
     for piece in (c.CONFIRM_EDITS_FROM_STRUCTURED_FIELDS, c.TOOL_USAGE_PATTERNS, c.TRANSLATION_RULES):
         assert piece.strip() in writer_texts["editing"]
+    assert "editing-html" in get_section("editing", "writer")      # on-demand: pointer present
+    assert "read the editing-html topic" not in full_manual("writer")  # concatenated: no dangler
     # The generic editing topic remains in Calc and Draw chat templates (not the app manuals).
     assert c.GENERIC_EDIT_CONFIRMATION_RULES in c.DEFAULT_CALC_CHAT_SYSTEM_PROMPT_TEMPLATE
     assert c.GENERIC_EDIT_CONFIRMATION_RULES in c.DEFAULT_DRAW_CHAT_SYSTEM_PROMPT_TEMPLATE
@@ -162,6 +168,18 @@ def test_sidebar_hybrid_prompt_composition():
     assert writer_topic_list_text() in GetGuidance.description
     assert c.HTML_MATH_AND_LINK_EXAMPLES not in template
     assert GetGuidance.tier == "core"         # visible to the sidebar's default tool list
+
+
+def test_mcp_only_extras_stay_out_of_the_sidebar_prompt():
+    """The HTTP 429 concurrency contract is real for MCP clients and the agent-backend path,
+    meaningless for the in-process sidebar — channel-specific text must not leak across."""
+    from plugin.framework import prompts as c
+
+    assert "429" in get_section("concurrency", "writer")   # MCP topic has it
+    assert "429" in full_manual("writer")                  # agent backend (HTTP) gets it
+    assert "429" not in c.DEFAULT_CHAT_SYSTEM_PROMPT_TEMPLATE  # sidebar never sees it
+    assert "429" not in c.DEFAULT_CALC_CHAT_SYSTEM_PROMPT_TEMPLATE
+    assert "429" not in c.DEFAULT_DRAW_CHAT_SYSTEM_PROMPT_TEMPLATE
 
 
 # ---- full manual (agent-backend delivery) ------------------------------------

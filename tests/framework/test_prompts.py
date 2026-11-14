@@ -6,12 +6,14 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from plugin.framework.prompts import (
+    CALC_CORE_DIRECTIVES,
     CHAT_RESPONSE_FORMAT,
     DRAW_CORE_DIRECTIVES,
     RICH_CHAT_SIDEBAR_INSTRUCTIONS,
     SIDEBAR_VS_DOCUMENT,
     WRITER_CORE_DIRECTIVES,
     get_chat_system_prompt_for_document,
+    get_core_directives_for_type,
 )
 
 # NOTE: the EXTERNAL_AGENT_GUIDANCE pin test moved to tests/chatbot/test_agent_manual.py —
@@ -152,6 +154,20 @@ def test_draw_prompt_keeps_get_image_when_model_has_vision():
     ):
         prompt = get_chat_system_prompt_for_document(model)
     assert DRAW_GET_IMAGE_TOOL_LINE in prompt
+
+
+def test_get_core_directives_for_type_is_string_only():
+    assert get_core_directives_for_type("writer") == WRITER_CORE_DIRECTIVES
+    assert get_core_directives_for_type("calc") == CALC_CORE_DIRECTIVES
+    assert get_core_directives_for_type("draw") == DRAW_CORE_DIRECTIVES
+    assert get_core_directives_for_type("impress") == DRAW_CORE_DIRECTIVES
+    assert get_core_directives_for_type(None) == WRITER_CORE_DIRECTIVES
+    assert get_core_directives_for_type("") == WRITER_CORE_DIRECTIVES
+
+
+def test_draw_core_directives_flowchart_routes_to_shapes():
+    """flowchart_gen left an empty tree when shapes stayed off the core list."""
+    assert 'delegate_to_specialized_draw_toolset(domain="shapes")' in DRAW_CORE_DIRECTIVES
 
 
 def test_writer_and_draw_python_orchestrator_not_direct_shapes():

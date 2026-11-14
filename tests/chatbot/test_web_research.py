@@ -60,6 +60,9 @@ def test_web_research_module_imports_despite_threading_lock_annotation():
             "-c",
             "import plugin.chatbot.web_research as wr; assert wr.WebAgentRunParams is not None",
         ],
+        cwd=Path(__file__).resolve().parents[2],
+        capture_output=True,
+        text=True,
         check=True,
     )
 

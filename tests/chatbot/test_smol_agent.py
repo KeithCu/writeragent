@@ -196,6 +196,20 @@ class TestToolcallingPromptExamples:
         assert ("reply_to_user") in (block)
         assert ("specialized_workflow_finished") not in (block)
 
+    @pytest.mark.parametrize(
+        ("key", "expected_key"),
+        [
+            ("calc:images", "writer:images"),
+            ("draw:images", "writer:images"),
+            ("calc:python", "writer:python"),
+            ("draw:python", "writer:python"),
+        ],
+    )
+    def test_get_examples_block_app_prefixes_share_domain_examples(self, key, expected_key):
+        from plugin.chatbot.smol_examples import get_examples_block
+
+        assert get_examples_block(key) == get_examples_block(expected_key)
+
     def test_specialized_agent_prompt_examples_use_finish_tool_name(self):
         from plugin.contrib.smolagents.agents import ToolCallingAgent
         from plugin.contrib.smolagents.toolcalling_agent_prompts import DELEGATE_GENERIC_EXAMPLES_BLOCK

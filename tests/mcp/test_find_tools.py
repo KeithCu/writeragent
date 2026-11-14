@@ -23,6 +23,13 @@ def _domain_ids(catalog):
 # --------------------------------------------------------------------------- #
 
 
+def test_get_domain_guidance_unknown_and_app_neutral_branch():
+    assert get_domain_guidance("totally_unknown_domain") == ""
+    assert get_domain_guidance("python", agent_label=None) != get_domain_guidance(
+        "python", agent_label="Calc"
+    )
+
+
 def test_document_research_guidance_has_no_peer_tools():
     from unittest.mock import patch
     with patch("plugin.doc.find_tools_tool.get_document_research_workflow_hint", return_value="HINT") as hint:

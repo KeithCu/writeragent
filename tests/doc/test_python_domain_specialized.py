@@ -117,8 +117,10 @@ def _ctx(registry: ToolRegistry, doc_type: str, service: str, **extra):
     )
 
 
-def test_python_hint_requires_delegate_tool_domains():
-    """Computing a layout is not placing shapes; hint must route through delegate_tool_domains."""
+def test_python_hint_and_examples_require_delegate_before_finish():
+    """Computing a layout is not placing shapes; finish only after delegate_tool_domains."""
+    import json
+    from plugin.chatbot.smol_examples import get_examples_block
     from plugin.framework.prompts import python_specialized_sub_agent_hint
 
     for label in ("Writer", "Calc", "Draw"):
@@ -128,6 +130,45 @@ def test_python_hint_requires_delegate_tool_domains():
     writer = python_specialized_sub_agent_hint("Writer")
     assert "footnotes" in writer
     assert "shapes" in writer
+
+    block = get_examples_block("writer:python")
+    assert "PYTHON VENV SANDBOX:" not in block
+    assert (writer + "\n\n" + block).count("PYTHON VENV SANDBOX:") == 1
+
+    decoder = json.JSONDecoder()
+
+    def _action_names_and_domains(section: str) -> list[tuple[str, list[str] | None]]:
+        out: list[tuple[str, list[str] | None]] = []
+        idx = 0
+        while True:
+            pos = section.find("Action:", idx)
+            if pos == -1:
+                break
+            json_start = section.find("{", pos + len("Action:"))
+            assert json_start != -1
+            obj, end_pos = decoder.raw_decode(section[json_start:])
+            args = obj.get("arguments")
+            domains = args.get("domains") if isinstance(args, dict) else None
+            out.append((obj["name"], domains))
+            idx = json_start + end_pos
+        return out
+
+    sections = block.split('Task: "')[1:]
+    shapes_sections = [
+        actions
+        for actions in (_action_names_and_domains(s) for s in sections)
+        if any(name == "delegate_tool_domains" and domains == ["shapes"] for name, domains in actions)
+    ]
+    assert len(shapes_sections) == 1
+    assert [name for name, _domains in shapes_sections[0]] == [
+        "delegate_tool_domains",
+        "specialized_workflow_finished",
+    ]
+    inner_actions = _action_names_and_domains(get_examples_block("domain_tools:shapes"))
+    assert [name for name, _domains in inner_actions] == [
+        "run_venv_python_script",
+        "specialized_workflow_finished",
+    ]
 
 
 def test_domain_loop_hints_include_footnotes_and_charts_lines():
