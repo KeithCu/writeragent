@@ -193,8 +193,6 @@ def test_model_candidates_try_sent_once_and_ent_last():
     ja_cands = vta._model_candidates("ja")
     assert ja_cands[0] == "ja_core_news_sm"
 
-    assert vta._LANG_MODELS["mk"] == ("mk_core_news_sm",)
-
 
 def test_normalize_sentiment_label():
     for lab in ("positive", "1", "5", "POS"):

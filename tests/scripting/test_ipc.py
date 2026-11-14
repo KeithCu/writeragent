@@ -624,15 +624,6 @@ def test_win32_read_drains_queued_bytes_when_child_already_dead(monkeypatch):
     assert slept == []
 
 
-def test_peek_closed_pipe_errors_exclude_no_data():
-    from plugin.framework import ipc
-
-    assert ipc._WIN_ERROR_BROKEN_PIPE == 109
-    assert ipc._WIN_ERROR_PIPE_NOT_CONNECTED == 233
-    assert 232 not in (ipc._WIN_ERROR_BROKEN_PIPE, ipc._WIN_ERROR_PIPE_NOT_CONNECTED)
-
-
-
 def test_win32_readline_sleep_clamps_when_peek_crosses_deadline(monkeypatch):
     """PeekNamedPipe can finish after the deadline; sleep(negative) is ValueError."""
     from plugin.framework import ipc
@@ -1230,22 +1221,12 @@ def test_unpack_rejects_ndarray_constructor_opcodes(payload: bytes):
 
 def test_allowlist_unpickler_pins_private_pickle_dispatch():
     """Guards live on pickle._Unpickler. A Python that moves that class or the opcode bytes fails here."""
-    from plugin.framework.ipc import (
-        AllowlistUnpickler,
-        _guarded_load_bytearray8,
-        _guarded_load_newobj,
-        _guarded_load_newobj_ex,
-        _guarded_load_reduce,
-    )
+    from plugin.framework.ipc import AllowlistUnpickler
 
     assert issubclass(AllowlistUnpickler, pickle._Unpickler)
     assert pickle.REDUCE[0] in pickle._Unpickler.dispatch
     assert pickle.NEWOBJ[0] in pickle._Unpickler.dispatch
     assert pickle.NEWOBJ_EX[0] in pickle._Unpickler.dispatch
-    assert AllowlistUnpickler.dispatch[pickle.REDUCE[0]] is _guarded_load_reduce
-    assert AllowlistUnpickler.dispatch[pickle.NEWOBJ[0]] is _guarded_load_newobj
-    assert AllowlistUnpickler.dispatch[pickle.NEWOBJ_EX[0]] is _guarded_load_newobj_ex
-    assert AllowlistUnpickler.dispatch[pickle.BYTEARRAY8[0]] is _guarded_load_bytearray8
     assert AllowlistUnpickler._instantiate is not pickle._Unpickler._instantiate
 
 

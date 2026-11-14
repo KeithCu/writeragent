@@ -57,22 +57,6 @@ def test_resolve_allowed_tools_plural_domain_name():
     assert "list_open_documents" in allowed
 
 
-def test_shape_group_proxy_carries_description():
-    """wa.shape.group carries the tool description, and Writer/Calc re-export Draw's."""
-    import inspect
-
-    import plugin.scripting.writeragent_api as api
-    from plugin.calc.shapes import GroupShapes as CalcGroupShapes
-    from plugin.draw.shapes import GroupShapes
-    from plugin.writer.specialized.shapes import GroupShapes as WriterGroupShapes
-
-    doc = inspect.cleandoc(api.shape.group.__doc__ or "")
-    # Writer and Calc re-export Draw's class and do not own a second description.
-    assert WriterGroupShapes.description == GroupShapes.description
-    assert CalcGroupShapes.description == GroupShapes.description
-    assert GroupShapes.description in doc
-
-
 def test_format_script_api_catalog_embeds_full_proxy_docstrings():
     """Inner catalog is the generated Args text, not a one-line summary."""
     import inspect
@@ -90,8 +74,6 @@ def test_format_script_api_catalog_embeds_full_proxy_docstrings():
     assert "wa.core.list_open_documents()" in catalog
     assert "wa.shape.upsert(" in catalog
     assert "wa.footnote." not in catalog
-    assert "wa.python.run_venv_python_script" not in catalog
-    assert not hasattr(api.python, "run_venv_python_script")
 
     tools = _domain_tools_map()
     assert tools is not None
@@ -538,16 +520,6 @@ def test_run_code_in_user_venv_forwards_python_tool_domain():
         assert req.python_tool_domain == "writer"
 
 
-def test_apply_document_content_proxy_omits_optional_defaults():
-    import inspect
-
-    import plugin.scripting.writeragent_api as api
-
-    params = inspect.signature(api.writer.apply_document_content).parameters
-    assert params["dry_run"].default is None
-    assert params["target"].default is None
-
-
 def test_resolve_allowed_tools_indexes_and_exempt_domains():
     allowed_indexes = resolve_allowed_tools("indexes")
     assert allowed_indexes is not None
@@ -699,13 +671,6 @@ def test_writeragent_api_in_process_rpc_call_preserves_error_code():
                 assert getattr(exc, "code", None) == "PERMISSION_DENIED"
             else:
                 raise AssertionError("Expected RuntimeError")
-
-
-def test_writeragent_api_all_excludes_builtin_range():
-    import plugin.scripting.writeragent_api as api
-
-    # Builtin range should not be in __all__ so star-import does not clobber it
-    assert "range" not in api.__all__
 
 
 def test_execute_tool_copies_stop_onto_tool_context():

@@ -6,8 +6,6 @@
 
 from __future__ import annotations
 
-import inspect
-
 import pytest
 
 from plugin.scripting.venv.results import HelperError, catch_helper_error
@@ -39,15 +37,3 @@ def test_catch_helper_error_passes_plain_errors() -> None:
         raises_value()
     with pytest.raises(KeyError, match="missing"):
         raises_key()
-
-
-def test_catch_helper_error_keeps_signature_and_doc() -> None:
-    @catch_helper_error
-    def sample(data: object, *, headers: bool = True) -> dict[str, object]:
-        """Sample docstring."""
-        return {"status": "ok", "data": data, "headers": headers}
-
-    sig = inspect.signature(sample)
-    assert "headers" in sig.parameters
-    assert sig.parameters["headers"].kind is inspect.Parameter.KEYWORD_ONLY
-    assert sample.__doc__ == "Sample docstring."

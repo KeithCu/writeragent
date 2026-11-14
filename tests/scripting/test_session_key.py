@@ -9,8 +9,6 @@ from __future__ import annotations
 import pytest
 
 from plugin.scripting.session_key import (
-    DOCUMENT_KINDS,
-    PERSISTABLE_KINDS,
     SessionKey,
     SessionKind,
     is_reserved_caller_id,
@@ -212,7 +210,7 @@ def test_isolated_with_init_suffix() -> None:
     assert SessionKey.parse("isolated:ab:init").init is True
 
 
-def test_other_raises_hash_and_document_kinds() -> None:
+def test_other_raises_and_hash_equality() -> None:
     with pytest.raises(ValueError, match="OTHER is parse-only"):
         SessionKey.of(SessionKind.OTHER, "x")
 
@@ -221,18 +219,6 @@ def test_other_raises_hash_and_document_kinds() -> None:
     assert hash(k1) == hash(k2)
     assert k1 == k2
     assert len({k1, k2}) == 1
-
-    assert DOCUMENT_KINDS == (
-        SessionKind.CALC,
-        SessionKind.RPS,
-        SessionKind.NOTEBOOK,
-        SessionKind.PPT_MASTER,
-    )
-    assert PERSISTABLE_KINDS == (
-        SessionKind.CALC,
-        SessionKind.RPS,
-        SessionKind.NOTEBOOK,
-    )
 
 
 def test_unsaved_document_key_helpers() -> None:

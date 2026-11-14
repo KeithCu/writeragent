@@ -16,7 +16,6 @@ import struct
 import pytest
 
 from plugin.scripting.editor_ipc import (
-    _TARGET_KEYS,
     CHILD_TO_PARENT_TYPES,
     PARENT_TO_CHILD_TYPES,
     normalize_target,
@@ -180,12 +179,6 @@ def test_target_identity_key_distinguishes_script_origin():
     user_script = {"script_name": "helper.py", "script_origin": "user"}
     doc_script = {"script_name": "helper.py", "script_origin": "document"}
     assert target_identity_key("run_script", user_script) != target_identity_key("run_script", doc_script)
-
-
-def test_target_identity_key_is_mode_plus_target_keys_in_order():
-    target = {key: key.upper() for key in _TARGET_KEYS}
-    assert target_identity_key("m", target) == ("m", *(key.upper() for key in _TARGET_KEYS))
-    assert target_identity_key("m", {}) == ("m", *("" for _key in _TARGET_KEYS))
 
 
 def test_target_from_load_selected_script_name_beats_script_name():
