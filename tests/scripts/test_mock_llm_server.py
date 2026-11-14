@@ -310,14 +310,10 @@ def _running_server(config: MockLLMConfig) -> Iterator[str]:
         thread.join(timeout=2)
 
 
-def _serve(config: MockLLMConfig):
-    with _running_server(config) as base:
-        yield base
-
-
 @pytest.fixture
 def mock_http():
-    yield from _serve(MockLLMConfig(delay_ms=0, offline=True))
+    with _running_server(MockLLMConfig(delay_ms=0, offline=True)) as base:
+        yield base
 
 
 @pytest.fixture
@@ -340,12 +336,14 @@ def mock_http_fail():
 
 @pytest.fixture
 def mock_http_hang():
-    yield from _serve(MockLLMConfig(delay_ms=0, fail="hang", fail_after_chunks=3))
+    with _running_server(MockLLMConfig(delay_ms=0, fail="hang", fail_after_chunks=3)) as base:
+        yield base
 
 
 @pytest.fixture
 def mock_http_comments():
-    yield from _serve(MockLLMConfig(delay_ms=0, sse_comments=True))
+    with _running_server(MockLLMConfig(delay_ms=0, sse_comments=True)) as base:
+        yield base
 
 
 def _post_json(url: str, payload: dict[str, Any]) -> Any:
@@ -787,6 +785,7 @@ def test_delegate_when_advertised_else_html():
             "final_answer",
             id="tree_then_final_answer",
         ),
+        # Packet E7: live document_research inner HTTP has specialized_workflow_finished, often no tree tool.
         pytest.param(
             ("search_nearby_files", "specialized_workflow_finished"),
             "search_nearby_files",
@@ -794,6 +793,7 @@ def test_delegate_when_advertised_else_html():
             "specialized_workflow_finished",
             id="search_nearby_then_finish",
         ),
+        # Packet E7 soak: empty-path delegate_read_document loops the inner agent.
         pytest.param(
             ("list_nearby_files", "delegate_read_document", "specialized_workflow_finished"),
             "list_nearby_files",
@@ -865,6 +865,7 @@ def test_mixed_tools_apply_and_failing_comment():
     "tool_names",
     [
         pytest.param(("list_nearby_files", "specialized_workflow_finished"), id="discovery_only"),
+        # E22 after E12/P: leftover Calc advertises peer tools; old gate finished instead of looping.
         pytest.param(
             ("send_peer_work", "send_peer_result", "list_nearby_files", "specialized_workflow_finished"),
             id="with_advertised_peer_tools",
@@ -1018,29 +1019,33 @@ def test_tool_followup_returns_html_wrapup(
     tool_result: str,
     advertised: tuple[str, ...],
 ):
-    out = decide_completion(
-        {
-            "messages": [
-                {"role": "user", "content": user_text},
-                {
-                    "role": "assistant",
-                    "tool_calls": [
-                        {
-                            "id": "c1",
-                            "type": "function",
-                            "function": {"name": tool_name, "arguments": "{}"},
-                        }
-                    ],
-                },
-                {"role": "tool", "content": tool_result},
-            ],
-            "tools": _tools(*advertised),
-        },
-        MockLLMConfig(delay_ms=0),
-    )
+    cfg = MockLLMConfig(delay_ms=0)
+    tools = _tools(*advertised)
+
+    def _run(name: str):
+        return decide_completion(
+            {
+                "messages": [
+                    {"role": "user", "content": user_text},
+                    {
+                        "role": "assistant",
+                        "tool_calls": [
+                            {"id": "c1", "type": "function", "function": {"name": name, "arguments": "{}"}}
+                        ],
+                    },
+                    {"role": "tool", "content": tool_result},
+                ],
+                "tools": tools,
+            },
+            cfg,
+        )
+
+    out = _run(tool_name)
+    research = _run("web_research")
     assert out.tool_name is None
     assert out.content is not None
     assert "<p>" in out.content
+    assert out.content != research.content
 
 
 def test_parallel_two_core_tools():
@@ -1783,6 +1788,7 @@ def test_calc_envelope_writes_formula_then_delegates_reply():
             "[Peer work from: Memo.odt | uid=writer-uid | url=file:///tmp/Memo.odt]\n\nAdd a Total row.",
             id="with_envelope",
         ),
+        # Live P3: specialized receives the delegated Reply task rather than the raw peer envelope.
         pytest.param(
             "Reply to the peer envelope with send_peer_result: document_url=writer-uid "
             "message=<one HTML/result string> then finish immediately.",
@@ -1966,12 +1972,12 @@ def test_main_accepts_table_and_content_filter_scenarios(monkeypatch):
 
 
 def test_table_scenario_returns_produce_table():
-    out = decide_completion(
-        {"messages": [{"role": "user", "content": "show a table"}]},
-        MockLLMConfig(delay_ms=0),
-    )
+    cfg = MockLLMConfig(delay_ms=0)
+    out = decide_completion({"messages": [{"role": "user", "content": "show a table"}]}, cfg)
+    plain = decide_completion({"messages": [{"role": "user", "content": "hello"}]}, cfg)
     assert out.content is not None
-    assert "<table>" in out.content
+    assert out.content.count("<tr>") == 4
+    assert out.content != plain.content
 
 
 def test_fail_native_audio_400_counter_only_spends_on_audio():
@@ -2060,20 +2066,50 @@ def test_concurrent_stt_one_shot_404():
 
 
 @pytest.mark.parametrize(
-    ("cfg_kwargs", "req_body", "expected_status", "check_kind"),
+    ("cfg_kwargs", "predicate"),
     [
-        pytest.param({"fail_image": "none"}, b'{"prompt": "cat"}', 200, "png", id="ok"),
-        pytest.param({"fail_image": "status", "image_status": 429}, b'{"prompt": "cat"}', 429, "err", id="status_429"),
-        pytest.param({"fail_image": "malformed"}, b'{"prompt": "cat"}', 200, "malformed", id="malformed"),
-        pytest.param({"fail_image": "hang", "fail": "none"}, b'{"prompt": "cat"}', 200, "empty", id="hang"),
-        pytest.param({}, b"not json", 400, "bad_json", id="bad_json"),
+        pytest.param(
+            {"fail_image": "none"},
+            lambda raw: json.loads(raw)["data"][0]["b64_json"].startswith("iVBORw0KGgo"),
+            id="ok",
+        ),
+        pytest.param({"fail_image": "malformed"}, lambda raw: "not_base64" in raw, id="malformed"),
+        pytest.param({"fail_image": "hang", "fail": "none"}, lambda raw: raw == "", id="hang"),
     ],
 )
-def test_image_generations_route(
+def test_image_generations_route_ok(cfg_kwargs: dict[str, Any], predicate: Any):
+    cfg = MockLLMConfig(delay_ms=0, **cfg_kwargs)
+    with _running_server(cfg) as base:
+        req = Request(
+            f"{base}/v1/images/generations",
+            data=b'{"prompt": "cat"}',
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urlopen(req, timeout=5) as resp:
+            assert resp.status == 200
+            raw = resp.read().decode("utf-8")
+            assert predicate(raw)
+
+
+@pytest.mark.parametrize(
+    ("cfg_kwargs", "req_body", "expected_status", "expected_substr"),
+    [
+        pytest.param(
+            {"fail_image": "status", "image_status": 429},
+            b'{"prompt": "cat"}',
+            429,
+            "mock image failure",
+            id="status_429",
+        ),
+        pytest.param({}, b"not json", 400, "", id="bad_json"),
+    ],
+)
+def test_image_generations_route_errors(
     cfg_kwargs: dict[str, Any],
     req_body: bytes,
     expected_status: int,
-    check_kind: str,
+    expected_substr: str,
 ):
     cfg = MockLLMConfig(delay_ms=0, **cfg_kwargs)
     with _running_server(cfg) as base:
@@ -2083,23 +2119,11 @@ def test_image_generations_route(
             headers={"Content-Type": "application/json"},
             method="POST",
         )
-        if expected_status != 200:
-            with pytest.raises(HTTPError) as err:
-                urlopen(req, timeout=5)
-            assert err.value.code == expected_status
-            if check_kind == "err":
-                assert "mock image failure" in err.value.read().decode("utf-8")
-            return
-        with urlopen(req, timeout=5) as resp:
-            assert resp.status == 200
-            raw = resp.read().decode("utf-8")
-            if check_kind == "png":
-                data = json.loads(raw)
-                assert data["data"][0]["b64_json"].startswith("iVBORw0KGgo")
-            elif check_kind == "malformed":
-                assert "not_base64" in raw
-            elif check_kind == "empty":
-                assert raw == ""
+        with pytest.raises(HTTPError) as err:
+            urlopen(req, timeout=5)
+        assert err.value.code == expected_status
+        if expected_substr:
+            assert expected_substr in err.value.read().decode("utf-8")
 
 
 def test_image_delay_sleep(monkeypatch):
