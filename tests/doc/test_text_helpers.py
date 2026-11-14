@@ -98,20 +98,23 @@ def test_clone_text_range_uses_range_own_xtext():
     body.createTextCursorByRange.assert_not_called()
 
 
-def test_normalize_linebreaks():
-    assert normalize_linebreaks("hello\r\nworld") == "hello\nworld"
-    assert normalize_linebreaks("hello\n\rworld") == "hello\nworld"
-    assert normalize_linebreaks("hello\rworld") == "hello\nworld"
-    assert normalize_linebreaks("Line 1\nLine 2") == "Line 1\nLine 2"
-    assert normalize_linebreaks("Line 1\r\nLine 2") == "Line 1\nLine 2"
-    assert normalize_linebreaks("Line 1\rLine 2") == "Line 1\nLine 2"
-    assert normalize_linebreaks("Line 1\n\rLine 2") == "Line 1\nLine 2"
-    assert normalize_linebreaks("A\r\nB\rC\n\rD\nE") == "A\nB\nC\nD\nE"
-    assert normalize_linebreaks("\r\n\r\n") == "\n\n"
-    assert normalize_linebreaks("\n\r\n\r") == "\n\n"
-    assert normalize_linebreaks("\r\r") == "\n\n"
-    assert normalize_linebreaks("") == ""
-    assert normalize_linebreaks(None) == ""
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("hello\r\nworld", "hello\nworld"),
+        ("hello\n\rworld", "hello\nworld"),
+        ("hello\rworld", "hello\nworld"),
+        ("Line 1\nLine 2", "Line 1\nLine 2"),
+        ("A\r\nB\rC\n\rD\nE", "A\nB\nC\nD\nE"),
+        ("\r\n\r\n", "\n\n"),
+        ("\n\r\n\r", "\n\n"),
+        ("\r\r", "\n\n"),
+        ("", ""),
+        (None, ""),
+    ],
+)
+def test_normalize_linebreaks(raw, expected):
+    assert normalize_linebreaks(raw) == expected
 
 
 def test_get_document_path_repairs_legacy_file_url_and_rejects_non_file():
@@ -518,6 +521,25 @@ def test_writer_char_count_disposed():
         writer_char_count(model)
 
 
+def _make_selection_range(*, compare: int = 0, is_shape: bool = False) -> MagicMock:
+    rng = MagicMock()
+    rng.getStart.return_value = MagicMock()
+    rng.getEnd.return_value = MagicMock()
+    rng.getText.return_value.compareRegionStarts.return_value = compare
+    if is_shape:
+        rng.supportsService.side_effect = lambda s: 1 if s == "com.sun.star.drawing.Shape" else 0
+    return rng
+
+
+def _make_selection_ctrl(*ranges: MagicMock) -> MagicMock:
+    sel = MagicMock()
+    sel.getCount.return_value = len(ranges)
+    sel.getByIndex.side_effect = lambda i: ranges[i]
+    ctrl = MagicMock()
+    ctrl.getSelection.return_value = sel
+    return ctrl
+
+
 def test_selected_text_range_none_controller():
     from plugin.doc.text_helpers import selected_text_range
 
@@ -527,65 +549,24 @@ def test_selected_text_range_none_controller():
 def test_selected_text_range_skips_collapsed_index0():
     from plugin.doc.text_helpers import selected_text_range
 
-    rng0 = MagicMock()
-    rng0.getStart.return_value = MagicMock()
-    rng0.getEnd.return_value = MagicMock()
-    rng0.getText.return_value.compareRegionStarts.return_value = 0
-
-    rng1 = MagicMock()
-    rng1.getStart.return_value = MagicMock()
-    rng1.getEnd.return_value = MagicMock()
-    rng1.getText.return_value.compareRegionStarts.return_value = -1
-
-    sel = MagicMock()
-    sel.getCount.return_value = 2
-    sel.getByIndex.side_effect = lambda i: rng0 if i == 0 else rng1
-
-    ctrl = MagicMock()
-    ctrl.getSelection.return_value = sel
-
-    assert selected_text_range(ctrl) is rng1
+    rng0 = _make_selection_range(compare=0)
+    rng1 = _make_selection_range(compare=-1)
+    assert selected_text_range(_make_selection_ctrl(rng0, rng1)) is rng1
 
 
 def test_selected_text_range_all_collapsed_returns_first():
     from plugin.doc.text_helpers import selected_text_range
 
-    rng0 = MagicMock()
-    rng0.getStart.return_value = MagicMock()
-    rng0.getEnd.return_value = MagicMock()
-    rng0.getText.return_value.compareRegionStarts.return_value = 0
-
-    rng1 = MagicMock()
-    rng1.getStart.return_value = MagicMock()
-    rng1.getEnd.return_value = MagicMock()
-    rng1.getText.return_value.compareRegionStarts.return_value = 0
-
-    sel = MagicMock()
-    sel.getCount.return_value = 2
-    sel.getByIndex.side_effect = lambda i: rng0 if i == 0 else rng1
-
-    ctrl = MagicMock()
-    ctrl.getSelection.return_value = sel
-
-    assert selected_text_range(ctrl) is rng0
+    rng0 = _make_selection_range(compare=0)
+    rng1 = _make_selection_range(compare=0)
+    assert selected_text_range(_make_selection_ctrl(rng0, rng1)) is rng0
 
 
 def test_selected_text_range_shape_service_returns_none():
     from plugin.doc.text_helpers import selected_text_range
 
-    shape_rng = MagicMock()
-    shape_rng.getStart.return_value = MagicMock()
-    shape_rng.getEnd.return_value = MagicMock()
-    shape_rng.supportsService.side_effect = lambda s: 1 if s == "com.sun.star.drawing.Shape" else 0
-
-    sel = MagicMock()
-    sel.getCount.return_value = 1
-    sel.getByIndex.return_value = shape_rng
-
-    ctrl = MagicMock()
-    ctrl.getSelection.return_value = sel
-
-    assert selected_text_range(ctrl) is None
+    shape_rng = _make_selection_range(is_shape=True)
+    assert selected_text_range(_make_selection_ctrl(shape_rng)) is None
 
 
 def test_selected_text_range_disposed_raises():

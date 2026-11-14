@@ -163,6 +163,14 @@ class _DistinctSheet:
         return False
 
 
+def _issame(left: object, right: object) -> bool:
+    return (
+        isinstance(left, _DistinctSheet)
+        and isinstance(right, _DistinctSheet)
+        and left._ident == right._ident
+    )
+
+
 def test_format_shapes_canvas_context_calc_active_sheet():
     """Active sheet index follows uno identity, not wrapper ``is`` / ``==``."""
     doc = MagicMock()
@@ -193,13 +201,6 @@ def test_format_shapes_canvas_context_calc_active_sheet():
     ctrl = MagicMock()
     ctrl.getActiveSheet.return_value = active
     doc.getCurrentController.return_value = ctrl
-
-    def _issame(left: object, right: object) -> bool:
-        return (
-            isinstance(left, _DistinctSheet)
-            and isinstance(right, _DistinctSheet)
-            and left._ident == right._ident
-        )
 
     with patch.object(sys.modules["uno"], "isSame", _issame):
         s = format_shapes_canvas_context(doc)
@@ -234,13 +235,6 @@ def test_format_shapes_canvas_context_calc_zero_size_draw_page():
     ctrl = MagicMock()
     ctrl.getActiveSheet.return_value = active
     doc.getCurrentController.return_value = ctrl
-
-    def _issame(left: object, right: object) -> bool:
-        return (
-            isinstance(left, _DistinctSheet)
-            and isinstance(right, _DistinctSheet)
-            and left._ident == right._ident
-        )
 
     with patch.object(sys.modules["uno"], "isSame", _issame):
         s = format_shapes_canvas_context(doc)
