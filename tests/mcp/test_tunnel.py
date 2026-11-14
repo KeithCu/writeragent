@@ -1664,7 +1664,7 @@ def test_retire_snippet_provider_propagates_clear_failure():
             mgr._retire_snippet_provider("cloudflare")
 
 
-def test_post_stop_start_failure_decrements_under_lock(monkeypatch):
+def test_post_stop_start_failure_decrements_in_flight(monkeypatch):
     mgr = TunnelManager()
 
     def _boom(*args, **kwargs):

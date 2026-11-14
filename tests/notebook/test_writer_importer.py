@@ -385,7 +385,7 @@ def test_format_in_prompt_executed_and_unexecuted():
 
 
 def test_height_for_text_fits_last_line():
-    """15-line source height scales with _LINE_HEIGHT plus _FIELD_HEIGHT_PAD."""
+    """A 15-line source gets one extra line of height so the last line is not clipped."""
     src = "\n".join(f"line{i}" for i in range(15))
     h = _height_for_text(src)
     assert h == 16 * _LINE_HEIGHT + _FIELD_HEIGHT_PAD

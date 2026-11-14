@@ -440,7 +440,6 @@ def _walker_scenario(paragraphs: list[tuple[str, str]], *, collapsed: bool = Fal
     with (
         patch("plugin.notebook.notebook_runner._cursor_after_bookmark", return_value=start),
         patch("plugin.notebook.notebook_runner._code_field_paragraph_end", return_value=None),
-        patch("plugin.notebook.notebook_runner._is_output_bookmark_home", return_value=False),
         patch("plugin.notebook.notebook_runner._paragraph_has_frame", return_value=False),
         patch("plugin.notebook.notebook_runner.resolve_para_style", return_value="WriterAgent Notebook In"),
     ):

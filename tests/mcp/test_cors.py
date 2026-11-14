@@ -220,8 +220,23 @@ def test_merge_allow_headers_without_request():
     assert "x-document-url" in lower
 
 
-def test_is_safe_origin_localhost():
-    assert is_safe_origin("http://localhost:3000")
+def test_merge_allow_headers_accepts_long_or_odd_request():
+    assert "Content-Type" in merge_allow_headers("h" * (DEAL_MAX_ORIGIN + 1))
+    assert "Content-Type" in merge_allow_headers("Content-Type; X-Evil")
+
+
+@pytest.mark.parametrize(
+    "origin",
+    [
+        "http://localhost",
+        "http://localhost:3000",
+        "http://127.0.0.1",
+        "https://127.0.0.1",
+        "http://[::1]",
+    ],
+)
+def test_is_safe_origin_localhost(origin):
+    assert is_safe_origin(origin)
     assert not is_safe_origin("http://localhost.attacker.com")
 
 
