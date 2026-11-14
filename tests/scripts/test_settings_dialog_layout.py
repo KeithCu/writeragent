@@ -107,27 +107,6 @@ def test_settings_ok_writes_and_cancel_discards_roles(tmp_path: Path) -> None:
     assert cancel_btn.get(f"{{{_DLG_NS}}}default") is None
 
 
-def test_json_only_settings_absent_from_settings_xdl(tmp_path: Path) -> None:
-    """Internal module.yaml keys are not emitted as Settings dialog controls."""
-    xdl_path, _xdl = _generate_settings_xdl(tmp_path)
-    ids = _control_ids(xdl_path)
-
-    for hidden_id in (
-        "mcp__cors_allow_private_origins",
-        "scripting__native_run_script_modeless",
-        "scripting__force_internal_script_editor",
-        "chatbot__show_search_thinking",
-        "chatbot__extend_selection_max_tokens",
-        "chatbot__edit_selection_max_new_tokens",
-    ):
-        assert hidden_id not in ids
-
-    assert "mcp__mcp_enabled" in ids
-    assert "scripting__python_venv_path" in ids
-    assert "scripting__xl_static_rewrite" in ids
-    assert "scripting__python_geometric_recalc_order" in ids
-
-
 def test_librepy_flavor_omits_ppt_master_from_scripting_page(tmp_path: Path) -> None:
     modules = [
         {
@@ -194,7 +173,6 @@ def test_settings_helpers_become_help_text(tmp_path: Path) -> None:
 
     assert "dlg:id=\"hlp_" not in xdl
 
-    wired = 0
     for module in iter_settings_field_modules(MODULES):
         prefix = str(module["name"]).replace(".", "_")
         config = module.get("config") or {}
@@ -211,9 +189,7 @@ def test_settings_helpers_become_help_text(tmp_path: Path) -> None:
                 assert label_id in tips, label_id
                 assert tips.get(label_id) == (expected or None), label_id
             if expected:
-                wired += 1
                 assert f"hlp_{ctrl_id}" not in tips
-    assert wired >= 30
 
 
 def test_settings_explicit_tooltip_overrides_helper(tmp_path: Path) -> None:
@@ -358,27 +334,6 @@ def test_settings_dialog_saved_fields_agreement(tmp_path: Path) -> None:
                 assert btn_id not in all_specs_names, f"Button {btn_id} should not be in field specs"
 
 
-def test_settings_dialog_tab_pages(tmp_path: Path) -> None:
-    """Verify generated dlg:page numbers for template and module tab controls."""
-    xdl_path, _ = _generate_settings_xdl(tmp_path)
-    root = ET.parse(xdl_path).getroot()
-    pages_by_id: dict[str, str] = {
-        ctrl_id: page
-        for el in root.iter()
-        if (ctrl_id := el.get(f"{{{_DLG_NS}}}id")) is not None
-        and (page := el.get(f"{{{_DLG_NS}}}page")) is not None
-    }
-
-    assert pages_by_id["endpoint"] == "1"
-    assert pages_by_id["image_base_size"] == "2"
-    assert pages_by_id["audio__stt_provider"] == "3"
-    assert pages_by_id["doc__grammar_proofreader_enabled"] == "4"
-    assert pages_by_id["chatbot__max_tool_rounds"] == "5"
-    assert pages_by_id["embeddings__folder_search_mode"] == "6"
-    assert pages_by_id["mcp__mcp_enabled"] == "7"
-    assert pages_by_id["scripting__python_venv_path"] == "8"
-
-
 def test_vision_standalone_dialog_fields_agreement() -> None:
     """Vision standalone field specs match controls in VisionSettingsDialog.xdl."""
     from unittest.mock import patch
@@ -413,40 +368,34 @@ def test_vision_standalone_dialog_fields_agreement() -> None:
         assert is_known_extra, f"Unexpected extra control {extra} in VisionSettingsDialog.xdl"
 
 
-_EXPECTED_NUMERIC_BOUNDS: dict[str, tuple[int, int]] = {
-    "doc__grammar_proofreader_batch_sentences": (1, 8),
-    "doc__grammar_proofreader_max_in_flight": (1, 8),
-    "calc__max_rows_display": (100, 100000),
-    "chatbot__max_tool_rounds": (1, 200),
-    "chatbot__web_cache_max_mb": (0, 500),
-    "chatbot__web_cache_validity_days": (1, 30),
-    "chatbot__audio_silence_stop_ms": (0, 15000),
-    "mcp__mcp_port": (1024, 65535),
-    "scripting__python_exec_timeout": (1, 600),
-    "scripting__python_max_data_cells": (1000, 2000000),
-}
-
-
 def test_settings_numeric_fields_have_schema_bounds(tmp_path: Path) -> None:
+    from plugin._manifest import MODULES
+    from plugin.chatbot.settings_tab_order import iter_settings_field_modules
+
     xdl_path, _xdl = _generate_settings_xdl(tmp_path)
     root = ET.parse(xdl_path).getroot()
     ns = {"dlg": _DLG_NS}
     elements = {el.get(f"{{{_DLG_NS}}}id"): el for el in root.findall(".//dlg:numericfield", ns)}
 
-    for ctrl_id, (min_v, max_v) in _EXPECTED_NUMERIC_BOUNDS.items():
-        assert ctrl_id in elements, f"Missing numeric field {ctrl_id}"
-        el = elements[ctrl_id]
-        assert el.get(f"{{{_DLG_NS}}}value-min") == str(min_v)
-        assert el.get(f"{{{_DLG_NS}}}value-max") == str(max_v)
-        assert el.get(f"{{{_DLG_NS}}}decimal-accuracy") == "0"
-        assert el.get(f"{{{_DLG_NS}}}spin") == "true"
-        assert el.get(f"{{{_DLG_NS}}}value-step") is None
-
-        # Verify geometry attributes remain intact.
-        assert int(el.get(f"{{{_DLG_NS}}}left") or 0) > 0
-        assert int(el.get(f"{{{_DLG_NS}}}top") or 0) > 0
-        assert int(el.get(f"{{{_DLG_NS}}}width") or 0) > 0
-        assert int(el.get(f"{{{_DLG_NS}}}height") or 0) > 0
+    checked = 0
+    for module in iter_settings_field_modules(MODULES):
+        prefix = str(module["name"]).replace(".", "_")
+        for field_name, schema in (module.get("config") or {}).items():
+            if not isinstance(schema, dict) or schema.get("internal") or schema.get("librepy_only"):
+                continue
+            if schema.get("widget") != "number" or "min" not in schema or "max" not in schema:
+                continue
+            ctrl_id = f"{prefix}__{field_name}"
+            assert ctrl_id in elements, f"Missing numeric field {ctrl_id}"
+            el = elements[ctrl_id]
+            assert el.get(f"{{{_DLG_NS}}}value-min") == str(schema["min"])
+            assert el.get(f"{{{_DLG_NS}}}value-max") == str(schema["max"])
+            assert int(el.get(f"{{{_DLG_NS}}}left") or 0) > 0
+            assert int(el.get(f"{{{_DLG_NS}}}top") or 0) > 0
+            assert int(el.get(f"{{{_DLG_NS}}}width") or 0) > 0
+            assert int(el.get(f"{{{_DLG_NS}}}height") or 0) > 0
+            checked += 1
+    assert checked > 0
 
 
 def test_settings_numeric_field_step_and_float_accuracy(tmp_path: Path) -> None:

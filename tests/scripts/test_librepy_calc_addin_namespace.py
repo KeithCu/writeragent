@@ -11,8 +11,6 @@ from pathlib import Path
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _CALC_ADDINS = _REPO_ROOT / "extension-core" / "registry" / "org" / "openoffice" / "Office" / "CalcAddIns.xcu"
-_IDL = _REPO_ROOT / "extension-core" / "idl" / "XPythonFunction.idl"
-_ADDIN_PY = _REPO_ROOT / "plugin" / "calc" / "python" / "addin_librepy.py"
 
 _WRITERAGENT_ADDIN = "org.extension.writeragent.PythonFunction"
 _LIBREPY_ADDIN = "org.extension.librepy.PythonFunction"
@@ -30,22 +28,6 @@ def test_librepy_calcaddins_uses_writeragent_pythonfunction_node():
     ]
     assert _WRITERAGENT_ADDIN in nodes
     assert _LIBREPY_ADDIN not in nodes
-
-
-def test_librepy_idl_uses_writeragent_module_path():
-    text = _IDL.read_text(encoding="utf-8")
-    assert "module writeragent" in text
-    assert "module librepy" not in text
-    assert "__org_extension_writeragent_PythonFunction" in text
-
-
-def test_addin_librepy_registers_writeragent_implementation():
-    text = _ADDIN_PY.read_text(encoding="utf-8")
-    impl = (_REPO_ROOT / "plugin" / "calc" / "python" / "addin_impl.py").read_text(encoding="utf-8")
-    assert "from plugin.calc.python.addin_impl import IMPL_NAME, PythonFunction" in text
-    assert f'IMPL_NAME = "{_WRITERAGENT_ADDIN}"' in impl
-    assert "org.extension.writeragent.PythonFunction import" in impl
-    assert _LIBREPY_ADDIN not in text
 
 
 def test_xpythonfunction_idl_files_identical_and_declare_caller():

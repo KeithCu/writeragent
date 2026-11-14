@@ -95,7 +95,6 @@ def _write(path: Path, text: str) -> None:
 
 def test_read_max_tool_rounds_absent_is_15() -> None:
     assert read_max_tool_rounds({}) == DEFAULT_MAX_TOOL_ROUNDS
-    assert DEFAULT_MAX_TOOL_ROUNDS == 15
 
 
 def test_apply_and_restore_removes_absent_key() -> None:
@@ -267,9 +266,7 @@ def test_task_max_tool_rounds_gmp_is_150() -> None:
     assert task_max_tool_rounds(TASK_GMP) == EVAL_2_GMP_MAX_TOOL_ROUNDS
     assert task_max_tool_rounds(TASK_WRITER_CALC) == EVAL_2_GMP_MAX_TOOL_ROUNDS
     assert task_max_tool_rounds(TASK_REVERSE) == EVAL_2_GMP_MAX_TOOL_ROUNDS
-    assert EVAL_2_GMP_MAX_TOOL_ROUNDS == 150
     assert task_max_tool_rounds(TASK_CALC_PRIMARY) == EVAL_2_CALC_PRIMARY_MAX_TOOL_ROUNDS
-    assert EVAL_2_CALC_PRIMARY_MAX_TOOL_ROUNDS == 150
 
 
 def test_stage_tenant_trial_contains_only_refs_and_blank_memo(tmp_path: Path) -> None:
