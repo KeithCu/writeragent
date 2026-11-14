@@ -139,16 +139,6 @@ def test_is_speaking_lifecycle():
     assert is_speaking() is False
 
 
-def test_get_tts_model_sanitizes_placeholder():
-    from plugin.framework.client.model_fetcher import get_tts_model
-
-    with patch("plugin.framework.client.model_fetcher.get_config", return_value="(Default for current endpoint)"):
-        with patch("plugin.framework.client.model_fetcher.get_current_endpoint", return_value="https://openrouter.ai/api"):
-            model = get_tts_model()
-            assert model
-            assert "(Default for current endpoint)" not in model
-
-
 def test_speak_text_async_routing_local():
     cfg = {
         "audio.tts_enabled": True,
@@ -1872,4 +1862,34 @@ def test_speak_text_async_on_complete_fires_when_worker_raises():
         stop_speech()
         for t in threads:
             t.join(timeout=2.0)
+
+
+def test_download_failure_remembered_per_generation():
+    """Failed model downloads are remembered per generation and not retried every sentence."""
+    import plugin.audio.tts_service as tts
+
+    utt1 = tts.Utterance(SendCancellation())
+    utt2 = tts.Utterance(SendCancellation())
+    tts._current = utt1
+    try:
+        assert not utt1.download_failed("kokoro")
+        utt1.note_download_failed("kokoro")
+        assert utt1.download_failed("kokoro")
+        assert not utt2.download_failed("kokoro")
+    finally:
+        tts._current = None
+
+
+def test_remember_download_failed_ignores_stale_generation():
+    import plugin.audio.tts_service as tts
+
+    utt = tts._begin_utterance()
+    try:
+        utt.note_download_failed("kokoro")
+        assert utt.download_failed("kokoro")
+        tts.stop_speech()
+        utt.note_download_failed("piper")
+        assert not utt.download_failed("piper")
+    finally:
+        tts.stop_speech()
 

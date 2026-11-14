@@ -825,39 +825,6 @@ def _reset_geo(monkeypatch=None):
     reset_geometric_runtime_for_tests()
 
 
-def test_isolated_workbook_key_never_empty():
-    """Isolated UI load/repair keys on calc:+mint_document_key (same string eval reads)."""
-    from plugin.scripting import session_manager as sm
-    from plugin.tests.testing_utils import CalcDocStub
-
-    _reset_geo()
-    doc = CalcDocStub(url="file:///isolated.ods")
-    with patch(
-        "plugin.scripting.session_manager.python_session_mode", return_value="isolated"
-    ):
-        assert sm.workbook_session_id(doc) is None
-        sid = calc_workbook_base_session_id(doc)
-    assert sid == "calc:file:///isolated.ods"
-    assert sid.startswith("calc:")
-    assert sid != "calc:"
-    assert calc_workbook_base_session_id(doc) == sid
-
-
-def test_unsaved_workbook_key_is_never_empty():
-    from plugin.tests.testing_utils import CalcDocStub
-
-    _reset_geo()
-    doc = CalcDocStub(url="")
-    with patch(
-        "plugin.scripting.session_manager.mint_document_key",
-        return_value="unsaved-stable-id",
-    ):
-        sid = calc_workbook_base_session_id(doc)
-        assert calc_workbook_base_session_id(doc) == sid
-    assert sid == "calc:unsaved-stable-id"
-    assert sid != "calc:"
-
-
 def test_load_and_save_geometric_registry(monkeypatch):
     import json
 

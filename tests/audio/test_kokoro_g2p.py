@@ -223,76 +223,26 @@ def test_kokoro_misaki_install_hints():
     assert kokoro_misaki_install_hint("fr-fr") == "uv pip install misaki phonemizer-fork espeakng-loader"
 
 
-def _fake_stack(g2p_calls: list, create_calls: list, voices: dict[str, int]):
-    class JAG2P:
-        def __call__(self, text: str):
-            g2p_calls.append(("ja", text))
-            return "JA:" + text, None
-
-    class ZHG2P:
-        def __init__(self, version=None):
-            g2p_calls.append(("zh-init", version))
-
-        def __call__(self, text: str):
-            g2p_calls.append(("zh", text))
-            return "ZH:" + text, None
-
-    class EspeakG2P:
-        def __init__(self, language: str):
-            self.language = language
-
-        def __call__(self, text: str):
-            g2p_calls.append((self.language, text))
-            return "ES:" + text, None
-
-    class Kokoro:
-        def __init__(self, model_path: str, voices_path: str):
-            self.voices = voices
-
-        def create(self, text, voice, speed, lang, is_phonemes=False):
-            create_calls.append(
-                {
-                    "text": text,
-                    "voice": voice,
-                    "speed": speed,
-                    "lang": lang,
-                    "is_phonemes": is_phonemes,
-                }
-            )
-            return [0.0], 24000
-
-    misaki: Any = types.ModuleType("misaki")
-    misaki.__path__ = []  # type: ignore[attr-defined]
-    ja: Any = types.ModuleType("misaki.ja")
-    ja.JAG2P = JAG2P
-    zh: Any = types.ModuleType("misaki.zh")
-    zh.ZHG2P = ZHG2P
-    espeak: Any = types.ModuleType("misaki.espeak")
-    espeak.EspeakG2P = EspeakG2P
-    ko: Any = types.ModuleType("kokoro_onnx")
-    ko.Kokoro = Kokoro
-    sf: Any = types.ModuleType("soundfile")
-    sf.write = lambda path, samples, rate: None
-    return {
-        "misaki": misaki,
-        "misaki.ja": ja,
-        "misaki.zh": zh,
-        "misaki.espeak": espeak,
-        "kokoro_onnx": ko,
-        "soundfile": sf,
-    }
-
-
 def test_misaki_frontend_helper_uses_the_same_snippets(monkeypatch):
     """The warm worker calls this helper; it must match the one-shot script."""
     from plugin.audio.kokoro_g2p import _g2p_cache, misaki_frontend
 
+    g2p_calls: list[tuple[str, str]] = []
+
+    class FakeJAG2P:
+        def __call__(self, text: str):
+            g2p_calls.append(("ja", text))
+            return "JA:" + text, None
+
+    misaki_mod: Any = types.ModuleType("misaki")
+    misaki_mod.__path__ = []  # type: ignore[attr-defined]
+    ja_mod: Any = types.ModuleType("misaki.ja")
+    ja_mod.JAG2P = FakeJAG2P
+
     _g2p_cache.clear()
     try:
-        g2p_calls: list = []
-        modules = _fake_stack(g2p_calls, [], {"jf_alpha": 1})
-        for name, module in modules.items():
-            monkeypatch.setitem(sys.modules, name, module)
+        monkeypatch.setitem(sys.modules, "misaki", misaki_mod)
+        monkeypatch.setitem(sys.modules, "misaki.ja", ja_mod)
 
         assert misaki_frontend("非常に強力", "ja") == ("JA:非常に強力", "")
         assert misaki_frontend("Hello", "en-us") == ("", "")

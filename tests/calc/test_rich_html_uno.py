@@ -159,3 +159,37 @@ def test_failed_paste_restores_cell_text_uno(ctx, doc):
 
     assert d6.getString() == "old"
     assert undo_titles(doc) == before
+
+
+@native_test
+@with_native_doc("calc")
+def test_insert_result_into_calc_undo(ctx, doc):
+    """Running a script that inserts structured content into Calc can be reverted with Ctrl+Z."""
+    from plugin.scripting.python_runner import insert_result_into_calc
+
+    active_sheet = doc.getCurrentController().getActiveSheet()
+    primes_result = {
+        "title": "Prime Numbers in Range",
+        "primes": [
+            {"position": 1000, "prime": 7919},
+            {"position": 1001, "prime": 7927},
+        ],
+    }
+
+    insert_result_into_calc(doc, ctx, primes_result)
+    # Close skipped after paste. Windows defers this suite until after
+    # document_research_uno 3/3 (34648929578). Cached leftover_open
+    # for later leftover reuse. Do not enum getComponents.
+    note_windows_html_paste_leftover()
+    assert active_sheet.getCellByPosition(0, 0).getString() == "Prime Numbers in Range"
+    assert active_sheet.getCellByPosition(0, 2).getString() == "position"
+    assert active_sheet.getCellByPosition(1, 2).getString() == "prime"
+
+    um = doc.getUndoManager()
+    assert um is not None
+    assert um.isUndoPossible() is True
+
+    um.undo()
+    assert active_sheet.getCellByPosition(0, 0).getString() == "", "A1 title should revert after single undo"
+    assert active_sheet.getCellByPosition(0, 2).getString() == "", "A3 position header should revert after single undo"
+    assert active_sheet.getCellByPosition(1, 2).getString() == "", "B3 prime header should revert after single undo"

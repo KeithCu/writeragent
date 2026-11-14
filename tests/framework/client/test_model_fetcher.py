@@ -1378,3 +1378,13 @@ def test_test_connection_keeps_learned_tts_voices_and_response_format():
     assert cfg.cached_tts_response_format(model) == "pcm"
     cfg._tts_supported_voices.clear()
     cfg._tts_response_format.clear()
+
+
+def test_get_tts_model_sanitizes_placeholder():
+    from plugin.framework.client.model_fetcher import get_tts_model
+
+    with patch("plugin.framework.client.model_fetcher.get_config", return_value="(Default for current endpoint)"):
+        with patch("plugin.framework.client.model_fetcher.get_current_endpoint", return_value="https://openrouter.ai/api"):
+            model = get_tts_model()
+            assert model
+            assert "(Default for current endpoint)" not in model

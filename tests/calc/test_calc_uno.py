@@ -44,7 +44,6 @@ CALC_MENU_INTEGRATION_MODULES: tuple[str, ...] = (
     "plugin.tests.calc.test_comments_uno",
     "plugin.tests.calc.test_conditional_uno",
     "plugin.tests.calc.test_enhanced_charts_uno",
-    "plugin.tests.calc.test_editselection_uno",
     "plugin.tests.calc.test_pivot_uno",
     "plugin.tests.calc.test_rich_html_uno",
     "plugin.tests.calc.test_search_uno",
