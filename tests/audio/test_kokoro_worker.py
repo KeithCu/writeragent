@@ -39,7 +39,7 @@ def _job(out_path, **overrides: Any) -> dict[str, Any]:
 
 def _install_fake_kokoro(
     monkeypatch: pytest.MonkeyPatch,
-    voices: Any = None,
+    voices: Any,
     *,
     seen: list[dict] | None = None,
     inits: list[tuple[str, str]] | None = None,
@@ -50,7 +50,7 @@ def _install_fake_kokoro(
         def __init__(self, model_path: str, voices_path: str) -> None:
             if inits is not None:
                 inits.append((model_path, voices_path))
-            self.voices = ["af_bella", "am_adam"] if voices is None else voices
+            self.voices = voices
 
         def create(self, text: str, voice: str, speed: float, lang: str, is_phonemes: bool = False):
             if seen is not None:

@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import copy
+import re
 
 import pytest
 
@@ -29,7 +30,7 @@ def test_parse_catalog_non_object_raw():
         pytest.param(lambda r: r["piper"]["voices"][3].pop("onnx"), r"piper\.voices\[3\].*onnx", id="piper_missing_onnx"),
         pytest.param(
             lambda r: r["kokoro"]["voices"][1].update(id=r["kokoro"]["voices"][0]["id"]),
-            r"^voice_catalog\.json: kokoro\.voices\[1\] duplicate id '{dup_id}'$",
+            lambda r: rf"^voice_catalog\.json: kokoro\.voices\[1\] duplicate id '{re.escape(r['kokoro']['voices'][0]['id'])}'$",
             id="duplicate_id",
         ),
         pytest.param(
@@ -54,9 +55,9 @@ def test_parse_catalog_non_object_raw():
         ),
     ],
 )
-def test_parse_catalog_rejects_invalid(mutator, match: str) -> None:
+def test_parse_catalog_rejects_invalid(mutator, match) -> None:
     mutated = copy.deepcopy(_load_catalog(CATALOG_PATH))
     mutator(mutated)
-    pattern = match.format(dup_id=mutated["kokoro"]["voices"][0]["id"])
+    pattern = match(mutated) if callable(match) else match
     with pytest.raises(ValueError, match=pattern):
         _parse_catalog(mutated)
