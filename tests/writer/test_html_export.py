@@ -9,11 +9,6 @@ from plugin.writer.html_export import (
     _range_to_content_via_temp_doc,
     xtext_to_content,
 )
-from plugin.writer.html_ruby import (
-    RubySpan,
-    extract_and_strip_ruby,
-    inject_ruby_into_html,
-)
 
 
 class _Enum:
@@ -170,96 +165,6 @@ def test_xtext_to_content_none_is_empty():
     assert xtext_to_content(None, object(), object()) == ""
 
 
-def test_inject_ruby_rewrites_glued_xhtml():
-    """Full XHTML filter concatenates base+reading; rewrite must unglue them."""
-    html = '<p data-lo-style="Standard">漢字かんじです</p>'
-    out = inject_ruby_into_html(html, [RubySpan("漢字", "かんじ")])
-    assert "漢字かんじです" not in out
-    assert "<ruby>漢字<rt>かんじ</rt></ruby>です" in out
-
-
-def test_inject_ruby_wraps_base_when_reading_was_dropped():
-    """Range/portion-copy drops RubyText; wrap the surviving base."""
-    html = '<p data-lo-style="Standard">漢字です</p>'
-    out = inject_ruby_into_html(html, [RubySpan("漢字", "かんじ")])
-    assert "<ruby>漢字<rt>かんじ</rt></ruby>です" in out
-    assert "漢字かんじです" not in out
-
-
-def test_inject_ruby_wraps_styled_base_when_reading_was_dropped():
-    """Contiguous base inside a span stays inside that span (same as glued-in-span)."""
-    html = '<p><span style="font-weight:bold">漢字</span>です</p>'
-    out = inject_ruby_into_html(html, [RubySpan("漢字", "かんじ")])
-    assert '<span style="font-weight:bold"><ruby>漢字<rt>かんじ</rt></ruby></span>です' in out
-
-
-def test_inject_ruby_keeps_inner_tags_on_base():
-    html = '<p><span style="font-weight:bold">漢字</span>かんじです</p>'
-    out = inject_ruby_into_html(html, [RubySpan("漢字", "かんじ")])
-    assert '<span style="font-weight:bold"><ruby>漢字<rt>かんじ</rt></ruby></span>です' in out
-    assert "漢字かんじ" not in out.replace("<rt>かんじ</rt>", "")
-
-
-def test_inject_ruby_inside_one_span_is_contiguous():
-    html = '<p><span style="font-weight:bold">漢字かんじです</span></p>'
-    out = inject_ruby_into_html(html, [RubySpan("漢字", "かんじ")])
-    assert '<span style="font-weight:bold"><ruby>漢字<rt>かんじ</rt></ruby>です</span>' in out
-
-
-def test_inject_ruby_is_idempotent():
-    html = "<p><ruby>漢字<rt>かんじ</rt></ruby>です</p>"
-    out = inject_ruby_into_html(html, [RubySpan("漢字", "かんじ")])
-    assert out.count("<ruby>") == 1
-    assert out == html
-
-
-def test_inject_ruby_sequential_spans():
-    html = "<p>東京とうきょうと京都きょうと</p>"
-    out = inject_ruby_into_html(html, [RubySpan("東京", "とうきょう"), RubySpan("京都", "きょうと")])
-    assert "<ruby>東京<rt>とうきょう</rt></ruby>と<ruby>京都<rt>きょうと</rt></ruby>" in out
-
-
-def test_inject_ruby_empty_is_noop():
-    assert inject_ruby_into_html("<p>漢字です</p>", []) == "<p>漢字です</p>"
-    assert inject_ruby_into_html("", [RubySpan("漢字", "かんじ")]) == ""
-    assert inject_ruby_into_html("<p>x</p>", [RubySpan("漢字", "")]) == "<p>x</p>"
-
-
-def test_inject_ruby_keeps_under_position():
-    under_html = inject_ruby_into_html("<p>東京とうきょう</p>", [RubySpan("東京", "とうきょう", is_above=False)])
-    assert '<ruby style="ruby-position: under">東京<rt>とうきょう</rt></ruby>' in under_html
-    over_html = inject_ruby_into_html("<p>東京とうきょう</p>", [RubySpan("東京", "とうきょう", is_above=True)])
-    assert "<ruby>東京<rt>とうきょう</rt></ruby>" in over_html
-
-
-def test_ruby_position_round_trips():
-    under_html = inject_ruby_into_html("<p>東京とうきょう</p>", [RubySpan("東京", "とうきょう", is_above=False)])
-    _clean, spans = extract_and_strip_ruby(under_html)
-    assert len(spans) == 1
-    assert spans[0].is_above is False
-    assert spans[0].visible_offset == 0
-
-
-def test_inject_ruby_wraps_every_copy_when_reading_is_absent():
-    html = "<p>漢字と漢字と漢字</p>"
-    spans = [RubySpan("漢字", "かんじ"), RubySpan("漢字", "かんじ"), RubySpan("漢字", "かんじ")]
-    out = inject_ruby_into_html(html, spans)
-    assert out.count("<ruby>") == 3
-    assert out == "<p><ruby>漢字<rt>かんじ</rt></ruby>と<ruby>漢字<rt>かんじ</rt></ruby>と<ruby>漢字<rt>かんじ</rt></ruby></p>"
-
-
-def test_inject_ruby_crosses_br_to_the_reading():
-    html = "<p>漢字<br>かんじです</p>"
-    out = inject_ruby_into_html(html, [RubySpan("漢字", "かんじ")])
-    assert out == "<p><ruby>漢字<rt>かんじ</rt></ruby><br>です</p>"
-
-
-def test_inject_ruby_prefers_glued_copy_over_an_earlier_plain_base():
-    html = "<p>漢字と漢字かんじ</p>"
-    out = inject_ruby_into_html(html, [RubySpan("漢字", "かんじ")])
-    assert out == "<p>漢字と<ruby>漢字<rt>かんじ</rt></ruby></p>"
-
-
 def _content_doc(text="Texto do documento"):
     from unittest.mock import MagicMock
 
@@ -375,130 +280,6 @@ def test_apply_image_export_options_shortens_anchor_with_or_without_images():
     assert data in with_images and "a__QUJD" not in with_images
     without = _apply_image_export_options(html, include_images=False)
     assert "QUJD" not in without and 'src=""' in without
-
-
-def test_copy_field_into_sets_offset():
-    from plugin.writer.range_copy import _copy_field_into
-
-    src_field = MagicMock()
-    src_field.getSupportedServiceNames.return_value = ["com.sun.star.text.textfield.PageNumber"]
-
-    def _get_prop(name: str):
-        if name == "Offset":
-            return 1
-        if name == "SubType":
-            return 0
-        if name == "NumberingType":
-            return 2
-        return None
-
-    src_field.getPropertyValue.side_effect = _get_prop
-
-    dest_doc = MagicMock()
-    new_field = MagicMock()
-    dest_doc.createInstance.return_value = new_field
-    dest_text = MagicMock()
-    dest_cursor = MagicMock()
-
-    res = _copy_field_into(dest_doc, dest_text, dest_cursor, src_field)
-    assert res is True
-    new_field.setPropertyValue.assert_any_call("Offset", 1)
-    new_field.setPropertyValue.assert_any_call("SubType", 0)
-    new_field.setPropertyValue.assert_any_call("NumberingType", 2)
-
-
-def test_copy_flow_into_xtext_one_paragraph_text_then_field():
-    from plugin.writer.range_copy import (
-        _COPIED_CHAR_PROPERTIES,
-        _COPIED_PARA_PROPERTIES,
-        copy_flow_into_xtext,
-    )
-
-    doc = MagicMock()
-    src_text = MagicMock()
-
-    portion_text = MagicMock()
-    portion_text.getPropertyValue.return_value = "Text"
-    portion_text.getString.return_value = "Page "
-
-    portion_field = MagicMock()
-    portion_field.getPropertyValue.side_effect = (
-        lambda name: "TextField" if name == "TextPortionType" else MagicMock()
-    )
-
-    para = MagicMock()
-    para.supportsService.return_value = False
-    para.createEnumeration.return_value = _Enum([portion_text, portion_field])
-
-    src_text.createEnumeration.return_value = _Enum([para])
-
-    dest_text = MagicMock()
-    cursor = MagicMock()
-    dest_text.createTextCursor.return_value = cursor
-
-    with patch("plugin.writer.range_copy._copy_field_into", return_value=True) as mock_field_into, \
-         patch("plugin.writer.range_copy._copy_properties") as mock_props, \
-         patch("plugin.writer.html_export.new_blank_writer") as mock_blank:
-        res = copy_flow_into_xtext(doc, src_text, dest_text)
-
-    assert res == 1
-    cursor.setString.assert_called_with("")
-    dest_text.insertString.assert_any_call(cursor, "Page ", False)
-    dest_text.insertControlCharacter.assert_not_called()
-    mock_field_into.assert_called_once()
-    mock_blank.assert_not_called()
-
-    prop_tuples = [call.args[2] for call in mock_props.call_args_list]
-    assert _COPIED_CHAR_PROPERTIES in prop_tuples
-    assert _COPIED_PARA_PROPERTIES in prop_tuples
-
-
-def test_copy_flow_into_xtext_breaks_only_between_paragraphs():
-    from plugin.writer.range_copy import PARAGRAPH_BREAK, copy_flow_into_xtext
-
-    doc = MagicMock()
-    src_text = MagicMock()
-
-    p1_portion = MagicMock()
-    p1_portion.getPropertyValue.return_value = "Text"
-    p1_portion.getString.return_value = "A"
-    para1 = MagicMock()
-    para1.supportsService.return_value = False
-    para1.createEnumeration.return_value = _Enum([p1_portion])
-
-    p2_portion = MagicMock()
-    p2_portion.getPropertyValue.return_value = "Text"
-    p2_portion.getString.return_value = "B"
-    para2 = MagicMock()
-    para2.supportsService.return_value = False
-    para2.createEnumeration.return_value = _Enum([p2_portion])
-
-    src_text.createEnumeration.return_value = _Enum([para1, para2])
-
-    dest_text = MagicMock()
-    cursor = MagicMock()
-    dest_text.createTextCursor.return_value = cursor
-
-    with patch("plugin.writer.range_copy._copy_properties"):
-        copy_flow_into_xtext(doc, src_text, dest_text)
-
-    dest_text.insertControlCharacter.assert_called_once_with(cursor, PARAGRAPH_BREAK, False)
-
-    insert_calls = [c.args[1] for c in dest_text.insertString.call_args_list]
-    assert insert_calls == ["A", "B"]
-
-    calls = dest_text.mock_calls
-    break_idx = None
-    insert_a_idx = None
-    for idx, c in enumerate(calls):
-        if c[0] == "insertControlCharacter":
-            break_idx = idx
-        elif c[0] == "insertString" and c.args[1] == "A":
-            insert_a_idx = idx
-
-    assert break_idx is not None
-    assert insert_a_idx is not None
-    assert insert_a_idx < break_idx
 
 
 def test_xtext_to_content_propagates_export_error_and_closes():
@@ -863,49 +644,6 @@ def test_page_number_converters():
     assert _page_number_numbering_type_to_name(99) == "ARABIC"
 
 
-def test_copy_xtext_into_doc_does_not_select_and_clones_graphic():
-    from plugin.writer.range_copy import copy_xtext_into_doc
-
-    src_text = MagicMock()
-    src_text.createEnumeration.return_value = _Enum([])
-    src_doc = MagicMock()
-    graphic = object()
-    shape = MagicMock()
-    shape.getAnchor.return_value.getText.return_value = src_text
-    shape.getAnchor.return_value.getStart.return_value = object()
-    shape.supportsService.side_effect = lambda name: name == "com.sun.star.text.TextGraphicObject"
-    shape.getPropertyValue.side_effect = lambda name: {
-        "AnchorType": 1, "Graphic": graphic, "Width": 100, "Height": 100,
-    }.get(name)
-    draw_page = MagicMock()
-    draw_page.getCount.return_value = 1
-    draw_page.getByIndex.return_value = shape
-    src_doc.getDrawPage.return_value = draw_page
-
-    dest_text = MagicMock()
-    dest_cursor = MagicMock()
-    dest_text.createTextCursor.return_value = dest_cursor
-    dest_text.getString.return_value = ""
-    dest_doc = MagicMock()
-    dest_doc.getText.return_value = dest_text
-    clone = MagicMock()
-    dest_doc.createInstance.return_value = clone
-
-    measure = MagicMock()
-    measure.getString.return_value = ""
-    src_text.createTextCursor.return_value = measure
-    src_text.getString.return_value = ""
-
-    copy_xtext_into_doc(src_doc, src_text, dest_doc)
-
-    src_doc.getCurrentController().select.assert_not_called()
-    dest_doc.createInstance.assert_called_with("com.sun.star.text.TextGraphicObject")
-    clone.setPropertyValue.assert_any_call("Graphic", graphic)
-    dest_text.insertTextContent.assert_called()
-
-
-
-
 def test_uno_read_probes_raise_on_disposal_and_default_otherwise():
     from plugin.framework.errors import DocumentDisposedError
     from plugin.writer.html_export import _raise_if_empty_export
@@ -1006,3 +744,35 @@ def test_stripping():
     expected = 'Upper Case'
     result = strip_html_boilerplate(inp)
     assert result == expected
+
+
+import base64
+from plugin.writer.html_export import _apply_image_export_options, strip_embedded_image_data
+
+
+def test_strip_embedded_image_data_removes_base64_keeps_external_url():
+    b64 = base64.b64encode(b"png-bytes").decode("ascii")
+    html = (
+        f'<p><img src="data:image/png;base64,{b64}" alt="chart"/>'
+        f'<img src="image001.png" alt="linked"/></p>'
+    )
+    out = strip_embedded_image_data(html)
+    assert "data:image" not in out
+    assert b64 not in out
+    assert 'src="image001.png"' in out
+    assert 'alt="chart"' in out
+
+
+def test_strip_embedded_image_data_css_background_url():
+    b64 = base64.b64encode(b"x").decode("ascii")
+    html = f'<p style="background-image: url(data:image/png;base64,{b64})">x</p>'
+    out = strip_embedded_image_data(html)
+    assert "data:image" not in out
+    assert b64 not in out
+    assert "background-image: url()" in out
+
+
+def test_apply_image_export_options_skips_when_include_images_true():
+    b64 = base64.b64encode(b"x").decode("ascii")
+    html = f'<img src="data:image/png;base64,{b64}"/>'
+    assert _apply_image_export_options(html, include_images=True) == html

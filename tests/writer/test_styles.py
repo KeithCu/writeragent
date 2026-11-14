@@ -1729,3 +1729,304 @@ def test_apply_style_undo_unavailable_and_rollback_failed():
 
 
 
+
+
+# --- clear_direct: the paragraph half of Format > Clear Direct Formatting -----------------
+
+
+class _MultiStatesCursor:
+    """Range that supports XMultiPropertyStates (the normal LibreOffice text cursor)."""
+
+    def __init__(self):
+        self.cleared = None
+
+    def setPropertiesToDefault(self, names):
+        self.cleared = tuple(names)
+
+
+class _SingleStateCursor:
+    """Range without the multi variant — exercises the one-at-a-time fallback."""
+
+    def __init__(self, unsupported=()):
+        self.cleared = []
+        self._unsupported = set(unsupported)
+
+    def setPropertyToDefault(self, name):
+        if name in self._unsupported:
+            raise RuntimeError("unsupported property: %s" % name)
+        self.cleared.append(name)
+
+
+def test_clear_direct_paragraph_properties_uses_multi_variant():
+    from plugin.writer import styles as st
+
+    cursor = _MultiStatesCursor()
+    cleared = st.reset_properties_to_default(cursor, st.CLEARABLE_PARA_PROPERTIES)
+
+    assert cursor.cleared == st.CLEARABLE_PARA_PROPERTIES
+    assert cleared == list(st.CLEARABLE_PARA_PROPERTIES)
+
+
+def test_clear_direct_paragraph_properties_falls_back_one_at_a_time():
+    from plugin.writer import styles as st
+
+    cursor = _SingleStateCursor(unsupported={"ParaSplit"})
+    cleared = st.reset_properties_to_default(cursor, st.CLEARABLE_PARA_PROPERTIES)
+
+    assert "ParaLeftMargin" in cleared and "ParaFirstLineIndent" in cleared
+    assert "ParaSplit" not in cleared  # reported honestly as not cleared
+
+
+def test_summarize_char_overrides_is_json_safe_and_first_portion_wins():
+    from plugin.writer import styles as st
+
+    posture = type("FontSlant", (), {"__module__": "uno", "value": "ITALIC"})()
+
+    overrides = [
+        (object(), {"CharFontName": "Times New Roman", "CharHeight": 12.0, "CharLocale": object(), "CharPosture": posture}),
+        (object(), {"CharFontName": "Courier"}),
+    ]
+    summary = st._summarize_char_overrides(overrides)
+
+    assert summary == {"CharFontName": "Times New Roman", "CharHeight": 12.0, "CharPosture": 2}
+    assert "CharLocale" not in summary  # UNO struct -> not serialisable, left out
+
+
+def test_summarize_char_overrides_reports_asian_complex():
+    """style_props clears Asian/Complex font slots; the report must say so (honest, not silent)."""
+    from plugin.writer import styles as st
+
+    overrides = [(object(), {
+        "CharFontName": "Times New Roman",
+        "CharFontNameAsian": "SimSun",
+        "CharFontNameComplex": "Tahoma",
+        "CharHeight": 12.0,
+        "CharHeightAsian": 10.5,
+        "CharHeightComplex": 11.0,
+    })]
+    summary = st._summarize_char_overrides(overrides)
+
+    assert summary["CharFontNameAsian"] == "SimSun"
+    assert summary["CharFontNameComplex"] == "Tahoma"
+    assert summary["CharHeightAsian"] == 10.5
+    assert summary["CharHeightComplex"] == 11.0
+
+
+def test_reset_properties_to_default_is_a_noop_on_empty_names():
+    from plugin.writer import styles as st
+
+    cursor = _MultiStatesCursor()
+    assert st.reset_properties_to_default(cursor, ()) == []
+    assert cursor.cleared is None  # never call UNO with an empty set
+
+
+def test_reset_properties_to_default_takes_the_caller_s_names():
+    """The clear is scoped by the caller — style_props clears the font, all clears what was found."""
+    from plugin.writer import styles as st
+
+    cursor = _MultiStatesCursor()
+    st.reset_properties_to_default(cursor, st.STYLE_GOVERNED_CHAR_PROPERTIES)
+
+    assert cursor.cleared == st.STYLE_GOVERNED_CHAR_PROPERTIES
+
+
+def _make_style_doc(style_default=100):
+    from unittest.mock import MagicMock
+
+    doc = MagicMock()
+    para_styles = MagicMock()
+    doc.getStyleFamilies.return_value.getByName.return_value = para_styles
+    style = MagicMock()
+    para_styles.getByName.return_value = style
+    style.getPropertyValue.return_value = style_default
+    return doc, para_styles, style
+
+
+def _make_prop_info(*names):
+    from unittest.mock import MagicMock
+
+    props = []
+    for name in names:
+        prop = MagicMock()
+        prop.Name = name
+        prop.Attributes = 0
+        props.append(prop)
+    info = MagicMock()
+    info.getProperties.return_value = props
+    return info
+
+
+def _make_para(portions, style_name="Standard"):
+    from unittest.mock import MagicMock
+
+    para = MagicMock()
+    para.supportsService.side_effect = lambda s: s == "com.sun.star.text.Paragraph"
+    para.getPropertyValue.side_effect = lambda name: style_name if name == "ParaStyleName" else None
+    para_enum = MagicMock()
+    para_enum.hasMoreElements.side_effect = [True] * len(portions) + [False]
+    para_enum.nextElement.side_effect = list(portions)
+    para.createEnumeration.return_value = para_enum
+    return para
+
+
+def _make_style_cursor(paras):
+    from unittest.mock import MagicMock
+
+    cursor = MagicMock()
+    doc_enum = MagicMock()
+    doc_enum.hasMoreElements.side_effect = [True] * len(paras) + [False]
+    doc_enum.nextElement.side_effect = list(paras)
+    cursor.getText.return_value.createTextCursorByRange.return_value = cursor
+    cursor.createEnumeration.return_value = doc_enum
+    return cursor
+
+
+def test_apply_paragraph_style_preserving_direct_char_caches_style_and_props():
+    from unittest.mock import MagicMock
+    from plugin.writer import styles as fmt
+
+    doc, para_styles, style = _make_style_doc(style_default="DefaultVal")
+    prop_set_info = _make_prop_info("CharWeight")
+
+    portion1 = MagicMock()
+    portion1.getPropertyValue.side_effect = lambda name: "Text" if name == "TextPortionType" else "CustomVal"
+    portion1.getPropertySetInfo.return_value = prop_set_info
+
+    portion2 = MagicMock()
+    portion2.getPropertyValue.side_effect = lambda name: "Text" if name == "TextPortionType" else "CustomVal2"
+    portion2.getPropertySetInfo.return_value = MagicMock()
+
+    para1 = _make_para([portion1, portion2])
+
+    portion3 = MagicMock()
+    portion3.getPropertyValue.side_effect = lambda name: "Text" if name == "TextPortionType" else "CustomVal3"
+    para2 = _make_para([portion3])
+
+    style_cache = {}
+    fmt.apply_paragraph_style_preserving_direct_char(doc, _make_style_cursor([para1]), "Heading 1", style_cache=style_cache)
+
+    portion1.getPropertySetInfo.assert_called_once()
+    portion2.getPropertySetInfo.assert_not_called()
+    assert style.getPropertyValue.call_count == 1  # once for CharWeight
+    assert para_styles.getByName.call_count == 1
+
+    fmt.apply_paragraph_style_preserving_direct_char(doc, _make_style_cursor([para2]), "Heading 1", style_cache=style_cache)
+
+    # para_styles.getByName should NOT be called again for "Standard"
+    assert para_styles.getByName.call_count == 1
+    portion3.getPropertySetInfo.assert_not_called()
+
+
+def test_apply_paragraph_style_capture_failure_and_disposal():
+    from unittest.mock import MagicMock
+    import pytest
+    from plugin.framework.errors import DocumentDisposedError
+    from plugin.writer import styles as fmt
+
+    doc, _para_styles, _style = _make_style_doc()
+    info = _make_prop_info("CharWeight", "CharHeight")
+
+    def get_prop_side_effect(name):
+        if name == "TextPortionType":
+            return "Text"
+        if name == "CharWeight":
+            return 150
+        if name == "CharHeight":
+            raise RuntimeError("Property unavailable")
+        return None
+
+    portion = MagicMock()
+    portion.getPropertyValue.side_effect = get_prop_side_effect
+    portion.getPropertySetInfo.return_value = info
+
+    rep = fmt.apply_paragraph_style_preserving_direct_char(
+        doc, _make_style_cursor([_make_para([portion])]), "Heading 1", clear_direct="none"
+    )
+    assert rep.get("capture_incomplete") is True
+    assert "warning" in rep
+    assert rep.get("preserved_char_overrides", {}).get("CharWeight") == 150
+
+    # Disposal exception propagates as DocumentDisposedError
+    DisposedExc = type("DisposedException", (Exception,), {})
+    portion_disp = MagicMock()
+    portion_disp.getPropertyValue.side_effect = lambda name: "Text" if name == "TextPortionType" else (_ for _ in ()).throw(DisposedExc("object disposed"))
+    portion_disp.getPropertySetInfo.return_value = info
+
+    with pytest.raises(DocumentDisposedError):
+        fmt.apply_paragraph_style_preserving_direct_char(doc, _make_style_cursor([_make_para([portion_disp])]), "Heading 1")
+
+
+def test_apply_paragraph_style_restore_failure_is_not_capture_incomplete():
+    from unittest.mock import MagicMock
+    from plugin.writer import styles as fmt
+
+    doc, _para_styles, _style = _make_style_doc()
+    info = _make_prop_info("CharWeight")
+
+    portion = MagicMock()
+    portion.getPropertyValue.side_effect = lambda name: "Text" if name == "TextPortionType" else (150 if name == "CharWeight" else None)
+    portion.getPropertySetInfo.return_value = info
+
+    restore_cursor = MagicMock()
+    restore_cursor.setPropertyValue.side_effect = RuntimeError("read-only")
+    portion.getText.return_value.createTextCursorByRange.return_value = restore_cursor
+
+    rep = fmt.apply_paragraph_style_preserving_direct_char(
+        doc, _make_style_cursor([_make_para([portion])]), "Heading 1", clear_direct="none"
+    )
+    assert rep.get("capture_incomplete") is not True
+    assert "could not be re-applied" in rep["warning"]
+    assert "could not be read" not in rep["warning"]
+    assert rep["preserved_char_overrides"]["CharWeight"] == 150
+
+
+def test_apply_paragraph_style_negative_caches_failed_property_set_info():
+    from unittest.mock import MagicMock
+    from plugin.writer import styles as fmt
+
+    doc, _para_styles, _style = _make_style_doc()
+
+    portion = MagicMock()
+    portion.getPropertyValue.side_effect = lambda name: "Text" if name == "TextPortionType" else 150
+    portion.getPropertySetInfo.return_value = None
+
+    style_cache = {}
+    rep1 = fmt.apply_paragraph_style_preserving_direct_char(
+        doc, _make_style_cursor([_make_para([portion])]), "Heading 1", style_cache=style_cache
+    )
+    rep2 = fmt.apply_paragraph_style_preserving_direct_char(
+        doc, _make_style_cursor([_make_para([portion])]), "Heading 1", style_cache=style_cache
+    )
+
+    assert portion.getPropertySetInfo.call_count == 1
+    assert rep1.get("capture_incomplete") is True
+    assert rep2.get("capture_incomplete") is True
+    assert "preserved_char_overrides" not in rep1
+    assert "preserved_char_overrides" not in rep2
+
+
+def test_capture_direct_char_overrides_counts_one_failure_and_continues():
+    from unittest.mock import MagicMock
+    from plugin.writer import styles as fmt
+
+    doc, _para_styles, _style = _make_style_doc()
+
+    # Para 1: getPropertyValue("ParaStyleName") raises RuntimeError
+    para1 = MagicMock()
+    para1.supportsService.side_effect = lambda s: s == "com.sun.star.text.Paragraph"
+    para1.getPropertyValue.side_effect = RuntimeError("failed to read style")
+
+    # Para 2: normal paragraph with 1 portion having CharWeight=150 override
+    info = _make_prop_info("CharWeight")
+    portion = MagicMock()
+    portion.getPropertyValue.side_effect = lambda name: "Text" if name == "TextPortionType" else (150 if name == "CharWeight" else None)
+    portion.getPropertySetInfo.return_value = info
+
+    para2 = _make_para([portion])
+
+    overrides, failures, notes = fmt._capture_direct_char_overrides(doc, _make_style_cursor([para1, para2]), {})
+    assert len(overrides) == 1
+    assert failures == 1
+    assert notes == []
+    assert overrides[0][1] == {"CharWeight": 150}
+

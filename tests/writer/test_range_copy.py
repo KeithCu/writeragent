@@ -366,3 +366,254 @@ def test_copy_xtext_by_portions_moves_view_cursor_once_per_table() -> None:
 
     assert goto_doc_end.call_count == 1
 
+
+def test_copy_field_into_sets_offset():
+    from plugin.writer.range_copy import _copy_field_into
+
+    src_field = MagicMock()
+    src_field.getSupportedServiceNames.return_value = ["com.sun.star.text.textfield.PageNumber"]
+
+    def _get_prop(name: str):
+        if name == "Offset":
+            return 1
+        if name == "SubType":
+            return 0
+        if name == "NumberingType":
+            return 2
+        return None
+
+    src_field.getPropertyValue.side_effect = _get_prop
+
+    dest_doc = MagicMock()
+    new_field = MagicMock()
+    dest_doc.createInstance.return_value = new_field
+    dest_text = MagicMock()
+    dest_cursor = MagicMock()
+
+    res = _copy_field_into(dest_doc, dest_text, dest_cursor, src_field)
+    assert res is True
+    new_field.setPropertyValue.assert_any_call("Offset", 1)
+    new_field.setPropertyValue.assert_any_call("SubType", 0)
+    new_field.setPropertyValue.assert_any_call("NumberingType", 2)
+
+
+def test_copy_flow_into_xtext_one_paragraph_text_then_field():
+    from plugin.writer.range_copy import (
+        _COPIED_CHAR_PROPERTIES,
+        _COPIED_PARA_PROPERTIES,
+        copy_flow_into_xtext,
+    )
+
+    doc = MagicMock()
+    src_text = MagicMock()
+
+    portion_text = MagicMock()
+    portion_text.getPropertyValue.return_value = "Text"
+    portion_text.getString.return_value = "Page "
+
+    portion_field = MagicMock()
+    portion_field.getPropertyValue.side_effect = (
+        lambda name: "TextField" if name == "TextPortionType" else MagicMock()
+    )
+
+    para = MagicMock()
+    para.supportsService.return_value = False
+    para.createEnumeration.return_value = _Enum([portion_text, portion_field])
+
+    src_text.createEnumeration.return_value = _Enum([para])
+
+    dest_text = MagicMock()
+    cursor = MagicMock()
+    dest_text.createTextCursor.return_value = cursor
+
+    with patch("plugin.writer.range_copy._copy_field_into", return_value=True) as mock_field_into, \
+         patch("plugin.writer.range_copy._copy_properties") as mock_props, \
+         patch("plugin.writer.html_export.new_blank_writer") as mock_blank:
+        res = copy_flow_into_xtext(doc, src_text, dest_text)
+
+    assert res == 1
+    cursor.setString.assert_called_with("")
+    dest_text.insertString.assert_any_call(cursor, "Page ", False)
+    dest_text.insertControlCharacter.assert_not_called()
+    mock_field_into.assert_called_once()
+    mock_blank.assert_not_called()
+
+    prop_tuples = [call.args[2] for call in mock_props.call_args_list]
+    assert _COPIED_CHAR_PROPERTIES in prop_tuples
+    assert _COPIED_PARA_PROPERTIES in prop_tuples
+
+
+def test_copy_flow_into_xtext_breaks_only_between_paragraphs():
+    from plugin.writer.range_copy import PARAGRAPH_BREAK, copy_flow_into_xtext
+
+    doc = MagicMock()
+    src_text = MagicMock()
+
+    p1_portion = MagicMock()
+    p1_portion.getPropertyValue.return_value = "Text"
+    p1_portion.getString.return_value = "A"
+    para1 = MagicMock()
+    para1.supportsService.return_value = False
+    para1.createEnumeration.return_value = _Enum([p1_portion])
+
+    p2_portion = MagicMock()
+    p2_portion.getPropertyValue.return_value = "Text"
+    p2_portion.getString.return_value = "B"
+    para2 = MagicMock()
+    para2.supportsService.return_value = False
+    para2.createEnumeration.return_value = _Enum([p2_portion])
+
+    src_text.createEnumeration.return_value = _Enum([para1, para2])
+
+    dest_text = MagicMock()
+    cursor = MagicMock()
+    dest_text.createTextCursor.return_value = cursor
+
+    with patch("plugin.writer.range_copy._copy_properties"):
+        copy_flow_into_xtext(doc, src_text, dest_text)
+
+    dest_text.insertControlCharacter.assert_called_once_with(cursor, PARAGRAPH_BREAK, False)
+
+    insert_calls = [c.args[1] for c in dest_text.insertString.call_args_list]
+    assert insert_calls == ["A", "B"]
+
+    calls = dest_text.mock_calls
+    break_idx = None
+    insert_a_idx = None
+    for idx, c in enumerate(calls):
+        if c[0] == "insertControlCharacter":
+            break_idx = idx
+        elif c[0] == "insertString" and c.args[1] == "A":
+            insert_a_idx = idx
+
+    assert break_idx is not None
+    assert insert_a_idx is not None
+    assert insert_a_idx < break_idx
+
+
+def test_copy_xtext_into_doc_does_not_select_and_clones_graphic():
+    from plugin.writer.range_copy import copy_xtext_into_doc
+
+    src_text = MagicMock()
+    src_text.createEnumeration.return_value = _Enum([])
+    src_doc = MagicMock()
+    graphic = object()
+    shape = MagicMock()
+    shape.getAnchor.return_value.getText.return_value = src_text
+    shape.getAnchor.return_value.getStart.return_value = object()
+    shape.supportsService.side_effect = lambda name: name == "com.sun.star.text.TextGraphicObject"
+    shape.getPropertyValue.side_effect = lambda name: {
+        "AnchorType": 1, "Graphic": graphic, "Width": 100, "Height": 100,
+    }.get(name)
+    draw_page = MagicMock()
+    draw_page.getCount.return_value = 1
+    draw_page.getByIndex.return_value = shape
+    src_doc.getDrawPage.return_value = draw_page
+
+    dest_text = MagicMock()
+    dest_cursor = MagicMock()
+    dest_text.createTextCursor.return_value = dest_cursor
+    dest_text.getString.return_value = ""
+    dest_doc = MagicMock()
+    dest_doc.getText.return_value = dest_text
+    clone = MagicMock()
+    dest_doc.createInstance.return_value = clone
+
+    measure = MagicMock()
+    measure.getString.return_value = ""
+    src_text.createTextCursor.return_value = measure
+    src_text.getString.return_value = ""
+
+    copy_xtext_into_doc(src_doc, src_text, dest_doc)
+
+    src_doc.getCurrentController().select.assert_not_called()
+    dest_doc.createInstance.assert_called_with("com.sun.star.text.TextGraphicObject")
+    clone.setPropertyValue.assert_any_call("Graphic", graphic)
+    dest_text.insertTextContent.assert_called()
+
+
+
+
+def test_copy_properties_skips_values_the_style_already_gives():
+    """Copying an inherited value would make it a hand-set one on the copy, and the read would
+    then report margin-right:0cm on every paragraph as if the user had set it."""
+    from unittest.mock import MagicMock
+    from plugin.writer import range_copy as rc
+
+    src, dst, style = MagicMock(), MagicMock(), MagicMock()
+    src.getPropertyValue.side_effect = {"ParaLeftMargin": 3251, "ParaRightMargin": 0}.get
+    style.getPropertyValue.side_effect = {"ParaLeftMargin": 0, "ParaRightMargin": 0}.get
+
+    rc._copy_properties(src, dst, ("ParaLeftMargin", "ParaRightMargin"), style)
+
+    dst.setPropertyValue.assert_called_once_with("ParaLeftMargin", 3251)
+
+
+def test_copy_properties_without_a_style_copies_everything_readable():
+    from unittest.mock import MagicMock
+    from plugin.writer import range_copy as rc
+
+    src, dst = MagicMock(), MagicMock()
+    src.getPropertyValue.side_effect = {"CharWeight": 150.0}.get
+
+    rc._copy_properties(src, dst, ("CharWeight",))
+
+    dst.setPropertyValue.assert_called_once_with("CharWeight", 150.0)
+
+
+def test_copy_properties_continues_past_one_the_target_refuses():
+    """The temp document is a plain Writer doc and need not offer every source property."""
+    from unittest.mock import MagicMock
+    from plugin.writer import range_copy as rc
+
+    src, dst = MagicMock(), MagicMock()
+    src.getPropertyValue.side_effect = {"CharPosture": 1, "CharWeight": 150.0}.get
+
+    def refuse_posture(name, _value):
+        if name == "CharPosture":
+            raise RuntimeError("unsupported")
+
+    dst.setPropertyValue.side_effect = refuse_posture
+
+    rc._copy_properties(src, dst, ("CharPosture", "CharWeight"))
+
+    assert [c.args[0] for c in dst.setPropertyValue.call_args_list] == ["CharPosture", "CharWeight"]
+
+
+def test_paint_direct_formatting_still_paints_char_when_para_copy_raises():
+    """A refused Para* must not skip the portion Char* loop — that paint is why the
+    temp-doc path exists (bold/colour on a range read)."""
+    from unittest.mock import MagicMock
+    from plugin.writer import range_copy as rc
+
+    para = MagicMock()
+    portion = MagicMock()
+    portion.getPropertyValue.side_effect = lambda name: 150.0 if name == "CharWeight" else None
+    para_start = MagicMock(name="para_start")
+    para_cursor = MagicMock()
+    para_cursor.getStart.return_value = para_start
+    para_cursor.gotoEndOfParagraph.side_effect = RuntimeError("refused Para*")
+    run = MagicMock()
+    temp_text = MagicMock()
+    temp_text.createTextCursor.return_value = para_cursor
+    temp_text.createTextCursorByRange.return_value = run
+
+    rc.paint_direct_formatting(para, [(portion, "bold")], temp_text, 0, 4)
+
+    run.setPropertyValue.assert_any_call("CharWeight", 150.0)
+
+
+def test_source_style_is_cached_and_tolerates_a_missing_style():
+    from unittest.mock import MagicMock
+    from plugin.writer import range_copy as rc
+
+    model = MagicMock()
+    families = model.getStyleFamilies.return_value.getByName.return_value
+    families.getByName.side_effect = lambda n: "STYLE" if n == "Standard" else (_ for _ in ()).throw(KeyError(n))
+
+    cache = {}
+    assert rc.source_style(model, "Standard", cache) == "STYLE"
+    assert rc.source_style(model, "Standard", cache) == "STYLE"
+    assert families.getByName.call_count == 1  # second read served from the cache
+    assert rc.source_style(model, "Nope", cache) is None
+    assert rc.source_style(model, "", cache) is None

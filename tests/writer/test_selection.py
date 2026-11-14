@@ -332,26 +332,6 @@ def test_selection_target_wraps_span_failure_in_valueerror():
         resolve_target_cursor(ctx, "selection", None)
 
 
-def test_apply_document_content_selection_failure_not_silent():
-    from plugin.framework.config import save
-    save({'doc.agent_edit_review_mode': 'none'})
-    from plugin.framework.errors import ToolExecutionError
-    from plugin.writer import html_import
-    from plugin.writer.apply_document_content import ApplyDocumentContent
-
-    ctx = MagicMock()
-    ctx.doc.getUndoManager.return_value.isLocked.return_value = False
-    ctx.services.get.return_value = MagicMock()
-    with patch("plugin.writer.apply_document_content.selection_anchor", return_value=MagicMock()), \
-         patch.object(html_import, "insert_content_at_position",
-                      side_effect=ToolExecutionError("Could not resolve the current selection")):
-        # _execute maps ToolExecutionError to the standard tool error dict so chat/MCP
-        # see status=error.
-        result = ApplyDocumentContent().execute(ctx, content="x", target="selection")
-    assert result["status"] == "error"
-    assert "selection" in result.get("message", "")
-
-
 def test_set_selection_disposal_is_document_disposed():
     from plugin.framework.errors import DocumentDisposedError
 

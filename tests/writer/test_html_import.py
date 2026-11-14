@@ -3,7 +3,7 @@ import html as html_mod
 from typing import Any
 
 import pytest
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock, patch
 
 from plugin.writer.html_import import (
     ensure_html_linebreaks,
@@ -527,149 +527,6 @@ def test_insert_mixed_html_and_math_counts_prefix_when_segment_contains_ruby():
     assert paint.call_args.kwargs["skip_chars"] == 5
 
 
-def test_nested_blocks_share_one_style_slot():
-    """<blockquote><p> and <li><p> are ONE Writer paragraph: two slots shifted every later style
-    ("2. DO DIREITO" lost its heading) and the leftover ones hit old text (relatos #35/#40)."""
-    from plugin.writer.html_import_styles import extract_block_lo_styles
-
-    html = ('<h1 data-lo-style="Heading1">T</h1>'
-            '<blockquote><p data-lo-style="Quotations">q</p></blockquote>'
-            '<ul><li><p data-lo-style="Standard">a</p></li><li><p data-lo-style="Standard">b</p></li></ul>'
-            '<h2 data-lo-style="Heading2">D</h2>')
-    clean, styles, _paras, _skipped = extract_block_lo_styles(html)
-    assert styles == ["Heading1", "Quotations", "Standard", "Standard", "Heading2"]
-    assert "data-lo-style" not in clean
-
-
-def test_second_block_inside_a_block_gets_its_own_slot():
-    from plugin.writer.html_import_styles import extract_block_lo_styles
-
-    _clean, styles, _paras, _skipped = extract_block_lo_styles(
-        '<li data-lo-style="List"><p>a</p><p data-lo-style="Standard">b</p></li><p data-lo-style="Standard">c</p>')
-    assert styles == ["List", "Standard", "Standard"]
-
-
-def test_block_styles_stop_at_the_end_of_the_import():
-    """More styles than imported paragraphs must not style the text after the import (the old
-    text a full_document had just deleted: its Delete turned into a Format change)."""
-
-    from plugin.writer import html_import_styles
-
-    text = MagicMock()
-    walk_cur = MagicMock()
-    starts = [0, 1, 2, 3]
-    pos = [0]
-
-    def get_start():
-        return starts[min(pos[0], len(starts) - 1)]
-
-    def goto_next(expand):
-        pos[0] += 1
-        return pos[0] < len(starts)
-
-    walk_cur.getStart.side_effect = get_start
-    walk_cur.gotoNextParagraph.side_effect = goto_next
-    text.createTextCursorByRange.return_value = walk_cur
-
-    end = 2  # the parked cursor sits where paragraph 2 starts
-    text.compareRegionStarts.side_effect = lambda a, b: 1 if a < b else (0 if a == b else -1)
-    start_cursor = MagicMock()
-    with patch("plugin.writer.styles.apply_paragraph_style_preserving_direct_char") as apply:
-        html_import_styles.apply_block_lo_styles(
-            MagicMock(), text, start_cursor, ["Heading1", "Standard", "Standard", "Heading2"], end=end,
-        )
-    assert apply.call_count == 2
-
-
-def test_apply_block_lo_styles_token_cache_reads_element_names_once():
-    from plugin.writer import html_import_styles
-
-    model = MagicMock()
-    fam = MagicMock()
-    fam.getElementNames.return_value = ["Heading 1", "Standard"]
-    fam.hasByName.return_value = True
-    model.getStyleFamilies.return_value.getByName.return_value = fam
-
-    text = MagicMock()
-    walk_cur = MagicMock()
-    walk_cur.gotoNextParagraph.side_effect = [True, False]
-    text.createTextCursorByRange.return_value = walk_cur
-
-    with patch("plugin.writer.styles.apply_paragraph_style_preserving_direct_char") as apply:
-        html_import_styles.apply_block_lo_styles(
-            model, text, MagicMock(), ["Heading1", "Heading1"],
-        )
-    fam.getElementNames.assert_called_once()
-    assert apply.call_count == 2
-    assert apply.call_args_list[0].args[2] == "Heading 1"
-    assert apply.call_args_list[1].args[2] == "Heading 1"
-
-
-def test_apply_block_lo_styles_ambiguous_token_resolves_to_standard():
-    from plugin.writer import html_import_styles
-
-    model = MagicMock()
-    fam = MagicMock()
-    # "Heading1" matches both literal "Heading1" and compact form of "Heading 1" -> ambiguous
-    fam.getElementNames.return_value = ["Heading1", "Heading 1", "Standard"]
-    fam.hasByName.return_value = True
-    model.getStyleFamilies.return_value.getByName.return_value = fam
-
-    text = MagicMock()
-    walk_cur = MagicMock()
-    walk_cur.gotoNextParagraph.return_value = False
-    text.createTextCursorByRange.return_value = walk_cur
-
-    with patch("plugin.writer.styles.apply_paragraph_style_preserving_direct_char") as apply:
-        html_import_styles.apply_block_lo_styles(
-            model, text, MagicMock(), ["Heading1"],
-        )
-    assert apply.call_args.args[2] == "Standard"
-
-
-def test_apply_block_lo_styles_unknown_token_resolves_to_standard():
-    from plugin.writer import html_import_styles
-
-    model = MagicMock()
-    fam = MagicMock()
-    fam.getElementNames.return_value = ["Standard"]
-    fam.hasByName.return_value = False
-    model.getStyleFamilies.return_value.getByName.return_value = fam
-
-    text = MagicMock()
-    walk_cur = MagicMock()
-    walk_cur.getPropertyValue.return_value = None
-    walk_cur.gotoNextParagraph.return_value = False
-    text.createTextCursorByRange.return_value = walk_cur
-
-    with patch("plugin.writer.styles.apply_paragraph_style_preserving_direct_char") as apply:
-        html_import_styles.apply_block_lo_styles(
-            model, text, MagicMock(), ["Nope"],
-        )
-    assert apply.call_args.args[2] == "Standard"
-
-
-def test_apply_block_lo_styles_skips_when_style_already_matches():
-    from plugin.writer import html_import_styles
-
-    model = MagicMock()
-    fam = MagicMock()
-    fam.getElementNames.return_value = ["Heading 1", "Standard"]
-    fam.hasByName.return_value = True
-    model.getStyleFamilies.return_value.getByName.return_value = fam
-
-    text = MagicMock()
-    walk_cur = MagicMock()
-    walk_cur.getPropertyValue.return_value = "Heading 1"
-    walk_cur.gotoNextParagraph.return_value = False
-    text.createTextCursorByRange.return_value = walk_cur
-
-    with patch("plugin.writer.styles.apply_paragraph_style_preserving_direct_char") as apply:
-        res = html_import_styles.apply_block_lo_styles(
-            model, text, MagicMock(), ["Heading1"],
-        )
-    apply.assert_not_called()
-    assert res == []
 
 
 def test_full_document_in_review_mode_imports_into_a_fresh_paragraph():
@@ -731,320 +588,6 @@ def test_html_import_avoids_document_helpers_ops_review_authors():
     assert_no_toplevel_import(fmt, {"plugin.doc.document_helpers", "ops", "review_authors"})
 
 
-@pytest.mark.parametrize(
-    "value, value_2",
-    [
-        pytest.param('<div data-lo-style="Standard">Pelotas.</div><div><p data-lo-style="Standard">Adv</p></div>', "Standard", id="test_styled_div_is_a_slot_and_plain_div_is_not"),
-        pytest.param('<p data-lo-style="Standard">a<p data-lo-style="Heading2">b</p>', "Heading2", id="test_omitted_paragraph_end_tag_does_not_nest_the_next_block"),
-    ],
-)
-def test_styled_div_is_a_slot_and_plain_div_is_not(value, value_2):
-    from plugin.writer.html_import_styles import extract_block_lo_styles
-
-    _clean, styles, _paras, _skipped = extract_block_lo_styles(
-        value)
-    assert styles == ["Standard", value_2]
-
-
-def test_parse_data_lo_para_text_align_center():
-    from plugin.writer.html_import_styles import parse_data_lo_para
-
-    props, dropped = parse_data_lo_para("text-align:center")
-    assert props == {"text-align": ("ParaAdjust", 3)}
-    assert dropped == []
-
-
-def test_apply_block_lo_styles_returns_failures():
-    """apply_block_lo_styles returns property names for dropped, failed, or unreached slots."""
-    from plugin.writer import html_import_styles
-
-    model = MagicMock()
-    model.getStyleFamilies.return_value.getByName.return_value = None
-
-    text = MagicMock()
-    walk_cur = MagicMock()
-    # Fails on the first paragraph advance so the second slot is unreached
-    walk_cur.gotoNextParagraph.return_value = False
-
-    para_cur = MagicMock()
-    para_el = MagicMock()
-    # Raises on setPropertyValue so the applied property fails
-    para_el.setPropertyValue.side_effect = RuntimeError("locked")
-    para_cur.createEnumeration.return_value.hasMoreElements.return_value = True
-    para_cur.createEnumeration.return_value.nextElement.return_value = para_el
-    text.createTextCursorByRange.side_effect = [walk_cur, para_cur]
-
-    failed = html_import_styles.apply_block_lo_styles(
-        model,
-        text,
-        MagicMock(),
-        [None, None],
-        paras=["margin-left:2cm; font-size:12pt", "text-align:right"],
-    )
-    # font-size dropped by parser, margin-left failed at runtime, text-align unreached
-    assert failed == ["font-size", "margin-left", "text-align"]
-    para_el.setPropertyValue.assert_called()
-
-
-def test_parse_data_lo_para_margins():
-    from plugin.writer.html_import_styles import parse_data_lo_para
-
-    props_left, dropped_left = parse_data_lo_para("margin-left:3.25cm")
-    assert props_left == {"margin-left": ("ParaLeftMargin", 3250)}
-    assert dropped_left == []
-
-    props_right, dropped_right = parse_data_lo_para("margin-right:1in")
-    assert props_right == {"margin-right": ("ParaRightMargin", 2540)}
-    assert dropped_right == []
-
-
-def test_parse_data_lo_para_background_color():
-    from plugin.writer.html_import_styles import parse_data_lo_para
-
-    props_hex, dropped_hex = parse_data_lo_para("background-color:#ffe4c4")
-    assert props_hex == {"background-color": ("ParaBackColor", 0xFFE4C4)}
-    assert dropped_hex == []
-
-    props_trans, dropped_trans = parse_data_lo_para("background-color:transparent")
-    assert props_trans == {"background-color": ("ParaBackColor", -1)}
-    assert dropped_trans == []
-
-
-def test_parse_data_lo_para_vertical_margins_and_indent():
-    from plugin.writer.html_import_styles import parse_data_lo_para
-
-    props, dropped = parse_data_lo_para("margin-top:0.5cm; margin-bottom:12pt; text-indent:-0.5cm")
-    assert props == {
-        "margin-top": ("ParaTopMargin", 500),
-        "margin-bottom": ("ParaBottomMargin", 423),
-        "text-indent": ("ParaFirstLineIndent", -500),
-    }
-    assert dropped == []
-
-
-class _FakeLineSpacing:
-    """Stands in for com.sun.star.style.LineSpacing (pytest has no real UNO structs)."""
-
-    def __init__(self) -> None:
-        self.Mode = 0
-        self.Height = 0
-
-
-@pytest.mark.parametrize(
-    ("css", "mode", "height"),
-    [
-        pytest.param("line-height:150%", 0, 150, id="percent_is_proportional"),
-        pytest.param("line-height:115.4%", 0, 115, id="percent_rounds"),
-        pytest.param("line-height:normal", 0, 100, id="normal_is_single"),
-        pytest.param("line-height:0.5cm", 3, 500, id="length_is_fixed"),
-    ],
-)
-def test_parse_data_lo_para_line_height(monkeypatch, css, mode, height):
-    import sys
-
-    from plugin.writer.html_import_styles import parse_data_lo_para
-
-    # setitem on __dict__ (not setattr) so undo removes the attribute instead of leaving a
-    # materialised MagicMock child; other tests check that createUnoStruct is absent.
-    monkeypatch.setitem(sys.modules["uno"].__dict__, "createUnoStruct", lambda _name: _FakeLineSpacing())
-    props, dropped = parse_data_lo_para(css)
-    assert dropped == []
-    uno_prop, spacing = props["line-height"]
-    assert uno_prop == "ParaLineSpacing"
-    assert (spacing.Mode, spacing.Height) == (mode, height)
-
-
-@pytest.mark.parametrize("value", ["tall", "0cm", "-1cm", "%", "0%", "0.0%"])
-def test_parse_data_lo_para_bad_line_height_is_dropped(value):
-    from plugin.writer.html_import_styles import parse_data_lo_para
-
-    props, dropped = parse_data_lo_para("line-height:%s" % value)
-    assert props == {}
-    assert dropped == ["line-height"]
-
-
-def test_every_read_para_name_has_a_writer_or_is_listed_read_only():
-    """Every CSS name the read side emits in data-lo-para is either written or listed.
-
-    A property added to the read table without a writer would otherwise only show up as
-    one more warning; this makes it a test failure that forces a decision.
-    """
-    from plugin.writer import html_import_styles, xhtml_style_postprocess
-
-    read_names = {css for _odf, css in xhtml_style_postprocess._FODT_OVERRIDE_ATTRS}
-    writers = set(html_import_styles._para_writers())
-    read_only = html_import_styles._READ_ONLY_PARA_NAMES
-    assert not writers & read_only
-    assert read_names - writers - read_only == set()
-    assert writers <= read_names, "a writer for a name reads never emit cannot round-trip"
-
-
-def test_round_trip_read_fodt_autostyle_value():
-    from plugin.writer import html_import_styles
-    from plugin.writer.xhtml_style_postprocess import parse_fodt_autostyles
-
-    fodt = """<?xml version="1.0" encoding="UTF-8"?>
-<office:document xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0"
- xmlns:style="urn:oasis:names:tc:opendocument:xmlns:style:1.0"
- xmlns:fo="urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0">
- <style:style style:name="P2" style:family="paragraph" style:parent-style-name="Standard">
-  <style:paragraph-properties fo:margin-left="3.25cm" fo:text-indent="0cm" fo:text-align="start"/>
- </style:style>
-</office:document>"""
-    emitted = parse_fodt_autostyles(fodt)[1]["P2"]
-    assert emitted == "margin-left:3.25cm; text-indent:0cm; text-align:left"
-
-    props, dropped = html_import_styles.parse_data_lo_para(emitted)
-    assert props == {
-        "margin-left": ("ParaLeftMargin", 3250),
-        "text-indent": ("ParaFirstLineIndent", 0),
-        "text-align": ("ParaAdjust", 0),
-    }
-    assert dropped == []
-
-    html = f'<p data-lo-para="{emitted}">Clause text</p>'
-    clean, styles, paras, skipped = html_import_styles.extract_block_lo_styles(html)
-    assert clean == "<p>Clause text</p>"
-    assert paras == [emitted]
-
-    model = MagicMock()
-    fam = MagicMock()
-    fam.getElementNames.return_value = ["Standard"]
-    model.getStyleFamilies.return_value.getByName.return_value = fam
-
-    text = MagicMock()
-    walk_cur = MagicMock()
-    walk_cur.getPropertyValue.return_value = "Standard"
-    walk_cur.gotoNextParagraph.return_value = False
-
-    para_cur = MagicMock()
-    para_cur.createEnumeration.return_value.hasMoreElements.return_value = True
-    text.createTextCursorByRange.side_effect = [walk_cur, para_cur]
-
-    failed = html_import_styles.apply_block_lo_styles(
-        model, text, MagicMock(), styles, paras=paras
-    )
-    assert failed == []
-    para_el = para_cur.createEnumeration.return_value.nextElement.return_value
-    para_el.setPropertyValue.assert_has_calls([
-        call("ParaLeftMargin", 3250),
-        call("ParaFirstLineIndent", 0),
-        call("ParaAdjust", 0),
-    ], any_order=True)
-
-
-@pytest.mark.parametrize(
-    "para_decl, has_para_el, expected_failed, expected_para_calls_fn",
-    [
-        pytest.param(
-            "background-color:#ffe4c4",
-            True,
-            [],
-            lambda solid, _none: [call("FillColor", 0xFFE4C4), call("FillStyle", solid)],
-            id="solid_color",
-        ),
-        pytest.param(
-            "text-align:justify; background-color:#ffe4c4",
-            True,
-            [],
-            lambda solid, _none: [call("ParaAdjust", 2), call("FillColor", 0xFFE4C4), call("FillStyle", solid)],
-            id="solid_and_align",
-        ),
-        pytest.param(
-            "background-color:transparent",
-            True,
-            [],
-            lambda _solid, none: [call("FillStyle", none)],
-            id="transparent",
-        ),
-        pytest.param(
-            "background-color:#ffe4c4",
-            False,
-            ["background-color"],
-            lambda _solid, _none: [],
-            id="missing_para_obj",
-        ),
-    ],
-)
-def test_apply_block_lo_styles_background_color(para_decl, has_para_el, expected_failed, expected_para_calls_fn):
-    from plugin.writer import html_import_styles
-
-    model = MagicMock()
-    fam = MagicMock()
-    fam.getElementNames.return_value = ["Standard"]
-    model.getStyleFamilies.return_value.getByName.return_value = fam
-
-    text = MagicMock()
-    walk_cur = MagicMock()
-    walk_cur.getPropertyValue.return_value = "Standard"
-    walk_cur.gotoNextParagraph.return_value = False
-
-    para_cur = MagicMock()
-    text.createTextCursorByRange.side_effect = [walk_cur, para_cur]
-
-    para_el = MagicMock()
-    if has_para_el:
-        penum = MagicMock()
-        penum.hasMoreElements.side_effect = [True, False]
-        penum.nextElement.return_value = para_el
-        para_cur.createEnumeration.return_value = penum
-    else:
-        # The paragraph cursor enumerates nothing, so there is no paragraph to format.
-        para_cur.createEnumeration.return_value.hasMoreElements.return_value = False
-
-    solid_style, none_style = html_import_styles._get_fill_style_enums()
-
-    failed = html_import_styles.apply_block_lo_styles(
-        model, text, MagicMock(), [None], paras=[para_decl]
-    )
-    assert failed == expected_failed
-
-    expected_calls = expected_para_calls_fn(solid_style, none_style)
-    para_el.setPropertyValue.assert_has_calls(expected_calls, any_order=True)
-    # Paragraph formatting and fill properties belong on the paragraph element, never on the cursor.
-    cursor_set_props = {c.args[0] for c in para_cur.setPropertyValue.call_args_list}
-    assert cursor_set_props.isdisjoint({"FillStyle", "ParaBackColor", "ParaAdjust"})
-
-
-def test_declared_para_names_flattens_lists_in_order_and_skips_none():
-    """Unapplied declarations are reported in document order across all lists; blocks
-    without data-lo-para (None) and empty strings contribute nothing."""
-    from plugin.writer.html_import_styles import declared_para_names
-
-    assert declared_para_names(
-        ["margin-left:1cm; text-align:center", None, ""],
-        ["color:#ff0000"],
-    ) == ["margin-left", "text-align", "color"]
-    assert declared_para_names([]) == []
-
-
-def test_parse_data_lo_para_duplicate_properties_keeps_first():
-    from plugin.writer.html_import_styles import parse_data_lo_para
-
-    props, dropped = parse_data_lo_para("margin-left:1cm; margin-left:2cm; text-align:center; text-align:right")
-    assert props == {
-        "margin-left": ("ParaLeftMargin", 1000),
-        "text-align": ("ParaAdjust", 3),
-    }
-    assert dropped == []
-
-
-def test_extractor_handles_data_lo_para():
-    from plugin.writer.html_import_styles import extract_block_lo_styles
-
-    html = ('<blockquote data-lo-style="Quotations">'
-            '<p data-lo-para="margin-left:1cm">Indented quote</p>'
-            '</blockquote>'
-            '<p data-lo-para="text-align:right">Only para</p>')
-    clean, styles, paras, skipped = extract_block_lo_styles(html)
-    assert "data-lo-para" not in clean
-    assert "data-lo-style" not in clean
-    assert styles == ["Quotations", None]
-    assert paras == ["margin-left:1cm", "text-align:right"]
-    assert skipped == []
-
-# --- data-less images kept (get_document_content leaves the picture data out) ------------------
-
 _FRAME = ('<div data-lo-style="Standard"><div style="float:left" class="graphic-fr1" id="Assinatura">'
           '<img style="height:1cm" alt="" src=""/></div><div style="clear:both; line-height:0;">&nbsp;</div>'
           'Pelotas.</div>')
@@ -1056,221 +599,6 @@ def _graphics_doc(*names):
     graphics = model.getGraphicObjects.return_value
     graphics.hasByName.side_effect = lambda name: name in names
     return model
-
-
-def test_swap_image_placeholders_turns_each_named_frame_into_a_marker():
-    from plugin.writer.image_placeholders import _swap_image_placeholders
-
-    model = _graphics_doc("Assinatura", "Selo")
-    content = _FRAME + '<p>Texto <span class="graphic-fr2" id="Selo"><img src=""/></span> depois.</p>'
-    swapped, kept = _swap_image_placeholders(model, content)
-    assert [k.name for k in kept] == ["Assinatura", "Selo"]
-    assert "<img" not in swapped and "clear:both" not in swapped  # no stray empty paragraph either
-    assert swapped.count(kept[0].marker) == 1 and "Pelotas." in swapped
-
-
-def test_swap_image_placeholders_keeps_a_picture_inside_a_heading():
-    # The export puts a <p> between the wrapper and the <img> when the picture sits in a heading;
-    # the edit was refused as "an image without its data" before.
-    from plugin.writer.image_placeholders import _swap_image_placeholders
-
-    content = ('<h1 data-lo-style="Heading1"><a id="a__1423bb33"><span/></a><span class="graphic-fr1" id="Image2">'
-               '<p><img alt="" src=""/></p></span>AO DOUTO JUIZO</h1>')
-    swapped, kept = _swap_image_placeholders(_graphics_doc("Image2"), content)
-    assert [k.name for k in kept] == ["Image2"]
-    assert "<img" not in swapped and "<p>" not in swapped and swapped.count(kept[0].marker) == 1
-    assert "AO DOUTO JUIZO</h1>" in swapped
-
-
-def test_swap_image_placeholders_refuses_a_picture_it_cannot_keep():
-    """Losing a signature silently is worse than failing before anything changed."""
-
-    from plugin.framework.errors import ToolExecutionError
-    from plugin.writer.image_placeholders import _swap_image_placeholders
-
-    with pytest.raises(ToolExecutionError, match="'Assinatura'"):
-        _swap_image_placeholders(_graphics_doc(), _FRAME)
-    with pytest.raises(ToolExecutionError, match="without its data"):
-        _swap_image_placeholders(_graphics_doc(), '<p>Novo <img src=""/> texto</p>')
-
-
-@pytest.mark.parametrize("markup", [
-    "<p>Novo <img src=''/> texto</p>",
-    '<p>Novo <img src = ""> texto</p>',
-    '<span id="Selo"><img src=\'\'/></span>',
-])
-def test_swap_image_placeholders_refuses_non_canonical_empty_src(markup):
-    from plugin.framework.errors import ToolExecutionError
-    from plugin.writer.image_placeholders import _swap_image_placeholders
-
-    with pytest.raises(ToolExecutionError, match="without its data"):
-        _swap_image_placeholders(_graphics_doc("Selo"), markup)
-
-
-def test_swap_image_placeholders_leaves_other_content_alone():
-    from plugin.writer.image_placeholders import _swap_image_placeholders
-
-    model = MagicMock()
-    content = '<p>Sem imagem</p><img src="data:image/png;base64,AAAA"/>'
-    assert _swap_image_placeholders(model, content) == (content, [])
-    model.getGraphicObjects.assert_not_called()
-
-
-def _kept(anchor="AT_PARAGRAPH"):
-    from types import SimpleNamespace
-
-    from plugin.writer.image_placeholders import _KeptImage
-
-    return _KeptImage("waXimg0", "Assinatura", MagicMock(), MagicMock(), SimpleNamespace(value=anchor),
-                      MagicMock(), {"TextWrap": 1})
-
-
-def test_restore_puts_a_copy_where_the_marker_is_when_the_original_went():
-    from plugin.writer import image_placeholders
-
-    model = MagicMock()
-    found = model.findFirst.return_value
-    with patch.object(image_placeholders, "_deleted_by_the_edit", return_value=True):
-        image_placeholders._restore_image_placeholders(model, [_kept()])
-    picture = model.createInstance.return_value
-    found.getText.return_value.insertTextContent.assert_called_once_with(found, picture, True)
-    picture.setPropertyValue.assert_called_with("TextWrap", 1)
-
-
-def test_restore_only_drops_the_marker_when_the_original_stayed():
-    """A search replace of a paragraph's text keeps the paragraph and its picture: no duplicate."""
-
-    from plugin.writer import image_placeholders
-
-    for anchor, deleted in (("AT_PARAGRAPH", False), ("AT_PAGE", True)):
-        model = MagicMock()
-        found = model.findFirst.return_value
-        with patch.object(image_placeholders, "_deleted_by_the_edit", return_value=deleted):
-            image_placeholders._restore_image_placeholders(model, [_kept(anchor)])
-        found.setString.assert_called_once_with("")
-        found.getText.return_value.insertTextContent.assert_not_called()
-
-
-def test_restore_image_placeholders_missing_marker_for_deleted_original_raises():
-    from plugin.framework.errors import ToolExecutionError
-    from plugin.writer import image_placeholders
-
-    model = MagicMock()
-    model.findFirst.return_value = None
-    kept = [_kept("AT_PARAGRAPH")]
-    with patch.object(image_placeholders, "_deleted_by_the_edit", return_value=True):
-        with pytest.raises(ToolExecutionError, match="'Assinatura'"):
-            image_placeholders._restore_image_placeholders(model, kept)
-
-
-def test_restore_image_placeholders_missing_marker_for_kept_original_does_not_raise():
-    from plugin.writer import image_placeholders
-
-    model = MagicMock()
-    model.findFirst.return_value = None
-    kept = [_kept("AT_PARAGRAPH")]
-    with patch.object(image_placeholders, "_deleted_by_the_edit", return_value=False):
-        image_placeholders._restore_image_placeholders(model, kept)
-    model.createInstance.assert_not_called()
-
-
-def test_restore_image_placeholders_missing_marker_resolves_before_mutation():
-    from plugin.framework.errors import ToolExecutionError
-    from plugin.writer import image_placeholders
-
-    model = MagicMock()
-    found1 = MagicMock()
-    model.findFirst.side_effect = [found1, None]
-    kept = [_kept("AT_PARAGRAPH"), _kept("AT_PARAGRAPH")]
-    with patch.object(image_placeholders, "_deleted_by_the_edit", return_value=True):
-        with pytest.raises(ToolExecutionError, match="'Assinatura'"):
-            image_placeholders._restore_image_placeholders(model, kept)
-    model.createInstance.assert_not_called()
-    found1.setString.assert_not_called()
-
-
-def test_deleted_by_the_edit():
-    from types import SimpleNamespace
-
-    from plugin.writer import image_placeholders
-
-    gone = MagicMock()
-    gone.getAnchor.side_effect = RuntimeError("disposed")
-    assert image_placeholders._deleted_by_the_edit(MagicMock(), gone, "Picture 1") is True
-
-    model = MagicMock()
-    model.getPropertyValue.return_value = False  # review off: alive means still there
-    assert image_placeholders._deleted_by_the_edit(model, MagicMock(), "Picture 1") is False
-
-    # Review on: an inline picture whose anchor sits inside a pending Delete went with it.
-    model = MagicMock()
-    model.getPropertyValue.return_value = True
-    original = MagicMock()
-    original.getPropertyValue.return_value = SimpleNamespace(value="AS_CHARACTER")
-    text = MagicMock()
-    delete = MagicMock()
-    delete.getPropertyValue.side_effect = lambda name: (
-        "Delete" if name == "RedlineType" else SimpleNamespace(getText=lambda: text))
-    text.compareRegionStarts.return_value = 1
-    text.compareRegionEnds.return_value = 1
-    model.getRedlines.return_value.getCount.return_value = 1
-    enum = model.getRedlines.return_value.createEnumeration.return_value
-    enum.hasMoreElements.side_effect = [True, False]
-    enum.nextElement.side_effect = [delete]
-    assert image_placeholders._deleted_by_the_edit(model, original, "Picture 1") is True
-
-
-def test_deleted_by_the_edit_name_guard():
-    from plugin.framework.errors import DocumentDisposedError
-    from plugin.writer import image_placeholders
-
-    # 1. Name missing from doc.getGraphicObjects() is treated as deleted without calling getAnchor()
-    model = MagicMock()
-    model.getGraphicObjects.return_value.hasByName.return_value = False
-    original = MagicMock()
-    original.getAnchor.side_effect = AssertionError("getAnchor must not be called when name is missing")
-    assert image_placeholders._deleted_by_the_edit(model, original, "Picture 1") is True
-    original.getAnchor.assert_not_called()
-    assert model.getGraphicObjects.return_value.hasByName.call_args.args == ("Picture 1",)
-
-    # 2. Name present in doc.getGraphicObjects() proceeds to check anchor
-    model = MagicMock()
-    model.getGraphicObjects.return_value.hasByName.return_value = True
-    model.getPropertyValue.return_value = False  # review off
-    original = MagicMock()
-    assert image_placeholders._deleted_by_the_edit(model, original, "Picture 1") is False
-    original.getAnchor.assert_called_once()
-
-    # 3. Non-disposal lookup failures are treated as deleted
-    model = MagicMock()
-    model.getGraphicObjects.side_effect = RuntimeError("collection lookup failed")
-    original = MagicMock()
-    original.getAnchor.side_effect = AssertionError("getAnchor must not be called on lookup failure")
-    assert image_placeholders._deleted_by_the_edit(model, original, "Picture 1") is True
-    original.getAnchor.assert_not_called()
-
-    # 4. Disposal lookup failure is re-raised
-    model = MagicMock()
-    model.getGraphicObjects.side_effect = DocumentDisposedError("doc disposed")
-    with pytest.raises(DocumentDisposedError):
-        image_placeholders._deleted_by_the_edit(model, MagicMock(), "Picture 1")
-
-
-def test_restore_image_placeholders_passes_name():
-    from plugin.writer import image_placeholders
-
-    model = MagicMock()
-    kept = [_kept()]
-    with patch.object(image_placeholders, "_deleted_by_the_edit", return_value=True) as mock_deleted:
-        image_placeholders._restore_image_placeholders(model, kept)
-    mock_deleted.assert_called_once_with(model, kept[0].original, kept[0].name)
-
-    # Missing marker case:
-    model = MagicMock()
-    model.findFirst.return_value = None
-    with patch.object(image_placeholders, "_deleted_by_the_edit", return_value=False) as mock_deleted:
-        image_placeholders._restore_image_placeholders(model, kept)
-    mock_deleted.assert_called_once_with(model, kept[0].original, kept[0].name)
 
 
 def test_full_document_refuses_before_deleting_anything():
@@ -1343,23 +671,6 @@ def test_content_has_markup_cases():
     assert content_needs_html_import("R$ 5,00 e R$ 9,00") is False
 
 
-def test_apply_block_lo_styles_cursor_walk_no_prefix_enumeration():
-    from plugin.writer import html_import_styles
-
-    text = MagicMock()
-    next_calls = []
-    text.createEnumeration.return_value.hasMoreElements.side_effect = lambda: True
-    text.createEnumeration.return_value.nextElement.side_effect = lambda: next_calls.append(1) or MagicMock()
-
-    cur = MagicMock()
-    walk_cur = MagicMock()
-    text.createTextCursorByRange.return_value = walk_cur
-    walk_cur.gotoNextParagraph.return_value = False
-
-    html_import_styles.apply_block_lo_styles(MagicMock(), text, cur, ["Heading1"])
-
-    assert len(next_calls) == 0, "createEnumeration should not be called when cursor is provided"
-    walk_cur.gotoStartOfParagraph.assert_called_once_with(False)
 
 
 def test_styled_insert_propagates_style_pass_failure():
@@ -1578,29 +889,6 @@ def test_uno_read_probes_raise_on_disposal_and_default_otherwise():
     assert resolve_paragraph_style_token(fam, "Heading1", element_names=names) == "Heading 1"
 
 
-def test_resolve_paragraph_style_token_fallback_and_disposal():
-    from plugin.framework.errors import DocumentDisposedError
-    from plugin.writer.html_import_styles import resolve_paragraph_style_token
-
-    class DisposedException(Exception):
-        pass
-
-    # (i) Case-insensitive fallback
-    fam = MagicMock()
-    names = ("Heading 1", "Standard")
-    fam.getElementNames.return_value = names
-    fam.hasByName.return_value = True
-    assert resolve_paragraph_style_token(fam, "heading 1", element_names=names) == "Heading 1"
-
-    # (ii) Unknown fallback
-    fam.hasByName.return_value = False
-    assert resolve_paragraph_style_token(fam, "heading 1", element_names=names) == "Standard"
-
-    # (iii) DisposedException on hasByName
-    fam.getElementNames.return_value = []
-    fam.hasByName.side_effect = DisposedException("closed")
-    with pytest.raises(DocumentDisposedError):
-        resolve_paragraph_style_token(fam, "heading 1", element_names=[])
 
 
 def test_styled_math_insert_styles_from_paragraph_before_insert():
@@ -2137,3 +1425,862 @@ def test_block_only_html_not_wrapped_in_p_or_br():
         assert "<p>" not in res
         assert "<br>" not in res
         assert tag_sample in res
+
+
+# ---------------------------------- recording-mode replace atomicity (fallback)
+
+class _FakeCursor:
+    def __init__(self):
+        self.value = "OLD TEXT"
+
+    def getString(self):
+        return self.value
+
+    def setString(self, v):  # the tracked delete empties the range
+        self.value = v
+
+
+class _FakeText:
+    """Records insertString calls; the first (the new text) FAILS, so a restore must follow."""
+
+    def __init__(self):
+        self.cursor = _FakeCursor()
+        self.inserts = []
+        self._failed_once = False
+
+    def createTextCursorByRange(self, _r):
+        return self.cursor
+
+    def insertString(self, _cursor, s, _sel):
+        self.inserts.append(s)
+        if not self._failed_once:
+            self._failed_once = True
+            raise RuntimeError("insert boom")  # the new-text insert fails after the delete
+
+
+class _FakeRange:
+    def __init__(self, text):
+        self._text = text
+
+    def getText(self):
+        return self._text
+
+    def getString(self):
+        return self._text.cursor.getString()
+
+
+def test_replace_preserving_format_restores_original_on_insert_failure():
+    # inside an undo context (in_undo_context=True) the replace deletes then inserts. If the
+    # insert fails after the delete, the ORIGINAL is restored (best-effort net; the caller's context
+    # rollback also cleans up). The failure still propagates.
+    import contextlib
+    from unittest.mock import patch
+
+    import plugin.writer.html_import as fmt
+
+    text = _FakeText()
+    target = _FakeRange(text)
+    with patch("plugin.writer.record_changes.is_recording_changes", return_value=True), \
+         patch("plugin.writer.review_authors.deletion_author", lambda: contextlib.nullcontext()), \
+         pytest.raises(RuntimeError, match="insert boom"):
+        fmt.replace_preserving_format(object(), target, "NEW TEXT", in_undo_context=True)
+
+    # The new-text insert was attempted and failed; then the ORIGINAL was re-inserted (restore) so
+    # the range is never left a bare partial deletion.
+    assert text.inserts == ["NEW TEXT", "OLD TEXT"]
+
+
+def test_replace_preserving_format_atomic_setstring_when_not_in_undo_context():
+    # when the caller has NOT opened an undo context (in_undo_context=False --
+    # the default, used by whole-block / streamed / direct callers), there is nothing to roll back a
+    # delete-then-insert, so the recording replace uses a SINGLE atomic setString (one UNO action) --
+    # never a separate delete + insert that could fail mid-way into a partial deletion. Whether an undo
+    # manager merely EXISTS is irrelevant; only an actually-open context makes the two-step safe.
+    from unittest.mock import patch
+
+    import plugin.writer.html_import as fmt
+
+    text = _FakeText()
+    target = _FakeRange(text)
+    with patch("plugin.writer.record_changes.is_recording_changes", return_value=True):
+        fmt.replace_preserving_format(object(), target, "NEW TEXT")  # in_undo_context defaults to False
+
+    assert text.cursor.getString() == "NEW TEXT"  # single atomic replace
+    assert text.inserts == []                     # no delete-then-insert two-step at all
+
+
+def test_insert_content_at_position_text_selection_clears_range():
+    from unittest.mock import MagicMock, patch
+
+    from plugin.writer.html_import import insert_content_at_position
+
+    text_rng = MagicMock()
+    text_rng.getText.return_value.createTextCursorByRange.return_value = MagicMock()
+    text_rng.supportsService.return_value = False
+
+    sel = MagicMock()
+    sel.getCount.return_value = 1
+    sel.getByIndex.return_value = text_rng
+
+    controller = MagicMock()
+    controller.getSelection.return_value = sel
+
+    model = MagicMock()
+    model.getCurrentController.return_value = controller
+    model.getText.return_value.createTextCursor.return_value = MagicMock()
+
+    with patch("plugin.writer.html_import.is_graphic_object", return_value=False), patch(
+        "plugin.writer.html_import._insert_mixed_or_plain_html"
+    ), patch(
+        # Master nested-table check walks MagicMock enumerations forever.
+        "plugin.writer.html_import.raise_if_range_hosts_nested_table",
+    ):
+        insert_content_at_position(model, MagicMock(), "<p>hi</p>", "selection")
+
+    text_rng.setString.assert_called_once_with("")
+
+
+def test_insert_content_at_position_two_ranges_clears_non_collapsed_range():
+    from unittest.mock import MagicMock, patch
+
+    from plugin.writer.html_import import insert_content_at_position
+
+    rng0 = MagicMock()
+    rng0.getStart.return_value = MagicMock()
+    rng0.getEnd.return_value = MagicMock()
+    rng0.getText.return_value.compareRegionStarts.return_value = 0
+    rng0.supportsService.return_value = False
+
+    rng1 = MagicMock()
+    rng1.getStart.return_value = MagicMock()
+    rng1.getEnd.return_value = MagicMock()
+    rng1.getText.return_value.compareRegionStarts.return_value = -1
+    rng1.getText.return_value.createTextCursorByRange.return_value = MagicMock()
+    rng1.supportsService.return_value = False
+
+    sel = MagicMock()
+    sel.getCount.return_value = 2
+    sel.getByIndex.side_effect = lambda i: rng0 if i == 0 else rng1
+
+    controller = MagicMock()
+    controller.getSelection.return_value = sel
+
+    model = MagicMock()
+    model.getCurrentController.return_value = controller
+    model.getText.return_value.createTextCursor.return_value = MagicMock()
+
+    with patch("plugin.writer.html_import.is_graphic_object", return_value=False), patch(
+        "plugin.writer.html_import._insert_mixed_or_plain_html"
+    ), patch(
+        "plugin.writer.html_import.raise_if_range_hosts_nested_table",
+    ):
+        insert_content_at_position(model, MagicMock(), "<p>hi</p>", "selection")
+
+    rng0.setString.assert_not_called()
+    rng1.setString.assert_called_once_with("")
+
+
+def test_insert_content_at_position_shape_selection_falls_back_to_doc_end():
+    """After shape.upsert, controller selects the Draw shape — HTML insert must not use it."""
+    from unittest.mock import MagicMock, patch
+
+    from plugin.writer.html_import import insert_content_at_position
+
+    shape = MagicMock()
+    # LibreOffice often returns 1 rather than True
+    shape.supportsService.side_effect = lambda s: 1 if s == "com.sun.star.drawing.Shape" else 0
+
+    sel = MagicMock()
+    sel.getCount.return_value = 1
+    sel.getByIndex.return_value = shape
+
+    controller = MagicMock()
+    controller.getSelection.return_value = sel
+    # View cursor also unusable / shape-like → force document end
+    controller.getViewCursor.side_effect = Exception("no view cursor")
+
+    body_cursor = MagicMock()
+    body_text = MagicMock()
+    body_text.createTextCursor.return_value = body_cursor
+
+    model = MagicMock()
+    model.getCurrentController.return_value = controller
+    model.getText.return_value = body_text
+
+    with patch("plugin.writer.html_import.is_graphic_object", return_value=False), patch(
+        "plugin.writer.html_import._insert_mixed_or_plain_html"
+    ) as mock_insert:
+        insert_content_at_position(model, MagicMock(), "<p>hi</p>", "selection")
+
+    body_cursor.gotoEnd.assert_called_once_with(False)
+    mock_insert.assert_called_once()
+    assert mock_insert.call_args.args[2] is body_cursor
+    shape.setString.assert_not_called()
+
+
+def test_insert_content_at_position_empty_selection_uses_doc_end():
+    from unittest.mock import MagicMock, patch
+
+    from plugin.writer.html_import import insert_content_at_position
+
+    sel = MagicMock()
+    sel.getCount.return_value = 0
+
+    controller = MagicMock()
+    controller.getSelection.return_value = sel
+    controller.getViewCursor.side_effect = Exception("no view")
+
+    body_cursor = MagicMock()
+    body_text = MagicMock()
+    body_text.createTextCursor.return_value = body_cursor
+    model = MagicMock()
+    model.getCurrentController.return_value = controller
+    model.getText.return_value = body_text
+
+    with patch("plugin.writer.html_import.is_graphic_object", return_value=False), patch(
+        "plugin.writer.html_import._insert_mixed_or_plain_html"
+    ) as mock_insert:
+        insert_content_at_position(model, MagicMock(), "<p>hi</p>", "selection")
+
+    body_cursor.gotoEnd.assert_called_once_with(False)
+    mock_insert.assert_called_once()
+
+
+
+
+
+
+@pytest.mark.parametrize(("position", "goto"), [("beginning", "gotoStart"), ("end", "gotoEnd")])
+def test_insert_content_at_position_extremes_apply_styles(position: str, goto: str):
+    """Beginning needs no PARAGRAPH_BREAK prep and end runs absorb prep; both pass apply_styles=True."""
+    from unittest.mock import MagicMock, patch
+
+    from plugin.writer.html_import import insert_content_at_position
+
+    body_cursor = MagicMock()
+    body_text = MagicMock()
+    body_text.createTextCursor.return_value = body_cursor
+    model = MagicMock()
+    model.getText.return_value = body_text
+
+    with patch("plugin.writer.html_import._insert_mixed_or_plain_html") as mock_insert, patch(
+        "plugin.writer.html_import._ensure_empty_absorb_for_styled_insert",
+        side_effect=lambda text, cursor, pos: cursor,
+    ):
+        insert_content_at_position(model, MagicMock(), '<p data-lo-style="Heading1">x</p>', position)
+
+    getattr(body_cursor, goto).assert_called_once_with(False)
+    mock_insert.assert_called_once()
+    assert mock_insert.call_args.kwargs.get("apply_styles") is True
+
+
+def test_insert_content_at_position_empty_selection_skips_styles():
+    from unittest.mock import MagicMock, patch
+
+    from plugin.writer.html_import import insert_content_at_position
+
+    sel = MagicMock()
+    sel.getCount.return_value = 0
+    controller = MagicMock()
+    controller.getSelection.return_value = sel
+    controller.getViewCursor.side_effect = Exception("no view")
+    body_cursor = MagicMock()
+    body_text = MagicMock()
+    body_text.createTextCursor.return_value = body_cursor
+    model = MagicMock()
+    model.getCurrentController.return_value = controller
+    model.getText.return_value = body_text
+
+    with patch("plugin.writer.html_import.is_graphic_object", return_value=False), patch(
+        "plugin.writer.html_import._insert_mixed_or_plain_html"
+    ) as mock_insert:
+        insert_content_at_position(model, MagicMock(), "<p data-lo-style=\"Heading1\">x</p>", "selection")
+
+    mock_insert.assert_called_once()
+    assert mock_insert.call_args.kwargs.get("apply_styles") is False
+
+
+def test_insert_content_at_position_whole_paragraph_selection_applies_styles():
+    from unittest.mock import MagicMock, patch
+
+    from plugin.writer.html_import import insert_content_at_position
+    from tests.writer.test_html_import import make_paragraph_edge_range
+
+    rng = make_paragraph_edge_range(True, True)
+
+    controller = MagicMock()
+    model = MagicMock()
+    model.getCurrentController.return_value = controller
+
+    from plugin.writer.html_import_styles import WriteReport
+
+    with patch("plugin.writer.html_import.selected_text_range", return_value=rng), \
+         patch("plugin.writer.html_import._selection_is_draw_shape", return_value=False), \
+         patch("plugin.writer.html_import.raise_if_range_hosts_nested_table"), \
+         patch("plugin.writer.record_changes.is_recording_changes", return_value=False), \
+         patch("plugin.writer.html_import._insert_mixed_or_plain_html") as mock_insert:
+        mock_insert.return_value = WriteReport()
+        report = insert_content_at_position(
+            model, MagicMock(), '<p data-lo-style="Heading1">x</p>', "selection"
+        )
+
+    rng.setString.assert_called_once_with("")
+    mock_insert.assert_called_once()
+    assert mock_insert.call_args.kwargs.get("apply_styles") is True
+    assert report.style_skips == []
+
+
+def test_ensure_empty_absorb_inserts_break_when_end_para_has_text():
+    from unittest.mock import MagicMock
+
+    from plugin.writer import html_import as hi
+
+    cursor = MagicMock()
+    text = MagicMock()
+    # Simulate non-empty absorb paragraph
+    para = MagicMock()
+    para.getString.return_value = "Existing"
+    text_obj = MagicMock()
+    text_obj.createTextCursorByRange.return_value = para
+    cursor.getText.return_value = text_obj
+    cursor.getStart.return_value = MagicMock()
+
+    out = hi._ensure_empty_absorb_for_styled_insert(text, cursor, "end")
+    assert out is cursor
+    text.insertControlCharacter.assert_called_once_with(cursor, 0, False)
+
+
+def test_ensure_empty_absorb_inserts_break_for_image_only_paragraph():
+    from unittest.mock import MagicMock
+
+    from plugin.writer import html_import as hi
+
+    cursor = MagicMock()
+    text = MagicMock()
+    para = MagicMock()
+    para.getString.return_value = ""
+
+    portion = MagicMock()
+    portion.getString.return_value = ""
+    portion.getPropertyValue.return_value = "TextContent"
+    para.createEnumeration.return_value = _FakeReplaceEnum([portion])
+    text_obj = MagicMock()
+    text_obj.createTextCursorByRange.return_value = para
+    cursor.getText.return_value = text_obj
+    cursor.getStart.return_value = MagicMock()
+
+    out = hi._ensure_empty_absorb_for_styled_insert(text, cursor, "end")
+    assert out is cursor
+    text.insertControlCharacter.assert_called_once_with(cursor, 0, False)
+
+
+def test_ensure_empty_absorb_skips_break_when_end_para_empty():
+    from unittest.mock import MagicMock
+
+    from plugin.writer import html_import as hi
+
+    cursor = MagicMock()
+    text = MagicMock()
+    para = MagicMock()
+    para.getString.return_value = "   "
+    text_obj = MagicMock()
+    text_obj.createTextCursorByRange.return_value = para
+    cursor.getText.return_value = text_obj
+    cursor.getStart.return_value = MagicMock()
+
+    hi._ensure_empty_absorb_for_styled_insert(text, cursor, "end")
+    text.insertControlCharacter.assert_not_called()
+
+
+def test_ensure_empty_absorb_noop_for_beginning():
+    from unittest.mock import MagicMock
+
+    from plugin.writer import html_import as hi
+
+    cursor = MagicMock()
+    text = MagicMock()
+    hi._ensure_empty_absorb_for_styled_insert(text, cursor, "beginning")
+    text.insertControlCharacter.assert_not_called()
+
+
+def test_insert_content_at_position_nested_table_is_not_appended_at_end():
+    from unittest.mock import MagicMock, patch
+
+    from plugin.framework.errors import ToolExecutionError
+    from plugin.writer.html_import import insert_content_at_position
+
+    text_rng = MagicMock()
+    text_rng.getText.return_value.createTextCursorByRange.return_value = MagicMock()
+    text_rng.supportsService.return_value = False
+    sel = MagicMock()
+    sel.getCount.return_value = 1
+    sel.getByIndex.return_value = text_rng
+    controller = MagicMock()
+    controller.getSelection.return_value = sel
+    body_cursor = MagicMock()
+    model = MagicMock()
+    model.getCurrentController.return_value = controller
+    model.getText.return_value.createTextCursor.return_value = body_cursor
+
+    with patch("plugin.writer.html_import.is_graphic_object", return_value=False), patch(
+        "plugin.writer.html_import._insert_mixed_or_plain_html"
+    ) as mock_insert, patch(
+        "plugin.writer.html_import.raise_if_range_hosts_nested_table",
+        side_effect=ToolExecutionError("nested tables"),
+    ):
+        with pytest.raises(ToolExecutionError, match="nested tables"):
+            insert_content_at_position(model, MagicMock(), "<p>hi</p>", "selection")
+    mock_insert.assert_not_called()
+    body_cursor.gotoEnd.assert_not_called()
+
+
+def test_insert_content_at_position_clear_failure_is_not_moved_to_end():
+    from unittest.mock import MagicMock, patch
+
+    from plugin.writer.html_import import insert_content_at_position
+
+    text_rng = MagicMock()
+    text_rng.getText.return_value.createTextCursorByRange.return_value = MagicMock()
+    text_rng.supportsService.return_value = False
+    text_rng.setString.side_effect = RuntimeError("clear failed")
+    sel = MagicMock()
+    sel.getCount.return_value = 1
+    sel.getByIndex.return_value = text_rng
+    controller = MagicMock()
+    controller.getSelection.return_value = sel
+    body_cursor = MagicMock()
+    model = MagicMock()
+    model.getCurrentController.return_value = controller
+    model.getText.return_value.createTextCursor.return_value = body_cursor
+
+    with patch("plugin.writer.html_import.is_graphic_object", return_value=False), patch(
+        "plugin.writer.html_import._insert_mixed_or_plain_html"
+    ) as mock_insert, patch(
+        "plugin.writer.html_import.raise_if_range_hosts_nested_table",
+    ):
+        with pytest.raises(RuntimeError, match="clear failed"):
+            insert_content_at_position(model, MagicMock(), "<p>hi</p>", "selection")
+    mock_insert.assert_not_called()
+    body_cursor.gotoEnd.assert_not_called()
+
+
+def test_insert_content_at_position_attribute_error_still_uses_doc_end():
+    from unittest.mock import MagicMock, patch
+
+    from plugin.writer.html_import import insert_content_at_position
+
+    text_rng = MagicMock()
+    text_rng.getText.side_effect = AttributeError("insertDocumentFromURL")
+    text_rng.supportsService.return_value = False
+    sel = MagicMock()
+    sel.getCount.return_value = 1
+    sel.getByIndex.return_value = text_rng
+    controller = MagicMock()
+    controller.getSelection.return_value = sel
+    body_cursor = MagicMock()
+    body_text = MagicMock()
+    body_text.createTextCursor.return_value = body_cursor
+    model = MagicMock()
+    model.getCurrentController.return_value = controller
+    model.getText.return_value = body_text
+
+    with patch("plugin.writer.html_import.is_graphic_object", return_value=False), patch(
+        "plugin.writer.html_import._insert_mixed_or_plain_html"
+    ) as mock_insert:
+        insert_content_at_position(model, MagicMock(), "<p>hi</p>", "selection")
+    body_cursor.gotoEnd.assert_called_once_with(False)
+    mock_insert.assert_called_once()
+    assert mock_insert.call_args.args[2] is body_cursor
+
+
+def test_ensure_empty_absorb_raises_when_break_fails():
+    from unittest.mock import MagicMock
+
+    from plugin.writer import html_import as hi
+
+    cursor = MagicMock()
+    text = MagicMock()
+    para = MagicMock()
+    para.getString.return_value = "Existing"
+    text_obj = MagicMock()
+    text_obj.createTextCursorByRange.return_value = para
+    cursor.getText.return_value = text_obj
+    cursor.getStart.return_value = MagicMock()
+    text.insertControlCharacter.side_effect = RuntimeError("break failed")
+    with pytest.raises(RuntimeError, match="break failed"):
+        hi._ensure_empty_absorb_for_styled_insert(text, cursor, "end")
+
+
+class _FakeReplaceEnum:
+    def __init__(self, items):
+        self._items = list(items)
+
+    def hasMoreElements(self):
+        return bool(self._items)
+
+    def nextElement(self):
+        return self._items.pop(0)
+
+
+class _FakeReplacePortion:
+    def __init__(self, text="", portion_type="Text"):
+        self.TextPortionType = portion_type
+        self._text = text
+
+    def getString(self):
+        return self._text
+
+
+class _FakeReplacePara:
+    def __init__(self, portions):
+        self._portions = portions
+
+    def createEnumeration(self):
+        return _FakeReplaceEnum(self._portions)
+
+
+class _FakeReplaceCursor:
+    def __init__(self, go_right_fn=None):
+        self.moves = []
+        self.writes = []
+        self._go_right_fn = go_right_fn
+
+    def goRight(self, n, expand):
+        self.moves.append((n, expand))
+        if self._go_right_fn is not None:
+            return self._go_right_fn(n, expand)
+        return True
+
+    def setString(self, value):
+        self.writes.append(value)
+
+    def getEnd(self):
+        return object()
+
+    def gotoRange(self, _end, _expand):
+        return None
+
+    def getPropertyValue(self, _name):
+        return None
+
+
+class _FakeReplaceText:
+    def __init__(self, cursor=None):
+        self.cursor = cursor or _FakeReplaceCursor()
+        self.inserts = []
+
+    def createTextCursorByRange(self, _r):
+        return self.cursor
+
+    def insertString(self, *_args):
+        self.inserts.append("insert")
+
+
+class _FakeReplaceRange:
+    def __init__(self, text, string, paras=None):
+        self._text = text
+        self._string = string
+        self._paras = paras
+
+    def getText(self):
+        return self._text
+
+    def getString(self):
+        return self._string
+
+    def getStart(self):
+        return object()
+
+    def createEnumeration(self):
+        return _FakeReplaceEnum(self._paras or [])
+
+
+@pytest.mark.parametrize(
+    "old_str, new_str, go_right_fn",
+    [
+        pytest.param("AB", "XY", lambda _n, _exp: False, id="replace"),
+        pytest.param("AAAAAX", "AAAAAY", lambda _n, _exp: False, id="equal_run"),
+        pytest.param("ABCD", "AB", lambda _n, exp: not exp, id="shrink"),
+    ],
+)
+def test_replace_preserving_format_raises_when_go_right_stops(old_str, new_str, go_right_fn):
+    from unittest.mock import MagicMock, patch
+    from plugin.framework.errors import ToolExecutionError
+    from plugin.writer import html_import as hi, record_changes
+
+    cursor = _FakeReplaceCursor(go_right_fn=go_right_fn)
+    text = _FakeReplaceText(cursor)
+    ctx = MagicMock()
+    with patch.object(record_changes, "is_recording_changes", return_value=False):
+        with pytest.raises(ToolExecutionError, match="did not advance"):
+            hi.replace_preserving_format(MagicMock(), _FakeReplaceRange(text, old_str), new_str, ctx=ctx)
+    assert cursor.writes == []
+    assert text.inserts == []
+    ctx.getServiceManager.assert_not_called()
+
+
+def test_replace_preserving_format_skips_equal_runs():
+    from unittest.mock import MagicMock, patch
+    from plugin.writer import html_import as hi, record_changes
+
+    text = _FakeReplaceText()
+    with patch.object(record_changes, "is_recording_changes", return_value=False):
+        hi.replace_preserving_format(MagicMock(), _FakeReplaceRange(text, "AAAAAX"), "AAAAAY")
+
+    assert text.cursor.moves == [(5, False), (1, True)]
+    assert text.cursor.writes == ["Y"]
+
+
+def test_replace_preserving_format_special_portion_keeps_one_step_loop():
+    from unittest.mock import MagicMock, patch
+    from plugin.writer import html_import as hi, record_changes
+
+    text = _FakeReplaceText()
+    para = _FakeReplacePara([_FakeReplacePortion(portion_type="TextField")])
+    with patch.object(record_changes, "is_recording_changes", return_value=False):
+        hi.replace_preserving_format(MagicMock(), _FakeReplaceRange(text, "AAAAAX", paras=[para]), "AAAAAY")
+
+    # Special portion: each character is checked 1-by-1
+    assert text.cursor.moves == [(1, True)] * 6
+    assert text.cursor.writes == ["Y"]
+
+
+def test_replace_preserving_format_200_char_plain_issues_one_setstring():
+    from unittest.mock import MagicMock, patch
+    from plugin.writer import html_import as hi, record_changes
+
+    old_str = "A" * 200
+    new_str = "B" * 200
+    text = _FakeReplaceText()
+    para = _FakeReplacePara([_FakeReplacePortion(old_str)])
+
+    with patch.object(record_changes, "is_recording_changes", return_value=False):
+        hi.replace_preserving_format(MagicMock(), _FakeReplaceRange(text, old_str, paras=[para]), new_str)
+
+    assert text.cursor.writes == [new_str]
+    assert len(text.cursor.writes) == 1
+
+
+def test_replace_preserving_format_two_portions_issue_two_setstrings():
+    from unittest.mock import MagicMock, patch
+    from plugin.writer import html_import as hi, record_changes
+
+    p1 = _FakeReplacePortion("plain text ")
+    p2 = _FakeReplacePortion("bold text")
+    text = _FakeReplaceText()
+    para = _FakeReplacePara([p1, p2])
+
+    with patch.object(record_changes, "is_recording_changes", return_value=False):
+        hi.replace_preserving_format(
+            MagicMock(),
+            _FakeReplaceRange(text, "plain text bold text", paras=[para]),
+            "plain word BOLD TEXT",
+        )
+
+    assert text.cursor.writes == ["word", "BOLD TEXT"]
+
+
+def test_replace_preserving_format_equal_string_is_noop():
+    from unittest.mock import MagicMock, patch
+    from plugin.writer import html_import as hi, record_changes
+
+    text = _FakeReplaceText()
+    with patch.object(record_changes, "is_recording_changes", return_value=False):
+        hi.replace_preserving_format(MagicMock(), _FakeReplaceRange(text, "IDENTICAL"), "IDENTICAL")
+
+    assert text.cursor.moves == []
+    assert text.cursor.writes == []
+
+
+def test_replace_preserving_format_atomic_when_split_author_false_even_in_undo_context():
+    # Configurable coloring: split_author=False forces the SINGLE atomic setString (one author -> one
+    # color) even INSIDE an open undo context, where split_author=True (the default) would use the
+    # two-step delete+insert for split-author coloring. The two-step is gated on BOTH flags, so turning
+    # coloring off collapses every recorded replace — surgical or whole-block — to one color, still
+    # all-or-nothing.
+    from unittest.mock import patch
+
+    import plugin.writer.html_import as fmt
+
+    text = _FakeText()
+    target = _FakeRange(text)
+    with patch("plugin.writer.record_changes.is_recording_changes", return_value=True):
+        fmt.replace_preserving_format(object(), target, "NEW TEXT",
+                                      in_undo_context=True, split_author=False)
+
+    assert text.cursor.getString() == "NEW TEXT"  # single atomic replace, not the two-step
+    assert text.inserts == []                     # no delete-then-insert two-step at all
+
+
+def test_replace_preserving_format_two_step_when_split_author_true_in_undo_context():
+    # Complement: with split_author=True (default) AND an open undo context, the replace uses the
+    # two-step (delete authored distinctly via deletion_author, then insert) so by-author coloring
+    # renders two colors. A clean (non-failing) insert leaves exactly the new text.
+    import contextlib
+    from unittest.mock import patch
+
+    import plugin.writer.html_import as fmt
+
+    class _OkText(_FakeText):
+        def insertString(self, _cursor, s, _sel):  # never fails -> no restore
+            self.inserts.append(s)
+
+    text = _OkText()
+    target = _FakeRange(text)
+    with patch("plugin.writer.record_changes.is_recording_changes", return_value=True), \
+         patch("plugin.writer.review_authors.deletion_author", lambda: contextlib.nullcontext()):
+        fmt.replace_preserving_format(object(), target, "NEW TEXT", in_undo_context=True)
+
+    assert text.cursor.getString() == ""   # the deletion emptied the range (step 1)
+    assert text.inserts == ["NEW TEXT"]    # then the new text was inserted (step 2)
+
+
+def test_run_writer_mutation_with_optional_review_import_error():
+    """LibrePy omits edit_review; helper must apply the mutation directly."""
+    from unittest.mock import MagicMock, patch
+
+    from plugin.writer.html_import import run_writer_mutation_with_optional_review
+
+    apply_fn = MagicMock()
+    real_import = __import__
+
+    def import_without_edit_review(name, globals=None, locals=None, fromlist=(), level=0):
+        if name == "plugin.writer.edit_review":
+            raise ImportError("No module named 'plugin.writer.edit_review'")
+        return real_import(name, globals, locals, fromlist, level)
+
+    with patch("builtins.__import__", side_effect=import_without_edit_review):
+        run_writer_mutation_with_optional_review(MagicMock(), MagicMock(), apply_fn)
+    apply_fn.assert_called_once()
+
+
+from contextlib import contextmanager
+from unittest.mock import MagicMock
+
+
+from plugin.writer.html_export import HTML_FILTER
+from plugin.writer.html_import import (
+    _wrap_html_fragment,
+    insert_html_fragment_at_cursor,
+)
+
+
+@contextmanager
+def _capture_temp_buffer(content_holder):
+    @contextmanager
+    def fake_with_temp_buffer(content=None, ext=None):
+        content_holder["content"] = content
+        yield ("/tmp/fake.html", "file:///tmp/fake.html")
+
+    with patch("plugin.writer.html_import.with_temp_buffer", side_effect=fake_with_temp_buffer):
+        yield
+
+
+def test_wrap_html_fragment_skips_full_document():
+    full = "<html><head></head><body><p>Hi</p></body></html>"
+    assert _wrap_html_fragment(full, extra_css="ignored") == full
+
+
+def test_wraps_bare_fragment():
+    cursor = MagicMock()
+    holder = {}
+    with _capture_temp_buffer(holder):
+        insert_html_fragment_at_cursor(cursor, "<p>Hi</p>")
+    assert "<!DOCTYPE html>" in holder["content"]
+    assert "<p>Hi</p>" in holder["content"]
+    cursor.insertDocumentFromURL.assert_called_once()
+
+
+def test_extra_css_in_head():
+    cursor = MagicMock()
+    holder = {}
+    css = "ul, ol { margin-left: 0.2cm; padding-left: 0.3cm; }"
+    with _capture_temp_buffer(holder):
+        insert_html_fragment_at_cursor(cursor, "<ul><li>x</li></ul>", extra_css=css)
+    assert css in holder["content"]
+    assert "<style>" in holder["content"]
+
+
+def test_prewrapped_skips_rewrap():
+    cursor = MagicMock()
+    holder = {}
+    prewrapped = "<html><body><b>Bold</b></body></html>"
+    with _capture_temp_buffer(holder):
+        insert_html_fragment_at_cursor(cursor, prewrapped, wrap=False)
+    assert holder["content"] == prewrapped
+
+
+def test_advances_cursor_when_advance_true():
+    """The cursor continues right after the imported content, in its own text. Jumping to the
+    BODY end sent later segments of a mid-document edit to the end (#46/#47) and raised
+    RuntimeException for a cursor in a frame or cell (#52)."""
+    cursor = MagicMock()
+    parked = cursor.getText.return_value.createTextCursorByRange.return_value
+
+    with _capture_temp_buffer({}):
+        insert_html_fragment_at_cursor(cursor, "<p>Hi</p>", advance=True)
+
+    cursor.getText.return_value.createTextCursorByRange.assert_called_once_with(cursor.getEnd())
+    cursor.gotoRange.assert_called_once_with(parked.getStart(), False)
+
+
+def test_insert_html_fragment_at_cursor_advance_false_leaves_cursor():
+    """Without advance=True, no parked cursor is created and cursor.gotoRange is not called."""
+    cursor = MagicMock()
+
+    with _capture_temp_buffer({}):
+        insert_html_fragment_at_cursor(cursor, "<p>Hi</p>", advance=False)
+
+    cursor.getText.return_value.createTextCursorByRange.assert_not_called()
+    cursor.gotoRange.assert_not_called()
+
+
+def test_filter_name_starwriter():
+    cursor = MagicMock()
+    filter_holder = {}
+
+    @contextmanager
+    def fake_with_temp_buffer(content=None, ext=None):
+        yield ("/tmp/fake.html", "file:///tmp/fake.html")
+
+    def capture_insert(url, props):
+        filter_holder["props"] = props
+
+    cursor.insertDocumentFromURL.side_effect = capture_insert
+
+    with patch("plugin.writer.html_import.with_temp_buffer", side_effect=fake_with_temp_buffer):
+        insert_html_fragment_at_cursor(cursor, "<p>Hi</p>")
+
+    assert filter_holder["props"][0].Name == "FilterName"
+    assert filter_holder["props"][0].Value == HTML_FILTER
+
+
+def test_replace_full_document_and_insert_content_call_restore_with_text_obj():
+    from plugin.writer.html_import import insert_content_at_position, replace_full_document
+
+    doc = MagicMock()
+    body_text = MagicMock()
+    doc.getText.return_value = body_text
+    cur = MagicMock()
+    body_text.createTextCursor.return_value = cur
+    cur.getText.return_value = body_text
+
+    with (
+        patch("plugin.writer.html_import.insert_html_fragment_at_cursor"),
+        patch("plugin.writer.field_restore.restore_field_placeholders") as mock_restore,
+    ):
+        replace_full_document(doc, MagicMock(), "<p>Page <span title='page-number'/></p>")
+        mock_restore.assert_called_once()
+        assert mock_restore.call_args[0][0] is doc
+        assert mock_restore.call_args[0][1] is body_text
+        assert mock_restore.call_args[1]["nonce"] is not None
+
+    with (
+        patch("plugin.writer.html_import.insert_html_fragment_at_cursor"),
+        patch("plugin.writer.field_restore.restore_field_placeholders") as mock_restore,
+    ):
+        insert_content_at_position(doc, MagicMock(), "<p>Page <span title='page-number'/></p>", "beginning")
+        mock_restore.assert_called_once()
+        assert mock_restore.call_args[0][0] is doc
+        assert mock_restore.call_args[0][1] is body_text
+        assert mock_restore.call_args[1]["nonce"] is not None
