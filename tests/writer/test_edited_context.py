@@ -38,6 +38,12 @@ class FakeCursor:
     def getEnd(self):
         return FakeCursor(self.text, self.para, at_end=True)
 
+    def getPropertyValue(self, _name):
+        return None
+
+    def createEnumeration(self):
+        return MagicMock(hasMoreElements=MagicMock(return_value=False))
+
     # --- XParagraphCursor ---
     def gotoStartOfParagraph(self, expand):
         self.at_end = False
@@ -77,6 +83,15 @@ class FakeText:
 
     def createTextCursorByRange(self, rng):
         return FakeCursor(self, rng.para, at_end=rng.at_end)
+
+    def getStart(self):
+        return FakeCursor(self, 0)
+
+    def getEnd(self):
+        return FakeCursor(self, max(0, len(self.paragraphs) - 1), at_end=True)
+
+    def insertString(self, _cursor, _s, _absorb):
+        pass
 
 
 def _anchor_at(text, para):
@@ -142,30 +157,63 @@ def test_collapsed_anchor_is_best_effort():
 
 
 @pytest.mark.timeout(5)
-def test_apply_document_content_edited_context_on_success():
-    """Search apply walks outline hyperlinks on the match. MagicMock.hasMoreElements()
-    is truthy, so `if not enum.hasMoreElements()` never stopped (PR #823 merge CI
-    leftover). `enum_has_more` requires UNO True. Review mode is patched: this
-    file does not init config, and get_agent_edit_review_mode reads it first."""
-    from plugin.writer import html_import
+@pytest.mark.parametrize(
+    "mode, kwargs",
+    [
+        ("shape_edit", {"content": "new", "target": "search", "old_content": "old"}),
+        ("end", {"content": "new", "target": "end"}),
+        ("beginning", {"content": "new", "target": "beginning"}),
+        ("selection", {"content": "new", "target": "selection"}),
+        ("all_matches", {"content": "new", "target": "search", "old_content": "old", "all_matches": True}),
+        ("position_before", {"content": "new", "target": "search", "old_content": "old", "position": "before"}),
+        ("replace_one", {"content": "new", "target": "search", "old_content": "old"}),
+    ],
+)
+def test_apply_document_content_edited_context_wired(mode, kwargs):
+    """All six attach_edited_context call sites in apply_document_content are wired."""
+    from contextlib import ExitStack
+    from plugin.writer import html_import, html_import_styles
     from plugin.writer.apply_document_content import ApplyDocumentContent
 
-    found = MagicMock()
-    found.getString.return_value = "old"
+    text = FakeText(["P0", "old", "P2"])
+    found = FakeCursor(text, 1)
     ctx = MagicMock()
     ctx.doc.getUndoManager.return_value.isLocked.return_value = False
+    ctx.doc.getText.return_value = text
+    controller = ctx.doc.getCurrentController.return_value
+    controller.getSelection.return_value = None
+    controller.getViewCursor.return_value = FakeCursor(text, 1)
     ctx.services.get.return_value = MagicMock()
-    anchor = MagicMock()
-    with patch("plugin.writer.search.find_first_range", return_value=found), \
-         patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=anchor), \
-         patch("plugin.writer.apply_document_content.attach_edited_context", side_effect=lambda r, a: {**r, "edited_context": "echo"}), \
-         patch.object(html_import, "content_has_markup", return_value=False), \
-         patch("plugin.writer.apply_document_content.record_preserve_replace"), \
-         patch("plugin.writer.apply_document_content.get_agent_edit_review_mode", return_value="off"), \
-         patch("plugin.writer.apply_document_content.review_recording_enabled", return_value=False):
-        res = ApplyDocumentContent().execute(
-            ctx, content="new", target="search", old_content="old")
-    assert res["status"] == "ok" and res.get("edited_context") == "echo"
+
+    with ExitStack() as stack:
+        attach_spy = stack.enter_context(
+            patch("plugin.writer.apply_document_content.attach_edited_context", wraps=attach_edited_context)
+        )
+        stack.enter_context(patch.object(html_import, "content_has_markup", return_value=False))
+        stack.enter_context(patch.object(html_import, "content_has_block_markup", return_value=False))
+        stack.enter_context(patch.object(html_import, "insert_content_at_position", return_value=html_import_styles.WriteReport()))
+        stack.enter_context(patch("plugin.writer.apply_document_content.record_preserve_replace"))
+        stack.enter_context(patch("plugin.writer.apply_document_content.get_agent_edit_review_mode", return_value="off"))
+        stack.enter_context(patch("plugin.writer.apply_document_content.review_recording_enabled", return_value=False))
+
+        if mode == "shape_edit":
+            shape = MagicMock()
+            stack.enter_context(patch("plugin.writer.search.find_first_range", return_value=None))
+            stack.enter_context(patch("plugin.writer.search.drawing_shape_object_containing", return_value=shape))
+            stack.enter_context(patch("plugin.writer.search.shape_display_name", return_value="Box1"))
+            stack.enter_context(patch("plugin.writer.apply_document_content.replace_text_in_shape", return_value=True))
+        elif mode == "all_matches":
+            stack.enter_context(patch("plugin.writer.search.find_all_ranges", return_value=[found]))
+        elif mode in ("position_before", "replace_one"):
+            stack.enter_context(patch("plugin.writer.search.find_first_range", return_value=found))
+
+        res = ApplyDocumentContent().execute(ctx, **kwargs)
+
+    assert res["status"] == "ok"
+    attach_spy.assert_called_once()
+    if mode != "shape_edit":
+        expected = {"end": "old\nP2", "beginning": "P0\nold"}.get(mode, "P0\nold\nP2")
+        assert res.get("edited_context") == expected
 
 
 def test_uno_read_probes_raise_on_disposal_and_default_otherwise():

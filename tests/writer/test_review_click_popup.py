@@ -192,25 +192,19 @@ class FakeController:
         pass
 
 
-class FakeHandler:
-    def __init__(self, model: Any) -> None:
-        self._model = model
+def _stub_awt(monkeypatch: pytest.MonkeyPatch) -> None:
+    import sys
+    import types
 
-    def disposing(self, source: Any) -> None:  # noqa: N802, N803 -- UNO API
-        ctrl = rva.detach_click_handler(self)
-        if ctrl is None:
-            return
-        try:
-            if ctrl.getModel() is not None:
-                ctrl.removeMouseClickHandler(self)
-        except Exception:
-            pass
+    awt = types.ModuleType("com.sun.star.awt")
+    awt.XMouseClickHandler = type("XMouseClickHandler", (), {})  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "com.sun.star.awt", awt)
 
 
 def test_registration_dedup_and_detach(
     monkeypatch: pytest.MonkeyPatch, review_registry: dict[str, Any]
 ) -> None:
-    monkeypatch.setattr(review_click_popup, "ClickReviewHandler", lambda mdl, detach: FakeHandler(mdl))
+    _stub_awt(monkeypatch)
     monkeypatch.setattr(
         "plugin.writer.change_context_menu.make_interceptor",
         lambda m: MagicMock(model=m),
@@ -240,7 +234,7 @@ def test_registration_dedup_and_detach(
 def test_handler_disposing_calls_remove_mouse_click_handler(
     monkeypatch: pytest.MonkeyPatch, review_registry: dict[str, Any]
 ) -> None:
-    monkeypatch.setattr(review_click_popup, "ClickReviewHandler", lambda mdl, detach: FakeHandler(mdl))
+    _stub_awt(monkeypatch)
     monkeypatch.setattr(
         "plugin.writer.change_context_menu.make_interceptor",
         lambda m: MagicMock(model=m),
@@ -252,7 +246,8 @@ def test_handler_disposing_calls_remove_mouse_click_handler(
     assert len(_click_handlers(review_registry)) == 1
 
     handler = _click_handlers(review_registry)[0][1]
-    handler.disposing(ctrl)
+    assert isinstance(handler, review_click_popup.ClickReviewHandler)
+    handler.on_disposing(ctrl)
 
     assert ctrl.remove_count == 1
     assert len(_click_handlers(review_registry)) == 0
@@ -261,7 +256,7 @@ def test_handler_disposing_calls_remove_mouse_click_handler(
 def test_cleanup_disposed_controllers(
     monkeypatch: pytest.MonkeyPatch, review_registry: dict[str, Any]
 ) -> None:
-    monkeypatch.setattr(review_click_popup, "ClickReviewHandler", lambda mdl, detach: FakeHandler(mdl))
+    _stub_awt(monkeypatch)
     monkeypatch.setattr(
         "plugin.writer.change_context_menu.make_interceptor",
         lambda m: MagicMock(model=m),
@@ -278,7 +273,9 @@ def test_cleanup_disposed_controllers(
 
     rva.register_controller(live_ctrl)
     key = rva.attachment_key(live_model)
-    review_registry[key].controllers.append((dead_ctrl, MagicMock(), FakeHandler(live_model)))
+    review_registry[key].controllers.append(
+        (dead_ctrl, MagicMock(), review_click_popup.ClickReviewHandler(live_model, rva.detach_click_handler))
+    )
     assert len(_click_handlers(review_registry)) == 2
 
     rva.cleanup_disposed_controllers()
@@ -292,12 +289,7 @@ def _click(x: int, y: int, count: int) -> Any:
 
 def test_double_click_cancels_popup_and_never_consumes(monkeypatch: pytest.MonkeyPatch) -> None:
     """Double-click: the first release must not open the modal popup (it swallowed the 2nd click)."""
-    import sys
-    import types
-
-    awt = types.ModuleType("com.sun.star.awt")
-    awt.XMouseClickHandler = type("XMouseClickHandler", (), {})  # type: ignore[attr-defined]
-    monkeypatch.setitem(sys.modules, "com.sun.star.awt", awt)
+    _stub_awt(monkeypatch)
     monkeypatch.setattr(review_click_popup, "_DOUBLE_CLICK_SEC", 0.0)
     shown: list[tuple[int, int]] = []
     deferred_calls: list[tuple[Any, tuple[Any, ...]]] = []

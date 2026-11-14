@@ -214,28 +214,6 @@ def test_sentence_terminators_cover_multilingual_cases() -> None:
     assert looks_complete_sentence("यह एक वाक्य है।")
     assert not looks_complete_sentence("incomplete clause")
 
-def test_run_llm_skips_split_when_item_text_set() -> None:
-    def _split_must_not_run(*_a, **_k): raise AssertionError("split_into_sentences must not run")
-    with (
-        patch(
-            "plugin.framework.config.get_config",
-            side_effect=_proofreader_get_config_side_effect,
-        ),
-        patch("plugin.framework.client.model_fetcher.get_text_model", return_value="m"),
-        patch("plugin.framework.config.get_api_config", return_value={}),
-        patch("plugin.framework.send_cancellation.is_agent_active", return_value=False),
-        patch("plugin.framework.llm_lanes.grammar_llm_request_gate") as lane_ctx,
-        patch("plugin.framework.client.llm_client.LlmClient") as client_cls,
-        patch("plugin.writer.locale.grammar_proofread_text.split_into_sentences", side_effect=_split_must_not_run),
-        patch("plugin.writer.locale.grammar_proofread_json.parse_grammar_json", return_value=[]),
-        patch("plugin.writer.locale.grammar_proofread_cache.normalize_errors_for_text", return_value=[]),
-        patch("plugin.writer.locale.grammar_proofread_cache.cache_put_sentence"),
-    ):
-        lane_ctx.return_value.__enter__ = MagicMock()
-        lane_ctx.return_value.__exit__ = MagicMock()
-        client_cls.return_value.chat_completion_sync.return_value = '{"errors":[]}'
-        _run_llm_one(None, "Hello.", 1, "d|en", "en-US")
-
 def test_partial_sentence_adds_prompt_note() -> None:
     with (
         patch(

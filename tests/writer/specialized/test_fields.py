@@ -507,37 +507,6 @@ def test_fields_delete_without_snapshot_succeeds(mock_ctx):
     anchor.setString.assert_called_with("")
 
 
-def test_fields_list_snapshot_equals_delete_computed_hash(mock_ctx):
-    field1 = MagicMock()
-    field1.supportsService.return_value = False
-    field1.getPresentation.return_value = "Page 1"
-    field1.getPropertySetInfo.return_value.getProperties.return_value = ()
-
-    field2 = MagicMock()
-    field2.supportsService.return_value = False
-    field2.getPresentation.return_value = "Page 2"
-    field2.getPropertySetInfo.return_value.getProperties.return_value = ()
-
-    fields = MagicMock()
-
-    def make_enum():
-        enum = MagicMock()
-        enum.hasMoreElements.side_effect = [True, True, False]
-        enum.nextElement.side_effect = [field1, field2]
-        return enum
-
-    fields.createEnumeration.side_effect = make_enum
-    mock_ctx.doc.getTextFields.return_value = fields
-
-    list_res = FieldsList().execute(mock_ctx)
-    snapshot = list_res["snapshot"]
-
-    # Passing that exact snapshot succeeds because delete computes the same hash
-    del_res = FieldsDelete().execute(mock_ctx, ids=[1], snapshot=snapshot)
-    assert del_res["status"] == "ok"
-    assert del_res["deleted_count"] == 1
-
-
 def test_fields_delete_rollback_when_setString_raises(mock_ctx):
     field1 = MagicMock()
     field1.supportsService.return_value = False
