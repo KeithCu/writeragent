@@ -23,8 +23,8 @@ def test_extract_csv_rows(tmp_path: Path):
 @pytest.mark.parametrize(
     "value, value_2, value_3, value_4",
     [
-        pytest.param("notes.txt", "First block\n\nSecond block\n", "First block", "Second block", id="test_extract_plaintext_paragraphs_blank_lines"),
-        pytest.param("lines.txt", "alpha\nbeta\n", "alpha", "beta", id="test_extract_plaintext_paragraphs_lines"),
+        pytest.param("notes.txt", "First block\n\nSecond block\n", "First block", "Second block", id="blank-lines"),
+        pytest.param("lines.txt", "alpha\nbeta\n", "alpha", "beta", id="single-newlines"),
     ],
 )
 def test_extract_plaintext_paragraphs_blank_lines(tmp_path: Path, value, value_2, value_3, value_4):
@@ -45,7 +45,7 @@ def test_extract_rtf_paragraphs(tmp_path: Path):
 <p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"
  xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
   <p:cSld><p:spTree><p:sp><p:txBody><a:p><a:r><a:t>Slide text</a:t></a:r></a:p></p:txBody></p:sp></p:spTree></p:cSld>
-</p:sld>""", "deck.pptx", "[Slide: Slide1]\tSlide text", id="test_extract_pptx_passages"),
+</p:sld>""", "deck.pptx", "[Slide: Slide1]\tSlide text", id="single-run"),
         pytest.param(b"""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"
  xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
@@ -53,7 +53,7 @@ def test_extract_rtf_paragraphs(tmp_path: Path):
     <a:p><a:r><a:t>First </a:t></a:r><a:r><a:t>run</a:t></a:r></a:p>
     <a:p><a:r><a:t>Second paragraph</a:t></a:r></a:p>
   </p:txBody></p:sp></p:spTree></p:cSld>
-</p:sld>""", "deck3.pptx", "[Slide: Slide1]\tFirst run\nSecond paragraph", id="test_extract_pptx_passages_paragraphs_and_runs"),
+</p:sld>""", "deck3.pptx", "[Slide: Slide1]\tFirst run\nSecond paragraph", id="paragraphs-and-runs"),
     ],
 )
 def test_extract_pptx_passages(tmp_path: Path, value, value_2, value_3):

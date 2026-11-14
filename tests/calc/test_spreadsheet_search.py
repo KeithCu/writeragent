@@ -9,6 +9,8 @@ from __future__ import annotations
 from types import SimpleNamespace
 from typing import Any
 
+import pytest
+
 from plugin.calc.spreadsheet_search import search_spreadsheet_cells
 
 
@@ -163,31 +165,19 @@ def test_blank_pattern_returns_empty() -> None:
     assert matches == []
 
 
-def test_long_hit_value_is_truncated() -> None:
-    long_val = "x" * 201
-    sheet = _FakeSheet("Sheet1", [_FakeCell(0, 0, long_val)])
+@pytest.mark.parametrize(
+    ("cell_val", "query", "expected_val"),
+    [
+        ("x" * 201, "x", "x" * 200 + "…"),
+        ("x" * 200, "x", "x" * 200),
+        ("apple", "apple", "apple"),
+    ],
+)
+def test_search_hit_value_truncation(cell_val: str, query: str, expected_val: str) -> None:
+    sheet = _FakeSheet("Sheet1", [_FakeCell(0, 0, cell_val)])
     doc = _FakeDoc([sheet])
 
-    matches = search_spreadsheet_cells(doc, "x")
+    matches = search_spreadsheet_cells(doc, query)
     assert len(matches) == 1
-    assert matches[0]["value"] == "x" * 200 + "…"
+    assert matches[0]["value"] == expected_val
     assert matches[0]["cell"] == "A1"
-
-
-def test_value_at_the_cap_is_unchanged() -> None:
-    cap_val = "x" * 200
-    sheet = _FakeSheet("Sheet1", [_FakeCell(0, 0, cap_val)])
-    doc = _FakeDoc([sheet])
-
-    matches = search_spreadsheet_cells(doc, "x")
-    assert len(matches) == 1
-    assert matches[0]["value"] == cap_val
-
-
-def test_short_value_is_unchanged() -> None:
-    sheet = _FakeSheet("Sheet1", [_FakeCell(0, 0, "apple")])
-    doc = _FakeDoc([sheet])
-
-    matches = search_spreadsheet_cells(doc, "apple")
-    assert len(matches) == 1
-    assert matches[0]["value"] == "apple"

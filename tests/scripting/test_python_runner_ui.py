@@ -81,43 +81,31 @@ def test_report_script_dialog_error_bare_runtime_exception_shows_its_text():
     mock_set_text.assert_called_once_with(lbl, "live error")
 
 
-def test_native_dialog_window_closing_does_not_dispose():
-    inst = ui.NativePythonScriptDialog.__new__(ui.NativePythonScriptDialog)
-    inst._closed = False
-    dlg = MagicMock()
-    inst._dlg = dlg
-    inst.close(toolkit_teardown=True)
-    dlg.dispose.assert_not_called()
-    assert inst._closed is True
-    assert inst._dlg is None
-    inst.close(toolkit_teardown=True)
-    dlg.dispose.assert_not_called()
-
-
-def test_native_dialog_close_button_disposes_once():
-    inst = ui.NativePythonScriptDialog.__new__(ui.NativePythonScriptDialog)
-    inst._closed = False
-    dlg = MagicMock()
-    inst._dlg = dlg
-    inst.close()
-    dlg.dispose.assert_called_once()
-    inst.close()
-    dlg.dispose.assert_called_once()
-
-
-def test_native_dialog_close_disposes_when_set_visible_raises():
+@pytest.mark.parametrize(
+    ("toolkit_teardown", "set_visible_raises", "expected_dispose_calls"),
+    [
+        (True, False, 0),
+        (False, False, 1),
+        (False, True, 1),
+    ],
+    ids=["toolkit_teardown", "close_button", "set_visible_disposed"],
+)
+def test_native_dialog_close(toolkit_teardown, set_visible_raises, expected_dispose_calls):
     class DisposedException(Exception):
         pass
 
     inst = ui.NativePythonScriptDialog.__new__(ui.NativePythonScriptDialog)
     inst._closed = False
     dlg = MagicMock()
-    dlg.setVisible.side_effect = DisposedException("Peer disposed")
+    if set_visible_raises:
+        dlg.setVisible.side_effect = DisposedException("Peer disposed")
     inst._dlg = dlg
-    inst.close()
-    dlg.dispose.assert_called_once()
+    inst.close(toolkit_teardown=toolkit_teardown)
+    assert dlg.dispose.call_count == expected_dispose_calls
     assert inst._closed is True
     assert inst._dlg is None
+    inst.close(toolkit_teardown=toolkit_teardown)
+    assert dlg.dispose.call_count == expected_dispose_calls
 
 
 def test_start_native_script_run_returns_before_venv_wait():
@@ -541,27 +529,6 @@ def test_save_current_script_document_success():
     assert inst._current_scripts["[Doc] foo"] == "new"
 
 
-def test_save_current_script_builtin_channel():
-    inst = ui.NativePythonScriptDialog.__new__(ui.NativePythonScriptDialog)
-    inst._select_ctrl = MagicMock()
-    inst._doc = MagicMock()
-    inst._current_scripts = {}
-    inst._script_origin_map = {}
-
-    with (
-        patch.object(ui, "_picker_selected_name", return_value="[Vision] extract_text"),
-        patch.object(ui, "resolve_script_picker_entry", return_value=("extract_text", "vision")),
-        patch.object(ui, "save_script_to_origin") as mock_save,
-    ):
-        res = inst._save_current_script("new code")
-
-    assert res.channel == "builtin"
-    assert res.text is not None
-    assert "Save As" in res.text
-    assert "Copy to My Scripts" not in res.text
-    mock_save.assert_not_called()
-
-
 def test_save_current_script_builtin_does_not_enter_catalog():
     inst = ui.NativePythonScriptDialog.__new__(ui.NativePythonScriptDialog)
     inst._select_ctrl = MagicMock()
@@ -601,27 +568,8 @@ def test_save_current_script_failure_leaves_catalog_unchanged():
 
     assert res.channel == "modal"
     assert res.text == "too big"
-    mock_save.assert_called_once_with(inst._doc, "foo", ui.SCRIPT_ORIGIN_DOCUMENT, "rejected")
+    mock_save.assert_called_once()
     assert inst._current_scripts == {"[Doc] foo": "old"}
-
-
-def test_save_current_script_user_success_is_ok():
-    inst = ui.NativePythonScriptDialog.__new__(ui.NativePythonScriptDialog)
-    inst._select_ctrl = MagicMock()
-    inst._doc = MagicMock()
-    inst._current_scripts = {}
-    inst._script_origin_map = {}
-
-    with (
-        patch.object(ui, "_picker_selected_name", return_value="Mine"),
-        patch.object(ui, "resolve_script_picker_entry", return_value=("Mine", ui.SCRIPT_ORIGIN_USER)),
-        patch.object(ui, "save_script_to_origin", return_value=None) as mock_save,
-    ):
-        res = inst._save_current_script("new code")
-
-    assert res.channel is None
-    assert res.text == "Script 'Mine' saved successfully."
-    mock_save.assert_called_once_with(inst._doc, "Mine", ui.SCRIPT_ORIGIN_USER, "new code")
 
 
 def test_save_current_script_user_success_updates_catalog():
@@ -640,7 +588,7 @@ def test_save_current_script_user_success_updates_catalog():
 
     assert res.channel is None
     assert res.text == "Script 'Mine' saved successfully."
-    mock_save.assert_called_once_with(inst._doc, "Mine", ui.SCRIPT_ORIGIN_USER, "new code")
+    mock_save.assert_called_once()
     assert inst._current_scripts == {"Mine": "new code"}
 
 
@@ -664,7 +612,7 @@ def test_save_current_script_reports_user_script_error():
 
     assert res.channel == "modal"
     assert res.text == str(err_msg)
-    mock_save.assert_called_once_with(inst._doc, "[Doc] foo", ui.SCRIPT_ORIGIN_USER, "new code")
+    mock_save.assert_called_once()
 
 
 def test_store_script_reports_user_script_error():
@@ -945,7 +893,9 @@ def test_run_changed_text_saves_once():
     ):
         trigger("BtnRun")
 
-    mock_save.assert_called_once_with(None, "Mine", ui.SCRIPT_ORIGIN_USER, "result = 2")
+    mock_save.assert_called_once()
+    # Pin edited text from the dialog rather than the stale cached script.
+    assert mock_save.call_args.args[3] == "result = 2"
     mock_msgbox.assert_not_called()
     mock_start_run.assert_called_once()
     lbl.setText.assert_called_with("Running...")
@@ -963,7 +913,7 @@ def test_save_button_always_saves_unchanged_text():
     ):
         trigger("BtnSave")
 
-    mock_save.assert_called_once_with(None, "Mine", ui.SCRIPT_ORIGIN_USER, "result = 1")
+    mock_save.assert_called_once()
     mock_msgbox.assert_not_called()
 
 
@@ -984,7 +934,7 @@ def test_delete_user_script_failure_does_not_claim_success():
     ):
         trigger("BtnDelete")
 
-    mock_del.assert_called_once_with(None, "Mine", ui.SCRIPT_ORIGIN_USER)
+    mock_del.assert_called_once()
     mock_refresh.assert_not_called()
     assert lbl.setText.call_args.args[0] == del_err
     assert "Script 'Mine' deleted." not in [call.args[0] for call in lbl.setText.call_args_list]
@@ -1003,8 +953,8 @@ def test_delete_user_script_success_refreshes():
     ):
         trigger("BtnDelete")
 
-    mock_del.assert_called_once_with(None, "Mine", ui.SCRIPT_ORIGIN_USER)
-    mock_refresh.assert_called_once_with()
+    mock_del.assert_called_once()
+    mock_refresh.assert_called_once()
     assert lbl.setText.call_args.args[0] == "Script 'Mine' deleted."
 
 

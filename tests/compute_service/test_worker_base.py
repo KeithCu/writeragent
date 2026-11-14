@@ -1145,72 +1145,6 @@ def test_other_thread_kill_leaves_pipes_until_the_owner_leaves(monkeypatch: pyte
     assert worker.process is None
 
 
-def test_signal_from_rereads_the_owner(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The second ``_io_owner`` load is a new read.
-
-    The first look can still see another thread. The owner clears before
-    the second look, and this thread reaps. Two looks that both see
-    another thread leave the pipes open for that thread's ``end_io``.
-    """
-    from plugin.framework.warm_child import Child
-
-    other = threading.get_ident() + 1
-
-    class _Loads:
-        def __init__(self) -> None:
-            self.values: list[int | None] = []
-            self.seen: list[int | None] = []
-
-        def __set__(self, obj: object, value: object) -> None:
-            del obj, value
-
-        def __get__(self, obj: object, objtype: type | None = None) -> int | None:
-            if obj is None:
-                return None
-            value = self.values[min(len(self.seen), len(self.values) - 1)]
-            self.seen.append(value)
-            return value
-
-    class _Proc:
-        def __init__(self) -> None:
-            self.pid = 7
-            self.stdin = _PipeEnd()
-            self.stdout = _PipeEnd()
-            self.returncode: int | None = None
-
-        def poll(self) -> int | None:
-            return self.returncode
-
-        def kill(self) -> None:
-            return None
-
-        def wait(self, timeout: float | None = None) -> int:
-            del timeout
-            self.returncode = 0
-            return 0
-
-    loads = _Loads()
-    # _io_owner is set on the instance. The descriptor has to live on the
-    # class, and it is not there until this test installs it.
-    monkeypatch.setattr(Child, "_io_owner", loads, raising=False)
-    loads.values = [other, None]
-    reaped = _Proc()
-    child = _child(reaped, worker_name="Worker", worker_id=1)
-    assert child.signal_from() is True
-    assert loads.seen[:2] == [other, None]
-    assert reaped.stdin.closed is True
-    assert reaped.stdout.closed is True
-
-    loads.values = [other, other]
-    loads.seen.clear()
-    held = _Proc()
-    owner = _child(held, worker_name="Worker", worker_id=1)
-    assert owner.signal_from() is False
-    assert loads.seen == [other, other]
-    assert held.stdin.closed is False
-    assert held.stdout.closed is False
-
-
 def test_abandoned_child_is_not_written_and_a_later_spawn_may_run(monkeypatch: pytest.MonkeyPatch) -> None:
     """A child that survives the reap is not sent a request, and the slot may spawn.
 
@@ -3078,5 +3012,55 @@ def test_child_signal_kills_grandchild() -> None:
         managed.kill_tree()
 
 
+def _delay_worker(tmp_path):
+    """Stdio worker that sleeps for ``delay`` seconds, then answers with its pid."""
+    from pathlib import Path
+
+    repo = Path(__file__).resolve().parents[2]
+    script = tmp_path / "delay_worker.py"
+    script.write_text(
+        "\n".join(
+            [
+                "import os, sys, time",
+                f"sys.path.insert(0, {str(repo)!r})",
+                "from compute_service.worker_stdio import run_worker_stdio_loop",
+                "def handle(req):",
+                "    time.sleep(float(req.get('delay') or 0))",
+                "    return {'status': 'ok', 'pid': os.getpid()}",
+                "if __name__ == '__main__':",
+                "    raise SystemExit(run_worker_stdio_loop(handle))",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    return script
 
 
+def test_read_timeout_kills_and_next_execute_respawns(tmp_path) -> None:
+    """A clean read timeout kills the child. The next execute gets a new pid.
+
+    The timed-out client already has EXECUTION_TIMEOUT. Keeping the process
+    to finish that frame is what the late-drain state machine existed for.
+    """
+    from compute_service.worker_base import BaseProcessPool
+
+    pool = BaseProcessPool(str(_delay_worker(tmp_path)), num_workers=1, worker_name="Worker")
+    try:
+        worker = pool.lease_any(2)
+        assert worker is not None
+        assert worker.process is not None
+        pid = worker.process.pid
+        res = worker.execute({"delay": 30}, timeout_sec=1.0)
+        assert res.get("code") == "EXECUTION_TIMEOUT"
+        assert not worker.is_alive()
+        pool.release_worker(worker)
+
+        again = pool.lease_any(2)
+        assert again is worker
+        nxt = again.execute({"delay": 0}, timeout_sec=2)
+        assert nxt.get("status") == "ok"
+        assert nxt.get("pid") != pid
+        pool.release_worker(again)
+    finally:
+        pool.shutdown()

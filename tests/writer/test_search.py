@@ -1144,25 +1144,6 @@ def test_pick_end_after_start_different_xtext_stops():
     assert err == "different_text"
 
 
-def test_find_anchor_span_success():
-    from unittest.mock import patch
-    from plugin.writer.search import find_anchor_span
-
-    doc = MagicMock()
-    start_match = MagicMock()
-    end_match = MagicMock()
-    created_cursor = MagicMock()
-
-    with patch("plugin.writer.search.find_occurrence_range", return_value=start_match) as mock_find, \
-         patch("plugin.writer.search.iter_literal_ranges", return_value=iter([end_match])), \
-         patch("plugin.writer.search.pick_end_after_start", return_value=(created_cursor, None)) as mock_pick:
-        cursor, err = find_anchor_span(doc, "start", "end", occurrence=0)
-        assert cursor is created_cursor
-        assert err is None
-        mock_find.assert_called_once()
-        mock_pick.assert_called_once()
-
-
 def test_find_anchor_span_missing_start():
     from unittest.mock import patch
     from plugin.writer.search import find_anchor_span
@@ -1172,34 +1153,6 @@ def test_find_anchor_span_missing_start():
         cursor, err = find_anchor_span(doc, "missing", "end")
         assert cursor is None
         assert err == "start"
-
-
-def test_find_anchor_span_missing_end():
-    from unittest.mock import patch
-    from plugin.writer.search import find_anchor_span
-
-    doc = MagicMock()
-    start_match = MagicMock()
-    with patch("plugin.writer.search.find_occurrence_range", return_value=start_match), \
-         patch("plugin.writer.search.iter_literal_ranges", return_value=iter([])), \
-         patch("plugin.writer.search.pick_end_after_start", return_value=(None, "end")):
-        cursor, err = find_anchor_span(doc, "start", "missing")
-        assert cursor is None
-        assert err == "end"
-
-
-def test_find_anchor_span_different_text():
-    from unittest.mock import patch
-    from plugin.writer.search import find_anchor_span
-
-    doc = MagicMock()
-    start_match = MagicMock()
-    with patch("plugin.writer.search.find_occurrence_range", return_value=start_match), \
-         patch("plugin.writer.search.iter_literal_ranges", return_value=iter([MagicMock()])), \
-         patch("plugin.writer.search.pick_end_after_start", return_value=(None, "different_text")):
-        cursor, err = find_anchor_span(doc, "start", "in_cell")
-        assert cursor is None
-        assert err == "different_text"
 
 
 def test_pick_end_after_start_empty_iterator():

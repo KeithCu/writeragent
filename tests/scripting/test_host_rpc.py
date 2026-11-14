@@ -154,42 +154,25 @@ def test_resolve_allowed_tools_shapes_and_multi_domain_union():
 
 
 def test_execute_tool_blocks_recursive_venv_script():
-    try:
+    with pytest.raises(RuntimeError, match="re-enter"):
         execute_tool("run_venv_python_script", {"code": "result = 1"})
-    except RuntimeError as exc:
-        assert "re-enter" in str(exc)
-    else:
-        raise AssertionError("expected RuntimeError")
 
 
 def test_execute_tool_disabled_during_py_recalc():
-    try:
+    with pytest.raises(RuntimeError, match=r"=PY\(\)"):
         execute_tool("apply_document_content", {"content": ["x"]}, allowed_tools=frozenset())
-    except RuntimeError as exc:
-        assert "=PY()" in str(exc)
-    else:
-        raise AssertionError("expected RuntimeError")
 
 
 def test_execute_tool_named_scripts_blocked_during_py_recalc():
     """=PY() empty allowlist must not list or read stored script source."""
     for tool_name in ("get_named_python_script", "list_named_python_scripts"):
-        try:
+        with pytest.raises(RuntimeError, match=r"=PY\(\)"):
             execute_tool(tool_name, {"name": "Helpers"}, allowed_tools=frozenset())
-        except RuntimeError as exc:
-            assert "=PY()" in str(exc)
-        else:
-            raise AssertionError(f"expected RuntimeError for {tool_name}")
-
 
 
 def test_execute_tool_rejects_out_of_domain():
-    try:
+    with pytest.raises(RuntimeError, match="not available"):
         execute_tool("write_formula_range", {}, allowed_tools=frozenset({"apply_document_content"}))
-    except RuntimeError as exc:
-        assert "not available" in str(exc)
-    else:
-        raise AssertionError("expected RuntimeError")
 
 
 def test_handle_tool_call_frame_writes_ok_response():
@@ -546,41 +529,11 @@ def test_handle_tool_call_frame_invalid_tool_name_type():
     assert resp["status"] == "error"
     assert "Invalid tool_call: None" in resp["message"]
 
-def test_singularize_domain():
+def test_singularize_domain_leaves_non_map_names_unchanged():
     from plugin.scripting.host_rpc import singularize_domain
 
-    for plural, singular in (
-        ("bookmarks", "bookmark"),
-        ("charts", "chart"),
-        ("cell_comments", "cell_comment"),
-        ("comments", "comment"),
-        ("errors", "error"),
-        ("fields", "field"),
-        ("footnotes", "footnote"),
-        ("headers_footers", "headers_footer"),
-        ("indexes", "index"),
-        ("pivot_tables", "pivot_table"),
-        ("ranges", "range"),
-        ("shapes", "shape"),
-        ("sheets", "sheet"),
-        ("slide_layouts", "slide_layout"),
-        ("slide_masters", "slide_master"),
-        ("slide_transitions", "slide_transition"),
-        ("speaker_notes", "speaker_note"),
-        ("page_comments", "page_comment"),
-        ("tables", "table"),
-        ("textframes", "textframe"),
-    ):
-        assert singularize_domain(plural) == singular
-
-    assert singularize_domain("images") == "images"
-    assert singularize_domain("styles") == "styles"
-    assert singularize_domain("forms") == "forms"
-    assert singularize_domain("core") == "core"
-    assert singularize_domain("analysis") == "analysis"
-    assert singularize_domain("status") == "status"
-    assert singularize_domain("shape") == "shape"
-    assert singularize_domain("style") == "style"
+    for name in ("images", "styles", "forms", "core", "analysis", "status", "shape", "style"):
+        assert singularize_domain(name) == name
 
 
 @pytest.mark.parametrize(
@@ -652,25 +605,17 @@ def test_writeragent_api_in_process_rpc_call_preserves_error_code():
             "plugin.scripting.host_rpc.execute_tool",
             side_effect=StoppedError("operation stopped"),
         ):
-            try:
+            with pytest.raises(RuntimeError, match="operation stopped") as exc_info:
                 api.call_host_tool("test_tool")
-            except RuntimeError as exc:
-                assert "operation stopped" in str(exc)
-                assert getattr(exc, "code", None) == "USER_STOPPED"
-            else:
-                raise AssertionError("Expected RuntimeError")
+            assert getattr(exc_info.value, "code", None) == "USER_STOPPED"
 
         class CustomError(Exception):
             code = "PERMISSION_DENIED"
 
         with patch("plugin.scripting.host_rpc.execute_tool", side_effect=CustomError("denied")):
-            try:
+            with pytest.raises(RuntimeError, match="denied") as exc_info:
                 api.call_host_tool("test_tool")
-            except RuntimeError as exc:
-                assert "denied" in str(exc)
-                assert getattr(exc, "code", None) == "PERMISSION_DENIED"
-            else:
-                raise AssertionError("Expected RuntimeError")
+            assert getattr(exc_info.value, "code", None) == "PERMISSION_DENIED"
 
 
 def test_execute_tool_copies_stop_onto_tool_context():

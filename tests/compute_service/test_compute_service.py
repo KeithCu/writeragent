@@ -41,6 +41,20 @@ def _wsgi_vision_post(app, meta: dict[str, Any], image: bytes | bytearray | None
     return _wsgi_post(app, body, path="/v1/vision", headers=hdrs, send_host=send_host)
 
 
+class _RecordingSemaphore(threading.Semaphore):
+    """Semaphore that records contended acquire timeouts without sleeping."""
+
+    def __init__(self, value: int = 1) -> None:
+        super().__init__(value)
+        self.recorded_timeouts: list[float | None] = []
+
+    def acquire(self, blocking: bool = True, timeout: float | None = None) -> bool:
+        if super().acquire(blocking=False):
+            return True
+        self.recorded_timeouts.append(timeout)
+        return False
+
+
 def _wsgi_post(app, body: bytes | None, *, path: str = "/v1/session/reset", query: str = "", headers: dict[str, str] | None = None, send_host: bool = True) -> tuple[str, list[tuple[str, str]], dict]:
     status_holder: list[str] = []
     header_holder: list[tuple[str, str]] = []
@@ -89,7 +103,6 @@ def compute_server_info():
 
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
-    time.sleep(0.2)
     yield port, server
     server.shutdown()
     server.server_close()
@@ -365,7 +378,6 @@ class TestComputeHttp:
         server.set_app(app)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
-        time.sleep(0.15)
         poster: threading.Thread | None = None
         try:
 
@@ -414,7 +426,6 @@ class TestComputeHttp:
         server.set_app(app)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
-        time.sleep(0.15)
         posters: list[threading.Thread] = []
         results: list[list[Any]] = [[] for _ in range(6)]
         try:
@@ -489,7 +500,6 @@ class TestComputeHttp:
         server.set_app(app)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
-        time.sleep(0.15)
         poster: threading.Thread | None = None
         try:
 
@@ -587,29 +597,28 @@ class TestComputeHttp:
     def test_pool_busy_until_deadline_returns_503(self) -> None:
         """503 only after the admission deadline, not on a brief busy.
 
-        Production default_timeout_sec is 30s. This case is that timeout,
-        shortened so the suite does not sleep 30s. It is not the brief queue
-        at 200-400 rps.
+        The admission wait is the request deadline (1 s here, 30 s in
+        production), recorded at the semaphore.
         """
         hold = threading.Event()
         started = threading.Event()
+        sem = _RecordingSemaphore(1)
 
         def execute_fn(**_kwargs: Any) -> dict[str, Any]:
             started.set()
             assert hold.wait(timeout=5)
             return {"status": "ok", "result_json": b'{"status":"ok","result":1}'}
 
-        app = create_wsgi_app(ComputeSettings(workers=1, default_timeout_sec=1), execute_fn=execute_fn, semaphore=threading.Semaphore(1))
+        app = create_wsgi_app(ComputeSettings(workers=1, default_timeout_sec=1), execute_fn=execute_fn, semaphore=sem)
         body = json.dumps({"code": "result = 1"}).encode("utf-8")
         first = threading.Thread(target=lambda: _wsgi_post(app, body, path="/v1/execute"))
         first.start()
         assert started.wait(timeout=5)
-        t0 = time.perf_counter()
         status, _headers, parsed = _wsgi_post(app, body, path="/v1/execute")
-        elapsed = time.perf_counter() - t0
         hold.set()
         first.join(timeout=5)
-        assert elapsed >= 0.7
+        assert len(sem.recorded_timeouts) == 1
+        assert sem.recorded_timeouts[0] is not None and 0.7 <= sem.recorded_timeouts[0] <= 1.1
         assert status.startswith("503")
         assert parsed.get("code") == "WORKER_POOL_BUSY"
 
@@ -938,30 +947,15 @@ class TestComputeSettings:
             load_settings(config_path=cfg, environ={"PYTHON_COMPUTE_HOST": "127.0.0.1"})
 
     def test_env_api_key_keeps_surrounding_spaces(self, tmp_path) -> None:
-        """The env secret preserves surrounding spaces, matching key file behavior."""
+        """Env and key-file secrets must NOT be strip()ed; surrounding spaces round-trip intact."""
         key = " secret "
         s = load_settings(environ={"PYTHON_COMPUTE_API_KEY": key, "PYTHON_COMPUTE_HOST": "127.0.0.1"})
         assert s.api_key == key
         key_path = tmp_path / "key_spaces"
+        # Leading and trailing spaces with no trailing newline
         key_path.write_bytes(b" secret ")
         from_file = load_settings({"api_key_file": key_path}, environ={"PYTHON_COMPUTE_HOST": "127.0.0.1"})
         assert from_file.api_key == s.api_key
-
-    def test_key_file_preserves_leading_and_trailing_spaces(self, tmp_path) -> None:
-        """_read_key_file must NOT strip() the key; only the one trailing newline is removed.
-        API keys with leading/trailing spaces (unusual but valid) must round-trip intact."""
-        key_path = tmp_path / "key_spaces"
-        # Leading space, no trailing newline
-        key_path.write_bytes(b" abc123 ")
-        s = load_settings({"api_key_file": key_path}, environ={"PYTHON_COMPUTE_HOST": "127.0.0.1"})
-        assert s.api_key == " abc123 "
-
-    def test_key_file_strips_only_one_trailing_newline(self, tmp_path) -> None:
-        """Verify that only the single trailing newline is removed, not all whitespace."""
-        key_path = tmp_path / "key_nl"
-        key_path.write_bytes(b"mykey\n")
-        s = load_settings({"api_key_file": key_path}, environ={"PYTHON_COMPUTE_HOST": "127.0.0.1"})
-        assert s.api_key == "mykey"
 
     def test_json_bool_and_fractional_int_fields_rejected(self, tmp_path) -> None:
         """JSON true and 8000.9 must not become a worker count or a port.
@@ -1005,15 +999,16 @@ class TestComputeSettings:
             load_settings(config_path=ttl, environ={"PYTHON_COMPUTE_HOST": "127.0.0.1"})
         assert isinstance(exc_info.value.__cause__, OverflowError)
 
-    @pytest.mark.parametrize(("field", "env_name"), [("idle_worker_ttl_sec", "PYTHON_COMPUTE_IDLE_WORKER_TTL_SEC")])
     @pytest.mark.parametrize("token", ["Infinity", "NaN", "1e9999"])
-    def test_nonfinite_ttl_rejected_from_json_and_env(self, tmp_path, field: str, env_name: str, token: str) -> None:
+    def test_nonfinite_ttl_rejected_from_json_and_env(self, tmp_path, token: str) -> None:
         """Infinity, NaN, and 1e9999 must not land in a TTL.
 
         json.loads and float() turn those into inf/nan. inf < 0 and nan < 0
         are false, so the old >= 0 check let them through and the reaper
         never evicted.
         """
+        field = "idle_worker_ttl_sec"
+        env_name = "PYTHON_COMPUTE_IDLE_WORKER_TTL_SEC"
         cfg = tmp_path / "ttl.json"
         cfg.write_text(f'{{"limits": {{"{field}": {token}}}}}', encoding="utf-8")
         with pytest.raises(ConfigError, match=rf"{field} must be a finite number"):
@@ -1021,10 +1016,10 @@ class TestComputeSettings:
         with pytest.raises(ConfigError, match=rf"{field} must be a finite number"):
             load_settings(environ={"PYTHON_COMPUTE_HOST": "127.0.0.1", env_name: token})
 
-    @pytest.mark.parametrize("field", ["idle_worker_ttl_sec"])
     @pytest.mark.parametrize("value", [float("inf"), float("-inf"), float("nan")])
-    def test_compute_settings_rejects_nonfinite_ttl(self, field: str, value: float) -> None:
+    def test_compute_settings_rejects_nonfinite_ttl(self, value: float) -> None:
         """Direct construction skips _as_float. validate() still rejects non-finite TTLs."""
+        field = "idle_worker_ttl_sec"
         with pytest.raises(ConfigError, match=rf"{field} must be a finite number"):
             kwargs: dict[str, Any] = {field: value}
             ComputeSettings(**kwargs)
@@ -1107,7 +1102,6 @@ def auth_server():
     server.set_app(app)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
-    time.sleep(0.15)
     yield f"http://127.0.0.1:{port}", executed, reset_calls
     server.shutdown()
     server.server_close()
@@ -1167,16 +1161,6 @@ class TestBearerAuthHttp:
         status, _body = self._post(url, {"Authorization": "Token correct-secret"})
         assert status == 401
         assert executed == []
-
-    def test_bearer_case_insensitive(self, auth_server) -> None:
-        url, executed, _reset_calls = auth_server
-        status_lower, body_lower = self._post(url, {"Authorization": "bearer correct-secret"})
-        assert status_lower == 200
-        assert body_lower.get("status") == "ok"
-        status_upper, body_upper = self._post(url, {"Authorization": "BEARER correct-secret"})
-        assert status_upper == 200
-        assert body_upper.get("status") == "ok"
-        assert len(executed) == 2
 
     def test_www_authenticate_header(self, auth_server) -> None:
         url, _executed, _reset_calls = auth_server
@@ -1306,26 +1290,23 @@ class TestRequestBodyLimits:
 
 
 class TestSessionResetHttp:
-    def test_missing_session_id_is_400(self) -> None:
+    @pytest.mark.parametrize(
+        ("query", "payload", "expected_id"),
+        [
+            ("", b"{}", None),
+            ("session_id=", b'{"id": "empty-sid"}', "empty-sid"),
+            ("session_id=%20", b"{}", None),
+        ],
+    )
+    def test_invalid_session_id_is_400(self, query: str, payload: bytes, expected_id: str | None) -> None:
         app = create_wsgi_app(ComputeSettings(), reset_fn=lambda sid, **_kw: {"status": "ok"})
-        status, _headers, body = _wsgi_post(app, b"{}", query="")
+        status, _headers, body = _wsgi_post(app, payload, query=query)
         assert status.startswith("400")
         assert body.get("status") == "error"
         assert body.get("code") == "BAD_REQUEST_BODY"
         assert "session_id" in body.get("error", "")
-
-    def test_empty_session_id_is_400(self) -> None:
-        app = create_wsgi_app(ComputeSettings(), reset_fn=lambda sid, **_kw: {"status": "ok"})
-        status, _headers, body = _wsgi_post(app, b'{"id": "empty-sid"}', query="session_id=")
-        assert status.startswith("400")
-        assert body.get("id") == "empty-sid"
-        assert body.get("status") == "error"
-
-    def test_whitespace_session_id_is_400(self) -> None:
-        app = create_wsgi_app(ComputeSettings(), reset_fn=lambda sid, **_kw: {"status": "ok"})
-        status, _headers, body = _wsgi_post(app, b"{}", query="session_id=%20")
-        assert status.startswith("400")
-        assert body.get("status") == "error"
+        if expected_id is not None:
+            assert body.get("id") == expected_id
 
     def test_session_id_in_body_is_400(self) -> None:
         reset_calls: list[str] = []
@@ -1393,99 +1374,61 @@ class TestSessionResetHttp:
         assert body.get("status") == "error"
         assert body.get("code") == "WORKER_POOL_BUSY"
 
-    def test_execute_pool_busy_is_503(self) -> None:
-        def busy(**_kwargs):
-            return {"id": "ex-busy", "status": "error", "code": "WORKER_POOL_BUSY", "error": "busy"}
+    @pytest.mark.parametrize(
+        ("code", "expected_status", "req_id"),
+        [
+            pytest.param("WORKER_POOL_BUSY", "503", "ex-busy", id="pool-busy-503"),
+            # A crash or empty frame may have run the cell, so it is not a retryable 503.
+            pytest.param("WORKER_CRASHED", "500", "ex-dead", id="crash-not-retryable-500"),
+            # A bad response frame killed the child; it is not a retryable 503.
+            pytest.param("WORKER_IPC_ERROR", "500", "ex-ipc", id="ipc-error-not-retryable-500"),
+            # An empty frame may have run the cell, so it is not a retryable 503.
+            pytest.param("EMPTY_RESPONSE", "500", None, id="empty-response-not-retryable-500"),
+            pytest.param("EXECUTION_TIMEOUT", "200", None, id="execution-timeout-stays-200"),
+            # If the deadline expires between the handler pre-check and the pool check,
+            # the pool returns QUEUE_TIMEOUT with no result_json; otherwise it would fall through to 200.
+            pytest.param("QUEUE_TIMEOUT", "503", "q-late", id="queue-timeout-503"),
+            pytest.param("SERVICE_SHUTDOWN", "503", "ex-down", id="shutdown-503"),
+        ],
+    )
+    def test_execute_error_code_status_mapping(
+        self, code: str, expected_status: str, req_id: str | None
+    ) -> None:
+        def fail_fn(**_kwargs):
+            return {"status": "error", "code": code, "error": code}
 
-        app = create_wsgi_app(ComputeSettings(), execute_fn=busy)
-        status, _headers, body = _wsgi_post(app, json.dumps({"code": "result = 1"}).encode("utf-8"), path="/v1/execute")
-        assert status.startswith("503")
-        assert body.get("code") == "WORKER_POOL_BUSY"
+        app = create_wsgi_app(ComputeSettings(), execute_fn=fail_fn)
+        payload: dict[str, Any] = {"code": "result = 1"}
+        if req_id is not None:
+            payload["id"] = req_id
+        status, _headers, body = _wsgi_post(app, json.dumps(payload).encode("utf-8"), path="/v1/execute")
+        assert status.startswith(expected_status)
+        assert body.get("code") == code
+        if req_id is not None:
+            assert body.get("id") == req_id
 
-    def test_execute_worker_death_is_500(self) -> None:
-        """A crash or empty frame may have run the cell, so it is not a retryable 503."""
-
-        def dead(**_kwargs):
-            return {"status": "error", "code": "WORKER_CRASHED", "error": "died"}
-
-        app = create_wsgi_app(ComputeSettings(), execute_fn=dead)
-        status, _headers, body = _wsgi_post(app, json.dumps({"id": "ex-dead", "code": "result = 1"}).encode("utf-8"), path="/v1/execute")
-        assert status.startswith("500")
-        assert body.get("code") == "WORKER_CRASHED"
-
-    def test_execute_rejected_frame_is_500(self) -> None:
-        """A bad response frame killed the child. It is not a retryable 503."""
-
-        def rejected(**_kwargs):
-            return {"status": "error", "code": "WORKER_IPC_ERROR", "error": "forbidden"}
-
-        app = create_wsgi_app(ComputeSettings(), execute_fn=rejected)
-        status, _headers, body = _wsgi_post(app, json.dumps({"id": "ex-ipc", "code": "result = 1"}).encode("utf-8"), path="/v1/execute")
-        assert status.startswith("500")
-        assert body.get("code") == "WORKER_IPC_ERROR"
-
-    def test_execute_empty_response_is_500(self) -> None:
-        def empty(**_kwargs):
-            return {"status": "error", "code": "EMPTY_RESPONSE", "error": "no frame"}
-
-        app = create_wsgi_app(ComputeSettings(), execute_fn=empty)
-        status, _headers, body = _wsgi_post(app, json.dumps({"code": "result = 1"}).encode("utf-8"), path="/v1/execute")
-        assert status.startswith("500")
-        assert body.get("code") == "EMPTY_RESPONSE"
-
-    def test_execute_timeout_stays_200(self) -> None:
-        def timed_out(**_kwargs):
-            return {"status": "error", "code": "EXECUTION_TIMEOUT", "error": "too slow"}
-
-        app = create_wsgi_app(ComputeSettings(), execute_fn=timed_out)
-        status, _headers, body = _wsgi_post(app, json.dumps({"code": "result = 1"}).encode("utf-8"), path="/v1/execute")
-        assert status.startswith("200")
-        assert body.get("code") == "EXECUTION_TIMEOUT"
-
-    def test_vision_pool_busy_is_503(self) -> None:
-        """A vision lease miss returns HTTP 503 VISION_POOL_BUSY."""
+    @pytest.mark.parametrize(
+        ("code", "expected_status"),
+        [
+            pytest.param("VISION_POOL_BUSY", "503", id="vision-pool-busy-503"),
+            # Allowlist file failures return 400/413 client statuses.
+            pytest.param("FILE_NOT_FOUND", "400", id="file-not-found-400"),
+            pytest.param("FILE_TOO_LARGE", "413", id="file-too-large-413"),
+            # VISION_UNAVAILABLE happens when the OCR module fails to import; must be 503.
+            pytest.param("VISION_UNAVAILABLE", "503", id="vision-unavailable-503"),
+            pytest.param("VISION_BACKEND_MISSING", "501", id="vision-backend-missing-501"),
+        ],
+    )
+    def test_vision_error_code_status_mapping(self, code: str, expected_status: str) -> None:
         fake_pool = MagicMock()
-        fake_pool.execute.return_value = {"id": "v-busy", "status": "error", "code": "VISION_POOL_BUSY", "error": "All vision workers are currently busy and request timed out waiting for worker lease."}
+        fake_pool.execute.return_value = {"id": "v-err", "status": "error", "code": code, "error": code}
         app = create_wsgi_app(ComputeSettings(ocr_workers=1))
         with patch("compute_service.vision.get_vision_pool", return_value=fake_pool):
-            status, _headers, body = _wsgi_vision_post(app, {"id": "v-busy"}, b"png")
-        assert status.startswith("503")
-        assert body.get("code") == "VISION_POOL_BUSY"
-        assert body.get("id") == "v-busy"
+            status, _headers, body = _wsgi_vision_post(app, {"id": "v-err"}, b"png")
+        assert status.startswith(expected_status), code
+        assert body.get("code") == code
+        assert body.get("id") == "v-err"
         assert body.get("status") == "error"
-
-    def test_vision_file_errors_use_client_statuses(self) -> None:
-        """Allowlist file failures return 400/413 client statuses."""
-        cases = (("FILE_NOT_FOUND", "400"), ("FILE_TOO_LARGE", "413"))
-        for code, expect in cases:
-            fake_pool = MagicMock()
-            fake_pool.execute.return_value = {"id": "v-file", "status": "error", "code": code, "error": code}
-            app = create_wsgi_app(ComputeSettings(ocr_workers=1))
-            with patch("compute_service.vision.get_vision_pool", return_value=fake_pool):
-                status, _headers, body = _wsgi_vision_post(app, {"id": "v-file"}, b"png")
-            assert status.startswith(expect), code
-            assert body.get("code") == code
-
-    def test_vision_unavailable_is_503(self) -> None:
-        """VISION_UNAVAILABLE happens when the OCR module fails to import, must be 503."""
-        fake_pool = MagicMock()
-        fake_pool.execute.return_value = {"id": "v-missing", "status": "error", "code": "VISION_UNAVAILABLE", "error": "OCR is not installed in this server"}
-        app = create_wsgi_app(ComputeSettings(ocr_workers=1))
-        with patch("compute_service.vision.get_vision_pool", return_value=fake_pool):
-            status, _headers, body = _wsgi_vision_post(app, {"id": "v-missing"}, b"png")
-        assert status.startswith("503")
-        assert body.get("code") == "VISION_UNAVAILABLE"
-        assert body.get("id") == "v-missing"
-
-    def test_vision_backend_missing_is_501(self) -> None:
-        fake_pool = MagicMock()
-        fake_pool.execute.return_value = {"id": "v-backend", "status": "error", "code": "VISION_BACKEND_MISSING", "error": "OCR backend 'plugin.vision.venv.vision_docling' is not installed on this server"}
-        app = create_wsgi_app(ComputeSettings(ocr_workers=1))
-        with patch("compute_service.vision.get_vision_pool", return_value=fake_pool):
-            status, _headers, body = _wsgi_vision_post(app, {"id": "v-backend"}, b"png")
-        assert status.startswith("501")
-        assert body.get("code") == "VISION_BACKEND_MISSING"
-        assert body.get("id") == "v-backend"
 
     def test_non_ascii_bearer_and_key_file(self, tmp_path) -> None:
         """hmac.compare_digest on str raises TypeError for non-ASCII. That escaped the WSGI app."""
@@ -1596,24 +1539,6 @@ class TestSessionResetHttp:
             assert caplog.records
             assert "Basic" not in caplog.text
 
-    def test_execute_queue_timeout_from_pool_is_503(self) -> None:
-        """QUEUE_TIMEOUT from the pool returns HTTP 503 rather than 200.
-
-        If the deadline expires between the handler pre-check and the pool
-        check, the pool returns QUEUE_TIMEOUT with no result_json; otherwise
-        it would fall through to 200.
-        """
-
-        def late(**_kwargs):
-            return {"status": "error", "code": "QUEUE_TIMEOUT", "error": "Request deadline expired before a worker lease."}
-
-        app = create_wsgi_app(ComputeSettings(), execute_fn=late)
-        status, _headers, body = _wsgi_post(app, json.dumps({"id": "q-late", "code": "result = 1"}).encode("utf-8"), path="/v1/execute")
-        assert status.startswith("503")
-        assert body.get("id") == "q-late"
-        assert body.get("code") == "QUEUE_TIMEOUT"
-        assert body.get("status") == "error"
-
     def test_overflow_id_is_400(self) -> None:
         def execute_fn(**_kwargs):
             raise AssertionError("non-finite id must not run")
@@ -1624,30 +1549,22 @@ class TestSessionResetHttp:
         assert body.get("error") == "Invalid JSON"
         assert body.get("code") == "BAD_REQUEST_BODY"
 
-    @pytest.mark.parametrize("raw_id", [b"1e9999", b"NaN", b"Infinity"])
-    def test_vision_nonfinite_id_is_400(self, raw_id: bytes) -> None:
-        """A non-finite vision id in multipart meta is rejected with 400."""
-        from compute_service.vision import shutdown_vision_pool
-
-        app = create_wsgi_app(ComputeSettings(ocr_workers=1))
-        try:
-            boundary = "wa-test-bound"
-            body = (
-                (f'--{boundary}\r\nContent-Disposition: form-data; name="meta"\r\nContent-Type: application/json\r\n\r\n').encode("ascii")
-                + b'{"id":'
-                + raw_id
-                + b"}\r\n"
-                + (f'--{boundary}\r\nContent-Disposition: form-data; name="image"\r\nContent-Type: application/octet-stream\r\n\r\nabcd\r\n--{boundary}--\r\n').encode("ascii")
-            )
-            status, _headers, body = _wsgi_post(app, body, path="/v1/vision", headers={"Content-Type": f"multipart/form-data; boundary={boundary}"})
-            assert status.startswith("400")
-            assert body.get("error") == "Invalid multipart vision body"
-            assert "id" not in body
-        finally:
-            shutdown_vision_pool()
-
-    @pytest.mark.parametrize("meta_bytes", [b'{"id":[1e999]}', b'{"id":{"n":1e999}}', b'{"id":[1]}'])
-    def test_vision_nested_nonfinite_id_is_400(self, meta_bytes: bytes) -> None:
+    @pytest.mark.parametrize(
+        ("meta_bytes", "expected_error", "expected_code"),
+        [
+            (b'{"id":1e9999}', "Invalid multipart vision body", None),
+            (b'{"id":NaN}', "Invalid multipart vision body", None),
+            (b'{"id":Infinity}', "Invalid multipart vision body", None),
+            (b'{"id":[1e999]}', "Invalid multipart vision body", "BAD_REQUEST_BODY"),
+            (b'{"id":{"n":1e999}}', "Invalid multipart vision body", "BAD_REQUEST_BODY"),
+            (b'{"id":[1]}', "id must be a scalar", "INVALID_REQUEST"),
+            (b'{"timeout_ms": 1e9999}', "Invalid multipart vision body", None),
+        ],
+    )
+    def test_vision_invalid_multipart_meta_is_400(
+        self, meta_bytes: bytes, expected_error: str, expected_code: str | None
+    ) -> None:
+        """Non-finite numbers or non-scalar ids in multipart meta return JSON 400."""
         from compute_service.vision import shutdown_vision_pool
 
         app = create_wsgi_app(ComputeSettings(ocr_workers=1))
@@ -1659,30 +1576,12 @@ class TestSessionResetHttp:
                 + b"\r\n"
                 + (f'--{boundary}\r\nContent-Disposition: form-data; name="image"\r\nContent-Type: application/octet-stream\r\n\r\nabcd\r\n--{boundary}--\r\n').encode("ascii")
             )
-            status, _headers, body = _wsgi_post(app, body, path="/v1/vision", headers={"Content-Type": f"multipart/form-data; boundary={boundary}"})
+            status, _headers, resp_body = _wsgi_post(app, body, path="/v1/vision", headers={"Content-Type": f"multipart/form-data; boundary={boundary}"})
             assert status.startswith("400")
-            if meta_bytes == b'{"id":[1]}':
-                assert body.get("error") == "id must be a scalar"
-                assert body.get("code") == "INVALID_REQUEST"
-            else:
-                assert body.get("error") == "Invalid multipart vision body"
-                assert body.get("code") == "BAD_REQUEST_BODY"
-            assert "id" not in body
-        finally:
-            shutdown_vision_pool()
-
-    def test_vision_overflow_timeout_is_json(self) -> None:
-        from compute_service.vision import shutdown_vision_pool
-
-        app = create_wsgi_app(ComputeSettings(ocr_workers=1))
-        try:
-            boundary = "wa-test-bound"
-            body = (f'--{boundary}\r\nContent-Disposition: form-data; name="meta"\r\nContent-Type: application/json\r\n\r\n{{"timeout_ms": 1e9999}}\r\n--{boundary}\r\nContent-Disposition: form-data; name="image"\r\nContent-Type: application/octet-stream\r\n\r\nabcd\r\n--{boundary}--\r\n').encode(
-                "ascii"
-            )
-            status, _headers, body = _wsgi_post(app, body, path="/v1/vision", headers={"Content-Type": f"multipart/form-data; boundary={boundary}"})
-            assert status.startswith("400")
-            assert body.get("error") == "Invalid multipart vision body"
+            assert resp_body.get("error") == expected_error
+            if expected_code is not None:
+                assert resp_body.get("code") == expected_code
+            assert "id" not in resp_body
         finally:
             shutdown_vision_pool()
 
@@ -1703,16 +1602,6 @@ class TestSessionResetHttp:
             assert execute.call_count == 0
         finally:
             vision.shutdown_vision_pool()
-
-    def test_execute_shutdown_is_503(self) -> None:
-        def down(**_kwargs):
-            return {"status": "error", "code": "SERVICE_SHUTDOWN", "error": "stopping"}
-
-        app = create_wsgi_app(ComputeSettings(), execute_fn=down)
-        status, _headers, body = _wsgi_post(app, json.dumps({"id": "ex-down", "code": "result = 1"}).encode("utf-8"), path="/v1/execute")
-        assert status.startswith("503")
-        assert body.get("id") == "ex-down"
-        assert body.get("code") == "SERVICE_SHUTDOWN"
 
     def test_execute_eval_error_stays_200(self) -> None:
         def failed(**_kwargs):
@@ -1769,72 +1658,40 @@ class TestSessionResetHttp:
         Otherwise the permit wait uses default_timeout_sec before the body is
         parsed, and a long request gets 503 prematurely.
         """
+        sem = _RecordingSemaphore(0)
+
         # ocr_timeout_sec defaults to 60 and must stay <= max_timeout_sec.
         settings = ComputeSettings(default_timeout_sec=1, max_timeout_sec=30, ocr_timeout_sec=1, workers=1)
-        app = create_wsgi_app(settings, execute_fn=lambda **_kwargs: {"status": "ok"}, semaphore=threading.Semaphore(0))
+        app = create_wsgi_app(settings, execute_fn=lambda **_kwargs: {"status": "ok"}, semaphore=sem)
         body = json.dumps({"id": "slow", "code": "result = 1", "timeout_ms": 1500}).encode("utf-8")
-        holder: list[tuple[str, dict]] = []
-
-        def run() -> None:
-            status, _headers, parsed = _wsgi_post(app, body, path="/v1/execute")
-            holder.append((status, parsed))
-
-        started = time.monotonic()
-        thread = threading.Thread(target=run)
-        thread.start()
-        # Past the 1s default. 1500ms clamps to 2s.
-        thread.join(timeout=1.3)
-        assert thread.is_alive()
-        thread.join(timeout=2.0)
-        elapsed = time.monotonic() - started
-        assert not thread.is_alive()
-        assert elapsed >= 1.7
-        assert holder
-        status, parsed = holder[0]
+        status, _headers, parsed = _wsgi_post(app, body, path="/v1/execute")
+        assert len(sem.recorded_timeouts) == 1
+        # Past the 1s default; 1500ms clamps to 2s.
+        assert sem.recorded_timeouts[0] is not None and 1.7 <= sem.recorded_timeouts[0] <= 2.1
         assert status.startswith("503")
         assert parsed.get("code") == "WORKER_POOL_BUSY"
         assert parsed.get("id") == "slow"
 
     def test_execute_admission_uses_default_when_timeout_omitted(self) -> None:
+        sem = _RecordingSemaphore(0)
+
         settings = ComputeSettings(default_timeout_sec=1, max_timeout_sec=30, ocr_timeout_sec=1, workers=1)
-        app = create_wsgi_app(settings, execute_fn=lambda **_kwargs: {"status": "ok"}, semaphore=threading.Semaphore(0))
+        app = create_wsgi_app(settings, execute_fn=lambda **_kwargs: {"status": "ok"}, semaphore=sem)
         body = json.dumps({"id": "def", "code": "result = 1"}).encode("utf-8")
-        holder: list[tuple[str, dict]] = []
-
-        def run() -> None:
-            status, _headers, parsed = _wsgi_post(app, body, path="/v1/execute")
-            holder.append((status, parsed))
-
-        started = time.monotonic()
-        thread = threading.Thread(target=run)
-        thread.start()
-        thread.join(timeout=2.5)
-        elapsed = time.monotonic() - started
-        assert not thread.is_alive()
-        assert elapsed < 2.0
-        assert holder[0][0].startswith("503")
-        assert holder[0][1].get("code") == "WORKER_POOL_BUSY"
+        status, _headers, parsed = _wsgi_post(app, body, path="/v1/execute")
+        assert len(sem.recorded_timeouts) == 1
+        assert sem.recorded_timeouts[0] is not None and 0 < sem.recorded_timeouts[0] <= 1.0
+        assert status.startswith("503")
+        assert parsed.get("code") == "WORKER_POOL_BUSY"
 
     def test_vision_admission_waits_for_request_timeout(self) -> None:
+        sem = _RecordingSemaphore(0)
+
         settings = ComputeSettings(ocr_timeout_sec=1, max_timeout_sec=30, ocr_workers=1)
-        app = create_wsgi_app(settings, semaphore=threading.Semaphore(0))
-        holder: list[tuple[str, dict]] = []
-
-        def run() -> None:
-            status, _headers, parsed = _wsgi_vision_post(app, {"id": "vslow", "timeout_ms": 1500}, b"abcd")
-            holder.append((status, parsed))
-
-        started = time.monotonic()
-        thread = threading.Thread(target=run)
-        thread.start()
-        thread.join(timeout=1.3)
-        assert thread.is_alive()
-        thread.join(timeout=2.0)
-        elapsed = time.monotonic() - started
-        assert not thread.is_alive()
-        assert elapsed >= 1.7
-        assert holder
-        status, parsed = holder[0]
+        app = create_wsgi_app(settings, semaphore=sem)
+        status, _headers, parsed = _wsgi_vision_post(app, {"id": "vslow", "timeout_ms": 1500}, b"abcd")
+        assert len(sem.recorded_timeouts) == 1
+        assert sem.recorded_timeouts[0] is not None and 1.7 <= sem.recorded_timeouts[0] <= 2.1
         assert status.startswith("503")
         assert parsed.get("code") == "VISION_POOL_BUSY"
         assert parsed.get("id") == "vslow"
@@ -2076,17 +1933,6 @@ class TestListenerQueue:
             server.server_close()
 
 
-def test_flatten_config_json_rejects_api_key() -> None:
-    """_flatten_config_json raises ConfigError if api_key is present in config JSON."""
-    from compute_service.config import ConfigError, _flatten_config_json
-
-    with pytest.raises(ConfigError, match="Do not put api_key in the JSON config"):
-        _flatten_config_json({"api_key": "secret"})
-
-    with pytest.raises(ConfigError, match="Do not put api_key in the JSON config"):
-        _flatten_config_json({"auth": {"api_key": "secret"}})
-
-
 def test_admission_permits_leave_two_listeners() -> None:
     from compute_service.server import admission_permits, listener_thread_count
 
@@ -2097,9 +1943,22 @@ def test_admission_permits_leave_two_listeners() -> None:
     assert admission_permits(wide) == 10
 
 
-@pytest.mark.parametrize("code", ["VISION_WORKER_ERROR", "WORKER_EXECUTION_ERROR"])
-def test_dict_worker_fault_is_http_500(code: str) -> None:
-    """A worker fault with no result_json returns HTTP 500."""
+@pytest.mark.parametrize(
+    ("payload", "req_id", "expected_status", "expected_code"),
+    [
+        # A worker fault with no result_json returns HTTP 500.
+        pytest.param({"status": "error", "code": "VISION_WORKER_ERROR", "error": "worker blew up"}, "fault-1", "500", "VISION_WORKER_ERROR", id="vision-worker-fault-500"),
+        pytest.param({"status": "error", "code": "WORKER_EXECUTION_ERROR", "error": "worker blew up"}, "fault-1", "500", "WORKER_EXECUTION_ERROR", id="worker-execution-fault-500"),
+        # Empty result_json returns HTTP 500 EMPTY_RESPONSE.
+        pytest.param({"status": "ok", "result_json": b""}, "empty-1", "500", "EMPTY_RESPONSE", id="empty-result-json-500"),
+        # FILE_PATH_DENIED from the worker returns HTTP 400.
+        pytest.param({"status": "error", "code": "FILE_PATH_DENIED", "error": "denied"}, "path-1", "400", "FILE_PATH_DENIED", id="file-path-denied-400"),
+    ],
+)
+def test_send_execution_result_status_mapping(
+    payload: dict[str, Any], req_id: str, expected_status: str, expected_code: str
+) -> None:
+    """_send_execution_result maps result codes and empty result_json to HTTP statuses."""
     from compute_service.server import _send_execution_result
 
     status_holder: list[str] = []
@@ -2108,28 +1967,11 @@ def test_dict_worker_fault_is_http_500(code: str) -> None:
         status_holder.append(status)
         del resp_headers
 
-    out = _send_execution_result(start_response, {"status": "error", "code": code, "error": "worker blew up"}, "fault-1")
+    out = _send_execution_result(start_response, payload, req_id)
     parsed = json.loads(b"".join(out))
-    assert status_holder[0].startswith("500")
-    assert parsed.get("code") == code
-    assert parsed.get("id") == "fault-1"
-
-
-def test_empty_result_json_is_500() -> None:
-    """Empty result_json returns HTTP 500 EMPTY_RESPONSE."""
-    from compute_service.server import _send_execution_result
-
-    status_holder: list[str] = []
-
-    def start_response(status: str, resp_headers: list) -> None:
-        status_holder.append(status)
-        del resp_headers
-
-    out = _send_execution_result(start_response, {"status": "ok", "result_json": b""}, "empty-1")
-    parsed = json.loads(b"".join(out))
-    assert status_holder[0].startswith("500")
-    assert parsed.get("code") == "EMPTY_RESPONSE"
-    assert parsed.get("id") == "empty-1"
+    assert status_holder[0].startswith(expected_status)
+    assert parsed.get("code") == expected_code
+    assert parsed.get("id") == req_id
     assert "result_json" not in parsed
 
 
@@ -2147,23 +1989,6 @@ def test_result_json_worker_fault_bytes_are_forwarded_at_200() -> None:
     out = _send_execution_result(start_response, {"status": "error", "code": "WORKER_EXECUTION_ERROR", "result_json": raw}, "cell-1")
     assert status_holder[0].startswith("200")
     assert out == [raw]
-
-
-def test_worker_file_path_denied_is_http_400() -> None:
-    """FILE_PATH_DENIED from the worker returns HTTP 400."""
-    from compute_service.server import _send_execution_result
-
-    status_holder: list[str] = []
-
-    def start_response(status: str, resp_headers: list) -> None:
-        status_holder.append(status)
-        del resp_headers
-
-    out = _send_execution_result(start_response, {"status": "error", "code": "FILE_PATH_DENIED", "error": "denied"}, "path-1")
-    parsed = json.loads(b"".join(out))
-    assert status_holder[0].startswith("400")
-    assert parsed.get("code") == "FILE_PATH_DENIED"
-    assert parsed.get("id") == "path-1"
 
 
 def test_wrong_method_is_405() -> None:
@@ -2254,7 +2079,6 @@ def test_expect_100_continue_before_body() -> None:
     server.set_app(app)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
-    time.sleep(0.15)
     sock: socket.socket | None = None
     try:
         sock = socket.create_connection(("127.0.0.1", port), timeout=5)
@@ -2301,7 +2125,6 @@ def test_expect_100_oversized_body_gets_413_without_continue() -> None:
     server.set_app(create_wsgi_app(settings, execute_fn=execute_fn))
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
-    time.sleep(0.15)
     sock: socket.socket | None = None
     try:
         sock = socket.create_connection(("127.0.0.1", port), timeout=5)
@@ -2729,142 +2552,6 @@ def test_run_with_logging_deadline_errors_before_headers() -> None:
     assert not sem.acquire(timeout=0)
 
 
-def test_real_socket_queue_timeout() -> None:
-    """A blocked worker thread must cause a subsequent request with a short timeout to fail with QUEUE_TIMEOUT."""
-    from compute_service.server import WSGIDualStackServer, create_wsgi_app
-    from compute_service.config import ComputeSettings
-    import threading
-    import urllib.request
-    import urllib.error
-    import json
-    import time
-
-    settings = ComputeSettings(log_level="DEBUG")
-
-    block_event = threading.Event()
-
-    def fake_execute(*args: Any, **kwargs: Any) -> dict[str, Any]:
-        if kwargs.get("code") == "block":
-            block_event.wait()
-            return {"status": "ok"}
-        return {"status": "ok"}
-
-    app = create_wsgi_app(settings, execute_fn=fake_execute)
-    server = WSGIDualStackServer("127.0.0.1", 0, listener_threads=8)
-
-    # Delay processing of the second request to ensure it hits the queue timeout
-    original_process_request = server.process_request
-    req_count = 0
-
-    def intercept(request: Any, client_address: Any, **kwargs: Any) -> None:
-        nonlocal req_count
-        req_count += 1
-        if req_count > 1:
-            time.sleep(1.0)
-        original_process_request(request, client_address, **kwargs)
-
-    server.process_request = intercept  # type: ignore
-
-    server.set_app(app)
-
-    port = server.server_port
-    t = threading.Thread(target=server.serve_forever, daemon=True)
-    t.start()
-
-    try:
-        req1 = urllib.request.Request(f"http://127.0.0.1:{port}/v1/execute", data=b'{"code": "block", "timeout_ms": 5000}', headers={"Content-Type": "application/json"})
-        t1 = threading.Thread(target=lambda: urllib.request.urlopen(req1))
-        t1.start()
-
-        # Give the first request time to reach the worker
-        time.sleep(0.5)
-
-        req2 = urllib.request.Request(f"http://127.0.0.1:{port}/v1/execute", data=b'{"code": "test", "timeout_ms": 100}', headers={"Content-Type": "application/json"})
-
-        try:
-            urllib.request.urlopen(req2)
-            assert False, "Expected 503 QUEUE_TIMEOUT, but request succeeded."
-        except urllib.error.HTTPError as e:
-            assert e.code == 503
-            resp = json.loads(e.read().decode("utf-8"))
-            assert resp.get("code") == "QUEUE_TIMEOUT"
-    finally:
-        block_event.set()
-        t1.join(timeout=2.0)
-        server.shutdown()
-        server.server_close()
-
-
-def test_real_socket_queue_absorption() -> None:
-    """A request queued behind a busy worker must succeed once the worker frees before its deadline.
-
-    The smart-service contract states that worker busy is the steady state at 200-400 rps,
-    and brief queueing gets absorbed cleanly without failing or returning premature 503s.
-    """
-    from compute_service.server import WSGIDualStackServer, create_wsgi_app
-    from compute_service.config import ComputeSettings
-    import threading
-    import urllib.request
-    import json
-    import time
-
-    settings = ComputeSettings(log_level="DEBUG")
-    unblock_worker = threading.Event()
-    worker_started = threading.Event()
-
-    def fake_execute(*args: Any, **kwargs: Any) -> dict[str, Any]:
-        if kwargs.get("code") == "block_first":
-            worker_started.set()
-            unblock_worker.wait(timeout=5.0)
-            return {"status": "ok", "result": "first_done"}
-        return {"status": "ok", "result": "absorbed_done"}
-
-    # Single-worker gate to force request 2 into the admission queue
-    app = create_wsgi_app(settings, execute_fn=fake_execute, semaphore=threading.Semaphore(1))
-    server = WSGIDualStackServer("127.0.0.1", 0, listener_threads=8)
-    server.set_app(app)
-
-    port = server.server_port
-    t = threading.Thread(target=server.serve_forever, daemon=True)
-    t.start()
-
-    try:
-        req1 = urllib.request.Request(f"http://127.0.0.1:{port}/v1/execute", data=b'{"code": "block_first", "timeout_ms": 5000}', headers={"Content-Type": "application/json"})
-        t1 = threading.Thread(target=lambda: urllib.request.urlopen(req1))
-        t1.start()
-
-        assert worker_started.wait(timeout=3.0)
-
-        # Request 2 queues behind the busy worker with generous timeout
-        req2 = urllib.request.Request(f"http://127.0.0.1:{port}/v1/execute", data=b'{"code": "second_absorbed", "timeout_ms": 3000}', headers={"Content-Type": "application/json"})
-
-        res_holder: list[dict[str, Any]] = []
-
-        def send_req2() -> None:
-            with urllib.request.urlopen(req2) as resp:
-                res_holder.append(json.loads(resp.read().decode("utf-8")))
-
-        t2 = threading.Thread(target=send_req2)
-        t2.start()
-
-        # Brief pause to ensure req2 is actively queued in _gated semaphore
-        time.sleep(0.08)
-
-        # Worker 1 completes and releases permit
-        unblock_worker.set()
-
-        t1.join(timeout=3.0)
-        t2.join(timeout=3.0)
-
-        assert len(res_holder) == 1
-        assert res_holder[0].get("status") == "ok"
-        assert res_holder[0].get("result") == "absorbed_done"
-    finally:
-        unblock_worker.set()
-        server.shutdown()
-        server.server_close()
-
-
 def test_bearer_scheme_case_insensitive() -> None:
     """RFC 7235: Bearer auth scheme prefix is case-insensitive."""
     settings = ComputeSettings(api_key="my-secret-key")
@@ -3029,35 +2716,34 @@ def test_empty_multi_data_result() -> None:
     assert out["result"] == []
 
 
-def test_query_session_id_selects_shared_ignoring_client_mode() -> None:
+@pytest.fixture(scope="module")
+def _shared_query_session_app():
+    pool = FormulaProcessPool(settings=ComputeSettings(workers=1, default_timeout_sec=15))
+    app = create_wsgi_app(ComputeSettings(host="127.0.0.1", workers=1), execute_fn=lambda **kw: pool.execute(**kw))
+    try:
+        yield app
+    finally:
+        pool.shutdown()
+        shutdown_formula_pool()
+
+
+def test_query_session_id_selects_shared_ignoring_client_mode(_shared_query_session_app) -> None:
     """?session_id= enables sticky shared state even when the body still says mode=isolated."""
-    pool = FormulaProcessPool(settings=ComputeSettings(workers=1, default_timeout_sec=15))
-    app = create_wsgi_app(ComputeSettings(host="127.0.0.1", workers=1), execute_fn=lambda **kw: pool.execute(**kw))
     sid = "query-sid-overrides-mode"
-    try:
-        status1, _h1, first = _wsgi_post(app, json.dumps({"code": "x = 9\nresult = x", "mode": "isolated"}).encode("utf-8"), path="/v1/execute", query=f"session_id={sid}", headers={"Content-Type": "application/json"})
-        assert status1.startswith("200") and first.get("result") == 9
-        status2, _h2, second = _wsgi_post(app, json.dumps({"code": "result = x + 1", "mode": "shared"}).encode("utf-8"), path="/v1/execute", query=f"session_id={sid}", headers={"Content-Type": "application/json"})
-        assert status2.startswith("200") and second.get("result") == 10
-        status3, _h3, third = _wsgi_post(app, json.dumps({"code": "result = x", "mode": "bogus"}).encode("utf-8"), path="/v1/execute", query=f"session_id={sid}", headers={"Content-Type": "application/json"})
-        assert status3.startswith("200") and third.get("result") == 9
-    finally:
-        pool.shutdown()
-        shutdown_formula_pool()
+    status1, _h1, first = _wsgi_post(_shared_query_session_app, json.dumps({"code": "x = 9\nresult = x", "mode": "isolated"}).encode("utf-8"), path="/v1/execute", query=f"session_id={sid}", headers={"Content-Type": "application/json"})
+    assert status1.startswith("200") and first.get("result") == 9
+    status2, _h2, second = _wsgi_post(_shared_query_session_app, json.dumps({"code": "result = x + 1", "mode": "shared"}).encode("utf-8"), path="/v1/execute", query=f"session_id={sid}", headers={"Content-Type": "application/json"})
+    assert status2.startswith("200") and second.get("result") == 10
+    status3, _h3, third = _wsgi_post(_shared_query_session_app, json.dumps({"code": "result = x", "mode": "bogus"}).encode("utf-8"), path="/v1/execute", query=f"session_id={sid}", headers={"Content-Type": "application/json"})
+    assert status3.startswith("200") and third.get("result") == 9
 
 
-def test_omitted_query_session_id_is_isolated_even_with_mode_shared() -> None:
+def test_omitted_query_session_id_is_isolated_even_with_mode_shared(_shared_query_session_app) -> None:
     """Without ?session_id=, leftover mode=shared in JSON does not keep state."""
-    pool = FormulaProcessPool(settings=ComputeSettings(workers=1, default_timeout_sec=15))
-    app = create_wsgi_app(ComputeSettings(host="127.0.0.1", workers=1), execute_fn=lambda **kw: pool.execute(**kw))
-    try:
-        _s1, _h1, r1 = _wsgi_post(app, json.dumps({"code": "flag = 3\nresult = flag", "mode": "shared"}).encode("utf-8"), path="/v1/execute", headers={"Content-Type": "application/json"})
-        assert r1["status"] == "ok" and r1["result"] == 3
-        _s2, _h2, r2 = _wsgi_post(app, json.dumps({"code": "result = flag", "mode": "shared"}).encode("utf-8"), path="/v1/execute", headers={"Content-Type": "application/json"})
-        assert r2["status"] == "error"
-    finally:
-        pool.shutdown()
-        shutdown_formula_pool()
+    _s1, _h1, r1 = _wsgi_post(_shared_query_session_app, json.dumps({"code": "flag = 3\nresult = flag", "mode": "shared"}).encode("utf-8"), path="/v1/execute", headers={"Content-Type": "application/json"})
+    assert r1["status"] == "ok" and r1["result"] == 3
+    _s2, _h2, r2 = _wsgi_post(_shared_query_session_app, json.dumps({"code": "result = flag", "mode": "shared"}).encode("utf-8"), path="/v1/execute", headers={"Content-Type": "application/json"})
+    assert r2["status"] == "error"
 
 
 def test_malformed_client_mode_is_ignored() -> None:

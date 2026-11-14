@@ -146,105 +146,50 @@ def test_maintain_folder_index_uses_heartbeat_rpc(ctx, tmp_path):
 
 
 @pytest.mark.parametrize(
-    "return_value",
+    ("search_mode", "rerank_enabled"),
     [
-        pytest.param("llama_index", id="test_hybrid_search_passes_rerank_model_when_llama_index_enabled"),
-        pytest.param("hybrid", id="test_hybrid_search_passes_rerank_model_when_hybrid_rerank_enabled"),
+        pytest.param("llama_index", True, id="llama-index-on"),
+        pytest.param("hybrid", True, id="hybrid-on"),
+        pytest.param("llama_index", False, id="llama-index-off"),
+        pytest.param("hybrid", False, id="hybrid-off"),
     ],
 )
-def test_hybrid_search_passes_rerank_model_when_llama_index_enabled(ctx, tmp_path, return_value):
+def test_hybrid_search_rerank_params(ctx, tmp_path, search_mode, rerank_enabled):
     from plugin.framework.constants import FOLDER_RERANK_MODEL_ENGLISH_SMALL
 
     corpus_db = str(tmp_path / "corpus.db")
-    with patch(
-        "plugin.embeddings.embeddings_service.run_trusted_worker_action",
-        return_value={"hits": []},
-    ) as mock_run:
-        with patch("plugin.embeddings.embeddings_service.embeddings_worker_timeout_sec", return_value=120):
-            with patch("plugin.embeddings.embeddings_service.configured_folder_search_mode", return_value=return_value):
-                with patch(
-                    "plugin.embeddings.embeddings_service._folder_search_rerank_options",
-                    return_value={"use_mmr": True, "rerank_model": FOLDER_RERANK_MODEL_ENGLISH_SMALL},
-                ):
-                    embeddings_service.hybrid_search(ctx, corpus_db, "q", 5, model=DEFAULT_EMBEDDING_MODEL)
+    with (
+        patch("plugin.embeddings.embeddings_service.run_trusted_worker_action", return_value={"hits": []}) as mock_run,
+        patch("plugin.embeddings.embeddings_service.embeddings_worker_timeout_sec", return_value=120),
+        patch("plugin.embeddings.embeddings_service.configured_folder_search_mode", return_value=search_mode),
+        patch("plugin.framework.constants.folder_rerank_enabled", return_value=rerank_enabled),
+        patch("plugin.framework.constants.resolve_folder_rerank_model", return_value=FOLDER_RERANK_MODEL_ENGLISH_SMALL),
+    ):
+        embeddings_service.hybrid_search(ctx, corpus_db, "q", 5, model=DEFAULT_EMBEDDING_MODEL)
     data = mock_run.call_args.kwargs["params"]
-    assert data["rerank_model"] == FOLDER_RERANK_MODEL_ENGLISH_SMALL
-    assert data["use_mmr"] is True
+    assert data["use_mmr"] is rerank_enabled
+    if rerank_enabled:
+        assert data["rerank_model"] == FOLDER_RERANK_MODEL_ENGLISH_SMALL
+    else:
+        assert "rerank_model" not in data
 
 
-def test_hybrid_search_disables_rerank_when_llama_index_rerank_off(ctx, tmp_path):
-    corpus_db = str(tmp_path / "corpus.db")
-    with patch(
-        "plugin.embeddings.embeddings_service.run_trusted_worker_action",
-        return_value={"hits": []},
-    ) as mock_run:
-        with patch("plugin.embeddings.embeddings_service.embeddings_worker_timeout_sec", return_value=120):
-            with patch("plugin.embeddings.embeddings_service.configured_folder_search_mode", return_value="llama_index"):
-                with patch(
-                    "plugin.embeddings.embeddings_service._folder_search_rerank_options",
-                    return_value={"use_mmr": False},
-                ):
-                    embeddings_service.hybrid_search(ctx, corpus_db, "q", 5, model=DEFAULT_EMBEDDING_MODEL)
-    data = mock_run.call_args.kwargs["params"]
-    assert "rerank_model" not in data
-    assert data["use_mmr"] is False
+@pytest.mark.parametrize("search_mode", ["llama_index", "hybrid", "lancedb"])
+def test_folder_search_rerank_options_enabled(ctx, search_mode):
+    sentinel = "rerank-sentinel-model"
+    with (
+        patch("plugin.framework.constants.folder_rerank_enabled", return_value=True),
+        patch("plugin.framework.constants.resolve_folder_rerank_model", return_value=sentinel),
+    ):
+        opts = embeddings_service._folder_search_rerank_options(search_mode)
+    assert opts == {"use_mmr": True, "rerank_model": sentinel}
 
 
-def test_hybrid_search_omits_rerank_when_disabled_for_hybrid_backend(ctx, tmp_path):
-    corpus_db = str(tmp_path / "corpus.db")
-    with patch(
-        "plugin.embeddings.embeddings_service.run_trusted_worker_action",
-        return_value={"hits": []},
-    ) as mock_run:
-        with patch("plugin.embeddings.embeddings_service.embeddings_worker_timeout_sec", return_value=120):
-            with patch("plugin.framework.constants.folder_rerank_enabled", return_value=False):
-                with patch("plugin.embeddings.embeddings_service.configured_folder_search_mode", return_value="hybrid"):
-                    embeddings_service.hybrid_search(ctx, corpus_db, "q", 5, model=DEFAULT_EMBEDDING_MODEL)
-    data = mock_run.call_args.kwargs["params"]
-    assert "rerank_model" not in data
-    assert data["use_mmr"] is False
-
-def test_folder_search_rerank_options_llama_index_enabled(ctx):
-    from plugin.framework.constants import FOLDER_RERANK_MODEL_MULTILINGUAL
-
-    with patch("plugin.framework.constants.folder_rerank_enabled", return_value=True):
-        with patch(
-            "plugin.framework.constants.resolve_folder_rerank_model",
-            return_value=FOLDER_RERANK_MODEL_MULTILINGUAL,
-        ):
-            opts = embeddings_service._folder_search_rerank_options("llama_index")
-    assert opts == {"use_mmr": True, "rerank_model": FOLDER_RERANK_MODEL_MULTILINGUAL}
-
-
-@pytest.mark.parametrize(
-    "value",
-    [
-        pytest.param("llama_index", id="test_folder_search_rerank_options_llama_index_disabled"),
-        pytest.param("hybrid", id="test_folder_search_rerank_options_hybrid_backend_disabled"),
-    ],
-)
-def test_folder_search_rerank_options_llama_index_disabled(ctx, value):
+@pytest.mark.parametrize("search_mode", ["llama_index", "hybrid"])
+def test_folder_search_rerank_options_disabled(ctx, search_mode):
     with patch("plugin.framework.constants.folder_rerank_enabled", return_value=False):
-        opts = embeddings_service._folder_search_rerank_options(value)
+        opts = embeddings_service._folder_search_rerank_options(search_mode)
     assert opts == {"use_mmr": False}
-
-@pytest.mark.parametrize(
-    "value",
-    [
-        pytest.param("hybrid", id="test_folder_search_rerank_options_hybrid_backend_enabled"),
-        pytest.param("lancedb", id="test_folder_search_rerank_options_lancedb_enabled"),
-    ],
-)
-def test_folder_search_rerank_options_hybrid_backend_enabled(ctx, value):
-    from plugin.framework.constants import FOLDER_RERANK_MODEL_ENGLISH_SMALL
-
-    with patch("plugin.framework.constants.folder_rerank_enabled", return_value=True):
-        with patch(
-            "plugin.framework.constants.resolve_folder_rerank_model",
-            return_value=FOLDER_RERANK_MODEL_ENGLISH_SMALL,
-        ):
-            opts = embeddings_service._folder_search_rerank_options(value)
-    assert opts == {"use_mmr": True, "rerank_model": FOLDER_RERANK_MODEL_ENGLISH_SMALL}
 
 
 def test_hybrid_search_forwards_ctx_and_none_cancel_for_worker_resolution(ctx, tmp_path):

@@ -78,72 +78,37 @@ def test_get_embedder_import_error_includes_install_line():
             embeddings_index._get_embedder("all-MiniLM-L6-v2")
 
 
-def test_delete_paragraphs_removes_from_corpus(tmp_path):
+@pytest.mark.parametrize(
+    ("initial_meta", "remaining_count", "expected_saved"),
+    [
+        pytest.param('{"chunk_count": "1", "dim": "384"}', 0, {"chunk_count": "0", "dim": "384"}, id="removes-from-corpus"),
+        pytest.param(
+            '{"row_count": "42", "custom_host_field": "host_val", "chunk_count": "5"}',
+            3,
+            {"row_count": "42", "custom_host_field": "host_val", "chunk_count": "3"},
+            id="preserves-host-fields",
+        ),
+        pytest.param("[1, 2, 3]", 0, {"chunk_count": "0"}, id="non-dict-meta-becomes-object"),
+    ],
+)
+def test_delete_paragraphs_updates_meta(tmp_path, initial_meta, remaining_count, expected_saved):
     meta_path = tmp_path / "corpus_meta.json"
-    meta_path.write_text('{"chunk_count": "1", "dim": "384"}', encoding="utf-8")
+    meta_path.write_text(initial_meta, encoding="utf-8")
     db_path = tmp_path / "corpus.db"
 
-    with patch("plugin.embeddings.venv.embeddings_sqlite.connect_corpus_db") as mock_connect:
-        conn = MagicMock()
-        mock_connect.return_value = conn
-        with patch("plugin.embeddings.venv.embeddings_sqlite.ensure_schema"):
-            with patch("plugin.embeddings.venv.embeddings_sqlite.delete_paragraph_keys", return_value=1):
-                with patch("plugin.embeddings.venv.embeddings_sqlite.corpus_chunk_count", return_value=0):
-                    result = embeddings_index.delete_paragraphs(
-                        str(db_path),
-                        str(meta_path),
-                        [{"doc_url": "file:///a.odt", "para_index": 0}],
-                    )
+    with (
+        patch("plugin.embeddings.venv.embeddings_sqlite.connect_corpus_db", return_value=MagicMock()),
+        patch("plugin.embeddings.venv.embeddings_sqlite.ensure_schema"),
+        patch("plugin.embeddings.venv.embeddings_sqlite.delete_paragraph_keys", return_value=1),
+        patch("plugin.embeddings.venv.embeddings_sqlite.corpus_chunk_count", return_value=remaining_count),
+    ):
+        result = embeddings_index.delete_paragraphs(
+            str(db_path),
+            str(meta_path),
+            [{"doc_url": "file:///a.odt", "para_index": 0}],
+        )
     assert result["deleted"] == 1
-    saved = json.loads(meta_path.read_text(encoding="utf-8"))
-    assert saved["chunk_count"] == "0"
-    assert saved["dim"] == "384"
-
-
-def test_delete_paragraphs_preserves_host_fields(tmp_path):
-    meta_path = tmp_path / "corpus_meta.json"
-    meta_path.write_text(
-        '{"row_count": "42", "custom_host_field": "host_val", "chunk_count": "5"}',
-        encoding="utf-8",
-    )
-    db_path = tmp_path / "corpus.db"
-
-    with patch("plugin.embeddings.venv.embeddings_sqlite.connect_corpus_db") as mock_connect:
-        conn = MagicMock()
-        mock_connect.return_value = conn
-        with patch("plugin.embeddings.venv.embeddings_sqlite.ensure_schema"):
-            with patch("plugin.embeddings.venv.embeddings_sqlite.delete_paragraph_keys", return_value=1):
-                with patch("plugin.embeddings.venv.embeddings_sqlite.corpus_chunk_count", return_value=3):
-                    result = embeddings_index.delete_paragraphs(
-                        str(db_path),
-                        str(meta_path),
-                        [{"doc_url": "file:///a.odt", "para_index": 0}],
-                    )
-    assert result["deleted"] == 1
-    saved = json.loads(meta_path.read_text(encoding="utf-8"))
-    assert saved["chunk_count"] == "3"
-    assert saved["row_count"] == "42"
-    assert saved["custom_host_field"] == "host_val"
-
-
-def test_delete_paragraphs_non_dict_meta_becomes_object(tmp_path):
-    meta_path = tmp_path / "corpus_meta.json"
-    meta_path.write_text("[1, 2, 3]", encoding="utf-8")
-    db_path = tmp_path / "corpus.db"
-
-    with patch("plugin.embeddings.venv.embeddings_sqlite.connect_corpus_db") as mock_connect:
-        conn = MagicMock()
-        mock_connect.return_value = conn
-        with patch("plugin.embeddings.venv.embeddings_sqlite.ensure_schema"):
-            with patch("plugin.embeddings.venv.embeddings_sqlite.delete_paragraph_keys", return_value=1):
-                with patch("plugin.embeddings.venv.embeddings_sqlite.corpus_chunk_count", return_value=0):
-                    result = embeddings_index.delete_paragraphs(
-                        str(db_path),
-                        str(meta_path),
-                        [{"doc_url": "file:///a.odt", "para_index": 0}],
-                    )
-    assert result["deleted"] == 1
-    assert json.loads(meta_path.read_text(encoding="utf-8")) == {"chunk_count": "0"}
+    assert json.loads(meta_path.read_text(encoding="utf-8")) == expected_saved
 
 
 def test_is_garbage_hit():

@@ -143,27 +143,39 @@ def test_create_calc_chart_has_header_false():
     assert args[4] is False
 
 
-def test_chart_upsert_validate_error_handling():
+@pytest.mark.parametrize(
+    ("kwargs", "expected_ok", "expected_substrings"),
+    [
+        pytest.param({"doc_type": "calc", "name": "Chart_0"}, True, (), id="calc-edit-by-name"),
+        pytest.param({"doc_type": "calc"}, False, ("chart_type",), id="calc-missing-chart-type"),
+        pytest.param({"doc_type": "calc", "chart_type": "bar"}, False, ("data_range",), id="calc-missing-data-range"),
+        pytest.param({"doc_type": "calc", "action": "invalid_action"}, False, ("Unknown parameter",), id="calc-unknown-param"),
+        pytest.param({"doc_type": "writer", "chart_type": "column"}, False, ("headers", "rows"), id="writer-missing-headers-rows"),
+        pytest.param({"doc_type": "writer", "chart_type": "column", "headers": ["Category", "A"], "rows": [["x", 1]]}, True, (), id="writer-valid-arrays"),
+        pytest.param({"doc_type": "writer", "chart_type": "bar", "headers": ["Cat", "A"], "rows": [["x", 1]], "position": "page-2"}, False, ("cursor", "end"), id="writer-invalid-position"),
+        pytest.param({"doc_type": "writer", "chart_type": "bar", "headers": ["Cat", "A"], "rows": [["x", 1]], "position": "cursor"}, True, (), id="writer-cursor-position"),
+        pytest.param({"doc_type": "calc", "chart_type": "bar", "data_range": "A1:B2", "position": "C1"}, True, (), id="calc-cell-position"),
+        pytest.param({"doc_type": "writer", "chart_type": "bar", "headers": ["Cat", "A"], "rows": [["x", "bad"]]}, False, ("must be a number",), id="writer-non-numeric-row"),
+    ],
+)
+def test_chart_upsert_validate_cases(kwargs, expected_ok, expected_substrings):
+    ok, err = _tool("chart_upsert").validate(**kwargs)
+    assert ok is expected_ok
+    if expected_ok:
+        assert err is None
+    else:
+        assert err is not None
+        for snippet in expected_substrings:
+            assert snippet in err
+
+
+def test_chart_upsert_edit_nonexistent_chart_returns_error():
     ctx = MagicMock()
     ctx.doc = MagicMock()
-
-    upsert = _tool("chart_upsert")
-    ok, err = upsert.validate(doc_type="calc", name="Chart_0")
-    assert (ok, err) == (True, None)
-
-    ok_type, err_type = upsert.validate(doc_type="calc")
-    assert ok_type is False
-    assert err_type and "chart_type" in err_type
-
-    ok_range, err_range = upsert.validate(doc_type="calc", chart_type="bar")
-    assert ok_range is False
-    assert err_range and "data_range" in err_range
-
-    ok_bad, err_bad = upsert.validate(doc_type="calc", action="invalid_action")
-    assert ok_bad is False
-    assert "Unknown parameter" in (err_bad or "")
-
-    with patch("plugin.calc.charts._supports_service", return_value=True), patch.object(SheetCharts, "find", return_value=None):
+    with (
+        patch("plugin.calc.charts._supports_service", return_value=True),
+        patch.object(SheetCharts, "find", return_value=None),
+    ):
         res_edit_nf = _tool("chart_upsert").execute_safe(ctx, name="NonExistentChart")
         assert res_edit_nf["status"] == "error"
         assert "not found" in res_edit_nf["message"]
@@ -446,20 +458,6 @@ def test_legend_position_none_hides_legend_without_enum():
         _apply_chart_styling(chart_doc, legend_position="none")
     assert chart_doc.HasLegend is False
     enum.assert_not_called()
-
-
-def test_chart_upsert_validate_create_requires_data_or_arrays():
-    mc = _tool("chart_upsert")
-    ok, err = mc.validate(doc_type="writer", chart_type="column")
-    assert ok is False
-    assert err is not None
-    assert "headers" in err
-    ok, err = mc.validate(doc_type="calc", chart_type="column")
-    assert ok is False
-    assert err is not None
-    assert "data_range" in err
-    ok, err = mc.validate(doc_type="writer", chart_type="column", headers=["Category", "A"], rows=[["x", 1]])
-    assert ok is True
 
 
 def test_chart_get_info_and_delete_validate_require_name():
@@ -835,31 +833,6 @@ def test_styling_logging_counts_not_payloads(caplog):
     with caplog.at_level(logging.DEBUG, logger="plugin.calc.charts"):
         _apply_chart_data_arrays(chart_doc, ["Cat", "Val"], [["SecretDistinctCellXYZ", 999.0]])
     assert "SecretDistinctCellXYZ" in caplog.text
-
-
-def test_chart_upsert_validate_per_doc_type():
-    mc = _tool("chart_upsert")
-
-    ok, err = mc.validate(doc_type="writer", chart_type="bar", headers=["Cat", "A"], rows=[["x", 1]], position="page-2")
-    assert ok is False
-    assert err is not None
-    assert "cursor" in err and "end" in err
-
-    assert mc.validate(doc_type="writer", chart_type="bar", headers=["Cat", "A"], rows=[["x", 1]], position="cursor")[0] is True
-    assert mc.validate(doc_type="writer", chart_type="bar", headers=["Cat", "A"], rows=[["x", 1]])[0] is True
-    assert mc.validate(doc_type="calc", chart_type="bar", data_range="A1:B2", position="C1")[0] is True
-
-    ok, err = mc.validate(doc_type="calc", chart_type="bar")
-    assert ok is False
-    assert err is not None and "data_range" in err
-
-    ok, err = mc.validate(doc_type="writer", chart_type="bar")
-    assert ok is False
-    assert err is not None and "headers" in err and "rows" in err
-
-    ok, err = mc.validate(doc_type="writer", chart_type="bar", headers=["Cat", "A"], rows=[["x", "bad"]])
-    assert ok is False
-    assert err is not None and "must be a number" in err
 
 
 def test_calc_edit_updates_data_range_and_headers():

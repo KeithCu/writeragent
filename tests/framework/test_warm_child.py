@@ -319,7 +319,8 @@ def test_shutdown_all_abandons_without_waiting(tmp_path: Any, supervisor: Superv
     assert warm._retired is True
 
 
-def test_shutdown_all_sweeps_managed_registry_when_spawner_never_started(monkeypatch) -> None:
+@pytest.mark.parametrize("threads_started", [False, True], ids=["never_started", "started"])
+def test_shutdown_all_sweeps_managed_registry_once(monkeypatch, threads_started: bool) -> None:
     ms_calls = 0
 
     def _ms_shutdown() -> None:
@@ -331,24 +332,7 @@ def test_shutdown_all_sweeps_managed_registry_when_spawner_never_started(monkeyp
         _ms_shutdown,
     )
     sup = Supervisor()
-    assert not sup._threads_started
-    sup.shutdown_all()
-    assert ms_calls == 1
-
-
-def test_shutdown_all_sweeps_managed_registry_once_when_spawner_started(monkeypatch) -> None:
-    ms_calls = 0
-
-    def _ms_shutdown() -> None:
-        nonlocal ms_calls
-        ms_calls += 1
-
-    monkeypatch.setattr(
-        "plugin.framework.managed_subprocess.shutdown_all",
-        _ms_shutdown,
-    )
-    sup = Supervisor()
-    sup._threads_started = True
+    sup._threads_started = threads_started
     sup.shutdown_all()
     assert ms_calls == 1
 

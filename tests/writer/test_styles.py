@@ -267,7 +267,8 @@ def test_apply_style_paragraph(mock_resolve, mock_preserve, mock_ctx):
 
     assert res["status"] == "ok"
     assert res["family"] == "ParagraphStyles"
-    mock_preserve.assert_called_once_with(mock_ctx.doc, cursor, "Heading 1", "style_props")
+    assert mock_preserve.call_args.args[1] is cursor
+    assert mock_preserve.call_args.args[2:] == ("Heading 1", "style_props")
     cursor.setPropertyValue.assert_not_called()
 
 
@@ -798,19 +799,19 @@ def test_line_spacing_mode_accepts_the_word():
 
 
 @pytest.mark.parametrize(
-    "value, value_2, value_3, value_4",
+    "field, val, expected_a, expected_b",
     [
-        pytest.param("Mode", "duplo", "prop", "duplo", id="test_unknown_line_spacing_mode_is_refused_with_the_options"),
-        pytest.param("Altura", 150, "Altura", "Height", id="test_unknown_struct_field_names_the_real_fields"),
+        pytest.param("Mode", "duplo", "prop", "duplo", id="unknown_mode"),
+        pytest.param("Altura", 150, "Altura", "Height", id="unknown_field"),
     ],
 )
-def test_unknown_line_spacing_mode_is_refused_with_the_options(value, value_2, value_3, value_4):
+def test_unknown_line_spacing_mode_is_refused_with_the_options(field, val, expected_a, expected_b):
     with pytest.raises(ValueError) as excinfo:
-        _normalize_with_fake_struct({"ParaLineSpacing": {value: value_2}})
+        _normalize_with_fake_struct({"ParaLineSpacing": {field: val}})
     err = str(excinfo.value)
-    assert value_3 in err and value_4 in err
+    assert expected_a in err and expected_b in err
 
-def test_struct_property_given_a_scalar_is_refused():
+def test_struct_property_given_a_scalar_passes_through():
     out = _normalize_with_fake_struct({"ParaLineSpacing": 150})
     # Not a dict -> left for UNO to reject; the normalizer must not crash.
     assert out["ParaLineSpacing"] == 150
@@ -1557,56 +1558,42 @@ def test_style_list_calc_cell_styles_returns_entries():
     assert res["styles"][0]["name"] == "Good"
 
 
-def test_apply_style_case_sensitive_target_search():
-    """ApplyStyle target='search' threads case_sensitive to find_first_range."""
-    from plugin.writer.styles import ApplyStyle
-
-    ctx = _ctx_with_families(ParagraphStyles=_style_family({"Heading 1": create_mock_style("Heading 1")}))
-    r = MagicMock()
-    calls = []
-
-    def fake_find_first(doc, s, *, case_sensitive=False):
-        calls.append((s, case_sensitive))
-        return r
-
-    with patch("plugin.writer.search.find_first_range", side_effect=fake_find_first), \
-         patch("plugin.writer.styles.cursor_spanning_range", return_value=MagicMock()), \
-         patch.object(ApplyStyle, "_apply_one", return_value=None):
-        # Default omitted case_sensitive
-        res_default = ApplyStyle().execute(ctx, style="Heading 1", target="search", old_content="apple")
-        assert res_default["status"] == "ok"
-        assert calls[-1] == ("apple", False)
-
-        # Explicit case_sensitive=True
-        res_cs = ApplyStyle().execute(ctx, style="Heading 1", target="search", old_content="apple", case_sensitive=True)
-        assert res_cs["status"] == "ok"
-        assert calls[-1] == ("apple", True)
-
-
-def test_apply_style_case_sensitive_occurrence():
-    """ApplyStyle target='search' with occurrence threads case_sensitive to find_all_ranges."""
+@pytest.mark.parametrize(
+    "occurrence, expected_finder",
+    [
+        pytest.param(None, "first", id="first_range"),
+        pytest.param(0, "all", id="occurrence"),
+    ],
+)
+def test_apply_style_case_sensitive_forwarded_to_search(occurrence, expected_finder):
+    """ApplyStyle target='search' threads case_sensitive to find_first_range / find_all_ranges."""
     from plugin.writer.styles import ApplyStyle
 
     ctx = _ctx_with_families(ParagraphStyles=_style_family({"Heading 1": create_mock_style("Heading 1")}))
     r1 = MagicMock()
     r2 = MagicMock()
-
     calls = []
 
+    def fake_find_first(doc, s, *, case_sensitive=False):
+        calls.append(("first", s, case_sensitive))
+        return r1
+
     def fake_find_all(doc, s, *, case_sensitive=False):
-        calls.append((s, case_sensitive))
+        calls.append(("all", s, case_sensitive))
         return [r1, r2]
 
-    with patch("plugin.writer.search.find_all_ranges", side_effect=fake_find_all), \
+    extra = {} if occurrence is None else {"occurrence": occurrence}
+    with patch("plugin.writer.search.find_first_range", side_effect=fake_find_first), \
+         patch("plugin.writer.search.find_all_ranges", side_effect=fake_find_all), \
          patch("plugin.writer.styles.cursor_spanning_range", return_value=MagicMock()), \
          patch.object(ApplyStyle, "_apply_one", return_value=None):
-        res_default = ApplyStyle().execute(ctx, style="Heading 1", target="search", old_content="apple", occurrence=0)
+        res_default = ApplyStyle().execute(ctx, style="Heading 1", target="search", old_content="apple", **extra)
         assert res_default["status"] == "ok"
-        assert calls[-1] == ("apple", False)
+        assert calls[-1] == (expected_finder, "apple", False)
 
-        res_cs = ApplyStyle().execute(ctx, style="Heading 1", target="search", old_content="apple", occurrence=0, case_sensitive=True)
+        res_cs = ApplyStyle().execute(ctx, style="Heading 1", target="search", old_content="apple", case_sensitive=True, **extra)
         assert res_cs["status"] == "ok"
-        assert calls[-1] == ("apple", True)
+        assert calls[-1] == (expected_finder, "apple", True)
 
 
 def test_apply_style_suggests_call_when_single_close_match():

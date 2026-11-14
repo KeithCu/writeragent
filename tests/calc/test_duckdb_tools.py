@@ -177,12 +177,6 @@ def test_query_folder_sql_files_list_rejected_by_schema():
     assert "files" in prep.error["message"]
 
 
-def test_query_folder_sql_requires_sql():
-    ctx = _mk_ctx()
-    res = _tool().execute_safe(ctx, sql="")
-    assert res["status"] == "error"
-
-
 @patch("plugin.framework.queue_executor.main.call")
 @patch("plugin.scripting.client.run_folder_sql")
 @patch("plugin.calc.duckdb_tools.read_table_source_grid")

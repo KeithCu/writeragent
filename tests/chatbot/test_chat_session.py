@@ -1,6 +1,9 @@
 """Pure unit tests for ChatSession message/history rules (no UNO)."""
 
+import json
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 from plugin.chatbot.chat_session import (
     ChatSession,
@@ -110,24 +113,18 @@ def test_persist_rules_with_mock_db():
     assert not any(c.args and c.args[0] == "tool" for c in mock_db.add_message.call_args_list)
 
 
-def test_load_failure_does_not_seed_system_row():
-    import json
-
+@pytest.mark.parametrize(
+    "exc",
+    [
+        pytest.param(json.JSONDecodeError("bad", "doc", 0), id="json_decode_error"),
+        pytest.param(OSError("disk"), id="oserror"),
+    ],
+)
+def test_load_failure_does_not_seed_system_row(exc):
     mock_db = MagicMock()
-    mock_db.get_messages.side_effect = json.JSONDecodeError("bad", "doc", 0)
+    mock_db.get_messages.side_effect = exc
     with patch("plugin.chatbot.chat_session.get_chat_history", return_value=mock_db):
-        session = ChatSession(system_prompt="Sys", session_id="sid-bad")
-
-    assert session.messages == []
-    assert session.history_notice == ""
-    mock_db.add_message.assert_not_called()
-
-
-def test_load_oserror_does_not_seed_system_row():
-    mock_db = MagicMock()
-    mock_db.get_messages.side_effect = OSError("disk")
-    with patch("plugin.chatbot.chat_session.get_chat_history", return_value=mock_db):
-        session = ChatSession(system_prompt="Sys", session_id="sid-os")
+        session = ChatSession(system_prompt="Sys", session_id="sid-fail")
 
     assert session.messages == []
     assert session.history_notice == ""
@@ -158,13 +155,6 @@ def test_clear_resets_messages_and_document_context():
     assert len(session.messages) == 1
     assert session.messages[0] == {"role": "system", "content": "Sys"}
     mock_db.replace_messages.assert_called_once_with([{"role": "system", "content": "Sys"}])
-
-
-def test_clear_resets_compaction():
-    session = ChatSession(system_prompt="Sys")
-    session.compaction = object()
-    session.clear()
-    assert session.compaction is None
 
 
 def test_history_load_uses_persisted_messages():

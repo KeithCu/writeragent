@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from typing import Any
 
+import pytest
 
 from plugin.scripting.text_analytics_ui import TextAnalyticsDialog
 
@@ -206,14 +207,42 @@ def test_topics_inner_error_result_is_not_insertable():
     assert dlg_obj._source_uid is None
 
 
-def test_generic_worker_exception_omits_package_hint(monkeypatch):
+@pytest.mark.parametrize(
+    ("helper", "has_doc", "exc_msg", "expected_start", "exact", "hint_expected"),
+    [
+        ("readability", True, "boom", "Error: boom", False, False),
+        (
+            "readability",
+            True,
+            "Python worker failed: timed out after 30 seconds",
+            "Error: Python worker failed: timed out after 30 seconds",
+            True,
+            False,
+        ),
+        ("readability", True, "No module named 'spacy'", "Error: No module named 'spacy'", False, True),
+        ("diagnostics", False, "no python", "Error from the Text Analytics worker:\nno python", True, False),
+    ],
+    ids=["generic_omits_hint", "timeout_omits_hint", "import_keeps_hint", "diagnostics_no_install_cmd"],
+)
+def test_worker_exception_formatting(
+    monkeypatch,
+    helper,
+    has_doc,
+    exc_msg,
+    expected_start,
+    exact,
+    hint_expected,
+):
     dlg_obj, fake_dlg = _make_dialog()
-    monkeypatch.setattr("plugin.scripting.text_analytics_ui.get_active_document", lambda ctx: object())
-    monkeypatch.setattr("plugin.scripting.text_analytics_ui.is_writer", lambda doc: True)
-    monkeypatch.setattr(
-        "plugin.scripting.text_analytics_ui.resolve_text_analytics_document_inputs",
-        lambda doc, helper, scope="whole": ("A" * 30, {}),
-    )
+    if has_doc:
+        monkeypatch.setattr("plugin.scripting.text_analytics_ui.get_active_document", lambda ctx: object())
+        monkeypatch.setattr("plugin.scripting.text_analytics_ui.is_writer", lambda doc: True)
+        monkeypatch.setattr(
+            "plugin.scripting.text_analytics_ui.resolve_text_analytics_document_inputs",
+            lambda doc, h, scope="whole": ("A" * 30, {}),
+        )
+    else:
+        monkeypatch.setattr("plugin.scripting.text_analytics_ui.get_active_document", lambda ctx: None)
 
     recorded_worker: list[Any] = []
     monkeypatch.setattr(
@@ -221,11 +250,11 @@ def test_generic_worker_exception_omits_package_hint(monkeypatch):
         lambda func, name="", dedicated=False: recorded_worker.append(func),
     )
 
-    dlg_obj._compute("readability", "whole")
+    dlg_obj._compute(helper, "whole")
     worker_fn = recorded_worker[0]
 
     def failing_rpc(*a, **kw):
-        raise RuntimeError("boom")
+        raise RuntimeError(exc_msg)
 
     monkeypatch.setattr("plugin.scripting.text_analytics_ui.run_text_analytics", failing_rpc)
     monkeypatch.setattr("plugin.framework.queue_executor.main.post", lambda fn: fn())
@@ -234,100 +263,12 @@ def test_generic_worker_exception_omits_package_hint(monkeypatch):
 
     assert dlg_obj._last_result is None
     res_text = fake_dlg.controls["ResultsEdit"].getModel().Text
-    assert res_text.startswith("Error: boom")
-    assert "Required packages" not in res_text
-    assert "Click Check Venv" not in res_text
-
-
-def test_timeout_worker_exception_omits_package_hint(monkeypatch):
-    dlg_obj, fake_dlg = _make_dialog()
-    monkeypatch.setattr("plugin.scripting.text_analytics_ui.get_active_document", lambda ctx: object())
-    monkeypatch.setattr("plugin.scripting.text_analytics_ui.is_writer", lambda doc: True)
-    monkeypatch.setattr(
-        "plugin.scripting.text_analytics_ui.resolve_text_analytics_document_inputs",
-        lambda doc, helper, scope="whole": ("A" * 30, {}),
-    )
-
-    recorded_worker: list[Any] = []
-    monkeypatch.setattr(
-        "plugin.scripting.text_analytics_ui.run_in_background",
-        lambda func, name="", dedicated=False: recorded_worker.append(func),
-    )
-
-    dlg_obj._compute("readability", "whole")
-    worker_fn = recorded_worker[0]
-
-    def failing_rpc(*a, **kw):
-        raise RuntimeError("Python worker failed: timed out after 30 seconds")
-
-    monkeypatch.setattr("plugin.scripting.text_analytics_ui.run_text_analytics", failing_rpc)
-    monkeypatch.setattr("plugin.framework.queue_executor.main.post", lambda fn: fn())
-
-    worker_fn()
-
-    assert dlg_obj._last_result is None
-    res_text = fake_dlg.controls["ResultsEdit"].getModel().Text
-    assert res_text == "Error: Python worker failed: timed out after 30 seconds"
-
-
-def test_import_worker_exception_keeps_package_hint(monkeypatch):
-    dlg_obj, fake_dlg = _make_dialog()
-    monkeypatch.setattr("plugin.scripting.text_analytics_ui.get_active_document", lambda ctx: object())
-    monkeypatch.setattr("plugin.scripting.text_analytics_ui.is_writer", lambda doc: True)
-    monkeypatch.setattr(
-        "plugin.scripting.text_analytics_ui.resolve_text_analytics_document_inputs",
-        lambda doc, helper, scope="whole": ("A" * 30, {}),
-    )
-
-    recorded_worker: list[Any] = []
-    monkeypatch.setattr(
-        "plugin.scripting.text_analytics_ui.run_in_background",
-        lambda func, name="", dedicated=False: recorded_worker.append(func),
-    )
-
-    dlg_obj._compute("readability", "whole")
-    worker_fn = recorded_worker[0]
-
-    def failing_rpc(*a, **kw):
-        raise RuntimeError("No module named 'spacy'")
-
-    monkeypatch.setattr("plugin.scripting.text_analytics_ui.run_text_analytics", failing_rpc)
-    monkeypatch.setattr("plugin.framework.queue_executor.main.post", lambda fn: fn())
-
-    worker_fn()
-
-    assert dlg_obj._last_result is None
-    res_text = fake_dlg.controls["ResultsEdit"].getModel().Text
-    assert res_text.startswith("Error: No module named 'spacy'")
-    assert "Click Check Venv" in res_text
-    assert "Required packages may be missing" in res_text
-
-
-def test_diagnostics_exception_has_no_install_command(monkeypatch):
-    dlg_obj, fake_dlg = _make_dialog()
-    monkeypatch.setattr("plugin.scripting.text_analytics_ui.get_active_document", lambda ctx: None)
-
-    recorded_worker: list[Any] = []
-    monkeypatch.setattr(
-        "plugin.scripting.text_analytics_ui.run_in_background",
-        lambda func, name="", dedicated=False: recorded_worker.append(func),
-    )
-
-    dlg_obj._compute("diagnostics", "whole")
-    worker_fn = recorded_worker[0]
-
-    def failing_rpc(*a, **kw):
-        raise RuntimeError("no python")
-
-    monkeypatch.setattr("plugin.scripting.text_analytics_ui.run_text_analytics", failing_rpc)
-    monkeypatch.setattr("plugin.framework.queue_executor.main.post", lambda fn: fn())
-
-    worker_fn()
-
-    res_text = fake_dlg.controls["ResultsEdit"].getModel().Text
-    assert res_text == "Error from the Text Analytics worker:\nno python"
-    assert "xx_sent_ud_sm" not in res_text
-    assert "uv pip install" not in res_text
+    if exact:
+        assert res_text == expected_start
+    else:
+        assert res_text.startswith(expected_start)
+    assert ("Click Check Venv" in res_text) is hint_expected
+    assert ("Required packages" in res_text) is hint_expected
 
 
 def test_failed_validation_clears_previous_result(monkeypatch):
@@ -485,34 +426,20 @@ def test_insert_delegates_to_host_helper(monkeypatch):
     assert fake_dlg.controls["ResultsEdit"].getModel().Text.endswith("Inserted after selection/caret.")
 
 
-def test_topics_checkbox_off_passes_selection_scope(monkeypatch):
-    dlg_obj, fake_dlg = _make_dialog()
-    fake_dlg.controls["ChkScope"].State = 0
-    dlg_obj._wire()
-
-    monkeypatch.setattr("plugin.scripting.text_analytics_ui.get_active_document", lambda ctx: object())
-    monkeypatch.setattr("plugin.scripting.text_analytics_ui.is_writer", lambda doc: True)
-
-    recorded_call: list[tuple[str, str]] = []
-
-    def fake_resolve(doc, helper, scope="whole"):
-        recorded_call.append((helper, scope))
-        return "A" * 30, {}
-
-    monkeypatch.setattr("plugin.scripting.text_analytics_ui.resolve_text_analytics_document_inputs", fake_resolve)
-    monkeypatch.setattr("plugin.scripting.text_analytics_ui.run_in_background", lambda *a, **kw: None)
-
-    fake_dlg.controls["BtnTopics"].click()
-
-    assert len(recorded_call) == 1
-    assert recorded_call[0] == ("topics", "selection")
-
-
-def test_scope_prefers_get_state_over_state_attribute(monkeypatch):
+@pytest.mark.parametrize(
+    ("state_attr", "get_state_fn"),
+    [
+        (0, None),
+        (1, lambda: 0),
+    ],
+    ids=["state_attr_off", "get_state_overrides_attr"],
+)
+def test_topics_selection_scope(monkeypatch, state_attr, get_state_fn):
     dlg_obj, fake_dlg = _make_dialog()
     chk = fake_dlg.controls["ChkScope"]
-    chk.State = 1
-    chk.getState = lambda: 0
+    chk.State = state_attr
+    if get_state_fn is not None:
+        chk.getState = get_state_fn
     dlg_obj._wire()
 
     monkeypatch.setattr("plugin.scripting.text_analytics_ui.get_active_document", lambda ctx: object())
@@ -529,8 +456,7 @@ def test_scope_prefers_get_state_over_state_attribute(monkeypatch):
 
     fake_dlg.controls["BtnTopics"].click()
 
-    assert len(recorded_call) == 1
-    assert recorded_call[0] == ("topics", "selection")
+    assert recorded_call == [("topics", "selection")]
 
 
 def test_scope_read_failure_shows_error_and_does_not_analyze(monkeypatch):
@@ -743,16 +669,26 @@ def test_marshal_failure_clears_busy_without_touching_controls(monkeypatch):
     assert fake_dlg.controls["ResultsEdit"].getModel().Text == "Analyzing..."
 
 
-def test_insert_refuses_when_runtime_uid_differs(monkeypatch):
-    dlg_obj, fake_dlg = _make_dialog()
-    dlg_obj._source_uid = "uid-a"
+@pytest.mark.parametrize(
+    ("source_uid", "active_uid", "expect_insert"),
+    [
+        ("uid-a", "uid-b", False),
+        ("uid-a", "uid-a", True),
+        (None, "uid-b", True),
+        ("uid-a", "", True),
+    ],
+    ids=["mismatch_refuses", "same_allows", "missing_source_allows", "missing_active_allows"],
+)
+def test_insert_runtime_uid_guard(monkeypatch, source_uid, active_uid, expect_insert):
+    dlg_obj, _fake_dlg = _make_dialog()
+    dlg_obj._source_uid = source_uid
     fake_result = {"status": "ok", "result": {"readability": {"score": 10}}}
     dlg_obj._last_result = fake_result
 
     fake_doc = object()
     monkeypatch.setattr("plugin.scripting.text_analytics_ui.get_active_document", lambda ctx: fake_doc)
     monkeypatch.setattr("plugin.scripting.text_analytics_ui.is_writer", lambda doc: True)
-    monkeypatch.setattr("plugin.scripting.text_analytics_ui.get_runtime_uid", lambda doc: "uid-b")
+    monkeypatch.setattr("plugin.scripting.text_analytics_ui.get_runtime_uid", lambda doc: active_uid)
 
     recorded_msgbox: list[tuple[Any, str, str]] = []
     monkeypatch.setattr(
@@ -768,68 +704,15 @@ def test_insert_refuses_when_runtime_uid_differs(monkeypatch):
 
     dlg_obj._insert_report()
 
-    assert len(recorded_insert) == 0
-    assert len(recorded_msgbox) == 1
-    assert recorded_msgbox[0][1] == "Text Analytics"
-    assert recorded_msgbox[0][2] == "Switch back to the document that was analyzed, or run the analysis again."
-    assert dlg_obj._last_result == fake_result
-
-
-def test_insert_allows_same_runtime_uid(monkeypatch):
-    dlg_obj, fake_dlg = _make_dialog()
-    dlg_obj._source_uid = "uid-a"
-    fake_result = {"status": "ok", "result": {"readability": {"score": 10}}}
-    dlg_obj._last_result = fake_result
-
-    fake_doc = object()
-    monkeypatch.setattr("plugin.scripting.text_analytics_ui.get_active_document", lambda ctx: fake_doc)
-    monkeypatch.setattr("plugin.scripting.text_analytics_ui.is_writer", lambda doc: True)
-    monkeypatch.setattr("plugin.scripting.text_analytics_ui.get_runtime_uid", lambda doc: "uid-a")
-
-    recorded_insert: list[Any] = []
-    monkeypatch.setattr(
-        "plugin.scripting.text_analytics_ui.insert_text_analytics_result_into_doc",
-        lambda ctx, doc, res: recorded_insert.append((ctx, doc, res)),
-    )
-
-    dlg_obj._insert_report()
-
-    assert len(recorded_insert) == 1
-    assert recorded_insert[0] == (dlg_obj._ctx, fake_doc, fake_result)
-
-
-def test_insert_allows_when_either_runtime_uid_missing(monkeypatch):
-    fake_doc = object()
-    monkeypatch.setattr("plugin.scripting.text_analytics_ui.get_active_document", lambda ctx: fake_doc)
-    monkeypatch.setattr("plugin.scripting.text_analytics_ui.is_writer", lambda doc: True)
-
-    recorded_insert: list[Any] = []
-    monkeypatch.setattr(
-        "plugin.scripting.text_analytics_ui.insert_text_analytics_result_into_doc",
-        lambda ctx, doc, res: recorded_insert.append((ctx, doc, res)),
-    )
-
-    # Case 1: _source_uid is None, active uid is "uid-b"
-    dlg_obj1, fake_dlg1 = _make_dialog()
-    dlg_obj1._source_uid = None
-    fake_result1 = {"status": "ok", "result": {"readability": {"score": 10}}}
-    dlg_obj1._last_result = fake_result1
-    monkeypatch.setattr("plugin.scripting.text_analytics_ui.get_runtime_uid", lambda doc: "uid-b")
-
-    dlg_obj1._insert_report()
-    assert len(recorded_insert) == 1
-    assert recorded_insert[0] == (dlg_obj1._ctx, fake_doc, fake_result1)
-
-    # Case 2: _source_uid == "uid-a", get_runtime_uid returns ""
-    dlg_obj2, fake_dlg2 = _make_dialog()
-    dlg_obj2._source_uid = "uid-a"
-    fake_result2 = {"status": "ok", "result": {"readability": {"score": 20}}}
-    dlg_obj2._last_result = fake_result2
-    monkeypatch.setattr("plugin.scripting.text_analytics_ui.get_runtime_uid", lambda doc: "")
-
-    dlg_obj2._insert_report()
-    assert len(recorded_insert) == 2
-    assert recorded_insert[1] == (dlg_obj2._ctx, fake_doc, fake_result2)
+    if expect_insert:
+        assert recorded_insert == [(dlg_obj._ctx, fake_doc, fake_result)]
+        assert recorded_msgbox == []
+    else:
+        assert recorded_insert == []
+        assert len(recorded_msgbox) == 1
+        assert recorded_msgbox[0][1] == "Text Analytics"
+        assert recorded_msgbox[0][2] == "Switch back to the document that was analyzed, or run the analysis again."
+        assert dlg_obj._last_result == fake_result
 
 
 def test_insert_twice_inserts_twice(monkeypatch):

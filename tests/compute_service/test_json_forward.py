@@ -346,16 +346,21 @@ class TestHttpBlobForward:
         # Host forwarded the worker bytes — no second dumps of the result.
         assert out == result_json
 
-    def test_host_json_dumps_not_used_on_result_json(self) -> None:
+    @pytest.mark.parametrize("use_multipart", [False, True], ids=["json", "multipart"])
+    def test_host_json_dumps_not_used_on_result_json(self, use_multipart: bool) -> None:
         result_json = b'{"status":"ok","result":[[1,2],[3,4]],"stdout":""}'
 
         def execute_fn(**_kwargs):
             return {"status": "ok", "result_json": result_json}
 
         app = create_wsgi_app(ComputeSettings(), execute_fn=execute_fn)
+        if use_multipart:
+            content_type, body = encode_multipart_execute({}, GRID_BYTES, code="result = 1")
+        else:
+            content_type, body = "application/json", b'{"code":"result = data","data":[[1,2],[3,4]]}'
         with patch("compute_service.server._start_json") as mock_dumps:
             mock_dumps.side_effect = AssertionError("host must not re-dumps a result_json success")
-            status, out = _wsgi_post(app, b'{"code":"result = data","data":[[1,2],[3,4]]}')
+            status, out = _wsgi_post(app, body, content_type=content_type)
         assert status.startswith("200")
         assert out == result_json
 
@@ -404,18 +409,6 @@ class TestHttpBlobForward:
         assert GRID_BYTES.decode("utf-8") not in loaded
         assert not any(item.lstrip().startswith("[[1,2,3]") for item in loaded)
         assert not any(code in item or init in item for item in loaded)
-
-    def test_multipart_host_does_not_dumps_result(self) -> None:
-        def execute_fn(**_kwargs):
-            return {"status": "ok", "result_json": CUSTOM_RESULT_JSON}
-
-        app = create_wsgi_app(ComputeSettings(), execute_fn=execute_fn)
-        content_type, body = encode_multipart_execute({}, GRID_BYTES, code="result = 1")
-        with patch("compute_service.server._start_json") as mock_dumps:
-            mock_dumps.side_effect = AssertionError("host must not re-dumps a result_json success")
-            status, out = _wsgi_post(app, body, content_type=content_type)
-        assert status.startswith("200")
-        assert out == CUSTOM_RESULT_JSON
 
     def test_bad_multipart_is_400(self) -> None:
         app = create_wsgi_app(ComputeSettings(), execute_fn=lambda **_kw: {"status": "ok", "result": 1, "stdout": ""})
@@ -755,32 +748,17 @@ class TestPeelAndMultipartAgree:
 
 
 class TestHttpLargeRoundTrip:
-    def test_large_data_in_out_no_host_pack_or_result_dumps(self) -> None:
+    @pytest.mark.parametrize("use_multipart", [False, True], ids=["json", "multipart"])
+    def test_large_data_in_out_no_host_pack_or_result_dumps(self, use_multipart: bool) -> None:
         rows, cols = 25, 40
         grid = [[float(r * cols + c) for c in range(cols)] for r in range(rows)]
-        payload = {"id": "http-big", "code": "result = data", "data": grid}
-        body = json.dumps(payload, allow_nan=False).encode("utf-8")
-        pool = FormulaProcessPool(settings=ComputeSettings(workers=1, default_timeout_sec=15))
-        app = create_wsgi_app(ComputeSettings(host="127.0.0.1", workers=1), execute_fn=lambda **kw: pool.execute(**kw))
-        try:
-            with patch("plugin.scripting.payload_codec.host_pack_data") as mock_pack, patch("compute_service.server._start_json") as mock_host_dumps:
-                mock_host_dumps.side_effect = AssertionError("host must not dumps the large result")
-                status, out = _wsgi_post(app, body)
-        finally:
-            pool.shutdown()
-        assert status.startswith("200"), out
-        assert mock_pack.call_count == 0
-        parsed = json.loads(out)
-        assert parsed["status"] == "ok"
-        assert parsed["id"] == "http-big"
-        assert parsed["result"][0][0] == 0.0
-        assert parsed["result"][-1][-1] == float(rows * cols - 1)
-
-    def test_multipart_large_data_in_out_no_host_pack_or_result_dumps(self) -> None:
-        rows, cols = 25, 40
-        grid = [[float(r * cols + c) for c in range(cols)] for r in range(rows)]
-        data_json = json.dumps(grid, allow_nan=False).encode("utf-8")
-        content_type, body = encode_multipart_execute({"id": "http-mp-big"}, data_json, code="result = data")
+        req_id = "http-mp-big" if use_multipart else "http-big"
+        if use_multipart:
+            data_json = json.dumps(grid, allow_nan=False).encode("utf-8")
+            content_type, body = encode_multipart_execute({"id": req_id}, data_json, code="result = data")
+        else:
+            payload = {"id": req_id, "code": "result = data", "data": grid}
+            content_type, body = "application/json", json.dumps(payload, allow_nan=False).encode("utf-8")
         pool = FormulaProcessPool(settings=ComputeSettings(workers=1, default_timeout_sec=15))
         app = create_wsgi_app(ComputeSettings(host="127.0.0.1", workers=1), execute_fn=lambda **kw: pool.execute(**kw))
         try:
@@ -793,7 +771,7 @@ class TestHttpLargeRoundTrip:
         assert mock_pack.call_count == 0
         parsed = json.loads(out)
         assert parsed["status"] == "ok"
-        assert parsed["id"] == "http-mp-big"
+        assert parsed["id"] == req_id
         assert parsed["result"][0][0] == 0.0
         assert parsed["result"][-1][-1] == float(rows * cols - 1)
 

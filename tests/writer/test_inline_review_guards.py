@@ -1043,6 +1043,19 @@ def test_resolve_all_returns_unreliable_when_first_refused_before_dispatch_and_n
     assert res.resolved == 0
 
 
+class _CountingRedlines:
+    def __init__(self, items):
+        self._items = items
+        self.enums = 0
+
+    def createEnumeration(self):
+        self.enums += 1
+        return FakeEnum(list(self._items))
+
+    def getCount(self):
+        return len(self._items)
+
+
 def test_getString_raises_still_counts_and_navigates_without_getString_calls():
     class ThrowingText(FakeText):
         def getString(self):
@@ -1058,16 +1071,6 @@ def test_getString_raises_still_counts_and_navigates_without_getString_calls():
             self._props["RedlineStart"] = ThrowingRange(s, s)
             self._props["RedlineEnd"] = ThrowingRange(e, e)
 
-    class CountingRedlines:
-        def __init__(self, items):
-            self._items = items
-            self.enums = 0
-        def createEnumeration(self):
-            self.enums += 1
-            return FakeEnum(self._items)
-        def getCount(self):
-            return len(self._items)
-
     class CountingDoc(_ViewModel):
         def __init__(self, redlines):
             super().__init__(redlines)
@@ -1080,7 +1083,7 @@ def test_getString_raises_still_counts_and_navigates_without_getString_calls():
 
     t1 = TOKEN_PREFIX + "s:1"
     rl = ThrowingRedline(t1, 10, 20)
-    redlines = CountingRedlines([rl])
+    redlines = _CountingRedlines([rl])
     doc = CountingDoc(redlines)
 
     assert agent_change_presence(doc)[0] == 1
@@ -1103,16 +1106,7 @@ def test_scan_count_exact_resolve_agent_change_success():
     t = TOKEN_PREFIX + "s:1"
     items = [FakeRedline(t, 10, 20)]
 
-    class CountingRedlines:
-        def __init__(self):
-            self.enums = 0
-        def createEnumeration(self):
-            self.enums += 1
-            return FakeEnum(list(items))
-        def getCount(self):
-            return len(items)
-
-    model = _ViewModel(CountingRedlines())
+    model = _ViewModel(_CountingRedlines(items))
     ctx = MagicMock()
     def fake_dispatch(ctx, ctrl, accept):
         items.clear()
@@ -1127,16 +1121,7 @@ def test_scan_count_resolve_change_at_cursor_exact_success():
     t = TOKEN_PREFIX + "s:1"
     items = [FakeRedline(t, 10, 20)]
 
-    class CountingRedlines:
-        def __init__(self):
-            self.enums = 0
-        def createEnumeration(self):
-            self.enums += 1
-            return FakeEnum(list(items))
-        def getCount(self):
-            return len(items)
-
-    model = _ViewModel(CountingRedlines())
+    model = _ViewModel(_CountingRedlines(items))
     vc = MagicMock()
     vc.getText.return_value = FakeText()
     vc.getStart.return_value = FakeRange(15, 15)
@@ -1157,16 +1142,7 @@ def test_scan_count_resolve_change_at_cursor_with_provided_view():
     t = TOKEN_PREFIX + "s:1"
     items = [FakeRedline(t, 10, 20)]
 
-    class CountingRedlines:
-        def __init__(self):
-            self.enums = 0
-        def createEnumeration(self):
-            self.enums += 1
-            return FakeEnum(list(items))
-        def getCount(self):
-            return len(items)
-
-    model = _ViewModel(CountingRedlines())
+    model = _ViewModel(_CountingRedlines(items))
     vc = MagicMock()
     vc.getText.return_value = FakeText()
     vc.getStart.return_value = FakeRange(15, 15)
@@ -1191,16 +1167,7 @@ def test_scan_count_two_change_group_cleared_in_one_dispatch():
     t2 = TOKEN_PREFIX + "b:0"
     items = [FakeRedline(t1, 0, 10), FakeRedline(t2, 5, 15)]
 
-    class CountingRedlines:
-        def __init__(self):
-            self.enums = 0
-        def createEnumeration(self):
-            self.enums += 1
-            return FakeEnum(list(items))
-        def getCount(self):
-            return len(items)
-
-    model = _ViewModel(CountingRedlines())
+    model = _ViewModel(_CountingRedlines(items))
 
     def fake_dispatch(ctx, ctrl, accept):
         items.clear()
@@ -1216,16 +1183,7 @@ def test_scan_count_resolve_all_fast_path_and_feedback():
     t2 = TOKEN_PREFIX + "b:0"
     items = [FakeRedline(t1, 0, 10), FakeRedline(t2, 20, 30)]
 
-    class CountingRedlines:
-        def __init__(self):
-            self.enums = 0
-        def createEnumeration(self):
-            self.enums += 1
-            return FakeEnum(list(items))
-        def getCount(self):
-            return len(items)
-
-    model = _ViewModel(CountingRedlines())
+    model = _ViewModel(_CountingRedlines(items))
     ctx = MagicMock()
 
     def fake_global(frame, cmd, unused, code, args):
@@ -1257,16 +1215,7 @@ def test_scan_count_resolve_all_mixed_three_changes_with_user_redline():
         FakeRedline(user, 100, 105),
     ]
 
-    class CountingRedlines:
-        def __init__(self):
-            self.enums = 0
-        def createEnumeration(self):
-            self.enums += 1
-            return FakeEnum(list(items))
-        def getCount(self):
-            return len(items)
-
-    model = _ViewModel(CountingRedlines())
+    model = _ViewModel(_CountingRedlines(items))
     ctx = MagicMock()
 
     def fake_dispatch(ctx, ctrl, accept):
@@ -1334,16 +1283,7 @@ def test_scan_count_click_popup_enumerates_once():
     t = TOKEN_PREFIX + "s:1"
     items = [FakeRedline(t, 10, 20)]
 
-    class CountingRedlines:
-        def __init__(self):
-            self.enums = 0
-        def createEnumeration(self):
-            self.enums += 1
-            return FakeEnum(list(items))
-        def getCount(self):
-            return len(items)
-
-    model = _ViewModel(CountingRedlines())
+    model = _ViewModel(_CountingRedlines(items))
     vc = MagicMock()
     vc.getText.return_value = FakeText()
     vc.getStart.return_value = FakeRange(15, 15)

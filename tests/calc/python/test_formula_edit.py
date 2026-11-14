@@ -65,7 +65,7 @@ def test_replace_preserves_data():
     parts = PyFormula.parse(old)
     assert parts is not None
     new = parts.render("result = 2")
-    assert 'result = 2' in new
+    assert new.startswith('=PYTHON("result = 2"')
     assert "Sheet1.A1:B2" in new
     reparsed = PyFormula.parse(new)
     assert reparsed is not None
@@ -181,6 +181,7 @@ def test_rebuild_preserves_data_suffix_from_parts():
 
 def test_format_data_binding_display():
     assert format_data_binding_display(")") == ""
+    assert format_data_binding_display("; A1:B10)") == "A1:B10"
     assert format_data_binding_display(";A1:B10)") == "A1:B10"
     assert format_data_binding_display(";A1; C1:C5)") == "A1; C1:C5"
 
@@ -276,14 +277,6 @@ def test_parse_py_alias():
     assert parts.code == "result = 1"
     assert parts.prefix.upper().startswith("=PY(")
     assert "A1:B10" in parts.data_suffix
-
-
-def test_rebuild_preserves_python_prefix():
-    parts = PyFormula.parse('=PYTHON("x"; A1:B2)')
-    assert parts is not None
-    rebuilt = parts.render("y = 1")
-    assert rebuilt.startswith('=PYTHON("y = 1"')
-    assert "A1:B2" in rebuilt
 
 
 def test_format_data_binding_text_round_trip():

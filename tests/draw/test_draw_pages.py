@@ -198,14 +198,17 @@ def test_duplicate_slide_ok():
     assert out["active_page_index"] == 1
 
 
-def test_duplicate_slide_out_of_range():
+@pytest.mark.parametrize("tool_cls", [DuplicateSlide, SetActivePage])
+def test_page_tools_propagate_out_of_range(tool_cls):
     from plugin.framework.errors import ToolExecutionError
 
     ctx = _ctx()
     with patch("plugin.draw.pages.DrawBridge") as bridge_cls:
-        bridge_cls.return_value.resolve_page.side_effect = ToolExecutionError("Page index 5 out of range.")
+        bridge = bridge_cls.return_value
+        bridge.resolve_page.side_effect = ToolExecutionError("Page index 5 out of range.")
         with pytest.raises(ToolExecutionError):
-            DuplicateSlide().execute(ctx, page=5)
+            tool_cls().execute(ctx, page=5)
+    bridge.set_current_page_index.assert_not_called()
 
 
 def test_move_slide_failure():
@@ -337,18 +340,6 @@ def test_set_active_page_false_is_tool_error():
     assert "controller does not support" not in out["message"]
 
 
-def test_set_active_page_out_of_range():
-    from plugin.framework.errors import ToolExecutionError
-
-    ctx = _ctx()
-    with patch("plugin.draw.pages.DrawBridge") as bridge_cls:
-        bridge = bridge_cls.return_value
-        bridge.resolve_page.side_effect = ToolExecutionError("Page index 5 out of range.")
-        with pytest.raises(ToolExecutionError):
-            SetActivePage().execute(ctx, page=5)
-    bridge.set_current_page_index.assert_not_called()
-
-
 def test_add_slide_switches_only_after_layout():
     ctx = _impress_ctx()
     page = MagicMock()
@@ -456,7 +447,8 @@ def test_add_slide_reports_actual_active_page_when_switch_fails():
     assert out["view_switch_failed"] is True
 
 
-def test_add_slide_cleans_up_after_live_runtime_error():
+@pytest.mark.parametrize("remove_fails", [False, True], ids=["cleanup-ok", "cleanup-fails"])
+def test_add_slide_live_runtime_error_cleanup(remove_fails):
     class RuntimeException(Exception):
         pass
 
@@ -467,28 +459,14 @@ def test_add_slide_cleans_up_after_live_runtime_error():
         patch("plugin.draw.pages.inherit_master_from_neighbor", side_effect=RuntimeException("master write failed")),
     ):
         bridge = _add_slide_bridge(page)
+        if remove_fails:
+            bridge.get_pages.return_value.remove.side_effect = RuntimeException("remove failed")
         bridge_cls.return_value = bridge
         out = AddSlide().execute(ctx)
     assert out["status"] == "error"
     bridge.get_pages.return_value.remove.assert_called_once_with(page)
-
-
-def test_add_slide_reports_cleanup_failed_for_live_remove_error():
-    class RuntimeException(Exception):
-        pass
-
-    ctx = _impress_ctx()
-    page = MagicMock()
-    with (
-        patch("plugin.draw.pages.DrawBridge") as bridge_cls,
-        patch("plugin.draw.pages.inherit_master_from_neighbor", side_effect=RuntimeException("master write failed")),
-    ):
-        bridge = _add_slide_bridge(page)
-        bridge.get_pages.return_value.remove.side_effect = RuntimeException("remove failed")
-        bridge_cls.return_value = bridge
-        out = AddSlide().execute(ctx)
-    assert out["status"] == "error"
-    assert out["details"]["cleanup_failed"] is True
+    if remove_fails:
+        assert out["details"]["cleanup_failed"] is True
 
 
 def test_read_slide_text_returns_shape_text_and_notes():

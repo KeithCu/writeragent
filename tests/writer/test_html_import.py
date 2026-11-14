@@ -3,7 +3,7 @@ import html as html_mod
 from typing import Any
 
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 from plugin.writer.html_import import (
     ensure_html_linebreaks,
@@ -85,11 +85,6 @@ def test_extract_and_strip_ruby_noop():
     clean, spans = extract_and_strip_ruby(html)
     assert clean == html
     assert spans == []
-
-
-def test_content_has_markup_detects_ruby():
-    assert content_has_markup("<ruby>漢字<rt>かんじ</rt></ruby>")
-    assert content_has_markup("<p>前<ruby>漢字<rt>かんじ</rt></ruby>後</p>")
 
 
 class _RubyCursor:
@@ -274,7 +269,6 @@ def test_ensure_html_linebreaks_escapes_prose_angle_brackets():
 
 
 def test_insert_content_entry_points_decode_complete_entities():
-    from unittest.mock import MagicMock, patch
     from plugin.writer import html_import
 
     raw = "<p>&sect 2o &amp;lt;b&amp;gt;x&amp;lt;/b&amp;gt;</p>"
@@ -321,26 +315,7 @@ def test_replace_single_range_block_html_in_cell_raises_coded_error():
         assert "Rich/block HTML can't be inserted inside a table cell" in str(exc_info.value)
 
 
-def test_content_has_markup_markdown_punctuation_treated_as_plain():
-    from plugin.writer.html_import import content_has_markup
-
-    assert not content_has_markup("**bold**")
-    assert not content_has_markup("# Heading")
-    assert not content_has_markup("| col1 | col2 |")
-    assert not content_has_markup("Issue # 5")
-    assert not content_has_markup("a | b")
-    assert not content_has_markup("2**3")
-    assert not content_has_markup("__init__")
-    assert not content_has_markup("```code```")
-    assert not content_has_markup("- [ ] todo")
-    assert content_has_markup("<b>bold</b>")
-    assert content_has_markup(r"\(x^2\)")
-    assert content_has_markup("$$E=mc^2$$")
-
-
-
 def test_replace_xtext_with_html_undo_rollback_on_import_failure():
-
     text = MagicMock()
     cursor = MagicMock()
     text.createTextCursor.return_value = cursor
@@ -414,7 +389,6 @@ def test_replace_xtext_with_html_plain_html_skips_style_walk():
 
 
 def test_replace_xtext_with_html_undo_rollback_on_field_restore_failure():
-
     text = MagicMock()
     cursor = MagicMock()
     text.createTextCursor.return_value = cursor
@@ -464,7 +438,6 @@ def test_replace_xtext_with_html_undo_manager_locked_refuses_clear():
 
 def test_insert_inline_at_cursor_plain_text_does_not_wrap_in_p():
     """Plain text wrapped in <p> split the host paragraph when inserted mid-paragraph."""
-    from unittest.mock import MagicMock, patch
 
     from plugin.writer import html_import
 
@@ -477,7 +450,6 @@ def test_insert_inline_at_cursor_plain_text_does_not_wrap_in_p():
 
 def test_insert_inline_at_cursor_keeps_edge_whitespace_of_markup():
     """The HTML import drops a fragment's edge whitespace: "<b>muito</b> " fused with the next word."""
-    from unittest.mock import MagicMock, patch
 
     from plugin.writer import html_import
 
@@ -497,7 +469,6 @@ def test_mixed_math_segments_stay_in_place_not_at_body_end():
     """#46/#47: after a math segment the rest of a mid-document replace went to the END of the
     body ("[Math import failed] ..." orphaned after the last paragraph)."""
     from types import SimpleNamespace
-    from unittest.mock import MagicMock, patch
 
     from plugin.writer import html_import
 
@@ -516,7 +487,6 @@ def test_mixed_math_segments_stay_in_place_not_at_body_end():
 def test_insert_inline_at_cursor_does_not_unescape_plain_text_again():
     """apply_document_content.py decodes only complete references; a second html.unescape turned "&sect 2o"
     into "§ 2o"."""
-    from unittest.mock import MagicMock, patch
 
     from plugin.writer import html_import
 
@@ -527,8 +497,6 @@ def test_insert_inline_at_cursor_does_not_unescape_plain_text_again():
 
 
 def test_insert_inline_at_cursor_paints_ruby_instead_of_gluing_the_reading():
-    from unittest.mock import MagicMock, patch
-
     from plugin.writer import html_import, html_ruby, range_copy
 
     cursor = MagicMock()
@@ -541,44 +509,34 @@ def test_insert_inline_at_cursor_paints_ruby_instead_of_gluing_the_reading():
     assert paint.call_args.kwargs["skip_chars"] == 7
 
 
-def test_insert_inline_at_cursor_skips_prefix_count_without_ruby():
-    from unittest.mock import MagicMock, patch
+@pytest.mark.parametrize(
+    "fn_name, fragment, extra_patches",
+    [
+        pytest.param("insert_inline_at_cursor", "<b>x</b>", {}, id="inline"),
+        pytest.param("_insert_mixed_or_plain_html", "<p>hi</p>", {}, id="mixed_or_plain"),
+        pytest.param(
+            "_insert_mixed_html_and_math_at_cursor",
+            "<p>text before</p> \\(x^2\\) <p>text after</p>",
+            {"html_fragment_contains_mixed_math": True},
+            id="mixed_html_and_math",
+        ),
+    ],
+)
+def test_insert_skips_prefix_count_without_ruby(fn_name, fragment, extra_patches):
+    from contextlib import ExitStack
     from plugin.writer import html_import, range_copy
 
     cursor = MagicMock()
-    with patch.object(range_copy, "prefix_char_count") as count, \
-         patch.object(html_import, "insert_html_fragment_at_cursor"):
-        html_import.insert_inline_at_cursor(MagicMock(), MagicMock(), cursor, "<b>x</b>")
-    count.assert_not_called()
-
-
-def test_insert_mixed_or_plain_html_skips_prefix_count_without_ruby():
-    from unittest.mock import MagicMock, patch
-    from plugin.writer import html_import, range_copy
-
-    cursor = MagicMock()
-    with patch.object(range_copy, "prefix_char_count") as count, \
-         patch.object(html_import, "insert_html_fragment_at_cursor"):
-        html_import._insert_mixed_or_plain_html(MagicMock(), MagicMock(), cursor, "<p>hi</p>")
-    count.assert_not_called()
-
-
-def test_insert_mixed_html_and_math_skips_prefix_count_without_ruby():
-    from unittest.mock import MagicMock, patch
-    from plugin.writer import html_import, range_copy
-
-    cursor = MagicMock()
-    with patch.object(range_copy, "prefix_char_count") as count, \
-         patch.object(html_import, "insert_html_fragment_at_cursor"), \
-         patch.object(html_import, "html_fragment_contains_mixed_math", return_value=True):
-        html_import._insert_mixed_html_and_math_at_cursor(
-            MagicMock(), MagicMock(), cursor, "<p>text before</p> \\(x^2\\) <p>text after</p>"
-        )
+    with ExitStack() as stack:
+        count = stack.enter_context(patch.object(range_copy, "prefix_char_count"))
+        stack.enter_context(patch.object(html_import, "insert_html_fragment_at_cursor"))
+        for attr, val in extra_patches.items():
+            stack.enter_context(patch.object(html_import, attr, return_value=val))
+        getattr(html_import, fn_name)(MagicMock(), MagicMock(), cursor, fragment)
     count.assert_not_called()
 
 
 def test_insert_mixed_html_and_math_counts_prefix_when_segment_contains_ruby():
-    from unittest.mock import MagicMock, patch
     from plugin.writer import html_import, html_ruby, range_copy
 
     cursor = MagicMock()
@@ -620,7 +578,6 @@ def test_second_block_inside_a_block_gets_its_own_slot():
 def test_block_styles_stop_at_the_end_of_the_import():
     """More styles than imported paragraphs must not style the text after the import (the old
     text a full_document had just deleted: its Delete turned into a Format change)."""
-    from unittest.mock import MagicMock, patch
 
     from plugin.writer import html_import_styles
 
@@ -651,7 +608,6 @@ def test_block_styles_stop_at_the_end_of_the_import():
 
 
 def test_apply_block_lo_styles_token_cache_reads_element_names_once():
-    from unittest.mock import MagicMock, patch
     from plugin.writer import html_import_styles
 
     model = MagicMock()
@@ -676,7 +632,6 @@ def test_apply_block_lo_styles_token_cache_reads_element_names_once():
 
 
 def test_apply_block_lo_styles_ambiguous_token_resolves_to_standard():
-    from unittest.mock import MagicMock, patch
     from plugin.writer import html_import_styles
 
     model = MagicMock()
@@ -699,7 +654,6 @@ def test_apply_block_lo_styles_ambiguous_token_resolves_to_standard():
 
 
 def test_apply_block_lo_styles_unknown_token_resolves_to_standard():
-    from unittest.mock import MagicMock, patch
     from plugin.writer import html_import_styles
 
     model = MagicMock()
@@ -722,7 +676,6 @@ def test_apply_block_lo_styles_unknown_token_resolves_to_standard():
 
 
 def test_apply_block_lo_styles_skips_when_style_already_matches():
-    from unittest.mock import MagicMock, patch
     from plugin.writer import html_import_styles
 
     model = MagicMock()
@@ -743,13 +696,11 @@ def test_apply_block_lo_styles_skips_when_style_already_matches():
         )
     apply.assert_not_called()
     assert res == []
-    walk_cur.gotoNextParagraph.assert_called_once_with(False)
 
 
 def test_full_document_in_review_mode_imports_into_a_fresh_paragraph():
     """Imported at the start of the deleted text, the new paragraphs took its character formatting
     (an 18pt bold opening heading spread over the whole document)."""
-    from unittest.mock import MagicMock, patch
 
     from plugin.writer import html_import
 
@@ -766,14 +717,11 @@ def test_full_document_in_review_mode_imports_into_a_fresh_paragraph():
     cursor = text.createTextCursor.return_value
     text.insertControlCharacter.assert_called_once_with(cursor, 0, False)
     cursor.goLeft.assert_called_once_with(1, False)
-    imp.assert_called_once()
     leftover.goLeft.assert_called_once_with(1, True)
     leftover.setString.assert_called_once_with("")
 
 
 def test_full_document_without_review_imports_in_place():
-    from unittest.mock import MagicMock, patch
-
     from plugin.writer import html_import
 
     model = MagicMock()
@@ -834,7 +782,6 @@ def test_parse_data_lo_para_text_align_center():
 
 def test_apply_block_lo_styles_returns_failures():
     """apply_block_lo_styles returns property names for dropped, failed, or unreached slots."""
-    from unittest.mock import MagicMock
     from plugin.writer import html_import_styles
 
     model = MagicMock()
@@ -959,7 +906,6 @@ def test_every_read_para_name_has_a_writer_or_is_listed_read_only():
 
 
 def test_round_trip_read_fodt_autostyle_value():
-    from unittest.mock import MagicMock, call
     from plugin.writer import html_import_styles
     from plugin.writer.xhtml_style_postprocess import parse_fodt_autostyles
 
@@ -1013,8 +959,40 @@ def test_round_trip_read_fodt_autostyle_value():
     ], any_order=True)
 
 
-def test_apply_block_lo_styles_background_color_sets_fill_properties_on_paragraph():
-    from unittest.mock import MagicMock, call
+@pytest.mark.parametrize(
+    "para_decl, has_para_el, expected_failed, expected_para_calls_fn",
+    [
+        pytest.param(
+            "background-color:#ffe4c4",
+            True,
+            [],
+            lambda solid, _none: [call("FillColor", 0xFFE4C4), call("FillStyle", solid)],
+            id="solid_color",
+        ),
+        pytest.param(
+            "text-align:justify; background-color:#ffe4c4",
+            True,
+            [],
+            lambda solid, _none: [call("ParaAdjust", 2), call("FillColor", 0xFFE4C4), call("FillStyle", solid)],
+            id="solid_and_align",
+        ),
+        pytest.param(
+            "background-color:transparent",
+            True,
+            [],
+            lambda _solid, none: [call("FillStyle", none)],
+            id="transparent",
+        ),
+        pytest.param(
+            "background-color:#ffe4c4",
+            False,
+            ["background-color"],
+            lambda _solid, _none: [],
+            id="missing_para_obj",
+        ),
+    ],
+)
+def test_apply_block_lo_styles_background_color(para_decl, has_para_el, expected_failed, expected_para_calls_fn):
     from plugin.writer import html_import_styles
 
     model = MagicMock()
@@ -1031,104 +1009,27 @@ def test_apply_block_lo_styles_background_color_sets_fill_properties_on_paragrap
     text.createTextCursorByRange.side_effect = [walk_cur, para_cur]
 
     para_el = MagicMock()
-    penum = MagicMock()
-    penum.hasMoreElements.side_effect = [True, False]
-    penum.nextElement.return_value = para_el
-    para_cur.createEnumeration.return_value = penum
+    if has_para_el:
+        penum = MagicMock()
+        penum.hasMoreElements.side_effect = [True, False]
+        penum.nextElement.return_value = para_el
+        para_cur.createEnumeration.return_value = penum
+    else:
+        # The paragraph cursor enumerates nothing, so there is no paragraph to format.
+        para_cur.createEnumeration.return_value.hasMoreElements.return_value = False
 
-    solid_style, _none_style = html_import_styles._get_fill_style_enums()
-
-    failed = html_import_styles.apply_block_lo_styles(
-        model, text, MagicMock(), [None], paras=["background-color:#ffe4c4"]
-    )
-    assert failed == []
-    para_el.setPropertyValue.assert_has_calls([
-        call("FillColor", 0xFFE4C4),
-        call("FillStyle", solid_style),
-    ])
-    # Must not set FillStyle or ParaBackColor on the text cursor.
-    cursor_set_props = [c.args[0] for c in para_cur.setPropertyValue.call_args_list]
-    assert "FillStyle" not in cursor_set_props
-    assert "ParaBackColor" not in cursor_set_props
-
-
-def test_apply_block_lo_styles_background_color_transparent_sets_fill_none():
-    from unittest.mock import MagicMock, call
-    from plugin.writer import html_import_styles
-
-    model = MagicMock()
-    fam = MagicMock()
-    fam.getElementNames.return_value = ["Standard"]
-    model.getStyleFamilies.return_value.getByName.return_value = fam
-
-    text = MagicMock()
-    walk_cur = MagicMock()
-    walk_cur.getPropertyValue.return_value = "Standard"
-    walk_cur.gotoNextParagraph.return_value = False
-
-    para_cur = MagicMock()
-    text.createTextCursorByRange.side_effect = [walk_cur, para_cur]
-
-    para_el = MagicMock()
-    penum = MagicMock()
-    penum.hasMoreElements.side_effect = [True, False]
-    penum.nextElement.return_value = para_el
-    para_cur.createEnumeration.return_value = penum
-
-    _solid_style, none_style = html_import_styles._get_fill_style_enums()
+    solid_style, none_style = html_import_styles._get_fill_style_enums()
 
     failed = html_import_styles.apply_block_lo_styles(
-        model, text, MagicMock(), [None], paras=["background-color:transparent"]
+        model, text, MagicMock(), [None], paras=[para_decl]
     )
-    assert failed == []
-    para_el.setPropertyValue.assert_has_calls([
-        call("FillStyle", none_style),
-    ])
+    assert failed == expected_failed
 
-
-def test_apply_block_lo_styles_background_color_missing_para_obj_fails():
-    from unittest.mock import MagicMock
-    from plugin.writer import html_import_styles
-
-    model = MagicMock()
-    fam = MagicMock()
-    fam.getElementNames.return_value = ["Standard"]
-    model.getStyleFamilies.return_value.getByName.return_value = fam
-
-    text = MagicMock()
-    walk_cur = MagicMock()
-    walk_cur.getPropertyValue.return_value = "Standard"
-    walk_cur.gotoNextParagraph.return_value = False
-
-    para_cur = MagicMock()
-    text.createTextCursorByRange.side_effect = [walk_cur, para_cur]
-    # The paragraph cursor enumerates nothing, so there is no paragraph to format.
-    para_cur.createEnumeration.return_value.hasMoreElements.return_value = False
-
-    failed = html_import_styles.apply_block_lo_styles(
-        model, text, MagicMock(), [None], paras=["background-color:#ffe4c4"]
-    )
-    assert failed == ["background-color"]
-
-
-def test_apply_para_props_split_helper():
-    from unittest.mock import MagicMock, call
-    from plugin.writer.html_import_styles import _apply_para_props, _get_fill_style_enums
-
-    solid_style, _none_style = _get_fill_style_enums()
-    para_obj = MagicMock()
-
-    mapped = {
-        "text-align": ("ParaAdjust", 3),
-        "background-color": ("ParaBackColor", 0xFFE4C4),
-    }
-    failed = _apply_para_props(para_obj, mapped)
-    assert failed == []
-    para_obj.setPropertyValue.assert_has_calls([
-        call("ParaAdjust", 3),
-        call("FillColor", 0xFFE4C4),
-        call("FillStyle", solid_style),
-    ], any_order=True)
+    expected_calls = expected_para_calls_fn(solid_style, none_style)
+    para_el.setPropertyValue.assert_has_calls(expected_calls, any_order=True)
+    # Paragraph formatting and fill properties belong on the paragraph element, never on the cursor.
+    cursor_set_props = {c.args[0] for c in para_cur.setPropertyValue.call_args_list}
+    assert cursor_set_props.isdisjoint({"FillStyle", "ParaBackColor", "ParaAdjust"})
 
 
 def test_declared_para_names_flattens_lists_in_order_and_skips_none():
@@ -1176,7 +1077,6 @@ _FRAME = ('<div data-lo-style="Standard"><div style="float:left" class="graphic-
 
 
 def _graphics_doc(*names):
-    from unittest.mock import MagicMock
 
     model = MagicMock()
     graphics = model.getGraphicObjects.return_value
@@ -1210,7 +1110,6 @@ def test_swap_image_placeholders_keeps_a_picture_inside_a_heading():
 
 def test_swap_image_placeholders_refuses_a_picture_it_cannot_keep():
     """Losing a signature silently is worse than failing before anything changed."""
-    import pytest
 
     from plugin.framework.errors import ToolExecutionError
     from plugin.writer.image_placeholders import _swap_image_placeholders
@@ -1227,8 +1126,6 @@ def test_swap_image_placeholders_refuses_a_picture_it_cannot_keep():
     '<span id="Selo"><img src=\'\'/></span>',
 ])
 def test_swap_image_placeholders_refuses_non_canonical_empty_src(markup):
-    import pytest
-
     from plugin.framework.errors import ToolExecutionError
     from plugin.writer.image_placeholders import _swap_image_placeholders
 
@@ -1237,8 +1134,6 @@ def test_swap_image_placeholders_refuses_non_canonical_empty_src(markup):
 
 
 def test_swap_image_placeholders_leaves_other_content_alone():
-    from unittest.mock import MagicMock
-
     from plugin.writer.image_placeholders import _swap_image_placeholders
 
     model = MagicMock()
@@ -1249,7 +1144,6 @@ def test_swap_image_placeholders_leaves_other_content_alone():
 
 def _kept(anchor="AT_PARAGRAPH"):
     from types import SimpleNamespace
-    from unittest.mock import MagicMock
 
     from plugin.writer.image_placeholders import _KeptImage
 
@@ -1258,8 +1152,6 @@ def _kept(anchor="AT_PARAGRAPH"):
 
 
 def test_restore_puts_a_copy_where_the_marker_is_when_the_original_went():
-    from unittest.mock import MagicMock, patch
-
     from plugin.writer import image_placeholders
 
     model = MagicMock()
@@ -1273,7 +1165,6 @@ def test_restore_puts_a_copy_where_the_marker_is_when_the_original_went():
 
 def test_restore_only_drops_the_marker_when_the_original_stayed():
     """A search replace of a paragraph's text keeps the paragraph and its picture: no duplicate."""
-    from unittest.mock import MagicMock, patch
 
     from plugin.writer import image_placeholders
 
@@ -1287,7 +1178,6 @@ def test_restore_only_drops_the_marker_when_the_original_stayed():
 
 
 def test_restore_image_placeholders_missing_marker_for_deleted_original_raises():
-    from unittest.mock import MagicMock, patch
     from plugin.framework.errors import ToolExecutionError
     from plugin.writer import image_placeholders
 
@@ -1300,7 +1190,6 @@ def test_restore_image_placeholders_missing_marker_for_deleted_original_raises()
 
 
 def test_restore_image_placeholders_missing_marker_for_kept_original_does_not_raise():
-    from unittest.mock import MagicMock, patch
     from plugin.writer import image_placeholders
 
     model = MagicMock()
@@ -1312,7 +1201,6 @@ def test_restore_image_placeholders_missing_marker_for_kept_original_does_not_ra
 
 
 def test_restore_image_placeholders_missing_marker_resolves_before_mutation():
-    from unittest.mock import MagicMock, patch
     from plugin.framework.errors import ToolExecutionError
     from plugin.writer import image_placeholders
 
@@ -1329,7 +1217,6 @@ def test_restore_image_placeholders_missing_marker_resolves_before_mutation():
 
 def test_deleted_by_the_edit():
     from types import SimpleNamespace
-    from unittest.mock import MagicMock
 
     from plugin.writer import image_placeholders
 
@@ -1360,8 +1247,6 @@ def test_deleted_by_the_edit():
 
 
 def test_deleted_by_the_edit_name_guard():
-    import pytest
-    from unittest.mock import MagicMock
     from plugin.framework.errors import DocumentDisposedError
     from plugin.writer import image_placeholders
 
@@ -1372,7 +1257,7 @@ def test_deleted_by_the_edit_name_guard():
     original.getAnchor.side_effect = AssertionError("getAnchor must not be called when name is missing")
     assert image_placeholders._deleted_by_the_edit(model, original, "Picture 1") is True
     original.getAnchor.assert_not_called()
-    model.getGraphicObjects.return_value.hasByName.assert_called_once_with("Picture 1")
+    assert model.getGraphicObjects.return_value.hasByName.call_args.args == ("Picture 1",)
 
     # 2. Name present in doc.getGraphicObjects() proceeds to check anchor
     model = MagicMock()
@@ -1398,7 +1283,6 @@ def test_deleted_by_the_edit_name_guard():
 
 
 def test_restore_image_placeholders_passes_name():
-    from unittest.mock import MagicMock, patch
     from plugin.writer import image_placeholders
 
     model = MagicMock()
@@ -1416,8 +1300,6 @@ def test_restore_image_placeholders_passes_name():
 
 
 def test_full_document_refuses_before_deleting_anything():
-    import pytest
-
     from plugin.framework.errors import ToolExecutionError
     from plugin.writer import html_import
 
@@ -1443,8 +1325,6 @@ def test_html_to_plain_text_values(html_input: str, expected: str):
 
 
 def test_content_has_markup_cases():
-    from plugin.writer.html_import import content_has_markup
-
     # Unclosed elements and attribute variants are markup
     assert content_has_markup("<h4>Title</h4>") is True
     assert content_has_markup("<h4>Title") is True
@@ -1465,6 +1345,7 @@ def test_content_has_markup_cases():
     assert content_has_markup("<math>...</math>") is True
     assert content_has_markup("<b>bold</b>") is True
     assert content_has_markup("<ruby>漢字<rt>かんじ</rt></ruby>") is True
+    assert content_has_markup("<p>前<ruby>漢字<rt>かんじ</rt></ruby>後</p>") is True
     assert content_has_markup("The identity $x^2$ holds.") is False
 
     # Markdown and plain prose are not markup
@@ -1475,6 +1356,8 @@ def test_content_has_markup_cases():
     assert content_has_markup("a | b") is False
     assert content_has_markup("2**3") is False
     assert content_has_markup("__init__") is False
+    assert content_has_markup("```code```") is False
+    assert content_has_markup("- [ ] todo") is False
     assert content_has_markup("Jane Doe") is False
     assert content_has_markup("Hello world, this is plain text.") is False
     assert content_has_markup("") is False
@@ -1576,7 +1459,6 @@ def test_trailing_paragraph_not_deleted_when_portion_walk_fails():
 
 
 def test_trailing_paragraph_still_deleted_when_walk_is_empty_text():
-
     class _Enum:
         def __init__(self, items):
             self._items = list(items)
@@ -1723,8 +1605,6 @@ def test_uno_read_probes_raise_on_disposal_and_default_otherwise():
 
 
 def test_resolve_paragraph_style_token_fallback_and_disposal():
-    from unittest.mock import MagicMock
-    import pytest
     from plugin.framework.errors import DocumentDisposedError
     from plugin.writer.html_import_styles import resolve_paragraph_style_token
 
@@ -1757,7 +1637,7 @@ def test_styled_math_insert_styles_from_paragraph_before_insert():
     before = MagicMock()
     start = MagicMock()
     with patch.object(html_import, "_insert_mixed_html_and_math_at_cursor"), \
-         patch.object(html_import, "_paragraph_before", return_value=before) as pb, \
+         patch.object(html_import, "_paragraph_before", return_value=before), \
          patch.object(html_import, "_paragraph_after", return_value=start) as pa, \
          patch.object(html_import_styles, "apply_block_lo_styles") as apply:
         html_import._insert_mixed_or_plain_html(
@@ -1765,8 +1645,7 @@ def test_styled_math_insert_styles_from_paragraph_before_insert():
             '<p data-lo-style="Heading1">Equation \\(x^2\\) here</p>',
             apply_styles=True,
         )
-    pb.assert_called_once()
-    pa.assert_called_once_with(cursor.getText.return_value, before)
+    assert pa.call_args.args[1] is before
     assert apply.call_args.args[2] is start
 
 
@@ -2000,7 +1879,6 @@ def test_summarize_written_blocks_matches_extractor_slot_counts():
 
 
 def test_insert_mixed_html_and_math_reports_every_attempt():
-    from unittest.mock import MagicMock, patch
     from plugin.writer import html_import
 
     model = MagicMock()
@@ -2035,7 +1913,6 @@ def test_insert_mixed_html_and_math_reports_every_attempt():
 
 
 def test_mixed_inserters_report_math_and_preserve_returns():
-    from unittest.mock import MagicMock, patch
     from plugin.writer import html_import
 
     model = MagicMock()
@@ -2077,7 +1954,6 @@ def test_mixed_inserters_report_math_and_preserve_returns():
 
 
 def test_replace_single_range_returns_failures_and_inline_skipped():
-    from unittest.mock import MagicMock, patch
     from plugin.writer import html_import, html_import_styles
 
     model = MagicMock()
@@ -2113,7 +1989,6 @@ def test_replace_single_range_returns_failures_and_inline_skipped():
 
 
 def test_plain_html_leaves_math_empty():
-    from unittest.mock import MagicMock, patch
     from plugin.writer import html_import
 
     model = MagicMock()

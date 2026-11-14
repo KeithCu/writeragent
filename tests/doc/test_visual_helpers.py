@@ -5,8 +5,10 @@
 
 from __future__ import annotations
 
-import pytest
 from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
+
+import pytest
 
 from plugin.doc import visual_helpers
 from plugin.framework.doc_type import (
@@ -643,7 +645,6 @@ def test_remove_graphic_ambiguous_name_deletes_nothing():
 
 
 def test_get_active_draw_page_reraises_disposed() -> None:
-    import pytest
 
     from plugin.framework.errors import DocumentDisposedError
 
@@ -671,7 +672,6 @@ def test_get_active_draw_page_reraises_disposed() -> None:
 
 
 def test_list_graphic_objects_reraises_disposed() -> None:
-    import pytest
 
     from plugin.framework.errors import DocumentDisposedError
 
@@ -688,7 +688,6 @@ def test_list_graphic_objects_reraises_disposed() -> None:
 
 
 def test_uno_read_probes_raise_on_disposal_and_default_otherwise():
-    from unittest.mock import MagicMock
 
     from plugin.doc.visual_helpers import _graphics_in_text_range, safe_get_property, selected_graphic_object
     from plugin.framework.errors import DocumentDisposedError
@@ -738,7 +737,6 @@ def test_pixel_size_unmeasurable_raises():
 
 
 def test_draw_page_for_insert_draw_impress():
-    from unittest.mock import MagicMock
 
     model = MagicMock()
     pages = MagicMock()
@@ -758,7 +756,6 @@ def test_draw_page_for_insert_draw_impress():
 
 
 def test_draw_page_for_insert_calc():
-    from unittest.mock import MagicMock
 
     model = MagicMock()
     sheets = MagicMock()
@@ -779,7 +776,6 @@ def test_draw_page_for_insert_calc():
 
 
 def test_draw_page_for_insert_fallback_and_unresolved():
-    from unittest.mock import MagicMock, patch
 
     model = MagicMock()
     sentinel_dp = MagicMock()
@@ -792,7 +788,6 @@ def test_draw_page_for_insert_fallback_and_unresolved():
 
 
 def test_position_on_draw_page():
-    from unittest.mock import MagicMock
 
     page = MagicMock()
     page.Width = 20000
@@ -841,7 +836,6 @@ def test_is_graphic_object_service_succeeds_when_graphic_property_raises():
 
 
 def test_safe_property_helpers_reraise_disposed():
-    from unittest.mock import MagicMock
 
     from plugin.framework.errors import DocumentDisposedError
 

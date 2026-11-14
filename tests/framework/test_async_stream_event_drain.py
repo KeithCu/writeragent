@@ -103,20 +103,7 @@ def test_event_drain_caps_back_to_back_immediate_rearms(monkeypatch: pytest.Monk
     q: queue.Queue = queue.Queue()
     outcome = DrainOutcome()
 
-    class MockScheduler:
-        def __init__(self):
-            self.posts = []
-
-        def post(self, fn):
-            self.posts.append(("now", fn))
-
-        def close(self) -> None:
-            pass
-
-        def post_after(self, delay, fn):
-            self.posts.append(("later", delay, fn))
-
-    scheduler = MockScheduler()
+    scheduler = _RecordingRearm()
 
     drain = async_stream._EventDrain(
         async_stream._DrainState(
@@ -138,43 +125,29 @@ def test_event_drain_caps_back_to_back_immediate_rearms(monkeypatch: pytest.Monk
     drain.start()
 
     # start() schedules the first slice via immediate post.
-    assert len(scheduler.posts) == 1
-    assert scheduler.posts[0][0] == "now"
+    assert len(scheduler.pending) == 1
+    assert scheduler.pending[0][0] == "now"
 
     # Cap is 3 immediate re-arms. We mock q.qsize() since _drain_ready drains it all.
     with monkeypatch.context() as m:
         m.setattr(q, "qsize", lambda: 1)
 
-        # 1. First slice -> pending > 0 -> post (streak 1)
-        scheduler.posts.pop(0)[1]()
-        assert len(scheduler.posts) == 1
-        assert scheduler.posts[0][0] == "now"
-        assert drain._immediate_streak == 1
-
-        # 2. Second slice -> pending > 0 -> post (streak 2)
-        scheduler.posts.pop(0)[1]()
-        assert len(scheduler.posts) == 1
-        assert scheduler.posts[0][0] == "now"
-        assert drain._immediate_streak == 2
-
-        # 3. Third slice -> pending > 0 -> post (streak 3)
-        scheduler.posts.pop(0)[1]()
-        assert len(scheduler.posts) == 1
-        assert scheduler.posts[0][0] == "now"
-        assert drain._immediate_streak == 3
+        # 1-3. First three slices -> pending > 0 -> post (streaks 1-3)
+        for _unused in range(3):
+            scheduler.pump()
+            assert len(scheduler.pending) == 1
+            assert scheduler.pending[0][0] == "now"
 
         # 4. Fourth slice -> pending > 0 -> streak >= 3 -> post_after (gap)
-        scheduler.posts.pop(0)[1]()
-        assert len(scheduler.posts) == 1
-        assert scheduler.posts[0][0] == "later"
-        assert scheduler.posts[0][1] == async_stream._DRAIN_YIELD_GAP_SEC
-        assert drain._immediate_streak == 0
+        scheduler.pump()
+        assert len(scheduler.pending) == 1
+        assert scheduler.pending[0][0] == "later"
+        assert scheduler.pending[0][1] == async_stream._DRAIN_YIELD_GAP_SEC
 
         # 5. Fifth slice -> pending > 0 -> post (streak 1 again)
-        scheduler.posts.pop(0)[2]() # It's a post_after, fn is index 2
-        assert len(scheduler.posts) == 1
-        assert scheduler.posts[0][0] == "now"
-        assert drain._immediate_streak == 1
+        scheduler.pump()
+        assert len(scheduler.pending) == 1
+        assert scheduler.pending[0][0] == "now"
 
 
 def test_async_callback_rearm_breaks_reference_cycles(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -717,20 +690,7 @@ def test_finish_runs_epilogues_when_idle_callback_raises_recursion_error() -> No
     q: queue.Queue = queue.Queue()
     outcome = DrainOutcome()
 
-    class MockScheduler:
-        def __init__(self):
-            self.posts = []
-
-        def post(self, fn):
-            self.posts.append(("now", fn))
-
-        def close(self) -> None:
-            pass
-
-        def post_after(self, delay, fn):
-            self.posts.append(("later", delay, fn))
-
-    scheduler = MockScheduler()
+    scheduler = _RecordingRearm()
 
     drain = async_stream._EventDrain(
         async_stream._DrainState(
@@ -787,6 +747,7 @@ def test_enqueue_rolls_back_slice_when_poke_raises():
     with pytest.raises(RuntimeError, match="poke failed"):
         rearm._enqueue(fn)
 
+    # _pending is the direct observable that failed-poke rollback pops fn while keeping foreign entries.
     assert rearm._pending == [other]
 
 

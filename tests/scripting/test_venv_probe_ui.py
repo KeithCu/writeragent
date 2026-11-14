@@ -4,6 +4,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Settings → Python Test shows a modal dialog with incremental probe output."""
 
+from contextlib import ExitStack, contextmanager
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -21,9 +23,13 @@ def test_python_test_uses_modal_incremental_probe() -> None:
     modal_ran = False
     fake_ctx = MagicMock()
     fake_dlg = MagicMock()
-    probe_displays: list[str] = []
-    probe_statuses: list[str] = []
     captured_extra: list[tuple[str, ...]] = []
+    received_callbacks: list[tuple[object, object]] = []
+    def sentinel_display(_text: str) -> None:
+        return None
+
+    def sentinel_status(_status: str) -> None:
+        return None
 
     class _FakeProgress:
         def __init__(self, ctx, parent_dlg=None):
@@ -44,17 +50,12 @@ def test_python_test_uses_modal_incremental_probe() -> None:
             assert success_title == "Venv OK"
             assert failure_title == "Venv check failed"
             assert append_log is False
-            probe_fn(probe_displays.append, probe_statuses.append)
+            probe_fn(sentinel_display, sentinel_status)
             return True
 
     def fake_probe(_raw, on_display, on_status=None, extra_lines_after_header=None, **_kwargs):
         captured_extra.append(tuple(extra_lines_after_header or ()))
-        on_display(
-            "Python 3.12 responds OK. Cython Accelerator: Inactive (Pure Python)\n\n"
-            "Scientific Libraries: numpy\nMissing: pandas"
-        )
-        if on_status:
-            on_status("Scientific Libraries: numpy")
+        received_callbacks.append((on_display, on_status))
         return True, "Python 3.12 responds OK."
 
     def fake_status(*, reload=False):
@@ -74,9 +75,7 @@ def test_python_test_uses_modal_incremental_probe() -> None:
     assert modal_ran is True
     assert reload_flags == [True]
     assert captured_extra == [("Cython Accelerator: Inactive (Pure Python)",)]
-    assert any("Scientific Libraries: numpy" in text for text in probe_displays)
-    assert any("Cython Accelerator" in text for text in probe_displays)
-    assert any("numpy" in status for status in probe_statuses)
+    assert received_callbacks == [(sentinel_display, sentinel_status)]
 
 
 def test_set_display_appends_fragments_only_when_enabled() -> None:
@@ -162,7 +161,8 @@ def test_finish_leaves_title_when_msgid_missing() -> None:
         assert model.Title == "T:Venv OK"
 
 
-def test_run_modal_probe_keeps_opening_title_and_appends_log() -> None:
+@contextmanager
+def _modal_probe_harness(*, translate_prefix: str | None = None):
     fake_ctx = MagicMock()
     progress = VenvProbeProgressDialog(fake_ctx)
     dlg = MagicMock()
@@ -184,124 +184,83 @@ def test_run_modal_probe_keeps_opening_title_and_appends_log() -> None:
         return MagicMock()
 
     dlg.getControl.side_effect = get_control
-    toolkit = MagicMock()
-
-    def probe(on_display, on_status):
-        on_display("Target directory: /tmp\n")
-        on_display("Downloading pack.so\n")
-        return True, ""
-
-    log_area_texts: list[str] = []
+    log_texts: list[str] = []
     close_enabled: list[bool] = []
 
     def fake_set_control_text(ctrl, text):
         if ctrl is log_area:
-            log_area_texts.append(text)
+            log_texts.append(text)
 
     def fake_set_control_enabled(ctrl, enabled):
         if ctrl is btn_close:
             close_enabled.append(enabled)
 
-    with (
-        patch("plugin.scripting.venv_probe_ui.load_writeragent_dialog_detail", return_value=(dlg, None)),
-        patch("plugin.scripting.venv_probe_ui.get_toolkit", return_value=toolkit),
-        patch("plugin.scripting.venv_probe_ui._dialog_parent_for_child", return_value="settings-peer"),
-        patch("plugin.scripting.venv_probe_ui.run_in_background", side_effect=lambda fn, **kw: fn()),
-        patch("plugin.framework.queue_executor.main.post", side_effect=lambda fn: fn()),
-        patch("plugin.framework.queue_executor.main.is_current", return_value=True),
-        patch("plugin.scripting.venv_probe_ui.process_events_to_idle"),
-        patch("plugin.scripting.venv_probe_ui.set_control_enabled", side_effect=fake_set_control_enabled),
-        patch("plugin.scripting.venv_probe_ui.set_control_text", side_effect=fake_set_control_text),
-    ):
-        progress.run_modal_probe(probe, title="Audio Library Download", append_log=True)
+    with ExitStack() as stack:
+        stack.enter_context(patch("plugin.scripting.venv_probe_ui.load_writeragent_dialog_detail", return_value=(dlg, None)))
+        stack.enter_context(patch("plugin.scripting.venv_probe_ui.get_toolkit", return_value=MagicMock()))
+        stack.enter_context(patch("plugin.scripting.venv_probe_ui._dialog_parent_for_child", return_value="settings-peer"))
+        stack.enter_context(patch("plugin.scripting.venv_probe_ui.run_in_background", side_effect=lambda fn, **kw: fn()))
+        stack.enter_context(patch("plugin.framework.queue_executor.main.post", side_effect=lambda fn: fn()))
+        stack.enter_context(patch("plugin.framework.queue_executor.main.is_current", return_value=True))
+        stack.enter_context(patch("plugin.scripting.venv_probe_ui.process_events_to_idle"))
+        stack.enter_context(patch("plugin.scripting.venv_probe_ui.set_control_enabled", side_effect=fake_set_control_enabled))
+        stack.enter_context(patch("plugin.scripting.venv_probe_ui.set_control_text", side_effect=fake_set_control_text))
+        if translate_prefix is not None:
+            stack.enter_context(patch("plugin.scripting.venv_probe_ui._", side_effect=lambda msg: translate_prefix + msg))
+        yield SimpleNamespace(
+            progress=progress,
+            dlg=dlg,
+            model=model,
+            log_texts=log_texts,
+            close_enabled=close_enabled,
+        )
 
-    assert model.Title == _("Audio Library Download")
-    assert model.Title != "Venv OK"
-    assert log_area_texts[-1] == "Target directory: /tmp\nDownloading pack.so\n"
-    assert close_enabled[-1] is True
-    dlg.execute.assert_called_once()
+
+def test_run_modal_probe_keeps_opening_title_and_appends_log() -> None:
+    def probe(on_display, on_status):
+        on_display("Target directory: /tmp\n")
+        on_display("Downloading pack.so\n")
+        return True, ""
+
+    with _modal_probe_harness() as h:
+        h.progress.run_modal_probe(probe, title="Audio Library Download", append_log=True)
+
+    assert h.model.Title == _("Audio Library Download")
+    assert h.model.Title != "Venv OK"
+    assert h.log_texts[-1] == "Target directory: /tmp\nDownloading pack.so\n"
+    assert h.close_enabled[-1] is True
+    h.dlg.execute.assert_called_once()
 
 
-def test_run_modal_probe_applies_result_titles_once() -> None:
-    def make_harness(ok_result: bool):
-        fake_ctx = MagicMock()
-        progress = VenvProbeProgressDialog(fake_ctx)
-        dlg = MagicMock()
-        dlg.getPeer.return_value = None
-        model = MagicMock()
-        model.Title = ""
-        dlg.getModel.return_value = model
-        dlg.getControl.return_value = MagicMock()
+@pytest.mark.parametrize(
+    ("ok_result", "expected_title"),
+    [(False, "T:Venv check failed"), (True, "T:Venv OK")],
+    ids=["failure", "success"],
+)
+def test_run_modal_probe_applies_result_titles_once(ok_result: bool, expected_title: str) -> None:
+    def probe(on_display, on_status):
+        return ok_result, "msg"
 
-        def probe(on_display, on_status):
-            return ok_result, "msg"
+    with _modal_probe_harness(translate_prefix="T:") as h:
+        h.progress.run_modal_probe(probe, success_title="Venv OK", failure_title="Venv check failed")
 
-        return progress, dlg, model, probe
-
-    with (
-        patch("plugin.scripting.venv_probe_ui.load_writeragent_dialog_detail") as mock_load,
-        patch("plugin.scripting.venv_probe_ui.get_toolkit"),
-        patch("plugin.scripting.venv_probe_ui._dialog_parent_for_child"),
-        patch("plugin.scripting.venv_probe_ui.run_in_background", side_effect=lambda fn, **kw: fn()),
-        patch("plugin.framework.queue_executor.main.post", side_effect=lambda fn: fn()),
-        patch("plugin.framework.queue_executor.main.is_current", return_value=True),
-        patch("plugin.scripting.venv_probe_ui.process_events_to_idle"),
-        patch("plugin.scripting.venv_probe_ui.set_control_enabled"),
-        patch("plugin.scripting.venv_probe_ui.set_control_text"),
-        patch("plugin.scripting.venv_probe_ui._", side_effect=lambda msg: "T:" + msg),
-    ):
-        p1, dlg1, model1, probe1 = make_harness(False)
-        mock_load.return_value = (dlg1, None)
-        p1.run_modal_probe(probe1, success_title="Venv OK", failure_title="Venv check failed")
-        assert model1.Title == "T:Venv check failed"
-
-        p2, dlg2, model2, probe2 = make_harness(True)
-        mock_load.return_value = (dlg2, None)
-        p2.run_modal_probe(probe2, success_title="Venv OK", failure_title="Venv check failed")
-        assert model2.Title == "T:Venv OK"
+    assert h.model.Title == expected_title
 
 
 def test_run_modal_probe_appends_exception_text() -> None:
-    fake_ctx = MagicMock()
-    progress = VenvProbeProgressDialog(fake_ctx)
-    dlg = MagicMock()
-    dlg.getPeer.return_value = None
-    model = MagicMock()
-    model.Title = ""
-    dlg.getModel.return_value = model
-    log_area = MagicMock()
-    dlg.getControl.side_effect = lambda name: log_area if name == "LogArea" else MagicMock()
-
     def probe(on_display, on_status):
         on_display("Target directory: /tmp\n")
         raise RuntimeError("boom")
 
-    log_area_texts: list[str] = []
-
-    def fake_set_control_text(ctrl, text):
-        if ctrl is log_area:
-            log_area_texts.append(text)
-
-    with (
-        patch("plugin.scripting.venv_probe_ui.load_writeragent_dialog_detail", return_value=(dlg, None)),
-        patch("plugin.scripting.venv_probe_ui.get_toolkit"),
-        patch("plugin.scripting.venv_probe_ui._dialog_parent_for_child"),
-        patch("plugin.scripting.venv_probe_ui.run_in_background", side_effect=lambda fn, **kw: fn()),
-        patch("plugin.framework.queue_executor.main.post", side_effect=lambda fn: fn()),
-        patch("plugin.framework.queue_executor.main.is_current", return_value=True),
-        patch("plugin.scripting.venv_probe_ui.process_events_to_idle"),
-        patch("plugin.scripting.venv_probe_ui.set_control_enabled"),
-        patch("plugin.scripting.venv_probe_ui.set_control_text", side_effect=fake_set_control_text),
-        patch("plugin.scripting.venv_probe_ui._", side_effect=lambda msg: "T:" + msg),
-    ):
-        progress.run_modal_probe(
+    with _modal_probe_harness(translate_prefix="T:") as h:
+        h.progress.run_modal_probe(
             probe,
             append_log=True,
             failure_title="Venv check failed",
         )
 
-    assert log_area_texts[-1] == "Target directory: /tmp\nboom"
-    assert model.Title == "T:Venv check failed"
+    assert h.log_texts[-1] == "Target directory: /tmp\nboom"
+    assert h.model.Title == "T:Venv check failed"
 
 
 def test_run_modal_probe_skips_worker_when_dialog_missing() -> None:

@@ -26,27 +26,27 @@ def _reset_host_pacing():
     reset_local_unverified_hosts_for_tests()
 
 
-def test_endpoint_parts_bad_port_is_network_error():
-    for url in ("http://localhost:1a34", "https://localhost:70000"):
-        transport = LlmHttpTransport(lambda url=url: url, lambda: 5)
-        with pytest.raises(NetworkError) as raised:
-            transport._endpoint_parts()
-        assert raised.value.code == "INVALID_URL"
-        assert not isinstance(raised.value, ValueError)
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://localhost:1a34",
+        "https://localhost:70000",
+        "http://[::1",
+        "http://[::1]extra",
+        "http://[]/v1",
+    ],
+)
+def test_endpoint_parts_invalid_url_is_network_error(url: str):
+    """``_endpoint_parts`` must map bad ports and malformed brackets to ``NetworkError``.
 
-
-def test_endpoint_parts_malformed_bracket_url_is_network_error():
-    """``_endpoint_parts`` must not leak ``ValueError``.
-
-    ``urlparse`` can raise on unmatched brackets before ``_explicit_port`` runs.
-    Those URLs must surface as ``NetworkError``, not escape as raw ``ValueError``.
+    Bracket rows: ``urlparse`` raises on unmatched brackets before ``_explicit_port`` runs,
+    so these must also surface as ``NetworkError``, not raw ``ValueError``.
     """
-    for url in ("http://[::1", "http://[::1]extra", "http://[]/v1"):
-        transport = LlmHttpTransport(lambda url=url: url, lambda: 5)
-        with pytest.raises(NetworkError) as raised:
-            transport._endpoint_parts()
-        assert raised.value.code == "INVALID_URL"
-        assert not isinstance(raised.value, ValueError)
+    transport = LlmHttpTransport(lambda: url, lambda: 5)
+    with pytest.raises(NetworkError) as raised:
+        transport._endpoint_parts()
+    assert raised.value.code == "INVALID_URL"
+    assert not isinstance(raised.value, ValueError)
 
 
 def test_exchange_malformed_bracket_redirect_is_network_error():
@@ -604,10 +604,9 @@ def _status_response(status: int, *, read_error: BaseException | None = None, bo
     return response
 
 
-def test_exchange_error_body_read_failure_costs_one_retry():
+@pytest.mark.parametrize("mode", ["exchange", "stream"])
+def test_error_body_read_failure_costs_one_retry(mode: str):
     """A reset while reading a non-200 body is one attempt, so the third try still runs."""
-    import http.client
-
     transport = LlmHttpTransport(lambda: "https://api.openai.com", lambda: 30)
     read_error = http.client.IncompleteRead(b"partial", 40)
     ok = _status_response(200, body=b'{"ok": true}', content_type="application/json")
@@ -626,37 +625,13 @@ def test_exchange_error_body_read_failure_costs_one_retry():
         patch("plugin.framework.client.http_transport.wait_abortable", return_value=True),
         patch("plugin.framework.client.http_transport.backoff_delay_sec", side_effect=_delay),
     ):
-        result = transport.exchange("GET", "/v1/models", None, {}, sender=sender, parse_json=True)
-    assert result.parsed == {"ok": True}
-    assert calls["n"] == 3
-    assert attempts == [1, 2]
-
-
-def test_stream_error_body_read_failure_costs_one_retry():
-    """A reset while reading a streaming non-200 body is one attempt, so the third try still runs."""
-    import http.client
-
-    transport = LlmHttpTransport(lambda: "https://api.openai.com", lambda: 30)
-    read_error = http.client.IncompleteRead(b"partial", 40)
-    ok = _status_response(200, body=b'{"ok": true}', content_type="application/json")
-    sender, calls = _exchange_sender([
-        _status_response(500, read_error=read_error),
-        _status_response(500, read_error=read_error),
-        ok,
-    ])
-    transport.send = sender  # type: ignore[assignment]
-    attempts: list[int] = []
-
-    def _delay(*, attempt: int = 1, **_kwargs):
-        attempts.append(attempt)
-        return 0.0
-
-    with (
-        patch("plugin.framework.client.http_transport.wait_abortable", return_value=True),
-        patch("plugin.framework.client.http_transport.backoff_delay_sec", side_effect=_delay),
-    ):
-        result = transport.stream("POST", "/v1/chat/completions", b"{}", {}, lambda _resp, _budget: "finished")
-    assert result == "finished"
+        if mode == "exchange":
+            result = transport.exchange("GET", "/v1/models", None, {}, sender=sender, parse_json=True)
+            assert result.parsed == {"ok": True}
+        else:
+            transport.send = sender  # type: ignore[assignment]
+            result = transport.stream("POST", "/v1/chat/completions", b"{}", {}, lambda _resp, _budget: "finished")
+            assert result == "finished"
     assert calls["n"] == 3
     assert attempts == [1, 2]
 

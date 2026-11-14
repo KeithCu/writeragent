@@ -76,22 +76,18 @@ def test_version_tuple_invalid():
     assert version_tuple("1.a.0") is None
 
 
-def test_parse_update_xml_sample():
-    ident, ver = parse_update_xml(SAMPLE_XML)
-    assert ident == EXTENSION_ID_WRITERAGENT
-    assert ver == "0.7.1"
-
-
-def test_parse_update_xml_librepy():
-    ident, ver = parse_update_xml(LIBREPY_XML)
-    assert ident == EXTENSION_ID_LIBREPY
-    assert ver == "0.8.0"
-
-
-def test_parse_update_xml_libreharper():
-    ident, ver = parse_update_xml(LIBREHARPER_XML)
-    assert ident == EXTENSION_ID_LIBREHARPER
-    assert ver == "0.8.1"
+@pytest.mark.parametrize(
+    ("xml_body", "expected_id", "expected_version"),
+    [
+        (SAMPLE_XML, EXTENSION_ID_WRITERAGENT, "0.7.1"),
+        (LIBREPY_XML, EXTENSION_ID_LIBREPY, "0.8.0"),
+        (LIBREHARPER_XML, EXTENSION_ID_LIBREHARPER, "0.8.1"),
+    ],
+)
+def test_parse_update_xml(xml_body, expected_id, expected_version):
+    ident, ver = parse_update_xml(xml_body)
+    assert ident == expected_id
+    assert ver == expected_version
 
 
 def test_parse_update_xml_wrong_identifier_still_parses():

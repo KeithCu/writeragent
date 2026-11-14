@@ -404,11 +404,12 @@ def test_splice_preserves_user_range():
     assert formula_data_args(patches[0].new_formula) == ["B1:B10", "A1"]
 
 
-def test_already_correct_predecessor_is_noop():
+@pytest.mark.parametrize("ref", ["A1", "$A$1"], ids=["relative", "absolute"])
+def test_already_correct_predecessor_is_noop(ref):
     patches, records = _repair(
         [
             _cell("A1", '=PY("x")'),
-            _cell("A2", '=PY("y";A1)'),
+            _cell("A2", f'=PY("y";{ref})'),
         ],
         {"A2": GeometricRecord(predecessor="A1")},
     )
@@ -527,17 +528,6 @@ def test_undo_stale_map_keeps_live_successor_record():
     assert "A3" not in first_records
 
 
-def test_already_correct_dollar_ref_is_noop():
-    patches, _records = _repair(
-        [
-            _cell("A1", '=PY("x")'),
-            _cell("A2", '=PY("y";$A$1)'),
-        ],
-        {"A2": GeometricRecord(predecessor="A1")},
-    )
-    assert patches == ()
-
-
 def test_user_single_cell_data_is_appended_not_overwritten():
     result = _repair(
         [
@@ -582,17 +572,6 @@ def test_splice_quoted_code_skips_calc_sanitizer():
     assert live.startswith('=py("')
     assert "float(1)" in live
     assert "$C$5" in live
-
-
-def test_user_already_passed_previous_py_not_recorded():
-    patches, records = _repair(
-        [
-            _cell("A1", '=PY("x")'),
-            _cell("A2", '=PY("y";A1)'),
-        ]
-    )
-    assert patches == ()
-    assert "A2" not in records
 
 
 def test_read_code_ref_text_missing_sheet_returns_empty():
@@ -769,6 +748,14 @@ def test_exact_100_without_truncated_is_chained():
 
 def test_notify_geometric_cap_hit_one_box_per_sheet_ui_thread_only():
     reset_geometric_runtime_for_tests()
+    # Off-main returns False and must not swallow the later UI box for the same sheet.
+    with (
+        patch("plugin.framework.queue_executor.main.is_current", return_value=False),
+        patch("plugin.chatbot.dialogs.msgbox") as mock_box,
+    ):
+        assert notify_geometric_cap_hit("ctx", "Sheet1", workbook_key="wb_test") is False
+        mock_box.assert_not_called()
+
     with (
         patch("plugin.framework.queue_executor.main.is_current", return_value=True),
         patch("plugin.chatbot.dialogs.msgbox") as mock_box,
@@ -777,31 +764,6 @@ def test_notify_geometric_cap_hit_one_box_per_sheet_ui_thread_only():
         assert notify_geometric_cap_hit("ctx", "Sheet1", workbook_key="wb_test") is False
         assert notify_geometric_cap_hit("ctx", "Sheet2", workbook_key="wb_test")
         assert mock_box.call_count == 2
-
-    with (
-        patch("plugin.framework.queue_executor.main.is_current", return_value=False),
-        patch("plugin.chatbot.dialogs.msgbox") as mock_box,
-    ):
-        shown = notify_geometric_cap_hit("ctx", "Other", workbook_key="wb_test")
-        assert shown is False
-        mock_box.assert_not_called()
-
-
-def test_notify_geometric_cap_hit_off_main_does_not_persist():
-    """Off-main logs and returns False; it must not swallow the later UI box."""
-    reset_geometric_runtime_for_tests()
-    with (
-        patch("plugin.framework.queue_executor.main.is_current", return_value=False),
-        patch("plugin.chatbot.dialogs.msgbox") as mock_box,
-    ):
-        assert notify_geometric_cap_hit("ctx", "Sheet1", workbook_key="wb1") is False
-        mock_box.assert_not_called()
-    with (
-        patch("plugin.framework.queue_executor.main.is_current", return_value=True),
-        patch("plugin.chatbot.dialogs.msgbox") as mock_box,
-    ):
-        assert notify_geometric_cap_hit("ctx", "Sheet1", workbook_key="wb1")
-        assert mock_box.call_count == 1
 
 
 def test_cap_hit_user_message_names_the_sheet(monkeypatch):

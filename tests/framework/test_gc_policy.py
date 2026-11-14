@@ -100,7 +100,7 @@ def _worker_build_cycles(hold: threading.Event, done: threading.Event) -> None:
         hold.set()
         for _ in range(200):
             Leaf()
-        time.sleep(0.3)
+        time.sleep(0.05)
     finally:
         log_lock.release()
         done.set()
@@ -120,7 +120,7 @@ def test_deadlock_reproducer_without_policy_then_fixed_with_install(gc_policy_re
     try:
         worker.start()
         assert hold.wait(timeout=2.0), "worker never entered logging lock"
-        assert not _acquire_logging_lock(timeout=2.0), "deadlock without policy: main blocked on logging lock"
+        assert not _acquire_logging_lock(timeout=0.3), "deadlock without policy: main blocked on logging lock"
     finally:
         solar.release()
     worker.join(timeout=3.0)
@@ -140,7 +140,7 @@ def test_deadlock_reproducer_without_policy_then_fixed_with_install(gc_policy_re
     try:
         worker.start()
         assert hold.wait(timeout=2.0)
-        assert _acquire_logging_lock(timeout=2.0), "with policy main should acquire logging lock"
+        assert _acquire_logging_lock(timeout=0.5), "with policy main should acquire logging lock"
         _release_logging_lock()
     finally:
         solar.release()

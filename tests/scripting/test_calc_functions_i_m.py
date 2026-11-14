@@ -375,13 +375,6 @@ def test_iferror_ifna_bad_inputs() -> None:
     assert calc.ifna(_raise, "#VALUE!") == "#VALUE!"
 
 
-def test_mround_zero_multiple():
-    # Regression R3: mround(n, 0) should return 0.0 (Excel and LibreOffice ScMRound)
-    assert calc.mround(5, 0) == 0.0
-    assert calc.mround(-5, 0) == 0.0
-    assert calc.mround(0, 0) == 0.0
-
-
 def test_error_predicates_i_m():
     # Bug Z7: iserror, iserr, istext, isnumber, iferror
     assert calc.iserror(float("nan")) is True

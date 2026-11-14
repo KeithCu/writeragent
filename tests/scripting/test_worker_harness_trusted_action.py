@@ -73,34 +73,37 @@ def test_handle_request_maintain_heartbeat_without_stub_code(mock_dispatch) -> N
     assert len(out) > 0
 
 
-@patch(
-    "plugin.embeddings.venv.embeddings_index_dispatch.dispatch_trusted",
-    return_value={"large": "x" * 17_000_000},
-)
-def test_handle_request_trusted_action_heartbeat_oversized_payload_writes_error_frame(mock_dispatch) -> None:
+def _run_heartbeat_frame_request(req_id: str, data: dict) -> tuple[dict, BytesIO]:
     from plugin.framework.ipc import DEFAULT_MAX_PAYLOAD_BYTES, read_frame_payload
     from plugin.scripting.venv_worker import parse_worker_stdout_frame
 
     stdout = BytesIO()
     res = _handle_request(
         {
-            "id": "hb-oversize",
+            "id": req_id,
             "action": "run_trusted_action",
             "allow_heartbeat": True,
-            "data": {
-                "domain": "embeddings_index",
-                "helper": "maintain_folder_index",
-                "params": {},
-            },
+            "data": data,
         },
         stdout=stdout,
     )
     assert res is None
-    mock_dispatch.assert_called_once()
     stdout.seek(0)
     raw = read_frame_payload(stdout, max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES)
     assert raw is not None
-    frame = parse_worker_stdout_frame(raw)
+    return parse_worker_stdout_frame(raw), stdout
+
+
+@patch(
+    "plugin.embeddings.venv.embeddings_index_dispatch.dispatch_trusted",
+    return_value={"large": "x" * 17_000_000},
+)
+def test_handle_request_trusted_action_heartbeat_oversized_payload_writes_error_frame(mock_dispatch) -> None:
+    frame, _stdout = _run_heartbeat_frame_request(
+        "hb-oversize",
+        {"domain": "embeddings_index", "helper": "maintain_folder_index", "params": {}},
+    )
+    mock_dispatch.assert_called_once()
     assert frame["id"] == "hb-oversize"
     assert frame["frame_type"] == "result"
     assert frame["status"] == "error"
@@ -112,28 +115,10 @@ def test_handle_request_trusted_action_heartbeat_oversized_payload_writes_error_
     side_effect=RuntimeError("Index corrupt"),
 )
 def test_handle_request_trusted_action_heartbeat_exception_writes_error_frame(mock_dispatch) -> None:
-    from plugin.framework.ipc import DEFAULT_MAX_PAYLOAD_BYTES, read_frame_payload
-    from plugin.scripting.venv_worker import parse_worker_stdout_frame
-
-    stdout = BytesIO()
-    res = _handle_request(
-        {
-            "id": "hb-err",
-            "action": "run_trusted_action",
-            "allow_heartbeat": True,
-            "data": {
-                "domain": "embeddings_index",
-                "helper": "maintain_folder_index",
-                "params": {},
-            },
-        },
-        stdout=stdout,
+    frame, _stdout = _run_heartbeat_frame_request(
+        "hb-err",
+        {"domain": "embeddings_index", "helper": "maintain_folder_index", "params": {}},
     )
-    assert res is None
-    stdout.seek(0)
-    raw = read_frame_payload(stdout, max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES)
-    assert raw is not None
-    frame = parse_worker_stdout_frame(raw)
     assert frame["id"] == "hb-err"
     assert frame["frame_type"] == "result"
     assert frame["status"] == "error"
@@ -224,29 +209,13 @@ def test_system_exit_during_request_writes_terminal_frame(monkeypatch) -> None:
 )
 def test_allow_heartbeat_frames_non_heartbeat_success(mock_dispatch) -> None:
     from plugin.framework.ipc import DEFAULT_MAX_PAYLOAD_BYTES, read_frame_payload
-    from plugin.scripting.venv_worker import parse_worker_stdout_frame
 
-    stdout = BytesIO()
-    res = _handle_request(
-        {
-            "id": "plain-hb",
-            "action": "run_trusted_action",
-            "allow_heartbeat": True,
-            "data": {
-                "domain": "analysis",
-                "helper": "describe_data",
-                "params": {},
-            },
-        },
-        stdout=stdout,
+    frame, stdout = _run_heartbeat_frame_request(
+        "plain-hb",
+        {"domain": "analysis", "helper": "describe_data", "params": {}},
     )
-    assert res is None
     mock_dispatch.assert_called_once()
     assert "heartbeat_fn" not in mock_dispatch.call_args.kwargs
-    stdout.seek(0)
-    raw = read_frame_payload(stdout, max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES)
-    assert raw is not None
-    frame = parse_worker_stdout_frame(raw)
     assert frame["frame_type"] == "result"
     assert frame["status"] == "ok"
     assert frame["id"] == "plain-hb"
@@ -259,28 +228,10 @@ def test_allow_heartbeat_frames_non_heartbeat_success(mock_dispatch) -> None:
     side_effect=RuntimeError("bad spec"),
 )
 def test_allow_heartbeat_frames_non_heartbeat_error(mock_dispatch) -> None:
-    from plugin.framework.ipc import DEFAULT_MAX_PAYLOAD_BYTES, read_frame_payload
-    from plugin.scripting.venv_worker import parse_worker_stdout_frame
-
-    stdout = BytesIO()
-    res = _handle_request(
-        {
-            "id": "plain-hb-err",
-            "action": "run_trusted_action",
-            "allow_heartbeat": True,
-            "data": {
-                "domain": "analysis",
-                "helper": "describe_data",
-                "params": {},
-            },
-        },
-        stdout=stdout,
+    frame, _stdout = _run_heartbeat_frame_request(
+        "plain-hb-err",
+        {"domain": "analysis", "helper": "describe_data", "params": {}},
     )
-    assert res is None
-    stdout.seek(0)
-    raw = read_frame_payload(stdout, max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES)
-    assert raw is not None
-    frame = parse_worker_stdout_frame(raw)
     assert frame["frame_type"] == "result"
     assert frame["status"] == "error"
     assert "bad spec" in frame["message"]
@@ -288,27 +239,10 @@ def test_allow_heartbeat_frames_non_heartbeat_error(mock_dispatch) -> None:
 
 
 def test_allow_heartbeat_frames_unknown_domain() -> None:
-    from plugin.framework.ipc import DEFAULT_MAX_PAYLOAD_BYTES, read_frame_payload
-    from plugin.scripting.venv_worker import parse_worker_stdout_frame
-
-    stdout = BytesIO()
-    res = _handle_request(
-        {
-            "id": "missing-hb",
-            "action": "run_trusted_action",
-            "allow_heartbeat": True,
-            "data": {
-                "domain": "missing_domain",
-                "helper": "demo",
-            },
-        },
-        stdout=stdout,
+    frame, _stdout = _run_heartbeat_frame_request(
+        "missing-hb",
+        {"domain": "missing_domain", "helper": "demo"},
     )
-    assert res is None
-    stdout.seek(0)
-    raw = read_frame_payload(stdout, max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES)
-    assert raw is not None
-    frame = parse_worker_stdout_frame(raw)
     assert frame["status"] == "error"
     assert frame["frame_type"] == "result"
     assert "Unknown trusted action domain" in frame["message"]

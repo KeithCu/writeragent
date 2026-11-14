@@ -8,9 +8,6 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from plugin.framework.uno_context import get_ctx, get_extension_url, set_fallback_ctx
-_test_doc1 = None
-_test_doc2 = None
-_test_ctx = None
 
 
 def test_get_ctx_with_uno():
@@ -166,8 +163,24 @@ def test_get_extension_path_rejects_non_file_url():
         assert get_extension_path() == ""
 
 
-def test_get_desktop_skips_create_on_uno_bin_helper():
-    """Register/enable uno.bin must not createInstance(Desktop) (#768)."""
+@pytest.mark.parametrize(
+    ("argv", "proc"),
+    [
+        pytest.param(
+            ["/usr/lib64/libreoffice/program/uno.bin", "--singleaccept"],
+            None,
+            id="argv_uno_bin",
+        ),
+        pytest.param(
+            [""],
+            ("/usr/lib64/libreoffice/program/uno.bin", "uno.bin", ["/usr/lib64/libreoffice/program/uno.bin", "--quiet", "--singleaccept"]),
+            id="proc_exe_uno_bin",
+        ),
+    ],
+)
+def test_get_desktop_skips_create_when_unsafe(argv: list[str], proc: tuple[str, str, list[str]] | None) -> None:
+    """Register/enable uno.bin (via argv or /proc/self/exe) must not createInstance(Desktop) (#768)."""
+    import contextlib
     from plugin.framework.uno_context import get_desktop, reset_desktop_create_is_unsafe_for_tests
 
     smgr = MagicMock()
@@ -175,27 +188,12 @@ def test_get_desktop_skips_create_on_uno_bin_helper():
     ctx.ServiceManager = smgr
     reset_desktop_create_is_unsafe_for_tests()
     try:
-        with patch.object(sys, "argv", ["/usr/lib64/libreoffice/program/uno.bin", "--singleaccept"]):
-            assert get_desktop(ctx) is None
-        smgr.createInstanceWithContext.assert_not_called()
-    finally:
-        reset_desktop_create_is_unsafe_for_tests()
-
-
-def test_get_desktop_skips_create_when_proc_exe_is_uno_bin():
-    """pythonloader may rewrite sys.argv; /proc/self/exe is the real process (#768)."""
-    from plugin.framework.uno_context import get_desktop, reset_desktop_create_is_unsafe_for_tests
-
-    smgr = MagicMock()
-    ctx = MagicMock()
-    ctx.ServiceManager = smgr
-    proc = ("/usr/lib64/libreoffice/program/uno.bin", "uno.bin", ["/usr/lib64/libreoffice/program/uno.bin", "--quiet", "--singleaccept"])
-    reset_desktop_create_is_unsafe_for_tests()
-    try:
-        with (
-            patch.object(sys, "argv", [""]),
-            patch("plugin.framework.uno_context._linux_process_tokens", return_value=proc),
-        ):
+        proc_patch = (
+            patch("plugin.framework.uno_context._linux_process_tokens", return_value=proc)
+            if proc is not None
+            else contextlib.nullcontext()
+        )
+        with patch.object(sys, "argv", argv), proc_patch:
             assert get_desktop(ctx) is None
         smgr.createInstanceWithContext.assert_not_called()
     finally:
@@ -523,17 +521,18 @@ def test_resolve_document_by_url_reraises_disposed_on_nextelement():
         reset_desktop_create_is_unsafe_for_tests()
 
 @pytest.mark.parametrize(
-    "value, value_2, value_3, value_4, expected",
+    ("exe", "comm", "cmd_arg", "argv", "expected"),
     [
-        pytest.param("/usr/lib/libreoffice/program/soffice.bin", "soffice.bin", "/usr/lib/libreoffice/program/soffice.bin", "/home/u/uno", False, id="test_desktop_create_is_unsafe_now_false_for_soffice_with_uno_arg"),
-        pytest.param("/usr/lib/libreoffice/program/uno.bin", "uno.bin", "/usr/lib/libreoffice/program/uno.bin", "arg", True, id="test_desktop_create_is_unsafe_now_true_for_uno_bin_exe"),
+        pytest.param("/usr/lib/libreoffice/program/soffice.bin", "soffice.bin", "/home/u/uno", [""], False, id="soffice_with_uno_arg"),
+        pytest.param("/usr/lib/libreoffice/program/uno.bin", "uno.bin", "arg", [""], True, id="uno_bin_exe"),
+        pytest.param("/usr/lib/libreoffice/program/soffice.bin", "soffice.bin", "--singleaccept", ["soffice", "--singleaccept"], False, id="soffice_singleaccept"),
     ],
 )
-def test_desktop_create_is_unsafe_now_false_for_soffice_with_uno_arg(value, value_2, value_3, value_4, expected):
+def test_desktop_create_is_unsafe_now(exe: str, comm: str, cmd_arg: str, argv: list[str], expected: bool) -> None:
     from plugin.framework.uno_context import _desktop_create_is_unsafe_now
-    proc = (value, value_2, [value_3, value_4])
+    proc = (exe, comm, [exe, cmd_arg])
     with (
-        patch.object(sys, "argv", [""]),
+        patch.object(sys, "argv", argv),
         patch("plugin.framework.uno_context._linux_process_tokens", return_value=proc),
     ):
         assert _desktop_create_is_unsafe_now() is expected
@@ -583,15 +582,6 @@ def test_product_display_name_libreharper_auto_detect():
     ):
         assert product_display_name() == "LibreHarper"
     reset_package_extension_id_for_tests()
-
-def test_desktop_create_is_unsafe_now_singleaccept_on_soffice_is_safe():
-    from plugin.framework.uno_context import _desktop_create_is_unsafe_now
-    proc = ("/usr/lib/libreoffice/program/soffice.bin", "soffice.bin", ["/usr/lib/libreoffice/program/soffice.bin", "--singleaccept"])
-    with (
-        patch.object(sys, "argv", ["soffice", "--singleaccept"]),
-        patch("plugin.framework.uno_context._linux_process_tokens", return_value=proc),
-    ):
-        assert _desktop_create_is_unsafe_now() is False
 
 def test_get_package_info_returns_none_when_ctx_none():
     from plugin.framework.uno_context import get_package_info
@@ -810,25 +800,6 @@ def test_desktop_create_is_unsafe_for_uno_bin_helper() -> None:
             ),
         ):
             assert not desktop_create_is_unsafe()
-    finally:
-        reset_desktop_create_is_unsafe_for_tests()
-
-
-def test_desktop_create_is_unsafe_when_pythonloader_rewrites_argv() -> None:
-    """pythonloader inside uno.bin often leaves argv as '' or a .py path (#768)."""
-    from plugin.framework.uno_context import (
-        desktop_create_is_unsafe,
-        reset_desktop_create_is_unsafe_for_tests,
-    )
-
-    proc = ("/usr/lib64/libreoffice/program/uno.bin", "uno.bin", ["/usr/lib64/libreoffice/program/uno.bin", "--quiet", "--singleaccept"])
-    reset_desktop_create_is_unsafe_for_tests()
-    try:
-        with (
-            patch.object(sys, "argv", [""]),
-            patch("plugin.framework.uno_context._linux_process_tokens", return_value=proc),
-        ):
-            assert desktop_create_is_unsafe()
     finally:
         reset_desktop_create_is_unsafe_for_tests()
 

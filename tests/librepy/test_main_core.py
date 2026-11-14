@@ -2,17 +2,18 @@
 
 import sys
 import threading
+from typing import Iterator
 from unittest.mock import MagicMock, patch
 
+import pytest
 
 import plugin.bootstrap as bootstrap
 from plugin.framework.errors import WriterAgentException
 from plugin.framework.main_shared import get_action_handler
 
 
-def test_bootstrap_registers_settings_and_run_python(monkeypatch) -> None:
-    import plugin.main_core as main_core
-
+@pytest.fixture
+def _bootstrap_stubs(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     bootstrap.mark_uninitialized()
     bootstrap.clear_bootstrap_error()
     monkeypatch.setattr("plugin.framework.config.init_config", lambda _ctx: None)
@@ -30,48 +31,29 @@ def test_bootstrap_registers_settings_and_run_python(monkeypatch) -> None:
         lambda _ctx: None,
     )
     try:
-        main_core.bootstrap(MagicMock())
-        assert get_action_handler("main.settings") is not None
-        assert get_action_handler("scripting.run_python_dialog") is not None
+        yield
     finally:
         bootstrap.mark_uninitialized()
         bootstrap.clear_bootstrap_error()
 
 
-def test_bootstrap_defers_settings_import(monkeypatch) -> None:
+@pytest.mark.parametrize("defer_settings", [False, True], ids=["normal", "defers_settings_import"])
+def test_bootstrap_registers_settings_and_run_python(
+    monkeypatch: pytest.MonkeyPatch, _bootstrap_stubs: None, defer_settings: bool
+) -> None:
     import plugin.main_core as main_core
 
-    bootstrap.mark_uninitialized()
-    bootstrap.clear_bootstrap_error()
-    monkeypatch.setattr("plugin.framework.config.init_config", lambda _ctx: None)
-    monkeypatch.setattr("plugin.framework.i18n.init_i18n", lambda _ctx: None)
-    monkeypatch.setattr(
-        "plugin.scripting.native_binaries.ensure_native_binaries_on_path",
-        lambda: None,
-    )
-    monkeypatch.setattr(
-        "plugin.calc.python.editor_context_menu.install_calc_cell_context_menu",
-        lambda _ctx: None,
-    )
-    monkeypatch.setattr(
-        "plugin.calc.python.workbook_lifecycle.install_global_document_event_listener",
-        lambda _ctx: None,
-    )
-    monkeypatch.setitem(sys.modules, "plugin.librepy.settings", None)
-    try:
-        main_core.bootstrap(MagicMock())
-        assert get_action_handler("main.settings") is not None
-        assert get_action_handler("scripting.run_python_dialog") is not None
-    finally:
-        bootstrap.mark_uninitialized()
-        bootstrap.clear_bootstrap_error()
+    if defer_settings:
+        monkeypatch.setitem(sys.modules, "plugin.librepy.settings", None)
+    main_core.bootstrap(MagicMock())
+    assert get_action_handler("main.settings") is not None
+    assert get_action_handler("scripting.run_python_dialog") is not None
 
 
-def test_bootstrap_reentry_returns_without_lock(monkeypatch) -> None:
+def test_bootstrap_reentry_returns_without_lock(
+    monkeypatch: pytest.MonkeyPatch, _bootstrap_stubs: None
+) -> None:
     import plugin.main_core as main_core
-
-    bootstrap.mark_uninitialized()
-    bootstrap.clear_bootstrap_error()
 
     calls = 0
 
@@ -83,26 +65,9 @@ def test_bootstrap_reentry_returns_without_lock(monkeypatch) -> None:
         return ""
 
     monkeypatch.setattr("plugin.framework.config.init_config", fake_init_config)
-    monkeypatch.setattr("plugin.framework.i18n.init_i18n", lambda _ctx: None)
-    monkeypatch.setattr(
-        "plugin.scripting.native_binaries.ensure_native_binaries_on_path",
-        lambda: None,
-    )
-    monkeypatch.setattr(
-        "plugin.calc.python.editor_context_menu.install_calc_cell_context_menu",
-        lambda _ctx: None,
-    )
-    monkeypatch.setattr(
-        "plugin.calc.python.workbook_lifecycle.install_global_document_event_listener",
-        lambda _ctx: None,
-    )
-    try:
-        main_core.bootstrap(MagicMock())
-        assert calls == 1
-        assert bootstrap.bootstrap_initialized()
-    finally:
-        bootstrap.mark_uninitialized()
-        bootstrap.clear_bootstrap_error()
+    main_core.bootstrap(MagicMock())
+    assert calls == 1
+    assert bootstrap.bootstrap_initialized()
 
 
 def test_execute_inits_logging_before_bootstrap(monkeypatch) -> None:
@@ -120,7 +85,8 @@ def test_execute_inits_logging_before_bootstrap(monkeypatch) -> None:
     assert order == ["log", "boot", "upd"]
 
 
-def test_execute_bootstraps_when_init_logging_fails(monkeypatch) -> None:
+@pytest.mark.parametrize("method", ["execute", "trigger"])
+def test_bootstraps_when_init_logging_fails(monkeypatch: pytest.MonkeyPatch, method: str) -> None:
     import plugin.main_core as main_core
 
     order: list[str] = []
@@ -136,26 +102,10 @@ def test_execute_bootstraps_when_init_logging_fails(monkeypatch) -> None:
         lambda _ctx, _ext: order.append("upd"),
     )
     job = main_core.MainBootstrapJob(MagicMock())
-    assert job.execute(()) == ()
-    assert order == ["log", "boot", "upd"]
-
-
-def test_trigger_bootstraps_when_init_logging_fails(monkeypatch) -> None:
-    import plugin.main_core as main_core
-
-    order: list[str] = []
-
-    def fail_logging(_ctx):
-        order.append("log")
-        raise RuntimeError("logging boom")
-
-    monkeypatch.setattr(main_core, "init_logging", fail_logging)
-    monkeypatch.setattr(main_core, "bootstrap", lambda _ctx: order.append("boot"))
-    monkeypatch.setattr(
-        "plugin.chatbot.extension_update_check.schedule_extension_update_check_once",
-        lambda _ctx, _ext: order.append("upd"),
-    )
-    main_core.MainBootstrapJob(MagicMock()).trigger("")
+    if method == "execute":
+        assert job.execute(()) == ()
+    else:
+        job.trigger("")
     assert order == ["log", "boot", "upd"]
 
 
@@ -252,17 +202,10 @@ def test_dispatch_survives_report_failure(monkeypatch) -> None:
     handler.dispatch(url, ())
 
 
-def test_calc_menu_failure_does_not_abort_handlers_or_notebook_wiring(monkeypatch) -> None:
+def test_calc_menu_failure_does_not_abort_handlers_or_notebook_wiring(
+    monkeypatch: pytest.MonkeyPatch, _bootstrap_stubs: None
+) -> None:
     import plugin.main_core as main_core
-
-    bootstrap.mark_uninitialized()
-    bootstrap.clear_bootstrap_error()
-    monkeypatch.setattr("plugin.framework.config.init_config", lambda _ctx: None)
-    monkeypatch.setattr("plugin.framework.i18n.init_i18n", lambda _ctx: None)
-    monkeypatch.setattr(
-        "plugin.scripting.native_binaries.ensure_native_binaries_on_path",
-        lambda: None,
-    )
 
     def raising_calc_menu(_ctx):
         raise RuntimeError("calc menu exploded")
@@ -276,13 +219,9 @@ def test_calc_menu_failure_does_not_abort_handlers_or_notebook_wiring(monkeypatc
         "plugin.notebook.notebook_controls.install_notebook_run_button_wiring",
         lambda _ctx: notebook_wired.append(True),
     )
-    try:
-        main_core.bootstrap(MagicMock())
-        assert get_action_handler("scripting.run_python_dialog") is not None
-        assert notebook_wired == [True]
-    finally:
-        bootstrap.mark_uninitialized()
-        bootstrap.clear_bootstrap_error()
+    main_core.bootstrap(MagicMock())
+    assert get_action_handler("scripting.run_python_dialog") is not None
+    assert notebook_wired == [True]
 
 
 def test_bootstrap_off_main_thread_raises():

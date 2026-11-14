@@ -272,22 +272,25 @@ class TestAppendTextChunk:
              patch("plugin.framework.uno_context.get_toolkit", return_value=toolkit):
             with drain_owner_scope("stream"):
                 append_text_chunk(control, " tail", style_window=MagicMock(), ctx=MagicMock())
-            assert toolkit.processEventsToIdle.call_count == 0
+            toolkit.processEventsToIdle.assert_not_called()
             assert get_suppressed_vcl_pump_count() >= 1
 
             append_text_chunk(control, " tail", style_window=MagicMock(), ctx=MagicMock())
-            assert toolkit.processEventsToIdle.call_count == 1
+            toolkit.processEventsToIdle.assert_called()
 
     def test_scroll_rich_to_tail_dispatches_select_all(self):
         from plugin.chatbot.rich_text_control import _scroll_rich_to_tail
 
         control = MagicMock()
+        parent = MagicMock()
         restore = MagicMock()
+        parent.attach_mock(restore, "restore")
         with patch("plugin.chatbot.rich_text_control._dispatch_rich_uno") as mock_uno:
+            parent.attach_mock(mock_uno, "uno")
             _scroll_rich_to_tail(control, restore_focus=restore)
         mock_uno.assert_called_once_with(control, ".uno:SelectAll")
-        assert restore.call_count == 2
-        assert restore.call_args_list[0] == restore.call_args_list[1]
+        # Restore focus before and after SelectAll so the selection flash stays hidden.
+        assert [c[0] for c in parent.mock_calls] == ["restore", "uno", "restore"]
 
     def test_scroll_rich_to_tail_is_not_reentrant(self):
         from plugin.chatbot import rich_text_control as rtc
@@ -462,20 +465,6 @@ class TestStripLegacyAiLabel:
         from plugin.chatbot.rich_text import strip_legacy_ai_label
 
         assert strip_legacy_ai_label("You: hi") == "You: hi"
-
-
-class TestSkipLegacyStreamChunk:
-    def test_skips_ai_prefix(self):
-        from plugin.chatbot.panel import skip_legacy_assistant_stream_chunk
-
-        assert skip_legacy_assistant_stream_chunk("\nAI: ")
-        assert skip_legacy_assistant_stream_chunk("AI:")
-        assert skip_legacy_assistant_stream_chunk("\n[Using chat model.]\n")
-
-    def test_allows_real_content(self):
-        from plugin.chatbot.panel import skip_legacy_assistant_stream_chunk
-
-        assert not skip_legacy_assistant_stream_chunk("Here is a real answer with tools.")
 
 
 class TestRichTextChatWidget:
@@ -721,6 +710,7 @@ class TestRichTextChatWidget:
 
         assert skip_legacy_assistant_stream_chunk(" AI") is False
         assert skip_legacy_assistant_stream_chunk("AI: yes") is False
+        assert skip_legacy_assistant_stream_chunk("Here is a real answer with tools.") is False
         assert skip_legacy_assistant_stream_chunk("\nAI: ") is True
         assert skip_legacy_assistant_stream_chunk("AI:") is True
         assert skip_legacy_assistant_stream_chunk("[Using chat model abc]") is True
@@ -841,9 +831,10 @@ class TestControlTextLength:
         control.getModel.side_effect = RuntimeError("disposed")
         assert get_control_text_length(control) is None
 
+        control.getModel.reset_mock()
         rollback_rich_insert(control, None)
         # Unknown length must not ask the model for a cursor (that is "delete from the start").
-        assert control.getModel.call_count == 1
+        control.getModel.assert_not_called()
 
     def test_missing_model_returns_none(self):
         from plugin.chatbot.rich_text_control import get_control_text_length

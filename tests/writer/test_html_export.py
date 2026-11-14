@@ -49,9 +49,22 @@ def _para(style: str):
     return element
 
 
-def _range_export(style: str, *, has_style: bool, set_style_raises: bool = False) -> tuple[str, MagicMock]:
-    """Run a two-paragraph selection export against a mocked scratch document."""
-    temp_doc = MagicMock()
+def _run_range_export(
+    elements=None,
+    *,
+    temp_doc=None,
+    has_style: bool = True,
+    set_style_raises: bool = False,
+    portions_fn=None,
+    xhtml: str = "<p>Hello</p><p>Hello</p>",
+    export_side_effect=None,
+    autostyle_return=({}, {}, False),
+    passthrough_semantic: bool = True,
+):
+    """Run _range_to_content_via_temp_doc with standard mocked collaborators."""
+    from contextlib import ExitStack
+
+    temp_doc = temp_doc if temp_doc is not None else MagicMock()
     temp_text = MagicMock()
     temp_cursor = MagicMock()
     temp_doc.getText.return_value = temp_text
@@ -66,34 +79,56 @@ def _range_export(style: str, *, has_style: bool, set_style_raises: bool = False
 
         temp_cursor.setPropertyValue.side_effect = _set
 
+    elems = list(elements) if elements is not None else [_para("Standard"), _para("Standard")]
     text = MagicMock()
-    text.createEnumeration.return_value = _Enum([_para(style), _para(style)])
+    text.createEnumeration.side_effect = lambda: _Enum(elems)
     source = MagicMock()
     source.getText.return_value = text
 
-    def _portions(element, truncated_out=None, deletion_state=None):
-        yield (_Portion(), "Hello")
+    if portions_fn is None:
+        def portions_fn(element, truncated_out=None, deletion_state=None):
+            yield (_Portion(), "Hello")
 
-    with (
-        patch("plugin.writer.html_export.new_blank_writer", return_value=temp_doc),
-        patch("plugin.writer.html_export._visible_portions", side_effect=_portions),
-        patch("plugin.writer.html_export._element_overlaps", return_value=True),
-        patch("plugin.writer.html_export._trim_to_source", side_effect=lambda text, element, para_text, source: (0, len(para_text))),
-        patch("plugin.writer.html_export.starts_at_or_after", return_value=False),
-        patch("plugin.writer.range_copy.paint_direct_formatting"),
-        patch("plugin.writer.html_export._hyperlink_urls", return_value=[]),
-        patch("plugin.writer.html_ruby.ruby_spans_in_window", return_value=[]),
-        patch("plugin.writer.html_export._export_xhtml", return_value="<p>Hello</p><p>Hello</p>"),
-        patch("plugin.writer.html_export._autostyle_maps", return_value=({}, {}, False)),
-        patch("plugin.writer.html_export.inject_exported_math_tex", side_effect=lambda model, ctx, content: content),
-        patch(
-            "plugin.writer.html_export.xhtml_post.xhtml_to_semantic_html",
-            side_effect=lambda xhtml, parents, overrides: xhtml,
-        ),
-    ):
+    export_kwargs = {"side_effect": export_side_effect} if export_side_effect is not None else {"return_value": xhtml}
+
+    with ExitStack() as stack:
+        stack.enter_context(patch("plugin.writer.html_export.new_blank_writer", return_value=temp_doc))
+        stack.enter_context(patch("plugin.writer.html_export._visible_portions", side_effect=portions_fn))
+        stack.enter_context(patch("plugin.writer.html_export._element_overlaps", return_value=True))
+        stack.enter_context(
+            patch("plugin.writer.html_export._trim_to_source", side_effect=lambda t, el, para_text, src: (0, len(para_text)))
+        )
+        stack.enter_context(patch("plugin.writer.html_export.starts_at_or_after", return_value=False))
+        stack.enter_context(patch("plugin.writer.range_copy.paint_direct_formatting"))
+        stack.enter_context(patch("plugin.writer.html_export._hyperlink_urls", return_value=[]))
+        stack.enter_context(patch("plugin.writer.html_ruby.ruby_spans_in_window", return_value=[]))
+        stack.enter_context(patch("plugin.writer.html_export._export_xhtml", **export_kwargs))
+        autostyle_mock = stack.enter_context(
+            patch("plugin.writer.html_export._autostyle_maps", return_value=autostyle_return)
+        )
+        stack.enter_context(
+            patch("plugin.writer.html_export.inject_exported_math_tex", side_effect=lambda model, ctx, content: content)
+        )
+        if passthrough_semantic:
+            stack.enter_context(
+                patch(
+                    "plugin.writer.html_export.xhtml_post.xhtml_to_semantic_html",
+                    side_effect=lambda xhtml_arg, parents, overrides: xhtml_arg,
+                )
+            )
         html = _range_to_content_via_temp_doc(
             MagicMock(), MagicMock(), 0, 0, None, source_range=source,
         )
+    return html, temp_cursor, temp_doc, autostyle_mock
+
+
+def _range_export(style: str, *, has_style: bool, set_style_raises: bool = False) -> tuple[str, MagicMock]:
+    """Run a two-paragraph selection export against a mocked scratch document."""
+    html, temp_cursor, _temp_doc, _autostyle_mock = _run_range_export(
+        [_para(style), _para(style)],
+        has_style=has_style,
+        set_style_raises=set_style_raises,
+    )
     return html, temp_cursor
 
 
@@ -572,31 +607,12 @@ def test_range_xhtml_disposal_does_not_fall_back():
     from plugin.framework.errors import DocumentDisposedError
 
     temp_doc = MagicMock()
-    temp_text = MagicMock()
-    temp_doc.getText.return_value = temp_text
-    temp_text.createTextCursor.return_value = MagicMock()
-    text = MagicMock()
-    text.createEnumeration.return_value = _Enum([_para("Standard")])
-    source = MagicMock()
-    source.getText.return_value = text
-
-    def _portions(element, truncated_out=None, deletion_state=None):
-        yield (_Portion(), "Hello")
-
-    with (
-        patch("plugin.writer.html_export.new_blank_writer", return_value=temp_doc),
-        patch("plugin.writer.html_export._visible_portions", side_effect=_portions),
-        patch("plugin.writer.html_export._element_overlaps", return_value=True),
-        patch("plugin.writer.html_export._trim_to_source", side_effect=lambda text, element, para_text, source: (0, len(para_text))),
-        patch("plugin.writer.html_export.starts_at_or_after", return_value=False),
-        patch("plugin.writer.range_copy.paint_direct_formatting"),
-        patch("plugin.writer.html_export._hyperlink_urls", return_value=[]),
-        patch("plugin.writer.html_ruby.ruby_spans_in_window", return_value=[]),
-        patch("plugin.writer.html_export._export_xhtml", side_effect=_DisposedException("disposed")),
-        pytest.raises(DocumentDisposedError),
-    ):
-        _range_to_content_via_temp_doc(
-            MagicMock(), MagicMock(), 0, 0, None, source_range=source,
+    with pytest.raises(DocumentDisposedError):
+        _run_range_export(
+            [_para("Standard")],
+            temp_doc=temp_doc,
+            export_side_effect=_DisposedException("disposed"),
+            passthrough_semantic=False,
         )
     temp_doc.storeToURL.assert_not_called()
 
@@ -664,43 +680,16 @@ def test_range_export_does_not_read_para_style_on_a_table():
     """SwXTextTable has no ParaStyleName. The walk must not abort on it."""
     table = MagicMock()
     table.supportsService.side_effect = lambda name: name == "com.sun.star.text.TextTable"
-    text = MagicMock()
-    text.createEnumeration.return_value = _Enum([table, _para("Standard")])
-    source = MagicMock()
-    source.getText.return_value = text
 
     def _portions(element, truncated_out=None, deletion_state=None):
         if element is not table:
             yield (_Portion(), "Hello")
 
-    temp_doc = MagicMock()
-    temp_text = MagicMock()
-    temp_cursor = MagicMock()
-    temp_doc.getText.return_value = temp_text
-    temp_text.createTextCursor.return_value = temp_cursor
-    styles = MagicMock()
-    styles.hasByName.return_value = True
-    temp_doc.getStyleFamilies.return_value.getByName.return_value = styles
-    with (
-        patch("plugin.writer.html_export.new_blank_writer", return_value=temp_doc),
-        patch("plugin.writer.html_export._visible_portions", side_effect=_portions),
-        patch("plugin.writer.html_export._element_overlaps", return_value=True),
-        patch("plugin.writer.html_export._trim_to_source", side_effect=lambda text, element, para_text, source: (0, len(para_text))),
-        patch("plugin.writer.html_export.starts_at_or_after", return_value=False),
-        patch("plugin.writer.range_copy.paint_direct_formatting"),
-        patch("plugin.writer.html_export._hyperlink_urls", return_value=[]),
-        patch("plugin.writer.html_ruby.ruby_spans_in_window", return_value=[]),
-        patch("plugin.writer.html_export._export_xhtml", return_value="<p>Hello</p>"),
-        patch("plugin.writer.html_export._autostyle_maps", return_value=({}, {}, False)),
-        patch("plugin.writer.html_export.inject_exported_math_tex", side_effect=lambda model, ctx, content: content),
-        patch(
-            "plugin.writer.html_export.xhtml_post.xhtml_to_semantic_html",
-            side_effect=lambda xhtml, parents, overrides: xhtml,
-        ),
-    ):
-        html = _range_to_content_via_temp_doc(
-            MagicMock(), MagicMock(), 0, 0, None, source_range=source,
-        )
+    html, _cursor, _temp_doc, _autostyle = _run_range_export(
+        [table, _para("Standard")],
+        portions_fn=_portions,
+        xhtml="<p>Hello</p>",
+    )
     assert "Hello" in html
     table.getPropertyValue.assert_not_called()
 
@@ -982,68 +971,25 @@ def test_substitute_math_placeholders_entities_and_fallback():
 
 def test_range_export_skips_flat_odf_when_no_autostyle():
     """Flat ODF is skipped when XHTML contains no paragraph-P<digits> autostyle classes."""
-    text = MagicMock()
-    text.createEnumeration.side_effect = lambda: _Enum([_para("Text body")])
-    source = MagicMock()
-    source.getText.return_value = text
-
-    def _portions(element, truncated_out=None, deletion_state=None):
-        yield (_Portion(), "Hello")
-
-    temp_doc = MagicMock()
-    temp_text = MagicMock()
-    temp_cursor = MagicMock()
-    temp_doc.getText.return_value = temp_text
-    temp_text.createTextCursor.return_value = temp_cursor
-    styles = MagicMock()
-    styles.hasByName.return_value = True
-    temp_doc.getStyleFamilies.return_value.getByName.return_value = styles
-
     # Case 1: XHTML with paragraph-Text_20_body does not call _autostyle_maps
-    xhtml_named = '<html><body><p class="paragraph-Text_20_body">Hello</p></body></html>'
-    with (
-        patch("plugin.writer.html_export.new_blank_writer", return_value=temp_doc),
-        patch("plugin.writer.html_export._visible_portions", side_effect=_portions),
-        patch("plugin.writer.html_export._element_overlaps", return_value=True),
-        patch("plugin.writer.html_export._trim_to_source", side_effect=lambda text, element, para_text, source: (0, len(para_text))),
-        patch("plugin.writer.html_export.starts_at_or_after", return_value=False),
-        patch("plugin.writer.range_copy.paint_direct_formatting"),
-        patch("plugin.writer.html_export._hyperlink_urls", return_value=[]),
-        patch("plugin.writer.html_ruby.ruby_spans_in_window", return_value=[]),
-        patch("plugin.writer.html_export._export_xhtml", return_value=xhtml_named),
-        patch("plugin.writer.html_export._autostyle_maps", return_value=({"P1": "Standard"}, {"P1": "margin:0"}, False)) as autostyle_mock,
-        patch("plugin.writer.html_export.inject_exported_math_tex", side_effect=lambda model, ctx, content: content),
-        patch("plugin.writer.html_export.xhtml_post.xhtml_to_semantic_html", side_effect=lambda xhtml, parents, overrides: xhtml) as semantic_mock,
-    ):
-        _range_to_content_via_temp_doc(
-            MagicMock(), MagicMock(), 0, 0, None, source_range=source,
-        )
-        autostyle_mock.assert_not_called()
-        semantic_mock.assert_called_once_with(xhtml_named, {}, {})
+    out_named, _c1, _td1, autostyle_mock1 = _run_range_export(
+        [_para("Text body")],
+        xhtml='<html><body><p class="paragraph-Text_20_body">Hello</p></body></html>',
+        autostyle_return=({"P1": "Standard"}, {"P1": "margin:0"}, False),
+        passthrough_semantic=False,
+    )
+    autostyle_mock1.assert_not_called()
+    assert '<p data-lo-style="Textbody">Hello</p>' in out_named
 
-    # Case 2: XHTML with paragraph-P1 calls _autostyle_maps and forwards maps to semantic_html
-    xhtml_auto = '<html><body><p class="paragraph-P1">Hello</p></body></html>'
-    expected_parents = {"P1": "Standard"}
-    expected_overrides = {"P1": "color:red"}
-    with (
-        patch("plugin.writer.html_export.new_blank_writer", return_value=temp_doc),
-        patch("plugin.writer.html_export._visible_portions", side_effect=_portions),
-        patch("plugin.writer.html_export._element_overlaps", return_value=True),
-        patch("plugin.writer.html_export._trim_to_source", side_effect=lambda text, element, para_text, source: (0, len(para_text))),
-        patch("plugin.writer.html_export.starts_at_or_after", return_value=False),
-        patch("plugin.writer.range_copy.paint_direct_formatting"),
-        patch("plugin.writer.html_export._hyperlink_urls", return_value=[]),
-        patch("plugin.writer.html_ruby.ruby_spans_in_window", return_value=[]),
-        patch("plugin.writer.html_export._export_xhtml", return_value=xhtml_auto),
-        patch("plugin.writer.html_export._autostyle_maps", return_value=(expected_parents, expected_overrides, False)) as autostyle_mock,
-        patch("plugin.writer.html_export.inject_exported_math_tex", side_effect=lambda model, ctx, content: content),
-        patch("plugin.writer.html_export.xhtml_post.xhtml_to_semantic_html", side_effect=lambda xhtml, parents, overrides: xhtml) as semantic_mock,
-    ):
-        _range_to_content_via_temp_doc(
-            MagicMock(), MagicMock(), 0, 0, None, source_range=source,
-        )
-        autostyle_mock.assert_called_once_with(temp_doc)
-        semantic_mock.assert_called_once_with(xhtml_auto, expected_parents, expected_overrides)
+    # Case 2: XHTML with paragraph-P1 calls _autostyle_maps and applies overrides in semantic HTML
+    out_auto, _c2, temp_doc2, autostyle_mock2 = _run_range_export(
+        [_para("Text body")],
+        xhtml='<html><body><p class="paragraph-P1">Hello</p></body></html>',
+        autostyle_return=({"P1": "Standard"}, {"P1": "color:red"}, False),
+        passthrough_semantic=False,
+    )
+    autostyle_mock2.assert_called_once_with(temp_doc2)
+    assert '<p data-lo-style="Standard" data-lo-para="color:red">Hello</p>' in out_auto
 
 
 

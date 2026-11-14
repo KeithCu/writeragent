@@ -116,7 +116,7 @@ def test_find_first_range_chains_across_paragraphs(ctx, doc):
 
 @native_test
 @with_native_doc("writer")
-def test_search_in_document_zero_width_regex_is_truncated(ctx, doc):
+def test_search_in_document_zero_width_regex_finds_nothing_uno(ctx, doc):
     text = doc.getText()
     cursor = text.createTextCursor()
     cursor.setString("Hello")

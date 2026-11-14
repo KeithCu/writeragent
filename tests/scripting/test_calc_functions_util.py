@@ -206,6 +206,11 @@ def test_int_bitwise():
     with pytest.raises(TypeError):
         _int_bitwise(operator.and_, None, 1)
     assert math.isnan(_int_bitwise(operator.and_, float("inf"), 1))
+    # Bitwise range 0 <= n < 2^48
+    max_val = (1 << 48) - 1
+    assert not math.isnan(_int_bitwise(operator.and_, max_val, 1))
+    assert math.isnan(_int_bitwise(operator.and_, max_val + 1, 1))
+    assert math.isnan(_int_bitwise(operator.and_, -1, 1))
 
 
 def test_int_shift():
@@ -223,6 +228,10 @@ def test_int_shift():
         _int_shift("invalid", 1, left=True)
     assert math.isnan(_int_shift(1, float("inf"), left=True))
     assert math.isnan(_int_shift(float("inf"), 1, left=False))
+    # Shift cap |shift| <= 53
+    assert not math.isnan(_int_shift(1, 53, left=True))
+    assert math.isnan(_int_shift(1, 54, left=True))
+    assert math.isnan(_int_shift(1, -54, left=True))
 
 
 def test_criteria_numbers():
@@ -339,22 +348,6 @@ def test_clean_paired_arrays():
 
     # Text cells return None
     assert clean_paired_arrays(["a", "b"], [1, 2]) is None
-
-
-def test_int_shift_and_bitwise_limits():
-    import operator
-    from plugin.scripting.venv.calc_functions_a_c import _int_bitwise, _int_shift
-
-    # Shift cap |shift| <= 53
-    assert not math.isnan(_int_shift(1, 53, left=True))
-    assert math.isnan(_int_shift(1, 54, left=True))
-    assert math.isnan(_int_shift(1, -54, left=True))
-
-    # Bitwise range 0 <= n < 2^48
-    max_val = (1 << 48) - 1
-    assert not math.isnan(_int_bitwise(operator.and_, max_val, 1))
-    assert math.isnan(_int_bitwise(operator.and_, max_val + 1, 1))
-    assert math.isnan(_int_bitwise(operator.and_, -1, 1))
 
 
 def test_round_half_up():

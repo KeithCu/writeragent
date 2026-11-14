@@ -13,8 +13,11 @@ from plugin.framework.uno_listeners import (
     BaseListener,
     BaseActionListener,
     BaseItemListener,
+    BaseKeyHandler,
     BaseTextListener,
     BaseKeyListener,
+    BaseMouseClickHandler,
+    BaseMouseListener,
     BaseWindowListener,
     BaseTopWindowListener,
     BaseDocumentEventListener,
@@ -94,40 +97,25 @@ def test_base_top_window_listener_other_events_are_noops():
     assert closing_called is False
 
 
-def test_base_action_listener_typed_exceptions():
-    """Exception paths swallow TypeError / ValueError / generic exceptions."""
-
-    class TypeErrListener(BaseActionListener):
-        def on_action_performed(self, ev):
-            raise TypeError("Test type error")
-
-    class ValueErrListener(BaseActionListener):
-        def on_action_performed(self, ev):
-            raise ValueError("Test value error")
-
-    class GenericErrListener(BaseActionListener):
-        def on_action_performed(self, ev):
-            raise Exception("Test generic error")
-
-    TypeErrListener().actionPerformed(MagicMock())
-    ValueErrListener().actionPerformed(MagicMock())
-    GenericErrListener().actionPerformed(MagicMock())
-
-
 @pytest.mark.parametrize(
-    ("base_cls", "uno_method", "hook_name"),
+    ("base_cls", "uno_method", "hook_name", "exc_cls"),
     [
-        (BaseItemListener, "itemStateChanged", "on_item_state_changed"),
-        (BaseTextListener, "textChanged", "on_text_changed"),
-        (BaseWindowListener, "windowResized", "on_window_resized"),
-        (BaseWindowListener, "windowMoved", "on_window_moved"),
-        (BaseWindowListener, "windowShown", "on_window_shown"),
-        (BaseWindowListener, "windowHidden", "on_window_hidden"),
+        (BaseActionListener, "actionPerformed", "on_action_performed", TypeError),
+        (BaseActionListener, "actionPerformed", "on_action_performed", ValueError),
+        (BaseActionListener, "actionPerformed", "on_action_performed", Exception),
+        (BaseItemListener, "itemStateChanged", "on_item_state_changed", Exception),
+        (BaseTextListener, "textChanged", "on_text_changed", Exception),
+        (BaseWindowListener, "windowResized", "on_window_resized", Exception),
+        (BaseWindowListener, "windowMoved", "on_window_moved", Exception),
+        (BaseWindowListener, "windowShown", "on_window_shown", Exception),
+        (BaseWindowListener, "windowHidden", "on_window_hidden", Exception),
+        (BaseModifyListener, "modified", "on_modified", ValueError),
+        (BaseTerminateListener, "notifyTermination", "on_notify_termination", RuntimeError),
     ],
 )
-def test_base_listener_unhandled_exceptions(base_cls, uno_method: str, hook_name: str):
+def test_base_listener_unhandled_exceptions(base_cls, uno_method: str, hook_name: str, exc_cls: type[Exception]):
     def boom(self, ev):
-        raise Exception(f"boom in {uno_method}")
+        raise exc_cls(f"boom in {uno_method}")
 
     sub_cls = type(f"Test{base_cls.__name__}", (base_cls,), {hook_name: boom})
     getattr(sub_cls(), uno_method)(MagicMock())
@@ -215,23 +203,29 @@ def test_listener_boundary_is_not_an_exception():
     assert not issubclass(ListenerBoundary, Exception)
 
 
-def test_generic_handler_cannot_swallow_thread_boundary():
-    """except Exception used to hide assert_main_thread inside a callback."""
+@pytest.mark.parametrize(
+    ("base_cls", "uno_method", "hook_name"),
+    [
+        (BaseActionListener, "actionPerformed", "on_action_performed"),
+        (BaseMouseClickHandler, "mousePressed", "on_mouse_pressed"),
+        (BaseKeyHandler, "keyPressed", "on_key_pressed"),
+    ],
+)
+def test_thread_violation_raises_listener_boundary(base_cls, uno_method: str, hook_name: str) -> None:
+    def boom(self, ev):
+        raise _thread_violation()
 
-    class Boom(BaseActionListener):
-        def on_action_performed(self, ev):
-            raise _thread_violation()
-
+    sub_cls = type(f"Boom{base_cls.__name__}", (base_cls,), {hook_name: boom})
     try:
         try:
-            Boom().actionPerformed(MagicMock())
+            getattr(sub_cls(), uno_method)(MagicMock())
         except Exception as exc:
             raise AssertionError("generic handler swallowed the boundary") from exc
     except ListenerBoundary as boundary:
         assert boundary.kind == "thread"
         assert "UNO thread violation" in str(boundary.original)
         return
-    raise AssertionError("thread violation left the listener as an empty callback")
+    raise AssertionError(f"thread violation did not leave {uno_method}")
 
 
 def test_runtime_error_is_not_disposal():
@@ -355,47 +349,31 @@ def test_veto_valueerror_is_the_original_type():
     raise AssertionError("CloseVetoException(ValueError) was swallowed")
 
 
-def test_click_thread_violation_is_not_a_rejected_click():
-    from plugin.framework.uno_listeners import BaseMouseClickHandler, ListenerBoundary
+@pytest.mark.parametrize(
+    ("base_cls", "uno_methods", "expected"),
+    [
+        (BaseMouseClickHandler, ("mousePressed", "mouseReleased"), False),
+        (BaseKeyHandler, ("keyPressed", "keyReleased"), False),
+        (BaseMouseListener, ("mousePressed",), None),
+    ],
+)
+def test_unannotated_override_returns_fallback(
+    base_cls, uno_methods: tuple[str, ...], expected: object
+) -> None:
+    def boom(self, e):
+        raise RuntimeError("override failed")
 
-    class Boom(BaseMouseClickHandler):
-        def on_mouse_pressed(self, e):
-            raise _thread_violation()
-
-    with_failure = False
-    try:
-        try:
-            returned = Boom().mousePressed(MagicMock())
-            with_failure = returned is False
-        except Exception as exc:
-            raise AssertionError("generic handler swallowed the boundary") from exc
-    except ListenerBoundary as boundary:
-        assert boundary.kind == "thread"
-        return
-    if with_failure:
-        raise AssertionError("thread violation looked like mousePressed returning False")
-    raise AssertionError("thread violation did not leave the click handler")
-
-
-def test_mouse_click_handler_unannotated_override_returns_false() -> None:
-    """Subclass overriding mousePressed/mouseReleased without annotations returns False on failure."""
-    from plugin.framework.uno_listeners import BaseMouseClickHandler
-
-    class UnannotatedOverride(BaseMouseClickHandler):
-        def mousePressed(self, e):
-            raise RuntimeError("click failed")
-
-        def mouseReleased(self, e):
-            raise RuntimeError("release failed")
-
-    handler = UnannotatedOverride()
-    assert handler.mousePressed(MagicMock()) is False
-    assert handler.mouseReleased(MagicMock()) is False
+    sub_cls = type(
+        f"Unannotated{base_cls.__name__}",
+        (base_cls,),
+        {name: boom for name in uno_methods},
+    )
+    instance = sub_cls()
+    for method in uno_methods:
+        assert getattr(instance, method)(MagicMock()) is expected
 
 
 def test_key_handler_default_is_false() -> None:
-    from plugin.framework.uno_listeners import BaseKeyHandler
-
     handler = BaseKeyHandler()
     assert handler.keyPressed(MagicMock()) is False
     assert handler.keyReleased(MagicMock()) is False
@@ -403,63 +381,11 @@ def test_key_handler_default_is_false() -> None:
 
 
 def test_key_handler_failure_returns_false() -> None:
-    from plugin.framework.uno_listeners import BaseKeyHandler
-
     class Boom(BaseKeyHandler):
         def on_key_pressed(self, e):
             raise RuntimeError("nope")
 
     assert Boom().keyPressed(MagicMock()) is False
-
-
-def test_key_handler_thread_violation_is_not_a_rejected_key() -> None:
-    from plugin.framework.uno_listeners import BaseKeyHandler, ListenerBoundary
-
-    class Boom(BaseKeyHandler):
-        def on_key_pressed(self, e):
-            raise _thread_violation()
-
-    with_failure = False
-    try:
-        try:
-            returned = Boom().keyPressed(MagicMock())
-            with_failure = returned is False
-        except Exception as exc:
-            raise AssertionError("generic handler swallowed the boundary") from exc
-    except ListenerBoundary as boundary:
-        assert boundary.kind == "thread"
-        return
-    if with_failure:
-        raise AssertionError("thread violation looked like keyPressed returning False")
-    raise AssertionError("thread violation did not leave the key handler")
-
-
-def test_key_handler_unannotated_override_returns_false() -> None:
-    """Subclass overriding keyPressed/keyReleased without annotations returns False on failure."""
-    from plugin.framework.uno_listeners import BaseKeyHandler
-
-    class UnannotatedOverride(BaseKeyHandler):
-        def keyPressed(self, e):
-            raise RuntimeError("key press failed")
-
-        def keyReleased(self, e):
-            raise RuntimeError("key release failed")
-
-    handler = UnannotatedOverride()
-    assert handler.keyPressed(MagicMock()) is False
-    assert handler.keyReleased(MagicMock()) is False
-
-
-def test_mouse_listener_unannotated_override_returns_none() -> None:
-    """Subclass overriding mousePressed on BaseMouseListener returns None on failure."""
-    from plugin.framework.uno_listeners import BaseMouseListener
-
-    class UnannotatedMouse(BaseMouseListener):
-        def mousePressed(self, e):
-            raise RuntimeError("mouse pressed failed")
-
-    listener = UnannotatedMouse()
-    assert listener.mousePressed(MagicMock()) is None
 
 
 def test_new_wrapped_callback_is_applied_to_overrides():
@@ -611,14 +537,6 @@ def test_base_modify_listener():
     DirectOverrideModifyListener().modified(ev)
 
 
-def test_base_modify_listener_exceptions():
-    class ErrorModifyListener(BaseModifyListener):
-        def on_modified(self, aEvent):
-            raise ValueError("bad modify value")
-
-    ErrorModifyListener().modified(MagicMock())
-
-
 def test_base_terminate_listener():
     """Verify terminate listener invokes callbacks and preserves veto exceptions."""
     class MyTerminateListener(BaseTerminateListener):
@@ -654,14 +572,6 @@ def test_base_terminate_listener():
         pass
     else:
         raise AssertionError("TerminationVetoException was swallowed by BaseTerminateListener")
-
-
-def test_base_terminate_listener_exceptions():
-    class ErrorTerminateListener(BaseTerminateListener):
-        def on_notify_termination(self, Event):
-            raise RuntimeError("crash on notify")
-
-    ErrorTerminateListener().notifyTermination(MagicMock())
 
 
 

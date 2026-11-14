@@ -4,11 +4,38 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Tests for the hamburger popup menu."""
 
+import contextlib
 from typing import Any
 from unittest.mock import MagicMock, create_autospec, patch
 
+import pytest
+
 from plugin.chatbot.hamburger_menu import show_hamburger_menu
 from plugin.notebook.cell_registry import NotebookDocState, new_code_cell_entry
+
+
+@contextlib.contextmanager
+def _doc_flags(*, writer: bool = False, calc: bool = False, draw: bool = False):
+    with (
+        patch("plugin.chatbot.hamburger_menu.is_writer", return_value=writer),
+        patch("plugin.chatbot.hamburger_menu.is_calc", return_value=calc),
+        patch("plugin.chatbot.hamburger_menu.is_draw", return_value=draw),
+    ):
+        yield
+
+
+@pytest.fixture
+def popup_menu():
+    ctx = MagicMock()
+    smgr = MagicMock()
+    popup = MagicMock()
+    ctx.getServiceManager.return_value = smgr
+    smgr.createInstanceWithContext.return_value = popup
+    popup.execute.return_value = 0
+    button_ctrl = MagicMock()
+    button_ctrl.getPosSize.return_value = MagicMock(X=76, Y=2, Width=16, Height=12)
+    button_ctrl.getPeer.return_value = MagicMock()
+    return ctx, popup, button_ctrl
 
 
 class TestHamburgerMenu:
@@ -16,88 +43,61 @@ class TestHamburgerMenu:
         # Should cleanly do nothing when ctx is None
         show_hamburger_menu(None, None, MagicMock())
 
-    def test_show_hamburger_menu_executes_selected_action(self):
-        ctx = MagicMock()
-        smgr = MagicMock()
-        popup = MagicMock()
-        ctx.getServiceManager.return_value = smgr
-        smgr.createInstanceWithContext.return_value = popup
-
+    def test_show_hamburger_menu_executes_selected_action(self, popup_menu):
+        ctx, popup, button_ctrl = popup_menu
         # Simulate user selecting item ID 1 (Extend Selection)
         popup.execute.return_value = 1
-
-        button_ctrl = MagicMock()
-        pos_size = MagicMock(X=76, Y=2, Width=16, Height=12)
-        button_ctrl.getPosSize.return_value = pos_size
-        button_ctrl.getPeer.return_value = MagicMock()
 
         frame = MagicMock()
         mock_handler = create_autospec(lambda frame=None: None)
 
-        with patch("plugin.chatbot.hamburger_menu.get_action_handler", return_value=mock_handler) as mock_get_handler:
-            with patch("plugin.chatbot.hamburger_menu.is_writer", return_value=True), patch("plugin.chatbot.hamburger_menu.is_calc", return_value=False), patch("plugin.chatbot.hamburger_menu.is_draw", return_value=False):
-                with patch("plugin.app.dispatch_command") as dispatch:
-                    show_hamburger_menu(ctx, frame, button_ctrl)
-                mock_get_handler.assert_called_with("chatbot.extend_selection")
-                mock_handler.assert_called_once_with(frame)
-                dispatch.assert_not_called()
+        with (
+            patch("plugin.chatbot.hamburger_menu.get_action_handler", return_value=mock_handler) as mock_get_handler,
+            _doc_flags(writer=True),
+            patch("plugin.app.dispatch_command") as dispatch,
+        ):
+            show_hamburger_menu(ctx, frame, button_ctrl)
+        mock_get_handler.assert_called_with("chatbot.extend_selection")
+        mock_handler.assert_called_once_with(frame)
+        dispatch.assert_not_called()
 
-    def test_unregistered_mcp_items_use_command_dispatch(self):
+    @pytest.mark.parametrize("action", ["mcp.toggle_server", "mcp.server_status"])
+    def test_unregistered_mcp_items_use_command_dispatch(self, popup_menu, action):
         """Toggle MCP and MCP status have no register_action_handler.
 
         get_action_handler returned None and invoke_action_handler returned
         without calling anything. The toolbar reaches McpModule.on_action
         through _dispatch_command. These items must use that path.
         """
-        for action in ("mcp.toggle_server", "mcp.server_status"):
-            ctx = MagicMock()
-            smgr = MagicMock()
-            popup = MagicMock()
-            ctx.getServiceManager.return_value = smgr
-            smgr.createInstanceWithContext.return_value = popup
-            button_ctrl = MagicMock()
-            button_ctrl.getPosSize.return_value = MagicMock(X=76, Y=2, Width=16, Height=12)
-            button_ctrl.getPeer.return_value = MagicMock()
-            frame = MagicMock()
+        ctx, popup, button_ctrl = popup_menu
+        frame = MagicMock()
 
-            def _choose(*_args, expected=action, menu=popup):
-                suffix = ":" + expected
-                for call in menu.setCommand.call_args_list:
-                    command = call.args[1]
-                    if isinstance(command, str) and command.endswith(suffix):
-                        return call.args[0]
-                raise AssertionError(expected)
+        def _choose(*_args, expected=action, menu=popup):
+            suffix = ":" + expected
+            for call in menu.setCommand.call_args_list:
+                command = call.args[1]
+                if isinstance(command, str) and command.endswith(suffix):
+                    return call.args[0]
+            raise AssertionError(expected)
 
-            popup.execute.side_effect = _choose
-            with (
-                patch("plugin.chatbot.hamburger_menu.get_action_handler", return_value=None) as get_handler,
-                patch("plugin.chatbot.hamburger_menu.is_writer", return_value=True),
-                patch("plugin.chatbot.hamburger_menu.is_calc", return_value=False),
-                patch("plugin.chatbot.hamburger_menu.is_draw", return_value=False),
-                patch("plugin.app.dispatch_command") as dispatch,
-                patch("plugin.librepy.sidebar_menus.invoke_action_handler") as invoke,
-            ):
-                show_hamburger_menu(ctx, frame, button_ctrl)
-            get_handler.assert_called_once_with(action)
-            dispatch.assert_called_once_with(action)
-            invoke.assert_not_called()
+        popup.execute.side_effect = _choose
+        with (
+            patch("plugin.chatbot.hamburger_menu.get_action_handler", return_value=None) as get_handler,
+            _doc_flags(writer=True),
+            patch("plugin.app.dispatch_command") as dispatch,
+            patch("plugin.librepy.sidebar_menus.invoke_action_handler") as invoke,
+        ):
+            show_hamburger_menu(ctx, frame, button_ctrl)
+        get_handler.assert_called_once_with(action)
+        dispatch.assert_called_once_with(action)
+        invoke.assert_not_called()
 
-    def test_plain_writer_hamburger_has_gear_icon_and_no_notebook_items(self):
-        ctx = MagicMock()
-        smgr = MagicMock()
-        popup = MagicMock()
-        ctx.getServiceManager.return_value = smgr
-        smgr.createInstanceWithContext.return_value = popup
-        popup.execute.return_value = 0
-        button_ctrl = MagicMock()
-        button_ctrl.getPosSize.return_value = MagicMock(X=76, Y=2, Width=16, Height=12)
-        button_ctrl.getPeer.return_value = MagicMock()
+    def test_plain_writer_hamburger_has_gear_icon_and_no_notebook_items(self, popup_menu):
+        ctx, popup, button_ctrl = popup_menu
         graphic = MagicMock()
 
         with (
-            patch("plugin.chatbot.hamburger_menu.is_writer", return_value=True),
-            patch("plugin.chatbot.hamburger_menu.is_calc", return_value=False),
-            patch("plugin.chatbot.hamburger_menu.is_draw", return_value=False),
+            _doc_flags(writer=True),
             patch("plugin.librepy.sidebar_menus.load_menu_graphic", return_value=graphic) as load_g,
         ):
             show_hamburger_menu(ctx, MagicMock(), button_ctrl)
@@ -117,21 +117,11 @@ class TestHamburgerMenu:
         assert "Reset Python Session" in labels
         assert "Insert LaTeX Math..." in labels
 
-    def test_writer_hamburger_with_notebook_registry_shows_run_actions(self):
-        ctx = MagicMock()
-        smgr = MagicMock()
-        popup = MagicMock()
-        ctx.getServiceManager.return_value = smgr
-        smgr.createInstanceWithContext.return_value = popup
-        popup.execute.return_value = 0
-        button_ctrl = MagicMock()
-        button_ctrl.getPosSize.return_value = MagicMock(X=76, Y=2, Width=16, Height=12)
-        button_ctrl.getPeer.return_value = MagicMock()
+    def test_writer_hamburger_with_notebook_registry_shows_run_actions(self, popup_menu):
+        ctx, popup, button_ctrl = popup_menu
 
         with (
-            patch("plugin.chatbot.hamburger_menu.is_writer", return_value=True),
-            patch("plugin.chatbot.hamburger_menu.is_calc", return_value=False),
-            patch("plugin.chatbot.hamburger_menu.is_draw", return_value=False),
+            _doc_flags(writer=True),
             patch(
                 "plugin.notebook.cell_registry.load_registry",
                 return_value=NotebookDocState(code_cells=[new_code_cell_entry(0, None, "nb_cell_0_code")]),
@@ -145,21 +135,11 @@ class TestHamburgerMenu:
         assert "Stop" in labels
         assert labels.index("Reset Python Session") < labels.index("Run All")
 
-    def test_calc_hamburger_omits_notebook_run_actions(self):
-        ctx = MagicMock()
-        smgr = MagicMock()
-        popup = MagicMock()
-        ctx.getServiceManager.return_value = smgr
-        smgr.createInstanceWithContext.return_value = popup
-        popup.execute.return_value = 0
-        button_ctrl = MagicMock()
-        button_ctrl.getPosSize.return_value = MagicMock(X=76, Y=2, Width=16, Height=12)
-        button_ctrl.getPeer.return_value = MagicMock()
+    def test_calc_hamburger_omits_notebook_run_actions(self, popup_menu):
+        ctx, popup, button_ctrl = popup_menu
 
         with (
-            patch("plugin.chatbot.hamburger_menu.is_writer", return_value=False),
-            patch("plugin.chatbot.hamburger_menu.is_calc", return_value=True),
-            patch("plugin.chatbot.hamburger_menu.is_draw", return_value=False),
+            _doc_flags(calc=True),
             patch(
                 "plugin.notebook.cell_registry.load_registry",
                 return_value=NotebookDocState(code_cells=[new_code_cell_entry(0, None, "nb_cell_0_code")]),
@@ -172,41 +152,12 @@ class TestHamburgerMenu:
         assert "Run From Here" not in labels
         assert "Stop" not in labels
 
-    def test_show_hamburger_menu_calc_includes_calc_items(self):
-        ctx = MagicMock()
-        smgr = MagicMock()
-        popup = MagicMock()
-        ctx.getServiceManager.return_value = smgr
-        smgr.createInstanceWithContext.return_value = popup
-        popup.execute.return_value = 0  # Cancelled
-
-        button_ctrl = MagicMock()
-        button_ctrl.getPosSize.return_value = MagicMock(X=76, Y=2, Width=16, Height=12)
-        button_ctrl.getPeer.return_value = MagicMock()
-
-        frame = MagicMock()
-
-        with patch("plugin.chatbot.hamburger_menu.is_writer", return_value=False), patch("plugin.chatbot.hamburger_menu.is_calc", return_value=True), patch("plugin.chatbot.hamburger_menu.is_draw", return_value=False):
-            show_hamburger_menu(ctx, frame, button_ctrl)
-            # Verify insertItem was called on popup
-            assert popup.insertItem.call_count > 5
-
-    def test_debug_submenu_omitted_when_tests_unbundled(self):
-        ctx = MagicMock()
-        smgr = MagicMock()
-        popup = MagicMock()
-        ctx.getServiceManager.return_value = smgr
-        smgr.createInstanceWithContext.return_value = popup
-        popup.execute.return_value = 0
-        button_ctrl = MagicMock()
-        button_ctrl.getPosSize.return_value = MagicMock(X=76, Y=2, Width=16, Height=12)
-        button_ctrl.getPeer.return_value = MagicMock()
+    def test_debug_submenu_omitted_when_tests_unbundled(self, popup_menu):
+        ctx, popup, button_ctrl = popup_menu
 
         with (
             patch("plugin.app.tests_bundled", return_value=False),
-            patch("plugin.chatbot.hamburger_menu.is_writer", return_value=True),
-            patch("plugin.chatbot.hamburger_menu.is_calc", return_value=False),
-            patch("plugin.chatbot.hamburger_menu.is_draw", return_value=False),
+            _doc_flags(writer=True),
         ):
             show_hamburger_menu(ctx, MagicMock(), button_ctrl)
 
@@ -215,22 +166,12 @@ class TestHamburgerMenu:
         assert "Run format tests" not in labels
         assert "Evaluation Dashboard" not in labels
 
-    def test_debug_submenu_included_when_tests_bundled(self):
-        ctx = MagicMock()
-        smgr = MagicMock()
-        popup = MagicMock()
-        ctx.getServiceManager.return_value = smgr
-        smgr.createInstanceWithContext.return_value = popup
-        popup.execute.return_value = 0
-        button_ctrl = MagicMock()
-        button_ctrl.getPosSize.return_value = MagicMock(X=76, Y=2, Width=16, Height=12)
-        button_ctrl.getPeer.return_value = MagicMock()
+    def test_debug_submenu_included_when_tests_bundled(self, popup_menu):
+        ctx, popup, button_ctrl = popup_menu
 
         with (
             patch("plugin.app.tests_bundled", return_value=True),
-            patch("plugin.chatbot.hamburger_menu.is_writer", return_value=True),
-            patch("plugin.chatbot.hamburger_menu.is_calc", return_value=False),
-            patch("plugin.chatbot.hamburger_menu.is_draw", return_value=False),
+            _doc_flags(writer=True),
         ):
             show_hamburger_menu(ctx, MagicMock(), button_ctrl)
 
@@ -238,47 +179,13 @@ class TestHamburgerMenu:
         assert "Debug" in labels
         assert "Run format tests" in labels
 
-    def test_draw_hamburger_includes_extend_and_edit_selection(self):
-        ctx = MagicMock()
-        smgr = MagicMock()
-        popup = MagicMock()
-        ctx.getServiceManager.return_value = smgr
-        smgr.createInstanceWithContext.return_value = popup
-        popup.execute.return_value = 0
-        button_ctrl = MagicMock()
-        button_ctrl.getPosSize.return_value = MagicMock(X=76, Y=2, Width=16, Height=12)
-        button_ctrl.getPeer.return_value = MagicMock()
+    @pytest.mark.parametrize("doc_kind", ["draw", "writer"])
+    def test_hamburger_includes_extend_and_edit_selection(self, popup_menu, doc_kind: str):
+        ctx, popup, button_ctrl = popup_menu
         commands: set[str] = set()
         popup.setCommand.side_effect = lambda _nid, cmd: commands.add(cmd)
 
-        with (
-            patch("plugin.chatbot.hamburger_menu.is_writer", return_value=False),
-            patch("plugin.chatbot.hamburger_menu.is_calc", return_value=False),
-            patch("plugin.chatbot.hamburger_menu.is_draw", return_value=True),
-        ):
-            show_hamburger_menu(ctx, MagicMock(), button_ctrl)
-
-        assert "org.extension.writeragent:chatbot.extend_selection" in commands
-        assert "org.extension.writeragent:chatbot.edit_selection" in commands
-
-    def test_writer_hamburger_includes_extend_and_edit_selection(self):
-        ctx = MagicMock()
-        smgr = MagicMock()
-        popup = MagicMock()
-        ctx.getServiceManager.return_value = smgr
-        smgr.createInstanceWithContext.return_value = popup
-        popup.execute.return_value = 0
-        button_ctrl = MagicMock()
-        button_ctrl.getPosSize.return_value = MagicMock(X=76, Y=2, Width=16, Height=12)
-        button_ctrl.getPeer.return_value = MagicMock()
-        commands: set[str] = set()
-        popup.setCommand.side_effect = lambda _nid, cmd: commands.add(cmd)
-
-        with (
-            patch("plugin.chatbot.hamburger_menu.is_writer", return_value=True),
-            patch("plugin.chatbot.hamburger_menu.is_calc", return_value=False),
-            patch("plugin.chatbot.hamburger_menu.is_draw", return_value=False),
-        ):
+        with _doc_flags(writer=(doc_kind == "writer"), draw=(doc_kind == "draw")):
             show_hamburger_menu(ctx, MagicMock(), button_ctrl)
 
         assert "org.extension.writeragent:chatbot.extend_selection" in commands

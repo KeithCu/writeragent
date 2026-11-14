@@ -209,31 +209,21 @@ def test_append_default_is_replace():
     assert notes_shape.getString() == "new"
 
 
-def test_resolution_explicit_page():
+@pytest.mark.parametrize(
+    ("page_arg", "active_page_index"),
+    [
+        pytest.param(2, 0, id="explicit-page"),
+        pytest.param(None, 1, id="omitted-page-uses-active"),
+        pytest.param(None, None, id="omitted-page-falls-back"),
+    ],
+)
+def test_resolution_passes_page_and_active_index(page_arg, active_page_index):
     slide = _Slide(_NotesPage(_NotesShape("ok")))
-    ctx = _ctx()
+    ctx = _ctx(active_page_index=active_page_index)
     with patch("plugin.draw.notes.DrawBridge") as bridge_cls:
         bridge_cls.return_value.resolve_page.return_value = (slide, 0)
-        GetSpeakerNotes().execute(ctx, page=2)
-    bridge_cls.return_value.resolve_page.assert_called_once_with(2, active_page_index=ctx.active_page_index)
-
-
-def test_resolution_omitted_page_with_active_page_index():
-    slide = _Slide(_NotesPage(_NotesShape("ok")))
-    ctx = _ctx(active_page_index=1)
-    with patch("plugin.draw.notes.DrawBridge") as bridge_cls:
-        bridge_cls.return_value.resolve_page.return_value = (slide, 0)
-        GetSpeakerNotes().execute(ctx)
-    bridge_cls.return_value.resolve_page.assert_called_once_with(None, active_page_index=1)
-
-
-def test_resolution_omitted_page_falls_back_to_bridge():
-    slide = _Slide(_NotesPage(_NotesShape("ok")))
-    ctx = _ctx(active_page_index=None)
-    with patch("plugin.draw.notes.DrawBridge") as bridge_cls:
-        bridge_cls.return_value.resolve_page.return_value = (slide, 4)
-        GetSpeakerNotes().execute(ctx)
-    bridge_cls.return_value.resolve_page.assert_called_once_with(None, active_page_index=None)
+        GetSpeakerNotes().execute(ctx, page=page_arg)
+    bridge_cls.return_value.resolve_page.assert_called_once_with(page_arg, active_page_index=active_page_index)
 
 
 def test_disposed_notes_page_propagates():

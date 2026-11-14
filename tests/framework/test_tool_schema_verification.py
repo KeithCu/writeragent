@@ -13,7 +13,6 @@ import pytest
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
-from plugin.framework.tool import to_openai_schema, to_mcp_schema, ToolBase
 from plugin.framework.tool_schema import _normalize_schema_for_strict_providers
 from tests.harness.crosshair import assert_crosshair_clean
 
@@ -29,47 +28,6 @@ _schema = st.fixed_dictionaries(
         "required": st.lists(st.sampled_from(["a", "b", "c"]), max_size=3, unique=True),
     }
 )
-
-
-class _DummyTestTool(ToolBase):
-    name = "dummy_test_tool"
-    description = "A dummy tool for schema testing."
-    parameters = {
-        "type": "object",
-        "properties": {"foo": {"type": "string"}},
-        "required": [],
-    }
-
-    def execute(self, ctx, **kwargs):
-        return {"status": "ok"}
-
-
-def test_to_openai_and_mcp_schema_structure() -> None:
-    tool = _DummyTestTool()
-    openai_s = to_openai_schema(tool)
-    assert openai_s["type"] == "function"
-    assert openai_s["function"]["name"] == "dummy_test_tool"
-    assert openai_s["function"]["description"] == "A dummy tool for schema testing."
-    assert "parameters" in openai_s["function"]
-
-    mcp_s = to_mcp_schema(tool)
-    assert mcp_s["name"] == "dummy_test_tool"
-    assert mcp_s["description"] == "A dummy tool for schema testing."
-    assert "inputSchema" in mcp_s
-    assert "document_url" in mcp_s["inputSchema"]["properties"]
-
-
-def test_empty_required_removed() -> None:
-    out = _normalize_schema_for_strict_providers({"type": "object", "properties": {}, "required": []})
-    assert isinstance(out, dict)
-    assert "required" not in out
-
-
-def test_optional_scalar_nullable() -> None:
-    out = _normalize_schema_for_strict_providers(
-        {"type": "object", "properties": {"x": {"type": "string"}}, "required": []}
-    )
-    assert out["properties"]["x"]["type"] == ["string", "null"]
 
 
 @given(schema=_schema)

@@ -60,11 +60,19 @@ def _patch_ipc_clock(
     return slept
 
 
-def test_pickle_frame_roundtrip_with_bytes():
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"status": "ok", "result": [1, 2, 3]},
+        {"status": "ok", "buffer": b"\x00\x01split"},
+    ],
+    ids=["list", "bytes"],
+)
+def test_pickle_frame_roundtrip(payload):
     buf = io.BytesIO()
-    write_pickle_frame(buf, {"status": "ok", "buffer": b"\x00\x01split"})
+    write_pickle_frame(buf, payload)
     buf.seek(0)
-    assert read_pickle_frame(buf, require_dict=True) == {"status": "ok", "buffer": b"\x00\x01split"}
+    assert read_pickle_frame(buf, require_dict=True) == payload
 
 
 def test_unpack_allows_numpy_reconstruct_and_rejects_ctypeslib():
@@ -94,14 +102,6 @@ def test_unpack_rejects_reduce_gadget():
     payload = pickle.dumps(Boom(), protocol=5)
     with pytest.raises(ValueError, match="not allowed"):
         unpack_pickle_frame(payload)
-
-
-def test_pickle_frame_roundtrip():
-    buf = io.BytesIO()
-    write_pickle_frame(buf, {"status": "ok", "result": [1, 2, 3]})
-    buf.seek(0)
-
-    assert read_pickle_frame(buf, require_dict=True) == {"status": "ok", "result": [1, 2, 3]}
 
 
 def test_pack_unpack_pickle_payload():
@@ -143,25 +143,34 @@ def test_truncated_pickle_frame_returns_none():
         read_pickle_frame(io.BytesIO(truncated))
 
 
-def test_pickle_frame_size_limit_raises():
-    frame = pack_pickle_frame({"text": "x" * 100})
-
-    with pytest.raises(IpcFrameError, match="Invalid test frame size"):
-        read_frame_payload(io.BytesIO(frame), max_payload_bytes=8, frame_label="test frame")
-
-
-def test_pickle_frame_default_cap_rejects_oversized_header():
-    import struct
-
-    oversized = struct.pack("!I", DEFAULT_MAX_PAYLOAD_BYTES + 1) + b"x"
-    with pytest.raises(IpcFrameError, match="Invalid IPC frame size"):
-        read_pickle_frame(io.BytesIO(oversized), max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES)
-
-
-def test_pack_pickle_frame_defaults_to_max_payload():
-    from plugin.framework.ipc import DEFAULT_MAX_PAYLOAD_BYTES, IpcFrameError, pack_pickle_frame
-    with pytest.raises(IpcFrameError, match="maximum payload"):
-        pack_pickle_frame({"text": "x" * (DEFAULT_MAX_PAYLOAD_BYTES + 10)})
+@pytest.mark.parametrize(
+    ("action", "pattern"),
+    [
+        (
+            lambda: read_frame_payload(
+                io.BytesIO(pack_pickle_frame({"text": "x" * 100})),
+                max_payload_bytes=8,
+                frame_label="test frame",
+            ),
+            "Invalid test frame size",
+        ),
+        (
+            lambda: read_pickle_frame(
+                io.BytesIO(struct.pack("!I", DEFAULT_MAX_PAYLOAD_BYTES + 1) + b"x"),
+                max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES,
+            ),
+            "Invalid IPC frame size",
+        ),
+        (
+            lambda: pack_pickle_frame({"text": "x" * (DEFAULT_MAX_PAYLOAD_BYTES + 10)}),
+            "maximum payload",
+        ),
+    ],
+    ids=["read_frame_payload_limit", "read_pickle_frame_default_cap", "pack_pickle_frame_default_cap"],
+)
+def test_pickle_frame_size_caps(action, pattern):
+    with pytest.raises(IpcFrameError, match=pattern):
+        action()
 
 
 def test_text_error_prefix_is_invalid_frame_with_header_repr():
@@ -383,6 +392,8 @@ def test_header_only_stall_is_partial_timeout():
 
 
 def test_header_consumed_timeout_is_partial_timeout_no_fd():
+    release = threading.Event()
+
     class HeaderThenStall:
         def __init__(self):
             self.header = struct.pack("!I", 10)
@@ -391,11 +402,14 @@ def test_header_consumed_timeout_is_partial_timeout_no_fd():
             if self.header:
                 out, self.header = self.header[:n], self.header[n:]
                 return out
-            time.sleep(10)
+            release.wait(timeout=5.0)
             return b""
 
-    with pytest.raises(IpcPartialFrameTimeout, match="timeout mid-frame"):
-        read_frame_payload(HeaderThenStall(), 0.2)
+    try:
+        with pytest.raises(IpcPartialFrameTimeout, match="timeout mid-frame"):
+            read_frame_payload(HeaderThenStall(), 0.2)
+    finally:
+        release.set()
 
 
 def test_read_frame_payload_pipe_eof_mid_header_raises_truncated_fast():
@@ -997,8 +1011,20 @@ def test_drain_queued_pipe_bytes_returns_when_idle():
         stream.close()
 
 
-@pytest.mark.skipif(sys.platform == "win32", reason="the mismatch drain needs non-blocking pipe reads (POSIX)")
-def test_exchange_tool_call_drains_buffered_tail_after_id_mismatch(monkeypatch):
+@pytest.mark.parametrize(
+    "platform",
+    [
+        pytest.param(
+            "posix",
+            marks=pytest.mark.skipif(
+                sys.platform == "win32",
+                reason="the mismatch drain needs non-blocking pipe reads (POSIX)",
+            ),
+        ),
+        "win32",
+    ],
+)
+def test_exchange_tool_call_drains_buffered_tail_after_id_mismatch(monkeypatch, platform):
     """A foreign frame plus bytes already in the stdin buffer must not desync the next call.
 
     read_pickle_frame may prefetch the stdin buffer. On id mismatch, drain the
@@ -1010,7 +1036,7 @@ def test_exchange_tool_call_drains_buffered_tail_after_id_mismatch(monkeypatch):
 
     in_r, in_w = os.pipe()
     out_r, out_w = os.pipe()
-    stdin_buf = os.fdopen(in_r, "rb")
+    stdin_buf = os.fdopen(in_r, "rb", buffering=0 if platform == "win32" else -1)
     stdout_buf = os.fdopen(out_w, "wb", buffering=0)
     stdout_reader = os.fdopen(out_r, "rb", buffering=0)
 
@@ -1020,6 +1046,20 @@ def test_exchange_tool_call_drains_buffered_tail_after_id_mismatch(monkeypatch):
 
     monkeypatch.setattr(sys, "stdin", _PipeEnd(stdin_buf))
     monkeypatch.setattr(sys, "stdout", _PipeEnd(stdout_buf))
+    if platform == "win32":
+        monkeypatch.setattr(ipc, "_child_ipc_stdin", stdin_buf)
+        if sys.platform != "win32":
+            import fcntl
+            import termios
+
+            def _fake_peek(fd: int) -> int:
+                res = fcntl.ioctl(fd, termios.FIONREAD, struct.pack("i", 0))
+                return struct.unpack("i", res)[0]
+
+            monkeypatch.setattr(ipc, "_peek_pipe_bytes_available", _fake_peek)
+        if ipc.sys.platform != "win32":
+            monkeypatch.setattr(ipc.sys, "platform", "win32")
+
     os.write(
         in_w,
         pack_pickle_frame({"status": "ok", "id": "stale", "result": {"n": 0}})
@@ -1027,10 +1067,8 @@ def test_exchange_tool_call_drains_buffered_tail_after_id_mismatch(monkeypatch):
     )
     worker: threading.Thread | None = None
     try:
-        started = time.monotonic()
         with pytest.raises(RuntimeError, match="does not match"):
             ipc.exchange_tool_call("list_named_python_scripts", {})
-        assert time.monotonic() - started < 1.0
 
         holder: dict[str, object] = {}
 
@@ -1521,84 +1559,6 @@ def test_claim_ipc_stdin_does_not_cache_bytesio(monkeypatch):
     assert ipc._child_ipc_stdin is None
 
 
-def test_exchange_tool_call_win32_drain_drops_raw_stdin_tail(monkeypatch):
-    import threading
-
-    from plugin.framework import ipc
-
-    in_r, in_w = os.pipe()
-    out_r, out_w = os.pipe()
-    stdin_buf = os.fdopen(in_r, "rb", buffering=0)
-    stdout_buf = os.fdopen(out_w, "wb", buffering=0)
-    stdout_reader = os.fdopen(out_r, "rb", buffering=0)
-
-    class _PipeEnd:
-        def __init__(self, buffer: object) -> None:
-            self.buffer = buffer
-
-    monkeypatch.setattr(sys, "stdin", _PipeEnd(stdin_buf))
-    monkeypatch.setattr(sys, "stdout", _PipeEnd(stdout_buf))
-    monkeypatch.setattr(ipc, "_child_ipc_stdin", stdin_buf)
-    if sys.platform != "win32":
-        import fcntl
-        import struct
-        import termios
-
-        def _fake_peek(fd: int) -> int:
-            res = fcntl.ioctl(fd, termios.FIONREAD, struct.pack("i", 0))
-            return struct.unpack("i", res)[0]
-
-        monkeypatch.setattr(ipc, "_peek_pipe_bytes_available", _fake_peek)
-    if ipc.sys.platform != "win32":
-        monkeypatch.setattr(ipc.sys, "platform", "win32")
-
-    os.write(
-        in_w,
-        pack_pickle_frame({"status": "ok", "id": "stale", "result": {"n": 0}})
-        + pack_pickle_frame({"status": "ok", "id": "tail", "result": {"n": 9}}),
-    )
-    worker: threading.Thread | None = None
-    try:
-        started = time.monotonic()
-        with pytest.raises(RuntimeError, match="does not match"):
-            ipc.exchange_tool_call("list_named_python_scripts", {})
-        assert time.monotonic() - started < 1.0
-
-        holder: dict[str, object] = {}
-
-        def _second() -> None:
-            try:
-                holder["result"] = ipc.exchange_tool_call("list_named_python_scripts", {})
-            except BaseException as exc:
-                holder["error"] = exc
-
-        worker = threading.Thread(target=_second, daemon=True)
-        worker.start()
-        first_req = read_pickle_frame(stdout_reader, 2.0, require_dict=True)
-        second_req = read_pickle_frame(stdout_reader, 2.0, require_dict=True)
-        assert isinstance(first_req, dict) and isinstance(second_req, dict)
-        assert first_req.get("id") != second_req.get("id")
-        os.write(
-            in_w,
-            pack_pickle_frame(
-                {"status": "ok", "id": second_req["id"], "result": {"n": 1}}
-            ),
-        )
-        worker.join(2.0)
-        assert holder.get("error") is None
-        assert holder.get("result") == {"n": 1}
-    finally:
-        try:
-            os.close(in_w)
-        except OSError:
-            pass
-        for closer in (stdin_buf, stdout_buf, stdout_reader):
-            try:
-                closer.close()
-            except OSError:
-                pass
-
-
 def test_write_child_ipc_frame_holds_tool_call_lock():
     class GateStream:
         def __init__(self, buf: io.BytesIO) -> None:
@@ -1638,10 +1598,8 @@ def test_read_frame_payload_dead_child_returns_none():
     try:
         reader = os.fdopen(r_fd, "rb", buffering=0)
         try:
-            t0 = time.monotonic()
-            res = read_frame_payload(reader, 5.0, is_alive=lambda: False)
+            res = read_frame_payload(reader, 0.1, is_alive=lambda: False)
             assert res is None
-            assert time.monotonic() - t0 < 1.5
         finally:
             reader.close()
     finally:
@@ -1698,37 +1656,26 @@ def test_read_frame_payload_partial_frame_raises_partial():
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="select slices are POSIX only")
-def test_read_frame_payload_posix_select_slices(monkeypatch):
-    recorded_timeouts: list[float] = []
+def test_read_frame_payload_posix_cancels_mid_wait(monkeypatch):
+    scope = SendCancellation()
+    calls = 0
 
     def mock_select(r, w, x, timeout=None):
-        if timeout is not None:
-            recorded_timeouts.append(timeout)
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            scope.cancel()
         return ([], [], [])
 
     monkeypatch.setattr(plugin.framework.ipc.select, "select", mock_select)
-
     r_fd, w_fd = os.pipe()
     try:
         reader = os.fdopen(r_fd, "rb", buffering=0)
         try:
-            # active cancel scope -> slices <= 0.2, at least one >= 0.1
-            with pytest.raises(subprocess.TimeoutExpired):
-                read_frame_payload(
-                    reader, 30.0, deadline=time.monotonic() + 0.5, cancel=SendCancellation()
-                )
-            assert recorded_timeouts
-            assert all(t <= 0.2 for t in recorded_timeouts)
-            assert any(t >= 0.1 for t in recorded_timeouts)
-
-            # cancel=None -> single wait > 0.2
-            recorded_timeouts.clear()
-            with pytest.raises(subprocess.TimeoutExpired):
-                read_frame_payload(
-                    reader, 30.0, deadline=time.monotonic() + 0.5, cancel=None
-                )
-            assert recorded_timeouts
-            assert recorded_timeouts[0] > 0.2
+            with pytest.raises(subprocess.TimeoutExpired) as exc_info:
+                read_frame_payload(reader, 30.0, cancel=scope)
+            assert exc_info.value.timeout == 30.0
+            assert calls <= 2
         finally:
             reader.close()
     finally:
@@ -1772,18 +1719,22 @@ class TestReadFramePayloadWithTimeoutNoFd:
 
     def test_timeout_raises(self):
         """A blocking read that never yields data should raise TimeoutExpired."""
+        release = threading.Event()
 
         class SlowIO(io.RawIOBase):
             def readable(self):
                 return True
 
             def readinto(self, b):
-                time.sleep(10)
+                release.wait(timeout=5.0)
                 return 0
 
         slow = io.BufferedReader(SlowIO())
-        with pytest.raises(subprocess.TimeoutExpired):
-            read_frame_payload(slow, timeout_sec=1.0)
+        try:
+            with pytest.raises(subprocess.TimeoutExpired):
+                read_frame_payload(slow, timeout_sec=0.05)
+        finally:
+            release.set()
 
     def test_propagates_read_error(self):
         class ErrorIO(io.RawIOBase):

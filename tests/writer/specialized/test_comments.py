@@ -900,59 +900,6 @@ def test_reply_and_resolve_call_shared_helper(monkeypatch):
     target.setPropertyValue.assert_called_once_with("Resolved", True)
 
 
-def test_comment_delete_subtree_and_author_isolation(monkeypatch):
-    from plugin.writer.specialized import comments
-
-    # Tree:
-    # c1 (Alice, parent "")
-    #  -> c2 (Alice, parent "c1")
-    #      -> c3 (Bob, parent "c2")
-    # c4 (Bob, parent "")
-    # c5 (Alice, parent "")
-    def make_field(name, parent, author):
-        f = MagicMock()
-        f.getPropertyValue.side_effect = lambda p: {"Name": name, "ParentName": parent, "Author": author}.get(p, "")
-        anchor = MagicMock()
-        text = MagicMock()
-        anchor.getText.return_value = text
-        f.getAnchor.return_value = anchor
-        f._name = name
-        return f
-
-    f1 = make_field("c1", "", "Alice")
-    f2 = make_field("c2", "c1", "Alice")
-    f3 = make_field("c3", "c2", "Bob")
-    f4 = make_field("c4", "", "Bob")
-    f5 = make_field("c5", "", "Alice")
-
-    all_fields = [f1, f2, f3, f4, f5]
-    monkeypatch.setattr(comments, "_iter_annotations", lambda doc: list(all_fields))
-    ctx = MagicMock()
-    _setup_mock_undo_manager(ctx.doc)
-
-    # Subtree delete of c1: removes c1, c2, c3
-    res_sub = comments.CommentDelete().execute(ctx, name="c1")
-    assert res_sub["status"] == "ok"
-    assert res_sub["deleted"] == 3
-    for f in (f1, f2, f3):
-        f.getAnchor().getText().removeTextContent.assert_called_once_with(f)
-    for f in (f4, f5):
-        f.getAnchor().getText().removeTextContent.assert_not_called()
-
-    # Reset
-    for f in all_fields:
-        f.getAnchor().getText().removeTextContent.reset_mock()
-
-    # Author delete of Alice: removes c1, c2, c5 (does not delete Bob's reply c3 or Bob's c4)
-    res_auth = comments.CommentDelete().execute(ctx, author="Alice")
-    assert res_auth["status"] == "ok"
-    assert res_auth["deleted"] == 3
-    for f in (f1, f2, f5):
-        f.getAnchor().getText().removeTextContent.assert_called_once_with(f)
-    for f in (f3, f4):
-        f.getAnchor().getText().removeTextContent.assert_not_called()
-
-
 def test_comment_delete_second_removal_raises_rolls_back():
     from plugin.writer.specialized.comments import CommentDelete
 

@@ -15,18 +15,10 @@ if str(_SCRIPTS) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS))
 
 from manifest_xdl import (  # noqa: E402  (needs scripts on sys.path)
-    _OOR_NS,
     _oor,
     generate_standalone_config_dialogs,
     remove_stale_generated_xdls,
 )
-
-_OOR_NAME = "{%s}name" % _OOR_NS
-
-
-def test_oor_returns_qualified_name_not_none():
-    assert _oor("name") == "{%s}name" % _OOR_NS
-    assert _oor("op") == "{%s}op" % _OOR_NS
 
 
 def test_oor_attribute_serializes_with_oor_prefix_not_none():

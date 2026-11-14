@@ -264,6 +264,18 @@ def test_split_authors_insert_vs_delete_uno(ctx, doc):
         _reject_all(doc, ctx)
 
 
+@contextlib.contextmanager
+def _saved_config(doc, ctx, overrides):
+    prev = {key: get_config(key) for key in overrides}
+    save(overrides)
+    try:
+        yield
+    finally:
+        save(prev)
+        if len(doc.getRedlines()):
+            _reject_all(doc, ctx)
+
+
 @native_test
 @with_native_doc("writer")
 def test_split_authors_whole_block_on_two_colors_uno(ctx, doc):
@@ -271,15 +283,11 @@ def test_split_authors_whole_block_on_two_colors_uno(ctx, doc):
     surgical path. Threshold 0.0 forces the whole-block path, and accept reconstructs
     the exact new text."""
     _reset(doc, ctx, "Old clause body here.")
-    prev = get_config(_FLAG)
-    prev_split = get_config("doc.agent_edit_split_author_colors")
-    prev_thresh = get_config("doc.agent_edit_diff_threshold")
-    save({
+    with _saved_config(doc, ctx, {
         _FLAG: "record",
         "doc.agent_edit_split_author_colors": True,
         "doc.agent_edit_diff_threshold": 0.0,
-    })
-    try:
+    }):
         res = ApplyDocumentContent().execute(
             _tool_ctx(doc, ctx), target="search", old_content="Old clause body here.", content=["New clause body here."])
         assert res.get("status") == "ok", res
@@ -290,14 +298,6 @@ def test_split_authors_whole_block_on_two_colors_uno(ctx, doc):
         _accept_all(doc, ctx)
         assert _para_text(doc) == "New clause body here.", \
             "accept must reconstruct exactly the new text (whole-block atomicity), got %r" % _para_text(doc)
-    finally:
-        save({
-            _FLAG: prev,
-            "doc.agent_edit_split_author_colors": prev_split,
-            "doc.agent_edit_diff_threshold": prev_thresh,
-        })
-        if len(doc.getRedlines()):
-            _reject_all(doc, ctx)
 
 
 @native_test
@@ -306,15 +306,11 @@ def test_split_authors_whole_block_off_one_color_uno(ctx, doc):
     """Toggle OFF: a whole-block edit's Delete and Insert share ONE author (one color), and the edit
     stays atomic -- accept reconstructs exactly the new text."""
     _reset(doc, ctx, "Old clause body here.")
-    prev = get_config(_FLAG)
-    prev_split = get_config("doc.agent_edit_split_author_colors")
-    prev_thresh = get_config("doc.agent_edit_diff_threshold")
-    save({
+    with _saved_config(doc, ctx, {
         _FLAG: "record",
         "doc.agent_edit_split_author_colors": False,
         "doc.agent_edit_diff_threshold": 0.0,
-    })
-    try:
+    }):
         res = ApplyDocumentContent().execute(
             _tool_ctx(doc, ctx), target="search", old_content="Old clause body here.", content=["New clause body here."])
         assert res.get("status") == "ok", res
@@ -323,14 +319,6 @@ def test_split_authors_whole_block_off_one_color_uno(ctx, doc):
         _accept_all(doc, ctx)
         assert _para_text(doc) == "New clause body here.", \
             "accept must reconstruct exactly the new text, got %r" % _para_text(doc)
-    finally:
-        save({
-            _FLAG: prev,
-            "doc.agent_edit_split_author_colors": prev_split,
-            "doc.agent_edit_diff_threshold": prev_thresh,
-        })
-        if len(doc.getRedlines()):
-            _reject_all(doc, ctx)
 
 
 @native_test
@@ -340,30 +328,26 @@ def test_html_import_failure_rolls_back_in_review_mode_uno(ctx, doc):
     then imports HTML. If the import throws AFTER the delete, the whole edit is rolled back -- the
     document keeps its original text with no stranded tracked deletion, and no agent change lands."""
     _reset(doc, ctx, "Original body text to keep.")
-    prev = get_config(_FLAG)
-    save({_FLAG: "record"})
     real = html_import._insert_mixed_or_plain_html
 
     def _boom(*a, **k):
         raise RuntimeError("simulated HTML import failure")
 
-    html_import._insert_mixed_or_plain_html = _boom
-    try:
-        res = None
+    with _saved_config(doc, ctx, {_FLAG: "record"}):
+        html_import._insert_mixed_or_plain_html = _boom
         try:
-            res = ApplyDocumentContent().execute(_tool_ctx(doc, ctx), target="full_document", content=["<p>New body.</p>"])
-        except Exception:
-            res = {"status": "error", "raised": True}
-        assert res.get("status") == "error", "the failed import must surface as an error: %r" % res
-        assert _para_text(doc) == "Original body text to keep.", \
-            "document must be restored (no stranded deletion), got %r" % _para_text(doc)
-        assert _redline_types(doc) == [], \
-            "no tracked change may survive the rolled-back edit, got %r" % _redline_types(doc)
-    finally:
-        html_import._insert_mixed_or_plain_html = real
-        save({_FLAG: prev})
-        if len(doc.getRedlines()):
-            _reject_all(doc, ctx)
+            res = None
+            try:
+                res = ApplyDocumentContent().execute(_tool_ctx(doc, ctx), target="full_document", content=["<p>New body.</p>"])
+            except Exception:
+                res = {"status": "error", "raised": True}
+            assert res.get("status") == "error", "the failed import must surface as an error: %r" % res
+            assert _para_text(doc) == "Original body text to keep.", \
+                "document must be restored (no stranded deletion), got %r" % _para_text(doc)
+            assert _redline_types(doc) == [], \
+                "no tracked change may survive the rolled-back edit, got %r" % _redline_types(doc)
+        finally:
+            html_import._insert_mixed_or_plain_html = real
 
 
 @native_test
@@ -371,13 +355,10 @@ def test_html_import_failure_rolls_back_in_review_mode_uno(ctx, doc):
 def test_split_authors_surgical_off_one_color_uno(ctx, doc):
     """Toggle OFF collapses the SURGICAL path to one author too (consistency both ways)."""
     _reset(doc, ctx, "Old clause body here.")
-    prev = get_config(_FLAG)
-    prev_split = get_config("doc.agent_edit_split_author_colors")
-    save({
+    with _saved_config(doc, ctx, {
         _FLAG: "record",
         "doc.agent_edit_split_author_colors": False,
-    })
-    try:
+    }):
         res = ApplyDocumentContent().execute(
             _tool_ctx(doc, ctx), target="search", old_content="Old clause body here.", content=["New clause body here."])
         assert res.get("status") == "ok", res
@@ -385,13 +366,6 @@ def test_split_authors_surgical_off_one_color_uno(ctx, doc):
         assert authors == {"WriterAgent"}, "surgical toggle off -> one author, got %r" % authors
         _accept_all(doc, ctx)
         assert _para_text(doc) == "New clause body here.", "accept must yield the new text, got %r" % _para_text(doc)
-    finally:
-        save({
-            _FLAG: prev,
-            "doc.agent_edit_split_author_colors": prev_split,
-        })
-        if len(doc.getRedlines()):
-            _reject_all(doc, ctx)
 
 
 # --- the apply_document_content tool end to end (config read + session wiring) -----------

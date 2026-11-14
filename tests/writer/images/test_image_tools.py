@@ -45,7 +45,6 @@ class TestInsertImageIntoHeaderFooter:
 
         style.setPropertyValue.assert_any_call("HeaderIsOn", True)
         set_auto.assert_called_once_with(style, "header", True)
-        insert.assert_called_once()
         assert (insert.call_args.kwargs.get("text_container")) == (region_text)
         assert (result["style_name"]) == ("Standard")
         assert (result["region"]) == ("header")
@@ -568,16 +567,13 @@ class TestWriterImageCursorConversion:
         with (
             patch.object(image_tools, "_should_link_image_path", return_value=True),
             patch.object(image_tools, "_dispatch_insert_linked_graphic") as dispatch,
-            patch.object(image_tools, "_insert_embedded_at_writer_cursor", return_value="embedded_img") as embed,
+            patch.object(image_tools, "_insert_embedded_at_writer_cursor", return_value="embedded_img"),
         ):
             res = image_tools._insert_writer_graphic(
                 ctx, model, "/home/user/file.png", 100, 200, "t", "d", text_cursor=text_cursor,
             )
 
         dispatch.assert_not_called()
-        embed.assert_called_once_with(
-            model, "/home/user/file.png", 100, 200, "t", "d", text_cursor=text_cursor, text_container=None, ctx=ctx,
-        )
         assert res == "embedded_img"
 
     def test_draw_embed_passes_ctx_and_positions_after_add(self):

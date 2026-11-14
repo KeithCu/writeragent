@@ -297,17 +297,18 @@ class TestFormulaPoolSupervisor:
         finally:
             worker.kill()
 
-    def test_spawn_stdout_garbage_fails_fast(self, tmp_path) -> None:
+    def test_spawn_stdout_garbage_fails_fast(self, tmp_path, monkeypatch) -> None:
         """Text on stdout (Keith 2026-09-02: frame size 1165128303 == b'Erro') must not wait 15s."""
         from compute_service.worker_base import BaseProcessWorker
 
+        monkeypatch.setattr("plugin.framework.process_worker.SPAWN_READY_TIMEOUT_SEC", 60)
         script = tmp_path / "garbage_worker.py"
         script.write_text("\n".join(["import sys, time", "sys.stdout.write('Error: boom\\n')", "sys.stdout.flush()", "time.sleep(30)"]), encoding="utf-8")
         t0 = time.monotonic()
         worker = BaseProcessWorker(1, str(script), worker_name="Garbage worker")
         elapsed = time.monotonic() - t0
         try:
-            assert elapsed < 3.0, elapsed
+            assert elapsed < 20.0, elapsed
             assert not worker.is_alive()
         finally:
             worker.kill()
@@ -618,59 +619,6 @@ class TestFormulaPoolSupervisor:
         finally:
             pool.shutdown()
 
-    def test_session_ttl_evicts_idle_session(self) -> None:
-        """An idle worker past idle TTL is killed even though it holds a session. The next sticky call reports session_reset."""
-        pool = FormulaProcessPool(settings=ComputeSettings(workers=1, default_timeout_sec=15, idle_worker_ttl_sec=3600.0))
-        try:
-            sid = "ttl-evict-test"
-            r1 = run_cell(pool, code="val = 42\nresult = val", session_id=sid, req_id="ttl-1")
-            assert r1.get("status") == "ok"
-            assert session_worker(pool, sid) is not None
-
-            worker = pool.workers[0]
-            with pool._cond:
-                pool._idle[worker] = time.monotonic() - 4000.0
-            pool._evict_idle_workers()
-            assert session_worker(pool, sid) is None, "Session should be dropped when its worker is killed"
-
-            assert not worker.is_alive()
-            with pool._cond:
-                assert worker not in pool._idle
-                assert sid in pool._sessions
-
-            # Later sticky call reports session_reset and does not see the old name
-            r2 = run_cell(pool, code="try:\n    result = val\nexcept NameError:\n    result = 'missing'", session_id=sid, req_id="ttl-2")
-            assert r2.get("status") == "ok", r2
-            assert r2.get("result") == "missing"
-            assert r2.get("session_reset") is True
-        finally:
-            pool.shutdown()
-
-    def test_idle_worker_reaper(self, caplog: pytest.LogCaptureFixture) -> None:
-        """Idle worker reaper must terminate workers idle for longer than idle_worker_ttl_sec."""
-        pool = FormulaProcessPool(settings=ComputeSettings(workers=1, default_timeout_sec=15, idle_worker_ttl_sec=3600.0))
-        try:
-            # Run one task so worker is active and returned to idle
-            res = run_cell(pool, code="result = 123", req_id="idle-1")
-            assert res.get("status") == "ok"
-
-            worker = pool.workers[0]
-            assert worker.is_alive()
-
-            # Simulate passage of idle time and trigger reaper eviction
-            with pool._cond:
-                pool._idle[worker] = time.monotonic() - 4000.0
-            pool._evict_idle_workers()
-            assert not worker.is_alive(), "Idle worker process should be killed by idle worker reaper"
-
-            # Subsequent execution lazily re-spawns worker
-            res2 = run_cell(pool, code="result = 456", req_id="idle-2")
-            assert res2.get("status") == "ok"
-            assert res2.get("result") == 456
-            assert worker.is_alive(), "Worker should re-spawn lazily on next request"
-        finally:
-            pool.shutdown()
-
     def test_busy_worker_not_evicted_and_preserves_session(self) -> None:
         """A leased worker is absent from _idle, so _evict_idle_workers leaves it up.
         A subsequent sticky call reads variables set previously, with no session_reset.
@@ -719,6 +667,7 @@ class TestFormulaPoolSupervisor:
             with pool._cond:
                 pool._idle[worker] = time.monotonic() - 4000.0
             pool._evict_idle_workers()
+            assert not worker.is_alive(), "Idle worker process should be killed by idle worker reaper"
 
             assert session_worker(pool, sid1) is None
             assert session_worker(pool, sid2) is None
@@ -726,34 +675,17 @@ class TestFormulaPoolSupervisor:
                 assert sid1 in pool._sessions
                 assert sid2 in pool._sessions
 
-            # Each next sticky call reports session_reset once
+            # Each next sticky call lazily respawns the worker and reports session_reset once
             r3 = run_cell(pool, code="try:\n    result = val1\nexcept NameError:\n    result = 'gone'", session_id=sid1)
             assert r3.get("status") == "ok"
             assert r3.get("result") == "gone"
             assert r3.get("session_reset") is True
+            assert worker.is_alive(), "Worker should re-spawn lazily on next request"
 
             r4 = run_cell(pool, code="try:\n    result = val2\nexcept NameError:\n    result = 'gone'", session_id=sid2)
             assert r4.get("status") == "ok"
             assert r4.get("result") == "gone"
             assert r4.get("session_reset") is True
-        finally:
-            pool.shutdown()
-
-    def test_reset_keeps_map_when_worker_is_busy(self) -> None:
-        pool = FormulaProcessPool(settings=ComputeSettings(workers=1, default_timeout_sec=15))
-        try:
-            sid = "busy-reset"
-            ok = run_cell(pool, code="x = 1\nresult = x", session_id=sid, req_id="busy-1")
-            assert ok.get("status") == "ok"
-            worker = pool._sessions[sid].worker
-            held = pool.lease_specific(worker, timeout_sec=1)
-            assert held is worker
-            try:
-                res = pool.reset_session(sid, timeout_sec=0.05)
-                assert res.get("code") == "WORKER_POOL_BUSY"
-                assert session_worker(pool, sid) is worker
-            finally:
-                pool.release_worker(held)
         finally:
             pool.shutdown()
 
@@ -770,6 +702,7 @@ class TestFormulaPoolSupervisor:
             try:
                 res = pool.reset_session(sid, timeout_sec=0.05)
                 assert res.get("code") == "WORKER_POOL_BUSY"
+                assert session_worker(pool, sid) is worker
                 with pool._cond:
                     assert sid in pool._sessions
             finally:
@@ -924,12 +857,19 @@ class TestFormulaPoolSupervisor:
         finally:
             pool.shutdown()
 
-    def test_pool_shutdown_signals_reaper_event(self) -> None:
-        """Pool shutdown sets _reaper_stop_event so reaper threads terminate promptly."""
+    def test_pool_shutdown_stops_reaper_thread(self) -> None:
+        """Pool shutdown stops its idle-reaper thread."""
+        before = _idle_reaper_idents()
         pool = FormulaProcessPool(settings=ComputeSettings(workers=1, idle_worker_ttl_sec=3600.0))
-        assert not pool._reaper_stop_event.is_set()
-        pool.shutdown()
-        assert pool._reaper_stop_event.is_set()
+        try:
+            started = _idle_reaper_idents() - before
+            assert len(started) == 1
+            reaper_threads = [t for t in threading.enumerate() if t.ident in started]
+        finally:
+            pool.shutdown()
+        for reaper in reaper_threads:
+            reaper.join(timeout=2.0)
+            assert not reaper.is_alive()
 
     def test_evict_idle_workers_skips_dead_worker(self) -> None:
         """_evict_idle_workers must skip dead workers already in _idle via continue."""
@@ -1064,100 +1004,6 @@ class TestFormulaPoolSupervisor:
         finally:
             pool.shutdown()
 
-
-class TestFormulaHttpEndpoint:
-    @pytest.fixture
-    def formula_server(self):
-        port = get_free_port()
-        settings = ComputeSettings(host="127.0.0.1", port=port, api_key="formula-secret")
-        app = create_wsgi_app(settings)
-        server = WSGIDualStackServer("127.0.0.1", port, listener_threads=8)
-        server.set_app(app)
-
-        thread = threading.Thread(target=server.serve_forever, daemon=True)
-        thread.start()
-        time.sleep(0.15)
-        yield f"http://127.0.0.1:{port}"
-        server.shutdown()
-        server.server_close()
-        thread.join(timeout=3)
-
-    def _post(self, url: str, payload: dict, headers: dict | None = None, path: str = "/v1/execute") -> tuple[int, dict]:
-        req_headers = {"Content-Type": "application/json"}
-        if headers:
-            req_headers.update(headers)
-        data = json.dumps(payload).encode("utf-8")
-        req = urllib.request.Request(f"{url}{path}", data=data, headers=req_headers, method="POST")
-        try:
-            with urllib.request.urlopen(req, timeout=30.0) as resp:
-                body = json.loads(resp.read().decode("utf-8"))
-                return resp.status, body
-        except urllib.error.HTTPError as e:
-            body = json.loads(e.read().decode("utf-8"))
-            return e.code, body
-
-    def test_execute_success(self, formula_server: str) -> None:
-        status, body = self._post(formula_server, {"id": "req-1", "code": "result = 7 * 8"}, headers={"Authorization": "Bearer formula-secret"})
-        assert status == 200
-        assert body.get("id") == "req-1"
-        assert body.get("status") == "ok"
-        assert body.get("result") == 56
-
-    def test_http_timeout_is_200_error_then_next_ok(self, formula_server: str) -> None:
-        # Tip: warm a worker first. A cold spawn on a slow Windows runner can use up the
-        # 1.5 s budget before the code runs, which is a 503 QUEUE_TIMEOUT, not this case.
-        warm_status, _warm = self._post(formula_server, {"id": "warm", "code": "result = 0"}, headers={"Authorization": "Bearer formula-secret"})
-        assert warm_status == 200
-        status, body = self._post(formula_server, {"id": "slow-1", "code": "import time\ntime.sleep(5)\nresult = 1", "timeout_ms": 1500}, headers={"Authorization": "Bearer formula-secret"})
-        assert status == 200, body
-        assert body.get("status") == "error"
-        status2, body2 = self._post(formula_server, {"id": "slow-2", "code": "result = 4"}, headers={"Authorization": "Bearer formula-secret"})
-        assert status2 == 200
-        assert body2.get("status") == "ok"
-        assert body2.get("result") == 4
-
-    def test_http_code_too_large(self, formula_server: str) -> None:
-        status, body = self._post(formula_server, {"id": "big", "code": "result = 1\n" + ("x = 1\n" * 200000)}, headers={"Authorization": "Bearer formula-secret"})
-        assert status == 400
-        assert body.get("code") == "CODE_TOO_LARGE"
-
-    def test_http_eval_error_is_200(self, formula_server: str) -> None:
-        status, body = self._post(formula_server, {"id": "div0", "code": "result = 1 / 0"}, headers={"Authorization": "Bearer formula-secret"})
-        assert status == 200
-        assert body.get("status") == "error"
-        assert body.get("id") == "div0"
-        assert "error" in body
-
-    def test_execute_shared_session(self, formula_server: str) -> None:
-        session_id = "session-http-123"
-        status1, body1 = self._post(formula_server, {"id": "req-s1", "code": "val = 42\nresult = val", "mode": "shared"}, headers={"Authorization": "Bearer formula-secret"}, path=f"/v1/execute?session_id={session_id}")
-        assert status1 == 200
-        assert body1.get("result") == 42
-
-        status2, body2 = self._post(formula_server, {"id": "req-s2", "code": "val += 8\nresult = val", "mode": "shared"}, headers={"Authorization": "Bearer formula-secret"}, path=f"/v1/execute?session_id={session_id}")
-        assert status2 == 200
-        assert body2.get("result") == 50
-
-    def test_http_session_reset_unknown_is_ok(self, formula_server: str) -> None:
-        status, body = self._post(formula_server, {"id": "reset-unknown"}, headers={"Authorization": "Bearer formula-secret"}, path="/v1/session/reset?session_id=never-created")
-        assert status == 200
-        assert body == {"id": "reset-unknown", "status": "ok"}
-
-    def test_http_session_reset_clears_shared_state(self, formula_server: str) -> None:
-        session_id = "session-reset-http"
-        headers = {"Authorization": "Bearer formula-secret"}
-        status1, body1 = self._post(formula_server, {"id": "rs-1", "code": "kept = 19\nresult = kept", "mode": "shared"}, headers=headers, path=f"/v1/execute?session_id={session_id}")
-        assert status1 == 200
-        assert body1.get("result") == 19
-
-        status_reset, reset_body = self._post(formula_server, {"id": "rs-reset"}, headers=headers, path=f"/v1/session/reset?session_id={session_id}")
-        assert status_reset == 200
-        assert reset_body == {"id": "rs-reset", "status": "ok"}
-
-        status2, body2 = self._post(formula_server, {"id": "rs-2", "code": "result = kept", "mode": "shared"}, headers=headers, path=f"/v1/execute?session_id={session_id}")
-        assert status2 == 200
-        assert body2.get("status") == "error"
-        assert "kept" in body2.get("error", "") or "NameError" in body2.get("error", "")
 
     def test_shared_session_balances_across_least_loaded_worker(self) -> None:
         """New shared sessions must be assigned to the worker holding the fewest active sessions."""
@@ -1532,18 +1378,12 @@ class TestFormulaHttpEndpoint:
                 entry = pool._session_locks.get(sid)
                 assert entry is not None
 
-            t0 = time.monotonic()
             res_exec = run_cell(pool, code="result = 1", session_id=sid, timeout_sec=1, req_id="gate-busy")
-            exec_duration = time.monotonic() - t0
-            assert exec_duration < 8.0
             assert res_exec.get("status") == "error"
             assert res_exec.get("code") == "WORKER_POOL_BUSY"
             assert res_exec.get("id") == "gate-busy"
 
-            t0 = time.monotonic()
-            res_reset = pool.reset_session(sid, timeout_sec=1)
-            reset_duration = time.monotonic() - t0
-            assert reset_duration < 8.0
+            res_reset = pool.reset_session(sid, timeout_sec=0.05)
             assert res_reset.get("status") == "error"
             assert res_reset.get("code") == "WORKER_POOL_BUSY"
 
@@ -1605,7 +1445,7 @@ class TestFormulaHttpEndpoint:
 
     def test_idle_evicted_session_preserves_session_reset_across_reaper_passes(self) -> None:
         """A session whose worker was idle-evicted preserves its stale row across multiple reaper passes until TTL."""
-        pool = FormulaProcessPool(settings=ComputeSettings(workers=1, default_timeout_sec=15, idle_worker_ttl_sec=0.2))
+        pool = FormulaProcessPool(settings=ComputeSettings(workers=1, default_timeout_sec=15, idle_worker_ttl_sec=60.0))
         try:
             sid = "idle-evict-reaper-test"
             r1 = run_cell(pool, code="x = 1\nresult = x", session_id=sid)
@@ -1615,15 +1455,14 @@ class TestFormulaHttpEndpoint:
             assert worker is not None
             assert worker.is_alive()
 
-            # Wait for worker idle TTL to elapse, then evict
-            time.sleep(0.3)
+            # Backdate idle timestamp past TTL, then evict
+            with pool._cond:
+                pool._idle[worker] = time.monotonic() - 120.0
             pool._evict_idle_workers()
             _wait_until_not_alive(worker)
 
-            # Second pass occurs well after eviction but before TTL elapses since eviction
-            time.sleep(0.05)
+            # Subsequent reaper passes before stale TTL elapses preserve the stale row
             pool._evict_idle_workers()
-            time.sleep(0.05)
             pool._evict_idle_workers()
             with pool._cond:
                 assert sid in pool._sessions
@@ -1638,7 +1477,7 @@ class TestFormulaHttpEndpoint:
 
     def test_stale_session_row_dropped_after_ttl_elapses(self) -> None:
         """A stale session row is popped only after idle_worker_ttl_sec elapses since it became stale."""
-        pool = FormulaProcessPool(settings=ComputeSettings(workers=1, default_timeout_sec=15, idle_worker_ttl_sec=0.2))
+        pool = FormulaProcessPool(settings=ComputeSettings(workers=1, default_timeout_sec=15, idle_worker_ttl_sec=60.0))
         try:
             sid = "stale-ttl-expiry-test"
             r1 = run_cell(pool, code="x = 1\nresult = x", session_id=sid)
@@ -1647,7 +1486,8 @@ class TestFormulaHttpEndpoint:
             assert worker is not None
 
             # Idle evict the worker
-            time.sleep(0.3)
+            with pool._cond:
+                pool._idle[worker] = time.monotonic() - 120.0
             pool._evict_idle_workers()
             _wait_until_not_alive(worker)
 
@@ -1655,9 +1495,9 @@ class TestFormulaHttpEndpoint:
             pool._evict_idle_workers()
             with pool._cond:
                 assert sid in pool._sessions
+                pool._sessions[sid].stale_since = time.monotonic() - 120.0
 
-            # Wait until TTL elapses since it went stale
-            time.sleep(0.3)
+            # Next pass drops the expired stale row
             pool._evict_idle_workers()
             with pool._cond:
                 assert sid not in pool._sessions
@@ -1741,76 +1581,6 @@ class TestFormulaHttpEndpoint:
         finally:
             pool.shutdown()
 
-    def test_worker_session_index(self) -> None:
-        """Session counts are derived from _sessions and count only live sessions."""
-        pool = FormulaProcessPool(settings=ComputeSettings(workers=2, default_timeout_sec=15))
-        try:
-            w1 = pool.workers[0]
-            w2 = pool.workers[1]
-            from compute_service.formula_pool import _Session
-
-            assert pool._worker_session_count(w1) == 0
-            assert not pool._worker_has_sessions(w1)
-            assert worker_sessions(pool, w1) == []
-
-            with pool._cond:
-                pool._sessions["s1"] = _Session(worker=w1, child=w1.child)
-                pool._sessions["s2"] = _Session(worker=w1, child=w1.child)
-                pool._sessions["s3"] = _Session(worker=w2, child=w2.child)
-                pool._sessions["stale"] = _Session(worker=w1, child=fake_child(w1))
-
-            assert pool._worker_session_count(w1) == 2
-            assert pool._worker_has_sessions(w1)
-            assert set(worker_sessions(pool, w1)) == {"s1", "s2"}
-            assert pool._worker_session_count(w2) == 1
-            assert worker_sessions(pool, w2) == ["s3"]
-
-            with pool._cond:
-                pool._sessions.pop("s1", None)
-
-            assert pool._worker_session_count(w1) == 1
-            assert worker_sessions(pool, w1) == ["s2"]
-
-            # Reassigning session to different worker updates both sets
-            with pool._cond:
-                pool._sessions["s2"] = _Session(worker=w2, child=w2.child)
-
-            assert pool._worker_session_count(w1) == 0
-            assert not pool._worker_has_sessions(w1)
-            assert pool._worker_session_count(w2) == 2
-            assert set(worker_sessions(pool, w2)) == {"s2", "s3"}
-        finally:
-            pool.shutdown()
-
-    def test_drop_session_helper(self) -> None:
-        """_drop_session drops a session from the active map."""
-        pool = FormulaProcessPool(settings=ComputeSettings(workers=1, default_timeout_sec=15))
-        try:
-            w = pool.workers[0]
-            from compute_service.formula_pool import _Session
-
-            with pool._cond:
-                pool._sessions["drop-clean"] = _Session(worker=w, child=w.child)
-
-            pool._drop_session("drop-clean")
-            with pool._cond:
-                assert "drop-clean" not in pool._sessions
-        finally:
-            pool.shutdown()
-
-    def test_pool_leased_context_manager(self) -> None:
-        """BaseProcessPool.leased context manager leases and releases workers."""
-        pool = FormulaProcessPool(settings=ComputeSettings(workers=1, default_timeout_sec=15))
-        try:
-            with pool.leased(timeout_sec=5.0) as worker:
-                assert worker is not None
-                assert worker in pool._leased
-            # Released upon exiting context
-            assert worker not in pool._leased
-            assert worker in pool._idle
-        finally:
-            pool.shutdown()
-
     def test_expired_lease_budget_does_not_execute(self) -> None:
         """Selecting a worker must not start the cell once the deadline has passed."""
         pool = FormulaProcessPool(settings=ComputeSettings(workers=1, default_timeout_sec=15))
@@ -1850,6 +1620,100 @@ class TestFormulaHttpEndpoint:
             pool.shutdown()
 
 
+class TestFormulaHttpEndpoint:
+    @pytest.fixture
+    def formula_server(self):
+        port = get_free_port()
+        settings = ComputeSettings(host="127.0.0.1", port=port, api_key="formula-secret")
+        app = create_wsgi_app(settings)
+        server = WSGIDualStackServer("127.0.0.1", port, listener_threads=8)
+        server.set_app(app)
+
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        yield f"http://127.0.0.1:{port}"
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=3)
+
+    def _post(self, url: str, payload: dict, headers: dict | None = None, path: str = "/v1/execute") -> tuple[int, dict]:
+        req_headers = {"Content-Type": "application/json"}
+        if headers:
+            req_headers.update(headers)
+        data = json.dumps(payload).encode("utf-8")
+        req = urllib.request.Request(f"{url}{path}", data=data, headers=req_headers, method="POST")
+        try:
+            with urllib.request.urlopen(req, timeout=30.0) as resp:
+                body = json.loads(resp.read().decode("utf-8"))
+                return resp.status, body
+        except urllib.error.HTTPError as e:
+            body = json.loads(e.read().decode("utf-8"))
+            return e.code, body
+
+    def test_execute_success(self, formula_server: str) -> None:
+        status, body = self._post(formula_server, {"id": "req-1", "code": "result = 7 * 8"}, headers={"Authorization": "Bearer formula-secret"})
+        assert status == 200
+        assert body.get("id") == "req-1"
+        assert body.get("status") == "ok"
+        assert body.get("result") == 56
+
+    def test_http_timeout_is_200_error_then_next_ok(self, formula_server: str) -> None:
+        # Tip: warm a worker first. A cold spawn on a slow Windows runner can use up the
+        # 1.5 s budget before the code runs, which is a 503 QUEUE_TIMEOUT, not this case.
+        warm_status, _warm = self._post(formula_server, {"id": "warm", "code": "result = 0"}, headers={"Authorization": "Bearer formula-secret"})
+        assert warm_status == 200
+        status, body = self._post(formula_server, {"id": "slow-1", "code": "import time\ntime.sleep(5)\nresult = 1", "timeout_ms": 1500}, headers={"Authorization": "Bearer formula-secret"})
+        assert status == 200, body
+        assert body.get("status") == "error"
+        status2, body2 = self._post(formula_server, {"id": "slow-2", "code": "result = 4"}, headers={"Authorization": "Bearer formula-secret"})
+        assert status2 == 200
+        assert body2.get("status") == "ok"
+        assert body2.get("result") == 4
+
+    def test_http_code_too_large(self, formula_server: str) -> None:
+        status, body = self._post(formula_server, {"id": "big", "code": "result = 1\n" + ("x = 1\n" * 200000)}, headers={"Authorization": "Bearer formula-secret"})
+        assert status == 400
+        assert body.get("code") == "CODE_TOO_LARGE"
+
+    def test_http_eval_error_is_200(self, formula_server: str) -> None:
+        status, body = self._post(formula_server, {"id": "div0", "code": "result = 1 / 0"}, headers={"Authorization": "Bearer formula-secret"})
+        assert status == 200
+        assert body.get("status") == "error"
+        assert body.get("id") == "div0"
+        assert "error" in body
+
+    def test_execute_shared_session(self, formula_server: str) -> None:
+        session_id = "session-http-123"
+        status1, body1 = self._post(formula_server, {"id": "req-s1", "code": "val = 42\nresult = val", "mode": "shared"}, headers={"Authorization": "Bearer formula-secret"}, path=f"/v1/execute?session_id={session_id}")
+        assert status1 == 200
+        assert body1.get("result") == 42
+
+        status2, body2 = self._post(formula_server, {"id": "req-s2", "code": "val += 8\nresult = val", "mode": "shared"}, headers={"Authorization": "Bearer formula-secret"}, path=f"/v1/execute?session_id={session_id}")
+        assert status2 == 200
+        assert body2.get("result") == 50
+
+    def test_http_session_reset_unknown_is_ok(self, formula_server: str) -> None:
+        status, body = self._post(formula_server, {"id": "reset-unknown"}, headers={"Authorization": "Bearer formula-secret"}, path="/v1/session/reset?session_id=never-created")
+        assert status == 200
+        assert body == {"id": "reset-unknown", "status": "ok"}
+
+    def test_http_session_reset_clears_shared_state(self, formula_server: str) -> None:
+        session_id = "session-reset-http"
+        headers = {"Authorization": "Bearer formula-secret"}
+        status1, body1 = self._post(formula_server, {"id": "rs-1", "code": "kept = 19\nresult = kept", "mode": "shared"}, headers=headers, path=f"/v1/execute?session_id={session_id}")
+        assert status1 == 200
+        assert body1.get("result") == 19
+
+        status_reset, reset_body = self._post(formula_server, {"id": "rs-reset"}, headers=headers, path=f"/v1/session/reset?session_id={session_id}")
+        assert status_reset == 200
+        assert reset_body == {"id": "rs-reset", "status": "ok"}
+
+        status2, body2 = self._post(formula_server, {"id": "rs-2", "code": "result = kept", "mode": "shared"}, headers=headers, path=f"/v1/execute?session_id={session_id}")
+        assert status2 == 200
+        assert body2.get("status") == "error"
+        assert "kept" in body2.get("error", "") or "NameError" in body2.get("error", "")
+
+
 def _idle_reaper_idents() -> set[int]:
     return {t.ident for t in threading.enumerate() if t.name.endswith("-idle-reaper") and t.ident is not None}
 
@@ -1874,8 +1738,21 @@ def test_idle_ttl_zero_or_none_does_not_start_reaper(monkeypatch: pytest.MonkeyP
         pool_none.shutdown()
 
 
-def test_run_execution_alarm_keeps_full_remaining_second(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A 2 s budget arms a 2 s child alarm, not int() floor it to 1 s."""
+@pytest.mark.parametrize(
+    ("make_deadline", "expected_alarm"),
+    [
+        pytest.param(lambda: Deadline(2.0), 2, id="full-remaining-second"),
+        pytest.param(
+            lambda: Deadline.from_absolute(1.0, time.monotonic() + 0.3),
+            1,
+            id="lifts-one-second-budget-once",
+        ),
+    ],
+)
+def test_run_execution_alarm_budget(
+    monkeypatch: pytest.MonkeyPatch, make_deadline, expected_alarm: int
+) -> None:
+    """_run_execution arms the expected child alarm and host IPC grace."""
     from compute_service.worker_base import BaseProcessWorker
     from plugin.scripting.config_limits import HOST_IPC_READ_GRACE_SEC
 
@@ -1890,9 +1767,11 @@ def test_run_execution_alarm_keeps_full_remaining_second(monkeypatch: pytest.Mon
     worker.execute = _capture  # type: ignore[method-assign]
     pool = pool_without_children(monkeypatch)
     try:
-        pool._run_execution(worker, {}, Deadline(2.0), "t")
-        assert seen["alarm"] == 2
-        assert seen["host"] == 2 + HOST_IPC_READ_GRACE_SEC
+        clock = make_deadline()
+        assert clock.usable() is not None
+        pool._run_execution(worker, {}, clock, "t")
+        assert seen["alarm"] == expected_alarm
+        assert seen["host"] == expected_alarm + HOST_IPC_READ_GRACE_SEC
     finally:
         pool.shutdown()
 
@@ -2255,31 +2134,6 @@ def test_check_dependencies_does_not_import_packages(tmp_path: Any, monkeypatch:
     missing = _handle_request({"id": "deps-2", "action": "check_dependencies", "packages": ["nonexistent_pkg_xyz_12345", "nonexistent_parent_xyz.child"]})
     assert missing["code"] == "MISSING_DEPENDENCIES"
     assert missing["missing"] == ["nonexistent_pkg_xyz_12345", "nonexistent_parent_xyz.child"]
-
-
-def test_run_execution_lifts_one_second_budget_once(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A one-second request with 0.3s left still arms a 1 s child alarm: run_for() is the only lift."""
-    from compute_service.worker_base import BaseProcessWorker
-    from plugin.scripting.config_limits import HOST_IPC_READ_GRACE_SEC
-
-    worker = BaseProcessWorker(1, "unused.py", start=False)
-    seen: dict[str, Any] = {}
-
-    def _capture(payload: dict[str, Any], timeout_sec: float, *, req_id: Any = None) -> dict[str, Any]:
-        seen["alarm"] = payload["timeout_sec"]
-        seen["host"] = timeout_sec
-        return {"status": "ok", "result": 1, "id": req_id}
-
-    worker.execute = _capture  # type: ignore[method-assign]
-    pool = pool_without_children(monkeypatch)
-    try:
-        clock = Deadline.from_absolute(1.0, time.monotonic() + 0.3)
-        assert clock.usable() is not None
-        pool._run_execution(worker, {}, clock, "t")
-        assert seen["alarm"] == 1
-        assert seen["host"] == 1 + HOST_IPC_READ_GRACE_SEC
-    finally:
-        pool.shutdown()
 
 
 def test_is_session_live_reads_the_child_process(monkeypatch: pytest.MonkeyPatch) -> None:

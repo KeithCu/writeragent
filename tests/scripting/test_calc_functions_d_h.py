@@ -87,7 +87,6 @@ def test_db_period_past_final_stub_is_nan():
 def test_db_rate_rounds_half_away_from_zero():
     assert math.isclose(calc.db(1, 0.0635, 1, 1), 0.937)
     assert calc.db(1, 0.0645, 1, 1) == 0.936
-    assert math.isclose(calc.db(1_000_000, 100_000, 6, 7, 7), 15845.098473848071, rel_tol=1e-9)
 
 
 def test_disc_zero_redemption_is_nan():

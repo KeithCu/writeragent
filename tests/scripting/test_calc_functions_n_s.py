@@ -550,13 +550,13 @@ def test_n_text_returns_zero():
         calc.n(10**400)
 
 
-def test_item3_sumif_error_propagation_and_shapes():
+def test_sumif_error_propagation_and_shapes():
     assert math.isnan(calc.sumif(["a", "a"], "a", [1, "#VALUE!"]))
     assert math.isnan(calc.sumif(["a", "b"], "a", [1, 2, 3]))  # mismatched shapes
     assert calc.sumif(["a", "b"], "a", [1, "#VALUE!"]) == 1.0
 
 
-def test_item17_oddfprice_and_percentrank():
+def test_oddfprice_basis_and_percentrank_huge_significance():
     # ODDFPRICE with basis 3 vs basis 0 must differ
     p0 = calc.oddfprice(40000, 44000, 39000, 40500, 0.05, 0.06, 100, 2, 0)
     p3 = calc.oddfprice(40000, 44000, 39000, 40500, 0.05, 0.06, 100, 2, 3)

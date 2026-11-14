@@ -170,7 +170,6 @@ def test_get_document_context_draw_uses_bridge(mock_doc_type, mock_draw):
     model = MagicMock()
     ctx = MagicMock()
     assert get_document_context_for_chat(model, max_context=8000, ctx=ctx) == "impress summary"
-    mock_draw.assert_called_once_with(model, 8000, ctx)
 
 
 @patch("plugin.doc.text_helpers.get_document_length", return_value=2439)

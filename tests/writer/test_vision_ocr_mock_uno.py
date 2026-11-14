@@ -272,37 +272,23 @@ def test_mock_ocr_range_with_one_image(ctx, doc):
 
 @native_test
 @with_native_doc("writer")
-def test_mock_ocr_two_images_preserves_intervening_text(ctx, doc):
-    fixture = _build_labeled_fixture(ctx, doc, image_count=2)
-    try:
-        _select_whole_document(doc)
-        result, captured = _run_mock_ocr(ctx, doc)
-        assert result["images_processed"] == 2
-        body = doc.getText().getString()
-        token_a = _ocr_token_for_name(captured, fixture["names"][0])
-        token_b = _ocr_token_for_name(captured, fixture["names"][1])
-        _assert_strict_order(body, "T0", token_a, "T1", token_b, "T3")
-        _assert_graphics_named(doc, fixture["names"])
-    finally:
-        _cleanup_temp_paths(fixture["temp_paths"])
-
-
-@native_test
-@with_native_doc("writer")
-def test_mock_ocr_three_images_with_text_between(ctx, doc):
-    fixture = _build_labeled_fixture(ctx, doc, image_count=3)
-    try:
-        _select_whole_document(doc)
-        result, captured = _run_mock_ocr(ctx, doc)
-        assert result["images_processed"] == 3
-        body = doc.getText().getString()
-        token_a = _ocr_token_for_name(captured, fixture["names"][0])
-        token_b = _ocr_token_for_name(captured, fixture["names"][1])
-        token_c = _ocr_token_for_name(captured, fixture["names"][2])
-        _assert_strict_order(body, "T0", token_a, "T1", token_b, "T2", token_c, "T3")
-        _assert_graphics_named(doc, fixture["names"])
-    finally:
-        _cleanup_temp_paths(fixture["temp_paths"])
+def test_mock_ocr_multiple_images_preserve_intervening_text(ctx, doc):
+    for image_count in (2, 3):
+        fixture = _build_labeled_fixture(ctx, doc, image_count=image_count)
+        try:
+            _select_whole_document(doc)
+            result, captured = _run_mock_ocr(ctx, doc)
+            assert result["images_processed"] == image_count
+            body = doc.getText().getString()
+            tokens = [_ocr_token_for_name(captured, name) for name in fixture["names"]]
+            expected_order = []
+            for idx, token in enumerate(tokens):
+                expected_order.extend([f"T{idx}", token])
+            expected_order.append("T3")
+            _assert_strict_order(body, *expected_order)
+            _assert_graphics_named(doc, fixture["names"])
+        finally:
+            _cleanup_temp_paths(fixture["temp_paths"])
 
 
 @native_test
@@ -422,7 +408,7 @@ def test_mock_ocr_mid_loop_failure_continues_with_remaining_images(ctx, doc):
 
 @native_test
 @with_native_doc("writer")
-def test_mock_ocr_stop_prevents_insert(ctx, doc):
+def test_mock_ocr_stop_lands_completed_and_skips_remaining(ctx, doc):
     """Stop flipped during the first OCR still inserts that result; the next image is not started.
 
     The scope is host-side only; it is not stored on the UNO ctx.

@@ -132,27 +132,76 @@ def test_direct_format_quantity_scalar_and_vector():
     assert res == ["1 m", "2 m"]
 
 
-def test_resolve_output_style_defaults():
-    res_conv = {"status": "ok", "helper": "convert_quantity", "formatted": "10 km/h", "magnitude": 10.0}
-    assert format_units_for_calc(res_conv) == [["10 km/h"]]
-
-    res_parse = {"status": "ok", "helper": "parse_quantity", "formatted": "5 m", "magnitude": 5.0}
-    assert format_units_for_calc(res_parse) == [["5 m"]]
-
-    res_dim = {
-        "status": "ok",
-        "helper": "check_dimensionality",
-        "formatted": "compatible",
-        "compatible": True,
-        "dimensionality_a": "[length]",
-        "dimensionality_b": "[length]",
-    }
-    dim_grid = format_units_for_calc(res_dim)
-    assert dim_grid[0] == ["compatible"]
-    assert ["Compatible", True] in dim_grid
-
-    res_conv_detailed = format_units_for_calc(res_conv, output_style="detailed")
-    assert ["Magnitude", 10.0] in res_conv_detailed
+@pytest.mark.parametrize(
+    ("payload", "output_style", "expected_grid", "expected_row"),
+    [
+        (
+            {"status": "ok", "helper": "convert_quantity", "formatted": "10 km/h", "magnitude": 10.0},
+            None,
+            [["10 km/h"]],
+            None,
+        ),
+        (
+            {"status": "ok", "helper": "parse_quantity", "formatted": "5 m", "magnitude": 5.0},
+            None,
+            [["5 m"]],
+            None,
+        ),
+        (
+            {
+                "status": "ok",
+                "helper": "check_dimensionality",
+                "formatted": "compatible",
+                "compatible": True,
+                "dimensionality_a": "[length]",
+                "dimensionality_b": "[length]",
+            },
+            None,
+            None,
+            ["Compatible", True],
+        ),
+        (
+            {"status": "ok", "helper": "convert_quantity", "formatted": "10 km/h", "magnitude": 10.0},
+            "detailed",
+            None,
+            ["Magnitude", 10.0],
+        ),
+        (
+            {"status": "ok", "helper": "convert_quantity", "formatted": "36 km/h", "magnitude": 36.0},
+            "formatted",
+            [["36 km/h"]],
+            None,
+        ),
+        (
+            {
+                "status": "ok",
+                "helper": "check_dimensionality",
+                "formatted": "compatible",
+                "compatible": True,
+                "dimensionality_a": "[length] / [time]",
+                "dimensionality_b": "[length] / [time]",
+            },
+            "detailed",
+            None,
+            ["Compatible", True],
+        ),
+    ],
+    ids=[
+        "default_convert",
+        "default_parse",
+        "default_dimensionality",
+        "detailed_convert",
+        "formatted_convert",
+        "detailed_dimensionality",
+    ],
+)
+def test_format_units_for_calc_styles(payload, output_style, expected_grid, expected_row):
+    grid = format_units_for_calc(payload, output_style=output_style)
+    if expected_grid is not None:
+        assert grid == expected_grid
+    else:
+        assert grid[0] == [payload["formatted"]]
+        assert expected_row in grid
 
 
 def test_extract_units_insert_kwargs():
@@ -180,30 +229,6 @@ def test_extract_units_insert_kwargs():
         + 'result = run_units({"helper": "convert_quantity", "params": {"value": "1"}}, None, {})\n'
     )
     assert extract_units_insert_kwargs(None, code_none) == {}
-
-
-def test_format_units_for_calc_formatted_mode():
-    grid = format_units_for_calc(
-        {"status": "ok", "helper": "convert_quantity", "formatted": "36 km/h", "magnitude": 36.0},
-        output_style="formatted",
-    )
-    assert grid == [["36 km/h"]]
-
-
-def test_format_units_for_calc_detailed_mode():
-    grid = format_units_for_calc(
-        {
-            "status": "ok",
-            "helper": "check_dimensionality",
-            "formatted": "compatible",
-            "compatible": True,
-            "dimensionality_a": "[length] / [time]",
-            "dimensionality_b": "[length] / [time]",
-        },
-        output_style="detailed",
-    )
-    assert grid[0] == ["compatible"]
-    assert ["Compatible", True] in grid
 
 
 def test_run_units_parse_quantity():

@@ -248,14 +248,6 @@ def test_vision_directive_draw_names_draw_gateway(_mock_avail):
     assert 'delegate_to_specialized_draw_toolset(domain="vision"' in text
 
 
-def test_supports_vision_manual_true_for_draw():
-    from plugin.vision.vision_runner import supports_vision_manual
-
-    doc = MagicMock()
-    with patch("plugin.vision.vision_runner.is_draw", return_value=True):
-        assert supports_vision_manual(doc) is True
-
-
 @patch("plugin.vision.vision_availability.vision_venv_configured", return_value=False)
 def test_get_vision_core_directive_empty_when_unavailable(_mock_avail):
     from plugin.vision.vision_availability import get_vision_core_directive

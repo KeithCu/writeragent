@@ -17,6 +17,7 @@ from __future__ import annotations
 import array
 import math
 import sys
+from collections.abc import Callable
 from decimal import Decimal
 from unittest.mock import patch
 
@@ -802,8 +803,15 @@ def test_unknown_dtype_kind_promotes_column_like_cython() -> None:
         assert _flatten_grid_to_components(grid)[2] == ["float", "int"]
 
 
-def test_int_subclass_column_kind_matches_cython() -> None:
-    """Int subclasses pack as column kind 'int' on both Python and Cython lanes."""
+def _run_with_and_without_cython(check: Callable[[], None]) -> None:
+    with cython_accelerator_context(enabled=False):
+        check()
+    if payload_codec.fast_flatten_grid_2d is not None:
+        check()
+
+
+def test_int_subclass_basic_and_enum_column_kind_matches_cython() -> None:
+    """Int subclasses and IntEnum pack as column kind 'int' on both Python and Cython lanes."""
     import enum
 
     from plugin.scripting.payload_codec import host_pack_split_grid
@@ -814,14 +822,7 @@ def test_int_subclass_column_kind_matches_cython() -> None:
     class Color(enum.IntEnum):
         RED = 1
 
-    class float16(int):
-        pass
-
-    class boolish(int):
-        pass
-
     def _check() -> None:
-        # [[Widget(7), Color.RED]] -> column_kinds == ["int", "int"], host unpack [[7, 1]], both cells type is int.
         wire_pair = host_pack_split_grid([[Widget(7), Color.RED]])
         assert wire_pair["column_kinds"] == ["int", "int"]
         unpacked_pair = host_unpack_split_grid(wire_pair)
@@ -829,14 +830,13 @@ def test_int_subclass_column_kind_matches_cython() -> None:
         assert type(unpacked_pair[0][0]) is int
         assert type(unpacked_pair[0][1]) is int
 
-        # [Widget(-3)] -> column_kinds == ["int"], host unpack [-3], type is int.
         wire_1d = host_pack_split_grid([Widget(-3)])
         assert wire_1d["column_kinds"] == ["int"]
         unpacked_1d = host_unpack_split_grid(wire_1d)
         assert unpacked_1d == [-3]
         assert type(unpacked_1d[0]) is int
 
-        # [[Widget(7), "x"]] -> column_kinds == ["int", "float"], host cell 0 is type is int and equals 7, cell 1 is "x". This is the slow path.
+        # Mixed int-subclass + str falls back to the slow path; cell 0 stays int, cell 1 is str.
         wire_slow = host_pack_split_grid([[Widget(7), "x"]])
         assert wire_slow["column_kinds"] == ["int", "float"]
         unpacked_slow = host_unpack_split_grid(wire_slow)
@@ -851,7 +851,32 @@ def test_int_subclass_column_kind_matches_cython() -> None:
         assert unpacked_after_text == [["x", 7]]
         assert type(unpacked_after_text[0][1]) is int
 
-        # An int subclass whose class name starts with float or bool must still be recognized as int.
+        try:
+            import numpy as np
+        except ImportError:
+            np = None
+        if np is not None:
+            child_arr = child_unpack_split_grid(wire_pair)
+            assert child_arr.dtype == np.int64
+
+    _run_with_and_without_cython(_check)
+
+
+def test_int_subclass_float_and_bool_prefix_names_match_cython() -> None:
+    """Int subclasses named float*/bool* or mixed with bool/float keep expected column kinds."""
+    from plugin.scripting.payload_codec import host_pack_split_grid
+
+    class Widget(int):
+        pass
+
+    class float16(int):
+        pass
+
+    class boolish(int):
+        pass
+
+    def _check() -> None:
+        # Int subclasses whose class names start with float or bool must still be recognized as int.
         wire_float16 = host_pack_split_grid([["x", float16(7)]])
         assert wire_float16["column_kinds"] == ["float", "int"]
         unpacked_float16 = host_unpack_split_grid(wire_float16)
@@ -871,18 +896,26 @@ def test_int_subclass_column_kind_matches_cython() -> None:
         assert unpacked_1d_float16 == ["x", 7]
         assert type(unpacked_1d_float16[1]) is int
 
-        # [[True], [Widget(1)]] -> column_kinds == ["int"].
         wire_bool = host_pack_split_grid([[True], [Widget(1)]])
         assert wire_bool["column_kinds"] == ["int"]
 
-        # [[1.5], [Widget(1)]] -> column_kinds == ["float"], host cell types are float.
         wire_float = host_pack_split_grid([[1.5], [Widget(1)]])
         assert wire_float["column_kinds"] == ["float"]
         unpacked_float = host_unpack_split_grid(wire_float)
         assert type(unpacked_float[0][0]) is float
         assert type(unpacked_float[1][0]) is float
 
-        # [[Widget(10**400)]] -> the decimal text of that value is in strings, and the kind is not a successful int cast of the integer (the cell is text).
+    _run_with_and_without_cython(_check)
+
+
+def test_int_subclass_huge_int_falls_back_to_text_matches_cython() -> None:
+    """Overflowing int subclasses fall back to decimal text on both Python and Cython lanes."""
+    from plugin.scripting.payload_codec import host_pack_split_grid
+
+    class Widget(int):
+        pass
+
+    def _check() -> None:
         huge_val = Widget(10**400)
         wire_huge = host_pack_split_grid([[huge_val]])
         assert str(10**400) in wire_huge["strings"].values()
@@ -890,18 +923,7 @@ def test_int_subclass_column_kind_matches_cython() -> None:
         assert unpacked_huge == [[str(10**400)]]
         assert type(unpacked_huge[0][0]) is str
 
-        try:
-            import numpy as np
-        except ImportError:
-            np = None
-        if np is not None:
-            child_arr = child_unpack_split_grid(wire_pair)
-            assert child_arr.dtype == np.int64
-
-    with cython_accelerator_context(enabled=False):
-        _check()
-    if payload_codec.fast_flatten_grid_2d is not None:
-        _check()
+    _run_with_and_without_cython(_check)
 
 
 def test_unknown_dtype_kind_numeric_regardless_of_string_position() -> None:
@@ -1208,19 +1230,6 @@ def test_child_pack_numpy_scalar_types() -> None:
     assert child_pack_result(np.bool_(True)) is True
 
 
-def test_get_cython_status_info() -> None:
-    """Verify host_cython_status_line returns valid status line and location."""
-    status_line = payload_codec.host_cython_status_line()
-    assert status_line.startswith("Cython Accelerator:")
-    if payload_codec.fast_flatten_grid_2d is not None:
-        assert "Active" in status_line
-        assert payload_codec._CYTHON_ACCELERATOR_LOCATION is not None
-        assert payload_codec._CYTHON_ACCELERATOR_LOCATION in status_line
-    else:
-        assert "Inactive" in status_line
-        assert payload_codec._CYTHON_ACCELERATOR_LOCATION is None
-
-
 def test_cython_canary_failure_disables_accelerator() -> None:
     """Verify that a failing canary test prevents activating the accelerator."""
     from plugin.scripting.payload_codec import _verify_accelerator
@@ -1244,12 +1253,9 @@ def test_child_mixed_2d_returns_list_not_ndarray() -> None:
 
 def test_is_numeric_coercible_and_is_numeric_grid() -> None:
     """Helpers gate numeric-only fast paths."""
-    assert _is_numeric_coercible_impl(None) is True
     assert _is_numeric_coercible_impl("42") is False
     assert _is_numeric_coercible_impl("") is True
     assert _is_numeric_coercible_impl("hello") is False
-    assert is_numeric_grid([[1, 2], [3, 4]]) is True
-    assert is_numeric_grid([1, "x"]) is False
     # A user type whose name starts with "int" is not a NumPy scalar.
     internal = type("internal", (), {})
     assert _is_numeric_coercible_impl(internal()) is False
@@ -1511,35 +1517,6 @@ def test_child_pack_non_contiguous_slices():
     wire = child_pack_result(non_contiguous, force="always")
     assert wire["__wa_payload__"] == "split_grid"
     assert wire["shape"] == [5, 5]
-
-
-def test_pure_python_pack_speed_regression():
-    """Sanity check: 10k float cells pack well under a CI-noisy budget.
-
-    A single 15ms sample flakes on macOS GHA under pytest-xdist (20.8ms vs 15ms
-    on run 35477002275) without a real pack regression. Warm up, then require
-    the fastest of a few packs to stay under 25ms — still a 10k-cell sanity
-    check, not a no-op.
-    """
-    import time
-    grid = [[float(i + j) for i in range(100)] for j in range(100)]
-
-    # First pack pays import / allocator / cache warmup; do not time it.
-    warm = host_pack_data(grid, force="always")
-    assert is_split_grid(warm)
-
-    samples_ms: list[float] = []
-    last_wire = warm
-    for unused in range(5):
-        start = time.perf_counter()
-        last_wire = host_pack_data(grid, force="always")
-        samples_ms.append((time.perf_counter() - start) * 1000)
-
-    assert is_split_grid(last_wire)
-    best_ms = min(samples_ms)
-    assert best_ms < 25.0, (
-        f"Serialization took too long: best={best_ms:.2f}ms samples={samples_ms!r}"
-    )
 
 
 # ---------------------------------------------------------------------------

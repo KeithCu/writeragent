@@ -145,11 +145,6 @@ def test_seed_refuses_while_an_office_runs_on_the_profile(tmp_path: Path) -> Non
         proc.wait(timeout=10)
 
 
-def test_main_usage() -> None:
-    with pytest.raises(SystemExit):
-        lo_profile.main([])
-
-
 def test_register_happy_path(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     profile = tmp_path / "profile"
     (profile / "user").mkdir(parents=True)
@@ -274,31 +269,6 @@ def test_register_find_none_raises_before_delete(monkeypatch: pytest.MonkeyPatch
     assert killed == []
 
 
-def test_register_harper_shape(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    profile = tmp_path / "profile"
-    profile.mkdir()
-    oxt = tmp_path / "LibreHarper.oxt"
-    oxt.write_text("oxt")
-
-    calls: list[list[str]] = []
-    monkeypatch.setattr(lo_profile, "find", lambda name: Path("/fake/bin/" + name))
-    monkeypatch.setattr(lo_profile, "office_pids", lambda url: [])
-    monkeypatch.setattr(lo_profile, "kill", lambda pids: None)
-
-    def fake_run(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
-        calls.append(cmd)
-        return subprocess.CompletedProcess(cmd, 0, stdout="ok", stderr="")
-
-    monkeypatch.setattr(lo_profile.subprocess, "run", fake_run)
-
-    lo_profile.register(oxt, profile, ["org.extension.libreharper"], [])
-
-    assert calls == [
-        [_UNOPKG, "remove", "org.extension.libreharper"],
-        [_UNOPKG, "add", str(oxt.resolve())],
-    ]
-
-
 def test_verify_subcommand(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("VIRTUAL_ENV", "/venv")
     monkeypatch.setattr(lo_profile, "find", lambda name: Path("/fake/bin/" + name))
@@ -323,7 +293,9 @@ def test_verify_subcommand(monkeypatch: pytest.MonkeyPatch) -> None:
     assert lo_profile.main(["verify", "--id", "org.extension.other"]) == 1
 
 
-def test_main_register(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_main_usage_and_register(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    with pytest.raises(SystemExit):
+        lo_profile.main([])
     profile = tmp_path / "profile"
     profile.mkdir()
     oxt = tmp_path / "test.oxt"

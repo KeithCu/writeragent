@@ -803,13 +803,6 @@ def test_roundtrip_via_formula_string():
     assert cell.script_index == 0
 
 
-def test_convert_model_api():
-    report = convert_model_to_dag(demo5_melted())
-    assert report.direction == "dag"
-    assert report.ok
-    assert report.cells
-
-
 def _minimal_xlsx_bytes(*, sheet_xml: str, workbook_xml: str, rels_xml: str, scripts_xml: str = "") -> bytes:
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w") as zf:
@@ -1239,33 +1232,6 @@ def test_cli_excel_write_xlsx(tmp_path: Path):
     rc = main([str(src), "--to", "excel", "--write-xlsx", str(out)])
     assert rc == 0
     assert has_excel_python_xlsx(out)
-
-
-def test_single_line_rels_survive_strip():
-    """Single-line .rels from Excel/LO must survive _strip_rels_python."""
-    from xml.etree import ElementTree as ET
-    from plugin.calc.excel_py_convert.xlsx_write import _strip_rels_python
-
-    rel_ns = "http://schemas.openxmlformats.org/package/2006/relationships"
-
-    # Minified single-line rels as emitted by Excel / LibreOffice
-    single_line_rels = (
-        f'<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
-        f'<Relationships xmlns="{rel_ns}">'
-        f'<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>'
-        f'<Relationship Id="rId2" Type="http://schemas.microsoft.com/office/2022/relationships/pythonScript" Target="pythonScripts.xml"/>'
-        f'</Relationships>'
-    )
-
-    res = _strip_rels_python(single_line_rels.encode("utf-8"))
-    rels_root = ET.fromstring(res)
-    rel_targets = [
-        c.attrib.get("Target")
-        for c in rels_root
-        if c.tag.endswith("Relationship")
-    ]
-    assert "worksheets/sheet1.xml" in rel_targets
-    assert "pythonScripts.xml" not in rel_targets
 
 
 def test_write_excel_python_xlsx_single_line_content_types(tmp_path: Path):
@@ -1744,22 +1710,6 @@ def test_ensure_cell_missing_row_ordering():
     idx.ensure_cell("A3")
     row_order = [r.attrib.get("r") for r in sheet_data if local_name(r.tag) == "row"]
     assert row_order == ["1", "3", "5"]
-
-    # Test rows with omitted 'r' attribute: row 1 (implicit 1), row 2 (implicit 2)
-    xml_no_r = (
-        '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
-        '<sheetData>'
-        '<row><c><v>10</v></c></row>'
-        '<row><c><v>20</v></c></row>'
-        '</sheetData>'
-        '</worksheet>'
-    )
-    ws_no_r = ET.fromstring(xml_no_r)
-    # Ensure cell A2: should match second row (implicit 2) rather than creating a duplicate row
-    idx_no_r = _WorksheetCellIndex(ws_no_r)
-    _c_a2 = idx_no_r.ensure_cell("A2")
-    sheet_data_no_r = idx_no_r.sheet_data
-    assert len(list(sheet_data_no_r)) == 2
 
 
 def test_shared_formula_vs_array_formula(tmp_path: Path):
@@ -2661,6 +2611,18 @@ def test_worksheet_cell_index_no_r_attribute():
     assert sd is not None
     assert len(list(sd[0])) == 2
 
+    # Rows with omitted 'r' attribute: ensure_cell("A2") matches implicit row 2.
+    ws_no_r = ET.fromstring(
+        '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+        "<sheetData><row><c><v>10</v></c></row><row><c><v>20</v></c></row></sheetData>"
+        "</worksheet>"
+    )
+    idx_no_r = _WorksheetCellIndex(ws_no_r)
+    c_a2 = idx_no_r.ensure_cell("A2")
+    v_a2 = c_a2.find("{http://schemas.openxmlformats.org/spreadsheetml/2006/main}v")
+    assert v_a2 is not None and v_a2.text == "20"
+    assert len(list(idx_no_r.sheet_data)) == 2
+
 
 def test_bad_package_xml_raises_value_error():
     """Malformed [Content_Types].xml or .rels raises ValueError with part name."""
@@ -2672,21 +2634,40 @@ def test_bad_package_xml_raises_value_error():
         _strip_rels_python(b"<malformed XML")
 
 
-def test_strip_rels_preserves_python_notes():
-    """Relationships targeting python_notes.xml or non-pythonScripts must not be stripped."""
+@pytest.mark.parametrize(
+    ("xml", "kept_targets", "stripped_targets"),
+    [
+        (
+            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+            '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>'
+            '<Relationship Id="rId2" Type="http://schemas.microsoft.com/office/2022/relationships/pythonScript" Target="pythonScripts.xml"/>'
+            "</Relationships>",
+            ["worksheets/sheet1.xml"],
+            ["pythonScripts.xml"],
+        ),
+        (
+            '<?xml version="1.0" encoding="UTF-8"?>\n'
+            '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">\n'
+            '  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>\n'
+            '  <Relationship Id="rId2" Type="http://schemas.microsoft.com/office/2022/relationships/pythonScript" Target="pythonScripts.xml"/>\n'
+            '  <Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/custom" Target="python_notes.xml"/>\n'
+            "</Relationships>",
+            ["worksheets/sheet1.xml", "python_notes.xml"],
+            ["pythonScripts.xml"],
+        ),
+    ],
+)
+def test_strip_rels_python_preserves_non_python_targets(xml, kept_targets, stripped_targets):
+    """Single-line .rels and non-pythonScripts relationships (like python_notes.xml) survive."""
     from plugin.calc.excel_py_convert.xlsx_write import _strip_rels_python
 
-    xml = """<?xml version="1.0" encoding="UTF-8"?>
-<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
-  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
-  <Relationship Id="rId2" Type="http://schemas.microsoft.com/office/2022/relationships/pythonScript" Target="pythonScripts.xml"/>
-  <Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/custom" Target="python_notes.xml"/>
-</Relationships>"""
-    res = _strip_rels_python(xml.encode("utf-8")).decode("utf-8")
-    assert "rId1" in res
-    assert "rId2" not in res
-    assert "rId3" in res
-    assert "python_notes.xml" in res
+    rels_root = ET.fromstring(_strip_rels_python(xml.encode("utf-8")))
+    targets = [c.attrib.get("Target") for c in rels_root if c.tag.endswith("Relationship")]
+    for target in kept_targets:
+        assert target in targets
+    for target in stripped_targets:
+        assert target not in targets
 
 
 def test_write_excel_python_xlsx_leaves_untouched_shared_group_intact(tmp_path: Path):
@@ -3058,33 +3039,24 @@ def test_write_dag_formulas_xlsx_direction_guard(tmp_path: Path):
         write_dag_formulas_xlsx(src, report, out)
 
 
-def test_ensure_cell_child_order_trailing_extlst():
+@pytest.mark.parametrize(
+    ("row_inner", "expected_tags"),
+    [
+        ('<c r="A1"/><extLst/>', ["c", "c", "extLst"]),
+        ('<c r="A1"/><extLst/><c r="C1"/>', ["c", "c", "extLst", "c"]),
+    ],
+)
+def test_ensure_cell_child_order_extlst(row_inner, expected_tags):
     from plugin.calc.excel_py_convert.xlsx_write import _WorksheetCellIndex
 
     ws_root = ET.fromstring(
         '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
-        '<sheetData><row r="1"><c r="A1"/><extLst/></row></sheetData></worksheet>'
+        f'<sheetData><row r="1">{row_inner}</row></sheetData></worksheet>'
     )
     index = _WorksheetCellIndex(ws_root)
     index.ensure_cell("B1")
     row = index.rows[1]
-    tags = [local_name(ch.tag) for ch in row]
-    assert tags == ["c", "c", "extLst"]
-    assert row[1].attrib.get("r") == "B1"
-
-
-def test_ensure_cell_child_order_extlst_between_cells():
-    from plugin.calc.excel_py_convert.xlsx_write import _WorksheetCellIndex
-
-    ws_root = ET.fromstring(
-        '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
-        '<sheetData><row r="1"><c r="A1"/><extLst/><c r="C1"/></row></sheetData></worksheet>'
-    )
-    index = _WorksheetCellIndex(ws_root)
-    index.ensure_cell("B1")
-    row = index.rows[1]
-    tags = [local_name(ch.tag) for ch in row]
-    assert tags == ["c", "c", "extLst", "c"]
+    assert [local_name(ch.tag) for ch in row] == expected_tags
     assert row[1].attrib.get("r") == "B1"
 
 
@@ -3102,33 +3074,24 @@ def test_ensure_cell_ascending_large_sequence():
     assert row_nums == list(range(1, 5001))
 
 
-def test_set_cell_xlws_formula_child_order_extlst_without_f():
+@pytest.mark.parametrize(
+    "cell_inner",
+    [
+        "<v>123</v><extLst/>",
+        "<f>OLD()</f><extLst/>",
+    ],
+)
+def test_set_cell_xlws_formula_child_order_extlst(cell_inner):
     from plugin.calc.excel_py_convert.xlsx_write import _WorksheetCellIndex, _set_cell_xlws_formula
 
     ws_root = ET.fromstring(
         '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
-        '<sheetData><row r="1"><c r="A1"><v>123</v><extLst/></c></row></sheetData></worksheet>'
+        f'<sheetData><row r="1"><c r="A1">{cell_inner}</c></row></sheetData></worksheet>'
     )
     _set_cell_xlws_formula("A1", "_xlws.PY(0,0)", index=_WorksheetCellIndex(ws_root))
     cell = ws_root.find(".//{http://schemas.openxmlformats.org/spreadsheetml/2006/main}c")
     assert cell is not None
-    tags = [local_name(ch.tag) for ch in cell]
-    assert tags == ["f", "extLst"]
-    assert cell[0].text == "_xlws.PY(0,0)"
-
-
-def test_set_cell_xlws_formula_existing_f_with_extlst():
-    from plugin.calc.excel_py_convert.xlsx_write import _WorksheetCellIndex, _set_cell_xlws_formula
-
-    ws_root = ET.fromstring(
-        '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
-        '<sheetData><row r="1"><c r="A1"><f>OLD()</f><extLst/></c></row></sheetData></worksheet>'
-    )
-    _set_cell_xlws_formula("A1", "_xlws.PY(0,0)", index=_WorksheetCellIndex(ws_root))
-    cell = ws_root.find(".//{http://schemas.openxmlformats.org/spreadsheetml/2006/main}c")
-    assert cell is not None
-    tags = [local_name(ch.tag) for ch in cell]
-    assert tags == ["f", "extLst"]
+    assert [local_name(ch.tag) for ch in cell] == ["f", "extLst"]
     assert cell[0].text == "_xlws.PY(0,0)"
 
 
@@ -3529,47 +3492,6 @@ def test_write_dag_formulas_drops_calc_chain_and_python_parts(tmp_path: Path):
         assert "pythonScripts.xml" not in rels
 
 
-def test_ensure_workbook_full_calc_on_load_before_extlst():
-    from plugin.calc.excel_py_convert.xlsx_write import _ensure_workbook_full_calc_on_load
-
-    wb = ET.fromstring(
-        '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
-        'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
-        '<sheets><sheet name="Sheet1" sheetId="1" r:id="rId1"/></sheets>'
-        '<extLst><ext uri="{0000}"/></extLst>'
-        '</workbook>'
-    )
-    _ensure_workbook_full_calc_on_load(wb)
-    tags = [local_name(c.tag) for c in wb]
-    assert tags == ["sheets", "calcPr", "extLst"]
-    calc_pr = wb.find("{http://schemas.openxmlformats.org/spreadsheetml/2006/main}calcPr")
-    assert calc_pr is not None
-    assert calc_pr.attrib.get("fullCalcOnLoad") == "1"
-
-
-def test_drop_py_code_sheets_places_calc_pr_before_extlst():
-    from plugin.calc.excel_py_convert.xlsx_write import _drop_py_code_sheets_from_workbook
-
-    wb_xml = b"""<?xml version="1.0" encoding="UTF-8"?>
-<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"
- xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
-  <sheets><sheet name="Sheet1" sheetId="1" r:id="rId1"/></sheets>
-  <extLst><ext uri="{0000}"/></extLst>
-</workbook>"""
-    rels_xml = b"""<?xml version="1.0" encoding="UTF-8"?>
-<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
-  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
-</Relationships>"""
-
-    new_wb_xml, _ = _drop_py_code_sheets_from_workbook(wb_xml, rels_xml, set(), set())
-    root = ET.fromstring(new_wb_xml)
-    tags = [local_name(c.tag) for c in root]
-    assert tags == ["sheets", "calcPr", "extLst"]
-    calc_pr = root.find("{http://schemas.openxmlformats.org/spreadsheetml/2006/main}calcPr")
-    assert calc_pr is not None
-    assert calc_pr.attrib.get("fullCalcOnLoad") == "1"
-
-
 def test_write_dag_formulas_places_calc_pr_before_extlst(tmp_path: Path):
     src = tmp_path / "src_extlst.xlsx"
     out = tmp_path / "out_extlst.xlsx"
@@ -3599,9 +3521,10 @@ def test_write_dag_formulas_places_calc_pr_before_extlst(tmp_path: Path):
     with zipfile.ZipFile(out, "r") as zf:
         wb = ET.fromstring(zf.read("xl/workbook.xml"))
         tags = [local_name(c.tag) for c in wb]
-        assert "calcPr" in tags
-        assert "extLst" in tags
-        assert tags.index("calcPr") < tags.index("extLst")
+        assert tags == ["sheets", "calcPr", "extLst"]
+        calc_pr = wb.find("{http://schemas.openxmlformats.org/spreadsheetml/2006/main}calcPr")
+        assert calc_pr is not None
+        assert calc_pr.attrib.get("fullCalcOnLoad") == "1"
 
 
 def test_shared_strings_helper(tmp_path: Path):

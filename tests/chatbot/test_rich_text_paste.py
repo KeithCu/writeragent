@@ -7,7 +7,7 @@
 # (at your option) any later version.
 """Unit tests for plugin.chatbot.rich_text_paste."""
 
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 import logging
 from types import SimpleNamespace
 from typing import Any
@@ -74,51 +74,67 @@ def _body_table(cells: list[list[str]]):
     return table
 
 
-class TestPastePortionColor:
-    def test_resolve_portion_char_color_uses_role_and_prefix(self):
-        portion = MagicMock(CharColor=-1)
-        user = 0x2A6099
-        assistant = 0x1E293B
-        theme = ChatTheme(0, user, assistant)
-        assert _resolve_portion_char_color(portion, "You: hi", theme, "user") == user
-        assert _resolve_portion_char_color(portion, "Assistant: hi", theme, "assistant") == assistant
-        with patch("plugin.chatbot.rich_text_paste._", side_effect=lambda message: "アシスタント:" if message == "Assistant:" else message):
-            assert _resolve_portion_char_color(portion, "アシスタント: hi", theme, "assistant") == assistant
-        assert _resolve_portion_char_color(portion, "body", theme, "user") == user
-        portion.CharColor = 0xFF0000
-        assert _resolve_portion_char_color(portion, "body", theme, "user") == 0xFF0000
+def _portion(txt, color=-1, font="Liberation Sans", height=10.0, weight=100.0, href="", underline=0):
+    p = MagicMock()
+    p.getString.return_value = txt
+    p.CharColor = color
+    p.CharFontName = font
+    p.CharHeight = height
+    p.CharWeight = weight
+    p.HyperLinkURL = href
+    p.CharUnderline = underline
+    return p
 
-    def test_copy_path_preserves_explicit_portion_color(self):
-        red = 0xFF0000
-        blue = 0x0000FF
+
+def _para(portions, fallback_text=None):
+    p = MagicMock()
+    p.supportsService.return_value = False
+    p.getPropertyValue.return_value = None
+    p.createEnumeration.return_value = _uno_enum(portions)
+    if fallback_text is not None:
+        p.getString.return_value = fallback_text
+    return p
+
+
+@contextmanager
+def _copy_patches(
+    theme=None,
+    *,
+    text_len=0,
+    len_side_effect=None,
+    insert_side_effect=None,
+):
+    if theme is None:
+        theme = MagicMock(user_color=1, assistant_color=2)
+    len_kw = {"side_effect": len_side_effect} if len_side_effect is not None else {"return_value": text_len}
+    insert_kw = {"side_effect": insert_side_effect} if insert_side_effect is not None else {}
+    with ExitStack() as stack:
+        stack.enter_context(patch("plugin.chatbot.rich_text_paste.focus_preserved", _immediate_focus))
+        stack.enter_context(patch("plugin.chatbot.rich_text_paste.ChatTheme.resolve", return_value=theme))
+        stack.enter_context(patch("plugin.chatbot.rich_text_paste._rich_control_bg_color", return_value=0))
+        mock_len = stack.enter_context(patch("plugin.chatbot.rich_text_paste.get_control_text_length", **len_kw))
+        stack.enter_context(patch("plugin.chatbot.rich_text_paste.apply_rich_control_para_margins"))
+        stack.enter_context(patch("plugin.chatbot.rich_text_paste._scroll_rich_to_tail"))
+        stack.enter_context(patch("plugin.chatbot.rich_text_paste._insert_string_at_rich_cursor", **insert_kw))
+        yield mock_len
+
+
+class TestPastePortionColor:
+    def test_resolve_portion_char_color_uses_role_prefix_and_explicit_color(self):
         user = 0x2A6099
         assistant = 0x1E293B
         theme = ChatTheme(0, user, assistant)
-        red_portion = MagicMock(CharColor=red)
         auto_portion = MagicMock(CharColor=-1)
-        assert _resolve_portion_char_color(red_portion, "alert", theme, "assistant") == red
-        assert _resolve_portion_char_color(auto_portion, "plain", theme, "assistant") == assistant
         assert _resolve_portion_char_color(auto_portion, "You: hi", theme, "user") == user
-        assert _resolve_portion_char_color(MagicMock(CharColor=blue), "x", theme, "assistant") == blue
+        assert _resolve_portion_char_color(auto_portion, "Assistant: hi", theme, "assistant") == assistant
+        with patch("plugin.chatbot.rich_text_paste._", side_effect=lambda message: "アシスタント:" if message == "Assistant:" else message):
+            assert _resolve_portion_char_color(auto_portion, "アシスタント: hi", theme, "assistant") == assistant
+        assert _resolve_portion_char_color(auto_portion, "body", theme, "user") == user
+        assert _resolve_portion_char_color(auto_portion, "plain", theme, "assistant") == assistant
+        assert _resolve_portion_char_color(MagicMock(CharColor=0xFF0000), "alert", theme, "assistant") == 0xFF0000
+        assert _resolve_portion_char_color(MagicMock(CharColor=0x0000FF), "x", theme, "assistant") == 0x0000FF
 
     def test_copy_loop_tracks_role_for_automatic_colors_and_tables(self):
-        def _portion(txt, color=-1):
-            p = MagicMock()
-            p.getString.return_value = txt
-            p.CharColor = color
-            p.CharFontName = "Liberation Sans"
-            p.CharHeight = 10.0
-            p.CharWeight = 100.0
-            p.HyperLinkURL = ""
-            return p
-
-        def _para(portions):
-            p = MagicMock()
-            p.supportsService.return_value = False
-            p.getPropertyValue.return_value = None
-            p.createEnumeration.return_value = _uno_enum(portions)
-            return p
-
         p1 = _para([_portion("You: "), _portion("hello")])
         tbl = _body_table([["user_cell"]])
         p2 = _para([_portion("error alert", color=0xFF0000)])
@@ -140,13 +156,7 @@ class TestPastePortionColor:
         assistant_color = 0x1E293B
         theme = MagicMock(user_color=user_color, assistant_color=assistant_color)
 
-        with patch("plugin.chatbot.rich_text_paste.focus_preserved", _immediate_focus), \
-             patch("plugin.chatbot.rich_text_paste.ChatTheme.resolve", return_value=theme), \
-             patch("plugin.chatbot.rich_text_paste._rich_control_bg_color", return_value=0), \
-             patch("plugin.chatbot.rich_text_paste.get_control_text_length", return_value=0), \
-             patch("plugin.chatbot.rich_text_paste.apply_rich_control_para_margins"), \
-             patch("plugin.chatbot.rich_text_paste._scroll_rich_to_tail"), \
-             patch("plugin.chatbot.rich_text_paste._insert_string_at_rich_cursor", side_effect=_capture):
+        with _copy_patches(theme, insert_side_effect=_capture):
             reason = _copy_formatted_from_hidden_doc_to_control(
                 src_doc, control, MagicMock(), role="assistant",
             )
@@ -161,23 +171,6 @@ class TestPastePortionColor:
         assert writes_dict.get("hi") == assistant_color
 
     def test_copy_loop_recolors_only_from_exact_role_label_portion(self):
-        def _portion(txt, color=-1):
-            p = MagicMock()
-            p.getString.return_value = txt
-            p.CharColor = color
-            p.CharFontName = "Liberation Sans"
-            p.CharHeight = 10.0
-            p.CharWeight = 100.0
-            p.HyperLinkURL = ""
-            return p
-
-        def _para(portions):
-            p = MagicMock()
-            p.supportsService.return_value = False
-            p.getPropertyValue.return_value = None
-            p.createEnumeration.return_value = _uno_enum(portions)
-            return p
-
         def _run_copy(portions, start_role="assistant"):
             src_doc = MagicMock()
             src_doc.getText.return_value.createEnumeration.return_value = _uno_enum([_para(portions)])
@@ -191,13 +184,7 @@ class TestPastePortionColor:
                 written.append((text, char_color))
 
             theme = MagicMock(user_color=0x2A6099, assistant_color=0x1E293B)
-            with patch("plugin.chatbot.rich_text_paste.focus_preserved", _immediate_focus), \
-                 patch("plugin.chatbot.rich_text_paste.ChatTheme.resolve", return_value=theme), \
-                 patch("plugin.chatbot.rich_text_paste._rich_control_bg_color", return_value=0), \
-                 patch("plugin.chatbot.rich_text_paste.get_control_text_length", return_value=0), \
-                 patch("plugin.chatbot.rich_text_paste.apply_rich_control_para_margins"), \
-                 patch("plugin.chatbot.rich_text_paste._scroll_rich_to_tail"), \
-                 patch("plugin.chatbot.rich_text_paste._insert_string_at_rich_cursor", side_effect=_capture):
+            with _copy_patches(theme, insert_side_effect=_capture):
                 reason = _copy_formatted_from_hidden_doc_to_control(
                     src_doc, control, MagicMock(), role=start_role,
                 )
@@ -386,14 +373,8 @@ class TestAppendRichTextViaClipboard:
         with patch("plugin.chatbot.rich_text_paste.create_hidden_html_writer", return_value=doc), \
              patch("plugin.chatbot.rich_text_paste.configure_hidden_writer_for_chat"), \
              patch("plugin.chatbot.rich_text_paste._append_rich_text_with_span", return_value=(True, "", "Assistant: Hi")), \
-             patch("plugin.chatbot.rich_text_paste.focus_preserved", _immediate_focus), \
              patch("plugin.chatbot.rich_text_paste.process_events_to_idle"), \
-             patch("plugin.chatbot.rich_text_paste.ChatTheme.resolve", return_value=theme), \
-             patch("plugin.chatbot.rich_text_paste._rich_control_bg_color", return_value=0), \
-             patch("plugin.chatbot.rich_text_paste.get_control_text_length", return_value=1), \
-             patch("plugin.chatbot.rich_text_paste.apply_rich_control_para_margins"), \
-             patch("plugin.chatbot.rich_text_paste._scroll_rich_to_tail"), \
-             patch("plugin.chatbot.rich_text_paste._insert_string_at_rich_cursor", side_effect=_capture):
+             _copy_patches(theme, text_len=1, insert_side_effect=_capture):
             ok = append_formatted_row(ctx, control, "<p>Hi</p>", role="assistant")
 
         assert ok is False
@@ -424,14 +405,8 @@ class TestAppendRichTextViaClipboard:
         with patch("plugin.chatbot.rich_text_paste.create_hidden_html_writer", return_value=doc), \
              patch("plugin.chatbot.rich_text_paste.configure_hidden_writer_for_chat"), \
              patch("plugin.chatbot.rich_text_paste._append_rich_text_with_span", return_value=(True, "", "Assistant: Hi")), \
-             patch("plugin.chatbot.rich_text_paste.focus_preserved", _immediate_focus), \
              patch("plugin.chatbot.rich_text_paste.process_events_to_idle"), \
-             patch("plugin.chatbot.rich_text_paste.ChatTheme.resolve", return_value=theme), \
-             patch("plugin.chatbot.rich_text_paste._rich_control_bg_color", return_value=0), \
-             patch("plugin.chatbot.rich_text_paste.get_control_text_length", return_value=1), \
-             patch("plugin.chatbot.rich_text_paste.apply_rich_control_para_margins"), \
-             patch("plugin.chatbot.rich_text_paste._scroll_rich_to_tail"), \
-             patch("plugin.chatbot.rich_text_paste._insert_string_at_rich_cursor", side_effect=_capture):
+             _copy_patches(theme, text_len=1, insert_side_effect=_capture):
             ok = append_formatted_row(ctx, control, "<p>Hi</p>", role="assistant")
 
         assert ok is True
@@ -456,14 +431,8 @@ class TestAppendRichTextViaClipboard:
         with patch("plugin.chatbot.rich_text_paste.create_hidden_html_writer", return_value=doc), \
              patch("plugin.chatbot.rich_text_paste.configure_hidden_writer_for_chat"), \
              patch("plugin.chatbot.rich_text_paste._append_rich_text_with_span", return_value=(True, "", "Assistant: Hi")), \
-             patch("plugin.chatbot.rich_text_paste.focus_preserved", _immediate_focus), \
              patch("plugin.chatbot.rich_text_paste.process_events_to_idle"), \
-             patch("plugin.chatbot.rich_text_paste.ChatTheme.resolve", return_value=theme), \
-             patch("plugin.chatbot.rich_text_paste._rich_control_bg_color", return_value=0), \
-             patch("plugin.chatbot.rich_text_paste.get_control_text_length", return_value=1), \
-             patch("plugin.chatbot.rich_text_paste.apply_rich_control_para_margins"), \
-             patch("plugin.chatbot.rich_text_paste._scroll_rich_to_tail"), \
-             patch("plugin.chatbot.rich_text_paste._insert_string_at_rich_cursor", side_effect=_raise_on_insert):
+             _copy_patches(theme, text_len=1, insert_side_effect=_raise_on_insert):
             ok = append_formatted_row(ctx, control, "<p>Hi</p>", role="assistant")
 
         assert ok is False
@@ -1109,13 +1078,7 @@ class TestFlattenTextTableCopy:
             inserted.append(text)
             header_flags.append((text, bool(kwargs.get("bold")), bool(kwargs.get("underline"))))
 
-        with patch("plugin.chatbot.rich_text_paste.focus_preserved", _immediate_focus), \
-             patch("plugin.chatbot.rich_text_paste.ChatTheme.resolve", return_value=theme), \
-             patch("plugin.chatbot.rich_text_paste._rich_control_bg_color", return_value=0), \
-             patch("plugin.chatbot.rich_text_paste.get_control_text_length", return_value=1), \
-             patch("plugin.chatbot.rich_text_paste.apply_rich_control_para_margins"), \
-             patch("plugin.chatbot.rich_text_paste._scroll_rich_to_tail"), \
-             patch("plugin.chatbot.rich_text_paste._insert_string_at_rich_cursor", side_effect=_capture):
+        with _copy_patches(theme, text_len=1, insert_side_effect=_capture):
             reason = _copy_formatted_from_hidden_doc_to_control(
                 src_doc, control, MagicMock(), role="assistant",
             )
@@ -1146,17 +1109,11 @@ class TestFlattenTextTableCopy:
         def _capture(_model, _cursor, text, char_color=None, **kwargs):
             calls.append((text, kwargs.get("bold"), kwargs.get("underline")))
 
-        with patch("plugin.chatbot.rich_text_paste.focus_preserved", _immediate_focus), \
-             patch("plugin.chatbot.rich_text_paste.ChatTheme.resolve", return_value=theme), \
-             patch("plugin.chatbot.rich_text_paste._rich_control_bg_color", return_value=0), \
-             patch("plugin.chatbot.rich_text_paste.get_control_text_length", return_value=1), \
-             patch("plugin.chatbot.rich_text_paste.apply_rich_control_para_margins"), \
-             patch("plugin.chatbot.rich_text_paste._scroll_rich_to_tail"), \
+        with _copy_patches(theme, text_len=1, insert_side_effect=_capture), \
              patch(
                  "plugin.chatbot.rich_text_paste._list_prefix_for_paragraph",
                  side_effect=lambda para, _counters: "1. " if para is item else "",
-             ), \
-             patch("plugin.chatbot.rich_text_paste._insert_string_at_rich_cursor", side_effect=_capture):
+             ):
             reason = _copy_formatted_from_hidden_doc_to_control(
                 src_doc, control, MagicMock(), role="assistant",
             )
@@ -1181,13 +1138,7 @@ class TestFlattenTextTableCopy:
         theme = MagicMock(user_color=1, assistant_color=2)
         applied: list[tuple[int, ...]] = []
 
-        with patch("plugin.chatbot.rich_text_paste.focus_preserved", _immediate_focus), \
-             patch("plugin.chatbot.rich_text_paste.ChatTheme.resolve", return_value=theme), \
-             patch("plugin.chatbot.rich_text_paste._rich_control_bg_color", return_value=0), \
-             patch("plugin.chatbot.rich_text_paste.get_control_text_length", return_value=1), \
-             patch("plugin.chatbot.rich_text_paste.apply_rich_control_para_margins"), \
-             patch("plugin.chatbot.rich_text_paste._scroll_rich_to_tail"), \
-             patch("plugin.chatbot.rich_text_paste._insert_string_at_rich_cursor"), \
+        with _copy_patches(theme, text_len=1), \
              patch(
                  "plugin.chatbot.rich_text_paste._apply_table_tab_stops",
                  side_effect=lambda _cursor, positions: applied.append(tuple(positions)),
@@ -1221,13 +1172,7 @@ class TestFlattenTextTableCopy:
         def _capture_vpad(cursor, *, top=0, bottom=0):
             pads.append((top, bottom))
 
-        with patch("plugin.chatbot.rich_text_paste.focus_preserved", _immediate_focus), \
-             patch("plugin.chatbot.rich_text_paste.ChatTheme.resolve", return_value=theme), \
-             patch("plugin.chatbot.rich_text_paste._rich_control_bg_color", return_value=0), \
-             patch("plugin.chatbot.rich_text_paste.get_control_text_length", return_value=1), \
-             patch("plugin.chatbot.rich_text_paste.apply_rich_control_para_margins"), \
-             patch("plugin.chatbot.rich_text_paste._scroll_rich_to_tail"), \
-             patch("plugin.chatbot.rich_text_paste._insert_string_at_rich_cursor"), \
+        with _copy_patches(theme, text_len=1), \
              patch("plugin.chatbot.rich_text_paste._apply_table_tab_stops"), \
              patch(
                  "plugin.chatbot.rich_text_paste._apply_table_row_vpad",
@@ -1252,13 +1197,7 @@ class TestFlattenTextTableCopy:
         )
         theme = MagicMock(user_color=1, assistant_color=2)
 
-        with patch("plugin.chatbot.rich_text_paste.focus_preserved", _immediate_focus), \
-             patch("plugin.chatbot.rich_text_paste.ChatTheme.resolve", return_value=theme), \
-             patch("plugin.chatbot.rich_text_paste._rich_control_bg_color", return_value=0), \
-             patch("plugin.chatbot.rich_text_paste.get_control_text_length", return_value=1), \
-             patch("plugin.chatbot.rich_text_paste.apply_rich_control_para_margins"), \
-             patch("plugin.chatbot.rich_text_paste._scroll_rich_to_tail"), \
-             patch("plugin.chatbot.rich_text_paste._insert_string_at_rich_cursor"):
+        with _copy_patches(theme, text_len=1):
             reason = _copy_formatted_from_hidden_doc_to_control(
                 src_doc, control, MagicMock(), role="assistant",
             )
@@ -1281,31 +1220,8 @@ class TestFlattenTextTableCopy:
         control.getModel.return_value = model
         src_doc = MagicMock()
 
-        portion1 = MagicMock()
-        portion1.getString.return_value = "Normal prose"
-        portion1.CharColor = -1
-        portion1.CharFontName = "Times New Roman"
-        portion1.CharHeight = 10.0
-        portion1.CharWeight = 100.0
-        portion1.HyperLinkURL = ""
-
-        portion2 = MagicMock()
-        portion2.getString.return_value = "Sheet1.A1"
-        portion2.CharColor = -1
-        portion2.CharFontName = "Liberation Sans"
-        portion2.CharHeight = 10.0
-        portion2.CharWeight = 100.0
-        portion2.HyperLinkURL = ""
-
-        p1 = MagicMock()
-        p1.supportsService.return_value = False
-        p1.getPropertyValue.return_value = None
-        p1.createEnumeration.return_value = _uno_enum([portion1])
-
-        p2 = MagicMock()
-        p2.supportsService.return_value = False
-        p2.getPropertyValue.return_value = None
-        p2.createEnumeration.return_value = _uno_enum([portion2])
+        p1 = _para([_portion("Normal prose", font="Times New Roman")])
+        p2 = _para([_portion("Sheet1.A1")])
 
         src_doc.getText.return_value.createEnumeration.return_value = _uno_enum([p1, p2])
         theme = MagicMock(user_color=1, assistant_color=2)
@@ -1313,13 +1229,7 @@ class TestFlattenTextTableCopy:
         from plugin.calc.navigation import cell_link_registry
         cell_link_registry.clear(control)
         try:
-            with patch("plugin.chatbot.rich_text_paste.focus_preserved", _immediate_focus), \
-                 patch("plugin.chatbot.rich_text_paste.ChatTheme.resolve", return_value=theme), \
-                 patch("plugin.chatbot.rich_text_paste._rich_control_bg_color", return_value=0), \
-                 patch("plugin.chatbot.rich_text_paste.get_control_text_length", return_value=10) as mock_len, \
-                 patch("plugin.chatbot.rich_text_paste.apply_rich_control_para_margins"), \
-                 patch("plugin.chatbot.rich_text_paste._scroll_rich_to_tail"), \
-                 patch("plugin.chatbot.rich_text_paste._insert_string_at_rich_cursor"):
+            with _copy_patches(theme, text_len=10) as mock_len:
                 reason = _copy_formatted_from_hidden_doc_to_control(
                     src_doc,
                     control,
@@ -1331,6 +1241,7 @@ class TestFlattenTextTableCopy:
             assert reason is None
             from plugin.chatbot.rich_text import CHAT_FONT_NAME
             assert font_sets == [CHAT_FONT_NAME, "Liberation Sans"]
+            # One length read per copy; offsets are tracked locally because reading the length walks the whole control.
             assert mock_len.call_count == 1
             spans = cell_link_registry._spans.get(id(control), [])
             assert spans == [(23, 32, "Sheet1.A1")]
@@ -1364,34 +1275,13 @@ class TestFlattenTextTableCopy:
         control.getModel.return_value = model
         src_doc = MagicMock()
 
-        portions = []
-        for txt, href in portions_spec:
-            p = MagicMock()
-            p.getString.return_value = txt
-            p.CharColor = -1
-            p.CharFontName = "Liberation Sans"
-            p.CharHeight = 10.0
-            p.CharWeight = 100.0
-            p.HyperLinkURL = href
-            p.CharUnderline = 0
-            portions.append(p)
-
-        para = MagicMock()
-        para.supportsService.return_value = False
-        para.getPropertyValue.return_value = None
-        para.createEnumeration.return_value = _uno_enum(portions)
+        para = _para([_portion(txt, href=href) for txt, href in portions_spec])
         src_doc.getText.return_value.createEnumeration.return_value = _uno_enum([para])
 
         theme = MagicMock(user_color=1, assistant_color=2)
 
         try:
-            with patch("plugin.chatbot.rich_text_paste.focus_preserved", _immediate_focus), \
-                 patch("plugin.chatbot.rich_text_paste.ChatTheme.resolve", return_value=theme), \
-                 patch("plugin.chatbot.rich_text_paste._rich_control_bg_color", return_value=0), \
-                 patch("plugin.chatbot.rich_text_paste.get_control_text_length", return_value=0) as mock_len, \
-                 patch("plugin.chatbot.rich_text_paste.apply_rich_control_para_margins"), \
-                 patch("plugin.chatbot.rich_text_paste._scroll_rich_to_tail"), \
-                 patch("plugin.chatbot.rich_text_paste._insert_string_at_rich_cursor"):
+            with _copy_patches(theme):
                 reason = _copy_formatted_from_hidden_doc_to_control(
                     src_doc,
                     control,
@@ -1400,35 +1290,17 @@ class TestFlattenTextTableCopy:
                     cell_link_targets=list(queue),
                 )
             assert reason is None
-            assert mock_len.call_count == 1
             registered = [addr for _s, _e, addr in cell_link_registry._spans.get(id(control), [])]
             assert registered == expected_spans
         finally:
             cell_link_registry.clear(control)
 
     def test_copy_loop_partial_element_breaks_and_does_not_insert_next_element(self):
-        p1_portion1 = MagicMock()
-        p1_portion1.getString.return_value = "portion1"
-        p1_portion1.CharColor = -1
-        p1_portion1.CharFontName = "Liberation Sans"
-        p1_portion1.CharHeight = 10.0
-        p1_portion1.CharWeight = 100.0
-        p1_portion1.HyperLinkURL = ""
-
+        p1_portion1 = _portion("portion1")
         p1_portion2 = MagicMock()
         p1_portion2.getString.side_effect = RuntimeError("portion2 broke")
-
-        p1 = MagicMock()
-        p1.supportsService.return_value = False
-        p1.getPropertyValue.return_value = None
-        p1.createEnumeration.return_value = _uno_enum([p1_portion1, p1_portion2])
-
-        p2_portion = MagicMock()
-        p2_portion.getString.return_value = "p2_text"
-        p2 = MagicMock()
-        p2.supportsService.return_value = False
-        p2.getPropertyValue.return_value = None
-        p2.createEnumeration.return_value = _uno_enum([p2_portion])
+        p1 = _para([p1_portion1, p1_portion2])
+        p2 = _para([_portion("p2_text")])
 
         src_doc = MagicMock()
         src_doc.getText.return_value.createEnumeration.return_value = _uno_enum([p1, p2])
@@ -1442,14 +1314,7 @@ class TestFlattenTextTableCopy:
         def _capture(_model, _cursor, text, char_color=None, **_kw):
             inserted_strings.append(text)
 
-        theme = MagicMock(user_color=1, assistant_color=2)
-        with patch("plugin.chatbot.rich_text_paste.focus_preserved", _immediate_focus), \
-             patch("plugin.chatbot.rich_text_paste.ChatTheme.resolve", return_value=theme), \
-             patch("plugin.chatbot.rich_text_paste._rich_control_bg_color", return_value=0), \
-             patch("plugin.chatbot.rich_text_paste.get_control_text_length", return_value=0), \
-             patch("plugin.chatbot.rich_text_paste.apply_rich_control_para_margins"), \
-             patch("plugin.chatbot.rich_text_paste._scroll_rich_to_tail"), \
-             patch("plugin.chatbot.rich_text_paste._insert_string_at_rich_cursor", side_effect=_capture):
+        with _copy_patches(insert_side_effect=_capture):
             reason = _copy_formatted_from_hidden_doc_to_control(
                 src_doc, control, MagicMock(), role="assistant",
             )
@@ -1463,35 +1328,8 @@ class TestFlattenTextTableCopy:
         from plugin.calc.navigation import cell_link_registry
         from plugin.chatbot.rich_text_paste import _copy_formatted_from_hidden_doc_to_control
 
-        p1_portion = MagicMock()
-        p1_portion.getString.return_value = "first_portion"
-        p1_portion.CharColor = -1
-        p1_portion.CharFontName = "Liberation Sans"
-        p1_portion.CharHeight = 10.0
-        p1_portion.CharWeight = 100.0
-        p1_portion.HyperLinkURL = ""
-        p1_portion.CharUnderline = 0
-
-        p1 = MagicMock()
-        p1.supportsService.return_value = False
-        p1.getPropertyValue.return_value = None
-        p1.createEnumeration.return_value = _uno_enum([p1_portion])
-        p1.getString.return_value = "first_fallback"
-
-        p2_portion = MagicMock()
-        p2_portion.getString.return_value = "Sheet1.A1"
-        p2_portion.CharColor = -1
-        p2_portion.CharFontName = "Liberation Sans"
-        p2_portion.CharHeight = 10.0
-        p2_portion.CharWeight = 100.0
-        p2_portion.HyperLinkURL = "cell://Sheet1.A1"
-        p2_portion.CharUnderline = 0
-
-        p2 = MagicMock()
-        p2.supportsService.return_value = False
-        p2.getPropertyValue.return_value = None
-        p2.createEnumeration.return_value = _uno_enum([p2_portion])
-        p2.getString.return_value = "Sheet1.A1"
+        p1 = _para([_portion("first_portion")], fallback_text="first_fallback")
+        p2 = _para([_portion("Sheet1.A1", href="cell://Sheet1.A1")], fallback_text="Sheet1.A1")
 
         src_doc = MagicMock()
         src_doc.getText.return_value.createEnumeration.return_value = _uno_enum([p1, p2])
@@ -1514,15 +1352,8 @@ class TestFlattenTextTableCopy:
                 failed_once[0] = True
                 raise RuntimeError("post-insert formatting failed after text landed")
 
-        theme = MagicMock(user_color=1, assistant_color=2)
         try:
-            with patch("plugin.chatbot.rich_text_paste.focus_preserved", _immediate_focus), \
-                 patch("plugin.chatbot.rich_text_paste.ChatTheme.resolve", return_value=theme), \
-                 patch("plugin.chatbot.rich_text_paste._rich_control_bg_color", return_value=0), \
-                 patch("plugin.chatbot.rich_text_paste.get_control_text_length", side_effect=_mock_len), \
-                 patch("plugin.chatbot.rich_text_paste.apply_rich_control_para_margins"), \
-                 patch("plugin.chatbot.rich_text_paste._scroll_rich_to_tail"), \
-                 patch("plugin.chatbot.rich_text_paste._insert_string_at_rich_cursor", side_effect=_mock_insert):
+            with _copy_patches(len_side_effect=_mock_len, insert_side_effect=_mock_insert):
                 reason = _copy_formatted_from_hidden_doc_to_control(
                     src_doc, control, MagicMock(), role="assistant",
                 )

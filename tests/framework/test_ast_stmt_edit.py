@@ -28,12 +28,15 @@ def test_remove_empty_if_keeps_pass() -> None:
 
 
 def test_remove_with_siblings_deletes_without_pass() -> None:
-    src = "if True:\n    grammar_obs('x')\n    x = 1\n"
+    """A lone ``pass`` is inserted only to keep an emptied suite valid."""
+    src = "if True:\n    grammar_obs('a')\n    x = 1\n    grammar_obs('b')\n"
+    found = iter_matching_statements(src, _grammar_obs)
+    assert len(found) == 2
     out, n = remove_statements(src, _grammar_obs)
-    assert n == 1
+    assert n == len(found) == 2
     assert "grammar_obs" not in out
+    assert "pass" not in out
     assert "x = 1" in out
-    # Sibling remains — no need for a lonely pass (may still have pass if logic differs).
     ast.parse(out)
 
 
@@ -98,27 +101,6 @@ def test_remove_assert_statements_and_pass() -> None:
     assert "pass  # stripped assert" in out
     tree = ast.parse(out)
     assert not any(isinstance(node, ast.Assert) for node in ast.walk(tree))
-
-
-def test_remove_assert_with_siblings_drops_line() -> None:
-    src = "def f(x):\n    assert x > 0, 'must be positive'\n    return x * 2\n"
-    out, n = remove_statements(src, lambda s: isinstance(s, ast.Assert))
-    assert n == 1
-    assert "assert" not in out
-    assert "pass" not in out
-    assert "return x * 2" in out
-    ast.parse(out)
-
-
-def test_iter_matching_statements_assert() -> None:
-    src = "assert a\nx = 1\nassert b\n"
-    found = iter_matching_statements(src, lambda s: isinstance(s, ast.Assert))
-    assert len(found) == 2
-    out, n = remove_statements(src, lambda s: isinstance(s, ast.Assert))
-    assert n == 2
-    assert "assert" not in out
-    assert "x = 1" in out
-    ast.parse(out)
 
 
 def test_is_name_call_expr_expr_without_value() -> None:

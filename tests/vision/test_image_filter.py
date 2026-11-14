@@ -8,6 +8,7 @@ from unittest.mock import patch
 
 import pytest
 
+from plugin.framework.default_models import ModelCapability
 from plugin.framework.service import ServiceRegistry
 from plugin.framework.tool import ToolBase, ToolRegistry
 from tests.testing_utils import TestingFactory
@@ -53,25 +54,19 @@ def _patch(vision):
     )
 
 
-def test_get_image_kept_for_vision_model():
-    p1, p2, p3 = _patch(True)
+@pytest.mark.parametrize(
+    ("vision", "expect_get_image"),
+    [
+        pytest.param(True, True, id="vision_supported"),
+        pytest.param(None, True, id="vision_unknown"),
+        pytest.param(False, False, id="text_only"),
+    ],
+)
+def test_get_image_gating_by_vision_support(vision: bool | None, expect_get_image: bool) -> None:
+    p1, p2, p3 = _patch(vision)
     with p1, p2, p3:
         names = _openai_names()
-    assert "get_image" in names
-
-
-def test_get_image_kept_when_vision_unknown():
-    p1, p2, p3 = _patch(None)
-    with p1, p2, p3:
-        names = _openai_names()
-    assert "get_image" in names
-
-
-def test_get_image_dropped_for_text_only_model():
-    p1, p2, p3 = _patch(False)
-    with p1, p2, p3:
-        names = _openai_names()
-    assert "get_image" not in names
+    assert ("get_image" in names) is expect_get_image
     assert "apply_document_content" in names and "search_in_document" in names
 
 
@@ -111,7 +106,8 @@ def test_catalogued_text_only_model_drops_get_image_without_fetch():
     mf._catalog_memos.clear()
     with patch("plugin.framework.client.model_fetcher.fetch_available_models") as fetch, \
          patch("plugin.framework.client.model_fetcher.get_config", return_value={}), \
-         patch("plugin.framework.client.model_fetcher.get_text_model", return_value="openai/gpt-oss-20b"), \
+         patch("plugin.framework.client.model_fetcher.get_model_capability", return_value=ModelCapability.CHAT | ModelCapability.TOOLS), \
+         patch("plugin.framework.client.model_fetcher.get_text_model", return_value="synthetic/text-only"), \
          patch("plugin.framework.client.model_fetcher.get_current_endpoint", return_value="https://openrouter.ai/api"), \
          patch("plugin.framework.queue_executor.main.is_current", return_value=True), \
          patch("plugin.framework.client.model_fetcher.run_in_background"):

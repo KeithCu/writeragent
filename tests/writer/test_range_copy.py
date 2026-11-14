@@ -27,7 +27,9 @@ class _Enum:
 
 def test_copy_cell_xtext_copies_direct_char_formatting() -> None:
     portion = MagicMock()
-    portion.getPropertyValue.return_value = "Text"
+    portion.getPropertyValue.side_effect = lambda name: (
+        "Text" if name == "TextPortionType" else 150.0 if name == "CharWeight" else None
+    )
     portion.getString.return_value = "Bold"
 
     para = MagicMock()
@@ -39,13 +41,15 @@ def test_copy_cell_xtext_copies_direct_char_formatting() -> None:
 
     dest_doc = MagicMock()
     dest_cell = MagicMock()
+    dest_cursor = MagicMock()
+    run = MagicMock()
+    dest_cell.createTextCursor.return_value = dest_cursor
+    dest_cell.createTextCursorByRange.return_value = run
 
-    with patch.object(rc, "_copy_properties") as copy_props, \
-            patch.object(rc, "_copy_math_or_text") as math_or_text:
-        rc._copy_cell_xtext(src_cell, dest_doc, dest_cell)
+    rc._copy_cell_xtext(src_cell, dest_doc, dest_cell)
 
-    assert [call.args[2] for call in copy_props.call_args_list] == [rc._COPIED_CHAR_PROPERTIES]
-    math_or_text.assert_not_called()
+    dest_cell.insertString.assert_any_call(dest_cursor, "Bold", False)
+    run.setPropertyValue.assert_any_call("CharWeight", 150.0)
 
 
 def test_apply_temp_para_style_returns_bool_status() -> None:

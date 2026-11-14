@@ -138,18 +138,6 @@ def test_parse_quoted_string_rejects_negative_start() -> None:
             _parse_quoted_string('"x"', DEAL_MAX_SOURCE + 1)
 
 
-def test_parse_rebuild_preserves_code_and_data_suffix() -> None:
-    original = '=PYTHON("result = 1"; A1:B10)'
-    parts = PyFormula.parse(original)
-    assert parts is not None
-    rebuilt = parts.render(parts.code)
-    again = PyFormula.parse(rebuilt)
-    assert again is not None
-    assert again.code == parts.code
-    assert again.data_suffix == parts.data_suffix
-    assert rebuilt.startswith('=PYTHON("')
-
-
 def test_normalize_lo_preserves_semicolon_inside_quotes() -> None:
     raw = '=SUM("a;b"; C1)'
     out = normalize_lo_formula_for_parse(raw)
@@ -164,13 +152,6 @@ def test_normalize_lo_curly_and_semicolon() -> None:
     assert "\u201c" not in out and "\u201d" not in out
     assert "; A1)" not in out
     assert ", A1)" in out or ",A1)" in out.replace(" ", "")
-
-
-def test_data_binding_format_and_parse() -> None:
-    assert format_data_binding_display("; A1:B10)") == "A1:B10"
-    assert format_data_binding_display(")") == ""
-    assert parse_data_binding_text("A1, B1:C5") == ["A1", "B1:C5"]
-    assert format_data_binding_text(["A1", "B1:C5"]) == "A1, B1:C5"
 
 
 def test_formula_edit_overflow_pre_fails_closed() -> None:

@@ -1,6 +1,8 @@
 import queue
 import threading
 
+import pytest
+
 from plugin.framework.stream_batch import BatchingStreamQueue, StreamQueueKind
 
 
@@ -118,8 +120,15 @@ class TestBatchingStreamQueueTimerRace:
     ``is_first=True`` and reset the burst deadline.
     """
 
-    def test_timer_armed_exactly_once_for_concurrent_chunks(self):
-        # Two threads simultaneously put the first CHUNK into an empty batcher.
+    @pytest.mark.parametrize(
+        ("kind", "payload"),
+        [
+            pytest.param(StreamQueueKind.CHUNK, "x", id="chunk"),
+            pytest.param(StreamQueueKind.THINKING, "t", id="thinking"),
+        ],
+    )
+    def test_timer_armed_exactly_once_for_concurrent_producers(self, kind: StreamQueueKind, payload: str) -> None:
+        # Two threads simultaneously put the first item into an empty batcher.
         # A second _schedule_timer must not cancel and replace the timer, which
         # would drop the original deadline.
         raw_q = queue.Queue()
@@ -138,7 +147,7 @@ class TestBatchingStreamQueueTimerRace:
 
         def producer():
             barrier.wait()  # both threads release simultaneously
-            batcher.put((StreamQueueKind.CHUNK, "x"))
+            batcher.put((kind, payload))
 
         t1 = threading.Thread(target=producer)
         t2 = threading.Thread(target=producer)
@@ -151,40 +160,8 @@ class TestBatchingStreamQueueTimerRace:
         batcher.flush()
 
         assert len(timer_calls) == 1, (
-            f"arm was called {len(timer_calls)} times; expected exactly 1. "
+            f"arm was called {len(timer_calls)} times on {kind.name} path; expected exactly 1. "
             "The timer deadline was reset by a concurrent producer."
-        )
-
-    def test_timer_armed_exactly_once_for_concurrent_thinking(self):
-        # Same race on the THINKING path.
-        raw_q = queue.Queue()
-        batcher = BatchingStreamQueue(raw_q, batch_interval=10.0)
-
-        timer_calls = []
-        barrier = threading.Barrier(2)
-        original_arm = batcher._timer.arm
-
-        def counting_arm(delay):
-            timer_calls.append(1)
-            original_arm(delay)
-
-        batcher._timer.arm = counting_arm
-
-        def producer():
-            barrier.wait()
-            batcher.put((StreamQueueKind.THINKING, "t"))
-
-        t1 = threading.Thread(target=producer)
-        t2 = threading.Thread(target=producer)
-        t1.start()
-        t2.start()
-        t1.join(timeout=2)
-        t2.join(timeout=2)
-
-        batcher.flush()
-
-        assert len(timer_calls) == 1, (
-            f"arm was called {len(timer_calls)} times on THINKING path; expected 1."
         )
 
 

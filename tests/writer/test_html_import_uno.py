@@ -276,35 +276,39 @@ def _norm_live_text(s: str) -> str:
     return s.strip("• \t")
 
 
-@native_test
-@with_native_doc("writer")
-def test_html_import_live_roundtrip_uno(ctx: Any, doc: Any) -> None:
-    """Live round-trip harness testing HTML import/export projection and idempotence."""
+def _apply_and_read(ctx: Any, doc: Any, html: str) -> tuple[Any, str, str]:
     from plugin.tests.testing_utils import TestingFactory
     from plugin.writer.apply_document_content import ApplyDocumentContent
     from plugin.writer.get_document_content import GetDocumentContent
-    from plugin.writer.html_ruby import _iter_ruby_spans_in_paragraph
-    from plugin.writer.images.image_tools import insert_image
 
     tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
-
-    # Fixture 1: nested blocks sharing one style slot
     doc.getText().setString("")
+    res = ApplyDocumentContent().execute(tool_ctx, target="full_document", content=html)
+    assert res.get("status") == "ok", res
+    plain = doc.getText().getString()
+    assert "[[WA-FIELD:" not in plain
+    assert not re.search(r"wa[0-9a-fA-F]+img\d+", plain)
+    read = GetDocumentContent().execute(tool_ctx, scope="full")
+    assert read.get("status") == "ok", read
+    read_html = read.get("content") or ""
+    assert "[[WA-FIELD:" not in read_html
+    return tool_ctx, plain, read_html
+
+
+@native_test
+@with_native_doc("writer")
+def test_html_import_live_roundtrip_nested_blocks_uno(ctx: Any, doc: Any) -> None:
+    """Live round-trip for nested blocks sharing one style slot and idempotence."""
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+    from plugin.writer.get_document_content import GetDocumentContent
+
     nested_html = (
         '<h1 data-lo-style="Heading1">T</h1>'
         '<blockquote><p data-lo-style="Quotations">q</p></blockquote>'
         '<ul><li><p data-lo-style="Standard">a</p></li><li><p data-lo-style="Standard">b</p></li></ul>'
         '<h2 data-lo-style="Heading2">D</h2>'
     )
-    res = ApplyDocumentContent().execute(tool_ctx, target="full_document", content=nested_html)
-    assert res.get("status") == "ok", res
-    plain1 = doc.getText().getString()
-    assert "[[WA-FIELD:" not in plain1
-    assert not re.search(r"wa[0-9a-fA-F]+img\d+", plain1)
-    read1 = GetDocumentContent().execute(tool_ctx, scope="full")
-    assert read1.get("status") == "ok", read1
-    read_html1 = read1.get("content") or ""
-    assert "[[WA-FIELD:" not in read_html1
+    tool_ctx, _plain1, read_html1 = _apply_and_read(ctx, doc, nested_html)
     assert "data-lo-style=" in read_html1
     proj1 = _project_body_paragraphs(doc)
     assert [(p[0], p[1]) for p in proj1] == [
@@ -334,94 +338,61 @@ def test_html_import_live_roundtrip_uno(ctx: Any, doc: Any) -> None:
         else:
             assert s0 == s1, f"proj1_re={proj1_re} != proj1={proj1}"
 
-    # Fixture 2: unclosed p tag
-    doc.getText().setString("")
-    f2 = '<p data-lo-style="Heading1">One<p data-lo-style="Caption">Two'
-    res = ApplyDocumentContent().execute(tool_ctx, target="full_document", content=f2)
-    assert res.get("status") == "ok", res
-    plain2 = doc.getText().getString()
-    assert "[[WA-FIELD:" not in plain2
-    assert not re.search(r"wa[0-9a-fA-F]+img\d+", plain2)
-    read2 = GetDocumentContent().execute(tool_ctx, scope="full")
-    assert read2.get("status") == "ok", read2
-    read_html2 = read2.get("content") or ""
-    assert "[[WA-FIELD:" not in read_html2
+
+@native_test
+@with_native_doc("writer")
+def test_html_import_live_roundtrip_unclosed_and_div_uno(ctx: Any, doc: Any) -> None:
+    """Live round-trip for unclosed <p> tags and styled <div> wrappers."""
+    _tc2, _p2, read_html2 = _apply_and_read(ctx, doc, '<p data-lo-style="Heading1">One<p data-lo-style="Caption">Two')
     assert "data-lo-style=" in read_html2
     proj2 = _project_body_paragraphs(doc)
     assert [p[0] for p in proj2] == ["Heading 1", "Caption"], proj2
     assert [_norm_live_text(p[1]) for p in proj2] == ["One", "Two"], proj2
 
-    # Fixture 3: styled div wrapper
-    doc.getText().setString("")
-    f3 = '<div data-lo-style="Caption">cap</div><p data-lo-style="Heading1">h</p>'
-    res = ApplyDocumentContent().execute(tool_ctx, target="full_document", content=f3)
-    assert res.get("status") == "ok", res
-    plain3 = doc.getText().getString()
-    assert "[[WA-FIELD:" not in plain3
-    assert not re.search(r"wa[0-9a-fA-F]+img\d+", plain3)
-    read3 = GetDocumentContent().execute(tool_ctx, scope="full")
-    assert read3.get("status") == "ok", read3
-    read_html3 = read3.get("content") or ""
-    assert "[[WA-FIELD:" not in read_html3
+    _tc3, _p3, read_html3 = _apply_and_read(ctx, doc, '<div data-lo-style="Caption">cap</div><p data-lo-style="Heading1">h</p>')
     assert "data-lo-style=" in read_html3
     proj3 = _project_body_paragraphs(doc)
     assert [(p[0], p[1]) for p in proj3] == [("Caption", "cap"), ("Heading 1", "h")], proj3
 
-    # Fixture 4: repeated base ruby with backslash-n
-    doc.getText().setString("")
-    f4 = "<p>漢字\\n<ruby>漢字<rt>かんじ</rt></ruby></p>"
-    res = ApplyDocumentContent().execute(tool_ctx, target="full_document", content=f4)
-    assert res.get("status") == "ok", res
-    plain4 = doc.getText().getString()
-    assert "[[WA-FIELD:" not in plain4
-    assert not re.search(r"wa[0-9a-fA-F]+img\d+", plain4)
-    read4 = GetDocumentContent().execute(tool_ctx, scope="full")
-    assert read4.get("status") == "ok", read4
-    read_html4 = read4.get("content") or ""
-    assert "[[WA-FIELD:" not in read_html4
+
+@native_test
+@with_native_doc("writer")
+def test_html_import_live_roundtrip_ruby_and_prose_angles_uno(ctx: Any, doc: Any) -> None:
+    """Live round-trip for repeated-base ruby and prose angle brackets."""
+    from plugin.writer.get_document_content import GetDocumentContent
+    from plugin.writer.html_ruby import _iter_ruby_spans_in_paragraph
+
+    tool_ctx, plain4, _rh4 = _apply_and_read(ctx, doc, "<p>漢字\\n<ruby>漢字<rt>かんじ</rt></ruby></p>")
     para4 = doc.getText().createEnumeration().nextElement()
     spans4 = list(_iter_ruby_spans_in_paragraph(para4))
     assert len(spans4) == 1, spans4
     assert spans4[0].base == "漢字" and spans4[0].reading == "かんじ"
     assert spans4[0].start > 0, f"ruby attached at start: {spans4}"
-    # Range get on temp-doc copy preserves ruby
     range_res = GetDocumentContent().execute(tool_ctx, scope="range", start=0, end=len(plain4))
     assert range_res.get("status") == "ok", range_res
     assert "<rt>かんじ</rt>" in (range_res.get("content") or "")
 
-    # Fixture 5: prose angle brackets and bold
-    doc.getText().setString("")
-    f5 = "<p>List<String> and 2 < 3</p>"
-    res = ApplyDocumentContent().execute(tool_ctx, target="full_document", content=f5)
-    assert res.get("status") == "ok", res
-    plain5 = doc.getText().getString()
-    assert "[[WA-FIELD:" not in plain5
-    assert not re.search(r"wa[0-9a-fA-F]+img\d+", plain5)
-    read5 = GetDocumentContent().execute(tool_ctx, scope="full")
-    assert read5.get("status") == "ok", read5
-    read_html5 = read5.get("content") or ""
-    assert "[[WA-FIELD:" not in read_html5
+    _apply_and_read(ctx, doc, "<p>List<String> and 2 < 3</p>")
     proj5 = _project_body_paragraphs(doc)
     assert proj5[0][1] == "List<String> and 2 < 3", proj5
 
-    # Fixture 6: field spans
-    doc.getText().setString("")
-    f6 = '<p>Page <span title="page-number"/> / <span title="date"/></p>'
-    res = ApplyDocumentContent().execute(tool_ctx, target="full_document", content=f6)
-    assert res.get("status") == "ok", res
-    plain6 = doc.getText().getString()
-    assert "[[WA-FIELD:" not in plain6
-    assert not re.search(r"wa[0-9a-fA-F]+img\d+", plain6)
-    read6 = GetDocumentContent().execute(tool_ctx, scope="full")
-    assert read6.get("status") == "ok", read6
-    read_html6 = read6.get("content") or ""
-    assert "[[WA-FIELD:" not in read_html6
+
+@native_test
+@with_native_doc("writer")
+def test_html_import_live_roundtrip_fields_and_image_uno(ctx: Any, doc: Any) -> None:
+    """Live round-trip for field spans (with idempotence) and linked image."""
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+    from plugin.writer.get_document_content import GetDocumentContent
+    from plugin.writer.images.image_tools import insert_image
+
+    tool_ctx, _p6, read_html6 = _apply_and_read(
+        ctx, doc, '<p>Page <span title="page-number"/> / <span title="date"/></p>'
+    )
     tf_page = _find_field_by_service(doc, "com.sun.star.text.textfield.PageNumber")
     assert tf_page is not None
     tf_date = _find_field_by_service(doc, "com.sun.star.text.textfield.DateTime")
     assert tf_date is not None
     assert tf_date.getPropertyValue("IsDate") is True
-    # Idempotence on field fixture
     proj6 = _project_body_paragraphs(doc)
     res_re6 = ApplyDocumentContent().execute(tool_ctx, target="full_document", content=read_html6)
     assert res_re6.get("status") == "ok", res_re6
@@ -439,7 +410,6 @@ def test_html_import_live_roundtrip_uno(ctx: Any, doc: Any) -> None:
         f"proj6_re={proj6_re} != proj6={proj6}"
     )
 
-    # Image case
     directory = os.path.dirname(os.path.abspath(__file__))
     while directory and not os.path.exists(os.path.join(directory, "pyproject.toml")):
         parent = os.path.dirname(directory)
@@ -454,13 +424,12 @@ def test_html_import_live_roundtrip_uno(ctx: Any, doc: Any) -> None:
         got_img = GetDocumentContent().execute(tool_ctx, scope="full", include_images=False)
         assert got_img.get("status") == "ok", got_img
         img_html = got_img.get("content") or ""
-        # Live export may omit src, use src="", or a wa-image marker when bytes are stripped.
+        # logo_32.png is a user path, so it is linked (_should_link_image_path); the export keeps the file URL and only strips data: payloads.
         assert (
-            'src=""' in img_html
-            or "src=''" in img_html
-            or "wa-image" in img_html.lower()
-            or "graphic" in img_html.lower()
-            or "<img" in img_html.lower()
+            "<img" in img_html.lower()
+            and 'id="Image' in img_html
+            and "logo_32.png" in img_html
+            and "data:image" not in img_html
         ), img_html[:500]
         res_img = ApplyDocumentContent().execute(tool_ctx, target="full_document", content=img_html)
         assert res_img.get("status") == "ok", res_img

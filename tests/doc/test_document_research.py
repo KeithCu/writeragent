@@ -11,6 +11,8 @@ import time
 import threading
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 import plugin.doc.document_research as dr
 from plugin.framework.doc_type import DocumentType
 from plugin.doc.document_research import (
@@ -247,62 +249,32 @@ def test_resolve_listing_directory_work_fallback():
             assert resolve_listing_directory(ctx, model) == "/work/dir"
 
 
-def test_list_nearby_files_excludes_images_by_default():
-    with tempfile.TemporaryDirectory() as tmp:
-        ods = os.path.join(tmp, "Budget.ods")
-        png = os.path.join(tmp, "photo.png")
-        jpg = os.path.join(tmp, "scan.jpg")
-        for path in (ods, png, jpg):
-            with open(path, "wb"):
-                pass
-        model = MagicMock()
-        ctx = MagicMock()
-        with patch("plugin.doc.document_research.get_document_path", return_value=None):
-            with patch("plugin.doc.document_research._collect_open_file_urls", return_value={}):
-                with patch("plugin.doc.document_research.resolve_listing_directory", return_value=tmp):
-                    result = list_nearby_files(ctx, model)
-        assert result["status"] == "ok"
-        names = [f["name"] for f in result["files"]]
-        assert names == ["Budget.ods"]
-        assert "photo.png" not in names
-        assert "scan.jpg" not in names
-
-
-def test_list_nearby_files_file_kind_images():
-    with tempfile.TemporaryDirectory() as tmp:
-        ods = os.path.join(tmp, "Budget.ods")
-        png = os.path.join(tmp, "photo.png")
-        for path in (ods, png):
-            with open(path, "wb"):
-                pass
-        model = MagicMock()
-        ctx = MagicMock()
-        with patch("plugin.doc.document_research.get_document_path", return_value=None):
-            with patch("plugin.doc.document_research._collect_open_file_urls", return_value={}):
-                with patch("plugin.doc.document_research.resolve_listing_directory", return_value=tmp):
-                    result = list_nearby_files(ctx, model, file_kind="images")
-        assert result["status"] == "ok"
-        names = [f["name"] for f in result["files"]]
-        assert names == ["photo.png"]
-        assert result["files"][0]["doc_type_guess"] == "image"
-        assert "Budget.ods" not in names
-
-
-def test_list_nearby_files_file_kind_documents_explicit():
-    with tempfile.TemporaryDirectory() as tmp:
-        ods = os.path.join(tmp, "Budget.ods")
-        png = os.path.join(tmp, "photo.png")
-        for path in (ods, png):
-            with open(path, "wb"):
-                pass
-        model = MagicMock()
-        ctx = MagicMock()
-        with patch("plugin.doc.document_research.get_document_path", return_value=None):
-            with patch("plugin.doc.document_research._collect_open_file_urls", return_value={}):
-                with patch("plugin.doc.document_research.resolve_listing_directory", return_value=tmp):
-                    result = list_nearby_files(ctx, model, file_kind="documents")
-        assert result["status"] == "ok"
-        assert [f["name"] for f in result["files"]] == ["Budget.ods"]
+@pytest.mark.parametrize(
+    ("file_kind", "created_files", "expected_names", "expected_doc_type"),
+    [
+        pytest.param(None, ("Budget.ods", "photo.png", "scan.jpg"), ["Budget.ods"], None, id="default_excludes_images"),
+        pytest.param("images", ("Budget.ods", "photo.png"), ["photo.png"], "image", id="images"),
+        pytest.param("documents", ("Budget.ods", "photo.png"), ["Budget.ods"], None, id="documents"),
+    ],
+)
+def test_list_nearby_files_file_kind_filtering(
+    tmp_path, file_kind, created_files, expected_names, expected_doc_type
+):
+    for filename in created_files:
+        (tmp_path / filename).write_bytes(b"")
+    model = MagicMock()
+    ctx = MagicMock()
+    with (
+        patch("plugin.doc.document_research.get_document_path", return_value=None),
+        patch("plugin.doc.document_research._collect_open_file_urls", return_value={}),
+        patch("plugin.doc.document_research.resolve_listing_directory", return_value=str(tmp_path)),
+    ):
+        kwargs = {} if file_kind is None else {"file_kind": file_kind}
+        result = list_nearby_files(ctx, model, **kwargs)
+    assert result["status"] == "ok"
+    assert [f["name"] for f in result["files"]] == expected_names
+    if expected_doc_type is not None:
+        assert result["files"][0]["doc_type_guess"] == expected_doc_type
 
 
 def test_collect_open_file_urls_skips_broken_desktop_component():
@@ -583,43 +555,49 @@ def test_get_open_documents_disposed_desktop_is_not_an_empty_list():
     enum = MagicMock()
     enum.hasMoreElements.side_effect = _DisposedException("enum dead")
     desktop.getComponents.return_value.createEnumeration.return_value = enum
-    docs = None
     with patch("plugin.doc.document_research.get_desktop", return_value=desktop):
-        try:
-            try:
-                docs = get_open_documents(MagicMock())
-            except Exception as exc:
-                raise AssertionError("generic handler swallowed a disposed desktop") from exc
-        except ListenerBoundary as boundary:
-            assert boundary.kind == "disposed"
-            return
-    raise AssertionError(f"disposed desktop reported as an empty document list: {docs!r}")
+        with pytest.raises(ListenerBoundary) as exc_info:
+            get_open_documents(MagicMock())
+    assert exc_info.value.kind == "disposed"
 
 
 def test_get_open_documents_disposed_component_access_is_not_empty():
     desktop = MagicMock()
     desktop.getComponents.side_effect = _DisposedException("desktop gone")
     with patch("plugin.doc.document_research.get_desktop", return_value=desktop):
-        try:
-            try:
-                get_open_documents(MagicMock())
-            except Exception as exc:
-                raise AssertionError("generic handler swallowed a disposed desktop") from exc
-        except ListenerBoundary as boundary:
-            assert boundary.kind == "disposed"
-            return
-    raise AssertionError("disposed desktop did not leave get_open_documents")
+        with pytest.raises(ListenerBoundary) as exc_info:
+            get_open_documents(MagicMock())
+    assert exc_info.value.kind == "disposed"
 
 
 def test_get_open_documents_empty_desktop_is_not_disposed():
     desktop = MagicMock()
     desktop.getComponents.return_value = None
     with patch("plugin.doc.document_research.get_desktop", return_value=desktop):
-        try:
-            docs = get_open_documents(MagicMock())
-        except ListenerBoundary as boundary:
-            raise AssertionError(f"empty document list reported as {boundary.kind}") from boundary
+        docs = get_open_documents(MagicMock())
     assert docs == []
+
+
+def test_get_open_documents_returns_open_calc_doc():
+    from plugin.framework.doc_type import DocumentType
+
+    mock_ctx = MagicMock()
+    mock_desktop = MagicMock()
+    mock_comp = MagicMock()
+    mock_comp.getController.return_value.getModel.return_value.getURL.return_value = "file:///tmp/Budget.ods"
+    enum = mock_desktop.getComponents.return_value.createEnumeration.return_value
+    enum.hasMoreElements.side_effect = [True, False]
+    enum.nextElement.return_value = mock_comp
+
+    with (
+        patch("plugin.doc.document_research.get_desktop", return_value=mock_desktop),
+        patch("plugin.doc.document_research.get_document_type", return_value=DocumentType.CALC),
+        patch("plugin.doc.document_research.system_path_from_url", return_value="/tmp/Budget.ods"),
+    ):
+        docs = get_open_documents(mock_ctx)
+    assert len(docs) == 1
+    assert docs[0]["name"] == "Budget.ods"
+    assert docs[0]["doc_type"] == "calc"
 
 
 def test_get_open_documents_off_thread_is_not_an_empty_list():
@@ -667,14 +645,8 @@ def test_get_open_documents_runtime_error_is_not_disposal_or_empty():
     enum.hasMoreElements.side_effect = RuntimeError("not disposed")
     desktop.getComponents.return_value.createEnumeration.return_value = enum
     with patch("plugin.doc.document_research.get_desktop", return_value=desktop):
-        try:
+        with pytest.raises(RuntimeError, match="not disposed"):
             get_open_documents(MagicMock())
-        except ListenerBoundary as boundary:
-            raise AssertionError(f"runtime error reported as {boundary.kind}") from boundary
-        except RuntimeError as exc:
-            assert "not disposed" in str(exc)
-            return
-    raise AssertionError("runtime error was reported as an empty document list")
 
 
 def test_resolve_listing_state_reads_active_path_open_docs_and_root():

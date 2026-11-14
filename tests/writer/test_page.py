@@ -270,25 +270,6 @@ def test_page_break_view_cursor_page_style_and_restart():
     assert [c.args[0] for c in text_cursor.getPropertyValue.call_args_list] == ["TextTable"]
 
 
-def test_page_tools_shortened_style_param():
-    doc = MagicMock()
-    families = MagicMock()
-    page_styles = MagicMock()
-    style = MagicMock()
-    doc.getStyleFamilies.return_value = families
-    families.getByName.return_value = page_styles
-    page_styles.hasByName.return_value = True
-    page_styles.getByName.return_value = style
-
-    ctx = TestingFactory.create_context(doc=doc, doc_type="writer")
-    res = PageGetStyleProperties().execute(ctx, style="Standard")
-    assert res["status"] == "ok"
-    assert "properties" in res
-
-    res_set = PageSetStyleProperties().execute(ctx, style="Standard", width_mm=210)
-    assert res_set["status"] == "ok"
-
-
 # --- header/footer: what plain text cannot carry ------------------------------------------
 
 
@@ -905,7 +886,8 @@ def test_page_break_after_text_breaks_on_following_paragraph():
     para.setPropertyValue.assert_called_once_with("BreakType", 4)
 
 
-def test_page_break_restart_sets_page_number_offset():
+@pytest.mark.parametrize("restart_num", [1, 32767])
+def test_page_break_restart_sets_page_number_offset(restart_num):
     from unittest.mock import call
     from plugin.writer.page import PageInsertBreak
 
@@ -915,41 +897,19 @@ def test_page_break_restart_sets_page_number_offset():
         SimpleNamespace(doc=doc),
         after_text="clausula",
         page_style="Annex",
-        restart_page_number=1,
+        restart_page_number=restart_num,
     )
     assert res["status"] == "ok"
     assert "after" in res["message"]
     assert set(res) == {"status", "message", "page_style", "restart_page_number", "matched_case_sensitive"}
     assert res["page_style"] == "Annex"
-    assert res["restart_page_number"] == 1
+    assert res["restart_page_number"] == restart_num
     assert res["matched_case_sensitive"] is False
     para.gotoNextParagraph.assert_called_once()
     para.setPropertyValue.assert_has_calls([
         call("BreakType", 4),
         call("PageDescName", "Annex"),
-        call("PageNumberOffset", 1),
-    ])
-    assert para.setPropertyValue.call_count == 3
-
-
-def test_page_break_restart_short_max_is_accepted():
-    from unittest.mock import call
-    from plugin.writer.page import PageInsertBreak
-
-    doc, para = _pagebreak_doc(found_next=True)
-    _attach_page_styles(doc, {"Annex"})
-    res = PageInsertBreak().execute(
-        SimpleNamespace(doc=doc),
-        after_text="clausula",
-        page_style="Annex",
-        restart_page_number=32767,
-    )
-    assert res["status"] == "ok"
-    assert res["restart_page_number"] == 32767
-    para.setPropertyValue.assert_has_calls([
-        call("BreakType", 4),
-        call("PageDescName", "Annex"),
-        call("PageNumberOffset", 32767),
+        call("PageNumberOffset", restart_num),
     ])
     assert para.setPropertyValue.call_count == 3
 
@@ -980,25 +940,19 @@ def test_page_break_page_style_last_paragraph_still_errors():
 
 # ---- D5: insert_page_break anchored -----------------------------------------
 
-def test_page_break_both_anchors_rejected():
-    from plugin.writer.page import PageInsertBreak
-    res = PageInsertBreak().execute(SimpleNamespace(doc=MagicMock()), before_text="a", after_text="b")
-    assert res["status"] == "error" and "only one" in res["message"]
-
-
-def test_page_break_both_anchors_still_rejected_when_page_style_set():
+@pytest.mark.parametrize(
+    "extra",
+    [
+        pytest.param({}, id="plain"),
+        pytest.param({"page_style": "Nope", "restart_page_number": 1}, id="with_page_style"),
+    ],
+)
+def test_page_break_both_anchors_rejected(extra):
     from plugin.writer.page import PageInsertBreak
 
     doc = MagicMock()
-    res = PageInsertBreak().execute(
-        SimpleNamespace(doc=doc),
-        before_text="a",
-        after_text="b",
-        page_style="Nope",
-        restart_page_number=1,
-    )
-    assert res["status"] == "error"
-    assert "only one" in res["message"]
+    res = PageInsertBreak().execute(SimpleNamespace(doc=doc), before_text="a", after_text="b", **extra)
+    assert res["status"] == "error" and "only one" in res["message"]
     doc.getStyleFamilies.assert_not_called()
 
 

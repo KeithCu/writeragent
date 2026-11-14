@@ -840,45 +840,32 @@ def test_show_python_input_dialog_modeless_uses_set_visible():
     assert order.index(("visible", True)) < order.index("focus")
 
 
-def test_picker_select_name_combobox_uses_set_text():
-    ctrl = MagicMock(spec=[])
-    ctrl.setText = MagicMock()
-    ui._picker_select_name(ctrl, "MyScript", ["ScriptA", "MyScript"])
-    ctrl.setText.assert_called_once_with("MyScript")
+def test_picker_select_name():
+    combo = MagicMock(spec=[])
+    combo.setText = MagicMock()
+    ui._picker_select_name(combo, "MyScript", ["ScriptA", "MyScript"])
+    combo.setText.assert_called_once_with("MyScript")
+
+    listbox = MagicMock()
+    ui._picker_select_name(listbox, "B", ["A", "B"])
+    listbox.selectItemPos.assert_called_once_with(1, True)
+    listbox.setText.assert_called_once_with("B")
+
+    unknown = MagicMock()
+    ui._picker_select_name(unknown, "Missing", ["A", "B"])
+    unknown.selectItemPos.assert_not_called()
+    unknown.setText.assert_called_once_with("Missing")
 
 
-def test_picker_select_name_set_text_follows_select_item_pos():
-    ctrl = MagicMock()
-    ui._picker_select_name(ctrl, "B", ["A", "B"])
-    ctrl.selectItemPos.assert_called_once_with(1, True)
-    ctrl.setText.assert_called_once_with("B")
+def test_picker_selected_name():
+    combo = MagicMock(spec=[])
+    combo.getText = MagicMock(return_value="  Prime Numbers  ")
+    assert ui._picker_selected_name(combo) == "Prime Numbers"
 
-
-
-def test_picker_select_name_unknown_name_skips_select_item_pos():
-    ctrl = MagicMock()
-    ui._picker_select_name(ctrl, "Missing", ["A", "B"])
-    ctrl.selectItemPos.assert_not_called()
-    ctrl.setText.assert_called_once_with("Missing")
-
-
-def test_picker_selected_name_combobox_uses_get_text():
-    ctrl = MagicMock(spec=[])
-    ctrl.getText = MagicMock(return_value="  Prime Numbers  ")
-    assert ui._picker_selected_name(ctrl) == "Prime Numbers"
-
-
-def test_picker_select_name_listbox_uses_select_item_pos():
-    ctrl = MagicMock()
-    ui._picker_select_name(ctrl, "B", ["A", "B"])
-    ctrl.selectItemPos.assert_called_once_with(1, True)
-
-
-def test_picker_selected_name_listbox_uses_item_pos():
-    ctrl = MagicMock()
-    ctrl.getItems.return_value = ["A", "B"]
-    ctrl.getSelectedItemPos.return_value = 1
-    assert ui._picker_selected_name(ctrl) == "B"
+    listbox = MagicMock()
+    listbox.getItems.return_value = ["A", "B"]
+    listbox.getSelectedItemPos.return_value = 1
+    assert ui._picker_selected_name(listbox) == "B"
 
 
 def test_monaco_editor_available_respects_force_internal():

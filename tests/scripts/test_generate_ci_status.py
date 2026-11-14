@@ -6,6 +6,8 @@
 
 from __future__ import annotations
 
+import xml.etree.ElementTree as ET
+from collections.abc import Callable
 from io import BytesIO
 from pathlib import Path
 from datetime import datetime, timezone
@@ -213,15 +215,12 @@ def _sample_rows() -> list[StatusRow]:
     ]
 
 
-def test_render_svg_produces_valid_svg_for_rows_and_empty() -> None:
-    svg = render_svg(_sample_rows(), repo="KeithCu/writeragent", generated_at="2026-09-03T19:01:48Z")
+@pytest.mark.parametrize("rows_factory", [_sample_rows, list], ids=["sample_rows", "empty"])
+def test_render_svg_produces_valid_svg(rows_factory: Callable[[], list[StatusRow]]) -> None:
+    svg = render_svg(rows_factory(), repo="KeithCu/writeragent", generated_at="2026-09-03T19:01:48Z")
     assert svg.startswith("<?xml")
-    assert "<svg" in svg
-    assert "</svg>" in svg
-
-    empty_svg = render_svg([], repo="KeithCu/writeragent", generated_at="2026-09-03T00:00:00Z")
-    assert "<svg" in empty_svg
-    assert "</svg>" in empty_svg
+    root = ET.fromstring(svg)
+    assert root.tag.endswith("svg")
 
 
 def test_render_svg_escapes_xml() -> None:

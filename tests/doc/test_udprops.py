@@ -84,13 +84,6 @@ def test_set_document_property_existing_without_setter_does_not_add():
         def addProperty(self, name, attrs, value):
             self.add_calls.append((name, value))
 
-    class _Doc:
-        def getDocumentProperties(self):
-            class _DocProps:
-                def __init__(self, p):
-                    self.UserDefinedProperties = p
-            return _DocProps(_PropsWithoutSetter())
-
     props = _PropsWithoutSetter()
     doc = _DocWithUserDefinedProperties(props)
     assert set_document_property(doc, "P", "v") is False

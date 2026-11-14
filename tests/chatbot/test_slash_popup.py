@@ -318,33 +318,33 @@ def test_click_row_accepts_command_chrome_does_not_dump_help():
     assert "Slash commands:" in send.append_output.call_args[0][0]
 
 
-def test_enter_on_exact_explain_runs_not_completes_draft():
+@pytest.mark.parametrize(("typed", "expected_name"), [("/explain", "explain"), ("/translate", "translate")])
+def test_enter_on_exact_command_runs_with_empty_arg_and_does_not_complete_draft(typed: str, expected_name: str):
+    from plugin.chatbot.send_state import SendEventKind
     from plugin.chatbot.slash_commands import filter_slash_commands
 
     popup, _box = _controller()
     send = popup.send_listener
     query = popup.query_control
-    query.text = "/explain"
+    query.text = typed
     send.dispatch = MagicMock()
     send.sync_has_text_from_query = MagicMock()
     send.append_output = MagicMock()
     send.clear_ask = MagicMock()
     send.hide_popup = MagicMock(side_effect=popup.hide)
     popup._open = True
-    popup._matches = filter_slash_commands("/explain")
+    popup._matches = filter_slash_commands(typed)
     popup._selected = 0
     with patch("plugin.chatbot.slash_commands.record_slash_lru"):
         with patch("plugin.chatbot.slash_popup._defer_to_next_turn", side_effect=lambda fn, *a: fn()):
             with patch("plugin.chatbot.slash_popup.run_slash_command", return_value=SlashResult.CONTINUE_SEND) as run_cmd:
                 with patch("plugin.chatbot.dialogs.set_control_text") as set_text:
                     popup.accept_selected()
-                    assert run_cmd.call_args.args[0].name == "explain"
+                    assert run_cmd.call_args.args[0].name == expected_name
                     run_cmd.assert_called_once_with(run_cmd.call_args.args[0], send, "", from_popup=False)
                     set_text.assert_not_called()
                     send.sync_has_text_from_query.assert_called_once()
                     send.dispatch.assert_called_once()
-                    from plugin.chatbot.send_state import SendEventKind
-
                     assert send.dispatch.call_args[0][0].kind == SendEventKind.SEND_CLICKED
 
 
@@ -393,30 +393,6 @@ def test_enter_exact_continue_send_starts_send_when_has_text_was_false():
 
     assert [event.kind for event in events] == [SendEventKind.SEND_CLICKED]
     assert send.sidebar_state.send.is_busy is True
-
-
-def test_enter_on_exact_translate_runs_with_empty_arg():
-    from plugin.chatbot.slash_commands import filter_slash_commands
-
-    popup, _box = _controller()
-    send = popup.send_listener
-    query = popup.query_control
-    query.text = "/translate"
-    send.dispatch = MagicMock()
-    send.append_output = MagicMock()
-    send.clear_ask = MagicMock()
-    send.hide_popup = MagicMock(side_effect=popup.hide)
-    popup._open = True
-    popup._matches = filter_slash_commands("/translate")
-    popup._selected = 0
-    with patch("plugin.chatbot.slash_commands.record_slash_lru"):
-        with patch("plugin.chatbot.slash_popup._defer_to_next_turn", side_effect=lambda fn, *a: fn()):
-            with patch("plugin.chatbot.slash_popup.run_slash_command", return_value=SlashResult.CONTINUE_SEND) as run_cmd:
-                with patch("plugin.chatbot.dialogs.set_control_text") as set_text:
-                    popup.accept_selected()
-                    assert run_cmd.call_args.args[0].name == "translate"
-                    run_cmd.assert_called_once_with(run_cmd.call_args.args[0], send, "", from_popup=False)
-                    set_text.assert_not_called()
 
 
 def test_enter_on_summarize_completes_ask_draft_not_rewrite():

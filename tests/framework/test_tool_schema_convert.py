@@ -36,6 +36,7 @@ def test_to_openai_schema():
     assert schema["function"]["description"] == "A simple tool"
     assert schema["function"]["parameters"]["type"] == "object"
     assert "arg1" in schema["function"]["parameters"]["properties"]
+    assert schema["function"]["parameters"]["properties"]["arg1"]["type"] == "string"
     assert "arg1" in schema["function"]["parameters"]["required"]
 
 def test_to_openai_schema_no_params():
@@ -54,6 +55,7 @@ def test_to_mcp_schema():
     assert schema["description"] == "A simple tool"
     assert schema["inputSchema"]["type"] == "object"
     assert "arg1" in schema["inputSchema"]["properties"]
+    assert "document_url" in schema["inputSchema"]["properties"]
     assert "arg1" in schema["inputSchema"]["required"]
 
 def test_to_mcp_schema_no_params():
@@ -190,35 +192,6 @@ def test_normalize_schema_required_scalar_stays_non_nullable():
     assert res["properties"]["index"]["type"] == "integer"
 
 
-def test_normalize_schema_scalar_null_union_preserved():
-    params = {"type": ["integer", "null"]}
-    res = _normalize_schema_for_strict_providers(params)
-    assert res["type"] == ["integer", "null"]
-
-
-def test_optional_integer_allows_null_on_openai_wire():
-    from plugin.writer.get_document_content import GetDocumentContent
-
-    props = to_openai_schema(GetDocumentContent())["function"]["parameters"]["properties"]
-    assert props["max_chars"]["type"] == ["integer", "null"]
-    assert props["include_images"]["type"] == ["boolean", "null"]
-    assert props["start"]["type"] == ["integer", "null"]
-    assert props["scope"]["type"] == ["string", "null"]
-    assert None in props["scope"]["enum"]
-    assert "full" in props["scope"]["enum"]
-
-
-def test_optional_scalar_nullable_mcp():
-    from plugin.writer.get_document_content import GetDocumentContent
-
-    props = to_mcp_schema(GetDocumentContent())["inputSchema"]["properties"]
-    assert props["max_chars"]["type"] == ["integer", "null"]
-    assert props["document_url"]["type"] == ["string", "null"]
-    assert props["scope"]["type"] == "string"
-    assert None not in props["scope"].get("enum", [])
-    assert "full" in props["scope"]["enum"]
-
-
 @pytest.mark.parametrize(
     "schema_fn,scope_type,scope_enum",
     [
@@ -232,8 +205,11 @@ def test_optional_enum_nullable_openai_vs_mcp(schema_fn, scope_type, scope_enum)
     tool = GetDocumentContent()
     if schema_fn == "openai":
         props = to_openai_schema(tool)["function"]["parameters"]["properties"]
+        assert props["include_images"]["type"] == ["boolean", "null"]
+        assert props["start"]["type"] == ["integer", "null"]
     else:
         props = to_mcp_schema(tool)["inputSchema"]["properties"]
+        assert props["document_url"]["type"] == ["string", "null"]
     assert props["scope"]["type"] == scope_type
     assert scope_enum(props["scope"].get("enum", []))
     assert props["max_chars"]["type"] == ["integer", "null"]
@@ -280,11 +256,6 @@ def test_mcp_writer_optional_enums_no_null_in_enum():
     assert_mcp_string_enum(gdc, "scope")
     gdt = to_mcp_schema(GetDocumentTree())["inputSchema"]["properties"]
     assert_mcp_string_enum(gdt, "strategy")
-
-
-def test_required_scalar_not_nullable():
-    props = to_openai_schema(DummyTool())["function"]["parameters"]["properties"]
-    assert props["arg1"]["type"] == "string"
 
 
 def test_to_mcp_schema_delegate_writer_flattens_domain_description():

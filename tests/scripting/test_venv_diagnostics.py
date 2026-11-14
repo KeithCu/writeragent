@@ -540,25 +540,13 @@ def test_probe_vision_packages_timeout_reports_failure():
     assert "To install remaining packages:" in msg
 
 
-def test_probe_vector_search_packages_subprocess_timeout():
-
+@pytest.mark.parametrize("group", ["vector_search", "vision", "nlp"])
+def test_probe_packages_subprocess_timeout(group):
     with patch(
         "plugin.scripting.venv_diagnostics.subprocess.run",
         side_effect=subprocess.TimeoutExpired(cmd=["python"], timeout=30),
     ):
-        probes, hint = _run_named_json_probe("/x/python", "vector_search")
-    assert probes == {}
-    assert hint is not None
-    assert "timed out" in hint.lower()
-
-
-def test_probe_vision_packages_subprocess_timeout():
-
-    with patch(
-        "plugin.scripting.venv_diagnostics.subprocess.run",
-        side_effect=subprocess.TimeoutExpired(cmd=["python"], timeout=30),
-    ):
-        probes, hint = _run_named_json_probe("/x/python", "vision")
+        probes, hint = _run_named_json_probe("/x/python", group)
     assert probes == {}
     assert hint is not None
     assert "timed out" in hint.lower()
@@ -610,17 +598,6 @@ def test_probe_hints_translate_at_call_time(monkeypatch) -> None:
     assert hint.startswith("LOCALE:")
     assert "timed out" in hint
     assert diag._audio_linux_portaudio_hint().startswith("LOCALE:")
-
-
-def test_probe_nlp_packages_subprocess_timeout():
-    with patch(
-        "plugin.scripting.venv_diagnostics.subprocess.run",
-        side_effect=subprocess.TimeoutExpired(cmd=["python"], timeout=30),
-    ):
-        probes, hint = _run_named_json_probe("/x/python", "nlp")
-    assert probes == {}
-    assert hint is not None
-    assert "timed out" in hint.lower()
 
 
 def test_attach_external_probes_shares_one_helper(monkeypatch):

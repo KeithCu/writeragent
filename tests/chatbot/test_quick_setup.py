@@ -10,17 +10,21 @@ from unittest.mock import MagicMock, patch
 from plugin.chatbot.quick_setup import check_endpoint_connection
 
 
+def _ok_response(model_ids: list[str]) -> MagicMock:
+    resp_data = {"data": [{"id": mid} for mid in model_ids]}
+    mock_resp = MagicMock()
+    mock_resp.status = 200
+    mock_resp.read.return_value = json.dumps(resp_data).encode("utf-8")
+    mock_resp.__enter__.return_value = mock_resp
+    return mock_resp
+
+
 @patch("urllib.request.urlopen")
 def test_check_endpoint_connection_success(mock_urlopen):
     """Test check_endpoint_connection successful 200 response."""
     from plugin.framework.constants import USER_AGENT
 
-    resp_data = {"data": [{"id": "gpt-4o"}, {"id": "gpt-4o-mini"}]}
-    mock_resp = MagicMock()
-    mock_resp.status = 200
-    mock_resp.read.return_value = json.dumps(resp_data).encode("utf-8")
-    mock_resp.__enter__.return_value = mock_resp
-    mock_urlopen.return_value = mock_resp
+    mock_urlopen.return_value = _ok_response(["gpt-4o", "gpt-4o-mini"])
 
     ok, msg, models = check_endpoint_connection("https://api.openai.com", "sk-test")
     assert ok is True
@@ -37,12 +41,7 @@ def test_check_endpoint_connection_openrouter_headers(mock_urlopen):
     """Test check_endpoint_connection sends OpenRouter identification headers."""
     from plugin.framework.constants import APP_REFERER, APP_TITLE, USER_AGENT
 
-    resp_data = {"data": [{"id": "openai/gpt-oss-120b"}]}
-    mock_resp = MagicMock()
-    mock_resp.status = 200
-    mock_resp.read.return_value = json.dumps(resp_data).encode("utf-8")
-    mock_resp.__enter__.return_value = mock_resp
-    mock_urlopen.return_value = mock_resp
+    mock_urlopen.return_value = _ok_response(["openai/gpt-oss-120b"])
 
     ok, msg, models = check_endpoint_connection("https://openrouter.ai/api", "sk-or-test")
     assert ok is True
@@ -98,12 +97,7 @@ def test_check_endpoint_connection_rejects_non_http_scheme(mock_urlopen):
 @patch("urllib.request.urlopen")
 def test_check_endpoint_connection_spoofed_openrouter_path_has_no_referer(mock_urlopen):
     """Test check_endpoint_connection does not treat path with openrouter.ai as OpenRouter."""
-    resp_data = {"data": [{"id": "gpt-4o"}]}
-    mock_resp = MagicMock()
-    mock_resp.status = 200
-    mock_resp.read.return_value = json.dumps(resp_data).encode("utf-8")
-    mock_resp.__enter__.return_value = mock_resp
-    mock_urlopen.return_value = mock_resp
+    mock_urlopen.return_value = _ok_response(["gpt-4o"])
 
     ok, msg, models = check_endpoint_connection("https://example.com/openrouter.ai", "sk-test")
     assert ok is True
@@ -116,12 +110,7 @@ def test_check_endpoint_connection_spoofed_openrouter_path_has_no_referer(mock_u
 @patch("urllib.request.urlopen")
 def test_check_endpoint_connection_openwebui_uses_catalog_url(mock_urlopen):
     """Test check_endpoint_connection probes OpenWebUI at /api/models."""
-    resp_data = {"data": [{"id": "llama3:latest"}]}
-    mock_resp = MagicMock()
-    mock_resp.status = 200
-    mock_resp.read.return_value = json.dumps(resp_data).encode("utf-8")
-    mock_resp.__enter__.return_value = mock_resp
-    mock_urlopen.return_value = mock_resp
+    mock_urlopen.return_value = _ok_response(["llama3:latest"])
 
     with (
         patch("plugin.chatbot.quick_setup.get_config", side_effect=lambda key: key == "is_openwebui"),
@@ -135,12 +124,7 @@ def test_check_endpoint_connection_openwebui_uses_catalog_url(mock_urlopen):
 @patch("urllib.request.urlopen")
 def test_check_endpoint_connection_translates_template_before_format(mock_urlopen):
     """Test check_endpoint_connection translates format string before inserting numbers."""
-    resp_data = {"data": [{"id": "m1"}, {"id": "m2"}]}
-    mock_resp = MagicMock()
-    mock_resp.status = 200
-    mock_resp.read.return_value = json.dumps(resp_data).encode("utf-8")
-    mock_resp.__enter__.return_value = mock_resp
-    mock_urlopen.return_value = mock_resp
+    mock_urlopen.return_value = _ok_response(["m1", "m2"])
 
     def _translate(s):
         if s == "✓ Connected successfully! ({0}ms, {1} models available)":

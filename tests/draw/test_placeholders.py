@@ -41,7 +41,9 @@ def test_role_from_label_priority_title_not_body():
     assert _role_from_label("TitleTextShape") == "title"
     assert _role_from_label("com.sun.star.presentation.TitleTextShape") == "title"
     assert _role_from_label("OutlinerShape") == "body"
+    assert _role_from_label("OutlineShape") == "body"
     assert _role_from_label("SubTitleShape") == "subtitle"
+    assert _role_from_label("SubtitleShape") == "subtitle"
     assert _role_from_label("TextShape") is None
 
 
@@ -213,11 +215,6 @@ def test_set_placeholder_text_empty_role_miss_payload():
     assert details["suggest_layout"] == "text"
     assert details["shape_text_count"] == 0
     assert "Placeholder 'title' not found on this slide." == err["message"]
-
-
-def test_outline_and_subtitle_shapes():
-    assert _role_from_label("OutlineShape") == "body"
-    assert _role_from_label("SubtitleShape") == "subtitle"
 
 
 def test_name_only_match():

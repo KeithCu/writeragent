@@ -598,7 +598,6 @@ def test_proxy_copy():
     proxy = tg._UnoThreadGuardProxy(target)
     c = copy.copy(proxy)
     assert isinstance(c, tg._UnoThreadGuardProxy)
-    assert c._target is target
     assert c.hello() == "world"
 
 
@@ -610,7 +609,7 @@ def test_proxy_pickle():
     dumped = pickle.dumps(proxy)
     loaded = pickle.loads(dumped)
     assert isinstance(loaded, tg._UnoThreadGuardProxy)
-    assert loaded._target == target
+    assert loaded == target
     assert loaded.hello() == "pickled"
 
 
@@ -884,20 +883,15 @@ def _run_in_dummy_thread(fn: Any, timeout: float = 5.0) -> None:
         raise exc[0]
 
 
-def test_untagged_dummy_is_allowed() -> None:
+@pytest.fixture
+def _guard_testing_env() -> Any:
     was_guard = tg.GUARD_ON
     was_testing = os.environ.get("WRITERAGENT_TESTING")
     tg.GUARD_ON = True
     os.environ["WRITERAGENT_TESTING"] = "1"
     install_from_environ()
     try:
-        def worker() -> None:
-            current = threading.current_thread()
-            assert isinstance(current, threading._DummyThread)
-            assert main.is_current() is True
-            tg.assert_main_thread("get_runtime_uid")
-
-        _run_in_dummy_thread(worker)
+        yield
     finally:
         tg.GUARD_ON = was_guard
         if was_testing is None:
@@ -909,118 +903,68 @@ def test_untagged_dummy_is_allowed() -> None:
         tg.set_background_task(None)
 
 
-def test_real_worker_still_flagged() -> None:
-    was_guard = tg.GUARD_ON
-    was_testing = os.environ.get("WRITERAGENT_TESTING")
-    tg.GUARD_ON = True
-    os.environ["WRITERAGENT_TESTING"] = "1"
-    install_from_environ()
-    try:
-        worker_exc: list[BaseException] = []
+def test_untagged_dummy_is_allowed(_guard_testing_env: None) -> None:
+    def worker() -> None:
+        current = threading.current_thread()
+        assert isinstance(current, threading._DummyThread)
+        assert main.is_current() is True
+        tg.assert_main_thread("get_runtime_uid")
 
-        def worker() -> None:
-            try:
-                assert main.is_current() is False
-                with pytest.raises(RuntimeError) as exc_info:
-                    tg.assert_main_thread("get_runtime_uid")
-                assert "UNO thread violation" in str(exc_info.value)
-            except BaseException as err:
-                worker_exc.append(err)
-
-        worker_thread = threading.Thread(target=worker)
-        worker_thread.start()
-        worker_thread.join(timeout=5.0)
-        assert not worker_thread.is_alive()
-        if worker_exc:
-            raise worker_exc[0]
-    finally:
-        tg.GUARD_ON = was_guard
-        if was_testing is None:
-            os.environ.pop("WRITERAGENT_TESTING", None)
-        else:
-            os.environ["WRITERAGENT_TESTING"] = was_testing
-        install_from_environ()
-        main.install(Policy.production, designated=None)
-        tg.set_background_task(None)
+    _run_in_dummy_thread(worker)
 
 
-def test_tagged_dummy_still_flagged() -> None:
-    was_guard = tg.GUARD_ON
-    was_testing = os.environ.get("WRITERAGENT_TESTING")
-    tg.GUARD_ON = True
-    os.environ["WRITERAGENT_TESTING"] = "1"
-    install_from_environ()
-    try:
-        def worker() -> None:
-            try:
-                tg.set_background_task("proofreading")
-                assert main.is_current() is False
-                with pytest.raises(RuntimeError) as exc_info:
-                    tg.assert_main_thread("get_runtime_uid")
-                assert "UNO thread violation" in str(exc_info.value)
-            finally:
-                tg.set_background_task(None)
+def test_real_worker_still_flagged(_guard_testing_env: None) -> None:
+    worker_exc: list[BaseException] = []
 
-        _run_in_dummy_thread(worker)
-    finally:
-        tg.GUARD_ON = was_guard
-        if was_testing is None:
-            os.environ.pop("WRITERAGENT_TESTING", None)
-        else:
-            os.environ["WRITERAGENT_TESTING"] = was_testing
-        install_from_environ()
-        main.install(Policy.production, designated=None)
-        tg.set_background_task(None)
-
-
-def test_designated_hook_wins() -> None:
-    was_guard = tg.GUARD_ON
-    was_testing = os.environ.get("WRITERAGENT_TESTING")
-    tg.GUARD_ON = True
-    os.environ["WRITERAGENT_TESTING"] = "1"
-    install_from_environ()
-    try:
-        other_thread = threading.Thread()
-        main.install(Policy.test_inline, designated=other_thread)
-
-        def worker() -> None:
+    def worker() -> None:
+        try:
             assert main.is_current() is False
+            with pytest.raises(RuntimeError) as exc_info:
+                tg.assert_main_thread("get_runtime_uid")
+            assert "UNO thread violation" in str(exc_info.value)
+        except BaseException as err:
+            worker_exc.append(err)
 
-        _run_in_dummy_thread(worker)
-    finally:
-        tg.GUARD_ON = was_guard
-        if was_testing is None:
-            os.environ.pop("WRITERAGENT_TESTING", None)
-        else:
-            os.environ["WRITERAGENT_TESTING"] = was_testing
-        install_from_environ()
-        main.install(Policy.production, designated=None)
-        tg.set_background_task(None)
+    worker_thread = threading.Thread(target=worker)
+    worker_thread.start()
+    worker_thread.join(timeout=5.0)
+    assert not worker_thread.is_alive()
+    if worker_exc:
+        raise worker_exc[0]
 
 
-def test_helper_does_not_tag_python_main_thread() -> None:
-    was_guard = tg.GUARD_ON
-    was_testing = os.environ.get("WRITERAGENT_TESTING")
-    tg.GUARD_ON = True
-    os.environ["WRITERAGENT_TESTING"] = "1"
-    install_from_environ()
-    try:
+def test_tagged_dummy_still_flagged(_guard_testing_env: None) -> None:
+    def worker() -> None:
+        try:
+            tg.set_background_task("proofreading")
+            assert main.is_current() is False
+            with pytest.raises(RuntimeError) as exc_info:
+                tg.assert_main_thread("get_runtime_uid")
+            assert "UNO thread violation" in str(exc_info.value)
+        finally:
+            tg.set_background_task(None)
+
+    _run_in_dummy_thread(worker)
+
+
+def test_designated_hook_wins(_guard_testing_env: None) -> None:
+    other_thread = threading.Thread()
+    main.install(Policy.test_inline, designated=other_thread)
+
+    def worker() -> None:
+        assert main.is_current() is False
+
+    _run_in_dummy_thread(worker)
+
+
+def test_helper_does_not_tag_python_main_thread(_guard_testing_env: None) -> None:
+    with tg.background_if_dummy_thread("python_addin"):
+        assert tg.get_background_task_name() is None
+        assert main.is_current() is True
+
+    def worker() -> None:
         with tg.background_if_dummy_thread("python_addin"):
-            assert tg.get_background_task_name() is None
-            assert main.is_current() is True
+            assert main.is_current() is False
+        assert tg.get_background_task_name() is None
 
-        def worker() -> None:
-            with tg.background_if_dummy_thread("python_addin"):
-                assert main.is_current() is False
-            assert tg.get_background_task_name() is None
-
-        _run_in_dummy_thread(worker)
-    finally:
-        tg.GUARD_ON = was_guard
-        if was_testing is None:
-            os.environ.pop("WRITERAGENT_TESTING", None)
-        else:
-            os.environ["WRITERAGENT_TESTING"] = was_testing
-        install_from_environ()
-        main.install(Policy.production, designated=None)
-        tg.set_background_task(None)
+    _run_in_dummy_thread(worker)

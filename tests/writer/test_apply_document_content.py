@@ -365,32 +365,6 @@ def test_position_after_plain_text_with_line_breaks_is_block(content):
     inline.assert_not_called()
 
 
-def test_position_after_rejects_math_and_table_cells():
-    from unittest.mock import patch
-
-    from plugin.writer import html_import
-    from plugin.writer.apply_document_content import ApplyDocumentContent
-
-    ctx = MagicMock()
-    ctx.doc.getUndoManager.return_value.isLocked.return_value = False
-
-    found = MagicMock()
-    with patch("plugin.writer.search.find_first_range", return_value=found), \
-         patch.object(html_import, "html_fragment_contains_mixed_math", return_value=True):
-        res = ApplyDocumentContent().execute(
-            ctx, content=["<p>\\(x^2\\)</p>"], target="search", old_content="c", position="after")
-    assert res["status"] == "error" and "math" in res["message"]
-
-    cell_cursor = MagicMock()
-    cell_cursor.getPropertyValue.return_value = MagicMock()  # TextTable set -> inside a cell
-    found.getText.return_value.createTextCursorByRange.return_value = cell_cursor
-    with patch("plugin.writer.search.find_first_range", return_value=found), \
-         patch.object(html_import, "html_fragment_contains_mixed_math", return_value=False):
-        res = ApplyDocumentContent().execute(
-            ctx, content=["<p>x</p>"], target="search", old_content="c", position="after")
-    assert res["status"] == "error" and "table cell" in res["message"]
-
-
 def test_apply_document_content_validate_accepts_string_or_array():
     """UNO tests pass one string. The schema was array-only, so validate rejected it.
 

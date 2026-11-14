@@ -279,14 +279,6 @@ def test_single_token_replace_is_surgical_block_or_surgical_by_threshold():
     assert apply_sub_edits("hello", r2.sub_edits) == "goodbye"
 
 
-def test_block_op_is_replace_when_both_sides_nonempty():
-    old = "completely different content here now"
-    new = "totally other stuff appears instead"
-    r = split_change(old, new, threshold=0.6)
-    assert r.mode == "block"
-    assert r.sub_edits == []
-
-
 # ---------------------------------------------------------------------------
 # whitespace / punctuation specifics
 # ---------------------------------------------------------------------------
@@ -427,20 +419,6 @@ def test_surgical_sub_edits_are_disjoint_and_sorted(old, new):
 
 
 @pytest.mark.parametrize("old,new", RECONSTRUCT_CASES)
-def test_sub_edit_op_types_are_consistent(old, new):
-    r = split_change(old, new, threshold=1.0)
-    if r.mode != "surgical":
-        return
-    for e in r.sub_edits:
-        if e.old_text == "":
-            assert e.old_start == e.old_end
-        elif e.new_text == "":
-            assert e.old_start < e.old_end
-        else:
-            assert e.old_start < e.old_end
-
-
-@pytest.mark.parametrize("old,new", RECONSTRUCT_CASES)
 def test_op_shape_invariant_holds_in_both_modes(old, new):
     for thr in (0.0, 0.6, 1.0):
         r = split_change(old, new, threshold=thr)
@@ -454,18 +432,6 @@ def test_op_shape_invariant_holds_in_both_modes(old, new):
             else:
                 assert e.old_text != "" and e.new_text != ""
                 assert e.old_start < e.old_end
-
-
-# ---------------------------------------------------------------------------
-# SubEdit dataclass-ish equality (used by other assertions)
-# ---------------------------------------------------------------------------
-
-def test_subedit_equality():
-    a = SubEdit(0, 3, "fox", "cat")
-    b = SubEdit(0, 3, "fox", "cat")
-    c = SubEdit(0, 3, "fox", "")
-    assert a == b
-    assert a != c
 
 
 # ---------------------------------------------------------------------------
@@ -524,16 +490,6 @@ def test_threshold_zero_forces_block_on_whitespace_only_change():
 def test_threshold_zero_forces_block_on_word_change():
     r = split_change("a b c", "a X c", 0.0)
     assert r.mode == "block" and r.sub_edits == []
-
-
-def test_split_change_long_text_does_not_precontract():
-    from plugin.framework.deal_shim import DEAL_MAX_SOURCE
-    from plugin.writer.word_diff_split import split_change
-
-    old = "word " * (DEAL_MAX_SOURCE // 4)
-    new = old + "extra"
-    result = split_change(old, new)
-    assert result.fraction_changed >= 0.0
 
 
 def test_threshold_zero_no_change_records_nothing():

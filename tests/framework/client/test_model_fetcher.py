@@ -228,9 +228,9 @@ class TestHasNativeAudio:
     @pytest.mark.parametrize(
         "value, value_2, expected",
         [
-            pytest.param('mistralai/voxtral-mini-transcribe', 'https://openrouter.ai/api', False, id="test_audio_only_stt_model_is_not_native_audio"),
-            pytest.param('whisper-1', 'https://example.invalid/v1', False, id="test_uncatalogued_whisper_is_not_native_audio"),
-            pytest.param('some-chat-model', 'https://example.invalid/v1', None, id="test_unknown_model_stays_unknown"),
+            pytest.param('mistralai/voxtral-mini-transcribe', 'https://openrouter.ai/api', False, id="audio-only-stt"),
+            pytest.param('whisper-1', 'https://example.invalid/v1', False, id="uncatalogued-whisper"),
+            pytest.param('some-chat-model', 'https://example.invalid/v1', None, id="unknown-model"),
         ],
     )
     def test_audio_only_stt_model_is_not_native_audio(self, value, value_2, expected):
@@ -383,26 +383,31 @@ class TestHasNativeVision:
     def teardown_method(self):
         self._patch_main_thread.stop()
 
-    def test_config_cache_has_vision(self):
-        from plugin.framework.client.model_fetcher import has_native_vision, set_native_vision_support
-        cache_dict = {}
+    @pytest.fixture
+    def vision_config(self):
+        saved: dict = {}
 
         def mock_get_config(key):
             if key == "vision_support_map":
-                return cache_dict
+                return dict(saved)
             return {}
 
         def mock_update_config_mapping(key, mutator, event_key=None):
             if key == "vision_support_map":
-                mutator(cache_dict)
+                mutator(saved)
 
-        with patch('plugin.framework.client.model_fetcher.get_config', side_effect=mock_get_config), \
-             patch('plugin.framework.client.model_fetcher.update_config_mapping', side_effect=mock_update_config_mapping):
-            set_native_vision_support('my-custom-model', 'http://localhost:11434', True)
-            assert (has_native_vision('my-custom-model', 'http://localhost:11434'))
+        with patch("plugin.framework.client.model_fetcher.get_config", side_effect=mock_get_config), \
+             patch("plugin.framework.client.model_fetcher.update_config_mapping", side_effect=mock_update_config_mapping):
+            yield saved
 
-            set_native_vision_support('my-custom-model', 'http://localhost:11434', False)
-            assert not (has_native_vision('my-custom-model', 'http://localhost:11434'))
+    def test_config_cache_has_vision(self, vision_config):
+        from plugin.framework.client.model_fetcher import has_native_vision, set_native_vision_support
+
+        set_native_vision_support('my-custom-model', 'http://localhost:11434', True)
+        assert (has_native_vision('my-custom-model', 'http://localhost:11434'))
+
+        set_native_vision_support('my-custom-model', 'http://localhost:11434', False)
+        assert not (has_native_vision('my-custom-model', 'http://localhost:11434'))
 
     def test_openrouter_dynamic_modality_detection(self):
         from plugin.framework.client.model_fetcher import has_native_vision
@@ -426,7 +431,7 @@ class TestHasNativeVision:
             assert has_native_vision('llava', 'http://localhost:11434') is True
             mock_sync.assert_called_once()
 
-    def test_openrouter_cache_miss_fetches_modalities_for_uncatalogued_gemini(self):
+    def test_openrouter_cache_miss_fetches_modalities_for_uncatalogued_gemini(self, vision_config):
         # google/gemini-3.8-flash is not a DEFAULT_MODELS row. The sidebar does
         # not fill CatalogMemo.vision_declarations, so has_native_vision must GET
         # /v1/models once and read architecture.input_modalities.
@@ -452,25 +457,13 @@ class TestHasNativeVision:
                 },
             ]
         }
-        saved = {}
-
-        def mock_get_config(key):
-            if key == 'vision_support_map':
-                return dict(saved)
-            return {}
-
-        def mock_update_config_mapping(key, mutator, event_key=None):
-            if key == 'vision_support_map':
-                mutator(saved)
 
         with patch('plugin.framework.client.requests.sync_request', return_value=payload) as mock_sync, \
-             patch('plugin.framework.client.model_fetcher.get_api_key_for_endpoint', return_value=''), \
-             patch('plugin.framework.client.model_fetcher.get_config', side_effect=mock_get_config), \
-             patch('plugin.framework.client.model_fetcher.update_config_mapping', side_effect=mock_update_config_mapping):
+             patch('plugin.framework.client.model_fetcher.get_api_key_for_endpoint', return_value=''):
             assert has_native_vision('google/gemini-3.8-flash', 'https://openrouter.ai/api') is True
             assert mock_sync.call_count == 1
             # Lookups never write vision_support_map: map stays empty.
-            assert saved == {}
+            assert vision_config == {}
             # In-process memo answers the next call; do not GET the catalog again.
             assert has_native_vision('google/gemini-3.8-flash', 'https://openrouter.ai/api') is True
             assert mock_sync.call_count == 1
@@ -478,9 +471,9 @@ class TestHasNativeVision:
             assert has_native_vision('google/gemini-3.8-flash:nitro', 'https://openrouter.ai/api') is True
             assert has_native_vision('deepseek/deepseek-chat', 'https://openrouter.ai/api') is False
             assert has_native_vision('inception/mercury-2.5', 'https://openrouter.ai/api') is False
-            assert saved == {}
+            assert vision_config == {}
 
-    def test_omitted_input_modalities_does_not_persist_false(self):
+    def test_omitted_input_modalities_does_not_persist_false(self, vision_config):
         from plugin.framework.client.model_fetcher import has_native_vision
 
         payload = {
@@ -489,29 +482,17 @@ class TestHasNativeVision:
                 {'id': 'quiet-model', 'architecture': {'output_modalities': ['text']}},
             ]
         }
-        saved = {}
-
-        def mock_get_config(key):
-            if key == 'vision_support_map':
-                return dict(saved)
-            return {}
-
-        def mock_update_config_mapping(key, mutator, event_key=None):
-            if key == 'vision_support_map':
-                mutator(saved)
 
         endpoint = 'https://openrouter.ai/api'
         with patch('plugin.framework.client.requests.sync_request', return_value=payload) as mock_sync, \
-             patch('plugin.framework.client.model_fetcher.get_api_key_for_endpoint', return_value=''), \
-             patch('plugin.framework.client.model_fetcher.get_config', side_effect=mock_get_config), \
-             patch('plugin.framework.client.model_fetcher.update_config_mapping', side_effect=mock_update_config_mapping):
+             patch('plugin.framework.client.model_fetcher.get_api_key_for_endpoint', return_value=''):
             assert has_native_vision('google/gemini-3.8-flash', endpoint) is None
-            assert saved == {}
+            assert vision_config == {}
             assert mock_sync.call_count == 1
             assert has_native_vision('quiet-model', endpoint) is None
-            assert saved == {}
+            assert vision_config == {}
 
-    def test_explicit_text_modalities_answer_false_without_persisting(self):
+    def test_explicit_text_modalities_answer_false_without_persisting(self, vision_config):
         from plugin.framework.client.model_fetcher import has_native_vision
 
         payload = {
@@ -520,27 +501,15 @@ class TestHasNativeVision:
                 {'id': 'also-text', 'input_modalities': []},
             ]
         }
-        saved = {}
-
-        def mock_get_config(key):
-            if key == 'vision_support_map':
-                return dict(saved)
-            return {}
-
-        def mock_update_config_mapping(key, mutator, event_key=None):
-            if key == 'vision_support_map':
-                mutator(saved)
 
         endpoint = 'https://openrouter.ai/api'
         with patch('plugin.framework.client.requests.sync_request', return_value=payload), \
-             patch('plugin.framework.client.model_fetcher.get_api_key_for_endpoint', return_value=''), \
-             patch('plugin.framework.client.model_fetcher.get_config', side_effect=mock_get_config), \
-             patch('plugin.framework.client.model_fetcher.update_config_mapping', side_effect=mock_update_config_mapping):
+             patch('plugin.framework.client.model_fetcher.get_api_key_for_endpoint', return_value=''):
             assert has_native_vision('text-only-a', endpoint) is False
             assert has_native_vision('also-text', endpoint) is False
-            assert saved == {}
+            assert vision_config == {}
 
-    def test_mixed_modalities_answer_only_stated_rows(self):
+    def test_mixed_modalities_answer_only_stated_rows(self, vision_config):
         from plugin.framework.client.model_fetcher import has_native_vision
 
         payload = {
@@ -550,61 +519,31 @@ class TestHasNativeVision:
                 {'id': 'quiet'},
             ]
         }
-        saved = {}
-
-        def mock_get_config(key):
-            if key == 'vision_support_map':
-                return dict(saved)
-            return {}
-
-        def mock_update_config_mapping(key, mutator, event_key=None):
-            if key == 'vision_support_map':
-                mutator(saved)
 
         endpoint = 'https://openrouter.ai/api'
         with patch('plugin.framework.client.requests.sync_request', return_value=payload), \
-             patch('plugin.framework.client.model_fetcher.get_api_key_for_endpoint', return_value=''), \
-             patch('plugin.framework.client.model_fetcher.get_config', side_effect=mock_get_config), \
-             patch('plugin.framework.client.model_fetcher.update_config_mapping', side_effect=mock_update_config_mapping):
+             patch('plugin.framework.client.model_fetcher.get_api_key_for_endpoint', return_value=''):
             assert has_native_vision('sees', endpoint) is True
             assert has_native_vision('blind', endpoint) is False
             assert has_native_vision('quiet', endpoint) is None
             assert has_native_vision('sees:nitro', endpoint) is True
-            assert saved == {}
+            assert vision_config == {}
 
-    def test_failed_modalities_fetch_does_not_persist_false(self):
+    def test_failed_modalities_fetch_does_not_persist_false(self, vision_config):
         # A down catalog is not a text-only answer. Do not write False into
         # vision_support_map or the next process can never recover.
         from plugin.framework.client.model_fetcher import has_native_vision
-        saved = {}
-
-        def mock_get_config(key):
-            if key == 'vision_support_map':
-                return dict(saved)
-            return {}
-
-        def mock_update_config_mapping(key, mutator, event_key=None):
-            if key == 'vision_support_map':
-                mutator(saved)
 
         with patch('plugin.framework.client.requests.sync_request', side_effect=OSError('down')), \
-             patch('plugin.framework.client.model_fetcher.get_api_key_for_endpoint', return_value=''), \
-             patch('plugin.framework.client.model_fetcher.get_config', side_effect=mock_get_config), \
-             patch('plugin.framework.client.model_fetcher.update_config_mapping', side_effect=mock_update_config_mapping):
+             patch('plugin.framework.client.model_fetcher.get_api_key_for_endpoint', return_value=''):
             assert has_native_vision('google/gemini-3.8-flash', 'https://openrouter.ai/api') is None
-            assert (saved) == ({})
+            assert vision_config == {}
 
-    def test_vision_support_map_false_skips_modalities_fetch(self):
+    def test_vision_support_map_false_skips_modalities_fetch(self, vision_config):
         from plugin.framework.client.model_fetcher import has_native_vision
-        cache = {'https://openrouter.ai/api@google/gemini-3.8-flash': False}
+        vision_config['https://openrouter.ai/api@google/gemini-3.8-flash'] = False
 
-        def mock_get_config(key):
-            if key == 'vision_support_map':
-                return cache
-            return {}
-
-        with patch('plugin.framework.client.requests.sync_request') as mock_sync, \
-             patch('plugin.framework.client.model_fetcher.get_config', side_effect=mock_get_config):
+        with patch('plugin.framework.client.requests.sync_request') as mock_sync:
             assert has_native_vision('google/gemini-3.8-flash', 'https://openrouter.ai/api') is False
             mock_sync.assert_not_called()
 
@@ -628,7 +567,7 @@ class TestHasNativeVision:
             model_fetcher._catalog_memos.clear()
             model_fetcher._catalog_memos.update(saved)
 
-    def test_vision_memo_honors_api_key_override(self):
+    def test_vision_memo_honors_api_key_override(self, vision_config):
         from plugin.framework.client.model_fetcher import fetch_available_models, has_native_vision
 
         endpoint = 'https://openrouter.ai/api'
@@ -640,28 +579,16 @@ class TestHasNativeVision:
                 },
             ]
         }
-        saved = {}
-
-        def mock_get_config(key):
-            if key == 'vision_support_map':
-                return dict(saved)
-            return {}
-
-        def mock_update_config_mapping(key, mutator, event_key=None):
-            if key == 'vision_support_map':
-                mutator(saved)
 
         with patch('plugin.framework.client.requests.sync_request', return_value=payload) as mock_sync, \
-             patch('plugin.framework.client.model_fetcher.get_api_key_for_endpoint', return_value=''), \
-             patch('plugin.framework.client.model_fetcher.get_config', side_effect=mock_get_config), \
-             patch('plugin.framework.client.model_fetcher.update_config_mapping', side_effect=mock_update_config_mapping):
+             patch('plugin.framework.client.model_fetcher.get_api_key_for_endpoint', return_value=''):
             fetch_available_models(endpoint, api_key_override='sk-dialog')
             assert mock_sync.call_count == 1
 
             assert has_native_vision('google/gemini-3.8-flash', endpoint, api_key_override=' sk-dialog ') is True
             assert mock_sync.call_count == 1
 
-    def test_ui_thread_never_fetches_and_schedules_background_job(self):
+    def test_ui_thread_never_fetches_and_schedules_background_job(self, vision_config):
         from plugin.framework.client import model_fetcher
         from plugin.framework.client.model_fetcher import has_native_vision
 
@@ -670,19 +597,11 @@ class TestHasNativeVision:
         def fake_bg(fn, *args, **kwargs):
             scheduled_jobs.append(fn)
 
-        saved = {}
-
-        def mock_get_config(key):
-            if key == "vision_support_map":
-                return dict(saved)
-            return {}
-
         with patch.object(main, "is_current", return_value=True), \
              patch("plugin.framework.client.model_fetcher.run_in_background", side_effect=fake_bg), \
              patch("plugin.framework.client.model_fetcher.fetch_available_models") as mock_fetch, \
              patch("plugin.framework.client.model_fetcher.query_ollama_show") as mock_show, \
-             patch("plugin.framework.client.requests.sync_request") as mock_sync, \
-             patch("plugin.framework.client.model_fetcher.get_config", side_effect=mock_get_config):
+             patch("plugin.framework.client.requests.sync_request") as mock_sync:
 
             # Cold OpenRouter
             res1 = has_native_vision("google/gemini-3.8-flash", "https://openrouter.ai/api")
@@ -717,7 +636,7 @@ class TestHasNativeVision:
             res4 = has_native_vision("google/gemini-3.8-flash", "https://openrouter.ai/api")
             assert res4 is True
             assert len(scheduled_jobs) == 0
-            assert saved == {}
+            assert vision_config == {}
 
     @requires_asserts
     def test_fetch_branch_asserts_off_ui_thread(self):
@@ -1336,23 +1255,21 @@ class TestAuthenticatedLocalModelsFetch:
             if "11434" in k or "1234" in k:
                 mf._catalog_memos.pop(k, None)
 
-    def test_fetch_available_models_sends_bearer_key_for_ollama(self):
+    @pytest.mark.parametrize(
+        ("endpoint", "api_key", "model_id"),
+        [
+            pytest.param("http://127.0.0.1:11434", "secret", "llama3", id="ollama"),
+            pytest.param("http://127.0.0.1:1234", "lm-secret", "qwen", id="lmstudio"),
+        ],
+    )
+    def test_fetch_available_models_sends_bearer_key_for_local_endpoints(self, endpoint, api_key, model_id):
         from plugin.framework.client.model_fetcher import fetch_available_models
         with patch('plugin.framework.client.requests.sync_request') as mock_sync:
-            mock_sync.return_value = {'data': [{'id': 'llama3'}]}
-            fetch_available_models("http://127.0.0.1:11434", api_key_override="secret")
+            mock_sync.return_value = {'data': [{'id': model_id}]}
+            fetch_available_models(endpoint, api_key_override=api_key)
             mock_sync.assert_called_once()
             headers = mock_sync.call_args[1]["headers"]
-            assert headers.get("Authorization") == "Bearer secret"
-
-    def test_fetch_available_models_sends_bearer_key_for_lmstudio(self):
-        from plugin.framework.client.model_fetcher import fetch_available_models
-        with patch('plugin.framework.client.requests.sync_request') as mock_sync:
-            mock_sync.return_value = {'data': [{'id': 'qwen'}]}
-            fetch_available_models("http://127.0.0.1:1234", api_key_override="lm-secret")
-            mock_sync.assert_called_once()
-            headers = mock_sync.call_args[1]["headers"]
-            assert headers.get("Authorization") == "Bearer lm-secret"
+            assert headers.get("Authorization") == f"Bearer {api_key}"
 
     def test_query_ollama_show_with_key_sends_bearer(self):
         from plugin.framework.client.model_fetcher import query_ollama_show

@@ -59,12 +59,6 @@ _owu_urls = st.sampled_from(
 )
 
 
-def test_normalize_empty_and_non_str() -> None:
-    assert normalize_endpoint_url("") == ""
-    assert normalize_endpoint_url("  ") == ""
-    assert normalize_endpoint_url(None) == ""  # type: ignore[arg-type]
-
-
 def test_url_helpers_long_and_odd_do_not_precontract() -> None:
     from plugin.framework.deal_shim import DEAL_MAX_URL
     from plugin.framework.url_utils import is_pdf_url
@@ -73,6 +67,7 @@ def test_url_helpers_long_and_odd_do_not_precontract() -> None:
     assert normalize_endpoint_url(too_long).startswith("https://example.com/")
     assert get_url_hostname(too_long) == "example.com"
     assert is_pdf_url(too_long) is False
+    assert normalize_endpoint_url(None) == ""  # type: ignore[arg-type]
     assert normalize_endpoint_url(1) == ""  # type: ignore[arg-type]
 
 

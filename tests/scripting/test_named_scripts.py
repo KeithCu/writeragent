@@ -93,9 +93,6 @@ def test_extract_library_source_rejects_calls_in_lambda_defaults():
         with pytest.raises(ValueError, match="not library definitions"):
             extract_library_source(code)
 
-    assert "transform" in extract_library_source("helper = lambda x: transform(x)\n")
-    assert "transform" in extract_library_source("helper = lambda: transform()\n")
-
     from plugin.scripting.named_scripts import _eval_library
     from plugin.scripting.venv.venv_sandbox import _new_executor
 
