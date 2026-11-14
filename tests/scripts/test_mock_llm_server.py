@@ -360,6 +360,23 @@ def test_http_models_and_health(mock_http):
     assert data["data"][0]["context_length"] == MOCK_CONTEXT_WINDOW
 
 
+def test_http_overflow_once_returns_error_message_then_ok():
+    config = MockLLMConfig(delay_ms=0, offline=True)
+    with _running_server(config) as base:
+        payload = {
+            "model": MOCK_MODEL_ID,
+            "stream": True,
+            "messages": [{"role": "user", "content": "overflow once"}],
+            "tools": _tools("web_research"),
+        }
+        with pytest.raises(HTTPError) as exc_info:
+            _post_json(base + "/v1/chat/completions", payload)
+        assert exc_info.value.code == 400
+        assert "prompt is too long" in exc_info.value.read().decode("utf-8")
+        raw, _ctype = _post_json(base + "/v1/chat/completions", payload)
+        assert "[DONE]" in raw
+
+
 def test_http_stream_chit_chat(mock_http):
     raw, ctype = _post_json(
         mock_http + "/v1/chat/completions",

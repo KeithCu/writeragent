@@ -58,7 +58,6 @@ class _VerifyRun(NamedTuple):
     run_calls: list[dict[str, Any]]
     seed_mock: MagicMock
     kill_mock: MagicMock
-    office_pids_mock: MagicMock
     rmtree_mock: MagicMock
 
 
@@ -84,15 +83,14 @@ def _run_verify_with_mocks(
     monkeypatch.setattr(release_verify.lo_profile, "seed", seed_mock)
     kill_mock = MagicMock()
     monkeypatch.setattr(release_verify.lo_kill, "kill", kill_mock)
-    office_pids_mock = MagicMock(return_value=[1234])
-    monkeypatch.setattr(release_verify.lo_kill, "office_pids", office_pids_mock)
+    monkeypatch.setattr(release_verify.lo_kill, "office_pids", MagicMock(return_value=[1234]))
     monkeypatch.setattr(release_verify.compileall, "compile_dir", MagicMock(return_value=True))
     monkeypatch.setattr(shutil, "copy2", MagicMock())
     rmtree_mock = MagicMock()
     monkeypatch.setattr(shutil, "rmtree", rmtree_mock)
 
     code = release_verify.main(["--lo-python", lo_python])
-    return _VerifyRun(code, run_calls, seed_mock, kill_mock, office_pids_mock, rmtree_mock)
+    return _VerifyRun(code, run_calls, seed_mock, kill_mock, rmtree_mock)
 
 
 @pytest.mark.parametrize(
@@ -201,7 +199,7 @@ def test_pytest_failure_aborts_uno_and_cleans_up(
     code = release_verify.main(["--lo-python", "/usr/bin/python3"])
     assert code == 42
     kill_mock.assert_called_once_with([555])
-    rmtree_mock.assert_any_call(bundle_root, ignore_errors=True)
+    assert {c.args[0] for c in rmtree_mock.call_args_list} == {bundle_root, tmp_path / "bundle.seed"}
 
 
 def test_uno_failure_returns_code_and_cleans_up(
@@ -229,7 +227,7 @@ def test_uno_failure_returns_code_and_cleans_up(
     code = release_verify.main(["--lo-python", "/usr/bin/python3"])
     assert code == 17
     kill_mock.assert_called_once()
-    rmtree_mock.assert_any_call(bundle_root, ignore_errors=True)
+    assert {c.args[0] for c in rmtree_mock.call_args_list} == {bundle_root, tmp_path / "bundle.seed"}
 
 
 def test_seed_runtime_error_returns_1_and_cleans_up(
@@ -257,7 +255,7 @@ def test_seed_runtime_error_returns_1_and_cleans_up(
     code = release_verify.main(["--lo-python", "/usr/bin/python3"])
     assert code == 1
     kill_mock.assert_called_once()
-    rmtree_mock.assert_any_call(bundle_root, ignore_errors=True)
+    assert {c.args[0] for c in rmtree_mock.call_args_list} == {bundle_root, tmp_path / "bundle.seed"}
 
 
 def test_windows_office_logs_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

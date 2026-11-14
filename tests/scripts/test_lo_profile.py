@@ -293,7 +293,7 @@ def test_verify_subcommand(monkeypatch: pytest.MonkeyPatch) -> None:
     assert lo_profile.main(["verify", "--id", "org.extension.other"]) == 1
 
 
-def test_main_register(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_main_usage_and_register(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     with pytest.raises(SystemExit):
         lo_profile.main([])
     profile = tmp_path / "profile"
@@ -308,7 +308,7 @@ def test_main_register(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setattr(lo_profile, "kill", lambda pids: None)
     monkeypatch.setattr(lo_profile.subprocess, "run", lambda cmd, **kwargs: subprocess.CompletedProcess(cmd, 0, stdout="", stderr=""))
 
-    rc = lo_profile.main(["register", "--oxt", str(oxt), "--profile", str(profile), "--remove", "id1", "--log", str(log)])
+    rc = lo_profile.main(["register", "--oxt", str(oxt), "--profile", str(profile), "--remove", "id1", "--remove", "id2", "--log", str(log)])
     assert rc == 0
     assert not log.exists()
 
