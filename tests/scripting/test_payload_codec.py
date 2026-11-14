@@ -836,6 +836,7 @@ def test_int_subclass_basic_and_enum_column_kind_matches_cython() -> None:
         assert unpacked_1d == [-3]
         assert type(unpacked_1d[0]) is int
 
+        # Mixed int-subclass + str falls back to the slow path; cell 0 stays int, cell 1 is str.
         wire_slow = host_pack_split_grid([[Widget(7), "x"]])
         assert wire_slow["column_kinds"] == ["int", "float"]
         unpacked_slow = host_unpack_split_grid(wire_slow)
@@ -875,6 +876,7 @@ def test_int_subclass_float_and_bool_prefix_names_match_cython() -> None:
         pass
 
     def _check() -> None:
+        # Int subclasses whose class names start with float or bool must still be recognized as int.
         wire_float16 = host_pack_split_grid([["x", float16(7)]])
         assert wire_float16["column_kinds"] == ["float", "int"]
         unpacked_float16 = host_unpack_split_grid(wire_float16)
@@ -887,6 +889,7 @@ def test_int_subclass_float_and_bool_prefix_names_match_cython() -> None:
         assert unpacked_boolish == [["x", 7]]
         assert type(unpacked_boolish[0][1]) is int
 
+        # A 1D int subclass cell following a text cell in the same column resolves to kind 'int'.
         wire_1d_float16 = host_pack_split_grid(["x", float16(7)])
         assert wire_1d_float16["column_kinds"] == ["int"]
         unpacked_1d_float16 = host_unpack_split_grid(wire_1d_float16)

@@ -2172,13 +2172,14 @@ class _FakeStdStream:
 def _setup_harness_main(
     monkeypatch: pytest.MonkeyPatch,
     stdin_stream: io.BytesIO,
-    stdout_stream: io.BytesIO,
+    stdout_stream: io.BytesIO | None,
 ) -> Any:
     """Patch worker_harness stdio and process hooks for in-process main() tests."""
     import plugin.scripting.venv.worker_harness as harness
 
     monkeypatch.setattr(harness.sys, "stdin", _FakeStdStream(stdin_stream))
-    monkeypatch.setattr(harness.sys, "stdout", _FakeStdStream(stdout_stream))
+    if stdout_stream is not None:
+        monkeypatch.setattr(harness.sys, "stdout", _FakeStdStream(stdout_stream))
     monkeypatch.setattr(harness.os, "_exit", lambda code: pytest.fail(f"Unexpected os._exit({code})"))
     monkeypatch.setattr(harness, "die_with_parent", lambda: None)
     monkeypatch.setattr(harness, "_init_logging", lambda: None)
@@ -2216,8 +2217,8 @@ def test_harness_main_value_error_in_read_stage_returns_invalid_pickle_request(m
     bad_frame = struct.pack('!I', len(payload)) + payload
     stdin = io.BytesIO(bad_frame)
     stdout = io.BytesIO()
-    _harness = _setup_harness_main(monkeypatch, stdin, stdout)
-    _harness.main()
+    harness = _setup_harness_main(monkeypatch, stdin, stdout)
+    harness.main()
     _skip_harness_ready_frame(stdout)
     res = read_pickle_frame(stdout, require_dict=True)
     assert res is not None
@@ -2312,7 +2313,7 @@ def test_harness_main_reads_claimed_stdin(monkeypatch):
     req_data = pack_pickle_frame({'id': 'req-claim-in', 'action': 'execute', 'code': 'result = 1'})
     claimed_stdin = io.BytesIO(req_data)
     stdout = io.BytesIO()
-    harness = _setup_harness_main(monkeypatch, io.BytesIO(), stdout)
+    harness = _setup_harness_main(monkeypatch, io.BytesIO(), None)
     monkeypatch.setattr(harness, 'claim_ipc_stdin', lambda: claimed_stdin)
     monkeypatch.setattr(harness, 'claim_ipc_channel', lambda: stdout)
     monkeypatch.setattr(harness, '_handle_request', lambda req, stdout=None: {'status': 'ok', 'result': 1})

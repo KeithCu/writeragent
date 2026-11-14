@@ -24,37 +24,39 @@ def _vision_params_for(helper: str) -> dict:
     return call_spec.get("params") if isinstance(call_spec.get("params"), dict) else {}
 
 
+_EXTRACT_TEXT_RES = {
+    "status": "ok",
+    "helper": "extract_text",
+    "html": "<p>line1</p><p>line2</p>",
+    "metrics": {"line_count": 2},
+}
+_EXTRACT_STRUCTURE_WRITER_RES = {
+    "status": "ok",
+    "helper": "extract_structure",
+    "html": "<table><tr><th>A</th><th>B</th></tr><tr><td>1</td><td>2</td></tr></table>",
+    "metrics": {"block_count": 2, "table_count": 1},
+    "tables": [{"name": "table_1", "columns": ["A", "B"], "rows": [["1", "2"]]}],
+    "blocks": [],
+    "warnings": [],
+}
+_EXTRACT_STRUCTURE_CALC_RES = {
+    "status": "ok",
+    "helper": "extract_structure",
+    "html": "<table><tr><td>1</td></tr></table>",
+    "metrics": {"block_count": 0, "table_count": 1},
+    "tables": [{"name": "table_1", "columns": ["A"], "rows": [["1"]]}],
+    "blocks": [],
+    "warnings": [],
+}
+
+
 @pytest.mark.parametrize(
-    ("helper", "is_writer_doc", "individual_result", "expect_html", "check_image_none"),
+    ("helper", "is_writer_doc", "individual_result", "check_image_none"),
     [
-        (
-            "extract_text",
-            True,
-            {"status": "ok", "helper": "extract_text", "html": "<p>line1</p><p>line2</p>", "metrics": {"line_count": 2}},
-            True,
-            False,
-        ),
-        (
-            "extract_text",
-            False,
-            {"status": "ok", "helper": "extract_text", "html": "<p>line1</p><p>line2</p>", "metrics": {"line_count": 2}},
-            False,
-            False,
-        ),
-        (
-            "extract_structure",
-            True,
-            {"status": "ok", "helper": "extract_structure", "html": "<table><tr><th>A</th><th>B</th></tr><tr><td>1</td><td>2</td></tr></table>", "metrics": {"block_count": 2, "table_count": 1}, "tables": [{"name": "table_1", "columns": ["A", "B"], "rows": [["1", "2"]]}], "blocks": [], "warnings": []},
-            True,
-            False,
-        ),
-        (
-            "extract_structure",
-            False,
-            {"status": "ok", "helper": "extract_structure", "html": "<table><tr><td>1</td></tr></table>", "metrics": {"block_count": 0, "table_count": 1}, "tables": [{"name": "table_1", "columns": ["A"], "rows": [["1"]]}], "blocks": [], "warnings": []},
-            False,
-            True,
-        ),
+        ("extract_text", True, _EXTRACT_TEXT_RES, False),
+        ("extract_text", False, _EXTRACT_TEXT_RES, False),
+        ("extract_structure", True, _EXTRACT_STRUCTURE_WRITER_RES, False),
+        ("extract_structure", False, _EXTRACT_STRUCTURE_CALC_RES, True),
     ],
     ids=["extract_text_writer", "extract_text_calc", "extract_structure_writer", "extract_structure_calc"],
 )
@@ -66,7 +68,6 @@ def test_execute_and_insert_vision_venv_path(
     helper,
     is_writer_doc,
     individual_result,
-    expect_html,
     check_image_none,
 ):
     ctx = MagicMock()
@@ -86,7 +87,7 @@ def test_execute_and_insert_vision_venv_path(
 
     assert outcome["ok"] is True
     assert helper in outcome["status_ok_text"]
-    if expect_html:
+    if is_writer_doc:
         assert "HTML" in outcome["status_ok_text"]
     mock_orchestrator.assert_called_once()
     mock_insert.assert_called_once()

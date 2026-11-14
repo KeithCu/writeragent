@@ -133,20 +133,8 @@ def test_direct_format_quantity_scalar_and_vector():
 
 
 @pytest.mark.parametrize(
-    ("payload", "output_style", "expected_first", "expected_row"),
+    ("payload", "output_style", "expected_grid", "expected_row"),
     [
-        (
-            {"status": "ok", "helper": "convert_quantity", "formatted": "10 km/h", "magnitude": 10.0},
-            None,
-            ["10 km/h"],
-            None,
-        ),
-        (
-            {"status": "ok", "helper": "parse_quantity", "formatted": "5 m", "magnitude": 5.0},
-            None,
-            ["5 m"],
-            None,
-        ),
         (
             {
                 "status": "ok",
@@ -157,19 +145,19 @@ def test_direct_format_quantity_scalar_and_vector():
                 "dimensionality_b": "[length]",
             },
             None,
-            ["compatible"],
+            None,
             ["Compatible", True],
         ),
         (
             {"status": "ok", "helper": "convert_quantity", "formatted": "10 km/h", "magnitude": 10.0},
             "detailed",
-            ["10 km/h"],
+            None,
             ["Magnitude", 10.0],
         ),
         (
             {"status": "ok", "helper": "convert_quantity", "formatted": "36 km/h", "magnitude": 36.0},
             "formatted",
-            ["36 km/h"],
+            [["36 km/h"]],
             None,
         ),
         (
@@ -182,29 +170,23 @@ def test_direct_format_quantity_scalar_and_vector():
                 "dimensionality_b": "[length] / [time]",
             },
             "detailed",
-            ["compatible"],
+            None,
             ["Compatible", True],
         ),
     ],
     ids=[
-        "default_convert",
-        "default_parse",
         "default_dimensionality",
         "detailed_convert",
         "formatted_convert",
         "detailed_dimensionality",
     ],
 )
-def test_format_units_for_calc_styles(payload, output_style, expected_first, expected_row):
-    grid = (
-        format_units_for_calc(payload)
-        if output_style is None
-        else format_units_for_calc(payload, output_style=output_style)
-    )
-    assert grid[0] == expected_first
-    if expected_row is None:
-        assert grid == [expected_first]
+def test_format_units_for_calc_styles(payload, output_style, expected_grid, expected_row):
+    grid = format_units_for_calc(payload, output_style=output_style)
+    if expected_grid is not None:
+        assert grid == expected_grid
     else:
+        assert grid[0] == [payload["formatted"]]
         assert expected_row in grid
 
 

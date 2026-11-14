@@ -82,11 +82,11 @@ def _build_dialog_mock(
     elif click == "cancel":
         dlg.execute.side_effect = lambda: [listener.actionPerformed(MagicMock()) for listener in cancel_listeners]
 
-    return ctx, dlg, name_edit, chk, ok_listeners, cancel_listeners
+    return ctx, dlg, name_edit, chk
 
 
 def test_show_new_script_dialog_ok_writable_doc():
-    ctx, dlg, _edit, chk, _ok_listeners, _cancel_listeners = _build_dialog_mock(
+    ctx, dlg, _edit, chk = _build_dialog_mock(
         name_text="  MyNewScript  ",
         attach_state=1,
     )
@@ -105,7 +105,7 @@ def test_show_new_script_dialog_ok_writable_doc():
 
 
 def test_show_new_script_dialog_cancel():
-    ctx, dlg, _edit, _chk, _ok_listeners, _cancel_listeners = _build_dialog_mock(
+    ctx, dlg, _edit, _chk = _build_dialog_mock(
         name_text="MyScript",
         attach_state=0,
         click="cancel",
@@ -117,7 +117,7 @@ def test_show_new_script_dialog_cancel():
 
 
 def test_show_new_script_dialog_custom_title_and_default_attach_false():
-    ctx, dlg, _edit, chk, ok_listeners, _cancel_listeners = _build_dialog_mock(
+    ctx, dlg, _edit, chk = _build_dialog_mock(
         name_text="SavedCopy",
         attach_state=0,
     )
@@ -137,7 +137,7 @@ def test_show_new_script_dialog_custom_title_and_default_attach_false():
 
 
 def test_show_new_script_dialog_default_attach_true_matches_default():
-    ctx, dlg, _edit, _chk, ok_listeners, _cancel_listeners = _build_dialog_mock(
+    ctx, dlg, _edit, _chk = _build_dialog_mock(
         name_text="Mine",
         attach_state=1,
     )
@@ -152,7 +152,7 @@ def test_show_new_script_dialog_default_attach_true_matches_default():
 def test_show_new_script_dialog_writable_init_rejected():
     peer = object()
     for init_name in ("INIT", "Init"):
-        ctx, dlg, _edit, _chk, _ok_listeners, _cancel_listeners = _build_dialog_mock(
+        ctx, dlg, _edit, _chk = _build_dialog_mock(
             name_text=init_name,
             attach_state=1,
             peer_sentinel=peer,
@@ -170,7 +170,7 @@ def test_show_new_script_dialog_writable_init_rejected():
 
 
 def test_show_new_script_dialog_writable_lowercase_init_allowed():
-    ctx, dlg, _edit, _chk, ok_listeners, _cancel_listeners = _build_dialog_mock(
+    ctx, dlg, _edit, _chk = _build_dialog_mock(
         name_text="init",
         attach_state=1,
     )
@@ -185,7 +185,7 @@ def test_show_new_script_dialog_writable_lowercase_init_allowed():
 
 
 def test_show_new_script_dialog_writable_init_unattached_allowed():
-    ctx, dlg, _edit, _chk, ok_listeners, _cancel_listeners = _build_dialog_mock(
+    ctx, dlg, _edit, _chk = _build_dialog_mock(
         name_text="INIT",
         attach_state=0,
     )
@@ -201,7 +201,7 @@ def test_show_new_script_dialog_writable_init_unattached_allowed():
 
 def test_show_new_script_dialog_writable_reserved_prefix_rejected():
     peer = object()
-    ctx, dlg, _edit, _chk, ok_listeners, _cancel_listeners = _build_dialog_mock(
+    ctx, dlg, _edit, _chk = _build_dialog_mock(
         name_text="[Vision] x",
         attach_state=0,
         peer_sentinel=peer,
@@ -219,7 +219,7 @@ def test_show_new_script_dialog_writable_reserved_prefix_rejected():
 
 def test_show_new_script_dialog_empty_text_rejected():
     peer = object()
-    ctx, dlg, _edit, _chk, ok_listeners, _cancel_listeners = _build_dialog_mock(
+    ctx, dlg, _edit, _chk = _build_dialog_mock(
         name_text="   ",
         attach_state=1,
         peer_sentinel=peer,
@@ -236,7 +236,7 @@ def test_show_new_script_dialog_empty_text_rejected():
 
 
 def test_show_new_script_dialog_no_document_disables_attach():
-    ctx, dlg, _edit, chk, ok_listeners, _cancel_listeners = _build_dialog_mock(
+    ctx, dlg, _edit, chk = _build_dialog_mock(
         name_text="Mine",
         attach_state=1,
     )
@@ -250,7 +250,7 @@ def test_show_new_script_dialog_no_document_disables_attach():
 
 
 def test_show_new_script_dialog_readonly_document_disables_attach():
-    ctx, dlg, _edit, chk, ok_listeners, _cancel_listeners = _build_dialog_mock(
+    ctx, dlg, _edit, chk = _build_dialog_mock(
         name_text="Mine",
         attach_state=1,
     )
@@ -266,7 +266,7 @@ def test_show_new_script_dialog_readonly_document_disables_attach():
 
 
 def test_show_new_script_dialog_set_focus_failure_still_executes():
-    ctx, dlg, edit, _chk, ok_listeners, _cancel_listeners = _build_dialog_mock(
+    ctx, dlg, edit, _chk = _build_dialog_mock(
         name_text="Mine",
         attach_state=1,
     )
@@ -281,7 +281,7 @@ def test_show_new_script_dialog_set_focus_failure_still_executes():
 
 
 def test_show_new_script_dialog_get_control_failure_disposes():
-    ctx, dlg, _edit, _chk, _ok_listeners, _cancel_listeners = _build_dialog_mock()
+    ctx, dlg, _edit, _chk = _build_dialog_mock()
 
     def raise_on_name_edit(name):
         if name == "NameEdit":

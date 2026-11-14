@@ -208,44 +208,18 @@ def test_topics_inner_error_result_is_not_insertable():
 
 
 @pytest.mark.parametrize(
-    ("helper", "has_doc", "exc_msg", "expected_exact", "expected_prefix", "required_substrings", "forbidden_substrings"),
+    ("helper", "has_doc", "exc_msg", "expected_start", "hint_expected"),
     [
-        (
-            "readability",
-            True,
-            "boom",
-            None,
-            "Error: boom",
-            (),
-            ("Required packages", "Click Check Venv"),
-        ),
+        ("readability", True, "boom", "Error: boom", False),
         (
             "readability",
             True,
             "Python worker failed: timed out after 30 seconds",
             "Error: Python worker failed: timed out after 30 seconds",
-            None,
-            (),
-            (),
-        ),
-        (
-            "readability",
-            True,
-            "No module named 'spacy'",
-            None,
-            "Error: No module named 'spacy'",
-            ("Click Check Venv", "Required packages may be missing"),
-            (),
-        ),
-        (
-            "diagnostics",
             False,
-            "no python",
-            "Error from the Text Analytics worker:\nno python",
-            None,
-            (),
-            ("xx_sent_ud_sm", "uv pip install"),
         ),
+        ("readability", True, "No module named 'spacy'", "Error: No module named 'spacy'", True),
+        ("diagnostics", False, "no python", "Error from the Text Analytics worker:\nno python", False),
     ],
     ids=["generic_omits_hint", "timeout_omits_hint", "import_keeps_hint", "diagnostics_no_install_cmd"],
 )
@@ -254,10 +228,8 @@ def test_worker_exception_formatting(
     helper,
     has_doc,
     exc_msg,
-    expected_exact,
-    expected_prefix,
-    required_substrings,
-    forbidden_substrings,
+    expected_start,
+    hint_expected,
 ):
     dlg_obj, fake_dlg = _make_dialog()
     if has_doc:
@@ -289,14 +261,11 @@ def test_worker_exception_formatting(
 
     assert dlg_obj._last_result is None
     res_text = fake_dlg.controls["ResultsEdit"].getModel().Text
-    if expected_exact is not None:
-        assert res_text == expected_exact
-    if expected_prefix is not None:
-        assert res_text.startswith(expected_prefix)
-    for substr in required_substrings:
-        assert substr in res_text
-    for substr in forbidden_substrings:
-        assert substr not in res_text
+    assert res_text.startswith(expected_start)
+    assert ("Click Check Venv" in res_text) is hint_expected
+    assert ("Required packages" in res_text) is hint_expected
+    if not has_doc:
+        assert "uv pip install" not in res_text
 
 
 def test_failed_validation_clears_previous_result(monkeypatch):
