@@ -370,6 +370,7 @@ def test_copy_page_notes_skips_non_dispose_exceptions() -> None:
 
 # --- migrated from test_uno_shape_postprocess.py ---
 
+# hidden-document pool items; assigning one and closing the source aborts soffice
 _POOL_ITEM_PROPS = ("Graphic", "GraphicURL", "FillBitmap", "Background")
 
 

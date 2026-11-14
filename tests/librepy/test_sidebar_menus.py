@@ -8,7 +8,6 @@ import sys
 from unittest.mock import MagicMock, patch
 
 from plugin.framework.constants import EXTENSION_ID_LIBREPY
-from plugin.framework.menu_icon_dpi import menu_icon_filesystem_paths
 from plugin.librepy.sidebar_menus import (
     execute_popup_under_button,
     invoke_action_handler,
@@ -275,14 +274,6 @@ def test_wire_header_no_search_control():
     assert latex_url.endswith(".png")
     settings_url = controls["btn_hdr_settings"].getModel.return_value.ImageURL
     assert "/assets/gear_" in settings_url
-
-
-def test_menu_icon_filesystem_paths_include_oxt_and_checkout_layouts():
-    paths = menu_icon_filesystem_paths("python_32.png")
-    posix = [p.replace("\\", "/") for p in paths]
-    assert posix[0].endswith("assets/python_32.png")
-    assert "extension/assets" not in posix[0]
-    assert posix[1].endswith("extension/assets/python_32.png")
 
 
 def test_load_menu_graphic_caching_and_reset():

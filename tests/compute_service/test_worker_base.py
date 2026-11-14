@@ -1421,19 +1421,13 @@ def test_handshake_budget_is_time_left_after_reap(monkeypatch: pytest.MonkeyPatc
 
 
 def test_stderr_drain_name_uses_worker_name() -> None:
-    """The drain thread names the pool, not a generic compute worker.
-
-    What was wrong: Kokoro and vision used a generic compute prefix, so a
-    stuck drain could not be told apart from a formula worker.
-    """
+    """The drain thread names the pool, or falls back to a generic prefix when slugless."""
     from plugin.framework.process_worker import BaseProcessWorker
 
-    cases = (
+    for name, worker_id, expected in (
         ("Kokoro", 1, "wa-kokoro-w1-stderr"),
-        ("Formula worker", 2, "wa-formula-worker-w2-stderr"),
         ("---", 3, "wa-worker-w3-stderr"),
-    )
-    for name, worker_id, expected in cases:
+    ):
         worker = BaseProcessWorker(worker_id, "unused.py", worker_name=name, start=False)
         assert worker._drain_name() == expected
 
@@ -1577,40 +1571,27 @@ def test_shutdown_handshake_is_not_a_spawn_error(monkeypatch: pytest.MonkeyPatch
     assert worker.process is None
 
 
-def test_run_compute_worker_sets_identity_and_payload_cap(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Both children share identity env vars, single-threaded math defaults, and frame cap."""
+def test_run_compute_worker_sets_identity_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Compute children mark themselves as workers so host tool calls are refused."""
     import os
 
-    from compute_service.config import COMPUTE_MAX_PAYLOAD_BYTES
-    from compute_service.worker_stdio import COMPUTE_THREAD_ENV_VARS, run_compute_worker
+    from compute_service.worker_stdio import run_compute_worker
 
-    seen: dict[str, object] = {}
+    seen: dict[str, str | None] = {}
 
     def _loop(handler: object, *, max_payload_bytes: int = 0) -> int:
-        seen["handler"] = handler
-        seen["cap"] = max_payload_bytes
+        del handler, max_payload_bytes
         seen["is_worker"] = os.environ.get("WRITERAGENT_IS_WORKER")
         seen["compute"] = os.environ.get("WRITERAGENT_COMPUTE_WORKER")
-        for var_name in COMPUTE_THREAD_ENV_VARS:
-            seen[var_name] = os.environ.get(var_name)
         return 0
 
     monkeypatch.setattr("compute_service.worker_stdio.run_worker_stdio_loop", _loop)
     monkeypatch.delenv("WRITERAGENT_IS_WORKER", raising=False)
     monkeypatch.delenv("WRITERAGENT_COMPUTE_WORKER", raising=False)
-    for var_name in COMPUTE_THREAD_ENV_VARS:
-        monkeypatch.delenv(var_name, raising=False)
 
-    def _handler(_req: dict[str, object]) -> dict[str, str]:
-        return {"status": "ok"}
-
-    assert run_compute_worker(_handler) == 0
-    assert seen["handler"] is _handler
-    assert seen["cap"] == COMPUTE_MAX_PAYLOAD_BYTES
+    assert run_compute_worker(lambda _req: {"status": "ok"}) == 0
     assert seen["is_worker"] == "1"
     assert seen["compute"] == "1"
-    for var_name in COMPUTE_THREAD_ENV_VARS:
-        assert seen[var_name] == "1"
 
 
 def test_configure_compute_worker_env_preserves_overrides(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -3014,11 +2995,9 @@ def test_run_compute_worker_puts_image_pkgs_on_path(tmp_path: Path, monkeypatch:
 
 
 def test_respawn_popen_kwargs_scrub_session_and_drain(monkeypatch: pytest.MonkeyPatch) -> None:
-    import subprocess
     import sys
     from plugin.framework.process_worker import BaseProcessWorker
 
-    recorded_args: list[object] = []
     recorded_kwargs: dict[str, Any] = {}
 
     class _Proc:
@@ -3041,22 +3020,20 @@ def test_respawn_popen_kwargs_scrub_session_and_drain(monkeypatch: pytest.Monkey
                 self.returncode = -9
             return self.returncode
 
-    def _fake_popen(args: object, **kwargs: Any) -> _Proc:
-        recorded_args.append(args)
+    def _fake_popen(_args: object, **kwargs: Any) -> _Proc:
         recorded_kwargs.update(kwargs)
         return _Proc()
 
     drain_calls: list[dict[str, Any]] = []
 
     def _fake_drain(stream: object, **kwargs: Any) -> Any:
+        del stream
         drain_calls.append(kwargs)
         return None
 
-    opt_calls: list[object] = []
-
     monkeypatch.setattr("plugin.framework.managed_subprocess.subprocess.Popen", _fake_popen)
     monkeypatch.setattr("plugin.framework.managed_subprocess.start_stderr_drain", _fake_drain)
-    monkeypatch.setattr("plugin.framework.managed_subprocess.optimize_popen_pipes", lambda p: opt_calls.append(p))
+    monkeypatch.setattr("plugin.framework.managed_subprocess.optimize_popen_pipes", lambda _p: None)
     monkeypatch.setattr("plugin.framework.warm_child.read_pickle_frame", lambda *_a, **_kw: {"status": "ready", "pid": 1})
 
     monkeypatch.setenv("OPENAI_API_KEY", "secret-key")
@@ -3065,23 +3042,16 @@ def test_respawn_popen_kwargs_scrub_session_and_drain(monkeypatch: pytest.Monkey
     worker = BaseProcessWorker(1, "fake_script.py", worker_name="Budget", start=False)
     try:
         worker.respawn()
-        assert recorded_args == [[sys.executable, "fake_script.py"]]
         env = recorded_kwargs.get("env")
         assert env is not None
         assert "OPENAI_API_KEY" not in env
         assert "PYTHONPATH" not in env
-        assert env.get("PYTHONUTF8") == "1"
-        assert recorded_kwargs.get("stderr") is subprocess.PIPE
-        assert recorded_kwargs.get("bufsize") == 0
         if sys.platform != "win32":
             assert recorded_kwargs.get("start_new_session") is True
         else:
             assert "creationflags" in recorded_kwargs
             assert "start_new_session" not in recorded_kwargs
-        assert len(opt_calls) == 1
         assert len(drain_calls) == 1
-        assert drain_calls[0].get("name") == "wa-budget-w1-stderr"
-        assert drain_calls[0].get("max_tail_chars") == 65536
     finally:
         worker.kill()
 

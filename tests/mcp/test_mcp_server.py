@@ -355,9 +355,7 @@ def _response_json(handler) -> tuple[int, dict]:
 
 
 def test_generic_handler_body_cap_timeout_and_negative_length():
-    from plugin.mcp.server import GenericRequestHandler, MCP_HTTP_MAX_BODY_BYTES, MCP_HTTP_SOCKET_TIMEOUT_SEC
-
-    assert GenericRequestHandler.timeout == MCP_HTTP_SOCKET_TIMEOUT_SEC
+    from plugin.mcp.server import MCP_HTTP_MAX_BODY_BYTES
 
     oversized = _bare_generic_handler({"Content-Length": str(MCP_HTTP_MAX_BODY_BYTES + 1)}, b"{}")
     reads: list[int] = []

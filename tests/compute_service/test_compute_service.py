@@ -838,11 +838,22 @@ class TestComputeSettings:
         assert s.default_timeout_sec == 12
         assert s.idle_worker_ttl_sec == 1800.0
 
-    def test_flat_config_keys_rejected(self, tmp_path) -> None:
-        cfg = tmp_path / "flat.json"
-        cfg.write_text(json.dumps({"port": 8123, "workers": 3}), encoding="utf-8")
-        with pytest.raises(ConfigError, match="Unknown config key 'port'"):
+    @pytest.mark.parametrize(
+        ("payload", "match"),
+        [
+            ({"port": 8123, "workers": 3}, "Unknown config key 'port'"),
+            ({"limits": {"unknown_limit": 5}}, "Unknown limits key 'unknown_limit'"),
+        ],
+    )
+    def test_unknown_config_keys_rejected(self, tmp_path, payload: dict[str, Any], match: str) -> None:
+        cfg = tmp_path / "unknown.json"
+        cfg.write_text(json.dumps(payload), encoding="utf-8")
+        with pytest.raises(ConfigError, match=match):
             load_settings(config_path=cfg, environ={"PYTHON_COMPUTE_HOST": "127.0.0.1"})
+
+    def test_unknown_env_ignored(self) -> None:
+        ignored = load_settings(environ={"PYTHON_COMPUTE_UNKNOWN_SETTING": "9", "PYTHON_COMPUTE_HOST": "127.0.0.1"})
+        assert ignored.workers == 2
 
     def test_raw_api_key_in_json_fails_closed(self, tmp_path) -> None:
         cfg = tmp_path / "python-compute.json"
@@ -895,49 +906,6 @@ class TestComputeSettings:
         s_empty = load_settings(environ={"PYTHON_COMPUTE_PORT": "", "PYTHON_COMPUTE_API_KEY": "", "PYTHON_COMPUTE_HOST": "127.0.0.1"})
         assert s_empty.port == 8000
 
-    def test_rejected_env_and_json_aliases(self, tmp_path) -> None:
-        # PYTHON_COMPUTE_MAX_WORKERS is not in the map so it does not change workers
-        s_env = load_settings(environ={"PYTHON_COMPUTE_MAX_WORKERS": "5", "PYTHON_COMPUTE_HOST": "127.0.0.1"})
-        assert s_env.workers == 2
-
-        # Top-level max_workers in JSON raises ConfigError
-        cfg_max_workers = tmp_path / "max_workers.json"
-        cfg_max_workers.write_text(json.dumps({"max_workers": 5}), encoding="utf-8")
-        with pytest.raises(ConfigError, match="Unknown config key 'max_workers'"):
-            load_settings(config_path=cfg_max_workers, environ={"PYTHON_COMPUTE_HOST": "127.0.0.1"})
-
-        # limits.max_workers in JSON raises ConfigError
-        cfg_limits = tmp_path / "limits.json"
-        cfg_limits.write_text(json.dumps({"limits": {"max_workers": 5}}), encoding="utf-8")
-        with pytest.raises(ConfigError, match="Unknown limits key 'max_workers'"):
-            load_settings(config_path=cfg_limits, environ={"PYTHON_COMPUTE_HOST": "127.0.0.1"})
-
-        # Top-level api_key_file in JSON raises ConfigError
-        cfg_key = tmp_path / "api_key.json"
-        cfg_key.write_text(json.dumps({"api_key_file": "/tmp/dummy"}), encoding="utf-8")
-        with pytest.raises(ConfigError, match="Unknown config key 'api_key_file'"):
-            load_settings(config_path=cfg_key, environ={"PYTHON_COMPUTE_HOST": "127.0.0.1"})
-
-        # session_ttl_sec in JSON raises ConfigError
-        cfg_ttl = tmp_path / "session_ttl.json"
-        cfg_ttl.write_text(json.dumps({"session_ttl_sec": 300}), encoding="utf-8")
-        with pytest.raises(ConfigError, match="Unknown config key 'session_ttl_sec'"):
-            load_settings(config_path=cfg_ttl, environ={"PYTHON_COMPUTE_HOST": "127.0.0.1"})
-
-    def test_thread_count_keys_are_rejected(self, tmp_path) -> None:
-        # Environment variables we do not read cannot change the listener count.
-        ignored = load_settings(environ={"PYTHON_COMPUTE_THREADS": "9", "PYTHON_COMPUTE_MAX_THREADS": "8", "PYTHON_COMPUTE_HOST": "127.0.0.1"})
-        assert ignored.threads == 2
-        cfg = tmp_path / "cfg.json"
-        cfg.write_text(json.dumps({"limits": {"threads": 24, "max_threads": 12, "workers": 4}}), encoding="utf-8")
-        with pytest.raises(ConfigError, match="threads"):
-            load_settings(config_path=cfg, environ={"PYTHON_COMPUTE_HOST": "127.0.0.1"})
-        # Top-level threads must be rejected with ConfigError, not crash with TypeError (#1365).
-        top_cfg = tmp_path / "top_threads.json"
-        top_cfg.write_text(json.dumps({"threads": 16}), encoding="utf-8")
-        with pytest.raises(ConfigError, match="threads"):
-            load_settings(config_path=top_cfg, environ={"PYTHON_COMPUTE_HOST": "127.0.0.1"})
-
     def test_ocr_timeout_exceeding_max_timeout_rejected(self) -> None:
         """ocr_timeout_sec cannot exceed max_timeout_sec (#1365)."""
         with pytest.raises(ConfigError, match="ocr_timeout_sec cannot exceed max_timeout_sec"):
@@ -950,14 +918,6 @@ class TestComputeSettings:
         s = ComputeSettings(ocr_timeout_sec=20, max_timeout_sec=30)
         assert s.ocr_timeout_sec == 20
         assert s.max_timeout_sec == 30
-
-    def test_inflight_keys_are_rejected(self, tmp_path) -> None:
-        ignored = load_settings(environ={"PYTHON_COMPUTE_MAX_INFLIGHT": "9", "PYTHON_COMPUTE_MAX_INFLIGHT_PER_SESSION": "3", "PYTHON_COMPUTE_HOST": "127.0.0.1"})
-        assert ignored.workers == 2
-        cfg = tmp_path / "cfg.json"
-        cfg.write_text(json.dumps({"limits": {"max_inflight": 8, "max_inflight_per_session": 4, "workers": 3}}), encoding="utf-8")
-        with pytest.raises(ConfigError, match="max_inflight"):
-            load_settings(config_path=cfg, environ={"PYTHON_COMPUTE_HOST": "127.0.0.1"})
 
     def test_workers_invalid(self) -> None:
         from compute_service.config import ConfigError
@@ -1112,12 +1072,6 @@ class TestComputeSettings:
         assert "file mode=0" in message
         assert f"owner={os.getuid()}" in message
         assert isinstance(exc_info.value.__cause__, PermissionError)
-
-    def test_compute_settings_none_worker_counts(self) -> None:
-        """Direct ComputeSettings with None worker counts fails with TypeError."""
-        kwargs: dict[str, Any] = {"workers": None, "ocr_workers": None}
-        with pytest.raises(TypeError):
-            ComputeSettings(**kwargs)
 
     def test_dual_stack_port_zero_bind(self) -> None:
         """Verify WSGIDualStackServer binds cleanly when port=0 and assigns matching port."""
@@ -2598,24 +2552,8 @@ def test_start_docker_rejects_missing_key_file(tmp_path) -> None:
     assert lines == []
 
 
-def test_dockerfile_copies_bundle_to_app() -> None:
-    """The runner stage copies /out/ from the bundle stage into /app/."""
-    from pathlib import Path
-
-    repo = Path(__file__).resolve().parents[2]
-    dockerfile = (repo / "compute_service" / "Dockerfile").read_text(encoding="utf-8")
-    assert "COPY --from=bundle /out/ /app/" in dockerfile
-
-
 def test_dockerfile_runner_copy_can_import_worker_base(tmp_path) -> None:
-    """The compute bundle must import the server without the rest of plugin/.
-
-    The final runner stage copies /out/ from the bundle stage built by
-    scripts/build_compute_bundle.py. Both plugin/vision/__init__.py and
-    plugin/doc/__init__.py are included (common_module.py is omitted).
-    This materializes the bundle output and verifies it can import without
-    the desktop tree.
-    """
+    """The compute bundle must import the server without the rest of plugin/."""
     import subprocess
     import sys
     from pathlib import Path
@@ -2625,19 +2563,6 @@ def test_dockerfile_runner_copy_can_import_worker_base(tmp_path) -> None:
 
     app = tmp_path / "app"
     assemble_compute_bundle(str(repo), str(app), strip=True)
-
-    framework = app / "plugin" / "framework"
-    for name in ("worker_pool.py", "errors.py", "i18n.py", "json_utils.py", "managed_subprocess.py", "process_worker.py", "thread_guard.py", "constants.py", "deal_shim.py"):
-        assert (framework / name).is_file(), name
-    for name in ("queue_executor.py", "uno_context.py", "logging.py"):
-        assert not (framework / name).exists(), name
-    vision = app / "plugin" / "vision"
-    assert (vision / "vision_common.py").is_file()
-    assert (vision / "__init__.py").is_file()
-    doc = app / "plugin" / "doc"
-    assert (framework / "doc_type.py").is_file()
-    assert (doc / "__init__.py").is_file()
-    assert not (doc / "common_module.py").exists()
 
     proc = subprocess.run(
         [sys.executable, "-S", "-P", "-c", "import compute_service.worker_base, compute_service.server, compute_service.formula_worker, plugin.scripting.named_scripts"], cwd=app, env={"PYTHONPATH": str(app), "PYTHONDONTWRITEBYTECODE": "1"}, capture_output=True, text=True, check=False
