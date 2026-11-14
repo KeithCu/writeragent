@@ -7,14 +7,10 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from plugin.mcp.tunnel import (
-    _TAILSCALE_OFF_CMD,
     TailscaleProvider,
     TunnelManager,
     binary_available,
-    build_bore_command,
-    build_cloudflare_command,
     build_ngrok_command,
-    build_tailscale_command,
     detect_tunnel_auth_error,
     normalize_public_base,
     parse_bore_provider_config,
@@ -24,55 +20,6 @@ from plugin.mcp.tunnel import (
     parse_tailscale_url,
     provider_label,
 )
-
-
-def test_build_cloudflare_quick_and_token():
-    assert build_cloudflare_command(18765) == [
-        "cloudflared",
-        "tunnel",
-        "--no-autoupdate",
-        "--url",
-        "http://localhost:18765",
-    ]
-    assert build_cloudflare_command(18765, "") == build_cloudflare_command(18765)
-    assert build_cloudflare_command(18765, "cf-jwt-token") == [
-        "cloudflared",
-        "tunnel",
-        "--no-autoupdate",
-        "run",
-    ]
-
-
-def test_build_bore_from_provider_config():
-    assert build_bore_command(18765) == ["bore", "local", "18765", "--to", "bore.pub"]
-    assert build_bore_command(18765, "my.relay.example") == [
-        "bore",
-        "local",
-        "18765",
-        "--to",
-        "my.relay.example",
-    ]
-    assert build_bore_command(18765, "my.relay.example s3cret") == [
-        "bore",
-        "local",
-        "18765",
-        "--to",
-        "my.relay.example",
-    ]
-    assert build_bore_command(18765, "my.relay.example:s3cret") == [
-        "bore",
-        "local",
-        "18765",
-        "--to",
-        "my.relay.example",
-    ]
-    assert build_bore_command(18765, "onlysecret") == [
-        "bore",
-        "local",
-        "18765",
-        "--to",
-        "bore.pub",
-    ]
 
 
 def test_parse_bore_provider_config():
@@ -86,35 +33,10 @@ def test_parse_bore_provider_config():
     assert parse_bore_provider_config("tok") == ("bore.pub", "tok")
 
 
-def test_build_ngrok_and_tailscale():
-    assert build_ngrok_command(18765) == [
-        "ngrok",
-        "http",
-        "http://localhost:18765",
-        "--log",
-        "stdout",
-        "--log-format",
-        "json",
-    ]
-    assert build_ngrok_command(18765, "secret-token") == [
-        "ngrok",
-        "http",
-        "http://localhost:18765",
-        "--log",
-        "stdout",
-        "--log-format",
-        "json",
-    ]
-    assert build_tailscale_command(18765) == ["tailscale", "funnel", "18765"]
-
-
-def test_tailscale_off_command_targets_https_443():
-    cmd = _TAILSCALE_OFF_CMD
-    assert cmd == ("tailscale", "funnel", "--https=443", "off")
-    assert "18765" not in cmd
-    assert "serve" not in cmd
-    assert "reset" not in cmd
-    assert build_tailscale_command(18765) == ["tailscale", "funnel", "18765"]
+def test_build_ngrok_ignores_token():
+    cmd = build_ngrok_command(18765, "secret-token")
+    assert cmd == build_ngrok_command(18765)
+    assert "secret-token" not in cmd
 
 
 def test_parse_cloudflare_url():

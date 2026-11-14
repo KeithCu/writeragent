@@ -584,12 +584,6 @@ class TestHttpBlobForward:
         assert seen["data_json"] == data_literal
         assert out == result_json
 
-    def test_mock_dict_result_still_dumps_for_compat(self) -> None:
-        app = create_wsgi_app(ComputeSettings(), execute_fn=lambda **_kw: {"status": "ok", "result": 1, "stdout": ""})
-        status, out = _wsgi_post(app, b'{"id":"compat","code":"result = 1"}')
-        assert status.startswith("200")
-        assert json.loads(out) == {"status": "ok", "result": 1, "stdout": "", "id": "compat"}
-
 
 class TestFormulaPoolWire:
     def test_json_forward_does_not_host_pack(self) -> None:

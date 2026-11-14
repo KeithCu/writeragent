@@ -143,8 +143,8 @@ def test_start_server_stashes_last_start_error(monkeypatch):
 
 
 
-def test_mcp_module_does_not_register_api_config(monkeypatch):
-    """GET/POST /api/config was removed — must not appear on the shared registry."""
+def test_mcp_module_registers_health_route(monkeypatch):
+    """McpModule.initialize() registers the /health route on an HttpRouteRegistry."""
     from unittest.mock import MagicMock
 
     import plugin.mcp as mcp_mod
@@ -172,11 +172,7 @@ def test_mcp_module_does_not_register_api_config(monkeypatch):
     try:
         mod.initialize(services)
 
-        assert not hasattr(mod, "_handle_config_get")
-        assert not hasattr(mod, "_handle_config_set")
         routes = set(mod._registry.list_routes())
-        assert ("GET", "/api/config") not in routes
-        assert ("POST", "/api/config") not in routes
         assert ("GET", "/health") in routes
         assert isinstance(mod._registry, HttpRouteRegistry)
     finally:

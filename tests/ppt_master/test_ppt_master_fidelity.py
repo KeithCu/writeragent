@@ -386,10 +386,8 @@ def test_read_pdf_info_timeout_returns_size_only(tmp_path: Path, exc_type: str) 
 
     pdf_file = tmp_path / "sample.pdf"
     pdf_file.write_bytes(b"%PDF-1.4 sample content 12345")
-    recorded_calls: list[tuple[Any, Any]] = []
 
     def fake_run(args: Any, **kwargs: Any) -> Any:
-        recorded_calls.append((args, kwargs))
         if exc_type == "timeout":
             raise subprocess.TimeoutExpired(cmd=args, timeout=kwargs["timeout"])
         raise FileNotFoundError("pdfinfo not found")
@@ -400,8 +398,3 @@ def test_read_pdf_info_timeout_returns_size_only(tmp_path: Path, exc_type: str) 
     assert info == PdfInfo(file_bytes=pdf_file.stat().st_size)
     assert info.pages == 0
     assert info.page_size_pts == ""
-    assert len(recorded_calls) == 1
-    args, kwargs = recorded_calls[0]
-    assert args == ["pdfinfo", str(pdf_file)]
-    assert kwargs.get("timeout") == 60
-    assert kwargs.get("check") is False

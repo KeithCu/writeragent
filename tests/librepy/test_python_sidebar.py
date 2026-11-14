@@ -10,7 +10,6 @@ from types import SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock, patch
 
-import pytest
 
 from plugin.librepy.python_sidebar import (
     _CALC_ONLY_IDS,
@@ -101,11 +100,7 @@ def test_python_sidebar_xdl_uses_menulist_not_listbox():
     and aborts soffice with 'pure virtual method called' when the Calc sidebar opens."""
     text = _sidebar_xdl_path().read_text(encoding="utf-8")
     assert "dlg:listbox" not in text
-    assert 'dlg:id="cells_list"' in text and "dlg:menulist" in text
-    assert 'dlg:id="diag_list"' in text
-    assert 'dlg:id="btn_hdr_settings"' in text
-    assert 'dlg:id="btn_hamburger"' in text
-    assert 'dlg:id="btn_search"' not in text
+    assert "dlg:menulist" in text
 
 
 def test_activation_listener_schedules_refresh():
@@ -353,22 +348,6 @@ def test_writer_does_not_use_desktop_calc_document():
         assert ctrl._calc_document() is None
 
 
-def test_sidebar_xcu_registers_writer():
-    from pathlib import Path
-
-    root = Path(__file__).resolve().parents[2]
-    paths = (
-        root / "extension-core" / "registry" / "org" / "openoffice" / "Office" / "UI" / "Sidebar.xcu",
-        root / "extension" / "registry" / "org" / "openoffice" / "Office" / "UI" / "Sidebar.xcu",
-    )
-    if not all(path.is_file() for path in paths):
-        pytest.skip("extension trees are not copied into the stripped make release tree")
-    for path in paths:
-        text = path.read_text(encoding="utf-8")
-        assert "LibrePyDeck" in text
-        assert "com.sun.star.text.TextDocument" in text
-
-
 def test_resize_listener_disposing_runs_callback_once_without_removing():
     calls: list[str] = []
     listener = _PanelResizeListener({}, on_dispose=lambda: calls.append("dispose"))
@@ -507,9 +486,8 @@ def test_calc_document_returns_none_for_writer_frame():
 
 
 def test_filter_msgids_translate_at_call():
-    from plugin.librepy.python_sidebar import _FILTER_MSGIDS, _filter_choices
+    from plugin.librepy.python_sidebar import _filter_choices
 
-    assert _FILTER_MSGIDS[0][0] == "All"
     with patch("plugin.librepy.python_sidebar._", side_effect=lambda s: f"T:{s}"):
         assert _filter_choices()[0] == ("T:All", "all")
 

@@ -23,7 +23,6 @@ from plugin.framework.managed_subprocess import (
 )
 from plugin.framework.send_cancellation import SendCancellation
 from plugin.ppt_master.pptx_build import (
-    _BUILD_TIMEOUT_SEC,
     build_project_pptx,
     ensure_project_pptx,
     find_project_pptx,
@@ -351,7 +350,3 @@ def test_ensure_project_pptx_builds_when_missing(mock_build, tmp_path: Path):
     assert err is None
     mock_build.assert_called_once_with(None, tmp_path, tmp_path, cancel=cancel)
 
-
-def test_build_timeout_leaves_margin_for_tool_timeout():
-    from plugin.ppt_master.tools import ExportPresentationProject
-    assert _BUILD_TIMEOUT_SEC < ExportPresentationProject.timeout

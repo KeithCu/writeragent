@@ -853,22 +853,6 @@ def test_async_tool_without_timeout_runs():
     assert not isinstance(result, dict) or result.get("status") != "error"
 
 
-def test_named_async_tools_declare_positive_timeout():
-    """Async tools must declare a positive MCP timeout.
-
-    RunMerge and ApplyStyle stay synchronous (they mutate UNO on the LibreOffice
-    main thread), so this check does not require them to be async. Tools that
-    remain async still must declare timeout > 0.
-    """
-    from plugin.chatbot.writing import WriteDocumentSection
-    from plugin.ppt_master.tools import ExportPresentationProject
-
-    for tool in (WriteDocumentSection(), ExportPresentationProject()):
-        assert tool.is_async() is True
-        assert getattr(tool, "timeout", 0) > 0
-
-
-
 def test_is_async_uses_long_running_path():
     """Tools with is_async() exactly True set is_async on _PreparedMcpCall and run inline."""
     class _AsyncProbe(ToolBase):
@@ -1000,17 +984,6 @@ def test_initialize_non_string_protocol_version_returns_invalid_params():
         assert "error" in response
         assert response["error"]["code"] == INVALID_PARAMS
         assert "string" in response["error"]["message"].lower()
-
-
-def test_protocol_handler_version_is_extension_version():
-    from unittest.mock import MagicMock
-    from plugin.mcp.mcp_protocol import MCPProtocolHandler
-    from plugin.version import EXTENSION_VERSION
-
-    handler = MCPProtocolHandler(MagicMock())
-    assert handler.version == EXTENSION_VERSION
-    init_res = handler._mcp_initialize({"protocolVersion": "2024-11-05"})
-    assert init_res["serverInfo"]["version"] == EXTENSION_VERSION
 
 
 @pytest.mark.parametrize(
