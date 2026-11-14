@@ -357,10 +357,9 @@ def test_workbook_session_id_recursion_off_main_thread(monkeypatch: pytest.Monke
     assert res is None
 
 
-def test_init_helper_function_in_shared_kernel():
-    """Functions defined via `def` in INIT scripts must be callable in shared kernel cells."""
-    init_sid = "calc:wb-func-shared:init"
-    cell_sid = "calc:wb-func-shared"
+@pytest.mark.parametrize(("cell_sid", "init_sid"), [("calc:wb-func-shared", "calc:wb-func-shared:init"), (None, "calc:wb-func-iso:init")])
+def test_init_helper_function_callable(cell_sid, init_sid):
+    """Functions defined via `def` in INIT scripts must be callable in shared and isolated cells."""
     init_code = "def double(x):\n    return x * 2\nFACTOR = 10"
     h = script_body_hash(init_code)
 
@@ -374,32 +373,16 @@ def test_init_helper_function_in_shared_kernel():
     assert r1["status"] == "ok", r1.get("message")
     assert r1["result"] == 42
 
-    r2 = sandbox_run(
-        "result = 3 * FACTOR",
-        session_id=cell_sid,
-        init_script=init_code,
-        init_session_id=init_sid,
-        init_script_hash=h,
-    )
-    assert r2["status"] == "ok", r2.get("message")
-    assert r2["result"] == 30
-
-
-def test_init_helper_function_in_isolated_mode():
-    """Functions defined via `def` in INIT scripts must be callable in isolated cells."""
-    init_sid = "calc:wb-func-iso:init"
-    init_code = "def double(x):\n    return x * 2\nFACTOR = 10"
-    h = script_body_hash(init_code)
-
-    r1 = sandbox_run(
-        "result = double(21)",
-        session_id=None,
-        init_script=init_code,
-        init_session_id=init_sid,
-        init_script_hash=h,
-    )
-    assert r1["status"] == "ok", r1.get("message")
-    assert r1["result"] == 42
+    if cell_sid is not None:
+        r2 = sandbox_run(
+            "result = 3 * FACTOR",
+            session_id=cell_sid,
+            init_script=init_code,
+            init_session_id=init_sid,
+            init_script_hash=h,
+        )
+        assert r2["status"] == "ok", r2.get("message")
+        assert r2["result"] == 30
 
 
 def test_reset_re_seeds_init_helper_function():

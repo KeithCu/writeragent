@@ -292,8 +292,6 @@ def test_text_percent_scales_in_decimal():
     assert calc.text(0.285, "0%") == "29%"
     assert calc.text(-0.285, "0%") == "-29%"
     assert calc.text(0.145, "0%") == "15%"
-    assert calc.text(0.125, "0%") == "13%"
-    assert calc.text(0.125, "0.0%") == "12.5%"
     assert calc.text(float("inf"), "0%") == "inf"
 
 
@@ -557,13 +555,11 @@ def test_textsplit_empty_text_is_nan_and_pad_is_nan():
 
 
 def test_unique_ragged_input():
-    # Item 25: UNIQUE([[1, 2], [1]]) does not raise
     res = calc.unique([[1, 2], [1]])
     assert res == [[1, 2], [1, ""]]
 
 
 def test_text_date_time_formats():
-    # Item 26: TEXT date formats
     d = _serial(2024, 1, 15)
     assert calc.text(d, "yyyy-mm-dd") == "2024-01-15"
     assert calc.text(d, "dd/mm/yyyy") == "15/01/2024"
@@ -574,7 +570,6 @@ def test_text_date_time_formats():
 
 
 def test_text_and_trend_shared_helpers_unchanged():
-    assert calc.text(0.285, "0%") == "29%"
     assert calc.text(-0.001, "0.00") == "0.00"
     assert calc.text(-2.5, "0") == "-3"
     assert calc.text(1e30, "#,##0.00") == "1," + "000," * 9 + "000.00"

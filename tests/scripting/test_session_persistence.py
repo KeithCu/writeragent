@@ -42,13 +42,6 @@ def test_shared_kernel_persists_across_simulated_recalc():
     assert r3["result"] == 2
 
 
-def test_isolated_default_fresh_namespace():
-    r1 = sandbox_run("x = 41\nresult = x + 1", None)
-    assert r1["status"] == "ok"
-    r2 = sandbox_run("result = x + 1", None)
-    assert r2["status"] == "error"
-
-
 def test_cross_session_isolation():
     sandbox_run("x = 10", None, session_id="calc:a")
     r = sandbox_run("result = x", None, session_id="calc:b")

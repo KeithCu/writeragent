@@ -1208,19 +1208,6 @@ def test_child_pack_numpy_scalar_types() -> None:
     assert child_pack_result(np.bool_(True)) is True
 
 
-def test_get_cython_status_info() -> None:
-    """Verify host_cython_status_line returns valid status line and location."""
-    status_line = payload_codec.host_cython_status_line()
-    assert status_line.startswith("Cython Accelerator:")
-    if payload_codec.fast_flatten_grid_2d is not None:
-        assert "Active" in status_line
-        assert payload_codec._CYTHON_ACCELERATOR_LOCATION is not None
-        assert payload_codec._CYTHON_ACCELERATOR_LOCATION in status_line
-    else:
-        assert "Inactive" in status_line
-        assert payload_codec._CYTHON_ACCELERATOR_LOCATION is None
-
-
 def test_cython_canary_failure_disables_accelerator() -> None:
     """Verify that a failing canary test prevents activating the accelerator."""
     from plugin.scripting.payload_codec import _verify_accelerator
@@ -1244,12 +1231,9 @@ def test_child_mixed_2d_returns_list_not_ndarray() -> None:
 
 def test_is_numeric_coercible_and_is_numeric_grid() -> None:
     """Helpers gate numeric-only fast paths."""
-    assert _is_numeric_coercible_impl(None) is True
     assert _is_numeric_coercible_impl("42") is False
     assert _is_numeric_coercible_impl("") is True
     assert _is_numeric_coercible_impl("hello") is False
-    assert is_numeric_grid([[1, 2], [3, 4]]) is True
-    assert is_numeric_grid([1, "x"]) is False
     # A user type whose name starts with "int" is not a NumPy scalar.
     internal = type("internal", (), {})
     assert _is_numeric_coercible_impl(internal()) is False

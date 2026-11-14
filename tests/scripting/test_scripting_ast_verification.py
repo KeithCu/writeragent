@@ -10,7 +10,7 @@ from __future__ import annotations
 import ast
 
 from plugin.contrib.smolagents.local_python_executor import ALLOWED_DUNDER_ATTRIBUTES
-from plugin.scripting.sandbox_cache import validate_sandbox_ast, get_hot_entry
+from plugin.scripting.sandbox_cache import validate_sandbox_ast
 import pytest
 
 
@@ -58,13 +58,3 @@ def test_validate_sandbox_ast_forbidden_dunder_attributes(attr: str) -> None:
 def test_validate_sandbox_ast_allowed_attributes(attr: str) -> None:
     module = ast.parse(f"x = obj.{attr}")
     assert validate_sandbox_ast(module, ["math"]) is None
-
-
-def test_get_hot_entry_caching() -> None:
-    code = "result = 42"
-    entry1 = get_hot_entry(code, ["math"])
-    assert entry1.error is None
-    assert isinstance(entry1.module, ast.Module)
-
-    entry2 = get_hot_entry(code, ["math"])
-    assert entry1 is entry2

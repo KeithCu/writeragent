@@ -15,13 +15,15 @@ import plugin.scripting.calc_functions as calc
 
 def test_address():
     assert calc.address(1, 1) == "$A$1"
-    assert calc.address(1, 1, 1) == "$A$1"
     assert calc.address(1, 1, 2) == "A$1"
     assert calc.address(1, 1, 3) == "$A1"
     assert calc.address(1, 1, 4) == "A1"
     assert calc.address(2, 3, 4) == "C2"
+    assert calc.address(2, 3, 1, False) == "R2C3"
+    assert calc.address(2, 3, 1, 0) == "R2C3"
     # Single quotes in sheet name are escaped as ''
     assert calc.address(1, 1, 1, True, "Sheet1") == "'Sheet1'!$A$1"
+    assert calc.address(5, 6, 4, 1, "My Sheet") == "'My Sheet'!F5"
     assert calc.address(1, 1, 1, True, "Sheet's") == "'Sheet''s'!$A$1"
 
     # Out of bounds abs_num (must be 1..4)
@@ -206,7 +208,7 @@ def test_complex():
     assert calc.complex(2, 3, "j") == "2+3j"
     assert calc.complex(2, -3, "j") == "2-3j"
     assert calc.complex(0, 1) == "i"
-    assert calc.complex(0, -1) == "j".replace("j", "-i")
+    assert calc.complex(0, -1) == "-i"
     assert calc.complex(5, 0) == "5"
 
     # Suffix not "i" or "j" returns #VALUE!
@@ -354,26 +356,6 @@ def test_trig_errors_propagate():
         calc.coth(0)
     with pytest.raises(ZeroDivisionError):
         calc.csc(0)
-
-
-def test_oracle_address_table():
-    """Oracle tests for ADDRESS covering styles, sheet names, relative and absolute modes."""
-    cases = [
-        # (row, col, abs_num, a1_style, sheet, expected)
-        (1, 1, 1, True, "", "$A$1"),
-        (2, 3, 2, True, "", "C$2"),
-        (3, 4, 3, True, "", "$D3"),
-        (4, 5, 4, True, "", "E4"),
-        (2, 3, 1, False, "", "R2C3"),
-        (2, 3, 1, 0, "", "R2C3"),
-        (1, 1, 1, 1, "Sheet1", "'Sheet1'!$A$1"),
-        (5, 6, 4, 1, "My Sheet", "'My Sheet'!F5"),
-    ]
-    for row, col, abs_num, a1_style, sheet, expected in cases:
-        if sheet:
-            assert calc.address(row, col, abs_num, a1_style, sheet) == expected
-        else:
-            assert calc.address(row, col, abs_num, a1_style) == expected
 
 
 def test_oracle_averageif_averageifs_table():

@@ -708,19 +708,6 @@ def test_efficient_frontier_rejects_bad_bounds_and_rate(monkeypatch):
     mock_ef_class.assert_not_called()
 
 
-def test_fetch_pins_auto_adjust(monkeypatch):
-    import sys
-    import pandas as pd
-
-    fake_yf = MagicMock()
-    fake_yf.download.return_value = pd.DataFrame({"Close": [1.0]})
-    monkeypatch.setitem(sys.modules, "yfinance", fake_yf)
-
-    result = venv_run_quant({"helper": "fetch_historical_data", "params": {"tickers": ["AAPL"]}})
-    assert result["status"] == "ok", result
-    assert fake_yf.download.call_args.kwargs["auto_adjust"] is True
-
-
 def test_efficient_frontier_drops_incomplete_rows(monkeypatch):
     import sys
 

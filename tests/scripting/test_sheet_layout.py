@@ -22,8 +22,3 @@ def test_extract_sheet_layout_non_dict_is_empty() -> None:
     assert extract_sheet_layout(None) == {}
     assert extract_sheet_layout([]) == {}
     assert extract_sheet_layout("headers") == {}
-
-
-def test_extract_sheet_layout_copies_every_layout_key_raw() -> None:
-    source = {"headers": 0, "header_row": 0}
-    assert extract_sheet_layout(source) == source

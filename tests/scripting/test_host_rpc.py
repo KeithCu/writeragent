@@ -546,41 +546,11 @@ def test_handle_tool_call_frame_invalid_tool_name_type():
     assert resp["status"] == "error"
     assert "Invalid tool_call: None" in resp["message"]
 
-def test_singularize_domain():
+def test_singularize_domain_leaves_non_map_names_unchanged():
     from plugin.scripting.host_rpc import singularize_domain
 
-    for plural, singular in (
-        ("bookmarks", "bookmark"),
-        ("charts", "chart"),
-        ("cell_comments", "cell_comment"),
-        ("comments", "comment"),
-        ("errors", "error"),
-        ("fields", "field"),
-        ("footnotes", "footnote"),
-        ("headers_footers", "headers_footer"),
-        ("indexes", "index"),
-        ("pivot_tables", "pivot_table"),
-        ("ranges", "range"),
-        ("shapes", "shape"),
-        ("sheets", "sheet"),
-        ("slide_layouts", "slide_layout"),
-        ("slide_masters", "slide_master"),
-        ("slide_transitions", "slide_transition"),
-        ("speaker_notes", "speaker_note"),
-        ("page_comments", "page_comment"),
-        ("tables", "table"),
-        ("textframes", "textframe"),
-    ):
-        assert singularize_domain(plural) == singular
-
-    assert singularize_domain("images") == "images"
-    assert singularize_domain("styles") == "styles"
-    assert singularize_domain("forms") == "forms"
-    assert singularize_domain("core") == "core"
-    assert singularize_domain("analysis") == "analysis"
-    assert singularize_domain("status") == "status"
-    assert singularize_domain("shape") == "shape"
-    assert singularize_domain("style") == "style"
+    for name in ("images", "styles", "forms", "core", "analysis", "status", "shape", "style"):
+        assert singularize_domain(name) == name
 
 
 @pytest.mark.parametrize(

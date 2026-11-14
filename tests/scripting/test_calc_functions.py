@@ -228,8 +228,6 @@ def test_tier_d_helpers():
 def test_15_more_helpers():
     # Lookup
     assert calc.choose(2, "a", "b", "c") == "b"
-    assert calc.address(1, 1) == "$A$1"
-    assert calc.address(1, 1, 4) == "A1"
     assert calc.areas("any") == 1.0
 
     # Date & Time
@@ -307,25 +305,6 @@ def test_financial_group_a():
     assert not math.isnan(calc.ddb(10000, 1000, 5, 1))
 
     assert not math.isnan(calc.disc(43831, 43983, 95, 100))
-
-def test_norminv():
-    from plugin.scripting.calc_functions import norminv
-    import math
-    res = norminv(0.5, 0, 1)
-    assert math.isclose(res, 0.0, abs_tol=1e-5)
-    assert math.isnan(norminv(-0.1, 0, 1))
-
-def test_normsdist():
-    from plugin.scripting.calc_functions import normsdist
-    import math
-    res = normsdist(0)
-    assert math.isclose(res, 0.5, abs_tol=1e-5)
-
-def test_normsinv():
-    from plugin.scripting.calc_functions import normsinv
-    import math
-    res = normsinv(0.5)
-    assert math.isclose(res, 0.0, abs_tol=1e-5)
 
 def test_pearson():
     from plugin.scripting.calc_functions import pearson
@@ -1462,6 +1441,7 @@ def test_norm_stdlib_ignores_missing_scipy():
         assert math.isclose(calc.normsinv(0.5), 0.0, abs_tol=1e-5)
         assert math.isnan(calc.poisson(1, 1))
     assert math.isclose(calc.norminv(0.5, 0, 1), 0.0, abs_tol=1e-5)
+    assert math.isnan(calc.norminv(-0.1, 0, 1))
     assert math.isclose(calc.normsdist(0), 0.5, abs_tol=1e-5)
     assert math.isclose(calc.normsinv(0.5), 0.0, abs_tol=1e-5)
 
