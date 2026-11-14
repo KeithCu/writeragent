@@ -261,16 +261,7 @@ def test_query_folder_sql_handles_office_files_and_sheet_hint(
     assert pre["budget"]["grid"] == [["Region", "Sales"], ["North", 100]]
 
     flat = call_args.kwargs.get("flat_files") or {}
-    direct = call_args.kwargs.get("files")
-    if direct is None and len(call_args[0]) > 3:
-        direct = call_args[0][3]
-    direct = direct or []
-    assert any("sales.csv" in str(v) for v in (flat.values() if isinstance(flat, dict) else [])) or (
-        "sales.csv" in str(direct)
-    )
-    assert "budget" not in flat
-    assert "budget.xlsx" not in str(direct)
-    assert not any("budget.xlsx" in str(v) for v in (flat.values() if isinstance(flat, dict) else []))
+    assert flat == {"sales": "/tmp/project/sales.csv"}
 
 
 @patch("plugin.calc.duckdb_tools.os.path.isfile", return_value=True)
@@ -1198,6 +1189,7 @@ def test_execute_rejects_duplicate_file_table_names(
     )
     assert res["status"] == "error"
     assert "budget.xlsx" in res["message"]
+    assert "Duplicate" in res["message"]
     mock_read_sibling.assert_called_once()
     mock_run.assert_not_called()
 

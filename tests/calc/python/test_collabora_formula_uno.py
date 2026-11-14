@@ -36,10 +36,10 @@ def test_collabora_getpy_rewrites_and_evaluates(ctx, doc):
         has_addin = False
 
     if not has_addin:
-        # FIXME: testing_runner bootstraps with a throwaway profile (-env:UserInstallation in /tmp)
-        # which does not inherit user-level extensions installed via `unopkg add` into ~/.config/libreoffice.
-        # Once testing_runner uses a shared extension install or mounts the profile, require has_addin to be True.
-        print("Note: org.extension.writeragent.PythonFunction addin service not registered in throwaway profile; skipping calculation assertion")
-        return
+        import unittest
+
+        raise unittest.SkipTest(
+            "org.extension.writeragent.PythonFunction addin service not registered in throwaway profile"
+        )
 
     assert float(value) == 2.0

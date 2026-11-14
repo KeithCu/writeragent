@@ -60,14 +60,6 @@ def test_registry_classes_own_their_display_names():
         assert "display_name" in cls.__dict__
 
 
-@pytest.mark.parametrize("cls", _ACP_BACKENDS, ids=lambda c: c.backend_id)
-def test_backend_spec_properties(cls):
-    backend = cls()
-    assert backend.backend_id == cls.backend_id
-    assert backend.display_name == cls.display_name
-    assert backend.binary_name == cls.binary_name
-    assert tuple(backend.default_extra_args) == cls.default_extra_args
-
 
 @pytest.mark.parametrize("cls", _ACP_BACKENDS, ids=lambda c: c.backend_id)
 def test_backend_is_available_matrix(cls):

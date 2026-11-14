@@ -61,16 +61,7 @@ def test_follow_ref_save_writes_code_cell_keeps_absolute_ref(ctx, doc):
 
 def _py_cell_error_code(cell) -> int:
     """Calc error constant, or 0 when the cell is not an error."""
-    try:
-        from com.sun.star.table import CellContentType
-
-        if cell.getType() != CellContentType.VALUE:
-            # FORMULA that failed still reports VALUE with an error code.
-            pass
-        err = int(cell.getError())
-        return err
-    except Exception:
-        return 0
+    return int(cell.getError())
 
 
 @native_test
@@ -119,9 +110,12 @@ def test_follow_ref_save_empty_data_still_evaluates(ctx, doc):
         f"into {after!r} (err={after_err}, val={after_val})"
     )
     # Headless PY($A$1) may not run the worker (val stays 0); GUI does. When
-    # setup evaluated, save must update the result.
-    if float(before_val) == 42.0:
-        assert float(after_val) == 99.0, f"after {after!r} val={after_val} err={after_err}"
+    # setup evaluated, save must update the result; otherwise skip visibly.
+    if float(before_val) != 42.0:
+        import unittest
+
+        raise unittest.SkipTest("=PY() worker did not evaluate in headless profile (before_val != 42.0)")
+    assert float(after_val) == 99.0, f"after {after!r} val={after_val} err={after_err}"
 
 
 def _addr_tuple(cell):

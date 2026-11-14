@@ -143,3 +143,14 @@ def test_sheet_qualified_common_forms():
 
 def test_single_cell_expand_is_identity():
     assert expand_single_formula("=H2", 1, 1) == ["=H2"]
+
+
+@pytest.mark.parametrize(
+    "formula, rows, cols, expected",
+    [
+        pytest.param("='My Sheet'.A1", 2, 1, ["='My Sheet'.A1", "='My Sheet'.A2"], id="quoted_sheet_fill_down"),
+        pytest.param("=SUM(A:A)", 1, 3, ["=SUM(A:A)", "=SUM(B:B)", "=SUM(C:C)"], id="whole_col_fill_across"),
+    ],
+)
+def test_quoted_sheet_and_whole_column_expand(formula, rows, cols, expected):
+    assert expand_single_formula(formula, rows, cols) == expected

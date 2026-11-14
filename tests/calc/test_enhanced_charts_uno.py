@@ -82,18 +82,18 @@ def test_calc_chart_colors(ctx, doc):
     chart_obj = sheet.getCharts().getByName(chart_name)
     chart_doc = chart_obj.getEmbeddedObject()
     diag = chart_doc.getFirstDiagram()
-    if diag:
-        coords = diag.getCoordinateSystems()
-        if coords:
-            ctypes = coords[0].getChartTypes()
-            if ctypes:
-                series_list = ctypes[0].getDataSeries()
-                if series_list:
-                    s0 = series_list[0]
-                    for prop in ["FillColor", "Color"]:
-                        if s0.getPropertySetInfo().hasPropertyByName(prop):
-                            assert s0.getPropertyValue(prop) == 0x00FF00
-                            break
+    assert diag is not None, "Expected diagram on chart"
+    coords = diag.getCoordinateSystems()
+    assert coords, "Expected coordinate systems on diagram"
+    ctypes = coords[0].getChartTypes()
+    assert ctypes, "Expected chart types on coordinate system"
+    series_list = ctypes[0].getDataSeries()
+    assert series_list, "Expected data series on chart type"
+    s0 = series_list[0]
+    prop_info = s0.getPropertySetInfo()
+    color_prop = next((p for p in ("FillColor", "Color") if prop_info.hasPropertyByName(p)), None)
+    assert color_prop is not None, "Expected FillColor or Color property on data series"
+    assert s0.getPropertyValue(color_prop) == 0x00FF00
 
     # 3. Edit chart with another color (e.g. shorthand hex and CSS name)
     edit_res = _execute(doc, ctx, "chart_upsert", {

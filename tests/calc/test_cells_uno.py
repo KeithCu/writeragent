@@ -836,11 +836,20 @@ def test_write_time_does_not_inherit_incompatible_date_format(ctx, doc):
 def test_insert_structure_and_unmerge(ctx, doc):
     active = doc.getCurrentController().getActiveSheet()
     active.getCellByPosition(0, 0).setString("hdr")
-    _execute_calc_tool(doc, ctx, "merge_cells", {"range": ["A1:B1"]})
+    res_merge = _execute_calc_tool(doc, ctx, "merge_cells", {"range": ["A1:B1"]})
+    assert res_merge.get("status") == "ok", res_merge
+    assert active.getCellRangeByName("A1:B1").getIsMerged() is True
     res_unmerge = _execute_calc_tool(doc, ctx, "merge_cells", {"range": ["A1:B1"], "unmerge": True})
     assert res_unmerge.get("status") == "ok", res_unmerge
-    _execute_calc_tool(doc, ctx, "insert_structure", {"structure_type": "rows", "start": 2, "count": 1})
-    _execute_calc_tool(doc, ctx, "insert_structure", {"structure_type": "columns", "start": "C", "count": 1})
+    assert active.getCellRangeByName("A1:B1").getIsMerged() is False
+    active.getCellByPosition(2, 1).setString("marker")
+    res_row = _execute_calc_tool(doc, ctx, "insert_structure", {"structure_type": "rows", "start": 2, "count": 1})
+    assert res_row.get("status") == "ok", res_row
+    assert active.getCellByPosition(2, 2).getString() == "marker"
+    res_col = _execute_calc_tool(doc, ctx, "insert_structure", {"structure_type": "columns", "start": "C", "count": 1})
+    assert res_col.get("status") == "ok", res_col
+    assert active.getCellByPosition(3, 2).getString() == "marker"
+    assert active.getCellByPosition(2, 2).getString() == ""
 
 
 @native_test
@@ -850,7 +859,10 @@ def test_delete_structure_on_prefixed_sheet(ctx, doc):
     sheets.insertNewByName("Sheet2", sheets.getCount())
     sheet2 = sheets.getByName("Sheet2")
     sheet2.getCellByPosition(0, 4).setString("row5")
-    _execute_calc_tool(doc, ctx, "delete_structure", {"structure_type": "rows", "start": "Sheet2.5"})
+    sheet2.getCellByPosition(0, 5).setString("row6")
+    res = _execute_calc_tool(doc, ctx, "delete_structure", {"structure_type": "rows", "start": "Sheet2.5"})
+    assert res.get("status") == "ok", res
+    assert sheet2.getCellByPosition(0, 4).getString() == "row6"
 
 
 @native_test

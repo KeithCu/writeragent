@@ -19,11 +19,6 @@ def test_unknown_tool(ctx, doc):
     assert res.get("status") == "error", f"unknown tool handling failed: {res}"
 
 
-@native_test
-@with_native_doc("calc")
-def test_calc_integration_tests(ctx, doc):
-    pass
-
 
 @native_test
 @with_native_doc("calc")

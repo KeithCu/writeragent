@@ -71,10 +71,16 @@ def test_manipulator_insert_structure_and_unmerge(ctx, doc):
 
     bridge = CalcBridge(doc)
     manipulator = CellManipulator(bridge)
-    manipulator.insert_structure("rows", 1, count=1)
     sheet = bridge.get_active_sheet()
-    sheet.getCellRangeByPosition(0, 0, 1, 0).merge(True)
+    sheet.getCellByPosition(0, 0).setString("shifted")
+    manipulator.insert_structure("rows", 1, count=1)
+    assert sheet.getCellByPosition(0, 0).getString() == ""
+    assert sheet.getCellByPosition(0, 1).getString() == "shifted"
+    merged_range = sheet.getCellRangeByPosition(0, 0, 1, 0)
+    merged_range.merge(True)
+    assert merged_range.getIsMerged() is True
     manipulator.merge_cells("A1:B1", center=False, unmerge=True)
+    assert merged_range.getIsMerged() is False
 
 
 @native_test

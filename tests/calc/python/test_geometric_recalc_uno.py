@@ -55,7 +55,6 @@ def test_geometric_formula_io_roundtrip(ctx, doc):
         "quoted_range": _store(b1, '=PY("np.mean(data)"; B1:B10)'),
         "code_in_cell": _store(sheet.getCellByPosition(3, 0), "=PY($A$1; B1:B10)"),
     }
-    print("geometric getFormula probe:", samples)
 
     # 1) =PY("y"; $C$5) attach predecessor — $C$5 stays absolute.
     stored = samples["quoted_abs"]
@@ -77,14 +76,9 @@ def test_geometric_formula_io_roundtrip(ctx, doc):
     # Absolute user ref must survive setFormula+getFormula (Calc may keep $C$5
     # or add a sheet; do not accept a relative C5 if $ was stored).
     first_arg = after_args[0]
-    stored_first = old_args[0]
-    if "$" in stored_first:
-        assert "$" in first_arg, (stored, rebuilt, after)
-        assert first_arg.replace("$", "").upper().endswith("C5"), after
-    else:
-        # Calc itself dropped $ on first store — splice must not invent a
-        # different cell, and must still parse.
-        assert first_arg.replace("$", "").upper().endswith("C5"), after
+    assert "$" in old_args[0], stored
+    assert "$" in first_arg, (stored, rebuilt, after)
+    assert first_arg.replace("$", "").upper().endswith("C5"), after
 
     # 2) Quoted code + range: splice appends a pred; getFormula still parses.
     stored_range = samples["quoted_range"]
@@ -505,16 +499,15 @@ def test_geometric_insert_delete_undo_three_cell_column(ctx, doc):
         # 3) Undo restores the inserted cell and A3's ;A2 (hidden under the delete).
         um = doc.getUndoManager()
         assert um is not None
-        if um.isUndoPossible():
-            um.undo()
-            # Either one undo restores both (hidden) or the user cell is back.
-            restored = str(a2.getFormula() or "")
-            if "PY" in restored.upper() or "PYTHON" in restored.upper():
-                _flush(ctx, doc, sheet)
-                assert _pred(str(a3.getFormula() or "")) == "A2", (
-                    a2.getFormula(),
-                    a3.getFormula(),
-                )
+        assert um.isUndoPossible()
+        um.undo()
+        restored = str(a2.getFormula() or "")
+        assert "PY" in restored.upper() or "PYTHON" in restored.upper(), restored
+        _flush(ctx, doc, sheet)
+        assert _pred(str(a3.getFormula() or "")) == "A2", (
+            a2.getFormula(),
+            a3.getFormula(),
+        )
 
         # Successor-becomes-first → remove-field.
         a2.setFormula("")
