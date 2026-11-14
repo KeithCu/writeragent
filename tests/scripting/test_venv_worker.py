@@ -30,6 +30,7 @@ from plugin.scripting.venv_worker import (
     _TurnState,
     _classify_read_failure,
     _worker_error_message,
+    parse_worker_stdout_frame,
     reset_python_session,
     run_code_in_user_venv,
     shutdown_venv_workers_for_tests,
@@ -1048,6 +1049,7 @@ def test_get_refreshes_env_for_the_next_spawn():
     shutdown_venv_workers_for_tests()
     try:
         first = PythonWorkerManager.get('/tmp/python-env', {'PATH': '/usr/bin', 'A': '1'})
+        assert first.env['WRITERAGENT_IS_WORKER'] == '1'
         second = PythonWorkerManager.get('/tmp/python-env', {'PATH': '/usr/bin', 'A': '1', 'B': '2'})
         assert first is second
         assert second.env['B'] == '2'
@@ -1060,37 +1062,19 @@ def test_retired_worker_does_not_respawn():
     shutdown_venv_workers_for_tests()
     try:
         first = PythonWorkerManager.get('/tmp/python-old-path', {'PATH': '/usr/bin'}, pool=WORKER_POOL_DEFAULT)
+        seen: list[bool] = []
         mock_warm = MagicMock()
         mock_warm.is_alive.return_value = True
+        mock_warm.retire = MagicMock(side_effect=lambda: seen.append(first._retired))
         first._warm = mock_warm
         PythonWorkerManager.get('/tmp/python-new-path', {'PATH': '/usr/bin'}, pool=WORKER_POOL_DEFAULT)
+        assert seen == [True]
         assert first._retired is True
         mock_warm.retire.assert_called_once()
         assert not _session_ok(first)
         assert _mgr_proc(first) is None
     finally:
         shutdown_venv_workers_for_tests()
-
-def test_shutdown_all_sets_retired_before_terminate():
-    from plugin.scripting import venv_worker as vw
-    mgr = vw.PythonWorkerManager.__new__(vw.PythonWorkerManager)
-    mgr._retired = False
-    retired_when_retire_called: list[bool] = []
-    mgr._warm = MagicMock()
-    mgr._warm.retire = MagicMock(side_effect=lambda: retired_when_retire_called.append(mgr._retired))
-    key = 'test-pool:shutdown-retire'
-    with vw._registry_lock:
-        previous = dict(vw._instances)
-        vw._instances[key] = mgr
-    try:
-        vw.shutdown_venv_workers_for_tests()
-    finally:
-        with vw._registry_lock:
-            vw._instances.clear()
-            vw._instances.update(previous)
-    assert retired_when_retire_called == [True]
-    assert mgr._retired is True
-    assert mgr._warm is None
 
 @patch('plugin.framework.config.get_config', return_value=10)
 @patch('plugin.scripting.venv_worker.get_config', return_value='')
@@ -1673,6 +1657,7 @@ def test_maybe_dispatch_tool_call_without_ppt_master(monkeypatch):
     assert handled is True
     mock_tool.assert_called_once()
     assert mock_tool.call_args.args == ('apply_document_content', {'content': ['x']})
+    assert mock_tool.call_args.kwargs['caller'] == 'script'
     assert len(written) == 1
     resp = read_pickle_frame(io.BytesIO(written[0]), require_dict=True)
     assert resp is not None
@@ -2879,6 +2864,11 @@ def test_execute_cancel_returns_cancelled_before_io(monkeypatch):
     _install_mock_proc(mgr, MagicMock(poll=MagicMock(return_value=None), stdin=io.BytesIO(), stdout=io.BytesIO()))
     res = mgr.execute(ExecRequest(code='result = 1', timeout_sec=1, cancel=_cancelled_scope()))
     assert res['code'] == 'CANCELLED'
+
+def test_parse_worker_stdout_frame_rejects_non_dict():
+    payload = pickle.dumps([1], protocol=5)
+    with pytest.raises(RuntimeError):
+        parse_worker_stdout_frame(payload)
 
 def test_run_in_session_does_not_warm_when_stopped():
     mgr = PythonWorkerManager('/tmp/python-test', {'PATH': '/usr/bin'})
