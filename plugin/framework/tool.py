@@ -977,8 +977,8 @@ class ToolRegistry:
             t.name
             for t in self.get_tools(
                 doc_type=ctx.doc_type,
-                uno_services_supported=getattr(ctx, "uno_services_supported", None) or None,
-                active_domain=getattr(ctx, "active_domain", None),
+                uno_services_supported=ctx.uno_services_supported or None,
+                active_domain=ctx.active_domain,
             )
             if t.name
         ]
@@ -1004,9 +1004,9 @@ class ToolRegistry:
             tool = self._tools.get(tool_name)
             if tool is None:
                 # Return a structured error instead of raising KeyError so the model
-                # receives actionable feedback ("no tool named X") and names the
-                # closest offered tools rather than an opaque traceback via
-                # execute_fn's unexpected-exception handler.
+                # receives actionable feedback ('no tool named X', plus the closest
+                # offered names) rather than an opaque traceback via execute_fn's
+                # unexpected-exception handler.
                 # This covers hallucinated names (e.g. 'write_formulas') and the
                 # 'unknown' sentinel from null tool-name tool calls alike.
                 return self._unknown_tool_error(tool_name, ctx)

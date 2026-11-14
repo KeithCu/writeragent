@@ -150,6 +150,8 @@ def test_write_formula_range_ragged_grid_single_cell_names_row():
         with pytest.raises(CalcError) as exc_info:
             manipulator.write_formula_range("A1", [[1, 2], [3]])
     assert "row 2" in str(exc_info.value)
+
+
 def test_write_array_formula_refusal_leaves_prior_array():
     # Old array A1:B1. The new result is 1x3, and C1 already has a value.
     # Refusing must not clear A1:B1. B1 belongs to the array being replaced,

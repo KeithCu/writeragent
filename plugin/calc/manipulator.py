@@ -123,16 +123,37 @@ def _values_length_mismatch_message(range_name: str, n_vals: int, n_cells: int, 
     return f"Array has {n_vals} values but range {range_name} has {n_cells} cells ({rows}×{cols}). JSON array must match range size exactly, or pass a single string to fill the whole range.{hint}"
 
 
-def _grid_mismatch_message(range_name: str, values: Sequence[Any], rows: int, cols: int, start: tuple[int, int]) -> str:
+def _first_ragged_row(values: Sequence[Any]) -> int | None:
+    """Return the 0-based index of the first row that is not a sequence matching row 1's length."""
+    width = len(values[0])
+    for idx, row in enumerate(values):
+        if not isinstance(row, (list, tuple)) or len(row) != width:
+            return idx
+    return None
+
+
+def _grid_mismatch_message(
+    range_name: str,
+    values: Sequence[Any],
+    rows: int,
+    cols: int,
+    start: tuple[int, int],
+    bad_row: int | None = None,
+) -> str:
     """Explain a ragged or wrong-shaped 2-D write with the range name and the matching shape."""
     r = len(values)
     width = len(values[0])
-    for idx, row in enumerate(values):
+    if bad_row is not None:
+        row = values[bad_row]
         if not isinstance(row, (list, tuple)):
-            return f"values row {idx + 1} is not a list (row 1 has {width} items); every row needs the same length. Range {range_name} is {rows}×{cols}."
-        if len(row) != width:
-            return f"values row {idx + 1} has {len(row)} items but row 1 has {width}; every row needs the same length. Range {range_name} is {rows}×{cols}."
+            return f"values row {bad_row + 1} is not a list (row 1 has {width} items); every row needs the same length. Range {range_name} is {rows}×{cols}."
+        return f"values row {bad_row + 1} has {len(row)} items but row 1 has {width}; every row needs the same length. Range {range_name} is {rows}×{cols}."
     return f"values is {r}×{width} (rows×columns) but range {range_name} is {rows}×{cols}. Send {rows} rows of {cols} values, or use a {r}×{width} range starting at {format_address(*start)}."
+
+
+def _sort_unchanged_message(range_str: str, sort_column: int) -> str:
+    """Return the no-op sort message telling the caller what to check instead of repeating."""
+    return f"Range {range_str}: key column {sort_column} unchanged by the sort; no rows moved. Calling it again changes nothing; if rows should move, check range, has_header and sort_column."
 
 
 def _write_summary(
@@ -612,7 +633,7 @@ class CellManipulator:
         direction = "ascending" if ascending else "descending"
         if key_column() == before:
             log.info("Range %s: key column %d unchanged by the sort; no rows moved.", range_str.upper(), sort_column)
-            return f"Range {range_str}: key column {sort_column} unchanged by the sort; no rows moved. Calling it again changes nothing; if rows should move, check range, has_header and sort_column."
+            return _sort_unchanged_message(range_str, sort_column)
         log.info("Range %s sorted %s by column %d.", range_str.upper(), direction, sort_column)
         return f"Range {range_str} sorted {direction} by column {sort_column}."
 
@@ -1045,12 +1066,12 @@ class CellManipulator:
             rows_2d = isinstance(values, (list, tuple)) and bool(values) and isinstance(values[0], (list, tuple))
             r_cnt = 0
             c_cnt = 0
-            ragged = False
+            bad_row: int | None = None
             if rows_2d:
                 r_cnt, c_cnt = len(values), len(values[0])
-                ragged = not all(isinstance(row, (list, tuple)) and len(row) == c_cnt for row in values)
-                if total > 1 and (ragged or (r_cnt, c_cnt) != (num_rows, num_cols)):
-                    raise CalcError(_grid_mismatch_message(range_str, values, num_rows, num_cols, start))
+                bad_row = _first_ragged_row(values)
+                if total > 1 and (bad_row is not None or (r_cnt, c_cnt) != (num_rows, num_cols)):
+                    raise CalcError(_grid_mismatch_message(range_str, values, num_rows, num_cols, start, bad_row))
             elif isinstance(values, (list, tuple)) and len(values) != total:
                 raise CalcError(_values_length_mismatch_message(range_str, len(values), total, num_rows, num_cols))
 
@@ -1062,8 +1083,8 @@ class CellManipulator:
             expanded = False
             if rows_2d:
                 if total == 1:
-                    if ragged:
-                        raise CalcError(_grid_mismatch_message(range_str, values, 1, 1, start))
+                    if bad_row is not None:
+                        raise CalcError(_grid_mismatch_message(range_str, values, 1, 1, start, bad_row))
                     end = (start[0] + c_cnt - 1, start[1] + r_cnt - 1)
                     _check_write_cap(r_cnt * c_cnt)
                     range_str = format_range(start[0], start[1], end[0], end[1])
