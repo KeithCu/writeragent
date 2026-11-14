@@ -95,18 +95,6 @@ def _used_shape_from_ods(path: Path) -> tuple[int, int]:
     return rows, cols
 
 
-def test_cells_parse_color():
-    from plugin.doc.visual_helpers import parse_color_to_uno_int
-
-    assert parse_color_to_uno_int("red") == 0xFF0000
-    assert parse_color_to_uno_int("RED") == 0xFF0000
-    assert parse_color_to_uno_int("#00FF00") == 0x00FF00
-    assert parse_color_to_uno_int("#000") == 0x000000
-    assert parse_color_to_uno_int("invalid") is None
-    assert parse_color_to_uno_int(None) is None
-    assert parse_color_to_uno_int("") is None
-
-
 def test_inspector_single_cell_range_fallback():
     from plugin.calc.inspector import CellInspector
 

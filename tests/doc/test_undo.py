@@ -4,6 +4,9 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Undo and redo tool exposure. No LibreOffice."""
 from unittest.mock import MagicMock
+
+import pytest
+
 from plugin.framework.errors import make_tool_error
 
 
@@ -31,30 +34,24 @@ def test_redo_counts_steps():
     assert res["status"] == "ok" and res["redone"] == 1
 
 
-def test_undo_huge_steps_clamped():
-    from plugin.doc.undo import Undo
+@pytest.mark.parametrize(
+    ("tool_name", "count_key", "method_name"),
+    [
+        ("Undo", "undone", "undo"),
+        ("Redo", "redone", "redo"),
+    ],
+)
+def test_undo_redo_huge_steps_clamped(tool_name, count_key, method_name):
+    import plugin.doc.undo as undo_mod
 
     um = MagicMock()
     um.isUndoPossible.return_value = True
     um.isRedoPossible.return_value = True
     ctx = MagicMock()
     ctx.doc.getUndoManager.return_value = um
-    res = Undo().execute(ctx, steps=10000)
-    assert res["status"] == "ok" and res["undone"] == 10
-    assert um.undo.call_count == 10
-
-
-def test_redo_huge_steps_clamped():
-    from plugin.doc.undo import Redo
-
-    um = MagicMock()
-    um.isRedoPossible.return_value = True
-    um.isUndoPossible.return_value = True
-    ctx = MagicMock()
-    ctx.doc.getUndoManager.return_value = um
-    res = Redo().execute(ctx, steps=10000)
-    assert res["status"] == "ok" and res["redone"] == 10
-    assert um.redo.call_count == 10
+    res = getattr(undo_mod, tool_name)().execute(ctx, steps=10000)
+    assert res["status"] == "ok" and res[count_key] == 10
+    assert getattr(um, method_name).call_count == 10
 
 
 def test_commit_or_rollback_success():

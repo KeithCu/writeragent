@@ -213,12 +213,16 @@ def test_blank_master_signal():
     assert _blank_master_signal([{"name": "Metropolis", "shape_count": 6}]) is False
 
 
-def test_inherit_master_from_neighbor_at_zero_skips_the_new_page():
-    """insert_at=0 must not copy the new page's own master.
-
-    The off-by-one left the new page at index 1 while the caller still
-    passed insert_at=0, so the only adjacent slot was the new page itself.
-    """
+@pytest.mark.parametrize(
+    ("neighbor_index", "insert_at"),
+    [
+        pytest.param(0, 0, id="at_zero_skips_new_page"),
+        pytest.param(1, 0, id="at_zero_uses_following_slide"),
+        pytest.param(0, 1, id="copies_previous"),
+    ],
+)
+def test_inherit_master_from_neighbor(neighbor_index: int, insert_at: int):
+    """Copy the master from the adjacent non-new page for both insert_at=0 and >0."""
     designed = MagicMock()
     designed.Name = "Designed"
     neighbor = MagicMock()
@@ -226,39 +230,10 @@ def test_inherit_master_from_neighbor_at_zero_skips_the_new_page():
     new_page = MagicMock()
     pages = MagicMock()
     pages.getCount.return_value = 2
-    pages.getByIndex.side_effect = lambda i: neighbor if i == 0 else new_page
-    name = inherit_master_from_neighbor(pages, new_page, 0)
+    pages.getByIndex.side_effect = lambda i: neighbor if i == neighbor_index else new_page
+    name = inherit_master_from_neighbor(pages, new_page, insert_at)
     assert name == "Designed"
     assert new_page.MasterPage is designed
-
-
-def test_inherit_master_from_neighbor_at_zero_uses_following_slide():
-    """When the new page really occupies index 0, copy the slide now at 1."""
-    designed = MagicMock()
-    designed.Name = "Designed"
-    neighbor = MagicMock()
-    neighbor.MasterPage = designed
-    new_page = MagicMock()
-    pages = MagicMock()
-    pages.getCount.return_value = 2
-    pages.getByIndex.side_effect = lambda i: new_page if i == 0 else neighbor
-    name = inherit_master_from_neighbor(pages, new_page, 0)
-    assert name == "Designed"
-    assert new_page.MasterPage is designed
-
-
-def test_inherit_master_from_neighbor_copies_previous():
-    prev_master = MagicMock()
-    prev_master.Name = "Designed"
-    prev = MagicMock()
-    prev.MasterPage = prev_master
-    new_page = MagicMock()
-    pages = MagicMock()
-    pages.getCount.return_value = 2
-    pages.getByIndex.side_effect = lambda i: prev if i == 0 else new_page
-    name = inherit_master_from_neighbor(pages, new_page, 1)
-    assert name == "Designed"
-    assert new_page.MasterPage is prev_master
 
 
 def test_add_slide_reports_inherited_master():

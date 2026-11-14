@@ -481,6 +481,7 @@ def test_parse_color_to_uno_int_hex_and_int() -> None:
     assert visual_helpers.parse_color_to_uno_int("#FF0000") == 0xFF0000
     assert visual_helpers.parse_color_to_uno_int("00FF00") == 0x00FF00
     assert visual_helpers.parse_color_to_uno_int("#0f0") == 0x00FF00
+    assert visual_helpers.parse_color_to_uno_int("#000") == 0x000000
     assert visual_helpers.parse_color_to_uno_int("0x0000FF") == 0x0000FF
     assert visual_helpers.parse_color_to_uno_int(0x112233) == 0x112233
     assert visual_helpers.parse_color_to_uno_int(0x1AABBCC) == 0xAABBCC
@@ -488,6 +489,7 @@ def test_parse_color_to_uno_int_hex_and_int() -> None:
 
 def test_parse_color_to_uno_int_names_rgb_tuple() -> None:
     assert visual_helpers.parse_color_to_uno_int("red") == 0xFF0000
+    assert visual_helpers.parse_color_to_uno_int("RED") == 0xFF0000
     assert visual_helpers.parse_color_to_uno_int("Dark Green") == 0x006400
     assert visual_helpers.parse_color_to_uno_int("rgb(1, 2, 3)") == 0x010203
     assert visual_helpers.parse_color_to_uno_int("rgba(10, 20, 30, 0.5)") == 0x0A141E
