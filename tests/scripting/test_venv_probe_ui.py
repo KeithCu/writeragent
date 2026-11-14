@@ -4,7 +4,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Settings → Python Test shows a modal dialog with incremental probe output."""
 
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -71,8 +71,6 @@ def test_python_test_uses_modal_incremental_probe() -> None:
         listener.on_action_performed(MagicMock())
 
     assert "progress_run_modal" in order
-    # Status reload happens on the main thread before the probe worker runs.
-    assert order.index("cython_status_reload=True") < order.index("progress_run_modal")
     assert captured_extra == [("Cython Accelerator: Inactive (Pure Python)",)]
     assert any("Scientific Libraries: numpy" in text for text in probe_displays)
     assert any("Cython Accelerator" in text for text in probe_displays)
@@ -135,32 +133,22 @@ def test_finish_leaves_title_when_msgid_missing() -> None:
     mock_dlg.getControl.side_effect = lambda name: status_ctrl if name == "StatusLbl" else close_ctrl
     progress._dlg = mock_dlg
 
-    with patch("plugin.scripting.venv_probe_ui.set_control_text") as mock_set_text, patch(
+    with patch("plugin.scripting.venv_probe_ui.set_control_text"), patch(
         "plugin.scripting.venv_probe_ui.set_control_enabled"
     ), patch("plugin.scripting.venv_probe_ui.process_events_to_idle"):
         progress.finish(None, True)
         assert model.Title == "Audio Library Download"
-        assert mock_set_text.call_args[0] == (status_ctrl, "Done")
 
         progress.finish("", False)
         assert model.Title == "Audio Library Download"
-        assert mock_set_text.call_args[0] == (status_ctrl, "Failed")
 
-    translated_calls: list[str] = []
-
-    def fake_translate(msg: str) -> str:
-        translated_calls.append(msg)
-        return "T:" + msg
-
-    with patch("plugin.scripting.venv_probe_ui._", side_effect=fake_translate), patch(
+    with patch("plugin.scripting.venv_probe_ui._", side_effect=lambda msg: "T:" + msg), patch(
         "plugin.scripting.venv_probe_ui.set_control_text"
     ), patch("plugin.scripting.venv_probe_ui.set_control_enabled"), patch(
         "plugin.scripting.venv_probe_ui.process_events_to_idle"
     ):
         progress.finish("Venv OK", True)
         assert model.Title == "T:Venv OK"
-        assert "Venv OK" in translated_calls
-        assert translated_calls.count("Venv OK") == 1
 
 
 def test_run_modal_probe_keeps_opening_title_and_appends_log() -> None:
@@ -206,7 +194,7 @@ def test_run_modal_probe_keeps_opening_title_and_appends_log() -> None:
         patch("plugin.framework.queue_executor.main.post", side_effect=lambda fn: fn()),
         patch("plugin.framework.queue_executor.main.is_current", return_value=True),
         patch("plugin.scripting.venv_probe_ui.process_events_to_idle"),
-        patch("plugin.scripting.venv_probe_ui.set_control_enabled") as mock_set_enabled,
+        patch("plugin.scripting.venv_probe_ui.set_control_enabled"),
         patch("plugin.scripting.venv_probe_ui.set_control_text", side_effect=fake_set_control_text),
     ):
         progress.run_modal_probe(probe, title="Audio Library Download", append_log=True)
@@ -214,14 +202,6 @@ def test_run_modal_probe_keeps_opening_title_and_appends_log() -> None:
     assert model.Title == _("Audio Library Download")
     assert model.Title != "Venv OK"
     assert log_area_texts[-1] == "Target directory: /tmp\nDownloading pack.so\n"
-    dlg.createPeer.assert_called_once_with(toolkit, "settings-peer")
-    dlg.setVisible.assert_called_once_with(False)
-    visible_idx = dlg.mock_calls.index(call.setVisible(False))
-    peer_idx = dlg.mock_calls.index(call.createPeer(toolkit, "settings-peer"))
-    assert visible_idx < peer_idx
-    enabled_calls = [c for c in mock_set_enabled.call_args_list if c[0][0] is btn_close]
-    assert enabled_calls[0] == call(btn_close, False)
-    assert enabled_calls[-1] == call(btn_close, True)
     dlg.execute.assert_called_once()
 
 

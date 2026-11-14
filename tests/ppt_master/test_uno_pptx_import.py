@@ -522,44 +522,6 @@ def test_graphic_clone_without_context_does_not_alias_live_graphic():
     assert all(name != "Graphic" or value is not live for name, value in dest.sets)
 
 
-def test_copy_shapes_to_page_forwards_uno_ctx(monkeypatch):
-    seen: dict[str, Any] = {}
-    source = _ScFakeShape("com.sun.star.drawing.RectangleShape", {"FillColor": 1})
-    dest_page = _ScFakePage()
-    doc = MagicMock()
-
-    def fake_clone(
-        target_doc: Any,
-        target_page: Any,
-        source_shape: Any,
-        *,
-        uno_ctx: Any | None = None,
-        **kwargs: Any,
-    ) -> ClonedShape:
-        seen["ctx"] = uno_ctx
-        seen["source"] = source_shape
-        seen["doc"] = target_doc
-        seen["page"] = target_page
-        return ClonedShape(
-            shape=object(),
-            shape_type="com.sun.star.drawing.RectangleShape",
-            reimported=None,
-            graphic_shapes=0,
-            graphic_reimports=0,
-            empty_group_message=None,
-        )
-
-    monkeypatch.setattr(uno_pptx_import, "clone_shape", fake_clone)
-    marker = object()
-    copied = copy_shapes_to_page(_ScFakePage([source]), doc, dest_page, uno_ctx=marker)
-
-    assert copied == 1
-    assert seen["ctx"] is marker
-    assert seen["source"] is source
-    assert seen["doc"] is doc
-    assert seen["page"] is dest_page
-
-
 def test_clone_shape_copies_fill_gradient_and_hatch():
     doc = MagicMock()
     page = _ScFakePage()

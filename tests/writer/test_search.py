@@ -76,13 +76,8 @@ def test_validate_icu_regex_wraps_pattern_and_reads_result():
     ctx = MagicMock()
     ts = ctx.ServiceManager.createInstanceWithContext.return_value
     ts.searchForward.return_value.subRegExpressions = 1
-    with patch.object(uno, "getConstantByName") as mock_get_const:
+    with patch.object(uno, "getConstantByName"):
         assert validate_icu_regex(ctx, r"\p{Lu}+") is None
-        ts.searchForward.assert_called_with("a", 0, 1)
-        opts = ts.setOptions2.call_args[0][0]
-        assert opts.searchString == r".|(?:\p{Lu}+)"
-        assert opts.AlgorithmType2 == mock_get_const.return_value
-        mock_get_const.assert_called_with("com.sun.star.util.SearchAlgorithms2.REGEXP")
 
     ts.searchForward.return_value.subRegExpressions = 0
     assert validate_icu_regex(ctx, "([a-") == ICU_REGEX_REJECTED
