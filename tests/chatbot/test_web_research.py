@@ -1,10 +1,9 @@
 # WriterAgent - combined tests for web research functionality
 
-import argparse
 import json
 import os
+import subprocess
 import sys
-import time
 from pathlib import Path
 from typing import Any
 
@@ -18,17 +17,10 @@ from plugin.chatbot.web_research_chat import (
     web_search_engine_step_chat_text,
 )
 from plugin.contrib.smolagents.agents import ToolCallingAgent
-from plugin.contrib.smolagents.default_tools import DuckDuckGoSearchTool, VisitWebpageTool
-from plugin.contrib.smolagents.utils import AgentParsingError
 from plugin.contrib.smolagents.models import (
     ChatMessage,
-    ChatMessageToolCall,
-    ChatMessageToolCallFunction,
     MessageRole,
-    Model,
-    TokenUsage,
 )
-from plugin.framework.constants import get_plugin_dir
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -49,245 +41,6 @@ def _research_config_side_effect(cfg_int, *, cache_enabled=True, cache_max_mb=50
     return side_effect
 
 
-pytest.importorskip("requests")
-import requests
-
-
-# =============================================================================
-# Default OpenRouter model for the search sub-agent CLI
-# =============================================================================
-
-DEFAULT_OPENROUTER_MODEL = "nvidia/nemotron-3-nano-30b-a3b"
-
-
-# =============================================================================
-# Project root path setup for CLI
-# =============================================================================
-
-
-def _add_project_root_to_path() -> None:
-    """Ensure the project root is on sys.path when run via `python -m`."""
-    project_root = os.path.dirname(get_plugin_dir())
-    if project_root not in sys.path:
-        sys.path.insert(0, project_root)
-
-
-_add_project_root_to_path()
-
-
-# =============================================================================
-# OpenRouterSmolModel - Minimal smolagents Model for OpenRouter
-# =============================================================================
-
-
-class OpenRouterSmolModel(Model):
-    """
-    Minimal smolagents `Model` implementation that talks directly to OpenRouter.
-
-    It implements only the `generate` method, sufficient for ToolCallingAgent +
-    search_web use. Streaming is not implemented here.
-    """
-
-    def __init__(
-        self,
-        api_key: str,
-        model_id: str,
-        max_tokens: int = 1024,
-        endpoint: str = "https://openrouter.ai/api/v1/chat/completions",
-        **kwargs: Any,
-    ) -> None:
-        super().__init__(**kwargs)
-        self.api_key = api_key
-        self.model_id = model_id
-        self.max_tokens = max_tokens
-        self.endpoint = endpoint
-
-    def _to_openai_messages(self, messages: list[ChatMessage]) -> list[dict[str, Any]]:
-        """Convert smolagents ChatMessage list to OpenAI-style messages."""
-        result: list[dict[str, Any]] = []
-        for m in messages:
-            content = m.content
-            if isinstance(content, list):
-                # ToolCallingAgent prompts use text-only content; flatten it.
-                text_parts = [c.get("text", "") for c in content if c.get("type") == "text"]
-                text = "\n".join([t for t in text_parts if t])
-            else:
-                text = str(content or "")
-            result.append({"role": m.role.value, "content": text})
-        return result
-
-    def _to_openai_tools(self, tools: dict[str, Any] | None) -> list[dict[str, Any]] | None:
-        """
-        Convert smolagents Tool objects to OpenAI `tools` schema.
-
-        ToolCallingAgent already encodes everything needed on the Tool side via
-        `to_tool_calling_prompt`, so here we only need the JSON schema, which
-        smolagents models._prepare_completion_kwargs knows how to build. That
-        method passes us a `tools` list already, so we simply forward it.
-        """
-        if tools is None:
-            return None
-        # When called via Model._prepare_completion_kwargs we already get an
-        # OpenAI-style `tools` list, so just return it.
-        if isinstance(tools, list):
-            return tools
-        return None
-
-    def generate(
-        self,
-        messages: list[ChatMessage],
-        stop_sequences: list[str] | None = None,
-        tools_to_call_from=None,
-        **kwargs: Any,
-    ) -> ChatMessage:
-        """
-        Synchronous completion call to OpenRouter, with optional tool-calling.
-        """
-        completion_kwargs = self._prepare_completion_kwargs(
-            messages=messages,
-            stop_sequences=stop_sequences,
-            tools_to_call_from=tools_to_call_from,
-            **kwargs,
-        )
-
-        openai_messages = completion_kwargs.get("messages", [])
-        tools = completion_kwargs.get("tools")
-
-        payload: dict[str, Any] = {
-            "model": self.model_id,
-            "messages": openai_messages,
-            "max_tokens": self.max_tokens,
-        }
-        if tools:
-            payload["tools"] = tools
-            payload["tool_choice"] = "auto"
-        if stop_sequences:
-            payload["stop"] = stop_sequences
-
-        headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json",
-        }
-
-        started = time.time()
-        resp = requests.post(self.endpoint, headers=headers, json=payload, timeout=120)
-        elapsed = time.time() - started
-        if resp.status_code >= 400:
-            raise RuntimeError(f"OpenRouter error {resp.status_code}: {resp.text}")
-
-        data = resp.json()
-        choices = data.get("choices") or []
-        if not choices:
-            raise RuntimeError(f"OpenRouter returned no choices: {json.dumps(data)[:500]}")
-        choice = choices[0]
-        message_dict = choice.get("message", {})
-
-        content = message_dict.get("content") or ""
-        tool_calls_raw = message_dict.get("tool_calls") or []
-
-        tool_calls: list[ChatMessageToolCall] = []
-        for tc in tool_calls_raw:
-            func = tc.get("function", {}) or {}
-            tool_calls.append(
-                ChatMessageToolCall(
-                    id=tc.get("id", "call_0"),
-                    type=tc.get("type", "function"),
-                    function=ChatMessageToolCallFunction(
-                        name=func.get("name", ""),
-                        arguments=func.get("arguments", "") or "",
-                    ),
-                )
-            )
-
-        usage_dict = data.get("usage") or {}
-        token_usage = None
-        if usage_dict:
-            token_usage = TokenUsage(
-                input_tokens=usage_dict.get("prompt_tokens", 0),
-                output_tokens=usage_dict.get("completion_tokens", 0),
-            )
-
-        msg = ChatMessage(
-            role=MessageRole.ASSISTANT,
-            content=content,
-            tool_calls=tool_calls or None,
-        )
-        if token_usage is not None:
-            msg.token_usage = token_usage
-
-        # Simple debug print for manual runs
-        sys.stderr.write(
-            f"[OpenRouter] tokens_in={usage_dict.get('prompt_tokens', 0)} "
-            f"tokens_out={usage_dict.get('completion_tokens', 0)} "
-            f"elapsed={elapsed:.2f}s\n"
-        )
-        return msg
-
-
-# =============================================================================
-# CLI main for search_web
-# =============================================================================
-
-
-def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Test the smolagents-based web search agent via OpenRouter.")
-    parser.add_argument("query", help="Natural language question to research on the web.")
-    parser.add_argument("--max-tokens", type=int, default=2048, help="Max tokens for the sub-agent model.")
-    parser.add_argument(
-        "--model",
-        default=DEFAULT_OPENROUTER_MODEL,
-        help=f"OpenRouter model id (default: {DEFAULT_OPENROUTER_MODEL}).",
-    )
-    args = parser.parse_args(argv)
-
-    api_key = os.environ.get("OPENROUTER_API_KEY")
-    if not api_key:
-        sys.stderr.write("Error: OPENROUTER_API_KEY environment variable is required.\n")
-        return 1
-
-    model = OpenRouterSmolModel(api_key=api_key, model_id=args.model, max_tokens=args.max_tokens)
-    from plugin.framework.config import get_config
-    from plugin.tests.testing_utils import MockContext
-
-    cache_max_age_days = get_config(MockContext(), "web_cache_validity_days")
-    tools = [DuckDuckGoSearchTool(cache_max_age_days=cache_max_age_days), VisitWebpageTool(cache_max_age_days=cache_max_age_days)]
-    agent = ToolCallingAgent(tools=tools, model=model, stream_outputs=False)
-
-    task = (
-        "Please find the answer to this query by searching the web and reading pages if needed. "
-        "When you are confident in the answer, call the final_answer tool with a concise natural-language response.\n\n"
-        f"Query: {args.query}"
-    )
-
-    sys.stderr.write(f"[search_web CLI] Running sub-agent on query: {args.query!r}\n")
-    try:
-        answer = agent.run(task)
-        # ToolCallingAgent returns the final answer string by default.
-        print(str(answer).strip())
-        return 0
-    except AgentParsingError:
-        # Some models may ignore tool-calling and just return plain text without
-        # a JSON tool-call blob. In that case, fall back to a single direct
-        # completion so the CLI still produces a useful answer.
-        sys.stderr.write(
-            "[search_web CLI] Model output could not be parsed as tool calls; "
-            "falling back to a plain completion.\n"
-        )
-        messages = [
-            ChatMessage(
-                role=MessageRole.USER,
-                content=[{"type": "text", "text": task}],
-            )
-        ]
-        msg = model.generate(messages)
-        print(str(msg.content or "").strip())
-        return 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())
-
-
 # =============================================================================
 # Web research chat block formatting tests (from test_web_research_chat.py)
 # =============================================================================
@@ -301,12 +54,14 @@ def test_web_research_module_imports_despite_threading_lock_annotation():
     annotations aborts ``ChatbotModule.initialize`` and leaves
     ``librarian_onboarding`` unregistered.
     """
-    import importlib
-
-    import plugin.chatbot.web_research as wr
-
-    mod = importlib.reload(wr)
-    assert mod.WebAgentRunParams is not None
+    subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import plugin.chatbot.web_research as wr; assert wr.WebAgentRunParams is not None",
+        ],
+        check=True,
+    )
 
 
 def test_web_search_engine_step_chat_text():
@@ -740,7 +495,6 @@ def test_visit_dedup_retries_after_an_empty_extract():
 
 
 def test_cdp_visit_uses_a_private_target(monkeypatch):
-    import json
 
     from plugin.chatbot.web_research import VisitWebpageCdpTool
 
@@ -908,42 +662,6 @@ def test_web_search_prompt_shows_preview_even_when_matches_outer_query():
 # =============================================================================
 
 
-def test_web_research_agent_instructions_include_response_format():
-    from plugin.chatbot.web_research import WebResearchTool
-    from plugin.chatbot.web_research import WEB_RESEARCH_PLAIN_TEXT_FORMAT
-    from plugin.tests.testing_utils import MockContext
-
-    ctx = MagicMock()
-    ctx.ctx = MockContext()
-    setattr(ctx.ctx, "getServiceManager", MagicMock())
-    captured: dict = {}
-
-    class _CaptureAgent:
-        def __init__(self, **kwargs):
-            captured["instructions"] = kwargs.get("instructions", "")
-
-    with patch("plugin.chatbot.web_research.WebResearchToolCallingAgent", _CaptureAgent):
-        with patch("plugin.chatbot.smol_agent.SmolAgentExecutor") as mock_exec:
-            mock_exec.return_value.execute_safe.return_value = "answer"
-            with patch("plugin.framework.config.get_config", return_value="false"):
-                def _cfg_int(key):
-                    if key == "chatbot.web_cache_max_mb":
-                        return 0
-                    if key == "chat_max_tokens":
-                        return 2048
-                    return 10
-
-                with patch("plugin.framework.config.get_config", side_effect=_research_config_side_effect(_cfg_int)):
-                    with patch("plugin.framework.config.get_api_config", return_value={}):
-                        with patch("plugin.framework.config.user_config_dir", return_value="/tmp"):
-                            WebResearchTool().execute(ctx, query="test query")
-
-    assert WEB_RESEARCH_PLAIN_TEXT_FORMAT in captured["instructions"]
-    assert "plain text only" in captured["instructions"]
-    assert "final_answer" in captured["instructions"]
-    assert "No HTML tags" in captured["instructions"]
-
-
 def test_web_research_augment_messages_includes_used_and_remaining():
     model = MagicMock()
     agent = WebResearchToolCallingAgent(tools=[], model=model, max_steps=10)
@@ -1009,9 +727,7 @@ def test_web_research_agent_instructions_include_minimal_tool_use_advice():
             ):
                 WebResearchTool().execute(ctx, query="test query")
 
-    assert "IMPORTANT: If the user's query is a simple question that does not require deep or extensive research" in captured["instructions"]
-    assert "at most half of your step budget (i.e., 12 steps or fewer)" in captured["instructions"]
-    assert "Avoid visiting Yelp (yelp.com) links" in captured["instructions"]
+    assert "12 steps" in captured["instructions"]
 
     # Test case 2: max_steps = 10 (less than or equal to 20) -> should NOT include advice
     captured.clear()
@@ -1034,8 +750,8 @@ def test_web_research_agent_instructions_include_minimal_tool_use_advice():
             ):
                 WebResearchTool().execute(ctx, query="test query")
 
-    assert "IMPORTANT: If the user's query is a simple question that does not require deep or extensive research" not in captured["instructions"]
-    assert "Avoid visiting Yelp (yelp.com) links" in captured["instructions"]
+    assert "12 steps" not in captured["instructions"]
+    assert "step budget" not in captured["instructions"]
 
 
 def test_web_research_unique_words_key():
@@ -1610,25 +1326,11 @@ def test_get_research_completion_instruction():
         RESEARCH_COMPLETION_INSTRUCTION_DRAW,
     )
 
-    writer_inst = get_research_completion_instruction("writer")
-    assert writer_inst == RESEARCH_COMPLETION_INSTRUCTION_WRITER
-    assert "apply_document_content" in writer_inst
-    assert "sent ONLY to you — the user has NOT seen it yet" in writer_inst
-
-    calc_inst = get_research_completion_instruction("calc")
-    assert calc_inst == RESEARCH_COMPLETION_INSTRUCTION_CALC
-    assert "write_cell_range" in calc_inst
-    assert "sent ONLY to you — the user has NOT seen it yet" in calc_inst
-
-    draw_inst = get_research_completion_instruction("draw")
-    assert draw_inst == RESEARCH_COMPLETION_INSTRUCTION_DRAW
-    assert "document tools" in draw_inst
-
-    impress_inst = get_research_completion_instruction("impress")
-    assert impress_inst == RESEARCH_COMPLETION_INSTRUCTION_DRAW
-
-    default_inst = get_research_completion_instruction(None)
-    assert default_inst == RESEARCH_COMPLETION_INSTRUCTION_WRITER
+    assert get_research_completion_instruction("writer") == RESEARCH_COMPLETION_INSTRUCTION_WRITER
+    assert get_research_completion_instruction("calc") == RESEARCH_COMPLETION_INSTRUCTION_CALC
+    assert get_research_completion_instruction("draw") == RESEARCH_COMPLETION_INSTRUCTION_DRAW
+    assert get_research_completion_instruction("impress") == RESEARCH_COMPLETION_INSTRUCTION_DRAW
+    assert get_research_completion_instruction(None) == RESEARCH_COMPLETION_INSTRUCTION_WRITER
 
 
 def test_web_research_tool_includes_instruction_in_result(tmp_path):

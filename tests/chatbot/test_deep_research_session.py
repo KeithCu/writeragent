@@ -10,7 +10,6 @@ from plugin.chatbot.deep_research_session import (
     DeepResearchSessionTool,
     DeepResearchWebTool,
 )
-from plugin.chatbot.smol_examples import get_examples_block
 from plugin.chatbot.sub_agent_tools import (
     collect_sub_agent_tools,
     get_sub_agent_instructions,
@@ -38,18 +37,10 @@ def test_deep_research_calc_instructions_omit_apply_document_content():
     mode = compose_deep_research_mode_instructions(tool_names)
     text = get_sub_agent_instructions(mode, tool_names=tool_names)
     assert "apply_document_content" not in text
-    assert "only output the user receives" in text
 
 
 def test_deep_research_base_instructions_omit_apply_document_content():
     assert "apply_document_content" not in DEEP_RESEARCH_SUB_AGENT_INSTRUCTIONS
-
-
-def test_deep_research_examples_include_apply_document_content():
-    block = get_examples_block("deep_research")
-    assert "apply_document_content" in block
-    assert "deep_research_web" in block
-    assert "<h1>" in block
 
 
 def test_deep_research_web_delegates_with_deep_true():

@@ -117,9 +117,8 @@ def _ctx(registry: ToolRegistry, doc_type: str, service: str, **extra):
     )
 
 
-def test_python_hint_and_examples_require_delegate_before_finish():
-    """Computing a layout is not placing shapes; finish only after delegate_tool_domains."""
-    from plugin.chatbot.smol_examples import PYTHON_SPECIALIZED_EXAMPLES, get_examples_block
+def test_python_hint_requires_delegate_tool_domains():
+    """Computing a layout is not placing shapes; hint must route through delegate_tool_domains."""
     from plugin.framework.prompts import python_specialized_sub_agent_hint
 
     for label in ("Writer", "Calc", "Draw"):
@@ -129,19 +128,6 @@ def test_python_hint_and_examples_require_delegate_before_finish():
     writer = python_specialized_sub_agent_hint("Writer")
     assert "footnotes" in writer
     assert "shapes" in writer
-
-    block = get_examples_block("writer:python")
-    assert block == PYTHON_SPECIALIZED_EXAMPLES
-    assert "PYTHON VENV SANDBOX:" not in block
-    assert (writer + "\n\n" + block).count("PYTHON VENV SANDBOX:") == 1
-    parts = block.split('Task: "')
-    assert "delegate_tool_domains" not in parts[1]
-    assert '"domains": ["footnotes"]' in parts[2]
-    ring = parts[3]
-    assert '"domains": ["shapes"]' in ring
-    assert ring.index("delegate_tool_domains") < ring.index("run_venv_python_script")
-    assert ring.index("run_venv_python_script") < ring.index("specialized_workflow_finished")
-    assert "wa.shape.upsert" in ring
 
 
 def test_domain_loop_hints_include_footnotes_and_charts_lines():

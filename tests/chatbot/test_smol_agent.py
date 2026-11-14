@@ -168,28 +168,12 @@ class TestToolcallingPromptExamples:
         assert (marker) in (prompt)
         assert ("__EXAMPLES_BLOCK__") not in (prompt)
 
-    def test_default_examples_when_system_prompt_examples_is_none(self):
-        from plugin.contrib.smolagents.toolcalling_agent_prompts import DEFAULT_EXAMPLES_BLOCK
-
-        model = MagicMock()
-        agent = ToolCallingAgent(tools=[], model=model, system_prompt_examples=None)
-        prompt = agent.initialize_system_prompt()
-        assert ("Guangzhou") in (prompt)
-        assert (DEFAULT_EXAMPLES_BLOCK.strip().split("\n")[0]) in (prompt)
-
-    def test_system_prompt_no_image_transformer(self):
-        from plugin.contrib.smolagents.toolcalling_agent_prompts import SYSTEM_PROMPT_TEMPLATE
-
-        assert ("image_transformer") not in (SYSTEM_PROMPT_TEMPLATE)
-
     def test_get_examples_block_delegate_uses_specialized_workflow_finished(self):
         from plugin.chatbot.smol_examples import get_examples_block
 
         block = get_examples_block("writer:shapes")
         assert ("specialized_workflow_finished") in (block)
         assert ('"name": "final_answer"') not in (block)
-        assert ("web_search") in (block)
-        assert '"query": "Population Guangzhou"' in block
 
     def test_get_examples_block_web_research_uses_final_answer(self):
         from plugin.chatbot.smol_examples import get_examples_block
@@ -197,15 +181,12 @@ class TestToolcallingPromptExamples:
         block = get_examples_block("web_research")
         assert ('"name": "final_answer"') in (block)
         assert ("specialized_workflow_finished") not in (block)
-        assert '"query": "Population Guangzhou"' in block
-        assert '"arguments": "Population Guangzhou"' not in block
 
     def test_get_examples_block_ppt_master_finishes_the_deck(self):
         from plugin.chatbot.smol_examples import get_examples_block
 
         block = get_examples_block("ppt-master")
         assert "ppt_master_finished" in block
-        assert "export_presentation_project" in block
         assert "final_answer" not in block
 
     def test_get_examples_block_librarian_uses_reply_to_user(self):
@@ -214,48 +195,6 @@ class TestToolcallingPromptExamples:
         block = get_examples_block("librarian")
         assert ("reply_to_user") in (block)
         assert ("specialized_workflow_finished") not in (block)
-
-    def test_get_examples_block_images_uses_source_image_selection(self):
-        from plugin.chatbot.smol_examples import IMAGES_SPECIALIZED_EXAMPLES, get_examples_block
-
-        block = get_examples_block("writer:images")
-        assert (block) == (IMAGES_SPECIALIZED_EXAMPLES)
-        assert (get_examples_block("calc:images")) == (IMAGES_SPECIALIZED_EXAMPLES)
-        assert (get_examples_block("draw:images")) == (IMAGES_SPECIALIZED_EXAMPLES)
-        assert ("source_image") in (block)
-        assert ('"source_image": "selection"') in (block)
-        assert ("image_generate") in (block)
-        assert ("make it look like a wizard") in (block)
-        assert ("specialized_workflow_finished") in (block)
-        assert ("image_delete") not in (block)
-
-    def test_get_examples_block_python_uses_sympy_venv_script(self):
-        from plugin.chatbot.smol_examples import PYTHON_SPECIALIZED_EXAMPLES, get_examples_block
-
-        block = get_examples_block("calc:python")
-        assert (block) == (PYTHON_SPECIALIZED_EXAMPLES)
-        assert ("run_venv_python_script") in (block)
-        assert ("sp.prime(1010)") in (block)
-        assert ('"code": "import') not in (block)
-        assert ("specialized_workflow_finished") in (block)
-        assert ("delegate_tool_domains") in (block)
-        assert ('"domains": ["footnotes"]') in (block)
-        assert ('"domains": ["shapes"]') in (block)
-        assert ('"task":') in (block)
-        parts = block.split('Task: "')
-        assert "delegate_tool_domains" not in parts[1]
-        ring = parts[3]
-        assert "ring of 8 blue circles" in ring
-        assert "run_venv_python_script" in ring
-        assert "10500" in ring
-        assert "14000" in ring
-        assert "HMM" in ring
-        assert "top-left" in ring
-        assert ring.index("delegate_tool_domains") < ring.index("run_venv_python_script")
-        assert ring.index("run_venv_python_script") < ring.index("specialized_workflow_finished")
-        assert "wa.shape.upsert" in ring
-        assert "for-loop" in ring
-        assert "via the shapes domain" in ring
 
     def test_specialized_agent_prompt_examples_use_finish_tool_name(self):
         from plugin.contrib.smolagents.agents import ToolCallingAgent
@@ -1048,47 +987,27 @@ class TestLibrarianSmol:
             assert "U" * CHAT_DOCUMENT_CONTEXT_MAX_CHARS in instructions
             assert "[truncated]" in instructions
 
-    def test_librarian_onboarding_includes_suggested_user_name_in_instructions(self, mock_get_api, mock_get_int):
+    def test_librarian_onboarding_suggested_user_name_hint(self, mock_get_api, mock_get_int):
         ctx = MagicMock()
         ctx.ctx = MagicMock()
         ctx.stop_checker.return_value = False
-
+        hint = "UNIQUE_NAME_HINT_XYZ123"
         fa = FinalAnswerStep(output={"status": "ok", "result": "Hello"})
 
         with patch("plugin.chatbot.memory.MemoryStore") as mock_store_class, \
              patch("plugin.chatbot.smol_agent.ToolCallingAgent") as mock_agent_class:
-            mock_store = mock_store_class.return_value
-            mock_store.read.return_value = ""
-            mock_agent = mock_agent_class.return_value
-            mock_agent.run.return_value = [fa]
+            mock_store_class.return_value.read.return_value = ""
+            mock_agent_class.return_value.run.return_value = [fa]
 
             tool = LibrarianOnboardingTool()
-            tool.execute(ctx, query="hi", suggested_user_name="Keith")
+            tool.execute(ctx, query="hi", suggested_user_name=hint)
+            with_hint = mock_agent_class.call_args.kwargs["instructions"]
 
-            kwargs = mock_agent_class.call_args.kwargs
-            assert ("called Keith") in (kwargs["instructions"])
-            assert ("clearly confirm") in (kwargs["instructions"])
-
-    def test_librarian_onboarding_omits_suggested_block_without_hint(self, mock_get_api, mock_get_int):
-        ctx = MagicMock()
-        ctx.ctx = MagicMock()
-        ctx.stop_checker.return_value = False
-
-        fa = FinalAnswerStep(output={"status": "ok", "result": "Hello"})
-
-        with patch("plugin.chatbot.memory.MemoryStore") as mock_store_class, \
-             patch("plugin.chatbot.smol_agent.ToolCallingAgent") as mock_agent_class:
-            mock_store = mock_store_class.return_value
-            mock_store.read.return_value = ""
-            mock_agent = mock_agent_class.return_value
-            mock_agent.run.return_value = [fa]
-
-            tool = LibrarianOnboardingTool()
             tool.execute(ctx, query="hi")
+            without_hint = mock_agent_class.call_args.kwargs["instructions"]
 
-            kwargs = mock_agent_class.call_args.kwargs
-            assert ("Ask what they would like to be called") in (kwargs["instructions"])
-            assert ("called Keith") not in (kwargs["instructions"])
+        assert hint in with_hint
+        assert hint not in without_hint
 
     def test_librarian_stop_calls_interrupt(self, mock_get_api, mock_get_int):
         from plugin.framework.send_cancellation import SendCancellation

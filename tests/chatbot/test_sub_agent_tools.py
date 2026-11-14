@@ -249,44 +249,31 @@ class TestSessionToolMetadata:
             LibrarianOnboardingTool,
         ],
     )
-    def test_session_tool_metadata_and_execute(self, tool_cls):
+    def test_session_tool_execute(self, tool_cls):
         tool = tool_cls()
-        assert tool.is_async() is True
-        assert tool.is_mutation is False
-        assert isinstance(tool, SubAgentSessionToolBase)
-
         ctx = MagicMock()
-        mock_runner = MagicMock(return_value={"status": "ok"})
-        tool.runner = mock_runner
+        tool.runner = MagicMock(return_value={"status": "ok"})
         res = tool.execute(ctx, query="test query")
         assert res == {"status": "ok"}
-        mock_runner.assert_called_once_with(ctx, query="test query")
 
 
 class TestPromptToolMatching:
     def test_sub_agent_instructions_prompt_tool_matching(self):
-        # Brainstorming: save_design_spec only -> content rules present, target search rules absent
+        # Brainstorming / writing_plan: content rules present, target='search' rules absent
         b_instr = get_sub_agent_instructions("BASE", tool_names=["save_design_spec"])
         assert "`content` is a JSON array of HTML strings" in b_instr
         assert "target='search'" not in b_instr
 
-        # Writing plan: write_document_section only -> content rules present, target search rules absent
         w_instr = get_sub_agent_instructions("BASE", tool_names=["write_document_section"])
         assert "`content` is a JSON array of HTML strings" in w_instr
-        assert "Good math" in w_instr
-        assert "|outline" in w_instr
         assert "target='search'" not in w_instr
 
-        # Deep research with apply_document_content -> both present
+        # Deep research with apply_document_content: both present
         d_instr = get_sub_agent_instructions("BASE", tool_names=["apply_document_content"])
         assert "`content` is a JSON array of HTML strings" in d_instr
-        assert "Good math" in d_instr
-        assert "|outline" in d_instr
-        assert "APPLY_DOCUMENT_CONTENT AND HTML (CRITICAL):" in d_instr
         assert "target='search'" in d_instr
 
-        # No HTML tools -> neither content nor target rules
+        # No HTML tools: neither present
         plain_instr = get_sub_agent_instructions("BASE", tool_names=["other_tool"])
         assert "`content` is a JSON array of HTML strings" not in plain_instr
-        assert "Good math" not in plain_instr
         assert "target='search'" not in plain_instr

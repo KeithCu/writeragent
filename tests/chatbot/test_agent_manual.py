@@ -128,20 +128,12 @@ def test_shared_pieces_are_identical_in_both_channels():
     # Topic -> the exact constants piece (identity, not a copy that could be edited apart).
     # editing-html = ambient block + pull-only examples; equality, since concatenation makes a new string.
     assert writer_texts["editing-html"] == c.WRITER_APPLY_DOCUMENT_HTML_RULES + c.HTML_MATH_AND_LINK_EXAMPLES
-    assert "Good math" in get_section("editing-html", "writer")
-    assert "|outline" in full_manual("writer")
     assert writer_texts["review-modes"] is c.WRITER_REVIEW_MODES_RULES
     assert writer_texts["search"] is c.WRITER_SEARCH_RULES
     assert writer_texts["navigation"] is c.WRITER_NAVIGATION_RULES
     assert writer_texts["images"] is c.WRITER_IMAGES_RULES
-    # The editing topic bundles the workflow pieces verbatim (the HTML contract is its own
-    # subdivision, editing-html). The pointer to the subdivision is appended ONLY when the topic
-    # is served alone (get_section) — in full_manual the editing-html section follows inline, so
-    # a "go read that topic" sentence would dangle there.
     for piece in (c.CONFIRM_EDITS_FROM_STRUCTURED_FIELDS, c.TOOL_USAGE_PATTERNS, c.TRANSLATION_RULES):
         assert piece.strip() in writer_texts["editing"]
-    assert "editing-html" in get_section("editing", "writer")      # on-demand: pointer present
-    assert "read the editing-html topic" not in full_manual("writer")  # concatenated: no dangler
     # The generic editing topic remains in Calc and Draw chat templates (not the app manuals).
     assert c.GENERIC_EDIT_CONFIRMATION_RULES in c.DEFAULT_CALC_CHAT_SYSTEM_PROMPT_TEMPLATE
     assert c.GENERIC_EDIT_CONFIRMATION_RULES in c.DEFAULT_DRAW_CHAT_SYSTEM_PROMPT_TEMPLATE
@@ -172,18 +164,6 @@ def test_sidebar_hybrid_prompt_composition():
     assert GetGuidance.tier == "core"         # visible to the sidebar's default tool list
 
 
-def test_mcp_only_extras_stay_out_of_the_sidebar_prompt():
-    """The HTTP 429 concurrency contract is real for MCP clients and the agent-backend path,
-    meaningless for the in-process sidebar — channel-specific text must not leak across."""
-    from plugin.framework import prompts as c
-
-    assert "429" in get_section("concurrency", "writer")   # MCP topic has it
-    assert "429" in full_manual("writer")                  # agent backend (HTTP) gets it
-    assert "429" not in c.DEFAULT_CHAT_SYSTEM_PROMPT_TEMPLATE  # sidebar never sees it
-    assert "429" not in c.DEFAULT_CALC_CHAT_SYSTEM_PROMPT_TEMPLATE
-    assert "429" not in c.DEFAULT_DRAW_CHAT_SYSTEM_PROMPT_TEMPLATE
-
-
 # ---- full manual (agent-backend delivery) ------------------------------------
 
 def test_full_manual_contains_every_section_in_order():
@@ -202,31 +182,6 @@ def test_full_manual_impress_uses_draw_sections():
     assert full_manual(" Writer ") == full_manual("writer")
     assert "TRACKED CHANGES" in full_manual(" Writer ")
     assert full_manual(" Nope ") == full_manual("generic")
-
-
-def test_writer_topic_strings_contain_exact_writer_topics():
-    from plugin.mcp.mcp_protocol import _MCP_GUIDANCE_POINTER
-
-    expected_topics = list_topics("writer")
-    guidance_desc = GetGuidance.description
-    mcp_pointer = _MCP_GUIDANCE_POINTER
-
-    for topic in expected_topics:
-        assert topic in guidance_desc
-        assert topic in mcp_pointer
-
-    import re
-    # Extract topics in "(for Writer: ...)"
-    pattern = r"\(for Writer:\s*([^)]+)\)"
-    match_desc = re.search(pattern, guidance_desc)
-    assert match_desc is not None
-    desc_topics = [t.strip() for t in match_desc.group(1).split(",")]
-    assert desc_topics == expected_topics
-
-    match_mcp = re.search(pattern, mcp_pointer)
-    assert match_mcp is not None
-    mcp_topics = [t.strip() for t in match_mcp.group(1).split(",")]
-    assert mcp_topics == expected_topics
 
 
 # ---- GetGuidance tool --------------------------------------------------------

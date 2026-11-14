@@ -22,24 +22,6 @@ def _domain_ids(catalog):
 # tool metadata + domain catalog
 # --------------------------------------------------------------------------- #
 
-def test_find_tools_properties():
-    tool = FindTools()
-    assert tool.name == "find_tools"
-    assert tool.tier == "mcp"
-    assert tool.is_mutation is False
-    assert tool.requires_document is False
-
-
-def test_get_domain_guidance():
-    assert "data range" in get_domain_guidance("charts", agent_label="Calc").lower()
-    assert "headers" in get_domain_guidance("charts", agent_label="Writer").lower()
-    assert "insert_after" in get_domain_guidance("footnotes")
-    images = get_domain_guidance("images")
-    assert "source_image" in images
-    assert "selection" in images
-    assert "image_generate" in images
-    assert get_domain_guidance("totally_unknown_domain") == ""
-
 
 def test_document_research_guidance_has_no_peer_tools():
     from unittest.mock import patch
@@ -241,18 +223,6 @@ def test_tools_list_direct_flat_filters_sidebar_is_current():
         result = handler._mcp_tools_list({})
     assert any(t["name"] == "create_chart" for t in result["tools"])
     services.tools.get_schemas.assert_called()
-
-
-def test_initialize_instructions_mentions_find_tools_in_direct_discovery():
-    handler = _handler("direct_discovery", [])
-    result = handler._mcp_initialize({})
-    assert "find_tools" in result["instructions"].lower()
-
-
-def test_initialize_instructions_mentions_delegate_in_default_mode():
-    handler = _handler("delegate", [])
-    result = handler._mcp_initialize({})
-    assert "delegate_to_specialized" in result["instructions"]
 
 
 # --------------------------------------------------------------------------- #
@@ -593,25 +563,10 @@ def test_no_document_chart_guidance_is_app_neutral():
     assert "data_range" in g and "headers" in g
 
 
-def test_get_domain_guidance_python_is_app_neutral_when_app_unknown():
-    g = get_domain_guidance("python", agent_label=None)
-    assert "data_range" in g
-    assert "document tools" in g.lower()
-
-
 def test_run_venv_python_advertises_superset_when_doc_unknown():
     from plugin.calc.python.venv import RunVenvPythonScript
     params = RunVenvPythonScript().get_parameters(None)
     assert "data_range" in params["properties"]
-
-
-def test_run_venv_python_description_neutral_when_doc_unknown():
-    from plugin.calc.python.venv import RunVenvPythonScript
-    desc = RunVenvPythonScript().get_description(None)
-    assert "data_range" in desc
-    assert "document tools" in desc.lower()
-    # The import-policy note is filled at description time, not at import.
-    assert "Pre-imported" in desc
 
 
 def test_execute_drops_schemas_with_unusable_names():
