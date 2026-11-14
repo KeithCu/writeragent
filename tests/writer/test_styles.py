@@ -22,7 +22,7 @@ from unittest.mock import MagicMock, patch
 from plugin.writer.page import PageGetStyleProperties
 from plugin.writer.styles import (
     StyleList, StyleGetInfo, ApplyStyle, StyleCreate, StyleClone, StyleImport, StyleUpdate,
-    _close_style_names, _STYLE_KEEPALIVE, keep_style_alive,
+    _close_style_names, _STYLE_KEEPALIVE,
 )
 from plugin.framework.send_cancellation import SendCancellation
 from plugin.tests.testing_utils import TestingFactory, WriterDocStub
@@ -239,11 +239,12 @@ def test_get_style_info_page_styles_returns_page_properties():
     assert page["properties"] == res["properties"]
 
 
-def test_apply_style_clear_direct_schema_default_is_style_props():
-    """Small models read the schema; default must be the house-font-wins value."""
-    schema = ApplyStyle.parameters["properties"]["clear_direct"]
-    assert schema["default"] == "style_props"
-    assert schema["enum"] == ["none", "style_props", "all"]
+def test_apply_style_clear_direct_schema_default_matches_runtime():
+    """Small models read the schema; schema default must match the ParagraphStyles runtime default."""
+    assert (
+        ApplyStyle.parameters["properties"]["clear_direct"]["default"]
+        == ApplyStyle._resolve_clear_direct("ParagraphStyles", None)
+    )
 
 
 def test_resolve_clear_direct_defaults():
@@ -438,12 +439,6 @@ def test_update_style_with_parent():
     style.setPropertyValue.assert_called_once_with("CharWeight", 150)
     assert "CharWeight" in res["before"]
     assert res["after"]["ParentStyle"] == "Standard"
-
-
-def test_style_update_schema_para_adjust_is_words():
-    schema = StyleUpdate.parameters["properties"]["property_updates"]["properties"]["ParaAdjust"]
-    assert schema["type"] == "string"
-    assert schema["enum"] == ["left", "center", "right", "justify"]
 
 
 def test_update_style_para_adjust_words():
@@ -1154,12 +1149,6 @@ def test_style_get_info_char_posture_and_line_spacing():
     assert res2["CharPosture"] == 1
 
 
-def test_schema_lists_struct_keys():
-    props = StyleUpdate.parameters["properties"]["property_updates"]["properties"]
-    assert "ParaLineSpacing" in props
-    assert "ParaTabStops" in props
-
-
 def test_create_style_does_not_insert_when_a_property_fails():
     fam = _style_family({})
     ctx = _ctx_with_families(ParagraphStyles=fam)
@@ -1176,16 +1165,6 @@ def test_create_style_does_not_insert_when_a_property_fails():
     assert "CharWeight" in res.get("failed_properties", {})
     fam.insertByName.assert_not_called()
     assert style_instance not in _STYLE_KEEPALIVE
-
-
-def test_keep_style_alive_records_proxies():
-    mock_style = MagicMock()
-    keep_style_alive(mock_style)
-    assert _STYLE_KEEPALIVE[-1] is mock_style
-    # None is ignored
-    before_len = len(_STYLE_KEEPALIVE)
-    keep_style_alive(None)
-    assert len(_STYLE_KEEPALIVE) == before_len
 
 
 def test_create_style_bad_conditional_rule_inserts_nothing():

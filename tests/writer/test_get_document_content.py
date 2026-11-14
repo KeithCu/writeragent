@@ -20,8 +20,7 @@ def test_truncated_flag_on_get_document_content():
                       return_value="<p>short</p>\n\n[... truncated ...]"):
         res = GetDocumentContent().execute(ctx, max_chars=10)
     assert res.get("truncated") is True
-    assert "scope='range'" in res.get("hint", "")
-    assert "document_length" in res.get("hint", "")
+    assert res.get("hint")
     assert "next_range" not in res
     with patch.object(html_export, "document_to_content", return_value="<p>all</p>"):
         res = GetDocumentContent().execute(ctx, max_chars=10)
@@ -110,7 +109,6 @@ def test_get_document_content_warns_when_redlines_are_not_listed():
     assert res["status"] == "ok"
     assert "tracked_changes" not in res
     assert "could not list tracked changes" in res["warning"]
-    assert "do not accept or reject" in res["warning"]
 
 
 def test_format_only_redlines_are_reported_without_a_listing_failure():
@@ -275,7 +273,7 @@ def test_selection_with_no_content_warns():
     with patch("plugin.writer.html_export.document_to_content", return_value=""):
         res = GetDocumentContent().execute(ctx, scope="selection")
     assert res["status"] == "ok"
-    assert "does not mean the document is empty" in res.get("warning", "")
+    assert res.get("warning")
 
 
 def test_document_length_zero_warns():

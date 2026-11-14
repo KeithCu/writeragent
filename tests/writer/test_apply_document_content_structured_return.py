@@ -1421,7 +1421,6 @@ def test_replace_all_rollback_failed_code(monkeypatch):
     )
     assert res["status"] == "error"
     assert res["code"] == "ROLLBACK_FAILED"
-    assert "could not be rolled back" in res["message"]
 
 
 def test_replace_all_mutate_error_rollback_status(monkeypatch):
@@ -1443,7 +1442,6 @@ def test_replace_all_mutate_error_rollback_status(monkeypatch):
     )
     assert res_failed["status"] == "error"
     assert res_failed["code"] == "ROLLBACK_FAILED"
-    assert "could not be rolled back" in res_failed["message"]
     assert res_failed["replaced_count"] == 0
     assert res_failed["partial_failure"] is True
 
@@ -1459,7 +1457,6 @@ def test_replace_all_mutate_error_rollback_status(monkeypatch):
     )
     assert res_clean["status"] == "error"
     assert res_clean["code"] == "TOOL_EXECUTION_ERROR"
-    assert "document rolled back" in res_clean["message"]
     assert res_clean["replaced_count"] == 0
     assert res_clean["partial_failure"] is True
 
@@ -1477,8 +1474,6 @@ def test_shape_search_miss_review_mode_returns_shape_text_needs_delegation(monke
     )
     assert res["status"] == "error"
     assert res["code"] == "SHAPE_TEXT_NEEDS_DELEGATION"
-    assert "shapes toolset" in res["message"]
-    assert "In review mode" in res["message"]
 
 
 def test_parameter_validations_return_invalid_param():

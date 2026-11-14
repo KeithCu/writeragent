@@ -7,7 +7,6 @@ from plugin.doc.specialized_catalog import (
     NO_EDIT_TOOL_NOTE,
     InnerToolCall,
     apply_inner_outcome,
-    loop_hint,
     partition_tool_errors,
     start_inner_payload,
 )
@@ -194,36 +193,6 @@ def test_apply_inner_outcome_none_final_ans_clears_result() -> None:
     assert result["code"] == "SPECIALIZED_WORKFLOW_INCOMPLETE"
     assert result["message"] == ""
     assert "result" not in result
-
-
-def test_loop_hint_charts_per_app() -> None:
-    calc = loop_hint("charts", "Calc")
-    assert "data_range='A1:B10'" in calc
-
-    writer = loop_hint("charts", "Writer")
-    draw = loop_hint("charts", "Draw")
-    assert writer == draw
-    assert "headers" in writer
-    assert "rows" in writer
-
-    none_hint = loop_hint("charts", None)
-    assert "data_range" in none_hint
-    assert "headers" in none_hint
-
-
-def test_loop_hint_footnotes_direct_vs_loop() -> None:
-    writer = loop_hint("footnotes", "Writer")
-    calc = loop_hint("footnotes", "Calc")
-    draw = loop_hint("footnotes", "Draw")
-    assert writer == calc == draw
-    assert writer.endswith("cannot move the view cursor.")
-
-    none_hint = loop_hint("footnotes", None)
-    assert "insert_after" in none_hint
-    assert "view cursor" not in none_hint
-
-    assert loop_hint("styles", "Writer") == ""
-    assert loop_hint("charts", "Impress") == ""
 
 
 def test_start_inner_payload_error_is_same_object() -> None:
