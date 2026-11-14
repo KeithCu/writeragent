@@ -37,8 +37,7 @@ def test_resolve_para_index_missing_heading_text_raises():
         _resolve_para_index(_ctx(_doc()), locator="heading_text:Missing")
 
 
-def test_clone_heading_block_missing_locator_does_not_insert():
-    doc = _doc()
+def _track_text_inserts(doc):
     inserted = []
     original_get_text = doc.getText
 
@@ -49,6 +48,12 @@ def test_clone_heading_block_missing_locator_does_not_insert():
         return text
 
     doc.getText = tracking_get_text
+    return inserted
+
+
+def test_clone_heading_block_missing_locator_does_not_insert():
+    doc = _doc()
+    inserted = _track_text_inserts(doc)
     result = CloneHeadingBlock().execute(_ctx(doc), locator="heading_text:Missing")
     assert result["status"] == "error"
     assert "No heading matching 'Missing'" in result["message"]
@@ -78,16 +83,7 @@ def test_clone_heading_block_stale_bookmark_does_not_insert():
             return ["_mcp_stale"]
 
     doc.getBookmarks = lambda: _Marks()
-    inserted = []
-    original_get_text = doc.getText
-
-    def tracking_get_text():
-        text = original_get_text()
-        text.insertString = lambda *_args, **_kwargs: inserted.append(True)
-        text.insertControlCharacter = lambda *_args, **_kwargs: inserted.append(True)
-        return text
-
-    doc.getText = tracking_get_text
+    inserted = _track_text_inserts(doc)
     result = CloneHeadingBlock().execute(_ctx(doc), locator="bookmark:_mcp_stale")
     assert result["status"] == "error"
     assert "anchor is not in the document" in result["message"]

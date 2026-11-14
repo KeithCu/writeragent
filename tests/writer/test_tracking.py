@@ -224,73 +224,16 @@ def test_manage_tracked_changes_accept_all(action, value):
     dispatcher.executeDispatch.assert_called_with(frame, value, "", 0, ())
 
 
-def test_manage_tracked_changes_bypasses_self_resolve_invariant():
-    ctx, dispatcher, frame, _ = _create_mock_ctx()
+@pytest.mark.parametrize("undo_fails", [False, True])
+def test_manage_tracked_changes_bypasses_self_resolve_invariant(undo_fails):
+    ctx, _dispatcher, _frame, _ = _create_mock_ctx()
     tool = ManageTrackedChanges()
 
     user_redline = _fake_redline("user edit")
     agent_redline = _fake_redline(_AGENT_COMMENT)
 
-    # We mock it so that the dispatcher mistakenly resolves the agent edit!
-    def _create_enum():
-        enum = MagicMock()
-        # The first time it is called (materialize), both are present.
-        # The second time (after dispatch), only user_redline is present.
-        call_count = getattr(_create_enum, "call_count", 0)
-        if call_count >= 1:
-            enum.hasMoreElements.side_effect = [True, False]
-            enum.nextElement.return_value = user_redline
-        else:
-            enum.hasMoreElements.side_effect = [True, True, False]
-            enum.nextElement.side_effect = [user_redline, agent_redline]
-        _create_enum.call_count = call_count + 1
-        return enum
-    _create_enum.call_count = 0
-
-    ctx.doc.getRedlines.return_value.createEnumeration.side_effect = _create_enum
-    ctx.doc.getRedlines.return_value.getCount.side_effect = [2, 1]
-
-    # To pass overlap check, make sure they don't overlap.
-    # When text.compareRegionStarts is called, it returns 1.
-    text_mock = MagicMock()
-    text_mock.compareRegionStarts.return_value = 1
-
-    start_mock1 = MagicMock()
-    start_mock1.getText.return_value = text_mock
-
-    start_mock2 = MagicMock()
-    start_mock2.getText.return_value = text_mock
-
-    # Provide mocked properties based on what's requested
-    def _get_user_prop(name):
-        if name in ("RedlineStart", "RedlineEnd"):
-            return start_mock1
-        return "user edit"
-    user_redline.getPropertyValue.side_effect = _get_user_prop
-
-    def _get_agent_prop(name):
-        if name in ("RedlineStart", "RedlineEnd"):
-            return start_mock2
-        return _AGENT_COMMENT
-    agent_redline.getPropertyValue.side_effect = _get_agent_prop
-
-    # Try to accept index 0 (the user edit)
-    # But because of our mock, the dispatcher removes the agent edit instead
-    res = tool.execute(ctx, action="accept", index=0)
-
-    assert res["status"] == "error"
-    assert "Agent edit was resolved, which is forbidden." in res["message"]
-    assert "Undo failed" not in res["message"]
-    ctx.doc.getUndoManager().undo.assert_called_once()
-
-
-def test_manage_tracked_changes_self_resolve_undo_fails():
-    ctx, dispatcher, frame, _ = _create_mock_ctx()
-    tool = ManageTrackedChanges()
-
-    user_redline = _fake_redline("user edit")
-    agent_redline = _fake_redline(_AGENT_COMMENT)
-
+    # Mock the dispatcher mistakenly resolving the agent edit instead of the user edit.
+    # First call (materialize) returns both; second call (after dispatch) returns only user_redline.
     def _create_enum():
         enum = MagicMock()
         call_count = getattr(_create_enum, "call_count", 0)
@@ -307,25 +250,30 @@ def test_manage_tracked_changes_self_resolve_undo_fails():
     ctx.doc.getRedlines.return_value.createEnumeration.side_effect = _create_enum
     ctx.doc.getRedlines.return_value.getCount.side_effect = [2, 1]
 
+    # Return 1 so the two redlines do not overlap during the overlap check.
     text_mock = MagicMock()
     text_mock.compareRegionStarts.return_value = 1
-
     start_mock1 = MagicMock()
     start_mock1.getText.return_value = text_mock
-
     start_mock2 = MagicMock()
     start_mock2.getText.return_value = text_mock
 
     user_redline.getPropertyValue.side_effect = lambda name: start_mock1 if name in ("RedlineStart", "RedlineEnd") else "user edit"
     agent_redline.getPropertyValue.side_effect = lambda name: start_mock2 if name in ("RedlineStart", "RedlineEnd") else _AGENT_COMMENT
 
-    ctx.doc.getUndoManager.return_value.undo.side_effect = RuntimeError("undo crashed")
+    if undo_fails:
+        ctx.doc.getUndoManager.return_value.undo.side_effect = RuntimeError("undo crashed")
 
+    # Accept index 0 (the user edit), while the mock causes the agent edit to disappear.
     res = tool.execute(ctx, action="accept", index=0)
 
     assert res["status"] == "error"
     assert "Agent edit was resolved, which is forbidden." in res["message"]
-    assert "Undo failed; the change is still resolved." in res["message"]
+    if undo_fails:
+        assert "Undo failed; the change is still resolved." in res["message"]
+    else:
+        assert "Undo failed" not in res["message"]
+        ctx.doc.getUndoManager().undo.assert_called_once()
 
 @pytest.mark.parametrize(
     "action, uno_cmd",
@@ -680,6 +628,7 @@ def test_manage_tracked_changes_bulk_unsupported_when_dispatch_returns_none(acti
 
 def test_single_accept_wrong_redline_is_undone():
     ctx, dispatcher, frame, _ = _create_mock_ctx()
+    # Return 1 so the two redlines do not overlap during the overlap check.
     text_mock = MagicMock()
     text_mock.compareRegionStarts.return_value = 1
     r0 = _fake_redline("user 0", text_mock=text_mock)

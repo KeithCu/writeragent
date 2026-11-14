@@ -56,23 +56,29 @@ def test_get_document_content_surfaces_portion_walk_warning():
     assert "Second walk warning." in res["warning"]
 
 
+def _make_redlines_doc(redline_types, count=None):
+    """Build a mock doc with enumerated redlines of the given RedlineType strings."""
+    doc = MagicMock()
+    redlines = MagicMock()
+    redlines.getCount.return_value = len(redline_types) if count is None else count
+    items = []
+    for rtype in redline_types:
+        rl = MagicMock()
+        rl.getPropertyValue.side_effect = lambda prop, rt=rtype: rt if prop == "RedlineType" else None
+        items.append(rl)
+    enum = MagicMock()
+    enum.hasMoreElements.side_effect = [True] * len(items) + [False]
+    enum.nextElement.side_effect = items
+    redlines.createEnumeration.return_value = enum
+    doc.getRedlines.return_value = redlines
+    return doc, redlines, enum, items
+
+
 def test_get_document_content_surfaces_tracked_changes():
     from plugin.writer.get_document_content import GetDocumentContent
 
-    doc = MagicMock()
+    doc, _redlines, _enum, _items = _make_redlines_doc(["Insert", "Delete"])
     doc.getPropertyValue.return_value = True
-    redlines = MagicMock()
-    redlines.getCount.return_value = 2
-    rl1 = MagicMock()
-    rl1.getPropertyValue.side_effect = lambda prop: "Insert" if prop == "RedlineType" else None
-    rl2 = MagicMock()
-    rl2.getPropertyValue.side_effect = lambda prop: "Delete" if prop == "RedlineType" else None
-    enum = MagicMock()
-    enum.hasMoreElements.side_effect = [True, True, False]
-    enum.hasMoreElements.side_effect = [True, True, False]
-    enum.nextElement.side_effect = [rl1, rl2]
-    redlines.createEnumeration.return_value = enum
-    doc.getRedlines.return_value = redlines
 
     ctx = MagicMock()
     ctx.doc = doc
@@ -95,12 +101,10 @@ def test_get_document_content_surfaces_tracked_changes():
 def test_get_document_content_warns_when_redlines_are_not_listed():
     from plugin.writer.get_document_content import GetDocumentContent
 
-    doc = MagicMock()
-    redlines = MagicMock()
-    redlines.getCount.return_value = 2
-    redlines.createEnumeration.return_value.hasMoreElements.return_value = True
-    redlines.createEnumeration.return_value.nextElement.side_effect = RuntimeError("boom")
-    doc.getRedlines.return_value = redlines
+    doc, _redlines, enum, _items = _make_redlines_doc([], count=2)
+    enum.hasMoreElements.side_effect = None
+    enum.hasMoreElements.return_value = True
+    enum.nextElement.side_effect = RuntimeError("boom")
     ctx = MagicMock()
     ctx.doc = doc
     ctx.services.document.get_document_length.return_value = 10
@@ -114,16 +118,7 @@ def test_get_document_content_warns_when_redlines_are_not_listed():
 def test_format_only_redlines_are_reported_without_a_listing_failure():
     from plugin.writer.get_document_content import GetDocumentContent
 
-    doc = MagicMock()
-    redlines = MagicMock()
-    redlines.getCount.return_value = 1
-    rl = MagicMock()
-    rl.getPropertyValue.side_effect = lambda prop: "Format" if prop == "RedlineType" else None
-    enum = MagicMock()
-    enum.hasMoreElements.side_effect = [True, False]
-    enum.nextElement.return_value = rl
-    redlines.createEnumeration.return_value = enum
-    doc.getRedlines.return_value = redlines
+    doc, _redlines, _enum, _items = _make_redlines_doc(["Format"])
 
     ctx = MagicMock()
     ctx.doc = doc
@@ -141,19 +136,7 @@ def test_redline_cap_reports_truncation(monkeypatch):
     import plugin.writer.get_document_content as gdc
     from plugin.writer.get_document_content import GetDocumentContent, _summarize_redlines
 
-    doc = MagicMock()
-    redlines = MagicMock()
-    redlines.getCount.return_value = 2
-    rl1 = MagicMock()
-    rl1.getPropertyValue.side_effect = lambda prop: "Insert" if prop == "RedlineType" else None
-    rl2 = MagicMock()
-    rl2.getPropertyValue.side_effect = lambda prop: "Insert" if prop == "RedlineType" else None
-    enum = MagicMock()
-    enum.hasMoreElements.side_effect = [True, True, False]
-    enum.hasMoreElements.side_effect = [True, True, False]
-    enum.nextElement.side_effect = [rl1, rl2]
-    redlines.createEnumeration.return_value = enum
-    doc.getRedlines.return_value = redlines
+    doc, _redlines, enum, items = _make_redlines_doc(["Insert", "Insert"])
 
     monkeypatch.setattr(gdc, "_MAX_TRACKED_CHANGES", 1)
     with patch("plugin.writer.tracking.redline_text", side_effect=["one", "two"]):
@@ -165,7 +148,7 @@ def test_redline_cap_reports_truncation(monkeypatch):
     assert truncated is True
 
     enum.hasMoreElements.side_effect = [True, True, False]
-    enum.nextElement.side_effect = [rl1, rl2]
+    enum.nextElement.side_effect = items
     ctx = MagicMock()
     ctx.doc = doc
     ctx.services.document.get_document_length.return_value = 10
@@ -178,19 +161,7 @@ def test_redline_cap_reports_truncation(monkeypatch):
 def test_inserted_image_redline_without_text_is_not_truncated():
     from plugin.writer.get_document_content import GetDocumentContent
 
-    doc = MagicMock()
-    redlines = MagicMock()
-    redlines.getCount.return_value = 2
-    rl1 = MagicMock()
-    rl1.getPropertyValue.side_effect = lambda prop: "Insert" if prop == "RedlineType" else None
-    rl2 = MagicMock()
-    rl2.getPropertyValue.side_effect = lambda prop: "Insert" if prop == "RedlineType" else None
-    enum = MagicMock()
-    enum.hasMoreElements.side_effect = [True, True, False]
-    enum.hasMoreElements.side_effect = [True, True, False]
-    enum.nextElement.side_effect = [rl1, rl2]
-    redlines.createEnumeration.return_value = enum
-    doc.getRedlines.return_value = redlines
+    doc, _redlines, _enum, _items = _make_redlines_doc(["Insert", "Insert"])
 
     ctx = MagicMock()
     ctx.doc = doc

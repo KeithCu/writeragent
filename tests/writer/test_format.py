@@ -381,21 +381,7 @@ def test_ensure_empty_absorb_inserts_break_for_image_only_paragraph():
     portion = MagicMock()
     portion.getString.return_value = ""
     portion.getPropertyValue.return_value = "TextContent"
-
-    class _Enum:
-        def __init__(self, items):
-            self._items = list(items)
-            self._idx = 0
-
-        def hasMoreElements(self):
-            return self._idx < len(self._items)
-
-        def nextElement(self):
-            item = self._items[self._idx]
-            self._idx += 1
-            return item
-
-    para.createEnumeration.return_value = _Enum([portion])
+    para.createEnumeration.return_value = _FakeReplaceEnum([portion])
     text_obj = MagicMock()
     text_obj.createTextCursorByRange.return_value = para
     cursor.getText.return_value = text_obj
@@ -543,61 +529,110 @@ def test_ensure_empty_absorb_raises_when_break_fails():
         hi._ensure_empty_absorb_for_styled_insert(text, cursor, "end")
 
 
-def test_replace_preserving_format_raises_when_go_right_stops():
-    from unittest.mock import MagicMock, patch
+class _FakeReplaceEnum:
+    def __init__(self, items):
+        self._items = list(items)
 
+    def hasMoreElements(self):
+        return bool(self._items)
+
+    def nextElement(self):
+        return self._items.pop(0)
+
+
+class _FakeReplacePortion:
+    def __init__(self, text="", portion_type="Text"):
+        self.TextPortionType = portion_type
+        self._text = text
+
+    def getString(self):
+        return self._text
+
+
+class _FakeReplacePara:
+    def __init__(self, portions):
+        self._portions = portions
+
+    def createEnumeration(self):
+        return _FakeReplaceEnum(self._portions)
+
+
+class _FakeReplaceCursor:
+    def __init__(self, go_right_fn=None):
+        self.moves = []
+        self.writes = []
+        self._go_right_fn = go_right_fn
+
+    def goRight(self, n, expand):
+        self.moves.append((n, expand))
+        if self._go_right_fn is not None:
+            return self._go_right_fn(n, expand)
+        return True
+
+    def setString(self, value):
+        self.writes.append(value)
+
+    def getEnd(self):
+        return object()
+
+    def gotoRange(self, _end, _expand):
+        return None
+
+    def getPropertyValue(self, _name):
+        return None
+
+
+class _FakeReplaceText:
+    def __init__(self, cursor=None):
+        self.cursor = cursor or _FakeReplaceCursor()
+        self.inserts = []
+
+    def createTextCursorByRange(self, _r):
+        return self.cursor
+
+    def insertString(self, *_args):
+        self.inserts.append("insert")
+
+
+class _FakeReplaceRange:
+    def __init__(self, text, string, paras=None):
+        self._text = text
+        self._string = string
+        self._paras = paras
+
+    def getText(self):
+        return self._text
+
+    def getString(self):
+        return self._string
+
+    def getStart(self):
+        return object()
+
+    def createEnumeration(self):
+        return _FakeReplaceEnum(self._paras or [])
+
+
+@pytest.mark.parametrize(
+    "old_str, new_str, go_right_fn",
+    [
+        pytest.param("AB", "XY", lambda _n, _exp: False, id="replace"),
+        pytest.param("AAAAAX", "AAAAAY", lambda _n, _exp: False, id="equal_run"),
+        pytest.param("ABCD", "AB", lambda _n, exp: not exp, id="shrink"),
+    ],
+)
+def test_replace_preserving_format_raises_when_go_right_stops(old_str, new_str, go_right_fn):
+    from unittest.mock import MagicMock, patch
     from plugin.framework.errors import ToolExecutionError
     from plugin.writer import html_import as hi, record_changes
 
-    class _Cursor:
-        def __init__(self):
-            self.writes = []
-
-        def goRight(self, _n, _expand):
-            return False
-
-        def setString(self, value):
-            self.writes.append(value)
-
-        def getEnd(self):
-            return object()
-
-        def gotoRange(self, _end, _expand):
-            return None
-
-        def getPropertyValue(self, _name):
-            return None
-
-    class _Text:
-        def __init__(self):
-            self.cursor = _Cursor()
-            self.inserts = []
-
-        def createTextCursorByRange(self, _r):
-            return self.cursor
-
-        def insertString(self, *_args):
-            self.inserts.append("insert")
-
-    class _Range:
-        def __init__(self, text):
-            self._text = text
-
-        def getText(self):
-            return self._text
-
-        def getString(self):
-            return "AB"
-
-        def getStart(self):
-            return object()
-
-    text = _Text()
+    cursor = _FakeReplaceCursor(go_right_fn=go_right_fn)
+    text = _FakeReplaceText(cursor)
     ctx = MagicMock()
     with patch.object(record_changes, "is_recording_changes", return_value=False):
         with pytest.raises(ToolExecutionError, match="did not advance"):
-            hi.replace_preserving_format(MagicMock(), _Range(text), "XY", ctx=ctx)
-    assert text.cursor.writes == []
+            hi.replace_preserving_format(MagicMock(), _FakeReplaceRange(text, old_str), new_str, ctx=ctx)
+    assert cursor.writes == []
     assert text.inserts == []
     ctx.getServiceManager.assert_not_called()
 
@@ -606,375 +641,73 @@ def test_replace_preserving_format_skips_equal_runs():
     from unittest.mock import MagicMock, patch
     from plugin.writer import html_import as hi, record_changes
 
-    moves = []
-    writes = []
-
-    class _Cursor:
-        def goRight(self, n, expand):
-            moves.append((n, expand))
-            return True
-
-        def setString(self, value):
-            writes.append(value)
-
-        def getEnd(self):
-            return object()
-
-        def gotoRange(self, _end, _expand):
-            pass
-
-    cursor = _Cursor()
-
-    class _Text:
-        def createTextCursorByRange(self, _r):
-            return cursor
-
-        def insertString(self, *_args):
-            pass
-
-    class _Range:
-        def __init__(self, text, string):
-            self._text = text
-            self._string = string
-
-        def getText(self):
-            return self._text
-
-        def getString(self):
-            return self._string
-
-        def getStart(self):
-            return object()
-
-    text = _Text()
+    text = _FakeReplaceText()
     with patch.object(record_changes, "is_recording_changes", return_value=False):
-        hi.replace_preserving_format(MagicMock(), _Range(text, "AAAAAX"), "AAAAAY")
+        hi.replace_preserving_format(MagicMock(), _FakeReplaceRange(text, "AAAAAX"), "AAAAAY")
 
-    assert moves == [(5, False), (1, True)]
-    assert writes == ["Y"]
+    assert text.cursor.moves == [(5, False), (1, True)]
+    assert text.cursor.writes == ["Y"]
 
 
 def test_replace_preserving_format_special_portion_keeps_one_step_loop():
     from unittest.mock import MagicMock, patch
     from plugin.writer import html_import as hi, record_changes
 
-    moves = []
-    writes = []
-
-    class _Cursor:
-        def goRight(self, n, expand):
-            moves.append((n, expand))
-            return True
-
-        def setString(self, value):
-            writes.append(value)
-
-        def getEnd(self):
-            return object()
-
-        def gotoRange(self, _end, _expand):
-            pass
-
-    cursor = _Cursor()
-
-    class _Text:
-        def createTextCursorByRange(self, _r):
-            return cursor
-
-        def insertString(self, *_args):
-            pass
-
-    class _Enum:
-        def __init__(self, items):
-            self._items = list(items)
-        def hasMoreElements(self):
-            return bool(self._items)
-        def nextElement(self):
-            return self._items.pop(0)
-
-    class _Portion:
-        TextPortionType = "TextField"
-
-    class _Para:
-        def createEnumeration(self):
-            return _Enum([_Portion()])
-
-    class _Range:
-        def __init__(self, text, string):
-            self._text = text
-            self._string = string
-
-        def getText(self):
-            return self._text
-
-        def getString(self):
-            return self._string
-
-        def getStart(self):
-            return object()
-
-        def createEnumeration(self):
-            return _Enum([_Para()])
-
-    text = _Text()
+    text = _FakeReplaceText()
+    para = _FakeReplacePara([_FakeReplacePortion(portion_type="TextField")])
     with patch.object(record_changes, "is_recording_changes", return_value=False):
-        hi.replace_preserving_format(MagicMock(), _Range(text, "AAAAAX"), "AAAAAY")
+        hi.replace_preserving_format(MagicMock(), _FakeReplaceRange(text, "AAAAAX", paras=[para]), "AAAAAY")
 
     # Special portion: each character is checked 1-by-1
-    assert moves == [(1, True)] * 6
-    assert writes == ["Y"]
+    assert text.cursor.moves == [(1, True)] * 6
+    assert text.cursor.writes == ["Y"]
 
 
 def test_replace_preserving_format_200_char_plain_issues_one_setstring():
     from unittest.mock import MagicMock, patch
     from plugin.writer import html_import as hi, record_changes
 
-    writes = []
-    moves = []
-
-    class _Cursor:
-        def goRight(self, n, expand):
-            moves.append((n, expand))
-            return True
-        def setString(self, val):
-            writes.append(val)
-        def getEnd(self):
-            return object()
-        def gotoRange(self, _end, _expand):
-            pass
-
-    class _Text:
-        def createTextCursorByRange(self, _r):
-            return _Cursor()
-        def insertString(self, *_args):
-            pass
-
-    class _Enum:
-        def __init__(self, items):
-            self._items = list(items)
-        def hasMoreElements(self):
-            return bool(self._items)
-        def nextElement(self):
-            return self._items.pop(0)
-
-    class _Portion:
-        def __init__(self, text):
-            self.TextPortionType = "Text"
-            self._text = text
-        def getString(self):
-            return self._text
-
-    class _Para:
-        def __init__(self, portions):
-            self._portions = portions
-        def createEnumeration(self):
-            return _Enum(self._portions)
-
     old_str = "A" * 200
     new_str = "B" * 200
-
-    class _Range:
-        def getText(self):
-            return _Text()
-        def getString(self):
-            return old_str
-        def getStart(self):
-            return object()
-        def createEnumeration(self):
-            return _Enum([_Para([_Portion(old_str)])])
+    text = _FakeReplaceText()
+    para = _FakeReplacePara([_FakeReplacePortion(old_str)])
 
     with patch.object(record_changes, "is_recording_changes", return_value=False):
-        hi.replace_preserving_format(MagicMock(), _Range(), new_str)
+        hi.replace_preserving_format(MagicMock(), _FakeReplaceRange(text, old_str, paras=[para]), new_str)
 
-    assert writes == [new_str]
-    assert len(writes) == 1
+    assert text.cursor.writes == [new_str]
+    assert len(text.cursor.writes) == 1
 
 
 def test_replace_preserving_format_two_portions_issue_two_setstrings():
     from unittest.mock import MagicMock, patch
     from plugin.writer import html_import as hi, record_changes
 
-    writes = []
-
-    class _Cursor:
-        def goRight(self, n, expand):
-            return True
-        def setString(self, val):
-            writes.append(val)
-        def getEnd(self):
-            return object()
-        def gotoRange(self, _end, _expand):
-            pass
-
-    class _Text:
-        def createTextCursorByRange(self, _r):
-            return _Cursor()
-        def insertString(self, *_args):
-            pass
-
-    class _Enum:
-        def __init__(self, items):
-            self._items = list(items)
-        def hasMoreElements(self):
-            return bool(self._items)
-        def nextElement(self):
-            return self._items.pop(0)
-
-    class _Portion:
-        def __init__(self, text, is_bold=False):
-            self.TextPortionType = "Text"
-            self._text = text
-            self.is_bold = is_bold
-        def getString(self):
-            return self._text
-
-    p1 = _Portion("plain text ", is_bold=False)
-    p2 = _Portion("bold text", is_bold=True)
-    old_str = "plain text bold text"
-    new_str = "plain word BOLD TEXT"
-
-    class _Para:
-        def createEnumeration(self):
-            return _Enum([p1, p2])
-
-    class _Range:
-        def getText(self):
-            return _Text()
-        def getString(self):
-            return old_str
-        def getStart(self):
-            return object()
-        def createEnumeration(self):
-            return _Enum([_Para()])
+    p1 = _FakeReplacePortion("plain text ")
+    p2 = _FakeReplacePortion("bold text")
+    text = _FakeReplaceText()
+    para = _FakeReplacePara([p1, p2])
 
     with patch.object(record_changes, "is_recording_changes", return_value=False):
-        hi.replace_preserving_format(MagicMock(), _Range(), new_str)
+        hi.replace_preserving_format(
+            MagicMock(),
+            _FakeReplaceRange(text, "plain text bold text", paras=[para]),
+            "plain word BOLD TEXT",
+        )
 
-    assert len(writes) == 2
-    assert writes == ["word", "BOLD TEXT"]
+    assert text.cursor.writes == ["word", "BOLD TEXT"]
 
 
 def test_replace_preserving_format_equal_string_is_noop():
     from unittest.mock import MagicMock, patch
     from plugin.writer import html_import as hi, record_changes
 
-    moves = []
-    writes = []
-
-    class _Cursor:
-        def goRight(self, n, expand):
-            moves.append((n, expand))
-            return True
-
-        def setString(self, value):
-            writes.append(value)
-
-    cursor = _Cursor()
-
-    class _Text:
-        def createTextCursorByRange(self, _r):
-            return cursor
-
-    class _Range:
-        def getText(self):
-            return _Text()
-
-        def getString(self):
-            return "IDENTICAL"
-
-        def getStart(self):
-            return object()
-
+    text = _FakeReplaceText()
     with patch.object(record_changes, "is_recording_changes", return_value=False):
-        hi.replace_preserving_format(MagicMock(), _Range(), "IDENTICAL")
+        hi.replace_preserving_format(MagicMock(), _FakeReplaceRange(text, "IDENTICAL"), "IDENTICAL")
 
-    assert moves == []
-    assert writes == []
-
-
-def test_replace_preserving_format_equal_run_go_right_false_raises():
-    from unittest.mock import MagicMock, patch
-    from plugin.framework.errors import ToolExecutionError
-    from plugin.writer import html_import as hi, record_changes
-
-    writes = []
-
-    class _Cursor:
-        def goRight(self, n, expand):
-            return False
-
-        def setString(self, value):
-            writes.append(value)
-
-    cursor = _Cursor()
-
-    class _Text:
-        def createTextCursorByRange(self, _r):
-            return cursor
-
-    class _Range:
-        def getText(self):
-            return _Text()
-
-        def getString(self):
-            return "AAAAAX"
-
-        def getStart(self):
-            return object()
-
-    with patch.object(record_changes, "is_recording_changes", return_value=False):
-        with pytest.raises(ToolExecutionError, match="did not advance"):
-            hi.replace_preserving_format(MagicMock(), _Range(), "AAAAAY")
-
-    assert writes == []
-
-
-def test_replace_preserving_format_shrink_go_right_false_raises():
-    import pytest
-    from unittest.mock import MagicMock, patch
-    from plugin.framework.errors import ToolExecutionError
-    from plugin.writer import html_import as hi, record_changes
-
-    writes = []
-
-    class _Cursor:
-        def goRight(self, n, expand):
-            if expand:
-                # Deletion advance
-                return False
-            # Equal-run advance
-            return True
-
-        def setString(self, value):
-            writes.append(value)
-
-        def gotoRange(self, _end, _expand):
-            return None
-
-        def getEnd(self):
-            return object()
-
-    cursor = _Cursor()
-
-    class _Text:
-        def createTextCursorByRange(self, _r):
-            return cursor
-
-    class _Range:
-        def getText(self):
-            return _Text()
-
-        def getString(self):
-            return "ABCD"
-
-        def getStart(self):
-            return object()
-
-    with patch.object(record_changes, "is_recording_changes", return_value=False):
-        with pytest.raises(ToolExecutionError, match="did not advance"):
-            hi.replace_preserving_format(MagicMock(), _Range(), "AB")
-
-    assert writes == []
+    assert text.cursor.moves == []
+    assert text.cursor.writes == []
 
 
 def test_replace_preserving_format_atomic_when_split_author_false_even_in_undo_context():
@@ -1324,76 +1057,87 @@ def test_source_style_is_cached_and_tolerates_a_missing_style():
     assert rc.source_style(model, "", cache) is None
 
 
-def test_apply_paragraph_style_preserving_direct_char_caches_style_and_props():
+def _make_style_doc(style_default=100):
     from unittest.mock import MagicMock
-    from plugin.writer import styles as fmt
 
     doc = MagicMock()
     para_styles = MagicMock()
     doc.getStyleFamilies.return_value.getByName.return_value = para_styles
-
     style = MagicMock()
     para_styles.getByName.return_value = style
-    style.getPropertyValue.side_effect = lambda name: "DefaultVal"
+    style.getPropertyValue.return_value = style_default
+    return doc, para_styles, style
 
-    # Paragraph 1 with 2 portions
+
+def _make_prop_info(*names):
+    from unittest.mock import MagicMock
+
+    props = []
+    for name in names:
+        prop = MagicMock()
+        prop.Name = name
+        prop.Attributes = 0
+        props.append(prop)
+    info = MagicMock()
+    info.getProperties.return_value = props
+    return info
+
+
+def _make_para(portions, style_name="Standard"):
+    from unittest.mock import MagicMock
+
+    para = MagicMock()
+    para.supportsService.side_effect = lambda s: s == "com.sun.star.text.Paragraph"
+    para.getPropertyValue.side_effect = lambda name: style_name if name == "ParaStyleName" else None
+    para_enum = MagicMock()
+    para_enum.hasMoreElements.side_effect = [True] * len(portions) + [False]
+    para_enum.nextElement.side_effect = list(portions)
+    para.createEnumeration.return_value = para_enum
+    return para
+
+
+def _make_style_cursor(paras):
+    from unittest.mock import MagicMock
+
+    cursor = MagicMock()
+    doc_enum = MagicMock()
+    doc_enum.hasMoreElements.side_effect = [True] * len(paras) + [False]
+    doc_enum.nextElement.side_effect = list(paras)
+    cursor.getText.return_value.createTextCursorByRange.return_value = cursor
+    cursor.createEnumeration.return_value = doc_enum
+    return cursor
+
+
+def test_apply_paragraph_style_preserving_direct_char_caches_style_and_props():
+    from unittest.mock import MagicMock
+    from plugin.writer import styles as fmt
+
+    doc, para_styles, style = _make_style_doc(style_default="DefaultVal")
+    prop_set_info = _make_prop_info("CharWeight")
+
     portion1 = MagicMock()
     portion1.getPropertyValue.side_effect = lambda name: "Text" if name == "TextPortionType" else "CustomVal"
-    prop_char = MagicMock()
-    prop_char.Name = "CharWeight"
-    prop_char.Attributes = 0
-    prop_set_info = MagicMock()
-    prop_set_info.getProperties.return_value = [prop_char]
     portion1.getPropertySetInfo.return_value = prop_set_info
 
     portion2 = MagicMock()
     portion2.getPropertyValue.side_effect = lambda name: "Text" if name == "TextPortionType" else "CustomVal2"
     portion2.getPropertySetInfo.return_value = MagicMock()
 
-    para1 = MagicMock()
-    para1.supportsService.side_effect = lambda s: s == "com.sun.star.text.Paragraph"
-    para1.getPropertyValue.side_effect = lambda name: "Standard" if name == "ParaStyleName" else None
-    para1_enum = MagicMock()
-    para1_enum.hasMoreElements.side_effect = [True, True, False]
-    para1_enum.nextElement.side_effect = [portion1, portion2]
-    para1.createEnumeration.return_value = para1_enum
+    para1 = _make_para([portion1, portion2])
 
-    # Paragraph 2 with 1 portion (same style "Standard")
     portion3 = MagicMock()
     portion3.getPropertyValue.side_effect = lambda name: "Text" if name == "TextPortionType" else "CustomVal3"
-    para2 = MagicMock()
-    para2.supportsService.side_effect = lambda s: s == "com.sun.star.text.Paragraph"
-    para2.getPropertyValue.side_effect = lambda name: "Standard" if name == "ParaStyleName" else None
-    para2_enum = MagicMock()
-    para2_enum.hasMoreElements.side_effect = [True, False]
-    para2_enum.nextElement.side_effect = [portion3]
-    para2.createEnumeration.return_value = para2_enum
-
-    # Call 1: applies to para1 with cache
-    cursor1 = MagicMock()
-    doc_enum1 = MagicMock()
-    doc_enum1.hasMoreElements.side_effect = [True, False]
-    doc_enum1.nextElement.side_effect = [para1]
-    cursor1.getText.return_value.createTextCursorByRange.return_value = cursor1
-    cursor1.createEnumeration.return_value = doc_enum1
+    para2 = _make_para([portion3])
 
     style_cache = {}
-    fmt.apply_paragraph_style_preserving_direct_char(doc, cursor1, "Heading 1", style_cache=style_cache)
+    fmt.apply_paragraph_style_preserving_direct_char(doc, _make_style_cursor([para1]), "Heading 1", style_cache=style_cache)
 
     portion1.getPropertySetInfo.assert_called_once()
     portion2.getPropertySetInfo.assert_not_called()
     assert style.getPropertyValue.call_count == 1  # once for CharWeight
     assert para_styles.getByName.call_count == 1
 
-    # Call 2: applies to para2 with the same shared cache
-    cursor2 = MagicMock()
-    doc_enum2 = MagicMock()
-    doc_enum2.hasMoreElements.side_effect = [True, False]
-    doc_enum2.nextElement.side_effect = [para2]
-    cursor2.getText.return_value.createTextCursorByRange.return_value = cursor2
-    cursor2.createEnumeration.return_value = doc_enum2
-
-    fmt.apply_paragraph_style_preserving_direct_char(doc, cursor2, "Heading 1", style_cache=style_cache)
+    fmt.apply_paragraph_style_preserving_direct_char(doc, _make_style_cursor([para2]), "Heading 1", style_cache=style_cache)
 
     # para_styles.getByName should NOT be called again for "Standard"
     assert para_styles.getByName.call_count == 1
@@ -1406,21 +1150,8 @@ def test_apply_paragraph_style_capture_failure_and_disposal():
     from plugin.framework.errors import DocumentDisposedError
     from plugin.writer import styles as fmt
 
-    doc = MagicMock()
-    para_styles = MagicMock()
-    doc.getStyleFamilies.return_value.getByName.return_value = para_styles
-    style = MagicMock()
-    para_styles.getByName.return_value = style
-    style.getPropertyValue.return_value = 100
-
-    prop1 = MagicMock()
-    prop1.Name = "CharWeight"
-    prop1.Attributes = 0
-    prop2 = MagicMock()
-    prop2.Name = "CharHeight"
-    prop2.Attributes = 0
-    info = MagicMock()
-    info.getProperties.return_value = [prop1, prop2]
+    doc, _para_styles, _style = _make_style_doc()
+    info = _make_prop_info("CharWeight", "CharHeight")
 
     def get_prop_side_effect(name):
         if name == "TextPortionType":
@@ -1435,22 +1166,9 @@ def test_apply_paragraph_style_capture_failure_and_disposal():
     portion.getPropertyValue.side_effect = get_prop_side_effect
     portion.getPropertySetInfo.return_value = info
 
-    para = MagicMock()
-    para.supportsService.side_effect = lambda s: s == "com.sun.star.text.Paragraph"
-    para.getPropertyValue.side_effect = lambda name: "Standard" if name == "ParaStyleName" else None
-    para_enum = MagicMock()
-    para_enum.hasMoreElements.side_effect = [True, False]
-    para_enum.nextElement.side_effect = [portion]
-    para.createEnumeration.return_value = para_enum
-
-    cursor = MagicMock()
-    doc_enum = MagicMock()
-    doc_enum.hasMoreElements.side_effect = [True, False]
-    doc_enum.nextElement.side_effect = [para]
-    cursor.getText.return_value.createTextCursorByRange.return_value = cursor
-    cursor.createEnumeration.return_value = doc_enum
-
-    rep = fmt.apply_paragraph_style_preserving_direct_char(doc, cursor, "Heading 1", clear_direct="none")
+    rep = fmt.apply_paragraph_style_preserving_direct_char(
+        doc, _make_style_cursor([_make_para([portion])]), "Heading 1", clear_direct="none"
+    )
     assert rep.get("capture_incomplete") is True
     assert "warning" in rep
     assert rep.get("preserved_char_overrides", {}).get("CharWeight") == 150
@@ -1461,41 +1179,16 @@ def test_apply_paragraph_style_capture_failure_and_disposal():
     portion_disp.getPropertyValue.side_effect = lambda name: "Text" if name == "TextPortionType" else (_ for _ in ()).throw(DisposedExc("object disposed"))
     portion_disp.getPropertySetInfo.return_value = info
 
-    para_disp = MagicMock()
-    para_disp.supportsService.side_effect = lambda s: s == "com.sun.star.text.Paragraph"
-    para_disp.getPropertyValue.side_effect = lambda name: "Standard" if name == "ParaStyleName" else None
-    para_disp_enum = MagicMock()
-    para_disp_enum.hasMoreElements.side_effect = [True, False]
-    para_disp_enum.nextElement.side_effect = [portion_disp]
-    para_disp.createEnumeration.return_value = para_disp_enum
-
-    cursor_disp = MagicMock()
-    doc_disp_enum = MagicMock()
-    doc_disp_enum.hasMoreElements.side_effect = [True, False]
-    doc_disp_enum.nextElement.side_effect = [para_disp]
-    cursor_disp.getText.return_value.createTextCursorByRange.return_value = cursor_disp
-    cursor_disp.createEnumeration.return_value = doc_disp_enum
-
     with pytest.raises(DocumentDisposedError):
-        fmt.apply_paragraph_style_preserving_direct_char(doc, cursor_disp, "Heading 1")
+        fmt.apply_paragraph_style_preserving_direct_char(doc, _make_style_cursor([_make_para([portion_disp])]), "Heading 1")
 
 
 def test_apply_paragraph_style_restore_failure_is_not_capture_incomplete():
     from unittest.mock import MagicMock
     from plugin.writer import styles as fmt
 
-    doc = MagicMock()
-    para_styles = MagicMock()
-    doc.getStyleFamilies.return_value.getByName.return_value = para_styles
-    style = MagicMock()
-    para_styles.getByName.return_value = style
-    style.getPropertyValue.return_value = 100
-
-    prop = MagicMock()
-    prop.Name = "CharWeight"
-    prop.Attributes = 0
-    info = MagicMock()
-    info.getProperties.return_value = [prop]
+    doc, _para_styles, _style = _make_style_doc()
+    info = _make_prop_info("CharWeight")
 
     portion = MagicMock()
     portion.getPropertyValue.side_effect = lambda name: "Text" if name == "TextPortionType" else (150 if name == "CharWeight" else None)
@@ -1505,22 +1198,9 @@ def test_apply_paragraph_style_restore_failure_is_not_capture_incomplete():
     restore_cursor.setPropertyValue.side_effect = RuntimeError("read-only")
     portion.getText.return_value.createTextCursorByRange.return_value = restore_cursor
 
-    para = MagicMock()
-    para.supportsService.side_effect = lambda s: s == "com.sun.star.text.Paragraph"
-    para.getPropertyValue.side_effect = lambda name: "Standard" if name == "ParaStyleName" else None
-    para_enum = MagicMock()
-    para_enum.hasMoreElements.side_effect = [True, False]
-    para_enum.nextElement.side_effect = [portion]
-    para.createEnumeration.return_value = para_enum
-
-    cursor = MagicMock()
-    doc_enum = MagicMock()
-    doc_enum.hasMoreElements.side_effect = [True, False]
-    doc_enum.nextElement.side_effect = [para]
-    cursor.getText.return_value.createTextCursorByRange.return_value = cursor
-    cursor.createEnumeration.return_value = doc_enum
-
-    rep = fmt.apply_paragraph_style_preserving_direct_char(doc, cursor, "Heading 1", clear_direct="none")
+    rep = fmt.apply_paragraph_style_preserving_direct_char(
+        doc, _make_style_cursor([_make_para([portion])]), "Heading 1", clear_direct="none"
+    )
     assert rep.get("capture_incomplete") is not True
     assert "could not be re-applied" in rep["warning"]
     assert "could not be read" not in rep["warning"]
@@ -1531,52 +1211,19 @@ def test_apply_paragraph_style_negative_caches_failed_property_set_info():
     from unittest.mock import MagicMock
     from plugin.writer import styles as fmt
 
-    doc = MagicMock()
-    para_styles = MagicMock()
-    doc.getStyleFamilies.return_value.getByName.return_value = para_styles
-    style = MagicMock()
-    para_styles.getByName.return_value = style
+    doc, _para_styles, _style = _make_style_doc()
 
     portion = MagicMock()
     portion.getPropertyValue.side_effect = lambda name: "Text" if name == "TextPortionType" else 150
     portion.getPropertySetInfo.return_value = None
 
-    # Call 1: own paragraph and cursor mocks
-    para1 = MagicMock()
-    para1.supportsService.side_effect = lambda s: s == "com.sun.star.text.Paragraph"
-    para1.getPropertyValue.side_effect = lambda name: "Standard" if name == "ParaStyleName" else None
-    para1_enum = MagicMock()
-    para1_enum.hasMoreElements.side_effect = [True, False]
-    para1_enum.nextElement.side_effect = [portion]
-    para1.createEnumeration.return_value = para1_enum
-
-    cursor1 = MagicMock()
-    doc_enum1 = MagicMock()
-    doc_enum1.hasMoreElements.side_effect = [True, False]
-    doc_enum1.nextElement.side_effect = [para1]
-    cursor1.getText.return_value.createTextCursorByRange.return_value = cursor1
-    cursor1.createEnumeration.return_value = doc_enum1
-
     style_cache = {}
-    rep1 = fmt.apply_paragraph_style_preserving_direct_char(doc, cursor1, "Heading 1", style_cache=style_cache)
-
-    # Call 2: own paragraph and cursor mocks, reuse portion
-    para2 = MagicMock()
-    para2.supportsService.side_effect = lambda s: s == "com.sun.star.text.Paragraph"
-    para2.getPropertyValue.side_effect = lambda name: "Standard" if name == "ParaStyleName" else None
-    para2_enum = MagicMock()
-    para2_enum.hasMoreElements.side_effect = [True, False]
-    para2_enum.nextElement.side_effect = [portion]
-    para2.createEnumeration.return_value = para2_enum
-
-    cursor2 = MagicMock()
-    doc_enum2 = MagicMock()
-    doc_enum2.hasMoreElements.side_effect = [True, False]
-    doc_enum2.nextElement.side_effect = [para2]
-    cursor2.getText.return_value.createTextCursorByRange.return_value = cursor2
-    cursor2.createEnumeration.return_value = doc_enum2
-
-    rep2 = fmt.apply_paragraph_style_preserving_direct_char(doc, cursor2, "Heading 1", style_cache=style_cache)
+    rep1 = fmt.apply_paragraph_style_preserving_direct_char(
+        doc, _make_style_cursor([_make_para([portion])]), "Heading 1", style_cache=style_cache
+    )
+    rep2 = fmt.apply_paragraph_style_preserving_direct_char(
+        doc, _make_style_cursor([_make_para([portion])]), "Heading 1", style_cache=style_cache
+    )
 
     assert portion.getPropertySetInfo.call_count == 1
     assert rep1.get("capture_incomplete") is True
@@ -1589,12 +1236,7 @@ def test_capture_direct_char_overrides_counts_one_failure_and_continues():
     from unittest.mock import MagicMock
     from plugin.writer import styles as fmt
 
-    doc = MagicMock()
-    para_styles = MagicMock()
-    doc.getStyleFamilies.return_value.getByName.return_value = para_styles
-    style = MagicMock()
-    para_styles.getByName.return_value = style
-    style.getPropertyValue.return_value = 100
+    doc, _para_styles, _style = _make_style_doc()
 
     # Para 1: getPropertyValue("ParaStyleName") raises RuntimeError
     para1 = MagicMock()
@@ -1602,31 +1244,14 @@ def test_capture_direct_char_overrides_counts_one_failure_and_continues():
     para1.getPropertyValue.side_effect = RuntimeError("failed to read style")
 
     # Para 2: normal paragraph with 1 portion having CharWeight=150 override
-    prop = MagicMock()
-    prop.Name = "CharWeight"
-    prop.Attributes = 0
-    info = MagicMock()
-    info.getProperties.return_value = [prop]
-
+    info = _make_prop_info("CharWeight")
     portion = MagicMock()
     portion.getPropertyValue.side_effect = lambda name: "Text" if name == "TextPortionType" else (150 if name == "CharWeight" else None)
     portion.getPropertySetInfo.return_value = info
 
-    para2 = MagicMock()
-    para2.supportsService.side_effect = lambda s: s == "com.sun.star.text.Paragraph"
-    para2.getPropertyValue.side_effect = lambda name: "Standard" if name == "ParaStyleName" else None
-    para2_enum = MagicMock()
-    para2_enum.hasMoreElements.side_effect = [True, False]
-    para2_enum.nextElement.side_effect = [portion]
-    para2.createEnumeration.return_value = para2_enum
+    para2 = _make_para([portion])
 
-    cursor = MagicMock()
-    doc_enum = MagicMock()
-    doc_enum.hasMoreElements.side_effect = [True, True, False]
-    doc_enum.nextElement.side_effect = [para1, para2]
-    cursor.createEnumeration.return_value = doc_enum
-
-    overrides, failures, notes = fmt._capture_direct_char_overrides(doc, cursor, {})
+    overrides, failures, notes = fmt._capture_direct_char_overrides(doc, _make_style_cursor([para1, para2]), {})
     assert len(overrides) == 1
     assert failures == 1
     assert notes == []
