@@ -513,22 +513,21 @@ class TestSettingsEnhancements:
         api_key_ctrl.setFocus.assert_called_once()
         mock_open_url.assert_called_once_with(ctx, "https://api.together.ai/settings/api-keys")
 
-    @patch("plugin.mcp.mcp_ui.get_config", return_value=18765)
-    def test_build_mcp_config_snippet_default(self, mock_port):
+    @pytest.mark.parametrize(
+        ("port", "expected_port"),
+        [
+            (None, 18765),
+            (9000, 9000),
+        ],
+    )
+    def test_build_mcp_config_snippet(self, port, expected_port):
         import json
         from plugin.mcp.mcp_ui import build_mcp_config_snippet
 
-        snippet = build_mcp_config_snippet()
+        with patch("plugin.mcp.mcp_ui.get_config", return_value=18765):
+            snippet = build_mcp_config_snippet(port)
         parsed = json.loads(snippet)
-        assert (parsed["mcpServers"]["libreoffice"]["url"]) == ("http://localhost:18765/mcp")
-
-    def test_build_mcp_config_snippet_custom_port(self):
-        import json
-        from plugin.mcp.mcp_ui import build_mcp_config_snippet
-
-        snippet = build_mcp_config_snippet(9000)
-        parsed = json.loads(snippet)
-        assert (parsed["mcpServers"]["libreoffice"]["url"]) == ("http://localhost:9000/mcp")
+        assert parsed["mcpServers"]["libreoffice"]["url"] == f"http://localhost:{expected_port}/mcp"
 
     @patch("plugin.mcp.mcp_ui.copy_to_clipboard", return_value=True)
     def test_copy_mcp_config_listener_action(self, mock_copy):
