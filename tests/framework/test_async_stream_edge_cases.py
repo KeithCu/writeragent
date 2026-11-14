@@ -45,8 +45,8 @@ def test_run_async_worker_with_drain_stop_fallback_calls_one_arg_on_done() -> No
 def test_recovered_error_item_after_next_tool_keeps_drain_alive():
     """A queued ERROR after NEXT_TOOL must not apply the deferred exit when on_error recovers.
 
-    The older test raised inside on_status, which took the except path that
-    already skipped the trailing flush. A real ERROR tuple did not.
+    A handler raise takes the except path, which already skips the trailing flush;
+    only a queued ERROR tuple exercises the deferred-exit path.
     """
     q = queue.Queue()
     q.put((StreamQueueKind.NEXT_TOOL,))

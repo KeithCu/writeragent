@@ -25,22 +25,33 @@ def _cancelled_scope() -> SendCancellation:
     return scope
 
 
-@contextmanager
-def _mock_https(*steps: Any):
-    """Patch ``http.client.HTTPSConnection`` with response mocks or request exceptions."""
-    with patch("http.client.HTTPSConnection") as mock_https:
-        conns = []
-        for step in steps:
-            conn = MagicMock()
-            if isinstance(step, BaseException):
-                conn.request.side_effect = step
-            else:
-                conn.getresponse.return_value = step
-            conns.append(conn)
-        if len(conns) == 1:
-            mock_https.return_value = conns[0]
+def _https_steps(mock_https, *steps):
+    """Wire HTTPSConnection: each step is a response mock or an exception from request()."""
+    conns = []
+    for step in steps:
+        conn = MagicMock()
+        if isinstance(step, BaseException):
+            conn.request.side_effect = step
         else:
-            mock_https.side_effect = conns
+            conn.getresponse.return_value = step
+        conns.append(conn)
+    mock_https.side_effect = conns
+    return conns
+
+
+@contextmanager
+def _mock_https(*steps: Any, reuse: bool = False):
+    """Patch ``http.client.HTTPSConnection`` with ``_https_steps``.
+
+    Pass ``reuse=True`` only when a single step must be returned across
+    multiple connections (e.g. retry-until-exhausted or consecutive requests).
+    """
+    with patch("http.client.HTTPSConnection") as mock_https:
+        conns = _https_steps(mock_https, *steps)
+        if reuse:
+            assert len(conns) == 1
+            mock_https.side_effect = None
+            mock_https.return_value = conns[0]
         yield mock_https, conns
 
 
@@ -475,7 +486,7 @@ def test_stream_request_with_tools_http_error(client):
 
 
 def test_stream_request_with_tools_connection_error(client):
-    with _mock_https(socket.timeout("timed out")):
+    with _mock_https(socket.timeout("timed out"), reuse=True):
         with pytest.raises(Exception, match="Request Timed Out"):
             client.stream_request_with_tools(
                 messages=[{"role": "user", "content": "Hi"}], max_tokens=100
@@ -851,7 +862,7 @@ def test_request_with_tools_sync_paces_consecutive_requests(client):
         sleeps.append(dt)
 
     with (
-        _mock_https(create_mock_http_response(json_data=json.loads(ok_json))),
+        _mock_https(create_mock_http_response(json_data=json.loads(ok_json)), reuse=True),
         patch("time.sleep", side_effect=track_sleep),
         patch("time.monotonic", return_value=1000.0),
     ):
@@ -2015,20 +2026,6 @@ def test_stream_completion_returns_finish_reason(client):
         _https_steps(mock_https, resp)
         finish = client.stream_completion("prompt", "system", 10, append_callback=lambda _t: None)
     assert finish == "length"
-
-
-def _https_steps(mock_https, *steps):
-    """Wire HTTPSConnection: each step is a response mock or an exception from request()."""
-    conns = []
-    for step in steps:
-        conn = MagicMock()
-        if isinstance(step, BaseException):
-            conn.request.side_effect = step
-        else:
-            conn.getresponse.return_value = step
-        conns.append(conn)
-    mock_https.side_effect = conns
-    return conns
 
 
 def _busy_then_ok(status, reason):

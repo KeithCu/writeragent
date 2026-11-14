@@ -63,67 +63,15 @@ class TestAsyncStreamErrorHandling:
         assert ('Processing failed' in error_payload['message'])
 
 
-@pytest.mark.parametrize(
-    ("kind", "items", "mode", "expected_text", "unexpected_text"),
-    [
-        pytest.param(
-            StreamQueueKind.CHUNK,
-            [
-                (StreamQueueKind.CHUNK, "one"),
-                (StreamQueueKind.CHUNK, "two"),
-                (StreamQueueKind.CHUNK, "three"),
-                (StreamQueueKind.STREAM_DONE, None),
-            ],
-            "abort",
-            "one",
-            "three",
-            id="chunk-abort",
-        ),
-        pytest.param(
-            StreamQueueKind.THINKING,
-            [
-                (StreamQueueKind.THINKING, "hmm"),
-                (StreamQueueKind.THINKING, "nope"),
-                (StreamQueueKind.THINKING, "later"),
-                (StreamQueueKind.STREAM_DONE, None),
-            ],
-            "abort",
-            "hmm",
-            "later",
-            id="thinking-abort",
-        ),
-        pytest.param(
-            StreamQueueKind.CHUNK,
-            [
-                (StreamQueueKind.CHUNK, "one"),
-                (StreamQueueKind.CHUNK, "two"),
-                (StreamQueueKind.CHUNK, "three"),
-                (StreamQueueKind.STREAM_DONE, "stale-done"),
-            ],
-            "recover",
-            "one",
-            "three",
-            id="chunk-recover",
-        ),
-        pytest.param(
-            StreamQueueKind.CHUNK,
-            [
-                (StreamQueueKind.CHUNK, "one"),
-                (StreamQueueKind.CHUNK, "two"),
-                (StreamQueueKind.STREAM_DONE, None),
-            ],
-            "raise",
-            None,
-            None,
-            id="on-error-raises",
-        ),
-    ],
-)
-def test_process_batch_handler_error(monkeypatch, kind, items, mode, expected_text, unexpected_text):
-    """Dispatch-handler raise on the second item ends or recovers the batch cleanly."""
+def _run_with_failing_handler(monkeypatch, kind, items, make_on_error):
+    """Patch ``_DISPATCH[kind]`` (not ``apply_chunk_fn``) so the second item hits the inner except.
+
+    Patching ``apply_chunk_fn`` would only hit the outer catch that
+    ``test_stream_drain_loop_processing_error`` already covers.
+    """
     import plugin.framework.async_stream as async_stream
 
-    q = queue.Queue()
+    q: queue.Queue = queue.Queue()
     for item in items:
         q.put(item)
 
@@ -141,15 +89,6 @@ def test_process_batch_handler_error(monkeypatch, kind, items, mode, expected_te
 
     monkeypatch.setitem(async_stream._DISPATCH, kind, boom_handler)
 
-    def on_error(e):
-        errors.append(e)
-        if mode == "recover":
-            q.put((StreamQueueKind.STREAM_DONE, "replacement"))
-            return True
-        if mode == "raise":
-            raise RuntimeError("on_error error")
-        return None
-
     outcome = DrainOutcome()
     async_stream.run_stream_drain_loop(
         q,
@@ -158,23 +97,110 @@ def test_process_batch_handler_error(monkeypatch, kind, items, mode, expected_te
         lambda text, _is_thinking: applied.append(text),
         on_stream_done=lambda item: done_calls.append(item) or True,
         on_stopped=lambda: None,
-        on_error=on_error,
+        on_error=make_on_error(q, errors),
     )
+    return outcome, calls[0], errors, applied, done_calls
 
+
+@pytest.mark.parametrize(
+    ("kind", "items", "expected_text", "unexpected_text"),
+    [
+        pytest.param(
+            StreamQueueKind.CHUNK,
+            [
+                (StreamQueueKind.CHUNK, "one"),
+                (StreamQueueKind.CHUNK, "two"),
+                (StreamQueueKind.CHUNK, "three"),
+                (StreamQueueKind.STREAM_DONE, None),
+            ],
+            "one",
+            "three",
+            id="chunk",
+        ),
+        pytest.param(
+            StreamQueueKind.THINKING,
+            [
+                (StreamQueueKind.THINKING, "hmm"),
+                (StreamQueueKind.THINKING, "nope"),
+                (StreamQueueKind.THINKING, "later"),
+                (StreamQueueKind.STREAM_DONE, None),
+            ],
+            "hmm",
+            "later",
+            id="thinking",
+        ),
+    ],
+)
+def test_process_batch_handler_raises_ends_batch(monkeypatch, kind, items, expected_text, unexpected_text):
+    """Dispatch-handler raise on the second item ends the batch without fake success.
+
+    STREAM_DONE is already in the dequeued items list; job_done + break skips it
+    rather than leaving it on the queue. Do not assert q still holds STREAM_DONE.
+    """
+    outcome, calls, errors, applied, done_calls = _run_with_failing_handler(
+        monkeypatch,
+        kind,
+        items,
+        lambda _q, errors: lambda e: errors.append(e),
+    )
     assert outcome.done is True
-    assert calls[0] == 2
+    assert calls == 2
     assert len(errors) == 1
-    if mode == "abort":
-        assert errors[0]["status"] == "error"
-        assert f"second {kind.value}" in errors[0]["message"]
-        assert done_calls == []
-    elif mode == "recover":
-        assert len(done_calls) == 1
-        assert done_calls[0][1] == "replacement"
-    if expected_text is not None:
-        joined = "".join(applied)
-        assert expected_text in joined
-        assert unexpected_text not in joined
+    assert errors[0]["status"] == "error"
+    assert f"second {kind.value}" in errors[0]["message"]
+    assert done_calls == []
+    joined = "".join(applied)
+    assert expected_text in joined
+    assert unexpected_text not in joined
+
+
+def test_process_batch_handler_error_on_error_true_drops_batch_tail(monkeypatch):
+    """on_error returning True keeps the drain and drops the failed attempt's tail."""
+    items = [
+        (StreamQueueKind.CHUNK, "one"),
+        (StreamQueueKind.CHUNK, "two"),
+        (StreamQueueKind.CHUNK, "three"),
+        (StreamQueueKind.STREAM_DONE, "stale-done"),
+    ]
+
+    def make_on_error(q, errors):
+        def on_error(e):
+            errors.append(e)
+            q.put((StreamQueueKind.STREAM_DONE, "replacement"))
+            return True
+        return on_error
+
+    outcome, _calls, errors, applied, done_calls = _run_with_failing_handler(
+        monkeypatch, StreamQueueKind.CHUNK, items, make_on_error
+    )
+    assert outcome.done is True
+    assert len(errors) == 1
+    assert len(done_calls) == 1
+    assert done_calls[0][1] == "replacement"
+    joined = "".join(applied)
+    assert "one" in joined
+    assert "three" not in joined
+
+
+def test_process_batch_handler_error_on_error_raises_still_sets_job_done(monkeypatch):
+    """A raising on_error must still set job_done and must not be retried by the outer catch."""
+    items = [
+        (StreamQueueKind.CHUNK, "one"),
+        (StreamQueueKind.CHUNK, "two"),
+        (StreamQueueKind.STREAM_DONE, None),
+    ]
+
+    def make_on_error(_q, errors):
+        def on_error(e):
+            errors.append(e)
+            raise RuntimeError("on_error error")
+        return on_error
+
+    outcome, _calls, errors, _applied, _done_calls = _run_with_failing_handler(
+        monkeypatch, StreamQueueKind.CHUNK, items, make_on_error
+    )
+    assert outcome.done is True
+    assert len(errors) == 1
 
 
 def test_idle_stop_closes_open_thinking():

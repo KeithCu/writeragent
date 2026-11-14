@@ -28,12 +28,15 @@ def test_remove_empty_if_keeps_pass() -> None:
 
 
 def test_remove_with_siblings_deletes_without_pass() -> None:
-    src = "if True:\n    grammar_obs('x')\n    x = 1\n"
+    """A lone ``pass`` is inserted only to keep an emptied suite valid."""
+    src = "if True:\n    grammar_obs('a')\n    x = 1\n    grammar_obs('b')\n"
+    found = iter_matching_statements(src, _grammar_obs)
+    assert len(found) == 2
     out, n = remove_statements(src, _grammar_obs)
-    assert n == 1
+    assert n == len(found) == 2
     assert "grammar_obs" not in out
+    assert "pass" not in out
     assert "x = 1" in out
-    # Sibling remains — no need for a lonely pass (may still have pass if logic differs).
     ast.parse(out)
 
 

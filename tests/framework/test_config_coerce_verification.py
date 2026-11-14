@@ -34,11 +34,14 @@ def test_hypothesis_parse_int_round_trip_str(n: int) -> None:
 
 
 def test_parse_int_robust_formats_and_raises() -> None:
+    assert parse_int_robust(8765.99) == 8765
+    assert parse_int_robust(" 8765 ") == 8765
     assert parse_int_robust("8765.7") == 8765
     assert parse_int_robust("8765,0") == 8765
     assert parse_int_robust("8765,5") == 8765
     assert parse_int_robust("1,234") == 1234
     assert parse_int_robust("-1,234") == -1234
+    # Non-finite floats must be ValueError (not OverflowError) for @deal.raises.
     for bad in (None, "", "   ", "not-a-number", float("inf"), float("-inf"), float("nan"), "inf"):
         with pytest.raises(ValueError):
             parse_int_robust(bad)

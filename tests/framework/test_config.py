@@ -1113,7 +1113,7 @@ class TestConfigSyncFileIO:
         assert "custom_blob" not in data
 
 
-class TestRobustNumericParsing:
+class TestConfigValidateTypeCasting:
 
     def test_config_validate_type_casting(self):
         from plugin.framework.config_schema import validate

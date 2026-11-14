@@ -195,6 +195,15 @@ def test_openrouter_prompt_caching():
     assert msgs1[4]["content"] == snap
     assert json.dumps(data1).count("cache_control") == 1
 
+    # Also when history starts directly with an assistant tool round (no leading user turn):
+    _m, _url, body_no_user, _h = shim.build_chat_request(
+        tool_loop_messages[1:], 100, None, None, False, "anthropic/claude-sonnet-4.5", None
+    )
+    msgs_no_user = json.loads(body_no_user)["messages"]
+    assert [m["role"] for m in msgs_no_user] == ["assistant", "tool", "tool", "user"]
+    assert msgs_no_user[2]["content"] == [{"type": "text", "text": "res2", "cache_control": {"type": "ephemeral"}}]
+    assert msgs_no_user[3]["content"] == snap
+
     # 2. Same shim with openai/gpt-oss-120b: no cache_control anywhere
     _m, _url, body2, _h = shim.build_chat_request(
         tool_loop_messages, 100, None, None, False, "openai/gpt-oss-120b", None
