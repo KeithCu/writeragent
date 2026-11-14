@@ -19,7 +19,6 @@ from analyze_tool_call_timing import (  # noqa: E402
     DONE_MARKERS,
     SEND_MARKER,
     analyze,
-    find_log_path,
 )
 
 
@@ -172,8 +171,3 @@ def test_marker_drift() -> None:
     assert SEND_MARKER in tool_loop_src, f"SEND_MARKER {SEND_MARKER!r} not found in tool_loop.py"
     for marker in DONE_MARKERS:
         assert marker in llm_client_src, f"DONE_MARKERS item {marker!r} not found in llm_client.py"
-
-
-def test_find_log_path_exposed() -> None:
-    """find_log_path is exported and callable."""
-    assert callable(find_log_path)

@@ -87,6 +87,12 @@ def test_is_current_detects(monkeypatch):
     monkeypatch.setattr(threading, "current_thread", lambda: threading.main_thread())
     assert main.is_current() is True
 
+    # Non-main thread must not be reported as current
+    fake_bg = MagicMock()
+    monkeypatch.setattr(threading, "current_thread", lambda: fake_bg)
+    monkeypatch.setattr(main, "designated", None)
+    assert main.is_current() is False
+
 
 def test_assert_main_thread_noop_on_main(monkeypatch, caplog):
     monkeypatch.setattr(threading, "current_thread", lambda: threading.main_thread())
@@ -122,8 +128,8 @@ def test_assert_raises_when_guard_on_from_bg(monkeypatch):
             tg._violation_dialog_open = False
 
 
-def test_assert_logs_warning_when_guard_off_from_bg(monkeypatch):
-    """Guard-off path must not raise; it logs at WARNING (tested via no-exception + message construction)."""
+def test_assert_logs_warning_when_guard_off_from_bg(monkeypatch, caplog):
+    """Guard-off path must not raise; it logs at WARNING."""
     fake_bg = MagicMock()
     fake_bg.name = "worker-bar"
     monkeypatch.setattr(threading, "current_thread", lambda: fake_bg)
@@ -132,8 +138,12 @@ def test_assert_logs_warning_when_guard_off_from_bg(monkeypatch):
     tg.GUARD_ON = False
     tg.set_background_task("run_thing")
     try:
-        # Must not raise; the implementation does log.warning(..., stack_info=True)
-        tg.assert_main_thread("document_helpers.resolve")
+        with caplog.at_level("WARNING", logger="plugin.framework.thread_guard"):
+            tg.assert_main_thread("document_helpers.resolve")
+        assert any(
+            "UNO thread violation" in r.message and "document_helpers.resolve" in r.message
+            for r in caplog.records
+        )
     finally:
         tg.GUARD_ON = was
         tg.set_background_task(None)
@@ -220,12 +230,12 @@ def test_proxy_wraps_pyuno_and_asserts_on_access(monkeypatch):
     with patch.object(tg, "assert_main_thread") as am:
         _ = prox.getCurrentComponent
         am.assert_called()
-    # Call should assert and wrap return
+    # Call should assert and return the underlying call result
     with patch.object(tg, "assert_main_thread") as am:
         res = prox.foo(1, bar=2)
         am.assert_called()
-        # The underlying was called; result should be wrapped if pyuno-like
-        assert isinstance(res, tg._UnoThreadGuardProxy) or res is not None
+        real.foo.assert_called_once_with(1, bar=2)
+        assert res is real.foo.return_value
 
 
 def test_proxy_passthrough_plain_values_when_guard_on(monkeypatch):

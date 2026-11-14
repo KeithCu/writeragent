@@ -117,7 +117,7 @@ def test_calc_write_formula_range_and_snapshot():
     snap = state.snapshot()
     assert snap["snapshot"] is True
     assert "Tax" in snap["headers"]
-    assert 0.8 in snap["rows"][1] or "0.8" in json.dumps(snap)
+    assert 0.8 in snap["rows"][1]
     dump = json.dumps(snap)
     assert "snapshot" in dump
     assert "Tax" in dump

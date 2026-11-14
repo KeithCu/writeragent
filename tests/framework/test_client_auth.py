@@ -1,5 +1,4 @@
 import pytest
-from unittest.mock import patch
 
 from plugin.framework.client.auth import (
     AuthError,
@@ -9,19 +8,54 @@ from plugin.framework.client.auth import (
 from plugin.framework.client.provider_detection import get_provider_from_endpoint
 
 
-@patch("plugin.framework.client.auth.normalize_endpoint_url")
-@patch("plugin.framework.client.auth.get_provider_from_endpoint")
-def test_resolve_auth_for_config_known_provider(mock_get_provider, mock_normalize):
-    mock_normalize.return_value = "https://openrouter.ai/api/v1"
-    mock_get_provider.return_value = "openrouter"
-
-    api_config = {
-        "endpoint": "https://openrouter.ai/api/v1",
-        "api_key": "sk-or-testkey123"
-    }
-
+@pytest.mark.parametrize(
+    ("api_config", "expected_provider", "expected_endpoint", "expected_key", "expected_style"),
+    [
+        (
+            {"endpoint": "https://openrouter.ai/api/v1", "api_key": "sk-or-testkey123"},
+            "openrouter",
+            "https://openrouter.ai/api",
+            "sk-or-testkey123",
+            "bearer",
+        ),
+        (
+            {"endpoint": "http://localhost:11434", "api_key": ""},
+            "ollama",
+            "http://localhost:11434",
+            "",
+            "none",
+        ),
+        (
+            {"endpoint": "http://localhost:1234", "api_key": ""},
+            "lmstudio",
+            "http://localhost:1234",
+            "",
+            "none",
+        ),
+        (
+            {"endpoint": "http://my-custom-endpoint:8080/v1"},
+            "custom",
+            "http://my-custom-endpoint:8080",
+            "",
+            "bearer",
+        ),
+        (
+            {"endpoint": "https://completely.different.url", "api_key": "valid-key", "is_openrouter": True},
+            "openrouter",
+            "https://completely.different.url",
+            "valid-key",
+            "bearer",
+        ),
+    ],
+)
+def test_resolve_auth_for_config_success(
+    api_config, expected_provider, expected_endpoint, expected_key, expected_style
+):
     result = resolve_auth_for_config(api_config)
-    assert result["provider"] == "openrouter"
+    assert result["provider"] == expected_provider
+    assert result["endpoint"] == expected_endpoint
+    assert result["api_key"] == expected_key
+    assert result["header_style"] == expected_style
 
 
 def test_build_auth_headers_bearer():
@@ -146,99 +180,26 @@ def test_build_auth_headers_rejects_control_chars():
     assert padded["Authorization"] == "Bearer sk-abc"
 
 
-@patch("plugin.framework.client.auth.normalize_endpoint_url")
-@patch("plugin.framework.client.auth.get_provider_from_endpoint")
-def test_resolve_auth_for_config_local_no_api_key(mock_get_provider, mock_normalize):
-    mock_normalize.return_value = "http://localhost:11434"
-    mock_get_provider.return_value = "ollama"
-
-    # Ollama is header_style="none", and doesn't require an api_key
-    api_config = {
-        "endpoint": "http://localhost:11434",
-        "api_key": ""
-    }
-
-    result = resolve_auth_for_config(api_config)
-    assert result["provider"] == "ollama"
-    assert result["endpoint"] == "http://localhost:11434"
-    assert result["api_key"] == ""
-    assert result["header_style"] == "none"
-
-
-@patch("plugin.framework.client.auth.normalize_endpoint_url")
-@patch("plugin.framework.client.auth.get_provider_from_endpoint")
-def test_resolve_auth_for_config_lmstudio_no_api_key(mock_get_provider, mock_normalize):
-    mock_normalize.return_value = "http://localhost:1234"
-    mock_get_provider.return_value = "lmstudio"
-    result = resolve_auth_for_config({"endpoint": "http://localhost:1234", "api_key": ""})
-    assert result["provider"] == "lmstudio"
-    assert result["header_style"] == "none"
-    assert result["api_key"] == ""
-
-
-@patch("plugin.framework.client.auth.normalize_endpoint_url")
-@patch("plugin.framework.client.auth.get_provider_from_endpoint")
-def test_resolve_auth_for_config_custom_no_api_key(mock_get_provider, mock_normalize):
-    mock_normalize.return_value = "http://my-custom-endpoint:8080/v1"
-    mock_get_provider.return_value = None
-
-    # Custom providers don't require an api_key
-    api_config = {
-        "endpoint": "http://my-custom-endpoint:8080/v1"
-    }
-
-    result = resolve_auth_for_config(api_config)
-    assert result["provider"] == "custom"
-    assert result["endpoint"] == "http://my-custom-endpoint:8080/v1"
-    assert result["api_key"] == ""
-    assert result["header_style"] == "bearer"  # custom defaults to bearer style
-
-
-@patch("plugin.framework.client.auth.normalize_endpoint_url")
-def test_resolve_auth_for_config_missing_endpoint(mock_normalize):
-    mock_normalize.return_value = ""
-    api_config = {}
-
+@pytest.mark.parametrize(
+    ("api_config", "expected_code", "expected_provider", "expected_msg"),
+    [
+        ({}, "missing_endpoint", None, "No endpoint configured"),
+        (
+            {"endpoint": "https://api.openai.com/v1", "api_key": "   "},
+            "missing_api_key",
+            "openai",
+            "No API key configured",
+        ),
+    ],
+)
+def test_resolve_auth_for_config_errors(api_config, expected_code, expected_provider, expected_msg):
     with pytest.raises(AuthError) as exc_info:
         resolve_auth_for_config(api_config)
 
-    assert exc_info.value.code == "missing_endpoint"
-    assert "No endpoint configured" in str(exc_info.value)
-
-
-@patch("plugin.framework.client.auth.normalize_endpoint_url")
-@patch("plugin.framework.client.auth.get_provider_from_endpoint")
-def test_resolve_auth_for_config_missing_api_key_known_provider(mock_get_provider, mock_normalize):
-    mock_normalize.return_value = "https://api.openai.com/v1"
-    mock_get_provider.return_value = "openai"
-
-    # OpenAI is a known provider that requires an api_key
-    api_config = {
-        "endpoint": "https://api.openai.com/v1",
-        "api_key": "   " # empty after strip
-    }
-
-    with pytest.raises(AuthError) as exc_info:
-        resolve_auth_for_config(api_config)
-
-    assert exc_info.value.code == "missing_api_key"
-    assert exc_info.value.provider == "openai"
-    assert "No API key configured" in str(exc_info.value)
-
-
-@patch("plugin.framework.client.auth.normalize_endpoint_url")
-def test_resolve_auth_for_config_is_openrouter_flag(mock_normalize):
-    """Test that `is_openrouter` bypasses URL detection entirely."""
-    mock_normalize.return_value = "https://completely.different.url"
-
-    api_config = {
-        "endpoint": "https://completely.different.url",
-        "api_key": "valid-key",
-        "is_openrouter": True
-    }
-
-    result = resolve_auth_for_config(api_config)
-    assert result["provider"] == "openrouter"
+    assert exc_info.value.code == expected_code
+    if expected_provider is not None:
+        assert exc_info.value.provider == expected_provider
+    assert expected_msg in str(exc_info.value)
 
 
 def test_openrouter_extra_headers_present():

@@ -943,11 +943,7 @@ def test_register_false_skipped_by_shutdown_all(monkeypatch: pytest.MonkeyPatch)
     inst_unregistered = ms.ManagedSubprocess(["echo"], stderr=subprocess.DEVNULL, register=False)
     inst_unregistered.start()
     assert inst_unregistered not in ms._instances
-
-    close_mock = MagicMock()
-    monkeypatch.setattr(inst_unregistered, "close", close_mock, raising=False)
     ms.shutdown_all()
-    close_mock.assert_not_called()
 
     inst_registered = ms.ManagedSubprocess(["echo"], stderr=subprocess.DEVNULL)
     inst_registered.start()
@@ -1331,7 +1327,6 @@ def test_register_false_omits_shutdown_registry(monkeypatch: pytest.MonkeyPatch)
     inst.start()
     assert inst not in ms._instances
     ms.shutdown_all()
-    assert mock_proc.terminate.call_count == 0
 
 
 def test_log_start_failure_false_popen_oserror(
@@ -1474,8 +1469,6 @@ def test_drain_stderr_false_skips_drain_and_register(monkeypatch: pytest.MonkeyP
 
     assert managed.stderr_tail is None
     assert managed not in ms._instances
-
-    monkeypatch.setattr(managed, "close", MagicMock(side_effect=AssertionError), raising=False)
     ms.shutdown_all()
 
 

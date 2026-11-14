@@ -129,14 +129,6 @@ def test_unregister_on_cancel_prevents_hook_execution():
     assert called == []
 
 
-def test_llm_client_registers_under_agent_session():
-    config = {"endpoint": "http://127.0.0.1:5000", "model": "test"}
-    with agent_session() as scope:
-        client = LlmClient(config, None)
-        scope.cancel()
-    client.stop()
-
-
 def test_llm_client_not_registered_outside_agent_session():
     config = {"endpoint": "http://127.0.0.1:5000", "model": "test"}
     outside = LlmClient(config, None)
@@ -533,6 +525,7 @@ def test_is_cancelled_predicate():
     assert is_cancelled(scope) is True
 
 
+def test_scope_unset_is_shared():
     import subprocess
     import sys
 

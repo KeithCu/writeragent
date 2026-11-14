@@ -1698,6 +1698,16 @@ def test_exception_text_is_formatted_before_handler_emit() -> None:
             return "boom"
 
     logger, handler = _isolated_logger("writeragent.test.exc-text")
+    orig_emit = handler.emit
+
+    def tracked_emit(record: logging.LogRecord) -> None:
+        phase["emit"] = True
+        try:
+            orig_emit(record)
+        finally:
+            phase["emit"] = False
+
+    handler.emit = tracked_emit  # type: ignore[method-assign]
     try:
         try:
             raise Boom()

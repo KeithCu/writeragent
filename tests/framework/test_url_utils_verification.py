@@ -67,7 +67,7 @@ def test_normalize_empty_and_non_str() -> None:
 
 def test_url_helpers_long_and_odd_do_not_precontract() -> None:
     from plugin.framework.deal_shim import DEAL_MAX_URL
-    from plugin.framework.url_utils import get_url_hostname, is_pdf_url
+    from plugin.framework.url_utils import is_pdf_url
 
     too_long = "https://example.com/" + ("a" * DEAL_MAX_URL)
     assert normalize_endpoint_url(too_long).startswith("https://example.com/")
@@ -106,8 +106,7 @@ def test_hypothesis_openwebui_normalize_idempotent(url: str) -> None:
 @settings(max_examples=50)
 def test_hypothesis_api_suffix_shape(url: str) -> None:
     suffix = get_api_version_suffix(url)
-    assert suffix.startswith("/")
-    assert isinstance(get_url_hostname(url if url else "https://example.com"), str)
+    assert suffix in {"/v1", "/v4", "/api/paas/v4", "/v1beta/openai"}
 
 
 @pytest.mark.slow

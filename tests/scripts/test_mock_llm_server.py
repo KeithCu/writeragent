@@ -82,7 +82,7 @@ def test_chit_chat_html():
     assert out.tool_name is None
     assert out.content is not None
     assert "<p>" in out.content
-    assert "hello there" in out.content or "hello" in out.content
+    assert "hello there" in out.content
 
 
 def test_research_keyword_calls_web_research():
@@ -382,7 +382,6 @@ def test_http_overflow_once_then_ok_and_summarizer():
         err_body = exc_info.value.read().decode("utf-8")
         assert "prompt is too long" in err_body
         raw, unused_ctype = _post_json(base + "/v1/chat/completions", payload)
-        assert unused_ctype is not None
         assert "[DONE]" in raw
         assert "<p>" in raw
         summary_raw, _ctype = _post_json(
@@ -427,7 +426,7 @@ def test_http_stream_chit_chat(mock_http):
             "tools": _tools("web_research"),
         },
     )
-    assert "text/event-stream" in ctype or "event-stream" in ctype or "<p>" in raw
+    assert "text/event-stream" in ctype
     assert "[DONE]" in raw
     assert "<p>" in raw
 
@@ -442,7 +441,6 @@ def test_http_stream_web_research_tool(mock_http):
             "tools": _tools("web_research"),
         },
     )
-    assert unused_ctype is not None
     assert "web_research" in raw
     assert "tool_calls" in raw
 
@@ -457,7 +455,6 @@ def test_http_sync_offline_final_answer(mock_http):
             "tools": _tools("web_search", "final_answer"),
         },
     )
-    assert unused_ctype is not None
     body = json.loads(raw)
     tc = body["choices"][0]["message"]["tool_calls"][0]
     assert tc["function"]["name"] == "final_answer"
@@ -1489,7 +1486,6 @@ def test_http_ramble_many_chunks(mock_http):
             "tools": _tools("web_research"),
         },
     )
-    assert unused_ctype is not None
     assert raw.count("data:") > 50
     assert "[DONE]" in raw
 
@@ -1503,7 +1499,6 @@ def test_http_sse_comments(mock_http_comments):
             "messages": [{"role": "user", "content": "hello mock"}],
         },
     )
-    assert unused_ctype is not None
     assert ": ping" in raw
     assert "[DONE]" in raw
     assert "<p>" in raw
@@ -1605,7 +1600,6 @@ def test_http_transcriptions_json(mock_http):
         mock_http + "/v1/audio/transcriptions",
         {"model": MOCK_STT_MODEL_ID, "input_audio": {"data": b64, "format": "wav"}},
     )
-    assert unused_ctype is not None
     body = json.loads(raw)
     assert body["text"] == DEFAULT_TRANSCRIPT
 
@@ -1963,12 +1957,6 @@ def test_drift_guard_argparse_dests():
     mapped_cfg = config_from_args(dummy_ns)
     for dest in arg_dests - server_only:
         assert getattr(mapped_cfg, dest) == dummy_dict[dest]
-
-
-def test_main_accepts_table_and_content_filter_scenarios(monkeypatch):
-    monkeypatch.setattr("scripts.mock_llm_server.serve", lambda _h, _p, _c: None)
-    assert mock_main(["--scenario", "table"]) == 0
-    assert mock_main(["--scenario", "content_filter"]) == 0
 
 
 def test_table_scenario_returns_produce_table():

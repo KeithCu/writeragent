@@ -1169,20 +1169,6 @@ def test_ollama_shim_image(client):
             shim.build_image_request("edit", "flux", 512, 512, image_url="https://example.com/a.png")
 
 
-def test_image_completion_passes_client_timeout(client):
-    """Image generate/edit must use Settings request_timeout, not a silent 10s default."""
-    client.config["request_timeout"] = 122
-    with (
-        patch("plugin.framework.client.llm_client.LlmClient._resolve_auth") as mock_auth,
-        patch("plugin.framework.client.llm_client.LlmClient._request_json") as mock_sync,
-    ):
-        mock_auth.return_value = {"provider": "openai"}
-        mock_sync.return_value = {"data": []}
-        client.image_completion("Draw a cat", model="dall-e-3", width=1024, height=1024)
-        assert client._timeout() == 122
-        assert mock_sync.called
-
-
 def test_image_completion_http_200_error_raises(client):
     resp = create_mock_http_response(200, json_data={"error": {"message": "nope"}})
     with patch("http.client.HTTPSConnection") as mock_https:

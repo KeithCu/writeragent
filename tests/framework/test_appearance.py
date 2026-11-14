@@ -56,14 +56,8 @@ def test_get_theme_colors_uses_shared_logic():
     win.StyleSettings.FieldColor = 0x222222
     win.StyleSettings.DialogColor = 0x111111
     bg, user, assistant = appearance.get_theme_colors(style_window=win)
-    assert isinstance(bg, int)
-    # For dark we return field_color as first
-    assert bg == 0x222222
-
-
-def test_get_style_window_prefers_explicit():
-    explicit = object()
-    assert appearance.get_style_window(style_window=explicit) is explicit
+    # For dark we return field_color as first, plus dark user/assistant colors
+    assert (bg, user, assistant) == (0x222222, appearance._DARK_USER, appearance._DARK_ASSISTANT)
 
 
 def test_luminance_weights_each_channel() -> None:

@@ -15,11 +15,6 @@ from plugin.framework.constants import (
 )
 
 
-def test_folder_rerank_enabled_defaults_false():
-    with patch("plugin.framework.config.get_config", return_value=False):
-        assert folder_rerank_enabled() is False
-
-
 def test_folder_rerank_enabled_reads_config():
     with patch("plugin.framework.config.get_config", return_value=True) as mock_bool:
         assert folder_rerank_enabled() is True

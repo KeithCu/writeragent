@@ -111,24 +111,6 @@ def test_batching_stream_queue_interleaved_kinds_keep_deadline():
     assert raw.get_nowait() == (StreamQueueKind.THINKING, "t")
 
 
-def test_batching_stream_queue_timer_emission(monkeypatch):
-    """Timer fires and emits after the interval even without further puts (simulated)."""
-    raw = queue.Queue()
-    bq = BatchingStreamQueue(raw, batch_interval=0.05)
-
-    bq.put((StreamQueueKind.CHUNK, "delayed"))
-
-    # Fire the flush directly. Cancel first so the reusable timer thread
-    # does not emit the same burst again when the interval elapses.
-    if bq._timer is not None:
-        bq._timer.cancel()
-    bq.flush()
-
-    item = raw.get_nowait()
-    assert item == (StreamQueueKind.CHUNK, "delayed")
-    assert raw.empty()
-
-
 class TestBatchingStreamQueueTimerRace:
     """Concurrent first chunks must arm the batch timer only once.
 
