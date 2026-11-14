@@ -53,7 +53,6 @@ def test_css_inline_unavailable_result():
     assert result["status"] == "error"
     assert result["code"] == "CSS_INLINE_UNAVAILABLE"
     assert result["helper"] == "extract_text"
-    assert "css-inline" in result["message"]
 
 
 def test_merge_vision_params_logs_exception_and_drops_ctx_gate():

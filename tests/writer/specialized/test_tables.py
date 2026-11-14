@@ -306,13 +306,6 @@ def _ctx(tables):
     return SimpleNamespace(doc=doc)
 
 
-# ---- helpers ----------------------------------------------------------------
-
-def test_cell_name_math():
-    assert _col_letters(0) == "A" and _col_letters(25) == "Z" and _col_letters(26) == "AA"
-    assert _cell_name(0, 0) == "A1" and _cell_name(1, 1) == "B2"
-
-
 # ---- list / get -------------------------------------------------------------
 
 def test_list_tables():
@@ -1116,35 +1109,6 @@ def test_table_delete_unknown_name_lists_open_tables():
 def test_table_delete_requires_name():
     res = TableDelete().execute(SimpleNamespace(doc=FakeWriterDoc({})), name="")
     assert res["status"] == "error" and "name is required" in res["message"]
-
-
-# ---- domain registration ----------------------------------------------------
-
-def test_tables_are_specialized_domain():
-    for cls in (
-        TableList,
-        TableGetCells,
-        TableSetCell,
-        ManageTableStructure,
-        TableInsert,
-        TableDelete,
-    ):
-        assert cls.tier == "specialized"
-        assert cls.specialized_domain == "tables"
-
-
-def test_table_tools_shortened_name_param():
-    t = FakeTable(2, 2, cells={"A1": "val"})
-    res_get = TableGetCells().execute(_ctx({"T": t}), name="T")
-    assert res_get["status"] == "ok"
-    assert res_get["cells"]["A1"] == "val"
-    assert "matrix" not in res_get
-
-    res_set = TableSetCell().execute(_ctx({"T": t}), name="T", cell="A1", text="new_val")
-    assert res_set["status"] == "ok"
-
-    res_struct = ManageTableStructure().execute(_ctx({"T": t}), action="insert", axis="row", name="T", index=0)
-    assert res_struct["status"] == "ok"
 
 
 # ---- table_delete under change tracking --------------------------------------

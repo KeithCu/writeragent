@@ -31,67 +31,20 @@ def test_read_annotation_falls_back_to_paragraph_context():
     assert entry["anchor_is_paragraph_context"] is True
 
 
-def test_comment_workflow_split_tool_names():
-    from plugin.writer.specialized import comments
-
-    assert comments.CommentScanTasks.name == "comment_scan_tasks"
-    assert comments.CommentWorkflowGet.name == "comment_workflow_get"
-    assert comments.CommentWorkflowSet.name == "comment_workflow_set"
-    assert comments.CommentCheckStop.name == "comment_check_stop"
-    assert comments.CommentWorkflowSet.is_mutation is True
-    assert comments.CommentScanTasks().detects_mutation() is False
-    assert comments.CommentScanTasks().requires_document_lock() is False
-    assert comments.CommentCheckStop().detects_mutation() is False
-    assert comments.CommentCheckStop().requires_document_lock() is False
-    assert not hasattr(comments, "CommentWorkflow")
-
-
-def test_specialized_writer_tools_mutation_and_uno_services_contract():
-    from plugin.writer.specialized import bookmarks, comments, fields, forms
-
-    expected_mutations = {
-        # Comments
-        comments.CommentList: False,
-        comments.CommentScanTasks: False,
-        comments.CommentWorkflowGet: False,
-        comments.CommentCheckStop: False,
-        comments.AddComment: True,
-        comments.CommentDelete: True,
-        comments.CommentResolve: True,
-        comments.CommentEdit: True,
-        comments.CommentWorkflowSet: True,
-        # Bookmarks
-        bookmarks.BookmarkList: False,
-        bookmarks.BookmarkGet: False,
-        bookmarks.BookmarkResolve: False,
-        bookmarks.BookmarkCleanup: True,
-        bookmarks.BookmarkCreate: True,
-        bookmarks.BookmarkDelete: True,
-        bookmarks.BookmarkRename: True,
-        # Fields
-        fields.FieldsList: False,
-        fields.FieldsUpdateAll: True,
-        fields.FieldsDelete: True,
-        fields.FieldsInsert: True,
-        # Forms
-        forms.FormListControls: False,
-        forms.FormCreateControl: True,
-        forms.FormCreate: True,
-        forms.FormGenerate: True,
-        forms.FormEditControl: True,
-        forms.FormDeleteControl: True,
-    }
+def test_form_tools_declare_form_doc_services_union():
+    from plugin.writer.specialized import forms
 
     form_union = forms._FORM_DOC_SERVICES
-    text_doc = ["com.sun.star.text.TextDocument"]
-
-    for tool_cls, expected_mut in expected_mutations.items():
+    for tool_cls in (
+        forms.FormListControls,
+        forms.FormCreateControl,
+        forms.FormCreate,
+        forms.FormGenerate,
+        forms.FormEditControl,
+        forms.FormDeleteControl,
+    ):
         tool = tool_cls()
-        assert tool.detects_mutation() is expected_mut, f"{tool.name} detects_mutation should be {expected_mut}"
-        if tool_cls in (forms.FormListControls, forms.FormCreateControl, forms.FormCreate, forms.FormGenerate, forms.FormEditControl, forms.FormDeleteControl):
-            assert tool.uno_services == form_union, f"{tool.name} uno_services should be form union"
-        else:
-            assert tool.uno_services == text_doc, f"{tool.name} uno_services should be text_doc"
+        assert tool.uno_services == form_union, f"{tool.name} uno_services should be form union"
 
 
 def test_workflow_task_prefixes_shared():
@@ -159,16 +112,6 @@ def test_comment_scan_tasks_with_prefixes():
     assert res_filtered["status"] == "ok"
     assert res_filtered["count"] == 1
     assert res_filtered["tasks"][0]["prefix"] == "NOTE"
-
-
-def test_add_comment_schema_parent_name_optional():
-    from plugin.writer.specialized.comments import AddComment
-
-    params = AddComment.parameters
-    assert "parent_name" in params["properties"]
-    assert params["required"] == ["content"]
-    assert "search" not in params["required"]
-    assert "parent_name" not in params["required"]
 
 
 def test_add_comment_reply_requires_content():

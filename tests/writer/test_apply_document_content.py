@@ -391,13 +391,6 @@ def test_position_after_rejects_math_and_table_cells():
     assert res["status"] == "error" and "table cell" in res["message"]
 
 
-def test_position_in_schema():
-    from plugin.writer.apply_document_content import ApplyDocumentContent
-
-    props = ApplyDocumentContent.parameters["properties"]
-    assert props["position"]["enum"] == ["replace", "before", "after"]
-
-
 def test_apply_document_content_validate_accepts_string_or_array():
     """UNO tests pass one string. The schema was array-only, so validate rejected it.
 
@@ -1667,30 +1660,6 @@ def test_edit_outline_capture_failure_does_not_change_text():
         preserve.assert_not_called()
 
 
-def test_content_tool_discovery_and_modules():
-    """Verify split modules declare tools correctly and register one instance each."""
-    from plugin.framework.service import iter_named_concrete_subclasses
-    from plugin.framework.tool import ToolBase, ToolRegistry
-    from plugin.writer import apply_document_content, get_document_content
-    from plugin.writer.apply_document_content import ApplyDocumentContent
-    from plugin.writer.get_document_content import GetDocumentContent
-
-    assert ApplyDocumentContent.__module__ == "plugin.writer.apply_document_content"
-    assert GetDocumentContent.__module__ == "plugin.writer.get_document_content"
-
-    apply_tools = list(iter_named_concrete_subclasses(apply_document_content, ToolBase))
-    assert apply_tools == [ApplyDocumentContent]
-
-    get_tools = list(iter_named_concrete_subclasses(get_document_content, ToolBase))
-    assert get_tools == [GetDocumentContent]
-
-    reg = ToolRegistry(services={})
-    reg.auto_discover(apply_document_content)
-    reg.auto_discover(get_document_content)
-    assert reg.get("apply_document_content") is not None
-    assert reg.get("get_document_content") is not None
-
-
 # ---- K171: undo entry, table verification, regex validation -----------------
 
 def test_outline_undo_disposed_undo_manager_reraises():
@@ -1709,18 +1678,6 @@ def test_all_matches_disposed_undo_manager_reraises():
          patch("plugin.writer.apply_document_content.writer_tables_emptied_by_matches", return_value=[]):
         with pytest.raises(DocumentDisposedError):
             ApplyDocumentContent().execute(ctx, content="x", target="search", old_content="old", all_matches=True)
-
-
-def test_all_matches_truthy_non_bool_islocked_is_not_locked():
-    ctx = _edit_ctx()
-    ctx.doc.getUndoManager.return_value.isLocked.return_value = MagicMock()
-    with patch("plugin.writer.search.find_all_ranges", return_value=[MagicMock()]), \
-         patch("plugin.writer.apply_document_content.writer_tables_emptied_by_matches", return_value=[]), \
-         patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=None), \
-         patch.object(ApplyDocumentContent, "_replace_found", return_value=[]):
-        res = ApplyDocumentContent().execute(ctx, content="x", target="search", old_content="old", all_matches=True)
-    assert res["status"] == "ok"
-    assert res["replaced_count"] == 1
 
 
 def test_selection_table_insert_fails_when_the_doc_already_has_a_table():

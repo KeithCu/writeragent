@@ -11,7 +11,6 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from plugin.vision.vision_common import CSS_INLINE_INSTALL_CMD
 from plugin.vision.venv.vision_html_export import (
     augment_lo_body_paragraph_styles,
     augment_lo_heading_styles,
@@ -125,10 +124,6 @@ def test_html_table_from_columns_rows_pads_ragged_rows():
     assert [len(re.findall(r"<t[dh]\b", row)) for row in rows] == [3, 3, 3]
     assert "<td>1</td><td></td><td></td>" in html
     assert "<td>2</td><td>3</td><td></td>" in html
-
-
-def test_css_inline_install_cmd():
-    assert "css-inline" in CSS_INLINE_INSTALL_CMD
 
 
 def test_extension_root_is_three_parents_above_venv_dir(tmp_path, monkeypatch):

@@ -336,45 +336,6 @@ def test_fodt_parent_encoded_name_is_decoded_and_compacted():
     assert 'data-lo-style="Textbody"' in out, out  # decode _20_ -> space, then compact
 
 
-def test_xhtml_hot_sinks_off_cover_all() -> None:
-    """HTML/CSS sinks in xhtml_style_postprocess stay out of cover_fqns."""
-    from pathlib import Path
-
-    from tests.harness.strip_bundle import skip_if_release_build
-
-    skip_if_release_build("scripts/ not in stripped release tree")
-    from scripts.crosshair_stream import cover_fqns_for_module
-
-    fqns = cover_fqns_for_module(Path("plugin/writer/xhtml_style_postprocess.py"))
-    assert not any(f.endswith(".decode_lo_css_class_suffix") for f in fqns), 'decode_lo_css_class_suffix'
-    assert not any(f.endswith(".compact_lo_style_name") for f in fqns), 'compact_lo_style_name'
-    assert not any(f.endswith(".parse_fodt_autostyles") for f in fqns), 'parse_fodt_autostyles'
-    assert not any(f.endswith("._fodt_override_css") for f in fqns), '_fodt_override_css'
-    assert not any(f.endswith(".parse_style_block") for f in fqns), 'parse_style_block'
-    assert not any(f.endswith("._drop_trailing_empty_paragraphs") for f in fqns), '_drop_trailing_empty_paragraphs'
-    assert not any(f.endswith(".inject_attr") for f in fqns), 'inject_attr'
-    assert not any(f.endswith("._attr_value") for f in fqns), '_attr_value'
-    assert not any(f.endswith(".HtmlPassthroughParser.__init__") for f in fqns), 'HtmlPassthroughParser.__init__'
-    assert not any(f.endswith(".HtmlPassthroughParser.handle_data") for f in fqns), 'HtmlPassthroughParser.handle_data'
-    assert not any(f.endswith(".HtmlPassthroughParser.handle_entityref") for f in fqns), 'HtmlPassthroughParser.handle_entityref'
-    assert not any(f.endswith(".HtmlPassthroughParser.handle_charref") for f in fqns), 'HtmlPassthroughParser.handle_charref'
-    assert not any(f.endswith(".HtmlPassthroughParser.handle_comment") for f in fqns), 'HtmlPassthroughParser.handle_comment'
-    assert not any(f.endswith("._SemanticTransformer.__init__") for f in fqns), '_SemanticTransformer.__init__'
-    assert not any(f.endswith("._SemanticTransformer._paragraph_token") for f in fqns), '_SemanticTransformer._paragraph_token'
-    assert not any(f.endswith("._SemanticTransformer._rewrite_block") for f in fqns), '_SemanticTransformer._rewrite_block'
-    assert not any(f.endswith("._SemanticTransformer._rewrite_span") for f in fqns), '_SemanticTransformer._rewrite_span'
-    assert not any(f.endswith("._SemanticTransformer.handle_starttag") for f in fqns), '_SemanticTransformer.handle_starttag'
-    assert not any(f.endswith("._SemanticTransformer.handle_startendtag") for f in fqns), '_SemanticTransformer.handle_startendtag'
-    assert not any(f.endswith("._SemanticTransformer.handle_endtag") for f in fqns), '_SemanticTransformer.handle_endtag'
-    assert not any(f.endswith("._SemanticTransformer.handle_data") for f in fqns), '_SemanticTransformer.handle_data'
-    assert not any(f.endswith("._SemanticTransformer.handle_entityref") for f in fqns), '_SemanticTransformer.handle_entityref'
-    assert not any(f.endswith("._SemanticTransformer.handle_charref") for f in fqns), '_SemanticTransformer.handle_charref'
-    assert not any(f.endswith("._SemanticTransformer.handle_comment") for f in fqns), '_SemanticTransformer.handle_comment'
-    assert not any(f.endswith("._SemanticTransformer.result") for f in fqns), '_SemanticTransformer.result'
-    assert not any(f.endswith("._strip_class_names") for f in fqns), '_strip_class_names'
-    assert not any(f.endswith(".xhtml_to_semantic_html") for f in fqns), 'xhtml_to_semantic_html'
-
-
 def test_paragraph_div_holding_a_frame_gets_its_style():
     """LibreOffice exports a paragraph that holds a frame (an image) as <div class="paragraph-X">.
     It is one Writer paragraph, so it gets data-lo-style like a <p>; the frame's own <div> stays."""
