@@ -1708,19 +1708,15 @@ def test_main_post_or_run_inlines_on_main() -> None:
         mock_post.assert_not_called()
 
 
-def _test_scope_sentinel() -> object:
-    return object()
-
-
-_SCOPE_SENTINEL = _test_scope_sentinel()
+_SCOPE_SENTINEL = object()
 
 
 @pytest.mark.parametrize(
     ("is_current", "bg_task", "bound_scope", "args", "kwargs"),
     [
-        (False, None, None, ("hello",), {}),
-        (True, "mcp_worker", None, (), {}),
-        (False, None, None, ("arg1",), {"kw": "val"}),
+        (False, None, mt._SCOPE_UNSET, ("hello",), {}),
+        (True, "mcp_worker", mt._SCOPE_UNSET, (), {}),
+        (False, None, mt._SCOPE_UNSET, ("arg1",), {"kw": "val"}),
         (False, None, _SCOPE_SENTINEL, (), {}),
     ],
     ids=[
@@ -1733,25 +1729,24 @@ _SCOPE_SENTINEL = _test_scope_sentinel()
 def test_main_post_or_run_posts(
     is_current: bool,
     bg_task: str | None,
-    bound_scope: object | None,
+    bound_scope: object,
     args: tuple[Any, ...],
     kwargs: dict[str, Any],
 ) -> None:
-    from plugin.framework.queue_executor import _SCOPE_UNSET, main
+    from plugin.framework.queue_executor import main
 
     def fn(*_args: Any, **_kwargs: Any) -> None:
         pass
 
-    expected_scope = _SCOPE_UNSET if bound_scope is None else bound_scope
     call_kwargs = dict(kwargs)
-    if bound_scope is not None:
+    if bound_scope is not mt._SCOPE_UNSET:
         call_kwargs["bound_scope"] = bound_scope
 
     with patch.object(main, "is_current", return_value=is_current), \
          patch("plugin.framework.thread_guard.get_background_task_name", return_value=bg_task), \
          patch.object(main, "post") as mock_post:
         assert main.post_or_run(fn, *args, **call_kwargs) is None
-        mock_post.assert_called_once_with(fn, *args, bound_scope=expected_scope, **kwargs)
+        mock_post.assert_called_once_with(fn, *args, bound_scope=bound_scope, **kwargs)
 
 
 @requires_asserts
