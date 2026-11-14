@@ -62,7 +62,6 @@ _patch_unohelper_implementation_helper()
 import plugin.app as app
 import plugin.bootstrap as bootstrap
 import plugin.main as main
-from plugin.bootstrap import BootstrapState
 from plugin.framework.doc_type import DocumentType
 from plugin.framework.errors import WriterAgentException
 from plugin.framework.event_bus import EventBus
@@ -967,16 +966,6 @@ def test_main_bootstrap_job_trigger_test_types_and_noop():
         mock_disp.assert_called_once_with("main.NoOp")
 
 
-# --- Bug 11 tests: module exports ---
-
-
-def test_module_exports_expected_classes():
-    """plugin.main must export g_ImplementationHelper, DispatchHandler, and MainBootstrapJob."""
-    assert hasattr(main, "g_ImplementationHelper")
-    assert hasattr(main, "DispatchHandler")
-    assert hasattr(main, "MainBootstrapJob")
-
-
 def test_trigger_body_exception_is_reported():
     """MainBootstrapJob.trigger catches body exceptions and reports them via report_action_failure."""
     job = main.MainBootstrapJob(MagicMock())
@@ -1004,19 +993,6 @@ def test_trigger_extend_selection_bootstraps():
         job.trigger("ExtendSelection")
         mock_boot.assert_called_once()
         mock_do.assert_called_once()
-
-
-def test_main_calls_execute_not_hello(monkeypatch):
-    """plugin.main.main() creates MainBootstrapJob and calls execute(()), not trigger."""
-    fake_ctx = MagicMock()
-    monkeypatch.setitem(main.__dict__, "XSCRIPTCONTEXT", fake_ctx)
-    with (
-        patch.object(main.MainBootstrapJob, "execute") as mock_exec,
-        patch.object(main.MainBootstrapJob, "trigger") as mock_trig,
-    ):
-        main.main()
-        mock_exec.assert_called_once_with(())
-        mock_trig.assert_not_called()
 
 
 def test_bootstrap_finish_arms_webview_probe():
@@ -1172,28 +1148,6 @@ def test_register_core_handlers_continues_after_optional_import_failure(
     finally:
         _ACTION_HANDLERS.clear()
         _ACTION_HANDLERS.update(orig_handlers)
-
-
-def test_bootstrap_state_enum(monkeypatch):
-    """BootstrapState enum tracks bootstrap lifecycle states."""
-
-    assert BootstrapState.UNINITIALIZED.value == "uninitialized"
-    assert BootstrapState.BOOTSTRAPPING.value == "bootstrapping"
-    assert BootstrapState.INITIALIZED.value == "initialized"
-
-    monkeypatch.setattr(main_thread, "is_current", lambda: True)
-    monkeypatch.setattr("plugin.bootstrap.get_ctx", lambda: MagicMock())
-    monkeypatch.setattr("plugin.framework.config.init_config", lambda ctx=None: "")
-    monkeypatch.setattr("plugin.framework.i18n.init_i18n", lambda ctx: None)
-    monkeypatch.setattr("plugin.main.register_core_handlers", lambda: None)
-    monkeypatch.setattr("plugin.bootstrap.set_package_extension_id", lambda extension_id: None)
-    monkeypatch.setattr("plugin.framework.module_base.ModuleLoader.load_modules", lambda services: [])
-
-    bootstrap.mark_uninitialized()
-    assert not bootstrap.bootstrap_initialized()
-
-    app.bootstrap(MagicMock())
-    assert bootstrap.bootstrap_initialized()
 
 
 

@@ -11,6 +11,7 @@
 ## Tests
 
 New features and bugfixes **must include tests**.
+- **No change-detector tests:** Do not assert on prompt or tool-description prose, log text, static config or catalog constants, removed-feature lists, signatures/exports already enforced by type checkers, or exact mock call order/choreography, unless the test cites a real bug. Keep structural guards (section order, uniqueness, routing) and tests that cite a real bug.
 - **Unit:** `tests/`, pytest (`make pytest`) when logic can be mocked. Test files should match the source module name (e.g. `foo.py` -> `test_foo.py`). **Always add new test cases to the matching `test_` file** to maintain consistent naming and visible coverage.
 - **UNO / LibreOffice:** collocated `*_uno.py` files via `testing_runner.py` (`make test-uno`, no pytest)—use `@native_test`, `@setup`, `@teardown`; test functions take `ctx`. Follow the same module-matching rule (e.g. `foo.py` -> `test_foo_uno.py`).
 - **Enumerations:** All `XEnumeration` walks (portions, paragraphs, annotations, desktop components) must use `enum_has_more` (`plugin/framework/uno_context.py`) because `not enum.hasMoreElements()` does not terminate on mock objects.

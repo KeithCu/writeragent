@@ -154,73 +154,6 @@ def test_with_native_doc_logs_teardown_for_insert_cell_html(capsys, monkeypatch)
     assert tu._LOG_NATIVE_DOC_TEARDOWN is False
 
 
-def test_with_native_doc_skips_teardown_log_for_other_tests(capsys):
-    from unittest.mock import patch
-
-    from plugin.tests.testing_utils import TestingFactory, with_native_doc
-
-    @with_native_doc("calc")
-    def test_other(ctx, doc):
-        return "ok"
-
-    with patch.object(TestingFactory, "native_doc") as mock_cm:
-        mock_cm.return_value.__enter__.return_value = object()
-        mock_cm.return_value.__exit__.return_value = None
-        assert test_other(ctx=object()) == "ok"
-    err = capsys.readouterr().err
-    assert "with_native_doc:" not in err
-
-
-def _calc_doc_for_reset():
-    from unittest.mock import MagicMock
-
-    empty = MagicMock()
-    empty.getElementNames.return_value = ()
-    sheets = MagicMock()
-    sheets.getCount.return_value = 1
-    sheet = MagicMock()
-    sheet.Name = "Sheet1"
-    sheet.getCharts.return_value = empty
-    sheet.NamedRanges = None
-    sheets.getByIndex.return_value = sheet
-    doc = MagicMock()
-    doc.getSheets.return_value = sheets
-    doc.getEmbeddedObjects.return_value = empty
-    doc.NamedRanges = None
-    doc.DatabaseRanges = None
-    return doc
-
-
-def test_reset_calc_doc_logs_when_teardown_flag_set(capsys, monkeypatch):
-    monkeypatch.setenv("WRITERAGENT_CI_DEBUG", "1")
-    from unittest.mock import MagicMock
-
-    from plugin.tests import testing_utils as tu
-
-    tu._LOG_NATIVE_DOC_TEARDOWN = True
-    try:
-        tu._reset_calc_doc(_calc_doc_for_reset(), MagicMock())
-    finally:
-        tu._LOG_NATIVE_DOC_TEARDOWN = False
-    err = capsys.readouterr().err
-    assert "native_doc: _reset_calc_doc start" in err
-    assert "native_doc: _reset_calc_doc clearContents start" in err
-    assert "native_doc: _reset_calc_doc clearContents done" in err
-    assert "udprops probe: RuntimeUID start" in err
-    assert "udprops clear: DOCUMENT_SCRIPTS start" in err
-    assert "native_doc: _reset_calc_doc done" in err
-
-
-def test_reset_calc_doc_silent_by_default(capsys):
-    from unittest.mock import MagicMock
-
-    from plugin.tests import testing_utils as tu
-
-    tu._reset_calc_doc(_calc_doc_for_reset(), MagicMock())
-    err = capsys.readouterr().err
-    assert "native_doc:" not in err
-
-
 def test_clear_writeragent_udprops_skips_set_document_scripts():
     """GHA 33707990007: wipe must not call isReadonly via set_document_scripts."""
     from unittest.mock import MagicMock, patch
@@ -962,8 +895,7 @@ def test_draw_doc_has_math_ole_reads_clsid():
     assert _draw_doc_has_math_ole(None) is False
 
 
-def test_close_doc_windows_skips_math_ole_draw(monkeypatch, capsys):
-    monkeypatch.setenv("WRITERAGENT_CI_DEBUG", "1")
+def test_close_doc_windows_skips_math_ole_draw(monkeypatch):
     """GHA 34607010446: close_doc dispose of Math OLE Draw killed soffice."""
     from unittest.mock import MagicMock
 
@@ -981,14 +913,11 @@ def test_close_doc_windows_skips_math_ole_draw(monkeypatch, capsys):
         TestingFactory.close_doc(doc)
         doc.close.assert_not_called()
         doc.supportsService.assert_not_called()
-        err = capsys.readouterr().err
-        assert "close_doc: skip math ole close (windows) uid=48" in err
-        assert "svc=draw" not in err
     finally:
         tu._clear_windows_math_ole_uids()
 
 
-def test_close_doc_windows_draw_without_math_still_closes(monkeypatch, capsys):
+def test_close_doc_windows_draw_without_math_still_closes(monkeypatch):
     from unittest.mock import MagicMock
 
     from plugin.tests.testing_utils import TestingFactory
@@ -1016,9 +945,6 @@ def test_close_doc_windows_draw_without_math_still_closes(monkeypatch, capsys):
         TestingFactory.close_doc(doc)
         doc.close.assert_called_once_with(True)
         doc.getDrawPages.assert_not_called()
-        err = capsys.readouterr().err
-        assert "skip math ole close" not in err
-        assert "svc=draw" not in err
     finally:
         tu._HARNESS_KEEPER_UID = ""
         tu._clear_windows_math_ole_uids()
@@ -1235,7 +1161,9 @@ def test_native_doc_impress_teardown_uses_close_draw_family(monkeypatch, name, v
 
     doc = MagicMock(name=name)
     doc.RuntimeUID = value
-    events = []
+    closed_docs = []
+    settled = []
+    health_docs = []
 
     def _fail_close_doc(_closed):
         raise AssertionError(value_2)
@@ -1245,27 +1173,25 @@ def test_native_doc_impress_teardown_uses_close_draw_family(monkeypatch, name, v
     monkeypatch.setattr(
         tu,
         "close_draw_family_doc",
-        lambda closed: events.append(("close_draw_family", closed)),
+        lambda closed: closed_docs.append(closed),
     )
-    monkeypatch.setattr(tu, "settle_after_draw_family_close", lambda: events.append("settle"))
+    monkeypatch.setattr(tu, "settle_after_draw_family_close", lambda: settled.append(True))
     monkeypatch.setattr(
         tu,
         "_log_office_health_after_close",
-        lambda _ctx, doc_type: events.append(("health", doc_type)),
+        lambda _ctx, doc_type: health_docs.append(doc_type),
     )
     with TestingFactory.native_doc(object(), value_3) as got:
         assert got is doc
-    assert events == [
-        ("close_draw_family", doc),
-        "settle",
-        ("health", value_4),
-    ]
+    assert closed_docs == [doc]
+    assert settled == [True]
+    assert health_docs == [value_4]
+
 
 def test_native_doc_impress_teardown_skips_close_when_windows_leftovers(
-    monkeypatch, capsys
+    monkeypatch,
 ):
     """GHA 35450779692: leftover Writer + raw Impress close killed soffice."""
-    monkeypatch.setenv("WRITERAGENT_CI_DEBUG", "1")
     from unittest.mock import MagicMock
 
     import plugin.tests.testing_utils as tu
@@ -1273,7 +1199,7 @@ def test_native_doc_impress_teardown_skips_close_when_windows_leftovers(
 
     doc = MagicMock(name="impress_doc")
     doc.RuntimeUID = "impress-uid"
-    events = []
+    health_docs = []
 
     def _fail_close(_closed):
         raise AssertionError("leftover impress teardown must not close")
@@ -1285,7 +1211,7 @@ def test_native_doc_impress_teardown_skips_close_when_windows_leftovers(
     monkeypatch.setattr(
         tu,
         "_log_office_health_after_close",
-        lambda _ctx, doc_type: events.append(("health", doc_type)),
+        lambda _ctx, doc_type: health_docs.append(doc_type),
     )
     import plugin.testing_runner as tr
 
@@ -1301,20 +1227,16 @@ def test_native_doc_impress_teardown_skips_close_when_windows_leftovers(
     try:
         with TestingFactory.native_doc(object(), "impress") as got:
             assert got is doc
-        assert events == [("health", "impress")]
+        assert health_docs == ["impress"]
         assert recycle_calls == ["recycle"]
-        err = capsys.readouterr().err
-        assert "native_doc: teardown skip impress/draw close leftover_open=1" in err
-        assert "native_doc: teardown close_draw_family start" not in err
     finally:
         tu._set_windows_leftover_open(saved)
 
 
 def test_native_doc_draw_teardown_skips_close_when_windows_leftovers(
-    monkeypatch, capsys
+    monkeypatch,
 ):
     """Same leftover skip for @with_native_doc('draw') on win32."""
-    monkeypatch.setenv("WRITERAGENT_CI_DEBUG", "1")
     from unittest.mock import MagicMock
 
     import plugin.tests.testing_utils as tu
@@ -1322,7 +1244,7 @@ def test_native_doc_draw_teardown_skips_close_when_windows_leftovers(
 
     doc = MagicMock(name="draw_doc")
     doc.RuntimeUID = "draw-uid"
-    events = []
+    health_docs = []
 
     def _fail_close(_closed=None):
         raise AssertionError("leftover draw teardown must not close")
@@ -1334,7 +1256,7 @@ def test_native_doc_draw_teardown_skips_close_when_windows_leftovers(
     monkeypatch.setattr(
         tu,
         "_log_office_health_after_close",
-        lambda _ctx, doc_type: events.append(("health", doc_type)),
+        lambda _ctx, doc_type: health_docs.append(doc_type),
     )
     import plugin.testing_runner as tr
 
@@ -1350,10 +1272,8 @@ def test_native_doc_draw_teardown_skips_close_when_windows_leftovers(
     try:
         with TestingFactory.native_doc(object(), "draw") as got:
             assert got is doc
-        assert events == [("health", "draw")]
+        assert health_docs == ["draw"]
         assert recycle_calls == ["recycle"]
-        err = capsys.readouterr().err
-        assert "native_doc: teardown skip impress/draw close leftover_open=2" in err
     finally:
         tu._set_windows_leftover_open(saved)
 
@@ -1375,7 +1295,9 @@ def test_native_doc_impress_teardown_closes_on_windows_without_leftovers(monkeyp
 
     doc = MagicMock(name="impress_doc")
     doc.RuntimeUID = "impress-uid"
-    events = []
+    closed_docs = []
+    settled = []
+    health_docs = []
 
     def _fail_close_doc(_closed):
         raise AssertionError("native_doc impress teardown must not call close_doc")
@@ -1385,13 +1307,13 @@ def test_native_doc_impress_teardown_closes_on_windows_without_leftovers(monkeyp
     monkeypatch.setattr(
         tu,
         "close_draw_family_doc",
-        lambda closed: events.append(("close_draw_family", closed)),
+        lambda closed: closed_docs.append(closed),
     )
-    monkeypatch.setattr(tu, "settle_after_draw_family_close", lambda: events.append("settle"))
+    monkeypatch.setattr(tu, "settle_after_draw_family_close", lambda: settled.append(True))
     monkeypatch.setattr(
         tu,
         "_log_office_health_after_close",
-        lambda _ctx, doc_type: events.append(("health", doc_type)),
+        lambda _ctx, doc_type: health_docs.append(doc_type),
     )
     monkeypatch.setattr(tu.sys, "platform", value)
     saved = tu._windows_leftover_open()
@@ -1399,11 +1321,9 @@ def test_native_doc_impress_teardown_closes_on_windows_without_leftovers(monkeyp
     try:
         with TestingFactory.native_doc(object(), "impress") as got:
             assert got is doc
-        assert events == [
-            ("close_draw_family", doc),
-            "settle",
-            ("health", "impress"),
-        ]
+        assert closed_docs == [doc]
+        assert settled == [True]
+        assert health_docs == ["impress"]
     finally:
         tu._set_windows_leftover_open(saved)
 
@@ -1415,25 +1335,27 @@ def test_native_doc_writer_teardown_still_uses_close_doc(monkeypatch):
     from plugin.tests.testing_utils import TestingFactory
 
     doc = MagicMock(name="writer_doc")
-    events = []
+    closed_docs = []
+    health_called = []
 
     def _fail_draw_family(_closed):
         raise AssertionError("Writer teardown must not call close_draw_family_doc")
 
     monkeypatch.setattr(TestingFactory, "create_native_doc", lambda *_a, **_k: doc)
     monkeypatch.setattr(
-        TestingFactory, "close_doc", lambda *_a, **_k: events.append("close_doc")
+        TestingFactory, "close_doc", lambda closed, *_a, **_k: closed_docs.append(closed)
     )
     monkeypatch.setattr(tu, "close_draw_family_doc", _fail_draw_family)
     monkeypatch.setattr(
-        tu, "settle_after_draw_family_close", lambda: events.append("settle")
+        tu, "settle_after_draw_family_close", lambda: health_called.append("unexpected_settle")
     )
     monkeypatch.setattr(
-        tu, "_log_office_health_after_close", lambda *_a, **_k: events.append("health")
+        tu, "_log_office_health_after_close", lambda *_a, **_k: health_called.append("health")
     )
     with TestingFactory.native_doc(object(), "writer", reuse=False) as got:
         assert got is doc
-    assert events == ["close_doc", "health"]
+    assert closed_docs == [doc]
+    assert health_called == ["health"]
 
 
 def test_native_doc_draw_math_ole_teardown_keeps_close_doc_skip(monkeypatch):
@@ -1445,7 +1367,8 @@ def test_native_doc_draw_math_ole_teardown_keeps_close_doc_skip(monkeypatch):
 
     doc = MagicMock(name="math_draw")
     doc.RuntimeUID = "math-ole-uid"
-    events = []
+    closed_docs = []
+    health_called = []
 
     def _fail_draw_family(_closed):
         raise AssertionError("Math OLE Draw must not raw-close via close_draw_family_doc")
@@ -1457,19 +1380,20 @@ def test_native_doc_draw_math_ole_teardown_keeps_close_doc_skip(monkeypatch):
     tu._set_windows_leftover_open(1)
     monkeypatch.setattr(TestingFactory, "create_native_doc", lambda *_a, **_k: doc)
     monkeypatch.setattr(
-        TestingFactory, "close_doc", lambda *_a, **_k: events.append("close_doc")
+        TestingFactory, "close_doc", lambda closed, *_a, **_k: closed_docs.append(closed)
     )
     monkeypatch.setattr(tu, "close_draw_family_doc", _fail_draw_family)
     monkeypatch.setattr(
-        tu, "settle_after_draw_family_close", lambda: events.append("settle")
+        tu, "settle_after_draw_family_close", lambda: health_called.append("unexpected_settle")
     )
     monkeypatch.setattr(
-        tu, "_log_office_health_after_close", lambda *_a, **_k: events.append("health")
+        tu, "_log_office_health_after_close", lambda *_a, **_k: health_called.append("health")
     )
     try:
         with TestingFactory.native_doc(object(), "draw") as got:
             assert got is doc
-        assert events == ["close_doc", "health"]
+        assert closed_docs == [doc]
+        assert health_called == ["health"]
     finally:
         tu._clear_windows_math_ole_uids()
         tu._set_windows_leftover_open(saved)
@@ -1483,27 +1407,29 @@ def test_native_doc_teardown_reset_failure_closes_without_session_clear(monkeypa
     import plugin.tests.testing_utils as tu
 
     doc = MagicMock(name="pooled_doc")
-    events = []
+    closed_docs = []
 
     def reset_fail(*_a, **_k):
-        events.append("reset")
         raise RuntimeError("reset failed")
+
+    def fail_clear():
+        raise AssertionError("must not clear session on reset failure")
 
     monkeypatch.setattr(tu, "reset_native_doc", reset_fail)
     monkeypatch.setattr(TestingFactory, "create_native_doc", lambda *_a, **_k: doc)
     monkeypatch.setattr(
-        TestingFactory, "close_doc", lambda *_a, **_k: events.append("close")
+        TestingFactory, "close_doc", lambda closed, *_a, **_k: closed_docs.append(closed)
     )
     monkeypatch.setattr(
         "plugin.calc.python.function.clear_python_addin_cache",
-        lambda: events.append("clear_session"),
+        fail_clear,
     )
     tu._NATIVE_DOC_POOL.clear()
     ctx = object()
     try:
         with TestingFactory.native_doc(ctx, "calc", reuse=True) as got:
             assert got is doc
-        assert events == ["reset", "close"]
+        assert closed_docs == [doc]
     finally:
         tu._NATIVE_DOC_POOL.clear()
 
@@ -1575,31 +1501,6 @@ def test_create_native_doc_wraps_disposed_exception(monkeypatch):
         pytest.raises(RuntimeError, match="previous=draw.test_draw_uno.test_get_draw_tree"),
     ):
         TestingFactory.create_native_doc(object(), "draw")
-    tr.current_office().reset_lifecycle_breadcrumb()
-
-
-def test_log_close_doc_failure_and_office_health(capsys, monkeypatch):
-    from unittest.mock import MagicMock, patch
-
-    import plugin.testing_runner as tr
-    from plugin.tests.testing_utils import _log_close_doc_failure, _log_office_health_after_close
-
-    monkeypatch.setattr(tr, "_soffice_pids", lambda: "-")
-    tr.current_office().reset_lifecycle_breadcrumb()
-    tr.record_test_end("draw.test_draw_uno.test_get_draw_tree", "OK")
-
-    _log_close_doc_failure(RuntimeError("Binary URP bridge disposed during call"))
-    err = capsys.readouterr().err
-    assert "LIFECYCLE close_doc dispose" in err
-    assert "previous=draw.test_draw_uno.test_get_draw_tree" in err
-
-    desktop = MagicMock()
-    desktop.getComponents.side_effect = RuntimeError("Binary URP bridge disposed during call")
-    with patch("plugin.framework.uno_context.get_desktop", return_value=desktop):
-        _log_office_health_after_close(object(), "draw")
-    err = capsys.readouterr().err
-    assert "LIFECYCLE office dead after close doc_type=draw" in err
-    assert "previous=draw.test_draw_uno.test_get_draw_tree" in err
     tr.current_office().reset_lifecycle_breadcrumb()
 
 
@@ -1858,52 +1759,6 @@ def test_close_draw_family_doc_none_skips_settle(monkeypatch):
     close_draw_family_doc(None)
 
 
-def test_close_draw_family_doc_logs_svc_and_steps(capsys, monkeypatch):
-    monkeypatch.setenv("WRITERAGENT_CI_DEBUG", "1")
-    from unittest.mock import MagicMock
-
-    from plugin.tests.testing_utils import close_draw_family_doc
-
-    monkeypatch.setattr("gc.collect", lambda: None)
-    monkeypatch.setattr("time.sleep", lambda _seconds: None)
-    monkeypatch.setattr(
-        "plugin.tests.testing_utils._draw_family_raw_close",
-        lambda: False,
-    )
-    doc = MagicMock()
-    doc.supportsService.side_effect = lambda svc: svc.endswith("PresentationDocument")
-    doc.RuntimeUID = "uid-9"
-    close_draw_family_doc(doc)
-    err = capsys.readouterr().err
-    assert "close_draw_family: start svc=impress uid=uid-9" in err
-    assert "close_draw_family: setModified(False) ok" in err
-    assert "close_draw_family: close(True) start svc=impress uid=uid-9" in err
-    assert "close_draw_family: close(True) done svc=impress uid=uid-9" in err
-
-
-def test_close_draw_family_doc_windows_logs_raw_close(capsys, monkeypatch):
-    monkeypatch.setenv("WRITERAGENT_CI_DEBUG", "1")
-    from unittest.mock import MagicMock
-
-    from plugin.tests.testing_utils import close_draw_family_doc
-
-    monkeypatch.setattr(
-        "plugin.tests.testing_utils._draw_family_raw_close",
-        lambda: True,
-    )
-    doc = MagicMock()
-    doc.supportsService.side_effect = lambda svc: svc.endswith("PresentationDocument")
-    doc.RuntimeUID = "uid-9"
-    close_draw_family_doc(doc)
-    err = capsys.readouterr().err
-    assert "close_draw_family: start svc=impress uid=uid-9" in err
-    assert "close_draw_family: raw close(True) start svc=impress uid=uid-9" in err
-    assert "close_draw_family: raw close(True) done svc=impress uid=uid-9" in err
-    assert "skip uno teardown" not in err
-    assert "setModified" not in err
-    doc.close.assert_called_once_with(True)
-
-
 def test_teardown_peer_pair_closes_writer_before_impress(monkeypatch):
     """POSIX: Writer first, then Impress (GHA 34518091151)."""
     from unittest.mock import MagicMock
@@ -1996,35 +1851,34 @@ def test_teardown_peer_pair_windows_closes_impress_skips_writer(monkeypatch):
         peer._windows_impress_raw_closed = False
 
 
-def test_teardown_peer_pair_windows_skips_second_impress_close(capsys, monkeypatch):
+def test_teardown_peer_pair_windows_skips_second_impress_close(monkeypatch):
     """GHA 34547869791: second Impress raw close exited soffice 0."""
-    monkeypatch.setenv("WRITERAGENT_CI_DEBUG", "1")
     from unittest.mock import MagicMock
 
     import tests.chatbot.test_peer_message_uno as peer
     from tests.chatbot.test_peer_message_uno import _teardown_peer_pair
 
     peer._windows_impress_raw_closed = False
-    order = []
+    closed_impress = []
     monkeypatch.setattr(
         "tests.chatbot.test_peer_message_uno._draw_family_raw_close",
         lambda: True,
     )
     monkeypatch.setattr(
         "tests.chatbot.test_peer_message_uno._close",
-        lambda doc: order.append(("close_doc", doc)) or None,
+        lambda doc: None,
     )
     monkeypatch.setattr(
         "tests.chatbot.test_peer_message_uno.close_draw_family_doc",
-        lambda doc: order.append(("close_draw_family", doc)),
+        lambda doc: closed_impress.append(doc),
     )
     monkeypatch.setattr(
         "tests.chatbot.test_peer_message_uno.settle_after_draw_family_close",
-        lambda: order.append("post_settle"),
+        lambda: None,
     )
     monkeypatch.setattr(
         "tests.chatbot.test_peer_message_uno._reactivate_writer_after_impress",
-        lambda ctx, doc: order.append(("reactivate", ctx, doc)),
+        lambda ctx, doc: None,
     )
     import plugin.testing_runner as tr
 
@@ -2042,14 +1896,8 @@ def test_teardown_peer_pair_windows_skips_second_impress_close(capsys, monkeypat
     try:
         _teardown_peer_pair(writer1, impress1, ctx)
         _teardown_peer_pair(writer2, impress2, ctx)
-        assert order == [
-            ("close_draw_family", impress1),
-            "post_settle",
-            ("reactivate", ctx, writer1),
-        ]
+        assert closed_impress == [impress1]
         assert recycle_calls == ["recycle", "recycle"]
-        err = capsys.readouterr().err
-        assert "peer_message_uno: skip second impress close (windows)" in err
     finally:
         peer._windows_impress_raw_closed = False
 
@@ -2083,9 +1931,8 @@ def test_windows_skip_doc_close_follows_platform(monkeypatch):
     assert peer._windows_skip_doc_close() is False
 
 
-def test_close_skips_on_windows(capsys, monkeypatch):
+def test_close_skips_on_windows(monkeypatch):
     """GHA 34544965319: second Writer close_doc hung before any Impress."""
-    monkeypatch.setenv("WRITERAGENT_CI_DEBUG", "1")
     from unittest.mock import MagicMock
 
     import tests.chatbot.test_peer_message_uno as peer
@@ -2109,25 +1956,6 @@ def test_close_skips_on_windows(capsys, monkeypatch):
     assert peer._close(doc) is None
     assert calls == []
     assert recycle_calls == ["recycle"]
-    err = capsys.readouterr().err
-    assert "peer_message_uno: skip close (windows) uid=uid-later" in err
-
-
-def test_close_logs_uid_before_close_doc(capsys, monkeypatch):
-    monkeypatch.setenv("WRITERAGENT_CI_DEBUG", "1")
-    from unittest.mock import MagicMock
-
-    import tests.chatbot.test_peer_message_uno as peer
-    from plugin.tests.testing_utils import TestingFactory
-
-    doc = MagicMock()
-    doc.RuntimeUID = "uid-7"
-    monkeypatch.setattr(peer, "_windows_skip_doc_close", lambda: False)
-    monkeypatch.setattr(TestingFactory, "close_doc", lambda _doc: None)
-    peer._close(doc)
-    err = capsys.readouterr().err
-    assert "peer_message_uno: close_doc start uid=uid-7" in err
-    assert "peer_message_uno: close_doc done uid=uid-7" in err
 
 
 def test_teardown_peer_pair_windows_no_impress_just_closes_writer(monkeypatch):

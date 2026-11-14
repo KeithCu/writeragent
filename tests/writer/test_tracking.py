@@ -61,37 +61,6 @@ def test_track_changes_tools_support_calc_document_type():
     assert TrackChangesList.uno_services == list(expected)
 
 
-_REMOVED_TRACK_CHANGES_COMMENT_TOOLS = (
-    "track_changes_comment_insert",
-    "track_changes_comment_list",
-    "track_changes_comment_delete",
-)
-
-
-def test_track_changes_comment_tools_removed():
-    """Leftover annotation trio lived in tracking after comments domain landed; delete, do not alias."""
-    import plugin.writer.tracking as tracking
-
-    for cls_name in (
-        "TrackChangesCommentInsert",
-        "TrackChangesCommentList",
-        "TrackChangesCommentDelete",
-    ):
-        assert not hasattr(tracking, cls_name)
-
-    from plugin.scripting import writeragent_api
-
-    assert writeragent_api.DOMAIN_TOOLS["tracking"] == [
-        "tracking_list",
-        "tracking_manage",
-        "tracking_show",
-        "tracking_start",
-        "tracking_stop",
-    ]
-    for name in _REMOVED_TRACK_CHANGES_COMMENT_TOOLS:
-        assert not hasattr(writeragent_api.tracking, name)
-
-
 def test_track_changes_start():
     ctx, _, _, _ = _create_mock_ctx()
     tool = TrackChangesStart()

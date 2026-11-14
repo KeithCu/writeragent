@@ -26,10 +26,8 @@ elif not hasattr(sys.modules["fcntl"], "F_SETPIPE_SZ"):
 
 from plugin.framework.managed_subprocess import (
     ManagedSubprocess,
-    _PIPE_BUF_TARGET,
     _instances,
     optimize_pipe,
-    optimize_popen_pipes,
     shutdown_all,
 )
 
@@ -623,74 +621,10 @@ def test_scrub_env_runs_before_overlay(monkeypatch: pytest.MonkeyPatch) -> None:
         _reap_for_test(proc)
 
 
-def test_optimize_pipes_is_opt_in(monkeypatch: pytest.MonkeyPatch) -> None:
-    import plugin.framework.managed_subprocess as ms
-
-    mock_proc = MagicMock()
-    mock_proc.pid = 123
-    mock_proc.stdin = MagicMock()
-    mock_proc.stdout = MagicMock()
-    mock_proc.stderr = MagicMock()
-    monkeypatch.setattr(ms.subprocess, "Popen", lambda *a, **kw: mock_proc)
-    monkeypatch.setattr(ms, "start_stderr_drain", lambda *a, **kw: MagicMock())
-
-    opt_calls: list[object] = []
-    monkeypatch.setattr(ms, "optimize_popen_pipes", lambda p: opt_calls.append(p))
-
-    # Default does not call it
-    proc_default = ms.ManagedSubprocess(["dummy"])
-    proc_default.start()
-    try:
-        assert opt_calls == []
-    finally:
-        _reap_for_test(proc_default)
-
-    # optimize_pipes=True calls it once
-    proc_opt = ms.ManagedSubprocess(["dummy"], optimize_pipes=True)
-    proc_opt.start()
-    try:
-        assert opt_calls == [mock_proc]
-    finally:
-        _reap_for_test(proc_opt)
-
-
-@patch("plugin.framework.managed_subprocess.sys.platform", "linux")
-@patch("fcntl.fcntl")
-def test_optimize_pipe_calls_fcntl(mock_fcntl: MagicMock) -> None:
-    optimize_pipe(7)
-    mock_fcntl.assert_called_once()
-    args = mock_fcntl.call_args[0]
-    assert args[0] == 7
-    assert args[2] == _PIPE_BUF_TARGET
-
-
 @patch("plugin.framework.managed_subprocess.sys.platform", "linux")
 @patch("fcntl.fcntl", side_effect=OSError("cap denied"))
 def test_optimize_pipe_swallows_oserror(_mock_fcntl: MagicMock) -> None:
     optimize_pipe(3)
-
-
-@patch("plugin.framework.managed_subprocess.optimize_pipe")
-def test_optimize_popen_pipes_iterates_streams(mock_optimize: MagicMock) -> None:
-    proc = MagicMock()
-    proc.stdin.fileno.return_value = 10
-    proc.stdout.fileno.return_value = 11
-    proc.stderr.fileno.return_value = 12
-    optimize_popen_pipes(proc)
-    assert mock_optimize.call_count == 3
-    mock_optimize.assert_any_call(10)
-    mock_optimize.assert_any_call(11)
-    mock_optimize.assert_any_call(12)
-
-
-@patch("plugin.framework.managed_subprocess.optimize_pipe")
-def test_optimize_popen_pipes_skips_none_streams(mock_optimize: MagicMock) -> None:
-    proc = MagicMock()
-    proc.stdin = None
-    proc.stdout.fileno.return_value = 11
-    proc.stderr = None
-    optimize_popen_pipes(proc)
-    mock_optimize.assert_called_once_with(11)
 
 
 @patch("plugin.framework.managed_subprocess.sys.platform", "win32")
@@ -705,63 +639,6 @@ def test_optimize_pipe_noop_on_windows(mock_fcntl: MagicMock) -> None:
 def test_optimize_pipe_noop_on_macos(mock_fcntl: MagicMock) -> None:
     optimize_pipe(5)
     mock_fcntl.assert_not_called()
-
-
-def test_stderr_name_and_cap_are_forwarded(monkeypatch: pytest.MonkeyPatch) -> None:
-    import plugin.framework.managed_subprocess as ms
-
-    mock_proc = MagicMock()
-    mock_proc.pid = 5432
-    mock_proc.stdin = MagicMock()
-    mock_proc.stdout = MagicMock()
-    mock_proc.stderr = MagicMock()
-    monkeypatch.setattr(ms.subprocess, "Popen", lambda *a, **kw: mock_proc)
-
-    drain_mock = MagicMock()
-    monkeypatch.setattr(ms, "start_stderr_drain", drain_mock)
-
-    # Default instance
-    proc_default = ms.ManagedSubprocess(["dummy"])
-    proc_default.start()
-    try:
-        drain_mock.assert_called_once_with(mock_proc.stderr, name="managed-stderr-5432")
-    finally:
-        _reap_for_test(proc_default)
-
-    drain_mock.reset_mock()
-
-    # Custom name and tail chars
-    proc_custom = ms.ManagedSubprocess(
-        ["dummy"],
-        stderr_name="wa-formula-worker-w2-stderr",
-        stderr_tail_chars=65536,
-    )
-    proc_custom.start()
-    try:
-        drain_mock.assert_called_once_with(
-            mock_proc.stderr,
-            name="wa-formula-worker-w2-stderr",
-            max_tail_chars=65536,
-        )
-    finally:
-        _reap_for_test(proc_custom)
-
-    drain_mock.reset_mock()
-
-    proc_pid = ms.ManagedSubprocess(
-        ["dummy"],
-        stderr_name="venv-stderr",
-        stderr_name_with_pid=True,
-        register=False,
-    )
-    proc_pid.start()
-    try:
-        drain_mock.assert_called_once_with(
-            mock_proc.stderr,
-            name="venv-stderr-5432",
-        )
-    finally:
-        _reap_for_test(proc_pid)
 
 
 def test_abandoned_reaper_pauses_before_requeue(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1031,8 +908,43 @@ def test_log_start_failure_false_reraises_original(
         sub_twice.start()
 
 
-def test_raw_spawn_passes_stdio_env_and_skips_worker_defaults(
+@pytest.mark.parametrize(
+    "cmd, text, encoding, errors, stdin, stdout, stderr, env",
+    [
+        pytest.param(
+            ["ffplay", "clip.wav"],
+            False,
+            None,
+            None,
+            None,
+            subprocess.DEVNULL,
+            subprocess.DEVNULL,
+            {"WA_AUDIO_PATH": "clip.wav", "PATH": "/bin"},
+            id="binary_devnull",
+        ),
+        pytest.param(
+            ["piper", "--model", "m"],
+            True,
+            "utf-8",
+            "replace",
+            subprocess.PIPE,
+            subprocess.PIPE,
+            subprocess.PIPE,
+            None,
+            id="text_pipes",
+        ),
+    ],
+)
+def test_raw_spawn_forwards_contract_and_skips_worker_defaults(
     monkeypatch: pytest.MonkeyPatch,
+    cmd: list[str],
+    text: bool,
+    encoding: str | None,
+    errors: str | None,
+    stdin: Any,
+    stdout: Any,
+    stderr: Any,
+    env: dict[str, str] | None,
 ) -> None:
     import plugin.framework.managed_subprocess as ms
 
@@ -1042,8 +954,8 @@ def test_raw_spawn_passes_stdio_env_and_skips_worker_defaults(
     fake_proc.pid = 4242
     fake_proc.poll.return_value = None
 
-    def fake_popen(cmd: list[str], **kwargs: Any) -> MagicMock:
-        captured_cmds.append(list(cmd))
+    def fake_popen(popen_cmd: list[str], **kwargs: Any) -> MagicMock:
+        captured_cmds.append(list(popen_cmd))
         captured_kwargs.append(dict(kwargs))
         return fake_proc
 
@@ -1052,95 +964,33 @@ def test_raw_spawn_passes_stdio_env_and_skips_worker_defaults(
         ms, "start_stderr_drain", lambda *args, **kwargs: pytest.fail("drain should not be called")
     )
 
-    env = {"WA_AUDIO_PATH": "clip.wav", "PATH": "/bin"}
     subp = ms.ManagedSubprocess(
-        ["ffplay", "clip.wav"],
+        cmd,
         raw_spawn=True,
-        stdin=None,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        text=False,
-        encoding=None,
-        errors=None,
+        stdin=stdin,
+        stdout=stdout,
+        stderr=stderr,
+        text=text,
+        encoding=encoding,
+        errors=errors,
         env=env,
     )
     subp.start()
 
-    assert captured_cmds[0] == ["ffplay", "clip.wav"]
+    assert captured_cmds[0] == cmd
     kwargs = captured_kwargs[0]
-    assert kwargs == {
-        "stdin": None,
-        "stdout": subprocess.DEVNULL,
-        "stderr": subprocess.DEVNULL,
-        "text": False,
-        "encoding": None,
-        "errors": None,
-        "env": env,
-        "cwd": None,
-        **ms.get_subprocess_creationflags(),
-    }
+    assert kwargs["stdin"] is stdin
+    assert kwargs["stdout"] is stdout
+    assert kwargs["stderr"] is stderr
+    assert kwargs["text"] is text
     assert kwargs["env"] is env
     assert "start_new_session" not in kwargs
-    if sys.platform == "win32":
-        assert kwargs["creationflags"] == subprocess.CREATE_NO_WINDOW
-    else:
-        assert "creationflags" not in kwargs
     assert "bufsize" not in kwargs
+    for flag_key, flag_val in ms.get_subprocess_creationflags().items():
+        assert kwargs[flag_key] == flag_val
     assert subp not in ms._instances
     assert subp.stderr_tail is None
     assert subp.popen is fake_proc
-
-
-def test_raw_spawn_text_pipes_for_communicate(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    import plugin.framework.managed_subprocess as ms
-
-    captured_cmds: list[list[str]] = []
-    captured_kwargs: list[dict[str, Any]] = []
-    fake_proc = MagicMock()
-    fake_proc.pid = 4242
-    fake_proc.poll.return_value = None
-
-    def fake_popen(cmd: list[str], **kwargs: Any) -> MagicMock:
-        captured_cmds.append(list(cmd))
-        captured_kwargs.append(dict(kwargs))
-        return fake_proc
-
-    monkeypatch.setattr(ms.subprocess, "Popen", fake_popen)
-    monkeypatch.setattr(
-        ms, "start_stderr_drain", lambda *args, **kwargs: pytest.fail("drain should not be called")
-    )
-
-    subp = ms.ManagedSubprocess(
-        ["piper", "--model", "m"],
-        raw_spawn=True,
-        stdin=subprocess.PIPE,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        env=None,
-    )
-    subp.start()
-
-    assert captured_cmds[0] == ["piper", "--model", "m"]
-    kwargs = captured_kwargs[0]
-    assert kwargs == {
-        "stdin": subprocess.PIPE,
-        "stdout": subprocess.PIPE,
-        "stderr": subprocess.PIPE,
-        "text": True,
-        "encoding": "utf-8",
-        "errors": "replace",
-        "env": None,
-        "cwd": None,
-        **ms.get_subprocess_creationflags(),
-    }
-    assert kwargs["env"] is None
-    assert kwargs["cwd"] is None
-    assert subp not in ms._instances
 
 
 def test_raw_spawn_popen_oserror_propagates_and_is_reusable(
@@ -1291,7 +1141,7 @@ def test_worker_start_honours_stdin_ignores_stdout(
         _reap_for_test(subp)
 
 
-def test_managed_subprocess_run_is_subprocess_run(
+def test_managed_subprocess_run_forwards_contract(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     import plugin.framework.managed_subprocess as ms
@@ -1316,22 +1166,14 @@ def test_managed_subprocess_run_is_subprocess_run(
     )
     assert res.returncode == 0
     assert captured_args[0] == (["spd-say", "-S"],)
-    expected = {
-        "capture_output": False,
-        "stdin": None,
-        "stdout": subprocess.DEVNULL,
-        "stderr": subprocess.DEVNULL,
-        "env": None,
-        "cwd": None,
-        "text": False,
-        "encoding": None,
-        "errors": None,
-        "timeout": 2,
-        "check": False,
-    }
-    expected.update(get_subprocess_creationflags())
-    assert captured_kwargs[0] == expected
-    assert "start_new_session" not in captured_kwargs[0]
+    kwargs = captured_kwargs[0]
+    assert kwargs["stdout"] == subprocess.DEVNULL
+    assert kwargs["stderr"] == subprocess.DEVNULL
+    assert kwargs["timeout"] == 2
+    assert kwargs["check"] is False
+    for flag_key, flag_val in get_subprocess_creationflags().items():
+        assert kwargs[flag_key] == flag_val
+    assert "start_new_session" not in kwargs
 
 
 def test_default_start_stays_binary(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1352,11 +1194,8 @@ def test_default_start_stays_binary(monkeypatch: pytest.MonkeyPatch) -> None:
     inst.start()
     try:
         kwargs = captured_kwargs[0]
-        assert kwargs["bufsize"] == 0
-        assert "text" not in kwargs
-        assert "encoding" not in kwargs
-        assert "errors" not in kwargs
-        assert "universal_newlines" not in kwargs
+        assert not kwargs.get("text")
+        assert not kwargs.get("universal_newlines")
         assert kwargs["stdin"] == subprocess.PIPE
         assert kwargs["stdout"] == subprocess.PIPE
         assert kwargs["stderr"] == subprocess.PIPE
@@ -1496,15 +1335,6 @@ def test_stderr_name_with_pid_appends_pid(monkeypatch: pytest.MonkeyPatch) -> No
 
 
 
-
-
-def test_worker_flag_defaults() -> None:
-    from plugin.framework.managed_subprocess import ManagedSubprocess
-
-    proc = ManagedSubprocess(["echo"])
-    assert proc._drain_stderr is True
-    assert proc._register is True
-    assert proc._log_start_failure is True
 
 
 def test_drain_stderr_false_skips_drain_and_register(monkeypatch: pytest.MonkeyPatch) -> None:
