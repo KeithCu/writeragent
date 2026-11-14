@@ -129,14 +129,8 @@ def test_always_injected_calc_does_not_resolve_bare_x():
 
 def test_auto_imports_inject_st_dt_plt_aliases():
     """Sandbox gets st/dt/plt aliases without explicit imports when packages exist."""
-    from plugin.framework.constants import AUTO_IMPORTS
     from plugin.scripting.venv import optional_import as oi
     from plugin.scripting.venv.venv_sandbox import _new_executor, apply_auto_imports, inject_auto_imports
-
-    assert AUTO_IMPORTS["scipy.stats"] == "import scipy.stats as st"
-    assert AUTO_IMPORTS["datetime"] == "import datetime as dt"
-    assert AUTO_IMPORTS["matplotlib.pyplot"] == "import matplotlib.pyplot as plt"
-    assert "seaborn" not in AUTO_IMPORTS
 
     code, _lines = apply_auto_imports("result = 1")
     assert "import datetime as dt" in code

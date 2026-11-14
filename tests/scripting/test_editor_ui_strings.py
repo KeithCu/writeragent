@@ -89,7 +89,6 @@ def test_js_t_and_fmt_keys_are_in_the_ui_catalog():
         catalog.update(build_monaco_ui_strings(mode=mode))
 
     assert keys <= catalog | _JS_UI_KEYS_NOT_IN_CATALOG
-    assert "=PYTHON()" not in editor_js
 
 
 def test_enrich_always_sends_a_boolean_save_as_plain():

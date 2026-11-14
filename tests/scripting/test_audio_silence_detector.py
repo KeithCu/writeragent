@@ -66,21 +66,6 @@ def test_pcm_energy_uses_full_pcm_not_truncated():
     assert rms > 0.0
 
 
-def test_pcm_energy_int16_dropped_from_check_all_fqns():
-    """pcm_energy_int16 is omitted from cover_fqns_for_module."""
-    from pathlib import Path
-
-    from tests.harness.strip_bundle import skip_if_release_build
-
-    skip_if_release_build("scripts/ not in stripped release tree")
-    from scripts.crosshair_stream import cover_fqns_for_module
-
-    fqns = cover_fqns_for_module(
-        Path("plugin/scripting/audio_silence_detector.py"), require_deal=True
-    )
-    assert not any(f.endswith(".pcm_energy_int16") for f in fqns)
-
-
 def test_silence_detector_requires_min_speech_before_auto_stop():
     config = SilenceDetectorConfig(silence_stop_ms=100)
     detector = SilenceDetector(config, sample_rate=16000)

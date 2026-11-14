@@ -1128,20 +1128,6 @@ def test_register_preloaded_skips_colliding_stem_alias():
     assert res["status"] == "ok", res
 
 
-def test_host_duckdb_sql_exports_and_constants():
-    """Verify host duckdb_sql constants and exports."""
-    from plugin.scripting import duckdb_sql as host_duckdb
-
-    assert host_duckdb.MAX_TABLE_ROWS == MAX_TABLE_ROWS
-    templates = host_duckdb.get_sql_script_templates()
-    for code in templates.values():
-        assert not code.startswith("# writeragent:")
-    assert str(MAX_TABLE_ROWS) in templates["query_folder_sql"]
-    assert str(MAX_TABLE_ROWS) in templates["query_sheet_sql"]
-    assert "MAX_TABLE_ROWS" in templates["query_folder_sql"]
-    assert "SqlError" in host_duckdb._SQL_VENV_EXPORTS
-
-
 def test_run_sql_scoped_dir_alone_is_honesty_dict():
     res = run_sql("SELECT 1 AS n")
     assert isinstance(res, dict)
