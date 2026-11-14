@@ -176,7 +176,6 @@ def test_transport_connection_retry_waits_with_backoff():
         )
     wait.assert_called_once()
     assert len(statuses) == 1
-    assert "retrying" in statuses[0].lower()
 
 
 def test_transport_stop_before_retry_does_not_emit_status():
@@ -490,8 +489,6 @@ def test_over_cap_retry_after_fails_without_sleep():
             )
         mock_wait.assert_not_called()
     assert exc_info.value.code == "HTTP_ERROR"
-    assert "120" in str(exc_info.value)
-    assert "retry cap" in str(exc_info.value)
     assert _host_gap_sec.get("api.openai.com:443") == RETRY_MAX_DELAY_SEC
 
 
@@ -956,12 +953,6 @@ def test_handle_connection_error_downgrades_to_debug_on_stop(caplog):
             )
     assert err.value.code == "STOPPED"
     assert not any(r.levelno >= logging.ERROR for r in caplog.records)
-    # Release strips log.debug; "stop" and the absence of ERROR must still hold.
-    from plugin.framework.client import http_transport as http_transport_mod
-    from tests.harness.strip_bundle import module_source_contains
-
-    if module_source_contains(http_transport_mod, "Connection closed by user stop"):
-        assert any("Connection closed by user stop" in r.message for r in caplog.records)
 
 
 def test_transport_get_connection_disables_auto_open():

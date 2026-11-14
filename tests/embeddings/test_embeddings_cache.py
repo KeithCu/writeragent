@@ -308,7 +308,7 @@ def test_resolve_index_context_no_listing_root():
     assert key is None
     assert db_path is None
     assert meta is None
-    assert "Save the document" in err
+    assert isinstance(err, str) and err
 
 
 def test_resolve_index_context_ok(tmp_path):

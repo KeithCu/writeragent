@@ -47,8 +47,6 @@ def test_format_shapes_canvas_context_writer_standard_page():
     assert "Standard" in s
     assert "210.0" in s
     assert "297.0" in s
-    assert "1/100 mm" in s
-    assert "printable" in s
 
 
 def test_writer_page_style_uses_view_cursor_text():

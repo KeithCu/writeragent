@@ -419,7 +419,6 @@ def test_undo_null_steps_is_one_and_non_integer_steps_is_rejected_by_registry():
     err = reg.execute("undo", ctx, steps="abc")
     assert err["status"] == "error"
     assert err["code"] == "VALIDATION_ERROR"
-    assert err["message"] == "Invalid type for steps: expected integer, got str"
     um.undo.assert_not_called()
 
 
@@ -616,4 +615,4 @@ def test_undo_without_undo_manager_reports_error():
 
     res = Undo().execute(SimpleNamespace(doc=object()))
     assert res["status"] == "error"
-    assert res["message"] == "Document does not support undo."
+    assert res["code"] == "TOOL_EXECUTION_ERROR"

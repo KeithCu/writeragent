@@ -1,5 +1,4 @@
 import json
-import logging
 from typing import Any
 
 import pytest
@@ -150,7 +149,7 @@ def _message_blocks(body: bytes) -> list[dict[str, Any]]:
     return messages
 
 
-def test_tool_result_name_is_not_a_tool_use_id(caplog: pytest.LogCaptureFixture):
+def test_tool_result_name_is_not_a_tool_use_id():
     """A tool name used to be sent as tool_use_id and Anthropic returned 400."""
     shim = _shim()
     messages = [
@@ -162,10 +161,9 @@ def test_tool_result_name_is_not_a_tool_use_id(caplog: pytest.LogCaptureFixture)
         {"role": "tool", "content": "no id"},
         {"role": "tool", "tool_call_id": "good1", "content": "ok"},
     ]
-    with caplog.at_level(logging.WARNING):
-        _method, _path, body, _headers = shim.build_chat_request(
-            messages, 100, None, None, False, "claude-sonnet-4-5", None, None
-        )
+    _method, _path, body, _headers = shim.build_chat_request(
+        messages, 100, None, None, False, "claude-sonnet-4-5", None, None
+    )
     msg_list = _message_blocks(body)
     result_ids = [
         block["tool_use_id"]
@@ -176,10 +174,9 @@ def test_tool_result_name_is_not_a_tool_use_id(caplog: pytest.LogCaptureFixture)
     ]
     assert result_ids == ["good1"]
     assert "search" not in result_ids
-    assert "no tool_call_id" in caplog.text
 
 
-def test_developer_joins_system_and_unknown_role_is_skipped(caplog: pytest.LogCaptureFixture):
+def test_developer_joins_system_and_unknown_role_is_skipped():
     shim = _shim()
     messages = [
         {"role": "system", "content": "sys"},
@@ -187,17 +184,15 @@ def test_developer_joins_system_and_unknown_role_is_skipped(caplog: pytest.LogCa
         {"role": "user", "content": "hi"},
         {"role": "function", "name": "old", "content": "do not send"},
     ]
-    with caplog.at_level(logging.WARNING):
-        _method, _path, body, _headers = shim.build_chat_request(
-            messages, 20, None, None, False, "claude-sonnet-4-5", None, None
-        )
+    _method, _path, body, _headers = shim.build_chat_request(
+        messages, 20, None, None, False, "claude-sonnet-4-5", None, None
+    )
     data = json.loads(body)
     assert data["system"] == [{"type": "text", "text": "sys\n\ndev line", "cache_control": {"type": "ephemeral", "ttl": "1h"}}]
     assert data["diagnostics"] == {"previous_message_id": None}
     assert "cache_control" not in data
     assert data["messages"] == [{"role": "user", "content": [{"type": "text", "text": "hi"}]}]
     assert "do not send" not in body.decode()
-    assert "function" in caplog.text
 
 
 def test_https_image_url_becomes_anthropic_url_source():

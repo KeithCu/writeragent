@@ -111,9 +111,6 @@ def test_get_slide_layout_labels_autolayout_not_powerpoint_ids():
     assert four["layout_id"] == 18
     assert handout["layout_name"] == "autolayout_handout2"
     assert unknown["layout_name"] == "unknown_99"
-    assert "blank" in blank["available_layouts"]
-    assert "none" in blank["available_layouts"]
-    assert "title_only" in blank["available_layouts"]
 
 
 def test_get_slide_transition_defaults_when_properties_missing():

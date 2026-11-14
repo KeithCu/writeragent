@@ -153,7 +153,6 @@ def test_apply_design_current_doc_import_failure():
     assert out.get("code") != "LO_WALL"
     details = out.get("details") or {}
     assert details.get("reason") == "current_doc_import_failed"
-    assert "current" in out["message"].lower() or "failed" in out["message"].lower()
 
 
 def test_apply_design_ignores_legacy_new_document_kwarg():

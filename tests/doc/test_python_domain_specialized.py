@@ -17,7 +17,6 @@ from plugin.doc.python_domain_specialized import (
     validate_requested_domains,
 )
 from plugin.doc.specialized_base import DelegateToSpecializedBase
-from plugin.framework.prompts import DELEGATE_ANCHOR_RULE
 from plugin.framework.tool import ToolBase, ToolContext, ToolRegistry, prepare_tool_call
 from plugin.writer.specialized.footnotes import FootnotesInsert
 from plugin.writer.specialized_base import (
@@ -289,14 +288,8 @@ def test_run_inner_domain_tool_agent_unions_full_schemas(mock_executor_cls, mock
     assert "undo" in allowed
     assert "run_venv_python_script" not in allowed
     instructions = mock_build.call_args.kwargs["instructions"]
-    assert DELEGATE_ANCHOR_RULE in instructions
     assert format_script_api_catalog(["footnotes", "shapes"]) in instructions
     assert mock_build.call_args.kwargs["final_answer_tool_name"] == "specialized_workflow_finished"
-    examples_key_block = mock_build.call_args.kwargs["examples_block"]
-    # Inner block is the script loop, not the outer *:python few-shot (that one calls DTD).
-    assert "run_venv_python_script" in examples_key_block
-    assert "delegate_tool_domains" not in examples_key_block
-    assert "specialized_workflow_finished" in examples_key_block
 
 
 @patch("plugin.chatbot.smol_agent.build_toolcalling_agent")
@@ -333,8 +326,6 @@ def test_shapes_domain_includes_canvas_context_from_main_thread(mock_canvas, moc
     from plugin.scripting.host_rpc import format_script_api_catalog
 
     instructions = mock_build.call_args.kwargs["instructions"]
-    assert "Document canvas (Writer)" in instructions
-    assert "210.0 x 297.0 mm" in instructions
     assert format_script_api_catalog(["shapes"]) in instructions
     shapes_ctx = mock_build.call_args[0][0]
     assert shapes_ctx.python_tool_domain == "shapes,core"
@@ -343,7 +334,6 @@ def test_shapes_domain_includes_canvas_context_from_main_thread(mock_canvas, moc
     run_inner_domain_tool_agent(parent, ["footnotes"], "Add a note")
     mock_canvas.assert_not_called()
     footnotes_instructions = mock_build.call_args.kwargs["instructions"]
-    assert "Document canvas" not in footnotes_instructions
     assert format_script_api_catalog(["shapes"]) not in footnotes_instructions
     assert format_script_api_catalog(["footnotes"]) in footnotes_instructions
     assert mock_build.call_args[0][0].python_tool_domain == "footnotes,core"

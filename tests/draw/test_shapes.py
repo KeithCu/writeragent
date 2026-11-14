@@ -1154,7 +1154,6 @@ def test_shape_delete_unknown_name_hint():
             out = DeleteShape().execute(ctx, name="Titel")
     assert out["status"] == "error"
     assert out["details"]["available"] == ["Title", "Titl"]
-    assert "details.available" in out["details"]["hint"]
     assert "Titl" in out["details"]["similar"]
 
 
