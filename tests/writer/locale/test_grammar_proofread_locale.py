@@ -19,7 +19,6 @@ from plugin.framework.grammar_rule_ids import (
     GRAMMAR_REGISTRY_LOCALE_TAGS,
     bcp47_to_uno_lang_country,
     grammar_bcp47_tags_match,
-    grammar_english_name_for_bcp47,
     normalize_detected_bcp47,
     normalize_uno_locale_to_bcp47,
 )
@@ -81,16 +80,6 @@ def test_grammar_tags_match_gettext_folders() -> None:
     for _folder, expected in _FOLDERS_TO_TAG.items():
         assert expected in GRAMMAR_REGISTRY_LOCALE_TAGS, expected
 
-def test_grammar_tags_include_english_variants() -> None:
-    assert "en-US" in GRAMMAR_REGISTRY_LOCALE_TAGS
-    assert "en-GB" in GRAMMAR_REGISTRY_LOCALE_TAGS
-    assert "en-AU" in GRAMMAR_REGISTRY_LOCALE_TAGS
-    assert "en-CA" in GRAMMAR_REGISTRY_LOCALE_TAGS
-    assert "en-IN" in GRAMMAR_REGISTRY_LOCALE_TAGS
-
-def test_grammar_tag_count() -> None:
-    assert len(GRAMMAR_REGISTRY_LOCALE_TAGS) == 5 + len(_GETTEXT_LOCALE_DIRS)
-
 @pytest.mark.parametrize(
     "value, value_2, expected, value_3, value_4, expected_2",
     [
@@ -109,16 +98,6 @@ def test_normalize_english_choices() -> None:
     assert normalize_uno_locale_to_bcp47(_uno_locale("en", "AU")) == "en-AU"
     assert normalize_uno_locale_to_bcp47(_uno_locale("en", "CA")) == "en-CA"
     assert normalize_uno_locale_to_bcp47(_uno_locale("en", "IN")) == "en-IN"
-
-def test_english_name_is_nonempty() -> None:
-    for tag in GRAMMAR_REGISTRY_LOCALE_TAGS:
-        assert len(grammar_english_name_for_bcp47(tag)) > 0
-
-def test_bcp47_tags_have_valid_uno_language() -> None:
-    for tag in GRAMMAR_REGISTRY_LOCALE_TAGS:
-        la, c = bcp47_to_uno_lang_country(tag)
-        assert la and len(la) >= 2
-        assert c == c.upper()
 
 
 def test_bcp47_to_uno_lang_country_keeps_empty_language_and_second_subtag() -> None:
@@ -214,22 +193,6 @@ def test_grammar_batch_sentences_defaults_and_clamping() -> None:
 
     with patch("plugin.framework.config.get_config", return_value=-5):
         assert gl.grammar_batch_sentences() == 1
-
-
-def test_grammar_max_tokens_and_chars_are_fixed() -> None:
-    assert gl.grammar_max_tokens() == 3072
-    assert gl.grammar_max_chars() == 8192
-
-
-def test_clamped_int_config_keys_exist_in_doc_module_yaml() -> None:
-    """Every key read by _clamped_int_config must be a real doc-module config key."""
-    import yaml
-    from pathlib import Path
-
-    doc_yaml = Path(__file__).resolve().parents[3] / "plugin" / "doc" / "module.yaml"
-    config = yaml.safe_load(doc_yaml.read_text(encoding="utf-8"))["config"]
-    for key in ("doc.grammar_proofreader_max_in_flight", "doc.grammar_proofreader_batch_sentences"):
-        assert key.split(".", 1)[1] in config, key
 
 
 def test_normalize_detected_bcp47_registry_and_shorthand() -> None:

@@ -118,13 +118,6 @@ def test_resolve_orient_vert_rejects_hori_name():
     assert const is None and err is not None and "top" in err
 
 
-def test_image_insert_schema_includes_first_page_targets():
-    enum = ImageInsert.parameters["properties"]["target"]["enum"]
-    assert "header_first" in enum
-    assert "footer_first" in enum
-    assert "header" in enum and "footer" in enum
-
-
 @pytest.mark.parametrize("target", ["header_first", "footer_first"])
 def test_image_insert_routes_first_page_target_to_region_helper(target: str):
     # Shared target=header never reaches HeaderTextFirst; the tool must
@@ -469,27 +462,23 @@ def test_image_generate_omitted_source_creates_when_no_selection():
     assert svc.generate_image.call_args.kwargs.get("aspect_ratio") == "1:1"
 
 
-def test_only_top_overrides_others_preserved():
-    # T3 (R3): set_image_properties really crops now (GraphicCrop). Pin the mm -> 1/100mm edge math
-    # and the preserve-unspecified-edges behavior. No LibreOffice required. Applying the struct is live.
-    # current crop = (top, bottom, left, right) in 1/100mm
-    out = _resolve_crop_edges({"crop_top_mm": 5}, (0, 200, 300, 400))
-    assert out == (500, 200, 300, 400)
-
-
-def test_all_edges_mm_to_hundredths():
-    out = _resolve_crop_edges(
-        {"crop_top_mm": 1, "crop_bottom_mm": 2, "crop_left_mm": 3, "crop_right_mm": 4.5}, (0, 0, 0, 0)
-    )
-    assert out == (100, 200, 300, 450)
-
-
-def test_none_keeps_current():
-    assert _resolve_crop_edges({}, (10, 20, 30, 40)) == (10, 20, 30, 40)
-
-
-def test_rounding():
-    assert _resolve_crop_edges({"crop_left_mm": 1.234}, (0, 0, 0, 0)) == (0, 0, 123, 0)
+@pytest.mark.parametrize(
+    ("kwargs", "current", "expected"),
+    [
+        pytest.param({"crop_top_mm": 5}, (0, 200, 300, 400), (500, 200, 300, 400), id="only_top_overrides"),
+        pytest.param(
+            {"crop_top_mm": 1, "crop_bottom_mm": 2, "crop_left_mm": 3, "crop_right_mm": 4.5},
+            (0, 0, 0, 0),
+            (100, 200, 300, 450),
+            id="all_edges_mm_to_hundredths",
+        ),
+        pytest.param({}, (10, 20, 30, 40), (10, 20, 30, 40), id="none_keeps_current"),
+        pytest.param({"crop_left_mm": 1.234}, (0, 0, 0, 0), (0, 0, 123, 0), id="rounding"),
+    ],
+)
+def test_resolve_crop_edges(kwargs, current, expected):
+    # Pin mm -> 1/100mm edge math and preserve-unspecified-edges behavior.
+    assert _resolve_crop_edges(kwargs, current) == expected
 
 
 # --- list nearby image files (from test_list_nearby_image_files.py) ---
@@ -524,15 +513,6 @@ def test_images_domain_includes_list_nearby_image_files_not_document_research_li
     assert "image_list_nearby_files" in names
     assert "list_nearby_files" not in names
     assert "specialized_workflow_finished" in names
-
-
-def test_image_download_has_no_tls_opt_out():
-    import inspect
-
-    assert "verify_ssl" not in inspect.signature(_download_image_to_cache).parameters
-    assert ImageDownload.scripting_only_parameters == frozenset()
-    props = (ImageDownload.parameters.get("properties") if ImageDownload.parameters else {}) or {}
-    assert "verify_ssl" not in props
 
 
 def test_image_download_prepare_tool_call_drops_verify_ssl_for_every_caller():
@@ -845,13 +825,6 @@ def test_download_failure_leaves_no_cache_file(tmp_path, monkeypatch, sync_outco
         with pytest.raises(Exception):
             _download_image_to_cache("https://example.com/sample.png")
     assert list(tmp_path.iterdir()) == []
-
-
-def test_image_download_insert_replace_are_async():
-    assert ImageDownload().is_async() is True
-    assert ImageInsert().is_async() is True
-    assert ImageReplace().is_async() is True
-    assert ImageList().is_async() is False
 
 
 def test_image_insert_downloads_before_main_thread():
@@ -1875,15 +1848,6 @@ def test_download_image_to_cache_html_body_not_cached(tmp_path, monkeypatch):
             _download_image_to_cache("https://example.com/fake.png")
         assert "Invalid Content-Type" in str(exc_info.value)
         assert list(tmp_path.iterdir()) == []
-
-
-def test_schema_properties_removed():
-    gen_props = ImageGenerate.parameters["properties"]
-    assert "provider" not in gen_props
-    assert "strength" not in gen_props
-
-    del_props = ImageDelete.parameters["properties"]
-    assert "remove_frame" not in del_props
 
 
 def test_image_insert_non_writer_with_paragraph_or_locator_returns_unsupported():

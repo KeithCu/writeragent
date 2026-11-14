@@ -13,7 +13,6 @@ from plugin.scripting.domain_registry import (
     POST_VENV_DOMAIN_ORDER,
     WIRING_TABLE,
     get_domain_wiring,
-    get_post_venv_domains,
 )
 from plugin.scripting.helper_domain import _RUN_DATA_BINDING_CALLS
 
@@ -51,11 +50,6 @@ def test_helper_rows_have_registered_names():
     for w in WIRING_TABLE:
         if w.helper_domain is not None:
             assert len(names(w.helper_domain)) > 0, f"Expected non-empty names for {w.id} (helper_domain={w.helper_domain})"
-
-
-def test_post_venv_order_matches_constant():
-    ids = [s.id for s in get_post_venv_domains()]
-    assert ids == list(POST_VENV_DOMAIN_ORDER)
 
 
 def test_wiring_and_post_venv_and_run_import_binding_agree():

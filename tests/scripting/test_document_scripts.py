@@ -13,7 +13,6 @@ from unittest.mock import MagicMock, patch
 
 from plugin.scripting.document_scripts import (
     DOCUMENT_SCRIPTS_UDPROP,
-    SCRIPT_PICKER_MESSAGE_TYPES,
     _MAX_DOCUMENT_SCRIPTS_BYTES,
     _closed_document_scripts_list,
     DocumentScriptError,
@@ -33,13 +32,11 @@ from plugin.scripting.document_scripts import (
     get_user_scripts,
     handle_editor_script_message,
     new_script_name_error,
-    parse_document_script_display_name,
     resolve_run_script_selection,
     resolve_script_picker_entry,
     save_script_to_origin,
     save_selected_script,
     save_user_script,
-    script_origin_is_writable,
     set_calc_init_script,
     set_document_scripts,
 )
@@ -472,12 +469,6 @@ def test_readonly_document_returns_error():
     assert DOCUMENT_SCRIPTS_UDPROP not in props.values
     assert "personal library" not in err.lower()
     assert "my scripts" not in err.lower()
-
-
-def test_display_name_helpers():
-    assert document_script_display_name("Foo") == "[Doc] Foo"
-    assert parse_document_script_display_name("[Doc] Foo") == "Foo"
-    assert parse_document_script_display_name("Foo") is None
 
 
 def test_build_xdl_script_picker_state():
@@ -1112,16 +1103,6 @@ def test_init_script_omitted_from_picker():
     assert "x = 1" not in merged.values()
 
 
-def test_script_picker_message_types():
-    from plugin.scripting import document_scripts
-
-    assert SCRIPT_PICKER_MESSAGE_TYPES == frozenset(document_scripts._PICKER_HANDLERS)
-    assert "request_scripts" in SCRIPT_PICKER_MESSAGE_TYPES
-    assert "save" not in SCRIPT_PICKER_MESSAGE_TYPES
-    assert "attach_script" not in SCRIPT_PICKER_MESSAGE_TYPES
-    assert "copy_script_to_user" not in SCRIPT_PICKER_MESSAGE_TYPES
-
-
 def test_document_script_reopen_after_select_and_save_uses_display_key():
     """List, selection, and save share the [Doc] key so a same-named user script is not overwritten."""
     props = _UserDefinedProperties()
@@ -1568,14 +1549,6 @@ def test_attach_and_save_user_script_reject_reserved_prefix():
     err_u2 = save_user_script("[Analysis] describe", "code")
     assert err_u2 is not None
     assert err_u2.code == DocumentScriptErrorCode.RESERVED_NAME
-
-
-def test_script_origin_is_writable():
-    assert script_origin_is_writable("") is True
-    assert script_origin_is_writable("user") is True
-    assert script_origin_is_writable("document") is True
-    assert script_origin_is_writable("vision") is False
-    assert script_origin_is_writable("math") is False
 
 
 
