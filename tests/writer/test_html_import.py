@@ -1344,6 +1344,7 @@ def test_deleted_by_the_edit_name_guard():
     original.getAnchor.side_effect = AssertionError("getAnchor must not be called when name is missing")
     assert image_placeholders._deleted_by_the_edit(model, original, "Picture 1") is True
     original.getAnchor.assert_not_called()
+    assert model.getGraphicObjects.return_value.hasByName.call_args.args == ("Picture 1",)
 
     # 2. Name present in doc.getGraphicObjects() proceeds to check anchor
     model = MagicMock()
@@ -1729,13 +1730,14 @@ def test_styled_math_insert_styles_from_paragraph_before_insert():
     start = MagicMock()
     with patch.object(html_import, "_insert_mixed_html_and_math_at_cursor"), \
          patch.object(html_import, "_paragraph_before", return_value=before), \
-         patch.object(html_import, "_paragraph_after", return_value=start), \
+         patch.object(html_import, "_paragraph_after", return_value=start) as pa, \
          patch.object(html_import_styles, "apply_block_lo_styles") as apply:
         html_import._insert_mixed_or_plain_html(
             MagicMock(), MagicMock(), cursor,
             '<p data-lo-style="Heading1">Equation \\(x^2\\) here</p>',
             apply_styles=True,
         )
+    assert pa.call_args.args[1] is before
     assert apply.call_args.args[2] is start
 
 
