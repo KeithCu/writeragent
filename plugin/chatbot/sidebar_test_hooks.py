@@ -2700,7 +2700,7 @@ def press_accept(*, listener: Any = None) -> None:
 
 
 def press_change(query_override: str | None = None, *, listener: Any = None) -> None:
-    """HITL Change without the modal edit dialog (Packet E9c). Not ``STOP_CLICKED``."""
+    """HITL Change without the modal edit dialog. Not ``STOP_CLICKED``."""
     _require_debug()
     sl = _require_listener(listener)
     if query_override is None:

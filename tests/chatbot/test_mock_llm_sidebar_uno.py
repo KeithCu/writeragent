@@ -9,7 +9,7 @@ Subset: ``make test-mock-sidebar FILTER=C`` (packet), ``FILTER=c1`` (case), or a
 
 Packet G always tries Record (in-process listener or URP ``press_record``).
 Headed machines must run the cases. Skip a single G test only after Record
-does not flip Send → Stop Rec (same class as E8b). Do not skip the packet
+does not flip Send → Stop Rec (same URP limit as press_stop_mouse: no in-process SendButtonListener, so the click is a no-op over URP). Do not skip the packet
 because the runner is URP-only or because ``DISPLAY`` is set (xvfb sets it).
 """
 
@@ -65,7 +65,7 @@ def _setup_mock(ctx):
     except Exception:
         pass
 
-    # Packet E1–E8 must not block on HITL Accept. E9 turns this on locally.
+    # Packet E1–E8 must not block on HITL Accept. R8 turns this on locally.
     _saved_prompt_research = get_config("chatbot.prompt_for_web_research")
     save({"chatbot.prompt_for_web_research": False})
     # Import hooks before later panel creates; factory WeakSet also sees panels
@@ -1951,7 +1951,7 @@ _WAV_5S = os.path.join(os.path.dirname(__file__), "fixtures", "hello-writeragent
 
 _PACKET_G_RECORD_SKIP = (
     "Packet G RECORD_CLICKED did not reach Stop Rec "
-    "(Record no-op after try; same class as E8b)"
+    "(Record no-op after try; no in-process SendButtonListener over URP)"
 )
 
 
@@ -2397,7 +2397,7 @@ def test_g21_hang_ready_init_timeout(ctx):
     timed_out = "timed out" in body or "audio error" in body or "timed out" in err
     started = int(snap.get("stub_start_count") or 0) >= 1 or snap.get("status") == "error"
     if not (timed_out or started):
-        # Record never engaged (URP no-op). Skip after try, same class as E8b.
+        # Record never engaged (URP no-op). Skip after try: no in-process SendButtonListener over URP.
         raise unittest.SkipTest(_PACKET_G_RECORD_SKIP)
     _hello_ok()
 
@@ -3654,7 +3654,7 @@ def test_r8_accept_and_stop(ctx):
     assert controls is not None, "R8 requires the sidebar controls dict"
     execute_debug_sidebar_op("WEB_RESEARCH_PROMPT_ON")
     # HITL approval gates the inner web_search step; the --offline mock answers with
-    # final_answer and never reaches it (why E9 skips). Stop lands before any search runs.
+    # final_answer and never reaches it. Stop lands before any search runs.
     assert _session is not None
     was_offline = _session.config.offline
     _session.config.offline = False

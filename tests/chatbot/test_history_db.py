@@ -73,9 +73,18 @@ def test_message_to_dict_omits_null_tool_calls_and_marks_images():
     marked = message_to_dict("user", [
         {"type": "text", "text": "see"},
         {"type": "image_url", "image_url": {"url": "data:image/png;base64,AAAA"}},
+        {"type": "input_audio"},
     ])
-    assert marked["content"] == "see [Image Attached]"
+    assert marked["content"] == "see [Audio Attached] [Image Attached]"
     assert "AAAA" not in marked["content"]
+
+
+def test_get_chat_history_falls_back_to_json_when_sqlite_unavailable(tmp_path, monkeypatch):
+    import plugin.chatbot.history_db as hdb
+
+    monkeypatch.setattr(hdb, "HAS_SQLITE", False)
+    store = hdb.get_chat_history("s1", db_path=str(tmp_path / "hist.db"))
+    assert isinstance(store, hdb.JSONHistory)
 
 
 def test_message_to_dict_null_or_non_str_text_part():
