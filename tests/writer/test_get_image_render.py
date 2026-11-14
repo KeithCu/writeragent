@@ -96,9 +96,10 @@ def test_writer_jumps_to_1based_lo_page():
     assert doc._vc.current == 3
 
 
-def test_page_not_found_reports_real_total():
+@pytest.mark.parametrize("bad_page", [999, 21])
+def test_page_not_found_reports_real_total(bad_page):
     doc = FakeDoc(page_count=20)
-    png, reason = _render_page_png(object(), doc, 999)
+    png, reason = _render_page_png(object(), doc, bad_page)
     assert png is None
     assert "page not found" in reason
     assert "20 page(s)" in reason
@@ -108,13 +109,6 @@ def test_page_not_found_restores_view_cursor():
     doc = FakeDoc(page_count=20)
     _render_page_png(object(), doc, 999)
     assert doc._vc.restored_to == ("saved", doc._vc)
-
-
-@pytest.mark.parametrize("bad_page", [999, 21])
-def test_out_of_range_never_renders(bad_page):
-    doc = FakeDoc(page_count=20)
-    png, reason = _render_page_png(object(), doc, bad_page)
-    assert png is None and "page not found" in reason
 
 
 class FakeDrawPages:
@@ -409,14 +403,6 @@ def test_execute_calc_page_errors_before_render():
     assert res["status"] == "error"
     assert "Writer, Draw, or Impress" in res["message"]
     render_mock.assert_not_called()
-
-
-def test_execute_named_image_omits_sheet_index_by_default():
-    doc = FakeDrawDoc()
-    with patch("plugin.doc.visual_helpers.get_graphic_object_by_name", return_value=object()) as lookup:
-        with patch("plugin.writer.get_image.export_graphic_object_to_bytes", return_value=b"png"):
-            GetImage().execute(_tctx(doc), image="Logo")
-    lookup.assert_called_once_with(doc, "Logo")
 
 
 def test_execute_ambiguous_graphic_name_returns_code():

@@ -454,13 +454,12 @@ def test_html_import_live_roundtrip_uno(ctx: Any, doc: Any) -> None:
         got_img = GetDocumentContent().execute(tool_ctx, scope="full", include_images=False)
         assert got_img.get("status") == "ok", got_img
         img_html = got_img.get("content") or ""
-        # Live export may omit src, use src="", or a wa-image marker when bytes are stripped.
+        # logo_32.png is a user path, so it is linked (_should_link_image_path); the export keeps the file URL and only strips data: payloads.
         assert (
-            'src=""' in img_html
-            or "src=''" in img_html
-            or "wa-image" in img_html.lower()
-            or "graphic" in img_html.lower()
-            or "<img" in img_html.lower()
+            "<img" in img_html.lower()
+            and 'id="Image' in img_html
+            and "logo_32.png" in img_html
+            and "data:image" not in img_html
         ), img_html[:500]
         res_img = ApplyDocumentContent().execute(tool_ctx, target="full_document", content=img_html)
         assert res_img.get("status") == "ok", res_img
