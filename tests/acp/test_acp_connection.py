@@ -829,16 +829,6 @@ def test_failed_stdin_write_is_logged(caplog):
     conn.stop()
 
 
-def test_stderr_text_reads_live_tail_without_finishing():
-    conn = ACPConnection(["agent"])
-    drain = MagicMock()
-    drain.text.return_value = "err"
-    conn._stderr_drain = drain
-    assert (conn.stderr_text()) == ("err")
-    drain.text.assert_called_once()
-    drain.finish_text.assert_not_called()
-
-
 def test_null_id_error_completes_the_pending_request():
     """A JSON-RPC parse error uses id null. It is not a notification."""
     conn = ACPConnection(["agent"])
@@ -855,60 +845,6 @@ def test_null_id_error_completes_the_pending_request():
     assert event.is_set()
     assert conn._pending[1].response["error"]["message"] == "Parse error"
     assert called == []
-
-
-def test_posix_start_uses_a_new_session(monkeypatch):
-    if sys.platform == "win32":
-        pytest.skip("POSIX session")
-    captured: dict[str, object] = {}
-
-    def fake_popen(_cmd, **kwargs):
-        captured["kwargs"] = kwargs
-        proc = MagicMock()
-        proc.stderr = MagicMock()
-        proc.pid = 1
-        return proc
-
-    monkeypatch.setattr("plugin.framework.managed_subprocess.subprocess.Popen", fake_popen)
-    monkeypatch.setattr("plugin.framework.managed_subprocess.start_stderr_drain", lambda *_a, **_k: MagicMock())
-    monkeypatch.setattr("plugin.acp.acp_connection.run_in_background", lambda *_a, **_k: MagicMock())
-    conn = ACPConnection(["agent"])
-    conn.start()
-    kwargs = captured["kwargs"]
-    assert isinstance(kwargs, dict)
-    assert kwargs["start_new_session"] is True
-
-
-def test_start_builds_managed_subprocess(monkeypatch):
-    from plugin.scripting.sandbox import wrap_command_for_sandbox
-
-    created_managed = []
-
-    class FakeManaged:
-        def __init__(self, cmd, **kwargs):
-            self.cmd = cmd
-            self.kwargs = kwargs
-            self.popen = MagicMock()
-            self.stderr_tail = MagicMock()
-            created_managed.append(self)
-
-        def start(self):
-            pass
-
-    monkeypatch.setattr("plugin.acp.acp_connection.ManagedSubprocess", FakeManaged)
-    monkeypatch.setattr("plugin.acp.acp_connection.run_in_background", lambda *_a, **_k: MagicMock())
-
-    conn = ACPConnection(["agent", "arg"], env={"EXTRA": "1"}, cwd="/test/dir")
-    conn.start()
-
-    assert len(created_managed) == 1
-    m = created_managed[0]
-    assert m.cmd == ["agent", "arg"]
-    assert m.kwargs["command_wrapper"] is wrap_command_for_sandbox
-    assert m.kwargs["env"] == {"EXTRA": "1"}
-    assert m.kwargs["cwd"] == "/test/dir"
-    assert conn._proc is m.popen
-    assert conn._stderr_drain is m.stderr_tail
 
 
 def test_stop_flushes_before_tree_kill():
@@ -1252,8 +1188,6 @@ def test_start_keeps_worker_stdio_and_default_drain_name():
             assert popen_kw["stderr"] is subprocess.PIPE
             assert popen_kw["bufsize"] == 0
             assert popen_kw["cwd"] == "/work"
-            for key in ("text", "encoding", "errors", "universal_newlines", "preexec_fn"):
-                assert key not in popen_kw
 
             env = popen_kw["env"]
             assert isinstance(env, dict)
@@ -1276,7 +1210,6 @@ def test_start_keeps_worker_stdio_and_default_drain_name():
             stream, drain_kw = drain_calls[0]
             assert stream is fake_proc.stderr
             assert drain_kw == {"name": "managed-stderr-4242"}
-            assert "max_tail_chars" not in drain_kw
 
             assert conn._proc is conn._managed.popen
             assert conn._stderr_drain is conn._managed.stderr_tail

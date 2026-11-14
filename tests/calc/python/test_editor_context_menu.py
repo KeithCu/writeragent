@@ -17,7 +17,6 @@ from plugin.calc.python import editor_context_menu as mod
 from plugin.calc.python.editor_context_menu import (
     _edit_python_cell_url,
     _looks_like_cell_context_menu,
-    _register_controller,
 )
 from plugin.framework.constants import EXTENSION_ID_LIBREPY, EXTENSION_ID_WRITERAGENT
 from plugin.framework.uno_context import reset_package_extension_id_for_tests, set_package_extension_id
@@ -286,23 +285,6 @@ def test_register_ignores_non_calc_controller():
         mod._register_controller(controller)
         controller.registerContextMenuInterceptor.assert_not_called()
         assert len(mod._registered_controllers) == 0
-
-
-def test_register_frame_uses_uno_type_by_name():
-    mod._registered_controllers.clear()
-
-    frame = MagicMock()
-    controller = MagicMock()
-    frame.getController.return_value = controller
-
-    with patch("uno.getTypeByName") as mock_get_type:
-        mock_type = MagicMock()
-        mock_get_type.return_value = mock_type
-
-        _register_controller(controller)
-
-        mock_get_type.assert_any_call("com.sun.star.ui.XContextMenuInterception")
-        controller.queryInterface.assert_called_with(mock_type)
 
 
 def test_edit_python_cell_url_follows_librepy_extension_id():

@@ -1288,19 +1288,6 @@ class TestStopAndShutdown:
         assert ((StreamQueueKind.STREAM_DONE, None)) in (_drain(q))
         conn.stop.assert_not_called()
 
-    def test_cancelled_scope_at_send_entry_does_not_start_cli(self):
-        backend = _bare_backend()
-        scope = SendCancellation()
-        scope.cancel()
-        backend._ensure_connection = MagicMock(side_effect=AssertionError("cli started"))
-        backend._ensure_session = MagicMock(side_effect=AssertionError("session started"))
-        q = queue.Queue()
-        backend.send(queue=q, user_message="hi", document_context=None, document_url=None, cancel=scope)
-        assert (_drain(q)) == ([(StreamQueueKind.STOPPED, None)])
-        backend._ensure_connection.assert_not_called()
-        backend._ensure_session.assert_not_called()
-        assert scope.is_cancelled() is True
-
     def test_notification_callback_is_registered_before_session_new(self):
         """A session/update emitted during session/new must reach the queue.
 

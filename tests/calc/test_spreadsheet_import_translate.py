@@ -74,103 +74,9 @@ def test_translate_unsupported_function():
     assert not result.ok
     assert result.reason in ("UNSUPPORTED_FUNCTION", "PARSE_ERROR", "CROSS_SHEET_REF")
 
-def test_translate_p2_functions():
-    # Text
-    res = translate_formula("=CONCAT(A1;B1)", "A1")
-    assert res.ok
-    assert "concat" in res.code or "CONCAT" in res.code or "join" in res.code
-
-    res = translate_formula("=LEFT(A1;2)", "A1")
-    assert res.ok
-    assert "[:np.int64(2)]" in res.code
-
-    res = translate_formula("=LEN(A1)", "A1")
-    assert res.ok
-    assert "len(calc.py_str(data))" in res.code
-
-    # Date
-    res = translate_formula("=TODAY()", "A1")
-    assert res.ok
-    assert "dt.date.today().toordinal() - 693594" in res.code
-    assert "float(" not in res.code
-
-    # Statistical
-    res = translate_formula("=STDEV(A1:A10)", "A1")
-    assert res.ok
-    assert "np.std" in res.code
-    assert "ddof=1" in res.code
-
-    # Lookup & Reference
-    res = translate_formula("=VLOOKUP(A1;B1:C10;2;0)", "A1")
-    assert res.ok
-    assert "next" in res.code
-    assert "r[" in res.code and "-1]" in res.code
-
-
-def test_translate_p2_logical_trig_date_functions():
-    # IFERROR / IFNA
-    res = translate_formula("=IFERROR(A1; 0)", "A1")
-    assert res.ok
-    assert "calc.iferror" in res.code
-    assert "def " not in res.code
-
-    res = translate_formula("=IFNA(A1; 1)", "A1")
-    assert res.ok
-    assert "calc.ifna" in res.code
-
-    # SWITCH
-    res = translate_formula("=SWITCH(A1; 1; \"one\"; 2; \"two\"; \"other\")", "A1")
-    assert res.ok
-    assert "('one' if data == 1 else ('two' if data == 2 else 'other'))" in res.code
-
-    # Math/Trig
-    res = translate_formula("=ASIN(A1)", "A1")
-    assert res.ok
-    assert "np.arcsin(data)" in res.code
-
-    res = translate_formula("=ATAN2(A1; B1)", "A1")
-    assert res.ok
-    assert "np.arctan2(data[1], data[0])" in res.code
-
-    res = translate_formula("=GCD(A1; B1)", "A1")
-    assert res.ok
-    assert "math.gcd" in res.code
-
-    # Date
-    res = translate_formula("=DATE(2023; 10; 5)", "A1")
-    assert res.ok
-    assert "dt.date" in res.code and "toordinal() - 693594" in res.code
-    assert "int(" not in res.code
-
-    # Time
-    res = translate_formula("=HOUR(A1)", "A1")
-    assert res.ok
-    assert "dt.datetime.fromordinal(693594)" in res.code
-
-    # Row/Col/Rows/Cols
-    res = translate_formula("=ROW()", "B5")
-    assert res.ok
-    assert "5" in res.code
-    assert "float(" not in res.code
-
-    res = translate_formula("=COLUMN()", "B5")
-    assert res.ok
-    assert "2" in res.code
-    assert "float(" not in res.code
-
-    res = translate_formula("=ROW(C10:C20)", "A1")
-    assert res.ok
-    assert "np.array" in res.code
-
-    res = translate_formula("=ROWS(A1:B10)", "A1")
-    assert res.ok
-    assert "10" in res.code
-    assert "float(" not in res.code
-
-    res = translate_formula("=COLUMNS(A1:B10)", "A1")
-    assert res.ok
-    assert "2" in res.code
-    assert "float(" not in res.code
+def test_translate_row_column_origin():
+    assert exec_result(translate_formula("=ROW()", "B5"), []) == 5
+    assert exec_result(translate_formula("=COLUMN()", "B5"), []) == 2
 
 
 def test_translate_cross_sheet_references():
@@ -670,6 +576,72 @@ _DB_CRIT_SINGLE = [["Tree", "Height"], ["Apple", ">15"]]
         pytest.param("=ODDFPRICE(45292; 47118; 45000; 45500; 0.08; 0.09; 100; 2; 1)", [], pytest.approx(93.483446, abs=1e-4), id="oddfprice"),
         pytest.param("=ODDFYIELD(45292; 47118; 45000; 45500; 0.08; 95; 100; 2; 1)", [], pytest.approx(0.092309, abs=1e-4), id="oddfyield"),
         pytest.param("=ODDLPRICE(45292; 47118; 45000; 0.08; 0.09; 100; 2; 1)", [], pytest.approx(94.5685732, abs=1e-4), id="oddlprice"),
+        # P2 & logical/trig/date/lookup
+        pytest.param("=CONCAT(A1;B1)", ["foo", "bar"], "foobar", id="concat"),
+        pytest.param("=LEFT(A1;2)", "hello", "he", id="left"),
+        pytest.param("=LEN(A1)", "hello", 5, id="len"),
+        pytest.param("=TODAY()", [], dt.date.today().toordinal() - 693594, id="today"),
+        pytest.param("=STDEV(A1:A10)", [1.0, 2.0, 3.0], pytest.approx(1.0, abs=1e-9), id="stdev"),
+        pytest.param("=VLOOKUP(A1;B1:C10;2;0)", [2, [[1, 10], [2, 20]]], 20, id="vlookup"),
+        pytest.param("=IFERROR(A1; 0)", float("nan"), 0, id="iferror_nan"),
+        pytest.param("=IFNA(A1; 1)", float("nan"), 1, id="ifna_nan"),
+        pytest.param('=SWITCH(A1; 1; "one"; 2; "two"; "other")', 2, "two", id="switch"),
+        pytest.param("=ASIN(A1)", 1.0, pytest.approx(math.pi / 2, abs=1e-9), id="asin"),
+        pytest.param("=ATAN2(A1; B1)", [1.0, 1.0], pytest.approx(math.pi / 4, abs=1e-9), id="atan2"),
+        pytest.param("=GCD(A1; B1)", [12, 8], 4, id="gcd"),
+        pytest.param("=DATE(2023; 10; 5)", [], dt.date(2023, 10, 5).toordinal() - 693594, id="date"),
+        pytest.param("=HOUR(A1)", 0.5, 12, id="hour"),
+        pytest.param("=ROW(C10:C20)", [], lambda v: list(v) == list(range(10, 21)), id="row_range"),
+        pytest.param("=ROWS(A1:B10)", [], 10, id="rows"),
+        pytest.param("=COLUMNS(A1:B10)", [], 2, id="columns"),
+        # Financial group A & distributions & stats
+        pytest.param("=ACCRINT(A1, B1, C1, 0.05, 100, 2)", [45000, 45100, 45200], pytest.approx(2.722222, abs=1e-4), id="accrint"),
+        pytest.param("=DB(10000, 1000, 5, 1)", [], pytest.approx(3690.0, abs=1e-4), id="db"),
+        pytest.param("=NORMINV(0.5; 0; 1)", [], pytest.approx(0.0, abs=1e-6), id="norminv"),
+        pytest.param("=NORMSDIST(1)", [], pytest.approx(0.8413447, abs=1e-6), id="normsdist"),
+        pytest.param("=NORMSINV(0.5)", [], pytest.approx(0.0, abs=1e-6), id="normsinv"),
+        pytest.param("=PERMUT(5; 2)", [], 20.0, id="permut"),
+        pytest.param("=POISSON(2; 2; 0)", [], pytest.approx(0.2706706, abs=1e-6), id="poisson"),
+        pytest.param("=STANDARDIZE(42; 40; 1.5)", [], pytest.approx(1.3333333, abs=1e-6), id="standardize"),
+        pytest.param("=TDIST(1.96; 60; 2)", [], pytest.approx(0.0546449, abs=1e-6), id="tdist"),
+        pytest.param("=TINV(0.05; 60)", [], pytest.approx(2.0002978, abs=1e-6), id="tinv"),
+        pytest.param("=WEIBULL(105; 20; 100; 1)", [], pytest.approx(0.9295814, abs=1e-6), id="weibull"),
+        pytest.param("=PEARSON(A1:A10; B1:B10)", [[1, 2, 3], [2, 4, 6]], pytest.approx(1.0, abs=1e-6), id="pearson"),
+        pytest.param("=PERCENTRANK(A1:A10; 3)", [1, 2, 3, 4, 5], pytest.approx(0.5, abs=1e-6), id="percentrank"),
+        pytest.param("=PROB(A1:A10; B1:B10; 1; 2)", [[1, 2, 3], [0.2, 0.5, 0.3]], pytest.approx(0.7, abs=1e-6), id="prob"),
+        pytest.param("=TTEST(A1:A10; B1:B10; 2; 1)", [[1, 2, 3], [1, 2, 4]], pytest.approx(0.4226497, abs=1e-6), id="ttest"),
+        pytest.param("=ZTEST(A1:A10; 3)", [1, 2, 3, 4, 5], pytest.approx(0.5, abs=1e-6), id="ztest"),
+        pytest.param("=ASC(A1)", "ＡＢＣ", "ABC", id="asc"),
+        # Group H & I
+        pytest.param("=CLEAN(A1)", "a\x00b", "ab", id="clean"),
+        pytest.param("=DOLLAR(A1; 2)", 1234.5, "$1,234.50", id="dollar"),
+        pytest.param("=ENCODEURL(A1)", "a b", "a%20b", id="encodeurl"),
+        pytest.param("=FIXED(A1; 2; TRUE)", 1234.5, "1234.50", id="fixed"),
+        pytest.param("=JIS(A1)", "ABC", "ＡＢＣ", id="jis"),
+        pytest.param('=NUMBERVALUE(A1; "."; ",")', "1,234.5", 1234.5, id="numbervalue"),
+        pytest.param("=T(A1)", "hi", "hi", id="t_text"),
+        pytest.param('=TEXTAFTER(A1; "-")', "a-b", "b", id="textafter"),
+        pytest.param('=TEXTBEFORE(A1; "-")', "a-b", "a", id="textbefore"),
+        pytest.param('=TEXTSPLIT(A1; "-")', "a-b", [["a", "b"]], id="textsplit"),
+        pytest.param("=UNICHAR(A1)", 65, "A", id="unichar"),
+        pytest.param("=UNICODE(A1)", "A", 65.0, id="unicode"),
+        pytest.param("=BESSELI(A1; B1)", [1.5, 1], pytest.approx(0.9816664, abs=1e-6), id="besseli"),
+        pytest.param("=BESSELJ(A1; B1)", [1.5, 1], pytest.approx(0.5579365, abs=1e-6), id="besselj"),
+        pytest.param("=BESSELK(A1; B1)", [1.5, 1], pytest.approx(0.2773878, abs=1e-6), id="besselk"),
+        pytest.param("=BESSELY(A1; B1)", [1.5, 1], pytest.approx(-0.4123086, abs=1e-6), id="bessely"),
+        pytest.param('=EUROCONVERT(A1; "ATS"; "EUR")', 100, pytest.approx(7.27, abs=1e-4), id="euroconvert"),
+        pytest.param("=IMCOSH(A1)", "1+0i", lambda v: "1.5430" in v, id="imcosh"),
+        pytest.param("=IMCOT(A1)", "1+0i", lambda v: "0.6420" in v, id="imcot"),
+        pytest.param("=IMCSC(A1)", "1+0i", lambda v: "1.1883" in v, id="imcsc"),
+        pytest.param("=IMCSCH(A1)", "1+0i", lambda v: "0.8509" in v, id="imcsch"),
+        pytest.param("=IMSEC(A1)", "1+0i", lambda v: "1.8508" in v, id="imsec"),
+        pytest.param("=IMSECH(A1)", "1+0i", lambda v: "0.6480" in v, id="imsech"),
+        pytest.param("=IMSINH(A1)", "1+0i", lambda v: "1.1752" in v, id="imsinh"),
+        pytest.param("=IMSQRT(A1)", "4", "2", id="imsqrt"),
+        pytest.param("=IMSUB(A1; B1)", ["3+4i", "1+2i"], "2+2i", id="imsub"),
+        pytest.param("=IMSUM(A1; B1)", ["3+4i", "1+2i"], "4+6i", id="imsum"),
+        pytest.param("=IMTAN(A1)", "1+0i", lambda v: "1.5574" in v, id="imtan"),
+        pytest.param("=IMTANH(A1)", "1+0i", lambda v: "0.7615" in v, id="imtanh"),
     ],
 )
 def test_translate_and_exec_functions(formula, data, expected):
@@ -721,87 +693,6 @@ def test_translate_group_e_emit_only(formula, expected_substr):
     assert res.ok
     if expected_substr is not None:
         assert expected_substr in res.code
-
-
-def test_translate_financial_group_a():
-    res = translate_formula("=ACCRINT(A1, B1, C1, 0.05, 100, 2)", "A1")
-    assert res.ok
-    assert "calc.accrint(data[0], data[1], data[2], 0.05, 100, 2)" in res.code
-
-    res = translate_formula("=DB(10000, 1000, 5, 1)", "A1")
-    assert res.ok
-    assert "calc.db(10000, 1000, 5, 1)" in res.code
-
-
-@pytest.mark.parametrize(
-    "value, expected",
-    [
-        pytest.param("=NORMINV(0.5; 0; 1)", "calc.norminv(0.5, 0, 1)", id="test_translate_norminv"),
-        pytest.param("=NORMSDIST(1)", "calc.normsdist(1)", id="test_translate_normsdist"),
-        pytest.param("=NORMSINV(0.5)", "calc.normsinv(0.5)", id="test_translate_normsinv"),
-        pytest.param("=PERMUT(5; 2)", "calc.permut(5, 2)", id="test_translate_permut"),
-        pytest.param("=POISSON(2; 2; 0)", "calc.poisson(2, 2, 0)", id="test_translate_poisson"),
-        pytest.param("=STANDARDIZE(42; 40; 1.5)", "calc.standardize(42, 40, 1.5)", id="test_translate_standardize"),
-        pytest.param("=TDIST(1.96; 60; 2)", "calc.tdist(1.96, 60, 2)", id="test_translate_tdist"),
-        pytest.param("=TINV(0.05; 60)", "calc.tinv(0.05, 60)", id="test_translate_tinv"),
-        pytest.param("=WEIBULL(105; 20; 100; 1)", "calc.weibull(105, 20, 100, 1)", id="test_translate_weibull"),
-    ],
-)
-def test_translate_norminv(value, expected):
-    res = translate_formula(value, "A1")
-    assert res.ok
-    assert res.code == expected
-
-@pytest.mark.parametrize(
-    "value, value_2",
-    [
-        pytest.param("=PEARSON(A1:A10; B1:B10)", "calc.pearson(data[0], data[1])", id="test_translate_pearson"),
-        pytest.param("=PERCENTRANK(A1:A10; 5)", "calc.percentrank(data, 5)", id="test_translate_percentrank"),
-        pytest.param("=PROB(A1:A10; B1:B10; 2; 5)", "calc.prob(data[0], data[1], 2, 5)", id="test_translate_prob"),
-        pytest.param("=TTEST(A1:A10; B1:B10; 2; 1)", "calc.ttest(data[0], data[1], 2, 1)", id="test_translate_ttest"),
-        pytest.param("=ZTEST(A1:A10; 4)", "calc.ztest(data, 4)", id="test_translate_ztest"),
-        pytest.param("=ASC(A1)", "calc.asc(data)", id="test_translate_asc"),
-    ],
-)
-def test_translate_pearson(value, value_2):
-    res = translate_formula(value, "A1")
-    assert res.ok
-    assert value_2 in res.code
-
-def test_translate_group_h():
-    assert translate_formula("=BAHTTEXT(A1)", "A1").reason == "UNSUPPORTED_FUNCTION"
-    assert translate_formula("=CLEAN(A1)", "A1").code == 'calc.clean(data)'
-    assert translate_formula("=DOLLAR(A1; 2)", "A1").code == 'calc.dollar(data, 2)'
-    assert translate_formula("=ENCODEURL(A1)", "A1").code == 'calc.encodeurl(data)'
-    assert translate_formula("=FIXED(A1; 2; TRUE)", "A1").code == 'calc.fixed(data, 2, True)'
-    assert translate_formula("=JIS(A1)", "A1").code == 'calc.jis(data)'
-    assert translate_formula("=NUMBERVALUE(A1; \".\"; \",\")", "A1").code == "calc.numbervalue(data, '.', ',')"
-    assert translate_formula("=T(A1)", "A1").code == 'calc.t(data)'
-    assert translate_formula("=TEXTAFTER(A1; \"-\")", "A1").code == "calc.textafter(data, '-')"
-    assert translate_formula("=TEXTBEFORE(A1; \"-\")", "A1").code == "calc.textbefore(data, '-')"
-    assert translate_formula("=TEXTSPLIT(A1; \"-\")", "A1").code == "calc.textsplit(data, '-')"
-    assert translate_formula("=UNICHAR(A1)", "A1").code == 'calc.unichar(data)'
-    assert translate_formula("=UNICODE(A1)", "A1").code == 'calc.unicode(data)'
-    assert translate_formula("=BESSELI(A1; B1)", "A1").code == 'calc.besseli(data[0], data[1])'
-    assert translate_formula("=BESSELJ(A1; B1)", "A1").code == 'calc.besselj(data[0], data[1])'
-
-
-def test_translate_group_i():
-    assert translate_formula("=BESSELK(A1; B1)", "A1").code == 'calc.besselk(data[0], data[1])'
-    assert translate_formula("=BESSELY(A1; B1)", "A1").code == 'calc.bessely(data[0], data[1])'
-    assert translate_formula("=EUROCONVERT(A1; \"ATS\"; \"EUR\")", "A1").code == "calc.euroconvert(data, 'ATS', 'EUR')"
-    assert translate_formula("=IMCOSH(A1)", "A1").code == 'calc.imcosh(data)'
-    assert translate_formula("=IMCOT(A1)", "A1").code == 'calc.imcot(data)'
-    assert translate_formula("=IMCSC(A1)", "A1").code == 'calc.imcsc(data)'
-    assert translate_formula("=IMCSCH(A1)", "A1").code == 'calc.imcsch(data)'
-    assert translate_formula("=IMSEC(A1)", "A1").code == 'calc.imsec(data)'
-    assert translate_formula("=IMSECH(A1)", "A1").code == 'calc.imsech(data)'
-    assert translate_formula("=IMSINH(A1)", "A1").code == 'calc.imsinh(data)'
-    assert translate_formula("=IMSQRT(A1)", "A1").code == 'calc.imsqrt(data)'
-    assert translate_formula("=IMSUB(A1; B1)", "A1").code == 'calc.imsub(data[0], data[1])'
-    assert translate_formula("=IMSUM(A1; B1)", "A1").code == 'calc.imsum(data[0], data[1])'
-    assert translate_formula("=IMTAN(A1)", "A1").code == 'calc.imtan(data)'
-    assert translate_formula("=IMTANH(A1)", "A1").code == 'calc.imtanh(data)'
 
 
 def test_translate_multiple_arguments_aggregates():

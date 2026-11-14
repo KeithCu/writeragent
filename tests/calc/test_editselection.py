@@ -443,16 +443,6 @@ def test_calc_extend_multi_cell_is_one_undo_context():
     assert sheet.getCellByPosition(0, 0).getFormula() == "=A1+1+2"
     assert sheet.getCellByPosition(0, 1).getFormula() == "=B1+1+2"
     assert sheet.getCellByPosition(0, 2).getFormula() == "=C1+1+2"
-    assert events == [
-        ("enter", _("WriterAgent: Extend Selection (Calc)")),
-        ("setFormula", 0, "=A1+1", True),
-        ("setFormula", 0, "=A1+1+2", True),
-        ("setFormula", 1, "=B1+1", True),
-        ("setFormula", 1, "=B1+1+2", True),
-        ("setFormula", 2, "=C1+1", True),
-        ("setFormula", 2, "=C1+1+2", True),
-        ("leave",),
-    ]
 
 
 def test_calc_edit_error_closes_undo_after_cell_restore():

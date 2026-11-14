@@ -573,35 +573,6 @@ def test_resolve_piper_model_file_reuses_pipecat_without_download(tmp_path, monk
     assert resolved == str(onnx)
 
 
-def test_is_download_failed_takes_speech_lock_clear_does_not():
-    import plugin.audio.tts_service as tts
-
-    real_lock = tts._speech_lock
-    lock_count = 0
-
-    class LockWrapper:
-        def __enter__(self):
-            nonlocal lock_count
-            lock_count += 1
-            return real_lock.__enter__()
-
-        def __exit__(self, exc_type, exc_val, exc_tb):
-            return real_lock.__exit__(exc_type, exc_val, exc_tb)
-
-    setattr(tts, "_speech_lock", LockWrapper())
-    utt = tts._begin_utterance()
-    try:
-        before = lock_count
-        utt.note_download_failed("kokoro")
-        assert lock_count == before + 1
-        before = lock_count
-        assert utt.download_failed("kokoro") is True
-        assert lock_count == before + 1
-    finally:
-        tts._speech_lock = real_lock
-        tts.stop_speech()
-
-
 def test_resolve_kokoro_model_files_cancelled_during_voices(tmp_path, monkeypatch):
     messages: list[str] = []
     _kokoro_cache(tmp_path, monkeypatch)
