@@ -503,3 +503,114 @@ def test_copy_to_clipboard_log_does_not_include_payload(caplog, monkeypatch):
     assert caplog.records
     assert "SECRET_PAYLOAD" not in caplog.text
 
+
+@patch("plugin.chatbot.dialogs.load_writeragent_dialog", return_value=None)
+@patch("plugin.chatbot.dialogs.msgbox")
+def test_msgbox_with_report_falls_back_without_dialog(mock_msgbox, mock_load):
+    from plugin.chatbot.dialogs import msgbox_with_report
+
+    ctx = MagicMock()
+    msgbox_with_report(ctx, "T", "M", reportable=True)
+    mock_msgbox.assert_called_once()
+
+
+@patch("plugin.chatbot.bug_report.open_url_in_browser")
+@patch("plugin.chatbot.dialogs.load_writeragent_dialog")
+@patch("plugin.chatbot.dialogs.copy_to_clipboard", return_value=True)
+def test_msgbox_with_report_report_button(mock_copy, mock_load, mock_open_url):
+    from plugin.chatbot.bug_report import build_github_issue_url
+    from plugin.chatbot.dialogs import msgbox_with_report
+
+    dlg = MagicMock()
+    mock_load.return_value = dlg
+    report_btn = MagicMock()
+    ok_btn = MagicMock()
+    msg_ctrl = MagicMock()
+
+    def get_control(name):
+        return {"ReportBtn": report_btn, "OKBtn": ok_btn, "Msg": msg_ctrl, "CopyBtn": MagicMock()}.get(name)
+
+    dlg.getControl.side_effect = get_control
+
+    listeners = {}
+    report_btn.addActionListener.side_effect = lambda lst: listeners.setdefault("report", lst)
+    ok_btn.addActionListener.side_effect = lambda lst: listeners.setdefault("ok", lst)
+
+    ctx = MagicMock()
+    msgbox_with_report(ctx, "Err", "details", reportable=True, report_title="Err", report_extra="trace")
+
+    listeners["report"].on_action_performed(MagicMock())
+    expected_url = build_github_issue_url(title="Err", extra_body="details\n\ntrace", ctx=ctx)
+    mock_open_url.assert_called_once_with(ctx, expected_url)
+
+
+@patch("plugin.chatbot.bug_report.build_github_issue_url", return_value="https://github.com/issue")
+@patch("plugin.chatbot.dialogs.load_writeragent_dialog")
+@patch("plugin.chatbot.dialogs.copy_to_clipboard", return_value=True)
+def test_msgbox_with_report_includes_message_when_no_report_extra(mock_copy, mock_load, mock_build_url):
+    from plugin.chatbot.dialogs import msgbox_with_report
+
+    dlg = MagicMock()
+    mock_load.return_value = dlg
+    dlg.getControl.side_effect = lambda name: MagicMock()
+
+    ctx = MagicMock()
+    msgbox_with_report(ctx, "Err", "visible error text", reportable=True, report_title="Err")
+
+    mock_build_url.assert_called_once_with(title="Err", extra_body="visible error text", ctx=ctx)
+
+
+@patch("plugin.chatbot.bug_report.build_github_issue_url", return_value="https://github.com/issue")
+@patch("plugin.chatbot.dialogs.load_writeragent_dialog")
+@patch("plugin.chatbot.dialogs.copy_to_clipboard", return_value=True)
+def test_msgbox_with_report_dedupes_identical_message_and_extra(mock_copy, mock_load, mock_build_url):
+    from plugin.chatbot.dialogs import msgbox_with_report
+
+    dlg = MagicMock()
+    mock_load.return_value = dlg
+    dlg.getControl.side_effect = lambda name: MagicMock()
+
+    ctx = MagicMock()
+    msgbox_with_report(ctx, "T", "same text", reportable=True, report_extra="same text")
+
+    mock_build_url.assert_called_once_with(title="T", extra_body="same text", ctx=ctx)
+
+
+class TestSetProp:
+    def test_set_model_property_swallows_unknown(self):
+        from plugin.chatbot.dialogs import set_prop
+
+        class _Model:
+            __slots__ = ()
+
+            def setPropertyValue(self, name, value):
+                raise RuntimeError("UnknownPropertyException")
+
+        assert set_prop(_Model(), "BackgroundColor", 0xFFFFFF) is False
+
+    def test_set_model_property_on_plain_object(self):
+        from plugin.chatbot.dialogs import set_prop
+
+        class _Model:
+            pass
+
+        model = _Model()
+        set_prop(model, "PositionX", 42)
+        assert getattr(model, "PositionX") == 42
+
+    def test_set_model_property_falls_back_to_setPropertyValue(self):
+        from plugin.chatbot.dialogs import set_prop
+
+        class _Model:
+            def setPropertyValue(self, name, value):
+                self.last = (name, value)
+
+            def __setattr__(self, name, value):
+                if name not in ("last",):
+                    raise AttributeError(name)
+                object.__setattr__(self, name, value)
+
+        model = _Model()
+        set_prop(model, "PositionX", 42)
+        assert model.last == ("PositionX", 42)
+

@@ -593,3 +593,20 @@ def test_extend_selection_stop_scope_finishes_and_appends():
     assert fake_client.stopped is True
     assert call_order == ["append_chunk", "finish"]
     assert not session.abort_and_restore.called
+
+
+def test_do_edit_selection_skips_dialog_with_preset():
+    from plugin.writer import editselection as es
+
+    ctx = object()
+    model = MagicMock()
+    model.getCurrentController.return_value = MagicMock()
+    with patch.object(es, "_selection_target", return_value=(MagicMock(), "text")):
+        with patch.object(es, "create_validated_client", return_value=MagicMock()):
+            with patch.object(es, "prompt_for_edit_instructions") as prompt:
+                with patch.object(es, "_stream_into_session"):
+                    with patch.object(es, "update_lru_history"):
+                        with patch("plugin.writer.editselection.review_recording_enabled", return_value=False):
+                            with patch("plugin.writer.editselection.get_config", return_value=100):
+                                es.do_edit_selection(ctx, model, preset_instruction="Fix typos")
+    prompt.assert_not_called()

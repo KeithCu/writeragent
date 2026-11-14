@@ -141,19 +141,6 @@ class TestAppendRichText:
         content = doc.getText().getString()
         assert (value_2) in (content)
 
-
-    def test_go_right_chunks_large_moves(self):
-        from plugin.doc.text_helpers import go_right
-
-        cursor = MockTextCursor()
-        assert go_right(cursor, 40000, False) is True
-        assert hasattr(cursor, "go_right_calls")
-
-        calls = cursor.go_right_calls
-        pre_len = sum(count for count, expand in calls)
-        assert pre_len > 32767, f"pre_len {pre_len} was not large enough"
-        assert all(count <= 8192 for count, expand in calls)
-
     def test_append_rich_text_anchors_body_start_without_character_count_offset(self):
         """The body range starts one past the prefix's last character, not at a document-start count."""
         from plugin.chatbot.rich_text import _append_rich_text_with_span
@@ -709,6 +696,19 @@ def test_render_calc_cell_refs_passthrough():
 
     assert render_calc_cell_refs("no links here") == "no links here"
     assert render_calc_cell_refs("") == ""
+
+
+class TestStripLegacyAiLabel:
+    def test_strips_ai_prefix(self):
+        from plugin.chatbot.rich_text import strip_legacy_ai_label
+
+        assert strip_legacy_ai_label("AI: Hello") == "Hello"
+        assert strip_legacy_ai_label("  ai:  Hello") == "Hello"
+
+    def test_leaves_user_text(self):
+        from plugin.chatbot.rich_text import strip_legacy_ai_label
+
+        assert strip_legacy_ai_label("You: hi") == "You: hi"
 
 
 

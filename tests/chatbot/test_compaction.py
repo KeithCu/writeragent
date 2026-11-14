@@ -1599,3 +1599,61 @@ def test_compact_session_propagates_auth_errors():
     client_runtime = DummyClient(error=RuntimeError("summarizer down"))
     result = C.compact_session(DummySession(_history_3x1000()), client_runtime, window=4096)
     assert result.reason == "failed"
+
+
+def test_compaction_auth_line_client_and_exception():
+    import urllib.error
+
+    from plugin.chatbot.compaction import auth_line_for_client, auth_line_for_error
+    from plugin.framework.client.auth import AuthError
+    from plugin.framework.client.llm_client import LlmClient
+
+    empty_key_client = LlmClient(
+        {"api_key": "", "model": "gpt-4o", "endpoint": "https://api.openai.com/v1"},
+        ctx=None,
+    )
+    line = auth_line_for_client(empty_key_client)
+    assert line is not None
+    assert "Configure an API key" in line
+
+    other_auth = auth_line_for_error(AuthError("bad key", code="invalid_key"))
+    assert other_auth is not None
+    assert "Configure an API key" not in other_auth
+
+    http401 = auth_line_for_error(
+        urllib.error.HTTPError(
+            url="https://api.openai.com/v1/chat/completions",
+            code=401,
+            msg="Unauthorized",
+            hdrs=None,
+            fp=None,
+        )
+    )
+    assert http401 is not None
+
+    http500 = auth_line_for_error(
+        urllib.error.HTTPError(
+            url="https://api.openai.com/v1/chat/completions",
+            code=500,
+            msg="Server Error",
+            hdrs=None,
+            fp=None,
+        )
+    )
+    assert http500 is None
+
+    assert auth_line_for_error(RuntimeError("boom")) is None
+
+
+def test_summary_lines_omit_slash_local():
+    from plugin.chatbot.compaction import _summary_lines
+    from plugin.chatbot.rich_text_paste import SLASH_LOCAL
+
+    lines = _summary_lines(
+        [
+            {"role": "assistant", "content": "Slash commands: /help", SLASH_LOCAL: True},
+            {"role": "user", "content": "hello"},
+        ]
+    )
+    assert lines == ["USER: hello"]
+    assert not any("Slash commands" in line for line in lines)

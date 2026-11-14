@@ -2242,3 +2242,26 @@ def test_settings_dialog_reinitializes_logging_after_apply_settings() -> None:
     # init_logging is called once at entry to show() and once after apply_settings_result succeeds
     assert mock_init_logging.call_count == 2
     mock_init_logging.assert_called_with(ctx)
+
+
+def test_test_connection_uses_endpoint_listener_key():
+    """Test Connection sends the key the model fetch would send, not the raw field."""
+    from plugin.chatbot.dialog_views import TestConnectionListener
+
+    endpoint_ctrl = MagicMock()
+    endpoint_ctrl.getText.return_value = "http://127.0.0.1:8080"
+    key_ctrl = MagicMock()
+    key_ctrl.getText.return_value = "sk-or-previous-endpoint"
+    controls = {"endpoint": endpoint_ctrl, "api_key": key_ctrl}
+    sent = []
+
+    ep_listener = MagicMock()
+    ep_listener._api_key_override.return_value = ""
+    listener = TestConnectionListener(MagicMock(), MagicMock(), ep_listener)
+    with patch("plugin.chatbot.dialog_views.get_optional", side_effect=lambda dlg, name: controls.get(name)), \
+         patch("plugin.chatbot.dialog_views.get_control_text", side_effect=lambda c, *a, **k: c.getText()), \
+         patch("plugin.chatbot.quick_setup.check_endpoint_connection", side_effect=lambda ep, key: sent.append((ep, key)) or (True, "ok")), \
+         patch("plugin.chatbot.dialog_views.run_in_background", side_effect=lambda fn, name=None: fn()), \
+         patch("plugin.framework.queue_executor.main.post", side_effect=lambda fn: None):
+        listener.on_action_performed(None)
+    assert sent and sent[0][1] == ""

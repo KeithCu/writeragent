@@ -801,3 +801,21 @@ def test_starts_at_or_after():
     text.compareRegionStarts.side_effect = RuntimeError("UNO error")
     assert starts_at_or_after(text, left, right) is False
 
+
+def test_go_right_chunks_large_moves():
+    from plugin.doc.text_helpers import go_right
+
+    class _Cursor:
+        def __init__(self):
+            self.go_right_calls = []
+
+        def goRight(self, count, expand):
+            self.go_right_calls.append((count, expand))
+            return True
+
+    cursor = _Cursor()
+    assert go_right(cursor, 40000, False) is True
+    pre_len = sum(count for count, expand in cursor.go_right_calls)
+    assert pre_len > 32767, f"pre_len {pre_len} was not large enough"
+    assert all(count <= 8192 for count, expand in cursor.go_right_calls)
+

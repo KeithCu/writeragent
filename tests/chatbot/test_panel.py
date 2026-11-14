@@ -2752,3 +2752,272 @@ def test_on_capture_stopped_when_stop_requested_clears_busy_in_real_fsm(tmp_path
     assert listener.sidebar_state.send.is_busy is False
     assert not os.path.exists(wav_path)
 
+
+from plugin.framework.deal_shim import DEAL_MAX_HTML_CHUNK
+
+
+@pytest.mark.parametrize(
+    "chunks, role, expected",
+    [
+        pytest.param(
+            ["Hello <st", "rong>World</str", "ong>!"],
+            "assistant",
+            "Current: Hello World!",
+            id="streaming_split_tags",
+        ),
+        pytest.param(
+            ["<p>Hello</p>"],
+            "user",
+            "Current: Hello",
+            id="direct_non_assistant_html",
+        ),
+        pytest.param(
+            ["<p>" + ("y" * (DEAL_MAX_HTML_CHUNK + 1)) + "</p>"],
+            "assistant",
+            "Current: " + ("y" * (DEAL_MAX_HTML_CHUNK + 1)),
+            id="long_assistant_chunk_over_deal_limit",
+        ),
+    ],
+)
+def test_append_response_plain_text_strips_tags(chunks, role, expected):
+    import threading
+
+    from plugin.chatbot.tool_loop_actions import begin_send_turn
+    from tests.conftest import make_mock_send_button_listener
+
+    send = make_mock_send_button_listener()
+    send.rich_text_widget = None
+    send.response_control = MagicMock()
+    send.response_control.getModel.return_value = MagicMock()
+    send.session = MagicMock()
+    send.session.messages = []
+    send._scroll_response_to_bottom = MagicMock()
+    begin_send_turn(send)
+    text_buf = ["Current: "]
+
+    with (
+        patch("plugin.chatbot.dialogs.get_control_text", side_effect=lambda _ctrl: text_buf[0]),
+        patch("plugin.chatbot.dialogs.set_control_text", side_effect=lambda _ctrl, val: text_buf.__setitem__(0, val)),
+        patch("plugin.chatbot.panel.threading.current_thread", return_value=threading.main_thread()),
+    ):
+        for chunk in chunks:
+            send._append_response(chunk, role=role)
+
+    assert text_buf[0] == expected
+
+
+def _make_do_send_listener(*, active_librarian: bool = False) -> SimpleNamespace:
+    import types
+    from plugin.chatbot.chat_sidebar_mode import SidebarModeFlags
+    from plugin.chatbot.panel import SendButtonListener
+    from plugin.chatbot.panel_voice import PanelVoiceController
+    from plugin.chatbot.record_gesture import RecordGesture
+    from plugin.chatbot.send_state import SendButtonState, SendMode
+    from plugin.chatbot.sidebar_state import SidebarCompositeState
+
+    query_control = MagicMock()
+    query_control.getModel.return_value = True
+
+    send_handlers = SimpleNamespace(
+        _run_specialized=MagicMock(),
+        _do_send_direct_image=MagicMock(),
+        _do_send_via_agent_backend=MagicMock(),
+    )
+    tool_calling = SimpleNamespace(
+        _do_send_chat_with_tools=MagicMock(),
+    )
+
+    send_initial = SendButtonState(
+        mode=SendMode.IDLE,
+        has_text=False,
+        has_audio=False,
+        audio_supported=True,
+    )
+    sidebar_state = SidebarCompositeState(send=send_initial, tool_loop=None)
+
+    listener = SimpleNamespace(
+        ctx=MagicMock(),
+        frame_session=None,
+        sidebar_mode_flags=SidebarModeFlags(),
+        sidebar_state=sidebar_state,
+        _record_gesture=RecordGesture(),
+        _empty_take_count=0,
+        ensure_path_fn=None,
+        initial_doc_type=None,
+        cached_doc_type="writer",
+        cached_uno_services=frozenset({"com.sun.star.text.TextDocument"}),
+        audio_wav_path=None,
+        chat_mode_selector=MagicMock(),
+        model_selector=MagicMock(),
+        status_control=None,
+        query_control=query_control,
+        _active_mode="librarian" if active_librarian else "",
+        _mode_topic="",
+        _stt_inflight=False,
+        _set_status=MagicMock(),
+        _get_document_model=MagicMock(return_value=object()),
+        _append_response=MagicMock(),
+        _restore_query_text=MagicMock(),
+        _send_handlers=send_handlers,
+        _tool_calling=tool_calling,
+    )
+    listener._require_send_document = types.MethodType(SendButtonListener._require_send_document, listener)
+    listener._fail_send = types.MethodType(SendButtonListener._fail_send, listener)
+    listener._read_and_clear_query = types.MethodType(SendButtonListener._read_and_clear_query, listener)
+    listener._begin_send = types.MethodType(SendButtonListener._begin_send, listener)
+    listener._selector_mode = types.MethodType(SendButtonListener._selector_mode, listener)
+    listener._set_query = types.MethodType(SendButtonListener._set_query, listener)
+    listener._voice = PanelVoiceController(listener)
+    return listener
+
+
+def _patch_do_send(listener, *, sidebar_mode: str):
+    from plugin.chatbot.chat_sidebar_mode import SidebarModeFlags
+
+    listener.sidebar_mode_flags = SidebarModeFlags(include_brainstorming=True, include_writing_plan=True)
+    return (
+        patch("plugin.chatbot.panel.update_activity_state"),
+        patch("plugin.chatbot.dialogs.get_control_text", return_value="Hello"),
+        patch("plugin.chatbot.dialogs.set_control_text"),
+        patch("plugin.framework.config.get_config", return_value=None),
+        patch("plugin.acp.registry.normalize_backend_id", return_value="builtin"),
+        patch("plugin.chatbot.config_ui_helpers.sync_sidebar_text_model"),
+        patch(
+            "plugin.chatbot.chat_sidebar_mode.mode_from_selector_with_flags",
+            return_value=sidebar_mode,
+        ),
+    )
+
+
+def test_do_send_enters_librarian_when_selector_is_librarian():
+    from plugin.chatbot.chat_sidebar_mode import CHAT_MODE_LIBRARIAN
+    from plugin.chatbot.panel import SendButtonListener
+
+    listener = _make_do_send_listener()
+    patches = _patch_do_send(listener, sidebar_mode=CHAT_MODE_LIBRARIAN)
+    with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6]:
+        SendButtonListener._do_send(listener)
+
+    listener._send_handlers._run_specialized.assert_called_once()
+    assert listener._send_handlers._run_specialized.call_args.kwargs.get("mode") == CHAT_MODE_LIBRARIAN
+    listener._tool_calling._do_send_chat_with_tools.assert_not_called()
+
+
+def test_do_send_writer_writing_plan_uses_subagent():
+    from plugin.chatbot.chat_sidebar_mode import CHAT_MODE_WRITING_PLAN
+    from plugin.chatbot.panel import SendButtonListener
+
+    listener = _make_do_send_listener()
+    patches = _patch_do_send(listener, sidebar_mode=CHAT_MODE_WRITING_PLAN)
+    with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6]:
+        SendButtonListener._do_send(listener)
+
+    listener._send_handlers._run_specialized.assert_called_once()
+    assert listener._send_handlers._run_specialized.call_args.kwargs.get("mode") == CHAT_MODE_WRITING_PLAN
+    listener._tool_calling._do_send_chat_with_tools.assert_not_called()
+
+
+def test_do_send_calc_writing_plan_stays_on_chat_tools():
+    from plugin.chatbot.chat_sidebar_mode import CHAT_MODE_WRITING_PLAN
+    from plugin.chatbot.panel import SendButtonListener
+
+    listener = _make_do_send_listener()
+    listener.cached_doc_type = "calc"
+    patches = _patch_do_send(listener, sidebar_mode=CHAT_MODE_WRITING_PLAN)
+    with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6]:
+        SendButtonListener._do_send(listener)
+
+    listener._send_handlers._run_specialized.assert_not_called()
+    listener._tool_calling._do_send_chat_with_tools.assert_called_once()
+
+
+def test_do_send_chat_even_when_user_memory_missing():
+    """Dropdown is the door: Chat + empty USER.md must not intercept (#346)."""
+    from plugin.chatbot.chat_sidebar_mode import CHAT_MODE_CHAT
+    from plugin.chatbot.panel import SendButtonListener
+
+    listener = _make_do_send_listener()
+    patches = _patch_do_send(listener, sidebar_mode=CHAT_MODE_CHAT)
+    with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], patch(
+        "plugin.chatbot.memory.MemoryStore"
+    ) as mock_store:
+        mock_store.return_value.read.return_value = ""
+        SendButtonListener._do_send(listener)
+
+    listener._send_handlers._run_specialized.assert_not_called()
+    listener._tool_calling._do_send_chat_with_tools.assert_called_once()
+    mock_store.assert_not_called()
+
+
+def test_do_send_uses_document_chat_when_selector_is_chat():
+    from plugin.chatbot.chat_sidebar_mode import CHAT_MODE_CHAT
+    from plugin.chatbot.panel import SendButtonListener
+
+    listener = _make_do_send_listener()
+    patches = _patch_do_send(listener, sidebar_mode=CHAT_MODE_CHAT)
+    with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6]:
+        SendButtonListener._do_send(listener)
+
+    listener._send_handlers._run_specialized.assert_not_called()
+    listener._tool_calling._do_send_chat_with_tools.assert_called_once()
+
+
+def test_do_send_agent_backend_exception_does_not_start_builtin():
+    """A failed external agent must not continue into the builtin chat turn."""
+    from plugin.chatbot.chat_sidebar_mode import CHAT_MODE_CHAT
+    from plugin.chatbot.panel import SendButtonListener
+    from plugin.chatbot.tool_loop_actions import send_outcome_terminal_display
+
+    listener = _make_do_send_listener()
+    listener._send_handlers._do_send_via_agent_backend.side_effect = RuntimeError("acp down")
+    patches = _patch_do_send(listener, sidebar_mode=CHAT_MODE_CHAT)
+    with patches[0], patches[1], patches[2], patches[3], patch(
+        "plugin.acp.registry.normalize_backend_id", return_value="hermes"
+    ), patches[5], patches[6]:
+        SendButtonListener._do_send(listener)
+
+    listener._send_handlers._do_send_via_agent_backend.assert_called_once()
+    listener._tool_calling._do_send_chat_with_tools.assert_not_called()
+    assert send_outcome_terminal_display(listener) == "Error"
+    assert listener._set_status.call_args[0][0] == "Error"
+    shown = listener._append_response.call_args[0][0]
+    assert "Agent backend error" in shown
+    assert "acp down" in shown
+
+
+def test_do_send_agent_backend_lookup_exception_does_not_start_builtin():
+    """An exception while reading the agent backend must not start builtin chat."""
+    from plugin.chatbot.chat_sidebar_mode import CHAT_MODE_CHAT
+    from plugin.chatbot.panel import SendButtonListener
+    from plugin.chatbot.tool_loop_actions import send_outcome_terminal_display
+
+    listener = _make_do_send_listener()
+    patches = _patch_do_send(listener, sidebar_mode=CHAT_MODE_CHAT)
+    with patches[0], patches[1], patches[2], patch(
+        "plugin.framework.config.get_config", side_effect=RuntimeError("config boom")
+    ), patches[4], patches[5], patches[6]:
+        SendButtonListener._do_send(listener)
+
+    listener._send_handlers._do_send_via_agent_backend.assert_not_called()
+    listener._tool_calling._do_send_chat_with_tools.assert_not_called()
+    assert send_outcome_terminal_display(listener) == "Error"
+    shown = listener._append_response.call_args[0][0]
+    assert "config boom" in shown
+
+
+def test_do_send_agent_backend_success_skips_builtin():
+    """A completed external-agent send stays on that path."""
+    from plugin.chatbot.chat_sidebar_mode import CHAT_MODE_CHAT
+    from plugin.chatbot.panel import SendButtonListener
+
+    listener = _make_do_send_listener()
+    patches = _patch_do_send(listener, sidebar_mode=CHAT_MODE_CHAT)
+    with patches[0], patches[1], patches[2], patches[3], patch(
+        "plugin.acp.registry.normalize_backend_id", return_value="hermes"
+    ), patches[5], patches[6]:
+        SendButtonListener._do_send(listener)
+
+    listener._send_handlers._do_send_via_agent_backend.assert_called_once()
+    listener._tool_calling._do_send_chat_with_tools.assert_not_called()
+    listener._append_response.assert_not_called()
+
