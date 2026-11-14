@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from typing import Any
 from tests.harness.strip_bundle import is_release_build, requires_asserts
 import threading
 import time
@@ -1401,23 +1402,27 @@ def test_execute_accepts_and_passes_bound_scope() -> None:
     executor = mt.MainThread()
     mt.MainThread.install(mt.Policy.test_marshal)
     scope = sc.SendCancellation()
+    seen_items: list[tuple[mt._WorkItem, float]] = []
 
-    with patch.object(executor, '_get_async_callback', return_value=MagicMock()), \
-         patch.object(executor, '_wait_for_result', return_value="dummy_result"), \
-         patch.object(executor, '_enqueue_work') as mock_enqueue:
+    def fake_wait(item: mt._WorkItem, timeout: float) -> str:
+        seen_items.append((item, timeout))
+        return "dummy_result"
 
-         mock_item = mt._WorkItem(lambda: None, (), {}, True, scope)
-         mock_enqueue.return_value = mock_item
+    def dummy_fn(*_args: Any) -> None:
+        pass
 
-         def dummy_fn(): pass
+    with patch.object(executor, "_get_async_callback", return_value=MagicMock()), \
+         patch.object(executor, "_wait_for_result", side_effect=fake_wait):
+        result = executor.call(dummy_fn, 1, 2, bound_scope=scope, timeout=5.0)
 
-         executor.call(dummy_fn, 1, 2, bound_scope=scope, timeout=5.0)
-
-         mock_enqueue.assert_called_once()
-         assert mock_enqueue.call_args.kwargs.get("bound_scope") is scope
-         assert mock_enqueue.call_args.kwargs.get("blocking") is True
-         assert mock_enqueue.call_args.args[0] is dummy_fn
-         assert mock_enqueue.call_args.args[1] == (1, 2)
+    assert result == "dummy_result"
+    assert len(seen_items) == 1
+    item, timeout = seen_items[0]
+    assert item.scope is scope
+    assert item.event is not None
+    assert item.fn is dummy_fn
+    assert item.args == (1, 2)
+    assert timeout == 5.0
 
 def test_flush_pending_posts_order_concurrent_enqueue():
     """A direct enqueue overlapping with flush must not jump ahead of pending posts."""
@@ -1675,7 +1680,12 @@ def test_main_run_inlines_when_current() -> None:
         mock_call.assert_not_called()
 
 
-def test_main_run_marshals_when_off_main() -> None:
+@pytest.mark.parametrize(
+    ("timeout_kw", "expected_timeout"),
+    [({}, 30.0), ({"timeout": 10.0}, 10.0)],
+    ids=["default_timeout", "explicit_timeout"],
+)
+def test_main_run_marshals_when_off_main(timeout_kw: dict[str, float], expected_timeout: float) -> None:
     from plugin.framework.queue_executor import main
 
     def fn() -> str:
@@ -1683,84 +1693,58 @@ def test_main_run_marshals_when_off_main() -> None:
 
     with patch.object(main, "is_current", return_value=False), \
          patch.object(main, "call", return_value="marshaled") as mock_call:
-        result = main.run(fn)
+        result = main.run(fn, **timeout_kw)
         assert result == "marshaled"
-        mock_call.assert_called_once_with(fn, timeout=30.0)
-
-    with patch.object(main, "is_current", return_value=False), \
-         patch.object(main, "call", return_value="marshaled") as mock_call:
-        result = main.run(fn, timeout=10.0)
-        assert result == "marshaled"
-        mock_call.assert_called_once_with(fn, timeout=10.0)
+        mock_call.assert_called_once_with(fn, timeout=expected_timeout)
 
 
-def test_main_post_or_run_inlines_on_main_without_bg_task() -> None:
-    from plugin.framework.queue_executor import main
+@pytest.mark.parametrize(
+    ("is_current", "bg_task", "use_instance", "use_scope", "args", "kwargs", "expected_inline"),
+    [
+        (True, None, False, False, (5,), {}, 15),
+        (False, None, False, False, ("hello",), {}, None),
+        (True, "mcp_worker", False, False, (), {}, None),
+        (False, None, True, False, ("arg1",), {"kw": "val"}, None),
+        (False, None, False, True, (), {}, None),
+    ],
+    ids=[
+        "inline_on_main",
+        "posts_off_main",
+        "posts_when_bg_task_set",
+        "instance_posts_with_args",
+        "forwards_bound_scope",
+    ],
+)
+def test_main_post_or_run_routing(
+    is_current: bool,
+    bg_task: str | None,
+    use_instance: bool,
+    use_scope: bool,
+    args: tuple[Any, ...],
+    kwargs: dict[str, Any],
+    expected_inline: Any,
+) -> None:
+    from plugin.framework.queue_executor import MainThread, _SCOPE_UNSET, main
 
-    with patch.object(main, "is_current", return_value=True), \
-         patch("plugin.framework.thread_guard.get_background_task_name", return_value=None), \
-         patch.object(main, "post") as mock_post:
-        result = main.post_or_run(lambda x: x + 10, 5)
-        assert result == 15
-        mock_post.assert_not_called()
+    ex = MainThread() if use_instance else main
+    scope = MagicMock() if use_scope else _SCOPE_UNSET
 
+    def fn(*fn_args: Any, **fn_kwargs: Any) -> Any:
+        return fn_args[0] + 10 if expected_inline is not None else None
 
-def test_main_post_or_run_posts_when_off_main() -> None:
-    from plugin.framework.queue_executor import _SCOPE_UNSET, main
+    call_kwargs = dict(kwargs)
+    if use_scope:
+        call_kwargs["bound_scope"] = scope
 
-    called = []
-    def fn(arg: str) -> None:
-        called.append(arg)
-
-    with patch.object(main, "is_current", return_value=False), \
-         patch("plugin.framework.thread_guard.get_background_task_name", return_value=None), \
-         patch.object(main, "post") as mock_post:
-        result = main.post_or_run(fn, "hello")
-        assert result is None
-        mock_post.assert_called_once_with(fn, "hello", bound_scope=_SCOPE_UNSET)
-
-
-def test_main_post_or_run_posts_when_bg_task_set() -> None:
-    from plugin.framework.queue_executor import _SCOPE_UNSET, main
-
-    def fn() -> None:
-        pass
-
-    with patch.object(main, "is_current", return_value=True), \
-         patch("plugin.framework.thread_guard.get_background_task_name", return_value="mcp_worker"), \
-         patch.object(main, "post") as mock_post:
-        result = main.post_or_run(fn)
-        assert result is None
-        mock_post.assert_called_once_with(fn, bound_scope=_SCOPE_UNSET)
-
-
-def test_main_post_or_run_instance_method() -> None:
-    from plugin.framework.queue_executor import MainThread, _SCOPE_UNSET
-
-    ex = MainThread()
-    def fn() -> None:
-        pass
-
-    with patch.object(ex, "is_current", return_value=False), \
-         patch("plugin.framework.thread_guard.get_background_task_name", return_value=None), \
+    with patch.object(ex, "is_current", return_value=is_current), \
+         patch("plugin.framework.thread_guard.get_background_task_name", return_value=bg_task), \
          patch.object(ex, "post") as mock_post:
-        result = ex.post_or_run(fn, "arg1", kw="val")
-        assert result is None
-        mock_post.assert_called_once_with(fn, "arg1", kw="val", bound_scope=_SCOPE_UNSET)
-
-
-def test_main_post_or_run_forwards_bound_scope() -> None:
-    from plugin.framework.queue_executor import main
-
-    def fn() -> None:
-        pass
-
-    scope = MagicMock()
-    with patch.object(main, "is_current", return_value=False), \
-         patch("plugin.framework.thread_guard.get_background_task_name", return_value=None), \
-         patch.object(main, "post") as mock_post:
-        main.post_or_run(fn, bound_scope=scope)
-        mock_post.assert_called_once_with(fn, bound_scope=scope)
+        result = ex.post_or_run(fn, *args, **call_kwargs)
+        assert result == expected_inline
+        if expected_inline is not None:
+            mock_post.assert_not_called()
+        else:
+            mock_post.assert_called_once_with(fn, *args, bound_scope=scope, **kwargs)
 
 
 @requires_asserts

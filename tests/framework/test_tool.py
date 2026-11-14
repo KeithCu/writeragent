@@ -1828,7 +1828,6 @@ def test_execute_spread_colliding_names_handled() -> None:
 
 
 def test_execute_tool_with_timeout_tool_name_run_threaded_in_schema() -> None:
-    calls: list[str] = []
     seen: list[dict] = []
 
     class AdvancedParamsTool(ToolBase):
@@ -1844,7 +1843,6 @@ def test_execute_tool_with_timeout_tool_name_run_threaded_in_schema() -> None:
         }
 
         def execute(self, ctx, **kwargs):
-            calls.append("execute")
             seen.append(dict(kwargs))
             return {"status": "ok", "kwargs": kwargs}
 
@@ -1968,10 +1966,7 @@ def test_specialized_domain_flag() -> None:
 
 
 def test_get_tools_signature_and_ctx() -> None:
-    from tests.tool_registry_filters import append_production_tool_registry_filters
-
     reg = ToolRegistry(MagicMock())
-    append_production_tool_registry_filters(reg)
     sentinel_ctx = object()
     seen: list[Any] = []
 

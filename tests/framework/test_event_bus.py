@@ -1,5 +1,4 @@
 import gc
-import weakref
 from plugin.framework.event_bus import EventBus, get_event_bus
 
 def test_subscribe_emit():
@@ -85,17 +84,20 @@ def test_unsubscribe_nonexistent_event():
 
 def test_unsubscribe_nonexistent_handler():
     bus = EventBus()
+    called: list[int] = []
+
     def handler1():
-        pass
+        called.append(1)
+
     def handler2():
-        pass
+        called.append(2)
 
     bus.subscribe("test:event", handler1)
     # Should simply return without error, not touching handler1
     bus.unsubscribe("test:event", handler2)
 
-    # Verify handler1 is still subscribed
-    assert len(bus._subscribers.get("test:event", [])) == 1
+    bus.emit("test:event")
+    assert called == [1]
 
 def test_multiple_subscribers():
     bus = EventBus()
@@ -305,16 +307,9 @@ def test_get_event_bus_reuses_bus_with_same_qualified_name():
     SecondBus.__module__ = EventBus.__module__
     SecondBus.__qualname__ = EventBus.__qualname__
     saved = getattr(sys, "_writeragent_event_bus", None)
-    first_cls = FirstBus
-    second_cls = SecondBus
-    assert first_cls is not second_cls
-    assert (first_cls.__module__, first_cls.__qualname__) == (EventBus.__module__, EventBus.__qualname__)
-    assert (second_cls.__module__, second_cls.__qualname__) == (first_cls.__module__, first_cls.__qualname__)
-    stored = first_cls()
-    assert not isinstance(stored, EventBus)
+    stored = FirstBus()
     try:
         setattr(sys, "_writeragent_event_bus", stored)
-        assert get_event_bus() is stored
         assert get_event_bus() is stored
     finally:
         if saved is None:
@@ -335,12 +330,10 @@ def test_subscribe_weak_builtin_inline_survives_gc():
     items: list[int] = []
     bus.subscribe("test:event", items.append, weak=True)
     gc.collect()
-    stored = bus._subscribers["test:event"][0]
-    assert not isinstance(stored, weakref.ref)
     # emit() passes keywords; append is positional-only, so call the
     # resolved subscriber the same way emit resolves it.
-    resolved = bus._deref(stored)
-    assert resolved == items.append
+    resolved = bus._deref(bus._subscribers["test:event"][0])
+    assert resolved is not None
     resolved(1)
     assert items == [1]
 
@@ -429,18 +422,19 @@ def test_weakref_cleanup_while_lock_held_does_not_deadlock():
 
 
 def test_subscribe_weak_python_method_stays_weakmethod():
-    import weakref
-
     bus = EventBus()
+    received: list[object] = []
 
     class Target:
         def handler(self, event_data=None):
-            return event_data
+            received.append(event_data)
 
     target = Target()
     bus.subscribe("test:event", target.handler, weak=True)
-    stored = bus._subscribers["test:event"][0]
-    assert isinstance(stored, weakref.WeakMethod)
+    del target
+    gc.collect()
+    bus.emit("test:event", event_data="after")
+    assert received == []
 
 
 def test_emit_positional_only_payload_keys_event_and_self():
