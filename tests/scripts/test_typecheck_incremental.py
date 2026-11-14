@@ -286,4 +286,5 @@ def test_main_runs_command_on_changed_files_in_real_repo(
     )
     assert rc == 0
     assert marker.read_text(encoding="utf-8") == "plugin/with space.py"
-    assert "mypy: checking 1 changed file(s)" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "mypy: checking 1 changed file(s) (vs master " in out
