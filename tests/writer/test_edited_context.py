@@ -19,6 +19,47 @@ from plugin.writer.edit_review import (
 )
 
 
+class _FakeEnum:
+    def __init__(self, items):
+        self._items = list(items)
+        self._idx = 0
+
+    def hasMoreElements(self):
+        return self._idx < len(self._items)
+
+    def nextElement(self):
+        item = self._items[self._idx]
+        self._idx += 1
+        return item
+
+
+class _FakePortion:
+    def __init__(self, text):
+        self._text = text
+
+    def getString(self):
+        return self._text
+
+    def getPropertyValue(self, name):
+        if name == "TextPortionType":
+            return "Text"
+        return None
+
+
+class _FakeParagraph:
+    def __init__(self, text):
+        self._text = text
+
+    def supportsService(self, _name):
+        return False
+
+    def createEnumeration(self):
+        return _FakeEnum([_FakePortion(self._text)])
+
+    def getString(self):
+        return self._text
+
+
 class FakeCursor:
     """Minimal XTextCursor + XParagraphCursor stand-in over a paragraph list."""
 
@@ -42,8 +83,12 @@ class FakeCursor:
         return None
 
     def createEnumeration(self):
-        # Outline-hyperlink walk uses enum_has_more, which requires UNO True; a bare MagicMock would loop forever.
-        return MagicMock(hasMoreElements=MagicMock(return_value=False))
+        # Outline-hyperlink walk and tracked-deletion reads both use enum_has_more, which requires UNO True.
+        if self.span_from is None:
+            paras = [self.text.paragraphs[self.para]]
+        else:
+            paras = self.text.paragraphs[self.span_from:self.span_to + 1]
+        return _FakeEnum([_FakeParagraph(p) for p in paras])
 
     # --- XParagraphCursor ---
     def gotoStartOfParagraph(self, expand):
