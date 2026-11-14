@@ -42,7 +42,7 @@ norecursedirs = [
 ]
 markers = [
     "slow: excluded from default pytest; run via make slowtests",
-    "integration: full subprocess worker IPC (optional, slower)",
+    "integration: real subprocess (worker IPC, soffice/unopkg, build scripts); opt-in via -m integration",
     "xdist_group(name): serialize tests that share a host path (pytest-xdist loadgroup)",
     "requires_asserts: tests that expect assert statements to be executed (skipped in release builds)",
 ]
@@ -94,6 +94,10 @@ dev = [
     # Annuity helpers (PMT, PV, FV, NPER, IPMT, MIRR) call this in the user venv.
     "numpy-financial>=1.0.0",
     "pandas",
+    # duckdb 2.0.0 breaks test_query_folder_sql_reregister_refreshes_stale_snapshot and
+    # test_saved_doc_jails_then_reads_sibling_csv ("unfinished result from execute()");
+    # tests/scripting/test_duckdb_sql.py importorskips without it.
+    "duckdb>=1.1,<2.0",
     "scipy",
     "scikit-learn",
     "spacy",
