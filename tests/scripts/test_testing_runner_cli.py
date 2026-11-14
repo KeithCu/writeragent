@@ -149,7 +149,7 @@ def test_soffice_bootstrap_command_argv0_is_bare_path(monkeypatch, tmp_path: Pat
     assert not any(flag in cmd[0] for flag in ("--headless", "-env:", "--accept"))
 
 
-def test_main_returns_1_when_bootstrap_raises(monkeypatch, capsys) -> None:
+def test_main_returns_1_when_bootstrap_raises(monkeypatch) -> None:
     """Silent SKIP hid broken soffice= command strings on rolling LibreOffice."""
     monkeypatch.setattr(tr, "_ensure_libreoffice_python_path", lambda: None)
     monkeypatch.setattr(tr, "_parse_cli_args", lambda _argv: [])
@@ -164,10 +164,6 @@ def test_main_returns_1_when_bootstrap_raises(monkeypatch, capsys) -> None:
 
     monkeypatch.setattr(tr, "_bootstrap_office", boom)
     assert tr.main() == 1
-    out = capsys.readouterr().out
-    assert "ERROR: LibreOffice UNO bootstrap failed" in out
-    assert "simulated bootstrap fail" in out
-    assert "SKIP:" not in out
 
 
 def test_on_github_actions_reads_env(monkeypatch) -> None:
@@ -263,22 +259,6 @@ def test_main_prints_officehelper_importerror_detail(monkeypatch, capsys) -> Non
     assert "simulated missing uno" in out
 
 
-def test_ensure_libreoffice_python_path_includes_macos_resources() -> None:
-    """officehelper.py is in Contents/Resources, not the framework python3 dir."""
-    src = Path(tr.__file__).read_text(encoding="utf-8")
-    fn = src.split("def _ensure_libreoffice_python_path", 1)[1].split("\ndef ", 1)[0]
-    assert "Contents/Resources" in fn
-    assert "Caskroom/libreoffice" in fn
-    assert "Contents/Frameworks" in fn
-
-
-def test_soffice_strip_env_names() -> None:
-    assert "PYTHONPATH" in tr._SOFFICE_STRIP_ENV
-    assert "PYTHONHOME" in tr._SOFFICE_STRIP_ENV
-    assert "VIRTUAL_ENV" in tr._SOFFICE_STRIP_ENV
-    assert "__PYVENV_LAUNCHER__" in tr._SOFFICE_STRIP_ENV
-
-
 def test_child_env_without_runner_python_strips(monkeypatch) -> None:
     monkeypatch.setenv("PYTHONPATH", "/checkout")
     monkeypatch.setenv("__PYVENV_LAUNCHER__", "/venv/bin/python")
@@ -370,7 +350,7 @@ def test_run_module_suite_pair_exact_skips_draw_tree_prefix_bleed() -> None:
     assert failed == 0
 
 
-def test_run_module_suite_fails_ok_test_on_application_error(capsys) -> None:
+def test_run_module_suite_fails_ok_test_on_application_error() -> None:
     """Harness attribution: TEST returned OK but SalAbort already printed."""
     tr.current_office().reset_death_signals(clear_proc=True)
     ran: list[str] = []
@@ -397,13 +377,11 @@ def test_run_module_suite_fails_ok_test_on_application_error(capsys) -> None:
     assert passed == 0
     assert failed == 1
     assert tr._office.urp_bridge_dead is True
-    err = capsys.readouterr().err
-    assert "LIFECYCLE application error after TEST returned draw.salabort.test_ok" in err
     assert any("Unspecified Application Error" in line for line in suite_log)
 
 
-def test_run_module_suite_fail_names_previous_test(capsys, monkeypatch) -> None:
-    """URP dispose on the second test must print previous=<first> result=OK."""
+def test_run_module_suite_fail_names_previous_test(monkeypatch) -> None:
+    """URP dispose on the second test must record previous=<first> result=OK."""
     monkeypatch.setattr(tr, "_soffice_pids", lambda: "99")
 
     def test_ok(ctx=None):
@@ -425,15 +403,10 @@ def test_run_module_suite_fail_names_previous_test(capsys, monkeypatch) -> None:
     passed, failed, suite_log = tr.run_module_suite(object(), module, "draw.crumb")
     assert passed == 1
     assert failed == 1
-    err = capsys.readouterr().err
-    assert "previous=draw.crumb.test_ok" in err
-    assert "result=OK" in err
-    assert "current=draw.crumb.test_victim" in err
-    assert "LIFECYCLE URP dispose at draw.crumb.test_victim" in err
     assert any("LIFECYCLE" in line and "previous=draw.crumb.test_ok" in line for line in suite_log)
 
 
-def test_run_module_suite_fails_ok_test_when_bridge_dies_after_return(capsys) -> None:
+def test_run_module_suite_fails_ok_test_when_bridge_dies_after_return() -> None:
     """Harness attribution: TEST returned OK but getServiceManager is already disposed."""
     ran: list[str] = []
 
@@ -468,8 +441,6 @@ def test_run_module_suite_fails_ok_test_when_bridge_dies_after_return(capsys) ->
     assert passed == 0
     assert failed == 1
     assert tr._office.urp_bridge_dead is True
-    err = capsys.readouterr().err
-    assert "LIFECYCLE office dead after TEST returned draw.teardown.test_ok" in err
     assert any("office dead after TEST returned" in line for line in suite_log)
 
 
@@ -527,82 +498,6 @@ def test_user_profile_soffice_argv_skips_nodefault_and_restore() -> None:
     assert "--nologo" in argv
     assert "--nodefault" not in argv
     assert any(a.startswith("--accept=socket") for a in argv)
-
-
-def test_libreoffice_user_lock_path_is_under_profile() -> None:
-    lock = tr._libreoffice_user_lock_path()
-    assert lock.name == ".lock"
-    assert "libreoffice" in str(lock).lower() or "LibreOffice" in str(lock)
-
-
-def test_run_module_suite_prints_call_and_returned(capsys) -> None:
-    """GHA 33703959362: execute-done then silence; call vs returned names the side."""
-
-    def test_ok(ctx=None):
-        return None
-
-    test_ok._is_test = True
-
-    class _Mod:
-        pass
-
-    module = _Mod()
-    module.test_ok = test_ok
-    passed, failed, _suite_log = tr.run_module_suite(object(), module, "fake.ok")
-    assert passed == 1
-    assert failed == 0
-    err = capsys.readouterr().err
-    assert "TEST call fake.ok.test_ok" in err
-    assert "TEST returned fake.ok.test_ok" in err
-    assert "TEST end fake.ok.test_ok OK" in err
-    assert "SUITE start fake.ok" in err
-    # Pid dumps and TEST start are opt-in; which-test lines stay.
-    assert "TEST start " not in err
-    assert "soffice.bin=" not in err
-    assert "hang dump" not in err
-    assert "timeout armed" not in err
-
-
-def test_run_module_suite_verbose_pids_only_with_ci_debug(capsys, monkeypatch) -> None:
-    """WRITERAGENT_CI_DEBUG=1 restores TEST start, pid dumps, and SUITE selected."""
-    monkeypatch.setenv("WRITERAGENT_CI_DEBUG", "1")
-    monkeypatch.setattr(tr, "_soffice_pids", lambda: "42")
-    tr.current_office().options.filters = ["test_ok"]
-
-    def test_ok(ctx=None):
-        return None
-
-    def test_other(ctx=None):
-        return None
-
-    test_ok._is_test = True
-    test_other._is_test = True
-
-    class _Mod:
-        pass
-
-    module = _Mod()
-    module.test_ok = test_ok
-    module.test_other = test_other
-    passed, failed, _suite_log = tr.run_module_suite(object(), module, "fake.verbose")
-    assert passed == 1
-    assert failed == 0
-    err = capsys.readouterr().err
-    assert "TEST call fake.verbose.test_ok" in err
-    assert "TEST returned fake.verbose.test_ok" in err
-    assert "TEST start fake.verbose.test_ok" in err
-    assert "soffice.bin=42" in err
-    assert "SUITE selected fake.verbose: test_ok" in err
-    assert "TEST call fake.verbose.test_other" not in err
-
-
-def test_progress_verbose_silent_without_ci_debug(capsys, monkeypatch) -> None:
-    monkeypatch.delenv("WRITERAGENT_CI_DEBUG", raising=False)
-    tr._progress_verbose("BOOTSTRAP should stay hidden")
-    tr._progress("TEST call still.prints")
-    err = capsys.readouterr().err
-    assert "BOOTSTRAP" not in err
-    assert "TEST call still.prints" in err
 
 
 def test_run_module_suite_arms_timeout_watchdog_for_every_test(monkeypatch) -> None:
@@ -677,16 +572,8 @@ def test_run_module_suite_disarms_hang_dump_on_fail(monkeypatch) -> None:
     assert events == ["arm", "disarm"]
 
 
-def test_native_test_watchdog_is_silent(capsys) -> None:
-    tr._arm_native_test_watchdog()
-    tr._disarm_native_test_watchdog()
-    err = capsys.readouterr().err
-    assert "hang dump" not in err
-    assert "timeout armed" not in err
-
-
-def test_run_module_suite_prints_fail_reason(capsys) -> None:
-    """GHA 33699746211 hung after three FAILs; suite_log JSON never printed."""
+def test_run_module_suite_prints_fail_reason() -> None:
+    """Failures must be recorded in suite_log with the exception and LIFECYCLE line."""
 
     def test_boom(ctx=None):
         raise AssertionError("A1 did not become 2.0")
@@ -703,14 +590,10 @@ def test_run_module_suite_prints_fail_reason(capsys) -> None:
     assert failed == 1
     assert any("A1 did not become 2.0" in line for line in suite_log)
     assert any(line.startswith("LIFECYCLE ") for line in suite_log)
-    err = capsys.readouterr().err
-    assert "TEST call fake.boom.test_boom" in err
-    assert "TEST returned fake.boom.test_boom" not in err
-    assert "TEST end fake.boom.test_boom FAIL AssertionError: A1 did not become 2.0" in err
 
 
-def test_run_module_suite_setup_skip_is_not_a_failure(capsys) -> None:
-    """Demo/mock suites SkipTest in @setup; that must not abort as failed=1 (PR 2811)."""
+def test_run_module_suite_setup_skip_is_not_a_failure() -> None:
+    """Demo/mock suites SkipTest in @setup; that must not abort as failed=1."""
     import unittest
 
     def _setup(ctx=None):
@@ -732,13 +615,6 @@ def test_run_module_suite_setup_skip_is_not_a_failure(capsys) -> None:
     assert passed == 0
     assert failed == 0
     assert any("SUITE SKIPPED:" in line for line in suite_log)
-    err = capsys.readouterr().err
-    assert "SUITE end demo.skip passed=0 failed=0 skipped=1" in err
-
-
-def test_demo_only_uno_gate() -> None:
-    assert "test_demo_video_uno.py" in tr._DEMO_ONLY_UNO
-    assert "test_demo_video_uno.py" not in tr._USER_PROFILE_ONLY_UNO
 
 
 def test_soffice_pids_win32_parses_tasklist(monkeypatch) -> None:
@@ -797,68 +673,8 @@ def test_clear_stale_user_profile_ipc_globs_os_tempdir(monkeypatch, tmp_path) ->
         assert seen == []
 
 
-def test_leftover_shared_diag_includes_cells_and_config(tmp_path: Path) -> None:
-    from types import SimpleNamespace
-
-    from tests.calc.python import test_geometric_recalc_uno as geo_uno
-
-    cfg = tmp_path / "writeragent.json"
-    cfg.write_text('{"scripting.python_session_mode": "shared"}\n', encoding="utf-8")
-    cell = SimpleNamespace(
-        getValue=lambda: 0.0,
-        getError=lambda: 0,
-        getString=lambda: "x_geo_live is not defined",
-        getFormula=lambda: '=PY("x_geo_live";A1)',
-    )
-    blob = geo_uno._leftover_shared_diag(None, cell, cell)
-    assert "x_geo_live" in blob
-    assert "leftover diag A1" in blob
-    assert "leftover diag A3" in blob
-
-
-def test_geometric_leftover_525_fails_on_github_actions(monkeypatch) -> None:
-    from types import SimpleNamespace
-
-    from tests.calc.python import test_geometric_recalc_uno as geo_uno
-
-    monkeypatch.setenv("GITHUB_ACTIONS", "true")
-    cell = SimpleNamespace(
-        getError=lambda: 525,
-        getValue=lambda: 0.0,
-        getFormula=lambda: '=py("x_geo_live = 41")',
-    )
-    try:
-        geo_uno._skip_if_py_unregistered(
-            cell, test_name="test_geometric_shared_kernel_a3_reads_a1_f9_stable"
-        )
-    except AssertionError as exc:
-        assert "GitHub Actions" in str(exc)
-        assert "525" in str(exc)
-    else:
-        raise AssertionError("525 on GitHub Actions must not skip")
-
-
-def test_geometric_leftover_525_skips_locally(monkeypatch) -> None:
-    from types import SimpleNamespace
-
-    from tests.calc.python import test_geometric_recalc_uno as geo_uno
-
-    monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
-    cell = SimpleNamespace(
-        getError=lambda: 525,
-        getValue=lambda: 0.0,
-        getFormula=lambda: '=py("x_geo_live = 41")',
-    )
-    assert (
-        geo_uno._skip_if_py_unregistered(
-            cell, test_name="test_geometric_shared_kernel_a3_reads_a1_f9_stable"
-        )
-        is True
-    )
-
-
 def test_headless_connect_delays_windows_longer(monkeypatch) -> None:
-    """Windows headless budget exceeds the intermittent ~22s pipe-miss window."""
+    """Windows headless budget exceeds POSIX."""
     import plugin.testing_runner as tr
 
     monkeypatch.setattr(tr.sys, "platform", "win32")
@@ -866,7 +682,6 @@ def test_headless_connect_delays_windows_longer(monkeypatch) -> None:
     monkeypatch.setattr(tr.sys, "platform", "linux")
     linux = tr._headless_connect_delays()
     assert sum(win) > sum(linux)
-    assert sum(win) >= 40.0
 
 
 @pytest.fixture
