@@ -177,7 +177,6 @@ jobs:
           # (python_version=3.11) died on PEP 695 syntax before any UNO test
           # (GHA 34520496629 / 34520753637).
           uv sync --frozen --dev
-          uv pip install "duckdb<2.0"
 
       - name: Prepare build artifacts (manifest, vendor, translations)
         run: |
@@ -269,6 +268,14 @@ jobs:
           # 3. Clean up installed packages
           unopkg remove org.extension.libreharper || true
           unopkg remove org.extension.librepy || true
+
+      - name: Run scripts integration tests (soffice, unopkg, LibrePy locales)
+        if: ${{ inputs.test_mock_sidebar != true && runner.os != 'Windows' }}
+        run: |
+          .venv/bin/python -m pytest -m integration \
+            tests/scripts/test_lo_kill.py \
+            tests/scripts/test_lo_profile.py \
+            tests/scripts/test_build_librepy_locales.py
 
       - name: Run mock LLM sidebar tests
         if: ${{ inputs.test_mock_sidebar == true }}

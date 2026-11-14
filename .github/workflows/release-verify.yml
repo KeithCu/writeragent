@@ -110,7 +110,6 @@ jobs:
       - name: Install Python dependencies
         run: |
           uv sync --frozen --dev
-          uv pip install "duckdb<2.0"
 
       # Windows: keep a minidump if soffice.bin crashes during the UNO stage.
       - name: Enable soffice crash dumps (Windows)
