@@ -475,7 +475,7 @@ def test_stop_closes_listen_socket_once():
         _release_listener(httpd)
 
 
-def test_tls_listen_socket_leaks():
+def test_tls_bad_cert_fails_before_bind():
     from unittest.mock import MagicMock
 
     registry = MagicMock()

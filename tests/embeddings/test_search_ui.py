@@ -24,6 +24,10 @@ from plugin.embeddings.search_ui import (
 _UNSET = object()
 
 
+def _run_inline(fn, *args, **kwargs):
+    return fn(*args, **kwargs)
+
+
 def _make_uno_dialog_ctx():
     """Return a mock UNO context and dialog wired through the service manager."""
     mock_ctx = MagicMock()
@@ -38,23 +42,25 @@ def _make_uno_dialog_ctx():
     return mock_ctx, mock_dlg
 
 
-def _make_bare_dialog(query: str = "test query", resp: str = "7"):
-    """Construct a SearchDialog without __init__ and wire named control mocks."""
+def _make_bare_dialog(query: str = "test query", resp: str = "7", *, wire_controls: bool = True):
+    """Construct a SearchDialog without __init__ and optionally wire named control mocks."""
     mock_ctx = MagicMock()
     dialog = SearchDialog.__new__(SearchDialog)
     dialog._ctx = mock_ctx
     mock_dlg = MagicMock()
-    controls = {
-        "QueryEdit": MagicMock(),
-        "RespEdit": MagicMock(),
-        "ResultsEdit": MagicMock(),
-        "BtnSearch": MagicMock(),
-        "BtnRebuild": MagicMock(),
-        "BtnCancel": MagicMock(),
-    }
-    controls["QueryEdit"].getModel().Text = query
-    controls["RespEdit"].getModel().Text = resp
-    mock_dlg.getControl.side_effect = controls.get
+    controls: dict[str, MagicMock] = {}
+    if wire_controls:
+        controls = {
+            "QueryEdit": MagicMock(),
+            "RespEdit": MagicMock(),
+            "ResultsEdit": MagicMock(),
+            "BtnSearch": MagicMock(),
+            "BtnRebuild": MagicMock(),
+            "BtnCancel": MagicMock(),
+        }
+        controls["QueryEdit"].getModel().Text = query
+        controls["RespEdit"].getModel().Text = resp
+        mock_dlg.getControl.side_effect = controls.get
     return dialog, mock_dlg, controls
 
 
@@ -62,13 +68,11 @@ def _make_bare_dialog(query: str = "test query", resp: str = "7"):
 def _patched_rebuild_env(
     *,
     maintain_side_effect: Any = None,
-    main_call_side_effect: Any = _UNSET,
+    main_call_side_effect: Any = _run_inline,
     main_post_side_effect: Any = None,
     resolve_context: Any = _UNSET,
 ):
-    if main_call_side_effect is _UNSET:
-        def main_call_side_effect(fn, *args, **kwargs):
-            return fn(*args, **kwargs)
+    """Patch SearchDialog rebuild dependencies with inline background and main-thread defaults."""
     with ExitStack() as stack:
         stack.enter_context(patch("plugin.framework.constants.configured_folder_search_mode", return_value="llama_index"))
         maintain_mock = stack.enter_context(
@@ -93,16 +97,14 @@ def _patched_rebuild_env(
 def _patched_search_env(
     *,
     folder_search: bool = True,
-    main_call_side_effect: Any = _UNSET,
+    main_call_side_effect: Any = _run_inline,
     get_doc_side_effect: Any = None,
     index_context: tuple[Any, ...] = ("folder_key", Path("/db"), Path("/meta"), "/listing"),
     search_mode: str | None = None,
     embedding_model: str | None = None,
     patch_rpc: bool = False,
 ):
-    if main_call_side_effect is _UNSET:
-        def main_call_side_effect(fn, *args, **kwargs):
-            return fn(*args, **kwargs)
+    """Patch SearchDialog search dependencies with inline background and main-thread defaults."""
     with ExitStack() as stack:
         stack.enter_context(patch("plugin.framework.constants.folder_search_enabled", return_value=folder_search))
         stack.enter_context(patch("plugin.framework.queue_executor.main.call", side_effect=main_call_side_effect))
@@ -270,14 +272,13 @@ class TestSearchDialog:
         assert env.maintain.call_args.args[1] == my_docs
 
     def test_refresh_cache_status_marshals_uno_to_main_thread(self):
-        dialog, mock_dlg, _controls = _make_bare_dialog()
+        dialog, mock_dlg, _controls = _make_bare_dialog(wire_controls=False)
         status_lbl = MagicMock()
-        mock_dlg.getControl.side_effect = None
         mock_dlg.getControl.return_value = status_lbl
 
         with (
             patch("plugin.embeddings.search_ui.run_in_background") as mock_bg,
-            patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *args, **kwargs: fn(*args, **kwargs)),
+            patch("plugin.framework.queue_executor.main.call", side_effect=_run_inline),
             patch("plugin.embeddings.search_ui.get_active_document", return_value=None) as mock_doc,
         ):
             dialog._refresh_cache_status(mock_dlg)
@@ -364,15 +365,14 @@ class TestSearchDialog:
         assert format_cache_age(86400 * 7) == "7d ago"
 
     def test_refresh_cache_status_over_24h_shows_days(self):
-        dialog, mock_dlg, _controls = _make_bare_dialog()
+        dialog, mock_dlg, _controls = _make_bare_dialog(wire_controls=False)
         status_lbl = MagicMock()
-        mock_dlg.getControl.side_effect = None
         mock_dlg.getControl.return_value = status_lbl
 
         two_days_ago = time.time() - (86400 * 2 + 100)
 
         with (
-            patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *args, **kwargs: fn(*args, **kwargs)),
+            patch("plugin.framework.queue_executor.main.call", side_effect=_run_inline),
             patch("plugin.embeddings.search_ui.get_active_document", return_value=MagicMock()),
             patch("plugin.embeddings.embeddings_cache.resolve_index_context", return_value=("key", Path("/db"), Path("/meta"), "/root")),
             patch("plugin.framework.constants.configured_folder_search_mode", return_value="sqlite"),
@@ -387,6 +387,7 @@ class TestSearchDialog:
         assert status_lbl.getModel().Label == "Cache Status: Built (2d ago)"
 
     def test_search_and_rebuild_use_dedicated_threads(self):
+        # Search and rebuild are long blocking jobs; dedicated=True prevents starving the shared 2-worker pool.
         dialog, mock_dlg, _controls = _make_bare_dialog(query="q", resp="7")
         recorded_kwargs: list[dict[str, Any]] = []
 

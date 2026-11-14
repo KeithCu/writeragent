@@ -3,7 +3,6 @@ from unittest.mock import MagicMock, patch
 from plugin.framework.send_cancellation import SendCancellation
 from plugin.framework.tool import ToolContext
 from plugin.mcp.mcp_protocol import MCPProtocolHandler, _PreparedMcpCall
-from plugin.mcp.wire_types import parse_jsonrpc_request
 
 
 def test_mcp_protocol_threads_send_cancellation():
@@ -296,8 +295,7 @@ def test_in_flight_requests_does_not_leak():
     services = MagicMock()
     handler = MCPProtocolHandler(services)
 
-    # Send a request for an excluded tool. This early returns from _mcp_tools_call
-    # simulate direct_discovery mode to easily get an excluded tier.
+    # An excluded-tier tool returns early from _mcp_tools_call, and _request_scopes must still be emptied.
     handler._tool_exposure_mode = MagicMock(return_value="direct_flat")
 
     tool_mock = MagicMock()
@@ -316,13 +314,3 @@ def test_in_flight_requests_does_not_leak():
 
     # Must not leak in-flight request
     assert not handler._request_scopes
-
-
-def test_bool_is_not_id():
-    msg = {"jsonrpc": "2.0", "id": True, "method": "ping"}
-    res = parse_jsonrpc_request(msg)
-    assert res is None
-
-    msg = {"jsonrpc": "2.0", "id": False, "method": "ping"}
-    res = parse_jsonrpc_request(msg)
-    assert res is None

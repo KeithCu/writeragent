@@ -27,47 +27,51 @@ def _ctx():
     return ctx
 
 
+def _run_inline(fn, *a, **k):
+    return fn()
+
+
 @contextmanager
 def _patched_fts_env(
     *,
     is_current: bool = True,
-    main_call_side_effect: Any = _UNSET,
+    main_call_side_effect: Any = _run_inline,
     listing_dir: str = "/tmp/folder",
-    index_context: tuple[Any, ...] | None = None,
+    index_context: Any = _UNSET,
     search_mode: str = "sqlite",
-    index_empty: bool | None = False,
-    embedding_model: str | None = "model",
-    hybrid_kwargs: dict[str, Any] | None = None,
+    index_empty: Any = False,
+    embedding_model: Any = "model",
+    hybrid_kwargs: Any = _UNSET,
     grep_return: Any = _UNSET,
 ):
-    if index_context is None:
+    """Patch FTS search dependencies; pass _UNSET for any optional target to leave it unpatched."""
+    if index_context is _UNSET:
         index_context = ("key", "db_path", MagicMock(), listing_dir)
-    if main_call_side_effect is _UNSET:
-        def main_call_side_effect(fn, *a, **k):
-            return fn()
     with ExitStack() as stack:
         stack.enter_context(patch("plugin.framework.constants.folder_search_enabled", return_value=True))
-        if main_call_side_effect is not None:
+        if main_call_side_effect is not _UNSET:
             stack.enter_context(patch("plugin.framework.queue_executor.main.call", side_effect=main_call_side_effect))
         stack.enter_context(patch("plugin.framework.queue_executor.main.is_current", return_value=is_current))
         stack.enter_context(patch("plugin.doc.document_research.resolve_listing_directory", return_value=listing_dir))
         stack.enter_context(patch("plugin.doc.document_research.get_document_path", return_value="/tmp/folder/a.ods"))
-        stack.enter_context(patch("plugin.doc.document_research._collect_open_file_urls", return_value={}))
+        collect_open_urls_mock = stack.enter_context(
+            patch("plugin.doc.document_research._collect_open_file_urls", return_value={})
+        )
         stack.enter_context(patch("plugin.embeddings.embeddings_cache.resolve_index_context", return_value=index_context))
         stack.enter_context(patch("plugin.framework.config.get_config", return_value=search_mode))
-        if index_empty is not None:
+        if index_empty is not _UNSET:
             stack.enter_context(patch("plugin.embeddings.embeddings_cache.index_is_empty", return_value=index_empty))
-        if embedding_model is not None:
+        if embedding_model is not _UNSET:
             stack.enter_context(patch("plugin.embeddings.embedding_client.get_embedding_model", return_value=embedding_model))
         if grep_return is not _UNSET:
             stack.enter_context(patch("plugin.doc.document_research_grep.resolve_grep_candidates", return_value=grep_return))
         rpc_mock = (
             stack.enter_context(patch("plugin.embeddings.embeddings_service.hybrid_search", **hybrid_kwargs))
-            if hybrid_kwargs is not None
+            if hybrid_kwargs is not _UNSET
             else None
         )
         wakeup_mock = stack.enter_context(patch("plugin.embeddings.embeddings_indexer.ensure_index_wakeup"))
-        yield SimpleNamespace(rpc=rpc_mock, wakeup=wakeup_mock)
+        yield SimpleNamespace(rpc=rpc_mock, wakeup=wakeup_mock, collect_open_urls=collect_open_urls_mock)
 
 
 def test_search_nearby_files_disabled():
@@ -80,7 +84,7 @@ def test_search_nearby_files_disabled():
 
 def test_search_nearby_files_indexing_status():
     tool = SearchNearbyFiles()
-    with _patched_fts_env(is_current=False, index_empty=True, embedding_model=None) as env:
+    with _patched_fts_env(is_current=False, index_empty=True, embedding_model=_UNSET) as env:
         result = tool.execute(MagicMock(), query="test")
     assert result.get("status") == "indexing"
     assert result.get("hits") == []
@@ -90,6 +94,8 @@ def test_search_nearby_files_indexing_status():
 def test_search_nearby_files_does_not_block_main_thread_for_rpc():
     tool = SearchNearbyFiles()
     call_depth = [0]
+    listing_inside_main_call: list[bool] = []
+    wakeup_inside_main_call: list[bool] = []
     rpc_inside_main_call: list[bool] = []
 
     def fake_call(fn, *args, **kwargs):
@@ -108,11 +114,17 @@ def test_search_nearby_files_does_not_block_main_thread_for_rpc():
         main_call_side_effect=fake_call,
         hybrid_kwargs={"side_effect": fake_hybrid_search},
     ) as env:
+        env.collect_open_urls.side_effect = lambda *_a, **_k: (
+            listing_inside_main_call.append(call_depth[0] > 0) or {}
+        )
+        env.wakeup.side_effect = lambda *_a, **_k: wakeup_inside_main_call.append(call_depth[0] > 0)
         result = tool.execute(_ctx(), query="web search")
 
     assert result.get("status") == "ok"
     env.rpc.assert_called_once()
     env.wakeup.assert_called_once()
+    assert listing_inside_main_call and all(listing_inside_main_call)
+    assert wakeup_inside_main_call and all(wakeup_inside_main_call)
     assert rpc_inside_main_call == [False]
 
 
@@ -134,11 +146,11 @@ def test_search_nearby_files_model_change_does_not_query(tmp_path):
     )
 
     with _patched_fts_env(
-        main_call_side_effect=None,
+        main_call_side_effect=_UNSET,
         listing_dir=str(tmp_path),
         index_context=("key", db, meta, str(tmp_path)),
         search_mode="hybrid",
-        index_empty=None,
+        index_empty=_UNSET,
         embedding_model="new-model",
         hybrid_kwargs={},
     ) as env:
