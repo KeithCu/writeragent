@@ -657,6 +657,8 @@ def test_failure_leaves_history_intact():
         "exceeds the limit of",
         "greater than the context length",
         "prompt is too long (see footpm notes)",
+        "error: llama.cpp context buffer overflow occurred",
+        "llama.cpp internal error: prompt overflow",
     ],
 )
 def test_is_context_overflow_error_true(text):
@@ -1248,11 +1250,6 @@ def test_flatten_content_and_tool_name_fallbacks():
     # _tool_name_for fallback when preceding assistant has no tool_calls
     msgs_no_tcs = [{"role": "assistant", "content": "no tools"}, _tool("t1", 20)]
     assert C._tool_name_for(msgs_no_tcs, 1) == "tool"
-
-
-def test_llama_cpp_overflow_fallback_phrasing():
-    assert C.is_context_overflow_error("error: llama.cpp context buffer overflow occurred") is True
-    assert C.is_context_overflow_error("llama.cpp internal error: prompt overflow") is True
 
 
 def test_newest_assistant_tool_span_empty_tool_calls_and_no_assistant():

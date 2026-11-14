@@ -77,12 +77,8 @@ def test_slash_opens_full_registry_order_without_lru():
     assert names == [cmd.name for cmd in registered_slash_commands()]
 
 
-def test_he_prefix_selects_help_as_top_match():
-    matches = filter_slash_commands("/he")
-    assert [cmd.name for cmd in matches] == ["help"]
-
-
-def test_further_typing_narrows_mocks():
+def test_filter_slash_commands_narrows_by_prefix():
+    assert _names("/he") == ["help"]
     assert _names("/mock-") == ["mock-alpha", "mock-bravo", "mock-charlie"]
     assert _names("/mock-a") == ["mock-alpha"]
     assert _names("/zzz") == []

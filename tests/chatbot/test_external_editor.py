@@ -23,54 +23,37 @@ def test_resolve_editor_argv_darwin(monkeypatch: pytest.MonkeyPatch) -> None:
     assert ee.resolve_editor_argv("/tmp/w.json") == ["open", "-t", "/tmp/w.json"]
 
 
-def test_resolve_editor_argv_linux_kate_first(monkeypatch: pytest.MonkeyPatch) -> None:
-    from plugin.chatbot import external_editor as ee
-
-    monkeypatch.setattr("sys.platform", "linux")
-
-    def _which(cmd: str) -> str | None:
-        if cmd == "kate":
-            return "/usr/bin/kate"
-        return None
-
-    monkeypatch.setattr(ee.shutil, "which", _which)
-    assert ee.resolve_editor_argv("/p.json") == ["/usr/bin/kate", "/p.json"]
-
-
-def test_resolve_editor_argv_linux_gedit_if_no_kate(monkeypatch: pytest.MonkeyPatch) -> None:
-    from plugin.chatbot import external_editor as ee
-
-    monkeypatch.setattr("sys.platform", "linux")
-
-    def _which(cmd: str) -> str | None:
-        if cmd == "gedit":
-            return "/usr/bin/gedit"
-        return None
-
-    monkeypatch.setattr(ee.shutil, "which", _which)
-    assert ee.resolve_editor_argv("/p.json") == ["/usr/bin/gedit", "/p.json"]
-
-
-def test_resolve_editor_argv_linux_editor_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    from plugin.chatbot import external_editor as ee
-
-    monkeypatch.setattr("sys.platform", "linux")
-    monkeypatch.setattr(ee.shutil, "which", lambda _cmd: None)
-    monkeypatch.setenv("EDITOR", "nano")
-    monkeypatch.delenv("VISUAL", raising=False)
-    assert ee.resolve_editor_argv("/q.json") == ["nano", "/q.json"]
-
-
-def test_resolve_editor_argv_linux_visual_when_editor_unset(
+@pytest.mark.parametrize(
+    ("which_cmd", "which_path", "editor_env", "visual_env", "target_path", "expected_argv"),
+    [
+        ("kate", "/usr/bin/kate", None, None, "/p.json", ["/usr/bin/kate", "/p.json"]),
+        ("gedit", "/usr/bin/gedit", None, None, "/p.json", ["/usr/bin/gedit", "/p.json"]),
+        (None, None, "nano", None, "/q.json", ["nano", "/q.json"]),
+        (None, None, None, "vi", "/r.json", ["vi", "/r.json"]),
+    ],
+)
+def test_resolve_editor_argv_linux(
     monkeypatch: pytest.MonkeyPatch,
+    which_cmd: str | None,
+    which_path: str | None,
+    editor_env: str | None,
+    visual_env: str | None,
+    target_path: str,
+    expected_argv: list[str],
 ) -> None:
     from plugin.chatbot import external_editor as ee
 
     monkeypatch.setattr("sys.platform", "linux")
-    monkeypatch.setattr(ee.shutil, "which", lambda _cmd: None)
-    monkeypatch.delenv("EDITOR", raising=False)
-    monkeypatch.setenv("VISUAL", "vi")
-    assert ee.resolve_editor_argv("/r.json") == ["vi", "/r.json"]
+    monkeypatch.setattr(ee.shutil, "which", lambda cmd: which_path if cmd == which_cmd else None)
+    if editor_env is not None:
+        monkeypatch.setenv("EDITOR", editor_env)
+    else:
+        monkeypatch.delenv("EDITOR", raising=False)
+    if visual_env is not None:
+        monkeypatch.setenv("VISUAL", visual_env)
+    else:
+        monkeypatch.delenv("VISUAL", raising=False)
+    assert ee.resolve_editor_argv(target_path) == expected_argv
 
 
 def test_ensure_config_file_creates_missing_file_private(tmp_path: Path) -> None:

@@ -670,18 +670,32 @@ def test_clear_or_second_send_does_not_apply_chunks_onto_the_first_turn():
     assert put_for_turn(turn2, (StreamQueueKind.CHUNK, " after-clear")) is False
 
 
+class _TurnSession:
+    def __init__(self, messages=None) -> None:
+        self.messages: list[dict] = list(messages) if messages is not None else []
+
+    def add_assistant_message(self, content=None, tool_calls=None, reasoning_replay=None) -> None:
+        if self.messages and self.messages[-1].get("_open_transcript"):
+            self.messages.pop()
+        msg: dict = {"role": "assistant", "content": content or ""}
+        if tool_calls:
+            msg["tool_calls"] = tool_calls
+        self.messages.append(msg)
+
+    def add_tool_result(self, call_id, content) -> None:
+        self.messages.append({"role": "tool", "tool_call_id": call_id, "content": content})
+
+
+class _TurnHost:
+    def __init__(self, messages=None, session=None) -> None:
+        self.session = session if session is not None else _TurnSession(messages)
+        self._turn = None
+
+
 def test_turn_take_open_text_folds_stripper_tail():
     from plugin.chatbot.tool_loop_actions import begin_send_turn
 
-    class Session:
-        def __init__(self):
-            self.messages = []
-
-    class Host:
-        def __init__(self):
-            self.session = Session()
-
-    host = Host()
+    host = _TurnHost()
     turn = begin_send_turn(host)
     shown = turn.stripper.feed("Hello <b")
     assert shown == "Hello "
@@ -697,18 +711,7 @@ def test_abort_discards_a_late_write():
     from plugin.chatbot.tool_loop_actions import abort_turn, begin_send_turn, persist_assistant_on_turn, put_for_turn
     from plugin.framework.stream_batch import StreamQueueKind
 
-    class Session:
-        def __init__(self) -> None:
-            self.messages: list[dict[str, str]] = [{"role": "user", "content": "q"}]
-
-        def add_assistant_message(self, content=None, tool_calls=None, reasoning_replay=None) -> None:
-            self.messages.append({"role": "assistant", "content": content or ""})
-
-    class Host:
-        def __init__(self) -> None:
-            self.session = Session()
-
-    host = Host()
+    host = _TurnHost([{"role": "user", "content": "q"}])
     turn = begin_send_turn(host)
     first_q: queue.Queue = queue.Queue()
     turn.queue = first_q
@@ -727,18 +730,7 @@ def test_second_send_replaces_the_turn():
     from plugin.chatbot.tool_loop_actions import begin_send_turn, persist_assistant_on_turn, put_for_turn
     from plugin.framework.stream_batch import StreamQueueKind
 
-    class Session:
-        def __init__(self) -> None:
-            self.messages: list[dict[str, str]] = [{"role": "user", "content": "q"}]
-
-        def add_assistant_message(self, content=None, tool_calls=None, reasoning_replay=None) -> None:
-            self.messages.append({"role": "assistant", "content": content or ""})
-
-    class Host:
-        def __init__(self) -> None:
-            self.session = Session()
-
-    host = Host()
+    host = _TurnHost([{"role": "user", "content": "q"}])
     first = begin_send_turn(host)
     first_q: queue.Queue = queue.Queue()
     first.queue = first_q
@@ -764,35 +756,18 @@ def test_stop_closes_a_pending_tool_call():
     call_done = {"id": "call_done", "type": "function", "function": {"name": "lookup", "arguments": "{}"}}
     call_open = {"id": "call_open", "type": "function", "function": {"name": "lookup", "arguments": "{}"}}
 
-    class Session:
-        def __init__(self) -> None:
-            self.messages: list[dict] = [
-                {"role": "user", "content": "q"},
-                {
-                    "role": "assistant",
-                    "content": "I will look that up.",
-                    "tool_calls": [call_done, call_open],
-                },
-                {"role": "tool", "tool_call_id": "call_done", "content": "found"},
-                {"role": "assistant", "content": "Still working", "_open_transcript": True},
-            ]
-
-        def add_assistant_message(self, content=None, tool_calls=None, reasoning_replay=None) -> None:
-            if self.messages and self.messages[-1].get("_open_transcript"):
-                self.messages.pop()
-            msg = {"role": "assistant", "content": content or ""}
-            if tool_calls:
-                msg["tool_calls"] = tool_calls
-            self.messages.append(msg)
-
-        def add_tool_result(self, call_id, content) -> None:
-            self.messages.append({"role": "tool", "tool_call_id": call_id, "content": content})
-
-    class Host:
-        def __init__(self) -> None:
-            self.session = Session()
-
-    host = Host()
+    host = _TurnHost(
+        [
+            {"role": "user", "content": "q"},
+            {
+                "role": "assistant",
+                "content": "I will look that up.",
+                "tool_calls": [call_done, call_open],
+            },
+            {"role": "tool", "tool_call_id": "call_done", "content": "found"},
+            {"role": "assistant", "content": "Still working", "_open_transcript": True},
+        ]
+    )
     turn = begin_send_turn(host)
     abort_turn(host)
     turn.close_stopped(host, None)
@@ -1614,20 +1589,10 @@ def test_new_turn_starts_clean_without_copying_previous_turn_client():
 
 
 def test_turn_controller_can_write_guards():
-    from typing import Any
     from plugin.chatbot.tool_loop_actions import TurnController
 
-    class FakeSession:
-        def __init__(self) -> None:
-            self.messages: list[Any] = []
-
-    class FakeHost:
-        def __init__(self, session: Any) -> None:
-            self.session = session
-            self._turn: Any = None
-
-    session = FakeSession()
-    host = FakeHost(session)
+    session = _TurnSession()
+    host = _TurnHost(session=session)
     turn = TurnController(session)
     host._turn = turn
 
@@ -1636,7 +1601,7 @@ def test_turn_controller_can_write_guards():
 
     # Host is None or different
     assert turn.can_write(None) is False
-    other_host = FakeHost(session)
+    other_host = _TurnHost(session=session)
     assert turn.can_write(other_host) is False
 
     # Closed by document prevents write
@@ -1647,7 +1612,8 @@ def test_turn_controller_can_write_guards():
 
     # None session prevents write
     turn_no_sess = TurnController(None)
-    host_no_sess = FakeHost(None)
+    host_no_sess = _TurnHost(session=None)
+    host_no_sess.session = None
     host_no_sess._turn = turn_no_sess
     assert turn_no_sess.can_write(host_no_sess) is False
 
@@ -1656,8 +1622,8 @@ def test_turn_controller_can_write_guards():
     assert turn.can_write(host) is False
 
     # Aborting the turn still allows can_write (needed for Stop to persist stop line)
-    session2 = FakeSession()
-    host2 = FakeHost(session2)
+    session2 = _TurnSession()
+    host2 = _TurnHost(session=session2)
     turn2 = TurnController(session2)
     host2._turn = turn2
     turn2.abort()
@@ -1883,13 +1849,7 @@ def test_status_effect_stores_outcome_and_ignores_progress_text():
     assert current_turn(host).outcome is None
     assert send_outcome_terminal_display(host) == ""
 
-
-def test_status_text_does_not_assign_outcome():
-    host = FakeHost()
-    interpreter = ToolLoopEffectInterpreter(host)
     assign_send_outcome(host, "error")
-
     for text in ("Ready", "Stopped", "Error", "Finishing..."):
         interpreter.execute(ToolLoopUIEffect(kind=UIEffectKind.STATUS, text=text, outcome=None))
-
     assert current_turn(host).outcome == "error"
