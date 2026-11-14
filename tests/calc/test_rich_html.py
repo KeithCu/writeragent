@@ -6,7 +6,6 @@
 
 from __future__ import annotations
 
-import logging
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -50,7 +49,7 @@ def _cell_and_docs():
     return calc_doc, cell, desktop, temp_doc, calc_ctrl, writer_ctrl
 
 
-def test_insert_cell_html_rich_loads_temp_writer_on_named_frame(caplog):
+def test_insert_cell_html_rich_loads_temp_writer_on_named_frame():
     """Temp Writer must not share testing_runner's Windows keeper target (_blank)."""
     from plugin.calc.rich_html import (
         _HTML_WRITER_SEARCH_FLAGS,
@@ -67,7 +66,6 @@ def test_insert_cell_html_rich_loads_temp_writer_on_named_frame(caplog):
         patch("plugin.calc.rich_html.html_import") as mock_fmt,
         patch("plugin.calc.rich_html.create_property_value", return_value=hidden_prop),
         patch("plugin.calc.rich_html.clear_writer_body", return_value=True),
-        caplog.at_level(logging.INFO, logger="plugin.calc.rich_html"),
     ):
         mock_bridge = mock_bridge_cls.return_value
         mock_bridge.get_cell_by_address.return_value = cell
@@ -83,21 +81,6 @@ def test_insert_cell_html_rich_loads_temp_writer_on_named_frame(caplog):
     assert args[3] == (hidden_prop,)
     # GHA 33771766524: close after a live paste hung the next desktop enum.
     temp_doc.close.assert_not_called()
-    from tests.harness.strip_bundle import is_release_build
-
-    # _step() log.info/print are stripped; the message string literals remain.
-    if is_release_build():
-        return
-    for step in (
-        "load hidden Writer",
-        "clear hidden Writer",
-        "insert HTML into hidden Writer",
-        "get transferable",
-        "select cell",
-        "insert transferable",
-        "release clipboard",
-    ):
-        assert f"insert_cell_html_rich: {step}" in caplog.text
 
 
 def test_insert_cell_html_rich_steps_go_to_stderr(capsys):

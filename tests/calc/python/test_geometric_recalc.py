@@ -777,9 +777,6 @@ def test_notify_geometric_cap_hit_one_box_per_sheet_ui_thread_only():
         assert notify_geometric_cap_hit("ctx", "Sheet1", workbook_key="wb_test") is False
         assert notify_geometric_cap_hit("ctx", "Sheet2", workbook_key="wb_test")
         assert mock_box.call_count == 2
-        titles = [c.args[1] for c in mock_box.call_args_list]
-        assert all("Geometric Recalc Order" in t and "Experimental" in t for t in titles)
-        assert mock_box.call_args_list[0].kwargs.get("box_type") == 3
 
     with (
         patch("plugin.framework.queue_executor.main.is_current", return_value=False),

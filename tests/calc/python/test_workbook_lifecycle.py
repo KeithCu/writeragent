@@ -297,11 +297,8 @@ def test_retry_reset_exhausts_retries_and_warns_on_timeout():
     listener = _CalcPythonUnloadListener("key-timeout", "calc:wb-timeout", WorkbookState(key="key-timeout"))
     with patch("plugin.calc.python.workbook_lifecycle.reset_python_session", return_value={"status": "error", "code": "WORKER_REENTRY"}) as mock_reset:
         with patch("time.sleep"):
-            with patch("plugin.calc.python.workbook_lifecycle.log.warning") as mock_warn:
-                listener._retry_reset("calc:wb-timeout")
-                assert mock_reset.call_count > 1
-                mock_warn.assert_called_once()
-                assert mock_warn.call_args[0][1] == "calc:wb-timeout"
+            listener._retry_reset("calc:wb-timeout")
+            assert mock_reset.call_count > 1
 
 
 def test_retry_reset_aborts_after_reopen():

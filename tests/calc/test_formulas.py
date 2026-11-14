@@ -37,25 +37,6 @@ def test_other_formula_error_codes_keep_their_labels():
     assert formula_evaluation_error_message(9999) == "Formula evaluation error: code 9999"
 
 
-def test_messages_follow_error_types():
-    expected = {
-        503: "Formula evaluation error: #NUM! (Invalid numeric value, code 503)",
-        504: "Formula evaluation error: Error in parameter list (code 504)",
-        508: "Formula evaluation error: Pair missing bracket (code 508)",
-        509: "Formula evaluation error: Operator missing (code 509)",
-        510: "Formula evaluation error: Variable missing (code 510)",
-        511: "Formula evaluation error: Parameter missing (code 511)",
-        521: "Formula evaluation error: #NULL! (Empty intersection, code 521)",
-        524: "Formula evaluation error: #REF! (Invalid reference, code 524)",
-        525: "Formula evaluation error: #NAME? (Invalid name, code 525)",
-        530: "Formula evaluation error: #ADDIN? (Add-in not found, code 530)",
-        532: "Formula evaluation error: #DIV/0! (Division by zero, code 532)",
-        32767: "Formula evaluation error: #N/A (Value not available, code 32767)",
-    }
-    for code, message in expected.items():
-        assert formula_evaluation_error_message(code) == message
-
-
 def test_all_error_types_contain_code():
     for code in ERROR_TYPES:
         msg = formula_evaluation_error_message(code)

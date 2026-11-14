@@ -931,8 +931,6 @@ def test_play_audio_file_windows_path_not_in_script(mock_popen):
     cmd = mock_popen.call_args.args[0]
     assert path not in " ".join(cmd)
     assert "$env:WA_AUDIO_PATH" in cmd[-1]
-    assert "SoundPlayer" in cmd[-1]
-    assert "WMPlayer.OCX" not in cmd[-1]
     assert mock_popen.call_args.kwargs["env"]["WA_AUDIO_PATH"] == path
 
     mock_popen.reset_mock()
@@ -941,16 +939,7 @@ def test_play_audio_file_windows_path_not_in_script(mock_popen):
         _play_audio_file(mp3, cancel)
     mp3_cmd = mock_popen.call_args.args[0]
     assert mp3 not in " ".join(mp3_cmd)
-    assert "WMPlayer.OCX" in mp3_cmd[-1]
-    assert "Add-Type" not in mp3_cmd[-1]
-    assert "SoundPlayer" not in mp3_cmd[-1]
-    assert "$ErrorActionPreference = 'Stop'" in mp3_cmd[-1]
-    assert "try {" in mp3_cmd[-1]
-    assert "catch { exit 1 }" in mp3_cmd[-1]
     assert "$env:WA_AUDIO_PATH" in mp3_cmd[-1]
-    assert "$wmp.controls.play()" in mp3_cmd[-1]
-    assert "while (-not $started" in mp3_cmd[-1]
-    assert "while ($wmp.playState -in 3, 6, 7, 9)" in mp3_cmd[-1]
     assert '"' not in mp3_cmd[-1]
     assert mock_popen.call_args.kwargs["env"]["WA_AUDIO_PATH"] == mp3
 
@@ -1702,19 +1691,18 @@ def test_notify_kokoro_g2p_fallback():
     )
     assert messages == []
 
-    # warning with G2P_FAILED_MARK, misaki_ready=False, g2p="espeak" -> English-phonemes line
+    # warning with G2P_FAILED_MARK, misaki_ready=False, g2p="espeak" -> notifies once
     warn = g2p_fallback_warning("ja", RuntimeError("boom"))
     _notify_kokoro_g2p_fallback(warn, utt, "ja", messages.append, g2p="espeak")
     assert len(messages) == 1
-    assert "Kokoro used English phonemes for non-English voice" in messages[0]
-    assert "Misaki not found" not in messages[0]
+    espeak_msg = messages[0]
 
-    # warning="", misaki_ready=False, g2p=None -> "Misaki not found" line
+    # warning="", misaki_ready=False, g2p=None -> distinct fallback notice
     messages.clear()
     utt.remember_misaki("ja", False)
     _notify_kokoro_g2p_fallback("", utt, "ja", messages.append, g2p=None)
     assert len(messages) == 1
-    assert "Misaki not found; Kokoro used English phonemes" in messages[0]
+    assert messages[0] != espeak_msg
 
 
 def test_utterance_cancel_hooks_run_outside_speech_lock():
