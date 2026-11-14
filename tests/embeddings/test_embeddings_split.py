@@ -27,7 +27,8 @@ def test_merge_small_sentences_glue_to_floor(monkeypatch: pytest.MonkeyPatch):
         (15, 19, "OK."),
     ]
     monkeypatch.setattr(split_mod, "split_passage_to_sentences", lambda _text, locale=None: sentences)
-    chunks = _chunk_texts(passage)
+    rows = split_mod.split_passage_to_chunk_meta(passage, {"doc_url": "file:///" + "a" * 200}, prose=True)
+    chunks = [str(row["text"]) for row in rows]
     assert len(chunks) == 1
     assert chunks[0] == passage
 

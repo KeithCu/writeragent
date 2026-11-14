@@ -16,8 +16,8 @@ from plugin.draw.transitions import (
 )
 
 
-def test_layout_ids_match_libreoffice_autolayout():
-    """Friendly names in LAYOUT_TABLE must be unique."""
+def test_layout_table_friendly_names_unique():
+    """Friendly names in LAYOUT_TABLE must be unique (id pins live in test_transitions_uno.py)."""
     friendly_entries = [row[0] for row in LAYOUT_TABLE if row[0] is not None]
     assert len(set(friendly_entries)) == len(friendly_entries)
 
