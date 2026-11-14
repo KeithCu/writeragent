@@ -16,17 +16,8 @@ from plugin.draw.transitions import (
 )
 
 
-def test_layout_ids_match_libreoffice_autolayout():
-    """Friendly names must be AutoLayout ids, not PpSlideLayout minus one."""
-    # The old VBA table wrote these onto page.Layout and picked another layout.
-    assert layout_id("title_only") == 19
-    assert layout_id("blank") == 20
-    assert layout_id("two_column_text") == 3
-    assert layout_id("four_objects") == 18
-    assert layout_id("title_only") != 10
-    assert layout_id("blank") != 11
-    assert layout_id("two_column_text") != 2
-    assert layout_id("four_objects") != 23
+def test_layout_table_friendly_names_unique():
+    """Friendly names in LAYOUT_TABLE must be unique (id pins live in test_transitions_uno.py)."""
     friendly_entries = [row[0] for row in LAYOUT_TABLE if row[0] is not None]
     assert len(set(friendly_entries)) == len(friendly_entries)
 

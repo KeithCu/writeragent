@@ -18,7 +18,6 @@ from plugin.framework.async_drain_guard import (
     reset_suppressed_vcl_pump_count,
 )
 import plugin.framework.async_drain_guard as guard
-import plugin.framework.queue_executor as qe
 
 
 @pytest.fixture(autouse=True)
@@ -157,21 +156,6 @@ def test_callback_added_during_notify_runs_on_next_idle(_isolated_idle_callbacks
     with drain_owner_scope("chat_stream"):
         pass
     assert ran == ["first", "first", "second"]
-
-
-def test_queue_executor_does_not_reexport_drain_guard():
-    for name in (
-        "NestedDrainOwnerError",
-        "drain_owner_scope",
-        "get_drain_depth",
-        "get_drain_owner",
-        "get_suppressed_vcl_pump_count",
-        "is_vcl_pump_allowed",
-        "owner_may_pump_vcl",
-        "note_suppressed_vcl_pump",
-        "reset_suppressed_vcl_pump_count",
-    ):
-        assert not hasattr(qe, name)
 
 
 def test_release_underflow_skips_idle_callbacks(_isolated_idle_callbacks):

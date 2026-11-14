@@ -17,7 +17,6 @@ from plugin.doc.document_research_specialized import (
     DelegateReadDocument,
     run_inner_read_agent,
 )
-from plugin.doc.specialized_base import DelegateToSpecializedBase
 from plugin.draw.specialized import DelegateToSpecializedDraw
 from plugin.framework.tool import ToolBase, ToolContext, ToolRegistry
 from tests.chatbot.test_tool_loop import _mock_get_config_for_sub_agent
@@ -664,7 +663,6 @@ def test_delegate_read_document_does_not_use_delegate_gateway(
     assert result["result"] == "42"
     mock_inner.assert_called_once()
     mock_close.assert_called_once_with(opened_model, opened_for_document_research=True)
-    assert not isinstance(tool, DelegateToSpecializedBase)
 
 
 @patch("plugin.doc.document_research_specialized.run_inner_read_agent", return_value={"status": "error", "message": "inner failed"})

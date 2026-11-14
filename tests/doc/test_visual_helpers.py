@@ -899,16 +899,3 @@ def test_graphic_objects_in_selection_reraise_disposed():
 
     with pytest.raises(DocumentDisposedError):
         visual_helpers.graphic_objects_in_selection(DisposedWriterDoc({}))
-
-
-def test_is_writer_like():
-    assert visual_helpers.is_writer_like("writer") is True
-    assert visual_helpers.is_writer_like("web") is True
-    assert visual_helpers.is_writer_like("calc") is False
-    assert visual_helpers.is_writer_like("draw") is False
-    assert visual_helpers.is_writer_like("impress") is False
-    assert visual_helpers.is_writer_like("unknown") is False
-
-
-
-

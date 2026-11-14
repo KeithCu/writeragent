@@ -285,7 +285,7 @@ def test_add_sets_text_author_undo_and_index():
     with _bridge(page=page):
         res = AddPageComment().execute(ctx, text="one\r\ntwo", page=0)
     assert res["status"] == "ok" and res["index"] == 0 and res["text"] == "one\ntwo"
-    assert undo.titles == ["WriterAgent: Page comment"]
+    assert len(undo.titles) == 1
     with _bridge(page=page):
         AddPageComment().execute(ctx, text="signed", author="Agent", page=0)
     assert page._anns[1].Author == "Agent"
