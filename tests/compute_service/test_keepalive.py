@@ -50,9 +50,13 @@ class ConnectionReader:
             body = b""
         return parts[0], int(parts[1]), headers, body
 
-    def assert_eof(self, timeout: float = 1.0) -> None:
+    def assert_eof(self, timeout: float = 1.0, *, allow_reset: bool = False) -> None:
         self.sock.settimeout(timeout)
-        assert self.sock.recv(1024) == b""
+        try:
+            assert self.sock.recv(1024) == b""
+        except ConnectionResetError:
+            if not allow_reset:
+                raise
 
 
 def _start_server(
@@ -348,7 +352,9 @@ def test_body_drain_stops_at_deadline(monkeypatch: pytest.MonkeyPatch) -> None:
             _ver, status, hdrs, _body = c.read_response(timeout=2.0)
             assert time.monotonic() - started < 0.85
             assert status == 401 and hdrs.get("connection") == "close"
-            c.assert_eof()
+            # The trickle thread keeps sending unread body bytes past the drain deadline,
+            # so closing the socket can trigger ECONNRESET (errno 54 on Darwin) after the 401 is read.
+            c.assert_eof(allow_reset=True)
         finally:
             stop.set()
             trickler.join(timeout=1.0)
