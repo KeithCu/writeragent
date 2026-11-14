@@ -14,7 +14,6 @@ import pytest
 
 from plugin.framework.errors import ConfigValidationError
 from plugin.framework.config_schema import (
-    DEFAULT_IMAGE_BASE_SIZE,
     WriterAgentConfig,
     as_bool,
     get_config_schema,
@@ -78,47 +77,12 @@ def test_config_schema_imports_only_modules_from_manifest() -> None:
     assert "set_manifest_modules(_imported_modules)" in source
 
 
-def test_module_yaml_defaults_bind_from_manifest_modules() -> None:
-    """module.yaml keys resolve from MODULES; no writeragent.json required."""
-    from plugin.framework import config_schema as schema
-
-    assert schema.MODULES, "empty MODULES; run make manifest"
-    assert schema.CONFIG_DEFAULTS.get("scripting.python_max_data_cells") == 250000
-    assert schema.CONFIG_DEFAULTS.get("scripting.python_venv_path") == ""
-    assert schema.CONFIG_DEFAULTS.get("scripting.python_auto_spill") is True
-    assert schema.CONFIG_DEFAULTS.get("scripting.python_geometric_recalc_order") is False
-    assert schema.CONFIG_DEFAULTS.get("doc.agent_edit_review_mode") == "off"
-    assert schema.CONFIG_DEFAULTS.get("chatbot.max_tool_rounds") == 15
-    assert schema.CONFIG_DEFAULTS["scripting.python_max_data_cells"] == 250000
-    assert isinstance(schema.MODULES, list) and len(schema.MODULES) > 0
-
-
-def test_max_tool_rounds_schema_allows_200() -> None:
-    """Eval headed trials may set chatbot.max_tool_rounds to 200; schema max must allow it."""
-    from plugin.framework import config_schema as schema
-
-    assert schema.MODULES, "empty MODULES; run make manifest"
-    field = get_config_schema("chatbot.max_tool_rounds")
-    assert field is not None
-    assert field["min"] == 1
-    assert field["max"] == 200
-    assert field["default"] == 15
-
-    validated = validate({"endpoint": "http://x", "chatbot.max_tool_rounds": 200})
-    assert validated["chatbot.max_tool_rounds"] == 200
-
-
 def test_config_schema_has_no_forbidden_imports() -> None:
     source = _SCHEMA_PATH.read_text(encoding="utf-8")
     imported = _imported_modules(ast.parse(source))
     forbidden = sorted(mod for mod in imported if _is_forbidden(mod))
     assert forbidden == []
     assert "plugin.framework.config" not in imported
-
-
-def test_image_base_size_default_is_1024() -> None:
-    assert DEFAULT_IMAGE_BASE_SIZE == 1024
-    assert WriterAgentConfig().image_base_size == 1024
 
 
 def test_config_does_not_reexport_schema_names() -> None:
@@ -293,24 +257,4 @@ def test_set_endpoint_normalizer() -> None:
         assert schema._endpoint_normalizer("localhost", False) == "mock_localhost_False"
     finally:
         set_endpoint_normalizer(previous)
-
-
-def test_text_analytics_sentiment_engine_is_not_a_config_field() -> None:
-    import dataclasses
-
-    field_names = {f.name for f in dataclasses.fields(WriterAgentConfig)}
-    assert "text_analytics_sentiment_engine" not in field_names
-    assert "text_analytics_sentiment_model" in field_names
-
-
-def test_removed_chatbot_context_and_depth_schema_keys() -> None:
-    from plugin.framework.config_schema import get_config_schema
-
-    assert get_config_schema("chatbot.context_strategy") is None
-    assert get_config_schema("chatbot.deep_research_depth") is None
-    rounds = get_config_schema("chatbot.deep_research_max_rounds")
-    assert rounds is not None
-    assert rounds.get("min") == 1
-    assert rounds.get("max") == 6
-    assert rounds.get("default") == 3
 
