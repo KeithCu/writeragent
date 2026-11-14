@@ -146,3 +146,46 @@ def test_hybrid_search_filters_garbage():
         result = embeddings_index.hybrid_search("/tmp/corpus.db", "query", 5, model_name="all-MiniLM-L6-v2")
     assert len(result["hits"]) == 1
     assert result["hits"][0]["doc_url"] == "file:///a.odt"
+
+
+def test_load_sentence_transformers_model_uses_offline_first() -> None:
+    offline_model = MagicMock(name="offline_model")
+    loader = MagicMock(return_value=offline_model)
+    model = embeddings_index._load_sentence_transformers_model(loader, "paraphrase-multilingual-MiniLM-L12-v2")
+    assert model is offline_model
+    loader.assert_called_once_with("paraphrase-multilingual-MiniLM-L12-v2", local_files_only=True)
+
+
+def test_load_sentence_transformers_model_falls_back_to_online_on_cache_miss() -> None:
+    offline = OSError("not in cache")
+    online_model = MagicMock(name="online_model")
+    loader = MagicMock(side_effect=[offline, online_model])
+    model = embeddings_index._load_sentence_transformers_model(loader, "all-MiniLM-L6-v2")
+    assert model is online_model
+    loader.assert_any_call("all-MiniLM-L6-v2", local_files_only=True)
+    loader.assert_any_call("all-MiniLM-L6-v2")
+
+
+def test_load_sentence_transformers_model_reraises_non_cache_errors() -> None:
+    loader = MagicMock(side_effect=RuntimeError("boom"))
+    with pytest.raises(RuntimeError, match="boom"):
+        embeddings_index._load_sentence_transformers_model(loader, "bad-model")
+
+
+def test_get_embedder_uses_model_cache() -> None:
+    sentinel = MagicMock(name="cached_embedder")
+    embeddings_index._MODEL_CACHE["cached-model"] = sentinel
+    assert embeddings_index._get_embedder("cached-model") is sentinel
+
+
+@patch.object(embeddings_index, "_load_sentence_transformers_model")
+def test_get_embedder_loads_via_offline_helper(mock_load: MagicMock) -> None:
+    st_mod = MagicMock()
+    embedder = MagicMock(name="embedder")
+    mock_load.return_value = embedder
+
+    with patch.object(embeddings_index.importlib, "import_module", return_value=st_mod):
+        assert embeddings_index._get_embedder("my-model") is embedder
+
+    mock_load.assert_called_once_with(st_mod.SentenceTransformer, "my-model")
+    assert embeddings_index._MODEL_CACHE["my-model"] is embedder

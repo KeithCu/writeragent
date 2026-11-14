@@ -175,10 +175,7 @@ def test_toc_update_clears_direct_character_color_uno(ctx, doc):
     assert _portion_color(doc, "Alpha title") != 0x0000FF
 
 
-@native_test
-@with_native_doc("writer")
-def test_refresh_toc_entry_keeps_color_page_and_body_uno(ctx, doc):
-    """One TOC title changes. The color, the other entry, the page number, and the body heading stay."""
+def _toc_fixture(ctx, doc):
     text = doc.getText()
     text.setString("")
     _add_heading(text, "Alpha title", True)
@@ -194,6 +191,14 @@ def test_refresh_toc_entry_keeps_color_page_and_body_uno(ctx, doc):
         toc.IsProtected = False
     alpha = next(para for para in entries if "Alpha title" in (para.getString() or ""))
     beta = next(para for para in entries if "Beta title" in (para.getString() or ""))
+    return text, tctx, toc, protected, alpha, beta
+
+
+@native_test
+@with_native_doc("writer")
+def test_refresh_toc_entry_keeps_color_page_and_body_uno(ctx, doc):
+    """One TOC title changes. The color, the other entry, the page number, and the body heading stay."""
+    text, tctx, toc, protected, alpha, beta = _toc_fixture(ctx, doc)
     outline = "#1.Alpha title|outline"
     bookmark = "#__RefHeading___Toc999"
     _paint_entry(text, alpha, outline, color=0x0000FF)
@@ -296,21 +301,7 @@ def test_refresh_toc_entry_keeps_black_and_no_underline_uno(ctx, doc):
     The title is replaced with a longer string so new fragments are created.
     Numbering and the page number were black / not underlined before and stay that way.
     """
-    text = doc.getText()
-    text.setString("")
-    _add_heading(text, "Alpha title", True)
-    _add_heading(text, "Beta title", False)
-    tctx = _tool_ctx(ctx, doc)
-    created = IndexesCreate().execute(tctx, kind="toc", title="Contents", target="beginning")
-    assert created.get("status") == "ok", created
-    toc = doc.getDocumentIndexes().getByIndex(0)
-    entries = _tab_paragraphs(doc)
-    assert len(entries) >= 2, [para.getString() for para in entries]
-    protected = bool(toc.getPropertyValue("IsProtected"))
-    if protected:
-        toc.IsProtected = False
-    alpha = next(para for para in entries if "Alpha title" in (para.getString() or ""))
-    beta = next(para for para in entries if "Beta title" in (para.getString() or ""))
+    text, tctx, toc, protected, alpha, beta = _toc_fixture(ctx, doc)
     outline = "#1.Alpha title|outline"
     cur = text.createTextCursorByRange(alpha.getStart())
     cur.gotoRange(alpha.getEnd(), True)
@@ -383,21 +374,7 @@ def test_refresh_toc_entry_page_digits_keep_look(ctx, doc):
     A same-length setString still splits that run onto navy and a single
     underline. The title, the neighbor, and the URL stay as they were.
     """
-    text = doc.getText()
-    text.setString("")
-    _add_heading(text, "Alpha title", True)
-    _add_heading(text, "Beta title", False)
-    tctx = _tool_ctx(ctx, doc)
-    created = IndexesCreate().execute(tctx, kind="toc", title="Contents", target="beginning")
-    assert created.get("status") == "ok", created
-    toc = doc.getDocumentIndexes().getByIndex(0)
-    entries = _tab_paragraphs(doc)
-    assert len(entries) >= 2, [para.getString() for para in entries]
-    protected = bool(toc.getPropertyValue("IsProtected"))
-    if protected:
-        toc.IsProtected = False
-    alpha = next(para for para in entries if "Alpha title" in (para.getString() or ""))
-    beta = next(para for para in entries if "Beta title" in (para.getString() or ""))
+    text, tctx, toc, protected, alpha, beta = _toc_fixture(ctx, doc)
     outline = "#1.Alpha title|outline"
     cur = text.createTextCursorByRange(alpha.getStart())
     cur.gotoRange(alpha.getEnd(), True)
@@ -500,21 +477,7 @@ def test_delete_toc_entry_removes_one_row_uno(ctx, doc):
     color. The row staying gone, with the neighbor still green, means update()
     did not run.
     """
-    text = doc.getText()
-    text.setString("")
-    _add_heading(text, "Alpha title", True)
-    _add_heading(text, "Beta title", False)
-    tctx = _tool_ctx(ctx, doc)
-    created = IndexesCreate().execute(tctx, kind="toc", title="Contents", target="beginning")
-    assert created.get("status") == "ok", created
-    toc = doc.getDocumentIndexes().getByIndex(0)
-    entries = _tab_paragraphs(doc)
-    assert len(entries) >= 2, _entry_strings(doc)
-    protected = bool(toc.getPropertyValue("IsProtected"))
-    if protected:
-        toc.IsProtected = False
-    alpha = next(para for para in entries if "Alpha title" in (para.getString() or ""))
-    beta = next(para for para in entries if "Beta title" in (para.getString() or ""))
+    text, tctx, toc, protected, alpha, beta = _toc_fixture(ctx, doc)
     _paint_entry(text, alpha, "#1.Alpha title|outline", color=0x0000FF)
     _paint_entry(text, beta, "#__RefHeading___Toc999", color=0x00FF00)
     if protected:
@@ -597,21 +560,7 @@ def test_insert_toc_entry_adds_one_row_uno(ctx, doc):
     A direct color that survives means update() did not rebuild the index.
     Gamma is not a heading, so a rebuild would also drop the new row.
     """
-    text = doc.getText()
-    text.setString("")
-    _add_heading(text, "Alpha title", True)
-    _add_heading(text, "Beta title", False)
-    tctx = _tool_ctx(ctx, doc)
-    created = IndexesCreate().execute(tctx, kind="toc", title="Contents", target="beginning")
-    assert created.get("status") == "ok", created
-    toc = doc.getDocumentIndexes().getByIndex(0)
-    entries = _tab_paragraphs(doc)
-    assert len(entries) >= 2, _entry_strings(doc)
-    protected = bool(toc.getPropertyValue("IsProtected"))
-    if protected:
-        toc.IsProtected = False
-    alpha = next(para for para in entries if "Alpha title" in (para.getString() or ""))
-    beta = next(para for para in entries if "Beta title" in (para.getString() or ""))
+    text, tctx, toc, protected, alpha, beta = _toc_fixture(ctx, doc)
     outline = "#1.Alpha title|outline"
     _paint_entry(text, alpha, outline, color=0x0000FF)
     cur = text.createTextCursorByRange(alpha.getStart())
@@ -702,21 +651,7 @@ def test_insert_toc_entry_adds_one_row_uno(ctx, doc):
 @with_native_doc("writer")
 def test_insert_toc_entry_keeps_inherited_look_uno(ctx, doc):
     """Inserted TOC rows inherit the sibling's link character styles without writing direct formatting."""
-    text = doc.getText()
-    text.setString("")
-    _add_heading(text, "Alpha title", True)
-    _add_heading(text, "Beta title", False)
-    tctx = _tool_ctx(ctx, doc)
-    created = IndexesCreate().execute(tctx, kind="toc", title="Contents", target="beginning")
-    assert created.get("status") == "ok", created
-    toc = doc.getDocumentIndexes().getByIndex(0)
-    entries = _tab_paragraphs(doc)
-    assert len(entries) >= 2, _entry_strings(doc)
-    protected = bool(toc.getPropertyValue("IsProtected"))
-    if protected:
-        toc.IsProtected = False
-    alpha = next(para for para in entries if "Alpha title" in (para.getString() or ""))
-    beta = next(para for para in entries if "Beta title" in (para.getString() or ""))
+    text, tctx, toc, protected, alpha, beta = _toc_fixture(ctx, doc)
 
     # Phase 1: read link_style from alpha's first non-empty portion, assert non-empty.
     alpha_portions = alpha.createEnumeration()
@@ -831,21 +766,7 @@ def test_list_toc_entries_reads_linked_rows_without_export_uno(ctx, doc):
     """
     from unittest.mock import patch
 
-    text = doc.getText()
-    text.setString("")
-    _add_heading(text, "Alpha title", True)
-    _add_heading(text, "Beta title", False)
-    tctx = _tool_ctx(ctx, doc)
-    created = IndexesCreate().execute(tctx, kind="toc", title="Contents", target="beginning")
-    assert created.get("status") == "ok", created
-    toc = doc.getDocumentIndexes().getByIndex(0)
-    entries = _tab_paragraphs(doc)
-    assert len(entries) >= 2, [para.getString() for para in entries]
-    protected = bool(toc.getPropertyValue("IsProtected"))
-    if protected:
-        toc.IsProtected = False
-    alpha = next(para for para in entries if "Alpha title" in (para.getString() or ""))
-    beta = next(para for para in entries if "Beta title" in (para.getString() or ""))
+    text, tctx, toc, protected, alpha, beta = _toc_fixture(ctx, doc)
     outline = "#1.Alpha title|outline"
     bookmark = "#__RefHeading___Toc999"
     _paint_entry(text, alpha, outline)

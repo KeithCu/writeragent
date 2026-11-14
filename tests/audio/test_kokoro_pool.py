@@ -270,7 +270,7 @@ def test_pool_missing_script_is_spawn_failed_not_cancelled(tmp_path, supervisor)
         pool.shutdown()
 
 
-def test_cancel_check_true_keeps_warm_worker(tmp_path, supervisor):
+def test_cancelled_execute_does_not_spawn_and_subsequent_execute_warms(tmp_path, supervisor):
     script = _fake_worker_script(tmp_path)
     pool = KokoroProcessPool(sys.executable, script_path=script, idle_worker_ttl_sec=None, supervisor=supervisor)
     try:

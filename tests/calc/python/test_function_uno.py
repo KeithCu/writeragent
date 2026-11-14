@@ -572,3 +572,35 @@ def test_py_spill_neighbors_temporal_formats(ctx, doc):
         st = WorkbookState.known(doc)
         if st is not None:
             WorkbookState.forget_key(st.key)
+
+
+@native_test
+@with_native_doc("calc")
+def test_calc_spill_undo_lock(ctx, doc):
+    """Deferred spill writes must not create extra undo actions on top of the formula."""
+    from plugin.calc.python.spill import perform_deferred_spill
+    from plugin.calc.python.workbook_state import WorkbookState
+
+    active_sheet = doc.getCurrentController().getActiveSheet()
+    # Pass the spill registry key (RuntimeUID), like the real caller. A pooled doc can
+    # be a saved file, and its URL would not match, so the spill would be skipped.
+    st = WorkbookState.for_doc(doc)
+    assert st is not None
+    doc_url = st.key
+
+    # Simulate user typing a formula into A1
+    active_sheet.getCellByPosition(0, 0).setFormula('=PY("result = [1, 2, 3]")')
+    um = doc.getUndoManager()
+    if um is not None:
+        um.enterUndoContext("Input")
+        um.leaveUndoContext()
+
+    titles_before = list(um.getAllUndoActionTitles()) if um else []
+
+    perform_deferred_spill(active_sheet.Name, 0, 0, [[1, 2], [3, 4]], doc=doc, sheet=active_sheet, code="result = [1, 2, 3]", key=doc_url)
+
+    assert active_sheet.getCellByPosition(1, 0).getValue() == 2.0
+    assert active_sheet.getCellByPosition(0, 1).getValue() == 3.0
+
+    titles_after = list(um.getAllUndoActionTitles()) if um else []
+    assert titles_after == titles_before, f"Deferred spill added extra undo actions: {titles_after} vs {titles_before}"

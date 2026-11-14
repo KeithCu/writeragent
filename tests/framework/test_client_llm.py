@@ -3574,3 +3574,65 @@ def test_chat_completion_sync_stop_checker_not_finish_reason():
         client.chat_completion_sync(messages, cancel=live_scope)
     assert raised_latch.value.code == "USER_STOPPED"
 
+
+@pytest.mark.parametrize(
+    ("body", "error_text", "expected_present", "expected_absent"),
+    [
+        pytest.param(
+            # resolution is deleted without capturing trailing JSON or leaking quotes into sibling fields.
+            b'{"resolution": "512", "aspect_ratio": "16:9"}',
+            'resolution: not supported. Accepted: 2K"}',
+            {"aspect_ratio": "16:9"},
+            ("resolution",),
+            id="drops-resolution",
+        ),
+        pytest.param(
+            b'{"aspect_ratio": "16:9"}',
+            'aspect_ratio: not supported. Accepted: 1:1, 4:3"}',
+            {"aspect_ratio": "4:3"},
+            (),
+            id="aspect-strips-trailing-json",
+        ),
+        pytest.param(
+            # A listed tier is not copied. The provider default is the legal one.
+            b'{"resolution": "512"}',
+            "resolution: not supported. Accepted: 1K | resolution: not supported.",
+            {},
+            ("resolution",),
+            id="drops-resolution-even-when-accepted-listed",
+        ),
+        pytest.param(
+            # A line with no Accepted list must not erase the value another line named.
+            b'{"aspect_ratio": "16:9"}',
+            "aspect_ratio: not supported. Accepted: 1:1 | aspect_ratio: not supported.",
+            {"aspect_ratio": "1:1"},
+            (),
+            id="aspect-uses-named-value-when-line-omits-list",
+        ),
+        pytest.param(
+            b'{"aspect_ratio": "16:9"}',
+            "aspect_ratio: not supported. Accepted: 1:1, 4:3, 3:2",
+            {"aspect_ratio": "3:2"},
+            (),
+            id="aspect-picks-closest",
+        ),
+        pytest.param(
+            b'{"size": "512x512", "output_format": "webp", "prompt": "cat"}',
+            "size: not supported. Accepted: 1024x1024 | output_format: not supported. Accepted: png, jpeg",
+            {"prompt": "cat"},
+            ("size", "output_format"),
+            id="drops-size-and-output-format",
+        ),
+    ],
+)
+def test_adjust_image_body_for_rejection_cases(body, error_text, expected_present, expected_absent):
+    from plugin.framework.client.llm_client import adjust_image_body_for_rejection
+
+    new_body = adjust_image_body_for_rejection(body, error_text)
+    assert new_body is not None
+    new_data = json.loads(new_body)
+    for key in expected_absent:
+        assert key not in new_data
+    for key, val in expected_present.items():
+        assert new_data[key] == val
+

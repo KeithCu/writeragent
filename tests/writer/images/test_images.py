@@ -4,6 +4,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Tests for images.py helpers (no LibreOffice required)."""
 import base64
+from contextlib import ExitStack, contextmanager
 import os
 import sys
 import tempfile
@@ -234,6 +235,39 @@ def test_image_generate_rejects_non_integer_base_size():
     assert "integer" in err
 
 
+@contextmanager
+def _patch_image_generate(
+    svc,
+    *,
+    selected=None,
+    graphic_model=None,
+    config_side_effect=None,
+    units_px=None,
+    patch_image_model=True,
+):
+    def _run(fn, *args, timeout=60.0, bound_scope=None, **kwargs):
+        return fn(*args, **kwargs)
+
+    if config_side_effect is None:
+        config_side_effect = _image_tool_config_side_effect(512)
+
+    with ExitStack() as stack:
+        stack.enter_context(patch("plugin.framework.queue_executor.main.is_current", return_value=False))
+        stack.enter_context(patch("plugin.framework.queue_executor.main.call", side_effect=_run))
+        stack.enter_context(patch("plugin.doc.visual_helpers.selected_graphic_object", return_value=selected))
+        stack.enter_context(patch("plugin.writer.images.images.export_graphic_object_to_bytes", return_value=b"pngsel"))
+        stack.enter_context(patch("plugin.doc.visual_helpers.graphic_from_object", return_value=graphic_model))
+        stack.enter_context(patch("plugin.writer.images.images.ImageService", return_value=svc))
+        replace = stack.enter_context(patch("plugin.writer.images.images.replace_graphic_source", return_value=True))
+        insert = stack.enter_context(patch("plugin.writer.images.images.insert_image"))
+        stack.enter_context(patch("plugin.writer.images.images.get_config", side_effect=config_side_effect))
+        if units_px is not None:
+            stack.enter_context(patch("plugin.doc.visual_helpers.units_to_px", return_value=units_px))
+        if patch_image_model:
+            stack.enter_context(patch("plugin.writer.images.images.get_image_model", return_value=""))
+        yield replace, insert
+
+
 def test_resolve_image_generate_is_edit_defaults_to_selection():
     ctx = TestingFactory.create_context(doc_type="writer")
     svc = MagicMock()
@@ -246,50 +280,22 @@ def test_resolve_image_generate_is_edit_defaults_to_selection():
         lambda prop: SimpleNamespace(Width=1024, Height=1024) if prop == "SizePixel" else None
     )
 
-    def _run(fn, *args, timeout=60.0, bound_scope=None, **kwargs):
-        return fn(*args, **kwargs)
-
     for raw in ("", "  "):
-        with (
-            patch("plugin.framework.queue_executor.main.is_current", return_value=False),
-        patch("plugin.framework.queue_executor.main.call", side_effect=_run),
-            patch("plugin.doc.visual_helpers.selected_graphic_object", return_value=target_obj),
-            patch("plugin.writer.images.images.export_graphic_object_to_bytes", return_value=b"pngsel"),
-            patch("plugin.doc.visual_helpers.graphic_from_object", return_value=graphic_model),
-            patch("plugin.writer.images.images.ImageService", return_value=svc),
-            patch("plugin.writer.images.images.replace_graphic_source", return_value=True) as replace,
-            patch("plugin.writer.images.images.insert_image") as insert,
-        patch("plugin.writer.images.images.get_config", side_effect=_image_tool_config_side_effect(512)),
-            patch("plugin.writer.images.images.get_image_model", return_value=""),
-        ):
+        with _patch_image_generate(svc, selected=target_obj, graphic_model=graphic_model) as (replace, insert):
             res = ImageGenerate().execute(ctx, prompt="a tabby cat", source_image=raw)
             assert res["status"] == "ok"
             assert "edited" in res["message"].lower()
             replace.assert_called_once()
             insert.assert_not_called()
 
-        with (
-            patch("plugin.framework.queue_executor.main.is_current", return_value=False),
-        patch("plugin.framework.queue_executor.main.call", side_effect=_run),
-            patch("plugin.writer.images.images.visual_helpers.selected_graphic_object", return_value=None),
-            patch("plugin.writer.images.images.ImageService", return_value=svc),
-            patch("plugin.writer.images.images.replace_graphic_source") as replace,
-            patch("plugin.writer.images.images.insert_image") as insert,
-        patch("plugin.writer.images.images.get_config", side_effect=_image_tool_config_side_effect(512)),
-            patch("plugin.writer.images.images.get_image_model", return_value=""),
-        ):
+        with _patch_image_generate(svc, selected=None) as (replace, insert):
             res = ImageGenerate().execute(ctx, prompt="a tabby cat", source_image=raw)
             assert res["status"] == "ok"
             assert "generated" in res["message"].lower()
             insert.assert_called_once()
             replace.assert_not_called()
 
-    with (
-        patch("plugin.framework.queue_executor.main.is_current", return_value=False),
-        patch("plugin.framework.queue_executor.main.call", side_effect=_run),
-        patch("plugin.writer.images.images.visual_helpers.selected_graphic_object", return_value=None),
-        patch("plugin.writer.images.images.get_config", side_effect=_image_tool_config_all_false),
-    ):
+    with _patch_image_generate(svc, selected=None, config_side_effect=_image_tool_config_all_false, patch_image_model=False):
         res = ImageGenerate().execute(ctx, prompt="a tabby cat", source_image="SELECTION")
         assert res["status"] == "error"
         assert res["code"] == "NO_SELECTION"
@@ -302,26 +308,11 @@ def test_image_generate_omitted_source_edits_when_selected():
     svc.generate_image.return_value = (["/tmp/edited.png"], None)
 
     target_obj = MagicMock()
-    frame_size = MagicMock(Width=6400, Height=4800)
-    target_obj.getSize.return_value = frame_size
+    target_obj.getSize.return_value = MagicMock(Width=6400, Height=4800)
     graphic_model = MagicMock()
     graphic_model.getPropertyValue.side_effect = lambda prop: SimpleNamespace(Width=1024, Height=1024) if prop == "SizePixel" else None
 
-    def _run(fn, *args, timeout=60.0, bound_scope=None, **kwargs):
-        return fn(*args, **kwargs)
-
-    with (
-        patch("plugin.framework.queue_executor.main.is_current", return_value=False),
-        patch("plugin.framework.queue_executor.main.call", side_effect=_run),
-        patch("plugin.doc.visual_helpers.selected_graphic_object", return_value=target_obj),
-        patch("plugin.writer.images.images.export_graphic_object_to_bytes", return_value=b"pngsel"),
-        patch("plugin.doc.visual_helpers.graphic_from_object", return_value=graphic_model),
-        patch("plugin.writer.images.images.ImageService", return_value=svc),
-        patch("plugin.writer.images.images.replace_graphic_source", return_value=True) as replace,
-        patch("plugin.writer.images.images.insert_image") as insert,
-        patch("plugin.writer.images.images.get_config", side_effect=_image_tool_config_side_effect(512)),
-        patch("plugin.writer.images.images.get_image_model", return_value=""),
-    ):
+    with _patch_image_generate(svc, selected=target_obj, graphic_model=graphic_model) as (replace, insert):
         res = ImageGenerate().execute(ctx, prompt="make it look like a wizard")
     assert res["status"] == "ok"
     assert "edited" in res["message"].lower()
@@ -352,24 +343,9 @@ def test_image_generate_omitted_source_edits_when_selected_fallback_to_display_s
     svc.generate_image.return_value = (["/tmp/edited.png"], None)
 
     target_obj = MagicMock()
-    frame_size = MagicMock(Width=6400, Height=4800)
-    target_obj.getSize.return_value = frame_size
+    target_obj.getSize.return_value = MagicMock(Width=6400, Height=4800)
 
-    def _run(fn, *args, timeout=60.0, bound_scope=None, **kwargs):
-        return fn(*args, **kwargs)
-
-    with (
-        patch("plugin.framework.queue_executor.main.is_current", return_value=False),
-        patch("plugin.framework.queue_executor.main.call", side_effect=_run),
-        patch("plugin.doc.visual_helpers.selected_graphic_object", return_value=target_obj),
-        patch("plugin.writer.images.images.export_graphic_object_to_bytes", return_value=b"pngsel"),
-        patch("plugin.doc.visual_helpers.graphic_from_object", return_value=None),
-        patch("plugin.doc.visual_helpers.units_to_px", return_value=(640, 480)),
-        patch("plugin.writer.images.images.ImageService", return_value=svc),
-        patch("plugin.writer.images.images.replace_graphic_source", return_value=True) as replace,
-        patch("plugin.writer.images.images.insert_image") as insert,
-        patch("plugin.writer.images.images.get_config", side_effect=_image_tool_config_side_effect(512)),
-    ):
+    with _patch_image_generate(svc, selected=target_obj, units_px=(640, 480), patch_image_model=False) as (replace, insert):
         res = ImageGenerate().execute(ctx, prompt="make it look like a wizard")
 
     assert res["status"] == "ok"
@@ -400,28 +376,13 @@ def test_image_generate_edit_scales_single_sided_dimension():
     svc.generate_image.return_value = (["/tmp/edited.png"], None)
 
     target_obj = MagicMock()
-    frame_size = MagicMock(Width=6400, Height=4800)
-    target_obj.getSize.return_value = frame_size
+    target_obj.getSize.return_value = MagicMock(Width=6400, Height=4800)
     graphic_model = MagicMock()
     graphic_model.getPropertyValue.side_effect = (
         lambda prop: SimpleNamespace(Width=1024, Height=768) if prop == "SizePixel" else None
     )
 
-    def _run(fn, *args, timeout=60.0, bound_scope=None, **kwargs):
-        return fn(*args, **kwargs)
-
-    with (
-        patch("plugin.framework.queue_executor.main.is_current", return_value=False),
-        patch("plugin.framework.queue_executor.main.call", side_effect=_run),
-        patch("plugin.doc.visual_helpers.selected_graphic_object", return_value=target_obj),
-        patch("plugin.writer.images.images.export_graphic_object_to_bytes", return_value=b"pngsel"),
-        patch("plugin.doc.visual_helpers.graphic_from_object", return_value=graphic_model),
-        patch("plugin.writer.images.images.ImageService", return_value=svc),
-        patch("plugin.writer.images.images.replace_graphic_source", return_value=True),
-        patch("plugin.writer.images.images.insert_image"),
-        patch("plugin.writer.images.images.get_config", side_effect=_image_tool_config_side_effect(512)),
-        patch("plugin.writer.images.images.get_image_model", return_value=""),
-    ):
+    with _patch_image_generate(svc, selected=target_obj, graphic_model=graphic_model):
         res = ImageGenerate().execute(ctx, prompt="make it look like a wizard", width=512)
 
     assert res["status"] == "ok"
@@ -434,19 +395,7 @@ def test_image_generate_omitted_source_creates_when_no_selection():
     svc = MagicMock()
     svc.generate_image.return_value = (["/tmp/new.png"], None)
 
-    def _run(fn, *args, timeout=60.0, bound_scope=None, **kwargs):
-        return fn(*args, **kwargs)
-
-    with (
-        patch("plugin.framework.queue_executor.main.is_current", return_value=False),
-        patch("plugin.framework.queue_executor.main.call", side_effect=_run),
-        patch("plugin.writer.images.images.visual_helpers.selected_graphic_object", return_value=None),
-        patch("plugin.writer.images.images.ImageService", return_value=svc),
-        patch("plugin.writer.images.images.replace_graphic_source") as replace,
-        patch("plugin.writer.images.images.insert_image") as insert,
-        patch("plugin.writer.images.images.get_config", side_effect=_image_tool_config_side_effect(512)),
-        patch("plugin.writer.images.images.get_image_model", return_value=""),
-    ):
+    with _patch_image_generate(svc, selected=None) as (replace, insert):
         res = ImageGenerate().execute(ctx, prompt="a tabby cat")
     assert res["status"] == "ok"
     assert "generated" in res["message"].lower()
@@ -687,7 +636,15 @@ def test_image_replace_size_read_failure_is_tool_execution_error():
     mock_replace.assert_not_called()
 
 
-def test_image_replace_download_failure_is_tool_error():
+@pytest.mark.parametrize(
+    ("tool_cls", "url_kw", "extra_kwargs"),
+    [
+        pytest.param(ImageReplace, "path", {"name": "Graphic1"}, id="image_replace"),
+        pytest.param(ImageInsert, "path", {}, id="image_insert"),
+        pytest.param(ImageDownload, "url", {}, id="image_download"),
+    ],
+)
+def test_image_download_failure_is_tool_error(tool_cls, url_kw, extra_kwargs):
     import urllib.error
 
     ctx = TestingFactory.create_context(doc_type="writer")
@@ -696,53 +653,31 @@ def test_image_replace_download_failure_is_tool_error():
         patch("plugin.doc.visual_helpers.get_graphic_object_by_name", return_value=graphic),
         patch("plugin.writer.images.images._download_image_to_cache", side_effect=urllib.error.URLError("timed out")),
     ):
-        res = ImageReplace().execute(ctx, name="Graphic1", path="https://example.com/pic.png")
+        res = tool_cls().execute(ctx, **{url_kw: "https://example.com/pic.png"}, **extra_kwargs)
     assert res["status"] != "ok"
     assert res.get("code") == "DOWNLOAD_FAILED"
     assert res.get("message", "").startswith("Could not download image:")
 
-    # A local missing file still returns FILE_NOT_FOUND and does not call the downloader
+
+@pytest.mark.parametrize(
+    ("tool_cls", "extra_kwargs"),
+    [
+        pytest.param(ImageReplace, {"name": "Graphic1"}, id="image_replace"),
+        pytest.param(ImageInsert, {}, id="image_insert"),
+    ],
+)
+def test_image_local_missing_file_returns_file_not_found(tool_cls, extra_kwargs):
+    ctx = TestingFactory.create_context(doc_type="writer")
+    graphic = MagicMock()
     with (
         patch("plugin.doc.visual_helpers.get_graphic_object_by_name", return_value=graphic),
         patch("plugin.writer.images.images._download_image_to_cache") as mock_download,
         patch("os.path.isfile", return_value=False),
     ):
-        res_local = ImageReplace().execute(ctx, name="Graphic1", path="/nonexistent/pic.png")
+        res_local = tool_cls().execute(ctx, path="/nonexistent/pic.png", **extra_kwargs)
     assert res_local["status"] != "ok"
     assert res_local.get("code") == "FILE_NOT_FOUND"
     mock_download.assert_not_called()
-
-
-def test_image_insert_download_failure_is_tool_error():
-    import urllib.error
-
-    ctx = TestingFactory.create_context(doc_type="writer")
-    with patch("plugin.writer.images.images._download_image_to_cache", side_effect=urllib.error.URLError("timed out")):
-        res = ImageInsert().execute(ctx, path="https://example.com/pic.png")
-    assert res["status"] != "ok"
-    assert res.get("code") == "DOWNLOAD_FAILED"
-    assert res.get("message", "").startswith("Could not download image:")
-
-    # A local missing file still returns FILE_NOT_FOUND and does not call the downloader
-    with (
-        patch("plugin.writer.images.images._download_image_to_cache") as mock_download,
-        patch("os.path.isfile", return_value=False),
-    ):
-        res_local = ImageInsert().execute(ctx, path="/nonexistent/pic.png")
-    assert res_local["status"] != "ok"
-    assert res_local.get("code") == "FILE_NOT_FOUND"
-    mock_download.assert_not_called()
-
-
-def test_image_download_failure_is_tool_error():
-    import urllib.error
-
-    ctx = TestingFactory.create_context(doc_type="writer")
-    with patch("plugin.writer.images.images._download_image_to_cache", side_effect=urllib.error.URLError("timed out")):
-        res = ImageDownload().execute(ctx, url="https://example.com/pic.png")
-    assert res["status"] != "ok"
-    assert res.get("code") == "DOWNLOAD_FAILED"
-    assert res.get("message", "").startswith("Could not download image:")
 
 
 def test_image_generate_export_failure_is_tool_execution_error():
@@ -2011,34 +1946,32 @@ def test_image_insert_sizing_rules():
             assert mock_hf.call_args.kwargs["height_mm"] == 40.0
 
 
-def test_tools_reject_non_positive_sizes():
+@pytest.mark.parametrize(
+    ("tool_cls", "kwargs"),
+    [
+        (ImageInsert, {"path": "/tmp/a.png", "width_mm": 0}),
+        (ImageInsert, {"path": "/tmp/a.png", "width_mm": -1}),
+        (ImageInsert, {"path": "/tmp/a.png", "height_mm": 0}),
+        (ImageInsert, {"path": "/tmp/a.png", "height_mm": -5}),
+        (ImageReplace, {"name": "Pic", "path": "/tmp/a.png", "width_mm": 0}),
+        (ImageReplace, {"name": "Pic", "path": "/tmp/a.png", "width_mm": -2}),
+        (ImageReplace, {"name": "Pic", "path": "/tmp/a.png", "height_mm": 0}),
+        (ImageReplace, {"name": "Pic", "path": "/tmp/a.png", "height_mm": -10}),
+        (ImageSetProperties, {"name": "Pic", "width_mm": 0}),
+        (ImageSetProperties, {"name": "Pic", "width_mm": -1}),
+        (ImageSetProperties, {"name": "Pic", "height_mm": 0}),
+        (ImageSetProperties, {"name": "Pic", "height_mm": -3}),
+        (ImageGenerate, {"prompt": "p", "base_size": 0}),
+        (ImageGenerate, {"prompt": "p", "base_size": -50}),
+        (ImageGenerate, {"prompt": "p", "width": 0}),
+        (ImageGenerate, {"prompt": "p", "width": -10}),
+        (ImageGenerate, {"prompt": "p", "height": 0}),
+        (ImageGenerate, {"prompt": "p", "height": -10}),
+    ],
+)
+def test_tools_reject_non_positive_sizes(tool_cls, kwargs):
     ctx = TestingFactory.create_context(doc_type="writer")
-
-    # ImageInsert rejects width_mm / height_mm <= 0
-    assert ImageInsert().execute(ctx, path="/tmp/a.png", width_mm=0)["code"] == "INVALID_PARAM"
-    assert ImageInsert().execute(ctx, path="/tmp/a.png", width_mm=-1)["code"] == "INVALID_PARAM"
-    assert ImageInsert().execute(ctx, path="/tmp/a.png", height_mm=0)["code"] == "INVALID_PARAM"
-    assert ImageInsert().execute(ctx, path="/tmp/a.png", height_mm=-5)["code"] == "INVALID_PARAM"
-
-    # ImageReplace rejects width_mm / height_mm <= 0
-    assert ImageReplace().execute(ctx, name="Pic", path="/tmp/a.png", width_mm=0)["code"] == "INVALID_PARAM"
-    assert ImageReplace().execute(ctx, name="Pic", path="/tmp/a.png", width_mm=-2)["code"] == "INVALID_PARAM"
-    assert ImageReplace().execute(ctx, name="Pic", path="/tmp/a.png", height_mm=0)["code"] == "INVALID_PARAM"
-    assert ImageReplace().execute(ctx, name="Pic", path="/tmp/a.png", height_mm=-10)["code"] == "INVALID_PARAM"
-
-    # ImageSetProperties rejects width_mm / height_mm <= 0
-    assert ImageSetProperties().execute(ctx, name="Pic", width_mm=0)["code"] == "INVALID_PARAM"
-    assert ImageSetProperties().execute(ctx, name="Pic", width_mm=-1)["code"] == "INVALID_PARAM"
-    assert ImageSetProperties().execute(ctx, name="Pic", height_mm=0)["code"] == "INVALID_PARAM"
-    assert ImageSetProperties().execute(ctx, name="Pic", height_mm=-3)["code"] == "INVALID_PARAM"
-
-    # ImageGenerate rejects base_size, width, height <= 0
-    assert ImageGenerate().execute(ctx, prompt="p", base_size=0)["code"] == "INVALID_PARAM"
-    assert ImageGenerate().execute(ctx, prompt="p", base_size=-50)["code"] == "INVALID_PARAM"
-    assert ImageGenerate().execute(ctx, prompt="p", width=0)["code"] == "INVALID_PARAM"
-    assert ImageGenerate().execute(ctx, prompt="p", width=-10)["code"] == "INVALID_PARAM"
-    assert ImageGenerate().execute(ctx, prompt="p", height=0)["code"] == "INVALID_PARAM"
-    assert ImageGenerate().execute(ctx, prompt="p", height=-10)["code"] == "INVALID_PARAM"
+    assert tool_cls().execute(ctx, **kwargs)["code"] == "INVALID_PARAM"
 
 
 def test_image_insert_vector_proportional_fallback_from_100th_mm():
@@ -2083,40 +2016,18 @@ def test_image_tools_calc_sheet_index_and_ambiguity():
     ctx = TestingFactory.create_context(doc_type="calc")
     ambig_err = AmbiguousGraphicNameError("Several shapes named 'Pic' found on sheets [0, 1]", sheet_indices=[0, 1])
 
-    # 1. ImageGetInfo returns AMBIGUOUS_NAME with sheet_indices
-    with patch("plugin.doc.visual_helpers.get_graphic_object_by_name", side_effect=ambig_err):
-        res = ImageGetInfo().execute(ctx, name="Pic")
-        assert res["status"] != "ok"
-        assert res.get("code") == "AMBIGUOUS_NAME"
-        assert res.get("details", {}).get("sheet_indices") == [0, 1]
-
-    # 2. ImageSetProperties returns AMBIGUOUS_NAME with sheet_indices
-    with patch("plugin.doc.visual_helpers.get_graphic_object_by_name", side_effect=ambig_err):
-        res = ImageSetProperties().execute(ctx, name="Pic", width_mm=20)
-        assert res["status"] != "ok"
-        assert res.get("code") == "AMBIGUOUS_NAME"
-        assert res.get("details", {}).get("sheet_indices") == [0, 1]
-
-    # 3. ImageCropAndHighlight returns AMBIGUOUS_NAME with sheet_indices
-    with patch("plugin.doc.visual_helpers.get_graphic_object_by_name", side_effect=ambig_err):
-        res = ImageCropAndHighlight().execute(ctx, name="Pic", crop_box=[0, 0, 10, 10])
-        assert res["status"] != "ok"
-        assert res.get("code") == "AMBIGUOUS_NAME"
-        assert res.get("details", {}).get("sheet_indices") == [0, 1]
-
-    # 4. ImageDelete returns AMBIGUOUS_NAME with sheet_indices
-    with patch("plugin.doc.visual_helpers.get_graphic_object_by_name", side_effect=ambig_err):
-        res = ImageDelete().execute(ctx, name="Pic")
-        assert res["status"] != "ok"
-        assert res.get("code") == "AMBIGUOUS_NAME"
-        assert res.get("details", {}).get("sheet_indices") == [0, 1]
-
-    # 5. ImageReplace returns AMBIGUOUS_NAME with sheet_indices
-    with patch("plugin.doc.visual_helpers.get_graphic_object_by_name", side_effect=ambig_err):
-        res = ImageReplace().execute(ctx, name="Pic", path="/tmp/pic.png")
-        assert res["status"] != "ok"
-        assert res.get("code") == "AMBIGUOUS_NAME"
-        assert res.get("details", {}).get("sheet_indices") == [0, 1]
+    for tool_cls, kwargs in (
+        (ImageGetInfo, {"name": "Pic"}),
+        (ImageSetProperties, {"name": "Pic", "width_mm": 20}),
+        (ImageCropAndHighlight, {"name": "Pic", "crop_box": [0, 0, 10, 10]}),
+        (ImageDelete, {"name": "Pic"}),
+        (ImageReplace, {"name": "Pic", "path": "/tmp/pic.png"}),
+    ):
+        with patch("plugin.doc.visual_helpers.get_graphic_object_by_name", side_effect=ambig_err):
+            res = tool_cls().execute(ctx, **kwargs)
+            assert res["status"] != "ok"
+            assert res.get("code") == "AMBIGUOUS_NAME"
+            assert res.get("details", {}).get("sheet_indices") == [0, 1]
 
     # 6. With sheet_index passed, get_graphic_object_by_name receives sheet_index
     calls = []

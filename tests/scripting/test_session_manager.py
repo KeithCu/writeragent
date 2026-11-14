@@ -967,5 +967,32 @@ def test_rps_session_id_calc_uses_calc_namespace() -> None:
         assert session_manager.rps_session_id(doc) == "calc:file:///wb.ods"
 
 
+def test_isolated_workbook_key_never_empty() -> None:
+    """Isolated UI load/repair keys on calc:+mint_document_key (same string eval reads)."""
+    from plugin.tests.testing_utils import CalcDocStub
+
+    doc = CalcDocStub(url="file:///isolated.ods")
+    with patch(
+        "plugin.scripting.session_manager.python_session_mode", return_value="isolated"
+    ):
+        assert session_manager.workbook_session_id(doc) is None
+        sid = session_manager.calc_workbook_base_session_id(doc)
+    assert sid == "calc:file:///isolated.ods"
+    assert sid == session_manager.calc_workbook_base_session_id(doc)
+
+
+def test_unsaved_workbook_key_is_never_empty() -> None:
+    from plugin.tests.testing_utils import CalcDocStub
+
+    doc = CalcDocStub(url="")
+    with patch(
+        "plugin.scripting.session_manager.mint_document_key",
+        return_value="unsaved-stable-id",
+    ):
+        sid = session_manager.calc_workbook_base_session_id(doc)
+        assert session_manager.calc_workbook_base_session_id(doc) == sid
+    assert sid == "calc:unsaved-stable-id"
+
+
 
 

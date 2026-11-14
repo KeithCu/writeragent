@@ -39,4 +39,4 @@ Replace `<DATA_RANGE>` in chat prompts with the actual `Sheet.col` range from ea
 python scripts/generate_numpy_domains_demo_spreadsheet.py
 ```
 
-Cases: `tests/calc/numpy_domains_demo_cases.py`.
+Cases: `scripts/numpy_domains_demo_cases.py`.

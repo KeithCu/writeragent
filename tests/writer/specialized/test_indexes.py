@@ -1024,54 +1024,28 @@ def test_toc_entry_tools_reject_non_integer_occurrence_index_and_level():
     anchor = MagicMock()
     idx.getAnchor.return_value = anchor
 
-    del_tool = IndexesDeleteTocEntry()
-    res = del_tool.execute(ctx, old_content="Alpha", occurrence="bad")
-    assert res["status"] == "error"
-    assert res["code"] == "INVALID_PARAM"
-
-    res = del_tool.execute(ctx, old_content="Alpha", occurrence=True)
-    assert res["status"] == "error"
-    assert res["code"] == "INVALID_PARAM"
-
-    res = del_tool.execute(ctx, old_content="Alpha", index="0")
-    assert res["status"] == "error"
-    assert res["code"] == "INVALID_PARAM"
-
-    ref_tool = IndexesRefreshTocEntry()
-    res = ref_tool.execute(ctx, old_content="Alpha", content="Beta", occurrence="bad")
-    assert res["status"] == "error"
-    assert res["code"] == "INVALID_PARAM"
-
-    res = ref_tool.execute(ctx, old_content="Alpha", content="Beta", occurrence=True)
-    assert res["status"] == "error"
-    assert res["code"] == "INVALID_PARAM"
-
-    res = ref_tool.execute(ctx, old_content="Alpha", content="Beta", index="0")
-    assert res["status"] == "error"
-    assert res["code"] == "INVALID_PARAM"
-
-    ins_tool = IndexesInsertTocEntry()
-    res = ins_tool.execute(ctx, content="Beta", position="before", old_content="Alpha", occurrence="bad")
-    assert res["status"] == "error"
-    assert res["code"] == "INVALID_PARAM"
-
-    res = ins_tool.execute(ctx, content="Beta", position="before", old_content="Alpha", occurrence=True)
-    assert res["status"] == "error"
-    assert res["code"] == "INVALID_PARAM"
-
-    res = ins_tool.execute(ctx, content="Beta", index="0")
-    assert res["status"] == "error"
-    assert res["code"] == "INVALID_PARAM"
+    for tool, kwargs in (
+        (IndexesDeleteTocEntry(), {"old_content": "Alpha", "occurrence": "bad"}),
+        (IndexesDeleteTocEntry(), {"old_content": "Alpha", "occurrence": True}),
+        (IndexesDeleteTocEntry(), {"old_content": "Alpha", "index": "0"}),
+        (IndexesRefreshTocEntry(), {"old_content": "Alpha", "content": "Beta", "occurrence": "bad"}),
+        (IndexesRefreshTocEntry(), {"old_content": "Alpha", "content": "Beta", "occurrence": True}),
+        (IndexesRefreshTocEntry(), {"old_content": "Alpha", "content": "Beta", "index": "0"}),
+        (IndexesInsertTocEntry(), {"content": "Beta", "position": "before", "old_content": "Alpha", "occurrence": "bad"}),
+        (IndexesInsertTocEntry(), {"content": "Beta", "position": "before", "old_content": "Alpha", "occurrence": True}),
+        (IndexesInsertTocEntry(), {"content": "Beta", "index": "0"}),
+    ):
+        res = tool.execute(ctx, **kwargs)
+        assert res["status"] == "error"
+        assert res["code"] == "INVALID_PARAM"
 
     from plugin.framework.tool import prepare_tool_call
 
-    prep_str = prepare_tool_call(ins_tool, ctx, "indexes_insert_toc_entry", {"content": "Beta", "level": "1"})
-    assert prep_str.error is not None
-    assert prep_str.error["code"] == "VALIDATION_ERROR"
-
-    prep_bool = prepare_tool_call(ins_tool, ctx, "indexes_insert_toc_entry", {"content": "Beta", "level": True})
-    assert prep_bool.error is not None
-    assert prep_bool.error["code"] == "VALIDATION_ERROR"
+    ins_tool = IndexesInsertTocEntry()
+    for level in ("1", True):
+        prep = prepare_tool_call(ins_tool, ctx, "indexes_insert_toc_entry", {"content": "Beta", "level": level})
+        assert prep.error is not None
+        assert prep.error["code"] == "VALIDATION_ERROR"
 
 
 def test_paragraphs_in_anchor_stops_at_the_anchor_end():

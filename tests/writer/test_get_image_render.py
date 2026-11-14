@@ -414,3 +414,14 @@ def test_execute_ambiguous_graphic_name_returns_code():
         res = GetImage().execute(_tctx(doc), image="Logo")
     assert res["status"] == "error"
     assert res["code"] == "AMBIGUOUS_NAME"
+
+
+def test_get_image_supports_calc_document():
+    from plugin.framework.doc_type import CALC_DOCUMENT_SERVICE
+    from plugin.framework.tool import tool_supports_document
+
+    assert tool_supports_document(
+        GetImage(),
+        doc_type="calc",
+        uno_services_supported=frozenset({CALC_DOCUMENT_SERVICE}),
+    ) is True

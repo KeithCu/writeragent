@@ -20,6 +20,7 @@ from plugin.framework.config import (
     reset_config_for_tests,
     save,
     update_config_mapping,
+    validate_api_config,
 )
 from plugin.framework.errors import ConfigError, ConfigValidationError
 from plugin.framework.client.model_fetcher import get_image_model, get_text_model, set_image_model, set_text_model
@@ -1429,3 +1430,22 @@ def test_save_one_write_one_emit_and_validation_writes_nothing(tmp_path):
             assert "python_venv_path" not in written
     finally:
         reset_config_for_tests()
+
+
+class TestValidateApiConfigPlaceholders:
+
+    def test_rejects_connection_failed_placeholder(self):
+        ok, err = validate_api_config({
+            "endpoint": "https://api.z.ai/api/paas",
+            "model": "(Connection failed)",
+        })
+        assert not (ok)
+        assert ("valid model") in (err.lower())
+
+    def test_accepts_real_model(self):
+        ok, err = validate_api_config({
+            "endpoint": "https://api.z.ai/api/paas",
+            "model": "glm-5.2",
+        })
+        assert (ok)
+        assert (err) == ("")

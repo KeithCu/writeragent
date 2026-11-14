@@ -11,7 +11,6 @@
 from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import (
     execute_calc_tool as _execute_calc_tool,
-    note_windows_html_paste_leftover,
     with_native_doc,
 )
 
@@ -49,57 +48,45 @@ def test_write_formula_range(ctx, doc):
 
 @native_test
 @with_native_doc("calc")
-def test_detect_and_explain_errors(ctx, doc):
-    from plugin.calc.errors import DetectErrors
-    from plugin.framework.tool import ToolContext
-
+def test_import_csv_from_string(ctx, doc):
     active_sheet = doc.getCurrentController().getActiveSheet()
 
-    # Test #DIV/0!
-    active_sheet.getCellByPosition(8, 0).setFormula("=1/0")
-    tctx = ToolContext(doc, ctx, "calc", {}, "test")
-    res = DetectErrors().execute(tctx, range="I1")
+    # Test case 1: Standard comma-separated
+    csv_1 = "Name,Age\nAlice,30\nBob,25"
+    res1 = _execute_calc_tool(doc, ctx, "write_formula_range", {
+        "values": csv_1,
+        "range": "E1"
+    })
+    assert res1.get("status") == "ok", f"CSV import failed: {res1}"
+    assert active_sheet.getCellByPosition(4, 0).getString() == "Name" # E1
+    assert active_sheet.getCellByPosition(5, 0).getString() == "Age"  # F1
+    assert active_sheet.getCellByPosition(4, 1).getString() == "Alice" # E2
+    assert active_sheet.getCellByPosition(5, 1).getValue() == 30.0    # F2
+    assert active_sheet.getCellByPosition(5, 2).getValue() == 25.0    # F3
 
-    assert res.get("status") == "ok", f"error_detect failed: {res}"
-    assert res.get("result", {}).get("error_count", 0) > 0, "No errors detected"
-    errors = res.get("result", {}).get("errors", [])
-    err0 = errors[0].get("error", {}) if errors else {}
-    assert err0.get("code") == "#DIV/0!", f"Expected #DIV/0!, got: {errors}"
+    # Test case 2: Semicolon-separated
+    csv_2 = "Item;Price\nApple;1.5\nBanana;0.75"
+    res2 = _execute_calc_tool(doc, ctx, "write_formula_range", {
+        "values": csv_2,
+        "range": "G1"
+    })
+    assert res2.get("status") == "ok", f"Semicolon CSV import failed: {res2}"
+    assert active_sheet.getCellByPosition(6, 0).getString() == "Item" # G1
+    assert active_sheet.getCellByPosition(7, 0).getString() == "Price"# H1
+    assert active_sheet.getCellByPosition(6, 1).getString() == "Apple"# G2
+    assert active_sheet.getCellByPosition(7, 1).getValue() == 1.5     # H2
 
-    # Test #NAME?
-    active_sheet.getCellByPosition(9, 0).setFormula("=UNKNOWN_NAME()")
-    res2 = DetectErrors().execute(tctx, range="J1")
-    assert res2.get("status") == "ok", f"error_detect #NAME? failed: {res2}"
-    assert res2.get("result", {}).get("error_count", 0) > 0, "No errors detected"
-    errors = res2.get("result", {}).get("errors", [])
-    err0 = errors[0].get("error", {}) if errors else {}
-    assert err0.get("code") == "#NAME?", f"Expected #NAME?, got: {errors}"
-
-    # Test #REF!
-    active_sheet.getCellByPosition(10, 0).setFormula("=#REF!")
-    res3 = DetectErrors().execute(tctx, range="K1")
-    assert res3.get("status") == "ok", f"error_detect #REF! failed: {res3}"
-    assert res3.get("result", {}).get("error_count", 0) > 0, "No #REF! errors detected"
-    errors = res3.get("result", {}).get("errors", [])
-    err0 = errors[0].get("error", {}) if errors else {}
-    assert err0.get("code") == "#REF!", f"Expected #REF!, got: {errors}"
-    assert "#REF!" in errors[0].get("suggestion", ""), f"Suggestion does not mention #REF!: {errors[0].get('suggestion')}"
-    # FormulaDepChain / formula_query enrichment (optional on older LO builds)
-    assert "dependency_chain" in errors[0] or "precedents" in errors[0]
-
-
-@native_test
-@with_native_doc("calc")
-def test_navigate_to_cell(ctx, doc):
-    from plugin.calc.navigation import navigate_to_cell
-
-    active_sheet = doc.getCurrentController().getActiveSheet()
-    active_sheet.getCellByPosition(4, 4).setString("target")
-    ok = navigate_to_cell(doc, "E5")
-    assert ok, "navigate_to_cell returned False"
-    sel = doc.getCurrentController().getSelection()
-    addr = sel.getCellAddress()
-    assert addr.Column == 4 and addr.Row == 4, f"Expected E5 selected, got col={addr.Column} row={addr.Row}"
+    # Test case 3: CSV with quoted commas
+    csv_3 = "Person,Description\nCarol,\"Smart, Funny, Tall\"\nDave,Cool"
+    res3 = _execute_calc_tool(doc, ctx, "write_formula_range", {
+        "values": csv_3,
+        "range": "E5"
+    })
+    assert res3.get("status") == "ok", f"Quoted CSV import failed: {res3}"
+    assert active_sheet.getCellByPosition(4, 5).getString() == "Carol" # E6
+    # The cell at F6 (5, 5) should contain the comma text
+    desc = active_sheet.getCellByPosition(5, 5).getString()
+    assert desc == "Smart, Funny, Tall", f"Quoted comma parsed incorrectly: {desc}"
 
 
 @native_test
@@ -323,70 +310,4 @@ def test_evaluate_formula(ctx, doc):
     assert titles_after == titles_before, f"Undo actions changed: {titles_after} vs {titles_before}"
     if hasattr(doc, "isModified"):
         assert doc.isModified() == was_modified, f"isModified changed from {was_modified} to {doc.isModified()}"
-
-
-@native_test
-@with_native_doc("calc")
-def test_insert_result_into_calc_undo(ctx, doc):
-    """Running a script that inserts structured content into Calc can be reverted with Ctrl+Z."""
-    from plugin.scripting.python_runner import insert_result_into_calc
-
-    active_sheet = doc.getCurrentController().getActiveSheet()
-    primes_result = {
-        "title": "Prime Numbers in Range",
-        "primes": [
-            {"position": 1000, "prime": 7919},
-            {"position": 1001, "prime": 7927},
-        ],
-    }
-
-    insert_result_into_calc(doc, ctx, primes_result)
-    # Close skipped after paste. Windows defers this suite until after
-    # document_research_uno 3/3 (34648929578). Cached leftover_open
-    # for later leftover reuse. Do not enum getComponents.
-    note_windows_html_paste_leftover()
-    assert active_sheet.getCellByPosition(0, 0).getString() == "Prime Numbers in Range"
-    assert active_sheet.getCellByPosition(0, 2).getString() == "position"
-    assert active_sheet.getCellByPosition(1, 2).getString() == "prime"
-
-    um = doc.getUndoManager()
-    assert um is not None
-    assert um.isUndoPossible() is True
-
-    um.undo()
-    assert active_sheet.getCellByPosition(0, 0).getString() == "", "A1 title should revert after single undo"
-    assert active_sheet.getCellByPosition(0, 2).getString() == "", "A3 position header should revert after single undo"
-    assert active_sheet.getCellByPosition(1, 2).getString() == "", "B3 prime header should revert after single undo"
-
-
-@native_test
-@with_native_doc("calc")
-def test_calc_spill_undo_lock(ctx, doc):
-    """Deferred spill writes must not create extra undo actions on top of the formula."""
-    from plugin.calc.python.spill import perform_deferred_spill
-    from plugin.calc.python.workbook_state import WorkbookState
-
-    active_sheet = doc.getCurrentController().getActiveSheet()
-    # Pass the spill registry key (RuntimeUID), like the real caller. A pooled doc can
-    # be a saved file, and its URL would not match, so the spill would be skipped.
-    st = WorkbookState.for_doc(doc)
-    assert st is not None
-    doc_url = st.key
-
-    # Simulate user typing a formula into A1
-    active_sheet.getCellByPosition(0, 0).setFormula('=PY("result = [1, 2, 3]")')
-    um = doc.getUndoManager()
-    if um is not None:
-        um.enterUndoContext("Input")
-        um.leaveUndoContext()
-
-    titles_before = list(um.getAllUndoActionTitles()) if um else []
-
-    perform_deferred_spill(active_sheet.Name, 0, 0, [[1, 2], [3, 4]], doc=doc, sheet=active_sheet, code="result = [1, 2, 3]", key=doc_url)
-
-    assert active_sheet.getCellByPosition(1, 0).getValue() == 2.0
-    assert active_sheet.getCellByPosition(0, 1).getValue() == 3.0
-
-    titles_after = list(um.getAllUndoActionTitles()) if um else []
-    assert titles_after == titles_before, f"Deferred spill added extra undo actions: {titles_after} vs {titles_before}"
 

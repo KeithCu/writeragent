@@ -84,44 +84,6 @@ def test_grep_nearby_files_stop_before_file_hop_returns_user_stopped(
     mock_close.assert_not_called()
 
 
-def test_unscoped_post_executes_when_scope_is_cancelled() -> None:
-    from plugin.framework.queue_executor import MainThread
-    from plugin.framework.send_cancellation import (
-        SendCancellation,
-        _current_send_cancellation,
-    )
-
-    executor = MainThread()
-    scope = SendCancellation()
-    scope.cancel()
-
-    executed = []
-
-    def _cleanup():
-        executed.append(True)
-
-    token = _current_send_cancellation.set(scope)
-    try:
-        with (
-            patch("plugin.framework.thread_guard.get_background_task_name", return_value="worker-test"),
-            patch.object(executor, "_get_async_callback", return_value=MagicMock()),
-            patch.object(executor, "_poke_main_thread", lambda: None),
-        ):
-            # Default post uses current cancelled scope, which drops it
-            dropped = []
-            executor.post(lambda: dropped.append(True))
-            assert executor.pending_work_count() == 1
-            executor.process_queue()
-            assert not dropped, "Work bound to cancelled scope should have been skipped"
-
-            # Unscoped post (bound_scope=None) is NOT dropped
-            executor.post(_cleanup, bound_scope=None)
-            assert executor.pending_work_count() == 1
-            executor.process_queue()
-            assert executed == [True], "Unscoped cleanup work must execute even if turn scope is cancelled"
-    finally:
-        _current_send_cancellation.reset(token)
-
 @patch("plugin.doc.document_research_grep._grep_text_in_calc")
 @patch("plugin.doc.document_research_grep.close_document_research_document")
 @patch("plugin.doc.document_research_grep.open_document_for_read")

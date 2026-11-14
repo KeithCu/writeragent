@@ -991,3 +991,18 @@ def test_range_export_skips_flat_odf_when_no_autostyle():
     autostyle_mock2.assert_called_once_with(temp_doc2)
     assert '<p data-lo-style="Standard" data-lo-para="color:red">Hello</p>' in out_auto
 
+
+def test_stripping():
+    from plugin.writer.html_export import strip_html_boilerplate
+
+    # Full HTML document stripping
+    inp = '<html><head><style>body { color: red; }</style></head><body lang="en-US"><h1>Hello</h1><p>World</p></body></html>'
+    expected = '<h1>Hello</h1><p>World</p>'
+    result = strip_html_boilerplate(inp)
+    assert result == expected
+
+    # Upper case tags
+    inp = '<BODY>Upper Case</BODY>'
+    expected = 'Upper Case'
+    result = strip_html_boilerplate(inp)
+    assert result == expected

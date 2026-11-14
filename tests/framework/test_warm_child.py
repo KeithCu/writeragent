@@ -646,8 +646,6 @@ def test_process_worker_respawn_interrupted_drops_child(monkeypatch: pytest.Monk
 def test_supervisor_is_one_process_global() -> None:
     import importlib.machinery
     import importlib.util
-    import sys
-
     from plugin.framework.warm_child import supervisor
 
     assert supervisor is sys._writeragent_warm_child_supervisor
@@ -801,8 +799,6 @@ def test_spawn_timeout_kills_a_child_that_appears_after_the_waiter_left(
 
 
 def test_spawn_request_give_up_after_finish_returns_false_and_does_not_kill() -> None:
-    from plugin.framework.warm_child import _SpawnRequest
-
     kill_called = False
 
     class _FakeProc:
@@ -827,8 +823,6 @@ def test_spawn_request_give_up_after_finish_returns_false_and_does_not_kill() ->
 
 
 def test_spawn_request_finish_after_give_up_kills_child() -> None:
-    from plugin.framework.warm_child import _SpawnRequest
-
     kill_called = False
 
     class _FakeProc:
@@ -857,8 +851,6 @@ def test_spawn_request_finish_after_give_up_kills_child() -> None:
 
 
 def test_spawn_request_finish_without_popen_does_not_kill() -> None:
-    from plugin.framework.warm_child import _SpawnRequest
-
     managed = ManagedSubprocess([sys.executable, "-c", "pass"], register=False)
     assert managed.popen is None
     req = _SpawnRequest(managed)
@@ -899,3 +891,52 @@ def test_spawner_skips_start_for_abandoned_request(monkeypatch: pytest.MonkeyPat
     _wait_until(time.monotonic() + 1.0, lambda: sup._spawn_queue.empty())
     assert starts == ["first"]
     sup.shutdown_all()
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX process groups")
+def test_child_signal_kills_grandchild() -> None:
+    code = (
+        "import os, sys, time\n"
+        "pid = os.fork()\n"
+        "if pid == 0:\n"
+        "    time.sleep(120)\n"
+        "    os._exit(0)\n"
+        "sys.stdout.write('GRANDCHILD %s\\n' % pid)\n"
+        "sys.stdout.flush()\n"
+        "time.sleep(120)\n"
+    )
+    managed = ManagedSubprocess([sys.executable, "-c", code])
+    managed.start()
+    child = Child(managed, worker_name="Formula", worker_id=1)
+    gpid: int | None = None
+    try:
+        assert managed.stdout is not None
+        line = managed.stdout.readline()
+        text = line.decode()
+        assert text.startswith("GRANDCHILD "), text
+        gpid = int(text.split()[1])
+
+        leader_pid = managed.pid
+        assert leader_pid is not None
+        assert os.getpgid(leader_pid) == leader_pid
+
+        assert child.signal_from() is True
+
+        def _is_alive(pid: int) -> bool:
+            try:
+                os.kill(pid, 0)
+                return True
+            except OSError:
+                return False
+
+        deadline = time.monotonic() + 5.0
+        while time.monotonic() < deadline and _is_alive(gpid):
+            time.sleep(0.05)
+        assert not _is_alive(gpid), f"grandchild {gpid} was still alive after 5s"
+    finally:
+        if gpid is not None:
+            try:
+                os.kill(gpid, signal.SIGKILL)
+            except OSError:
+                pass
+        managed.kill_tree()

@@ -805,16 +805,16 @@ def test_ensure_persistence_bound_uses_only_open_writer() -> None:
         gp.grammar_registry.clear_all()
 
 
-def test_ensure_persistence_bound_does_not_guess_among_writers() -> None:
-    """Several open Writers and a non-RuntimeUID key is not a bind."""
+@pytest.mark.parametrize("writer_count", [0, 2])
+def test_ensure_persistence_bound_does_not_guess_or_bind_without_unique_writer(writer_count: int) -> None:
+    """Zero or several open Writers with a non-RuntimeUID key must not register a bind."""
     from plugin.writer.locale import grammar_persistence as gp
 
     ctx = MagicMock()
-    first = _writer_model()
-    second = _writer_model()
+    writers = [_writer_model() for idx in range(writer_count)]
     enum = MagicMock()
-    enum.hasMoreElements.side_effect = [True, True, False]
-    enum.nextElement.side_effect = [first, second]
+    enum.hasMoreElements.side_effect = [True] * writer_count + [False]
+    enum.nextElement.side_effect = writers
     desktop = MagicMock()
     desktop.getCurrentComponent.return_value = None
     desktop.getComponents.return_value.createEnumeration.return_value = enum
@@ -826,30 +826,8 @@ def test_ensure_persistence_bound_does_not_guess_among_writers() -> None:
             patch("plugin.framework.uno_context.get_runtime_uid", return_value=""),
         ):
             proofreader._ensure_persistence_bound(ctx, "2")
+        assert gp.get_document_model_for_id("2") is None
         assert "2" not in gp.grammar_registry.doc_persistence_instances
-    finally:
-        gp.grammar_registry.clear_all()
-
-
-def test_ensure_persistence_bound_returns_when_no_writer() -> None:
-    """No model is not an error, and it must not register an unbound instance."""
-    from plugin.writer.locale import grammar_persistence as gp
-
-    ctx = MagicMock()
-    desktop = MagicMock()
-    desktop.getCurrentComponent.return_value = None
-    enum = MagicMock()
-    enum.hasMoreElements.return_value = False
-    desktop.getComponents.return_value.createEnumeration.return_value = enum
-    gp.grammar_registry.clear_all()
-    try:
-        with (
-            patch("plugin.framework.queue_executor.main.is_current", return_value=True),
-            patch("plugin.framework.uno_context.get_desktop", return_value=desktop),
-        ):
-            proofreader._ensure_persistence_bound(ctx, "9")
-        assert gp.get_document_model_for_id("9") is None
-        assert "9" not in gp.grammar_registry.doc_persistence_instances
     finally:
         gp.grammar_registry.clear_all()
 
@@ -1096,21 +1074,35 @@ def test_ensure_persistence_bound_prioritizes_runtime_uid_over_current_component
     finally:
         gp.grammar_registry.clear_all()
 
-def test_ignore_rule_fails_loudly_when_doc_id_unresolved(mock_config_fixture, mock_locale_fixture) -> None:
+@pytest.mark.parametrize(
+    ("method_name", "use_locale", "on_main_target", "msg_prefix"),
+    [
+        pytest.param(
+            "ignoreRule",
+            True,
+            "plugin.writer.locale.ai_grammar_proofreader._ignore_rule_on_main",
+            "ignoreRule",
+            id="ignoreRule",
+        ),
+        pytest.param(
+            "resetIgnoreRules",
+            False,
+            "plugin.writer.locale.ai_grammar_proofreader._reset_ignore_rules_on_main",
+            "resetIgnoreRules",
+            id="resetIgnoreRules",
+        ),
+    ],
+)
+def test_ignore_api_fails_loudly_when_doc_id_unresolved(
+    mock_config_fixture, mock_locale_fixture, method_name: str, use_locale: bool, on_main_target: str, msg_prefix: str
+) -> None:
     pr = _make_proofreader()
-    with patch("plugin.writer.locale.ai_grammar_proofreader._ignore_rule_on_main") as mock_ignore, \
+    args = ("test-rule", mock_locale_fixture) if use_locale else ()
+    with patch(on_main_target) as mock_on_main, \
          patch.object(pr, "_resolve_doc_id_for_ignore", return_value=None):
-        with pytest.raises(RuntimeError, match="ignoreRule failed: no active document found"):
-            pr.ignoreRule("test-rule", mock_locale_fixture)
-    mock_ignore.assert_not_called()
-
-def test_reset_ignore_rules_fails_loudly_when_doc_id_unresolved(mock_config_fixture) -> None:
-    pr = _make_proofreader()
-    with patch("plugin.writer.locale.ai_grammar_proofreader._reset_ignore_rules_on_main") as mock_reset, \
-         patch.object(pr, "_resolve_doc_id_for_ignore", return_value=None):
-        with pytest.raises(RuntimeError, match="resetIgnoreRules failed: no active document found"):
-            pr.resetIgnoreRules()
-    mock_reset.assert_not_called()
+        with pytest.raises(RuntimeError, match=f"{msg_prefix} failed: no active document found"):
+            getattr(pr, method_name)(*args)
+    mock_on_main.assert_not_called()
 
 def test_enqueue_misses_persists_identity_from_active_provider(mock_config_fixture, mock_locale_fixture, mock_queue_fixture) -> None:
     pr = _make_proofreader()

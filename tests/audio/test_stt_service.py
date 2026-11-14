@@ -78,7 +78,7 @@ def test_stt_controls_enabled_matches_provider() -> None:
     assert stt_service.stt_controls_enabled("") == (True, False)
 
 
-def test_missing_schema_key_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_missing_schema_key_raises_config_error(monkeypatch: pytest.MonkeyPatch) -> None:
     def boom(key: str) -> str:
         del key
         raise ConfigError("missing")

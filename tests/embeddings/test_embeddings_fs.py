@@ -12,13 +12,6 @@ from pathlib import Path
 import pytest
 
 from plugin.embeddings import embeddings_fs
-from plugin.framework.url_utils import path_to_file_url
-
-
-def test_path_to_file_url_uses_three_slashes_on_unix():
-    url = path_to_file_url("/home/user/Writing/Test.odt")
-    assert url.startswith("file:///")
-    assert url.endswith("/home/user/Writing/Test.odt") or "Writing" in url
 
 
 def test_embeddings_fs_import_stays_uno_free():

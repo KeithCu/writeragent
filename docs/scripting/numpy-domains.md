@@ -59,7 +59,7 @@ Helpers that need a missing package return `MISSING_PACKAGE` with the install li
 - **Showcase Demo (Pretty Dashboard & Executive Layout):** [`tests/fixtures/python_showcase_demo.ods`](../../tests/fixtures/python_showcase_demo.ods) / [`python_showcase_demo.xlsx`](../../tests/fixtures/python_showcase_demo.xlsx) ([`docs/python-in-calc-showcase.md`](python-in-calc-showcase.md)). Modern styled executive dashboard with KPI cards, formatted tables, live `=PY()` / `=PYTHON()` formulas across Sales, Marketing ML, Time Series Forecasting, Portfolio Optimization, Engineering Units, Plot Gallery, and **SQL/DuckDB** (SQL only in cells; RESULTS are a short `=PY()` that reads an explicit SQL cell/range as `data[1]` plus named-range identity as `data[0]`; sheet-only uses `session_duckdb()`; sibling ACS `zip_income.csv` join is live `run_sql` + `scoped_dir`). XLSX named ranges are absolute (`Sales_Analytics!$A$4:$J$39`) so `=PY()` does not pack a calling-cell-shifted `data[0]`. Both formats share the same standard-sheet chrome (title `📊 {Sheet} — {sub}`, blank row 2, section banner row 3, data header / named-range anchors at row 4 — `A4:J39` / `A4:G24`). ODS formulas use single-pass OpenFormula conversion (`[$Sheet.A4:.I39]`) plus TableColumn / TableRow sizes and `table:covered-table-cell` after each `number-columns-spanned` so headed Calc keeps Overview KPI cards and the capability matrix (odfpy spans alone collapse later cells into column A). Spacer rows are a string-typed empty cell with `use-optimal-row-height=false` so headed Calc keeps blank R2 (a void `<table:table-cell/>` was still dropped: section landed on R2, `Order_ID` on R3, named `A4` started on ORD-1001). Regenerate via `python scripts/generate_pretty_demo_spreadsheet.py --format all` (also copies [`zip_income.csv`](../../tests/fixtures/zip_income.csv)).
 - **Manual QA Test Fixture:** [`tests/fixtures/numpy_domains_demo.ods`](../../tests/fixtures/numpy_domains_demo.ods) ([`numpy_domains_demo.README.md`](../../tests/fixtures/numpy_domains_demo.README.md)). Native ODS preserving uppercase `=PYTHON()` add-in tokens for automated test validation. Regenerate via `python scripts/generate_numpy_domains_demo_spreadsheet.py`.
 
-Case definitions: [`tests/calc/numpy_domains_demo_cases.py`](../../tests/calc/numpy_domains_demo_cases.py).
+Case definitions: [`scripts/numpy_domains_demo_cases.py`](../../scripts/numpy_domains_demo_cases.py).
 
 ### Planned domain package groups {#planned-domain-package-groups}
 
@@ -357,7 +357,7 @@ Optional second table `all_scores` (truncated) for debugging — keep behind `pa
 | [`plugin/scripting/forecast.py`](../../plugin/scripting/forecast.py) | Add to `HELPER_NAMES`, `_DEFAULT_PARAMS`, template |
 | [`plugin/scripting/venv/forecast.py`](../../plugin/scripting/venv/forecast.py) | Implement helper + `_dispatch_helper` branch |
 | [`tests/scripting/test_forecast.py`](../../tests/scripting/test_forecast.py) | Inject one obvious spike in `FORECAST_GRID`; assert flagged |
-| [`tests/calc/numpy_domains_demo_cases.py`](../../tests/calc/numpy_domains_demo_cases.py) | Third forecast case + regenerate ODS |
+| [`scripts/numpy_domains_demo_cases.py`](../../scripts/numpy_domains_demo_cases.py) | Third forecast case + regenerate ODS |
 
 **Do not** document cross-sectional `detect_outliers` as time-series anomalies — that was the Phase 0 doc drift risk.
 

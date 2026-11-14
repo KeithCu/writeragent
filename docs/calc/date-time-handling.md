@@ -124,7 +124,7 @@ The end-to-end date/time architecture consists of three synchronized phases:
 | MCP `range` string\|array widen | Done | [`plugin/framework/tool_schema.py`](../../plugin/framework/tool_schema.py) `to_mcp_schema` (array-typed tools only; OpenAI stays array) |
 | `number_format` omitted from LLM `set_style` (script-only) | Done | [`plugin/calc/cells.py`](../../plugin/calc/cells.py), [`plugin/framework/tool.py`](../../plugin/framework/tool.py) |
 | Write-tool ISO guidance | Done | [`plugin/calc/cells.py`](../../plugin/calc/cells.py) `WriteCellRange.description` |
-| Unit / UNO tests (core path) | Done | [`tests/calc/test_datetime_serial.py`](../../tests/calc/test_datetime_serial.py), [`tests/calc/test_cells_uno.py`](../../tests/calc/test_cells_uno.py) |
+| Unit / UNO tests (core path) | Done | [`tests/calc/test_datetime_wire.py`](../../tests/calc/test_datetime_wire.py), [`tests/calc/test_cells_uno.py`](../../tests/calc/test_cells_uno.py) |
 | Extra edge-case UNO coverage | Done | [`tests/calc/test_cells_uno.py`](../../tests/calc/test_cells_uno.py) (S15, S25, S29 invalid day, NullDate, P1 inherit); S30 message in [`tests/calc/test_cells.py`](../../tests/calc/test_cells.py) |
 | Product expansions (§5.7 deferred) | Not started | locale display forms, offsets, `=PY`, etc. |
 
@@ -873,7 +873,7 @@ Dates detect as ISO everywhere, but `en-US` times detect as `HH:MM:SS AM/PM`. Pe
 
 ## 7. Testing Strategy & Verification Plan
 
-### 7.1 Unit Tests (`tests/calc/test_datetime_serial.py` — shipped)
+### 7.1 Unit Tests (`tests/calc/test_datetime_wire.py` — shipped)
 
 The gate and M1/elapsed helpers are pure pytest. Conversion stays in UNO tests.
 

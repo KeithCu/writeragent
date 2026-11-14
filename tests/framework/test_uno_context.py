@@ -7,7 +7,16 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from plugin.framework.uno_context import get_ctx, get_extension_url, set_fallback_ctx
+from plugin.framework.doc_type import DocumentType
+from plugin.framework.errors import DocumentDisposedError
+from plugin.framework.uno_context import (
+    get_ctx,
+    get_extension_url,
+    get_runtime_uid,
+    normalize_doc_url,
+    resolve_document_by_url,
+    set_fallback_ctx,
+)
 
 
 def test_get_ctx_with_uno():
@@ -802,4 +811,213 @@ def test_desktop_create_is_unsafe_for_uno_bin_helper() -> None:
             assert not desktop_create_is_unsafe()
     finally:
         reset_desktop_create_is_unsafe_for_tests()
+
+
+def test_normalize_doc_url():
+    assert normalize_doc_url("file:///test/") == "file:///test"
+    assert normalize_doc_url("file:///test") == "file:///test"
+    assert normalize_doc_url("") == ""
+    assert normalize_doc_url(None) == ""
+
+
+# RuntimeUID targeting lets a caller address a document that has no file URL yet
+# (unsaved/untitled), which the URL-only matcher could not reach. UNO is mocked
+# here; the live UNO path is exercised by the MCP integration run.
+def _resolve_model(url, uid):
+    m = MagicMock()
+    m.getURL.return_value = url
+    m.RuntimeUID = uid
+    return m
+
+
+def _resolve_by_url(models, target, type_map=None):
+    """Run resolve_document_by_url over *models* with UNO desktop/enumeration mocked."""
+    type_map = type_map or {}
+    desktop = MagicMock()
+
+    def make_enum(*_a, **_k):
+        pending = list(models)
+        enum = MagicMock()
+        enum.hasMoreElements.side_effect = lambda: len(pending) > 0
+        enum.nextElement.side_effect = lambda: pending.pop(0)
+        return enum
+
+    desktop.getComponents.return_value.createEnumeration.side_effect = make_enum
+    with patch("plugin.framework.uno_context.get_desktop", return_value=desktop), \
+         patch("plugin.framework.doc_type.get_document_type",
+               side_effect=lambda m: type_map.get(m, DocumentType.WRITER)):
+        return resolve_document_by_url(MagicMock(), target)
+
+
+def test_match_by_url_regression():
+    a = _resolve_model("file:///docs/a.odt", "uid-a")
+    b = _resolve_model("file:///docs/b.ods", "uid-b")
+    doc, doc_type = _resolve_by_url([a, b], "file:///docs/a.odt")
+    assert doc is a
+    assert doc_type == "writer"
+
+
+def test_match_by_url_doc_type_calc():
+    b = _resolve_model("file:///docs/b.ods", "uid-b")
+    doc, doc_type = _resolve_by_url([b], "file:///docs/b.ods", type_map={b: DocumentType.CALC})
+    assert doc is b
+    assert doc_type == "calc"
+
+
+def test_match_via_getController_getModel_branch():
+    # An enumerated element that exposes getController().getModel() (a frame) instead of getURL
+    # directly -- the desktop-enumeration path the URL/uid mocks otherwise skip.
+    inner = _resolve_model("file:///docs/c.odt", "uid-c")
+    frame = MagicMock(spec=["getController"])  # no getURL attr -> forces the getController branch
+    frame.getController.return_value.getModel.return_value = inner
+    doc, doc_type = _resolve_by_url([frame], "file:///docs/c.odt")
+    assert doc is inner
+    assert doc_type == "writer"
+
+
+def test_match_by_uid_when_target_is_not_a_url():
+    a = _resolve_model("file:///docs/a.odt", "uid-a")
+    b = _resolve_model("file:///docs/b.ods", "uid-b")
+    doc, _ = _resolve_by_url([a, b], "uid-b")
+    assert doc is b
+
+
+def test_match_unsaved_doc_by_uid():
+    # An unsaved doc (no URL) is reachable only via its RuntimeUID.
+    saved = _resolve_model("file:///docs/a.odt", "uid-a")
+    untitled = _resolve_model("", "uid-untitled")
+    doc, _ = _resolve_by_url([saved, untitled], "uid-untitled")
+    assert doc is untitled
+
+
+def test_no_match_returns_none():
+    a = _resolve_model("file:///docs/a.odt", "uid-a")
+    assert _resolve_by_url([a], "file:///docs/nope.odt") == (None, None)
+    assert _resolve_by_url([a], "uid-does-not-exist") == (None, None)
+
+
+def test_disposed_element_does_not_hide_a_later_match():
+    class DisposedException(Exception):
+        pass
+
+    bad = MagicMock()
+    bad.getURL.side_effect = DisposedException("gone")
+    good = _resolve_model("file:///docs/a.odt", "uid-a")
+    doc, doc_type = _resolve_by_url([bad, good], "file:///docs/a.odt")
+    assert doc is good
+    assert doc_type == "writer"
+
+
+def test_stuck_next_element_does_not_spin():
+    """A nextElement that raises without advancing must not spin the walk.
+
+    The old mock popped before it raised, so hasMoreElements() went false
+    and never saw a UNO enumeration that stays true after a failed fetch.
+    """
+    class StuckEnumException(Exception):
+        pass
+
+    calls = {"next": 0, "more": 0}
+
+    def has_more():
+        calls["more"] += 1
+        # Bound the mock. Production must stop; this only keeps a regression
+        # from hanging the suite if the walk continues forever.
+        if calls["more"] > 8:
+            raise AssertionError("resolve_document_by_url did not stop")
+        return True
+
+    def next_elem():
+        calls["next"] += 1
+        raise StuckEnumException("stuck frame")
+
+    desktop = MagicMock()
+    enum = MagicMock()
+    enum.hasMoreElements.side_effect = has_more
+    enum.nextElement.side_effect = next_elem
+    desktop.getComponents.return_value.createEnumeration.return_value = enum
+    with patch("plugin.framework.uno_context.get_desktop", return_value=desktop):
+        assert resolve_document_by_url(MagicMock(), "file:///docs/a.odt") == (None, None)
+    assert calls["next"] == 1
+
+
+def test_resolve_reraises_when_desktop_is_disposed():
+    class DisposedException(Exception):
+        pass
+
+    with patch("plugin.framework.uno_context.get_desktop", side_effect=DisposedException("dead")):
+        with pytest.raises(DocumentDisposedError):
+            resolve_document_by_url(MagicMock(), "file:///tmp/note.odt")
+
+
+def test_resolve_does_not_spin_on_a_magicmock_enumeration():
+    """MagicMock.hasMoreElements() is truthy forever. The loop must stop."""
+    desktop = MagicMock()
+    with patch("plugin.framework.uno_context.get_desktop", return_value=desktop):
+        assert resolve_document_by_url(MagicMock(), "file:///tmp/note.odt") == (None, None)
+
+
+def test_resolve_returns_none_when_desktop_is_missing():
+    with patch("plugin.framework.uno_context.get_desktop", return_value=None):
+        assert resolve_document_by_url(MagicMock(), "file:///tmp/note.odt") == (None, None)
+
+
+def test_empty_inputs_never_match():
+    # Empty target short-circuits; an empty uid/url must never match anything.
+    assert resolve_document_by_url(MagicMock(), "") == (None, None)
+    blank = _resolve_model("", "")
+    assert _resolve_by_url([blank], "anything") == (None, None)
+
+
+def test_resolve_reraises_when_enumeration_is_disposed():
+    class DisposedException(Exception):
+        pass
+
+    desktop = MagicMock()
+    enum = MagicMock()
+    enum.hasMoreElements.side_effect = DisposedException("enum dead")
+    desktop.getComponents.return_value.createEnumeration.return_value = enum
+    with patch("plugin.framework.uno_context.get_desktop", return_value=desktop):
+        with pytest.raises(DocumentDisposedError):
+            resolve_document_by_url(MagicMock(), "file:///tmp/note.odt")
+
+
+def test_get_runtime_uid_present_missing_and_error():
+    present = type("M", (), {"RuntimeUID": "abc"})()
+    assert get_runtime_uid(present) == "abc"
+
+    missing = MagicMock(spec=[])  # no RuntimeUID attribute at all
+    assert get_runtime_uid(missing) == ""
+
+    class Boom:
+        @property
+        def RuntimeUID(self):  # e.g. a disposed UNO object
+            raise RuntimeError("disposed")
+
+    assert get_runtime_uid(Boom()) == ""
+
+
+def test_resolve_reraises_when_next_element_is_disposed():
+    class DisposedException(Exception):
+        pass
+
+    calls = {"next": 0, "more": 0}
+
+    def has_more():
+        calls["more"] += 1
+        return True
+
+    def next_elem():
+        calls["next"] += 1
+        raise DisposedException("com.sun.star.lang.DisposedException: frame dead")
+
+    desktop = MagicMock()
+    enum = MagicMock()
+    enum.hasMoreElements.side_effect = has_more
+    enum.nextElement.side_effect = next_elem
+    desktop.getComponents.return_value.createEnumeration.return_value = enum
+    with patch("plugin.framework.uno_context.get_desktop", return_value=desktop):
+        with pytest.raises(DocumentDisposedError):
+            resolve_document_by_url(MagicMock(), "file:///docs/a.odt")
+    assert calls["next"] == 1
 

@@ -423,8 +423,8 @@ def test_text_score_zero_is_its_own_cache_key():
     assert missing == default == blank
     assert zero == zero_int == zero_str
     assert zero != default
-    assert docling_mod.DoclingPipelineParams.from_params({"text_score": 0.0}).text_score == 0.0
-    assert docling_mod.DoclingPipelineParams.from_params({}).text_score == 0.5
+    assert zero.text_score == 0.0
+    assert missing.text_score == 0.5
 
 
 def test_converter_cache_does_not_reuse_default_for_text_score_zero():
