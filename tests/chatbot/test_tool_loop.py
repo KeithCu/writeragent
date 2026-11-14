@@ -394,9 +394,11 @@ def test_multiple_tool_calls_ordering_and_ids(mock_update_activity, mock_get_con
     panel._start_tool_calling_async(client, model="mock-model", max_tokens=100, tools=[], execute_tool_fn=execute_tool_mock, max_tool_rounds=10)
 
     assert len(results) == 4
+    assert execution_order == ["tool_one", "tool_two"]
 
     # Verify it added tool result to session
     assert len(session.messages) == 3
+    assert session.messages[1]["tool_call_id"] == "call_1"
     assert session.messages[2]["role"] == "tool"
     assert session.messages[2]["tool_call_id"] == "call_2"
 

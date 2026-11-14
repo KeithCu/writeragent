@@ -163,7 +163,6 @@ def test_audio_recorder_multiple_sessions(recording_mocks):
 
         assert first == paths[0]
         assert second == paths[1]
-        assert first != second
 
 
 @needs_test_hooks

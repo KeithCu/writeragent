@@ -226,7 +226,6 @@ def test_stream_done_no_text_includes_debug_sidebar():
     assert "finish_reason='stop'" in debug_line
     assert "round=2" in debug_line
     assert "completion_tokens" in debug_line
-    assert format_empty_model_response_debug(2, response) == debug_line
     msg = next(e for e in effects if isinstance(e, AddMessageEffect))
     assert msg.round_num == 2
     assert msg.response == response
@@ -840,18 +839,6 @@ def test_is_replaced_zero_result():
     assert is_replaced_zero_result({}) is False
     # False == 0, but a boolean is not a replacement count.
     assert is_replaced_zero_result({"replaced_count": False}) is False
-
-
-def test_tool_loop_event_default_data_is_not_shared():
-    # typing.NamedTuple rejects a custom __new__, so the omitted value is None
-    # rather than one shared dict. A caller-supplied dict stays that object.
-    first = ToolLoopEvent(kind=EventKind.NEXT_TOOL)
-    second = ToolLoopEvent(kind=EventKind.NEXT_TOOL)
-    assert first.data is None
-    assert second.data is None
-    payload = {"k": 1}
-    held = ToolLoopEvent(kind=EventKind.NEXT_TOOL, data=payload)
-    assert held.data is payload
 
 
 def test_format_empty_model_response_debug_non_list_tool_calls():

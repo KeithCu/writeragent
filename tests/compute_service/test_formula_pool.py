@@ -892,7 +892,8 @@ class TestFormulaPoolSupervisor:
         from compute_service.formula_worker import _handle_request
 
         plain = decode_result_json(_handle_request({"id": "data-field", "code": "result = data", "data": [1, 2, 3]}))
-        assert plain.get("result") != [1, 2, 3]
+        assert plain.get("status") == "ok"
+        assert plain.get("result") is None
 
     def test_worker_error_omits_traceback(self) -> None:
         from compute_service.formula_worker import _handle_request

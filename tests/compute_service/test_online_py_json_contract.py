@@ -64,11 +64,8 @@ class TestOnlinePyJsonContract:
     def test_ragged_grid_errors(self) -> None:
         out = _execute_code("result = [[1, 2], [3]]")
         json.dumps(out, allow_nan=False)
-        if out["status"] == "ok":
-            # Service currently pads or passes through; must stay JSON-serializable.
-            assert out["result"] == [[1, 2], [3]] or out["result"] == [[1, 2], [3, None]]
-        else:
-            assert out.get("error")
+        assert out["status"] == "ok"
+        assert out["result"] == [[1, 2], [3]]
 
     def test_1d_list_for_row_vector(self) -> None:
         out = _execute_code("import numpy as np\nresult = np.array([10, 20, 30])")

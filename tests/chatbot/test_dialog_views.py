@@ -263,7 +263,7 @@ class TestEndpointCombinedListener:
         combo = MagicMock()
         combo.getText.return_value = 'http://localhost:1a'
         listener = EndpointCombinedListener(dialog, ctx, combo)
-        with patch("plugin.chatbot.dialog_views.run_in_background", side_effect=lambda fn, name=None: fn()), \
+        with patch("plugin.chatbot.dialog_views.run_in_background", side_effect=lambda fn, name=None: fn()) as mock_bg, \
              patch("plugin.framework.queue_executor.main.post", side_effect=lambda fn: fn()), \
              patch("plugin.chatbot.dialog_views.settings_catalog_is_warm", return_value=False):
             listener._schedule_debounced_models_fetch()
@@ -273,6 +273,7 @@ class TestEndpointCombinedListener:
             finally:
                 if listener._timer is not None:
                     listener._timer.cancel()
+        mock_bg.assert_called_once()
 
     def test_apply_dropdowns_openrouter_stt_uses_transcription_models(self):
         from plugin.chatbot.dialog_views import EndpointCombinedListener
@@ -299,7 +300,6 @@ class TestEndpointCombinedListener:
 
         speech_ids = ['mistralai/voxtral-mini-transcribe', 'openai/whisper-large-v3']
         with patch('plugin.chatbot.dialog_views.get_optional', side_effect=get_optional_side_effect), \
-             patch('plugin.framework.config.get_config', return_value='endpoint'), \
              patch('plugin.framework.config.get_config', return_value=''), \
              patch('plugin.framework.config.get_current_endpoint', return_value='http://localhost:11434'), \
              patch('plugin.chatbot.dialog_views.cached_stt_models', side_effect=lambda endpoint, api_key_override=None: list(speech_ids)), \
@@ -963,7 +963,6 @@ def test_sync_api_key_keeps_typed_key_when_url_changes() -> None:
             # posts into main during a later test on this worker.
             listener.close()
     mock_set.assert_not_called()
-    assert api.getText.return_value == "sk-pasted"
 
 
 def test_sync_api_key_preset_loads_saved_key() -> None:
@@ -1061,8 +1060,7 @@ def test_apply_dropdowns_updates_tts_combobox() -> None:
 
     with patch("plugin.chatbot.dialog_views.get_optional", side_effect=get_optional_side_effect):
         speech_ids = ["hexgrad/kokoro-82m", "microsoft/mai-voice-2"]
-        with patch("plugin.framework.config.get_config", return_value="endpoint"), \
-             patch("plugin.framework.config.get_config", return_value=""), \
+        with patch("plugin.framework.config.get_config", return_value=""), \
              patch("plugin.framework.config.get_current_endpoint", return_value="https://openrouter.ai/api"), \
              patch("plugin.chatbot.dialog_views.cached_tts_models", side_effect=lambda endpoint, api_key_override=None: list(speech_ids)), \
              patch("plugin.chatbot.dialog_views.populate_combobox_with_lru", side_effect=track_populate):
@@ -2012,7 +2010,6 @@ def test_api_key_keystroke_does_not_write_and_warm_open_does_not_fetch():
                  patch("plugin.chatbot.dialog_views.get_optional", side_effect=get_optional_side_effect), \
                  patch("plugin.chatbot.dialog_views.set_control_text") as mock_set, \
                  patch("plugin.chatbot.dialog_views.get_control_text", return_value=key), \
-                 patch("plugin.framework.config.save") as set_config, \
                  patch("plugin.framework.config.save") as save, \
                  patch("plugin.framework.config.set_api_key_for_endpoint") as set_api:
                 listener._schedule_debounced_models_fetch()
@@ -2020,7 +2017,6 @@ def test_api_key_keystroke_does_not_write_and_warm_open_does_not_fetch():
                 listener.textChanged(MagicMock())
                 assert fetches == []
                 mock_sync.assert_not_called()
-                set_config.assert_not_called()
                 save.assert_not_called()
                 set_api.assert_not_called()
                 mock_set.assert_not_called()

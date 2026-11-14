@@ -107,8 +107,6 @@ def test_core_field_specs_omit_stt_model():
     from plugin.chatbot.settings_dialog import _get_core_field_specs
 
     with (
-        patch("plugin.chatbot.settings_dialog.get_config", return_value=""),
-        patch("plugin.chatbot.settings_dialog.get_config", return_value=0),
         patch("plugin.chatbot.settings_dialog.get_config", return_value=0.0),
         patch("plugin.chatbot.settings_dialog.get_api_key_for_endpoint", return_value=""),
         patch("plugin.chatbot.settings_dialog.get_text_model", return_value=""),
