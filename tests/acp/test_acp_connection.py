@@ -164,10 +164,55 @@ class TestACPConnectionReaderExit:
             worker.join(timeout=2)
             reader.join(timeout=2)
 
+    def test_malformed_json_unblocks_in_flight_send_request(self):
+        conn = ACPConnection(cmd_line=["agent"])
+        release = threading.Event()
+        entered = threading.Event()
+        proc = _live_proc()
+        calls = {"n": 0}
+
+        def readline(limit: int = -1) -> bytes:
+            calls["n"] += 1
+            if calls["n"] == 1:
+                entered.set()
+                assert release.wait(timeout=2)
+                # Non-object JSON is skipped. The next readline is EOF,
+                # which ends the loop and must still unblock the prompt.
+                return b"[1, 2]\n"
+            return b""
+
+        proc.stdout.readline.side_effect = readline
+        conn._proc = proc
+        conn._running = True
+        reader = threading.Thread(target=conn._reader_loop, daemon=True)
+        reader.start()
+        assert entered.wait(timeout=2)
+        errors: list[BaseException] = []
+
+        def run() -> None:
+            try:
+                conn.send_request("session/prompt", {"sessionId": "s"}, timeout=30)
+            except Exception as exc:
+                errors.append(exc)
+
+        worker = threading.Thread(target=run)
+        worker.start()
+        try:
+            assert _wait_until(lambda: bool(conn._pending))
+            release.set()
+            worker.join(timeout=2)
+            _assert_prompt_unblocked(errors, worker)
+            assert "terminated" in str(errors[0]).lower()
+        finally:
+            release.set()
+            conn.stop()
+            worker.join(timeout=2)
+            reader.join(timeout=2)
+
     @pytest.mark.parametrize(
-        ("lines", "expect_eof_error"),
+        "lines",
         [
-            pytest.param([b"[1, 2]\n"], True, id="malformed_json_eof_unblocks"),
+            # Treating non-object JSON lines as dicts raises inside the loop and fails an in-flight prompt.
             pytest.param(
                 [
                     b"42\n",
@@ -177,9 +222,9 @@ class TestACPConnectionReaderExit:
                     b"[1, 2]\n",
                     b'{"jsonrpc": "2.0", "id": 1, "result": {"text": "kept-answer"}}\n',
                 ],
-                False,
                 id="non_object_json_skipped",
             ),
+            # Boolean ``true`` collides with integer id 1 and would steal the response if not rejected.
             pytest.param(
                 [
                     b'{"jsonrpc": "2.0", "id": true, "result": {"text": "stolen"}}\n',
@@ -187,13 +232,12 @@ class TestACPConnectionReaderExit:
                     b'{"jsonrpc": "2.0", "id": {"n": 1}, "result": {}}\n',
                     b'{"jsonrpc": "2.0", "id": 1, "result": {"text": "kept-answer"}}\n',
                 ],
-                False,
                 id="unhashable_id_skipped",
             ),
         ],
     )
-    def test_reader_handles_non_standard_json_lines(self, lines: list[bytes], expect_eof_error: bool):
-        """Non-object JSON and unhashable ids are skipped without killing the reader; EOF unblocks."""
+    def test_non_standard_json_skipped_while_prompt_in_flight(self, lines: list[bytes]):
+        """Non-object JSON and unhashable ids are skipped without killing the reader."""
         conn = ACPConnection(cmd_line=["agent"])
         release = threading.Event()
         entered = threading.Event()
@@ -209,9 +253,8 @@ class TestACPConnectionReaderExit:
             index = calls["n"] - 1
             if index < len(lines):
                 return lines[index]
-            if not expect_eof_error:
-                # Hold past the assertion so EOF cannot be what delivered the result.
-                assert done.wait(timeout=5)
+            # Hold past the assertion so EOF cannot be what delivered the result.
+            assert done.wait(timeout=5)
             return b""
 
         proc.stdout.readline.side_effect = readline
@@ -225,7 +268,7 @@ class TestACPConnectionReaderExit:
 
         def run() -> None:
             try:
-                results.append(conn.send_request("session/prompt", {"sessionId": "s"}, timeout=30 if expect_eof_error else 5))
+                results.append(conn.send_request("session/prompt", {"sessionId": "s"}, timeout=5))
             except Exception as exc:
                 errors.append(exc)
 
@@ -235,14 +278,10 @@ class TestACPConnectionReaderExit:
             assert _wait_until(lambda: bool(conn._pending))
             release.set()
             worker.join(timeout=2)
-            if expect_eof_error:
-                _assert_prompt_unblocked(errors, worker)
-                assert "terminated" in str(errors[0]).lower()
-            else:
-                assert worker.is_alive() is False
-                assert errors == []
-                assert results == [{"text": "kept-answer"}]
-                assert reader.is_alive()
+            assert worker.is_alive() is False
+            assert errors == []
+            assert results == [{"text": "kept-answer"}]
+            assert reader.is_alive()
         finally:
             done.set()
             release.set()

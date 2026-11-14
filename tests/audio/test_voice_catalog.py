@@ -22,57 +22,33 @@ def test_parse_catalog_non_object_raw():
         _parse_catalog(["not", "a", "dict"])
 
 
-def _del_piper(raw: dict) -> None:
-    del raw["piper"]
-
-
-def _del_piper_onnx(raw: dict) -> None:
-    del raw["piper"]["voices"][3]["onnx"]
-
-
-def _dup_kokoro_id(raw: dict) -> None:
-    raw["kokoro"]["voices"][1]["id"] = raw["kokoro"]["voices"][0]["id"]
-
-
-def _empty_kokoro_id(raw: dict) -> None:
-    raw["kokoro"]["voices"][0]["id"] = ""
-
-
-def _bad_fallback(raw: dict) -> None:
-    raw["kokoro"]["fallback_voice"] = "af_skyx"
-
-
-def _bad_locale_default(raw: dict) -> None:
-    raw["kokoro"]["locale_defaults"]["es"] = "ef_dorax"
-
-
-def _bad_alias_target(raw: dict) -> None:
-    raw["kokoro"]["openai_aliases"]["nova"] = "af_skyx"
-
-
 @pytest.mark.parametrize(
     ("mutator", "match"),
     [
-        pytest.param(_del_piper, r"^voice_catalog\.json: missing 'piper' object$", id="missing_family"),
-        pytest.param(_del_piper_onnx, r"piper\.voices\[3\].*onnx", id="piper_missing_onnx"),
-        pytest.param(_dup_kokoro_id, r"^voice_catalog\.json: kokoro\.voices\[1\] duplicate id '[^']+'$", id="duplicate_id"),
+        pytest.param(lambda r: r.pop("piper"), r"^voice_catalog\.json: missing 'piper' object$", id="missing_family"),
+        pytest.param(lambda r: r["piper"]["voices"][3].pop("onnx"), r"piper\.voices\[3\].*onnx", id="piper_missing_onnx"),
         pytest.param(
-            _empty_kokoro_id,
+            lambda r: r["kokoro"]["voices"][1].update(id=r["kokoro"]["voices"][0]["id"]),
+            r"^voice_catalog\.json: kokoro\.voices\[1\] duplicate id '{dup_id}'$",
+            id="duplicate_id",
+        ),
+        pytest.param(
+            lambda r: r["kokoro"]["voices"][0].update(id=""),
             r"^voice_catalog\.json: kokoro\.voices\[0\] field 'id' must be a non-empty string$",
             id="empty_id",
         ),
         pytest.param(
-            _bad_fallback,
+            lambda r: r["kokoro"].update(fallback_voice="af_skyx"),
             r"^voice_catalog\.json: kokoro\.fallback_voice -> 'af_skyx' is not a kokoro voice$",
             id="bad_fallback",
         ),
         pytest.param(
-            _bad_locale_default,
+            lambda r: r["kokoro"]["locale_defaults"].update(es="ef_dorax"),
             r"^voice_catalog\.json: kokoro\.locale_defaults\['es'\] -> 'ef_dorax' is not a kokoro voice$",
             id="bad_locale_default",
         ),
         pytest.param(
-            _bad_alias_target,
+            lambda r: r["kokoro"]["openai_aliases"].update(nova="af_skyx"),
             r"^voice_catalog\.json: kokoro\.openai_aliases\.nova -> 'af_skyx' is not a kokoro voice$",
             id="bad_alias_target",
         ),
@@ -81,5 +57,6 @@ def _bad_alias_target(raw: dict) -> None:
 def test_parse_catalog_rejects_invalid(mutator, match: str) -> None:
     mutated = copy.deepcopy(_load_catalog(CATALOG_PATH))
     mutator(mutated)
-    with pytest.raises(ValueError, match=match):
+    pattern = match.format(dup_id=mutated["kokoro"]["voices"][0]["id"])
+    with pytest.raises(ValueError, match=pattern):
         _parse_catalog(mutated)

@@ -39,7 +39,7 @@ def _job(out_path, **overrides: Any) -> dict[str, Any]:
 
 def _install_fake_kokoro(
     monkeypatch: pytest.MonkeyPatch,
-    voices: Any = ("af_bella", "am_adam"),
+    voices: Any = None,
     *,
     seen: list[dict] | None = None,
     inits: list[tuple[str, str]] | None = None,
@@ -50,7 +50,7 @@ def _install_fake_kokoro(
         def __init__(self, model_path: str, voices_path: str) -> None:
             if inits is not None:
                 inits.append((model_path, voices_path))
-            self.voices = list(voices) if isinstance(voices, tuple) else voices
+            self.voices = ["af_bella", "am_adam"] if voices is None else voices
 
         def create(self, text: str, voice: str, speed: float, lang: str, is_phonemes: bool = False):
             if seen is not None:
@@ -76,7 +76,7 @@ def _install_fake_kokoro(
 def test_handle_kokoro_job_loads_model_once(tmp_path, monkeypatch):
     inits: list[tuple[str, str]] = []
     seen: list[dict] = []
-    _install_fake_kokoro(monkeypatch, ["af_bella", "am_adam"], seen=seen, inits=inits, samples=[0.0, 6.0])
+    _install_fake_kokoro(monkeypatch, ["af_bella", "am_adam"], seen=seen, inits=inits)
     first = tmp_path / "a.wav"
     second = tmp_path / "b.wav"
     first_result = kokoro_worker.handle_kokoro_job(_job(first, text="Hello.", voice="af_bella"))
@@ -99,6 +99,8 @@ def test_handle_kokoro_job_loads_model_once(tmp_path, monkeypatch):
 @pytest.mark.parametrize(
     ("voices", "text", "voice", "lang", "misaki_prefix", "expected_call", "warning_substrings"),
     [
+        # Bella is listed first so a first-voice fallback would pick it. Sky is
+        # the preferred substitute when the requested id is missing from the pack.
         pytest.param(
             ["af_bella", "af_sky", "am_adam"],
             "Hi.",

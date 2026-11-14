@@ -481,12 +481,11 @@ def _sheet_insert_ctx(
     cell: Any = None,
     *,
     temp_path: str | list[str] = "/tmp/chart.svg",
-    file_url: str | list[str] | None = None,
     geometry: tuple[Any, Any] | Exception | None = None,
-    locate_cell: bool = True,
 ):
+    """Patch temp-file/UNO URL egress, optional cell location, and optional geometry (reuse skips geometry)."""
     with ExitStack() as stack:
-        if locate_cell and cell is not None:
+        if cell is not None:
             stack.enter_context(
                 patch(
                     "plugin.calc.python.image_egress.locate_formula_cell_in_doc",
@@ -494,31 +493,41 @@ def _sheet_insert_ctx(
                 )
             )
         if isinstance(temp_path, list):
-            urls = file_url if isinstance(file_url, list) else [f"file://{p}" for p in temp_path]
             stack.enter_context(
                 patch("plugin.calc.python.image_egress.write_image_payload_to_temp", side_effect=temp_path)
             )
-            stack.enter_context(patch("uno.systemPathToFileUrl", side_effect=urls))
+            stack.enter_context(patch("uno.systemPathToFileUrl", side_effect=[f"file://{p}" for p in temp_path]))
         else:
-            url = file_url if isinstance(file_url, str) else f"file://{temp_path}"
             stack.enter_context(
                 patch("plugin.calc.python.image_egress.write_image_payload_to_temp", return_value=temp_path)
             )
-            stack.enter_context(patch("uno.systemPathToFileUrl", return_value=url))
+            stack.enter_context(patch("uno.systemPathToFileUrl", return_value=f"file://{temp_path}"))
         if geometry is not None:
             geom_kw = {"side_effect": geometry} if isinstance(geometry, Exception) else {"return_value": geometry}
             stack.enter_context(patch("plugin.calc.python.image_egress.get_cell_geometry", **geom_kw))
         yield
 
 
-def _insert_at_cell(cell: CalcCellStub, page: _DrawPage, *, doc: MagicMock | None = None, image_index: int = 0) -> MagicMock:
-    target = doc or MagicMock(name="target")
+def _insert_at_cell(
+    cell: CalcCellStub,
+    page: _DrawPage,
+    *,
+    image_index: int = 0,
+    image_count: int | None = None,
+) -> MagicMock:
+    target = MagicMock(name="target")
     sheet = MagicMock()
     sheet.DrawPage = page
     target.getCurrentController.return_value = None
     with _sheet_insert_ctx(sheet, cell, geometry=(MagicMock(), MagicMock(Width=5000, Height=4000))):
         target.createInstance.return_value = MagicMock()
-        insert_image_result_on_sheet(_IMAGE_PAYLOAD, code="plt.show()", doc=target, image_index=image_index)
+        insert_image_result_on_sheet(
+            _IMAGE_PAYLOAD,
+            code="plt.show()",
+            doc=target,
+            image_index=image_index,
+            image_count=image_count,
+        )
     return target
 
 
@@ -618,13 +627,7 @@ def test_image_count_removes_higher_slot():
     other_plot = _AnchoredShape(_DRAW_GRAPHIC_SERVICE, f"{_PLOT_SHAPE_NAME_PREFIX}_2", other)
     page = _DrawPage([slot0, slot1, user_img, other_plot])
 
-    target = MagicMock(name="target")
-    sheet = MagicMock()
-    sheet.DrawPage = page
-    target.getCurrentController.return_value = None
-    with _sheet_insert_ctx(sheet, cell, geometry=(MagicMock(), MagicMock(Width=5000, Height=4000))):
-        target.createInstance.return_value = MagicMock()
-        insert_image_result_on_sheet(_IMAGE_PAYLOAD, code="plt.show()", doc=target, image_index=0, image_count=1)
+    _insert_at_cell(cell, page, image_index=0, image_count=1)
 
     assert slot1 not in page.shapes
     assert slot0 in page.shapes
@@ -1077,13 +1080,7 @@ def test_image_count_keeps_non_decimal_names():
 
     page = _DrawPage([slot0, slot2, slot10, junk_1_0, junk_plus, junk_02, junk_1, user_photo])
 
-    target = MagicMock(name="target")
-    sheet = MagicMock()
-    sheet.DrawPage = page
-    target.getCurrentController.return_value = None
-    with _sheet_insert_ctx(sheet, cell, geometry=(MagicMock(), MagicMock(Width=5000, Height=4000))):
-        target.createInstance.return_value = MagicMock()
-        insert_image_result_on_sheet(_IMAGE_PAYLOAD, code="plt.show()", doc=target, image_index=0, image_count=1)
+    _insert_at_cell(cell, page, image_index=0, image_count=1)
 
     assert slot2 not in page.shapes
     assert slot10 not in page.shapes
@@ -1514,7 +1511,7 @@ def test_new_shape_graphic_url_failure_without_target_cell_removes_shape():
     doc.createInstance.return_value = shape
 
     with (
-        _sheet_insert_ctx(temp_path="/tmp/fail.svg", locate_cell=False),
+        _sheet_insert_ctx(temp_path="/tmp/fail.svg"),
         pytest.raises(ImageEgressError, match="could not load image into graphic shape"),
     ):
         insert_image_result_on_sheet(_IMAGE_PAYLOAD, doc=doc, image_index=0)
