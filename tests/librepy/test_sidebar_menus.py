@@ -372,7 +372,7 @@ def test_execute_popup_under_button_without_position_is_a_noop():
     popup.execute.assert_not_called()
 
 
-def test_missing_handler_warns_and_keeps_other_rows():
+def test_missing_handler_keeps_other_rows():
     def lookup(action: str):
         if action == "main.settings":
             return None
@@ -388,7 +388,7 @@ def test_missing_handler_warns_and_keeps_other_rows():
     assert "scripting.run_python_dialog" in actions
 
 
-def test_notebook_registry_failure_warns_and_keeps_other_items():
+def test_notebook_registry_failure_keeps_other_items():
     with (
         patch("plugin.notebook.cell_registry.load_registry", side_effect=RuntimeError("bad registry")),
         patch("plugin.librepy.sidebar_menus.get_action_handler", side_effect=_lookup),
@@ -403,7 +403,7 @@ def test_notebook_registry_failure_warns_and_keeps_other_items():
     assert "notebook.run_all" not in actions
 
 
-def test_writeragent_chat_import_failure_warns():
+def test_writeragent_chat_import_failure_falls_back_to_core_menu():
     ctx = MagicMock()
     frame = MagicMock()
     button = MagicMock()

@@ -101,3 +101,10 @@ def test_writer_prompt_does_not_leak_oracle_totals(
     text = (_EVAL2 / exp_name / "prompt.writeragent.txt").read_text(encoding="utf-8")
     for total in forbidden_totals:
         assert total not in text, f"{exp_name} prompt leaked oracle total {total!r}"
+
+
+def test_native_slot_has_no_gdpval_gold_tree() -> None:
+    claimed_ids = {task_id for task_id, _ in _EXPERIMENTS}
+    gdpval_ids = {path.name for path in _GDPVAL.iterdir() if path.is_dir()}
+    assert gdpval_ids <= claimed_ids
+    assert not (_EVAL2 / "long-writer-pack" / "prompt.gdpval.txt").exists()

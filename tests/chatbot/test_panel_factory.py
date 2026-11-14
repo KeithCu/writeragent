@@ -753,6 +753,7 @@ def test_render_session_history_logs_greeting_argument() -> None:
         el._render_session_history(MagicMock(), response, greeting="Hello there")
 
     factory_log.exception.assert_called_once()
+    assert factory_log.exception.call_args.args[1:] == ("Hello there",)
 
 
 def test_wire_buttons_missing_mode_flags_still_attaches_send_and_stop() -> None:

@@ -56,6 +56,15 @@ def test_calc_draw_eval_prompts_use_production_builder() -> None:
     )
 
 
+def test_calc_eval_sort_line_omits_formula_tools() -> None:
+    # Naming write_formula_range / =PY in the because-clause primed weak
+    # models to call the tool we want them to avoid (glm-5.3-flash; see docs/eval/oss-20b-eval.md).
+    calc = get_calc_eval_chat_system_prompt()
+    sort_line = next(line for line in calc.splitlines() if "then range_sort" in line)
+    assert "write_formula_range" not in sort_line
+    assert "=PY" not in sort_line
+
+
 def test_replace_prompt_slice_swaps_once_and_ignores_missing() -> None:
     assert replace_prompt_slice("aa CORE bb CORE", "CORE", "NEW") == "aa NEW bb CORE"
     assert replace_prompt_slice("aa bb", "CORE", "NEW") == "aa bb"

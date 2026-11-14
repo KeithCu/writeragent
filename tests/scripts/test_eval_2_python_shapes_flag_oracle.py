@@ -33,8 +33,6 @@ from eval_2_python_shapes_flag_oracle import (  # noqa: E402
     score_flag,
 )
 
-_REPO = Path(__file__).resolve().parents[2]
-
 # Executed calls only. A logged few-shot "content" line must not count.
 _PASS_LOG = "\n".join((
     "=== Tool-calling loop START (max 50 rounds) ===",

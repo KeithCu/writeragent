@@ -19,7 +19,7 @@ from scripts.extract_strings import (
 )
 
 
-def test_find_py_files_depth_first_unsorted_includes_stub(tmp_path: Path) -> None:
+def test_find_py_files_includes_stub(tmp_path: Path) -> None:
     plugin_dir = tmp_path / "plugin"
     z_dir = plugin_dir / "z_writer"
     z_dir.mkdir(parents=True)
@@ -33,7 +33,11 @@ def test_find_py_files_depth_first_unsorted_includes_stub(tmp_path: Path) -> Non
     stub.write_text("", encoding="utf-8")
 
     found = _find_py_files(plugin_dir, tmp_path)
-    assert "plugin/xdl_strings.py" in found
+    assert sorted(found) == [
+        "plugin/a_calc/c.py",
+        "plugin/xdl_strings.py",
+        "plugin/z_writer/b.py",
+    ]
 
 
 @patch("scripts.extract_strings.merge_yaml_into_pot", return_value=0)
@@ -197,7 +201,7 @@ def test_auto_translate_gated_by_openrouter_api_key(
     with patch.dict(os.environ, {}, clear=True):
         ret = auto_translate(root_path=tmp_path)
         assert ret == 0
-        assert len(mock_run.call_args_list) == 1
+        assert mock_run.call_count == 1
         assert "--preview" in mock_run.call_args_list[0][0][0]
 
     mock_run.reset_mock()

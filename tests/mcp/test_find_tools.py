@@ -549,6 +549,7 @@ def test_find_tools_suppresses_ppt_master_when_draw_or_impress_doc_is_open():
 def test_get_domain_guidance_is_app_neutral_when_app_unknown():
     g = get_domain_guidance("charts", agent_label=None)
     assert isinstance(g, str) and g.strip()
+    assert g != get_domain_guidance("charts", agent_label="Calc")
 
 
 def test_no_document_chart_guidance_is_app_neutral():

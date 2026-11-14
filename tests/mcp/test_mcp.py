@@ -40,6 +40,8 @@ def test_initialize_instructions_clock_and_mode_hints():
         assert expected_wall in text
         assert "+00:00" not in text
         assert "-04:00" not in text
+        # Claude Desktop drops instructions; Claude Code truncates ~2KB.
+        assert len(text) < 2000
 
     mode_texts = {
         build_initialize_instructions(mode, now=now)

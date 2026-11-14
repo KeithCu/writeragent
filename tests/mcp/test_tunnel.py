@@ -1638,7 +1638,7 @@ def test_start_absent_token_in_env_and_args(monkeypatch):
         assert "--token" not in started_cmds[-1]
 
 
-def test_tailscale_reset_warns_on_nonzero_exit():
+def test_tailscale_reset_returns_false_on_nonzero_exit():
     completed = MagicMock()
     completed.returncode = 1
     completed.stderr = "Error: the CLI for serve and funnel has changed."
@@ -1647,7 +1647,7 @@ def test_tailscale_reset_warns_on_nonzero_exit():
         assert TailscaleProvider.reset_funnel(18765) is False
 
 
-def test_tailscale_reset_info_on_success():
+def test_tailscale_reset_returns_true_on_success():
     completed = MagicMock()
     completed.returncode = 0
     completed.stderr = ""
@@ -1665,12 +1665,12 @@ def test_tailscale_reset_returns_false_on_exception(caplog):
     assert any(r.levelno == logging.ERROR and r.exc_info for r in caplog.records)
 
 
-def test_binary_available_missing_is_warning():
+def test_binary_available_missing_returns_error():
     with patch("subprocess.run", side_effect=FileNotFoundError):
         assert binary_available("cloudflare") == "cloudflared binary not found on PATH"
 
 
-def test_binary_available_timeout_is_warning():
+def test_binary_available_timeout_returns_error():
     import subprocess
 
     with patch("subprocess.run", side_effect=subprocess.TimeoutExpired(cmd=["cloudflared", "--version"], timeout=10)):
