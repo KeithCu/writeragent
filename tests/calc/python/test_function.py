@@ -29,7 +29,11 @@ def _cell(ctx: Any, code: str, doc: Any = None, *, on_main: bool | None = None):
 
 
 from plugin.tests.testing_utils import CalcDocStub
-from tests.calc.python.calc_workbook_test_access import SPILL_REGISTRY, ctx_with_doc as _ctx_with_doc, reset_calc_workbook_states
+from tests.calc.python.calc_workbook_test_access import (
+    SPILL_REGISTRY,
+    ctx_with_doc as _ctx_with_doc,
+    reset_calc_workbook_states,
+)
 
 
 def _patch_immediate_debounce(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -43,7 +47,6 @@ def _patch_immediate_debounce(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_finalize_python_return_scalar_nan_becomes_error() -> None:
     """Scalar NaN from worker becomes a Calc error (not silent empty)."""
-
     class _Ctx:
         pass
 
@@ -76,11 +79,16 @@ def _image_egress_env(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr(payload_codec.tempfile, "NamedTemporaryFile", lambda **kwargs: _TmpFile())
     monkeypatch.setitem(sys.modules, "uno", _UnoModule())
-    awt_mod = SimpleNamespace(Size=lambda w, h: SimpleNamespace(Width=w, Height=h), Point=lambda x, y: SimpleNamespace(X=x, Y=y))
+    awt_mod = SimpleNamespace(
+        Size=lambda w, h: SimpleNamespace(Width=w, Height=h),
+        Point=lambda x, y: SimpleNamespace(X=x, Y=y),
+    )
     monkeypatch.setitem(sys.modules, "com.sun.star.awt", awt_mod)
 
 
-def test_insert_image_result_uses_merged_safe_geometry(monkeypatch: pytest.MonkeyPatch, _image_egress_env: None) -> None:
+def test_insert_image_result_uses_merged_safe_geometry(
+    monkeypatch: pytest.MonkeyPatch, _image_egress_env: None
+) -> None:
     doc = CalcDocStub(selection="C4")
     shape = MagicMock()
     doc._created["com.sun.star.drawing.GraphicObjectShape"] = shape
@@ -100,7 +108,9 @@ def test_insert_image_result_uses_merged_safe_geometry(monkeypatch: pytest.Monke
     shape.setPropertyValue.assert_any_call("ResizeWithCell", True)
 
 
-def test_insert_image_result_thin_merged_cell_preserves_default_size(monkeypatch: pytest.MonkeyPatch, _image_egress_env: None) -> None:
+def test_insert_image_result_thin_merged_cell_preserves_default_size(
+    monkeypatch: pytest.MonkeyPatch, _image_egress_env: None
+) -> None:
     """A 1-row thin merged block (e.g. A1:H1 banner) uses DEFAULT_CHART_SIZE and ResizeWithCell=False."""
     doc = CalcDocStub(selection="A1")
     shape = MagicMock()
@@ -122,14 +132,20 @@ def test_insert_image_result_thin_merged_cell_preserves_default_size(monkeypatch
     shape.setPropertyValue.assert_any_call("ResizeWithCell", False)
 
 
-def test_insert_image_result_targets_formula_cell_sheet_when_another_sheet_active(monkeypatch: pytest.MonkeyPatch, _image_egress_env: None) -> None:
+def test_insert_image_result_targets_formula_cell_sheet_when_another_sheet_active(
+    monkeypatch: pytest.MonkeyPatch, _image_egress_env: None
+) -> None:
     """Issue #385: When Overview is active, plots for formulas on Viz_Gallery land on Viz_Gallery."""
     from plugin.tests.testing_utils import CalcSheetStub
 
     sheet_overview = CalcSheetStub("Overview")
     sheet_viz = CalcSheetStub("Viz_Gallery")
 
-    doc = CalcDocStub(sheets=[sheet_overview, sheet_viz], active_sheet="Overview", selection="A1:H1")
+    doc = CalcDocStub(
+        sheets=[sheet_overview, sheet_viz],
+        active_sheet="Overview",
+        selection="A1:H1",
+    )
     shape = MagicMock()
     doc._created["com.sun.star.drawing.GraphicObjectShape"] = shape
 
@@ -153,7 +169,9 @@ def test_insert_image_result_targets_formula_cell_sheet_when_another_sheet_activ
     shape.setSize.assert_any_call(size)
 
 
-def test_insert_image_result_unmerged_single_cell_default_size(monkeypatch: pytest.MonkeyPatch, _image_egress_env: None) -> None:
+def test_insert_image_result_unmerged_single_cell_default_size(
+    monkeypatch: pytest.MonkeyPatch, _image_egress_env: None
+) -> None:
     doc = CalcDocStub(selection="C4")
     shape = MagicMock()
     doc._created["com.sun.star.drawing.GraphicObjectShape"] = shape
@@ -185,7 +203,10 @@ def test_finalize_python_return_triggers_spill(monkeypatch: pytest.MonkeyPatch) 
 
     _patch_immediate_debounce(monkeypatch)
     # Deferred spill posts to the main-thread queue; run immediately in unit tests.
-    monkeypatch.setattr("plugin.framework.queue_executor.main.post", lambda fn, *a, **k: fn(*a, **k))
+    monkeypatch.setattr(
+        "plugin.framework.queue_executor.main.post",
+        lambda fn, *a, **k: fn(*a, **k),
+    )
 
     result = [10.0, 20.0]  # 1D list, will be treated as shape (2, 1)
     val = finalize_python_return(_cell(ctx, "test_code", doc), result)
@@ -212,7 +233,10 @@ def test_finalize_python_return_spills_on_secondary_sheet(monkeypatch: pytest.Mo
     reset_calc_workbook_states()
 
     _patch_immediate_debounce(monkeypatch)
-    monkeypatch.setattr("plugin.framework.queue_executor.main.post", lambda fn, *a, **k: fn(*a, **k))
+    monkeypatch.setattr(
+        "plugin.framework.queue_executor.main.post",
+        lambda fn, *a, **k: fn(*a, **k),
+    )
 
     result = [100.0, 200.0]
     val = finalize_python_return(_cell(ctx, "secondary_code", doc), result)
@@ -289,7 +313,10 @@ def test_finalize_python_return_triggers_spill_2d(monkeypatch: pytest.MonkeyPatc
     reset_calc_workbook_states()
 
     _patch_immediate_debounce(monkeypatch)
-    monkeypatch.setattr("plugin.framework.queue_executor.main.post", lambda fn, *a, **k: fn(*a, **k))
+    monkeypatch.setattr(
+        "plugin.framework.queue_executor.main.post",
+        lambda fn, *a, **k: fn(*a, **k),
+    )
 
     result = [[10.0, 20.0], [30.0, 40.0]]
     val = finalize_python_return(_cell(ctx, "test_code_2d", doc), result)
@@ -304,7 +331,11 @@ def test_finalize_python_return_triggers_spill_2d(monkeypatch: pytest.MonkeyPatc
     assert set(SPILL_REGISTRY[key].spills) == {(1, 2), (2, 1), (2, 2)}
 
 
-def _install_immediate_spill_timer(monkeypatch: pytest.MonkeyPatch, *, on_main_after_start: dict[str, bool] | None = None) -> None:
+def _install_immediate_spill_timer(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    on_main_after_start: dict[str, bool] | None = None,
+) -> None:
     """Run the 0.1s spill debounce inline; optionally flip on_main when it fires."""
     _patch_immediate_debounce(monkeypatch)
 
@@ -328,7 +359,12 @@ def test_spilltest_a1_off_main_paints_full_grid(monkeypatch: pytest.MonkeyPatch)
 
     spilltest_code = "result=[[11,22],[33,44]]"
     sheet = CalcSheetStub("SpillTest")
-    doc = CalcDocStub(sheets=[sheet], url="file:///SpillTest.ods", active_sheet="SpillTest", selection="A1")
+    doc = CalcDocStub(
+        sheets=[sheet],
+        url="file:///SpillTest.ods",
+        active_sheet="SpillTest",
+        selection="A1",
+    )
     sheet.getCellByPosition(0, 0).setFormula(f'=PY("{spilltest_code}")')
     ctx = _ctx_with_doc(doc)
 
@@ -338,7 +374,10 @@ def test_spilltest_a1_off_main_paints_full_grid(monkeypatch: pytest.MonkeyPatch)
     WorkbookState.for_doc(doc)
 
     on_main = {"value": False}
-    monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: on_main["value"])
+    monkeypatch.setattr(
+        "plugin.framework.queue_executor.main.is_current",
+        lambda: on_main["value"],
+    )
     # The front window is never consulted; the caller doc is the only source.
     _install_immediate_spill_timer(monkeypatch, on_main_after_start=on_main)
 
@@ -353,7 +392,9 @@ def test_spilltest_a1_off_main_paints_full_grid(monkeypatch: pytest.MonkeyPatch)
     assert set(SPILL_REGISTRY[key].spills) == {(0, 1), (1, 0), (1, 1)}
 
 
-def test_finalize_python_return_spills_off_main_into_caller_doc(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_finalize_python_return_spills_off_main_into_caller_doc(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Off-main finalize with the caller doc defers locate+write to the UI thread.
 
     Treating it as a matrix formula returned only grid[0][0] (SpillTest
@@ -370,7 +411,10 @@ def test_finalize_python_return_spills_off_main_into_caller_doc(monkeypatch: pyt
     WorkbookState.for_doc(doc)
 
     on_main = {"value": False}
-    monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: on_main["value"])
+    monkeypatch.setattr(
+        "plugin.framework.queue_executor.main.is_current",
+        lambda: on_main["value"],
+    )
     _install_immediate_spill_timer(monkeypatch, on_main_after_start=on_main)
 
     val = finalize_python_return(_cell(ctx, "off_main_spill", doc), [[11, 22], [33, 44]])
@@ -384,7 +428,9 @@ def test_finalize_python_return_spills_off_main_into_caller_doc(monkeypatch: pyt
     assert set(SPILL_REGISTRY[key].spills) == {(1, 2), (2, 1), (2, 2)}
 
 
-def test_finalize_python_return_spills_dataframe_payload_off_main(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_finalize_python_return_spills_dataframe_payload_off_main(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """DataFrame envelopes must spill header+body off-main, not only the first header."""
     doc = CalcDocStub(url="file:///offmain-df.ods", selection="A1")
     sheet = doc.getSheets().getByName("Sheet1")
@@ -397,10 +443,17 @@ def test_finalize_python_return_spills_dataframe_payload_off_main(monkeypatch: p
     WorkbookState.for_doc(doc)
 
     on_main = {"value": False}
-    monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: on_main["value"])
+    monkeypatch.setattr(
+        "plugin.framework.queue_executor.main.is_current",
+        lambda: on_main["value"],
+    )
     _install_immediate_spill_timer(monkeypatch, on_main_after_start=on_main)
 
-    payload = {"__wa_payload__": "dataframe", "columns": ["Region", "Channel"], "data": [["North", "Search"], ["South", "Email"]]}
+    payload = {
+        "__wa_payload__": "dataframe",
+        "columns": ["Region", "Channel"],
+        "data": [["North", "Search"], ["South", "Email"]],
+    }
     val = finalize_python_return(_cell(ctx, "df_spill", doc), payload)
 
     assert val == "Region"
@@ -411,7 +464,9 @@ def test_finalize_python_return_spills_dataframe_payload_off_main(monkeypatch: p
     assert sheet.getCellByPosition(1, 2).getString() == "Email"
 
 
-def test_finalize_python_return_off_main_no_spill_without_doc(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_finalize_python_return_off_main_no_spill_without_doc(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """No caller doc: do not guess which book to spill into (front window ignored)."""
     doc = CalcDocStub(url="file:///ambig.ods", selection="B2")
     sheet = doc.getSheets().getByName("Sheet1")
@@ -462,7 +517,14 @@ def test_calc_python_function_zero_event_pumping_invariant() -> None:
     import ast
 
     banned_modules = {"async_stream", "vcl_pumping"}
-    pump_names = {"processEventsToIdle", "process_events_to_idle", "run_async_worker_with_drain", "pump_vcl_events", "wait_while_pumping", "pump_secondary_idle_tick"}
+    pump_names = {
+        "processEventsToIdle",
+        "process_events_to_idle",
+        "run_async_worker_with_drain",
+        "pump_vcl_events",
+        "wait_while_pumping",
+        "pump_secondary_idle_tick",
+    }
     tree = ast.parse(Path(_function.__file__).read_text(encoding="utf-8"))
     flagged: list[str] = []
     for node in ast.walk(tree):
@@ -491,14 +553,27 @@ def test_function_module_avoids_document_helpers_import() -> None:
     from tests.harness.import_guards import assert_no_toplevel_import
 
     addin_modules = (_function, _spill, _addin_values, _undo)
-    forbidden = {"plugin.doc.document_helpers", "plugin.calc.analyzer", "plugin.scripting.document_scripts", "plugin.chatbot.dialogs"}
+    forbidden = {
+        "plugin.doc.document_helpers",
+        "plugin.calc.analyzer",
+        "plugin.scripting.document_scripts",
+        "plugin.chatbot.dialogs",
+    }
     for mod in addin_modules:
         assert_no_toplevel_import(mod, forbidden)
 
 
 def test_execute_python_addin_maps_missing_venv_error(monkeypatch) -> None:
     _function.clear_python_addin_cache()
-    monkeypatch.setattr(_function, "run_code_in_user_venv", lambda *_a, **_k: {"status": "error", "code": "VENV_NOT_FOUND", "message": "No python executable found under configured venv: '/missing'"})
+    monkeypatch.setattr(
+        _function,
+        "run_code_in_user_venv",
+        lambda *_a, **_k: {
+            "status": "error",
+            "code": "VENV_NOT_FOUND",
+            "message": "No python executable found under configured venv: '/missing'",
+        },
+    )
     monkeypatch.setattr(_function, "_record_py_diagnostic", lambda *_a, **_k: None)
     monkeypatch.setattr("plugin.scripting.document_scripts.build_python_eval_init_kwargs", lambda *_a, **_k: {})
     monkeypatch.setattr(_function, "workbook_session_id", lambda *_a, **_k: None)
@@ -508,7 +583,15 @@ def test_execute_python_addin_maps_missing_venv_error(monkeypatch) -> None:
 
 def test_execute_python_addin_maps_timeout_error(monkeypatch) -> None:
     _function.clear_python_addin_cache()
-    monkeypatch.setattr(_function, "run_code_in_user_venv", lambda *_a, **_k: {"status": "error", "code": "EXECUTION_TIMEOUT", "message": "Code execution exceeded the maximum execution time of 10 seconds"})
+    monkeypatch.setattr(
+        _function,
+        "run_code_in_user_venv",
+        lambda *_a, **_k: {
+            "status": "error",
+            "code": "EXECUTION_TIMEOUT",
+            "message": "Code execution exceeded the maximum execution time of 10 seconds",
+        },
+    )
     monkeypatch.setattr(_function, "_record_py_diagnostic", lambda *_a, **_k: None)
     monkeypatch.setattr("plugin.scripting.document_scripts.build_python_eval_init_kwargs", lambda *_a, **_k: {})
     monkeypatch.setattr(_function, "workbook_session_id", lambda *_a, **_k: None)
@@ -522,7 +605,11 @@ def test_execute_python_addin_image_failure_still_processes_later_slots(monkeypa
     """A failed plot slot does not stop later slots; the first error is reported after all slots."""
     _function.clear_python_addin_cache()
     image = {"__wa_payload__": "image", "format": "png", "data": b"\x89PNG"}
-    monkeypatch.setattr(_function, "run_code_in_user_venv", lambda *_a, **_k: {"status": "ok", "result": [dict(image), dict(image), dict(image)]})
+    monkeypatch.setattr(
+        _function,
+        "run_code_in_user_venv",
+        lambda *_a, **_k: {"status": "ok", "result": [dict(image), dict(image), dict(image)]},
+    )
     monkeypatch.setattr(_function, "_record_py_diagnostic", lambda *_a, **_k: None)
     monkeypatch.setattr("plugin.scripting.document_scripts.build_python_eval_init_kwargs", lambda *_a, **_k: {})
     monkeypatch.setattr(_function, "workbook_session_id", lambda *_a, **_k: None)
@@ -560,7 +647,10 @@ def test_finalize_python_return_located_array_does_not_break_scalar_session(monk
     formula_cell = sheet.getCellByPosition(0, 0)
     _function.clear_python_addin_cache()
     monkeypatch.setattr("plugin.calc.python.function.get_config", lambda _k: True)
-    with patch("plugin.calc.python.function.locate_formula_cell_in_doc", return_value=(sheet, formula_cell, (0, 0))):
+    with patch(
+        "plugin.calc.python.function.locate_formula_cell_in_doc",
+        return_value=(sheet, formula_cell, (0, 0)),
+    ):
         monkeypatch.setattr(_function, "cell_is_matrix", lambda _s, _c: True)
         a = _function.finalize_python_return(_cell(ctx, "dup", doc), [10, 20, 30])
         b = _function.finalize_python_return(_cell(ctx, "dup", doc), [10, 20, 30])
@@ -583,7 +673,6 @@ def test_scalar_for_list_result_increments_with_unique_origin(monkeypatch: pytes
 
 def _skip_if_release_bundle() -> None:
     from plugin.framework import thread_guard as tg
-
     # In release bundles, thread_guard is replaced by a no-op stub that lacks internal guard machinery
     if not hasattr(tg, "_violation_ui_lock"):
         pytest.skip("Thread-guard background tests require active dev thread_guard (stripped in release bundles)")
@@ -737,10 +826,22 @@ def test_text_single_cell_arg_spills_instead_of_error(monkeypatch: pytest.Monkey
     ctx = _ctx_with_doc(doc)
     _function.clear_python_addin_cache()
 
-    monkeypatch.setattr(_function, "run_code_in_user_venv", lambda *_a, **_k: {"status": "ok", "result": ["hello", "world"]})
+    monkeypatch.setattr(
+        _function,
+        "run_code_in_user_venv",
+        lambda *_a, **_k: {"status": "ok", "result": ["hello", "world"]},
+    )
     spill_calls: list[int] = []
-    monkeypatch.setattr(_function, "prepare_auto_spill", lambda *_a, **_k: _spill.PreparedSpill("Sheet1", 0, 0, sheet=doc.getSheets().getByName("Sheet1"), key="file:///u.ods", code="[data]*3"))
-    monkeypatch.setattr(_function, "queue_deferred_spill_write", lambda *_a, **_k: spill_calls.append(1))
+    monkeypatch.setattr(
+        _function,
+        "prepare_auto_spill",
+        lambda *_a, **_k: _spill.PreparedSpill("Sheet1", 0, 0, sheet=doc.getSheets().getByName("Sheet1"), key="file:///u.ods", code="[data]*3"),
+    )
+    monkeypatch.setattr(
+        _function,
+        "queue_deferred_spill_write",
+        lambda *_a, **_k: spill_calls.append(1),
+    )
 
     # Text arg: A1 contains "text"
     res_text = _function._execute_python_addin_impl(ctx, "[data]*3", data=[["text"]], doc=doc)
@@ -770,7 +871,10 @@ def test_build_cell_context_registers_unload_listener_on_for_doc(monkeypatch: py
 
     monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: True)
     monkeypatch.setattr("plugin.scripting.document_scripts.build_python_eval_init_kwargs", lambda _doc: {"dummy": True})
-    monkeypatch.setattr("plugin.calc.python.workbook_lifecycle.ensure_calc_workbook_unload_resets_python", lambda doc, *, state: calls.append((doc, state)))
+    monkeypatch.setattr(
+        "plugin.calc.python.workbook_lifecycle.ensure_calc_workbook_unload_resets_python",
+        lambda doc, *, state: calls.append((doc, state)),
+    )
 
     ctx = MagicMock()
     cell = build_cell_context(ctx, doc, "x", on_main=True)
@@ -787,7 +891,10 @@ def test_build_cell_context_survives_listener_install_failure(monkeypatch: pytes
 
     monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: True)
     monkeypatch.setattr("plugin.scripting.document_scripts.build_python_eval_init_kwargs", lambda _doc: {"dummy": True})
-    monkeypatch.setattr("plugin.calc.python.workbook_lifecycle.ensure_calc_workbook_unload_resets_python", _boom)
+    monkeypatch.setattr(
+        "plugin.calc.python.workbook_lifecycle.ensure_calc_workbook_unload_resets_python",
+        _boom,
+    )
     cell = build_cell_context(MagicMock(), doc, "x", on_main=True)
     assert cell.init_kwargs == {"dummy": True}
 
@@ -810,9 +917,14 @@ def test_build_cell_context_scoped_dir_off_main_skips_document_url(monkeypatch: 
     assert called == []
 
 
-def test_build_cell_context_scoped_dir_on_main_uses_document_directory(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_build_cell_context_scoped_dir_on_main_uses_document_directory(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: True)
-    monkeypatch.setattr("plugin.doc.document_research.get_document_directory", lambda doc: "/tmp/workbook-dir")
+    monkeypatch.setattr(
+        "plugin.doc.document_research.get_document_directory",
+        lambda doc: "/tmp/workbook-dir",
+    )
     doc = CalcDocStub()
     assert _cell(MagicMock(), "", doc).scoped_dir == "/tmp/workbook-dir"
 
@@ -826,7 +938,10 @@ def test_execute_python_addin_binds_scoped_dir(monkeypatch: pytest.MonkeyPatch) 
         return {"status": "ok", "result": 1.0}
 
     monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: True)
-    monkeypatch.setattr("plugin.doc.document_research.get_document_directory", lambda doc: "/folder")
+    monkeypatch.setattr(
+        "plugin.doc.document_research.get_document_directory",
+        lambda doc: "/folder",
+    )
     monkeypatch.setattr(_function, "run_code_in_user_venv", fake_run)
     monkeypatch.setattr(_function, "_record_py_diagnostic", lambda *_a, **_k: None)
     monkeypatch.setattr("plugin.scripting.document_scripts.build_python_eval_init_kwargs", lambda *_a, **_k: {})
@@ -912,7 +1027,10 @@ def test_selection_does_not_suppress_spill(monkeypatch: pytest.MonkeyPatch) -> N
 
     _install_immediate_spill_timer(monkeypatch)
 
-    with patch("plugin.calc.python.function.locate_formula_cell_in_doc", return_value=(sheet, formula_cell, (0, 0))):
+    with patch(
+        "plugin.calc.python.function.locate_formula_cell_in_doc",
+        return_value=(sheet, formula_cell, (0, 0)),
+    ):
         val = _function.finalize_python_return(_cell(ctx, "code_single", doc), [10, 20, 30])
 
     assert val == 10
@@ -923,7 +1041,10 @@ def test_selection_does_not_suppress_spill(monkeypatch: pytest.MonkeyPatch) -> N
 
     # Second case: locate returns None -> returns scalar without reading selection or queuing spill
     doc.getCurrentController = lambda: pytest.fail("selection must not be read")
-    with patch("plugin.calc.python.function.locate_formula_cell_in_doc", return_value=None):
+    with patch(
+        "plugin.calc.python.function.locate_formula_cell_in_doc",
+        return_value=None,
+    ):
         val_fallback = _function.finalize_python_return(_cell(ctx, "code_fallback", doc), [10, 20, 30])
     assert val_fallback == 10
 
@@ -975,7 +1096,11 @@ def test_execute_python_addin_worker_errors(monkeypatch: pytest.MonkeyPatch, cap
     rec_diag = MagicMock()
     monkeypatch.setattr(_function, "_record_py_diagnostic", rec_diag)
     err_msg = "Code execution failed at line 'bad' due to: ValueError: invalid literal"
-    monkeypatch.setattr(_function, "run_code_in_user_venv", lambda *_a, **_k: {"status": "error", "message": err_msg})
+    monkeypatch.setattr(
+        _function,
+        "run_code_in_user_venv",
+        lambda *_a, **_k: {"status": "error", "message": err_msg},
+    )
     out = _function.execute_python_addin(ctx, "bad_code", doc=doc)
     assert isinstance(out, float)
     raw = struct.unpack("Q", struct.pack("d", out))[0]
@@ -984,24 +1109,48 @@ def test_execute_python_addin_worker_errors(monkeypatch: pytest.MonkeyPatch, cap
 
     # 2. ZeroDivisionError-shaped dict -> 532
     div_msg = "Code execution failed at line '1/0' due to: ZeroDivisionError: division by zero"
-    monkeypatch.setattr(_function, "run_code_in_user_venv", lambda *_a, **_k: {"status": "error", "message": div_msg})
+    monkeypatch.setattr(
+        _function,
+        "run_code_in_user_venv",
+        lambda *_a, **_k: {"status": "error", "message": div_msg},
+    )
     out_div = _function.execute_python_addin(ctx, "1/0", doc=doc)
     assert isinstance(out_div, float)
     raw_div = struct.unpack("Q", struct.pack("d", out_div))[0]
     assert raw_div & 0xFFFF == 532
 
     # 3. Existing timeout and venv-not-found tests still expect a string containing Settings
-    monkeypatch.setattr(_function, "run_code_in_user_venv", lambda *_a, **_k: {"status": "error", "code": "VENV_NOT_FOUND", "message": "No python executable found under configured venv: '/missing'"})
+    monkeypatch.setattr(
+        _function,
+        "run_code_in_user_venv",
+        lambda *_a, **_k: {
+            "status": "error",
+            "code": "VENV_NOT_FOUND",
+            "message": "No python executable found under configured venv: '/missing'",
+        },
+    )
     out_venv = _function.execute_python_addin(ctx, "venv_code", doc=doc)
     assert isinstance(out_venv, str) and "Settings" in out_venv
 
-    monkeypatch.setattr(_function, "run_code_in_user_venv", lambda *_a, **_k: {"status": "error", "code": "VENV_TIMEOUT", "message": "Python worker failed: timed out after 10 seconds"})
+    monkeypatch.setattr(
+        _function,
+        "run_code_in_user_venv",
+        lambda *_a, **_k: {
+            "status": "error",
+            "code": "VENV_TIMEOUT",
+            "message": "Python worker failed: timed out after 10 seconds",
+        },
+    )
     out_to = _function.execute_python_addin(ctx, "to_code", doc=doc)
     assert isinstance(out_to, str) and "timed out" in out_to.lower()
 
     # 4. code="USER_STOPPED", message Stopped by user. -> a string, no ERROR log
     caplog.clear()
-    monkeypatch.setattr(_function, "run_code_in_user_venv", lambda *_a, **_k: {"status": "error", "code": "USER_STOPPED", "message": "Stopped by user."})
+    monkeypatch.setattr(
+        _function,
+        "run_code_in_user_venv",
+        lambda *_a, **_k: {"status": "error", "code": "USER_STOPPED", "message": "Stopped by user."},
+    )
     with caplog.at_level(logging.ERROR, logger="plugin.calc.python.addin_values"):
         out_stop = _function.execute_python_addin(ctx, "stop_code", doc=doc)
     assert isinstance(out_stop, str)
@@ -1011,7 +1160,6 @@ def test_execute_python_addin_worker_errors(monkeypatch: pytest.MonkeyPatch, cap
     # 5. Monkeypatch run_code_in_user_venv to raise RuntimeError("host blew up") -> still a string from format_addin_error_for_display
     def _raise_runtime(*_a, **_k):
         raise RuntimeError("host blew up")
-
     monkeypatch.setattr(_function, "run_code_in_user_venv", _raise_runtime)
     out_exc = _function.execute_python_addin(ctx, "exc_code", doc=doc)
     assert isinstance(out_exc, str)
@@ -1019,14 +1167,22 @@ def test_execute_python_addin_worker_errors(monkeypatch: pytest.MonkeyPatch, cap
 
     # 5b. Missing-name worker error formatted as due to: InterpreterError: name 'bad' is not defined -> 519 double
     missing_msg = "Code execution failed at line 'bad' due to: InterpreterError: name 'bad' is not defined"
-    monkeypatch.setattr(_function, "run_code_in_user_venv", lambda *_a, **_k: {"status": "error", "message": missing_msg})
+    monkeypatch.setattr(
+        _function,
+        "run_code_in_user_venv",
+        lambda *_a, **_k: {"status": "error", "message": missing_msg},
+    )
     out_missing = _function.execute_python_addin(ctx, "bad", doc=doc)
     assert isinstance(out_missing, float)
     raw_missing = struct.unpack("Q", struct.pack("d", out_missing))[0]
     assert raw_missing & 0xFFFF == 519
 
     # 6. Successful result="#N/A" -> the 32767 double
-    monkeypatch.setattr(_function, "run_code_in_user_venv", lambda *_a, **_k: {"status": "ok", "result": "#N/A"})
+    monkeypatch.setattr(
+        _function,
+        "run_code_in_user_venv",
+        lambda *_a, **_k: {"status": "ok", "result": "#N/A"},
+    )
     out_na = _function.execute_python_addin(ctx, "na_code", doc=doc)
     assert isinstance(out_na, float)
     raw_na = struct.unpack("Q", struct.pack("d", out_na))[0]
@@ -1034,16 +1190,27 @@ def test_execute_python_addin_worker_errors(monkeypatch: pytest.MonkeyPatch, cap
 
     # 7. Successful result=["#NUM!", 2] is a column spill; worker status: error does not write SPILL_REGISTRY
     reset_calc_workbook_states()
-    monkeypatch.setattr(_function, "run_code_in_user_venv", lambda *_a, **_k: {"status": "error", "message": err_msg})
+    monkeypatch.setattr(
+        _function,
+        "run_code_in_user_venv",
+        lambda *_a, **_k: {"status": "error", "message": err_msg},
+    )
     _function.execute_python_addin(ctx, "spill_fail_code", doc=doc)
     assert len(SPILL_REGISTRY) == 0
 
-    monkeypatch.setattr("plugin.framework.queue_executor.main.post", lambda fn, *a, **k: fn(*a, **k))
+    monkeypatch.setattr(
+        "plugin.framework.queue_executor.main.post",
+        lambda fn, *a, **k: fn(*a, **k),
+    )
     doc_spill = CalcDocStub(url="file:///fake_col_addin.ods", selection="A1")
     sheet_spill = doc_spill.getSheets().getByName("Sheet1")
     sheet_spill.getCellByPosition(0, 0).setFormula('=PYTHON("num_spill_code")')
     ctx_spill = _ctx_with_doc(doc_spill)
-    monkeypatch.setattr(_function, "run_code_in_user_venv", lambda *_a, **_k: {"status": "ok", "result": ["#NUM!", 2]})
+    monkeypatch.setattr(
+        _function,
+        "run_code_in_user_venv",
+        lambda *_a, **_k: {"status": "ok", "result": ["#NUM!", 2]},
+    )
     out_spill = _function.execute_python_addin(ctx_spill, "num_spill_code", doc=doc_spill)
     assert isinstance(out_spill, float)
     assert struct.unpack("Q", struct.pack("d", out_spill))[0] & 0xFFFF == 503
@@ -1065,7 +1232,12 @@ def test_execute_python_addin_helper_error_dict(monkeypatch: pytest.MonkeyPatch,
     rec_diag = MagicMock()
     monkeypatch.setattr(_function, "_record_py_diagnostic", rec_diag)
 
-    err = {"status": "error", "code": "UNKNOWN_COLUMN", "message": "Unknown columns: Region", "helper": "quick_stats"}
+    err = {
+        "status": "error",
+        "code": "UNKNOWN_COLUMN",
+        "message": "Unknown columns: Region",
+        "helper": "quick_stats",
+    }
     worker = {"status": "ok", "result": err}
     monkeypatch.setattr(_function, "run_code_in_user_venv", lambda *_a, **_k: worker)
     with caplog.at_level(logging.ERROR, logger="plugin.calc.python.addin_values"):
@@ -1081,8 +1253,17 @@ def test_execute_python_addin_helper_error_dict(monkeypatch: pytest.MonkeyPatch,
     # Message text that would stay a Settings string on the worker-status path is still #VALUE! here.
     caplog.clear()
     rec_diag.reset_mock()
-    timed = {"status": "error", "code": "INVALID_PARAM", "message": "connection timed out", "helper": "describe_data"}
-    monkeypatch.setattr(_function, "run_code_in_user_venv", lambda *_a, **_k: {"status": "ok", "result": timed})
+    timed = {
+        "status": "error",
+        "code": "INVALID_PARAM",
+        "message": "connection timed out",
+        "helper": "describe_data",
+    }
+    monkeypatch.setattr(
+        _function,
+        "run_code_in_user_venv",
+        lambda *_a, **_k: {"status": "ok", "result": timed},
+    )
     with caplog.at_level(logging.ERROR, logger="plugin.calc.python.addin_values"):
         out_timed = _function.execute_python_addin(ctx, "helper_timeout_word", doc=doc)
     assert isinstance(out_timed, float)
@@ -1093,7 +1274,11 @@ def test_execute_python_addin_helper_error_dict(monkeypatch: pytest.MonkeyPatch,
     caplog.clear()
     rec_diag.reset_mock()
     plain = {"hello": "world"}
-    monkeypatch.setattr(_function, "run_code_in_user_venv", lambda *_a, **_k: {"status": "ok", "result": plain})
+    monkeypatch.setattr(
+        _function,
+        "run_code_in_user_venv",
+        lambda *_a, **_k: {"status": "ok", "result": plain},
+    )
     with caplog.at_level(logging.ERROR, logger="plugin.calc.python.addin_values"):
         out_plain = _function.execute_python_addin(ctx, "plain_dict", doc=doc)
     assert isinstance(out_plain, str)
@@ -1104,7 +1289,11 @@ def test_execute_python_addin_helper_error_dict(monkeypatch: pytest.MonkeyPatch,
     # Worker USER_STOPPED is still the text path (status on the envelope, not a helper result).
     caplog.clear()
     rec_diag.reset_mock()
-    monkeypatch.setattr(_function, "run_code_in_user_venv", lambda *_a, **_k: {"status": "error", "code": "USER_STOPPED", "message": "Stopped by user."})
+    monkeypatch.setattr(
+        _function,
+        "run_code_in_user_venv",
+        lambda *_a, **_k: {"status": "error", "code": "USER_STOPPED", "message": "Stopped by user."},
+    )
     with caplog.at_level(logging.ERROR, logger="plugin.calc.python.addin_values"):
         out_stop = _function.execute_python_addin(ctx, "stop_still_text", doc=doc)
     assert isinstance(out_stop, str)
@@ -1153,7 +1342,10 @@ def test_spill_with_calc_error_tokens(monkeypatch: pytest.MonkeyPatch) -> None:
 
     from plugin.calc.python.workbook_state import WorkbookState
 
-    monkeypatch.setattr("plugin.framework.queue_executor.main.post", lambda fn, *a, **k: fn(*a, **k))
+    monkeypatch.setattr(
+        "plugin.framework.queue_executor.main.post",
+        lambda fn, *a, **k: fn(*a, **k),
+    )
     reset_calc_workbook_states()
 
     recorded_set_data: list[tuple[Any, ...]] = []
@@ -1286,9 +1478,18 @@ def test_execute_python_addin_hashes_worker_data_once(monkeypatch: pytest.Monkey
     ctx = _ctx_with_doc(doc)
     _function.clear_python_addin_cache()
 
-    monkeypatch.setattr("plugin.framework.config.get_config", lambda key, default=False: False if key == "scripting.python_auto_spill" else default)
-    monkeypatch.setattr("plugin.calc.python.function.get_config", lambda key, default=False: False if key == "scripting.python_auto_spill" else default)
-    monkeypatch.setattr("plugin.calc.python.function.run_code_in_user_venv", lambda *args, **kwargs: {"status": "ok", "result": [1, 2, 3]})
+    monkeypatch.setattr(
+        "plugin.framework.config.get_config",
+        lambda key, default=False: False if key == "scripting.python_auto_spill" else default,
+    )
+    monkeypatch.setattr(
+        "plugin.calc.python.function.get_config",
+        lambda key, default=False: False if key == "scripting.python_auto_spill" else default,
+    )
+    monkeypatch.setattr(
+        "plugin.calc.python.function.run_code_in_user_venv",
+        lambda *args, **kwargs: {"status": "ok", "result": [1, 2, 3]},
+    )
     call_count = 0
     real_token = _function._worker_data_token
 
