@@ -14,148 +14,63 @@ _REPO = Path(__file__).resolve().parents[2]
 _GDPVAL = _REPO / "docs" / "eval" / "gdpval"
 _EVAL2 = _REPO / "docs" / "eval" / "eval-2"
 
-_GOLD_PROMPT_CASES = [
-    ("61b0946a-5c1c-4bf6-8607-84d7c7e0dfe0", "cadaver-proposal-61b0946a"),
-    ("5f6c57dd-feb6-4e70-b152-4969d92d1608", "calc-primary-model"),
-    ("8a7b6fca-60cc-4ae3-b649-971753cbf8b9", "draw-primary-deliverable"),
-    ("c3525d4d-2012-45df-853e-2d2a0e902991", "writer-calc-peer-write"),
-    ("58ac1cc5-5754-4580-8c9c-8c67e1a9d619", "gmp-change-control-58ac1cc5"),
-    ("4520f882-715a-482d-8e87-1cb3cbdfe975", "reverse-tenant"),
-    ("ed2bc14c-99ac-4a2a-8467-482a1a5d67f3", "tenant-retention-ed2bc14c"),
+# Eval-2 smoother-path fixture intentionally renames Sheet1 -> Population, so it
+# is not a byte copy of its GDPval reference file.
+_MODIFIED_FIXTURES = {("afc-sample-83d10b06", "Population v2.xlsx")}
+
+_ORACLE_TOTALS_BY_EXP = [
+    ("writer-calc-peer-write", ("24,670.80", "1,320", "22,802.41")),
 ]
 
-_GOLD_DELIVERABLE_CASES = [
-    (
-        "61b0946a-5c1c-4bf6-8607-84d7c7e0dfe0",
-        "cadaver-proposal-61b0946a",
-        "958655d3fbec4aa795d8f0d4c7ad4725/Collaborative Cadaver Program Proposal.docx",
-        "Collaborative Cadaver Program Proposal.docx",
-    ),
-    (
-        "8a7b6fca-60cc-4ae3-b649-971753cbf8b9",
-        "draw-primary-deliverable",
-        "70fc7c97c4f41c368c2aeb0227a194e0/Process Flow Map.pdf",
-        "Process Flow Map.pdf",
-    ),
-    (
-        "c3525d4d-2012-45df-853e-2d2a0e902991",
-        "writer-calc-peer-write",
-        "242d24d95a28c9597ff7ddff19d31e6a/Deliverable Holiday Floorstand Budget.xlsx",
-        "Deliverable Holiday Floorstand Budget.xlsx",
-    ),
-    (
-        "c3525d4d-2012-45df-853e-2d2a0e902991",
-        "writer-calc-peer-write",
-        "3dcb8a9db76ff416cf0c731cd312d910/Final Email Deliverable.docx",
-        "Final Email Deliverable.docx",
-    ),
-    (
-        "58ac1cc5-5754-4580-8c9c-8c67e1a9d619",
-        "gmp-change-control-58ac1cc5",
-        "4c01fb7cc03307958ff4682e0efa09ab/MR_Risk Assessment Summary Report.docx",
-        "MR_Risk Assessment Summary Report.docx",
-    ),
-    (
-        "58ac1cc5-5754-4580-8c9c-8c67e1a9d619",
-        "gmp-change-control-58ac1cc5",
-        "ba7264aa2c1cc72ecbdad75922076346/Change Control Form Filled.pdf",
-        "Change Control Form Filled.pdf",
-    ),
-    (
-        "4520f882-715a-482d-8e87-1cb3cbdfe975",
-        "reverse-tenant",
-        "9b5f97b8e386f6d87dcd42fe683d77b2/Theatre CBA.xlsx",
-        "Theatre CBA.xlsx",
-    ),
-    (
-        "ed2bc14c-99ac-4a2a-8467-482a1a5d67f3",
-        "tenant-retention-ed2bc14c",
-        "7d180b0d497f670b2066800e24b57665/Tenant Rentention Strategy.docx",
-        "Tenant Rentention Strategy.docx",
-    ),
-]
 
-_REFERENCE_FIXTURE_CASES = [
-    (
-        "61b0946a-5c1c-4bf6-8607-84d7c7e0dfe0",
-        "cadaver-proposal-61b0946a",
-        "9be06106acf0ff3002fa17addb379048/Cadaver Budget.xlsx",
-        "Cadaver Budget.xlsx",
-    ),
-    (
-        "5f6c57dd-feb6-4e70-b152-4969d92d1608",
-        "calc-primary-model",
-        "52dfa090145b2077b0434571f616f4b1/Raw Data for Branch Profitability Final.xlsx",
-        "Raw Data for Branch Profitability Final.xlsx",
-    ),
-    (
-        "c3525d4d-2012-45df-853e-2d2a0e902991",
-        "writer-calc-peer-write",
-        "0d79e0cdd2e811609e73dcadc34d682f/Email Trail Floorstands.docx",
-        "Email Trail Floorstands.docx",
-    ),
-    (
-        "c3525d4d-2012-45df-853e-2d2a0e902991",
-        "writer-calc-peer-write",
-        "123c0b1cf9e9b6ecfccc06501a205384/Holiday Floorstand Store List Original.xlsx",
-        "Holiday Floorstand Store List Original.xlsx",
-    ),
-    (
-        "c3525d4d-2012-45df-853e-2d2a0e902991",
-        "writer-calc-peer-write",
-        "8548106161db37c37ff079eb0eec6ff9/Holiday Matrix final count.xlsx",
-        "Holiday Matrix final count.xlsx",
-    ),
-    (
-        "58ac1cc5-5754-4580-8c9c-8c67e1a9d619",
-        "gmp-change-control-58ac1cc5",
-        "d4b383f877a2619cbc570dc276377ff1/Anti foam COA_MR.pdf",
-        "Anti foam COA_MR.pdf",
-    ),
-    (
-        "58ac1cc5-5754-4580-8c9c-8c67e1a9d619",
-        "gmp-change-control-58ac1cc5",
-        "81df0e569f4dd130e12e49d5e13e15a3/Material Spec_MR.docx",
-        "Material Spec_MR.docx",
-    ),
-    (
-        "58ac1cc5-5754-4580-8c9c-8c67e1a9d619",
-        "gmp-change-control-58ac1cc5",
-        "cdd2a8a216946f04ecb01de7f1650f02/Change Control Form.pdf",
-        "Change Control Form.pdf",
-    ),
-    (
-        "4520f882-715a-482d-8e87-1cb3cbdfe975",
-        "reverse-tenant",
-        "4d6d96f2061fc75357419dba98993b90/Sample roster and schedule.xlsx",
-        "Sample roster and schedule.xlsx",
-    ),
-    (
-        "4520f882-715a-482d-8e87-1cb3cbdfe975",
-        "reverse-tenant",
-        "4e2deede441818560dc6da2a5a98bd1d/CBA excerpt.docx",
-        "CBA excerpt.docx",
-    ),
-]
-
-_KNOWN_GDPVAL_IDS = {
-    "ed2bc14c-99ac-4a2a-8467-482a1a5d67f3",
-    "61b0946a-5c1c-4bf6-8607-84d7c7e0dfe0",
-    "83d10b06-26d1-4636-a32c-23f92c57f30b",
-    "58ac1cc5-5754-4580-8c9c-8c67e1a9d619",
-    "c3525d4d-2012-45df-853e-2d2a0e902991",
-    "5f6c57dd-feb6-4e70-b152-4969d92d1608",
-    "a46d5cd2-55fe-48fa-a4c6-6aaf6b9991b5",
-    "8a7b6fca-60cc-4ae3-b649-971753cbf8b9",
-    "4520f882-715a-482d-8e87-1cb3cbdfe975",
-}
+def _discover_experiments() -> list[tuple[str, Path]]:
+    cases: list[tuple[str, Path]] = []
+    for task_json in sorted(_EVAL2.glob("*/task.json")):
+        row = json.loads(task_json.read_text(encoding="utf-8"))
+        cases.append((row["task_id"], task_json.parent))
+    return cases
 
 
-@pytest.mark.parametrize(("task_id", "exp_dir"), _GOLD_PROMPT_CASES)
-def test_gold_prompt_is_byte_copy_of_hf_tree(task_id: str, exp_dir: str) -> None:
+def _discover_parity_pairs() -> list[tuple[str, Path, Path]]:
+    pairs: list[tuple[str, Path, Path]] = []
+    for task_id, exp_dir in _discover_experiments():
+        gold_root = _GDPVAL / task_id
+        for exp_sub, gold_sub in (
+            ("gold", "deliverable_files"),
+            ("fixtures", "reference_files"),
+        ):
+            exp_folder = exp_dir / exp_sub
+            gold_folder = gold_root / gold_sub
+            if not exp_folder.is_dir() or not gold_folder.is_dir():
+                continue
+            by_name = {p.name: p for p in gold_folder.rglob("*") if p.is_file()}
+            for exp_file in sorted(exp_folder.iterdir()):
+                if not exp_file.is_file() or exp_file.name not in by_name:
+                    continue
+                if exp_sub == "fixtures" and (exp_dir.name, exp_file.name) in _MODIFIED_FIXTURES:
+                    continue
+                pairs.append((exp_dir.name, exp_file, by_name[exp_file.name]))
+    return pairs
+
+
+_EXPERIMENTS = _discover_experiments()
+_PARITY_PAIRS = _discover_parity_pairs()
+
+
+def test_discovered_eval2_experiments_non_empty() -> None:
+    assert len(_EXPERIMENTS) >= 8
+    assert len(_PARITY_PAIRS) >= 20
+
+
+@pytest.mark.parametrize(
+    ("task_id", "exp_dir"),
+    _EXPERIMENTS,
+    ids=[exp.name for _, exp in _EXPERIMENTS],
+)
+def test_gold_prompt_is_byte_copy_of_hf_tree(task_id: str, exp_dir: Path) -> None:
     gold_dir = _GDPVAL / task_id
     gold = (gold_dir / "prompt.txt").read_bytes()
-    exp = (_EVAL2 / exp_dir / "prompt.gdpval.txt").read_bytes()
+    exp = (exp_dir / "prompt.gdpval.txt").read_bytes()
     assert gold == exp
     row = json.loads((gold_dir / "task.json").read_text(encoding="utf-8"))
     assert row["task_id"] == task_id
@@ -163,48 +78,41 @@ def test_gold_prompt_is_byte_copy_of_hf_tree(task_id: str, exp_dir: str) -> None
 
 
 @pytest.mark.parametrize(
-    ("task_id", "exp_dir", "gold_relpath", "exp_name"),
-    _GOLD_DELIVERABLE_CASES,
+    ("exp_name", "exp_file", "gold_file"),
+    _PARITY_PAIRS,
+    ids=[f"{name}:{exp_f.name}" for name, exp_f, _ in _PARITY_PAIRS],
 )
-def test_gold_deliverable_bytes_match_experiment_copy(
-    task_id: str,
-    exp_dir: str,
-    gold_relpath: str,
-    exp_name: str,
+def test_experiment_file_matches_gold_bytes(
+    exp_name: str, exp_file: Path, gold_file: Path
 ) -> None:
-    gold_file = _GDPVAL / task_id / "deliverable_files" / gold_relpath
-    exp_copy = _EVAL2 / exp_dir / "gold" / exp_name
-    assert gold_file.is_file(), gold_file
-    assert exp_copy.is_file(), exp_copy
-    assert exp_copy.read_bytes() == gold_file.read_bytes()
+    del exp_name
+    assert exp_file.read_bytes() == gold_file.read_bytes()
 
 
 @pytest.mark.parametrize(
-    ("task_id", "exp_dir", "ref_relpath", "fixture_name"),
-    _REFERENCE_FIXTURE_CASES,
+    ("exp_name", "forbidden_totals"),
+    _ORACLE_TOTALS_BY_EXP,
+    ids=[name for name, _ in _ORACLE_TOTALS_BY_EXP],
 )
-def test_reference_fixture_bytes_match_gold(
-    task_id: str,
-    exp_dir: str,
-    ref_relpath: str,
-    fixture_name: str,
+def test_writer_prompt_does_not_leak_oracle_totals(
+    exp_name: str, forbidden_totals: tuple[str, ...]
 ) -> None:
-    gold_file = _GDPVAL / task_id / "reference_files" / ref_relpath
-    exp_fixture = _EVAL2 / exp_dir / "fixtures" / fixture_name
-    assert gold_file.is_file(), gold_file
-    assert exp_fixture.is_file(), exp_fixture
-    assert exp_fixture.read_bytes() == gold_file.read_bytes()
+    # Exact gold totals stay out of the product prompt (oracle cheat).
+    text = (_EVAL2 / exp_name / "prompt.writeragent.txt").read_text(encoding="utf-8")
+    for total in forbidden_totals:
+        assert total not in text, f"{exp_name} prompt leaked oracle total {total!r}"
 
 
 def test_native_slot_has_no_gdpval_gold_tree() -> None:
+    # Per docs/eval/eval-2/long-writer-pack/SOURCE.md, this native slot must
+    # not invent a fake GDPval id. Catalog short prefixes of claimed trees may
+    # appear as rejected rows, so only full docs/eval/gdpval/<id>/ claims fail.
+    claimed_ids = {task_id for task_id, _ in _EXPERIMENTS}
+    gdpval_ids = {path.name for path in _GDPVAL.iterdir() if path.is_dir()}
+    assert gdpval_ids <= claimed_ids
+
     exp_dir = _EVAL2 / "long-writer-pack"
     source = (exp_dir / "SOURCE.md").read_text(encoding="utf-8")
-    for gold_id in _KNOWN_GDPVAL_IDS:
+    for gold_id in claimed_ids:
         assert f"docs/eval/gdpval/{gold_id}/" not in source, gold_id
     assert not (exp_dir / "prompt.gdpval.txt").exists()
-    extra_trees = [
-        path.name
-        for path in _GDPVAL.iterdir()
-        if path.is_dir() and path.name not in _KNOWN_GDPVAL_IDS
-    ]
-    assert extra_trees == []
