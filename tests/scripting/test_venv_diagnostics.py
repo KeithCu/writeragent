@@ -814,7 +814,7 @@ def test_probe_venv_path_messages_are_translated(tmp_path, monkeypatch):
     assert ok is False
     assert msg.startswith("L:Path not found: ")
 
-    ok, msg = probe_venv_path_with_progress(__file__, lambda _: None)
+    ok, msg = probe_venv_path_with_progress(__file__, lambda unused: None)
     assert ok is False
     assert msg.startswith("L:Not a Python executable: ")
 

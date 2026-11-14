@@ -1002,6 +1002,7 @@ def test_insert_sql_result_into_calc() -> None:
         mock_insert.assert_called_once_with(
             doc,
             [["query_folder_sql"], [], ["table"], ["a"], [1.0]],
+            sheet_name=None,
             start_col=None,
             start_row=None,
         )
