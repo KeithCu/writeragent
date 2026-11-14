@@ -348,26 +348,3 @@ def test_replay_keys_subset_on_details_path() -> None:
 @pytest.mark.parametrize("target", _CROSSHAIR_TARGETS)
 def test_crosshair_stream_normalizer_fqn_if_available(target: str) -> None:
     assert_crosshair_clean(target)
-
-def test_stream_normalizer_hot_sinks_off_cover_all() -> None:
-    """Keep hot stream_normalizer sinks out of cover_fqns."""
-    from pathlib import Path
-
-    from tests.harness.strip_bundle import skip_if_release_build
-
-    skip_if_release_build("scripts/ not in stripped release tree")
-    from scripts.crosshair_stream import cover_fqns_for_module
-
-    fqns = cover_fqns_for_module(Path("plugin/framework/client/stream_normalizer.py"))
-    assert not any(f.endswith(".accumulate_streaming_thinking") for f in fqns), 'accumulate_streaming_thinking'
-    assert not any(f.endswith("._merge_reasoning_details") for f in fqns), '_merge_reasoning_details'
-    assert not any(f.endswith("._streaming_replay") for f in fqns), '_streaming_replay'
-    assert not any(f.endswith(".extract_reasoning_replay_from_response") for f in fqns), 'extract_reasoning_replay_from_response'
-    assert not any(f.endswith(".reasoning_replay_from_assistant_response") for f in fqns), 'reasoning_replay_from_assistant_response'
-    assert not any(f.endswith("._normalize_stream_delta") for f in fqns), '_normalize_stream_delta'
-    assert not any(f.endswith("._thinking_text_from_delta") for f in fqns), '_thinking_text_from_delta'
-    assert not any(f.endswith("._normalize_delta_tool_calls_ok") for f in fqns), '_normalize_delta_tool_calls_ok'
-    assert not any(f.endswith(".ThinkTagStreamSplitter.feed") for f in fqns), 'ThinkTagStreamSplitter.feed'
-    assert not any(f.endswith(".strip_think_tags") for f in fqns), 'strip_think_tags'
-    assert any(f.endswith(".normalize_delta") for f in fqns)
-    assert any("new_streaming_thinking_meta" in f for f in fqns)

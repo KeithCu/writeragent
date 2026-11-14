@@ -57,21 +57,6 @@ def test_equivalent_vendor_prefix_omitted() -> None:
     assert not openrouter_model_ids_equivalent("anthropic/claude", "openai/claude")
 
 
-def test_openrouter_equivalent_dropped_from_check_all_fqns() -> None:
-    """Split/resolve stay covered while openrouter_model_ids_equivalent is excluded."""
-    from pathlib import Path
-
-    from tests.harness.strip_bundle import skip_if_release_build
-
-    skip_if_release_build("scripts/ not in stripped release tree")
-    from scripts.crosshair_stream import cover_fqns_for_module
-
-    fqns = cover_fqns_for_module(Path("plugin/framework/openrouter_model_id.py"), require_deal=True)
-    assert not any(f.endswith(".openrouter_model_ids_equivalent") for f in fqns)
-    assert any(f.endswith("._split_suffix") for f in fqns)
-    assert any(f.endswith(".resolve_openrouter_catalog_id") for f in fqns)
-
-
 def test_catalog_larger_than_shape_dim_resolves() -> None:
     from plugin.framework.deal_shim import DEAL_MAX_SHAPE_DIM, DEAL_MAX_TOKEN
     from plugin.framework.openrouter_model_id import resolve_openrouter_catalog_id

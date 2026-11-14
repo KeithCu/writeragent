@@ -148,10 +148,11 @@ class TestTextModelPlaceholderGuards:
 
     def test_get_text_model_skips_connection_failed_placeholder(self):
         from plugin.framework.client.model_fetcher import get_text_model
+        from plugin.framework.default_models import get_provider_defaults
 
         with patch('plugin.framework.client.model_fetcher.get_config', return_value='(Connection failed)'):
             with patch('plugin.framework.client.model_fetcher.get_current_endpoint', return_value='https://api.z.ai/api/paas'):
-                assert (get_text_model()) == ('glm-5.2')
+                assert get_text_model() == get_provider_defaults("zai")["text_model"]
 
     def test_set_text_model_ignores_placeholder(self):
         from plugin.framework.client.model_fetcher import set_text_model
@@ -979,10 +980,12 @@ class TestGetSttModel:
 
     def test_default_from_provider_when_both_empty(self):
         from plugin.framework.client.model_fetcher import get_stt_model
+        from plugin.framework.default_models import get_provider_defaults
 
         with patch("plugin.framework.client.model_fetcher.get_config", return_value=""):
             with patch("plugin.framework.client.model_fetcher.get_current_endpoint", return_value="https://openrouter.ai/api/v1"):
-                assert get_stt_model() == "mistralai/voxtral-mini-transcribe"
+                res = get_stt_model()
+                assert res and res == get_provider_defaults("openrouter")["stt_model"]
 
 
 class TestGetTtsModel:
@@ -994,10 +997,12 @@ class TestGetTtsModel:
 
     def test_default_from_provider(self):
         from plugin.framework.client.model_fetcher import get_tts_model
+        from plugin.framework.default_models import get_provider_defaults
 
         with patch("plugin.framework.client.model_fetcher.get_config", return_value=""):
             with patch("plugin.framework.client.model_fetcher.get_current_endpoint", return_value="https://openrouter.ai/api/v1"):
-                assert get_tts_model() == "hexgrad/Kokoro-82M"
+                res = get_tts_model()
+                assert res and res == get_provider_defaults("openrouter")["tts_model"]
 
 
 class TestFetchAvailableSpeechModels:
