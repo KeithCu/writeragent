@@ -275,7 +275,8 @@ def _get_char_colors(doc, range_cursor):
     text = doc.getText()
     colors = []
     pos = text.createTextCursorByRange(range_cursor.getStart())
-    range_text = range_cursor.getString()
+    # Paragraph breaks are 1 UNO cursor step even when Windows getString() emits \r\n.
+    range_text = _normalize(range_cursor.getString())
     for i in range(len(range_text)):
         cc = text.createTextCursorByRange(pos)
         cc.goRight(1, True)
@@ -334,7 +335,7 @@ def _letter_colors_from_range(doc, range_cursor):
     """
     return [
         c
-        for ch, c in zip(range_cursor.getString(), _get_char_colors(doc, range_cursor))
+        for ch, c in zip(_normalize(range_cursor.getString()), _get_char_colors(doc, range_cursor))
         if ch not in "\r\n"
     ]
 
