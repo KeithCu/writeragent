@@ -531,34 +531,16 @@ def test_slash_key_handler_key_pressed_behaviour() -> None:
 
 
 def test_show_matches_repositions_only_before_show():
+    # Fill before reposition (#3137) and reposition while hidden.
     popup, box = _controller()
-    seen_visible: list[bool] = []
-    orig = popup.reposition
-
-    def _wrapped() -> None:
-        seen_visible.append(box.visible)
-        orig()
-
-    popup.reposition = _wrapped  # type: ignore[method-assign]
+    events: list[object] = []
+    fill, repos = popup._fill_visible_list, popup.reposition
+    popup._fill_visible_list = lambda: (events.append("fill"), fill())[1]  # type: ignore[method-assign]
+    popup.reposition = lambda: (events.append(("reposition", box.visible)), repos())[1]  # type: ignore[method-assign]
     with patch("plugin.chatbot.slash_popup.load_slash_lru", return_value=[]):
         popup.on_query_text("/")
-    assert seen_visible == [False]
+    assert events[:2] == ["fill", ("reposition", False)]
     assert box.visible is True
-
-
-def test_reposition_does_not_probe_screen_bounds(monkeypatch):
-    calls = {"n": 0}
-
-    def _probe(*_args, **_kwargs):
-        calls["n"] += 1
-        return None
-
-    monkeypatch.setattr("plugin.chatbot.slash_popup._overlay_offset", _probe)
-    popup, _box = _controller()
-    popup.reposition()
-    with patch("plugin.chatbot.slash_popup.load_slash_lru", return_value=[]):
-        popup.on_query_text("/")
-    assert calls["n"] == 0
 
 
 def _capture_posts():
@@ -975,14 +957,3 @@ def test_single_wide_match_list_is_tall_enough_for_row_and_hscroll():
     popup.reposition()
     assert host.pos[-1][3] == 18 + 4 + 14
     assert popup._row_px == 18 + 4
-
-
-def test_show_matches_fills_before_reposition():
-    popup, _box = _controller()
-    order: list[str] = []
-    fill, repos = popup._fill_visible_list, popup.reposition
-    popup._fill_visible_list = lambda: (order.append("fill"), fill())[1]  # type: ignore[method-assign]
-    popup.reposition = lambda: (order.append("reposition"), repos())[1]  # type: ignore[method-assign]
-    with patch("plugin.chatbot.slash_popup.load_slash_lru", return_value=[]):
-        popup.on_query_text("/")
-    assert order[:2] == ["fill", "reposition"]

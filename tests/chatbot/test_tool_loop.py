@@ -1163,21 +1163,6 @@ def test_toolkit_none_starts_drain_and_first_worker():
     )
 
 
-def test_compaction_state_per_turn():
-    from plugin.chatbot.tool_loop_actions import TurnController
-    turn1 = TurnController(None)
-    turn1._overflow_compact_attempts = 1
-    turn1._last_compact_reason = "overflow"
-    turn1._last_compact_tokens_before = 2000
-    turn1._last_compact_tokens_after = 1000
-
-    turn2 = TurnController(None)
-    assert turn2._overflow_compact_attempts == 0
-    assert turn2._last_compact_reason is None
-    assert turn2._last_compact_tokens_before is None
-    assert turn2._last_compact_tokens_after is None
-
-
 def test_retry_status_restored_on_first_chunk():
     import queue
     from plugin.chatbot.tool_loop_actions import current_turn

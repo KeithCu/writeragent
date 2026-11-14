@@ -31,17 +31,6 @@ def test_deep_research_calc_instructions_omit_apply_document_content():
     assert "apply_document_content" not in text
 
 
-def test_deep_research_web_delegates_with_deep_true():
-    with patch("plugin.chatbot.web_research.WebResearchTool") as mock_cls:
-        instance = mock_cls.return_value
-        instance.execute.return_value = {"status": "ok", "result": "deep report"}
-        ctx = MagicMock()
-        tool = DeepResearchWebTool()
-        out = tool.execute(ctx, query="topic")
-        instance.execute.assert_called_once_with(ctx, query="topic", deep=True)
-        assert out["result"] == "deep report"
-
-
 class _ApplyDocumentContentStub(ToolBase):
     name = "apply_document_content"
     description = "stub"

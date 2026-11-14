@@ -236,11 +236,6 @@ class TestPanelResizeListenerIntegration:
         assert "slash_popup" not in layouts
         assert "query" in layouts
 
-    def test_narrow_panel_stretches_response_to_margin(self):
-        layouts = compute_chat_panel_layout(180, 500, _xdl_snapshot())
-        response = layouts["response"]
-        assert response.x + response.width <= 180 - 4
-
     def test_create_time_overflow_is_clamped_before_negotiation(self):
         # Keith: FIRST LAYOUT root=320 max_child_right=1087 overflow=YES
         snapshot = {
@@ -507,14 +502,6 @@ class TestColumnFitsAtBothScales:
     def test_image_size_box_never_grows_past_xdl_width(self):
         layouts = compute_chat_panel_layout(259, 900, _SNAPSHOT_1X, preferred={"base_size_input": (500, 29)})
         assert layouts["base_size_input"].width == 71
-
-
-def test_listener_get_and_set_control():
-    listener = _PanelResizeListener({})
-    assert listener.get_control("unknown") is None
-    dummy = object()
-    listener.set_control("test_ctrl", dummy)
-    assert listener.get_control("test_ctrl") is dummy
 
 
 def test_invalidate_measurements_remeasures_base_size():

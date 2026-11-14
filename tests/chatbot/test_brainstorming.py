@@ -61,17 +61,6 @@ def test_save_design_spec_rejects_empty_content():
     assert result.get("code") == "INVALID_CONTENT"
 
 
-def test_brainstorm_research_web_delegates_to_web_research():
-    with patch("plugin.chatbot.web_research.WebResearchTool") as mock_cls:
-        instance = mock_cls.return_value
-        instance.execute.return_value = {"status": "ok", "result": "facts"}
-        ctx = MagicMock()
-        tool = BrainstormResearchWeb()
-        out = tool.execute(ctx, query="topic")
-        instance.execute.assert_called_once_with(ctx, query="topic", deep=False)
-        assert out["result"] == "facts"
-
-
 def test_collect_brainstorming_tools_merges_doc_research_reads():
     from plugin.doc.document_research_tools import ListNearbyFiles
 

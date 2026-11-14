@@ -842,7 +842,6 @@ class TestControlTextLength:
         assert get_control_text_length(control) is None
 
         rollback_rich_insert(control, None)
-        control.getModel.assert_called()
         # Unknown length must not ask the model for a cursor (that is "delete from the start").
         assert control.getModel.call_count == 1
 
