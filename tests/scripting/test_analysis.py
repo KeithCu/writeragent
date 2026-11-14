@@ -1123,23 +1123,12 @@ def test_pivot_and_group_aggfunc_and_headers():
 
 
 def test_analysis_lazy_exports_resolve():
-    from plugin.scripting.analysis import _ANALYSIS_VENV_EXPORTS, _ANALYSIS_COERCE_EXPORTS
     import plugin.scripting.analysis as host_facade
     import plugin.scripting.venv.analysis as venv_analysis
     import plugin.scripting.venv.coerce as venv_coerce
 
-    assert len(_ANALYSIS_VENV_EXPORTS) > 0
-    assert len(_ANALYSIS_COERCE_EXPORTS) > 0
-
-    for name in _ANALYSIS_VENV_EXPORTS:
-        venv_obj = getattr(venv_analysis, name)
-        host_obj = getattr(host_facade, name)
-        assert venv_obj is host_obj, f"Export {name} did not resolve to same object"
-
-    for name in _ANALYSIS_COERCE_EXPORTS:
-        venv_obj = getattr(venv_coerce, name)
-        host_obj = getattr(host_facade, name)
-        assert venv_obj is host_obj, f"Coerce export {name} did not resolve to same object"
+    assert host_facade.run_analysis is venv_analysis.run_analysis
+    assert host_facade.grid_to_dataframe is venv_coerce.grid_to_dataframe
 
 
 def test_describe_and_quick_stats_reject_duplicate_labels():

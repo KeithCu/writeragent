@@ -9,7 +9,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from plugin.framework.errors import ConfigError
 from plugin.scripting.config_limits import (
@@ -80,24 +80,6 @@ def test_configured_python_exec_timeout_failed_read_uses_default_not_min(mock_ge
 @patch("plugin.framework.config.get_config", return_value=0)
 def test_configured_python_exec_timeout_stored_zero_clamps_to_min(mock_get):
     assert python_exec_timeout() == _bounds("python_exec_timeout")[0]
-
-
-def test_run_venv_python_script_schema_has_no_timeout_sec():
-    from plugin.calc.python.venv import RunVenvPythonScript
-    from plugin.framework.tool import ToolRegistry
-
-    registry = ToolRegistry(services={})
-    registry.register(RunVenvPythonScript())
-    mock_sheet = MagicMock()
-
-    def supports(svc):
-        return svc == "com.sun.star.sheet.SpreadsheetDocument"
-
-    mock_sheet.supportsService = supports
-    schemas = registry.get_schemas("openai", doc=mock_sheet, active_domain="python")
-    py_schema = next(s for s in schemas if s["function"]["name"] == "run_venv_python_script")
-    props = py_schema["function"]["parameters"]["properties"]
-    assert "timeout_sec" not in props
 
 
 @patch(

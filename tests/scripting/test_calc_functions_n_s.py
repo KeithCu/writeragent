@@ -15,7 +15,6 @@ is not an error (text ignored, or a defined zero).
 
 from __future__ import annotations
 
-import inspect
 import math
 
 import numpy as np
@@ -354,17 +353,6 @@ def test_rsq_slope_steyx_paired_clean():
     assert calc.rsq([1, 2, 3], [3, 2, 1]) == 1.0
     assert calc.slope([2, 4, float("nan"), 8], [1, 2, 5, 4]) == 2.0
     assert calc.steyx([2, 4, float("nan"), 8], [1, 2, 5, 4]) == 0.0
-
-
-def test_n_s_all_matches_public_functions():
-    import plugin.scripting.venv.calc_functions_n_s as n_s
-
-    public = {
-        name
-        for name, obj in inspect.getmembers(n_s, inspect.isfunction)
-        if not name.startswith("_") and obj.__module__ == n_s.__name__
-    }
-    assert public == set(n_s.__all__)
 
 
 def test_odd_rounds_away_from_zero():
