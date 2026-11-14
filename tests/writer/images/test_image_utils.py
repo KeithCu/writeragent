@@ -260,7 +260,7 @@ class TestEndpointImageProvider:
         assert (kwargs.get("source_image")) == (b64)
 
     @patch('plugin.writer.images.image_utils.LlmClient')
-    def test_image_generation_downgrades_to_debug_on_stop(self, mock_client_cls):
+    def test_image_generation_raises_user_stopped_on_stop(self, mock_client_cls):
         """User cancel during image generation must raise ToolExecutionError with USER_STOPPED."""
         from plugin.framework.errors import NetworkError, ToolExecutionError
 

@@ -1159,7 +1159,7 @@ def test_comment_scan_tasks_without_annotations_skips_paragraph_scan():
     ctx.services.document.get_paragraph_ranges.assert_not_called()
 
 
-def test_add_comment_reads_document_assigned_name_in_two_scans():
+def test_add_comment_reads_document_assigned_name():
     from plugin.writer.specialized.comments import AddComment
 
     doc = MagicMock()
@@ -1184,7 +1184,7 @@ def test_add_comment_reads_document_assigned_name_in_two_scans():
     assert res["name"] == "LO_NAME"
 
 
-def test_add_comment_reply_uses_three_annotation_scans():
+def test_add_comment_reply_reads_assigned_name():
     from plugin.writer.specialized.comments import AddComment
 
     parent = MagicMock()

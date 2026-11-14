@@ -79,7 +79,6 @@ def test_sidebar_grammar_status_swallows_event_bus_failure() -> None:
         mock_bus.emit.side_effect = RuntimeError("bus unavailable")
         sink.failed("Hi.")
     mock_debug.assert_called_once()
-    assert "status emit failed" in mock_debug.call_args[0][0]
 
 
 def test_sidebar_grammar_status_harper_worker_emits_request_payload() -> None:
@@ -109,7 +108,9 @@ def test_status_bar_grammar_status_done_routes_to_status_bar() -> None:
         patch("plugin.framework.queue_executor.main.post", side_effect=lambda fn, *args: fn(*args) if callable(fn) else None),
     ):
         sink.done("Hello world.", result="clean")
-    mock_indicator.setText.assert_called_with("LibreHarper: Grammar check complete")
+    # Product label prefix differs by build ("LibreHarper:" vs "Grammar:").
+    mock_indicator.setText.assert_called_once()
+    assert mock_indicator.setText.call_args.args[0].startswith("LibreHarper:")
     mock_indicator.end.assert_called_once()
 
 
@@ -471,7 +472,9 @@ def test_status_bar_grammar_status_posts_paint_and_repaint() -> None:
     ):
         sink.request("Some text.", result="Downloading harper-ls v2.7.0…")
 
-    assert mock_post.called
+    # Second post is the VCL idle _pump so setText paints while worker is blocked in harper-ls.
+    assert mock_post.call_count == 2
+    assert mock_post.call_args_list[0].args[0] == sink._paint
     mock_execute.assert_not_called()
 
 

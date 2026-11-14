@@ -527,7 +527,7 @@ def test_grow_over_edge_space_is_a_no_op_without_edges():
     found.getText.assert_not_called()
 
 
-def test_all_matches_hoists_plain_text_conversion():
+def test_all_matches_replaces_every_range():
     from plugin.writer import html_import
     from plugin.writer.apply_document_content import ApplyDocumentContent
 
