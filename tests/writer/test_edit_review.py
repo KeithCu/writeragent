@@ -69,12 +69,15 @@ _RAISE = object()  # marker: a redline whose RedlineIdentifier read should raise
 
 
 class _FakeRl:
-    def __init__(self, rid, raise_set=False, comment="", raise_comment=False, raise_revert=False):
+    def __init__(self, rid, raise_set=False, comment="", raise_comment=False, raise_revert=False,
+                 start=None, end=None):
         self._rid = rid
         self._raise_set = raise_set
         self._raise_revert = raise_revert  # tagging (set token) succeeds, but reverting (set "") fails
         self._raise_comment = raise_comment
         self.comment = comment  # current RedlineComment: getPropertyValue returns it, setPropertyValue updates it
+        self._start = start
+        self._end = end
 
     def getPropertyValue(self, name):
         if name == "RedlineComment":
@@ -85,6 +88,10 @@ class _FakeRl:
             return None
         if name == "RedlineSuccessorData":
             return ()
+        if name == "RedlineStart" and self._start is not None:
+            return self._start
+        if name == "RedlineEnd" and self._end is not None:
+            return self._end
         assert name == "RedlineIdentifier"
         if self._rid is _RAISE:
             raise RuntimeError("identifier unreadable")
@@ -253,6 +260,17 @@ def test_tag_new_redlines_single_redline_orphan_is_failure_not_success():
     assert rl.comment == "TOKEN"                             # the orphan tag remains
 
 
+def _anchor_pair():
+    start = MagicMock()
+    end = MagicMock()
+    text = MagicMock()
+    cursor = MagicMock()
+    start.getText.return_value = text
+    text.createTextCursorByRange.return_value = cursor
+    cursor.getText.return_value = text
+    return start, end
+
+
 def test_record_mutation_single_orphan_not_registered():
     # A SINGLE new redline that mutates-then-throws (orphan==len==1). record_mutation must
     # NOT register it as a successful change -- it went through the failure path.
@@ -269,9 +287,11 @@ def test_record_mutation_single_orphan_not_registered():
 
     session = EditReviewSession(MagicMock(), MagicMock(), enabled=True)
     session._active = True
-    rl = _MutateThenThrow("a")
+    start, end = _anchor_pair()
+    rl = _MutateThenThrow("a", start=start, end=end)
     with _patch.object(session, "_redline_idents", return_value=(set(), True)), \
-         _patch("plugin.writer.review_scan.new_redlines_since", return_value=([rl], True)):
+         _patch("plugin.writer.review_scan.new_redlines_since", return_value=([rl], True)), \
+         _patch("plugin.writer.edit_review._string_skipping_redline", return_value=""):
         result = session.record_mutation(lambda: "r")
 
     assert result == "r"
@@ -286,9 +306,12 @@ def test_record_mutation_does_not_register_when_revert_leaves_orphan():
 
     session = EditReviewSession(MagicMock(), MagicMock(), enabled=True)
     session._active = True
-    rl1, rl2 = _FakeRl("a", raise_revert=True), _FakeRl("b", raise_set=True)
+    start, end = _anchor_pair()
+    rl1 = _FakeRl("a", raise_revert=True, start=start, end=end)
+    rl2 = _FakeRl("b", raise_set=True, start=start, end=end)
     with _patch.object(session, "_redline_idents", return_value=(set(), True)), \
-         _patch("plugin.writer.review_scan.new_redlines_since", return_value=([rl1, rl2], True)):
+         _patch("plugin.writer.review_scan.new_redlines_since", return_value=([rl1, rl2], True)), \
+         _patch("plugin.writer.edit_review._string_skipping_redline", return_value=""):
         result = session.record_mutation(lambda: "r")
 
     assert result == "r"
@@ -385,8 +408,11 @@ def test_record_mutation_does_not_tag_when_after_scan_incomplete():
         applied["n"] += 1
         return "r"
 
+    start, end = _anchor_pair()
+    rl = _FakeRl("new", start=start, end=end)
     with _patch.object(session, "_redline_idents", return_value=({"x"}, True)), \
-         _patch("plugin.writer.review_scan.new_redlines_since", return_value=([], False)):
+         _patch("plugin.writer.review_scan.new_redlines_since", return_value=([rl], False)), \
+         _patch("plugin.writer.edit_review._string_skipping_redline", return_value=""):
         result = session.record_mutation(apply_fn)
 
     assert result == "r" and applied["n"] == 1 and session.changes == []
@@ -596,7 +622,11 @@ def test_record_mutation_does_not_tag_when_before_snapshot_unreliable():
         applied["n"] += 1
         return "result"
 
-    with _patch.object(session, "_redline_idents", return_value=(set(), False)):
+    start, end = _anchor_pair()
+    rl = _FakeRl("new", start=start, end=end)
+    with _patch.object(session, "_redline_idents", return_value=(set(), False)), \
+         _patch("plugin.writer.review_scan.new_redlines_since", return_value=([rl], True)), \
+         _patch("plugin.writer.edit_review._string_skipping_redline", return_value=""):
         result = session.record_mutation(apply_fn)
 
     assert result == "result"      # the edit ran

@@ -221,7 +221,7 @@ class TestWriterImageCursorConversion:
         # Body must clone via getStart(), not the ViewCursor itself (PR #796).
         doc_text.createTextCursorByRange.assert_called_once_with("range-start")
         doc_text.insertTextContent.assert_called_once_with(text_cursor, image_instance, False)
-        image_instance.GraphicURL = "file:////home/user/photo.png"
+        image_instance.setPropertyValue.assert_any_call("GraphicURL", "file:////home/user/photo.png")
 
     def test_insert_uses_cell_xtext_not_body_clone(self):
         """Cursor in a nested XText must not clone through the body."""

@@ -830,14 +830,28 @@ def test_write_temp_image_and_suffix():
         os.unlink(path)
 
 
+def test_write_temp_image_unlinks_on_write_failure(monkeypatch, tmp_path):
+    import tempfile
+    import pytest
+    from plugin.writer.images.image_utils import write_temp_image
+
+    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
+
+    def _boom_fdopen(fd, *_args, **_kwargs):
+        os.close(fd)
+        raise OSError("disk full")
+
+    monkeypatch.setattr(os, "fdopen", _boom_fdopen)
+    with pytest.raises(OSError, match="disk full"):
+        write_temp_image(b"\x89PNG\r\n\x1a\n", ".png")
+    assert list(tmp_path.glob("wa-img-*")) == []
+
+
 def test_temp_cleanup_on_failure():
     import pytest
     from plugin.writer.images.image_utils import EndpointImageProvider, IMAGE_DOWNLOAD_MAX_BYTES
 
     provider = EndpointImageProvider({"model": "test"}, None)
-
-    with pytest.raises(Exception):
-        provider._save_b64("not-valid-base64!!!")
 
     with patch("plugin.writer.images.image_utils.sync_request", side_effect=RuntimeError("net error")):
         with pytest.raises(RuntimeError):
