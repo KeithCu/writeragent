@@ -74,16 +74,19 @@ def test_unload_forgets_cached_workbook_key():
     assert WorkbookState.known(None) is None
 
 
-@pytest.mark.parametrize("trigger", ["on_unload", "on_disposing"])
-def test_unload_listener_resets_worker_session(trigger: str):
+@pytest.mark.parametrize(
+    "trigger",
+    [
+        pytest.param(lambda listener: listener.on_document_event(MagicMock(EventName="OnUnload")), id="on_unload"),
+        pytest.param(lambda listener: listener.on_disposing(MagicMock()), id="on_disposing"),
+    ],
+)
+def test_unload_listener_resets_worker_session(trigger: Callable[[_CalcPythonUnloadListener], None]):
     listener = _CalcPythonUnloadListener("key-1", "calc:wb-1", WorkbookState(key="key-1"))
     with patch("plugin.calc.python.workbook_lifecycle.reset_python_session") as mock_reset:
         mock_reset.return_value = {"status": "ok"}
         for _idx in range(2):
-            if trigger == "on_unload":
-                listener.on_document_event(MagicMock(EventName="OnUnload"))
-            else:
-                listener.on_disposing(MagicMock())
+            trigger(listener)
         mock_reset.assert_called_once_with("calc:wb-1", timeout_sec=3, lease_wait_sec=3)
 
 
@@ -159,14 +162,17 @@ def test_unload_clears_registration_so_reopen_can_reregister():
 
 
 @pytest.mark.parametrize(
-    ("via_for_doc_only", "id_sequence"),
+    ("register", "ui_thread_patch", "id_sequence"),
     [
         pytest.param(
+            _ensure_calc_unload,
             False,
             ["calc:uuid-1", "calc:uuid-1", "calc:file:///saved.ods", "calc:file:///saved.ods", "calc:file:///saved.ods"],
             id="ensure-calc-unload",
         ),
         pytest.param(
+            # Each UI-thread for_doc refreshes the unload listener (note_calc_identity on Save).
+            WorkbookState.for_doc,
             True,
             ["calc:uuid-1", "calc:file:///saved.ods", "calc:file:///saved.ods"],
             id="for-doc-ui-thread",
@@ -174,26 +180,23 @@ def test_unload_clears_registration_so_reopen_can_reregister():
     ],
 )
 def test_save_notes_new_session_id_reset_on_unload(
-    monkeypatch: pytest.MonkeyPatch, via_for_doc_only: bool, id_sequence: list[str]
+    register: Callable[[Any], WorkbookState | None], ui_thread_patch: bool, id_sequence: list[str]
 ) -> None:
     """After Save the listener must reset both the uuid kernel and the file-URL kernel."""
+    from contextlib import nullcontext
+
     doc = CalcDocStub(props={"RuntimeUID": "uid-save"}, url="")
-    monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: True)
+    main_ctx = patch("plugin.framework.queue_executor.main.is_current", return_value=True) if ui_thread_patch else nullcontext()
     with (
+        main_ctx,
         patch("plugin.calc.python.workbook_lifecycle.HAVE_UNO", True),
         patch("plugin.calc.python.workbook_lifecycle.calc_workbook_base_session_id", side_effect=id_sequence),
         patch("plugin.calc.python.workbook_lifecycle.reset_python_session") as mock_reset,
     ):
         mock_reset.return_value = {"status": "ok"}
-        if via_for_doc_only:
-            WorkbookState.for_doc(doc)
-        else:
-            _ensure_calc_unload(doc)
+        register(doc)
         doc.url = "file:///saved.ods"
-        if via_for_doc_only:
-            WorkbookState.for_doc(doc)
-        else:
-            _ensure_calc_unload(doc)
+        register(doc)
         assert len(doc._document_event_listeners) == 1
         doc._document_event_listeners[0].on_document_event(MagicMock(EventName="OnUnload"))
     reset_ids = {call.args[0] for call in mock_reset.call_args_list}

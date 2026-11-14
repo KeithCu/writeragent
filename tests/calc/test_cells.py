@@ -20,6 +20,7 @@ import pytest
 from tests.harness.strip_bundle import requires_asserts
 
 from plugin.app import get_tools
+from plugin.framework.errors import CalcError
 from plugin.framework.tool import prepare_tool_call
 from plugin.tests.testing_utils import FakeUndoManager, TestingFactory
 
@@ -1510,23 +1511,21 @@ def test_write_cell_range_multi_range_rolls_back_on_error():
         assert fake_undo.undone == 1
 
 
+# Class name must contain "RuntimeException" because errors.py classifies by type name.
 class _RuntimeException(Exception):
     pass
 
 
 @pytest.mark.parametrize(
-    ("use_calc_error", "expected_code", "expected_snippet"),
+    ("exc", "expected_code", "expected_snippet"),
     [
-        pytest.param(True, "CALC_ERROR", "B1", id="calc-error"),
-        pytest.param(False, "TOOL_EXECUTION_ERROR", None, id="runtime-exception"),
+        pytest.param(CalcError("style failed"), "CALC_ERROR", "B1", id="calc-error"),
+        pytest.param(_RuntimeException("style failed"), "TOOL_EXECUTION_ERROR", None, id="runtime-exception"),
     ],
 )
 def test_set_cell_style_multi_range_rolls_back_on_error(
-    use_calc_error, expected_code, expected_snippet
+    exc, expected_code, expected_snippet
 ):
-    from plugin.framework.errors import CalcError
-
-    exc = CalcError("style failed") if use_calc_error else _RuntimeException("style failed")
     fake_undo = FakeUndoManager()
     doc = MagicMock()
     doc.getUndoManager.return_value = fake_undo

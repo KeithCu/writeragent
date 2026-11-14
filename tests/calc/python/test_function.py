@@ -663,7 +663,7 @@ def test_untitled_docs_do_not_share_spill_registry(monkeypatch: pytest.MonkeyPat
 
 
 def test_build_cell_context_off_main_skips_uno_and_init_kwargs(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Off main thread, build_cell_context must not touch UNO or read document scripts."""
+    """Issue #402: off main, build_cell_context must not touch UNO; the caller doc is only passed through because its init script is UNO."""
     monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: False)
 
     def boom(_doc: object) -> dict[str, Any]:

@@ -23,6 +23,7 @@ from plugin.calc.calc_addin_data import (
     values_from_inspector_range,
 )
 from plugin.framework.errors import DocumentDisposedError
+from plugin.scripting.calc_range import ensure_rectangular_2d
 from plugin.scripting.calc_range import CalcRange, is_calc_range_payload, materialize_inputs
 from plugin.scripting.config_limits import _schema_int
 from plugin.scripting.payload_codec import is_multi_data, is_split_grid, wire_cell_count
@@ -89,19 +90,17 @@ def test_finalize_python_data_already_flat_becomes_row():
     assert finalize_python_data([1, 2]) == [[1, 2]]
 
 
-@pytest.mark.parametrize("fn_name", ["finalize_python_data", "ensure_rectangular_2d", "calc_addin_data_to_python"])
-def test_namedtuple_is_scalar_wrap(fn_name: str):
-    """Namedtuple subclasses tuple but is not a Calc grid (e.g. SplitResultBytes)."""
+@pytest.mark.parametrize(
+    "fn",
+    [finalize_python_data, ensure_rectangular_2d, calc_addin_data_to_python],
+    ids=["finalize_python_data", "ensure_rectangular_2d", "calc_addin_data_to_python"],
+)
+def test_namedtuple_is_scalar_wrap(fn):
+    """Namedtuple subclasses tuple but is not a Calc grid (CrossHair SplitResultBytes case)."""
     from collections import namedtuple
-    from plugin.scripting.calc_range import ensure_rectangular_2d
 
     SplitResultBytes = namedtuple("SplitResultBytes", "a b c d e")
     raw = SplitResultBytes([], "", "", 0, 0)
-    fn = {
-        "finalize_python_data": finalize_python_data,
-        "ensure_rectangular_2d": ensure_rectangular_2d,
-        "calc_addin_data_to_python": calc_addin_data_to_python,
-    }[fn_name]
     assert fn(raw) == [[raw]]
 
 

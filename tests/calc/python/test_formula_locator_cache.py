@@ -33,6 +33,10 @@ def test_is_matching_py_formula_variants():
     assert is_matching_py_formula('=PYTHON("x = ""hello""")', 'x = "hello"')
     assert is_matching_py_formula('=PYTHON("x = ""hello""", A1:B10)', 'x = "hello"')
     assert is_matching_py_formula(
+        '=ORG.EXTENSION.WRITERAGENT.PYTHONFUNCTION.PY("plt.figure(); plt.show()")',
+        "plt.figure(); plt.show()",
+    )
+    assert is_matching_py_formula(
         '=ORG.EXTENSION.WRITERAGENT.PYTHONFUNCTION.PY("import matplotlib.pyplot as plt\nplt.show()")',
         "import matplotlib.pyplot as plt\nplt.show()",
     )

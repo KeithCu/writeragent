@@ -459,7 +459,7 @@ def test_py_addin_child_timeout_shows_guidance_text(ctx, doc):
 @native_test
 @with_native_doc("calc")
 def test_py_addin_token_formula_errors(ctx, doc):
-    """Real =PY() results of #DIV/0! and #N/A tokens map to Calc errors 532 and 32767."""
+    """Real =PY() results of #DIV/0! and #N/A tokens map to Calc errors 532 and 32767 (computed in soffice's worker)."""
     sheet = doc.getSheets().getByIndex(0)
     clear_python_addin_cache()
     cases = [("#DIV/0!", 532), ("#N/A", 32767)]
