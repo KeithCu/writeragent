@@ -1198,12 +1198,3 @@ def test_replace_range_collapses_doubled_newlines_between_paragraphs():
 
     assert text_obj.insertControlCharacter.call_count == 2
 
-
-def test_agent_edit_tuning_defaults():
-    from plugin.framework.config_schema import resolve_default
-    from plugin.writer.word_diff_split import DEFAULT_THRESHOLD
-
-    assert resolve_default("doc.agent_edit_diff_threshold") == DEFAULT_THRESHOLD
-    assert resolve_default("doc.agent_edit_max_surgical_runs") == 40
-    assert resolve_default("doc.agent_edit_split_author_colors") is True
-

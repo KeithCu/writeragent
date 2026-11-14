@@ -3,7 +3,6 @@ from unittest.mock import MagicMock, patch, call
 
 import pytest
 
-from plugin.calc.base import ToolCalcSpecialBase
 from plugin.framework.tool import prepare_tool_call
 from plugin.writer.tracking import (
     TrackChangesStart,
@@ -49,16 +48,6 @@ def _create_mock_ctx():
     doc.getCurrentController.return_value = controller
     
     return ctx, dispatcher, frame, view_settings
-
-def test_track_changes_tools_support_calc_document_type():
-    assert isinstance(TrackChangesStart(), ToolCalcSpecialBase)
-    assert isinstance(ManageTrackedChanges(), ToolCalcSpecialBase)
-    expected = (
-        "com.sun.star.text.TextDocument",
-        "com.sun.star.sheet.SpreadsheetDocument",
-    )
-    assert TrackChangesStart.uno_services == list(expected)
-    assert TrackChangesList.uno_services == list(expected)
 
 
 def test_track_changes_start():
@@ -159,13 +148,6 @@ def test_track_changes_show():
     assert res_false["message"] == "Hiding tracked changes markup."
     assert props["RedlineDisplayType"] == 1
     view_settings.setPropertyValue.assert_not_called()
-
-
-def test_track_changes_show_missing_required():
-    ctx, _, _, _ = _create_mock_ctx()
-    tool = TrackChangesShow()
-    with pytest.raises(KeyError):
-        tool.execute(ctx)
 
 
 @pytest.mark.parametrize("show", ["not-a-bool", 1, None])

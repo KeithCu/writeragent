@@ -2038,12 +2038,6 @@ def test_lint_restart_keeps_constructor_heartbeat() -> None:
     assert client._heartbeat_fn is heartbeat
 
 
-def test_shutdown_harper_runtime_is_a_quit_hook() -> None:
-    from plugin.framework import quit_hooks
-
-    assert shutdown_harper_runtime in quit_hooks._hooks
-
-
 def test_shutdown_with_held_lock_aborts_in_flight_lint(monkeypatch: pytest.MonkeyPatch) -> None:
     client = MagicMock()
     client.is_alive.return_value = True

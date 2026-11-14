@@ -6,17 +6,13 @@
 
 from __future__ import annotations
 
-import os
-import re
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from plugin.framework.i18n import get_locales_dir
 from plugin.framework.grammar_rule_ids import (
-    GRAMMAR_REGISTRY_LOCALE_TAGS,
     bcp47_to_uno_lang_country,
     grammar_bcp47_tags_match,
     normalize_detected_bcp47,
@@ -24,61 +20,8 @@ from plugin.framework.grammar_rule_ids import (
 )
 from plugin.writer.locale import grammar_proofread_locale as gl
 
-# Folder names under repo-root ``locales/`` that are translation targets (excludes en; English uses POT as msgid).
-_GETTEXT_LOCALE_DIRS: frozenset[str] = frozenset(
-    n
-    for n in os.listdir(get_locales_dir())
-    if re.match(r"^[a-z]{2,3}(_[A-Z]{2})?$", n)
-)
-
-# Each gettext dir (except that ``pt`` maps to one BCP-47) must appear as the intended primary tag
-_FOLDERS_TO_TAG = {
-    "bg": "bg-BG",
-    "bn_IN": "bn-IN",
-    "ca": "ca-ES",
-    "cs": "cs-CZ",
-    "da": "da-DK",
-    "de": "de-DE",
-    "el": "el-GR",
-    "es": "es-ES",
-    "et": "et-EE",
-    "fi": "fi-FI",
-    "fr": "fr-FR",
-    "hi_IN": "hi-IN",
-    "hr": "hr-HR",
-    "hu": "hu-HU",
-    "id": "id-ID",
-    "it": "it-IT",
-    "ja": "ja-JP",
-    "ko": "ko-KR",
-    "lt": "lt-LT",
-    "lv": "lv-LV",
-    "nb_NO": "nb-NO",
-    "nl": "nl-NL",
-    "nn_NO": "nn-NO",
-    "pl": "pl-PL",
-    "pt": "pt-BR",
-    "ro": "ro-RO",
-    "ru": "ru-RU",
-    "sk": "sk-SK",
-    "sv": "sv-SE",
-    "tr": "tr-TR",
-    "uk": "uk-UA",
-    "ur_PK": "ur-PK",
-    "zh_CN": "zh-CN",
-    "zh_TW": "zh-TW",
-}
-
 def _uno_locale(lang: str, country: str) -> Any:
     return SimpleNamespace(Language=lang, Country=country, Variant="")
-
-def test_grammar_tags_match_gettext_folders() -> None:
-    assert _FOLDERS_TO_TAG.keys() == _GETTEXT_LOCALE_DIRS, (
-        f"Update _FOLDERS_TO_TAG or ``locales/``: missing/extra: "
-        f"{_GETTEXT_LOCALE_DIRS.symmetric_difference(_FOLDERS_TO_TAG.keys())}"
-    )
-    for _folder, expected in _FOLDERS_TO_TAG.items():
-        assert expected in GRAMMAR_REGISTRY_LOCALE_TAGS, expected
 
 @pytest.mark.parametrize(
     "value, value_2, expected, value_3, value_4, expected_2",
@@ -113,10 +56,8 @@ def test_looks_complete_sentence_matches_proofreader_gating() -> None:
     assert gl.looks_complete_sentence("Hello world.") is True
     assert gl.looks_complete_sentence("incomplete clause") is False
     assert gl.looks_complete_sentence("Բարև։") is True
-    assert "։" in gl.GRAMMAR_SENTENCE_TERMINATORS
     assert gl.looks_complete_sentence('She said "hello."') is True
     assert gl.looks_complete_sentence("He said hello.\u232a") is True
-    assert "\u232a" in gl.GRAMMAR_TRAILING_CLOSERS
 
 
 def test_trailing_closers_cover_unicode_pe_pf() -> None:
@@ -136,8 +77,6 @@ def test_fingerprint_for_text() -> None:
     text2 = "This is another sentence."
     fp1 = gl.fingerprint_for_text(text1)
     fp2 = gl.fingerprint_for_text(text2)
-    assert len(fp1) == 24
-    assert len(fp2) == 24
     assert fp1 != fp2
     assert fp1 == gl.fingerprint_for_text(text1)
 

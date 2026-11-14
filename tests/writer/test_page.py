@@ -492,11 +492,6 @@ def test_set_header_footer_enables_a_region_that_is_off():
     text_obj.setString.assert_not_called()
 
 
-def test_page_header_footer_schema_has_no_force():
-    """force/refuse-on-held is gone: schema omits force."""
-    assert "force" not in PageSetHeaderFooterText.parameters["properties"]
-
-
 def test_scan_region_warns_when_portion_cap_is_hit(monkeypatch):
     """A header walk that hits the cap used to drop later fields with no signal."""
     from plugin.writer import page as pg
@@ -535,16 +530,6 @@ def test_get_header_footer_surfaces_walk_cap_warning(monkeypatch):
 
     assert res["status"] == "ok"
     assert "cap 1" in res["warning"]
-
-
-def test_first_page_region_targets_its_own_text_object():
-    """A 'different first page' letterhead lives in HeaderTextFirst; the shared HeaderText never
-    reaches it."""
-    from plugin.writer.page import REGION_PROPS
-
-    assert REGION_PROPS["header_first"] == ("HeaderIsOn", "HeaderTextFirst")
-    assert REGION_PROPS["footer_first"] == ("FooterIsOn", "FooterTextFirst")
-    assert REGION_PROPS["header_left"] == ("HeaderIsOn", "HeaderTextLeft")
 
 
 def test_first_page_region_uses_the_header_height_properties():

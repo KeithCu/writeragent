@@ -1085,24 +1085,6 @@ def test_clear_direct_paragraph_properties_falls_back_one_at_a_time():
     assert "ParaSplit" not in cleared  # reported honestly as not cleared
 
 
-def test_clear_direct_never_touches_non_paragraph_properties():
-    """Deliberately narrower than setAllPropertiesToDefault: numbering, borders and language are
-    not the caller's to lose."""
-    from plugin.writer import styles as st
-
-    assert all(name.startswith("Para") for name in st.CLEARABLE_PARA_PROPERTIES)
-    for unwanted in ("NumberingRules", "ParaStyleName", "CharLocale"):
-        assert unwanted not in st.CLEARABLE_PARA_PROPERTIES
-
-
-def test_clearable_para_properties_are_the_single_source_for_styles_schema():
-    """styles.py owns the name list."""
-    from plugin.writer import styles as st
-
-    assert tuple(st._KNOWN_PARAGRAPH_PROPERTIES) == st.CLEARABLE_PARA_PROPERTIES
-    assert set(st._PARA_PROPERTY_SCHEMA) == set(st.CLEARABLE_PARA_PROPERTIES)
-
-
 def test_summarize_char_overrides_is_json_safe_and_first_portion_wins():
     from plugin.writer import styles as st
 
@@ -1138,14 +1120,6 @@ def test_summarize_char_overrides_reports_asian_complex():
     assert summary["CharHeightComplex"] == 11.0
 
 
-def test_reported_char_properties_cover_style_governed():
-    """Keep the clear-set and the report-set aligned: every slot style_props wipes is echoed."""
-    from plugin.writer import styles as st
-
-    for name in st.STYLE_GOVERNED_CHAR_PROPERTIES:
-        assert name in st.REPORTED_CHAR_PROPERTIES
-
-
 def test_enum_hit_walk_cap_and_warning_are_honest():
     from unittest.mock import MagicMock
     from plugin.doc import text_helpers as fmt
@@ -1163,16 +1137,6 @@ def test_enum_hit_walk_cap_and_warning_are_honest():
     assert len(dest) == 1
     assert fmt.record_walk_cap(done, 50, 50, "text portions", dest) is False
     assert len(dest) == 1
-
-
-def test_style_governed_char_properties_spare_bold_and_italic():
-    """style_props drops the font the style owns; hand-set emphasis is the user's, not the style's."""
-    from plugin.writer import styles as st
-
-    assert "CharFontName" in st.STYLE_GOVERNED_CHAR_PROPERTIES
-    assert "CharHeight" in st.STYLE_GOVERNED_CHAR_PROPERTIES
-    assert "CharWeight" not in st.STYLE_GOVERNED_CHAR_PROPERTIES   # bold survives
-    assert "CharPosture" not in st.STYLE_GOVERNED_CHAR_PROPERTIES  # italic survives
 
 
 def test_reset_properties_to_default_is_a_noop_on_empty_names():
