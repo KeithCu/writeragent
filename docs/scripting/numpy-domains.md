@@ -278,7 +278,7 @@ Viz helpers close the matplotlib figure on every exit, including when savefig fa
 
 **Fallback:** Simple moving-average projection in pandas when statsmodels forecasting APIs unavailable (`forecast_time_series` with `model="auto"` or `"moving_average"`). `model="auto"` tries Holt-Winters (when a season passes the two-cycle check), then ARIMA(1,1,1), then the moving average; the fallback flag names the first model's exception ("primary model failed (…); used arima" / "statsmodels forecast failed (…); used moving_average"), and if every model fails the result is `FORECAST_FAILED` with the last exception.
 
-**Tests:** [`test_forecast.py`](../../tests/scripting/test_forecast.py), [`test_forecast_templates.py`](../../tests/scripting/test_forecast_templates.py), [`test_python_runner_forecast.py`](../../tests/scripting/test_python_runner_forecast.py), [`test_forecast_data.py`](../../tests/calc/test_forecast_data.py), [`test_forecast_auto_plot.py`](../../tests/calc/test_forecast_auto_plot.py).
+**Tests:** [`test_forecast.py`](../../tests/scripting/test_forecast.py), [`test_forecast_templates.py`](../../tests/scripting/test_forecast_templates.py), [`test_python_runner_domains.py`](../../tests/scripting/test_python_runner_domains.py), [`test_forecast_data.py`](../../tests/calc/test_forecast_data.py), [`test_forecast_auto_plot.py`](../../tests/calc/test_forecast_auto_plot.py).
 
 #### Forecasting Phase 1 {#forecasting-phase-1}
 
@@ -491,7 +491,7 @@ Optional second table `all_scores` (truncated) for debugging — keep behind `pa
 
 **Run Python Script templates:** **Math Helpers →** `[Math] solve_equation`, `[Math] symbolic_simplify`, `[Math] integrate`, `[Math] differentiate`.
 
-**Tests:** [`test_symbolic.py`](../../tests/scripting/test_symbolic.py), [`test_domain_templates_contract.py`](../../tests/scripting/test_domain_templates_contract.py), [`test_python_runner_symbolic.py`](../../tests/scripting/test_python_runner_symbolic.py), [`test_symbolic_tool.py`](../../tests/scripting/test_symbolic_tool.py).
+**Tests:** [`test_symbolic.py`](../../tests/scripting/test_symbolic.py), [`test_domain_templates_contract.py`](../../tests/scripting/test_domain_templates_contract.py), [`test_python_runner_domains.py`](../../tests/scripting/test_python_runner_domains.py), [`test_symbolic_tool.py`](../../tests/scripting/test_symbolic_tool.py).
 
 **Parser limits:** `e` is Euler's number unless it is the variable being differentiated or solved. Dunder names and non-decimal dots are rejected before parsing, because `parse_expr` uses `eval`. An integral SymPy leaves as `Integral(...)` returns `NO_CLOSED_FORM`. `solve_equation` rejects `!=`, `==`, and inequalities. Factorial equations need a space before `=` (`n! = 720`); SymPy may still have no algorithm for them. These helpers already use the 300s long trusted worker timeout (`LONG_TRUSTED_WORKER_TIMEOUT_SEC`). A `parse_expr` result that is not a SymPy expression (a Python string, list, tuple, or dict, or `1.0.func`) is `PARSE_ERROR` with message `Not a math expression.` An unknown call such as `foo(x)` is `PARSE_ERROR` with message `Undefined function in expression: foo`. `Function` is not a parser name. `solve_equation` returns `NO_SOLUTION` (`No solution.`) when the solution set is empty (`exp(x)`, `1 = 0`). When `solve` lists no roots and the set is not empty (`x = x`, `0`, `x**x`), the result stays `status: ok` and `latex` is that set (`\mathbb{C}`, or the condition). `sin(x)` stays the explicit roots `0` and `pi`.
 
