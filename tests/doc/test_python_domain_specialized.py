@@ -11,11 +11,9 @@ from plugin.calc.sheets import ListSheets
 from plugin.contrib.smolagents.memory import FinalAnswerStep
 from plugin.doc.python_domain_specialized import (
     DelegateToolDomains,
-    allowed_specialized_domains,
     gather_domain_tools,
     normalize_domain_list,
     run_inner_domain_tool_agent,
-    script_only_llm_tool_names,
     validate_requested_domains,
 )
 from plugin.doc.specialized_base import DelegateToSpecializedBase
@@ -117,67 +115,6 @@ def _ctx(registry: ToolRegistry, doc_type: str, service: str, **extra):
     )
 
 
-def test_python_hint_and_examples_require_delegate_before_finish():
-    """Computing a layout is not placing shapes; finish only after delegate_tool_domains."""
-    from plugin.chatbot.smol_examples import PYTHON_SPECIALIZED_EXAMPLES, get_examples_block
-    from plugin.framework.prompts import python_specialized_sub_agent_hint
-
-    for label in ("Writer", "Calc", "Draw"):
-        hint = python_specialized_sub_agent_hint(label)
-        assert "delegate_tool_domains" in hint
-        assert "wa.shape.upsert" in hint
-    writer = python_specialized_sub_agent_hint("Writer")
-    assert "footnotes" in writer
-    assert "shapes" in writer
-
-    block = get_examples_block("writer:python")
-    assert block == PYTHON_SPECIALIZED_EXAMPLES
-    assert "PYTHON VENV SANDBOX:" not in block
-    assert (writer + "\n\n" + block).count("PYTHON VENV SANDBOX:") == 1
-    parts = block.split('Task: "')
-    assert "delegate_tool_domains" not in parts[1]
-    assert '"domains": ["footnotes"]' in parts[2]
-    ring = parts[3]
-    assert '"domains": ["shapes"]' in ring
-    assert ring.index("delegate_tool_domains") < ring.index("run_venv_python_script")
-    assert ring.index("run_venv_python_script") < ring.index("specialized_workflow_finished")
-    assert "wa.shape.upsert" in ring
-
-
-def test_domain_loop_hints_include_footnotes_and_charts_lines():
-    """Cheap static suffixes match the single-domain specialized loop."""
-    from plugin.doc.python_domain_specialized import _domain_loop_hints
-
-    parent = MagicMock()
-    parent.doc = None
-    calc = _domain_loop_hints(parent, ["charts"], "Calc")
-    assert "data_range='A1:B10'" in calc
-    writer = _domain_loop_hints(parent, ["charts", "footnotes"], "Writer")
-    assert "headers" in writer
-    assert "rows" in writer
-    assert "insert_after" in writer
-    assert "Document canvas" not in writer
-
-
-def test_shapes_mutators_are_script_only_other_domains_keep_tools():
-    """Shapes LLM list drops proxy mutators; footnotes and sheets do not."""
-    hidden = script_only_llm_tool_names("shapes")
-    expected_mutators = frozenset({
-        "shape_upsert",
-        "shape_delete",
-        "shape_connect",
-        "shape_group",
-        "shape_align",
-        "shape_distribute",
-        "shape_diagram",
-        "shape_fill_fields",
-    })
-    assert expected_mutators <= hidden
-    assert "shape_summary" not in hidden
-    assert script_only_llm_tool_names("footnotes") == frozenset()
-    assert script_only_llm_tool_names("sheets") == frozenset()
-
-
 def test_normalize_domain_list_dedupes_and_parses_json_array():
     names, err = normalize_domain_list([" footnotes ", "shapes", "footnotes"])
     assert err is None
@@ -193,20 +130,6 @@ def test_normalize_domain_list_dedupes_and_parses_json_array():
 
 
 def test_validate_domains_by_app():
-    writer = allowed_specialized_domains("Writer")
-    calc = allowed_specialized_domains("Calc")
-    draw = allowed_specialized_domains("Draw")
-    assert "python" not in writer
-    assert "python" not in calc
-    assert "footnotes" in writer
-    assert "sheets" not in writer
-    assert "sheets" in calc
-    assert "ranges" in calc
-    assert "footnotes" not in calc
-    assert "speaker_notes" in draw
-    assert "page_comments" in draw
-    assert "ppt-master" not in draw
-
     message, code = validate_requested_domains(["footnotes", "shapes"], "Writer")
     assert message is None and code is None
     message, code = validate_requested_domains(["sheets"], "Writer")

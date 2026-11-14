@@ -57,4 +57,13 @@ def test_open_python_cell_editor_native_failure_msgbox():
 def test_open_python_cell_editor_launches_when_monaco_available():
     res = _open_editor(monaco=("/venv/bin/python", True))
     res.launch.assert_called_once()
-    assert res.launch.call_args.kwargs["exe"] == "/venv/bin/python"
+    kwargs = res.launch.call_args.kwargs
+    assert kwargs["exe"] == "/venv/bin/python"
+    assert kwargs["on_save"] is not None
+    load_msg = kwargs["load_message"]
+    assert load_msg["type"] == "load"
+    assert load_msg["code"] == "print(1)"
+    assert load_msg.get("mode") == "calc_cell"
+    assert load_msg.get("show_plain_text") is True
+    assert load_msg.get("show_data_binding") is True
+    assert load_msg.get("save_as_plain") is True

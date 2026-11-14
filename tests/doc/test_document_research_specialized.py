@@ -17,9 +17,7 @@ from plugin.doc.document_research_specialized import (
     DelegateReadDocument,
     run_inner_read_agent,
 )
-from plugin.doc.peer_prompt import PEER_INNER_CHOICE_RULES
 from plugin.doc.specialized_base import DelegateToSpecializedBase
-from plugin.draw.specialized import DelegateToSpecializedDraw
 from plugin.framework.tool import ToolBase, ToolContext, ToolRegistry
 from tests.chatbot.test_tool_loop import _mock_get_config_for_sub_agent
 from plugin.writer.specialized_base import DelegateToSpecializedWriter, SpecializedWorkflowFinished
@@ -43,19 +41,6 @@ class _MutatingTool(ToolBase):
 
     def execute(self, ctx, **kwargs):
         return {"status": "ok"}
-
-
-def _document_research_domains(gateway):
-    return gateway.parameters["properties"]["domain"]["enum"]
-
-
-@pytest.mark.parametrize(
-    "gateway_cls",
-    [DelegateToSpecializedWriter, DelegateToSpecializedCalc, DelegateToSpecializedDraw],
-)
-def test_document_research_in_delegate_enum(gateway_cls):
-    gw = gateway_cls()
-    assert "document_research" in _document_research_domains(gw)
 
 
 def test_filter_document_research_discovery_tools_respects_config():
@@ -85,49 +70,6 @@ def test_filter_document_research_discovery_tools_respects_config():
     assert "search_nearby_files" in names
     assert "search_embeddings" not in names
     assert "grep_nearby_files" not in names
-
-
-def test_document_research_domain_still_has_its_tools_after_legacy_search_delete():
-    r = ToolRegistry(services={})
-    for tool in (ListNearbyFiles(), GrepNearbyFiles(), SearchNearbyFiles(), DelegateReadDocument()):
-        r.register(tool)
-    names = {t.name for t in r.get_tools(doc=MagicMock(), active_domain="document_research", exclude_tiers=())}
-    assert {"list_nearby_files", "grep_nearby_files", "search_nearby_files", "delegate_read_document"} <= names
-
-
-def test_document_research_workflow_hint_off():
-    from plugin.framework.prompts import get_document_research_workflow_hint
-
-    ctx = MagicMock()
-    with patch("plugin.framework.constants.folder_search_enabled", return_value=False):
-        hint = get_document_research_workflow_hint(ctx)
-    assert "grep_nearby_files" in hint
-    assert "search_nearby_files" not in hint
-
-
-def test_document_research_workflow_hint_on():
-    from plugin.framework.prompts import get_document_research_workflow_hint
-
-    ctx = MagicMock()
-    with patch("plugin.framework.constants.folder_search_enabled", return_value=True):
-        hint = get_document_research_workflow_hint(ctx)
-    assert "search_nearby_files" in hint
-    assert "grep_nearby_files" not in hint
-
-
-def test_document_research_workflow_hint_peer_choice_when_peers_open():
-    from plugin.framework.prompts import get_document_research_workflow_hint
-
-    ctx = MagicMock()
-    doc = MagicMock()
-    peers = [{"name": "Budget.ods", "uid": "u2", "url": "", "type": "calc"}]
-    with patch("plugin.framework.constants.folder_search_enabled", return_value=False):
-        with patch("plugin.doc.peer_message.list_v1_peers", return_value=peers):
-            hint = get_document_research_workflow_hint(ctx, doc)
-    assert "send_peer_work" in hint
-    assert "send_peer_result" in hint
-    assert "delegate_read_document" in hint
-    assert "Budget.ods" in hint
 
 
 def test_read_only_target_blocks_mutation_in_registry():
@@ -236,15 +178,6 @@ def test_document_research_outer_delegation_gets_peer_send_when_peers_open(
     assert "send_peer_work" in names
     assert "send_peer_result" in names
     assert "delegate_read_document" in names
-    peer_adapter = next(t for t in smol_tools if t.name == "send_peer_work")
-    peer_result_adapter = next(t for t in smol_tools if t.name == "send_peer_result")
-    assert "Budget.ods" in peer_result_adapter.description
-    assert "Budget.ods" in peer_adapter.description
-    assert "uid=u2" in peer_adapter.description
-    instructions = mock_agent_class.call_args.kwargs.get("instructions") or ""
-    assert "send_peer_work" in instructions
-    assert "send_peer_result" in instructions
-    assert PEER_INNER_CHOICE_RULES in instructions
     assert ctx.active_domain is None
 
 

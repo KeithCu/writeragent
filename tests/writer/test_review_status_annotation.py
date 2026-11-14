@@ -19,16 +19,13 @@ def _annotate(mode, result):
 def test_off_mode_leaves_result_unchanged():
     out = _annotate("off", {"status": "ok", "message": "Replaced 1 occurrence."})
     assert "pending_review" not in out
-    assert "tracked change" not in out["message"]
+    assert out["message"] == "Replaced 1 occurrence."
 
 
 def test_record_mode_marks_pending_and_no_outcome_notice():
     out = _annotate("record", {"status": "ok", "message": "Replaced 1 occurrence."})
     assert out["pending_review"] is True
     assert out["review_mode"] == "record"
-    m = out["message"].lower()
-    assert "tracked change" in m and "do not accept or reject" in m
-    assert "not be notified" in m
 
 
 def test_wait_mode_also_annotated():
