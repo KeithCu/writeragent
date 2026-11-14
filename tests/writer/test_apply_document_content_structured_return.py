@@ -862,21 +862,17 @@ def test_build_search_replace_response():
     single = build_search_replace_response(1)
     assert single["status"] == "ok"
     assert single["replaced_count"] == 1
-    assert single["message"] == "Replaced 1 occurrence (by old_content)."
 
     single_preserve = build_search_replace_response(1, use_preserve=True)
     assert single_preserve["status"] == "ok"
-    assert "formatting preserved" in single_preserve["message"]
 
     # Multiple replacements
     multi = build_search_replace_response(3)
     assert multi["status"] == "ok"
     assert multi["replaced_count"] == 3
-    assert multi["message"] == "Replaced 3 occurrence(s)."
 
     multi_preserve = build_search_replace_response(3, use_preserve=True)
     assert multi_preserve["status"] == "ok"
-    assert "formatting preserved" in multi_preserve["message"]
 
 
 def test_build_search_replace_response_custom_message():

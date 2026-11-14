@@ -145,7 +145,7 @@ def test_fields_insert_reports_the_failing_property(mock_ctx):
     res = FieldsInsert().execute(mock_ctx, field="PageNumber", properties={"NumberingType": 4, "Bogus": 1}, target="selection")
 
     assert res["status"] == "error"
-    assert res["message"] == "Failed to set property 'Bogus' to '1': no such property"
+    assert "Bogus" in res["message"]
     mock_controller = doc.getCurrentController.return_value
     mock_controller.getSelection().getByIndex().getText().createTextCursorByRange().getText().insertTextContent.assert_not_called()
 

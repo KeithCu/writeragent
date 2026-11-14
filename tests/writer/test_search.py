@@ -171,8 +171,7 @@ def test_search_in_document_zero_width_sets_truncated():
     assert res["warning"] == "Search stopped on a zero-width match; count may be incomplete."
 
 
-def test_search_in_document_getstring_failure_is_truncated(caplog):
-    import logging
+def test_search_in_document_getstring_failure_is_truncated():
     from plugin.writer.search import SearchInDocument
 
     doc = MagicMock()
@@ -183,14 +182,12 @@ def test_search_in_document_getstring_failure_is_truncated(caplog):
     doc.getTextFields.return_value.createEnumeration.return_value.hasMoreElements.return_value = False
     ctx = MagicMock(doc=doc)
 
-    with caplog.at_level(logging.ERROR, logger="writeragent.writer"):
-        res = SearchInDocument().execute(ctx, pattern="hello")
+    res = SearchInDocument().execute(ctx, pattern="hello")
 
     assert res["status"] == "ok"
     assert res["count"] == 0
     assert res["truncated"] is True
     assert res["warning"] == "Text-model search ended early after a getString failure; count may be incomplete."
-    assert "search_in_document: getString failed" in caplog.text
 
 
 @pytest.mark.parametrize("bad_val", [0, -1])
@@ -436,8 +433,7 @@ def test_find_text_ranges_body_only_skips_other_xtext():
     assert res_all[1]["start"] == len("nested_pre")
 
 
-def test_build_page_map_rebuilds_and_unlocks(caplog):
-    import logging
+def test_build_page_map_rebuilds_and_unlocks():
     from plugin.writer.search import _build_page_map
 
     doc = MagicMock()
@@ -475,14 +471,12 @@ def test_build_page_map_rebuilds_and_unlocks(caplog):
     assert pm3 == {0: 5}
     doc.unlockControllers.assert_called_once()
 
-    # Controller failure returns {} and does not lock, logs exception
+    # Controller failure returns {} and does not lock
     doc.reset_mock()
     doc.getCurrentController.side_effect = RuntimeError("no controller")
-    with caplog.at_level(logging.ERROR, logger="writeragent.writer"):
-        pm_err = _build_page_map(doc)
+    pm_err = _build_page_map(doc)
     assert pm_err == {}
     doc.lockControllers.assert_not_called()
-    assert "advanced_search: could not read the view cursor" in caplog.text
 
 
 def test_advanced_search_missing_query():

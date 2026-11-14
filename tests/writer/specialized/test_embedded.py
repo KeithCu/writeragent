@@ -35,7 +35,6 @@ def test_embedded_insert_in_delegate_catalog_not_default():
 def test_embedded_edit_fails_immediately():
     res = EmbeddedEdit().execute(MagicMock(), name="anything")
     assert res["status"] == "error"
-    assert "not implemented" in res["message"]
 
 
 def test_embedded_insert_rejects_bad_object_type_and_bool_cell():

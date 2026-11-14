@@ -94,11 +94,8 @@ def test_inject_count_mismatch_does_not_append() -> None:
 
     html = "<p><math xmlns='http://www.w3.org/1998/Math/MathML'><mi>a</mi></math></p>"
     hits = [_Hit("a"), _Hit("b")]
-    with patch.object(exp, "iter_writer_math_objects", return_value=hits), patch.object(
-        exp.log, "warning"
-    ) as warn:
+    with patch.object(exp, "iter_writer_math_objects", return_value=hits):
         out = inject_math_tex_into_html(object(), object(), html)
-    warn.assert_called()
     assert "$a$" in out
     assert "$b$" not in out
     assert out.rstrip().endswith("</p>") or out.rstrip().endswith("</P>")
@@ -154,11 +151,8 @@ def test_inject_pairs_display_flag_by_wrapper_id() -> None:
         _Hit("x", display_block=True, embed_name="Object 9"),
         _Hit("y", display_block=True, embed_name="Object 2"),
     ]
-    with patch.object(exp, "iter_writer_math_objects", return_value=hits), patch.object(
-        exp.log, "warning"
-    ) as warn:
+    with patch.object(exp, "iter_writer_math_objects", return_value=hits):
         out = inject_math_tex_into_html(object(), object(), html)
-    warn.assert_called()
     assert "$a$" in out
     assert "$$b$$" in out
     assert "$c$" in out

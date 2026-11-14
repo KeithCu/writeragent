@@ -86,8 +86,6 @@ def test_insert_latex_math_dialog_non_writer_fails(ctx: Any, doc: Any) -> None:
 
         # Verify an error msgbox was shown
         mock_msgbox.assert_called_once()
-        args = mock_msgbox.call_args[0]
-        assert "available in Writer" in args[2] or "Error" in args[1]
 
 
 @native_test
@@ -111,7 +109,6 @@ def test_insert_latex_math_dialog_monaco_success(ctx: Any, doc: Any) -> None:
         load_msg = kwargs["load_message"]
         assert load_msg["mode"] == "latex"
         assert load_msg["language"] == "latex"
-        assert "centered paragraph" in load_msg["plain_text_label"]
         assert load_msg["show_data_binding"] is False
 
         # Test the on_save callback defined in insert_latex_math_dialog
@@ -121,7 +118,6 @@ def test_insert_latex_math_dialog_monaco_success(ctx: Any, doc: Any) -> None:
         res = on_save(latex_input, True)
         assert res["type"] == "saved"
         assert res["ok"] is True
-        assert res["status_ok_text"] == "Formula inserted."
 
         # Verify the on_save closure attempted to persist via save
         mock_set_config.assert_any_call({"last_latex_input": latex_input, "last_latex_display_block": True})

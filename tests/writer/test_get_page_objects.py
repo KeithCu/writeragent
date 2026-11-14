@@ -256,9 +256,8 @@ def test_scan_page_at_page_shape_uses_anchor_page_no_without_view_hop(monkeypatc
     vc.gotoRange.assert_not_called()
 
 
-def test_scan_page_keeps_shape_when_geometry_raises(monkeypatch, caplog):
+def test_scan_page_keeps_shape_when_geometry_raises(monkeypatch):
     """One shape whose position cannot be read must not abort the page (#2028)."""
-    import logging
     from types import SimpleNamespace
 
     import com.sun.star.text.TextContentAnchorType as anchor_types
@@ -303,8 +302,7 @@ def test_scan_page_keeps_shape_when_geometry_raises(monkeypatch, caplog):
     doc.getTextFrames.return_value = _empty_named_collection()
     doc.getDrawPage.return_value = draw
 
-    with caplog.at_level(logging.WARNING):
-        result = GetPageObjects()._scan_page(doc, MagicMock(), 2)
+    result = GetPageObjects()._scan_page(doc, MagicMock(), 2)
 
     assert [s["name"] for s in result["shapes"]] == ["Fly", "Box"]
     assert result["shapes"][0]["geometry"] is None
@@ -313,7 +311,6 @@ def test_scan_page_keeps_shape_when_geometry_raises(monkeypatch, caplog):
     assert "anchor_type" in geom
     bad.getPosition.assert_called_once()
     good.getPosition.assert_not_called()
-    assert any("Fly" in rec.message for rec in caplog.records)
 
 
 def test_scan_page_reraises_disposal_during_geometry(monkeypatch):

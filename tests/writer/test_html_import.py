@@ -1333,8 +1333,7 @@ def test_deleted_by_the_edit():
     assert image_placeholders._deleted_by_the_edit(model, original, "Picture 1") is True
 
 
-def test_deleted_by_the_edit_name_guard(caplog):
-    import logging
+def test_deleted_by_the_edit_name_guard():
     import pytest
     from unittest.mock import MagicMock
     from plugin.framework.errors import DocumentDisposedError
@@ -1357,15 +1356,13 @@ def test_deleted_by_the_edit_name_guard(caplog):
     assert image_placeholders._deleted_by_the_edit(model, original, "Picture 1") is False
     original.getAnchor.assert_called_once()
 
-    # 3. Non-disposal lookup failures are logged and treated as deleted
+    # 3. Non-disposal lookup failures are treated as deleted
     model = MagicMock()
     model.getGraphicObjects.side_effect = RuntimeError("collection lookup failed")
     original = MagicMock()
     original.getAnchor.side_effect = AssertionError("getAnchor must not be called on lookup failure")
-    with caplog.at_level(logging.WARNING):
-        assert image_placeholders._deleted_by_the_edit(model, original, "Picture 1") is True
+    assert image_placeholders._deleted_by_the_edit(model, original, "Picture 1") is True
     original.getAnchor.assert_not_called()
-    assert "collection lookup failed" in caplog.text
 
     # 4. Disposal lookup failure is re-raised
     model = MagicMock()

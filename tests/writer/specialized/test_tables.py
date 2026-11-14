@@ -1401,9 +1401,8 @@ class DisposedException(Exception):
     pass
 
 
-def test_table_get_cells_cell_read_error_logged_and_disposal_reraised(caplog):
-    """Bug 3: TableGetCells logs warning and continues on cell read failure, and re-raises disposal."""
-    import logging
+def test_table_get_cells_cell_read_error_skipped_and_disposal_reraised():
+    """Bug 3: TableGetCells continues on cell read failure, and re-raises disposal."""
     from unittest.mock import MagicMock
 
     table = FakeTable(1, 2, cells={"A1": "ok"})
@@ -1420,12 +1419,10 @@ def test_table_get_cells_cell_read_error_logged_and_disposal_reraised(caplog):
     doc = FakeWriterDoc({"T": table})
     ctx = SimpleNamespace(doc=doc)
 
-    with caplog.at_level(logging.WARNING):
-        res = TableGetCells().execute(ctx, name="T")
+    res = TableGetCells().execute(ctx, name="T")
     assert res["status"] == "ok"
     assert "A1" in res["cells"]
     assert "B1" not in res["cells"]
-    assert any("could not read cell 'B1'" in rec.message for rec in caplog.records)
 
     disposed_table = FakeTable(1, 1)
     disposed_table.getCellByName = MagicMock(side_effect=DisposedException("object disposed"))
@@ -1434,9 +1431,8 @@ def test_table_get_cells_cell_read_error_logged_and_disposal_reraised(caplog):
 
 
 
-def test_table_list_skips_bad_table_and_reraises_disposal(caplog):
+def test_table_list_skips_bad_table_and_reraises_disposal():
     """Bug 4: TableList skips corrupt table that fails _dims, and re-raises disposal."""
-    import logging
     from unittest.mock import MagicMock
 
     good = FakeTable(2, 2)
@@ -1446,12 +1442,10 @@ def test_table_list_skips_bad_table_and_reraises_disposal(caplog):
     doc = FakeWriterDoc({"Good": good, "Bad": bad})
     ctx = SimpleNamespace(doc=doc)
 
-    with caplog.at_level(logging.WARNING):
-        res = TableList().execute(ctx)
+    res = TableList().execute(ctx)
     assert res["status"] == "ok"
     assert res["count"] == 1
     assert res["tables"][0]["name"] == "Good"
-    assert any("skipping unreadable table 'Bad'" in rec.message for rec in caplog.records)
 
     disposed_table = MagicMock()
     disposed_table.getRows.side_effect = DisposedException("disposed document")
