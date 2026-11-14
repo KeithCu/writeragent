@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+from contextlib import nullcontext
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -155,20 +156,6 @@ def test_shape_upsert_octagon_sets_geometry_before_page_add():
     # Double-apply after add is the crashy swap; fill/line may still set after add.
     assert not any(i > add_idx for i in engine_idxs), events
     assert not any(i > add_idx for i in geom_idxs), events
-
-
-def test_shape_upsert_edit_accepts_name_without_index():
-    tool = UpsertShape()
-    ok, err = tool.validate(action="edit")
-    assert not ok
-    assert err is not None
-    assert "index" in err and "name" in err
-    ok, err = tool.validate(action="edit", name="fld_product")
-    assert ok
-    assert err is None
-    ok, err = tool.validate(action="edit", index=0)
-    assert ok
-    assert err is None
 
 
 def test_shape_upsert_calc_customshape_reapplies_geometry_after_page_add():
@@ -514,72 +501,84 @@ class DisposedException(Exception):
     """Type name matches is_disposal."""
 
 
-def test_shape_upsert_disposed_page_is_not_invalid_index():
-    ctx = MagicMock()
-    ctx.active_page_index = 0
-    with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
-        bridge_cls.return_value.resolve_page.side_effect = DisposedException("gone")
-        with pytest.raises(DisposedException):
-            UpsertShape().execute(ctx, action="create", shape_type="rectangle", x=0, y=0, width=10, height=10, page=0)
-
-
-def test_shape_upsert_bad_page_stays_invalid_index():
+@pytest.mark.parametrize(
+    ("tool_cls", "kwargs", "is_disposed", "page_idx"),
+    [
+        pytest.param(
+            UpsertShape,
+            {"action": "create", "shape_type": "rectangle", "x": 0, "y": 0, "width": 10, "height": 10, "page": 0},
+            True,
+            0,
+            id="upsert-disposed",
+        ),
+        pytest.param(
+            UpsertShape,
+            {"action": "create", "shape_type": "rectangle", "x": 0, "y": 0, "width": 10, "height": 10, "page": 3},
+            False,
+            3,
+            id="upsert-bad-page",
+        ),
+        pytest.param(GetDrawSummary, {"page": 0}, True, 0, id="summary-disposed"),
+        pytest.param(AlignShapes, {"indices": [0, 1], "alignment": "left", "page": 0}, True, 0, id="align-disposed"),
+        pytest.param(AlignShapes, {"indices": [0, 1], "alignment": "left", "page": 9}, False, 9, id="align-bad-page"),
+    ],
+)
+def test_shape_tools_propagate_resolve_page_errors(tool_cls, kwargs, is_disposed, page_idx):
     from plugin.framework.errors import ToolExecutionError
 
     ctx = MagicMock()
     ctx.active_page_index = 0
+    exc = DisposedException("gone") if is_disposed else ToolExecutionError(f"Page index {page_idx} out of range.")
+    expected_exc = DisposedException if is_disposed else ToolExecutionError
     with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
-        bridge_cls.return_value.resolve_page.side_effect = ToolExecutionError("Page index 3 out of range.")
-        with pytest.raises(ToolExecutionError, match=r"Page index \d+ out of range\."):
-            UpsertShape().execute(ctx, action="create", shape_type="rectangle", x=0, y=0, width=10, height=10, page=3)
+        bridge_cls.return_value.resolve_page.side_effect = exc
+        with pytest.raises(expected_exc) as exc_info:
+            tool_cls().execute(ctx, **kwargs)
+    if not is_disposed:
+        assert f"Page index {page_idx} out of range." in str(exc_info.value)
 
 
-def test_shape_summary_disposed_page_is_not_missing_page():
-    ctx = MagicMock()
-    ctx.active_page_index = 0
-    with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
-        bridge_cls.return_value.resolve_page.side_effect = DisposedException("gone")
-        with pytest.raises(DisposedException):
-            GetDrawSummary().execute(ctx, page=0)
-
-
-def test_align_shapes_disposed_page_is_not_invalid_index():
-    ctx = MagicMock()
-    ctx.active_page_index = 0
-    with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
-        bridge_cls.return_value.resolve_page.side_effect = DisposedException("gone")
-        with pytest.raises(DisposedException):
-            AlignShapes().execute(ctx, indices=[0, 1], alignment="left", page=0)
-
-
-def test_align_shapes_bad_page_stays_invalid_index():
-    from plugin.framework.errors import ToolExecutionError
-
-    ctx = MagicMock()
-    ctx.active_page_index = 0
-    with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
-        bridge_cls.return_value.resolve_page.side_effect = ToolExecutionError("Page index 9 out of range.")
-        with pytest.raises(ToolExecutionError, match=r"Page index \d+ out of range\."):
-            AlignShapes().execute(ctx, indices=[0, 1], alignment="left", page=9)
-
-
-def test_shape_upsert_validate_rejects_bad_types_and_enum():
-    tool = UpsertShape()
-    ok, err = tool.validate(action="create", shape_type="rectangle", x="10", y=0, width=10, height=10)
-    assert not ok
-    assert err is not None and "x" in err
-
-    ok, err = tool.validate(action="create", shape_type="rectangle", x=0, y=0, width=10, height=10, rotation_angle="5")
-    assert not ok
-    assert err is not None and "rotation_angle" in err
-
-    ok, err = tool.validate(action="create", shape_type="rectangle", x=0, y=0, width=10, height=10, fill_style="plaid")
-    assert not ok
-    assert err is not None and "fill_style" in err
-
-    ok, err = tool.validate(action="create", shape_type="rectangle", x=0, y=0, width=10, height=10, fill_style="solid", rotation_angle=5)
-    assert ok
-    assert err is None
+@pytest.mark.parametrize(
+    ("kwargs", "expected_ok", "err_substrings"),
+    [
+        pytest.param({"action": "edit"}, False, ("index", "name"), id="edit-missing-target"),
+        pytest.param({"action": "edit", "name": "fld_product"}, True, (), id="edit-by-name"),
+        pytest.param({"action": "edit", "index": 0}, True, (), id="edit-by-index"),
+        pytest.param(
+            {"action": "create", "shape_type": "rectangle", "x": "10", "y": 0, "width": 10, "height": 10},
+            False,
+            ("x",),
+            id="create-bad-x",
+        ),
+        pytest.param(
+            {"action": "create", "shape_type": "rectangle", "x": 0, "y": 0, "width": 10, "height": 10, "rotation_angle": "5"},
+            False,
+            ("rotation_angle",),
+            id="create-bad-rotation",
+        ),
+        pytest.param(
+            {"action": "create", "shape_type": "rectangle", "x": 0, "y": 0, "width": 10, "height": 10, "fill_style": "plaid"},
+            False,
+            ("fill_style",),
+            id="create-bad-fill-style",
+        ),
+        pytest.param(
+            {"action": "create", "shape_type": "rectangle", "x": 0, "y": 0, "width": 10, "height": 10, "fill_style": "solid", "rotation_angle": 5},
+            True,
+            (),
+            id="create-valid",
+        ),
+    ],
+)
+def test_shape_upsert_validate(kwargs, expected_ok, err_substrings):
+    ok, err = UpsertShape().validate(**kwargs)
+    assert ok is expected_ok
+    if expected_ok:
+        assert err is None
+    else:
+        assert err is not None
+        for sub in err_substrings:
+            assert sub in err
 
 
 def test_shape_upsert_creation_failure_keeps_draw_error_code():
@@ -867,13 +866,7 @@ def test_apply_shape_properties_disposal_on_fill_color_propagates():
         _apply_shape_properties(shape, {"fill_color": "#FF0000"})
 
 
-def test_apply_shape_properties_non_disposal_still_warns():
-    shape = MagicMock()
-    shape.setString.side_effect = RuntimeError("boom")
-    assert _apply_shape_properties(shape, {"text": "x"}) == ["text"]
-
-
-def test_apply_shape_properties_former_failed_prop_arms() -> None:
+def _drawing_sys_modules() -> dict[str, object]:
     fill_style = MagicMock()
     fill_style.NONE = "NONE"
     fill_style.SOLID = "SOLID"
@@ -882,84 +875,50 @@ def test_apply_shape_properties_former_failed_prop_arms() -> None:
     drawing_mod = MagicMock()
     drawing_mod.FillStyle = fill_style
     drawing_mod.LineStyle = line_style
-    modules = {
+    return {
         "com.sun.star.drawing": drawing_mod,
         "com.sun.star": MagicMock(drawing=drawing_mod),
     }
 
-    shape = MagicMock()
-    shape.setString.side_effect = RuntimeError("text fail")
-    assert _apply_shape_properties(shape, {"text": "x"}) == ["text"]
 
-    shape = MagicMock()
-    shape.setString.side_effect = DisposedException("gone")
-    with pytest.raises(DisposedException):
-        _apply_shape_properties(shape, {"text": "x"})
+def _line_style_only_fail(name: str, _value: object) -> None:
+    if name == "LineStyle":
+        raise RuntimeError("line style fail")
 
+
+def _noop_shape(_shape: MagicMock) -> None:
+    return None
+
+
+@pytest.mark.parametrize(
+    ("props", "setup_shape", "char_patch", "expected"),
+    [
+        pytest.param({"text": "x"}, lambda s: setattr(s.setString, "side_effect", RuntimeError("text fail")), None, ["text"], id="text-runtime"),
+        pytest.param({"text": "x"}, lambda s: setattr(s.setString, "side_effect", DisposedException("gone")), None, DisposedException, id="text-disposed"),
+        pytest.param({"fill_color": "none"}, lambda s: setattr(s.setPropertyValue, "side_effect", RuntimeError("prop fail")), None, ["fill_color"], id="fill-none-runtime"),
+        pytest.param({"fill_color": "none"}, lambda s: setattr(s.setPropertyValue, "side_effect", DisposedException("gone")), None, DisposedException, id="fill-none-disposed"),
+        pytest.param({"fill_style": "solid"}, lambda s: setattr(s.setPropertyValue, "side_effect", RuntimeError("prop fail")), None, ["fill_style"], id="fill-solid-runtime"),
+        pytest.param({"fill_style": "solid"}, lambda s: setattr(s.setPropertyValue, "side_effect", DisposedException("gone")), None, DisposedException, id="fill-solid-disposed"),
+        pytest.param({"fill_style": "gradient"}, _noop_shape, None, [], id="fill-gradient-noop"),
+        pytest.param({"line_color": "#000000"}, lambda s: setattr(s.setPropertyValue, "side_effect", _line_style_only_fail), None, ["line_style"], id="line-style-runtime"),
+        pytest.param({"line_color": "#000000"}, lambda s: setattr(s.setPropertyValue, "side_effect", DisposedException("gone")), None, DisposedException, id="line-disposed"),
+        pytest.param({"font_size": 12}, _noop_shape, lambda: patch("plugin.draw.shapes.apply_character_properties", return_value={"CharHeight": False}), ["CharHeight"], id="char-false"),
+        pytest.param({"font_size": 12}, _noop_shape, lambda: patch("plugin.draw.shapes.apply_character_properties", side_effect=RuntimeError("chars fail")), ["text_properties"], id="char-runtime"),
+        pytest.param({"font_size": 12}, _noop_shape, lambda: patch("plugin.draw.shapes.apply_character_properties", side_effect=DisposedException("gone")), DisposedException, id="char-disposed"),
+    ],
+)
+def test_apply_shape_properties_failed_prop_arms(props, setup_shape, char_patch, expected) -> None:
     shape = MagicMock()
     shape.FillStyle = True
     shape.LineStyle = True
-    shape.setPropertyValue.side_effect = RuntimeError("fill none fail")
-    with patch.dict("sys.modules", modules):
-        assert _apply_shape_properties(shape, {"fill_color": "none"}) == ["fill_color"]
+    setup_shape(shape)
 
-    shape = MagicMock()
-    shape.FillStyle = True
-    shape.setPropertyValue.side_effect = DisposedException("gone")
-    with patch.dict("sys.modules", modules):
-        with pytest.raises(DisposedException):
-            _apply_shape_properties(shape, {"fill_color": "none"})
-
-    shape = MagicMock()
-    shape.FillStyle = True
-    shape.setPropertyValue.side_effect = RuntimeError("solid fail")
-    with patch.dict("sys.modules", modules):
-        assert _apply_shape_properties(shape, {"fill_style": "solid"}) == ["fill_style"]
-
-    shape = MagicMock()
-    shape.FillStyle = True
-    shape.setPropertyValue.side_effect = DisposedException("gone")
-    with patch.dict("sys.modules", modules):
-        with pytest.raises(DisposedException):
-            _apply_shape_properties(shape, {"fill_style": "solid"})
-
-    shape = MagicMock()
-    shape.FillStyle = True
-    with patch.dict("sys.modules", modules):
-        assert _apply_shape_properties(shape, {"fill_style": "gradient"}) == []
-
-    shape = MagicMock()
-    shape.LineStyle = True
-
-    def line_set(name: str, value: object) -> None:
-        if name == "LineStyle":
-            raise RuntimeError("line style fail")
-
-    shape.setPropertyValue.side_effect = line_set
-    with patch.dict("sys.modules", modules):
-        failed = _apply_shape_properties(shape, {"line_color": "#000000"})
-    assert failed == ["line_style"]
-    assert "line_color" not in failed
-
-    shape = MagicMock()
-    shape.LineStyle = True
-    shape.setPropertyValue.side_effect = DisposedException("gone")
-    with patch.dict("sys.modules", modules):
-        with pytest.raises(DisposedException):
-            _apply_shape_properties(shape, {"line_color": "#000000"})
-
-    shape = MagicMock()
-    with patch("plugin.draw.shapes.apply_character_properties", return_value={"CharHeight": False}):
-        assert _apply_shape_properties(shape, {"font_size": 12}) == ["CharHeight"]
-
-    shape = MagicMock()
-    with patch("plugin.draw.shapes.apply_character_properties", side_effect=RuntimeError("chars fail")):
-        assert _apply_shape_properties(shape, {"font_size": 12}) == ["text_properties"]
-
-    shape = MagicMock()
-    with patch("plugin.draw.shapes.apply_character_properties", side_effect=DisposedException("gone")):
-        with pytest.raises(DisposedException):
-            _apply_shape_properties(shape, {"font_size": 12})
+    char_ctx = char_patch() if char_patch is not None else nullcontext()
+    raise_ctx = pytest.raises(expected) if isinstance(expected, type) else nullcontext()
+    with patch.dict("sys.modules", _drawing_sys_modules()), char_ctx, raise_ctx:
+        failed = _apply_shape_properties(shape, props)
+        if not isinstance(expected, type):
+            assert failed == expected
 
 
 def test_clamp_shape_text_autogrow_disposal_propagates():

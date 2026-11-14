@@ -228,9 +228,9 @@ class TestHasNativeAudio:
     @pytest.mark.parametrize(
         "value, value_2, expected",
         [
-            pytest.param('mistralai/voxtral-mini-transcribe', 'https://openrouter.ai/api', False, id="test_audio_only_stt_model_is_not_native_audio"),
-            pytest.param('whisper-1', 'https://example.invalid/v1', False, id="test_uncatalogued_whisper_is_not_native_audio"),
-            pytest.param('some-chat-model', 'https://example.invalid/v1', None, id="test_unknown_model_stays_unknown"),
+            pytest.param('mistralai/voxtral-mini-transcribe', 'https://openrouter.ai/api', False, id="audio-only-stt"),
+            pytest.param('whisper-1', 'https://example.invalid/v1', False, id="uncatalogued-whisper"),
+            pytest.param('some-chat-model', 'https://example.invalid/v1', None, id="unknown-model"),
         ],
     )
     def test_audio_only_stt_model_is_not_native_audio(self, value, value_2, expected):

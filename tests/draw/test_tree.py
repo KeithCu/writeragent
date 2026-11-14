@@ -420,15 +420,6 @@ def test_find_shape_on_page_nested_index_is_not_the_group():
 
 
 def test_find_shape_on_page_nested_duplicate_and_missing():
-    child_shape = _Shape("TextShape", name="Inner")
-    group_shape = _Shape("GroupShape", children=[child_shape])
-    page_nested = _Shapes([_Shape("RectangleShape"), group_shape])
-    idx, shape, parent, err = find_shape_on_page(page_nested, name="Inner")
-    assert err is None
-    assert shape is child_shape
-    assert parent is group_shape
-    assert idx == "1.0"
-
     page_dup = _Shapes([_Shape("TextShape", name="Dup"), _Shape("TextShape", name="Dup")])
     idx, shape, parent, err = find_shape_on_page(page_dup, name="Dup")
     assert idx is None and shape is None and parent is None

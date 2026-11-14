@@ -1,4 +1,4 @@
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -139,28 +139,65 @@ def _pump_idle() -> None:
         _notify_drain_idle()
 
 
-def test_draw_edit_one_shape_prompt_undo_and_agent_turns():
+@pytest.fixture
+def run_draw_stream():
     from plugin.draw.editselection import do_draw_extend_edit
 
+    def _run(
+        selection,
+        *,
+        is_edit: bool,
+        preset_instruction: str = "",
+        chunk: str | None = None,
+        post_main: bool = False,
+        on_stream=None,
+        extra_patches=(),
+    ):
+        stream_calls: list[str] = []
+
+        def fake_run_stream(
+            _ctx, _client, prompt, _system_prompt, _max_tokens, apply_chunk_fn, on_done_fn, on_error_fn, stop_checker=None, **_unused
+        ):
+            stream_calls.append(prompt)
+            if on_stream is not None:
+                on_stream(apply_chunk_fn, on_done_fn, on_error_fn)
+                return
+            if chunk is not None:
+                apply_chunk_fn(chunk, False)
+            on_done_fn()
+
+        with ExitStack() as stack:
+            model, um = stack.enter_context(_draw_model(selection))
+            stack.enter_context(patch("plugin.draw.editselection.get_config", side_effect=_config))
+            stack.enter_context(patch("plugin.draw.editselection.create_validated_client", return_value=object()))
+            stack.enter_context(patch("plugin.chatbot.selection.run_stream_completion_async", side_effect=fake_run_stream))
+            if post_main:
+                stack.enter_context(patch("plugin.framework.queue_executor.main.post", side_effect=lambda fn: fn()))
+            for ctx_mgr in extra_patches:
+                stack.enter_context(ctx_mgr)
+            do_draw_extend_edit(MagicMock(), model, is_edit=is_edit, preset_instruction=preset_instruction)
+            if post_main:
+                _pump_idle()
+        return stream_calls, model, um
+
+    return _run
+
+
+def test_draw_edit_one_shape_prompt_undo_and_agent_turns(run_draw_stream):
     shape = _TextShape("Hello")
-    stream_calls = []
     before = MagicMock()
     after = MagicMock()
-
-    def fake_run_stream(ctx, client, prompt, system_prompt, max_tokens, apply_chunk_fn, on_done_fn, on_error_fn, stop_checker=None, **_unused):
-        stream_calls.append(prompt)
-        apply_chunk_fn("Hi", False)
-        on_done_fn()
-
-    with _draw_model(_ShapeCollection([shape])) as (model, um), \
-         patch("plugin.draw.editselection.get_config", side_effect=_config), \
-         patch("plugin.draw.editselection.create_validated_client", return_value=object()), \
-         patch("plugin.framework.queue_executor.main.post", side_effect=lambda fn: fn()), \
-         patch("plugin.chatbot.selection.run_stream_completion_async", side_effect=fake_run_stream), \
-         patch("plugin.doc.agent_undo.record_agent_turn_before", before), \
-         patch("plugin.doc.agent_undo.record_agent_turn_after", after):
-        do_draw_extend_edit(MagicMock(), model, is_edit=True, preset_instruction="Fix spelling.")
-        _pump_idle()
+    stream_calls, model, um = run_draw_stream(
+        _ShapeCollection([shape]),
+        is_edit=True,
+        preset_instruction="Fix spelling.",
+        chunk="Hi",
+        post_main=True,
+        extra_patches=(
+            patch("plugin.doc.agent_undo.record_agent_turn_before", before),
+            patch("plugin.doc.agent_undo.record_agent_turn_after", after),
+        ),
+    )
 
     assert "Text to rewrite:\nHello" in stream_calls[0]
     assert shape.getString() == "Hi"
@@ -170,66 +207,27 @@ def test_draw_edit_one_shape_prompt_undo_and_agent_turns():
     after.assert_called_once_with(model)
 
 
-def test_draw_extend_appends_to_original():
-    from plugin.draw.editselection import do_draw_extend_edit
-
+def test_draw_extend_appends_to_original(run_draw_stream):
     shape = _TextShape("Hello")
-
-    def fake_run_stream(ctx, client, prompt, system_prompt, max_tokens, apply_chunk_fn, on_done_fn, on_error_fn, stop_checker=None, **_unused):
-        apply_chunk_fn(" world", False)
-        on_done_fn()
-
-    with _draw_model(_ShapeCollection([shape])) as (model, unused_um), \
-         patch("plugin.draw.editselection.get_config", side_effect=_config), \
-         patch("plugin.draw.editselection.create_validated_client", return_value=object()), \
-         patch("plugin.chatbot.selection.run_stream_completion_async", side_effect=fake_run_stream):
-        do_draw_extend_edit(MagicMock(), model, is_edit=False)
-
+    run_draw_stream(_ShapeCollection([shape]), is_edit=False, chunk=" world")
     assert shape.getString() == "Hello world"
 
 
-def test_draw_two_shapes_two_streams_one_undo():
-    from plugin.draw.editselection import do_draw_extend_edit
-
+def test_draw_two_shapes_two_streams_one_undo(run_draw_stream):
     first = _TextShape("A")
     second = _TextShape("B")
-    stream_calls = []
-
-    def fake_run_stream(ctx, client, prompt, system_prompt, max_tokens, apply_chunk_fn, on_done_fn, on_error_fn, stop_checker=None, **_unused):
-        stream_calls.append(prompt)
-        apply_chunk_fn("!", False)
-        on_done_fn()
-
-    with _draw_model(_ShapeCollection([first, second])) as (model, um), \
-         patch("plugin.draw.editselection.get_config", side_effect=_config), \
-         patch("plugin.draw.editselection.create_validated_client", return_value=object()), \
-         patch("plugin.framework.queue_executor.main.post", side_effect=lambda fn: fn()), \
-         patch("plugin.chatbot.selection.run_stream_completion_async", side_effect=fake_run_stream):
-        do_draw_extend_edit(MagicMock(), model, is_edit=False)
-        _pump_idle()
-
+    stream_calls, _model, um = run_draw_stream(
+        _ShapeCollection([first, second]), is_edit=False, chunk="!", post_main=True
+    )
     assert stream_calls == ["A", "B"]
     assert um.leaves == 1
 
 
-def test_draw_skips_empty_and_graphic_getstring_failure():
-    from plugin.draw.editselection import do_draw_extend_edit
-
+def test_draw_skips_empty_and_graphic_getstring_failure(run_draw_stream):
     empty = _TextShape("")
     graphic = _GraphicShape()
     good = _TextShape("Ok")
-    stream_calls = []
-
-    def fake_run_stream(ctx, client, prompt, system_prompt, max_tokens, apply_chunk_fn, on_done_fn, on_error_fn, stop_checker=None, **_unused):
-        stream_calls.append(prompt)
-        on_done_fn()
-
-    with _draw_model(_ShapeCollection([empty, graphic, good])) as (model, unused_um), \
-         patch("plugin.draw.editselection.get_config", side_effect=_config), \
-         patch("plugin.draw.editselection.create_validated_client", return_value=object()), \
-         patch("plugin.chatbot.selection.run_stream_completion_async", side_effect=fake_run_stream):
-        do_draw_extend_edit(MagicMock(), model, is_edit=False)
-
+    stream_calls, _model, _um = run_draw_stream(_ShapeCollection([empty, graphic, good]), is_edit=False)
     assert stream_calls == ["Ok"]
 
 
@@ -271,27 +269,13 @@ def test_draw_no_selection_without_sidebar_msgbox():
     assert msgbox.call_args[0][2] == _("Select a text shape.")
 
 
-def test_draw_group_rewrites_children_not_group():
-    from plugin.draw.editselection import do_draw_extend_edit
-
+def test_draw_group_rewrites_children_not_group(run_draw_stream):
     child1 = _TextShape("one")
     child2 = _TextShape("two")
     group = _GroupShape([child1, child2])
-    stream_calls = []
-
-    def fake_run_stream(ctx, client, prompt, system_prompt, max_tokens, apply_chunk_fn, on_done_fn, on_error_fn, stop_checker=None, **_unused):
-        stream_calls.append(prompt)
-        apply_chunk_fn("!", False)
-        on_done_fn()
-
-    with _draw_model(_ShapeCollection([group])) as (model, unused_um), \
-         patch("plugin.draw.editselection.get_config", side_effect=_config), \
-         patch("plugin.draw.editselection.create_validated_client", return_value=object()), \
-         patch("plugin.framework.queue_executor.main.post", side_effect=lambda fn: fn()), \
-         patch("plugin.chatbot.selection.run_stream_completion_async", side_effect=fake_run_stream):
-        do_draw_extend_edit(MagicMock(), model, is_edit=False)
-        _pump_idle()
-
+    stream_calls, _model, _um = run_draw_stream(
+        _ShapeCollection([group]), is_edit=False, chunk="!", post_main=True
+    )
     assert stream_calls == ["one", "two"]
     assert not hasattr(group, "setString")
 
@@ -318,30 +302,18 @@ def test_draw_table_only_no_stream_table_notice():
     run.assert_not_called()
 
 
-def test_draw_table_plus_text_rewrites_text_only():
-    from plugin.draw.editselection import do_draw_extend_edit
-
+def test_draw_table_plus_text_rewrites_text_only(run_draw_stream):
     table = _TableShape()
     text = _TextShape("Hello")
-    stream_calls = []
-
-    def fake_run_stream(ctx, client, prompt, system_prompt, max_tokens, apply_chunk_fn, on_done_fn, on_error_fn, stop_checker=None, **_unused):
-        stream_calls.append(prompt)
-        apply_chunk_fn("Hi", False)
-        on_done_fn()
-
-    with _draw_model(_ShapeCollection([table, text])) as (model, unused_um), \
-         patch("plugin.draw.editselection.get_config", side_effect=_config), \
-         patch("plugin.draw.editselection.create_validated_client", return_value=object()), \
-         patch("plugin.chatbot.selection.run_stream_completion_async", side_effect=fake_run_stream):
-        do_draw_extend_edit(MagicMock(), model, is_edit=True, preset_instruction="proofread")
-
+    stream_calls, _model, _um = run_draw_stream(
+        _ShapeCollection([table, text]), is_edit=True, preset_instruction="proofread", chunk="Hi"
+    )
     assert len(stream_calls) == 1
     assert "Text to rewrite:\nHello" in stream_calls[0]
 
 
-def test_draw_text_cursor_rewrites_whole_shape_text():
-    from plugin.draw.editselection import do_draw_extend_edit, iter_draw_rewrite_targets
+def test_draw_text_cursor_rewrites_whole_shape_text(run_draw_stream):
+    from plugin.draw.editselection import iter_draw_rewrite_targets
 
     shape = _TextShape("Hello world")
 
@@ -363,31 +335,20 @@ def test_draw_text_cursor_rewrites_whole_shape_text():
     assert saw_table is False
     assert targets == [shape]
 
-    stream_calls = []
-
-    def fake_run_stream(ctx, client, prompt, system_prompt, max_tokens, apply_chunk_fn, on_done_fn, on_error_fn, stop_checker=None, **_unused):
-        stream_calls.append(prompt)
-        apply_chunk_fn("Hi", False)
-        on_done_fn()
-
-    with _draw_model(cursor) as (model, unused_um), \
-         patch("plugin.draw.editselection.get_config", side_effect=_config), \
-         patch("plugin.draw.editselection.create_validated_client", return_value=object()), \
-         patch("plugin.chatbot.selection.run_stream_completion_async", side_effect=fake_run_stream):
-        do_draw_extend_edit(MagicMock(), model, is_edit=True, preset_instruction="proofread")
-
+    stream_calls, _model, _um = run_draw_stream(
+        cursor, is_edit=True, preset_instruction="proofread", chunk="Hi"
+    )
     assert "Text to rewrite:\nHello world" in stream_calls[0]
     assert shape.getString() == "Hi"
 
 
-def test_draw_second_shape_error_restores_and_undo_closes():
-    from plugin.draw.editselection import do_draw_extend_edit
-
+def test_draw_second_shape_error_restores_and_undo_closes(run_draw_stream):
     first = _TextShape("one")
     second = _TextShape("two")
     stream_idx = [0]
+    msgbox = MagicMock()
 
-    def fake_run_stream(ctx, client, prompt, system_prompt, max_tokens, apply_chunk_fn, on_done_fn, on_error_fn, stop_checker=None, **_unused):
+    def on_stream(apply_chunk_fn, on_done_fn, on_error_fn):
         idx = stream_idx[0]
         stream_idx[0] += 1
         if idx == 0:
@@ -397,14 +358,14 @@ def test_draw_second_shape_error_restores_and_undo_closes():
             apply_chunk_fn("TWO", False)
             on_error_fn(RuntimeError("fail"))
 
-    with _draw_model(_ShapeCollection([first, second])) as (model, um), \
-         patch("plugin.draw.editselection.get_config", side_effect=_config), \
-         patch("plugin.draw.editselection.create_validated_client", return_value=object()), \
-         patch("plugin.draw.editselection.msgbox") as msgbox, \
-         patch("plugin.framework.queue_executor.main.post", side_effect=lambda fn: fn()), \
-         patch("plugin.chatbot.selection.run_stream_completion_async", side_effect=fake_run_stream):
-        do_draw_extend_edit(MagicMock(), model, is_edit=True, preset_instruction="proofread")
-        _pump_idle()
+    _calls, _model, um = run_draw_stream(
+        _ShapeCollection([first, second]),
+        is_edit=True,
+        preset_instruction="proofread",
+        post_main=True,
+        on_stream=on_stream,
+        extra_patches=(patch("plugin.draw.editselection.msgbox", msgbox),),
+    )
 
     assert first.getString() == "ONE"
     assert second.getString() == "two"
@@ -412,45 +373,25 @@ def test_draw_second_shape_error_restores_and_undo_closes():
     msgbox.assert_called_once()
 
 
-def test_draw_max_shapes_cap_msgbox():
+def test_draw_max_shapes_cap_msgbox(run_draw_stream):
     from plugin.draw import editselection as mod
-    from plugin.draw.editselection import do_draw_extend_edit
 
     shapes = [_TextShape(str(i)) for i in range(3)]
-    stream_calls = []
-
-    def fake_run_stream(ctx, client, prompt, system_prompt, max_tokens, apply_chunk_fn, on_done_fn, on_error_fn, stop_checker=None, **_unused):
-        stream_calls.append(prompt)
-        on_done_fn()
-
-    with _draw_model(_ShapeCollection(shapes)) as (model, unused_um), \
-         patch.object(mod, "_MAX_SHAPES", 2), \
-         patch("plugin.draw.editselection.get_config", side_effect=_config), \
-         patch("plugin.draw.editselection.create_validated_client", return_value=object()), \
-         patch("plugin.draw.editselection.msgbox") as msgbox, \
-         patch("plugin.framework.queue_executor.main.post", side_effect=lambda fn: fn()), \
-         patch("plugin.chatbot.selection.run_stream_completion_async", side_effect=fake_run_stream):
-        do_draw_extend_edit(MagicMock(), model, is_edit=False)
-        _pump_idle()
-
+    msgbox = MagicMock()
+    stream_calls, _model, _um = run_draw_stream(
+        _ShapeCollection(shapes),
+        is_edit=False,
+        post_main=True,
+        extra_patches=(
+            patch.object(mod, "_MAX_SHAPES", 2),
+            patch("plugin.draw.editselection.msgbox", msgbox),
+        ),
+    )
     assert len(stream_calls) == 2
     msgbox.assert_called_once()
 
 
-def test_draw_whitespace_only_shape_is_rewritten():
-    from plugin.draw.editselection import do_draw_extend_edit
-
+def test_draw_whitespace_only_shape_is_rewritten(run_draw_stream):
     ws = _TextShape("   ")
-    stream_calls = []
-
-    def fake_run_stream(ctx, client, prompt, system_prompt, max_tokens, apply_chunk_fn, on_done_fn, on_error_fn, stop_checker=None, **_unused):
-        stream_calls.append(prompt)
-        on_done_fn()
-
-    with _draw_model(_ShapeCollection([ws])) as (model, unused_um), \
-         patch("plugin.draw.editselection.get_config", side_effect=_config), \
-         patch("plugin.draw.editselection.create_validated_client", return_value=object()), \
-         patch("plugin.chatbot.selection.run_stream_completion_async", side_effect=fake_run_stream):
-        do_draw_extend_edit(MagicMock(), model, is_edit=False)
-
+    stream_calls, _model, _um = run_draw_stream(_ShapeCollection([ws]), is_edit=False)
     assert stream_calls == ["   "]

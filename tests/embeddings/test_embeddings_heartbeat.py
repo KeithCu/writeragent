@@ -13,8 +13,8 @@ import pytest
 @pytest.mark.parametrize(
     "value, paragraphs, chunks, elapsed_sec, expected",
     [
-        pytest.param("a.odt", 1, 1, 0.12, "a.odt: 1 paragraph, 1 chunk, 0.12s", id="test_format_index_heartbeat_line_singular"),
-        pytest.param("b.odt", 105, 107, 1.234, "b.odt: 105 paragraphs, 107 chunks, 1.23s", id="test_format_index_heartbeat_line_plural"),
+        pytest.param("a.odt", 1, 1, 0.12, "a.odt: 1 paragraph, 1 chunk, 0.12s", id="singular"),
+        pytest.param("b.odt", 105, 107, 1.234, "b.odt: 105 paragraphs, 107 chunks, 1.23s", id="plural"),
     ],
 )
 def test_format_index_heartbeat_line_singular(value, paragraphs, chunks, elapsed_sec, expected):

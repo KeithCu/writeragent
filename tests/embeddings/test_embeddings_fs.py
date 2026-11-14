@@ -67,7 +67,8 @@ def test_extract_writer_paragraphs_fodt(tmp_path: Path):
     assert embeddings_fs.extract_writer_paragraphs(str(fodt)) == ["Flat body"]
 
 
-def test_paragraph_chunks_from_path(tmp_path: Path):
+@pytest.mark.parametrize("with_styles", [True, False], ids=["with-styles", "without-styles"])
+def test_paragraph_chunks_from_path(tmp_path: Path, with_styles: bool):
     odt = tmp_path / "a.odt"
     content_xml = b"""<?xml version="1.0"?>
 <office:document-content xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0"
@@ -86,23 +87,8 @@ def test_paragraph_chunks_from_path(tmp_path: Path):
 </office:document-styles>"""
     with zipfile.ZipFile(odt, "w") as zf:
         zf.writestr("content.xml", content_xml)
-        zf.writestr("styles.xml", styles_xml)
-    chunks = embeddings_fs.paragraph_chunks_from_path(str(odt))
-    assert len(chunks) == 1
-    assert chunks[0].text == "Body"
-    assert chunks[0].para_index == 0
-    assert chunks[0].doc_url.startswith("file:///")
-
-
-def test_paragraph_chunks_from_path_without_styles(tmp_path: Path):
-    odt = tmp_path / "a.odt"
-    content_xml = b"""<?xml version="1.0"?>
-<office:document-content xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0"
- xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0">
-<office:body><office:text><text:p>Body</text:p></office:text></office:body>
-</office:document-content>"""
-    with zipfile.ZipFile(odt, "w") as zf:
-        zf.writestr("content.xml", content_xml)
+        if with_styles:
+            zf.writestr("styles.xml", styles_xml)
     chunks = embeddings_fs.paragraph_chunks_from_path(str(odt))
     assert len(chunks) == 1
     assert chunks[0].text == "Body"

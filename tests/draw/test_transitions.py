@@ -230,26 +230,22 @@ def test_set_slide_transition_accepts_semi_auto():
     page.setPropertyValue.assert_any_call("Change", 2)
 
 
-def test_get_slide_transition_uses_ctx_active_page_index():
+@pytest.mark.parametrize(
+    ("page_arg", "resolved_page"),
+    [
+        pytest.param(None, 2, id="uses-active-page"),
+        pytest.param(0, 0, id="explicit-page-wins"),
+    ],
+)
+def test_get_slide_transition_page_resolution(page_arg, resolved_page):
     ctx = MagicMock()
     ctx.active_page_index = 2
     page = MagicMock()
     with patch("plugin.draw.transitions.DrawBridge") as bridge_cls:
-        bridge_cls.return_value.resolve_page.return_value = (page, 2)
-        out = GetSlideTransition().execute(ctx)
-    assert out["page"] == 2
-    bridge_cls.return_value.resolve_page.assert_called_once_with(None, active_page_index=2)
-
-
-def test_explicit_page_wins_over_ctx_active_page_index():
-    ctx = MagicMock()
-    ctx.active_page_index = 2
-    page = MagicMock()
-    with patch("plugin.draw.transitions.DrawBridge") as bridge_cls:
-        bridge_cls.return_value.resolve_page.return_value = (page, 0)
-        out = GetSlideTransition().execute(ctx, page=0)
-    assert out["page"] == 0
-    bridge_cls.return_value.resolve_page.assert_called_once_with(0, active_page_index=2)
+        bridge_cls.return_value.resolve_page.return_value = (page, resolved_page)
+        out = GetSlideTransition().execute(ctx, page=page_arg)
+    assert out["page"] == resolved_page
+    bridge_cls.return_value.resolve_page.assert_called_once_with(page_arg, active_page_index=2)
 
 
 def test_set_slide_layout_uses_ctx_active_page_index():

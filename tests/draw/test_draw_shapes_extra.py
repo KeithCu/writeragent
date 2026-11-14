@@ -62,7 +62,7 @@ def test_distribute_shapes_needs_three():
     assert out["status"] == "error"
 
 
-def test_create_diagram_reuses_upsert(tmp_path=None):
+def test_create_diagram_reuses_upsert():
     ctx = MagicMock()
     ctx.active_page_index = 0
     page = MagicMock()

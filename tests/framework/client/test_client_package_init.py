@@ -21,13 +21,13 @@ _REPO_ROOT = Path(__file__).resolve().parents[3]
         "assert 'plugin.embeddings.embedding_client' not in sys.modules\n"
         "assert 'plugin.embeddings.embeddings_service' not in sys.modules\n"
         "assert 'plugin.framework.client.stream_normalizer' not in sys.modules\n"
-        "assert 'plugin.scripting.client' not in sys.modules\n", id="test_import_requests_does_not_load_llm_client"),
+        "assert 'plugin.scripting.client' not in sys.modules\n", id="requests-only"),
         pytest.param("import sys\n"
         "from plugin.chatbot.extension_update_check import schedule_extension_update_check_once\n"
         "from plugin.framework.client.requests import sync_request\n"
         "assert schedule_extension_update_check_once is not None\n"
         "assert sync_request is not None\n"
-        "assert 'plugin.framework.client.llm_client' not in sys.modules\n", id="test_import_extension_update_check_does_not_load_llm_client"),
+        "assert 'plugin.framework.client.llm_client' not in sys.modules\n", id="extension-update-check"),
     ],
 )
 def test_import_requests_does_not_load_llm_client(value):
