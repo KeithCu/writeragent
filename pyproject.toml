@@ -43,6 +43,7 @@ norecursedirs = [
 markers = [
     "slow: excluded from default pytest; run via make slowtests",
     "integration: real subprocess (worker IPC, soffice/unopkg, build scripts); opt-in via -m integration",
+    "verification: formal verification, Hypothesis, and CrossHair tests",
     "xdist_group(name): serialize tests that share a host path (pytest-xdist loadgroup)",
     "requires_asserts: tests that expect assert statements to be executed (skipped in release builds)",
 ]

@@ -6,12 +6,16 @@
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
 
+import math
 from unittest.mock import MagicMock, patch
 
 import pytest
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
 from plugin.calc.calc_addin_data import (
     _normalize_data_range_addresses,
+    _unwrap_cell,
     resolve_python_data,
     calc_addin_args_from_split,
     calc_addin_data_to_python,
@@ -285,6 +289,39 @@ def test_resolve_python_data_returns_calc_error_message():
         data, err = resolve_python_data(doc, data_range="A1:B500000")
     assert data is None
     assert err == "Data range has 500000 cells; maximum is 250000."
+
+
+@pytest.mark.verification
+@given(val=st.one_of(st.integers(), st.floats(), st.text(), st.booleans(), st.none()))
+def test_unwrap_cell_invariants(val) -> None:
+    res = _unwrap_cell(val)
+    if val == "":
+        assert res is None
+    elif isinstance(val, float) and math.isnan(val):
+        assert isinstance(res, float) and math.isnan(res)
+    else:
+        assert res == val
+
+
+@pytest.mark.verification
+@given(data=st.one_of(
+    st.none(),
+    st.integers(),
+    st.text(),
+    st.lists(st.integers()),
+    st.lists(st.lists(st.integers())),
+    st.tuples(st.tuples(st.integers())),
+))
+@settings(max_examples=100)
+def test_calc_addin_data_to_python_rectangular_invariant(data) -> None:
+    grid = calc_addin_data_to_python(data)
+    if grid is not None:
+        assert isinstance(grid, list)
+        if grid:
+            first_len = len(grid[0])
+            for row in grid:
+                assert isinstance(row, list)
+                assert len(row) == first_len
 
 
 def test_split_grid_logical_coercion_at_calc_ingress():

@@ -456,4 +456,13 @@ def test_escape_for_html_insert_survives_one_unescape():
     assert escape_for_html_insert(3) == "3"
 
 
+@pytest.mark.verification
+def test_parse_run_import_call_spec_literal() -> None:
+    code1 = 'run_sql({"helper": "query_folder_sql", "params": {"files": ["a.csv"]}})'
+    spec1 = ScriptFacts.from_source(code1).first_run_spec("run_sql")
+    assert isinstance(spec1, dict)
+    assert spec1.get("helper") == "query_folder_sql"
+    assert spec1.get("params") == {"files": ["a.csv"]}
+
+
 

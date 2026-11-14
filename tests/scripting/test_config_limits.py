@@ -11,9 +11,13 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
+import pytest
+
+from plugin.framework.deal_shim import DEAL_MAX_ARGV
 from plugin.framework.errors import ConfigError
 from plugin.scripting.config_limits import (
     _bounds,
+    _clamp,
     configured_python_max_data_cells,
     python_exec_timeout,
     python_exec_timeout_default,
@@ -110,3 +114,27 @@ def test_configured_python_max_data_cells_failed_read_uses_default_not_min(mock_
         if isinstance(m, dict) and m.get("name") == "scripting"
     )
     assert configured_python_max_data_cells() == field["default"]
+
+
+@pytest.mark.verification
+def test_clamp_timeout_overflow_clamps() -> None:
+    """A timeout past DEAL_MAX_ARGV is user config. Clamp it; do not PreContract."""
+    t_min, t_max = _bounds("python_exec_timeout")
+    assert _clamp("python_exec_timeout", DEAL_MAX_ARGV + 1) == t_max
+    assert t_min <= _clamp("python_exec_timeout", 1) <= t_max
+    assert python_exec_timeout(DEAL_MAX_ARGV + 1) == python_exec_timeout(10**9)
+
+
+@pytest.mark.verification
+def test_python_exec_timeout_is_total() -> None:
+    default = python_exec_timeout_default()
+    t_max = python_exec_timeout(10**9)
+    for raw, expected in (
+        ("20", 20),
+        (float("nan"), default),
+        (DEAL_MAX_ARGV + 1, t_max),
+        (33, 33),
+        (0, 1),
+    ):
+        with patch("plugin.framework.config.get_config", return_value=raw):
+            assert python_exec_timeout() == expected

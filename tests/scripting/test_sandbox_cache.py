@@ -13,7 +13,7 @@ from unittest.mock import patch
 
 import pytest
 
-from plugin.contrib.smolagents.local_python_executor import BASE_BUILTIN_MODULES
+from plugin.contrib.smolagents.local_python_executor import ALLOWED_DUNDER_ATTRIBUTES, BASE_BUILTIN_MODULES
 from plugin.scripting import sandbox_cache as hot_cache
 from plugin.scripting.sandbox_cache import get_hot_entry, validate_sandbox_ast
 from tests.scripting.sandbox_support import sandbox_run
@@ -310,6 +310,57 @@ def test_all_ast_stmt_and_expr_subclasses_covered() -> None:
         mod = ast.Module(body=[cast("ast.stmt", instance)], type_ignores=[])
         err = validate_sandbox_ast(mod, imports)
         assert err is not None and f"{node_cls.__name__} is not supported" in err
+
+
+@pytest.mark.verification
+def test_validate_sandbox_ast_safe_code() -> None:
+    code = "import math\nx = math.sin(1.0)"
+    module = ast.parse(code)
+    error = validate_sandbox_ast(module, ["math"])
+    assert error is None
+
+
+@pytest.mark.verification
+@pytest.mark.parametrize(
+    "value, value_2",
+    [
+        pytest.param("x = obj.__code__", "Forbidden access to dunder attribute", id="test_validate_sandbox_ast_forbidden_dunder"),
+        pytest.param("import subprocess", "Import of subprocess is not allowed", id="test_validate_sandbox_ast_unauthorized_import"),
+    ],
+)
+def test_validate_sandbox_ast_forbidden_dunder(value, value_2) -> None:
+    code = value
+    module = ast.parse(code)
+    error = validate_sandbox_ast(module, ["math"])
+    assert error is not None
+    assert value_2 in error
+
+
+@pytest.mark.verification
+@pytest.mark.parametrize(
+    "attr",
+    (
+        "__code__",
+        "__globals__",
+        "__subclasses__",
+        "__builtins__",
+        "__class__",
+        "__dict__",
+        "__doc__",
+    ),
+)
+def test_validate_sandbox_ast_forbidden_dunder_attributes(attr: str) -> None:
+    module = ast.parse(f"x = obj.{attr}")
+    error = validate_sandbox_ast(module, ["math"])
+    assert error is not None
+    assert "Forbidden access to dunder attribute" in error
+
+
+@pytest.mark.verification
+@pytest.mark.parametrize("attr", (*sorted(ALLOWED_DUNDER_ATTRIBUTES), "foo", "value"))
+def test_validate_sandbox_ast_allowed_attributes(attr: str) -> None:
+    module = ast.parse(f"x = obj.{attr}")
+    assert validate_sandbox_ast(module, ["math"]) is None
 
 
 def test_import_failure_messages_short_and_hide_blocklist():

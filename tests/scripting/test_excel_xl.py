@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import pytest
+from hypothesis import given
+from hypothesis import strategies as st
 
 
 from plugin.scripting.calc_range import CalcRange
@@ -98,6 +100,29 @@ class TestExcelXlShim:
         np = pytest.importorskip("numpy")
         with pytest.raises(ValueError, match="headers must be True or False"):
             xl("%P2%", headers=np.bool_(True))
+
+
+@pytest.mark.verification
+@given(idx=st.integers(min_value=2, max_value=10))
+def test_excel_xl_binding_resolution(idx: int) -> None:
+    ranges = tuple([f"range_{i}" for i in range(15)])
+    xl_fn = make_xl(ranges)
+    assert callable(xl_fn)
+
+    # %P2% corresponds to 0th range in zero-indexed list (idx - 2)
+    ref = f"%P{idx}%"
+    bound_val = xl_fn(ref)
+    assert bound_val == ranges[idx - 2]
+
+
+@pytest.mark.verification
+def test_excel_xl_invalid_ref() -> None:
+    xl_fn = make_xl(["r1", "r2"])
+    with pytest.raises(ValueError):
+        xl_fn("invalid_ref")
+
+    with pytest.raises(ValueError):
+        xl_fn("%P99%")  # out of bounds
 
 
 

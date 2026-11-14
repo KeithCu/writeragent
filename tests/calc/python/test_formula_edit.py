@@ -6,8 +6,20 @@
 
 from __future__ import annotations
 
+import io
+import re
+import shutil
+from pathlib import Path
+
+import deal
+import pytest
+from hypothesis import given, settings
+from hypothesis import strategies as st
+
 from plugin.calc.python.formula_edit import (
     PyFormula,
+    _parse_quoted_string,
+    _parse_unquoted_code_arg,
     assemble_python_formula,
     build_data_suffix,
     escape_code_for_formula,
@@ -19,7 +31,10 @@ from plugin.calc.python.formula_edit import (
     parse_data_binding_text,
     py_code_arg_is_cell_ref,
 )
-import pytest
+from plugin.calc.spreadsheet_import.preprocess import normalize_lo_formula_for_parse
+from plugin.framework.deal_shim import DEAL_MAX_SHAPE_DIM, DEAL_MAX_SOURCE, DEAL_MAX_TOKEN
+from tests.harness.strip_bundle import deal_pre_present, expect_pre_or_body
+from tests.harness.vhs_budget import vhs_max_examples
 
 
 def test_parse_simple():
@@ -319,7 +334,7 @@ def test_normalize_keeps_curly_quotes_in_code_payload():
 
 
 def test_normalize_and_parse_bare_py_token():
-    """CrossHair check raised PatternError on normalize/parse of ``'PY'``.
+    """Cluster A: CrossHair check raised PatternError on normalize/parse of ``'PY'``.
 
     Relib re-parses the PY|PYTHON head regex; a startswith scan must not throw.
     """
@@ -332,7 +347,7 @@ def test_normalize_and_parse_bare_py_token():
 
 
 def test_sanitize_dtype_float_with_control_chars():
-    """escape_code_for_formula and rebuild preserve control characters."""
+    """Cluster B: escape_code_for_formula and rebuild preserve ``dtype=float`` control characters."""
     nul = "dtype=float\x00"
     soh = ".dtype=float\x01"
     assert escape_code_for_formula(nul) == nul
@@ -419,3 +434,211 @@ def test_open_end_and_parse_pins():
 
     assert PyFormula.parse('=PY("x"+1)') is None
     assert PyFormula.parse('=PY("x"; A1)') is not None
+
+
+_CROSSHAIR_ERROR_RE = re.compile(r": error:")
+# Rewrite wrappers (sanitize/escape/rebuild) are ``# crosshair: off`` — check-all
+# drops those FQNs. Data-binding display/parse are also off.
+# Keep parse/normalize: nested ensures are inverse_ensure-skipped. Range
+# formatters stay on (closed A1/sheet alphabet, DEAL_MAX_TOKEN length).
+_CROSSHAIR_TARGETS = (
+    "plugin.calc.python.formula_edit._parse_quoted_string",
+    "plugin.calc.python.formula_edit.normalize_formula_string",
+    "plugin.calc.python.formula_edit.PyFormula.parse",
+    "plugin.calc.spreadsheet_import.preprocess.normalize_lo_formula_for_parse",
+)
+
+# Avoid Hypothesis inventing NULs / unpaired surrogates that confuse quote lexers.
+_CODE_TEXT = st.text(
+    alphabet=st.characters(blacklist_categories=("Cs",), max_codepoint=127, blacklist_characters="\x00"),
+    max_size=40,
+)
+# Data-binding helpers are ascii_bounded (A1 / range tokens, including ``\x1c``).
+_ASCII_BINDING = st.text(
+    alphabet=st.characters(min_codepoint=0, max_codepoint=127),
+    max_size=30,
+)
+
+
+def _find_crosshair() -> str | None:
+    crosshair_path = shutil.which("crosshair")
+    if crosshair_path:
+        return crosshair_path
+    venv_bin_ch = Path(".venv/bin/crosshair")
+    if venv_bin_ch.exists():
+        return str(venv_bin_ch)
+    return None
+
+
+@pytest.mark.verification
+@given(code=_CODE_TEXT)
+@settings(max_examples=vhs_max_examples(60, 600), deadline=None)
+def test_hypothesis_escape_embed_parse_round_trip(code: str) -> None:
+    """escape → embed in =PY("…") → parse recovers code."""
+    escaped = escape_code_for_formula(code)
+    formula = f'=PY("{escaped}")'
+    parts = PyFormula.parse(formula)
+    assert parts is not None
+    assert parts.code == code
+    assert parts.data_suffix == ")"
+
+
+@pytest.mark.verification
+@given(code=_CODE_TEXT)
+@settings(max_examples=vhs_max_examples(50, 500), deadline=None)
+def test_hypothesis_rebuild_parse_round_trip(code: str) -> None:
+    """rebuild(parse(=PY(\"…\"))) preserves sanitized code (Phase 8 #1)."""
+    escaped = escape_code_for_formula(code)
+    formula = f'=PY("{escaped}")'
+    parts = PyFormula.parse(formula)
+    assert parts is not None
+    rebuilt = parts.render(parts.code)
+    again = PyFormula.parse(rebuilt)
+    assert again is not None
+    assert again.code == parts.code
+    assert again.data_suffix == parts.data_suffix
+    assert rebuilt.startswith('=PY("')
+
+
+@pytest.mark.verification
+@given(formula=_CODE_TEXT)
+@settings(max_examples=vhs_max_examples(40, 400), deadline=None)
+def test_hypothesis_normalize_idempotent_after_first(formula: str) -> None:
+    once = normalize_formula_string(formula)
+    assert normalize_formula_string(once) == once
+    assert "\u201c" not in once and "\u201d" not in once
+
+
+@pytest.mark.verification
+@given(inner=_CODE_TEXT.filter(lambda s: not s.startswith('"')))
+@settings(max_examples=vhs_max_examples(40, 400), deadline=None)
+def test_hypothesis_unquoted_code_never_starts_with_quote(inner: str) -> None:
+    result = _parse_unquoted_code_arg(inner)
+    assert result is None or not result.startswith('"')
+
+
+@pytest.mark.verification
+@given(body=_CODE_TEXT)
+@settings(max_examples=vhs_max_examples(40, 400), deadline=None)
+def test_hypothesis_quoted_string_bounds(body: str) -> None:
+    # Wrap as a Calc string; doubled quotes inside body via escape.
+    escaped = body.replace('"', '""')
+    s = f'"{escaped}"'
+    parsed = _parse_quoted_string(s, 0)
+    assert parsed is not None
+    code, end = parsed
+    assert code == body
+    assert 0 < end <= len(s)
+
+
+@pytest.mark.verification
+def test_parse_quoted_string_rejects_negative_start() -> None:
+    """CrossHair found IndexError on start=-1; pre + body guard now reject negatives.
+
+    With deal installed (dev venv), pre raises; under LibreOffice deal_shim the body
+    returns None. Either way we must not IndexError.
+    """
+    expect_pre_or_body(lambda: _parse_quoted_string('""', -1), body_result=None)
+    assert _parse_quoted_string('"x"', 0) == ("x", 3)
+    if deal_pre_present(_parse_quoted_string):
+        with pytest.raises(deal.PreContractError):
+            _parse_quoted_string('"x"', DEAL_MAX_SOURCE + 1)
+
+
+@pytest.mark.verification
+def test_normalize_lo_preserves_semicolon_inside_quotes() -> None:
+    raw = '=SUM("a;b"; C1)'
+    out = normalize_lo_formula_for_parse(raw)
+    assert '"a;b"' in out
+    assert out.count(";") == 1  # only the one inside quotes
+    assert ", C1)" in out or ",C1)" in out.replace(" ", "")
+
+
+@pytest.mark.verification
+def test_normalize_lo_curly_and_semicolon() -> None:
+    formula = '=PY(\u201cx=1\u201d; A1)'
+    out = normalize_lo_formula_for_parse(formula)
+    assert "\u201c" not in out and "\u201d" not in out
+    assert "; A1)" not in out
+    assert ", A1)" in out or ",A1)" in out.replace(" ", "")
+
+
+@pytest.mark.verification
+def test_formula_edit_overflow_pre_fails_closed() -> None:
+    if not deal_pre_present(PyFormula.compose):
+        pytest.skip("@deal.pre stripped in release bundle")
+    too_long = "x" * (DEAL_MAX_SOURCE + 1)
+    # rebuild_* / sanitize / escape allow DEAL_MAX_SOURCE+256 slack (dtype=float growth).
+    rebuild_too_long = "x" * (DEAL_MAX_SOURCE + 256 + 1)
+    with pytest.raises(deal.PreContractError):
+        PyFormula.compose(rebuild_too_long, [])
+    with pytest.raises(deal.PreContractError):
+        escape_code_for_formula(rebuild_too_long)
+    with pytest.raises(deal.PreContractError):
+        PyFormula("=PY(", "x", data_suffix=")").render(rebuild_too_long)
+    with pytest.raises(deal.PreContractError):
+        format_data_binding_display(too_long)
+    with pytest.raises(deal.PreContractError):
+        normalize_formula_string(too_long)
+    with pytest.raises(deal.PreContractError):
+        PyFormula.parse(too_long)
+    with pytest.raises(deal.PreContractError):
+        normalize_lo_formula_for_parse(too_long)
+    with pytest.raises(deal.PreContractError):
+        parse_data_binding_text(too_long)
+    with pytest.raises(deal.PreContractError):
+        format_data_binding_display("A1\u00a0")
+    with pytest.raises(deal.PreContractError):
+        parse_data_binding_text("A1\u00a0")
+    range_too_long = "A" * (DEAL_MAX_TOKEN + 1)
+    with pytest.raises(deal.PreContractError):
+        format_py_data_range(range_too_long)
+    with pytest.raises(deal.PreContractError):
+        format_excel_data_range(range_too_long)
+    with pytest.raises(deal.PreContractError):
+        format_py_data_range("A1\x00")
+    with pytest.raises(deal.PreContractError):
+        format_excel_data_range("A1\x00")
+    too_many = ["A1"] * (DEAL_MAX_SHAPE_DIM + 1)
+    with pytest.raises(deal.PreContractError):
+        format_data_binding_text(too_many)
+    with pytest.raises(deal.PreContractError):
+        build_data_suffix(too_many)
+
+
+@pytest.mark.verification
+@given(suffix=_ASCII_BINDING)
+@settings(max_examples=vhs_max_examples(50, 500), deadline=None)
+def test_hypothesis_format_data_binding_display_invariants(suffix: str) -> None:
+    res = format_data_binding_display(suffix)
+    assert isinstance(res, str)
+    if res:
+        assert not res.startswith(";") and not res.startswith(",") and not res.endswith(")")
+
+
+# CrossHair marked slow (excluded from default make test).
+@pytest.mark.verification
+@pytest.mark.slow
+@pytest.mark.parametrize("target", _CROSSHAIR_TARGETS)
+def test_crosshair_formula_edit_fqn_if_available(target: str) -> None:
+    crosshair_path = _find_crosshair()
+    if not crosshair_path:
+        pytest.skip("CrossHair concolic execution engine is not installed.")
+    from scripts.crosshair_stream import run_crosshair
+
+    buf = io.StringIO()
+    exit_code, _stats = run_crosshair(
+        "check",
+        ["-v", "--report_all", target],
+        mode="check",
+        raw=True,
+        quiet=False,
+        out=buf,
+        timeout_sec=300,
+    )
+    combined = buf.getvalue().strip()
+    print(f"CrossHair output ({target}):\n{combined}")
+    errors = [line for line in combined.splitlines() if _CROSSHAIR_ERROR_RE.search(line)]
+    assert not errors, "CrossHair counterexamples found:\n" + "\n".join(errors)
+    if exit_code == 2:
+        pytest.fail(f"CrossHair internal error (exit 2):\n{combined}")

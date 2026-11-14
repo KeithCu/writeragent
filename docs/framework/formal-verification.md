@@ -474,12 +474,12 @@ Maintain a `verification_status.json` file tracking which components have been v
 
 **Status (partial):** large catalog below is in place; remaining gaps and promotions are tracked under **Phase 9** and [`verification_status.json`](../verification_status.json) (not every listed row is `verified`). Isinstance-only Hypothesis checks were removed; the remaining `*_verification.py` tests keep a real oracle.
 
-1. **`plugin/framework/url_utils.py`** — `deal` + Hypothesis + CrossHair ([`tests/framework/test_url_utils_verification.py`](../../tests/framework/test_url_utils_verification.py))
+1. **`plugin/framework/url_utils.py`** — `deal` + Hypothesis + CrossHair ([`tests/framework/test_url_utils.py`](../../tests/framework/test_url_utils.py))
 2. **`plugin/calc/address_utils.py`** — inverse column/address contracts + Hypothesis ([`tests/calc/test_address_utils_verification.py`](../../tests/calc/test_address_utils_verification.py))
 3. **`plugin/mcp/cors.py`** — origin normalize / safety ([`tests/mcp/test_cors_verification.py`](../../tests/mcp/test_cors_verification.py))
-4. **`plugin/framework/config_schema.py`** — `as_bool` / `parse_int_robust` / `parse_float_robust` ([`tests/framework/test_config_coerce_verification.py`](../../tests/framework/test_config_coerce_verification.py)); not whole-file CrossHair
+4. **`plugin/framework/config_schema.py`** — `as_bool` / `parse_int_robust` / `parse_float_robust` ([`tests/framework/test_config_schema.py`](../../tests/framework/test_config_schema.py)); not whole-file CrossHair
 5. **`plugin/framework/tool_schema.py`** — `_normalize_schema_for_strict_providers`, `to_openai_schema`, `to_mcp_schema` (re-exported from [`tool.py`](../../plugin/framework/tool.py); CrossHair FQN stays `plugin.framework.tool._normalize_schema_for_strict_providers`) ([`tests/framework/test_tool_schema_verification.py`](../../tests/framework/test_tool_schema_verification.py))
-6. **`plugin/framework/stream_delta.py`** — `accumulate_delta` (CrossHair FQN `plugin.framework.stream_delta.accumulate_delta`). **`plugin/framework/async_stream.py`** — `_format_agent_tool_stream_line` ([`tests/framework/test_accumulate_delta_verification.py`](../../tests/framework/test_accumulate_delta_verification.py))
+6. **`plugin/framework/stream_delta.py`** — `accumulate_delta` (CrossHair FQN `plugin.framework.stream_delta.accumulate_delta`, [`tests/framework/test_stream_delta.py`](../../tests/framework/test_stream_delta.py)). **`plugin/framework/async_stream.py`** — `_format_agent_tool_stream_line` ([`tests/framework/test_async_stream.py`](../../tests/framework/test_async_stream.py))
 7. **FSM catch-up** — CrossHair on `tool_loop_state.py` helpers (`next_state` is `# crosshair: off`) ([`tests/chatbot/test_fsm_verification.py`](../../tests/chatbot/test_fsm_verification.py))
 8. **`plugin/framework/json_utils.py`** — `safe_json_loads` FQN ([`tests/framework/test_json_utils_verification.py`](../../tests/framework/test_json_utils_verification.py))
 9. **`plugin/framework/errors.py`** — `format_error_payload` and `format_error_message` ([`tests/framework/test_errors.py`](../../tests/framework/test_errors.py))
@@ -496,29 +496,29 @@ Maintain a `verification_status.json` file tracking which components have been v
 21. **`plugin/chatbot/skills.py`** — `HUMANIZER_GUIDANCE` constant & skill store ([`tests/chatbot/test_skills.py`](../../tests/chatbot/test_skills.py))
 22. **`plugin/chatbot/research_cache_fluff.py`** — `translated_research_cache_fluff` ([`tests/chatbot/test_web_research_cache.py`](../../tests/chatbot/test_web_research_cache.py))
 23. **`plugin/chatbot/web_research_cache.py`** — `snowball_lang_from_locale_tag`, `parse_research_cache_key`, `format_research_cache_key`, `research_cache_similarity` ([`tests/chatbot/test_chatbot_pure_verification.py`](../../tests/chatbot/test_chatbot_pure_verification.py))
-24. **`plugin/scripting/import_policy.py`** — `policy_blocked_imports`, `venv_blocked_modules`, `format_venv_import_policy_for_prompt` ([`tests/scripting/test_scripting_pure_verification.py`](../../tests/scripting/test_scripting_pure_verification.py))
-25. **`plugin/scripting/config_limits.py`** — `python_exec_timeout` ([`tests/scripting/test_scripting_pure_verification.py`](../../tests/scripting/test_scripting_pure_verification.py))
-26. **`plugin/scripting/calc_range.py`** — `ensure_rectangular_2d`, `is_calc_range_payload` (re-export of codec detector), `pack_calc_range_envelope` ([`tests/scripting/test_scripting_pure_verification.py`](../../tests/scripting/test_scripting_pure_verification.py)); **`plugin/scripting/venv/coerce.py`** — `dedupe_column_names`
-27. **`plugin/scripting/helper_domain.py`** — `ScriptFacts` ([`tests/scripting/test_scripting_phase2_verification.py`](../../tests/scripting/test_scripting_phase2_verification.py))
-28. **`plugin/scripting/trusted_action_registry.py`** — `get_trusted_action_wiring` ([`tests/scripting/test_scripting_phase2_verification.py`](../../tests/scripting/test_scripting_phase2_verification.py))
-29. **`plugin/scripting/duckdb_sql.py`** — `get_sql_script_templates`, `is_sql_result` ([`tests/scripting/test_scripting_phase2_verification.py`](../../tests/scripting/test_scripting_phase2_verification.py))
-30. **`plugin/scripting/sandbox_cache.py`** — `validate_sandbox_ast` ([`tests/scripting/test_scripting_ast_verification.py`](../../tests/scripting/test_scripting_ast_verification.py))
+24. **`plugin/scripting/import_policy.py`** — `policy_blocked_imports`, `venv_blocked_modules`, `format_venv_import_policy_for_prompt` ([`tests/scripting/test_import_policy.py`](../../tests/scripting/test_import_policy.py))
+25. **`plugin/scripting/config_limits.py`** — `python_exec_timeout` ([`tests/scripting/test_config_limits.py`](../../tests/scripting/test_config_limits.py))
+26. **`plugin/scripting/calc_range.py`** — `ensure_rectangular_2d`, `is_calc_range_payload` (re-export of codec detector), `pack_calc_range_envelope` ([`tests/scripting/test_calc_range.py`](../../tests/scripting/test_calc_range.py)); **`plugin/scripting/venv/coerce.py`** — `dedupe_column_names` ([`tests/scripting/test_coerce.py`](../../tests/scripting/test_coerce.py))
+27. **`plugin/scripting/helper_domain.py`** — `ScriptFacts` ([`tests/scripting/test_helper_domain.py`](../../tests/scripting/test_helper_domain.py))
+28. **`plugin/scripting/trusted_action_registry.py`** — `get_trusted_action_wiring` ([`tests/scripting/test_trusted_action_registry.py`](../../tests/scripting/test_trusted_action_registry.py))
+29. **`plugin/scripting/duckdb_sql.py`** — `get_sql_script_templates`, `is_sql_result` ([`tests/scripting/test_duckdb_sql.py`](../../tests/scripting/test_duckdb_sql.py))
+30. **`plugin/scripting/sandbox_cache.py`** — `validate_sandbox_ast` ([`tests/scripting/test_sandbox_cache.py`](../../tests/scripting/test_sandbox_cache.py))
 31. **`plugin/scripting/trusted_rpc.py`** — `parse_worker_dict_result` ([`tests/scripting/test_trusted_rpc.py`](../../tests/scripting/test_trusted_rpc.py))
-32. **`plugin/scripting/editor_errors.py`** — `failure_detail`, `failure_message` ([`tests/scripting/test_scripting_high_value_verification.py`](../../tests/scripting/test_scripting_high_value_verification.py))
-33. **`plugin/scripting/excel_xl.py`** — `make_xl` ([`tests/scripting/test_scripting_high_value_verification.py`](../../tests/scripting/test_scripting_high_value_verification.py))
-34. **`plugin/calc/calc_utils.py`** — `resolve_sheet_and_cell` ([`tests/calc/test_calc_dep_and_filter_verification.py`](../../tests/calc/test_calc_dep_and_filter_verification.py))
-35. **`plugin/calc/sheet_filter_criteria.py`** — `filter_connection_code`, `resolve_filter_operator_code`, `parse_sheet_filter_criterion` ([`tests/calc/test_calc_dep_and_filter_verification.py`](../../tests/calc/test_calc_dep_and_filter_verification.py))
-36. **`plugin/calc/excel_py_convert/resolve_refs.py`** — `resolve_dep` ([`tests/calc/test_calc_dep_and_filter_verification.py`](../../tests/calc/test_calc_dep_and_filter_verification.py))
+32. **`plugin/scripting/editor_errors.py`** — `failure_detail`, `failure_message` ([`tests/scripting/test_editor_errors.py`](../../tests/scripting/test_editor_errors.py))
+33. **`plugin/scripting/excel_xl.py`** — `make_xl` ([`tests/scripting/test_excel_xl.py`](../../tests/scripting/test_excel_xl.py))
+34. **`plugin/calc/calc_utils.py`** — `resolve_sheet_and_cell` ([`tests/calc/test_calc_utils.py`](../../tests/calc/test_calc_utils.py))
+35. **`plugin/calc/sheet_filter_criteria.py`** — `filter_connection_code`, `resolve_filter_operator_code`, `parse_sheet_filter_criterion` ([`tests/calc/test_sheet_filter_criteria.py`](../../tests/calc/test_sheet_filter_criteria.py))
+36. **`plugin/calc/excel_py_convert/resolve_refs.py`** — `resolve_dep` ([`tests/calc/test_resolve_refs.py`](../../tests/calc/test_resolve_refs.py))
 37. **`plugin/mcp/wire_types.py`** — `parse_jsonrpc_request`, `is_jsonrpc_notification`, `initialize_result`, `call_tool_result_image` ([`tests/mcp/test_wire_types.py`](../../tests/mcp/test_wire_types.py))
 38. **`plugin/writer/word_diff_split.py`** — `tokenize`, `split_change` ([`tests/writer/test_word_diff_split.py`](../../tests/writer/test_word_diff_split.py))
 39. **`plugin/writer/xhtml_style_postprocess.py`** — `decode_lo_css_class_suffix`, `compact_lo_style_name`, `parse_fodt_autostyles`, `parse_style_block`
-40. **`plugin/calc/calc_addin_data.py`** — `_unwrap_cell`, `finalize_python_data`, `calc_addin_data_to_python` ([`tests/calc/test_calc_dep_and_filter_verification.py`](../../tests/calc/test_calc_dep_and_filter_verification.py))
-41. **`plugin/scripting/audio_silence_detector.py`** — `pcm_energy_int16` (pytest `@deal` / Hypothesis; CrossHair `# crosshair: off` — deep check-all run 32877875221 hung on the RMS post) ([`tests/scripting/test_scripting_phase2_verification.py`](../../tests/scripting/test_scripting_phase2_verification.py), [`tests/scripting/test_audio_silence_detector.py`](../../tests/scripting/test_audio_silence_detector.py))
-42. **`plugin/doc/visual_helpers.py`** — `parse_color_to_uno_int` (the Hypothesis test calls `parse_color_to_uno_int`; the `set_style` schema rejects non-string colors (`prepare_tool_call`); the cells wrapper and `@deal.post` are gone) ([`tests/scripting/test_scripting_phase2_verification.py`](../../tests/scripting/test_scripting_phase2_verification.py))
+40. **`plugin/calc/calc_addin_data.py`** — `_unwrap_cell`, `finalize_python_data`, `calc_addin_data_to_python` ([`tests/calc/test_calc_addin_data.py`](../../tests/calc/test_calc_addin_data.py))
+41. **`plugin/scripting/audio_silence_detector.py`** — `pcm_energy_int16` (pytest `@deal` / Hypothesis; CrossHair `# crosshair: off` — deep check-all run 32877875221 hung on the RMS post) ([`tests/scripting/test_audio_silence_detector.py`](../../tests/scripting/test_audio_silence_detector.py))
+42. **`plugin/doc/visual_helpers.py`** — `parse_color_to_uno_int` (the Hypothesis test calls `parse_color_to_uno_int`; the `set_style` schema rejects non-string colors (`prepare_tool_call`); the cells wrapper and `@deal.post` are gone) ([`tests/doc/test_visual_helpers.py`](../../tests/doc/test_visual_helpers.py))
 43. **`plugin/framework/client/stream_normalizer.py`** — `accumulate_streaming_thinking`, `_merge_reasoning_details`, `_normalize_stream_delta`, `_thinking_text_from_delta`, `normalize_delta` ([`tests/framework/test_stream_normalizer_verification.py`](../../tests/framework/test_stream_normalizer_verification.py))
 44. **`plugin/framework/client/response_normalizers.py`** — `strip_leaked_chat_template_control_tokens`, `extract_and_strip_images_from_message` ([`tests/framework/test_response_normalizers_verification.py`](../../tests/framework/test_response_normalizers_verification.py))
-45. **`plugin/calc/python/formula_edit.py`** — quoted/unquoted `=PY()` parse, sanitize/escape, rebuild, data-range formatters, data-binding display/text helpers ([`tests/calc/python/test_formula_edit_verification.py`](../../tests/calc/python/test_formula_edit_verification.py))
-46. **`plugin/calc/spreadsheet_import/preprocess.py`** — `normalize_lo_formula_for_parse` ([`tests/calc/python/test_formula_edit_verification.py`](../../tests/calc/python/test_formula_edit_verification.py))
+45. **`plugin/calc/python/formula_edit.py`** — quoted/unquoted `=PY()` parse, sanitize/escape, rebuild, data-range formatters, data-binding display/text helpers ([`tests/calc/python/test_formula_edit.py`](../../tests/calc/python/test_formula_edit.py))
+46. **`plugin/calc/spreadsheet_import/preprocess.py`** — `normalize_lo_formula_for_parse` ([`tests/calc/python/test_formula_edit.py`](../../tests/calc/python/test_formula_edit.py))
 47. **`plugin/scripting/payload_codec.py`** — pack/unpack + policy helpers (`cell_count`, `is_numeric_grid`, `wire_cell_count`) + envelope detectors (`is_split_grid`, `is_multi_data`, `is_image_payload`, `is_dataframe_payload`, `is_calc_range_payload`) ([`tests/scripting/test_payload_codec_policy_verification.py`](../../tests/scripting/test_payload_codec_policy_verification.py), [`tests/scripting/test_serialization_verification.py`](../../tests/scripting/test_serialization_verification.py)); see [`../scripting/serialization-verification.md`](../scripting/serialization-verification.md)
 
 (`format_support.py` does not exist; Writer HTML paths are UNO-heavy and deferred.)
@@ -531,7 +531,7 @@ Named deep domains (oracles + `test_hypothesis_*` so `-k hypothesis` selects the
 
 | Domain | Module | Verification tests |
 |--------|--------|-------------------|
-| Calc `=PY()` parse/serialize | [`formula_edit.py`](../../plugin/calc/python/formula_edit.py) | [`test_formula_edit_verification.py`](../../tests/calc/python/test_formula_edit_verification.py) |
+| Calc `=PY()` parse/serialize | [`formula_edit.py`](../../plugin/calc/python/formula_edit.py) | [`test_formula_edit.py`](../../tests/calc/python/test_formula_edit.py) |
 | CORS origin/host safety | [`cors.py`](../../plugin/mcp/cors.py) | [`test_cors_verification.py`](../../tests/mcp/test_cors_verification.py) |
 | Writer word diff / redline split | [`word_diff_split.py`](../../plugin/writer/word_diff_split.py) | [`test_word_diff_split.py`](../../tests/writer/test_word_diff_split.py) |
 | Embeddings sentence chunking | [`embeddings_split.py`](../../plugin/embeddings/embeddings_split.py) | [`test_embeddings_split_verification.py`](../../tests/embeddings/test_embeddings_split_verification.py) |
@@ -763,12 +763,12 @@ mypy plugin/framework/config.py --strict
 crosshair check plugin/framework/config.py --contracts
 
 # 4. Add to test suite
-pytest tests/test_url_utils_verification.py
+pytest tests/framework/test_url_utils.py
 ```
 
 **Sample test file:**
 ```python
-# tests/test_url_utils_verification.py
+# tests/framework/test_url_utils.py
 import subprocess
 import pytest
 

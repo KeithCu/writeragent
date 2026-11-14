@@ -6,13 +6,15 @@
 
 import queue
 import time
+from typing import Any
 from unittest.mock import MagicMock, patch
 
-
 import pytest
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
 from plugin.framework.stream_batch import StreamQueueKind
-from plugin.framework.async_stream import DrainOutcome, StreamQueue, run_stream_drain_loop
+from plugin.framework.async_stream import DrainOutcome, StreamQueue, _format_agent_tool_stream_line, run_stream_drain_loop
 from plugin.framework.worker_pool import run_in_background
 from plugin.framework.send_cancellation import SendCancellation
 from tests.framework.stream_test_helpers import DummyToolkit, _drain
@@ -992,6 +994,25 @@ def test_stream_queue_terminal_subscribers_are_independent():
     cell5.clear()
     q.put((StreamQueueKind.ERROR, None))
     assert not cell5.is_set()
+
+
+@pytest.mark.verification
+def test_format_agent_tool_stream_line_basic() -> None:
+    res = _format_agent_tool_stream_line("TOOL:", {"arg": 1})
+    assert '"arg": 1' in res
+
+
+@pytest.mark.verification
+@given(
+    prefix=st.text(alphabet=st.characters(blacklist_categories=("Cs",), max_codepoint=127), min_size=1, max_size=10),
+    data=st.one_of(st.text(max_size=20), st.integers(), st.dictionaries(st.text(max_size=5), st.integers())),
+)
+@settings(max_examples=50)
+def test_hypothesis_format_agent_tool_stream_line_invariants(prefix: str, data: Any) -> None:
+    res = _format_agent_tool_stream_line(prefix, data)
+    assert isinstance(res, str)
+    assert res.startswith("\n") and res.endswith("\n")
+    assert prefix in res
 
 
 def test_run_stream_drain_loop_error_handler():
