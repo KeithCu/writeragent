@@ -20,7 +20,6 @@ def test_failed_extract_cold_build_skips(tmp_path: Path):
             mock_sync.assert_not_called()
 
 def test_failed_extract_incremental_refresh_skips(tmp_path: Path):
-    from plugin.embeddings.venv.embeddings_folder_maintain import _incremental_refresh
     ods = tmp_path / "Budget.ods"
     write_budget_ods(ods)
     entry = WriterFileEntry(path=str(ods), url="file:///fake.ods", modified=1.0, name="Budget.ods")

@@ -20,7 +20,8 @@ class TestCoerceBoolArg:
 
 
 class TestGetPage:
-    def test_index_out_of_bounds_below_zero(self):
+    def test_get_page_propagates_bridge_page_error(self):
+        # Page bounds are pinned in tests/draw/test_bridge.py; this pins _get_page propagation.
         from unittest.mock import MagicMock, patch
         import pytest
         from plugin.draw.headers_footers import _get_page
