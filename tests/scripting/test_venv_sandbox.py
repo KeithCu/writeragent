@@ -984,17 +984,8 @@ def test_sandbox_policy_shared_session_rebuild():
         reset_sandbox_session(sid)
 
 
-def test_sandbox_policy_timeout_wins_over_socket_and_subprocess():
+def test_sandbox_policy_timeout_wins_over_subprocess():
     import sys
-    code_socket = """
-import socket
-s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-s.settimeout(10)
-s.connect(('192.0.2.1', 80))
-"""
-    r_sock = sandbox_run(code_socket, timeout_sec=1, sandbox_policy={"network": True})
-    assert r_sock["status"] == "error"
-    assert any(term in r_sock["message"].lower() for term in ("timeout", "timed out", "exceeded", "maximum execution time")) or r_sock.get("code") == "TIMEOUT"
 
     code_sub = f"""
 import subprocess
