@@ -146,10 +146,9 @@ def test_run_suite_imports_eval_runner_at_runtime(monkeypatch: pytest.MonkeyPatc
     fake_mod.run_benchmark_suite.assert_called_once()
 
 
-def test_run_suite_reports_when_eval_runner_is_missing() -> None:
+def test_run_suite_reports_when_eval_runner_is_missing(monkeypatch: pytest.MonkeyPatch) -> None:
     """Release builds omit tests/. Run must say so instead of raising ImportError."""
-    saved = sys.modules.get("tests.eval_runner")
-    sys.modules["tests.eval_runner"] = None  # type: ignore[assignment]
+    monkeypatch.setitem(sys.modules, "tests.eval_runner", None)  # type: ignore[arg-type]
 
     class _Ctrl:
         def __init__(self) -> None:
@@ -173,13 +172,7 @@ def test_run_suite_reports_when_eval_runner_is_missing() -> None:
     dash = EvalDashboard(MagicMock())
     dash._dlg = dialog
     listener = EvalRunListener(dash)
-    try:
-        listener.run_suite()
-    finally:
-        if saved is None:
-            sys.modules.pop("tests.eval_runner", None)
-        else:
-            sys.modules["tests.eval_runner"] = saved
+    listener.run_suite()
     assert status.text == "Unavailable"
     assert "not in this extension build" in log_area.text
     assert "run_eval.py" in log_area.text

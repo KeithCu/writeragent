@@ -1169,7 +1169,7 @@ def test_run_test_suite_unavailable_does_not_print_or_import() -> None:
     mock_import.assert_not_called()
 
 
-def test_run_test_suite_logs_failure() -> None:
+def test_run_test_suite_failure_shows_dialog() -> None:
     """When run_module_suite raises, _run_test_suite catches the error and shows a dialog."""
     fake_ctx = MagicMock()
     sentinel_module = object()
@@ -1195,7 +1195,4 @@ def test_show_tests_unavailable_invokes_msgbox() -> None:
         mock_msgbox.assert_called_once_with(
             fake_ctx, "writer.format_tests", "This WriterAgent build was packaged without the optional `plugin.tests` test modules."
         )
-
-
-
 

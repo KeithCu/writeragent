@@ -27,6 +27,7 @@ from plugin.writer.page import (
 
 @pytest.fixture(autouse=True)
 def _stub_break_type(monkeypatch: pytest.MonkeyPatch) -> None:
+    # page.py imports PAGE_BEFORE at call time; the shared shell has none. 4 is the real UNO value.
     monkeypatch.setitem(
         sys.modules,
         "com.sun.star.style.BreakType",
@@ -865,11 +866,6 @@ def test_disable_still_refuses_independent_first_page_letterhead():
 # ---- D5: page break happy paths + last-paragraph edge ------------------------
 
 def _pagebreak_doc(found_next=True):
-    import types as _types
-    import sys as _sys
-    bt = _types.ModuleType("com.sun.star.style.BreakType")
-    bt.PAGE_BEFORE = "PAGE_BEFORE"
-    _sys.modules["com.sun.star.style.BreakType"] = bt
     doc = MagicMock()
     found = MagicMock()
     para = MagicMock()
@@ -888,7 +884,7 @@ def test_page_break_before_text_sets_break_on_match_paragraph():
     assert res["status"] == "ok" and "before" in res["message"]
     assert doc.createSearchDescriptor.return_value.SearchCaseSensitive is False
     assert res["matched_case_sensitive"] is False
-    para.setPropertyValue.assert_called_once_with("BreakType", "PAGE_BEFORE")
+    para.setPropertyValue.assert_called_once_with("BreakType", 4)
     para.gotoNextParagraph.assert_not_called()
 
 
@@ -908,7 +904,7 @@ def test_page_break_page_style_sets_page_desc_name_on_match_paragraph():
     assert set(res) == {"status", "message", "page_style", "matched_case_sensitive"}
     assert res["page_style"] == "Annex"
     assert res["matched_case_sensitive"] is False
-    para.setPropertyValue.assert_has_calls([call("BreakType", "PAGE_BEFORE"), call("PageDescName", "Annex")])
+    para.setPropertyValue.assert_has_calls([call("BreakType", 4), call("PageDescName", "Annex")])
     assert para.setPropertyValue.call_count == 2
     para.gotoNextParagraph.assert_not_called()
     assert [c.args[0] for c in para.getPropertyValue.call_args_list] == ["TextTable"]
@@ -921,7 +917,7 @@ def test_page_break_after_text_breaks_on_following_paragraph():
     res = PageInsertBreak().execute(SimpleNamespace(doc=doc), after_text="clausula")
     assert res["status"] == "ok" and "after" in res["message"]
     para.gotoNextParagraph.assert_called_once()
-    para.setPropertyValue.assert_called_once_with("BreakType", "PAGE_BEFORE")
+    para.setPropertyValue.assert_called_once_with("BreakType", 4)
 
 
 def test_page_break_restart_sets_page_number_offset():
@@ -944,7 +940,7 @@ def test_page_break_restart_sets_page_number_offset():
     assert res["matched_case_sensitive"] is False
     para.gotoNextParagraph.assert_called_once()
     para.setPropertyValue.assert_has_calls([
-        call("BreakType", "PAGE_BEFORE"),
+        call("BreakType", 4),
         call("PageDescName", "Annex"),
         call("PageNumberOffset", 1),
     ])
@@ -966,7 +962,7 @@ def test_page_break_restart_short_max_is_accepted():
     assert res["status"] == "ok"
     assert res["restart_page_number"] == 32767
     para.setPropertyValue.assert_has_calls([
-        call("BreakType", "PAGE_BEFORE"),
+        call("BreakType", 4),
         call("PageDescName", "Annex"),
         call("PageNumberOffset", 32767),
     ])
