@@ -605,13 +605,9 @@ def run_trusted_calc_data_helper(
     ``row`` supplies the error code, helper names, RPC target, and threading/doc-type
     flags; analysis, forecast, optimize, and viz share this function.
     """
-    import plugin.scripting.client as client  # host only: client loads trusted_rpc
-    from plugin.calc.calc_addin_data import resolve_python_data  # host only: plugin.calc needs UNO
-
     wiring_id = row.id
     error_code = row.error_code or ""
     helper_names = names(row.helper_domain or wiring_id)
-    client_run = getattr(client, f"run_{row.rpc_domain or row.helper_domain or wiring_id}")
 
     name = str(helper or "").strip()
     if not name:
@@ -623,8 +619,13 @@ def run_trusted_calc_data_helper(
     if not dr and data is None:
         raise ToolExecutionError("Provide data_range or data", code=error_code)
 
+    import plugin.scripting.client as client  # host only: client loads trusted_rpc
+
+    client_run = getattr(client, f"run_{row.rpc_domain or row.helper_domain or wiring_id}")
+
     def _read_sheet() -> tuple[Any, str | None, dict[str, Any]]:
         # UNO only. Callers are async workers; the venv IPC must not sit in this hop.
+        from plugin.calc.calc_addin_data import resolve_python_data  # host only: plugin.calc needs UNO
         from plugin.framework.doc_type import is_calc, is_writer  # child boundary: loads thread_guard
 
         # Doc-type check lives inside _read_sheet after the main-thread hop because get_document_type must not run on worker threads.
