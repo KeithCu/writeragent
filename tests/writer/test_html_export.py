@@ -1013,15 +1013,14 @@ def test_range_export_skips_flat_odf_when_no_autostyle():
         patch("plugin.writer.html_export._export_xhtml", return_value=xhtml_named),
         patch("plugin.writer.html_export._autostyle_maps", return_value=({"P1": "Standard"}, {"P1": "margin:0"}, False)) as autostyle_mock,
         patch("plugin.writer.html_export.inject_exported_math_tex", side_effect=lambda model, ctx, content: content),
-        patch("plugin.writer.html_export.xhtml_post.xhtml_to_semantic_html", side_effect=lambda xhtml, parents, overrides: xhtml) as semantic_mock,
     ):
-        _range_to_content_via_temp_doc(
+        out_named = _range_to_content_via_temp_doc(
             MagicMock(), MagicMock(), 0, 0, None, source_range=source,
         )
         autostyle_mock.assert_not_called()
-        semantic_mock.assert_called_once_with(xhtml_named, {}, {})
+        assert '<p data-lo-style="Textbody">Hello</p>' in out_named
 
-    # Case 2: XHTML with paragraph-P1 calls _autostyle_maps and forwards maps to semantic_html
+    # Case 2: XHTML with paragraph-P1 calls _autostyle_maps and applies overrides in semantic HTML
     xhtml_auto = '<html><body><p class="paragraph-P1">Hello</p></body></html>'
     expected_parents = {"P1": "Standard"}
     expected_overrides = {"P1": "color:red"}
@@ -1037,11 +1036,10 @@ def test_range_export_skips_flat_odf_when_no_autostyle():
         patch("plugin.writer.html_export._export_xhtml", return_value=xhtml_auto),
         patch("plugin.writer.html_export._autostyle_maps", return_value=(expected_parents, expected_overrides, False)) as autostyle_mock,
         patch("plugin.writer.html_export.inject_exported_math_tex", side_effect=lambda model, ctx, content: content),
-        patch("plugin.writer.html_export.xhtml_post.xhtml_to_semantic_html", side_effect=lambda xhtml, parents, overrides: xhtml) as semantic_mock,
     ):
-        _range_to_content_via_temp_doc(
+        out_auto = _range_to_content_via_temp_doc(
             MagicMock(), MagicMock(), 0, 0, None, source_range=source,
         )
         autostyle_mock.assert_called_once_with(temp_doc)
-        semantic_mock.assert_called_once_with(xhtml_auto, expected_parents, expected_overrides)
+        assert '<p data-lo-style="Standard" data-lo-para="color:red">Hello</p>' in out_auto
 

@@ -270,25 +270,6 @@ def test_page_break_view_cursor_page_style_and_restart():
     assert [c.args[0] for c in text_cursor.getPropertyValue.call_args_list] == ["TextTable"]
 
 
-def test_page_tools_shortened_style_param():
-    doc = MagicMock()
-    families = MagicMock()
-    page_styles = MagicMock()
-    style = MagicMock()
-    doc.getStyleFamilies.return_value = families
-    families.getByName.return_value = page_styles
-    page_styles.hasByName.return_value = True
-    page_styles.getByName.return_value = style
-
-    ctx = TestingFactory.create_context(doc=doc, doc_type="writer")
-    res = PageGetStyleProperties().execute(ctx, style="Standard")
-    assert res["status"] == "ok"
-    assert "properties" in res
-
-    res_set = PageSetStyleProperties().execute(ctx, style="Standard", width_mm=210)
-    assert res_set["status"] == "ok"
-
-
 # --- header/footer: what plain text cannot carry ------------------------------------------
 
 

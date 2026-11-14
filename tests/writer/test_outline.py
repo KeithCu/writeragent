@@ -9,15 +9,7 @@ from plugin.writer.outline import GetDocumentTree, collect_document_stats
 
 
 class TestGetDocumentTreeMergedStats:
-    @patch("plugin.writer.outline.collect_document_stats")
-    def test_execute_includes_stats(self, mock_collect):
-        mock_collect.return_value = {
-            "character_count": 100,
-            "word_count": 20,
-            "paragraph_count": 5,
-            "page_count": 2,
-            "heading_count": 3,
-        }
+    def test_execute_includes_stats(self):
         tree_svc = MagicMock()
         tree_svc.get_document_tree.return_value = {
             "status": "ok",
@@ -25,26 +17,31 @@ class TestGetDocumentTreeMergedStats:
             "total_paragraphs": 5,
             "page_count": 2,
         }
+        tree_svc.build_heading_tree.return_value = {
+            "children": [
+                {"children": []},
+                {"children": [{"children": []}]},
+            ]
+        }
         ctx = MagicMock()
         ctx.doc = MagicMock()
         ctx.services.writer_tree = tree_svc
         ctx.services.document = MagicMock()
 
-        tool = GetDocumentTree()
-        result = tool.execute(ctx)
+        with patch("plugin.writer.outline.get_string_without_tracked_deletions", return_value="one two three four!"):
+            result = GetDocumentTree().execute(ctx)
 
-        assert (result["stats"]) == (mock_collect.return_value)
-        assert ("children") in (result)
-        mock_collect.assert_called_once_with(
-            ctx.doc,
-            heading_tree=tree_svc.build_heading_tree.return_value,
-            paragraph_count=5,
-            page_count=2,
-        )
-        tree_svc.get_document_tree.assert_called_once()
+        assert result["stats"] == {
+            "character_count": 19,
+            "word_count": 4,
+            "paragraph_count": 5,
+            "page_count": 2,
+            "heading_count": 3,
+        }
+        assert "children" in result
 
 
-def test_collect_document_stats_disposal_is_not_zero_headings():
+def test_get_document_tree_disposal_propagates():
     ctx = MagicMock()
     ctx.doc = MagicMock()
     ctx.services.writer_tree.get_document_tree.return_value = {
@@ -60,7 +57,7 @@ def test_collect_document_stats_disposal_is_not_zero_headings():
         GetDocumentTree().execute(ctx)
 
 
-def test_collect_document_stats_page_failure_keeps_other_counts():
+def test_collect_document_stats_counts_chars_words_and_headings():
     doc = MagicMock()
     tree = {
         "children": [

@@ -17,14 +17,12 @@ if str(_PO) not in sys.path:
 import run_eval_multi  # noqa: E402
 
 
-def test_parse_args_defaults_keep_full_catalog() -> None:
-    args = run_eval_multi.parse_args([])
-    assert args.tools == "full"
-    assert args.schema_density == "full"
-    assert args.lo_workers == 4
+def test_parse_args_defaults_and_overrides() -> None:
+    defaults = run_eval_multi.parse_args([])
+    assert defaults.tools == "full"
+    assert defaults.schema_density == "full"
+    assert defaults.lo_workers == 4
 
-
-def test_parse_args_tools_preset_and_skinny() -> None:
     args = run_eval_multi.parse_args(
         [
             "--models",

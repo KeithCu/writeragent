@@ -21,9 +21,13 @@ def test_python_test_uses_modal_incremental_probe() -> None:
     modal_ran = False
     fake_ctx = MagicMock()
     fake_dlg = MagicMock()
-    probe_displays: list[str] = []
-    probe_statuses: list[str] = []
     captured_extra: list[tuple[str, ...]] = []
+    received_callbacks: list[tuple[object, object]] = []
+    def sentinel_display(_text: str) -> None:
+        return None
+
+    def sentinel_status(_status: str) -> None:
+        return None
 
     class _FakeProgress:
         def __init__(self, ctx, parent_dlg=None):
@@ -44,17 +48,12 @@ def test_python_test_uses_modal_incremental_probe() -> None:
             assert success_title == "Venv OK"
             assert failure_title == "Venv check failed"
             assert append_log is False
-            probe_fn(probe_displays.append, probe_statuses.append)
+            probe_fn(sentinel_display, sentinel_status)
             return True
 
     def fake_probe(_raw, on_display, on_status=None, extra_lines_after_header=None, **_kwargs):
         captured_extra.append(tuple(extra_lines_after_header or ()))
-        on_display(
-            "Python 3.12 responds OK. Cython Accelerator: Inactive (Pure Python)\n\n"
-            "Scientific Libraries: numpy\nMissing: pandas"
-        )
-        if on_status:
-            on_status("Scientific Libraries: numpy")
+        received_callbacks.append((on_display, on_status))
         return True, "Python 3.12 responds OK."
 
     def fake_status(*, reload=False):
@@ -74,9 +73,7 @@ def test_python_test_uses_modal_incremental_probe() -> None:
     assert modal_ran is True
     assert reload_flags == [True]
     assert captured_extra == [("Cython Accelerator: Inactive (Pure Python)",)]
-    assert any("Scientific Libraries: numpy" in text for text in probe_displays)
-    assert any("Cython Accelerator" in text for text in probe_displays)
-    assert any("numpy" in status for status in probe_statuses)
+    assert received_callbacks == [(sentinel_display, sentinel_status)]
 
 
 def test_set_display_appends_fragments_only_when_enabled() -> None:

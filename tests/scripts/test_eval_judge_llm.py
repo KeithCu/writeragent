@@ -56,41 +56,6 @@ def test_parse_judge_json_garbage_keeps_parsed_ok_false() -> None:
 
 
 @patch("plugin.framework.client.llm_client.LlmClient")
-def test_score_with_judge_llm_uses_cli_config(mock_client_cls: MagicMock) -> None:
-    instance = MagicMock()
-    mock_client_cls.return_value = instance
-    instance.request_with_tools.return_value = {
-        "content": json.dumps({
-            "thought_process": "good table",
-            "accuracy_score": 5,
-            "formatting_score": 4,
-            "naturalness_score": None,
-        }),
-    }
-
-    score, result = score_with_judge_llm(
-        endpoint="https://openrouter.ai/api/v1",
-        api_key="test-key",
-        judge_model="openai/gpt-oss-120b",
-        document_content="a",
-        user_question="make table",
-        model_answer="<table></table>",
-        task_category="structural",
-    )
-
-    assert score > 0.5
-    assert result.thought_process == "good table"
-    mock_client_cls.assert_called_once()
-    cfg = mock_client_cls.call_args[0][0]
-    assert cfg["api_key"] == "test-key"
-    assert cfg["model"] == "openai/gpt-oss-120b"
-    assert cfg["is_openrouter"] is True
-    instance.request_with_tools.assert_called_once()
-    call_kw = instance.request_with_tools.call_args.kwargs
-    assert call_kw.get("prepend_dev_build_system_prefix") is False
-
-
-@patch("plugin.framework.client.llm_client.LlmClient")
 def test_score_with_judge_llm_routes_anthropic(
     mock_client_cls: MagicMock,
     monkeypatch: pytest.MonkeyPatch,
@@ -122,6 +87,7 @@ def test_score_with_judge_llm_routes_anthropic(
     assert cfg1["api_key"] == "cli-or-key"
     assert cfg1["is_openrouter"] is True
     assert instance.request_with_tools.call_args.kwargs["model"] == "openai/gpt-oss-120b:nitro"
+    assert instance.request_with_tools.call_args.kwargs.get("prepend_dev_build_system_prefix") is False
 
     mock_client_cls.reset_mock()
     instance.reset_mock()
