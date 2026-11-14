@@ -361,6 +361,3 @@ def test_validate_sandbox_ast_forbidden_dunder_attributes(attr: str) -> None:
 def test_validate_sandbox_ast_allowed_attributes(attr: str) -> None:
     module = ast.parse(f"x = obj.{attr}")
     assert validate_sandbox_ast(module, ["math"]) is None
-
-
-

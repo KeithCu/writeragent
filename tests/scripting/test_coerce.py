@@ -561,6 +561,3 @@ def test_dedupe_column_names_uniqueness(names: list[str]) -> None:
     assert isinstance(deduped, list)
     assert len(deduped) == len(names)
     assert len(set(deduped)) == len(deduped)
-
-
-

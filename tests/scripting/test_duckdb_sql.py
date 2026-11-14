@@ -12,9 +12,6 @@ from unittest.mock import MagicMock
 
 import pytest
 
-pytest.importorskip("duckdb")
-pytest.importorskip("pandas")
-
 
 def _demo():
     """Dev-only ``scripts/`` package is absent from the stripped release bundle."""
@@ -1340,6 +1337,14 @@ def test_flat_stem_collision_keeps_first(tmp_path: Path):
     assert res_dict["rows"] == [[1]]
 
 
+@pytest.fixture(autouse=True)
+def _require_duckdb_and_pandas(request: pytest.FixtureRequest) -> None:
+    if request.function is test_is_sql_result_matches_is_status_helper_result:
+        return
+    pytest.importorskip("duckdb")
+    pytest.importorskip("pandas")
+
+
 @pytest.mark.verification
 def test_is_sql_result_matches_is_status_helper_result():
     from plugin.scripting.duckdb_sql import SQL_RESULT_ERROR_CODES, SQL_RESULT_HELPERS, is_sql_result
@@ -1359,6 +1364,3 @@ def test_is_sql_result_matches_is_status_helper_result():
     for value, expected in cases:
         assert is_sql_result(value) is expected, value
         assert is_status_helper_result(value, SQL_RESULT_HELPERS, SQL_RESULT_ERROR_CODES) is expected, value
-
-
-

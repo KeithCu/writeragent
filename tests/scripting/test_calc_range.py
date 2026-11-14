@@ -10,9 +10,6 @@ import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
-pytest.importorskip("pandas")
-pytest.importorskip("numpy")
-
 from plugin.calc.calc_addin_data import pack_calc_data_for_wire
 from plugin.scripting.calc_range import (
     CalcRange,
@@ -635,6 +632,18 @@ def test_whole_number_cells_arrive_as_int():
     assert all(type(c) is float for c in mixed.values[0]) and mixed.to_numpy().dtype == np.float64
     sp = pytest.importorskip("sympy")
     assert sp.prime(data) == 29
+
+
+@pytest.fixture(autouse=True)
+def _require_pandas_and_numpy(request: pytest.FixtureRequest) -> None:
+    if request.function in {
+        test_ensure_rectangular_2d_invariants,
+        test_ensure_rectangular_2d_string_row_is_one_cell,
+        test_calc_range_packing_contracts,
+    }:
+        return
+    pytest.importorskip("pandas")
+    pytest.importorskip("numpy")
 
 
 @pytest.mark.verification
