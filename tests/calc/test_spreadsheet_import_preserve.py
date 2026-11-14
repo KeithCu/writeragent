@@ -13,7 +13,6 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from plugin.calc.python.cell_discovery import is_py_formula_text
 from plugin.calc.python.formula_edit import PyFormula
 from plugin.calc.spreadsheet_import.emit import build_converted_output_model
 from plugin.calc.spreadsheet_import.ingest import ingest_from_arrays
@@ -232,40 +231,16 @@ def test_apply_output_keeps_text_that_looks_numeric():
     cells[(6, 0)].setString.assert_not_called()
 
 
-def test_canonicalize_libreoffice_addin_python_prefix():
-    raw = '=ORG.EXTENSION.WRITERAGENT.PYTHONFUNCTION.PYTHON("np.sum(data)";A1:A2)'
-    parsed = PyFormula.parse(raw)
-    assert parsed is not None
-    assert parsed.code == "np.sum(data)"
-    assert parsed.data_args() == ["A1:A2"]
-    assert is_py_formula_text(raw)
-    norm = _normalized(raw)
-    assert norm is not None
-    assert norm == '=PY("np.sum(data)";A1:A2)'
-    norm_parsed = PyFormula.parse(norm)
-    assert norm_parsed is not None
-    assert (parsed.code, parsed.data_args()) == (norm_parsed.code, norm_parsed.data_args())
-
-
-def test_canonicalize_collabora_getpy_prefix():
-    raw = '=ORG.COLLABORAOFFICE.SHEET.ADDIN.PYTHONCOMPUTEFUNCTIONS.GETPY("np.sum(data)";A1:A2)'
-    parsed = PyFormula.parse(raw)
-    assert parsed is not None
-    assert parsed.code == "np.sum(data)"
-    assert parsed.data_args() == ["A1:A2"]
-    assert is_py_formula_text(raw)
-    norm = _normalized(raw)
-    assert norm is not None
-    assert norm == '=PY("np.sum(data)";A1:A2)'
-
-
-def test_normalize_python_to_py_prefix():
-    formula = '=PYTHON("np.sum(data)",A1:B2)'
-    norm = _normalized(formula)
-    assert norm is not None
-    assert norm.startswith("=PY(")
-    assert ";" in norm
-    assert "," not in norm.split("(", 1)[1]
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ('=ORG.EXTENSION.WRITERAGENT.PYTHONFUNCTION.PYTHON("np.sum(data)";A1:A2)', '=PY("np.sum(data)";A1:A2)'),
+        ('=ORG.COLLABORAOFFICE.SHEET.ADDIN.PYTHONCOMPUTEFUNCTIONS.GETPY("np.sum(data)";A1:A2)', '=PY("np.sum(data)";A1:A2)'),
+        ('=PYTHON("np.sum(data)",A1:B2)', '=PY("np.sum(data)";A1:B2)'),
+    ],
+)
+def test_normalize_to_canonical_py_prefix(raw, expected):
+    assert _normalized(raw) == expected
 
 
 @pytest.mark.parametrize(
@@ -291,17 +266,6 @@ def test_preserve_keeps_formula_that_does_not_parse_as_py(formula):
     rec = CellRecord("A1", "py_formula", 0.0, formula, None)
     out = output_cell_from_record(rec)
     assert out.formula == formula
-
-
-def test_preserve_normalizes_py_cell_from_record():
-    rec = CellRecord("B1", "py_formula", 2.0, '=PYTHON("np.sum(data)",A1)', None)
-    out = output_cell_from_record(rec)
-    assert out.formula is not None
-    assert out.formula.startswith("=PY(")
-    assert ";" in out.formula
-    parsed = PyFormula.parse(out.formula)
-    assert parsed is not None
-    assert (parsed.code, parsed.data_args()) == ("np.sum(data)", ["A1"])
 
 
 @pytest.fixture

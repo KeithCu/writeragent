@@ -6,6 +6,8 @@
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from plugin.calc.address_utils import format_address, parse_address, split_sheet_prefix
 from plugin.calc.navigation import (
     WRITERAGENT_CELL_URL_PREFIX,
@@ -19,67 +21,53 @@ from plugin.calc.navigation import (
 )
 
 
-def test_normalize_cell_address_simple():
-    assert normalize_cell_address("b2") == "B2"
-    assert normalize_cell_address("Sheet1.B2") == "Sheet1.B2"
-    assert normalize_cell_address("cell://C10") == "C10"
-    assert normalize_cell_address(f"{WRITERAGENT_CELL_URL_PREFIX}D4") == "D4"
-    assert normalize_cell_address("not-a-cell") is None
-    assert normalize_cell_address("cell://Sheet1.C3") == "Sheet1.C3"
-    # Excel bang in the href is accepted and stored as Calc-style Sheet.C3.
-    assert normalize_cell_address("cell://Sheet1!C3") == "Sheet1.C3"
-    assert normalize_cell_address("Orders!A1") == "Orders.A1"
+@pytest.mark.parametrize(
+    ("raw", "expected", "expected_sheet"),
+    [
+        ("b2", "B2", None),
+        ("Sheet1.B2", "Sheet1.B2", "Sheet1"),
+        ("cell://C10", "C10", None),
+        (f"{WRITERAGENT_CELL_URL_PREFIX}D4", "D4", None),
+        ("cell://Sheet1.C3", "Sheet1.C3", "Sheet1"),
+        # Excel bang in the href is accepted and stored as Calc-style Sheet.C3.
+        ("cell://Sheet1!C3", "Sheet1.C3", "Sheet1"),
+        ("Orders!A1", "Orders.A1", "Orders"),
+        ("'My Sheet'.B2", "My Sheet.B2", "My Sheet"),
+        ("'My-Sheet'.B2", "My-Sheet.B2", "My-Sheet"),
+        ("My_Sheet.B2", "My_Sheet.B2", "My_Sheet"),
+        ("'a.b'.C3", "'a.b'.C3", "a.b"),
+        ("'O''Brien'.A1", "'O''Brien'.A1", "O'Brien"),
+        ("$Sheet1.$A$1", "Sheet1.A1", "Sheet1"),
+        ("A01", "A1", None),
+        ("XFD1048576", "XFD1048576", None),
+        (" cell://Sheet1!b2 ", "Sheet1.B2", "Sheet1"),
+        (f"{WRITERAGENT_CELL_URL_PREFIX}'O''Brien'.A1", "'O''Brien'.A1", "O'Brien"),
+    ],
+)
+def test_normalize_cell_address_valid_and_round_trips(raw, expected, expected_sheet):
+    out = normalize_cell_address(raw)
+    assert out == expected
+    assert out is not None
+    sheet, a1 = split_sheet_prefix(out)
+    col, row = parse_address(a1)
+    assert format_address(col, row) == a1
+    assert sheet == expected_sheet
 
-    # Advanced sheet names (quotes, spaces, hyphens)
-    assert normalize_cell_address("'My Sheet'.B2") == "My Sheet.B2"
-    assert normalize_cell_address("'My-Sheet'.B2") == "My-Sheet.B2"
-    assert normalize_cell_address("My_Sheet.B2") == "My_Sheet.B2"
 
-
-def test_normalize_cell_address_canonical():
-    assert normalize_cell_address("'a.b'.C3") == "'a.b'.C3"
-    assert normalize_cell_address("'O''Brien'.A1") == "'O''Brien'.A1"
-    assert normalize_cell_address("$Sheet1.$A$1") == "Sheet1.A1"
-    assert normalize_cell_address("A01") == "A1"
-    assert normalize_cell_address("XFD1048576") == "XFD1048576"
-    assert normalize_cell_address("A0") is None
-    assert normalize_cell_address("A1048577") is None
-    assert normalize_cell_address("ZZZ1") is None
-    assert normalize_cell_address("Sheet1.A1:B2") is None
-    assert normalize_cell_address("not-a-cell") is None
-    assert normalize_cell_address(" cell://Sheet1!b2 ") == "Sheet1.B2"
-    assert normalize_cell_address(f"{WRITERAGENT_CELL_URL_PREFIX}'O''Brien'.A1") == "'O''Brien'.A1"
-    assert normalize_cell_address("B" * 300) is None
-    assert normalize_cell_address("Bé1") is None
-
-
-def test_normalize_cell_address_round_trips():
-    cases = [
-        ("b2", None),
-        ("Sheet1.B2", "Sheet1"),
-        ("cell://C10", None),
-        (f"{WRITERAGENT_CELL_URL_PREFIX}D4", None),
-        ("cell://Sheet1.C3", "Sheet1"),
-        ("cell://Sheet1!C3", "Sheet1"),
-        ("Orders!A1", "Orders"),
-        ("'My Sheet'.B2", "My Sheet"),
-        ("'My-Sheet'.B2", "My-Sheet"),
-        ("My_Sheet.B2", "My_Sheet"),
-        ("'a.b'.C3", "a.b"),
-        ("'O''Brien'.A1", "O'Brien"),
-        ("$Sheet1.$A$1", "Sheet1"),
-        ("A01", None),
-        ("XFD1048576", None),
-        (" cell://Sheet1!b2 ", "Sheet1"),
-        (f"{WRITERAGENT_CELL_URL_PREFIX}'O''Brien'.A1", "O'Brien"),
-    ]
-    for raw, expected_sheet in cases:
-        out = normalize_cell_address(raw)
-        assert out is not None
-        sheet, a1 = split_sheet_prefix(out)
-        col, row = parse_address(a1)
-        assert format_address(col, row) == a1
-        assert sheet == expected_sheet
+@pytest.mark.parametrize(
+    "raw",
+    [
+        "not-a-cell",
+        "A0",
+        "A1048577",
+        "ZZZ1",
+        "Sheet1.A1:B2",
+        "B" * 300,
+        "Bé1",
+    ],
+)
+def test_normalize_cell_address_invalid(raw):
+    assert normalize_cell_address(raw) is None
 
 
 def test_cell_link_registry_lookup():

@@ -17,32 +17,24 @@ def _used(start_row: int, end_row: int, end_col: int) -> SimpleNamespace:
     return SimpleNamespace(StartRow=start_row, EndRow=end_row, EndColumn=end_col)
 
 
-def test_array_probe_sits_two_columns_right_of_used_area():
-    col, row = CellManipulator._array_probe_origin(_used(0, 20, 3), avoid_col=1, avoid_start_row=0, avoid_end_row=0)
-    assert (col, row) == (5, 0)
-
-
-def test_array_probe_clears_the_target_column():
-    col, row = CellManipulator._array_probe_origin(_used(0, 20, 3), avoid_col=10, avoid_start_row=0, avoid_end_row=0)
-    assert (col, row) == (12, 0)
-
-
-def test_array_probe_shifts_below_used_rows_when_clamped_onto_xfd():
-    # Used area already at XFD. min(..., 16383) used to overwrite rows 0–1.
-    col, row = CellManipulator._array_probe_origin(_used(0, 10, 16383), avoid_col=5, avoid_start_row=0, avoid_end_row=0)
-    assert col == 16383
-    assert row == 11
-
-
-def test_array_probe_stays_on_row_zero_when_xfd_used_rows_start_lower():
-    # Data only on row 5 of XFD: rows 0–1 are outside the used rectangle.
-    col, row = CellManipulator._array_probe_origin(_used(5, 5, 16383), avoid_col=0, avoid_start_row=0, avoid_end_row=0)
-    assert (col, row) == (16383, 0)
-
-
-def test_array_probe_does_not_shift_when_clamp_is_still_outside_used_columns():
-    col, row = CellManipulator._array_probe_origin(_used(0, 10, 16381), avoid_col=0, avoid_start_row=0, avoid_end_row=0)
-    assert (col, row) == (16383, 0)
+@pytest.mark.parametrize(
+    ("used_rect", "avoid_col", "expected"),
+    [
+        # Two columns right of used area
+        ((0, 20, 3), 1, (5, 0)),
+        # Clears the target column
+        ((0, 20, 3), 10, (12, 0)),
+        # Used area already at XFD: shift below used rows instead of overwriting rows 0-1
+        ((0, 10, 16383), 5, (16383, 11)),
+        # Data only on row 5 of XFD: rows 0-1 are outside the used rectangle
+        ((5, 5, 16383), 0, (16383, 0)),
+        # Clamp is still outside used columns: stay on row 0
+        ((0, 10, 16381), 0, (16383, 0)),
+    ],
+)
+def test_array_probe_origin(used_rect, avoid_col, expected):
+    col, row = CellManipulator._array_probe_origin(_used(*used_rect), avoid_col=avoid_col, avoid_start_row=0, avoid_end_row=0)
+    assert (col, row) == expected
 
 
 def test_array_probe_refuses_when_xfd_has_no_rows_left():

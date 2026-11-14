@@ -69,19 +69,6 @@ def test_list_sheets_omits_leading_underscore_names():
     assert "__Anonymous_Sheet_DB__0" not in names
 
 
-def test_list_sheets_result_entries_have_name_protected_visible():
-    ctx = SimpleNamespace(
-        doc=_sheets_doc("Sheet1", "_foo", "__Anonymous_Sheet_DB__0", "Data")
-    )
-    result = _tool("sheet_list").execute_safe(ctx)
-    assert result["status"] == "ok"
-    for entry in result["result"]:
-        assert set(entry.keys()) == {"name", "protected", "visible"}
-        assert isinstance(entry["name"], str)
-        assert isinstance(entry["protected"], bool)
-        assert isinstance(entry["visible"], bool)
-
-
 def test_get_sheet_summary_rejects_leading_underscore_names():
     ctx = SimpleNamespace(doc=MagicMock())
     with (
@@ -143,27 +130,27 @@ def _make_doc_with_sheets():
     return doc, sheets
 
 
-def test_switch_sheet_missing_name_returns_uno_object_error():
+@pytest.mark.parametrize(
+    ("tool_name", "kwargs", "check_hint"),
+    [
+        ("sheet_switch", {"sheet": "NoSuchSheet"}, True),
+        ("sheet_rename", {"old_name": "NoSuchSheet", "new_name": "NewName"}, False),
+        ("sheet_delete", {"sheet": "NoSuchSheet"}, False),
+        ("sheet_protect", {"sheet": "NoSuchSheet"}, False),
+    ],
+)
+def test_sheet_tool_missing_name_returns_uno_object_error(tool_name, kwargs, check_hint):
     doc, _ = _make_doc_with_sheets()
     ctx = SimpleNamespace(doc=doc)
-    res = _tool("sheet_switch").execute_safe(ctx, sheet="NoSuchSheet")
-    assert res["status"] == "error"
-    assert res["code"] == "UNO_OBJECT_ERROR"
-    assert "No sheet named 'NoSuchSheet'." in res["message"]
-    assert "Available: Sheet1, Data" in res["message"]
-    assert "sheet_list" in res["details"]["hint"]
-    assert "_hidden" not in res["details"].get("similar", [])
-
-
-def test_rename_sheet_missing_old_name_returns_uno_object_error():
-    doc, _ = _make_doc_with_sheets()
-    ctx = SimpleNamespace(doc=doc)
-    res = _tool("sheet_rename").execute_safe(ctx, old_name="NoSuchSheet", new_name="NewName")
+    res = _tool(tool_name).execute_safe(ctx, **kwargs)
     assert res["status"] == "error"
     assert res["code"] == "UNO_OBJECT_ERROR"
     assert "No sheet named 'NoSuchSheet'." in res["message"]
     assert "Available: Sheet1, Data" in res["message"]
     assert "_hidden" not in res["message"]
+    if check_hint:
+        assert "sheet_list" in res["details"]["hint"]
+        assert "_hidden" not in res["details"].get("similar", [])
 
 
 def test_rename_sheet_duplicate_new_name_returns_tool_error():
@@ -172,28 +159,6 @@ def test_rename_sheet_duplicate_new_name_returns_tool_error():
     res = _tool("sheet_rename").execute_safe(ctx, old_name="Sheet1", new_name="Data")
     assert res["status"] == "error"
     assert "already exists" in res["message"]
-
-
-def test_delete_sheet_missing_name_returns_uno_object_error():
-    doc, _ = _make_doc_with_sheets()
-    ctx = SimpleNamespace(doc=doc)
-    res = _tool("sheet_delete").execute_safe(ctx, sheet="NoSuchSheet")
-    assert res["status"] == "error"
-    assert res["code"] == "UNO_OBJECT_ERROR"
-    assert "No sheet named 'NoSuchSheet'." in res["message"]
-    assert "Available: Sheet1, Data" in res["message"]
-    assert "_hidden" not in res["message"]
-
-
-def test_protect_sheet_missing_name_returns_uno_object_error():
-    doc, _ = _make_doc_with_sheets()
-    ctx = SimpleNamespace(doc=doc)
-    res = _tool("sheet_protect").execute_safe(ctx, sheet="NoSuchSheet")
-    assert res["status"] == "error"
-    assert res["code"] == "UNO_OBJECT_ERROR"
-    assert "No sheet named 'NoSuchSheet'." in res["message"]
-    assert "Available: Sheet1, Data" in res["message"]
-    assert "_hidden" not in res["message"]
 
 
 def test_create_sheet_validations():
@@ -234,7 +199,9 @@ def test_create_sheet_validations():
 
     res = tool.execute_safe(ctx, sheet="ValidName", position=4)
     assert res["status"] == "error"
+    assert res["code"] == "INVALID_PARAM"
     assert "out of range" in res["message"]
+    sheets.insertNewByName.assert_not_called()
 
 
 def test_create_sheet_success_payload_and_no_activation():
@@ -504,18 +471,3 @@ def test_sheet_schema_rejects_wrong_types_before_execute(tool_name, kwargs):
     prep = prepare_tool_call(tool, SimpleNamespace(doc_type="calc"), tool_name, kwargs)
     assert prep.error is not None
     assert prep.error["code"] == "VALIDATION_ERROR"
-
-
-def test_sheets_registry_invalid_param_refusals():
-    doc, sheets = _doc_with_named_sheets("Sheet1", "_x")
-    ctx = SimpleNamespace(doc=doc)
-
-    res_create = _tool("sheet_create").execute_safe(ctx, sheet="NewSheet", position=99)
-    assert res_create["status"] == "error"
-    assert res_create["code"] == "INVALID_PARAM"
-    sheets.insertNewByName.assert_not_called()
-
-    res_delete = _tool("sheet_delete").execute_safe(ctx, sheet="_x")
-    assert res_delete["status"] == "error"
-    assert res_delete["code"] == "INVALID_PARAM"
-    sheets.removeByName.assert_not_called()

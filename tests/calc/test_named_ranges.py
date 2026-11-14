@@ -384,8 +384,8 @@ def test_edit_rejects_illegal_rename_before_mutation():
     nr.setName.assert_not_called()
 
 
-def test_edit_renames_before_other_fields_and_undoes_on_failure():
-    """setName runs first. A later setter failure undoes the group in one step."""
+def test_edit_renames_before_other_fields():
+    """setName runs first before content and type setters."""
     nr = _nr("TaxRate", "$Sheet1.$A$1")
     ctx = _workbook("Sheet1", [_sheet("Sheet1", {})], {"TaxRate": nr})
     order: list[tuple[str, str]] = []
@@ -398,50 +398,32 @@ def test_edit_renames_before_other_fields_and_undoes_on_failure():
     assert [step[0] for step in order] == ["name", "content", "type"]
     assert order[0] == ("name", "TaxRate2")
 
-    nr_fail = _nr("TaxRate", "$Sheet1.$A$1")
-    ctx_fail = _workbook("Sheet1", [_sheet("Sheet1", {})], {"TaxRate": nr_fail})
-    fake_fail = ctx_fail.doc.getUndoManager.return_value
-    nr_fail.setContent.side_effect = RuntimeException("content rejected")
-    res_fail = _tool("named_range_edit").execute_safe(ctx_fail, name="TaxRate", new_name="TaxRate2", content="$Sheet1.$B$1")
-    assert res_fail["status"] == "error"
-    assert res_fail["code"] == "TOOL_EXECUTION_ERROR"
-    assert [call.args[0] for call in nr_fail.setName.call_args_list] == ["TaxRate2"]
-    assert fake_fail.undone == 1
 
-
-def test_edit_undoes_earlier_setters_when_a_later_setter_fails():
+@pytest.mark.parametrize(
+    ("fail_setter", "extra_kwargs", "expected_prior"),
+    [
+        ("setContent", {}, [("setName", ["TaxRate2"])]),
+        ("setType", {"flags": ["print_area"]}, [("setName", ["TaxRate2"]), ("setContent", ["$Sheet1.$B$1"])]),
+        (
+            "setReferencePosition",
+            {"flags": ["print_area"], "base_cell": "A1"},
+            [("setName", ["TaxRate2"]), ("setContent", ["$Sheet1.$B$1"]), ("setType", [2])],
+        ),
+    ],
+)
+def test_edit_undoes_earlier_setters_when_a_later_setter_fails(fail_setter, extra_kwargs, expected_prior):
+    """The undo bracket rolls back every earlier setter in a single undo."""
     nr = _nr("TaxRate", "$Sheet1.$A$1")
     ctx = _workbook("Sheet1", [_sheet("Sheet1", {})], {"TaxRate": nr})
     fake = ctx.doc.getUndoManager.return_value
-    nr.setType.side_effect = RuntimeException("type rejected")
-    res = _tool("named_range_edit").execute_safe(ctx, name="TaxRate", new_name="TaxRate2", content="$Sheet1.$B$1", flags=["print_area"])
+    getattr(nr, fail_setter).side_effect = RuntimeException(f"{fail_setter} rejected")
+    res = _tool("named_range_edit").execute_safe(ctx, name="TaxRate", new_name="TaxRate2", content="$Sheet1.$B$1", **extra_kwargs)
     assert res["status"] == "error"
     assert res["code"] == "TOOL_EXECUTION_ERROR"
-    assert [call.args[0] for call in nr.setName.call_args_list] == ["TaxRate2"]
-    assert [call.args[0] for call in nr.setContent.call_args_list] == ["$Sheet1.$B$1"]
+    for setter_name, expected_args in expected_prior:
+        assert [call.args[0] for call in getattr(nr, setter_name).call_args_list] == expected_args
     assert fake.undone == 1
     assert fake.entered == ["WriterAgent: Edit named range"]
-
-    # setReferencePosition failure undoes content, type, and rename via the bracket
-    nr_pos = _nr("TaxRate", "$Sheet1.$A$1")
-    ctx_pos = _workbook("Sheet1", [_sheet("Sheet1", {})], {"TaxRate": nr_pos})
-    fake_pos = ctx_pos.doc.getUndoManager.return_value
-    nr_pos.setReferencePosition.side_effect = RuntimeException("pos rejected")
-    res_pos = _tool("named_range_edit").execute_safe(
-        ctx_pos,
-        name="TaxRate",
-        new_name="TaxRate2",
-        content="$Sheet1.$B$1",
-        flags=["print_area"],
-        base_cell="A1",
-    )
-    assert res_pos["status"] == "error"
-    assert res_pos["code"] == "TOOL_EXECUTION_ERROR"
-    assert [call.args[0] for call in nr_pos.setName.call_args_list] == ["TaxRate2"]
-    assert [call.args[0] for call in nr_pos.setContent.call_args_list] == ["$Sheet1.$B$1"]
-    assert [call.args[0] for call in nr_pos.setType.call_args_list] == [2]
-    assert fake_pos.undone == 1
-    assert fake_pos.entered == ["WriterAgent: Edit named range"]
 
 
 def test_unqualified_name_prefers_sheet_local_shadow():
