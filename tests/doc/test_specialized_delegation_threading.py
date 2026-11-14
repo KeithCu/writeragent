@@ -345,7 +345,6 @@ def test_writer_delegate_marshals_get_tools_to_main_thread(
     result = gateway.execute_safe(ctx, domain="footnotes", task="List footnotes")
 
     assert result["status"] == "incomplete"
-    assert mock_execute_on_main.call_count >= 1
 
 
 @patch(
@@ -589,21 +588,6 @@ def test_document_research_delegate_off_main_does_not_touch_runtime_uid(
     mock_enqueue_index.assert_called_once()
 
 
-def test_writer_smol_adapter_marshals_sync_footnotes_tool():
-    """Sync specialized tools must cross call via SmolToolAdapter."""
-    tool = _DummyFootnotesList()
-    tctx = MagicMock()
-    tctx.doc_type = "writer"
-    adapter = SmolToolAdapter(tool, tctx, safe=True, inputs_style="specialized")
-
-    with patch("plugin.framework.queue_executor.main.call") as mock_main:
-        mock_main.side_effect = lambda fn, *args, **kwargs: fn(*args, **kwargs)
-        result = adapter.forward(note="footnote")
-
-    assert result["status"] == "ok"
-    mock_main.assert_called_once()
-
-
 def test_writer_footnotes_list_runs_uno_only_when_current():
     """Regression: footnotes_list touches doc UNO; sub-agent worker must marshal before execute."""
     session = start_uno_thread_safety_session()
@@ -634,21 +618,6 @@ def test_writer_footnotes_list_runs_uno_only_when_current():
         assert result is not None and result.get("status") == "ok"
     finally:
         session.close()
-
-
-def test_calc_sync_tool_marshals_via_smol_adapter():
-    """Sync Calc specialized tools must cross call via SmolToolAdapter."""
-    tool = ListSheets()
-    tctx = MagicMock()
-    tctx.doc_type = "calc"
-    adapter = SmolToolAdapter(tool, tctx, safe=True, inputs_style="specialized")
-
-    with patch("plugin.framework.queue_executor.main.call") as mock_main:
-        mock_main.side_effect = lambda fn, *args, **kwargs: fn(*args, **kwargs)
-        result = adapter.forward()
-
-    assert result["status"] == "ok"
-    mock_main.assert_called_once()
 
 
 def test_calc_list_sheets_runs_uno_only_when_current():

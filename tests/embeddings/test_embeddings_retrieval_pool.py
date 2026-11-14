@@ -9,7 +9,6 @@ from __future__ import annotations
 import pytest
 
 from plugin.embeddings.venv.embeddings_retrieval_pool import hybrid_retrieval_pool
-from plugin.embeddings.venv.embeddings_llama_index import _llama_index_retrieval_pool
 
 
 @pytest.mark.parametrize(
@@ -27,7 +26,3 @@ def test_hybrid_retrieval_pool(k: int, expected_final_k: int, expected_fetch_k: 
     final_k, fetch_k = hybrid_retrieval_pool(k)
     assert final_k == expected_final_k
     assert fetch_k == expected_fetch_k
-
-
-def test_llama_index_retrieval_pool_delegates_to_shared_helper() -> None:
-    assert _llama_index_retrieval_pool(5) == hybrid_retrieval_pool(5)

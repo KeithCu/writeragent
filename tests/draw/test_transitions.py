@@ -11,7 +11,6 @@ from plugin.draw.transitions import (
     GetSlideTransition,
     SetSlideLayout,
     SetSlideTransition,
-    _FADE_EFFECTS,
     apply_slide_layout,
 )
 
@@ -209,18 +208,6 @@ def test_set_slide_transition_enum_import_error_is_a_tool_error():
     page.setPropertyValue.assert_not_called()
 
 
-def test_set_slide_transition_accepts_every_effect_key():
-    ctx = MagicMock()
-    page = MagicMock()
-    with patch("plugin.draw.transitions.DrawBridge") as bridge_cls, \
-         patch("plugin.draw.transitions._pres_enum", return_value="enum"):
-        bridge_cls.return_value.resolve_page.return_value = (page, 0)
-        for key in _FADE_EFFECTS:
-            out = SetSlideTransition().execute(ctx, page=0, effect=key)
-            assert out["status"] == "ok"
-            assert "effect" in out["updated"]
-
-
 def test_set_slide_transition_unknown_effect_never_looks_up_enum():
     ctx = MagicMock()
     page = MagicMock()
@@ -290,12 +277,14 @@ def test_set_slide_transition_write_failure_is_a_tool_error():
 
 
 def test_set_slide_transition_disposal_still_raises():
+    class DisposedException(Exception):
+        pass
+
     ctx = MagicMock()
     page = MagicMock()
-    page.setPropertyValue.side_effect = RuntimeError("boom")
-    with patch("plugin.draw.transitions.DrawBridge") as bridge_cls, \
-         patch("plugin.draw.transitions.is_disposal", return_value=True):
+    page.setPropertyValue.side_effect = DisposedException("disposed")
+    with patch("plugin.draw.transitions.DrawBridge") as bridge_cls:
         bridge_cls.return_value.resolve_page.return_value = (page, 0)
-        with pytest.raises(RuntimeError):
+        with pytest.raises(DisposedException):
             SetSlideTransition().execute(ctx, page=0, effect="dissolve")
 

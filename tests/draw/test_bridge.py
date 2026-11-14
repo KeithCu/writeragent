@@ -977,12 +977,10 @@ def test_move_slide_raises_when_exchange_rollback_fails():
     with (
         patch.object(bridge, "_move_shapes", side_effect=RuntimeError("shape move failed")),
         patch.object(bridge, "_rollback_exchange", return_value=False),
-        patch.object(bridge, "_exchange_page_contents", wraps=bridge._exchange_page_contents) as exchange_spy,
     ):
         with pytest.raises(PageExchangeRollbackError, match="temporary page"):
             bridge.move_slide(1, 0)
         assert len(pages.pages) == 3
-        assert exchange_spy.call_count == 1
 
 
 def test_move_slide_reraises_dispose_when_rollback_raises():

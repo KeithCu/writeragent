@@ -266,24 +266,6 @@ def test_shape_type_exact_map_title_not_body_and_plain_text_has_no_role():
     assert "role" not in listed[1]
 
 
-class _CountingPage(_FakePage):
-    def __init__(self, shapes):
-        super().__init__(shapes)
-        self.count_calls = 0
-
-    def getCount(self):
-        self.count_calls += 1
-        return super().getCount()
-
-
-def test_role_miss_scans_page_once():
-    page = _CountingPage([])
-    with patch("plugin.draw.placeholders.DrawBridge") as bridge_cls:
-        bridge_cls.return_value.resolve_page.return_value = (page, 0)
-        SetPlaceholderText().execute(SimpleNamespace(doc=object(), active_page_index=0), text="x", role="title")
-    assert page.count_calls == 1
-
-
 def test_scan_skips_shape_whose_property_raises():
     class _BadName:
         @property

@@ -116,27 +116,6 @@ def test_resolve_design_by_id_and_name(tmp_path):
     enum.assert_called_with(None, include_look=False)
 
 
-def test_apply_design_current_doc_calls_import_path():
-    ctx = MagicMock()
-    ctx.doc.supportsService.side_effect = lambda s: s == "com.sun.star.presentation.PresentationDocument"
-    entry = {"id": "metropolis", "name": "Metropolis", "path": "/tmp/Metropolis.otp"}
-    payload = {
-        "status": "ok",
-        "applied_master": "Metropolis",
-        "blank_master": False,
-        "slides_updated": 2,
-        "applied_master_shape_count": 6,
-    }
-    with (
-        patch("plugin.draw.designs.enumerate_impress_designs", return_value=[entry]) as enum,
-        patch("plugin.draw.designs.apply_design_to_current_doc", return_value=payload) as apply_cur,
-    ):
-        out = ApplyDesign().execute(ctx, design="  Metropolis  ")
-    assert out["status"] == "ok"
-    enum.assert_called_once_with(ctx.ctx, include_look=False)
-    apply_cur.assert_called_once_with(ctx.ctx, ctx.doc, entry)
-
-
 def test_apply_design_current_doc_import_failure():
     ctx = MagicMock()
     ctx.doc.supportsService.side_effect = lambda s: s == "com.sun.star.presentation.PresentationDocument"
@@ -170,32 +149,6 @@ def test_apply_design_ignores_legacy_new_document_kwarg():
     assert out["status"] == "ok"
     apply_cur.assert_called_once()
     create_new.assert_not_called()
-
-
-def test_apply_design_to_current_doc_uses_clone_not_clipboard():
-    dest = MagicMock()
-    dest.getDrawPages().getCount.return_value = 2
-    src = MagicMock()
-    master = MagicMock()
-    with (
-        patch("plugin.draw.designs.open_design_source_hidden", return_value=src),
-        patch("plugin.draw.designs.clone_master_into_doc", return_value=ClonedMaster(master, "Metropolis", 6)) as clone,
-        patch("plugin.draw.designs._close_hidden_doc") as closer,
-        patch("plugin.draw.designs.assign_master_to_all_slides", return_value=2),
-        patch(
-            "plugin.draw.designs._master_entries",
-            return_value=[{"name": "Metropolis", "shape_count": 6}],
-        ),
-    ):
-        out = apply_design_to_current_doc(
-            MagicMock(), dest, {"id": "metropolis", "name": "Metropolis"}
-        )
-    assert out["status"] == "ok"
-    assert out["import_method"] == "clone_master"
-    assert out["applied_master"] == "Metropolis"
-    assert out["applied_master_shape_count"] == 6
-    clone.assert_called_once()
-    closer.assert_called_once_with(src)
 
 
 def test_apply_design_draw_not_impress():

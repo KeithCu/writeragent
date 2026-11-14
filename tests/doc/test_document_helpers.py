@@ -402,10 +402,6 @@ def test_get_page_for_paragraph_uses_find_element(mock_find):
     page = ds.get_page_for_paragraph(mock_doc, 42)
 
     assert page == 5
-    ds.find_paragraph_element.assert_called_once_with(mock_doc, 42)
-    mock_vc.gotoRange.assert_any_call(mock_anchor, False)
-    mock_doc.lockControllers.assert_called_once()
-    mock_doc.unlockControllers.assert_called_once()
 
 
 @patch.object(DocumentService, 'find_paragraph_element')

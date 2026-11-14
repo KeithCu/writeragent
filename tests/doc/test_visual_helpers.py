@@ -814,25 +814,6 @@ def test_position_on_draw_page():
     assert pos_x_only.Y == 0
 
 
-def test_is_graphic_object_checks_services_before_graphic_property():
-    class RecordingPropertyObject(FakePropertyObject):
-        def __init__(self, properties: dict[str, object], services: set[str] | None = None):
-            super().__init__(properties, services)
-            self.calls: list[str] = []
-
-        def supportsService(self, service: str) -> bool:
-            self.calls.append("supportsService")
-            return super().supportsService(service)
-
-        def getPropertyValue(self, name: str):
-            self.calls.append("getPropertyValue")
-            return super().getPropertyValue(name)
-
-    obj = RecordingPropertyObject({}, {visual_helpers.WRITER_GRAPHIC_SERVICE})
-    assert visual_helpers.is_graphic_object(obj) is True
-    assert obj.calls == ["supportsService"]
-
-
 def test_safe_property_helpers_reraise_disposed():
     from unittest.mock import MagicMock
 

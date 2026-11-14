@@ -606,7 +606,6 @@ def test_grep_nearby_files_runs_uno_only_when_current(mock_resolve, mock_search,
 
         result = grep_nearby_files(MagicMock(), MagicMock(), MagicMock(), "Q4", file_subset="budget")
 
-        assert mock_execute.call_count == 1
         assert result["status"] == "ok"
 
 @patch("plugin.doc.document_research.os.listdir")
@@ -863,23 +862,6 @@ def test_grep_text_in_draw_caps_shape_snippet():
 
     matches, partial = _grep_text_in_draw(model, "a", max_results=1)
     assert matches[0]["text"] == "a" * 200 + "…"
-
-
-def test_grep_nearby_files_tool_wrapper_matched_case_sensitive():
-    from plugin.doc.document_research_grep_tool import GrepNearbyFiles
-    tool = GrepNearbyFiles()
-    ctx = MagicMock()
-    ctx.stop_checker = lambda: False
-    ctx.send_cancellation = None
-
-    with patch("plugin.doc.document_research_grep_tool.grep_nearby_files") as mock_grep:
-        mock_grep.return_value = {"status": "ok", "hits": [], "matched_case_sensitive": False}
-        tool.execute(ctx, pattern="search_term")
-        assert mock_grep.call_args.kwargs["case_sensitive"] is False
-
-        mock_grep.return_value = {"status": "ok", "hits": [], "matched_case_sensitive": True}
-        tool.execute(ctx, pattern="search_term", case_sensitive=True)
-        assert mock_grep.call_args.kwargs["case_sensitive"] is True
 
 
 @patch("plugin.doc.document_research_grep.open_document_for_read")

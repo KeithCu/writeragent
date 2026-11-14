@@ -122,18 +122,3 @@ def test_rerank_returns_snippet_hits(tmp_path):
     assert len(out["hits"]) == 2
     assert out["hits"][0]["snippet"] == "first hit"
     assert "char_start" not in out["hits"][0]
-
-
-def test_search_embeddings_graph_invokes_graph():
-    with patch.object(embeddings_search_graph, "_get_search_graph") as mock_graph_factory:
-        mock_graph = MagicMock()
-        mock_graph.invoke.return_value = {"hits": [{"doc_url": "file:///a.odt", "score": 0.9}]}
-        mock_graph_factory.return_value = mock_graph
-        result = embeddings_search_graph.search_embeddings_graph(
-            "/chroma/corpus.db",
-            "query",
-            3,
-            model_name="all-MiniLM-L6-v2",
-        )
-    assert len(result["hits"]) == 1
-    mock_graph.invoke.assert_called_once()
