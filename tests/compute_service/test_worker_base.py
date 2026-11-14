@@ -384,7 +384,16 @@ def test_restricted_unpickler_rejects_oversized_bytearray8() -> None:
         tracemalloc.stop()
 
 
-@pytest.mark.parametrize("payload", [b"\x80\x05J\x01", b"\x80\x05M\x01", b"\x80\x05G\x01\x02\x03", b"\x80\x05\x95\x01", b"\x80\x02J\x01"])
+@pytest.mark.parametrize(
+    "payload",
+    [
+        b"\x80\x05J\x01",
+        b"\x80\x05M\x01",
+        b"\x80\x05G\x01\x02\x03",
+        b"\x80\x05\x95\x01",
+        b"\x80\x02J\x01",
+    ],
+)
 def test_restricted_unpickler_maps_struct_error_to_value_error(payload: bytes) -> None:
     """Truncated headers raising struct.error are mapped to ValueError."""
     from compute_service.worker_stdio import unpack_restricted_pickle_frame
@@ -395,7 +404,6 @@ def test_restricted_unpickler_maps_struct_error_to_value_error(payload: bytes) -
 
 def test_host_unpicklers_share_allowlist_and_keep_policies() -> None:
     """Compute and scripting frames share one unpickler; the allowlists stay different."""
-
     from compute_service.worker_stdio import RestrictedUnpickler, unpack_restricted_pickle_frame
     from plugin.framework.ipc import AllowlistUnpickler, _SafeUnpickler, unpack_pickle_frame
 
@@ -642,7 +650,9 @@ def test_idle_scan_before_ttl_does_not_kill(monkeypatch: pytest.MonkeyPatch) -> 
         pool.shutdown()
 
 
-def test_compute_worker_spawn_runs_on_supervisor_spawner_thread(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_compute_worker_spawn_runs_on_supervisor_spawner_thread(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Initial spawn and respawn run Popen on the supervisor spawner thread."""
     from plugin.framework.managed_subprocess import ManagedSubprocess
     from plugin.framework.process_worker import BaseProcessWorker
@@ -781,7 +791,6 @@ def test_run_compute_worker_puts_image_pkgs_on_path(tmp_path: Path, monkeypatch:
 
 def _delay_worker(tmp_path):
     """Stdio worker that sleeps for ``delay`` seconds, then answers with its pid."""
-
     repo = Path(__file__).resolve().parents[2]
     script = tmp_path / "delay_worker.py"
     script.write_text(
@@ -809,7 +818,6 @@ def test_read_timeout_kills_and_next_execute_respawns(tmp_path) -> None:
     The timed-out client already has EXECUTION_TIMEOUT. Keeping the process
     to finish that frame is what the late-drain state machine existed for.
     """
-
     pool = BaseProcessPool(str(_delay_worker(tmp_path)), num_workers=1, worker_name="Worker")
     try:
         worker = pool.lease_any(2)

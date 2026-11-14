@@ -162,13 +162,32 @@ def test_error_dict_keeps_optional_id() -> None:
 
 
 @pytest.mark.parametrize(
-    ("budget", "remaining", "usable_sec", "left_sec"), [(0.0, 0.0, None, 0.0), (0.5, 0.5, None, 0.5), (1.0, 0.0, None, 0.0), (1.0, 0.5, 0.5, 0.5), (1.0, 1.0, 1.0, 1.0), (2.0, 0.5, None, 0.5), (2.0, 1.0, 1.0, 1.0), (5.0, -0.25, None, -0.25), (5.0, 0.5, None, 0.5), (5.0, 2.5, 2.5, 2.5)]
+    ("budget", "remaining", "usable_sec", "left_sec"),
+    [
+        (0.0, 0.0, None, 0.0),
+        (0.5, 0.5, None, 0.5),
+        (1.0, 0.0, None, 0.0),
+        (1.0, 0.5, 0.5, 0.5),
+        (1.0, 1.0, 1.0, 1.0),
+        (2.0, 0.5, None, 0.5),
+        (2.0, 1.0, 1.0, 1.0),
+        (5.0, -0.25, None, -0.25),
+        (5.0, 0.5, None, 0.5),
+        (5.0, 2.5, 2.5, 2.5),
+    ],
 )
-def test_deadline_budget_table(monkeypatch: pytest.MonkeyPatch, budget: float, remaining: float, usable_sec: float | None, left_sec: float) -> None:
+def test_deadline_budget_table(
+    monkeypatch: pytest.MonkeyPatch,
+    budget: float,
+    remaining: float,
+    usable_sec: float | None,
+    left_sec: float,
+) -> None:
     """usable() is the only start gate; left() is the true remainder.
 
-    A 2s request with 0.5s left must refuse; a 1s request with the same
-    remainder must start.
+    A 1s budget may start with under a second left. A longer one may not;
+    the chained compare hid that. A 2s request with 0.5s left must refuse;
+    a 1s request with the same remainder must start.
     """
     from plugin.framework.child_runtime import Deadline
 

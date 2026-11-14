@@ -19,7 +19,15 @@ import pytest
 from plugin.framework.managed_subprocess import ManagedSubprocess
 from plugin.framework.child_runtime import Deadline
 from plugin.framework.send_cancellation import SendCancellation
-from plugin.framework.warm_child import Child, ChildSpec, Death, Supervisor, WarmChild, _SpawnRequest, spawn_managed_child_with_handshake
+from plugin.framework.warm_child import (
+    Child,
+    ChildSpec,
+    Death,
+    Supervisor,
+    WarmChild,
+    _SpawnRequest,
+    spawn_managed_child_with_handshake,
+)
 
 
 def _repo_root() -> str:
@@ -32,12 +40,32 @@ def _repo_root() -> str:
     return os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 
 
-def _stdio_worker(tmp_path: Any, *, preamble: str = "", handler_body: str = "return {'status': 'ok', 'echo': req}") -> str:
+def _stdio_worker(
+    tmp_path: Any,
+    *,
+    preamble: str = "",
+    handler_body: str = "return {'status': 'ok', 'echo': req}",
+) -> str:
     root = _repo_root()
     script = tmp_path / "warm_test_worker.py"
     handler_lines = handler_body.splitlines() or ["return {'status': 'ok', 'echo': req}"]
     indented = "\n".join("    " + line for line in handler_lines)
-    script.write_text("\n".join(["import os, sys", f"sys.path.insert(0, {root!r})", preamble, "from compute_service.worker_stdio import run_worker_stdio_loop", "def handle(req):", indented, "if __name__ == '__main__':", "    raise SystemExit(run_worker_stdio_loop(handle))", ""]), encoding="utf-8")
+    script.write_text(
+        "\n".join(
+            [
+                "import os, sys",
+                f"sys.path.insert(0, {root!r})",
+                preamble,
+                "from compute_service.worker_stdio import run_worker_stdio_loop",
+                "def handle(req):",
+                indented,
+                "if __name__ == '__main__':",
+                "    raise SystemExit(run_worker_stdio_loop(handle))",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
     return str(script)
 
 
@@ -117,7 +145,19 @@ def test_handshake_timeout_returns_error(tmp_path: Any, supervisor: Supervisor) 
 def test_garbage_ready_frame_not_adopted(tmp_path: Any, supervisor: Supervisor) -> None:
     root = _repo_root()
     script = tmp_path / "garbage_ready.py"
-    script.write_text("\n".join(["import sys, time", f"sys.path.insert(0, {root!r})", "from plugin.framework.ipc import write_pickle_frame, claim_ipc_channel", "out = claim_ipc_channel()", "write_pickle_frame(out, {'status': 'booting'})", "time.sleep(60)"]), encoding="utf-8")
+    script.write_text(
+        "\n".join(
+            [
+                "import sys, time",
+                f"sys.path.insert(0, {root!r})",
+                "from plugin.framework.ipc import write_pickle_frame, claim_ipc_channel",
+                "out = claim_ipc_channel()",
+                "write_pickle_frame(out, {'status': 'booting'})",
+                "time.sleep(60)",
+            ]
+        ),
+        encoding="utf-8",
+    )
     warm = WarmChild(_spec(tmp_path, str(script), ready_timeout_sec=5), supervisor=supervisor)
     try:
         with warm.lease(Deadline(10)) as leased:
@@ -202,7 +242,11 @@ def test_idle_ttl_kills_idle_not_leased(tmp_path: Any, supervisor: Supervisor) -
 
 
 def test_shutdown_all_kills_children_and_refuses_lease(tmp_path: Any, supervisor: Supervisor) -> None:
-    script = _stdio_worker(tmp_path, preamble="import time", handler_body="time.sleep(60)\nreturn {'status': 'ok'}")
+    script = _stdio_worker(
+        tmp_path,
+        preamble="import time",
+        handler_body="time.sleep(60)\nreturn {'status': 'ok'}",
+    )
     warm = WarmChild(_spec(tmp_path, script), supervisor=supervisor)
     with warm.lease(Deadline(10)) as leased:
         assert not isinstance(leased, dict)
@@ -267,7 +311,8 @@ def test_shutdown_all_abandons_without_waiting(tmp_path: Any, supervisor: Superv
         calls.append("finish_text")
         return ""
 
-    with patch.object(managed, "wait_once", side_effect=record_wait_once), patch("plugin.framework.managed_subprocess.StderrTail.finish_text", side_effect=record_finish_text):
+    with patch.object(managed, "wait_once", side_effect=record_wait_once), \
+         patch("plugin.framework.managed_subprocess.StderrTail.finish_text", side_effect=record_finish_text):
         supervisor.shutdown_all()
 
     assert calls == []
@@ -282,7 +327,10 @@ def test_shutdown_all_sweeps_managed_registry_once(monkeypatch, threads_started:
         nonlocal ms_calls
         ms_calls += 1
 
-    monkeypatch.setattr("plugin.framework.managed_subprocess.shutdown_all", _ms_shutdown)
+    monkeypatch.setattr(
+        "plugin.framework.managed_subprocess.shutdown_all",
+        _ms_shutdown,
+    )
     sup = Supervisor()
     sup._threads_started = threads_started
     sup.shutdown_all()
@@ -293,7 +341,10 @@ def test_shutdown_all_sweeps_managed_registry_once(monkeypatch, threads_started:
 @pytest.mark.skipif(sys.platform != "linux", reason="orphan PDEATHSIG check is Linux-only")
 def test_orphan_warm_child_dies_with_parent(tmp_path: Any) -> None:
     root = _repo_root()
-    child_script = _stdio_worker(tmp_path, handler_body="import time\ntime.sleep(60)\nreturn {'status': 'ok'}")
+    child_script = _stdio_worker(
+        tmp_path,
+        handler_body="import time\ntime.sleep(60)\nreturn {'status': 'ok'}",
+    )
     parent_script = tmp_path / "parent_warm.py"
     parent_script.write_text(
         "\n".join(
@@ -367,7 +418,18 @@ def test_spawn_helper_refused_signals_without_pipe_io(monkeypatch: pytest.Monkey
 
     monkeypatch.setattr("plugin.framework.warm_child.read_ready_frame_during_io", fail_read)
     managed = _managed_with_popen()
-    tag, extra, spawned = spawn_managed_child_with_handshake(managed, worker_name="warm-test", worker_id=0, is_alive=lambda: True, max_payload_bytes=1024, unpacker=None, start=lambda unused: None, publish=lambda unused: False, deadline=None, cap_sec=5.0)
+    tag, extra, spawned = spawn_managed_child_with_handshake(
+        managed,
+        worker_name="warm-test",
+        worker_id=0,
+        is_alive=lambda: True,
+        max_payload_bytes=1024,
+        unpacker=None,
+        start=lambda unused: None,
+        publish=lambda unused: False,
+        deadline=None,
+        cap_sec=5.0,
+    )
     assert tag == "refused"
     assert extra is None
     assert read_calls == []
@@ -384,7 +446,18 @@ def test_spawn_helper_budget_exhausted_skips_begin_io(monkeypatch: pytest.Monkey
     monkeypatch.setattr("plugin.framework.warm_child.read_ready_frame_during_io", fail_read)
     monkeypatch.setattr("plugin.framework.warm_child.spawn_budget", lambda deadline: None)
     managed = _managed_with_popen()
-    tag, extra, spawned = spawn_managed_child_with_handshake(managed, worker_name="warm-test", worker_id=0, is_alive=lambda: True, max_payload_bytes=1024, unpacker=None, start=lambda unused: None, publish=lambda unused: True, deadline=Deadline(15.0), cap_sec=5.0)
+    tag, extra, spawned = spawn_managed_child_with_handshake(
+        managed,
+        worker_name="warm-test",
+        worker_id=0,
+        is_alive=lambda: True,
+        max_payload_bytes=1024,
+        unpacker=None,
+        start=lambda unused: None,
+        publish=lambda unused: True,
+        deadline=Deadline(15.0),
+        cap_sec=5.0,
+    )
     assert tag == "budget_exhausted"
     assert extra is None
     assert read_calls == []
@@ -404,7 +477,18 @@ def test_spawn_helper_read_exception_clears_io_owner(monkeypatch: pytest.MonkeyP
         return True
 
     with pytest.raises(RuntimeError, match="handshake read failed"):
-        spawn_managed_child_with_handshake(managed, worker_name="warm-test", worker_id=0, is_alive=lambda: True, max_payload_bytes=1024, unpacker=None, start=lambda unused: None, publish=publish, deadline=None, cap_sec=5.0)
+        spawn_managed_child_with_handshake(
+            managed,
+            worker_name="warm-test",
+            worker_id=0,
+            is_alive=lambda: True,
+            max_payload_bytes=1024,
+            unpacker=None,
+            start=lambda unused: None,
+            publish=publish,
+            deadline=None,
+            cap_sec=5.0,
+        )
     assert len(published) == 1
     spawned = published[0]
     assert spawned._io_owner is not None
@@ -436,7 +520,12 @@ def test_lease_cancel_aborts_wait_within_poll(tmp_path: Any, supervisor: Supervi
 
     threading.Thread(target=flip, daemon=True).start()
     try:
-        with warm.lease(Deadline(30), wait=30, cancel=scope, poll_sec=0.05) as leased:
+        with warm.lease(
+            Deadline(30),
+            wait=30,
+            cancel=scope,
+            poll_sec=0.05,
+        ) as leased:
             assert isinstance(leased, dict)
             assert leased.get("code") == "CANCELLED"
     finally:
@@ -480,7 +569,12 @@ def test_lease_refuse_aborts_wait_within_poll(tmp_path: Any, supervisor: Supervi
 
 def test_missing_interpreter_lease_raises_oserror(supervisor: Supervisor) -> None:
     env = {k: v for k, v in os.environ.items() if isinstance(v, str)}
-    spec = ChildSpec(name="missing-interpreter", argv=["/nonexistent/writeragent-python", "unused.py"], env=env, log_start_failure=False)
+    spec = ChildSpec(
+        name="missing-interpreter",
+        argv=["/nonexistent/writeragent-python", "unused.py"],
+        env=env,
+        log_start_failure=False,
+    )
     warm = WarmChild(spec, supervisor=supervisor)
     try:
         with pytest.raises(OSError):
@@ -491,7 +585,9 @@ def test_missing_interpreter_lease_raises_oserror(supervisor: Supervisor) -> Non
         warm.retire()
 
 
-def test_warm_ensure_live_interrupted_drops_child(tmp_path: Any, supervisor: Supervisor, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_warm_ensure_live_interrupted_drops_child(
+    tmp_path: Any, supervisor: Supervisor, monkeypatch: pytest.MonkeyPatch
+) -> None:
     script = _stdio_worker(tmp_path)
     warm = WarmChild(_spec(tmp_path, script), supervisor=supervisor)
     drops: list[Child] = []
@@ -502,8 +598,13 @@ def test_warm_ensure_live_interrupted_drops_child(tmp_path: Any, supervisor: Sup
         orig_drop(child)
 
     monkeypatch.setattr(warm, "_drop_child", track_drop)
-    monkeypatch.setattr("plugin.framework.warm_child.read_ready_frame_during_io", lambda *args, **kwargs: ("interrupted", None))
-    monkeypatch.setattr(supervisor, "spawn", lambda managed, timeout_sec=None: ManagedSubprocess.start(managed))
+    monkeypatch.setattr(
+        "plugin.framework.warm_child.read_ready_frame_during_io",
+        lambda *args, **kwargs: ("interrupted", None),
+    )
+    monkeypatch.setattr(
+        supervisor, "spawn", lambda managed, timeout_sec=None: ManagedSubprocess.start(managed)
+    )
 
     try:
         err = warm._ensure_live(Deadline(15.0))
@@ -526,7 +627,10 @@ def test_process_worker_respawn_interrupted_drops_child(monkeypatch: pytest.Monk
         orig_drop(child)
 
     monkeypatch.setattr(worker, "_drop_child", track_drop)
-    monkeypatch.setattr("plugin.framework.warm_child.read_ready_frame_during_io", lambda *args, **kwargs: ("interrupted", None))
+    monkeypatch.setattr(
+        "plugin.framework.warm_child.read_ready_frame_during_io",
+        lambda *args, **kwargs: ("interrupted", None),
+    )
 
     def fake_start(self: ManagedSubprocess) -> None:
         with self._lock:
@@ -542,7 +646,6 @@ def test_process_worker_respawn_interrupted_drops_child(monkeypatch: pytest.Monk
 def test_supervisor_is_one_process_global() -> None:
     import importlib.machinery
     import importlib.util
-
     from plugin.framework.warm_child import supervisor
 
     assert supervisor is sys._writeragent_warm_child_supervisor
@@ -561,7 +664,9 @@ def test_supervisor_is_one_process_global() -> None:
     assert mod.supervisor is supervisor
 
 
-def test_blocked_start_lease_returns_worker_spawn_failed_within_budget(tmp_path: Any, supervisor: Supervisor, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_blocked_start_lease_returns_worker_spawn_failed_within_budget(
+    tmp_path: Any, supervisor: Supervisor, monkeypatch: pytest.MonkeyPatch
+) -> None:
     script = _stdio_worker(tmp_path)
     warm = WarmChild(_spec(tmp_path, script), supervisor=supervisor)
     started = threading.Event()
@@ -651,7 +756,9 @@ def test_spawn_racing_shutdown_all_raises_without_queueing() -> None:
     sup.shutdown_all()
 
 
-def test_spawn_timeout_kills_a_child_that_appears_after_the_waiter_left(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_spawn_timeout_kills_a_child_that_appears_after_the_waiter_left(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     sup = Supervisor()
     start_gate = threading.Event()
     kill_called = threading.Event()
@@ -692,7 +799,6 @@ def test_spawn_timeout_kills_a_child_that_appears_after_the_waiter_left(monkeypa
 
 
 def test_spawn_request_give_up_after_finish_returns_false_and_does_not_kill() -> None:
-
     kill_called = False
 
     class _FakeProc:
@@ -717,7 +823,6 @@ def test_spawn_request_give_up_after_finish_returns_false_and_does_not_kill() ->
 
 
 def test_spawn_request_finish_after_give_up_kills_child() -> None:
-
     kill_called = False
 
     class _FakeProc:
@@ -746,7 +851,6 @@ def test_spawn_request_finish_after_give_up_kills_child() -> None:
 
 
 def test_spawn_request_finish_without_popen_does_not_kill() -> None:
-
     managed = ManagedSubprocess([sys.executable, "-c", "pass"], register=False)
     assert managed.popen is None
     req = _SpawnRequest(managed)
@@ -791,8 +895,16 @@ def test_spawner_skips_start_for_abandoned_request(monkeypatch: pytest.MonkeyPat
 
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX process groups")
 def test_child_signal_kills_grandchild() -> None:
-
-    code = "import os, sys, time\npid = os.fork()\nif pid == 0:\n    time.sleep(120)\n    os._exit(0)\nsys.stdout.write('GRANDCHILD %s\\n' % pid)\nsys.stdout.flush()\ntime.sleep(120)\n"
+    code = (
+        "import os, sys, time\n"
+        "pid = os.fork()\n"
+        "if pid == 0:\n"
+        "    time.sleep(120)\n"
+        "    os._exit(0)\n"
+        "sys.stdout.write('GRANDCHILD %s\\n' % pid)\n"
+        "sys.stdout.flush()\n"
+        "time.sleep(120)\n"
+    )
     managed = ManagedSubprocess([sys.executable, "-c", code])
     managed.start()
     child = Child(managed, worker_name="Formula", worker_id=1)
