@@ -1390,7 +1390,7 @@ def test_cancel_during_start_transitions_fsm_to_idle():
         term_proc.assert_called()
 
 
-def test_dead_child_stop_goes_through_finish_stop_and_preserves_wav(tmp_path):
+def test_dead_child_stop_goes_through_finish_stop_and_preserves_wav(tmp_path, monkeypatch):
     """Dead child with audio data preserves WAV via _finish_stop header finalization."""
     wav_path = tmp_path / "dead_child.wav"
     wav_path.write_bytes(_WAV_WITH_AUDIO)
@@ -1404,6 +1404,12 @@ def test_dead_child_stop_goes_through_finish_stop_and_preserves_wav(tmp_path):
     recorder.state = AudioRecorderState(status=AudioStatus.RECORDING)
     recorder.temp_filename = str(wav_path)
     recorder._recording = _recording_after_ready(proc)
+
+    def _timed_out(_timeout: float) -> str:
+        raise RuntimeError("timed out")
+
+    # The real handoff waits up to 1 s for a dead child; raise as its timeout does.
+    monkeypatch.setattr(recorder._recording.handoff, "wait_for_path", _timed_out)
 
     on_capture_stopped = MagicMock()
     recorder.set_auto_stop_callbacks(on_capture_stopped=on_capture_stopped)

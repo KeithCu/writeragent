@@ -41,6 +41,20 @@ def _wsgi_vision_post(app, meta: dict[str, Any], image: bytes | bytearray | None
     return _wsgi_post(app, body, path="/v1/vision", headers=hdrs, send_host=send_host)
 
 
+class _RecordingSemaphore(threading.Semaphore):
+    """Semaphore that records contended acquire timeouts without sleeping."""
+
+    def __init__(self, value: int = 1) -> None:
+        super().__init__(value)
+        self.recorded_timeouts: list[float | None] = []
+
+    def acquire(self, blocking: bool = True, timeout: float | None = None) -> bool:
+        if super().acquire(blocking=False):
+            return True
+        self.recorded_timeouts.append(timeout)
+        return False
+
+
 def _wsgi_post(app, body: bytes | None, *, path: str = "/v1/session/reset", query: str = "", headers: dict[str, str] | None = None, send_host: bool = True) -> tuple[str, list[tuple[str, str]], dict]:
     status_holder: list[str] = []
     header_holder: list[tuple[str, str]] = []
@@ -89,7 +103,6 @@ def compute_server_info():
 
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
-    time.sleep(0.2)
     yield port, server
     server.shutdown()
     server.server_close()
@@ -365,7 +378,6 @@ class TestComputeHttp:
         server.set_app(app)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
-        time.sleep(0.15)
         poster: threading.Thread | None = None
         try:
 
@@ -414,7 +426,6 @@ class TestComputeHttp:
         server.set_app(app)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
-        time.sleep(0.15)
         posters: list[threading.Thread] = []
         results: list[list[Any]] = [[] for _ in range(6)]
         try:
@@ -489,7 +500,6 @@ class TestComputeHttp:
         server.set_app(app)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
-        time.sleep(0.15)
         poster: threading.Thread | None = None
         try:
 
@@ -587,29 +597,28 @@ class TestComputeHttp:
     def test_pool_busy_until_deadline_returns_503(self) -> None:
         """503 only after the admission deadline, not on a brief busy.
 
-        Production default_timeout_sec is 30s. This case is that timeout,
-        shortened so the suite does not sleep 30s. It is not the brief queue
-        at 200-400 rps.
+        The admission wait is the request deadline (1 s here, 30 s in
+        production), recorded at the semaphore.
         """
         hold = threading.Event()
         started = threading.Event()
+        sem = _RecordingSemaphore(1)
 
         def execute_fn(**_kwargs: Any) -> dict[str, Any]:
             started.set()
             assert hold.wait(timeout=5)
             return {"status": "ok", "result_json": b'{"status":"ok","result":1}'}
 
-        app = create_wsgi_app(ComputeSettings(workers=1, default_timeout_sec=1), execute_fn=execute_fn, semaphore=threading.Semaphore(1))
+        app = create_wsgi_app(ComputeSettings(workers=1, default_timeout_sec=1), execute_fn=execute_fn, semaphore=sem)
         body = json.dumps({"code": "result = 1"}).encode("utf-8")
         first = threading.Thread(target=lambda: _wsgi_post(app, body, path="/v1/execute"))
         first.start()
         assert started.wait(timeout=5)
-        t0 = time.perf_counter()
         status, _headers, parsed = _wsgi_post(app, body, path="/v1/execute")
-        elapsed = time.perf_counter() - t0
         hold.set()
         first.join(timeout=5)
-        assert elapsed >= 0.7
+        assert len(sem.recorded_timeouts) == 1
+        assert sem.recorded_timeouts[0] is not None and 0.7 <= sem.recorded_timeouts[0] <= 1.1
         assert status.startswith("503")
         assert parsed.get("code") == "WORKER_POOL_BUSY"
 
@@ -1107,7 +1116,6 @@ def auth_server():
     server.set_app(app)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
-    time.sleep(0.15)
     yield f"http://127.0.0.1:{port}", executed, reset_calls
     server.shutdown()
     server.server_close()
@@ -1769,72 +1777,40 @@ class TestSessionResetHttp:
         Otherwise the permit wait uses default_timeout_sec before the body is
         parsed, and a long request gets 503 prematurely.
         """
+        sem = _RecordingSemaphore(0)
+
         # ocr_timeout_sec defaults to 60 and must stay <= max_timeout_sec.
         settings = ComputeSettings(default_timeout_sec=1, max_timeout_sec=30, ocr_timeout_sec=1, workers=1)
-        app = create_wsgi_app(settings, execute_fn=lambda **_kwargs: {"status": "ok"}, semaphore=threading.Semaphore(0))
+        app = create_wsgi_app(settings, execute_fn=lambda **_kwargs: {"status": "ok"}, semaphore=sem)
         body = json.dumps({"id": "slow", "code": "result = 1", "timeout_ms": 1500}).encode("utf-8")
-        holder: list[tuple[str, dict]] = []
-
-        def run() -> None:
-            status, _headers, parsed = _wsgi_post(app, body, path="/v1/execute")
-            holder.append((status, parsed))
-
-        started = time.monotonic()
-        thread = threading.Thread(target=run)
-        thread.start()
-        # Past the 1s default. 1500ms clamps to 2s.
-        thread.join(timeout=1.3)
-        assert thread.is_alive()
-        thread.join(timeout=2.0)
-        elapsed = time.monotonic() - started
-        assert not thread.is_alive()
-        assert elapsed >= 1.7
-        assert holder
-        status, parsed = holder[0]
+        status, _headers, parsed = _wsgi_post(app, body, path="/v1/execute")
+        assert len(sem.recorded_timeouts) == 1
+        # Past the 1s default; 1500ms clamps to 2s.
+        assert sem.recorded_timeouts[0] is not None and 1.7 <= sem.recorded_timeouts[0] <= 2.1
         assert status.startswith("503")
         assert parsed.get("code") == "WORKER_POOL_BUSY"
         assert parsed.get("id") == "slow"
 
     def test_execute_admission_uses_default_when_timeout_omitted(self) -> None:
+        sem = _RecordingSemaphore(0)
+
         settings = ComputeSettings(default_timeout_sec=1, max_timeout_sec=30, ocr_timeout_sec=1, workers=1)
-        app = create_wsgi_app(settings, execute_fn=lambda **_kwargs: {"status": "ok"}, semaphore=threading.Semaphore(0))
+        app = create_wsgi_app(settings, execute_fn=lambda **_kwargs: {"status": "ok"}, semaphore=sem)
         body = json.dumps({"id": "def", "code": "result = 1"}).encode("utf-8")
-        holder: list[tuple[str, dict]] = []
-
-        def run() -> None:
-            status, _headers, parsed = _wsgi_post(app, body, path="/v1/execute")
-            holder.append((status, parsed))
-
-        started = time.monotonic()
-        thread = threading.Thread(target=run)
-        thread.start()
-        thread.join(timeout=2.5)
-        elapsed = time.monotonic() - started
-        assert not thread.is_alive()
-        assert elapsed < 2.0
-        assert holder[0][0].startswith("503")
-        assert holder[0][1].get("code") == "WORKER_POOL_BUSY"
+        status, _headers, parsed = _wsgi_post(app, body, path="/v1/execute")
+        assert len(sem.recorded_timeouts) == 1
+        assert sem.recorded_timeouts[0] is not None and 0 < sem.recorded_timeouts[0] <= 1.0
+        assert status.startswith("503")
+        assert parsed.get("code") == "WORKER_POOL_BUSY"
 
     def test_vision_admission_waits_for_request_timeout(self) -> None:
+        sem = _RecordingSemaphore(0)
+
         settings = ComputeSettings(ocr_timeout_sec=1, max_timeout_sec=30, ocr_workers=1)
-        app = create_wsgi_app(settings, semaphore=threading.Semaphore(0))
-        holder: list[tuple[str, dict]] = []
-
-        def run() -> None:
-            status, _headers, parsed = _wsgi_vision_post(app, {"id": "vslow", "timeout_ms": 1500}, b"abcd")
-            holder.append((status, parsed))
-
-        started = time.monotonic()
-        thread = threading.Thread(target=run)
-        thread.start()
-        thread.join(timeout=1.3)
-        assert thread.is_alive()
-        thread.join(timeout=2.0)
-        elapsed = time.monotonic() - started
-        assert not thread.is_alive()
-        assert elapsed >= 1.7
-        assert holder
-        status, parsed = holder[0]
+        app = create_wsgi_app(settings, semaphore=sem)
+        status, _headers, parsed = _wsgi_vision_post(app, {"id": "vslow", "timeout_ms": 1500}, b"abcd")
+        assert len(sem.recorded_timeouts) == 1
+        assert sem.recorded_timeouts[0] is not None and 1.7 <= sem.recorded_timeouts[0] <= 2.1
         assert status.startswith("503")
         assert parsed.get("code") == "VISION_POOL_BUSY"
         assert parsed.get("id") == "vslow"
@@ -2254,7 +2230,6 @@ def test_expect_100_continue_before_body() -> None:
     server.set_app(app)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
-    time.sleep(0.15)
     sock: socket.socket | None = None
     try:
         sock = socket.create_connection(("127.0.0.1", port), timeout=5)
@@ -2301,7 +2276,6 @@ def test_expect_100_oversized_body_gets_413_without_continue() -> None:
     server.set_app(create_wsgi_app(settings, execute_fn=execute_fn))
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
-    time.sleep(0.15)
     sock: socket.socket | None = None
     try:
         sock = socket.create_connection(("127.0.0.1", port), timeout=5)
@@ -2893,35 +2867,34 @@ def test_empty_multi_data_result() -> None:
     assert out["result"] == []
 
 
-def test_query_session_id_selects_shared_ignoring_client_mode() -> None:
+@pytest.fixture(scope="module")
+def _shared_query_session_app():
+    pool = FormulaProcessPool(settings=ComputeSettings(workers=1, default_timeout_sec=15))
+    app = create_wsgi_app(ComputeSettings(host="127.0.0.1", workers=1), execute_fn=lambda **kw: pool.execute(**kw))
+    try:
+        yield app
+    finally:
+        pool.shutdown()
+        shutdown_formula_pool()
+
+
+def test_query_session_id_selects_shared_ignoring_client_mode(_shared_query_session_app) -> None:
     """?session_id= enables sticky shared state even when the body still says mode=isolated."""
-    pool = FormulaProcessPool(settings=ComputeSettings(workers=1, default_timeout_sec=15))
-    app = create_wsgi_app(ComputeSettings(host="127.0.0.1", workers=1), execute_fn=lambda **kw: pool.execute(**kw))
     sid = "query-sid-overrides-mode"
-    try:
-        status1, _h1, first = _wsgi_post(app, json.dumps({"code": "x = 9\nresult = x", "mode": "isolated"}).encode("utf-8"), path="/v1/execute", query=f"session_id={sid}", headers={"Content-Type": "application/json"})
-        assert status1.startswith("200") and first.get("result") == 9
-        status2, _h2, second = _wsgi_post(app, json.dumps({"code": "result = x + 1", "mode": "shared"}).encode("utf-8"), path="/v1/execute", query=f"session_id={sid}", headers={"Content-Type": "application/json"})
-        assert status2.startswith("200") and second.get("result") == 10
-        status3, _h3, third = _wsgi_post(app, json.dumps({"code": "result = x", "mode": "bogus"}).encode("utf-8"), path="/v1/execute", query=f"session_id={sid}", headers={"Content-Type": "application/json"})
-        assert status3.startswith("200") and third.get("result") == 9
-    finally:
-        pool.shutdown()
-        shutdown_formula_pool()
+    status1, _h1, first = _wsgi_post(_shared_query_session_app, json.dumps({"code": "x = 9\nresult = x", "mode": "isolated"}).encode("utf-8"), path="/v1/execute", query=f"session_id={sid}", headers={"Content-Type": "application/json"})
+    assert status1.startswith("200") and first.get("result") == 9
+    status2, _h2, second = _wsgi_post(_shared_query_session_app, json.dumps({"code": "result = x + 1", "mode": "shared"}).encode("utf-8"), path="/v1/execute", query=f"session_id={sid}", headers={"Content-Type": "application/json"})
+    assert status2.startswith("200") and second.get("result") == 10
+    status3, _h3, third = _wsgi_post(_shared_query_session_app, json.dumps({"code": "result = x", "mode": "bogus"}).encode("utf-8"), path="/v1/execute", query=f"session_id={sid}", headers={"Content-Type": "application/json"})
+    assert status3.startswith("200") and third.get("result") == 9
 
 
-def test_omitted_query_session_id_is_isolated_even_with_mode_shared() -> None:
+def test_omitted_query_session_id_is_isolated_even_with_mode_shared(_shared_query_session_app) -> None:
     """Without ?session_id=, leftover mode=shared in JSON does not keep state."""
-    pool = FormulaProcessPool(settings=ComputeSettings(workers=1, default_timeout_sec=15))
-    app = create_wsgi_app(ComputeSettings(host="127.0.0.1", workers=1), execute_fn=lambda **kw: pool.execute(**kw))
-    try:
-        _s1, _h1, r1 = _wsgi_post(app, json.dumps({"code": "flag = 3\nresult = flag", "mode": "shared"}).encode("utf-8"), path="/v1/execute", headers={"Content-Type": "application/json"})
-        assert r1["status"] == "ok" and r1["result"] == 3
-        _s2, _h2, r2 = _wsgi_post(app, json.dumps({"code": "result = flag", "mode": "shared"}).encode("utf-8"), path="/v1/execute", headers={"Content-Type": "application/json"})
-        assert r2["status"] == "error"
-    finally:
-        pool.shutdown()
-        shutdown_formula_pool()
+    _s1, _h1, r1 = _wsgi_post(_shared_query_session_app, json.dumps({"code": "flag = 3\nresult = flag", "mode": "shared"}).encode("utf-8"), path="/v1/execute", headers={"Content-Type": "application/json"})
+    assert r1["status"] == "ok" and r1["result"] == 3
+    _s2, _h2, r2 = _wsgi_post(_shared_query_session_app, json.dumps({"code": "result = flag", "mode": "shared"}).encode("utf-8"), path="/v1/execute", headers={"Content-Type": "application/json"})
+    assert r2["status"] == "error"
 
 
 def test_malformed_client_mode_is_ignored() -> None:

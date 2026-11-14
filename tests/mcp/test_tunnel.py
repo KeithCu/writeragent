@@ -683,10 +683,7 @@ def test_leaving_tailscale_resets_funnel_for_old_provider(monkeypatch):
         assert mgr._process is procs[1]
         procs[0].terminate.assert_called_once()
         # post_stop for the provider being left, not cloudflare (which has none).
-        import time
-        t0 = time.monotonic()
-        while len(reset_cmds) < len(_tailscale_reset_cmds()) * 2 and time.monotonic() - t0 < 2:
-            time.sleep(0.01)
+        _join_recorded_background(background)
         assert reset_cmds == _tailscale_reset_cmds() * 2
         # Stale tailscale exit must not drop the cloudflared process.
         exits[0](0)
@@ -729,10 +726,7 @@ def test_leaving_tailscale_resets_funnel_for_old_port_on_port_change(monkeypatch
 
         # Switch to cloudflare on port 19000
         assert mgr.start(19000, "cloudflare") is True
-        import time
-        t0 = time.monotonic()
-        while len(reset_cmds) < 2 and time.monotonic() - t0 < 2:
-            time.sleep(0.01)
+        _join_recorded_background(background)
         assert reset_cmds == [
             ["tailscale", "funnel", "--https=443", "off"],
             ["tailscale", "funnel", "--https=443", "off"],
@@ -786,11 +780,8 @@ def test_reconnecting_tailscale_reset_without_live_process(monkeypatch):
         # Provider switch: no process object, but the effect's provider is tailscale.
         assert mgr.start(18765, "cloudflare") is True
 
-        # post_stop runs in the background, so wait a bit
-        import time
-        t0 = time.monotonic()
-        while len(reset_cmds) < len(tailscale_reset) * 2 and time.monotonic() - t0 < 2:
-            time.sleep(0.01)
+        # post_stop runs in the background, so wait for it to finish
+        _join_recorded_background(background)
         assert reset_cmds == tailscale_reset + tailscale_reset
         mgr.stop()
         assert reset_cmds == tailscale_reset + tailscale_reset
@@ -798,9 +789,7 @@ def test_reconnecting_tailscale_reset_without_live_process(monkeypatch):
         # Disable while reconnecting.
         assert mgr.start(18765, "tailscale") is True
         # wait for pre_start to finish
-        t0 = time.monotonic()
-        while len(reset_cmds) < len(tailscale_reset) * 3 and time.monotonic() - t0 < 2:
-            time.sleep(0.01)
+        _join_recorded_background(background)
 
         exits[-1](1)
         assert mgr._process is None
@@ -810,9 +799,7 @@ def test_reconnecting_tailscale_reset_without_live_process(monkeypatch):
         mgr.stop()
 
         # wait for post_stop
-        t0 = time.monotonic()
-        while len(reset_cmds) < len(tailscale_reset) * 4 and time.monotonic() - t0 < 2:
-            time.sleep(0.01)
+        _join_recorded_background(background)
         assert reset_cmds == tailscale_reset + tailscale_reset + tailscale_reset + tailscale_reset
 
         # Idle stop was already STOPPED. Another stop must not reset again.
@@ -827,14 +814,10 @@ def test_reconnecting_tailscale_reset_without_live_process(monkeypatch):
         exits[-1](1)
         assert mgr.status == TunnelStatus.FAILED
         assert mgr._process is None
-        t0 = time.monotonic()
-        while len(reset_cmds) < len(tailscale_reset) * 6 and time.monotonic() - t0 < 2:
-            time.sleep(0.01)
+        _join_recorded_background(background)
         assert reset_cmds == tailscale_reset * 6
         mgr.stop()
-        t0 = time.monotonic()
-        while len(reset_cmds) < len(tailscale_reset) * 7 and time.monotonic() - t0 < 2:
-            time.sleep(0.01)
+        _join_recorded_background(background)
         assert reset_cmds == tailscale_reset * 7
         mgr.stop()
         assert reset_cmds == tailscale_reset * 7
@@ -1523,17 +1506,17 @@ def test_sync_tunnel_from_main_thread_probes_off_thread(monkeypatch):
         assert release.wait(2)
         return "cloudflared binary not found on PATH"
 
+    background: list = []
     monkeypatch.setattr("plugin.mcp.tunnel.binary_available", _slow)
     monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: True)
-    try:
-        mod._sync_tunnel()
-        assert probed.wait(2)
-        assert probe_thread["t"] is not caller
-    finally:
-        release.set()
-    deadline = time.monotonic() + 2
-    while time.monotonic() < deadline and tunnel.status != TunnelStatus.FAILED:
-        time.sleep(0.02)
+    with patch("plugin.framework.worker_pool.run_in_background", side_effect=_track_background(background)):
+        try:
+            mod._sync_tunnel()
+            assert probed.wait(2)
+            assert probe_thread["t"] is not caller
+        finally:
+            release.set()
+        _join_recorded_background(background)
     assert tunnel.status == TunnelStatus.FAILED
 
 

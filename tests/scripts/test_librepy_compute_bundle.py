@@ -11,6 +11,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(_REPO_ROOT) not in sys.path:
@@ -50,6 +52,54 @@ def _plugin_module_to_rel_path(module: str) -> str:
     return "/".join(module.split(".")) + ".py"
 
 
+_HERMETIC_PREAMBLE = """
+import os
+import sys
+
+staged = sys.argv[1]
+repo_real = os.path.realpath(sys.argv[2])
+
+# Clear editable finder hooks and path hooks so nothing loads from git worktree
+sys.meta_path = [
+    finder for finder in sys.meta_path
+    if "editable" not in finder.__class__.__name__.lower()
+    and "editable" not in getattr(finder, "__module__", "").lower()
+]
+sys.path_hooks = [
+    h for h in sys.path_hooks
+    if "editable" not in h.__class__.__name__.lower()
+    and "editable" not in getattr(h, "__module__", "").lower()
+]
+
+# Prepend staged bundle; filter out repo root and empty cwd while keeping site-packages
+filtered_path = []
+for p in sys.path:
+    if not p:
+        continue
+    p_real = os.path.realpath(p)
+    if p_real == repo_real or "editable" in p.lower():
+        continue
+    filtered_path.append(p)
+sys.path = [staged] + filtered_path
+"""
+
+
+@pytest.fixture(scope="module")
+def assembled_bundle(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    dest = tmp_path_factory.mktemp("bundle-compute")
+    assemble_compute_bundle(str(_REPO_ROOT), str(dest), strip=True)
+    return dest
+
+
+def _run_in_bundle(bundle: Path, body: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [sys.executable, "-c", _HERMETIC_PREAMBLE + "\n" + body, str(bundle), str(_REPO_ROOT)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
 def test_compute_plugin_files_cover_compute_service_imports() -> None:
     """Every plugin.* import in compute_service must ship in COMPUTE_PLUGIN_FILES."""
     cs_dir = _REPO_ROOT / "compute_service"
@@ -65,43 +115,13 @@ def test_compute_plugin_files_cover_compute_service_imports() -> None:
     assert not missing, "COMPUTE_PLUGIN_FILES missing paths required by compute_service imports: " + ", ".join(missing)
 
 
-def test_compute_bundle_imports_all_compute_service_plugin_modules(tmp_path: Path) -> None:
+def test_compute_bundle_imports_all_compute_service_plugin_modules(assembled_bundle: Path) -> None:
     """Assembled bundle must satisfy every plugin.* import reachable from compute_service."""
-    dest = tmp_path / "bundle-compute"
-    assemble_compute_bundle(str(_REPO_ROOT), str(dest), strip=True)
-
     cs_dir = _REPO_ROOT / "compute_service"
     plugin_modules = sorted(_collect_plugin_import_modules(cs_dir))
     modules_literal = repr(plugin_modules)
 
     import_code = f"""
-import os
-import sys
-
-staged = sys.argv[1]
-repo_real = os.path.realpath(sys.argv[2])
-
-sys.meta_path = [
-    finder for finder in sys.meta_path
-    if "editable" not in finder.__class__.__name__.lower()
-    and "editable" not in getattr(finder, "__module__", "").lower()
-]
-sys.path_hooks = [
-    h for h in sys.path_hooks
-    if "editable" not in h.__class__.__name__.lower()
-    and "editable" not in getattr(h, "__module__", "").lower()
-]
-
-filtered_path = []
-for p in sys.path:
-    if not p:
-        continue
-    p_real = os.path.realpath(p)
-    if p_real == repo_real or "editable" in p.lower():
-        continue
-    filtered_path.append(p)
-sys.path = [staged] + filtered_path
-
 import importlib
 
 plugin_modules = {modules_literal}
@@ -111,12 +131,7 @@ for mod in plugin_modules:
 import compute_service.worker_stdio
 """
 
-    res = subprocess.run(
-        [sys.executable, "-c", import_code, str(dest), str(_REPO_ROOT)],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    res = _run_in_bundle(assembled_bundle, import_code)
     assert res.returncode == 0, f"Bundle plugin import test failed:\nSTDOUT:\n{res.stdout}\nSTDERR:\n{res.stderr}"
 
 
@@ -127,9 +142,8 @@ def test_compute_plugin_paths_subset_of_librepy():
     assert extras <= set(COMPUTE_PLUGIN_EXTRAS), f"Unexpected extras: {extras - set(COMPUTE_PLUGIN_EXTRAS)}"
 
 
-def test_compute_bundle_assembly_and_execution(tmp_path: Path):
-    dest = tmp_path / "bundle-compute"
-    assemble_compute_bundle(str(_REPO_ROOT), str(dest), strip=True)
+def test_compute_bundle_assembly_and_execution(assembled_bundle: Path):
+    dest = assembled_bundle
 
     # Verify smolagents init is slimmed
     smol_init = dest / "plugin" / "contrib" / "smolagents" / "__init__.py"
@@ -180,34 +194,6 @@ def test_compute_bundle_assembly_and_execution(tmp_path: Path):
 
     # First subprocess: verify clean hermetic imports and worker cell executions
     worker_test_code = """
-import sys, os
-
-staged = sys.argv[1]
-repo_real = os.path.realpath(sys.argv[2])
-
-# Clear editable finder hooks and path hooks so nothing loads from git worktree
-sys.meta_path = [
-    finder for finder in sys.meta_path
-    if "editable" not in finder.__class__.__name__.lower()
-    and "editable" not in getattr(finder, "__module__", "").lower()
-]
-sys.path_hooks = [
-    h for h in sys.path_hooks
-    if "editable" not in h.__class__.__name__.lower()
-    and "editable" not in getattr(h, "__module__", "").lower()
-]
-
-# Prepend staged bundle; filter out repo root and empty cwd while keeping site-packages
-filtered_path = []
-for p in sys.path:
-    if not p:
-        continue
-    p_real = os.path.realpath(p)
-    if p_real == repo_real or "editable" in p.lower():
-        continue
-    filtered_path.append(p)
-sys.path = [staged] + filtered_path
-
 import compute_service.server
 import compute_service.formula_pool
 import compute_service.vision
@@ -284,42 +270,11 @@ for mod_name, mod in list(sys.modules.items()):
 assert "uno" not in sys.modules
 """
 
-    res = subprocess.run(
-        [sys.executable, "-c", worker_test_code, str(dest), str(_REPO_ROOT)],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    res = _run_in_bundle(dest, worker_test_code)
     assert res.returncode == 0, f"Worker test failed:\nSTDOUT:\n{res.stdout}\nSTDERR:\n{res.stderr}"
 
     # Second subprocess: verify execution works even if deal is completely absent/blocked
     deal_block_code = """
-import sys, os
-
-staged = sys.argv[1]
-repo_real = os.path.realpath(sys.argv[2])
-
-sys.meta_path = [
-    finder for finder in sys.meta_path
-    if "editable" not in finder.__class__.__name__.lower()
-    and "editable" not in getattr(finder, "__module__", "").lower()
-]
-sys.path_hooks = [
-    h for h in sys.path_hooks
-    if "editable" not in h.__class__.__name__.lower()
-    and "editable" not in getattr(h, "__module__", "").lower()
-]
-
-filtered_path = []
-for p in sys.path:
-    if not p:
-        continue
-    p_real = os.path.realpath(p)
-    if p_real == repo_real or "editable" in p.lower():
-        continue
-    filtered_path.append(p)
-sys.path = [staged] + filtered_path
-
 # Block 'deal' import
 class DealBlocker:
     def find_spec(self, fullname, path, target=None):
@@ -347,45 +302,13 @@ assert res.get("status") == "ok", res
 assert res.get("result") == 1, res
 """
 
-    res2 = subprocess.run(
-        [sys.executable, "-c", deal_block_code, str(dest), str(_REPO_ROOT)],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    res2 = _run_in_bundle(dest, deal_block_code)
     assert res2.returncode == 0, f"Deal blocker test failed:\nSTDOUT:\n{res2.stdout}\nSTDERR:\n{res2.stderr}"
 
 
-def test_compute_bundle_helper_domains(tmp_path: Path):
-    dest = tmp_path / "bundle-compute"
-    assemble_compute_bundle(str(_REPO_ROOT), str(dest), strip=True)
-
+def test_compute_bundle_helper_domains(assembled_bundle: Path):
     worker_test_code = """
-import sys, os, json
-
-staged = sys.argv[1]
-repo_real = os.path.realpath(sys.argv[2])
-
-sys.meta_path = [
-    finder for finder in sys.meta_path
-    if "editable" not in finder.__class__.__name__.lower()
-    and "editable" not in getattr(finder, "__module__", "").lower()
-]
-sys.path_hooks = [
-    h for h in sys.path_hooks
-    if "editable" not in h.__class__.__name__.lower()
-    and "editable" not in getattr(h, "__module__", "").lower()
-]
-
-filtered_path = []
-for p in sys.path:
-    if not p:
-        continue
-    p_real = os.path.realpath(p)
-    if p_real == repo_real or "editable" in p.lower():
-        continue
-    filtered_path.append(p)
-sys.path = [staged] + filtered_path
+import json
 
 from compute_service.formula_worker import _handle_request
 
@@ -412,10 +335,5 @@ assert units.get("result"), units
 assert "uno" not in sys.modules
 """
 
-    res = subprocess.run(
-        [sys.executable, "-c", worker_test_code, str(dest), str(_REPO_ROOT)],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    res = _run_in_bundle(assembled_bundle, worker_test_code)
     assert res.returncode == 0, f"Helper domain test failed:\nSTDOUT:\n{res.stdout}\nSTDERR:\n{res.stderr}"

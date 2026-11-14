@@ -586,10 +586,12 @@ def test_resolve_kokoro_model_files_cancelled_during_voices(tmp_path, monkeypatc
 
 
 def test_resolve_kokoro_model_files_cancelled_during_model(tmp_path, monkeypatch):
+    monkeypatch.setattr("plugin.audio.tts_models.KOKORO_ONNX_MIN_BYTES", 1)
+    monkeypatch.setattr("plugin.audio.tts_models.KOKORO_VOICES_MIN_BYTES", 1)
     messages: list[str] = []
     cache_dir = _kokoro_cache(tmp_path, monkeypatch)
     cache_dir.mkdir(parents=True)
-    (cache_dir / KOKORO_VOICES_FILENAME).write_bytes(b"x" * 20_000_000)
+    (cache_dir / KOKORO_VOICES_FILENAME).write_bytes(b"x")
     utt = Utterance(SendCancellation())
 
     with patch("plugin.audio.tts_models._download_to", return_value=DownloadOutcome.CANCELLED):
@@ -696,10 +698,12 @@ def test_download_to_html_fails(tmp_path):
 
 
 def test_zero_byte_canonical_kokoro_triggers_download(tmp_path, monkeypatch):
+    monkeypatch.setattr("plugin.audio.tts_models.KOKORO_ONNX_MIN_BYTES", 1)
+    monkeypatch.setattr("plugin.audio.tts_models.KOKORO_VOICES_MIN_BYTES", 1)
     cache_dir = _kokoro_cache(tmp_path, monkeypatch)
     cache_dir.mkdir(parents=True)
     (cache_dir / KOKORO_MODEL_FILENAME).write_bytes(b"")
-    (cache_dir / KOKORO_VOICES_FILENAME).write_bytes(b"v" * 20_000_000)
+    (cache_dir / KOKORO_VOICES_FILENAME).write_bytes(b"v")
 
     download_called = False
 
@@ -707,7 +711,7 @@ def test_zero_byte_canonical_kokoro_triggers_download(tmp_path, monkeypatch):
         nonlocal download_called
         download_called = True
         with open(dest, "wb") as f:
-            f.write(b"m" * 250_000_000)
+            f.write(b"m")
         return DownloadOutcome.OK
 
     with patch.dict("os.environ", {"KOKORO_MODEL_PATH": "", "KOKORO_VOICES_PATH": ""}, clear=False), \
@@ -718,9 +722,10 @@ def test_zero_byte_canonical_kokoro_triggers_download(tmp_path, monkeypatch):
 
 
 def test_kokoro_env_override_1_byte_returned_as_is(tmp_path, monkeypatch):
+    monkeypatch.setattr("plugin.audio.tts_models.KOKORO_VOICES_MIN_BYTES", 1)
     cache_dir = _kokoro_cache(tmp_path, monkeypatch)
     cache_dir.mkdir(parents=True)
-    (cache_dir / KOKORO_VOICES_FILENAME).write_bytes(b"v" * 20_000_000)
+    (cache_dir / KOKORO_VOICES_FILENAME).write_bytes(b"v")
     custom_model = tmp_path / "custom.onnx"
     custom_model.write_bytes(b"x")
 

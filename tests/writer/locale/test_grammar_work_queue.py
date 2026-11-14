@@ -229,7 +229,6 @@ def test_drain_loop_collapses_same_key_items_during_burst() -> None:
 def test_drain_loop_complete_latency_under_one_second() -> None:
     """One complete item is handed to the batch runner well under a second (does not wait for 1.0s pause)."""
     import threading
-    import time
 
     q = GrammarWorkQueue()
     drained: list[list[GrammarWorkItem]] = []
@@ -240,14 +239,14 @@ def test_drain_loop_complete_latency_under_one_second() -> None:
         q.stop()
         done_evt.set()
 
-    start_time = time.monotonic()
-    with patch("plugin.writer.locale.grammar_worker.run_llm_and_cache_batch", side_effect=fake_run):
-        # Leave real GRAMMAR_WORKER_PAUSE_TIMEOUT_S (1.0s) in place
+    with (
+        patch("plugin.writer.locale.grammar_worker.run_llm_and_cache_batch", side_effect=fake_run),
+        patch("plugin.writer.locale.grammar_proofread_locale.GRAMMAR_WORKER_PAUSE_TIMEOUT_S", 30.0),
+    ):
+        # A 30s pause makes any debounce of complete items miss the 2s wait below.
         q._ensure_workers()
         q.enqueue(_item(1, key="doc1|en-US|complete-1", partial=False))
         assert done_evt.wait(timeout=2.0)
-    elapsed = time.monotonic() - start_time
-    assert elapsed < 0.6, f"Complete item took {elapsed}s to drain; expected well under 1.0s"
     assert len(drained) == 1
     assert drained[0][0].enqueue_seq == 1
 
