@@ -988,38 +988,32 @@ def test_ensure_failed_restart_drops_dead_client() -> None:
     assert harper_module.runtime.state is HarperRuntimeState.READY
 
 
-@patch("plugin.framework.worker_pool.run_in_background")
-def test_maybe_start_harper_async_libreharper_submits_job(mock_bg: MagicMock) -> None:
-    with patch("plugin.framework.uno_context.is_libreharper", return_value=True):
-        submitted = maybe_start_harper_async(user_config_dir="/tmp")
-        assert submitted is True
-        assert mock_bg.call_count == 1
-        assert harper_module.runtime.state is HarperRuntimeState.RESOLVING
-
-
-@patch("plugin.framework.worker_pool.run_in_background")
-def test_maybe_start_harper_async_writeragent_harper_submits_job(mock_bg: MagicMock) -> None:
-    with patch("plugin.writer.locale.grammar_settings.provider", return_value="harper"):
-        submitted = maybe_start_harper_async(user_config_dir="/tmp")
-        assert submitted is True
-        assert mock_bg.call_count == 1
-        assert harper_module.runtime.state is HarperRuntimeState.RESOLVING
-
-
 @pytest.mark.parametrize(
-    "provider",
+    "is_libreharper, provider, expected_submitted, expected_state",
     [
-        pytest.param("off", id="test_maybe_start_harper_async_writeragent_off_skips"),
-        pytest.param("llm", id="test_maybe_start_harper_async_writeragent_llm_skips"),
+        pytest.param(True, None, True, HarperRuntimeState.RESOLVING, id="libreharper_submits_job"),
+        pytest.param(False, "harper", True, HarperRuntimeState.RESOLVING, id="writeragent_harper_submits_job"),
+        pytest.param(False, "off", False, HarperRuntimeState.IDLE, id="writeragent_off_skips"),
+        pytest.param(False, "llm", False, HarperRuntimeState.IDLE, id="writeragent_llm_skips"),
     ],
 )
 @patch("plugin.framework.worker_pool.run_in_background")
-def test_maybe_start_harper_async_writeragent_off_skips(mock_bg: MagicMock, provider: str) -> None:
-    with patch("plugin.writer.locale.grammar_settings.provider", return_value=provider):
-        submitted = maybe_start_harper_async(user_config_dir="/tmp")
-        assert submitted is False
-        mock_bg.assert_not_called()
-        assert harper_module.runtime.state is HarperRuntimeState.IDLE
+def test_maybe_start_harper_async(
+    mock_bg: MagicMock,
+    is_libreharper: bool,
+    provider: str | None,
+    expected_submitted: bool,
+    expected_state: HarperRuntimeState,
+) -> None:
+    with patch("plugin.framework.uno_context.is_libreharper", return_value=is_libreharper):
+        if provider is None:
+            submitted = maybe_start_harper_async(user_config_dir="/tmp")
+        else:
+            with patch("plugin.writer.locale.grammar_settings.provider", return_value=provider):
+                submitted = maybe_start_harper_async(user_config_dir="/tmp")
+        assert submitted is expected_submitted
+        assert mock_bg.call_count == (1 if expected_submitted else 0)
+        assert harper_module.runtime.state is expected_state
 
 
 @patch("plugin.framework.worker_pool.run_in_background")
@@ -1029,12 +1023,15 @@ def test_maybe_start_harper_async_idempotent_when_resolving(mock_bg: MagicMock) 
         submitted = maybe_start_harper_async(user_config_dir="/tmp")
         assert submitted is False
         mock_bg.assert_not_called()
+        assert harper_module.runtime.state is HarperRuntimeState.RESOLVING
 
 
 @patch("plugin.framework.worker_pool.run_in_background")
 def test_maybe_start_harper_async_skips_empty_config_dir(mock_bg: MagicMock) -> None:
-    with patch("plugin.framework.uno_context.is_libreharper", return_value=True), \
-         patch("plugin.framework.config.user_config_dir", return_value=""):
+    with (
+        patch("plugin.framework.uno_context.is_libreharper", return_value=True),
+        patch("plugin.framework.config.user_config_dir", return_value=""),
+    ):
         submitted = maybe_start_harper_async(user_config_dir="")
         assert submitted is False
         mock_bg.assert_not_called()
