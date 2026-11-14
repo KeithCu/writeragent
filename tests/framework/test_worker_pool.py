@@ -1367,3 +1367,26 @@ def test_read_stderr_chunk_returns_bytes_directly() -> None:
     reader = io.BufferedReader(raw)
     chunk = _read_stderr_chunk(reader)
     assert chunk == b"hello stderr"
+
+
+def test_stderr_drain_stays_alive_while_the_write_end_is_open() -> None:
+    """A pipe with no EOF keeps the drain thread after finish_text gives up.
+
+    A grandchild that inherited stderr is that pipe. The join is bounded.
+    Closing the write end lets the daemon thread leave.
+    """
+    import os
+
+    from plugin.framework.worker_pool import start_stderr_drain
+
+    read_fd, write_fd = os.pipe()
+    stream = os.fdopen(read_fd, "rb", buffering=0)
+    tail = start_stderr_drain(stream, name="wa-test-w1-stderr")
+    assert tail is not None
+    try:
+        assert tail.finish_text(timeout=0.05) == ""
+        assert tail.is_alive is True
+    finally:
+        os.close(write_fd)
+        tail.join(timeout=2.0)
+    assert tail.is_alive is False
