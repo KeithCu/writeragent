@@ -15,8 +15,7 @@ from tests.testing_utils import with_native_doc
 @native_test
 @with_native_doc("writer")
 def test_range_export_keeps_bold_inside_odd_para_uno(ctx: Any, doc: Any) -> None:
-    """Range export must still show emphasis when the source paragraph carries
-    unusual Para* values. A refused Para* used to skip Char* paint entirely."""
+    """Range export preserves emphasis even when the source paragraph carries unusual Para* values."""
     text = doc.getText()
     text.setString("")
     cur = text.createTextCursor()
@@ -50,7 +49,7 @@ def test_range_export_keeps_bold_inside_odd_para_uno(ctx: Any, doc: Any) -> None
 @native_test
 @with_native_doc("writer")
 def test_copy_xtext_keeps_nested_text_table_uno(ctx: Any, doc: Any) -> None:
-    """_copy_cell_xtext used to skip in-cell TextTables; dest must keep the nest."""
+    """_copy_cell_xtext preserves nested in-cell TextTables in the destination."""
     text = doc.getText()
     outer = doc.createInstance("com.sun.star.text.TextTable")
     outer.initialize(2, 2)
@@ -209,10 +208,7 @@ def _hrefs(html: str) -> list[str]:
 @native_test
 @with_native_doc("writer")
 def test_split_outline_run_does_not_shift_the_next_href_uno(ctx: Any, doc: Any) -> None:
-    """A bold split is two portions and one anchor. The next link keeps its own URL.
-
-    Writing one URL per portion used to put the first target on the second anchor.
-    """
+    """A bold split is two portions and one anchor; the next link keeps its own URL."""
     from plugin.framework.tool import ToolContext
     from plugin.app import get_services
     from plugin.writer.get_document_content import GetDocumentContent
@@ -329,7 +325,7 @@ def _assert_semantic_ruby(html: str) -> None:
 @native_test
 @with_native_doc("writer")
 def test_full_get_document_content_emits_semantic_ruby_uno(ctx: Any, doc: Any) -> None:
-    """Full XHTML used to concatenate 漢字+かんじ; the agent must see <ruby>/<rt>."""
+    """Full XHTML export emits semantic <ruby>/<rt> markup instead of concatenating base and reading."""
     from tests.testing_utils import TestingFactory
     from plugin.writer.get_document_content import GetDocumentContent
 
@@ -345,7 +341,7 @@ def test_full_get_document_content_emits_semantic_ruby_uno(ctx: Any, doc: Any) -
 @native_test
 @with_native_doc("writer")
 def test_range_get_document_content_preserves_ruby_reading_uno(ctx: Any, doc: Any) -> None:
-    """Range copy used to drop RubyText; reading must still appear in <rt>."""
+    """Range copy preserves RubyText so the reading appears in <rt>."""
     from tests.testing_utils import TestingFactory
     from plugin.writer.get_document_content import GetDocumentContent
 

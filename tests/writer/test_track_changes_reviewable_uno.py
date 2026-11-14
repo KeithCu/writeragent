@@ -267,9 +267,9 @@ def test_split_authors_insert_vs_delete_uno(ctx, doc):
 @native_test
 @with_native_doc("writer")
 def test_split_authors_whole_block_on_two_colors_uno(ctx, doc):
-    """The consistency fix: a WHOLE-BLOCK agent edit also authors its Delete distinctly (two colors),
-    not just the surgical path. Before, whole-block was authored as one (one color). Threshold 0.0
-    forces the whole-block path; accept must still reconstruct exactly the new text (atomicity)."""
+    """A whole-block agent edit authors its Delete distinctly (two colors), matching the
+    surgical path. Threshold 0.0 forces the whole-block path, and accept reconstructs
+    the exact new text."""
     _reset(doc, ctx, "Old clause body here.")
     prev = get_config(_FLAG)
     prev_split = get_config("doc.agent_edit_split_author_colors")

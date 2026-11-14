@@ -155,13 +155,11 @@ class TestJsonEgressUnit:
         assert "data_b64" not in json.dumps(out["result"])
 
     def test_image_past_finder_depth_stays_inline(self) -> None:
-        """find_image_payloads stops at depth 12. A deeper plot must not become null.
+        """find_image_payloads stops at depth 12; a deeper plot stays inline rather than becoming null.
 
-        drop used to be a bool: any listed image nulled every image, including
-        ones the finder never returned, so those plots vanished from both
-        result and images. Depth is counted from the result root. The value
-        under ``buried`` is one level down, so 12 wrappers put the plot at
-        depth 13 (missed) and 11 wrappers put it at depth 12 (listed).
+        Depth is counted from the result root. The value under ``buried`` is
+        one level down, so 12 wrappers put the plot at depth 13 (missed) and
+        11 wrappers put it at depth 12 (listed).
         """
         from plugin.scripting.payload_codec import find_image_payloads
 
@@ -779,8 +777,7 @@ class TestComputeSettings:
         status, headers, body = _wsgi_post(app, b"{}", headers={"Host": "127.0.0.1:8000"})
         assert status.startswith("400")
 
-        # No Origin and no Host is 403. HTTP/1.0 may omit Host; that used to
-        # skip the loopback check.
+        # No Origin and no Host is 403 (HTTP/1.0 may omit Host, so the loopback check still runs).
         status, headers, body = _wsgi_post(app, b"{}", headers={}, send_host=False)
         assert status.startswith("403")
         assert body.get("code") == "CROSS_ORIGIN_REFUSED"
@@ -941,7 +938,7 @@ class TestComputeSettings:
             load_settings(config_path=cfg, environ={"PYTHON_COMPUTE_HOST": "127.0.0.1"})
 
     def test_env_api_key_keeps_surrounding_spaces(self, tmp_path) -> None:
-        """The env secret used to be strip()'d. The key file is not, so the same text differed."""
+        """The env secret preserves surrounding spaces, matching key file behavior."""
         key = " secret "
         s = load_settings(environ={"PYTHON_COMPUTE_API_KEY": key, "PYTHON_COMPUTE_HOST": "127.0.0.1"})
         assert s.api_key == key
@@ -989,12 +986,11 @@ class TestComputeSettings:
         assert loaded.port == 8000
 
     def test_nonfinite_and_huge_numbers_are_config_errors(self, tmp_path) -> None:
-        """Infinity / 1e9999 and an oversized JSON integer must be ConfigError.
+        """Infinity / 1e9999 and an oversized JSON integer raise ConfigError.
 
-        json.loads yields inf for those port values, and int(inf) raises
-        OverflowError. A JSON integer with no decimal point stays a Python
-        int, and float() of one past the float range also raises OverflowError.
-        Neither is a ValueError, so they used to kill startup.
+        json.loads yields inf for those port values and int(inf) raises
+        OverflowError; float() of an oversized JSON integer also raises
+        OverflowError. Both are mapped to ConfigError.
         """
         for name, body in (("inf.json", '{"listen": {"port": Infinity}}'), ("huge-exp.json", '{"listen": {"port": 1e9999}}')):
             cfg = tmp_path / name
@@ -1048,12 +1044,10 @@ class TestComputeSettings:
         assert isinstance(exc_info.value.__cause__, UnicodeDecodeError)
 
     def test_unreadable_key_file_reports_uid_and_mode(self, tmp_path) -> None:
-        """Permission denied used to name only the path.
+        """Permission denied includes the process uid and the file mode and owner.
 
-        A mode-600 mount read as another uid looks like a bad filename.
-        The error includes the process uid and the file mode and owner.
         Root ignores mode bits, so this only runs unprivileged. Mode 000
-        is put back so the tmp directory can be deleted.
+        is restored so the tmp directory can be deleted.
         """
         import os
 
@@ -1368,7 +1362,7 @@ class TestSessionResetHttp:
         assert body == {"status": "ok"}
 
     def test_chunked_transfer_encoding_is_400(self) -> None:
-        """Chunked reset used to succeed as an empty body and drop the payload."""
+        """Chunked Transfer-Encoding is rejected with 400 BAD_FRAMING on reset and execute."""
         reset_calls: list[str] = []
 
         def fake_reset(session_id: str, **_kw):
@@ -1448,7 +1442,7 @@ class TestSessionResetHttp:
         assert body.get("code") == "EXECUTION_TIMEOUT"
 
     def test_vision_pool_busy_is_503(self) -> None:
-        """A vision lease miss used to be HTTP 200. The accept-deadline pre-check is already 503."""
+        """A vision lease miss returns HTTP 503 VISION_POOL_BUSY."""
         fake_pool = MagicMock()
         fake_pool.execute.return_value = {"id": "v-busy", "status": "error", "code": "VISION_POOL_BUSY", "error": "All vision workers are currently busy and request timed out waiting for worker lease."}
         app = create_wsgi_app(ComputeSettings(ocr_workers=1))
@@ -1460,7 +1454,7 @@ class TestSessionResetHttp:
         assert body.get("status") == "error"
 
     def test_vision_file_errors_use_client_statuses(self) -> None:
-        """Allowlist file failures used to leave the route as HTTP 200."""
+        """Allowlist file failures return 400/413 client statuses."""
         cases = (("FILE_NOT_FOUND", "400"), ("FILE_TOO_LARGE", "413"))
         for code, expect in cases:
             fake_pool = MagicMock()
@@ -1602,12 +1596,7 @@ class TestSessionResetHttp:
             assert "Basic" not in caplog.text
 
     def test_execute_queue_timeout_from_pool_is_503(self) -> None:
-        """The pool's own deadline check must not answer 200.
-
-        The handler returns 503 when the accept deadline is already gone.
-        If it expires in the gap before the pool checks, the pool returns
-        QUEUE_TIMEOUT with no result_json. That used to fall through to 200.
-        """
+        """QUEUE_TIMEOUT from the pool returns HTTP 503 rather than 200."""
 
         def late(**_kwargs):
             return {"status": "error", "code": "QUEUE_TIMEOUT", "error": "Request deadline expired before a worker lease."}
@@ -2104,7 +2093,7 @@ def test_admission_permits_leave_two_listeners() -> None:
 
 @pytest.mark.parametrize("code", ["VISION_WORKER_ERROR", "WORKER_EXECUTION_ERROR"])
 def test_dict_worker_fault_is_http_500(code: str) -> None:
-    """A worker fault with no result_json is 500. It used to fall through to 200."""
+    """A worker fault with no result_json returns HTTP 500."""
     from compute_service.server import _send_execution_result
 
     status_holder: list[str] = []
@@ -2121,7 +2110,7 @@ def test_dict_worker_fault_is_http_500(code: str) -> None:
 
 
 def test_empty_result_json_is_500() -> None:
-    """Empty result_json used to fall through and json.dumps a dict of bytes."""
+    """Empty result_json returns HTTP 500 EMPTY_RESPONSE."""
     from compute_service.server import _send_execution_result
 
     status_holder: list[str] = []
@@ -2155,7 +2144,7 @@ def test_result_json_worker_fault_bytes_are_forwarded_at_200() -> None:
 
 
 def test_worker_file_path_denied_is_http_400() -> None:
-    """The route returns 400. The worker re-check used to stay HTTP 200."""
+    """FILE_PATH_DENIED from the worker returns HTTP 400."""
     from compute_service.server import _send_execution_result
 
     status_holder: list[str] = []
@@ -2292,7 +2281,7 @@ def test_expect_100_continue_before_body() -> None:
 
 
 def test_expect_100_oversized_body_gets_413_without_continue() -> None:
-    """Regression: an oversized Content-Length gets 413 at once, never 100 Continue."""
+    """An oversized Content-Length gets 413 at once without sending 100 Continue."""
     from compute_service.server import WSGIDualStackServer
 
     port = get_free_port()
@@ -2418,10 +2407,9 @@ def _run_start_docker(tmp_path, env_extra: dict[str, str], cwd=None):
 
 @pytest.mark.skipif(sys.platform == "win32", reason="runs a POSIX shell script")
 def test_start_docker_does_not_put_api_key_in_argv(tmp_path) -> None:
-    """An env key used to be -e PYTHON_COMPUTE_API_KEY=..., visible to ps.
+    """start-docker.sh mounts a mode-600 temp file instead of passing the key in argv.
 
-    Spaces and glob characters in the secret must not appear in any docker
-    argument. The script mounts a mode-600 temp file instead.
+    Spaces and glob characters in the secret must not appear in any docker argument.
     """
     key = "sec ret *"
     proc, lines, uid, gid = _run_start_docker(tmp_path, {"PYTHON_COMPUTE_API_KEY": key})
@@ -2477,11 +2465,7 @@ def test_start_docker_env_key_wins_over_key_file(tmp_path) -> None:
 
 @pytest.mark.skipif(sys.platform == "win32", reason="runs a POSIX shell script")
 def test_start_docker_resolves_relative_key_file_before_cd(tmp_path) -> None:
-    """A relative path is the caller's cwd, not the repo root.
-
-    A basename with no slash used to be a named volume. The script cd's to
-    the repo root before docker build, so resolution has to happen first.
-    """
+    """A relative key path resolves against the caller's cwd before cd to repo root."""
     import os
 
     caller = tmp_path / "elsewhere"
@@ -2907,7 +2891,7 @@ def test_session_reset_passes_bounded_timeout() -> None:
 
 
 def test_vision_unknown_helper_is_400() -> None:
-    """An unknown helper used to reach the worker and come back as 500."""
+    """An unknown helper is rejected with HTTP 400 INVALID_REQUEST before reaching the pool."""
 
     class _Pool:
         def execute(self, **_kwargs: Any) -> dict[str, Any]:
@@ -2940,7 +2924,7 @@ def test_vision_blank_helper_defaults_to_extract_text() -> None:
 
 
 def test_vision_missing_image_is_400_with_code() -> None:
-    """A vision request with no image used to be a generic 400 with no code."""
+    """A vision request with no image returns HTTP 400 MISSING_IMAGE_SOURCE."""
     app = create_wsgi_app(ComputeSettings(ocr_workers=1))
     status, _headers, body = _wsgi_vision_post(app, {"id": "no-image", "helper": "extract_text"})
     assert status.startswith("400")
@@ -2994,11 +2978,7 @@ def test_session_reset_infra_error_returns_503() -> None:
 
 
 def test_mapped_status_json_encode_failure_is_500() -> None:
-    """A dumps failure on a mapped code stays inside the response helper.
-
-    The infrastructure status used to be written outside the encode guard,
-    so a non-JSON payload escaped and the outer boundary replaced the 503.
-    """
+    """A JSON encode failure on a mapped error code returns HTTP 500 INTERNAL_ERROR."""
 
     def bad(**_kwargs: Any) -> dict[str, Any]:
         return {"status": "error", "code": "WORKER_POOL_BUSY", "error": object()}
@@ -3088,7 +3068,7 @@ def test_malformed_client_mode_is_ignored() -> None:
 
 
 def test_slow_body_drip_is_408() -> None:
-    """One socket timeout per large read used to let a drip outlive the body deadline."""
+    """A slow body drip respects the total body deadline and returns HTTP 408."""
     from compute_service.server import _read_request_body
 
     class _Drip:

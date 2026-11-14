@@ -461,12 +461,7 @@ def test_agent_session_reuses_existing_scope():
 
 
 class TestSendCancellationHooksLocking:
-    """Regression tests for _on_cancel_hooks not being lock-protected.
-
-    Before the fix, register_on_cancel appended without a lock and cancel()
-    iterated the live list — a concurrent append during iteration was safe only
-    under CPython's GIL but incorrect in general and inconsistent with _clients.
-    """
+    """_on_cancel_hooks is lock-protected across register_on_cancel and cancel."""
 
     def test_registered_hook_is_called_on_cancel(self):
         # Basic sanity: a registered hook must fire when cancel() is called.

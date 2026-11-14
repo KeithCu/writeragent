@@ -1314,7 +1314,7 @@ class _WebSearchStubTool(ToolBase):
 
 class TestSmolCallingToolsEchoParsing:
     def test_calling_tools_python_repr_parsed_as_web_search_not_final_answer(self):
-        """Regression: memory-style 'Calling tools:' + Python repr must not become final_answer."""
+        """Memory-style 'Calling tools:' + Python repr must not become final_answer."""
         from plugin.contrib.smolagents.agents import ActionOutput, ToolOutput
         from plugin.contrib.smolagents.models import Model
 
@@ -1357,7 +1357,7 @@ class TestSmolCallingToolsEchoParsing:
 
 class TestSmolImplicitFinalAnswerJson:
     def test_answer_only_json_blob_becomes_final_answer_not_double_wrapped(self):
-        """Regression: Mercury-style {\"answer\": [html...]} must not wrap raw JSON as final_answer."""
+        """Mercury-style {\"answer\": [html...]} must not wrap raw JSON as final_answer."""
         from plugin.contrib.smolagents.agents import ActionOutput
         from plugin.contrib.smolagents.default_tools import FinalAnswerTool
         from plugin.contrib.smolagents.models import Model

@@ -346,8 +346,7 @@ def test_apply_document_content_selection_failure_not_silent():
          patch.object(html_import, "insert_content_at_position",
                       side_effect=ToolExecutionError("Could not resolve the current selection")):
         # _execute maps ToolExecutionError to the standard tool error dict so chat/MCP
-        # see status=error (nested-table follow-up). Raising here was the old contract
-        # and failed PR CI 35451880001 after that change.
+        # see status=error.
         result = ApplyDocumentContent().execute(ctx, content="x", target="selection")
     assert result["status"] == "error"
     assert "selection" in result.get("message", "")
