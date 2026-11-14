@@ -52,11 +52,17 @@ def test_importing_venv_modules_binds_callables():
             assert callable(fn)
 
 
-def test_analysis_describe_data_none_and_extra_param():
-    pytest.importorskip("pandas")
-    # importing the venv module registers its helpers; run_domain needs them when this test runs alone
-    import plugin.scripting.venv.analysis  # noqa: F401
+def test_analysis_describe_data_none_and_extra_param(monkeypatch: pytest.MonkeyPatch):
+    from plugin.scripting import helper_registry
     from plugin.scripting.venv.trusted_dispatch import run_domain
+
+    captured: dict[str, Any] = {}
+
+    def fake_describe(data: Any, **kw: Any) -> dict[str, Any]:
+        captured.update(kw)
+        return {"status": "ok", "helper": "describe_data"}
+
+    monkeypatch.setitem(helper_registry._BOUND, ("analysis", "describe_data"), fake_describe)
 
     data = [["A", "B"], [1, 2], [3, 4], [5, 6]]
     spec = {
@@ -69,6 +75,8 @@ def test_analysis_describe_data_none_and_extra_param():
     res = run_domain("analysis", spec, data)
     assert res["status"] == "ok", res
     assert res["helper"] == "describe_data"
+    assert "extra_param_should_be_ignored" not in captured
+    assert captured.get("include_outliers") is None
 
 
 def test_optimize_extra_param_returns_invalid_param():

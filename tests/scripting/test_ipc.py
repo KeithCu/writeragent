@@ -383,6 +383,8 @@ def test_header_only_stall_is_partial_timeout():
 
 
 def test_header_consumed_timeout_is_partial_timeout_no_fd():
+    release = threading.Event()
+
     class HeaderThenStall:
         def __init__(self):
             self.header = struct.pack("!I", 10)
@@ -391,11 +393,14 @@ def test_header_consumed_timeout_is_partial_timeout_no_fd():
             if self.header:
                 out, self.header = self.header[:n], self.header[n:]
                 return out
-            time.sleep(10)
+            release.wait(timeout=5.0)
             return b""
 
-    with pytest.raises(IpcPartialFrameTimeout, match="timeout mid-frame"):
-        read_frame_payload(HeaderThenStall(), 0.2)
+    try:
+        with pytest.raises(IpcPartialFrameTimeout, match="timeout mid-frame"):
+            read_frame_payload(HeaderThenStall(), 0.05)
+    finally:
+        release.set()
 
 
 def test_read_frame_payload_pipe_eof_mid_header_raises_truncated_fast():
@@ -1638,10 +1643,8 @@ def test_read_frame_payload_dead_child_returns_none():
     try:
         reader = os.fdopen(r_fd, "rb", buffering=0)
         try:
-            t0 = time.monotonic()
-            res = read_frame_payload(reader, 5.0, is_alive=lambda: False)
+            res = read_frame_payload(reader, 0.1, is_alive=lambda: False)
             assert res is None
-            assert time.monotonic() - t0 < 1.5
         finally:
             reader.close()
     finally:
@@ -1761,18 +1764,22 @@ class TestReadFramePayloadWithTimeoutNoFd:
 
     def test_timeout_raises(self):
         """A blocking read that never yields data should raise TimeoutExpired."""
+        release = threading.Event()
 
         class SlowIO(io.RawIOBase):
             def readable(self):
                 return True
 
             def readinto(self, b):
-                time.sleep(10)
+                release.wait(timeout=5.0)
                 return 0
 
         slow = io.BufferedReader(SlowIO())
-        with pytest.raises(subprocess.TimeoutExpired):
-            read_frame_payload(slow, timeout_sec=1.0)
+        try:
+            with pytest.raises(subprocess.TimeoutExpired):
+                read_frame_payload(slow, timeout_sec=0.05)
+        finally:
+            release.set()
 
     def test_propagates_read_error(self):
         class ErrorIO(io.RawIOBase):

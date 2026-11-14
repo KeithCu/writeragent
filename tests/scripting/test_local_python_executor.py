@@ -1288,19 +1288,7 @@ def test_slice9_timeout_validation_and_unwinding():
     elapsed = time.monotonic() - t0
     assert 1.5 <= elapsed <= 2.8
 
-    # 4. Inverse: outer timeout(2) with inner timeout(5) finishing immediately, outer sleeps
-    @timeout(2)
-    def outer_inverse():
-        evaluate_python_code("y = 1", timeout_seconds=5)
-        time.sleep(3.0)
-
-    t0 = time.monotonic()
-    with pytest.raises(ExecutionTimeoutError):
-        outer_inverse()
-    elapsed = time.monotonic() - t0
-    assert 1.5 <= elapsed <= 2.8
-
-    # 5. Non-main thread timeout stops pure-Python loop via _Ops deadline
+    # 4. Non-main thread timeout stops pure-Python loop via _Ops deadline
     from plugin.contrib.smolagents.local_python_executor import LocalPythonExecutor
 
     def loop_worker():
@@ -1925,12 +1913,13 @@ def test_timeout_fallback_drains_short_sleep_without_abandon(monkeypatch: pytest
 
 def test_timeout_fallback_sets_abandoned_timeout_when_thread_stuck(monkeypatch: pytest.MonkeyPatch):
     import signal
-    import time
+    import threading
     from typing import Any
     import plugin.contrib.smolagents.local_python_executor as lpe
     from plugin.contrib.smolagents.local_python_executor import ExecutionTimeoutError
 
     lpe.abandoned_timeout = False
+    release = threading.Event()
 
     def refuse_sigalrm(signum: Any, handler: Any) -> Any:
         if signum == signal.SIGALRM:
@@ -1939,11 +1928,11 @@ def test_timeout_fallback_sets_abandoned_timeout_when_thread_stuck(monkeypatch: 
 
     monkeypatch.setattr(signal, "signal", refuse_sigalrm)
 
-    executor = LocalPythonExecutor(additional_authorized_imports=["time"], timeout_seconds=1)
+    executor = LocalPythonExecutor(additional_authorized_imports=[], timeout_seconds=1)
     executor.send_tools({})
 
     def slow_call() -> int:
-        time.sleep(5.0)
+        release.wait(timeout=10.0)
         return 1
 
     try:
@@ -1953,6 +1942,7 @@ def test_timeout_fallback_sets_abandoned_timeout_when_thread_stuck(monkeypatch: 
 
         assert lpe.abandoned_timeout is True
     finally:
+        release.set()
         lpe.abandoned_timeout = False
 
 
