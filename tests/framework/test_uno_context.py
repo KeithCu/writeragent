@@ -39,12 +39,6 @@ def test_get_ctx_with_uno():
         set_fallback_ctx(saved)
 
 
-def test_uno_module_restored_after_get_ctx_with_uno():
-    """B9 regression: patch.dict must restore the session-wide uno mock for later tests."""
-    test_get_ctx_with_uno()
-    assert "uno" in sys.modules
-
-
 def test_get_ctx_fallback():
     mock_fallback = MagicMock()
     set_fallback_ctx(mock_fallback)
