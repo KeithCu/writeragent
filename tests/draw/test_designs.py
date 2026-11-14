@@ -276,7 +276,7 @@ def test_add_slide_reports_inherited_master():
         patch("plugin.draw.pages.DrawBridge", return_value=bridge),
         patch("plugin.draw.pages.inherit_master_from_neighbor", return_value="Metropolis") as inherit,
     ):
-        out = AddSlide().execute(ctx)
+        out = AddSlide().execute(ctx, page=0)
     assert out["status"] == "ok"
     assert out["master"] == "Metropolis"
     inherit.assert_called_once_with(pages, page, 1)

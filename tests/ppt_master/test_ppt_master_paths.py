@@ -7,9 +7,11 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+import sys
 
 import pytest
 
+import plugin.ppt_master.paths as ppt_paths
 from plugin.contrib.ppt_master.upstream import collect_svg_files_upstream
 from plugin.ppt_master.paths import (
     _configured_data_root,
@@ -39,12 +41,25 @@ def test_dev_clone_data_root_when_repo_present():
     assert (root / "scripts" / "svg_to_pptx").is_dir()
 
 
-def test_find_data_root_prefers_dev_clone():
-    dev = _dev_clone_data_root()
-    if dev is None:
-        pytest.skip("ppt-master dev clone not checked out in this environment")
-    found = find_data_root_in_site_packages()
-    assert found == dev
+def test_find_data_root_falls_back_to_dev_clone(tmp_path: Path, monkeypatch):
+    _outer, dev_inner = _make_outer_clone_layout(tmp_path / "dev")
+    monkeypatch.setattr(ppt_paths, "_dev_clone_data_root", lambda: dev_inner)
+    monkeypatch.setattr(ppt_paths, "_user_venv_site_package_roots", lambda _ctx=None: [])
+    monkeypatch.setattr(sys, "path", [])
+    assert find_data_root_in_site_packages() == dev_inner
+
+
+def test_find_data_root_installed_copy_wins_over_dev_clone(tmp_path: Path, monkeypatch):
+    _outer, dev_inner = _make_outer_clone_layout(tmp_path / "dev")
+    site_pkg = tmp_path / "site-packages"
+    installed_inner = site_pkg / "skills" / "ppt-master"
+    installed_inner.mkdir(parents=True)
+    (installed_inner / "SKILL.md").write_text("# installed", encoding="utf-8")
+
+    monkeypatch.setattr(ppt_paths, "_dev_clone_data_root", lambda: dev_inner)
+    monkeypatch.setattr(ppt_paths, "_user_venv_site_package_roots", lambda _ctx=None: [site_pkg])
+    monkeypatch.setattr(sys, "path", [])
+    assert find_data_root_in_site_packages() == installed_inner
 
 
 def test_upstream_collect_svg_files_from_dev_clone(tmp_path: Path):

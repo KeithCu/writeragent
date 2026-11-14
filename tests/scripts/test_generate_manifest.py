@@ -132,8 +132,9 @@ def test_validation_combo_without_options_allowed():
             "_yaml_path": "a/module.yaml",
         }
     ]
-    # Allowed: combo with runtime options
-    assert validate_modules(modules) is None
+    # Combo options are filled at runtime by options_provider, so the select-requires-options rule
+    # (scripts/generate_manifest.py:117) must not apply.
+    validate_modules(modules)
 
 
 def test_validation_inverted_min_max():

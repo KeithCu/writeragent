@@ -41,6 +41,7 @@ def test_filter_connection_code_invalid() -> None:
     assert exc.value.code == "INVALID_PARAM"
 
 
+# Values are FilterOperator2 IDL constants; _NAME_TO_CODE is derived from label order, so a reordered label must fail here.
 @pytest.mark.parametrize(
     "op, expected",
     [
