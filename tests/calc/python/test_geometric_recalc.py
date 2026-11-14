@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
+import pytest
+
 from plugin.calc.calc_addin_data import split_python_addin_data_args
 from plugin.calc.python.cell_discovery import MAX_PYTHON_CELLS_FOUND
 from plugin.calc.python.formula_edit import PyFormula
@@ -219,37 +221,22 @@ def test_pred_code_in_cell_ref_to_successor_skips_attach():
     assert "A2" not in records
 
 
-def test_3_cell_reverse_ref_chain_skips_attach():
-    """A1 -> A3; A2 attaches to A1; A3 must not attach to A2 (A1->A3->A2->A1 cycle)."""
-    cells = [
-        _cell("A1", '=PY("x"; A3)'),
-        _cell("A2", '=PY("y")'),
-        _cell("A3", '=PY("z")'),
+@pytest.mark.parametrize("chain_len", [3, 4])
+def test_reverse_ref_chain_skips_attach(chain_len: int):
+    """A1 -> A{N}; A2..A{N-1} attach sequentially; A{N} must not attach (would cycle)."""
+    cells = [_cell("A1", f'=PY("c1"; A{chain_len})')] + [
+        _cell(f"A{idx}", f'=PY("c{idx}")') for idx in range(2, chain_len + 1)
     ]
     result = _repair(cells)
     patches = _patch_map(result)
-    assert "A2" in patches
-    assert patches["A2"].new_formula == '=PY("y";A1)'
-    assert "A3" not in patches
+    for idx in range(2, chain_len):
+        addr = f"A{idx}"
+        assert addr in patches
+        assert patches[addr].new_formula == f'=PY("c{idx}";A{idx - 1})'
+    last = f"A{chain_len}"
+    assert last not in patches
     _patches, records = result
-    assert "A3" not in records
-
-
-def test_4_cell_reverse_ref_chain_skips_attach():
-    """A1 -> A4; A2 -> A1, A3 -> A2; A4 must not attach to A3."""
-    cells = [
-        _cell("A1", '=PY("w"; A4)'),
-        _cell("A2", '=PY("x")'),
-        _cell("A3", '=PY("y")'),
-        _cell("A4", '=PY("z")'),
-    ]
-    result = _repair(cells)
-    patches = _patch_map(result)
-    assert "A2" in patches
-    assert "A3" in patches
-    assert "A4" not in patches
-    _patches, records = result
-    assert "A4" not in records
+    assert last not in records
 
 
 def test_range_arg_3_cell_cycle_skips_attach():
@@ -494,22 +481,19 @@ def test_only_matching_orphan_rehomes_unmatched_is_dropped():
     assert "C1" not in records
 
 
-def test_row_insert_three_cell_chain_rehomes_all_keys():
-    """A1,A2,A3 shifted to A1,A3,A4; every attach record follows the cell."""
-    patches, records = _repair(
-        [
-            _cell("A1", '=PY("a")'),
-            _cell("A3", '=PY("b";A1)'),
-            _cell("A4", '=PY("c";A3)'),
-        ],
-        {
-            "A2": GeometricRecord(predecessor="A1"),
-            "A3": GeometricRecord(predecessor="A2"),
-        },
-    )
+@pytest.mark.parametrize("chain_len", [3, 4])
+def test_row_insert_chain_rehomes_all_keys(chain_len: int):
+    """A1..A{N} shifted +1 row after A1; every attach record follows its cell."""
+    cells = [_cell("A1", '=PY("c1")')]
+    for idx in range(2, chain_len + 1):
+        pred = "A1" if idx == 2 else f"A{idx}"
+        cells.append(_cell(f"A{idx + 1}", f'=PY("c{idx}";{pred})'))
+    incoming = {f"A{idx}": GeometricRecord(predecessor=f"A{idx - 1}") for idx in range(2, chain_len + 1)}
+    patches, records = _repair(cells, incoming)
     assert patches == ()
-    assert records["A3"].predecessor == "A1"
-    assert records["A4"].predecessor == "A3"
+    for idx in range(2, chain_len + 1):
+        pred = "A1" if idx == 2 else f"A{idx}"
+        assert records[f"A{idx + 1}"].predecessor == pred
     assert "A2" not in records
 
 
@@ -541,28 +525,6 @@ def test_undo_stale_map_keeps_live_successor_record():
     assert _patch_map(first_only)["A3"].action == "remove"
     _first_patches, first_records = first_only
     assert "A3" not in first_records
-
-
-def test_row_insert_four_cell_chain_rehomes_all_keys():
-    """A1–A4 shifted +1 row; all three successors rehome, no formula patches."""
-    patches, records = _repair(
-        [
-            _cell("A1", '=PY("a")'),
-            _cell("A3", '=PY("b";A1)'),
-            _cell("A4", '=PY("c";A3)'),
-            _cell("A5", '=PY("d";A4)'),
-        ],
-        {
-            "A2": GeometricRecord(predecessor="A1"),
-            "A3": GeometricRecord(predecessor="A2"),
-            "A4": GeometricRecord(predecessor="A3"),
-        },
-    )
-    assert patches == ()
-    assert records["A3"].predecessor == "A1"
-    assert records["A4"].predecessor == "A3"
-    assert records["A5"].predecessor == "A4"
-    assert "A2" not in records
 
 
 def test_already_correct_dollar_ref_is_noop():
