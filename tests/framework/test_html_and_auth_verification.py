@@ -69,8 +69,16 @@ def test_hypothesis_strip_html_tags_removes_real_tags(sample: tuple[str, str]) -
     html_text, expected_plain = sample
     res = strip_html_tags(html_text)
     assert res == expected_plain
+    # Implied by equality; states the sanitization oracle explicitly.
     assert "<" not in res
     assert ">" not in res
+
+
+@given(text=st.text(alphabet=st.characters(blacklist_categories=("Cs",), max_codepoint=127), max_size=DEAL_MAX_HTML_CHUNK))
+@settings(max_examples=100)
+def test_hypothesis_strip_html_tags_no_crash_on_malformed_markup(text: str) -> None:
+    # No crash on malformed markup (unclosed tags, stray '<', partial entities).
+    assert isinstance(strip_html_tags(text), str)
 
 
 def test_strip_html_tags_streaming_equivalence() -> None:

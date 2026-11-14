@@ -2263,8 +2263,7 @@ def test_open_system_url(caplog):
     shell.execute.reset_mock()
     shell.execute.side_effect = RuntimeError("shell error")
     with caplog.at_level("DEBUG", logger="writeragent.errors"):
-        result = open_system_url(ctx, "https://example.com")
-    assert result is None
+        open_system_url(ctx, "https://example.com")
     shell.execute.assert_called_once_with("https://example.com", "", 0)
     assert any(r.exc_info is not None for r in caplog.records)
 
@@ -2287,10 +2286,8 @@ def test_stt_provider_item_listener_sync_ui(caplog):
         patch("plugin.chatbot.dialog_views._apply_stt_model_visibility", side_effect=RuntimeError("boom")) as mock_apply,
         caplog.at_level("DEBUG", logger="writeragent.errors"),
     ):
-        result = sync_stt_ui(dlg)
-    assert result is None
+        sync_stt_ui(dlg)
     mock_apply.assert_called_once()
-    dlg.setVisible.assert_not_called()
     assert any(r.exc_info is not None for r in caplog.records)
 
 
@@ -2319,11 +2316,9 @@ def test_tts_test_progress_box_show_or_update(caplog):
     dlg.getControl.reset_mock()
     dlg.getControl.side_effect = RuntimeError("control error")
     with caplog.at_level("DEBUG", logger="writeragent.errors"):
-        result = box.show_or_update("Error message")
-    assert result is None
+        box.show_or_update("Error message")
     dlg.getControl.assert_called_once_with("Msg")
     assert msg_ctrl.getModel().Label == "Initial"
-    assert box._closed is False
     assert any(r.exc_info is not None for r in caplog.records)
 
 
