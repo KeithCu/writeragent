@@ -145,3 +145,69 @@ def test_on_capture_stopped_when_panel_gone_deletes_wav(tmp_path):
     controller = PanelVoiceController(panel)
     controller.on_capture_stopped(str(wav))
     assert not wav.exists()
+
+
+def test_async_stt_stop_in_flight_restores_ask_and_skips_send(tmp_path):
+    import threading
+    from plugin.framework.send_cancellation import SendCancellation
+
+    wav = tmp_path / "take.wav"
+    wav.write_bytes(b"RIFF")
+
+    panel = DummyPanel()
+    panel.audio_wav_path = str(wav)
+    panel._stt_inflight = False
+    panel._stt_defer_close = False
+    panel._stt_pending_close = None
+    panel._orphan_send_outcome = None
+    panel._turn = None
+    panel.query_control = None
+    panel._append_response = MagicMock()
+    panel._restore_query_text = MagicMock()
+    panel.sync_has_text_from_query = MagicMock()
+    scope = SendCancellation()
+    panel._send_cancellation = scope
+
+    posted: list[Any] = []
+    panel.queue_executor._async_callback_service = object()
+    panel.queue_executor.post = lambda fn, **_kw: posted.append(fn)
+
+    started = threading.Event()
+    release = threading.Event()
+    resolved: list[str] = []
+    closed: list[Any] = []
+
+    def fake_transcribe(*_args, **_kwargs) -> str:
+        started.set()
+        assert release.wait(timeout=2.0)
+        return "Fake STT transcript."
+
+    ctrl = PanelVoiceController(panel)
+    with (
+        patch("plugin.audio.stt_service.uses_local_stt", return_value=True),
+        patch("plugin.audio.stt_service.transcribe", side_effect=fake_transcribe),
+        patch("plugin.audio.stt_service.status_for_transcription", return_value="Transcribing audio..."),
+        patch("plugin.framework.client.model_fetcher.get_text_model", return_value="chat"),
+        patch("plugin.framework.client.model_fetcher.get_stt_model", return_value="whisper-1"),
+        patch("plugin.framework.config.get_current_endpoint", return_value="https://example"),
+    ):
+        assert ctrl.try_start_async_stt("", on_resolved=resolved.append) is True
+        assert panel._stt_defer_close is True
+        panel._stt_pending_close = lambda err=None: closed.append(err)
+        assert started.wait(timeout=2.0)
+        scope.cancel()
+        release.set()
+
+        # Wait for worker to post continuation to queue_executor
+        import time
+        deadline = time.monotonic() + 2.0
+        while not posted and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert len(posted) == 1
+        posted[0]()
+
+    assert resolved == []
+    assert closed == [None]
+    assert panel._orphan_send_outcome == "stopped"
+    panel._restore_query_text.assert_called_once_with("Fake STT transcript.")
+    assert not wav.exists()

@@ -1985,13 +1985,16 @@ def test_g2_typed_text_and_audio(ctx):
 
 @native_test
 def test_g3_history_strips_audio_blob(ctx):
+    from plugin.chatbot.history_db import AUDIO_ATTACHED_PLACEHOLDER
     from plugin.chatbot.sidebar_test_hooks import audio_status
 
     sl = _g_prep()
     _g_record_and_stop(sl, _WAV_1S)
     tail = str(audio_status(listener=sl).get("history_user_tail") or "")
     assert "input_audio" not in tail.lower(), "G3 history leaked input_audio: %r" % tail[:200]
-    assert "[Audio Attached]" in tail, "G3 history missing [Audio Attached] placeholder: %r" % tail[:200]
+    assert AUDIO_ATTACHED_PLACEHOLDER in tail, (
+        f"G3 history missing {AUDIO_ATTACHED_PLACEHOLDER} placeholder: %r" % tail[:200]
+    )
     assert len(tail) < 50_000, "G3 history looks like it stored raw audio: %d chars" % len(tail)
     _hello_ok()
 

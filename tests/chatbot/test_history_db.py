@@ -64,7 +64,7 @@ def test_json_history_rejects_non_list(tmp_path):
 
 
 def test_message_to_dict_omits_null_tool_calls_and_marks_images():
-    from plugin.chatbot.history_db import message_to_dict
+    from plugin.chatbot.history_db import AUDIO_ATTACHED_PLACEHOLDER, message_to_dict
 
     text = message_to_dict("user", "hello")
     assert text == {"role": "user", "content": "hello"}
@@ -75,7 +75,7 @@ def test_message_to_dict_omits_null_tool_calls_and_marks_images():
         {"type": "image_url", "image_url": {"url": "data:image/png;base64,AAAA"}},
         {"type": "input_audio"},
     ])
-    assert marked["content"] == "see [Audio Attached] [Image Attached]"
+    assert marked["content"] == f"see {AUDIO_ATTACHED_PLACEHOLDER} [Image Attached]"
     assert "AAAA" not in marked["content"]
 
 

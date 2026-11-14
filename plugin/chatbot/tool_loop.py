@@ -363,9 +363,9 @@ def _append_user_message_for_send(
 
         # Add only text (and images) to DB to avoid 404s when reading history
         if not content_list and attachments == ["Audio"]:
-            from plugin.framework.i18n import _
+            from plugin.chatbot.history_db import AUDIO_ATTACHED_PLACEHOLDER
 
-            turn_session.add_user_message(_("[Voice message]"))
+            turn_session.add_user_message(AUDIO_ATTACHED_PLACEHOLDER)
         else:
             turn_session.add_user_message(content_list)
             if user_transcript_text and turn_session.messages:

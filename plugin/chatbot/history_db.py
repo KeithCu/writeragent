@@ -53,6 +53,9 @@ def _get_db_path() -> str:
     return "writeragent_history.db"
 
 
+AUDIO_ATTACHED_PLACEHOLDER = "[Voice message]"
+
+
 # Local {role, content, tool_calls?} row for SQLite and JSON.
 def message_to_dict(role: str, content: Any, tool_calls: Any = None) -> dict[str, Any]:
     # Don't persist MBs of base64 audio or images to history db.
@@ -68,7 +71,7 @@ def message_to_dict(role: str, content: Any, tool_calls: Any = None) -> dict[str
                     kinds.add(t)
         markers = []
         if "input_audio" in kinds:
-            markers.append("[Audio Attached]")
+            markers.append(AUDIO_ATTACHED_PLACEHOLDER)
         if "image_url" in kinds:
             # Vision turns persist an [Image Attached] marker when image parts are stripped.
             markers.append("[Image Attached]")

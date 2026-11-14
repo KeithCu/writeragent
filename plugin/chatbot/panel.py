@@ -237,6 +237,53 @@ def _set_control_enabled(control: Any, enabled: bool, why: str) -> None:
             control.getModel().Enabled = bool(enabled)
 
 
+def _continue_do_send(
+    host: Any,
+    query_text: str,
+    model: Any,
+    doc_type_label: str,
+    slash_transcript_line: str | None,
+) -> None:
+    """Dispatch a resolved query after any voice transcription completes."""
+    from plugin.chatbot.send_handlers import dispatch_sidebar_send
+
+    if dispatch_sidebar_send(host, host._selector_mode(), query_text, model, doc_type_label):
+        return
+
+    # Agent backend: use external agent instead of built-in LLM.
+    # Show the error and end the send here. The handler documents
+    # no builtin fallback. Leaving `_do_send_via_agent_backend` in
+    # this try means the except only logs, then execution falls
+    # through to `_do_send_chat_with_tools` and one Send starts a
+    # second builtin turn.
+    try:
+        from plugin.framework.config import get_config
+        from plugin.acp.registry import normalize_backend_id
+
+        agent_backend_id = normalize_backend_id(get_config("agent_backend.backend_id"))
+        if agent_backend_id and agent_backend_id != "builtin":
+            log.info("_do_send: using agent backend %s", agent_backend_id)
+            host._send_handlers._do_send_via_agent_backend(query_text, model, doc_type_label)
+            return
+    except Exception as exc:
+        from plugin.framework.i18n import _
+
+        log.exception("_do_send: agent backend check failed")
+        host._fail_send(
+            _("[Agent backend error: {0}]").format(str(exc)),
+            restore_query=query_text,
+        )
+        return
+
+    # Regular Chat with Tools or Streams
+    host._tool_calling._do_send_chat_with_tools(
+        query_text,
+        model,
+        doc_type_label,
+        user_transcript_text=slash_transcript_line,
+    )
+
+
 class SendButtonListener(BaseActionListener):
     """Listener for the Send button - runs chat with document, supports tool-calling."""
 
@@ -344,6 +391,8 @@ class SendButtonListener(BaseActionListener):
         self._send_cancellation: SendCancellation | None = None
         self._stt_inflight = False
         self._stt_kill = None
+        self._stt_defer_close: bool = False
+        self._stt_pending_close: Callable[[BaseException | None], None] | None = None
         self._active_mode = ""
         self._mode_topic = ""
         self._button_action = ButtonAction.RECORD
@@ -1033,10 +1082,13 @@ class SendButtonListener(BaseActionListener):
         stop_before_body: bool = False,
     ) -> None:
         """Run turn drain on the UI thread, managing agent_session and deferred completion."""
+        from plugin.chatbot.tool_loop_actions import current_turn
         from plugin.framework.async_stream import clear_drain_capture, defer_until_drain_done
         from plugin.framework.send_cancellation import agent_session
 
         clear_drain_capture()
+        self._stt_defer_close = False
+        self._stt_pending_close = None
         cm = agent_session(self._send_cancellation)
         entered = False
         exit_error: BaseException | None = None
@@ -1064,21 +1116,12 @@ class SendButtonListener(BaseActionListener):
             if not stopped:
                 body()
         except Exception as e:
-            from plugin.chatbot.tool_loop_actions import current_turn
-
             exit_error = e
             failed_turn = current_turn(self)
             doc_type_for_log = self.initial_doc_type or "unknown"
             log.exception("Turn drain unhandled exception [doc: %s]", doc_type_for_log)
         finally:
-            # The event-driven drain returns before the stream ends. Exiting
-            # agent_session and running SEND_COMPLETED on that return would clear
-            # the stop scope and abort the turn while chunks are still landing.
-            # defer_until_drain_done runs this close on the terminal slice; the
-            # blocking drain has already finished, so it runs now.
-            # Another document's drain may still be open; this send must not
-            # defer its completion onto it.
-            def _close_turn_drain() -> None:
+            def _close_turn_drain(late_err: BaseException | None = None) -> None:
                 # Clear the scope only once the drain has finished. Doing it
                 # when the event-driven call returns would drop Stop for the
                 # rest of the turn.
@@ -1087,7 +1130,8 @@ class SendButtonListener(BaseActionListener):
                 # scope leaves a late reader with None on a dead panel.
                 if entered and not self._panel_teardown:
                     self._send_cancellation = None
-                err = exit_error
+                err = late_err if late_err is not None else exit_error
+                turn_for_err = current_turn(self) if late_err is not None else failed_turn
                 if entered:
                     try:
                         if err is None:
@@ -1099,11 +1143,14 @@ class SendButtonListener(BaseActionListener):
                 if err is not None:
                     # The tool-loop epilogue already aborted the turn, so
                     # _append_response would treat this as a late chunk.
-                    self._project_closing_line("\n\n[Error: %s]\n" % str(err), failed_turn)
+                    self._project_closing_line("\n\n[Error: %s]\n" % str(err), turn_for_err)
                     assign_send_outcome(self, "error")
                 on_close()
 
-            defer_until_drain_done(_close_turn_drain)
+            if getattr(self, "_stt_defer_close", False) and exit_error is None:
+                self._stt_pending_close = _close_turn_drain
+            else:
+                defer_until_drain_done(_close_turn_drain)
 
     def _run_send_drain(self) -> None:
         """Run ``_do_send`` on a VCL tick after Send ``actionPerformed`` returns."""
@@ -1299,7 +1346,6 @@ class SendButtonListener(BaseActionListener):
         return doc_info
 
     def _do_send(self) -> None:
-        from plugin.framework.i18n import _
 
         # begin_send_turn aborts the turn already in flight. A pump re-entry
         # during Whisper must not do that, and must not clear the WAV.
@@ -1378,45 +1424,19 @@ class SendButtonListener(BaseActionListener):
 
             sync_sidebar_text_model(self.model_selector)
 
+            if self._voice.try_start_async_stt(
+                query_text,
+                on_resolved=lambda qt: _continue_do_send(
+                    self, qt, model, doc_type_label, slash_transcript_line
+                ),
+            ):
+                return
+
             query_text, should_exit = self._voice.resolve_voice_query(query_text)
             if should_exit:
                 return
 
-            from plugin.chatbot.send_handlers import dispatch_sidebar_send
-
-            if dispatch_sidebar_send(self, self._selector_mode(), query_text, model, doc_type_label):
-                return
-
-            # Agent backend: use external agent instead of built-in LLM.
-            # Show the error and end the send here. The handler documents
-            # no builtin fallback. Leaving `_do_send_via_agent_backend` in
-            # this try means the except only logs, then execution falls
-            # through to `_do_send_chat_with_tools` and one Send starts a
-            # second builtin turn.
-            try:
-                from plugin.framework.config import get_config
-                from plugin.acp.registry import normalize_backend_id
-
-                agent_backend_id = normalize_backend_id(get_config("agent_backend.backend_id"))
-                if agent_backend_id and agent_backend_id != "builtin":
-                    log.info("_do_send: using agent backend %s", agent_backend_id)
-                    self._send_handlers._do_send_via_agent_backend(query_text, model, doc_type_label)
-                    return
-            except Exception as exc:
-                log.exception("_do_send: agent backend check failed")
-                self._fail_send(
-                    _("[Agent backend error: {0}]").format(str(exc)),
-                    restore_query=query_text,
-                )
-                return
-
-            # Regular Chat with Tools or Streams
-            self._tool_calling._do_send_chat_with_tools(
-                query_text,
-                model,
-                doc_type_label,
-                user_transcript_text=slash_transcript_line,
-            )
+            _continue_do_send(self, query_text, model, doc_type_label, slash_transcript_line)
 
         except Exception:
             # Restore Ask text only when the turn did not already store the user row.
