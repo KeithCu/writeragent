@@ -116,3 +116,10 @@ def test_health_monitor_metrics() -> None:
     assert monitor.p50_ms == pytest.approx(6.0)
     assert monitor.p95_ms == pytest.approx(10.0)
     assert monitor.max_ms == pytest.approx(10.0)
+
+
+@patch("benchmark_compute_service.os.cpu_count", return_value=6)
+def test_default_worker_counts_ends_at_cpu_count(_cpu: MagicMock) -> None:
+    from benchmark_compute_service import _default_worker_counts
+
+    assert _default_worker_counts() == [1, 2, 4, 6]

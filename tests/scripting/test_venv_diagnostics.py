@@ -197,12 +197,13 @@ def test_probe_report_render_skips_empty_groups_and_shows_failures() -> None:
 
 
 @pytest.mark.parametrize(
-    ("include_footer", "packages", "optional_keys", "expect_footer", "expected_in_footer", "excluded_from_footer"),
+    ("include_footer", "packages", "group_specs", "expect_footer", "expected_in_footer", "excluded_from_footer"),
     [
         pytest.param(
+            # Mid-Test refresh must not show a partial uv/pip install recipe.
             False,
             {"numpy": "present", "scipy": None, "sklearn": None},
-            (),
+            [("sci", "Scientific Libraries", ("numpy", "scipy", "sklearn"), ())],
             False,
             (),
             (),
@@ -211,7 +212,7 @@ def test_probe_report_render_skips_empty_groups_and_shows_failures() -> None:
         pytest.param(
             True,
             {"numpy": "present", "scipy": "present"},
-            (),
+            [("sci", "Scientific Libraries", ("numpy", "scipy"), ())],
             False,
             (),
             (),
@@ -220,18 +221,30 @@ def test_probe_report_render_skips_empty_groups_and_shows_failures() -> None:
         pytest.param(
             True,
             {"numpy": "present", "scipy": None, "sklearn": None, "language_tool_python": None},
-            ("language_tool_python",),
+            [("sci", "Scientific Libraries", ("numpy", "scipy", "sklearn", "language_tool_python"), ("language_tool_python",))],
             True,
             ("scipy", "scikit-learn"),
             ("language_tool_python", "language-tool-python"),
             id="missing_required_shown_optional_excluded",
+        ),
+        pytest.param(
+            True,
+            {"numpy": None, "scipy": None, "docling": None, "rapidocr": None, "css_inline": None},
+            [
+                ("sci", "Scientific Libraries", ("numpy", "scipy"), ()),
+                ("vision", "Vision Libraries", ("docling", "rapidocr", "css_inline", "numpy"), ()),
+            ],
+            True,
+            ("numpy", "scipy", "docling", "rapidocr-paddle", "css-inline", "onnxruntime"),
+            (),
+            id="multiple_groups_single_deduplicated_footer",
         ),
     ],
 )
 def test_probe_report_install_footer_structure(
     include_footer: bool,
     packages: dict[str, str | None],
-    optional_keys: tuple[str, ...],
+    group_specs: list[tuple[str, str, tuple[str, ...], tuple[str, ...]]],
     expect_footer: bool,
     expected_in_footer: tuple[str, ...],
     excluded_from_footer: tuple[str, ...],
@@ -239,7 +252,10 @@ def test_probe_report_install_footer_structure(
     report = ProbeReport(
         version="3.12.0",
         packages=packages,
-        groups=[GroupResult("sci", "Scientific Libraries", packages=tuple(packages), optional_keys=optional_keys)],
+        groups=[
+            GroupResult(key, title, packages=pkgs, optional_keys=opt)
+            for key, title, pkgs, opt in group_specs
+        ],
     )
     msg = report.render(include_install_footer=include_footer)
     lines = msg.splitlines()
@@ -252,12 +268,14 @@ def test_probe_report_install_footer_structure(
     assert len(uv_lines) == 1
     assert len(pip_lines) == 1
     assert lines.index(uv_lines[0]) < lines.index(pip_lines[0])
+    uv_tokens = uv_lines[0].split()
+    pip_tokens = pip_lines[0].split()
     for pkg in expected_in_footer:
-        assert pkg in uv_lines[0]
-        assert pkg in pip_lines[0]
+        assert uv_tokens.count(pkg) == 1
+        assert pip_tokens.count(pkg) == 1
     for pkg in excluded_from_footer:
-        assert pkg not in uv_lines[0]
-        assert pkg not in pip_lines[0]
+        assert pkg not in uv_tokens
+        assert pkg not in pip_tokens
 
 
 @pytest.mark.parametrize(
@@ -311,13 +329,13 @@ def test_probe_report_vision_ocr_structure(
             )
         ],
     )
+    if expect_ready_engine:
+        assert report.collect_missing_keys() == []
+    else:
+        assert report.collect_missing_keys() != []
     msg = report.render(include_install_footer=True)
     if expect_ready_engine:
-        assert f"OCR: ready ({expect_ready_engine})" in msg
-        assert "OCR: not ready" not in msg
-    else:
-        assert "OCR: not ready" in msg
-        assert "OCR: ready" not in msg
+        assert f"({expect_ready_engine})" in msg
     uv_lines = [line for line in msg.splitlines() if line.startswith("uv pip install ")]
     assert bool(uv_lines) is expect_footer
     if expect_footer:
@@ -328,23 +346,33 @@ def test_probe_report_vision_ocr_structure(
 
 
 @pytest.mark.parametrize(
-    ("packages", "expect_tts_hint", "expect_whisper_hint"),
+    ("packages", "expect_tts_hint", "expect_whisper_hint", "expect_no_mic_hint"),
     [
         pytest.param(
             {"sounddevice": "present", "input_device": "present", "kokoro_onnx": "present", "soundfile": "present", "piper": "present", "faster_whisper": "present"},
             False,
             False,
+            False,
             id="all_audio_present",
         ),
         pytest.param(
-            {"sounddevice": "present", "input_device": None, "kokoro_onnx": "present", "soundfile": "present", "piper": "present", "faster_whisper": None},
+            {"sounddevice": "present", "input_device": None, "kokoro_onnx": "present", "soundfile": "present", "piper": "present", "faster_whisper": "present"},
+            False,
             False,
             True,
+            id="no_mic_detected",
+        ),
+        pytest.param(
+            {"sounddevice": "present", "input_device": "present", "kokoro_onnx": "present", "soundfile": "present", "piper": "present", "faster_whisper": None},
+            False,
+            True,
+            False,
             id="whisper_missing_only",
         ),
         pytest.param(
             {"sounddevice": "present", "input_device": "present", "kokoro_onnx": None, "soundfile": "present", "piper": "present", "faster_whisper": "present"},
             True,
+            False,
             False,
             id="tts_missing_only",
         ),
@@ -354,6 +382,7 @@ def test_probe_report_audio_structure(
     packages: dict[str, str | None],
     expect_tts_hint: bool,
     expect_whisper_hint: bool,
+    expect_no_mic_hint: bool,
 ) -> None:
     report = ProbeReport(
         version="3.13.0",
@@ -370,10 +399,10 @@ def test_probe_report_audio_structure(
     msg = report.render(include_install_footer=True)
     assert ("Local TTS engines (optional):" in msg) is expect_tts_hint
     assert ("Local Whisper (optional):" in msg) is expect_whisper_hint
-    if packages.get("sounddevice") == "present" and packages.get("input_device") != "present":
-        assert "input_device" not in msg
-        assert "No microphone input devices detected." in msg
-    assert "uv pip install " not in [line[:15] for line in msg.splitlines()]
+    assert ("No microphone input devices detected." in msg) is expect_no_mic_hint
+    assert ("input_device" not in msg) is expect_no_mic_hint
+    uv_lines = [line for line in msg.splitlines() if line.startswith("uv pip install ")]
+    assert not uv_lines
 
 
 def test_probe_report_audio_linux_portaudio_hint() -> None:
