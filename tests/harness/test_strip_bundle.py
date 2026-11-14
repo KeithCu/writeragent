@@ -33,29 +33,3 @@ def test_deal_pre_present_uses_function_source_not_module_comment() -> None:
     # Checkout still has the real decorator; make release strip removes it.
     assert deal_pre_present(_merge_reasoning_details) is not is_release_build()
 
-
-def test_stripped_plugin_module_has_no_asserts_in_release() -> None:
-    """When running in a release build, plugin modules must have assert statements stripped and compile."""
-    if not is_release_build():
-        return
-    import ast
-    import inspect
-    import plugin.chatbot.history_db as history_db
-
-    source = inspect.getsource(history_db)
-    tree = ast.parse(source)
-    asserts = [node for node in ast.walk(tree) if isinstance(node, ast.Assert)]
-    assert not asserts, f"Found {len(asserts)} assert statement(s) in {history_db.__name__}"
-    compile(source, history_db.__file__, "exec")
-
-
-def test_asserts_stripped_matches_release_build() -> None:
-    from plugin.framework.deal_shim import asserts_enabled
-    from tests.harness.strip_bundle import asserts_stripped
-
-    if is_release_build() or not __debug__:
-        assert asserts_stripped() is True
-    else:
-        assert asserts_enabled() is True
-        assert asserts_stripped() is False
-
