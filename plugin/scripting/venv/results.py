@@ -6,11 +6,16 @@
 
 from __future__ import annotations
 
+from contextvars import ContextVar
 import functools
 import traceback
 from typing import Any, Callable, ParamSpec
 
 P = ParamSpec("P")
+
+# Set by worker_harness while handling a request so thread-pool timeout
+# finalization waits until after the EXECUTION_TIMEOUT frame is written.
+DEFER_TIMEOUT_FINALIZE: ContextVar[bool] = ContextVar("defer_timeout_finalize", default=False)
 
 
 class HelperError(ValueError):

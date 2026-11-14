@@ -741,6 +741,78 @@ def test_harness_calls_exit_on_abandoned_timeout(monkeypatch: pytest.MonkeyPatch
     assert "exceeded" in err_frame["message"]
 
 
+def test_harness_writes_execution_timeout_before_finalizing_thread_pool(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Thread-pool fallback (Windows / non-main thread) must write EXECUTION_TIMEOUT before draining."""
+    import io
+    import signal
+    import time
+    import plugin.contrib.smolagents.local_python_executor as lpe
+    from plugin.framework.ipc import pack_pickle_frame, read_pickle_frame
+    import plugin.scripting.venv.worker_harness as harness
+
+    exit_calls: list[int] = []
+    monkeypatch.setattr(harness.os, "_exit", lambda code: exit_calls.append(code))
+    monkeypatch.setattr(harness, "die_with_parent", lambda: None)
+    monkeypatch.setattr(harness, "_init_logging", lambda: None)
+
+    def refuse_sigalrm(signum: int, handler: object) -> object:
+        if hasattr(signal, "SIGALRM") and signum == signal.SIGALRM:
+            raise ValueError("SIGALRM unavailable")
+        return signal.SIG_DFL
+
+    monkeypatch.setattr(signal, "signal", refuse_sigalrm)
+
+    req_data = pack_pickle_frame(
+        {
+            "id": "req-tp-timeout",
+            "action": "execute",
+            "code": "import time\ntime.sleep(1.5)",
+            "timeout_sec": 1,
+        }
+    )
+    stdin = io.BytesIO(req_data)
+    stdout = io.BytesIO()
+
+    monkeypatch.setattr(harness, "claim_ipc_stdin", lambda: stdin)
+    monkeypatch.setattr(harness, "claim_ipc_channel", lambda: stdout)
+
+    start = time.monotonic()
+    write_elapsed: float | None = None
+    real_write = harness.write_pickle_frame
+
+    def _timed_write(stream: object, payload: object, **kwargs: object) -> None:
+        nonlocal write_elapsed
+        if isinstance(payload, dict) and payload.get("status") == "error":
+            write_elapsed = time.monotonic() - start
+        real_write(stream, payload, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(harness, "write_pickle_frame", _timed_write)
+
+    try:
+        harness.main()
+    finally:
+        lpe.discard_thread_pool_timeout()
+        from plugin.scripting.host_tool_call import set_process_role
+
+        set_process_role(None)
+
+    assert write_elapsed is not None
+    assert write_elapsed < 1.4
+    assert exit_calls == []
+    assert lpe._pending_timeout_future is None
+    stdout.seek(0)
+    ready = read_pickle_frame(stdout, require_dict=True)
+    assert ready is not None and ready.get("status") == "ready"
+    started = read_pickle_frame(stdout, require_dict=True)
+    assert started == {"type": "exec_started", "id": "req-tp-timeout"}
+    err_frame = read_pickle_frame(stdout, require_dict=True)
+    assert err_frame is not None
+    assert err_frame["status"] == "error"
+    assert err_frame.get("code") == "EXECUTION_TIMEOUT"
+
+
 def test_stdio_loop_calls_exit_on_abandoned_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
     import io
     import plugin.contrib.smolagents.local_python_executor as lpe

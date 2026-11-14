@@ -73,7 +73,7 @@ from plugin.scripting.venv import optional_import
 from plugin.scripting.venv.sandbox_request import SandboxRequest
 from plugin.framework.ipc import UserStopped
 from plugin.framework.constants import auto_imports
-from plugin.scripting.venv.results import error_result
+from plugin.scripting.venv.results import DEFER_TIMEOUT_FINALIZE, error_result
 from plugin.scripting.sandbox import (
     SANDBOX_BLOCKED_MODULES,
     SANDBOX_EXTRA_MODULES,
@@ -331,6 +331,17 @@ def _install_timeout_context_pool() -> None:
     # constructs on the SIGALRM fallback path. setattr: mypy rejects assigning
     # over a class object ("Cannot assign to a type").
     setattr(lpe, "ThreadPoolExecutor", _ContextThreadPoolExecutor)
+
+    # On the thread-pool fallback (Windows / non-main thread), evaluate_python_code
+    # calls lpe.finalize_thread_pool_timeout() before re-raising ExecutionTimeoutError,
+    # which blocks up to timeout_sec + 2s and would exceed the host's read grace.
+    # When worker_harness defers finalization, let the frame write first and drain after.
+    def _finalize_if_not_deferred() -> None:
+        if DEFER_TIMEOUT_FINALIZE.get():
+            return
+        finalize_thread_pool_timeout()
+
+    setattr(lpe, "finalize_thread_pool_timeout", _finalize_if_not_deferred)
 
 
 _install_timeout_context_pool()
@@ -1104,7 +1115,7 @@ def _run_on_executor(
         # except BaseException. The child is still alive, so the code is
         # EXECUTION_TIMEOUT (budget spent), not the host's VENV_TIMEOUT
         # (child killed); Calc shows the same timeout guidance for both.
-        finalize_thread_pool_timeout()
+        lpe.finalize_thread_pool_timeout()
         return _fail_cell(
             executor,
             prior_result,

@@ -56,7 +56,7 @@ install_alias_authorizer()
 
 from plugin.scripting.host_tool_call import ROLE_WORKER, set_process_role
 from plugin.scripting.trusted_action_registry import get_trusted_action_wiring
-from plugin.scripting.venv.results import error_result
+from plugin.scripting.venv.results import DEFER_TIMEOUT_FINALIZE, error_result
 
 log = logging.getLogger("worker_harness")
 # The sandbox imports this module; sys.modules lookup avoids a second import on every request.
@@ -261,7 +261,11 @@ def main() -> None:
             setattr(lpe, "abandoned_timeout", False)
 
         try:
-            response = _handle_request(request, stdout=stdout)
+            defer_token = DEFER_TIMEOUT_FINALIZE.set(True)
+            try:
+                response = _handle_request(request, stdout=stdout)
+            finally:
+                DEFER_TIMEOUT_FINALIZE.reset(defer_token)
             log.debug(
                 "Finished request id=%s, response status=%s",
                 req_id,
