@@ -152,6 +152,7 @@ def test_local_transcribe_emits_on_status(monkeypatch: pytest.MonkeyPatch) -> No
     assert stt_service._transcribe_local("/tmp/a.wav", "tiny", statuses.append) == "hi"
     assert len(statuses) == 1
     assert "tiny" in statuses[0]
+    assert "download" in statuses[0]
 
 
 def test_local_without_venv_names_install_hint(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -211,20 +212,6 @@ def test_present_package_transcribes_via_child_script(monkeypatch: pytest.Monkey
     assert calls[1][2:] == ["--wav", "/tmp/b.wav", "--model=tiny"]
 
 
-def test_uncached_weights_status_mentions_download(monkeypatch: pytest.MonkeyPatch) -> None:
-    py_exe = "/opt/venv/bin/python"
-
-    def fake_run(cmd: list[str], timeout: float, **kwargs: object) -> stt_service.SttCommandResult:
-        del timeout, kwargs
-        return stt_service.SttCommandResult(0, '{"status":"ok","text":"hi"}\n', "")
-
-    monkeypatch.setattr(stt_service, "_run_cmd", fake_run)
-    monkeypatch.setattr(stt_service, "resolve_stt_python", lambda: py_exe)
-    monkeypatch.setattr(stt_service, "_local_whisper_weights_cached", lambda model: False)
-    assert stt_service._transcribe_local("/tmp/a.wav", "tiny") == "hi"
-    assert "download" in stt_service._local_whisper_status("tiny")
-
-
 def _write_hub_snapshot(cache: Path, repo_id: str, payload: bytes = b"weights") -> Path:
     snap = cache / ("models--" + repo_id.replace("/", "--")) / "snapshots" / "abc123"
     snap.mkdir(parents=True)
@@ -273,6 +260,7 @@ def test_timeout_mentions_download_only_when_weights_missing(monkeypatch: pytest
         stt_service._transcribe_local("/tmp/a.wav", "base")
     assert "download" not in str(cached_exc.value)
     assert "could not start" not in str(cached_exc.value)
+    assert "uv pip install" not in str(cached_exc.value)
     cached["yes"] = False
     with pytest.raises(ConfigError, match="downloads model weights") as missing_exc:
         stt_service._transcribe_local("/tmp/a.wav", "base")
@@ -303,23 +291,6 @@ def test_run_cmd_returns_child_stdout() -> None:
     assert completed.timed_out is False
     assert completed.spawn_failed is False
     assert "hello-stt" in completed.stdout
-
-
-def test_timeout_is_not_a_missing_package(monkeypatch: pytest.MonkeyPatch) -> None:
-    py_exe = "/opt/venv/bin/python"
-
-    def fake_run(cmd: list[str], timeout: float, **kwargs: object) -> stt_service.SttCommandResult:
-        del cmd, timeout, kwargs
-        return stt_service.SttCommandResult(None, "", "", timed_out=True)
-
-    monkeypatch.setattr(stt_service, "_run_cmd", fake_run)
-    monkeypatch.setattr(stt_service, "resolve_stt_python", lambda: py_exe)
-    with pytest.raises(ConfigError) as exc_info:
-        stt_service._transcribe_local("/tmp/a.wav", "base")
-    message = str(exc_info.value)
-    assert "timed out" in message
-    assert "could not start" not in message
-    assert "uv pip install" not in message
 
 
 def test_run_cmd_closes_pipes(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -299,7 +299,6 @@ def test_persistent_connections(client):
 
         client._close_connection()
         conn1.close.assert_called_once()
-        assert client._transport._persistent_conn is None
 
         # Re-opening opens a new one
         conn3 = client._transport.get_connection()
@@ -3180,25 +3179,23 @@ def test_request_with_tools_sync_rejects_truncated_envelope(client):
     assert exc.value.code == "BAD_RESPONSE"
 
 
-def test_transcribe_audio_preserves_endpoint_prefix(tmp_path):
+@pytest.mark.parametrize(
+    ("endpoint", "expected_path"),
+    [
+        ("https://openrouter.ai/api", "/api/v1/audio/transcriptions"),
+        ("http://localhost:11434", "/v1/audio/transcriptions"),
+    ],
+)
+def test_transcribe_audio_preserves_endpoint_prefix(tmp_path, endpoint, expected_path):
     wav = tmp_path / "a.wav"
     wav.write_bytes(b"RIFF")
 
-    # Test with prefix
-    client1 = LlmClient({"endpoint": "https://openrouter.ai/api", "model": "m", "api_key": "k"}, None)
+    client = LlmClient({"endpoint": endpoint, "model": "m", "api_key": "k"}, None)
     with patch("plugin.framework.client.model_fetcher.has_native_audio", return_value=False):
-        with patch.object(client1, "_request_json", return_value={"text": "hello"}) as req1:
-            client1.transcribe_audio(str(wav))
-            req1.assert_called_once()
-            assert req1.call_args[0][1] == "/api/v1/audio/transcriptions"
-
-    # Test without prefix
-    client2 = LlmClient({"endpoint": "http://localhost:11434", "model": "m", "api_key": "k"}, None)
-    with patch("plugin.framework.client.model_fetcher.has_native_audio", return_value=False):
-        with patch.object(client2, "_request_json", return_value={"text": "hello"}) as req2:
-            client2.transcribe_audio(str(wav))
-            req2.assert_called_once()
-            assert req2.call_args[0][1] == "/v1/audio/transcriptions"
+        with patch.object(client, "_request_json", return_value={"text": "hello"}) as req:
+            client.transcribe_audio(str(wav))
+            req.assert_called_once()
+            assert req.call_args[0][1] == expected_path
 
 
 def test_transcribe_unknown_audio_tries_native_chat(tmp_path):

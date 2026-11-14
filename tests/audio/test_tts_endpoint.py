@@ -580,22 +580,34 @@ def test_speak_endpoint_short_reply_single_download():
 
 
 def test_speak_endpoint_falls_back_with_unplayed_tail():
+    recorded_status: list[object] = []
     downloads: list[str] = []
 
-    def fake_download(chunk, *args, **kwargs):
+    def fake_download(chunk, *args, on_status=None, **kwargs):
         del args, kwargs
+        recorded_status.append(on_status)
         downloads.append(chunk)
         if len(downloads) == 1:
             return _EndpointClip(b"RIFFfake", ".wav")
         return None
 
+    sentinel_status = MagicMock()
     cancel = SendCancellation()
     with patch("plugin.audio.tts_service.download_endpoint_speech", side_effect=fake_download), \
          patch("plugin.audio.tts_service._play_audio_file", return_value=True) as play, \
          patch("plugin.audio.tts_service._release_temp"), \
          patch("plugin.audio.tts_service._speak_system") as system:
-        _speak_endpoint(("A" * 4000) + " tail stays", "https://api.openai.com/v1", "k", model="tts-1", voice="alloy", cancel=cancel)
+        _speak_endpoint(
+            ("A" * 4000) + " tail stays",
+            "https://api.openai.com/v1",
+            "k",
+            model="tts-1",
+            voice="alloy",
+            on_status=sentinel_status,
+            cancel=cancel,
+        )
     assert len(downloads) == 2
+    assert recorded_status == [sentinel_status, sentinel_status]
     play.assert_called_once()
     system.assert_called_once()
     assert "tail stays" in system.call_args.args[0]
@@ -704,42 +716,6 @@ def test_endpoint_empty_body_is_failure_not_a_file():
         assert len(statuses) == 1
         assert statuses[0] == "Speech endpoint returned no audio."
         assert cfg.cached_tts_response_format(_tts_format_key("https://api.example", "m")) is None
-
-
-def test_speak_endpoint_later_chunk_failure_still_reports_status():
-    recorded_status: list[object] = []
-    downloads: list[str] = []
-
-    def fake_download(chunk, *args, on_status=None, **kwargs):
-        del args, kwargs
-        recorded_status.append(on_status)
-        downloads.append(chunk)
-        if len(downloads) == 1:
-            return _EndpointClip(b"RIFFfake", ".wav")
-        return None
-
-    sentinel_status = MagicMock()
-    text = ("A" * 4000) + " tail stays"
-    cancel = SendCancellation()
-
-    with patch("plugin.audio.tts_service.download_endpoint_speech", side_effect=fake_download), \
-         patch("plugin.audio.tts_service._play_audio_file", return_value=True), \
-         patch("plugin.audio.tts_service._release_temp"), \
-         patch("plugin.audio.tts_service._speak_system") as system:
-        _speak_endpoint(
-            text,
-            "https://api.openai.com/v1",
-            "k",
-            model="tts-1",
-            voice="alloy",
-            on_status=sentinel_status,
-            cancel=cancel,
-        )
-
-    assert len(downloads) == 2
-    assert recorded_status == [sentinel_status, sentinel_status]
-    system.assert_called_once()
-    assert "tail stays" in system.call_args.args[0]
 
 
 def test_stopped_post_logs_debug_not_warning(caplog):

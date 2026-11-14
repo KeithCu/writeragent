@@ -6,34 +6,19 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from plugin.doc import agent_undo as au
-
-
-class FakeUndoManager:
-    def __init__(self, titles: list[str]) -> None:
-        self._titles = list(titles)
-        self.undo_calls = 0
-
-    def getAllUndoActionTitles(self) -> list[str]:
-        return list(self._titles)
-
-    def undo(self) -> None:
-        self.undo_calls += 1
-        if self._titles:
-            self._titles.pop(0)
+from plugin.tests.testing_utils import FakeUndoManager
 
 
 def _doc(titles: list[str]) -> MagicMock:
     doc = MagicMock()
-    doc.getUndoManager.return_value = FakeUndoManager(titles)
+    doc.getUndoManager.return_value = FakeUndoManager(titles=titles)
     return doc
 
 
 def _with_doc_key(doc: MagicMock, uid: str):
-    from unittest.mock import patch
-
     return patch("plugin.doc.agent_undo.compute_doc_key", return_value=f"uid:{uid}")
 
 
@@ -41,11 +26,11 @@ def test_record_and_undo_single_step():
     doc = _doc(["Old"])
     with _with_doc_key(doc, "a"):
         au.record_agent_turn_before(doc)
-        doc.getUndoManager.return_value._titles = ["Agent", "Old"]
+        doc.getUndoManager.return_value.titles = ["Agent", "Old"]
         au.record_agent_turn_after(doc)
         msg = au.undo_last_agent_edit(doc)
         assert "1 steps" in msg
-        assert doc.getUndoManager.return_value._titles == ["Old"]
+        assert doc.getUndoManager.return_value.titles == ["Old"]
         assert au.undo_last_agent_edit(doc) == "There is no agent edit to undo."
 
 
@@ -61,12 +46,12 @@ def test_refuses_when_titles_changed_since_agent_edit():
     doc = _doc(["Old"])
     with _with_doc_key(doc, "b"):
         au.record_agent_turn_before(doc)
-        doc.getUndoManager.return_value._titles = ["Agent", "Old"]
+        doc.getUndoManager.return_value.titles = ["Agent", "Old"]
         au.record_agent_turn_after(doc)
-        doc.getUndoManager.return_value._titles = ["User", "Agent", "Old"]
+        doc.getUndoManager.return_value.titles = ["User", "Agent", "Old"]
         msg = au.undo_last_agent_edit(doc)
         assert "edited since" in msg
-        assert doc.getUndoManager.return_value.undo_calls == 0
+        assert doc.getUndoManager.return_value.undone == 0
 
 
 def test_skips_record_when_stack_unchanged():
@@ -81,21 +66,21 @@ def test_clear_record():
     doc = _doc([])
     with _with_doc_key(doc, "d"):
         au.record_agent_turn_before(doc)
-        doc.getUndoManager.return_value._titles = ["Agent"]
+        doc.getUndoManager.return_value.titles = ["Agent"]
         au.record_agent_turn_after(doc)
         au.clear_agent_undo_record(doc)
         assert au.undo_last_agent_edit(doc) == "There is no agent edit to undo."
 
 
 def test_dict_keyed_by_doc_key_not_object_identity():
-    um = FakeUndoManager(["Old"])
+    um = FakeUndoManager(titles=["Old"])
     doc_a = MagicMock()
     doc_b = MagicMock()
     doc_a.getUndoManager.return_value = um
     doc_b.getUndoManager.return_value = um
     with _with_doc_key(doc_a, "same"):
         au.record_agent_turn_before(doc_a)
-        um._titles = ["Agent", "Old"]
+        um.titles = ["Agent", "Old"]
         au.record_agent_turn_after(doc_b)
         msg = au.undo_last_agent_edit(doc_a)
         assert "1 steps" in msg

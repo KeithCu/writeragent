@@ -221,34 +221,42 @@ def test_grep_nearby_files_stopped_early_on_total_cap(mock_resolve, mock_search,
     assert result["files_scanned"] == 1
 
 
+@pytest.mark.parametrize(
+    ("candidates", "stopped_early"),
+    [
+        pytest.param(
+            [
+                {"path": "/tmp/a.ods", "name": "a.ods", "url": "", "doc_type_guess": "calc", "is_open": False},
+                {"path": "/tmp/b.ods", "name": "b.ods", "url": "", "doc_type_guess": "calc", "is_open": False},
+            ],
+            False,
+            id="between_files",
+        ),
+        pytest.param(
+            [{"path": "/tmp/a.ods", "name": "a.ods", "url": "", "doc_type_guess": "calc", "is_open": False}],
+            True,
+            id="during_last_file",
+        ),
+    ],
+)
 @patch("plugin.doc.document_research_grep.close_document_research_document")
 @patch("plugin.doc.document_research_grep.open_document_for_read")
 @patch("plugin.doc.document_research_grep._grep_text_in_calc")
 @patch("plugin.doc.document_research_grep.resolve_grep_candidates")
-def test_grep_nearby_files_stop_checker(mock_resolve, mock_search, mock_open, mock_close):
-    mock_resolve.return_value = (
-        [
-            {"path": "/tmp/a.ods", "name": "a.ods", "url": "", "doc_type_guess": "calc", "is_open": False},
-            {"path": "/tmp/b.ods", "name": "b.ods", "url": "", "doc_type_guess": "calc", "is_open": False},
-        ],
-        False,
-        None,
-    )
+def test_grep_nearby_files_stop_checker(
+    mock_resolve, mock_search, mock_open, mock_close, candidates, stopped_early
+):
+    mock_resolve.return_value = (candidates, False, None)
     mock_open.return_value = (MagicMock(), "calc", None, True)
-    mock_search.return_value = ([{"sheet": "S", "cell": "A1", "value": "x"}], False)
+    mock_search.return_value = ([{"sheet": "S", "cell": "A1", "value": "x"}], stopped_early)
 
     cancel = _SequentialCancel([False, True])
-
-    result = grep_nearby_files(
-        MagicMock(),
-        MagicMock(),
-        MagicMock(),
-        "x",
-        cancel=cancel,
-    )
+    result = grep_nearby_files(MagicMock(), MagicMock(), MagicMock(), "x", cancel=cancel)
 
     assert result["status"] == "error"
     assert result["code"] == "USER_STOPPED"
+    assert "hits" not in result
+    mock_close.assert_called_once()
 
 
 @patch("plugin.doc.document_research_grep.close_document_research_document")
@@ -653,35 +661,6 @@ def test_grep_nearby_files_stop_checker_aborts_during_directory_scan(mock_omt, m
 
     assert result["status"] == "error"
     assert result["code"] == "USER_STOPPED"
-
-
-@patch("plugin.doc.document_research_grep.close_document_research_document")
-@patch("plugin.doc.document_research_grep.open_document_for_read")
-@patch("plugin.doc.document_research_grep._grep_text_in_calc")
-@patch("plugin.doc.document_research_grep.resolve_grep_candidates")
-def test_grep_nearby_files_stop_during_last_file_is_user_stopped(mock_resolve, mock_search, mock_open, mock_close):
-    mock_resolve.return_value = (
-        [{"path": "/tmp/a.ods", "name": "a.ods", "url": "", "doc_type_guess": "calc", "is_open": False}],
-        False,
-        None,
-    )
-    mock_open.return_value = (MagicMock(), "calc", None, True)
-    mock_search.return_value = ([{"sheet": "S", "cell": "A1", "value": "x"}], True)
-
-    cancel = _SequentialCancel([False, True])
-
-    result = grep_nearby_files(
-        MagicMock(),
-        MagicMock(),
-        MagicMock(),
-        "x",
-        cancel=cancel,
-    )
-
-    assert result["status"] == "error"
-    assert result["code"] == "USER_STOPPED"
-    assert "hits" not in result
-    mock_close.assert_called_once()
 
 
 @patch("plugin.doc.document_research_grep.close_document_research_document")

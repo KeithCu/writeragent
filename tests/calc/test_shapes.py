@@ -43,3 +43,27 @@ def test_get_active_page_index_follows_calc_active_sheet():
     # Bridge should correctly identify idx 1 because page is sheet1.getDrawPage()
     bridge = DrawBridge(doc)
     assert bridge.get_active_page_index() == 1
+
+
+def test_calc_shapes_domain_tools():
+    from plugin.calc.shapes import UpsertShape, DeleteShape, ConnectShapes, GroupShapes, GetDrawSummary
+    from plugin.framework.tool import ToolRegistry
+
+    services = MagicMock()
+    reg = ToolRegistry(services)
+    reg.register(UpsertShape())
+    reg.register(DeleteShape())
+    reg.register(ConnectShapes())
+    reg.register(GroupShapes())
+    reg.register(GetDrawSummary())
+
+    doc = MagicMock()
+    doc.supportsService.return_value = True
+
+    tools = reg.get_tools(doc=doc, active_domain="shapes", exclude_tiers=())
+    names = {t.name for t in tools}
+    assert "shape_upsert" in names
+    assert "shape_delete" in names
+    assert "shape_connect" in names
+    assert "shape_group" in names
+    assert "shape_summary" in names

@@ -202,8 +202,9 @@ def test_charts_process_events_regression_must_marshal(uno_thread_safety, monkey
 def test_make_thread_affine_mock_standalone():
     main = threading.main_thread()
     raw = MagicMock()
+    raw.foo.return_value = "ok"
     wrapped = make_thread_affine_mock(raw, main_thread=main, name="x")
-    assert wrapped.foo._target is raw.foo
+    assert wrapped.foo() == "ok"
 
 
 def test_yellow_context_refuses_call(uno_thread_safety):

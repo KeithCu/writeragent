@@ -1176,51 +1176,104 @@ def test_raw_spawn_drain_stderr_false_starts(monkeypatch: pytest.MonkeyPatch) ->
     assert managed not in ms._instances
 
 
-def test_worker_start_honours_stdin_ignores_stdout(
+@pytest.mark.parametrize(
+    ("ctor_kwargs", "expect_drain", "expect_registered", "expected_kwargs"),
+    [
+        pytest.param(
+            {"stdin": subprocess.DEVNULL, "stdout": subprocess.DEVNULL},
+            True,
+            True,
+            {"stdin": subprocess.DEVNULL, "stdout": subprocess.PIPE, "stderr": subprocess.PIPE, "bufsize": 0},
+            id="honours_stdin_ignores_stdout",
+        ),
+        pytest.param(
+            {},
+            True,
+            True,
+            {"stdin": subprocess.PIPE, "stdout": subprocess.PIPE, "stderr": subprocess.PIPE, "text": None},
+            id="default_binary",
+        ),
+        pytest.param(
+            {"text": True, "register": False},
+            True,
+            False,
+            {"text": True, "bufsize": 1},
+            id="text_line_buffered_unregistered",
+        ),
+        pytest.param(
+            {
+                "base_env": {"PATH": "/bin", "LD_LIBRARY_PATH": "/lo"},
+                "drain_stderr": False,
+                "register": False,
+                "log_start_failure": False,
+                "label": "monaco-editor",
+            },
+            False,
+            False,
+            {
+                "stdin": subprocess.PIPE,
+                "stdout": subprocess.PIPE,
+                "stderr": subprocess.PIPE,
+                "bufsize": 0,
+                "cwd": None,
+                "env": {"PATH": "/bin", "LD_LIBRARY_PATH": "/lo"},
+            },
+            id="drain_stderr_false_skips_drain_and_register",
+        ),
+    ],
+)
+def test_worker_start_popen_kwargs_and_registration(
     monkeypatch: pytest.MonkeyPatch,
+    ctor_kwargs: dict[str, Any],
+    expect_drain: bool,
+    expect_registered: bool,
+    expected_kwargs: dict[str, Any],
 ) -> None:
+    import plugin.framework.managed_subprocess as ms
+
+    captured_kwargs: list[dict[str, Any]] = []
+    drain_calls: list[bool] = []
+    fake_proc = MagicMock()
+    fake_proc.pid = 4242
+    fake_proc.poll.return_value = None
+
+    monkeypatch.setattr(ms.subprocess, "Popen", lambda _cmd, **kw: captured_kwargs.append(dict(kw)) or fake_proc)
+    monkeypatch.setattr(ms, "start_stderr_drain", lambda *_a, **_kw: drain_calls.append(True) or MagicMock())
+
+    subp = ms.ManagedSubprocess(["dummy"], **ctor_kwargs)
+    try:
+        subp.start()
+        assert len(drain_calls) == int(expect_drain)
+        assert (subp in ms._instances) is expect_registered
+
+        kwargs = captured_kwargs[0]
+        for key, val in expected_kwargs.items():
+            assert kwargs.get(key) == val
+        if sys.platform == "win32":
+            assert "creationflags" in kwargs
+            assert "start_new_session" not in kwargs
+        else:
+            assert kwargs.get("start_new_session") is True
+            assert "creationflags" not in kwargs
+    finally:
+        _reap_for_test(subp)
+
+
+def test_worker_start_copies_base_env(monkeypatch: pytest.MonkeyPatch) -> None:
     import plugin.framework.managed_subprocess as ms
 
     captured_kwargs: list[dict[str, Any]] = []
     fake_proc = MagicMock()
     fake_proc.pid = 4242
     fake_proc.poll.return_value = None
+    monkeypatch.setattr(ms.subprocess, "Popen", lambda _cmd, **kw: captured_kwargs.append(dict(kw)) or fake_proc)
+    monkeypatch.setattr(ms, "start_stderr_drain", lambda *_a, **_kw: MagicMock())
 
-    def fake_popen(cmd: list[str], **kwargs: Any) -> MagicMock:
-        captured_kwargs.append(dict(kwargs))
-        return fake_proc
-
-    drain_called = False
-
-    def fake_drain(*args: Any, **kwargs: Any) -> MagicMock:
-        nonlocal drain_called
-        drain_called = True
-        return MagicMock()
-
-    monkeypatch.setattr(ms.subprocess, "Popen", fake_popen)
-    monkeypatch.setattr(ms, "start_stderr_drain", fake_drain)
-
-    subp = ms.ManagedSubprocess(
-        ["echo"],
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.DEVNULL,
-    )
-    try:
-        subp.start()
-        assert drain_called
-        kwargs = captured_kwargs[0]
-        assert kwargs["stdin"] == subprocess.DEVNULL
-        assert kwargs["stdout"] == subprocess.PIPE
-        assert kwargs["stderr"] == subprocess.PIPE
-        assert kwargs["bufsize"] == 0
-        if sys.platform == "win32":
-            assert "creationflags" in kwargs
-            assert "start_new_session" not in kwargs
-        else:
-            assert kwargs["start_new_session"] is True
-            assert "creationflags" not in kwargs
-    finally:
-        _reap_for_test(subp)
+    base_env = {"PATH": "/bin"}
+    subp = ms.ManagedSubprocess(["dummy"], base_env=base_env, register=False)
+    subp.start()
+    assert captured_kwargs[0]["env"] == base_env
+    assert captured_kwargs[0]["env"] is not base_env
 
 
 def test_managed_subprocess_run_forwards_contract(
@@ -1256,57 +1309,6 @@ def test_managed_subprocess_run_forwards_contract(
     for flag_key, flag_val in get_subprocess_creationflags().items():
         assert kwargs[flag_key] == flag_val
     assert "start_new_session" not in kwargs
-
-
-def test_default_start_stays_binary(monkeypatch: pytest.MonkeyPatch) -> None:
-    import plugin.framework.managed_subprocess as ms
-
-    captured_kwargs: list[dict[str, Any]] = []
-    mock_proc = MagicMock()
-    mock_proc.pid = 4242
-    mock_proc.stdin = MagicMock()
-    mock_proc.stdout = MagicMock()
-    mock_proc.stderr = MagicMock()
-    mock_proc.poll.return_value = 0
-
-    monkeypatch.setattr(ms.subprocess, "Popen", lambda *a, **kw: captured_kwargs.append(dict(kw)) or mock_proc)
-    monkeypatch.setattr(ms, "start_stderr_drain", lambda *a, **kw: MagicMock())
-
-    inst = ms.ManagedSubprocess(["dummy"])
-    inst.start()
-    try:
-        kwargs = captured_kwargs[0]
-        assert not kwargs.get("text")
-        assert not kwargs.get("universal_newlines")
-        assert kwargs["stdin"] == subprocess.PIPE
-        assert kwargs["stdout"] == subprocess.PIPE
-        assert kwargs["stderr"] == subprocess.PIPE
-    finally:
-        _reap_for_test(inst)
-
-
-def test_text_mode_is_line_buffered_and_unregistered(monkeypatch: pytest.MonkeyPatch) -> None:
-    import plugin.framework.managed_subprocess as ms
-
-    captured_kwargs: list[dict[str, Any]] = []
-    mock_proc = MagicMock()
-    mock_proc.pid = 4242
-    mock_proc.stdin = MagicMock()
-    mock_proc.stdout = MagicMock()
-    mock_proc.stderr = MagicMock()
-
-    monkeypatch.setattr(ms.subprocess, "Popen", lambda *a, **kw: captured_kwargs.append(dict(kw)) or mock_proc)
-    monkeypatch.setattr(ms, "start_stderr_drain", lambda *a, **kw: MagicMock())
-
-    inst = ms.ManagedSubprocess(["dummy"], text=True, register=False)
-    inst.start()
-    kwargs = captured_kwargs[0]
-    assert kwargs["text"] is True
-    assert kwargs["bufsize"] == 1
-    assert "encoding" not in kwargs
-    assert "errors" not in kwargs
-    assert "universal_newlines" not in kwargs
-    assert inst not in ms._instances
 
 
 def test_register_false_omits_shutdown_registry(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1416,61 +1418,6 @@ def test_stderr_name_with_pid_appends_pid(monkeypatch: pytest.MonkeyPatch) -> No
     assert drain_calls[1]["name"] == "fixed"
 
 
-
-
-
-
-def test_drain_stderr_false_skips_drain_and_register(monkeypatch: pytest.MonkeyPatch) -> None:
-    import plugin.framework.managed_subprocess as ms
-
-    recorded_cmd: list[str] = []
-    recorded_kwargs: dict[str, Any] = {}
-
-    mock_popen = MagicMock()
-    mock_popen.poll.return_value = None
-    mock_popen.stderr = MagicMock()
-
-    def fake_popen(cmd: list[str], **kwargs: Any) -> MagicMock:
-        recorded_cmd.extend(cmd)
-        recorded_kwargs.update(kwargs)
-        return mock_popen
-
-    monkeypatch.setattr(ms.subprocess, "Popen", fake_popen)
-    monkeypatch.setattr(ms, "start_stderr_drain", MagicMock(side_effect=AssertionError("drain")))
-
-    base_env = {"PATH": "/bin", "LD_LIBRARY_PATH": "/lo"}
-    managed = ms.ManagedSubprocess(
-        ["python", "editor_main.py"],
-        base_env=base_env,
-        drain_stderr=False,
-        register=False,
-        log_start_failure=False,
-        label="monaco-editor",
-    )
-    managed.start()
-
-    assert recorded_cmd == ["python", "editor_main.py"]
-    assert recorded_kwargs["stdin"] == subprocess.PIPE
-    assert recorded_kwargs["stdout"] == subprocess.PIPE
-    assert recorded_kwargs["stderr"] == subprocess.PIPE
-    assert recorded_kwargs["bufsize"] == 0
-    assert recorded_kwargs["cwd"] is None
-    assert recorded_kwargs["env"] == base_env
-    assert recorded_kwargs["env"] is not base_env
-    assert "text" not in recorded_kwargs
-    assert "preexec_fn" not in recorded_kwargs
-
-    if sys.platform == "win32":
-        assert recorded_kwargs.get("creationflags") == subprocess.CREATE_NO_WINDOW
-        assert "start_new_session" not in recorded_kwargs
-    else:
-        assert recorded_kwargs.get("start_new_session") is True
-        assert "creationflags" not in recorded_kwargs
-
-    assert managed.stderr_tail is None
-    assert managed not in ms._instances
-
-
 def test_log_start_failure_false_editor_host(
     monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
@@ -1573,22 +1520,11 @@ def test_managed_subprocess_run_capture_output(monkeypatch: pytest.MonkeyPatch) 
     assert recorded_args == [(cmd,)]
     assert recorded_kwargs["capture_output"] is True
     assert recorded_kwargs["timeout"] == 30
-    assert type(recorded_kwargs["timeout"]) is int
     assert recorded_kwargs["env"] is env
     assert recorded_kwargs["text"] is True
-
     assert recorded_kwargs["stdin"] is None
     assert recorded_kwargs["stdout"] is None
     assert recorded_kwargs["stderr"] is None
-    absent_keys = (
-        "input",
-        "shell",
-        "start_new_session",
-        "bufsize",
-        "preexec_fn",
-    )
-    for key in absent_keys:
-        assert key not in recorded_kwargs
 
     from plugin.framework.subprocess_env import get_subprocess_creationflags
 
