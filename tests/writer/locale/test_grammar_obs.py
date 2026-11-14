@@ -124,6 +124,7 @@ def test_status_bar_grammar_status_always_posts_to_main_thread() -> None:
         patch("plugin.writer.locale.grammar_obs.is_libreharper", return_value=True),
         patch("plugin.writer.locale.grammar_obs.get_ctx", return_value=MagicMock()),
         patch.object(go, "resolve_status_bar_frame", return_value=mock_frame),
+        patch("plugin.writer.locale.grammar_obs.pump_main_thread_work_queue"),
         patch("plugin.framework.queue_executor.main.post", side_effect=lambda fn, *args: fn(*args) if callable(fn) else None) as mock_post,
     ):
         sink.start("Hello world.", result="Starting Harper…")
