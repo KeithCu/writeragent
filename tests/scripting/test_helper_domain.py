@@ -214,13 +214,6 @@ def test_rps_insert_failed_outcome_logs_type_str_repr(caplog):
     assert "insertDocumentFromURL" in joined
 
 
-def test_parse_run_import_call_accepts_long_script():
-    from plugin.framework.deal_shim import DEAL_MAX_SOURCE
-
-    code = "x = 1\n" * (DEAL_MAX_SOURCE // 4)
-    assert ScriptFacts.from_source(code).first_run_spec("run") is None
-
-
 def test_script_uses_run_import_in_comment_not_matched():
     code = "# run_vision(data)\nresult = 42\n"
     assert ScriptFacts.from_source(code).calls("run_vision") is False

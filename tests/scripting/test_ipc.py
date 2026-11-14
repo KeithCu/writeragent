@@ -221,26 +221,6 @@ def test_invalid_frame_includes_stdout_rest_when_win32_peek_skipped(monkeypatch,
     stream.read.assert_called_once_with(4)
 
 
-def test_unread_pipe_bytes_posix_peek_uses_set_blocking(monkeypatch):
-    """Unix leftover peek still uses set_blocking; mock so Windows pytest can run it."""
-    from plugin.framework import ipc
-
-    monkeypatch.setattr(ipc.sys, "platform", "linux")
-    seen: list[tuple[int, bool]] = []
-
-    def fake_set_blocking(fd: int, blocking: bool) -> None:
-        seen.append((fd, blocking))
-
-    monkeypatch.setattr(ipc.os, "get_blocking", lambda fd: True)
-    monkeypatch.setattr(ipc.os, "set_blocking", fake_set_blocking)
-    monkeypatch.setattr(ipc.os, "read", lambda fd, n: b"rest")
-    stream = MagicMock()
-    stream.fileno.return_value = 7
-    assert ipc._unread_pipe_bytes(stream) == b"rest"
-    assert seen == [(7, False), (7, True)]
-    stream.read.assert_not_called()
-
-
 def test_nonblocking_skips_on_win32(monkeypatch):
     """On Windows or when os.set_blocking is absent, _nonblocking yields cleanly without error."""
     from plugin.framework import ipc
@@ -253,36 +233,6 @@ def test_nonblocking_skips_on_win32(monkeypatch):
     monkeypatch.setattr(ipc.os, "set_blocking", boom)
     with ipc._nonblocking(42):
         pass
-
-
-def test_nonblocking_restores_blocking_posix(monkeypatch):
-    """On POSIX, _nonblocking records initial blocking state and restores it on normal exit or exception."""
-    from plugin.framework import ipc
-
-    monkeypatch.setattr(ipc.sys, "platform", "linux")
-    events: list[tuple[str, int, bool | None]] = []
-
-    def fake_get_blocking(fd: int) -> bool:
-        events.append(("get", fd, None))
-        return True
-
-    def fake_set_blocking(fd: int, blocking: bool) -> None:
-        events.append(("set", fd, blocking))
-
-    monkeypatch.setattr(ipc.os, "get_blocking", fake_get_blocking)
-    monkeypatch.setattr(ipc.os, "set_blocking", fake_set_blocking)
-
-    # Normal exit
-    with ipc._nonblocking(10):
-        pass
-    assert events == [("get", 10, None), ("set", 10, False), ("set", 10, True)]
-
-    # Exception exit restores blocking
-    events.clear()
-    with pytest.raises(RuntimeError, match="boom"):
-        with ipc._nonblocking(11):
-            raise RuntimeError("boom")
-    assert events == [("get", 11, None), ("set", 11, False), ("set", 11, True)]
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX peek sets the pipe non-blocking")

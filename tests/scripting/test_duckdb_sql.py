@@ -968,8 +968,8 @@ def test_format_sql_for_calc_shows_truncation_note():
         failed_message="SQL query failed.",
     )
     flat = [str(cell) for row in grid for cell in row if cell]
-    assert any("250" in cell and "truncated" in cell.lower() or "showing first" in cell.lower() for cell in flat)
-    assert any("Flags" in cell or "truncated" in cell.lower() for cell in flat)
+    assert "(showing first rows; 250 total)" in flat
+    assert "Flags" in flat
     err = format_tabular_helper_for_calc(
         {"status": "error", "code": "READONLY_VIOLATION", "message": "SQL contains write"},
         domain_label="SQL",
@@ -1052,6 +1052,13 @@ def test_defense_in_depth_external_access_lock(tmp_path: Path):
     res = query_folder_sql(str(tmp_path), "SELECT SUM(b) AS total FROM 'data.csv'", files=["data.csv"])
     assert res["status"] == "ok", res
     assert res["rows"][0][0] == 30
+
+    ext = query_folder_sql(
+        str(tmp_path),
+        "SELECT current_setting('enable_external_access') AS ext, current_setting('lock_configuration') AS locked",
+    )
+    assert ext["status"] == "ok", ext
+    assert ext["rows"] == [[False, True]]
 
 
 def test_run_sql_folder_join_uncapped_dataframe(tmp_path: Path):
