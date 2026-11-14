@@ -4,7 +4,7 @@ from tests.harness.pytest_progress import format_idle_pytest_progress
 
 
 def test_idle_progress_names_inflight_not_last_completed():
-    """Idle progress message names the test still running, not the last completed one."""
+    """GHA 35669866244 blamed last=quoted_font after split_change had already finished."""
     msg = format_idle_pytest_progress(
         7975,
         "tests/writer/test_xhtml_style_postprocess.py::test_quoted_font_name_emits_well_formed_data_lo_para",

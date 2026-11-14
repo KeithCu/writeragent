@@ -17,7 +17,7 @@ def test_get_ctx_with_uno():
     mock_uno = MagicMock()
     mock_ctx = MagicMock()
     mock_uno.getComponentContext.return_value = mock_ctx
-    # patch.dict RESTORES the previous sys.modules['uno'] (the session-wide mock installed by
+    # B9 regression: patch.dict RESTORES the previous sys.modules['uno'] (the session-wide mock installed by
     # tests/conftest.py). The old pop('uno') left the whole run without a 'uno' module, so any
     # later test that imports uno lazily hit the real uno.py -> "No module named 'pyuno'"
     # (this is what broke tests/mcp/test_long_running_concurrency.py in combined runs).
@@ -35,6 +35,7 @@ def test_get_ctx_with_uno():
         with patch.dict(sys.modules, {'uno': mock_uno}):
             assert (get_ctx() == mock_ctx)
             mock_uno.getComponentContext.assert_called_once()
+        assert sys.modules.get("uno") is not mock_uno and "uno" in sys.modules
     finally:
         set_fallback_ctx(saved)
 

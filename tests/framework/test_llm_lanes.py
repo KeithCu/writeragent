@@ -426,5 +426,3 @@ def test_llm_request_lane_status_callback_holder_then_own_hold() -> None:
                 _LLM_REQUEST_LOCK.release()
             except RuntimeError:
                 pass
-
-

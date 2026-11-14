@@ -1110,6 +1110,3 @@ def test_validate_suggested_call_against_apply_style():
     ok, err = validate_suggested_call(bad_enum)
     assert not ok
     assert err is not None and "Invalid value for target" in err
-
-
-

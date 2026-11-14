@@ -10,6 +10,10 @@ import os
 import sys
 import threading
 import time
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import pytest
 
 _pytest_progress_done = 0
 _pytest_progress_last_nodeid = ""
@@ -18,6 +22,12 @@ _pytest_progress_last_emit = 0.0
 _pytest_progress_stop: threading.Event | None = None
 _pytest_progress_thread: threading.Thread | None = None
 
+# After 7800 the next multiple of 100 is 8000, but GHA collects ~7988 items.
+# PR #823 pull_request jobs were SIGTERM-cancelled after a quiet 7900s tail
+# (35666812986) or after a logstart flood stalled the controller (35669866244).
+# Same SHAs finish that tail in ~5s on workflow_dispatch (35668304406,
+# 35669812792). last= was the last reported nodeid, not a hung hypothesis
+# test — name leftover inflight tests on the idle line instead.
 _PYTEST_PROGRESS_TAIL_AFTER = 7800
 _PYTEST_PROGRESS_IDLE_SEC = 15.0
 _PYTEST_PROGRESS_IDLE_LEFTOVER_CAP = 6
@@ -110,8 +120,9 @@ def on_runtest_logstart(nodeid: str) -> None:
     """Record a started test nodeid so idle heartbeats name inflight tests."""
     global _pytest_progress_last_nodeid
     if _make_pytest_progress_enabled():
-        # Remember the name for the 15s idle line without printing every start,
-        # which can flood GHA controller log I/O during rapid parametrized tails.
+        # Remember the name for the 15s idle line. Do not print every start:
+        # after 7800 that was hundreds of parametrized word_diff_split lines
+        # in ~1s (35669866244) and the controller stalled on GHA log I/O.
         _pytest_progress_last_nodeid = nodeid
         _pytest_progress_inflight.add(nodeid)
 
@@ -138,7 +149,7 @@ def on_collection_finish(item_count: int) -> None:
         _emit_make_pytest_progress(f"pytest: collected {item_count} tests")
 
 
-def on_runtest_logreport(report: object) -> None:
+def on_runtest_logreport(report: pytest.TestReport) -> None:
     """Emit periodic count or failure heartbeats as test calls complete."""
     global _pytest_progress_done, _pytest_progress_last_nodeid
     if not _make_pytest_progress_enabled():
@@ -146,16 +157,14 @@ def on_runtest_logreport(report: object) -> None:
     if getattr(report, "when", None) != "call":
         return
     _pytest_progress_done += 1
-    nodeid = getattr(report, "nodeid", "")
-    _pytest_progress_last_nodeid = nodeid
-    failed = bool(getattr(report, "failed", False))
-    if should_emit_pytest_progress_count(_pytest_progress_done, failed=failed):
-        if failed:
-            suffix = f" FAIL {nodeid}"
+    _pytest_progress_last_nodeid = report.nodeid
+    if should_emit_pytest_progress_count(_pytest_progress_done, failed=bool(report.failed)):
+        if report.failed:
+            suffix = f" FAIL {report.nodeid}"
         elif _pytest_progress_done % 100 == 0:
             suffix = ""
         else:
-            suffix = f" last={nodeid}"
+            suffix = f" last={report.nodeid}"
         _emit_make_pytest_progress(f"pytest: {_pytest_progress_done}{suffix}")
 
 
