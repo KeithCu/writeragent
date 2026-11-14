@@ -429,6 +429,7 @@ def test_export_table_cell_selection_uno(ctx: Any, doc: Any) -> None:
     content = result.get("content") or ""
 
     assert "Table" in content, content
+    assert "Hello" not in content and "Selection" not in content, content
 
 
 @native_test
@@ -498,7 +499,7 @@ def test_header_math_xtext_to_content_uno(ctx: Any, doc: Any) -> None:
 
     content = xtext_to_content(header_text, doc, ctx)
     assert content, "Expected non-empty HTML from header xtext_to_content"
-    assert "$y = m x + b$" in content or "$y=mx+b$" in content, content
+    assert "$y = m x + b$" in content, content
 
 
 @native_test

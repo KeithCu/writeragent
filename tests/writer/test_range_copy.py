@@ -25,6 +25,33 @@ class _Enum:
         return self._items.pop(0)
 
 
+def test_copy_cell_xtext_copies_direct_char_formatting() -> None:
+    portion = MagicMock()
+    portion.getPropertyValue.side_effect = lambda name: (
+        "Text" if name == "TextPortionType" else 150.0 if name == "CharWeight" else None
+    )
+    portion.getString.return_value = "Bold"
+
+    para = MagicMock()
+    para.supportsService.return_value = False
+    para.createEnumeration.return_value = _Enum([portion])
+
+    src_cell = MagicMock()
+    src_cell.createEnumeration.return_value = _Enum([para])
+
+    dest_doc = MagicMock()
+    dest_cell = MagicMock()
+    dest_cursor = MagicMock()
+    run = MagicMock()
+    dest_cell.createTextCursor.return_value = dest_cursor
+    dest_cell.createTextCursorByRange.return_value = run
+
+    rc._copy_cell_xtext(src_cell, dest_doc, dest_cell)
+
+    dest_cell.insertString.assert_any_call(dest_cursor, "Bold", False)
+    run.setPropertyValue.assert_any_call("CharWeight", 150.0)
+
+
 def test_apply_temp_para_style_returns_bool_status() -> None:
     temp_doc = MagicMock()
     temp_cursor = MagicMock()

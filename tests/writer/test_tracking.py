@@ -354,6 +354,7 @@ def test_manage_tracked_changes_accept_or_reject(action, uno_cmd):
     assert res["status"] == "ok"
     assert "tracking_list" in res["message"]
     assert "0" in res["message"]
+    # Selects the RedlineStart-derived span, not getAnchor() — real redlines have no getAnchor (see tracking.py:489).
     assert ctx.doc.getCurrentController().select.call_args_list == [
         call(span_cursor),
         call(ctx.doc.getCurrentController().getSelection.return_value),

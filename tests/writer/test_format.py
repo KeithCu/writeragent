@@ -1292,12 +1292,12 @@ def test_paint_direct_formatting_still_paints_char_when_para_copy_raises():
     from plugin.writer import range_copy as rc
 
     para = MagicMock()
-    para.getPropertyValue.side_effect = RuntimeError("refused Para*")
     portion = MagicMock()
     portion.getPropertyValue.side_effect = lambda name: 150.0 if name == "CharWeight" else None
     para_start = MagicMock(name="para_start")
     para_cursor = MagicMock()
     para_cursor.getStart.return_value = para_start
+    para_cursor.gotoEndOfParagraph.side_effect = RuntimeError("refused Para*")
     run = MagicMock()
     temp_text = MagicMock()
     temp_text.createTextCursor.return_value = para_cursor

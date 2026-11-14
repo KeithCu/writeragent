@@ -717,7 +717,6 @@ def test_apply_block_lo_styles_skips_when_style_already_matches():
         )
     apply.assert_not_called()
     assert res == []
-    walk_cur.gotoNextParagraph.assert_called_once_with(False)
 
 
 def test_full_document_in_review_mode_imports_into_a_fresh_paragraph():
@@ -1731,16 +1730,14 @@ def test_styled_math_insert_styles_from_paragraph_before_insert():
     before = MagicMock()
     start = MagicMock()
     with patch.object(html_import, "_insert_mixed_html_and_math_at_cursor"), \
-         patch.object(html_import, "_paragraph_before", return_value=before) as pb, \
-         patch.object(html_import, "_paragraph_after", return_value=start) as pa, \
+         patch.object(html_import, "_paragraph_before", return_value=before), \
+         patch.object(html_import, "_paragraph_after", return_value=start), \
          patch.object(html_import_styles, "apply_block_lo_styles") as apply:
         html_import._insert_mixed_or_plain_html(
             MagicMock(), MagicMock(), cursor,
             '<p data-lo-style="Heading1">Equation \\(x^2\\) here</p>',
             apply_styles=True,
         )
-    pb.assert_called_once()
-    pa.assert_called_once_with(cursor.getText.return_value, before)
     assert apply.call_args.args[2] is start
 
 

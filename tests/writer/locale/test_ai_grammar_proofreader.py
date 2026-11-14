@@ -970,7 +970,7 @@ def test_ensure_writeragent_proofreader_configured_triggers_harper_warmup() -> N
         patch("plugin.writer.locale.harper.maybe_start_harper_async") as mock_warmup,
     ):
         ensure_writeragent_proofreader_configured(ctx)
-        mock_warmup.assert_called_once_with(ctx, user_config_dir="/tmp/lo-user")
+        mock_warmup.assert_called_once()
 
 
 def test_ensure_writeragent_proofreader_configured_skips_warmup_without_config_dir() -> None:

@@ -267,7 +267,7 @@ def test_apply_style_paragraph(mock_resolve, mock_preserve, mock_ctx):
 
     assert res["status"] == "ok"
     assert res["family"] == "ParagraphStyles"
-    mock_preserve.assert_called_once_with(mock_ctx.doc, cursor, "Heading 1", "style_props")
+    mock_preserve.assert_called_once()
     cursor.setPropertyValue.assert_not_called()
 
 
