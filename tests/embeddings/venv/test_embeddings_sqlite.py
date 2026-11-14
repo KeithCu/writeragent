@@ -10,6 +10,7 @@ import pytest
 
 sqlite_vec = pytest.importorskip("sqlite_vec")
 
+from plugin.embeddings.embeddings_fs import ParagraphChunk, content_hash
 from plugin.embeddings.venv import embeddings_sqlite  # noqa: E402
 
 
@@ -436,14 +437,11 @@ def test_file_is_stale_when_no_rows(tmp_path):
 
 
 def test_file_is_stale_when_mtime_newer(tmp_path):
-    from plugin.embeddings.embeddings_fs import content_hash
-    from plugin.embeddings.venv.embeddings_sqlite import connect_corpus_db, ensure_schema, upsert_chunk_with_vector
-
     db_path = tmp_path / "corpus.db"
-    conn = connect_corpus_db(db_path)
+    conn = embeddings_sqlite.connect_corpus_db(db_path)
     try:
-        ensure_schema(conn, with_fts=False, with_vec=False)
-        upsert_chunk_with_vector(
+        embeddings_sqlite.ensure_schema(conn, with_fts=False, with_vec=False)
+        embeddings_sqlite.upsert_chunk_with_vector(
             conn,
             {
                 "doc_url": "file:///a.odt",
@@ -469,14 +467,11 @@ def test_file_is_stale_when_mtime_newer(tmp_path):
 
 def test_file_is_stale_uses_stored_file_mtime_not_wall_clock(tmp_path):
     """Staleness follows the stored file mtime, not wall-clock last_indexed_at."""
-    from plugin.embeddings.embeddings_fs import content_hash
-    from plugin.embeddings.venv.embeddings_sqlite import connect_corpus_db, ensure_schema, upsert_chunk_with_vector
-
     db_path = tmp_path / "corpus.db"
-    conn = connect_corpus_db(db_path)
+    conn = embeddings_sqlite.connect_corpus_db(db_path)
     try:
-        ensure_schema(conn, with_fts=False, with_vec=False)
-        upsert_chunk_with_vector(
+        embeddings_sqlite.ensure_schema(conn, with_fts=False, with_vec=False)
+        embeddings_sqlite.upsert_chunk_with_vector(
             conn,
             {
                 "doc_url": "file:///a.odt",
@@ -503,15 +498,12 @@ def test_file_is_stale_uses_stored_file_mtime_not_wall_clock(tmp_path):
 
 
 def test_diff_chunk_rows_detects_change_and_delete(tmp_path):
-    from plugin.embeddings.embeddings_fs import ParagraphChunk, content_hash
-    from plugin.embeddings.venv.embeddings_sqlite import connect_corpus_db, ensure_schema, upsert_chunk_with_vector
-
     db_path = tmp_path / "corpus.db"
-    conn = connect_corpus_db(db_path)
+    conn = embeddings_sqlite.connect_corpus_db(db_path)
     try:
-        ensure_schema(conn, with_fts=False, with_vec=False)
+        embeddings_sqlite.ensure_schema(conn, with_fts=False, with_vec=False)
         for para_index, text in ((0, "old"), (2, "gone")):
-            upsert_chunk_with_vector(
+            embeddings_sqlite.upsert_chunk_with_vector(
                 conn,
                 {
                     "doc_url": "file:///a.odt",
@@ -551,7 +543,7 @@ def test_diff_chunk_rows_detects_change_and_delete(tmp_path):
             file_mtime=1.0,
         ),
     ]
-    conn = connect_corpus_db(db_path)
+    conn = embeddings_sqlite.connect_corpus_db(db_path)
     try:
         to_index, to_delete = embeddings_sqlite.diff_chunk_rows_in_db(conn, "file:///a.odt", chunks)
     finally:

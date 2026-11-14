@@ -18,6 +18,8 @@ from plugin.embeddings.embeddings_cache import CorpusMeta
 from plugin.embeddings.search_ui import (
     SearchDialog,
     format_cache_age,
+    format_index_heartbeat_line,
+    heartbeat_counts_from_payload,
     show_search_dialog,
 )
 
@@ -412,15 +414,11 @@ class TestSearchDialog:
     ],
 )
 def test_format_index_heartbeat_line_singular(value, paragraphs, chunks, elapsed_sec, expected):
-    from plugin.embeddings.search_ui import format_index_heartbeat_line
-
     line = format_index_heartbeat_line(value, paragraphs=paragraphs, chunks=chunks, elapsed_sec=elapsed_sec)
     assert line == expected
 
 
 def test_heartbeat_counts_from_payload_prefers_upserted():
-    from plugin.embeddings.search_ui import heartbeat_counts_from_payload
-
     paragraphs, chunks = heartbeat_counts_from_payload({"paragraphs": 5, "upserted": 6})
     assert paragraphs == 5
     assert chunks == 6

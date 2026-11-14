@@ -3,6 +3,7 @@ from __future__ import annotations
 import io
 import os
 import pickle
+import stat
 import struct
 import subprocess
 import sys
@@ -13,6 +14,7 @@ from collections.abc import Generator
 from typing import Any
 from unittest.mock import MagicMock, patch
 import pytest
+from plugin.framework.constants import WORKER_POOL_DEFAULT, WORKER_POOL_EMBEDDINGS
 from plugin.framework.send_cancellation import SendCancellation
 from plugin.scripting.config_limits import WARM_WORKER_TIMEOUT_SEC
 from plugin.framework.ipc import DEFAULT_MAX_PAYLOAD_BYTES, FRAME_HEARTBEAT, FRAME_RESULT, IpcFrameError, IpcPartialFrameTimeout, pack_pickle_frame, read_pickle_frame
@@ -27,6 +29,7 @@ from plugin.scripting.venv_worker import (
     Terminal,
     _TurnState,
     _classify_read_failure,
+    _resolve_worker_python,
     _worker_error_message,
     parse_worker_stdout_frame,
     reset_python_session,
@@ -2781,9 +2784,6 @@ def test_orphan_venv_harness_dies_with_parent(tmp_path: Any) -> None:
 
 
 def test_embeddings_pool_requires_configured_venv():
-    from plugin.framework.constants import WORKER_POOL_EMBEDDINGS
-    from plugin.scripting.venv_worker import _resolve_worker_python
-
     with (
         patch("plugin.scripting.venv_worker.get_config", return_value=""),
         patch("plugin.scripting.venv_worker.resolve_libreoffice_python") as mock_lo,
@@ -2796,9 +2796,6 @@ def test_embeddings_pool_requires_configured_venv():
 
 
 def test_embeddings_pool_invalid_venv_path():
-    from plugin.framework.constants import WORKER_POOL_EMBEDDINGS
-    from plugin.scripting.venv_worker import _resolve_worker_python
-
     with patch("plugin.scripting.venv_worker.get_config", return_value="/no/such/venv"):
         exe, err = _resolve_worker_python(pool=WORKER_POOL_EMBEDDINGS)
     assert exe is None
@@ -2807,10 +2804,6 @@ def test_embeddings_pool_invalid_venv_path():
 
 
 def test_embeddings_pool_resolves_valid_venv(tmp_path):
-    import stat
-    from plugin.framework.constants import WORKER_POOL_EMBEDDINGS
-    from plugin.scripting.venv_worker import _resolve_worker_python
-
     venv = tmp_path / "embedvenv"
     bindir = venv / "bin"
     bindir.mkdir(parents=True)
@@ -2824,9 +2817,6 @@ def test_embeddings_pool_resolves_valid_venv(tmp_path):
 
 
 def test_default_pool_falls_back_to_lo_python_when_venv_empty():
-    from plugin.framework.constants import WORKER_POOL_DEFAULT
-    from plugin.scripting.venv_worker import _resolve_worker_python
-
     with (
         patch("plugin.scripting.venv_worker.get_config", return_value=""),
         patch("plugin.scripting.venv_worker.resolve_libreoffice_python", return_value=sys.executable) as mock_lo,

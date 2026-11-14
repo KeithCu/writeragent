@@ -7,7 +7,16 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from plugin.framework.uno_context import get_ctx, get_extension_url, set_fallback_ctx
+from plugin.framework.doc_type import DocumentType
+from plugin.framework.errors import DocumentDisposedError
+from plugin.framework.uno_context import (
+    get_ctx,
+    get_extension_url,
+    get_runtime_uid,
+    normalize_doc_url,
+    resolve_document_by_url,
+    set_fallback_ctx,
+)
 
 
 def test_get_ctx_with_uno():
@@ -805,14 +814,15 @@ def test_desktop_create_is_unsafe_for_uno_bin_helper() -> None:
 
 
 def test_normalize_doc_url():
-    from plugin.framework.uno_context import normalize_doc_url
-
     assert normalize_doc_url("file:///test/") == "file:///test"
     assert normalize_doc_url("file:///test") == "file:///test"
     assert normalize_doc_url("") == ""
     assert normalize_doc_url(None) == ""
 
 
+# RuntimeUID targeting lets a caller address a document that has no file URL yet
+# (unsaved/untitled), which the URL-only matcher could not reach. UNO is mocked
+# here; the live UNO path is exercised by the MCP integration run.
 def _resolve_model(url, uid):
     m = MagicMock()
     m.getURL.return_value = url
@@ -822,9 +832,6 @@ def _resolve_model(url, uid):
 
 def _resolve_by_url(models, target, type_map=None):
     """Run resolve_document_by_url over *models* with UNO desktop/enumeration mocked."""
-    from plugin.framework.doc_type import DocumentType
-    from plugin.framework.uno_context import resolve_document_by_url
-
     type_map = type_map or {}
     desktop = MagicMock()
 
@@ -851,8 +858,6 @@ def test_match_by_url_regression():
 
 
 def test_match_by_url_doc_type_calc():
-    from plugin.framework.doc_type import DocumentType
-
     b = _resolve_model("file:///docs/b.ods", "uid-b")
     doc, doc_type = _resolve_by_url([b], "file:///docs/b.ods", type_map={b: DocumentType.CALC})
     assert doc is b
@@ -904,9 +909,11 @@ def test_disposed_element_does_not_hide_a_later_match():
 
 
 def test_stuck_next_element_does_not_spin():
-    """A nextElement that raises without advancing must not spin the walk."""
-    from plugin.framework.uno_context import resolve_document_by_url
+    """A nextElement that raises without advancing must not spin the walk.
 
+    The old mock popped before it raised, so hasMoreElements() went false
+    and never saw a UNO enumeration that stays true after a failed fetch.
+    """
     class StuckEnumException(Exception):
         pass
 
@@ -935,9 +942,6 @@ def test_stuck_next_element_does_not_spin():
 
 
 def test_resolve_reraises_when_desktop_is_disposed():
-    from plugin.framework.errors import DocumentDisposedError
-    from plugin.framework.uno_context import resolve_document_by_url
-
     class DisposedException(Exception):
         pass
 
@@ -948,33 +952,24 @@ def test_resolve_reraises_when_desktop_is_disposed():
 
 def test_resolve_does_not_spin_on_a_magicmock_enumeration():
     """MagicMock.hasMoreElements() is truthy forever. The loop must stop."""
-    from plugin.framework.uno_context import resolve_document_by_url
-
     desktop = MagicMock()
     with patch("plugin.framework.uno_context.get_desktop", return_value=desktop):
         assert resolve_document_by_url(MagicMock(), "file:///tmp/note.odt") == (None, None)
 
 
 def test_resolve_returns_none_when_desktop_is_missing():
-    from plugin.framework.uno_context import resolve_document_by_url
-
     with patch("plugin.framework.uno_context.get_desktop", return_value=None):
         assert resolve_document_by_url(MagicMock(), "file:///tmp/note.odt") == (None, None)
 
 
 def test_empty_inputs_never_match():
     # Empty target short-circuits; an empty uid/url must never match anything.
-    from plugin.framework.uno_context import resolve_document_by_url
-
     assert resolve_document_by_url(MagicMock(), "") == (None, None)
     blank = _resolve_model("", "")
     assert _resolve_by_url([blank], "anything") == (None, None)
 
 
 def test_resolve_reraises_when_enumeration_is_disposed():
-    from plugin.framework.errors import DocumentDisposedError
-    from plugin.framework.uno_context import resolve_document_by_url
-
     class DisposedException(Exception):
         pass
 
@@ -988,8 +983,6 @@ def test_resolve_reraises_when_enumeration_is_disposed():
 
 
 def test_get_runtime_uid_present_missing_and_error():
-    from plugin.framework.uno_context import get_runtime_uid
-
     present = type("M", (), {"RuntimeUID": "abc"})()
     assert get_runtime_uid(present) == "abc"
 
@@ -1005,9 +998,6 @@ def test_get_runtime_uid_present_missing_and_error():
 
 
 def test_resolve_reraises_when_next_element_is_disposed():
-    from plugin.framework.errors import DocumentDisposedError
-    from plugin.framework.uno_context import resolve_document_by_url
-
     class DisposedException(Exception):
         pass
 

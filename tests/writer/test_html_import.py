@@ -2089,25 +2089,25 @@ def test_conversion():
     inp = "Line 1\nLine 2"
     expected_body = "<p>Line 1<br>\nLine 2</p>"
     result = ensure_html_linebreaks(inp)
-    assert expected_body in result, f"Test 1 failed: expected body {repr(expected_body)} to be in result {repr(result)}"
+    assert expected_body in result
     assert "<!DOCTYPE html>" in result
 
     # 2. Plain text with double newlines
     inp = "Para 1\n\nPara 2"
     expected_body = "<p>Para 1</p>\n<p>Para 2</p>"
     result = ensure_html_linebreaks(inp)
-    assert expected_body in result, f"Test 2 failed: expected body {repr(expected_body)} to be in result {repr(result)}"
+    assert expected_body in result
 
     # 3. Text with basic HTML tags (should be untouched, but wrapped)
     inp = "<h1>Title</h1>\n<p>Body</p>"
     result = ensure_html_linebreaks(inp)
-    assert inp in result, f"Test 3 failed: expected {repr(inp)} to be in result {repr(result)}"
+    assert inp in result
 
     # 4. Mix of single and double newlines
     inp = "Title\nSubtitle\n\nMain content\nMore content"
     expected_body = "<p>Title<br>\nSubtitle</p>\n<p>Main content<br>\nMore content</p>"
     result = ensure_html_linebreaks(inp)
-    assert expected_body in result, f"Test 4 failed: expected body {repr(expected_body)} to be in result {repr(result)}"
+    assert expected_body in result
 
 
 def test_full_document_not_double_wrapped():

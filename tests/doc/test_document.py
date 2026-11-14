@@ -1,4 +1,4 @@
-"""Headless unit tests for document URL/excerpt helpers (not a native UNO suite)."""
+"""Headless unit tests for document excerpt helpers (not a native UNO suite)."""
 
 from unittest.mock import patch
 

@@ -3543,6 +3543,7 @@ def test_llm_client_passes_cache_session_id(mock_ctx):
     ("body", "error_text", "expected_present", "expected_absent"),
     [
         pytest.param(
+            # resolution is deleted without capturing trailing JSON or leaking quotes into sibling fields.
             b'{"resolution": "512", "aspect_ratio": "16:9"}',
             'resolution: not supported. Accepted: 2K"}',
             {"aspect_ratio": "16:9"},
@@ -3557,6 +3558,7 @@ def test_llm_client_passes_cache_session_id(mock_ctx):
             id="aspect-strips-trailing-json",
         ),
         pytest.param(
+            # A listed tier is not copied. The provider default is the legal one.
             b'{"resolution": "512"}',
             "resolution: not supported. Accepted: 1K | resolution: not supported.",
             {},
@@ -3564,6 +3566,7 @@ def test_llm_client_passes_cache_session_id(mock_ctx):
             id="drops-resolution-even-when-accepted-listed",
         ),
         pytest.param(
+            # A line with no Accepted list must not erase the value another line named.
             b'{"aspect_ratio": "16:9"}',
             "aspect_ratio: not supported. Accepted: 1:1 | aspect_ratio: not supported.",
             {"aspect_ratio": "1:1"},

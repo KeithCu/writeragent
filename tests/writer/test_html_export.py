@@ -999,11 +999,11 @@ def test_stripping():
     inp = '<html><head><style>body { color: red; }</style></head><body lang="en-US"><h1>Hello</h1><p>World</p></body></html>'
     expected = '<h1>Hello</h1><p>World</p>'
     result = strip_html_boilerplate(inp)
-    assert result == expected, f"Test 5 failed: expected {repr(expected)}, got {repr(result)}"
+    assert result == expected
 
     # Upper case tags
     inp = '<BODY>Upper Case</BODY>'
     expected = 'Upper Case'
     result = strip_html_boilerplate(inp)
-    assert result == expected, f"Test 6 failed: expected {repr(expected)}, got {repr(result)}"
+    assert result == expected
 

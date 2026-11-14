@@ -1,10 +1,18 @@
 import pytest
 from types import SimpleNamespace
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
+from plugin.framework.tool import prepare_tool_call
 from plugin.tests.testing_utils import TestingFactory
-from plugin.writer.specialized.fields import FieldsInsert, FieldsList, FieldsDelete
+from plugin.writer.specialized.fields import (
+    DocumentPropertiesGet,
+    DocumentPropertiesSet,
+    FieldsDelete,
+    FieldsInsert,
+    FieldsList,
+)
 from tests.harness.strip_bundle import requires_asserts
+from tests.writer.test_document_helpers import _DocWithUserDefinedProperties, _UserDefinedProperties
 
 
 @pytest.fixture
@@ -552,10 +560,6 @@ def test_fields_delete_locked_undo_does_not_delete(mock_ctx):
 
 
 def test_document_properties_get_hides_product_udprops():
-    from unittest.mock import patch
-    from plugin.writer.specialized.fields import DocumentPropertiesGet
-    from tests.writer.test_document_helpers import _DocWithUserDefinedProperties, _UserDefinedProperties
-
     props = _UserDefinedProperties()
     props.values["Visible"] = "yes"
     props.values["WriterAgentGrammarCache"] = "secret"
@@ -583,10 +587,6 @@ def test_document_properties_get_hides_product_udprops():
 
 
 def test_document_properties_set_writes_and_rejects_internal():
-    from unittest.mock import patch
-    from plugin.writer.specialized.fields import DocumentPropertiesSet
-    from tests.writer.test_document_helpers import _DocWithUserDefinedProperties, _UserDefinedProperties
-
     props = _UserDefinedProperties()
     doc = _DocWithUserDefinedProperties(props)
 
@@ -616,10 +616,6 @@ def test_document_properties_set_writes_and_rejects_internal():
 
 
 def test_document_properties_set_no_changes_and_conflicts():
-    from plugin.framework.tool import prepare_tool_call
-    from plugin.writer.specialized.fields import DocumentPropertiesSet
-    from tests.writer.test_document_helpers import _DocWithUserDefinedProperties, _UserDefinedProperties
-
     props = _UserDefinedProperties()
     doc = _DocWithUserDefinedProperties(props)
 
@@ -650,10 +646,6 @@ def test_document_properties_set_no_changes_and_conflicts():
 
 
 def test_document_properties_set_partial_updated_on_ud_failure():
-    from unittest.mock import patch
-    from plugin.writer.specialized.fields import DocumentPropertiesSet
-    from tests.writer.test_document_helpers import _DocWithUserDefinedProperties, _UserDefinedProperties
-
     props = _UserDefinedProperties()
     doc = _DocWithUserDefinedProperties(props)
 
@@ -688,10 +680,6 @@ def test_document_properties_set_partial_updated_on_ud_failure():
 
 
 def test_document_properties_set_keywords_array():
-    from unittest.mock import patch
-    from plugin.writer.specialized.fields import DocumentPropertiesSet
-    from tests.writer.test_document_helpers import _DocWithUserDefinedProperties, _UserDefinedProperties
-
     props = _UserDefinedProperties()
     doc = _DocWithUserDefinedProperties(props)
 
