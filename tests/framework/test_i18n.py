@@ -322,5 +322,3 @@ class TestI18n:
 
         zh_trans = i18n_module.load_translation(["zh_CN"], self._ensure_mo("zh_CN"), fallback=False)
         assert (zh_trans.gettext("{0}d ago")) == ("{0}天前")
-
-

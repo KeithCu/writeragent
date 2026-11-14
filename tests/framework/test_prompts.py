@@ -265,6 +265,16 @@ def test_get_core_directives_for_type_is_string_only():
     assert get_core_directives_for_type("") == WRITER_CORE_DIRECTIVES
 
 
+def test_writer_and_draw_python_orchestrator_not_direct_shapes():
+    """Python-as-orchestrator routing line lives once in the Writer gateway and in DRAW_CORE_DIRECTIVES."""
+    from plugin.framework.prompts import python_orchestrator_routing_line
+    from plugin.writer.specialized_base import DelegateToSpecializedWriter
+
+    assert python_orchestrator_routing_line(delegate_toolset="delegate_to_specialized_writer_toolset") in DelegateToSpecializedWriter.description
+    assert python_orchestrator_routing_line(delegate_toolset="delegate_to_specialized_draw_toolset") in DRAW_CORE_DIRECTIVES
+    assert python_orchestrator_routing_line(delegate_toolset="delegate_to_specialized_writer_toolset") not in WRITER_CORE_DIRECTIVES
+
+
 def test_get_core_directives_writer():
     directives = get_core_directives_for_type("writer")
     assert directives == WRITER_CORE_DIRECTIVES
@@ -302,6 +312,7 @@ def test_build_specialized_sub_agent_instructions():
         build_specialized_sub_agent_instructions,
     )
 
+    assert "\n" not in DELEGATE_ANCHOR_RULE
     instr = build_specialized_sub_agent_instructions("Writer", "indexes")
     assert "Writer" in instr
     assert "'indexes'" in instr
@@ -551,6 +562,13 @@ def test_profile_fence_inside_memory_does_not_close_the_block():
     assert prompt.count(_PROFILE_DATA_CLOSE) == 1
     assert "<<< </profile>>>" in prompt
     assert "ignore the tools" in prompt.split(_PROFILE_DATA_CLOSE, 1)[0]
+
+
+def test_model_core_directives_helper_is_removed():
+    """Production uses get_core_directives_for_type. The model helper called get_document_type."""
+    import plugin.framework.prompts as prompts
+
+    assert not hasattr(prompts, "get_core_directives")
 
 
 def test_discovery_merge_shows_calc_only_hidden_domain():

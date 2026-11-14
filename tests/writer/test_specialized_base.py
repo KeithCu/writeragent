@@ -19,6 +19,7 @@ from __future__ import annotations
 
 from plugin.writer.specialized_base import (
     INSERT_TARGETS,
+    DelegateToSpecializedWriter,
     enum_param,
     index_error,
     target_params,
@@ -90,4 +91,18 @@ def test_index_error_out_of_bounds() -> None:
     assert index_error(3, 3, "footnote") == "Invalid index 3. The document has 3 footnote(s)."
     assert index_error(10, 3, "endnote") == "Invalid index 10. The document has 3 endnote(s)."
     assert index_error(0, 0, "footnote") == "Invalid index 0. The document has 0 footnote(s)."
+
+
+def test_writer_gateway_description_carries_python_routing_and_research_task_hint() -> None:
+    from plugin.framework.prompts import (
+        DELEGATION_USER_FILE_DATA_HINT,
+        delegation_math_to_python_hint,
+        python_orchestrator_routing_line,
+    )
+
+    desc = DelegateToSpecializedWriter.description
+    assert delegation_math_to_python_hint(delegate_toolset="delegate_to_specialized_writer_toolset") in desc
+    assert python_orchestrator_routing_line(delegate_toolset="delegate_to_specialized_writer_toolset") in desc
+    assert DELEGATION_USER_FILE_DATA_HINT not in desc
+    assert "\n" not in desc
 

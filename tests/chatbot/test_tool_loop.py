@@ -1087,6 +1087,10 @@ def test_writer_delegate_python_includes_cross_cutting_venv_tool(mock_executor_c
     assert result["code"] == "SPECIALIZED_WORKFLOW_INCOMPLETE"
     assert result["message"] == "done"
     assert "result" not in result
+    from plugin.framework.prompts import python_specialized_sub_agent_hint
+
+    instructions = mock_build.call_args.kwargs["instructions"]
+    assert python_specialized_sub_agent_hint("Writer") in instructions
     tools_passed = mock_build.call_args[0][1]
     names = [t.name for t in tools_passed]
     assert "run_venv_python_script" in names

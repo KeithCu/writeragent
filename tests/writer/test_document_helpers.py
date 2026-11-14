@@ -8,6 +8,7 @@ from plugin.writer.edit_review import (
     TrackedChangesInSelection,
     WriterStreamedAppendSession,
     WriterStreamedRewriteSession,
+    build_writer_rewrite_prompt,
 )
 
 
@@ -131,6 +132,13 @@ class _DocWithUserDefinedProperties:
                 self.UserDefinedProperties = user_props
 
         return _DocProps(self._props)
+
+
+def test_build_writer_rewrite_prompt_interpolates_args():
+    prompt = build_writer_rewrite_prompt("ORIG", "INSTR")
+    assert "ORIG" in prompt
+    assert "INSTR" in prompt
+    assert prompt.index("INSTR") < prompt.index("ORIG")
 
 
 def test_writer_streamed_rewrite_session_finishes_as_single_tracked_change():
