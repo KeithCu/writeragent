@@ -21,14 +21,64 @@ from plugin.framework.client.auth import (
 from tests.harness.strip_bundle import deal_pre_present
 
 
+_PLAIN_SEGMENT = st.text(
+    alphabet=st.characters(blacklist_categories=("Cs",), blacklist_characters="<>&", max_codepoint=127),
+    max_size=40,
+)
+_TAG_NAMES = st.sampled_from(["p", "div", "b", "i", "em", "strong", "span", "a", "h1", "li", "ul", "code", "pre"])
+
+
+@st.composite
+def _tagged_html_with_plain_parts(draw: st.DrawFn) -> tuple[str, str]:
+    """Build an HTML string from real tags and plain segments, returning (html, expected_plain)."""
+    parts_html: list[str] = []
+    parts_plain: list[str] = []
+    count = draw(st.integers(min_value=1, max_value=6))
+    for _idx in range(count):
+        plain = draw(_PLAIN_SEGMENT)
+        tag = draw(_TAG_NAMES)
+        kind = draw(st.sampled_from(["pair", "attr_pair", "self_close", "comment", "discard"]))
+        if kind == "pair":
+            parts_html.append(f"<{tag}>{plain}</{tag}>")
+            parts_plain.append(plain)
+        elif kind == "attr_pair":
+            parts_html.append(f'<{tag} class="x" data-gt="a>b">{plain}</{tag}>')
+            parts_plain.append(plain)
+        elif kind == "self_close":
+            parts_html.append(f"{plain}<br/>")
+            parts_plain.append(plain)
+        elif kind == "comment":
+            parts_html.append(f"<!-- note -->{plain}")
+            parts_plain.append(plain)
+        else:
+            discard_tag = draw(st.sampled_from(["script", "style"]))
+            body = draw(
+                st.text(
+                    alphabet=st.characters(blacklist_categories=("Cs",), blacklist_characters="<>&\n", max_codepoint=127),
+                    max_size=40,
+                )
+            )
+            parts_html.append(f"<{discard_tag}>{body}</{discard_tag}>{plain}")
+            parts_plain.append(plain)
+    return "".join(parts_html), "".join(parts_plain)
+
+
+@given(sample=_tagged_html_with_plain_parts())
+@settings(max_examples=100)
+def test_hypothesis_strip_html_tags_removes_real_tags(sample: tuple[str, str]) -> None:
+    html_text, expected_plain = sample
+    res = strip_html_tags(html_text)
+    assert res == expected_plain
+    # Implied by equality; states the sanitization oracle explicitly.
+    assert "<" not in res
+    assert ">" not in res
+
+
 @given(text=st.text(alphabet=st.characters(blacklist_categories=("Cs",), max_codepoint=127), max_size=DEAL_MAX_HTML_CHUNK))
 @settings(max_examples=100)
-def test_hypothesis_strip_html_tags_returns_string(text: str) -> None:
-    res = strip_html_tags(text)
-    assert isinstance(res, str)
-    # Formatted tags should be removed or shortened
-    if "<p>" in text and "</p>" in text:
-        assert len(res) < len(text)
+def test_hypothesis_strip_html_tags_no_crash_on_malformed_markup(text: str) -> None:
+    # No crash on malformed markup (unclosed tags, stray '<', partial entities).
+    assert isinstance(strip_html_tags(text), str)
 
 
 def test_strip_html_tags_streaming_equivalence() -> None:
