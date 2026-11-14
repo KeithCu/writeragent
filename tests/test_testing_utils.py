@@ -1341,14 +1341,15 @@ def test_native_doc_writer_teardown_still_uses_close_doc(monkeypatch):
     def _fail_draw_family(_closed):
         raise AssertionError("Writer teardown must not call close_draw_family_doc")
 
+    def _fail_settle():
+        raise AssertionError("Writer teardown must not call settle_after_draw_family_close")
+
     monkeypatch.setattr(TestingFactory, "create_native_doc", lambda *_a, **_k: doc)
     monkeypatch.setattr(
         TestingFactory, "close_doc", lambda closed, *_a, **_k: closed_docs.append(closed)
     )
     monkeypatch.setattr(tu, "close_draw_family_doc", _fail_draw_family)
-    monkeypatch.setattr(
-        tu, "settle_after_draw_family_close", lambda: health_called.append("unexpected_settle")
-    )
+    monkeypatch.setattr(tu, "settle_after_draw_family_close", _fail_settle)
     monkeypatch.setattr(
         tu, "_log_office_health_after_close", lambda *_a, **_k: health_called.append("health")
     )
@@ -1373,6 +1374,9 @@ def test_native_doc_draw_math_ole_teardown_keeps_close_doc_skip(monkeypatch):
     def _fail_draw_family(_closed):
         raise AssertionError("Math OLE Draw must not raw-close via close_draw_family_doc")
 
+    def _fail_settle():
+        raise AssertionError("Math OLE Draw must not call settle_after_draw_family_close")
+
     monkeypatch.setattr(tu.sys, "platform", "win32")
     tu._clear_windows_math_ole_uids()
     tu.mark_windows_math_ole_doc(doc)
@@ -1383,9 +1387,7 @@ def test_native_doc_draw_math_ole_teardown_keeps_close_doc_skip(monkeypatch):
         TestingFactory, "close_doc", lambda closed, *_a, **_k: closed_docs.append(closed)
     )
     monkeypatch.setattr(tu, "close_draw_family_doc", _fail_draw_family)
-    monkeypatch.setattr(
-        tu, "settle_after_draw_family_close", lambda: health_called.append("unexpected_settle")
-    )
+    monkeypatch.setattr(tu, "settle_after_draw_family_close", _fail_settle)
     monkeypatch.setattr(
         tu, "_log_office_health_after_close", lambda *_a, **_k: health_called.append("health")
     )
@@ -1502,31 +1504,6 @@ def test_create_native_doc_wraps_disposed_exception(monkeypatch):
     ):
         TestingFactory.create_native_doc(object(), "draw")
     tr.current_office().reset_lifecycle_breadcrumb()
-
-
-def test_close_doc_logs_urp_dispose(capsys, monkeypatch):
-    from unittest.mock import MagicMock
-
-    import plugin.testing_runner as tr
-    from plugin.tests import testing_utils as tu
-    from plugin.tests.testing_utils import TestingFactory
-
-    # GHA 34609539461: prepare left leftover=1; MagicMock looked like Writer
-    # and Windows skip-close hid the dispose breadcrumb.
-    monkeypatch.setattr(tr, "_soffice_pids", lambda: "8")
-    tr.current_office().reset_lifecycle_breadcrumb()
-    tr.record_test_start("draw.test_draw_uno.test_get_draw_tree")
-    saved = tu._WINDOWS_LEFTOVER_OPEN
-    tu._set_windows_leftover_open(0)
-    doc = MagicMock()
-    doc.close.side_effect = RuntimeError("Binary URP bridge disposed during call")
-    try:
-        TestingFactory.close_doc(doc)
-        err = capsys.readouterr().err
-        assert "LIFECYCLE close_doc dispose" in err
-    finally:
-        tu._set_windows_leftover_open(saved)
-        tr.current_office().reset_lifecycle_breadcrumb()
 
 
 def test_close_doc_windows_untyped_mock_still_logs_dispose(capsys, monkeypatch):

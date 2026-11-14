@@ -20,13 +20,17 @@ def test_progress_count_fail_always_emits():
 
 
 def test_progress_count_tail_every_10():
-    """Tail cadence emits every 10 once past _PYTEST_PROGRESS_TAIL_AFTER."""
+    """Tail cadence emits every 10 once at or past _PYTEST_PROGRESS_TAIL_AFTER."""
     tail = _PYTEST_PROGRESS_TAIL_AFTER
-    assert should_emit_pytest_progress_count(tail) is True
-    assert should_emit_pytest_progress_count(tail + 10) is True
-    assert should_emit_pytest_progress_count(tail + 1) is False
-    # Before the tail, only the 100-cadence applies.
-    assert should_emit_pytest_progress_count(tail - 90) is False
+    first_tail_10 = ((tail + 9) // 10) * 10
+    below_tail_10 = ((tail - 1) // 10) * 10
+    if below_tail_10 % 100 == 0:
+        below_tail_10 -= 10
+    assert should_emit_pytest_progress_count(first_tail_10) is True
+    assert should_emit_pytest_progress_count(first_tail_10 + 10) is True
+    assert should_emit_pytest_progress_count(first_tail_10 + 1) is False
+    # Before the tail, non-100 multiples of 10 do not emit.
+    assert should_emit_pytest_progress_count(below_tail_10) is False
 
 
 def test_idle_progress_names_inflight_not_last_completed():

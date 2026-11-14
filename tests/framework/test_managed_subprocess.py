@@ -28,6 +28,7 @@ from plugin.framework.managed_subprocess import (
     ManagedSubprocess,
     _instances,
     optimize_pipe,
+    optimize_popen_pipes,
     shutdown_all,
 )
 
@@ -641,6 +642,87 @@ def test_optimize_pipe_noop_on_macos(mock_fcntl: MagicMock) -> None:
     mock_fcntl.assert_not_called()
 
 
+def _linux_pipe_size_cmds() -> tuple[int, int]:
+    import fcntl
+
+    get_cmd = getattr(fcntl, "F_GETPIPE_SZ", None)
+    set_cmd = getattr(fcntl, "F_SETPIPE_SZ", None)
+    if get_cmd is None or set_cmd is None:
+        pytest.skip("fcntl F_GETPIPE_SZ / F_SETPIPE_SZ unavailable")
+    return int(get_cmd), int(set_cmd)
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="F_SETPIPE_SZ is Linux-only")
+def test_optimize_pipe_grows_linux_pipe_buffer() -> None:
+    import fcntl
+
+    get_cmd, _set_cmd = _linux_pipe_size_cmds()
+    r_fd, w_fd = os.pipe()
+    try:
+        before = fcntl.fcntl(w_fd, get_cmd)
+        optimize_pipe(w_fd)
+        after = fcntl.fcntl(w_fd, get_cmd)
+        assert after > before
+    finally:
+        os.close(r_fd)
+        os.close(w_fd)
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="F_SETPIPE_SZ is Linux-only")
+def test_optimize_popen_pipes_skips_none_streams() -> None:
+    import fcntl
+
+    get_cmd, _set_cmd = _linux_pipe_size_cmds()
+    proc = subprocess.Popen(
+        [sys.executable, "-c", "pass"],
+        stdout=subprocess.PIPE,
+    )
+    try:
+        assert proc.stdin is None
+        assert proc.stderr is None
+        assert proc.stdout is not None
+        before = fcntl.fcntl(proc.stdout.fileno(), get_cmd)
+        optimize_popen_pipes(proc)
+        after = fcntl.fcntl(proc.stdout.fileno(), get_cmd)
+        assert after > before
+    finally:
+        if proc.stdout is not None:
+            proc.stdout.close()
+        proc.wait(timeout=5)
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="F_SETPIPE_SZ is Linux-only")
+def test_optimize_pipes_is_opt_in() -> None:
+    import fcntl
+
+    get_cmd, _set_cmd = _linux_pipe_size_cmds()
+    r_fd, w_fd = os.pipe()
+    try:
+        default_pipe_size = fcntl.fcntl(w_fd, get_cmd)
+    finally:
+        os.close(r_fd)
+        os.close(w_fd)
+
+    cmd = [sys.executable, "-c", "import sys; sys.stdin.read()"]
+    proc_default = ManagedSubprocess(cmd)
+    proc_default.start()
+    try:
+        assert proc_default.popen is not None
+        assert proc_default.popen.stdout is not None
+        assert fcntl.fcntl(proc_default.popen.stdout.fileno(), get_cmd) == default_pipe_size
+    finally:
+        _reap_for_test(proc_default)
+
+    proc_opt = ManagedSubprocess(cmd, optimize_pipes=True)
+    proc_opt.start()
+    try:
+        assert proc_opt.popen is not None
+        assert proc_opt.popen.stdout is not None
+        assert fcntl.fcntl(proc_opt.popen.stdout.fileno(), get_cmd) > default_pipe_size
+    finally:
+        _reap_for_test(proc_opt)
+
+
 def test_abandoned_reaper_pauses_before_requeue(monkeypatch: pytest.MonkeyPatch) -> None:
     import plugin.framework.managed_subprocess as ms
 
@@ -983,7 +1065,10 @@ def test_raw_spawn_forwards_contract_and_skips_worker_defaults(
     assert kwargs["stdout"] is stdout
     assert kwargs["stderr"] is stderr
     assert kwargs["text"] is text
+    assert kwargs["encoding"] == encoding
+    assert kwargs["errors"] == errors
     assert kwargs["env"] is env
+    assert kwargs["cwd"] is None
     assert "start_new_session" not in kwargs
     assert "bufsize" not in kwargs
     for flag_key, flag_val in ms.get_subprocess_creationflags().items():
