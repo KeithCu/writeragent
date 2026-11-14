@@ -224,37 +224,25 @@ def test_stage_clean_trial_dir_missing_source(tmp_path: Path) -> None:
         stage_clean_trial_ods(tmp_path / "missing.ods", tmp_path / "trial")
 
 
-def test_default_eval2_trial_dir_is_tmp_subdir() -> None:
-    path = default_eval2_trial_dir()
-    assert path.name == "writeragent-eval2-afc"
+@pytest.mark.parametrize(
+    ("task", "expected_name"),
+    [
+        pytest.param(None, "writeragent-eval2-afc", id="default"),
+        pytest.param(TASK_TENANT, "writeragent-eval2-tenant", id="tenant"),
+        pytest.param(TASK_CADAVER, "writeragent-eval2-cadaver", id="cadaver"),
+        pytest.param(TASK_GMP, "writeragent-eval2-gmp", id="gmp"),
+        pytest.param(TASK_WRITER_CALC, "writeragent-eval2-writer-calc", id="writer_calc"),
+        pytest.param(TASK_CALC_PRIMARY, "writeragent-eval2-calc-primary", id="calc_primary"),
+        pytest.param(TASK_REVERSE, "writeragent-eval2-reverse-tenant", id="reverse_tenant"),
+        pytest.param(TASK_LONG, "writeragent-eval2-long-writer", id="long_writer"),
+        pytest.param(TASK_DRAW, "writeragent-eval2-draw", id="draw"),
+        pytest.param(TASK_PYTHON_SHAPES, "writeragent-eval2-python-shapes-flag", id="python_shapes_flag"),
+    ],
+)
+def test_default_eval2_trial_dir_is_tmp_subdir(task: str | None, expected_name: str) -> None:
+    path = default_eval2_trial_dir() if task is None else default_eval2_trial_dir(task)
+    assert path.name == expected_name
     assert path.parent == Path(tempfile.gettempdir())
-    tenant = default_eval2_trial_dir(TASK_TENANT)
-    assert tenant.name == "writeragent-eval2-tenant"
-    assert tenant.parent == Path(tempfile.gettempdir())
-    cadaver = default_eval2_trial_dir(TASK_CADAVER)
-    assert cadaver.name == "writeragent-eval2-cadaver"
-    assert cadaver.parent == Path(tempfile.gettempdir())
-    gmp = default_eval2_trial_dir(TASK_GMP)
-    assert gmp.name == "writeragent-eval2-gmp"
-    assert gmp.parent == Path(tempfile.gettempdir())
-    floorstand = default_eval2_trial_dir(TASK_WRITER_CALC)
-    assert floorstand.name == "writeragent-eval2-writer-calc"
-    assert floorstand.parent == Path(tempfile.gettempdir())
-    calc_primary = default_eval2_trial_dir(TASK_CALC_PRIMARY)
-    assert calc_primary.name == "writeragent-eval2-calc-primary"
-    assert calc_primary.parent == Path(tempfile.gettempdir())
-    reverse = default_eval2_trial_dir(TASK_REVERSE)
-    assert reverse.name == "writeragent-eval2-reverse-tenant"
-    assert reverse.parent == Path(tempfile.gettempdir())
-    long_pack = default_eval2_trial_dir(TASK_LONG)
-    assert long_pack.name == "writeragent-eval2-long-writer"
-    assert long_pack.parent == Path(tempfile.gettempdir())
-    draw = default_eval2_trial_dir(TASK_DRAW)
-    assert draw.name == "writeragent-eval2-draw"
-    assert draw.parent == Path(tempfile.gettempdir())
-    flag = default_eval2_trial_dir(TASK_PYTHON_SHAPES)
-    assert flag.name == "writeragent-eval2-python-shapes-flag"
-    assert flag.parent == Path(tempfile.gettempdir())
 
 
 def test_task_max_tool_rounds_routes_by_task() -> None:
@@ -269,223 +257,110 @@ def test_task_max_tool_rounds_routes_by_task() -> None:
     assert task_max_tool_rounds(TASK_CALC_PRIMARY) == EVAL_2_CALC_PRIMARY_MAX_TOOL_ROUNDS
 
 
-def test_stage_tenant_trial_contains_only_refs_and_blank_memo(tmp_path: Path) -> None:
-    dest = tmp_path / "trial"
-    dest.mkdir()
-    (dest / "prompt.writeragent.txt").write_text("PROMPT-LEAK", encoding="utf-8")
-    (dest / "rubric.eval2.md").write_text("RUBRIC-LEAK", encoding="utf-8")
-    memo = stage_tenant_trial(dest)
-    names = sorted(p.name for p in dest.iterdir())
-    assert names == sorted([LETTER_ODT_NAME, SURVEY_XLSX_NAME, TENANT_MEMO_NAME])
-    assert memo == dest / TENANT_MEMO_NAME
-    assert memo.is_file()
-    assert not any("PROMPT-LEAK" in p.read_text(encoding="utf-8", errors="ignore") for p in dest.iterdir() if p.suffix == ".txt")
-
-
-def test_stage_tenant_trial_refuses_real_task_dir() -> None:
-    with pytest.raises(ValueError, match="protected"):
-        stage_tenant_trial(_TENANT_DIR)
-
-
-def test_stage_cadaver_trial_contains_only_budget_and_blank_proposal(tmp_path: Path) -> None:
-    dest = tmp_path / "trial"
-    dest.mkdir()
-    (dest / "prompt.writeragent.txt").write_text("PROMPT-LEAK", encoding="utf-8")
-    (dest / "rubric.eval2.md").write_text("RUBRIC-LEAK", encoding="utf-8")
-    proposal = stage_cadaver_trial(dest)
-    names = sorted(p.name for p in dest.iterdir())
-    assert names == sorted([CADAVER_BUDGET_XLSX_NAME, CADAVER_PROPOSAL_NAME])
-    assert proposal == dest / CADAVER_PROPOSAL_NAME
-    assert proposal.is_file()
-    assert not any(
-        "PROMPT-LEAK" in p.read_text(encoding="utf-8", errors="ignore")
-        for p in dest.iterdir()
-        if p.suffix == ".txt"
-    )
-
-
-def test_stage_cadaver_trial_refuses_real_task_dir() -> None:
-    with pytest.raises(ValueError, match="protected"):
-        stage_cadaver_trial(_CADAVER_DIR)
-
-
-def test_stage_gmp_trial_contains_only_refs_memo_and_form(tmp_path: Path) -> None:
-    dest = tmp_path / "trial"
-    dest.mkdir()
-    (dest / "prompt.writeragent.txt").write_text("PROMPT-LEAK", encoding="utf-8")
-    (dest / "rubric.eval2.md").write_text("RUBRIC-LEAK", encoding="utf-8")
-    memo, form = stage_gmp_trial(dest)
-    names = sorted(p.name for p in dest.iterdir())
-    assert names == sorted(
-        [GMP_COA_PDF_NAME, GMP_SPEC_ODT_NAME, GMP_FORM_ODG_NAME, GMP_MEMO_NAME]
-    )
-    assert memo == dest / GMP_MEMO_NAME
-    assert form == dest / GMP_FORM_ODG_NAME
-    assert memo.is_file()
-    assert form.is_file()
-    assert "Change Control Form.pdf" not in names
-    assert not any(
-        "PROMPT-LEAK" in p.read_text(encoding="utf-8", errors="ignore")
-        for p in dest.iterdir()
-        if p.suffix in {".txt", ".md"}
-    )
-
-
-def test_stage_gmp_trial_refuses_real_task_dir() -> None:
-    with pytest.raises(ValueError, match="protected"):
-        stage_gmp_trial(_GMP_DIR)
-
-
-def test_stage_floorstand_trial_contains_only_refs_email_and_budget(tmp_path: Path) -> None:
-    dest = tmp_path / "trial"
-    dest.mkdir()
-    (dest / "prompt.writeragent.txt").write_text("PROMPT-LEAK", encoding="utf-8")
-    (dest / "rubric.eval2.md").write_text("RUBRIC-LEAK", encoding="utf-8")
-    email, budget = stage_floorstand_trial(dest)
-    names = sorted(p.name for p in dest.iterdir())
-    assert names == sorted(
+_STAGE_TRIAL_CASES = [
+    pytest.param(
+        stage_tenant_trial,
+        _TENANT_DIR,
+        [LETTER_ODT_NAME, SURVEY_XLSX_NAME, TENANT_MEMO_NAME],
+        [TENANT_MEMO_NAME],
+        id="tenant",
+    ),
+    pytest.param(
+        stage_cadaver_trial,
+        _CADAVER_DIR,
+        [CADAVER_BUDGET_XLSX_NAME, CADAVER_PROPOSAL_NAME],
+        [CADAVER_PROPOSAL_NAME],
+        id="cadaver",
+    ),
+    pytest.param(
+        stage_gmp_trial,
+        _GMP_DIR,
+        [GMP_COA_PDF_NAME, GMP_SPEC_ODT_NAME, GMP_FORM_ODG_NAME, GMP_MEMO_NAME],
+        [GMP_MEMO_NAME, GMP_FORM_ODG_NAME],
+        id="gmp",
+    ),
+    pytest.param(
+        stage_floorstand_trial,
+        _FLOORSTAND_DIR,
         [
             FLOORSTAND_EMAIL_TRAIL_ODT_NAME,
             FLOORSTAND_ORIG_ODS_NAME,
             FLOORSTAND_MATRIX_ODS_NAME,
             FLOORSTAND_BUDGET_ODS_NAME,
             FLOORSTAND_EMAIL_NAME,
-        ]
-    )
-    assert email == dest / FLOORSTAND_EMAIL_NAME
-    assert budget == dest / FLOORSTAND_BUDGET_ODS_NAME
-    assert email.is_file()
-    assert budget.is_file()
-    assert "Deliverable Holiday Floorstand Budget.xlsx" not in names
-    assert "Email Trail Floorstands.docx" not in names
-    assert not any(
-        "PROMPT-LEAK" in p.read_text(encoding="utf-8", errors="ignore")
-        for p in dest.iterdir()
-        if p.suffix in {".txt", ".md"}
-    )
+        ],
+        [FLOORSTAND_EMAIL_NAME, FLOORSTAND_BUDGET_ODS_NAME],
+        id="floorstand",
+    ),
+    pytest.param(
+        stage_calc_primary_trial,
+        _CALC_PRIMARY_DIR,
+        [RAW_DATA_ODS_NAME],
+        [RAW_DATA_ODS_NAME],
+        id="calc_primary",
+    ),
+    pytest.param(
+        stage_reverse_tenant_trial,
+        _REVERSE_DIR,
+        [CBA_EXCERPT_ODT_NAME, ROSTER_XLSX_NAME, THEATRE_CBA_ODS_NAME],
+        [THEATRE_CBA_ODS_NAME, CBA_EXCERPT_ODT_NAME],
+        id="reverse_tenant",
+    ),
+    pytest.param(
+        stage_long_writer_trial,
+        _LONG_DIR,
+        [LONG_FACTS_ODT_NAME, LONG_DECISIONS_ODT_NAME, LONG_PACK_NAME],
+        [LONG_PACK_NAME],
+        id="long_writer",
+    ),
+    pytest.param(
+        stage_draw_primary_trial,
+        _DRAW_DIR,
+        [DRAW_PRIMARY_ODG_NAME],
+        [DRAW_PRIMARY_ODG_NAME],
+        id="draw_primary",
+    ),
+    pytest.param(
+        stage_python_shapes_flag_trial,
+        _PYTHON_SHAPES_DIR,
+        [PYTHON_SHAPES_ODT_NAME],
+        [PYTHON_SHAPES_ODT_NAME],
+        id="python_shapes_flag",
+    ),
+]
 
 
-def test_stage_floorstand_trial_refuses_real_task_dir() -> None:
-    with pytest.raises(ValueError, match="protected"):
-        stage_floorstand_trial(_FLOORSTAND_DIR)
-
-
-def test_stage_calc_primary_trial_contains_only_raw_data_ods(tmp_path: Path) -> None:
-    dest = tmp_path / "trial"
-    dest.mkdir()
-    (dest / "prompt.writeragent.txt").write_text("PROMPT-LEAK", encoding="utf-8")
-    (dest / "rubric.eval2.md").write_text("RUBRIC-LEAK", encoding="utf-8")
-    workbook = stage_calc_primary_trial(dest)
-    names = sorted(p.name for p in dest.iterdir())
-    assert names == [RAW_DATA_ODS_NAME]
-    assert workbook == dest / RAW_DATA_ODS_NAME
-    assert workbook.is_file()
-    assert not any(
-        "PROMPT-LEAK" in p.read_text(encoding="utf-8", errors="ignore")
-        for p in dest.iterdir()
-        if p.suffix in {".txt", ".md"}
-    )
-
-
-def test_stage_calc_primary_trial_refuses_real_task_dir() -> None:
-    with pytest.raises(ValueError, match="protected"):
-        stage_calc_primary_trial(_CALC_PRIMARY_DIR)
-
-
-def test_stage_reverse_tenant_trial_contains_only_brief_roster_and_blank(tmp_path: Path) -> None:
-    dest = tmp_path / "trial"
-    dest.mkdir()
-    (dest / "prompt.writeragent.txt").write_text("PROMPT-LEAK", encoding="utf-8")
-    (dest / "rubric.eval2.md").write_text("RUBRIC-LEAK", encoding="utf-8")
-    workbook, brief = stage_reverse_tenant_trial(dest)
-    names = sorted(p.name for p in dest.iterdir())
-    assert names == sorted(
-        [CBA_EXCERPT_ODT_NAME, ROSTER_XLSX_NAME, THEATRE_CBA_ODS_NAME]
-    )
-    assert workbook == dest / THEATRE_CBA_ODS_NAME
-    assert brief == dest / CBA_EXCERPT_ODT_NAME
-    assert workbook.is_file()
-    assert brief.is_file()
-    assert not any(
-        "PROMPT-LEAK" in p.read_text(encoding="utf-8", errors="ignore")
-        for p in dest.iterdir()
-        if p.suffix in {".txt", ".md"}
-    )
-
-
-def test_stage_reverse_tenant_trial_refuses_real_task_dir() -> None:
-    with pytest.raises(ValueError, match="protected"):
-        stage_reverse_tenant_trial(_REVERSE_DIR)
-
-
-def test_stage_long_writer_trial_contains_only_refs_and_blank_brief(tmp_path: Path) -> None:
-    dest = tmp_path / "trial"
-    dest.mkdir()
-    (dest / "prompt.writeragent.txt").write_text("PROMPT-LEAK", encoding="utf-8")
-    (dest / "rubric.eval2.md").write_text("RUBRIC-LEAK", encoding="utf-8")
-    brief = stage_long_writer_trial(dest)
-    names = sorted(p.name for p in dest.iterdir())
-    assert names == sorted(
-        [LONG_FACTS_ODT_NAME, LONG_DECISIONS_ODT_NAME, LONG_PACK_NAME]
-    )
-    assert brief == dest / LONG_PACK_NAME
-    assert brief.is_file()
-    assert not any(
-        "PROMPT-LEAK" in p.read_text(encoding="utf-8", errors="ignore")
-        for p in dest.iterdir()
-        if p.suffix in {".txt", ".md"}
-    )
-
-
-def test_stage_long_writer_trial_refuses_real_task_dir() -> None:
-    with pytest.raises(ValueError, match="protected"):
-        stage_long_writer_trial(_LONG_DIR)
-
-
-def test_stage_draw_primary_trial_contains_only_canvas(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    ("stage_fn", "_task_dir", "expected_names", "expected_returns"),
+    _STAGE_TRIAL_CASES,
+)
+def test_stage_trial_contains_only_expected_files(
+    tmp_path: Path,
+    stage_fn,
+    _task_dir: Path,
+    expected_names: list[str],
+    expected_returns: list[str],
+) -> None:
     dest = tmp_path / "trial"
     dest.mkdir()
     (dest / "prompt.writeragent.txt").write_text("PROMPT-LEAK", encoding="utf-8")
     (dest / "rubric.eval2.md").write_text("RUBRIC-LEAK", encoding="utf-8")
     (dest / "Process Flow Map.pdf").write_bytes(b"GOLD-PDF-LEAK")
-    canvas = stage_draw_primary_trial(dest)
-    names = sorted(p.name for p in dest.iterdir())
-    assert names == [DRAW_PRIMARY_ODG_NAME]
-    assert canvas == dest / DRAW_PRIMARY_ODG_NAME
-    assert canvas.is_file()
-    assert "Process Flow Map.pdf" not in names
-    assert not any(
-        "PROMPT-LEAK" in p.read_text(encoding="utf-8", errors="ignore")
-        for p in dest.iterdir()
-        if p.suffix in {".txt", ".md"}
-    )
+    result = stage_fn(dest)
+    returned = result if isinstance(result, tuple) else (result,)
+    assert sorted(p.name for p in dest.iterdir()) == sorted(expected_names)
+    assert list(returned) == [dest / name for name in expected_returns]
+    assert all(p.is_file() for p in returned)
 
 
-def test_stage_draw_primary_trial_refuses_real_task_dir() -> None:
+@pytest.mark.parametrize(
+    ("stage_fn", "task_dir"),
+    [(row.values[0], row.values[1]) for row in _STAGE_TRIAL_CASES],
+    ids=[row.id for row in _STAGE_TRIAL_CASES],
+)
+def test_stage_trial_refuses_real_task_dir(stage_fn, task_dir: Path) -> None:
     with pytest.raises(ValueError, match="protected"):
-        stage_draw_primary_trial(_DRAW_DIR)
-
-
-def test_stage_python_shapes_flag_trial_is_blank_writer_only(tmp_path: Path) -> None:
-    dest = tmp_path / "trial"
-    dest.mkdir()
-    (dest / "prompt.writeragent.txt").write_text("PROMPT-LEAK", encoding="utf-8")
-    (dest / "rubric.eval2.md").write_text("RUBRIC-LEAK", encoding="utf-8")
-    doc = stage_python_shapes_flag_trial(dest)
-    names = sorted(p.name for p in dest.iterdir())
-    assert names == [PYTHON_SHAPES_ODT_NAME]
-    assert doc == dest / PYTHON_SHAPES_ODT_NAME
-    assert doc.is_file()
-    assert not any(
-        "PROMPT-LEAK" in p.read_text(encoding="utf-8", errors="ignore")
-        for p in dest.iterdir()
-        if p.suffix in {".txt", ".md"}
-    )
-
-
-def test_stage_python_shapes_flag_trial_refuses_real_task_dir() -> None:
-    with pytest.raises(ValueError, match="protected"):
-        stage_python_shapes_flag_trial(_PYTHON_SHAPES_DIR)
+        stage_fn(task_dir)
 
 
 def test_default_eval2_run_dir_uses_task_runs_stamp() -> None:

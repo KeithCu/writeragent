@@ -26,32 +26,14 @@ def _make_fake_venv(tmp_path: Path, *, py_ver: str = "3.13") -> tuple[Path, Path
     return venv_dir, py_bin, site_packages
 
 
-def test_missing_directory(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+@pytest.mark.parametrize("extra_args", [["--check"], ["--check", "-q"], [], ["-q"]])
+def test_missing_directory(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], extra_args: list[str]
+) -> None:
     no_dir = tmp_path / "no_such_venv"
-
-    # --check without -q
-    rc = fix_uno_import.main(["--venv", str(no_dir), "--check"])
+    rc = fix_uno_import.main(["--venv", str(no_dir), *extra_args])
     assert rc == 1
-    err = capsys.readouterr().err
-    assert f"Error: Virtual environment not found at {no_dir}" in err
-
-    # --check with -q
-    rc = fix_uno_import.main(["--venv", str(no_dir), "--check", "-q"])
-    assert rc == 1
-    err = capsys.readouterr().err
-    assert f"Error: Virtual environment not found at {no_dir}" in err
-
-    # apply without -q
-    rc = fix_uno_import.main(["--venv", str(no_dir)])
-    assert rc == 1
-    err = capsys.readouterr().err
-    assert f"Error: Virtual environment not found at {no_dir}" in err
-
-    # apply with -q
-    rc = fix_uno_import.main(["--venv", str(no_dir), "-q"])
-    assert rc == 1
-    err = capsys.readouterr().err
-    assert f"Error: Virtual environment not found at {no_dir}" in err
+    assert f"Error: Virtual environment not found at {no_dir}" in capsys.readouterr().err
 
 
 def test_directory_without_python(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:

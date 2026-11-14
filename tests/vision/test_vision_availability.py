@@ -45,9 +45,8 @@ def test_vision_venv_configured(config_value: str, resolve_result: str | None, e
         assert vision_venv_configured() is expected
 
 
-def test_filter_vision_delegate_schemas_consistent_with_ctx_none():
-    # When vision is unavailable, delegate schemas must be filtered even if ctx is None (same policy as specialized tools).
-    schemas = [
+def _delegate_schemas() -> list[dict]:
+    return [
         {
             "type": "function",
             "function": {
@@ -64,55 +63,39 @@ def test_filter_vision_delegate_schemas_consistent_with_ctx_none():
             },
         }
     ]
-    with patch("plugin.vision.vision_availability.vision_venv_configured", return_value=False):
-        filtered_none = filter_vision_delegate_schemas(schemas, ctx=None)
-        filtered_ctx = filter_vision_delegate_schemas(schemas, ctx=MagicMock())
-
-    enum_none = filtered_none[0]["function"]["parameters"]["properties"]["domain"]["enum"]
-    enum_ctx = filtered_ctx[0]["function"]["parameters"]["properties"]["domain"]["enum"]
-    assert enum_none == ["writing", "formatting"]
-    assert enum_ctx == ["writing", "formatting"]
 
 
-def test_filter_vision_delegate_schemas_kept_when_available():
-    schemas = [
-        {
-            "type": "function",
-            "function": {
-                "name": "delegate_to_specialized_writer_toolset",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "domain": {
-                            "type": "string",
-                            "enum": ["writing", "vision", "formatting"],
-                        }
-                    },
-                },
-            },
-        }
-    ]
-    with patch("plugin.vision.vision_availability.vision_venv_configured", return_value=True):
-        filtered = filter_vision_delegate_schemas(schemas, ctx=None)
-    enum = filtered[0]["function"]["parameters"]["properties"]["domain"]["enum"]
-    assert enum == ["writing", "vision", "formatting"]
+@pytest.mark.parametrize(
+    ("available", "use_ctx", "expected_enum"),
+    [
+        pytest.param(False, False, ["writing", "formatting"], id="unavailable_ctx_none"),
+        pytest.param(False, True, ["writing", "formatting"], id="unavailable_with_ctx"),
+        pytest.param(True, False, ["writing", "vision", "formatting"], id="available_ctx_none"),
+        pytest.param(True, True, ["writing", "vision", "formatting"], id="available_with_ctx"),
+    ],
+)
+def test_filter_vision_delegate_schemas(available: bool, use_ctx: bool, expected_enum: list[str]) -> None:
+    ctx = MagicMock() if use_ctx else None
+    with patch("plugin.vision.vision_availability.vision_venv_configured", return_value=available):
+        filtered = filter_vision_delegate_schemas(_delegate_schemas(), ctx=ctx)
+    assert filtered[0]["function"]["parameters"]["properties"]["domain"]["enum"] == expected_enum
 
 
-def test_filter_vision_specialized_tools_consistent_with_ctx_none():
+@pytest.mark.parametrize(
+    ("available", "use_ctx", "expected_names"),
+    [
+        pytest.param(False, False, ["apply_document_content"], id="unavailable_ctx_none"),
+        pytest.param(False, True, ["apply_document_content"], id="unavailable_with_ctx"),
+        pytest.param(True, False, ["apply_document_content", "extract_structure_from_image"], id="available_ctx_none"),
+        pytest.param(True, True, ["apply_document_content", "extract_structure_from_image"], id="available_with_ctx"),
+    ],
+)
+def test_filter_vision_specialized_tools(available: bool, use_ctx: bool, expected_names: list[str]) -> None:
     tools = [_Tool("apply_document_content"), _Tool("extract_structure_from_image")]
-    with patch("plugin.vision.vision_availability.vision_venv_configured", return_value=False):
-        filtered_none = filter_vision_specialized_tools(tools, ctx=None)
-        filtered_ctx = filter_vision_specialized_tools(tools, ctx=MagicMock())
-
-    assert [t.name for t in filtered_none] == ["apply_document_content"]
-    assert [t.name for t in filtered_ctx] == ["apply_document_content"]
-
-
-def test_filter_vision_specialized_tools_kept_when_available():
-    tools = [_Tool("apply_document_content"), _Tool("extract_structure_from_image")]
-    with patch("plugin.vision.vision_availability.vision_venv_configured", return_value=True):
-        filtered = filter_vision_specialized_tools(tools, ctx=None)
-    assert [t.name for t in filtered] == ["apply_document_content", "extract_structure_from_image"]
+    ctx = MagicMock() if use_ctx else None
+    with patch("plugin.vision.vision_availability.vision_venv_configured", return_value=available):
+        filtered = filter_vision_specialized_tools(tools, ctx=ctx)
+    assert [t.name for t in filtered] == expected_names
 
 
 def test_specialized_domain_available():

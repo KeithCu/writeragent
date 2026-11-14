@@ -35,6 +35,24 @@ def _reset_office_test_state():
         office.reset_lifecycle_breadcrumb()
 
 
+@pytest.fixture
+def _fake_officehelper(monkeypatch, tmp_path: Path) -> types.ModuleType:
+    fake_oh = types.ModuleType("officehelper")
+    fake_oh.__file__ = str(tmp_path / "officehelper.py")
+    monkeypatch.setitem(sys.modules, "officehelper", fake_oh)
+    return fake_oh
+
+
+def _make_module(*, setup=None, **tests) -> types.SimpleNamespace:
+    for fn in tests.values():
+        fn._is_test = True
+    mod = types.SimpleNamespace(**tests)
+    if setup is not None:
+        setup._is_setup = True
+        mod._setup = setup
+    return mod
+
+
 def _soffice_name() -> str:
     """Windows LO ships ``soffice.exe`` next to officehelper; POSIX is ``soffice``."""
     return "soffice.exe" if sys.platform.startswith("win") else "soffice"
@@ -46,16 +64,13 @@ def _touch_soffice_next_to_helper(tmp_path: Path, *, name: str | None = None) ->
     return binary
 
 
-def test_soffice_bootstrap_command_seeds_throwaway(monkeypatch, tmp_path: Path) -> None:
+def test_soffice_bootstrap_command_seeds_throwaway(
+    monkeypatch, tmp_path: Path, _fake_officehelper
+) -> None:
     seeded: list[Path] = []
     monkeypatch.setattr(tr.current_office().options, "use_user_profile", False)
     monkeypatch.setattr(tr, "_seed_throwaway_profile_with_user_oxt", seeded.append)
     soffice = _touch_soffice_next_to_helper(tmp_path)
-    import types
-
-    fake_oh = types.ModuleType("officehelper")
-    fake_oh.__file__ = str(tmp_path / "officehelper.py")
-    monkeypatch.setitem(sys.modules, "officehelper", fake_oh)
     cmd, accept = tr._soffice_bootstrap_command()
     assert accept == [a[len("--accept=") :] for a in cmd if a.startswith("--accept=")][0]
     assert isinstance(cmd, list)
@@ -71,17 +86,12 @@ def test_soffice_bootstrap_command_seeds_throwaway(monkeypatch, tmp_path: Path) 
 
 
 def test_soffice_bootstrap_command_github_actions_requires_user_oxt(
-    monkeypatch, tmp_path: Path
+    monkeypatch, tmp_path: Path, _fake_officehelper
 ) -> None:
     monkeypatch.setattr(tr.current_office().options, "use_user_profile", False)
     monkeypatch.setenv("GITHUB_ACTIONS", "true")
     monkeypatch.setattr(tr, "_libreoffice_user_lock_path", lambda: tmp_path / ".lock")
     _touch_soffice_next_to_helper(tmp_path)
-    import types
-
-    fake_oh = types.ModuleType("officehelper")
-    fake_oh.__file__ = str(tmp_path / "officehelper.py")
-    monkeypatch.setitem(sys.modules, "officehelper", fake_oh)
     try:
         tr._soffice_bootstrap_command()
     except RuntimeError as exc:
@@ -91,7 +101,7 @@ def test_soffice_bootstrap_command_github_actions_requires_user_oxt(
 
 
 def test_soffice_bootstrap_command_seeds_throwaway_win32_exe(
-    monkeypatch, tmp_path: Path
+    monkeypatch, tmp_path: Path, _fake_officehelper
 ) -> None:
     """GHA 33749075233: Windows lookup is soffice.exe; a bare ``soffice`` is ignored."""
     seeded: list[Path] = []
@@ -99,11 +109,6 @@ def test_soffice_bootstrap_command_seeds_throwaway_win32_exe(
     monkeypatch.setattr(tr, "_seed_throwaway_profile_with_user_oxt", seeded.append)
     monkeypatch.setattr(tr.sys, "platform", "win32")
     soffice = _touch_soffice_next_to_helper(tmp_path, name="soffice.exe")
-    import types
-
-    fake_oh = types.ModuleType("officehelper")
-    fake_oh.__file__ = str(tmp_path / "officehelper.py")
-    monkeypatch.setitem(sys.modules, "officehelper", fake_oh)
     cmd, accept = tr._soffice_bootstrap_command()
     assert accept == [a[len("--accept=") :] for a in cmd if a.startswith("--accept=")][0]
     assert cmd[0] == str(soffice)
@@ -133,31 +138,23 @@ def test_soffice_bootstrap_command_uses_resolve_when_not_beside_helper(
     assert len(seeded) == 1
 
 
-def test_soffice_bootstrap_command_argv0_is_bare_path(monkeypatch, tmp_path: Path) -> None:
+def test_soffice_bootstrap_command_argv0_is_bare_path(
+    monkeypatch, tmp_path: Path, _fake_officehelper
+) -> None:
     """Current officehelper Popen([sOffice, ...]) — argv[0] must be path-only."""
     monkeypatch.setattr(tr.current_office().options, "use_user_profile", False)
     monkeypatch.setattr(tr, "_seed_throwaway_profile_with_user_oxt", lambda _p: None)
     soffice = _touch_soffice_next_to_helper(tmp_path)
-    import types
-
-    fake_oh = types.ModuleType("officehelper")
-    fake_oh.__file__ = str(tmp_path / "officehelper.py")
-    monkeypatch.setitem(sys.modules, "officehelper", fake_oh)
     cmd, accept = tr._soffice_bootstrap_command()
     assert accept == [a[len("--accept=") :] for a in cmd if a.startswith("--accept=")][0]
     assert cmd[0] == str(soffice)
     assert not any(flag in cmd[0] for flag in ("--headless", "-env:", "--accept"))
 
 
-def test_main_returns_1_when_bootstrap_raises(monkeypatch) -> None:
+def test_main_returns_1_when_bootstrap_raises(monkeypatch, _fake_officehelper) -> None:
     """Silent SKIP hid broken soffice= command strings on rolling LibreOffice."""
     monkeypatch.setattr(tr, "_ensure_libreoffice_python_path", lambda: None)
     monkeypatch.setattr(tr, "_parse_cli_args", lambda _argv: [])
-
-    import types
-
-    fake_oh = types.ModuleType("officehelper")
-    monkeypatch.setitem(sys.modules, "officehelper", fake_oh)
 
     def boom():
         raise RuntimeError("simulated bootstrap fail")
@@ -332,17 +329,11 @@ def test_run_module_suite_pair_exact_skips_draw_tree_prefix_bleed() -> None:
     def test_insert_math_draw(ctx=None):
         ran.append("math")
 
-    test_get_draw_tree._is_test = True
-    test_get_draw_tree_marks_blank_and_label_hint._is_test = True
-    test_insert_math_draw._is_test = True
-
-    class _Mod:
-        pass
-
-    module = _Mod()
-    module.test_get_draw_tree = test_get_draw_tree
-    module.test_get_draw_tree_marks_blank_and_label_hint = test_get_draw_tree_marks_blank_and_label_hint
-    module.test_insert_math_draw = test_insert_math_draw
+    module = _make_module(
+        test_get_draw_tree=test_get_draw_tree,
+        test_get_draw_tree_marks_blank_and_label_hint=test_get_draw_tree_marks_blank_and_label_hint,
+        test_insert_math_draw=test_insert_math_draw,
+    )
 
     passed, failed, _suite_log = tr.run_module_suite(object(), module, "draw.pair")
     assert ran == ["tree", "math"]
@@ -362,15 +353,7 @@ def test_run_module_suite_fails_ok_test_on_application_error() -> None:
     def test_second(ctx=None):
         ran.append("second")
 
-    test_ok._is_test = True
-    test_second._is_test = True
-
-    class _Mod:
-        pass
-
-    module = _Mod()
-    module.test_ok = test_ok
-    module.test_second = test_second
+    module = _make_module(test_ok=test_ok, test_second=test_second)
 
     passed, failed, suite_log = tr.run_module_suite(object(), module, "draw.salabort")
     assert ran == ["ok"]
@@ -390,15 +373,7 @@ def test_run_module_suite_fail_names_previous_test(monkeypatch) -> None:
     def test_victim(ctx=None):
         raise RuntimeError("Binary URP bridge disposed during call")
 
-    test_ok._is_test = True
-    test_victim._is_test = True
-
-    class _Mod:
-        pass
-
-    module = _Mod()
-    module.test_ok = test_ok
-    module.test_victim = test_victim
+    module = _make_module(test_ok=test_ok, test_victim=test_victim)
 
     passed, failed, suite_log = tr.run_module_suite(object(), module, "draw.crumb")
     assert passed == 1
@@ -425,15 +400,7 @@ def test_run_module_suite_fails_ok_test_when_bridge_dies_after_return() -> None:
     def test_second(ctx=None):
         ran.append("second")
 
-    test_ok._is_test = True
-    test_second._is_test = True
-
-    class _Mod:
-        pass
-
-    module = _Mod()
-    module.test_ok = test_ok
-    module.test_second = test_second
+    module = _make_module(test_ok=test_ok, test_second=test_second)
 
     ctx = _Ctx()
     passed, failed, suite_log = tr.run_module_suite(ctx, module, "draw.teardown")
@@ -454,15 +421,7 @@ def test_run_module_suite_stops_after_urp_dispose() -> None:
     def test_second(ctx=None):
         ran.append("second")
 
-    test_first._is_test = True
-    test_second._is_test = True
-
-    class _Mod:
-        pass
-
-    module = _Mod()
-    module.test_first = test_first
-    module.test_second = test_second
+    module = _make_module(test_first=test_first, test_second=test_second)
 
     passed, failed, suite_log = tr.run_module_suite(object(), module, "fake.urp")
     assert ran == ["first"]
@@ -518,15 +477,7 @@ def test_run_module_suite_arms_timeout_watchdog_for_every_test(monkeypatch) -> N
     def test_other(ctx=None):
         events.append("other")
 
-    test_insert_cell_html._is_test = True
-    test_other._is_test = True
-
-    class _Mod:
-        pass
-
-    module = _Mod()
-    module.test_insert_cell_html = test_insert_cell_html
-    module.test_other = test_other
+    module = _make_module(test_insert_cell_html=test_insert_cell_html, test_other=test_other)
     passed, failed, _suite_log = tr.run_module_suite(object(), module, "fake.html")
     assert passed == 2
     assert failed == 0
@@ -559,13 +510,7 @@ def test_run_module_suite_disarms_hang_dump_on_fail(monkeypatch) -> None:
     def test_insert_cell_html(ctx=None):
         raise AssertionError("boom")
 
-    test_insert_cell_html._is_test = True
-
-    class _Mod:
-        pass
-
-    module = _Mod()
-    module.test_insert_cell_html = test_insert_cell_html
+    module = _make_module(test_insert_cell_html=test_insert_cell_html)
     passed, failed, _suite_log = tr.run_module_suite(object(), module, "fake.html")
     assert passed == 0
     assert failed == 1
@@ -578,13 +523,7 @@ def test_run_module_suite_records_fail_reason() -> None:
     def test_boom(ctx=None):
         raise AssertionError("A1 did not become 2.0")
 
-    test_boom._is_test = True
-
-    class _Mod:
-        pass
-
-    module = _Mod()
-    module.test_boom = test_boom
+    module = _make_module(test_boom=test_boom)
     passed, failed, suite_log = tr.run_module_suite(object(), module, "fake.boom")
     assert passed == 0
     assert failed == 1
@@ -602,15 +541,7 @@ def test_run_module_suite_setup_skip_is_not_a_failure() -> None:
     def test_scene1(ctx=None):
         raise AssertionError("should not run")
 
-    _setup._is_setup = True
-    test_scene1._is_test = True
-
-    class _Mod:
-        pass
-
-    module = _Mod()
-    module._setup = _setup
-    module.test_scene1 = test_scene1
+    module = _make_module(setup=_setup, test_scene1=test_scene1)
     passed, failed, suite_log = tr.run_module_suite(object(), module, "demo.skip")
     assert passed == 0
     assert failed == 0
