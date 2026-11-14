@@ -852,6 +852,7 @@ def test_expired_budget_does_not_spawn(monkeypatch: pytest.MonkeyPatch) -> None:
     # spawn for a handshake that cannot finish.
     short = worker.execute({"code": "result = 1"}, timeout_sec=0.5)
     assert short.get("code") == "EXECUTION_TIMEOUT"
+    assert "at least 1 second" in str(short.get("error"))
     assert spawned == []
     assert worker.tasks_executed == 0
 
@@ -1295,6 +1296,7 @@ def test_subsecond_timeout_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
     worker.process = proc
     res = worker.execute({"code": "result = 1"}, timeout_sec=0.25)
     assert res.get("code") == "EXECUTION_TIMEOUT"
+    assert "at least 1 second" in str(res.get("error"))
     assert "0.00" not in str(res.get("error"))
     assert worker.process is proc
 
@@ -1485,6 +1487,93 @@ def test_popen_past_deadline_skips_handshake(monkeypatch: pytest.MonkeyPatch) ->
     assert res.get("code") == "EXECUTION_TIMEOUT"
     assert reads == []
     assert proc.killed
+    assert worker.process is None
+
+
+def test_partial_handshake_timeout_logs_timeout(monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture) -> None:
+    """A mid-frame ready handshake is a timeout, not a generic spawn failure.
+
+    IpcPartialFrameTimeout is a ConnectionError, so it must match the timeout
+    arm rather than falling through to the generic ConnectionError branch.
+    """
+    import logging
+
+    from plugin.framework.ipc import IpcPartialFrameTimeout
+
+    class _Proc:
+        def __init__(self) -> None:
+            self.pid = 7
+            self.stdin = object()
+            self.stdout = object()
+            self.stderr = None
+            self.returncode: int | None = None
+
+        def poll(self) -> int | None:
+            return self.returncode
+
+        def kill(self) -> None:
+            return None
+
+        def wait(self, timeout: float | None = None) -> int:
+            del timeout
+            self.returncode = -9
+            return -9
+
+    def _read(*_args: object, **_kwargs: object) -> dict[str, object]:
+        raise IpcPartialFrameTimeout("timeout mid-frame")
+
+    monkeypatch.setattr("plugin.framework.managed_subprocess.subprocess.Popen", lambda *_args, **_kwargs: _Proc())
+    monkeypatch.setattr("plugin.framework.warm_child.read_pickle_frame", _read)
+    monkeypatch.setattr("plugin.framework.managed_subprocess.optimize_popen_pipes", lambda _proc: None)
+    worker = _worker_without_spawn(monkeypatch)
+    with caplog.at_level(logging.ERROR, logger="compute_service.worker"):
+        worker.respawn()
+    assert "spawn handshake timed out" in caplog.text
+    assert "Failed to spawn" not in caplog.text
+    assert worker.process is None
+
+
+def test_shutdown_handshake_is_not_a_spawn_error(monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture) -> None:
+    """A ready frame that disappears because shutdown won is not an error.
+
+    kill() during the handshake makes the read return empty; shutting down
+    must log at INFO and emit no ERROR record.
+    """
+    import logging
+
+    class _Proc:
+        def __init__(self) -> None:
+            self.pid = 7
+            self.stdin = object()
+            self.stdout = object()
+            self.stderr = None
+            self.returncode: int | None = None
+
+        def poll(self) -> int | None:
+            return self.returncode
+
+        def kill(self) -> None:
+            return None
+
+        def wait(self, timeout: float | None = None) -> int:
+            del timeout
+            self.returncode = -9
+            return -9
+
+    worker = _worker_without_spawn(monkeypatch)
+
+    def _read(*_args: object, **_kwargs: object) -> None:
+        worker._shutting_down = True
+        return None
+
+    monkeypatch.setattr("plugin.framework.managed_subprocess.subprocess.Popen", lambda *_args, **_kwargs: _Proc())
+    monkeypatch.setattr("plugin.framework.warm_child.read_pickle_frame", _read)
+    monkeypatch.setattr("plugin.framework.managed_subprocess.optimize_popen_pipes", lambda _proc: None)
+    with caplog.at_level(logging.INFO, logger="compute_service.worker"):
+        worker.respawn()
+    info_records = [record for record in caplog.records if record.levelno == logging.INFO]
+    assert len(info_records) == 1
+    assert not any(record.levelno >= logging.ERROR for record in caplog.records)
     assert worker.process is None
 
 
@@ -2455,6 +2544,18 @@ def test_usable_budget_truth_table(monkeypatch: pytest.MonkeyPatch) -> None:
     for budget, remaining, expected in cases:
         clock = worker_mod.Deadline.from_absolute(budget, now + remaining)
         assert clock.usable() == expected, (budget, remaining)
+
+
+def test_timeout_message_keeps_fractional_seconds(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A 1.9s budget is not reported as 1 second. Whole seconds stay integers."""
+    from plugin.framework.child_runtime import Deadline
+
+    worker = _worker_without_spawn(monkeypatch)
+    fractional = worker._timeout_message(Deadline(1.9))
+    assert "1.9" in fractional
+    assert "1 seconds" not in fractional
+    assert "1 second." in worker._timeout_message(Deadline(1.0))
+    assert "2 seconds." in worker._timeout_message(Deadline(2.0))
 
 
 def test_is_alive_snapshots_the_child(monkeypatch: pytest.MonkeyPatch) -> None:

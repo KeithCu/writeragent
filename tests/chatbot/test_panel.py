@@ -9,6 +9,7 @@
 """Unit tests for sidebar query Enter-to-send key classification and send dispose."""
 
 import dataclasses
+import logging
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import ANY, MagicMock, patch
@@ -34,9 +35,7 @@ from plugin.chatbot.sidebar_state import SidebarCompositeState
 from plugin.chatbot.audio_recorder_state import AudioRecorderState
 from plugin.framework.errors import DocumentDisposedError
 from plugin.framework.send_cancellation import SendCancellation
-from plugin.chatbot import panel_voice as panel_voice_module
 from plugin.bootstrap import BootstrapState
-from tests.harness.strip_bundle import is_release_build, module_source_contains
 
 
 class TestQueryEnterSend:
@@ -1667,10 +1666,6 @@ class TestStopPreservesAudioWavPath:
         # Another test's TTS thread may unlink its own temp while os.remove is patched.
         mock_remove.assert_any_call("/tmp/fake.wav")
 
-    @pytest.mark.skipif(
-        is_release_build() or not module_source_contains(panel_voice_module, "clear_pending_audio_wav: failed to remove"),
-        reason="Stripped release bundle removes logger .debug call sites (scripts/strip_code.py)",
-    )
     def test_clear_pending_audio_wav_clears_path_on_permission_error(self) -> None:
         from plugin.scripting.audio_recorder_service import clear_pending_audio_wav
 
@@ -2231,16 +2226,20 @@ def test_mcp_request_waits_then_sees_teardown() -> None:
     assert "late" not in listener._last_mcp_turn
 
 
-def test_get_document_model_without_frame_returns_none() -> None:
+def test_get_document_model_without_frame_returns_none(caplog: pytest.LogCaptureFixture) -> None:
     listener = _make_send_listener()
     listener.frame = None
-    assert listener._get_document_model() is None
+    with caplog.at_level(logging.ERROR, logger="plugin.chatbot.panel"):
+        assert listener._get_document_model() is None
+    assert not [r for r in caplog.records if r.levelno == logging.ERROR]
 
 
-def test_do_send_sets_error_on_missing_document() -> None:
+def test_do_send_sets_error_on_missing_document(caplog: pytest.LogCaptureFixture) -> None:
     listener = _make_send_listener()
     listener.frame = None
-    listener._do_send()
+    with caplog.at_level(logging.ERROR, logger="plugin.chatbot.panel"):
+        listener._do_send()
+    assert len([r for r in caplog.records if r.levelno == logging.ERROR]) == 1
     assert send_outcome_terminal_display(listener) == "Error"
 
 
@@ -2291,10 +2290,12 @@ def test_do_send_answer_slash_calls_begin_send_then_chat() -> None:
     assert "budget" in sent_query
 
 
-def test_extracted_peer_send_sets_error_on_missing_document() -> None:
+def test_extracted_peer_send_sets_error_on_missing_document(caplog: pytest.LogCaptureFixture) -> None:
     listener = _make_send_listener()
     listener.frame = None
-    listener._do_send_extracted_peer("hello", already_appended=True)
+    with caplog.at_level(logging.ERROR, logger="plugin.chatbot.panel"):
+        listener._do_send_extracted_peer("hello", already_appended=True)
+    assert len([r for r in caplog.records if r.levelno == logging.ERROR]) == 1
     assert send_outcome_terminal_display(listener) == "Error"
 
 
@@ -2309,6 +2310,24 @@ def test_extracted_peer_send_starts_one_chat_turn() -> None:
     with patch("plugin.chatbot.chat_sidebar_mode.mode_from_selector_with_flags", return_value=CHAT_MODE_CHAT):
         listener._do_send_extracted_peer("hello", already_appended=True)
     listener._tool_calling._do_send_chat_with_tools.assert_called_once_with("hello", ANY, "calc", skip_append_user=True)
+
+
+def test_clear_greeting_lookup_does_not_log_missing_document(caplog: pytest.LogCaptureFixture) -> None:
+    listener = _make_send_listener()
+    listener.frame = None
+    clear_listener = ClearButtonListener(
+        listener.session,
+        listener.response_control,
+        listener.status_control,
+        greeting="",
+        send_listener=listener,
+    )
+    with (
+        patch("plugin.framework.prompts.get_greeting_for_document", return_value="Hi"),
+        caplog.at_level(logging.ERROR, logger="plugin.chatbot.panel"),
+    ):
+        clear_listener.on_action_performed(None)
+    assert not [r for r in caplog.records if r.levelno == logging.ERROR]
 
 
 class TestAudioRecorderErrorCallback:

@@ -18,6 +18,7 @@ from plugin.chatbot.agent_manual import (
     list_topics,
     manual_index,
     normalize_topic,
+    writer_topic_list_text,
 )
 from plugin.doc.document_research_tools import GetGuidance
 
@@ -61,6 +62,8 @@ def test_normalize_aliases():
     assert normalize_topic("Tracked_Changes") == "review-modes"
     assert normalize_topic("crop") == "images"
     assert normalize_topic("429") == "concurrency"
+    assert normalize_topic("multi-document") == "concurrency"
+    assert normalize_topic("document_url") == "concurrency"
     assert normalize_topic("editing") == "editing"
     assert normalize_topic("nonsense") is None
     assert normalize_topic("") is None
@@ -141,6 +144,42 @@ def test_shared_pieces_are_identical_in_both_channels():
     # The generic editing topic remains in Calc and Draw chat templates (not the app manuals).
     assert c.GENERIC_EDIT_CONFIRMATION_RULES in c.DEFAULT_CALC_CHAT_SYSTEM_PROMPT_TEMPLATE
     assert c.GENERIC_EDIT_CONFIRMATION_RULES in c.DEFAULT_DRAW_CHAT_SYSTEM_PROMPT_TEMPLATE
+
+
+def test_sidebar_hybrid_prompt_composition():
+    """HYBRID delivery: the ambient Writer sidebar prompt carries the original pieces plus the
+    safety-critical review-modes piece exactly once; the reference pieces (search, navigation,
+    images) stay OUT of the ambient text and are pulled on demand via get_guidance, which must
+    therefore be visible to the sidebar (tier core)."""
+    from plugin.doc.document_research_tools import GetGuidance
+    from plugin.framework import prompts as c
+
+    template = c.DEFAULT_CHAT_SYSTEM_PROMPT_TEMPLATE
+    for piece in (
+        c.TOOL_USAGE_PATTERNS,
+        c.WRITER_APPLY_DOCUMENT_HTML_RULES,
+        c.TRANSLATION_RULES,
+        c.WRITER_REVIEW_MODES_RULES,
+        c.CONFIRM_EDITS_FROM_STRUCTURED_FIELDS,
+        c.SIDEBAR_VS_DOCUMENT,
+    ):
+        assert template.count(piece) == 1
+    for piece in (c.WRITER_SEARCH_RULES, c.WRITER_NAVIGATION_RULES, c.WRITER_IMAGES_RULES):
+        assert piece not in template          # on-demand, not ambient
+    assert writer_topic_list_text() in GetGuidance.description
+    assert c.HTML_MATH_AND_LINK_EXAMPLES not in template
+    assert GetGuidance.tier == "core"         # visible to the sidebar's default tool list
+
+
+def test_mcp_only_extras_stay_out_of_the_sidebar_prompt():
+    """The MCP concurrency contract is served to MCP / agent-backend channels, not the sidebar."""
+    from plugin.framework import prompts as c
+
+    concurrency_section = get_section("concurrency", "writer")
+    assert concurrency_section in full_manual("writer")
+    assert concurrency_section not in c.DEFAULT_CHAT_SYSTEM_PROMPT_TEMPLATE
+    assert concurrency_section not in c.DEFAULT_CALC_CHAT_SYSTEM_PROMPT_TEMPLATE
+    assert concurrency_section not in c.DEFAULT_DRAW_CHAT_SYSTEM_PROMPT_TEMPLATE
 
 
 # ---- full manual (agent-backend delivery) ------------------------------------

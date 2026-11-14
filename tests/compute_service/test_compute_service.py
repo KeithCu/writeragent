@@ -3580,6 +3580,8 @@ def test_sigterm_abandons_inflight_execute_and_exits(tmp_path: Path) -> None:
         assert in_flight, log_text
         assert return_code == 0, log_text
         assert elapsed < exit_bound_sec, log_text
+        assert "Received repeated signal" not in log_text
+        assert log_text.count("HTTP request drain exceeded") == 1
     finally:
         if proc is not None and proc.poll() is None:
             # SIGKILL, not a second SIGTERM. A second SIGTERM hits

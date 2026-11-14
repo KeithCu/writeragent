@@ -19,6 +19,7 @@ from plugin.chatbot.ppt_master import PptMasterSessionTool
 from plugin.chatbot.sub_agent_tools import (
     SubAgentSessionToolBase,
     collect_sub_agent_tools,
+    get_sub_agent_instructions,
 )
 from plugin.chatbot.writing import WritingPlanSessionTool
 from plugin.framework.errors import (
@@ -254,3 +255,33 @@ class TestSessionToolMetadata:
         tool.runner = MagicMock(return_value={"status": "ok"})
         res = tool.execute(ctx, query="test query")
         assert res == {"status": "ok"}
+
+
+class TestPromptToolMatching:
+    def test_sub_agent_instructions_prompt_tool_matching(self):
+        from plugin.framework.prompts import (
+            APPLY_DOCUMENT_TARGET_RULES,
+            SUB_AGENT_HTML_CONTENT_RULES,
+        )
+
+        html_rules = SUB_AGENT_HTML_CONTENT_RULES.strip()
+        target_rules = APPLY_DOCUMENT_TARGET_RULES.strip()
+
+        # Brainstorming / writing_plan: content rules present, target='search' rules absent
+        b_instr = get_sub_agent_instructions("BASE", tool_names=["save_design_spec"])
+        assert html_rules in b_instr
+        assert target_rules not in b_instr
+
+        w_instr = get_sub_agent_instructions("BASE", tool_names=["write_document_section"])
+        assert html_rules in w_instr
+        assert target_rules not in w_instr
+
+        # Deep research with apply_document_content: both present
+        d_instr = get_sub_agent_instructions("BASE", tool_names=["apply_document_content"])
+        assert html_rules in d_instr
+        assert target_rules in d_instr
+
+        # No HTML tools: neither present
+        plain_instr = get_sub_agent_instructions("BASE", tool_names=["other_tool"])
+        assert html_rules not in plain_instr
+        assert target_rules not in plain_instr

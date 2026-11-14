@@ -634,7 +634,7 @@ def test_accept_defers_command_so_dispose_is_not_inside_callback():
 
 
 def test_query_text_post_timeout_does_not_run_inline():
-    """TimeoutError from post must not hide or show inline on the Ask textChanged stack."""
+    """TimeoutError from post must not hide or show inline on the Ask textChanged stack; doing so deadlocks VCL."""
     popup, box = _controller()
     popup.hide = MagicMock()
     popup._show_matches = MagicMock()
