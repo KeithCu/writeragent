@@ -226,7 +226,8 @@ def selected_text_range(controller: Any) -> Any:
     """Find the non-empty text selection range from the current view.
 
     Skips shape selections and collapsed ranges when a non-collapsed range is present,
-    falling back to the first text range (caret) or None.
+    falling back to the first text range (caret) or None. Do not read ``getByIndex(0)``
+    directly because index 0 may be a Draw shape selection or a collapsed range.
     """
     if controller is None:
         return None

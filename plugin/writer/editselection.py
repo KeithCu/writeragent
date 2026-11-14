@@ -77,6 +77,7 @@ def _selection_target(
     except TrackedChangesInSelection:
         msgbox(ctx, title, _(TRACKED_SELECTION_MESSAGE))
         return None
+    # Read visible text without tracked deletions so deleted text is not sent in the prompt.
     original_text = get_string_without_tracked_deletions(text_range)
     if not original_text:
         if not silent_empty:
@@ -207,6 +208,7 @@ def _whole_body_target(ctx: Any, model: Any, title: str) -> tuple[Any, str] | No
     except TrackedChangesInSelection:
         msgbox(ctx, title, _(TRACKED_SELECTION_MESSAGE))
         return None
+    # Read visible text without tracked deletions so deleted text is not sent in the prompt.
     original_text = normalize_linebreaks(get_string_without_tracked_deletions(cursor))
     if not original_text.strip():
         msgbox(ctx, title, _("The document is empty."))

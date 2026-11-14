@@ -233,6 +233,8 @@ class BookmarkService(ServiceBase):
             )
         except Exception as exc:
             reraise_if_disposed(exc)
+            # Leave locators unchanged rather than inserting or pruning _mcp_ marks
+            # when the bookmark map cannot be read reliably.
             log.warning("heading bookmark map unreadable; leaving locators unchanged")
             return {}
 
