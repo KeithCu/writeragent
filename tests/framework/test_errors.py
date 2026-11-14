@@ -1040,3 +1040,28 @@ def test_validate_suggested_call_against_apply_style():
     ok, err = validate_suggested_call(bad_enum)
     assert not ok
     assert err is not None and "Invalid value for target" in err
+
+
+def test_is_document_disposed():
+    from plugin.framework.errors import document_is_disposed
+
+    assert document_is_disposed(None) is True
+
+    class DisposedExceptionMock(Exception):
+        pass
+
+    # Ensure the type name is EXACTLY 'DisposedException' for the check
+    DisposedExceptionMock.__name__ = "DisposedException"
+
+    disposed_exc = DisposedExceptionMock("Document disposed")
+
+    class MockDisposedDoc:
+        def getImplementationName(self):
+            raise disposed_exc
+
+    class MockValidDoc:
+        def getImplementationName(self):
+            return "SwXTextDocument"
+
+    assert document_is_disposed(MockDisposedDoc()) is True
+    assert document_is_disposed(MockValidDoc()) is False

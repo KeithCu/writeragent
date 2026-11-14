@@ -1268,3 +1268,54 @@ def test_get_draw_context_for_chat_renders_group_child_path():
     assert "- [2] GroupShape" in out
     assert '- [2.0.1] CustomShape: pos(100, 200) size(300x400) text: "star"' in out
 
+
+def test_notes_text_and_set_notes_text_functions():
+    from plugin.draw.bridge import notes_text, set_notes_text
+
+    class _ChromeShape:
+        def getShapeType(self):
+            return "com.sun.star.presentation.HeaderShape"
+
+    class _NotesShape:
+        def __init__(self, text=""):
+            self._text = text
+
+        def getShapeType(self):
+            return "com.sun.star.presentation.NotesShape"
+
+        def getString(self):
+            return self._text
+
+        def setString(self, value):
+            self._text = value
+
+    class _NotesPage:
+        def __init__(self, *shapes):
+            self._shapes = list(shapes)
+
+        def getCount(self):
+            return len(self._shapes)
+
+        def getByIndex(self, idx):
+            return self._shapes[idx]
+
+    class _Slide:
+        def __init__(self, notes_page):
+            self._notes_page = notes_page
+
+        def getNotesPage(self):
+            return self._notes_page
+
+    assert notes_text(None) is None
+    assert set_notes_text(None, "hello") is False
+
+    slide_no_notes = _Slide(_NotesPage(_ChromeShape()))
+    assert notes_text(slide_no_notes) is None
+    assert set_notes_text(slide_no_notes, "hello") is False
+
+    shape = _NotesShape("initial")
+    slide_with_notes = _Slide(_NotesPage(_ChromeShape(), shape))
+    assert notes_text(slide_with_notes) == "initial"
+    assert set_notes_text(slide_with_notes, "updated") is True
+    assert notes_text(slide_with_notes) == "updated"
+

@@ -1367,3 +1367,26 @@ def test_unknown_key_raises():
     with pytest.raises(ConfigError) as exc_info:
         get_config("nosuchkey")
     assert exc_info.value.code == "CONFIG_KEY_NOT_FOUND"
+
+
+class TestValidateApiConfigPlaceholders:
+
+    def test_rejects_connection_failed_placeholder(self):
+        from plugin.framework.config import validate_api_config
+
+        ok, err = validate_api_config({
+            "endpoint": "https://api.z.ai/api/paas",
+            "model": "(Connection failed)",
+        })
+        assert not (ok)
+        assert ("valid model") in (err.lower())
+
+    def test_accepts_real_model(self):
+        from plugin.framework.config import validate_api_config
+
+        ok, err = validate_api_config({
+            "endpoint": "https://api.z.ai/api/paas",
+            "model": "glm-5.2",
+        })
+        assert (ok)
+        assert (err) == ("")

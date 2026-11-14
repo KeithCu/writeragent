@@ -7,7 +7,6 @@ from plugin.framework.client.errors import (
     local_model_overflow_message,
     stream_error_message,
 )
-from plugin.framework.config import validate_api_config
 import pytest
 
 
@@ -75,24 +74,6 @@ class TestLlamaServerOverflowSentence:
         assert format_context_window_label(float("nan")) is None
         assert format_context_window_label(4096) == "4K"
         assert format_context_window_label("8192") == "8K"
-
-class TestValidateApiConfigPlaceholders:
-
-    def test_rejects_connection_failed_placeholder(self):
-        ok, err = validate_api_config({
-            "endpoint": "https://api.z.ai/api/paas",
-            "model": "(Connection failed)",
-        })
-        assert not (ok)
-        assert ("valid model") in (err.lower())
-
-    def test_accepts_real_model(self):
-        ok, err = validate_api_config({
-            "endpoint": "https://api.z.ai/api/paas",
-            "model": "glm-5.2",
-        })
-        assert (ok)
-        assert (err) == ("")
 
 
 class TestStreamErrorMessage:

@@ -402,3 +402,25 @@ class TestSearchDialog:
         rebuild_call = next(c for c in recorded_kwargs if c.get("name") == "search-dialog-rebuild")
         assert search_call.get("dedicated") is True
         assert rebuild_call.get("dedicated") is True
+
+
+@pytest.mark.parametrize(
+    "value, paragraphs, chunks, elapsed_sec, expected",
+    [
+        pytest.param("a.odt", 1, 1, 0.12, "a.odt: 1 paragraph, 1 chunk, 0.12s", id="singular"),
+        pytest.param("b.odt", 105, 107, 1.234, "b.odt: 105 paragraphs, 107 chunks, 1.23s", id="plural"),
+    ],
+)
+def test_format_index_heartbeat_line_singular(value, paragraphs, chunks, elapsed_sec, expected):
+    from plugin.embeddings.search_ui import format_index_heartbeat_line
+
+    line = format_index_heartbeat_line(value, paragraphs=paragraphs, chunks=chunks, elapsed_sec=elapsed_sec)
+    assert line == expected
+
+
+def test_heartbeat_counts_from_payload_prefers_upserted():
+    from plugin.embeddings.search_ui import heartbeat_counts_from_payload
+
+    paragraphs, chunks = heartbeat_counts_from_payload({"paragraphs": 5, "upserted": 6})
+    assert paragraphs == 5
+    assert chunks == 6

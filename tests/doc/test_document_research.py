@@ -33,7 +33,7 @@ from plugin.doc.document_research import (
 from plugin.embeddings.embeddings_fs import ALL_INDEXABLE_EXTENSIONS
 from plugin.framework import thread_guard as tg
 from plugin.framework.uno_listeners import ListenerBoundary
-from plugin.framework.url_utils import normalize_file_url, path_to_file_url
+from plugin.framework.url_utils import path_to_file_url
 from tests.harness.strip_bundle import skip_if_release_build
 
 
@@ -72,11 +72,6 @@ def test_file_entry_for_path():
     assert entry_missing["modified"] == 0.0
     assert entry_missing["doc_type_guess"] == "calc"
     assert entry_missing["is_open"] is False
-
-
-def test_normalize_file_url_repairs_legacy_urljoin_form():
-    legacy = "file:/home/user/Writing/Test.odt"
-    assert normalize_file_url(legacy) == "file:///home/user/Writing/Test.odt"
 
 
 def test_system_path_from_url_uses_shared_file_url_repair():

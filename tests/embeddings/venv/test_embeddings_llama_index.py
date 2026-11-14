@@ -199,3 +199,28 @@ def test_run_hybrid_retrieval_pipeline_uses_rerank_postprocessor():
     assert len(hits) == 1
     assert hits[0]["doc_url"] == "file:///hit.odt"
     mock_rerank.assert_called_once()
+
+
+@patch("plugin.embeddings.venv.embeddings_cross_encoder_rerank.cross_encoder_rerank_candidates")
+def test_llama_index_postprocessor_uses_shared_cross_encoder(mock_rerank: MagicMock) -> None:
+    if not llama_index_installed():
+        pytest.skip("llama-index-core not installed")
+
+    from llama_index.core.schema import NodeWithScore, TextNode  # type: ignore
+    from llama_index.core import QueryBundle  # type: ignore
+
+    node = TextNode(text="snippet one", id_="1", metadata={"doc_url": "file:///a.odt", "para_index": 0})
+    nodes = [NodeWithScore(node=node, score=0.5)]
+    mock_rerank.return_value = [{"snippet": "snippet one", "score": 0.9, "chunk_id": "1", "doc_url": "file:///a.odt", "para_index": 0}]
+
+    out = embeddings_llama_index._apply_llama_index_postprocessors(
+        nodes,
+        QueryBundle(query_str="query"),
+        final_k=3,
+        use_rerank=True,
+        rerank_model="cross-encoder/ms-marco-MiniLM-L-6-v2",
+    )
+
+    mock_rerank.assert_called_once()
+    assert len(out) == 1
+    assert out[0].score == pytest.approx(0.9)
