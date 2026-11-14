@@ -460,8 +460,8 @@ def test_selection_and_range_export_includes_math_tex_uno(ctx: Any, doc: Any) ->
     sel_html = sel_res.get("content") or ""
     assert "$$" in sel_html, sel_html
     assert sel_html.count("$$") == 2, sel_html
-    idx_inline = sel_html.find("$a") if "$a" in sel_html else sel_html.find("a + b")
-    idx_display = sel_html.find("$$x$$") if "$$x$$" in sel_html else sel_html.find("x")
+    idx_inline = sel_html.find("$a")
+    idx_display = sel_html.find("$$x$$")
     assert idx_inline != -1 and idx_display != -1, sel_html
     assert idx_inline < idx_display, sel_html
 
@@ -474,8 +474,8 @@ def test_selection_and_range_export_includes_math_tex_uno(ctx: Any, doc: Any) ->
     range_html = range_res.get("content") or ""
     assert "$$" in range_html, range_html
     assert range_html.count("$$") == 2, range_html
-    r_idx_inline = range_html.find("$a") if "$a" in range_html else range_html.find("a + b")
-    r_idx_display = range_html.find("$$x$$") if "$$x$$" in range_html else range_html.find("x")
+    r_idx_inline = range_html.find("$a")
+    r_idx_display = range_html.find("$$x$$")
     assert r_idx_inline != -1 and r_idx_display != -1, range_html
     assert r_idx_inline < r_idx_display, range_html
 
@@ -498,8 +498,7 @@ def test_header_math_xtext_to_content_uno(ctx: Any, doc: Any) -> None:
 
     content = xtext_to_content(header_text, doc, ctx)
     assert content, "Expected non-empty HTML from header xtext_to_content"
-    assert "y = m x + b" in content or "y=mx+b" in content or "m x" in content
-    assert "$" in content
+    assert "$y = m x + b$" in content or "$y=mx+b$" in content, content
 
 
 @native_test

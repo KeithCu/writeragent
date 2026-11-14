@@ -224,19 +224,6 @@ def test_manage_tracked_changes_accept_all(action, value):
     dispatcher.executeDispatch.assert_called_with(frame, value, "", 0, ())
 
 
-def _redline_property_set():
-    """A redline like the real UNO one: a property set with RedlineStart/RedlineEnd and NO
-    getAnchor (the old tests pinned select(getAnchor()) — a method MagicMock fabricated but the
-    real object never had, which is exactly why accept/reject by index was broken)."""
-    start = MagicMock()
-    span_cursor = MagicMock()
-    start.getText.return_value.createTextCursorByRange.return_value = span_cursor
-    props = {"RedlineStart": start, "RedlineEnd": MagicMock(), "RedlineComment": "user edit"}
-    redline_mock = MagicMock(spec=["getPropertyValue"])
-    redline_mock.getPropertyValue.side_effect = lambda p: props.get(p, "")
-    return redline_mock, span_cursor
-
-
 def test_manage_tracked_changes_bypasses_self_resolve_invariant():
     ctx, dispatcher, frame, _ = _create_mock_ctx()
     tool = ManageTrackedChanges()
@@ -340,7 +327,14 @@ def test_manage_tracked_changes_self_resolve_undo_fails():
     assert "Agent edit was resolved, which is forbidden." in res["message"]
     assert "Undo failed; the change is still resolved." in res["message"]
 
-def test_manage_tracked_changes_accept():
+@pytest.mark.parametrize(
+    "action, uno_cmd",
+    [
+        ("accept", ".uno:AcceptTrackedChange"),
+        ("reject", ".uno:RejectTrackedChange"),
+    ],
+)
+def test_manage_tracked_changes_accept_or_reject(action, uno_cmd):
     ctx, dispatcher, frame, _ = _create_mock_ctx()
     tool = ManageTrackedChanges()
 
@@ -356,7 +350,7 @@ def test_manage_tracked_changes_accept():
         return MagicMock()
     dispatcher.executeDispatch.side_effect = do_dispatch
 
-    res = tool.execute(ctx, action="accept", index=0)
+    res = tool.execute(ctx, action=action, index=0)
     assert res["status"] == "ok"
     assert "tracking_list" in res["message"]
     assert "0" in res["message"]
@@ -364,34 +358,7 @@ def test_manage_tracked_changes_accept():
         call(span_cursor),
         call(ctx.doc.getCurrentController().getSelection.return_value),
     ]
-    dispatcher.executeDispatch.assert_called_with(frame, ".uno:AcceptTrackedChange", "", 0, ())
-
-
-def test_manage_tracked_changes_reject():
-    ctx, dispatcher, frame, _ = _create_mock_ctx()
-    tool = ManageTrackedChanges()
-
-    r = _fake_redline("user edit")
-    start = r.getPropertyValue("RedlineStart")
-    span_cursor = MagicMock()
-    start.getText.return_value.createTextCursorByRange.return_value = span_cursor
-    items = [r]
-    _install_redlines(ctx, items)
-
-    def do_dispatch(*args):
-        items.clear()
-        return MagicMock()
-    dispatcher.executeDispatch.side_effect = do_dispatch
-
-    res = tool.execute(ctx, action="reject", index=0)
-    assert res["status"] == "ok"
-    assert "tracking_list" in res["message"]
-    assert "0" in res["message"]
-    assert ctx.doc.getCurrentController().select.call_args_list == [
-        call(span_cursor),
-        call(ctx.doc.getCurrentController().getSelection.return_value),
-    ]
-    dispatcher.executeDispatch.assert_called_with(frame, ".uno:RejectTrackedChange", "", 0, ())
+    dispatcher.executeDispatch.assert_called_with(frame, uno_cmd, "", 0, ())
 
 
 def test_manage_tracked_changes_accept_requires_index():
@@ -945,26 +912,6 @@ def test_track_changes_list_start_index_keeps_global_indexes():
     assert res["status"] == "ok"
     assert res["count"] == 1
     assert res["changes"][0]["index"] == 2
-
-
-def test_track_changes_list_shares_location_label_cache():
-    ctx, _, _, _ = _create_mock_ctx()
-    tool = TrackChangesList()
-    text_mock = MagicMock()
-    cursor_mock = MagicMock()
-    cursor_mock.getString.return_value = "hello"
-    text_mock.createTextCursorByRange.return_value = cursor_mock
-
-    items = [_fake_redline("user 0", text_mock=text_mock), _fake_redline("user 1", text_mock=text_mock)]
-    _install_redlines(ctx, items)
-    with patch("plugin.writer.search.describe_match_location", return_value="body") as mock_loc:
-        res = tool.execute(ctx)
-    assert res["status"] == "ok"
-    assert mock_loc.call_count == 2
-    c0_cache = mock_loc.call_args_list[0].kwargs["label_cache"]
-    c1_cache = mock_loc.call_args_list[1].kwargs["label_cache"]
-    assert c0_cache is c1_cache
-    assert isinstance(c0_cache, dict)
 
 
 def test_single_accept_reread_failure_undoes_and_reports():

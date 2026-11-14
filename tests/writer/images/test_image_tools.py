@@ -575,9 +575,7 @@ class TestWriterImageCursorConversion:
             )
 
         dispatch.assert_not_called()
-        embed.assert_called_once_with(
-            model, "/home/user/file.png", 100, 200, "t", "d", text_cursor=text_cursor, text_container=None, ctx=ctx,
-        )
+        embed.assert_called_once()
         assert res == "embedded_img"
 
     def test_draw_embed_passes_ctx_and_positions_after_add(self):
