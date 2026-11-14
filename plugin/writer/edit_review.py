@@ -52,7 +52,7 @@ import uuid
 from typing import Any, Callable, ClassVar, Generator
 
 from plugin.doc.compound_undo import UndoOutcome, UndoUnavailable, WriterCompoundUndo, commit_or_rollback
-from plugin.doc.text_helpers import FAILED, go_right, iter_elements, selected_text_range
+from plugin.doc.text_helpers import FAILED, get_string_without_tracked_deletions, go_right, iter_elements, selected_text_range
 # Module-qualified on purpose: plugin/testing_runner.py replaces config.get_config while native
 # suites run (review mode reads "off" unless a test sets it); a from-import would keep the original.
 from plugin.framework import config
@@ -863,7 +863,11 @@ def paragraph_window_text(anchor: Any | None, max_chars: int = _EDITED_CONTEXT_M
         end.gotoEndOfParagraph(False)
         span = text.createTextCursorByRange(start.getStart())
         span.gotoRange(end.getEnd(), True)
-        return span.getString()
+        # Without the text a tracked change deleted: in review mode the replaced text is still
+        # in the document, and getString() would include it next to its replacement.
+        # Starts with starts_in_deletion=False because the window is centered on the edit anchor;
+        # leading text is assumed live unless local redline marks indicate otherwise.
+        return get_string_without_tracked_deletions(span)
 
     s = uno_read(window, None)
     if not s or not s.strip():

@@ -392,7 +392,9 @@ def test_find_text_ranges_limit_zero_and_bad_types_return_empty():
     model.createSearchDescriptor.assert_called_once()
 
 
-def test_find_text_ranges_body_only_skips_other_xtext():
+# Offsets are measured on the visible text; these fakes have no tracked deletions.
+@patch("plugin.writer.search.get_string_without_tracked_deletions", side_effect=lambda r: r.getString())
+def test_find_text_ranges_body_only_skips_other_xtext(_visible):
     from plugin.writer.search import find_text_ranges
 
     class BodyTextObj:
@@ -1609,3 +1611,165 @@ def test_replace_text_in_shape_regex_skips_leading_empty():
     cursor.goRight.assert_any_call(1, False)
     cursor.goRight.assert_any_call(1, True)
     cursor.setString.assert_called_once_with("B")
+
+
+class _Pos:
+    """A text range at character positions [start, end] in *text*."""
+
+    def __init__(self, text, start, end=None):
+        self.text, self.start, self.end = text, start, start if end is None else end
+
+    def getText(self):
+        return self.text
+
+
+class _Text:
+    @staticmethod
+    def _cmp(a, b):
+        return (a > b) - (a < b)
+
+    def compareRegionStarts(self, a, b):
+        return self._cmp(b.start, a.start)
+
+    def compareRegionEnds(self, a, b):
+        return self._cmp(b.end, a.end)
+
+
+def test_inside_tracked_deletion_needs_the_hit_wholly_inside():
+    from plugin.writer.search import inside_tracked_deletion
+
+    text, other = _Text(), _Text()
+    # RedlineStart can be the later end of the deletion.
+    spans = [(_Pos(text, 20), _Pos(text, 10))]
+    with patch("plugin.writer.search.uno_same", side_effect=lambda a, b: a is b):
+        assert inside_tracked_deletion(_Pos(text, 12, 18), spans)
+        assert inside_tracked_deletion(_Pos(text, 10, 20), spans)
+        assert not inside_tracked_deletion(_Pos(text, 5, 15), spans)
+        assert not inside_tracked_deletion(_Pos(text, 21, 25), spans)
+        assert not inside_tracked_deletion(_Pos(other, 12, 18), spans)
+        assert not inside_tracked_deletion(_Pos(text, 12, 18), [])
+
+
+def test_edit_search_skips_hits_in_tracked_deletions():
+    """apply_document_content's search must not pick text the user deleted with Track Changes."""
+    from plugin.writer import search
+
+    doc = MagicMock()
+    deleted_hit, live_hit = MagicMock(), MagicMock()
+    deleted_hit.getString.return_value = live_hit.getString.return_value = "Para"
+    doc.findFirst.return_value = deleted_hit
+    doc.findNext.side_effect = [live_hit, None]
+    with patch.object(search, "tracked_deletion_spans", return_value=["span"]), \
+            patch.object(search, "inside_tracked_deletion", side_effect=lambda f, s: f is deleted_hit):
+        assert search.find_ranges_regex_case(doc, "Para", False, False, all_matches=False) is live_hit
+        doc.findNext.side_effect = [live_hit, None]
+        assert search.find_ranges_regex_case(doc, "Para", False, False, all_matches=True) == [live_hit]
+
+
+def test_tracked_deletion_spans_skips_unreadable_redlines():
+    """Unreadable redlines must not abort the scan or hide later tracked deletions."""
+    from plugin.writer import search
+
+    doc = MagicMock()
+    bad_rl = MagicMock()
+    bad_rl.getPropertyValue.side_effect = RuntimeError("corrupt redline")
+
+    good_rl = MagicMock()
+    start_pos, end_pos = MagicMock(), MagicMock()
+    good_rl.getPropertyValue.side_effect = lambda name: {
+        "RedlineType": "Delete",
+        "RedlineStart": start_pos,
+        "RedlineEnd": end_pos,
+    }[name]
+
+    def fake_scan(d, on_item):
+        on_item(bad_rl)
+        on_item(good_rl)
+
+    with patch.object(search, "scan_redlines", side_effect=fake_scan):
+        spans = search.tracked_deletion_spans(doc)
+    assert spans == [(start_pos, end_pos)]
+
+
+def test_find_text_ranges_without_deletions_uses_fast_path():
+    """When the document has no tracked deletions, find_text_ranges measures natively
+    without invoking get_string_without_tracked_deletions portion walks."""
+    from plugin.writer import search
+
+    model = MagicMock()
+    text = MagicMock()
+    model.getText.return_value = text
+    cursor = MagicMock()
+    text.createTextCursor.return_value = cursor
+    cursor.getString.return_value = "hello "
+
+    hit = MagicMock()
+    hit.getText.return_value = text
+    hit.getString.return_value = "world"
+    model.findNext.side_effect = [hit, None]
+
+    with patch.object(search, "tracked_deletion_spans", return_value=[]), \
+            patch.object(search, "get_string_without_tracked_deletions") as mock_helper:
+        matches = search.find_text_ranges(model, "world")
+        assert len(matches) == 1
+        assert matches[0] == {"start": 6, "end": 11, "text": "world"}
+        mock_helper.assert_not_called()
+
+
+def test_find_text_ranges_with_deletions_measures_incrementally():
+    """When tracked deletions exist, find_text_ranges measures forward incrementally."""
+    from plugin.writer import search
+
+    model = MagicMock()
+    text = MagicMock()
+    model.getText.return_value = text
+
+    hit1 = MagicMock()
+    hit1.getText.return_value = text
+    hit1.getString.return_value = "one"
+
+    hit2 = MagicMock()
+    hit2.getText.return_value = text
+    hit2.getString.return_value = "two"
+
+    model.findNext.side_effect = [hit1, hit2, None]
+
+    # Incremental walk measures visible text of gaps and hits in forward order:
+    # 1. gap to hit 1 (len 10)
+    # 2. visible text of hit 1 ("one", len 3)
+    # 3. gap between hit 1 and hit 2 (len 12)
+    # 4. visible text of hit 2 ("two", len 3)
+    # Result: hit 1 at [10, 13], hit 2 at [10 + 3 + 12 = 25, 28]
+    step_results = ["x" * 10, "one", "x" * 12, "two"]
+    with patch.object(search, "tracked_deletion_spans", return_value=[(MagicMock(), MagicMock())]), \
+            patch.object(search, "inside_tracked_deletion", return_value=False), \
+            patch.object(search, "get_string_without_tracked_deletions", side_effect=lambda g, **kw: step_results.pop(0)):
+        matches = search.find_text_ranges(model, "pattern")
+        assert len(matches) == 2
+        assert matches[0] == {"start": 10, "end": 13, "text": "one"}
+        assert matches[1] == {"start": 25, "end": 28, "text": "two"}
+
+
+def test_find_text_ranges_straddling_tracked_deletion_measures_visible_span():
+    """Hits straddling a tracked deletion boundary measure end offset from visible characters."""
+    from plugin.writer import search
+
+    model = MagicMock()
+    text = MagicMock()
+    model.getText.return_value = text
+
+    hit = MagicMock()
+    hit.getText.return_value = text
+    # Raw text returned by LO contains the deleted characters (9 chars)
+    hit.getString.return_value = "foobarbaz"
+    model.findNext.side_effect = [hit, None]
+
+    # Gap before hit is 5 visible chars; hit visible text has "bar" omitted (6 chars)
+    step_results = ["x" * 5, "foobaz"]
+    with patch.object(search, "tracked_deletion_spans", return_value=[(MagicMock(), MagicMock())]), \
+            patch.object(search, "inside_tracked_deletion", return_value=False), \
+            patch.object(search, "get_string_without_tracked_deletions", side_effect=lambda g, **kw: step_results.pop(0)):
+        matches = search.find_text_ranges(model, "pattern")
+        assert len(matches) == 1
+        assert matches[0] == {"start": 5, "end": 11, "text": "foobaz"}
+        assert matches[0]["end"] - matches[0]["start"] == 6

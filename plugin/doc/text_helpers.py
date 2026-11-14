@@ -23,7 +23,7 @@ import logging
 from typing import TYPE_CHECKING, Any, TypedDict
 
 if TYPE_CHECKING:
-    from collections.abc import Generator, Iterator, Mapping
+    from collections.abc import Generator, Iterable, Iterator, Mapping
 
 import uno
 
@@ -473,31 +473,54 @@ def _range_is_paragraph(text_range: Any) -> bool:
     return uno_read(first_is_portion, False, object_type="TextRange")
 
 
-def visible_portions(
-    para: Any,
-    *,
-    abort_on_portion_error: bool = False,
-    limit: int | None = None,
-    truncated_out: list[int] | None = None,
+def skip_tracked_deletions(
+    pairs: Iterable[tuple[Any, str]], deletion_state: list[bool] | None = None
 ) -> Iterator[tuple[Any, str]]:
-    """Yield ``(portion, text)`` for visible text, skipping tracked deletions.
+    """Drop the redline marks, and the portions inside tracked deletions, from one paragraph's
+    ``(portion, TextPortionType)`` pairs.
 
-    Shared by ``get_string_without_tracked_deletions`` and range_copy paint so
-    an offset taken from the helper string indexes these chunks without drift.
+    Each Delete mark's ``IsStart`` indicates whether a deletion opens or closes there. A
+    multi-paragraph deletion has its start mark in the first paragraph and its end mark in the
+    last; middle paragraphs have none, so state is read from ``IsStart`` and carried across
+    paragraphs. Text before the paragraph's first Delete mark is deleted when that
+    mark closes a deletion.
 
-    Paint (``range_copy.paint_direct_formatting``) passes
-    ``abort_on_portion_error=True``: a failed ``nextElement`` / portion type
-    would desync character offsets, so the walk stops. The helper continues
-    past a bad portion so later runs can still contribute text.
-
-    When *limit* stops the walk with more portions waiting, *truncated_out*
-    (if given) receives the seen count so the caller can warn.
+    A paragraph in the middle of such a deletion has no mark at all. *deletion_state* is a
+    one-item list a multi-paragraph walk passes to every paragraph: on entry, whether this
+    paragraph starts inside a deletion; on exit, whether it ends inside one.
     """
+    in_delete = bool(deletion_state and deletion_state[0])
+    seen_mark = False
+    before_mark: list[tuple[Any, str]] = []
+    for portion, kind in pairs:
+        if kind == "Redline":
+            if uno_read(lambda: str(portion.getPropertyValue("RedlineType")), "", object_type="TextPortion") == "Delete":
+                in_delete = uno_read(lambda: portion.getPropertyValue("IsStart") is True, False, object_type="TextPortion")
+                if not seen_mark:
+                    seen_mark = True
+                    if in_delete:
+                        yield from before_mark
+            continue
+        if not seen_mark:
+            before_mark.append((portion, kind))
+        elif not in_delete:
+            yield portion, kind
+    if not seen_mark and not in_delete:
+        yield from before_mark
+    if deletion_state is not None:
+        deletion_state[0] = in_delete
+
+
+def _typed_portions(
+    para: Any,
+    abort_on_portion_error: bool,
+    limit: int | None,
+    truncated_out: list[int] | None,
+) -> Iterator[tuple[Any, str]]:
     try:
         portion_enum = para.createEnumeration()
     except Exception:
         return
-    in_delete = False
     seen = 0
     while enum_has_more(portion_enum):
         if limit is not None and seen >= limit:
@@ -517,15 +540,33 @@ def visible_portions(
             if abort_on_portion_error:
                 return
             continue
-        if portion_type == "Redline":
-            try:
-                if str(portion.getPropertyValue("RedlineType")) == "Delete":
-                    in_delete = not in_delete
-            except Exception as exc:
-                log.debug("visible portion RedlineType unreadable (%s)", type(exc).__name__)
-            continue
-        if in_delete:
-            continue
+        yield portion, portion_type
+
+
+def visible_portions(
+    para: Any,
+    *,
+    abort_on_portion_error: bool = False,
+    limit: int | None = None,
+    truncated_out: list[int] | None = None,
+    deletion_state: list[bool] | None = None,
+) -> Iterator[tuple[Any, str]]:
+    """Yield ``(portion, text)`` for visible text, skipping tracked deletions.
+
+    Shared by ``get_string_without_tracked_deletions`` and range_copy paint so
+    an offset taken from the helper string indexes these chunks without drift.
+
+    Paint (``range_copy.paint_direct_formatting``) passes
+    ``abort_on_portion_error=True``: a failed ``nextElement`` / portion type
+    would desync character offsets, so the walk stops. The helper continues
+    past a bad portion so later runs can still contribute text.
+
+    When *limit* stops the walk with more portions waiting, *truncated_out*
+    (if given) receives the seen count so the caller can warn.
+    *deletion_state*: see ``skip_tracked_deletions``.
+    """
+    pairs = _typed_portions(para, abort_on_portion_error, limit, truncated_out)
+    for portion, portion_type in skip_tracked_deletions(pairs, deletion_state):
         try:
             chunk = portion.getString()
         except Exception as exc:
@@ -537,14 +578,14 @@ def visible_portions(
             yield portion, chunk
 
 
-def _paragraph_visible_text(para: Any) -> str:
+def _paragraph_visible_text(para: Any, deletion_state: list[bool] | None = None) -> str:
     """Visible text of one paragraph via ``visible_portions``.
 
     Falls back to ``getString()`` only when the portion enum cannot be opened.
     An empty walk after a successful enum is kept
     empty so tracked-only paragraphs do not re-include deleted text.
     """
-    chunks = list(visible_portions(para))
+    chunks = list(visible_portions(para, deletion_state=deletion_state))
     if chunks:
         return "".join(chunk for _unused, chunk in chunks)
     try:
@@ -569,7 +610,12 @@ def _table_visible_text(table: Any) -> str:
 
 
 @main_thread_only
-def get_string_without_tracked_deletions(text_range: Any) -> str:
+def get_string_without_tracked_deletions(
+    text_range: Any,
+    *,
+    starts_in_deletion: bool = False,
+    deletion_state: list[bool] | None = None,
+) -> str:
     """Return *text_range* text while skipping tracked deletions when possible.
 
     A draw shape returns ``getString()`` directly. A paragraph
@@ -577,7 +623,12 @@ def get_string_without_tracked_deletions(text_range: Any) -> str:
     concatenates visible portions without a mid-``\\n``. A document or
     multi-paragraph range still joins paragraphs with ``\\n`` and includes
     table-cell text, including nested tables.
+    *starts_in_deletion*: the range starts inside a tracked deletion (a caller
+    walking paragraphs in order knows; see ``skip_tracked_deletions``).
+    *deletion_state*: carried one-item ``[in_deletion]`` state across walks.
     """
+    if deletion_state is None:
+        deletion_state = [starts_in_deletion]
     try:
         # Draw-shape text is editeng, which never reports a Redline portion
         # (editeng/source/uno/unotext.cxx, WID_PORTIONTYPE case), and getString()
@@ -592,7 +643,7 @@ def get_string_without_tracked_deletions(text_range: Any) -> str:
         if _is_draw_shape_text(text_range):
             return text_range.getString()
         if _range_is_paragraph(text_range):
-            return _paragraph_visible_text(text_range)
+            return _paragraph_visible_text(text_range, deletion_state)
         para_enum = text_range.createEnumeration()
     except Exception:
         return text_range.getString()
@@ -607,10 +658,9 @@ def get_string_without_tracked_deletions(text_range: Any) -> str:
             if uno_read(lambda: para.supportsService("com.sun.star.text.TextTable") is True, False, object_type="TextRange"):
                 parts.append(_table_visible_text(para))
                 continue
-            # Each paragraph's portion enum is independent; Delete start/end
-            # markers for this walk live in that para. Reset is inside
-            # visible_portions (same as UNO per-paragraph redline markers).
-            parts.append(_paragraph_visible_text(para))
+            # deletion_state carries a deletion across paragraphs: the ones in
+            # its middle have no Delete mark of their own.
+            parts.append(_paragraph_visible_text(para, deletion_state))
     except Exception as exc:
         # Return deletion-free prefix on mid-walk error; do not fall back to getString().
         reraise_if_disposed(exc, object_type="TextRange")

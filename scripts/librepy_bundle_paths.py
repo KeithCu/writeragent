@@ -115,6 +115,7 @@ LIBREPY_PLUGIN_FILES: tuple[str, ...] = (
     "plugin/writer/field_restore.py",
     "plugin/writer/html_ruby.py",
     "plugin/writer/range_copy.py",
+    "plugin/writer/review_scan.py",
     "plugin/writer/table_nesting.py",
     "plugin/writer/xhtml_style_postprocess.py",
     "plugin/writer/math/__init__.py",

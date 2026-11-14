@@ -19,8 +19,9 @@ import logging
 import re
 import time
 import zlib
+from contextlib import contextmanager
 from html import escape as html_escape
-from typing import Any, Callable, Iterator
+from typing import Any, Callable, Generator, Iterator
 
 from plugin.doc.temp_files import with_temp_buffer
 from plugin.doc.text_helpers import (
@@ -33,7 +34,8 @@ from plugin.doc.text_helpers import (
 )
 from plugin.framework.errors import ToolExecutionError, best_effort, reraise_if_disposed, uno_read
 from plugin.framework.scratch_writer import new_blank_writer
-from plugin.framework.uno_context import create_property_value
+from plugin.framework.uno_context import create_property_value, get_desktop
+from plugin.writer.review_scan import document_has_tracked_deletions
 from plugin.writer.math.math_mml_export import (
     OBJECT_REPLACEMENT,
     inject_exported_math_tex,
@@ -190,7 +192,12 @@ def _autostyle_maps(doc: Any) -> tuple[dict[str, str], dict[str, str], bool | No
 _COPY_PORTION_LIMIT = 50000
 
 
-def _visible_portions(para: Any, limit: int = _COPY_PORTION_LIMIT, truncated_out: list[str] | None = None) -> Iterator[Any]:
+def _visible_portions(
+    para: Any,
+    limit: int = _COPY_PORTION_LIMIT,
+    truncated_out: list[str] | None = None,
+    deletion_state: list[bool] | None = None,
+) -> Iterator[Any]:
     """Visible portions for offset paint. Same walk as the text helper.
 
     Aborts on portion enum / type failure so later runs are not painted at a
@@ -203,7 +210,7 @@ def _visible_portions(para: Any, limit: int = _COPY_PORTION_LIMIT, truncated_out
     """
     hit: list[int] = []
     yield from visible_portions(
-        para, abort_on_portion_error=True, limit=limit, truncated_out=hit
+        para, abort_on_portion_error=True, limit=limit, truncated_out=hit, deletion_state=deletion_state
     )
     if hit:
         msg = walk_cap_warning("text portions", hit[0], limit)
@@ -320,11 +327,11 @@ def _trim_to_source(text: Any, element: Any, para_text: str, source: Any) -> tup
     return trim_start, trim_end
 
 
-# (element, visible para text) -> (trim_start, trim_end) in visible coordinates
+# (element, visible para text, starts_in_deletion) -> (trim_start, trim_end) in visible coordinates
 # (_visible_portions, tracked deletions removed), or None to skip the element.
 # The pair is always returned, even when nothing is cut, because paint_direct_formatting
 # and _hyperlink_urls index portions with it.
-_Window = Callable[[Any, str], "tuple[int, int] | None"]
+_Window = Callable[..., "tuple[int, int] | None"]
 
 
 def _selection_window(text: Any, source: Any) -> tuple[Callable[[Any], bool], _Window]:
@@ -332,7 +339,7 @@ def _selection_window(text: Any, source: Any) -> tuple[Callable[[Any], bool], _W
     def past_end(el: Any) -> bool:
         return starts_at_or_after(text, el.getStart(), source.getEnd())
 
-    def window(el: Any, para_text: str) -> tuple[int, int] | None:
+    def window(el: Any, para_text: str, starts_in_deletion: bool = False) -> tuple[int, int] | None:
         if not _element_overlaps(text, el, source):
             return None
         return _trim_to_source(text, el, para_text, source)
@@ -352,13 +359,15 @@ def _offset_window(text: Any, start: int, end: int) -> tuple[Callable[[Any], boo
     walker = text.createTextCursor()
     walker.gotoStart(False)
     running = 0
+    walker_in_deletion = False
 
-    def window(el: Any, para_text: str) -> tuple[int, int] | None:
-        nonlocal running
+    def window(el: Any, para_text: str, starts_in_deletion: bool = False) -> tuple[int, int] | None:
+        nonlocal running, walker_in_deletion
         gap = text.createTextCursorByRange(walker.getStart())
         gap.gotoRange(el.getStart(), True)
-        running += len(get_string_without_tracked_deletions(gap))
+        running += len(get_string_without_tracked_deletions(gap, starts_in_deletion=walker_in_deletion))
         walker.gotoRange(el.getStart(), False)
+        walker_in_deletion = starts_in_deletion
         para_start = running
         para_end = para_start + len(para_text)
         if para_end <= start or para_start >= end:
@@ -425,6 +434,7 @@ def _copy_window_to_scratch(
     copied_urls = []
     copied_ruby = []
     math_records: list[tuple[str, str, bool]] = []
+    deletion_state = [False]
 
     for el in iter_elements(enum):
         if not hasattr(el, "getString"):
@@ -441,11 +451,12 @@ def _copy_window_to_scratch(
         # Same _visible_portions walk as get_string_without_tracked_deletions so
         # paint offsets match the helper string. Still walk here (not just the
         # helper) because we need the portion objects to copy Char* properties.
-        portions = list(_visible_portions(el, truncated_out=walk_warnings))
+        el_in_deletion = deletion_state[0]
+        portions = list(_visible_portions(el, truncated_out=walk_warnings, deletion_state=deletion_state))
         has_formula = any(portion_math_embed(p) is not None for p, _unused in portions)
         para_text = "".join(chunk for _unused, chunk in portions)
 
-        trim = window(el, para_text)
+        trim = window(el, para_text, el_in_deletion)
         if trim is None:
             continue
         trim_start, trim_end = trim
@@ -476,7 +487,9 @@ def _copy_window_to_scratch(
         # RubyText lives on the empty Ruby start mark, not the Text run, so
         # _COPIED_CHAR_PROPERTIES cannot recreate ruby on the temp doc.
         # Collect source spans and rewrite the exported HTML after XHTML.
-        copied_ruby.extend(html_ruby.ruby_spans_in_window(el, trim_start, trim_end))
+        copied_ruby.extend(
+            html_ruby.ruby_spans_in_window(el, trim_start, trim_end, deletion_state=[el_in_deletion])
+        )
         added_any = True
 
     return (copied_urls, copied_ruby, math_records) if added_any else None
@@ -567,6 +580,54 @@ def _range_to_content_via_temp_doc(
 
 
 
+@contextmanager
+def _without_tracked_deletions(
+    model: Any, ctx: Any, walk_warnings: list[str] | None = None
+) -> Generator[Any, None, None]:
+    """*model*, or when it has pending tracked deletions a hidden copy with every change accepted."""
+    if not document_has_tracked_deletions(model):
+        yield model
+        return
+    from plugin.doc.temp_files import with_temp_buffer
+
+    copy = None
+    with with_temp_buffer(ext=".odt") as (_unused, url):
+        try:
+            model.storeToURL(url, (create_property_value("FilterName", "writer8"),))
+            desktop = get_desktop(ctx)
+            if desktop is None:
+                raise RuntimeError("get_desktop returned None")
+            copy = desktop.loadComponentFromURL(url, "_blank", 0, (create_property_value("Hidden", True),))
+            if copy is None:
+                raise RuntimeError("loadComponentFromURL returned None")
+            dispatcher = ctx.getServiceManager().createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx)
+            if dispatcher is None:
+                raise RuntimeError("DispatchHelper unavailable")
+            controller = copy.getCurrentController()
+            frame = controller.getFrame() if controller is not None else None
+            if frame is None:
+                raise RuntimeError("frame unavailable")
+            dispatcher.executeDispatch(frame, ".uno:AcceptAllTrackedChanges", "", 0, ())
+        except Exception as exc:
+            reraise_if_disposed(exc)
+            log.warning("_without_tracked_deletions: copy failed; falling back to original model", exc_info=exc)
+            if walk_warnings is not None:
+                walk_warnings.append("tracked deletions could not be hidden; content includes pending deleted text")
+            if copy is not None:
+                failed_copy = copy
+                best_effort(lambda: failed_copy.close(True), "_without_tracked_deletions: close copy failed")
+                copy = None
+
+        if copy is not None:
+            accepted_copy = copy
+            try:
+                yield accepted_copy
+            finally:
+                best_effort(lambda: accepted_copy.close(True), "_without_tracked_deletions: close copy failed")
+        else:
+            yield model
+
+
 def document_to_content(
     model: Any,
     ctx: Any,
@@ -639,37 +700,43 @@ def document_to_content(
             scope,
         )
 
-    # scope == "full" — preferred: XHTML (+ flat-ODF parent map) -> semantic data-lo-style.
-    xhtml_error: Exception | None = None
-    try:
-        content, fodt_has_ruby = _export_semantic(model, read_ruby=True)
-        content = finish(content, fodt_has_ruby, "the XHTML export came back empty")
-        return _done(content, "xhtml")
-    except Exception as e:
-        # A closed document must not start a second export.
-        reraise_if_disposed(e)
-        xhtml_error = e
-        log.exception("document_to_content (full, XHTML) failed; falling back to StarWriter")
+    # The XHTML filter writes text a pending tracked change deleted as ordinary text;
+    # otherwise a full read returns pending deleted text as live text, and a full replace
+    # built from it restores it. Export a copy with the changes accepted: that is
+    # the text the range reads and get_string_without_tracked_deletions return.
+    # finish() reads ``model`` too, so it follows the copy.
+    with _without_tracked_deletions(model, ctx, walk_warnings=walk_warnings) as model:
+        # scope == "full" — preferred: XHTML (+ flat-ODF parent map) -> semantic data-lo-style.
+        xhtml_error: Exception | None = None
+        try:
+            content, fodt_has_ruby = _export_semantic(model, read_ruby=True)
+            content = finish(content, fodt_has_ruby, "the XHTML export came back empty")
+            return _done(content, "xhtml")
+        except Exception as e:
+            # A closed document must not start a second export.
+            reraise_if_disposed(e)
+            xhtml_error = e
+            log.exception("document_to_content (full, XHTML) failed; falling back to StarWriter")
 
-    # Fallback: legacy StarWriter export (so reads never hard-fail).
-    try:
-        content = _export_starwriter_html(model)
-        content = finish(content, None, "the HTML export came back empty")
-        if walk_warnings is not None:
-            walk_warnings.append(
-                "XHTML export failed; content came from the legacy HTML export and has no style tokens."
-            )
-        return _done(content, "starwriter")
-    except Exception as e:
-        # Disposal is not a double export failure.
-        reraise_if_disposed(e)
-        # If both exports fail, returning "" would make get_document_content
-        # answer status ok with empty content, and neither the agent nor the
-        # log reader could tell why. Raise a tool error that names both
-        # reasons (a full /tmp, a filter error, ...).
-        raise ToolExecutionError(
-            "Could not read the document: the XHTML export failed (%s) and the HTML export "
-            "failed too (%s)." % (_reason(xhtml_error), _reason(e))) from e
+            # Fallback: legacy StarWriter export (so reads never hard-fail).
+            try:
+                content = _export_starwriter_html(model)
+                content = finish(content, None, "the HTML export came back empty")
+                if walk_warnings is not None:
+                    walk_warnings.append(
+                        "XHTML export failed; content came from the legacy HTML export and has no style tokens."
+                    )
+                return _done(content, "starwriter")
+            except Exception as e:
+                # Disposal is not a double export failure.
+                reraise_if_disposed(e)
+                # If both exports fail, returning "" would make get_document_content
+                # answer status ok with empty content, and neither the agent nor the
+                # log reader could tell why. Raise a tool error that names both
+                # reasons (a full /tmp, a filter error, ...).
+                raise ToolExecutionError(
+                    "Could not read the document: the XHTML export failed (%s) and the HTML export "
+                    "failed too (%s)." % (_reason(xhtml_error), _reason(e))) from e
 
 
 def _reason(error: Exception) -> str:

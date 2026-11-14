@@ -417,7 +417,7 @@ WRITER_REVIEW_MODES_RULES = """TRACKED CHANGES / REVIEW MODES:
 - The user picks ONE of three review modes; you never pick or switch it. off: edits are live immediately. record: edits are tracked changes pending accept/reject; you will NOT be told the later outcome. wait: edits are tracked changes; the tool blocks until the user finishes reviewing (or a timeout) and the result reports what was accepted or rejected.
 - apply_document_content's RESULT carries that call's review state (record: review_mode / pending_review; wait: a review field) — trust the latest result, since the user can switch modes mid-session.
 - In record and wait, NEVER accept or reject changes yourself (no tracking_manage accept/reject) — resolving redlines is the user's decision.
-- get_document_content lists pending changes under tracked_changes — they are pending review, not errors to fix."""
+- When reading, content from get_document_content shows the document as if pending deletions were already accepted. Deleted text appears only under tracked_changes — those entries are pending review, not errors to fix. If deleted words are missing from content, the deletion already applied."""
 
 
 # apply_document_content only — design notes in docs/chat/sidebar-implementation.md § Chat prompt constants and docs/writer/math-tex.md.

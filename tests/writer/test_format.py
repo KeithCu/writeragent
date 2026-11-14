@@ -929,9 +929,9 @@ def test_visible_portions_skips_tracked_deletions():
 
     para = _para_of([
         _text_portion("kept "),
-        _text_portion("", "Redline", RedlineType="Delete"),
+        _text_portion("", "Redline", RedlineType="Delete", IsStart=True),
         _text_portion("deleted"),
-        _text_portion("", "Redline", RedlineType="Delete"),
+        _text_portion("", "Redline", RedlineType="Delete", IsStart=False),
         _text_portion(" tail"),
     ])
 
@@ -1257,3 +1257,16 @@ def test_capture_direct_char_overrides_counts_one_failure_and_continues():
     assert notes == []
     assert overrides[0][1] == {"CharWeight": 150}
 
+
+def test_visible_portions_carry_deletion_across_paragraphs():
+    """Range reads pass one deletion state from paragraph to paragraph."""
+    from plugin.writer import html_export as hx
+
+    state = [False]
+    paras = [
+        _para_of([_text_portion("live "), _text_portion("", "Redline", RedlineType="Delete", IsStart=True), _text_portion("gone")]),
+        _para_of([_text_portion("gone too")]),
+        _para_of([_text_portion("", "Redline", RedlineType="Delete", IsStart=False), _text_portion("back")]),
+    ]
+    got = ["".join(c for _p, c in hx._visible_portions(p, deletion_state=state)) for p in paras]
+    assert got == ["live ", "", "back"]

@@ -172,3 +172,135 @@ def test_search_in_document_plain_bad_regex_is_invalid_regex_uno(ctx, doc):
     res = tool.execute(mock_ctx, pattern="([a-", regex=True)
     assert res["status"] == "error"
     assert res["code"] == "INVALID_REGEX"
+
+
+@native_test
+@with_native_doc("writer")
+def test_tracked_deletions_hidden_from_reads_and_searches(ctx, doc):
+    """Pending tracked deletions spanning multiple paragraphs must be hidden from
+    get_string_without_tracked_deletions, range reads, full export, get_document_content,
+    search_in_document, and find_text_ranges offsets. get_document_content must list the
+    deleted text only under tracked_changes and leave the live document untouched."""
+    from plugin.doc.text_helpers import get_string_without_tracked_deletions
+    from plugin.tests.testing_utils import TestingFactory
+    from plugin.writer.get_document_content import GetDocumentContent
+    from plugin.writer.html_export import document_to_content
+    from plugin.writer.search import SearchInDocument, find_text_ranges
+
+    doc.setPropertyValue("RecordChanges", False)
+    text = doc.getText()
+    cursor = text.createTextCursor()
+
+    # Insert P1 to P4
+    text.insertString(cursor, "P1 start. To be deleted in P1.", False)
+    text.insertControlCharacter(cursor, 0, False)
+    text.insertString(cursor, "P2 entire paragraph deleted.", False)
+    text.insertControlCharacter(cursor, 0, False)
+    text.insertString(cursor, "P3 deleted start. P3 live end.", False)
+    text.insertControlCharacter(cursor, 0, False)
+    text.insertString(cursor, "P4 delta live text.", False)
+
+    # Turn on RecordChanges and delete from middle of P1 to middle of P3
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        sd = doc.createSearchDescriptor()
+        sd.SearchString = "To be deleted in P1."
+        hit1 = doc.findFirst(sd)
+        assert hit1 is not None
+
+        sd.SearchString = "P3 deleted start. "
+        hit2 = doc.findFirst(sd)
+        assert hit2 is not None
+
+        del_cursor = text.createTextCursorByRange(hit1.getStart())
+        del_cursor.gotoRange(hit2.getEnd(), True)
+        del_cursor.setString("")
+
+        show_changes = doc.getPropertyValue("ShowChanges")
+        modified = doc.isModified()
+        redline_count = doc.getRedlines().getCount()
+        assert redline_count >= 1
+
+        # 1. get_string_without_tracked_deletions on body
+        visible_text = get_string_without_tracked_deletions(text)
+        assert "To be deleted in P1." not in visible_text
+        assert "P2 entire paragraph deleted." not in visible_text
+        assert "P3 deleted start." not in visible_text
+        assert "P1 start." in visible_text
+        assert "P3 live end." in visible_text
+        assert "P4 delta live text." in visible_text
+
+        # 2. scope=range read covering the visible text
+        range_read = document_to_content(doc, ctx, scope="range", range_start=0, range_end=len(visible_text))
+        assert "To be deleted in P1." not in range_read
+        assert "P2 entire paragraph deleted." not in range_read
+        assert "P3 deleted start." not in range_read
+        assert "P1 start." in range_read
+        assert "P3 live end." in range_read
+        assert "P4 delta live text." in range_read
+
+        # 3. full document_to_content read: does not contain deleted text and doc is unmodified
+        full_read = document_to_content(doc, ctx, scope="full")
+        assert "To be deleted in P1." not in full_read
+        assert "P2 entire paragraph deleted." not in full_read
+        assert "P3 deleted start." not in full_read
+        assert "P1 start." in full_read
+        assert "P3 live end." in full_read
+        assert "P4 delta live text." in full_read
+        assert doc.getPropertyValue("RecordChanges") is True
+        assert doc.getPropertyValue("ShowChanges") == show_changes
+        assert doc.isModified() == modified
+        assert doc.getRedlines().getCount() == redline_count
+        assert "P2 entire paragraph deleted." in text.getString()
+
+        # 3b. get_document_content: content is the accept view; deleted text is only
+        # in tracked_changes; the live document is untouched.
+        tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+        tool_res = GetDocumentContent().execute(tool_ctx, scope="full")
+        assert tool_res["status"] == "ok", tool_res
+        tool_html = tool_res.get("content") or ""
+        assert "To be deleted in P1." not in tool_html
+        assert "P2 entire paragraph deleted." not in tool_html
+        assert "P3 deleted start." not in tool_html
+        assert "P1 start." in tool_html
+        assert "P3 live end." in tool_html
+        assert "P4 delta live text." in tool_html
+        changes = tool_res.get("tracked_changes") or []
+        deletion_text = " ".join(
+            item.get("text", "") for item in changes if item.get("type") == "deletion"
+        )
+        assert "To be deleted in P1." in deletion_text, changes
+        assert "P2 entire paragraph deleted." in deletion_text, changes
+        assert "P3 deleted start." in deletion_text, changes
+        assert tool_res.get("tracked_changes_total", 0) >= 1
+        assert doc.getPropertyValue("RecordChanges") is True
+        assert doc.getPropertyValue("ShowChanges") == show_changes
+        assert doc.isModified() == modified
+        assert doc.getRedlines().getCount() == redline_count
+        assert "P2 entire paragraph deleted." in text.getString()
+
+        # 4. search_in_document for a word inside the deletion returns 0 hits,
+        # while a live word hits as expected
+        mock_ctx = MockContext(doc, ctx)
+        search_res = SearchInDocument().execute(mock_ctx, pattern="entire paragraph")
+        assert search_res["status"] == "ok"
+        assert search_res["count"] == 0
+        assert search_res["matches"] == []
+
+        live_res = SearchInDocument().execute(mock_ctx, pattern="live end")
+        assert live_res["status"] == "ok"
+        assert live_res["count"] == 1
+        assert len(live_res["matches"]) == 1
+
+        # 5. return_offsets for a word after the deletion matches the range-read offset
+        target_word = "delta"
+        ranges = find_text_ranges(doc, target_word)
+        assert len(ranges) == 1
+        delta_offset = ranges[0]["start"]
+        assert delta_offset == visible_text.index(target_word)
+        delta_slice = document_to_content(
+            doc, ctx, scope="range", range_start=delta_offset, range_end=delta_offset + len(target_word)
+        )
+        assert target_word in delta_slice
+    finally:
+        doc.setPropertyValue("RecordChanges", False)

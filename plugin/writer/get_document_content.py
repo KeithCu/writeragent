@@ -181,7 +181,7 @@ class GetDocumentContent(ToolBase):
             result["start"] = range_start
             result["end"] = range_end
 
-        # The HTML content above hides tracked deletions and gives no sign that changes are pending.
+        # Full and partial HTML hides tracked deletions and gives no sign that changes are pending.
         # When the document has tracked changes, surface them explicitly (insertion vs deletion, with
         # text) and say they await the user's review — so the model treats them as pending, not errors,
         # and never resolves them itself.

@@ -54,6 +54,32 @@ def test_extract_and_strip_ruby_uppercase_tags():
     assert spans == [("漢字", "かんじ", True, 0)]
 
 
+def test_iter_ruby_spans_in_paragraph_skips_ruby_inside_deletion():
+    from plugin.writer.html_ruby import _iter_ruby_spans_in_paragraph
+
+    para = MagicMock()
+    portion_start = MagicMock()
+    portion_start.getPropertyValue.side_effect = lambda prop: {
+        "TextPortionType": "Ruby",
+        "RubyText": "とうきょう",
+        "RubyIsAbove": True,
+    }[prop]
+    portion_base = MagicMock()
+    portion_base.getPropertyValue.side_effect = lambda prop: {"TextPortionType": "Text"}[prop]
+    portion_base.getString.return_value = "東京"
+    portion_end = MagicMock()
+    portion_end.getPropertyValue.side_effect = lambda prop: {"TextPortionType": "Ruby"}[prop]
+
+    portion_enum = MagicMock()
+    portion_enum.hasMoreElements.side_effect = [True, True, True, False]
+    portion_enum.nextElement.side_effect = [portion_start, portion_base, portion_end]
+    para.createEnumeration.return_value = portion_enum
+
+    # When inside deletion (e.g. deletion_state=[True]), ruby spans are omitted
+    spans = list(_iter_ruby_spans_in_paragraph(para, deletion_state=[True]))
+    assert spans == []
+
+
 def test_extract_and_strip_ruby_noop():
     html = "<p>plain</p>"
     clean, spans = extract_and_strip_ruby(html)

@@ -37,7 +37,7 @@ from plugin.framework.tool import ToolBase, ToolBaseDummy
 from plugin.framework.uno_context import get_ctx, get_service_manager, uno_same
 from plugin.framework.worker_pool import run_in_background
 from plugin.writer import html_import
-from plugin.writer.review_scan import document_has_tracked_deletions
+from plugin.writer.review_scan import document_has_tracked_deletions, scan_redlines
 
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
@@ -393,18 +393,43 @@ def find_text_ranges(
     cursor.gotoStart(False)
 
     matches = []
+    deleted = tracked_deletion_spans(model)
     found = model.findNext(cursor, sd)
+    walker = None
+    running = 0
+    walker_text = None
+    deletion_state = [False]
     while found:
-        if not body_only or uno_same(found.getText(), model.getText()):
-            measure = found.getText().createTextCursor()
-            measure.gotoStart(False)
-            measure.gotoRange(found.getStart(), True)
-            m_start = len(measure.getString())
-            matched_text = found.getString()
-            m_end = m_start + len(matched_text)
-            matches.append({"start": m_start, "end": m_end, "text": matched_text})
-            if limit is not None and len(matches) >= limit:
-                break
+        if (not body_only or uno_same(found.getText(), model.getText())) and not inside_tracked_deletion(found, deleted):
+            hit_text = found.getText()
+            if not deleted:
+                # Fast path when no deletions exist: measure natively without portion walks.
+                measure = hit_text.createTextCursor()
+                measure.gotoStart(False)
+                measure.gotoRange(found.getStart(), True)
+                m_start = len(measure.getString())
+                matched_text = found.getString()
+                m_end = m_start + len(matched_text)
+            else:
+                # Incremental forward walk: carry walker, running offset, and deletion state across hits.
+                if walker is None or not uno_same(walker_text, hit_text):
+                    walker = hit_text.createTextCursor()
+                    walker.gotoStart(False)
+                    running = 0
+                    walker_text = hit_text
+                    deletion_state = [False]
+                gap = hit_text.createTextCursorByRange(walker.getStart())
+                gap.gotoRange(found.getStart(), True)
+                running += len(get_string_without_tracked_deletions(gap, deletion_state=deletion_state))
+                m_start = running
+                matched_text = get_string_without_tracked_deletions(found, deletion_state=deletion_state)
+                walker.gotoRange(found.getEnd(), False)
+                running += len(matched_text)
+                m_end = m_start + len(matched_text)
+            if matched_text:
+                matches.append({"start": m_start, "end": m_end, "text": matched_text})
+                if limit is not None and len(matches) >= limit:
+                    break
         found = model.findNext(found.getEnd(), sd)
     return matches
 
@@ -459,10 +484,48 @@ def _paragraph_matches_part(para_text: str, part: str, *, head: bool = False, ta
     return actual_norm == expected_norm, None
 
 
+def tracked_deletion_spans(doc: Any) -> list[tuple[Any, Any]]:
+    """(start, end) of each pending tracked deletion. LO search still sees deleted text."""
+    spans: list[tuple[Any, Any]] = []
+
+    def on_redline(rl: Any) -> bool:
+        try:
+            if rl.getPropertyValue("RedlineType") == "Delete":
+                start = rl.getPropertyValue("RedlineStart")
+                end = rl.getPropertyValue("RedlineEnd")
+                spans.append((start, end))
+        except Exception as exc:
+            reraise_if_disposed(exc)
+            return True
+        return True
+
+    scan_redlines(doc, on_redline)
+    return spans
+
+
+def inside_tracked_deletion(found: Any, spans: list[tuple[Any, Any]]) -> bool:
+    """True when the search hit *found* lies wholly inside one of *spans*: text the user
+    deleted with Track Changes on is not a hit."""
+    if not spans:
+        return False
+    text = found.getText()
+    for start, end in spans:
+        if not uno_same(start.getText(), text):
+            continue
+        # compareRegionStarts(a, b) is 1 when a comes first; RedlineStart can be the later end.
+        if text.compareRegionStarts(start, end) < 0:
+            start, end = end, start
+        if text.compareRegionStarts(start, found) >= 0 and text.compareRegionEnds(found, end) >= 0:
+            return True
+    return False
+
+
 def _iter_descriptor_hits(doc: Any, sd: Any, after: Any = None) -> Iterator[Any]:
+    deleted = tracked_deletion_spans(doc)
     found = doc.findFirst(sd) if after is None else doc.findNext(after, sd)
     while found is not None:
-        yield found
+        if not inside_tracked_deletion(found, deleted):
+            yield found
         found = find_next_after_match(doc, found, sd)
 
 
@@ -1167,7 +1230,7 @@ def find_ranges_regex_case(doc: Any, pattern: str, use_regex: bool, case_sensiti
     # Callers validate the pattern with validate_icu_regex before searching.
     sd = _search_descriptor(doc, pattern, use_regex, case_sensitive)
     if not all_matches:
-        return doc.findFirst(sd)
+        return next(_iter_descriptor_hits(doc, sd), None)
     return _collect_capped(doc, sd)
 
 
@@ -1475,6 +1538,7 @@ class SearchInDocument(ToolBase):
         labeler = LocationLabeler(doc)
         try:
             sd = _search_descriptor(doc, pattern, use_regex, case_sensitive)
+            deleted = tracked_deletion_spans(doc)
             found = doc.findFirst(sd)
         except Exception as exc:
             reraise_if_disposed(exc)
@@ -1505,13 +1569,14 @@ class SearchInDocument(ToolBase):
                 # failures are not treated as benign empty hits with a silent count.
                 warning = "Search stopped on a zero-width match; count may be incomplete."
                 break
-            total_count += 1
-            if len(matches) < max_results:
-                add(
-                    hit_text,
-                    labeler.describe(found),
-                    enclosing_paragraph_text(found),
-                )
+            if not inside_tracked_deletion(found, deleted):
+                total_count += 1
+                if len(matches) < max_results:
+                    add(
+                        hit_text,
+                        labeler.describe(found),
+                        enclosing_paragraph_text(found),
+                    )
             try:
                 # hit_text is non-empty here, so skip find_next_after_match's second getString.
                 found = doc.findNext(found.getEnd(), sd)

@@ -10,9 +10,9 @@ from __future__ import annotations
 import logging
 from typing import Any, Iterator
 
+from plugin.doc.text_helpers import FAILED, iter_elements, skip_tracked_deletions
 from plugin.framework.errors import DocumentDisposedError, best_effort, reraise_if_disposed, uno_read
 from plugin.framework.uno_context import uno_same
-from plugin.doc.text_helpers import FAILED, iter_elements
 from plugin.writer.math.math_mml_export import (
     OBJECT_REPLACEMENT,
     portion_math_embed,
@@ -451,9 +451,11 @@ def _copy_visible_portions(
     cursor: Any,
     parent_el: Any,
     math_records: list[tuple[str, str, bool]] | None,
+    deletion_state: list[bool] | None = None,
     style: Any = None,
 ) -> None:
-    for portion, kind in iter_portions(portions):
+    # Text a pending tracked change deleted is not copied, same as the other reads.
+    for portion, kind in skip_tracked_deletions(iter_portions(portions), deletion_state):
         if kind == "TextField":
             field = _portion_field(portion)
             if field is None:
@@ -485,6 +487,7 @@ def _copy_cell_xtext(
         dest_cell.setString(src_cell.getString())
         return
     first_para = True
+    deletion_state = [False]
     for para in iter_elements(para_enum):
         if supports_service(para, "com.sun.star.text.TextTable"):
             # Recreate the nested table inside dest_cell (same walk as body _copy_table).
@@ -499,7 +502,7 @@ def _copy_cell_xtext(
         except Exception:
             _fallback_insert_para_text(dest_cell, dest_cursor, para)
             continue
-        _copy_visible_portions(portions, dest_doc, dest_cell, dest_cursor, para, math_records)
+        _copy_visible_portions(portions, dest_doc, dest_cell, dest_cursor, para, math_records, deletion_state)
 
 
 def writer_cell_position(name: str) -> tuple[int, int] | None:
@@ -682,6 +685,7 @@ def _copy_xtext_by_portions(
         dest_text.setString(src_text.getString())
         return
     first_para = True
+    deletion_state = [False]
     for el in iter_elements(enum):
         if supports_service(el, "com.sun.star.text.TextTable"):
             dest_cursor = _append_table(el, dest_doc, dest_text, math_records)
@@ -700,7 +704,9 @@ def _copy_xtext_by_portions(
             style_name = uno_read(lambda: el.getPropertyValue("ParaStyleName"), "")
             if apply_temp_para_style(dest_doc, dest_cursor, style_name, src_doc):
                 style = source_style(src_doc, style_name, style_cache)
-        _copy_visible_portions(portions, dest_doc, dest_text, dest_cursor, el, math_records, style)
+        _copy_visible_portions(
+            portions, dest_doc, dest_text, dest_cursor, el, math_records, deletion_state=deletion_state, style=style
+        )
         _copy_para_properties_to_end(dest_text, dest_cursor, el, style)
 
 

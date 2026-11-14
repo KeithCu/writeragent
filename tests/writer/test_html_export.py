@@ -86,7 +86,7 @@ def _run_range_export(
     source.getText.return_value = text
 
     if portions_fn is None:
-        def portions_fn(element, truncated_out=None):
+        def portions_fn(element, truncated_out=None, deletion_state=None):
             yield (_Portion(), "Hello")
 
     export_kwargs = {"side_effect": export_side_effect} if export_side_effect is not None else {"return_value": xhtml}
@@ -561,7 +561,7 @@ def test_range_offset_failure_is_not_a_successful_slice():
     temp = MagicMock()
     temp.getText.return_value = MagicMock()
 
-    def _portions(element, truncated_out=None):
+    def _portions(element, truncated_out=None, deletion_state=None):
         yield (_Portion(), "Hello")
 
     with (
@@ -649,7 +649,7 @@ def test_selection_compare_failure_is_not_a_silent_skip(exc, expected, match):
     source = MagicMock()
     source.getText.return_value = text
 
-    def _portions(element, truncated_out=None):
+    def _portions(element, truncated_out=None, deletion_state=None):
         yield (_Portion(), "Hello")
 
     with (
@@ -681,7 +681,7 @@ def test_range_export_does_not_read_para_style_on_a_table():
     table = MagicMock()
     table.supportsService.side_effect = lambda name: name == "com.sun.star.text.TextTable"
 
-    def _portions(element, truncated_out=None):
+    def _portions(element, truncated_out=None, deletion_state=None):
         if element is not table:
             yield (_Portion(), "Hello")
 
@@ -991,3 +991,53 @@ def test_range_export_skips_flat_odf_when_no_autostyle():
     autostyle_mock2.assert_called_once_with(temp_doc2)
     assert '<p data-lo-style="Standard" data-lo-para="color:red">Hello</p>' in out_auto
 
+
+
+def test_full_read_exports_a_copy_with_tracked_changes_accepted():
+    """The XHTML filter writes pending deleted text as live text, so a full read of a
+    document with tracked deletions exports a hidden copy with the changes accepted."""
+    from plugin.writer import html_export as hx
+
+    model, ctx, copy = MagicMock(), MagicMock(), MagicMock()
+    desktop = MagicMock()
+    desktop.loadComponentFromURL.return_value = copy
+    dispatcher = ctx.getServiceManager.return_value.createInstanceWithContext.return_value
+    with patch.object(hx, "document_has_tracked_deletions", return_value=True), \
+            patch.object(hx, "get_desktop", return_value=desktop):
+        with hx._without_tracked_deletions(model, ctx) as source:
+            assert source is copy
+            copy.close.assert_not_called()
+    model.storeToURL.assert_called_once()
+    assert dispatcher.executeDispatch.call_args[0][1] == ".uno:AcceptAllTrackedChanges"
+    copy.close.assert_called_once_with(True)
+    model.close.assert_not_called()
+
+    with patch.object(hx, "document_has_tracked_deletions", return_value=False):
+        with hx._without_tracked_deletions(model, ctx) as source:
+            assert source is model
+
+
+def test_full_read_falls_back_to_model_when_accepted_copy_fails():
+    """When creating the accepted copy fails (e.g. storeToURL raises), the full read falls back
+    to the original model and records a warning rather than raising an error."""
+    from plugin.writer import html_export as hx
+
+    model, ctx = MagicMock(), MagicMock()
+    model.storeToURL.side_effect = RuntimeError("disk full")
+
+    warnings: list[str] = []
+    with patch.object(hx, "document_has_tracked_deletions", return_value=True):
+        with hx._without_tracked_deletions(model, ctx, walk_warnings=warnings) as source:
+            assert source is model
+    assert "tracked deletions could not be hidden; content includes pending deleted text" in warnings
+
+    # Full document_to_content read also returns content and preserves the warning
+    warnings.clear()
+    with patch.object(hx, "document_has_tracked_deletions", return_value=True), \
+            patch.object(hx, "_export_xhtml", return_value="<p>live text</p>"), \
+            patch.object(hx, "_autostyle_maps", return_value=({}, {}, False)), \
+            patch.object(hx, "inject_exported_math_tex", side_effect=lambda _m, _c, text: text), \
+            patch.object(hx.html_ruby, "inject_ruby_from_model", side_effect=lambda _m, text, _rf: text):
+        res = hx.document_to_content(model, ctx, scope="full", walk_warnings=warnings)
+        assert "<p>live text</p>" in res
+        assert "tracked deletions could not be hidden; content includes pending deleted text" in warnings
