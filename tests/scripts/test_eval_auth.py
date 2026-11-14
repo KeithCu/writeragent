@@ -88,12 +88,9 @@ def test_is_openrouter_endpoint() -> None:
     assert not is_openrouter_endpoint("http://127.0.0.1:11434/v1")
 
 
-def test_require_api_key_openrouter_empty_exits() -> None:
+def test_require_api_key_openrouter() -> None:
     with pytest.raises(SystemExit):
         require_api_key("", "https://openrouter.ai/api/v1")
-
-
-def test_require_api_key_openrouter_accepts_key() -> None:
     require_api_key("sk-test", "https://openrouter.ai/api/v1")
 
 
@@ -246,6 +243,15 @@ def test_require_eval_keys_all_claude_no_openrouter_key(monkeypatch: pytest.Monk
         api_key="",
         models=["anthropic/claude-sonnet-4.5"],
     )
+
+    # Without the Anthropic env key the Claude model stays on OpenRouter with an empty key, so the pass above came from native-Anthropic routing.
+    monkeypatch.delenv("ANTHROPIC_API_KEY")
+    with pytest.raises(SystemExit):
+        require_eval_keys(
+            endpoint="https://openrouter.ai/api/v1",
+            api_key="",
+            models=["anthropic/claude-sonnet-4.5"],
+        )
 
 
 def test_require_eval_keys_claude_and_openrouter_judge_missing_key_exits(monkeypatch: pytest.MonkeyPatch) -> None:
