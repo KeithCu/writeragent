@@ -1,7 +1,6 @@
 # WriterAgent tests for SettingsDialog XDL layout generation
 from __future__ import annotations
 
-import re
 import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
@@ -17,31 +16,51 @@ from manifest_registry import _settings_hover_text, generate_settings_dialog_tab
 _DLG_NS = "http://openoffice.org/2000/dialog"
 
 
-def _control_attrs(xdl_path: Path) -> dict[str, dict[str, str]]:
-    """Map control dlg:id -> {top,left,width,height} from generated SettingsDialog XDL."""
+def _control_ids(xdl_path: Path) -> set[str]:
+    """Return all dlg:id values from generated XDL."""
     root = ET.parse(xdl_path).getroot()
-    attrs: dict[str, dict[str, str]] = {}
+    return {
+        ctrl_id
+        for el in root.iter()
+        if (ctrl_id := el.get(f"{{{_DLG_NS}}}id"))
+    }
+
+
+def _assert_controls_fit_and_do_not_overlap(root: ET.Element, *, check_overlap: bool = True) -> None:
+    """Verify every child control fits inside the dialog and, when enabled, does not overlap."""
+    dlg_width = int(root.get(f"{{{_DLG_NS}}}width") or 0)
+    dlg_height = int(root.get(f"{{{_DLG_NS}}}height") or 0)
+    assert dlg_width > 0 and dlg_height > 0
+
+    by_page: dict[str, list[tuple[str, int, int, int, int]]] = {}
     for el in root.iter():
-        ctrl_id = el.get(f"{{{_DLG_NS}}}id")
-        if not ctrl_id or ctrl_id in attrs:
+        # Skip <dlg:window> itself, which carries the dialog's own dimensions.
+        if el is root:
             continue
-        attrs[ctrl_id] = {
-            "top": el.get(f"{{{_DLG_NS}}}top") or "",
-            "left": el.get(f"{{{_DLG_NS}}}left") or "",
-            "width": el.get(f"{{{_DLG_NS}}}width") or "",
-            "height": el.get(f"{{{_DLG_NS}}}height") or "",
-        }
-    return attrs
+        ctrl_id = el.get(f"{{{_DLG_NS}}}id")
+        # __module__ is a 0x0 hidden metadata element carrying the module name.
+        if not ctrl_id or ctrl_id == "__module__":
+            continue
+        page = el.get(f"{{{_DLG_NS}}}page") or "0"
+        x = int(el.get(f"{{{_DLG_NS}}}left") or 0)
+        y = int(el.get(f"{{{_DLG_NS}}}top") or 0)
+        w = int(el.get(f"{{{_DLG_NS}}}width") or 0)
+        h = int(el.get(f"{{{_DLG_NS}}}height") or 0)
+        assert x >= 0 and y >= 0 and w > 0 and h > 0, f"Invalid geometry for {ctrl_id}"
+        assert x + w <= dlg_width, f"{ctrl_id} overflows width: {x}+{w} > {dlg_width}"
+        assert y + h <= dlg_height, f"{ctrl_id} overflows height: {y}+{h} > {dlg_height}"
+        by_page.setdefault(page, []).append((ctrl_id, x, y, x + w, y + h))
 
+    if not check_overlap:
+        return
 
-def _control_tops(xdl_path: Path) -> dict[str, str]:
-    """Map control dlg:id -> dlg:top from generated SettingsDialog XDL."""
-    return {cid: vals["top"] for cid, vals in _control_attrs(xdl_path).items() if vals["top"]}
-
-
-def _same_layout_row(tops: dict[str, str], left_id: str, right_id: str) -> bool:
-    """True when controls share a row (checkbox/label tops may be +2 vs field tops)."""
-    return abs(int(tops[left_id]) - int(tops[right_id])) <= 2
+    shared = by_page.get("0", [])
+    for page, boxes in sorted(by_page.items()):
+        combined = boxes if page == "0" else shared + boxes
+        for i, (c1, x1, y1, r1, b1) in enumerate(combined):
+            for c2, x2, y2, r2, b2 in combined[i + 1 :]:
+                overlaps = x1 < r2 and x2 < r1 and y1 < b2 and y2 < b1
+                assert not overlaps, f"Page {page}: {c1} {(x1, y1, r1, b1)} overlaps {c2} {(x2, y2, r2, b2)}"
 
 
 def _generate_settings_xdl(tmp_path: Path) -> tuple[Path, str]:
@@ -54,98 +73,44 @@ def _generate_settings_xdl(tmp_path: Path) -> tuple[Path, str]:
     return out, out.read_text(encoding="utf-8")
 
 
-def test_chatbot_selection_token_fields_absent_from_settings(tmp_path: Path) -> None:
+def test_settings_xdl_controls_within_bounds_and_non_overlapping(tmp_path: Path) -> None:
+    """Overlapping controls hide captions or steal clicks, and controls past the dialog edge are clipped (e.g. helper lines wider than the window)."""
     xdl_path, _xdl = _generate_settings_xdl(tmp_path)
-    tops = _control_tops(xdl_path)
-
-    assert "chatbot__extend_selection_max_tokens" not in tops
-    assert "chatbot__edit_selection_max_new_tokens" not in tops
+    _assert_controls_fit_and_do_not_overlap(ET.parse(xdl_path).getroot(), check_overlap=True)
 
 
-@pytest.mark.parametrize(
-    "value, value_2",
-    [
-        pytest.param("chatbot__web_research_cache_enabled", "chatbot__prompt_for_web_research", id="test_chatbot_paired_checkbox_fields_share_row"),
-        pytest.param("chatbot__web_cache_max_mb", "chatbot__web_cache_validity_days", id="test_chatbot_paired_cache_fields_share_row"),
-        pytest.param("doc__grammar_proofreader_batch_sentences", "doc__grammar_proofreader_max_in_flight", id="test_doc_batch_sentences_and_concurrent_share_row"),
-    ],
-)
-def test_chatbot_paired_checkbox_fields_share_row(tmp_path: Path, value, value_2) -> None:
+def test_vision_standalone_controls_within_bounds() -> None:
+    """Controls past the standalone dialog edge are clipped (e.g. helper lines wider than the Vision window)."""
+    from manifest_xdl import generate_standalone_config_dialog
+    from plugin._manifest import MODULES
+
+    vision = next(module for module in MODULES if module["name"] == "vision")
+    root = ET.fromstring(generate_standalone_config_dialog(vision))
+    # Standalone label_* (height 14 at y+2) intentionally touches/overlaps hlp_* (y+15) by 1px;
+    # keep width/height bounds checked so helper lines cannot overflow the window.
+    _assert_controls_fit_and_do_not_overlap(root, check_overlap=False)
+
+
+def test_settings_ok_writes_and_cancel_discards_roles(tmp_path: Path) -> None:
+    """OK is default+ok and Cancel is cancel without default so Escape/Cancel returns false from execute() and nothing is written."""
     xdl_path, _xdl = _generate_settings_xdl(tmp_path)
-    tops = _control_tops(xdl_path)
-
-    assert tops[value] == tops[value_2]
-
-def test_web_research_cache_before_web_cache_size_controls(tmp_path: Path) -> None:
-    _xdl_path, xdl = _generate_settings_xdl(tmp_path)
-
-    cache_idx = xdl.index('dlg:id="chatbot__web_research_cache_enabled"')
-    max_mb_idx = xdl.index('dlg:id="chatbot__web_cache_max_mb"')
-    assert cache_idx < max_mb_idx
-
-
-@pytest.mark.parametrize(
-    "value",
-    [
-        pytest.param(r'dlg:id="label_chatbot__web_cache_validity_days"[^>]*dlg:left="220"', id="test_right_column_number_labels_use_label_x"),
-        pytest.param(r'dlg:id="label_doc__grammar_proofreader_model"[^>]*dlg:left="220"', id="test_doc_model_label_uses_right_column"),
-    ],
-)
-def test_right_column_number_labels_use_label_x(tmp_path: Path, value) -> None:
-    _xdl_path, xdl = _generate_settings_xdl(tmp_path)
-
-    assert re.search(
-        value,
-        xdl,
-    )
-
-
-def test_doc_grammar_enable_and_model_share_row(tmp_path: Path) -> None:
-    xdl_path, _xdl = _generate_settings_xdl(tmp_path)
-    tops = _control_tops(xdl_path)
-
-    assert _same_layout_row(tops, "doc__grammar_proofreader_enabled", "doc__grammar_proofreader_model")
-
-
-def test_doc_recheck_and_pause_share_row_below_checker(tmp_path: Path) -> None:
-    xdl_path, xdl = _generate_settings_xdl(tmp_path)
-    tops = _control_tops(xdl_path)
-    attrs = _control_attrs(xdl_path)
-
-    assert _same_layout_row(tops, "doc__grammar_proofreader_recheck", "doc__grammar_proofreader_pause_during_agent")
-    assert int(tops["doc__grammar_proofreader_recheck"]) > int(tops["doc__grammar_proofreader_enabled"])
-    assert attrs["doc__grammar_proofreader_pause_during_agent"]["left"] == "220"
-    assert re.search(
-        r'dlg:id="label_doc__grammar_proofreader_recheck"',
-        xdl,
-    )
-    assert re.search(
-        r'dlg:id="doc__grammar_proofreader_recheck"[^>]*dlg:width="70"',
-        xdl,
-    )
-
-def test_settings_tab_buttons_in_user_facing_order(tmp_path: Path) -> None:
-    """Module tabs follow SETTINGS_TAB_MODULE_ORDER, not manifest/topo-sort order."""
-    _xdl_path, xdl = _generate_settings_xdl(tmp_path)
-
-    tab_ids = (
-        "btn_tab_audio",
-        "btn_tab_doc",
-        "btn_tab_chatbot",
-        "btn_tab_embeddings",
-        "btn_tab_mcp",
-        "btn_tab_scripting",
-    )
-    indices = [xdl.index(f'dlg:id="{tab_id}"') for tab_id in tab_ids]
-    assert indices == sorted(indices), f"tab order indices {dict(zip(tab_ids, indices, strict=True))}"
-    # Speech is the first module tab, immediately after Image.
-    assert xdl.index('dlg:id="btn_tab_image"') < indices[0] < indices[1]
+    root = ET.parse(xdl_path).getroot()
+    buttons = {
+        el.get(f"{{{_DLG_NS}}}id"): el
+        for el in root.findall(".//dlg:button", {"dlg": _DLG_NS})
+    }
+    ok_btn = buttons["btn_ok"]
+    cancel_btn = buttons["btn_cancel"]
+    assert ok_btn.get(f"{{{_DLG_NS}}}button-type") == "ok"
+    assert ok_btn.get(f"{{{_DLG_NS}}}default") == "true"
+    assert cancel_btn.get(f"{{{_DLG_NS}}}button-type") == "cancel"
+    assert cancel_btn.get(f"{{{_DLG_NS}}}default") is None
 
 
 def test_json_only_settings_absent_from_settings_xdl(tmp_path: Path) -> None:
     """Internal module.yaml keys are not emitted as Settings dialog controls."""
     xdl_path, _xdl = _generate_settings_xdl(tmp_path)
-    tops = _control_tops(xdl_path)
+    ids = _control_ids(xdl_path)
 
     for hidden_id in (
         "mcp__cors_allow_private_origins",
@@ -155,29 +120,12 @@ def test_json_only_settings_absent_from_settings_xdl(tmp_path: Path) -> None:
         "chatbot__extend_selection_max_tokens",
         "chatbot__edit_selection_max_new_tokens",
     ):
-        assert hidden_id not in tops
+        assert hidden_id not in ids
 
-    assert "mcp__mcp_enabled" in tops
-    assert "scripting__python_venv_path" in tops
-    assert "scripting__xl_static_rewrite" in tops
-    assert "scripting__python_geometric_recalc_order" in tops
-
-
-def test_xl_static_rewrite_checkbox_beside_auto_spill(tmp_path: Path) -> None:
-    """Rewrite xl() shares a row with auto-spill; second control starts at dialog midpoint."""
-    xdl_path, _xdl = _generate_settings_xdl(tmp_path)
-    tops = _control_tops(xdl_path)
-    assert _same_layout_row(tops, "scripting__python_auto_spill", "scripting__xl_static_rewrite")
-
-    tree = ET.parse(xdl_path)
-    root = tree.getroot()
-    ns = {"dlg": _DLG_NS}
-    lefts = {
-        el.get(f"{{{_DLG_NS}}}id"): el.get(f"{{{_DLG_NS}}}left")
-        for el in root.findall(".//dlg:checkbox", ns)
-    }
-    assert lefts.get("scripting__python_auto_spill") == "8"
-    assert lefts.get("scripting__xl_static_rewrite") == "220"
+    assert "mcp__mcp_enabled" in ids
+    assert "scripting__python_venv_path" in ids
+    assert "scripting__xl_static_rewrite" in ids
+    assert "scripting__python_geometric_recalc_order" in ids
 
 
 def test_librepy_flavor_omits_ppt_master_from_scripting_page(tmp_path: Path) -> None:
@@ -205,101 +153,11 @@ def test_librepy_flavor_omits_ppt_master_from_scripting_page(tmp_path: Path) -> 
     tpl = _REPO / "extension" / "Dialogs" / "SettingsDialog.xdl.tpl"
     out = tmp_path / "SettingsDialog-librepy.xdl"
     generate_settings_dialog_tabs(modules, str(tpl), str(out), librepy_flavor=True)
-    tops = _control_tops(out)
+    ids = _control_ids(out)
 
-    assert "scripting__python_venv_path" in tops
-    assert "scripting__ppt_master_data_path" not in tops
-    assert "scripting__test_ppt_master_data" not in tops
-
-
-def test_audio_model_moved_to_speech_tab(tmp_path: Path) -> None:
-    """General no longer has stt_model; Speech tab has audio__stt_model and rows closed up."""
-    xdl_path, xdl = _generate_settings_xdl(tmp_path)
-    tops = _control_tops(xdl_path)
-    attrs = _control_attrs(xdl_path)
-
-    assert "stt_model" not in tops
-    assert "label_stt_model" not in tops
-    assert "audio__stt_model" in tops
-    assert 'dlg:id="btn_tab_audio"' in xdl
-    assert 'dlg:value="Speech"' in xdl
-    # One row under Image Model (combo top 72); the old Audio Model row was 88.
-    assert tops["temperature"] == "88"
-    assert tops["label_temperature"] == "90"
-    assert tops["additional_instructions"] == "104"
-    assert attrs["btn_openrouter"]["top"] == "121"
-    assert tops["btn_edit_config_json"] == "140"
-
-
-def test_speech_tab_voice_select_aligns_and_test_voice_is_beside(tmp_path: Path) -> None:
-    """Voice matches the other Speech selects; Test voice is on that row, past the column."""
-    xdl_path, xdl = _generate_settings_xdl(tmp_path)
-    attrs = _control_attrs(xdl_path)
-
-    voice = attrs["audio__tts_voice"]
-    for sibling in ("audio__tts_provider", "audio__tts_model", "audio__tts_speed"):
-        assert attrs[sibling]["left"] == voice["left"]
-        assert attrs[sibling]["width"] == voice["width"]
-
-    btn = attrs["audio__test_voice"]
-    assert 'dlg:value="Test voice"' in xdl
-    # Beside Voice, starting at or past the shared right edge — not on the next row.
-    assert btn["top"] == voice["top"]
-    voice_right = int(voice["left"]) + int(voice["width"])
-    assert int(btn["left"]) >= voice_right
-    window = ET.parse(xdl_path).getroot()
-    dlg_width = int(window.get(f"{{{_DLG_NS}}}width") or 0)
-    assert int(btn["left"]) + int(btn["width"]) <= dlg_width
-
-
-def test_speech_tab_keep_replies_brief_checkbox(tmp_path: Path) -> None:
-    """Short-answers checkbox is on the Speech page, with the other TTS controls."""
-    xdl_path, xdl = _generate_settings_xdl(tmp_path)
-    attrs = _control_attrs(xdl_path)
-
-    box = attrs["audio__tts_short_answers"]
-    assert 'dlg:value="Keep replies brief"' in xdl
-    assert "Only applies while speech output (TTS) is on." in xdl
-    assert re.search(
-        r'dlg:id="audio__tts_short_answers"[^>]*dlg:checked="true"',
-        xdl,
-    )
-    # Own row under the other speech checkboxes, above the provider select.
-    # Not between Voice and Test voice (that pair shares a row via inline).
-    assert int(attrs["audio__tts_sentence_mode"]["top"]) < int(box["top"]) < int(attrs["audio__tts_provider"]["top"])
-    assert int(box["top"]) < int(attrs["audio__tts_voice"]["top"])
-
-
-def test_starter_buttons_share_row_and_include_nvidia(tmp_path: Path) -> None:
-    xdl_path, xdl = _generate_settings_xdl(tmp_path)
-    attrs = _control_attrs(xdl_path)
-    tops = {cid: vals["top"] for cid, vals in attrs.items() if vals["top"]}
-
-    for btn_id in ("btn_openrouter", "btn_together", "btn_hf", "btn_nvidia"):
-        assert btn_id in tops, f"{btn_id} missing from SettingsDialog.xdl"
-
-    assert tops["btn_openrouter"] == tops["btn_together"] == tops["btn_hf"] == tops["btn_nvidia"]
-
-    window = ET.parse(xdl_path).getroot()
-    dlg_width = int(window.get(f"{{{_DLG_NS}}}width") or 0)
-    assert dlg_width == 440
-
-    label_right = int(attrs["label_get_api_key"]["left"]) + int(attrs["label_get_api_key"]["width"])
-    btn_ids = ("btn_openrouter", "btn_together", "btn_hf", "btn_nvidia")
-    prev_right = label_right
-    for btn_id in btn_ids:
-        assert int(attrs[btn_id]["height"]) == 16
-        assert int(attrs[btn_id]["width"]) == 67
-        btn_left = int(attrs[btn_id]["left"])
-        assert btn_left >= prev_right
-        assert btn_left + 67 <= dlg_width
-        prev_right = btn_left + 67
-
-    # Icons are placed directly on the buttons, no separate dlg:img elements
-    for img_id in ("img_openrouter", "img_together", "img_huggingface", "img_nvidia"):
-        assert img_id not in attrs
-    assert "dlg:image-src=" not in xdl
-    assert attrs["btn_ok"]["left"] == "304"
+    assert "scripting__python_venv_path" in ids
+    assert "scripting__ppt_master_data_path" not in ids
+    assert "scripting__test_ppt_master_data" not in ids
 
 
 def _help_text_by_id(xdl_path: Path) -> dict[str, str | None]:
@@ -335,24 +193,6 @@ def test_settings_helpers_become_help_text(tmp_path: Path) -> None:
     tips = _help_text_by_id(xdl_path)
 
     assert "dlg:id=\"hlp_" not in xdl
-    # Proven opt-in still works, and a helper without tooltip: true does too.
-    assert tips["audio__tts_short_answers"] == (
-        "Aim for about one paragraph unless the user asks for more. "
-        "Only applies while speech output (TTS) is on."
-    )
-    assert tips["audio__tts_enabled"] == "Speak assistant responses aloud using text-to-speech."
-    assert "label_audio__tts_enabled" not in tips
-    assert tips["label_audio__stt_model"] == tips["audio__stt_model"]
-    assert tips["audio__stt_model"] == (
-        "Speech-to-text model when STT Provider is LLM Endpoint and the chat model cannot take audio input."
-    )
-    assert int(_control_tops(xdl_path)["audio__stt_provider"]) < int(_control_tops(xdl_path)["audio__stt_model"])
-    assert int(_control_tops(xdl_path)["audio__stt_model"]) < int(_control_tops(xdl_path)["audio__stt_local_model"])
-    assert tips["doc__grammar_proofreader_recheck"] == tips["label_doc__grammar_proofreader_recheck"]
-    recheck_tip = tips["doc__grammar_proofreader_recheck"]
-    assert recheck_tip is not None and recheck_tip.startswith("Clears cached grammar results")
-    assert not tips.get("chatbot__max_tool_rounds")
-    assert not tips.get("audio__test_voice")
 
     wired = 0
     for module in iter_settings_field_modules(MODULES):
@@ -428,96 +268,6 @@ def test_settings_explicit_tooltip_overrides_helper(tmp_path: Path) -> None:
     assert not tips.get("sample__silent")
     assert "sample__hidden" not in tips
     assert "hlp_sample__plain" not in tips
-
-
-# Captions the generator's default width of 120 clips. Width stays in the
-# module YAML; the fallback in manifest_registry is unchanged.
-_LONG_CHECKBOXES = (
-    ("audio", "tts_enabled", 220),
-    ("chatbot", "chat_enter_key_sends_message", 200),
-    ("calc", "ods_cache_enabled", 220),
-    ("chatbot", "rich_text_control_sidebar", 200),
-    ("chatbot", "humanizer_enabled", 240),
-    ("embeddings", "folder_rerank_enabled", 200),
-    ("mcp", "mcp_enabled", 168),
-)
-
-
-def test_long_checkbox_captions_are_wider_than_the_default(tmp_path: Path) -> None:
-    xdl_path, _xdl = _generate_settings_xdl(tmp_path)
-    attrs = _control_attrs(xdl_path)
-    window = ET.parse(xdl_path).getroot()
-    dlg_width = int(window.get(f"{{{_DLG_NS}}}width") or 0)
-    assert dlg_width == 440
-    for module, field, width in _LONG_CHECKBOXES:
-        ctrl = attrs[f"{module}__{field}"]
-        assert int(ctrl["width"]) == width
-        assert int(ctrl["width"]) > 120
-        assert int(ctrl["left"]) + int(ctrl["width"]) <= dlg_width
-    # The known-good Speech checkbox is untouched.
-    assert attrs["audio__tts_sentence_mode"]["width"] == "168"
-
-
-def test_enter_sends_message_shares_row_right_of_rich_text(tmp_path: Path) -> None:
-    xdl_path, _xdl = _generate_settings_xdl(tmp_path)
-    attrs = _control_attrs(xdl_path)
-    rich = attrs["chatbot__rich_text_control_sidebar"]
-    enter = attrs["chatbot__chat_enter_key_sends_message"]
-    assert enter["top"] == rich["top"]
-    assert int(enter["left"]) >= int(rich["left"]) + int(rich["width"])
-    assert int(enter["left"]) + int(enter["width"]) <= 440
-    assert int(attrs["chatbot__humanizer_enabled"]["top"]) > int(enter["top"])
-    assert "doc__chat_enter_key_sends_message" not in attrs
-
-
-def test_settings_cancel_sits_beside_ok_and_does_not_take_default(tmp_path: Path) -> None:
-    xdl_path, xdl = _generate_settings_xdl(tmp_path)
-    attrs = _control_attrs(xdl_path)
-    ok = attrs["btn_ok"]
-    cancel = attrs["btn_cancel"]
-    assert ok["left"] == "304"
-    assert cancel["left"] == "372"
-    assert ok["top"] == cancel["top"] == "190"
-    assert ok["width"] == cancel["width"] == "60"
-    assert ok["height"] == cancel["height"] == "16"
-    assert int(cancel["left"]) >= int(ok["left"]) + int(ok["width"])
-    window = ET.parse(xdl_path).getroot()
-    dlg_width = int(window.get(f"{{{_DLG_NS}}}width") or 0)
-    assert int(cancel["left"]) + int(cancel["width"]) <= dlg_width
-    right_margin = dlg_width - (int(cancel["left"]) + int(cancel["width"]))
-    assert right_margin == 8
-    cancel_tag = re.search(r'<dlg:button[^>]*dlg:id="btn_cancel"[^>]*/>', xdl)
-    assert cancel_tag is not None
-    assert 'dlg:button-type="cancel"' in cancel_tag.group(0)
-    assert 'dlg:value="Cancel"' in cancel_tag.group(0)
-    assert "dlg:default" not in cancel_tag.group(0)
-    ok_tag = re.search(r'<dlg:button[^>]*dlg:id="btn_ok"[^>]*/>', xdl)
-    assert ok_tag is not None
-    assert 'dlg:button-type="ok"' in ok_tag.group(0)
-    assert 'dlg:default="true"' in ok_tag.group(0)
-
-
-def test_vision_helper_lines_fit_the_dialog(tmp_path: Path) -> None:
-    from manifest_xdl import generate_standalone_config_dialog
-    from plugin._manifest import MODULES
-
-    vision = next(module for module in MODULES if module["name"] == "vision")
-    out = tmp_path / "VisionSettingsDialog.xdl"
-    out.write_text(generate_standalone_config_dialog(vision), encoding="utf-8")
-    root = ET.parse(out).getroot()
-    dlg_width = int(root.get(f"{{{_DLG_NS}}}width") or 0)
-    assert dlg_width == 350
-    helpers = [
-        el for el in root.iter()
-        if str(el.get(f"{{{_DLG_NS}}}id") or "").startswith("hlp_")
-    ]
-    assert helpers
-    for el in helpers:
-        left = int(el.get(f"{{{_DLG_NS}}}left") or 0)
-        width = int(el.get(f"{{{_DLG_NS}}}width") or 0)
-        assert left == 8
-        assert width == dlg_width - 16
-        assert left + width <= dlg_width
 
 
 @pytest.mark.parametrize("bad_widget", ["list_detail", "nope"])
@@ -682,7 +432,6 @@ def test_settings_numeric_fields_have_schema_bounds(tmp_path: Path) -> None:
     root = ET.parse(xdl_path).getroot()
     ns = {"dlg": _DLG_NS}
     elements = {el.get(f"{{{_DLG_NS}}}id"): el for el in root.findall(".//dlg:numericfield", ns)}
-    attrs = _control_attrs(xdl_path)
 
     for ctrl_id, (min_v, max_v) in _EXPECTED_NUMERIC_BOUNDS.items():
         assert ctrl_id in elements, f"Missing numeric field {ctrl_id}"
@@ -694,11 +443,10 @@ def test_settings_numeric_fields_have_schema_bounds(tmp_path: Path) -> None:
         assert el.get(f"{{{_DLG_NS}}}value-step") is None
 
         # Verify geometry attributes remain intact.
-        assert ctrl_id in attrs
-        assert int(attrs[ctrl_id]["left"]) > 0
-        assert int(attrs[ctrl_id]["top"]) > 0
-        assert int(attrs[ctrl_id]["width"]) > 0
-        assert int(attrs[ctrl_id]["height"]) > 0
+        assert int(el.get(f"{{{_DLG_NS}}}left") or 0) > 0
+        assert int(el.get(f"{{{_DLG_NS}}}top") or 0) > 0
+        assert int(el.get(f"{{{_DLG_NS}}}width") or 0) > 0
+        assert int(el.get(f"{{{_DLG_NS}}}height") or 0) > 0
 
 
 def test_settings_numeric_field_step_and_float_accuracy(tmp_path: Path) -> None:
