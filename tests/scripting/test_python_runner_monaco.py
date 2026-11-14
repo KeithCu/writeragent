@@ -76,26 +76,21 @@ def test_run_python_dialog_falls_back_to_native_dialog():
 
 
 @pytest.mark.parametrize(
-    ("monaco_avail", "monaco_ok", "monaco_exc", "native_result", "expect_monaco", "expect_native", "expect_report", "expected_detail", "report_before_native"),
+    ("monaco", "native_result", "expect_report", "expect_native"),
     [
-        pytest.param(("/venv/bin/python", True), True, None, (True, None), True, False, False, None, False, id="monaco_succeeds"),
-        pytest.param(("/venv/bin/python", True), False, None, (False, None), True, True, False, None, False, id="monaco_false_and_native_fails_no_duplicate_msgbox"),
-        pytest.param((None, False), False, None, (False, "Traceback (most recent call last):\n  XDL load failed"), False, True, True, "Traceback (most recent call last):\n  XDL load failed", False, id="native_only_fails_reports_detail"),
-        pytest.param((None, False), False, None, (True, None), False, True, False, None, False, id="native_only_opens_no_msgbox"),
-        pytest.param(("/venv/bin/python", True), False, ImportError("No module named 'plugin.framework.prompts'"), (False, None), True, True, True, None, False, id="monaco_raises_and_native_fails_reports_exc"),
-        pytest.param(("/venv/bin/python", True), False, ImportError("broken monaco path"), (True, None), True, True, True, None, True, id="monaco_raises_then_native_opens_reports_first"),
+        pytest.param(True, (True, None), False, False, id="monaco_succeeds"),
+        pytest.param(False, (False, None), False, True, id="monaco_false_and_native_fails_no_duplicate_msgbox"),
+        pytest.param(None, (False, "Traceback (most recent call last):\n  XDL load failed"), True, True, id="native_only_fails_reports_detail"),
+        pytest.param(None, (True, None), False, True, id="native_only_opens_no_msgbox"),
+        pytest.param(ImportError("No module named 'plugin.framework.prompts'"), (False, None), True, True, id="monaco_raises_and_native_fails_reports_exc"),
+        pytest.param(ImportError("broken monaco path"), (True, None), True, True, id="monaco_raises_then_native_opens_reports_first"),
     ],
 )
 def test_run_python_dialog_open_and_error_routing(
-    monaco_avail,
-    monaco_ok,
-    monaco_exc,
+    monaco,
     native_result,
-    expect_monaco,
-    expect_native,
     expect_report,
-    expected_detail,
-    report_before_native,
+    expect_native,
 ):
     ctx = MagicMock()
     doc = MagicMock()
@@ -108,7 +103,8 @@ def test_run_python_dialog_open_and_error_routing(
         call_order.append("native")
         return native_result
 
-    monaco_kwargs = {"side_effect": monaco_exc} if monaco_exc is not None else {"return_value": monaco_ok}
+    monaco_avail = (None, False) if monaco is None else ("/venv/bin/python", True)
+    monaco_kwargs = {"side_effect": monaco} if isinstance(monaco, Exception) else {"return_value": bool(monaco)}
 
     with (
         patch.object(pr, "get_ctx", return_value=ctx),
@@ -124,17 +120,17 @@ def test_run_python_dialog_open_and_error_routing(
         mock_desktop.return_value.getCurrentComponent.return_value = doc
         pr.run_python_dialog()
 
-    assert mock_monaco.called is expect_monaco
+    assert mock_monaco.called is (monaco is not None)
     assert mock_native.called is expect_native
     assert mock_report.called is expect_report
     if expect_report:
         mock_report.assert_called_once()
-        if expected_detail is not None:
-            assert mock_report.call_args.kwargs.get("detail") == expected_detail
-        if monaco_exc is not None:
-            assert mock_report.call_args.kwargs.get("exc") is monaco_exc
-    if report_before_native:
-        assert call_order == ["report", "native"]
+        if isinstance(monaco, Exception):
+            assert mock_report.call_args.kwargs.get("exc") is monaco
+            if native_result[0]:
+                assert call_order == ["report", "native"]
+        else:
+            assert mock_report.call_args.kwargs.get("detail") == native_result[1]
 
 
 def test_run_python_dialog_cancel_keeps_dirty_cell_and_skips_native():
@@ -686,9 +682,6 @@ def test_show_python_input_dialog_run_button_keeps_dialog_open():
         code_text="result = 42", button_name="BtnRun"
     )
 
-    # start_native_script_run moved to python_runner (#2164) and
-    # spawns from there. Patching only ui left a real worker that
-    # outlived this test and ran under a later test's mocks.
     with (
         patch("plugin.framework.uno_context.get_desktop", return_value=desktop),
         _patch_modal_native(),
@@ -696,8 +689,7 @@ def test_show_python_input_dialog_run_button_keeps_dialog_open():
         patch.object(ui, "get_user_scripts", return_value={"Universal Sample": "result = 0"}),
         patch.object(ui, "save_script_to_origin", return_value=None) as mock_save,
         patch.object(ui, "get_config", return_value=""),
-        patch.object(ui, "run_in_background", return_value=MagicMock()),
-        patch.object(pr, "run_in_background", return_value=MagicMock()) as mock_bg,
+        patch.object(pr, "start_native_script_run") as mock_start,
     ):
         def fake_execute_dialog():
             assert code_edit.setFocus.called
@@ -710,8 +702,10 @@ def test_show_python_input_dialog_run_button_keeps_dialog_open():
     dlg.setVisible.assert_not_called()
     mock_set.assert_any_call({"last_python_script_name_writer": "Universal Sample"})
     mock_save.assert_called_with(None, "Universal Sample", ui.SCRIPT_ORIGIN_USER, "result = 42")
-    # Run returns before the venv wait; the dialog event thread schedules a background worker.
-    mock_bg.assert_called_once()
+    # Run hands off to start_native_script_run so the dialog thread never waits on the venv
+    # (see test_python_runner_ui::test_start_native_script_run_returns_before_venv_wait).
+    mock_start.assert_called_once()
+    assert mock_start.call_args.args[2] == "result = 42"
     btn_run.setEnable.assert_any_call(False)
     instruction_lbl.setText.assert_any_call("Running...")
 
