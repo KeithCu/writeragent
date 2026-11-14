@@ -276,6 +276,7 @@ class TestEndpointImageProvider:
                 provider.generate("test prompt", cancel=_cancelled_scope())
             assert exc_info.value.code == "USER_STOPPED"
 
+        # Stop is user-initiated, not an error: nothing at ERROR.
         assert not any(r.levelno >= logging.ERROR and r.name == "plugin.writer.images.image_utils" for r in caplog.records)
 
         # Modalities path: NetworkError(code="STOPPED") from request_with_tools

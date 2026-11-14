@@ -27,7 +27,7 @@ def test_index_error_valid_index() -> None:
 
 
 def test_index_error_out_of_bounds() -> None:
-    assert index_error(-1, 3, "footnote") is not None
+    assert index_error(-1, 3, "footnote") == "Invalid index -1. The document has 3 footnote(s)."
     assert index_error(3, 3, "footnote") is not None
     assert index_error(10, 3, "endnote") is not None
     assert index_error(0, 0, "footnote") is not None

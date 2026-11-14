@@ -776,7 +776,7 @@ def test_block_reason_none_on_empty_document():
 def test_block_reason_blocks_when_agent_change_present():
     model = FakeModel(FakeRedlines([_agent_rl()]))
     reason = agent_self_resolution_block_reason(model)
-    assert reason is not None
+    assert reason is not None and "agent edit" in reason.lower()
 
 
 def test_block_reason_allows_user_only_redlines():
@@ -805,7 +805,7 @@ def test_block_reason_none_when_geometry_raises_on_user_comment():
 def test_block_reason_fails_closed_when_comment_raises():
     model = FakeModel(FakeRedlines([FakeRedline("user note", 0, 0, raise_on={"RedlineComment"})]))
     reason = agent_self_resolution_block_reason(model)
-    assert reason is not None
+    assert reason is not None and "reliably" in reason.lower()
 
 
 def test_block_reason_fails_closed_when_hasattr_raises():
@@ -814,7 +814,7 @@ def test_block_reason_fails_closed_when_hasattr_raises():
             raise RuntimeError("hasattr boom")
 
     reason = agent_self_resolution_block_reason(RaisingModel())
-    assert reason is not None
+    assert reason is not None and "reliably" in reason.lower()
 
 
 def test_redline_is_agent_change_true_for_token():
@@ -928,9 +928,11 @@ def test_closed_document_resolve_fails_closed_without_dispatch():
 
     n, msg = resolve_all_with_feedback(model, ctx, True)
     assert n == 0
+    assert "nothing was" in msg
+    assert "some may have been" not in msg
 
     reason = agent_self_resolution_block_reason(model)
-    assert reason is not None
+    assert reason is not None and "reliably" in reason
 
     assert _is_all_redlines_agent(scan_redline_view(model)) is False
     assert _build_bounds_from_view(scan_redline_view(model), token) == (None, None)
@@ -986,6 +988,7 @@ def test_cursor_resolve_extra_token_removed_does_not_call_group_helper_and_retur
          patch("plugin.writer.inline_review._resolve_overlapping_agent_changes") as group_helper:
         ok, msg = resolve_change_at_cursor(model, ctx, True)
     assert ok is False
+    assert "couldn't confirm the result" in msg
     group_helper.assert_not_called()
 
 
@@ -1005,6 +1008,7 @@ def test_cursor_resolve_group_dispatch_with_mismatched_after_snapshot_is_partial
                return_value=ResolveResult(ResolveStatus.PARTIAL, 0)):
         ok, msg = resolve_change_at_cursor(model, ctx, True)
     assert ok is False
+    assert "couldn't confirm the result" in msg
 
 
 def test_cursor_resolve_group_unreliable_reports_try_again():
@@ -1022,6 +1026,8 @@ def test_cursor_resolve_group_unreliable_reports_try_again():
                return_value=ResolveResult(ResolveStatus.UNRELIABLE, 0)):
         ok, msg = resolve_change_at_cursor(model, ctx, True)
     assert ok is False
+    assert "try again" in msg.lower()
+    assert "may share a paragraph" not in msg
 
 
 def test_resolve_all_returns_unreliable_when_first_refused_before_dispatch_and_next_unreliable():
@@ -1297,6 +1303,8 @@ def test_resolve_agent_change_gotorange_raises_before_dispatch():
 
         ok, msg = resolve_change_at_cursor(model, ctx, True)
         assert ok is False
+        assert "some may have been resolved" not in msg
+        assert "nothing was changed" in msg.lower()
 
 
 def test_goto_adjacent_agent_change_returns_none_when_gotorange_raises():

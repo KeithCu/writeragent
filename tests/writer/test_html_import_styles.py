@@ -262,6 +262,7 @@ def test_attach_write_report_style_skip_builds_diagnostic_and_message() -> None:
     assert diag["matches_skipped"] == 1
     assert diag["matches_total"] == 2
     assert diag["suggested_call"] == suggest_call("apply_style", style="Heading2", all_matches=True)
+    assert out["message"] == f"Replaced 2 occurrence(s). {diag['message']}"
 
 
 def test_attach_write_report_skip_without_style_token_only_explains_para() -> None:
@@ -289,6 +290,7 @@ def test_attach_write_report_skip_without_style_token_only_explains_para() -> No
     assert len(out["warnings"]) == 1
     diag = out["warnings"][0]
     assert diag["code"] == "PARA_IGNORED_RECORDING"
+    assert out["message"] == "Inserted content."
 
 
 def test_write_report_extend_preserves_order_and_unions_tokens() -> None:

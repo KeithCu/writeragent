@@ -181,6 +181,8 @@ def test_fast_path_noop_message_no_user_tracked_changes():
         assert res.resolved == 0
         n, msg = resolve_all_with_feedback(MagicMock(), MagicMock(), True)
         assert n == 0
+        assert "your own tracked changes" not in msg
+        assert "Nothing was changed" in msg
 
 
 def test_fast_path_partial_clear_message_no_user_tracked_changes():
@@ -210,6 +212,8 @@ def test_fast_path_partial_clear_message_no_user_tracked_changes():
         calls["n"] = 0
         n, msg = resolve_all_with_feedback(MagicMock(), MagicMock(), True)
         assert n == 1
+        assert "your own tracked changes" not in msg
+        assert "Started resolving changes" in msg
 
 
 def test_resolve_all_mixed_foreign_and_predispatch_failure_summary_not_shares_paragraph():
@@ -231,6 +235,8 @@ def test_resolve_all_mixed_foreign_and_predispatch_failure_summary_not_shares_pa
         assert res.status == ResolveStatus.PARTIAL
         n, msg = resolve_all_with_feedback(MagicMock(), MagicMock(), True)
         assert n == 0
+        assert "shares a paragraph with" not in msg
+        assert "Started resolving changes" in msg
 
 
 def test_resolve_all_exact_retry_and_noop_suppression():
@@ -266,6 +272,7 @@ def test_resolve_all_exact_retry_and_noop_suppression():
     with patch("plugin.writer.inline_review._resolve_all_agent_changes", return_value=res):
         n, msg = resolve_all_with_feedback(MagicMock(), MagicMock(), True)
     assert n == 0
+    assert "None could be resolved here -- each overlaps with one of your own tracked changes" in msg
 
 
 def test_resolve_all_exact_retry_removes_strict_sibling_included_in_bulk_count():
