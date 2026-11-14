@@ -1,3 +1,4 @@
+from typing import Any, NamedTuple
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -1320,6 +1321,15 @@ def test_close_cancels_catalog_fetch_that_has_not_started() -> None:
                 timer.cancel()
 
 
+class _SyncTtsUiResult(NamedTuple):
+    voice_ctrl: MagicMock
+    voice_model: MagicMock
+    model_ctrl: MagicMock
+    set_enabled: MagicMock
+    stored: dict[str, str]
+    sync_request: MagicMock
+
+
 def _run_sync_tts_ui(
     provider: str,
     model_id: str,
@@ -1329,7 +1339,7 @@ def _run_sync_tts_ui(
     stored: dict[str, str] | None = None,
     config_fn=None,
     cached_voices: dict[str, list[str]] | None = None,
-):
+) -> _SyncTtsUiResult:
     """Run ``sync_tts_ui`` with mocked controls and clean TTS catalog caches."""
     from plugin.chatbot.dialog_views import sync_tts_ui
     from plugin.framework.client import model_fetcher as cfg
@@ -1369,184 +1379,184 @@ def _run_sync_tts_ui(
     if cached_voices:
         for mid, voices in cached_voices.items():
             cfg.remember_tts_supported_voices(mid, voices)
-    try:
-        with patch("plugin.chatbot.dialog_views.get_optional", side_effect=get_optional_side_effect), \
-             patch("plugin.chatbot.dialog_views.set_control_enabled") as mock_set_enabled, \
-             patch("plugin.framework.client.requests.sync_request") as mock_sync, \
-             patch("plugin.framework.config.save", side_effect=lambda k, v, **kwargs: stored_map.__setitem__(k, v)), \
-             patch("plugin.chatbot.dialog_views.get_config", side_effect=cfg_reader):
-            sync_tts_ui(dlg)
-        return voice_ctrl, voice_model, model_ctrl, mock_set_enabled, stored_map, mock_sync
-    finally:
-        if cached_voices is not None or endpoint is not None:
-            pass
+    with patch("plugin.chatbot.dialog_views.get_optional", side_effect=get_optional_side_effect), \
+         patch("plugin.chatbot.dialog_views.set_control_enabled") as mock_set_enabled, \
+         patch("plugin.framework.client.requests.sync_request") as mock_sync, \
+         patch("plugin.framework.config.save", side_effect=lambda k, v, **kwargs: stored_map.__setitem__(k, v)), \
+         patch("plugin.chatbot.dialog_views.get_config", side_effect=cfg_reader):
+        sync_tts_ui(dlg)
+    return _SyncTtsUiResult(
+        voice_ctrl=voice_ctrl,
+        voice_model=voice_model,
+        model_ctrl=model_ctrl,
+        set_enabled=mock_set_enabled,
+        stored=stored_map,
+        sync_request=mock_sync,
+    )
 
 
-def _clear_tts_caches() -> None:
+@pytest.fixture
+def clear_tts_caches():
     from plugin.framework.client import model_fetcher as cfg
 
     cfg._catalog_memos.clear()
     cfg._tts_supported_voices.clear()
     cfg._tts_response_format.clear()
+    yield
+    cfg._catalog_memos.clear()
+    cfg._tts_supported_voices.clear()
+    cfg._tts_response_format.clear()
 
 
-def test_tts_settings_listener_together_cache_miss_does_not_http() -> None:
+def test_tts_settings_listener_together_cache_miss_does_not_http(clear_tts_caches: Any) -> None:
     """Opening Speech with a cold Together voice cache must not GET /v1/voices."""
-    try:
-        voice_ctrl, _vm, _mc, _se, _stored, mock_sync = _run_sync_tts_ui(
-            "Current Chat Endpoint (/audio/speech)",
-            "cartesia/sonic-2",
-            "alloy",
-            endpoint="Together AI",
-            config_fn=lambda _k, _d=None: "",
-        )
-        mock_sync.assert_not_called()
-        voice_ctrl.setText.assert_not_called()
-    finally:
-        _clear_tts_caches()
+    del clear_tts_caches
+    r = _run_sync_tts_ui(
+        "Current Chat Endpoint (/audio/speech)",
+        "cartesia/sonic-2",
+        "alloy",
+        endpoint="Together AI",
+        config_fn=lambda _k, _d=None: "",
+    )
+    r.sync_request.assert_not_called()
+    r.voice_ctrl.setText.assert_not_called()
 
 
-def test_tts_settings_listener_together_voices_replace_alloy() -> None:
+def test_tts_settings_listener_together_voices_replace_alloy(clear_tts_caches: Any) -> None:
     """A cached Together voice list replaces alloy. sync_ui does not HTTP."""
+    del clear_tts_caches
     from plugin.framework.client import model_fetcher as cfg
 
-    try:
-        voice_ctrl, voice_model, _mc, _se, stored, mock_sync = _run_sync_tts_ui(
-            "Current Chat Endpoint (/audio/speech)",
-            "cartesia/sonic-2",
-            "alloy",
-            endpoint="Together AI",
-            config_fn=lambda _k, _d=None: "",
-            cached_voices={"cartesia/sonic-2": ["voice-uuid-2", "voice-uuid-1"]},
-        )
-        mock_sync.assert_not_called()
-        # API order is uuid-2 then uuid-1. The combo sorts labels; the cache does not.
-        assert list(voice_model.StringItemList) == ["voice-uuid-1", "voice-uuid-2"]
-        assert voice_ctrl.setText.call_args[0][0] == "voice-uuid-1"
-        # Opening Settings shows the fallback. It must not repair the saved voice.
-        assert "audio.tts_voice_together" not in stored
-        assert cfg.cached_tts_supported_voices("cartesia/sonic-2") == ["voice-uuid-2", "voice-uuid-1"]
-    finally:
-        _clear_tts_caches()
+    r = _run_sync_tts_ui(
+        "Current Chat Endpoint (/audio/speech)",
+        "cartesia/sonic-2",
+        "alloy",
+        endpoint="Together AI",
+        config_fn=lambda _k, _d=None: "",
+        cached_voices={"cartesia/sonic-2": ["voice-uuid-2", "voice-uuid-1"]},
+    )
+    r.sync_request.assert_not_called()
+    # API order is uuid-2 then uuid-1. The combo sorts labels; the cache does not.
+    assert list(r.voice_model.StringItemList) == ["voice-uuid-1", "voice-uuid-2"]
+    assert r.voice_ctrl.setText.call_args[0][0] == "voice-uuid-1"
+    # Opening Settings shows the fallback. It must not repair the saved voice.
+    assert "audio.tts_voice_together" not in r.stored
+    assert cfg.cached_tts_supported_voices("cartesia/sonic-2") == ["voice-uuid-2", "voice-uuid-1"]
 
 
-def test_tts_settings_listener_sync():
+def test_tts_settings_listener_sync(clear_tts_caches: Any):
+    del clear_tts_caches
+
+    # sync_ui reads tts_service.get_config; return the schema default so a developer
+    # profile (e.g. af_bella) cannot change which Kokoro voice this test expects.
     def _cfg(key, default=None):
         del default
         if key == "audio.tts_voice_kokoro":
             return "af_sky"
         return ""
 
-    try:
-        voice_ctrl, voice_model, model_ctrl, mock_set_enabled, _stored, _sync = _run_sync_tts_ui(
-            "Kokoro (Local Neural, ONNX CPU)", "", "", config_fn=_cfg
-        )
-        mock_set_enabled.assert_called_once_with(model_ctrl, False)
-        assert "US Female - Bella" in voice_model.StringItemList
-        assert all("af_bella" not in label for label in voice_model.StringItemList)
-        assert voice_ctrl.setText.call_args[0][0] == "US Female - Sky"
-    finally:
-        _clear_tts_caches()
+    r = _run_sync_tts_ui("Kokoro (Local Neural, ONNX CPU)", "", "", config_fn=_cfg)
+    # Model combobox is disabled for non-endpoint providers.
+    r.set_enabled.assert_called_once_with(r.model_ctrl, False)
+    # Voice list uses display labels rather than raw IDs.
+    assert "US Female - Bella" in r.voice_model.StringItemList
+    assert all("af_bella" not in label for label in r.voice_model.StringItemList)
+    assert r.voice_ctrl.setText.call_args[0][0] == "US Female - Sky"
 
 
-def test_tts_settings_listener_promotes_raw_voice_id_to_catalog_label():
+def test_tts_settings_listener_promotes_raw_voice_id_to_catalog_label(clear_tts_caches: Any):
+    del clear_tts_caches
+
     def _cfg(key, default=None):
         if key == "audio.tts_voice_piper":
             return "de_DE-thorsten-medium"
         return default
 
-    try:
-        voice_ctrl, _vm, _mc, _se, _stored, _sync = _run_sync_tts_ui(
-            "Piper (Local Fast Neural, CPU)", "", "de_DE-thorsten-medium", config_fn=_cfg
-        )
-        voice_ctrl.setText.assert_called_once()
-        assert "Thorsten" in voice_ctrl.setText.call_args[0][0]
-    finally:
-        _clear_tts_caches()
+    r = _run_sync_tts_ui("Piper (Local Fast Neural, CPU)", "", "de_DE-thorsten-medium", config_fn=_cfg)
+    r.voice_ctrl.setText.assert_called_once()
+    assert "Thorsten" in r.voice_ctrl.setText.call_args[0][0]
 
 
-def test_tts_settings_listener_uses_cached_openrouter_voices():
+def test_tts_settings_listener_uses_cached_openrouter_voices(clear_tts_caches: Any):
+    del clear_tts_caches
     model_id = "google/gemini-2.5-flash-preview-tts"
-    try:
-        voice_ctrl, voice_model, _mc, _se, stored, _sync = _run_sync_tts_ui(
-            "LLM Endpoint",
-            model_id,
-            "alloy (OpenAI Neutral)",
-            cached_voices={model_id: ["Zephyr", "Puck", "Kore"]},
-        )
-        assert list(voice_model.StringItemList) == ["Kore", "Puck", "Zephyr"]
-        assert voice_ctrl.setText.call_args[0][0] == "Kore"
-        assert "audio.tts_voice_openrouter" not in stored
-        assert "audio.tts_voice" not in stored
-    finally:
-        _clear_tts_caches()
+    r = _run_sync_tts_ui(
+        "LLM Endpoint",
+        model_id,
+        "alloy (OpenAI Neutral)",
+        cached_voices={model_id: ["Zephyr", "Puck", "Kore"]},
+    )
+    assert list(r.voice_model.StringItemList) == ["Kore", "Puck", "Zephyr"]
+    assert r.voice_ctrl.setText.call_args[0][0] == "Kore"
+    assert "audio.tts_voice_openrouter" not in r.stored
+    assert "audio.tts_voice" not in r.stored
 
 
-def test_tts_settings_listener_prefers_aoede_for_gemini():
+def test_tts_settings_listener_prefers_aoede_for_gemini(clear_tts_caches: Any):
     """Settings fallback matches speak: Aoede for Gemini, else the sorted first id."""
+    del clear_tts_caches
     gemini = "google/gemini-2.5-flash-preview-tts"
     grok = "x-ai/grok-voice-tts-1.0"
 
     def sync(model_id: str, visible: str, stored_voice: str, voices: list[str] | None = None) -> tuple[str, dict[str, str], tuple[str, ...]]:
         vlist = ["Zephyr", "Achernar", "Aoede"] if voices is None else voices
-        voice_ctrl, voice_model, _mc, _se, stored, _sync = _run_sync_tts_ui(
+        r = _run_sync_tts_ui(
             "LLM Endpoint",
             model_id,
             visible,
             stored={"audio.tts_voice_openrouter": stored_voice},
             cached_voices={gemini: vlist, grok: vlist},
         )
-        shown = voice_ctrl.setText.call_args[0][0] if voice_ctrl.setText.called else visible
-        return shown, stored, tuple(voice_model.StringItemList)
+        shown = r.voice_ctrl.setText.call_args[0][0] if r.voice_ctrl.setText.called else visible
+        return shown, r.stored, tuple(r.voice_model.StringItemList)
 
-    try:
-        shown, stored, labels = sync(gemini, "alloy (OpenAI Neutral)", "alloy")
-        assert shown == "Aoede"
-        assert stored.get("audio.tts_voice_openrouter") == "alloy"
-        assert labels == ("Achernar", "Aoede", "Zephyr")
+    shown, stored, labels = sync(gemini, "alloy (OpenAI Neutral)", "alloy")
+    assert shown == "Aoede"
+    # Combo shows Aoede. Disk stays alloy until OK.
+    assert stored.get("audio.tts_voice_openrouter") == "alloy"
+    # Preference picks Aoede; the combo stays in label order.
+    assert labels == ("Achernar", "Aoede", "Zephyr")
 
-        shown, stored, labels = sync(grok, "alloy (OpenAI Neutral)", "alloy")
-        assert shown == "Achernar"
-        assert stored.get("audio.tts_voice_openrouter") == "alloy"
+    shown, stored, labels = sync(grok, "alloy (OpenAI Neutral)", "alloy")
+    assert shown == "Achernar"
+    assert stored.get("audio.tts_voice_openrouter") == "alloy"
 
-        shown, stored, labels = sync(gemini, "Zephyr", "alloy")
-        assert shown == "Zephyr"
-        assert stored.get("audio.tts_voice_openrouter") == "alloy"
+    # Visible in-list voice wins over Aoede in the combo, not on disk.
+    shown, stored, labels = sync(gemini, "Zephyr", "alloy")
+    assert shown == "Zephyr"
+    assert stored.get("audio.tts_voice_openrouter") == "alloy"
 
-        shown, stored, labels = sync(gemini, "", "Aoede")
-        assert shown == "Aoede"
-        assert stored.get("audio.tts_voice_openrouter") == "Aoede"
-        shown, stored, labels = sync(gemini, "", "Zephyr")
-        assert shown == "Zephyr"
-        assert stored.get("audio.tts_voice_openrouter") == "Zephyr"
+    # Empty combo: saved in-list id wins, including a saved Aoede.
+    shown, stored, labels = sync(gemini, "", "Aoede")
+    assert shown == "Aoede"
+    assert stored.get("audio.tts_voice_openrouter") == "Aoede"
+    shown, stored, labels = sync(gemini, "", "Zephyr")
+    assert shown == "Zephyr"
+    assert stored.get("audio.tts_voice_openrouter") == "Zephyr"
 
-        shown, stored, labels = sync(gemini, "alloy", "", voices=["Zephyr", "Puck", "Kore"])
-        assert shown == "Kore"
-        assert stored.get("audio.tts_voice_openrouter", "") == ""
+    shown, stored, labels = sync(gemini, "alloy", "", voices=["Zephyr", "Puck", "Kore"])
+    assert shown == "Kore"
+    assert stored.get("audio.tts_voice_openrouter", "") == ""
 
-        shown, stored, labels = sync("google/Gemini-2.5-flash-preview-tts", "alloy", "alloy", voices=["Puck", "aoede"])
-        assert shown == "aoede"
-        assert stored.get("audio.tts_voice_openrouter") == "alloy"
-    finally:
-        _clear_tts_caches()
+    shown, stored, labels = sync("google/Gemini-2.5-flash-preview-tts", "alloy", "alloy", voices=["Puck", "aoede"])
+    assert shown == "aoede"
+    assert stored.get("audio.tts_voice_openrouter") == "alloy"
 
 
-def test_tts_settings_listener_keeps_voice_when_remote_list_is_sorted():
+def test_tts_settings_listener_keeps_voice_when_remote_list_is_sorted(clear_tts_caches: Any):
     """Re-sorting the endpoint combo must not replace a voice that is still listed."""
+    del clear_tts_caches
     model_id = "google/gemini-2.5-flash-preview-tts"
-    try:
-        voice_ctrl, voice_model, _mc, _se, stored, _sync = _run_sync_tts_ui(
-            "LLM Endpoint",
-            model_id,
-            "Puck",
-            stored={"audio.tts_voice_openrouter": "Puck"},
-            cached_voices={model_id: ["Zephyr", "Puck", "Kore"]},
-        )
-        assert list(voice_model.StringItemList) == ["Kore", "Puck", "Zephyr"]
-        voice_ctrl.setText.assert_not_called()
-        assert stored.get("audio.tts_voice_openrouter") == "Puck"
-    finally:
-        _clear_tts_caches()
+    r = _run_sync_tts_ui(
+        "LLM Endpoint",
+        model_id,
+        "Puck",
+        stored={"audio.tts_voice_openrouter": "Puck"},
+        cached_voices={model_id: ["Zephyr", "Puck", "Kore"]},
+    )
+    assert list(r.voice_model.StringItemList) == ["Kore", "Puck", "Zephyr"]
+    r.voice_ctrl.setText.assert_not_called()
+    assert r.stored.get("audio.tts_voice_openrouter") == "Puck"
 
 def test_tts_test_voice_progress_uses_modeless_box_not_msgbox():
     from plugin.chatbot.dialog_views import TtsTestVoiceListener, _TtsTestStatusSink

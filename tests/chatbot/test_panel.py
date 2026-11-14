@@ -1917,29 +1917,25 @@ class TestClearButtonAndPeerDrain:
 
 
 def test_do_send_restores_query_text_on_error() -> None:
-    from plugin.chatbot.panel import SendButtonListener
-    from unittest.mock import MagicMock, patch
+    listener = _make_send_listener()
+    listener.query_control = MagicMock()
+    listener.query_control.getModel.return_value = MagicMock()
+    listener.query_control.getModel().Text = "hello text"
 
-    with patch("plugin.scripting.audio_recorder_service.is_audio_recording_supported", return_value=False), patch("plugin.scripting.audio_recorder_service.is_audio_recording_configured", return_value=False), patch("plugin.chatbot.chat_session.ChatSession"):
-        listener = SendButtonListener(MagicMock(), MagicMock(), MagicMock(), MagicMock(), MagicMock(), MagicMock(), MagicMock(), MagicMock(), MagicMock(), "test")
-        listener.query_control = MagicMock()
-        listener.query_control.getModel.return_value = MagicMock()
-        listener.query_control.getModel().Text = "hello text"
+    with patch("plugin.chatbot.dialogs.get_control_text", return_value="hello text"), patch.object(listener, "_restore_query_text") as mock_set, \
+         patch("plugin.audio.stt_service.uses_local_stt", return_value=True), \
+         patch("plugin.framework.client.model_fetcher.get_text_model", return_value="model"), \
+         patch("plugin.framework.client.model_fetcher.get_stt_model", return_value="stt"), \
+         patch("plugin.framework.config.get_current_endpoint", return_value="endpoint"):
+        listener._get_document_model = MagicMock()
+        listener.cached_doc_type = "writer"
+        listener.audio_wav_path = "test.wav"
+        listener._voice._transcribe_audio = MagicMock(side_effect=Exception("Test Exception"))
+        listener._do_send()
 
-        with patch("plugin.chatbot.dialogs.get_control_text", return_value="hello text"), patch.object(listener, "_restore_query_text") as mock_set, \
-             patch("plugin.audio.stt_service.uses_local_stt", return_value=True), \
-             patch("plugin.framework.client.model_fetcher.get_text_model", return_value="model"), \
-             patch("plugin.framework.client.model_fetcher.get_stt_model", return_value="stt"), \
-             patch("plugin.framework.config.get_current_endpoint", return_value="endpoint"):
-            listener._get_document_model = MagicMock()
-            listener.cached_doc_type = "writer"
-            listener.audio_wav_path = "test.wav"
-            listener._voice._transcribe_audio = MagicMock(side_effect=Exception("Test Exception"))
-            listener._do_send()
-
-            # _restore_query_text should be called on error
-            assert mock_set.call_count == 1
-            assert mock_set.call_args_list[0][0][0] == "hello text"
+        # _restore_query_text should be called on error
+        assert mock_set.call_count == 1
+        assert mock_set.call_args_list[0][0][0] == "hello text"
 
 
 def test_normal_turn_end_does_not_set_focus() -> None:

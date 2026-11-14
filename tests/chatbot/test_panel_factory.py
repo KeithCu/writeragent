@@ -556,16 +556,16 @@ def test_refresh_mode_selector_disposed_still_updates_backend_indicator():
 
 
 @pytest.mark.parametrize(
-    ("initial_state", "model_side_effect", "expect_set_state"),
+    ("initial_state", "model_side_effect", "expected_calls"),
     [
-        pytest.param(0, None, 1, id="syncs-stale-off-to-on"),
-        pytest.param(1, None, None, id="skips-when-already-matched"),
-        pytest.param(0, RuntimeError("model read fail"), 1, id="continues-after-model-read-failure"),
+        pytest.param(0, None, [(1,)], id="syncs-stale-off-to-on"),
+        pytest.param(1, None, [], id="skips-when-already-matched"),
+        pytest.param(0, RuntimeError("model read fail"), [(1,)], id="continues-after-model-read-failure"),
     ],
 )
-def test_refresh_controls_chk_voice_sync(initial_state, model_side_effect, expect_set_state):
+def test_refresh_controls_chk_voice_sync(initial_state, model_side_effect, expected_calls):
     """_refresh_controls_from_config syncs chk_voice from audio.tts_enabled even if model read fails."""
-    from unittest.mock import MagicMock, patch
+    from unittest.mock import MagicMock, call, patch
 
     el = _thin_panel_element()
     el.ctx = MagicMock()
@@ -581,16 +581,11 @@ def test_refresh_controls_chk_voice_sync(initial_state, model_side_effect, expec
     def get_optional(_root, name):
         return chk if name == "chk_voice" else None
 
-    model_patch = (
-        patch("plugin.chatbot.panel_factory.get_text_model", side_effect=model_side_effect)
-        if model_side_effect is not None
-        else patch("plugin.chatbot.panel_factory.get_text_model", return_value="m")
-    )
     with patch("plugin.chatbot.config_ui_helpers.populate_combobox_with_lru"), patch(
         "plugin.chatbot.config_ui_helpers.populate_image_model_selector"
-    ), model_patch, patch("plugin.chatbot.panel_factory.get_config", return_value=""), patch(
-        "plugin.chatbot.panel_factory.get_current_endpoint", return_value=""
-    ), patch(
+    ), patch("plugin.chatbot.panel_factory.get_text_model", return_value="m", side_effect=model_side_effect), patch(
+        "plugin.chatbot.panel_factory.get_config", return_value=""
+    ), patch("plugin.chatbot.panel_factory.get_current_endpoint", return_value=""), patch(
         "plugin.chatbot.panel_factory.get_optional_control",
         side_effect=get_optional,
     ), patch(
@@ -600,11 +595,8 @@ def test_refresh_controls_chk_voice_sync(initial_state, model_side_effect, expec
         el._refresh_controls_from_config()
 
     assert not el._in_refresh_controls
-    if expect_set_state is not None:
-        chk.setState.assert_called_once_with(expect_set_state)
-        el._update_backend_indicator.assert_called_once_with(root)
-    else:
-        chk.setState.assert_not_called()
+    assert chk.setState.call_args_list == [call(*args) for args in expected_calls]
+    el._update_backend_indicator.assert_called_once_with(root)
 
 
 def test_header_third_button_is_writer_latex_calc_python_else_hidden():
@@ -747,36 +739,33 @@ def _wire_buttons_setup(**extra_controls):
     return el, controls, send, stop
 
 
-def _wire_buttons_patches(send_listener=None, **overrides):
-    import contextlib
+import contextlib
+
+
+@contextlib.contextmanager
+def _wire_buttons_patches(send_listener=None, *, send_patch=None, doc_type_patch=None):
     from unittest.mock import MagicMock, patch
 
-    @contextlib.contextmanager
-    def _ctx():
-        with contextlib.ExitStack() as stack:
-            stack.enter_context(patch("plugin.chatbot.chat_sidebar_mode.greeting_for_sidebar_mode", return_value=""))
-            stack.enter_context(patch("plugin.chatbot.panel_factory.header_third_button_kind", return_value=""))
-            stack.enter_context(patch("plugin.framework.uno_context.get_extension_url", return_value=""))
-            stack.enter_context(patch("plugin.framework.menu_icon_dpi.menu_icon_asset_rel", return_value="assets/gear_16.png"))
-            ctor = stack.enter_context(
-                overrides.get("send_patch")
-                or patch("plugin.chatbot.panel.SendButtonListener", return_value=send_listener)
-            )
-            mock_reg_debug = stack.enter_context(patch("plugin.chatbot.panel_factory.register_debug_live_panel"))
-            mock_reg_live = stack.enter_context(patch("plugin.doc.live_panels.register_live_panel"))
-            stack.enter_context(
-                overrides.get("doc_type_patch")
-                or patch("plugin.framework.doc_type.get_document_type", return_value=MagicMock())
-            )
-            stack.enter_context(patch("plugin.framework.doc_type.doc_type_label_for_enum", return_value="writer"))
-            stack.enter_context(patch("plugin.framework.doc_type.doc_type_title_for_label", return_value="Writer"))
-            stack.enter_context(patch("plugin.framework.doc_type.get_document_uno_services", return_value=frozenset()))
-            stack.enter_context(patch("plugin.chatbot.panel_factory.start_watchdog_thread"))
-            stack.enter_context(patch("plugin.chatbot.panel.StopButtonListener", return_value=MagicMock()))
-            mock_release = stack.enter_context(patch("plugin.chatbot.panel_factory.release_live_sidebar"))
-            yield ctor, mock_release, mock_reg_debug, mock_reg_live
-
-    return _ctx()
+    with contextlib.ExitStack() as stack:
+        stack.enter_context(patch("plugin.chatbot.chat_sidebar_mode.greeting_for_sidebar_mode", return_value=""))
+        stack.enter_context(patch("plugin.chatbot.panel_factory.header_third_button_kind", return_value=""))
+        stack.enter_context(patch("plugin.framework.uno_context.get_extension_url", return_value=""))
+        stack.enter_context(patch("plugin.framework.menu_icon_dpi.menu_icon_asset_rel", return_value="assets/gear_16.png"))
+        ctor = stack.enter_context(
+            send_patch if send_patch is not None else patch("plugin.chatbot.panel.SendButtonListener", return_value=send_listener)
+        )
+        mock_reg_debug = stack.enter_context(patch("plugin.chatbot.panel_factory.register_debug_live_panel"))
+        mock_reg_live = stack.enter_context(patch("plugin.doc.live_panels.register_live_panel"))
+        stack.enter_context(
+            doc_type_patch if doc_type_patch is not None else patch("plugin.framework.doc_type.get_document_type", return_value=MagicMock())
+        )
+        stack.enter_context(patch("plugin.framework.doc_type.doc_type_label_for_enum", return_value="writer"))
+        stack.enter_context(patch("plugin.framework.doc_type.doc_type_title_for_label", return_value="Writer"))
+        stack.enter_context(patch("plugin.framework.doc_type.get_document_uno_services", return_value=frozenset()))
+        stack.enter_context(patch("plugin.chatbot.panel_factory.start_watchdog_thread"))
+        stack.enter_context(patch("plugin.chatbot.panel.StopButtonListener", return_value=MagicMock()))
+        mock_release = stack.enter_context(patch("plugin.chatbot.panel_factory.release_live_sidebar"))
+        yield ctor, mock_release, mock_reg_debug, mock_reg_live
 
 
 def test_wire_buttons_missing_mode_flags_still_attaches_send_and_stop() -> None:

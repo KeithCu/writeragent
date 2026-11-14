@@ -660,7 +660,7 @@ def test_unavailable_agent_backend_does_not_store_user_row():
 
 def _web_research_cfg_get(**overrides):
     defaults = {
-        "chatbot.web_cache_max_mb": 0,
+        "chatbot.web_cache_max_mb": 0,  # disable SQLite cache (avoids db path issues in tests)
         "chat_max_tokens": 2048,
         "chatbot.deep_research_sub_agent_steps": 10,
         "chatbot.deep_research_max_rounds": 10,

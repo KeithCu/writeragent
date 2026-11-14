@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import base64
+import contextlib
 import json
 import os
 import sys
@@ -373,35 +374,30 @@ class TestVisionPoolSupervisor:
 
 class TestVisionHttpEndpoint:
     @staticmethod
+    @contextlib.contextmanager
     def _running_server(**setting_overrides):
-        import contextlib
-
-        @contextlib.contextmanager
-        def _ctx():
-            port = get_free_port()
-            settings = ComputeSettings(
-                **{
-                    "host": "127.0.0.1",
-                    "port": port,
-                    "api_key": "vision-secret",
-                    "ocr_workers": 1,
-                    **setting_overrides,
-                }
-            )
-            app = create_wsgi_app(settings)
-            server = WSGIDualStackServer("127.0.0.1", port, listener_threads=8)
-            server.set_app(app)
-            thread = threading.Thread(target=server.serve_forever, daemon=True)
-            thread.start()
-            try:
-                yield f"http://127.0.0.1:{port}"
-            finally:
-                server.shutdown()
-                server.server_close()
-                thread.join(timeout=3)
-                shutdown_vision_pool()
-
-        return _ctx()
+        port = get_free_port()
+        settings = ComputeSettings(
+            **{
+                "host": "127.0.0.1",
+                "port": port,
+                "api_key": "vision-secret",
+                "ocr_workers": 1,
+                **setting_overrides,
+            }
+        )
+        app = create_wsgi_app(settings)
+        server = WSGIDualStackServer("127.0.0.1", port, listener_threads=8)
+        server.set_app(app)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            yield f"http://127.0.0.1:{port}"
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=3)
+            shutdown_vision_pool()
 
     @pytest.fixture(scope="class")
     def vision_server(self):

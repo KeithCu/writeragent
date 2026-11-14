@@ -143,9 +143,22 @@ def _run_wire_controls(
     return host
 
 
-@pytest.mark.parametrize("failing_step", ["mode_ui", "model_selector"])
-def test_wire_controls_recovers_from_substep_failure(failing_step: str) -> None:
-    """A failure in mode-UI or model-selector wiring must not break downstream wiring."""
+def test_mode_ui_failure_still_passes_mode_flags_and_toggles_image_controls() -> None:
+    """A raised mode-UI wire must not hand None into button wiring; fallback flags are passed instead."""
+    from plugin.chatbot.chat_sidebar_mode import SidebarModeFlags
+
+    def _raise_mode_ui(*_args: object, **_kwargs: object) -> tuple[str, SidebarModeFlags]:
+        raise RuntimeError("mode ui failed")
+
+    host = _run_wire_controls(wire_chat_mode_ui=_raise_mode_ui)
+    _controls, _model, initial_mode, mode_flags = host.captured
+    assert initial_mode == "chat"
+    assert isinstance(mode_flags, SidebarModeFlags)
+    assert mode_flags == SidebarModeFlags()
+
+
+def test_model_selector_failure_still_wires_chat_mode_ui() -> None:
+    """A failure in model-selector wiring must not prevent chat-mode UI wiring from running."""
     from plugin.chatbot.chat_sidebar_mode import SidebarModeFlags
 
     custom_flags = SidebarModeFlags(include_brainstorming=True)
@@ -157,23 +170,16 @@ def test_wire_controls_recovers_from_substep_failure(failing_step: str) -> None:
     def _mode_ui(*_args: object, **_kwargs: object) -> tuple[str, SidebarModeFlags]:
         nonlocal mode_ui_called
         mode_ui_called = True
-        if failing_step == "mode_ui":
-            raise RuntimeError("mode ui failed")
         return ("web", custom_flags)
 
     host = _run_wire_controls(
-        wire_model_selectors=_fail_model_selectors if failing_step == "model_selector" else None,
+        wire_model_selectors=_fail_model_selectors,
         wire_chat_mode_ui=_mode_ui,
     )
     _controls, _model, initial_mode, mode_flags = host.captured
     assert mode_ui_called is True
-    if failing_step == "mode_ui":
-        assert initial_mode == "chat"
-        assert isinstance(mode_flags, SidebarModeFlags)
-        assert mode_flags == SidebarModeFlags()
-    else:
-        assert initial_mode == "web"
-        assert mode_flags is custom_flags
+    assert initial_mode == "web"
+    assert mode_flags is custom_flags
 
 
 def test_make_toggle_image_ui_swaps_visibility_and_relayouts() -> None:

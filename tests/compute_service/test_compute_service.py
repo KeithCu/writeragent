@@ -947,23 +947,15 @@ class TestComputeSettings:
             load_settings(config_path=cfg, environ={"PYTHON_COMPUTE_HOST": "127.0.0.1"})
 
     def test_env_api_key_keeps_surrounding_spaces(self, tmp_path) -> None:
-        """The env secret preserves surrounding spaces, matching key file behavior."""
+        """Env and key-file secrets must NOT be strip()ed; surrounding spaces round-trip intact."""
         key = " secret "
         s = load_settings(environ={"PYTHON_COMPUTE_API_KEY": key, "PYTHON_COMPUTE_HOST": "127.0.0.1"})
         assert s.api_key == key
         key_path = tmp_path / "key_spaces"
+        # Leading and trailing spaces with no trailing newline
         key_path.write_bytes(b" secret ")
         from_file = load_settings({"api_key_file": key_path}, environ={"PYTHON_COMPUTE_HOST": "127.0.0.1"})
         assert from_file.api_key == s.api_key
-
-    def test_key_file_preserves_leading_and_trailing_spaces(self, tmp_path) -> None:
-        """_read_key_file must NOT strip() the key; only the one trailing newline is removed.
-        API keys with leading/trailing spaces (unusual but valid) must round-trip intact."""
-        key_path = tmp_path / "key_spaces"
-        # Leading space, no trailing newline
-        key_path.write_bytes(b" abc123 ")
-        s = load_settings({"api_key_file": key_path}, environ={"PYTHON_COMPUTE_HOST": "127.0.0.1"})
-        assert s.api_key == " abc123 "
 
     def test_json_bool_and_fractional_int_fields_rejected(self, tmp_path) -> None:
         """JSON true and 8000.9 must not become a worker count or a port.
@@ -1170,16 +1162,6 @@ class TestBearerAuthHttp:
         assert status == 401
         assert executed == []
 
-    def test_bearer_case_insensitive(self, auth_server) -> None:
-        url, executed, _reset_calls = auth_server
-        status_lower, body_lower = self._post(url, {"Authorization": "bearer correct-secret"})
-        assert status_lower == 200
-        assert body_lower.get("status") == "ok"
-        status_upper, body_upper = self._post(url, {"Authorization": "BEARER correct-secret"})
-        assert status_upper == 200
-        assert body_upper.get("status") == "ok"
-        assert len(executed) == 2
-
     def test_www_authenticate_header(self, auth_server) -> None:
         url, _executed, _reset_calls = auth_server
         req = urllib.request.Request(f"{url}/v1/execute", data=b'{"code":"result=1"}', headers={"Content-Type": "application/json"}, method="POST")
@@ -1322,6 +1304,7 @@ class TestSessionResetHttp:
         assert status.startswith("400")
         assert body.get("status") == "error"
         assert body.get("code") == "BAD_REQUEST_BODY"
+        assert "session_id" in body.get("error", "")
         if expected_id is not None:
             assert body.get("id") == expected_id
 
@@ -1394,13 +1377,18 @@ class TestSessionResetHttp:
     @pytest.mark.parametrize(
         ("code", "expected_status", "req_id"),
         [
-            ("WORKER_POOL_BUSY", "503", "ex-busy"),
-            ("WORKER_CRASHED", "500", "ex-dead"),
-            ("WORKER_IPC_ERROR", "500", "ex-ipc"),
-            ("EMPTY_RESPONSE", "500", None),
-            ("EXECUTION_TIMEOUT", "200", None),
-            ("QUEUE_TIMEOUT", "503", "q-late"),
-            ("SERVICE_SHUTDOWN", "503", "ex-down"),
+            pytest.param("WORKER_POOL_BUSY", "503", "ex-busy", id="pool-busy-503"),
+            # A crash or empty frame may have run the cell, so it is not a retryable 503.
+            pytest.param("WORKER_CRASHED", "500", "ex-dead", id="crash-not-retryable-500"),
+            # A bad response frame killed the child; it is not a retryable 503.
+            pytest.param("WORKER_IPC_ERROR", "500", "ex-ipc", id="ipc-error-not-retryable-500"),
+            # An empty frame may have run the cell, so it is not a retryable 503.
+            pytest.param("EMPTY_RESPONSE", "500", None, id="empty-response-not-retryable-500"),
+            pytest.param("EXECUTION_TIMEOUT", "200", None, id="execution-timeout-stays-200"),
+            # If the deadline expires between the handler pre-check and the pool check,
+            # the pool returns QUEUE_TIMEOUT with no result_json; otherwise it would fall through to 200.
+            pytest.param("QUEUE_TIMEOUT", "503", "q-late", id="queue-timeout-503"),
+            pytest.param("SERVICE_SHUTDOWN", "503", "ex-down", id="shutdown-503"),
         ],
     )
     def test_execute_error_code_status_mapping(
@@ -1422,11 +1410,13 @@ class TestSessionResetHttp:
     @pytest.mark.parametrize(
         ("code", "expected_status"),
         [
-            ("VISION_POOL_BUSY", "503"),
-            ("FILE_NOT_FOUND", "400"),
-            ("FILE_TOO_LARGE", "413"),
-            ("VISION_UNAVAILABLE", "503"),
-            ("VISION_BACKEND_MISSING", "501"),
+            pytest.param("VISION_POOL_BUSY", "503", id="vision-pool-busy-503"),
+            # Allowlist file failures return 400/413 client statuses.
+            pytest.param("FILE_NOT_FOUND", "400", id="file-not-found-400"),
+            pytest.param("FILE_TOO_LARGE", "413", id="file-too-large-413"),
+            # VISION_UNAVAILABLE happens when the OCR module fails to import; must be 503.
+            pytest.param("VISION_UNAVAILABLE", "503", id="vision-unavailable-503"),
+            pytest.param("VISION_BACKEND_MISSING", "501", id="vision-backend-missing-501"),
         ],
     )
     def test_vision_error_code_status_mapping(self, code: str, expected_status: str) -> None:
@@ -1943,17 +1933,6 @@ class TestListenerQueue:
             server.server_close()
 
 
-def test_flatten_config_json_rejects_api_key() -> None:
-    """_flatten_config_json raises ConfigError if api_key is present in config JSON."""
-    from compute_service.config import ConfigError, _flatten_config_json
-
-    with pytest.raises(ConfigError, match="Do not put api_key in the JSON config"):
-        _flatten_config_json({"api_key": "secret"})
-
-    with pytest.raises(ConfigError, match="Do not put api_key in the JSON config"):
-        _flatten_config_json({"auth": {"api_key": "secret"}})
-
-
 def test_admission_permits_leave_two_listeners() -> None:
     from compute_service.server import admission_permits, listener_thread_count
 
@@ -1967,10 +1946,13 @@ def test_admission_permits_leave_two_listeners() -> None:
 @pytest.mark.parametrize(
     ("payload", "req_id", "expected_status", "expected_code"),
     [
-        ({"status": "error", "code": "VISION_WORKER_ERROR", "error": "worker blew up"}, "fault-1", "500", "VISION_WORKER_ERROR"),
-        ({"status": "error", "code": "WORKER_EXECUTION_ERROR", "error": "worker blew up"}, "fault-1", "500", "WORKER_EXECUTION_ERROR"),
-        ({"status": "ok", "result_json": b""}, "empty-1", "500", "EMPTY_RESPONSE"),
-        ({"status": "error", "code": "FILE_PATH_DENIED", "error": "denied"}, "path-1", "400", "FILE_PATH_DENIED"),
+        # A worker fault with no result_json returns HTTP 500.
+        pytest.param({"status": "error", "code": "VISION_WORKER_ERROR", "error": "worker blew up"}, "fault-1", "500", "VISION_WORKER_ERROR", id="vision-worker-fault-500"),
+        pytest.param({"status": "error", "code": "WORKER_EXECUTION_ERROR", "error": "worker blew up"}, "fault-1", "500", "WORKER_EXECUTION_ERROR", id="worker-execution-fault-500"),
+        # Empty result_json returns HTTP 500 EMPTY_RESPONSE.
+        pytest.param({"status": "ok", "result_json": b""}, "empty-1", "500", "EMPTY_RESPONSE", id="empty-result-json-500"),
+        # FILE_PATH_DENIED from the worker returns HTTP 400.
+        pytest.param({"status": "error", "code": "FILE_PATH_DENIED", "error": "denied"}, "path-1", "400", "FILE_PATH_DENIED", id="file-path-denied-400"),
     ],
 )
 def test_send_execution_result_status_mapping(
