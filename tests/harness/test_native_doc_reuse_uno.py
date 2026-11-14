@@ -34,8 +34,7 @@ def test_calc_reuse_writes_then_leaves_dirt(ctx, doc):
 def test_calc_reuse_next_test_sees_empty_sheet(ctx, doc):
     sheet = doc.getSheets().getByIndex(0)
     assert sheet.getCellByPosition(0, 0).getString() == ""
-    if _calc_uids:
-        assert _runtime_uid(doc) == _calc_uids[0]
+    assert _calc_uids and _runtime_uid(doc) == _calc_uids[0]
     from plugin.scripting.document_scripts import get_calc_init_script
 
     assert (get_calc_init_script(doc) or "").strip() == ""
@@ -61,8 +60,7 @@ def test_writer_reuse_writes_then_leaves_dirt(ctx, doc):
 @with_native_doc("writer", reuse=True)
 def test_writer_reuse_next_test_sees_empty_text(ctx, doc):
     assert doc.getText().getString() == ""
-    if _writer_uids:
-        assert _runtime_uid(doc) == _writer_uids[0]
+    assert _writer_uids and _runtime_uid(doc) == _writer_uids[0]
     cursor = doc.getText().createTextCursor()
     cursor.gotoStart(False)
     weight = float(cursor.getPropertyValue("CharWeight"))
@@ -90,8 +88,7 @@ def test_writer_default_reuse_writes_then_leaves_dirt(ctx, doc):
 @with_native_doc("writer")
 def test_writer_default_reuse_next_test_sees_empty_text(ctx, doc):
     assert doc.getText().getString() == ""
-    if _writer_uids:
-        assert _runtime_uid(doc) == _writer_uids[-1]
+    assert _writer_uids and _runtime_uid(doc) == _writer_uids[-1]
     cursor = doc.getText().createTextCursor()
     cursor.gotoStart(False)
     weight = float(cursor.getPropertyValue("CharWeight"))

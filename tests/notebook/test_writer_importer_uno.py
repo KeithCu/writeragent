@@ -18,6 +18,7 @@ import sys
 from pathlib import Path
 from unittest.mock import patch
 
+from plugin.framework.uno_context import enum_has_more
 from plugin.testing_runner import current_office, native_test
 from plugin.tests.testing_utils import with_native_doc
 
@@ -47,7 +48,7 @@ def _capture_msgbox(store: list):
 def _paragraphs(doc) -> list[tuple[str, str]]:
     out: list[tuple[str, str]] = []
     enum = doc.getText().createEnumeration()
-    while enum.hasMoreElements():
+    while enum_has_more(enum):
         el = enum.nextElement()
         try:
             if hasattr(el, "supportsService") and not el.supportsService("com.sun.star.text.Paragraph"):
@@ -64,7 +65,7 @@ def _paragraphs_with_numbering(doc) -> list[tuple[str, str, str, int]]:
     """(ParaStyleName, NumberingStyleName, text, NumberingLevel) for leftover-list leak checks."""
     out: list[tuple[str, str, str, int]] = []
     enum = doc.getText().createEnumeration()
-    while enum.hasMoreElements():
+    while enum_has_more(enum):
         el = enum.nextElement()
         try:
             if hasattr(el, "supportsService") and not el.supportsService("com.sun.star.text.Paragraph"):
@@ -214,7 +215,7 @@ def _graphic_count(doc) -> int:
 def _hyperlink_urls(doc) -> list[str]:
     urls: list[str] = []
     enum = doc.getText().createEnumeration()
-    while enum.hasMoreElements():
+    while enum_has_more(enum):
         el = enum.nextElement()
         try:
             if hasattr(el, "supportsService") and not el.supportsService("com.sun.star.text.Paragraph"):
@@ -222,7 +223,7 @@ def _hyperlink_urls(doc) -> list[str]:
             portions = el.createEnumeration()
         except Exception:
             continue
-        while portions.hasMoreElements():
+        while enum_has_more(portions):
             portion = portions.nextElement()
             try:
                 url = str(portion.getPropertyValue("HyperLinkURL") or "")
@@ -232,7 +233,7 @@ def _hyperlink_urls(doc) -> list[str]:
                 urls.append(url)
     try:
         fields = doc.getTextFields().createEnumeration()
-        while fields.hasMoreElements():
+        while enum_has_more(fields):
             field = fields.nextElement()
             try:
                 url = str(field.getPropertyValue("URL") or "")
@@ -791,7 +792,7 @@ def _page_of_text(doc, needle: str) -> int | None:
     try:
         vc = doc.getCurrentController().getViewCursor()
         enum = doc.getText().createEnumeration()
-        while enum.hasMoreElements():
+        while enum_has_more(enum):
             el = enum.nextElement()
             try:
                 text = str(el.getString() or "")
@@ -810,7 +811,7 @@ def _paragraphs_with_pages(doc) -> list[tuple[int, str, str]]:
     try:
         vc = doc.getCurrentController().getViewCursor()
         enum = doc.getText().createEnumeration()
-        while enum.hasMoreElements():
+        while enum_has_more(enum):
             el = enum.nextElement()
             try:
                 if hasattr(el, "supportsService") and not el.supportsService("com.sun.star.text.Paragraph"):
@@ -883,7 +884,7 @@ def _paragraphs_with_layout(doc) -> list[tuple[int, int, str, str]]:
     try:
         vc = doc.getCurrentController().getViewCursor()
         enum = doc.getText().createEnumeration()
-        while enum.hasMoreElements():
+        while enum_has_more(enum):
             el = enum.nextElement()
             try:
                 if hasattr(el, "supportsService") and not el.supportsService("com.sun.star.text.Paragraph"):

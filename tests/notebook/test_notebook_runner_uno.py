@@ -16,6 +16,7 @@ import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
+from plugin.framework.uno_context import enum_has_more
 from plugin.notebook.cell_registry import cell_id_to_hex, load_registry
 from plugin.notebook.form_lookup import find_control_shape_by_name
 from plugin.notebook.notebook_runner import _leading_text_cursor, _paragraph_has_frame, flush_ui_idle
@@ -82,7 +83,7 @@ def _consecutive_code_cells_ipynb_path() -> Path:
 def _paragraphs(doc) -> list[tuple[str, str]]:
     out: list[tuple[str, str]] = []
     enum = doc.getText().createEnumeration()
-    while enum.hasMoreElements():
+    while enum_has_more(enum):
         el = enum.nextElement()
         try:
             if hasattr(el, "supportsService") and not el.supportsService("com.sun.star.text.Paragraph"):
@@ -862,7 +863,7 @@ def test_paragraph_has_frame_true_on_imported_control_paragraphs(ctx, doc):
 
         heading = None
         enum = text.createEnumeration()
-        while enum.hasMoreElements():
+        while enum_has_more(enum):
             el = enum.nextElement()
             if "Before code" in str(el.getString() or ""):
                 heading = el
