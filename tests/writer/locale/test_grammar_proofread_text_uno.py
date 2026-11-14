@@ -29,27 +29,16 @@ def test_split_multilingual_terminators_native(ctx: Any) -> None:
 def test_split_thai_spaces_native(ctx: Any) -> None:
     text = "สวัสดีครับ ผมชื่อสมชาย ยินดีที่ได้รู้จัก"
     result = gt.split_into_sentences(ctx, "th-TH", text)
-    # Thai splitting by spaces usually yields chunks.
-    assert len(result) >= 1
+    assert [t.strip() for _o, t in result] == ["สวัสดีครับ", "ผมชื่อสมชาย", "ยินดีที่ได้รู้จัก"]
 
 
 @native_test
 def test_split_abbreviation_heuristic_native(ctx: Any) -> None:
-    # We want to ensure abbreviations don't cause a split.
-    # 'Prof.' is a longer word that should definitely be caught.
     text = "Prof. Smith went to Washington. Next sentence."
     result = gt.split_into_sentences(ctx, "en-US", text)
-    if len(result) != 2:
-        # Fallback to Mr. if Prof. is not working for some reason, but let's see.
-        text2 = "Mr. Smith went to Washington. Next sentence."
-        result2 = gt.split_into_sentences(ctx, "en-US", text2)
-        if len(result2) != 2:
-            # If both fail, there might be a change in BreakIterator or heuristic logic.
-            # We'll accept 3 but log it as a warning in the test.
-            assert len(result) >= 2
-            return
     assert len(result) == 2
-    assert "Smith" in result[0][1]
+    assert result[0][1].strip() == "Prof. Smith went to Washington."
+    assert result[1][1].strip() == "Next sentence."
 
 
 @native_test
@@ -61,14 +50,6 @@ def test_overlap_thai_native(ctx: Any) -> None:
     assert len(norms_native) == 1
     err = norms_native[0]
     assert full[err.n_error_start : err.n_error_start + err.n_error_length] == "ไปที่"
-
-
-@native_test
-def test_break_iterator_diagnostic(ctx: Any) -> None:
-    """Diagnostic for BreakIterator service availability."""
-    smgr = ctx.ServiceManager
-    bi = smgr.createInstanceWithContext("com.sun.star.i18n.BreakIterator", ctx)
-    assert bi is not None
 
 
 @native_test
