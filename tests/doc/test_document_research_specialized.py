@@ -18,6 +18,7 @@ from plugin.doc.document_research_specialized import (
     run_inner_read_agent,
 )
 from plugin.doc.specialized_base import DelegateToSpecializedBase
+from plugin.draw.specialized import DelegateToSpecializedDraw
 from plugin.framework.tool import ToolBase, ToolContext, ToolRegistry
 from tests.chatbot.test_tool_loop import _mock_get_config_for_sub_agent
 from plugin.writer.specialized_base import DelegateToSpecializedWriter, SpecializedWorkflowFinished
@@ -41,6 +42,19 @@ class _MutatingTool(ToolBase):
 
     def execute(self, ctx, **kwargs):
         return {"status": "ok"}
+
+
+def _document_research_domains(gateway):
+    return gateway.parameters["properties"]["domain"]["enum"]
+
+
+@pytest.mark.parametrize(
+    "gateway_cls",
+    [DelegateToSpecializedWriter, DelegateToSpecializedCalc, DelegateToSpecializedDraw],
+)
+def test_document_research_in_delegate_enum(gateway_cls):
+    gw = gateway_cls()
+    assert "document_research" in _document_research_domains(gw)
 
 
 def test_filter_document_research_discovery_tools_respects_config():

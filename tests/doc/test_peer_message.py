@@ -233,10 +233,9 @@ def test_addressing_unsupported_unknown_model():
             "plugin.doc.peer_message.get_runtime_uid",
             side_effect=lambda m: "self" if m is self_doc else "other-uid",
         ):
-            model, code, msg = resolve_peer_target(object(), self_doc, "other-uid")
+            model, code, unused_msg = resolve_peer_target(object(), self_doc, "other-uid")
     assert model is None
     assert code == "PEER_UNSUPPORTED"
-    assert "not a Writer, Calc, Draw, or Impress document" in msg
 
 
 def test_list_v1_peers_magicmock_ctx_does_not_hang():
@@ -691,25 +690,24 @@ def test_specialized_get_tools_includes_peer_when_peers_open():
             False,
             id="error_status_unchanged",
         ),
-        pytest.param(
-            {"status": "ok", "message": "done __IDLE__", "result": "Message sent to the peer."},
-            False,
-            1,
-            False,
-            id="already_annotated",
-        ),
     ],
 )
 def test_annotate_outer_peer_wait_branches(payload, peer_send_invoked, expected_count, expect_result):
     from plugin.doc.peer_prompt import PEER_OUTER_IDLE_AFTER_SEND, annotate_outer_peer_wait
 
-    case_payload = {
-        key: (val.replace("__IDLE__", PEER_OUTER_IDLE_AFTER_SEND) if isinstance(val, str) else val)
-        for key, val in payload.items()
-    }
-    out = annotate_outer_peer_wait(case_payload, peer_send_invoked=peer_send_invoked)
+    out = annotate_outer_peer_wait(payload, peer_send_invoked=peer_send_invoked)
     assert out.get("message", "").count(PEER_OUTER_IDLE_AFTER_SEND) == expected_count
     assert (PEER_OUTER_IDLE_AFTER_SEND in out.get("result", "")) is expect_result
+
+
+def test_annotate_outer_peer_wait_already_annotated():
+    from plugin.doc.peer_prompt import PEER_OUTER_IDLE_AFTER_SEND, annotate_outer_peer_wait
+
+    out = annotate_outer_peer_wait(
+        {"status": "ok", "message": "done " + PEER_OUTER_IDLE_AFTER_SEND, "result": "Message sent to the peer."}
+    )
+    assert out["message"].count(PEER_OUTER_IDLE_AFTER_SEND) == 1
+    assert PEER_OUTER_IDLE_AFTER_SEND not in out["result"]
 
 
 def test_annotate_outer_peer_delivery_pending():

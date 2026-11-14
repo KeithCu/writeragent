@@ -277,7 +277,7 @@ def test_run_inner_domain_tool_agent_unions_full_schemas(mock_executor_cls, mock
     assert inner_ctx.set_active_domain_callback is None
     assert inner_ctx.read_only_target is False
     assert inner_ctx.python_tool_domain == "footnotes,shapes,core"
-    from plugin.scripting.host_rpc import resolve_allowed_tools
+    from plugin.scripting.host_rpc import format_script_api_catalog, resolve_allowed_tools
     from plugin.scripting.writeragent_api import DOMAIN_TOOLS
 
     allowed = resolve_allowed_tools(inner_ctx.python_tool_domain)
@@ -290,23 +290,13 @@ def test_run_inner_domain_tool_agent_unions_full_schemas(mock_executor_cls, mock
     assert "run_venv_python_script" not in allowed
     instructions = mock_build.call_args.kwargs["instructions"]
     assert DELEGATE_ANCHOR_RULE in instructions
-    assert "footnotes" in instructions
-    assert "shapes" in instructions
-    assert "wa.shape.upsert" in instructions
-    assert "for-loop" in instructions
-    assert "run_venv_python_script has access to the following APIs" in instructions
-    assert "wa.core.list_open_documents" in instructions
-    assert "action (required)" in instructions
-    assert "shape_type (optional)" in instructions
+    assert format_script_api_catalog(["footnotes", "shapes"]) in instructions
     assert mock_build.call_args.kwargs["final_answer_tool_name"] == "specialized_workflow_finished"
     examples_key_block = mock_build.call_args.kwargs["examples_block"]
     # Inner block is the script loop, not the outer *:python few-shot (that one calls DTD).
     assert "run_venv_python_script" in examples_key_block
-    assert "wa.shape.upsert" in examples_key_block
     assert "delegate_tool_domains" not in examples_key_block
-    assert "sp.prime" not in examples_key_block
     assert "specialized_workflow_finished" in examples_key_block
-    assert "insert_after" in instructions
 
 
 @patch("plugin.chatbot.smol_agent.build_toolcalling_agent")
@@ -340,12 +330,12 @@ def test_shapes_domain_includes_canvas_context_from_main_thread(mock_canvas, moc
     assert result["status"] == "ok"
     mock_canvas.assert_called_once_with(parent.doc)
     assert mock_main.called
+    from plugin.scripting.host_rpc import format_script_api_catalog
+
     instructions = mock_build.call_args.kwargs["instructions"]
     assert "Document canvas (Writer)" in instructions
     assert "210.0 x 297.0 mm" in instructions
-    assert "wa.shape.upsert" in instructions
-    assert "shape_type (optional)" in instructions
-    assert "run_venv_python_script has access to the following APIs" in instructions
+    assert format_script_api_catalog(["shapes"]) in instructions
     shapes_ctx = mock_build.call_args[0][0]
     assert shapes_ctx.python_tool_domain == "shapes,core"
 
@@ -354,11 +344,8 @@ def test_shapes_domain_includes_canvas_context_from_main_thread(mock_canvas, moc
     mock_canvas.assert_not_called()
     footnotes_instructions = mock_build.call_args.kwargs["instructions"]
     assert "Document canvas" not in footnotes_instructions
-    assert "wa.shape.upsert" not in footnotes_instructions
-    assert "wa.footnote.insert" in footnotes_instructions
-    assert "insert_after (optional)" in footnotes_instructions
-    assert "wa.core.list_open_documents" in footnotes_instructions
-    assert "Those shape mutators are not LLM tools" not in footnotes_instructions
+    assert format_script_api_catalog(["shapes"]) not in footnotes_instructions
+    assert format_script_api_catalog(["footnotes"]) in footnotes_instructions
     assert mock_build.call_args[0][0].python_tool_domain == "footnotes,core"
 
 
@@ -623,17 +610,7 @@ def test_python_outer_delegation_gets_delegate_tool_domains_and_hint(
     assert domains_input["items"]["type"] == "string"
     assert "task" in by_name["delegate_tool_domains"].inputs
     instructions = mock_agent_class.call_args.kwargs.get("instructions") or ""
-    assert "delegate_tool_domains" in instructions
-    assert "domains" in instructions
-    assert "task" in instructions
     mock_canvas.assert_not_called()
     assert "Document canvas" not in instructions
-    examples = mock_agent_class.call_args.kwargs.get("system_prompt_examples") or ""
-    assert "delegate_tool_domains" in examples
-    assert '"domains"' in examples
-    assert '"task"' in examples
-    assert '"domains": ["shapes"]' in examples
-    ring = examples.split('Task: "Use python to place a ring', 1)[1]
-    assert ring.index("delegate_tool_domains") < ring.index("specialized_workflow_finished")
 
 

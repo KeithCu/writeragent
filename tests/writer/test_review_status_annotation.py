@@ -22,10 +22,11 @@ def test_off_mode_leaves_result_unchanged():
     assert out["message"] == "Replaced 1 occurrence."
 
 
-def test_record_mode_marks_pending_and_no_outcome_notice():
+def test_record_mode_marks_pending():
     out = _annotate("record", {"status": "ok", "message": "Replaced 1 occurrence."})
     assert out["pending_review"] is True
     assert out["review_mode"] == "record"
+    assert out["message"] != "Replaced 1 occurrence."
 
 
 def test_wait_mode_also_annotated():

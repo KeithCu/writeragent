@@ -498,8 +498,7 @@ def test_document_research_hint_off_main_does_not_touch_runtime_uid():
         session.close()
 
     assert err is None, f"UNO touch from worker: {err}"
-    assert hint
-    assert inner
+    assert inner and inner in hint
 
 
 @patch(

@@ -239,6 +239,14 @@ def test_get_style_info_page_styles_returns_page_properties():
     assert page["properties"] == res["properties"]
 
 
+def test_apply_style_clear_direct_schema_default_matches_runtime():
+    """Small models read the schema; schema default must match the ParagraphStyles runtime default."""
+    assert (
+        ApplyStyle.parameters["properties"]["clear_direct"]["default"]
+        == ApplyStyle._resolve_clear_direct("ParagraphStyles", None)
+    )
+
+
 def test_resolve_clear_direct_defaults():
     assert ApplyStyle._resolve_clear_direct("ParagraphStyles", None) == "style_props"
     assert ApplyStyle._resolve_clear_direct("ParagraphStyles", "") == "style_props"
