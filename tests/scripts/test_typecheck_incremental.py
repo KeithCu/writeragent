@@ -39,15 +39,15 @@ def _git(cwd: Path, *args: str) -> None:
     )
 
 
-def _init_repo_with_origin_master(root: Path) -> None:
+def _init_repo_with_master(root: Path) -> None:
     _copy_configs(root)
     _touch(root, "plugin/base.py")
-    _git(root, "init")
+    _git(root, "init", "-b", "master")
     _git(root, "config", "user.name", "Test")
     _git(root, "config", "user.email", "test@example.com")
     _git(root, "add", ".")
     _git(root, "commit", "-m", "base")
-    _git(root, "update-ref", "refs/remotes/origin/master", "HEAD")
+    _git(root, "checkout", "-b", "feature")
 
 
 def test_filter_files_for_tool_reads_real_configs_and_existing_py(tmp_path: Path) -> None:
@@ -103,24 +103,27 @@ def test_filter_files_for_tool_reads_real_configs_and_existing_py(tmp_path: Path
     ]
 
 
-def test_get_changed_files_returns_none_without_origin_master(tmp_path: Path) -> None:
-    _git(tmp_path, "init")
+def test_get_changed_files_returns_none_without_local_master(tmp_path: Path) -> None:
+    _git(tmp_path, "init", "-b", "main")
     _git(tmp_path, "config", "user.name", "Test")
     _git(tmp_path, "config", "user.email", "test@example.com")
     _touch(tmp_path, "plugin/a.py")
     _git(tmp_path, "add", "plugin/a.py")
     _git(tmp_path, "commit", "-m", "init")
+    # Even if origin/master exists, missing local master must still fall back.
+    _git(tmp_path, "update-ref", "refs/remotes/origin/master", "HEAD")
 
     assert ti.get_changed_files(tmp_path) is None
 
 
 def test_get_changed_files_collects_branch_staged_unstaged_and_untracked(tmp_path: Path) -> None:
-    _init_repo_with_origin_master(tmp_path)
+    _init_repo_with_master(tmp_path)
+    _git(tmp_path, "checkout", "master")
     _touch(tmp_path, "plugin/staged.py")
     _touch(tmp_path, "plugin/unstaged.py")
     _git(tmp_path, "add", ".")
     _git(tmp_path, "commit", "-m", "more base")
-    _git(tmp_path, "update-ref", "refs/remotes/origin/master", "HEAD")
+    _git(tmp_path, "checkout", "-B", "feature", "master")
 
     _touch(tmp_path, "plugin/committed branch.py")
     _git(tmp_path, "add", "plugin/committed branch.py")
@@ -137,6 +140,26 @@ def test_get_changed_files_collects_branch_staged_unstaged_and_untracked(tmp_pat
         "plugin/staged.py",
         "plugin/unstaged.py",
         "plugin/untracked.py",
+    ]
+
+
+def test_get_changed_files_works_in_linked_worktree(tmp_path: Path) -> None:
+    main_repo = tmp_path / "main"
+    worktree = tmp_path / "wa-st-feature"
+    main_repo.mkdir()
+    _init_repo_with_master(main_repo)
+
+    # Linked worktree shares refs/heads/master with the main checkout.
+    _git(main_repo, "worktree", "add", "-b", "wt-branch", str(worktree), "master")
+    _touch(worktree, "plugin/wt_committed.py")
+    _git(worktree, "add", "plugin/wt_committed.py")
+    _git(worktree, "commit", "-m", "worktree commit")
+
+    _touch(worktree, "plugin/wt_dirty.py")
+
+    assert ti.get_changed_files(worktree) == [
+        "plugin/wt_committed.py",
+        "plugin/wt_dirty.py",
     ]
 
 
@@ -160,10 +183,10 @@ def test_build_invocations_substitutes_target_placeholder_or_appends() -> None:
     ]
 
 
-def test_main_returns_fallback_code_without_origin_master(
+def test_main_returns_fallback_code_without_local_master(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    _git(tmp_path, "init")
+    _git(tmp_path, "init", "-b", "main")
     _git(tmp_path, "config", "user.name", "Test")
     _git(tmp_path, "config", "user.email", "test@example.com")
     _touch(tmp_path, "plugin/a.py")
@@ -172,13 +195,13 @@ def test_main_returns_fallback_code_without_origin_master(
 
     rc = ti.main(["--tool", "bandit", "--", sys.executable, "-m", "bandit"], repo_root=tmp_path)
     assert rc == ti.EXIT_FALLBACK_FULL
-    assert "origin/master merge-base not found" in capsys.readouterr().out
+    assert "local master merge-base not found" in capsys.readouterr().out
 
 
 def test_main_returns_fallback_code_when_config_changed(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    _init_repo_with_origin_master(tmp_path)
+    _init_repo_with_master(tmp_path)
     (tmp_path / "pyproject.toml").write_text(
         (tmp_path / "pyproject.toml").read_text(encoding="utf-8") + "\n# edit\n",
         encoding="utf-8",
@@ -195,7 +218,7 @@ def test_main_returns_fallback_code_when_config_changed(
 def test_main_returns_fallback_code_when_config_dir_file_changed(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    _init_repo_with_origin_master(tmp_path)
+    _init_repo_with_master(tmp_path)
     _touch(tmp_path, "tests/semgrep/new_rule.yml")
 
     rc = ti.main(
@@ -220,7 +243,7 @@ def test_main_returns_fallback_code_when_config_dir_file_changed(
 def test_main_returns_fallback_code_when_exceeding_max_files(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    _init_repo_with_origin_master(tmp_path)
+    _init_repo_with_master(tmp_path)
     _touch(tmp_path, "plugin/a.py")
     _touch(tmp_path, "plugin/b.py")
 
@@ -235,7 +258,7 @@ def test_main_returns_fallback_code_when_exceeding_max_files(
 def test_main_skips_when_no_files_in_scope(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    _init_repo_with_origin_master(tmp_path)
+    _init_repo_with_master(tmp_path)
     _touch(tmp_path, "README.md")
 
     rc = ti.main(["--tool", "mypy", "--", sys.executable, "-c", "raise SystemExit(9)"], repo_root=tmp_path)
@@ -246,7 +269,7 @@ def test_main_skips_when_no_files_in_scope(
 def test_main_runs_command_on_changed_files_in_real_repo(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    _init_repo_with_origin_master(tmp_path)
+    _init_repo_with_master(tmp_path)
     _touch(tmp_path, "plugin/with space.py")
     marker = tmp_path / "seen.txt"
 

@@ -7,11 +7,12 @@
 
 Used by ``make typecheck`` to scope ``basedpyright``, ``mypy``, ``bandit``,
 ``opengrep``, and ``pyspector`` to Python files changed since
-``origin/master...HEAD`` plus staged, unstaged, and untracked changes.
+``master...HEAD`` (local ``master``, shared across linked worktrees) plus
+staged, unstaged, and untracked changes.
 Excludes are read directly from their owning configs (``pyproject.toml``,
 ``pyspector.toml``, or ``--exclude`` flags from the ``Makefile``).
 
-Exits with ``EXIT_FALLBACK_FULL`` (10) when ``origin/master`` has no
+Exits with ``EXIT_FALLBACK_FULL`` (10) when local ``master`` is missing or has no
 merge-base, when any ``--config-path`` changed, or when changed files exceed
 ``--max-files``, so the ``Makefile`` can delegate to the full target.
 """
@@ -136,9 +137,19 @@ def _git_z_paths(repo_root: Path, git_args: list[str]) -> list[str]:
 
 
 def get_changed_files(repo_root: Path = REPO_ROOT) -> list[str] | None:
-    """Return changed/untracked repo-relative paths, or ``None`` if no merge-base."""
+    """Return changed/untracked repo-relative paths vs local ``master``, or ``None`` if unavailable."""
+    local_master = subprocess.run(
+        ["git", "rev-parse", "--verify", "refs/heads/master"],
+        cwd=repo_root,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        check=False,
+    )
+    if local_master.returncode != 0:
+        return None
+
     merge_base = subprocess.run(
-        ["git", "merge-base", "origin/master", "HEAD"],
+        ["git", "merge-base", "master", "HEAD"],
         cwd=repo_root,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
@@ -149,7 +160,7 @@ def get_changed_files(repo_root: Path = REPO_ROOT) -> list[str] | None:
 
     paths: set[str] = set()
     for args in (
-        ["diff", "-z", "--name-only", "--diff-filter=ACMR", "origin/master...HEAD"],
+        ["diff", "-z", "--name-only", "--diff-filter=ACMR", "master...HEAD"],
         ["diff", "-z", "--name-only", "--diff-filter=ACMR", "--cached"],
         ["diff", "-z", "--name-only", "--diff-filter=ACMR"],
         ["ls-files", "-z", "--others", "--exclude-standard"],
@@ -216,7 +227,7 @@ def main(argv: list[str] | None = None, repo_root: Path = REPO_ROOT) -> int:
 
     changed = get_changed_files(repo_root)
     if changed is None:
-        print(f"{args.tool}: origin/master merge-base not found — falling back to full check", flush=True)
+        print(f"{args.tool}: local master merge-base not found — falling back to full check", flush=True)
         return EXIT_FALLBACK_FULL
 
     config_hit = _find_changed_config(changed, args.config_path)
