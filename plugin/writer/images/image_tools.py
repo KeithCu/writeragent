@@ -576,6 +576,24 @@ def _calc_insert_cell(model: Any, page_index: int | None) -> tuple[Any, Any]:
     return sheet, cell
 
 
+def _ensure_embedded_calc_shape_name(model: Any, image: Any) -> None:
+    """Assign a ``Picture N`` name to an unnamed embedded Calc shape.
+
+    Linked Calc inserts get ``Picture N`` from LibreOffice's insert dispatch,
+    whereas UNO-created ``GraphicObjectShape`` instances start with ``""``.
+    """
+    existing_name = visual_helpers.uno_read(lambda: str(image.getName() or "").strip(), "")
+    if existing_name:
+        return
+    used = {name for name, _obj in visual_helpers.list_graphic_objects(model, doc_type="calc") if name}
+    index = 1
+    while f"Picture {index}" in used:
+        index += 1
+    name = f"Picture {index}"
+    if not visual_helpers.safe_try_method(image, "setName", name):
+        visual_helpers.safe_set_property(image, "Name", name)
+
+
 def _insert_image_to_drawpage(
     ctx: Any,
     model: Any,
@@ -620,6 +638,8 @@ def _insert_image_to_drawpage(
     _apply_graphic_properties(image, width=width, height=height, title=title, description=description, anchor_type=None)
     if is_embedded:
         draw_page.add(image)
+        if inside == "calc":
+            _ensure_embedded_calc_shape_name(model, image)
     if calc_target is not None:
         sheet, cell = calc_target
         anchor_shape_at_cell(sheet, image, cell)
