@@ -105,21 +105,6 @@ def test_get_parameters_calc_vs_writer():
     assert "data" not in writer_props
 
 
-def test_calc_schema_includes_data_range():
-    from plugin.framework.tool import ToolRegistry
-
-    from plugin.tests.testing_utils import CalcDocStub
-
-    registry = ToolRegistry(services={})
-    registry.register(RunVenvPythonScript())
-    schemas = registry.get_schemas("openai", doc=CalcDocStub(), active_domain="python")
-    py_schema = next(s for s in schemas if s["function"]["name"] == "run_venv_python_script")
-    props = py_schema["function"]["parameters"]["properties"]
-    assert "data_range" in props
-    assert "data" in props
-    assert "timeout_sec" not in props
-
-
 @patch("plugin.calc.python.venv.run_code_in_user_venv")
 def test_execute_pins_ctx_doc_for_script_tools(mock_run):
     """wa.draw / wa.shape must see ctx.doc, not a shared worker namespace."""

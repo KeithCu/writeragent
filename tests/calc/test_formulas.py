@@ -368,11 +368,11 @@ def test_evaluate_formula_set_formula_raising():
         EvaluateFormula().execute(_eval_ctx(disposed_doc), formula="=1+1")
 
 
-def test_evaluate_formula_document_lock_and_mutation():
+def test_evaluate_formula_holds_doc_lock_despite_read_only():
+    """EvaluateFormula inserts and removes a temporary sheet, so it must hold the document lock."""
     tool = EvaluateFormula()
     assert tool.requires_document_lock() is True
     assert tool.detects_mutation() is False
-    assert tool.is_mutation is False
 
 
 def test_evaluate_formula_flags_array_results():

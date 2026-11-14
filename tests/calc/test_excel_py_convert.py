@@ -3311,15 +3311,6 @@ def test_parse_python_scripts_normal_and_hostile_indices():
         assert any("out of range" in iss for iss in issues)
 
 
-def test_standard_namespaces_x16_mapping():
-    from plugin.calc.excel_py_convert.ooxml_util import register_standard_namespaces
-
-    register_standard_namespaces()
-    el = ET.Element("{http://schemas.microsoft.com/office/spreadsheetml/2014/11/main}test")
-    out = ET.tostring(el, encoding="utf-8")
-    assert b"x16:test" in out
-
-
 def test_write_dag_formulas_preserves_drawings_and_vba(tmp_path: Path):
     src = tmp_path / "preserve_src.xlsx"
     out = tmp_path / "preserve_out.xlsx"

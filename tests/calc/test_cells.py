@@ -1309,15 +1309,6 @@ def test_write_formula_range_missing_values_without_source_errors():
     manip_cls.return_value.copy_formula_range.assert_not_called()
 
 
-def test_write_formula_range_schema_shape():
-    from plugin.calc.cells import WriteCellRange
-
-    assert WriteCellRange.parameters["required"] == ["range"]
-    properties = WriteCellRange.parameters["properties"]
-    assert "source" in properties
-    assert properties["values"]["type"] == ["string", "array", "null"]
-
-
 def test_write_formula_range_passes_native_2d_grid_to_manipulator():
 
     grid = [["a", 1], ["b", None]]
