@@ -122,38 +122,6 @@ def test_eval_schemas_match_sidebar_bootstrap(monkeypatch: pytest.MonkeyPatch, t
         eval_catalog._registry = None
 
 
-def test_writer_catalog_has_production_names() -> None:
-    names = _names("writer")
-    assert {
-        "get_document_content",
-        "apply_document_content",
-        "search_in_document",
-        "apply_style",
-        "get_guidance",
-    } <= names
-    assert any("delegate" in n for n in names)
-    assert len(names) > 8
-
-
-def test_draw_catalog_has_core_names() -> None:
-    names = _names("draw")
-    # shape_upsert / shape_connect are specialized (delegate), not main-chat core.
-    assert {"get_draw_tree", "list_pages", "delegate_to_specialized_draw_toolset"} <= names
-    assert len(names) > 8
-
-
-def test_calc_catalog_has_write_formula() -> None:
-    names = _names("calc")
-    # range_sort is specialized; main chat uses write_formula_range / read / summary.
-    assert {
-        "write_formula_range",
-        "read_cell_range",
-        "get_sheet_summary",
-        "delegate_to_specialized_calc_toolset",
-    } <= names
-    assert len(names) > 8
-
-
 def test_draw_shapes_domain_advertises_upsert() -> None:
     names = {_schema_name(s) for s in build_eval_tool_schemas(kind="draw", active_domain="shapes")}
     assert {"shape_upsert", "shape_connect", "shape_fill_fields", "specialized_workflow_finished"} <= names

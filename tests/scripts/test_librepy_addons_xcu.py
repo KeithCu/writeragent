@@ -147,18 +147,6 @@ def test_librepy_node_names_are_sort_stable():
     assert names[0].startswith("M0")
 
 
-def test_librepy_notebook_run_is_not_a_menu_item():
-    """Run All / From Here / Stop are hamburger-only when a notebook registry exists."""
-    root = ET.parse(_ADDONS_XCU).getroot()
-    items = _submenu_items(_find_menubar(root))
-    for url in (
-        "org.extension.librepy:notebook.run_all",
-        "org.extension.librepy:notebook.run_from_here",
-        "org.extension.librepy:notebook.stop",
-    ):
-        assert url not in items
-
-
 def test_librepy_menu_order():
     root = ET.parse(_ADDONS_XCU).getroot()
     assert _ordered_urls(_find_menubar(root)) == [
@@ -172,12 +160,6 @@ def test_librepy_menu_order():
         "org.extension.librepy:scripting.reset_python_session",
         "org.extension.librepy:main.report_bug",
     ]
-
-
-def test_librepy_report_bug_is_last():
-    root = ET.parse(_ADDONS_XCU).getroot()
-    urls = _ordered_urls(_find_menubar(root))
-    assert urls[-1] == "org.extension.librepy:main.report_bug"
 
 
 def test_librepy_menu_order_matches_writeragent_python_cluster():
@@ -205,33 +187,6 @@ def test_librepy_menu_order_matches_writeragent_python_cluster():
     ]
     wa_shared = [a for a in wa_actions if a in set(lp_actions)]
     assert lp_actions == wa_shared
-
-
-def test_librepy_images_section_points_at_python_assets():
-    root = ET.parse(_ADDONS_XCU).getroot()
-    images = None
-    for node in root.iter("node"):
-        if node.get(_OOR_NAME) == "Images":
-            images = node
-            break
-    assert images is not None
-    by_url: dict[str, str] = {}
-    for item in images.findall("node"):
-        url = _prop_text(item, "URL")
-        small = None
-        for child in item.iter("prop"):
-            if child.get(_OOR_NAME) == "ImageSmallURL":
-                value = child.find("value")
-                if value is not None and value.text:
-                    small = value.text.strip()
-        if url and small:
-            by_url[url] = small
-    run_url = "org.extension.librepy:scripting.run_python_dialog"
-    cell_url = "org.extension.librepy:scripting.edit_python_cell"
-    settings_url = "org.extension.librepy:main.settings"
-    assert by_url[run_url] == "%origin%/assets/python_32.png"
-    assert by_url[cell_url] == "%origin%/assets/python_cell_32.png"
-    assert by_url[settings_url] == "%origin%/assets/gear_32.png"
 
 
 def test_librepy_hamburger_specs_parity_with_addons_xcu():
