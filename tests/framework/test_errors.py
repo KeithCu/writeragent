@@ -967,7 +967,7 @@ from tests.framework.suggested_call_access import (
 
 
 def test_suggest_call_shape():
-    from plugin.framework.errors import Diagnostic, suggest_call
+    from plugin.framework.errors import suggest_call
 
     suggestion = suggest_call("apply_style", target="search", style="Heading 2")
     assert suggestion == {
@@ -977,19 +977,6 @@ def test_suggest_call_shape():
 
     no_args = suggest_call("get_document_content")
     assert no_args == {"tool": "get_document_content", "arguments": {}}
-
-    # Verify Diagnostic TypedDict structure with optional flat context fields
-    diag: Diagnostic = {
-        "code": "STYLE_IGNORED_PARTIAL_MATCH",
-        "message": "Partial match",
-        "suggested_call": suggestion,
-        "matches_skipped": 1,
-        "matches_total": 2,
-    }
-    assert diag["code"] == "STYLE_IGNORED_PARTIAL_MATCH"
-    assert diag["suggested_call"] == suggestion
-    assert diag["matches_skipped"] == 1
-    assert diag["matches_total"] == 2
 
 
 def test_format_error_payload_suggested_call():

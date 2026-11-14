@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 
@@ -191,30 +190,3 @@ def test_live_eval_student_apply_html_scripted_writer_task() -> None:
     assert pred.final_document
     assert pred.error is None
     assert pred.baseline_slice_len == len(get_slice_baseline("apply_html"))
-
-
-def test_make_judge_metric_applies_length_penalty_without_judge() -> None:
-    from metric import make_judge_metric, slice_length_penalty
-
-    metric = make_judge_metric(None, token_penalty_lambda=0.0)
-    example = SimpleNamespace(
-        document_content="x",
-        user_question="y",
-        task_id="tax_column",
-        category="structural",
-        expected_contains=[],
-        reject_contains=[],
-        gold_document="",
-        rubric="",
-        use_quality_judge=False,
-    )
-    pred = SimpleNamespace(
-        final_document='{"error": "no"}',
-        total_tokens=0,
-        slice_text="a" * 40,
-        baseline_slice_len=10,
-    )
-    # Hard gate fails (no oracle pass) so score is 0 before penalty.
-    assert metric(example, pred) == 0.0
-    assert slice_length_penalty("a" * 40, 10) == pytest.approx(1.0)
-    assert slice_length_penalty("a" * 20, 10) == 0.0

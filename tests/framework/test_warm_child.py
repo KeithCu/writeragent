@@ -130,26 +130,14 @@ def test_pdeathsig_survives_short_lived_caller_thread(tmp_path: Any, supervisor:
         warm.retire()
 
 
-def test_handshake_timeout_returns_error(tmp_path: Any, caplog: pytest.LogCaptureFixture, supervisor: Supervisor) -> None:
+def test_handshake_timeout_returns_error(tmp_path: Any, supervisor: Supervisor) -> None:
     script = tmp_path / "slow_ready.py"
-    script.write_text(
-        "\n".join(
-            [
-                "import sys, time",
-                "sys.stderr.write('not-ready-yet\\n')",
-                "sys.stderr.flush()",
-                "time.sleep(60)",
-            ]
-        ),
-        encoding="utf-8",
-    )
+    script.write_text("import time\ntime.sleep(60)\n", encoding="utf-8")
     warm = WarmChild(_spec(tmp_path, str(script), ready_timeout_sec=0.4), supervisor=supervisor)
     try:
-        with caplog.at_level(logging.ERROR):
-            with warm.lease(Deadline(5)) as leased:
-                assert isinstance(leased, dict)
-                assert leased.get("code") in ("EXECUTION_TIMEOUT", "WORKER_SPAWN_FAILED")
-        assert "not-ready-yet" in caplog.text or leased.get("code") == "EXECUTION_TIMEOUT"
+        with warm.lease(Deadline(5)) as leased:
+            assert isinstance(leased, dict)
+            assert leased.get("code") == "EXECUTION_TIMEOUT"
         assert not warm.is_alive()
     finally:
         warm.retire()
@@ -185,7 +173,6 @@ def test_kill_during_handshake_not_adopted(tmp_path: Any, supervisor: Supervisor
     script = tmp_path / "hang_ready.py"
     script.write_text("import time\ntime.sleep(60)\n", encoding="utf-8")
     warm = WarmChild(_spec(tmp_path, str(script), ready_timeout_sec=30), supervisor=supervisor)
-    first_pid: list[int] = []
     err: list[dict[str, Any] | None] = [None]
 
     def lease_thread() -> None:
@@ -205,7 +192,7 @@ def test_kill_during_handshake_not_adopted(tmp_path: Any, supervisor: Supervisor
     try:
         with warm2.lease(Deadline(10)) as leased:
             assert not isinstance(leased, dict)
-            first_pid.append(leased.pid)
+            assert leased.pid > 0
     finally:
         warm2.retire()
     warm.retire()
@@ -264,28 +251,23 @@ def test_shutdown_all_kills_children_and_refuses_lease(tmp_path: Any, supervisor
         handler_body="time.sleep(60)\nreturn {'status': 'ok'}",
     )
     warm = WarmChild(_spec(tmp_path, script), supervisor=supervisor)
-    pid_holder: list[int] = []
-    try:
-        with warm.lease(Deadline(10)) as leased:
-            assert not isinstance(leased, dict)
-            pid_holder.append(leased.pid)
-        supervisor.shutdown_all()
-        if pid_holder:
-            deadline = time.monotonic() + 5.0
+    with warm.lease(Deadline(10)) as leased:
+        assert not isinstance(leased, dict)
+        pid = leased.pid
+    supervisor.shutdown_all()
+    deadline = time.monotonic() + 5.0
 
-            def pid_gone() -> bool:
-                try:
-                    os.kill(pid_holder[0], 0)
-                    return False
-                except OSError:
-                    return True
+    def pid_gone() -> bool:
+        try:
+            os.kill(pid, 0)
+            return False
+        except OSError:
+            return True
 
-            assert _wait_until(deadline, pid_gone)
-        with warm.lease(Deadline(5)) as leased:
-            assert isinstance(leased, dict)
-            assert leased.get("code") == "SERVICE_SHUTDOWN"
-    finally:
-        pass
+    assert _wait_until(deadline, pid_gone)
+    with warm.lease(Deadline(5)) as leased:
+        assert isinstance(leased, dict)
+        assert leased.get("code") == "SERVICE_SHUTDOWN"
 
 
 def test_shutdown_all_abandons_without_waiting(tmp_path: Any, supervisor: Supervisor) -> None:

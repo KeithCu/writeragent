@@ -226,7 +226,7 @@ def test_prepare_vision_writer_insert_prefers_image_name_over_selection():
     ctx = MagicMock()
     ctx.ServiceManager = smgr
 
-    with patch("plugin.doc.visual_helpers.selected_graphic_object", return_value=None) as mock_sel, patch(
+    with patch("plugin.doc.visual_helpers.selected_graphic_object", return_value=None), patch(
         "plugin.doc.visual_helpers.list_graphic_objects", return_value=[("NamedImg", named), ("SelectedImg", selected)]
     ), patch("plugin.doc.visual_helpers.get_graphic_object_by_name", return_value=named) as mock_get:
         out = prepare_vision_writer_insert(doc, ctx, image_name="NamedImg")
@@ -237,7 +237,6 @@ def test_prepare_vision_writer_insert_prefers_image_name_over_selection():
     selected.getAnchor.assert_not_called()
     cursor.collapseToEnd.assert_called_once()
     dispatcher.executeDispatch.assert_called()
-    assert mock_sel.call_count >= 0
 
 
 @patch("plugin.calc.vision_egress.insert_vision_html_into_calc")

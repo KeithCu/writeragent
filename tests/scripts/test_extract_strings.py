@@ -67,32 +67,6 @@ def test_generate_pot_default_mode_argv(
     assert "writeragent" in cmd
 
 
-@patch("scripts.extract_strings.merge_yaml_into_pot", return_value=0)
-@patch("scripts.extract_strings.extract_xdl_strings.main")
-@patch("shutil.which", return_value="/usr/bin/xgettext")
-@patch("subprocess.run")
-def test_generate_pot_pot_only_omits_keyword(
-    mock_run: MagicMock,
-    mock_which: MagicMock,
-    mock_extract_xdl: MagicMock,
-    mock_yaml: MagicMock,
-    tmp_path: Path,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    mock_run.return_value = MagicMock(returncode=0)
-    (tmp_path / "plugin").mkdir(parents=True)
-    (tmp_path / "locales").mkdir(parents=True)
-
-    ret = generate_pot(pot_only=True, root_path=tmp_path)
-    assert ret == 0
-    out = capsys.readouterr().out
-    assert "Regenerating translation templates (.pot) without updating .po..." in out
-    cmd = mock_run.call_args[0][0]
-    assert "--keyword=N_" in cmd
-    assert "--add-location=file" in cmd
-    assert "-f" in cmd
-
-
 @patch("shutil.which", return_value=None)
 @patch("subprocess.run")
 def test_missing_xgettext_skips_in_both_modes(

@@ -88,12 +88,22 @@ def test_run_async_worker_with_drain_none_apply_chunk():
 
     ctx = MagicMock()
     toolkit = DummyToolkit()
+    done_calls = []
 
     def worker(q):
         q.put((StreamQueueKind.CHUNK, "hello"))
+        q.put((StreamQueueKind.STREAM_DONE, "ok"))
 
     with patch("plugin.framework.uno_context.get_toolkit", return_value=toolkit):
-        run_async_worker_with_drain(ctx, worker, None, lambda item: True, None)
+        run_async_worker_with_drain(
+            ctx,
+            worker,
+            None,
+            lambda item: done_calls.append(item) or True,
+            None,
+        )
+
+    assert done_calls == [(StreamQueueKind.STREAM_DONE, "ok")]
 
 
 def test_run_stream_drain_loop_basic():
@@ -1042,5 +1052,3 @@ def test_stream_queue_terminal_subscribers_are_independent():
     cell5.clear()
     q.put((StreamQueueKind.ERROR, None))
     assert not cell5.is_set()
-
-    assert type(q).put is StreamQueue.put

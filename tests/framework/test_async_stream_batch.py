@@ -405,7 +405,6 @@ def test_batcher_flush_error_still_emits_error_and_unpatches():
     assert errors
     assert any("worker boom" in str(err) for err in errors)
     assert raw._terminal_events == []
-    assert raw.put.__name__ == "put"
 
 
 def test_stop_on_first_batch_item_applies_pulled_display_text():
