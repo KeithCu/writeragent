@@ -777,7 +777,7 @@ class TestComputeSettings:
         status, headers, body = _wsgi_post(app, b"{}", headers={"Host": "127.0.0.1:8000"})
         assert status.startswith("400")
 
-        # No Origin and no Host is 403 (HTTP/1.0 may omit Host, so the loopback check still runs).
+        # No Origin and no Host is 403. HTTP/1.0 may omit Host; a missing Host must not skip the loopback check.
         status, headers, body = _wsgi_post(app, b"{}", headers={}, send_host=False)
         assert status.startswith("403")
         assert body.get("code") == "CROSS_ORIGIN_REFUSED"
@@ -1046,8 +1046,9 @@ class TestComputeSettings:
     def test_unreadable_key_file_reports_uid_and_mode(self, tmp_path) -> None:
         """Permission denied includes the process uid and the file mode and owner.
 
-        Root ignores mode bits, so this only runs unprivileged. Mode 000
-        is restored so the tmp directory can be deleted.
+        A mode-600 mount read as another uid looks like a bad filename without
+        those details. Root ignores mode bits, so this only runs unprivileged.
+        Mode 000 is restored so the tmp directory can be deleted.
         """
         import os
 
@@ -1596,7 +1597,12 @@ class TestSessionResetHttp:
             assert "Basic" not in caplog.text
 
     def test_execute_queue_timeout_from_pool_is_503(self) -> None:
-        """QUEUE_TIMEOUT from the pool returns HTTP 503 rather than 200."""
+        """QUEUE_TIMEOUT from the pool returns HTTP 503 rather than 200.
+
+        If the deadline expires between the handler pre-check and the pool
+        check, the pool returns QUEUE_TIMEOUT with no result_json; otherwise
+        it would fall through to 200.
+        """
 
         def late(**_kwargs):
             return {"status": "error", "code": "QUEUE_TIMEOUT", "error": "Request deadline expired before a worker lease."}
@@ -1760,8 +1766,8 @@ class TestSessionResetHttp:
     def test_execute_admission_waits_for_request_timeout(self) -> None:
         """timeout_ms above the default is not cut off at default_timeout_sec.
 
-        What was wrong: the permit wait used default_timeout_sec before the
-        body was parsed, so a 600s cell got 503 after 30s of queueing.
+        Otherwise the permit wait uses default_timeout_sec before the body is
+        parsed, and a long request gets 503 prematurely.
         """
         # ocr_timeout_sec defaults to 60 and must stay <= max_timeout_sec.
         settings = ComputeSettings(default_timeout_sec=1, max_timeout_sec=30, ocr_timeout_sec=1, workers=1)
@@ -2465,7 +2471,11 @@ def test_start_docker_env_key_wins_over_key_file(tmp_path) -> None:
 
 @pytest.mark.skipif(sys.platform == "win32", reason="runs a POSIX shell script")
 def test_start_docker_resolves_relative_key_file_before_cd(tmp_path) -> None:
-    """A relative key path resolves against the caller's cwd before cd to repo root."""
+    """A relative key path resolves against the caller's cwd before cd to repo root.
+
+    Otherwise a bare basename is treated as a docker named volume, and
+    resolution after cd fails to find the caller's file.
+    """
     import os
 
     caller = tmp_path / "elsewhere"
@@ -2652,9 +2662,8 @@ def test_accept_time_tracked_on_connection() -> None:
 def test_wsgi_app_uses_the_current_formula_pool() -> None:
     """A replaced formula pool is used on the next execute and session reset.
 
-    What was wrong: create_wsgi_app cached pool.execute and reset_session on
-    first use. shutdown_formula_pool() plus a new pool left those bound methods
-    pointing at the dead pool.
+    Otherwise bound methods stay pointed at the dead pool after
+    ``shutdown_formula_pool()``.
     """
     first = MagicMock()
     second = MagicMock()

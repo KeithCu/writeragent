@@ -641,7 +641,11 @@ def test_tool_call_then_broken_stdout_does_not_replay(monkeypatch):
 
 @pytest.mark.parametrize('frame_type', ['tool_call', 'llm_request', 'worker_event'])
 def test_tool_call_raise_without_exec_started_does_not_replay(monkeypatch, frame_type):
-    """An intermediate frame that raises mid-dispatch must not be sent again."""
+    """An intermediate frame that raises mid-dispatch must not be sent again.
+
+    may_have_run must be set before dispatch; otherwise a RuntimeError from
+    the handler causes the attempt loop to resend to a new child.
+    """
     import plugin.scripting.venv_worker as venv_worker_module
     mgr = PythonWorkerManager(sys.executable, {})
     proc = MagicMock()

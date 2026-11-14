@@ -999,7 +999,11 @@ class TestFormulaPoolSupervisor:
 
     @pytest.mark.skipif(sys.platform == "win32", reason="the in-child cell timeout uses signal.alarm; Windows falls back to the host kill")
     def test_timeout_does_not_sigkill_healthy_shared_kernel(self) -> None:
-        """A sleep past the cell budget returns an error frame and keeps the pid."""
+        """A sleep past the cell budget returns an error frame and keeps the pid.
+
+        Otherwise the sleep is SIGKILLed and every other workbook on that
+        shared process disappears.
+        """
         pool = FormulaProcessPool(settings=ComputeSettings(workers=1, default_timeout_sec=30))
         try:
             kept = run_cell(pool, code="keep = 7\nresult = keep", session_id="doc-keep", req_id="budget-keep")

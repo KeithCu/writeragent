@@ -87,7 +87,8 @@ def test_finish_release_kills_after_releasing_pool_lock() -> None:
     pool._leased.add(worker)
 
     def flip(_worker: _Slot) -> bool:
-        # The first _is_shutdown check already passed; shutdown lands before the locked block.
+        # The first _is_shutdown check already passed; shutdown lands before the locked block,
+        # where killing under _cond would deadlock.
         pool._is_shutdown = True
         return False
 
@@ -222,7 +223,11 @@ def test_shutdown_kill_exception_continues() -> None:
 
 
 def test_max_tasks_is_at_least_one() -> None:
-    """A non-positive max_tasks is the same floor config already requires."""
+    """A non-positive max_tasks is the same floor config already requires.
+
+    Otherwise max_tasks=0 makes should_recycle_worker true on every release,
+    because tasks_executed >= 0 is always true.
+    """
     for raw in (0, -3):
         pool = BaseProcessPool(script_path="unused.py", num_workers=0, max_tasks=raw, idle_worker_ttl_sec=None)
         try:
@@ -235,7 +240,11 @@ def test_max_tasks_is_at_least_one() -> None:
 
 
 def test_singleton_discards_pool_built_during_shutdown() -> None:
-    """Shutdown during factory() does not publish that pool."""
+    """Shutdown during factory() does not publish that pool.
+
+    Otherwise holding the singleton lock across factory() blocks shutdown for
+    every child spawn and tears down an already-installed pool.
+    """
     from compute_service.worker_base import PoolSingleton
 
     started = threading.Event()
@@ -291,7 +300,11 @@ def test_singleton_discards_pool_built_during_shutdown() -> None:
 
 
 def test_pool_init_kills_workers_when_a_later_spawn_fails(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A constructor that fails mid-loop reaps the children already started."""
+    """A constructor that fails mid-loop reaps the children already started.
+
+    Otherwise the exception leaves __init__ with live Popen objects that no
+    pool reference tracks.
+    """
     from compute_service.worker_base import BaseProcessWorker
 
     made: list[BaseProcessWorker] = []
@@ -474,7 +487,11 @@ def test_run_worker_stdio_loop_breaks_on_decode_error(monkeypatch: pytest.Monkey
 
 
 def test_execute_does_not_respawn_during_shutdown() -> None:
-    """A dead child during pool shutdown must not start a new interpreter."""
+    """A dead child during pool shutdown must not start a new interpreter.
+
+    Otherwise execute sees a dead process under the lock, spawns a new child
+    after shutdown has begun, runs the cell, and then kills it.
+    """
     from compute_service.worker_base import BaseProcessWorker
 
     worker = BaseProcessWorker(1, "unused.py")
@@ -496,7 +513,8 @@ def test_execute_does_not_respawn_during_shutdown() -> None:
 def test_respawn_discards_child_when_shutdown_wins_during_popen(monkeypatch: pytest.MonkeyPatch) -> None:
     """Shutdown during Popen must not leave an unpublished child running.
 
-    Adopt refuses that child, and only that child is signaled.
+    Adopt refuses that child, and only that child is signaled; otherwise reap
+    sees None and the new interpreter survives until the parent exits.
     """
     import subprocess
 
@@ -713,7 +731,11 @@ def test_execute_timeout_does_not_increment_tasks_executed(monkeypatch: pytest.M
 
 
 def test_execute_stdin_write_timeout_kills(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A wedged stdin write kills the child and returns."""
+    """A wedged stdin write kills the child and returns.
+
+    Otherwise a blocking write under the worker lock never returns and the
+    slot stays leased.
+    """
     import subprocess
     from unittest.mock import MagicMock
     from compute_service.worker_base import BaseProcessWorker
@@ -738,7 +760,10 @@ def test_execute_stdin_write_timeout_kills(monkeypatch: pytest.MonkeyPatch) -> N
 
 
 def test_partial_frame_timeout_kills(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A mid-frame deadline is EXECUTION_TIMEOUT and kills the child."""
+    """A mid-frame deadline is EXECUTION_TIMEOUT and kills the child.
+
+    Otherwise the next read treats the rest of this frame as a new response.
+    """
     from unittest.mock import MagicMock
     from compute_service.worker_base import BaseProcessWorker
     from plugin.framework.ipc import IpcPartialFrameTimeout
@@ -789,7 +814,11 @@ def test_execute_payload_too_large_does_not_kill(monkeypatch: pytest.MonkeyPatch
 
 
 def test_expired_budget_does_not_spawn(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A spent budget must not Popen a child for a 0.01s handshake."""
+    """A spent budget must not Popen a child for a 0.01s handshake.
+
+    Otherwise timeout_sec <= 0 spawns a child and immediately SIGKILLs it
+    when the handshake cannot finish.
+    """
     from compute_service.worker_base import BaseProcessWorker
     from plugin.framework.child_runtime import Deadline
 
@@ -808,7 +837,7 @@ def test_expired_budget_does_not_spawn(monkeypatch: pytest.MonkeyPatch) -> None:
     res = worker.execute({"code": "result = 1"}, timeout_sec=0)
     assert res.get("code") == "EXECUTION_TIMEOUT"
     assert spawned == []
-    # Nothing was dispatched, so tasks_executed stays 0.
+    # Nothing was dispatched; counting this would move a live worker toward max_tasks.
     assert worker.tasks_executed == 0
 
     # A positive budget under one second is the same refusal. It must not
@@ -832,7 +861,11 @@ def test_expired_budget_does_not_spawn(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_expired_deadline_does_not_write_or_kill(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A clock that expires after the child is live is not written and not killed."""
+    """A clock that expires after the child is live is not written and not killed.
+
+    Otherwise flooring a spent deadline at 0.01s starts the write, times out,
+    and SIGKILLs a child that never received a byte.
+    """
     from unittest.mock import MagicMock
 
     from compute_service.worker_base import BaseProcessWorker
@@ -863,7 +896,11 @@ def test_expired_deadline_does_not_write_or_kill(monkeypatch: pytest.MonkeyPatch
 
 
 def test_reaper_survives_tick_exception() -> None:
-    """One bad eviction tick must not kill the reaper."""
+    """One bad eviction tick must not kill the reaper.
+
+    Otherwise an unhandled OSError from is_alive() or join ends the daemon,
+    and idle workers and shared sessions are never evicted again.
+    """
     pool = BaseProcessPool(script_path="unused.py", num_workers=0, idle_worker_ttl_sec=None)
     calls = {"n": 0}
     second = threading.Event()
@@ -992,7 +1029,10 @@ def test_empty_read_during_shutdown_is_service_shutdown(monkeypatch: pytest.Monk
 
 
 def test_write_broken_during_shutdown_is_service_shutdown(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A pipe error while the pool is stopping is SERVICE_SHUTDOWN, not a kill."""
+    """A pipe error while the pool is stopping is SERVICE_SHUTDOWN, not a kill.
+
+    The child is already being reaped, so this must not kill again.
+    """
     from unittest.mock import MagicMock
 
     from compute_service.worker_base import BaseProcessWorker
@@ -1020,7 +1060,11 @@ def test_write_broken_during_shutdown_is_service_shutdown(monkeypatch: pytest.Mo
 
 @pytest.mark.parametrize("kind", ["value", "reset", "timeout"])
 def test_read_error_during_shutdown_is_service_shutdown(monkeypatch: pytest.MonkeyPatch, kind: str) -> None:
-    """A read failure while the pool is stopping is SERVICE_SHUTDOWN, not a crash."""
+    """A read failure while the pool is stopping is SERVICE_SHUTDOWN, not a crash.
+
+    Windows raises TimeoutExpired from is_alive before the read sees EOF. The
+    child is already being reaped, so this must not kill again.
+    """
     import subprocess
     from unittest.mock import MagicMock
 
@@ -1054,7 +1098,8 @@ def test_read_error_during_shutdown_is_service_shutdown(monkeypatch: pytest.Monk
 def test_other_thread_kill_leaves_pipes_until_the_owner_leaves(monkeypatch: pytest.MonkeyPatch) -> None:
     """kill() from another thread only signals while this thread owns the pipes.
 
-    The owner closes stdin and stdout when it leaves.
+    The owner closes stdin and stdout when it leaves; otherwise closing them
+    between select and read raises or hits a reused fd number.
     """
     worker = _worker_without_spawn(monkeypatch)
 
@@ -1167,7 +1212,11 @@ def test_signal_from_rereads_the_owner(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_abandoned_child_is_not_written_and_a_later_spawn_may_run(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A child that survives the reap is not sent a request, and the slot may spawn."""
+    """A child that survives the reap is not sent a request, and the slot may spawn.
+
+    kill() drops that child; otherwise poll() stays None, execute writes to a
+    process that never said ready, and the next call refuses to spawn.
+    """
     import subprocess
 
 
@@ -1276,7 +1325,11 @@ class _DeadChild:
 
 
 def test_reap_past_deadline_does_not_spawn(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A reap that leaves under a second does not start a new child."""
+    """A reap that leaves under a second does not start a new child.
+
+    Otherwise ``_reap_previous_process`` can block for a second and Popen
+    still runs after the request's deadline is gone.
+    """
 
     clock = {"t": 1000.0}
     monkeypatch.setattr("plugin.framework.child_runtime.time.monotonic", lambda: clock["t"])
@@ -1656,8 +1709,9 @@ class _PipeEnd:
 def test_kill_closes_stdio_then_waits(monkeypatch: pytest.MonkeyPatch) -> None:
     """The caller with no pipe owner closes stdin and stdout, then waits.
 
-    A child still alive after the wait is abandoned with those pipes closed,
-    the slot is cleared, and stderr stays with the drain.
+    On Windows, leaving those fds open until collection also keeps the child's
+    ends open. A child still alive after the wait is abandoned with those pipes
+    closed, the slot is cleared, and stderr stays with the drain.
     """
     import subprocess
 
@@ -1721,7 +1775,10 @@ def test_kill_closes_stdio_then_waits(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_short_one_second_remainder_does_not_spawn(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A 1s budget with ~20ms left does not Popen; usable() still returns it."""
+    """A 1s budget with ~20ms left does not Popen; usable() still returns it.
+
+    Otherwise respawn spawns with almost no time left for the handshake.
+    """
     from plugin.framework import child_runtime as worker_mod
 
     monkeypatch.setattr("plugin.framework.child_runtime.time.monotonic", lambda: 1000.0)
@@ -1798,7 +1855,11 @@ def test_popen_failure_leaves_the_slot_empty(monkeypatch: pytest.MonkeyPatch) ->
 
 
 def test_adopt_publishes_one_child(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Adopt stores the Child in one lock hold; shutdown and a live child refuse."""
+    """Adopt stores the Child in one lock hold; shutdown and a live child refuse.
+
+    Otherwise kill() in the gap unlinks diagnostics before adopt stores the
+    live child, or a second adopt overwrites the published process.
+    """
 
     worker = _worker_without_spawn(monkeypatch)
     first_proc = object()
@@ -1826,7 +1887,8 @@ def test_concurrent_respawn_keeps_one_child(monkeypatch: pytest.MonkeyPatch) -> 
     """Two overlapping respawns publish one child and kill the other.
 
     Popen runs serially on the supervisor spawner thread, so the first Popen
-    waits until the second respawn reaches ``Supervisor.spawn``.
+    waits until the second respawn reaches ``Supervisor.spawn``; otherwise a
+    second assignment leaks the first Popen.
     """
 
     worker = _worker_without_spawn(monkeypatch)
@@ -1902,7 +1964,11 @@ def test_concurrent_respawn_keeps_one_child(monkeypatch: pytest.MonkeyPatch) -> 
 
 
 def test_handshake_crash_logs_the_drain_tail(monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture) -> None:
-    """A dead child during the ready read still logs the stderr drain."""
+    """A dead child during the ready read still logs the stderr drain.
+
+    On Windows ``is_alive`` runs before EOF, and the drain keeps the text;
+    POSIX calls ``is_alive`` only when select times out.
+    """
     import logging
 
     from plugin.framework.worker_pool import StderrTail
@@ -1956,7 +2022,11 @@ def test_handshake_crash_logs_the_drain_tail(monkeypatch: pytest.MonkeyPatch, ca
 
 
 def test_respawn_failure_before_adopt_leaves_the_other_child(monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture) -> None:
-    """A respawn that raises before adopt must not kill the published child."""
+    """A respawn that raises before adopt must not kill the published child.
+
+    Otherwise an overlapping caller failing before adopt reaps the other
+    call's healthy child.
+    """
     import logging
 
 
@@ -2060,7 +2130,10 @@ def test_respawn_failure_before_adopt_leaves_the_other_child(monkeypatch: pytest
 
 
 def test_response_frame_error_is_ipc_not_crash(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A bad response frame is WORKER_IPC_ERROR and still kills the child."""
+    """A bad response frame is WORKER_IPC_ERROR and still kills the child.
+
+    The pipe is not reusable, so the kill stays.
+    """
     from unittest.mock import MagicMock
 
     from compute_service.worker_base import BaseProcessWorker
@@ -2096,7 +2169,11 @@ def test_response_frame_error_is_ipc_not_crash(monkeypatch: pytest.MonkeyPatch) 
 
 
 def test_unadopted_child_that_survives_kill_is_abandoned(monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture) -> None:
-    """A child adopt refused, and that will not die, is abandoned; the slot stays."""
+    """A child adopt refused, and that will not die, is abandoned; the slot stays.
+
+    The loser is signaled and the published child is not; otherwise a failed
+    wait leaks the loser without storing or logging it.
+    """
     import subprocess
 
 
@@ -2148,7 +2225,11 @@ def test_unadopted_child_that_survives_kill_is_abandoned(monkeypatch: pytest.Mon
 
 
 def test_fail_request_skips_stderr_when_it_does_not_kill(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A failure that leaves the child must not attach another child's tail."""
+    """A failure that leaves the child must not attach another child's tail.
+
+    kill=False is shutdown, a clock spent before the frame was sent, or a spawn
+    that already logged its own tail.
+    """
     from plugin.framework.worker_pool import StderrTail
 
     worker = _worker_without_spawn(monkeypatch)
@@ -2235,7 +2316,11 @@ def test_stderr_drain_stays_alive_while_the_write_end_is_open() -> None:
     ],
 )
 def test_execute_unpicklable_request_does_not_kill(monkeypatch: pytest.MonkeyPatch, exc: BaseException) -> None:
-    """A pickle error before any byte is written leaves the child up."""
+    """A pickle error before any byte is written leaves the child up.
+
+    pack_pickle_frame runs before the first write, so the pipe stays aligned;
+    otherwise PicklingError/ValueError/RecursionError escapes as an unhandled 500.
+    """
     from unittest.mock import MagicMock
 
     from compute_service.worker_base import BaseProcessWorker
@@ -2263,7 +2348,11 @@ def test_execute_unpicklable_request_does_not_kill(monkeypatch: pytest.MonkeyPat
 
 
 def test_pipe_value_error_kills(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A ValueError from the pipe write kills the child."""
+    """A ValueError from the pipe write kills the child.
+
+    Otherwise catching it with pickle.dumps returns REQUEST_NOT_SERIALIZABLE
+    and leaves the child on a desynced frame.
+    """
     from unittest.mock import MagicMock
 
     from compute_service.worker_base import BaseProcessWorker
@@ -2422,7 +2511,11 @@ def test_timeout_message_keeps_fractional_seconds(monkeypatch: pytest.MonkeyPatc
 
 
 def test_is_alive_snapshots_the_child(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A second read of the child must not run; kill() clears it between reads."""
+    """A second read of the child must not run; kill() clears it between reads.
+
+    Otherwise shutdown sets the child pointer to None before poll() and the
+    write path reports AttributeError as REQUEST_NOT_SERIALIZABLE.
+    """
     worker = _worker_without_spawn(monkeypatch)
 
     class _Proc:
@@ -2521,7 +2614,11 @@ def test_is_alive_does_not_wait_on_the_lifecycle_lock(monkeypatch: pytest.Monkey
 
 
 def test_write_attribute_error_is_not_not_serializable(monkeypatch: pytest.MonkeyPatch) -> None:
-    """AttributeError from the write is not REQUEST_NOT_SERIALIZABLE."""
+    """AttributeError from the write is not REQUEST_NOT_SERIALIZABLE.
+
+    Otherwise a shutdown race on self.process is swallowed without killing the
+    child or counting the task; PicklingError still maps to that code.
+    """
     from unittest.mock import MagicMock
 
     worker = _worker_without_spawn(monkeypatch)
@@ -2760,7 +2857,11 @@ def test_stuck_kill_drops_the_slot_after_one_signal(monkeypatch: pytest.MonkeyPa
 
 
 def test_release_does_not_idle_a_dead_worker() -> None:
-    """A worker that is not alive after release is not idled, and can be cold-claimed."""
+    """A worker that is not alive after release is not idled, and can be cold-claimed.
+
+    kill() drops an unreapable child so the next lease respawns it; otherwise
+    release hands a dead or stuck worker to the next lease.
+    """
     pool = BaseProcessPool(script_path="unused.py", num_workers=0, idle_worker_ttl_sec=None)
 
     class _Dead:

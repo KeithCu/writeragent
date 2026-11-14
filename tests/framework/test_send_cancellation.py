@@ -461,7 +461,11 @@ def test_agent_session_reuses_existing_scope():
 
 
 class TestSendCancellationHooksLocking:
-    """_on_cancel_hooks is lock-protected across register_on_cancel and cancel."""
+    """_on_cancel_hooks is lock-protected across register_on_cancel and cancel.
+
+    Otherwise iterating the live list while another thread appends races,
+    inconsistent with _clients.
+    """
 
     def test_registered_hook_is_called_on_cancel(self):
         # Basic sanity: a registered hook must fire when cancel() is called.

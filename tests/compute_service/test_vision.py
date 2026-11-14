@@ -45,7 +45,11 @@ def test_vision_pool_uses_compute_frame_cap() -> None:
 
 
 def test_vision_child_stdio_accepts_compute_frame_cap(monkeypatch) -> None:
-    """The child loop must use the same 33 MiB cap as the parent pool."""
+    """The child loop must use the same 33 MiB cap as the parent pool.
+
+    Otherwise a result over 16 MiB breaks the child loop and the host sees
+    EMPTY_RESPONSE.
+    """
     import io
 
     from plugin.framework.ipc import DEFAULT_MAX_PAYLOAD_BYTES, read_pickle_frame, write_pickle_frame

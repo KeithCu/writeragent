@@ -816,7 +816,7 @@ def test_hosted_in_band_scans_named_cells_not_range_cols():
 
 
 def test_hosted_in_band_sees_nest_in_split_cell_name():
-    """Nested cell names like A1.1.1 are preserved rather than skipped."""
+    """A nest in split cell A1.1.1 counts toward row 0 and column 0 of the parent band; int() cannot parse a split cell name."""
     parent = FakeParentTable(
         2,
         2,

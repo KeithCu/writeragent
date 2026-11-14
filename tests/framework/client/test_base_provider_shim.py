@@ -99,7 +99,9 @@ def test_parse_sync_response_null_usage():
     assert images == []
     assert shim.parse_image_responses(["nope"]) == []
 
-    # Non-list tool_calls and non-dict usage are normalized to None and {}.
+    # Non-list tool_calls and non-dict usage are normalized to None and {};
+    # otherwise a string tool_calls is truthy and rewrites finish_reason, and
+    # a list usage crashes token accounting on .get.
     _content, _finish, tools, bad_usage, _images, _message = shim.parse_sync_response({"choices": [{"message": {"role": "assistant", "content": "hi", "tool_calls": "x"}}], "usage": ["not", "a", "dict"]})
     assert tools is None
     assert bad_usage == {}
