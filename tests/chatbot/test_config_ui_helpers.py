@@ -209,14 +209,14 @@ class TestPopulateComboboxWithLruFetchOptions:
     def test_skip_remote_fetch_does_not_call_fetch(self):
         ctrl = MagicMock()
         ctrl.getItemCount.return_value = 0
-        with patch('plugin.framework.client.model_fetcher.fetch_available_models') as mock_fetch:
+        with patch('plugin.chatbot.config_ui_helpers.fetch_available_models') as mock_fetch:
             populate_combobox_with_lru(ctrl, '', 'model_lru', 'http://localhost:8080', skip_remote_fetch=True)
             mock_fetch.assert_not_called()
 
     def test_remote_models_does_not_call_fetch(self):
         ctrl = MagicMock()
         ctrl.getItemCount.return_value = 0
-        with patch('plugin.framework.client.model_fetcher.fetch_available_models') as mock_fetch:
+        with patch('plugin.chatbot.config_ui_helpers.fetch_available_models') as mock_fetch:
             populate_combobox_with_lru(ctrl, '', 'model_lru', 'http://localhost:8080', remote_models=['m1', 'm2'])
             mock_fetch.assert_not_called()
             ctrl.addItems.assert_called()
@@ -229,7 +229,7 @@ class TestPopulateComboboxWithLruFetchOptions:
         self.config_data['model_lru@https://api.together.xyz'] = []
         ctrl = MagicMock()
         ctrl.getItemCount.return_value = 0
-        with patch('plugin.framework.client.model_fetcher.fetch_available_models') as mock_fetch:
+        with patch('plugin.chatbot.config_ui_helpers.fetch_available_models') as mock_fetch:
             populate_combobox_with_lru(
                 ctrl, '', 'model_lru', 'https://api.together.xyz',
                 skip_remote_fetch=True, api_key_override='test-key',
@@ -252,7 +252,7 @@ class TestPopulateComboboxWithLruFetchOptions:
         ctrl = MagicMock()
         ctrl.getItemCount.return_value = 0
         ep = 'https://openrouter.ai/api'
-        with patch('plugin.framework.client.model_fetcher.fetch_available_models') as mock_fetch:
+        with patch('plugin.chatbot.config_ui_helpers.fetch_available_models') as mock_fetch:
             populate_combobox_with_lru(
                 ctrl,
                 '',
@@ -270,7 +270,7 @@ class TestPopulateComboboxWithLruFetchOptions:
         ctrl = MagicMock()
         ctrl.getItemCount.return_value = 0
         ep = 'https://openrouter.ai/api'
-        with patch('plugin.framework.client.model_fetcher.fetch_available_models') as mock_fetch:
+        with patch('plugin.chatbot.config_ui_helpers.fetch_available_models') as mock_fetch:
             populate_combobox_with_lru(
                 ctrl,
                 '',
@@ -288,7 +288,7 @@ class TestPopulateComboboxWithLruFetchOptions:
         endpoint = 'https://openrouter.ai/api'
         current_val = 'openai/gpt-oss-120b:nitro'
         with patch('plugin.chatbot.config_ui_helpers.get_config', return_value=[]):
-            with patch('plugin.framework.client.model_fetcher.fetch_available_models', return_value=None):
+            with patch('plugin.chatbot.config_ui_helpers.fetch_available_models', return_value=None):
                 populate_combobox_with_lru(
                     ctrl, current_val, 'model_lru', endpoint, api_key_override='test-key',
                 )
@@ -375,7 +375,7 @@ class TestPopulateComboboxWithLruFetchOptions:
         # Mock get_config to return empty LRU
         with patch("plugin.chatbot.config_ui_helpers.get_config", return_value=[]):
             # Mock fetch_available_models to return None (fail)
-            with patch("plugin.framework.client.model_fetcher.fetch_available_models", return_value=None):
+            with patch("plugin.chatbot.config_ui_helpers.fetch_available_models", return_value=None):
                 populate_combobox_with_lru(ctrl, current_val, "model_lru", endpoint)
                 
         # Verify that ctrl.addItems was called with the placeholder, NOT the stray Gemini model
@@ -388,7 +388,7 @@ class TestPopulateComboboxWithLruFetchOptions:
         ctrl.getItemCount.return_value = 0
         ep = 'https://openrouter.ai/api'
         remote = ['openrouter/fusion', 'some/other-model', 'openai/gpt-oss-120b']
-        with patch('plugin.framework.client.model_fetcher.fetch_available_models') as mock_fetch:
+        with patch('plugin.chatbot.config_ui_helpers.fetch_available_models') as mock_fetch:
             populate_combobox_with_lru(
                 ctrl,
                 'llama3.2',
@@ -423,7 +423,7 @@ class TestPopulateComboboxWithLruFetchOptions:
         ctrl.getItemCount.return_value = 0
         ep = 'https://openrouter.ai/api'
         remote = ['mistralai/voxtral-mini-transcribe', 'google/gemini-2.5-flash']
-        with patch('plugin.framework.client.model_fetcher.fetch_available_models') as mock_fetch:
+        with patch('plugin.chatbot.config_ui_helpers.fetch_available_models') as mock_fetch:
             populate_combobox_with_lru(
                 ctrl,
                 '',
@@ -588,7 +588,7 @@ class TestPopulateComboboxWithLruFetchOptions:
         endpoint = "https://unknown.provider/api"
         
         with patch("plugin.chatbot.config_ui_helpers.get_config", return_value=[]):
-            with patch("plugin.framework.client.model_fetcher.fetch_available_models", return_value=None):
+            with patch("plugin.chatbot.config_ui_helpers.fetch_available_models", return_value=None):
                 populate_combobox_with_lru(ctrl, "", "model_lru", endpoint)
                 
         call_args = ctrl.addItems.call_args[0][0]

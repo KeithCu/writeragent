@@ -680,10 +680,10 @@ class TestChatTypography:
 
         target = MagicMock()
         apply_chat_char_props(target, bg_color=0xABCDEF)
-        target.CharFontName = CHAT_FONT_NAME
-        target.CharHeight = CHAT_FONT_HEIGHT
-        target.CharWeight = CHAT_FONT_WEIGHT
-        target.CharBackColor = 0xABCDEF
+        assert target.CharFontName == CHAT_FONT_NAME
+        assert target.CharHeight == CHAT_FONT_HEIGHT
+        assert target.CharWeight == CHAT_FONT_WEIGHT
+        assert target.CharBackColor == 0xABCDEF
 
     def test_normalize_portion_font(self):
         from plugin.chatbot.rich_text import (
@@ -709,9 +709,9 @@ class TestChatTypography:
 
         cursor = MagicMock()
         apply_rich_control_para_margins(cursor)
-        cursor.ParaLeftMargin = CHAT_PARA_SIDE_MARGIN
-        cursor.ParaRightMargin = CHAT_PARA_SIDE_MARGIN
-        cursor.ParaFirstLineIndent = 0
+        assert cursor.ParaLeftMargin == CHAT_PARA_SIDE_MARGIN
+        assert cursor.ParaRightMargin == CHAT_PARA_SIDE_MARGIN
+        assert cursor.ParaFirstLineIndent == 0
 
     def test_configure_hidden_writer_for_chat(self):
         from plugin.chatbot.rich_text import CHAT_FONT_NAME
@@ -733,7 +733,7 @@ class TestChatTypography:
 
         configure_hidden_writer_for_chat(doc)
 
-        std_para.CharFontName = CHAT_FONT_NAME
+        assert std_para.CharFontName == CHAT_FONT_NAME
         cursor.gotoStart.assert_called_once_with(False)
         cursor.gotoEnd.assert_called_once_with(True)
 

@@ -54,24 +54,6 @@ def test_focused_calc_document_enumerates_when_nothing_focused() -> None:
         assert doc is mock_elem
 
 
-def test_workbook_session_key_unsaved_uses_uuid_not_id() -> None:
-    from unittest.mock import MagicMock, patch
-    import uuid as uuid_mod
-
-    mock_doc = MagicMock()
-    mock_doc.getURL.return_value = ""
-
-    with (
-        patch("plugin.scripting.session_manager.get_document_property", return_value=""),
-        patch("plugin.scripting.session_manager.set_document_property", side_effect=RuntimeError("no props")),
-    ):
-        key = session_manager.mint_document_key(mock_doc)
-    assert key.startswith("unsaved:")
-    rest = key[len("unsaved:") :]
-    uuid_mod.UUID(rest)
-    assert rest != str(id(mock_doc))
-
-
 def test_workbook_session_id_with_explicit_doc() -> None:
     """Explicit doc argument avoids desktop lookups and works regardless of thread affinity."""
     from unittest.mock import MagicMock, patch
@@ -401,15 +383,32 @@ def test_workbook_session_id_non_calc_does_not_record() -> None:
 def test_workbook_session_key_unsaved_when_property_does_not_stick() -> None:
     """A silent no-op write must not return a minted id that the next read misses."""
     from unittest.mock import MagicMock, patch
+    import uuid as uuid_mod
 
     mock_doc = MagicMock()
     mock_doc.getURL.return_value = ""
+    written: list[str] = []
+
+    def _silent_set(_doc, _name, value) -> None:
+        written.append(str(value))
+
     with (
-        patch("plugin.scripting.session_manager.get_document_property", return_value=""),
-        patch("plugin.scripting.session_manager.set_document_property", return_value=None),
+        patch("plugin.scripting.session_manager.get_document_property", return_value="") as mock_get,
+        patch("plugin.scripting.session_manager.set_document_property", side_effect=_silent_set),
     ):
-        key = session_manager.mint_document_key(mock_doc)
-    assert key.startswith("unsaved:")
+        key1 = session_manager.mint_document_key(mock_doc)
+        key2 = session_manager.mint_document_key(mock_doc)
+
+    assert len(written) == 2
+    assert mock_get.call_count >= 2
+    assert key1 != key2
+    assert key1 not in written
+    assert key2 not in written
+    for key in (key1, key2):
+        assert key.startswith("unsaved:")
+        rest = key.removeprefix("unsaved:")
+        uuid_mod.UUID(rest)
+        assert rest != str(id(mock_doc))
 
 
 def test_workbook_session_key_returns_id_when_property_sticks() -> None:
@@ -608,17 +607,6 @@ def test_document_for_script_session_stops_at_enum_cap(caplog) -> None:
 
 
 
-
-def test_unsaved_session_id_starts_with_unsaved():
-    from unittest.mock import MagicMock, patch
-    from plugin.scripting.session_manager import mint_document_key
-    doc = MagicMock()
-    doc.getURL = lambda: ""
-    doc.getPropertyValue.side_effect = Exception("No props")
-    with patch("plugin.scripting.session_manager.get_document_property", return_value=None):
-        with patch("plugin.scripting.session_manager.set_document_property"):
-            key = mint_document_key(doc)
-            assert key.startswith("unsaved:")
 
 def test_ppt_master_unsaved_decks_unique_session_id() -> None:
     from unittest.mock import MagicMock

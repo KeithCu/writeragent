@@ -15,6 +15,7 @@ from typing import Any
 
 from compute_service.formula_worker import _handle_request
 from compute_service.json_egress import to_dumb_json_value
+from compute_service.json_forward import parse_execute_request
 import pytest
 
 
@@ -120,8 +121,14 @@ class TestOnlinePyJsonContract:
             "data": [1, 2, 3],
             "mode": "isolated",
         }
-        json.dumps(body, allow_nan=False)
-        out = _execute_code(body["code"], data=body["data"])
+        raw_body = json.dumps(body, allow_nan=False).encode("utf-8")
+        parts = parse_execute_request(raw_body, "application/json")
+        assert parts.req_id == "py-test-1"
+        assert parts.code is not None
+        assert parts.data_json is not None
+        env = _handle_request({"id": parts.req_id, "code": parts.code, "data_json": parts.data_json})
+        out = json.loads(env["result_json"])
+        assert out["id"] == "py-test-1"
         assert out["status"] == "ok"
         assert out["result"] == 6.0
 
@@ -143,10 +150,7 @@ class TestOnlinePyJsonContract:
 
 
 class TestBusyPlaceholderSemantics:
-    """Document interim / error strings (Core uses XVolatileResult, not FormulaError)."""
-
-    def test_busy_literal(self) -> None:
-        assert "#BUSY!" == "#BUSY!"
+    """Document error payload semantics on sandbox failure."""
 
     def test_error_field_on_sandbox_failure(self) -> None:
         out = _execute_code("import subprocess\nresult = subprocess")
