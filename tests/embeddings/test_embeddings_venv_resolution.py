@@ -26,7 +26,7 @@ def test_embeddings_pool_requires_configured_venv():
         exe, err = _resolve_worker_python(pool=WORKER_POOL_EMBEDDINGS)
     assert exe is None
     assert err is not None
-    assert "Embeddings require a configured Python venv" in err["message"]
+    assert err["code"] == "VENV_NOT_FOUND"
     mock_lo.assert_not_called()
 
 
@@ -35,7 +35,7 @@ def test_embeddings_pool_invalid_venv_path():
         exe, err = _resolve_worker_python(pool=WORKER_POOL_EMBEDDINGS)
     assert exe is None
     assert err is not None
-    assert "Embeddings venv not configured or invalid" in err["message"]
+    assert err["code"] == "VENV_NOT_FOUND"
 
 
 def test_embeddings_pool_resolves_valid_venv(tmp_path):

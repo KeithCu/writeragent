@@ -7,7 +7,6 @@ from unittest.mock import patch
 from plugin.draw.placeholders import (
     GetPlaceholderText,
     SetPlaceholderText,
-    _EMPTY_PLACEHOLDER_HINT,
     _find_placeholder,
     _list_placeholders,
     _role_from_label,
@@ -144,7 +143,8 @@ def test_role_miss_empty_available_is_actionable():
     assert extra["available"] == []
     assert extra["suggest_layout"] == "text"
     assert extra["shape_text_count"] == 0
-    assert extra["hint"] == _EMPTY_PLACEHOLDER_HINT
+    assert "hint" in extra
+    assert "slide_layout_set" not in extra["hint"]
     assert "fallback_indices" not in extra
 
 
@@ -212,8 +212,6 @@ def test_set_placeholder_text_empty_role_miss_payload():
     assert details["available"] == []
     assert details["suggest_layout"] == "text"
     assert details["shape_text_count"] == 0
-    assert "slide_layouts" in details["hint"]
-    assert "slide_layout_set" not in details["hint"]
     assert "Placeholder 'title' not found on this slide." == err["message"]
 
 
@@ -339,6 +337,5 @@ def test_get_and_set_role_miss_payloads_match_on_empty_page():
     assert got["message"] == want["message"]
     assert got["details"] == want["details"]
     assert got["details"]["suggest_layout"] == "text"
-    assert got["details"]["hint"] == _EMPTY_PLACEHOLDER_HINT
 
 

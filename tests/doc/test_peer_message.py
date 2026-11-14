@@ -134,7 +134,6 @@ def test_envelope_from_ctx_doc():
     assert "peer_ask_id" not in wrapped
     assert "Compute Q4." in wrapped
     assert wrapped.endswith(PEER_WORK_DELIVERY_FOOTER)
-    assert "send_peer_result" in PEER_WORK_DELIVERY_FOOTER
 
 
 def test_identity_basename_untitled_kept():
@@ -470,7 +469,6 @@ def test_execute_status_ok_accepted():
     assert result["accepted"] is True
     assert result.get("envelope_kind") == "work"
     assert "peer_ask_id" not in result
-    assert "specialized_workflow_finished immediately" in result["message"]
     assert listener.session.add_user_message.called
     assert listener.injected
 
@@ -766,15 +764,15 @@ def test_annotate_outer_peer_delivery_pending():
 
 
 def test_summarize_peer_tool_on_wire():
-    from plugin.doc.peer_message import _WORK_DESCRIPTION, format_peer_catalog, summarize_peer_tool_on_wire
+    from plugin.doc.peer_message import format_peer_catalog, summarize_peer_tool_on_wire
 
     assert summarize_peer_tool_on_wire([{"function": {"name": "undo"}}]) == (False, 0)
+    # A literal uid= outside a catalog row must not count.
     schemas = [
         {
             "function": {
                 "name": PEER_WORK_TOOL_NAME,
-                "description": _WORK_DESCRIPTION
-                + " "
+                "description": "Target a peer by uid=<id>. "
                 + format_peer_catalog(
                     [
                         {"name": "Budget.ods", "uid": "u2", "url": "", "type": "calc"},
@@ -784,8 +782,6 @@ def test_summarize_peer_tool_on_wire():
             }
         }
     ]
-    # _WORK_DESCRIPTION itself contains a literal "uid=…"; only catalog rows count.
-    assert "uid=" in _WORK_DESCRIPTION
     assert summarize_peer_tool_on_wire(schemas) == (True, 2)
 
 

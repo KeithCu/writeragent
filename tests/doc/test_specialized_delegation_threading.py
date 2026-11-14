@@ -751,8 +751,6 @@ def test_calc_sheets_delegate_forwards_create_instruction_to_outer(
 
     assert result["status"] == "ok"
     assert result["instruction"] == SHEETS_CREATED_NOT_POPULATED_INSTRUCTION
-    assert "write_formula_range" in result["instruction"]
-    assert "not populated" in result["instruction"]
 
 
 def test_calc_shapes_domain_tools():

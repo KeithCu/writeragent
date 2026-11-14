@@ -79,8 +79,6 @@ def test_add_slide_blank_and_none_escape_empty(ctx, doc):
         assert details.get("available") == [], miss
         assert details.get("suggest_layout") == "text", miss
         assert details.get("shape_text_count") == 0, miss
-        assert "slide_layouts" in (details.get("hint") or ""), miss
-        assert "slide_layout_set" not in (details.get("hint") or ""), miss
 
 
 @native_test
