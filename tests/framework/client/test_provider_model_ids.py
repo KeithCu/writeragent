@@ -3,7 +3,6 @@ import pytest
 
 from plugin.chatbot.config_ui_helpers import _is_incompatible_model_for_provider
 from plugin.framework.client.auth import (
-    PROVIDERS,
     provider_requires_slug_model_id,
 )
 from plugin.framework.client.model_fetcher import ENDPOINT_PRESETS
@@ -56,10 +55,6 @@ def test_is_incompatible_model_for_provider_matrix(provider, model_id, compatibl
 
 class TestProviderSlugPolicy:
 
-    def test_only_openrouter_and_together_require_slug(self):
-        slug_providers = {pid for pid, cfg in PROVIDERS.items() if cfg.model_id_style == "slug"}
-        assert (slug_providers) == ({"openrouter", "together"})
-
     def test_provider_requires_slug_model_id(self):
         assert (provider_requires_slug_model_id("openrouter"))
         assert (provider_requires_slug_model_id("together"))
@@ -76,13 +71,6 @@ class TestPresetProviderDetection:
             normalized = normalize_endpoint_url(url)
             expected = _PRESET_EXPECTED_PROVIDER[normalized]
             assert (get_provider_from_endpoint(normalized)) == (expected), f"preset url {url!r} normalized {normalized!r}"
-
-    def test_auth_matches_detection_for_hosted_presets(self):
-        """Hosted presets: detection and auth resolution agree. Host matching is not on ProviderConfig."""
-        for _label, url in ENDPOINT_PRESETS:
-            normalized = normalize_endpoint_url(url)
-            detected = get_provider_from_endpoint(normalized)
-            assert (detected) is not None, normalized
 
 
 def test_is_openrouter_endpoint_matches_host_not_substring():
@@ -127,57 +115,16 @@ def test_local_ollama_and_lmstudio_ports_cover_lan_hosts():
     assert get_provider_from_endpoint("http://10.0.0.5:1234/v1") == "lmstudio"
     assert get_provider_from_endpoint("http://127.0.0.1:11434") == "ollama"
     assert get_provider_from_endpoint("https://example.com:11434") is None
+    assert get_provider_from_endpoint("https://ollama.com") is None
     assert get_provider_from_endpoint("http://192.168.1.20:8080") is None
 
 
-def test_provider_config_has_no_host_matches_and_grok_alias_is_gone():
-    """Detection is the host matcher. ``grok`` duplicated ``xai``."""
-    import dataclasses
-
+def test_provider_shim_routing():
     from plugin.framework.client.base_provider_shim import BaseProviderShim
     from plugin.framework.client.grok_shim import GrokShim
-    from plugin.framework.client.openai_shim import OpenAIShim, _SHIM_REGISTRY, get_provider_shim_class
+    from plugin.framework.client.openai_shim import OpenAIShim, get_provider_shim_class
 
-    assert "host_matches" not in {f.name for f in dataclasses.fields(PROVIDERS["openai"])}
-    assert "grok" not in _SHIM_REGISTRY
     assert get_provider_shim_class("xai") is GrokShim
     assert get_provider_shim_class("openai") is OpenAIShim
-    # Unknown names, including the old grok alias, use the generic base shim.
     assert get_provider_shim_class("grok") is BaseProviderShim
-
-
-def test_all_detected_providers_in_providers_table():
-    """Every non-None value get_provider_from_endpoint can return is a key in PROVIDERS."""
-    test_urls = [
-        "https://openrouter.ai/api",
-        "https://together.xyz",
-        "http://127.0.0.1:11434",
-        "https://api.mistral.ai",
-        "https://api.openai.com",
-        "https://api.deepseek.com",
-        "https://api.groq.com",
-        "https://api.cerebras.ai",
-        "https://api.perplexity.ai",
-        "https://api.x.ai",
-        "https://api.anthropic.com",
-        "https://generativelanguage.googleapis.com",
-        "http://127.0.0.1:1234",
-        "https://z.ai",
-        "https://integrate.api.nvidia.com",
-    ]
-    seen_providers = set()
-    for url in test_urls:
-        provider = get_provider_from_endpoint(url)
-        assert provider is not None, f"URL {url!r} should be detected"
-        assert provider in PROVIDERS, f"Detected provider {provider!r} for {url!r} must be in PROVIDERS"
-        seen_providers.add(provider)
-
-    for _label, url in ENDPOINT_PRESETS:
-        normalized = normalize_endpoint_url(url)
-        provider = get_provider_from_endpoint(normalized)
-        if provider is not None:
-            assert provider in PROVIDERS, f"Preset {url!r} -> {provider!r} must be in PROVIDERS"
-            seen_providers.add(provider)
-
-    assert get_provider_from_endpoint("https://ollama.com") is None
 

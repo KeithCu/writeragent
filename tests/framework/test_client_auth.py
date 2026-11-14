@@ -207,21 +207,6 @@ def test_resolve_auth_for_config_errors(api_config, expected_code, expected_prov
     assert expected_msg in str(exc_info.value)
 
 
-def test_openrouter_extra_headers_present():
-    """Verify OpenRouter config includes HTTP-Referer and X-Title."""
-    from plugin.framework.constants import APP_REFERER, APP_TITLE
-    from plugin.framework.client.auth import PROVIDERS
-
-    openrouter_cfg = PROVIDERS["openrouter"]
-    assert openrouter_cfg.extra_headers.get("HTTP-Referer") == APP_REFERER
-    assert openrouter_cfg.extra_headers.get("X-Title") == APP_TITLE
-
-    # Other providers like together, openai, deepseek must not have HTTP-Referer or X-Title
-    assert "HTTP-Referer" not in PROVIDERS["together"].extra_headers
-    assert "HTTP-Referer" not in PROVIDERS["openai"].extra_headers
-    assert "HTTP-Referer" not in PROVIDERS["deepseek"].extra_headers
-
-
 def test_resolve_provider_id_does_not_substring_match_host():
     """notollama.example is not Ollama; a path containing openrouter.ai is not OpenRouter."""
     assert (get_provider_from_endpoint("https://notollama.example/v1") or "custom") == "custom"

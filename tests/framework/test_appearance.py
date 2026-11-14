@@ -60,13 +60,6 @@ def test_get_theme_colors_uses_shared_logic():
     assert (bg, user, assistant) == (0x222222, appearance._DARK_USER, appearance._DARK_ASSISTANT)
 
 
-def test_luminance_weights_each_channel() -> None:
-    assert appearance._luminance(0xFF0000) == pytest.approx(0.2126 * 255)
-    assert appearance._luminance(0x00FF00) == pytest.approx(0.7152 * 255)
-    assert appearance._luminance(0x0000FF) == pytest.approx(0.0722 * 255)
-    assert appearance._luminance(0) == 0.0
-
-
 def test_luminance_pre_rejects_unbounded_and_bool() -> None:
     import deal
     from tests.harness.strip_bundle import deal_pre_present

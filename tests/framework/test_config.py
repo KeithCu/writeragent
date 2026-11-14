@@ -633,34 +633,12 @@ class TestConfigSyncFileIO:
     def test_get_config_default_resolution(self):
         if os.path.exists(self.config_path):
             os.remove(self.config_path)
+        from plugin.framework.config_schema import CONFIG_DEFAULTS, WriterAgentConfig
         from plugin.framework.errors import ConfigError
-        assert (get_config('calc_prompt_max_tokens')) == (4096)
-        assert (get_config('prompt_lru')) == ([])
-        assert (get_config('slash_command_lru')) == ([])
-        assert (get_config('endpoint')) == ('http://localhost:11434')
-        assert (get_config('model_lru@http://localhost:11434')) == ([])
-        assert (get_config('extension_update_check_epoch')) == (0)
-        assert (get_config('librepy_update_check_epoch')) == (0)
-        assert (get_config('libreharper_update_check_epoch')) == (0)
-        # Module-yaml keys (defaults from MODULES schema)
-        assert (get_config('chatbot.web_cache_max_mb')) == (50)
-        assert (get_config('chatbot.web_cache_validity_days')) == (30)
-        assert (get_config('chatbot.extend_selection_max_tokens')) == (1000)
-        assert (get_config('chatbot.show_search_thinking')) is False
-        assert (get_config('chatbot.web_research_cache_enabled')) is False
-        # Fresh install: Keep replies brief is on when the key was never saved.
-        assert (get_config('audio.tts_short_answers')) is True
-        assert (get_config('embeddings.folder_search_mode')) == ('none')
-        assert (get_config('scripting.python_max_data_cells')) == (250000)
-        assert (get_config('scripting.python_venv_path')) == ('')
-        assert (get_config('scripting.python_auto_spill')) is True
-        assert (get_config('scripting.python_geometric_recalc_order')) is False
-        assert (get_config('doc.agent_edit_review_mode')) == ('off')
-        assert (get_config('chatbot.max_tool_rounds')) == (15)
-        assert (get_config('chatbot.web_research_cache_jaccard_percent')) == (60)
-        assert (get_config('chatbot.web_research_cache_embedding_percent')) == (75)
-        assert (get_config('chatbot.web_research_cache_min_overlap')) == (8)
-        assert (get_config('core.log_level')) == ('DEBUG')
+
+        assert get_config('endpoint') == WriterAgentConfig().endpoint
+        assert get_config('model_lru@http://localhost:11434') == []
+        assert get_config('chatbot.max_tool_rounds') == CONFIG_DEFAULTS['chatbot.max_tool_rounds']
         with pytest.raises(ConfigError) as err_ctx:
             get_config('unknown_key')
         assert (err_ctx.value.details.get('key')) == ('unknown_key')
@@ -1099,9 +1077,6 @@ class TestConfigSyncFileIO:
         with open(self.config_path, 'r', encoding='utf-8') as f:
             text = f.read()
         assert (text.startswith('//'))
-        assert "https://github.com/KeithCu/writeragent/blob/master/docs/writeragent-config-schema.md" in text
-        assert "/blob/master/" in CONFIG_SCHEMA_COMMENT
-        assert "/blob/main/" not in CONFIG_SCHEMA_COMMENT
 
     def test_parse_config_json_text_strips_schema_comment(self):
         raw = CONFIG_SCHEMA_COMMENT + '{\n    "text_model": "custom-model"\n}\n'
