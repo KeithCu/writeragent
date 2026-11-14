@@ -4422,8 +4422,9 @@ def test_s10_clear_while_stt_in_flight(ctx):
         time.sleep(2.0)
 
         _s_assert_idle()
-        assert "Fake STT transcript" not in _query_box_text(), "late STT landed in query box after Clear"
         assert "Fake STT transcript" not in _transcript(), "late STT landed in transcript after Clear"
+        sent = [c for c in _captures() if not c.get("stt") and "Fake STT transcript" in (c.get("user_text") or "")]
+        assert not sent, "late STT was sent to chat after Clear: %r" % sent
         st = _s_state()
         assert st.get("spawn_count", 0) >= 1, f"spawn_count < 1: {st}"
         _hello_ok()
