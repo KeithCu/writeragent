@@ -842,7 +842,3 @@ def test_desktop_create_is_unsafe_when_pythonloader_rewrites_argv() -> None:
     finally:
         reset_desktop_create_is_unsafe_for_tests()
 
-
-
-
-

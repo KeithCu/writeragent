@@ -2154,7 +2154,11 @@ class TestWriterMathPreservation:
                 assert tex_chunk == r"\nabla \cdot \mathbf{E}"
 
     def test_brl_currency_never_becomes_a_formula(self):
-        """End-to-end insert path: ``R$ 1.234,56`` pairs must not build a Math object."""
+        """End-to-end insert path: ``R$ 1.234,56`` pairs must not build a Math object.
+
+        Regression for the Writer corruption where the text between two ``R$``
+        amounts was swallowed into a formula (italic serif, spaces eaten).
+        """
         from plugin.writer.html_import import _insert_mixed_or_plain_html
 
         ctx = MagicMock()
@@ -2217,6 +2221,7 @@ class TestWriterMathPreservation:
 
         with (
             patch("plugin.writer.html_import.replace_full_document") as mock_replace,
+            # doc.agent_edit_review_mode is read from live config by both modules; pin off for isolated runs without init_config.
             patch("plugin.writer.apply_document_content.get_agent_edit_review_mode", return_value="off"),
             patch("plugin.writer.edit_review.get_agent_edit_review_mode", return_value="off"),
         ):
