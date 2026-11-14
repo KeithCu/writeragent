@@ -489,7 +489,7 @@ def test_doc_listener_retry_off_main_thread_does_not_raise(monkeypatch):
         ):
             lis.on_document_event(event)
         container.addContainerListener.assert_called_once()
-        assert any(ref._doc_key_val == "uid:uid-dummy-3" for ref in notebook_controls._listener_refs)
+        assert notebook_controls.form_run_listeners(doc)
     finally:
         tg.GUARD_ON = was
 

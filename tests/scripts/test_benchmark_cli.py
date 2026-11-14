@@ -70,15 +70,17 @@ def test_build_eval_argv_task_not_implemented() -> None:
 
 
 @pytest.mark.parametrize(
-    ("env_var", "key_value"),
+    ("env_var", "env_value", "expected_api_key"),
     [
-        pytest.param("WRITERAGENT_API_KEY", "wa-key", id="writeragent"),
-        pytest.param("OPENAI_API_KEY", "oai-key", id="openai"),
-        pytest.param("OPENROUTER_API_KEY", "or-key", id="openrouter"),
+        pytest.param("WRITERAGENT_API_KEY", "wa-key", "wa-key", id="writeragent"),
+        pytest.param("OPENAI_API_KEY", "oai-key", "oai-key", id="openai"),
+        pytest.param("OPENROUTER_API_KEY", "or-key", "or-key", id="openrouter"),
+        pytest.param("ANTHROPIC_API_KEY", "ant-key", None, id="anthropic"),
+        pytest.param("EVAL_ANTHROPIC_API_KEY", "eval-ant-key", None, id="eval_anthropic"),
     ],
 )
 def test_benchmark_main_api_key_reaches_subprocess(
-    monkeypatch: pytest.MonkeyPatch, env_var: str, key_value: str
+    monkeypatch: pytest.MonkeyPatch, env_var: str, env_value: str, expected_api_key: str | None
 ) -> None:
     from unittest.mock import MagicMock
     import benchmark
@@ -91,7 +93,7 @@ def test_benchmark_main_api_key_reaches_subprocess(
         "WRITERAGENT_API_KEY",
     ):
         monkeypatch.delenv(name, raising=False)
-    monkeypatch.setenv(env_var, key_value)
+    monkeypatch.setenv(env_var, env_value)
 
     captured_cmd: list[str] = []
 
@@ -109,5 +111,9 @@ def test_benchmark_main_api_key_reaches_subprocess(
     )
     rc = benchmark.main()
     assert rc == 0
-    assert "--api-key" in captured_cmd
-    assert captured_cmd[captured_cmd.index("--api-key") + 1] == key_value
+    assert captured_cmd
+    if expected_api_key is None:
+        assert "--api-key" not in captured_cmd
+    else:
+        assert "--api-key" in captured_cmd
+        assert captured_cmd[captured_cmd.index("--api-key") + 1] == expected_api_key

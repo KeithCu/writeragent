@@ -293,18 +293,18 @@ def test_insert_html_list_skips_pre_clear_numbering(monkeypatch):
     """
     doc, _body_text, body_cursor = _writer_doc_mock()
     body_cursor.getString.return_value = ""
-    target_cursor = body_cursor
-    events: list[tuple[str, int | None]] = []
+    target_cursor = MagicMock()
+    events: list[tuple[Any, ...]] = []
 
     def fake_clear(cursor):
-        events.append(("clear", None))
+        events.append(("clear",))
 
     def fake_promote(cursor, *, start):
-        events.append(("promote", start))
+        events.append(("promote", cursor, start))
         return True
 
     def fake_insert(*args, **kwargs):
-        events.append(("insert", None))
+        events.append(("insert",))
 
     monkeypatch.setattr("plugin.notebook.writer_importer._clear_para_numbering", fake_clear)
     monkeypatch.setattr("plugin.notebook.writer_importer._promote_para_to_outer_ol", fake_promote)
@@ -318,7 +318,7 @@ def test_insert_html_list_skips_pre_clear_numbering(monkeypatch):
     wi._insert_html_at_body_end(
         doc, '<ol start="3"><li>Ask for help</li></ol>', lead_break=False, exit_list=True
     )
-    assert events == [("promote", 3), ("insert", None), ("promote", 3), ("clear", None)]
+    assert events == [("promote", body_cursor, 3), ("insert",), ("promote", target_cursor, 3), ("clear",)]
 
 
 def test_single_ol_start_only_one_item():

@@ -311,6 +311,22 @@ def test_delegate_finished_payload_does_not_duplicate_answer(
     assert json.dumps(result).count("ENTRY-") == 1
 
 
+def test_delegate_status_user_stopped_left_unchanged(
+    writer_gateway: DelegateToSpecializedWriter,
+) -> None:
+    """Discussion #2029: User-stopped or crash dict already status: 'error' is left unchanged."""
+    from unittest.mock import patch
+
+    ctx = _structural_registry(writer_gateway)
+    stopped = {"status": "error", "error": "Task stopped by user.", "code": "USER_STOPPED"}
+    with patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *a, **kw: fn(*a, **kw)):
+        with patch("plugin.doc.specialized_base.run_inner_tool_agent", return_value=stopped):
+            result = writer_gateway.execute(ctx, domain="structural", task="Find heading")
+
+    assert result["status"] == "error"
+    assert result["code"] == "USER_STOPPED"
+
+
 def test_gateway_enum_is_sorted_and_unique(writer_gateway: DelegateToSpecializedWriter) -> None:
     assert writer_gateway.parameters is not None
     enum = writer_gateway.parameters["properties"]["domain"]["enum"]
@@ -399,6 +415,7 @@ def test_delegate_finish_only_stays_ok(
     ctx_ro = _structural_registry(writer_gateway, tool=_DummyDocResearchTool())
 
     with patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *a, **kw: fn(*a, **kw)):
+        # document_research queries embeddings.folder_search_mode, which is unregistered in standalone runs.
         with patch("plugin.framework.constants.configured_folder_search_mode", return_value="none"):
             with patch("plugin.doc.specialized_base.run_inner_tool_agent", side_effect=fake_run_inner):
                 result_ro = writer_gateway.execute(ctx_ro, domain="document_research", task="Search docs")
