@@ -18,7 +18,6 @@ from plugin.doc.text_helpers import normalize_linebreaks as _normalize
 from plugin.writer.html_export import document_to_content
 from plugin.writer.html_import import (
     insert_content_at_position as _insert_content_at_position,
-    content_has_markup as _content_has_markup,
     replace_preserving_format as _replace_text_preserving_format,
 )
 from plugin.writer.search import find_text_ranges
@@ -235,24 +234,6 @@ def test_crlf_normalization(ctx, doc):
     total_range_text = _read_doc_text(doc)[r_start["start"]:r["end"]]
     expected_norm = "Line A\nLine B\nUNIQUE_CRLF_TEST"
     assert total_range_text == expected_norm, f"Expected {repr(expected_norm)}, got {repr(total_range_text)}"
-
-
-@native_test
-def test_content_has_markup_auto_detection():
-    assert not _content_has_markup("**bold**")
-    assert not _content_has_markup("# Heading")
-    assert not _content_has_markup("| col1 | col2 |")
-    assert not _content_has_markup("Issue # 5")
-    assert not _content_has_markup("a | b")
-    assert not _content_has_markup("2**3")
-    assert not _content_has_markup("__init__")
-    assert _content_has_markup("<b>bold</b>")
-    assert _content_has_markup("<ruby>漢字<rt>かんじ</rt></ruby>")
-    assert _content_has_markup(r"\(x^2\)")
-    assert not _content_has_markup("Jane Doe")
-    assert not _content_has_markup("Hello world, this is plain text.")
-    assert not _content_has_markup("")
-    assert not _content_has_markup(None)
 
 
 # Helper: create text with per-character background colors and return the range

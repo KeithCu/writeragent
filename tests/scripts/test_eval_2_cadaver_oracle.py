@@ -408,6 +408,6 @@ def test_gemini_shaped_softened_proposal_passes() -> None:
 def test_gemini_headed_fixture_passes_when_present() -> None:
     """Re-score the headed Gemini artifact when Keith's run is on disk."""
     if not _GEMINI_FIXTURE.is_file():
-        return
+        pytest.skip("headed Gemini fixture not present")
     result = score_proposal(_GEMINI_FIXTURE)
     assert result.passed, result.failures

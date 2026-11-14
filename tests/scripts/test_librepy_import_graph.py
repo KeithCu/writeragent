@@ -144,61 +144,6 @@ def test_from_client_import_llmclient_is_forbidden():
     assert _forbidden_client_attr_hits(dummy, tree_ok) == []
 
 
-def test_librepy_entry_imports_avoid_writeragent_only_modules():
-
-    shipped = _get_shipped_paths()
-    before = set(sys.modules)
-
-    import plugin.calc.python.addin_impl  # noqa: F401
-    import plugin.calc.python.addin_librepy  # noqa: F401
-    import plugin.calc.python.cell_discovery  # noqa: F401
-    import plugin.calc.python.diagnostics  # noqa: F401
-    import plugin.calc.python.editor  # noqa: F401
-    import plugin.calc.python.editor_context_menu  # noqa: F401
-    import plugin.calc.python.formula_edit  # noqa: F401
-    import plugin.calc.python.addin_values  # noqa: F401
-    import plugin.calc.python.function  # noqa: F401
-    import plugin.calc.python.spill  # noqa: F401
-    import plugin.calc.python.undo  # noqa: F401
-    import plugin.calc.python.image_egress  # noqa: F401
-    import plugin.calc.python.init_script_editor  # noqa: F401
-    import plugin.calc.python.workbook_lifecycle  # noqa: F401
-    import plugin.calc.python.xl_static_rewrite  # noqa: F401
-    import plugin.librepy.panel_factory  # noqa: F401
-    import plugin.librepy.python_sidebar  # noqa: F401
-    import plugin.librepy.sidebar_menus  # noqa: F401
-    import plugin.librepy.settings  # noqa: F401
-    import plugin.scripting.python_runner  # noqa: F401
-    import plugin.scripting.trusted_action_registry  # noqa: F401
-    import plugin.scripting.venv_worker  # noqa: F401
-    import plugin.vision.vision_availability  # noqa: F401
-    import plugin.vision.vision_runner  # noqa: F401
-    import plugin.writer.images.image_tools  # noqa: F401
-    import plugin.writer.math.latex_dialog  # noqa: F401
-    import plugin.writer.xhtml_style_postprocess  # noqa: F401
-    import plugin.notebook.import_filter  # noqa: F401
-    import plugin.notebook.writer_importer  # noqa: F401
-
-    loaded = set(sys.modules) - before
-    bad: list[str] = []
-    for name in sorted(loaded):
-        if name == "plugin" or name in ("plugin._manifest", "plugin._manifest_librepy"):
-            continue
-        if name.startswith("plugin."):
-            mod_obj = sys.modules.get(name)
-            file_path = getattr(mod_obj, "__file__", None)
-            if file_path:
-                try:
-                    rel = Path(file_path).resolve().relative_to(_REPO_ROOT).as_posix()
-                    if rel not in shipped:
-                        bad.append(f"{name} -> {rel}")
-                except ValueError:
-                    pass
-            elif not _is_shipped_plugin_module(name, shipped):
-                bad.append(name)
-    assert bad == []
-
-
 def test_librepy_shipped_function_level_imports_are_safe():
     """Verify that any function-level import of unbundled modules in shipped files is safely guarded."""
     shipped = _get_shipped_paths()

@@ -2042,15 +2042,11 @@ def test_warm_venv_worker_embeddings_timeout(monkeypatch):
     import types
     mod = types.ModuleType('plugin.embeddings.embedding_client')
     mod.get_embedding_model = lambda: 'dummy-model'
-    sys.modules['plugin.embeddings.embedding_client'] = mod
+    monkeypatch.setitem(sys.modules, 'plugin.embeddings.embedding_client', mod)
     mod2 = types.ModuleType('plugin.scripting.config_limits')
     mod2.embeddings_worker_timeout_sec = lambda: 300
-    sys.modules['plugin.scripting.config_limits'] = mod2
-    try:
-        vw.warm_venv_worker(pool=WORKER_POOL_EMBEDDINGS)
-    finally:
-        sys.modules.pop('plugin.embeddings.embedding_client', None)
-        sys.modules.pop('plugin.scripting.config_limits', None)
+    monkeypatch.setitem(sys.modules, 'plugin.scripting.config_limits', mod2)
+    vw.warm_venv_worker(pool=WORKER_POOL_EMBEDDINGS)
     assert len(mock_execute_calls) == 1
     assert mock_execute_calls[0]['action'] == 'run_trusted_action'
     assert mock_execute_calls[0]['timeout_sec'] == 300

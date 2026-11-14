@@ -1444,12 +1444,27 @@ def test_content_has_markup_cases():
     assert content_has_markup("a < b") is False
     assert content_has_markup("List<String>") is False
 
-    # TeX and MathML are markup
+    # TeX, MathML, HTML, and ruby are markup
     assert content_has_markup(r"formula \(x\)") is True
     assert content_has_markup(r"formula \[x\]") is True
     assert content_has_markup("cost $$10") is True
     assert content_has_markup("<math>...</math>") is True
+    assert content_has_markup("<b>bold</b>") is True
+    assert content_has_markup("<ruby>漢字<rt>かんじ</rt></ruby>") is True
     assert content_has_markup("The identity $x^2$ holds.") is False
+
+    # Markdown and plain prose are not markup
+    assert content_has_markup("**bold**") is False
+    assert content_has_markup("# Heading") is False
+    assert content_has_markup("| col1 | col2 |") is False
+    assert content_has_markup("Issue # 5") is False
+    assert content_has_markup("a | b") is False
+    assert content_has_markup("2**3") is False
+    assert content_has_markup("__init__") is False
+    assert content_has_markup("Jane Doe") is False
+    assert content_has_markup("Hello world, this is plain text.") is False
+    assert content_has_markup("") is False
+    assert content_has_markup(None) is False
 
     from plugin.writer.html_import import content_needs_html_import
     assert content_needs_html_import("The identity $x^2$ holds.") is True

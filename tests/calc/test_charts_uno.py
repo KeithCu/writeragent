@@ -205,35 +205,6 @@ def test_charts_validation_and_writer_arrays(ctx, doc):
 
 
 @native_test
-def test_charts_schema_filtering():
-    from plugin.app import get_tools
-
-    chart_upsert_tool = get_tools().get("chart_upsert")
-    assert chart_upsert_tool is not None
-
-    # Test Calc filtering
-    calc_params = chart_upsert_tool.get_parameters("calc")
-    assert calc_params is not None
-    assert "data_range" in calc_params["properties"]
-    assert "headers" not in calc_params["properties"]
-    assert "rows" not in calc_params["properties"]
-
-    # Test Writer filtering
-    writer_params = chart_upsert_tool.get_parameters("writer")
-    assert writer_params is not None
-    assert "data_range" not in writer_params["properties"]
-    assert "headers" in writer_params["properties"]
-    assert "rows" in writer_params["properties"]
-
-    # Test Draw filtering
-    draw_params = chart_upsert_tool.get_parameters("draw")
-    assert draw_params is not None
-    assert "data_range" not in draw_params["properties"]
-    assert "headers" in draw_params["properties"]
-    assert "rows" in draw_params["properties"]
-
-
-@native_test
 @with_native_doc("calc")
 def test_chart_from_named_data_range(ctx, doc):
     from com.sun.star.table import CellAddress

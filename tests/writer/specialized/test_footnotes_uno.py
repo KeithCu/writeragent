@@ -8,6 +8,7 @@ reference mark, and note text.
 
 from types import SimpleNamespace
 
+from plugin.framework.uno_context import enum_has_more
 from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import with_native_doc
 from plugin.writer.specialized.footnotes import FootnotesDelete
@@ -105,7 +106,7 @@ def test_anchor_delete_records_redline_when_recording_on(ctx, doc):
 
     redlines = []
     e = doc.getRedlines().createEnumeration()
-    while e.hasMoreElements():
+    while enum_has_more(e):
         redlines.append(str(e.nextElement().getPropertyValue("RedlineType")))
     assert "Delete" in redlines, f"anchor-clear under RecordChanges must record a Delete redline, got {redlines}"
 

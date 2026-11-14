@@ -1784,57 +1784,57 @@ def test_is_calc_range_payload_matches_calc_range_module(value: object) -> None:
     assert payload_codec.is_calc_range_payload(value) is calc_range_is(value)
 
 
-def test_host_pack_data_tuple_rows() -> None:
+def _reloadable_accelerator(monkeypatch: pytest.MonkeyPatch):
+    from plugin.scripting import payload_codec
+
+    # load_cython_accelerator() rewrites these module globals
+    monkeypatch.setattr(payload_codec, "_CYTHON_ACCELERATOR_LOCATION", payload_codec._CYTHON_ACCELERATOR_LOCATION)
+    monkeypatch.setattr(payload_codec, "_CYTHON_ACCELERATOR_INACTIVE_REASON", None)
+    monkeypatch.setattr(payload_codec, "fast_flatten_grid_1d", payload_codec.fast_flatten_grid_1d)
+    monkeypatch.setattr(payload_codec, "fast_flatten_grid_2d", None)
+    return payload_codec
+
+
+def test_host_pack_data_tuple_rows(monkeypatch: pytest.MonkeyPatch) -> None:
     # ensure it doesn't crash cython accelerator due to PyList_GET_ITEM on tuple
     grid = [(1.0, 2.0), (3.0, 4.0)]
-    try:
-        from plugin.scripting import payload_codec
-        orig_2d = payload_codec.fast_flatten_grid_2d
+    payload_codec = _reloadable_accelerator(monkeypatch)
+    payload_codec.load_cython_accelerator()
 
-        payload_codec._CYTHON_ACCELERATOR_INACTIVE_REASON = None
-        payload_codec.fast_flatten_grid_2d = None
-        payload_codec.load_cython_accelerator()
+    # Will crash if bug is present
+    wire = host_pack_data(grid, force="always")
 
-        # Will crash if bug is present
-        wire = host_pack_data(grid, force="always")
+    # Verify it packed properly
+    assert is_split_grid(wire)
+    arr, str_map, types, shape = payload_codec._flatten_grid_to_components(grid)
+    assert shape == [2, 2]
 
-        # Verify it packed properly
-        assert is_split_grid(wire)
-        arr, str_map, types, shape = payload_codec._flatten_grid_to_components(grid)
-        assert shape == [2, 2]
-    finally:
-        payload_codec.fast_flatten_grid_2d = orig_2d
 
-def test_host_pack_data_numpy_str() -> None:
+def test_host_pack_data_numpy_str(monkeypatch: pytest.MonkeyPatch) -> None:
     np = pytest.importorskip("numpy")
+    from plugin.scripting import payload_codec
+
     grid = [["0123", np.str_("0123")]]
 
-    from plugin.scripting import payload_codec
-    orig_2d = payload_codec.fast_flatten_grid_2d
+    # stdlib test
+    monkeypatch.setattr(payload_codec, "fast_flatten_grid_2d", None)
+    arr, str_map, types, shape = payload_codec._flatten_grid_to_components(grid)
+    assert str_map[0] == "0123"
+    assert str_map[1] == "0123"
+    # np.str_ must not ride the strings map; host pickle has no NumPy.
+    assert type(str_map[0]) is str
+    assert type(str_map[1]) is str
 
-    try:
-        # stdlib test
-        payload_codec.fast_flatten_grid_2d = None
+    # accel test
+    _reloadable_accelerator(monkeypatch)
+    payload_codec.load_cython_accelerator()
+
+    if payload_codec.fast_flatten_grid_2d is not None:
         arr, str_map, types, shape = payload_codec._flatten_grid_to_components(grid)
         assert str_map[0] == "0123"
         assert str_map[1] == "0123"
-        # np.str_ must not ride the strings map; host pickle has no NumPy.
         assert type(str_map[0]) is str
         assert type(str_map[1]) is str
-
-        # accel test
-        payload_codec._CYTHON_ACCELERATOR_INACTIVE_REASON = None
-        payload_codec.fast_flatten_grid_2d = None
-        payload_codec.load_cython_accelerator()
-
-        if payload_codec.fast_flatten_grid_2d is not None:
-            arr, str_map, types, shape = payload_codec._flatten_grid_to_components(grid)
-            assert str_map[0] == "0123"
-            assert str_map[1] == "0123"
-            assert type(str_map[0]) is str
-            assert type(str_map[1]) is str
-    finally:
-        payload_codec.fast_flatten_grid_2d = orig_2d
 
 
 def test_child_pack_result_dict_key_collision_raises() -> None:

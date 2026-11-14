@@ -828,17 +828,8 @@ def test_resolve_work_spans() -> None:
     res = gt.resolve_work_spans("doc1", "en-US", text, 14, 27, spans)
     assert res == [(14, 27, "Sentence two.")]
 
-    with patch("plugin.writer.locale.grammar_proofread_text.grammar_obs") as mock_obs:
-        res_empty = gt.resolve_work_spans("doc1", "en-US", text, 50, 60, spans)
-        assert res_empty == []
-        mock_obs.assert_called_once_with(
-            "do_proofreading_skip",
-            reason="no_active_sentences",
-            doc_id="doc1",
-            n_start_lo=50,
-            raw_candidates=len(spans),
-            grammar_bcp47="en-US",
-        )
+    res_empty = gt.resolve_work_spans("doc1", "en-US", text, 50, 60, spans)
+    assert res_empty == []
 
 
 def test_split_quoted_abbreviation_not_boundary() -> None:

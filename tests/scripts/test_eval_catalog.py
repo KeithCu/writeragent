@@ -67,13 +67,12 @@ def _delegate_domain_enum(schemas: list[dict], tool_name: str) -> list[str] | No
     return None
 
 
-def test_eval_schemas_match_sidebar_bootstrap(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_eval_schemas_match_sidebar_bootstrap(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """Eval headless registry uses the same hooks/filters as plugin.main bootstrap."""
     import plugin.app as app
     import plugin.bootstrap as bootstrap
     import plugin.main as main
     from unittest.mock import MagicMock
-    import tempfile
 
     eval_catalog._registry = None
     monkeypatch.setenv("WRITERAGENT_EVAL_HARNESS", "1")
@@ -104,7 +103,7 @@ def test_eval_schemas_match_sidebar_bootstrap(monkeypatch: pytest.MonkeyPatch) -
         app._modules = []
         ctx = MagicMock()
         path_settings = ctx.getServiceManager.return_value.createInstanceWithContext.return_value
-        path_settings.UserConfig = tempfile.mkdtemp(prefix="wa-eval-sidebar-")
+        path_settings.UserConfig = str(tmp_path / "user_config")
         app.bootstrap(ctx)
         sidebar = app.get_tools()
         assert sidebar is not None

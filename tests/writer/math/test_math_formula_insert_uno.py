@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from plugin.framework.uno_context import enum_has_more
 from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import with_native_doc
 from plugin.writer import html_import
@@ -169,7 +170,7 @@ def test_insert_formula_display_block_centered(ctx: Any, doc: Any) -> None:
 
     paragraphs = []
     enum = text.createEnumeration()
-    while enum.hasMoreElements():
+    while enum_has_more(enum):
         p = enum.nextElement()
         if p.supportsService("com.sun.star.text.Paragraph"):
             paragraphs.append(p)
@@ -199,7 +200,7 @@ def test_display_math_keeps_trailing_paragraph_alignment(ctx: Any, doc: Any) -> 
 
     paragraphs = []
     enum = text.createEnumeration()
-    while enum.hasMoreElements():
+    while enum_has_more(enum):
         p = enum.nextElement()
         if p.supportsService("com.sun.star.text.Paragraph"):
             paragraphs.append(p)

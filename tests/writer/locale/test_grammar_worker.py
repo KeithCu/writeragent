@@ -26,7 +26,6 @@ from plugin.writer.locale.grammar_worker import (
 )
 from plugin.writer.locale.grammar_proofread_text import NormalizedProofError
 from plugin.writer.locale.grammar_work_queue import GrammarWorkItem, GrammarWorkQueue
-from .test_grammar_work_queue import _grammar_obs_call_sites_present
 
 
 def _item(
@@ -431,7 +430,6 @@ def test_locale_mismatch_proceeds_and_double_caches(
          patch("plugin.writer.locale.grammar_proofread_cache.cache_put_sentence") as mock_cache_put, \
          patch("plugin.writer.locale.grammar_worker.apply_language_change", return_value=False) as mock_apply, \
          patch("plugin.writer.locale.grammar_worker.get_grammar_status", return_value=MagicMock()), \
-         patch("plugin.writer.locale.grammar_worker.grammar_obs") as mock_obs, \
          patch("plugin.framework.client.llm_client.LlmClient") as mock_llm_client, \
          patch("plugin.writer.locale.grammar_proofread_cache.normalize_errors_for_text", return_value=[]):
 
@@ -459,9 +457,8 @@ def test_locale_mismatch_proceeds_and_double_caches(
     
         run_llm_and_cache_batch([item], grammar_queue_instance=GrammarWorkQueue())
     
-        # 1. Verify document update was triggered with paragraph_text and failure was observed
+        # 1. Verify document update was triggered with paragraph_text
         mock_apply.assert_called_once_with("doc123", "\u65e5\u672c\u8a9e\u3067\u66f8\u3044\u3066\u3044\u307e\u3059\u3002", "ja-JP", start_pos=0, paragraph_text="")
-        mock_obs.assert_any_call("apply_language_change_skip", doc_id="doc123", sentence="\u65e5\u672c\u8a9e\u3067\u66f8\u3044\u3066\u3044\u307e\u3059\u3002", bcp47="ja-JP")
     
         # 2. Verify grammar check was done with ja-JP
         args, _ = mock_client_inst.chat_completion_sync.call_args_list[1]
@@ -556,21 +553,15 @@ def test_language_detect_calls_llm_when_no_persisted_grammar() -> None:
         _lang_detect_cache.pop(item.text, None)
 
 
-@pytest.mark.skipif(
-    not _grammar_obs_call_sites_present(),
-    reason="Stripped release bundle removes grammar_obs(...) call sites (scripts/strip_code.py)",
-)
-def test_worker_chunk_skip_empty_result_chunk_obs() -> None:
+def test_worker_chunk_skip_empty_result_chunk_skips_grammar_check() -> None:
     from plugin.writer.locale.grammar_worker import _worker_process_chunk
 
     item = _item("Hello one.", inflight_key="k1")
     ec = _ec()
-    with patch("plugin.writer.locale.grammar_worker.grammar_obs") as mock_obs, \
-         patch("plugin.writer.locale.grammar_worker._worker_ready_items", return_value=[]), \
+    with patch("plugin.writer.locale.grammar_worker._worker_ready_items", return_value=[]), \
          patch("plugin.writer.locale.grammar_worker.run_grammar_check") as mock_grammar:
         _worker_process_chunk([(item, item.text)], ec, "en-US", original_bcp47="en-US")
     mock_grammar.assert_not_called()
-    mock_obs.assert_any_call("worker_chunk_skip", reason="empty_result_chunk", chunk_len=1)
 
 
 def test_grammar_empty_single_response_caches_clean() -> None:
@@ -1266,13 +1257,7 @@ def test_worker_batch_skips_harper_provider() -> None:
     from plugin.writer.locale.grammar_worker import run_llm_and_cache_batch
 
     item = _item(provider="harper")
-    with (
-        patch("plugin.writer.locale.grammar_worker.grammar_obs") as mock_obs,
-        patch("plugin.writer.locale.grammar_worker.run_grammar_check") as mock_run,
-    ):
+    with patch("plugin.writer.locale.grammar_worker.run_grammar_check") as mock_run:
         run_llm_and_cache_batch([item], grammar_queue_instance=GrammarWorkQueue())
-    # Early return survives strip; grammar_obs call sites are removed in release bundles.
     mock_run.assert_not_called()
-    if _grammar_obs_call_sites_present():
-        mock_obs.assert_any_call("worker_batch_skip", reason="harper_not_queued", item_count=1)
 

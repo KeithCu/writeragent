@@ -104,39 +104,6 @@ def test_calc_chart_colors(ctx, doc):
     assert edit_res.get("status") == "ok", f"Edit with colors failed: {edit_res}"
 
 
-@unittest.skip("Disabled as per user request: internal test causing problems")
-@native_test
-@with_native_doc("writer", hidden=not current_office().options.show_window)
-def test_writer_chart_polymorphic(ctx, doc):
-    # 1. Create in Writer
-    res = _execute(doc, ctx, "chart_upsert", {
-        "chart_type": "pie",
-        "title": "Writer Pie"
-    }, domain="writer")
-    assert res.get("status") == "ok", f"Writer create failed: {res}"
-    name = res.get("name")
-
-    probe = _execute(doc, ctx, "chart_get_info", {"name": name}, domain="writer")
-    if probe.get("status") != "ok":
-        raise unittest.SkipTest(
-            "Writer chart embed not available in this LibreOffice runtime "
-            f"(chart tools get_info: {probe!r}). OLE insert may be disabled in headless/pyuno."
-        )
-
-    # 2. List in Writer
-    list_res = _execute(doc, ctx, "chart_list", {}, domain="writer")
-    assert list_res.get("status") == "ok", f"chart tools list failed: {list_res}"
-    names = [c["name"] for c in list_res.get("charts", [])]
-    assert name in names, (
-        f"chart name {name!r} not in chart tools list names {names!r}; full list_res={list_res!r}"
-    )
-    
-    # 3. Info
-    info = _execute(doc, ctx, "chart_get_info", {"name": name}, domain="writer")
-    assert info.get("title") == "Writer Pie"
-    assert "PieDiagram" in info.get("diagram_type", "")
-
-
 @unittest.skipIf(not current_office().options.show_window, "Draw/Impress chart create_chart hangs in headless testing_runner (processEventsToIdle in charts.py)")
 @native_test
 @with_native_doc("impress", hidden=not current_office().options.show_window)

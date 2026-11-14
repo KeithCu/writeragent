@@ -450,9 +450,7 @@ setattr(linguistic, "XLinguServiceEventBroadcaster", MockXLinguServiceEventBroad
 
 beans = _create_mock_module("com.sun.star.beans")
 setattr(beans, "PropertyValue", MockPropertyValue)
-
-sheet = _create_mock_module("com.sun.star.sheet")
-setattr(beans, "PropertyValue", MockPropertyValue) # Repeat for safety in case of earlier failure
+setattr(beans, "NamedValue", MockPropertyValue)
 
 sheet = _create_mock_module("com.sun.star.sheet")
 setattr(sheet, "ConditionOperator", MockBase)
@@ -562,12 +560,17 @@ class MockXTopWindowListener:
     pass
 
 
+class MockXFocusListener:
+    pass
+
+
 setattr(awt, "XActionListener", MockXActionListener)
 setattr(awt, "XItemListener", MockXItemListener)
 setattr(awt, "XKeyListener", MockXKeyListener)
 setattr(awt, "XTextListener", MockXTextListener)
 setattr(awt, "XWindowListener", MockXWindowListener)
 setattr(awt, "XTopWindowListener", MockXTopWindowListener)
+setattr(awt, "XFocusListener", MockXFocusListener)
 setattr(awt, "WindowDescriptor", MockBase)
 
 awt_window_class = _create_mock_module("com.sun.star.awt.WindowClass")
@@ -595,7 +598,12 @@ _create_mock_module("com.sun.star.document")
 _create_mock_module("com.sun.star.style")
 _create_mock_module("com.sun.star.style.BreakType")
 _create_mock_module("com.sun.star.ui.UIElementType")
-_create_mock_module("com.sun.star.datatransfer")
+class MockXTransferable:
+    pass
+
+
+datatransfer = _create_mock_module("com.sun.star.datatransfer")
+setattr(datatransfer, "XTransferable", MockXTransferable)
 clipboard = _create_mock_module("com.sun.star.datatransfer.clipboard")
 
 

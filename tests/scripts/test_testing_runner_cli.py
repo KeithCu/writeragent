@@ -15,6 +15,26 @@ import pytest
 import plugin.testing_runner as tr
 
 
+@pytest.fixture(autouse=True)
+def _reset_office_test_state():
+    office = tr.current_office()
+    prev_filters = list(office.options.filters)
+    prev_exact = list(office.options.exact_function_names)
+    prev_dead = office.urp_bridge_dead
+    office.options.filters = []
+    office.options.exact_function_names = []
+    office.urp_bridge_dead = False
+    office.reset_lifecycle_breadcrumb()
+    try:
+        yield
+    finally:
+        office.options.filters = prev_filters
+        office.options.exact_function_names = prev_exact
+        office.urp_bridge_dead = prev_dead
+        office.reset_death_signals(clear_proc=True)
+        office.reset_lifecycle_breadcrumb()
+
+
 def _soffice_name() -> str:
     """Windows LO ships ``soffice.exe`` next to officehelper; POSIX is ``soffice``."""
     return "soffice.exe" if sys.platform.startswith("win") else "soffice"
@@ -316,14 +336,10 @@ def test_parse_cli_repeat_and_soak_env(monkeypatch) -> None:
     assert rest == ["test_get_draw_tree", "test_insert_math_draw"]
     assert tr.current_office().options.exact_function_names == ["test_get_draw_tree", "test_insert_math_draw"]
     assert "test_get_draw_tree_marks_blank_and_label_hint" not in tr.current_office().options.exact_function_names
-    tr.current_office().options.filters = []
-    tr.current_office().options.exact_function_names = []
 
 
 def test_run_module_suite_pair_exact_skips_draw_tree_prefix_bleed() -> None:
     """--pair tree-math must not run test_get_draw_tree_marks_blank_and_label_hint."""
-    tr.current_office().reset_lifecycle_breadcrumb()
-    tr.current_office().options.filters = []
     tr.current_office().options.exact_function_names = ["test_get_draw_tree", "test_insert_math_draw"]
     ran: list[str] = []
 
@@ -348,23 +364,15 @@ def test_run_module_suite_pair_exact_skips_draw_tree_prefix_bleed() -> None:
     module.test_get_draw_tree_marks_blank_and_label_hint = test_get_draw_tree_marks_blank_and_label_hint
     module.test_insert_math_draw = test_insert_math_draw
 
-    tr._office.urp_bridge_dead = False
     passed, failed, _suite_log = tr.run_module_suite(object(), module, "draw.pair")
     assert ran == ["tree", "math"]
     assert passed == 2
     assert failed == 0
-    tr.current_office().options.filters = []
-    tr.current_office().options.exact_function_names = []
-    tr._office.urp_bridge_dead = False
-    tr.current_office().reset_lifecycle_breadcrumb()
 
 
 def test_run_module_suite_fails_ok_test_on_application_error(capsys) -> None:
     """Harness attribution: TEST returned OK but SalAbort already printed."""
-    tr.current_office().reset_lifecycle_breadcrumb()
     tr.current_office().reset_death_signals(clear_proc=True)
-    tr.current_office().options.filters = []
-    tr.current_office().options.exact_function_names = []
     ran: list[str] = []
 
     def test_ok(ctx=None):
@@ -384,7 +392,6 @@ def test_run_module_suite_fails_ok_test_on_application_error(capsys) -> None:
     module.test_ok = test_ok
     module.test_second = test_second
 
-    tr._office.urp_bridge_dead = False
     passed, failed, suite_log = tr.run_module_suite(object(), module, "draw.salabort")
     assert ran == ["ok"]
     assert passed == 0
@@ -393,15 +400,11 @@ def test_run_module_suite_fails_ok_test_on_application_error(capsys) -> None:
     err = capsys.readouterr().err
     assert "LIFECYCLE application error after TEST returned draw.salabort.test_ok" in err
     assert any("Unspecified Application Error" in line for line in suite_log)
-    tr._office.urp_bridge_dead = False
-    tr.current_office().reset_death_signals(clear_proc=True)
-    tr.current_office().reset_lifecycle_breadcrumb()
 
 
 def test_run_module_suite_fail_names_previous_test(capsys, monkeypatch) -> None:
     """URP dispose on the second test must print previous=<first> result=OK."""
     monkeypatch.setattr(tr, "_soffice_pids", lambda: "99")
-    tr.current_office().reset_lifecycle_breadcrumb()
 
     def test_ok(ctx=None):
         return None
@@ -419,9 +422,6 @@ def test_run_module_suite_fail_names_previous_test(capsys, monkeypatch) -> None:
     module.test_ok = test_ok
     module.test_victim = test_victim
 
-    tr._office.urp_bridge_dead = False
-    tr.current_office().options.filters = []
-    tr.current_office().options.exact_function_names = []
     passed, failed, suite_log = tr.run_module_suite(object(), module, "draw.crumb")
     assert passed == 1
     assert failed == 1
@@ -431,13 +431,10 @@ def test_run_module_suite_fail_names_previous_test(capsys, monkeypatch) -> None:
     assert "current=draw.crumb.test_victim" in err
     assert "LIFECYCLE URP dispose at draw.crumb.test_victim" in err
     assert any("LIFECYCLE" in line and "previous=draw.crumb.test_ok" in line for line in suite_log)
-    tr._office.urp_bridge_dead = False
-    tr.current_office().reset_lifecycle_breadcrumb()
 
 
 def test_run_module_suite_fails_ok_test_when_bridge_dies_after_return(capsys) -> None:
     """Harness attribution: TEST returned OK but getServiceManager is already disposed."""
-    tr.current_office().reset_lifecycle_breadcrumb()
     ran: list[str] = []
 
     class _Ctx:
@@ -466,9 +463,6 @@ def test_run_module_suite_fails_ok_test_when_bridge_dies_after_return(capsys) ->
     module.test_second = test_second
 
     ctx = _Ctx()
-    tr._office.urp_bridge_dead = False
-    tr.current_office().options.filters = []
-    tr.current_office().options.exact_function_names = []
     passed, failed, suite_log = tr.run_module_suite(ctx, module, "draw.teardown")
     assert ran == ["ok"]
     assert passed == 0
@@ -477,8 +471,6 @@ def test_run_module_suite_fails_ok_test_when_bridge_dies_after_return(capsys) ->
     err = capsys.readouterr().err
     assert "LIFECYCLE office dead after TEST returned draw.teardown.test_ok" in err
     assert any("office dead after TEST returned" in line for line in suite_log)
-    tr._office.urp_bridge_dead = False
-    tr.current_office().reset_lifecycle_breadcrumb()
 
 
 def test_run_module_suite_stops_after_urp_dispose() -> None:
@@ -501,16 +493,12 @@ def test_run_module_suite_stops_after_urp_dispose() -> None:
     module.test_first = test_first
     module.test_second = test_second
 
-    tr._office.urp_bridge_dead = False
-    tr.current_office().options.filters = []
-    tr.current_office().options.exact_function_names = []
     passed, failed, suite_log = tr.run_module_suite(object(), module, "fake.urp")
     assert ran == ["first"]
     assert passed == 0
     assert failed == 1
     assert tr._office.urp_bridge_dead is True
     assert any("ABORT" in line or "disposed" in line.lower() for line in suite_log)
-    tr._office.urp_bridge_dead = False
 
 
 def test_user_profile_child_env_disables_uno_thread_guard(monkeypatch) -> None:
@@ -596,10 +584,7 @@ def test_run_module_suite_verbose_pids_only_with_ci_debug(capsys, monkeypatch) -
     module = _Mod()
     module.test_ok = test_ok
     module.test_other = test_other
-    try:
-        passed, failed, _suite_log = tr.run_module_suite(object(), module, "fake.verbose")
-    finally:
-        tr.current_office().options.filters = []
+    passed, failed, _suite_log = tr.run_module_suite(object(), module, "fake.verbose")
     assert passed == 1
     assert failed == 0
     err = capsys.readouterr().err

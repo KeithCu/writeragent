@@ -1,22 +1,5 @@
 import pytest
-import sys
 from unittest.mock import MagicMock, patch
-
-from plugin.tests.testing_utils import setup_uno_mocks
-
-# Mocks specific to UI and dialogs missing from setup_uno_mocks
-class MockXEventListener:
-    pass
-
-class MockXTransferable:
-    pass
-
-class MockXControlContainer:
-    pass
-
-class MockXItemListener:
-    pass
-
 
 # Important: We need to mock `_` inside `plugin.chatbot.dialogs` directly,
 # since it uses `from plugin.framework.i18n import _` inside some functions.
@@ -30,23 +13,6 @@ from plugin.chatbot.dialogs import (
     format_exception_detail,
     _collect_xdl_load_diagnostics,
 )
-
-
-@pytest.fixture(autouse=True)
-def _restore_com_sun_star_for_dialog_tests():
-    """Re-install UNO stubs before each test.
-
-    Other modules (e.g. ``test_tool_loop``, ``test_image_tools_cursor``) assign
-    ``sys.modules['com.sun.star.awt']`` at import time without
-    ``XControlContainer``, which breaks ``from com.sun.star.awt import
-    XControlContainer`` in ``dialogs._xcc`` depending on collection order.
-    """
-    setup_uno_mocks()
-    setattr(sys.modules["com.sun.star.lang"], "XEventListener", MockXEventListener)
-    setattr(sys.modules["com.sun.star.awt"], "XControlContainer", MockXControlContainer)
-    setattr(sys.modules["com.sun.star.awt"], "XItemListener", MockXItemListener)
-    setattr(sys.modules["com.sun.star.datatransfer"], "XTransferable", MockXTransferable)
-    yield
 
 
 def test_show_approval_dialog_disposes_without_flipping_yes():

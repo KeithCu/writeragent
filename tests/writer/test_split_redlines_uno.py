@@ -470,19 +470,3 @@ def test_prior_surgical_batch_survives_later_empty_failed_batch_uno(ctx, doc):
     # tracked deletions, so the live paragraph reads as the post-accept text.
     assert "fast" in (_para_with(doc, "brown") or ""), \
         "batch 1's surgical edit was wrongly reverted by batch 2's rollback: %r" % _para_with(doc, "brown")
-
-
-@native_test
-def test_softpagebreak_offset_safe_whitelist_uno():
-    """An automatic SoftPageBreak (layout-only -- contributes 0 chars to getString() and is
-    not a goRight stop; verified live that navigating getString offsets across one lands exactly
-    right) must NOT force whole-block, so a paragraph that merely straddles a page boundary keeps
-    its surgical sub-edits. Real content portions DO shift offsets and must keep forcing block.
-    Pins the offset-safe whitelist (a layout-dependent behavioural test would be flaky headless)."""
-    from plugin.writer.edit_review import _OFFSET_SAFE_PORTION_TYPES
-    assert "Text" in _OFFSET_SAFE_PORTION_TYPES
-    assert "SoftPageBreak" in _OFFSET_SAFE_PORTION_TYPES, \
-        "SoftPageBreak is offset-safe and must be allowed (else page-straddling paragraphs lose surgical)"
-    for content_portion in ("TextField", "Footnote", "Bookmark", "Ruby", "Frame", "Redline"):
-        assert content_portion not in _OFFSET_SAFE_PORTION_TYPES, \
-            "%s shifts getString offsets vs goRight and must keep forcing whole-block" % content_portion

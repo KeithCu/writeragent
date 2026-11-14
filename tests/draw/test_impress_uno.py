@@ -18,6 +18,7 @@ import json
 import sys
 import unittest
 
+from plugin.framework.uno_context import enum_has_more
 from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import TestingFactory, with_native_doc
 
@@ -102,7 +103,7 @@ def test_speaker_notes_multiline_roundtrip(ctx, doc):
     page = doc.getDrawPages().getByIndex(0)
     enum = find_notes_shape(page.getNotesPage()).getText().createEnumeration()
     paras = []
-    while enum.hasMoreElements():
+    while enum_has_more(enum):
         paras.append(enum.nextElement().getString())
     assert paras == ["one", "two", "three"], paras
 
@@ -111,7 +112,7 @@ def test_speaker_notes_multiline_roundtrip(ctx, doc):
     assert json.loads(result).get("status") == "ok", result
     enum = find_notes_shape(page.getNotesPage()).getText().createEnumeration()
     paras = []
-    while enum.hasMoreElements():
+    while enum_has_more(enum):
         paras.append(enum.nextElement().getString())
     assert paras == ["one", "two", "three", "four"], paras
 

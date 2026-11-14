@@ -3,12 +3,17 @@ from unittest.mock import patch
 import pytest
 
 
-from plugin.framework.uno_bootstrap import register_alias_importer
-register_alias_importer()
+@pytest.fixture
+def wa_module(alias_import_state):
+    from plugin.framework.uno_bootstrap import register_alias_importer
 
-import writeragent as wa
+    register_alias_importer()
+    import writeragent as wa
 
-def test_get_active_document_type_writer():
+    return wa
+
+
+def test_get_active_document_type_writer(wa_module):
     with patch("writeragent.call_host_tool") as mock_rpc:
         mock_rpc.return_value = {
             "documents": [
@@ -16,11 +21,11 @@ def test_get_active_document_type_writer():
                 {"is_active": True, "doc_type": "writer"}
             ]
         }
-        doc_type = wa.get_active_document_type()
+        doc_type = wa_module.get_active_document_type()
         assert doc_type == "writer"
         mock_rpc.assert_called_once_with("list_open_documents")
 
-def test_get_active_document_type_calc():
+def test_get_active_document_type_calc(wa_module):
     with patch("writeragent.call_host_tool") as mock_rpc:
         mock_rpc.return_value = {
             "documents": [
@@ -28,21 +33,21 @@ def test_get_active_document_type_calc():
                 {"is_active": False, "doc_type": "writer"}
             ]
         }
-        doc_type = wa.get_active_document_type()
+        doc_type = wa_module.get_active_document_type()
         assert doc_type == "calc"
 
-def test_get_active_document_type_unknown():
+def test_get_active_document_type_unknown(wa_module):
     with patch("writeragent.call_host_tool") as mock_rpc:
         mock_rpc.return_value = {
             "documents": []
         }
-        doc_type = wa.get_active_document_type()
+        doc_type = wa_module.get_active_document_type()
         assert doc_type == "unknown"
 
-def test_get_active_document_type_propagates_rpc_error():
+def test_get_active_document_type_propagates_rpc_error(wa_module):
     with patch("writeragent.call_host_tool", side_effect=RuntimeError("pipe closed")):
         try:
-            wa.get_active_document_type()
+            wa_module.get_active_document_type()
         except RuntimeError as exc:
             assert "pipe closed" in str(exc)
         else:
@@ -50,12 +55,12 @@ def test_get_active_document_type_propagates_rpc_error():
 
 
 @pytest.mark.parametrize("doc_type", ["writer", "calc"])
-def test_universal_sample_dispatches_by_doc_type(doc_type):
+def test_universal_sample_dispatches_by_doc_type(wa_module, doc_type):
     with (
         patch("writeragent.get_active_document_type", return_value=doc_type),
-        patch.object(wa.writer, "apply_document_content", return_value={}) as mock_apply,
-        patch.object(wa.calc, "insert_cell_html", return_value={}) as mock_insert,
-        patch.object(wa.shape, "upsert", return_value={}) as mock_upsert,
+        patch.object(wa_module.writer, "apply_document_content", return_value={}) as mock_apply,
+        patch.object(wa_module.calc, "insert_cell_html", return_value={}) as mock_insert,
+        patch.object(wa_module.shape, "upsert", return_value={}) as mock_upsert,
     ):
         from plugin.framework.config_schema import _DEFAULT_PYTHON_SCRIPTS
 

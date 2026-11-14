@@ -9,13 +9,10 @@ import os
 from pathlib import Path
 import sys
 
-import pytest
 
 import plugin.ppt_master.paths as ppt_paths
-from plugin.contrib.ppt_master.upstream import collect_svg_files_upstream
 from plugin.ppt_master.paths import (
     _configured_data_root,
-    _dev_clone_data_root,
     apply_data_root_env,
     data_root_status_for_path,
     find_data_root_in_site_packages,
@@ -31,14 +28,6 @@ def _make_outer_clone_layout(tmp_path: Path) -> tuple[Path, Path]:
     (inner / "templates").mkdir()
     (inner / "scripts" / "svg_to_pptx").mkdir(parents=True)
     return outer, inner
-
-
-def test_dev_clone_data_root_when_repo_present():
-    root = _dev_clone_data_root()
-    if root is None:
-        pytest.skip("ppt-master dev clone not checked out in this environment")
-    assert (root / "SKILL.md").is_file()
-    assert (root / "scripts" / "svg_to_pptx").is_dir()
 
 
 def test_find_data_root_falls_back_to_dev_clone(tmp_path: Path, monkeypatch):
@@ -60,28 +49,6 @@ def test_find_data_root_installed_copy_wins_over_dev_clone(tmp_path: Path, monke
     monkeypatch.setattr(ppt_paths, "_user_venv_site_package_roots", lambda _ctx=None: [site_pkg])
     monkeypatch.setattr(sys, "path", [])
     assert find_data_root_in_site_packages() == installed_inner
-
-
-def test_upstream_collect_svg_files_from_dev_clone(tmp_path: Path):
-    dev = _dev_clone_data_root()
-    if dev is None:
-        pytest.skip("ppt-master dev clone not checked out in this environment")
-    proj = tmp_path / "demo"
-    (proj / "svg_final").mkdir(parents=True)
-    (proj / "svg_final" / "01.svg").write_text('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"/>', encoding="utf-8")
-    files = collect_svg_files_upstream(proj, dev)
-    assert files and files[0].name == "01.svg"
-
-
-def test_upstream_scripts_path_imports_discovery():
-    dev = _dev_clone_data_root()
-    if dev is None:
-        pytest.skip("ppt-master dev clone not checked out in this environment")
-    from plugin.contrib.ppt_master.upstream import _load_pptx_discovery
-
-    mod = _load_pptx_discovery(dev)
-    assert mod is not None
-    assert callable(getattr(mod, "find_svg_files", None))
 
 
 def test_resolve_data_root_uses_configured_path(tmp_path: Path, monkeypatch) -> None:
