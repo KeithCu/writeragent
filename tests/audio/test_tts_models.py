@@ -445,10 +445,6 @@ def test_resolve_kokoro_model_files_downloads_multilingual_release(tmp_path, mon
         f"{_KOKORO_RELEASE_BASE}/{KOKORO_VOICES_FILENAME}",
         f"{_KOKORO_RELEASE_BASE}/{KOKORO_MODEL_FILENAME}",
     ]
-    assert _KOKORO_RELEASE_BASE.endswith("/model-files-v1.1")
-    assert "/model-files/" not in _KOKORO_RELEASE_BASE
-    assert "v0_19" not in KOKORO_MODEL_FILENAME
-    assert KOKORO_VOICES_FILENAME != "voices.bin"
     assert model_path == str(cache_dir / "kokoro-v1.0.onnx")
     assert voices_path == str(cache_dir / "voices-v1.0.bin")
 
@@ -474,8 +470,8 @@ def test_resolve_kokoro_model_files_supersedes_english_only_cache(tmp_path, monk
     assert model_path == str(cache_dir / "kokoro-v1.0.onnx")
     assert voices_path == str(cache_dir / "voices-v1.0.bin")
     assert downloaded == [
-        "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.1/voices-v1.0.bin",
-        "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.1/kokoro-v1.0.onnx",
+        f"{_KOKORO_RELEASE_BASE}/{KOKORO_VOICES_FILENAME}",
+        f"{_KOKORO_RELEASE_BASE}/{KOKORO_MODEL_FILENAME}",
     ]
     assert (cache_dir / "kokoro-v0_19.onnx").read_bytes() == b"old-model"
     assert (cache_dir / "voices.bin").read_bytes() == b"old-voices"

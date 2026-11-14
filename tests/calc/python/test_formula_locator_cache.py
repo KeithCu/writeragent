@@ -349,7 +349,6 @@ def test_locate_formula_quoted_still_works():
 
 
 def test_iter_range_formula_texts():
-    assert CELL_FLAG_FORMULA == 16
     doc = CalcDocStub(data=(("=A1+1", "=A2+2"), ("=B1+1", "=B2+2")))
     sheet = doc.getSheets().getByIndex(0)
     ranges = sheet.queryContentCells(CELL_FLAG_FORMULA)

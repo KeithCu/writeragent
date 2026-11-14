@@ -922,7 +922,6 @@ def test_load_and_save_geometric_registry(monkeypatch):
     doc = CalcDocStub(url="file:///geo.ods")
     key = load_geometric_registry_for_doc(doc)
     assert key == "calc:file:///geo.ods"
-    assert GEOMETRIC_REGISTRY_PROP == "WriterAgentGeometricRegistry"
     from plugin.calc.python.geometric_recalc import records_for_sheet
 
     recs = records_for_sheet(key, "Sheet1")

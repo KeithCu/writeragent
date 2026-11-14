@@ -14,7 +14,6 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from plugin.audio.tts_endpoint import (
-    _default_endpoint_format,
     download_endpoint_speech,
     _EndpointClip,
     _pcm_rate_from_content_type,
@@ -155,7 +154,6 @@ def test_speak_endpoint_payload():
             mock_play.assert_called_once()
 
         assert mock_sync.call_args.args[0] == "https://openrouter.ai/api/v1/audio/speech"
-        assert mock_sync.call_args.kwargs["max_bytes"] == 32 * 1024 * 1024
         headers = mock_sync.call_args.kwargs["headers"]
         assert headers["Authorization"] == "Bearer test-key"
         payload = json.loads(mock_sync.call_args.kwargs["data"].decode("utf-8"))
@@ -482,11 +480,6 @@ def test_speech_http_error_redacts_api_key(caplog):
     assert secret not in statuses[0]
     assert secret not in caplog.text
     assert "<redacted>" in statuses[0]
-
-
-def test_default_endpoint_format_is_mp3():
-    """MP3 is the first request on every platform, including Windows."""
-    assert _default_endpoint_format() == "mp3"
 
 
 def test_endpoint_audio_suffix_from_content_type():

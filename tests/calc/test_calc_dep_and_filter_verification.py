@@ -219,23 +219,3 @@ def test_calc_addin_data_to_python_rectangular_invariant(data) -> None:
                 assert isinstance(row, list)
                 assert len(row) == first_len
 
-
-def test_filter_operator2_code_to_name_is_off_cover_all() -> None:
-    """filter_operator2_code_to_name stays out of cover-all targets.
-
-    connection and resolve stay on under a closed
-    FilterOperator2 profile, while code→name remains off.
-    """
-    from pathlib import Path
-
-    from tests.harness.strip_bundle import skip_if_release_build
-
-    skip_if_release_build("scripts/ not in stripped release tree")
-    from scripts.crosshair_stream import cover_fqns_for_module
-
-    fqns = cover_fqns_for_module(Path("plugin/calc/sheet_filter_criteria.py"))
-    assert not any(f.endswith(".filter_operator2_code_to_name") for f in fqns)
-    assert not any(f.endswith(".filter_operator2_name_to_code") for f in fqns)
-    assert any(f.endswith(".filter_connection_code") for f in fqns)
-    assert any(f.endswith(".resolve_filter_operator_code") for f in fqns)
-

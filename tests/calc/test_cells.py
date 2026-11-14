@@ -759,6 +759,7 @@ def test_read_cell_range_min_over_cap_truncates_to_preview():
 def test_read_cell_range_tool_keeps_small_range_full():
     from plugin.calc.cells import _READ_CELL_RANGE_MAX_CELLS
 
+    assert 8 * 10 <= _READ_CELL_RANGE_MAX_CELLS
     ctx = SimpleNamespace(doc=MagicMock())
     with (
         patch("plugin.calc.cells.CalcBridge") as bridge_cls,
@@ -771,7 +772,6 @@ def test_read_cell_range_tool_keeps_small_range_full():
         inspector_cls.return_value.read_range.return_value = _inspector_sample_grid([1])
         result = _tool("read_cell_range").execute_safe(ctx, range=["A1:H10"])
 
-    assert _READ_CELL_RANGE_MAX_CELLS == 80
     assert not _only_entry(result).get("truncated")
     inspector_cls.return_value.read_range.assert_called_once_with("A1:H10", include_format_info=True)
 

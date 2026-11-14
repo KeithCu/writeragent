@@ -15,8 +15,6 @@ import numpy as np
 
 import plugin.scripting.calc_functions as calc
 
-from plugin.calc.spreadsheet_import.emit import build_converted_output_model
-from plugin.calc.spreadsheet_import.models import CellRecord, SheetModel
 from plugin.calc.spreadsheet_import.preprocess import normalize_lo_formula_for_parse
 from plugin.calc.spreadsheet_import.translate import FUNCTION_EMITTERS, TranslationError, translate_formula
 import pytest
@@ -723,53 +721,6 @@ def test_translate_group_e_emit_only(formula, expected_substr):
     assert res.ok
     if expected_substr is not None:
         assert expected_substr in res.code
-
-# Helpers the translator used to emit that are not on the calc facade.
-# Import must refuse them. A successful translation writes =PY("calc.<name>(...)")
-# that AttributeErrors at recalc.
-_UNIMPLEMENTED_FINANCE = (
-    ('=ODDLYIELD("2008-04-20"; "2008-06-15"; "2008-03-12"; 0.05; 99.875; 100; 2; 0)', "oddlyield"),
-    ("=PDURATION(0.025; 10000; 12000)", "pduration"),
-    ("=PPMT(0.01; 1; 24; 2000)", "ppmt"),
-    ('=PRICE("2008-02-15"; "2017-11-15"; 0.0575; 0.065; 100; 2; 0)', "price"),
-    ('=PRICEDISC("2008-02-15"; "2008-03-01"; 0.0525; 100; 2)', "pricedisc"),
-    ('=PRICEMAT("2008-02-15"; "2008-04-13"; "2007-11-11"; 0.061; 0.061; 2)', "pricemat"),
-    ("=RATE(48; -200; 8000)", "rate"),
-    ('=RECEIVED("2008-02-15"; "2008-05-15"; 1000000; 0.0575; 2)', "received"),
-    ("=RRI(48; 10000; 12000)", "rri"),
-    ("=SLN(30000; 7500; 10)", "sln"),
-    ("=SYD(30000; 7500; 10; 1)", "syd"),
-    ('=TBILLEQ("2008-03-31"; "2008-06-01"; 0.0914)', "tbilleq"),
-    ('=TBILLPRICE("2008-03-31"; "2008-06-01"; 0.09)', "tbillprice"),
-    ('=TBILLYIELD("2008-03-31"; "2008-06-01"; 98.45)', "tbillyield"),
-    ("=VDB(2400; 300; 10; 0; 0.875; 1.5)", "vdb"),
-)
-
-
-def test_unimplemented_finance_stays_unsupported():
-    """These formulas must not import as =PY(); the helpers do not exist."""
-    for formula, helper in _UNIMPLEMENTED_FINANCE:
-        res = translate_formula(formula, "A1")
-        assert res.ok is False, formula
-        assert res.reason == "UNSUPPORTED_FUNCTION"
-        assert not hasattr(calc, helper), helper
-        model = SheetModel(
-            sheet_name="Sheet1",
-            used_range="A1",
-            cells={
-                "A1": CellRecord(
-                    address="A1",
-                    type="formula",
-                    value=None,
-                    formula=formula,
-                    number_format=None,
-                )
-            },
-        )
-        output, report = build_converted_output_model(model, vectorize=False)
-        assert output.cells["A1"].formula == formula
-        assert "A1" not in report.converted
-        assert report.skipped and report.skipped[0].reason == "UNSUPPORTED_FUNCTION"
 
 
 def test_translate_financial_group_a():

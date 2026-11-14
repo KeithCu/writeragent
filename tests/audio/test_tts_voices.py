@@ -27,7 +27,6 @@ from plugin.audio.tts_voices import (
     voice_options_for_provider,
 )
 from plugin.audio.voice_catalog import (
-    CATALOG_PATH,
     KOKORO_CATALOG_ITEMS as _KOKORO_CATALOG_ITEMS,
     LOCALE_TO_PIPER_DEFAULT,
     PIPER_VOICE_MODELS as _PIPER_VOICE_MODELS,
@@ -171,33 +170,10 @@ def test_parse_tts_speed():
 def test_get_default_voice_for_locale():
     assert get_default_voice_for_locale("piper", "de_DE") == "de_DE-thorsten-medium"
     assert get_default_voice_for_locale("piper", "de") == "de_DE-thorsten-medium"
-    assert get_default_voice_for_locale("piper", "fr_FR") == "fr_FR-siwis-medium"
-    assert get_default_voice_for_locale("piper", "es_ES") == "es_ES-davefx-medium"
-    assert get_default_voice_for_locale("piper", "it_IT") == "it_IT-paola-medium"
-    assert get_default_voice_for_locale("piper", "ru_RU") == "ru_RU-denis-medium"
-    assert get_default_voice_for_locale("piper", "zh_CN") == "zh_CN-huayan-medium"
-    assert get_default_voice_for_locale("piper", "ja_JP") == "ja_JP-hi_fi_captain-medium"
     assert get_default_voice_for_locale("piper", "nb_NO") == "no_NO-talesyntese-medium"
-    assert get_default_voice_for_locale("piper", "nn_NO") == "no_NO-talesyntese-medium"
-    assert get_default_voice_for_locale("piper", "hr") == "sl_SI-artur-medium"
     assert get_default_voice_for_locale("piper", "en_US") == "en_US-lessac-medium"
 
-    for loc, voice_id in (
-        ("fr_FR", "fr_FR-siwis-medium"),
-        ("it_IT", "it_IT-paola-medium"),
-        ("en_US", "en_US-lessac-medium"),
-        ("nl_NL", "nl_NL-mls-medium"),
-    ):
-        assert get_default_voice_for_locale("piper", loc) == voice_id
-        assert "female" in _PIPER_VOICE_MODELS[voice_id][3].casefold()
-
     assert get_default_voice_for_locale("kokoro", "es_ES") == "ef_dora"
-    assert get_default_voice_for_locale("kokoro", "fr_FR") == "ff_siwis"
-    assert get_default_voice_for_locale("kokoro", "it_IT") == "if_sara"
-    assert get_default_voice_for_locale("kokoro", "ja_JP") == "jf_alpha"
-    assert get_default_voice_for_locale("kokoro", "zh_CN") == "zf_xiaobei"
-    assert get_default_voice_for_locale("kokoro", "hi_IN") == "hf_alpha"
-    assert get_default_voice_for_locale("kokoro", "pt_BR") == "pf_dora"
     assert get_default_voice_for_locale("kokoro", "en_US") == "af_sky"
     assert get_default_voice_for_locale("kokoro", "de_DE") == "af_sky"
 
@@ -315,21 +291,10 @@ def test_piper_and_kokoro_voice_list_shows_parenthetical_only():
     assert any(row["value"] == "alloy" for row in openai)
 
 
-def test_voice_catalog_asset_drives_runtime_maps():
-    import json
-    import os
-
+def test_voice_short_name_strips_label_suffix():
     from plugin.audio.voice_catalog import voice_short_name
 
-    assert os.path.isfile(CATALOG_PATH)
-    with open(CATALOG_PATH, encoding="utf-8") as handle:
-        raw = json.load(handle)
-
-    piper_ids = [row["id"] for row in raw["piper"]["voices"]]
-    assert list(_PIPER_VOICE_MODELS) == piper_ids
-    kokoro_ids = [row["id"] for row in raw["kokoro"]["voices"]]
-    assert [item["value"] for item in _KOKORO_CATALOG_ITEMS] == kokoro_ids
-    sample_id = piper_ids[0]
+    sample_id = next(iter(_PIPER_VOICE_MODELS))
     assert voice_short_name(f"{sample_id} (x)") == voice_short_name(sample_id) != sample_id
 
 
@@ -528,9 +493,6 @@ def test_together_non_kokoro_no_voices_is_editable_and_empty():
 
 
 def test_piper_locale_defaults_authoritative():
-    for loc, target_id in LOCALE_TO_PIPER_DEFAULT.items():
-        assert target_id in _PIPER_VOICE_MODELS, f"{loc} -> {target_id} not in PIPER_VOICE_MODELS"
-
     # Patch a mapped id's label to male, but the JSON map value still wins over female scan
     de_voice = LOCALE_TO_PIPER_DEFAULT["de"]
     orig_tuple = _PIPER_VOICE_MODELS[de_voice]

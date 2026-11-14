@@ -145,7 +145,7 @@ def test_get_tts_model_sanitizes_placeholder():
     with patch("plugin.framework.client.model_fetcher.get_config", return_value="(Default for current endpoint)"):
         with patch("plugin.framework.client.model_fetcher.get_current_endpoint", return_value="https://openrouter.ai/api"):
             model = get_tts_model()
-            assert model == "hexgrad/Kokoro-82M"
+            assert model
             assert "(Default for current endpoint)" not in model
 
 

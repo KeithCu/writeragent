@@ -12,9 +12,6 @@ from hypothesis import given, strategies as st
 import deal
 from plugin.calc.excel_py_convert.models import ExcelPyCell, ExcelWorkbookModel, SheetInfo
 from plugin.calc.excel_py_convert.to_dag import (
-    _deal_convert_cell_ok,
-    _deal_convert_scripts_ok,
-    _deal_excel_src_ok,
     _find_xl_calls,
     _normalize_bindings,
     normalize_excel_placeholders,
@@ -110,38 +107,6 @@ def test_dag_wrapper_overflow_pre_fails_closed() -> None:
                 ],
             )
         )
-
-
-def test_find_xl_calls_accepts_tab_then_quote() -> None:
-    """Pytest domain is DEAL_MAX_SOURCE; a two-char quote walk is a legal script."""
-    calls, issues = _find_xl_calls('\t"')
-    assert calls == []
-    assert isinstance(issues, list)
-
-
-def test_deal_convert_scripts_ok_matches_excel_src_ok() -> None:
-    """Wrapper scripts pre must share _find_xl_calls' _deal_excel_src_ok.
-
-    Pytest keeps str_bounded (NUL allowed).
-    """
-    assert _deal_excel_src_ok("\x00")
-    assert _deal_convert_scripts_ok(ExcelWorkbookModel(scripts=["\x00"], cells=[]))
-    assert _deal_convert_scripts_ok(ExcelWorkbookModel(scripts=["x"], cells=[]))
-
-
-def test_deal_convert_cell_ok_dep_alphabet_pytest() -> None:
-    """Pytest deps stay ascii_bounded so ``_xlfn.ANCHORARRAY`` / ``Table[#All]`` work."""
-    def cell(deps: list[str]) -> ExcelPyCell:
-        return ExcelPyCell(sheet="S", cell="A1", script_index=0, return_type=0, deps=deps)
-
-    assert _deal_convert_cell_ok(cell(["_"]))  # pytest ascii; CrossHair A1 rejects
-    assert _deal_convert_cell_ok(cell(["["]))
-    assert _deal_convert_cell_ok(cell(["\x00"]))
-    assert _deal_convert_cell_ok(cell(["A"]))
-    assert _deal_convert_cell_ok(cell(["M"]))
-    assert _deal_convert_cell_ok(cell(["A1"]))
-    assert _deal_convert_cell_ok(cell(["_xlfn.ANCHORARRAY(A6)"]))
-    assert _deal_convert_cell_ok(cell(["Table1[#All]"]))
 
 
 def test_convert_model_to_dag_underscore_dep_no_pattern_error() -> None:

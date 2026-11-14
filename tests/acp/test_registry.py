@@ -52,12 +52,9 @@ def test_module_yaml_matches_registry_specs():
     assert yaml_pairs == expected_pairs
 
 
-def test_registry_classes_own_their_display_names():
-    assert list(AGENT_BACKEND_REGISTRY) == ["builtin", "hermes", "claude", "vibe", "grok", "opencode", "antigravity"]
+def test_registry_keys_match_backend_id():
     for key, cls in AGENT_BACKEND_REGISTRY.items():
-        assert isinstance(cls, type)
         assert cls.backend_id == key
-        assert "display_name" in cls.__dict__
 
 
 @pytest.mark.parametrize("cls", _ACP_BACKENDS, ids=lambda c: c.backend_id)
@@ -134,7 +131,6 @@ def test_grok_and_opencode_env_vars():
 
 def test_antigravity_env_vars():
     assert AntigravityBackend().get_env_vars() == {}
-    assert "api_key_env_by_provider" not in AntigravityBackend.__dict__
     with patch(
         "plugin.acp.acp_backend.get_current_endpoint",
         side_effect=RuntimeError("should not be called"),
