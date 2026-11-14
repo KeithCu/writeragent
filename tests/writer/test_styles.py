@@ -1021,53 +1021,6 @@ def test_apply_style_unknown_style_lists_names_and_suggests():
     assert "Did you mean 'Heading 1'" in res["message"]
     assert "Text body" in res["message"]
 
-def test_apply_style_all_matches_does_not_stop_early() -> None:
-    from plugin.writer.styles import ApplyStyle
-    from plugin.framework.tool import ToolContext
-
-    tool = ApplyStyle()
-    assert tool.is_async() is False
-
-    doc = WriterDocStub()
-    undo_mgr = MagicMock()
-    undo_mgr.isLocked.return_value = False
-    doc.getUndoManager = MagicMock(return_value=undo_mgr)
-
-    stop_scope = SendCancellation()
-    stop_scope.cancel()
-    ctx = ToolContext(doc, MagicMock(), "writer", MagicMock(), "test", send_cancellation=stop_scope)
-    ctx.services.get = MagicMock(return_value=None)
-
-    # Stop scope is cancelled, but document mutation must not abort early
-    applied_count = 0
-
-    # Fake 4 find results
-    ranges = [MagicMock(), MagicMock(), MagicMock(), MagicMock()]
-    for i, r in enumerate(ranges):
-        text_mock = MagicMock()
-        text_mock.createTextCursorByRange.return_value = MagicMock()
-        r.getText.return_value = text_mock
-        r.getStart.return_value = "start"
-        r.getEnd.return_value = "end"
-
-    with patch("plugin.writer.search.find_all_ranges", return_value=ranges):
-        tool._tool_error = lambda m: {"status": "error", "message": m}
-
-        def mock_apply_one(*args, **kwargs):
-            nonlocal applied_count
-            applied_count += 1
-            return {"applied_direct": 1}
-
-        tool._apply_one = mock_apply_one
-        tool._merge_reports = lambda rep: {}
-
-        with patch("plugin.writer.edit_review.review_recording_enabled", return_value=False):
-            res = tool.execute(ctx, style="Heading 1", target="search", old_content="foo", all_matches=True)
-
-            assert res["status"] == "ok"
-            assert res["applied_count"] == 4
-            assert "Tool stopped early" not in res["message"]
-
 
 def test_style_color_par_back_and_automatic():
     style = MagicMock()

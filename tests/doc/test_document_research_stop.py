@@ -68,7 +68,7 @@ def test_grep_nearby_files_stop_before_file_hop_returns_user_stopped(
 ):
     opened_model = MagicMock()
     mock_resolve.return_value = (
-        [MagicMock(path="/tmp/Budget.ods", url="file:///tmp/Budget.ods", entry_type="file", name="Budget.ods")],
+        [{"path": "/tmp/Budget.ods", "url": "file:///tmp/Budget.ods", "entry_type": "file", "name": "Budget.ods"}],
         False,
         None,
     )
@@ -133,7 +133,11 @@ def test_grep_nearby_files_polls_stop_checker(
     mock_grep_calc,
 ):
     opened_model = MagicMock()
-    mock_resolve.return_value = ([MagicMock(path="/tmp/Budget.ods", url="file:///tmp/Budget.ods", entry_type="file", name="Budget.ods")], False, None)
+    mock_resolve.return_value = (
+        [{"path": "/tmp/Budget.ods", "url": "file:///tmp/Budget.ods", "entry_type": "file", "name": "Budget.ods"}],
+        False,
+        None,
+    )
     mock_open.return_value = (opened_model, "calc", None, True)
 
     def mock_execute_on_main(fn, *args, **kwargs):

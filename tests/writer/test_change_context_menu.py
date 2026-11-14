@@ -56,7 +56,7 @@ def test_doc_event_get_current_controller_disposal_is_listener_boundary():
     assert exc_info.value.kind == "disposed"
 
 
-def test_doc_event_runtime_exception_is_logged_not_boundary():
+def test_doc_event_runtime_exception_returns_none_not_boundary():
     listener = _build_listener()
     source = MagicMock()
     source.getCurrentController.side_effect = RuntimeException("live")

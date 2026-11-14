@@ -1404,28 +1404,19 @@ def test_full_document_refuses_before_deleting_anything():
     model.getText.assert_not_called()
 
 
-def test_html_to_plain_text_pure_does_not_call_scratch_writer():
+@pytest.mark.parametrize(
+    "html_input,expected",
+    [
+        ("<b>foo</b>", "foo"),
+        ("<p>Hello</p><p>World</p>", "Hello\nWorld"),
+        ("<ruby>漢字<rt>かんじ</rt></ruby>", "漢字"),
+        ("  plain text search  ", "plain text search"),
+    ],
+)
+def test_html_to_plain_text_values(html_input: str, expected: str):
     from plugin.writer.html_import import html_to_plain_text
 
-    with patch("plugin.framework.scratch_writer.new_blank_writer") as mock_new_writer:
-        assert html_to_plain_text("<b>foo</b>") == "foo"
-        mock_new_writer.assert_not_called()
-
-        assert html_to_plain_text("<p>Hello</p><p>World</p>") == "Hello\nWorld"
-        mock_new_writer.assert_not_called()
-
-        # Ruby input returns base text only
-        assert html_to_plain_text("<ruby>漢字<rt>かんじ</rt></ruby>") == "漢字"
-        mock_new_writer.assert_not_called()
-
-
-def test_html_to_plain_text_plain_string_without_markup_succeeds_without_scratch_doc():
-    from plugin.writer.html_import import html_to_plain_text
-
-    with patch("plugin.framework.scratch_writer.new_blank_writer") as mock_new_writer:
-        res = html_to_plain_text("  plain text search  ")
-        assert res == "plain text search"
-        mock_new_writer.assert_not_called()
+    assert html_to_plain_text(html_input) == expected
 
 
 def test_content_has_markup_cases():

@@ -1586,7 +1586,7 @@ def test_clone_master_runtime_exception_on_rename_succeeds():
 
     with patch("plugin.draw.designs.clone_shape", return_value=_STUB_CLONED_SHAPE):
         cloned = clone_master_into_doc(dest_doc, src_doc, {"id": "src", "name": "SourceMaster"})
-    assert cloned.name == "Original" or cloned.name == "SourceMaster"
+    assert cloned.name == "Original"
 
 
 def test_clone_master_disposed_exception_on_rename_propagates():
