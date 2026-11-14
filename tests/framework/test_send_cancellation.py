@@ -229,13 +229,21 @@ def test_cancel_pending_work_wakes_blocking_waiter():
 def test_delegate_read_runs_inner_agent_off_main_thread(mock_resolve, mock_open, mock_inner, mock_main):
     mock_resolve.return_value = ("/tmp/budget.ods", None)
     mock_open.return_value = (MagicMock(), "calc", None, True)
-    mock_inner.return_value = {"status": "ok", "finished": True, "answer": "Q4=100"}
+
+    inner_threads: list[threading.Thread] = []
+
+    def fake_inner(*_args, **_kwargs):
+        inner_threads.append(threading.current_thread())
+        return {"status": "ok", "finished": True, "answer": "Q4=100"}
+
+    mock_inner.side_effect = fake_inner
 
     captured_fns: list = []
 
-    def capture(fn, *args, **kwargs):
+    def capture(fn, *args, timeout=30.0, bound_scope=None, **kwargs):
+        del timeout, bound_scope
         captured_fns.append(fn)
-        return fn()
+        return fn(*args, **kwargs)
 
     mock_main.side_effect = capture
 
@@ -244,13 +252,28 @@ def test_delegate_read_runs_inner_agent_off_main_thread(mock_resolve, mock_open,
     ctx.ctx = MagicMock()
     ctx.doc = MagicMock()
     ctx.send_cancellation = None
-    result = tool.execute(ctx, path_or_name="budget.ods", task="Q4")
 
-    assert result["status"] == "ok"
-    assert mock_inner.called
-    inner_fn_names = [getattr(f, "__name__", "") for f in captured_fns]
-    assert not any(name == "run_inner_read_agent" for name in inner_fn_names)
+    result_box: dict[str, object] = {}
+    err_box: list[BaseException] = []
+
+    def _run() -> None:
+        try:
+            result_box["result"] = tool.execute(ctx, path_or_name="budget.ods", task="Q4")
+        except BaseException as exc:
+            err_box.append(exc)
+
+    worker = threading.Thread(target=_run)
+    worker.start()
+    worker.join(timeout=2.0)
+    assert not worker.is_alive()
+    if err_box:
+        raise err_box[0]
+
+    assert result_box["result"]["status"] == "ok"
     assert mock_inner.call_count == 1
+    assert inner_threads == [worker]
+    assert mock_open in captured_fns
+    assert mock_inner not in captured_fns
 
 
 def test_agent_session_yields_send_cancellation():

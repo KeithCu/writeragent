@@ -320,16 +320,23 @@ def test_shutdown_all_abandons_without_waiting(tmp_path: Any, supervisor: Superv
     child = Child(managed, worker_name="test", worker_id=0)
     warm._child = child
 
-    def fail_wait_once(*args: Any, **kwargs: Any) -> bool:
-        raise AssertionError("wait_once must not be called during abandon_for_quit")
+    calls: list[str] = []
 
-    def fail_finish_text(*args: Any, **kwargs: Any) -> str:
-        raise AssertionError("finish_text must not be called during abandon_for_quit")
+    def record_wait_once(*args: Any, **kwargs: Any) -> bool:
+        del args, kwargs
+        calls.append("wait_once")
+        return True
 
-    with patch.object(managed, "wait_once", side_effect=fail_wait_once), \
-         patch("plugin.framework.managed_subprocess.StderrTail.finish_text", side_effect=fail_finish_text):
+    def record_finish_text(*args: Any, **kwargs: Any) -> str:
+        del args, kwargs
+        calls.append("finish_text")
+        return ""
+
+    with patch.object(managed, "wait_once", side_effect=record_wait_once), \
+         patch("plugin.framework.managed_subprocess.StderrTail.finish_text", side_effect=record_finish_text):
         supervisor.shutdown_all()
 
+    assert calls == []
     assert warm._retired is True
 
 

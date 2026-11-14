@@ -780,41 +780,6 @@ class TestWorkItemClaimLockTimeoutRace:
     leaving a window where the main thread could execute a timed-out item.
     """
 
-    def test_timeout_cancels_unclaimed_item(self):
-        # When the main thread has not yet claimed the item, a timeout must
-        # mark it cancelled so process_queue drops it.
-        from plugin.framework.queue_executor import MainThread, _WorkItem
-
-        qe = MainThread()
-        item = _WorkItem(lambda: None, (), {}, blocking=True)
-        # Simulate _wait_for_result timing out: event never fired.
-        assert not item.event.wait(0)  # immediate timeout
-        with qe._claim_lock:
-            if not item._claimed:
-                item.cancelled = True
-        assert item.cancelled is True
-        assert item._claimed is False
-
-    def test_claimed_item_is_not_cancelled_on_timeout(self):
-        # When the main thread has already claimed the item (_claimed=True),
-        # the timeout path must NOT set item.cancelled — the function is already
-        # executing and cancellation would be a no-op anyway.
-        from plugin.framework.queue_executor import MainThread, _WorkItem
-
-        qe = MainThread()
-        item = _WorkItem(lambda: None, (), {}, blocking=True)
-        # Simulate main thread claiming before timeout fires.
-        with qe._claim_lock:
-            item._claimed = True
-
-        # Simulate timeout path:
-        with qe._claim_lock:
-            if not item._claimed:
-                item.cancelled = True
-
-        assert item.cancelled is False  # claim won — item not cancelled
-        assert item._claimed is True
-
     def test_timeout_returns_result_if_event_is_set_during_wait(self):
         # wait() can return false in the same window process_queue stores
         # the result and sets the event. The waiter must return that result.
