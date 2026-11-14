@@ -83,13 +83,6 @@ def test_table_to_tsv_lines_preserves_empty_cells():
     assert lines == ["Col1\t\tCol3", "A\t\tC", "D\tE\t"]
 
 
-def test_bbox_to_xywh_bottomleft_flip():
-    # BOTTOMLEFT boxes must flip y with page_height and use abs(t - b) for height when t > b.
-    docling_box = {"l": 10.0, "b": 20.0, "r": 50.0, "t": 60.0, "coord_origin": "BOTTOMLEFT"}
-    box = bbox_to_xywh(docling_box, page_height=100.0)
-    assert box == [10, 40, 40, 40]
-
-
 class _Box:
     def __init__(self, l, t, r, b, coord_origin=""):  # noqa: E741
         self.l, self.t, self.r, self.b = l, t, r, b

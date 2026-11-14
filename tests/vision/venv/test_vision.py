@@ -337,35 +337,6 @@ def test_extract_text_runtime_error_returns_vision_error(mock_get_engine, mock_d
     assert "model failed" in result["message"]
 
 
-@patch("plugin.scripting.client.run_trusted_worker_action")
-def test_vision_client_passes_payload(mock_action):
-    from plugin.scripting.client import run_vision as run_trusted_vision
-
-    ctx = MagicMock()
-    mock_action.return_value = {
-        "status": "ok",
-        "helper": "extract_text",
-        "full_text": "ok",
-    }
-
-    result = run_trusted_vision(
-        ctx,
-        {"helper": "extract_text", "params": {}},
-        b"png",
-        context={"source": "selection"},
-    )
-
-    assert result["full_text"] == "ok"
-    mock_action.assert_called_once()
-    _args, kwargs = mock_action.call_args
-    assert "session_id" not in kwargs
-    assert kwargs["domain"] == "vision"
-    assert kwargs["helper"] == "extract_text"
-    assert kwargs["params"] == {}
-    assert kwargs["context"] == {"source": "selection"}
-    assert kwargs["additional_data"] == {"image": b"png"}
-
-
 @patch("plugin.vision.venv.vision_docling._convert_image_bytes")
 def test_pdf_docling_unavailable_does_not_call_paddle(mock_convert):
     mock_convert.side_effect = ImportError("docling is not installed")

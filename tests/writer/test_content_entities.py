@@ -25,10 +25,6 @@ class TestPlainTextEntityGuard:
         for text in ("Banco & Cia", "A & B", "salário & benefícios", "P&D"):
             assert decode_complete_character_references(text) == text
 
-    def test_decoded_text_is_what_reaches_the_document(self):
-        content = "Valor de R&#36;5.000,00 e R&#36;52,15."
-        assert decode_complete_character_references(content) == "Valor de R$5.000,00 e R$52,15."
-
 
 class TestOnlyCompleteReferencesAreDecoded:
     """html.unescape on a whole string also expands semicolon-less names

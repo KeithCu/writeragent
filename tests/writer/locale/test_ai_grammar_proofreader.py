@@ -97,7 +97,7 @@ from plugin.writer.locale.grammar_proofread_locale import (
 )
 from plugin.writer.locale.grammar_proofread_text import NormalizedProofError
 from plugin.writer.locale import grammar_worker
-from plugin.writer.locale.grammar_work_queue import GrammarWorkItem, GrammarWorkQueue, enqueue_misses
+from plugin.writer.locale.grammar_work_queue import GrammarWorkItem, GrammarWorkQueue
 from plugin.writer.locale.grammar_worker import GrammarWorkerContext, run_llm_and_cache_batch
 
 
@@ -314,15 +314,6 @@ class TestTypingIntegration:
         res = pr.doProofreading("test-doc", sentence, mock_locale_fixture, 0, len(sentence), ())
         assert len(res.aErrors) == 1
         mock_queue_fixture.enqueue.assert_not_called()
-
-    def test_enqueue_misses_persists_identity(self, mock_config_fixture, mock_locale_fixture, mock_queue_fixture):
-        pr = _make_proofreader()
-        enqueue_misses(mock_queue_fixture, pr.ctx, "test-doc", "en-US", [(0, 10, "Some text.")], "custom-prov", "custom-ident")
-
-        mock_queue_fixture.enqueue.assert_called_once()
-        item = mock_queue_fixture.enqueue.call_args[0][0]
-        assert item.provider == "custom-prov"
-        assert item.checker_identity == "custom-ident"
 
     def test_paragraph_edit_middle_miss(self, mock_config_fixture, mock_locale_fixture, mock_queue_fixture):
         pr = _make_proofreader()

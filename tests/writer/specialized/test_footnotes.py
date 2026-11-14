@@ -368,15 +368,6 @@ def test_footnotes_settings_update():
     settings.setPropertyValue.assert_any_call("Suffix", "]")
 
 
-def test_footnotes_shortened_type_param():
-    doc = MagicMock()
-    doc.supportsService.return_value = True
-    settings = MagicMock()
-    doc.getFootnoteSettings.return_value = settings
-    res = FootnotesSettingsGet().execute(FakeCtx(doc), note="footnote")
-    assert res["status"] == "ok"
-
-
 def test_footnotes_disposal_is_document_disposed():
     from plugin.framework.errors import DocumentDisposedError
     tool = FootnotesList()

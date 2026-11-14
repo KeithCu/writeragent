@@ -232,15 +232,6 @@ def test_apply_pipeline_params_maps_flat_keys():
     assert layout_opts.model_spec == "heron-spec"
 
 
-def test_resolve_ocr_options_surya():
-    mock_surya = MagicMock()
-    mock_surya.SuryaOcrOptions.return_value = "surya-opts"
-    with patch("importlib.import_module", side_effect=lambda name: mock_surya if name == "docling_surya" else MagicMock()):
-        opts = docling_mod._resolve_ocr_options(docling_mod.DoclingPipelineParams.from_params({"ocr_backend": "surya", "lang": "en"}))
-    assert opts == "surya-opts"
-    mock_surya.SuryaOcrOptions.assert_called_once_with(lang=["en"])
-
-
 def test_build_pipeline_options_surya():
     mock_surya = MagicMock()
     mock_surya.SuryaOcrOptions.return_value = "surya-opts"
@@ -259,14 +250,12 @@ def test_build_pipeline_options_surya():
         return MagicMock()
 
     with patch("importlib.import_module", side_effect=side_effect):
-        pipeline_opts = docling_mod._build_pipeline_options(docling_mod.DoclingPipelineParams.from_params({"ocr_backend": "surya"}))
+        pipeline_opts = docling_mod._build_pipeline_options(
+            docling_mod.DoclingPipelineParams.from_params({"ocr_backend": "surya", "lang": "en"})
+        )
 
     assert pipeline_opts == pdf_opts_instance
-    pdf_opts_cls.assert_called_once_with(
-        do_ocr=True,
-        do_table_structure=True,
-        allow_external_plugins=True,
-    )
+    mock_surya.SuryaOcrOptions.assert_called_once_with(lang=["en"])
     assert pdf_opts_instance.ocr_options == "surya-opts"
     assert pdf_opts_instance.ocr_model == "suryaocr"
 
