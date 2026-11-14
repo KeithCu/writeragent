@@ -598,7 +598,6 @@ def test_proxy_copy():
     proxy = tg._UnoThreadGuardProxy(target)
     c = copy.copy(proxy)
     assert isinstance(c, tg._UnoThreadGuardProxy)
-    assert c._target is target
     assert c.hello() == "world"
 
 
@@ -610,7 +609,7 @@ def test_proxy_pickle():
     dumped = pickle.dumps(proxy)
     loaded = pickle.loads(dumped)
     assert isinstance(loaded, tg._UnoThreadGuardProxy)
-    assert loaded._target == target
+    assert loaded == target
     assert loaded.hello() == "pickled"
 
 

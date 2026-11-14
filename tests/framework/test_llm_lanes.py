@@ -50,12 +50,10 @@ def _reset_grammar_inflight_count() -> None:
 
 
 def test_grammar_llm_request_gate_limit_1_uses_global_lane() -> None:
-    with patch.object(lc, "llm_request_lane") as lane:
-        lane.return_value.__enter__ = MagicMock()
-        lane.return_value.__exit__ = MagicMock(return_value=False)
-        with lc.grammar_llm_request_gate(1):
-            pass
-        lane.assert_called_once()
+    with lc.llm_request_lane():
+        with pytest.raises(TimeoutError):
+            with lc.grammar_llm_request_gate(1, timeout=0.02):
+                pass
 
 
 def test_grammar_llm_request_gate_release_admits_one_waiter() -> None:

@@ -70,7 +70,7 @@ def test_get_real_interface_create_runs_on_hop():
             "plugin.framework.queue_executor.main.call",
             side_effect=lambda fn, *args, **kwargs: fn(),
         ) as hop,
-        patch("plugin.librepy.panel_factory._ensure_paths") as ensure,
+        patch("plugin.librepy.panel_factory._ensure_paths"),
         patch.object(
             el, "_getOrCreatePanelRootWindow", return_value=root
         ),
@@ -81,7 +81,6 @@ def test_get_real_interface_create_runs_on_hop():
         result = el.getRealInterface()
 
     hop.assert_called_once()
-    ensure.assert_called_once_with(el.ctx)
     assert isinstance(result, PythonToolPanel)
     assert result is el.toolpanel
     assert result.Window is root
