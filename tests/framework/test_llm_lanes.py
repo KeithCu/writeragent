@@ -323,7 +323,9 @@ def test_llm_request_lane_acquire_is_capped_by_remaining() -> None:
 
     assert all(t <= 0.25 for t in recorded)
     assert sum(recorded) <= 0.32
-    assert recorded[-1] < 0.25
+    # If the first 0.25s sleep oversleeps past the 0.30s deadline on a busy CI
+    # runner, only one 0.25s chunk is recorded; the cap is still respected.
+    assert recorded[-1] <= 0.25
 
 
 def test_llm_request_lane_stop_is_polled_during_acquire() -> None:

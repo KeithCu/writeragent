@@ -398,6 +398,18 @@ jobs:
       - name: Run UNO tests
         timeout-minutes: ${{ matrix.os == 'windows-latest' && 40 || 25 }}
         run: |
+          # macOS CI: the first matplotlib.pyplot import scans fonts and can
+          # exceed the 30s per-test UNO watchdog in =PY() plot tests. Build the
+          # cache once here so formula workers inherit MPLCONFIGDIR.
+          export MPLCONFIGDIR="${RUNNER_TEMP}/matplotlib"
+          export MPLBACKEND=Agg
+          mkdir -p "$MPLCONFIGDIR"
+          if [ -x .venv/bin/python ]; then
+            PY=.venv/bin/python
+          else
+            PY=.venv/Scripts/python.exe
+          fi
+          "$PY" -c "import matplotlib; matplotlib.use('Agg'); import matplotlib.pyplot"
           export WRITERAGENT_CI_DEBUG_DIR="$RUNNER_TEMP/pytest-ci-debug"
           if [ "$WRITERAGENT_CI_DEBUG" = "1" ]; then
             mkdir -p "$WRITERAGENT_CI_DEBUG_DIR"

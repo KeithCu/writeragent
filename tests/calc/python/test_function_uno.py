@@ -247,7 +247,9 @@ def _project_venv() -> str:
     raise AssertionError("project .venv not found (release tree needs WRITERAGENT_PROJECT_ROOT)")
 
 
-@native_test
+# Cold macOS runners can exceed 30s spawning the venv worker, building the
+# matplotlib font cache, and rendering the plot.
+@native_test(timeout=60)
 def test_py_multi_document_spill_and_plot(ctx):
     """When a blank doc is open, =PY in a second doc spills and inserts plots in the second doc."""
     import glob

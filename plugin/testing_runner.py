@@ -162,19 +162,22 @@ def _progress_verbose(msg: str) -> None:
 _NATIVE_TEST_TIMEOUT_SEC = 30
 
 
-def _native_test_timeout_sec() -> int:
+def _native_test_timeout_sec(min_timeout_sec: int | None = None) -> int:
+    base = _NATIVE_TEST_TIMEOUT_SEC
     raw = os.environ.get("WRITERAGENT_UNO_TEST_TIMEOUT")
     if raw:
         try:
-            return max(5, int(raw))
+            base = max(5, int(raw))
         except ValueError:
             pass
-    return _NATIVE_TEST_TIMEOUT_SEC
+    if isinstance(min_timeout_sec, int) and min_timeout_sec > 0:
+        return max(base, min_timeout_sec)
+    return base
 
 
-def _arm_native_test_watchdog() -> None:
+def _arm_native_test_watchdog(min_timeout_sec: int | None = None) -> None:
     """Abort if a native test never returns. No stderr on arm or disarm."""
-    seconds = _native_test_timeout_sec()
+    seconds = _native_test_timeout_sec(min_timeout_sec)
     try:
         import faulthandler
 
@@ -1135,14 +1138,21 @@ def _bootstrap_office() -> Any:
 
 
 
-def native_test(func: Any) -> Any:
+def native_test(func: Any = None, *, timeout: int | None = None) -> Any:
     """Decorator to mark a function as a test in the native test runner.
 
     Note: pytest-based runs will automatically skip/ignore these via a hook
     in conftest.py to keep the 'skipped' count meaningful.
     """
-    func._is_test = True
-    return func
+    def _mark(target: Any) -> Any:
+        target._is_test = True
+        if timeout is not None:
+            target._timeout_sec = timeout
+        return target
+
+    if func is not None:
+        return _mark(func)
+    return _mark
 
 
 def setup(func: Any) -> Any:
@@ -1302,8 +1312,12 @@ def run_module_suite(
                 "TEST start %s soffice=%s bridge=%s"
                 % (qual, _office.lc.current_start_pids, _office.lc.current_bridge or "-")
             )
-            # Per-test faulthandler abort (30s). Silent — TEST start/end is enough.
-            _arm_native_test_watchdog()
+            # Per-test faulthandler abort (30s default, or @native_test(timeout=...)).
+            per_test_timeout = getattr(test_func, "_timeout_sec", None)
+            if isinstance(per_test_timeout, int) and per_test_timeout > 0:
+                _arm_native_test_watchdog(per_test_timeout)
+            else:
+                _arm_native_test_watchdog()
             try:
                 # SalAbort can print after the previous TEST end OK. Fail-closed
                 # here so we do not open another Draw factory on a dying office.

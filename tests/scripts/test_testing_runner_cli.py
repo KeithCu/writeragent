@@ -670,3 +670,26 @@ def test_connect_uno_accept_logs_stderr_tail_on_miss(
     assert "connected=False" in joined
     assert "stderr_tail=" in joined
     assert "still starting" in joined
+
+
+def test_native_test_per_test_timeout(monkeypatch) -> None:
+    """@native_test(timeout=N) raises the watchdog floor without shortening env overrides."""
+    import plugin.testing_runner as tr
+
+    monkeypatch.delenv("WRITERAGENT_UNO_TEST_TIMEOUT", raising=False)
+
+    @tr.native_test
+    def plain(ctx):
+        pass
+
+    @tr.native_test(timeout=60)
+    def slow(ctx):
+        pass
+
+    assert getattr(plain, "_is_test", False) is True
+    assert getattr(slow, "_is_test", False) is True
+    assert tr._native_test_timeout_sec(getattr(plain, "_timeout_sec", None)) == 30
+    assert tr._native_test_timeout_sec(getattr(slow, "_timeout_sec", None)) == 60
+
+    monkeypatch.setenv("WRITERAGENT_UNO_TEST_TIMEOUT", "120")
+    assert tr._native_test_timeout_sec(getattr(slow, "_timeout_sec", None)) == 120
