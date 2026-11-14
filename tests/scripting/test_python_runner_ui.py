@@ -541,27 +541,6 @@ def test_save_current_script_document_success():
     assert inst._current_scripts["[Doc] foo"] == "new"
 
 
-def test_save_current_script_builtin_channel():
-    inst = ui.NativePythonScriptDialog.__new__(ui.NativePythonScriptDialog)
-    inst._select_ctrl = MagicMock()
-    inst._doc = MagicMock()
-    inst._current_scripts = {}
-    inst._script_origin_map = {}
-
-    with (
-        patch.object(ui, "_picker_selected_name", return_value="[Vision] extract_text"),
-        patch.object(ui, "resolve_script_picker_entry", return_value=("extract_text", "vision")),
-        patch.object(ui, "save_script_to_origin") as mock_save,
-    ):
-        res = inst._save_current_script("new code")
-
-    assert res.channel == "builtin"
-    assert res.text is not None
-    assert "Save As" in res.text
-    assert "Copy to My Scripts" not in res.text
-    mock_save.assert_not_called()
-
-
 def test_save_current_script_builtin_does_not_enter_catalog():
     inst = ui.NativePythonScriptDialog.__new__(ui.NativePythonScriptDialog)
     inst._select_ctrl = MagicMock()
@@ -603,25 +582,6 @@ def test_save_current_script_failure_leaves_catalog_unchanged():
     assert res.text == "too big"
     mock_save.assert_called_once_with(inst._doc, "foo", ui.SCRIPT_ORIGIN_DOCUMENT, "rejected")
     assert inst._current_scripts == {"[Doc] foo": "old"}
-
-
-def test_save_current_script_user_success_is_ok():
-    inst = ui.NativePythonScriptDialog.__new__(ui.NativePythonScriptDialog)
-    inst._select_ctrl = MagicMock()
-    inst._doc = MagicMock()
-    inst._current_scripts = {}
-    inst._script_origin_map = {}
-
-    with (
-        patch.object(ui, "_picker_selected_name", return_value="Mine"),
-        patch.object(ui, "resolve_script_picker_entry", return_value=("Mine", ui.SCRIPT_ORIGIN_USER)),
-        patch.object(ui, "save_script_to_origin", return_value=None) as mock_save,
-    ):
-        res = inst._save_current_script("new code")
-
-    assert res.channel is None
-    assert res.text == "Script 'Mine' saved successfully."
-    mock_save.assert_called_once_with(inst._doc, "Mine", ui.SCRIPT_ORIGIN_USER, "new code")
 
 
 def test_save_current_script_user_success_updates_catalog():

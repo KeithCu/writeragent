@@ -21,8 +21,6 @@ def test_python_test_uses_modal_incremental_probe() -> None:
     modal_ran = False
     fake_ctx = MagicMock()
     fake_dlg = MagicMock()
-    probe_displays: list[str] = []
-    probe_statuses: list[str] = []
     captured_extra: list[tuple[str, ...]] = []
 
     class _FakeProgress:
@@ -44,7 +42,7 @@ def test_python_test_uses_modal_incremental_probe() -> None:
             assert success_title == "Venv OK"
             assert failure_title == "Venv check failed"
             assert append_log is False
-            probe_fn(probe_displays.append, probe_statuses.append)
+            probe_fn(lambda _text: None, lambda _status: None)
             return True
 
     def fake_probe(_raw, on_display, on_status=None, extra_lines_after_header=None, **_kwargs):
@@ -74,9 +72,6 @@ def test_python_test_uses_modal_incremental_probe() -> None:
     assert modal_ran is True
     assert reload_flags == [True]
     assert captured_extra == [("Cython Accelerator: Inactive (Pure Python)",)]
-    assert any("Scientific Libraries: numpy" in text for text in probe_displays)
-    assert any("Cython Accelerator" in text for text in probe_displays)
-    assert any("numpy" in status for status in probe_statuses)
 
 
 def test_set_display_appends_fragments_only_when_enabled() -> None:

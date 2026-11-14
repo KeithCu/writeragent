@@ -278,51 +278,37 @@ def test_symbolic_math_calc_does_not_claim_math_inserted(mock_run, mock_main_thr
     assert result["message"] == "Symbolic result written to active sheet"
 
 
+@pytest.mark.parametrize(
+    ("doc_type", "insert_err", "run_err", "expected_code", "expected_sub"),
+    [
+        ("calc", "The result needs A1:B3, but 5 cell(s) there are not empty (first: A1). Nothing was written; clear them or start elsewhere.", None, "TOOL_EXECUTION_ERROR", "first: A1"),
+        ("writer", None, DocumentDisposedError("gone"), "DOCUMENT_DISPOSED", ""),
+        ("writer", None, RuntimeError("boom"), "TOOL_EXECUTION_ERROR", "Tool execution failed: boom"),
+    ],
+)
 @patch("plugin.calc.symbolic_math.insert_symbolic_result_into_doc")
 @patch("plugin.framework.queue_executor.main.call")
 @patch("plugin.calc.symbolic_math.run_domain")
-def test_symbolic_math_calc_refuses_when_target_occupied(mock_run, mock_main_thread, mock_insert, writer_ctx):
+def test_symbolic_math_error_passthrough(mock_run, mock_main_thread, mock_insert, writer_ctx, doc_type, insert_err, run_err, expected_code, expected_sub):
     from plugin.framework.errors import CalcError
 
-    mock_run.return_value = {
-        "status": "ok",
-        "helper": "differentiate",
-        "latex": "2 x",
-        "text": "2*x",
-    }
+    writer_ctx.doc_type = doc_type
     mock_main_thread.side_effect = lambda fn, *args, **kwargs: fn(*args, **kwargs)
-    mock_insert.side_effect = CalcError(
-        "The result needs A1:B3, but 5 cell(s) there are not empty (first: A1). Nothing was written; clear them or start elsewhere."
-    )
-    writer_ctx.doc_type = "calc"
+    if run_err is not None:
+        mock_run.side_effect = run_err
+    else:
+        mock_run.return_value = {"status": "ok", "helper": "differentiate", "latex": "2 x", "text": "2*x"}
+        mock_insert.side_effect = CalcError(insert_err)
 
-    tool = _tool()
-    result = tool.execute_safe(writer_ctx, helper="differentiate", params={"expression": "x^2", "variable": "x"})
-
+    result = _tool().execute_safe(writer_ctx, helper="differentiate", params={"expression": "x^2", "variable": "x"})
     assert result["status"] == "error"
-    assert "not empty" in result["message"]
-    assert "first: A1" in result["message"]
-    assert "clear them or start elsewhere" in result["message"]
+    assert result["code"] == expected_code
+    assert expected_sub in result["message"]
 
 
 def test_symbolic_math_unknown_helper_has_code(writer_ctx):
     result = _tool().execute_safe(writer_ctx, helper="nope")
     assert result == {"status": "error", "code": "SYMBOLIC_ERROR", "message": "Unknown helper 'nope'"}
-
-
-@patch("plugin.calc.symbolic_math.run_domain", side_effect=DocumentDisposedError("gone"))
-def test_symbolic_math_disposal_reports_document_disposed(_mock_run, writer_ctx):
-    result = _tool().execute_safe(writer_ctx, helper="symbolic_simplify", params={"expression": "x"})
-    assert result["status"] == "error"
-    assert result["code"] == "DOCUMENT_DISPOSED"
-
-
-@patch("plugin.calc.symbolic_math.run_domain", side_effect=RuntimeError("boom"))
-def test_symbolic_math_unexpected_error_is_generic_tool_error(_mock_run, writer_ctx):
-    result = _tool().execute_safe(writer_ctx, helper="symbolic_simplify", params={"expression": "x"})
-    assert result["status"] == "error"
-    assert result["code"] == "TOOL_EXECUTION_ERROR"
-    assert result["message"].startswith("Tool execution failed: boom")
 
 
 @pytest.mark.parametrize("helper", sorted(names("symbolic")))

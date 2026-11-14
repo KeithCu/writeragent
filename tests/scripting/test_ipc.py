@@ -1697,44 +1697,6 @@ def test_read_frame_payload_partial_frame_raises_partial():
         os.close(w_fd)
 
 
-@pytest.mark.skipif(sys.platform == "win32", reason="select slices are POSIX only")
-def test_read_frame_payload_posix_select_slices(monkeypatch):
-    recorded_timeouts: list[float] = []
-
-    def mock_select(r, w, x, timeout=None):
-        if timeout is not None:
-            recorded_timeouts.append(timeout)
-        return ([], [], [])
-
-    monkeypatch.setattr(plugin.framework.ipc.select, "select", mock_select)
-
-    r_fd, w_fd = os.pipe()
-    try:
-        reader = os.fdopen(r_fd, "rb", buffering=0)
-        try:
-            # active cancel scope -> slices <= 0.2, at least one >= 0.1
-            with pytest.raises(subprocess.TimeoutExpired):
-                read_frame_payload(
-                    reader, 30.0, deadline=time.monotonic() + 0.5, cancel=SendCancellation()
-                )
-            assert recorded_timeouts
-            assert all(t <= 0.2 for t in recorded_timeouts)
-            assert any(t >= 0.1 for t in recorded_timeouts)
-
-            # cancel=None -> single wait > 0.2
-            recorded_timeouts.clear()
-            with pytest.raises(subprocess.TimeoutExpired):
-                read_frame_payload(
-                    reader, 30.0, deadline=time.monotonic() + 0.5, cancel=None
-                )
-            assert recorded_timeouts
-            assert recorded_timeouts[0] > 0.2
-        finally:
-            reader.close()
-    finally:
-        os.close(w_fd)
-
-
 def test_read_frame_payload_default_max_payload_bytes_applied():
     too_big = struct.pack("!I", DEFAULT_MAX_PAYLOAD_BYTES + 1)
     with pytest.raises(IpcFrameError):

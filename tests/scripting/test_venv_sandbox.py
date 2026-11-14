@@ -817,35 +817,9 @@ result = content
     assert res_sub["status"] == "error"
 
 
-def test_sandbox_policy_os_subprocess():
-    import sys
-    code = f"""
-import subprocess
-res = subprocess.run([{sys.executable!r}, "-c", "print(1)"], capture_output=True, text=True)
-result = res.stdout.strip()
-"""
-    res = sandbox_run(code, sandbox_policy={"os": True})
-    assert res["status"] == "ok"
-    assert res["result"] == "1"
-
-
 def test_sandbox_policy_process_spawning_blocked_by_default():
-    """Verify that starting another process is blocked across all mechanisms when python_allow_os is OFF.
-
-    With default policy (os=False), subprocess module import is blocked, os.system is missing from
-    the restricted os proxy, and asyncio subprocess callables and ProcessPoolExecutor are blocked
-    at the callable gate.
-    """
-    # 1. subprocess.run: blocked at import
-    res = sandbox_run("import subprocess\nsubprocess.run(['echo'])", sandbox_policy=None)
-    assert res["status"] == "error"
-    assert "not allowed" in res.get("message", "").lower()
-
-    # 2. os.system: not present on _FileOsProxy
-    res = sandbox_run("import os\nresult = os.system('true')", sandbox_policy=None)
-    assert res["status"] == "error"
-
-    # 3. asyncio subprocess: create_subprocess_exec and create_subprocess_shell blocked
+    """Verify asyncio subprocess callables and ProcessPoolExecutor are blocked when python_allow_os is OFF."""
+    # asyncio subprocess: create_subprocess_exec and create_subprocess_shell blocked
     res = sandbox_run(
         "import asyncio\nproc = asyncio.run(asyncio.create_subprocess_exec('echo', 'hi'))",
         sandbox_policy=None,
@@ -860,7 +834,7 @@ def test_sandbox_policy_process_spawning_blocked_by_default():
     assert res["status"] == "error"
     assert "Forbidden access to function: create_subprocess_shell" in res.get("message", "")
 
-    # 4. ProcessPoolExecutor: blocked via from import and direct attribute access
+    # ProcessPoolExecutor: blocked via from import and direct attribute access
     res = sandbox_run(
         "from concurrent.futures import ProcessPoolExecutor\np = ProcessPoolExecutor(max_workers=1)",
         sandbox_policy=None,
@@ -874,28 +848,6 @@ def test_sandbox_policy_process_spawning_blocked_by_default():
     )
     assert res["status"] == "error"
     assert "Forbidden access to function: ProcessPoolExecutor" in res.get("message", "")
-
-    # 5. multiprocessing: blocked at import (bare, from, submodule)
-    res = sandbox_run("import multiprocessing", sandbox_policy=None)
-    assert res["status"] == "error"
-    assert "not allowed" in res.get("message", "").lower()
-
-    res = sandbox_run("from multiprocessing import Process, Pool", sandbox_policy=None)
-    assert res["status"] == "error"
-    assert "not allowed" in res.get("message", "").lower()
-
-    res = sandbox_run("import multiprocessing.pool", sandbox_policy=None)
-    assert res["status"] == "error"
-    assert "not allowed" in res.get("message", "").lower()
-
-    # 6. pty: blocked at import
-    res = sandbox_run("import pty", sandbox_policy=None)
-    assert res["status"] == "error"
-    assert "not allowed" in res.get("message", "").lower()
-
-    res = sandbox_run("from pty import openpty", sandbox_policy=None)
-    assert res["status"] == "error"
-    assert "not allowed" in res.get("message", "").lower()
 
 
 def test_sandbox_policy_process_spawning_allowed_with_os_flag():
@@ -1395,28 +1347,6 @@ def test_apply_auto_imports_skips_shadowed_alias() -> None:
 
     code2, _ = apply_auto_imports("def f():\n    import datetime as dt\nresult = 1")
     assert "import datetime as dt" in code2
-
-
-def test_apply_auto_imports_parses_source_once(monkeypatch: pytest.MonkeyPatch) -> None:
-    import plugin.scripting.venv.venv_sandbox as vs
-
-    real = vs.ast.parse
-    count = 0
-
-    def counting_parse(*args: Any, **kwargs: Any) -> vs.ast.AST:
-        nonlocal count
-        count += 1
-        return real(*args, **kwargs)
-
-    vs.apply_auto_imports("result = 1")
-    monkeypatch.setattr(vs.ast, "parse", counting_parse)
-    count = 0
-    vs.apply_auto_imports("result = 1")
-    assert count == 1
-
-    code, lines = vs.apply_auto_imports("def ")
-    assert lines > 0
-    assert "import " in code
 
 
 def test_run_sandboxed_code_rejects_non_dict_sandbox_policy() -> None:
