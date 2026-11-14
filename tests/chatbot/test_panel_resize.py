@@ -164,13 +164,21 @@ class TestPanelResizeListenerIntegration:
     def test_one_arg_constructor_disposing_is_safe(self):
         listener = _PanelResizeListener({})
         listener.disposing(None)
+        listener.disposing(None)
 
     def test_disposing_logs_callback_failure(self):
+        called: list[bool] = []
+
         def boom() -> None:
+            called.append(True)
             raise RuntimeError("deck")
 
         listener = _PanelResizeListener({}, on_dispose=boom)
-        listener.disposing(None)
+        with patch("plugin.chatbot.panel_resize.log.exception") as mock_log_exc:
+            listener.disposing(None)
+            listener.disposing(None)
+        assert called == [True]
+        mock_log_exc.assert_called_once()
 
     def test_listener_applies_layout_and_syncs_rich_control(self):
         controls = {

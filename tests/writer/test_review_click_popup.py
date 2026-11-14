@@ -4,7 +4,6 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 from __future__ import annotations
 
-import time
 from typing import Any
 from unittest.mock import MagicMock
 import pytest
@@ -299,8 +298,15 @@ def test_double_click_cancels_popup_and_never_consumes(monkeypatch: pytest.Monke
     awt = types.ModuleType("com.sun.star.awt")
     awt.XMouseClickHandler = type("XMouseClickHandler", (), {})  # type: ignore[attr-defined]
     monkeypatch.setitem(sys.modules, "com.sun.star.awt", awt)
-    monkeypatch.setattr(review_click_popup, "_DOUBLE_CLICK_SEC", 0.05)
+    monkeypatch.setattr(review_click_popup, "_DOUBLE_CLICK_SEC", 0.0)
     shown: list[tuple[int, int]] = []
+    deferred_calls: list[tuple[Any, tuple[Any, ...]]] = []
+
+    monkeypatch.setattr(
+        review_click_popup,
+        "run_in_background",
+        lambda fn, *args, **kwargs: deferred_calls.append((fn, args)),
+    )
     monkeypatch.setattr(review_click_popup, "_show_popup_and_resolve", lambda _m, _s, x, y: shown.append((x, y)))
     monkeypatch.setattr("plugin.framework.queue_executor.main.post", lambda fn, *a: fn(*a))
     handler = review_click_popup.ClickReviewHandler(MagicMock(), detach=lambda handler: None)
@@ -310,11 +316,15 @@ def test_double_click_cancels_popup_and_never_consumes(monkeypatch: pytest.Monke
     assert handler.mouseReleased(_click(10, 10, 1)) is False
     assert handler.mousePressed(_click(10, 10, 2)) is False
     assert handler.mouseReleased(_click(10, 10, 2)) is False
-    time.sleep(0.2)
+    assert len(deferred_calls) == 1
+    fn, args = deferred_calls.pop()
+    fn(*args)
     assert shown == []
 
     # Plain single click still pops after the window.
     handler.mousePressed(_click(20, 30, 1))
     handler.mouseReleased(_click(20, 30, 1))
-    time.sleep(0.2)
+    assert len(deferred_calls) == 1
+    fn, args = deferred_calls.pop()
+    fn(*args)
     assert shown == [(20, 30)]

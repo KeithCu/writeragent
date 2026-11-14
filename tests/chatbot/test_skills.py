@@ -112,10 +112,15 @@ Vary your sentences.
         leftovers = [name for name in os.listdir(os.path.dirname(path)) if name.startswith(".skill-")]
         assert leftovers == []
 
-    def test_write_makedirs_oserror_returns_false(self):
+    def test_write_oserror_does_not_raise_and_logs(self):
         store = SkillStore()
-        with patch.object(store, "get_humanizer_skill_path", side_effect=OSError("nope")):
+        with (
+            patch.object(store, "get_humanizer_skill_path", side_effect=OSError("nope")) as mock_path,
+            patch("plugin.chatbot.skills.log.exception") as mock_log_exc,
+        ):
             store.write_humanizer_guidance("x")
+        mock_path.assert_called_once()
+        mock_log_exc.assert_called_once()
 
     def test_front_matter_only_falls_back_to_default(self):
         from plugin.chatbot.skills import HUMANIZER_GUIDANCE

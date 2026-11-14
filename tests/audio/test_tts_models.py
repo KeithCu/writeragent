@@ -13,6 +13,8 @@ import time
 import urllib.error
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from plugin.audio.model_cache_paths import (
     KOKORO_MODEL_FILENAME,
     KOKORO_VOICES_FILENAME,
@@ -28,7 +30,16 @@ from plugin.audio.tts_models import (
     resolve_piper_model_file,
 )
 from plugin.audio.tts_service import Utterance
-from plugin.framework.send_cancellation import SendCancellation
+from plugin.framework.send_cancellation import SendCancellation, is_cancelled
+
+
+@pytest.fixture(autouse=True)
+def _no_retry_backoff(monkeypatch):
+    """Skip retry backoff sleeps while preserving cancellation checks."""
+    monkeypatch.setattr(
+        "plugin.audio.tts_models._sleep_cancellable",
+        lambda unused_duration, cancel: not is_cancelled(cancel),
+    )
 
 
 def _isolate_home_cache(tmp_path, monkeypatch):

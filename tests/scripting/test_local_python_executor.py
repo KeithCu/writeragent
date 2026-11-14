@@ -1285,17 +1285,17 @@ def test_slice9_timeout_validation_and_unwinding():
     finally:
         lpe.abandoned_timeout = False
 
-    # 3. Outer timeout(3) with inner timeout(1) finishing immediately, outer sleeps
-    @timeout(3)
+    # 3. Outer timeout(2) with inner timeout(1) finishing immediately, outer sleeps
+    @timeout(2)
     def outer_run():
         evaluate_python_code("x = 1", timeout_seconds=1)
-        time.sleep(4.0)
+        time.sleep(3.0)
 
     t0 = time.monotonic()
     with pytest.raises(ExecutionTimeoutError):
         outer_run()
     elapsed = time.monotonic() - t0
-    assert 2.5 <= elapsed <= 3.8
+    assert 1.5 <= elapsed <= 2.8
 
     # 4. Inverse: outer timeout(2) with inner timeout(5) finishing immediately, outer sleeps
     @timeout(2)

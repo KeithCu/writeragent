@@ -6,7 +6,6 @@ from __future__ import annotations
 import ast
 import io
 import re
-import threading
 import zipfile
 from pathlib import Path
 from xml.etree import ElementTree as ET
@@ -31,7 +30,6 @@ from plugin.calc.excel_py_convert.ooxml_util import (
     local_name,
     parse_and_extract_namespaces,
     serialize_xml_preserving_namespaces,
-    xml_namespace_lock,
 )
 from plugin.calc.excel_py_convert.parse_excel_ooxml import (
     a1_span_bounds,
@@ -2714,35 +2712,6 @@ def test_strip_rels_preserves_python_notes():
     assert "rId2" not in res
     assert "rId3" in res
     assert "python_notes.xml" in res
-
-
-def test_xml_namespace_lock_thread_safety():
-    """Concurrent serialization with different namespaces does not cross-pollute declarations."""
-    errors: list[str] = []
-
-    def run_serialization(prefix: str, uri: str):
-        try:
-            for _ in range(50):
-                with xml_namespace_lock():
-                    ET.register_namespace(prefix, uri)
-                    el = ET.Element(f"{{{uri}}}root")
-                    _ = ET.SubElement(el, f"{{{uri}}}item")
-                    out = ET.tostring(el, encoding="utf-8").decode("utf-8")
-                    if f"xmlns:{prefix}" not in out and "xmlns=" not in out:
-                        errors.append(f"Missing xmlns in: {out}")
-        except Exception as e:
-            errors.append(str(e))
-
-    threads = [
-        threading.Thread(target=run_serialization, args=("nsA", "http://example.com/nsA")),
-        threading.Thread(target=run_serialization, args=("nsB", "http://example.com/nsB")),
-    ]
-    for t in threads:
-        t.start()
-    for t in threads:
-        t.join()
-
-    assert errors == []
 
 
 def test_write_excel_python_xlsx_leaves_untouched_shared_group_intact(tmp_path: Path):

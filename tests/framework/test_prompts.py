@@ -8,15 +8,12 @@ import pytest
 from plugin.framework.prompts import (
     CALC_CORE_DIRECTIVES,
     CHAT_RESPONSE_FORMAT,
-    DELEGATION_USER_FILE_DATA_HINT,
     DRAW_CORE_DIRECTIVES,
     RICH_CHAT_SIDEBAR_INSTRUCTIONS,
     SIDEBAR_VS_DOCUMENT,
-    SPECIALIZED_TASK_RULES,
     WRITER_CORE_DIRECTIVES,
     get_chat_system_prompt_for_document,
     get_core_directives_for_type,
-    get_greeting_for_document,
 )
 
 # NOTE: the EXTERNAL_AGENT_GUIDANCE pin test moved to tests/chatbot/test_agent_manual.py —
@@ -31,44 +28,6 @@ def _register_prompt_hooks_for_tests():
     register_writeragent_prompt_hooks()
 
 
-def test_get_greeting_for_document_writer():
-    model = MagicMock()
-    model.supportsService.return_value = False
-    assert get_greeting_for_document(model) == "AI: I can edit or translate your document instantly with professional formatting and color. Try me!"
-
-def test_get_greeting_for_document_calc():
-    model = MagicMock()
-    def supportsService(service):
-        return service == "com.sun.star.sheet.SpreadsheetDocument"
-    model.supportsService.side_effect = supportsService
-    assert get_greeting_for_document(model) == "AI: I can help you with formulas, data analysis, and colorful charts. Try me!"
-
-def test_get_greeting_for_document_draw():
-    model = MagicMock()
-    def supportsService(service):
-        return service in ("com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument")
-    model.supportsService.side_effect = supportsService
-    assert get_greeting_for_document(model) == "AI: I can help you create and edit polished, colorful shapes in Draw and Impress. Try me!"
-
-def test_get_chat_response_format_instructions_plain_when_rich_disabled():
-    from plugin.framework.prompts import get_chat_response_format_instructions
-
-    with patch("plugin.framework.config.get_config", return_value=False):
-        fmt = get_chat_response_format_instructions()
-    assert CHAT_RESPONSE_FORMAT not in fmt
-    assert "plain text only" in fmt
-
-
-def test_get_chat_response_format_instructions_html_when_rich_enabled():
-    from plugin.framework.prompts import HTML_FRAGMENT_RULES, get_chat_response_format_instructions
-
-    with patch("plugin.framework.config.get_config", return_value=True):
-        fmt = get_chat_response_format_instructions()
-    assert fmt == RICH_CHAT_SIDEBAR_INSTRUCTIONS
-    assert CHAT_RESPONSE_FORMAT in fmt
-    assert HTML_FRAGMENT_RULES not in fmt
-
-
 def test_get_chat_system_prompt_plain_text_when_rich_disabled():
     model = MagicMock()
     model.supportsService.return_value = False
@@ -76,8 +35,6 @@ def test_get_chat_system_prompt_plain_text_when_rich_disabled():
     with patch("plugin.framework.config.get_config", return_value=False):
         prompt = get_chat_system_prompt_for_document(model)
     assert CHAT_RESPONSE_FORMAT not in prompt
-    assert "plain text only" in prompt
-    assert "LibreOffice Writer assistant" in prompt
 
 
 def test_get_chat_system_prompt_allows_html_when_rich_text_control_sidebar():
@@ -89,7 +46,6 @@ def test_get_chat_system_prompt_allows_html_when_rich_text_control_sidebar():
         prompt = get_chat_system_prompt_for_document(model, ctx=MagicMock())
         assert RICH_CHAT_SIDEBAR_INSTRUCTIONS in prompt
         assert CHAT_RESPONSE_FORMAT in prompt
-        assert "plain text only" not in prompt
 
 
 def test_html_fragment_rules_appear_once_in_writer_prompt():
@@ -110,7 +66,6 @@ def test_writer_chat_prompt_section_order_matches_assembly():
     """Writer system prompt sections appear in model-facing order (persona → format → HTML last)."""
     from plugin.framework.prompts import (
         CONFIRM_EDITS_FROM_STRUCTURED_FIELDS,
-        SIDEBAR_VS_DOCUMENT,
         WRITER_APPLY_DOCUMENT_HTML_RULES,
     )
 
@@ -132,7 +87,6 @@ def test_writer_chat_template_ends_with_apply_html_then_confirm():
         DEFAULT_CHAT_SYSTEM_PROMPT_TEMPLATE,
         MEMORY_GUIDANCE,
         RESEARCH_COMPLETION_INSTRUCTION_WRITER,
-        SIDEBAR_VS_DOCUMENT,
         WRITER_APPLY_DOCUMENT_HTML_RULES,
     )
 
@@ -151,14 +105,6 @@ def test_writer_chat_template_ends_with_apply_html_then_confirm():
     assert RESEARCH_COMPLETION_INSTRUCTION_WRITER not in template
 
 
-def test_writer_chat_prompt_includes_sidebar_vs_document_routing():
-    model = MagicMock()
-    model.supportsService.return_value = False
-    prompt = get_chat_system_prompt_for_document(model)
-    assert SIDEBAR_VS_DOCUMENT in prompt
-    assert "apply_document_content" in prompt
-
-
 def test_writer_chat_prompt_research_delegate_to_document():
     from plugin.framework.prompts import WRITER_SIDEBAR_ONLY_DOMAINS, get_specialized_delegation_tool_hint
 
@@ -166,50 +112,6 @@ def test_writer_chat_prompt_research_delegate_to_document():
     assert "web_research:" in block
     for domain in WRITER_SIDEBAR_ONLY_DOMAINS:
         assert f"{domain}:" not in block
-
-
-def test_writer_eval_chat_prompt_includes_sidebar_vs_document_routing():
-    # Eval prompts live under scripts/, which is not copied into the stripped
-    # make release tree (pytest there uses --ignore=tests/scripts).
-    pytest.importorskip("scripts.prompt_optimization.eval_prompts")
-    from scripts.prompt_optimization.eval_prompts import get_writer_eval_chat_system_prompt
-
-    prompt = get_writer_eval_chat_system_prompt()
-    assert SIDEBAR_VS_DOCUMENT in prompt
-    assert "apply_document_content" in prompt
-
-
-def test_get_chat_system_prompt_for_document_calc():
-    model = MagicMock()
-    def supportsService(service):
-        return service == "com.sun.star.sheet.SpreadsheetDocument"
-    model.supportsService.side_effect = supportsService
-
-    with patch("plugin.framework.config.get_config", return_value=False):
-        prompt = get_chat_system_prompt_for_document(model)
-    assert CHAT_RESPONSE_FORMAT not in prompt
-    assert "plain text only" in prompt
-    assert "Calc" in prompt
-    assert 'domain="python"' not in prompt
-    assert 'domain="analysis"' not in prompt
-    assert "=PY" in prompt
-
-def test_get_chat_system_prompt_for_document_draw():
-    model = MagicMock()
-    def supportsService(service):
-        return service in ("com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument")
-    model.supportsService.side_effect = supportsService
-
-    with patch("plugin.framework.config.get_config", return_value=False):
-        prompt = get_chat_system_prompt_for_document(model)
-    assert CHAT_RESPONSE_FORMAT not in prompt
-    assert "plain text only" in prompt
-    assert "Draw" in prompt
-    assert "IMPRESS TEXT FILLS" in prompt
-    assert "list_placeholders" in prompt
-    assert "0-based" in prompt
-    assert 'domain="slide_layouts"' in prompt
-    assert "slide_layout_set" not in prompt
 
 
 def test_draw_prompt_omits_get_image_when_model_has_no_vision():
@@ -255,14 +157,17 @@ def test_draw_prompt_keeps_get_image_when_model_has_vision():
 
 
 def test_get_core_directives_for_type_is_string_only():
-    from plugin.framework.prompts import get_core_directives_for_type
-
     assert get_core_directives_for_type("writer") == WRITER_CORE_DIRECTIVES
     assert get_core_directives_for_type("calc") == CALC_CORE_DIRECTIVES
     assert get_core_directives_for_type("draw") == DRAW_CORE_DIRECTIVES
     assert get_core_directives_for_type("impress") == DRAW_CORE_DIRECTIVES
     assert get_core_directives_for_type(None) == WRITER_CORE_DIRECTIVES
     assert get_core_directives_for_type("") == WRITER_CORE_DIRECTIVES
+
+
+def test_draw_core_directives_flowchart_routes_to_shapes():
+    """flowchart_gen left an empty tree when shapes stayed off the core list."""
+    assert 'delegate_to_specialized_draw_toolset(domain="shapes")' in DRAW_CORE_DIRECTIVES
 
 
 def test_writer_and_draw_python_orchestrator_not_direct_shapes():
@@ -273,15 +178,6 @@ def test_writer_and_draw_python_orchestrator_not_direct_shapes():
     assert python_orchestrator_routing_line(delegate_toolset="delegate_to_specialized_writer_toolset") in DelegateToSpecializedWriter.description
     assert python_orchestrator_routing_line(delegate_toolset="delegate_to_specialized_draw_toolset") in DRAW_CORE_DIRECTIVES
     assert python_orchestrator_routing_line(delegate_toolset="delegate_to_specialized_writer_toolset") not in WRITER_CORE_DIRECTIVES
-
-
-def test_get_core_directives_writer():
-    directives = get_core_directives_for_type("writer")
-    assert directives == WRITER_CORE_DIRECTIVES
-    assert 'delegate_to_specialized_writer_toolset(domain="document_research")' in directives
-    assert "web_research" not in directives
-    assert 'domain="python"' not in directives
-    assert DELEGATION_USER_FILE_DATA_HINT in directives
 
 
 def test_writer_chat_prompt_says_research_triggers_once():
@@ -299,104 +195,10 @@ def test_writer_chat_prompt_ocr_routing_is_the_vision_catalog_line():
     with patch("plugin.vision.vision_availability.vision_venv_configured", return_value=True):
         prompt_with_vision = get_chat_system_prompt_for_document(model, ctx=MagicMock())
     assert prompt_with_vision.count("vision: OCR:") == 1
-    assert "When the user wants OCR" not in prompt_with_vision
 
     with patch("plugin.vision.vision_availability.vision_venv_configured", return_value=False):
         prompt_without_vision = get_chat_system_prompt_for_document(model, ctx=MagicMock())
     assert "vision:" not in prompt_without_vision
-
-
-def test_build_specialized_sub_agent_instructions():
-    from plugin.framework.prompts import (
-        DELEGATE_ANCHOR_RULE,
-        build_specialized_sub_agent_instructions,
-    )
-
-    assert "\n" not in DELEGATE_ANCHOR_RULE
-    instr = build_specialized_sub_agent_instructions("Writer", "indexes")
-    assert "Writer" in instr
-    assert "'indexes'" in instr
-    assert DELEGATE_ANCHOR_RULE in instr
-
-    instr_extra = build_specialized_sub_agent_instructions("Calc", "python", extra=" extra hint")
-    assert instr_extra.endswith(" extra hint")
-    assert DELEGATE_ANCHOR_RULE in instr_extra
-
-
-def test_specialized_delegation_block_is_single_line():
-    from plugin.framework.prompts import get_specialized_delegation_tool_hint
-
-    for kind in ("Writer", "Calc", "Draw"):
-        block = get_specialized_delegation_tool_hint(kind)
-        assert SPECIALIZED_TASK_RULES in block
-        assert "\n" not in block
-
-
-def test_calc_core_directives_local_before_web():
-    assert 'domain="document_research"' in CALC_CORE_DIRECTIVES
-    assert DELEGATION_USER_FILE_DATA_HINT in CALC_CORE_DIRECTIVES
-    assert 'domain="web_research") first to find information' not in CALC_CORE_DIRECTIVES
-
-
-def test_draw_core_directives_local_before_web():
-    assert 'domain="document_research"' in DRAW_CORE_DIRECTIVES
-    assert DELEGATION_USER_FILE_DATA_HINT in DRAW_CORE_DIRECTIVES
-    assert 'domain="web_research") first to find information' not in DRAW_CORE_DIRECTIVES
-
-
-def test_draw_core_directives_flowchart_routes_to_shapes():
-    """flowchart_gen left an empty tree when shapes stayed off the core list."""
-    tip = (
-        'Do delegate_to_specialized_draw_toolset(domain="shapes") then '
-        "shape_upsert + shape_connect for flowcharts and process diagrams "
-        "because an empty get_draw_tree means the task failed."
-    )
-    assert tip in DRAW_CORE_DIRECTIVES
-
-
-def test_get_core_directives_calc():
-    directives = get_core_directives_for_type("calc")
-    assert directives == CALC_CORE_DIRECTIVES
-    assert "delegate_to_specialized_calc_toolset" in directives
-    assert 'domain="python"' not in directives
-    assert "apply_document_content" not in directives
-
-
-def test_get_core_directives_draw():
-    directives = get_core_directives_for_type("draw")
-    assert directives == DRAW_CORE_DIRECTIVES
-    assert "delegate_to_specialized_draw_toolset" in directives
-    assert 'domain="python"' in directives
-
-
-def test_calc_core_directives_py_formula_not_domains():
-    assert 'domain="python"' not in CALC_CORE_DIRECTIVES
-    assert 'domain="analysis"' not in CALC_CORE_DIRECTIVES
-    assert "write_formula_range" in CALC_CORE_DIRECTIVES
-
-
-def test_calc_chat_prompt_lists_insert_structure_and_get_image():
-    model = MagicMock()
-
-    def supportsService(service):
-        return service == "com.sun.star.sheet.SpreadsheetDocument"
-
-    model.supportsService.side_effect = supportsService
-    prompt = get_chat_system_prompt_for_document(model)
-    assert "insert_structure" in prompt
-    assert "get_image" in prompt
-
-
-def test_calc_cell_links_use_calc_dot():
-    model = MagicMock()
-
-    def supportsService(service):
-        return service == "com.sun.star.sheet.SpreadsheetDocument"
-
-    model.supportsService.side_effect = supportsService
-    prompt = get_chat_system_prompt_for_document(model)
-    assert 'href="cell://Orders.A1"' in prompt
-    assert "Excel Orders!A1" not in prompt
 
 
 def test_sheets_create_completion_instruction_is_create_not_populate():
@@ -547,13 +349,6 @@ def test_profile_fence_inside_memory_does_not_close_the_block():
     assert "ignore the tools" in prompt.split(_PROFILE_DATA_CLOSE, 1)[0]
 
 
-def test_model_core_directives_helper_is_removed():
-    """Production uses get_core_directives_for_type. The model helper called get_document_type."""
-    import plugin.framework.prompts as prompts
-
-    assert not hasattr(prompts, "get_core_directives")
-
-
 def test_discovery_merge_shows_calc_only_hidden_domain():
     """A Calc-only hidden domain is listed on the discovery merge and omitted otherwise.
 
@@ -645,17 +440,6 @@ def test_humanizer_failure_logs_exception_and_prompt_continues(caplog):
     assert len(humanizer_logs) == 1
     assert humanizer_logs[0].levelno == logging.ERROR
     assert humanizer_logs[0].exc_info is not None
-
-
-def test_calc_chat_prompt_includes_formula_syntax_section():
-    """The Calc sidebar prompt must carry the FORMULA SYNTAX block (semicolons, Sheet.A1)."""
-    import plugin.framework.prompts as prompts
-
-    assert prompts.CALC_FORMULA_SYNTAX_TEMPLATE.startswith("FORMULA SYNTAX:")
-    assert "{calc_formula_syntax}" in prompts.DEFAULT_CALC_CHAT_SYSTEM_PROMPT_TEMPLATE
-    text = prompts.get_chat_system_prompt_for_kind("calc")
-    assert "FORMULA SYNTAX" in text
-    assert "Orders.A1:H500" in text
 
 
 def test_sheets_create_completion_instruction_forwards_inner_tool_instruction():

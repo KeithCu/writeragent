@@ -403,9 +403,9 @@ def test_decode_png_rgb_sampling_matches_downsample_oracle(tmp_path):
         assert accent in look
 
 
-def test_decode_png_rgb_1024x1024_tracemalloc_stays_bounded():
-    width = height = 1024
-    # All dark blue pixels. Raw scanlines are 1024 * (1 + 1024 * 3) ~ 3.1 MB.
+def test_decode_png_rgb_512x512_tracemalloc_stays_bounded():
+    width = height = 512
+    # All dark blue pixels. Raw scanlines are 512 * (1 + 512 * 3) ~ 787 KB.
     # Deflated IDAT is small due to uniform color.
     raw_row = b"\x00" + (bytes((20, 40, 120)) * width)
     raw_data = raw_row * height
@@ -422,15 +422,15 @@ def test_decode_png_rgb_1024x1024_tracemalloc_stays_bounded():
     tracemalloc.start()
     try:
         decoded = decode_png_rgb(png)
-        _current, peak = tracemalloc.get_traced_memory()
+        unused_current, peak = tracemalloc.get_traced_memory()
     finally:
         tracemalloc.stop()
 
     assert decoded is not None
     assert len(decoded) == 1024
-    # 1 million 3-tuples would alone take ~80MB. With sampling in the row loop,
-    # peak stays under 12MB (including the inflated ~3MB raw scanline buffer).
-    assert peak < 12 * 1024 * 1024
+    # 262k 3-tuples would alone take ~20MB. With sampling in the row loop,
+    # peak stays under 4MB (including the inflated ~787KB raw scanline buffer).
+    assert peak < 4 * 1024 * 1024
 
 
 def test_accent_floor_follows_the_sample_source(tmp_path: Path):

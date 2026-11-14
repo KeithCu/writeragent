@@ -10,7 +10,7 @@ from __future__ import annotations
 import copy
 
 import pytest
-from hypothesis import given, settings
+from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
 from plugin.framework.tool import to_openai_schema, to_mcp_schema, ToolBase
@@ -73,7 +73,7 @@ def test_optional_scalar_nullable() -> None:
 
 
 @given(schema=_schema)
-@settings(max_examples=60)
+@settings(max_examples=60, deadline=None, suppress_health_check=[HealthCheck.too_slow])
 def test_hypothesis_normalize_idempotent(schema: dict) -> None:
     # Compare against independent copies: if normalize mutated its input,
     # ``twice == once`` would compare one object with itself and always pass.

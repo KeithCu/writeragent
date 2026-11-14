@@ -11,17 +11,8 @@ from plugin.chatbot.writing import (
     WritingPlanSessionTool,
     WriteDocumentSection,
 )
-from plugin.chatbot.smol_examples import get_examples_block
 from plugin.chatbot.sub_agent_tools import collect_sub_agent_tools
 from plugin.framework.tool import ToolBase, ToolContext, ToolRegistry
-
-
-def test_writing_plan_examples_use_html_only():
-    block = get_examples_block("writing_plan")
-    assert "<p>" in block
-    assert "<h2>" in block
-    assert "**" not in block
-    assert "# " not in block
 
 
 class _ApplyDocumentContentStub(ToolBase):
@@ -171,11 +162,6 @@ def test_write_document_section_missing_apply_tool_errors():
     res = tool.execute(ctx, content=["<p>Hi</p>"])
     assert res["status"] == "error"
     assert res["code"] == "TOOL_NOT_FOUND"
-
-
-def test_write_document_section_is_async():
-    tool = WriteDocumentSection()
-    assert tool.is_async() is True
 
 
 def test_writing_plan_session_tool_supports_writer_not_calc():
