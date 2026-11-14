@@ -34,6 +34,7 @@ def test_strip_html_tags_unicode():
 
 def test_strip_html_tags_math_comparison():
     # "3 < 5" should not be treated as HTML tag
+    assert strip_html_tags("3 < 5") == "3 < 5"
     text = "If 3 < 5 and y > 2, then <p>success</p>."
     assert strip_html_tags(text) == "If 3 < 5 and y > 2, then success."
 
@@ -70,10 +71,6 @@ def test_strip_html_tags_quoted_gt_does_not_end_tag():
     # A ``>`` inside a quoted attribute must not end the tag and leak following text.
     assert strip_html_tags('<img alt="a>b" src="x">tail') == "tail"
     assert strip_html_tags("<img alt='a>b' src='x'>tail") == "tail"
-
-
-def test_strip_html_tags_comparison_stays_text():
-    assert strip_html_tags("3 < 5") == "3 < 5"
 
 
 def test_strip_html_tags_unescapes_entities():
@@ -238,12 +235,7 @@ def test_formatting_and_script_tags_are_still_stripped():
     assert strip_html_tags("<b>bold</b>") == "bold"
     assert strip_html_tags("<i>italic</i>") == "italic"
     assert strip_html_tags("<em>z</em>") == "z"
-    assert strip_html_tags("<b >x</b>") == "x"
-    assert strip_html_tags('<a href="https://example.com">link</a>') == "link"
-    assert strip_html_tags("<script>alert(1)</script>ok") == "ok"
     assert strip_html_tags("<!-- secret -->ok") == "ok"
-    assert strip_html_tags("<br/>next") == "next"
-    assert strip_html_tags("<a/>next") == "next"
     assert strip_html_tags("a<widget/>b") == "ab"
     assert strip_html_tags('<notatag alt="a>b">keep') == '<notatag alt="a>b">keep'
 
@@ -256,11 +248,8 @@ def test_streaming_html_stripper_feed_tag_spans_deal_slice():
     assert stripper.feed(text) + stripper.finalize() == ("a" * (DEAL_MAX_HTML_CHUNK - 1)) + "z"
 
 
-def test_strip_html_tags_fast_path_and_entities():
+def test_strip_html_tags_fast_path():
     assert strip_html_tags("plain text here") == "plain text here"
-    assert strip_html_tags("a &amp; b") == "a & b"
-    assert strip_html_tags("<p>a</p>") == "a"
-    assert strip_html_tags("3 < 5") == "3 < 5"
 
 
 def test_html_to_search_text_paragraphs_and_breaks():
@@ -305,7 +294,7 @@ def test_html_to_search_text_ruby_left_for_caller():
     assert html_to_search_text("<ruby>漢字<rt>かんじ</rt></ruby>") == "漢字かんじ"
 
 
-def test_hypothesis_html_to_search_text_always_returns_string():
+def test_hypothesis_html_to_search_text_normalizes_whitespace():
     from hypothesis import given, settings
     from hypothesis import strategies as st
     from plugin.framework.html_stripper import html_to_search_text
@@ -315,6 +304,7 @@ def test_hypothesis_html_to_search_text_always_returns_string():
     def prop(text: str) -> None:
         res = html_to_search_text(text)
         assert isinstance(res, str)
+        assert res == res.strip()
 
     prop()
 

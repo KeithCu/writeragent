@@ -7,13 +7,15 @@ import pytest
 
 
 @pytest.mark.parametrize(
-    "value, value_2, value_3, value_4",
+    ("payload", "expected_val", "stage"),
     [
-        pytest.param("{'key': 'secret-literal'}", "secret-literal", "literal_eval", "secret-literal", id="test_literal_eval_logs_stage_name_not_payload"),
-        pytest.param('{"key": "secret-repaired"', "secret-repaired", "json_repair", "secret-repaired", id="test_repaired_json_logs_stage_name_not_payload"),
+        pytest.param("{'key': 'secret-literal'}", "secret-literal", "literal_eval", id="literal_eval_logs_stage_name_not_payload"),
+        pytest.param('{"key": "secret-repaired"', "secret-repaired", "json_repair", id="repaired_json_logs_stage_name_not_payload"),
     ],
 )
-def test_literal_eval_logs_stage_name_not_payload(monkeypatch, value, value_2, value_3, value_4) -> None:
+def test_fallback_stage_logs_stage_name_not_payload(
+    monkeypatch: pytest.MonkeyPatch, payload: str, expected_val: str, stage: str
+) -> None:
     # Release bundles strip log.debug; skip this assertion there.
     from tests.harness.strip_bundle import skip_if_release_build
 
@@ -22,13 +24,12 @@ def test_literal_eval_logs_stage_name_not_payload(monkeypatch, value, value_2, v
 
     mock_log = MagicMock()
     monkeypatch.setattr(json_utils, "log", mock_log)
-    payload = value
-    assert safe_json_loads(payload) == {"key": value_2}
+    assert safe_json_loads(payload) == {"key": expected_val}
     mock_log.debug.assert_called_once()
     args = mock_log.debug.call_args[0]
-    assert value_3 in args
+    assert stage in args
     joined = " ".join(str(part) for part in args)
-    assert value_4 not in joined
+    assert expected_val not in joined
     assert payload not in joined
 
 def test_strict_json_does_not_log_a_stage(monkeypatch) -> None:

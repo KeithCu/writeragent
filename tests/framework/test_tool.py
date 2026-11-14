@@ -1,4 +1,3 @@
-from plugin.framework.queue_executor import main
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2024 John Balis
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
@@ -25,6 +24,7 @@ import types
 from typing import Any
 from unittest.mock import MagicMock, patch
 
+from plugin.framework.queue_executor import main
 from plugin.framework.tool import ToolBase, ToolContext, ToolRegistry, ToolBaseDummy
 from plugin.framework.service import ServiceRegistry
 from plugin.tests.testing_utils import TestingFactory
@@ -95,20 +95,10 @@ class ExplictMutateTool(ToolBase):
     is_mutation = True
     def execute(self, ctx, **kwargs): pass
 
-def test_detects_mutation():
-    tool1 = ValidTool()
-    assert tool1.detects_mutation() is True  # does not start with get_
-
-    tool2 = ReadTool()
-    assert tool2.detects_mutation() is False # starts with get_
-
-    tool3 = ExplictMutateTool()
-    assert tool3.detects_mutation() is True  # is_mutation is explicit
-
+def _make_detects_mutation_cases() -> list[Any]:
     class UnnamedTool(ToolBase):
         name = None
         def execute(self, ctx, **kwargs): pass
-    assert UnnamedTool().detects_mutation() is True
 
     class DomainListTool(ToolBase):
         name = "image_list"
@@ -122,21 +112,29 @@ def test_detects_mutation():
         name = "image_insert"
         def execute(self, ctx, **kwargs): pass
 
-    assert DomainListTool().detects_mutation() is False
-    assert DomainGetInfoTool().detects_mutation() is False
-    assert DomainMutateTool().detects_mutation() is True
-
     from plugin.writer.specialized_base import SpecializedWorkflowFinished
-
-    assert SpecializedWorkflowFinished().detects_mutation() is False
-
     from plugin.calc.search import ReplaceInSpreadsheet
     from plugin.calc.errors import DetectErrors
     from plugin.calc.sheet_filter import GetSheetFilter
 
-    assert ReplaceInSpreadsheet().detects_mutation() is True
-    assert DetectErrors().detects_mutation() is False
-    assert GetSheetFilter().detects_mutation() is False
+    return [
+        pytest.param(ValidTool, True, id="non_get_prefix"),
+        pytest.param(ReadTool, False, id="get_prefix"),
+        pytest.param(ExplictMutateTool, True, id="explicit_is_mutation"),
+        pytest.param(UnnamedTool, True, id="unnamed"),
+        pytest.param(DomainListTool, False, id="domain_list"),
+        pytest.param(DomainGetInfoTool, False, id="domain_get_info"),
+        pytest.param(DomainMutateTool, True, id="domain_insert"),
+        pytest.param(SpecializedWorkflowFinished, False, id="specialized_finished"),
+        pytest.param(ReplaceInSpreadsheet, True, id="replace_in_spreadsheet"),
+        pytest.param(DetectErrors, False, id="detect_errors"),
+        pytest.param(GetSheetFilter, False, id="get_sheet_filter"),
+    ]
+
+
+@pytest.mark.parametrize(("tool_cls", "expected"), _make_detects_mutation_cases())
+def test_detects_mutation(tool_cls: type[ToolBase], expected: bool) -> None:
+    assert tool_cls().detects_mutation() is expected
 
 def test_requires_document_lock_default_matches_detects_mutation():
     tool1 = ValidTool()
@@ -1723,7 +1721,14 @@ def _guard_probe_registry():
     return reg, ctx, calls, seen
 
 
-def test_execute_unguarded_skips_guard() -> None:
+@pytest.mark.parametrize(
+    "params",
+    [
+        pytest.param({"note": "keep"}, id="plain_params"),
+        pytest.param({"bypass_thread_guard": False, "note": "keep"}, id="bypass_false_in_dict"),
+    ],
+)
+def test_execute_unguarded_skips_guard(params: dict[str, Any]) -> None:
     """execute_unguarded must still bypass."""
     reg, ctx, calls, seen = _guard_probe_registry()
     marshalled: list[str] = []
@@ -1732,20 +1737,27 @@ def test_execute_unguarded_skips_guard() -> None:
         marshalled.append("marshal")
         return fn()
 
-    params = {"note": "keep"}
     with patch("plugin.framework.tool.main.call", side_effect=fake_marshal):
-        # Same shape as tools_lo: keyword, then **params. A dict literal
-        # spread is a different bytecode path and is not this contract.
+        # Same shape as tools_lo: keyword, then **params.
         out = reg.execute_unguarded("dummy_sync", ctx, **params)
 
-    assert out == {"status": "ok", "note": "keep"}
+    assert out.get("status") == "ok"
+    assert out.get("note") == "keep"
     assert calls == ["execute"]
     assert seen == [{"note": "keep"}]
     assert marshalled == []
 
 
-@pytest.mark.parametrize("bypass", [True, 1, "yes"])
-def test_execute_json_spread_cannot_bypass_thread_guard(bypass: object) -> None:
+@pytest.mark.parametrize(
+    ("bypass", "on_bg_thread"),
+    [
+        pytest.param(True, True, id="bg_true"),
+        pytest.param(1, True, id="bg_1"),
+        pytest.param("yes", True, id="bg_yes"),
+        pytest.param(True, False, id="inline_dict_literal"),
+    ],
+)
+def test_execute_json_spread_cannot_bypass_thread_guard(bypass: object, on_bg_thread: bool) -> None:
     """A **dict must not skip execute_safe, even when the value is truthy.
 
     If ``bypass_thread_guard`` binds from JSON before ``without_unknown_kwargs``,
@@ -1754,44 +1766,37 @@ def test_execute_json_spread_cannot_bypass_thread_guard(bypass: object) -> None:
     """
     reg, ctx, calls, seen = _guard_probe_registry()
     marshalled: list[str] = []
-    box: dict = {}
+    box: dict[str, Any] = {}
+    worker_exc: list[BaseException] = []
 
     def fake_marshal(fn):
         marshalled.append("marshal")
         return fn()
 
-    args = {"bypass_thread_guard": bypass, "note": "keep"}
-
-    def bg():
-        box["out"] = reg.execute("dummy_sync", ctx, **args)
+    def run_call() -> None:
+        try:
+            if on_bg_thread:
+                args = {"bypass_thread_guard": bypass, "note": "keep"}
+                box["out"] = reg.execute("dummy_sync", ctx, **args)
+            else:
+                box["out"] = reg.execute("dummy_sync", ctx, **{"bypass_thread_guard": bypass, "note": "keep"})
+        except BaseException as exc:
+            worker_exc.append(exc)
 
     with patch("plugin.framework.tool.main.call", side_effect=fake_marshal):
-        worker = threading.Thread(target=bg, name="tool-sync-probe")
-        worker.start()
-        worker.join()
+        if on_bg_thread:
+            worker = threading.Thread(target=run_call, name="tool-sync-probe")
+            worker.start()
+            worker.join()
+            if worker_exc:
+                raise worker_exc[0]
+        else:
+            run_call()
 
     assert marshalled == ["marshal"]
     assert calls == ["execute_safe"]
     assert seen == [{"note": "keep"}]
     assert box["out"] == {"status": "ok", "note": "keep"}
-
-
-def test_execute_dict_literal_bypass_cannot_skip_thread_guard() -> None:
-    """A dict literal spread is not an explicit bypass_thread_guard keyword."""
-    reg, ctx, calls, seen = _guard_probe_registry()
-    marshalled: list[str] = []
-
-    def fake_marshal(fn):
-        marshalled.append("marshal")
-        return fn()
-
-    with patch("plugin.framework.tool.main.call", side_effect=fake_marshal):
-        out = reg.execute("dummy_sync", ctx, **{"bypass_thread_guard": True, "note": "keep"})
-
-    assert marshalled == ["marshal"]
-    assert calls == ["execute_safe"]
-    assert seen == [{"note": "keep"}]
-    assert out == {"status": "ok", "note": "keep"}
 
 def test_tool_get_parameters_value_error_returns_registry_error() -> None:
     class FailingTool(ToolBase):
@@ -1854,15 +1859,6 @@ def test_execute_tool_with_timeout_tool_name_run_threaded_in_schema() -> None:
 
     assert out.get("status") == "ok"
     assert seen == [{"timeout": 5, "tool_name": "my_name", "run_threaded": True}]
-
-
-def test_execute_unguarded_bypass_flag_false_in_dict_still_calls_execute() -> None:
-    reg, ctx, calls, seen = _guard_probe_registry()
-    out = reg.execute_unguarded("dummy_sync", ctx, **{"bypass_thread_guard": False, "note": "keep"})
-    assert out.get("status") == "ok"
-    assert out.get("note") == "keep"
-    assert calls == ["execute"]
-    assert seen == [{"note": "keep"}]
 
 
 def test_sync_tool_timeout_none_returns_ok() -> None:

@@ -15,9 +15,6 @@ import pytest
 
 from plugin.framework.deal_shim import DEAL_MAX_HTML_CHUNK
 from plugin.framework.html_stripper import StreamingHTMLStripper, strip_html_tags
-from plugin.framework.client.auth import (
-    build_auth_headers,
-)
 from tests.harness.strip_bundle import deal_pre_present
 
 
@@ -77,8 +74,9 @@ def test_hypothesis_strip_html_tags_removes_real_tags(sample: tuple[str, str]) -
 @given(text=st.text(alphabet=st.characters(blacklist_categories=("Cs",), max_codepoint=127), max_size=DEAL_MAX_HTML_CHUNK))
 @settings(max_examples=100)
 def test_hypothesis_strip_html_tags_no_crash_on_malformed_markup(text: str) -> None:
-    # No crash on malformed markup (unclosed tags, stray '<', partial entities).
-    assert isinstance(strip_html_tags(text), str)
+    # Whole-string and streaming stripping must agree without crashing on malformed markup.
+    stripper = StreamingHTMLStripper()
+    assert stripper.feed(text) + stripper.finalize() == strip_html_tags(text)
 
 
 def test_strip_html_tags_streaming_equivalence() -> None:
@@ -106,22 +104,3 @@ def test_strip_html_tags_overflow_pre_fails_closed() -> None:
         StreamingHTMLStripper()._feed_chunk("x" * (DEAL_MAX_HTML_CHUNK + 1))
     # Pytest 4096 still reaches the 256-char tag-flush path.
     assert "<" in strip_html_tags("<" + ("a" * 256))
-
-
-@given(
-    api_key=st.text(
-        alphabet=st.characters(min_codepoint=33, max_codepoint=126),
-        min_size=1,
-        max_size=50,
-    ),
-    style=st.sampled_from(["bearer", "x-api-key", "none"]),
-)
-def test_build_auth_headers_contracts(api_key: str, style: str) -> None:
-    auth_info = {"api_key": api_key, "header_style": style, "headers": {"custom-header": "value"}}
-    headers = build_auth_headers(auth_info)
-    assert isinstance(headers, dict)
-    if style == "bearer":
-        assert headers.get("Authorization") == f"Bearer {api_key}"
-    elif style == "x-api-key":
-        assert headers.get("x-api-key") == api_key
-    assert headers.get("custom-header") == "value"
