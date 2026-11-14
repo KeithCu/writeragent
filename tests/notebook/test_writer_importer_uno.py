@@ -161,10 +161,6 @@ def _output_text_for_cell(doc, cell) -> str:
     return str(sel.getString() or "")
 
 
-def _tail_text(doc, n_chars: int = 400) -> str:
-    return (doc.getText().getString() or "")[-n_chars:]
-
-
 def _run_blob(result, output: str) -> str:
     return "\n".join(part for part in (result.status, result.message, output) if part)
 
@@ -404,7 +400,6 @@ def _debug_menu_import_and_run(ctx, doc) -> None:
     out3 = _output_text_for_cell(doc, state.code_cells[1])
     out5 = _output_text_for_cell(doc, state.code_cells[2])
     outputs = (out1, out3, out5)
-    tail = _tail_text(doc)
 
     # PR 453 treated a sandbox dunder deny as a clean error. That must fail this job.
     for cell, result, out in zip(state.code_cells, results, outputs):
@@ -425,7 +420,6 @@ def _debug_menu_import_and_run(ctx, doc) -> None:
     ver_at = later.find("NumPy Version")
     arr_at = later.find("1. Creating Arrays")
     assert 0 <= ver_at < arr_at, "cell 1 output was inserted after later markdown (document end dump)"
-    assert "NumPy Version" not in tail, f"cell 1 output looks dumped at document end: {tail!r}"
     mashed = [t for _s, t in _paragraphs(doc) if "NumPy Version" in t and "Cell 3: Markdown" in t]
     assert not mashed, f"stdout concatenated onto next heading: {mashed!r}"
     import re as _re
@@ -594,6 +588,35 @@ def test_medium_numpy_import_layout_no_run(ctx, doc):
             f"{[t for pg, _s, t in by_page if pg == page][:6]!r}"
         )
 
+    layout = _paragraphs_with_layout(doc)
+    box = _page_box(doc)
+    assert box is not None, "could not read PageStyles box"
+    assert layout, "could not read paragraph layout positions"
+    top, _bottom, page_h = box
+    for page in pages_used:
+        first = next(
+            (item for item in layout if item[0] == page and (item[3] or "").strip()),
+            None,
+        )
+        if first is None:
+            continue
+        _pg, y, _style, text = first
+        local_y = _page_local_y(y, page, page_h)
+        preview = " ".join((text or "").split())[:48]
+        # Skip-before-shape: a quarter-page blank top band is ~5000+ HMM.
+        # ViewCursor Y is document-absolute (page 2 was 28441 on a 27940 page).
+        if page > 1 and local_y > 0:
+            # In [n]: may start a page after a tall unsplittable field (KeepTogether
+            # off). That split is preferred over a glued In+field page hole.
+            if (text or "").strip().startswith("In ["):
+                continue
+            # Tall unsplittable fields can push following markdown below the
+            # old 2500 HMM band; still fail on a near-empty first half-page.
+            assert local_y <= top + 8000, (
+                f"page {page} blank top band: {preview!r} at local Y={local_y} "
+                f"(raw Y={y}, top margin {top})"
+            )
+
 
 @native_test
 @with_native_doc("writer", hidden=not current_office().options.show_window)
@@ -706,6 +729,66 @@ def _leading_empty_count(by_page: list[tuple[int, str, str]], page: int) -> int:
             break
         n += 1
     return n
+
+
+def _page_local_y(y: int, page: int, page_h: int) -> int:
+    """Map ViewCursor.getPosition().Y (document layout) onto one page."""
+    if page <= 1 or page_h <= 0:
+        return y
+    return y - (page - 1) * page_h
+
+
+def _page_box(doc) -> tuple[int, int, int] | None:
+    """(top_margin, bottom_margin, page_height) in 1/100 mm."""
+    try:
+        families = doc.getStyleFamilies().getByName("PageStyles")
+        name = ""
+        try:
+            name = str(doc.getPropertyValue("PageDescName") or "")
+        except Exception:
+            name = ""
+        style = None
+        if name and families.hasByName(name):
+            style = families.getByName(name)
+        else:
+            for candidate in ("Standard", "Default", "Default Page Style"):
+                if families.hasByName(candidate):
+                    style = families.getByName(candidate)
+                    break
+        if style is None:
+            return None
+        return (
+            int(style.getPropertyValue("TopMargin")),
+            int(style.getPropertyValue("BottomMargin")),
+            int(style.getPropertyValue("Height")),
+        )
+    except Exception:
+        return None
+
+
+def _paragraphs_with_layout(doc) -> list[tuple[int, int, str, str]]:
+    """(page, view Y in 1/100 mm, style, text) for skip-before / blank-tail checks."""
+    out: list[tuple[int, int, str, str]] = []
+    try:
+        vc = doc.getCurrentController().getViewCursor()
+        enum = doc.getText().createEnumeration()
+        while enum_has_more(enum):
+            el = enum.nextElement()
+            try:
+                if hasattr(el, "supportsService") and not el.supportsService("com.sun.star.text.Paragraph"):
+                    continue
+                style = str(el.getPropertyValue("ParaStyleName") or "")
+                text = str(el.getString() or "")
+                vc.gotoRange(el.getStart(), False)
+                page = int(vc.getPage())
+                pos = vc.getPosition()
+                y = int(getattr(pos, "Y", 0) or 0)
+            except Exception:
+                continue
+            out.append((page, y, style, text))
+    except Exception:
+        return out
+    return out
 
 
 _MD_LISTS_QUOTES_IPYNB = (

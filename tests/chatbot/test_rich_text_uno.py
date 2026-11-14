@@ -150,7 +150,7 @@ def test_leading_list_numbers_every_item(ctx):
 
 @native_test
 def test_list_and_quote_paragraph_properties(ctx):
-    """Probe paragraph properties of imported lists, blockquotes, and preformatted blocks."""
+    """Pin paragraph properties of imported lists, blockquotes, and preformatted blocks."""
     from plugin.chatbot import rich_text
 
     doc = _hidden_writer(ctx)

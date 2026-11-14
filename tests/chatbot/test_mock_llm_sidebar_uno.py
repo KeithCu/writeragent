@@ -804,13 +804,11 @@ def test_f14_429_then_immediate_hello(ctx):
 @native_test
 def test_f15_500_then_429_then_hello(ctx):
     _send_and_wait("crash the stream", wait_for="API error")
-    before_429 = _transcript()
     _send_and_wait("rate limit", wait_for="429")
     body = _transcript()
     assert "429" in body or "Rate limited" in body, "F15 expected 429, got %r" % body[-500:]
     # Prior 500 line must survive (no HTML-rerender wipe).
-    assert "[API error:" in before_429 or "HTTP Error 500" in before_429 or "500" in before_429
-    assert "[API error:" in body or "HTTP Error 500" in body or "500" in body
+    assert "[API error:" in body, "F15 wiped prior 500 error: %r" % body[-500:]
     _hello_ok()
 
 
@@ -4424,6 +4422,8 @@ def test_s10_clear_while_stt_in_flight(ctx):
         time.sleep(2.0)
 
         _s_assert_idle()
+        assert "Fake STT transcript" not in _query_box_text(), "late STT landed in query box after Clear"
+        assert "Fake STT transcript" not in _transcript(), "late STT landed in transcript after Clear"
         st = _s_state()
         assert st.get("spawn_count", 0) >= 1, f"spawn_count < 1: {st}"
         _hello_ok()
