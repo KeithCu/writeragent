@@ -49,6 +49,7 @@ from plugin.scripting.payload_codec import (
     should_use_binary_envelope,
     wire_cell_count,
 )
+from tests.harness.import_guards import assert_no_toplevel_import
 from tests.scripting.payload_codec_test_support import (
     MIXED_LABEL_GRID,
     MIXED_WITH_ZIP,
@@ -58,7 +59,6 @@ from tests.scripting.payload_codec_test_support import (
     pickle5_roundtrip,
     rect_shape_for_cell_count,
 )
-from tests.harness.import_guards import assert_no_toplevel_import
 from tests.scripting.serialization_ab_support import cython_accelerator_context
 
 

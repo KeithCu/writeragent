@@ -210,7 +210,7 @@ def test_isolated_with_init_suffix() -> None:
     assert SessionKey.parse("isolated:ab:init").init is True
 
 
-def test_other_raises_hash_and_document_kinds() -> None:
+def test_other_raises_and_hash_equality() -> None:
     with pytest.raises(ValueError, match="OTHER is parse-only"):
         SessionKey.of(SessionKind.OTHER, "x")
 

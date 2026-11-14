@@ -893,10 +893,15 @@ def test_policy_blocked_imports_drops_flag_and_extra_entries() -> None:
         FILE_BLOCKED_MODULES,
         NETWORK_BLOCKED_MODULES,
         build_sandbox_policy,
+        policy_allowlist,
         policy_blocked_imports,
+        policy_relaxed_roots,
     )
 
-    default_blocked = set(policy_blocked_imports(build_sandbox_policy()))
+    default_policy = build_sandbox_policy()
+    assert policy_allowlist(default_policy) == []
+    assert policy_relaxed_roots(default_policy) == frozenset()
+    default_blocked = set(policy_blocked_imports(default_policy))
     assert "subprocess" in default_blocked
     assert "socket" in default_blocked
     assert "shutil" in default_blocked
