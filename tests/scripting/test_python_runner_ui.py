@@ -81,43 +81,31 @@ def test_report_script_dialog_error_bare_runtime_exception_shows_its_text():
     mock_set_text.assert_called_once_with(lbl, "live error")
 
 
-def test_native_dialog_window_closing_does_not_dispose():
-    inst = ui.NativePythonScriptDialog.__new__(ui.NativePythonScriptDialog)
-    inst._closed = False
-    dlg = MagicMock()
-    inst._dlg = dlg
-    inst.close(toolkit_teardown=True)
-    dlg.dispose.assert_not_called()
-    assert inst._closed is True
-    assert inst._dlg is None
-    inst.close(toolkit_teardown=True)
-    dlg.dispose.assert_not_called()
-
-
-def test_native_dialog_close_button_disposes_once():
-    inst = ui.NativePythonScriptDialog.__new__(ui.NativePythonScriptDialog)
-    inst._closed = False
-    dlg = MagicMock()
-    inst._dlg = dlg
-    inst.close()
-    dlg.dispose.assert_called_once()
-    inst.close()
-    dlg.dispose.assert_called_once()
-
-
-def test_native_dialog_close_disposes_when_set_visible_raises():
+@pytest.mark.parametrize(
+    ("toolkit_teardown", "set_visible_raises", "expected_dispose_calls"),
+    [
+        (True, False, 0),
+        (False, False, 1),
+        (False, True, 1),
+    ],
+    ids=["toolkit_teardown", "close_button", "set_visible_disposed"],
+)
+def test_native_dialog_close(toolkit_teardown, set_visible_raises, expected_dispose_calls):
     class DisposedException(Exception):
         pass
 
     inst = ui.NativePythonScriptDialog.__new__(ui.NativePythonScriptDialog)
     inst._closed = False
     dlg = MagicMock()
-    dlg.setVisible.side_effect = DisposedException("Peer disposed")
+    if set_visible_raises:
+        dlg.setVisible.side_effect = DisposedException("Peer disposed")
     inst._dlg = dlg
-    inst.close()
-    dlg.dispose.assert_called_once()
+    inst.close(toolkit_teardown=toolkit_teardown)
+    assert dlg.dispose.call_count == expected_dispose_calls
     assert inst._closed is True
     assert inst._dlg is None
+    inst.close(toolkit_teardown=toolkit_teardown)
+    assert dlg.dispose.call_count == expected_dispose_calls
 
 
 def test_start_native_script_run_returns_before_venv_wait():

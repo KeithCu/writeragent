@@ -49,6 +49,17 @@ def _mgr_proc(mgr: PythonWorkerManager) -> Any:
         return None
     return child.managed.popen
 
+def _mock_mgr(*, stdout_bytes: bytes = b"") -> tuple[PythonWorkerManager, MagicMock]:
+    """Create a PythonWorkerManager wired to a live mock Popen with BytesIO streams."""
+    mgr = PythonWorkerManager(sys.executable, {})
+    proc = MagicMock()
+    proc.poll.return_value = None
+    proc.stdin = io.BytesIO()
+    proc.stdout = io.BytesIO(stdout_bytes)
+    _install_mock_proc(mgr, proc)
+    return mgr, proc
+
+
 def _install_mock_proc(mgr: PythonWorkerManager, proc: Any) -> None:
     """Attach a mock Popen to *mgr* for unit tests that stub IPC."""
     from plugin.framework.warm_child import ChildSpec, WarmChild
@@ -541,12 +552,7 @@ def test_large_stdin_write_completes_intact():
     assert stream.getvalue() == payload
 
 def test_initial_write_timeout_retries_once(monkeypatch):
-    mgr = PythonWorkerManager(sys.executable, {})
-    proc = MagicMock()
-    proc.poll.return_value = None
-    proc.stdin = io.BytesIO()
-    proc.stdout = io.BytesIO()
-    _install_mock_proc(mgr, proc)
+    mgr, proc = _mock_mgr()
     monkeypatch.setattr(
         "plugin.scripting.venv_worker.write_packed_frame_with_timeout",
         MagicMock(side_effect=subprocess.TimeoutExpired(cmd=sys.executable, timeout=1)),
@@ -567,12 +573,7 @@ def test_initial_write_timeout_retries_once(monkeypatch):
     assert first['id'] == second['id']
 
 def test_ppt_master_write_timeout_does_not_replay(monkeypatch):
-    mgr = PythonWorkerManager(sys.executable, {})
-    proc = MagicMock()
-    proc.poll.return_value = None
-    proc.stdin = io.BytesIO()
-    proc.stdout = io.BytesIO()
-    _install_mock_proc(mgr, proc)
+    mgr, proc = _mock_mgr()
     mgr._write_frame_with_timeout = MagicMock()
     monkeypatch.setattr(
         "plugin.scripting.venv_worker.write_packed_frame_with_timeout",
@@ -602,12 +603,7 @@ def test_ppt_master_write_timeout_does_not_replay(monkeypatch):
 
 def test_tool_call_then_broken_stdout_does_not_replay(monkeypatch):
     """A tool_call that already ran must not be followed by a second copy of the script."""
-    mgr = PythonWorkerManager(sys.executable, {})
-    proc = MagicMock()
-    proc.poll.return_value = None
-    proc.stdin = io.BytesIO()
-    proc.stdout = io.BytesIO()
-    _install_mock_proc(mgr, proc)
+    mgr, proc = _mock_mgr()
     mgr._write_frame_with_timeout = MagicMock()
     response_payload = pickle.dumps({'status': 'host_request'}, protocol=5)
     mgr._read_response_bytes = MagicMock(side_effect=[response_payload, RuntimeError('Worker closed stdout')])
@@ -630,12 +626,7 @@ def test_tool_call_raise_without_exec_started_does_not_replay(monkeypatch, frame
     the handler causes the attempt loop to resend to a new child.
     """
     import plugin.scripting.venv_worker as venv_worker_module
-    mgr = PythonWorkerManager(sys.executable, {})
-    proc = MagicMock()
-    proc.poll.return_value = None
-    proc.stdin = io.BytesIO()
-    proc.stdout = io.BytesIO()
-    _install_mock_proc(mgr, proc)
+    mgr, proc = _mock_mgr()
     mgr._write_frame_with_timeout = MagicMock()
     mgr._read_response_bytes = MagicMock(return_value=pickle.dumps({'type': frame_type, 'id': 't1', 'tool': 'apply_document_content', 'args': {}}, protocol=5))
     mgr._terminate_worker = MagicMock()
@@ -653,12 +644,7 @@ def test_tool_call_raise_without_exec_started_does_not_replay(monkeypatch, frame
 
 def test_stdout_close_before_start_retries_once():
     """A death before exec_started has not run the request; recycle the child."""
-    mgr = PythonWorkerManager(sys.executable, {})
-    proc = MagicMock()
-    proc.poll.return_value = None
-    proc.stdin = io.BytesIO()
-    proc.stdout = io.BytesIO()
-    _install_mock_proc(mgr, proc)
+    mgr, proc = _mock_mgr()
     mgr._write_frame_with_timeout = MagicMock()
     mgr._read_response_bytes = MagicMock(return_value=b'')
     mgr._drain_stderr = MagicMock(return_value='')
@@ -671,12 +657,7 @@ def test_stdout_close_before_start_retries_once():
 
 def test_truncated_header_before_exec_started_fails_without_replay():
     """A truncated frame is stream desynchronization; do not replay."""
-    mgr = PythonWorkerManager(sys.executable, {})
-    proc = MagicMock()
-    proc.poll.return_value = None
-    proc.stdin = io.BytesIO()
-    proc.stdout = io.BytesIO(b'\x00\x00')
-    _install_mock_proc(mgr, proc)
+    mgr, proc = _mock_mgr(stdout_bytes=b'\x00\x00')
     mgr._write_frame_with_timeout = MagicMock()
     mgr._drain_stderr = MagicMock(return_value='')
     mgr._terminate_worker = MagicMock()
@@ -688,12 +669,7 @@ def test_truncated_header_before_exec_started_fails_without_replay():
 
 def test_runtime_error_before_exec_started_retries_once():
     """A RuntimeError before the child has started the script is still a failed start."""
-    mgr = PythonWorkerManager(sys.executable, {})
-    proc = MagicMock()
-    proc.poll.return_value = None
-    proc.stdin = io.BytesIO()
-    proc.stdout = io.BytesIO()
-    _install_mock_proc(mgr, proc)
+    mgr, proc = _mock_mgr()
     mgr._write_frame_with_timeout = MagicMock()
     mgr._read_response_bytes = MagicMock(side_effect=RuntimeError('pipe died'))
     mgr._terminate_worker = MagicMock()
@@ -705,12 +681,7 @@ def test_runtime_error_before_exec_started_retries_once():
 
 def test_runtime_error_after_exec_started_does_not_replay():
     """A RuntimeError after exec_started must not resend the script on a new child."""
-    mgr = PythonWorkerManager(sys.executable, {})
-    proc = MagicMock()
-    proc.poll.return_value = None
-    proc.stdin = io.BytesIO()
-    proc.stdout = io.BytesIO()
-    _install_mock_proc(mgr, proc)
+    mgr, proc = _mock_mgr()
     captured: dict[str, dict] = {}
 
     def _write_frame(stdin, request, **kwargs):
@@ -735,12 +706,7 @@ def test_runtime_error_after_exec_started_does_not_replay():
 
 def test_stdout_close_after_exec_started_does_not_replay():
     """In-process side effects after exec_started must not run under the same id again."""
-    mgr = PythonWorkerManager(sys.executable, {})
-    proc = MagicMock()
-    proc.poll.return_value = None
-    proc.stdin = io.BytesIO()
-    proc.stdout = io.BytesIO()
-    _install_mock_proc(mgr, proc)
+    mgr, proc = _mock_mgr()
     captured: dict[str, dict] = {}
 
     def _write_frame(stdin, request, **kwargs):
@@ -767,12 +733,7 @@ def test_stdout_close_after_exec_started_does_not_replay():
 
 def test_exec_started_wrong_id_is_refused_without_replay():
     """An exec_started for another request is an id mismatch: kill, no resend."""
-    mgr = PythonWorkerManager(sys.executable, {})
-    proc = MagicMock()
-    proc.poll.return_value = None
-    proc.stdin = io.BytesIO()
-    proc.stdout = io.BytesIO()
-    _install_mock_proc(mgr, proc)
+    mgr, proc = _mock_mgr()
     mgr._write_frame_with_timeout = MagicMock()
     mgr._read_response_bytes = MagicMock(return_value=pickle.dumps({'type': 'exec_started', 'id': 'someone-else'}, protocol=5))
     mgr._terminate_worker = MagicMock()
@@ -784,12 +745,7 @@ def test_exec_started_wrong_id_is_refused_without_replay():
 
 def test_host_read_timeout_does_not_retry():
     """Hung user code must not be replayed; that would double the configured timeout."""
-    mgr = PythonWorkerManager(sys.executable, {})
-    proc = MagicMock()
-    proc.poll.return_value = None
-    proc.stdin = io.BytesIO()
-    proc.stdout = io.BytesIO()
-    _install_mock_proc(mgr, proc)
+    mgr, proc = _mock_mgr()
     mgr._write_frame_with_timeout = MagicMock()
     mgr._read_response_bytes = MagicMock(side_effect=subprocess.TimeoutExpired(cmd=sys.executable, timeout=1))
     mgr._terminate_worker = MagicMock()
@@ -808,12 +764,7 @@ def test_partial_frame_timeout_does_not_replay():
     outer handler ran the request again.
     """
     from plugin.framework.ipc import IpcPartialFrameTimeout
-    mgr = PythonWorkerManager(sys.executable, {})
-    proc = MagicMock()
-    proc.poll.return_value = None
-    proc.stdin = io.BytesIO()
-    proc.stdout = io.BytesIO()
-    _install_mock_proc(mgr, proc)
+    mgr, proc = _mock_mgr()
     mgr._write_frame_with_timeout = MagicMock()
     mgr._read_response_bytes = MagicMock(side_effect=IpcPartialFrameTimeout('python stream desynchronized: timeout mid-frame'))
     mgr._terminate_worker = MagicMock()
@@ -964,12 +915,7 @@ def test_run_code_in_user_venv_reads_sandbox_policy_flags():
 def test_bad_result_after_tool_call_does_not_replay(monkeypatch, exc_type):
     """Unpack failures (ValueError, OverflowError, TypeError) after a finished tool call do not resend the script."""
     import plugin.scripting.venv_worker as venv_worker_module
-    mgr = PythonWorkerManager(sys.executable, {})
-    proc = MagicMock()
-    proc.poll.return_value = None
-    proc.stdin = io.BytesIO()
-    proc.stdout = io.BytesIO()
-    _install_mock_proc(mgr, proc)
+    mgr, proc = _mock_mgr()
     captured: dict[str, dict] = {}
 
     def _write_frame(stdin, request, **kwargs):
@@ -1075,12 +1021,7 @@ def test_run_code_forwards_script_session_pin_apart_from_kernel_session():
 
 def _ipc_one_tool_call(*, session_id, script_session_id):
     """Drive one tool_call frame through the host without a real worker."""
-    mgr = PythonWorkerManager(sys.executable, {})
-    proc = MagicMock()
-    proc.poll.return_value = None
-    proc.stdin = io.BytesIO()
-    proc.stdout = io.BytesIO()
-    _install_mock_proc(mgr, proc)
+    mgr, proc = _mock_mgr()
     captured: dict[str, dict] = {}
 
     def _write_frame(stdin, request, **kwargs):
@@ -2176,12 +2117,7 @@ def test_host_pack_oversize_returns_error_without_terminate(monkeypatch):
     def _pack(*args, **kwargs):
         raise IpcFrameError('payload too large')
     monkeypatch.setattr(venv_worker_module, 'pack_pickle_frame', _pack)
-    mgr = PythonWorkerManager(sys.executable, {})
-    proc = MagicMock()
-    proc.poll.return_value = None
-    proc.stdin = io.BytesIO()
-    proc.stdout = io.BytesIO()
-    _install_mock_proc(mgr, proc)
+    mgr, proc = _mock_mgr()
     mgr._terminate_worker = MagicMock()
     result = _run_ipc_with_mock(mgr, ExecRequest(code='result = 1', timeout_sec=1), proc)
     assert result['status'] == 'error'
@@ -2192,12 +2128,7 @@ def test_host_pack_oversize_returns_error_without_terminate(monkeypatch):
 
 def test_missing_proc_after_concurrent_terminate():
     """Concurrent retire/kill during read returns an error, not AttributeError."""
-    mgr = PythonWorkerManager(sys.executable, {})
-    proc = MagicMock()
-    proc.poll.return_value = None
-    proc.stdin = io.BytesIO()
-    proc.stdout = io.BytesIO()
-    _install_mock_proc(mgr, proc)
+    mgr, proc = _mock_mgr()
     mgr._write_frame_with_timeout = MagicMock()
     mgr._read_response_bytes = MagicMock(side_effect=RuntimeError('worker terminated concurrently'))
     result = _run_ipc_with_mock(mgr, ExecRequest(code='result = 1', timeout_sec=1), proc)
@@ -2207,12 +2138,7 @@ def test_missing_proc_after_concurrent_terminate():
 
 def test_cancel_returns_cancelled_code():
     """Stop during the IPC wait kills the worker, does not replay, and returns CANCELLED."""
-    mgr = PythonWorkerManager(sys.executable, {})
-    proc = MagicMock()
-    proc.poll.return_value = None
-    proc.stdin = io.BytesIO()
-    proc.stdout = io.BytesIO()
-    _install_mock_proc(mgr, proc)
+    mgr, proc = _mock_mgr()
     mgr._terminate_worker = MagicMock()
     mgr._write_frame_with_timeout = MagicMock()
     mgr._read_response_bytes = MagicMock(return_value=FailedAfterStart(RuntimeError('Python worker stopped by user'), 'cancel'))
@@ -2243,18 +2169,29 @@ class _FakeStdStream:
     def __init__(self, buf):
         self.buffer = buf
 
+def _setup_harness_main(
+    monkeypatch: pytest.MonkeyPatch,
+    stdin_stream: io.BytesIO,
+    stdout_stream: io.BytesIO,
+) -> Any:
+    """Patch worker_harness stdio and process hooks for in-process main() tests."""
+    import plugin.scripting.venv.worker_harness as harness
+
+    monkeypatch.setattr(harness.sys, "stdin", _FakeStdStream(stdin_stream))
+    monkeypatch.setattr(harness.sys, "stdout", _FakeStdStream(stdout_stream))
+    monkeypatch.setattr(harness.os, "_exit", lambda code: pytest.fail(f"Unexpected os._exit({code})"))
+    monkeypatch.setattr(harness, "die_with_parent", lambda: None)
+    monkeypatch.setattr(harness, "_init_logging", lambda: None)
+    return harness
+
+
 def test_harness_main_value_error_in_handle_request_returns_traceback(monkeypatch):
     import io
     from plugin.framework.ipc import read_pickle_frame
-    import plugin.scripting.venv.worker_harness as harness
     req_data = pack_pickle_frame({'id': 'req-ve', 'action': 'execute', 'code': 'result = 1'})
     stdin = io.BytesIO(req_data)
     stdout = io.BytesIO()
-    monkeypatch.setattr(harness.sys, 'stdin', _FakeStdStream(stdin))
-    monkeypatch.setattr(harness.sys, 'stdout', _FakeStdStream(stdout))
-    monkeypatch.setattr(harness.os, '_exit', lambda code: pytest.fail(f'Unexpected os._exit({code})'))
-    monkeypatch.setattr(harness, 'die_with_parent', lambda: None)
-    monkeypatch.setattr(harness, '_init_logging', lambda: None)
+    harness = _setup_harness_main(monkeypatch, stdin, stdout)
 
     def _raise_ve(*args, **kwargs):
         raise ValueError('custom value error')
@@ -2275,17 +2212,12 @@ def test_harness_main_value_error_in_read_stage_returns_invalid_pickle_request(m
     import io
     import struct
     from plugin.framework.ipc import read_pickle_frame
-    import plugin.scripting.venv.worker_harness as harness
     payload = pickle.dumps([1, 2, 3], protocol=5)
     bad_frame = struct.pack('!I', len(payload)) + payload
     stdin = io.BytesIO(bad_frame)
     stdout = io.BytesIO()
-    monkeypatch.setattr(harness.sys, 'stdin', _FakeStdStream(stdin))
-    monkeypatch.setattr(harness.sys, 'stdout', _FakeStdStream(stdout))
-    monkeypatch.setattr(harness.os, '_exit', lambda code: pytest.fail(f'Unexpected os._exit({code})'))
-    monkeypatch.setattr(harness, 'die_with_parent', lambda: None)
-    monkeypatch.setattr(harness, '_init_logging', lambda: None)
-    harness.main()
+    _harness = _setup_harness_main(monkeypatch, stdin, stdout)
+    _harness.main()
     _skip_harness_ready_frame(stdout)
     res = read_pickle_frame(stdout, require_dict=True)
     assert res is not None
@@ -2296,29 +2228,19 @@ def test_harness_main_value_error_in_read_stage_returns_invalid_pickle_request(m
 def test_harness_main_ipc_frame_error_in_read_stage_breaks_without_response(monkeypatch):
     import io
     import struct
-    import plugin.scripting.venv.worker_harness as harness
     bad_header = struct.pack('!I', DEFAULT_MAX_PAYLOAD_BYTES + 100) + b'extra'
     stdin = io.BytesIO(bad_header)
     stdout = io.BytesIO()
-    monkeypatch.setattr(harness.sys, 'stdin', _FakeStdStream(stdin))
-    monkeypatch.setattr(harness.sys, 'stdout', _FakeStdStream(stdout))
-    monkeypatch.setattr(harness.os, '_exit', lambda code: pytest.fail(f'Unexpected os._exit({code})'))
-    monkeypatch.setattr(harness, 'die_with_parent', lambda: None)
-    monkeypatch.setattr(harness, '_init_logging', lambda: None)
+    harness = _setup_harness_main(monkeypatch, stdin, stdout)
     harness.main()
     _skip_harness_ready_frame(stdout)
     assert stdout.read() == b''
 
 def test_harness_main_truncated_frame_breaks_without_response(monkeypatch):
     import io
-    import plugin.scripting.venv.worker_harness as harness
     stdin = io.BytesIO(b'\x00\x00')
     stdout = io.BytesIO()
-    monkeypatch.setattr(harness.sys, 'stdin', _FakeStdStream(stdin))
-    monkeypatch.setattr(harness.sys, 'stdout', _FakeStdStream(stdout))
-    monkeypatch.setattr(harness.os, '_exit', lambda code: pytest.fail(f'Unexpected os._exit({code})'))
-    monkeypatch.setattr(harness, 'die_with_parent', lambda: None)
-    monkeypatch.setattr(harness, '_init_logging', lambda: None)
+    harness = _setup_harness_main(monkeypatch, stdin, stdout)
     harness.main()
     _skip_harness_ready_frame(stdout)
     assert stdout.read() == b''
@@ -2326,15 +2248,10 @@ def test_harness_main_truncated_frame_breaks_without_response(monkeypatch):
 def test_harness_main_read_desync_during_handle_request_breaks(monkeypatch):
     import io
     from plugin.framework.ipc import IpcFrameReadError, read_pickle_frame
-    import plugin.scripting.venv.worker_harness as harness
     req_data = pack_pickle_frame({'id': 'req-desync', 'action': 'execute', 'code': 'result = 1'})
     stdin = io.BytesIO(req_data)
     stdout = io.BytesIO()
-    monkeypatch.setattr(harness.sys, 'stdin', _FakeStdStream(stdin))
-    monkeypatch.setattr(harness.sys, 'stdout', _FakeStdStream(stdout))
-    monkeypatch.setattr(harness.os, '_exit', lambda code: pytest.fail(f'Unexpected os._exit({code})'))
-    monkeypatch.setattr(harness, 'die_with_parent', lambda: None)
-    monkeypatch.setattr(harness, '_init_logging', lambda: None)
+    harness = _setup_harness_main(monkeypatch, stdin, stdout)
 
     def _raise_read_desync(*args, **kwargs):
         raise IpcFrameReadError('tool_call response stream desynchronized')
@@ -2348,15 +2265,10 @@ def test_harness_main_read_desync_during_handle_request_breaks(monkeypatch):
 def test_harness_main_pack_size_error_during_handle_request_writes_error_frame(monkeypatch):
     import io
     from plugin.framework.ipc import IpcPayloadSizeError, read_pickle_frame
-    import plugin.scripting.venv.worker_harness as harness
     req_data = pack_pickle_frame({'id': 'req-pack-err', 'action': 'execute', 'code': 'result = 1'})
     stdin = io.BytesIO(req_data)
     stdout = io.BytesIO()
-    monkeypatch.setattr(harness.sys, 'stdin', _FakeStdStream(stdin))
-    monkeypatch.setattr(harness.sys, 'stdout', _FakeStdStream(stdout))
-    monkeypatch.setattr(harness.os, '_exit', lambda code: pytest.fail(f'Unexpected os._exit({code})'))
-    monkeypatch.setattr(harness, 'die_with_parent', lambda: None)
-    monkeypatch.setattr(harness, '_init_logging', lambda: None)
+    harness = _setup_harness_main(monkeypatch, stdin, stdout)
 
     def _raise_pack_err(*args, **kwargs):
         raise IpcPayloadSizeError('Pickle frame exceeds maximum payload size: 20000000')
@@ -2375,15 +2287,10 @@ def test_harness_main_pack_size_error_during_handle_request_writes_error_frame(m
 def test_harness_main_user_stopped_writes_user_stopped_frame(monkeypatch):
     import io
     from plugin.framework.ipc import UserStopped, read_pickle_frame
-    import plugin.scripting.venv.worker_harness as harness
     req_data = pack_pickle_frame({'id': 'req-stop', 'action': 'execute', 'code': 'result = 1'})
     stdin = io.BytesIO(req_data)
     stdout = io.BytesIO()
-    monkeypatch.setattr(harness.sys, 'stdin', _FakeStdStream(stdin))
-    monkeypatch.setattr(harness.sys, 'stdout', _FakeStdStream(stdout))
-    monkeypatch.setattr(harness.os, '_exit', lambda code: pytest.fail(f'Unexpected os._exit({code})'))
-    monkeypatch.setattr(harness, 'die_with_parent', lambda: None)
-    monkeypatch.setattr(harness, '_init_logging', lambda: None)
+    harness = _setup_harness_main(monkeypatch, stdin, stdout)
 
     def _raise_user_stopped(*args, **kwargs):
         raise UserStopped('Interrupted by user.')
@@ -2402,17 +2309,13 @@ def test_harness_main_user_stopped_writes_user_stopped_frame(monkeypatch):
 def test_harness_main_reads_claimed_stdin(monkeypatch):
     import io
     from plugin.framework.ipc import pack_pickle_frame, read_pickle_frame
-    import plugin.scripting.venv.worker_harness as harness
     req_data = pack_pickle_frame({'id': 'req-claim-in', 'action': 'execute', 'code': 'result = 1'})
     claimed_stdin = io.BytesIO(req_data)
     stdout = io.BytesIO()
+    harness = _setup_harness_main(monkeypatch, io.BytesIO(), stdout)
     monkeypatch.setattr(harness, 'claim_ipc_stdin', lambda: claimed_stdin)
     monkeypatch.setattr(harness, 'claim_ipc_channel', lambda: stdout)
-    monkeypatch.setattr(harness.os, '_exit', lambda code: pytest.fail(f'Unexpected os._exit({code})'))
-    monkeypatch.setattr(harness, 'die_with_parent', lambda: None)
-    monkeypatch.setattr(harness, '_init_logging', lambda: None)
     monkeypatch.setattr(harness, '_handle_request', lambda req, stdout=None: {'status': 'ok', 'result': 1})
-    monkeypatch.setattr(harness.sys, 'stdin', _FakeStdStream(io.BytesIO()))
     harness.main()
     _skip_harness_ready_frame(stdout)
     started = read_pickle_frame(stdout, require_dict=True)
@@ -2473,12 +2376,7 @@ def test_read_response_empty_dict_is_terminal():
         assert res == {}
 
 def test_allowed_tools_resolved_before_request_write(monkeypatch: pytest.MonkeyPatch) -> None:
-    mgr = PythonWorkerManager(sys.executable, {})
-    proc = MagicMock()
-    proc.poll.return_value = None
-    proc.stdin = io.BytesIO()
-    proc.stdout = io.BytesIO()
-    _install_mock_proc(mgr, proc)
+    mgr, proc = _mock_mgr()
     events: list[str] = []
 
     def _resolve(domain: str | None) -> frozenset[str]:
@@ -2499,12 +2397,7 @@ def test_allowed_tools_resolved_before_request_write(monkeypatch: pytest.MonkeyP
     assert events == ['resolve', 'write']
 
 def test_resolve_allowed_tools_failure_does_not_write(monkeypatch: pytest.MonkeyPatch) -> None:
-    mgr = PythonWorkerManager(sys.executable, {})
-    proc = MagicMock()
-    proc.poll.return_value = None
-    proc.stdin = io.BytesIO()
-    proc.stdout = io.BytesIO()
-    _install_mock_proc(mgr, proc)
+    mgr, proc = _mock_mgr()
 
     def _fail_resolve(domain: str | None) -> frozenset[str]:
         raise RuntimeError('domain map failed')
@@ -2519,12 +2412,7 @@ def test_resolve_allowed_tools_failure_does_not_write(monkeypatch: pytest.Monkey
     assert mgr._terminate_worker.call_count == 0
 
 def test_invalid_pickle_request_frame_keeps_worker(monkeypatch: pytest.MonkeyPatch) -> None:
-    mgr = PythonWorkerManager(sys.executable, {})
-    proc = MagicMock()
-    proc.poll.return_value = None
-    proc.stdin = io.BytesIO()
-    proc.stdout = io.BytesIO()
-    _install_mock_proc(mgr, proc)
+    mgr, proc = _mock_mgr()
     mgr._write_frame_with_timeout = MagicMock()
     mgr._terminate_worker = MagicMock()
     mgr._read_response_bytes = MagicMock(return_value=pickle.dumps({'id': '', 'status': 'error', 'message': 'Invalid pickle request: nope'}, protocol=5))
@@ -2539,12 +2427,7 @@ def test_invalid_pickle_request_frame_keeps_worker(monkeypatch: pytest.MonkeyPat
     assert cleared == []
 
 def test_empty_id_error_after_exec_started_still_kills() -> None:
-    mgr = PythonWorkerManager(sys.executable, {})
-    proc = MagicMock()
-    proc.poll.return_value = None
-    proc.stdin = io.BytesIO()
-    proc.stdout = io.BytesIO()
-    _install_mock_proc(mgr, proc)
+    mgr, proc = _mock_mgr()
     captured: dict[str, dict[str, Any]] = {}
     writes = {'n': 0}
 

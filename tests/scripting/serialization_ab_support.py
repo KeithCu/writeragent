@@ -16,10 +16,12 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import hypothesis.strategies as st
+import pytest
 from hypothesis import strategies
 
 import plugin.scripting.payload_codec as pc
 from plugin.scripting.calc_range import ensure_rectangular_2d, materialize_calc_range
+from plugin.scripting.config_limits import python_exec_timeout
 from plugin.scripting.payload_codec import (
     BINARY_MIN_CELLS,
     PAYLOAD_MULTI_DATA,
@@ -29,6 +31,16 @@ from plugin.scripting.payload_codec import (
     is_numeric_grid,
     is_split_grid,
 )
+from plugin.scripting.venv_worker import ExecRequest, PythonWorkerManager
+from tests.calc.serialization_cases import SerializationCase, all_serialization_cases
+from tests.scripting.payload_codec_test_support import (
+    MIXED_LABEL_GRID,
+    MIXED_WITH_ZIP,
+    NUMERIC_4X4,
+    grid_with_cell_count,
+    sequential_grid_sum,
+)
+from tests.scripting.sandbox_support import sandbox_run
 
 # Set by Makefile (slowtests, vhs) before pytest starts. See tests/harness/vhs_budget.py.
 _AB_HYPOTHESIS_LIGHT = {"codec": 100, "venv_echo": 100, "venv_sum": 80, "multi_range": 50}
@@ -72,8 +84,7 @@ def assert_cython_vs_python_parity(
 ) -> None:
     """Run worker code twice: once with Cython and once with Pure Python. Assert parity."""
     if pc.fast_flatten_grid_2d is None and pc.fast_flatten_grid_1d is None:
-        # Skip if Cython not available on this platform/build
-        return
+        pytest.skip("Cython accelerator not available")
 
     with cython_accelerator_context(enabled=True):
         result_cython = run_venv_roundtrip(grid, code, pack_force="always")
@@ -82,17 +93,6 @@ def assert_cython_vs_python_parity(
         result_python = run_venv_roundtrip(grid, code, pack_force="always")
 
     assert_semantically_equal(result_cython, result_python, label=f"{label} (Cython vs Python)")
-from plugin.scripting.config_limits import python_exec_timeout
-from plugin.scripting.venv_worker import ExecRequest, PythonWorkerManager
-from tests.scripting.sandbox_support import sandbox_run
-from tests.calc.serialization_cases import SerializationCase, all_serialization_cases
-from tests.scripting.payload_codec_test_support import (
-    MIXED_LABEL_GRID,
-    MIXED_WITH_ZIP,
-    NUMERIC_4X4,
-    grid_with_cell_count,
-    sequential_grid_sum,
-)
 
 # Worker code strings (assign to result — matches test_run_venv_code.py style).
 VENV_CODE_ECHO = "result = data.values"
@@ -395,7 +395,6 @@ def assert_codec_split_vs_nosplit_parity(
 
 
 def assert_forced_split_venv_parity(
-    grid: list[Any] | list[list[Any]],
     result_split: Any,
     result_nosplit: Any,
     *,
@@ -419,7 +418,7 @@ def assert_venv_always_never_parity(
     """Run worker code with force=always vs force=never; leaf cells must match."""
     result_always = run_venv_roundtrip(grid, code, pack_force="always", use_subprocess=use_subprocess)
     result_never = run_venv_roundtrip(grid, code, pack_force="never", use_subprocess=use_subprocess)
-    assert_forced_split_venv_parity(grid, result_always, result_never, label=label or "venv")
+    assert_forced_split_venv_parity(result_always, result_never, label=label or "venv")
     return result_always, result_never
 
 

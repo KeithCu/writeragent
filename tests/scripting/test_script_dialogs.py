@@ -18,6 +18,7 @@ def _build_dialog_mock(
     name_text: str = "",
     attach_state: int = 1,
     peer_sentinel: Any = None,
+    click: str | None = "ok",
 ):
     ctx = MagicMock()
     smgr = MagicMock()
@@ -76,16 +77,19 @@ def _build_dialog_mock(
         return MagicMock()
 
     dlg.getControl.side_effect = fake_get_control
+    if click == "ok":
+        dlg.execute.side_effect = lambda: [listener.actionPerformed(MagicMock()) for listener in ok_listeners]
+    elif click == "cancel":
+        dlg.execute.side_effect = lambda: [listener.actionPerformed(MagicMock()) for listener in cancel_listeners]
 
     return ctx, dlg, name_edit, chk, ok_listeners, cancel_listeners
 
 
 def test_show_new_script_dialog_ok_writable_doc():
-    ctx, dlg, _edit, chk, ok_listeners, _cancel_listeners = _build_dialog_mock(
+    ctx, dlg, _edit, chk, _ok_listeners, _cancel_listeners = _build_dialog_mock(
         name_text="  MyNewScript  ",
         attach_state=1,
     )
-    dlg.execute.side_effect = lambda: [listener.actionPerformed(MagicMock()) for listener in ok_listeners]
     doc = MagicMock()
     doc.isReadonly.return_value = False
 
@@ -101,11 +105,11 @@ def test_show_new_script_dialog_ok_writable_doc():
 
 
 def test_show_new_script_dialog_cancel():
-    ctx, dlg, _edit, _chk, _ok_listeners, cancel_listeners = _build_dialog_mock(
+    ctx, dlg, _edit, _chk, _ok_listeners, _cancel_listeners = _build_dialog_mock(
         name_text="MyScript",
         attach_state=0,
+        click="cancel",
     )
-    dlg.execute.side_effect = lambda: [listener.actionPerformed(MagicMock()) for listener in cancel_listeners]
 
     result = show_new_script_dialog(ctx, doc=None, default_name="")
     assert result is None
@@ -117,7 +121,6 @@ def test_show_new_script_dialog_custom_title_and_default_attach_false():
         name_text="SavedCopy",
         attach_state=0,
     )
-    dlg.execute.side_effect = lambda: [listener.actionPerformed(MagicMock()) for listener in ok_listeners]
     doc = MagicMock()
     doc.isReadonly.return_value = False
 
@@ -138,7 +141,6 @@ def test_show_new_script_dialog_default_attach_true_matches_default():
         name_text="Mine",
         attach_state=1,
     )
-    dlg.execute.side_effect = lambda: [listener.actionPerformed(MagicMock()) for listener in ok_listeners]
     doc = MagicMock()
     doc.isReadonly.return_value = False
 
@@ -150,12 +152,11 @@ def test_show_new_script_dialog_default_attach_true_matches_default():
 def test_show_new_script_dialog_writable_init_rejected():
     peer = object()
     for init_name in ("INIT", "Init"):
-        ctx, dlg, _edit, _chk, ok_listeners, _cancel_listeners = _build_dialog_mock(
+        ctx, dlg, _edit, _chk, _ok_listeners, _cancel_listeners = _build_dialog_mock(
             name_text=init_name,
             attach_state=1,
             peer_sentinel=peer,
         )
-        dlg.execute.side_effect = lambda: [listener.actionPerformed(MagicMock()) for listener in ok_listeners]
         doc = MagicMock()
         doc.isReadonly.return_value = False
 
@@ -173,7 +174,6 @@ def test_show_new_script_dialog_writable_lowercase_init_allowed():
         name_text="init",
         attach_state=1,
     )
-    dlg.execute.side_effect = lambda: [listener.actionPerformed(MagicMock()) for listener in ok_listeners]
     doc = MagicMock()
     doc.isReadonly.return_value = False
 
@@ -189,7 +189,6 @@ def test_show_new_script_dialog_writable_init_unattached_allowed():
         name_text="INIT",
         attach_state=0,
     )
-    dlg.execute.side_effect = lambda: [listener.actionPerformed(MagicMock()) for listener in ok_listeners]
     doc = MagicMock()
     doc.isReadonly.return_value = False
 
@@ -207,7 +206,6 @@ def test_show_new_script_dialog_writable_reserved_prefix_rejected():
         attach_state=0,
         peer_sentinel=peer,
     )
-    dlg.execute.side_effect = lambda: [listener.actionPerformed(MagicMock()) for listener in ok_listeners]
     doc = MagicMock()
     doc.isReadonly.return_value = False
 
@@ -226,7 +224,6 @@ def test_show_new_script_dialog_empty_text_rejected():
         attach_state=1,
         peer_sentinel=peer,
     )
-    dlg.execute.side_effect = lambda: [listener.actionPerformed(MagicMock()) for listener in ok_listeners]
     doc = MagicMock()
     doc.isReadonly.return_value = False
 
@@ -243,7 +240,6 @@ def test_show_new_script_dialog_no_document_disables_attach():
         name_text="Mine",
         attach_state=1,
     )
-    dlg.execute.side_effect = lambda: [listener.actionPerformed(MagicMock()) for listener in ok_listeners]
 
     result = show_new_script_dialog(ctx, doc=None)
     assert result == ("Mine", False)
@@ -258,7 +254,6 @@ def test_show_new_script_dialog_readonly_document_disables_attach():
         name_text="Mine",
         attach_state=1,
     )
-    dlg.execute.side_effect = lambda: [listener.actionPerformed(MagicMock()) for listener in ok_listeners]
     doc = MagicMock()
     doc.isReadonly.return_value = True
 
@@ -276,7 +271,6 @@ def test_show_new_script_dialog_set_focus_failure_still_executes():
         attach_state=1,
     )
     edit.setFocus.side_effect = RuntimeError("focus failed")
-    dlg.execute.side_effect = lambda: [listener.actionPerformed(MagicMock()) for listener in ok_listeners]
     doc = MagicMock()
     doc.isReadonly.return_value = False
 

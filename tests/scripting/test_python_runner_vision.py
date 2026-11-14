@@ -10,6 +10,8 @@ import builtins
 import sys
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from tests.scripting.python_runner_test_support import execute_and_insert_result
 from plugin.scripting import python_runner as pr
 from plugin.vision.vision_templates import get_vision_script_templates
@@ -22,83 +24,76 @@ def _vision_params_for(helper: str) -> dict:
     return call_spec.get("params") if isinstance(call_spec.get("params"), dict) else {}
 
 
+@pytest.mark.parametrize(
+    ("helper", "is_writer_doc", "individual_result", "expect_html", "check_image_none"),
+    [
+        (
+            "extract_text",
+            True,
+            {"status": "ok", "helper": "extract_text", "html": "<p>line1</p><p>line2</p>", "metrics": {"line_count": 2}},
+            True,
+            False,
+        ),
+        (
+            "extract_text",
+            False,
+            {"status": "ok", "helper": "extract_text", "html": "<p>line1</p><p>line2</p>", "metrics": {"line_count": 2}},
+            False,
+            False,
+        ),
+        (
+            "extract_structure",
+            True,
+            {"status": "ok", "helper": "extract_structure", "html": "<table><tr><th>A</th><th>B</th></tr><tr><td>1</td><td>2</td></tr></table>", "metrics": {"block_count": 2, "table_count": 1}, "tables": [{"name": "table_1", "columns": ["A", "B"], "rows": [["1", "2"]]}], "blocks": [], "warnings": []},
+            True,
+            False,
+        ),
+        (
+            "extract_structure",
+            False,
+            {"status": "ok", "helper": "extract_structure", "html": "<table><tr><td>1</td></tr></table>", "metrics": {"block_count": 0, "table_count": 1}, "tables": [{"name": "table_1", "columns": ["A"], "rows": [["1"]]}], "blocks": [], "warnings": []},
+            False,
+            True,
+        ),
+    ],
+    ids=["extract_text_writer", "extract_text_calc", "extract_structure_writer", "extract_structure_calc"],
+)
 @patch("plugin.vision.vision_egress.insert_vision_result")
 @patch("plugin.vision.vision_runner.run_and_insert_vision_for_selection")
-def test_execute_and_insert_vision_venv_path(mock_orchestrator, mock_insert):
+def test_execute_and_insert_vision_venv_path(
+    mock_orchestrator,
+    mock_insert,
+    helper,
+    is_writer_doc,
+    individual_result,
+    expect_html,
+    check_image_none,
+):
     ctx = MagicMock()
     doc = MagicMock()
 
-    with patch("plugin.scripting.python_runner.is_writer", return_value=True), patch(
-        "plugin.scripting.python_runner.is_calc", return_value=False
+    with patch("plugin.scripting.python_runner.is_writer", return_value=is_writer_doc), patch(
+        "plugin.scripting.python_runner.is_calc", return_value=not is_writer_doc
     ), patch("plugin.vision.vision_runner.supports_vision_manual", return_value=True):
-        mock_orchestrator.return_value = {"status": "ok", "images_processed": 1, "helper": "extract_text", "individual_results": [{"status": "ok", "helper": "extract_text", "html": "<p>line1</p><p>line2</p>", "metrics": {"line_count": 2}}]}
-        code = get_vision_script_templates()["extract_text"]
+        mock_orchestrator.return_value = {
+            "status": "ok",
+            "images_processed": 1,
+            "helper": helper,
+            "individual_results": [individual_result],
+        }
+        code = get_vision_script_templates()[helper]
         outcome = execute_and_insert_result(ctx, doc, code)
 
     assert outcome["ok"] is True
-    assert "extract_text" in outcome["status_ok_text"]
-    assert "HTML" in outcome["status_ok_text"]
+    assert helper in outcome["status_ok_text"]
+    if expect_html:
+        assert "HTML" in outcome["status_ok_text"]
     mock_orchestrator.assert_called_once()
     mock_insert.assert_called_once()
-    assert mock_insert.call_args.kwargs["params"] is not None
-
-
-@patch("plugin.vision.vision_egress.insert_vision_result")
-@patch("plugin.vision.vision_runner.run_and_insert_vision_for_selection")
-def test_execute_and_insert_vision_venv_path_calc(mock_orchestrator, mock_insert):
-    ctx = MagicMock()
-    doc = MagicMock()
-
-    with patch("plugin.scripting.python_runner.is_writer", return_value=False), patch(
-        "plugin.scripting.python_runner.is_calc", return_value=True
-    ), patch("plugin.vision.vision_runner.supports_vision_manual", return_value=True):
-        mock_orchestrator.return_value = {"status": "ok", "images_processed": 1, "helper": "extract_text", "individual_results": [{"status": "ok", "helper": "extract_text", "html": "<p>line1</p><p>line2</p>", "metrics": {"line_count": 2}}]}
-        code = get_vision_script_templates()["extract_text"]
-        outcome = execute_and_insert_result(ctx, doc, code)
-
-    assert outcome["ok"] is True
-    assert "extract_text" in outcome["status_ok_text"]
-    mock_orchestrator.assert_called_once()
-    mock_insert.assert_called_once()
-
-
-@patch("plugin.vision.vision_egress.insert_vision_result")
-@patch("plugin.vision.vision_runner.run_and_insert_vision_for_selection")
-def test_execute_and_insert_vision_structure_writer(mock_orchestrator, mock_insert):
-    ctx = MagicMock()
-    doc = MagicMock()
-
-    with patch("plugin.scripting.python_runner.is_writer", return_value=True), patch(
-        "plugin.scripting.python_runner.is_calc", return_value=False
-    ), patch("plugin.vision.vision_runner.supports_vision_manual", return_value=True):
-        mock_orchestrator.return_value = {"status": "ok", "images_processed": 1, "helper": "extract_structure", "individual_results": [{"status": "ok", "helper": "extract_structure", "html": "<table><tr><th>A</th><th>B</th></tr><tr><td>1</td><td>2</td></tr></table>", "metrics": {"block_count": 2, "table_count": 1}, "tables": [{"name": "table_1", "columns": ["A", "B"], "rows": [["1", "2"]]}], "blocks": [], "warnings": []}]}
-        code = get_vision_script_templates()["extract_structure"]
-        outcome = execute_and_insert_result(ctx, doc, code)
-
-    assert outcome["ok"] is True
-    assert "extract_structure" in outcome["status_ok_text"]
-    assert "HTML" in outcome["status_ok_text"]
-    mock_insert.assert_called_once()
-    assert mock_insert.call_args.kwargs["params"] is not None
-
-
-@patch("plugin.vision.vision_egress.insert_vision_result")
-@patch("plugin.vision.vision_runner.run_and_insert_vision_for_selection")
-def test_execute_and_insert_vision_structure_calc(mock_orchestrator, mock_insert):
-    ctx = MagicMock()
-    doc = MagicMock()
-
-    with patch("plugin.scripting.python_runner.is_writer", return_value=False), patch(
-        "plugin.scripting.python_runner.is_calc", return_value=True
-    ), patch("plugin.vision.vision_runner.supports_vision_manual", return_value=True):
-        mock_orchestrator.return_value = {"status": "ok", "images_processed": 1, "helper": "extract_structure", "individual_results": [{"status": "ok", "helper": "extract_structure", "html": "<table><tr><td>1</td></tr></table>", "metrics": {"block_count": 0, "table_count": 1}, "tables": [{"name": "table_1", "columns": ["A"], "rows": [["1"]]}], "blocks": [], "warnings": []}]}
-        code = get_vision_script_templates()["extract_structure"]
-        outcome = execute_and_insert_result(ctx, doc, code)
-
-    assert outcome["ok"] is True
-    mock_orchestrator.assert_called_once()
     params = mock_insert.call_args.kwargs["params"]
-    assert params.get("image_name") is None
+    assert params is not None
+    if check_image_none:
+        assert params.get("image_name") is None
 
 
 @patch("plugin.vision.vision_runner.run_and_insert_vision_for_selection")
