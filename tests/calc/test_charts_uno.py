@@ -94,7 +94,7 @@ def test_charts_validation_and_writer_arrays(ctx, doc):
     assert res.get("status") == "error"
     assert res.get("code") == "VALIDATION_ERROR"
     assert "data_range" in res.get("message", "")
-    assert res.get("ignored_parameters") == ["headers", "rows"]
+    assert res["details"]["ignored_parameters"] == ["headers", "rows"]
 
     # Create chart without data_range should fail in Calc
     res = _execute_calc_tool(doc, ctx, "chart_upsert", {
@@ -118,7 +118,7 @@ def test_charts_validation_and_writer_arrays(ctx, doc):
         assert res_fail.get("status") == "error"
         assert res_fail.get("code") == "VALIDATION_ERROR"
         assert "Both 'headers' and 'rows' are required" in res_fail.get("message", "")
-        assert res_fail.get("ignored_parameters") == ["data_range"]
+        assert res_fail["details"]["ignored_parameters"] == ["data_range"]
 
         # Create chart without headers/rows should fail in Writer
         res_fail2 = get_tools().execute("chart_upsert", writer_ctx, chart_type="bar")
