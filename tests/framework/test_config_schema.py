@@ -74,6 +74,20 @@ def test_config_schema_has_no_forbidden_imports() -> None:
     assert "plugin.framework.config" not in imported
 
 
+def test_manifest_config_keys_are_known_in_schema() -> None:
+    from plugin._manifest import MODULES
+    from plugin.framework.config_schema import is_known_config_key
+
+    for mod in MODULES:
+        if not isinstance(mod, dict):
+            continue
+        mod_name = mod.get("name")
+        for key, spec in (mod.get("config") or {}).items():
+            if key.startswith("_") or not isinstance(spec, dict) or spec.get("type") == "separator":
+                continue
+            assert is_known_config_key(f"{mod_name}.{key}")
+
+
 def test_parse_float_robust_huge_int_is_value_error() -> None:
     """A ≥309-digit int must degrade as ValueError, not OverflowError.
 

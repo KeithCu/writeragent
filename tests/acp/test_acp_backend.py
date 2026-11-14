@@ -49,6 +49,7 @@ class TestDefaultExtraArgs:
         ],
     )
     def test_defaults_apply_when_settings_args_empty(self, backend_cls, binary_path):
+        assert backend_cls.default_extra_args
         with (
             patch("plugin.framework.config.get_config", side_effect=_config_get(path=binary_path, args="")),
             patch("os.path.isfile", return_value=True),
@@ -167,12 +168,12 @@ class TestDefaultExtraArgs:
             (AntigravityBackend, "agy"),
             (GrokBackend, "grok"),
             (GrokBackend, "grok-cli"),
-            (ClaudeBackend, "claude-code-acp-rs"),
         ],
     )
     @pytest.mark.parametrize("suffix", [".exe", ".cmd", ".bat", ".EXE"])
     def test_windows_suffix_applies_default_extra_args(self, backend_cls, binary, suffix):
         """shutil.which on Windows returns name.exe / .cmd / .bat, not the bare name."""
+        assert backend_cls.default_extra_args
         path = f"/usr/bin/{binary}{suffix}"
         with (
             patch("plugin.framework.config.get_config", side_effect=_config_get(path=path, args="")),

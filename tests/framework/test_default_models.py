@@ -23,6 +23,13 @@ class TestGetProviderDefaults:
         assert (resolve_model_id({"ids": {"openrouter": "x"}}, "openrouter")) == ("x")
         assert (resolve_model_id({"ids": {"release": ()}}, "release")) is None
 
+    def test_gpt_oss_20b_not_stray_on_openrouter(self):
+        # Same slug as Together/Groq. Without it, an OpenRouter sidebar treats
+        # openai/gpt-oss-20b as a stray id and restashes text_model to 120b:nitro.
+        from plugin.chatbot.config_ui_helpers import _is_incompatible_model_for_provider
+
+        assert not _is_incompatible_model_for_provider("openai/gpt-oss-20b", "openrouter")
+
     def test_writeragent_mock_not_custom_or_openai_default(self):
         from plugin.framework.default_models import DEFAULT_MODELS
 

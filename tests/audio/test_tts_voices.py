@@ -319,6 +319,8 @@ def test_voice_catalog_asset_drives_runtime_maps():
     import json
     import os
 
+    from plugin.audio.voice_catalog import voice_short_name
+
     assert os.path.isfile(CATALOG_PATH)
     with open(CATALOG_PATH, encoding="utf-8") as handle:
         raw = json.load(handle)
@@ -327,6 +329,8 @@ def test_voice_catalog_asset_drives_runtime_maps():
     assert list(_PIPER_VOICE_MODELS) == piper_ids
     kokoro_ids = [row["id"] for row in raw["kokoro"]["voices"]]
     assert [item["value"] for item in _KOKORO_CATALOG_ITEMS] == kokoro_ids
+    sample_id = piper_ids[0]
+    assert voice_short_name(f"{sample_id} (x)") == voice_short_name(sample_id) != sample_id
 
 
 def test_settings_voice_options_match_catalog_for_provider():

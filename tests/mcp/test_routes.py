@@ -10,7 +10,7 @@ import threading
 
 from plugin.mcp.routes import HttpRouteRegistry
 
-_MCP_ROUTES = (
+_SAMPLE_ROUTES = (
     ("POST", "/mcp"),
     ("GET", "/mcp"),
     ("DELETE", "/mcp"),
@@ -56,12 +56,12 @@ def test_list_routes_waits_for_the_whole_register_batch() -> None:
             # reader cannot finish until this batch releases.
             worker.join(0.2)
             assert worker.is_alive()
-            for method, path in _MCP_ROUTES:
+            for method, path in _SAMPLE_ROUTES:
                 registry.add(method, path, _handler)
     finally:
         worker.join(2)
     assert not worker.is_alive()
-    assert set(result["routes"]) == {("GET", "/health"), *_MCP_ROUTES}
+    assert set(result["routes"]) == {("GET", "/health"), *_SAMPLE_ROUTES}
 
 
 def test_concurrent_get_during_toggle_does_not_raise() -> None:
@@ -70,7 +70,7 @@ def test_concurrent_get_during_toggle_does_not_raise() -> None:
     registry.add("GET", "/health", _handler)
     registry.add("GET", "/", _handler)
     base = {("GET", "/health"), ("GET", "/")}
-    full = base | set(_MCP_ROUTES)
+    full = base | set(_SAMPLE_ROUTES)
     stop = threading.Event()
     errors: list[BaseException] = []
     partial: list[set[tuple[str, str]]] = []
@@ -95,10 +95,10 @@ def test_concurrent_get_during_toggle_does_not_raise() -> None:
     try:
         for _unused in range(40):
             with registry.lock:
-                for method, path in _MCP_ROUTES:
+                for method, path in _SAMPLE_ROUTES:
                     registry.add(method, path, _handler)
             with registry.lock:
-                for method, path in _MCP_ROUTES:
+                for method, path in _SAMPLE_ROUTES:
                     registry.remove(method, path)
     finally:
         stop.set()
