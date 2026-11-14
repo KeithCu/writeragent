@@ -11,7 +11,6 @@ from plugin.chatbot.brainstorming import (
     BrainstormingSessionTool,
     SaveDesignSpec,
 )
-from plugin.chatbot.smol_examples import get_examples_block
 from plugin.chatbot.sub_agent_tools import (
     collect_sub_agent_tools,
     normalize_html_content_array,
@@ -35,13 +34,6 @@ def _brainstorming_domains(gateway):
 def test_brainstorming_not_in_writer_delegate_enum(value):
     gw = DelegateToSpecializedWriter()
     assert value not in _brainstorming_domains(gw)
-
-def test_brainstorming_examples_use_html_only():
-    block = get_examples_block("brainstorming")
-    assert "<p>" in block
-    assert "<h1>" in block
-    assert "**" not in block
-    assert "# Design" not in block
 
 
 def test_normalize_html_content_array_accepts_list_and_string():

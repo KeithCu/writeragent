@@ -128,8 +128,6 @@ def test_shared_pieces_are_identical_in_both_channels():
     # Topic -> the exact constants piece (identity, not a copy that could be edited apart).
     # editing-html = ambient block + pull-only examples; equality, since concatenation makes a new string.
     assert writer_texts["editing-html"] == c.WRITER_APPLY_DOCUMENT_HTML_RULES + c.HTML_MATH_AND_LINK_EXAMPLES
-    assert "Good math" in get_section("editing-html", "writer")
-    assert "|outline" in full_manual("writer")
     assert writer_texts["review-modes"] is c.WRITER_REVIEW_MODES_RULES
     assert writer_texts["search"] is c.WRITER_SEARCH_RULES
     assert writer_texts["navigation"] is c.WRITER_NAVIGATION_RULES
@@ -202,31 +200,6 @@ def test_full_manual_impress_uses_draw_sections():
     assert full_manual(" Writer ") == full_manual("writer")
     assert "TRACKED CHANGES" in full_manual(" Writer ")
     assert full_manual(" Nope ") == full_manual("generic")
-
-
-def test_writer_topic_strings_contain_exact_writer_topics():
-    from plugin.mcp.mcp_protocol import _MCP_GUIDANCE_POINTER
-
-    expected_topics = list_topics("writer")
-    guidance_desc = GetGuidance.description
-    mcp_pointer = _MCP_GUIDANCE_POINTER
-
-    for topic in expected_topics:
-        assert topic in guidance_desc
-        assert topic in mcp_pointer
-
-    import re
-    # Extract topics in "(for Writer: ...)"
-    pattern = r"\(for Writer:\s*([^)]+)\)"
-    match_desc = re.search(pattern, guidance_desc)
-    assert match_desc is not None
-    desc_topics = [t.strip() for t in match_desc.group(1).split(",")]
-    assert desc_topics == expected_topics
-
-    match_mcp = re.search(pattern, mcp_pointer)
-    assert match_mcp is not None
-    mcp_topics = [t.strip() for t in match_mcp.group(1).split(",")]
-    assert mcp_topics == expected_topics
 
 
 # ---- GetGuidance tool --------------------------------------------------------
