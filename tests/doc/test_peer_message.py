@@ -263,24 +263,36 @@ def test_visibility_filter_two_writer_hides_on_main():
     assert "undo" in names
 
 
-def test_visibility_filter_two_writer_shows_catalog_on_specialized():
+@pytest.mark.parametrize(
+    ("ctx_arg", "active_domain", "expect_listed"),
+    [
+        pytest.param(object(), PEER_SPECIALIZED_DOMAIN, True, id="specialized"),
+        pytest.param(object(), "document_research:extra", True, id="domain_suffix"),
+        pytest.param(None, PEER_SPECIALIZED_DOMAIN, False, id="missing_ctx"),
+    ],
+)
+def test_filter_peer_message_schemas_specialized_visibility(ctx_arg, active_domain, expect_listed):
     schemas = [
         {"type": "function", "function": {"name": PEER_WORK_TOOL_NAME, "description": "base"}},
         {"type": "function", "function": {"name": PEER_RESULT_TOOL_NAME, "description": "base"}},
     ]
     peers = [{"name": "Other.odt", "uid": "u2", "url": "file:///tmp/Other.odt", "type": "writer"}]
-    with patch("plugin.doc.peer_message.list_v1_peers", return_value=peers):
+    with patch("plugin.doc.peer_message.list_v1_peers", return_value=peers) as mock_list:
         out = filter_peer_message_schemas(
-            schemas, ctx=object(), doc=object(), active_domain=PEER_SPECIALIZED_DOMAIN
+            schemas, ctx=ctx_arg, doc=object(), active_domain=active_domain
         )
-    assert len(out) == 2
-    names = {s["function"]["name"] for s in out}
-    assert names == PEER_TOOL_NAMES
-    for schema in out:
-        desc = schema["function"]["description"]
-        assert "Other.odt" in desc
-        assert "uid=u2" in desc
-        assert "type=writer" in desc
+    if expect_listed:
+        assert mock_list.call_count == 1
+        assert len(out) == 2
+        assert {s["function"]["name"] for s in out} == PEER_TOOL_NAMES
+        for schema in out:
+            desc = schema["function"]["description"]
+            assert "Other.odt" in desc
+            assert "uid=u2" in desc
+            assert "type=writer" in desc
+    else:
+        mock_list.assert_not_called()
+        assert not (PEER_TOOL_NAMES & {s["function"]["name"] for s in out})
 
 
 def test_visibility_filter_specialized_hides_when_alone():
@@ -391,41 +403,29 @@ def test_user_busy_wins_over_queued_inject():
     assert listener.started == [("wrapped", False)]
 
 
-def test_p3_busy_then_queue_reply():
-    """Packet P: inbound reply queues while the peer is busy; starts after idle."""
-    listener = _Listener()
-    listener.sidebar_state.send.is_busy = True
-    wrapped = (
-        "[Peer result from: BudgetPeer.ods | uid=calc-uid | url=]\n\n"
-        "Total row written at A4:B4."
-    )
-    turn = PeerPendingTurn(wrapped, False)
-    assert schedule_peer_turn(listener, turn) is None
-    assert listener.started == []
-    assert pm.peer_queue.pending(listener) == 1
-    listener.sidebar_state.send.is_busy = False
-    kick_pending_peer_starts()
-    assert listener.started == [(wrapped, False)]
-    assert pm.peer_queue.pending(listener) == 0
+def _patch_peer_target(panel):
+    from contextlib import ExitStack
+
+    stack = ExitStack()
+    stack.enter_context(patch("plugin.doc.peer_message.resolve_peer_target", return_value=(MagicMock(), None, "")))
+    stack.enter_context(patch("plugin.doc.peer_message.get_runtime_uid", return_value="peer-uid"))
+    stack.enter_context(patch("plugin.doc.peer_message.get_live_panel", return_value=panel))
+    return stack
 
 
 def test_p3_execute_queues_reply_while_writer_busy():
     """Calc send_peer_result while Writer is rambling: accept, no inject, start later."""
     tool = SendPeerResult()
     ctx = _ctx()
-    peer = MagicMock()
     listener = _Listener()
     listener.sidebar_state.send.is_busy = True
-    panel = MagicMock()
-    panel.send_listener = listener
-    with patch("plugin.doc.peer_message.resolve_peer_target", return_value=(peer, None, "")):
-        with patch("plugin.doc.peer_message.get_runtime_uid", return_value="peer-uid"):
-            with patch("plugin.doc.peer_message.get_live_panel", return_value=panel):
-                result = tool.execute(
-                    ctx,
-                    document_url="peer-uid",
-                    message="Total row written at A4:B4.",
-                )
+    panel = MagicMock(send_listener=listener)
+    with _patch_peer_target(panel):
+        result = tool.execute(
+            ctx,
+            document_url="peer-uid",
+            message="Total row written at A4:B4.",
+        )
     assert result["status"] == "ok"
     assert result["accepted"] is True
     assert listener.injected == []
@@ -440,15 +440,10 @@ def test_p3_execute_queues_reply_while_writer_busy():
 def test_execute_status_ok_accepted():
     tool = SendPeerWork()
     ctx = _ctx()
-    peer = MagicMock()
     listener = _Listener()
-    panel = MagicMock()
-    panel.send_listener = listener
-    with patch("plugin.doc.peer_message.resolve_peer_target", return_value=(peer, None, "")):
-        with patch("plugin.doc.peer_message.get_runtime_uid", return_value="peer-uid"):
-            with patch("plugin.doc.peer_message.get_live_panel", return_value=panel):
-                with drain_owner_scope("stream"):
-                    result = tool.execute(ctx, document_url="peer-uid", message="Do the thing")
+    panel = MagicMock(send_listener=listener)
+    with _patch_peer_target(panel), drain_owner_scope("stream"):
+        result = tool.execute(ctx, document_url="peer-uid", message="Do the thing")
     assert result["status"] == "ok"
     assert result["accepted"] is True
     assert result.get("envelope_kind") == "work"
@@ -470,15 +465,10 @@ def test_execute_allows_specialized_document_research_caller():
     tool = SendPeerWork()
     ctx = _ctx(caller="")
     ctx.active_domain = PEER_SPECIALIZED_DOMAIN
-    peer = MagicMock()
     listener = _Listener()
-    panel = MagicMock()
-    panel.send_listener = listener
-    with patch("plugin.doc.peer_message.resolve_peer_target", return_value=(peer, None, "")):
-        with patch("plugin.doc.peer_message.get_runtime_uid", return_value="peer-uid"):
-            with patch("plugin.doc.peer_message.get_live_panel", return_value=panel):
-                with drain_owner_scope("stream"):
-                    result = tool.execute(ctx, document_url="peer-uid", message="Do the thing")
+    panel = MagicMock(send_listener=listener)
+    with _patch_peer_target(panel), drain_owner_scope("stream"):
+        result = tool.execute(ctx, document_url="peer-uid", message="Do the thing")
     assert result["status"] == "ok"
     assert result["accepted"] is True
     assert listener.session.add_user_message.called
@@ -499,11 +489,8 @@ def test_peer_send_caller_allowed_mcp_blocked_specialized_ok():
 def test_execute_missing_sidebar():
     tool = SendPeerWork()
     ctx = _ctx()
-    peer = MagicMock()
-    with patch("plugin.doc.peer_message.resolve_peer_target", return_value=(peer, None, "")):
-        with patch("plugin.doc.peer_message.get_runtime_uid", return_value="peer-uid"):
-            with patch("plugin.doc.peer_message.get_live_panel", return_value=None):
-                result = tool.execute(ctx, document_url="peer-uid", message="hi")
+    with _patch_peer_target(None):
+        result = tool.execute(ctx, document_url="peer-uid", message="hi")
     assert result["status"] == "error"
     assert result["code"] == "PEER_SIDEBAR_NOT_OPEN"
     assert "sidebar" in result["message"].lower()
@@ -517,35 +504,30 @@ def test_execute_queue_full():
     """
     tool = SendPeerWork()
     ctx = _ctx()
-    peer = MagicMock()
     listener = _Listener()
-    panel = MagicMock()
-    panel.send_listener = listener
+    panel = MagicMock(send_listener=listener)
     for i in range(PEER_QUEUE_CAP):
         enqueue_peer_turn(listener, PeerPendingTurn(f"t{i}", False))
     queued = pm.peer_queue.pending(listener)
 
     # Stay inside the drain scope. Leaving it kicks already-queued turns
     # (t0...), which is separate from the rejected send.
-    with patch("plugin.doc.peer_message.resolve_peer_target", return_value=(peer, None, "")):
-        with patch("plugin.doc.peer_message.get_runtime_uid", return_value="peer-uid"):
-            with patch("plugin.doc.peer_message.get_live_panel", return_value=panel):
-                with drain_owner_scope("stream"):
-                    result = tool.execute(ctx, document_url="peer-uid", message="one more")
-                    assert result["status"] == "error"
-                    assert result["code"] == "PEER_QUEUE_FULL"
-                    listener.session.add_user_message.assert_not_called()
-                    assert listener.injected == []
-                    assert listener.started == []
-                    assert pm.peer_queue.pending(listener) == queued
+    with _patch_peer_target(panel), drain_owner_scope("stream"):
+        result = tool.execute(ctx, document_url="peer-uid", message="one more")
+        assert result["status"] == "error"
+        assert result["code"] == "PEER_QUEUE_FULL"
+        listener.session.add_user_message.assert_not_called()
+        assert listener.injected == []
+        assert listener.started == []
+        assert pm.peer_queue.pending(listener) == queued
 
-                    retry = tool.execute(ctx, document_url="peer-uid", message="retry after full")
-                    assert retry["status"] == "error"
-                    assert retry["code"] == "PEER_QUEUE_FULL"
-                    listener.session.add_user_message.assert_not_called()
-                    assert listener.injected == []
-                    assert listener.started == []
-                    assert pm.peer_queue.pending(listener) == queued
+        retry = tool.execute(ctx, document_url="peer-uid", message="retry after full")
+        assert retry["status"] == "error"
+        assert retry["code"] == "PEER_QUEUE_FULL"
+        listener.session.add_user_message.assert_not_called()
+        assert listener.injected == []
+        assert listener.started == []
+        assert pm.peer_queue.pending(listener) == queued
 
 
 def test_registry_chat_tier_on_default_list():
@@ -1002,38 +984,6 @@ def test_filter_schemas_skips_catalog_off_document_research():
     assert names2 == ["undo"]
     assert PEER_WORK_TOOL_NAME not in names1 and PEER_RESULT_TOOL_NAME not in names1
     assert PEER_WORK_TOOL_NAME not in names2 and PEER_RESULT_TOOL_NAME not in names2
-
-
-def test_filter_schemas_research_suffix_still_lists_peers():
-    schemas = [
-        {"type": "function", "function": {"name": PEER_WORK_TOOL_NAME, "description": "w"}},
-        {"type": "function", "function": {"name": PEER_RESULT_TOOL_NAME, "description": "r"}},
-    ]
-    peers = [{"name": "Other.odt", "uid": "u2", "url": "", "type": "writer"}]
-    with patch("plugin.doc.peer_message.list_v1_peers", return_value=peers) as mock_list:
-        out = filter_peer_message_schemas(
-            schemas, ctx=object(), doc=object(), active_domain="document_research:extra"
-        )
-    assert mock_list.call_count == 1
-    assert len(out) == 2
-    names = {s["function"]["name"] for s in out}
-    assert names == PEER_TOOL_NAMES
-    for s in out:
-        assert "uid=u2" in s["function"]["description"]
-
-
-def test_filter_schemas_research_without_ctx_does_not_list():
-    schemas = [
-        {"type": "function", "function": {"name": PEER_WORK_TOOL_NAME, "description": "w"}},
-        {"type": "function", "function": {"name": PEER_RESULT_TOOL_NAME, "description": "r"}},
-    ]
-    with patch("plugin.doc.peer_message.list_v1_peers") as mock_list:
-        out = filter_peer_message_schemas(
-            schemas, ctx=None, doc=object(), active_domain="document_research"
-        )
-    mock_list.assert_not_called()
-    names = [s["function"]["name"] for s in out]
-    assert not (PEER_TOOL_NAMES & set(names))
 
 
 def test_filter_schemas_reraises_thread_guard():

@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from typing import ClassVar
 from unittest.mock import MagicMock, patch
 
@@ -87,97 +88,76 @@ class _DummyDocResearchTool(ToolBase):
         return {"status": "ok", "matches": []}
 
 
-@patch(
-    "plugin.chatbot.smol_agent.get_config",
-    side_effect=lambda key: 25 if key == "chatbot.max_tool_rounds" else 1024,
-)
-@patch("plugin.chatbot.smol_agent.get_api_config", create=True, return_value={"model": "test/model"})
-@patch("plugin.chatbot.smol_agent.ToolCallingAgent")
-@patch("plugin.chatbot.smol_agent.WriterAgentSmolModel")
-@patch("plugin.chatbot.smol_agent.LlmClient")
+@pytest.fixture
+def smol_agent_mocks():
+    mock_agent_instance = MagicMock()
+    mock_agent_instance.run.return_value = [FinalAnswerStep(output="done")]
+    with (
+        patch(
+            "plugin.chatbot.smol_agent.get_config",
+            side_effect=lambda key: 25 if key == "chatbot.max_tool_rounds" else 1024,
+        ),
+        patch("plugin.chatbot.smol_agent.get_api_config", return_value={"model": "test/model"}),
+        patch("plugin.chatbot.smol_agent.ToolCallingAgent", return_value=mock_agent_instance) as mock_agent_class,
+        patch("plugin.chatbot.smol_agent.WriterAgentSmolModel"),
+        patch("plugin.chatbot.smol_agent.LlmClient"),
+    ):
+        yield SimpleNamespace(agent_class=mock_agent_class, agent_instance=mock_agent_instance)
+
+
+def _mk_ctx(*tools, doc_type: str = "writer", doc=None):
+    registry = ToolRegistry(MagicMock())
+    for tool in tools:
+        registry.register(tool)
+
+    if doc is None:
+        doc = MagicMock()
+        doc.supportsService.return_value = True
+
+    ctx = MagicMock()
+    ctx.services = {"tools": registry}
+    ctx.doc = doc
+    ctx.ctx = MagicMock()
+    ctx.doc_type = doc_type
+    ctx.stop_checker = lambda: False
+    return registry, ctx
+
+
 @patch("plugin.framework.queue_executor.main.call")
 @patch("plugin.calc.analyzer.get_calc_context_for_chat")
 def test_calc_delegate_marshals_spreadsheet_context_to_main_thread(
     mock_get_calc_context,
     mock_execute_on_main,
-    _mock_llm,
-    _mock_smol_model,
-    mock_agent_class,
-    _mock_get_config,
-    _mock_get_config_val,
+    smol_agent_mocks,
 ):
     mock_get_calc_context.return_value = "Sheets: Sheet1\nActive Sheet: Sheet1"
     mock_execute_on_main.side_effect = lambda fn, *args, **kwargs: fn(*args, **kwargs)
 
-    mock_agent_instance = MagicMock()
-    mock_agent_instance.run.return_value = [FinalAnswerStep(output="done")]
-    mock_agent_class.return_value = mock_agent_instance
-
-    registry = ToolRegistry(MagicMock())
-    registry.register(_DummyAnalysisTool())
-    registry.register(DelegateToSpecializedCalc())
-
-    mock_doc = MagicMock()
-    mock_doc.supportsService.return_value = True
-
-    ctx = MagicMock()
-    ctx.services = {"tools": registry}
-    ctx.doc = mock_doc
-    ctx.ctx = MagicMock()
-    ctx.doc_type = "calc"
-    ctx.stop_checker = lambda: False
+    registry, ctx = _mk_ctx(_DummyAnalysisTool(), DelegateToSpecializedCalc(), doc_type="calc")
 
     gateway = registry.get("delegate_to_specialized_calc_toolset")
     result = gateway.execute_safe(ctx, domain="analysis", task="Describe sales data")
 
     assert result["status"] == "incomplete"
     mock_execute_on_main.assert_called()
-    mock_get_calc_context.assert_called_once_with(mock_doc, ctx=ctx.ctx)
+    mock_get_calc_context.assert_called_once_with(ctx.doc, ctx=ctx.ctx)
 
-    instructions = mock_agent_class.call_args.kwargs["instructions"]
+    instructions = smol_agent_mocks.agent_class.call_args.kwargs["instructions"]
     assert "[SPREADSHEET CONTEXT]" in instructions
     assert "Sheets: Sheet1" in instructions
 
 
-@patch(
-    "plugin.chatbot.smol_agent.get_config",
-    side_effect=lambda key: 25 if key == "chatbot.max_tool_rounds" else 1024,
-)
-@patch("plugin.chatbot.smol_agent.get_api_config", create=True, return_value={"model": "test/model"})
-@patch("plugin.chatbot.smol_agent.ToolCallingAgent")
-@patch("plugin.chatbot.smol_agent.WriterAgentSmolModel")
-@patch("plugin.chatbot.smol_agent.LlmClient")
 @patch("plugin.framework.queue_executor.main.call")
 @patch("plugin.calc.analyzer.get_calc_context_for_chat")
 def test_calc_delegate_disposed_context_reports_document_disposed(
     mock_get_calc_context,
     mock_execute_on_main,
-    _mock_llm,
-    _mock_smol_model,
-    mock_agent_class,
-    _mock_get_config,
-    _mock_get_config_val,
+    smol_agent_mocks,
 ):
     mock_get_calc_context.side_effect = DocumentDisposedError("doc closed")
     mock_execute_on_main.side_effect = lambda fn, *args, **kwargs: fn(*args, **kwargs)
 
-    mock_agent_instance = MagicMock()
-    mock_agent_instance.run.return_value = [FinalAnswerStep(output="done")]
-    mock_agent_class.return_value = mock_agent_instance
-
-    registry = ToolRegistry(MagicMock())
-    registry.register(_DummyAnalysisTool())
-    registry.register(DelegateToSpecializedCalc())
-
-    mock_doc = MagicMock()
-    mock_doc.supportsService.return_value = True
-
-    ctx = MagicMock()
-    ctx.services = {"tools": registry}
-    ctx.doc = mock_doc
-    ctx.ctx = MagicMock()
-    ctx.doc_type = "calc"
-    ctx.stop_checker = lambda: False
+    registry, ctx = _mk_ctx(_DummyAnalysisTool(), DelegateToSpecializedCalc(), doc_type="calc")
 
     gateway = registry.get("delegate_to_specialized_calc_toolset")
     assert gateway is not None
@@ -187,44 +167,20 @@ def test_calc_delegate_disposed_context_reports_document_disposed(
     assert result["code"] == "DOCUMENT_DISPOSED"
 
 
-@patch(
-    "plugin.chatbot.smol_agent.get_config",
-    side_effect=lambda key: 25 if key == "chatbot.max_tool_rounds" else 1024,
-)
-@patch("plugin.chatbot.smol_agent.get_api_config", create=True, return_value={"model": "test/model"})
-@patch("plugin.chatbot.smol_agent.ToolCallingAgent")
-@patch("plugin.chatbot.smol_agent.WriterAgentSmolModel")
-@patch("plugin.chatbot.smol_agent.LlmClient")
 @patch("plugin.calc.analyzer.get_calc_context_for_chat")
 def test_calc_delegate_guard_proxied_doc_presence_is_identity_safe(
     mock_get_calc_context,
-    _mock_llm,
-    _mock_smol_model,
-    mock_agent_class,
-    _mock_get_config,
-    _mock_get_config_val,
+    smol_agent_mocks,
 ):
     """Regression: truthiness on guard-proxied ctx.doc trips UNO bool on MCP/long-running worker."""
     mock_get_calc_context.return_value = "Sheets: Sheet1\nActive Sheet: Sheet1"
-    mock_agent_instance = MagicMock()
-    mock_agent_instance.run.return_value = [FinalAnswerStep(output="done")]
-    mock_agent_class.return_value = mock_agent_instance
-
-    registry = ToolRegistry(MagicMock())
-    registry.register(_DummyAnalysisTool())
-    registry.register(DelegateToSpecializedCalc())
 
     raw_doc = MagicMock()
     raw_doc.supportsService.return_value = True
     # MagicMock bypasses guard_uno(); wrap explicitly so __bool__ asserts main thread.
     proxied_doc = tg._UnoThreadGuardProxy(raw_doc)
 
-    ctx = MagicMock()
-    ctx.services = {"tools": registry}
-    ctx.doc = proxied_doc
-    ctx.ctx = MagicMock()
-    ctx.doc_type = "calc"
-    ctx.stop_checker = lambda: False
+    registry, ctx = _mk_ctx(_DummyAnalysisTool(), DelegateToSpecializedCalc(), doc_type="calc", doc=proxied_doc)
 
     gateway = registry.get("delegate_to_specialized_calc_toolset")
     session = start_uno_thread_safety_session()
@@ -252,82 +208,32 @@ def test_calc_delegate_guard_proxied_doc_presence_is_identity_safe(
     assert err is None, f"UNO touch from worker: {err}"
     assert result is not None and result.get("status") == "incomplete"
     mock_get_calc_context.assert_called_once()
-    instructions = mock_agent_class.call_args.kwargs["instructions"]
+    instructions = smol_agent_mocks.agent_class.call_args.kwargs["instructions"]
     assert "[SPREADSHEET CONTEXT]" in instructions
 
 
-@patch(
-    "plugin.chatbot.smol_agent.get_config",
-    side_effect=lambda key: 25 if key == "chatbot.max_tool_rounds" else 1024,
-)
-@patch("plugin.chatbot.smol_agent.get_api_config", create=True, return_value={"model": "test/model"})
-@patch("plugin.chatbot.smol_agent.ToolCallingAgent")
-@patch("plugin.chatbot.smol_agent.WriterAgentSmolModel")
-@patch("plugin.chatbot.smol_agent.LlmClient")
 @patch("plugin.framework.queue_executor.main.call")
 @patch("plugin.doc.specialized_base.format_shapes_canvas_context")
 def test_writer_delegate_marshals_shapes_canvas_to_main_thread(
     mock_format_canvas,
     mock_execute_on_main,
-    _mock_llm,
-    _mock_smol_model,
-    mock_agent_class,
-    _mock_get_config,
-    _mock_get_config_val,
+    smol_agent_mocks,
 ):
     mock_format_canvas.return_value = " Document canvas (Writer): page style 'Standard'; paper 210.0 x 297.0 mm"
     mock_execute_on_main.side_effect = lambda fn, *args, **kwargs: fn(*args, **kwargs)
 
-    mock_agent_instance = MagicMock()
-    mock_agent_instance.run.return_value = [FinalAnswerStep(output="done")]
-    mock_agent_class.return_value = mock_agent_instance
-
-    registry = ToolRegistry(MagicMock())
-    registry.register(_DummyShapeToolRegistered())
-    registry.register(DelegateToSpecializedWriter())
-
-    mock_doc = MagicMock()
-    mock_doc.supportsService.return_value = True
-
-    ctx = MagicMock()
-    ctx.services = {"tools": registry}
-    ctx.doc = mock_doc
-    ctx.ctx = MagicMock()
-    ctx.doc_type = "writer"
-    ctx.stop_checker = lambda: False
+    registry, ctx = _mk_ctx(_DummyShapeToolRegistered(), DelegateToSpecializedWriter())
 
     gateway = registry.get("delegate_to_specialized_writer_toolset")
     result = gateway.execute_safe(ctx, domain="shapes", task="Add a rectangle")
 
     assert result["status"] == "incomplete"
-    mock_format_canvas.assert_called_once_with(mock_doc)
-    instructions = mock_agent_class.call_args.kwargs["instructions"]
+    mock_format_canvas.assert_called_once_with(ctx.doc)
+    instructions = smol_agent_mocks.agent_class.call_args.kwargs["instructions"]
     assert "Document canvas (Writer)" in instructions
 
 
-@patch(
-    "plugin.chatbot.smol_agent.get_config",
-    side_effect=lambda key: 25 if key == "chatbot.max_tool_rounds" else 1024,
-)
-@patch("plugin.chatbot.smol_agent.get_api_config", create=True, return_value={"model": "test/model"})
-@patch("plugin.chatbot.smol_agent.ToolCallingAgent")
-@patch("plugin.chatbot.smol_agent.WriterAgentSmolModel")
-@patch("plugin.chatbot.smol_agent.LlmClient")
-def test_writer_delegate_marshals_get_tools_to_main_thread(
-    _mock_llm,
-    _mock_smol_model,
-    mock_agent_class,
-    _mock_get_config,
-    _mock_get_config_val,
-):
-    mock_agent_instance = MagicMock()
-    mock_agent_instance.run.return_value = [FinalAnswerStep(output="done")]
-    mock_agent_class.return_value = mock_agent_instance
-
-    registry = ToolRegistry(MagicMock())
-    registry.register(_DummyFootnotesList())
-    registry.register(DelegateToSpecializedWriter())
-
+def test_writer_delegate_marshals_get_tools_to_main_thread(smol_agent_mocks):
     session = start_uno_thread_safety_session()
     was_guard = tg.GUARD_ON
     tg.GUARD_ON = True
@@ -339,12 +245,7 @@ def test_writer_delegate_marshals_get_tools_to_main_thread(
         # MagicMock bypasses guard_uno(); wrap explicitly.
         proxied_doc = tg._UnoThreadGuardProxy(raw_doc)
 
-        ctx = MagicMock()
-        ctx.services = {"tools": registry}
-        ctx.doc = proxied_doc
-        ctx.ctx = MagicMock()
-        ctx.doc_type = "writer"
-        ctx.stop_checker = lambda: False
+        registry, ctx = _mk_ctx(_DummyFootnotesList(), DelegateToSpecializedWriter(), doc=proxied_doc)
         ctx.active_domain = None
 
         gateway = registry.get("delegate_to_specialized_writer_toolset")
@@ -367,14 +268,6 @@ def test_writer_delegate_marshals_get_tools_to_main_thread(
     assert result is not None and result["status"] == "incomplete"
 
 
-@patch(
-    "plugin.chatbot.smol_agent.get_config",
-    side_effect=lambda key: 25 if key == "chatbot.max_tool_rounds" else 1024,
-)
-@patch("plugin.chatbot.smol_agent.get_api_config", create=True, return_value={"model": "test/model"})
-@patch("plugin.chatbot.smol_agent.ToolCallingAgent")
-@patch("plugin.chatbot.smol_agent.WriterAgentSmolModel")
-@patch("plugin.chatbot.smol_agent.LlmClient")
 @patch("plugin.framework.queue_executor.main.call")
 @patch("plugin.doc.document_research.get_open_documents")
 @patch("plugin.embeddings.embeddings_indexer.enqueue_folder_index")
@@ -382,55 +275,27 @@ def test_writer_delegate_marshals_document_research_scaffolding(
     mock_enqueue_index,
     mock_get_open_docs,
     mock_execute_on_main,
-    _mock_llm,
-    _mock_smol_model,
-    mock_agent_class,
-    _mock_get_config,
-    _mock_get_config_val,
+    smol_agent_mocks,
 ):
     mock_get_open_docs.return_value = [{"path": "/tmp/a.odt", "url": "file:///tmp/a.odt", "doc_type": "writer", "is_active": True}]
     mock_execute_on_main.side_effect = lambda fn, *args, **kwargs: fn(*args, **kwargs)
 
-    mock_agent_instance = MagicMock()
-    mock_agent_instance.run.return_value = [FinalAnswerStep(output="done")]
-    mock_agent_class.return_value = mock_agent_instance
-
-    registry = ToolRegistry(MagicMock())
-    registry.register(_DummyDocResearchTool())
-    registry.register(DelegateToSpecializedWriter())
-
-    mock_doc = MagicMock()
-    mock_doc.supportsService.return_value = True
-
-    ctx = MagicMock()
-    ctx.services = {"tools": registry}
-    ctx.doc = mock_doc
-    ctx.ctx = MagicMock()
-    ctx.doc_type = "writer"
-    ctx.stop_checker = lambda: False
+    registry, ctx = _mk_ctx(_DummyDocResearchTool(), DelegateToSpecializedWriter())
 
     gateway = registry.get("delegate_to_specialized_writer_toolset")
     result = gateway.execute_safe(ctx, domain="document_research", task="Find budget figures")
 
     assert result["status"] == "incomplete"
-    mock_enqueue_index.assert_called_once_with(ctx.ctx, mock_doc)
+    mock_enqueue_index.assert_called_once_with(ctx.ctx, ctx.doc)
     # Open-docs context plus list_v1_peers (peer catalog / inner ASK vs REPLY hint),
     # both gathered on the main thread with get_tools.
     assert mock_get_open_docs.call_count >= 1
-    mock_get_open_docs.assert_called_with(ctx.ctx, mock_doc)
-    instructions = mock_agent_class.call_args.kwargs["instructions"]
+    mock_get_open_docs.assert_called_with(ctx.ctx, ctx.doc)
+    instructions = smol_agent_mocks.agent_class.call_args.kwargs["instructions"]
     assert "[OPEN DOCUMENTS CONTEXT]" in instructions
     assert "/tmp/a.odt" in instructions
 
 
-@patch(
-    "plugin.chatbot.smol_agent.get_config",
-    side_effect=lambda key: 25 if key == "chatbot.max_tool_rounds" else 1024,
-)
-@patch("plugin.chatbot.smol_agent.get_api_config", create=True, return_value={"model": "test/model"})
-@patch("plugin.chatbot.smol_agent.ToolCallingAgent")
-@patch("plugin.chatbot.smol_agent.WriterAgentSmolModel")
-@patch("plugin.chatbot.smol_agent.LlmClient")
 @patch("plugin.framework.queue_executor.main.call")
 @patch("plugin.doc.document_research.get_open_documents")
 @patch("plugin.embeddings.embeddings_indexer.enqueue_folder_index")
@@ -438,32 +303,12 @@ def test_writer_delegate_disposed_open_documents_reports_document_disposed(
     mock_enqueue_index,
     mock_get_open_docs,
     mock_execute_on_main,
-    _mock_llm,
-    _mock_smol_model,
-    mock_agent_class,
-    _mock_get_config,
-    _mock_get_config_val,
+    smol_agent_mocks,
 ):
     mock_get_open_docs.side_effect = DocumentDisposedError("doc closed")
     mock_execute_on_main.side_effect = lambda fn, *args, **kwargs: fn(*args, **kwargs)
 
-    mock_agent_instance = MagicMock()
-    mock_agent_instance.run.return_value = [FinalAnswerStep(output="done")]
-    mock_agent_class.return_value = mock_agent_instance
-
-    registry = ToolRegistry(MagicMock())
-    registry.register(_DummyDocResearchTool())
-    registry.register(DelegateToSpecializedWriter())
-
-    mock_doc = MagicMock()
-    mock_doc.supportsService.return_value = True
-
-    ctx = MagicMock()
-    ctx.services = {"tools": registry}
-    ctx.doc = mock_doc
-    ctx.ctx = MagicMock()
-    ctx.doc_type = "writer"
-    ctx.stop_checker = lambda: False
+    registry, ctx = _mk_ctx(_DummyDocResearchTool(), DelegateToSpecializedWriter())
 
     gateway = registry.get("delegate_to_specialized_writer_toolset")
     assert gateway is not None
@@ -520,39 +365,18 @@ def test_document_research_hint_off_main_does_not_touch_runtime_uid():
     assert inner and inner in hint
 
 
-@patch(
-    "plugin.chatbot.smol_agent.get_config",
-    side_effect=lambda key: 25 if key == "chatbot.max_tool_rounds" else 1024,
-)
-@patch("plugin.chatbot.smol_agent.get_api_config", create=True, return_value={"model": "test/model"})
-@patch("plugin.chatbot.smol_agent.ToolCallingAgent")
-@patch("plugin.chatbot.smol_agent.WriterAgentSmolModel")
-@patch("plugin.chatbot.smol_agent.LlmClient")
 @patch("plugin.doc.document_research.get_open_documents")
 @patch("plugin.embeddings.embeddings_indexer.enqueue_folder_index")
 def test_document_research_delegate_off_main_does_not_touch_runtime_uid(
     mock_enqueue_index,
     mock_get_open_docs,
-    _mock_llm,
-    _mock_smol_model,
-    mock_agent_class,
-    _mock_get_config,
-    _mock_get_config_val,
+    smol_agent_mocks,
 ):
     """Regression: specialized execute built the #673 peer catalog on the async worker.
 
     Writer/Calc/Draw gateways share DelegateToSpecializedBase.execute.
     """
     mock_get_open_docs.return_value = []
-    mock_agent_instance = MagicMock()
-    mock_agent_instance.run.return_value = [FinalAnswerStep(output="done")]
-    mock_agent_class.return_value = mock_agent_instance
-
-    registry = ToolRegistry(MagicMock())
-    registry.register(_DummyDocResearchTool())
-    registry.register(SendPeerWork())
-    registry.register(SendPeerResult())
-    registry.register(DelegateToSpecializedWriter())
 
     session = start_uno_thread_safety_session()
     was_guard = tg.GUARD_ON
@@ -565,12 +389,13 @@ def test_document_research_delegate_off_main_does_not_touch_runtime_uid(
         raw_doc.getRuntimeUID.return_value = "uid-self"
         proxied_doc = tg._UnoThreadGuardProxy(raw_doc)
 
-        ctx = MagicMock()
-        ctx.services = {"tools": registry}
-        ctx.doc = proxied_doc
-        ctx.ctx = MagicMock()
-        ctx.doc_type = "writer"
-        ctx.stop_checker = lambda: False
+        registry, ctx = _mk_ctx(
+            _DummyDocResearchTool(),
+            SendPeerWork(),
+            SendPeerResult(),
+            DelegateToSpecializedWriter(),
+            doc=proxied_doc,
+        )
         ctx.active_domain = None
 
         gateway = registry.get("delegate_to_specialized_writer_toolset")
@@ -601,7 +426,7 @@ def test_document_research_delegate_off_main_does_not_touch_runtime_uid(
 
     assert err is None, f"UNO touch from worker: {err}"
     assert result is not None and result.get("status") == "incomplete"
-    smol_tools = mock_agent_class.call_args.kwargs.get("tools", [])
+    smol_tools = smol_agent_mocks.agent_class.call_args.kwargs.get("tools", [])
     names = {t.name for t in smol_tools}
     assert "send_peer_work" in names
     assert "send_peer_result" in names
@@ -681,24 +506,12 @@ def test_calc_list_sheets_runs_uno_only_when_current():
         session.close()
 
 
-@patch(
-    "plugin.chatbot.smol_agent.get_config",
-    side_effect=lambda key: 25 if key == "chatbot.max_tool_rounds" else 1024,
-)
-@patch("plugin.chatbot.smol_agent.get_api_config", create=True, return_value={"model": "test/model"})
-@patch("plugin.chatbot.smol_agent.ToolCallingAgent")
-@patch("plugin.chatbot.smol_agent.WriterAgentSmolModel")
-@patch("plugin.chatbot.smol_agent.LlmClient")
 @patch("plugin.framework.queue_executor.main.call")
 @patch("plugin.calc.analyzer.get_calc_context_for_chat")
 def test_calc_sheets_delegate_forwards_create_instruction_to_outer(
     mock_get_calc_context,
     mock_execute_on_main,
-    _mock_llm,
-    _mock_smol_model,
-    mock_agent_class,
-    _mock_get_config,
-    _mock_get_config_val,
+    smol_agent_mocks,
 ):
     """Outer hop payload gets web-research-style `instruction` after sheet_create."""
     from plugin.calc.sheets import CreateSheet
@@ -707,21 +520,8 @@ def test_calc_sheets_delegate_forwards_create_instruction_to_outer(
 
     mock_get_calc_context.return_value = "Sheets: Sheet1\nActive Sheet: Sheet1"
     mock_execute_on_main.side_effect = lambda fn, *args, **kwargs: fn(*args, **kwargs)
-    mock_agent_class.return_value = MagicMock()
 
-    registry = ToolRegistry(MagicMock())
-    registry.register(CreateSheet())
-    registry.register(DelegateToSpecializedCalc())
-
-    mock_doc = MagicMock()
-    mock_doc.supportsService.return_value = True
-
-    ctx = MagicMock()
-    ctx.services = {"tools": registry}
-    ctx.doc = mock_doc
-    ctx.ctx = MagicMock()
-    ctx.doc_type = "calc"
-    ctx.stop_checker = lambda: False
+    registry, ctx = _mk_ctx(CreateSheet(), DelegateToSpecializedCalc(), doc_type="calc")
 
     def fake_execute_safe(agent, task, tool_call_handler=None, **kwargs):
         if tool_call_handler:
@@ -740,30 +540,6 @@ def test_calc_sheets_delegate_forwards_create_instruction_to_outer(
 
     assert result["status"] == "ok"
     assert result["instruction"] == SHEETS_CREATED_NOT_POPULATED_INSTRUCTION
-
-
-def test_calc_shapes_domain_tools():
-    from plugin.calc.shapes import UpsertShape, DeleteShape, ConnectShapes, GroupShapes, GetDrawSummary
-    from plugin.framework.tool import ToolRegistry
-
-    services = MagicMock()
-    reg = ToolRegistry(services)
-    reg.register(UpsertShape())
-    reg.register(DeleteShape())
-    reg.register(ConnectShapes())
-    reg.register(GroupShapes())
-    reg.register(GetDrawSummary())
-
-    doc = MagicMock()
-    doc.supportsService.return_value = True
-
-    tools = reg.get_tools(doc=doc, active_domain="shapes", exclude_tiers=())
-    names = {t.name for t in tools}
-    assert "shape_upsert" in names
-    assert "shape_delete" in names
-    assert "shape_connect" in names
-    assert "shape_group" in names
-    assert "shape_summary" in names
 
 
 def test_outer_turn_is_peer_work_probe_failure_returns_false():

@@ -84,29 +84,8 @@ def test_delegate_status_workflow_finished_ok(
 ) -> None:
     """Discussion #2029: Finish dict with no inner errors stays status: 'ok'."""
     from unittest.mock import patch
-    from plugin.framework.tool import ToolRegistry
-    from plugin.writer.specialized_base import SpecializedWorkflowFinished, ToolWriterStructuralBase
 
-    class _DummyStructuralTool(ToolWriterStructuralBase):
-        name = "dummy_structural_tool"
-        description = "A dummy structural tool."
-        parameters = {"type": "object", "properties": {}}
-
-        def execute(self, ctx, **kw):
-            return {"status": "ok"}
-
-    reg = ToolRegistry(services={})
-    reg.register(_DummyStructuralTool())
-    reg.register(SpecializedWorkflowFinished())
-    reg.register(writer_gateway)
-
-    ctx = MagicMock(spec=ToolContext)
-    ctx.ctx = MagicMock()
-    ctx.doc = MagicMock()
-    ctx.doc.supportsService.return_value = True
-    ctx.services = {"tools": reg}
-    ctx.stop_checker = lambda: False
-
+    ctx = _structural_registry(writer_gateway)
     with patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *a, **kw: fn(*a, **kw)):
         with patch("plugin.doc.specialized_base.run_inner_tool_agent") as mock_run_inner:
             mock_run_inner.return_value = {
@@ -128,8 +107,7 @@ def test_delegate_status_inner_tool_error(
 ) -> None:
     """Discussion #2029: Inner tool error becomes status: 'error', code SPECIALIZED_TOOL_ERROR."""
     from unittest.mock import patch
-    from plugin.framework.tool import ToolRegistry
-    from plugin.writer.specialized_base import SpecializedWorkflowFinished, ToolWriterStructuralBase
+    from plugin.writer.specialized_base import ToolWriterStructuralBase
 
     class _FailingStructuralTool(ToolWriterStructuralBase):
         name = "failing_structural_tool"
@@ -139,17 +117,7 @@ def test_delegate_status_inner_tool_error(
         def execute(self, ctx, **kw):
             return {"status": "error", "message": "Failed to read page objects"}
 
-    reg = ToolRegistry(services={})
-    reg.register(_FailingStructuralTool())
-    reg.register(SpecializedWorkflowFinished())
-    reg.register(writer_gateway)
-
-    ctx = MagicMock(spec=ToolContext)
-    ctx.ctx = MagicMock()
-    ctx.doc = MagicMock()
-    ctx.doc.supportsService.return_value = True
-    ctx.services = {"tools": reg}
-    ctx.stop_checker = lambda: False
+    ctx = _structural_registry(writer_gateway, tool=_FailingStructuralTool())
 
     def fake_run_inner(ctx, tools, **kwargs):
         tool_map = {t.name: t for t in tools}
@@ -173,29 +141,8 @@ def test_delegate_status_incomplete_no_finish_no_tool_error(
 ) -> None:
     """Discussion #2029: No finish tool call and no tool error becomes status: 'incomplete'."""
     from unittest.mock import patch
-    from plugin.framework.tool import ToolRegistry
-    from plugin.writer.specialized_base import SpecializedWorkflowFinished, ToolWriterStructuralBase
 
-    class _DummyStructuralTool(ToolWriterStructuralBase):
-        name = "dummy_structural_tool"
-        description = "A dummy structural tool."
-        parameters = {"type": "object", "properties": {}}
-
-        def execute(self, ctx, **kw):
-            return {"status": "ok"}
-
-    reg = ToolRegistry(services={})
-    reg.register(_DummyStructuralTool())
-    reg.register(SpecializedWorkflowFinished())
-    reg.register(writer_gateway)
-
-    ctx = MagicMock(spec=ToolContext)
-    ctx.ctx = MagicMock()
-    ctx.doc = MagicMock()
-    ctx.doc.supportsService.return_value = True
-    ctx.services = {"tools": reg}
-    ctx.stop_checker = lambda: False
-
+    ctx = _structural_registry(writer_gateway)
     with patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *a, **kw: fn(*a, **kw)):
         with patch("plugin.doc.specialized_base.run_inner_tool_agent", return_value="I searched but could not find the heading."):
             result = writer_gateway.execute(ctx, domain="structural", task="Find heading")
@@ -338,28 +285,8 @@ def test_delegate_completed_message_uses_static_msgid(
     writer_gateway: DelegateToSpecializedWriter,
 ) -> None:
     from unittest.mock import patch
-    from plugin.framework.tool import ToolRegistry
-    from plugin.writer.specialized_base import SpecializedWorkflowFinished, ToolWriterStructuralBase
 
-    class _DummyStructuralTool(ToolWriterStructuralBase):
-        name = "dummy_structural_tool"
-        description = "A dummy structural tool."
-        parameters = {"type": "object", "properties": {}}
-
-        def execute(self, ctx, **kw):
-            return {"status": "ok"}
-
-    reg = ToolRegistry(services={})
-    reg.register(_DummyStructuralTool())
-    reg.register(SpecializedWorkflowFinished())
-    reg.register(writer_gateway)
-
-    ctx = MagicMock(spec=ToolContext)
-    ctx.ctx = MagicMock()
-    ctx.doc = MagicMock()
-    ctx.doc.supportsService.return_value = True
-    ctx.services = {"tools": reg}
-    ctx.stop_checker = lambda: False
+    ctx = _structural_registry(writer_gateway)
 
     def fake_run_inner(ctx, tools, **kwargs):
         tool_map = {t.name: t for t in tools}
