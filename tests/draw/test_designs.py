@@ -131,6 +131,7 @@ def test_apply_design_current_doc_calls_import_path():
         patch("plugin.draw.designs.enumerate_impress_designs", return_value=[entry]),
         patch("plugin.draw.designs.apply_design_to_current_doc", return_value=payload),
     ):
+        # Deliberate whitespace padding: LLM tool args often arrive padded and must still resolve.
         out = ApplyDesign().execute(ctx, design="  Metropolis  ")
     assert out["status"] == "ok"
 

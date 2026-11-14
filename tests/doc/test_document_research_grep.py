@@ -605,6 +605,7 @@ def test_grep_nearby_files_runs_uno_only_when_current(mock_resolve, mock_search,
     result: dict | None = None
     try:
         raw_doc = MagicMock()
+        # MagicMock bypasses guard_uno(); wrap explicitly.
         proxied_doc = tg._UnoThreadGuardProxy(raw_doc)
         mock_open.return_value = (proxied_doc, "calc", None, True)
 

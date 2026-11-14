@@ -336,6 +336,7 @@ def test_writer_delegate_marshals_get_tools_to_main_thread(
     try:
         raw_doc = MagicMock()
         raw_doc.supportsService.return_value = True
+        # MagicMock bypasses guard_uno(); wrap explicitly.
         proxied_doc = tg._UnoThreadGuardProxy(raw_doc)
 
         ctx = MagicMock()
