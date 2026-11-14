@@ -451,31 +451,19 @@ def test_linear_programming_rejects_duplicate_columns():
 
 
 def test_optimize_facade_does_not_import_client_at_module_scope():
-    import ast
     from pathlib import Path
 
+    from tests.harness.import_guards import assert_no_toplevel_import
+
     facade_path = Path(__file__).resolve().parents[2] / "plugin" / "scripting" / "optimize.py"
-    tree = ast.parse(facade_path.read_text(encoding="utf-8"))
-
-    forbidden = {
-        "plugin.scripting.client",
-        "plugin.scripting.trusted_rpc",
-        "plugin.scripting.venv_worker",
-    }
-
-    for node in tree.body:
-        if isinstance(node, ast.Import):
-            for alias in node.names:
-                for f in forbidden:
-                    assert alias.name != f and not alias.name.startswith(f + "."), (
-                        f"Module-level import of {alias.name} forbidden in optimize facade"
-                    )
-        elif isinstance(node, ast.ImportFrom):
-            mod = node.module or ""
-            for f in forbidden:
-                assert mod != f and not mod.startswith(f + "."), (
-                    f"Module-level import from {mod} forbidden in optimize facade"
-                )
+    assert_no_toplevel_import(
+        facade_path,
+        {
+            "plugin.scripting.client",
+            "plugin.scripting.trusted_rpc",
+            "plugin.scripting.venv_worker",
+        },
+    )
 
 
 def test_optimize_facade_import_does_not_load_host_worker():

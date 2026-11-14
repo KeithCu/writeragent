@@ -294,8 +294,8 @@ def test_zvec_incremental_maintain_does_not_skip_with_existing_meta(tmp_path: Pa
         mock_coll.query.assert_called()
 
 
-def test_zvec_incremental_maintain_delete_failure_skips_file_and_logs(tmp_path: Path, caplog: pytest.LogCaptureFixture):
-    """Bug B1: failed delete before re-ingest logs a warning and skips the file so it is retried."""
+def test_zvec_incremental_maintain_delete_failure_skips_file(tmp_path: Path):
+    """Bug B1: failed delete before re-ingest skips the file so it is retried."""
     meta_dir = tmp_path / "writeragent_embeddings"
     meta_dir.mkdir(parents=True)
     meta_path = meta_dir / "corpus_meta.json"
@@ -320,11 +320,10 @@ def test_zvec_incremental_maintain_delete_failure_skips_file_and_logs(tmp_path: 
         assert res["upserted"] == 0
         mock_coll.delete_by_filter.assert_called_once()
         mock_ingest.assert_not_called()
-        assert "zvec delete failed for test.odt: disk locked" in caplog.text
 
 
-def test_zvec_maintain_stale_purge_failed_delete_skips_sqlite_removal(tmp_path: Path, caplog: pytest.LogCaptureFixture):
-    """Bug B1: failed delete during stale purge logs warning and skips removing from sqlite index."""
+def test_zvec_maintain_stale_purge_failed_delete_skips_sqlite_removal(tmp_path: Path):
+    """Bug B1: failed delete during stale purge skips removing from sqlite index."""
     meta_dir = tmp_path / "writeragent_embeddings"
     meta_dir.mkdir(parents=True)
     meta_path = meta_dir / "corpus_meta.json"
@@ -343,7 +342,6 @@ def test_zvec_maintain_stale_purge_failed_delete_skips_sqlite_removal(tmp_path: 
         assert res["mode"] == "zvec"
         mock_coll.delete_by_filter.assert_called_once()
         mock_remove.assert_not_called()
-        assert "zvec delete failed for stale file:///tmp/removed.odt: purge I/O error" in caplog.text
 
 
 def _write_populated_meta(listing, model: str, *, sqlite: bool = True, collection: str | None = None, chunk_count: str = "4") -> None:

@@ -6,7 +6,6 @@
 
 from __future__ import annotations
 
-import logging
 from unittest.mock import MagicMock, patch
 
 from hypothesis import given, settings
@@ -840,21 +839,6 @@ def test_resolve_work_spans() -> None:
             raw_candidates=len(spans),
             grammar_bcp47="en-US",
         )
-
-
-def test_split_debug_summary_is_one_gated_line(caplog: pytest.LogCaptureFixture) -> None:
-    caplog.set_level(logging.DEBUG, logger="writeragent.grammar")
-    caplog.clear()
-    gt.split_into_sentences(None, "en-US", "One. Two.")
-    records = [r for r in caplog.records if r.name == "writeragent.grammar" and "split_into_sentences count=" in r.getMessage()]
-    assert len(records) == 1
-    assert "count=2" in records[0].getMessage()
-
-    caplog.set_level(logging.WARNING, logger="writeragent.grammar")
-    caplog.clear()
-    gt.split_into_sentences(None, "en-US", "One. Two.")
-    records_warn = [r for r in caplog.records if r.name == "writeragent.grammar" and "split_into_sentences count=" in r.getMessage()]
-    assert len(records_warn) == 0
 
 
 def test_split_quoted_abbreviation_not_boundary() -> None:

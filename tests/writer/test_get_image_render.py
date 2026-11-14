@@ -234,10 +234,19 @@ def test_impress_uses_draw_page_path_not_writer_view_cursor():
 
 
 def test_get_image_registers_draw_and_impress():
-    assert "com.sun.star.text.TextDocument" in GetImage.uno_services
-    assert "com.sun.star.drawing.DrawingDocument" in GetImage.uno_services
-    assert "com.sun.star.presentation.PresentationDocument" in GetImage.uno_services
-    assert "com.sun.star.sheet.SpreadsheetDocument" in GetImage.uno_services
+    from plugin.framework.tool import ToolRegistry
+
+    registry = ToolRegistry(services={})
+    registry.register(GetImage())
+    for svc in (
+        "com.sun.star.text.TextDocument",
+        "com.sun.star.drawing.DrawingDocument",
+        "com.sun.star.presentation.PresentationDocument",
+        "com.sun.star.sheet.SpreadsheetDocument",
+    ):
+        doc = MagicMock()
+        doc.supportsService = lambda candidate, target=svc: candidate == target
+        assert "get_image" in {t.name for t in registry.get_tools(doc=doc)}
 
 
 def _tctx(doc, doc_type="draw"):

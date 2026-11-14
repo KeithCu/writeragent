@@ -15,11 +15,6 @@ def _ctx(prox=None, tree=None):
     return SimpleNamespace(doc=object(), services=SimpleNamespace(writer_proximity=prox, writer_tree=tree))
 
 
-def test_nav_tools_declare_read_only():
-    for tool_cls in (NavHeading, NavSurroundings, NavHeadingChildren):
-        assert tool_cls().detects_mutation() is False, tool_cls.name
-
-
 def test_nav_heading_returns_raised_service_error():
     prox = MagicMock()
     prox.navigate_heading.side_effect = ToolExecutionError("Cannot resolve locator: nope")

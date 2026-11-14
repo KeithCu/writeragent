@@ -53,8 +53,11 @@ def test_specialized_domain_catalog_merged_when_no_app():
 
 
 def test_specialized_domain_catalog_excludes_sidebar_only():
-    catalog = get_specialized_domain_catalog(agent_label="Writer", ctx=MagicMock())
-    assert "brainstorming" not in _domain_ids(catalog)
+    writer_catalog = get_specialized_domain_catalog(agent_label="Writer", ctx=MagicMock())
+    assert "brainstorming" not in _domain_ids(writer_catalog)
+    # ppt-master needs the sidebar mode's session orchestration, so Draw delegate must not offer it.
+    draw_catalog = get_specialized_domain_catalog(agent_label="Draw", ctx=MagicMock())
+    assert "ppt-master" not in _domain_ids(draw_catalog)
 
 
 def test_specialized_domain_catalog_excludes_vision_without_venv():

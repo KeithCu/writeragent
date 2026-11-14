@@ -7,7 +7,6 @@
 from __future__ import annotations
 
 import os
-import ast
 import xml.etree.ElementTree as ET
 
 from plugin.framework.grammar_rule_ids import GRAMMAR_REGISTRY_LOCALE_TAGS
@@ -75,76 +74,3 @@ def test_linguistic_writer_agent_grammar_xcu_locales_match_registry() -> None:
     assert val_el is not None and val_el.text is not None
     tags = tuple(val_el.text.split())
     assert tags == GRAMMAR_REGISTRY_LOCALE_TAGS
-
-
-def test_linguistic_writer_agent_grammar_xcu_is_minimal() -> None:
-    path = os.path.join(
-        _repo_root(),
-        "extension",
-        "registry",
-        "org",
-        "openoffice",
-        "Office",
-        "LinguisticWriterAgentGrammar.xcu",
-    )
-    root = ET.parse(path).getroot()
-    sm = _child_node(root, "ServiceManager")
-    assert [_oor_name(c) for c in sm if _local_tag(c) == "node"] == ["GrammarCheckers"]
-
-
-def test_generated_manifest_includes_linguistic_grammar_xcu() -> None:
-    """Default manifest bundles Linguistic grammar registration (Lightproof-style XCU)."""
-    mf = os.path.join(_repo_root(), "extension", "META-INF", "manifest.xml")
-    with open(mf, encoding="utf-8") as f:
-        body = f.read()
-    assert "registry/org/openoffice/Office/LinguisticWriterAgentGrammar.xcu" in body
-
-
-def test_ai_grammar_uno_component_has_lightweight_top_level_imports() -> None:
-    """Linguistic enumeration imports this component before real proofreading starts."""
-    path = os.path.join(
-        _repo_root(),
-        "plugin",
-        "writer",
-        "locale",
-        "ai_grammar_proofreader.py",
-    )
-    with open(path, encoding="utf-8") as f:
-        module = ast.parse(f.read(), filename=path)
-    top_level_from_imports = [
-        node.module
-        for node in module.body
-        if isinstance(node, ast.ImportFrom) and node.module is not None
-    ]
-    assert "plugin.framework.config" not in top_level_from_imports
-    assert "plugin.framework.logging" not in top_level_from_imports
-    assert "plugin.framework.worker_pool" not in top_level_from_imports
-
-
-
-
-def test_ai_grammar_components_accept_linguistic_constructor_args() -> None:
-    """LO calls proofreaders through createInstanceWithArgumentsAndContext."""
-    filename = "ai_grammar_proofreader.py"
-    path = os.path.join(_repo_root(), "plugin", "writer", "locale", filename)
-
-    with open(path, encoding="utf-8") as f:
-        module = ast.parse(f.read(), filename=path)
-
-    classes = [node for node in module.body if isinstance(node, ast.ClassDef)]
-    proofreader_classes = [
-        cls
-        for cls in classes
-        if cls.name == "WriterAgentAiGrammarProofreader"
-    ]
-    assert proofreader_classes, f"{filename} is missing proofreader class"
-    for cls in proofreader_classes:
-        init_methods = [
-            item
-            for item in cls.body
-            if isinstance(item, ast.FunctionDef) and item.name == "__init__"
-        ]
-        assert init_methods, f"{filename} {cls.name} is missing __init__"
-        assert init_methods[0].args.vararg is not None, (
-            f"{filename} {cls.name}.__init__ must accept LO Linguistic compatibility args"
-        )

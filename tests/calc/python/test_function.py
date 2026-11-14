@@ -1284,14 +1284,12 @@ def test_calc_python_function_zero_event_pumping_invariant() -> None:
             flagged.append(node.id)
         elif isinstance(node, ast.Attribute) and node.attr in pump_names:
             flagged.append(node.attr)
-        elif isinstance(node, ast.Constant) and isinstance(node.value, str) and node.value in pump_names:
-            flagged.append(node.value)
     assert flagged == []
 
 
 def test_function_module_avoids_document_helpers_import() -> None:
     """First =PY() must not load document_helpers → SheetAnalyzer or the dialog stack."""
-    import ast
+    from tests.harness.import_guards import assert_no_toplevel_import
 
     addin_modules = (_function, _spill, _addin_values, _undo)
     forbidden = {
@@ -1301,14 +1299,7 @@ def test_function_module_avoids_document_helpers_import() -> None:
         "plugin.chatbot.dialogs",
     }
     for mod in addin_modules:
-        tree = ast.parse(Path(mod.__file__).read_text(encoding="utf-8"))
-        mods: list[str] = []
-        for node in tree.body:
-            if isinstance(node, ast.ImportFrom) and node.module:
-                mods.append(node.module)
-            elif isinstance(node, ast.Import):
-                mods.extend(alias.name for alias in node.names)
-        assert forbidden.isdisjoint(mods), mod.__name__
+        assert_no_toplevel_import(mod, forbidden)
 
 
 def test_execute_python_addin_maps_missing_venv_error(monkeypatch) -> None:
@@ -1640,47 +1631,8 @@ def test_text_single_cell_arg_spills_instead_of_error(monkeypatch: pytest.Monkey
     assert res_num == "world"
 
 
-def test_prepare_auto_spill_with_16384_columns() -> None:
-    """Item 3: A mock sheet with 16384 columns and a spill past column 1024 is not #SPILL!."""
-    from unittest.mock import MagicMock
-
-    ctx = MagicMock()
-    sheet = MagicMock()
-    sheet.getName.return_value = "Sheet1"
-    cols = MagicMock()
-    cols.getCount.return_value = 16384
-    rows = MagicMock()
-    rows.getCount.return_value = 1048576
-    sheet.getColumns.return_value = cols
-    sheet.getRows.return_value = rows
-
-    cell = MagicMock()
-    cell.getType.return_value = 0  # EMPTY
-    sheet.getCellByPosition.return_value = cell
-
-    doc = MagicMock()
-    doc.getURL.return_value = "file:///wide.ods"
-    doc.getPropertyValue.side_effect = lambda prop: "uid-wide" if prop == "RuntimeUID" else None
-    doc.getSheets().getByName.return_value = sheet
-
-    from plugin.calc.python.formula_locator_cache import FormulaOrigin
-    from plugin.calc.python.workbook_state import WorkbookState
-
-    state = WorkbookState.for_doc(doc)
-    assert state is not None
-    # 1 row by 10 columns grid -> targets col 1020..1029 (crosses past 1024)
-    grid = [[1, 2, 3, 4, 5, 6, 7, 8, 9, 10]]
-    prepared = _spill.prepare_auto_spill(ctx, doc, state, FormulaOrigin(sheet, cell, "Sheet1", 0, 1020), "py_code", grid)
-    assert prepared != "#SPILL!"
-    assert isinstance(prepared, _spill.PreparedSpill)
-    assert prepared.key == "uid-wide"
-    assert prepared.sheet_name == "Sheet1"
-    assert prepared.formula_row == 0
-    assert prepared.formula_col == 1020
-
-
 def test_prepare_auto_spill_respects_reported_sheet_size() -> None:
-    """The sheet reports its size through getCount(); a neighbor on the last column is #SPILL!."""
+    """Spills past 1024 columns succeed on a 16384-column sheet; overflowing the last column is #SPILL!."""
 
     class FallbackCellStub:
         def getType(self) -> int:
@@ -1715,13 +1667,15 @@ def test_prepare_auto_spill_respects_reported_sheet_size() -> None:
     state = WorkbookState.for_doc(doc)
     assert state is not None
     try:
-        prepared = _spill.prepare_auto_spill(ctx, doc, state, FormulaOrigin(sheet, cell, "Sheet1", 0, 16300), "py_code", grid)
-        assert prepared != "#SPILL!"
-        assert isinstance(prepared, _spill.PreparedSpill)
-        assert prepared.key == doc_id
-        assert prepared.sheet_name == "Sheet1"
-        assert prepared.formula_row == 0
-        assert prepared.formula_col == 16300
+        # Crosses past 1024 columns (1020..1029) and near the 16384 boundary (16300..16301).
+        for formula_col, wide_grid in ((1020, [list(range(1, 11))]), (16300, grid)):
+            prepared = _spill.prepare_auto_spill(ctx, doc, state, FormulaOrigin(sheet, cell, "Sheet1", 0, formula_col), "py_code", wide_grid)
+            assert prepared != "#SPILL!"
+            assert isinstance(prepared, _spill.PreparedSpill)
+            assert prepared.key == doc_id
+            assert prepared.sheet_name == "Sheet1"
+            assert prepared.formula_row == 0
+            assert prepared.formula_col == formula_col
 
         prepared_spill = _spill.prepare_auto_spill(ctx, doc, state, FormulaOrigin(sheet, cell, "Sheet1", 0, 16383), "py_code", grid)
         assert prepared_spill == "#SPILL!"

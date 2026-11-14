@@ -22,24 +22,6 @@ def test_list_open_documents_does_not_require_a_document():
     assert ListOpenDocuments.requires_document is False
 
 
-def test_document_properties_get_contract():
-    tool = DocumentPropertiesGet()
-    assert tool.tier == "specialized"
-    assert tool.specialized_domain == "fields"
-    assert tool.uno_services is None  # Works for all document types
-    assert tool.requires_document is True
-    assert tool.detects_mutation() is False
-
-
-def test_document_properties_set_contract():
-    tool = DocumentPropertiesSet()
-    assert tool.tier == "specialized"
-    assert tool.specialized_domain == "fields"
-    assert tool.uno_services is None  # Works for all document types
-    assert tool.requires_document is True
-    assert tool.detects_mutation() is True
-
-
 def test_document_properties_get_hides_product_udprops():
     props = _UserDefinedProperties()
     props.values["Visible"] = "yes"

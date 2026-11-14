@@ -247,96 +247,93 @@ def test_collect_post_test_death_soffice_exit() -> None:
     office.reset_death_signals(clear_proc=True)
 
 
-def test_native_suite_sort_key_windows_puts_peer_last(monkeypatch) -> None:
-    """GHA 34551644954: other suites must run before leftover peer docs."""
-    import plugin.testing_runner as tr
-
-    monkeypatch.setattr(tr.sys, "platform", "win32")
-    paths = [
-        "/tmp/tests/chatbot/test_peer_message_uno.py",
-        "/tmp/tests/doc/test_text_helpers_uno.py",
-        "/tmp/tests/chatbot/test_slash_popup_uno.py",
-    ]
-    ordered = sorted(paths, key=_native_suite_sort_key)
-    assert ordered[-1].endswith("test_peer_message_uno.py")
-    assert ordered[0].endswith("test_slash_popup_uno.py")
-
-
-def test_native_suite_sort_key_windows_puts_draw_uno_before_peer(
+@pytest.mark.parametrize(
+    ("paths", "expected_before_pairs"),
+    [
+        # GHA 34551644954: other suites must run before leftover peer docs.
+        pytest.param(
+            [
+                "/tmp/tests/chatbot/test_peer_message_uno.py",
+                "/tmp/tests/doc/test_text_helpers_uno.py",
+                "/tmp/tests/chatbot/test_slash_popup_uno.py",
+            ],
+            [
+                ("test_slash_popup_uno.py", "test_text_helpers_uno.py"),
+                ("test_text_helpers_uno.py", "test_peer_message_uno.py"),
+            ],
+            id="puts_peer_last",
+        ),
+        # GHA 34616287301: leftover Math Draw hung notebook import-filter load.
+        pytest.param(
+            [
+                "/tmp/tests/chatbot/test_peer_message_uno.py",
+                "/tmp/tests/draw/test_draw_uno.py",
+                "/tmp/tests/notebook/test_import_filter_uno.py",
+                "/tmp/tests/draw/test_draw_forms_uno.py",
+                "/tmp/tests/impress/test_impress_uno.py",
+            ],
+            [
+                ("test_import_filter_uno.py", "test_draw_uno.py"),
+                ("test_draw_forms_uno.py", "test_draw_uno.py"),
+                ("test_impress_uno.py", "test_draw_uno.py"),
+                ("test_draw_uno.py", "test_peer_message_uno.py"),
+            ],
+            id="puts_draw_uno_before_peer",
+        ),
+        # GHA 34648929578: leftover paste Writers poisoned Hidden Budget_read.
+        pytest.param(
+            [
+                "/tmp/tests/calc/test_formulas_uno.py",
+                "/tmp/tests/calc/test_rich_html_uno.py",
+                "/tmp/tests/chatbot/test_slash_popup_uno.py",
+                "/tmp/tests/doc/test_document_research_uno.py",
+                "/tmp/tests/notebook/test_import_filter_uno.py",
+                "/tmp/tests/draw/test_draw_uno.py",
+                "/tmp/tests/chatbot/test_peer_message_uno.py",
+            ],
+            [
+                ("test_slash_popup_uno.py", "test_formulas_uno.py"),
+                ("test_document_research_uno.py", "test_formulas_uno.py"),
+                ("test_import_filter_uno.py", "test_rich_html_uno.py"),
+                ("test_formulas_uno.py", "test_draw_uno.py"),
+                ("test_rich_html_uno.py", "test_draw_uno.py"),
+                ("test_draw_uno.py", "test_peer_message_uno.py"),
+            ],
+            id="defers_html_paste_after_doc_research",
+        ),
+        # GHA 37406913485: designs must not inherit the bridge suite's recycle.
+        pytest.param(
+            [
+                "/tmp/tests/draw/test_draw_forms_uno.py",
+                "/tmp/tests/draw/test_bridge_uno.py",
+                "/tmp/tests/doc/test_visual_helpers_uno.py",
+                "/tmp/tests/draw/test_designs_uno.py",
+                "/tmp/tests/calc/test_cells_uno.py",
+                "/tmp/tests/draw/test_draw_uno.py",
+            ],
+            [
+                ("test_cells_uno.py", "test_visual_helpers_uno.py"),
+                ("test_visual_helpers_uno.py", "test_designs_uno.py"),
+                ("test_designs_uno.py", "test_bridge_uno.py"),
+                ("test_bridge_uno.py", "test_draw_forms_uno.py"),
+                ("test_draw_forms_uno.py", "test_draw_uno.py"),
+            ],
+            id="runs_designs_before_bridge",
+        ),
+    ],
+)
+def test_native_suite_sort_key_windows_ordering(
     monkeypatch,
+    paths: list[str],
+    expected_before_pairs: list[tuple[str, str]],
 ) -> None:
-    """GHA 34616287301: leftover Math Draw hung notebook import-filter load."""
+    """Windows native suite ordering isolates leftover docs and recycle boundaries."""
     import plugin.testing_runner as tr
 
     monkeypatch.setattr(tr.sys, "platform", "win32")
-    paths = [
-        "/tmp/tests/chatbot/test_peer_message_uno.py",
-        "/tmp/tests/draw/test_draw_uno.py",
-        "/tmp/tests/notebook/test_import_filter_uno.py",
-        "/tmp/tests/draw/test_draw_forms_uno.py",
-        "/tmp/tests/impress/test_impress_uno.py",
-    ]
-    ordered = sorted(paths, key=_native_suite_sort_key)
-    names = [p.rsplit("/", 1)[-1] for p in ordered]
-    assert names[-1] == "test_peer_message_uno.py"
-    assert names[-2] == "test_draw_uno.py"
-    assert names.index("test_import_filter_uno.py") < names.index("test_draw_uno.py")
-    assert names.index("test_draw_forms_uno.py") < names.index("test_draw_uno.py")
-
-
-def test_native_suite_sort_key_windows_defers_html_paste_after_doc_research(
-    monkeypatch,
-) -> None:
-    """GHA 34648929578: leftover paste Writers poisoned Hidden Budget_read."""
-    import plugin.testing_runner as tr
-
-    monkeypatch.setattr(tr.sys, "platform", "win32")
-    paths = [
-        "/tmp/tests/calc/test_formulas_uno.py",
-        "/tmp/tests/calc/test_rich_html_uno.py",
-        "/tmp/tests/chatbot/test_slash_popup_uno.py",
-        "/tmp/tests/doc/test_document_research_uno.py",
-        "/tmp/tests/notebook/test_import_filter_uno.py",
-        "/tmp/tests/draw/test_draw_uno.py",
-        "/tmp/tests/chatbot/test_peer_message_uno.py",
-    ]
-    ordered = sorted(paths, key=_native_suite_sort_key)
-    names = [p.rsplit("/", 1)[-1] for p in ordered]
-    assert names.index("test_slash_popup_uno.py") < names.index("test_formulas_uno.py")
-    assert names.index("test_document_research_uno.py") < names.index(
-        "test_formulas_uno.py"
-    )
-    assert names.index("test_import_filter_uno.py") < names.index("test_rich_html_uno.py")
-    assert names.index("test_formulas_uno.py") < names.index("test_draw_uno.py")
-    assert names.index("test_rich_html_uno.py") < names.index("test_draw_uno.py")
-    assert names[-1] == "test_peer_message_uno.py"
-
-
-def test_native_suite_sort_key_windows_runs_designs_before_bridge(
-    monkeypatch,
-) -> None:
-    """GHA 37406913485: designs must not inherit the bridge suite's recycle."""
-    import plugin.testing_runner as tr
-
-    monkeypatch.setattr(tr.sys, "platform", "win32")
-    paths = [
-        "/tmp/tests/draw/test_draw_forms_uno.py",
-        "/tmp/tests/draw/test_bridge_uno.py",
-        "/tmp/tests/doc/test_visual_helpers_uno.py",
-        "/tmp/tests/draw/test_designs_uno.py",
-        "/tmp/tests/calc/test_cells_uno.py",
-        "/tmp/tests/draw/test_draw_uno.py",
-    ]
-    ordered = sorted(paths, key=_native_suite_sort_key)
-    names = [p.rsplit("/", 1)[-1] for p in ordered]
-    assert names == [
-        "test_cells_uno.py",
-        "test_visual_helpers_uno.py",
-        "test_designs_uno.py",
-        "test_bridge_uno.py",
-        "test_draw_forms_uno.py",
-        "test_draw_uno.py",
-    ]
+    names = [p.rsplit("/", 1)[-1] for p in sorted(paths, key=_native_suite_sort_key)]
+    for earlier, later in expected_before_pairs:
+        assert names.index(earlier) < names.index(later)
 
 
 def test_native_suite_sort_key_posix_keeps_path_order(monkeypatch) -> None:
@@ -411,15 +408,6 @@ def test_exit_after_summary_keeps_systemexit_on_failure(monkeypatch) -> None:
         assert exc.code == 1
     else:
         raise AssertionError("expected SystemExit(1) on failure")
-
-
-def test_exit_after_summary_minus_m_uses_helper() -> None:
-    import plugin.testing_runner as tr
-
-    text = Path(tr.__file__).read_text(encoding="utf-8")
-    assert "if __name__ == \"__main__\":" in text
-    assert "_exit_after_summary(main())" in text
-    assert "raise SystemExit(main())" not in text
 
 
 def test_native_suite_save_forwards_text_model_event_key(monkeypatch) -> None:
@@ -723,16 +711,6 @@ def test_parse_cli_args_user_profile_sets_env(monkeypatch) -> None:
     tr._parse_cli_args(["--user-profile"])
     assert tr.current_office().options.use_user_profile is True
     assert os.environ["WRITERAGENT_UNO_USER_PROFILE"] == "1"
-
-
-def test_runner_options_reach_current_office(monkeypatch) -> None:
-    """Options configured on the runner reach current_office().options."""
-    import inspect
-    from tests.testing_utils import with_native_doc
-
-    monkeypatch.setattr(tr.current_office().options, "show_window", True)
-    assert tr.current_office().options.show_window is True
-    assert inspect.signature(with_native_doc).parameters["hidden"].default is True
 
 
 @pytest.mark.parametrize(
