@@ -731,6 +731,7 @@ def test_execute_refusal_log_has_no_synthetic_traceback(caplog: pytest.LogCaptur
         t = threading.Thread(target=run_on_worker)
         t.start()
         t.join()
+    assert any(r.levelno == logging.ERROR for r in caplog.records)
     assert "Traceback" not in caplog.text
 
 

@@ -174,7 +174,7 @@ def test_queue_executor_does_not_reexport_drain_guard():
         assert not hasattr(qe, name)
 
 
-def test_release_underflow_logs_and_skips_idle_callbacks(_isolated_idle_callbacks):
+def test_release_underflow_skips_idle_callbacks(_isolated_idle_callbacks):
     ran: list[int] = []
 
     def cb() -> None:

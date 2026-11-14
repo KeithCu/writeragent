@@ -236,7 +236,7 @@ def test_collect_on_main_re_disables_and_clears_sentinel(gc_policy_restored):
     assert not gc_policy._off_main_samples
 
 
-def test_collect_on_main_off_main_refused_and_logged(gc_policy_restored, caplog):
+def test_collect_on_main_off_main_refused(gc_policy_restored):
     gc_policy._main_ident = threading.get_ident()
     gc.disable()
     gc_policy._posted_at = 123.0

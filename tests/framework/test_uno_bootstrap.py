@@ -123,7 +123,7 @@ def test_alias_loader_preserves_package_path(tmp_path) -> None:
             sys.path.remove(str(tmp_path))
 
 
-def test_find_spec_logs_error_and_returns_none(monkeypatch) -> None:
+def test_find_spec_failure_returns_none(monkeypatch) -> None:
     import importlib.util
 
     monkeypatch.setattr("plugin.scripting.sandbox.import_authorized", lambda *args, **kwargs: True)

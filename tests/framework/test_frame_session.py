@@ -526,7 +526,7 @@ def test_thread_violation_from_add_mouse_listener_is_not_a_silent_install():
     leave.addFocusListener.assert_not_called()
 
 
-def test_ordinary_attach_error_stays_a_debug_log():
+def test_ordinary_attach_error_is_not_a_failed_install():
     """A non-guard RuntimeError is still not a failed install."""
     session = FrameSession(MagicMock(), "doc-a")
     query = MagicMock()

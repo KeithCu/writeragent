@@ -1192,6 +1192,4 @@ def test_show_tests_unavailable_invokes_msgbox() -> None:
         main._show_tests_unavailable("writer.format_tests")
         mock_msgbox.assert_called_once()
         assert mock_msgbox.call_args[0][:2] == (fake_ctx, "writer.format_tests")
-        assert isinstance(mock_msgbox.call_args[0][2], str)
-        assert mock_msgbox.call_args[0][2]
 

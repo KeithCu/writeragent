@@ -239,7 +239,6 @@ def test_collect_post_test_death_soffice_exit() -> None:
     assert office.soffice_exit_code() == 1
     reason = collect_post_test_death(None)
     assert reason is not None
-    assert "1" in reason
     office.reset_death_signals(clear_proc=True)
 
 

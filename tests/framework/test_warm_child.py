@@ -198,7 +198,7 @@ def test_kill_during_handshake_not_adopted(tmp_path: Any, supervisor: Supervisor
 
 
 @pytest.mark.skipif(sys.platform != "linux", reason="SIGKILL idle-death check is Linux-only")
-def test_death_hook_on_external_sigkill(tmp_path: Any, caplog: pytest.LogCaptureFixture, supervisor: Supervisor) -> None:
+def test_death_hook_on_external_sigkill(tmp_path: Any, supervisor: Supervisor) -> None:
     script = _stdio_worker(tmp_path)
     deaths: list[Death] = []
 

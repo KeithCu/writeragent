@@ -287,7 +287,7 @@ def test_required_scalar_not_nullable():
     assert props["arg1"]["type"] == "string"
 
 
-def test_to_mcp_schema_delegate_writer_includes_specialized_delegation_hint():
+def test_to_mcp_schema_delegate_writer_flattens_domain_description():
     from plugin.writer.specialized_base import DelegateToSpecializedWriter
 
     tool = DelegateToSpecializedWriter()

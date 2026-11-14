@@ -14,6 +14,9 @@ from plugin.framework.client.request_controls import reset_host_pacing_for_tests
 from plugin.framework.errors import NetworkError, format_error_message
 from plugin.tests.testing_utils import MockContext, create_mock_http_response
 
+# Structural check: pins the injected ISO date, not its surrounding wording.
+_DATE_RE = re.compile(r"\b\d{4}-\d{2}-\d{2}\b")
+
 
 def _cancelled_scope() -> SendCancellation:
     scope = SendCancellation()
@@ -814,7 +817,7 @@ def test_make_chat_request_includes_dev_build_prefix_when_enabled():
     data = json.loads(body.decode("utf-8"))
     system = data["messages"][0]["content"]
     assert LLM_DEV_BUILD_SYSTEM_PREFIX in system
-    assert re.search(r"\b\d{4}-\d{2}-\d{2}\b", system)
+    assert _DATE_RE.search(system)
 
 
 def test_make_chat_request_skips_dev_build_prefix_when_disabled():
@@ -1038,7 +1041,7 @@ def test_make_chat_request_coalesces_system_messages(client):
         system_text = system_content[0]["text"] if isinstance(system_content, list) else system_content
         assert "Base instructions." in system_text
         assert "Document context." in system_text
-        assert re.search(r"\b\d{4}-\d{2}-\d{2}\b", system_text)
+        assert _DATE_RE.search(system_text)
             
     # And check Google as well
     with patch("plugin.framework.client.llm_client.LlmClient._resolve_auth") as mock_auth:
@@ -1052,7 +1055,7 @@ def test_make_chat_request_coalesces_system_messages(client):
         combined_text = api_messages[0]["content"]
         assert "Base instructions." in combined_text
         assert "Document context." in combined_text
-        assert re.search(r"\b\d{4}-\d{2}-\d{2}\b", combined_text)
+        assert _DATE_RE.search(combined_text)
 
     # And check OpenAI-compatible path
     with patch("plugin.framework.client.llm_client.LlmClient._resolve_auth") as mock_auth:
@@ -1066,7 +1069,7 @@ def test_make_chat_request_coalesces_system_messages(client):
         combined_text = api_messages[0]["content"]
         assert "Base instructions." in combined_text
         assert "Document context." in combined_text
-        assert re.search(r"\b\d{4}-\d{2}-\d{2}\b", combined_text)
+        assert _DATE_RE.search(combined_text)
         assert len(api_messages) == 2  # The merged system message + the user message
         assert api_messages[1]["role"] == "user"
 
@@ -1893,7 +1896,7 @@ def test_make_chat_request_coalesces_mixed_system_messages(client):
         all_text = sys_msg["content"]
         assert "Base instructions." in all_text
         assert "Document context." in all_text
-        assert re.search(r"\b\d{4}-\d{2}-\d{2}\b", all_text)
+        assert _DATE_RE.search(all_text)
 
 
 def test_prepend_dev_build_prefix_supports_list_content():
@@ -1929,7 +1932,7 @@ def test_make_chat_request_flattens_system_message(client):
         assert isinstance(sys_msg["content"], str)
         assert "Part 1" in sys_msg["content"]
         assert "Part 2" in sys_msg["content"]
-        assert re.search(r"\b\d{4}-\d{2}-\d{2}\b", sys_msg["content"])
+        assert _DATE_RE.search(sys_msg["content"])
 
 
 def test_chat_request_omits_top_p(client):
@@ -2201,6 +2204,7 @@ def _raise_http_error(client, status, reason, body, err_json, path="/v1/chat/com
 
 
 def _assert_http_500_diag_safe(joined, *, prompt, api_key):
+    assert joined.count("HTTP 500 request diagnostic:") == 1
     assert prompt not in joined
     assert api_key not in joined
     assert "Authorization" not in joined
@@ -2295,6 +2299,9 @@ def test_http_500_llama_overflow_friendly_sentence_logs_stay_loud(caplog, mock_c
     assert "HTTP Error 500" not in str(err.value)
     assert "0xc0000005" not in str(err.value)
     joined = "\n".join(r.getMessage() for r in caplog.records)
+    assert any(r.levelno == logging.ERROR for r in caplog.records)
+    assert joined.count("HTTP 500 request diagnostic:") == 1
+    assert "llama-server process has terminated" in joined
     assert prompt not in joined
     assert api_key not in joined
 
