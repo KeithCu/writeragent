@@ -479,14 +479,17 @@ def test_doc_listener_retry_off_main_thread_does_not_raise(monkeypatch):
 
     state = MagicMock()
     state.code_cells = [MagicMock()]
+    container = MagicMock()
+    monkeypatch.setattr(notebook_controls, "_listener_refs", [])
 
     try:
         with (
             patch("plugin.notebook.notebook_controls.load_registry", return_value=state),
-            patch("plugin.notebook.notebook_controls._form_and_container", return_value=(None, MagicMock())),
+            patch("plugin.notebook.notebook_controls._form_and_container", return_value=(None, container)),
         ):
             lis.on_document_event(event)
-        # Should not raise RuntimeError from get_runtime_uid
+        container.addContainerListener.assert_called_once()
+        assert any(ref._doc_key_val == "uid:uid-dummy-3" for ref in notebook_controls._listener_refs)
     finally:
         tg.GUARD_ON = was
 

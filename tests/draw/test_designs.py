@@ -1264,111 +1264,110 @@ def test_clone_group_shape_zero_children_raises():
         clone_master_into_doc(dest_doc, src_doc, {"id": "test", "name": "TestMaster"})
 
 
-def test_clone_master_aspect_ratio_selection():
+def _aspect_master_mock(name: str, *, width: int | None = 28000, height: int | None = 15750) -> MagicMock:
+    if width is None or height is None:
+        m = MagicMock(spec=["Name", "getCount", "getByIndex"])
+    else:
+        m = MagicMock(Width=width, Height=height)
+    m.Name = name
+    m.getCount.return_value = 1
+    m.getByIndex.return_value = MagicMock(ShapeType="com.sun.star.drawing.RectangleShape")
+    return m
+
+
+@pytest.mark.parametrize(
+    ("p0_factory", "master_specs", "design_meta", "expected_idx", "unpicked_idx"),
+    [
+        pytest.param(
+            lambda: MagicMock(Width=28000, Height=21000),
+            [
+                ("Beehive_20_16_3a_9", 28000, 15750),
+                ("Beehive_20_4_3a_3", 28000, 15750),
+                ("Beehive1_20_16_3a_9", 28000, 15750),
+            ],
+            {"id": "beehive", "name": "Beehive"},
+            1,
+            0,
+            id="name_token_4_3_beats_geometry",
+        ),
+        pytest.param(
+            lambda: MagicMock(spec=["MasterPage"], MasterPage=MagicMock(Width=28000, Height=21000)),
+            [
+                ("Beehive_20_16_3a_9", 28000, 15750),
+                ("Beehive_20_4_3a_3", 28000, 15750),
+            ],
+            {"id": "beehive", "name": "Beehive"},
+            1,
+            0,
+            id="p0_masterpage_size_fallback",
+        ),
+        pytest.param(
+            lambda: MagicMock(Width=28000, Height=21000),
+            [
+                ("Beehive_16_9", None, None),
+                ("Beehive_4_3", None, None),
+            ],
+            {"id": "beehive", "name": "Beehive"},
+            1,
+            0,
+            id="candidate_ratio_from_name_without_geom",
+        ),
+        pytest.param(
+            lambda: MagicMock(Width=28000, Height=21000),
+            [
+                ("PlainDesign", 28000, 15750),
+                ("PlainDesign", 28000, 21000),
+            ],
+            {"id": "plaindesign", "name": "PlainDesign"},
+            1,
+            0,
+            id="width_height_fallback_without_token",
+        ),
+        pytest.param(
+            lambda: MagicMock(Width=28000, Height=15750),
+            [
+                ("Beehive_20_16_3a_9", 28000, 15750),
+                ("Beehive_20_4_3a_3", 28000, 15750),
+            ],
+            {"id": "beehive", "name": "Beehive"},
+            0,
+            1,
+            id="widescreen_16_9_picks_16_9",
+        ),
+    ],
+)
+def test_clone_master_aspect_ratio_selection(
+    p0_factory,
+    master_specs,
+    design_meta,
+    expected_idx,
+    unpicked_idx,
+):
     from plugin.draw.designs import clone_master_into_doc
 
     dest_doc = MagicMock()
-    p0 = MagicMock()
-    p0.Width = 28000
-    p0.Height = 21000
     dest_doc.getDrawPages().getCount.return_value = 1
-    dest_doc.getDrawPages().getByIndex.return_value = p0
+    dest_doc.getDrawPages().getByIndex.return_value = p0_factory()
 
     dest_master = MagicMock()
     dest_masters = MagicMock()
     dest_masters.insertNewByIndex.return_value = dest_master
     dest_doc.getMasterPages.return_value = dest_masters
 
-    # Two mock masters same design name, both Width/Height 16:9, one Name ending in 4:3
-    m16_9 = MagicMock()
-    m16_9.Name = "Beehive_20_16_3a_9"
-    m16_9.Width = 28000
-    m16_9.Height = 15750
-    m16_9.getCount.return_value = 1
-    m16_9.getByIndex.return_value = MagicMock(ShapeType="com.sun.star.drawing.RectangleShape")
-
-    m4_3 = MagicMock()
-    m4_3.Name = "Beehive_20_4_3a_3"
-    m4_3.Width = 28000
-    m4_3.Height = 15750
-    m4_3.getCount.return_value = 1
-    m4_3.getByIndex.return_value = MagicMock(ShapeType="com.sun.star.drawing.RectangleShape")
-
-    m_beehive1 = MagicMock()
-    m_beehive1.Name = "Beehive1_20_16_3a_9"
-    m_beehive1.Width = 28000
-    m_beehive1.Height = 15750
-    m_beehive1.getCount.return_value = 1
-    m_beehive1.getByIndex.return_value = MagicMock(ShapeType="com.sun.star.drawing.RectangleShape")
-
+    src_masters = [_aspect_master_mock(n, width=w, height=h) for n, w, h in master_specs]
     src_doc = MagicMock()
-    src_masters = [m16_9, m4_3, m_beehive1]
     src_doc.getMasterPages().getCount.side_effect = lambda: len(src_masters)
     src_doc.getMasterPages().getByIndex.side_effect = lambda i: src_masters[i]
 
     with patch("plugin.draw.designs.clone_shape", return_value=_STUB_CLONED_SHAPE):
-        cloned = clone_master_into_doc(dest_doc, src_doc, {"id": "beehive", "name": "Beehive"})
+        cloned = clone_master_into_doc(dest_doc, src_doc, design_meta)
+
     assert "aspect mismatch" not in cloned.warnings
     assert cloned.master == dest_master
     assert cloned.selection == "name"
     assert not any("no master name matched" in w for w in cloned.warnings)
-    assert m4_3.getByIndex.called
-    assert not m16_9.getByIndex.called
-
-    # Deck ratio read from p0.MasterPage when p0 lacks dimensions
-    p0_no_dims = MagicMock(spec=["MasterPage"])
-    p0_no_dims.MasterPage = MagicMock(Width=28000, Height=21000)
-    dest_doc.getDrawPages().getByIndex.return_value = p0_no_dims
-    with patch("plugin.draw.designs.clone_shape", return_value=_STUB_CLONED_SHAPE):
-        cloned_mp = clone_master_into_doc(dest_doc, src_doc, {"id": "beehive", "name": "Beehive"})
-    assert "aspect mismatch" not in cloned_mp.warnings
-
-    # Candidate aspect ratio inferred from name when geometry is absent
-    m16_no_geom = MagicMock(spec=["Name", "getCount", "getByIndex"])
-    m16_no_geom.Name = "Beehive_16_9"
-    m16_no_geom.getCount.return_value = 1
-    m16_no_geom.getByIndex.return_value = MagicMock(ShapeType="com.sun.star.drawing.RectangleShape")
-    m4_no_geom = MagicMock(spec=["Name", "getCount", "getByIndex"])
-    m4_no_geom.Name = "Beehive_4_3"
-    m4_no_geom.getCount.return_value = 1
-    m4_no_geom.getByIndex.return_value = MagicMock(ShapeType="com.sun.star.drawing.RectangleShape")
-
-    src_no_geom = MagicMock()
-    src_no_geom.getMasterPages().getCount.return_value = 2
-    src_no_geom.getMasterPages().getByIndex.side_effect = lambda i: [m16_no_geom, m4_no_geom][i]
-
-    with patch("plugin.draw.designs.clone_shape", return_value=_STUB_CLONED_SHAPE):
-        cloned_inferred = clone_master_into_doc(dest_doc, src_no_geom, {"id": "beehive", "name": "Beehive"})
-    assert "aspect mismatch" not in cloned_inferred.warnings
-
-    # Width/Height fallback when the name has no ratio token
-    m_plain16 = MagicMock(Name="PlainDesign", Width=28000, Height=15750)
-    m_plain16.getCount.return_value = 1
-    m_plain16.getByIndex.return_value = MagicMock(ShapeType="com.sun.star.drawing.RectangleShape")
-    m_plain4 = MagicMock(Name="PlainDesign", Width=28000, Height=21000)
-    m_plain4.getCount.return_value = 1
-    m_plain4.getByIndex.return_value = MagicMock(ShapeType="com.sun.star.drawing.RectangleShape")
-    src_plain = MagicMock()
-    src_plain.getMasterPages().getCount.return_value = 2
-    src_plain.getMasterPages().getByIndex.side_effect = lambda i: [m_plain16, m_plain4][i]
-
-    dest_doc.getDrawPages().getByIndex.return_value = p0
-    p0.Height = 21000
-    with patch("plugin.draw.designs.clone_shape", return_value=_STUB_CLONED_SHAPE):
-        cloned_plain = clone_master_into_doc(dest_doc, src_plain, {"id": "plaindesign", "name": "PlainDesign"})
-    assert "aspect mismatch" not in cloned_plain.warnings
-    assert m_plain4.getByIndex.called
-    assert not m_plain16.getByIndex.called
-
-    dest_doc.getDrawPages().getByIndex.return_value = p0
-    p0.Height = 15750
-    m16_9.getByIndex.reset_mock()
-    m4_3.getByIndex.reset_mock()
-    with patch("plugin.draw.designs.clone_shape", return_value=_STUB_CLONED_SHAPE):
-        cloned16 = clone_master_into_doc(dest_doc, src_doc, {"id": "beehive", "name": "Beehive"})
-    assert "aspect mismatch" not in cloned16.warnings
-    assert m16_9.getByIndex.called
-    assert not m4_3.getByIndex.called
+    assert src_masters[expected_idx].getByIndex.called
+    assert not src_masters[unpicked_idx].getByIndex.called
 
 
 def test_clone_master_name_normalization_matches():

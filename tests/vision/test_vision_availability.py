@@ -28,12 +28,21 @@ def test_vision_venv_configured_propagates_config_error():
             vision_venv_configured()
 
 
-def test_vision_venv_configured_success():
+@pytest.mark.parametrize(
+    ("config_value", "resolve_result", "expected"),
+    [
+        pytest.param("", "/fake/venv/bin/python", False, id="empty"),
+        pytest.param("   \t  ", "/fake/venv/bin/python", False, id="whitespace"),
+        pytest.param("/fake/venv", None, False, id="unresolvable_python"),
+        pytest.param("/fake/venv", "/fake/venv/bin/python", True, id="configured"),
+    ],
+)
+def test_vision_venv_configured(config_value: str, resolve_result: str | None, expected: bool):
     with (
-        patch("plugin.vision.vision_availability.get_config", return_value="/fake/venv"),
-        patch("plugin.vision.vision_availability.resolve_venv_python", return_value="/fake/venv/bin/python"),
+        patch("plugin.vision.vision_availability.get_config", return_value=config_value),
+        patch("plugin.vision.vision_availability.resolve_venv_python", return_value=resolve_result),
     ):
-        assert vision_venv_configured() is True
+        assert vision_venv_configured() is expected
 
 
 def test_filter_vision_delegate_schemas_consistent_with_ctx_none():

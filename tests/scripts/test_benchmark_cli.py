@@ -69,21 +69,34 @@ def test_build_eval_argv_task_not_implemented() -> None:
         build_eval_argv(task="x", document="y")
 
 
-def test_benchmark_main_anthropic_reaches_subprocess(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize(
+    ("env_var", "key_value"),
+    [
+        pytest.param("WRITERAGENT_API_KEY", "wa-key", id="writeragent"),
+        pytest.param("OPENAI_API_KEY", "oai-key", id="openai"),
+        pytest.param("OPENROUTER_API_KEY", "or-key", id="openrouter"),
+    ],
+)
+def test_benchmark_main_api_key_reaches_subprocess(
+    monkeypatch: pytest.MonkeyPatch, env_var: str, key_value: str
+) -> None:
     from unittest.mock import MagicMock
     import benchmark
 
-    monkeypatch.delenv("EVAL_ANTHROPIC_API_KEY", raising=False)
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "ant-key")
-    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
-    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-    monkeypatch.delenv("WRITERAGENT_API_KEY", raising=False)
+    for name in (
+        "EVAL_ANTHROPIC_API_KEY",
+        "ANTHROPIC_API_KEY",
+        "OPENROUTER_API_KEY",
+        "OPENAI_API_KEY",
+        "WRITERAGENT_API_KEY",
+    ):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv(env_var, key_value)
 
-    called = False
+    captured_cmd: list[str] = []
 
     def mock_run(cmd, **kwargs):
-        nonlocal called
-        called = True
+        captured_cmd[:] = list(cmd)
         mock_res = MagicMock()
         mock_res.returncode = 0
         return mock_res
@@ -96,34 +109,5 @@ def test_benchmark_main_anthropic_reaches_subprocess(monkeypatch: pytest.MonkeyP
     )
     rc = benchmark.main()
     assert rc == 0
-    assert called
-
-
-def test_benchmark_main_eval_anthropic_reaches_subprocess(monkeypatch: pytest.MonkeyPatch) -> None:
-    from unittest.mock import MagicMock
-    import benchmark
-
-    monkeypatch.setenv("EVAL_ANTHROPIC_API_KEY", "eval-ant-key")
-    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
-    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-    monkeypatch.delenv("WRITERAGENT_API_KEY", raising=False)
-
-    called = False
-
-    def mock_run(cmd, **kwargs):
-        nonlocal called
-        called = True
-        mock_res = MagicMock()
-        mock_res.returncode = 0
-        return mock_res
-
-    monkeypatch.setattr("subprocess.run", mock_run)
-    monkeypatch.setattr(
-        sys,
-        "argv",
-        ["benchmark.py", "--model", "anthropic/claude-sonnet-4.5", "--no-judge"],
-    )
-    rc = benchmark.main()
-    assert rc == 0
-    assert called
+    assert "--api-key" in captured_cmd
+    assert captured_cmd[captured_cmd.index("--api-key") + 1] == key_value

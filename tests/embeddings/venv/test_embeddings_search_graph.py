@@ -28,17 +28,16 @@ def test_metadata_filter_drops_wrong_model():
 
 def test_mmr_reduces_redundant_candidates():
     q = np.array([1.0, 0.0], dtype=np.float32)
-    emb_a = np.array([1.0, 0.0], dtype=np.float32)
-    emb_b = np.array([0.99, 0.01], dtype=np.float32)
-    emb_c = np.array([0.0, 1.0], dtype=np.float32)
+    emb_a = np.array([0.8, 0.6], dtype=np.float32)
+    emb_b = np.array([0.79, 0.61], dtype=np.float32)
+    emb_c = np.array([0.75, -0.66], dtype=np.float32)
     candidates = [
         {"chunk_id": "a", "score": 0.99, "embedding": emb_a},
         {"chunk_id": "b", "score": 0.98, "embedding": emb_b},
         {"chunk_id": "c", "score": 0.5, "embedding": emb_c},
     ]
     picked = embeddings_search_graph._max_marginal_relevance(q, [emb_a, emb_b, emb_c], candidates, 2)
-    assert len(picked) == 2
-    assert picked[0]["chunk_id"] == "a"
+    assert [p["chunk_id"] for p in picked] == ["a", "c"]
 
 
 def test_hit_snippet_returns_full_chunk_within_limit():
