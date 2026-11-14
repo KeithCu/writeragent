@@ -4,6 +4,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Settings → Python Test shows a modal dialog with incremental probe output."""
 
+from contextlib import ExitStack, contextmanager
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -157,10 +159,6 @@ def test_finish_leaves_title_when_msgid_missing() -> None:
     ):
         progress.finish("Venv OK", True)
         assert model.Title == "T:Venv OK"
-
-
-from contextlib import ExitStack, contextmanager
-from types import SimpleNamespace
 
 
 @contextmanager

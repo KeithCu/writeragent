@@ -208,18 +208,19 @@ def test_topics_inner_error_result_is_not_insertable():
 
 
 @pytest.mark.parametrize(
-    ("helper", "has_doc", "exc_msg", "expected_start", "hint_expected"),
+    ("helper", "has_doc", "exc_msg", "expected_start", "exact", "hint_expected"),
     [
-        ("readability", True, "boom", "Error: boom", False),
+        ("readability", True, "boom", "Error: boom", False, False),
         (
             "readability",
             True,
             "Python worker failed: timed out after 30 seconds",
             "Error: Python worker failed: timed out after 30 seconds",
+            True,
             False,
         ),
-        ("readability", True, "No module named 'spacy'", "Error: No module named 'spacy'", True),
-        ("diagnostics", False, "no python", "Error from the Text Analytics worker:\nno python", False),
+        ("readability", True, "No module named 'spacy'", "Error: No module named 'spacy'", False, True),
+        ("diagnostics", False, "no python", "Error from the Text Analytics worker:\nno python", True, False),
     ],
     ids=["generic_omits_hint", "timeout_omits_hint", "import_keeps_hint", "diagnostics_no_install_cmd"],
 )
@@ -229,6 +230,7 @@ def test_worker_exception_formatting(
     has_doc,
     exc_msg,
     expected_start,
+    exact,
     hint_expected,
 ):
     dlg_obj, fake_dlg = _make_dialog()
@@ -261,11 +263,12 @@ def test_worker_exception_formatting(
 
     assert dlg_obj._last_result is None
     res_text = fake_dlg.controls["ResultsEdit"].getModel().Text
-    assert res_text.startswith(expected_start)
+    if exact:
+        assert res_text == expected_start
+    else:
+        assert res_text.startswith(expected_start)
     assert ("Click Check Venv" in res_text) is hint_expected
     assert ("Required packages" in res_text) is hint_expected
-    if not has_doc:
-        assert "uv pip install" not in res_text
 
 
 def test_failed_validation_clears_previous_result(monkeypatch):

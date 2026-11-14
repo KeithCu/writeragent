@@ -136,6 +136,18 @@ def test_direct_format_quantity_scalar_and_vector():
     ("payload", "output_style", "expected_grid", "expected_row"),
     [
         (
+            {"status": "ok", "helper": "convert_quantity", "formatted": "10 km/h", "magnitude": 10.0},
+            None,
+            [["10 km/h"]],
+            None,
+        ),
+        (
+            {"status": "ok", "helper": "parse_quantity", "formatted": "5 m", "magnitude": 5.0},
+            None,
+            [["5 m"]],
+            None,
+        ),
+        (
             {
                 "status": "ok",
                 "helper": "check_dimensionality",
@@ -175,6 +187,8 @@ def test_direct_format_quantity_scalar_and_vector():
         ),
     ],
     ids=[
+        "default_convert",
+        "default_parse",
         "default_dimensionality",
         "detailed_convert",
         "formatted_convert",
