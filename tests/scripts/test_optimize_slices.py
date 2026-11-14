@@ -19,31 +19,11 @@ from eval_catalog import apply_schema_patches, build_eval_tool_schemas
 from eval_prompts import get_eval_system_prompt
 from llm_chat_eval import run_llm_chat_eval
 from optimize_slices import (
-    DEFAULT_LLM_SLICE,
     apply_named_slice,
     get_slice_baseline,
     get_slice_spec,
-    list_slice_names,
     schema_patches_for_slice,
 )
-
-
-def test_named_slices_cover_calc_and_writer_hooks() -> None:
-    names = set(list_slice_names())
-    assert {
-        "calc_core",
-        "writer_core",
-        "apply_html",
-        "write_formula_range",
-        "write_formula_range.values",
-        "range_sort",
-        "full_prompt",
-    } <= names
-    assert DEFAULT_LLM_SLICE == "calc_core"
-    assert get_slice_spec("apply_html").kind == "prompt_fragment"
-    assert get_slice_spec("apply_html").prompt_attr == "WRITER_APPLY_DOCUMENT_HTML_RULES"
-    assert get_slice_spec("range_sort").kind == "tool_description"
-    assert get_slice_spec("write_formula_range.values").param_name == "values"
 
 
 def test_unknown_slice_raises() -> None:

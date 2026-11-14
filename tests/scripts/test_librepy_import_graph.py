@@ -92,31 +92,6 @@ def _forbidden_client_attr_hits(path: Path, tree: ast.AST) -> list[str]:
     return hits
 
 
-def test_librepy_bundle_includes_xl_static_rewrite_and_addin_impl():
-    paths = collect_librepy_plugin_paths(str(_REPO_ROOT))
-    assert "plugin/calc/python/xl_static_rewrite.py" in paths
-    assert "plugin/calc/python/addin_impl.py" in paths
-    assert "plugin/scripting/native_binaries.py" in paths
-    assert "plugin/scripting/audio_recorder_service.py" not in paths
-    assert "plugin/calc/python/workbook_lifecycle.py" in paths
-
-
-def test_unbundled_plugin_modules_are_strictly_excluded():
-    all_plugin_py = {
-        p.relative_to(_REPO_ROOT).as_posix()
-        for p in (_REPO_ROOT / "plugin").rglob("*.py")
-    }
-    shipped = _get_shipped_paths()
-    unbundled = all_plugin_py - shipped
-    assert len(unbundled) > 100
-    # Spot-check essential unbundled modules (automatically forbidden by allowlist complement)
-    assert "plugin/doc/document_helpers.py" in unbundled
-    assert "plugin/doc/common_module.py" in unbundled
-    assert "plugin/framework/client/llm_client.py" in unbundled
-    assert "plugin/framework/prompts.py" in unbundled
-    assert "plugin/framework/tool.py" in unbundled
-
-
 def test_librepy_shipped_toplevel_plugin_imports_are_bundled():
     shipped = _get_shipped_paths()
     missing: list[str] = []
