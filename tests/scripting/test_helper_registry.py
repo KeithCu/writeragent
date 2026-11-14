@@ -53,6 +53,7 @@ def test_importing_venv_modules_binds_callables():
 
 def test_analysis_describe_data_none_and_extra_param():
     pytest.importorskip("pandas")
+    import plugin.scripting.venv.analysis  # noqa: F401
     from plugin.scripting.venv.trusted_dispatch import run_domain
 
     data = [["A", "B"], [1, 2], [3, 4], [5, 6]]
@@ -89,6 +90,7 @@ def test_optimize_extra_param_returns_invalid_param():
 def test_viz_plot_data_keeps_unknown_key_inside_spec():
     pytest.importorskip("matplotlib")
     pytest.importorskip("pandas")
+    import plugin.scripting.venv.viz  # noqa: F401
     from plugin.scripting.venv.trusted_dispatch import run_domain
 
     data = [["x", "y"], [1, 2], [3, 4]]
@@ -134,6 +136,7 @@ def test_quant_extra_param_is_not_error(monkeypatch):
 
 def test_symbolic_explicit_none_variable_uses_default():
     pytest.importorskip("sympy")
+    import plugin.scripting.venv.symbolic  # noqa: F401
     from plugin.scripting.venv.trusted_dispatch import run_domain
 
     spec = {

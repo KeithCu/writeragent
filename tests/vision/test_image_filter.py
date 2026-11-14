@@ -60,6 +60,21 @@ def test_get_image_dropped_for_text_only_model():
     assert "apply_document_content" in names and "search_in_document" in names
 
 
+@pytest.fixture(autouse=True)
+def _restore_model_fetcher_caches():
+    import plugin.framework.client.model_fetcher as mf
+
+    prev_memos = dict(mf._catalog_memos)
+    prev_in_flight = set(mf._vision_in_flight)
+    try:
+        yield
+    finally:
+        mf._catalog_memos.clear()
+        mf._catalog_memos.update(prev_memos)
+        mf._vision_in_flight.clear()
+        mf._vision_in_flight.update(prev_in_flight)
+
+
 def test_exceptions_not_swallowed():
     with patch("plugin.framework.client.model_fetcher.has_native_vision", side_effect=RuntimeError("boom")), \
          patch("plugin.framework.client.model_fetcher.get_text_model", return_value="m"), \

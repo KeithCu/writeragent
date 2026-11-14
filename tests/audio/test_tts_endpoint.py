@@ -11,6 +11,8 @@ import struct
 import threading
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from plugin.audio.tts_endpoint import (
     _default_endpoint_format,
     download_endpoint_speech,
@@ -27,6 +29,22 @@ from plugin.audio.tts_endpoint import (
 from plugin.audio.tts_service import _speak_endpoint
 from plugin.framework.client import model_fetcher as cfg
 from plugin.framework.send_cancellation import SendCancellation
+
+
+@pytest.fixture(autouse=True)
+def _reset_tts_catalog_caches():
+    prev_memos = dict(cfg._catalog_memos)
+    prev_voices = dict(cfg._tts_supported_voices)
+    prev_formats = dict(cfg._tts_response_format)
+    try:
+        yield
+    finally:
+        cfg._catalog_memos.clear()
+        cfg._catalog_memos.update(prev_memos)
+        cfg._tts_supported_voices.clear()
+        cfg._tts_supported_voices.update(prev_voices)
+        cfg._tts_response_format.clear()
+        cfg._tts_response_format.update(prev_formats)
 
 
 def _speech_meta(body: bytes, content_type: str, status: int = 200):
@@ -91,9 +109,6 @@ def test_speech_headers():
 
 
 def test_provider_detection_openrouter_isolation():
-    cfg._catalog_memos.clear()
-    cfg._tts_supported_voices.clear()
-    cfg._tts_response_format.clear()
     cfg._get_catalog_memo("https://openrouter.ai/api").tts_ids = ["hexgrad/kokoro-82m", "microsoft/mai-voice-2"]
 
     calls: list[str] = []
@@ -104,20 +119,15 @@ def test_provider_detection_openrouter_isolation():
         calls.append(payload["model"])
         return _speech_meta(b"ID3fake", "audio/mpeg")
 
-    try:
-        with patch("plugin.framework.client.requests.sync_request", side_effect=fake_sync):
-            download_endpoint_speech("Hi", "https://notopenrouter.ai/api", "k", model="hexgrad/Kokoro-82M", voice="v")
-            assert calls[-1] == "hexgrad/Kokoro-82M"
+    with patch("plugin.framework.client.requests.sync_request", side_effect=fake_sync):
+        download_endpoint_speech("Hi", "https://notopenrouter.ai/api", "k", model="hexgrad/Kokoro-82M", voice="v")
+        assert calls[-1] == "hexgrad/Kokoro-82M"
 
-            download_endpoint_speech("Hi", "https://evil.example/openrouter.ai", "k", model="hexgrad/Kokoro-82M", voice="v")
-            assert calls[-1] == "hexgrad/Kokoro-82M"
+        download_endpoint_speech("Hi", "https://evil.example/openrouter.ai", "k", model="hexgrad/Kokoro-82M", voice="v")
+        assert calls[-1] == "hexgrad/Kokoro-82M"
 
-            download_endpoint_speech("Hi", "https://openrouter.ai/api", "k", model="hexgrad/Kokoro-82M", voice="v")
-            assert calls[-1] == "hexgrad/kokoro-82m"
-    finally:
-        cfg._catalog_memos.clear()
-        cfg._tts_supported_voices.clear()
-        cfg._tts_response_format.clear()
+        download_endpoint_speech("Hi", "https://openrouter.ai/api", "k", model="hexgrad/Kokoro-82M", voice="v")
+        assert calls[-1] == "hexgrad/kokoro-82m"
 
 
 def test_caplog_redacts_credentials(caplog):
@@ -134,9 +144,6 @@ def test_caplog_redacts_credentials(caplog):
 
 @patch("plugin.audio.tts_endpoint._default_endpoint_format", new=lambda: "mp3")
 def test_speak_endpoint_payload():
-    cfg._catalog_memos.clear()
-    cfg._tts_supported_voices.clear()
-    cfg._tts_response_format.clear()
 
     cancel = SendCancellation()
     with patch("plugin.framework.client.requests.sync_request", return_value=_speech_meta(b"ID3fake-audio-bytes", "audio/mpeg")) as mock_sync:
@@ -156,9 +163,6 @@ def test_speak_endpoint_payload():
 
 def test_download_endpoint_speech_payload_cold_openrouter_empty_voice():
     """Cold OpenRouter with empty voice must omit the voice key from the payload."""
-    cfg._catalog_memos.clear()
-    cfg._tts_supported_voices.clear()
-    cfg._tts_response_format.clear()
 
     with patch("plugin.framework.client.requests.sync_request", return_value=_speech_meta(b"ID3fake", "audio/mpeg")) as mock_sync:
         download_endpoint_speech(
@@ -175,37 +179,26 @@ def test_download_endpoint_speech_payload_cold_openrouter_empty_voice():
 
 
 def test_speak_endpoint_prefers_cached_openrouter_speech_id():
-    cfg._catalog_memos.clear()
-    cfg._tts_supported_voices.clear()
-    cfg._tts_response_format.clear()
     cfg._get_catalog_memo("https://openrouter.ai/api").tts_ids = ["hexgrad/kokoro-82m", "microsoft/mai-voice-2"]
     cancel = SendCancellation()
-    try:
-        with patch("plugin.framework.client.requests.sync_request", return_value=_speech_meta(b"ID3fake-audio-bytes", "audio/mpeg")) as mock_sync:
-            with patch("plugin.audio.tts_service._play_audio_file"):
-                _speak_endpoint(
-                    "Test hello",
-                    "https://openrouter.ai/api",
-                    "test-key",
-                    model="hexgrad/Kokoro-82M",
-                    voice="af_bella",
-                    cancel=cancel,
-                )
-            payload = json.loads(mock_sync.call_args.kwargs["data"].decode("utf-8"))
-            assert payload["model"] == "hexgrad/kokoro-82m"
-            assert payload["voice"] == "af_bella"
-    finally:
-        cfg._catalog_memos.clear()
-        cfg._tts_supported_voices.clear()
-        cfg._tts_response_format.clear()
+    with patch("plugin.framework.client.requests.sync_request", return_value=_speech_meta(b"ID3fake-audio-bytes", "audio/mpeg")) as mock_sync:
+        with patch("plugin.audio.tts_service._play_audio_file"):
+            _speak_endpoint(
+                "Test hello",
+                "https://openrouter.ai/api",
+                "test-key",
+                model="hexgrad/Kokoro-82M",
+                voice="af_bella",
+                cancel=cancel,
+            )
+        payload = json.loads(mock_sync.call_args.kwargs["data"].decode("utf-8"))
+        assert payload["model"] == "hexgrad/kokoro-82m"
+        assert payload["voice"] == "af_bella"
 
 
 @patch("plugin.audio.tts_endpoint._default_endpoint_format", new=lambda: "mp3")
 def test_endpoint_pcm_failure_is_remembered_and_wrapped():
     model = "google/gemini-2.5-flash-preview-tts"
-    cfg._catalog_memos.clear()
-    cfg._tts_supported_voices.clear()
-    cfg._tts_response_format.clear()
     pcm = b"\x01\x00\x02\x00"
     body = '{"error":{"message":"response_format must be pcm"}}'
     calls: list[dict] = []
@@ -221,46 +214,41 @@ def test_endpoint_pcm_failure_is_remembered_and_wrapped():
             raise _speech_http_error(400, body)
         return _speech_meta(pcm, "audio/pcm;rate=16000")
 
-    try:
-        with patch("plugin.framework.client.requests.sync_request", side_effect=fake_sync):
-            clip = download_endpoint_speech(
-                "Hello",
-                "https://openrouter.ai/api",
-                "test-key",
-                model=model,
-                voice="Kore",
-                on_status=statuses.append,
-            )
-            assert clip is not None
-            assert clip.suffix == ".wav"
-            wav = clip.audio
-        assert not statuses
-        assert [item["response_format"] for item in calls] == ["mp3", "pcm"]
-        fmt_key = _tts_format_key("https://openrouter.ai/api", model)
-        assert cfg.cached_tts_response_format(fmt_key) == "pcm"
-        assert wav[:4] == b"RIFF"
-        assert wav[8:12] == b"WAVE"
-        assert struct.unpack_from("<H", wav, 22)[0] == 1
-        assert struct.unpack_from("<I", wav, 24)[0] == 16000
-        assert struct.unpack_from("<H", wav, 34)[0] == 16
-        assert wav[44:] == pcm
+    with patch("plugin.framework.client.requests.sync_request", side_effect=fake_sync):
+        clip = download_endpoint_speech(
+            "Hello",
+            "https://openrouter.ai/api",
+            "test-key",
+            model=model,
+            voice="Kore",
+            on_status=statuses.append,
+        )
+        assert clip is not None
+        assert clip.suffix == ".wav"
+        wav = clip.audio
+    assert not statuses
+    assert [item["response_format"] for item in calls] == ["mp3", "pcm"]
+    fmt_key = _tts_format_key("https://openrouter.ai/api", model)
+    assert cfg.cached_tts_response_format(fmt_key) == "pcm"
+    assert wav[:4] == b"RIFF"
+    assert wav[8:12] == b"WAVE"
+    assert struct.unpack_from("<H", wav, 22)[0] == 1
+    assert struct.unpack_from("<I", wav, 24)[0] == 16000
+    assert struct.unpack_from("<H", wav, 34)[0] == 16
+    assert wav[44:] == pcm
 
-        reject_mp3 = False
-        calls.clear()
-        with patch("plugin.framework.client.requests.sync_request", side_effect=fake_sync):
-            clip2 = download_endpoint_speech(
-                "Again",
-                "https://openrouter.ai/api",
-                "test-key",
-                model=model,
-                voice="Kore",
-            )
-        assert clip2 is not None
-        assert [item["response_format"] for item in calls] == ["pcm"]
-    finally:
-        cfg._catalog_memos.clear()
-        cfg._tts_supported_voices.clear()
-        cfg._tts_response_format.clear()
+    reject_mp3 = False
+    calls.clear()
+    with patch("plugin.framework.client.requests.sync_request", side_effect=fake_sync):
+        clip2 = download_endpoint_speech(
+            "Again",
+            "https://openrouter.ai/api",
+            "test-key",
+            model=model,
+            voice="Kore",
+        )
+    assert clip2 is not None
+    assert [item["response_format"] for item in calls] == ["pcm"]
 
 
 def test_pcm_wrap_defaults_to_24khz():
@@ -280,9 +268,6 @@ def test_pcm_wrap_defaults_to_24khz():
 @patch("plugin.audio.tts_endpoint._default_endpoint_format", new=lambda: "mp3")
 def test_endpoint_wav_error_retries_wav():
     model = "vendor/wav-only"
-    cfg._catalog_memos.clear()
-    cfg._tts_supported_voices.clear()
-    cfg._tts_response_format.clear()
     calls: list[dict] = []
     wav_bytes = b"RIFF" + b"\x00" * 40
 
@@ -295,33 +280,25 @@ def test_endpoint_wav_error_retries_wav():
             raise _speech_http_error(400, "unsupported response_format mp3; use wav")
         return _speech_meta(wav_bytes, "audio/wav")
 
-    try:
-        with patch("plugin.framework.client.requests.sync_request", side_effect=fake_sync):
-            clip = download_endpoint_speech(
-                "Hello",
-                "https://openrouter.ai/api",
-                "k",
-                model=model,
-                voice="cedar",
-            )
-        assert clip is not None
-        assert clip.suffix == ".wav"
-        assert [item["response_format"] for item in calls] == ["mp3", "wav"]
-        fmt_key = _tts_format_key("https://openrouter.ai/api", model)
-        assert cfg.cached_tts_response_format(fmt_key) == "wav"
-        assert clip.audio.startswith(b"RIFF")
-    finally:
-        cfg._catalog_memos.clear()
-        cfg._tts_supported_voices.clear()
-        cfg._tts_response_format.clear()
+    with patch("plugin.framework.client.requests.sync_request", side_effect=fake_sync):
+        clip = download_endpoint_speech(
+            "Hello",
+            "https://openrouter.ai/api",
+            "k",
+            model=model,
+            voice="cedar",
+        )
+    assert clip is not None
+    assert clip.suffix == ".wav"
+    assert [item["response_format"] for item in calls] == ["mp3", "wav"]
+    fmt_key = _tts_format_key("https://openrouter.ai/api", model)
+    assert cfg.cached_tts_response_format(fmt_key) == "wav"
+    assert clip.audio.startswith(b"RIFF")
 
 
 @patch("plugin.audio.tts_endpoint._default_endpoint_format", new=lambda: "mp3")
 def test_endpoint_mp3_success_does_not_cache_format():
     model = "x-ai/grok-voice-tts-1.0"
-    cfg._catalog_memos.clear()
-    cfg._tts_supported_voices.clear()
-    cfg._tts_response_format.clear()
     calls: list[dict] = []
 
     def fake_sync(url, data=None, headers=None, parse_json=True, method=None, **kwargs):
@@ -330,31 +307,23 @@ def test_endpoint_mp3_success_does_not_cache_format():
         calls.append(json.loads(data.decode("utf-8")))
         return _speech_meta(b"ID3fake-mp3", "audio/mpeg")
 
-    try:
-        with patch("plugin.framework.client.requests.sync_request", side_effect=fake_sync):
-            clip = download_endpoint_speech(
-                "Hello",
-                "https://openrouter.ai/api",
-                "test-key",
-                model=model,
-                voice="ara",
-            )
-        assert clip is not None
-        assert clip.suffix == ".mp3"
-        assert calls[0]["response_format"] == "mp3"
-        fmt_key = _tts_format_key("https://openrouter.ai/api", model)
-        assert cfg.cached_tts_response_format(fmt_key) == "mp3"
-    finally:
-        cfg._catalog_memos.clear()
-        cfg._tts_supported_voices.clear()
-        cfg._tts_response_format.clear()
+    with patch("plugin.framework.client.requests.sync_request", side_effect=fake_sync):
+        clip = download_endpoint_speech(
+            "Hello",
+            "https://openrouter.ai/api",
+            "test-key",
+            model=model,
+            voice="ara",
+        )
+    assert clip is not None
+    assert clip.suffix == ".mp3"
+    assert calls[0]["response_format"] == "mp3"
+    fmt_key = _tts_format_key("https://openrouter.ai/api", model)
+    assert cfg.cached_tts_response_format(fmt_key) == "mp3"
 
 
 def test_two_origins_one_model_learned_format():
     model = "vendor/shared-model"
-    cfg._catalog_memos.clear()
-    cfg._tts_supported_voices.clear()
-    cfg._tts_response_format.clear()
     calls_a: list[dict] = []
     calls_b: list[dict] = []
 
@@ -368,27 +337,19 @@ def test_two_origins_one_model_learned_format():
         calls_b.append(json.loads(data.decode("utf-8")))
         return _speech_meta(b"ID3fake", "audio/mpeg")
 
-    try:
-        with patch("plugin.audio.tts_endpoint._default_endpoint_format", return_value="mp3"), \
-             patch("plugin.framework.client.requests.sync_request", side_effect=sync_a):
-            download_endpoint_speech("Hi", "https://host-a.com/v1", "k", model=model, voice="v")
-        key_a = _tts_format_key("https://host-a.com/v1", model)
-        assert cfg.cached_tts_response_format(key_a) == "wav"
+    with patch("plugin.audio.tts_endpoint._default_endpoint_format", return_value="mp3"), \
+         patch("plugin.framework.client.requests.sync_request", side_effect=sync_a):
+        download_endpoint_speech("Hi", "https://host-a.com/v1", "k", model=model, voice="v")
+    key_a = _tts_format_key("https://host-a.com/v1", model)
+    assert cfg.cached_tts_response_format(key_a) == "wav"
 
-        with patch("plugin.audio.tts_endpoint._default_endpoint_format", return_value="mp3"), \
-             patch("plugin.framework.client.requests.sync_request", side_effect=sync_b):
-            download_endpoint_speech("Hi", "https://host-b.com/v1", "k", model=model, voice="v")
-        assert calls_b[0]["response_format"] == "mp3"
-    finally:
-        cfg._catalog_memos.clear()
-        cfg._tts_supported_voices.clear()
-        cfg._tts_response_format.clear()
+    with patch("plugin.audio.tts_endpoint._default_endpoint_format", return_value="mp3"), \
+         patch("plugin.framework.client.requests.sync_request", side_effect=sync_b):
+        download_endpoint_speech("Hi", "https://host-b.com/v1", "k", model=model, voice="v")
+    assert calls_b[0]["response_format"] == "mp3"
 
 
 def test_retry_status_gates():
-    cfg._catalog_memos.clear()
-    cfg._tts_supported_voices.clear()
-    cfg._tts_response_format.clear()
     # 401 with wav body is one POST and remembers nothing
     with patch("plugin.framework.client.requests.sync_request", side_effect=_speech_http_error(401, "error with wav")):
         clip = download_endpoint_speech("Hi", "https://host.com/v1", "k", model="m", voice="v")
@@ -468,34 +429,26 @@ def test_sniff_and_pcm_treatments():
 
 
 def test_endpoint_http_error_is_reported_to_status():
-    cfg._catalog_memos.clear()
-    cfg._tts_supported_voices.clear()
-    cfg._tts_response_format.clear()
     statuses: list[str] = []
 
     def fake_sync(url, data=None, headers=None, parse_json=True, method=None, **kwargs):
         del url, data, headers, parse_json, method, kwargs
         raise _speech_http_error(401, '{"error":{"message":"invalid api key"}}')
 
-    try:
-        with patch("plugin.framework.client.requests.sync_request", side_effect=fake_sync):
-            clip = download_endpoint_speech(
-                "Hello",
-                "https://api.openai.com",
-                "test-key",
-                model="tts-1",
-                voice="alloy",
-                on_status=statuses.append,
-            )
-        assert clip is None
-        assert len(statuses) == 1
-        assert "401" in statuses[0]
-        assert "invalid api key" in statuses[0]
-        assert cfg.cached_tts_response_format("tts-1") is None
-    finally:
-        cfg._catalog_memos.clear()
-        cfg._tts_supported_voices.clear()
-        cfg._tts_response_format.clear()
+    with patch("plugin.framework.client.requests.sync_request", side_effect=fake_sync):
+        clip = download_endpoint_speech(
+            "Hello",
+            "https://api.openai.com",
+            "test-key",
+            model="tts-1",
+            voice="alloy",
+            on_status=statuses.append,
+        )
+    assert clip is None
+    assert len(statuses) == 1
+    assert "401" in statuses[0]
+    assert "invalid api key" in statuses[0]
+    assert cfg.cached_tts_response_format("tts-1") is None
 
 
 def test_speech_http_error_redacts_api_key(caplog):
@@ -503,9 +456,6 @@ def test_speech_http_error_redacts_api_key(caplog):
     from plugin.framework.client.request_controls import reset_host_pacing_for_tests
 
     secret = "sk-speech-unique-secret"
-    cfg._catalog_memos.clear()
-    cfg._tts_supported_voices.clear()
-    cfg._tts_response_format.clear()
     reset_host_pacing_for_tests()
     response = MagicMock()
     response.status = 401
@@ -515,25 +465,20 @@ def test_speech_http_error_redacts_api_key(caplog):
     conn = MagicMock()
     conn.getresponse.return_value = response
     statuses: list[str] = []
-    try:
-        with caplog.at_level(logging.DEBUG), patch("http.client.HTTPSConnection", return_value=conn):
-            clip = download_endpoint_speech(
-                "Hello",
-                "https://api.openai.com",
-                secret,
-                model="tts-1",
-                voice="alloy",
-                on_status=statuses.append,
-            )
-        assert clip is None
-        assert statuses
-        assert secret not in statuses[0]
-        assert secret not in caplog.text
-        assert "<redacted>" in statuses[0]
-    finally:
-        cfg._catalog_memos.clear()
-        cfg._tts_supported_voices.clear()
-        cfg._tts_response_format.clear()
+    with caplog.at_level(logging.DEBUG), patch("http.client.HTTPSConnection", return_value=conn):
+        clip = download_endpoint_speech(
+            "Hello",
+            "https://api.openai.com",
+            secret,
+            model="tts-1",
+            voice="alloy",
+            on_status=statuses.append,
+        )
+    assert clip is None
+    assert statuses
+    assert secret not in statuses[0]
+    assert secret not in caplog.text
+    assert "<redacted>" in statuses[0]
 
 
 def test_default_endpoint_format_is_mp3():
@@ -570,9 +515,6 @@ def test_endpoint_audio_suffix_from_content_type():
 def test_endpoint_retry_remembers_format_without_content_type():
     """A successful retry with a generic Content-Type must stick for the next clip."""
     model = "vendor/wav-generic"
-    cfg._catalog_memos.clear()
-    cfg._tts_supported_voices.clear()
-    cfg._tts_response_format.clear()
     calls: list[dict] = []
     wav_bytes = b"RIFF" + b"\x00\x00\x00\x00" + b"WAVE" + b"\x00" * 16
 
@@ -585,27 +527,22 @@ def test_endpoint_retry_remembers_format_without_content_type():
             raise _speech_http_error(400, "unsupported response_format mp3; use wav")
         return _speech_meta(wav_bytes, "application/octet-stream")
 
-    try:
-        with patch("plugin.framework.client.requests.sync_request", side_effect=fake_sync):
-            clip = download_endpoint_speech(
-                "Hello", "https://api.example", "k", model=model, voice="cedar",
-            )
-        assert clip is not None
-        assert [item["response_format"] for item in calls] == ["mp3", "wav"]
-        fmt_key = _tts_format_key("https://api.example", model)
-        assert cfg.cached_tts_response_format(fmt_key) == "wav"
+    with patch("plugin.framework.client.requests.sync_request", side_effect=fake_sync):
+        clip = download_endpoint_speech(
+            "Hello", "https://api.example", "k", model=model, voice="cedar",
+        )
+    assert clip is not None
+    assert [item["response_format"] for item in calls] == ["mp3", "wav"]
+    fmt_key = _tts_format_key("https://api.example", model)
+    assert cfg.cached_tts_response_format(fmt_key) == "wav"
 
-        calls.clear()
-        with patch("plugin.framework.client.requests.sync_request", side_effect=fake_sync):
-            clip2 = download_endpoint_speech(
-                "Again", "https://api.example", "k", model=model, voice="cedar",
-            )
-        assert clip2 is not None
-        assert [item["response_format"] for item in calls] == ["wav"]
-    finally:
-        cfg._catalog_memos.clear()
-        cfg._tts_supported_voices.clear()
-        cfg._tts_response_format.clear()
+    calls.clear()
+    with patch("plugin.framework.client.requests.sync_request", side_effect=fake_sync):
+        clip2 = download_endpoint_speech(
+            "Again", "https://api.example", "k", model=model, voice="cedar",
+        )
+    assert clip2 is not None
+    assert [item["response_format"] for item in calls] == ["wav"]
 
 
 def test_speak_endpoint_chunks_long_text():
@@ -756,29 +693,21 @@ def test_speak_endpoint_prefetch_pipeline_overlap():
 
 def test_endpoint_empty_body_is_failure_not_a_file():
     statuses: list[str] = []
-    cfg._catalog_memos.clear()
-    cfg._tts_supported_voices.clear()
-    cfg._tts_response_format.clear()
-    try:
-        with patch("plugin.framework.client.requests.sync_request", return_value=_speech_meta(b"", "audio/pcm;rate=24000")), \
-             patch("plugin.audio.tts_service._new_speech_temp") as mock_new_temp:
-            result = download_endpoint_speech(
-                "Hello",
-                "https://api.example",
-                "k",
-                model="m",
-                voice="v",
-                on_status=statuses.append,
-            )
-            assert result is None
-            mock_new_temp.assert_not_called()
-            assert len(statuses) == 1
-            assert statuses[0] == "Speech endpoint returned no audio."
-            assert cfg.cached_tts_response_format(_tts_format_key("https://api.example", "m")) is None
-    finally:
-        cfg._catalog_memos.clear()
-        cfg._tts_supported_voices.clear()
-        cfg._tts_response_format.clear()
+    with patch("plugin.framework.client.requests.sync_request", return_value=_speech_meta(b"", "audio/pcm;rate=24000")), \
+         patch("plugin.audio.tts_service._new_speech_temp") as mock_new_temp:
+        result = download_endpoint_speech(
+            "Hello",
+            "https://api.example",
+            "k",
+            model="m",
+            voice="v",
+            on_status=statuses.append,
+        )
+        assert result is None
+        mock_new_temp.assert_not_called()
+        assert len(statuses) == 1
+        assert statuses[0] == "Speech endpoint returned no audio."
+        assert cfg.cached_tts_response_format(_tts_format_key("https://api.example", "m")) is None
 
 
 def test_speak_endpoint_later_chunk_failure_still_reports_status():
