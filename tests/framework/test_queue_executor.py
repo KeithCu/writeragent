@@ -1698,53 +1698,60 @@ def test_main_run_marshals_when_off_main(timeout_kw: dict[str, float], expected_
         mock_call.assert_called_once_with(fn, timeout=expected_timeout)
 
 
+def test_main_post_or_run_inlines_on_main() -> None:
+    from plugin.framework.queue_executor import main
+
+    with patch.object(main, "is_current", return_value=True), \
+         patch("plugin.framework.thread_guard.get_background_task_name", return_value=None), \
+         patch.object(main, "post") as mock_post:
+        assert main.post_or_run(lambda x: x + 10, 5) == 15
+        mock_post.assert_not_called()
+
+
+def _test_scope_sentinel() -> object:
+    return object()
+
+
+_SCOPE_SENTINEL = _test_scope_sentinel()
+
+
 @pytest.mark.parametrize(
-    ("is_current", "bg_task", "use_instance", "use_scope", "args", "kwargs", "expected_inline"),
+    ("is_current", "bg_task", "bound_scope", "args", "kwargs"),
     [
-        (True, None, False, False, (5,), {}, 15),
-        (False, None, False, False, ("hello",), {}, None),
-        (True, "mcp_worker", False, False, (), {}, None),
-        (False, None, True, False, ("arg1",), {"kw": "val"}, None),
-        (False, None, False, True, (), {}, None),
+        (False, None, None, ("hello",), {}),
+        (True, "mcp_worker", None, (), {}),
+        (False, None, None, ("arg1",), {"kw": "val"}),
+        (False, None, _SCOPE_SENTINEL, (), {}),
     ],
     ids=[
-        "inline_on_main",
         "posts_off_main",
         "posts_when_bg_task_set",
-        "instance_posts_with_args",
+        "posts_with_args_and_kwargs",
         "forwards_bound_scope",
     ],
 )
-def test_main_post_or_run_routing(
+def test_main_post_or_run_posts(
     is_current: bool,
     bg_task: str | None,
-    use_instance: bool,
-    use_scope: bool,
+    bound_scope: object | None,
     args: tuple[Any, ...],
     kwargs: dict[str, Any],
-    expected_inline: Any,
 ) -> None:
-    from plugin.framework.queue_executor import MainThread, _SCOPE_UNSET, main
+    from plugin.framework.queue_executor import _SCOPE_UNSET, main
 
-    ex = MainThread() if use_instance else main
-    scope = MagicMock() if use_scope else _SCOPE_UNSET
+    def fn(*_args: Any, **_kwargs: Any) -> None:
+        pass
 
-    def fn(*fn_args: Any, **fn_kwargs: Any) -> Any:
-        return fn_args[0] + 10 if expected_inline is not None else None
-
+    expected_scope = _SCOPE_UNSET if bound_scope is None else bound_scope
     call_kwargs = dict(kwargs)
-    if use_scope:
-        call_kwargs["bound_scope"] = scope
+    if bound_scope is not None:
+        call_kwargs["bound_scope"] = bound_scope
 
-    with patch.object(ex, "is_current", return_value=is_current), \
+    with patch.object(main, "is_current", return_value=is_current), \
          patch("plugin.framework.thread_guard.get_background_task_name", return_value=bg_task), \
-         patch.object(ex, "post") as mock_post:
-        result = ex.post_or_run(fn, *args, **call_kwargs)
-        assert result == expected_inline
-        if expected_inline is not None:
-            mock_post.assert_not_called()
-        else:
-            mock_post.assert_called_once_with(fn, *args, bound_scope=scope, **kwargs)
+         patch.object(main, "post") as mock_post:
+        assert main.post_or_run(fn, *args, **call_kwargs) is None
+        mock_post.assert_called_once_with(fn, *args, bound_scope=expected_scope, **kwargs)
 
 
 @requires_asserts

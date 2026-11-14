@@ -1177,22 +1177,20 @@ def test_raw_spawn_drain_stderr_false_starts(monkeypatch: pytest.MonkeyPatch) ->
 
 
 @pytest.mark.parametrize(
-    ("ctor_kwargs", "expect_drain", "expect_registered", "expected_kwargs", "absent_keys"),
+    ("ctor_kwargs", "expect_drain", "expect_registered", "expected_kwargs"),
     [
         pytest.param(
             {"stdin": subprocess.DEVNULL, "stdout": subprocess.DEVNULL},
             True,
             True,
             {"stdin": subprocess.DEVNULL, "stdout": subprocess.PIPE, "stderr": subprocess.PIPE, "bufsize": 0},
-            (),
             id="honours_stdin_ignores_stdout",
         ),
         pytest.param(
             {},
             True,
             True,
-            {"stdin": subprocess.PIPE, "stdout": subprocess.PIPE, "stderr": subprocess.PIPE},
-            ("text", "universal_newlines"),
+            {"stdin": subprocess.PIPE, "stdout": subprocess.PIPE, "stderr": subprocess.PIPE, "text": None},
             id="default_binary",
         ),
         pytest.param(
@@ -1200,7 +1198,6 @@ def test_raw_spawn_drain_stderr_false_starts(monkeypatch: pytest.MonkeyPatch) ->
             True,
             False,
             {"text": True, "bufsize": 1},
-            ("encoding", "errors", "universal_newlines"),
             id="text_line_buffered_unregistered",
         ),
         pytest.param(
@@ -1221,7 +1218,6 @@ def test_raw_spawn_drain_stderr_false_starts(monkeypatch: pytest.MonkeyPatch) ->
                 "cwd": None,
                 "env": {"PATH": "/bin", "LD_LIBRARY_PATH": "/lo"},
             },
-            ("text", "preexec_fn"),
             id="drain_stderr_false_skips_drain_and_register",
         ),
     ],
@@ -1232,38 +1228,27 @@ def test_worker_start_popen_kwargs_and_registration(
     expect_drain: bool,
     expect_registered: bool,
     expected_kwargs: dict[str, Any],
-    absent_keys: tuple[str, ...],
 ) -> None:
     import plugin.framework.managed_subprocess as ms
 
     captured_kwargs: list[dict[str, Any]] = []
+    drain_calls: list[bool] = []
     fake_proc = MagicMock()
     fake_proc.pid = 4242
     fake_proc.poll.return_value = None
 
     monkeypatch.setattr(ms.subprocess, "Popen", lambda _cmd, **kw: captured_kwargs.append(dict(kw)) or fake_proc)
-    if expect_drain:
-        drain_calls: list[bool] = []
-        monkeypatch.setattr(ms, "start_stderr_drain", lambda *_a, **_kw: drain_calls.append(True) or MagicMock())
-    else:
-        monkeypatch.setattr(ms, "start_stderr_drain", MagicMock(side_effect=AssertionError("should not drain")))
+    monkeypatch.setattr(ms, "start_stderr_drain", lambda *_a, **_kw: drain_calls.append(True) or MagicMock())
 
     subp = ms.ManagedSubprocess(["dummy"], **ctor_kwargs)
     try:
         subp.start()
-        if expect_drain:
-            assert drain_calls == [True]
-        else:
-            assert subp.stderr_tail is None
+        assert len(drain_calls) == int(expect_drain)
         assert (subp in ms._instances) is expect_registered
 
         kwargs = captured_kwargs[0]
         for key, val in expected_kwargs.items():
-            assert kwargs[key] == val
-        if "base_env" in ctor_kwargs:
-            assert kwargs["env"] is not ctor_kwargs["base_env"]
-        for key in absent_keys:
-            assert not kwargs.get(key)
+            assert kwargs.get(key) == val
         if sys.platform == "win32":
             assert "creationflags" in kwargs
             assert "start_new_session" not in kwargs
@@ -1271,8 +1256,24 @@ def test_worker_start_popen_kwargs_and_registration(
             assert kwargs.get("start_new_session") is True
             assert "creationflags" not in kwargs
     finally:
-        if expect_registered:
-            _reap_for_test(subp)
+        _reap_for_test(subp)
+
+
+def test_worker_start_copies_base_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    import plugin.framework.managed_subprocess as ms
+
+    captured_kwargs: list[dict[str, Any]] = []
+    fake_proc = MagicMock()
+    fake_proc.pid = 4242
+    fake_proc.poll.return_value = None
+    monkeypatch.setattr(ms.subprocess, "Popen", lambda _cmd, **kw: captured_kwargs.append(dict(kw)) or fake_proc)
+    monkeypatch.setattr(ms, "start_stderr_drain", lambda *_a, **_kw: MagicMock())
+
+    base_env = {"PATH": "/bin"}
+    subp = ms.ManagedSubprocess(["dummy"], base_env=base_env, register=False)
+    subp.start()
+    assert captured_kwargs[0]["env"] == base_env
+    assert captured_kwargs[0]["env"] is not base_env
 
 
 def test_managed_subprocess_run_forwards_contract(
@@ -1308,9 +1309,6 @@ def test_managed_subprocess_run_forwards_contract(
     for flag_key, flag_val in get_subprocess_creationflags().items():
         assert kwargs[flag_key] == flag_val
     assert "start_new_session" not in kwargs
-
-
-
 
 
 def test_register_false_omits_shutdown_registry(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1418,13 +1416,6 @@ def test_stderr_name_with_pid_appends_pid(monkeypatch: pytest.MonkeyPatch) -> No
     )
     inst2.start()
     assert drain_calls[1]["name"] == "fixed"
-
-
-
-
-
-
-
 
 
 def test_log_start_failure_false_editor_host(

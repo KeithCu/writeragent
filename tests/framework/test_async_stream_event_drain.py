@@ -782,6 +782,7 @@ def test_enqueue_rolls_back_slice_when_poke_raises():
     with pytest.raises(RuntimeError, match="poke failed"):
         rearm._enqueue(fn)
 
+    # _pending is the direct observable that failed-poke rollback pops fn while keeping foreign entries.
     assert rearm._pending == [other]
 
 

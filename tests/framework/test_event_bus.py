@@ -297,15 +297,10 @@ def test_get_event_bus_reuses_bus_with_same_qualified_name():
     class FirstBus:
         pass
 
-    class SecondBus:
-        pass
-
-    # Same qualified name as EventBus, different class objects. Assigning
-    # these is what a second import of this module produces.
+    # Same qualified name as EventBus, different class object (as produced by
+    # a second import). get_event_bus() must still reuse the stored instance.
     FirstBus.__module__ = EventBus.__module__
     FirstBus.__qualname__ = EventBus.__qualname__
-    SecondBus.__module__ = EventBus.__module__
-    SecondBus.__qualname__ = EventBus.__qualname__
     saved = getattr(sys, "_writeragent_event_bus", None)
     stored = FirstBus()
     try:
@@ -320,22 +315,18 @@ def test_get_event_bus_reuses_bus_with_same_qualified_name():
 
 
 def test_subscribe_weak_builtin_inline_survives_gc():
-    """Inline ``items.append`` with ``weak=True`` must still run after GC.
+    """Inline builtin method (``d.update``) with ``weak=True`` must still run after GC.
 
     ``WeakMethod`` rejects builtins; a ``weakref.ref`` on the temporary bound method
     dies only when nothing else holds it. Production callers subscribe inline
-    (for example ``items.append``) without stashing the method object.
+    without stashing the method object.
     """
     bus = EventBus()
-    items: list[int] = []
-    bus.subscribe("test:event", items.append, weak=True)
+    d: dict[str, int] = {}
+    bus.subscribe("test:event", d.update, weak=True)
     gc.collect()
-    # emit() passes keywords; append is positional-only, so call the
-    # resolved subscriber the same way emit resolves it.
-    resolved = bus._deref(bus._subscribers["test:event"][0])
-    assert resolved is not None
-    resolved(1)
-    assert items == [1]
+    bus.emit("test:event", x=1)
+    assert d == {"x": 1}
 
 
 def test_subscribe_weak_slots_method_inline_survives_gc():
@@ -378,11 +369,11 @@ def test_unsubscribe_builtin_does_not_drop_sibling():
 def test_subscribe_weak_method_wrapper_falls_back_to_strong_ref():
     """method-wrapper has __self__, and neither WeakMethod nor weakref.ref accepts it."""
     bus = EventBus()
-    number = 5
-    method = number.__add__
-    bus.subscribe("test:event", method, weak=True)
-    stored = bus._subscribers["test:event"][0]
-    assert stored is method
+    d: dict[str, int] = {}
+    bus.subscribe("test:event", d.__init__, weak=True)
+    gc.collect()
+    bus.emit("test:event", x=1)
+    assert d == {"x": 1}
 
 
 def test_weakref_cleanup_while_lock_held_does_not_deadlock():
