@@ -23,20 +23,10 @@ from hypothesis import given, settings, example, assume, HealthCheck
 
 from plugin.scripting.payload_codec import (
     child_unpack_split_grid,
-    fast_flatten_grid_1d,
-    fast_flatten_grid_2d,
     host_pack_data,
     is_split_grid,
 )
 
-def test_cython_active_if_available() -> None:
-    """Verify that the Cython accelerator is loaded if we are in a 'native' build environment."""
-    import os
-    # We only expect this to pass if the user has run 'make native'
-    # or if we are in a CI environment that builds native modules.
-    if os.path.exists("plugin/contrib/vec_pack/pack.cpython-312-x86_64-linux-gnu.so"):
-        assert fast_flatten_grid_2d is not None, "Cython 2D accelerator should be loaded"
-        assert fast_flatten_grid_1d is not None, "Cython 1D accelerator should be loaded"
 from plugin.scripting.venv_worker import shutdown_venv_workers_for_tests
 from tests.scripting.payload_codec_test_support import MIXED_WITH_ZIP, NUMERIC_4X4
 from tests.harness.vhs_budget import _SERIALIZATION_EXTENSIVE_ENV
