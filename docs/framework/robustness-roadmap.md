@@ -301,9 +301,9 @@ Testing takes the complexity burden so runtime code can stay straightforward.
 
 WriterAgent uses `hypothesis` extensively across 35+ dedicated verification test suites (`tests/**/*_verification.py`), exercising:
 
-- **Streaming and normalization**: `test_stream_normalizer_verification.py`, `test_accumulate_delta_verification.py`, `test_response_normalizers_verification.py`.
+- **Streaming and normalization**: `test_stream_normalizer_verification.py`, `test_stream_delta.py`, `test_response_normalizers_verification.py`.
 - **Parsing and error payloads**: `test_json_utils_verification.py`, `test_html_and_auth_verification.py`.
-- **Serialization and AST edits**: `test_serialization_verification.py`, `test_payload_codec_policy_verification.py`, `test_scripting_ast_verification.py`.
+- **Serialization and AST edits**: `test_serialization_verification.py`, `test_payload_codec_policy_verification.py`, `test_sandbox_cache.py`.
 - **Protocol and State Machines**: `test_wire_types.py`, `test_tunnel_state.py`, `test_fsm_verification.py`.
 
 These tests generate thousands of randomized, adversarial inputs (deeply nested dicts, malformed UTF-8/surrogates, extreme float bounds, degenerate grids) to verify that invariants and contracts hold without unexpected unhandled exceptions.

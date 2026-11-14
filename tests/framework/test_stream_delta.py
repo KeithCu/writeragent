@@ -1,6 +1,9 @@
 import pytest
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
 from plugin.framework.stream_delta import accumulate_delta, coalesce_split_tool_calls
+from tests.harness.crosshair import assert_crosshair_clean
 
 
 def test_accumulate_delta_simple():
@@ -158,3 +161,22 @@ def test_coalesce_split_tool_calls_lone_empty_name_dropped():
     ]) == []
     assert coalesce_split_tool_calls(None) == []
     assert coalesce_split_tool_calls([]) == []
+
+
+_CROSSHAIR_TARGET = "plugin.framework.stream_delta.accumulate_delta"
+
+
+@pytest.mark.verification
+@given(parts=st.lists(st.text(max_size=20), min_size=1, max_size=6))
+@settings(max_examples=60)
+def test_hypothesis_content_concat(parts: list[str]) -> None:
+    acc: dict = {}
+    for part in parts:
+        accumulate_delta(acc, {"content": part})
+    assert acc["content"] == "".join(parts)
+
+
+@pytest.mark.verification
+@pytest.mark.slow
+def test_crosshair_accumulate_delta_fqn_if_available() -> None:
+    assert_crosshair_clean(_CROSSHAIR_TARGET)
