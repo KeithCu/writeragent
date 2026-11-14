@@ -61,7 +61,9 @@ class TestOnlinePyJsonContract:
         assert out.get("error")
         json.dumps(out, allow_nan=False)
 
-    def test_ragged_grid_errors(self) -> None:
+    def test_ragged_grid_passes_through_unpadded(self) -> None:
+        # The Python service does not pad ragged grids; the result must stay
+        # JSON-serializable (allow_nan=False), and any padding happens on the consumer side.
         out = _execute_code("result = [[1, 2], [3]]")
         json.dumps(out, allow_nan=False)
         assert out["status"] == "ok"

@@ -1978,8 +1978,10 @@ def test_normal_turn_end_does_not_set_focus() -> None:
         send=SendButtonState(SendMode.BUSY, False, False, True),
         tool_loop=None,
     )
-    with patch.object(listener, "_do_send"):
+    with patch.object(listener, "_do_send") as mock_do_send:
         listener._run_send_drain()
+    mock_do_send.assert_called_once()
+    assert listener.sidebar_state.send.mode == SendMode.IDLE
     listener.frame_session.restore_focus.assert_not_called()
 
 def test_ask_text_restored_on_post_clear_error() -> None:

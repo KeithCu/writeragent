@@ -46,14 +46,13 @@ class TestRichControlHelpers:
         assert bh == 200 - 2 * RICH_CONTROL_EDGE_INSET
 
     @pytest.mark.parametrize(
-        "ps_size, placeholder_rect, expected_w, expected_h",
+        "ps_size, placeholder_rect, expected_rect",
         [
-            pytest.param((4, 16, 142, 110), (4, 16, 142, 350), 142, 350, id="authoritative_height"),
-            pytest.param((4, 16, 400, 110), (4, 16, 400, 500), 400, 500, id="wide_placeholder"),
-            pytest.param((4, 16, 400, 110), None, 400, 110, id="fallback_ps"),
+            pytest.param((4, 16, 142, 110), (10, 30, 400, 350), (10, 30, 400, 350), id="authoritative_placeholder"),
+            pytest.param((4, 16, 400, 110), None, (4, 16, 400, 110), id="fallback_ps"),
         ],
     )
-    def test_content_bounds_placeholder_and_fallback(self, ps_size, placeholder_rect, expected_w, expected_h):
+    def test_content_bounds_placeholder_and_fallback(self, ps_size, placeholder_rect, expected_rect):
         from plugin.chatbot.rich_text_control import RICH_CONTROL_EDGE_INSET, _content_bounds_for_rich_control
 
         ps = MagicMock()
@@ -61,10 +60,11 @@ class TestRichControlHelpers:
         kwargs = {"placeholder_rect": placeholder_rect} if placeholder_rect is not None else {}
         bx, by, bw, bh = _content_bounds_for_rich_control(ps, **kwargs)
 
-        assert bx == 4 + RICH_CONTROL_EDGE_INSET
-        assert by == 16 + RICH_CONTROL_EDGE_INSET
-        assert bw == expected_w - 2 * RICH_CONTROL_EDGE_INSET
-        assert bh == expected_h - 2 * RICH_CONTROL_EDGE_INSET
+        ex, ey, ew, eh = expected_rect
+        assert bx == ex + RICH_CONTROL_EDGE_INSET
+        assert by == ey + RICH_CONTROL_EDGE_INSET
+        assert bw == ew - 2 * RICH_CONTROL_EDGE_INSET
+        assert bh == eh - 2 * RICH_CONTROL_EDGE_INSET
 
     def test_apply_rich_control_geometry_set_pos_size(self):
         """View geometry is setPosSize only. Dialog-model Position/Width/Height are insert-time."""
