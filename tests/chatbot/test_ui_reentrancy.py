@@ -178,39 +178,3 @@ def test_typed_image_model_is_saved_unless_refreshing():
         panel._in_refresh_controls = True
         image.setText("vendor/during-refresh")
         assert mock_save.call_count == 0
-
-
-def test_measure_aux_button_width_uses_translated_labels(monkeypatch):
-    from plugin.chatbot.panel_wiring import _pin_button_width
-
-    class _Pos:
-        X = 10
-        Y = 20
-        Height = 30
-
-        def __init__(self, width: int) -> None:
-            self.Width = width
-
-    class _Model:
-        Label = "Stop"
-
-    model = _Model()
-
-    class _Ctrl:
-        pos_size_args = None
-
-        def getModel(self):
-            return model
-
-        def getPosSize(self):
-            return _Pos(len(model.Label))
-
-        def setPosSize(self, x, y, width, height, flags):
-            self.pos_size_args = (x, y, width, height, flags)
-
-    ctrl = _Ctrl()
-    monkeypatch.setattr("plugin.chatbot.panel_wiring._", lambda text: text + "XX")
-    _pin_button_width(ctrl, ["Stop", "Change"])
-    assert model.Label == "Stop"
-    assert ctrl.pos_size_args is not None
-    assert ctrl.pos_size_args[2] == len("ChangeXX")

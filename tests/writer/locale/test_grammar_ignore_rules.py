@@ -179,7 +179,7 @@ class TestGrammarIgnoreRules:
         assert (len(res)) == (1)
         assert (res[0].aRuleIdentifier) == ("wa_g_rule||Use 'an' instead of 'a'.")
 
-    def test_normalize_errors_filters_ignored_rules(self) -> None:
+    def test_normalize_errors_derives_rule_identifier_from_reason(self) -> None:
         from plugin.writer.locale.grammar_proofread_text import normalize_errors_for_text
         from tests.writer.locale.test_grammar_proofread_text import FakeBI
 
@@ -194,8 +194,8 @@ class TestGrammarIgnoreRules:
             norm_errors = normalize_errors_for_text(full_text, items)
 
         filtered_errors = [e for e in norm_errors if not is_rule_ignored(e.rule_identifier, ignored, set())]
-        assert (len(filtered_errors)) == (1)
-        assert (filtered_errors[0].rule_identifier) == ("wa_g_rule||Use 'an' instead of 'a'.")
+        assert len(filtered_errors) == 1
+        assert filtered_errors[0].rule_identifier == "wa_g_rule||Use 'an' instead of 'a'."
 
     def test_proofreader_ignore_and_reset_apis(self) -> None:
         ctx = MagicMock()

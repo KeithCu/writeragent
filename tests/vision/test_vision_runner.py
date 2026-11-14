@@ -182,81 +182,52 @@ def test_run_trusted_vision_resolves_lang_from_locale(mock_bytes, mock_run_visio
     assert mock_run_vision.call_args.args[1]["params"]["lang"] == "fr"
 
 
+def _fake_run_vision(_ctx, _doc, *, helper, params, cancel=None):
+    name = params["image_name"]
+    return {
+        "status": "ok",
+        "helper": helper,
+        "full_text": f"text-{name}",
+        "html": f"<p>{name}</p>",
+        "metrics": {"line_count": 1},
+        "warnings": [],
+    }
+
+
+@pytest.mark.parametrize(
+    ("names", "expected_full_text"),
+    [
+        pytest.param(["Img1", "Img2"], "text-Img1\n\ntext-Img2", id="forward_order"),
+        pytest.param(["Img2", "Img1"], "text-Img2\n\ntext-Img1", id="reverse_order"),
+    ],
+)
 @patch("plugin.vision.vision_runner.merge_vision_params", side_effect=lambda _ctx, params: dict(params or {}))
-@patch("plugin.vision.vision_runner.run_trusted_vision")
+@patch("plugin.vision.vision_runner.run_trusted_vision", side_effect=_fake_run_vision)
 @patch("plugin.doc.visual_helpers.graphic_objects_in_selection")
-def test_run_and_insert_vision_for_selection_loops_by_name(mock_pairs, mock_run, _mock_merge):
+def test_run_and_insert_vision_for_selection_loops_by_name(mock_pairs, mock_run, _mock_merge, names, expected_full_text):
     ctx = MagicMock()
     doc = MagicMock()
-    mock_pairs.return_value = [("Img1", MagicMock()), ("Img2", MagicMock())]
-
-    def _run(_ctx, _doc, *, helper, params, cancel=None):
-        name = params["image_name"]
-        return {
-            "status": "ok",
-            "helper": helper,
-            "full_text": f"text-{name}",
-            "html": f"<p>{name}</p>",
-            "metrics": {"line_count": 1},
-            "warnings": [],
-        }
-
-    mock_run.side_effect = _run
+    mock_pairs.return_value = [(n, MagicMock()) for n in names]
 
     with patch("plugin.vision.vision_egress.insert_vision_result") as insert:
         result = run_and_insert_vision_for_selection(ctx, doc, helper="extract_text", params={"lang": "en"})
 
     assert result["status"] == "ok"
     assert result["images_processed"] == 2
-    assert result["full_text"] == "text-Img1\n\ntext-Img2"
+    assert result["full_text"] == expected_full_text
     assert mock_run.call_count == 2
-    assert mock_run.call_args_list[0].kwargs["params"] == {"lang": "en", "image_name": "Img1"}
-    assert mock_run.call_args_list[1].kwargs["params"]["image_name"] == "Img2"
+    assert mock_run.call_args_list[0].kwargs["params"] == {"lang": "en", "image_name": names[0]}
+    assert mock_run.call_args_list[1].kwargs["params"]["image_name"] == names[1]
     assert insert.call_count == 2
-    first_result = insert.call_args_list[0].args[2]
-    second_result = insert.call_args_list[1].args[2]
-    assert first_result["html"] == "<p>Img1</p>"
-    assert second_result["html"] == "<p>Img2</p>"
-    assert first_result["full_text"] == "text-Img1"
-    assert second_result["full_text"] == "text-Img2"
-    assert insert.call_args_list[0].kwargs["params"]["image_name"] == "Img1"
-    assert insert.call_args_list[1].kwargs["params"]["image_name"] == "Img2"
+    for idx, name in enumerate(names):
+        res_item = insert.call_args_list[idx].args[2]
+        assert res_item["html"] == f"<p>{name}</p>"
+        assert res_item["full_text"] == f"text-{name}"
+        assert insert.call_args_list[idx].kwargs["params"]["image_name"] == name
+        assert result["individual_results"][idx]["html"] == f"<p>{name}</p>"
+        assert "images_processed" not in result["individual_results"][idx]
     assert "results" not in result
     assert len(result["individual_results"]) == 2
-    assert result["individual_results"][0]["html"] == "<p>Img1</p>"
-    assert result["individual_results"][1]["html"] == "<p>Img2</p>"
-    assert "images_processed" not in result["individual_results"][0]
-    assert "images_processed" not in result["individual_results"][1]
-
-
-@patch("plugin.vision.vision_runner.merge_vision_params", side_effect=lambda _ctx, params: dict(params or {}))
-@patch("plugin.vision.vision_runner.run_trusted_vision")
-@patch("plugin.doc.visual_helpers.graphic_objects_in_selection")
-def test_run_and_insert_vision_for_selection_reverse_discovery_order(mock_pairs, mock_run, _mock_merge):
-    """When discovery returns reverse click order, the host loop follows that order."""
-    ctx = MagicMock()
-    doc = MagicMock()
-    mock_pairs.return_value = [("Img2", MagicMock()), ("Img1", MagicMock())]
-
-    def _run(_ctx, _doc, *, helper, params, cancel=None):
-        name = params["image_name"]
-        return {
-            "status": "ok",
-            "helper": helper,
-            "full_text": f"text-{name}",
-            "html": f"<p>{name}</p>",
-            "metrics": {"line_count": 1},
-            "warnings": [],
-        }
-
-    mock_run.side_effect = _run
-
-    with patch("plugin.vision.vision_egress.insert_vision_result") as insert:
-        run_and_insert_vision_for_selection(ctx, doc, helper="extract_text", params={"lang": "en"})
-
-    assert mock_run.call_args_list[0].kwargs["params"]["image_name"] == "Img2"
-    assert mock_run.call_args_list[1].kwargs["params"]["image_name"] == "Img1"
-    assert insert.call_count == 2
 
 
 @patch("plugin.vision.vision_runner.merge_vision_params", side_effect=lambda _ctx, params: dict(params or {}))

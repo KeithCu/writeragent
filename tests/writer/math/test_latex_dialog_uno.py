@@ -15,11 +15,7 @@ from plugin.framework.config import get_config
 from plugin.writer.math.math_mml_convert import MATH_CLSID
 from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import with_native_doc
-
-
-def _embed_count(doc: Any) -> int:
-    eo = doc.getEmbeddedObjects()
-    return len(eo.getElementNames())
+from tests.writer.math.test_math_formula_insert_uno import _embed_count
 
 
 def _first_math_formula(doc: Any) -> str:

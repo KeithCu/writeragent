@@ -68,15 +68,15 @@ def test_to_pixel_box_rejects_non_finite_percent():
 
 
 @pytest.mark.parametrize(
-    "match, value, value_2, value_3, value_4",
+    "match, x, width, height, units",
     [
-        pytest.param("outside the picture", 2100, 50, 50, "px", id="test_to_pixel_box_rejects_box_outside_picture"),
-        pytest.param("units", 0, 10, 10, "mm", id="test_to_pixel_box_rejects_unknown_units"),
+        pytest.param("outside the picture", 2100, 50, 50, "px", id="outside_picture"),
+        pytest.param("units", 0, 10, 10, "mm", id="unknown_units"),
     ],
 )
-def test_to_pixel_box_rejects_box_outside_picture(match, value, value_2, value_3, value_4):
+def test_to_pixel_box_rejects_invalid_args(match, x, width, height, units):
     with pytest.raises(ValueError, match=match):
-        image_mark.to_pixel_box([value, 0, value_2, value_3], value_4, 2000, 1000)
+        image_mark.to_pixel_box([x, 0, width, height], units, 2000, 1000)
 
 def test_parse_marks_defaults_and_colors():
     marks = image_mark.parse_marks(
@@ -217,17 +217,14 @@ def test_bake_scratch_draw_none_raises():
         image_mark.bake(ctx, graphic, marks=[], region=(0, 0, 100, 100), stroke=2)
 
 
-def test_bake_scratch_draw_close_error_does_not_hide_success():
+def _bake_ctx(draw=None):
     ctx = MagicMock()
     desktop = MagicMock()
-    draw = MagicMock()
-    draw.close.side_effect = RuntimeError("close failed")
     desktop.loadComponentFromURL.return_value = draw
-
     export_filter = MagicMock()
     provider = MagicMock()
 
-    def _create(service, c):
+    def _create(service, _c):
         if "Desktop" in service:
             return desktop
         if "GraphicExportFilter" in service:
@@ -237,6 +234,13 @@ def test_bake_scratch_draw_close_error_does_not_hide_success():
         return MagicMock()
 
     ctx.ServiceManager.createInstanceWithContext.side_effect = _create
+    return ctx, desktop
+
+
+def test_bake_scratch_draw_close_error_does_not_hide_success():
+    draw = MagicMock()
+    draw.close.side_effect = RuntimeError("close failed")
+    ctx, _desktop = _bake_ctx(draw)
     graphic = _graphic()
     created_files = []
 
@@ -254,22 +258,9 @@ def test_bake_scratch_draw_close_error_does_not_hide_success():
 
 
 def test_bake_scratch_draw_close_error_preserves_export_failure():
-    ctx = MagicMock()
-    desktop = MagicMock()
     draw = MagicMock()
     draw.close.side_effect = RuntimeError("close failed")
-    desktop.loadComponentFromURL.return_value = draw
-
-    export_filter = MagicMock()
-
-    def _create(service, c):
-        if "Desktop" in service:
-            return desktop
-        if "GraphicExportFilter" in service:
-            return export_filter
-        return MagicMock()
-
-    ctx.ServiceManager.createInstanceWithContext.side_effect = _create
+    ctx, _desktop = _bake_ctx(draw)
     graphic = _graphic()
 
     with (
@@ -284,9 +275,7 @@ def test_bake_scratch_draw_close_error_preserves_export_failure():
 
 
 def test_bake_rejects_region_exceeding_max_pixels():
-    ctx = MagicMock()
-    desktop = MagicMock()
-    ctx.ServiceManager.createInstanceWithContext.return_value = desktop
+    ctx, desktop = _bake_ctx()
     graphic = _graphic(px=(10000, 10000))
 
     # region_w * region_h = 40_040_000 > 40_000_000
@@ -296,24 +285,8 @@ def test_bake_rejects_region_exceeding_max_pixels():
 
 
 def test_bake_accepts_region_under_cap():
-    ctx = MagicMock()
-    desktop = MagicMock()
     draw = MagicMock()
-    desktop.loadComponentFromURL.return_value = draw
-
-    export_filter = MagicMock()
-    provider = MagicMock()
-
-    def _create(service, c):
-        if "Desktop" in service:
-            return desktop
-        if "GraphicExportFilter" in service:
-            return export_filter
-        if "GraphicProvider" in service:
-            return provider
-        return MagicMock()
-
-    ctx.ServiceManager.createInstanceWithContext.side_effect = _create
+    ctx, desktop = _bake_ctx(draw)
     graphic = _graphic()
 
     with (
@@ -329,9 +302,7 @@ def test_bake_accepts_region_under_cap():
 
 
 def test_bake_rejects_region_too_large_for_page():
-    ctx = MagicMock()
-    desktop = MagicMock()
-    ctx.ServiceManager.createInstanceWithContext.return_value = desktop
+    ctx, desktop = _bake_ctx()
     graphic = _graphic(px=(400000, 1000))
 
     # 400000 x 90 = 36_000_000 pixels (under MAX_BAKE_PIXELS), but max(rw, rh) = 400000 > _MAX_PAGE_UNITS (250000)
@@ -341,25 +312,9 @@ def test_bake_rejects_region_too_large_for_page():
 
 
 def test_bake_lowers_page_scale_for_wide_region():
-    ctx = MagicMock()
-    desktop = MagicMock()
     draw = MagicMock()
-    desktop.loadComponentFromURL.return_value = draw
+    ctx, _desktop = _bake_ctx(draw)
     page = draw.getDrawPages.return_value.getByIndex.return_value
-
-    export_filter = MagicMock()
-    provider = MagicMock()
-
-    def _create(service, c):
-        if "Desktop" in service:
-            return desktop
-        if "GraphicExportFilter" in service:
-            return export_filter
-        if "GraphicProvider" in service:
-            return provider
-        return MagicMock()
-
-    ctx.ServiceManager.createInstanceWithContext.side_effect = _create
     graphic = _graphic()
 
     with (

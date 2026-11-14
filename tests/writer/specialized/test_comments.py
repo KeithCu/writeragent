@@ -11,6 +11,17 @@ from plugin.framework.errors import DocumentDisposedError
 from plugin.writer.specialized.comments import CommentList
 
 
+class _FiniteEnum:
+    def __init__(self, items):
+        self._items = list(items)
+
+    def hasMoreElements(self):
+        return bool(self._items)
+
+    def nextElement(self):
+        return self._items.pop(0)
+
+
 def test_read_annotation_falls_back_to_paragraph_context():
     from plugin.writer.specialized.comments import _read_annotation
 
@@ -81,17 +92,9 @@ def test_comment_scan_tasks_with_prefixes():
     f3 = make_field("NOTE: general comment", resolved=False)
     f4 = make_field("Arbitrary comment", resolved=False)
 
-    class FakeEnum:
-        def __init__(self, items):
-            self._items = list(items)
-        def hasMoreElements(self):
-            return bool(self._items)
-        def nextElement(self):
-            return self._items.pop(0)
-
     doc = MagicMock()
     fields = MagicMock()
-    fields.createEnumeration.side_effect = lambda: FakeEnum([f1, f2, f3, f4])
+    fields.createEnumeration.side_effect = lambda: _FiniteEnum([f1, f2, f3, f4])
     doc.getTextFields.return_value = fields
     doc.getText.return_value = MagicMock()
 
@@ -107,7 +110,7 @@ def test_comment_scan_tasks_with_prefixes():
     assert [t["prefix"] for t in res["tasks"]] == ["TODO-AI", "NOTE"]
 
     # Filter by specific prefix
-    fields.createEnumeration.side_effect = lambda: FakeEnum([f1, f2, f3, f4])
+    fields.createEnumeration.side_effect = lambda: _FiniteEnum([f1, f2, f3, f4])
     res_filtered = CommentScanTasks().execute(ctx, prefix_filter="NOTE")
     assert res_filtered["status"] == "ok"
     assert res_filtered["count"] == 1
@@ -130,16 +133,8 @@ def test_add_comment_reply_requires_content():
 def test_add_comment_reply_unknown_parent():
     from plugin.writer.specialized.comments import AddComment
 
-    class FakeEnum:
-        def __init__(self, items):
-            self._items = list(items)
-        def hasMoreElements(self):
-            return bool(self._items)
-        def nextElement(self):
-            return self._items.pop(0)
-
     doc = MagicMock()
-    doc.getTextFields.return_value.createEnumeration.side_effect = lambda: FakeEnum([])
+    doc.getTextFields.return_value.createEnumeration.side_effect = lambda: _FiniteEnum([])
     res = AddComment().execute(MagicMock(doc=doc), content="a reply", parent_name="no-such-comment")
     assert res["status"] == "error"
     assert res.get("comment_added") is False
@@ -149,14 +144,6 @@ def test_add_comment_reply_unknown_parent():
 def test_add_comment_reply_via_parent_name_skips_search():
     """parent_name is the reply path: no text search, ParentName = immediate parent, not Resolved."""
     from plugin.writer.specialized.comments import AddComment
-
-    class FakeEnum:
-        def __init__(self, items):
-            self._items = list(items)
-        def hasMoreElements(self):
-            return bool(self._items)
-        def nextElement(self):
-            return self._items.pop(0)
 
     parent = MagicMock()
     parent.supportsService.return_value = True
@@ -181,8 +168,8 @@ def test_add_comment_reply_via_parent_name_skips_search():
     def _enum():
         calls["n"] += 1
         if calls["n"] <= 2:
-            return FakeEnum([parent])
-        return FakeEnum([parent, reply])
+            return _FiniteEnum([parent])
+        return _FiniteEnum([parent, reply])
 
     doc.getTextFields.return_value.createEnumeration.side_effect = _enum
     doc_text = MagicMock()
@@ -222,16 +209,6 @@ def test_ensure_annotation_name_assigns_when_empty():
     field.setPropertyValue.assert_called_once_with("Name", name)
 
 # ---- D4: add_comment span / occurrence / author -----------------------------
-
-class _FiniteEnum:
-    def __init__(self, items):
-        self._items = list(items)
-
-    def hasMoreElements(self):
-        return bool(self._items)
-
-    def nextElement(self):
-        return self._items.pop(0)
 
 
 def _fields_that_grow():
@@ -638,17 +615,9 @@ def test_comment_check_stop_whole_value():
         }.get(prop, "")
         return f
 
-    class FakeEnum:
-        def __init__(self, items):
-            self._items = list(items)
-        def hasMoreElements(self):
-            return bool(self._items)
-        def nextElement(self):
-            return self._items.pop(0)
-
     # 1. Nonstop and Stop logging do not trip stop
     doc = MagicMock()
-    doc.getTextFields.return_value.createEnumeration.side_effect = lambda: FakeEnum([
+    doc.getTextFields.return_value.createEnumeration.side_effect = lambda: _FiniteEnum([
         make_field("MCP-WORKFLOW", "Status: nonstop\nTask: Stop logging"),
     ])
     ctx = MagicMock(doc=doc)
@@ -657,7 +626,7 @@ def test_comment_check_stop_whole_value():
     assert res["workflow_stop"] is False
 
     # 2. Status: pause trips stop
-    doc.getTextFields.return_value.createEnumeration.side_effect = lambda: FakeEnum([
+    doc.getTextFields.return_value.createEnumeration.side_effect = lambda: _FiniteEnum([
         make_field("MCP-WORKFLOW", "Status: pause"),
     ])
     res = CommentCheckStop().execute(ctx)
@@ -665,7 +634,7 @@ def test_comment_check_stop_whole_value():
     assert res["workflow_stop"] is True
 
     # 3. Bare stop line trips stop
-    doc.getTextFields.return_value.createEnumeration.side_effect = lambda: FakeEnum([
+    doc.getTextFields.return_value.createEnumeration.side_effect = lambda: _FiniteEnum([
         make_field("MCP-WORKFLOW", "step: 1\nstop"),
     ])
     res = CommentCheckStop().execute(ctx)
@@ -673,7 +642,7 @@ def test_comment_check_stop_whole_value():
     assert res["workflow_stop"] is True
 
     # 4. Unresolved STOP now comment sets stop_signals
-    doc.getTextFields.return_value.createEnumeration.side_effect = lambda: FakeEnum([
+    doc.getTextFields.return_value.createEnumeration.side_effect = lambda: _FiniteEnum([
         make_field("Reviewer", "STOP now please", resolved=False),
     ])
     res = CommentCheckStop().execute(ctx)
@@ -726,17 +695,9 @@ def test_comment_list_isolates_bad_comment():
     field_bad.supportsService.return_value = True
     field_bad.getPropertyValue.side_effect = RuntimeError("corrupted comment")
 
-    class FiniteEnum:
-        def __init__(self, items):
-            self._items = list(items)
-        def hasMoreElements(self):
-            return bool(self._items)
-        def nextElement(self):
-            return self._items.pop(0)
-
     doc = MagicMock()
     doc.getText.return_value = MagicMock()
-    doc.getTextFields.return_value.createEnumeration.side_effect = lambda: FiniteEnum([field_bad, field_good])
+    doc.getTextFields.return_value.createEnumeration.side_effect = lambda: _FiniteEnum([field_bad, field_good])
     doc_svc = MagicMock()
     doc_svc.get_paragraph_ranges.return_value = []
     ctx = MagicMock(doc=doc)
@@ -757,17 +718,9 @@ def test_comment_list_propagates_real_disposal_from_item():
     field_bad.supportsService.return_value = True
     field_bad.getPropertyValue.side_effect = DocumentDisposedError("doc closed")
 
-    class FiniteEnum:
-        def __init__(self, items):
-            self._items = list(items)
-        def hasMoreElements(self):
-            return bool(self._items)
-        def nextElement(self):
-            return self._items.pop(0)
-
     doc = MagicMock()
     doc.getText.return_value = MagicMock()
-    doc.getTextFields.return_value.createEnumeration.side_effect = lambda: FiniteEnum([field_bad])
+    doc.getTextFields.return_value.createEnumeration.side_effect = lambda: _FiniteEnum([field_bad])
     doc_svc = MagicMock()
     doc_svc.get_paragraph_ranges.return_value = []
     ctx = MagicMock(doc=doc)
@@ -797,16 +750,7 @@ def test_comment_list_per_property_try_keeps_good_properties():
     doc = MagicMock()
     doc.getText.return_value = MagicMock()
 
-    class OneEnum:
-        def __init__(self):
-            self.done = False
-        def hasMoreElements(self):
-            return not self.done
-        def nextElement(self):
-            self.done = True
-            return field
-
-    doc.getTextFields.return_value.createEnumeration.side_effect = OneEnum
+    doc.getTextFields.return_value.createEnumeration.side_effect = lambda: _FiniteEnum([field])
     doc_svc = MagicMock()
     doc_svc.get_paragraph_ranges.return_value = []
     ctx = MagicMock(doc=doc)

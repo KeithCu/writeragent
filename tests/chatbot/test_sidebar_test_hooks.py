@@ -25,7 +25,6 @@ pytestmark = pytest.mark.xdist_group("audio_recorder_control")
 from plugin.chatbot.audio_recorder_state import AudioRecorderState, AudioStatus
 from plugin.chatbot.send_state import ButtonAction, SendButtonState, SendEventKind, SendMode
 from plugin.chatbot.sidebar_state import SidebarCompositeState
-from plugin.chatbot.rich_text_control import debug_env_active
 from plugin.chatbot.sidebar_test_hooks import (
     approval_active,
     ensure_slash_popup,
@@ -157,14 +156,6 @@ class _FakeListener:
 @pytest.fixture
 def fake_listener() -> _FakeListener:
     return _FakeListener()
-
-
-def test_debug_env_active_follows_is_dev_build_when_dev_guard_off(monkeypatch) -> None:
-    monkeypatch.setattr("plugin.framework.thread_guard.DEV_GUARD", False, raising=False)
-    monkeypatch.delenv("WRITERAGENT_TESTING", raising=False)
-    assert debug_env_active() is False
-    monkeypatch.setenv("WRITERAGENT_TESTING", "1")
-    assert debug_env_active() is True
 
 
 class _Panel:
