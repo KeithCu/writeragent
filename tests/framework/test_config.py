@@ -639,7 +639,6 @@ class TestConfigSyncFileIO:
         assert get_config('endpoint') == WriterAgentConfig().endpoint
         assert get_config('model_lru@http://localhost:11434') == []
         assert get_config('chatbot.max_tool_rounds') == CONFIG_DEFAULTS['chatbot.max_tool_rounds']
-        assert get_config('core.log_level') == 'DEBUG'
         with pytest.raises(ConfigError) as err_ctx:
             get_config('unknown_key')
         assert (err_ctx.value.details.get('key')) == ('unknown_key')

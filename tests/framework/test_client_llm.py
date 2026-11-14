@@ -1945,6 +1945,18 @@ def test_chat_request_omits_top_p(client):
     assert "top_p" not in data
 
 
+def test_parallel_tool_calls_config(client):
+    """Wire sends parallel_tool_calls=False even when stored config is True (base_provider_shim.py:468-471)."""
+    messages = [{"role": "user", "content": "Hi"}]
+    tools = [{"type": "function", "function": {"name": "test_tool"}}]
+    client.config["parallel_tool_calls"] = True
+    with patch("plugin.framework.client.llm_client.LlmClient._resolve_auth") as mock_auth:
+        mock_auth.return_value = {"provider": "openai"}
+        _, _, body, _ = client.make_chat_request(messages, tools=tools, stream=False)
+        data = json.loads(body.decode("utf-8"))
+        assert data["parallel_tool_calls"] is False
+
+
 def test_gemini_shim_inline_data():
     """Verify that GoogleShim correctly translates image_url to inlineData part."""
     from unittest.mock import MagicMock, patch
