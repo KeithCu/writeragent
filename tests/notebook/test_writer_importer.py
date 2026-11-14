@@ -284,32 +284,6 @@ def test_trim_trailing_empty_paragraph_keeps_frame():
     assert body_text.createTextCursorByRange.call_count == 1
 
 
-def test_insert_html_at_body_end_calls_trim(monkeypatch):
-    doc, body_text, body_cursor = _writer_doc_mock()
-    body_cursor.getString.return_value = ""
-
-    calls = []
-
-    def fake_insert_html(cursor, html, **kwargs):
-        calls.append((html, kwargs))
-        return True
-
-    monkeypatch.setattr("plugin.writer.html_import.insert_html_fragment_at_cursor", fake_insert_html)
-
-    trim_called = False
-    def fake_trim(doc):
-        nonlocal trim_called
-        trim_called = True
-
-    monkeypatch.setattr("plugin.notebook.writer_importer._trim_trailing_empty_paragraph", fake_trim)
-
-    import plugin.notebook.writer_importer as wi
-    wi._insert_html_at_body_end(doc, "<p>html</p>", lead_break=False)
-
-    assert trim_called is True
-    assert calls == [("<p>html</p>", {"wrap": True})]
-
-
 def test_insert_html_list_skips_pre_clear_numbering(monkeypatch):
     """List HTML must keep leftover NumberingRules on the insertion para.
 

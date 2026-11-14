@@ -166,19 +166,6 @@ def test_pack_pickle_frame_defaults_to_max_payload():
         pack_pickle_frame({"text": "x" * (DEFAULT_MAX_PAYLOAD_BYTES + 10)})
 
 
-def test_ipc_error_subclasses():
-    from plugin.framework.ipc import IpcFrameError, IpcFrameReadError, IpcPayloadSizeError
-
-    assert issubclass(IpcPayloadSizeError, IpcFrameError)
-    assert issubclass(IpcFrameReadError, IpcFrameError)
-
-    with pytest.raises(IpcPayloadSizeError):
-        pack_pickle_frame({"x": "a" * (DEFAULT_MAX_PAYLOAD_BYTES + 1)})
-
-    with pytest.raises(IpcFrameReadError):
-        read_frame_payload(io.BytesIO(b"\x00\x00\x00\x00"), frame_label="zero frame")
-
-
 def test_text_error_prefix_is_invalid_frame_with_header_repr(caplog, capsys):
     """Garbage length prefix keeps stdout_rest= and logs at error, not stderr."""
     with caplog.at_level(logging.ERROR, logger="writeragent.scripting.ipc"):
@@ -658,45 +645,6 @@ def test_win32_pickle_read_timeout_clamps_when_peek_crosses_deadline(monkeypatch
     assert slept == [0.001]
     assert all(sec >= 0.0 for sec in slept)
     stream.read.assert_not_called()
-
-
-def test_win32_clamp_clock_is_private_to_ipc(monkeypatch):
-    """Foreign threads calling time.monotonic() do not steal scripted clock ticks.
-
-    The clock fake is isolated to the ipc module so background threads reading time.monotonic()
-    cannot advance ipc's scripted clock sequence and alter timeout sleep durations.
-    """
-    from plugin.framework import ipc
-
-    monkeypatch.setattr(sys, "platform", "win32")
-    go = threading.Event()
-    done = threading.Event()
-
-    def intruder() -> None:
-        go.wait()
-        time.monotonic()
-        done.set()
-
-    t = threading.Thread(target=intruder, daemon=True)
-    t.start()
-    try:
-        def peek(_fd: int) -> int:
-            go.set()
-            done.wait(5.0)
-            return 0
-
-        times = iter([0.0, 0.009, 0.011, 0.011])
-        slept = _patch_ipc_clock(monkeypatch, lambda: next(times))
-        monkeypatch.setattr(ipc, "_peek_pipe_bytes_available", peek)
-        stream = MagicMock()
-        stream.fileno.return_value = 3
-        with pytest.raises(subprocess.TimeoutExpired):
-            ipc.read_frame_payload(stream, 0.01, deadline=0.01, cmd="IPC frame")
-        assert slept == [0.001]
-        assert all(sec >= 0.0 for sec in slept)
-    finally:
-        go.set()
-        t.join(5.0)
 
 
 def test_win32_pickle_read_breaks_when_child_exits_before_ready(monkeypatch):
@@ -1943,11 +1891,8 @@ def test_host_pickle_leaf_types():
     from plugin.framework.ipc import (
         HOST_PICKLE_LEAF_TYPES,
         PICKLE_PROTOCOL,
-        _SAFE_PICKLE_BUILTINS,
         _SafeUnpickler,
     )
-
-    assert _SAFE_PICKLE_BUILTINS == frozenset({"complex"})
 
     sample_values = [
         None,

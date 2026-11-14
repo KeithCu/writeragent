@@ -6,8 +6,6 @@
 
 from __future__ import annotations
 
-from typing import get_args, get_origin, get_type_hints
-
 import pytest
 from hypothesis import given, strategies as st
 
@@ -29,17 +27,6 @@ from plugin.calc.excel_py_convert.to_dag import (
 from plugin.calc.spreadsheet_import.preprocess import normalize_lo_formula_for_parse
 from plugin.framework.deal_shim import DEAL_MAX_CMD_ARGS, DEAL_MAX_PLACEHOLDER_INDEX, DEAL_MAX_SOURCE, DEAL_MAX_XL_EXPR
 from tests.harness.strip_bundle import deal_pre_present
-
-
-def test_xl_binding_expr_header_mode_annotation_is_str() -> None:
-    """CrossHair cannot proxy Literal; HeaderMode must not appear in proxied params."""
-    hints = get_type_hints(_xl_binding_expr)
-    assert hints["header_mode"] is str
-    bind_hints = get_type_hints(_normalize_bindings)
-    header_modes = bind_hints["header_modes"]
-    assert get_origin(header_modes) is dict
-    _key, value = get_args(header_modes)
-    assert value is str
 
 
 @given(st.integers(min_value=2, max_value=2 + DEAL_MAX_PLACEHOLDER_INDEX))

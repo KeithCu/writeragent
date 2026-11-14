@@ -6,7 +6,6 @@
 
 from __future__ import annotations
 
-import ast
 import importlib
 import os
 import subprocess
@@ -81,17 +80,6 @@ assert "plugin.scripting.venv.analysis" not in sys.modules
 host.run_analysis
 assert "plugin.scripting.venv.analysis" in sys.modules
 """
-
-
-def _top_level_import_modules(path: Path) -> list[str]:
-    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-    modules: list[str] = []
-    for node in tree.body:
-        if isinstance(node, ast.ImportFrom) and node.module is not None:
-            modules.append(node.module)
-        elif isinstance(node, ast.Import):
-            modules.extend(alias.name for alias in node.names)
-    return modules
 
 
 def test_dir_lists_lazy_names_without_import(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -205,11 +193,16 @@ def test_overlapping_export_names_raise() -> None:
 
 
 def test_host_facades_have_no_toplevel_venv_import() -> None:
+    from tests.harness.import_guards import assert_no_toplevel_import
+
+    forbidden = (
+        "plugin.scripting.venv",
+        "plugin.scripting.venv_worker",
+        "plugin.scripting.venv_probe_ui",
+        "plugin.scripting.venv_diagnostics",
+    )
     for rel_path in _HOST_FACADE_PATHS:
-        path = _REPO_ROOT / rel_path
-        modules = _top_level_import_modules(path)
-        hits = [m for m in modules if m.startswith("plugin.scripting.venv")]
-        assert not hits, f"{rel_path} top-level imports venv module: {hits}"
+        assert_no_toplevel_import(_REPO_ROOT / rel_path, forbidden)
 
 
 @pytest.mark.parametrize(

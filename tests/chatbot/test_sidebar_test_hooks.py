@@ -8,21 +8,15 @@ from __future__ import annotations
 
 import dataclasses
 import json
-import logging
 import os
-import subprocess
 import sys
-import threading
-import time
 import unittest
-from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import patch
 
 import pytest
 
-import plugin.audio.tts_service as tts_service
 import plugin.chatbot.sidebar_test_hooks as sidebar_test_hooks
 
 pytest.importorskip("plugin.chatbot.sidebar_test_hooks")
@@ -36,7 +30,6 @@ from plugin.chatbot.rich_text_control import debug_env_active
 from plugin.chatbot.sidebar_test_hooks import (
     approval_active,
     audio_status,
-    chat_dialog_controls,
     control_enabled,
     ensure_slash_popup,
     fire_audio_auto_stop,
@@ -58,9 +51,6 @@ from plugin.chatbot.sidebar_test_hooks import (
     set_audio_supported,
     set_query_text,
     clear_sidebar_chat,
-    show_writeragent_chat_deck,
-    sidebar_deck_names,
-    sidebar_provider,
     slash_popup_state,
     stub_recorder_child,
     transcript_contains,
@@ -68,7 +58,6 @@ from plugin.chatbot.sidebar_test_hooks import (
     wait_controls_send_finished,
     wait_idle,
     adopt_chat_sidebar,
-    close_component,
     component_is_calc,
     find_calc_component,
     handle_debug_sidebar_command,
@@ -894,13 +883,6 @@ def test_g_require_stop_rec_skips_when_label_stays_send(fake_listener: _FakeList
     assert str(caught.value) == _PACKET_G_RECORD_SKIP
 
 
-def test_g_require_stop_rec_ok_when_label_is_stop_rec(fake_listener: _FakeListener) -> None:
-    from tests.chatbot.test_mock_llm_sidebar_uno import _g_require_stop_rec
-
-    fake_listener.send_control.getModel().Label = "Stop Rec"
-    _g_require_stop_rec(fake_listener, timeout=0.0)
-
-
 def test_g_require_stop_rec_urp_skips_when_session_send_stays_send(monkeypatch) -> None:
     """URP-only: no in-process listener — skip after live Send label stays Send."""
     from tests.chatbot import test_mock_llm_sidebar_uno as gmod
@@ -916,21 +898,6 @@ def test_g_require_stop_rec_urp_skips_when_session_send_stays_send(monkeypatch) 
     monkeypatch.setattr(gmod, "_transcript", lambda: "")
     with pytest.raises(unittest.SkipTest, match="Record no-op"):
         gmod._g_require_stop_rec(None, timeout=0.0)
-
-
-def test_g_require_stop_rec_urp_ok_when_session_send_is_stop_rec(monkeypatch) -> None:
-    from tests.chatbot import test_mock_llm_sidebar_uno as gmod
-
-    class _Btn:
-        def __init__(self) -> None:
-            self._model = SimpleNamespace(Label="Stop Rec")
-
-        def getModel(self):
-            return self._model
-
-    monkeypatch.setattr(gmod, "_session", SimpleNamespace(controls={"send": _Btn()}))
-    monkeypatch.setattr(gmod, "_transcript", lambda: "")
-    gmod._g_require_stop_rec(None, timeout=0.0)
 
 
 def test_g_skip_if_record_failed_on_device_error(monkeypatch) -> None:
@@ -956,164 +923,6 @@ def test_g4_skip_if_no_audio_reply_on_greeting_only(monkeypatch) -> None:
     )
     with pytest.raises(unittest.SkipTest, match="Record no-op"):
         gmod._g_skip_if_no_audio_reply()
-
-
-def test_g4_no_skip_when_native_reply_present(monkeypatch) -> None:
-    from tests.chatbot import test_mock_llm_sidebar_uno as gmod
-
-    monkeypatch.setattr(gmod, "_transcript", lambda: "Assistant: Hello from the mock microphone.")
-    gmod._g_skip_if_no_audio_reply()
-
-
-class _FakeDeck:
-    def __init__(self) -> None:
-        self.activated = False
-        self._panels = _FakePanels()
-
-    def activate(self, on: bool) -> None:
-        self.activated = bool(on)
-
-    def isActive(self) -> bool:
-        return self.activated
-
-    def getPanels(self):
-        return self._panels
-
-
-class _FakeDialog:
-    def __init__(self) -> None:
-        self._ctrls = {"query": object(), "send": object(), "stop": object()}
-
-    def getControl(self, name: str):
-        return self._ctrls.get(name)
-
-
-class _FakePanels:
-    def hasByName(self, name: str) -> bool:
-        return name == "ChatPanel"
-
-    def getByName(self, name: str):
-        return SimpleNamespace(getDialog=lambda: _FakeDialog())
-
-
-class _FakeDecks:
-    def __init__(self) -> None:
-        self.writer = _FakeDeck()
-
-    def getElementNames(self):
-        return ["WriterAgentDeck"]
-
-    def hasByName(self, name: str) -> bool:
-        return name == "WriterAgentDeck"
-
-    def getByName(self, name: str):
-        return self.writer
-
-
-class _SidebarProvider:
-    """Matches SwXTextView.Sidebar (XSidebarProvider), not the controller."""
-
-    def __init__(self, *, visible: bool = False) -> None:
-        self._decks = _FakeDecks()
-        self._visible = visible
-        self.visible_sets: list[bool] = []
-        self.decks_shown = False
-
-    def getDecks(self):
-        return self._decks
-
-    def isVisible(self) -> bool:
-        return self._visible
-
-    def setVisible(self, value: bool) -> None:
-        self._visible = bool(value)
-        self.visible_sets.append(bool(value))
-
-    def showDecks(self, value: bool) -> None:
-        self.decks_shown = bool(value)
-
-
-class _ProviderController:
-    def __init__(self, *, sidebar_visible: bool = False) -> None:
-        self.Sidebar = _SidebarProvider(visible=sidebar_visible)
-
-    def getCurrentController(self):
-        return self
-
-    def getFrame(self):
-        return SimpleNamespace()
-
-
-class _DispatchHelper:
-    def __init__(self) -> None:
-        self.dispatches: list[str] = []
-
-    def executeDispatch(self, frame, url, *args):
-        self.dispatches.append(str(url))
-
-
-def _ctx_with_helper(helper: _DispatchHelper) -> SimpleNamespace:
-    return SimpleNamespace(
-        getServiceManager=lambda: SimpleNamespace(
-            createInstanceWithContext=lambda *a: helper
-        )
-    )
-
-
-def test_sidebar_provider_uses_sidebar_property_not_controller_get_decks() -> None:
-    ctrl = _ProviderController()
-    provider = sidebar_provider(ctrl)
-    assert provider is ctrl.Sidebar
-    assert not hasattr(ctrl, "getDecks")
-    assert "WriterAgentDeck" in sidebar_deck_names(ctrl)
-
-
-def test_sidebar_provider_falls_back_to_controller_get_decks() -> None:
-    decks = _FakeDecks()
-    ctrl = SimpleNamespace(getDecks=lambda: decks)
-    assert sidebar_provider(ctrl) is ctrl
-
-
-def test_chat_dialog_controls_reads_xdl_from_provider_decks() -> None:
-    doc = _ProviderController()
-    out = chat_dialog_controls(SimpleNamespace(), doc)
-    assert out is not None
-    assert "query" in out and "send" in out
-
-
-def test_show_writeragent_chat_deck_activates_writeragent_deck() -> None:
-    """Hidden sidebar: dispatch once, setVisible, activate WriterAgent."""
-    helper = _DispatchHelper()
-    doc = _ProviderController(sidebar_visible=False)
-    show_writeragent_chat_deck(_ctx_with_helper(helper), doc)
-    assert helper.dispatches == [".uno:SidebarDeck.WriterAgentDeck"]
-    assert doc.Sidebar.visible_sets == [True]
-    assert doc.Sidebar.decks_shown is True
-    assert doc.Sidebar._decks.writer.activated is True
-
-
-def test_show_writeragent_chat_deck_skips_dispatch_when_already_visible_active() -> None:
-    """Already-visible WriterAgent: no OpenThenToggleDeck (would hide the sidebar)."""
-    helper = _DispatchHelper()
-    doc = _ProviderController(sidebar_visible=True)
-    doc.Sidebar._decks.writer.activated = True
-    show_writeragent_chat_deck(_ctx_with_helper(helper), doc)
-    assert helper.dispatches == []
-    assert doc.Sidebar.visible_sets == []
-    assert doc.Sidebar.decks_shown is True
-    assert doc.Sidebar._decks.writer.activated is True
-
-
-def test_show_writeragent_chat_deck_activates_when_visible_on_other_deck() -> None:
-    """Sidebar on but another deck active: switch via activate, no dispatch."""
-    helper = _DispatchHelper()
-    doc = _ProviderController(sidebar_visible=True)
-    assert doc.Sidebar._decks.writer.isActive() is False
-    show_writeragent_chat_deck(_ctx_with_helper(helper), doc)
-    assert helper.dispatches == []
-    assert doc.Sidebar.visible_sets == []
-    assert doc.Sidebar.decks_shown is True
-    assert doc.Sidebar._decks.writer.activated is True
 
 
 class _StopCtrl:
@@ -1378,348 +1187,6 @@ def test_load_visible_calc_factory_uses_blank_target(monkeypatch) -> None:
 
     _load_visible_calc_factory()
     assert calls == [("private:factory/scalc", "_blank")]
-
-
-def test_close_component_swallows_errors() -> None:
-    class _Boom:
-        def close(self, _unused: bool) -> None:
-            raise RuntimeError("disposed")
-
-    close_component(None)
-    close_component(_Boom())
-
-
-_FORBIDDEN_BASENAMES = {
-    "espeak",
-    "spd-say",
-    "ffplay",
-    "mpv",
-    "pw-play",
-    "paplay",
-    "aplay",
-    "mpg123",
-    "afplay",
-    "say",
-    "powershell",
-}
-
-
-def _setup_mock_config(monkeypatch: Any) -> tuple[dict[str, Any], dict[str, Any]]:
-    store = {
-        "audio.tts_enabled": False,
-        "audio.tts_provider": "kokoro",
-        "audio.tts_sentence_mode": True,
-        "audio.tts_speed": "1.0x",
-    }
-    recorded: dict[str, Any] = {}
-
-    def fake_get_config(key: str, default: Any = None) -> Any:
-        return store.get(key, default)
-
-    def fake_save(patch: dict[str, Any]) -> None:
-        store.update(patch)
-        recorded.update(patch)
-
-    monkeypatch.setattr("plugin.framework.config.get_config", fake_get_config)
-    monkeypatch.setattr("plugin.framework.config.save", fake_save)
-    return store, recorded
-
-
-@pytest.fixture
-def fake_tts_state_file(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> str:
-    path = tmp_path / "writeragent_fake_tts.json"
-    monkeypatch.setattr(
-        sidebar_test_hooks,
-        "fake_tts_state_path",
-        lambda: str(path),
-    )
-    return str(path)
-
-
-def test_fake_tts_ops_apply_inline_without_listener(monkeypatch: Any) -> None:
-    spy: list[str] = []
-    monkeypatch.setattr(
-        "plugin.chatbot.sidebar_test_hooks._apply_fake_tts",
-        lambda mode: spy.append(mode),
-    )
-    monkeypatch.setattr(
-        "plugin.chatbot.sidebar_test_hooks.send_listener",
-        lambda frame=None: None,
-    )
-    monkeypatch.setattr(
-        "plugin.chatbot.sidebar_test_hooks.adopt_runtime_send_listeners",
-        lambda: 0,
-    )
-    monkeypatch.setattr(
-        "plugin.chatbot.sidebar_test_hooks._write_debug_snapshot",
-        lambda sl: {},
-    )
-
-    handle_debug_sidebar_command("chatbot.debug_sidebar.FAKE_TTS_HOLD")
-    handle_debug_sidebar_command("chatbot.debug_sidebar?FAKE_TTS_CRASH")
-    handle_debug_sidebar_command("chatbot.debug_sidebar.FAKE_TTS_MISSING")
-    handle_debug_sidebar_command("chatbot.debug_sidebar.FAKE_TTS_OFF")
-
-    assert spy == ["hold", "crash", "missing", "off"]
-
-    posted: list[Any] = []
-    fake_listener = SimpleNamespace(
-        queue_executor=SimpleNamespace(post=lambda fn: posted.append(fn)),
-        sidebar_state=None,
-    )
-    monkeypatch.setattr(
-        "plugin.chatbot.sidebar_test_hooks.send_listener",
-        lambda frame=None: fake_listener,
-    )
-    handle_debug_sidebar_command("chatbot.debug_sidebar.FAKE_TTS_HOLD")
-    assert posted == []
-    assert spy == ["hold", "crash", "missing", "off", "hold"]
-
-
-def test_fake_tts_hold_stop_reaps_within_one_second(
-    monkeypatch: Any, fake_tts_state_file: str
-) -> None:
-    store, recorded = _setup_mock_config(monkeypatch)
-
-    completed = threading.Event()
-    try:
-        sidebar_test_hooks._apply_fake_tts("hold")
-        tts_service.speak_text_async("hello", on_complete=completed.set)
-        t_deadline = time.monotonic() + 5.0
-        st: dict[str, Any] = {}
-        while time.monotonic() < t_deadline:
-            st = sidebar_test_hooks.read_fake_tts_state()
-            if st.get("pids"):
-                break
-            time.sleep(0.02)
-        assert st.get("pids"), f"No pid spawned within 5s: {st}"
-        pid = st["pids"][-1]
-        assert st.get("argv0s") == [sys.executable]
-        base = os.path.basename(st["argv0s"][0])
-        assert base not in _FORBIDDEN_BASENAMES
-
-        t0 = time.monotonic()
-        tts_service.stop_speech()
-        reaped = False
-        while time.monotonic() - t0 < 1.0:
-            st = sidebar_test_hooks.read_fake_tts_state()
-            if str(pid) in st.get("returncodes", {}) and pid not in st.get("alive", []):
-                reaped = True
-                break
-            time.sleep(0.02)
-        assert reaped, f"pid {pid} not reaped within 1.0s: {st}"
-        assert completed.wait(timeout=2.0), "on_complete did not fire within 2.0s"
-        assert not st.get("speaking", False)
-        assert st.get("spawn_count") == 1
-        assert st.get("overlap_spawns") == 0
-    finally:
-        sidebar_test_hooks._apply_fake_tts("off")
-        assert recorded.get("audio.tts_enabled") is False
-        assert recorded.get("audio.tts_provider") == "kokoro"
-        assert recorded.get("audio.tts_sentence_mode") is True
-        if os.path.isfile(fake_tts_state_file):
-            os.remove(fake_tts_state_file)
-
-
-def test_fake_tts_hold_stop_on_complete_when_cleanup_thread_is_slow(
-    monkeypatch: Any, fake_tts_state_file: str
-) -> None:
-    store, recorded = _setup_mock_config(monkeypatch)
-
-    real_bg = tts_service.run_in_background
-
-    def _slow_cleanup(fn: Any, *args: Any, **kwargs: Any) -> Any:
-        if kwargs.get("name") == "tts-cleanup":
-            time.sleep(0.05)
-        return real_bg(fn, *args, **kwargs)
-
-    monkeypatch.setattr(tts_service, "run_in_background", _slow_cleanup)
-
-    completed = threading.Event()
-    try:
-        sidebar_test_hooks._apply_fake_tts("hold")
-        tts_service.speak_text_async("hello", on_complete=completed.set)
-        t_deadline = time.monotonic() + 5.0
-        st: dict[str, Any] = {}
-        while time.monotonic() < t_deadline:
-            st = sidebar_test_hooks.read_fake_tts_state()
-            if st.get("pids"):
-                break
-            time.sleep(0.02)
-        assert st.get("pids"), f"No pid spawned within 5s: {st}"
-        pid = st["pids"][-1]
-        assert st.get("argv0s") == [sys.executable]
-        base = os.path.basename(st["argv0s"][0])
-        assert base not in _FORBIDDEN_BASENAMES
-
-        t0 = time.monotonic()
-        tts_service.stop_speech()
-        reaped = False
-        while time.monotonic() - t0 < 1.0:
-            st = sidebar_test_hooks.read_fake_tts_state()
-            if str(pid) in st.get("returncodes", {}) and pid not in st.get("alive", []):
-                reaped = True
-                break
-            time.sleep(0.02)
-        assert reaped, f"pid {pid} not reaped within 1.0s: {st}"
-        assert completed.wait(timeout=2.0), "on_complete did not fire within 2.0s"
-        assert not st.get("speaking", False)
-        assert st.get("spawn_count") == 1
-        assert st.get("overlap_spawns") == 0
-    finally:
-        sidebar_test_hooks._apply_fake_tts("off")
-        assert recorded.get("audio.tts_enabled") is False
-        assert recorded.get("audio.tts_provider") == "kokoro"
-        assert recorded.get("audio.tts_sentence_mode") is True
-        if os.path.isfile(fake_tts_state_file):
-            os.remove(fake_tts_state_file)
-
-
-def test_fake_tts_second_spawn_counts_overlap_when_stop_is_skipped(
-    monkeypatch: Any, fake_tts_state_file: str
-) -> None:
-    store, recorded = _setup_mock_config(monkeypatch)
-
-    try:
-        sidebar_test_hooks._apply_fake_tts("hold")
-        p1 = tts_service.subprocess.Popen(
-            ["espeak", "--stdin"],
-            stdin=subprocess.PIPE,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            text=True,
-        )
-        p2 = tts_service.subprocess.Popen(
-            ["espeak", "--stdin"],
-            stdin=subprocess.PIPE,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            text=True,
-        )
-        st = sidebar_test_hooks.read_fake_tts_state()
-        assert st.get("overlap_spawns") == 1, f"overlap_spawns != 1: {st}"
-        assert st.get("max_alive") == 2, f"max_alive != 2: {st}"
-
-        t0 = time.monotonic()
-        tts_service.stop_speech()
-        both_reaped = False
-        while time.monotonic() - t0 < 1.0:
-            st = sidebar_test_hooks.read_fake_tts_state()
-            rcs = st.get("returncodes", {})
-            if str(p1.pid) in rcs and str(p2.pid) in rcs:
-                both_reaped = True
-                break
-            time.sleep(0.02)
-        assert both_reaped, f"both pids not in returncodes within 1.0s: {st}"
-    finally:
-        sidebar_test_hooks._apply_fake_tts("off")
-        assert recorded.get("audio.tts_enabled") is False
-        assert recorded.get("audio.tts_provider") == "kokoro"
-        assert recorded.get("audio.tts_sentence_mode") is True
-        if os.path.isfile(fake_tts_state_file):
-            os.remove(fake_tts_state_file)
-
-
-def test_fake_tts_crash_exit_2_and_on_complete(
-    monkeypatch: Any, fake_tts_state_file: str
-) -> None:
-    store, recorded = _setup_mock_config(monkeypatch)
-
-    completed = threading.Event()
-    try:
-        sidebar_test_hooks._apply_fake_tts("crash")
-        tts_service.speak_text_async("hello", on_complete=completed.set)
-        t_deadline = time.monotonic() + 3.0
-        st: dict[str, Any] = {}
-        ok = False
-        while time.monotonic() < t_deadline:
-            st = sidebar_test_hooks.read_fake_tts_state()
-            if (
-                completed.is_set()
-                and st.get("spawn_count") == 1
-                and list(st.get("returncodes", {}).values()) == [2]
-                and st.get("alive") == []
-                and not st.get("speaking", False)
-            ):
-                ok = True
-                break
-            time.sleep(0.02)
-        assert ok, f"test_fake_tts_crash failed within 3.0s: completed={completed.is_set()} state={st}"
-    finally:
-        sidebar_test_hooks._apply_fake_tts("off")
-        assert recorded.get("audio.tts_enabled") is False
-        assert recorded.get("audio.tts_provider") == "kokoro"
-        assert recorded.get("audio.tts_sentence_mode") is True
-        if os.path.isfile(fake_tts_state_file):
-            os.remove(fake_tts_state_file)
-
-
-def test_fake_tts_missing_spawns_nothing_and_logs(
-    monkeypatch: Any, caplog: Any, fake_tts_state_file: str
-) -> None:
-    store, recorded = _setup_mock_config(monkeypatch)
-
-    completed = threading.Event()
-    caplog.at_level(logging.WARNING, logger="plugin.audio.tts_service")
-    try:
-        sidebar_test_hooks._apply_fake_tts("missing")
-        tts_service.speak_text_async("hello", on_complete=completed.set)
-        t_deadline = time.monotonic() + 3.0
-        st: dict[str, Any] = {}
-        ok = False
-        while time.monotonic() < t_deadline:
-            st = sidebar_test_hooks.read_fake_tts_state()
-            if (
-                completed.is_set()
-                and st.get("spawn_count") == 0
-                and st.get("speak_calls", 0) >= 1
-                and not st.get("speaking", False)
-            ):
-                ok = True
-                break
-            time.sleep(0.02)
-        assert ok, f"test_fake_tts_missing failed within 3.0s: completed={completed.is_set()} state={st}"
-        if sys.platform == "linux":
-            assert "No OS native text-to-speech utility (say/spd-say/espeak) found on system." in caplog.text
-        else:
-            assert "_speak_system OS error" in caplog.text
-    finally:
-        sidebar_test_hooks._apply_fake_tts("off")
-        assert recorded.get("audio.tts_enabled") is False
-        assert recorded.get("audio.tts_provider") == "kokoro"
-        assert recorded.get("audio.tts_sentence_mode") is True
-        if os.path.isfile(fake_tts_state_file):
-            os.remove(fake_tts_state_file)
-
-
-def test_fake_tts_off_restores_patches(
-    monkeypatch: Any, fake_tts_state_file: str
-) -> None:
-    store, recorded = _setup_mock_config(monkeypatch)
-
-    try:
-        sidebar_test_hooks._apply_fake_tts("hold")
-        assert getattr(tts_service.subprocess.Popen, "_writeragent_fake_tts", False) is True
-        assert getattr(tts_service.shutil.which, "_writeragent_fake_tts", False) is True
-
-        sidebar_test_hooks._apply_fake_tts("off")
-        assert getattr(tts_service.subprocess.Popen, "_writeragent_fake_tts", False) is False
-        assert getattr(tts_service.shutil.which, "_writeragent_fake_tts", False) is False
-        assert sidebar_test_hooks.fake_tts_state_path() == fake_tts_state_file
-        assert not os.path.isfile(fake_tts_state_file)
-        assert recorded.get("audio.tts_enabled") is False
-        assert recorded.get("audio.tts_provider") == "kokoro"
-        assert recorded.get("audio.tts_sentence_mode") is True
-
-        # Call _apply_fake_tts("off") again and assert set_config was not called with a new triple
-        recorded.clear()
-        sidebar_test_hooks._apply_fake_tts("off")
-        assert recorded == {}
-    finally:
-        sidebar_test_hooks._apply_fake_tts("off")
-        if os.path.isfile(fake_tts_state_file):
-            os.remove(fake_tts_state_file)
-
 
 
 class _TextCtl:

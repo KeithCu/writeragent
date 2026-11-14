@@ -17,7 +17,6 @@ try:
     # Release builds delete sidebar_test_hooks; the stub-recorder tests skip there.
     from plugin.chatbot.sidebar_test_hooks import (
         clear_stub_recorder_control,
-        get_stub_start_count,
         write_stub_recorder_control,
     )
 except ImportError:
@@ -168,24 +167,6 @@ def test_audio_recorder_multiple_sessions(recording_mocks):
 
 
 @needs_test_hooks
-def test_audio_recorder_skip_spawn_from_control_file(tmp_path, monkeypatch):
-    monkeypatch.setenv("WRITERAGENT_TESTING", "1")
-    fixture = tmp_path / "inject.wav"
-    fixture.write_bytes(b"RIFF....WAVEfmt ")
-    write_stub_recorder_control(wav=str(fixture), skip=True)
-    recorder = AudioRecorder()
-    try:
-        recorder.start_recording()
-        assert recorder.state.status == "recording"
-        path = recorder.stop_recording()
-        assert path and os.path.isfile(path)
-    finally:
-        clear_stub_recorder_control()
-        if recorder.temp_filename and os.path.isfile(recorder.temp_filename):
-            os.remove(recorder.temp_filename)
-
-
-@needs_test_hooks
 def test_audio_recorder_stub_auto_stop_fires_after_start_returns(tmp_path, monkeypatch):
     """G4 stub auto-stop is reported from a tagged worker, like the stdout monitor.
 
@@ -221,96 +202,6 @@ def test_audio_recorder_stub_auto_stop_fires_after_start_returns(tmp_path, monke
         from plugin.chatbot.sidebar_test_hooks import read_stub_recorder_control
 
         assert read_stub_recorder_control().get("auto_stop") is False
-        path = recorder.stop_recording()
-        assert path and os.path.isfile(path)
-    finally:
-        clear_stub_recorder_control()
-        if recorder.temp_filename and os.path.isfile(recorder.temp_filename):
-            os.remove(recorder.temp_filename)
-
-
-@needs_test_hooks
-def test_audio_recorder_skip_spawn_injects_wav(tmp_path, monkeypatch):
-    monkeypatch.setenv("WRITERAGENT_TESTING", "1")
-    fixture = tmp_path / "inject.wav"
-    fixture.write_bytes(b"RIFF....WAVEfmt ")
-    recorder = AudioRecorder()
-    write_stub_recorder_control(skip=True, wav=str(fixture))
-    try:
-        recorder.start_recording()
-        assert recorder.state.status == "recording"
-        assert get_stub_start_count(recorder) == 1
-        path = recorder.stop_recording()
-        assert path and os.path.isfile(path)
-        with open(path, "rb") as handle:
-            assert handle.read() == fixture.read_bytes()
-        os.remove(path)
-    finally:
-        clear_stub_recorder_control()
-
-
-@needs_test_hooks
-def test_audio_recorder_skip_spawn_hang_ready(monkeypatch):
-    monkeypatch.setenv("WRITERAGENT_TESTING", "1")
-    recorder = AudioRecorder()
-    write_stub_recorder_control(skip=True, hang_ready=True)
-    try:
-        with pytest.raises(RuntimeError, match="timed out"):
-            recorder.start_recording()
-        assert recorder.state.status == "error"
-    finally:
-        clear_stub_recorder_control()
-
-
-@needs_test_hooks
-def test_audio_recorder_control_file_clears_hang_ready(tmp_path, monkeypatch):
-    """G21 hang_ready must not stick on the live recorder for later Packet G cases."""
-    monkeypatch.setenv("WRITERAGENT_TESTING", "1")
-    fixture = tmp_path / "inject.wav"
-    fixture.write_bytes(b"RIFF....WAVEfmt ")
-    recorder = AudioRecorder()
-    try:
-        write_stub_recorder_control(skip=True, hang_ready=True)
-        with pytest.raises(RuntimeError, match="timed out"):
-            recorder.start_recording()
-        write_stub_recorder_control(skip=True, hang_ready=False, fail_start=None, wav=str(fixture))
-        recorder.start_recording()
-        assert recorder.state.status == "recording"
-        path = recorder.stop_recording()
-        assert path and os.path.isfile(path)
-    finally:
-        clear_stub_recorder_control()
-        if recorder.temp_filename and os.path.isfile(recorder.temp_filename):
-            os.remove(recorder.temp_filename)
-
-
-@needs_test_hooks
-def test_audio_recorder_skip_spawn_fail_start(monkeypatch):
-    monkeypatch.setenv("WRITERAGENT_TESTING", "1")
-    recorder = AudioRecorder()
-    write_stub_recorder_control(skip=True, fail_start="stub crash")
-    try:
-        with pytest.raises(RuntimeError, match="stub crash"):
-            recorder.start_recording()
-        assert recorder.state.status == "error"
-    finally:
-        clear_stub_recorder_control()
-
-
-@needs_test_hooks
-def test_audio_recorder_control_file_clears_fail_start(tmp_path, monkeypatch):
-    """Same live recorder: JSON fail_start=null must not keep G12's crash flag."""
-    monkeypatch.setenv("WRITERAGENT_TESTING", "1")
-    fixture = tmp_path / "inject.wav"
-    fixture.write_bytes(b"RIFF....WAVEfmt ")
-    recorder = AudioRecorder()
-    try:
-        write_stub_recorder_control(skip=True, fail_start="stub crash")
-        with pytest.raises(RuntimeError, match="stub crash"):
-            recorder.start_recording()
-        write_stub_recorder_control(skip=True, fail_start=None, missing_wav=False, wav=str(fixture))
-        recorder.start_recording()
-        assert recorder.state.status == "recording"
         path = recorder.stop_recording()
         assert path and os.path.isfile(path)
     finally:

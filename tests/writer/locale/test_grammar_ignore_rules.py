@@ -328,6 +328,12 @@ def test_proofreader_ignore_stable_rule(prefix: str, ignored_code: str, other_co
         assert mock_save.called
 
 
+def test_proofreader_accepts_linguistic_constructor_args() -> None:
+    """LO calls proofreaders through createInstanceWithArgumentsAndContext with extra args."""
+    pr = WriterAgentAiGrammarProofreader(MagicMock(), object(), object())
+    assert pr is not None
+
+
 def test_document_persistence_snapshot_and_add_clear_ignored_rules() -> None:
     """The snapshot sees additions, and add/clear mutators save once."""
     dp = DocumentPersistence("doc-test")
