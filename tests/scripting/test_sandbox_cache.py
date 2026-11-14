@@ -337,6 +337,3 @@ def test_import_failure_messages_short_and_hide_blocklist():
 
     err_rel_dotted = validate_sandbox_ast(ast.parse("from .numpy import foo"), allowed)
     assert err_rel_dotted == "Relative imports are not allowed."
-
-
-

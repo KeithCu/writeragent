@@ -287,4 +287,3 @@ def test_text_unknown_helper_with_empty_text_is_unknown_helper():
         "helper": "bogus",
         "message": "Unknown text analytics helper 'bogus'",
     }
-

@@ -979,10 +979,6 @@ def test_run_stream_drain_loop_error_handler():
     def on_error(e):
         error_received.append(e)
 
-    class DummyToolkit:
-        def processEventsToIdle(self):
-            pass
-
     run_stream_drain_loop(
         q,
         DummyToolkit(),

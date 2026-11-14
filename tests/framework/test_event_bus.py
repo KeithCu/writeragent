@@ -457,7 +457,6 @@ def test_has_subscribers_false_for_dead_weak_subscriber():
 
 def test_event_bus_listener_and_emit():
     from unittest.mock import MagicMock
-    from plugin.framework.event_bus import get_event_bus
 
     ctx = MagicMock()
     called = []
@@ -481,4 +480,3 @@ def test_event_bus_listener_and_emit():
     finally:
         bus.unsubscribe("config:changed", my_callback)
         bus.unsubscribe("config:changed", bad_callback)
-

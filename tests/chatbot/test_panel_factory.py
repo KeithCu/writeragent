@@ -1509,6 +1509,3 @@ def test_rebound_panel_does_not_accumulate_close_hooks():
     session.bind_panel(panel2)
     _bind_close_hook(session, panel2, MagicMock(), MagicMock())
     assert len(session._close_hooks) == 1
-
-
-

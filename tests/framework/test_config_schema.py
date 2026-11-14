@@ -299,4 +299,3 @@ def test_extra_key_fallback_when_missing_from_extra_config() -> None:
     data = {"endpoint": "http://x", "orphan.key": "keep-me"}
     out = validate(data)
     assert out.get("orphan.key") == "keep-me"
-

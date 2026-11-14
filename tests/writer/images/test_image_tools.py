@@ -1041,7 +1041,6 @@ def test_insert_image_into_header_footer_reports_resolved_style_name():
 
 
 def test_export_graphic_to_bytes_uses_get_ctx_when_ctx_none():
-    from unittest.mock import MagicMock, patch
     from plugin.writer.images.image_tools import export_graphic_object_to_bytes
 
     guarded_ctx = MagicMock(name="guarded_ctx")

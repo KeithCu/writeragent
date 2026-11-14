@@ -1531,16 +1531,6 @@ def test_ensure_mpl_agg_does_not_retry_after_use_failure(monkeypatch):
     assert calls["n"] == 1
 
 
-def test_non_matplotlib_code_unaffected():
-    """Scalar results should not be wrapped in an image payload."""
-    from plugin.scripting.payload_codec import is_image_payload
-
-    res = sandbox_run("result = 42", timeout_sec=10)
-    assert res["status"] == "ok"
-    assert res["result"] == 42
-    assert not is_image_payload(res["result"])
-
-
 def test_serialize_result_dataframe_numeric():
     """DataFrame with numeric values should serialize to dataframe envelope with split_grid inner when large."""
     pd = pytest.importorskip("pandas")

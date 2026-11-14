@@ -100,6 +100,16 @@ def test_implicit_open_figure_capture(value):
     assert b"<svg" in res["result"]["data"]
 
 
+def test_non_matplotlib_code_unaffected():
+    """Scalar results should not be wrapped in an image payload."""
+    from tests.scripting.sandbox_support import sandbox_run
+
+    res = sandbox_run("result = 42", timeout_sec=10)
+    assert res["status"] == "ok"
+    assert res["result"] == 42
+    assert not is_image_payload(res["result"])
+
+
 def test_multiple_open_figures_captured_individually():
     """Two implicit figures should be captured individually as a multi_data envelope containing two SVG figures."""
     pytest.importorskip("matplotlib")

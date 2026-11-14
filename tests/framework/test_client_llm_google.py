@@ -275,7 +275,7 @@ def test_google_tool_format():
 
 
 def test_gemini_shim_inline_data():
-    """Verify that GoogleShim correctly translates image_url to inlineData part."""
+    """GoogleShim uses the OpenAI-compatible endpoint, so image_url parts pass through unchanged (no inlineData rewrite)."""
     from unittest.mock import MagicMock, patch
     from plugin.framework.client.google_shim import GoogleShim
     from plugin.framework.client.llm_client import LlmClient
