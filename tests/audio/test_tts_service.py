@@ -1291,9 +1291,10 @@ def test_run_synth_uses_raw_spawn_and_returns_communicate_stderr() -> None:
             return 7
 
     fake_proc = _FakeProc()
+    captured_kwargs: list[dict[str, Any]] = []
 
-    def fake_popen(cmd: list[str], **kwargs: Any) -> _FakeProc:
-        del cmd, kwargs
+    def fake_popen(_cmd: list[str], **kwargs: Any) -> _FakeProc:
+        captured_kwargs.append(dict(kwargs))
         return fake_proc
 
     cancel = SendCancellation()
@@ -1304,6 +1305,11 @@ def test_run_synth_uses_raw_spawn_and_returns_communicate_stderr() -> None:
 
         assert res == (7, "", "piper-err")
         assert fake_proc.communicate_calls == [("hello", 12.5)]
+        # User text can include non-ASCII characters that Windows's default codec cannot encode.
+        kwargs = captured_kwargs[0]
+        assert kwargs["text"] is True
+        assert kwargs["encoding"] == "utf-8"
+        assert kwargs["errors"] == "replace"
         assert set(ms._instances) == snapshot_instances
     finally:
         ms._instances.clear()
@@ -1403,6 +1409,31 @@ def test_stop_speech_spd_say_stop_uses_managed_run() -> None:
     args, _kwargs = recorded[0]
     assert args == ["spd-say", "-S"]
 
+    proc.kill.assert_called_once()
+    proc.terminate.assert_not_called()
+
+
+def test_stop_speech_non_spd_player_skips_spd_say_stop() -> None:
+    """spd-say -S stops every speech-dispatcher client, including screen readers."""
+    import plugin.audio.tts_service as tts
+
+    proc = MagicMock()
+    proc.poll.return_value = None
+    proc.args = ["paplay", "/tmp/x.wav"]
+    proc.stdin = None
+
+    recorded: list[tuple[Any, dict[str, Any]]] = []
+
+    def fake_run(args: list[str], **kwargs: Any) -> subprocess.CompletedProcess[Any]:
+        recorded.append((args, kwargs))
+        return subprocess.CompletedProcess(args, 0)
+
+    with patch.object(tts, "_procs", [proc]), \
+         patch.object(tts, "run_in_background", side_effect=lambda fn, **_kw: fn()), \
+         patch.object(tts.ManagedSubprocess, "run", side_effect=fake_run):
+        tts.stop_speech()
+
+    assert recorded == []
     proc.kill.assert_called_once()
     proc.terminate.assert_not_called()
 

@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import cmath
 import datetime as dt
 import inspect
 import math
@@ -630,18 +631,18 @@ _DB_CRIT_SINGLE = [["Tree", "Height"], ["Apple", ">15"]]
         pytest.param("=BESSELK(A1; B1)", [1.5, 1], pytest.approx(0.2773878, abs=1e-6), id="besselk"),
         pytest.param("=BESSELY(A1; B1)", [1.5, 1], pytest.approx(-0.4123086, abs=1e-6), id="bessely"),
         pytest.param('=EUROCONVERT(A1; "ATS"; "EUR")', 100, pytest.approx(7.27, abs=1e-4), id="euroconvert"),
-        pytest.param("=IMCOSH(A1)", "1+0i", lambda v: "1.5430" in v, id="imcosh"),
-        pytest.param("=IMCOT(A1)", "1+0i", lambda v: "0.6420" in v, id="imcot"),
-        pytest.param("=IMCSC(A1)", "1+0i", lambda v: "1.1883" in v, id="imcsc"),
-        pytest.param("=IMCSCH(A1)", "1+0i", lambda v: "0.8509" in v, id="imcsch"),
-        pytest.param("=IMSEC(A1)", "1+0i", lambda v: "1.8508" in v, id="imsec"),
-        pytest.param("=IMSECH(A1)", "1+0i", lambda v: "0.6480" in v, id="imsech"),
-        pytest.param("=IMSINH(A1)", "1+0i", lambda v: "1.1752" in v, id="imsinh"),
+        pytest.param("=IMCOSH(A1)", "1+0i", lambda v: complex(v.replace("i", "j")) == pytest.approx(cmath.cosh(1), abs=1e-6), id="imcosh"),
+        pytest.param("=IMCOT(A1)", "1+0i", lambda v: complex(v.replace("i", "j")) == pytest.approx(1 / cmath.tan(1), abs=1e-6), id="imcot"),
+        pytest.param("=IMCSC(A1)", "1+0i", lambda v: complex(v.replace("i", "j")) == pytest.approx(1 / cmath.sin(1), abs=1e-6), id="imcsc"),
+        pytest.param("=IMCSCH(A1)", "1+0i", lambda v: complex(v.replace("i", "j")) == pytest.approx(1 / cmath.sinh(1), abs=1e-6), id="imcsch"),
+        pytest.param("=IMSEC(A1)", "1+0i", lambda v: complex(v.replace("i", "j")) == pytest.approx(1 / cmath.cos(1), abs=1e-6), id="imsec"),
+        pytest.param("=IMSECH(A1)", "1+0i", lambda v: complex(v.replace("i", "j")) == pytest.approx(1 / cmath.cosh(1), abs=1e-6), id="imsech"),
+        pytest.param("=IMSINH(A1)", "1+0i", lambda v: complex(v.replace("i", "j")) == pytest.approx(cmath.sinh(1), abs=1e-6), id="imsinh"),
         pytest.param("=IMSQRT(A1)", "4", "2", id="imsqrt"),
         pytest.param("=IMSUB(A1; B1)", ["3+4i", "1+2i"], "2+2i", id="imsub"),
         pytest.param("=IMSUM(A1; B1)", ["3+4i", "1+2i"], "4+6i", id="imsum"),
-        pytest.param("=IMTAN(A1)", "1+0i", lambda v: "1.5574" in v, id="imtan"),
-        pytest.param("=IMTANH(A1)", "1+0i", lambda v: "0.7615" in v, id="imtanh"),
+        pytest.param("=IMTAN(A1)", "1+0i", lambda v: complex(v.replace("i", "j")) == pytest.approx(cmath.tan(1), abs=1e-6), id="imtan"),
+        pytest.param("=IMTANH(A1)", "1+0i", lambda v: complex(v.replace("i", "j")) == pytest.approx(cmath.tanh(1), abs=1e-6), id="imtanh"),
     ],
 )
 def test_translate_and_exec_functions(formula, data, expected):
