@@ -157,41 +157,41 @@ def test_backpressure_path_serializes_via_semaphore():
 
 
 @pytest.mark.parametrize(
-    "is_mutation, value, expected, value_2",
+    "is_mutation, err_msg, expected_concurrency, count_msg",
     [
-        pytest.param(True, "long_running should not error: %s", 1, "expected SERIALIZED (1) for same-doc mutation, got %d", id="test_long_running_mutating_same_document_serializes"),
-        pytest.param(False, "long_running read-only should not error: %s", 2, "expected CONCURRENT (2) for read-only, got %d", id="test_long_running_readonly_same_document_runs_concurrently"),
+        pytest.param(True, "long_running should not error: %s", 1, "expected SERIALIZED (1) for same-doc mutation, got %d", id="same_doc_mutating_serializes"),
+        pytest.param(False, "long_running read-only should not error: %s", 2, "expected CONCURRENT (2) for read-only, got %d", id="same_doc_readonly_concurrent"),
     ],
 )
-def test_long_running_mutating_same_document_serializes(is_mutation, value, expected, value_2):
+def test_long_running_mutating_same_document_serializes(is_mutation, err_msg, expected_concurrency, count_msg):
     reg = _Registry(is_mutation=is_mutation, is_async=True)
     handler = MCPProtocolHandler(_FakeServices(reg))
 
     errors = _run_concurrent(handler._run_tool, ["file:///same.odt"] * 2)
 
-    assert not errors, value % errors
-    assert reg.max_concurrency == expected, (
-        value_2 % reg.max_concurrency
+    assert not errors, err_msg % errors
+    assert reg.max_concurrency == expected_concurrency, (
+        count_msg % reg.max_concurrency
     )
 
 
 @pytest.mark.parametrize(
-    "value, value_2, expected, value_3",
+    "doc_url_a, doc_url_b, expected_concurrency, count_msg",
     [
-        pytest.param("file:///a.odt", "file:///b.odt", 2, "expected CONCURRENT (2) across different docs, got %d", id="test_long_running_mutating_different_documents_run_concurrently"),
+        pytest.param("file:///a.odt", "file:///b.odt", 2, "expected CONCURRENT (2) across different docs, got %d", id="different_docs_concurrent"),
         # file:///same.odt and file:///same.odt/ must serialize mutating long-running tools.
-        pytest.param("file:///same.odt", "file:///same.odt/", 1, "expected SERIALIZED (1) for normalized same doc, got %d", id="test_normalized_doc_urls_share_mutation_gate"),
+        pytest.param("file:///same.odt", "file:///same.odt/", 1, "expected SERIALIZED (1) for normalized same doc, got %d", id="normalized_urls_share_gate"),
     ],
 )
-def test_long_running_mutating_different_documents_run_concurrently(value, value_2, expected, value_3):
+def test_long_running_mutating_different_documents_run_concurrently(doc_url_a, doc_url_b, expected_concurrency, count_msg):
     reg = _Registry(is_mutation=True, is_async=True)
     handler = MCPProtocolHandler(_FakeServices(reg))
 
-    errors = _run_concurrent(handler._run_tool, [value, value_2])
+    errors = _run_concurrent(handler._run_tool, [doc_url_a, doc_url_b])
 
     assert not errors, "long_running should not error: %s" % errors
-    assert reg.max_concurrency == expected, (
-        value_3 % reg.max_concurrency
+    assert reg.max_concurrency == expected_concurrency, (
+        count_msg % reg.max_concurrency
     )
 
 def test_long_running_tool_can_opt_out_of_document_lock():
@@ -287,6 +287,44 @@ class _DepthMainThread:
                 self.depth -= 1
 
 
+def _spawn_tool_thread(handler, tool_name: str, document_url: str, errors: list[str], label: str) -> threading.Thread:
+    def _run():
+        try:
+            handler._run_tool(tool_name, {}, document_url=document_url, cancel=SendCancellation())
+        except Exception as e:  # noqa: BLE001
+            errors.append(f"{label}: {e}")
+
+    thread = threading.Thread(target=_run)
+    thread.start()
+    return thread
+
+
+def _wait_until_blocked_off_main(
+    main: _DepthMainThread,
+    release: threading.Event,
+    threads: list[threading.Thread],
+    entered_fn,
+    fail_msg: str,
+) -> None:
+    deadline = time.perf_counter() + 2.0
+    while time.perf_counter() < deadline:
+        with main._lock:
+            names = list(main.seen)
+            depth = main.depth
+        if any(name != "_prepare_mcp_execution" for name in names):
+            release.set()
+            for t in threads:
+                t.join(timeout=2)
+            raise AssertionError("gate wait ran inside the main-thread dispatch: %s" % names)
+        if names.count("_prepare_mcp_execution") >= 2 and depth == 0 and not entered_fn():
+            return
+        time.sleep(0.01)
+    release.set()
+    for t in threads:
+        t.join(timeout=2)
+    raise AssertionError(f"{fail_msg} (seen={main.seen})")
+
+
 def test_backpressure_waits_for_document_gate_off_the_main_thread():
     """A mutating backpressure call must not occupy the main thread while the gate is held.
 
@@ -311,43 +349,19 @@ def test_backpressure_waits_for_document_gate_off_the_main_thread():
     reg = _Reg(is_mutation=True, hold=0)
     handler = MCPProtocolHandler(_FakeServices(reg))
     handler.queue_executor = main
-    errors = []
+    errors: list[str] = []
 
-    def run_long():
-        try:
-            handler._run_tool("long_tool", {}, document_url="file:///same.odt", cancel=SendCancellation())
-        except Exception as e:  # noqa: BLE001
-            errors.append("long: %s" % e)
-
-    def run_bp():
-        try:
-            handler._run_tool("fast_tool", {}, document_url="file:///same.odt", cancel=SendCancellation())
-        except Exception as e:  # noqa: BLE001
-            errors.append("bp: %s" % e)
-
-    t_long = threading.Thread(target=run_long)
-    t_long.start()
+    t_long = _spawn_tool_thread(handler, "long_tool", "file:///same.odt", errors, "long")
     assert long_in_body.wait(timeout=2), "long-running tool never acquired the gate"
-    t_bp = threading.Thread(target=run_bp)
-    t_bp.start()
+    t_bp = _spawn_tool_thread(handler, "fast_tool", "file:///same.odt", errors, "bp")
 
-    deadline = time.perf_counter() + 2.0
-    blocked_off_main = False
-    while time.perf_counter() < deadline:
-        with main._lock:
-            names = list(main.seen)
-            depth = main.depth
-        if any(name != "_prepare_mcp_execution" for name in names):
-            release.set()
-            t_long.join(timeout=2)
-            t_bp.join(timeout=2)
-            raise AssertionError("gate wait ran inside the main-thread dispatch: %s" % names)
-        if names.count("_prepare_mcp_execution") >= 2 and depth == 0 and not body_depth:
-            blocked_off_main = True
-            break
-        time.sleep(0.01)
-
-    assert blocked_off_main, "backpressure never reached the off-thread gate wait (seen=%s)" % main.seen
+    _wait_until_blocked_off_main(
+        main,
+        release,
+        [t_long, t_bp],
+        lambda: bool(body_depth),
+        "backpressure never reached the off-thread gate wait",
+    )
     with main._lock:
         assert main.depth == 0
     assert not body_depth
@@ -430,53 +444,21 @@ def test_gate_wait_does_not_hold_global_semaphore():
     reg = _Reg(is_mutation=True, hold=0)
     handler = MCPProtocolHandler(_FakeServices(reg))
     handler.queue_executor = main
-    errors = []
+    errors: list[str] = []
 
-    def run_long():
-        try:
-            handler._run_tool("long_tool", {}, document_url="file:///a.odt", cancel=SendCancellation())
-        except Exception as e:  # noqa: BLE001
-            errors.append("long: %s" % e)
-
-    def run_fast_a():
-        try:
-            handler._run_tool("fast_a", {}, document_url="file:///a.odt", cancel=SendCancellation())
-        except Exception as e:  # noqa: BLE001
-            errors.append("fast_a: %s" % e)
-
-    def run_fast_b():
-        try:
-            handler._run_tool("fast_b", {}, document_url="file:///b.odt", cancel=SendCancellation())
-        except Exception as e:  # noqa: BLE001
-            errors.append("fast_b: %s" % e)
-
-    t_long = threading.Thread(target=run_long)
-    t_long.start()
+    t_long = _spawn_tool_thread(handler, "long_tool", "file:///a.odt", errors, "long")
     assert long_in_body.wait(timeout=2), "long-running tool never reached body"
 
-    t_fast_a = threading.Thread(target=run_fast_a)
-    t_fast_a.start()
+    t_fast_a = _spawn_tool_thread(handler, "fast_a", "file:///a.odt", errors, "fast_a")
+    _wait_until_blocked_off_main(
+        main,
+        release,
+        [t_long, t_fast_a],
+        a_entered.is_set,
+        "fast_a never reached the off-thread gate wait",
+    )
 
-    deadline = time.perf_counter() + 2.0
-    blocked_off_main = False
-    while time.perf_counter() < deadline:
-        with main._lock:
-            names = list(main.seen)
-            depth = main.depth
-        if any(name != "_prepare_mcp_execution" for name in names):
-            release.set()
-            t_long.join(timeout=2)
-            t_fast_a.join(timeout=2)
-            raise AssertionError("gate wait ran inside the main-thread dispatch: %s" % names)
-        if names.count("_prepare_mcp_execution") >= 2 and depth == 0 and not a_entered.is_set():
-            blocked_off_main = True
-            break
-        time.sleep(0.01)
-
-    assert blocked_off_main, "fast_a never reached the off-thread gate wait (seen=%s)" % main.seen
-
-    t_fast_b = threading.Thread(target=run_fast_b)
-    t_fast_b.start()
+    t_fast_b = _spawn_tool_thread(handler, "fast_b", "file:///b.odt", errors, "fast_b")
 
     assert b_done.wait(timeout=2), "fast_b timed out waiting on semaphore"
     assert not a_entered.is_set(), "fast_a entered body before long_tool released the gate"

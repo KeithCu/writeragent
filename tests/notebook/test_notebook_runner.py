@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from contextlib import ExitStack, contextmanager
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock, patch
 
@@ -30,6 +32,77 @@ from plugin.notebook.notebook_runner import (
     run_cells,
     update_in_prompt,
 )
+
+
+def _code_for_field(_doc: object, field_name: str) -> str:
+    return {
+        "nb_cell_0_code": "x = 1",
+        "nb_cell_1_code": "y = x + 1",
+        "nb_cell_2_code": "z = y + 1",
+    }.get(field_name, "pass")
+
+
+@contextmanager
+def _patch_notebook_run(
+    state: NotebookDocState,
+    *,
+    read_code: Any = "print(1)",
+    patch_read_code: bool = True,
+    exec_result: Any = None,
+    exec_side_effect: Any = None,
+    clear_side_effect: Any = None,
+    apply_side_effect: Any = None,
+    flush_idle: Any = None,
+    flush_new: Any = None,
+    patch_flush_idle: bool = False,
+    patch_msgbox: bool = False,
+):
+    with ExitStack() as stack:
+        stack.enter_context(patch("plugin.notebook.notebook_runner.load_registry", return_value=state))
+        if patch_read_code:
+            kw = {"side_effect": read_code} if callable(read_code) else {"return_value": read_code}
+            stack.enter_context(patch("plugin.notebook.form_lookup.read_code_from_field", **kw))
+        if exec_side_effect is not None:
+            execute = stack.enter_context(
+                patch("plugin.notebook.notebook_runner.execute_code", side_effect=exec_side_effect)
+            )
+        elif exec_result is not None:
+            execute = stack.enter_context(
+                patch("plugin.notebook.notebook_runner.execute_code", return_value=exec_result)
+            )
+        else:
+            execute = stack.enter_context(patch("plugin.notebook.notebook_runner.execute_code"))
+        clear = stack.enter_context(
+            patch("plugin.notebook.notebook_runner.clear_cell_output", side_effect=clear_side_effect)
+        )
+        apply = stack.enter_context(
+            patch("plugin.notebook.notebook_runner.apply_run_result", side_effect=apply_side_effect)
+        )
+        update_prompt = stack.enter_context(patch("plugin.notebook.notebook_runner.update_in_prompt"))
+        save_reg = stack.enter_context(patch("plugin.notebook.notebook_runner.save_registry"))
+        flush = None
+        if flush_new is not None:
+            flush = stack.enter_context(patch("plugin.notebook.notebook_runner.flush_ui_idle", new=flush_new))
+        elif flush_idle is not None:
+            flush = stack.enter_context(
+                patch("plugin.notebook.notebook_runner.flush_ui_idle", side_effect=flush_idle)
+            )
+        elif patch_flush_idle:
+            flush = stack.enter_context(patch("plugin.notebook.notebook_runner.flush_ui_idle"))
+        boxed = (
+            stack.enter_context(patch("plugin.notebook.notebook_runner.msgbox"))
+            if patch_msgbox
+            else None
+        )
+        yield SimpleNamespace(
+            execute=execute,
+            clear=clear,
+            apply=apply,
+            update_prompt=update_prompt,
+            save_reg=save_reg,
+            flush_idle=flush,
+            msgbox=boxed,
+        )
 
 
 def test_format_run_output_text_stdout_and_result():
@@ -174,25 +247,17 @@ def test_run_cell_updates_registry_and_execution_count():
     state = NotebookDocState(code_cells=[cell], next_execution_count=5)
     doc = MagicMock()
 
-    with (
-        patch("plugin.notebook.notebook_runner.load_registry", return_value=state),
-        patch("plugin.notebook.form_lookup.read_code_from_field", return_value="print(1)"),
-        patch(
-            "plugin.notebook.notebook_runner.execute_code",
-            return_value={"status": "ok", "result": None, "stdout": "1\n"},
-        ),
-        patch("plugin.notebook.notebook_runner.clear_cell_output"),
-        patch("plugin.notebook.notebook_runner.apply_run_result"),
-        patch("plugin.notebook.notebook_runner.update_in_prompt"),
-        patch("plugin.notebook.notebook_runner.save_registry") as save_reg,
-    ):
+    with _patch_notebook_run(
+        state,
+        exec_result={"status": "ok", "result": None, "stdout": "1\n"},
+    ) as mocks:
         result = run_cell(ctx, doc, cell.cell_id)
 
     assert result.status == "ok"
     assert result.execution_count == 5
     assert cell.execution_count == 5
     assert state.next_execution_count == 6
-    save_reg.assert_called_once_with(doc, state)
+    mocks.save_reg.assert_called_once_with(doc, state)
 
 
 def test_run_cell_restores_view_to_cell():
@@ -234,15 +299,7 @@ def test_run_cell_rejects_reentrant_call():
         nested.append(run_cell(ctx, doc, cell.cell_id))
         return {"status": "ok", "result": None, "stdout": "1\n"}
 
-    with (
-        patch("plugin.notebook.notebook_runner.load_registry", return_value=state),
-        patch("plugin.notebook.form_lookup.read_code_from_field", return_value="print(1)"),
-        patch("plugin.notebook.notebook_runner.execute_code", side_effect=_reenter),
-        patch("plugin.notebook.notebook_runner.clear_cell_output"),
-        patch("plugin.notebook.notebook_runner.apply_run_result"),
-        patch("plugin.notebook.notebook_runner.update_in_prompt"),
-        patch("plugin.notebook.notebook_runner.save_registry") as save_reg,
-    ):
+    with _patch_notebook_run(state, exec_side_effect=_reenter) as mocks:
         result = run_cell(ctx, doc, cell.cell_id)
 
     assert result.status == "ok"
@@ -250,7 +307,7 @@ def test_run_cell_rejects_reentrant_call():
     assert len(nested) == 1
     assert getattr(nested[0], "status") == "busy"
     assert state.next_execution_count == 6
-    save_reg.assert_called_once_with(doc, state)
+    mocks.save_reg.assert_called_once_with(doc, state)
 
 
 def test_run_cell_empty_code():
@@ -302,15 +359,7 @@ def test_run_cell_busy_guard_shares_uid_key_across_wrappers():
         nested.append(run_cell(ctx, doc2, cell.cell_id))
         return {"status": "ok", "result": None, "stdout": "1\n"}
 
-    with (
-        patch("plugin.notebook.notebook_runner.load_registry", return_value=state),
-        patch("plugin.notebook.form_lookup.read_code_from_field", return_value="print(1)"),
-        patch("plugin.notebook.notebook_runner.execute_code", side_effect=_reenter),
-        patch("plugin.notebook.notebook_runner.clear_cell_output"),
-        patch("plugin.notebook.notebook_runner.apply_run_result"),
-        patch("plugin.notebook.notebook_runner.update_in_prompt"),
-        patch("plugin.notebook.notebook_runner.save_registry"),
-    ):
+    with _patch_notebook_run(state, exec_side_effect=_reenter):
         result = run_cell(ctx, doc1, cell.cell_id)
 
     assert result.status == "ok"
@@ -547,17 +596,11 @@ def test_run_cell_rerun_clears_then_applies():
     def rec_apply(*_a, **_k):
         order.append("apply")
 
-    with (
-        patch("plugin.notebook.notebook_runner.load_registry", return_value=state),
-        patch("plugin.notebook.form_lookup.read_code_from_field", return_value="print(1)"),
-        patch(
-            "plugin.notebook.notebook_runner.execute_code",
-            return_value={"status": "ok", "result": None, "stdout": "1\n"},
-        ),
-        patch("plugin.notebook.notebook_runner.clear_cell_output", side_effect=rec_clear),
-        patch("plugin.notebook.notebook_runner.apply_run_result", side_effect=rec_apply),
-        patch("plugin.notebook.notebook_runner.update_in_prompt"),
-        patch("plugin.notebook.notebook_runner.save_registry"),
+    with _patch_notebook_run(
+        state,
+        exec_result={"status": "ok", "result": None, "stdout": "1\n"},
+        clear_side_effect=rec_clear,
+        apply_side_effect=rec_apply,
     ):
         assert run_cell(ctx, doc, cell.cell_id).status == "ok"
         assert run_cell(ctx, doc, cell.cell_id).status == "ok"
@@ -763,17 +806,10 @@ def test_run_cell_error_still_increments_execution_count():
     state = NotebookDocState(code_cells=[cell], next_execution_count=1)
     doc = MagicMock()
 
-    with (
-        patch("plugin.notebook.notebook_runner.load_registry", return_value=state),
-        patch("plugin.notebook.form_lookup.read_code_from_field", return_value="raise ValueError(1)"),
-        patch(
-            "plugin.notebook.notebook_runner.execute_code",
-            return_value={"status": "error", "message": "ValueError", "stdout": ""},
-        ),
-        patch("plugin.notebook.notebook_runner.clear_cell_output"),
-        patch("plugin.notebook.notebook_runner.apply_run_result"),
-        patch("plugin.notebook.notebook_runner.update_in_prompt"),
-        patch("plugin.notebook.notebook_runner.save_registry"),
+    with _patch_notebook_run(
+        state,
+        read_code="raise ValueError(1)",
+        exec_result={"status": "error", "message": "ValueError", "stdout": ""},
     ):
         result = run_cell(ctx, doc, cell.cell_id)
 
@@ -836,26 +872,22 @@ def test_run_cell_for_doc_hex_execution_error_does_not_msgbox():
 
     with (
         patch("plugin.notebook.notebook_runner.is_writer", return_value=True),
-        patch("plugin.notebook.notebook_runner.load_registry", return_value=state),
-        patch("plugin.notebook.form_lookup.read_code_from_field", return_value="car[:,:,:3].shape"),
-        patch(
-            "plugin.notebook.notebook_runner.execute_code",
-            return_value={
+        _patch_notebook_run(
+            state,
+            read_code="car[:,:,:3].shape",
+            exec_result={
                 "status": "error",
                 "message": "InterpreterError: name 'car' is not defined",
                 "stdout": "",
                 "traceback": "InterpreterError: name 'car' is not defined",
             },
-        ),
-        patch("plugin.notebook.notebook_runner.clear_cell_output"),
-        patch("plugin.notebook.notebook_runner.apply_run_result", side_effect=rec_apply),
-        patch("plugin.notebook.notebook_runner.update_in_prompt"),
-        patch("plugin.notebook.notebook_runner.save_registry"),
-        patch("plugin.notebook.notebook_runner.msgbox") as boxed,
+            apply_side_effect=rec_apply,
+            patch_msgbox=True,
+        ) as mocks,
     ):
         run_cell_for_doc_hex(ctx, doc, hex_id)
 
-    boxed.assert_not_called()
+    mocks.msgbox.assert_not_called()
     assert apply_calls
     assert isinstance(apply_calls, list) and len(apply_calls) > 0 and isinstance(apply_calls[0], dict) and apply_calls[0].get("status") == "error"
 
@@ -869,18 +901,11 @@ def test_run_cell_for_doc_hex_setup_error_shows_msgbox():
 
     with (
         patch("plugin.notebook.notebook_runner.is_writer", return_value=True),
-        patch("plugin.notebook.notebook_runner.load_registry", return_value=state),
-        patch("plugin.notebook.form_lookup.read_code_from_field", return_value="   "),  # Empty code
-        patch("plugin.notebook.notebook_runner.execute_code") as execute,
-        patch("plugin.notebook.notebook_runner.clear_cell_output"),
-        patch("plugin.notebook.notebook_runner.apply_run_result"),
-        patch("plugin.notebook.notebook_runner.update_in_prompt"),
-        patch("plugin.notebook.notebook_runner.save_registry"),
-        patch("plugin.notebook.notebook_runner.msgbox") as boxed,
+        _patch_notebook_run(state, read_code="   ", patch_msgbox=True) as mocks,
     ):
             run_cell_for_doc_hex(ctx, doc, hex_id)
-            execute.assert_not_called()
-            boxed.assert_called_once_with(ctx, "WriterAgent", "Code cell is empty.")
+            mocks.execute.assert_not_called()
+            mocks.msgbox.assert_called_once_with(ctx, "WriterAgent", "Code cell is empty.")
 def test_clear_cell_output_preserves_spacer_before_next_heading():
     """Delete stdout but not the empty paragraph immediately before the next cell."""
     remaining = _walker_scenario(
@@ -897,14 +922,6 @@ def _three_cells():
     ]
 
 
-def _code_for_field(_doc: object, field_name: str) -> str:
-    return {
-        "nb_cell_0_code": "x = 1",
-        "nb_cell_1_code": "y = x + 1",
-        "nb_cell_2_code": "z = y + 1",
-    }.get(field_name, "pass")
-
-
 def test_run_cells_sequence_in_registry_order():
     ctx = MagicMock()
     cells = _three_cells()
@@ -916,23 +933,16 @@ def test_run_cells_sequence_in_registry_order():
         order.append(code)
         return {"status": "ok", "result": None, "stdout": code}
 
-    with (
-        patch("plugin.notebook.notebook_runner.load_registry", return_value=state),
-        patch("plugin.notebook.form_lookup.read_code_from_field", side_effect=_code_for_field),
-        patch("plugin.notebook.notebook_runner.execute_code", side_effect=_exec),
-        patch("plugin.notebook.notebook_runner.clear_cell_output"),
-        patch("plugin.notebook.notebook_runner.apply_run_result"),
-        patch("plugin.notebook.notebook_runner.update_in_prompt"),
-        patch("plugin.notebook.notebook_runner.save_registry"),
-        patch("plugin.notebook.notebook_runner.flush_ui_idle") as flush,
-    ):
+    with _patch_notebook_run(
+        state, read_code=_code_for_field, exec_side_effect=_exec, patch_flush_idle=True
+    ) as mocks:
         result = run_cells(ctx, doc, start_index=0)
 
     assert result.status == "ok"
     assert result.cells_run == 3
     assert order == ["x = 1", "y = x + 1", "z = y + 1"]
     assert state.next_execution_count == 4
-    assert flush.call_count == 2
+    assert mocks.flush_idle.call_count == 2
 
 
 def test_run_from_here_start_index():
@@ -946,15 +956,8 @@ def test_run_from_here_start_index():
         ran.append(code)
         return {"status": "ok", "result": None, "stdout": ""}
 
-    with (
-        patch("plugin.notebook.notebook_runner.load_registry", return_value=state),
-        patch("plugin.notebook.form_lookup.read_code_from_field", side_effect=_code_for_field),
-        patch("plugin.notebook.notebook_runner.execute_code", side_effect=_exec),
-        patch("plugin.notebook.notebook_runner.clear_cell_output"),
-        patch("plugin.notebook.notebook_runner.apply_run_result"),
-        patch("plugin.notebook.notebook_runner.update_in_prompt"),
-        patch("plugin.notebook.notebook_runner.save_registry"),
-        patch("plugin.notebook.notebook_runner.flush_ui_idle"),
+    with _patch_notebook_run(
+        state, read_code=_code_for_field, exec_side_effect=_exec, patch_flush_idle=True
     ):
         result = run_cells(ctx, doc, start_index=1)
 
@@ -1010,22 +1013,15 @@ def test_run_cells_stop_skips_remainder():
             request_stop()
         return {"status": "ok", "result": None, "stdout": ""}
 
-    with (
-        patch("plugin.notebook.notebook_runner.load_registry", return_value=state),
-        patch("plugin.notebook.form_lookup.read_code_from_field", side_effect=_code_for_field),
-        patch("plugin.notebook.notebook_runner.execute_code", side_effect=_exec),
-        patch("plugin.notebook.notebook_runner.clear_cell_output"),
-        patch("plugin.notebook.notebook_runner.apply_run_result") as apply,
-        patch("plugin.notebook.notebook_runner.update_in_prompt"),
-        patch("plugin.notebook.notebook_runner.save_registry"),
-        patch("plugin.notebook.notebook_runner.flush_ui_idle"),
-    ):
+    with _patch_notebook_run(
+        state, read_code=_code_for_field, exec_side_effect=_exec, patch_flush_idle=True
+    ) as mocks:
         result = run_cells(ctx, doc, start_index=0)
 
     assert result.status == "stopped"
     assert result.cells_run == 1
     assert ran == ["x = 1"]
-    assert apply.call_count == 1
+    assert mocks.apply.call_count == 1
     assert cells[1].execution_count is None
     assert cells[2].execution_count is None
 
@@ -1045,22 +1041,15 @@ def test_run_cells_stop_during_between_cell_drain_skips_next():
     def _flush(*_a, **_k):
         request_stop()
 
-    with (
-        patch("plugin.notebook.notebook_runner.load_registry", return_value=state),
-        patch("plugin.notebook.form_lookup.read_code_from_field", side_effect=_code_for_field),
-        patch("plugin.notebook.notebook_runner.execute_code", side_effect=_exec),
-        patch("plugin.notebook.notebook_runner.clear_cell_output"),
-        patch("plugin.notebook.notebook_runner.apply_run_result") as apply,
-        patch("plugin.notebook.notebook_runner.update_in_prompt"),
-        patch("plugin.notebook.notebook_runner.save_registry"),
-        patch("plugin.notebook.notebook_runner.flush_ui_idle", side_effect=_flush),
-    ):
+    with _patch_notebook_run(
+        state, read_code=_code_for_field, exec_side_effect=_exec, flush_idle=_flush
+    ) as mocks:
         result = run_cells(ctx, doc, start_index=0)
 
     assert result.status == "stopped"
     assert result.cells_run == 1
     assert ran == ["x = 1"]
-    assert apply.call_count == 1
+    assert mocks.apply.call_count == 1
 
 
 def test_run_cells_stop_from_menu_without_active_doc_skips_remainder():
@@ -1082,21 +1071,14 @@ def test_run_cells_stop_from_menu_without_active_doc_skips_remainder():
         with patch("plugin.framework.uno_context.get_active_document", return_value=None):
             stop_from_menu(ctx, frame=None)
 
-    with (
-        patch("plugin.notebook.notebook_runner.load_registry", return_value=state),
-        patch("plugin.notebook.form_lookup.read_code_from_field", side_effect=_code_for_field),
-        patch("plugin.notebook.notebook_runner.execute_code", side_effect=_exec),
-        patch("plugin.notebook.notebook_runner.clear_cell_output"),
-        patch("plugin.notebook.notebook_runner.apply_run_result") as apply,
-        patch("plugin.notebook.notebook_runner.update_in_prompt"),
-        patch("plugin.notebook.notebook_runner.save_registry"),
-        patch("plugin.notebook.notebook_runner.flush_ui_idle", side_effect=_flush),
-    ):
+    with _patch_notebook_run(
+        state, read_code=_code_for_field, exec_side_effect=_exec, flush_idle=_flush
+    ) as mocks:
         result = run_cells(ctx, doc, start_index=0)
 
     assert result.status == "stopped"
     assert result.cells_run == 1
-    assert apply.call_count == 1
+    assert mocks.apply.call_count == 1
     assert ran == ["x = 1"]
     assert cells[1].execution_count is None
 
@@ -1125,40 +1107,25 @@ def test_run_cells_stop_from_menu_distinct_wrapper_skips_remainder():
     def _flush(*_a, **_k):
         stop_from_menu(ctx, frame=frame)
 
-    with (
-        patch("plugin.notebook.notebook_runner.load_registry", return_value=state),
-        patch("plugin.notebook.form_lookup.read_code_from_field", side_effect=_code_for_field),
-        patch("plugin.notebook.notebook_runner.execute_code", side_effect=_exec),
-        patch("plugin.notebook.notebook_runner.clear_cell_output"),
-        patch("plugin.notebook.notebook_runner.apply_run_result") as apply,
-        patch("plugin.notebook.notebook_runner.update_in_prompt"),
-        patch("plugin.notebook.notebook_runner.save_registry"),
-        patch("plugin.notebook.notebook_runner.flush_ui_idle", side_effect=_flush),
-    ):
+    with _patch_notebook_run(
+        state, read_code=_code_for_field, exec_side_effect=_exec, flush_idle=_flush
+    ) as mocks:
         result = run_cells(ctx, doc, start_index=0)
 
     assert result.status == "stopped"
     assert result.cells_run == 1
-    assert apply.call_count == 1
+    assert mocks.apply.call_count == 1
     assert ran == ["x = 1"]
     assert cells[1].execution_count is None
 
 
 def _patch_run_cells(state, exec_side_effect, flush, pump):
-
-    from contextlib import contextmanager
-
     @contextmanager
     def _ctx():
         with (
-            patch("plugin.notebook.notebook_runner.load_registry", return_value=state),
-            patch("plugin.notebook.form_lookup.read_code_from_field", side_effect=_code_for_field),
-            patch("plugin.notebook.notebook_runner.execute_code", side_effect=exec_side_effect),
-            patch("plugin.notebook.notebook_runner.clear_cell_output"),
-            patch("plugin.notebook.notebook_runner.apply_run_result"),
-            patch("plugin.notebook.notebook_runner.update_in_prompt"),
-            patch("plugin.notebook.notebook_runner.save_registry"),
-            patch("plugin.notebook.notebook_runner.flush_ui_idle", new=flush),
+            _patch_notebook_run(
+                state, read_code=_code_for_field, exec_side_effect=exec_side_effect, flush_new=flush
+            ),
             patch("plugin.framework.queue_executor.pump_ui_idle", new=pump),
             patch("plugin.framework.uno_context.get_toolkit", return_value=object()),
         ):
@@ -1239,23 +1206,16 @@ def test_run_cells_busy_guard_skips_play_but_stop_works():
         request_stop()
         return {"status": "ok", "result": None, "stdout": "1\n"}
 
-    with (
-        patch("plugin.notebook.notebook_runner.load_registry", return_value=state),
-        patch("plugin.notebook.form_lookup.read_code_from_field", side_effect=_code_for_field),
-        patch("plugin.notebook.notebook_runner.execute_code", side_effect=_reenter),
-        patch("plugin.notebook.notebook_runner.clear_cell_output"),
-        patch("plugin.notebook.notebook_runner.apply_run_result") as apply,
-        patch("plugin.notebook.notebook_runner.update_in_prompt"),
-        patch("plugin.notebook.notebook_runner.save_registry"),
-        patch("plugin.notebook.notebook_runner.flush_ui_idle"),
-    ):
+    with _patch_notebook_run(
+        state, read_code=_code_for_field, exec_side_effect=_reenter, patch_flush_idle=True
+    ) as mocks:
         result = run_cells(ctx, doc, start_index=0)
 
     assert result.status == "stopped"
     assert result.cells_run == 1
     assert len(nested) == 1
     assert getattr(nested[0], "status") == "busy"
-    assert apply.call_count == 1
+    assert mocks.apply.call_count == 1
     assert cells[1].execution_count is None
 
 
@@ -1276,22 +1236,15 @@ def test_run_cells_skips_empty_and_continues(cell_1_value):
         ran.append(code)
         return {"status": "ok", "result": None, "stdout": ""}
 
-    with (
-        patch("plugin.notebook.notebook_runner.load_registry", return_value=state),
-        patch("plugin.notebook.form_lookup.read_code_from_field", side_effect=_read),
-        patch("plugin.notebook.notebook_runner.execute_code", side_effect=_exec),
-        patch("plugin.notebook.notebook_runner.clear_cell_output"),
-        patch("plugin.notebook.notebook_runner.apply_run_result") as apply,
-        patch("plugin.notebook.notebook_runner.update_in_prompt"),
-        patch("plugin.notebook.notebook_runner.save_registry"),
-        patch("plugin.notebook.notebook_runner.flush_ui_idle"),
-    ):
+    with _patch_notebook_run(
+        state, read_code=_read, exec_side_effect=_exec, patch_flush_idle=True
+    ) as mocks:
         result = run_cells(ctx, doc, start_index=0)
 
     assert result.status == "ok"
     assert result.cells_run == 2
     assert ran == ["x = 1", "z = y + 1"]
-    assert apply.call_count == 2
+    assert mocks.apply.call_count == 2
     assert cells[1].execution_count is None
 
 
@@ -1310,20 +1263,17 @@ def test_run_cells_error_continues_unless_stopped():
     def _apply(_doc, _cell, result, *, ctx=None):
         apply_status.append(str(result.get("status")))
 
-    with (
-        patch("plugin.notebook.notebook_runner.load_registry", return_value=state),
-        patch("plugin.notebook.form_lookup.read_code_from_field", side_effect=_code_for_field),
-        patch("plugin.notebook.notebook_runner.execute_code", side_effect=_exec),
-        patch("plugin.notebook.notebook_runner.clear_cell_output"),
-        patch("plugin.notebook.notebook_runner.apply_run_result", side_effect=_apply),
-        patch("plugin.notebook.notebook_runner.update_in_prompt"),
-        patch("plugin.notebook.notebook_runner.save_registry"),
-        patch("plugin.notebook.notebook_runner.flush_ui_idle"),
-        patch("plugin.notebook.notebook_runner.msgbox") as boxed,
-    ):
+    with _patch_notebook_run(
+        state,
+        read_code=_code_for_field,
+        exec_side_effect=_exec,
+        apply_side_effect=_apply,
+        patch_flush_idle=True,
+        patch_msgbox=True,
+    ) as mocks:
         result = run_cells(ctx, doc, start_index=0)
 
-    boxed.assert_not_called()
+    mocks.msgbox.assert_not_called()
     assert result.status == "ok"
     assert result.cells_run == 3
     assert apply_status == ["ok", "error", "ok"]
@@ -1342,16 +1292,13 @@ def _run_cells_with(exec_fn, apply_fn=None, doc=None):
         if apply_fn is not None:
             apply_fn(result)
 
-    with (
-        patch("plugin.notebook.notebook_runner.load_registry", return_value=state),
-        patch("plugin.notebook.form_lookup.read_code_from_field", side_effect=_code_for_field),
-        patch("plugin.notebook.notebook_runner.execute_code", side_effect=exec_fn),
-        patch("plugin.notebook.notebook_runner.clear_cell_output"),
-        patch("plugin.notebook.notebook_runner.apply_run_result", side_effect=_apply),
-        patch("plugin.notebook.notebook_runner.update_in_prompt"),
-        patch("plugin.notebook.notebook_runner.save_registry"),
-        patch("plugin.notebook.notebook_runner.flush_ui_idle"),
-        patch("plugin.notebook.notebook_runner.msgbox"),
+    with _patch_notebook_run(
+        state,
+        read_code=_code_for_field,
+        exec_side_effect=exec_fn,
+        apply_side_effect=_apply,
+        patch_flush_idle=True,
+        patch_msgbox=True,
     ):
         result = run_cells(ctx, doc, start_index=0)
     return result, applied, state
@@ -1472,21 +1419,16 @@ def test_run_cells_does_not_pump_idle_during_execute():
         pumps.append("flush")
 
     with (
-        patch("plugin.notebook.notebook_runner.load_registry", return_value=state),
-        patch("plugin.notebook.form_lookup.read_code_from_field", side_effect=_code_for_field),
-        patch("plugin.notebook.notebook_runner.execute_code", side_effect=_exec),
-        patch("plugin.notebook.notebook_runner.clear_cell_output"),
-        patch("plugin.notebook.notebook_runner.apply_run_result"),
-        patch("plugin.notebook.notebook_runner.update_in_prompt"),
-        patch("plugin.notebook.notebook_runner.save_registry"),
+        _patch_notebook_run(
+            state, read_code=_code_for_field, exec_side_effect=_exec, patch_flush_idle=True
+        ) as mocks,
         patch("plugin.framework.queue_executor.pump_main_thread_work_queue", side_effect=_flush),
-        patch("plugin.notebook.notebook_runner.flush_ui_idle") as flush_idle,
         patch("plugin.framework.queue_executor.pump_ui_idle"),
     ):
         run_cells(ctx, doc, start_index=0)
 
     assert pumps == ["execute", "flush", "execute"]
-    assert flush_idle.call_count == 1
+    assert mocks.flush_idle.call_count == 1
 
 
 def test_run_cells_between_cell_pump_under_drain_owner():
@@ -1542,14 +1484,7 @@ def test_run_cells_between_cell_pump_disposal_stops_execution():
 
     with (
         patch("plugin.framework.async_drain_guard.get_drain_owner", return_value=None),
-        patch("plugin.notebook.notebook_runner.load_registry", return_value=state),
-        patch("plugin.notebook.form_lookup.read_code_from_field", side_effect=_code_for_field),
-        patch("plugin.notebook.notebook_runner.execute_code", side_effect=_exec),
-        patch("plugin.notebook.notebook_runner.clear_cell_output"),
-        patch("plugin.notebook.notebook_runner.apply_run_result"),
-        patch("plugin.notebook.notebook_runner.update_in_prompt"),
-        patch("plugin.notebook.notebook_runner.save_registry"),
-        patch("plugin.notebook.notebook_runner.flush_ui_idle", side_effect=_flush),
+        _patch_notebook_run(state, read_code=_code_for_field, exec_side_effect=_exec, flush_idle=_flush),
         patch("plugin.notebook.notebook_runner.document_is_disposed", side_effect=[False, True]),
     ):
         result = run_cells(ctx, doc, start_index=0)
@@ -1618,14 +1553,12 @@ def test_run_cells_reuses_single_draw_page_walk_and_matches_unscoped():
     def _exec(_ctx, _doc, code):
         return {"status": "ok", "result": None, "stdout": f"out: {code}"}
 
-    with (
-        patch("plugin.notebook.notebook_runner.load_registry", return_value=state),
-        patch("plugin.notebook.notebook_runner.execute_code", side_effect=_exec),
-        patch("plugin.notebook.notebook_runner.clear_cell_output"),
-        patch("plugin.notebook.notebook_runner.apply_run_result", side_effect=_apply_scoped),
-        patch("plugin.notebook.notebook_runner.update_in_prompt"),
-        patch("plugin.notebook.notebook_runner.save_registry"),
-        patch("plugin.notebook.notebook_runner.flush_ui_idle"),
+    with _patch_notebook_run(
+        state,
+        patch_read_code=False,
+        exec_side_effect=_exec,
+        apply_side_effect=_apply_scoped,
+        patch_flush_idle=True,
     ):
         result = run_cells(ctx, doc)
 
@@ -1663,14 +1596,8 @@ def test_run_cell_leaves_no_stop_state():
     doc = MagicMock()
     doc.getURL.return_value = ""
     notebook_runner._stop_flags.clear()
-    with (
-        patch("plugin.notebook.notebook_runner.load_registry", return_value=state),
-        patch("plugin.notebook.form_lookup.read_code_from_field", return_value="print(1)"),
-        patch("plugin.notebook.notebook_runner.execute_code", return_value={"status": "ok", "result": None, "stdout": "1\n"}),
-        patch("plugin.notebook.notebook_runner.clear_cell_output"),
-        patch("plugin.notebook.notebook_runner.apply_run_result"),
-        patch("plugin.notebook.notebook_runner.update_in_prompt"),
-        patch("plugin.notebook.notebook_runner.save_registry"),
+    with _patch_notebook_run(
+        state, exec_result={"status": "ok", "result": None, "stdout": "1\n"}
     ):
         assert run_cell(ctx, doc, cell.cell_id).status == "ok"
     assert notebook_runner._stop_flags == {}

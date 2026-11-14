@@ -100,14 +100,14 @@ def test_format_error_strips_ansi():
 
 
 @pytest.mark.parametrize(
-    "value, value_2, value_3, expected",
+    "output_type, mime_type, payload, expected",
     [
-        pytest.param("execute_result", "text/plain", "42", "42", id="test_format_execute_result_plain"),
-        pytest.param("display_data", "image/png", "abc", "", id="test_format_output_image_empty_for_body"),
+        pytest.param("execute_result", "text/plain", "42", "42", id="execute_result_plain"),
+        pytest.param("display_data", "image/png", "abc", "", id="image_empty_for_body"),
     ],
 )
-def test_format_execute_result_plain(value, value_2, value_3, expected):
-    out = {"output_type": value, "data": {value_2: value_3}}
+def test_format_output_text_body(output_type, mime_type, payload, expected):
+    out = {"output_type": output_type, "data": {mime_type: payload}}
     assert format_output_text(out) == expected
 
 
@@ -141,16 +141,16 @@ def test_image_mime_from_bytes_webp_is_not_png():
 
 
 @pytest.mark.parametrize(
-    "value, value_2, value_3, value_4",
+    "mime_type, fallback_val",
     [
-        pytest.param("image/webp", "image/webp", "image/webp", "webp", id="test_notebook_image_payload_webp_when_no_png"),
-        pytest.param("image/gif", "image/gif", "image/gif", "gif", id="test_notebook_image_payload_gif_when_no_png"),
+        pytest.param("image/webp", "webp", id="webp"),
+        pytest.param("image/gif", "gif", id="gif"),
     ],
 )
-def test_notebook_image_payload_webp_when_no_png(value, value_2, value_3, value_4):
-    data = {value: "abc", "text/plain": "hi"}
-    assert _notebook_image_payload(data) == (value_2, "abc")
-    both = {"image/png": "png", value_3: value_4}
+def test_notebook_image_payload_fallback_when_no_png(mime_type, fallback_val):
+    data = {mime_type: "abc", "text/plain": "hi"}
+    assert _notebook_image_payload(data) == (mime_type, "abc")
+    both = {"image/png": "png", mime_type: fallback_val}
     assert _notebook_image_payload(both) == ("image/png", "png")
 
 
@@ -997,22 +997,22 @@ def test_import_code_cell_without_outputs_has_no_output_heading(tmp_path, monkey
 
 
 @pytest.mark.parametrize(
-    "value, value_2, expected",
+    "image_format, data, expected_mime",
     [
-        pytest.param("svg", b"<svg></svg>", "image/svg+xml", id="test_insert_run_image_svg_mime"),
-        pytest.param("webp", b"RIFF", "image/webp", id="test_insert_run_image_webp_mime"),
-        pytest.param("gif", b"GIF89a", "image/gif", id="test_insert_run_image_gif_mime"),
+        pytest.param("svg", b"<svg></svg>", "image/svg+xml", id="svg"),
+        pytest.param("webp", b"RIFF", "image/webp", id="webp"),
+        pytest.param("gif", b"GIF89a", "image/gif", id="gif"),
     ],
 )
-def test_insert_run_image_svg_mime(value, value_2, expected):
+def test_insert_run_image_mime(image_format, data, expected_mime):
     from plugin.notebook.writer_importer import insert_run_image
 
     doc = MagicMock()
-    payload = {"__wa_payload__": "image", "format": value, "data": value_2}
+    payload = {"__wa_payload__": "image", "format": image_format, "data": data}
     with patch("plugin.notebook.writer_importer._insert_image_in_flow", return_value=True) as insert_flow:
         assert insert_run_image(doc, payload, ctx=MagicMock(), images_before=0) is True
     insert_flow.assert_called_once()
-    assert insert_flow.call_args.kwargs["mime"] == expected
+    assert insert_flow.call_args.kwargs["mime"] == expected_mime
 
 
 def test_append_paragraph_break_at_end_inserts_break():

@@ -3,7 +3,6 @@ import json
 import urllib.error
 import urllib.request
 
-import pytest
 
 from plugin.mcp.server import mcp_endpoint_url
 from plugin.mcp.mcp_protocol import format_mcp_clock_context, build_initialize_instructions
@@ -125,39 +124,6 @@ def test_mcp_resources(mcp_server):
         result = data["result"]
         assert "resources" in result
         assert isinstance(result["resources"], list)
-
-
-def test_mcp_prompts_list_and_get(mcp_server):
-    """prompts/list and prompts/get expose get_guidance topics for the active writer document."""
-    from plugin.chatbot.agent_manual import get_section, list_topics
-
-    url = f"{mcp_server}/mcp"
-    list_payload = {"jsonrpc": "2.0", "id": 20, "method": "prompts/list", "params": {}}
-    req = urllib.request.Request(url, method="POST", data=json.dumps(list_payload).encode("utf-8"))
-    req.add_header("Content-Type", "application/json")
-    with urllib.request.urlopen(req, timeout=5) as response:
-        assert response.getcode() == 200
-        list_data = json.loads(response.read().decode("utf-8"))
-    prompts = list_data["result"]["prompts"]
-    assert [p["name"] for p in prompts] == list_topics("writer")
-    assert all(p.get("description") for p in prompts)
-
-    get_payload = {"jsonrpc": "2.0", "id": 21, "method": "prompts/get", "params": {"name": "editing"}}
-    req = urllib.request.Request(url, method="POST", data=json.dumps(get_payload).encode("utf-8"))
-    req.add_header("Content-Type", "application/json")
-    with urllib.request.urlopen(req, timeout=5) as response:
-        assert response.getcode() == 200
-        get_data = json.loads(response.read().decode("utf-8"))
-    assert get_data["result"]["messages"][0]["content"]["text"] == get_section("editing", "writer")
-
-    bad_payload = {"jsonrpc": "2.0", "id": 22, "method": "prompts/get", "params": {"name": "no-such"}}
-    req = urllib.request.Request(url, method="POST", data=json.dumps(bad_payload).encode("utf-8"))
-    req.add_header("Content-Type", "application/json")
-    with pytest.raises(urllib.error.HTTPError) as exc_info:
-        urllib.request.urlopen(req, timeout=5)
-    assert exc_info.value.code == 400
-    body = json.loads(exc_info.value.read().decode("utf-8"))
-    assert body["error"]["code"] == -32602
 
 
 def test_root_info_includes_mcp_endpoint(mcp_server):

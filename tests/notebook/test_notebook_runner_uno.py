@@ -23,6 +23,12 @@ from plugin.notebook.notebook_runner import _leading_text_cursor, _paragraph_has
 from plugin.notebook.writer_importer import import_ipynb_to_writer
 from plugin.testing_runner import current_office, native_test
 from plugin.tests.testing_utils import with_native_doc
+from tests.notebook.notebook_uno_helpers import (
+    anchor_paragraph_string as _anchor_paragraph_string,
+    draw_control_names as _draw_control_names,
+    output_text_for_cell as _output_text_for_cell,
+    paragraphs as _paragraphs,
+)
 
 _SENTINEL = "WA_NB_SENTINEL"
 _AFTER_HEADING = "After code heading"
@@ -78,54 +84,6 @@ def _consecutive_code_cells_ipynb_path() -> Path:
     with handle as fh:
         json.dump(payload, fh)
     return Path(handle.name)
-
-
-def _paragraphs(doc) -> list[tuple[str, str]]:
-    out: list[tuple[str, str]] = []
-    enum = doc.getText().createEnumeration()
-    while enum_has_more(enum):
-        el = enum.nextElement()
-        try:
-            if hasattr(el, "supportsService") and not el.supportsService("com.sun.star.text.Paragraph"):
-                continue
-            style = str(el.getPropertyValue("ParaStyleName") or "")
-            text = str(el.getString() or "")
-        except Exception:
-            continue
-        out.append((style, text))
-    return out
-
-
-def _draw_control_names(doc) -> list[str]:
-    names: list[str] = []
-    dp = doc.getDrawPage()
-    for i in range(dp.getCount()):
-        shape = dp.getByIndex(i)
-        try:
-            if shape.getShapeType() != "com.sun.star.drawing.ControlShape":
-                continue
-            name = str(getattr(shape.Control, "Name", "") or "")
-        except Exception:
-            continue
-        if name:
-            names.append(name)
-    return names
-
-
-def _anchor_paragraph_string(doc, shape_name: str) -> str:
-    from plugin.notebook.form_lookup import find_control_shape_by_name as _find_control_shape_by_name
-
-    shape = _find_control_shape_by_name(doc, shape_name)
-    if shape is None:
-        return ""
-    try:
-        text = doc.getText()
-        cursor = text.createTextCursorByRange(shape.getAnchor())
-        cursor.gotoStartOfParagraph(False)
-        cursor.gotoEndOfParagraph(True)
-        return str(cursor.getString() or "")
-    except Exception:
-        return ""
 
 
 def _assert_controls_present(doc, cell) -> None:
@@ -477,32 +435,6 @@ def _gutter_line_for_cell(doc, cell) -> str:
         if text.strip().startswith("In [") or f"Cell {cell.index + 1}: Code" in text:
             return text
     return ""
-
-
-def _output_text_for_cell(doc, cell) -> str:
-    from plugin.notebook.notebook_runner import (
-        _cursor_after_bookmark,
-        _is_next_cell_boundary,
-        _paragraph_string,
-    )
-    from plugin.notebook.layout import STYLE_NOTEBOOK_IN
-    from plugin.notebook.writer_importer import resolve_para_style
-
-    start = _cursor_after_bookmark(doc, cell.output_start_bookmark)
-    if start is None:
-        return ""
-    text = doc.getText()
-    notebook_in = resolve_para_style(doc, STYLE_NOTEBOOK_IN)
-    end = text.createTextCursorByRange(start)
-    while end.gotoNextParagraph(False):
-        if _is_next_cell_boundary(end.ParaStyleName, _paragraph_string(end), notebook_in):
-            end.gotoStartOfParagraph(False)
-            break
-    else:
-        end.gotoEnd(False)
-    sel = text.createTextCursorByRange(start)
-    sel.gotoRange(end.getStart(), True)
-    return str(sel.getString() or "")
 
 
 @native_test
