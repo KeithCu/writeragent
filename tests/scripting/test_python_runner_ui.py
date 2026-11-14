@@ -906,6 +906,8 @@ def test_run_changed_text_saves_once():
         trigger("BtnRun")
 
     mock_save.assert_called_once()
+    # Pin edited text from the dialog rather than the stale cached script.
+    assert mock_save.call_args.args[3] == "result = 2"
     mock_msgbox.assert_not_called()
     mock_start_run.assert_called_once()
     lbl.setText.assert_called_with("Running...")

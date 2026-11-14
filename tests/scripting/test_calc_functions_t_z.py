@@ -328,6 +328,7 @@ def test_unique_casefold_bool_and_nan():
     assert calc.unique(["A", "a"]) == ["A"]
     assert calc.unique(["A", "a"], unique_only=True) == []
     assert calc.unique([True, 1, 1.0]) == [True, 1]
+    # Bug Z2: unique does not stringify numbers (1 and '1' stay distinct)
     assert calc.unique([1, "1", 2]) == [1, "1", 2]
     assert calc.unique([["A"], ["a"]]) == [["A"]]
     got = calc.unique([float("nan"), float("nan"), 1.0])

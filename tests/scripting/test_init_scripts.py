@@ -378,8 +378,8 @@ def test_init_helper_function_callable(cell_sid, init_sid):
     assert r1["result"] == 42
 
 
-def test_init_helper_globals_available_across_cells():
-    """Globals defined in INIT scripts remain available in shared-kernel cells."""
+def test_init_globals_visible_in_first_shared_cell():
+    """Globals defined in INIT scripts are visible in a shared-kernel cell."""
     init_code = "def double(x):\n    return x * 2\nFACTOR = 10"
     h = script_body_hash(init_code)
 
