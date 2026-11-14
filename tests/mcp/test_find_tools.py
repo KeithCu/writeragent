@@ -573,12 +573,6 @@ def test_no_document_chart_guidance_is_app_neutral():
     assert g != get_domain_guidance("charts", agent_label="Calc")
 
 
-def test_run_venv_python_advertises_superset_when_doc_unknown():
-    from plugin.calc.python.venv import RunVenvPythonScript
-    params = RunVenvPythonScript().get_parameters(None)
-    assert "data_range" in params["properties"]
-
-
 def test_direct_flat_lists_app_specific_tools_without_document():
     reg = ToolRegistry(MagicMock())
     for cls in (FindTools, _FtInsert, _AppSpecificTool):

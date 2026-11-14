@@ -107,6 +107,7 @@ def test_kills_only_our_profile_real_processes(tmp_path: Path) -> None:
                 proc.wait(timeout=10)
 
 
+@pytest.mark.integration
 @pytest.mark.skipif(lo_paths.find("soffice") is None, reason="LibreOffice not installed")
 def test_kills_real_headless_office(tmp_path: Path) -> None:
     """A real headless soffice on a scratch profile and HOME is found by URL and killed."""

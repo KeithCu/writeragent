@@ -1509,3 +1509,399 @@ def test_sandbox_wa_help_executes_and_returns_signature(fresh_sandbox_sessions) 
     assert res["result"].startswith("wa.shape.upsert(")
     assert "Args:" in res["result"]
 
+
+def test_ensure_mpl_agg_does_not_retry_after_use_failure(monkeypatch):
+    from plugin.scripting.venv import optional_import as oi
+
+    calls = {"n": 0}
+
+    class _Mpl:
+        def use(self, backend: str) -> None:
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise RuntimeError("backend busy")
+
+    monkeypatch.setattr(vs, "_MPL_AGG_SET", False)
+    monkeypatch.setattr(vs, "_MPL_AGG_FAILED", False)
+    monkeypatch.setattr(oi, "optional_module", lambda name: _Mpl() if name == "matplotlib" else None)
+    vs._ensure_mpl_agg()
+    assert vs._MPL_AGG_SET is False
+    assert vs._MPL_AGG_FAILED is True
+    vs._ensure_mpl_agg()
+    assert calls["n"] == 1
+
+
+def test_serialize_result_dataframe_numeric():
+    """DataFrame with numeric values should serialize to dataframe envelope with split_grid inner when large."""
+    pd = pytest.importorskip("pandas")
+    np = pytest.importorskip("numpy")
+    from plugin.scripting.payload_codec import PAYLOAD_DATAFRAME, is_dataframe_payload, is_split_grid
+
+    df = pd.DataFrame({"a": np.arange(200), "b": np.arange(200) * 0.5})
+    res = serialize_result(df)
+    assert is_dataframe_payload(res)
+    assert res["__wa_payload__"] == PAYLOAD_DATAFRAME
+    assert res["columns"] == ["a", "b"]
+    inner = res["data"]
+    # Above BINARY_MIN_CELLS -> split_grid
+    assert is_split_grid(inner)
+    assert inner["shape"][0] == 200
+
+
+def test_serialize_result_dataframe_mixed_and_roundtrip():
+    """Mixed DF should keep strings via the inner grid/strings path; host unpack yields lists."""
+    pd = pytest.importorskip("pandas")
+    from plugin.scripting.payload_codec import is_dataframe_payload
+
+    df = pd.DataFrame({"num": [1, 2, 3], "txt": ["x", "y", None]})
+    res = serialize_result(df)
+    assert is_dataframe_payload(res)
+    assert res["columns"] == ["num", "txt"]
+    unpacked = host_unpack_data(res)
+    assert unpacked["columns"] == ["num", "txt"]
+    data = unpacked["data"]
+    assert data[0] == [1, "x"]
+    assert data[2] == [3, None]
+
+
+def test_run_sandboxed_dataframe_produces_envelope():
+    """End-to-end: code returning a DF yields the envelope in the worker response."""
+    pytest.importorskip("pandas")
+    from plugin.scripting.payload_codec import is_dataframe_payload
+
+    code = "import pandas as pd\ndf = pd.DataFrame({'x': [10, 20], 'y': ['p', 'q']})\nresult = df"
+    res = sandbox_run(code, timeout_sec=30)
+    assert res["status"] == "ok"
+    assert is_dataframe_payload(res["result"])
+    assert res["result"]["columns"] == ["x", "y"]
+
+
+def test_serialize_result_small_numeric_dataframe_spills_body():
+    """A numeric DataFrame under BINARY_MIN_CELLS spills header and body, not the header alone."""
+    pd = pytest.importorskip("pandas")
+    np = pytest.importorskip("numpy")
+    from plugin.calc.python.addin_values import to_calc_compatible
+    from plugin.scripting.calc_range import result_to_calc_grid
+    from plugin.scripting.payload_codec import is_split_grid
+
+    df = pd.DataFrame({"a": np.arange(10), "b": np.arange(10) + 0.5})
+    res = serialize_result(df)
+    assert not is_split_grid(res["data"])
+    unpacked = host_unpack_data(res)
+    grid = result_to_calc_grid(unpacked)
+    assert grid[0] == ["a", "b"]
+    assert len(grid) == 11
+    coerced = to_calc_compatible(grid)
+    assert coerced[1] == (0, pytest.approx(0.5))
+
+    named = pd.Series(np.arange(5, dtype=float), name="x")
+    named_grid = result_to_calc_grid(host_unpack_data(serialize_result(named)))
+    assert named_grid[0] == ["x"]
+    assert len(named_grid) == 6
+    assert named_grid[1] == [pytest.approx(0.0)]
+
+
+def test_serialize_result_small_object_dataframe_is_host_pickleable():
+    """Object/extension frames under BINARY_MIN_CELLS must not leak unpickleable cells.
+
+    Small object DataFrames must not leave host-unpickleable cells in the nested
+    list path. Extension types belong in split_grid flatten like frames at
+    BINARY_MIN_CELLS and above.
+    """
+    pd = pytest.importorskip("pandas")
+    np = pytest.importorskip("numpy")
+
+    nullable = serialize_result(pd.DataFrame({"a": pd.array([True, None], dtype="boolean")}))
+    assert nullable["data"] == [[True], [None]]
+    assert type(nullable["data"][0][0]) is bool
+
+    ints = serialize_result(pd.DataFrame({"a": [np.int64(1), np.int64(2)]}))
+    assert ints["data"] == [[1], [2]]
+    assert type(ints["data"][0][0]) is int
+
+    exact = serialize_result(pd.DataFrame({"d": [Decimal("1.5")], "f": [Fraction(1, 4)]}))
+    assert exact["data"] == [[1.5, 0.25]]
+    assert type(exact["data"][0][0]) is float
+    assert type(exact["data"][0][1]) is float
+
+    series = serialize_result(pd.Series([np.int64(3), np.int64(4)]))
+    assert series == [3, 4]
+    assert type(series[0]) is int
+
+
+def test_serialize_result_empty_dataframe_and_series():
+    """0-row DataFrame / named empty Series → header-only envelope. Not a codec gap."""
+    pd = pytest.importorskip("pandas")
+    from plugin.calc.python.addin_values import to_calc_compatible
+    from plugin.scripting.calc_range import result_to_calc_grid
+    from plugin.scripting.payload_codec import is_dataframe_payload
+
+    df = pd.DataFrame(columns=["A", "B"])
+    res = serialize_result(df)
+    assert is_dataframe_payload(res)
+    assert res["columns"] == ["A", "B"]
+    assert res["data"] == []
+    assert result_to_calc_grid(res) == [["A", "B"]]
+
+    named = pd.Series([], dtype=float, name="x")
+    named_res = serialize_result(named)
+    assert is_dataframe_payload(named_res)
+    assert named_res["columns"] == ["x"]
+    assert result_to_calc_grid(named_res) == [["x"]]
+
+    unnamed = pd.Series([], dtype=float)
+    assert to_calc_compatible(serialize_result(unnamed)) == ()
+
+
+def test_serialize_result_dataframe_datetime_is_iso_not_unix_epoch():
+    """datetime64 columns must not take split_grid astype(float64) (Unix epoch days)."""
+    pd = pytest.importorskip("pandas")
+    from plugin.calc.python.addin_values import to_calc_compatible
+    from plugin.scripting.calc_range import result_to_calc_grid
+
+    df = pd.DataFrame({"d": pd.to_datetime(["2026-06-25", "2026-06-26"])})
+    unpacked = host_unpack_data(serialize_result(df))
+    coerced = to_calc_compatible(result_to_calc_grid(unpacked))
+    assert coerced[0] == ("d",)
+    assert coerced[1][0] == "2026-06-25T00:00:00"
+    assert coerced[2][0] == "2026-06-26T00:00:00"
+    assert coerced[1][0] != 20629.0
+
+
+def test_serialize_result_datetime64_ndarray_is_iso_not_unix_epoch():
+    np = pytest.importorskip("numpy")
+    pytest.importorskip("pandas")
+    from plugin.calc.python.addin_values import to_calc_compatible
+
+    arr = np.array([np.datetime64("2026-06-25"), np.datetime64("2026-06-26")])
+    out = to_calc_compatible(serialize_result(arr))
+    assert out[0] == "2026-06-25T00:00:00"
+    assert out[1] == "2026-06-26T00:00:00"
+
+
+def test_serialize_result_timedelta64_ndarray_is_fractional_days():
+    """timedelta64 must be fractional days on both sides of BINARY_MIN_CELLS."""
+    np = pytest.importorskip("numpy")
+    from plugin.scripting.payload_codec import BINARY_MIN_CELLS, is_split_grid
+
+    small = np.array([np.timedelta64(0, "D"), np.timedelta64(1, "D")])
+    assert host_unpack_data(serialize_result(small)) == [0.0, 1.0]
+    assert serialize_result(np.timedelta64(1, "D")) == 1.0
+
+    large = np.arange(BINARY_MIN_CELLS).astype("timedelta64[D]")
+    wire = serialize_result(large)
+    assert is_split_grid(wire)
+    back = host_unpack_data(wire)
+    assert back[0] == 0.0
+    assert back[1] == 1.0
+    assert "day" not in str(back[1])
+
+    cube = np.arange(8).astype("timedelta64[D]").reshape(2, 2, 2)
+    assert host_unpack_data(serialize_result(cube)) == [
+        [[0.0, 1.0], [2.0, 3.0]],
+        [[4.0, 5.0], [6.0, 7.0]],
+    ]
+
+    buf = io.BytesIO()
+    write_pickle_frame(buf, {"status": "ok", "result": serialize_result(small)})
+    buf.seek(0)
+    unpacked = read_pickle_frame(buf, require_dict=True)
+    assert host_unpack_data(unpacked["result"]) == [0.0, 1.0]
+
+
+def test_serialize_result_small_object_ndarray_is_host_pickleable():
+    """An object ndarray under the threshold must coerce, not raise."""
+    np = pytest.importorskip("numpy")
+    from plugin.scripting.payload_codec import BINARY_MIN_CELLS, is_split_grid
+
+    small = np.array([np.int64(1), np.int64(2)], dtype=object)
+    assert serialize_result(small) == [1, 2]
+    buf = io.BytesIO()
+    write_pickle_frame(buf, {"status": "ok", "result": serialize_result(small)})
+    buf.seek(0)
+    unpacked = read_pickle_frame(buf, require_dict=True)
+    assert host_unpack_data(unpacked["result"]) == [1, 2]
+
+    large = np.array([np.int64(i) for i in range(BINARY_MIN_CELLS)], dtype=object)
+    wire = serialize_result(large)
+    assert is_split_grid(wire)
+    back = host_unpack_data(wire)
+    assert back[0] == 0
+    assert back[-1] == BINARY_MIN_CELLS - 1
+
+
+def test_serialize_result_blank_multiindex_levels():
+    pd = pytest.importorskip("pandas")
+    from plugin.scripting.payload_codec import is_dataframe_payload
+
+    df = pd.DataFrame(
+        [[1, 2]],
+        columns=pd.MultiIndex.from_tuples([("Region", ""), ("A", " x ")]),
+    )
+    res = serialize_result(df)
+    assert is_dataframe_payload(res)
+    assert res["columns"] == ["Region", "A / x"]
+
+    s = pd.Series([1], name=("", None))
+    res2 = serialize_result(s)
+    assert is_dataframe_payload(res2)
+    assert res2["columns"] == ["value"]
+    unpacked = host_unpack_data(res2)
+    assert unpacked["columns"] == ["value"]
+
+
+def test_serialize_result_flat_label_collisions_are_deduped():
+    pd = pytest.importorskip("pandas")
+    from plugin.scripting.payload_codec import is_dataframe_payload
+
+    df = pd.DataFrame([[1, 2]], columns=[("A", ""), "A"])
+    res = serialize_result(df)
+    assert is_dataframe_payload(res)
+    assert res["columns"] == ["A", "A_1"]
+
+    df2 = pd.DataFrame([[1, 2]], columns=[("", None), "value"])
+    res2 = serialize_result(df2)
+    assert res2["columns"] == ["value", "value_1"]
+
+
+def test_serialize_result_multiindex_columns_and_categorical():
+    """MultiIndex columns flatten to 'A / x'; row index is dropped; categoricals are labels."""
+    pd = pytest.importorskip("pandas")
+    from plugin.scripting.payload_codec import is_dataframe_payload
+
+    df = pd.DataFrame([[1, 2]], columns=pd.MultiIndex.from_tuples([("A", "x"), ("A", "y")]))
+    res = serialize_result(df)
+    assert is_dataframe_payload(res)
+    assert res["columns"] == ["A / x", "A / y"]
+
+    cat = pd.DataFrame({"c": pd.Categorical(["red", "blue", "red"])})
+    unpacked = host_unpack_data(serialize_result(cat))
+    assert unpacked["data"][0][0] == "red"
+    assert unpacked["data"][1][0] == "blue"
+
+
+def test_serialize_pil_image():
+    """A PIL Image should be serialized to an image payload with format png."""
+    Image = pytest.importorskip("PIL.Image")
+
+    img = Image.new("RGB", (100, 100), color="red")
+    res = serialize_result(img)
+    assert res["__wa_payload__"] == "image"
+    assert res["format"] == "png"
+    assert isinstance(res["data"], bytes)
+
+
+def test_serialize_dict_of_dataframes():
+    """A dictionary containing DataFrames should serialize its DataFrame values correctly."""
+    pd = pytest.importorskip("pandas")
+    from plugin.scripting.payload_codec import is_dataframe_payload
+
+    df = pd.DataFrame({"x": [1, 2]})
+    res = serialize_result({"df_key": df})
+    assert isinstance(res, dict)
+    assert is_dataframe_payload(res["df_key"])
+
+
+def test_serialize_container_with_ndarray():
+    np = pytest.importorskip("numpy")
+
+    arr = np.array([1, 2, 3])
+    res = serialize_result([arr, {"k": (arr,)}])
+    assert isinstance(res, list)
+    assert host_unpack_data(res[0]) == [1, 2, 3]
+    assert host_unpack_data(res[1]["k"][0]) == [1, 2, 3]
+
+
+def test_serialize_set_and_frozenset_coercion():
+    np = pytest.importorskip("numpy")
+
+    res = serialize_result({np.int64(42), np.int64(43)})
+    assert res == {42, 43}
+
+    res_frozen = serialize_result([frozenset([np.int64(7)])])
+    assert res_frozen == [frozenset([7])]
+
+
+def test_serialize_numpy_scalar():
+    np = pytest.importorskip("numpy")
+    assert serialize_result(np.int64(7)) == 7
+
+
+def test_execute_request_fresh_namespace():
+    r1 = sandbox_run("x = 41\nresult = x + 1", None)
+    assert r1["status"] == "ok"
+    assert r1["result"] == 42
+    r2 = sandbox_run("result = x + 1", None)
+    assert r2["status"] == "error"
+
+
+def test_execute_request_injects_data():
+    r = sandbox_run("result = float(np.sum(data))", [[1, 2, 3, 4]])
+    assert r["status"] == "ok"
+    assert r["result"] == 10.0
+
+
+def test_execute_request_1x1_data_arithmetic_dag():
+    r1 = sandbox_run("result = data + 3", [[2]])
+    assert r1["status"] == "ok"
+    assert r1["result"] == 5
+    r2 = sandbox_run("result = data * 4", [[5.0]])
+    assert r2["status"] == "ok"
+    assert r2["result"] == 20.0
+
+
+def test_execute_request_1x1_data_serialize_unwraps_to_scalar():
+    r = sandbox_run("result = data", [[2]])
+    assert r["status"] == "ok"
+    assert r["result"] == 2
+    assert not isinstance(r["result"], list)
+
+
+def test_execute_request_injects_ranges_single_range():
+    r = sandbox_run("result = (len(ranges), data is ranges[0], hasattr(data, 'to_pandas'))", [[1, 2, 3]])
+    assert r["status"] == "ok"
+    assert r["result"] == [1, True, True]
+
+
+def test_execute_request_injects_ranges_multi_polymorphic_data():
+    from plugin.calc.calc_addin_data import pack_calc_multi_data_for_wire
+
+    wire = pack_calc_multi_data_for_wire([[[1.0, 2.0, 3.0]], [[4.0, 5.0]]], force="never")
+    r = sandbox_run("result = (len(ranges), data is ranges, data[1].values[0][0])", wire)
+    assert r["status"] == "ok"
+    assert r["result"] == [2, True, 4.0]
+
+
+def test_execute_request_does_not_inject_inputs():
+    r = sandbox_run("result = inputs", [[1]])
+    assert r["status"] == "error"
+    assert "inputs" in r.get("message", "").lower() and "not defined" in r.get("message", "").lower()
+
+
+@pytest.mark.parametrize(
+    "value, expected",
+    [
+        pytest.param("result = math.sqrt(16)", 4.0, id="test_automatic_imports_math"),
+        pytest.param("import math as my_math\nresult = my_math.sqrt(16)", 4.0, id="test_automatic_imports_already_imported"),
+        pytest.param("import math\nresult = math.sqrt(25)", 5.0, id="test_automatic_imports_explicit"),
+    ],
+)
+def test_automatic_imports_math(value, expected):
+    r = sandbox_run(value, None)
+    assert r["status"] == "ok"
+    assert r["result"] == expected
+
+
+@pytest.mark.parametrize(
+    "value, value_2, expected",
+    [
+        pytest.param("numpy", "result = float(np.sum([1, 2, 3]))", 6.0, id="test_automatic_imports_numpy"),
+        pytest.param("sympy", "result = str(sp.Symbol('x'))", "x", id="test_automatic_imports_sympy"),
+    ],
+)
+def test_automatic_imports_numpy(value, value_2, expected):
+    pytest.importorskip(value)
+    r = sandbox_run(value_2, None)
+    assert r["status"] == "ok"
+    assert r["result"] == expected
+

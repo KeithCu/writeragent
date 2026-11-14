@@ -261,3 +261,47 @@ class TestPromptToolMatching:
         plain_instr = get_sub_agent_instructions("BASE", tool_names=["other_tool"])
         assert html_rules not in plain_instr
         assert target_rules not in plain_instr
+
+
+def test_collect_writing_tools_merges_doc_research_reads():
+    from plugin.chatbot.writing import WriteDocumentSection, WritingResearchWeb
+    from plugin.doc.document_research_tools import ListNearbyFiles
+    from plugin.framework.tool import ToolRegistry
+
+    registry = ToolRegistry(services={})
+    registry.register(WritingResearchWeb())
+    registry.register(WriteDocumentSection())
+    registry.register(ListNearbyFiles())
+
+    ctx = ToolContext(
+        doc=MagicMock(),
+        ctx=MagicMock(),
+        doc_type="writer",
+        services={"tools": registry},
+    )
+    names = {t.name for t in collect_sub_agent_tools(ctx, "writing_plan")}
+    assert "writing_research_web" in names
+    assert "write_document_section" in names
+    assert "list_nearby_files" in names
+
+
+def test_collect_writing_tools_excludes_specialized_workflow_finished():
+    from plugin.chatbot.writing import WriteDocumentSection, WritingResearchWeb
+    from plugin.framework.tool import ToolRegistry
+    from plugin.writer.specialized_base import SpecializedWorkflowFinished
+
+    registry = ToolRegistry(services={})
+    registry.register(WritingResearchWeb())
+    registry.register(WriteDocumentSection())
+    registry.register(SpecializedWorkflowFinished())
+
+    ctx = ToolContext(
+        doc=MagicMock(),
+        ctx=MagicMock(),
+        doc_type="writer",
+        services={"tools": registry},
+    )
+    names = {t.name for t in collect_sub_agent_tools(ctx, "writing_plan")}
+    assert "writing_research_web" in names
+    assert "write_document_section" in names
+    assert "specialized_workflow_finished" not in names

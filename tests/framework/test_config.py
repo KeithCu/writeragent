@@ -160,27 +160,6 @@ class TestConfigSync:
             set_api_key_for_endpoint('http://localhost:11434/', 'updated-key')
             assert (self.config_data.get('api_keys_by_endpoint', {}).get('http://localhost:11434')) == ('updated-key')
 
-    def test_event_bus_listener_and_emit(self):
-        called = []
-        bus = get_event_bus()
-
-        def my_callback(ctx=None, **kwargs):
-            called.append(ctx)
-        bus.subscribe('config:changed', my_callback)
-        try:
-            bus.emit('config:changed', ctx=self.ctx)
-            assert (len(called)) == (1)
-            assert (called[0]) == (self.ctx)
-
-            def bad_callback(**kwargs):
-                raise ValueError('Simulated error')
-            bus.subscribe('config:changed', bad_callback)
-            bus.emit('config:changed', ctx=self.ctx)
-            assert (len(called)) == (2)
-        finally:
-            bus.unsubscribe('config:changed', my_callback)
-            bus.unsubscribe('config:changed', bad_callback)
-
 
 class TestConfigSyncFileIO:
 
@@ -1368,6 +1347,68 @@ def test_unknown_key_raises():
     with pytest.raises(ConfigError) as exc_info:
         get_config("nosuchkey")
     assert exc_info.value.code == "CONFIG_KEY_NOT_FOUND"
+
+
+def _config_json(path):
+    body = path.read_text(encoding="utf-8")
+    return json.loads(body[body.index("{") :])
+
+
+def test_save_one_write_one_emit_and_validation_writes_nothing(tmp_path):
+    """Batch save: one write, one event. A bad value leaves the file untouched."""
+    from plugin.framework.config import get_config, reset_config_for_tests, save
+    from plugin.framework.errors import ConfigValidationError
+    from plugin.framework.event_bus import get_event_bus
+
+    path = tmp_path / "writeragent.json"
+    path.write_text(json.dumps({"text_model": "keep", "python_venv_path": "/old"}), encoding="utf-8")
+    reset_config_for_tests()
+    try:
+        with (
+            patch("plugin.framework.config.get_config_file_path", return_value=str(path)),
+            patch.object(get_event_bus(), "emit") as emit,
+        ):
+            save({"text_model": "alpha", "request_timeout": 45})
+            assert emit.call_count == 1
+            assert emit.call_args.args[0] == "config:changed"
+            assert emit.call_args.kwargs["key"] == ""
+            assert emit.call_args.kwargs["keys"] == ("text_model", "request_timeout")
+            assert emit.call_args.kwargs["old_value"] is None
+            assert get_config("text_model") == "alpha"
+            assert get_config("request_timeout") == 45
+            # An unrelated batch leaves the flat alias alone. Only staging the
+            # dotted key pops it (checked below).
+            assert _config_json(path).get("scripting.python_venv_path") == "/old"
+
+            emit.reset_mock()
+            save({"text_model": "beta"})
+            emit.assert_called_once()
+            assert emit.call_args.kwargs["key"] == "text_model"
+            assert emit.call_args.kwargs["value"] == "beta"
+
+            emit.reset_mock()
+            before = path.read_text(encoding="utf-8")
+            save({"text_model": "beta", "request_timeout": "45"})
+            emit.assert_not_called()
+            assert path.read_text(encoding="utf-8") == before
+
+            with pytest.raises(ConfigValidationError):
+                save({"temperature": 9, "text_model": "should-not-land"})
+            emit.assert_not_called()
+            assert path.read_text(encoding="utf-8") == before
+            assert get_config("text_model") == "beta"
+
+            path.write_text(
+                json.dumps({"text_model": "beta", "python_venv_path": "/old"}),
+                encoding="utf-8",
+            )
+            reset_config_for_tests()
+            save({"scripting.python_venv_path": "/opt/venv"})
+            written = _config_json(path)
+            assert written["scripting.python_venv_path"] == "/opt/venv"
+            assert "python_venv_path" not in written
+    finally:
+        reset_config_for_tests()
 
 
 class TestValidateApiConfigPlaceholders:

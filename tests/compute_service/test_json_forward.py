@@ -870,3 +870,11 @@ def test_parse_multipart_vision_part_errors() -> None:
     unknown_part = (f'--{boundary}\r\nContent-Disposition: form-data; name="meta"\r\nContent-Type: application/json\r\n\r\n{{"id": "v"}}\r\n--{boundary}\r\nContent-Disposition: form-data; name="unknown_part"\r\nContent-Type: text/plain\r\n\r\nsomething\r\n--{boundary}--\r\n').encode("ascii")
     with pytest.raises(ExecuteRequestError, match="unknown multipart part 'unknown_part'"):
         parse_multipart_vision(unknown_part, ct)
+
+
+def test_validate_session_id_rejects_padded_init_suffix() -> None:
+    from compute_service.json_forward import validate_session_id
+
+    with pytest.raises(ExecuteRequestError) as exc_info:
+        validate_session_id("foo:init ")
+    assert exc_info.value.code == "INVALID_SESSION_ID"

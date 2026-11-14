@@ -161,6 +161,34 @@ def test_run_stream_drain_loop_error():
     assert isinstance(errors[0], ValueError)
 
 
+def test_ui_thread_graceful_recovery():
+    """Chunks queued before an ERROR item still drain before on_error fires."""
+    q = queue.Queue()
+    toolkit = DummyToolkit()
+    outcome = DrainOutcome()
+    applied = []
+    errors = []
+
+    q.put((StreamQueueKind.CHUNK, "hello"))
+    q.put((StreamQueueKind.CHUNK, "world"))
+    q.put((StreamQueueKind.ERROR, ValueError("worker thread crashed due to JSON error")))
+
+    run_stream_drain_loop(
+        q,
+        toolkit,
+        outcome,
+        lambda t, is_thinking: applied.append((t, is_thinking)),
+        on_stream_done=lambda i: True,
+        on_stopped=lambda: None,
+        on_error=errors.append,
+    )
+
+    assert outcome.done is True
+    assert applied == [("helloworld", False)]
+    assert len(errors) == 1
+    assert isinstance(errors[0], ValueError)
+
+
 def test_run_stream_drain_loop_error_on_error_true_drops_batch_tail():
     """Recovered ERROR keeps the drain, but items already pulled are the failed attempt."""
     q = queue.Queue()
@@ -964,3 +992,31 @@ def test_stream_queue_terminal_subscribers_are_independent():
     cell5.clear()
     q.put((StreamQueueKind.ERROR, None))
     assert not cell5.is_set()
+
+
+def test_run_stream_drain_loop_error_handler():
+    from plugin.framework.errors import format_error_payload
+
+    q = queue.Queue()
+    outcome = DrainOutcome()
+    test_error = ValueError("Simulation error")
+    formatted_error = format_error_payload(test_error)
+    q.put((StreamQueueKind.ERROR, formatted_error))
+    error_received = []
+
+    def on_error(e):
+        error_received.append(e)
+
+    run_stream_drain_loop(
+        q,
+        DummyToolkit(),
+        outcome,
+        (lambda c, t: None),
+        on_error=on_error,
+        on_stream_done=(lambda x: True),
+        on_stopped=(lambda: None),
+    )
+    assert outcome.done
+    assert len(error_received) == 1
+    assert error_received[0]["status"] == "error"
+    assert error_received[0]["message"] == "Simulation error"

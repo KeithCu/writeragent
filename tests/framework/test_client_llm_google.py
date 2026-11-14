@@ -274,5 +274,39 @@ def test_google_tool_format():
     assert data["tools"][0]["function"]["parameters"]["properties"]["location"]["type"] == "string"
 
 
+def test_gemini_shim_inline_data():
+    """GoogleShim uses the OpenAI-compatible endpoint, so image_url parts pass through unchanged (no inlineData rewrite)."""
+    from unittest.mock import MagicMock, patch
+    from plugin.framework.client.google_shim import GoogleShim
+    from plugin.framework.client.llm_client import LlmClient
+
+    ctx = MagicMock()
+    client = LlmClient({"endpoint": "https://generativelanguage.googleapis.com", "model": "gemini-1.5-flash"}, ctx)
+    shim = GoogleShim(client)
+
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": "Describe this"},
+                {"type": "image_url", "image_url": {"url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAUA"}},
+            ],
+        }
+    ]
+
+    with patch("plugin.framework.client.llm_client.LlmClient._resolve_auth") as mock_auth:
+        mock_auth.return_value = {"api_key": "fake_key", "provider": "google"}
+        _, _, json_data, _ = shim.build_chat_request(messages, 100, 0.5, None, False, "gemini-1.5-flash", None)
+
+        data = json.loads(json_data)
+        content = data["messages"][0]["content"]
+        assert len(content) == 2
+        assert content[0] == {"type": "text", "text": "Describe this"}
+        assert content[1] == {
+            "type": "image_url",
+            "image_url": {"url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAUA"},
+        }
+
+
 if __name__ == "__main__":
     pytest.main([__file__])

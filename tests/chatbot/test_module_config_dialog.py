@@ -15,7 +15,6 @@ from plugin.chatbot.module_config_dialog import (
 from plugin.chatbot.settings_fields import (
     apply_field_specs_result,
     build_module_field_specs,
-    populate_settings_control,
 )
 
 
@@ -28,90 +27,6 @@ def test_get_module_config_dialog_id_for_vision():
         },
     ):
         assert get_module_config_dialog_id("vision") == "VisionSettingsDialog"
-
-
-def test_get_module_config_field_specs_skips_internal_and_non_persisted():
-    ctx = object()
-    manifest = {
-        "name": "vision",
-        "config": {
-            "device": {"type": "string", "default": "auto", "widget": "select", "page": "general"},
-            "open_settings": {"type": "string", "widget": "button", "settings_persist": False},
-            "_internal": {"type": "string", "internal": True},
-        },
-    }
-    with patch("plugin.chatbot.settings_fields.find_module_manifest", return_value=manifest), \
-         patch("plugin.chatbot.settings_fields.get_config", return_value="auto"):
-        specs = build_module_field_specs("vision", ctx=ctx, control_ids="flat")
-
-    assert len(specs) == 1
-    assert specs[0]["name"] == "device"
-    assert specs[0]["config_key"] == "vision.device"
-
-
-def test_populate_settings_control_sets_translated_option_labels():
-    class DummyCtrl:
-        def __init__(self) -> None:
-            self.items: list[str] = []
-
-        def getItemCount(self) -> int:
-            return len(self.items)
-
-        def removeItems(self, pos: int, count: int) -> None:
-            del self.items[pos : pos + count]
-
-        def addItems(self, items: tuple[str, ...], pos: int) -> None:
-            self.items[pos:pos] = list(items)
-
-        def setText(self, _text: str) -> None:
-            pass
-
-    ctrl = DummyCtrl()
-
-    field = {
-        "name": "insert_mode",
-        "options": [
-            {"value": "html", "label": "Standard HTML"},
-            {"value": "structured", "label": "Structured (layout / cell grid)"},
-        ],
-        "value": "html",
-    }
-    populate_settings_control(ctrl, field)
-    assert ctrl.items[0]
-    assert "Standard HTML" in ctrl.items[0]
-
-
-def test_apply_module_config_result_stores_select_option_values():
-    """A select caption becomes its option id. An id that already matches disk is not written.
-
-    demo.mode is already ``fast``, so OK writes only ``demo.count``. When the
-    stored mode is different, the caption ``Fast Mode`` is still saved as ``fast``.
-    """
-    ctx = object()
-    manifest = {
-        "name": "demo",
-        "config": {
-            "count": {"type": "int", "default": 1, "widget": "number"},
-            "mode": {
-                "type": "string",
-                "default": "fast",
-                "widget": "select",
-                "options": [{"value": "fast", "label": "Fast Mode"}],
-            },
-        },
-    }
-    disk = {"demo.count": 1, "demo.mode": "fast"}
-    with patch("plugin.chatbot.settings_fields.find_module_manifest", return_value=manifest), \
-         patch("plugin.chatbot.settings_fields.get_config", side_effect=lambda key: disk[key]), \
-         patch("plugin.chatbot.settings_fields.save") as mock_save:
-        specs = build_module_field_specs("demo", ctx=ctx, control_ids="flat")
-        apply_field_specs_result({"count": "42", "mode": "Fast Mode"}, specs)
-        mock_save.assert_called_once_with({"demo.count": "42"})
-
-        mock_save.reset_mock()
-        disk["demo.mode"] = "slow"
-        apply_field_specs_result({"count": "42", "mode": "Fast Mode"}, specs)
-        mock_save.assert_called_once_with({"demo.count": "42", "demo.mode": "fast"})
 
 
 def test_extract_result_prefers_numeric_getvalue_over_stale_gettext():

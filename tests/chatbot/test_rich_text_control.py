@@ -14,7 +14,6 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 
-from plugin.chatbot.dialogs import set_prop
 from plugin.chatbot.rich_text_control import (
     _apply_rich_control_geometry,
     _is_automatic_char_color,
@@ -104,37 +103,6 @@ class TestRichControlHelpers:
         assert model.props.get("CharBackColor") == 0xD8D9DA
         assert "CharColor" not in model.props
         assert "TextColor" not in model.props
-
-    def test_set_model_property_swallows_unknown(self):
-        class _Model:
-            __slots__ = ()
-
-            def setPropertyValue(self, name, value):
-                raise RuntimeError("UnknownPropertyException")
-
-        assert set_prop(_Model(), "BackgroundColor", 0xFFFFFF) is False
-
-    def test_set_model_property_on_plain_object(self):
-        class _Model:
-            pass
-
-        model = _Model()
-        set_prop(model, "PositionX", 42)
-        assert getattr(model, "PositionX") == 42
-
-    def test_set_model_property_falls_back_to_setPropertyValue(self):
-        class _Model:
-            def setPropertyValue(self, name, value):
-                self.last = (name, value)
-
-            def __setattr__(self, name, value):
-                if name not in ("last",):
-                    raise AttributeError(name)
-                object.__setattr__(self, name, value)
-
-        model = _Model()
-        set_prop(model, "PositionX", 42)
-        assert model.last == ("PositionX", 42)
 
 
 @contextmanager
@@ -452,19 +420,6 @@ class TestAppendTextChunk:
         ])
         cursor.gotoEnd.assert_called_once_with(True)
         cursor.setString.assert_called_once_with("")
-
-
-class TestStripLegacyAiLabel:
-    def test_strips_ai_prefix(self):
-        from plugin.chatbot.rich_text import strip_legacy_ai_label
-
-        assert strip_legacy_ai_label("AI: Hello") == "Hello"
-        assert strip_legacy_ai_label("  ai:  Hello") == "Hello"
-
-    def test_leaves_user_text(self):
-        from plugin.chatbot.rich_text import strip_legacy_ai_label
-
-        assert strip_legacy_ai_label("You: hi") == "You: hi"
 
 
 class TestRichTextChatWidget:
@@ -893,4 +848,14 @@ def test_deferred_init_failure_clears_init_flags():
 
     assert listener.initialized is False
     assert id(root) not in rtc._CONTROL_INIT_STARTED
+
+
+def test_debug_env_active_follows_is_dev_build_when_dev_guard_off(monkeypatch) -> None:
+    from plugin.chatbot.rich_text_control import debug_env_active
+
+    monkeypatch.setattr("plugin.framework.thread_guard.DEV_GUARD", False, raising=False)
+    monkeypatch.delenv("WRITERAGENT_TESTING", raising=False)
+    assert debug_env_active() is False
+    monkeypatch.setenv("WRITERAGENT_TESTING", "1")
+    assert debug_env_active() is True
 

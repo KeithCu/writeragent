@@ -1080,3 +1080,24 @@ def test_apply_graphic_properties_skips_missing_title(monkeypatch):
     assert "Title" not in set_calls
     assert "Description" not in set_calls
 
+
+def test_export_graphic_to_bytes_uses_get_ctx_when_ctx_none():
+    from plugin.writer.images.image_tools import export_graphic_object_to_bytes
+
+    guarded_ctx = MagicMock(name="guarded_ctx")
+    sm = MagicMock()
+    gp = MagicMock()
+    guarded_ctx.ServiceManager = sm
+    sm.createInstanceWithContext.return_value = gp
+    with (
+        patch("plugin.writer.images.image_tools.get_ctx", return_value=guarded_ctx) as mock_get_ctx,
+        patch(
+            "plugin.writer.images.image_tools.uno.getComponentContext",
+            side_effect=AssertionError("uno.getComponentContext must not be used; call get_ctx()"),
+        ),
+        patch("plugin.writer.images.image_tools.visual_helpers.graphic_from_object", return_value=MagicMock()),
+    ):
+        data = export_graphic_object_to_bytes(None, MagicMock())
+    mock_get_ctx.assert_called_once()
+    gp.storeGraphic.assert_called_once()
+    assert isinstance(data, bytes)

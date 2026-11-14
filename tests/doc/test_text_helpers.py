@@ -847,3 +847,21 @@ def test_enum_hit_walk_cap_and_warning_are_honest():
     assert fmt.record_walk_cap(done, 50, 50, "text portions", dest) is False
     assert len(dest) == 1
 
+
+def test_go_right_chunks_large_moves():
+    from plugin.doc.text_helpers import go_right
+
+    class _Cursor:
+        def __init__(self):
+            self.go_right_calls = []
+
+        def goRight(self, count, expand):
+            self.go_right_calls.append((count, expand))
+            return True
+
+    cursor = _Cursor()
+    assert go_right(cursor, 40000, False) is True
+    pre_len = sum(count for count, expand in cursor.go_right_calls)
+    assert pre_len > 32767, f"pre_len {pre_len} was not large enough"
+    assert all(count <= 8192 for count, expand in cursor.go_right_calls)
+

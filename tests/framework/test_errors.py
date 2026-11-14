@@ -1,5 +1,4 @@
 
-import queue
 import pytest
 from typing import Any
 from plugin.framework.errors import (
@@ -11,8 +10,6 @@ from plugin.framework.errors import (
     resolve_exception_message,
 )
 from plugin.framework.tool import ToolBase
-from plugin.framework.stream_batch import StreamQueueKind
-from plugin.framework.async_stream import DrainOutcome, run_stream_drain_loop
 from unittest.mock import MagicMock
 from plugin.framework.errors import safe_python_literal_eval
 import inspect
@@ -290,28 +287,7 @@ class TestErrorHandling:
         assert payload["message"] == text
         assert payload["code"] == "TOOL_EXECUTION_ERROR"
 
-class TestAsyncStreamErrorHandling:
 
-    def test_run_stream_drain_loop_error_handler(self):
-        q = queue.Queue()
-        outcome = DrainOutcome()
-        test_error = ValueError('Simulation error')
-        formatted_error = format_error_payload(test_error)
-        q.put((StreamQueueKind.ERROR, formatted_error))
-        error_received = []
-
-        def on_error(e):
-            error_received.append(e)
-
-        class DummyToolkit():
-
-            def processEventsToIdle(self):
-                pass
-        run_stream_drain_loop(q, DummyToolkit(), outcome, (lambda c, t: None), on_error=on_error, on_stream_done=(lambda x: True), on_stopped=(lambda : None))
-        assert outcome.done
-        assert (len(error_received)) == (1)
-        assert (error_received[0]['status']) == ('error')
-        assert (error_received[0]['message']) == ('Simulation error')
 def test_best_effort_logs_and_swallows_everything(caplog):
     import logging
 
@@ -1065,3 +1041,15 @@ def test_is_document_disposed():
 
     assert document_is_disposed(MockDisposedDoc()) is True
     assert document_is_disposed(MockValidDoc()) is False
+
+
+def test_similar_names_caps_and_cutoff():
+    from plugin.framework.errors import similar_names
+
+    names = ["Alpha", "Beta", "Gamma", "Delta", "Epsilon", "Zeta"]
+    assert similar_names("", names) == []
+    close = similar_names("Alfa", names)
+    assert "Alpha" in close
+    assert len(close) <= 5
+    assert "Zeta" not in similar_names("Alfa", ["Zeta"])
+    assert similar_names("totally_unrelated_xyz", names) == []

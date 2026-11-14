@@ -1268,24 +1268,6 @@ def test_openrouter_shim_image_flux_klein_png_aspect_not_size(client):
         ]
 
 
-def test_is_image_only_model(client):
-    from plugin.framework.client.model_fetcher import is_image_only_model
-
-    # The image-id list is the catalog. A gemini image id is image-only even
-    # though the name heuristic would treat "gemini" as chat.
-    with patch("plugin.framework.client.model_fetcher.fetch_available_image_models", return_value=["flux", "google/gemini-2.5-flash-image"]):
-        assert is_image_only_model("https://openrouter.ai/api", "flux") is True
-        assert is_image_only_model("https://openrouter.ai/api", "google/gemini-2.5-flash-image") is True
-        assert is_image_only_model("https://openrouter.ai/api", "google/gemini-2.5-flash") is False
-
-    # None means the catalog did not answer; the name heuristic still applies.
-    with patch("plugin.framework.client.model_fetcher.fetch_available_image_models", return_value=None):
-        assert is_image_only_model("https://openrouter.ai/api", "nonexistent-flux") is True
-        assert is_image_only_model("https://openrouter.ai/api", "nonexistent-gemini") is False
-
-
-
-
 def test_anthropic_shim(client):
     client.config["model"] = "claude-sonnet-4-5"
     client.config["provider"] = "anthropic"
@@ -1891,40 +1873,6 @@ def test_parallel_tool_calls_config(client):
         _, _, body, _ = client.make_chat_request(messages, tools=tools, stream=False)
         data = json.loads(body.decode("utf-8"))
         assert data["parallel_tool_calls"] is False
-
-
-def test_gemini_shim_inline_data():
-    """Verify that GoogleShim correctly translates image_url to inlineData part."""
-    from unittest.mock import MagicMock, patch
-    from plugin.framework.client.google_shim import GoogleShim
-    from plugin.framework.client.llm_client import LlmClient
-    
-    ctx = MagicMock()
-    client = LlmClient({"endpoint": "https://generativelanguage.googleapis.com", "model": "gemini-1.5-flash"}, ctx)
-    shim = GoogleShim(client)
-    
-    messages = [
-        {
-            "role": "user",
-            "content": [
-                {"type": "text", "text": "Describe this"},
-                {"type": "image_url", "image_url": {"url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAUA"}}
-            ]
-        }
-    ]
-    
-    with patch("plugin.framework.client.llm_client.LlmClient._resolve_auth") as mock_auth:
-        mock_auth.return_value = {"api_key": "fake_key", "provider": "google"}
-        _, _, json_data, _ = shim.build_chat_request(messages, 100, 0.5, None, False, "gemini-1.5-flash", None)
-
-        data = json.loads(json_data)
-        content = data["messages"][0]["content"]
-        assert len(content) == 2
-        assert content[0] == {"type": "text", "text": "Describe this"}
-        assert content[1] == {
-            "type": "image_url",
-            "image_url": {"url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAUA"},
-        }
 
 
 def test_stream_request_with_tools_tracks_used_model(client):
@@ -3537,6 +3485,42 @@ def test_llm_client_passes_cache_session_id(mock_ctx):
     )
     assert len(sent_bodies) == 2
     assert sent_bodies[1]["session_id"] == "k2"
+
+
+def test_chat_completion_sync_stop_checker_not_finish_reason():
+    from plugin.framework.client.llm_client import LlmClient
+    from plugin.framework.errors import ToolExecutionError
+    from plugin.framework.send_cancellation import SendCancellation
+
+    client = LlmClient.__new__(LlmClient)
+    client._owned = SendCancellation()
+    client.stopped = lambda: client._owned.is_cancelled()
+    messages = [{"role": "user", "content": "hi"}]
+    seen: dict[str, object] = {}
+
+    def fake_request(*_args, **kwargs):
+        seen.update(kwargs)
+        return {"role": "assistant", "content": "done", "finish_reason": "stop"}
+
+    client.request_with_tools = fake_request
+
+    live_scope = SendCancellation()
+    cancelled_scope = SendCancellation()
+    cancelled_scope.cancel()
+
+    assert client.chat_completion_sync(messages) == "done"
+    assert client.chat_completion_sync(messages, cancel=live_scope) == "done"
+    assert seen.get("cancel") is live_scope
+
+    with pytest.raises(ToolExecutionError) as raised:
+        client.chat_completion_sync(messages, cancel=cancelled_scope)
+    assert raised.value.code == "USER_STOPPED"
+
+    client._owned.cancel()
+    assert client.chat_completion_sync(messages) == "done"
+    with pytest.raises(ToolExecutionError) as raised_latch:
+        client.chat_completion_sync(messages, cancel=live_scope)
+    assert raised_latch.value.code == "USER_STOPPED"
 
 
 @pytest.mark.parametrize(

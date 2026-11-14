@@ -226,3 +226,76 @@ def test_set_endpoint_normalizer() -> None:
     finally:
         set_endpoint_normalizer(previous)
 
+
+# PO-header junk mistakenly saved into config via gettext/translation bugs (i18n + load path)
+_PO_JUNK = "Project-Id-Version: WriterAgent 1.0\nReport-Msgid-Bugs-To: x\n"
+
+
+def test_config_validate_maps_translated_label_to_canonical_in_extra_config(restore_manifest) -> None:
+    """Saved UI label (wrong) in dotted key is normalized to schema value via _()."""
+    from unittest.mock import patch
+
+    set_manifest_modules(
+        [
+            {
+                "name": "agent_backend",
+                "config": {
+                    "backend_id": {
+                        "type": "string",
+                        "default": "builtin",
+                        "options": [{"value": "hermes", "label": "Hermes"}],
+                    },
+                },
+            }
+        ]
+    )
+
+    def _fake(msg: str) -> str:
+        if msg == "Hermes":
+            return "GERMAN_HERMES"
+        return msg
+
+    with patch("plugin.framework.config_schema._", side_effect=_fake):
+        validated = validate({"endpoint": "http://127.0.0.1:11434", "agent_backend.backend_id": "GERMAN_HERMES"})
+    assert validated["agent_backend.backend_id"] == "hermes"
+
+
+def test_po_strip_extra_config_on_validate() -> None:
+    data = {
+        "endpoint": "http://localhost:11434",
+        "agent_backend.path": _PO_JUNK,
+        "agent_backend.args": _PO_JUNK,
+    }
+    validated = validate(data)
+    assert validated.get("agent_backend.path") == ""
+    assert validated.get("agent_backend.args") == ""
+
+
+def test_po_strip_seed_to_minus_one() -> None:
+    data = {"endpoint": "http://x", "seed": _PO_JUNK}
+    validated = validate(data)
+    assert validated.get("seed") == "-1"
+
+
+def test_po_strip_top_level_string_field() -> None:
+    data = {"endpoint": "http://x", "additional_instructions": _PO_JUNK}
+    validated = validate(data)
+    assert validated.get("additional_instructions") == ""
+
+
+def test_export_dataclass_keys_from_attributes() -> None:
+    data = {
+        "endpoint": "http://example.com/v1",
+        "chat_max_tokens": 2048,
+        "agent_backend.path": "",
+    }
+    out = validate(data)
+    assert out["endpoint"] == "http://example.com"
+    assert out["chat_max_tokens"] == 2048
+
+
+def test_extra_key_fallback_when_missing_from_extra_config() -> None:
+    """If a key is absent from _extra_config, keep JSON value (edge case)."""
+    data = {"endpoint": "http://x", "orphan.key": "keep-me"}
+    out = validate(data)
+    assert out.get("orphan.key") == "keep-me"

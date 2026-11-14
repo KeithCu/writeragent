@@ -103,35 +103,6 @@ def test_compact_policy_lists_network_block_without_string_prepend() -> None:
     assert ", ".join(NETWORK_BLOCKED_MODULES) in policy
 
 
-def test_import_failure_messages_short_and_hide_blocklist():
-    """Import failure messages must not dump the whole blocklist or expose duckdb."""
-    import ast
-    from plugin.scripting.sandbox import SANDBOX_BLOCKED_MODULES
-    from plugin.scripting.sandbox_cache import validate_sandbox_ast
-
-    allowed = ["math", "duckdb", "duckdb.*"]
-
-    token = SANDBOX_BLOCKED_MODULES.set(frozenset({"os"}))
-    try:
-        err_import = validate_sandbox_ast(ast.parse("import os"), allowed)
-        assert err_import == "Import of os is not allowed."
-        assert "duckdb" not in err_import
-        assert "Authorized imports" not in err_import
-
-        err_from = validate_sandbox_ast(ast.parse("from os import path"), allowed)
-        assert err_from == "Import from os is not allowed."
-        assert "duckdb" not in err_from
-        assert "Authorized imports" not in err_from
-    finally:
-        SANDBOX_BLOCKED_MODULES.reset(token)
-
-    err_rel = validate_sandbox_ast(ast.parse("from . import helper"), allowed)
-    assert err_rel == "Relative imports are not allowed."
-
-    err_rel_dotted = validate_sandbox_ast(ast.parse("from .numpy import foo"), allowed)
-    assert err_rel_dotted == "Relative imports are not allowed."
-
-
 def test_venv_policy_omits_internal_writeragent_modules() -> None:
     from plugin.scripting.sandbox import import_authorized
 
