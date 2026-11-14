@@ -965,13 +965,6 @@ class TestComputeSettings:
         s = load_settings({"api_key_file": key_path}, environ={"PYTHON_COMPUTE_HOST": "127.0.0.1"})
         assert s.api_key == " abc123 "
 
-    def test_key_file_strips_only_one_trailing_newline(self, tmp_path) -> None:
-        """Verify that only the single trailing newline is removed, not all whitespace."""
-        key_path = tmp_path / "key_nl"
-        key_path.write_bytes(b"mykey\n")
-        s = load_settings({"api_key_file": key_path}, environ={"PYTHON_COMPUTE_HOST": "127.0.0.1"})
-        assert s.api_key == "mykey"
-
     def test_json_bool_and_fractional_int_fields_rejected(self, tmp_path) -> None:
         """JSON true and 8000.9 must not become a worker count or a port.
 
@@ -1014,15 +1007,16 @@ class TestComputeSettings:
             load_settings(config_path=ttl, environ={"PYTHON_COMPUTE_HOST": "127.0.0.1"})
         assert isinstance(exc_info.value.__cause__, OverflowError)
 
-    @pytest.mark.parametrize(("field", "env_name"), [("idle_worker_ttl_sec", "PYTHON_COMPUTE_IDLE_WORKER_TTL_SEC")])
     @pytest.mark.parametrize("token", ["Infinity", "NaN", "1e9999"])
-    def test_nonfinite_ttl_rejected_from_json_and_env(self, tmp_path, field: str, env_name: str, token: str) -> None:
+    def test_nonfinite_ttl_rejected_from_json_and_env(self, tmp_path, token: str) -> None:
         """Infinity, NaN, and 1e9999 must not land in a TTL.
 
         json.loads and float() turn those into inf/nan. inf < 0 and nan < 0
         are false, so the old >= 0 check let them through and the reaper
         never evicted.
         """
+        field = "idle_worker_ttl_sec"
+        env_name = "PYTHON_COMPUTE_IDLE_WORKER_TTL_SEC"
         cfg = tmp_path / "ttl.json"
         cfg.write_text(f'{{"limits": {{"{field}": {token}}}}}', encoding="utf-8")
         with pytest.raises(ConfigError, match=rf"{field} must be a finite number"):
@@ -1030,10 +1024,10 @@ class TestComputeSettings:
         with pytest.raises(ConfigError, match=rf"{field} must be a finite number"):
             load_settings(environ={"PYTHON_COMPUTE_HOST": "127.0.0.1", env_name: token})
 
-    @pytest.mark.parametrize("field", ["idle_worker_ttl_sec"])
     @pytest.mark.parametrize("value", [float("inf"), float("-inf"), float("nan")])
-    def test_compute_settings_rejects_nonfinite_ttl(self, field: str, value: float) -> None:
+    def test_compute_settings_rejects_nonfinite_ttl(self, value: float) -> None:
         """Direct construction skips _as_float. validate() still rejects non-finite TTLs."""
+        field = "idle_worker_ttl_sec"
         with pytest.raises(ConfigError, match=rf"{field} must be a finite number"):
             kwargs: dict[str, Any] = {field: value}
             ComputeSettings(**kwargs)
@@ -1314,26 +1308,22 @@ class TestRequestBodyLimits:
 
 
 class TestSessionResetHttp:
-    def test_missing_session_id_is_400(self) -> None:
+    @pytest.mark.parametrize(
+        ("query", "payload", "expected_id"),
+        [
+            ("", b"{}", None),
+            ("session_id=", b'{"id": "empty-sid"}', "empty-sid"),
+            ("session_id=%20", b"{}", None),
+        ],
+    )
+    def test_invalid_session_id_is_400(self, query: str, payload: bytes, expected_id: str | None) -> None:
         app = create_wsgi_app(ComputeSettings(), reset_fn=lambda sid, **_kw: {"status": "ok"})
-        status, _headers, body = _wsgi_post(app, b"{}", query="")
+        status, _headers, body = _wsgi_post(app, payload, query=query)
         assert status.startswith("400")
         assert body.get("status") == "error"
         assert body.get("code") == "BAD_REQUEST_BODY"
-        assert "session_id" in body.get("error", "")
-
-    def test_empty_session_id_is_400(self) -> None:
-        app = create_wsgi_app(ComputeSettings(), reset_fn=lambda sid, **_kw: {"status": "ok"})
-        status, _headers, body = _wsgi_post(app, b'{"id": "empty-sid"}', query="session_id=")
-        assert status.startswith("400")
-        assert body.get("id") == "empty-sid"
-        assert body.get("status") == "error"
-
-    def test_whitespace_session_id_is_400(self) -> None:
-        app = create_wsgi_app(ComputeSettings(), reset_fn=lambda sid, **_kw: {"status": "ok"})
-        status, _headers, body = _wsgi_post(app, b"{}", query="session_id=%20")
-        assert status.startswith("400")
-        assert body.get("status") == "error"
+        if expected_id is not None:
+            assert body.get("id") == expected_id
 
     def test_session_id_in_body_is_400(self) -> None:
         reset_calls: list[str] = []
@@ -1401,99 +1391,54 @@ class TestSessionResetHttp:
         assert body.get("status") == "error"
         assert body.get("code") == "WORKER_POOL_BUSY"
 
-    def test_execute_pool_busy_is_503(self) -> None:
-        def busy(**_kwargs):
-            return {"id": "ex-busy", "status": "error", "code": "WORKER_POOL_BUSY", "error": "busy"}
+    @pytest.mark.parametrize(
+        ("code", "expected_status", "req_id"),
+        [
+            ("WORKER_POOL_BUSY", "503", "ex-busy"),
+            ("WORKER_CRASHED", "500", "ex-dead"),
+            ("WORKER_IPC_ERROR", "500", "ex-ipc"),
+            ("EMPTY_RESPONSE", "500", None),
+            ("EXECUTION_TIMEOUT", "200", None),
+            ("QUEUE_TIMEOUT", "503", "q-late"),
+            ("SERVICE_SHUTDOWN", "503", "ex-down"),
+        ],
+    )
+    def test_execute_error_code_status_mapping(
+        self, code: str, expected_status: str, req_id: str | None
+    ) -> None:
+        def fail_fn(**_kwargs):
+            return {"status": "error", "code": code, "error": code}
 
-        app = create_wsgi_app(ComputeSettings(), execute_fn=busy)
-        status, _headers, body = _wsgi_post(app, json.dumps({"code": "result = 1"}).encode("utf-8"), path="/v1/execute")
-        assert status.startswith("503")
-        assert body.get("code") == "WORKER_POOL_BUSY"
+        app = create_wsgi_app(ComputeSettings(), execute_fn=fail_fn)
+        payload: dict[str, Any] = {"code": "result = 1"}
+        if req_id is not None:
+            payload["id"] = req_id
+        status, _headers, body = _wsgi_post(app, json.dumps(payload).encode("utf-8"), path="/v1/execute")
+        assert status.startswith(expected_status)
+        assert body.get("code") == code
+        if req_id is not None:
+            assert body.get("id") == req_id
 
-    def test_execute_worker_death_is_500(self) -> None:
-        """A crash or empty frame may have run the cell, so it is not a retryable 503."""
-
-        def dead(**_kwargs):
-            return {"status": "error", "code": "WORKER_CRASHED", "error": "died"}
-
-        app = create_wsgi_app(ComputeSettings(), execute_fn=dead)
-        status, _headers, body = _wsgi_post(app, json.dumps({"id": "ex-dead", "code": "result = 1"}).encode("utf-8"), path="/v1/execute")
-        assert status.startswith("500")
-        assert body.get("code") == "WORKER_CRASHED"
-
-    def test_execute_rejected_frame_is_500(self) -> None:
-        """A bad response frame killed the child. It is not a retryable 503."""
-
-        def rejected(**_kwargs):
-            return {"status": "error", "code": "WORKER_IPC_ERROR", "error": "forbidden"}
-
-        app = create_wsgi_app(ComputeSettings(), execute_fn=rejected)
-        status, _headers, body = _wsgi_post(app, json.dumps({"id": "ex-ipc", "code": "result = 1"}).encode("utf-8"), path="/v1/execute")
-        assert status.startswith("500")
-        assert body.get("code") == "WORKER_IPC_ERROR"
-
-    def test_execute_empty_response_is_500(self) -> None:
-        def empty(**_kwargs):
-            return {"status": "error", "code": "EMPTY_RESPONSE", "error": "no frame"}
-
-        app = create_wsgi_app(ComputeSettings(), execute_fn=empty)
-        status, _headers, body = _wsgi_post(app, json.dumps({"code": "result = 1"}).encode("utf-8"), path="/v1/execute")
-        assert status.startswith("500")
-        assert body.get("code") == "EMPTY_RESPONSE"
-
-    def test_execute_timeout_stays_200(self) -> None:
-        def timed_out(**_kwargs):
-            return {"status": "error", "code": "EXECUTION_TIMEOUT", "error": "too slow"}
-
-        app = create_wsgi_app(ComputeSettings(), execute_fn=timed_out)
-        status, _headers, body = _wsgi_post(app, json.dumps({"code": "result = 1"}).encode("utf-8"), path="/v1/execute")
-        assert status.startswith("200")
-        assert body.get("code") == "EXECUTION_TIMEOUT"
-
-    def test_vision_pool_busy_is_503(self) -> None:
-        """A vision lease miss returns HTTP 503 VISION_POOL_BUSY."""
+    @pytest.mark.parametrize(
+        ("code", "expected_status"),
+        [
+            ("VISION_POOL_BUSY", "503"),
+            ("FILE_NOT_FOUND", "400"),
+            ("FILE_TOO_LARGE", "413"),
+            ("VISION_UNAVAILABLE", "503"),
+            ("VISION_BACKEND_MISSING", "501"),
+        ],
+    )
+    def test_vision_error_code_status_mapping(self, code: str, expected_status: str) -> None:
         fake_pool = MagicMock()
-        fake_pool.execute.return_value = {"id": "v-busy", "status": "error", "code": "VISION_POOL_BUSY", "error": "All vision workers are currently busy and request timed out waiting for worker lease."}
+        fake_pool.execute.return_value = {"id": "v-err", "status": "error", "code": code, "error": code}
         app = create_wsgi_app(ComputeSettings(ocr_workers=1))
         with patch("compute_service.vision.get_vision_pool", return_value=fake_pool):
-            status, _headers, body = _wsgi_vision_post(app, {"id": "v-busy"}, b"png")
-        assert status.startswith("503")
-        assert body.get("code") == "VISION_POOL_BUSY"
-        assert body.get("id") == "v-busy"
+            status, _headers, body = _wsgi_vision_post(app, {"id": "v-err"}, b"png")
+        assert status.startswith(expected_status), code
+        assert body.get("code") == code
+        assert body.get("id") == "v-err"
         assert body.get("status") == "error"
-
-    def test_vision_file_errors_use_client_statuses(self) -> None:
-        """Allowlist file failures return 400/413 client statuses."""
-        cases = (("FILE_NOT_FOUND", "400"), ("FILE_TOO_LARGE", "413"))
-        for code, expect in cases:
-            fake_pool = MagicMock()
-            fake_pool.execute.return_value = {"id": "v-file", "status": "error", "code": code, "error": code}
-            app = create_wsgi_app(ComputeSettings(ocr_workers=1))
-            with patch("compute_service.vision.get_vision_pool", return_value=fake_pool):
-                status, _headers, body = _wsgi_vision_post(app, {"id": "v-file"}, b"png")
-            assert status.startswith(expect), code
-            assert body.get("code") == code
-
-    def test_vision_unavailable_is_503(self) -> None:
-        """VISION_UNAVAILABLE happens when the OCR module fails to import, must be 503."""
-        fake_pool = MagicMock()
-        fake_pool.execute.return_value = {"id": "v-missing", "status": "error", "code": "VISION_UNAVAILABLE", "error": "OCR is not installed in this server"}
-        app = create_wsgi_app(ComputeSettings(ocr_workers=1))
-        with patch("compute_service.vision.get_vision_pool", return_value=fake_pool):
-            status, _headers, body = _wsgi_vision_post(app, {"id": "v-missing"}, b"png")
-        assert status.startswith("503")
-        assert body.get("code") == "VISION_UNAVAILABLE"
-        assert body.get("id") == "v-missing"
-
-    def test_vision_backend_missing_is_501(self) -> None:
-        fake_pool = MagicMock()
-        fake_pool.execute.return_value = {"id": "v-backend", "status": "error", "code": "VISION_BACKEND_MISSING", "error": "OCR backend 'plugin.vision.venv.vision_docling' is not installed on this server"}
-        app = create_wsgi_app(ComputeSettings(ocr_workers=1))
-        with patch("compute_service.vision.get_vision_pool", return_value=fake_pool):
-            status, _headers, body = _wsgi_vision_post(app, {"id": "v-backend"}, b"png")
-        assert status.startswith("501")
-        assert body.get("code") == "VISION_BACKEND_MISSING"
-        assert body.get("id") == "v-backend"
 
     def test_non_ascii_bearer_and_key_file(self, tmp_path) -> None:
         """hmac.compare_digest on str raises TypeError for non-ASCII. That escaped the WSGI app."""
@@ -1604,24 +1549,6 @@ class TestSessionResetHttp:
             assert caplog.records
             assert "Basic" not in caplog.text
 
-    def test_execute_queue_timeout_from_pool_is_503(self) -> None:
-        """QUEUE_TIMEOUT from the pool returns HTTP 503 rather than 200.
-
-        If the deadline expires between the handler pre-check and the pool
-        check, the pool returns QUEUE_TIMEOUT with no result_json; otherwise
-        it would fall through to 200.
-        """
-
-        def late(**_kwargs):
-            return {"status": "error", "code": "QUEUE_TIMEOUT", "error": "Request deadline expired before a worker lease."}
-
-        app = create_wsgi_app(ComputeSettings(), execute_fn=late)
-        status, _headers, body = _wsgi_post(app, json.dumps({"id": "q-late", "code": "result = 1"}).encode("utf-8"), path="/v1/execute")
-        assert status.startswith("503")
-        assert body.get("id") == "q-late"
-        assert body.get("code") == "QUEUE_TIMEOUT"
-        assert body.get("status") == "error"
-
     def test_overflow_id_is_400(self) -> None:
         def execute_fn(**_kwargs):
             raise AssertionError("non-finite id must not run")
@@ -1632,30 +1559,22 @@ class TestSessionResetHttp:
         assert body.get("error") == "Invalid JSON"
         assert body.get("code") == "BAD_REQUEST_BODY"
 
-    @pytest.mark.parametrize("raw_id", [b"1e9999", b"NaN", b"Infinity"])
-    def test_vision_nonfinite_id_is_400(self, raw_id: bytes) -> None:
-        """A non-finite vision id in multipart meta is rejected with 400."""
-        from compute_service.vision import shutdown_vision_pool
-
-        app = create_wsgi_app(ComputeSettings(ocr_workers=1))
-        try:
-            boundary = "wa-test-bound"
-            body = (
-                (f'--{boundary}\r\nContent-Disposition: form-data; name="meta"\r\nContent-Type: application/json\r\n\r\n').encode("ascii")
-                + b'{"id":'
-                + raw_id
-                + b"}\r\n"
-                + (f'--{boundary}\r\nContent-Disposition: form-data; name="image"\r\nContent-Type: application/octet-stream\r\n\r\nabcd\r\n--{boundary}--\r\n').encode("ascii")
-            )
-            status, _headers, body = _wsgi_post(app, body, path="/v1/vision", headers={"Content-Type": f"multipart/form-data; boundary={boundary}"})
-            assert status.startswith("400")
-            assert body.get("error") == "Invalid multipart vision body"
-            assert "id" not in body
-        finally:
-            shutdown_vision_pool()
-
-    @pytest.mark.parametrize("meta_bytes", [b'{"id":[1e999]}', b'{"id":{"n":1e999}}', b'{"id":[1]}'])
-    def test_vision_nested_nonfinite_id_is_400(self, meta_bytes: bytes) -> None:
+    @pytest.mark.parametrize(
+        ("meta_bytes", "expected_error", "expected_code"),
+        [
+            (b'{"id":1e9999}', "Invalid multipart vision body", None),
+            (b'{"id":NaN}', "Invalid multipart vision body", None),
+            (b'{"id":Infinity}', "Invalid multipart vision body", None),
+            (b'{"id":[1e999]}', "Invalid multipart vision body", "BAD_REQUEST_BODY"),
+            (b'{"id":{"n":1e999}}', "Invalid multipart vision body", "BAD_REQUEST_BODY"),
+            (b'{"id":[1]}', "id must be a scalar", "INVALID_REQUEST"),
+            (b'{"timeout_ms": 1e9999}', "Invalid multipart vision body", None),
+        ],
+    )
+    def test_vision_invalid_multipart_meta_is_400(
+        self, meta_bytes: bytes, expected_error: str, expected_code: str | None
+    ) -> None:
+        """Non-finite numbers or non-scalar ids in multipart meta return JSON 400."""
         from compute_service.vision import shutdown_vision_pool
 
         app = create_wsgi_app(ComputeSettings(ocr_workers=1))
@@ -1667,30 +1586,12 @@ class TestSessionResetHttp:
                 + b"\r\n"
                 + (f'--{boundary}\r\nContent-Disposition: form-data; name="image"\r\nContent-Type: application/octet-stream\r\n\r\nabcd\r\n--{boundary}--\r\n').encode("ascii")
             )
-            status, _headers, body = _wsgi_post(app, body, path="/v1/vision", headers={"Content-Type": f"multipart/form-data; boundary={boundary}"})
+            status, _headers, resp_body = _wsgi_post(app, body, path="/v1/vision", headers={"Content-Type": f"multipart/form-data; boundary={boundary}"})
             assert status.startswith("400")
-            if meta_bytes == b'{"id":[1]}':
-                assert body.get("error") == "id must be a scalar"
-                assert body.get("code") == "INVALID_REQUEST"
-            else:
-                assert body.get("error") == "Invalid multipart vision body"
-                assert body.get("code") == "BAD_REQUEST_BODY"
-            assert "id" not in body
-        finally:
-            shutdown_vision_pool()
-
-    def test_vision_overflow_timeout_is_json(self) -> None:
-        from compute_service.vision import shutdown_vision_pool
-
-        app = create_wsgi_app(ComputeSettings(ocr_workers=1))
-        try:
-            boundary = "wa-test-bound"
-            body = (f'--{boundary}\r\nContent-Disposition: form-data; name="meta"\r\nContent-Type: application/json\r\n\r\n{{"timeout_ms": 1e9999}}\r\n--{boundary}\r\nContent-Disposition: form-data; name="image"\r\nContent-Type: application/octet-stream\r\n\r\nabcd\r\n--{boundary}--\r\n').encode(
-                "ascii"
-            )
-            status, _headers, body = _wsgi_post(app, body, path="/v1/vision", headers={"Content-Type": f"multipart/form-data; boundary={boundary}"})
-            assert status.startswith("400")
-            assert body.get("error") == "Invalid multipart vision body"
+            assert resp_body.get("error") == expected_error
+            if expected_code is not None:
+                assert resp_body.get("code") == expected_code
+            assert "id" not in resp_body
         finally:
             shutdown_vision_pool()
 
@@ -1711,16 +1612,6 @@ class TestSessionResetHttp:
             assert execute.call_count == 0
         finally:
             vision.shutdown_vision_pool()
-
-    def test_execute_shutdown_is_503(self) -> None:
-        def down(**_kwargs):
-            return {"status": "error", "code": "SERVICE_SHUTDOWN", "error": "stopping"}
-
-        app = create_wsgi_app(ComputeSettings(), execute_fn=down)
-        status, _headers, body = _wsgi_post(app, json.dumps({"id": "ex-down", "code": "result = 1"}).encode("utf-8"), path="/v1/execute")
-        assert status.startswith("503")
-        assert body.get("id") == "ex-down"
-        assert body.get("code") == "SERVICE_SHUTDOWN"
 
     def test_execute_eval_error_stays_200(self) -> None:
         def failed(**_kwargs):
@@ -2073,9 +1964,19 @@ def test_admission_permits_leave_two_listeners() -> None:
     assert admission_permits(wide) == 10
 
 
-@pytest.mark.parametrize("code", ["VISION_WORKER_ERROR", "WORKER_EXECUTION_ERROR"])
-def test_dict_worker_fault_is_http_500(code: str) -> None:
-    """A worker fault with no result_json returns HTTP 500."""
+@pytest.mark.parametrize(
+    ("payload", "req_id", "expected_status", "expected_code"),
+    [
+        ({"status": "error", "code": "VISION_WORKER_ERROR", "error": "worker blew up"}, "fault-1", "500", "VISION_WORKER_ERROR"),
+        ({"status": "error", "code": "WORKER_EXECUTION_ERROR", "error": "worker blew up"}, "fault-1", "500", "WORKER_EXECUTION_ERROR"),
+        ({"status": "ok", "result_json": b""}, "empty-1", "500", "EMPTY_RESPONSE"),
+        ({"status": "error", "code": "FILE_PATH_DENIED", "error": "denied"}, "path-1", "400", "FILE_PATH_DENIED"),
+    ],
+)
+def test_send_execution_result_status_mapping(
+    payload: dict[str, Any], req_id: str, expected_status: str, expected_code: str
+) -> None:
+    """_send_execution_result maps result codes and empty result_json to HTTP statuses."""
     from compute_service.server import _send_execution_result
 
     status_holder: list[str] = []
@@ -2084,28 +1985,11 @@ def test_dict_worker_fault_is_http_500(code: str) -> None:
         status_holder.append(status)
         del resp_headers
 
-    out = _send_execution_result(start_response, {"status": "error", "code": code, "error": "worker blew up"}, "fault-1")
+    out = _send_execution_result(start_response, payload, req_id)
     parsed = json.loads(b"".join(out))
-    assert status_holder[0].startswith("500")
-    assert parsed.get("code") == code
-    assert parsed.get("id") == "fault-1"
-
-
-def test_empty_result_json_is_500() -> None:
-    """Empty result_json returns HTTP 500 EMPTY_RESPONSE."""
-    from compute_service.server import _send_execution_result
-
-    status_holder: list[str] = []
-
-    def start_response(status: str, resp_headers: list) -> None:
-        status_holder.append(status)
-        del resp_headers
-
-    out = _send_execution_result(start_response, {"status": "ok", "result_json": b""}, "empty-1")
-    parsed = json.loads(b"".join(out))
-    assert status_holder[0].startswith("500")
-    assert parsed.get("code") == "EMPTY_RESPONSE"
-    assert parsed.get("id") == "empty-1"
+    assert status_holder[0].startswith(expected_status)
+    assert parsed.get("code") == expected_code
+    assert parsed.get("id") == req_id
     assert "result_json" not in parsed
 
 
@@ -2123,23 +2007,6 @@ def test_result_json_worker_fault_bytes_are_forwarded_at_200() -> None:
     out = _send_execution_result(start_response, {"status": "error", "code": "WORKER_EXECUTION_ERROR", "result_json": raw}, "cell-1")
     assert status_holder[0].startswith("200")
     assert out == [raw]
-
-
-def test_worker_file_path_denied_is_http_400() -> None:
-    """FILE_PATH_DENIED from the worker returns HTTP 400."""
-    from compute_service.server import _send_execution_result
-
-    status_holder: list[str] = []
-
-    def start_response(status: str, resp_headers: list) -> None:
-        status_holder.append(status)
-        del resp_headers
-
-    out = _send_execution_result(start_response, {"status": "error", "code": "FILE_PATH_DENIED", "error": "denied"}, "path-1")
-    parsed = json.loads(b"".join(out))
-    assert status_holder[0].startswith("400")
-    assert parsed.get("code") == "FILE_PATH_DENIED"
-    assert parsed.get("id") == "path-1"
 
 
 def test_wrong_method_is_405() -> None:

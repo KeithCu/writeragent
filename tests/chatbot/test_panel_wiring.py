@@ -60,29 +60,40 @@ def test_measure_send_width_restores_label_when_pos_size_fails() -> None:
     aux.setPosSize.assert_not_called()
 
 
-def test_mode_ui_failure_still_passes_mode_flags_and_toggles_image_controls() -> None:
-    """A raised mode-UI wire must not hand None into button wiring."""
-    from unittest.mock import MagicMock, patch
+def _run_wire_controls(
+    *,
+    frame_session: Any = None,
+    wire_model_selectors: Any = None,
+    wire_chat_mode_ui: Any = None,
+) -> Any:
+    """Invoke ``_wireControls`` on a minimal host with mocked UNO controls and logging."""
+    from unittest.mock import patch
 
     from plugin.chatbot.chat_sidebar_mode import SidebarModeFlags
 
     class _Host:
         ctx = object()
         send_listener = None
-        frame_session = None
         toolpanel = None
         m_panelRootWindow = None
         xParentWindow = None
         _rich_control_listener = None
 
+        def __init__(self) -> None:
+            self.frame_session = frame_session
+            self.captured: tuple[Any, Any, str, Any] = (None, None, "", None)
+
         def _get_document_model(self) -> object:
             return object()
 
-        def _wire_model_selectors(self, *_args: object) -> None:
-            return None
+        def _wire_model_selectors(self, *args: object) -> None:
+            if wire_model_selectors is not None:
+                wire_model_selectors(*args)
 
-        def _wire_chat_mode_ui(self, *_args: object) -> tuple[str, SidebarModeFlags]:
-            raise RuntimeError("mode ui failed")
+        def _wire_chat_mode_ui(self, *args: object, **kwargs: object) -> tuple[str, SidebarModeFlags]:
+            if wire_chat_mode_ui is not None:
+                return wire_chat_mode_ui(*args, **kwargs)
+            return ("chat", SidebarModeFlags())
 
         def _setup_sessions(self, *_args: object) -> None:
             return None
@@ -129,92 +140,40 @@ def test_mode_ui_failure_still_passes_mode_flags_and_toggles_image_controls() ->
         patch("plugin.embeddings.embeddings_periodic.schedule_periodic_embeddings_indexer_once"),
     ):
         _wireControls(host, root)
-
-    _controls, _model, initial_mode, mode_flags = host.captured
-    assert initial_mode == "chat"
-    assert isinstance(mode_flags, SidebarModeFlags)
-    assert mode_flags == SidebarModeFlags()
+    return host
 
 
-def test_model_selector_failure_still_wires_chat_mode_ui() -> None:
-    """A failure in _wire_model_selectors must not skip _wire_chat_mode_ui."""
-    from unittest.mock import MagicMock, patch
-
+@pytest.mark.parametrize("failing_step", ["mode_ui", "model_selector"])
+def test_wire_controls_recovers_from_substep_failure(failing_step: str) -> None:
+    """A failure in mode-UI or model-selector wiring must not break downstream wiring."""
     from plugin.chatbot.chat_sidebar_mode import SidebarModeFlags
 
     custom_flags = SidebarModeFlags(include_brainstorming=True)
     mode_ui_called = False
 
-    class _Host:
-        ctx = object()
-        send_listener = None
-        frame_session = None
-        toolpanel = None
-        m_panelRootWindow = None
-        xParentWindow = None
-        _rich_control_listener = None
+    def _fail_model_selectors(*_args: object) -> None:
+        raise RuntimeError("model selector failed")
 
-        def _get_document_model(self) -> object:
-            return object()
+    def _mode_ui(*_args: object, **_kwargs: object) -> tuple[str, SidebarModeFlags]:
+        nonlocal mode_ui_called
+        mode_ui_called = True
+        if failing_step == "mode_ui":
+            raise RuntimeError("mode ui failed")
+        return ("web", custom_flags)
 
-        def _wire_model_selectors(self, *_args: object) -> None:
-            raise RuntimeError("model selector failed")
-
-        def _wire_chat_mode_ui(self, *_args: object, **kwargs: object) -> tuple[str, SidebarModeFlags]:
-            nonlocal mode_ui_called
-            mode_ui_called = True
-            return ("web", custom_flags)
-
-        def _setup_sessions(self, *_args: object) -> None:
-            return None
-
-        def _wire_buttons(self, controls: Any, model: Any, initial_mode: str, mode_flags: Any) -> None:
-            self.captured = (controls, model, initial_mode, mode_flags)
-
-        def _update_backend_indicator(self, _root: object) -> None:
-            return None
-
-        def _on_config_changed(self, *_args: object) -> None:
-            return None
-
-    named: dict[str, MagicMock] = {}
-
-    def _ctrl(name: str) -> MagicMock:
-        if name not in named:
-            ctrl = MagicMock(name=name)
-            rect = MagicMock()
-            rect.X = 0
-            rect.Y = 0
-            rect.Width = 10
-            rect.Height = 10
-            ctrl.getPosSize.return_value = rect
-            named[name] = ctrl
-        return named[name]
-
-    root = MagicMock()
-    root_rect = MagicMock()
-    root_rect.Width = 400
-    root_rect.Height = 600
-    root.getPosSize.return_value = root_rect
-    root.getControl.side_effect = _ctrl
-
-    host = _Host()
-    with (
-        patch("plugin.chatbot.panel_wiring.translate_dialog"),
-        patch("plugin.chatbot.panel_wiring.get_optional_control", side_effect=lambda _root, name: _ctrl(name)),
-        patch("plugin.chatbot.panel_wiring.get_config", return_value=""),
-        patch("plugin.chatbot.panel_wiring._PanelResizeListener", return_value=MagicMock()),
-        patch("plugin.chatbot.panel_wiring.get_event_bus"),
-        patch("plugin.chatbot.panel_wiring.init_logging", side_effect=RuntimeError("skip update schedule")),
-        patch("plugin.framework.config.get_config", return_value=False),
-        patch("plugin.embeddings.embeddings_periodic.schedule_periodic_embeddings_indexer_once"),
-    ):
-        _wireControls(host, root)
-
-    assert mode_ui_called is True
+    host = _run_wire_controls(
+        wire_model_selectors=_fail_model_selectors if failing_step == "model_selector" else None,
+        wire_chat_mode_ui=_mode_ui,
+    )
     _controls, _model, initial_mode, mode_flags = host.captured
-    assert initial_mode == "web"
-    assert mode_flags is custom_flags
+    assert mode_ui_called is True
+    if failing_step == "mode_ui":
+        assert initial_mode == "chat"
+        assert isinstance(mode_flags, SidebarModeFlags)
+        assert mode_flags == SidebarModeFlags()
+    else:
+        assert initial_mode == "web"
+        assert mode_flags is custom_flags
 
 
 def test_make_toggle_image_ui_swaps_visibility_and_relayouts() -> None:
@@ -265,71 +224,11 @@ def test_make_toggle_image_ui_swaps_visibility_and_relayouts() -> None:
 
 def test_wire_controls_installs_frame_session_when_rich_text_disabled() -> None:
     """Frame session listeners are installed even when rich text control is off."""
-    from unittest.mock import MagicMock, patch
+    frame_session = MagicMock()
+    frame_session.install.return_value = None
+    frame_session.set_focus_pin.return_value = None
 
-    from plugin.chatbot.panel_wiring import _wireControls
-
-    class _Host:
-        ctx = object()
-        send_listener = None
-        frame_session = MagicMock()
-        toolpanel = None
-        m_panelRootWindow = None
-        xParentWindow = None
-
-        def _get_document_model(self) -> MagicMock:
-            return MagicMock()
-
-        def _wire_chat_mode_ui(self, *args, **kwargs) -> tuple[str, MagicMock]:
-            return ("chat", MagicMock())
-
-        def _wire_model_selectors(self, *args, **kwargs) -> None:
-            pass
-
-        def _setup_sessions(self, *args, **kwargs) -> None:
-            pass
-
-        def _wire_buttons(self, *args, **kwargs) -> MagicMock:
-            return MagicMock()
-
-        def _update_backend_indicator(self, *args, **kwargs) -> None:
-            pass
-
-        def _on_config_changed(self, *args, **kwargs) -> None:
-            pass
-
-    _Host.frame_session.install.return_value = None
-    _Host.frame_session.set_focus_pin.return_value = None
-
-    def _ctrl(name: str) -> MagicMock:
-        ctrl = MagicMock(name=name)
-        rect = MagicMock()
-        rect.X = 0
-        rect.Y = 0
-        rect.Width = 10
-        rect.Height = 10
-        ctrl.getPosSize.return_value = rect
-        return ctrl
-
-    root = MagicMock()
-    root_rect = MagicMock()
-    root_rect.Width = 400
-    root_rect.Height = 600
-    root.getPosSize.return_value = root_rect
-    root.getControl.side_effect = _ctrl
-
-    host = _Host()
-    with (
-        patch("plugin.chatbot.panel_wiring.translate_dialog"),
-        patch("plugin.chatbot.panel_wiring.get_optional_control", side_effect=lambda _root, name: _ctrl(name)),
-        patch("plugin.chatbot.panel_wiring.get_config", return_value=""),
-        patch("plugin.chatbot.panel_wiring._PanelResizeListener", return_value=MagicMock()),
-        patch("plugin.chatbot.panel_wiring.get_event_bus"),
-        patch("plugin.chatbot.panel_wiring.init_logging", side_effect=RuntimeError("skip update schedule")),
-        patch("plugin.framework.config.get_config", return_value=False),
-        patch("plugin.embeddings.embeddings_periodic.schedule_periodic_embeddings_indexer_once"),
-    ):
-        _wireControls(host, root)
+    host = _run_wire_controls(frame_session=frame_session)
 
     host.frame_session.set_focus_pin.assert_called_once()
     host.frame_session.install.assert_called_once()

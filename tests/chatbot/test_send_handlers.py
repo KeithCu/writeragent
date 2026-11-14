@@ -196,56 +196,73 @@ def test_agent_backend_prompt_includes_mcp_when_server_running():
 
 
 
+def _collecting_drain(kinds=None, stop_on_terminal=False):
+    def _drain(q, toolkit, outcome, apply_chunk, on_stream_done, on_stopped, on_error, on_status_fn=None, cancel=None, **kwargs):
+        if kwargs.get("on_drain_started"):
+            kwargs["on_drain_started"]()
+        while not q.empty():
+            item = q.get()
+            if kinds is not None:
+                kinds.append(item[0])
+            kind = item[0]
+            if kind == StreamQueueKind.CHUNK:
+                apply_chunk(item[1], False)
+            elif kind == StreamQueueKind.THINKING:
+                apply_chunk(item[1], True)
+            elif kind == StreamQueueKind.STREAM_DONE:
+                on_stream_done(item)
+                if stop_on_terminal:
+                    outcome.done = True
+                    return
+            elif kind == StreamQueueKind.STATUS:
+                if on_status_fn is not None:
+                    on_status_fn(item[1])
+            elif kind == StreamQueueKind.ERROR:
+                on_error(item[1])
+                if stop_on_terminal:
+                    outcome.done = True
+                    return
+            elif kind == StreamQueueKind.STOPPED:
+                on_stopped()
+                if stop_on_terminal:
+                    outcome.done = True
+                    return
+        outcome.done = True
+
+    return _drain
+
+
+def _make_tool_registry(execute_return=None, execute_side_effect=None):
+    mock_registry = MagicMock()
+    mock_registry._services = MagicMock()
+    if execute_side_effect is not None:
+        mock_registry.execute.side_effect = execute_side_effect
+    else:
+        mock_registry.execute.return_value = execute_return
+    return mock_registry
+
+
+def _run_specialized_with(registry, mode="web_research", query="What is X?", panel=None, model=None):
+    """Drive ``panel._run_specialized`` synchronously with mocked tools and drain loop."""
+    if panel is None:
+        panel = DummyChatbotPanel()
+    if model is None:
+        model = MockDocument()
+    getattr(panel.ctx, "getServiceManager")().createInstanceWithContext.return_value = MagicMock()
+    with patch("plugin.app.get_tools", return_value=registry):
+        with patch("plugin.framework.async_stream.run_in_background", side_effect=lambda f, **kw: f()):
+            with patch("plugin.framework.async_stream.run_stream_drain_loop", side_effect=_collecting_drain()):
+                panel._run_specialized(query, model, mode=mode)  # type: ignore
+    return panel
+
+
 def test_run_web_research_stores_raw_answer_and_rerenders():
     panel = DummyChatbotPanel()
     panel.rerender_rich_text_session = MagicMock()
-    model = MockDocument()
     panel.session = MagicMock()
+    mock_registry = _make_tool_registry('{"status": "ok", "result": "<p>HTML answer</p>"}')
 
-    mock_registry = MagicMock()
-    mock_registry.execute.return_value = '{"status": "ok", "result": "<p>HTML answer</p>"}'
-    mock_registry._services = MagicMock()
-
-    mock_uno = MagicMock()
-    class DummyBase1(object): pass
-    class DummyBase2(object): pass
-    mock_unohelper = MagicMock()
-    mock_unohelper.Base = DummyBase1
-    mock_awt = MagicMock()
-    mock_awt.XActionListener = DummyBase2
-    mock_awt.XItemListener = DummyBase2
-    mock_awt.XTextListener = DummyBase2
-    mock_awt.XWindowListener = DummyBase2
-    mock_awt.XKeyListener = DummyBase2
-    mock_lang = MagicMock()
-    mock_lang.XEventListener = DummyBase2
-    with patch("plugin.app.get_tools", return_value=mock_registry), patch.dict('sys.modules', {'uno': mock_uno, 'unohelper': mock_unohelper, 'com.sun.star.text': MagicMock(), 'com.sun.star.awt': mock_awt, 'com.sun.star.lang': mock_lang}):
-        with patch("plugin.framework.async_stream.run_in_background") as mock_run_bg:
-            def fake_run_bg(func, **kwargs):
-                func()
-            mock_run_bg.side_effect = fake_run_bg
-
-            with patch("plugin.framework.async_stream.run_stream_drain_loop") as mock_run_stream:
-                def fake_drain_loop(q, toolkit, outcome, apply_chunk, on_stream_done, on_stopped, on_error, on_status_fn=None, cancel=None, **kwargs):
-                    if kwargs.get("on_drain_started"):
-                        kwargs["on_drain_started"]()
-                    while not q.empty():
-                        item = q.get()
-                        k = item[0]
-                        if k == StreamQueueKind.CHUNK:
-                            apply_chunk(item[1])
-                        elif k == StreamQueueKind.STREAM_DONE:
-                            on_stream_done(item)
-                        elif k == StreamQueueKind.STATUS:
-                            on_status_fn(item[1])
-                        elif k == StreamQueueKind.ERROR:
-                            on_error(item[1])
-                    outcome.done = True
-                mock_run_stream.side_effect = fake_drain_loop
-
-                getattr(panel.ctx, "getServiceManager")().createInstanceWithContext.return_value = MagicMock()
-
-                panel._run_specialized("What is X?", model, mode="web_research")  # type: ignore
+    _run_specialized_with(mock_registry, mode="web_research", query="What is X?", panel=panel)
 
     panel.session.add_assistant_message.assert_called_once_with(
         content="<p>HTML answer</p>", tool_calls=None, reasoning_replay=None
@@ -259,77 +276,19 @@ def test_run_web_research_tool_context_uses_panel_ctx_not_get_ctx():
     """Sub-agent worker must not call get_ctx() off the main thread."""
     panel = DummyChatbotPanel()
     panel.rerender_rich_text_session = MagicMock()
-    model = MockDocument()
     panel.session = MagicMock()
     captured_tool_ctx = []
-
-    mock_registry = MagicMock()
-    mock_registry._services = MagicMock()
 
     def capture_execute(_tool_name, tctx, **_kwargs):
         captured_tool_ctx.append(tctx)
         return '{"status": "ok", "result": "answer"}'
 
-    mock_registry.execute.side_effect = capture_execute
-
-    mock_uno = MagicMock()
-    class DummyBase1(object):
-        pass
-
-    class DummyBase2(object):
-        pass
-
-    mock_unohelper = MagicMock()
-    mock_unohelper.Base = DummyBase1
-    mock_awt = MagicMock()
-    mock_awt.XActionListener = DummyBase2
-    mock_awt.XItemListener = DummyBase2
-    mock_awt.XTextListener = DummyBase2
-    mock_awt.XWindowListener = DummyBase2
-    mock_awt.XKeyListener = DummyBase2
-    mock_lang = MagicMock()
-    mock_lang.XEventListener = DummyBase2
-    with patch("plugin.app.get_tools", return_value=mock_registry), patch.dict(
-        "sys.modules",
-        {
-            "uno": mock_uno,
-            "unohelper": mock_unohelper,
-            "com.sun.star.text": MagicMock(),
-            "com.sun.star.awt": mock_awt,
-            "com.sun.star.lang": mock_lang},
+    mock_registry = _make_tool_registry(execute_side_effect=capture_execute)
+    with patch(
+        "plugin.framework.uno_context.get_ctx",
+        side_effect=AssertionError("get_ctx must not run on background thread"),
     ):
-        with patch("plugin.framework.async_stream.run_in_background") as mock_run_bg:
-            def fake_run_bg(func, **kwargs):
-                func()
-
-            mock_run_bg.side_effect = fake_run_bg
-
-            with patch("plugin.framework.async_stream.run_stream_drain_loop") as mock_run_stream:
-                def fake_drain_loop(q, toolkit, outcome, apply_chunk, on_stream_done, on_stopped, on_error, on_status_fn=None, cancel=None, **kwargs):
-                    if kwargs.get("on_drain_started"):
-                        kwargs["on_drain_started"]()
-                    while not q.empty():
-                        item = q.get()
-                        k = item[0]
-                        if k == StreamQueueKind.CHUNK:
-                            apply_chunk(item[1])
-                        elif k == StreamQueueKind.STREAM_DONE:
-                            on_stream_done(item)
-                        elif k == StreamQueueKind.STATUS:
-                            on_status_fn(item[1])
-                        elif k == StreamQueueKind.ERROR:
-                            on_error(item[1])
-                    outcome.done = True
-
-                mock_run_stream.side_effect = fake_drain_loop
-
-                getattr(panel.ctx, "getServiceManager")().createInstanceWithContext.return_value = MagicMock()
-
-                with patch(
-                    "plugin.framework.uno_context.get_ctx",
-                    side_effect=AssertionError("get_ctx must not run on background thread"),
-                ):
-                    panel._run_specialized("What is X?", model, mode="web_research")  # type: ignore
+        _run_specialized_with(mock_registry, mode="web_research", query="What is X?", panel=panel)
 
     assert len(captured_tool_ctx) == 1
     assert captured_tool_ctx[0].ctx is panel.ctx
@@ -341,73 +300,16 @@ def test_do_send_direct_image_tool_context_uses_panel_ctx_not_get_ctx():
     model = MockDocument()
     captured_tool_ctx = []
 
-    mock_registry = MagicMock()
-    mock_registry._services = MagicMock()
-
     def capture_execute(_tool_name, tctx, **_kwargs):
         captured_tool_ctx.append(tctx)
         return {"status": "done", "message": "Image generated successfully"}
 
-    mock_registry.execute.side_effect = capture_execute
-
-    mock_uno = MagicMock()
-    class DummyBase1(object):
-        pass
-
-    class DummyBase2(object):
-        pass
-
-    mock_unohelper = MagicMock()
-    mock_unohelper.Base = DummyBase1
-    mock_awt = MagicMock()
-    mock_awt.XActionListener = DummyBase2
-    mock_awt.XItemListener = DummyBase2
-    mock_awt.XTextListener = DummyBase2
-    mock_awt.XWindowListener = DummyBase2
-    mock_awt.XKeyListener = DummyBase2
-    mock_lang = MagicMock()
-    mock_lang.XEventListener = DummyBase2
-    with patch("plugin.app.get_tools", return_value=mock_registry), patch.dict(
-        "sys.modules",
-        {
-            "uno": mock_uno,
-            "unohelper": mock_unohelper,
-            "com.sun.star.text": MagicMock(),
-            "com.sun.star.awt": mock_awt,
-            "com.sun.star.lang": mock_lang},
+    mock_registry = _make_tool_registry(execute_side_effect=capture_execute)
+    with patch(
+        "plugin.framework.uno_context.get_ctx",
+        side_effect=AssertionError("get_ctx must not run on background thread"),
     ):
-        with patch("plugin.framework.async_stream.run_in_background") as mock_run_bg:
-            def fake_run_bg(func, **kwargs):
-                func()
-
-            mock_run_bg.side_effect = fake_run_bg
-
-            with patch("plugin.framework.async_stream.run_stream_drain_loop") as mock_run_stream:
-                def fake_drain_loop(q, toolkit, outcome, apply_chunk, on_stream_done, on_stopped, on_error, on_status_fn=None, cancel=None, **kwargs):
-                    if kwargs.get("on_drain_started"):
-                        kwargs["on_drain_started"]()
-                    while not q.empty():
-                        item = q.get()
-                        k = item[0]
-                        if k == StreamQueueKind.CHUNK:
-                            apply_chunk(item[1])
-                        elif k == StreamQueueKind.STREAM_DONE:
-                            on_stream_done(item)
-                        elif k == StreamQueueKind.STATUS:
-                            on_status_fn(item[1])
-                        elif k == StreamQueueKind.ERROR:
-                            on_error(item[1])
-                    outcome.done = True
-
-                mock_run_stream.side_effect = fake_drain_loop
-
-                getattr(panel.ctx, "getServiceManager")().createInstanceWithContext.return_value = MagicMock()
-
-                with patch(
-                    "plugin.framework.uno_context.get_ctx",
-                    side_effect=AssertionError("get_ctx must not run on background thread"),
-                ):
-                    panel._do_send_direct_image("A cute dog", model)  # type: ignore
+        _run_direct_image_send(panel, model, None, query="A cute dog", registry=mock_registry)
 
     assert len(captured_tool_ctx) == 1
     assert captured_tool_ctx[0].ctx is panel.ctx
@@ -416,144 +318,43 @@ def test_do_send_direct_image_tool_context_uses_panel_ctx_not_get_ctx():
 def test_do_send_direct_image():
     panel = DummyChatbotPanel()
     model = MockDocument()
+    mock_registry = _run_direct_image_send(
+        panel, model, {"status": "done", "message": "Image generated successfully"}, query="A cute dog"
+    )
 
-    mock_registry = MagicMock()
-    mock_registry.execute.return_value = {"status": "done", "message": "Image generated successfully"}
-    mock_registry._services = MagicMock()
+    panel.session.add_user_message.assert_called_with("A cute dog")
+    assert "A cute dog" in panel.responses
+    assert "AI: Creating image...\n" in panel.responses
+    assert any("image_generate: Image generated successfully" in r for r in panel.responses)
 
-    mock_uno = MagicMock()
-    class DummyBase1(object): pass
-    class DummyBase2(object): pass
-    mock_unohelper = MagicMock()
-    mock_unohelper.Base = DummyBase1
-    mock_awt = MagicMock()
-    mock_awt.XActionListener = DummyBase2
-    mock_awt.XItemListener = DummyBase2
-    mock_awt.XTextListener = DummyBase2
-    mock_awt.XWindowListener = DummyBase2
-    mock_awt.XKeyListener = DummyBase2
-    mock_lang = MagicMock()
-    mock_lang.XEventListener = DummyBase2
+    mock_registry.execute.assert_called_once()
+    args, kwargs = mock_registry.execute.call_args
+    assert args[0] == "image_generate"
+    assert kwargs["prompt"] == "A cute dog"
+    assert "source_image" not in kwargs
 
-    with patch("plugin.app.get_tools", return_value=mock_registry), patch.dict('sys.modules', {
-        'uno': mock_uno,
-        'unohelper': mock_unohelper,
-        'com.sun.star.text': MagicMock(),
-        'com.sun.star.awt': mock_awt,
-        'com.sun.star.lang': mock_lang
-    }):
-        # Patch run_in_background where it's actually USED by async_stream.py
-        with patch("plugin.framework.async_stream.run_in_background") as mock_run_bg:
-            def fake_run_bg(func, **kwargs):
-                func()
-            mock_run_bg.side_effect = fake_run_bg
 
-            with patch("plugin.framework.async_stream.run_stream_drain_loop") as mock_run_stream:
-                def fake_drain_loop(q, toolkit, outcome, apply_chunk, on_stream_done, on_stopped, on_error, on_status_fn=None, cancel=None, **kwargs):
-                    if kwargs.get("on_drain_started"):
-                        kwargs["on_drain_started"]()
-                    while not q.empty():
-                        item = q.get()
-                        k = item[0]
-                        if k == StreamQueueKind.CHUNK:
-                            apply_chunk(item[1])
-                        elif k == StreamQueueKind.STREAM_DONE:
-                            on_stream_done(item)
-                        elif k == StreamQueueKind.STATUS:
-                            on_status_fn(item[1])
-                        elif k == StreamQueueKind.ERROR:
-                            on_error(item[1])
-                    outcome.done = True
-                mock_run_stream.side_effect = fake_drain_loop
-
-                # Ensure get_toolkit works
-                smgr = getattr(panel.ctx, "getServiceManager")()
-                smgr.createInstanceWithContext.return_value = MagicMock()
-
-                panel._do_send_direct_image("A cute dog", model)  # type: ignore
-
-                # Verify turn_session added the user prompt
-                panel.session.add_user_message.assert_called_with("A cute dog")
-
-                # Verify responses
-                assert "A cute dog" in panel.responses
-                assert "AI: Creating image...\n" in panel.responses
-                assert any("image_generate: Image generated successfully" in r for r in panel.responses)
-
-                # Verify tool registry was called
-                mock_registry.execute.assert_called_once()
-                args, kwargs = mock_registry.execute.call_args
-                assert args[0] == "image_generate"
-                assert kwargs["prompt"] == "A cute dog"
-                assert "source_image" not in kwargs
-
-def _run_direct_image_send(panel, model, execute_return, selected_graphic=None):
+def _run_direct_image_send(
+    panel,
+    model,
+    execute_return,
+    selected_graphic=None,
+    query="make it look like a wizard",
+    registry=None,
+):
     """Drive ``_do_send_direct_image`` with mocked tools and drain loop."""
-    mock_registry = MagicMock()
-    mock_registry.execute.return_value = execute_return
-    mock_registry._services = MagicMock()
+    mock_registry = registry if registry is not None else _make_tool_registry(execute_return)
+    smgr = getattr(panel.ctx, "getServiceManager")()
+    smgr.createInstanceWithContext.return_value = MagicMock()
 
-    mock_uno = MagicMock()
-
-    class DummyBase1(object):
-        pass
-
-    class DummyBase2(object):
-        pass
-
-    mock_unohelper = MagicMock()
-    mock_unohelper.Base = DummyBase1
-    mock_awt = MagicMock()
-    mock_awt.XActionListener = DummyBase2
-    mock_awt.XItemListener = DummyBase2
-    mock_awt.XTextListener = DummyBase2
-    mock_awt.XWindowListener = DummyBase2
-    mock_awt.XKeyListener = DummyBase2
-    mock_lang = MagicMock()
-    mock_lang.XEventListener = DummyBase2
-
-    with patch("plugin.app.get_tools", return_value=mock_registry), patch.dict(
-        "sys.modules",
-        {
-            "uno": mock_uno,
-            "unohelper": mock_unohelper,
-            "com.sun.star.text": MagicMock(),
-            "com.sun.star.awt": mock_awt,
-            "com.sun.star.lang": mock_lang},
-    ):
-        with patch("plugin.framework.async_stream.run_in_background") as mock_run_bg:
-            def fake_run_bg(func, **kwargs):
-                func()
-
-            mock_run_bg.side_effect = fake_run_bg
-
-            with patch("plugin.framework.async_stream.run_stream_drain_loop") as mock_run_stream:
-                def fake_drain_loop(q, toolkit, outcome, apply_chunk, on_stream_done, on_stopped, on_error, on_status_fn=None, cancel=None, **kwargs):
-                    if kwargs.get("on_drain_started"):
-                        kwargs["on_drain_started"]()
-                    while not q.empty():
-                        item = q.get()
-                        k = item[0]
-                        if k == StreamQueueKind.CHUNK:
-                            apply_chunk(item[1])
-                        elif k == StreamQueueKind.STREAM_DONE:
-                            on_stream_done(item)
-                        elif k == StreamQueueKind.STATUS:
-                            on_status_fn(item[1])
-                        elif k == StreamQueueKind.ERROR:
-                            on_error(item[1])
-                    outcome.done = True
-
-                mock_run_stream.side_effect = fake_drain_loop
-
-                smgr = getattr(panel.ctx, "getServiceManager")()
-                smgr.createInstanceWithContext.return_value = MagicMock()
-
+    with patch("plugin.app.get_tools", return_value=mock_registry):
+        with patch("plugin.framework.async_stream.run_in_background", side_effect=lambda f, **kw: f()):
+            with patch("plugin.framework.async_stream.run_stream_drain_loop", side_effect=_collecting_drain()):
                 with patch(
                     "plugin.chatbot.send_handlers.selected_graphic_object",
                     return_value=selected_graphic,
                 ):
-                    panel._do_send_direct_image("make it look like a wizard", model)  # type: ignore
+                    panel._do_send_direct_image(query, model)  # type: ignore
 
     return mock_registry
 
@@ -655,61 +456,13 @@ def test_direct_image_stop_keeps_stopped_status():
 def test_do_send_direct_image_error():
     panel = DummyChatbotPanel()
     model = MockDocument()
+    mock_registry = _run_direct_image_send(
+        panel, model, {"status": "error", "message": "Failed to generate image"}, query="A cute dog"
+    )
 
-    mock_registry = MagicMock()
-    mock_registry.execute.return_value = {"status": "error", "message": "Failed to generate image"}
-    mock_registry._services = MagicMock()
+    assert "[image_generate: Failed to generate image]\n" in panel.responses
+    mock_registry.execute.assert_called_once()
 
-    mock_uno = MagicMock()
-    class DummyBase1(object): pass
-    class DummyBase2(object): pass
-    mock_unohelper = MagicMock()
-    mock_unohelper.Base = DummyBase1
-    mock_awt = MagicMock()
-    mock_awt.XActionListener = DummyBase2
-    mock_awt.XItemListener = DummyBase2
-    mock_awt.XTextListener = DummyBase2
-    mock_awt.XWindowListener = DummyBase2
-    mock_awt.XKeyListener = DummyBase2
-    mock_lang = MagicMock()
-    mock_lang.XEventListener = DummyBase2
-
-    with patch("plugin.app.get_tools", return_value=mock_registry), patch.dict('sys.modules', {
-        'uno': mock_uno,
-        'unohelper': mock_unohelper,
-        'com.sun.star.text': MagicMock(),
-        'com.sun.star.awt': mock_awt,
-        'com.sun.star.lang': mock_lang
-    }):
-        with patch("plugin.framework.async_stream.run_in_background") as mock_run_bg:
-            def fake_run_bg(func, **kwargs):
-                func()
-            mock_run_bg.side_effect = fake_run_bg
-
-            with patch("plugin.framework.async_stream.run_stream_drain_loop") as mock_run_stream:
-                def fake_drain_loop(q, toolkit, outcome, apply_chunk, on_stream_done, on_stopped, on_error, on_status_fn=None, cancel=None, **kwargs):
-                    if kwargs.get("on_drain_started"):
-                        kwargs["on_drain_started"]()
-                    while not q.empty():
-                        item = q.get()
-                        k = item[0]
-                        if k == StreamQueueKind.CHUNK:
-                            apply_chunk(item[1])
-                        elif k == StreamQueueKind.STREAM_DONE:
-                            on_stream_done(item)
-                        elif k == StreamQueueKind.ERROR:
-                            on_error(item[1])
-                    outcome.done = True
-                mock_run_stream.side_effect = fake_drain_loop
-
-                smgr = getattr(panel.ctx, "getServiceManager")()
-                smgr.createInstanceWithContext.return_value = MagicMock()
-
-                panel._do_send_direct_image("A cute dog", model)  # type: ignore
-
-                # Verify error message is surfaced to user
-                assert "[image_generate: Failed to generate image]\n" in panel.responses
-                mock_registry.execute.assert_called_once()
 
 def _drive_unified_drain(panel, worker_fn, handler_type: str) -> None:
     """Run the send drain on this thread and stop at the first terminal item.
@@ -726,35 +479,11 @@ def _drive_unified_drain(panel, worker_fn, handler_type: str) -> None:
         begin_send_turn(panel)
     q: StreamQueue = StreamQueue()
 
-    def fake_run_bg(func, **kwargs):
-        func()
-
-    def fake_drain_loop(drain_q, toolkit, outcome, apply_chunk, on_stream_done, on_stopped, on_error, on_status_fn=None, cancel=None, **kwargs):
-        if kwargs.get("on_drain_started"):
-            kwargs["on_drain_started"]()
-        while not drain_q.empty():
-            item = drain_q.get()
-            kind = item[0]
-            if kind == StreamQueueKind.CHUNK:
-                apply_chunk(item[1], False)
-            elif kind == StreamQueueKind.THINKING:
-                apply_chunk(item[1], True)
-            elif kind == StreamQueueKind.STREAM_DONE:
-                on_stream_done(item)
-                outcome.done = True
-                return
-            elif kind == StreamQueueKind.STOPPED:
-                on_stopped()
-                outcome.done = True
-                return
-            elif kind == StreamQueueKind.ERROR:
-                on_error(item[1])
-                outcome.done = True
-                return
-        outcome.done = True
-
-    with patch("plugin.framework.async_stream.run_in_background", side_effect=fake_run_bg):
-        with patch("plugin.framework.async_stream.run_stream_drain_loop", side_effect=fake_drain_loop):
+    with patch("plugin.framework.async_stream.run_in_background", side_effect=lambda f, **kw: f()):
+        with patch(
+            "plugin.framework.async_stream.run_stream_drain_loop",
+            side_effect=_collecting_drain(stop_on_terminal=True),
+        ):
             panel._run_unified_worker_drain_loop(q, lambda: worker_fn(q), handler_type)
 
 
@@ -929,6 +658,26 @@ def test_unavailable_agent_backend_does_not_store_user_row():
     assert send_outcome_terminal_display(panel) == "Error"
 
 
+def _web_research_cfg_get(**overrides):
+    defaults = {
+        "chatbot.web_cache_max_mb": 0,
+        "chat_max_tokens": 2048,
+        "chatbot.deep_research_sub_agent_steps": 10,
+        "chatbot.deep_research_max_rounds": 10,
+        "chatbot.deep_research_breadth": 10,
+        "chatbot.deep_research_concurrency": 10,
+        "chatbot.deep_research_max_sub_queries": 10,
+        "chatbot.max_tool_rounds": 10,
+        "chatbot.deep_research_quality_threshold": 0.5,
+        "chatbot.web_cache_validity_days": 7,
+        "chatbot.web_research_cache_jaccard_percent": 80,
+        "chatbot.web_research_cache_embedding_percent": 80,
+        "chatbot.web_research_cache_min_overlap": 3,
+    }
+    defaults.update(overrides)
+    return lambda key: defaults.get(key, "false")
+
+
 def test_web_research_tool():
     # Setup mock context
     ctx = MagicMock()
@@ -1016,34 +765,7 @@ def test_web_research_tool():
                 from plugin.writer.specialized_base import DelegateToSpecializedWriter
                 tool = DelegateToSpecializedWriter()
 
-                def _cfg_get(key):
-                    if key == "chatbot.web_cache_max_mb":
-                        return 0  # disable SQLite cache (avoids db path issues in tests)
-                    if key == "chat_max_tokens":
-                        return 2048
-                    if key in (
-                        "chatbot.deep_research_sub_agent_steps",
-                        "chatbot.deep_research_max_rounds",
-                        "chatbot.deep_research_breadth",
-                        "chatbot.deep_research_concurrency",
-                        "chatbot.deep_research_max_sub_queries",
-                        "chatbot.max_tool_rounds",
-                    ):
-                        return 10
-                    if key == "chatbot.deep_research_quality_threshold":
-                        return 0.5
-                    if key == "chatbot.web_cache_validity_days":
-                        return 7
-                    if key in (
-                        "chatbot.web_research_cache_jaccard_percent",
-                        "chatbot.web_research_cache_embedding_percent",
-                    ):
-                        return 80
-                    if key == "chatbot.web_research_cache_min_overlap":
-                        return 3
-                    return "false"
-
-                with patch("plugin.framework.config.get_config", side_effect=_cfg_get):
+                with patch("plugin.framework.config.get_config", side_effect=_web_research_cfg_get()):
                         with patch("plugin.framework.config.get_api_config", return_value={}):
                             result = tool.execute(ctx, domain="web_research", task="What is the latest Python release?")
 
@@ -1069,34 +791,7 @@ def test_web_research_tool_stop():
                 from plugin.writer.specialized_base import DelegateToSpecializedWriter
                 tool = DelegateToSpecializedWriter()
 
-                def _cfg_get_stop(key):
-                    if key == "chatbot.web_cache_max_mb":
-                        return 0
-                    if key == "chat_max_tokens":
-                        return 2048
-                    if key in (
-                        "chatbot.deep_research_sub_agent_steps",
-                        "chatbot.deep_research_max_rounds",
-                        "chatbot.deep_research_breadth",
-                        "chatbot.deep_research_concurrency",
-                        "chatbot.deep_research_max_sub_queries",
-                        "chatbot.max_tool_rounds",
-                    ):
-                        return 10
-                    if key == "chatbot.deep_research_quality_threshold":
-                        return 0.5
-                    if key == "chatbot.web_cache_validity_days":
-                        return 7
-                    if key in (
-                        "chatbot.web_research_cache_jaccard_percent",
-                        "chatbot.web_research_cache_embedding_percent",
-                    ):
-                        return 80
-                    if key == "chatbot.web_research_cache_min_overlap":
-                        return 3
-                    return "false"
-
-                with patch("plugin.framework.config.get_config", side_effect=_cfg_get_stop):
+                with patch("plugin.framework.config.get_config", side_effect=_web_research_cfg_get()):
                         with patch("plugin.framework.config.get_api_config", return_value={}):
                             result = tool.execute(ctx, domain="web_research", task="What is the latest Python release?")
 
@@ -1145,39 +840,15 @@ def test_web_research_tool_approval():
             with patch("requests.get"):
                 from plugin.writer.specialized_base import DelegateToSpecializedWriter
                 tool = DelegateToSpecializedWriter()
-                # Mock config to prompt_for_web_research = "true"
-                def _cfg_get(key):
-                    if key == "chatbot.prompt_for_web_research":
-                        return "true"
-                    if key == "agent_backend.prompt_for_permission":
-                        return "true"
-                    if key == "chatbot.web_cache_max_mb":
-                        return 0
-                    if key == "chat_max_tokens":
-                        return 2048
-                    if key in (
-                        "chatbot.deep_research_sub_agent_steps",
-                        "chatbot.deep_research_max_rounds",
-                        "chatbot.deep_research_breadth",
-                        "chatbot.deep_research_concurrency",
-                        "chatbot.deep_research_max_sub_queries",
-                        "chatbot.max_tool_rounds",
-                    ):
-                        return 10
-                    if key == "chatbot.deep_research_quality_threshold":
-                        return 0.5
-                    if key == "chatbot.web_cache_validity_days":
-                        return 7
-                    if key in (
-                        "chatbot.web_research_cache_jaccard_percent",
-                        "chatbot.web_research_cache_embedding_percent",
-                    ):
-                        return 80
-                    if key == "chatbot.web_research_cache_min_overlap":
-                        return 3
-                    return "false"
-
-                with patch("plugin.framework.config.get_config", side_effect=_cfg_get):
+                with patch(
+                    "plugin.framework.config.get_config",
+                    side_effect=_web_research_cfg_get(
+                        **{
+                            "chatbot.prompt_for_web_research": "true",
+                            "agent_backend.prompt_for_permission": "true",
+                        }
+                    ),
+                ):
                         with patch("plugin.framework.config.get_api_config", return_value={}):
                             result = tool.execute(ctx, domain="web_research", task="What is the latest Python release?")
 
@@ -1188,74 +859,23 @@ def test_web_research_tool_approval():
 
 def test_run_web_research_invalid_json():
     panel = DummyChatbotPanel()
-    model = MockDocument()
-
-    # Need a mock session so add_assistant_message doesn't blow up
     setattr(panel, "session", MagicMock())
     setattr(panel, "response_control", MagicMock())
+    mock_registry = _make_tool_registry("This is not valid JSON.")
 
-    mock_registry = MagicMock()
-    # Tool execute returns a non-JSON string
-    mock_registry.execute.return_value = "This is not valid JSON."
-    mock_registry._services = MagicMock()
+    _run_specialized_with(
+        mock_registry, mode="web_research", query="What is the speed of light?", panel=panel
+    )
 
-    mock_uno = MagicMock()
-    class DummyBase1(object): pass
-    class DummyBase2(object): pass
-    mock_unohelper = MagicMock()
-    mock_unohelper.Base = DummyBase1
-    mock_awt = MagicMock()
-    mock_awt.XActionListener = DummyBase2
-    mock_awt.XItemListener = DummyBase2
-    mock_awt.XTextListener = DummyBase2
-    mock_awt.XWindowListener = DummyBase2
-    mock_awt.XKeyListener = DummyBase2
-    mock_lang = MagicMock()
-    mock_lang.XEventListener = DummyBase2
-    with patch("plugin.app.get_tools", return_value=mock_registry), patch.dict('sys.modules', {'uno': mock_uno, 'unohelper': mock_unohelper, 'com.sun.star.text': MagicMock(), 'com.sun.star.awt': mock_awt, 'com.sun.star.lang': mock_lang}):
-        with patch("plugin.framework.async_stream.run_in_background") as mock_run_bg:
-            def fake_run_bg(func, **kwargs):
-                func()
-            mock_run_bg.side_effect = fake_run_bg
-
-            with patch("plugin.framework.async_stream.run_stream_drain_loop") as mock_run_stream:
-                def fake_drain_loop(q, toolkit, outcome, apply_chunk, on_stream_done, on_stopped, on_error, on_status_fn=None, cancel=None, **kwargs):
-                    if kwargs.get("on_drain_started"):
-                        kwargs["on_drain_started"]()
-                    while not q.empty():
-                        item = q.get()
-                        k = item[0]
-                        if k == StreamQueueKind.CHUNK:
-                            apply_chunk(item[1])
-                        elif k == StreamQueueKind.STREAM_DONE:
-                            on_stream_done(item)
-                        elif k == StreamQueueKind.STATUS:
-                            on_status_fn(item[1])
-                        elif k == StreamQueueKind.ERROR:
-                            on_error(item[1])
-                    outcome.done = True
-                mock_run_stream.side_effect = fake_drain_loop
-
-                getattr(panel.ctx, "getServiceManager")().createInstanceWithContext.return_value = MagicMock()
-
-                panel._run_specialized("What is the speed of light?", model, mode="web_research") # type: ignore
-
-                # Verify responses
-                assert "What is the speed of light?" in panel.responses
-
-                # Verify fallback error message is surfaced
-                assert "\n[Research error: Invalid JSON from web search tool.]\n" in panel.responses
-
-                # Verify stream completed normally (terminal status is Ready)
-                assert send_outcome_terminal_display(panel) == "Ready"
+    assert "What is the speed of light?" in panel.responses
+    assert "\n[Research error: Invalid JSON from web search tool.]\n" in panel.responses
+    assert send_outcome_terminal_display(panel) == "Ready"
 
 
 def test_run_web_research_uses_session_history_not_response_control():
     from plugin.chatbot.chat_session import ChatSession
 
     panel = DummyChatbotPanel()
-    model = MockDocument()
-
     session = ChatSession(system_prompt="Observe web search.")
     session.messages.append({"role": "user", "content": "price of inception mercury 2?"})
     session.messages.append({"role": "assistant", "content": "about $500"})
@@ -1265,142 +885,25 @@ def test_run_web_research_uses_session_history_not_response_control():
     stale_greeting = (
         "AI: I can edit or translate your document instantly with professional formatting and color. Try me!"
     )
+    mock_registry = _make_tool_registry('{"status": "ok", "result": "follows up"}')
 
-    mock_registry = MagicMock()
-    mock_registry.execute.return_value = '{"status": "ok", "result": "follows up"}'
-    mock_registry._services = MagicMock()
+    with patch("plugin.chatbot.dialogs.get_control_text", return_value=stale_greeting) as mock_get_text:
+        _run_specialized_with(
+            mock_registry, mode="web_research", query="you said that earlier", panel=panel
+        )
 
-    mock_uno = MagicMock()
-
-    class DummyBase1(object):
-        pass
-
-    class DummyBase2(object):
-        pass
-
-    mock_unohelper = MagicMock()
-    mock_unohelper.Base = DummyBase1
-    mock_awt = MagicMock()
-    mock_awt.XActionListener = DummyBase2
-    mock_awt.XItemListener = DummyBase2
-    mock_awt.XTextListener = DummyBase2
-    mock_awt.XWindowListener = DummyBase2
-    mock_awt.XKeyListener = DummyBase2
-    mock_lang = MagicMock()
-    mock_lang.XEventListener = DummyBase2
-    with patch("plugin.app.get_tools", return_value=mock_registry), patch.dict(
-        "sys.modules",
-        {
-            "uno": mock_uno,
-            "unohelper": mock_unohelper,
-            "com.sun.star.text": MagicMock(),
-            "com.sun.star.awt": mock_awt,
-            "com.sun.star.lang": mock_lang},
-    ):
-        with patch("plugin.chatbot.dialogs.get_control_text", return_value=stale_greeting) as mock_get_text:
-            with patch("plugin.framework.async_stream.run_in_background") as mock_run_bg:
-
-                def fake_run_bg(func, **kwargs):
-                    func()
-
-                mock_run_bg.side_effect = fake_run_bg
-
-                with patch("plugin.framework.async_stream.run_stream_drain_loop") as mock_run_stream:
-
-                    def fake_drain_loop(q, toolkit, outcome, apply_chunk, on_stream_done, on_stopped, on_error, on_status_fn=None, cancel=None, **kwargs):
-                        if kwargs.get("on_drain_started"):
-                            kwargs["on_drain_started"]()
-                        while not q.empty():
-                            item = q.get()
-                            k = item[0]
-                            if k == StreamQueueKind.CHUNK:
-                                apply_chunk(item[1])
-                            elif k == StreamQueueKind.STREAM_DONE:
-                                on_stream_done(item)
-                            elif k == StreamQueueKind.STATUS:
-                                on_status_fn(item[1])
-                            elif k == StreamQueueKind.ERROR:
-                                on_error(item[1])
-                        outcome.done = True
-
-                    mock_run_stream.side_effect = fake_drain_loop
-
-                    getattr(panel.ctx, "getServiceManager")().createInstanceWithContext.return_value = MagicMock()
-
-                    panel._run_specialized("you said that earlier", model, mode="web_research")  # type: ignore
-
-                    mock_get_text.assert_not_called()
-                    mock_registry.execute.assert_called_once()
-                    kwargs = mock_registry.execute.call_args.kwargs
-                    assert "inception mercury" in kwargs["history_text"]
-                    assert stale_greeting not in kwargs["history_text"]
-                    assert kwargs["query"] == "you said that earlier"
+    mock_get_text.assert_not_called()
+    mock_registry.execute.assert_called_once()
+    kwargs = mock_registry.execute.call_args.kwargs
+    assert "inception mercury" in kwargs["history_text"]
+    assert stale_greeting not in kwargs["history_text"]
+    assert kwargs["query"] == "you said that earlier"
 
 
 def test_run_librarian_keeps_panel_flag_until_switch():
-    panel = DummyChatbotPanel()
-    model = MockDocument()
-
-    mock_registry = MagicMock()
-    mock_registry.execute.return_value = {"status": "ok", "result": "Still onboarding"}
-    mock_registry._services = MagicMock()
-
-    mock_uno = MagicMock()
-
-    class DummyBase1(object):
-        pass
-
-    class DummyBase2(object):
-        pass
-
-    mock_unohelper = MagicMock()
-    mock_unohelper.Base = DummyBase1
-    mock_awt = MagicMock()
-    mock_awt.XActionListener = DummyBase2
-    mock_awt.XItemListener = DummyBase2
-    mock_awt.XTextListener = DummyBase2
-    mock_awt.XWindowListener = DummyBase2
-    mock_awt.XKeyListener = DummyBase2
-    mock_lang = MagicMock()
-    mock_lang.XEventListener = DummyBase2
-
-    with patch("plugin.app.get_tools", return_value=mock_registry), patch.dict(
-        "sys.modules",
-        {
-            "uno": mock_uno,
-            "unohelper": mock_unohelper,
-            "com.sun.star.text": MagicMock(),
-            "com.sun.star.awt": mock_awt,
-            "com.sun.star.lang": mock_lang},
-    ):
-        with patch("plugin.framework.async_stream.run_in_background") as mock_run_bg:
-            def fake_run_bg(func, **kwargs):
-                func()
-
-            mock_run_bg.side_effect = fake_run_bg
-
-            with patch("plugin.framework.async_stream.run_stream_drain_loop") as mock_run_stream:
-                def fake_drain_loop(q, toolkit, outcome, apply_chunk, on_stream_done, on_stopped, on_error, on_status_fn=None, cancel=None, **kwargs):
-                    if kwargs.get("on_drain_started"):
-                        kwargs["on_drain_started"]()
-                    while not q.empty():
-                        item = q.get()
-                        k = item[0]
-                        if k == StreamQueueKind.CHUNK:
-                            apply_chunk(item[1])
-                        elif k == StreamQueueKind.STREAM_DONE:
-                            on_stream_done(item)
-                        elif k == StreamQueueKind.STATUS:
-                            on_status_fn(item[1])
-                        elif k == StreamQueueKind.ERROR:
-                            on_error(item[1])
-                    outcome.done = True
-
-                mock_run_stream.side_effect = fake_drain_loop
-
-                getattr(panel.ctx, "getServiceManager")().createInstanceWithContext.return_value = MagicMock()
-                with patch("plugin.chatbot.librarian.get_suggested_user_name", return_value="Keith"):
-                    panel._run_specialized("Hello", model, mode="librarian")  # type: ignore
+    mock_registry = _make_tool_registry({"status": "ok", "result": "Still onboarding"})
+    with patch("plugin.chatbot.librarian.get_suggested_user_name", return_value="Keith"):
+        panel = _run_specialized_with(mock_registry, mode="librarian", query="Hello")
 
     assert panel._active_mode == CHAT_MODE_LIBRARIAN
     mock_registry.execute.assert_called_once()
@@ -1414,135 +917,17 @@ def test_run_librarian_clears_panel_flag_on_switch_mode():
     panel = DummyChatbotPanel()
     panel._apply_sidebar_mode_fn = MagicMock()
     panel._sidebar_mode = SidebarModeController(panel)
-    model = MockDocument()
+    mock_registry = _make_tool_registry({"status": "switch_mode", "result": "Switching now"})
 
-    mock_registry = MagicMock()
-    mock_registry.execute.return_value = {"status": "switch_mode", "result": "Switching now"}
-    mock_registry._services = MagicMock()
-
-    mock_uno = MagicMock()
-
-    class DummyBase1(object):
-        pass
-
-    class DummyBase2(object):
-        pass
-
-    mock_unohelper = MagicMock()
-    mock_unohelper.Base = DummyBase1
-    mock_awt = MagicMock()
-    mock_awt.XActionListener = DummyBase2
-    mock_awt.XItemListener = DummyBase2
-    mock_awt.XTextListener = DummyBase2
-    mock_awt.XWindowListener = DummyBase2
-    mock_awt.XKeyListener = DummyBase2
-    mock_lang = MagicMock()
-    mock_lang.XEventListener = DummyBase2
-
-    with patch("plugin.app.get_tools", return_value=mock_registry), patch.dict(
-        "sys.modules",
-        {
-            "uno": mock_uno,
-            "unohelper": mock_unohelper,
-            "com.sun.star.text": MagicMock(),
-            "com.sun.star.awt": mock_awt,
-            "com.sun.star.lang": mock_lang},
-    ):
-        with patch("plugin.framework.async_stream.run_in_background") as mock_run_bg:
-            def fake_run_bg(func, **kwargs):
-                func()
-
-            mock_run_bg.side_effect = fake_run_bg
-
-            with patch("plugin.framework.async_stream.run_stream_drain_loop") as mock_run_stream:
-                def fake_drain_loop(q, toolkit, outcome, apply_chunk, on_stream_done, on_stopped, on_error, on_status_fn=None, cancel=None, **kwargs):
-                    if kwargs.get("on_drain_started"):
-                        kwargs["on_drain_started"]()
-                    while not q.empty():
-                        item = q.get()
-                        k = item[0]
-                        if k == StreamQueueKind.CHUNK:
-                            apply_chunk(item[1])
-                        elif k == StreamQueueKind.STREAM_DONE:
-                            on_stream_done(item)
-                        elif k == StreamQueueKind.STATUS:
-                            on_status_fn(item[1])
-                        elif k == StreamQueueKind.ERROR:
-                            on_error(item[1])
-                    outcome.done = True
-
-                mock_run_stream.side_effect = fake_drain_loop
-
-                getattr(panel.ctx, "getServiceManager")().createInstanceWithContext.return_value = MagicMock()
-                panel._run_specialized("Done", model, mode="librarian")  # type: ignore
+    _run_specialized_with(mock_registry, mode="librarian", query="Done", panel=panel)
 
     assert panel._active_mode == ""
     mock_registry.execute.assert_called_once()
 
 
 def test_run_librarian_switch_mode_calls_finished_callback():
-    panel = DummyChatbotPanel()
-    model = MockDocument()
-
-    mock_registry = MagicMock()
-    mock_registry.execute.return_value = {"status": "switch_mode", "result": "Switching now"}
-    mock_registry._services = MagicMock()
-
-    mock_uno = MagicMock()
-
-    class DummyBase1(object):
-        pass
-
-    class DummyBase2(object):
-        pass
-
-    mock_unohelper = MagicMock()
-    mock_unohelper.Base = DummyBase1
-    mock_awt = MagicMock()
-    mock_awt.XActionListener = DummyBase2
-    mock_awt.XItemListener = DummyBase2
-    mock_awt.XTextListener = DummyBase2
-    mock_awt.XWindowListener = DummyBase2
-    mock_awt.XKeyListener = DummyBase2
-    mock_lang = MagicMock()
-    mock_lang.XEventListener = DummyBase2
-
-    with patch("plugin.app.get_tools", return_value=mock_registry), patch.dict(
-        "sys.modules",
-        {
-            "uno": mock_uno,
-            "unohelper": mock_unohelper,
-            "com.sun.star.text": MagicMock(),
-            "com.sun.star.awt": mock_awt,
-            "com.sun.star.lang": mock_lang},
-    ):
-        with patch("plugin.framework.async_stream.run_in_background") as mock_run_bg:
-            def fake_run_bg(func, **kwargs):
-                func()
-
-            mock_run_bg.side_effect = fake_run_bg
-
-            with patch("plugin.framework.async_stream.run_stream_drain_loop") as mock_run_stream:
-                def fake_drain_loop(q, toolkit, outcome, apply_chunk, on_stream_done, on_stopped, on_error, on_status_fn=None, cancel=None, **kwargs):
-                    if kwargs.get("on_drain_started"):
-                        kwargs["on_drain_started"]()
-                    while not q.empty():
-                        item = q.get()
-                        k = item[0]
-                        if k == StreamQueueKind.CHUNK:
-                            apply_chunk(item[1])
-                        elif k == StreamQueueKind.STREAM_DONE:
-                            on_stream_done(item)
-                        elif k == StreamQueueKind.STATUS:
-                            on_status_fn(item[1])
-                        elif k == StreamQueueKind.ERROR:
-                            on_error(item[1])
-                    outcome.done = True
-
-                mock_run_stream.side_effect = fake_drain_loop
-
-                getattr(panel.ctx, "getServiceManager")().createInstanceWithContext.return_value = MagicMock()
-                panel._run_specialized("Done", model, mode="librarian")  # type: ignore
+    mock_registry = _make_tool_registry({"status": "switch_mode", "result": "Switching now"})
+    panel = _run_specialized_with(mock_registry, mode="librarian", query="Done")
 
     panel._sidebar_mode.on_mode_finished.assert_called_once()
     assert panel._sidebar_mode.on_mode_finished.call_args[0][0] == "librarian"
@@ -1723,31 +1108,6 @@ def test_thinking_chunk_reaches_append_as_thinking():
     _drive_unified_drain(panel, worker, "web")
     assert panel.thinking_flags[:2] == [True, False]
     assert panel.responses[0] == "search step"
-
-
-def _collecting_drain(kinds):
-    def _drain(q, toolkit, outcome, apply_chunk, on_stream_done, on_stopped, on_error, on_status_fn=None, cancel=None, **kwargs):
-        if kwargs.get("on_drain_started"):
-            kwargs["on_drain_started"]()
-        while not q.empty():
-            item = q.get()
-            kinds.append(item[0])
-            kind = item[0]
-            if kind == StreamQueueKind.CHUNK:
-                apply_chunk(item[1], False)
-            elif kind == StreamQueueKind.THINKING:
-                apply_chunk(item[1], True)
-            elif kind == StreamQueueKind.STREAM_DONE:
-                on_stream_done(item)
-            elif kind == StreamQueueKind.STATUS:
-                on_status_fn(item[1])
-            elif kind == StreamQueueKind.ERROR:
-                on_error(item[1])
-            elif kind == StreamQueueKind.STOPPED:
-                on_stopped()
-        outcome.done = True
-
-    return _drain
 
 
 def test_image_worker_drops_output_after_abort():

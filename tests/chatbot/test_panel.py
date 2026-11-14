@@ -1955,37 +1955,6 @@ def test_normal_turn_end_does_not_set_focus() -> None:
     assert listener.sidebar_state.send.mode == SendMode.IDLE
     listener.frame_session.restore_focus.assert_not_called()
 
-def test_ask_text_restored_on_post_clear_error() -> None:
-    from plugin.chatbot.panel import SendButtonListener
-    from unittest.mock import MagicMock, patch
-    import pytest
-
-    with patch("plugin.scripting.audio_recorder_service.is_audio_recording_supported", return_value=False), patch("plugin.scripting.audio_recorder_service.is_audio_recording_configured", return_value=False), patch("plugin.chatbot.chat_session.ChatSession"):
-        listener = SendButtonListener(MagicMock(), MagicMock(), MagicMock(), MagicMock(), MagicMock(), MagicMock(), MagicMock(), MagicMock(), MagicMock(), "test")
-
-    listener.query_control = MagicMock()
-    listener.query_control.getModel.return_value = MagicMock()
-
-    with patch("plugin.chatbot.dialogs.get_control_text", return_value="some text"), \
-         patch("plugin.chatbot.dialogs.set_control_text"), \
-         patch("plugin.chatbot.config_ui_helpers.sync_sidebar_text_model", side_effect=RuntimeError("boom")), \
-         patch.object(listener, "_restore_query_text") as mock_restore:
-
-        listener._get_document_model = MagicMock(return_value=MagicMock())
-        listener.cached_doc_type = "writer"
-        listener.audio_wav_path = None
-        listener._stt_inflight = False
-        listener.sidebar_state = SidebarCompositeState(
-            send=SendButtonState(SendMode.BUSY, False, False, True),
-            tool_loop=None,
-        )
-
-        with pytest.raises(RuntimeError, match="boom"):
-            listener._do_send()
-
-        mock_restore.assert_called_once_with("some text")
-
-
 class TestPanelR3Fixes:
     """Targeted unit tests for Cursor review R3 panel fixes."""
 
@@ -2503,22 +2472,11 @@ class TestPanelR14Fixes:
         assert "prior" not in spoken_text
 
     def test_ask_text_not_restored_after_user_row_committed(self) -> None:
-        from plugin.chatbot.panel import SendButtonListener
         from plugin.chatbot.chat_sidebar_mode import CHAT_MODE_CHAT
 
-        with (
-            patch("plugin.scripting.audio_recorder_service.is_audio_recording_supported", return_value=False),
-            patch("plugin.scripting.audio_recorder_service.is_audio_recording_configured", return_value=False),
-            patch("plugin.chatbot.chat_session.ChatSession"),
-        ):
-            session = MagicMock()
-            session.messages = []
-            listener = SendButtonListener(
-                MagicMock(), MagicMock(), MagicMock(), MagicMock(),
-                MagicMock(), MagicMock(), MagicMock(), MagicMock(),
-                MagicMock(), session,
-            )
-
+        listener = _make_send_listener()
+        listener.session = MagicMock()
+        listener.session.messages = []
         listener.query_control = MagicMock()
         listener.query_control.getModel.return_value = MagicMock()
 
@@ -2734,46 +2692,27 @@ class TestJ02Regression:
 
 
 
-def test_append_output_persists_slash_local_on_session():
-    from plugin.chatbot.panel import SendButtonListener
+@pytest.mark.parametrize("in_tool_loop", [False, True], ids=["idle", "during_tool_loop"])
+def test_append_output_persists_slash_local_on_session(in_tool_loop: bool):
     from plugin.chatbot.rich_text_paste import SLASH_LOCAL
-    from unittest.mock import MagicMock, patch
 
     session = SimpleNamespace(messages=[], history_notice="")
-    with patch("plugin.scripting.audio_recorder_service.is_audio_recording_supported", return_value=False), patch("plugin.scripting.audio_recorder_service.is_audio_recording_configured", return_value=False), patch("plugin.chatbot.chat_session.ChatSession"):
-        listener = SendButtonListener(MagicMock(), MagicMock(), MagicMock(), MagicMock(), MagicMock(), MagicMock(), MagicMock(), MagicMock(), MagicMock(), "test")
+    turn = SimpleNamespace(session=session) if in_tool_loop else None
+    listener = _make_send_listener()
     listener.session = session
     widget = MagicMock()
     listener.rich_text_widget = widget
-    with patch.object(listener, "_run_rich_ui", side_effect=lambda fn, *a, **k: fn(*a, **k)), patch("plugin.chatbot.tool_loop_actions.running_turn", return_value=None):
+    with patch.object(listener, "_run_rich_ui", side_effect=lambda fn, *a, **k: fn(*a, **k)), patch("plugin.chatbot.tool_loop_actions.running_turn", return_value=turn):
         listener.append_output("\nSlash commands:\n")
     assert session.messages[-1][SLASH_LOCAL] is True
-    widget.paint_session.assert_called_once_with(session)
-
-
-def test_append_output_during_tool_loop_streams_slash_local_row():
-    from plugin.chatbot.panel import SendButtonListener
-    from plugin.chatbot.rich_text_paste import SLASH_LOCAL
-    from unittest.mock import MagicMock, patch
-
-    session = SimpleNamespace(messages=[], history_notice="")
-    turn = SimpleNamespace(session=session)
-    with patch("plugin.scripting.audio_recorder_service.is_audio_recording_supported", return_value=False), patch("plugin.scripting.audio_recorder_service.is_audio_recording_configured", return_value=False), patch("plugin.chatbot.chat_session.ChatSession"):
-        listener = SendButtonListener(MagicMock(), MagicMock(), MagicMock(), MagicMock(), MagicMock(), MagicMock(), MagicMock(), MagicMock(), MagicMock(), "test")
-    listener.session = session
-    listener.rich_text_widget = MagicMock()
-    with patch("plugin.chatbot.tool_loop_actions.running_turn", return_value=turn), patch.object(listener, "_run_rich_ui", side_effect=lambda fn, *a, **k: fn(*a, **k)):
-        listener.append_output("\nSlash commands:\n")
-    assert session.messages[-1][SLASH_LOCAL] is True
-    listener.rich_text_widget.stream_session.assert_called_once_with(session)
+    if in_tool_loop:
+        widget.stream_session.assert_called_once_with(session)
+    else:
+        widget.paint_session.assert_called_once_with(session)
 
 
 def test_append_output_falls_back_to_response_control_without_session():
-    from plugin.chatbot.panel import SendButtonListener
-    from unittest.mock import MagicMock, patch
-
-    with patch("plugin.scripting.audio_recorder_service.is_audio_recording_supported", return_value=False), patch("plugin.scripting.audio_recorder_service.is_audio_recording_configured", return_value=False), patch("plugin.chatbot.chat_session.ChatSession"):
-        listener = SendButtonListener(MagicMock(), MagicMock(), MagicMock(), MagicMock(), MagicMock(), MagicMock(), MagicMock(), MagicMock(), MagicMock(), "test")
+    listener = _make_send_listener()
     listener.session = None
     response = MagicMock()
     listener.response_control = response

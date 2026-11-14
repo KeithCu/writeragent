@@ -372,21 +372,41 @@ class TestVisionPoolSupervisor:
 
 
 class TestVisionHttpEndpoint:
+    @staticmethod
+    def _running_server(**setting_overrides):
+        import contextlib
+
+        @contextlib.contextmanager
+        def _ctx():
+            port = get_free_port()
+            settings = ComputeSettings(
+                **{
+                    "host": "127.0.0.1",
+                    "port": port,
+                    "api_key": "vision-secret",
+                    "ocr_workers": 1,
+                    **setting_overrides,
+                }
+            )
+            app = create_wsgi_app(settings)
+            server = WSGIDualStackServer("127.0.0.1", port, listener_threads=8)
+            server.set_app(app)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                yield f"http://127.0.0.1:{port}"
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=3)
+                shutdown_vision_pool()
+
+        return _ctx()
+
     @pytest.fixture(scope="class")
     def vision_server(self):
-        port = get_free_port()
-        settings = ComputeSettings(host="127.0.0.1", port=port, api_key="vision-secret", ocr_workers=1)
-        app = create_wsgi_app(settings)
-        server = WSGIDualStackServer("127.0.0.1", port, listener_threads=8)
-        server.set_app(app)
-
-        thread = threading.Thread(target=server.serve_forever, daemon=True)
-        thread.start()
-        yield f"http://127.0.0.1:{port}"
-        server.shutdown()
-        server.server_close()
-        thread.join(timeout=3)
-        shutdown_vision_pool()
+        with self._running_server() as url:
+            yield url
 
     def _post(self, url: str, meta: dict, image: bytes | None = None, headers: dict | None = None) -> tuple[int, dict]:
         content_type, data = encode_multipart_vision(meta, image)
@@ -433,22 +453,9 @@ class TestVisionHttpEndpoint:
         finally:
             pool.shutdown()
 
-        port = get_free_port()
-        settings = ComputeSettings(
-            host="127.0.0.1",
-            port=port,
-            api_key="vision-secret",
-            ocr_workers=1,
-            ocr_allow_paths=(str(tmp_path),),
-        )
-        app = create_wsgi_app(settings)
-        server = WSGIDualStackServer("127.0.0.1", port, listener_threads=8)
-        server.set_app(app)
-        thread = threading.Thread(target=server.serve_forever, daemon=True)
-        thread.start()
-        try:
+        with self._running_server(ocr_allow_paths=(str(tmp_path),)) as url:
             status, body = self._post(
-                f"http://127.0.0.1:{port}",
+                url,
                 {"id": "test-ocr-1", "helper": "extract_text"},
                 image=img,
                 headers={"Authorization": "Bearer vision-secret"},
@@ -457,16 +464,12 @@ class TestVisionHttpEndpoint:
             assert body == {"status": "ok", "text": f"extract_text:{len(img)}", "id": "test-ocr-1"}
 
             status_file, body_file = self._post(
-                f"http://127.0.0.1:{port}",
+                url,
                 {"id": "test-ocr-file-ok", "helper": "extract_text", "file_path": str(img_path)},
                 headers={"Authorization": "Bearer vision-secret"},
             )
             assert status_file == 200
             assert body_file == {"status": "ok", "text": f"extract_text:{len(img)}", "id": "test-ocr-file-ok"}
-        finally:
-            server.shutdown()
-            server.server_close()
-            thread.join(timeout=3)
 
     def test_vision_file_path_denied_by_default(self, vision_server: str, tmp_path) -> None:
         img_path = tmp_path / "endpoint_img.png"
@@ -484,25 +487,12 @@ class TestVisionHttpEndpoint:
 
     def test_vision_endpoint_disabled_when_zero_workers(self) -> None:
         """When ocr_workers=0 (the default), /v1/vision returns HTTP 501 VISION_SERVICE_DISABLED."""
-        port = get_free_port()
-        settings = ComputeSettings(host="127.0.0.1", port=port, api_key="vision-secret", ocr_workers=0)
-        app = create_wsgi_app(settings)
-        server = WSGIDualStackServer("127.0.0.1", port, listener_threads=8)
-        server.set_app(app)
-
-        thread = threading.Thread(target=server.serve_forever, daemon=True)
-        thread.start()
-        try:
-            url = f"http://127.0.0.1:{port}"
+        with self._running_server(ocr_workers=0) as url:
             status, body = self._post(url, {"id": "test-zero-workers", "helper": "extract_text"}, image=base64.b64decode(_TINY_PNG_B64), headers={"Authorization": "Bearer vision-secret"})
             assert status == 501
             assert body.get("status") == "error"
             assert body.get("code") == "VISION_SERVICE_DISABLED"
             assert "ocr_workers=0" in body.get("error", "")
-        finally:
-            server.shutdown()
-            server.server_close()
-            thread.join(timeout=3)
 
 
 def test_vision_pool_execute_accepts_bytearray() -> None:
