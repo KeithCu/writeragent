@@ -10,7 +10,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from plugin.calc.python.spill import SpillRecord
+from plugin.calc.python.spill import SpillCell, SpillRecord
 import plugin.calc.python.workbook_lifecycle as lifecycle
 from plugin.calc.python.workbook_state import WorkbookState
 from plugin.calc.python.geometric_recalc import (
@@ -362,6 +362,27 @@ def test_for_doc_reuses_session_fallback_without_runtime_uid(monkeypatch: pytest
     assert counter == 1
     assert WorkbookState.for_doc(doc2).key == "calc:unsaved:2"
     assert counter == 2
+
+
+def test_spill_save_as_lifecycle_consistency() -> None:
+    """Save As changes the document URL, so spills stay keyed by RuntimeUID."""
+    mock_doc = MagicMock()
+    mock_doc.getRuntimeUID.return_value = "uid-123"
+    mock_doc.getPropertyValue.return_value = "uid-123"
+    mock_doc.getURL.return_value = "file:///tmp/old.ods"
+
+    state = WorkbookState.for_doc(mock_doc)
+    assert state is not None and state.key == "uid-123"
+    state.spills[("Sheet1", 0, 0)] = SpillRecord(
+        code="result = 1",
+        cells=[SpillCell(1, 0, "n", 1.0), SpillCell(2, 0, "n", 2.0)],
+    )
+
+    mock_doc.getURL.return_value = "file:///tmp/new.ods"
+    new_state = WorkbookState.for_doc(mock_doc)
+    assert new_state is state
+    assert ("Sheet1", 0, 0) in new_state.spills
+    assert new_state.spills[("Sheet1", 0, 0)].spills == [(1, 0), (2, 0)]
 
 
 def test_runtime_uid_upgrade_keeps_one_listener(monkeypatch: pytest.MonkeyPatch) -> None:

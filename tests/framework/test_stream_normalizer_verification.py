@@ -10,10 +10,6 @@ from __future__ import annotations
 import copy
 import io
 import json
-import re
-import shutil
-import subprocess
-from pathlib import Path
 
 import deal
 import pytest
@@ -33,9 +29,9 @@ from plugin.framework.client.stream_normalizer import (
     normalize_delta,
     strip_think_tags,
 )
+from tests.harness.crosshair import assert_crosshair_clean
 from tests.harness.vhs_budget import vhs_max_examples
 
-_CROSSHAIR_ERROR_RE = re.compile(r": error:")
 _CROSSHAIR_TARGETS = (
     "plugin.framework.client.stream_normalizer.normalize_delta",
     # Hot sinks kept off cover-all:
@@ -43,16 +39,6 @@ _CROSSHAIR_TARGETS = (
     # normalize_message_content, _normalize_delta_tool_calls_ok, ThinkTagStreamSplitter.feed.
     # _normalize_stream_delta / _thinking_text_from_delta / _merge_reasoning_details already off.
 )
-
-
-def _find_crosshair() -> str | None:
-    crosshair_path = shutil.which("crosshair")
-    if crosshair_path:
-        return crosshair_path
-    venv_bin_ch = Path(".venv/bin/crosshair")
-    if venv_bin_ch.exists():
-        return str(venv_bin_ch)
-    return None
 
 
 def _sse_lines_from_byte_chunks(chunks: list[bytes]) -> list[bytes]:
@@ -361,21 +347,7 @@ def test_replay_keys_subset_on_details_path() -> None:
 @pytest.mark.slow
 @pytest.mark.parametrize("target", _CROSSHAIR_TARGETS)
 def test_crosshair_stream_normalizer_fqn_if_available(target: str) -> None:
-    crosshair_path = _find_crosshair()
-    if not crosshair_path:
-        pytest.skip("CrossHair concolic execution engine is not installed.")
-    result = subprocess.run(
-        [crosshair_path, "check", "-v", "--report_all", target],
-        capture_output=True,
-        text=True,
-        timeout=300,
-    )
-    combined = f"{result.stdout}\n{result.stderr}".strip()
-    print(f"CrossHair output ({target}):\n{combined}")
-    errors = [line for line in combined.splitlines() if _CROSSHAIR_ERROR_RE.search(line)]
-    assert not errors, "CrossHair counterexamples found:\n" + "\n".join(errors)
-    if result.returncode == 2:
-        pytest.fail(f"CrossHair internal error (exit 2):\n{combined}")
+    assert_crosshair_clean(target)
 
 def test_stream_normalizer_hot_sinks_off_cover_all() -> None:
     """Keep hot stream_normalizer sinks out of cover_fqns."""

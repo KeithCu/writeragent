@@ -17,15 +17,6 @@ def _repo_root() -> str:
     return os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 
 
-def test_libreharper_preserves_supported_english_dialects() -> None:
-    for country, expected in (("US", "en-US"), ("GB", "en-GB"), ("AU", "en-AU"), ("CA", "en-CA"), ("IN", "en-IN")):
-        locale = SimpleNamespace(Language="en", Country=country, Variant="")
-        assert normalize_harper_locale_to_bcp47(locale) == expected
-
-    assert normalize_harper_locale_to_bcp47(SimpleNamespace(Language="en-AU", Country="", Variant="")) == "en-AU"
-    assert normalize_harper_locale_to_bcp47(SimpleNamespace(Language="de", Country="DE", Variant="")) is None
-
-
 def test_grammar_work_queue_has_no_top_level_framework_client_package_import() -> None:
     """Harper OXT must not pull LLM/embeddings via ``from plugin.framework.client import …``."""
     for filename in ("grammar_work_queue.py", "grammar_settings.py"):
@@ -167,8 +158,11 @@ def test_harper_locale_normalization_matrix() -> None:
         ("en", "US", "en-US"),
         ("en", "GB", "en-GB"),
         ("en", "UK", "en-GB"),
+        ("en", "CA", "en-CA"),
+        ("en", "IN", "en-IN"),
         ("en", "NZ", "en-US"),
         ("en", "AU", "en-AU"),
+        ("en-AU", "", "en-AU"),
         ("en-NZ", "", "en-US"),
         ("en_GB", "", "en-GB"),
         ("en-GB", "GB", "en-GB"),

@@ -465,24 +465,42 @@ def _thread_violation(where: str) -> RuntimeError:
     return RuntimeError(f"UNO thread violation: {where}")
 
 
-def test_thread_violation_from_get_controller_is_not_a_silent_install():
-    """Off-thread getController must raise, not log at debug and skip wiring."""
-    frame = MagicMock()
+def _arrange_get_controller(frame: MagicMock, _query: MagicMock) -> MagicMock:
     frame.getController.side_effect = _thread_violation("getController")
-    session = FrameSession(frame, "doc-a")
-    query = MagicMock()
-    with pytest.raises(RuntimeError, match="UNO thread violation"):
-        _install(session, query)
-    assert session._click_handler is None
+    return frame
 
 
-def test_thread_violation_from_add_focus_listener_is_not_a_silent_install():
-    session = FrameSession(MagicMock(), "doc-a")
-    query = MagicMock()
+def _arrange_add_focus(frame: MagicMock, query: MagicMock) -> MagicMock:
     query.addFocusListener.side_effect = _thread_violation("addFocusListener")
+    return frame
+
+
+def _arrange_add_mouse_click(_frame_arg: MagicMock, _query: MagicMock) -> MagicMock:
+    class _Boom(_Controller):
+        def addMouseClickHandler(self, handler: object) -> None:
+            raise _thread_violation("addMouseClickHandler")
+
+    return _frame(_Boom())
+
+
+@pytest.mark.parametrize(
+    ("arrange", "expected_none_attrs"),
+    [
+        (_arrange_get_controller, ("_click_handler",)),
+        (_arrange_add_focus, ("_query_listener",)),
+        (_arrange_add_mouse_click, ("_click_handler", "_click_controller")),
+    ],
+    ids=["getController", "addFocusListener", "addMouseClickHandler"],
+)
+def test_thread_violation_on_install_is_not_a_silent_install(arrange, expected_none_attrs: tuple[str, ...]):
+    """Off-thread UNO calls during install must raise, not log at debug and skip wiring."""
+    query = MagicMock()
+    frame = arrange(MagicMock(), query)
+    session = FrameSession(frame, "doc-a")
     with pytest.raises(RuntimeError, match="UNO thread violation"):
         _install(session, query)
-    assert session._query_listener is None
+    for attr in expected_none_attrs:
+        assert getattr(session, attr) is None
 
 
 def test_thread_violation_on_leave_query_rolls_back_then_raises():
@@ -507,20 +525,6 @@ def test_thread_violation_from_add_mouse_listener_is_not_a_silent_install():
         _install(session, query, leave)
     assert session._leave == []
     leave.addFocusListener.assert_not_called()
-
-
-def test_thread_violation_from_add_mouse_click_handler_is_not_a_silent_install():
-    class _Boom(_Controller):
-        def addMouseClickHandler(self, handler: object) -> None:
-            raise _thread_violation("addMouseClickHandler")
-
-    controller = _Boom()
-    session = FrameSession(_frame(controller), "doc-a")
-    query = MagicMock()
-    with pytest.raises(RuntimeError, match="UNO thread violation"):
-        _install(session, query)
-    assert session._click_handler is None
-    assert session._click_controller is None
 
 
 def test_ordinary_attach_error_stays_a_debug_log(caplog):

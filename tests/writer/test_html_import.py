@@ -1741,18 +1741,35 @@ def test_paragraph_after_none_is_text_start():
     text.createTextCursorByRange.assert_called_once_with(text.getStart.return_value)
 
 
-def test_content_has_block_markup_whitespace_and_inline_tags():
+@pytest.mark.parametrize(
+    ("html", "expected"),
+    [
+        ("", False),
+        (None, False),
+        ("hello world", False),
+        ("<b>bold</b> text", False),
+        ('<span style="background: transparent">Title</span>', False),
+        ("<span>", False),
+        ("<param>", False),
+        ("List<String>", False),
+        ("<span>a<br>b</span>", False),
+        ("<p>a paragraph</p>", True),
+        ("<h1>title</h1>", True),
+        ("<h3>x</h3>", True),
+        ("<ul><li>x</li></ul>", True),
+        ("<P>X</P>", True),
+        ("<p\n style=a>", True),
+        ("<p\tx>", True),
+        ("<dl><dt>x</dt></dl>", True),
+        ("<figure></figure>", True),
+        ("<header>h</header>", True),
+    ],
+)
+def test_content_has_block_markup(html, expected):
+    """R3: pins the block-vs-inline classification that gates the clear 'rich HTML in a table cell' error in replace_single_range_with_content; inline tags go through the in-cell path."""
     from plugin.writer.html_import import content_has_block_markup
 
-    assert content_has_block_markup("<p\n style=a>") is True
-    assert content_has_block_markup("<p\tx>") is True
-    assert content_has_block_markup("<span>") is False
-    assert content_has_block_markup("<param>") is False
-    assert content_has_block_markup("List<String>") is False
-    assert content_has_block_markup("<dl><dt>x</dt></dl>") is True
-    assert content_has_block_markup("<figure></figure>") is True
-    assert content_has_block_markup("<header>h</header>") is True
-    assert content_has_block_markup("<span>a<br>b</span>") is False
+    assert content_has_block_markup(html) is expected
 
 
 def test_collect_range_portions_magic_mock_returns_immediately():
@@ -1780,81 +1797,33 @@ def make_paragraph_edge_range(is_start: bool, is_end: bool) -> MagicMock:
     return rng
 
 
-def test_lo_style_for_replaced_range_predicates():
+@pytest.mark.parametrize(
+    ("content", "recording", "start_edge", "end_edge", "expected_apply", "expected_note"),
+    [
+        ('<p data-lo-style="Heading2">content</p>', False, True, True, True, None),
+        ('<p data-lo-style="Heading2">content</p>', False, True, False, False, "STYLE_IGNORED_PARTIAL_MATCH"),
+        ('<p data-lo-style="Heading2">content</p>', False, False, True, False, "STYLE_IGNORED_PARTIAL_MATCH"),
+        ('<p data-lo-style="Heading2">content</p>', False, False, False, False, "STYLE_IGNORED_PARTIAL_MATCH"),
+        ('<p data-lo-para="text-align:center">content</p>', False, True, True, True, None),
+        ('<p data-lo-para="text-align:center">content</p>', False, True, False, False, "STYLE_IGNORED_PARTIAL_MATCH"),
+        ('<p data-lo-para="text-align:center">content</p>', False, False, True, False, "STYLE_IGNORED_PARTIAL_MATCH"),
+        ('<p data-lo-para="text-align:center">content</p>', False, False, False, False, "STYLE_IGNORED_PARTIAL_MATCH"),
+        ('<p data-lo-style="Heading2">content</p>', True, True, True, False, "STYLE_IGNORED_RECORDING"),
+        # Geometry checked first: partial match while recording returns partial note.
+        pytest.param('<p data-lo-style="Heading2">content</p>', True, False, True, False, "STYLE_IGNORED_PARTIAL_MATCH", id="style_partial_while_recording"),
+        ('<p data-lo-para="text-align:center">content</p>', True, True, True, False, "STYLE_IGNORED_RECORDING"),
+        pytest.param('<p data-lo-para="text-align:center">content</p>', True, False, True, False, "STYLE_IGNORED_PARTIAL_MATCH", id="para_partial_while_recording"),
+    ],
+)
+def test_lo_style_for_replaced_range(content, recording, start_edge, end_edge, expected_apply, expected_note):
     from plugin.writer.html_import import _lo_style_for_replaced_range
 
-    model = MagicMock()
-    content = '<p data-lo-style="Heading2">content</p>'
-
-    with patch("plugin.writer.record_changes.is_recording_changes", return_value=False):
-        # Both edges true -> apply True, note None
-        apply, note = _lo_style_for_replaced_range(model, content, make_paragraph_edge_range(True, True))
-        assert apply is True
-        assert note is None
-
-        # Start only -> apply False, note partial
-        apply, note = _lo_style_for_replaced_range(model, content, make_paragraph_edge_range(True, False))
-        assert apply is False
-        assert note == "STYLE_IGNORED_PARTIAL_MATCH"
-
-        # End only -> apply False, note partial
-        apply, note = _lo_style_for_replaced_range(model, content, make_paragraph_edge_range(False, True))
-        assert apply is False
-        assert note == "STYLE_IGNORED_PARTIAL_MATCH"
-
-        # Neither -> apply False, note partial
-        apply, note = _lo_style_for_replaced_range(model, content, make_paragraph_edge_range(False, False))
-        assert apply is False
-        assert note == "STYLE_IGNORED_PARTIAL_MATCH"
-
-        para_content = '<p data-lo-para="text-align:center">content</p>'
-        # Both edges true -> apply True, note None
-        apply, note = _lo_style_for_replaced_range(model, para_content, make_paragraph_edge_range(True, True))
-        assert apply is True
-        assert note is None
-
-        # Start only -> apply False, note STYLE_IGNORED_PARTIAL_MATCH
-        apply, note = _lo_style_for_replaced_range(model, para_content, make_paragraph_edge_range(True, False))
-        assert apply is False
-        assert note == "STYLE_IGNORED_PARTIAL_MATCH"
-
-        # End only -> apply False, note STYLE_IGNORED_PARTIAL_MATCH
-        apply, note = _lo_style_for_replaced_range(model, para_content, make_paragraph_edge_range(False, True))
-        assert apply is False
-        assert note == "STYLE_IGNORED_PARTIAL_MATCH"
-
-        # Neither -> apply False, note STYLE_IGNORED_PARTIAL_MATCH
-        apply, note = _lo_style_for_replaced_range(model, para_content, make_paragraph_edge_range(False, False))
-        assert apply is False
-        assert note == "STYLE_IGNORED_PARTIAL_MATCH"
-
-
-def test_lo_style_for_replaced_range_recording():
-    from plugin.writer.html_import import _lo_style_for_replaced_range
-
-    model = MagicMock()
-    content = '<p data-lo-style="Heading2">content</p>'
-
-    with patch("plugin.writer.record_changes.is_recording_changes", return_value=True):
-        # Edges true, recording true -> apply False, recording sentence
-        apply, note = _lo_style_for_replaced_range(model, content, make_paragraph_edge_range(True, True))
-        assert apply is False
-        assert note == "STYLE_IGNORED_RECORDING"
-
-        # Geometry checked first: partial match while recording returns partial note
-        apply, note = _lo_style_for_replaced_range(model, content, make_paragraph_edge_range(False, True))
-        assert apply is False
-        assert note == "STYLE_IGNORED_PARTIAL_MATCH"
-
-        para_content = '<p data-lo-para="text-align:center">content</p>'
-        # Para only while recording returns False, STYLE_IGNORED_RECORDING
-        apply, note = _lo_style_for_replaced_range(model, para_content, make_paragraph_edge_range(True, True))
-        assert apply is False
-        assert note == "STYLE_IGNORED_RECORDING"
-
-        apply, note = _lo_style_for_replaced_range(model, para_content, make_paragraph_edge_range(False, True))
-        assert apply is False
-        assert note == "STYLE_IGNORED_PARTIAL_MATCH"
+    with patch("plugin.writer.record_changes.is_recording_changes", return_value=recording):
+        apply, note = _lo_style_for_replaced_range(
+            MagicMock(), content, make_paragraph_edge_range(start_edge, end_edge)
+        )
+    assert apply is expected_apply
+    assert note == expected_note
 
 
 def test_lo_style_for_replaced_range_non_block_tokens():

@@ -9,10 +9,6 @@ from __future__ import annotations
 
 import json
 import math
-import re
-import shutil
-import subprocess
-from pathlib import Path
 from typing import Any
 
 import pytest
@@ -20,8 +16,8 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 
 from plugin.framework.json_utils import safe_json_loads
+from tests.harness.crosshair import assert_crosshair_clean
 
-_CROSSHAIR_ERROR_RE = re.compile(r": error:")
 _CROSSHAIR_TARGET = "plugin.framework.json_utils.safe_json_loads"
 
 
@@ -34,39 +30,6 @@ def _json_values_equal(a: Any, b: Any) -> bool:
     if isinstance(a, dict) and isinstance(b, dict):
         return a.keys() == b.keys() and all(_json_values_equal(a[k], b[k]) for k in a)
     return a == b
-
-
-def _find_crosshair() -> str | None:
-    crosshair_path = shutil.which("crosshair")
-    if crosshair_path:
-        return crosshair_path
-    venv_bin_ch = Path(".venv/bin/crosshair")
-    if venv_bin_ch.exists():
-        return str(venv_bin_ch)
-    return None
-
-
-@pytest.mark.parametrize(
-    "value, value_2, value_3, value_4, value_5",
-    [
-        pytest.param('{"note": "line1', "\n", 'end"}', "note", "line1\nend", id="test_latex_repair_keeps_real_newline_before_word"),
-        pytest.param('{"eq": "', "\nabla", ' x"}', "eq", "\\nabla x", id="test_latex_repair_still_restores_nabla_control_char"),
-    ],
-)
-def test_latex_repair_keeps_real_newline_before_word(value, value_2, value_3, value_4, value_5) -> None:
-    raw = value + value_2 + value_3
-    assert safe_json_loads(raw) == {value_4: value_5}
-
-def test_non_str_returns_default() -> None:
-    assert safe_json_loads(None, default={"x": 1}) == {"x": 1}
-    assert safe_json_loads(123, default="d") == "d"
-    assert safe_json_loads(["a"], default=None) is None
-
-
-def test_empty_whitespace_returns_default() -> None:
-    assert safe_json_loads("", default=42) == 42
-    assert safe_json_loads("   \n\t", default=42) == 42
-    assert safe_json_loads(b"", default=7) == 7
 
 
 @given(
@@ -107,18 +70,4 @@ def test_strict_rejects_single_quoted() -> None:
 
 @pytest.mark.slow
 def test_crosshair_safe_json_loads_fqn_if_available() -> None:
-    crosshair_path = _find_crosshair()
-    if not crosshair_path:
-        pytest.skip("CrossHair concolic execution engine is not installed.")
-    result = subprocess.run(
-        [crosshair_path, "check", "-v", "--report_all", _CROSSHAIR_TARGET],
-        capture_output=True,
-        text=True,
-        timeout=300,
-    )
-    combined = f"{result.stdout}\n{result.stderr}".strip()
-    print(f"CrossHair output:\n{combined}")
-    errors = [line for line in combined.splitlines() if _CROSSHAIR_ERROR_RE.search(line)]
-    assert not errors, "CrossHair counterexamples found:\n" + "\n".join(errors)
-    if result.returncode == 2:
-        pytest.fail(f"CrossHair internal error (exit 2):\n{combined}")
+    assert_crosshair_clean(_CROSSHAIR_TARGET)

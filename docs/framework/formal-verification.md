@@ -482,7 +482,7 @@ Maintain a `verification_status.json` file tracking which components have been v
 6. **`plugin/framework/stream_delta.py`** — `accumulate_delta` (CrossHair FQN `plugin.framework.stream_delta.accumulate_delta`). **`plugin/framework/async_stream.py`** — `_format_agent_tool_stream_line` ([`tests/framework/test_accumulate_delta_verification.py`](../../tests/framework/test_accumulate_delta_verification.py))
 7. **FSM catch-up** — CrossHair on `tool_loop_state.py` helpers (`next_state` is `# crosshair: off`) ([`tests/chatbot/test_fsm_verification.py`](../../tests/chatbot/test_fsm_verification.py))
 8. **`plugin/framework/json_utils.py`** — `safe_json_loads` FQN ([`tests/framework/test_json_utils_verification.py`](../../tests/framework/test_json_utils_verification.py))
-9. **`plugin/framework/errors.py`** — `format_error_payload` and `format_error_message` ([`tests/framework/test_error_payload_verification.py`](../../tests/framework/test_error_payload_verification.py))
+9. **`plugin/framework/errors.py`** — `format_error_payload` and `format_error_message` ([`tests/framework/test_errors.py`](../../tests/framework/test_errors.py))
 10. **`plugin/scripting/sandbox.py`** — `scrub_subprocess_env` ([`tests/scripting/test_scrub_env_verification.py`](../../tests/scripting/test_scrub_env_verification.py))
 11. **`plugin/framework/i18n.py`** — `_` translation ([`tests/framework/test_i18n.py`](../../tests/framework/test_i18n.py))
 12. **`plugin/chatbot/memory.py`** — `upsert_memory_arguments_dict`, `format_upsert_memory_chat_line` ([`tests/chatbot/test_memory.py`](../../tests/chatbot/test_memory.py))

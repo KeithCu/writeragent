@@ -10,38 +10,6 @@ from plugin.framework.client.provider_detection import get_provider_from_endpoin
 
 
 @patch("plugin.framework.client.auth.normalize_endpoint_url")
-def test_resolve_provider_id_by_url(mock_normalize):
-    """Test host matching for known providers."""
-
-    def side_effect(url):
-        return url
-    mock_normalize.side_effect = side_effect
-
-    # Should match OpenAI
-    assert (get_provider_from_endpoint("https://api.openai.com/v1") or "custom") == "openai"
-
-    # Should match Together AI
-    assert (get_provider_from_endpoint("https://api.together.xyz/v1") or "custom") == "together"
-
-    # Should match Ollama
-    assert (get_provider_from_endpoint("http://localhost:11434") or "custom") == "ollama"
-
-    # Should match DeepSeek
-    assert (get_provider_from_endpoint("https://api.deepseek.com") or "custom") == "deepseek"
-
-    # Case insensitivity
-    assert (get_provider_from_endpoint("HTTPS://API.OPENAI.COM") or "custom") == "openai"
-
-
-@patch("plugin.framework.client.auth.normalize_endpoint_url")
-def test_resolve_provider_id_custom_fallback(mock_normalize):
-    """Test that an unknown URL without a valid hint returns 'custom'."""
-    mock_normalize.return_value = "https://my-own-endpoint.com/v1"
-
-    assert (get_provider_from_endpoint("https://my-own-endpoint.com/v1") or "custom") == "custom"
-
-
-@patch("plugin.framework.client.auth.normalize_endpoint_url")
 @patch("plugin.framework.client.auth.get_provider_from_endpoint")
 def test_resolve_auth_for_config_known_provider(mock_get_provider, mock_normalize):
     mock_normalize.return_value = "https://openrouter.ai/api/v1"

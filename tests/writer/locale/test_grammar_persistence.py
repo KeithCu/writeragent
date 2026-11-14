@@ -9,6 +9,8 @@ import threading
 from typing import Any
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from plugin.writer.locale.grammar_persistence import GRAMMAR_CACHE_VERSION
 
 _TEST_IDENT = "llm:test"
@@ -145,49 +147,28 @@ class TestGrammarPersistence:
         assert ("fp2") in (en.get("good", []))
         assert (en["bad"]["fp1"][0]["s"]) == (0)
 
-    def test_document_event_on_save_triggers_persist(self) -> None:
-        """documentEventOccured with OnSave should drive set_document_property."""
+    @pytest.mark.parametrize("event_name", ["OnSave", "OnCopyTo"])
+    def test_document_event_save_triggers_persist(self, event_name: str) -> None:
+        """documentEventOccured with OnSave or OnCopyTo should drive set_document_property."""
         from plugin.writer.locale import grammar_persistence as gp
 
         model = MagicMock()
         with patch("plugin.doc.udprops.get_document_property", return_value=None):
-            dp = gp.DocumentPersistence("doc-save", model=model)
+            dp = gp.DocumentPersistence(f"doc-{event_name}", model=model)
 
         dp.put("fp_save", "en-US", [])
         listener = gp._GrammarDocumentEventListener(dp)
-        save_event = MagicMock()
-        save_event.EventName = "OnSave"
+        event = MagicMock()
+        event.EventName = event_name
 
         with patch("plugin.doc.udprops.set_document_property") as mock_set:
-            listener.documentEventOccured(save_event)
+            listener.documentEventOccured(event)
 
-        assert (mock_set.called), "OnSave must call set_document_property"
-        args = mock_set.call_args[0]
-        assert (args[0]) is (model)
-        written = json.loads(str(args[2]))
-        assert ("fp_save") in (written["locales"]["en-US"].get("good", []))
-
-    def test_document_event_on_copy_to_triggers_persist(self) -> None:
-        """documentEventOccured with OnCopyTo should drive set_document_property."""
-        from plugin.writer.locale import grammar_persistence as gp
-
-        model = MagicMock()
-        with patch("plugin.doc.udprops.get_document_property", return_value=None):
-            dp = gp.DocumentPersistence("doc-copy", model=model)
-
-        dp.put("fp_copy", "en-US", [])
-        listener = gp._GrammarDocumentEventListener(dp)
-        copy_event = MagicMock()
-        copy_event.EventName = "OnCopyTo"
-
-        with patch("plugin.doc.udprops.set_document_property") as mock_set:
-            listener.documentEventOccured(copy_event)
-
-        assert mock_set.called, "OnCopyTo must call set_document_property"
+        assert mock_set.called, f"{event_name} must call set_document_property"
         args = mock_set.call_args[0]
         assert args[0] is model
         written = json.loads(str(args[2]))
-        assert "fp_copy" in written["locales"]["en-US"].get("good", [])
+        assert "fp_save" in written["locales"]["en-US"].get("good", [])
 
     def test_document_event_on_unload_triggers_teardown(self) -> None:
         """documentEventOccured with OnUnload should teardown and clear the cache."""

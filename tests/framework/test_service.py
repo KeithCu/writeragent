@@ -41,12 +41,6 @@ class TestRegister():
         with pytest.raises(ValueError, match='already registered'):
             reg.register('dummy', DummyService())
 
-    def test_register(self):
-        reg = ServiceRegistry()
-        obj = {'hello': 'world'}
-        reg.register('myobj', obj)
-        assert (reg.get('myobj') is obj)
-
 class TestAccess():
 
     def test_getattr(self):

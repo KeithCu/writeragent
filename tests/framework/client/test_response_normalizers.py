@@ -5,6 +5,8 @@
 
 from unittest.mock import MagicMock
 
+import pytest
+
 from plugin.framework.client.anthropic_shim import AnthropicShim
 from plugin.framework.client.google_shim import GoogleShim
 from plugin.framework.client.openai_shim import OpenAIShim
@@ -20,6 +22,73 @@ def test_strip_leaked_chat_template_control_tokens():
     assert strip_leaked_chat_template_control_tokens("<|channel|>Hello") == "Hello"
     assert strip_leaked_chat_template_control_tokens("Normal text") == "Normal text"
     assert strip_leaked_chat_template_control_tokens("") == ""
+    assert strip_leaked_chat_template_control_tokens(None) == ""
+    harmony = (
+        '<|channel|>final <|constrain|>commentary<|message|>{\n'
+        '  "name": "reply_to_user",\n'
+        '  "arguments": {\n'
+        '    "answer": "Hi"\n'
+        "  }\n"
+        "}"
+    )
+    out = strip_leaked_chat_template_control_tokens(harmony)
+    assert "<|" not in out
+    assert "reply_to_user" in out and "Hi" in out
+    llama_out = strip_leaked_chat_template_control_tokens('<|python_tag|>{"name": "x", "arguments": {}}')
+    assert "<|" not in llama_out
+    assert llama_out.startswith('{"name"')
+
+
+def test_extract_structured_image_url_block():
+    msg = {
+        "role": "assistant",
+        "content": [
+            {"type": "text", "text": "see"},
+            {"type": "image_url", "image_url": {"url": "data:image/png;base64,abc123"}},
+        ],
+    }
+    extracted = extract_and_strip_images_from_message(msg, strip_structured_image_blocks=True)
+    assert len(extracted) == 1
+    assert extracted[0] == {"mime_type": "image/png", "data": "abc123"}
+    assert msg["content"] == [
+        {"type": "text", "text": "see"},
+        {"type": "text", "text": "[Image Ref]"},
+    ]
+
+
+def test_extract_keeps_structured_block_when_not_stripping():
+    block = {"type": "image_url", "image_url": {"url": "data:image/png;base64,abc123"}}
+    msg = {"role": "user", "content": [block]}
+    extracted = extract_and_strip_images_from_message(msg, strip_structured_image_blocks=False)
+    assert extracted == []
+    assert msg["content"] == [block]
+
+
+@pytest.mark.parametrize(
+    ("provider", "expected_in_place"),
+    [("openai", False), ("anthropic", True), ("google", False)],
+)
+def test_normalize_multimodal_messages_provider_placement(provider: str, expected_in_place: bool):
+    """Anthropic keeps tool images on the tool turn; OpenAI/Google move them to the user turn."""
+    uri = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAUA"
+    messages = [
+        {"role": "user", "content": "Tell me about this document"},
+        {"role": "assistant", "content": "Let me read it."},
+        {"role": "tool", "tool_call_id": "call_123", "name": "get_document_content", "content": f"Here is the page: {uri}"},
+    ]
+    normalize_multimodal_messages(messages, provider)
+    if expected_in_place:
+        assert messages[0]["content"] == "Tell me about this document"
+        assert messages[2]["content"] == [
+            {"type": "text", "text": "Here is the page: [Image Ref]"},
+            {"type": "image_url", "image_url": {"url": uri}},
+        ]
+    else:
+        assert messages[2]["content"] == "Here is the page: [Image Ref]"
+        assert messages[0]["content"] == [
+            {"type": "text", "text": "Tell me about this document"},
+            {"type": "image_url", "image_url": {"url": uri}},
+        ]
 
 
 def test_extract_and_strip_images_from_message():

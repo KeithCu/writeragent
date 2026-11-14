@@ -1,15 +1,19 @@
 
 import queue
 import pytest
-import sys
 from typing import Any
-from plugin.framework.errors import WriterAgentException, format_error_for_display, format_error_payload, make_tool_error
-from plugin.framework.json_utils import safe_json_loads
+from plugin.framework.errors import (
+    ToolExecutionError,
+    WriterAgentException,
+    format_error_for_display,
+    format_error_payload,
+    make_tool_error,
+    resolve_exception_message,
+)
 from plugin.framework.tool import ToolBase
 from plugin.framework.stream_batch import StreamQueueKind
 from plugin.framework.async_stream import DrainOutcome, run_stream_drain_loop
 from unittest.mock import MagicMock
-from plugin.draw.shapes import DrawShapes, DrawError
 from plugin.framework.errors import safe_python_literal_eval
 import inspect
 
@@ -284,49 +288,6 @@ class TestErrorHandling:
         assert (disp_exc.details) == ({"line": 42})
 
 
-class TestSafeJsonLoads:
-
-    def test_safe_json_loads_valid(self):
-        assert (safe_json_loads('{"key": "value"}')) == ({'key': 'value'})
-        assert (safe_json_loads('[1, 2, 3]')) == ([1, 2, 3])
-        assert (safe_json_loads('"string"')) == ('string')
-        assert (safe_json_loads('123')) == (123)
-
-    def test_safe_json_loads_repair_truncated(self):
-        assert (safe_json_loads('{"key": "value"')) == ({'key': 'value'})
-        assert (safe_json_loads('[1, 2')) == ([1, 2])
-        assert (safe_json_loads('{"a": {"b": 1')) == ({'a': {'b': 1}})
-
-    def test_safe_json_loads_repair_trailing_comma(self):
-        assert (safe_json_loads('{"key": "value",}')) == ({'key': 'value'})
-        assert (safe_json_loads('[1, 2, ]')) == ([1, 2])
-
-    def test_safe_json_loads_literal_eval(self):
-        assert (safe_json_loads("{'key': 'value'}")) == ({'key': 'value'})
-        assert (safe_json_loads('[True, False, None]')) == ([True, False, None])
-
-    def test_safe_json_loads_invalid(self):
-        assert (safe_json_loads('not json at all')) is None
-        assert (safe_json_loads('<<< completely broken garbage >>>')) is None
-
-    def test_safe_json_loads_wrong_type(self):
-        assert (safe_json_loads(None)) is None
-        assert (safe_json_loads(123)) is None
-        assert (safe_json_loads({'not': 'a string'})) is None
-
-    def test_safe_json_loads_null_eval(self):
-        assert (safe_json_loads('null')) is None
-        assert (safe_json_loads('null', default={})) is None
-
-    def test_safe_json_loads_custom_default(self):
-        assert (safe_json_loads('invalid', default={'error': True})) == ({'error': True})
-        assert (safe_json_loads(None, default='default')) == ('default')
-
-    def test_safe_json_loads_silent_latex_corruption(self):
-        corrupted_json = '{"content": "\nabla \times \x0crac{1}{c}"}'
-        repaired = safe_json_loads(corrupted_json)
-        assert (repaired) == ({'content': '\\nabla \\times \\frac{1}{c}'})
-
     def test_long_runtime_message_does_not_raise_precontract(self):
         """Provider and UNO text longer than the msgid bound must still construct.
 
@@ -367,23 +328,6 @@ class TestAsyncStreamErrorHandling:
         assert (len(error_received)) == (1)
         assert (error_received[0]['status']) == ('error')
         assert (error_received[0]['message']) == ('Simulation error')
-@pytest.fixture
-def _draw_shape_uno_mocks(monkeypatch):
-    mock_uno = MagicMock()
-    mock_unohelper = MagicMock()
-    mock_beans = MagicMock()
-    mock_table = MagicMock()
-
-    class MockBase:
-        pass
-
-    mock_unohelper.Base = MockBase
-    monkeypatch.setitem(sys.modules, "uno", mock_uno)
-    monkeypatch.setitem(sys.modules, "unohelper", mock_unohelper)
-    monkeypatch.setitem(sys.modules, "com.sun.star.beans", mock_beans)
-    monkeypatch.setitem(sys.modules, "com.sun.star.table", mock_table)
-
-
 def test_best_effort_logs_and_swallows_everything(caplog):
     import logging
 
@@ -401,105 +345,6 @@ def test_best_effort_logs_and_swallows_everything(caplog):
             assert best_effort(boom, "cleanup step failed", 3) == 3
     records = [r for r in caplog.records if r.getMessage() == "cleanup step failed"]
     assert len(records) == 6 and all(r.levelno == logging.DEBUG and r.exc_info for r in records)
-
-
-def test_draw_shapes_safe_create_shape_valid(_draw_shape_uno_mocks):
-    'Test safe_create_shape with valid inputs creates and adds the shape.'
-    draw_shapes = DrawShapes()
-    doc = MagicMock()
-    page = MagicMock()
-    shape = MagicMock()
-    doc.createInstance.return_value = shape
-    position = MagicMock()
-    position.X = 100
-    position.Y = 200
-    size = MagicMock()
-    size.Width = 300
-    size.Height = 400
-    shape_type = 'RectangleShape'
-    (result, geom_ok, geom_err) = draw_shapes.safe_create_shape(doc, page, shape_type, position, size)
-    doc.createInstance.assert_called_once_with('com.sun.star.drawing.RectangleShape')
-    shape.setPosition.assert_called_once_with(position)
-    shape.setSize.assert_called_once_with(size)
-    page.add.assert_called_once_with(shape)
-    assert (result == shape)
-    assert ((geom_ok is None) and (geom_err is None))
-
-def test_draw_shapes_safe_create_shape_invalid_page(_draw_shape_uno_mocks):
-    'Test safe_create_shape raises DrawError when page is None.'
-    draw_shapes = DrawShapes()
-    doc = MagicMock()
-    position = MagicMock()
-    position.X = 100
-    position.Y = 200
-    size = MagicMock()
-    size.Width = 300
-    size.Height = 400
-    with pytest.raises(DrawError) as exc_info:
-        draw_shapes.safe_create_shape(doc, None, 'RectangleShape', position, size)
-    assert (exc_info.value.code == 'DRAW_PAGE_NULL')
-
-def test_draw_shapes_safe_create_shape_invalid_position(_draw_shape_uno_mocks):
-    'Test safe_create_shape raises DrawError when position is invalid.'
-    draw_shapes = DrawShapes()
-    doc = MagicMock()
-    page = MagicMock()
-    position = MagicMock()
-    del position.X
-    size = MagicMock()
-    size.Width = 300
-    size.Height = 400
-    with pytest.raises(DrawError) as exc_info:
-        draw_shapes.safe_create_shape(doc, page, 'RectangleShape', position, size)
-    assert (exc_info.value.code == 'DRAW_INVALID_POSITION')
-
-def test_draw_shapes_safe_create_shape_invalid_size(_draw_shape_uno_mocks):
-    'Test safe_create_shape raises DrawError when size is invalid.'
-    draw_shapes = DrawShapes()
-    doc = MagicMock()
-    page = MagicMock()
-    position = MagicMock()
-    position.X = 100
-    position.Y = 200
-    size = MagicMock()
-    size.Width = 0
-    size.Height = 400
-    with pytest.raises(DrawError) as exc_info:
-        draw_shapes.safe_create_shape(doc, page, 'RectangleShape', position, size)
-    assert (exc_info.value.code == 'DRAW_INVALID_SIZE')
-
-def test_draw_shapes_safe_create_shape_creation_failed(_draw_shape_uno_mocks):
-    'Test safe_create_shape raises DrawError when shape creation fails.'
-    draw_shapes = DrawShapes()
-    doc = MagicMock()
-    doc.createInstance.return_value = None
-    page = MagicMock()
-    position = MagicMock()
-    position.X = 100
-    position.Y = 200
-    size = MagicMock()
-    size.Width = 300
-    size.Height = 400
-    with pytest.raises(DrawError) as exc_info:
-        draw_shapes.safe_create_shape(doc, page, 'UnknownShape', position, size)
-    assert (exc_info.value.code == 'DRAW_SHAPE_CREATION_FAILED')
-
-def test_draw_shapes_safe_create_shape_exception_handling(_draw_shape_uno_mocks):
-    'Test safe_create_shape wraps generic exceptions in DrawError.'
-    draw_shapes = DrawShapes()
-    doc = MagicMock()
-    doc.createInstance.side_effect = Exception('Some UNO error')
-    page = MagicMock()
-    position = MagicMock()
-    position.X = 100
-    position.Y = 200
-    size = MagicMock()
-    size.Width = 300
-    size.Height = 400
-    with pytest.raises(DrawError) as exc_info:
-        draw_shapes.safe_create_shape(doc, page, 'RectangleShape', position, size)
-    assert (exc_info.value.code == 'DRAW_SHAPE_CREATION_ERROR')
-    assert ('Some UNO error' in exc_info.value.details['original_error'])
 
 
 class TestSecurityFix:
@@ -1078,18 +923,41 @@ def test_format_error_for_display_connection_refused():
     assert "local AI server" in display
 
 
-def test_writer_agent_exception_code_is_keyword_only():
-    from plugin.framework.errors import ConfigError, WriterAgentException
+def test_resolve_exception_message_standard_python():
+    e = ValueError("something went wrong")
+    assert resolve_exception_message(e) == "something went wrong"
 
-    with pytest.raises(TypeError):
-        WriterAgentException("msg", "CODE")  # type: ignore[too-many-positional-arguments]  # ty: ignore[too-many-positional-arguments]
 
-    with pytest.raises(TypeError):
-        ConfigError("msg", "CONFIG_PATH_ERROR")  # type: ignore[too-many-positional-arguments]  # ty: ignore[too-many-positional-arguments]
+def test_resolve_exception_message_uno_style():
+    class ElementExistException(Exception):
+        def __init__(self, message):
+            self.Message = message
 
-    exc = WriterAgentException("msg", code="CODE")
-    assert exc.code == "CODE"
-    assert exc.message == "msg"
+        def __str__(self):
+            return ""
+
+    uno_err = ElementExistException("ElementExistException: Chart_0 already exists")
+    assert resolve_exception_message(uno_err) == "ElementExistException: Chart_0 already exists"
+
+    wrapper = ToolExecutionError(uno_err)
+    payload = format_error_payload(wrapper)
+    assert payload["status"] == "error"
+    assert payload["message"] == "ElementExistException: Chart_0 already exists"
+    assert payload["message"] != ""
+
+
+def test_resolve_exception_message_completely_blank():
+    class BlankException(Exception):
+        def __str__(self):
+            return ""
+
+    blank = BlankException()
+    assert resolve_exception_message(blank) == "BlankException"
+
+    payload = format_error_payload(blank)
+    assert payload["status"] == "error"
+    assert payload["message"] == "BlankException"
+    assert payload["message"] != ""
 
 
 from tests.framework.suggested_call_access import (
