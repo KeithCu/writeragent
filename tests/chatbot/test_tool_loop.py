@@ -1163,6 +1163,13 @@ def test_toolkit_none_starts_drain_and_first_worker():
     )
 
 
+def _drain_items(q):
+    items = []
+    while not q.empty():
+        items.append(q.get_nowait())
+    return items
+
+
 def test_retry_status_restored_on_first_chunk():
     import queue
     from plugin.chatbot.tool_loop_actions import current_turn
@@ -1192,12 +1199,8 @@ def test_retry_status_restored_on_first_chunk():
         started[0]()
     batched._timer.stop()
 
-    items = []
-    while not q.empty():
-        items.append(q.get_nowait())
-
-    kinds = [item[0] for item in items]
-    assert kinds == [
+    items = _drain_items(q)
+    assert [item[0] for item in items] == [
         StreamQueueKind.STATUS,
         StreamQueueKind.STATUS,
         StreamQueueKind.CHUNK,
@@ -1236,12 +1239,8 @@ def test_retry_status_restored_on_first_chunk_final_stream():
         started[0]()
     batched._timer.stop()
 
-    items = []
-    while not q.empty():
-        items.append(q.get_nowait())
-
-    kinds = [item[0] for item in items]
-    assert kinds == [
+    items = _drain_items(q)
+    assert [item[0] for item in items] == [
         StreamQueueKind.STATUS,
         StreamQueueKind.STATUS,
         StreamQueueKind.CHUNK,

@@ -10,6 +10,7 @@
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+import pytest
 
 from plugin.chatbot.panel_resize import (
     _PanelResizeListener,
@@ -180,7 +181,8 @@ class TestPanelResizeListenerIntegration:
         assert called == [True]
         mock_log_exc.assert_called_once()
 
-    def test_listener_applies_layout_and_syncs_rich_control(self):
+    @pytest.mark.parametrize("text_len", [0, 10])
+    def test_listener_applies_layout_and_syncs_rich_control(self, text_len):
         controls = {
             name: _mock_control(x, y, w, h)
             for name, (x, y, w, h) in _xdl_snapshot().items()
@@ -192,7 +194,7 @@ class TestPanelResizeListenerIntegration:
         root.getControl.side_effect = lambda name: controls.get(name)
 
         listener = _PanelResizeListener(controls)
-        with patch("plugin.chatbot.rich_text_control.get_control_text_length", return_value=0):
+        with patch("plugin.chatbot.rich_text_control.get_control_text_length", return_value=text_len):
             listener.relayout_now(root)
 
         expected = compute_chat_panel_layout(900, 500, _xdl_snapshot())
@@ -208,32 +210,18 @@ class TestPanelResizeListenerIntegration:
         assert rh == expected["response"].height
         assert rich.getPosSize().Height == rh - 16
 
-    def test_listener_syncs_rich_control_bounds_when_non_empty(self):
-        controls = {
-            name: _mock_control(x, y, w, h)
-            for name, (x, y, w, h) in _xdl_snapshot().items()
-        }
-        rich = _mock_control(12, 24, 120, 90)
-        controls["response_rich"] = rich
-        root = MagicMock()
-        root.getPosSize.return_value = SimpleNamespace(Width=900, Height=500)
-        root.getControl.side_effect = lambda name: controls.get(name)
-
-        listener = _PanelResizeListener(controls)
-        with patch("plugin.chatbot.rich_text_control.get_control_text_length", return_value=10):
-            listener.relayout_now(root)
-
-        expected = compute_chat_panel_layout(900, 500, _xdl_snapshot())
-        assert listener.last_response_rect is not None
-        _rx, _ry, _rw, rh = listener.last_response_rect
-        assert rh == expected["response"].height
-        assert rich.getPosSize().Height == rh - 16
-
-    def test_slash_popup_overlay_is_not_laid_out(self):
+    @pytest.mark.parametrize(
+        ("control_id", "bounds"),
+        [
+            ("slash_popup", (4, 80, 142, 60)),
+            ("response_rich", (12, 24, 100, 80)),
+        ],
+    )
+    def test_overlay_controls_are_not_laid_out(self, control_id, bounds):
         snapshot = _xdl_snapshot()
-        snapshot["slash_popup"] = (4, 80, 142, 60)
+        snapshot[control_id] = bounds
         layouts = compute_chat_panel_layout(900, 500, snapshot)
-        assert "slash_popup" not in layouts
+        assert control_id not in layouts
         assert "query" in layouts
 
     def test_create_time_overflow_is_clamped_before_negotiation(self):
@@ -572,13 +560,6 @@ def test_backend_indicator_layout():
     # Narrow width where leftover is < 8
     layouts_narrow = compute_chat_panel_layout(ind.x + 5, 500, snapshot)
     assert layouts_narrow["backend_indicator"].width == 0
-
-
-def test_response_rich_is_not_in_layout():
-    snapshot = _xdl_snapshot()
-    snapshot["response_rich"] = (12, 24, 100, 80)
-    layouts = compute_chat_panel_layout(900, 500, snapshot)
-    assert "response_rich" not in layouts
 
 
 def test_xdl_all_ids_classified():

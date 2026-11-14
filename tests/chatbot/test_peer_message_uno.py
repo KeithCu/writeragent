@@ -246,36 +246,39 @@ def test_peer_missing_deck_is_clear_error(ctx):
             _close(writer)
 
 
+def _assert_inject_defers_and_kicks(ctx, writer, target_uid: str, message: str) -> None:
+    listener = _Listener()
+    panel = type("P", (), {"send_listener": listener})()
+    register_live_panel(target_uid, panel)
+    try:
+        tool = SendPeerWork()
+        with drain_owner_scope("stream"):
+            result = tool.execute(_tool_ctx(ctx, writer), document_url=target_uid, message=message)
+            assert result["status"] == "ok"
+            assert result["accepted"] is True
+            assert listener.started == []
+            assert listener.session.messages
+            assert "[Peer work from:" in listener.session.messages[0]["content"]
+        kick_pending_peer_starts()
+        assert listener.started
+        assert listener.started[0][1] is True
+    finally:
+        drop_listener_queue(listener)
+        unregister_live_panel(target_uid, panel)
+
+
 @native_test
 def test_peer_inject_defers_until_drain_idle(ctx):
     with _fresh_peer_queue():
         reset_sentry_state()
         writer = None
         other = None
-        panel = None
-        other_uid = ""
-        listener = _Listener()
         try:
             writer = _load(ctx, "private:factory/swriter")
             other = _load(ctx, "private:factory/swriter")
             other_uid = get_runtime_uid(other)
-            panel = type("P", (), {"send_listener": listener})()
-            register_live_panel(other_uid, panel)
-            tool = SendPeerWork()
-            with drain_owner_scope("stream"):
-                result = tool.execute(_tool_ctx(ctx, writer), document_url=other_uid, message="Compute Q4")
-                assert result["status"] == "ok"
-                assert result["accepted"] is True
-                assert listener.started == []
-                assert listener.session.messages
-                assert "[Peer work from:" in listener.session.messages[0]["content"]
-            kick_pending_peer_starts()
-            assert listener.started
-            assert listener.started[0][1] is True
+            _assert_inject_defers_and_kicks(ctx, writer, other_uid, "Compute Q4")
         finally:
-            drop_listener_queue(listener)
-            if other_uid and panel is not None:
-                unregister_live_panel(other_uid, panel)
             _close(other)
             _close(writer)
             reset_sentry_state()
@@ -364,9 +367,6 @@ def test_peer_impress_resolves_as_v1_peer(ctx):
         reset_sentry_state()
         writer = None
         impress = None
-        panel = None
-        impress_uid = ""
-        listener = _Listener()
         try:
             writer = _load(ctx, "private:factory/swriter")
             impress = _load(ctx, "private:factory/simpress")
@@ -378,26 +378,8 @@ def test_peer_impress_resolves_as_v1_peer(ctx):
             assert model is not None
             assert get_runtime_uid(model) == impress_uid
             assert v1_peer_type_label(model) == "impress"
-
-            panel = type("P", (), {"send_listener": listener})()
-            register_live_panel(impress_uid, panel)
-            tool = SendPeerWork()
-            with drain_owner_scope("stream"):
-                result = tool.execute(
-                    _tool_ctx(ctx, writer), document_url=impress_uid, message="Add a title slide"
-                )
-                assert result["status"] == "ok"
-                assert result["accepted"] is True
-                assert listener.started == []
-                assert listener.session.messages
-                assert "[Peer work from:" in listener.session.messages[0]["content"]
-            kick_pending_peer_starts()
-            assert listener.started
-            assert listener.started[0][1] is True
+            _assert_inject_defers_and_kicks(ctx, writer, impress_uid, "Add a title slide")
         finally:
-            drop_listener_queue(listener)
-            if impress_uid and panel is not None:
-                unregister_live_panel(impress_uid, panel)
             writer, impress = _teardown_peer_pair(writer, impress, ctx)
             reset_sentry_state()
 
