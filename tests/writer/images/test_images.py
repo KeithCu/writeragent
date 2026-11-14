@@ -4,7 +4,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Tests for images.py helpers (no LibreOffice required)."""
 import base64
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 import os
 import sys
 import tempfile
@@ -251,31 +251,21 @@ def _patch_image_generate(
     if config_side_effect is None:
         config_side_effect = _image_tool_config_side_effect(512)
 
-    with (
-        patch("plugin.framework.queue_executor.main.is_current", return_value=False),
-        patch("plugin.framework.queue_executor.main.call", side_effect=_run),
-        patch("plugin.doc.visual_helpers.selected_graphic_object", return_value=selected),
-        patch("plugin.writer.images.images.export_graphic_object_to_bytes", return_value=b"pngsel"),
-        patch("plugin.doc.visual_helpers.graphic_from_object", return_value=graphic_model),
-        patch("plugin.writer.images.images.ImageService", return_value=svc),
-        patch("plugin.writer.images.images.replace_graphic_source", return_value=True) as replace,
-        patch("plugin.writer.images.images.insert_image") as insert,
-        patch("plugin.writer.images.images.get_config", side_effect=config_side_effect),
-    ):
-        if units_px is not None and patch_image_model:
-            with (
-                patch("plugin.doc.visual_helpers.units_to_px", return_value=units_px),
-                patch("plugin.writer.images.images.get_image_model", return_value=""),
-            ):
-                yield replace, insert
-        elif units_px is not None:
-            with patch("plugin.doc.visual_helpers.units_to_px", return_value=units_px):
-                yield replace, insert
-        elif patch_image_model:
-            with patch("plugin.writer.images.images.get_image_model", return_value=""):
-                yield replace, insert
-        else:
-            yield replace, insert
+    with ExitStack() as stack:
+        stack.enter_context(patch("plugin.framework.queue_executor.main.is_current", return_value=False))
+        stack.enter_context(patch("plugin.framework.queue_executor.main.call", side_effect=_run))
+        stack.enter_context(patch("plugin.doc.visual_helpers.selected_graphic_object", return_value=selected))
+        stack.enter_context(patch("plugin.writer.images.images.export_graphic_object_to_bytes", return_value=b"pngsel"))
+        stack.enter_context(patch("plugin.doc.visual_helpers.graphic_from_object", return_value=graphic_model))
+        stack.enter_context(patch("plugin.writer.images.images.ImageService", return_value=svc))
+        replace = stack.enter_context(patch("plugin.writer.images.images.replace_graphic_source", return_value=True))
+        insert = stack.enter_context(patch("plugin.writer.images.images.insert_image"))
+        stack.enter_context(patch("plugin.writer.images.images.get_config", side_effect=config_side_effect))
+        if units_px is not None:
+            stack.enter_context(patch("plugin.doc.visual_helpers.units_to_px", return_value=units_px))
+        if patch_image_model:
+            stack.enter_context(patch("plugin.writer.images.images.get_image_model", return_value=""))
+        yield replace, insert
 
 
 def test_resolve_image_generate_is_edit_defaults_to_selection():
@@ -647,14 +637,14 @@ def test_image_replace_size_read_failure_is_tool_execution_error():
 
 
 @pytest.mark.parametrize(
-    ("tool_cls", "url_kw", "extra_kwargs", "check_local"),
+    ("tool_cls", "url_kw", "extra_kwargs"),
     [
-        pytest.param(ImageReplace, "path", {"name": "Graphic1"}, True, id="image_replace"),
-        pytest.param(ImageInsert, "path", {}, True, id="image_insert"),
-        pytest.param(ImageDownload, "url", {}, False, id="image_download"),
+        pytest.param(ImageReplace, "path", {"name": "Graphic1"}, id="image_replace"),
+        pytest.param(ImageInsert, "path", {}, id="image_insert"),
+        pytest.param(ImageDownload, "url", {}, id="image_download"),
     ],
 )
-def test_image_download_failure_is_tool_error(tool_cls, url_kw, extra_kwargs, check_local):
+def test_image_download_failure_is_tool_error(tool_cls, url_kw, extra_kwargs):
     import urllib.error
 
     ctx = TestingFactory.create_context(doc_type="writer")
@@ -668,17 +658,26 @@ def test_image_download_failure_is_tool_error(tool_cls, url_kw, extra_kwargs, ch
     assert res.get("code") == "DOWNLOAD_FAILED"
     assert res.get("message", "").startswith("Could not download image:")
 
-    if check_local:
-        # A local missing file still returns FILE_NOT_FOUND and does not call the downloader
-        with (
-            patch("plugin.doc.visual_helpers.get_graphic_object_by_name", return_value=graphic),
-            patch("plugin.writer.images.images._download_image_to_cache") as mock_download,
-            patch("os.path.isfile", return_value=False),
-        ):
-            res_local = tool_cls().execute(ctx, **{url_kw: "/nonexistent/pic.png"}, **extra_kwargs)
-        assert res_local["status"] != "ok"
-        assert res_local.get("code") == "FILE_NOT_FOUND"
-        mock_download.assert_not_called()
+
+@pytest.mark.parametrize(
+    ("tool_cls", "extra_kwargs"),
+    [
+        pytest.param(ImageReplace, {"name": "Graphic1"}, id="image_replace"),
+        pytest.param(ImageInsert, {}, id="image_insert"),
+    ],
+)
+def test_image_local_missing_file_returns_file_not_found(tool_cls, extra_kwargs):
+    ctx = TestingFactory.create_context(doc_type="writer")
+    graphic = MagicMock()
+    with (
+        patch("plugin.doc.visual_helpers.get_graphic_object_by_name", return_value=graphic),
+        patch("plugin.writer.images.images._download_image_to_cache") as mock_download,
+        patch("os.path.isfile", return_value=False),
+    ):
+        res_local = tool_cls().execute(ctx, path="/nonexistent/pic.png", **extra_kwargs)
+    assert res_local["status"] != "ok"
+    assert res_local.get("code") == "FILE_NOT_FOUND"
+    mock_download.assert_not_called()
 
 
 def test_image_generate_export_failure_is_tool_execution_error():

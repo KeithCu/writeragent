@@ -296,6 +296,7 @@ def test_prepare_vision_writer_insert_disposed_anchor_raises_document_disposed()
 
 
 class _TestRuntimeException(Exception):
+    # Name must contain "RuntimeException" because _looks_like_teardown matches on type name.
     pass
 
 

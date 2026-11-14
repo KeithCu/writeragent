@@ -197,10 +197,7 @@ class TestWriterImageCursorConversion:
         model.getText.return_value = doc_text
         model.CurrentController = MagicMock()
         model.CurrentController.ViewCursor = view_cursor
-        if isinstance(create_result, list):
-            model.createInstance.side_effect = create_result
-        else:
-            model.createInstance.return_value = create_result
+        model.createInstance.return_value = create_result
         model.supportsService.side_effect = lambda svc: svc == "com.sun.star.text.TextDocument"
         return model, doc_text, text_cursor, view_cursor
 
@@ -411,7 +408,8 @@ class TestWriterImageCursorConversion:
         text_frame_instance.getText.return_value = frame_text_obj
 
         image_instance = MagicMock(name="image_instance")
-        model, doc_text, unused_tc, unused_vc = self._make_writer_model([text_frame_instance, image_instance])
+        model, doc_text, unused_tc, unused_vc = self._make_writer_model(image_instance)
+        model.createInstance.side_effect = [text_frame_instance, image_instance]
         doc_text.createTextCursorByRange.return_value = "frame-text-cursor"
         ctx = MagicMock()
 

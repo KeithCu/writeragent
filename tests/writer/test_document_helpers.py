@@ -889,16 +889,17 @@ def test_do_edit_selection_clean_range_still_clears_and_streams(monkeypatch):
 
 
 
+from plugin.writer import editselection
+
+
 @pytest.mark.parametrize(
-    ("entry_name", "expected_text"),
+    ("entry_fn", "expected_text"),
     [
-        pytest.param("do_extend_selection", "Hellomore", id="extend_selection"),
-        pytest.param("do_edit_selection", "more", id="edit_selection"),
+        pytest.param(editselection.do_extend_selection, "Hellomore", id="extend_selection"),
+        pytest.param(editselection.do_edit_selection, "more", id="edit_selection"),
     ],
 )
-def test_selection_edit_entry_observes_stop_checker(monkeypatch, entry_name, expected_text):
-    from plugin.writer import editselection
-
+def test_selection_edit_entry_observes_stop_checker(monkeypatch, entry_fn, expected_text):
     text_range = _MutableTextRange()
     text_range.text = "Hello"
     doc = _MenuDoc(text_range, recording=False)
@@ -926,7 +927,7 @@ def test_selection_edit_entry_observes_stop_checker(monkeypatch, entry_name, exp
 
     monkeypatch.setattr(editselection, "stream_completion", stream_completion_mock)
 
-    getattr(editselection, entry_name)(_Ctx(), doc)
+    entry_fn(_Ctx(), doc)
 
     assert len(streams) == 1
     assert text_range.getString() == expected_text

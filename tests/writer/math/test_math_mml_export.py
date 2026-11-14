@@ -17,9 +17,9 @@ from plugin.writer.math.math_mml_export import (
 
 class _Hit:
     def __init__(
-        self, display_block: bool = False, embed_name: str | None = None, starmath: str = "a over b"
+        self, display_block: bool = False, embed_name: str | None = None
     ) -> None:
-        self.starmath = starmath
+        self.starmath = "a over b"
         self.display_block = display_block
         self.embed_name = embed_name
 

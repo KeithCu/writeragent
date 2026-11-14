@@ -1656,21 +1656,39 @@ def test_all_matches_disposed_undo_manager_reraises():
 
 
 @pytest.mark.parametrize(
-    ("target", "extra_kwargs"),
+    ("target", "extra_kwargs", "patches"),
     [
-        pytest.param("selection", {}, id="selection"),
-        pytest.param("search", {"old_content": "old"}, id="search"),
+        pytest.param(
+            "selection",
+            {},
+            [
+                ("plugin.writer.apply_document_content.selection_anchor", {"return_value": None}),
+                ("plugin.writer.html_import.insert_content_at_position", {"return_value": html_import_styles.WriteReport()}),
+            ],
+            id="selection",
+        ),
+        pytest.param(
+            "search",
+            {"old_content": "old"},
+            [
+                ("plugin.writer.search.find_first_range", {"return_value": MagicMock()}),
+                ("plugin.writer.apply_document_content.collapsed_anchor", {"return_value": None}),
+                ("plugin.writer.apply_document_content.writer_tables_emptied_by_matches", {"return_value": []}),
+            ],
+            id="search",
+        ),
     ],
 )
-def test_table_insert_fails_when_the_doc_already_has_a_table(target, extra_kwargs):
+def test_table_insert_fails_when_the_doc_already_has_a_table(target, extra_kwargs, patches):
+    from contextlib import ExitStack
+
     ctx = _edit_ctx()
     ctx.doc.getTextTables.return_value.getCount.side_effect = [1, 1]
-    with patch("plugin.writer.apply_document_content.selection_anchor", return_value=None), \
-         patch("plugin.writer.html_import.insert_content_at_position", return_value=html_import_styles.WriteReport()), \
-         patch("plugin.writer.search.find_first_range", return_value=MagicMock()), \
-         patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=None), \
-         patch("plugin.writer.apply_document_content.writer_tables_emptied_by_matches", return_value=[]), \
-         patch.object(ApplyDocumentContent, "_replace_found", return_value=[]):
+    with ExitStack() as stack:
+        for p_target, p_kwargs in patches:
+            stack.enter_context(patch(p_target, **p_kwargs))
+        if target == "search":
+            stack.enter_context(patch.object(ApplyDocumentContent, "_replace_found", return_value=[]))
         res = ApplyDocumentContent().execute(
             ctx, content="<table><tr><td>X</td></tr></table>", target=target, **extra_kwargs)
     assert res["status"] == "error"

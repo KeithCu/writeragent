@@ -183,5 +183,5 @@ def test_insert_formula_display_block_centered_and_keeps_alignment(ctx: Any, doc
         assert paragraphs[2].getPropertyValue("ParaAdjust") == paragraphs[0].getPropertyValue("ParaAdjust")
         if initial_adjust is not None:
             assert paragraphs[0].getPropertyValue("ParaAdjust") == initial_adjust
-            assert paragraphs[2].getPropertyValue("ParaAdjust") == initial_adjust
+            assert paragraphs[2].getPropertyValue("ParaAdjust") == initial_adjust  # Right (not 0)
 

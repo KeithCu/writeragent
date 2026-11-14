@@ -118,7 +118,7 @@ def _make_embed_ctx(
             )
         ),
     )
-    return ctx, doc, emb
+    return ctx, doc
 
 
 def test_spreadsheet_clsid_from_registry():
@@ -146,14 +146,11 @@ def test_spreadsheet_clsid_rejects_wrong_factory():
 
 
 def test_embedded_insert_sequence_and_cell_writes():
-    doc = MagicMock()
     cursor = MagicMock()
     host_text = MagicMock()
     cursor.getText.return_value = host_text
 
     emb = MagicMock()
-    doc.createInstance.return_value = emb
-
     inner = MagicMock()
     inner.supportsService.return_value = True
     sheet = MagicMock()
@@ -165,11 +162,6 @@ def test_embedded_insert_sequence_and_cell_writes():
     xe.getVisualAreaSize.return_value = va
     emb.getExtendedControlOverEmbeddedObject.return_value = xe
 
-    container = MagicMock()
-    container.getElementNames.side_effect = [(), ("SheetEmbed",)]
-    container.hasByName.return_value = False
-    doc.getEmbeddedObjects.return_value = container
-
     cells: dict[tuple[int, int], MagicMock] = {}
 
     def _cell(c, r):
@@ -180,11 +172,7 @@ def test_embedded_insert_sequence_and_cell_writes():
 
     sheet.getCellByPosition.side_effect = _cell
 
-    ctx = MagicMock(doc=doc, ctx=MagicMock(getServiceManager=lambda: _fake_config(
-        "abc-def",
-        factory=embedded_mod._EMBED_FACTORY,
-        doc_service=embedded_mod._SPREADSHEET_DOC_SERVICE,
-    )))
+    ctx, unused_doc = _make_embed_ctx("abc-def", element_names=[(), ("SheetEmbed",)], emb=emb)
 
     call_order: list[str] = []
 
@@ -196,10 +184,6 @@ def test_embedded_insert_sequence_and_cell_writes():
 
     type(emb).CLSID = _track_set("CLSID")
     type(emb).AnchorType = _track_set("AnchorType")
-
-    def _commit(_tool, _doc, _title, mutate, *_args, **_kwargs):
-        mutate()
-        return None
 
     data = [["Label", 1], ["=SUM(B2:B3)", 2], [3, None]]
     expected_size = embedded_mod._embed_size_for_used_range(len(data), max(len(row) for row in data))
@@ -228,30 +212,18 @@ def test_embedded_insert_sequence_and_cell_writes():
 
 
 def test_embedded_insert_explicit_size_reported():
-    doc = MagicMock()
     cursor = MagicMock()
     host_text = MagicMock()
     cursor.getText.return_value = host_text
 
     emb = MagicMock()
-    doc.createInstance.return_value = emb
-
     inner = MagicMock()
     inner.supportsService.return_value = True
     sheet = MagicMock()
     inner.getSheets.return_value.getByIndex.return_value = sheet
     emb.getEmbeddedObject.return_value = inner
 
-    container = MagicMock()
-    container.getElementNames.side_effect = [(), ("SheetEmbed",)]
-    container.hasByName.return_value = False
-    doc.getEmbeddedObjects.return_value = container
-
-    ctx = MagicMock(doc=doc, ctx=MagicMock(getServiceManager=lambda: _fake_config(
-        "abc-def",
-        factory=embedded_mod._EMBED_FACTORY,
-        doc_service=embedded_mod._SPREADSHEET_DOC_SERVICE,
-    )))
+    ctx, unused_doc = _make_embed_ctx("abc-def", element_names=[(), ("SheetEmbed",)], emb=emb)
 
     with (
         patch("plugin.writer.target_resolver.resolve_target_cursor", return_value=cursor),
@@ -277,7 +249,7 @@ def test_embedded_insert_name_unchanged_skips_get_embedded_object():
     cursor = MagicMock()
     cursor.getText.return_value = MagicMock()
     emb = MagicMock()
-    ctx, unused_doc, unused_emb = _make_embed_ctx("abc", element_names=[(), ()], emb=emb)
+    ctx, unused_doc = _make_embed_ctx("abc", element_names=[(), ()], emb=emb)
 
     with (
         patch("plugin.writer.target_resolver.resolve_target_cursor", return_value=cursor),
@@ -292,15 +264,7 @@ def test_embedded_insert_name_unchanged_skips_get_embedded_object():
 
 
 def test_embedded_insert_duplicate_name_rejected_before_undo_step():
-    doc = MagicMock()
-    container = MagicMock()
-    container.hasByName.return_value = True
-    doc.getEmbeddedObjects.return_value = container
-    ctx = MagicMock(doc=doc, ctx=MagicMock(getServiceManager=lambda: _fake_config(
-        "abc",
-        factory=embedded_mod._EMBED_FACTORY,
-        doc_service=embedded_mod._SPREADSHEET_DOC_SERVICE,
-    )))
+    ctx, doc = _make_embed_ctx("abc", has_by_name=True)
 
     mock_resolve = MagicMock()
     mock_commit = MagicMock()
@@ -325,28 +289,15 @@ def test_embedded_insert_duplicate_name_rejected_before_undo_step():
 
 
 def test_embedded_insert_get_embedded_object_failure():
-    doc = MagicMock()
     cursor = MagicMock()
     cursor.getText.return_value = MagicMock()
     emb = MagicMock()
     emb.getEmbeddedObject.side_effect = RuntimeError("broken ole")
-    doc.createInstance.return_value = emb
-    container = MagicMock()
-    container.getElementNames.side_effect = [(), ("Obj1",)]
-    container.hasByName.return_value = False
-    doc.getEmbeddedObjects.return_value = container
-    ctx = MagicMock(doc=doc, ctx=MagicMock(getServiceManager=lambda: _fake_config(
-        "abc",
-        factory=embedded_mod._EMBED_FACTORY,
-        doc_service=embedded_mod._SPREADSHEET_DOC_SERVICE,
-    )))
-
-    def _commit(_tool, _doc, _title, mutate, *_args, **_kwargs):
-        return mutate()
+    ctx, unused_doc = _make_embed_ctx("abc", element_names=[(), ("Obj1",)], emb=emb)
 
     with (
         patch("plugin.writer.target_resolver.resolve_target_cursor", return_value=cursor),
-        patch("plugin.writer.target_resolver.commit_or_rollback_mutation", side_effect=_commit),
+        patch("plugin.writer.target_resolver.commit_or_rollback_mutation", side_effect=_commit_mutate),
     ):
         res = EmbeddedInsert().execute(ctx, object_type="spreadsheet", target="end")
 

@@ -1074,21 +1074,35 @@ def test_ensure_persistence_bound_prioritizes_runtime_uid_over_current_component
     finally:
         gp.grammar_registry.clear_all()
 
-def test_ignore_rule_fails_loudly_when_doc_id_unresolved(mock_config_fixture, mock_locale_fixture) -> None:
+@pytest.mark.parametrize(
+    ("method_name", "use_locale", "on_main_target", "msg_prefix"),
+    [
+        pytest.param(
+            "ignoreRule",
+            True,
+            "plugin.writer.locale.ai_grammar_proofreader._ignore_rule_on_main",
+            "ignoreRule",
+            id="ignoreRule",
+        ),
+        pytest.param(
+            "resetIgnoreRules",
+            False,
+            "plugin.writer.locale.ai_grammar_proofreader._reset_ignore_rules_on_main",
+            "resetIgnoreRules",
+            id="resetIgnoreRules",
+        ),
+    ],
+)
+def test_ignore_api_fails_loudly_when_doc_id_unresolved(
+    mock_config_fixture, mock_locale_fixture, method_name: str, use_locale: bool, on_main_target: str, msg_prefix: str
+) -> None:
     pr = _make_proofreader()
-    with patch("plugin.writer.locale.ai_grammar_proofreader._ignore_rule_on_main") as mock_ignore, \
+    args = ("test-rule", mock_locale_fixture) if use_locale else ()
+    with patch(on_main_target) as mock_on_main, \
          patch.object(pr, "_resolve_doc_id_for_ignore", return_value=None):
-        with pytest.raises(RuntimeError, match="ignoreRule failed: no active document found"):
-            pr.ignoreRule("test-rule", mock_locale_fixture)
-    mock_ignore.assert_not_called()
-
-def test_reset_ignore_rules_fails_loudly_when_doc_id_unresolved(mock_config_fixture) -> None:
-    pr = _make_proofreader()
-    with patch("plugin.writer.locale.ai_grammar_proofreader._reset_ignore_rules_on_main") as mock_reset, \
-         patch.object(pr, "_resolve_doc_id_for_ignore", return_value=None):
-        with pytest.raises(RuntimeError, match="resetIgnoreRules failed: no active document found"):
-            pr.resetIgnoreRules()
-    mock_reset.assert_not_called()
+        with pytest.raises(RuntimeError, match=f"{msg_prefix} failed: no active document found"):
+            getattr(pr, method_name)(*args)
+    mock_on_main.assert_not_called()
 
 def test_enqueue_misses_persists_identity_from_active_provider(mock_config_fixture, mock_locale_fixture, mock_queue_fixture) -> None:
     pr = _make_proofreader()

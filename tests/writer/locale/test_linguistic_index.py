@@ -141,145 +141,101 @@ def test_index_service_search_boolean_near_too_far(mock_services, identity_stemm
     assert res["total_found"] == 0
 
 
-def test_index_cache_hit_reports_cached(mock_services):
-    mock_stemmer = MagicMock()
-    mock_stemmer.stemWord.side_effect = lambda x: x
-
-    with patch("plugin.writer.locale.linguistic_index.IndexService._get_stemmer", return_value=mock_stemmer):
-        svc = IndexService(mock_services)
-        doc = _search_doc([("an apple is sweet", "en")])
-        res1 = svc.search_boolean(doc, "apple")
-        assert res1["index"]["cached"] is False
-        res2 = svc.search_boolean(doc, "apple")
-        assert res2["index"]["cached"] is True
+def test_index_cache_hit_reports_cached(mock_services, identity_stemmer):
+    svc = IndexService(mock_services)
+    doc = _search_doc([("an apple is sweet", "en")])
+    res1 = svc.search_boolean(doc, "apple")
+    assert res1["index"]["cached"] is False
+    res2 = svc.search_boolean(doc, "apple")
+    assert res2["index"]["cached"] is True
 
 
-def test_index_cache_rebuilds_when_character_count_moves(mock_services):
-    mock_stemmer = MagicMock()
-    mock_stemmer.stemWord.side_effect = lambda x: x
-
-    with patch("plugin.writer.locale.linguistic_index.IndexService._get_stemmer", return_value=mock_stemmer):
-        svc = IndexService(mock_services)
-        doc = _search_doc([("an apple is sweet", "en")], char_count=1)
-        res1 = svc.search_boolean(doc, "apple")
-        assert res1["index"]["cached"] is False
-        doc.CharacterCount = 2
-        res2 = svc.search_boolean(doc, "apple")
-        assert res2["index"]["cached"] is False
+def test_index_cache_rebuilds_when_character_count_moves(mock_services, identity_stemmer):
+    svc = IndexService(mock_services)
+    doc = _search_doc([("an apple is sweet", "en")], char_count=1)
+    res1 = svc.search_boolean(doc, "apple")
+    assert res1["index"]["cached"] is False
+    doc.CharacterCount = 2
+    res2 = svc.search_boolean(doc, "apple")
+    assert res2["index"]["cached"] is False
 
 
-def test_index_cache_evicts_oldest_document(mock_services):
-    mock_stemmer = MagicMock()
-    mock_stemmer.stemWord.side_effect = lambda x: x
-
-    with patch("plugin.writer.locale.linguistic_index.IndexService._get_stemmer", return_value=mock_stemmer):
-        svc = IndexService(mock_services)
-        for k in ["a", "b", "c", "d", "e"]:
-            mock_services.document.doc_key.return_value = k
-            doc = _search_doc([("apple", "en")])
-            svc.search_boolean(doc, "apple")
-        assert len(svc._cache) == 4
-        assert "a" not in svc._cache
-
-
-def test_index_cache_never_stores_unknown_key(mock_services):
-    mock_stemmer = MagicMock()
-    mock_stemmer.stemWord.side_effect = lambda x: x
-
-    with patch("plugin.writer.locale.linguistic_index.IndexService._get_stemmer", return_value=mock_stemmer):
-        svc = IndexService(mock_services)
-        mock_services.document.doc_key.return_value = "unknown"
+def test_index_cache_evicts_oldest_document(mock_services, identity_stemmer):
+    svc = IndexService(mock_services)
+    for k in ["a", "b", "c", "d", "e"]:
+        mock_services.document.doc_key.return_value = k
         doc = _search_doc([("apple", "en")])
         svc.search_boolean(doc, "apple")
-        assert svc._cache == {}
+    assert len(svc._cache) == 4
+    assert "a" not in svc._cache
 
 
-def test_language_skips_leading_table(mock_services):
-    mock_stemmer = MagicMock()
-    mock_stemmer.stemWord.side_effect = lambda x: x
-
-    with patch("plugin.writer.locale.linguistic_index.IndexService._get_stemmer", return_value=mock_stemmer):
-        svc = IndexService(mock_services)
-        doc = _search_doc([None, ("Hallo Welt", "de")])
-        res = svc.search_boolean(doc, "Hallo")
-        assert res["detected_language"] == "de"
-        assert res["language"] == "german"
-        assert res["stem_fallback"] is False
-        entry = next(iter(svc._cache.values()))[1]
-        assert entry.para_texts[0] == "[Table]"
+def test_index_cache_never_stores_unknown_key(mock_services, identity_stemmer):
+    svc = IndexService(mock_services)
+    mock_services.document.doc_key.return_value = "unknown"
+    doc = _search_doc([("apple", "en")])
+    svc.search_boolean(doc, "apple")
+    assert svc._cache == {}
 
 
-def test_language_skips_blank_first_paragraph(mock_services):
-    mock_stemmer = MagicMock()
-    mock_stemmer.stemWord.side_effect = lambda x: x
-
-    with patch("plugin.writer.locale.linguistic_index.IndexService._get_stemmer", return_value=mock_stemmer):
-        svc = IndexService(mock_services)
-        doc = _search_doc([("", ""), ("Hallo Welt", "de")])
-        res = svc.search_boolean(doc, "Hallo")
-        assert res["detected_language"] == "de"
-
-
-def test_document_locale_wins(mock_services):
-    mock_stemmer = MagicMock()
-    mock_stemmer.stemWord.side_effect = lambda x: x
-
-    with patch("plugin.writer.locale.linguistic_index.IndexService._get_stemmer", return_value=mock_stemmer):
-        svc = IndexService(mock_services)
-        doc = _search_doc([("Hello", "en")], doc_locale="fr")
-        res = svc.search_boolean(doc, "Hello")
-        assert res["detected_language"] == "fr"
-        assert res["language"] == "french"
+def test_language_skips_leading_table(mock_services, identity_stemmer):
+    svc = IndexService(mock_services)
+    doc = _search_doc([None, ("Hallo Welt", "de")])
+    res = svc.search_boolean(doc, "Hallo")
+    assert res["detected_language"] == "de"
+    assert res["language"] == "german"
+    assert res["stem_fallback"] is False
+    entry = next(iter(svc._cache.values()))[1]
+    assert entry.para_texts[0] == "[Table]"
 
 
-def test_unsupported_locale_is_reported_as_fallback(mock_services):
-    mock_stemmer = MagicMock()
-    mock_stemmer.stemWord.side_effect = lambda x: x
-
-    with patch("plugin.writer.locale.linguistic_index.IndexService._get_stemmer", return_value=mock_stemmer):
-        svc = IndexService(mock_services)
-        doc = _search_doc([("Konnichiwa", "ja")], doc_locale="ja")
-        res = svc.search_boolean(doc, "Konnichiwa")
-        assert res["detected_language"] == "ja"
-        assert res["language"] == "english"
-        assert res["stem_fallback"] is True
-        stats = svc.get_index_stats(doc)
-        assert stats["detected_language"] == "ja"
-        assert stats["stem_fallback"] is True
+def test_language_skips_blank_first_paragraph(mock_services, identity_stemmer):
+    svc = IndexService(mock_services)
+    doc = _search_doc([("", ""), ("Hallo Welt", "de")])
+    res = svc.search_boolean(doc, "Hallo")
+    assert res["detected_language"] == "de"
 
 
-def test_zxx_locale_is_ignored(mock_services):
-    mock_stemmer = MagicMock()
-    mock_stemmer.stemWord.side_effect = lambda x: x
-
-    with patch("plugin.writer.locale.linguistic_index.IndexService._get_stemmer", return_value=mock_stemmer):
-        svc = IndexService(mock_services)
-        doc = _search_doc([("Hallo", "de")], doc_locale="zxx")
-        res = svc.search_boolean(doc, "Hallo")
-        assert res["detected_language"] == "de"
+def test_document_locale_wins(mock_services, identity_stemmer):
+    svc = IndexService(mock_services)
+    doc = _search_doc([("Hello", "en")], doc_locale="fr")
+    res = svc.search_boolean(doc, "Hello")
+    assert res["detected_language"] == "fr"
+    assert res["language"] == "french"
 
 
-def test_accented_stop_word_is_dropped(mock_services):
-    mock_stemmer = MagicMock()
-    mock_stemmer.stemWord.side_effect = lambda x: x
+def test_unsupported_locale_is_reported_as_fallback(mock_services, identity_stemmer):
+    svc = IndexService(mock_services)
+    doc = _search_doc([("Konnichiwa", "ja")], doc_locale="ja")
+    res = svc.search_boolean(doc, "Konnichiwa")
+    assert res["detected_language"] == "ja"
+    assert res["language"] == "english"
+    assert res["stem_fallback"] is True
+    stats = svc.get_index_stats(doc)
+    assert stats["detected_language"] == "ja"
+    assert stats["stem_fallback"] is True
 
-    with patch("plugin.writer.locale.linguistic_index.IndexService._get_stemmer", return_value=mock_stemmer):
-        svc = IndexService(mock_services)
-        doc = _search_doc([("Señaló la puerta", "es")], doc_locale="es")
-        with pytest.raises(ToolExecutionError) as excinfo:
-            svc.search_boolean(doc, "señaló")
-        assert "senalo" in str(excinfo.value)
+
+def test_zxx_locale_is_ignored(mock_services, identity_stemmer):
+    svc = IndexService(mock_services)
+    doc = _search_doc([("Hallo", "de")], doc_locale="zxx")
+    res = svc.search_boolean(doc, "Hallo")
+    assert res["detected_language"] == "de"
 
 
-def test_content_word_still_searchable(mock_services):
-    mock_stemmer = MagicMock()
-    mock_stemmer.stemWord.side_effect = lambda x: x
+def test_accented_stop_word_is_dropped(mock_services, identity_stemmer):
+    svc = IndexService(mock_services)
+    doc = _search_doc([("Señaló la puerta", "es")], doc_locale="es")
+    with pytest.raises(ToolExecutionError) as excinfo:
+        svc.search_boolean(doc, "señaló")
+    assert "senalo" in str(excinfo.value)
 
-    with patch("plugin.writer.locale.linguistic_index.IndexService._get_stemmer", return_value=mock_stemmer):
-        svc = IndexService(mock_services)
-        doc = _search_doc([("the photosynthesis report", "en")])
-        res = svc.search_boolean(doc, "photosynthesis")
-        assert res["total_found"] == 1
+
+def test_content_word_still_searchable(mock_services, identity_stemmer):
+    svc = IndexService(mock_services)
+    doc = _search_doc([("the photosynthesis report", "en")])
+    res = svc.search_boolean(doc, "photosynthesis")
+    assert res["total_found"] == 1
 
 
 def test_stop_words_are_normalized_once():
@@ -287,53 +243,37 @@ def test_stop_words_are_normalized_once():
     assert "senalo" in _normalized_stop_words("spanish")
 
 
-def test_parse_query_rejects_second_near(mock_services):
-    mock_stemmer = MagicMock()
-    mock_stemmer.stemWord.side_effect = lambda x: x
-
-    with patch("plugin.writer.locale.linguistic_index.IndexService._get_stemmer", return_value=mock_stemmer):
-        svc = IndexService(mock_services)
-        stop_words = _normalized_stop_words("english")
-        with pytest.raises(ToolExecutionError, match="Only one NEAR/N is supported per query."):
-            svc._parse_query("a NEAR/2 b NEAR/3 c", mock_stemmer, stop_words)
+def test_parse_query_rejects_second_near(mock_services, identity_stemmer):
+    svc = IndexService(mock_services)
+    stop_words = _normalized_stop_words("english")
+    with pytest.raises(ToolExecutionError, match="Only one NEAR/N is supported per query."):
+        svc._parse_query("a NEAR/2 b NEAR/3 c", identity_stemmer, stop_words)
 
 
-def test_parse_query_accepts_one_near(mock_services):
-    mock_stemmer = MagicMock()
-    mock_stemmer.stemWord.side_effect = lambda x: x
-
-    with patch("plugin.writer.locale.linguistic_index.IndexService._get_stemmer", return_value=mock_stemmer):
-        svc = IndexService(mock_services)
-        stop_words = _normalized_stop_words("english")
-        parsed = svc._parse_query("apple NEAR/2 pie", mock_stemmer, stop_words)
-        assert parsed[3] == (["apple"], ["pie"], 2)
+def test_parse_query_accepts_one_near(mock_services, identity_stemmer):
+    svc = IndexService(mock_services)
+    stop_words = _normalized_stop_words("english")
+    parsed = svc._parse_query("apple NEAR/2 pie", identity_stemmer, stop_words)
+    assert parsed[3] == (["apple"], ["pie"], 2)
 
 
-def test_all_stop_word_query_lists_dropped_words(mock_services):
-    mock_stemmer = MagicMock()
-    mock_stemmer.stemWord.side_effect = lambda x: x
-
-    with patch("plugin.writer.locale.linguistic_index.IndexService._get_stemmer", return_value=mock_stemmer):
-        svc = IndexService(mock_services)
-        doc = _search_doc([("the apple and of pie", "en")])
-        with pytest.raises(ToolExecutionError) as excinfo:
-            svc.search_boolean(doc, "the and of")
-        err_msg = str(excinfo.value)
-        assert "the" in err_msg
-        assert "of" in err_msg
+def test_all_stop_word_query_lists_dropped_words(mock_services, identity_stemmer):
+    svc = IndexService(mock_services)
+    doc = _search_doc([("the apple and of pie", "en")])
+    with pytest.raises(ToolExecutionError) as excinfo:
+        svc.search_boolean(doc, "the and of")
+    err_msg = str(excinfo.value)
+    assert "the" in err_msg
+    assert "of" in err_msg
 
 
-def test_search_boolean_validates_params(mock_services):
-    mock_stemmer = MagicMock()
-    mock_stemmer.stemWord.side_effect = lambda x: x
-
-    with patch("plugin.writer.locale.linguistic_index.IndexService._get_stemmer", return_value=mock_stemmer):
-        svc = IndexService(mock_services)
-        doc = _search_doc([("apple pie", "en")])
-        for invalid in (0, -1, "5", True):
-            with pytest.raises(ValueError, match="max_results"):
-                svc.search_boolean(doc, "apple", max_results=invalid)  # type: ignore[arg-type]
-        with pytest.raises(ValueError, match="context_paragraphs"):
-            svc.search_boolean(doc, "apple", context_paragraphs=-1)
-        res = svc.search_boolean(doc, "apple", max_results=1, context_paragraphs=0)
-        assert res["total_found"] == 1
+def test_search_boolean_validates_params(mock_services, identity_stemmer):
+    svc = IndexService(mock_services)
+    doc = _search_doc([("apple pie", "en")])
+    for invalid in (0, -1, "5", True):
+        with pytest.raises(ValueError, match="max_results"):
+            svc.search_boolean(doc, "apple", max_results=invalid)  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="context_paragraphs"):
+        svc.search_boolean(doc, "apple", context_paragraphs=-1)
+    res = svc.search_boolean(doc, "apple", max_results=1, context_paragraphs=0)
+    assert res["total_found"] == 1

@@ -588,7 +588,7 @@ def test_get_harper_binary_skips_download_when_up_to_date(
 
 
 @pytest.mark.parametrize(
-    ("asset_name", "download_url", "processor_attr", "extract_suffix", "dest_name", "payload", "check_archive_removed"),
+    ("asset_name", "download_url", "processor_attr", "extract_suffix", "dest_name", "payload"),
     [
         pytest.param(
             "harper-ls-x86_64-unknown-linux-gnu.tar.gz",
@@ -597,7 +597,6 @@ def test_get_harper_binary_skips_download_when_up_to_date(
             ".untar",
             "harper-ls",
             b"fake-binary",
-            True,
             id="tar_gz",
         ),
         pytest.param(
@@ -607,7 +606,6 @@ def test_get_harper_binary_skips_download_when_up_to_date(
             ".unzip",
             "harper-ls.exe",
             b"fake-windows-binary",
-            False,
             id="windows_zip",
         ),
     ],
@@ -622,7 +620,6 @@ def test_download_harper_binary_installs_and_cleans_up(
     extract_suffix: str,
     dest_name: str,
     payload: bytes,
-    check_archive_removed: bool,
 ) -> None:
     release = HarperReleaseAsset(
         version="2.6.0",
@@ -664,10 +661,9 @@ def test_download_harper_binary_installs_and_cleans_up(
     assert (harper_dir / "harper-ls.version").read_text(encoding="utf-8") == "2.6.0"
     assert not (harper_dir / f"{release.asset_name}{extract_suffix}").exists()
     assert not captured["download_dir"].exists()
-    if check_archive_removed:
-        assert captured["download_dir"] != harper_dir
-        assert not captured["archive_path"].exists()
-        assert not (harper_dir / release.asset_name).exists()
+    assert captured["download_dir"] != harper_dir
+    assert not captured["archive_path"].exists()
+    assert not (harper_dir / release.asset_name).exists()
     assert {p.name for p in harper_dir.iterdir()} == {dest_name, "harper-ls.version"}
 
 
