@@ -15,7 +15,10 @@ if str(_PO) not in sys.path:
 import run_eval  # noqa: E402
 
 
-def test_parse_args_tools_and_schema_density() -> None:
+def test_parse_args_defaults_and_overrides() -> None:
+    defaults = run_eval.parse_args([])
+    assert defaults.backend == "string"
+    assert defaults.tools == "full"
     args = run_eval.parse_args(
         ["--tools", "calc_minimal", "--schema-density", "skinny", "-e", "data_sorting"]
     )
