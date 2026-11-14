@@ -29,8 +29,6 @@ def test_convert_legacy_to_odf_no_soffice(tmp_path: Path):
 def test_convert_legacy_to_odf_success(tmp_path: Path):
     source = tmp_path / "legacy.doc"
     source.write_bytes(b"binary")
-    produced = tmp_path / "legacy.odt"
-    produced.write_text("converted", encoding="utf-8")
 
     def fake_run(cmd, **kwargs):
         out_dir = Path(cmd[cmd.index("--outdir") + 1])

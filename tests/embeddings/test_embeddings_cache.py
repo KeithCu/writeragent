@@ -499,19 +499,24 @@ def test_corpus_meta_corrupt_file_handling(tmp_path):
     assert not meta.needs_cold_rebuild("any-model")
 
 
-def test_folder_store_zvec_lists_collection_once(tmp_path):
-    from unittest.mock import patch
-
+@pytest.mark.parametrize(
+    ("mode", "path_fn_name", "marker_name", "probe_name", "chunk_count"),
+    [
+        pytest.param("zvec", "zvec_collection_path", "segment", "zvec_collection_looks_populated", "3", id="zvec"),
+        pytest.param("lancedb", "lancedb_collection_path", "data.lance", "lancedb_collection_looks_populated", "2", id="lancedb"),
+    ],
+)
+def test_folder_store_lists_collection_once(tmp_path, mode, path_fn_name, marker_name, probe_name, chunk_count):
     listing = str(tmp_path / "docs")
     meta_path = embeddings_cache.corpus_meta_path(listing)
     db_path = embeddings_cache.corpus_db_path(listing, create_parent=False)
-    embeddings_cache.CorpusMeta.load(meta_path).update(chunk_count="3", embedding_model="m").save(meta_path)
-    store = embeddings_cache.zvec_collection_path(listing, create_parent=False)
+    embeddings_cache.CorpusMeta.load(meta_path).update(chunk_count=chunk_count, embedding_model="m").save(meta_path)
+    store = getattr(embeddings_cache, path_fn_name)(listing, create_parent=False)
     store.mkdir()
-    (store / "segment").write_text("rows", encoding="utf-8")
+    (store / marker_name).write_text("rows", encoding="utf-8")
 
-    with patch.object(embeddings_cache, "zvec_collection_looks_populated", wraps=embeddings_cache.zvec_collection_looks_populated) as probe:
-        folder = embeddings_cache.folder_store(listing, meta_path, db_path, mode="zvec")
+    with patch.object(embeddings_cache, probe_name, wraps=getattr(embeddings_cache, probe_name)) as probe:
+        folder = embeddings_cache.folder_store(listing, meta_path, db_path, mode=mode)
     probe.assert_called_once()
     assert folder.is_empty is False
     assert folder.search_path is not None
@@ -559,35 +564,11 @@ def test_search_path_after_populated_probe(mode, listing_root, expected, create_
 
 
 def test_folder_store_zvec_without_listing_root_has_no_search_path(tmp_path):
-    from unittest.mock import patch
-
     meta_path = tmp_path / "corpus_meta.json"
     db_path = tmp_path / "corpus.db"
     with patch.object(embeddings_cache, "index_is_empty", return_value=False):
         store = embeddings_cache.folder_store(None, meta_path, db_path, mode="zvec")
     assert store.search_path is None
-
-
-def test_folder_store_lancedb_lists_collection_once(tmp_path):
-    from unittest.mock import patch
-
-    listing = str(tmp_path / "docs")
-    meta_path = embeddings_cache.corpus_meta_path(listing)
-    db_path = embeddings_cache.corpus_db_path(listing, create_parent=False)
-    embeddings_cache.CorpusMeta.load(meta_path).update(chunk_count="2", embedding_model="m").save(meta_path)
-    store = embeddings_cache.lancedb_collection_path(listing, create_parent=False)
-    store.mkdir()
-    (store / "data.lance").write_text("rows", encoding="utf-8")
-
-    with patch.object(
-        embeddings_cache,
-        "lancedb_collection_looks_populated",
-        wraps=embeddings_cache.lancedb_collection_looks_populated,
-    ) as probe:
-        folder = embeddings_cache.folder_store(listing, meta_path, db_path, mode="lancedb")
-    probe.assert_called_once()
-    assert folder.is_empty is False
-    assert folder.search_path is not None
 
 
 def test_resolve_index_context_does_not_delete_stale_schema(tmp_path):

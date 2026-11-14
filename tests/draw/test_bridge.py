@@ -702,8 +702,6 @@ def test_move_slide_to_front_restores_order_when_reorder_fails():
 
 
 def test_move_slide_raises_when_bubble_undo_fails():
-    import pytest
-
     from plugin.draw.bridge import DrawBridge, PageExchangeRollbackError
 
     rich = _MoveShape("c")
@@ -861,7 +859,6 @@ def test_create_slide_removes_new_page_when_front_exchange_fails():
         raise RuntimeError("exchange failed")
 
     bridge._exchange_page_contents = _boom  # type: ignore[method-assign]
-    import pytest
     with pytest.raises(RuntimeError, match="Failed to place the new slide at index 0"):
         bridge.create_slide(0, switch=False)
     # The new page should have been removed
@@ -871,8 +868,6 @@ def test_create_slide_removes_new_page_when_front_exchange_fails():
 
 def test_create_slide_keeps_pages_when_exchange_rollback_fails():
     """Shapes may be parked on page 1 or the temp page; no page is removed."""
-    import pytest
-
     from plugin.draw.bridge import DrawBridge, PageExchangeRollbackError
 
     pages = _named_deck("A", "B")

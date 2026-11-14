@@ -68,10 +68,14 @@ def test_maintain_incremental_skips_fresh_file(tmp_path: Path):
         encoding="utf-8",
     )
 
-    from plugin.embeddings.venv.embeddings_sqlite import connect_corpus_db, mark_file_indexed_in_db
     from plugin.embeddings.embeddings_fs import content_hash
+    from plugin.embeddings.venv.embeddings_sqlite import (
+        connect_corpus_db,
+        ensure_schema,
+        mark_file_indexed_in_db,
+        upsert_chunk_with_vector,
+    )
     from plugin.framework.url_utils import path_to_file_url
-    from plugin.embeddings.venv.embeddings_sqlite import connect_corpus_db, ensure_schema, upsert_chunk_with_vector
 
     doc_url = path_to_file_url(str(doc))
     conn = connect_corpus_db(db_path)
@@ -140,7 +144,6 @@ def test_incremental_refresh_marks_stale_on_embed_failure(tmp_path: Path):
     def fake_ingest(*args, **kwargs):
         raise RuntimeError("Embed failed")
 
-    from unittest.mock import patch
     with patch("plugin.embeddings.venv.embeddings_folder_maintain._ingest_rows", side_effect=fake_ingest):
         try:
             embeddings_folder_maintain.maintain_folder_corpus(str(tmp_path), embedding_model="all-MiniLM-L6-v2", search_mode="fts")

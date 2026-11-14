@@ -72,7 +72,6 @@ def test_commit_or_rollback_success():
 
 
 def test_commit_or_rollback_locked_or_missing_raises_undo_unavailable():
-    import pytest
     from plugin.doc.compound_undo import UndoUnavailable, commit_or_rollback
 
     # Missing
@@ -222,7 +221,6 @@ def test_commit_or_rollback_does_not_undo_previous_same_title_action():
 
 
 def test_undo_outcome_raise_mutate_error():
-    import pytest
     from plugin.doc.compound_undo import UndoOutcome
 
     UndoOutcome().raise_mutate_error()
@@ -247,7 +245,6 @@ def test_commit_or_rollback_failed_leave_after_success_is_an_error():
 
 
 def test_commit_or_rollback_disposal_skips_rollback():
-    import pytest
     from plugin.doc.compound_undo import commit_or_rollback
     from plugin.framework.errors import DocumentDisposedError
 
@@ -423,7 +420,6 @@ def test_undo_null_steps_is_one_and_non_integer_steps_is_rejected_by_registry():
 
 
 def test_undo_tool_propagates_disposal():
-    import pytest
     from plugin.doc.undo import Undo
     from plugin.framework.errors import DocumentDisposedError
 
