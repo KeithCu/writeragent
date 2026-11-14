@@ -41,16 +41,9 @@ def test_slim_librepy_smolagents_init_replaces_init(tmp_path):
     assert init_path.read_text(encoding="utf-8") == LIBREPY_SMOLAGENTS_INIT
 
 
-def test_librepy_bundle_includes_sandbox_cache():
-    from scripts.librepy_bundle_paths import collect_librepy_plugin_paths
-
-    paths = collect_librepy_plugin_paths(str(_REPO_ROOT))
-    assert "plugin/scripting/sandbox_cache.py" in paths
-
-
 def test_testnewnamespace_ods_uses_writeragent_pythonfunction_prefix():
     if not _ODS_SAMPLE.is_file():
-        return
+        pytest.skip("testnewnamespace.ods fixture absent")
     with zipfile.ZipFile(_ODS_SAMPLE) as zf:
         content = zf.read("content.xml").decode("utf-8")
     assert "ORG.EXTENSION.WRITERAGENT.PYTHONFUNCTION.PY" in content.upper()

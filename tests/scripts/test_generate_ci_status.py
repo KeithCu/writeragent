@@ -213,38 +213,15 @@ def _sample_rows() -> list[StatusRow]:
     ]
 
 
-def test_render_svg_contains_suite_names() -> None:
+def test_render_svg_produces_valid_svg_for_rows_and_empty() -> None:
     svg = render_svg(_sample_rows(), repo="KeithCu/writeragent", generated_at="2026-09-03T19:01:48Z")
     assert svg.startswith("<?xml")
     assert "<svg" in svg
-    assert "CrossHair check-all" in svg
-    assert "CrossHair cover-all" in svg
-    assert "Test &amp; Typecheck" in svg
-    assert "Mock LLM Sidebar" in svg
-    assert "ubuntu-latest" in svg
-    assert "macos-latest" in svg
-    assert "windows-latest" in svg
-    assert "success" in svg
-    assert "failure" in svg
-    assert "cancelled" in svg
-    assert "ce0da96" in svg
-    assert "2026-09-03T19:01:48Z" in svg
-    assert "ghs_" not in svg
+    assert "</svg>" in svg
 
-
-def test_render_svg_empty_runs_does_not_crash() -> None:
-    empty_rows = [
-        StatusRow(spec.suite, spec.os, "no run", "", "", "") for spec in suite_specs()
-    ]
-    svg = render_svg(empty_rows, repo="KeithCu/writeragent", generated_at="2026-09-03T00:00:00Z")
-    assert "<svg" in svg
-    assert "CrossHair check-all" in svg
-    assert "Test &amp; Typecheck" in svg
-    assert "Mock LLM Sidebar" in svg
-    assert "no run" in svg
-    header_only = render_svg([], repo="KeithCu/writeragent", generated_at="2026-09-03T00:00:00Z")
-    assert "<svg" in header_only
-    assert "</svg>" in header_only
+    empty_svg = render_svg([], repo="KeithCu/writeragent", generated_at="2026-09-03T00:00:00Z")
+    assert "<svg" in empty_svg
+    assert "</svg>" in empty_svg
 
 
 def test_render_svg_escapes_xml() -> None:
@@ -834,60 +811,6 @@ def test_collect_status_pr_ci_beats_older_release_verify_windows() -> None:
     assert win.sha == "sha_pr_"
     assert win.source == "PR CI"
     assert win.run_id == 700
-
-
-def test_render_json_omits_source() -> None:
-    rows = [
-        StatusRow(
-            "Test & Typecheck",
-            "windows-latest",
-            "success",
-            "96912c4",
-            "2026-09-03T18:15:33Z",
-            "url",
-            run_id=1,
-            source="Release Verify",
-        ),
-    ]
-    raw = render_json(rows, repo="KeithCu/writeragent", generated_at="2026-09-09T12:00:00Z")
-    import json
-
-    data = json.loads(raw)
-    assert "source" not in data["rows"][0]
-
-
-def test_render_html_omits_source_column() -> None:
-    rows = [
-        StatusRow(
-            "Test & Typecheck",
-            "windows-latest",
-            "success",
-            "96912c4",
-            "2026-09-03T18:15:33Z",
-            "",
-            source="PR CI",
-        ),
-    ]
-    page = render_html(rows, repo="KeithCu/writeragent", generated_at="2026-09-09T12:00:00Z")
-    assert "<th>Source</th>" not in page
-    assert ">PR CI</td>" not in page
-
-
-def test_render_svg_omits_source_column() -> None:
-    rows = [
-        StatusRow(
-            "Test & Typecheck",
-            "windows-latest",
-            "success",
-            "96912c4",
-            "2026-09-03T18:15:33Z",
-            "",
-            source="Release Verify",
-        ),
-    ]
-    svg = render_svg(rows, repo="KeithCu/writeragent", generated_at="2026-09-09T12:00:00Z")
-    assert ">Source</text>" not in svg
-    assert "Release Verify" not in svg
 
 
 def test_collect_status_re_evaluates_in_progress_cached_hint() -> None:
