@@ -95,6 +95,16 @@ def test_execute_writer_ignores_data(mock_run):
     assert mock_run.call_args.kwargs["data"] is None
 
 
+def test_get_parameters_calc_vs_writer():
+    tool = RunVenvPythonScript()
+    calc_props = tool.get_parameters("calc")["properties"]
+    writer_props = tool.get_parameters("writer")["properties"]
+    assert "data_range" in calc_props
+    assert "data" in calc_props
+    assert "data_range" not in writer_props
+    assert "data" not in writer_props
+
+
 @patch("plugin.calc.python.venv.run_code_in_user_venv")
 def test_execute_pins_ctx_doc_for_script_tools(mock_run):
     """wa.draw / wa.shape must see ctx.doc, not a shared worker namespace."""
