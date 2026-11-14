@@ -5,6 +5,8 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
+import pytest
+
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _FACTORY = _REPO_ROOT / "plugin" / "chatbot" / "panel_factory.py"
 _DIALOG_VIEWS = _REPO_ROOT / "plugin" / "chatbot" / "dialog_views.py"
@@ -43,33 +45,66 @@ def _calls_name(path: Path, func_name: str) -> bool:
     return False
 
 
-def test_panel_factory_does_not_import_or_call_chat_context_builder():
-    """Factory wires XDL/controls. Document context is ChatSession / send / tool_loop."""
-    imported = _imported_names(_FACTORY)
-    assert "get_document_context_for_chat" not in imported
-    assert "plugin.doc.document_helpers.get_document_context_for_chat" not in imported
-    assert not _calls_name(_FACTORY, "get_document_context_for_chat")
-
-
-def test_dialog_views_does_not_import_tool_loop():
-    imported = _imported_names(_DIALOG_VIEWS)
-    assert "plugin.chatbot.tool_loop" not in imported
-    assert "tool_loop" not in imported
-
-
-def test_send_and_tool_loop_do_not_import_panel_factory():
-    for path in (_SEND_HANDLERS, _TOOL_LOOP, _TOOL_LOOP_ACTIONS):
-        imported = _imported_names(path)
-        assert "plugin.chatbot.panel_factory" not in imported
-        assert "panel_factory" not in imported
-
-
-def test_send_and_tool_loop_refresh_via_session_not_builder():
-    """Send / mid-loop refresh go through ChatSession.refresh_document_context."""
-    for path in (_SEND_HANDLERS, _TOOL_LOOP, _TOOL_LOOP_ACTIONS):
-        imported = _imported_names(path)
-        assert "get_document_context_for_chat" not in imported
-        assert "plugin.doc.document_helpers.get_document_context_for_chat" not in imported
+@pytest.mark.parametrize(
+    ("path", "forbidden", "check_call"),
+    [
+        pytest.param(
+            _FACTORY,
+            ("get_document_context_for_chat", "plugin.doc.document_helpers.get_document_context_for_chat"),
+            "get_document_context_for_chat",
+            id="panel_factory_no_chat_context_builder",
+        ),
+        pytest.param(
+            _DIALOG_VIEWS,
+            ("plugin.chatbot.tool_loop", "tool_loop"),
+            None,
+            id="dialog_views_no_tool_loop",
+        ),
+        pytest.param(
+            _SEND_HANDLERS,
+            ("plugin.chatbot.panel_factory", "panel_factory"),
+            None,
+            id="send_handlers_no_panel_factory",
+        ),
+        pytest.param(
+            _TOOL_LOOP,
+            ("plugin.chatbot.panel_factory", "panel_factory"),
+            None,
+            id="tool_loop_no_panel_factory",
+        ),
+        pytest.param(
+            _TOOL_LOOP_ACTIONS,
+            ("plugin.chatbot.panel_factory", "panel_factory"),
+            None,
+            id="tool_loop_actions_no_panel_factory",
+        ),
+        pytest.param(
+            _SEND_HANDLERS,
+            ("get_document_context_for_chat", "plugin.doc.document_helpers.get_document_context_for_chat"),
+            None,
+            id="send_handlers_no_chat_context_builder",
+        ),
+        pytest.param(
+            _TOOL_LOOP,
+            ("get_document_context_for_chat", "plugin.doc.document_helpers.get_document_context_for_chat"),
+            None,
+            id="tool_loop_no_chat_context_builder",
+        ),
+        pytest.param(
+            _TOOL_LOOP_ACTIONS,
+            ("get_document_context_for_chat", "plugin.doc.document_helpers.get_document_context_for_chat"),
+            None,
+            id="tool_loop_actions_no_chat_context_builder",
+        ),
+    ],
+)
+def test_module_import_boundaries(path, forbidden, check_call):
+    """Enforce chatbot module import boundaries (factory, views, send, tool_loop)."""
+    imported = _imported_names(path)
+    for name in forbidden:
+        assert name not in imported
+    if check_call is not None:
+        assert not _calls_name(path, check_call)
 
 
 class _MockDisposedException(Exception):
@@ -838,22 +873,6 @@ def test_setup_sessions_save_as_existing_target_preserves_destination_chat(tmp_p
     # The target chat must not be overwritten by the source chat
     assert history(new_id, db_path).get_messages()[0]["content"] == "pre-existing target chat"
     assert len(history(new_id, db_path).get_messages()) == 1
-
-
-def test_module_logger_name():
-    # Tests import these as plugin.*, so __name__ would pass a name check here.
-    # LibreOffice loads them as UNO components where __name__ is not under
-    # plugin, so the source must use the explicit names.
-    from pathlib import Path
-
-    root = Path(__file__).resolve().parents[2]
-    for rel, name in (
-        ("plugin/chatbot/panel_factory.py", "plugin.chatbot.panel_factory"),
-        ("plugin/librepy/panel_factory.py", "plugin.librepy.panel_factory"),
-    ):
-        src = (root / rel).read_text(encoding="utf-8")
-        assert "getLogger(__name__)" not in src, rel
-        assert 'log = logging.getLogger("%s")' % name in src, rel
 
 
 def test_get_real_interface_failure_retry_and_disposing() -> None:

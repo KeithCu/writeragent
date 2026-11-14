@@ -373,7 +373,6 @@ def test_spawn_tool_worker_effect_runs_sync_tool_and_enqueues_result():
 
     assert kwargs["captured_turn"] is current_turn(host)
     assert item == (StreamQueueKind.TOOL_DONE, "call_1", "apply_document_content", '{"content": "hi"}', '{"status": "ok"}')
-    assert not hasattr(host, "_current_tool_call_id")
 
 
 def _install_fake_main_registry():

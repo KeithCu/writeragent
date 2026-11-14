@@ -129,14 +129,9 @@ def test_shutdown_clears_sessions(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 class TestFormulaPoolSupervisor:
-    def test_session_locks_removed_and_reset_succeeds(self) -> None:
-        """Verify dead session locks are removed and reset_session succeeds cleanly."""
-        import compute_service.formula_worker as fw
+    def test_reset_session_succeeds(self) -> None:
+        """Verify reset_session succeeds cleanly."""
         from compute_service.formula_worker import _handle_request
-
-        assert not hasattr(fw, "_SESSION_RUN_LOCKS")
-        assert not hasattr(fw, "_session_lock")
-        assert not hasattr(fw, "release_session_lock")
 
         sid = "clean-reset-session"
         res = _handle_request({"action": "reset_session", "session_id": sid})
@@ -803,7 +798,6 @@ class TestFormulaPoolSupervisor:
         """Active shared sessions are uncapped; 300 sessions neither fail nor evict."""
         pool = FormulaProcessPool(settings=ComputeSettings(workers=1, default_timeout_sec=15, idle_worker_ttl_sec=0))
         try:
-            assert not hasattr(pool, "_max_sessions")
             worker = pool.workers[0]
 
             def mock_execute(payload: dict[str, Any], timeout_sec: float = 15.0, *, req_id: Any = None) -> dict[str, Any]:

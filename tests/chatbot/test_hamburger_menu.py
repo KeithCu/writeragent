@@ -434,29 +434,40 @@ def test_static_menu_titles_match_hamburger_and_addons_xcu():
             action = url_elem.split("org.extension.writeragent:", 1)[1]
             addons_titles[action] = title_elem
 
-    # Static actions in hamburger_menu.py and their msgids (excluding MCP dynamic popup strings)
-    hamburger_static_items = {
-        "chatbot.extend_selection": "Extend Selection",
-        "chatbot.edit_selection": "Edit Selection",
-        "scripting.run_python_dialog": "Run Python Script...",
-        "scripting.edit_python_cell": "Edit Python in Cell...",
-        "calc.convert_spreadsheet_to_python": "Convert Sheet to Python...",
-        "embeddings.search_dialog": "Search Nearby Files...",
-        "writer.insert_latex_dialog": "Insert LaTeX Math...",
-        "textanalytics.open_dialog": "Text Analytics...",
-        "main.settings": "Settings",
-        "vision.open_settings": "Vision OCR Settings...",
-        "scripting.reset_python_session": "Reset Python Session",
-        "notebook.run_all": "Run All",
-        "notebook.run_from_here": "Run From Here",
-        "notebook.stop": "Stop",
-        "main.RunFormatTests": "Run format tests",
-        "main.RunCalcTests": "Run calc tests",
-        "main.RunCalcIntegrationTests": "Run Calc API integration tests",
-        "main.RunDrawTests": "Run draw tests",
-        "main.EvaluationDashboard": "Evaluation Dashboard",
-        "main.report_bug": "Report bug...",
-    }
+    # Collect static items directly from show_hamburger_menu (excluding dynamic MCP items).
+    ctx = MagicMock()
+    smgr = MagicMock()
+    popup = MagicMock()
+    debug_popup = MagicMock()
+    ctx.getServiceManager.return_value = smgr
+    smgr.createInstanceWithContext.side_effect = [popup, debug_popup]
+    popup.execute.return_value = 0
+    button_ctrl = MagicMock()
+    button_ctrl.getPosSize.return_value = MagicMock(X=76, Y=2, Width=16, Height=12)
+    button_ctrl.getPeer.return_value = MagicMock()
+
+    with (
+        patch("plugin.chatbot.hamburger_menu.is_writer", return_value=True),
+        patch("plugin.chatbot.hamburger_menu.is_calc", return_value=True),
+        patch("plugin.chatbot.hamburger_menu.is_draw", return_value=True),
+        patch("plugin.librepy.sidebar_menus.document_has_notebook_registry", return_value=True),
+        patch("plugin.app.tests_bundled", return_value=True),
+        patch("plugin.app.get_menu_text", return_value="Toggle MCP Server"),
+        patch("plugin.app.get_menu_icon", return_value="stopped"),
+    ):
+        show_hamburger_menu(ctx, MagicMock(), button_ctrl)
+
+    hamburger_static_items: dict[str, str] = {}
+    for menu in (popup, debug_popup):
+        labels_by_id = {call.args[0]: call.args[1] for call in menu.insertItem.call_args_list}
+        for call in menu.setCommand.call_args_list:
+            item_id, command = call.args[0], call.args[1]
+            if command.startswith("org.extension.writeragent:"):
+                action = command.split("org.extension.writeragent:", 1)[1]
+                if action not in ("mcp.toggle_server", "mcp.server_status"):
+                    hamburger_static_items[action] = labels_by_id[item_id]
+
+    assert hamburger_static_items
 
     for action, msgid in hamburger_static_items.items():
         assert msgid == manifest_titles[action]

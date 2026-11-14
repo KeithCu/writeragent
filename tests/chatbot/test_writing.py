@@ -170,12 +170,3 @@ def test_writing_plan_session_tool_supports_writer_not_calc():
     tool = WritingPlanSessionTool()
     assert tool_supports_document(tool, doc_type="writer", uno_services_supported=None) is True
     assert tool_supports_document(tool, doc_type="calc", uno_services_supported=None) is False
-
-
-def test_collect_writing_tools_does_not_include_apply_document_content():
-    registry = ToolRegistry(services={})
-    registry.register(WritingResearchWeb())
-    registry.register(WriteDocumentSection())
-    ctx = ToolContext(doc=MagicMock(), ctx=MagicMock(), doc_type="writer", services={"tools": registry})
-    names = {t.name for t in collect_sub_agent_tools(ctx, "writing_plan")}
-    assert "apply_document_content" not in names

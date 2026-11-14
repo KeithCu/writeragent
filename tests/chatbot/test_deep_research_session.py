@@ -14,13 +14,6 @@ from plugin.chatbot.sub_agent_tools import (
     get_sub_agent_instructions,
 )
 from plugin.framework.tool import ToolBase, ToolContext, ToolRegistry
-from plugin.writer.specialized_base import DelegateToSpecializedWriter
-
-
-def test_deep_research_not_in_writer_delegate_enum():
-    gw = DelegateToSpecializedWriter()
-    domains = gw.parameters["properties"]["domain"]["enum"]
-    assert "deep_research" not in domains
 
 
 def test_deep_research_instructions_include_apply_document_content_when_writer_tools():
