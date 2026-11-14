@@ -147,9 +147,10 @@ def test_symbolic_explicit_none_variable_uses_default(monkeypatch: pytest.Monkey
     from plugin.scripting import helper_registry
     from plugin.scripting.venv.trusted_dispatch import run_domain
 
+    unset = object()
     captured: dict[str, Any] = {}
 
-    def fake_solve(equation: str = "", variable: str = "x") -> dict[str, Any]:
+    def fake_solve(equation: str = "", variable: Any = unset) -> dict[str, Any]:
         captured["equation"] = equation
         captured["variable"] = variable
         return {"status": "ok", "helper": "solve_equation"}
@@ -166,7 +167,7 @@ def test_symbolic_explicit_none_variable_uses_default(monkeypatch: pytest.Monkey
     res = run_domain("symbolic", spec, None)
     assert res["status"] == "ok", res
     assert res["helper"] == "solve_equation"
-    assert captured["variable"] == "x"
+    assert captured["variable"] is unset
 
 
 def test_units_output_style_popped(monkeypatch: pytest.MonkeyPatch):

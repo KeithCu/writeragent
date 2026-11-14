@@ -9,6 +9,7 @@ import pytest
     [
         (False, False, False),
         (True, False, True),
+        # os access implies file access (venv_worker builds files = allow_files or allow_os)
         (False, True, True),
         (True, True, True),
     ],
@@ -28,24 +29,17 @@ def test_run_python_script_receives_sandbox_policy(
         session_id="rps:sid",
         script_session_id="doc:pin",
     )
+    config = {
+        "scripting.python_allow_network": True,
+        "scripting.python_extra_modules": "extra_pkg",
+        "scripting.python_allow_files": allow_files,
+        "scripting.python_allow_os": allow_os,
+    }
     with (
         patch("plugin.scripting.venv_worker.python_exec_timeout", return_value=10),
         patch("plugin.scripting.venv_worker.resolve_libreoffice_python", return_value=sys.executable),
         patch("plugin.scripting.venv_worker.PythonWorkerManager.execute") as mock_execute,
-        patch(
-            "plugin.scripting.venv_worker.get_config",
-            side_effect=lambda k: True
-            if k == "scripting.python_allow_network"
-            else (
-                "extra_pkg"
-                if k == "scripting.python_extra_modules"
-                else allow_files
-                if k == "scripting.python_allow_files"
-                else allow_os
-                if k == "scripting.python_allow_os"
-                else ""
-            ),
-        ),
+        patch("plugin.scripting.venv_worker.get_config", side_effect=lambda k: config.get(k, "")),
     ):
         mock_execute.return_value = {"status": "ok", "result": 42}
         res = _run_prepared_rps(prepared)

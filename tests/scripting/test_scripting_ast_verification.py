@@ -9,9 +9,6 @@ from __future__ import annotations
 
 import ast
 
-from hypothesis import given, settings
-from hypothesis import strategies as st
-
 from plugin.contrib.smolagents.local_python_executor import ALLOWED_DUNDER_ATTRIBUTES
 from plugin.scripting.sandbox_cache import validate_sandbox_ast, get_hot_entry
 import pytest
@@ -38,31 +35,29 @@ def test_validate_sandbox_ast_forbidden_dunder(value, value_2) -> None:
     assert error is not None
     assert value_2 in error
 
-_ATTR_SAMPLES = (
-    "__code__",
-    "__globals__",
-    "__subclasses__",
-    "__builtins__",
-    "__class__",
-    "__dict__",
-    "__doc__",
-    *sorted(ALLOWED_DUNDER_ATTRIBUTES),
-    "foo",
-    "value",
+@pytest.mark.parametrize(
+    "attr",
+    (
+        "__code__",
+        "__globals__",
+        "__subclasses__",
+        "__builtins__",
+        "__class__",
+        "__dict__",
+        "__doc__",
+    ),
 )
-
-
-@given(attr=st.sampled_from(_ATTR_SAMPLES))
-@settings(max_examples=50)
-def test_validate_sandbox_ast_dunder_attribute_security(attr: str) -> None:
-    code = f"x = obj.{attr}"
-    module = ast.parse(code)
+def test_validate_sandbox_ast_forbidden_dunder_attributes(attr: str) -> None:
+    module = ast.parse(f"x = obj.{attr}")
     error = validate_sandbox_ast(module, ["math"])
-    if attr.startswith("__") and attr.endswith("__") and attr not in ALLOWED_DUNDER_ATTRIBUTES:
-        assert error is not None
-        assert "Forbidden access to dunder attribute" in error
-    else:
-        assert error is None
+    assert error is not None
+    assert "Forbidden access to dunder attribute" in error
+
+
+@pytest.mark.parametrize("attr", (*sorted(ALLOWED_DUNDER_ATTRIBUTES), "foo", "value"))
+def test_validate_sandbox_ast_allowed_attributes(attr: str) -> None:
+    module = ast.parse(f"x = obj.{attr}")
+    assert validate_sandbox_ast(module, ["math"]) is None
 
 
 def test_get_hot_entry_caching() -> None:
