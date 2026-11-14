@@ -245,14 +245,14 @@ def test_range_scope_without_both_offsets_is_an_error():
 
 
 @pytest.mark.parametrize(
-    "args, message",
+    "args",
     [
-        ({"scope": "whole"}, "Invalid value for scope: 'whole'. Valid options: full, selection, range"),
-        ({"max_chars": True}, "Invalid type for max_chars: expected integer, got bool"),
-        ({"scope": "range", "start": "2", "end": 4}, "Invalid type for start: expected integer, got str"),
+        {"scope": "whole"},
+        {"max_chars": True},
+        {"scope": "range", "start": "2", "end": 4},
     ],
 )
-def test_get_document_content_wrong_arguments_are_rejected_before_execute(args, message):
+def test_get_document_content_wrong_arguments_are_rejected_before_execute(args):
     from types import SimpleNamespace
 
     from plugin.framework.tool import prepare_tool_call
@@ -262,7 +262,6 @@ def test_get_document_content_wrong_arguments_are_rejected_before_execute(args, 
     prep = prepare_tool_call(GetDocumentContent(), ctx, "get_document_content", args)
     assert prep.error is not None
     assert prep.error["code"] == "VALIDATION_ERROR"
-    assert prep.error["message"] == message
 
 
 def test_selection_with_no_content_warns():

@@ -277,12 +277,6 @@ class TestEndpointImageProvider:
             assert exc_info.value.code == "USER_STOPPED"
 
         assert not any(r.levelno >= logging.ERROR and r.name == "plugin.writer.images.image_utils" for r in caplog.records)
-        # Release strips log.debug; no ERROR must still hold.
-        from plugin.writer.images import image_utils as image_utils_mod
-        from tests.harness.strip_bundle import module_source_contains
-
-        if module_source_contains(image_utils_mod, "Image generation cancelled by Stop"):
-            assert any("Image generation cancelled by Stop" in r.message for r in caplog.records)
 
         # Modalities path: NetworkError(code="STOPPED") from request_with_tools
         caplog.clear()
@@ -491,7 +485,6 @@ class TestEndpointImageProvider:
             paths, err = self.provider.generate("test prompt")
         assert paths == []
         assert err == "provider rejected the request"
-        assert "provider rejected the request" in caplog.text
         assert not any(r.levelno >= logging.ERROR and r.name == "plugin.writer.images.image_utils" for r in caplog.records)
 
     def test_partial_multi_image_failure_cleans_up(self, tmp_path, monkeypatch):

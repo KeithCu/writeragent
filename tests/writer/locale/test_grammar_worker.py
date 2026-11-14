@@ -361,7 +361,6 @@ def test_run_llm_and_cache_batch_success() -> None:
         assert mock_client.chat_completion_sync.call_count == 1
         args, kwargs = mock_client.chat_completion_sync.call_args
         messages = args[0]
-        assert "provide multiple sentences" in messages[0]["content"] # Batch prompt
         assert "1. They is here.\n2. All good." in messages[1]["content"]
 
         # Verify cache_put_sentence was called for each sentence

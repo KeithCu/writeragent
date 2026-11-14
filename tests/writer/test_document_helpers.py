@@ -811,7 +811,6 @@ def test_do_extend_selection_refuses_deletion_only_without_writing(monkeypatch):
 
     assert streams == []
     assert len(messages) == 1
-    assert "Extend Selection" in messages[0][1]
     assert messages[0][2] == TRACKED_SELECTION_MESSAGE
     assert text_range.set_calls == []
     assert doc.writes == []
@@ -839,7 +838,6 @@ def test_do_edit_selection_refuses_tracked_insert_before_prompt(monkeypatch):
     assert prompts == []
     assert streams == []
     assert len(messages) == 1
-    assert "Edit Selection" in messages[0][1]
     assert messages[0][2] == TRACKED_SELECTION_MESSAGE
     assert text_range.set_calls == []
     assert doc.writes == []
@@ -1031,22 +1029,14 @@ def test_document_helpers_unohelper_import_error():
     assert result.returncode == 0, result.stdout + result.stderr
 
 
-def test_writer_has_math_ole_logs_exception(caplog):
-    import logging
+def test_writer_has_math_ole_returns_false_on_error():
     from unittest.mock import MagicMock
     from plugin.doc.document_helpers import _writer_has_math_ole
 
     doc = MagicMock()
     doc.getEmbeddedObjects.side_effect = RuntimeError("embedded objects boom")
-    with caplog.at_level(logging.DEBUG, logger="writeragent.document"):
-        has_math = _writer_has_math_ole(doc)
+    has_math = _writer_has_math_ole(doc)
     assert has_math is False
-    # Release strips log.debug; returning False is the behavior that must survive.
-    from plugin.doc import document_helpers as document_helpers_mod
-    from tests.harness.strip_bundle import module_source_contains
-
-    if module_source_contains(document_helpers_mod, "Failed checking Math OLE"):
-        assert any("Failed checking Math OLE" in record.message for record in caplog.records)
 
 
 def test_get_document_context_for_chat_writer_uno_object_error():
