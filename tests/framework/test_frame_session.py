@@ -465,29 +465,37 @@ def _thread_violation(where: str) -> RuntimeError:
     return RuntimeError(f"UNO thread violation: {where}")
 
 
+def _arrange_get_controller(frame: MagicMock, _query: MagicMock) -> MagicMock:
+    frame.getController.side_effect = _thread_violation("getController")
+    return frame
+
+
+def _arrange_add_focus(frame: MagicMock, query: MagicMock) -> MagicMock:
+    query.addFocusListener.side_effect = _thread_violation("addFocusListener")
+    return frame
+
+
+def _arrange_add_mouse_click(_frame_arg: MagicMock, _query: MagicMock) -> MagicMock:
+    class _Boom(_Controller):
+        def addMouseClickHandler(self, handler: object) -> None:
+            raise _thread_violation("addMouseClickHandler")
+
+    return _frame(_Boom())
+
+
 @pytest.mark.parametrize(
-    ("site", "expected_none_attrs"),
+    ("arrange", "expected_none_attrs"),
     [
-        ("getController", ("_click_handler",)),
-        ("addFocusListener", ("_query_listener",)),
-        ("addMouseClickHandler", ("_click_handler", "_click_controller")),
+        (_arrange_get_controller, ("_click_handler",)),
+        (_arrange_add_focus, ("_query_listener",)),
+        (_arrange_add_mouse_click, ("_click_handler", "_click_controller")),
     ],
+    ids=["getController", "addFocusListener", "addMouseClickHandler"],
 )
-def test_thread_violation_on_install_is_not_a_silent_install(site: str, expected_none_attrs: tuple[str, ...]):
+def test_thread_violation_on_install_is_not_a_silent_install(arrange, expected_none_attrs: tuple[str, ...]):
     """Off-thread UNO calls during install must raise, not log at debug and skip wiring."""
-    frame = MagicMock()
     query = MagicMock()
-    if site == "getController":
-        frame.getController.side_effect = _thread_violation(site)
-    elif site == "addFocusListener":
-        query.addFocusListener.side_effect = _thread_violation(site)
-    else:
-        class _Boom(_Controller):
-            def addMouseClickHandler(self, handler: object) -> None:
-                raise _thread_violation(site)
-
-        frame = _frame(_Boom())
-
+    frame = arrange(MagicMock(), query)
     session = FrameSession(frame, "doc-a")
     with pytest.raises(RuntimeError, match="UNO thread violation"):
         _install(session, query)

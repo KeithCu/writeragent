@@ -1766,6 +1766,7 @@ def test_paragraph_after_none_is_text_start():
     ],
 )
 def test_content_has_block_markup(html, expected):
+    """R3: pins the block-vs-inline classification that gates the clear 'rich HTML in a table cell' error in replace_single_range_with_content; inline tags go through the in-cell path."""
     from plugin.writer.html_import import content_has_block_markup
 
     assert content_has_block_markup(html) is expected
@@ -1808,9 +1809,10 @@ def make_paragraph_edge_range(is_start: bool, is_end: bool) -> MagicMock:
         ('<p data-lo-para="text-align:center">content</p>', False, False, True, False, "STYLE_IGNORED_PARTIAL_MATCH"),
         ('<p data-lo-para="text-align:center">content</p>', False, False, False, False, "STYLE_IGNORED_PARTIAL_MATCH"),
         ('<p data-lo-style="Heading2">content</p>', True, True, True, False, "STYLE_IGNORED_RECORDING"),
-        ('<p data-lo-style="Heading2">content</p>', True, False, True, False, "STYLE_IGNORED_PARTIAL_MATCH"),
+        # Geometry checked first: partial match while recording returns partial note.
+        pytest.param('<p data-lo-style="Heading2">content</p>', True, False, True, False, "STYLE_IGNORED_PARTIAL_MATCH", id="style_partial_while_recording"),
         ('<p data-lo-para="text-align:center">content</p>', True, True, True, False, "STYLE_IGNORED_RECORDING"),
-        ('<p data-lo-para="text-align:center">content</p>', True, False, True, False, "STYLE_IGNORED_PARTIAL_MATCH"),
+        pytest.param('<p data-lo-para="text-align:center">content</p>', True, False, True, False, "STYLE_IGNORED_PARTIAL_MATCH", id="para_partial_while_recording"),
     ],
 )
 def test_lo_style_for_replaced_range(content, recording, start_edge, end_edge, expected_apply, expected_note):

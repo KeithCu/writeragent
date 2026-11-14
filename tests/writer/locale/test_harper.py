@@ -1454,17 +1454,17 @@ def test_shutdown_harper_runtime_closes_cached_clients() -> None:
 
 
 @pytest.mark.parametrize(
-    ("t0", "t1", "expect_warn"),
+    ("t0", "t1", "expected_ms"),
     [
-        (0.0, 0.5, False),
-        (0.0, 0.501, True),
-        (10.0, 10.75, True),
-        (10.0, 10.1, False),
+        (0.0, 0.5, None),
+        (0.0, 0.501, 501),
+        (10.0, 10.75, 750),
+        (10.0, 10.1, None),
     ],
     ids=["at_threshold", "just_above_threshold", "well_above_threshold", "fast"],
 )
 def test_lint_with_client_slow_result_warning(
-    caplog: pytest.LogCaptureFixture, t0: float, t1: float, expect_warn: bool
+    caplog: pytest.LogCaptureFixture, t0: float, t1: float, expected_ms: int | None
 ) -> None:
     mock_client = MagicMock()
     mock_client.lint.return_value = []
@@ -1475,9 +1475,12 @@ def test_lint_with_client_slow_result_warning(
             out = harper_module.runtime._lint_with_client(mock_client, "Hello world.", "en-US")
     assert out == {"errors": []}
     records = [r for r in caplog.records if "slow result" in r.message]
-    if expect_warn:
+    if expected_ms is not None:
         assert len(records) == 1
         assert records[0].levelno == logging.WARNING
+        assert f"elapsed_ms={expected_ms}" in records[0].message
+        assert "text_len=12" in records[0].message
+        assert "errors=0" in records[0].message
     else:
         assert records == []
 

@@ -861,11 +861,12 @@ def test_delete_last_column_guard():
 @pytest.mark.parametrize(
     ("rows", "cols", "cell_names", "nested_factory", "check_other_row"),
     [
-        (2, 2, None, lambda: {"B2": [FakeTextTableElement("Child")]}, True),
-        (5, 1, _MERGED_BANNER_NAMES, lambda: {"D2": [FakeTextTableElement("Child")]}, False),
-        (2, 2, None, lambda: {"B2": [FakeTextFrame([FakeTextTableElement("Child")])]}, False),
+        # The other row has no nested table — delete still works.
+        pytest.param(2, 2, None, lambda: {"B2": [FakeTextTableElement("Child")]}, True, id="direct_cell"),
+        # cols=1 after A1:D1 merge; a nest in D2 must still refuse delete of that row.
+        pytest.param(5, 1, _MERGED_BANNER_NAMES, lambda: {"D2": [FakeTextTableElement("Child")]}, False, id="merged_d2"),
+        pytest.param(2, 2, None, lambda: {"B2": [FakeTextFrame([FakeTextTableElement("Child")])]}, False, id="in_frame"),
     ],
-    ids=["direct_cell", "merged_d2", "in_frame"],
 )
 def test_delete_row_refuses_nested_host(rows, cols, cell_names, nested_factory, check_other_row):
     """removeByIndex on the host row would destroy the nested table."""

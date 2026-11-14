@@ -435,22 +435,17 @@ def test_status_bar_paint_routine_done_without_indicator_does_nothing() -> None:
 
 
 @pytest.mark.parametrize(
-    ("active_indicator", "result_text", "expected_text"),
+    ("result_text", "expected_text"),
     [
-        (False, "timed out", "LibreHarper: Failed (timed out)"),
-        (False, "", "LibreHarper: Grammar check failed"),
-        (True, "timed out", "LibreHarper: Failed (timed out)"),
+        ("timed out", "LibreHarper: Failed (timed out)"),
+        ("", "LibreHarper: Grammar check failed"),
     ],
-    ids=["new_with_reason", "new_empty_reason", "active_indicator"],
+    ids=["with_reason", "empty_reason"],
 )
-def test_status_bar_paint_failure(
-    active_indicator: bool, result_text: str, expected_text: str
-) -> None:
+def test_status_bar_paint_shows_failure_without_indicator(result_text: str, expected_text: str) -> None:
     sink = go.StatusBarGrammarStatus()
-    mock_indicator = MagicMock()
-    if active_indicator:
-        sink._indicator = mock_indicator
     go.set_grammar_status(sink)
+    mock_indicator = MagicMock()
     mock_frame = MagicMock()
     mock_frame.createStatusIndicator.return_value = mock_indicator
 
@@ -459,12 +454,25 @@ def test_status_bar_paint_failure(
         patch.object(go, "resolve_status_bar_frame", return_value=mock_frame),
     ):
         sink._paint("failed", result_text)
-        if active_indicator:
-            mock_indicator.setText.assert_called_once_with(expected_text)
-            mock_indicator.setValue.assert_called_once_with(100)
-        else:
-            mock_indicator.start.assert_called_once_with(expected_text, 100)
+        mock_indicator.start.assert_called_once_with(expected_text, 100)
         assert sink._indicator is mock_indicator
+        mock_indicator.end.assert_not_called()
+
+
+def test_status_bar_paint_failure_updates_active_indicator_without_ending() -> None:
+    sink = go.StatusBarGrammarStatus()
+    mock_indicator = MagicMock()
+    sink._indicator = mock_indicator
+    go.set_grammar_status(sink)
+    mock_frame = MagicMock()
+
+    with (
+        patch("plugin.writer.locale.grammar_obs.get_ctx", return_value=MagicMock()),
+        patch.object(go, "resolve_status_bar_frame", return_value=mock_frame),
+    ):
+        sink._paint("failed", "timed out")
+        mock_indicator.setText.assert_called_once_with("LibreHarper: Failed (timed out)")
+        mock_indicator.setValue.assert_called_once_with(100)
         mock_indicator.end.assert_not_called()
 
 

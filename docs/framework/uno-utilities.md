@@ -546,7 +546,7 @@ Do **not** re-merge a monolithic `uno_helpers.py`. Prefer the smallest existing 
 | text helpers | `tests/doc/test_text_helpers.py`, `tests/doc/test_linebreak.py` |
 | udprops | `tests/doc/test_udprops.py` |
 | visual helpers | `tests/doc/test_visual_helpers.py` |
-| UNO errors | `tests/framework/test_errors.py`, `tests/framework/test_uno_exception_formatting.py` |
+| UNO errors | `tests/framework/test_errors.py` |
 | `guard_uno` boundaries | `tests/framework/test_guard_uno_boundaries.py` |
 
 Any P1 unify should extend the **matching** `test_*.py` for the module that becomes the new home, not add a fourth URL test file.

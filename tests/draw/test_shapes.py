@@ -439,6 +439,42 @@ def test_shape_upsert_line_allows_zero_width_or_height():
             raise AssertionError("%s %s x %s should be invalid" % (shape_type, width, height))
 
 
+def _valid_draw_pos() -> MagicMock:
+    pos = MagicMock()
+    pos.X = 100
+    pos.Y = 200
+    return pos
+
+
+def _invalid_draw_pos() -> MagicMock:
+    pos = MagicMock()
+    del pos.X
+    return pos
+
+
+@pytest.mark.parametrize(
+    ("page", "pos_factory", "create_result", "expected_code"),
+    [
+        (None, _valid_draw_pos, MagicMock(), "DRAW_PAGE_NULL"),
+        (MagicMock(), _invalid_draw_pos, MagicMock(), "DRAW_INVALID_POSITION"),
+        (MagicMock(), _valid_draw_pos, None, "DRAW_SHAPE_CREATION_FAILED"),
+    ],
+    ids=["null_page", "invalid_position", "creation_returned_none"],
+)
+def test_safe_create_shape_input_and_creation_errors(page, pos_factory, create_result, expected_code):
+    """safe_create_shape returns coded DrawError for null page, bad position, or None shape."""
+    from plugin.draw.shapes import DrawError, DrawShapes
+
+    doc = MagicMock()
+    doc.createInstance.return_value = create_result
+    size = MagicMock()
+    size.Width = 300
+    size.Height = 400
+    with pytest.raises(DrawError) as exc_info:
+        DrawShapes().safe_create_shape(doc, page, "RectangleShape", pos_factory(), size)
+    assert exc_info.value.code == expected_code
+
+
 def test_shape_upsert_execute_line_zero_height():
     events: list = []
     shape = _RecordingShape(events)

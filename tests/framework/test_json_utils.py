@@ -139,6 +139,11 @@ class TestSafeJsonLoads:
         assert safe_json_loads("not json at all") is None
         assert safe_json_loads("<<< completely broken garbage >>>") is None
 
+    def test_safe_json_loads_empty_whitespace_and_bytes(self):
+        assert safe_json_loads("", default=42) == 42
+        assert safe_json_loads("   \n\t", default=42) == 42
+        assert safe_json_loads(b"", default=7) == 7
+
     def test_safe_json_loads_wrong_type(self):
         assert safe_json_loads(None) is None
         assert safe_json_loads(123) is None
