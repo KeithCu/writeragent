@@ -32,4 +32,3 @@ def test_deal_pre_present_uses_function_source_not_module_comment() -> None:
     assert not deal_pre_present(_streaming_replay)
     # Checkout still has the real decorator; make release strip removes it.
     assert deal_pre_present(_merge_reasoning_details) is not is_release_build()
-

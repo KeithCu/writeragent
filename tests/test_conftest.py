@@ -1,4 +1,4 @@
-"""Unit tests for pytest progress heartbeat cadence in tests/conftest.py."""
+"""Unit tests for tests/conftest.py: idle progress message names the test still running, not the last completed one."""
 
 from tests.conftest import format_idle_pytest_progress
 
