@@ -16,23 +16,51 @@ from manifest_registry import _settings_hover_text, generate_settings_dialog_tab
 _DLG_NS = "http://openoffice.org/2000/dialog"
 
 
-def _control_attrs(xdl_path: Path) -> dict[str, dict[str, str]]:
-    """Map control dlg:id -> {top,left,width,height} from generated SettingsDialog XDL."""
+def _control_ids(xdl_path: Path) -> set[str]:
+    """Return all dlg:id values from generated XDL."""
     root = ET.parse(xdl_path).getroot()
-    attrs: dict[str, dict[str, str]] = {}
+    return {
+        ctrl_id
+        for el in root.iter()
+        if (ctrl_id := el.get(f"{{{_DLG_NS}}}id"))
+    }
+
+
+def _assert_controls_fit_and_do_not_overlap(root: ET.Element, *, check_overlap: bool = True) -> None:
+    """Verify every child control fits inside the dialog and, when enabled, does not overlap."""
+    dlg_width = int(root.get(f"{{{_DLG_NS}}}width") or 0)
+    dlg_height = int(root.get(f"{{{_DLG_NS}}}height") or 0)
+    assert dlg_width > 0 and dlg_height > 0
+
+    by_page: dict[str, list[tuple[str, int, int, int, int]]] = {}
     for el in root.iter():
+        # Skip <dlg:window> itself, which carries the dialog's own dimensions.
         if el is root:
             continue
         ctrl_id = el.get(f"{{{_DLG_NS}}}id")
-        if not ctrl_id or ctrl_id in attrs:
+        # __module__ is a 0x0 hidden metadata element carrying the module name.
+        if not ctrl_id or ctrl_id == "__module__":
             continue
-        attrs[ctrl_id] = {
-            "top": el.get(f"{{{_DLG_NS}}}top") or "",
-            "left": el.get(f"{{{_DLG_NS}}}left") or "",
-            "width": el.get(f"{{{_DLG_NS}}}width") or "",
-            "height": el.get(f"{{{_DLG_NS}}}height") or "",
-        }
-    return attrs
+        page = el.get(f"{{{_DLG_NS}}}page") or "0"
+        x = int(el.get(f"{{{_DLG_NS}}}left") or 0)
+        y = int(el.get(f"{{{_DLG_NS}}}top") or 0)
+        w = int(el.get(f"{{{_DLG_NS}}}width") or 0)
+        h = int(el.get(f"{{{_DLG_NS}}}height") or 0)
+        assert x >= 0 and y >= 0 and w > 0 and h > 0, f"Invalid geometry for {ctrl_id}"
+        assert x + w <= dlg_width, f"{ctrl_id} overflows width: {x}+{w} > {dlg_width}"
+        assert y + h <= dlg_height, f"{ctrl_id} overflows height: {y}+{h} > {dlg_height}"
+        by_page.setdefault(page, []).append((ctrl_id, x, y, x + w, y + h))
+
+    if not check_overlap:
+        return
+
+    shared = by_page.get("0", [])
+    for page, boxes in sorted(by_page.items()):
+        combined = boxes if page == "0" else shared + boxes
+        for i, (c1, x1, y1, r1, b1) in enumerate(combined):
+            for c2, x2, y2, r2, b2 in combined[i + 1 :]:
+                overlaps = x1 < r2 and x2 < r1 and y1 < b2 and y2 < b1
+                assert not overlaps, f"Page {page}: {c1} {(x1, y1, r1, b1)} overlaps {c2} {(x2, y2, r2, b2)}"
 
 
 def _generate_settings_xdl(tmp_path: Path) -> tuple[Path, str]:
@@ -46,43 +74,43 @@ def _generate_settings_xdl(tmp_path: Path) -> tuple[Path, str]:
 
 
 def test_settings_xdl_controls_within_bounds_and_non_overlapping(tmp_path: Path) -> None:
-    """Every control fits inside the dialog and no two controls on the same page overlap."""
+    """Overlapping controls hide captions or steal clicks, and controls past the dialog edge are clipped (e.g. helper lines wider than the window)."""
+    xdl_path, _xdl = _generate_settings_xdl(tmp_path)
+    _assert_controls_fit_and_do_not_overlap(ET.parse(xdl_path).getroot(), check_overlap=True)
+
+
+def test_vision_standalone_controls_within_bounds() -> None:
+    """Controls past the standalone dialog edge are clipped (e.g. helper lines wider than the Vision window)."""
+    from manifest_xdl import generate_standalone_config_dialog
+    from plugin._manifest import MODULES
+
+    vision = next(module for module in MODULES if module["name"] == "vision")
+    root = ET.fromstring(generate_standalone_config_dialog(vision))
+    # Standalone label_* (height 14 at y+2) intentionally touches/overlaps hlp_* (y+15) by 1px;
+    # keep width/height bounds checked so helper lines cannot overflow the window.
+    _assert_controls_fit_and_do_not_overlap(root, check_overlap=False)
+
+
+def test_settings_ok_writes_and_cancel_discards_roles(tmp_path: Path) -> None:
+    """OK is default+ok and Cancel is cancel without default so Escape/Cancel returns false from execute() and nothing is written."""
     xdl_path, _xdl = _generate_settings_xdl(tmp_path)
     root = ET.parse(xdl_path).getroot()
-    dlg_width = int(root.get(f"{{{_DLG_NS}}}width") or 0)
-    dlg_height = int(root.get(f"{{{_DLG_NS}}}height") or 0)
-    assert dlg_width > 0 and dlg_height > 0
-
-    by_page: dict[str, list[tuple[str, int, int, int, int]]] = {}
-    for el in root.iter():
-        if el is root:
-            continue
-        ctrl_id = el.get(f"{{{_DLG_NS}}}id")
-        if not ctrl_id:
-            continue
-        page = el.get(f"{{{_DLG_NS}}}page") or "0"
-        x = int(el.get(f"{{{_DLG_NS}}}left") or 0)
-        y = int(el.get(f"{{{_DLG_NS}}}top") or 0)
-        w = int(el.get(f"{{{_DLG_NS}}}width") or 0)
-        h = int(el.get(f"{{{_DLG_NS}}}height") or 0)
-        assert x >= 0 and y >= 0 and w > 0 and h > 0, f"Invalid geometry for {ctrl_id}"
-        assert x + w <= dlg_width, f"{ctrl_id} overflows width: {x}+{w} > {dlg_width}"
-        assert y + h <= dlg_height, f"{ctrl_id} overflows height: {y}+{h} > {dlg_height}"
-        by_page.setdefault(page, []).append((ctrl_id, x, y, x + w, y + h))
-
-    shared = by_page.get("0", [])
-    for page, boxes in sorted(by_page.items()):
-        combined = boxes if page == "0" else shared + boxes
-        for i, (c1, x1, y1, r1, b1) in enumerate(combined):
-            for c2, x2, y2, r2, b2 in combined[i + 1 :]:
-                overlaps = x1 < r2 and x2 < r1 and y1 < b2 and y2 < b1
-                assert not overlaps, f"Page {page}: {c1} {(x1, y1, r1, b1)} overlaps {c2} {(x2, y2, r2, b2)}"
+    buttons = {
+        el.get(f"{{{_DLG_NS}}}id"): el
+        for el in root.findall(".//dlg:button", {"dlg": _DLG_NS})
+    }
+    ok_btn = buttons["btn_ok"]
+    cancel_btn = buttons["btn_cancel"]
+    assert ok_btn.get(f"{{{_DLG_NS}}}button-type") == "ok"
+    assert ok_btn.get(f"{{{_DLG_NS}}}default") == "true"
+    assert cancel_btn.get(f"{{{_DLG_NS}}}button-type") == "cancel"
+    assert cancel_btn.get(f"{{{_DLG_NS}}}default") is None
 
 
 def test_json_only_settings_absent_from_settings_xdl(tmp_path: Path) -> None:
     """Internal module.yaml keys are not emitted as Settings dialog controls."""
     xdl_path, _xdl = _generate_settings_xdl(tmp_path)
-    attrs = _control_attrs(xdl_path)
+    ids = _control_ids(xdl_path)
 
     for hidden_id in (
         "mcp__cors_allow_private_origins",
@@ -92,12 +120,12 @@ def test_json_only_settings_absent_from_settings_xdl(tmp_path: Path) -> None:
         "chatbot__extend_selection_max_tokens",
         "chatbot__edit_selection_max_new_tokens",
     ):
-        assert hidden_id not in attrs
+        assert hidden_id not in ids
 
-    assert "mcp__mcp_enabled" in attrs
-    assert "scripting__python_venv_path" in attrs
-    assert "scripting__xl_static_rewrite" in attrs
-    assert "scripting__python_geometric_recalc_order" in attrs
+    assert "mcp__mcp_enabled" in ids
+    assert "scripting__python_venv_path" in ids
+    assert "scripting__xl_static_rewrite" in ids
+    assert "scripting__python_geometric_recalc_order" in ids
 
 
 def test_librepy_flavor_omits_ppt_master_from_scripting_page(tmp_path: Path) -> None:
@@ -125,11 +153,11 @@ def test_librepy_flavor_omits_ppt_master_from_scripting_page(tmp_path: Path) -> 
     tpl = _REPO / "extension" / "Dialogs" / "SettingsDialog.xdl.tpl"
     out = tmp_path / "SettingsDialog-librepy.xdl"
     generate_settings_dialog_tabs(modules, str(tpl), str(out), librepy_flavor=True)
-    attrs = _control_attrs(out)
+    ids = _control_ids(out)
 
-    assert "scripting__python_venv_path" in attrs
-    assert "scripting__ppt_master_data_path" not in attrs
-    assert "scripting__test_ppt_master_data" not in attrs
+    assert "scripting__python_venv_path" in ids
+    assert "scripting__ppt_master_data_path" not in ids
+    assert "scripting__test_ppt_master_data" not in ids
 
 
 def _help_text_by_id(xdl_path: Path) -> dict[str, str | None]:
@@ -404,7 +432,6 @@ def test_settings_numeric_fields_have_schema_bounds(tmp_path: Path) -> None:
     root = ET.parse(xdl_path).getroot()
     ns = {"dlg": _DLG_NS}
     elements = {el.get(f"{{{_DLG_NS}}}id"): el for el in root.findall(".//dlg:numericfield", ns)}
-    attrs = _control_attrs(xdl_path)
 
     for ctrl_id, (min_v, max_v) in _EXPECTED_NUMERIC_BOUNDS.items():
         assert ctrl_id in elements, f"Missing numeric field {ctrl_id}"
@@ -416,11 +443,10 @@ def test_settings_numeric_fields_have_schema_bounds(tmp_path: Path) -> None:
         assert el.get(f"{{{_DLG_NS}}}value-step") is None
 
         # Verify geometry attributes remain intact.
-        assert ctrl_id in attrs
-        assert int(attrs[ctrl_id]["left"]) > 0
-        assert int(attrs[ctrl_id]["top"]) > 0
-        assert int(attrs[ctrl_id]["width"]) > 0
-        assert int(attrs[ctrl_id]["height"]) > 0
+        assert int(el.get(f"{{{_DLG_NS}}}left") or 0) > 0
+        assert int(el.get(f"{{{_DLG_NS}}}top") or 0) > 0
+        assert int(el.get(f"{{{_DLG_NS}}}width") or 0) > 0
+        assert int(el.get(f"{{{_DLG_NS}}}height") or 0) > 0
 
 
 def test_settings_numeric_field_step_and_float_accuracy(tmp_path: Path) -> None:
