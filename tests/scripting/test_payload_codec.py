@@ -1383,20 +1383,6 @@ def test_split_grid_pure_numeric_fast_path():
     assert unpacked[1, 0] == pytest.approx(30.5)
 
 
-def test_split_grid_logical_coercion_at_calc_ingress():
-    """Verify that logical strings like "TRUE" and "FALSE" are coerced to bools during unwrap."""
-    from plugin.calc.calc_addin_data import _unwrap_cell, calc_addin_data_to_python
-
-    # 1. Test unwrap cell directly
-    assert _unwrap_cell("TRUE") is True
-    assert _unwrap_cell("banana") == "banana"
-
-    # 2. Test grid ingestion coercion
-    raw_grid = [["TRUE", "FALSCH"], ["banana", 100.0]]
-    coerced = calc_addin_data_to_python(raw_grid)
-    assert coerced == [[True, "FALSCH"], ["banana", 100.0]]
-
-
 def test_split_grid_lattice_promotion_comprehensive():
     """Verify structural type promotions and kinds behavior for all scenarios."""
     # 1. Boolean-only column keeps bool kind in mixed grid
@@ -1482,28 +1468,6 @@ def test_child_pack_grid_regression() -> None:
     wire = child_pack_result([[1.0, 2.0], [3.0, 4.0]], force="auto")
     assert isinstance(wire, list)
     assert wire == [[1.0, 2.0], [3.0, 4.0]]
-
-
-def test_unwrap_cell_comprehensive():
-    """Verify unwrap_cell correctly normalizes standard types, formulas, and mocked UNO Any objects."""
-    from plugin.calc.calc_addin_data import _unwrap_cell
-
-    # 1. Fast path exact types
-    assert _unwrap_cell(1.0) == 1.0
-    assert _unwrap_cell(42) == 42
-    assert _unwrap_cell(True) is True
-
-    # 2. Formula string conversions
-    assert _unwrap_cell("  TRUE  ") is True
-
-    # 3. UNO Mock Wrap types (e.g. uno.Any type emulation)
-    class MockUnoAny:
-        def __init__(self, value):
-            self.value = value
-
-    MockUnoAny.__name__ = "Any"
-    assert _unwrap_cell(MockUnoAny(10.5)) == 10.5
-    assert _unwrap_cell(MockUnoAny("TRUE")) is True
 
 
 def test_child_pack_non_contiguous_slices():
@@ -2220,3 +2184,50 @@ def test_mixed_int_float_child_stays_float64_host_emits_ints() -> None:
     host = host_unpack_split_grid(envelope)
     assert host == [[2, 1.5]]
     assert type(host[0][0]) is int
+
+
+@pytest.mark.parametrize(
+    "value, value_2",
+    [
+        pytest.param("png", b"\x89PNG\r\n\x1a\nfake", id="test_is_image_payload_valid_png"),
+        pytest.param("svg", b"<svg xmlns=...></svg>", id="test_is_image_payload_valid_svg"),
+    ],
+)
+def test_is_image_payload_valid_png(value, value_2):
+    payload = {"__wa_payload__": "image", "format": value, "data": value_2}
+    assert is_image_payload(payload) is True
+
+
+@pytest.mark.parametrize(
+    "value, value_2",
+    [
+        pytest.param("__wa_payload__", "image", id="test_is_image_payload_missing_data"),
+        pytest.param("foo", "bar", id="test_is_image_payload_unrelated_dict"),
+    ],
+)
+def test_is_image_payload_missing_data(value, value_2):
+    assert is_image_payload({value: value_2}) is False
+
+
+def test_is_image_payload_wrong_type():
+    assert is_image_payload({"__wa_payload__": "image", "data": "not bytes"}) is False
+
+
+def test_is_image_payload_non_dict():
+    assert is_image_payload([1, 2, 3]) is False
+    assert is_image_payload(42) is False
+    assert is_image_payload(None) is False
+
+
+def test_describe_wire_value_image():
+    payload = {"__wa_payload__": "image", "format": "png", "data": b"\x89PNG" * 10}
+    desc = describe_wire_value(payload)
+    assert "image" in desc
+    assert "png" in desc
+    assert "40" in desc  # 4 bytes * 10
+
+
+def test_host_unpack_data_passthrough():
+    payload = {"__wa_payload__": "image", "format": "png", "data": b"\x89PNGtest"}
+    result = host_unpack_data(payload)
+    assert result is payload

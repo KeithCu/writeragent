@@ -454,3 +454,31 @@ def test_has_subscribers_false_for_dead_weak_subscriber():
     gc.collect()
     assert bus.has_subscribers("gone") is False
 
+
+def test_event_bus_listener_and_emit():
+    from unittest.mock import MagicMock
+    from plugin.framework.event_bus import get_event_bus
+
+    ctx = MagicMock()
+    called = []
+    bus = get_event_bus()
+
+    def my_callback(ctx=None, **kwargs):
+        called.append(ctx)
+
+    bus.subscribe("config:changed", my_callback)
+    try:
+        bus.emit("config:changed", ctx=ctx)
+        assert len(called) == 1
+        assert called[0] == ctx
+
+        def bad_callback(**kwargs):
+            raise ValueError("Simulated error")
+
+        bus.subscribe("config:changed", bad_callback)
+        bus.emit("config:changed", ctx=ctx)
+        assert len(called) == 2
+    finally:
+        bus.unsubscribe("config:changed", my_callback)
+        bus.unsubscribe("config:changed", bad_callback)
+

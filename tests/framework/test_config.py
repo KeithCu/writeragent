@@ -160,27 +160,6 @@ class TestConfigSync:
             set_api_key_for_endpoint('http://localhost:11434/', 'updated-key')
             assert (self.config_data.get('api_keys_by_endpoint', {}).get('http://localhost:11434')) == ('updated-key')
 
-    def test_event_bus_listener_and_emit(self):
-        called = []
-        bus = get_event_bus()
-
-        def my_callback(ctx=None, **kwargs):
-            called.append(ctx)
-        bus.subscribe('config:changed', my_callback)
-        try:
-            bus.emit('config:changed', ctx=self.ctx)
-            assert (len(called)) == (1)
-            assert (called[0]) == (self.ctx)
-
-            def bad_callback(**kwargs):
-                raise ValueError('Simulated error')
-            bus.subscribe('config:changed', bad_callback)
-            bus.emit('config:changed', ctx=self.ctx)
-            assert (len(called)) == (2)
-        finally:
-            bus.unsubscribe('config:changed', my_callback)
-            bus.unsubscribe('config:changed', bad_callback)
-
 
 class TestConfigSyncFileIO:
 
