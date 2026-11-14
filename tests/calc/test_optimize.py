@@ -108,37 +108,6 @@ def test_optimize_data_handles_complex_output_range(mock_run_trusted, mock_main_
     assert mock_insert.call_args.kwargs["start_row"] == 0
 
 
-@patch("plugin.calc.tabular_egress.CellManipulator")
-@patch("plugin.calc.tabular_egress.CalcBridge")
-def test_insert_optimize_result_qualifies_sheet_on_the_anchor(mock_bridge, mock_manip_cls):
-    """A sheet-qualified anchor must reach write_formula_range, which uses CalcBridge.resolve."""
-    del mock_bridge
-    from plugin.scripting.optimize import insert_optimize_result_into_calc
-
-    manipulator = MagicMock()
-    mock_manip_cls.return_value = manipulator
-    result = {"status": "ok", "helper": "linear_programming", "metrics": {"objective": 1}}
-
-    cases = (
-        ("Q1.Sales", 1, 1, "'Q1.Sales'.B2"),
-        ("Report", 5, 0, "Report.F1"),
-        ("Data Sheet", 2, 2, "'Data Sheet'.C3"),
-        ("O'Brien", 0, 0, "'O''Brien'.A1"),
-        (None, 0, 0, "A1"),
-    )
-    for sheet_name, col, row, expected in cases:
-        manipulator.reset_mock()
-        insert_optimize_result_into_calc(
-            MagicMock(),
-            MagicMock(),
-            result,
-            sheet_name=sheet_name,
-            start_col=col,
-            start_row=row,
-        )
-        assert manipulator.write_formula_range.call_args.args[0] == expected
-
-
 @patch("plugin.calc.optimize.insert_optimize_result_into_calc", side_effect=RuntimeError("disk full"))
 @patch("plugin.framework.queue_executor.main.call")
 @patch("plugin.calc.analysis.run_domain")

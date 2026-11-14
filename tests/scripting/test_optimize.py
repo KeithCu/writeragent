@@ -147,6 +147,38 @@ def test_insert_optimize_result_into_calc() -> None:
         mock_insert.assert_called_once()
 
 
+def test_insert_optimize_result_qualifies_sheet_on_the_anchor() -> None:
+    """A sheet-qualified anchor must reach write_formula_range, which uses CalcBridge.resolve."""
+    from unittest.mock import MagicMock, patch
+    from plugin.scripting.optimize import insert_optimize_result_into_calc
+
+    manipulator = MagicMock()
+    result = {"status": "ok", "helper": "linear_programming", "metrics": {"objective": 1}}
+
+    cases = (
+        ("Q1.Sales", 1, 1, "'Q1.Sales'.B2"),
+        ("Report", 5, 0, "Report.F1"),
+        ("Data Sheet", 2, 2, "'Data Sheet'.C3"),
+        ("O'Brien", 0, 0, "'O''Brien'.A1"),
+        (None, 0, 0, "A1"),
+    )
+    with (
+        patch("plugin.calc.tabular_egress.CalcBridge"),
+        patch("plugin.calc.tabular_egress.CellManipulator", return_value=manipulator),
+    ):
+        for sheet_name, col, row, expected in cases:
+            manipulator.reset_mock()
+            insert_optimize_result_into_calc(
+                MagicMock(),
+                MagicMock(),
+                result,
+                sheet_name=sheet_name,
+                start_col=col,
+                start_row=row,
+            )
+            assert manipulator.write_formula_range.call_args.args[0] == expected
+
+
 def test_portfolio_daily_returns_are_not_equal_weight():
     from scipy.optimize import minimize
     rng = np.random.default_rng(0)
