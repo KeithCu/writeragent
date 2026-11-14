@@ -1,7 +1,7 @@
 # WriterAgent - AI Writing Assistant for LibreOffice
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Unit tests for DelegateToSpecializedBase (domain validation and mutation lock)."""
+"""Unit tests for DelegateToSpecializedBase (domain validation, mutation lock, registry exposure) and dummy-tool fixtures."""
 
 from __future__ import annotations
 
@@ -463,6 +463,7 @@ def test_delegate_footnotes_hint_reaches_inner_instructions(
     assert "insert_after" in instructions
 
 
+# Dummy specialized tools and fixtures, imported by test_document_research_specialized / test_python_domain_specialized / test_images.
 from plugin.calc.base import ToolCalcSpecialBase
 from plugin.calc.specialized import DelegateToSpecializedCalc
 from plugin.contrib.smolagents.memory import FinalAnswerStep
@@ -611,6 +612,7 @@ def test_specialized_delegation_sub_agent_mode(
         task="Create a 3x3 table",
     )
 
+    # Verify callback was NOT called (it remains initial_value)
     assert active_domain == "initial_value"
 
     assert result["status"] == "incomplete"
@@ -622,6 +624,7 @@ def test_specialized_delegation_sub_agent_mode(
     assert call_args is not None
     smol_tools = call_args.kwargs.get("tools", [])
 
+    # Sub-agent gets domain tools plus specialized_workflow_finished (active_domain registry rules).
     smol_tool_names = [t.name for t in smol_tools]
     assert "dummy_table_tool" in smol_tool_names
     assert "specialized_workflow_finished" in smol_tool_names

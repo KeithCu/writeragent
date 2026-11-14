@@ -1925,6 +1925,7 @@ class TestFinalizeSidebarAssistantResponse:
         send.rerender_rich_text_session = MagicMock()
 
         with patch("plugin.chatbot.panel.threading.current_thread", return_value=threading.main_thread()):
+            # "<b" is buffered as a potential tag until finalize flushes it
             send._append_response("a <b", role="assistant")
             mock_set_text.assert_called_with(send.response_control, "Current: a ")
 
@@ -1934,6 +1935,7 @@ class TestFinalizeSidebarAssistantResponse:
             mock_set_text.assert_called_with(send.response_control, "Current: a <b")
 
     def test_finalize_skips_rerender_after_stop(self):
+        """Packet B1: Stop must keep streamed text + [Stopped by user], not paste No response."""
         from plugin.chatbot.tool_loop_actions import current_turn, finalize_sidebar_assistant_response
 
         send = _make_plain_send_listener()
@@ -1945,6 +1947,7 @@ class TestFinalizeSidebarAssistantResponse:
         send.rerender_rich_text_session.assert_called_once()
 
     def test_finalize_skips_rerender_on_api_error(self):
+        """Packet F: HTTP 429/500 must not be replaced by the previous HTML reply."""
         from plugin.chatbot.tool_loop_actions import current_turn, finalize_sidebar_assistant_response
         from plugin.framework.html_stripper import StreamingHTMLStripper
 

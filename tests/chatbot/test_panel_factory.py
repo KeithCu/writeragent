@@ -1520,7 +1520,7 @@ def test_session_id_stability():
     model.url = "file:///test/renamed.odt"
     panel._setup_sessions(model, "different instructions")
 
-    # It should regenerate the ID to isolate the copied document
+    # It should regenerate the ID to isolate the copied document, but fork the history
     assert panel.session is not None
     second_session_id = panel.session.session_id
     assert second_session_id != first_session_id

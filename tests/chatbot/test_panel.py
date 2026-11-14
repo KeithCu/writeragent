@@ -2806,7 +2806,8 @@ def test_append_response_plain_text_strips_tags(chunks, role, expected):
     assert text_buf[0] == expected
 
 
-def _make_do_send_listener(*, active_librarian: bool = False) -> SimpleNamespace:
+def _make_do_send_listener() -> SimpleNamespace:
+    """Build a SimpleNamespace listener for _do_send routing tests only."""
     import types
     from plugin.chatbot.chat_sidebar_mode import SidebarModeFlags
     from plugin.chatbot.panel import SendButtonListener
@@ -2851,7 +2852,7 @@ def _make_do_send_listener(*, active_librarian: bool = False) -> SimpleNamespace
         model_selector=MagicMock(),
         status_control=None,
         query_control=query_control,
-        _active_mode="librarian" if active_librarian else "",
+        _active_mode="",
         _mode_topic="",
         _stt_inflight=False,
         _set_status=MagicMock(),
