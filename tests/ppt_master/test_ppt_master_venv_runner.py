@@ -54,6 +54,7 @@ def test_load_skill_context_missing_root(tmp_path: Path, monkeypatch: pytest.Mon
 
 
 def test_load_skill_context_includes_skill_md(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    from plugin.contrib.ppt_master.skill_paths import bundled_skill_md_path
     from plugin.ppt_master.venv.skill_context import load_skill_context
 
     monkeypatch.setenv("PPT_MASTER_DATA_ROOT", str(tmp_path))
@@ -63,7 +64,14 @@ def test_load_skill_context_includes_skill_md(tmp_path: Path, monkeypatch: pytes
 
     ctx = load_skill_context()
     assert ctx["ok"] is True
+    assert bundled_skill_md_path().read_text(encoding="utf-8")[:50] in ctx["block"]
     assert "route here" in ctx["block"]
+
+
+def test_resolve_writeragent_skill_md_prefers_bundled_fork():
+    from plugin.contrib.ppt_master.skill_paths import bundled_skill_md_path, resolve_writeragent_skill_md
+
+    assert resolve_writeragent_skill_md().resolve() == bundled_skill_md_path().resolve()
 
 
 def test_resolve_writeragent_skill_md_fallback(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
