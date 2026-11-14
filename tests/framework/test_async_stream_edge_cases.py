@@ -6,6 +6,7 @@
 
 import inspect
 import queue
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -15,68 +16,31 @@ from plugin.framework.send_cancellation import SendCancellation
 from tests.framework.stream_test_helpers import DummyToolkit
 
 
-class TestRunAsyncWorkerOnStoppedFallback:
-    """Regression test for Bug 3: stop-path fallback called on_done_fn() with no arg,
-    raising TypeError when the callback expects an item argument."""
+def test_run_async_worker_with_drain_stop_fallback_calls_one_arg_on_done() -> None:
+    """When on_stopped_fn is None, STOPPED invokes a one-arg on_done with None."""
+    from plugin.framework.async_stream import run_async_worker_with_drain
 
-    def test_stop_with_one_arg_done_fn_does_not_raise(self):
-        # on_done_fn that requires exactly one positional argument.
-        # Before the fix, the stop-path lambda called on_done_fn() with no args,
-        # which raised TypeError and surfaced as an error in the drain loop.
-        q = queue.Queue()
-        q.put((StreamQueueKind.STOPPED, None))
+    done_calls: list[object] = []
+    errors: list[object] = []
 
-        outcome = DrainOutcome()
-        errors = []
-        done_calls = []
+    def on_done(item: object) -> None:
+        done_calls.append(item)
 
-        def on_done(item):  # requires one argument — the bug triggers here
-            done_calls.append(item)
+    def worker(worker_q) -> None:
+        worker_q.put((StreamQueueKind.STOPPED, None))
 
-        run_stream_drain_loop(
-            q,
-            DummyToolkit(),
-            outcome,
-            apply_chunk_fn=lambda _t, _th: None,
-            on_stream_done=lambda _item: True,
-            on_stopped=lambda: on_done(None),  # explicit stopped handler is fine
-            on_error=lambda e: errors.append(e),
+    with patch("plugin.framework.uno_context.get_toolkit", return_value=DummyToolkit()):
+        run_async_worker_with_drain(
+            MagicMock(),
+            worker,
+            lambda _text, _is_thinking: None,
+            on_done,
+            errors.append,
+            on_stopped_fn=None,
         )
 
-        assert outcome.done is True
-        assert errors == [], f"Unexpected errors on Stop path: {errors}"
-
-    def test_stop_fallback_no_on_stopped_fn_one_arg_done_fn(self):
-        # When on_stopped_fn=None and on_done_fn takes one argument,
-        # run_async_worker_with_drain must not raise or emit an error.
-        # We exercise the resolved_on_stopped path directly by building it.
-
-        errors = []
-        done_calls = []
-
-        def on_done(item):  # one-arg callback — the bug path
-            done_calls.append(item)
-
-        # Build the helper the same way run_async_worker_with_drain does
-        def _noop_stopped():
-            return None
-
-        def _call_done_on_stopped():
-            try:
-                on_done(None)
-            except TypeError:
-                on_done()
-
-        resolved_on_stopped = _call_done_on_stopped  # no on_stopped_fn provided
-
-        # Call directly — must not raise
-        try:
-            resolved_on_stopped()
-        except Exception as e:
-            errors.append(e)
-
-        assert errors == [], f"resolved_on_stopped raised: {errors}"
-        assert done_calls == [None], f"on_done was not called as expected: {done_calls}"
+    assert done_calls == [None]
+    assert errors == []
 
 
 def test_stream_queue_helpers_parameterize_queue() -> None:

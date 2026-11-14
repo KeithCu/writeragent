@@ -1,3 +1,5 @@
+from unittest.mock import patch
+
 from tests.harness.strip_bundle import is_release_build
 import pytest
 import io
@@ -38,9 +40,11 @@ class TestEnsureUtf8Stdio:
         old_stdout = sys.stdout
         try:
             sys.stdout = ascii_stdout
-            uno_bootstrap.ensure_utf8_stdio()
-            first_encoding = sys.stdout.encoding
-            uno_bootstrap.ensure_utf8_stdio()
+            with patch.object(ascii_stdout, "reconfigure", wraps=ascii_stdout.reconfigure) as reconfigure_spy:
+                uno_bootstrap.ensure_utf8_stdio()
+                first_encoding = sys.stdout.encoding
+                uno_bootstrap.ensure_utf8_stdio()
+            assert reconfigure_spy.call_count == 1
             assert (sys.stdout.encoding) == (first_encoding)
         finally:
             sys.stdout = old_stdout
