@@ -1882,3 +1882,35 @@ def test_capped_ready_queue_put_wakes_on_stop():
     finally:
         tts.stop_speech()
 
+
+def test_speak_text_async_on_complete_fires_when_worker_raises():
+    """on_complete still fires when the speech provider raises."""
+    def _cfg(key, default=None):
+        return {
+            "audio.tts_enabled": True,
+            "audio.tts_provider": "system",
+            "audio.tts_speed": 1.0,
+        }.get(key, default)
+
+    completed = threading.Event()
+    threads: list[threading.Thread] = []
+    real_bg = tts.run_in_background
+
+    def _tracking_bg(fn, *args, **kwargs):
+        t = real_bg(fn, *args, **kwargs)
+        if isinstance(t, threading.Thread):
+            threads.append(t)
+        return t
+
+    try:
+        with patch("plugin.framework.config.get_config", side_effect=_cfg), \
+             patch("plugin.audio.tts_service._speak_system", side_effect=RuntimeError("boom")), \
+             patch("plugin.audio.tts_service.run_in_background", side_effect=_tracking_bg):
+            speak_text_async("hello", on_complete=completed.set)
+            assert completed.wait(timeout=2.0), "on_complete did not fire after worker error"
+            assert is_speaking() is False
+    finally:
+        stop_speech()
+        for t in threads:
+            t.join(timeout=2.0)
+

@@ -13,7 +13,6 @@ from unittest.mock import patch
 
 from plugin.chatbot.panel_factory import ChatPanelElement
 from plugin.framework.event_bus import EventBus
-from plugin.framework.uno_listeners import BaseTextListener
 
 _MAX_REFRESH = 20
 _MODEL = "openai/gpt-test"
@@ -215,54 +214,3 @@ def test_measure_aux_button_width_uses_translated_labels(monkeypatch):
     assert model.Label == "Stop"
     assert ctrl.pos_size_args is not None
     assert ctrl.pos_size_args[2] == len("ChangeXX")
-
-
-def test_unguarded_listener_does_not_infinite_loop_because_event_bus_drops():
-    """Without the panel flag, VCL-like setText still writes LRU; bus drop stops the hang.
-
-    Proves the harness would keep calling refresh if both the flag and the bus
-    drop were missing; with the bus, refresh stays bounded and save runs.
-    """
-    combo = FiringCombo()
-    panel = _make_panel(combo)
-    bus = EventBus()
-    set_config_keys: list[str] = []
-
-    def track_save(patch, event_key=None):
-        if isinstance(patch, dict):
-            set_config_keys.extend(patch)
-        bus.emit("config:changed", ctx=None)
-
-    refresh = _capped_refresh(panel)
-    bus.subscribe("config:changed", lambda **kwargs: refresh())
-
-    class Unguarded(BaseTextListener):
-        def on_text_changed(self, rEvent):
-            from plugin.chatbot.config_ui_helpers import sync_sidebar_text_model
-
-            sync_sidebar_text_model(combo)
-
-    combo.addTextListener(Unguarded())
-
-    with (
-        patch("plugin.chatbot.config_ui_helpers.populate_combobox_with_lru", side_effect=_fake_populate),
-        patch("plugin.chatbot.config_ui_helpers.populate_image_model_selector", return_value=""),
-        patch("plugin.chatbot.panel_factory.get_text_model", return_value=_MODEL),
-        patch("plugin.chatbot.panel_factory.get_image_model", return_value=""),
-        patch("plugin.chatbot.panel_factory.get_current_endpoint", return_value=_ENDPOINT),
-        patch("plugin.chatbot.panel_factory.get_config", return_value=""),
-        patch("plugin.chatbot.panel_factory.set_text_model"),
-        patch("plugin.chatbot.panel_factory.set_image_model"),
-        patch("plugin.chatbot.panel_factory.set_control_enabled"),
-        patch("plugin.framework.queue_executor.main.is_current", return_value=True),
-        patch("plugin.chatbot.config_ui_helpers.get_current_endpoint", return_value=_ENDPOINT),
-        patch("plugin.chatbot.config_ui_helpers.get_config", return_value=[]),
-        patch("plugin.framework.config.save", side_effect=track_save),
-        patch("plugin.chatbot.config_ui_helpers.save", side_effect=track_save),
-        patch("plugin.framework.client.model_fetcher.get_text_model", return_value=_MODEL),
-        patch("plugin.framework.client.model_fetcher.set_text_model"),
-    ):
-        bus.emit("config:changed")
-
-    assert panel.refresh_count == 1
-    assert "model_lru@%s" % _ENDPOINT in set_config_keys

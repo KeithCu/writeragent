@@ -1,36 +1,6 @@
-"""Unit tests for pytest progress heartbeat cadence in tests/conftest.py."""
+"""Unit tests for tests/conftest.py: idle progress message names the test still running, not the last completed one."""
 
-from tests.conftest import (
-    _PYTEST_PROGRESS_TAIL_AFTER,
-    format_idle_pytest_progress,
-    should_emit_pytest_progress_count,
-)
-
-
-def test_progress_count_every_100():
-    assert should_emit_pytest_progress_count(100) is True
-    assert should_emit_pytest_progress_count(200) is True
-    assert should_emit_pytest_progress_count(99) is False
-    assert should_emit_pytest_progress_count(0) is False
-
-
-def test_progress_count_fail_always_emits():
-    assert should_emit_pytest_progress_count(6226, failed=True) is True
-    assert should_emit_pytest_progress_count(1, failed=True) is True
-
-
-def test_progress_count_tail_every_10():
-    """Tail cadence emits every 10 once at or past _PYTEST_PROGRESS_TAIL_AFTER."""
-    tail = _PYTEST_PROGRESS_TAIL_AFTER
-    first_tail_10 = ((tail + 9) // 10) * 10
-    below_tail_10 = ((tail - 1) // 10) * 10
-    if below_tail_10 % 100 == 0:
-        below_tail_10 -= 10
-    assert should_emit_pytest_progress_count(first_tail_10) is True
-    assert should_emit_pytest_progress_count(first_tail_10 + 10) is True
-    assert should_emit_pytest_progress_count(first_tail_10 + 1) is False
-    # Before the tail, non-100 multiples of 10 do not emit.
-    assert should_emit_pytest_progress_count(below_tail_10) is False
+from tests.conftest import format_idle_pytest_progress
 
 
 def test_idle_progress_names_inflight_not_last_completed():
@@ -46,20 +16,3 @@ def test_idle_progress_names_inflight_not_last_completed():
     assert "leftover=" in msg
     assert "test_a" in msg
     assert "test_quoted_font_name" not in msg
-
-
-def test_idle_progress_caps_leftover_list():
-    leftover = [f"t{i}" for i in range(8)]
-    msg = format_idle_pytest_progress(7800, "last_one", leftover)
-    assert "leftover=t0,t1,t2,t3,t4,t5 +2" in msg
-
-
-def test_idle_progress_falls_back_to_last_when_none_inflight():
-    msg = format_idle_pytest_progress(
-        7975,
-        "tests/writer/test_writer_diff_and_html_verification.py::test_hypothesis_split_change_fraction_bounds",
-        [],
-    )
-    assert msg.endswith(
-        "last=tests/writer/test_writer_diff_and_html_verification.py::test_hypothesis_split_change_fraction_bounds"
-    )

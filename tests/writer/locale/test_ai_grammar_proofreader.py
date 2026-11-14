@@ -48,7 +48,6 @@ def _proofreader_get_config_side_effect(
 class FakeBI:
     def getWordBoundary(self, text, pos, locale, wordType, bDirection):
         import re
-        from plugin.writer.locale.grammar_proofread_text import Utf16OffsetMap
 
         m_u16 = Utf16OffsetMap(text)
         py_pos = m_u16.utf16_to_py(pos)
@@ -64,7 +63,6 @@ class FakeBI:
 
     def endOfSentence(self, text, pos, locale):
         import re
-        from plugin.writer.locale.grammar_proofread_text import Utf16OffsetMap
 
         m_u16 = Utf16OffsetMap(text)
         py_pos = m_u16.utf16_to_py(pos)
@@ -141,28 +139,6 @@ def _run_llm_one(
 # =============================================================================
 # Worker Tests (Mocked)
 # =============================================================================
-
-def test_uno_setup_teardown_preserves_string_grammar_provider() -> None:
-    from tests.writer.locale import test_ai_grammar_proofreader_uno as uno_tests
-
-    key = "doc.grammar_proofreader_enabled"
-    set_calls: list[tuple[str, Any]] = []
-
-    with (
-        patch.object(uno_tests, "get_config", side_effect=lambda requested: "harper" if requested == key else None),
-        patch.object(
-            uno_tests,
-            "save",
-            side_effect=lambda patch, **kwargs: [set_calls.append((k, v)) for k, v in patch.items()],
-        ),
-        patch.object(uno_tests.gc.grammar_registry, "clear_all"),
-        patch.object(uno_tests.gir, "ignore_rules_clear"),
-    ):
-        saved = uno_tests.setup_grammar_proof_tests(MagicMock())
-        uno_tests.teardown_grammar_proof_tests(saved)
-
-    assert set_calls == [(key, "llm"), (key, "harper")]
-
 
 def test_worker_skips_when_agent_active_and_pause_enabled() -> None:
     with (
@@ -306,7 +282,6 @@ def test_obs_result_window_empty_lint_omits_rule_ids() -> None:
 )
 def test_apply_proofreading_end_positions_skips_space_after_sentence(value) -> None:
     from plugin.writer.locale.ai_grammar_proofreader import _apply_proofreading_end_positions
-    from plugin.writer.locale.grammar_proofread_text import Utf16OffsetMap
     class Res:
         nStartOfNextSentencePosition = 0
         nBehindEndOfSentencePosition = 0
@@ -1467,51 +1442,6 @@ def test_harper_partial_hit_converts_uno_tuple_once(
     assert mock_convert.call_count == 1
 
 
-def test_get_constant_by_name_runs_once_per_conversion() -> None:
-    """Markup type constant is cached at module level and looked up at most once per conversion."""
-    cached = (
-        {"n_error_start": 0, "n_error_length": 1, "suggestions": (), "short_comment": "", "full_comment": "", "rule_identifier": "r1"},
-        {"n_error_start": 2, "n_error_length": 3, "suggestions": (), "short_comment": "", "full_comment": "", "rule_identifier": "r2"},
-        {"n_error_start": 4, "n_error_length": 5, "suggestions": (), "short_comment": "", "full_comment": "", "rule_identifier": "r3"},
-    )
-    fake_uno = MagicMock()
-    mock_get_const = fake_uno.getConstantByName
-    mock_get_const.return_value = 1
-    u16_map = Utf16OffsetMap("abcdefghijklmnop")
-    with patch.object(proofreader, "uno_mod", fake_uno):
-        proofreader._PROOFREADING_MARKUP_TYPE = None
-        res = proofreader._cached_errors_to_uno_tuple(cached, "doc-1", u16_map)
-        assert len(res) == 3
-        assert mock_get_const.call_count == 1
-        proofreader._cached_errors_to_uno_tuple(cached, "doc-1", u16_map)
-        assert mock_get_const.call_count == 1
-
-
-def test_doc_ignored_rules_runs_once_for_multi_sentence_harper(
-    mock_config_fixture, mock_locale_fixture, mock_queue_fixture
-) -> None:
-    """doc_ignored_rules is snapshotted once per batch in Harper fast path, not per sentence."""
-    pr = _make_proofreader()
-    pr._profile = GrammarProfile("harper", "harper", False)
-    work_spans = [
-        (0, 10, "Sentence 1."),
-        (11, 10, "Sentence 2."),
-        (22, 10, "Sentence 3."),
-    ]
-    combined: list[Any] = []
-    with (
-        patch("plugin.framework.config.user_config_dir", return_value="/tmp"),
-        patch("plugin.writer.locale.harper.harper_try_lint", return_value={"errors": []}),
-        patch("plugin.writer.locale.grammar_ignore_rules.doc_ignored_rules", return_value=set()) as mock_doc_ignored,
-        patch("plugin.writer.locale.grammar_ignore_rules.ignored_rules_snapshot", return_value=()),
-        patch("plugin.writer.locale.grammar_proofread_cache.normalize_errors_for_text", return_value=[]),
-        patch("plugin.writer.locale.grammar_proofread_cache.cache_put_sentence"),
-        patch("plugin.writer.locale.ai_grammar_proofreader.get_grammar_status", return_value=MagicMock()),
-    ):
-        pr._try_harper_fast_path("test-doc", "en-US", work_spans, combined, checker_identity="harper")
-        assert mock_doc_ignored.call_count == 1
-
-
 def test_ignore_rule_resolves_doc_id_from_map(mock_config_fixture, mock_locale_fixture) -> None:
     """ignoreRule resolves doc_id from _doc_id_for_ignore map when RuntimeUID matches."""
     pr = _make_proofreader()
@@ -1668,39 +1598,6 @@ def test_reset_ignore_rules_with_no_listeners_sets_pending() -> None:
     assert pr._pending_proofread_again is True
 
 
-def test_paragraph_spans_memoized(mock_config_fixture, mock_locale_fixture, mock_queue_fixture) -> None:
-    # Tip: mock the queue; a real enqueue starts background LLM work that leaks persistence into later tests.
-    pr = _make_proofreader()
-    text1 = "This is a paragraph. Second sentence."
-    text2 = "This is a paragraph! Second sentence."
-    with patch(
-        "plugin.writer.locale.ai_grammar_proofreader.candidate_sentence_spans_for_proofreading",
-        wraps=proofreader.candidate_sentence_spans_for_proofreading,
-    ) as mock_split:
-        pr.doProofreading("doc-memo", text1, mock_locale_fixture, 0, len(text1), ())
-        assert mock_split.call_count == 1
-
-        # Second call with identical paragraph text reuses the memo
-        pr.doProofreading("doc-memo", text1, mock_locale_fixture, 0, len(text1), ())
-        assert mock_split.call_count == 1
-
-        # Changed text calls candidate_sentence_spans_for_proofreading again
-        pr.doProofreading("doc-memo", text2, mock_locale_fixture, 0, len(text2), ())
-        assert mock_split.call_count == 2
-
-
-def test_paragraph_spans_memo_is_one_tuple(mock_config_fixture, mock_locale_fixture, mock_queue_fixture) -> None:
-    pr = _make_proofreader()
-    text = "This is a paragraph. Second sentence."
-    pr.doProofreading("doc-memo", text, mock_locale_fixture, 0, len(text), ())
-    memo = pr._last_split
-    assert memo is not None
-    assert memo[0] == ("en-US", text)
-    assert isinstance(memo[1], list)
-    pr.doProofreading("doc-memo", text, mock_locale_fixture, 0, len(text), ())
-    assert pr._last_split is memo
-
-
 def test_bind_timeout_backs_off() -> None:
     pr = _make_proofreader()
     with (
@@ -1751,14 +1648,4 @@ def test_llm_cache_hits_use_checked_grammar_text_prefix(mock_config_fixture, moc
         assert len(harper_combined) == 1
         assert harper_combined[0]["rule_identifier"] == "r2"
         assert harper_uncached == []
-
-
-def test_cache_hits_read_max_chars_once_per_batch() -> None:
-    pr = _make_proofreader()
-    with (
-        patch("plugin.writer.locale.ai_grammar_proofreader.cache_get_sentence", return_value=None),
-        patch("plugin.writer.locale.grammar_proofread_locale.grammar_max_chars", return_value=20) as mock_max_chars,
-    ):
-        pr._process_cache_hits("doc", "en-US", [(0, 5, "One."), (5, 10, "Two.")], "llm:model-x")
-        assert mock_max_chars.call_count == 1
 

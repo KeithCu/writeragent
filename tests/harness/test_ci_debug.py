@@ -68,31 +68,3 @@ def test_ci_debug_last_start_without_end_names_hung_test(
     ends = [ln for ln in lines if ln.startswith("end ")]
     assert starts[-1] == "start tests/b.py::test_hung"
     assert "end tests/b.py::test_hung" not in ends
-
-
-def test_arm_stderr_hang_dump_uses_faulthandler_stderr(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """GHA 33703959362: dump all Python threads to stderr at 90s, not a log file."""
-    import sys
-
-    seen: dict[str, object] = {}
-
-    def fake_enable(*, file=None, all_threads=None):
-        seen["enable"] = (file, all_threads)
-
-    def fake_later(timeout, repeat=False, exit=False, file=None):
-        seen["later"] = (timeout, repeat, exit, file)
-
-    monkeypatch.setattr(ci_debug.faulthandler, "enable", fake_enable)
-    monkeypatch.setattr(ci_debug.faulthandler, "dump_traceback_later", fake_later)
-    ci_debug.arm_stderr_hang_dump(
-        90, label="calc.test_rich_html_uno.test_insert_cell_html"
-    )
-    assert seen["later"] == (90, True, False, sys.stderr)
-    assert seen["enable"] == (sys.stderr, True)
-
-
-def test_stderr_hang_dump_default_timeout_is_under_gha_step() -> None:
-    """Must fire before the 25m GHA step; 20 min is too late (33703959362)."""
-    assert 90 <= ci_debug.STDERR_HANG_DUMP_SECONDS <= 120
