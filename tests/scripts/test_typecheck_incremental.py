@@ -103,20 +103,7 @@ def test_filter_files_for_tool_reads_real_configs_and_existing_py(tmp_path: Path
     ]
 
 
-def test_get_changed_files_returns_none_without_local_master(tmp_path: Path) -> None:
-    _git(tmp_path, "init", "-b", "main")
-    _git(tmp_path, "config", "user.name", "Test")
-    _git(tmp_path, "config", "user.email", "test@example.com")
-    _touch(tmp_path, "plugin/a.py")
-    _git(tmp_path, "add", "plugin/a.py")
-    _git(tmp_path, "commit", "-m", "init")
-    # Even if origin/master exists, missing local master must still fall back.
-    _git(tmp_path, "update-ref", "refs/remotes/origin/master", "HEAD")
-
-    assert ti.get_changed_files(tmp_path) is None
-
-
-def test_get_changed_files_collects_branch_staged_unstaged_and_untracked(tmp_path: Path) -> None:
+def test_get_changed_files_collects_only_staged_unstaged_and_untracked(tmp_path: Path) -> None:
     _init_repo_with_master(tmp_path)
     _git(tmp_path, "checkout", "master")
     _touch(tmp_path, "plugin/staged.py")
@@ -136,7 +123,6 @@ def test_get_changed_files_collects_branch_staged_unstaged_and_untracked(tmp_pat
     _touch(tmp_path, "plugin/untracked.py")
 
     assert ti.get_changed_files(tmp_path) == [
-        "plugin/committed branch.py",
         "plugin/staged.py",
         "plugin/unstaged.py",
         "plugin/untracked.py",
@@ -149,7 +135,6 @@ def test_get_changed_files_works_in_linked_worktree(tmp_path: Path) -> None:
     main_repo.mkdir()
     _init_repo_with_master(main_repo)
 
-    # Linked worktree shares refs/heads/master with the main checkout.
     _git(main_repo, "worktree", "add", "-b", "wt-branch", str(worktree), "master")
     _touch(worktree, "plugin/wt_committed.py")
     _git(worktree, "add", "plugin/wt_committed.py")
@@ -158,7 +143,6 @@ def test_get_changed_files_works_in_linked_worktree(tmp_path: Path) -> None:
     _touch(worktree, "plugin/wt_dirty.py")
 
     assert ti.get_changed_files(worktree) == [
-        "plugin/wt_committed.py",
         "plugin/wt_dirty.py",
     ]
 
@@ -183,7 +167,7 @@ def test_build_invocations_substitutes_target_placeholder_or_appends() -> None:
     ]
 
 
-def test_main_returns_fallback_code_without_local_master(
+def test_main_exits_zero_when_no_changed_files(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     _git(tmp_path, "init", "-b", "main")
@@ -193,9 +177,9 @@ def test_main_returns_fallback_code_without_local_master(
     _git(tmp_path, "add", "plugin/a.py")
     _git(tmp_path, "commit", "-m", "init")
 
-    rc = ti.main(["--tool", "bandit", "--", sys.executable, "-m", "bandit"], repo_root=tmp_path)
-    assert rc == ti.EXIT_FALLBACK_FULL
-    assert "local master merge-base not found" in capsys.readouterr().out
+    rc = ti.main(["--tool", "bandit", "--", sys.executable, "-c", "raise SystemExit(9)"], repo_root=tmp_path)
+    assert rc == 0
+    assert "bandit: no changed files — nothing to check" in capsys.readouterr().out
 
 
 def test_main_returns_fallback_code_when_config_changed(
@@ -287,4 +271,4 @@ def test_main_runs_command_on_changed_files_in_real_repo(
     assert rc == 0
     assert marker.read_text(encoding="utf-8") == "plugin/with space.py"
     out = capsys.readouterr().out
-    assert "mypy: checking 1 changed file(s) (vs master " in out
+    assert "mypy: checking 1 changed file(s)" in out

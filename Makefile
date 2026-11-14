@@ -263,7 +263,7 @@ help:
 	@echo "  make opengrep-rules-audit   Live registry sweep (p/python; manual triage only)"
 	@echo "  make uno-thread-lint        Alias for make opengrep-lint"
 	@echo "  make opengrep-install       Install Opengrep CLI (~/.local/bin or bin/opengrep)"
-	@echo "  make typecheck              ruff-for-build, then incremental basedpyright/bandit/opengrep/pyspector/mypy (vs local master) + full ty in parallel (skips thread-safety-lint; CI=true or TYPECHECK_FULL=1 runs typecheck-full)"
+	@echo "  make typecheck              ruff-for-build, then incremental basedpyright/bandit/opengrep/pyspector/mypy (staged/unstaged/untracked; run before each commit) + full ty in parallel (skips thread-safety-lint; CI=true or TYPECHECK_FULL=1 runs typecheck-full)"
 	@echo "  make typecheck-full         full-repo checkers including basedpyright library source and thread-safety-lint; used by CI and make release"
 	@echo "  make thread-safety-lint     Standalone UNO thread-safety + deadlock AST check (included in typecheck-full, not default typecheck)"
 	@echo "  make ensure-uno             Link system UNO into .venv if import uno fails (auto-run; exits non-zero if missing)"

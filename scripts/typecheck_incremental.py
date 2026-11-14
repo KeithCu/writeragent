@@ -6,15 +6,14 @@
 """Run a static checker incrementally on changed Python files.
 
 Used by ``make typecheck`` to scope ``basedpyright``, ``mypy``, ``bandit``,
-``opengrep``, and ``pyspector`` to Python files changed since
-``master...HEAD`` (local ``master``, shared across linked worktrees) plus
-staged, unstaged, and untracked changes.
-Excludes are read directly from their owning configs (``pyproject.toml``,
-``pyspector.toml``, or ``--exclude`` flags from the ``Makefile``).
+``opengrep``, and ``pyspector`` to staged, unstaged, and untracked Python
+files. Excludes are read directly from their owning configs
+(``pyproject.toml``, ``pyspector.toml``, or ``--exclude`` flags from the
+``Makefile``).
 
-Exits with ``EXIT_FALLBACK_FULL`` (10) when local ``master`` is missing or has no
-merge-base, when any ``--config-path`` changed, or when changed files exceed
-``--max-files``, so the ``Makefile`` can delegate to the full target.
+Exits with ``EXIT_FALLBACK_FULL`` (10) when any ``--config-path`` changed or
+when changed files exceed ``--max-files``, so the ``Makefile`` can delegate to
+the full target.
 """
 
 from __future__ import annotations
@@ -136,43 +135,10 @@ def _git_z_paths(repo_root: Path, git_args: list[str]) -> list[str]:
     return [entry for entry in raw.split("\0") if entry]
 
 
-def _resolve_master_merge_base(repo_root: Path) -> str | None:
-    """Return the merge-base SHA between local ``master`` and ``HEAD``, or ``None``.
-
-    Linked worktrees branch from local ``master``, which may hold
-    merged-but-unpushed items; diffing ``origin/master`` would re-check them.
-    """
-    local_master = subprocess.run(
-        ["git", "rev-parse", "--verify", "refs/heads/master"],
-        cwd=repo_root,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        check=False,
-    )
-    if local_master.returncode != 0:
-        return None
-
-    merge_base = subprocess.run(
-        ["git", "merge-base", "master", "HEAD"],
-        cwd=repo_root,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.DEVNULL,
-        check=False,
-    )
-    if merge_base.returncode != 0:
-        return None
-    sha = merge_base.stdout.decode("utf-8", errors="replace").strip()
-    return sha or None
-
-
-def get_changed_files(repo_root: Path = REPO_ROOT) -> list[str] | None:
-    """Return changed/untracked repo-relative paths vs local ``master``, or ``None`` if unavailable."""
-    if _resolve_master_merge_base(repo_root) is None:
-        return None
-
+def get_changed_files(repo_root: Path = REPO_ROOT) -> list[str]:
+    """Return staged, unstaged, and untracked repo-relative paths."""
     paths: set[str] = set()
     for args in (
-        ["diff", "-z", "--name-only", "--diff-filter=ACMR", "master...HEAD"],
         ["diff", "-z", "--name-only", "--diff-filter=ACMR", "--cached"],
         ["diff", "-z", "--name-only", "--diff-filter=ACMR"],
         ["ls-files", "-z", "--others", "--exclude-standard"],
@@ -237,11 +203,10 @@ def main(argv: list[str] | None = None, repo_root: Path = REPO_ROOT) -> int:
         print(f"{args.tool}: missing base command after '--'", file=sys.stderr)
         return 2
 
-    base_sha = _resolve_master_merge_base(repo_root)
-    changed = get_changed_files(repo_root) if base_sha is not None else None
-    if changed is None or base_sha is None:
-        print(f"{args.tool}: local master merge-base not found — falling back to full check", flush=True)
-        return EXIT_FALLBACK_FULL
+    changed = get_changed_files(repo_root)
+    if not changed:
+        print(f"{args.tool}: no changed files — nothing to check", flush=True)
+        return 0
 
     config_hit = _find_changed_config(changed, args.config_path)
     if config_hit is not None:
@@ -260,7 +225,7 @@ def main(argv: list[str] | None = None, repo_root: Path = REPO_ROOT) -> int:
         )
         return EXIT_FALLBACK_FULL
 
-    print(f"{args.tool}: checking {len(scoped)} changed file(s) (vs master {base_sha[:8]})", flush=True)
+    print(f"{args.tool}: checking {len(scoped)} changed file(s)", flush=True)
     exit_code = 0
     for cmd in build_invocations(base_cmd, scoped):
         proc = subprocess.run(cmd, cwd=repo_root, check=False)
