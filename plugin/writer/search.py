@@ -217,8 +217,8 @@ def search_results_cap_hint(returned: int, total_count: int) -> str:
 
 
 def normalize_search_string_for_find(s: str) -> str:
-    """Collapse horizontal whitespace (incl. NBSP); preserve newlines for literal find."""
-    return re_mod.sub(HORIZONTAL_SPACE_CLASS + "+", " ", s).strip()
+    """Normalize linebreaks and collapse horizontal whitespace (incl. NBSP)."""
+    return re_mod.sub(HORIZONTAL_SPACE_CLASS + "+", " ", normalize_linebreaks(s)).strip()
 
 
 def prepare_old_content(raw: Any) -> str:
@@ -444,6 +444,8 @@ def _paragraph_matches_part(para_text: str, part: str, *, head: bool = False, ta
     *tail*: part must match the end; offset_len is goRight start offset from para start.
     Neither flag: full paragraph must equal part (after normalize).
     """
+    para_text = normalize_linebreaks(para_text)
+    part = normalize_linebreaks(part)
     expected_norm = _compare_normalize(part)
     actual_norm = _compare_normalize(para_text)
     if head:
@@ -619,6 +621,9 @@ def iter_literal_ranges(
     """
     if not search_string:
         return
+    # Windows UNO getString() emits CRLF paragraph separators; normalize so
+    # candidate generation and "\n" paragraph splitting never leave trailing "\r".
+    search_string = normalize_linebreaks(search_string)
 
     if not all_candidates:
         for candidate in _search_try_strings(search_string):

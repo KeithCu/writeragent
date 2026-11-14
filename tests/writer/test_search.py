@@ -2002,3 +2002,34 @@ def test_a_body_match_and_a_hostile_range_delete_nothing():
     body = _Cell("paragraph")
     body.table = None
     assert _names([_Match(body)], "") == []
+
+
+def test_crlf_normalized_for_search_and_chain_matching():
+    """Windows UNO getString() emits CRLF paragraph breaks; search and chaining must treat CRLF as LF."""
+    from unittest.mock import patch
+    from plugin.writer.search import iter_literal_ranges
+
+    assert normalize_search_string_for_find("Line1\r\nLine2") == "Line1\nLine2"
+    assert prepare_old_content("Line1\r\nLine2") == "Line1\nLine2"
+
+    doc = MagicMock()
+    seen_candidates: list[str] = []
+    chain_calls: list[tuple[list[str], int]] = []
+    chain_hit = MagicMock()
+
+    def fake_iter_lo(_doc, candidate, _case_sensitive=False, after=None):
+        seen_candidates.append(candidate)
+        return iter(())
+
+    def fake_chain(_doc, parts, anchor_idx, _case_sensitive=False, after=None):
+        chain_calls.append((parts, anchor_idx))
+        yield chain_hit
+
+    with patch("plugin.writer.search._iter_lo_matches", side_effect=fake_iter_lo), \
+         patch("plugin.writer.search._iter_chain_matches", side_effect=fake_chain):
+        hits = list(iter_literal_ranges(doc, "Line1\r\nLine2"))
+
+    assert hits == [chain_hit]
+    assert seen_candidates == ["Line1\nLine2", "Line1 Line2"]
+    assert chain_calls == [(["Line1", "Line2"], 0)]
+

@@ -10,6 +10,7 @@ from typing import Any
 
 import uno  # noqa: F401
 
+from plugin.doc.text_helpers import normalize_linebreaks
 from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import with_native_doc
 
@@ -44,7 +45,7 @@ def test_apply_ruby_html_creates_portions_and_round_trips_uno(ctx: Any, doc: Any
     html = "<p>前<ruby>漢字<rt>かんじ</rt></ruby>後</p>"
     res = ApplyDocumentContent().execute(tool_ctx, target="full_document", content=html)
     assert res.get("status") == "ok", res
-    assert doc.getText().getString().split("\n")[0] == "前漢字後"
+    assert normalize_linebreaks(doc.getText().getString()).split("\n")[0] == "前漢字後"
     assert "かんじ" not in doc.getText().getString()
 
     kinds = _ruby_portions(doc)

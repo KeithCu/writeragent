@@ -13,6 +13,7 @@
 # keeps the existing abort behavior.) These tests cover single-match, all_matches, and no-match.
 import uno  # noqa: F401
 
+from plugin.doc.text_helpers import normalize_linebreaks
 from plugin.testing_runner import native_test
 from plugin.writer.apply_document_content import ApplyDocumentContent
 from plugin.writer.math.math_mml_convert import MATH_CLSID
@@ -82,7 +83,7 @@ def test_insert_branch_succeeds_uno(ctx, doc):
     tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
     res = ApplyDocumentContent().execute(tool_ctx, target="end", content="more")
     assert res.get("status") == "ok", res
-    assert doc.getText().getString() == "seed\nmore\n"
+    assert normalize_linebreaks(doc.getText().getString()) == "seed\nmore\n"
 
 
 @native_test
