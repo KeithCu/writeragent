@@ -147,7 +147,7 @@ def test_memory_tool_insert_update_and_nested_key(tmp_path):
         assert data["editor"]["vim"] == "Yes"
         assert data["favorite_language"] == "Rust"
 
-class TestMemoryWriteConcurrency:
+class TestMemoryAtomicWrite:
     def test_write_is_atomic_and_cleans_temp_files(self, tmp_path):
         with patch("plugin.chatbot.memory.user_config_dir", return_value=str(tmp_path)):
             store = MemoryStore()

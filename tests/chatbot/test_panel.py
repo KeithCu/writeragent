@@ -1085,6 +1085,7 @@ class TestQueryKeyListenerDispose:
 
 class TestTtsStopInteraction:
     def test_stop_line_is_not_spoken(self) -> None:
+        from plugin.chatbot.panel_voice import PanelVoiceController
         from plugin.chatbot.tool_loop_actions import _STOP_LINE, begin_send_turn
 
         listener = _make_send_listener()
@@ -1092,6 +1093,7 @@ class TestTtsStopInteraction:
         assign_send_outcome(listener, "ready")
         listener.session.messages = [{"role": "assistant", "content": "prior"}]
         begin_send_turn(listener)
+        voice = PanelVoiceController(listener)
 
         with (
             patch("plugin.audio.tts_service.speak_text_async") as speak,
@@ -1099,12 +1101,12 @@ class TestTtsStopInteraction:
             patch("plugin.framework.config.get_config", side_effect=lambda k, default=None: True if k == "audio.tts_enabled" else default),
         ):
             # No new message since turn start: must not replay the prior reply.
-            listener._voice.speak_reply(speak=True)
+            voice.speak_reply(speak=True)
             speak.assert_not_called()
 
             # New assistant message with trailing _STOP_LINE: only the reply body is spoken.
             listener.session.messages.append({"role": "assistant", "content": "reply" + _STOP_LINE})
-            listener._voice.speak_reply(speak=True)
+            voice.speak_reply(speak=True)
             speak.assert_called_once()
             assert speak.call_args.args[0] == "reply"
 

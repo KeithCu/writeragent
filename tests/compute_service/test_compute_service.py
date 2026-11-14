@@ -3305,11 +3305,13 @@ def test_app_close_connection_on_request_conn_reaches_handler_after_run() -> Non
     """wsgiref shallow-copies environ for the app; RequestConn is shared so handle() sees close_connection."""
     from compute_service.wsgi_server import DeadlineRequestHandler
 
-    def closing_app(environ: dict[str, Any], start_response: Any) -> list[bytes]:
+    def closing_app(environ: dict[str, Any], start_response: Any):
         start_response("200 OK", [("Content-Type", "application/json"), ("Content-Length", "2")])
+        # Yield first so wsgiref sends headers (cleanup_headers runs) before close_connection is set.
+        yield b"{}"
         request_conn(environ).close_connection = True
-        return [b"{}"]
 
+    # Skip setup() because there is no socket.
     req_handler = object.__new__(DeadlineRequestHandler)
     req_handler.rfile = io.BytesIO(b"GET /health HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n")
     req_handler.wfile = io.BytesIO()
@@ -3330,6 +3332,7 @@ def test_app_close_connection_on_request_conn_reaches_handler_after_run() -> Non
 
     req_handler.handle()
 
+    assert b"Connection: close" not in req_handler.wfile.getvalue()
     assert req_handler.close_connection is True
 
 

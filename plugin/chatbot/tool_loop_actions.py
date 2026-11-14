@@ -904,11 +904,10 @@ def build_tool_execute_fn(
         # chat argument must not set the eval-harness switch.
         call_args = {key: value for key, value in safe_args.items() if key not in ("bypass_thread_guard", "ctx", "tool_name")}
         res = _get_tools().execute(name, tctx, bypass_thread_guard=False, **call_args)
-        # execute_safe turns a disposed document into a DOCUMENT_DISPOSED
-        # dict. Returning that JSON queues TOOL_DONE and the loop keeps
-        # going on a dead document. Raise instead. The raise below is
-        # classified with this same ``doc`` (the document passed in at
-        # spawn) in ``_queue_tool_failure``.
+        # execute_safe returns DOCUMENT_DISPOSED as a dict; returning that
+        # JSON would queue TOOL_DONE and the loop would keep going on a
+        # dead document. Raising DocumentDisposedError lets
+        # ``_queue_tool_failure``'s ``is_disposal`` end the loop.
         if isinstance(res, dict) and res.get("code") == "DOCUMENT_DISPOSED":
             message = res.get("message")
             text = message.strip() if isinstance(message, str) and message.strip() else "Document was closed or disposed by LibreOffice"
@@ -1105,8 +1104,7 @@ class ToolLoopEffectInterpreter:
         if execute_tool_fn is None:
             return True
         # Same object execute_fn receives as ``doc``. It was captured on the
-        # turn at spawn. A later send must not retarget this call or the
-        # disposed-document check.
+        # turn at spawn. A later send must not retarget this call.
         spawn_doc = turn.model
         supports_status = turn.active_supports_status
         # Scope from this send. execute_fn must not read the

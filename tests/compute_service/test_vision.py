@@ -422,9 +422,12 @@ class TestVisionHttpEndpoint:
             f"raise SystemExit(main())\n",
             encoding="utf-8",
         )
+        # Stub only run_vision so the test exercises pool, stdio framing, and HTTP without OCR dependencies.
         monkeypatch.setattr("compute_service.vision._WORKER_SCRIPT", str(stub_worker))
 
         img = base64.b64decode(_TINY_PNG_B64)
+        img_path = tmp_path / "allowed.png"
+        img_path.write_bytes(img)
         pool = VisionProcessPool(settings=ComputeSettings(ocr_workers=1, ocr_timeout_sec=15))
         try:
             res = pool.execute(helper="extract_text", image=img, req_id="v-1")
@@ -433,7 +436,13 @@ class TestVisionHttpEndpoint:
             pool.shutdown()
 
         port = get_free_port()
-        settings = ComputeSettings(host="127.0.0.1", port=port, api_key="vision-secret", ocr_workers=1)
+        settings = ComputeSettings(
+            host="127.0.0.1",
+            port=port,
+            api_key="vision-secret",
+            ocr_workers=1,
+            ocr_allow_paths=(str(tmp_path),),
+        )
         app = create_wsgi_app(settings)
         server = WSGIDualStackServer("127.0.0.1", port, listener_threads=8)
         server.set_app(app)
@@ -449,6 +458,14 @@ class TestVisionHttpEndpoint:
             )
             assert status == 200
             assert body == {"status": "ok", "text": f"extract_text:{len(img)}", "id": "test-ocr-1"}
+
+            status_file, body_file = self._post(
+                f"http://127.0.0.1:{port}",
+                {"id": "test-ocr-file-ok", "helper": "extract_text", "file_path": str(img_path)},
+                headers={"Authorization": "Bearer vision-secret"},
+            )
+            assert status_file == 200
+            assert body_file == {"status": "ok", "text": f"extract_text:{len(img)}", "id": "test-ocr-file-ok"}
         finally:
             server.shutdown()
             server.server_close()
