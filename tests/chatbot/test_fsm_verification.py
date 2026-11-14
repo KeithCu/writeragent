@@ -30,8 +30,6 @@ from plugin.chatbot.audio_recorder_state import (
 from plugin.chatbot.send_state import (
     SendButtonState,
     SendEvent,
-    SendEventKind,
-    SendMode,
     _send_ui_invariants,
     next_state as send_next_state,
 )
@@ -85,31 +83,6 @@ def _run_crosshair(module: str, timeout: int = 600) -> None:
         pytest.fail(f"CrossHair internal error (exit 2) for {module}:\n{combined}")
 
 
-def test_send_state_mutual_exclusion_oracle() -> None:
-    """Runtime check of send/stop UI mutual exclusion (matches deal.ensure)."""
-    states = [
-        SendButtonState(SendMode.IDLE, True, False, True),
-        SendButtonState(SendMode.BUSY, True, False, True),
-        SendButtonState(SendMode.RECORDING, False, False, True),
-        SendButtonState(SendMode.IDLE, False, True, True),
-    ]
-    events = [
-        SendEvent(SendEventKind.TEXT_UPDATED, has_text=True),
-        SendEvent(SendEventKind.RECORD_CLICKED),
-        SendEvent(SendEventKind.STOP_REC_CLICKED),
-        SendEvent(SendEventKind.SEND_CLICKED),
-        SendEvent(SendEventKind.EXTRACTED_SEND),
-        SendEvent(SendEventKind.STOP_CLICKED),
-        SendEvent(SendEventKind.CANCEL_REC_CLICKED),
-        SendEvent(SendEventKind.SEND_COMPLETED),
-        SendEvent(SendEventKind.ERROR_OCCURRED),
-    ]
-    for state in states:
-        for event in events:
-            tr = send_next_state(state, event)
-            assert _send_ui_invariants(state, event, tr)
-
-
 def test_audio_error_always_reports_error_status() -> None:
     for status in ("idle", "initializing", "recording", "error"):
         tr = audio_next_state(AudioRecorderState(status=AudioStatus(status)), ErrorOccurredEvent("boom"))
@@ -130,21 +103,6 @@ def test_tool_loop_stop_emits_exit_loop() -> None:
     assert tr.state.is_stopped
     assert tr.state.round_num <= max(state.round_num + 1, state.max_rounds)
     assert stopped_effects_exclude_tool_spawns(tr.state, tr.effects)
-
-
-def test_tool_loop_formatting_helpers() -> None:
-    from plugin.chatbot.tool_loop_actions import (
-        format_delegate_running_chat_line,
-        format_empty_model_response_debug,
-    )
-
-    debug = format_empty_model_response_debug(1, {"finish_reason": "stop", "content": "hi"})
-    assert "round=1" in debug
-    assert "finish_reason='stop'" in debug
-
-    del_line = format_delegate_running_chat_line({"domain": "writer", "task": "format table"})
-    assert del_line.startswith("[Running delegate (writer):")
-    assert del_line.endswith("\n")
 
 
 def _hyp_n(key: str) -> int:

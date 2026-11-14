@@ -27,7 +27,7 @@ from plugin.writer.specialized_base import (
     ToolWriterFootnoteBase,
     ToolWriterShapeBase,
 )
-from tests.chatbot.test_tool_loop import _mock_get_config_for_sub_agent
+from tests.doc.test_specialized_base import _mock_get_config_for_sub_agent
 
 
 class _ShapeUpsertProbe(ToolWriterShapeBase):

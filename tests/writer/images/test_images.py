@@ -42,7 +42,7 @@ from plugin.writer.images.images import (
     _resolve_orient,
 )
 from plugin.writer.specialized_base import SpecializedWorkflowFinished
-from tests.chatbot.test_tool_loop import DummyCalcSpecialTool
+from tests.doc.test_specialized_base import DummyCalcSpecialTool
 
 def _image_tool_config_side_effect(int_value: int = 1024):
     """Replicate separate typed-getter mocks (last nested patch won for get_config)."""

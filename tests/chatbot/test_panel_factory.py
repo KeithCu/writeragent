@@ -1436,4 +1436,104 @@ def test_sidebar_reasoning_effort_wires_and_refreshes() -> None:
         assert mock_pop_effort.call_count == 2
 
 
+def test_session_id_stability():
+    import hashlib
 
+    from plugin.chatbot.panel_factory import ChatPanelElement
+    from plugin.framework.errors import WriterAgentException
+
+    class _MockPropertySet:
+        def __init__(self):
+            self.properties = {}
+
+        def getPropertySetInfo(self):
+            class _MockInfo:
+                def __init__(self, props):
+                    self.props = props
+
+                def hasPropertyByName(self, name):
+                    return name in self.props
+
+            return _MockInfo(self.properties)
+
+        def hasByName(self, name):
+            return name in self.properties
+
+        def getPropertyValue(self, name):
+            if name in self.properties:
+                return self.properties[name]
+            raise WriterAgentException("UnknownPropertyException")
+
+        def addProperty(self, name, attributes, default_value):
+            self.properties[name] = default_value
+
+        def setPropertyValue(self, name, value):
+            if name not in self.properties:
+                raise WriterAgentException("UnknownPropertyException")
+            self.properties[name] = value
+
+        def removeProperty(self, name):
+            if name in self.properties:
+                del self.properties[name]
+
+    class _MockDocumentModel:
+        def __init__(self, url="file:///mock/test.odt"):
+            self.url = url
+            self.props = _MockPropertySet()
+
+        def getURL(self):
+            return self.url
+
+        def getDocumentProperties(self):
+            class _MockDocProps:
+                def __init__(self, props):
+                    self.UserDefinedProperties = props
+
+            return _MockDocProps(self.props)
+
+        def getPropertySetInfo(self):
+            return self.props.getPropertySetInfo()
+
+        def supportsService(self, service_name):
+            return service_name == "com.sun.star.text.TextDocument"
+
+    class _MockCtx:
+        def getValueByName(self, name):
+            return None
+
+    panel = ChatPanelElement(_MockCtx(), None, None, "test_url")
+    model = _MockDocumentModel("file:///test/my_doc.odt")
+
+    # 1. First run: Should generate a stable ID based on URL (hash) since no property exists
+    panel._setup_sessions(model, "some instructions")
+    assert panel.session is not None
+    first_session_id = panel.session.session_id
+
+    assert first_session_id is not None
+    assert first_session_id == hashlib.sha256(b"file:///test/my_doc.odt").hexdigest()
+
+    # Verify the property was stored back onto the document model
+    stored_id = model.props.properties.get("WriterAgentSessionID")
+    assert stored_id == first_session_id
+
+    # 2. Simulate "save as" to a new URL, but keeping properties intact
+    model.url = "file:///test/renamed.odt"
+    panel._setup_sessions(model, "different instructions")
+
+    # It should regenerate the ID to isolate the copied document, but fork the history
+    assert panel.session is not None
+    second_session_id = panel.session.session_id
+    assert second_session_id != first_session_id
+    assert second_session_id == hashlib.sha256(b"file:///test/renamed.odt").hexdigest()
+
+    # 3. Simulate new unsaved document with no URL and no properties
+    unsaved_model = _MockDocumentModel("")
+    panel._setup_sessions(unsaved_model, "")
+
+    assert panel.session is not None
+    third_session_id = panel.session.session_id
+    assert third_session_id is not None
+    assert len(third_session_id) > 10
+
+    stored_id_3 = unsaved_model.props.properties.get("WriterAgentSessionID")
+    assert stored_id_3 == third_session_id

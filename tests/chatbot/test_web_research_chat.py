@@ -116,3 +116,51 @@ def test_web_research_cache_chat_text_unknown_event_is_silent():
 def test_web_research_cache_chat_text_missing_event_is_saved():
     block = web_research_cache_chat_text({"research_cache_key": "k"})
     assert "Research cache saved" in block
+
+
+def test_web_search_engine_step_chat_text():
+    from plugin.chatbot.web_research_chat import web_search_engine_step_chat_text
+
+    q = "best pizza test"
+    text = web_search_engine_step_chat_text(q)
+    assert "Tool: web_search" in text
+    assert "best pizza test" in text
+    assert "[Web search]" not in text
+    assert "[Additional web search]" not in text
+    assert "approval required" not in text.lower()
+
+
+def test_web_research_cache_chat_text_hit_and_saved():
+    assert web_research_cache_chat_text({}) == ""
+    hit = web_research_cache_chat_text({
+        "research_cache_event": "hit",
+        "research_cache_key": "heights madison pizza",
+    })
+    assert "Research cache hit" in hit
+    assert "heights madison pizza" in hit
+    saved = web_research_cache_chat_text({
+        "research_cache_event": "saved",
+        "research_cache_key": "execute",
+    })
+    assert "Research cache saved" in saved
+    assert "execute" in saved
+
+
+@pytest.mark.parametrize(
+    "value, value_2, value_3, value_4, value_5, value_6",
+    [
+        pytest.param("research_cache_jaccard", "hit_fuzzy", "english|elevator physics", 0.65, "fuzzy", "65%", id="test_web_research_cache_chat_text_fuzzy_hit"),
+        pytest.param("research_cache_similarity", "hit_embedding", "english|space elevator physics", 0.82, "embedding", "82%", id="test_web_research_cache_chat_text_embedding_hit"),
+    ],
+)
+def test_web_research_cache_chat_text_fuzzy_hit(value, value_2, value_3, value_4, value_5, value_6):
+    block = web_research_cache_chat_text({
+        "research_cache_event": value_2,
+        "research_cache_key": "elevator space",
+        "research_cache_matched_key": value_3,
+        "research_cache_lang": "english",
+        value: value_4,
+    })
+    assert value_5 in block.lower()
+    assert value_6 in block
+    assert "elevator space" in block

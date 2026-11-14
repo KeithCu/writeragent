@@ -3539,6 +3539,42 @@ def test_llm_client_passes_cache_session_id(mock_ctx):
     assert sent_bodies[1]["session_id"] == "k2"
 
 
+def test_chat_completion_sync_stop_checker_not_finish_reason():
+    from plugin.framework.client.llm_client import LlmClient
+    from plugin.framework.errors import ToolExecutionError
+    from plugin.framework.send_cancellation import SendCancellation
+
+    client = LlmClient.__new__(LlmClient)
+    client._owned = SendCancellation()
+    client.stopped = lambda: client._owned.is_cancelled()
+    messages = [{"role": "user", "content": "hi"}]
+    seen: dict[str, object] = {}
+
+    def fake_request(*_args, **kwargs):
+        seen.update(kwargs)
+        return {"role": "assistant", "content": "done", "finish_reason": "stop"}
+
+    client.request_with_tools = fake_request
+
+    live_scope = SendCancellation()
+    cancelled_scope = SendCancellation()
+    cancelled_scope.cancel()
+
+    assert client.chat_completion_sync(messages) == "done"
+    assert client.chat_completion_sync(messages, cancel=live_scope) == "done"
+    assert seen.get("cancel") is live_scope
+
+    with pytest.raises(ToolExecutionError) as raised:
+        client.chat_completion_sync(messages, cancel=cancelled_scope)
+    assert raised.value.code == "USER_STOPPED"
+
+    client._owned.cancel()
+    assert client.chat_completion_sync(messages) == "done"
+    with pytest.raises(ToolExecutionError) as raised_latch:
+        client.chat_completion_sync(messages, cancel=live_scope)
+    assert raised_latch.value.code == "USER_STOPPED"
+
+
 @pytest.mark.parametrize(
     ("body", "error_text", "expected_present", "expected_absent"),
     [
