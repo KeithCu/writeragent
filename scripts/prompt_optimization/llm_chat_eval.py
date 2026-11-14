@@ -16,6 +16,7 @@ import uuid
 from pathlib import Path
 from typing import Any, Literal
 
+from plugin.doc.specialized_catalog import InnerToolCall, normalize_inner_result
 from plugin.framework.json_utils import safe_json_loads
 from plugin.framework.config import normalize_endpoint_url
 from plugin.framework.client.llm_client import LlmClient
@@ -263,6 +264,22 @@ def _unsupported_delegate(message: str) -> str:
     )
 
 
+def _is_tool_mutating(name: str) -> bool:
+    if name == SPECIALIZED_FINISH:
+        return False
+    try:
+        from eval_catalog import _headless_registry
+
+        tool = _headless_registry().get(name)
+        if tool is not None:
+            return bool(tool.detects_mutation())
+    except Exception:
+        pass
+    from plugin.framework.tool import _name_looks_readonly
+
+    return not _name_looks_readonly(name)
+
+
 def _run_specialized_inner(
     *,
     kind: str,
@@ -285,6 +302,7 @@ def _run_specialized_inner(
     tools_override: list[dict[str, Any]] | None = None,
     python_tool_domain: str | None = None,
     allow_delegate_domains: bool = True,
+    _capture: dict[str, Any] | None = None,
 ) -> str:
     """Bounded inner LlmClient loop (not SmolAgents) on the same world.
 
@@ -350,7 +368,9 @@ def _run_specialized_inner(
         ]
 
     last_content = ""
-    finished = False
+    finish_result: dict[str, Any] | None = None
+    inner_calls: list[InnerToolCall] = []
+    inner_rounds: list[dict[str, Any]] = []
     for round_i in range(INNER_MAX_ROUNDS):
         resp = inner_client.request_with_tools(
             messages,
@@ -374,6 +394,10 @@ def _run_specialized_inner(
         if tool_calls:
             asst_msg["tool_calls"] = tool_calls
         messages.append(asst_msg)
+        if _capture is not None:
+            inner_rounds.append(
+                {k: v for k, v in resp.items() if k not in ("content", "tool_calls")}
+            )
         if not tool_calls:
             break
         stop_inner = False
@@ -398,6 +422,7 @@ def _run_specialized_inner(
                     tools_spec=tools_spec,
                     schema_density=schema_density,
                     allow=allow_delegate_domains,
+                    _capture=_capture,
                 )
             elif name in DELEGATE_TOOL_NAMES:
                 result = json.dumps(
@@ -423,24 +448,31 @@ def _run_specialized_inner(
             messages.append(
                 {"role": "tool", "tool_call_id": tid, "content": result}
             )
+            parsed_res = safe_json_loads(result)
+            res_obj: Any = parsed_res if isinstance(parsed_res, dict) else result
+            inner_calls.append(
+                InnerToolCall(name=name, result=res_obj, mutating=_is_tool_mutating(name))
+            )
             if name == SPECIALIZED_FINISH:
-                finished = True
+                if isinstance(parsed_res, dict):
+                    finish_result = parsed_res
                 stop_inner = True
         if stop_inner:
             break
 
-    answer = last_content
-    if not answer and finished:
-        answer = "Specialized task complete."
-    return json.dumps(
-        {
-            "status": "ok",
-            "domain": domain,
-            "finished": finished,
-            "message": answer or "Specialized task finished.",
-        },
-        ensure_ascii=False,
-    )
+    if _capture is not None:
+        _capture.setdefault("inner_runs", []).append(
+            {
+                "domain": domain,
+                "task": task,
+                "messages": messages,
+                "rounds": inner_rounds,
+            }
+        )
+    domains = [d.strip() for d in domain.split(",") if d.strip()] or [domain]
+    final_ans: Any = finish_result if finish_result is not None else last_content
+    payload = normalize_inner_result(final_ans, domains, inner_calls)
+    return json.dumps(payload, ensure_ascii=False)
 
 
 def _dispatch_delegate_tool_domains(
@@ -462,6 +494,7 @@ def _dispatch_delegate_tool_domains(
     tools_spec: str | None,
     schema_density: str,
     allow: bool,
+    _capture: dict[str, Any] | None = None,
 ) -> str:
     """Harness hop for ``delegate_tool_domains``.
 
@@ -542,6 +575,7 @@ def _dispatch_delegate_tool_domains(
         tools_override=tools,
         python_tool_domain=inner_script_tool_domain(names),
         allow_delegate_domains=False,
+        _capture=_capture,
     )
 
 
@@ -623,6 +657,7 @@ def _run_llm_chat_eval_impl(
         _capture["trace"] = trace
         _capture["usage"] = usage_acc
         _capture["rounds"] = []
+        _capture["inner_runs"] = []
 
     if student == "scripted":
         from scripted_student import ScriptedStudent
@@ -711,6 +746,7 @@ def _run_llm_chat_eval_impl(
                         tools_spec=tools_spec,
                         schema_density=schema_density,
                         allow=True,
+                        _capture=_capture,
                     )
                     trace.append(_trace_entry(name, raw_args, result))
                 elif name in DELEGATE_TOOL_NAMES:
@@ -735,6 +771,7 @@ def _run_llm_chat_eval_impl(
                         schema_patches=schema_patches,
                         tools_spec=tools_spec,
                         schema_density=schema_density,
+                        _capture=_capture,
                     )
                     trace.append(_trace_entry(name, raw_args, result))
                 else:
@@ -812,6 +849,7 @@ def write_transcript(
         "backend": backend,
         "messages": capture.get("messages", []),
         "rounds": capture.get("rounds", []),
+        "inner_runs": capture.get("inner_runs", []),
         "trace": trace,
         "usage": usage,
         "error": error,

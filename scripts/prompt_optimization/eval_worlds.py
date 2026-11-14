@@ -10,12 +10,17 @@ flowchart edges, and =PY placement can be scored honestly.
 """
 from __future__ import annotations
 
+import math
 import re
 from html.parser import HTMLParser
 from typing import Any
 
-from plugin.framework.json_utils import safe_json_loads
 from plugin.calc.inspector import grid_to_rows
+from plugin.calc.manipulator import (
+    _parse_formula_or_values_string,
+    _values_length_mismatch_message,
+)
+from plugin.framework.json_utils import safe_json_loads
 
 _COMMENT_RE = re.compile(r"\[([^\]]+)\]")
 _HEADING_TAGS = frozenset({"h1", "h2", "h3", "h4", "h5", "h6"})
@@ -167,33 +172,6 @@ def cell_in_a1_range(addr: str, rng: str) -> bool:
 def range_cell_count(rng: str) -> int:
     c0, r0, c1, r1 = parse_a1_range(rng)
     return max(0, (c1 - c0 + 1) * (r1 - r0 + 1))
-
-
-def _leaf_write_count(values: list[Any]) -> int:
-    n = 0
-    for item in values:
-        n += len(item) if isinstance(item, list) else 1
-    return n
-
-
-def _write_values_length_mismatch(rng: str, values: list[Any]) -> str:
-    """Fail loud when a JSON/list write does not cover every cell (no zip-truncate)."""
-    n_cells = range_cell_count(rng)
-    if n_cells <= 0:
-        return ""
-    n_vals = _leaf_write_count(values)
-    if n_vals == 0:
-        return ""  # empty array clears, same as production
-    # Single scalar fills the whole range — same as production write_formula_range.
-    if n_vals == 1 and n_cells > 1:
-        return ""
-    if n_vals == n_cells:
-        return ""
-    return (
-        f"Array has {n_vals} values but range {rng} has {n_cells} cells. "
-        "JSON array must match range size exactly, or pass a single string to "
-        "fill the whole range."
-    )
 
 
 def normalize_apply_content(content: Any) -> str:
@@ -909,9 +887,7 @@ class CalcWorld:
         }
 
     def range_sort(self, **kwargs: Any) -> dict[str, Any]:
-        """One-column sort (production sort_column is a 0-based int). Stable."""
-        if not self._grid or len(self._grid) < 2:
-            return {"status": "ok", "message": "Nothing to sort"}
+        """One-column stable sort over the given range(s) (sort_column is 0-based within range)."""
         col = kwargs.get("sort_column", 0)
         ascending = kwargs.get("ascending", True)
         has_header = kwargs.get("has_header", True)
@@ -919,66 +895,192 @@ class CalcWorld:
             ascending = ascending.strip().lower() not in {"false", "0", "no"}
         if isinstance(has_header, str):
             has_header = has_header.strip().lower() not in {"false", "0", "no"}
-        if isinstance(col, str) and not str(col).strip().lstrip("-").isdigit():
-            col_name = str(col)
-            col_idx = self._headers.index(col_name) if col_name in self._headers else 0
-        else:
-            try:
-                col_idx = int(col)
-            except (TypeError, ValueError):
-                col_idx = 0
-            col_name = (
-                self._headers[col_idx] if 0 <= col_idx < len(self._headers) else str(col_idx)
-            )
-        header = [self._grid[0]] if has_header else []
-        data_rows = self._grid[1:] if has_header else list(self._grid)
 
-        def _key(row: list[Any]) -> tuple[int, float | str]:
-            raw = row[col_idx] if row and len(row) > col_idx else ""
-            try:
-                num = float(str(raw).replace(",", "").replace("$", ""))
-                return (0, num if ascending else -num)
-            except (TypeError, ValueError):
-                return (1, str(raw))
+        ranges = kwargs.get("range")
+        if isinstance(ranges, str):
+            ranges = [ranges] if ranges.strip() else []
+        elif not isinstance(ranges, list):
+            ranges = []
+        if not ranges:
+            if not self._grid or len(self._grid) < 2:
+                return {"status": "ok", "message": "Nothing to sort"}
+            max_c = max((len(r) for r in self._grid), default=1) - 1
+            ranges = [f"A1:{col_row_to_a1(max_c, len(self._grid) - 1)}"]
 
-        data_rows.sort(key=_key)
-        self._grid = header + data_rows
+        # Resolve and validate all ranges before mutating any cells.
+        parsed_ranges: list[tuple[str, int, int, int, int, int]] = []
+        for rng_raw in ranges:
+            range_str = str(rng_raw)
+            c0, r0, c1, r1 = parse_a1_range(range_str)
+            width = c1 - c0 + 1
+            if isinstance(col, str) and not str(col).strip().lstrip("-").isdigit():
+                col_name = str(col)
+                row_hdrs = (
+                    [str(x) for x in self._grid[r0][c0 : c1 + 1]]
+                    if r0 < len(self._grid)
+                    else []
+                )
+                if col_name in row_hdrs:
+                    col_idx = row_hdrs.index(col_name)
+                elif col_name in self._headers:
+                    col_idx = self._headers.index(col_name) - c0
+                else:
+                    col_idx = 0
+            else:
+                try:
+                    col_idx = int(col)
+                except (TypeError, ValueError):
+                    col_idx = 0
+            if not 0 <= col_idx < width:
+                return {
+                    "status": "error",
+                    "message": (
+                        f"sort_column must be an integer from 0 to {width - 1} "
+                        f"for this range ({width} columns)."
+                    ),
+                }
+            parsed_ranges.append((range_str, c0, r0, c1, r1, col_idx))
+
+        direction = "ascending" if ascending else "descending"
+        results: list[str] = []
+        total_sorted_rows = 0
+
+        for range_str, c0, r0, c1, r1, col_idx in parsed_ranges:
+            first_data_row = 1 if has_header else 0
+            data_r0 = r0 + first_data_row
+            data_r1 = min(r1, len(self._grid) - 1)
+            if data_r1 - data_r0 < 1:
+                results.append(
+                    f"Range {range_str}: key column {col_idx} unchanged by the sort; no rows moved."
+                )
+                continue
+
+            slices = [
+                [
+                    self._grid[r][c] if c < len(self._grid[r]) else ""
+                    for c in range(c0, c1 + 1)
+                ]
+                for r in range(data_r0, data_r1 + 1)
+            ]
+            before = [s[col_idx] for s in slices]
+
+            def _key(row_slice: list[Any], _col: int = col_idx) -> tuple[int, Any]:
+                raw = row_slice[_col] if len(row_slice) > _col else ""
+                if raw is None or (isinstance(raw, str) and raw.strip() == ""):
+                    return (2, "")
+                try:
+                    num = float(str(raw).replace(",", "").replace("$", ""))
+                    if math.isnan(num):
+                        raise ValueError
+                    return (0, num if ascending else -num)
+                except (TypeError, ValueError):
+                    text = str(raw).lower()
+                    if ascending:
+                        return (1, text)
+                    return (1, tuple(-ord(ch) for ch in text) + (1,))
+
+            slices.sort(key=_key)
+            after = [s[col_idx] for s in slices]
+            for offset, row_slice in enumerate(slices):
+                grid_row = self._grid[data_r0 + offset]
+                while len(grid_row) <= c1:
+                    grid_row.append("")
+                grid_row[c0 : c1 + 1] = row_slice
+            total_sorted_rows += len(slices)
+
+            if after == before:
+                results.append(
+                    f"Range {range_str}: key column {col_idx} unchanged by the sort; no rows moved."
+                )
+            else:
+                results.append(f"Range {range_str} sorted {direction} by column {col_idx}.")
+
+        if self._grid:
+            self._headers = [str(c) if c is not None else "" for c in self._grid[0]]
         self.sheets[self.active_sheet] = self._grid
         return {
             "status": "ok",
-            "message": f"Sorted by column {col_idx} ({col_name})",
-            "sorted_rows": len(data_rows),
+            "message": " ".join(results),
+            "sorted_rows": total_sorted_rows,
         }
 
     def write_cell_range(self, **kwargs: Any) -> dict[str, Any]:
         return self.write_formula_range(**kwargs)
 
-    def write_formula_range(self, **kwargs: Any) -> dict[str, Any]:
-        values = kwargs.get("values", [])
-        raw_values = values
+    @staticmethod
+    def _plan_eval_write(
+        rng: str, raw_values: Any
+    ) -> tuple[list[Any], tuple[int, int, int, int]] | str:
+        c0, r0, c1, r1 = parse_a1_range(rng)
+        num_rows = r1 - r0 + 1
+        num_cols = c1 - c0 + 1
+        total = num_rows * num_cols
+        if raw_values is None or raw_values in ("", [], "[]", "{}"):
+            return ([], (c0, r0, c1, r1))
+
+        values: Any = raw_values
         if isinstance(values, str):
-            parsed = safe_json_loads(values)
-            if isinstance(parsed, list):
-                values = parsed
-            elif values:
-                values = [values]
-            else:
-                values = []
-        if not isinstance(values, list):
+            parsed = _parse_formula_or_values_string(
+                values, single_cell_range=(c0 == c1 and r0 == r1)
+            )
+            values = parsed if parsed is not None else [values]
+        elif isinstance(values, (list, tuple)):
+            values = list(values)
+        else:
             values = [values]
+
+        rows_2d = bool(values) and isinstance(values[0], (list, tuple))
+        if rows_2d:
+            r_cnt, c_cnt = len(values), len(values[0])
+            ragged = not all(
+                isinstance(row, (list, tuple)) and len(row) == c_cnt for row in values
+            )
+            if total > 1 and (ragged or (r_cnt, c_cnt) != (num_rows, num_cols)):
+                return f"Array is {r_cnt}x{c_cnt} but range is {num_rows}x{num_cols}."
+            if total == 1:
+                if ragged:
+                    return (
+                        f"Array is {r_cnt}x{max(len(r) for r in values)} "
+                        "but range is 1x1."
+                    )
+                c1 = c0 + c_cnt - 1
+                r1 = r0 + r_cnt - 1
+            flat = [v for row in values for v in row]
+        else:
+            if len(values) != total and not (len(values) == 1 and total > 1):
+                return _values_length_mismatch_message(
+                    rng, len(values), total, num_rows, num_cols
+                )
+            flat = values
+        return (flat, (c0, r0, c1, r1))
+
+    def write_formula_range(self, **kwargs: Any) -> dict[str, Any]:
+        raw_values = kwargs.get("values", [])
         ranges = kwargs.get("range") or []
         if isinstance(ranges, str):
             ranges = [ranges]
         written = 0
         dests: list[str] = []
+        recorded_values: list[Any] = []
         if ranges:
+            plans: list[tuple[str, list[Any], tuple[int, int, int, int]]] = []
             for rng in ranges:
-                mismatch = _write_values_length_mismatch(str(rng), values)
-                if mismatch:
-                    return {"status": "error", "message": mismatch}
-                dests.append(str(rng).split(":")[0].split(".")[-1])
-                written += self._write_a1_range(str(rng), values, raw_values)
-        elif self._grid and values:
+                plan = self._plan_eval_write(str(rng), raw_values)
+                if isinstance(plan, str):
+                    return {"status": "error", "message": plan}
+                flat, bounds = plan
+                plans.append((str(rng), flat, bounds))
+            for rng_str, flat, bounds in plans:
+                dests.append(rng_str.split(":")[0].split(".")[-1])
+                written += self._write_a1_range_bounds(bounds, flat, raw_values)
+            recorded_values = plans[-1][1] if plans else []
+        elif self._grid:
+            values: list[Any] = (
+                [raw_values]
+                if isinstance(raw_values, str) and raw_values
+                else (list(raw_values) if isinstance(raw_values, (list, tuple)) else [])
+            )
+            recorded_values = values
             for i, row in enumerate(self._grid[1:]):
                 if i < len(values):
                     if len(row) < 3:
@@ -995,18 +1097,32 @@ class CalcWorld:
                 "range": [str(r) for r in ranges] if ranges else [],
                 "dests": dests,
                 "formula": formula_text,
-                "values": values,
+                "values": recorded_values,
             }
         )
         return {"status": "ok", "message": "Wrote cell range", "written": written, "dests": dests}
 
-    def _write_a1_range(self, rng: str, values: list[Any], raw_values: Any) -> int:
-        c0, r0, c1, r1 = parse_a1_range(rng)
+    def _write_a1_range_bounds(
+        self,
+        bounds: tuple[int, int, int, int],
+        values: list[Any],
+        raw_values: Any,
+    ) -> int:
+        c0, r0, c1, r1 = bounds
         cells: list[tuple[int, int]] = []
         for row_i in range(r0, r1 + 1):
             for col_i in range(c0, c1 + 1):
                 cells.append((row_i, col_i))
         if not cells:
+            return 0
+        if not values:
+            for row_i, col_i in cells:
+                if row_i < len(self._grid) and col_i < len(self._grid[row_i]):
+                    self._grid[row_i][col_i] = ""
+                self.formulas.pop(col_row_to_a1(col_i, row_i), None)
+            if self._grid:
+                self._headers = [str(c) if c is not None else "" for c in self._grid[0]]
+            self.sheets[self.active_sheet] = self._grid
             return 0
         # Production write_formula_range fill-down-adjusts relative A1 refs
         # (plugin.calc.formula_fill) when one formula string hits a 1-D range.
@@ -1048,6 +1164,8 @@ class CalcWorld:
                 self.formulas[addr] = cell_txt
             elif formula_src.lstrip().startswith("="):
                 self.formulas[addr] = formula_src
+            else:
+                self.formulas.pop(addr, None)
         if self._grid:
             self._headers = [str(c) if c is not None else "" for c in self._grid[0]]
         self.sheets[self.active_sheet] = self._grid

@@ -174,3 +174,94 @@ def test_read_cell_range_multi_range_envelope() -> None:
     assert res["result"][0]["status"] == "ok"
     assert res["result"][0]["range"] == "A1"
     assert res["result"][1]["range"] == "B1"
+
+
+def test_range_sort_respects_range_and_relative_header() -> None:
+    """H1: range_sort sorts only the given range; has_header applies to the range's first row."""
+    calc = CalcWorld(
+        "Product\tRevenue\nWidget\t1200\nGadget\t850\nTool\t2100\nDevice\t1200\nAardvark\tn/a"
+    )
+    # Data-only range A2:B6 with has_header=False must keep row 1 ("Product") at top.
+    res = calc.range_sort(range=["A2:B6"], sort_column=0, ascending=True, has_header=False)
+    assert res["status"] == "ok"
+    assert calc._grid[0] == ["Product", "Revenue"]
+    assert [row[0] for row in calc._grid[1:]] == ["Aardvark", "Device", "Gadget", "Tool", "Widget"]
+
+    # Range A2:B6 with has_header=True treats row 2 ("Aardvark") as header and sorts rows 3..6.
+    res2 = calc.range_sort(range=["A2:B6"], sort_column=1, ascending=False, has_header=True)
+    assert res2["status"] == "ok"
+    assert calc._grid[0] == ["Product", "Revenue"]
+    assert calc._grid[1][0] == "Aardvark"
+    assert [row[0] for row in calc._grid[2:]] == ["Tool", "Device", "Widget", "Gadget"]
+
+
+def test_range_sort_subcolumns_leave_outside_columns_untouched() -> None:
+    """H1: sorting B1:C4 only reorders columns B and C, and sort_column is 0-based in range."""
+    calc = CalcWorld("Keep\tItem\tVal\nr1\tB\t20\nr2\tA\t10\nr3\tC\t30")
+    res = calc.range_sort(range=["B1:C4"], sort_column=1, ascending=True, has_header=True)
+    assert res["status"] == "ok"
+    assert [row[0] for row in calc._grid] == ["Keep", "r1", "r2", "r3"]
+    assert [row[1:] for row in calc._grid] == [
+        ["Item", "Val"],
+        ["A", "10"],
+        ["B", "20"],
+        ["C", "30"],
+    ]
+
+
+def test_range_sort_invalid_sort_column_errors() -> None:
+    calc = CalcWorld("A\tB\n1\t2\n3\t4")
+    res = calc.range_sort(range=["A1:B3"], sort_column=2, has_header=True)
+    assert res["status"] == "error"
+    assert "sort_column must be an integer from 0 to 1" in res["message"]
+
+
+def test_range_sort_reports_no_rows_moved() -> None:
+    """H4: unchanged key column reports the production 'no rows moved' message."""
+    calc = CalcWorld("Item\tVal\nA\t10\nB\t20\nC\t30")
+    res = calc.range_sort(range=["A1:B4"], sort_column=1, ascending=True, has_header=True)
+    assert res["status"] == "ok"
+    assert res["message"] == "Range A1:B4: key column 1 unchanged by the sort; no rows moved."
+
+    res_moved = calc.range_sort(range=["A1:B4"], sort_column=1, ascending=False, has_header=True)
+    assert res_moved["status"] == "ok"
+    assert res_moved["message"] == "Range A1:B4 sorted descending by column 1."
+
+
+def test_write_formula_range_flattens_2d_array_and_rejects_mismatch() -> None:
+    """H2: 2-D arrays fill row-by-row; shape mismatch returns an error without mutating."""
+    calc = CalcWorld("Product\tRevenue\nWidget\t1200\nGadget\t850")
+    res = calc.write_formula_range(
+        range=["A2:B3"],
+        values=[["Tool", 2100], ["Device", 1200]],
+    )
+    assert res["status"] == "ok"
+    assert res["written"] == 4
+    assert calc._grid[1] == ["Tool", 2100]
+    assert calc._grid[2] == ["Device", 1200]
+
+    bad = calc.write_formula_range(range=["A2:B4"], values=[["X", 1], ["Y", 2]])
+    assert bad["status"] == "error"
+    assert "2x2" in bad["message"]
+    assert "3x2" in bad["message"]
+    assert calc._grid[1] == ["Tool", 2100]
+
+
+def test_write_formula_range_expands_2d_from_single_cell() -> None:
+    calc = CalcWorld("A\tB")
+    res = calc.write_formula_range(range=["A2"], values=[["x", 1], ["y", 2]])
+    assert res["status"] == "ok"
+    assert res["written"] == 4
+    assert calc._grid[1] == ["x", 1]
+    assert calc._grid[2] == ["y", 2]
+
+
+def test_write_formula_range_does_not_json_parse_py_formula_with_brackets() -> None:
+    """H2b: =PY(...) containing [...] must not be split into a list."""
+    calc = CalcWorld("Product\tRevenue\nWidget\t1200")
+    formula = '=PY("result = df[\'Revenue\'].sum()"; A1:B2)'
+    res = calc.write_formula_range(range=["C2"], values=formula)
+    assert res["status"] == "ok"
+    assert res["written"] == 1
+    assert calc.formulas["C2"] == formula
+    assert calc._grid[1][2] == formula
