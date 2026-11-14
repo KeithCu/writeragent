@@ -6,8 +6,10 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 from plugin.calc.python.cell_discovery import is_py_formula_text
-from plugin.calc.python.collabora_formula import rewrite_collabora_addin_prefix
+from plugin.calc.python.collabora_formula import maybe_rewrite_collabora_py_formulas, rewrite_collabora_addin_prefix
 from plugin.calc.python.formula_edit import PyFormula
 from plugin.framework.errors import DocumentDisposedError
 import pytest
@@ -84,51 +86,70 @@ def test_maybe_rewrite_none_doc():
     assert maybe_rewrite_collabora_py_formulas(None) == 0
 
 
-def test_maybe_rewrite_restores_is_modified():
-    """setFormula dirties the book; restore the flag from before the scan."""
-    from plugin.calc.python.collabora_formula import maybe_rewrite_collabora_py_formulas
+class _FakeDisposedException(Exception):
+    pass
 
-    class _Addr:
-        StartRow = 0
-        StartColumn = 0
-        EndRow = 0
-        EndColumn = 0
 
-    class _Doc:
-        def __init__(self, formula: str, modified: bool) -> None:
-            self.formula = formula
-            self.modified = modified
-            self.sets: list[bool] = []
-            self.calculated = 0
+class _FakeAddr:
+    StartRow = 0
+    StartColumn = 0
+    EndRow = 0
+    EndColumn = 0
 
-        def supportsService(self, name: str) -> bool:
-            return name == "com.sun.star.sheet.SpreadsheetDocument"
 
-        def isModified(self) -> bool:
-            return self.modified
+class _FakeCalcDoc:
+    def __init__(
+        self,
+        formulas: list[str] | None = None,
+        *,
+        modified: bool = False,
+        on_get_sheet: Callable[[int], None] | None = None,
+        on_set_formula: Callable[[int, str], None] | None = None,
+        is_modified_exc: Exception | None = None,
+        unlock_exc: Exception | None = None,
+    ) -> None:
+        self.formulas = list(formulas) if formulas is not None else [_GETPY]
+        self.modified = modified
+        self.sets: list[bool] = []
+        self.calculated = 0
+        self.locked = False
+        self._on_get_sheet = on_get_sheet
+        self._on_set_formula = on_set_formula
+        self._is_modified_exc = is_modified_exc
+        self._unlock_exc = unlock_exc
 
-        def setModified(self, value: bool) -> None:
-            self.sets.append(bool(value))
-            self.modified = bool(value)
+    def supportsService(self, name: str) -> bool:
+        return name == "com.sun.star.sheet.SpreadsheetDocument"
 
-        def calculateAll(self) -> None:
-            self.calculated += 1
+    def isModified(self) -> bool:
+        if self._is_modified_exc is not None:
+            raise self._is_modified_exc
+        return self.modified
 
-        def lockControllers(self) -> None:
-            pass
+    def setModified(self, value: bool) -> None:
+        self.sets.append(bool(value))
+        self.modified = bool(value)
 
-        def unlockControllers(self) -> None:
-            pass
+    def calculateAll(self) -> None:
+        self.calculated += 1
 
-        def getSheets(self):
-            doc = self
+    def lockControllers(self) -> None:
+        self.locked = True
 
+    def unlockControllers(self) -> None:
+        if self._unlock_exc is not None:
+            raise self._unlock_exc
+
+    def getSheets(self):
+        doc = self
+
+        def _make_sheet(sheet_idx: int):
             class _Range:
                 def getRangeAddress(self):
-                    return _Addr()
+                    return _FakeAddr()
 
                 def getFormulaArray(self):
-                    return ((doc.formula,),)
+                    return ((doc.formulas[sheet_idx],),)
 
             class _Cells:
                 def getCount(self):
@@ -144,257 +165,80 @@ def test_maybe_rewrite_restores_is_modified():
                 def getCellByPosition(self, _col, _row):
                     class _Cell:
                         def setFormula(self, value: str) -> None:
-                            doc.formula = value
+                            if doc._on_set_formula is not None:
+                                doc._on_set_formula(sheet_idx, value)
+                            doc.formulas[sheet_idx] = value
 
                     return _Cell()
 
-            class _Sheets:
-                def getCount(self):
-                    return 1
+            return _Sheet()
 
-                def getByIndex(self, _index):
-                    return _Sheet()
+        class _Sheets:
+            def getCount(self):
+                return len(doc.formulas)
 
-            return _Sheets()
+            def getByIndex(self, index: int):
+                if doc._on_get_sheet is not None:
+                    doc._on_get_sheet(index)
+                return _make_sheet(index)
 
-    dirty = _Doc(_GETPY, True)
+        return _Sheets()
+
+
+def test_maybe_rewrite_restores_is_modified():
+    """setFormula dirties the book; restore the flag from before the scan."""
+    dirty = _FakeCalcDoc([_GETPY], modified=True)
     assert maybe_rewrite_collabora_py_formulas(dirty) == 1
-    assert dirty.formula.startswith("=PY(")
+    assert dirty.formulas[0].startswith("=PY(")
     assert dirty.sets == [True]
     assert dirty.calculated == 1
 
-    clean = _Doc(_GETPY, False)
+    clean = _FakeCalcDoc([_GETPY], modified=False)
     assert maybe_rewrite_collabora_py_formulas(clean) == 1
     assert clean.sets == [False]
     assert clean.calculated == 1
 
-    untouched = _Doc("=SUM(A1:A2)", True)
+    untouched = _FakeCalcDoc(["=SUM(A1:A2)"], modified=True)
     assert maybe_rewrite_collabora_py_formulas(untouched) == 0
     assert untouched.sets == []
     assert untouched.calculated == 0
 
 
 def test_maybe_rewrite_partial_failure_restores_is_modified():
-    from plugin.calc.python.collabora_formula import maybe_rewrite_collabora_py_formulas
+    def _fail_second_sheet(index: int) -> None:
+        if index > 0:
+            raise RuntimeError("sheet fetch failed")
 
-    class _Addr:
-        StartRow = 0
-        StartColumn = 0
-        EndRow = 0
-        EndColumn = 0
-
-    class _Doc:
-        def __init__(self) -> None:
-            self.formula = _GETPY
-            self.modified = False
-            self.sets: list[bool] = []
-            self.calculated = 0
-
-        def supportsService(self, name: str) -> bool:
-            return name == "com.sun.star.sheet.SpreadsheetDocument"
-
-        def isModified(self) -> bool:
-            return self.modified
-
-        def setModified(self, value: bool) -> None:
-            self.sets.append(bool(value))
-            self.modified = bool(value)
-
-        def calculateAll(self) -> None:
-            self.calculated += 1
-
-        def lockControllers(self) -> None:
-            pass
-
-        def unlockControllers(self) -> None:
-            pass
-
-        def getSheets(self):
-            doc = self
-
-            class _Range:
-                def getRangeAddress(self):
-                    return _Addr()
-
-                def getFormulaArray(self):
-                    return ((doc.formula,),)
-
-            class _Cells:
-                def getCount(self):
-                    return 1
-
-                def getByIndex(self, _index):
-                    return _Range()
-
-            class _Sheet0:
-                def queryContentCells(self, _flags):
-                    return _Cells()
-
-                def getCellByPosition(self, _col, _row):
-                    class _Cell:
-                        def setFormula(self, value: str) -> None:
-                            doc.formula = value
-
-                    return _Cell()
-
-            class _Sheets:
-                def getCount(self):
-                    return 2
-
-                def getByIndex(self, index):
-                    if index == 0:
-                        return _Sheet0()
-                    raise RuntimeError("sheet fetch failed")
-
-            return _Sheets()
-
-    clean = _Doc()
+    clean = _FakeCalcDoc([_GETPY, _GETPY], modified=False, on_get_sheet=_fail_second_sheet)
     with pytest.raises(RuntimeError):
         maybe_rewrite_collabora_py_formulas(clean)
-    assert clean.formula.startswith("=PY(")
+    assert clean.formulas[0].startswith("=PY(")
     assert clean.sets == [False]
 
 
 def test_maybe_rewrite_disposal_reraises_document_disposed():
-    from plugin.calc.python.collabora_formula import maybe_rewrite_collabora_py_formulas
+    def _dispose_on_sheet_1(sheet_idx: int, _value: str) -> None:
+        if sheet_idx == 1:
+            raise _FakeDisposedException("document disposed")
 
-    class DisposedException(Exception):
-        pass
-
-    class _Addr:
-        StartRow = 0
-        StartColumn = 0
-        EndRow = 0
-        EndColumn = 0
-
-    class _Doc:
-        def __init__(self) -> None:
-            self.formula0 = _GETPY
-            self.formula1 = _GETPY
-            self.modified = False
-            self.sets: list[bool] = []
-            self.calculated = 0
-
-        def supportsService(self, name: str) -> bool:
-            return name == "com.sun.star.sheet.SpreadsheetDocument"
-
-        def isModified(self) -> bool:
-            return self.modified
-
-        def setModified(self, value: bool) -> None:
-            self.sets.append(bool(value))
-            self.modified = bool(value)
-
-        def calculateAll(self) -> None:
-            self.calculated += 1
-
-        def lockControllers(self) -> None:
-            pass
-
-        def unlockControllers(self) -> None:
-            pass
-
-        def getSheets(self):
-            doc = self
-
-            def _make_sheet(is_sheet_1: bool):
-                class _Range:
-                    def getRangeAddress(self):
-                        return _Addr()
-
-                    def getFormulaArray(self):
-                        f = doc.formula1 if is_sheet_1 else doc.formula0
-                        return ((f,),)
-
-                class _Cells:
-                    def getCount(self):
-                        return 1
-
-                    def getByIndex(self, _index):
-                        return _Range()
-
-                class _Sheet:
-                    def queryContentCells(self, _flags):
-                        return _Cells()
-
-                    def getCellByPosition(self, _col, _row):
-                        class _Cell:
-                            def setFormula(self, value: str) -> None:
-                                if is_sheet_1:
-                                    raise DisposedException("document disposed")
-                                doc.formula0 = value
-
-                        return _Cell()
-
-                return _Sheet()
-
-            class _Sheets:
-                def getCount(self):
-                    return 2
-
-                def getByIndex(self, index):
-                    return _make_sheet(index == 1)
-
-            return _Sheets()
-
-    clean = _Doc()
+    clean = _FakeCalcDoc([_GETPY, _GETPY], modified=False, on_set_formula=_dispose_on_sheet_1)
     with pytest.raises(DocumentDisposedError):
         maybe_rewrite_collabora_py_formulas(clean)
-    assert clean.formula0.startswith("=PY(")
+    assert clean.formulas[0].startswith("=PY(")
     assert clean.sets == [False]
 
 
 def test_maybe_rewrite_is_modified_disposal_raises():
-    from plugin.calc.python.collabora_formula import maybe_rewrite_collabora_py_formulas
-
-    DisposedException = type("DisposedException", (Exception,), {})
-
-    class _DisposedIsModifiedDoc:
-        def __init__(self) -> None:
-            self.locked = False
-
-        def supportsService(self, name: str) -> bool:
-            return name == "com.sun.star.sheet.SpreadsheetDocument"
-
-        def isModified(self) -> bool:
-            raise DisposedException("gone")
-
-        def lockControllers(self) -> None:
-            self.locked = True
-
-    doc = _DisposedIsModifiedDoc()
+    doc = _FakeCalcDoc([], is_modified_exc=_FakeDisposedException("gone"))
     with pytest.raises(DocumentDisposedError):
         maybe_rewrite_collabora_py_formulas(doc)
     assert doc.locked is False
 
 
 def test_maybe_rewrite_unlock_disposal_raises():
-    from plugin.calc.python.collabora_formula import maybe_rewrite_collabora_py_formulas
-
-    DisposedException = type("DisposedException", (Exception,), {})
-
-    class _EmptySheets:
-        def getCount(self) -> int:
-            return 0
-
-    class _DisposedUnlockDoc:
-        def supportsService(self, name: str) -> bool:
-            return name == "com.sun.star.sheet.SpreadsheetDocument"
-
-        def isModified(self) -> bool:
-            return False
-
-        def lockControllers(self) -> None:
-            pass
-
-        def getSheets(self) -> _EmptySheets:
-            return _EmptySheets()
-
-        def unlockControllers(self) -> None:
-            raise DisposedException("gone")
-
+    doc = _FakeCalcDoc([], unlock_exc=_FakeDisposedException("gone"))
     with pytest.raises(DocumentDisposedError):
-        maybe_rewrite_collabora_py_formulas(_DisposedUnlockDoc())
+        maybe_rewrite_collabora_py_formulas(doc)
 
 
 def test_rewrite_edge_spellings_unchanged():

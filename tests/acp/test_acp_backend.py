@@ -490,9 +490,15 @@ def _mock_conn(*, alive: bool = True, healthy: bool | None = None):
     return _arm_rpc(conn)
 
 
-def _bare_backend():
-    """ACPBackend without config or a live process."""
-    backend = ACPBackend.__new__(ACPBackend)
+def _bare_backend(
+    cls: type = ACPBackend,
+    *,
+    display_name: str = "Test",
+    binary_name: str = "test-agent",
+    **attrs: object,
+):
+    """ACPBackend (or subclass) without config or a live process."""
+    backend = cls.__new__(cls)
     backend._active_cancel = None
     backend._closed = False
     backend._inflight_token = None
@@ -514,8 +520,10 @@ def _bare_backend():
     backend._available_model_ids = frozenset()
     backend._session_model_id = None
     backend._model_warn_key = None
-    backend.display_name = "Test"
-    backend.binary_name = "test-agent"
+    backend.display_name = display_name
+    backend.binary_name = binary_name
+    for key, value in attrs.items():
+        setattr(backend, key, value)
     return backend
 
 
@@ -2423,37 +2431,17 @@ def _agy_session_new_result(*, session_id: str = "sess-agy", current: str = "gem
 
 
 def _antigravity_backend():
-    backend = AntigravityBackend.__new__(AntigravityBackend)
-    backend._active_cancel = None
-    backend._closed = False
-    backend._inflight_token = None
-    backend._session_id = None
-    backend._session_url = None
-    backend._session_mcp_url = None
-    backend._session_prompted = False
-    backend._ready = False
-    backend._conn = None
-    backend._prompt_done = threading.Event()
-    backend._prompt_done.set()
-    backend._state_lock = threading.Lock()
-    backend._send_lock = threading.Lock()
-    backend._pending_permissions = {}
-    backend._session_cancel_notified = False
-    backend._answer_buf = []
-    backend._agent_log_path = None
-    backend._agent_log_offset = 0
-    backend._available_model_ids = frozenset()
-    backend._session_model_id = None
-    backend._model_warn_key = None
-    backend.display_name = "Antigravity"
-    backend.binary_name = "agy"
-    backend._binary_path = "/usr/bin/agy"
-    backend._extra_args = ["acp"]
-    return backend
+    return _bare_backend(
+        AntigravityBackend,
+        display_name="Antigravity",
+        binary_name="agy",
+        _binary_path="/usr/bin/agy",
+        _extra_args=["acp"],
+    )
 
 
 class TestAntigravityAgyModel:
-    def _run_send(self, backend, conn, *, agy_model: str):
+    def _run_send(self, backend, conn, *, agy_model: str, set_model_exc: Exception | None = None):
         calls: list[tuple[str, dict]] = []
 
         def send_request(method, params=None, timeout=120):
@@ -2461,6 +2449,8 @@ class TestAntigravityAgyModel:
             if method == "session/new":
                 return _agy_session_new_result()
             if method == "session/set_model":
+                if set_model_exc is not None:
+                    raise set_model_exc
                 return {}
             if method == "session/prompt":
                 return {"stopReason": "end_turn"}
@@ -2501,38 +2491,12 @@ class TestAntigravityAgyModel:
     def test_set_model_rpc_rejection_does_not_fail_turn(self):
         backend = _antigravity_backend()
         conn = _mock_conn()
-
-        def send_request(method, params=None, timeout=120):
-            if method == "session/new":
-                return _agy_session_new_result()
-            if method == "session/set_model":
-                raise ToolExecutionError(
-                    "ACP error: Unknown model ID: bad",
-                    details={"rpc_code": -32602},
-                )
-            if method == "session/prompt":
-                return {"stopReason": "end_turn"}
-            raise AssertionError(method)
-
-        conn.send_request.side_effect = send_request
-
-        def ensure_connection(cancel=None):
-            backend._conn = conn
-            backend._ready = True
-
-        backend._ensure_connection = ensure_connection
-
-        def config_get(key, default=None):
-            if key == "mcp.mcp_enabled":
-                return "false"
-            if key == "agent_backend.agy_model":
-                return "gemini-3.8-flash-medium"
-            return default
-
-        q = queue.Queue()
-        with patch("plugin.framework.config.get_config", side_effect=config_get):
-            backend.send(queue=q, user_message="hi", document_context=None, document_url=None)
-        events = _drain(q)
+        _calls, events = self._run_send(
+            backend,
+            conn,
+            agy_model="gemini-3.8-flash-medium",
+            set_model_exc=ToolExecutionError("ACP error: Unknown model ID: bad", details={"rpc_code": -32602}),
+        )
         assert backend._session_id == "sess-agy"
         assert StreamQueueKind.STREAM_DONE in [e[0] for e in events]
         assert StreamQueueKind.ERROR not in [e[0] for e in events]
