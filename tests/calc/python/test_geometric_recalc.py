@@ -1415,7 +1415,7 @@ def test_flag_on_keeps_nonempty_strip_index_until_reconcile(monkeypatch):
     assert _RUNTIME.strip_safe == seeded
 
 
-def test_ensure_strip_index_off_main_is_noop():
+def test_ensure_strip_index_off_main_is_noop(monkeypatch: pytest.MonkeyPatch):
     from plugin.tests.testing_utils import CalcDocStub
 
     _reset_geo()
@@ -1425,6 +1425,10 @@ def test_ensure_strip_index_off_main_is_noop():
     replace_geometric_strip_safe(wk, seeded_safe)
     seeded_records = {(wk, "Sheet1", "A1"): GeometricRecord(predecessor="")}
     _RUNTIME.records.update(seeded_records)
+    # With the flag on, the early return on seeded strip_safe would mask the on_main guard.
+    monkeypatch.setattr(
+        "plugin.calc.python.geometric_recalc.geometric_flag_enabled", lambda: False
+    )
     with (
         patch("plugin.calc.python.geometric_recalc.get_document_property") as mock_get_prop,
         patch("plugin.framework.queue_executor.main.is_current", return_value=False),

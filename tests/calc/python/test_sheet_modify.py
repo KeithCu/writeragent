@@ -318,10 +318,11 @@ def test_posted_pass_with_unreadable_sheet_name_skips_cleanup(monkeypatch: pytes
 
     cleanup_calls: list[tuple[tuple, dict]] = []
 
-    def fail_cleanup(*args, **kwargs):
+    # Record instead of raising because run_sheet_modify_pass swallows exceptions from cleanup_orphans.
+    def record_cleanup(*args, **kwargs):
         cleanup_calls.append((args, kwargs))
 
-    monkeypatch.setattr("plugin.calc.python.spill.cleanup_orphans", fail_cleanup)
+    monkeypatch.setattr("plugin.calc.python.spill.cleanup_orphans", record_cleanup)
     run_sheet_modify_pass("ctx", doc, sheet)
     assert cleanup_calls == []
 
