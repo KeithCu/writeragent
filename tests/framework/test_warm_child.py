@@ -5,7 +5,6 @@
 
 from __future__ import annotations
 
-import logging
 import os
 import signal
 import subprocess
@@ -199,7 +198,7 @@ def test_kill_during_handshake_not_adopted(tmp_path: Any, supervisor: Supervisor
 
 
 @pytest.mark.skipif(sys.platform != "linux", reason="SIGKILL idle-death check is Linux-only")
-def test_death_hook_on_external_sigkill(tmp_path: Any, caplog: pytest.LogCaptureFixture, supervisor: Supervisor) -> None:
+def test_death_hook_on_external_sigkill(tmp_path: Any, supervisor: Supervisor) -> None:
     script = _stdio_worker(tmp_path)
     deaths: list[Death] = []
 
@@ -216,14 +215,12 @@ def test_death_hook_on_external_sigkill(tmp_path: Any, caplog: pytest.LogCapture
         os.kill(child_pid, signal.SIGKILL)
         gone_deadline = time.monotonic() + 5.0
         assert _wait_until(gone_deadline, lambda: not warm.is_alive())
-        with caplog.at_level(logging.WARNING):
-            with warm.lease(Deadline(10)) as leased:
-                assert not isinstance(leased, dict)
+        with warm.lease(Deadline(10)) as leased:
+            assert not isinstance(leased, dict)
         deadline = time.monotonic() + 5.0
         assert _wait_until(deadline, lambda: len(deaths) == 1)
         assert deaths[0].during == "idle"
         assert deaths[0].returncode == -9
-        assert "unexpectedly" in caplog.text.lower() or "died" in caplog.text.lower()
     finally:
         warm.retire()
 

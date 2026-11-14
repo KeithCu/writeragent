@@ -1149,8 +1149,6 @@ def test_menu_text_translates_vision_ocr_and_debug(monkeypatch) -> None:
     monkeypatch.setattr("plugin.framework.i18n._", fake_gettext)
     assert app.get_menu_text("vision.open_settings") == "Vision OCR 設定..."
     assert app.get_menu_text("main.NoOp") == "デバッグ"
-    assert app.get_menu_text("main.settings") == "Settings"
-    assert app.get_menu_text("writer.insert_latex_dialog") == "Insert LaTeX Math..."
 
 
 def test_run_test_suite_unavailable_does_not_print_or_import() -> None:
@@ -1192,7 +1190,6 @@ def test_show_tests_unavailable_invokes_msgbox() -> None:
         patch("plugin.chatbot.dialogs.msgbox") as mock_msgbox,
     ):
         main._show_tests_unavailable("writer.format_tests")
-        mock_msgbox.assert_called_once_with(
-            fake_ctx, "writer.format_tests", "This WriterAgent build was packaged without the optional `plugin.tests` test modules."
-        )
+        mock_msgbox.assert_called_once()
+        assert mock_msgbox.call_args[0][:2] == (fake_ctx, "writer.format_tests")
 

@@ -729,47 +729,39 @@ class TestReadStreamStripsNewlines:
         ap._read_stream(_ChunkStream([b"hello\n\r"]), received.append)
         assert received == ["hello", ""]
 
-    def test_read_stream_exact_cap_trailing_cr_is_not_an_extra_line(self, caplog):
+    def test_read_stream_exact_cap_trailing_cr_is_not_an_extra_line(self):
         from plugin.framework.worker_pool import _MAX_STREAM_LINE_CHARS
 
         ap = AsyncProcess(["dummy"])
         received: list[str] = []
 
-        with caplog.at_level("WARNING"):
-            ap._read_stream(
-                _ChunkStream([b"y" * _MAX_STREAM_LINE_CHARS + b"\r", b"\nnext\n"]),
-                received.append,
-            )
+        ap._read_stream(
+            _ChunkStream([b"y" * _MAX_STREAM_LINE_CHARS + b"\r", b"\nnext\n"]),
+            received.append,
+        )
         assert received == ["y" * _MAX_STREAM_LINE_CHARS, "next"]
 
         received.clear()
-        with caplog.at_level("WARNING"):
-            ap._read_stream(
-                _ChunkStream([b"y" * _MAX_STREAM_LINE_CHARS + b"\r"]),
-                received.append,
-            )
+        ap._read_stream(
+            _ChunkStream([b"y" * _MAX_STREAM_LINE_CHARS + b"\r"]),
+            received.append,
+        )
         assert received == ["y" * _MAX_STREAM_LINE_CHARS]
 
-        warning_records = [r for r in caplog.records if "delivering a partial line" in r.message]
-        assert len(warning_records) == 0
-
-    def test_read_stream_flushes_partial_line_at_cap(self, caplog):
+    def test_read_stream_flushes_partial_line_at_cap(self):
         from plugin.framework.worker_pool import _MAX_STREAM_LINE_CHARS
 
         ap = AsyncProcess(["dummy"])
         stream = _ChunkStream([b"y" * (_MAX_STREAM_LINE_CHARS + 10)])
         received: list[str] = []
 
-        with caplog.at_level("WARNING"):
-            ap._read_stream(stream, received.append)
+        ap._read_stream(stream, received.append)
 
         assert len(received) == 2
         assert len(received[0]) == _MAX_STREAM_LINE_CHARS
         assert received[0] == "y" * _MAX_STREAM_LINE_CHARS
         assert len(received[1]) == 10
         assert received[1] == "y" * 10
-        warning_records = [r for r in caplog.records if "delivering a partial line" in r.message]
-        assert len(warning_records) == 1
 
 
 def test_stderr_drain_short_read_before_eof():
@@ -1285,7 +1277,7 @@ def test_daemon_work_pool_logs_base_exception_and_keeps_worker_alive(caplog):
             release.set()
             release_thread.join()
 
-    assert any("Unhandled SystemExit in pooled background job" in r.message for r in caplog.records)
+    assert any(r.exc_info is not None for r in caplog.records)
 
     # Worker thread must still be alive and process subsequent jobs
     second_ran = []

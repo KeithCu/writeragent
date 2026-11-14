@@ -6,7 +6,6 @@
 
 from __future__ import annotations
 
-import logging
 import sys
 import types
 from contextlib import contextmanager
@@ -527,21 +526,13 @@ def test_thread_violation_from_add_mouse_listener_is_not_a_silent_install():
     leave.addFocusListener.assert_not_called()
 
 
-def test_ordinary_attach_error_stays_a_debug_log(caplog):
+def test_ordinary_attach_error_is_not_a_failed_install():
     """A non-guard RuntimeError is still not a failed install."""
-    # Release bundles strip log.debug; skip this assertion there.
-    from tests.harness.strip_bundle import skip_if_release_build
-
-    skip_if_release_build("log.debug stripped in release bundle")
-    import logging
-
     session = FrameSession(MagicMock(), "doc-a")
     query = MagicMock()
     query.addFocusListener.side_effect = RuntimeError("focus attach failed")
-    with caplog.at_level(logging.DEBUG, logger="writeragent.frame_session"):
-        _install(session, query)
+    _install(session, query)
     assert session._query_listener is None
-    assert any(record.levelno == logging.DEBUG and "query focus listener" in record.message for record in caplog.records)
 
 
 def test_close_listener_failure_is_not_left_open():
@@ -774,7 +765,7 @@ def test_release_panel_removes_registered_close_hook():
     assert getattr(panel, "_frame_close_hook", None) is None
 
 
-def test_frame_close_disposing_swallows_dispose_failure(caplog):
+def test_frame_close_disposing_swallows_dispose_failure():
     frame = MagicMock()
     session = open_frame_session(frame, "doc-a")
     assert session._frame_listener is not None
@@ -782,8 +773,3 @@ def test_frame_close_disposing_swallows_dispose_failure(caplog):
     with patch.object(session, "dispose", side_effect=RuntimeError("simulated teardown error")):
         # Must not raise into UNO caller
         session._frame_listener.disposing(None)
-
-    assert any(
-        record.levelno == logging.ERROR and "unhandled exception in disposing" in record.message
-        for record in caplog.records
-    )

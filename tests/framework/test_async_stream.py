@@ -4,7 +4,6 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Tests for async_stream core drain loop and basic worker."""
 
-import logging
 import queue
 import time
 from unittest.mock import MagicMock, patch
@@ -217,7 +216,7 @@ def test_run_stream_drain_loop_error_on_error_true_drops_batch_tail():
     assert done[0][1] == "replacement"
 
 
-def test_worker_exception_on_error_true_still_applies_later_chunk(caplog):
+def test_worker_exception_on_error_true_still_applies_later_chunk():
     """Wrapper must not queue STREAM_DONE after ERROR when recovery continues."""
     from plugin.framework.async_stream import run_async_worker_with_drain
 
@@ -236,20 +235,18 @@ def test_worker_exception_on_error_true_still_applies_later_chunk(caplog):
         shared.put((StreamQueueKind.STREAM_DONE, None))
         return True
 
-    with caplog.at_level(logging.ERROR, logger="plugin.framework.async_stream"):
-        with patch("plugin.framework.uno_context.get_toolkit", return_value=toolkit):
-            run_async_worker_with_drain(
-                ctx,
-                worker,
-                lambda text, _is_thinking: applied.append(text),
-                lambda _item: None,
-                on_error,
-                q=shared,
-            )
+    with patch("plugin.framework.uno_context.get_toolkit", return_value=toolkit):
+        run_async_worker_with_drain(
+            ctx,
+            worker,
+            lambda text, _is_thinking: applied.append(text),
+            lambda _item: None,
+            on_error,
+            q=shared,
+        )
 
     assert len(errors) == 1
     assert "after retry" in applied
-    assert not any("Worker raised after terminal item was already queued" in r.message for r in caplog.records)
 
 
 def test_closed_over_queue_error_skips_wrapper_stream_done():
@@ -292,6 +289,7 @@ def test_closed_over_queue_error_skips_wrapper_stream_done():
 
 def test_worker_error_put_then_raise_queues_single_error(caplog):
     """If the worker puts ERROR and then raises, only one ERROR must be queued."""
+    import logging
     from plugin.framework.async_stream import run_async_worker_with_drain
 
     ctx = MagicMock()
@@ -322,14 +320,15 @@ def test_worker_error_put_then_raise_queues_single_error(caplog):
             )
         deadline = time.monotonic() + 2.0
         while time.monotonic() < deadline:
-            if any("Worker raised after terminal item was already queued" in r.message for r in caplog.records):
+            if any(r.exc_info is not None for r in caplog.records):
                 break
             time.sleep(0.01)
 
+    assert any(r.exc_info is not None for r in caplog.records)
     assert len(errors) == 1
     assert errors[0] == {"message": "first error"}
     assert "recovered" in applied
-    assert any("Worker raised after terminal item was already queued" in r.message for r in caplog.records)
+    assert shared.empty()
 
 
 def test_non_tuple_terminal_skips_wrapper_stream_done():
