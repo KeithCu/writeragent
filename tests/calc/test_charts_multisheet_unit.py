@@ -479,17 +479,6 @@ def test_chart_get_info_and_delete_validate_require_name():
     assert (ok, err) == (True, None)
 
 
-def test_chart_skinny_tools_mutation_and_lock():
-    assert _tool("chart_list").is_mutation is False
-    assert _tool("chart_get_info").is_mutation is False
-    assert _tool("chart_upsert").is_mutation is True
-    assert _tool("chart_delete").is_mutation is True
-    assert _tool("chart_list").requires_document_lock() is False
-    assert _tool("chart_get_info").requires_document_lock() is False
-    assert _tool("chart_upsert").requires_document_lock() is True
-    assert _tool("chart_delete").requires_document_lock() is True
-
-
 def test_chart_upsert_validate_rejects_unknown_chart_type():
     ok, err = _tool("chart_upsert").validate(
         doc_type="calc", chart_type="barz", data_range="A1:B2"

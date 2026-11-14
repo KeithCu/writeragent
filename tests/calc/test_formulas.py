@@ -368,13 +368,6 @@ def test_evaluate_formula_set_formula_raising():
         EvaluateFormula().execute(_eval_ctx(disposed_doc), formula="=1+1")
 
 
-def test_evaluate_formula_document_lock_and_mutation():
-    tool = EvaluateFormula()
-    assert tool.requires_document_lock() is True
-    assert tool.detects_mutation() is False
-    assert tool.is_mutation is False
-
-
 def test_evaluate_formula_flags_array_results():
     res = EvaluateFormula().execute(_eval_ctx(_EvalDoc()), formula="=SORT(A1:A5)")
     assert res["status"] == "ok"

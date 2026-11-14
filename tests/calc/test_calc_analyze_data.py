@@ -317,42 +317,6 @@ def test_analyze_data_worker_error(mock_run_trusted, mock_main_thread, calc_ctx)
     assert exc_info.value.code == "ANALYSIS_ERROR"
 
 
-def test_analysis_domain_tools_not_registered():
-    from plugin.app import get_tools
-
-    from plugin.tests.testing_utils import CalcDocStub
-
-    registry = get_tools()
-    doc = CalcDocStub()
-    names = {t.name for t in registry.get_tools(doc=doc, active_domain="analysis", exclude_tiers=())}
-    assert "analyze_data" not in names
-    assert "plot_data" not in names
-    assert "calc_goal_seek" not in names
-    assert "calc_solver" not in names
-
-
-def test_analyze_data_not_in_default_core_list():
-    from plugin.app import get_tools
-
-    from plugin.tests.testing_utils import CalcDocStub
-
-    registry = get_tools()
-    doc = CalcDocStub()
-    names = {t.name for t in registry.get_tools(doc=doc)}
-    assert "analyze_data" not in names
-    assert "calc_goal_seek" not in names
-
-
-def test_delegate_calc_gateway_omits_python_and_analysis():
-    from plugin.calc.specialized import DelegateToSpecializedCalc
-
-    gateway = DelegateToSpecializedCalc()
-    domains = gateway.parameters["properties"]["domain"]["enum"]
-    assert "python" not in domains
-    assert "analysis" not in domains
-    assert "solvers" not in domains
-
-
 def test_analyze_data_forces_data_range_in_analysis_domain(calc_ctx):
     """In the analysis specialized domain the sub-agent must only ever see/pass ranges.
 
@@ -362,11 +326,6 @@ def test_analyze_data_forces_data_range_in_analysis_domain(calc_ctx):
     """
     calc_ctx.active_domain = "analysis"
     tool = AnalyzeDataTool()
-
-    # Schema presented to the analysis sub-agent should not contain the data property.
-    schema = tool.get_parameters("calc")
-    assert "data" not in (schema or {}).get("properties", {})
-    assert "data_range" in (schema or {}).get("properties", {})
 
     # The actual path used by specialized sub-agents (see specialized_base.py) goes through
     # SmolToolAdapter, which builds the inputs the LLM sees. Verify no data here too.

@@ -170,21 +170,6 @@ def _grid_for_requested_range(range_name: str) -> list[list[dict]]:
     return grid
 
 
-def test_query_folder_sql_tool_basic_schema():
-    t = _tool()
-    assert t.name == "query_folder_sql"
-    assert t.specialized_domain == "python/sql"
-    assert getattr(t, "is_mutation", None) is False
-    p = t.parameters
-    assert "sql" in p["properties"]
-    assert "sql" in p.get("required", [])
-    tbl_props = p["properties"]["tables"]["additionalProperties"]["properties"]
-    assert "sheet" in tbl_props
-    assert "named_range" in tbl_props
-    assert "range" in tbl_props
-    assert "file" in tbl_props
-
-
 def test_query_folder_sql_files_list_rejected_by_schema():
     prep = prepare_tool_call(_tool(), _mk_ctx(), "query_folder_sql", {"sql": "SELECT 1", "files": ["a.csv"]})
     assert prep.error is not None

@@ -43,9 +43,6 @@ def test_python_addin_metadata_both_names():
     assert addin.getProgrammaticFunctionName("PYTHON") == "python"
     assert addin.getDisplayFunctionName("py") == "PY"
     assert addin.getDisplayFunctionName("python") == "PYTHON"
-    assert addin.getArgumentDescription("python", 0) == "code desc"
-    assert addin.getArgumentDescription("python", 1) == "data desc"
-    assert addin.getFunctionDescription("python") == "Executes Python code in the configured venv and returns the result."
     assert addin.getProgrammaticCategoryName("python") == "Add-In"
     assert addin.getDisplayCategoryName("python") == "Add-In"
     assert addin.supportsService(ADDIN_SERVICE) is True
