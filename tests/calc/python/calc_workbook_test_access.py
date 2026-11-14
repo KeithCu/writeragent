@@ -3,9 +3,21 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from typing import Any, Iterator
+from unittest.mock import MagicMock
 
 from plugin.calc.python.workbook_state import WorkbookState
+
+
+def ctx_with_doc(doc: Any = None) -> SimpleNamespace:
+    """Build a minimal UNO-like context whose desktop returns *doc*."""
+    desktop = MagicMock()
+    desktop.getCurrentComponent.return_value = doc
+    desktop.getComponents.return_value = None
+    smgr = MagicMock()
+    smgr.createInstanceWithContext.return_value = desktop
+    return SimpleNamespace(ServiceManager=smgr, getServiceManager=lambda: smgr)
 
 
 def reset_calc_workbook_states() -> None:

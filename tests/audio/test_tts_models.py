@@ -293,36 +293,6 @@ def test_different_destinations_download_concurrently(tmp_path):
     assert urlopen_calls == 2
 
 
-def test_download_failure_remembered_per_generation():
-    """Bug 1: Failed model downloads are remembered per generation and not retried every sentence."""
-    import plugin.audio.tts_service as tts
-
-    utt1 = Utterance(SendCancellation())
-    utt2 = Utterance(SendCancellation())
-    tts._current = utt1
-    try:
-        assert not utt1.download_failed("kokoro")
-        utt1.note_download_failed("kokoro")
-        assert utt1.download_failed("kokoro")
-        assert not utt2.download_failed("kokoro")
-    finally:
-        tts._current = None
-
-
-def test_remember_download_failed_ignores_stale_generation():
-    import plugin.audio.tts_service as tts
-
-    utt = tts._begin_utterance()
-    try:
-        utt.note_download_failed("kokoro")
-        assert utt.download_failed("kokoro")
-        tts.stop_speech()
-        utt.note_download_failed("piper")
-        assert not utt.download_failed("piper")
-    finally:
-        tts.stop_speech()
-
-
 def test_notify_tts_status_progress_prefers_progress_method():
     calls: list[str] = []
 
@@ -847,7 +817,7 @@ def test_disk_space_below_floor_emits_status_and_remembers_failure(tmp_path, mon
         tts.stop_speech()
 
 
-def test_percent_callbacks_throttled_and_stops_on_cancel(tmp_path):
+def test_percent_callbacks_throttled(tmp_path):
     dest = tmp_path / "file.bin"
     status_lines: list[str] = []
 

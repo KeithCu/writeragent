@@ -288,7 +288,7 @@ def test_legend_position_none_with_has_legend_false_stays_false():
     assert warnings == []
 
 
-def test_legend_runtime_exception_removes_inserted_calc_chart():
+def test_legend_runtime_exception_keeps_chart_and_warns():
     """A legend RuntimeException produces a warning and keeps the chart."""
     tool, ctx, charts, chart_doc, bridge = _calc_chart_create_parts()
 
@@ -403,7 +403,7 @@ def test_edit_legend_failure_does_not_remove_existing_chart():
     drop.assert_not_called()
 
 
-def test_draw_legend_failure_removes_shape():
+def test_draw_legend_failure_keeps_chart_and_warns():
     # A throwing getTitle() on create returns status ok, a warning, and does not remove the chart
     tool, _ctx, _charts, chart_doc, _bridge = _calc_chart_create_parts()
     ctx = MagicMock()

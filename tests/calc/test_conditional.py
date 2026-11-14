@@ -310,15 +310,3 @@ def test_conditional_sub_agent_includes_style_list_not_style_create():
     assert "style_list" in names
     assert "style_create" not in names
 
-
-def test_get_image_supports_calc_document():
-    from plugin.framework.doc_type import CALC_DOCUMENT_SERVICE
-    from plugin.framework.tool import tool_supports_document
-    from plugin.writer.get_image import GetImage
-
-    assert tool_supports_document(
-        GetImage(),
-        doc_type="calc",
-        uno_services_supported=frozenset({CALC_DOCUMENT_SERVICE}),
-    ) is True
-

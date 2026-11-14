@@ -27,7 +27,7 @@ def test_get_sheet_summary_used_range_letters():
     assert summary["used_range"] == "A1:B3"
 
 
-def test_get_sheet_summary_reraises_disposed():
+def test_get_sheet_summary_reraises_raw_disposed_exception():
     class DisposedException(Exception):
         pass
 

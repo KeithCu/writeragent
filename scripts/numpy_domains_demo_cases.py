@@ -4,7 +4,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Demo case definitions for the NumPy domains manual QA spreadsheet.
 
-Shared by ``scripts/generate_numpy_domains_demo_spreadsheet.py`` and pytest smoke tests.
+Used by ``scripts/generate_numpy_domains_demo_spreadsheet.py``.
 """
 
 from __future__ import annotations
@@ -826,34 +826,6 @@ def _units_cases() -> list[DomainDemoCase]:
     ]
 
 
-def analysis_demo_cases() -> list[DomainDemoCase]:
-    return _analysis_cases()
-
-
-def forecast_demo_cases() -> list[DomainDemoCase]:
-    return _forecast_cases()
-
-
-def viz_demo_cases() -> list[DomainDemoCase]:
-    return _viz_cases()
-
-
-def math_demo_cases() -> list[DomainDemoCase]:
-    return _math_cases()
-
-
-def quant_demo_cases() -> list[DomainDemoCase]:
-    return _quant_cases()
-
-
-def optimize_demo_cases() -> list[DomainDemoCase]:
-    return _optimize_cases()
-
-
-def units_demo_cases() -> list[DomainDemoCase]:
-    return _units_cases()
-
-
 def cases_for_domain(domain: DomainName) -> list[DomainDemoCase]:
     builders = {
         "analysis": _analysis_cases,
@@ -865,13 +837,6 @@ def cases_for_domain(domain: DomainName) -> list[DomainDemoCase]:
         "units": _units_cases,
     }
     return builders[domain]()
-
-
-def all_domain_demo_cases() -> list[DomainDemoCase]:
-    out: list[DomainDemoCase] = []
-    for domain in DOMAIN_SHEET_ORDER:
-        out.extend(cases_for_domain(domain))
-    return out
 
 
 def goal_seek_solver_layout() -> list[GoalSeekSolverBlock]:

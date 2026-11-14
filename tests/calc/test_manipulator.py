@@ -10,7 +10,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from plugin.framework.errors import CalcError, UnoObjectError
-from plugin.calc.manipulator import CellManipulator, WritePlan
+from plugin.calc.manipulator import CellManipulator, WritePlan, _parse_formula_or_values_string
 
 
 def _used(start_row: int, end_row: int, end_col: int) -> SimpleNamespace:
@@ -609,3 +609,83 @@ def test_refuse_occupied_cells_reads_once_and_skips_boxes():
         ("", ""),
     )
     refuse_occupied_cells(empty_sheet, 0, 0, 1, 1)
+
+
+@pytest.mark.parametrize(
+    ("text", "grid"),
+    [
+        ("Name,Age,Country\nJohn,28,USA", [["Name", "Age", "Country"], ["John", "28", "USA"]]),
+        ("Name;Age;Country\nJohn;28;USA", [["Name", "Age", "Country"], ["John", "28", "USA"]]),
+        ("Name,Age;Country\nJohn,28;USA", [["Name", "Age;Country"], ["John", "28;USA"]]),  # comma wins when both appear
+        ("NameAgeCountry\nJohn28USA", [["NameAgeCountry"], ["John28USA"]]),  # no delimiter -> one column
+    ],
+)
+def test_csv_text_delimiter_choice_gives_grid(text, grid):
+    assert _parse_formula_or_values_string(text) == grid
+
+
+class TestFormulaParsingLogic:
+    def test_parse_json_array(self):
+        s = '["A"; "B"; "C"]'
+        assert _parse_formula_or_values_string(s) == ["A", "B", "C"]
+
+    def test_parse_raw_semicolon(self):
+        s = "Name;Age;Country;Salary"
+        assert _parse_formula_or_values_string(s) == ["Name", "Age", "Country", "Salary"]
+
+    def test_complex_formula_in_json_array(self):
+        s = '["Highest Consumer"; "=INDEX(A2:A11;MATCH(MAX(B2:B11);B2:B11;0))"]'
+        # Ensure the semicolon inside the formula is NOT replaced by a comma
+        result = _parse_formula_or_values_string(s)
+        assert result == ["Highest Consumer", "=INDEX(A2:A11;MATCH(MAX(B2:B11);B2:B11;0))"]
+
+    def test_complex_formula_in_raw_string(self):
+        # If the AI sends a raw string containing a semicolon-delimited list of values
+        # where one value is a formula. NOTE: This is less common but we handle it via csv.reader.
+        s = 'ID; "=INDEX(A2:A11;MATCH(1;B2:B11;0))"'
+        result = _parse_formula_or_values_string(s)
+        assert result == ["ID", "=INDEX(A2:A11;MATCH(1;B2:B11;0))"]
+
+    def test_formula_not_split(self):
+        # Should return None so it's treated as a single formula string
+        assert _parse_formula_or_values_string("=SUM(A1;A2)") is None
+
+    def test_single_value_not_split(self):
+        assert _parse_formula_or_values_string("Plain text") is None
+
+    def test_nested_json_arrays(self):
+        s = '[["r1c1"; "r1c2"]; ["r2c1"; "r2c2"]]'
+        assert _parse_formula_or_values_string(s) == [["r1c1", "r1c2"], ["r2c1", "r2c2"]]
+
+    def test_unicode_and_emoji(self):
+        s = '["Česká"; "Republika"; "📈"]'
+        assert _parse_formula_or_values_string(s) == ["Česká", "Republika", "📈"]
+
+    def test_quoted_semicolon_in_formula_json(self):
+        s = '["=IF(A1=\\";\\"; 1; 0)"]'
+        assert _parse_formula_or_values_string(s) == ['=IF(A1=";"; 1; 0)']
+
+    def test_trailing_spaces_in_json(self):
+        s = '  [  "A"  ;  "B"  ]  '
+        assert _parse_formula_or_values_string(s) == ["A", "B"]
+
+    def test_raw_string_with_quotes_and_semis(self):
+        s = 'Normal; "Quoted;Semi"; "Formula;=A1"'
+        assert _parse_formula_or_values_string(s) == ["Normal", "Quoted;Semi", "Formula;=A1"]
+
+    def test_empty_fields_detection(self):
+        assert _parse_formula_or_values_string("a;;b") == ["a", "", "b"]
+
+    def test_single_cell_range_comma_prose_is_literal(self):
+        s = "Hello ケイス, this is a test."
+        assert _parse_formula_or_values_string(s, single_cell_range=True) is None
+        assert _parse_formula_or_values_string(s, single_cell_range=False) == ["Hello ケイス", "this is a test."]
+
+    def test_single_cell_range_comment_with_comma(self):
+        s = "Note: see section 3, paragraph 2."
+        assert _parse_formula_or_values_string(s, single_cell_range=True) is None
+
+    def test_single_cell_range_semicolon_prose_is_literal(self):
+        s = "Left; right"
+        assert _parse_formula_or_values_string(s, single_cell_range=True) is None
+        assert _parse_formula_or_values_string(s, single_cell_range=False) == ["Left", "right"]
