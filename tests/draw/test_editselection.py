@@ -1,4 +1,4 @@
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -141,7 +141,6 @@ def _pump_idle() -> None:
 
 @pytest.fixture
 def run_draw_stream():
-    from contextlib import ExitStack
     from plugin.draw.editselection import do_draw_extend_edit
 
     def _run(

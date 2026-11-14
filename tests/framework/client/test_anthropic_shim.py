@@ -481,9 +481,9 @@ def test_anthropic_omits_cache_session_id():
 )
 def test_anthropic_cache_breakpoints(has_system: bool, tool_count: int, multi_turn: bool):
     snap = snapshot_text("doc text")
+    sys_text = "You are a writing assistant."
     messages: list[dict[str, Any]] = []
     if has_system:
-        sys_text = "Base instructions." if multi_turn else "You are a writing assistant."
         messages.append({"role": "system", "content": sys_text})
     if multi_turn:
         messages.extend([
@@ -499,6 +499,7 @@ def test_anthropic_cache_breakpoints(has_system: bool, tool_count: int, multi_tu
     assert "cache_control" not in data
     if has_system:
         assert data["system"] == [{"type": "text", "text": sys_text, "cache_control": {"type": "ephemeral", "ttl": "1h"}}]
+        # Tools remain unmarked because the system breakpoint covers tools and system prefix
         for tool in data["tools"]:
             assert "cache_control" not in tool
     else:

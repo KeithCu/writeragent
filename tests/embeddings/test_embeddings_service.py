@@ -174,32 +174,22 @@ def test_hybrid_search_rerank_params(ctx, tmp_path, search_mode, rerank_enabled)
         assert "rerank_model" not in data
 
 
-@pytest.mark.parametrize(
-    ("search_mode", "rerank_enabled", "model_name"),
-    [
-        pytest.param("llama_index", True, "FOLDER_RERANK_MODEL_MULTILINGUAL", id="llama-index-enabled"),
-        pytest.param("hybrid", True, "FOLDER_RERANK_MODEL_ENGLISH_SMALL", id="hybrid-enabled"),
-        pytest.param("lancedb", True, "FOLDER_RERANK_MODEL_ENGLISH_SMALL", id="lancedb-enabled"),
-        pytest.param("llama_index", False, None, id="llama-index-disabled"),
-        pytest.param("hybrid", False, None, id="hybrid-disabled"),
-    ],
-)
-def test_folder_search_rerank_options(ctx, search_mode, rerank_enabled, model_name):
-    from plugin.framework import constants as fc
-
-    if not rerank_enabled:
-        with patch("plugin.framework.constants.folder_rerank_enabled", return_value=False):
-            opts = embeddings_service._folder_search_rerank_options(search_mode)
-        assert opts == {"use_mmr": False}
-        return
-
-    model_val = getattr(fc, model_name)
+@pytest.mark.parametrize("search_mode", ["llama_index", "hybrid", "lancedb"])
+def test_folder_search_rerank_options_enabled(ctx, search_mode):
+    sentinel = "rerank-sentinel-model"
     with (
         patch("plugin.framework.constants.folder_rerank_enabled", return_value=True),
-        patch("plugin.framework.constants.resolve_folder_rerank_model", return_value=model_val),
+        patch("plugin.framework.constants.resolve_folder_rerank_model", return_value=sentinel),
     ):
         opts = embeddings_service._folder_search_rerank_options(search_mode)
-    assert opts == {"use_mmr": True, "rerank_model": model_val}
+    assert opts == {"use_mmr": True, "rerank_model": sentinel}
+
+
+@pytest.mark.parametrize("search_mode", ["llama_index", "hybrid"])
+def test_folder_search_rerank_options_disabled(ctx, search_mode):
+    with patch("plugin.framework.constants.folder_rerank_enabled", return_value=False):
+        opts = embeddings_service._folder_search_rerank_options(search_mode)
+    assert opts == {"use_mmr": False}
 
 
 def test_hybrid_search_forwards_ctx_and_none_cancel_for_worker_resolution(ctx, tmp_path):

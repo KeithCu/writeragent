@@ -37,7 +37,11 @@ def _reset_host_pacing():
     ],
 )
 def test_endpoint_parts_invalid_url_is_network_error(url: str):
-    """``_endpoint_parts`` must map bad ports and malformed brackets to ``NetworkError``."""
+    """``_endpoint_parts`` must map bad ports and malformed brackets to ``NetworkError``.
+
+    Bracket rows: ``urlparse`` raises on unmatched brackets before ``_explicit_port`` runs,
+    so these must also surface as ``NetworkError``, not raw ``ValueError``.
+    """
     transport = LlmHttpTransport(lambda: url, lambda: 5)
     with pytest.raises(NetworkError) as raised:
         transport._endpoint_parts()

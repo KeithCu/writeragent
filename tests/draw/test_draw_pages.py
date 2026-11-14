@@ -208,8 +208,7 @@ def test_page_tools_propagate_out_of_range(tool_cls):
         bridge.resolve_page.side_effect = ToolExecutionError("Page index 5 out of range.")
         with pytest.raises(ToolExecutionError):
             tool_cls().execute(ctx, page=5)
-    if tool_cls is SetActivePage:
-        bridge.set_current_page_index.assert_not_called()
+    bridge.set_current_page_index.assert_not_called()
 
 
 def test_move_slide_failure():
@@ -465,10 +464,9 @@ def test_add_slide_live_runtime_error_cleanup(remove_fails):
         bridge_cls.return_value = bridge
         out = AddSlide().execute(ctx)
     assert out["status"] == "error"
+    bridge.get_pages.return_value.remove.assert_called_once_with(page)
     if remove_fails:
         assert out["details"]["cleanup_failed"] is True
-    else:
-        bridge.get_pages.return_value.remove.assert_called_once_with(page)
 
 
 def test_read_slide_text_returns_shape_text_and_notes():

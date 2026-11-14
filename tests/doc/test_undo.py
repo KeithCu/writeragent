@@ -3,7 +3,7 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Undo and redo tool exposure. No LibreOffice."""
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -342,8 +342,6 @@ def test_commit_or_rollback_mutation_exception_reports_error():
 
 
 def test_commit_or_rollback_mutation_surfaces_wrapper_errors():
-    from unittest.mock import patch
-
     from plugin.doc.undo import commit_or_rollback_mutation
 
     tool = MagicMock()

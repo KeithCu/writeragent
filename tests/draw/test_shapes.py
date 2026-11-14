@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+from contextlib import nullcontext
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -885,62 +886,39 @@ def _line_style_only_fail(name: str, _value: object) -> None:
         raise RuntimeError("line style fail")
 
 
+def _noop_shape(_shape: MagicMock) -> None:
+    return None
+
+
 @pytest.mark.parametrize(
-    ("props", "setup_kind", "expected"),
+    ("props", "setup_shape", "char_patch", "expected"),
     [
-        pytest.param({"text": "x"}, "text_runtime", ["text"], id="text-runtime"),
-        pytest.param({"text": "x"}, "text_disposed", DisposedException, id="text-disposed"),
-        pytest.param({"fill_color": "none"}, "setprop_runtime", ["fill_color"], id="fill-none-runtime"),
-        pytest.param({"fill_color": "none"}, "setprop_disposed", DisposedException, id="fill-none-disposed"),
-        pytest.param({"fill_style": "solid"}, "setprop_runtime", ["fill_style"], id="fill-solid-runtime"),
-        pytest.param({"fill_style": "solid"}, "setprop_disposed", DisposedException, id="fill-solid-disposed"),
-        pytest.param({"fill_style": "gradient"}, "none", [], id="fill-gradient-noop"),
-        pytest.param({"line_color": "#000000"}, "line_style_runtime", ["line_style"], id="line-style-runtime"),
-        pytest.param({"line_color": "#000000"}, "setprop_disposed", DisposedException, id="line-disposed"),
-        pytest.param({"font_size": 12}, "char_false", ["CharHeight"], id="char-false"),
-        pytest.param({"font_size": 12}, "char_runtime", ["text_properties"], id="char-runtime"),
-        pytest.param({"font_size": 12}, "char_disposed", DisposedException, id="char-disposed"),
+        pytest.param({"text": "x"}, lambda s: setattr(s.setString, "side_effect", RuntimeError("text fail")), None, ["text"], id="text-runtime"),
+        pytest.param({"text": "x"}, lambda s: setattr(s.setString, "side_effect", DisposedException("gone")), None, DisposedException, id="text-disposed"),
+        pytest.param({"fill_color": "none"}, lambda s: setattr(s.setPropertyValue, "side_effect", RuntimeError("prop fail")), None, ["fill_color"], id="fill-none-runtime"),
+        pytest.param({"fill_color": "none"}, lambda s: setattr(s.setPropertyValue, "side_effect", DisposedException("gone")), None, DisposedException, id="fill-none-disposed"),
+        pytest.param({"fill_style": "solid"}, lambda s: setattr(s.setPropertyValue, "side_effect", RuntimeError("prop fail")), None, ["fill_style"], id="fill-solid-runtime"),
+        pytest.param({"fill_style": "solid"}, lambda s: setattr(s.setPropertyValue, "side_effect", DisposedException("gone")), None, DisposedException, id="fill-solid-disposed"),
+        pytest.param({"fill_style": "gradient"}, _noop_shape, None, [], id="fill-gradient-noop"),
+        pytest.param({"line_color": "#000000"}, lambda s: setattr(s.setPropertyValue, "side_effect", _line_style_only_fail), None, ["line_style"], id="line-style-runtime"),
+        pytest.param({"line_color": "#000000"}, lambda s: setattr(s.setPropertyValue, "side_effect", DisposedException("gone")), None, DisposedException, id="line-disposed"),
+        pytest.param({"font_size": 12}, _noop_shape, lambda: patch("plugin.draw.shapes.apply_character_properties", return_value={"CharHeight": False}), ["CharHeight"], id="char-false"),
+        pytest.param({"font_size": 12}, _noop_shape, lambda: patch("plugin.draw.shapes.apply_character_properties", side_effect=RuntimeError("chars fail")), ["text_properties"], id="char-runtime"),
+        pytest.param({"font_size": 12}, _noop_shape, lambda: patch("plugin.draw.shapes.apply_character_properties", side_effect=DisposedException("gone")), DisposedException, id="char-disposed"),
     ],
 )
-def test_apply_shape_properties_failed_prop_arms(props, setup_kind, expected) -> None:
+def test_apply_shape_properties_failed_prop_arms(props, setup_shape, char_patch, expected) -> None:
     shape = MagicMock()
     shape.FillStyle = True
     shape.LineStyle = True
-    char_patch = None
-    if setup_kind == "text_runtime":
-        shape.setString.side_effect = RuntimeError("text fail")
-    elif setup_kind == "text_disposed":
-        shape.setString.side_effect = DisposedException("gone")
-    elif setup_kind == "setprop_runtime":
-        shape.setPropertyValue.side_effect = RuntimeError("prop fail")
-    elif setup_kind == "setprop_disposed":
-        shape.setPropertyValue.side_effect = DisposedException("gone")
-    elif setup_kind == "line_style_runtime":
-        shape.setPropertyValue.side_effect = _line_style_only_fail
-    elif setup_kind == "char_false":
-        char_patch = patch("plugin.draw.shapes.apply_character_properties", return_value={"CharHeight": False})
-    elif setup_kind == "char_runtime":
-        char_patch = patch("plugin.draw.shapes.apply_character_properties", side_effect=RuntimeError("chars fail"))
-    elif setup_kind == "char_disposed":
-        char_patch = patch("plugin.draw.shapes.apply_character_properties", side_effect=DisposedException("gone"))
+    setup_shape(shape)
 
-    with patch.dict("sys.modules", _drawing_sys_modules()):
-        if char_patch is not None:
-            with char_patch:
-                if isinstance(expected, type) and issubclass(expected, BaseException):
-                    with pytest.raises(expected):
-                        _apply_shape_properties(shape, props)
-                else:
-                    assert _apply_shape_properties(shape, props) == expected
-        else:
-            if isinstance(expected, type) and issubclass(expected, BaseException):
-                with pytest.raises(expected):
-                    _apply_shape_properties(shape, props)
-            else:
-                failed = _apply_shape_properties(shape, props)
-                assert failed == expected
-                if setup_kind == "line_style_runtime":
-                    assert "line_color" not in failed
+    char_ctx = char_patch() if char_patch is not None else nullcontext()
+    raise_ctx = pytest.raises(expected) if isinstance(expected, type) else nullcontext()
+    with patch.dict("sys.modules", _drawing_sys_modules()), char_ctx, raise_ctx:
+        failed = _apply_shape_properties(shape, props)
+        if not isinstance(expected, type):
+            assert failed == expected
 
 
 def test_clamp_shape_text_autogrow_disposal_propagates():
