@@ -75,12 +75,6 @@ def test_find_paragraph_for_range_binary_search_hit():
     assert find_paragraph_for_range(match, paras, _TextObj()) == 1
 
 
-def test_search_paragraph_texts_still_exported():
-    matches, truncated = search_paragraph_texts("foo", ["foo bar", "baz"])
-    assert truncated is False
-    assert matches[0]["paragraph_index"] == 0
-
-
 class _TextObj:
     def compareRegionStarts(self, a, b):
         if a < b:

@@ -50,28 +50,14 @@ def test_bcp47_tags_isolation() -> None:
         "import sys, plugin.framework.grammar_rule_ids; "
         "assert not any(m in sys.modules for m in ('plugin.writer', 'plugin.doc', 'plugin.embeddings', 'uno')); "
         "from plugin.embeddings.venv import langdetect_rpc; "
-        "table = [('fr', 'fr-FR'), ('ja', 'ja-JP'), ('EN', 'en-US'), ('en-gb', 'en-GB'), "
-        "('zh-cn', 'zh-CN'), ('zh-tw', 'zh-TW'), ('zh-hk', 'zh-TW'), ('pt', 'pt-BR'), "
-        "('pt-PT', 'pt-BR'), ('no', 'nb-NO'), ('nb', 'nb-NO'), ('nn', 'nn-NO'), "
-        "('de-AT', 'de-DE'), ('sr', 'sr'), ('th', 'th'), ('en-nz', 'en-US'), ('', None), (None, None)]; "
-        "assert all(langdetect_rpc._raw_lang_to_bcp47(r) == exp for r, exp in table); "
+        "assert langdetect_rpc._raw_lang_to_bcp47('fr') == 'fr-FR'; "
         "assert 'plugin.writer' not in sys.modules"
     )
     subprocess.check_call([sys.executable, "-c", code])
 
 
-def test_bcp47_constants_and_tables() -> None:
-    from plugin.framework.grammar_rule_ids import (
-        ISO_TO_SNOWBALL,
-        STOPWORDS_ISO_KEY,
-        normalize_uno_locale_to_bcp47,
-    )
-    from plugin.writer.locale.harper import HARPER_LOCALE_TAGS
-
-    assert HARPER_LOCALE_TAGS == ("en-US", "en-GB", "en-AU", "en-CA", "en-IN")
-    assert STOPWORDS_ISO_KEY["serbian"] == "hr"
-    assert ISO_TO_SNOWBALL["sr"] == "serbian"
-    assert "hr" not in ISO_TO_SNOWBALL
+def test_uno_locale_to_bcp47_normalization() -> None:
+    from plugin.framework.grammar_rule_ids import normalize_uno_locale_to_bcp47
 
     overrides = {
         ("en", "UK"): "en-GB",

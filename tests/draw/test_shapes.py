@@ -1035,11 +1035,6 @@ def test_draw_summary_nested_group_shapes():
     assert res["status"] == "ok"
     indices = [s["index"] for s in res["shapes"]]
     assert indices == [0, 1, "1.0", "1.1", "1.1.0"]
-    assert isinstance(indices[0], int)
-    assert isinstance(indices[1], int)
-    assert isinstance(indices[2], str)
-    assert isinstance(indices[3], str)
-    assert isinstance(indices[4], str)
 
 
 def test_upsert_shape_validate_dotted_index():

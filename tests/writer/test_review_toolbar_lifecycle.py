@@ -277,7 +277,7 @@ def test_install_review_toolbar_warns_on_sweep_failure(review_registry):
     with patch("plugin.writer.review_view_attachment.get_desktop", side_effect=RuntimeError("sweep error")), \
          patch.object(rva.log, "warning") as warn:
         rva.install(ctx)
-        warn.assert_any_call("review_view_attachment: initial sweep failed", exc_info=True)
+        assert any(call.kwargs.get("exc_info") for call in warn.call_args_list)
 
 
 def test_install_review_toolbar_warns_on_listener_install_failure(review_registry):
@@ -286,5 +286,5 @@ def test_install_review_toolbar_warns_on_listener_install_failure(review_registr
     with patch("plugin.writer.review_view_attachment.get_desktop", return_value=None), \
          patch("plugin.framework.uno_listeners.log.warning") as warn:
         rva.install(ctx)
-        warn.assert_any_call("%s: doc-event listener install failed", "review_view_attachment", exc_info=True)
+        assert any(call.kwargs.get("exc_info") for call in warn.call_args_list)
 

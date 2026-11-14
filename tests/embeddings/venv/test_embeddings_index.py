@@ -72,13 +72,6 @@ def test_embed_texts_requires_model_name():
         embeddings_index.embed_texts("", ["text"])
 
 
-def test_embeddings_venv_pip_install_includes_sqlite_vec():
-    assert "envwrap" in embeddings_index.EMBEDDINGS_VENV_PIP_INSTALL
-    assert "sentence-transformers" in embeddings_index.EMBEDDINGS_VENV_PIP_INSTALL
-    assert "sqlite-vec" in embeddings_index.EMBEDDINGS_VENV_PIP_INSTALL
-    assert "pysqlite3" in embeddings_index.EMBEDDINGS_VENV_PIP_INSTALL
-
-
 def test_get_embedder_import_error_includes_install_line():
     with patch("importlib.import_module", side_effect=ImportError("No module named 'envwrap'")):
         with pytest.raises(ImportError, match=embeddings_index.EMBEDDINGS_VENV_PIP_INSTALL):

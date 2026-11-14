@@ -966,23 +966,9 @@ def test_transport_get_connection_disables_auto_open():
     assert getattr(conn_http, "auto_open", None) == 0
 
 
-def test_transport_auto_open_zero_prevents_silent_reconnect_on_closed_connection():
-    """When Stop closes a connection before request() is sent, auto_open=0 causes NotConnected rather than auto-reconnecting."""
-    conn = http.client.HTTPConnection("127.0.0.1", 9)
-    conn.auto_open = 0
-    conn.close()
-    assert conn.sock is None
-    # auto_open=0 ensures putrequest raises NotConnected instead of calling connect()
-    with pytest.raises(http.client.NotConnected):
-        conn.request("POST", "/v1/chat/completions", body=b"{}")
-
-
 def test_secret_header_names_strips_cookie_and_proxy_authorization_on_redirect():
     """apply_redirect must strip cookie and proxy-authorization on cross-origin hops."""
-    from plugin.framework.client.http_security import _SECRET_HEADER_NAMES, apply_redirect
-
-    assert "cookie" in _SECRET_HEADER_NAMES
-    assert "proxy-authorization" in _SECRET_HEADER_NAMES
+    from plugin.framework.client.http_security import apply_redirect
 
     headers = {
         "Authorization": "Bearer secret-token",

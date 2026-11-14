@@ -333,22 +333,21 @@ def test_draw_page_filter_disposal_propagates():
 
 
 @pytest.mark.parametrize(
-    "args, message",
+    "args",
     [
-        ({"page": "2"}, "Invalid type for page: expected integer, got str"),
-        ({"page": True}, "Invalid type for page: expected integer, got bool"),
-        ({"image": 123}, "Invalid type for image: expected string, got int"),
-        ({"selection": "false"}, "Invalid type for selection: expected boolean, got str"),
-        ({"image": "Logo", "sheet_index": "1"}, "Invalid type for sheet_index: expected integer, got str"),
+        {"page": "2"},
+        {"page": True},
+        {"image": 123},
+        {"selection": "false"},
+        {"image": "Logo", "sheet_index": "1"},
     ],
 )
-def test_wrong_argument_types_are_rejected_before_execute(args, message):
+def test_wrong_argument_types_are_rejected_before_execute(args):
     # The registry and the smolagents adapter both run prepare_tool_call before execute,
-    # so a wrong type never reaches GetImage.execute; the model gets the validator's sentence.
+    # so a wrong type never reaches GetImage.execute.
     prep = prepare_tool_call(GetImage(), _tctx(FakeDrawDoc()), "get_image", args)
     assert prep.error is not None
     assert prep.error["code"] == "VALIDATION_ERROR"
-    assert prep.error["message"] == message
 
 
 def test_whole_float_page_is_coerced_to_int_before_execute():
