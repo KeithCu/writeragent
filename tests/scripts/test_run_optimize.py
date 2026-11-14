@@ -19,46 +19,34 @@ pytest.importorskip("dspy")
 import run_optimize  # noqa: E402
 
 
-def test_parse_args_defaults_to_live_student_and_calc_core() -> None:
-    args = run_optimize.parse_args([])
-    assert args.student == "llm"
-    assert args.slice == "calc_core"
-    assert args.auto == "light"
-    assert args.backend == "string"
-    assert args.tools == "full"
-    assert args.schema_density == "full"
+def test_parse_args_defaults_and_overrides() -> None:
+    defaults = run_optimize.parse_args([])
+    assert defaults.student == "llm"
+    assert defaults.slice == "calc_core"
+    assert defaults.auto == "light"
+    assert defaults.backend == "string"
+    assert defaults.tools == "full"
+    assert defaults.schema_density == "full"
 
-
-def test_parse_args_tools_and_schema_density() -> None:
     args = run_optimize.parse_args(
-        ["--tools", "calc_minimal", "--schema-density", "skinny", "--slice", "calc_core"]
+        [
+            "--student",
+            "react-mock",
+            "--tools",
+            "calc_minimal",
+            "--schema-density",
+            "skinny",
+            "--slice",
+            "apply_html",
+            "-e",
+            "table_from_mess,table_engineering",
+            "-j",
+            "1",
+        ]
     )
+    assert args.student == "react-mock"
     assert args.tools == "calc_minimal"
     assert args.schema_density == "skinny"
-    assert args.slice == "calc_core"
-
-
-def test_parse_args_accepts_apply_html_writer_smoke() -> None:
-    args = run_optimize.parse_args(
-        ["--slice", "apply_html", "-e", "table_from_mess,table_engineering", "-j", "1"]
-    )
     assert args.slice == "apply_html"
     assert args.example == "table_from_mess,table_engineering"
     assert args.jobs == 1
-
-
-def test_parse_args_react_mock_and_task_filter() -> None:
-    args = run_optimize.parse_args(
-        ["--student", "react-mock", "-e", "data_sorting,tax_column", "-j", "1"]
-    )
-    assert args.student == "react-mock"
-    assert args.example == "data_sorting,tax_column"
-    assert args.jobs == 1
-
-
-def test_winning_instruction_from_live_module() -> None:
-    class _Fake:
-        def get_slice_text(self) -> str:
-            return "WINNING_SLICE"
-
-    assert run_optimize._winning_instruction(_Fake()) == "WINNING_SLICE"

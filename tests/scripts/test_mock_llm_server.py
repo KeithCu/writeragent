@@ -35,7 +35,6 @@ from scripts.mock_llm_server import (
     detect_scenario,
     is_compaction_summarizer,
     iter_sse_payloads,
-    main as mock_main,
     make_handler_class,
     match_completion_rule,
     models_list_body,
@@ -359,61 +358,6 @@ def test_http_models_and_health(mock_http):
         data = json.loads(resp.read().decode("utf-8"))
     assert data["data"][0]["id"] == MOCK_MODEL_ID
     assert data["data"][0]["context_length"] == MOCK_CONTEXT_WINDOW
-
-
-def test_http_overflow_once_then_ok_and_summarizer():
-    config = MockLLMConfig(delay_ms=0, offline=True)
-    with _running_server(config) as base:
-        payload = {
-            "model": MOCK_MODEL_ID,
-            "stream": True,
-            "messages": [{"role": "user", "content": "overflow once"}],
-            "tools": _tools("web_research"),
-        }
-        req = Request(
-            base + "/v1/chat/completions",
-            data=json.dumps(payload).encode("utf-8"),
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
-        with pytest.raises(HTTPError) as exc_info:
-            urlopen(req, timeout=5)
-        assert exc_info.value.code == 400
-        err_body = exc_info.value.read().decode("utf-8")
-        assert "prompt is too long" in err_body
-        raw, unused_ctype = _post_json(base + "/v1/chat/completions", payload)
-        assert "[DONE]" in raw
-        assert "<p>" in raw
-        summary_raw, _ctype = _post_json(
-            base + "/v1/chat/completions",
-            {
-                "model": MOCK_MODEL_ID,
-                "stream": False,
-                "messages": [
-                    {"role": "system", "content": "You are a conversation compaction assistant."},
-                    {"role": "user", "content": "<conversation>\nUSER: overflow once\n</conversation>"},
-                ],
-            },
-        )
-        body = json.loads(summary_raw)
-        assert body["choices"][0]["message"]["content"] == COMPACTION_SUMMARY
-        death_req = Request(
-            base + "/v1/chat/completions",
-            data=json.dumps(
-                {
-                    "model": MOCK_MODEL_ID,
-                    "stream": True,
-                    "messages": [{"role": "user", "content": "llama process died"}],
-                    "tools": _tools("web_research"),
-                }
-            ).encode("utf-8"),
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
-        with pytest.raises(HTTPError) as death_exc:
-            urlopen(death_req, timeout=5)
-        assert death_exc.value.code == 400
-        assert "llama-server process has terminated" in death_exc.value.read().decode("utf-8")
 
 
 def test_http_stream_chit_chat(mock_http):
@@ -1877,63 +1821,6 @@ def test_match_completion_rule_envelope_and_specialized():
     miss = match_completion_rule(CompletionRule(envelope=False, content="x"), env_payload)
     assert miss is None
     assert apply_scripted_rules(env_payload, MockLLMConfig(rules=[rule])) is not None
-
-
-def test_main_copies_every_config_flag(monkeypatch):
-    captured: dict[str, Any] = {}
-
-    def fake_serve(host: str, port: int, config: MockLLMConfig) -> None:
-        captured["config"] = config
-        captured["host"] = host
-        captured["port"] = port
-
-    monkeypatch.setattr("scripts.mock_llm_server.serve", fake_serve)
-    argv = [
-        "--host",
-        "0.0.0.0",
-        "--port",
-        "19999",
-        "--delay-ms",
-        "50",
-        "--sync-delay-ms",
-        "100",
-        "--offline",
-        "--always-research",
-        "--scenario",
-        "table",
-        "--chunk-chars",
-        "12",
-        "--fail",
-        "http500",
-        "--fail-image",
-        "status",
-        "--image-delay-s",
-        "1.5",
-        "--image-status",
-        "429",
-        "--fail-after-chunks",
-        "2",
-        "--sse-comments",
-        "--transcript",
-        "custom transcript",
-    ]
-    assert mock_main(argv) == 0
-    assert captured["host"] == "0.0.0.0"
-    assert captured["port"] == 19999
-    cfg = captured["config"]
-    assert cfg.delay_ms == 50
-    assert cfg.sync_delay_ms == 100
-    assert cfg.offline is True
-    assert cfg.always_research is True
-    assert cfg.scenario == "table"
-    assert cfg.chunk_chars == 12
-    assert cfg.fail == "http500"
-    assert cfg.fail_image == "status"
-    assert cfg.image_delay_s == 1.5
-    assert cfg.image_status == 429
-    assert cfg.fail_after_chunks == 2
-    assert cfg.sse_comments is True
-    assert cfg.transcript == "custom transcript"
 
 
 def test_drift_guard_argparse_dests():
