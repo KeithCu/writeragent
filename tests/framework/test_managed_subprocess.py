@@ -946,7 +946,7 @@ def test_register_false_skipped_by_shutdown_all(
         proc.stdin = MagicMock()
         proc.stdout = MagicMock()
         proc.stderr = MagicMock() if stub_drain else None
-        proc.poll.return_value = None if stub_drain else 0
+        proc.poll.return_value = None
         return proc
 
     unreg_proc = _make_mock_proc(2222)

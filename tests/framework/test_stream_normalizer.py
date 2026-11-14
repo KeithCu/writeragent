@@ -4,6 +4,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 
+from collections.abc import Callable
+
 from plugin.framework.client import stream_normalizer as sn
 from plugin.framework.client.response_normalizers import normalize_message_content
 from plugin.framework.client.stream_normalizer import extract_thinking_from_delta, iterate_sse
@@ -347,7 +349,7 @@ def test_strip_think_tags_no_tags():
     ],
 )
 def test_streaming_replay_encrypted_fragments_past_shape_dim(
-    same_index: bool, expected_fn: object
+    same_index: bool, expected_fn: Callable[[int], list[str]]
 ) -> None:
     from plugin.framework.deal_shim import DEAL_MAX_SHAPE_DIM
 
@@ -362,7 +364,7 @@ def test_streaming_replay_encrypted_fragments_past_shape_dim(
     replay = sn._streaming_replay("", meta)
     assert isinstance(replay, dict)
     details = replay.get("reasoning_details", [])
-    assert [d["data"] for d in details] == expected_fn(n)  # type: ignore[operator]
+    assert [d["data"] for d in details] == expected_fn(n)
 
 
 def test_iterate_sse_skips_comments_blanks_and_keeps_data_and_raw_json():
